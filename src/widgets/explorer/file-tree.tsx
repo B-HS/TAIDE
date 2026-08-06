@@ -15,6 +15,7 @@ type FileTreeProps = {
     onToggleExpand: (row: FileTreeRow) => void
     onOpenPreview: (row: FileTreeRow) => void
     onOpenPinned: (row: FileTreeRow) => void
+    onSelectionChange?: (row: FileTreeRow) => void
 }
 
 const findParentIndex = (rows: FileTreeRow[], fromIndex: number) => {
@@ -25,7 +26,7 @@ const findParentIndex = (rows: FileTreeRow[], fromIndex: number) => {
     return -1
 }
 
-export const FileTree: FC<FileTreeProps> = ({ rows, onToggleExpand, onOpenPreview, onOpenPinned }) => {
+export const FileTree: FC<FileTreeProps> = ({ rows, onToggleExpand, onOpenPreview, onOpenPinned, onSelectionChange }) => {
     const { t } = useTranslation()
     const parentRef = useRef<HTMLDivElement>(null)
     const typeaheadTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -46,11 +47,13 @@ export const FileTree: FC<FileTreeProps> = ({ rows, onToggleExpand, onOpenPrevie
     const selectByIndex = (index: number) => {
         if (index < 0 || index >= rows.length) return
         setSelectedId(rows[index].id)
+        onSelectionChange?.(rows[index])
         rowVirtualizer.scrollToIndex(index)
     }
 
     const handleRowClick = (row: FileTreeRow) => {
         setSelectedId(row.id)
+        onSelectionChange?.(row)
         if (row.kind === 'directory') {
             onToggleExpand(row)
             return

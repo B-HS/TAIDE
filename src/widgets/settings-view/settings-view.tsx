@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
 import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
@@ -9,16 +11,43 @@ import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { PluginSectionPlaceholder } from '@features/settings/plugin-section-placeholder'
 import { SettingsSection } from '@features/settings/settings-section'
+import { ToastPositionPicker } from '@features/settings/toast-position-picker'
+import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
+import { SettingsToc } from '@features/settings/settings-toc'
 import { ShellProfileList } from '@features/settings/shell-profile-list'
 import { TextField } from '@features/settings/text-field'
 import { LanguagePicker, SYSTEM_LANGUAGE_ID } from '@features/settings/language-picker'
 import { ThemePicker } from '@features/settings/theme-picker'
+import { Switch } from '@shared/ui/switch'
 
 const MIN_FONT_SIZE = 8
 const MAX_FONT_SIZE = 32
 const DEFAULT_FONT_SIZE = 13
 
+const SETTINGS_SECTION_ID = {
+    APPEARANCE: 'settings-section-appearance',
+    LANGUAGE: 'settings-section-language',
+    INTERFACE: 'settings-section-interface',
+    EDITOR: 'settings-section-editor',
+    TERMINAL: 'settings-section-terminal',
+    LSP: 'settings-section-lsp',
+    PLUGINS: 'settings-section-plugins',
+} as const
+
+const SETTINGS_TOC_ITEMS = [
+    { id: SETTINGS_SECTION_ID.APPEARANCE, labelKey: 'settings.appearance' },
+    { id: SETTINGS_SECTION_ID.LANGUAGE, labelKey: 'settings.language' },
+    { id: SETTINGS_SECTION_ID.INTERFACE, labelKey: 'settings.interface' },
+    { id: SETTINGS_SECTION_ID.EDITOR, labelKey: 'settings.editor' },
+    { id: SETTINGS_SECTION_ID.TERMINAL, labelKey: 'settings.terminal' },
+    { id: SETTINGS_SECTION_ID.LSP, labelKey: 'settings.lspStatus' },
+    { id: SETTINGS_SECTION_ID.PLUGINS, labelKey: 'settings.plugins' },
+]
+
 export const SettingsView = () => {
+    const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
+
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [], isPending: isThemesPending } = useQuery(themeListQueryOptions())
     const { data: lspServers = [], isPending: isLspPending } = useQuery(lspServersQueryOptions())
@@ -29,98 +58,123 @@ export const SettingsView = () => {
 
     const { t } = useTranslation()
 
+    const handleTocSelect = (id: string) => {
+        setActiveSectionId(id)
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
     if (isSettingsPending || !settings) return <div className='bg-panel-background h-full w-full' />
 
     return (
         <div className='bg-panel-background text-app-foreground h-full w-full overflow-y-auto'>
-            <div className='mx-auto flex max-w-2xl flex-col gap-6 px-6 py-8'>
+            <div className='flex flex-col gap-6 px-8 py-8'>
                 <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
 
-                <SettingsSection title={t('settings.theme')}>
-                    {isThemesPending ? (
-                        <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
-                    ) : (
-                        <ThemePicker themes={themes} activeThemeId={settings.themeId ?? ''} onSelect={setThemeId} />
-                    )}
-                    <label className='flex items-center gap-2 text-xs'>
-                        <input
-                            type='checkbox'
-                            defaultChecked={settings.followSystemTheme ?? false}
-                            onChange={(event) => updateSettings({ ...emptyPatch(), followSystemTheme: event.currentTarget.checked })}
+                <div className='flex w-full items-start gap-8'>
+                    <div className='sticky top-8 self-start'>
+                        <SettingsToc
+                            items={SETTINGS_TOC_ITEMS.map((item) => ({ id: item.id, label: t(item.labelKey) }))}
+                            activeId={activeSectionId}
+                            onSelect={handleTocSelect}
                         />
-                        <span>{t('settings.followSystemTheme')}</span>
-                    </label>
-                </SettingsSection>
+                    </div>
 
-                <SettingsSection title={t('settings.language')}>
-                    {isLocalesPending ? (
-                        <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
-                    ) : (
-                        <LanguagePicker
-                            locales={locales}
-                            activeLanguage={settings.language ?? SYSTEM_LANGUAGE_ID}
-                            systemLabel={t('settings.systemLanguage')}
-                            onSelect={(language) => updateSettings({ ...emptyPatch(), language })}
-                        />
-                    )}
-                </SettingsSection>
+                    <div className='flex min-w-0 flex-1 flex-col gap-6'>
+                        <SettingsSection id={SETTINGS_SECTION_ID.APPEARANCE} title={t('settings.appearance')}>
+                            {isThemesPending ? (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                            ) : (
+                                <ThemePicker themes={themes} activeThemeId={settings.themeId ?? ''} onSelect={setThemeId} />
+                            )}
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='text-app-foreground'>{t('settings.followSystemTheme')}</span>
+                                <Switch
+                                    checked={settings.followSystemTheme ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), followSystemTheme: checked })}
+                                />
+                            </label>
+                        </SettingsSection>
 
-                <SettingsSection title={t('settings.editor')}>
-                    <NumericField
-                        label={t('settings.editorFontSize')}
-                        value={settings.editorFontSize ?? DEFAULT_FONT_SIZE}
-                        min={MIN_FONT_SIZE}
-                        max={MAX_FONT_SIZE}
-                        onCommit={(value) => updateSettings({ ...emptyPatch(), editorFontSize: value })}
-                    />
-                </SettingsSection>
+                        <SettingsSection id={SETTINGS_SECTION_ID.LANGUAGE} title={t('settings.language')}>
+                            {isLocalesPending ? (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                            ) : (
+                                <LanguagePicker
+                                    locales={locales}
+                                    activeLanguage={settings.language ?? SYSTEM_LANGUAGE_ID}
+                                    systemLabel={t('settings.systemLanguage')}
+                                    onSelect={(language) => updateSettings({ ...emptySettingsPatch(), language })}
+                                />
+                            )}
+                        </SettingsSection>
 
-                <SettingsSection title={t('settings.terminal')}>
-                    <NumericField
-                        label={t('settings.terminalFontSize')}
-                        value={settings.terminalFontSize ?? DEFAULT_FONT_SIZE}
-                        min={MIN_FONT_SIZE}
-                        max={MAX_FONT_SIZE}
-                        onCommit={(value) => updateSettings({ ...emptyPatch(), terminalFontSize: value })}
-                    />
-                    <TextField
-                        label={t('settings.shell')}
-                        value={settings.shellOverride ?? ''}
-                        placeholder='/bin/zsh'
-                        onCommit={(value) => updateSettings({ ...emptyPatch(), shellOverride: value.trim() || null })}
-                    />
-                    {isShellPending ? (
-                        <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
-                    ) : (
-                        <ShellProfileList
-                            profiles={shellProfiles}
-                            activePath={settings.shellOverride ?? null}
-                            onSelect={(path) => updateSettings({ ...emptyPatch(), shellOverride: path })}
-                        />
-                    )}
-                </SettingsSection>
+                        <SettingsSection id={SETTINGS_SECTION_ID.INTERFACE} title={t('settings.interface')}>
+                            <div className='flex flex-col gap-2'>
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.toastPosition')}</span>
+                                <ToastPositionPicker
+                                    value={settings.toastPosition ?? DEFAULT_TOAST_POSITION}
+                                    translateLabel={t}
+                                    onSelect={(toastPosition) => updateSettings({ ...emptySettingsPatch(), toastPosition })}
+                                />
+                            </div>
+                            <NumericField
+                                label={t('settings.resizerThickness')}
+                                value={settings.resizerThickness ?? DEFAULT_RESIZER_THICKNESS}
+                                min={MIN_RESIZER_THICKNESS}
+                                max={MAX_RESIZER_THICKNESS}
+                                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), resizerThickness: value })}
+                            />
+                        </SettingsSection>
 
-                <SettingsSection title={t('settings.lspStatus')} description={t('settings.lspDescription')}>
-                    {isLspPending ? (
-                        <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
-                    ) : (
-                        <LspServerStatusList servers={lspServers} />
-                    )}
-                </SettingsSection>
+                        <SettingsSection id={SETTINGS_SECTION_ID.EDITOR} title={t('settings.editor')}>
+                            <NumericField
+                                label={t('settings.editorFontSize')}
+                                value={settings.editorFontSize ?? DEFAULT_FONT_SIZE}
+                                min={MIN_FONT_SIZE}
+                                max={MAX_FONT_SIZE}
+                                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), editorFontSize: value })}
+                            />
+                        </SettingsSection>
 
-                <SettingsSection title={t('settings.plugins')}>
-                    <PluginSectionPlaceholder />
-                </SettingsSection>
+                        <SettingsSection id={SETTINGS_SECTION_ID.TERMINAL} title={t('settings.terminal')}>
+                            <NumericField
+                                label={t('settings.terminalFontSize')}
+                                value={settings.terminalFontSize ?? DEFAULT_FONT_SIZE}
+                                min={MIN_FONT_SIZE}
+                                max={MAX_FONT_SIZE}
+                                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), terminalFontSize: value })}
+                            />
+                            <TextField
+                                label={t('settings.shell')}
+                                value={settings.shellOverride ?? ''}
+                                placeholder='/bin/zsh'
+                                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), shellOverride: value.trim() || null })}
+                            />
+                            {isShellPending ? (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                            ) : (
+                                <ShellProfileList
+                                    profiles={shellProfiles}
+                                    activePath={settings.shellOverride ?? null}
+                                    onSelect={(path) => updateSettings({ ...emptySettingsPatch(), shellOverride: path })}
+                                />
+                            )}
+                        </SettingsSection>
+
+                        <SettingsSection id={SETTINGS_SECTION_ID.LSP} title={t('settings.lspStatus')} description={t('settings.lspDescription')}>
+                            {isLspPending ? (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                            ) : (
+                                <LspServerStatusList servers={lspServers} />
+                            )}
+                        </SettingsSection>
+
+                        <SettingsSection id={SETTINGS_SECTION_ID.PLUGINS} title={t('settings.plugins')}>
+                            <PluginSectionPlaceholder />
+                        </SettingsSection>
+                    </div>
+                </div>
             </div>
         </div>
     )
 }
-
-const emptyPatch = () => ({
-    themeId: null,
-    editorFontSize: null,
-    terminalFontSize: null,
-    shellOverride: null,
-    followSystemTheme: null,
-    language: null,
-})

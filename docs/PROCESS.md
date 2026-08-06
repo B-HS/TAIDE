@@ -483,3 +483,26 @@ CJK 입력 끊김은 P1 적용본으로 재확인 대기.
 - [ ] locales watcher 핫리로드 (미착수)
 
 **남은 검증**: 실제 앱에서 언어 전환이 즉시 반영되는지 눈으로 확인 필요.
+
+### 7.5-C UI 일관성·확장성 — 구현 완료 (2026-08-06)
+
+- [x] **`⌘W` 앱 종료** — 원인은 커스텀 메뉴 부재. Tauri 가 만든 macOS 기본 메뉴의 "Close Window"(⌘W)가
+      키를 선점하고 있었다. `lib.rs` 에 앱 메뉴를 직접 구성해 그 항목만 제거.
+      **Edit 메뉴(undo/redo/cut/copy/paste/select_all)는 반드시 유지** — 빼면 macOS 에서 ⌘C/⌘V 가 죽는다.
+      프론트는 `EditorArea` 가 `close-tab` 키맵으로 포커스 pane 의 활성 탭을 닫는다.
+- [x] **커맨드 레지스트리 + `>` 모드** — `shared/lib/command-registry.ts`(순수, React/IPC 미import),
+      테스트 21건. `⌘P`=파일 모드, `⌘⇧P`=커맨드 모드(`>` 프리필). 실행 구현이 없는 항목은
+      disabled 로 표시(가짜 toast 제거).
+- [x] **탭 context menu 확장** — Close/Others/ToRight/Saved/All, Copy Path/Relative Path,
+      Reveal in Finder/Open Changes, Split 4방향. 기존 버그도 발견·수정(`onCloseOthers` 에
+      `tab.closeAll` 라벨이 잘못 붙어 있었음).
+- [x] **파일 트리 툴바** — 새 파일·새 폴더·새로고침·모두 접기. 이름 입력은 네이티브 prompt 대신 Dialog.
+- [x] **설정 화면 재구성** — 좌측 sticky TOC + Card + `max-w` 제거 + native checkbox → 자체 Switch.
+- [x] **toast 9분할** — sonner 는 6종만 지원(`top/bottom` × `left/center/right`)이라
+      중간 행은 `top-*` 앵커 + CSS 수직 보정. 순수 함수로 분리하고 테스트 4건.
+      **부수 수정**: `Toaster theme='dark'` 하드코딩이라 라이트 테마에서 토스트만 다크였던 것을 테마 추종으로.
+- [x] **리사이저 두께** — `PaneSeparator` 로 히트영역(8px 고정)과 시각 두께(설정값) 분리. VSCode 방식.
+- [x] `emptyPatch` 를 `entities/settings` 의 `emptySettingsPatch()` 로 이전 — 설정 필드가 늘 때마다
+      호출부가 깨지던 것을 한 곳으로 모음.
+
+**남은 검증**: 실제 앱에서 ⌘W·toast 위치·리사이저·설정 화면·팔레트 `>` 모드를 눈으로 확인 필요.

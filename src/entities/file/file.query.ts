@@ -1,6 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { openFile, saveFile } from '@entities/file/file.ipc'
+import { createEntry, openFile, saveFile } from '@entities/file/file.ipc'
 
 export const fileQueryOptions = (path: string | null) =>
     queryOptions({
@@ -17,3 +17,5 @@ export const useSaveFile = () => {
         onSuccess: (_, { path }) => queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) }),
     })
 }
+
+export const useCreateEntry = () => useMutation({ mutationFn: createEntry })

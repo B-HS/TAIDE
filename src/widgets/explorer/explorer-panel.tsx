@@ -4,6 +4,7 @@ import { FolderTree, GitBranch, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ProjectId } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
+import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
 import { FileTree } from '@widgets/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
@@ -23,10 +24,27 @@ type ExplorerPanelProps = {
     onToggleExpand: (row: FileTreeRow) => void
     onOpenPreview: (row: FileTreeRow) => void
     onOpenPinned: (row: FileTreeRow) => void
+    onSelectionChange: (row: FileTreeRow) => void
     onOpenSearchMatch: (path: string) => void
+    onCreateFile: (name: string) => void
+    onCreateFolder: (name: string) => void
+    onRefresh: () => void
+    onCollapseAll: () => void
 }
 
-export const ExplorerPanel: FC<ExplorerPanelProps> = ({ projectId, rows, onToggleExpand, onOpenPreview, onOpenPinned, onOpenSearchMatch }) => {
+export const ExplorerPanel: FC<ExplorerPanelProps> = ({
+    projectId,
+    rows,
+    onToggleExpand,
+    onOpenPreview,
+    onOpenPinned,
+    onSelectionChange,
+    onOpenSearchMatch,
+    onCreateFile,
+    onCreateFolder,
+    onRefresh,
+    onCollapseAll,
+}) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
 
@@ -35,29 +53,46 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({ projectId, rows, onToggl
             <div
                 role='tablist'
                 aria-label={t('explorer.sidebarSwitchLabel')}
-                className='border-app-border flex shrink-0 items-center gap-1 border-b px-2 py-1.5'>
-                {EXPLORER_VIEWS.map(({ id, labelKey, icon: Icon }) => (
-                    <button
-                        key={id}
-                        type='button'
-                        role='tab'
-                        aria-selected={view === id}
-                        aria-label={t(labelKey)}
-                        onClick={() => setView(id)}
-                        className={cn(
-                            'flex size-6 items-center justify-center rounded-sm',
-                            view === id
-                                ? 'bg-explorer-item-selected text-app-foreground'
-                                : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                        )}>
-                        <Icon className='size-4' />
-                    </button>
-                ))}
+                className='border-app-border flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1.5'>
+                <div className='flex items-center gap-1'>
+                    {EXPLORER_VIEWS.map(({ id, labelKey, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type='button'
+                            role='tab'
+                            aria-selected={view === id}
+                            aria-label={t(labelKey)}
+                            onClick={() => setView(id)}
+                            className={cn(
+                                'flex size-6 items-center justify-center rounded-sm',
+                                view === id
+                                    ? 'bg-explorer-item-selected text-app-foreground'
+                                    : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
+                            )}>
+                            <Icon className='size-4' />
+                        </button>
+                    ))}
+                </div>
+
+                {view === 'files' && (
+                    <FileTreeToolbar
+                        onCreateFile={onCreateFile}
+                        onCreateFolder={onCreateFolder}
+                        onRefresh={onRefresh}
+                        onCollapseAll={onCollapseAll}
+                    />
+                )}
             </div>
 
             <div className='min-h-0 flex-1'>
                 {view === 'files' && (
-                    <FileTree rows={rows} onToggleExpand={onToggleExpand} onOpenPreview={onOpenPreview} onOpenPinned={onOpenPinned} />
+                    <FileTree
+                        rows={rows}
+                        onToggleExpand={onToggleExpand}
+                        onOpenPreview={onOpenPreview}
+                        onOpenPinned={onOpenPinned}
+                        onSelectionChange={onSelectionChange}
+                    />
                 )}
                 {view === 'search' && <SearchPanelContainer projectId={projectId} onOpenMatch={onOpenSearchMatch} />}
                 {view === 'git' && <GitPanelContainer projectId={projectId} />}

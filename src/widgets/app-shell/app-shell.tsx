@@ -1,10 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useTranslation } from 'react-i18next'
-import { Group, Panel, Separator } from 'react-resizable-panels'
+import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { activeProjectQueryOptions, projectListQueryOptions, useActivateProject, useOpenProject } from '@entities/project/project.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { PaneSeparator } from '@features/split/pane-separator'
+import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { IS_MAC } from '@shared/constants/platform'
 import { TitleBar } from '@features/window/title-bar'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
@@ -16,6 +19,7 @@ export const AppShell = () => {
     const { t } = useTranslation()
     const { data: projects = [], isPending } = useQuery(projectListQueryOptions())
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: openProject } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
     const { mutate: openTab } = useOpenTab(activeProjectId)
@@ -52,7 +56,7 @@ export const AppShell = () => {
                                 <Panel id='explorer' defaultSize='240px' minSize='180px' maxSize='40%' collapsible collapsedSize={0}>
                                     <ExplorerContainer projectId={activeProjectId} />
                                 </Panel>
-                                <Separator className='bg-app-border hover:bg-ring w-1 cursor-col-resize' />
+                                <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
                                 <Panel id='editor' minSize='30%'>
                                     <EditorArea projectId={activeProjectId} />
                                 </Panel>

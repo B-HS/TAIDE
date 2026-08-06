@@ -453,6 +453,8 @@ export type Settings = {
 	shellOverride?: string | null,
 	followSystemTheme?: boolean,
 	language?: string,
+	toastPosition?: string,
+	resizerThickness?: number,
 };
 
 export type SettingsPatch = {
@@ -462,6 +464,8 @@ export type SettingsPatch = {
 	shellOverride: string | null,
 	followSystemTheme: boolean | null,
 	language: string | null,
+	toastPosition: string | null,
+	resizerThickness: number | null,
 };
 
 export type ShellProfile = {

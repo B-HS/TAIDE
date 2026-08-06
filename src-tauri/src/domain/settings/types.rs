@@ -6,6 +6,8 @@ pub const DEFAULT_THEME_ID: &str = "taide-dark";
 pub const DEFAULT_EDITOR_FONT_SIZE: u32 = 13;
 pub const DEFAULT_TERMINAL_FONT_SIZE: u32 = 13;
 pub const DEFAULT_LANGUAGE: &str = "system";
+pub const DEFAULT_TOAST_POSITION: &str = "bottom-right";
+pub const DEFAULT_RESIZER_THICKNESS: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +25,10 @@ pub struct Settings {
     pub follow_system_theme: bool,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_toast_position")]
+    pub toast_position: String,
+    #[serde(default = "default_resizer_thickness")]
+    pub resizer_thickness: u32,
 }
 
 fn default_theme_id() -> String {
@@ -31,6 +37,14 @@ fn default_theme_id() -> String {
 
 fn default_language() -> String {
     DEFAULT_LANGUAGE.to_string()
+}
+
+fn default_toast_position() -> String {
+    DEFAULT_TOAST_POSITION.to_string()
+}
+
+fn default_resizer_thickness() -> u32 {
+    DEFAULT_RESIZER_THICKNESS
 }
 
 fn default_editor_font_size() -> u32 {
@@ -51,6 +65,8 @@ impl Default for Settings {
             shell_override: None,
             follow_system_theme: false,
             language: default_language(),
+            toast_position: default_toast_position(),
+            resizer_thickness: default_resizer_thickness(),
         }
     }
 }

@@ -16,6 +16,8 @@ pub struct SettingsPatch {
     pub shell_override: Option<String>,
     pub follow_system_theme: Option<bool>,
     pub language: Option<String>,
+    pub toast_position: Option<String>,
+    pub resizer_thickness: Option<u32>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -50,6 +52,8 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         shell_override: patch.shell_override.clone().or_else(|| settings.shell_override.clone()),
         follow_system_theme: patch.follow_system_theme.unwrap_or(settings.follow_system_theme),
         language: patch.language.clone().unwrap_or_else(|| settings.language.clone()),
+        toast_position: patch.toast_position.clone().unwrap_or_else(|| settings.toast_position.clone()),
+        resizer_thickness: patch.resizer_thickness.unwrap_or(settings.resizer_thickness),
     }
 }
 

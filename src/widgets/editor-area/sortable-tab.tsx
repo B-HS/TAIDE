@@ -19,9 +19,14 @@ type SortableTabProps = {
     onClose: () => void
     onCloseOthers: () => void
     onCloseToRight: () => void
+    onCloseSaved: () => void
+    onCloseAll: () => void
     onTogglePin: () => void
     onSplit: (edge: SplitEdge) => void
     onCopyPath?: () => void
+    onCopyRelativePath?: () => void
+    onRevealInFinder?: () => void
+    onOpenChanges?: () => void
 }
 
 export const SortableTab: FC<SortableTabProps> = ({
@@ -33,9 +38,14 @@ export const SortableTab: FC<SortableTabProps> = ({
     onClose,
     onCloseOthers,
     onCloseToRight,
+    onCloseSaved,
+    onCloseAll,
     onTogglePin,
     onSplit,
     onCopyPath,
+    onCopyRelativePath,
+    onRevealInFinder,
+    onOpenChanges,
 }) => {
     const dragData: TabDragData = { type: 'tab', paneId, pinned: tab.pinned ?? false }
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id, data: dragData })
@@ -51,9 +61,14 @@ export const SortableTab: FC<SortableTabProps> = ({
                 onClose={onClose}
                 onCloseOthers={onCloseOthers}
                 onCloseToRight={onCloseToRight}
+                onCloseSaved={onCloseSaved}
+                onCloseAll={onCloseAll}
                 onTogglePin={onTogglePin}
                 onSplit={onSplit}
-                onCopyPath={onCopyPath}>
+                onCopyPath={onCopyPath}
+                onCopyRelativePath={onCopyRelativePath}
+                onRevealInFinder={onRevealInFinder}
+                onOpenChanges={onOpenChanges}>
                 <TabItem
                     title={tab.title}
                     icon={icon}

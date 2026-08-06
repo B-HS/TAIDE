@@ -303,3 +303,9 @@
     width: 1px;
     height: 1px;
 }
+
+[data-sonner-toaster].taide-toaster-middle {
+    top: 50% !important;
+    bottom: auto !important;
+    transform: translateY(-50%);
+}

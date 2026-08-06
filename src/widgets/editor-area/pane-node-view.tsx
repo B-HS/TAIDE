@@ -1,13 +1,16 @@
 import type { FC } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { useDroppable } from '@dnd-kit/core'
-import { Group, Panel, Separator } from 'react-resizable-panels'
+import { Group, Panel } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import type { DropEdge, PaneId, PaneNode, ProjectId } from '@shared/api/bindings'
-import { cn } from '@shared/lib/cn'
 import { useResizePane } from '@entities/layout/layout.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { DropEdgeName } from '@features/split/split-drop-zones'
 import { SplitDropZones } from '@features/split/split-drop-zones'
+import { PaneSeparator } from '@features/split/pane-separator'
+import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
 import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
@@ -29,6 +32,7 @@ type PaneNodeViewProps = {
 
 export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPaneId, isDragging, overTarget }) => {
     const { t } = useTranslation()
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: resizePane } = useResizePane(projectId)
     const dropLeft = useDroppable({ id: `${node.id}:left`, data: { type: 'split', paneId: node.id, edge: 'left' } satisfies SplitDropData })
     const dropRight = useDroppable({ id: `${node.id}:right`, data: { type: 'split', paneId: node.id, edge: 'right' } satisfies SplitDropData })
@@ -45,9 +49,10 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
 
         const items = children.flatMap((child, index) => [
             index > 0 && (
-                <Separator
+                <PaneSeparator
                     key={`separator-${child.id}`}
-                    className={cn('bg-app-border hover:bg-ring', node.dir === 'horizontal' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize')}
+                    orientation={node.dir === 'horizontal' ? 'horizontal' : 'vertical'}
+                    thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS}
                 />
             ),
             <Panel

@@ -137,14 +137,25 @@
 
 ### 7.5-C UI 일관성 · 확장성
 
-- [ ] `⌘W` 가 앱을 종료하는 문제 — 탭 닫기로 (WebView 기본 동작 선점 차단)
-- [ ] 파일 트리 툴바 (19번) — 새 폴더·새 파일·새로고침·모두 접기 (VSCode 탐색기 헤더 액션)
-- [ ] 탭 context menu 를 **view component 로 교체** + 항목 전량 (8·9번) — `tabs.md` §3.1
-- [ ] 탭 열기 규칙 확정 — `⌘+클릭` 분할, Move/Copy into New Window (7번) — `tabs.md` §4.4
-- [ ] 커맨드 레지스트리 + `>` 접두 모드 (10번) — `command-palette.md` §2
-- [ ] 설정 화면 재구성 — TOC + `max-w` 제거 + card + 자체 컴포넌트 (13번) — `settings-ui.md` §1
-- [ ] toast 위치 9분할 설정 (11번) — `settings-ui.md` §2
-- [ ] 리사이저 두께 설정 + 히트영역 분리 (12번) — `settings-ui.md` §3
+- [x] `⌘W` 가 앱을 종료하는 문제 — 커스텀 앱 메뉴로 Close Window 제거(Edit 메뉴는 유지) + `close-tab` 배선
+- [x] 파일 트리 툴바 (19번) — 새 파일·새 폴더·새로고침·모두 접기
+- [x] 탭 context menu 항목 확장 (9번) — 닫기류 5·복사류 2·탐색류 2·분할 4. 구현 불가 항목은 §7.5-C 미구현 표 참조
+- [x] 커맨드 레지스트리 + `>` 접두 모드 (10번) — `shared/lib/command-registry.ts`, 테스트 21건
+- [x] 설정 화면 재구성 — TOC + `max-w` 제거 + Card + 자체 Switch (13번)
+- [x] toast 위치 9분할 설정 (11번) — sonner 6종 + 중간 행 3종 CSS 보정. Toaster 테마 추종도 함께 수정
+- [x] 리사이저 두께 설정 + 히트영역 분리 (12번) — 히트 8px 고정 / 시각 두께는 설정값
+- [ ] 탭 열기 규칙 — `⌘+클릭` 분할, Move/Copy into New Window (7번). 멀티 윈도우 미지원이라 보류
+
+#### 7.5-C 미구현 (백엔드/기능 부재 — 가짜 UI 만들지 않음)
+
+| 항목 | 필요한 것 |
+|------|----------|
+| File History | 파일 단위 git log 필터 (현재 프로젝트 전체 로그만) |
+| Find File References | 탭 우클릭에서 LSP references 를 트리거하는 경로 |
+| Move/Copy into New Window | 멀티 윈도우 자체 (capabilities 가 단일 `main`) |
+| Reveal in Explorer View | 트리 확장·스크롤 상태 연동 |
+| Keep Open | preview 해제 mutation (pin 과 다른 개념) |
+| restart window | Tauri 커맨드 신설 필요 |
 
 ### 7.5-D 표시·꾸밈
 

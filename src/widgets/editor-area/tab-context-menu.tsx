@@ -28,9 +28,14 @@ type TabContextMenuProps = {
     onClose: () => void
     onCloseOthers: () => void
     onCloseToRight: () => void
+    onCloseSaved: () => void
+    onCloseAll: () => void
     onTogglePin: () => void
     onSplit: (edge: SplitEdge) => void
     onCopyPath?: () => void
+    onCopyRelativePath?: () => void
+    onRevealInFinder?: () => void
+    onOpenChanges?: () => void
 }
 
 export const TabContextMenu: FC<TabContextMenuProps> = ({
@@ -39,11 +44,17 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
     onClose,
     onCloseOthers,
     onCloseToRight,
+    onCloseSaved,
+    onCloseAll,
     onTogglePin,
     onSplit,
     onCopyPath,
+    onCopyRelativePath,
+    onRevealInFinder,
+    onOpenChanges,
 }) => {
     const { t } = useTranslation()
+    const isFileTab = tab.kind.kind === 'file'
 
     return (
         <ContextMenu>
@@ -53,13 +64,30 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                     <X className='size-4' />
                     {t('tab.close')}
                 </ContextMenuItem>
-                <ContextMenuItem onSelect={onCloseOthers}>{t('tab.closeAll')}</ContextMenuItem>
+                <ContextMenuItem onSelect={onCloseOthers}>{t('tab.closeOthers')}</ContextMenuItem>
                 <ContextMenuItem onSelect={onCloseToRight}>{t('tab.closeToRight')}</ContextMenuItem>
+                <ContextMenuItem onSelect={onCloseSaved}>{t('tab.closeSaved')}</ContextMenuItem>
+                <ContextMenuItem onSelect={onCloseAll}>{t('tab.closeAll')}</ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onSelect={onTogglePin}>
                     {tab.pinned ? <PinOff className='size-4' /> : <Pin className='size-4' />}
                     {tab.pinned ? t('tab.unpin') : t('tab.pin')}
                 </ContextMenuItem>
+                {isFileTab && (onCopyPath || onCopyRelativePath) && (
+                    <>
+                        <ContextMenuSeparator />
+                        {onCopyPath && <ContextMenuItem onSelect={onCopyPath}>{t('explorer.copyPath')}</ContextMenuItem>}
+                        {onCopyRelativePath && <ContextMenuItem onSelect={onCopyRelativePath}>{t('tab.copyRelativePath')}</ContextMenuItem>}
+                    </>
+                )}
+                {isFileTab && (onRevealInFinder || onOpenChanges) && (
+                    <>
+                        <ContextMenuSeparator />
+                        {onRevealInFinder && <ContextMenuItem onSelect={onRevealInFinder}>{t('explorer.reveal')}</ContextMenuItem>}
+                        {onOpenChanges && <ContextMenuItem onSelect={onOpenChanges}>{t('tab.openChanges')}</ContextMenuItem>}
+                    </>
+                )}
+                <ContextMenuSeparator />
                 <ContextMenuSub>
                     <ContextMenuSubTrigger>
                         <GitCompare className='size-4' />
@@ -74,12 +102,6 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                         ))}
                     </ContextMenuSubContent>
                 </ContextMenuSub>
-                {tab.kind.kind === 'file' && onCopyPath && (
-                    <>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem onSelect={onCopyPath}>{t('explorer.copyPath')}</ContextMenuItem>
-                    </>
-                )}
             </ContextMenuContent>
         </ContextMenu>
     )

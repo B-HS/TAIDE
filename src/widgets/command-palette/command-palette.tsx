@@ -1,10 +1,12 @@
-import { useEffect, useEffectEvent, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { File, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
+import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
+import { DEFAULT_COMMANDS, isCommandRunnable, listRegisteredCommands, parsePaletteQuery, registerCommands } from '@shared/lib/command-registry'
 import type { KeymapEntry } from '@shared/lib/keymap'
-import { APP_KEYMAP, matchesKeymapEntry } from '@shared/lib/keymap'
+import { APP_KEYMAP } from '@shared/lib/keymap'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { IS_MAC } from '@shared/constants/platform'
@@ -14,10 +16,9 @@ import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 
-const FILE_RESULT_LIMIT = 200
-const OPEN_PALETTE_KEYMAP_ENTRY: KeymapEntry = { id: 'quick-open', key: 'p', mods: ['mod', 'shift'], descriptionKey: 'palette.title' }
+registerCommands(DEFAULT_COMMANDS)
 
-type PaletteMode = 'commands' | 'files'
+const FILE_RESULT_LIMIT = 200
 
 const keymapShortcutLabel = (entry: KeymapEntry) => {
     const modLabel = entry.mods.includes('mod') ? (IS_MAC ? '⌘' : 'Ctrl') : ''
@@ -25,23 +26,22 @@ const keymapShortcutLabel = (entry: KeymapEntry) => {
     return [...otherLabels, modLabel, entry.key.toUpperCase()].filter(Boolean).join('')
 }
 
+const findKeymapEntry = (keymapId: AppCommand['keymapId']) => APP_KEYMAP.find((entry) => entry.id === keymapId) ?? null
+
 export const CommandPalette = () => {
     const [open, setOpen] = useState(false)
-    const [mode, setMode] = useState<PaletteMode>('commands')
     const [query, setQuery] = useState('')
 
     const { t } = useTranslation()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
+    const { mode, searchTerm } = parsePaletteQuery(query)
     const { data: treePage } = useQuery({ ...treeRowsQueryOptions(activeProjectId), enabled: open && mode === 'files' && !!activeProjectId })
     const { mutate: openTab } = useOpenTab(activeProjectId)
-    const { mutate: reopenClosedTab } = useReopenClosedTab(activeProjectId)
+    const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
 
     const handleOpenChange = (next: boolean) => {
         setOpen(next)
-        if (!next) {
-            setMode('commands')
-            setQuery('')
-        }
+        if (!next) setQuery('')
     }
 
     const openTerminalTab = () => {
@@ -52,51 +52,48 @@ export const CommandPalette = () => {
         )
     }
 
+    const openSettingsTab = () => {
+        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        openTab(
+            { projectId: activeProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
+            { onError: (error) => toast.error(error.message) },
+        )
+    }
+
+    const reopenClosedTab = () => {
+        if (!activeProjectId) return
+        reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(error.message) })
+    }
+
     useGlobalKeymap({
         'quick-open': () => {
-            setMode('files')
             setQuery('')
             setOpen(true)
         },
+        'command-palette': () => {
+            setQuery('>')
+            setOpen(true)
+        },
         'new-terminal': openTerminalTab,
+        'reopen-closed-tab': reopenClosedTab,
     })
 
-    const handleOpenPaletteShortcut = useEffectEvent((event: KeyboardEvent) => {
-        if (!matchesKeymapEntry(OPEN_PALETTE_KEYMAP_ENTRY, event, IS_MAC)) return
-        event.preventDefault()
-        setMode('commands')
-        setQuery('')
-        setOpen(true)
-    })
-
-    useEffect(() => {
-        window.addEventListener('keydown', handleOpenPaletteShortcut, true)
-        return () => window.removeEventListener('keydown', handleOpenPaletteShortcut, true)
-    }, [])
+    const commandContext: CommandContext = {
+        activeProjectId,
+        openSettingsTab,
+        openTerminalTab,
+        reopenClosedTab,
+        switchToFileSearchMode: () => setQuery(''),
+    }
 
     const fileRows = (treePage?.rows ?? []).filter((row) => row.kind === 'file')
-    const filteredFiles = fuzzyFilter(query, fileRows, (row) => row.path).slice(0, FILE_RESULT_LIMIT)
-    const filteredCommands = fuzzyFilter(query, APP_KEYMAP, (entry) => t(entry.descriptionKey))
+    const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => row.path).slice(0, FILE_RESULT_LIMIT)
+    const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) => t(command.titleKey))
 
-    const runCommand = (entry: KeymapEntry) => {
-        if (entry.id === 'quick-open') {
-            setMode('files')
-            setQuery('')
-            return
-        }
-        if (entry.id === 'new-terminal') {
-            openTerminalTab()
-            handleOpenChange(false)
-            return
-        }
-        if (entry.id === 'reopen-closed-tab') {
-            if (!activeProjectId) return
-            reopenClosedTab(activeProjectId, { onError: (error) => toast.error(error.message) })
-            handleOpenChange(false)
-            return
-        }
-        toast.info(t('palette.notRunnable', { description: t(entry.descriptionKey) }))
-        handleOpenChange(false)
+    const runCommand = (command: AppCommand) => {
+        if (!isCommandRunnable(command, commandContext)) return
+        void command.run(commandContext)
+        if (command.id !== 'file.quickOpen') handleOpenChange(false)
     }
 
     const openFile = (path: string) => {
@@ -125,13 +122,17 @@ export const CommandPalette = () => {
                         <CommandEmpty>{t('palette.noResults')}</CommandEmpty>
                         {mode === 'commands' && (
                             <CommandGroup heading={t('palette.commands')}>
-                                {filteredCommands.map(({ item }) => (
-                                    <CommandItem key={item.id} onSelect={() => runCommand(item)}>
-                                        <Terminal className='size-4' />
-                                        <span>{t(item.descriptionKey)}</span>
-                                        <CommandShortcut>{keymapShortcutLabel(item)}</CommandShortcut>
-                                    </CommandItem>
-                                ))}
+                                {filteredCommands.map(({ item }) => {
+                                    const keymapEntry = findKeymapEntry(item.keymapId)
+                                    const runnable = isCommandRunnable(item, commandContext)
+                                    return (
+                                        <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
+                                            <Terminal className='size-4' />
+                                            <span>{t(item.titleKey)}</span>
+                                            {keymapEntry && <CommandShortcut>{keymapShortcutLabel(keymapEntry)}</CommandShortcut>}
+                                        </CommandItem>
+                                    )
+                                })}
                             </CommandGroup>
                         )}
                         {mode === 'files' && (

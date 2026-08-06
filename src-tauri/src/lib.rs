@@ -28,6 +28,41 @@ use crate::state::AppState;
 
 const BINDINGS_PATH: &str = "../src/shared/api/bindings.ts";
 
+fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
+
+    let app_menu = SubmenuBuilder::new(handle, "TAIDE")
+        .item(&PredefinedMenuItem::about(handle, None, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::services(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::hide(handle, None)?)
+        .item(&PredefinedMenuItem::hide_others(handle, None)?)
+        .item(&PredefinedMenuItem::show_all(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::quit(handle, None)?)
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(handle, "Edit")
+        .item(&PredefinedMenuItem::undo(handle, None)?)
+        .item(&PredefinedMenuItem::redo(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(handle, None)?)
+        .item(&PredefinedMenuItem::copy(handle, None)?)
+        .item(&PredefinedMenuItem::paste(handle, None)?)
+        .item(&PredefinedMenuItem::select_all(handle, None)?)
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(handle, "Window")
+        .item(&PredefinedMenuItem::minimize(handle, None)?)
+        .item(&PredefinedMenuItem::maximize(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::fullscreen(handle, None)?)
+        .build()?;
+
+    MenuBuilder::new(handle).items(&[&app_menu, &edit_menu, &window_menu]).build()
+}
+
 fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -246,6 +281,7 @@ pub fn run() {
         })
         .setup(move |app| {
             builder.mount_events(app);
+            app.set_menu(build_app_menu(app.handle())?)?;
 
             let data_dir = app.path().app_data_dir().expect("app data dir unavailable");
             let state = AppState::new(AppPaths::new(data_dir));

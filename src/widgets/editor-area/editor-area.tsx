@@ -4,7 +4,8 @@ import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSe
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useQuery } from '@tanstack/react-query'
 import type { DropEdge, PaneId, PaneNode, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
-import { layoutQueryOptions, useMoveTab, useSplitPane } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useCloseTab, useMoveTab, useSplitPane } from '@entities/layout/layout.query'
+import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
@@ -54,6 +55,16 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: moveTab } = useMoveTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
+    const { mutate: closeTab } = useCloseTab(projectId)
+
+    const closeFocusedTab = () => {
+        if (!layout) return
+        const leaf = findLeaf(layout.root, layout.focusedPane)
+        if (!leaf?.active) return
+        closeTab(leaf.active)
+    }
+
+    useGlobalKeymap({ 'close-tab': closeFocusedTab })
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 
