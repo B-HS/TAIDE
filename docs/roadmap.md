@@ -86,7 +86,7 @@
 - [ ] 플러그인 로더 (매니페스트 검증·LSP 기여·동의 UI) — `plugins.md`
 - [ ] 커맨드 팔레트 (`⌘⇧P`) + 파일 퀵오픈 (`⌘P`)
 
-## Phase 8 — 배포·확장 (2차)
+## Phase 8 — 배포·확장 (2차) — **게이트: Phase 0~7 이 로컬에서 전부 테스트·확인 완료된 후에만 진행 (사용자 합의)**
 
 - [ ] macOS 서명·공증, 업데이터 / Windows·Linux 빌드 검증 (NFR-6)
 - [ ] IDE MCP 서버 (Claude Code 자동 연결 — agent-integration §3)
