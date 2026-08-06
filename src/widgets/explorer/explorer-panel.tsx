@@ -1,21 +1,26 @@
 import type { FC } from 'react'
-import { useState } from 'react'
-import { FolderTree, GitBranch, Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, FolderTree, GitBranch, ListTree, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ProjectId } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
+import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { FileTree } from '@widgets/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
+import { OutlinePanelContainer } from '@widgets/outline-panel/outline-panel-container'
+import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 import { SearchPanelContainer } from '@widgets/search-panel/search-panel-container'
 
-type ExplorerView = 'files' | 'search' | 'git'
+type ExplorerView = 'files' | 'search' | 'git' | 'problems' | 'outline'
 
 const EXPLORER_VIEWS: { id: ExplorerView; labelKey: string; icon: typeof FolderTree }[] = [
     { id: 'files', labelKey: 'explorer.title', icon: FolderTree },
     { id: 'search', labelKey: 'search.title', icon: Search },
     { id: 'git', labelKey: 'git.title', icon: GitBranch },
+    { id: 'problems', labelKey: 'problems.title', icon: AlertTriangle },
+    { id: 'outline', labelKey: 'outline.title', icon: ListTree },
 ]
 
 type ExplorerPanelProps = {
@@ -47,6 +52,8 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
 }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
+
+    useEffect(() => subscribeOpenSearchPanel(() => setView('search')), [])
 
     return (
         <div className='bg-explorer-background flex h-full min-h-0 w-full flex-col'>
@@ -96,6 +103,8 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                 )}
                 {view === 'search' && <SearchPanelContainer projectId={projectId} onOpenMatch={onOpenSearchMatch} />}
                 {view === 'git' && <GitPanelContainer projectId={projectId} />}
+                {view === 'problems' && <ProblemsPanelContainer projectId={projectId} />}
+                {view === 'outline' && <OutlinePanelContainer projectId={projectId} />}
             </div>
         </div>
     )

@@ -9,8 +9,11 @@ use specta::Type;
 use crate::error::{AppError, AppResult};
 
 use super::types::{
-    BlameLine, CommitOptions, DiffMode, DiffSides, GitChangeKind, GitRemote, GitStatus, GutterHunk, HunkKind, LogEntry, StatusRow,
+    BlameLine, CommitOptions, DiffMode, DiffSides, GitBranch, GitChangeKind, GitRemote, GitStashEntry, GitStatus, GutterHunk, HunkKind,
+    LogEntry, StatusRow,
 };
+
+const DEFAULT_STASH_MESSAGE: &str = "WIP";
 
 const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
     ("ts", "typescript"),
@@ -289,31 +292,9 @@ pub fn gutter(repo_path: &Path, path: &str) -> AppResult<Vec<GutterHunk>> {
         &mut |_delta, _progress| true,
         None,
         Some(&mut |_delta, hunk| {
-            let old_lines = hunk.old_lines();
-            let new_start = hunk.new_start();
-            let new_lines = hunk.new_lines();
-
-            let entry = if old_lines == 0 {
-                GutterHunk {
-                    kind: HunkKind::Added,
-                    start: new_start,
-                    end: new_start + new_lines - 1,
-                }
-            } else if new_lines == 0 {
-                let marker = new_start.max(1);
-                GutterHunk {
-                    kind: HunkKind::Deleted,
-                    start: marker,
-                    end: marker,
-                }
-            } else {
-                GutterHunk {
-                    kind: HunkKind::Modified,
-                    start: new_start,
-                    end: new_start + new_lines - 1,
-                }
-            };
-            hunks.push(entry);
+            let kind = hunk_kind(hunk.old_lines(), hunk.new_lines());
+            let (start, end) = gutter_range(hunk.new_start(), hunk.new_lines());
+            hunks.push(GutterHunk { kind, start, end });
             true
         }),
         None,
@@ -321,6 +302,94 @@ pub fn gutter(repo_path: &Path, path: &str) -> AppResult<Vec<GutterHunk>> {
     .map_err(map_git_err)?;
 
     Ok(hunks)
+}
+
+fn hunk_kind(old_lines: u32, new_lines: u32) -> HunkKind {
+    if old_lines == 0 {
+        HunkKind::Added
+    } else if new_lines == 0 {
+        HunkKind::Deleted
+    } else {
+        HunkKind::Modified
+    }
+}
+
+fn gutter_range(new_start: u32, new_lines: u32) -> (u32, u32) {
+    if new_lines == 0 {
+        let marker = new_start.max(1);
+        (marker, marker)
+    } else {
+        (new_start, new_start + new_lines - 1)
+    }
+}
+
+pub fn discard_hunk(repo_path: &Path, path: &str, hunk_start: u32, hunk_end: u32) -> AppResult<()> {
+    let repo = open_repo(repo_path)?;
+    let workdir = repo_workdir(&repo)?;
+    let relative = to_repo_relative(&workdir, path)?;
+
+    let head_tree = match repo.head() {
+        Ok(head) => head.peel_to_commit().ok().and_then(|commit| commit.tree().ok()),
+        Err(_) => None,
+    };
+
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec(&relative)
+        .context_lines(0)
+        .include_untracked(true)
+        .show_untracked_content(true)
+        .indent_heuristic(true);
+
+    let diff = repo
+        .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))
+        .map_err(map_git_err)?;
+
+    let patch = git2::Patch::from_diff(&diff, 0)
+        .map_err(map_git_err)?
+        .ok_or_else(|| AppError::NotFound(format!("{relative}: 변경 사항이 없습니다")))?;
+
+    let mut target: Option<(u32, u32, u32, u32)> = None;
+    for hunk_index in 0..patch.num_hunks() {
+        let (hunk, _lines) = patch.hunk(hunk_index).map_err(map_git_err)?;
+        let (start, end) = gutter_range(hunk.new_start(), hunk.new_lines());
+        if start == hunk_start && end == hunk_end {
+            target = Some((hunk.old_start(), hunk.old_lines(), hunk.new_start(), hunk.new_lines()));
+            break;
+        }
+    }
+
+    let (old_start, old_lines, new_start, new_lines) =
+        target.ok_or_else(|| AppError::InvalidArgument(format!("{relative}: 지정한 hunk({hunk_start}-{hunk_end})를 찾을 수 없습니다")))?;
+
+    let old_content = read_head_blob(&repo, &relative).unwrap_or_default();
+    let new_content = std::fs::read_to_string(workdir.join(&relative))?;
+
+    let old_lines_vec: Vec<&str> = old_content.split_inclusive('\n').collect();
+    let new_lines_vec: Vec<&str> = new_content.split_inclusive('\n').collect();
+
+    let new_range_start = if new_lines == 0 {
+        new_start as usize
+    } else {
+        (new_start - 1) as usize
+    };
+    let new_range_end = new_range_start + new_lines as usize;
+    let old_range_start = if old_lines == 0 {
+        old_start as usize
+    } else {
+        (old_start - 1) as usize
+    };
+    let old_range_end = old_range_start + old_lines as usize;
+
+    if new_range_end > new_lines_vec.len() || old_range_end > old_lines_vec.len() {
+        return Err(AppError::Internal(format!("{relative}: hunk 범위가 파일 길이를 벗어났습니다")));
+    }
+
+    let mut rebuilt = String::new();
+    rebuilt.push_str(&new_lines_vec[..new_range_start].concat());
+    rebuilt.push_str(&old_lines_vec[old_range_start..old_range_end].concat());
+    rebuilt.push_str(&new_lines_vec[new_range_end..].concat());
+
+    std::fs::write(workdir.join(&relative), rebuilt).map_err(AppError::from)
 }
 
 pub fn blame_range(repo_path: &Path, path: &str, from: u32, to: u32) -> AppResult<Vec<BlameLine>> {
@@ -384,6 +453,160 @@ pub fn remotes(repo_path: &Path) -> AppResult<Vec<GitRemote>> {
     }
 
     Ok(out)
+}
+
+pub fn branches(repo_path: &Path) -> AppResult<Vec<GitBranch>> {
+    let repo = open_repo(repo_path)?;
+    let branches = repo.branches(None).map_err(map_git_err)?;
+
+    let mut out = Vec::new();
+    for branch_result in branches {
+        let (branch, branch_type) = branch_result.map_err(map_git_err)?;
+        let Some(name) = branch.name().map_err(map_git_err)? else {
+            continue;
+        };
+        if branch_type == git2::BranchType::Remote && name.ends_with("/HEAD") {
+            continue;
+        }
+
+        let is_remote = branch_type == git2::BranchType::Remote;
+        let is_head = !is_remote && branch.is_head();
+        let upstream = if is_remote {
+            None
+        } else {
+            branch
+                .upstream()
+                .ok()
+                .and_then(|upstream| upstream.name().ok().flatten().map(str::to_string))
+        };
+
+        out.push(GitBranch {
+            name: name.to_string(),
+            is_head,
+            is_remote,
+            upstream,
+        });
+    }
+
+    Ok(out)
+}
+
+pub fn branch_create(repo_path: &Path, name: &str, checkout: bool) -> AppResult<()> {
+    let repo = open_repo(repo_path)?;
+    let head_commit = repo.head().map_err(map_git_err)?.peel_to_commit().map_err(map_git_err)?;
+    repo.branch(name, &head_commit, false).map_err(map_git_err)?;
+
+    if checkout {
+        checkout_ref(&repo, &format!("refs/heads/{name}"))?;
+    }
+
+    Ok(())
+}
+
+pub fn branch_checkout(repo_path: &Path, name: &str) -> AppResult<()> {
+    let repo = open_repo(repo_path)?;
+    checkout_ref(&repo, name)
+}
+
+pub fn branch_delete(repo_path: &Path, name: &str, force: bool) -> AppResult<()> {
+    let repo = open_repo(repo_path)?;
+    let mut branch = repo.find_branch(name, git2::BranchType::Local).map_err(map_git_err)?;
+
+    if branch.is_head() {
+        return Err(AppError::InvalidArgument("현재 체크아웃된 브랜치는 삭제할 수 없습니다".to_string()));
+    }
+
+    if !force {
+        let head_oid = repo
+            .head()
+            .map_err(map_git_err)?
+            .target()
+            .ok_or_else(|| AppError::Internal("HEAD 를 확인할 수 없습니다".to_string()))?;
+        let branch_oid = branch
+            .get()
+            .target()
+            .ok_or_else(|| AppError::Internal("브랜치 대상을 확인할 수 없습니다".to_string()))?;
+        let is_merged = head_oid == branch_oid || repo.graph_descendant_of(head_oid, branch_oid).unwrap_or(false);
+        if !is_merged {
+            return Err(AppError::InvalidArgument(format!(
+                "'{name}' 브랜치는 병합되지 않았습니다. 강제 삭제하려면 force 를 사용하세요"
+            )));
+        }
+    }
+
+    branch.delete().map_err(map_git_err)
+}
+
+pub fn stash_list(repo_path: &Path) -> AppResult<Vec<GitStashEntry>> {
+    let mut repo = open_repo(repo_path)?;
+    let mut out = Vec::new();
+    repo.stash_foreach(|index, message, _oid| {
+        out.push(GitStashEntry {
+            index: index as u32,
+            message: message.to_string(),
+        });
+        true
+    })
+    .map_err(map_git_err)?;
+    Ok(out)
+}
+
+pub fn stash_push(repo_path: &Path, message: Option<&str>) -> AppResult<()> {
+    let mut repo = open_repo(repo_path)?;
+    let signature = repo
+        .signature()
+        .or_else(|_| git2::Signature::now("TAIDE", "taide@local"))
+        .map_err(map_git_err)?;
+    repo.stash_save(
+        &signature,
+        message.unwrap_or(DEFAULT_STASH_MESSAGE),
+        Some(git2::StashFlags::INCLUDE_UNTRACKED),
+    )
+    .map_err(map_git_err)?;
+    Ok(())
+}
+
+pub fn stash_apply(repo_path: &Path, index: u32) -> AppResult<()> {
+    let mut repo = open_repo(repo_path)?;
+    let mut checkout = CheckoutBuilder::new();
+    checkout.safe();
+    let mut apply_opts = git2::StashApplyOptions::new();
+    apply_opts.checkout_options(checkout);
+
+    repo.stash_apply(index as usize, Some(&mut apply_opts)).map_err(|error| {
+        if error.code() == git2::ErrorCode::Conflict {
+            AppError::InvalidArgument(format!("스태시를 적용하는 중 충돌이 발생했습니다: {error}"))
+        } else {
+            map_git_err(error)
+        }
+    })
+}
+
+pub fn stash_drop(repo_path: &Path, index: u32) -> AppResult<()> {
+    let mut repo = open_repo(repo_path)?;
+    repo.stash_drop(index as usize).map_err(map_git_err)
+}
+
+fn checkout_ref(repo: &Repository, refname: &str) -> AppResult<()> {
+    let (object, reference) = repo.revparse_ext(refname).map_err(map_git_err)?;
+
+    let mut checkout = CheckoutBuilder::new();
+    checkout.safe();
+    repo.checkout_tree(&object, Some(&mut checkout)).map_err(|error| {
+        if error.code() == git2::ErrorCode::Conflict {
+            AppError::InvalidArgument(format!("커밋되지 않은 변경 사항과 충돌하여 체크아웃할 수 없습니다: {error}"))
+        } else {
+            map_git_err(error)
+        }
+    })?;
+
+    match reference {
+        Some(reference) if reference.is_branch() => {
+            let branch_ref = reference.name().map_err(map_git_err)?;
+            repo.set_head(branch_ref).map_err(map_git_err)
+        }
+        _ => repo.set_head_detached(object.id()).map_err(map_git_err),
+    }
 }
 
 fn open_repo(repo_path: &Path) -> AppResult<Repository> {
@@ -775,5 +998,230 @@ mod tests {
         assert_eq!(entries[0].parents, vec![first.clone()]);
         assert!(entries[1].parents.is_empty());
         assert_eq!(entries[1].id, first);
+    }
+
+    #[test]
+    fn branches는_현재_브랜치를_is_head로_표시한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+
+        let result = branches(repo.path()).expect("branches");
+
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_head);
+        assert!(!result[0].is_remote);
+    }
+
+    #[test]
+    fn branch_create는_새_브랜치를_만들되_체크아웃하지_않는다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+
+        branch_create(repo.path(), "feature", false).expect("branch_create");
+
+        let result = branches(repo.path()).expect("branches");
+        let feature = result.iter().find(|branch| branch.name == "feature").expect("feature branch");
+        assert!(!feature.is_head);
+        let current = current_branch(&open_repo(repo.path()).unwrap()).unwrap();
+        assert_ne!(current, "feature");
+    }
+
+    #[test]
+    fn branch_create_checkout_true면_생성_후_체크아웃한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+
+        branch_create(repo.path(), "feature", true).expect("branch_create");
+
+        let current = current_branch(&open_repo(repo.path()).unwrap()).unwrap();
+        assert_eq!(current, "feature");
+    }
+
+    #[test]
+    fn branch_checkout은_지정한_브랜치로_head를_옮긴다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        branch_create(repo.path(), "feature", false).expect("branch_create");
+
+        branch_checkout(repo.path(), "feature").expect("branch_checkout");
+
+        let current = current_branch(&open_repo(repo.path()).unwrap()).unwrap();
+        assert_eq!(current, "feature");
+    }
+
+    #[test]
+    fn branch_checkout은_충돌하는_미커밋_변경이_있으면_실패한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        branch_create(repo.path(), "feature", true).expect("branch_create");
+        repo.write_file("a.txt", "feature change");
+        repo.commit_all("feature commit");
+        branch_checkout(repo.path(), "master")
+            .or_else(|_| branch_checkout(repo.path(), "main"))
+            .expect("checkout back");
+        repo.write_file("a.txt", "conflicting uncommitted change");
+
+        let result = branch_checkout(repo.path(), "feature");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn branch_delete는_현재_브랜치를_삭제할_수_없다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        let current = current_branch(&open_repo(repo.path()).unwrap()).unwrap();
+
+        let result = branch_delete(repo.path(), &current, false);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn branch_delete는_병합되지_않은_브랜치는_force_없이_삭제할_수_없다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        branch_create(repo.path(), "feature", true).expect("branch_create");
+        repo.write_file("a.txt", "feature change");
+        repo.commit_all("feature commit");
+        branch_checkout(repo.path(), "master")
+            .or_else(|_| branch_checkout(repo.path(), "main"))
+            .expect("checkout back to base");
+
+        let result = branch_delete(repo.path(), "feature", false);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn branch_delete는_force면_병합되지_않아도_삭제한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        branch_create(repo.path(), "feature", true).expect("branch_create");
+        repo.write_file("a.txt", "feature change");
+        repo.commit_all("feature commit");
+        branch_checkout(repo.path(), "master")
+            .or_else(|_| branch_checkout(repo.path(), "main"))
+            .expect("checkout back to base");
+
+        branch_delete(repo.path(), "feature", true).expect("branch_delete force");
+
+        let result = branches(repo.path()).expect("branches");
+        assert!(!result.iter().any(|branch| branch.name == "feature"));
+    }
+
+    #[test]
+    fn stash_push_후_워킹트리가_head_상태로_복원된다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "dirty change");
+
+        stash_push(repo.path(), Some("wip work")).expect("stash_push");
+
+        let content = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
+        assert_eq!(content, "hello");
+        let list = stash_list(repo.path()).expect("stash_list");
+        assert_eq!(list.len(), 1);
+        assert!(list[0].message.contains("wip work"));
+    }
+
+    #[test]
+    fn stash_apply는_스태시된_변경을_워킹트리에_되돌린다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "dirty change");
+        stash_push(repo.path(), None).expect("stash_push");
+
+        stash_apply(repo.path(), 0).expect("stash_apply");
+
+        let content = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
+        assert_eq!(content, "dirty change");
+    }
+
+    #[test]
+    fn stash_drop은_목록에서_스태시를_제거한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "dirty change");
+        stash_push(repo.path(), None).expect("stash_push");
+
+        stash_drop(repo.path(), 0).expect("stash_drop");
+
+        let list = stash_list(repo.path()).expect("stash_list");
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn discard_hunk는_지정한_hunk만_되돌리고_나머지는_유지한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\nline3\nline4\nline5\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nCHANGED2\nline3\nCHANGED4\nline5\n");
+
+        let hunks = gutter(repo.path(), "a.txt").expect("gutter");
+        assert_eq!(hunks.len(), 2);
+        let (first_start, first_end) = (hunks[0].start, hunks[0].end);
+
+        discard_hunk(repo.path(), "a.txt", first_start, first_end).expect("discard_hunk");
+
+        let content = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\nline3\nCHANGED4\nline5\n");
+    }
+
+    #[test]
+    fn discard_hunk는_추가된_라인_hunk를_제거한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nNEW\nline2\n");
+
+        let hunks = gutter(repo.path(), "a.txt").expect("gutter");
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].kind, HunkKind::Added);
+
+        discard_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("discard_hunk");
+
+        let content = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\n");
+    }
+
+    #[test]
+    fn discard_hunk는_삭제된_라인_hunk를_복원한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\nline3\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nline3\n");
+
+        let hunks = gutter(repo.path(), "a.txt").expect("gutter");
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].kind, HunkKind::Deleted);
+
+        discard_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("discard_hunk");
+
+        let content = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\nline3\n");
+    }
+
+    #[test]
+    fn discard_hunk는_존재하지_않는_hunk면_에러를_반환한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nCHANGED\n");
+
+        let result = discard_hunk(repo.path(), "a.txt", 999, 999);
+
+        assert!(result.is_err());
     }
 }

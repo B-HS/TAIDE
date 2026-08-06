@@ -1,8 +1,9 @@
-import type { GitRemote, StatusRow } from '@shared/api/bindings'
+import type { GitBranch as GitBranchInfo, GitRemote, StatusRow } from '@shared/api/bindings'
 import type { FC } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, File, GitBranch, Loader2, Minus, Plus, RefreshCw, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, File, Loader2, Minus, Plus, RefreshCw, Undo2 } from 'lucide-react'
+import { BranchSwitcher } from '@features/git/branch-switcher'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -46,6 +47,9 @@ export type GitPanelProps = {
     onRevealInExplorer: (path: string) => void
     onSync: () => void
     isSyncing: boolean
+    branches: GitBranchInfo[]
+    onCheckoutBranch: (name: string) => void
+    onCreateBranch: (name: string) => void
     graphCommits: GraphLogEntry[]
 }
 
@@ -73,6 +77,9 @@ export const GitPanel: FC<GitPanelProps> = ({
     onRevealInExplorer,
     onSync,
     isSyncing,
+    branches,
+    onCheckoutBranch,
+    onCreateBranch,
     graphCommits,
 }) => {
     const [discardTargets, setDiscardTargets] = useState<string[] | null>(null)
@@ -107,8 +114,13 @@ export const GitPanel: FC<GitPanelProps> = ({
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
             <div className='border-app-border flex shrink-0 items-center gap-1.5 border-b px-2 py-1.5 text-xs'>
-                <GitBranch className='size-3.5 shrink-0' />
-                <span className='truncate font-medium'>{branch ?? t('git.noRepositoryLabel')}</span>
+                <BranchSwitcher
+                    branches={branches}
+                    currentBranch={branch}
+                    disabled={!branch}
+                    onCheckout={onCheckoutBranch}
+                    onCreate={onCreateBranch}
+                />
                 {hasRemote && ahead > 0 && (
                     <span className='flex items-center gap-0.5'>
                         <ArrowUp className='size-3' />

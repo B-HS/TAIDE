@@ -21,6 +21,13 @@ pub struct SearchQuery {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SearchReplaceResult {
+    pub changed_files: u32,
+    pub replaced_matches: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
     pub path: String,
     pub line: u32,

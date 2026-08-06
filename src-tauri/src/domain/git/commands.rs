@@ -6,7 +6,7 @@ use tauri::{AppHandle, State};
 use tauri_specta::Event;
 
 use super::service;
-use super::types::{BlameLine, CommitOptions, DiffMode, DiffSides, GitRemote, GitStatus, GutterHunk, LogEntry};
+use super::types::{BlameLine, CommitOptions, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk, LogEntry};
 use crate::error::{AppError, AppResult};
 use crate::events::{GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
@@ -250,6 +250,138 @@ pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<
 pub async fn git_current_user(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Option<String>> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
     service::current_user(&repo_root)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_branches(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitBranch>> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::branches(&repo_root)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_branch_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    name: String,
+    checkout: bool,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::branch_create(&repo_root, &name, checkout)?;
+    emit_refs_changed(&app, &project_id);
+    if checkout {
+        emit_status_changed(&app, &project_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_branch_checkout(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    name: String,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::branch_checkout(&repo_root, &name)?;
+    emit_status_changed(&app, &project_id);
+    emit_refs_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_branch_delete(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    name: String,
+    force: bool,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::branch_delete(&repo_root, &name, force)?;
+    emit_refs_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_stash_list(
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<Vec<GitStashEntry>> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::stash_list(&repo_root)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_stash_push(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    message: Option<String>,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::stash_push(&repo_root, message.as_deref())?;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_stash_apply(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    index: u32,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::stash_apply(&repo_root, index)?;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_stash_drop(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId, index: u32) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::stash_drop(&repo_root, index)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_discard_hunk(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    hunk_start: u32,
+    hunk_end: u32,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::discard_hunk(&repo_root, &path, hunk_start, hunk_end))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    emit_status_changed(&app, &project_id);
+    Ok(())
 }
 
 #[tauri::command]

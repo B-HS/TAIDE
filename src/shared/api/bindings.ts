@@ -39,6 +39,7 @@ export const commands = {
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
 	searchRun: (projectId: ProjectId, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, query, onMatch })),
 	searchCancel: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { projectId })),
+	searchReplace: (projectId: ProjectId, query: SearchQuery, replacement: string, paths: string[] | null) => typedError<SearchReplaceResult, AppError>(__TAURI_INVOKE("search_replace", { projectId, query, replacement, paths })),
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
 	agentList: (projectId: ProjectId) => typedError<ProjectAgents, AppError>(__TAURI_INVOKE("agent_list", { projectId })),
@@ -67,6 +68,15 @@ export const commands = {
 	gitPull: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_pull", { projectId })),
 	gitFetch: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_fetch", { projectId })),
 	gitUndoLastCommit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_undo_last_commit", { projectId })),
+	gitBranches: (projectId: ProjectId) => typedError<GitBranch[], AppError>(__TAURI_INVOKE("git_branches", { projectId })),
+	gitBranchCreate: (projectId: ProjectId, name: string, checkout: boolean) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_create", { projectId, name, checkout })),
+	gitBranchCheckout: (projectId: ProjectId, name: string) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_checkout", { projectId, name })),
+	gitBranchDelete: (projectId: ProjectId, name: string, force: boolean) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_delete", { projectId, name, force })),
+	gitStashList: (projectId: ProjectId) => typedError<GitStashEntry[], AppError>(__TAURI_INVOKE("git_stash_list", { projectId })),
+	gitStashPush: (projectId: ProjectId, message: string | null) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_push", { projectId, message })),
+	gitStashApply: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_apply", { projectId, index })),
+	gitStashDrop: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_drop", { projectId, index })),
+	gitDiscardHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_discard_hunk", { projectId, path, hunkStart, hunkEnd })),
 	gitCurrentUser: (projectId: ProjectId) => typedError<string | null, AppError>(__TAURI_INVOKE("git_current_user", { projectId })),
 	ptyDefaultOptions: (projectId: ProjectId) => typedError<PtySpawnOptions, AppError>(__TAURI_INVOKE("pty_default_options", { projectId })),
 	ptyWrite: (sessionId: string, data: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_write", { sessionId, data })),
@@ -210,6 +220,13 @@ export type FsChanged = {
 	change: FsChange,
 };
 
+export type GitBranch = {
+	name: string,
+	isHead: boolean,
+	isRemote: boolean,
+	upstream: string | null,
+};
+
 export type GitChangeKind = "modified" | "added" | "deleted" | "renamed" | "untracked" | "typeChange" | "conflicted";
 
 export type GitRefsChanged = {
@@ -219,6 +236,11 @@ export type GitRefsChanged = {
 export type GitRemote = {
 	name: string,
 	url: string,
+};
+
+export type GitStashEntry = {
+	index: number,
+	message: string,
 };
 
 export type GitStatus = {
@@ -453,6 +475,11 @@ export type SearchQuery = {
 	excludeGlob?: string | null,
 };
 
+export type SearchReplaceResult = {
+	changedFiles: number,
+	replacedMatches: number,
+};
+
 export type Settings = {
 	version: number,
 	themeId?: string,
@@ -466,6 +493,9 @@ export type Settings = {
 	editorFontFamily?: string | null,
 	terminalFontFamily?: string | null,
 	uiFontFamily?: string | null,
+	formatOnSave?: boolean,
+	autoSaveDelayMs?: number,
+	keymapOverrides?: string | null,
 };
 
 export type SettingsPatch = {
@@ -480,6 +510,9 @@ export type SettingsPatch = {
 	editorFontFamily: string | null,
 	terminalFontFamily: string | null,
 	uiFontFamily: string | null,
+	formatOnSave: boolean | null,
+	autoSaveDelayMs: number | null,
+	keymapOverrides: string | null,
 };
 
 export type ShellProfile = {

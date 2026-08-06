@@ -2,8 +2,16 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import type { DiffMode, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import {
+    applyGitStash,
+    checkoutGitBranch,
     commitGit,
+    createGitBranch,
+    deleteGitBranch,
     discardGitPaths,
+    dropGitStash,
+    getGitBranches,
+    getGitStashes,
+    pushGitStash,
     getGitCurrentUser,
     getGitDiffFile,
     getGitGutter,
@@ -86,3 +94,31 @@ export const useCommitGit = (projectId: ProjectId | null) => useGitMutation(proj
 export const usePushGit = (projectId: ProjectId | null) => useGitMutation(projectId, pushGit)
 
 export const usePullGit = (projectId: ProjectId | null) => useGitMutation(projectId, pullGit)
+
+export const gitBranchesQueryOptions = (projectId: ProjectId | null) =>
+    queryOptions({
+        queryKey: QUERY_KEY.GIT.BRANCHES(projectId ?? ''),
+        queryFn: () => getGitBranches(projectId ?? ''),
+        enabled: !!projectId,
+        retry: false,
+    })
+
+export const gitStashesQueryOptions = (projectId: ProjectId | null) =>
+    queryOptions({
+        queryKey: QUERY_KEY.GIT.STASHES(projectId ?? ''),
+        queryFn: () => getGitStashes(projectId ?? ''),
+        enabled: !!projectId,
+        retry: false,
+    })
+
+export const useCreateGitBranch = (projectId: ProjectId | null) => useGitMutation(projectId, createGitBranch)
+
+export const useCheckoutGitBranch = (projectId: ProjectId | null) => useGitMutation(projectId, checkoutGitBranch)
+
+export const useDeleteGitBranch = (projectId: ProjectId | null) => useGitMutation(projectId, deleteGitBranch)
+
+export const usePushGitStash = (projectId: ProjectId | null) => useGitMutation(projectId, pushGitStash)
+
+export const useApplyGitStash = (projectId: ProjectId | null) => useGitMutation(projectId, applyGitStash)
+
+export const useDropGitStash = (projectId: ProjectId | null) => useGitMutation(projectId, dropGitStash)

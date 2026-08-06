@@ -59,15 +59,17 @@ const toMonacoDocumentSymbol = (monaco: Monaco, symbol: DocumentSymbol | SymbolI
     return { name: symbol.name, detail: '', kind: toMonacoKind(monaco, symbol.kind), tags: [], range, selectionRange: range }
 }
 
+export const requestDocumentSymbols = async (monaco: Monaco, client: LspClient, uri: string) => {
+    const result = await client.request<(DocumentSymbol | SymbolInformation)[] | null>('textDocument/documentSymbol', {
+        textDocument: { uri },
+    })
+    return (result ?? []).map((symbol) => toMonacoDocumentSymbol(monaco, symbol))
+}
+
 export const registerDocumentSymbol = (monaco: Monaco, client: LspClient, languageId: string) => {
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.documentSymbolProvider))) return NOOP_DISPOSABLE
 
     return monaco.languages.registerDocumentSymbolProvider(languageId, {
-        provideDocumentSymbols: async (model) => {
-            const result = await client.request<(DocumentSymbol | SymbolInformation)[] | null>('textDocument/documentSymbol', {
-                textDocument: { uri: model.uri.toString() },
-            })
-            return (result ?? []).map((symbol) => toMonacoDocumentSymbol(monaco, symbol))
-        },
+        provideDocumentSymbols: (model) => requestDocumentSymbols(monaco, client, model.uri.toString()),
     })
 }

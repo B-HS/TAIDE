@@ -4,9 +4,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use regex::{Regex, RegexBuilder};
 
 use crate::constants;
+use crate::domain::file::service as file_service;
 use crate::error::{AppError, AppResult};
+use crate::infra::persist;
 
-use super::types::{SearchMatch, SearchQuery, SEARCH_MATCH_LIMIT};
+use super::types::{SearchMatch, SearchQuery, SearchReplaceResult, SEARCH_MATCH_LIMIT};
 
 const BINARY_SNIFF_BYTES: usize = 8_000;
 const PREVIEW_TRUNCATE_THRESHOLD_BYTES: usize = 200;
@@ -281,6 +283,125 @@ pub fn search(root: &Path, query: &SearchQuery, cancelled: &AtomicBool, mut on_m
     Ok(total)
 }
 
+fn collect_project_files(root: &Path, query: &SearchQuery) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let path = entry.path();
+
+            if metadata.is_dir() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !constants::is_ignored_dir(&name) {
+                    stack.push(path);
+                }
+                continue;
+            }
+
+            if metadata.is_file() && passes_glob_filters(root, &path, query) {
+                files.push(path);
+            }
+        }
+    }
+
+    files
+}
+
+fn strip_line_terminator(chunk: &str) -> &str {
+    chunk.strip_suffix("\r\n").or_else(|| chunk.strip_suffix('\n')).unwrap_or(chunk)
+}
+
+fn apply_line_replacements(chunk: &str, matches: &[(u32, u32)], replacement: &str, output: &mut String) {
+    let mut cursor = 0usize;
+
+    for &(start, end) in matches {
+        output.push_str(&chunk[cursor..start as usize]);
+        output.push_str(replacement);
+        cursor = end as usize;
+    }
+
+    output.push_str(&chunk[cursor..]);
+}
+
+fn replace_in_file(path: &Path, query: &SearchQuery, mode: &MatchMode<'_>, replacement: &str) -> Option<u32> {
+    let bytes = std::fs::read(path).ok()?;
+
+    let sniff_len = bytes.len().min(BINARY_SNIFF_BYTES);
+    if is_binary(&bytes[..sniff_len]) {
+        return None;
+    }
+
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let mut output = String::with_capacity(text.len());
+    let mut file_matches = 0u32;
+
+    for chunk in text.split_inclusive('\n') {
+        let line = strip_line_terminator(chunk);
+        let line_matches = matches_for_line(line, query, mode);
+
+        if line_matches.is_empty() {
+            output.push_str(chunk);
+            continue;
+        }
+
+        file_matches += line_matches.len() as u32;
+        apply_line_replacements(chunk, &line_matches, replacement, &mut output);
+    }
+
+    if file_matches == 0 {
+        return None;
+    }
+
+    persist::write_atomic(path, output.as_bytes()).ok()?;
+    Some(file_matches)
+}
+
+pub fn replace(root: &Path, query: &SearchQuery, replacement: &str, paths: Option<&[PathBuf]>) -> AppResult<SearchReplaceResult> {
+    if query.text.is_empty() {
+        return Ok(SearchReplaceResult {
+            changed_files: 0,
+            replaced_matches: 0,
+        });
+    }
+
+    let compiled_regex = if query.regex { Some(compile_regex(query)?) } else { None };
+    let mode = match &compiled_regex {
+        Some(regex) => MatchMode::Regex(regex),
+        None => MatchMode::Literal,
+    };
+
+    let target_files = match paths {
+        Some(explicit) => explicit
+            .iter()
+            .filter_map(|path| file_service::ensure_within_root(root, path).ok())
+            .collect::<Vec<_>>(),
+        None => collect_project_files(root, query),
+    };
+
+    let mut changed_files = 0u32;
+    let mut replaced_matches = 0u32;
+
+    for path in target_files {
+        if let Some(count) = replace_in_file(&path, query, &mode, replacement) {
+            changed_files += 1;
+            replaced_matches += count;
+        }
+    }
+
+    Ok(SearchReplaceResult {
+        changed_files,
+        replaced_matches,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,5 +595,127 @@ mod tests {
 
         assert_eq!(total, 0);
         assert!(results.is_empty());
+    }
+
+    fn replace_temp_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("taide-replace-{label}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn 단순_치환은_모든_일치를_바꾸고_파일에_반영한다() {
+        let root = replace_temp_root("simple");
+        let file = root.join("a.txt");
+        std::fs::write(&file, "needle one\nneedle two\n").unwrap();
+
+        let result = replace(&root, &query("needle"), "found", None).unwrap();
+
+        assert_eq!(result.changed_files, 1);
+        assert_eq!(result.replaced_matches, 2);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "found one\nfound two\n");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 정규식_치환이_동작한다() {
+        let root = replace_temp_root("regex");
+        let file = root.join("a.txt");
+        std::fs::write(&file, "cat1 cat2 dog\n").unwrap();
+
+        let mut q = query("cat[0-9]");
+        q.regex = true;
+        let result = replace(&root, &q, "pet", None).unwrap();
+
+        assert_eq!(result.changed_files, 1);
+        assert_eq!(result.replaced_matches, 2);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "pet pet dog\n");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn case_sensitive_옵션이_치환_대상을_구분한다() {
+        let root = replace_temp_root("case-sensitive");
+        let file = root.join("a.txt");
+        std::fs::write(&file, "Cat cat CAT\n").unwrap();
+
+        let mut q = query("cat");
+        q.case_sensitive = true;
+        let result = replace(&root, &q, "dog", None).unwrap();
+
+        assert_eq!(result.changed_files, 1);
+        assert_eq!(result.replaced_matches, 1);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Cat dog CAT\n");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 일치하는_항목이_없으면_0을_반환하고_파일을_바꾸지_않는다() {
+        let root = replace_temp_root("no-match");
+        let file = root.join("a.txt");
+        std::fs::write(&file, "no match here\n").unwrap();
+
+        let result = replace(&root, &query("needle"), "found", None).unwrap();
+
+        assert_eq!(result.changed_files, 0);
+        assert_eq!(result.replaced_matches, 0);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "no match here\n");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 글롭_필터가_치환_대상_파일을_제한한다() {
+        let root = replace_temp_root("glob");
+        let included = root.join("keep.rs");
+        let excluded = root.join("skip.txt");
+        std::fs::write(&included, "needle\n").unwrap();
+        std::fs::write(&excluded, "needle\n").unwrap();
+
+        let mut q = query("needle");
+        q.include_glob = Some("*.rs".to_string());
+        let result = replace(&root, &q, "found", None).unwrap();
+
+        assert_eq!(result.changed_files, 1);
+        assert_eq!(result.replaced_matches, 1);
+        assert_eq!(std::fs::read_to_string(&included).unwrap(), "found\n");
+        assert_eq!(std::fs::read_to_string(&excluded).unwrap(), "needle\n");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn paths_가_주어지면_해당_파일만_치환한다() {
+        let root = replace_temp_root("explicit-paths");
+        let target = root.join("target.txt");
+        let other = root.join("other.txt");
+        std::fs::write(&target, "needle\n").unwrap();
+        std::fs::write(&other, "needle\n").unwrap();
+
+        let result = replace(&root, &query("needle"), "found", Some(std::slice::from_ref(&target))).unwrap();
+
+        assert_eq!(result.changed_files, 1);
+        assert_eq!(result.replaced_matches, 1);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "found\n");
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "needle\n");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 바이너리_파일은_치환하지_않는다() {
+        let root = replace_temp_root("binary");
+        let file = root.join("binary.bin");
+        std::fs::write(&file, [0x00u8, 0x01, b'n', b'e', b'e', b'd', b'l', b'e']).unwrap();
+
+        let result = replace(&root, &query("needle"), "found", None).unwrap();
+
+        assert_eq!(result.changed_files, 0);
+        assert_eq!(result.replaced_matches, 0);
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -31,3 +31,23 @@ export const pushGit = (projectId: ProjectId) => unwrapResult(commands.gitPush(p
 export const pullGit = (projectId: ProjectId) => unwrapResult(commands.gitPull(projectId))
 
 export const getGitCurrentUser = (projectId: ProjectId) => unwrapResult(commands.gitCurrentUser(projectId))
+
+export const getGitBranches = (projectId: ProjectId) => unwrapResult(commands.gitBranches(projectId))
+
+export const createGitBranch = (input: { projectId: ProjectId; name: string; checkout: boolean }) =>
+    unwrapResult(commands.gitBranchCreate(input.projectId, input.name, input.checkout))
+
+export const checkoutGitBranch = (input: { projectId: ProjectId; name: string }) =>
+    unwrapResult(commands.gitBranchCheckout(input.projectId, input.name))
+
+export const deleteGitBranch = (input: { projectId: ProjectId; name: string; force: boolean }) =>
+    unwrapResult(commands.gitBranchDelete(input.projectId, input.name, input.force))
+
+export const getGitStashes = (projectId: ProjectId) => unwrapResult(commands.gitStashList(projectId))
+
+export const pushGitStash = (input: { projectId: ProjectId; message: string | null }) =>
+    unwrapResult(commands.gitStashPush(input.projectId, input.message))
+
+export const applyGitStash = (input: { projectId: ProjectId; index: number }) => unwrapResult(commands.gitStashApply(input.projectId, input.index))
+
+export const dropGitStash = (input: { projectId: ProjectId; index: number }) => unwrapResult(commands.gitStashDrop(input.projectId, input.index))

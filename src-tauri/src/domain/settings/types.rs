@@ -35,6 +35,12 @@ pub struct Settings {
     pub terminal_font_family: Option<String>,
     #[serde(default)]
     pub ui_font_family: Option<String>,
+    #[serde(default)]
+    pub format_on_save: bool,
+    #[serde(default)]
+    pub auto_save_delay_ms: u32,
+    #[serde(default)]
+    pub keymap_overrides: Option<String>,
 }
 
 fn default_theme_id() -> String {
@@ -76,6 +82,9 @@ impl Default for Settings {
             editor_font_family: None,
             terminal_font_family: None,
             ui_font_family: None,
+            format_on_save: false,
+            auto_save_delay_ms: 0,
+            keymap_overrides: None,
         }
     }
 }

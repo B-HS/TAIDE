@@ -5,28 +5,19 @@ import { File, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
 import { DEFAULT_COMMANDS, isCommandRunnable, listRegisteredCommands, parsePaletteQuery, registerCommands } from '@shared/lib/command-registry'
-import type { KeymapEntry } from '@shared/lib/keymap'
-import { APP_KEYMAP } from '@shared/lib/keymap'
+import { APP_KEYMAP, applyKeymapOverrides, formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
-import { IS_MAC } from '@shared/constants/platform'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 
 registerCommands(DEFAULT_COMMANDS)
 
 const FILE_RESULT_LIMIT = 200
-
-const keymapShortcutLabel = (entry: KeymapEntry) => {
-    const modLabel = entry.mods.includes('mod') ? (IS_MAC ? '⌘' : 'Ctrl') : ''
-    const otherLabels = entry.mods.filter((mod) => mod !== 'mod').map((mod) => (mod === 'shift' ? '⇧' : mod === 'alt' ? '⌥' : 'Ctrl'))
-    return [...otherLabels, modLabel, entry.key.toUpperCase()].filter(Boolean).join('')
-}
-
-const findKeymapEntry = (keymapId: AppCommand['keymapId']) => APP_KEYMAP.find((entry) => entry.id === keymapId) ?? null
 
 export const CommandPalette = () => {
     const [open, setOpen] = useState(false)
@@ -34,10 +25,14 @@ export const CommandPalette = () => {
 
     const { t } = useTranslation()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { mode, searchTerm } = parsePaletteQuery(query)
     const { data: treePage } = useQuery({ ...treeRowsQueryOptions(activeProjectId), enabled: open && mode === 'files' && !!activeProjectId })
     const { mutate: openTab } = useOpenTab(activeProjectId)
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
+
+    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
+    const findKeymapEntry = (keymapId: AppCommand['keymapId']) => keymapEntries.find((entry) => entry.id === keymapId) ?? null
 
     const handleOpenChange = (next: boolean) => {
         setOpen(next)
@@ -65,18 +60,21 @@ export const CommandPalette = () => {
         reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(error.message) })
     }
 
-    useGlobalKeymap({
-        'quick-open': () => {
-            setQuery('')
-            setOpen(true)
+    useGlobalKeymap(
+        {
+            'quick-open': () => {
+                setQuery('')
+                setOpen(true)
+            },
+            'command-palette': () => {
+                setQuery('>')
+                setOpen(true)
+            },
+            'new-terminal': openTerminalTab,
+            'reopen-closed-tab': reopenClosedTab,
         },
-        'command-palette': () => {
-            setQuery('>')
-            setOpen(true)
-        },
-        'new-terminal': openTerminalTab,
-        'reopen-closed-tab': reopenClosedTab,
-    })
+        keymapEntries,
+    )
 
     const commandContext: CommandContext = {
         activeProjectId,
@@ -129,7 +127,7 @@ export const CommandPalette = () => {
                                         <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
                                             <Terminal className='size-4' />
                                             <span>{t(item.titleKey)}</span>
-                                            {keymapEntry && <CommandShortcut>{keymapShortcutLabel(keymapEntry)}</CommandShortcut>}
+                                            {keymapEntry && <CommandShortcut>{formatKeymapShortcut(keymapEntry)}</CommandShortcut>}
                                         </CommandItem>
                                     )
                                 })}

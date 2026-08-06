@@ -33,6 +33,8 @@ export const QUERY_KEY = {
         DIFF: (projectId: ProjectId, path: string, mode: DiffMode) => ['git', projectId, 'diff', path, mode] as const,
         GUTTER: (projectId: ProjectId, path: string) => ['git', projectId, 'gutter', path] as const,
         CURRENT_USER: (projectId: ProjectId) => ['git', projectId, 'current-user'] as const,
+        BRANCHES: (projectId: ProjectId) => ['git', projectId, 'branches'] as const,
+        STASHES: (projectId: ProjectId) => ['git', projectId, 'stashes'] as const,
     },
     LSP: {
         ALL: ['lsp'] as const,

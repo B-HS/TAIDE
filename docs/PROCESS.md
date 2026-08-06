@@ -572,3 +572,33 @@ CJK 입력 끊김은 P1 적용본으로 재확인 대기.
 - HTML iframe 이 blob URL 을 여는데 **CSP 에 `frame-src` 가 없었다** — 추가
 
 **남은 것**: LibreOffice 폴백(Rust 커맨드 필요), 실제 파일로 각 미리보기 렌더 확인(눈으로 검증 필요)
+
+### Phase 7.6 IDE 핵심 루프 — 구현 (2026-08-06)
+
+**메인이 확정한 계약**: `GitBranch` / `GitStashEntry` / `SearchReplaceResult` 타입,
+Rust 커맨드 10종 `lib.rs` 등록 + bindings 재생성.
+
+**Rust**
+- [x] git 브랜치·stash·hunk — `CheckoutBuilder::safe()` 로 커밋 안 된 변경을 덮어쓰지 않고,
+      충돌 시 명확한 에러로 떨어뜨린다. `branch_delete` 는 현재 브랜치 거부 + force 없으면 미머지 거부.
+      `discard_hunk` 는 `gutter()` 와 **같은 diff 옵션·같은 hunk 경계 계산**을 공유하도록
+      헬퍼를 추출해, 프론트가 받은 좌표와 어긋날 수 없게 했다. 테스트 17건
+- [x] `search_replace` — 매칭 로직을 `search()` 와 공유(규칙이 갈리면 안 된다),
+      `persist::write_atomic` 로 원자적 쓰기, 바이너리·비UTF8 skip, 줄 종결자(LF/CRLF) 보존.
+      실패해도 실제 변경분을 정확히 반환. 테스트 7건
+
+**프론트**
+- [x] `⌘F` 스마트 분기 — 에디터 포커스면 Monaco find, 아니면 전역 검색.
+      `⇧⌘F`(전역)는 문서화된 값이라 건드리지 않고 `find` 액션을 신설
+- [x] 전역 치환 UI — 파일 단위 선택 + 확인 다이얼로그(되돌릴 수 없으므로 필수)
+- [x] Problems 패널 / 아웃라인 패널 / 키맵 오버라이드 UI / 저장 시 포맷·자동 저장
+- [x] 마크다운 미리보기 / 터미널 다중 세션 / 최근 프로젝트 / 드래그&드롭
+
+**메인이 직접 채운 것**
+- **워크플로 설계 누락**: git 브랜치 UI 를 프론트 작업에 배정하지 않아 Rust 만 만들어졌다.
+  `BranchSwitcher`(popover + cmdk 검색, 로컬/원격 그룹, 없는 이름이면 생성 제안)를 직접 만들고
+  git 패널 헤더의 브랜치 이름을 이것으로 교체
+- 전역 치환이 `replaceNotWired` toast 로 막혀 있던 것을 실제 커맨드에 배선
+- i18n 키 11종 추가(3언어) — 키 목록 배열에도 등록해야 파리티 테스트를 통과한다
+
+**남은 것**: git stash UI, hunk 되돌리기 UI(커맨드·훅은 준비됨), 그리고 **전 기능 시각 확인**

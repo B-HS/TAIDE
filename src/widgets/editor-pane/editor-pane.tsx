@@ -2,13 +2,18 @@ import type { FC } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Columns2 } from 'lucide-react'
+import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
+import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
+import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { fileQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
@@ -16,12 +21,20 @@ import { getGitBlameRange } from '@entities/git/git.ipc'
 import { gitCurrentUserQueryOptions, gitGutterQueryOptions } from '@entities/git/git.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { applyExternalContent } from '@entities/editor/model-registry'
+import { consumePendingReveal } from '@entities/editor/reveal-registry'
 import { CodeEditor } from '@features/editor/code-editor'
 import { ConflictBanner } from '@features/editor/conflict-banner'
+import { MarkdownPreview } from '@features/editor/markdown-preview'
+import { PaneSeparator } from '@features/split/pane-separator'
 import { useLspSession } from '@widgets/editor-pane/use-lsp-session'
 
 const DIRTY_MIRROR_DEBOUNCE_MS = 1_500
 const BLAME_DEBOUNCE_MS = 300
+const MARKDOWN_PREVIEW_DEBOUNCE_MS = 200
+const MARKDOWN_LANGUAGE_ID = 'markdown'
+const FORMAT_DOCUMENT_ACTION_ID = 'editor.action.formatDocument'
+const TOGGLE_PREVIEW_BUTTON_CLASS =
+    'text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'
 
 const GUTTER_CLASS_BY_HUNK_KIND: Record<HunkKind, string> = {
     added: 'taide-gutter-added',
@@ -39,6 +52,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const draftRef = useRef<string | null>(null)
     const mirrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+    const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+    const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameRequestSeqRef = useRef(0)
 
     const [syncedPath, setSyncedPath] = useState(path)
@@ -47,6 +62,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
     const [cursorLine, setCursorLine] = useState<number | null>(null)
     const [blameLine, setBlameLine] = useState<BlameLine | null>(null)
+    const [showMarkdownPreview, setShowMarkdownPreview] = useState(false)
+    const [previewSource, setPreviewSource] = useState<string | null>(null)
 
     const { t } = useTranslation()
     const queryClient = useQueryClient()
@@ -60,15 +77,18 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     if (path !== syncedPath) {
         setSyncedPath(path)
         setSyncedContent(null)
+        setPreviewSource(null)
         setDirty(false)
         setBlameLine(null)
     } else if (file && syncedContent === null) {
         setSyncedContent(file.content)
     } else if (file && !dirty && syncedContent !== null && file.content !== syncedContent) {
         setSyncedContent(file.content)
+        setPreviewSource(null)
     }
 
     const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
+    const isMarkdown = file?.languageId === MARKDOWN_LANGUAGE_ID
 
     const handleChange = (value: string) => {
         draftRef.current = value
@@ -81,14 +101,36 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         mirrorTimeoutRef.current = setTimeout(() => {
             void mirrorDirty({ projectId, path, content: value }).catch(() => undefined)
         }, DIRTY_MIRROR_DEBOUNCE_MS)
+
+        const autoSaveDelayMs = settings?.autoSaveDelayMs ?? 0
+        clearTimeout(autoSaveTimeoutRef.current)
+        if (autoSaveDelayMs > 0) {
+            autoSaveTimeoutRef.current = setTimeout(() => {
+                void handleSave()
+            }, autoSaveDelayMs)
+        }
+
+        if (!isMarkdown) return
+        clearTimeout(previewTimeoutRef.current)
+        previewTimeoutRef.current = setTimeout(() => setPreviewSource(value), MARKDOWN_PREVIEW_DEBOUNCE_MS)
     }
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const content = draftRef.current
         if (content === null) return
 
+        clearTimeout(autoSaveTimeoutRef.current)
+
+        if (settings?.formatOnSave) {
+            const formatAction = editor?.getAction(FORMAT_DOCUMENT_ACTION_ID)
+            if (formatAction) await formatAction.run().catch(() => undefined)
+        }
+
+        const finalContent = draftRef.current
+        if (finalContent === null) return
+
         saveFile(
-            { path, content },
+            { path, content: finalContent },
             {
                 onSuccess: () => {
                     clearTimeout(mirrorTimeoutRef.current)
@@ -106,6 +148,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
         draftRef.current = file.content
         setSyncedContent(file.content)
+        setPreviewSource(null)
         setDirty(false)
         setTabDirty({ tabId, dirty: false })
     }
@@ -128,10 +171,19 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     useEffect(() => () => clearTimeout(mirrorTimeoutRef.current), [])
 
+    useEffect(() => () => clearTimeout(autoSaveTimeoutRef.current), [])
+
+    useEffect(() => () => clearTimeout(previewTimeoutRef.current), [])
+
     useEffect(() => {
         if (!editor || syncedContent === null || dirty) return
         applyExternalContent(path, syncedContent, editor)
     }, [editor, syncedContent, dirty, path])
+
+    useEffect(() => {
+        if (!editor) return
+        consumePendingReveal(path, editor)
+    }, [editor, path])
 
     useEffect(() => {
         if (!editor) return
@@ -202,25 +254,58 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         )
     }
 
+    const codeEditor = (
+        <CodeEditor
+            path={file.path}
+            language={file.languageId}
+            value={file.content}
+            readOnly={file.readOnly}
+            largeFile={file.tier === 'large' || file.tier === 'readOnly'}
+            fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
+            fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
+            onChange={handleChange}
+            onSave={handleSave}
+            onCursorLineChange={setCursorLine}
+            onEditorMount={setEditor}
+        />
+    )
+
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
             {file.readOnly && (
                 <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
             )}
             {conflict && <ConflictBanner onViewDisk={handleViewDisk} onKeepMine={handleKeepMine} />}
-            <CodeEditor
-                path={file.path}
-                language={file.languageId}
-                value={file.content}
-                readOnly={file.readOnly}
-                largeFile={file.tier === 'large' || file.tier === 'readOnly'}
-                fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
-                fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
-                onChange={handleChange}
-                onSave={handleSave}
-                onCursorLineChange={setCursorLine}
-                onEditorMount={setEditor}
-            />
+            {isMarkdown && (
+                <div className='border-app-border flex h-8 shrink-0 items-center justify-end border-b px-2'>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type='button'
+                                aria-pressed={showMarkdownPreview}
+                                aria-label={t('editor.toggleMarkdownPreview')}
+                                onClick={() => setShowMarkdownPreview((previous) => !previous)}
+                                className={TOGGLE_PREVIEW_BUTTON_CLASS}>
+                                <Columns2 className='size-4' />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side='bottom'>{t('editor.toggleMarkdownPreview')}</TooltipContent>
+                    </Tooltip>
+                </div>
+            )}
+            {isMarkdown && showMarkdownPreview ? (
+                <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1'>
+                    <Panel id={`${tabId}-editor`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
+                        {codeEditor}
+                    </Panel>
+                    <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
+                    <Panel id={`${tabId}-preview`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
+                        <MarkdownPreview html={renderMarkdownToSafeHtml(previewSource ?? syncedContent ?? file.content)} />
+                    </Panel>
+                </Group>
+            ) : (
+                codeEditor
+            )}
         </div>
     )
 }

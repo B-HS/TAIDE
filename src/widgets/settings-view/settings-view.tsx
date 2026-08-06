@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { fontListQueryOptions } from '@entities/font/font.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
@@ -9,6 +10,7 @@ import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { localeListQueryOptions } from '@entities/locale/locale.query'
 import { FontPicker } from '@features/settings/font-picker'
+import { KeymapList } from '@features/settings/keymap-list'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { PluginSectionPlaceholder } from '@features/settings/plugin-section-placeholder'
@@ -16,6 +18,8 @@ import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
+import type { KeymapActionId, KeymapModifier } from '@shared/lib/keymap'
+import { APP_KEYMAP, applyKeymapOverrides, findKeymapConflict, parseKeymapOverrides, serializeKeymapOverrides } from '@shared/lib/keymap'
 import { SettingsToc } from '@features/settings/settings-toc'
 import { ShellProfileList } from '@features/settings/shell-profile-list'
 import { TextField } from '@features/settings/text-field'
@@ -30,6 +34,9 @@ import { Button } from '@shared/ui/button'
 const MIN_FONT_SIZE = 8
 const MAX_FONT_SIZE = 32
 const DEFAULT_FONT_SIZE = 13
+const MIN_AUTO_SAVE_DELAY_MS = 0
+const MAX_AUTO_SAVE_DELAY_MS = 60_000
+const DEFAULT_AUTO_SAVE_DELAY_MS = 0
 
 type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
 
@@ -39,6 +46,7 @@ const SETTINGS_SECTION_ID = {
     INTERFACE: 'settings-section-interface',
     EDITOR: 'settings-section-editor',
     TERMINAL: 'settings-section-terminal',
+    KEYMAP: 'settings-section-keymap',
     LSP: 'settings-section-lsp',
     PLUGINS: 'settings-section-plugins',
 } as const
@@ -49,6 +57,7 @@ const SETTINGS_TOC_ITEMS = [
     { id: SETTINGS_SECTION_ID.INTERFACE, labelKey: 'settings.interface' },
     { id: SETTINGS_SECTION_ID.EDITOR, labelKey: 'settings.editor' },
     { id: SETTINGS_SECTION_ID.TERMINAL, labelKey: 'settings.terminal' },
+    { id: SETTINGS_SECTION_ID.KEYMAP, labelKey: 'settings.keymap' },
     { id: SETTINGS_SECTION_ID.LSP, labelKey: 'settings.lspStatus' },
     { id: SETTINGS_SECTION_ID.PLUGINS, labelKey: 'settings.plugins' },
 ]
@@ -74,6 +83,19 @@ export const SettingsView = () => {
     }
 
     if (isSettingsPending || !settings) return <div className='bg-panel-background h-full w-full' />
+
+    const keymapOverrides = parseKeymapOverrides(settings.keymapOverrides ?? null)
+    const effectiveKeymapEntries = applyKeymapOverrides(APP_KEYMAP, keymapOverrides)
+
+    const handleKeymapChange = (actionId: KeymapActionId, key: string, mods: KeymapModifier[]) => {
+        const conflict = findKeymapConflict(effectiveKeymapEntries, { key, mods }, actionId)
+        if (conflict) toast.warning(t('settings.keymapConflictWarning', { action: t(conflict.descriptionKey) }))
+
+        const nextOverrides = [...keymapOverrides.filter((override) => override.actionId !== actionId), { actionId, key, mods }]
+        updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides(nextOverrides) })
+    }
+
+    const handleKeymapResetAll = () => updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides([]) })
 
     if (themeEditorState)
         return (
@@ -190,6 +212,23 @@ export const SettingsView = () => {
                                     onSelect={(editorFontFamily) => updateSettings({ ...emptySettingsPatch(), editorFontFamily })}
                                 />
                             )}
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='text-app-foreground'>{t('settings.formatOnSave')}</span>
+                                <Switch
+                                    checked={settings.formatOnSave ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), formatOnSave: checked })}
+                                />
+                            </label>
+                            <div className='flex flex-col gap-1'>
+                                <NumericField
+                                    label={t('settings.autoSaveDelayMs')}
+                                    value={settings.autoSaveDelayMs ?? DEFAULT_AUTO_SAVE_DELAY_MS}
+                                    min={MIN_AUTO_SAVE_DELAY_MS}
+                                    max={MAX_AUTO_SAVE_DELAY_MS}
+                                    onCommit={(value) => updateSettings({ ...emptySettingsPatch(), autoSaveDelayMs: value })}
+                                />
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.autoSaveDelayHint')}</span>
+                            </div>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.TERMINAL} title={t('settings.terminal')}>
@@ -225,6 +264,19 @@ export const SettingsView = () => {
                                     onSelect={(path) => updateSettings({ ...emptySettingsPatch(), shellOverride: path })}
                                 />
                             )}
+                        </SettingsSection>
+
+                        <SettingsSection id={SETTINGS_SECTION_ID.KEYMAP} title={t('settings.keymap')} description={t('settings.keymapDescription')}>
+                            <div className='flex items-center justify-end'>
+                                <Button type='button' variant='outline' size='xs' onClick={handleKeymapResetAll}>
+                                    {t('settings.keymapReset')}
+                                </Button>
+                            </div>
+                            <KeymapList
+                                entries={effectiveKeymapEntries}
+                                overriddenActionIds={keymapOverrides.map((override) => override.actionId)}
+                                onChangeBinding={handleKeymapChange}
+                            />
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.LSP} title={t('settings.lspStatus')} description={t('settings.lspDescription')}>

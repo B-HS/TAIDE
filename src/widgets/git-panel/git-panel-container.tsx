@@ -6,10 +6,13 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import {
+    gitBranchesQueryOptions,
     gitLogQueryOptions,
     gitRemotesQueryOptions,
     gitStatusQueryOptions,
+    useCheckoutGitBranch,
     useCommitGit,
+    useCreateGitBranch,
     useDiscardGitPaths,
     usePullGit,
     usePushGit,
@@ -41,6 +44,21 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const { mutate: push, isPending: isPushing } = usePushGit(projectId)
     const { mutate: pull, isPending: isPulling } = usePullGit(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
+    const { data: branches = [] } = useQuery(gitBranchesQueryOptions(projectId))
+    const { mutate: checkoutBranch } = useCheckoutGitBranch(projectId)
+    const { mutate: createBranch } = useCreateGitBranch(projectId)
+
+    const handleCheckoutBranch = (name: string) =>
+        checkoutBranch(
+            { projectId, name },
+            { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(error.message) },
+        )
+
+    const handleCreateBranch = (name: string) =>
+        createBranch(
+            { projectId, name, checkout: true },
+            { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(error.message) },
+        )
 
     const notifyError = (error: Error) => toast.error(error.message)
 
@@ -91,6 +109,9 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onCopyPath={(path) => void navigator.clipboard.writeText(path)}
             onRevealInExplorer={(path) => void openPath(path).catch(notifyError)}
             onSync={handleSync}
+            branches={branches}
+            onCheckoutBranch={handleCheckoutBranch}
+            onCreateBranch={handleCreateBranch}
             isSyncing={isPushing || isPulling}
             graphCommits={log}
         />

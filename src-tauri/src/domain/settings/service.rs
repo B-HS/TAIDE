@@ -21,6 +21,9 @@ pub struct SettingsPatch {
     pub editor_font_family: Option<String>,
     pub terminal_font_family: Option<String>,
     pub ui_font_family: Option<String>,
+    pub format_on_save: Option<bool>,
+    pub auto_save_delay_ms: Option<u32>,
+    pub keymap_overrides: Option<String>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -60,6 +63,9 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         editor_font_family: patch.editor_font_family.clone().or_else(|| settings.editor_font_family.clone()),
         terminal_font_family: patch.terminal_font_family.clone().or_else(|| settings.terminal_font_family.clone()),
         ui_font_family: patch.ui_font_family.clone().or_else(|| settings.ui_font_family.clone()),
+        format_on_save: patch.format_on_save.unwrap_or(settings.format_on_save),
+        auto_save_delay_ms: patch.auto_save_delay_ms.unwrap_or(settings.auto_save_delay_ms),
+        keymap_overrides: patch.keymap_overrides.clone().or_else(|| settings.keymap_overrides.clone()),
     }
 }
 
@@ -116,6 +122,34 @@ mod tests {
 
         assert_eq!(updated.theme_id, "taide-light");
         assert!(updated.follow_system_theme);
+    }
+
+    #[test]
+    fn patch로_저장시_포맷과_자동저장_지연을_설정한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            format_on_save: Some(true),
+            auto_save_delay_ms: Some(1_500),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.format_on_save);
+        assert_eq!(updated.auto_save_delay_ms, 1_500);
+    }
+
+    #[test]
+    fn patch로_키맵_오버라이드_json을_설정한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            keymap_overrides: Some("[]".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.keymap_overrides, Some("[]".to_string()));
     }
 
     #[test]

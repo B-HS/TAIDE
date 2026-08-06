@@ -8,7 +8,7 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use super::service;
-use super::types::{SearchMatch, SearchQuery};
+use super::types::{SearchMatch, SearchQuery, SearchReplaceResult};
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
 use crate::state::AppState;
@@ -67,6 +67,23 @@ pub async fn search_run(
     .map_err(|error| AppError::Internal(format!("search task failed: {error}")))?;
 
     join_result
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn search_replace(
+    state: State<'_, AppState>,
+    project_id: ProjectId,
+    query: SearchQuery,
+    replacement: String,
+    paths: Option<Vec<String>>,
+) -> AppResult<SearchReplaceResult> {
+    let root = project_root(&state, &project_id)?;
+    let target_paths = paths.map(|list| list.into_iter().map(PathBuf::from).collect::<Vec<_>>());
+
+    tokio::task::spawn_blocking(move || service::replace(&root, &query, &replacement, target_paths.as_deref()))
+        .await
+        .map_err(|error| AppError::Internal(format!("replace task failed: {error}")))?
 }
 
 #[tauri::command]

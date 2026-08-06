@@ -10,3 +10,6 @@ export const runSearch = (input: { projectId: ProjectId; query: SearchQuery; onM
 }
 
 export const cancelSearch = (projectId: ProjectId) => unwrapResult(commands.searchCancel(projectId))
+
+export const replaceSearch = (input: { projectId: ProjectId; query: SearchQuery; replacement: string; paths: string[] | null }) =>
+    unwrapResult(commands.searchReplace(input.projectId, input.query, input.replacement, input.paths))

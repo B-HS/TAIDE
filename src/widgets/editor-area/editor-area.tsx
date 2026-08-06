@@ -5,8 +5,12 @@ import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useQuery } from '@tanstack/react-query'
 import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
 import { layoutQueryOptions, useCloseTab, useMoveTab, useSplitPane } from '@entities/layout/layout.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
+import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
+import { monaco } from '@shared/lib/monaco/setup'
 import { findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
+import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
@@ -36,6 +40,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
     const [overTarget, setOverTarget] = useState<{ paneId: PaneId; edge: DropEdge } | null>(null)
 
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: moveTab } = useMoveTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
     const { mutate: closeTab } = useCloseTab(projectId)
@@ -47,7 +52,18 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
         closeTab(leaf.active)
     }
 
-    useGlobalKeymap({ 'close-tab': closeFocusedTab })
+    const openFind = () => {
+        const focusedEditor = monaco.editor.getEditors().find((instance) => instance.hasTextFocus())
+        if (focusedEditor) {
+            focusedEditor.getAction('actions.find')?.run()
+            return
+        }
+        requestOpenSearchPanel()
+    }
+
+    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
+
+    useGlobalKeymap({ 'close-tab': closeFocusedTab, find: openFind }, keymapEntries)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 

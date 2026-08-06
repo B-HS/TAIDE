@@ -38,8 +38,16 @@ export type SessionRecord = {
 }
 
 const sessionsByKey = new Map<string, SessionRecord>()
+const waitersByKey = new Map<string, Set<() => void>>()
 
 const toSessionKey = (projectId: ProjectId, serverId: LspServerId) => `${projectId}::${serverId}`
+
+const notifyWaiters = (key: string) => {
+    const waiters = waitersByKey.get(key)
+    if (!waiters) return
+    waitersByKey.delete(key)
+    waiters.forEach((waiter) => waiter())
+}
 
 const toWorkspaceFolderName = (root: string) => root.split('/').filter(Boolean).at(-1) ?? root
 
@@ -130,7 +138,26 @@ export const acquireLspSession = (projectId: ProjectId, serverId: LspServerId, r
     }
     void record.ready.catch(() => sessionsByKey.delete(key))
     sessionsByKey.set(key, record)
+    notifyWaiters(key)
     return { key, record }
+}
+
+export const peekLspSession = (projectId: ProjectId, serverId: LspServerId) => sessionsByKey.get(toSessionKey(projectId, serverId)) ?? null
+
+export const waitForLspSession = (projectId: ProjectId, serverId: LspServerId) => {
+    const key = toSessionKey(projectId, serverId)
+    const existing = sessionsByKey.get(key)
+    if (existing) return { promise: Promise.resolve<SessionRecord | null>(existing), cancel: () => {} }
+
+    let waiter: () => void = () => {}
+    const promise = new Promise<SessionRecord | null>((resolve) => {
+        waiter = () => resolve(sessionsByKey.get(key) ?? null)
+        const waiters = waitersByKey.get(key) ?? new Set()
+        waiters.add(waiter)
+        waitersByKey.set(key, waiters)
+    })
+    const cancel = () => waitersByKey.get(key)?.delete(waiter)
+    return { promise, cancel }
 }
 
 export const releaseLspSession = (key: string, record: SessionRecord) => {
