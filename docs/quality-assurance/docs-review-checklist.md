@@ -33,7 +33,12 @@
 
 ## 4. 구현 시 실측 검증 필요 (research "미확인" 승계 — 중요한 것만)
 
-- [ ] Vite 8 에서 monaco 0.56 `?worker` + subpath exports 실동작 (실패 시 optimizeDeps.exclude 우선)
+- [x] Vite 8 에서 monaco 0.56 `?worker` + subpath exports **실동작 확인**(2026-08-06) —
+  `worker: { format: 'es' }` + `optimizeDeps.exclude: ['monaco-editor']` 조합으로 빌드 시
+  editor/ts/json/css/html worker 5종이 **개별 청크로 분리 생성**됨. 경로는 `esm/vs` 접두 없이
+  `monaco-editor/editor/editor.worker.js?worker` (0.56 exports 맵 `"./*.js": "./esm/vs/*.js"` 기준).
+  **함정**: `setup.ts` 를 아무도 import 하지 않으면 통째로 tree-shake 되어 `MonacoEnvironment` 가
+  설정되지 않는다 → monaco 접근을 전부 `setup.ts` 의 재export 경유로 라우팅해야 한다.
 - [ ] `typescript.setModeConfiguration` 전체 시그니처 (내장 TS 기능 끄기)
 - [ ] Tauri 커스텀 프로토콜에서 module worker + CSP 조합
 - [ ] Claude Code ctrl+g 의 에디터 결정 우선순위(#18990 open) — EDITOR 환경변수 기준으로만 설계
@@ -42,6 +47,23 @@
 - [ ] basedpyright wheel 의 Node 런타임 동봉 여부 / marksman macOS universal2 여부
 - [ ] Monaco 대형 파일 임계값이 0.56 번들에 그대로인지 (자체 측정으로 정책 확정)
 - [ ] shadcn `add` 재실행 시 로컬 수정 덮어씀 — vendored 파일 수정 후 재실행 금지 규칙 준수
+
+## 4.1 Phase 0~1 에서 실측으로 해소한 항목 (2026-08-06)
+
+- [x] **React Compiler 실제 적용** — 빌드 산출물에 `useMemoCache` ×7 / `compiler-runtime` ×3 확인.
+  (minify 빌드에서는 문자열이 사라지므로 `TAURI_ENV_DEBUG=1` 빌드로 확인해야 한다.)
+  Babel 경유 비용은 90모듈 기준 **+0.1s** (1.60s vs 1.48s, 각 3회 측정).
+- [x] **react-resizable-panels v4 API 확정** (`.d.ts` 직접 확인) — `Group`/`Panel`/`Separator`,
+  `Layout = { [panelId: string]: number }`(flexGrow), `onLayoutChanged(layout, meta)` 는
+  **포인터 릴리즈 후에만** 호출되고 `meta.isUserInteraction` 으로 사용자 조작 여부를 구분한다.
+  → `tabs.md` §5 의 "드래그 종료 시 1회 `layout_resize`" 요구를 그대로 만족한다.
+- [x] **Tauri `devCsp` 존재 확인** — dev 는 Vite 가 **인라인 module script** 를 주입하므로
+  `script-src 'self'` 만으로는 막힌다. prod CSP 는 조인 채로 두고 dev 만 `'unsafe-inline'` + ws 허용.
+- [x] **Vite 8 은 esbuild 를 번들하지 않는다** — Tauri 템플릿의 `minify: 'esbuild'` 는 빌드 실패.
+  `'oxc'` 로 교체.
+- [x] **shadcn `resizable` 은 사용 불가** — 구 `PanelGroup` API 기반이라 v4 와 불일치. 직접 사용한다.
+- [ ] `tauri_runtime_wry` 가 기동 시 1회 남기는 `web content process terminated` 는 wry 가 웹뷰를
+  재생성하며 복구한다(크래시 리포트 없음, IPC 왕복 정상). 재발·악화 시 재조사.
 
 ## 5. 요구사항 커버리지 (PRD FR ↔ features 문서)
 
@@ -62,3 +84,13 @@
 - [x] 이모지·박스 다이어그램 없음(디렉토리 트리·화살표 텍스트는 컨벤션 문서 자체가 쓰는 형식)
 - [x] FSD 배치 규칙 반영(architecture §5, 각 feature 문서), 코드 스니펫은 arrow function·타입 유도
 - [x] 결정·합의는 acknowledge, 상태는 PROCESS.md, 검증은 quality-assurance 로 분류(ai-process §9)
+
+## 4.2 Phase 2 에서 실측으로 확인한 항목 (2026-08-06)
+
+- [x] **@tanstack/react-virtual 는 React Compiler 와 비호환** — `eslint-plugin-react-hooks@7` 이
+  `Compilation Skipped: Use of incompatible library` 경고를 내고 해당 컴포넌트만 컴파일을 건너뛴다.
+  버그가 아니라 컴파일러가 안전하게 bail 한 것이며, 그 컴포넌트는 일반 React 시맨틱으로 동작한다.
+  (research/react-frontend-stack.md §7 의 "Compiler 호환 미확인" 항목에 대한 답)
+  → 가상 스크롤 컴포넌트는 수동 최적화 여지를 남겨두되, 현재 규모에선 조치 불필요.
+- [x] **notify-debouncer-full 0.7 의 `Drop`** 이 감시를 자동 중단한다 — `WatcherHandle` 이
+  debouncer 를 소유하므로 프로젝트 닫기 시 핸들을 map 에서 제거하는 것만으로 감시가 끊긴다.

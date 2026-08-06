@@ -106,3 +106,90 @@
 | 1차 | 2차 |
 |-----|-----|
 | pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기·파일 링크(cmd+click)·검색·복사/붙여넣기·셸 프로필 열거 | OSC 133 블록 UX·OSC7 cwd 추적 고도화·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기 |
+
+
+## 12. Phase 7.5 재평가 결과 (2026-08-06) — **xterm 유지, 우리 코드가 원인**
+
+정본: `docs/research/terminal-reevaluation.md`.
+
+### 12.1 결론: xterm.js 를 계속 쓴다
+
+- Tauri 웹뷰에 임베드 가능한 성숙 라이브러리는 **xterm.js 가 사실상 유일**하다.
+  Ghostty·WezTerm·Alacritty·Rio 는 전부 네이티브라 웹뷰 임베드 불가.
+- **VS Code 도 같은 xterm.js 를 쓴다** — VS Code `main` 의 `package.json` 실측:
+  `@xterm/xterm@^6.1.0-beta.292`. "VS Code 는 어떻게 했나"의 답은
+  **"같은 라이브러리 + 다른 주변 파이프라인"** 이다.
+- 유일한 후보 `@wterm/ghostty`(libghostty-vt WASM)는 npm 최초 발행 2026-04-30, 0.3.2 → **시기상조**.
+  **6~12개월 뒤 재평가**로 기록.
+
+### 12.2 자동완성 잔상의 원인 — 코드에서 특정한 3건
+
+> 사용자 증상: "zsh-autocomplete 로 auto complete 한 내용이 백에서 남는다"
+
+**A. (최유력) reader 배칭에 타이머 flush 가 없다** — `src-tauri/src/infra/pty.rs`
+
+flush 판정이 `read()` **직후에만** 존재한다. 버스트 마지막의 소량 청크
+(= zsh-autocomplete 가 회색 제안을 지우는 시퀀스)는 `elapsed < OUTPUT_BATCH_MS` 라 flush 되지 않고,
+reader 가 블로킹 `read()` 로 들어가면 **다음 키 입력이 있을 때까지 Rust 메모리에 갇힌다.**
+→ 화면에는 제안이 남아 있는 것처럼 보인다.
+
+VS Code 는 `TerminalDataBufferer` 가 **첫 데이터 도착 시 `setTimeout(flush, 5)`** 를 걸어
+시간 기준으로 무조건 내보낸다. 우리에게 없는 것이 정확히 그 타이머다.
+
+**B. xterm 마운트 전에 80×24 로 spawn** — `domain/terminal/commands.rs` + `terminal-session.tsx`
+
+`DEFAULT_TERMINAL_COLS/ROWS = 80/24` 로 먼저 띄우고 나중에 resize 한다.
+셸이 SIGWINCH 를 놓치면 `COLUMNS` 가 80 에 굳는다.
+xterm 의 `reflowCursorLine` 은 **기본 `false`**("shells usually handle this themselves")라
+커서 줄이 리플로되지 않는다.
+→ vscode#121891 의 증상 기술이 사용자 문구와 동일: *"autocomplete suggestions appearing on
+incorrect lines or overwriting typed text"*.
+
+**C. 탭 전환마다 xterm 파괴 → 2MB replay** — `pane-node-view.tsx` 가 활성 탭만 렌더
+
+서로 다른 폭에서 생성된 바이트를 한 폭으로 재생하고, ring buffer 를 **바이트 단위로 절단**해
+이스케이프 시퀀스 중간이 잘린다. 추가로 `pty_attach` 가 `ring_buffer` 와 `subscriber` 를
+**별개 잠금**으로 잡아 스냅샷~교체 사이 청크가 유실되는 레이스가 있다.
+
+### 12.3 반증된 가설 (조사해서 아니라고 확인)
+
+- 배칭이 ANSI 시퀀스를 쪼갠다 → **아니다.** xterm 파서가 `_preserveStack` 로 write 경계를 넘어
+  상태를 보존한다.
+- flow control 이 데이터를 버린다 → **아니다.** `PauseGate` 가 `read()` **이전에** 블록한다.
+- DEC 2026 synchronized output / alt screen 미지원 → **아니다.** typings 에 `synchronizedOutputMode` 존재.
+- WebGL 렌더러 잔상 → **미확인, 가능성 낮음.**
+
+### 12.4 수정안
+
+**P0 (잔상 해결)**
+1. reader 에 **타이머 flush** 도입 — 별도 flusher 스레드 5ms 틱. (A)
+2. **실측 cols/rows 로 spawn** + 셸 준비 후 재-resize 안전망. (B)
+3. 탭 전환 시 unmount 대신 **숨김 유지**로 replay 경로 자체를 제거. (C)
+
+**P1**
+4. `pty_write`/`pty_resize`/`pty_set_paused` 를 전역 `begin_mutation` 락에서 **분리**.
+   현재 키 입력이 파일 저장·git 작업 뒤에 줄을 선다(`state.rs` mutation guard).
+
+### 12.5 수정 전 원인 판별 체크리스트
+
+세 원인 중 무엇인지 먼저 가른다(추측 금지):
+
+- 터미널에서 `tput cols` → 80 이면 **B 확정**
+- 잔상 상태에서 키 1회 입력 시 사라지면 **A 확정**(갇힌 청크가 다음 입력에 밀려 나옴)
+- 탭 전환 직후에만 발생하면 **C 확정**
+- DOM 렌더러로 바꿔도 재현되면 WebGL 무관
+
+## 13. CJK 입력 (2026-08-06 추가)
+
+**Tauri 2 의 macOS WKWebView 는 `compositionstart/update/end` 를 발생시키지 않는다.**
+IME 결과가 `input` 이벤트의 `insertReplacementText` 로만 전달되며, xterm 의 `_inputEvent` 는
+`insertText` 만 처리하므로 첫 자모 외 전부 유실된다.
+
+→ `src/shared/lib/ime-input.ts` 의 `resolveImeInput` 어댑터가 이 경로를 번역한다.
+이전 조합 길이만큼 `\x7f` 를 보내고 새 문자열을 보내 화면상 올바른 음절로 수렴시킨다.
+xterm 이 이미 보내는 `insertText` 는 중복 전송하지 않고 조합 상태만 기록한다.
+
+- **근본 수정이 아니다.** 원인·실측 비교·시도 이력은 `docs/bug/2026-08-06-wkwebview-ime-composition.md`.
+- 상위 이슈 xterm.js #5887 은 open. Tauri 상위 버전에서 해결되면 어댑터를 제거한다.
+- **터미널 라이브러리 교체는 해법이 아니다** — 웹뷰가 조합 이벤트를 안 주면 어떤 웹 터미널도 같다.
+  Safari 에서 같은 xterm 이 한글을 정상 처리하는 것으로 xterm 무죄가 확인됐다(§12.1 결론 유지).

@@ -20,32 +20,51 @@ React view (표시 전용)  →  IPC 경계 (typed commands / events)  →  Rust
 ## 2. Rust 코어 구조
 
 ```
-src-tauri/
-├── src/
-│   ├── main.rs              부트스트랩(플러그인 등록, AppState 초기화, 세션 복원)
-│   ├── state.rs             AppState — 전 도메인 상태의 루트 (RwLock/DashMap 등 동시성 포함)
-│   ├── error.rs             AppError — 코드·메시지 중앙화, 모든 command 의 Result 에러 타입
-│   ├── events.rs            이벤트 이름 상수 + payload 타입 (ipc-contract 의 Rust 측 정본)
-│   ├── domain/              도메인 로직 (한 도메인 = 한 모듈)
-│   │   ├── project/         프로젝트 열기/닫기/목록, capability 부착 관리
-│   │   ├── layout/          탭·스플릿·포커스 (프로젝트별 트리 구조)
-│   │   ├── file/            파일 열기/저장/변경 감지, dirty 미러
-│   │   ├── terminal/        pty 세션, 스크롤백 버퍼, 셸 감지, 에이전트 감지
-│   │   ├── git/             status/diff/blame/log/stage/commit/push
-│   │   ├── lsp/             LSP 서버 프로세스 관리, JSON-RPC 중계
-│   │   ├── search/          프로젝트 전역 텍스트 검색
-│   │   ├── theme/           테마 로드/적용/커스텀 테마 파일
-│   │   ├── settings/        앱·프로젝트 설정
-│   │   └── plugin/          플러그인 매니페스트 로드, LSP 확장 등록
-│   ├── infra/               외부 자원 어댑터 (도메인이 trait 로 사용)
-│   │   ├── pty.rs           portable-pty 래퍼
-│   │   ├── repo.rs          git2 래퍼
-│   │   ├── watcher.rs       notify 기반 파일 와처 (debounce 포함)
-│   │   ├── proc.rs          자식 프로세스 spawn/감시 (LSP·에이전트 감지)
-│   │   └── persist.rs       세션·설정 영속화 (원자적 쓰기)
-│   └── cli/                 `taide` CLI 진입 (파일 열기, --wait — agent-integration)
-└── capabilities/            Tauri 권한 정의 (최소 권한 — NFR-7)
+TAIDE/                       (Cargo workspace — members: src-tauri, crates/taide-cli)
+├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
+├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
+│                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
+└── src-tauri/
+    ├── src/
+    │   ├── main.rs          진입점 (lib.rs 의 run() 호출만)
+    │   ├── lib.rs           부트스트랩: 커맨드 등록·플러그인·AppState·복원·폴링 태스크·종료 정리
+    │   ├── state.rs         AppState — 전 도메인 상태의 루트 (parking_lot RwLock + mutation guard)
+    │   ├── error.rs         AppError — 코드·메시지 중앙화, 모든 command 의 Result 에러 타입
+    │   ├── events.rs        이벤트 payload 타입 (ipc-contract 의 Rust 측 정본)
+    │   ├── ids.rs           ProjectId / PaneId / TabId (newtype, serde transparent)
+    │   ├── paths.rs         앱 데이터 디렉토리 경로 규칙 (data-model.md §2)
+    │   ├── constants.rs     무시 목록·파일 크기 4단계 임계값 (워처·트리·검색이 공유)
+    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈)
+    │   │   ├── app/         앱 정보 (버전·플랫폼)
+    │   │   ├── project/     프로젝트 열기/닫기/목록, watcher 부착, capability 감지
+    │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리)
+    │   │   ├── file/        파일 열기/저장/생성/이동/삭제, 크기 정책, dirty 미러
+    │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
+    │   │   ├── terminal/    pty 세션, 링버퍼, 셸 프로필, 터미널 경로 해석
+    │   │   ├── git/         status/diff/blame/log/stage/commit/push + watch.rs(무효화 분류)
+    │   │   ├── lsp/         LSP 세션 관리, 서버 감지, 루트 탐지
+    │   │   ├── search/      프로젝트 전역 텍스트 검색 (자체 병렬 스캔 + regex)
+    │   │   ├── agent/       에이전트 감지, wait 마커, CLI 설치 상태
+    │   │   ├── theme/       테마 로드/해석/내장 테마
+    │   │   ├── settings/    앱 설정
+    │   │   └── plugin/      플러그인 매니페스트 로드·검증
+    │   └── infra/           외부 자원 어댑터
+    │       ├── pty.rs       portable-pty 래퍼 (배칭·flow control·링버퍼)
+    │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
+    │       ├── watcher.rs   notify + debouncer (무시 목록 필터)
+    │       └── persist.rs   원자적 쓰기 (temp → fsync → rename)
+    ├── tests/               도메인 경계를 넘는 통합 테스트 (session_restore.rs)
+    └── capabilities/        Tauri 권한 정의 (최소 권한 — NFR-7)
 ```
+
+> **초안 대비 실제 구현에서 달라진 것**
+> - `infra/repo.rs`(git2 래퍼)는 만들지 않았다 — git2 호출이 `domain/git/service.rs` 안에 있다.
+> - `infra/proc.rs` 대신 용도별로 `infra/pty.rs` 와 `infra/lsp_proc.rs` 로 나뉘었다.
+> - `src/cli/` 가 아니라 **별도 크레이트 `crates/taide-cli`** 다 (워크스페이스 구성).
+> - 초안에 없던 도메인 3개가 추가됐다: `app`, `tree`, `agent`.
+> - 도메인별 저장소(`TreeStore`·`TerminalStore`·`GitStore`·`LspStore`·`SearchStore`·`PluginStore`·
+>   `AgentStore`)는 `state.rs` 가 아니라 각 도메인 `commands.rs` 에 정의하고 `app.manage()` 로 등록한다.
+>   (병렬 구현 시 `state.rs` 충돌을 피하려는 선택 — 결과적으로 도메인 응집도가 높아졌다)
 
 - 각 domain 모듈은 `commands.rs`(IPC 노출) / `service.rs`(로직) / `types.rs`(직렬화 타입)로 나눈다.
   command 는 얇게: 파라미터 검증 → service 호출 → 이벤트 발행. 로직은 service 에만 둔다.
@@ -111,22 +130,28 @@ trait ProjectCapability {
 src/
 ├── app/                     진입점, 프로바이더(QueryClient, 테마), 전역 레이아웃 조립
 ├── widgets/                 IPC 를 소비하는 조립 블록 (비즈니스 로직 O)
-│   ├── app-sidebar/         프로젝트 목록·아이콘 상태
-│   ├── tab-bar/             탭 바 + DND
-│   ├── editor-pane/         Monaco 마운트, git gutter·blame 데코 주입
-│   ├── terminal-pane/       xterm 마운트, 스트림 연결
-│   ├── explorer/            파일 트리
-│   ├── search-panel/
+│   ├── app-shell/           최상위 셸 조립 (사이드바 | 탐색 | 에디터 영역)
+│   ├── app-sidebar/         프로젝트 목록·아이콘 상태·세로 DND
+│   ├── editor-area/         pane 트리 렌더 + 탭 바 + 단일 DndContext (탭 DND·5분할 드롭)
+│   ├── editor-pane/         Monaco 마운트, git gutter·blame 데코, LSP 세션 연결
+│   ├── terminal-pane/       xterm 마운트, flow control, 세션 spawn/attach
+│   ├── explorer/            파일 트리(가상 스크롤) + 뷰 전환(파일/검색/Git)
+│   ├── search-panel/        전역 검색 결과
 │   ├── git-panel/           changes·graph·commit UI
-│   ├── diff-view/
-│   └── settings-view/
+│   ├── diff-pane/           diff 탭 (Monaco DiffEditor)
+│   ├── settings-view/       설정 화면
+│   └── command-palette/     ⌘⇧P / ⌘P
 ├── features/                순수 표시 컴포넌트 (props+콜백만 — 비즈니스 로직 X)
 ├── entities/                IPC 데이터 계층 (도메인별)
 │   └── {domain}/
 │       ├── {domain}.ipc.ts      invoke 래퍼 (자동 생성 바인딩 사용)
 │       ├── {domain}.query.ts    TanStack Query 훅 + queryOptions + 이벤트 구독→invalidate
 │       └── {domain}.type.ts     생성된 타입 re-export/파생
-└── shared/                  ui(shadcn vendored)·hooks·constants·utils
+└── shared/                  ui(shadcn vendored)·hooks·constants·lib·api(생성 bindings)
+    ├── api/bindings.ts      **tauri-specta 생성물** (커밋 대상, 직접 수정 금지)
+    ├── lib/monaco/          monaco setup(worker 배선)·테마 파생 — **monaco 접근은 반드시 이 경유**
+    ├── lib/lsp/             자체 경량 LSP 클라이언트 + Monaco 어댑터 10종 (ADR-0007)
+    └── constants/           query-key(중앙 관리)·platform·terminal
 ```
 
 - 서버 상태 = "Rust 상태"로 치환해 query.md 컨벤션을 그대로 적용한다: queryOptions 팩토리,

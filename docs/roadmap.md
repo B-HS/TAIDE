@@ -86,7 +86,85 @@
 - [ ] 플러그인 로더 (매니페스트 검증·LSP 기여·동의 UI) — `plugins.md`
 - [ ] 커맨드 팔레트 (`⌘⇧P`) + 파일 퀵오픈 (`⌘P`)
 
-## Phase 8 — 배포·확장 (2차) — **게이트: Phase 0~7 이 로컬에서 전부 테스트·확인 완료된 후에만 진행 (사용자 합의)**
+## Phase 7.5 — 실사용 피드백 반영 (Phase 8 전 필수)
+
+> Phase 0~7 구현 후 사용자가 실기기에서 확인하며 제기한 18건.
+> 결정·근거는 `docs/acknowledge/2026-08-06-phase75-decisions.md`.
+> **버그(2·4·17)는 추측으로 고치지 말고 실제 렌더 값을 확인한 뒤 근본 원인을 잡는다.**
+
+### 7.5-A 버그 수정 (먼저 — 나머지 작업의 전제)
+
+- [x] codeview 에 테마 미반영 (2번) — `ThemeProvider` 에서 `applyMonacoTheme` 배선
+- [x] 기동 시 흰 화면 깜빡임 (4번) — `index.html` 첫 페인트 바탕색 + `useLayoutEffect` 로 변수 주입
+- [x] 타이틀바가 다크/라이트를 안 따름 (17번) — `setBackgroundColor` + capability 추가
+
+### 7.5-B 기술 검토 — **완료 (2026-08-06)**
+
+- [x] remote-control 실현 가능성 — `docs/research/remote-control.md` (374줄),
+      결론 요약 `features/remote-control.md`
+      → **잠자기 중 동작 불가**(뚜껑 닫힘·배터리). **잠금은 가능**.
+      "화면 그대로"는 **픽셀 스트리밍이 아니라 상태 미러링**(ADR-0004 가 이점).
+      **Phase 7.5 에서는 구현 안 함** — 사용자와 범위 재합의 필요.
+- [x] 터미널 라이브러리 재평가 — `docs/research/terminal-reevaluation.md` (578줄),
+      결론 요약 `features/terminal.md` §12
+      → **xterm 유지**(대체재 없음, VS Code 도 동일 라이브러리 사용).
+      잔상 원인은 **우리 코드 3건**으로 특정 → 아래 7.5-G
+
+### 7.5-G 터미널 잔상 수정 (검토 결과 — 원인 특정 완료)
+
+- [x] 수정 전 **원인 판별 체크리스트** 실행 — `terminal.md` §12.5
+      → `tput cols`=80 으로 **B 확정**, 잔상 + 한글 한 템포 지연으로 **A 지목**
+- [x] P0-1. reader 에 **타이머 flush** 도입 (`OutputBatch` + 5ms 틱 flusher 스레드) — `infra/pty.rs`
+- [x] P0-2. **실측 cols/rows 로 spawn** — `TerminalView.onReady` → `TerminalSession` spawn + 후속 resize
+- [x] P1. `pty_write`/`resize`/`set_paused` 를 전역 `begin_mutation` 락에서 **분리**
+- [x] **한글(CJK) 입력 불가** — WKWebView 가 조합 이벤트를 발생시키지 않는 것이 근본 원인.
+      `resolveImeInput` 어댑터로 해결. 정본 `docs/bug/2026-08-06-wkwebview-ime-composition.md`
+- [x] 재시작 후 터미널 빈 화면 — 죽은 sessionId 재사용. 살아있는 세션 확인 후 없으면 새로 spawn
+- [ ] P0-3. 탭 전환 시 unmount 대신 **숨김 유지**(replay 경로 제거) — `pane-node-view.tsx`
+      (A·B 수정으로 잔상이 사라져 보류. 탭 전환 직후 재현되면 착수)
+- [ ] Tauri/wry/tao 상위 버전에서 조합 이벤트가 고쳐지면 IME 어댑터 제거
+
+### 7.5-H 다국어 (i18n) — en/ko/ja + 사용자 언어팩
+
+> 결정: `docs/acknowledge/2026-08-06-i18n-and-session-findings.md` §1. 7.5-G 다음 순서.
+
+- [ ] `react-i18next` 도입 + 내장 en/ko/ja 번들 (`src/shared/i18n/`)
+- [ ] `settings` 도메인에 `language` 필드(`system|en|ko|ja`) — Rust 소유·영속화
+- [ ] Rust `locale_list()` / `locale_get(id)` — `{app_data}/locales/*.json` 열거·로드 +
+      내장 base 부분 오버라이드 + watcher 핫리로드 (테마와 동일 구조)
+- [ ] 설정 UI 언어 선택 + 하드코딩 한국어 문자열 전량 치환
+
+### 7.5-C UI 일관성 · 확장성
+
+- [ ] `⌘W` 가 앱을 종료하는 문제 — 탭 닫기로 (WebView 기본 동작 선점 차단)
+- [ ] 탭 context menu 를 **view component 로 교체** + 항목 전량 (8·9번) — `tabs.md` §3.1
+- [ ] 탭 열기 규칙 확정 — `⌘+클릭` 분할, Move/Copy into New Window (7번) — `tabs.md` §4.4
+- [ ] 커맨드 레지스트리 + `>` 접두 모드 (10번) — `command-palette.md` §2
+- [ ] 설정 화면 재구성 — TOC + `max-w` 제거 + card + 자체 컴포넌트 (13번) — `settings-ui.md` §1
+- [ ] toast 위치 9분할 설정 (11번) — `settings-ui.md` §2
+- [ ] 리사이저 두께 설정 + 히트영역 분리 (12번) — `settings-ui.md` §3
+
+### 7.5-D 표시·꾸밈
+
+- [ ] 시스템 폰트 열거 + 폰트 선택 (1번) — `theme-system.md` §7.1
+- [ ] 테마 편집기 + 저장 (14번) — `theme-system.md` §7.3
+- [ ] 파일 아이콘 세트 (6번) — `explorer-sidebar.md` §5
+- [ ] 타이틀바 중앙 정보 + footer(폰트 크기 컨트롤) (15·18번) — `window-chrome.md` §1·§3
+
+### 7.5-E 미리보기
+
+- [ ] 이미지·비디오·오디오·PDF·HTML (3번) — `preview.md` §1
+- [ ] xlsx (SheetJS) · HWP/HWPX (`@rhwp/core`) (3번) — `preview.md` §3
+- [ ] pptx — 개요 수준 + LibreOffice 감지 폴백 (**원본 충실 렌더러 부재를 UI 에 명시**) — `preview.md` §3.1
+
+### 7.5-F remote-control — **Phase 7.5 에서 구현하지 않음** (검토 결과)
+
+- [x] 검토 완료 → 잠자기 중 동작이 OS 정책상 불가. 사용자 기대와 다르므로 **범위 재합의 필요**.
+- [ ] **지금 지켜야 할 것 1건**: IPC 계약에 "전송 수단 = Tauri IPC" 가정을 **넣지 않는다**.
+      (`features/remote-control.md` §2 — 소급하면 entities 전 도메인을 다시 만져야 함)
+- [ ] 구현 자체는 Phase 8 이후 또는 별도 기획
+
+## Phase 8 — 배포·확장 (2차) — **게이트: Phase 0~7.5 가 로컬에서 전부 테스트·확인 완료된 후에만 진행 (사용자 합의)**
 
 - [ ] macOS 서명·공증, 업데이터 / Windows·Linux 빌드 검증 (NFR-6)
 - [ ] IDE MCP 서버 (Claude Code 자동 연결 — agent-integration §3)

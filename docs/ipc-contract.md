@@ -37,7 +37,9 @@
 
 ### project (`layout-shell.md`)
 
-- query: `project_list`, `project_get`
+- query: `project_list`, `project_get`, `project_get_active`
+  (`project_get_active` 는 구현 중 추가 — 부팅 시 view 가 활성 프로젝트를 알 방법이 없었다.
+  `project:activated` 이벤트는 전환 시점에만 오므로 초기 조회용 query 가 별도로 필요하다.)
 - mutation: `project_open(path)`, `project_close(id)`, `project_activate(id)`, `project_reorder(ids)`
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`,
   `project:focus-kind-changed`
@@ -95,8 +97,12 @@
 
 ### theme / settings (`theme-system.md`)
 
-- query: `theme_get`, `theme_list`, `settings_get`
-- mutation: `theme_set(id)`, `settings_update(patch)`
+- query: `theme_get(themeId)`, `theme_get_current()`, `theme_list`, `settings_get`
+- mutation: `settings_set_theme(themeId)`, `settings_update(patch)`
+  (구현 시 정정: 초안의 `theme_set(id)` 을 **`settings_set_theme`** 로 확정.
+  선택된 테마 id 는 `Settings` 가 소유하는 값이라 mutation 도 settings 도메인에 두는 것이 맞다.
+  theme 도메인은 읽기 전용(로드·해석)만 담당한다. `theme_get_current` 는 view 부팅 시
+  "현재 설정의 테마"를 한 번에 받기 위한 query 로 추가.)
 - event: `theme:changed`, `settings:changed`
 
 ### agent 연동 (`agent-integration.md`)

@@ -57,3 +57,16 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
 - 사이드바 뷰 전환은 탭 유지(마운트 유지 여부: 검색 상태 보존을 위해 Search 뷰는 keep-alive,
   Explorer 는 가상화라 재마운트 저렴 — 상태는 Rust 소유이므로 어느 쪽이든 복원됨).
 - 트리 row 캐시는 view 메모리에 페이지 단위 LRU(최대 수천 행) — reload 시 Rust 에서 재조회.
+
+
+## 5. Phase 7.5 확장 — 파일 아이콘 (사용자 지적 6번)
+
+`material-extensions/vscode-material-icon-theme` 를 **참조**해 확장자·파일명 → 아이콘 매핑을 만든다.
+
+- 그 저장소는 **MIT** 이며 SVG 아이콘 세트 + 매핑 정의를 담고 있다.
+  라이선스·저작자 표기를 지키고, **필요한 아이콘만 vendored** 로 가져온다(전량 번들 금지 — 용량).
+- 매핑은 **데이터로 분리**한다(`shared/lib/file-icons.ts`): 확장자 맵 + 파일명 맵(예: `package.json`,
+  `Cargo.toml`, `Dockerfile`) + 폴더명 맵(`src`, `test`, `.github`) + 폴백.
+  **매칭 우선순위(파일명 > 확장자 > 폴백)를 순수 함수로 만들고 테스트**한다.
+- 색은 아이콘 SVG 원본 색을 쓰되, **ignored/삭제 상태의 흐림 처리는 테마 토큰**(`explorer.git*`)으로.
+- 아이콘 세트를 끄는 설정(단색 아이콘)도 둔다 — 취향 문제라 강제하지 않는다.

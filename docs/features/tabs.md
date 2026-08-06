@@ -25,14 +25,32 @@
     다음 단일 클릭이 같은 탭을 재사용). 더블 클릭·편집 시작·pin 시 일반 탭으로 승격.
   - **pin**: 고정 탭은 좌측 정렬 유지, 닫기 버튼 대신 pin 아이콘, `⌘W` 로 닫히지 않음(경고 후 유지).
   - **dirty dot**: 미저장 파일 탭은 닫기 버튼 자리에 점 표시(`tabBar.dirtyDot`).
-  - 탭 클릭 = 활성화, 휠 클릭(middle) = 닫기, 우클릭 context menu:
-    닫기 / 다른 탭 모두 닫기 / 오른쪽 탭 닫기 / Pin(Unpin) / 스플릿으로 이동(방향 4종) /
-    (File 탭) 경로 복사·파일 트리에서 보기.
+  - 탭 클릭 = 활성화, 휠 클릭(middle) = 닫기, 우클릭 context menu → §3.1.
 - 탭 폭 정책: 내용 기반 폭 + 최대폭 말줄임. 넘치면 탭 바 가로 스크롤(휠 지원) — VSCode 동일.
 - 같은 파일 재열기: 같은 Leaf 에 이미 있으면 그 탭 활성화. 다른 Leaf 에는 명시적 분할 이동으로만 중복 허용
   (동일 파일 다중 뷰 — Monaco 모델 공유, `editor.md` §모델 관리).
 
-## 4. DND (FR-B3·B5)
+
+### 3.1 탭 context menu (Phase 7.5 확정 — 사용자 지정 목록)
+
+**네이티브 OS 메뉴를 쓰지 않는다.** `shared/ui/context-menu`(Radix) 기반 view component 로만 만들어
+macOS/Windows/Linux 에서 동일하게 보이게 한다(acknowledge §3.1).
+
+| 그룹 | 항목 | 비고 |
+|------|------|------|
+| 닫기 | Close · Close Others · Close to the Right · **Close Saved** · Close All | pinned 탭은 제외. Close Saved 는 dirty 아닌 탭만 |
+| 복사 | Copy Path · Copy Relative Path · Copy Remote File URL · Copy Remote File URL From… | Remote URL 은 git remote 기준 |
+| 열기 | Reopen Editor With… · Open Changes · Open on Remote (Web) · File History | Reopen With 는 preview 종류 전환(`preview.md`) |
+| 에이전트 | Add File to Agent Thread | `agent-integration.md` — 활성 에이전트 있을 때만 |
+| 탐색 | Reveal in Finder · Reveal in Explorer View | Finder 는 `opener`, Explorer 는 `tree_reveal` |
+| 고정 | Keep Open · Pin | Keep Open = preview → 고정 승격 |
+| 분할 | Split Up · Split Down · Split Left · Split Right · Split in Group | `layout_split` |
+| 창 | Move into New Window · Copy into New Window | **새 OS 창은 이 경로로만** (§4.4) |
+| 참조 | Find File References | LSP `references` |
+
+- 조건에 맞지 않는 항목(git 없음·에이전트 없음·File 탭 아님)은 **숨긴다**(비활성 대신).
+- `when` 판정은 커맨드 레지스트리(`command-palette.md` §2)와 같은 컨텍스트를 공유한다.
+\n## 4. DND (FR-B3·B5)
 
 dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래그 소스는 탭, 드롭 대상은 두 종류다.
 
@@ -59,11 +77,28 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
   자식 1개짜리 Split 은 자식으로 치환, 같은 방향 중첩 Split 은 평탄화.
 - 마지막 남은 Leaf 의 마지막 탭을 닫으면 빈 placeholder Leaf 하나를 유지한다(영역 소멸 금지).
 
-## 5. 스플릿 리사이즈
+
+### 4.4 새 창 규칙 (Phase 7.5 확정)
+
+사용자가 "새창의 기준이 모호하다"고 지적해 아래로 확정했다(acknowledge §1.1).
+
+| 조작 | 결과 |
+|------|------|
+| 파일 트리 단일 클릭 | preview 탭 (기존 §3) |
+| 더블 클릭 · 편집 시작 | 고정 탭 승격 (기존 §3) |
+| **`⌘`(Ctrl) + 클릭** | **옆 pane 으로 분할해서 열기** |
+| context menu → Move into New Window | **별도 OS 창** |
+
+**파일 클릭만으로는 새 OS 창이 절대 열리지 않는다.** 멀티윈도우는 `architecture.md` §8 이
+"추후"로 둔 항목이므로, 이번엔 Move/Copy into New Window 두 경로만 연다.
+\n## 5. 스플릿 리사이즈
 
 - react-resizable-panels 로 Split 의 `sizes` 렌더·드래그. 드래그 종료 시 `layout_resize` mutation 으로
   Rust 에 반영(드래그 중 매 프레임 IPC 금지 — 종료 시 1회).
 - 최소 pane 크기(예: 120px) 보장. 윈도우 리사이즈는 비율 유지.
+- **Separator 두께는 설정값**(Phase 7.5, 사용자 지적 12번). `settings` 의 `resizer_thickness`
+  (기본 1px, 히트 영역은 그보다 넓게 — react-resizable-panels 의 `resizeTargetMinimumSize`).
+  시각적 두께와 잡는 영역을 분리해야 "굵어 보이지 않으면서 잡기 쉬운" 상태가 된다.
 
 ## 6. 키보드 (VSCode 기준 — research §8)
 
