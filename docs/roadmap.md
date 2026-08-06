@@ -175,7 +175,7 @@
       HTML 은 `allow-scripts` 없는 sandbox iframe
 - [x] xlsx (SheetJS) · HWP/HWPX (`@rhwp/core`) (3번)
 - [x] pptx — 개요 수준 + "레이아웃이 원본과 다를 수 있습니다" 안내
-- [ ] pptx LibreOffice 감지 폴백 — 외부 바이너리 감지 Rust 커맨드 필요 (`soffice_detect`/`soffice_convert_to_pdf`)
+- [~] pptx LibreOffice 감지 폴백 — **제외**(사용자 확정 2026-08-06). 개요 미리보기로 종결한다
 
 > **설계 편차**: `preview.md` §1 은 `TabKind::Preview` 신설을 제안했으나 **만들지 않았다.**
 > 레이아웃 스키마 변경은 영속 데이터 마이그레이션을 부르는데, "어떤 렌더러로 그릴지"는
