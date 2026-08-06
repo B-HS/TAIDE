@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
+import { fontListQueryOptions } from '@entities/font/font.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
 import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { localeListQueryOptions } from '@entities/locale/locale.query'
+import { FontPicker } from '@features/settings/font-picker'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { PluginSectionPlaceholder } from '@features/settings/plugin-section-placeholder'
@@ -19,11 +21,17 @@ import { ShellProfileList } from '@features/settings/shell-profile-list'
 import { TextField } from '@features/settings/text-field'
 import { LanguagePicker, SYSTEM_LANGUAGE_ID } from '@features/settings/language-picker'
 import { ThemePicker } from '@features/settings/theme-picker'
+import { CustomThemeList } from '@features/theme/custom-theme-list'
+import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
+import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { Switch } from '@shared/ui/switch'
+import { Button } from '@shared/ui/button'
 
 const MIN_FONT_SIZE = 8
 const MAX_FONT_SIZE = 32
 const DEFAULT_FONT_SIZE = 13
+
+type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
 
 const SETTINGS_SECTION_ID = {
     APPEARANCE: 'settings-section-appearance',
@@ -47,12 +55,14 @@ const SETTINGS_TOC_ITEMS = [
 
 export const SettingsView = () => {
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
+    const [themeEditorState, setThemeEditorState] = useState<ThemeEditorState | null>(null)
 
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [], isPending: isThemesPending } = useQuery(themeListQueryOptions())
     const { data: lspServers = [], isPending: isLspPending } = useQuery(lspServersQueryOptions())
     const { data: shellProfiles = [], isPending: isShellPending } = useQuery(shellProfilesQueryOptions())
     const { data: locales = [], isPending: isLocalesPending } = useQuery(localeListQueryOptions())
+    const { data: fonts = [], isPending: isFontsPending } = useQuery(fontListQueryOptions())
     const { mutate: setThemeId } = useSetThemeId()
     const { mutate: updateSettings } = useUpdateSettings()
 
@@ -64,6 +74,16 @@ export const SettingsView = () => {
     }
 
     if (isSettingsPending || !settings) return <div className='bg-panel-background h-full w-full' />
+
+    if (themeEditorState)
+        return (
+            <ThemeEditor
+                sourceThemeId={themeEditorState.sourceThemeId}
+                mode={themeEditorState.mode}
+                existingThemeIds={themes.map((theme) => theme.id)}
+                onClose={() => setThemeEditorState(null)}
+            />
+        )
 
     return (
         <div className='bg-panel-background text-app-foreground h-full w-full overflow-y-auto'>
@@ -93,6 +113,32 @@ export const SettingsView = () => {
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), followSystemTheme: checked })}
                                 />
                             </label>
+
+                            <div className='flex flex-col gap-2 pt-2'>
+                                <div className='flex items-center justify-between gap-3'>
+                                    <span className='text-app-sidebar-icon-default text-xs'>{t('themeEditor.customThemes')}</span>
+                                    <Button
+                                        variant='outline'
+                                        size='xs'
+                                        onClick={() =>
+                                            setThemeEditorState({
+                                                mode: 'create',
+                                                sourceThemeId: settings.themeId ?? BUILTIN_THEME_ID.DARK,
+                                            })
+                                        }>
+                                        {t('themeEditor.createNew')}
+                                    </Button>
+                                </div>
+                                {isThemesPending ? (
+                                    <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                                ) : (
+                                    <CustomThemeList
+                                        themes={themes.filter((theme) => !theme.builtin)}
+                                        onEdit={(sourceThemeId) => setThemeEditorState({ mode: 'edit', sourceThemeId })}
+                                        onDuplicate={(sourceThemeId) => setThemeEditorState({ mode: 'create', sourceThemeId })}
+                                    />
+                                )}
+                            </div>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.LANGUAGE} title={t('settings.language')}>
@@ -134,6 +180,16 @@ export const SettingsView = () => {
                                 max={MAX_FONT_SIZE}
                                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), editorFontSize: value })}
                             />
+                            {isFontsPending ? (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                            ) : (
+                                <FontPicker
+                                    label={t('settings.editorFontFamily')}
+                                    fonts={fonts}
+                                    value={settings.editorFontFamily ?? null}
+                                    onSelect={(editorFontFamily) => updateSettings({ ...emptySettingsPatch(), editorFontFamily })}
+                                />
+                            )}
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.TERMINAL} title={t('settings.terminal')}>
@@ -144,6 +200,16 @@ export const SettingsView = () => {
                                 max={MAX_FONT_SIZE}
                                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), terminalFontSize: value })}
                             />
+                            {isFontsPending ? (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
+                            ) : (
+                                <FontPicker
+                                    label={t('settings.terminalFontFamily')}
+                                    fonts={fonts}
+                                    value={settings.terminalFontFamily ?? null}
+                                    onSelect={(terminalFontFamily) => updateSettings({ ...emptySettingsPatch(), terminalFontFamily })}
+                                />
+                            )}
                             <TextField
                                 label={t('settings.shell')}
                                 value={settings.shellOverride ?? ''}

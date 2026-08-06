@@ -3,9 +3,10 @@ import { useState } from 'react'
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useQuery } from '@tanstack/react-query'
-import type { DropEdge, PaneId, PaneNode, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
+import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
 import { layoutQueryOptions, useCloseTab, useMoveTab, useSplitPane } from '@entities/layout/layout.query'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
+import { findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
@@ -30,24 +31,6 @@ type EditorAreaProps = {
     projectId: ProjectId
 }
 
-const findLeaf = (node: PaneNode, paneId: PaneId): Extract<PaneNode, { node: 'leaf' }> | null => {
-    if (node.node === 'leaf') return node.id === paneId ? node : null
-    for (const child of node.children) {
-        const found = findLeaf(child, paneId)
-        if (found) return found
-    }
-    return null
-}
-
-const findTab = (node: PaneNode, tabId: TabId): Tab | null => {
-    if (node.node === 'leaf') return node.tabs.find((tab) => tab.id === tabId) ?? null
-    for (const child of node.children) {
-        const found = findTab(child, tabId)
-        if (found) return found
-    }
-    return null
-}
-
 export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
     const [dragTab, setDragTab] = useState<DragTabState | null>(null)
     const [overTarget, setOverTarget] = useState<{ paneId: PaneId; edge: DropEdge } | null>(null)
@@ -59,7 +42,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
 
     const closeFocusedTab = () => {
         if (!layout) return
-        const leaf = findLeaf(layout.root, layout.focusedPane)
+        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
         if (!leaf?.active) return
         closeTab(leaf.active)
     }
@@ -70,7 +53,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
 
     const handleDragStart = ({ active }: DragStartEvent) => {
         if (!layout) return
-        const tab = findTab(layout.root, active.id as TabId)
+        const tab = findPaneTab(layout.root, active.id as TabId)
         if (!tab) return
         setDragTab({
             id: tab.id,
@@ -104,7 +87,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
 
         if (overData.type === 'split') {
             if (overData.edge === 'center') {
-                const leaf = findLeaf(layout.root, overData.paneId)
+                const leaf = findPaneLeaf(layout.root, overData.paneId)
                 if (leaf) moveTab({ tabId, paneId: overData.paneId, index: leaf.tabs.length })
                 return
             }
@@ -113,12 +96,12 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
         }
 
         if (overData.type === 'tab-container') {
-            const leaf = findLeaf(layout.root, overData.paneId)
+            const leaf = findPaneLeaf(layout.root, overData.paneId)
             if (leaf) moveTab({ tabId, paneId: overData.paneId, index: leaf.tabs.length })
             return
         }
 
-        const leaf = findLeaf(layout.root, overData.paneId)
+        const leaf = findPaneLeaf(layout.root, overData.paneId)
         if (!leaf) return
         const rawIndex = leaf.tabs.findIndex((tab) => tab.id === over.id)
         if (rawIndex < 0) return

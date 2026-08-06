@@ -29,6 +29,12 @@ pub struct Settings {
     pub toast_position: String,
     #[serde(default = "default_resizer_thickness")]
     pub resizer_thickness: u32,
+    #[serde(default)]
+    pub editor_font_family: Option<String>,
+    #[serde(default)]
+    pub terminal_font_family: Option<String>,
+    #[serde(default)]
+    pub ui_font_family: Option<String>,
 }
 
 fn default_theme_id() -> String {
@@ -67,6 +73,9 @@ impl Default for Settings {
             language: default_language(),
             toast_position: default_toast_position(),
             resizer_thickness: default_resizer_thickness(),
+            editor_font_family: None,
+            terminal_font_family: None,
+            ui_font_family: None,
         }
     }
 }

@@ -132,6 +132,19 @@ impl<D: Fn(&[u8])> OutputBatch<D> {
     }
 }
 
+const FALLBACK_LOCALE: &str = "en_US.UTF-8";
+
+fn utf8_locale() -> String {
+    for key in ["LC_ALL", "LC_CTYPE", "LANG"] {
+        if let Ok(value) = std::env::var(key) {
+            if value.to_ascii_uppercase().contains("UTF-8") || value.to_ascii_uppercase().contains("UTF8") {
+                return value;
+            }
+        }
+    }
+    FALLBACK_LOCALE.to_string()
+}
+
 fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
     let mut cmd = match config.shell.as_deref() {
         Some(shell) => CommandBuilder::new(shell),
@@ -141,6 +154,9 @@ fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "TAIDE");
+    let locale = utf8_locale();
+    cmd.env("LANG", &locale);
+    cmd.env("LC_CTYPE", &locale);
     cmd
 }
 
@@ -241,6 +257,12 @@ mod tests {
         let recorder = sent.clone();
         let on_data: DataSink = Box::new(move |bytes: &[u8]| recorder.lock().push(bytes.to_vec()));
         (OutputBatch::new(on_data), sent)
+    }
+
+    #[test]
+    fn 로케일이_없으면_utf8_기본값을_쓴다() {
+        let locale = utf8_locale();
+        assert!(locale.to_ascii_uppercase().contains("UTF-8") || locale.to_ascii_uppercase().contains("UTF8"));
     }
 
     #[test]

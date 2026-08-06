@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod app;
 pub mod file;
+pub mod font;
 pub mod git;
 pub mod layout;
 pub mod locale;

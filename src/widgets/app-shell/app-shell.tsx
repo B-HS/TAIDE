@@ -9,11 +9,12 @@ import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { IS_MAC } from '@shared/constants/platform'
-import { TitleBar } from '@features/window/title-bar'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
 import { AppSidebar } from '@widgets/app-sidebar/app-sidebar'
 import { EditorArea } from '@widgets/editor-area/editor-area'
 import { ExplorerContainer } from '@widgets/explorer/explorer-container'
+import { StatusBarContent } from '@widgets/window-chrome/status-bar-content'
+import { TitleBarContent } from '@widgets/window-chrome/title-bar-content'
 
 export const AppShell = () => {
     const { t } = useTranslation()
@@ -42,7 +43,7 @@ export const AppShell = () => {
 
     return (
         <div className='bg-app-background text-app-foreground flex h-full w-full flex-col'>
-            {IS_MAC && <TitleBar />}
+            {IS_MAC && <TitleBarContent />}
             {projects.length === 0 ? (
                 <div className='min-h-0 flex-1'>
                     <WelcomeScreen recentProjects={[]} onOpenProject={() => void handleOpenProject()} onSelectRecent={(id) => activateProject(id)} />
@@ -67,6 +68,7 @@ export const AppShell = () => {
                     </main>
                 </div>
             )}
+            <StatusBarContent />
         </div>
     )
 }

@@ -8,6 +8,7 @@ import { INITIAL_FLOW_CONTROL_STATE, evaluateFlowControl, shouldTogglePause } fr
 export type TerminalPaneProps = {
     sessionId: string | null
     fontSize: number
+    fontFamily: string
     theme: ITheme
     onWrite: (data: string) => void
     onResize: (cols: number, rows: number) => void
@@ -16,7 +17,17 @@ export type TerminalPaneProps = {
     attachData: (onData: (bytes: Uint8Array) => void) => () => void
 }
 
-export const TerminalPane: FC<TerminalPaneProps> = ({ sessionId, fontSize, theme, onWrite, onResize, onReady, onSetPaused, attachData }) => {
+export const TerminalPane: FC<TerminalPaneProps> = ({
+    sessionId,
+    fontSize,
+    fontFamily,
+    theme,
+    onWrite,
+    onResize,
+    onReady,
+    onSetPaused,
+    attachData,
+}) => {
     const attachRef = useRef<TerminalAttachHandle | null>(null)
     const flowStateRef = useRef(INITIAL_FLOW_CONTROL_STATE)
     const onWriteRef = useRef(onWrite)
@@ -55,6 +66,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({ sessionId, fontSize, theme
     return (
         <TerminalView
             fontSize={fontSize}
+            fontFamily={fontFamily}
             theme={theme}
             onData={handleData}
             onResize={handleResize}

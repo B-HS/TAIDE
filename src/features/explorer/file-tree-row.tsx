@@ -1,6 +1,8 @@
 import type { CSSProperties, FC } from 'react'
-import { ChevronRight, File, Folder, FolderOpen } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { cn } from '@shared/lib/cn'
+import { FileTypeIcon } from '@shared/icons/file-type-icon'
+import { FolderTypeIcon } from '@shared/icons/folder-type-icon'
 
 export type FileTreeNodeKind = 'file' | 'directory'
 
@@ -52,15 +54,11 @@ export const FileTreeRowItem: FC<FileTreeRowItemProps> = ({ row, selected, style
         <span className={cn('flex size-4 shrink-0 items-center justify-center', row.kind === 'file' && 'invisible')}>
             <ChevronRight className={cn(CHEVRON_SIZE_CLASS, row.expanded && 'rotate-90')} />
         </span>
-        <span className='flex shrink-0 items-center justify-center opacity-80'>
+        <span className='flex shrink-0 items-center justify-center'>
             {row.kind === 'directory' ? (
-                row.expanded ? (
-                    <FolderOpen className={ROW_ICON_SIZE_CLASS} />
-                ) : (
-                    <Folder className={ROW_ICON_SIZE_CLASS} />
-                )
+                <FolderTypeIcon folderName={row.name} expanded={row.expanded} className={ROW_ICON_SIZE_CLASS} />
             ) : (
-                <File className={ROW_ICON_SIZE_CLASS} />
+                <FileTypeIcon fileName={row.name} className={ROW_ICON_SIZE_CLASS} />
             )}
         </span>
         <span className='truncate'>{row.name}</span>

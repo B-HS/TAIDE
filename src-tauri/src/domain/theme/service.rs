@@ -655,6 +655,14 @@ pub fn builtin_by_id(theme_id: &str) -> Option<Theme> {
     }
 }
 
+pub fn builtin_id_for_system(system_theme: &str) -> &'static str {
+    if system_theme.eq_ignore_ascii_case("light") {
+        BUILTIN_LIGHT_ID
+    } else {
+        BUILTIN_DARK_ID
+    }
+}
+
 fn matching_builtin(theme_type: ThemeType) -> Theme {
     match theme_type {
         ThemeType::Dark => builtin_dark(),
@@ -781,6 +789,34 @@ pub fn list_themes(paths: &AppPaths) -> Vec<ThemeSummary> {
     list
 }
 
+pub fn save_theme(paths: &AppPaths, theme: &Theme) -> AppResult<ThemeSummary> {
+    if theme.id.trim().is_empty() {
+        return Err(AppError::InvalidArgument("theme id must not be empty".to_string()));
+    }
+    if builtin_by_id(&theme.id).is_some() {
+        return Err(AppError::InvalidArgument(format!("cannot overwrite builtin theme: {}", theme.id)));
+    }
+    if theme.id.contains(['/', '\\', '.']) {
+        return Err(AppError::InvalidArgument(format!("invalid theme id: {}", theme.id)));
+    }
+
+    std::fs::create_dir_all(paths.themes_dir())?;
+    persist::write_json(&paths.themes_dir().join(format!("{}.json", theme.id)), theme)?;
+    Ok(summarize(theme, false))
+}
+
+pub fn delete_theme(paths: &AppPaths, theme_id: &str) -> AppResult<()> {
+    if builtin_by_id(theme_id).is_some() {
+        return Err(AppError::InvalidArgument(format!("cannot delete builtin theme: {theme_id}")));
+    }
+    let path = paths.themes_dir().join(format!("{theme_id}.json"));
+    if !path.exists() {
+        return Err(AppError::NotFound(format!("theme not found: {theme_id}")));
+    }
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
 pub fn load_theme(paths: &AppPaths, theme_id: &str) -> AppResult<ResolvedTheme> {
     if let Some(theme) = builtin_by_id(theme_id) {
         return Ok(resolve_theme(&theme, None));
@@ -808,6 +844,47 @@ mod tests {
 
     fn temp_data_dir(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("taide-theme-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn 내장_테마_아이디로는_저장할_수_없다() {
+        let dir = std::env::temp_dir().join(format!("taide-theme-save-{}", uuid::Uuid::new_v4()));
+        let paths = AppPaths::new(dir);
+        let mut theme = builtin_dark();
+        theme.id = BUILTIN_DARK_ID.to_string();
+        assert!(save_theme(&paths, &theme).is_err());
+    }
+
+    #[test]
+    fn 경로_구분자가_섞인_아이디는_거부한다() {
+        let dir = std::env::temp_dir().join(format!("taide-theme-path-{}", uuid::Uuid::new_v4()));
+        let paths = AppPaths::new(dir);
+        let mut theme = builtin_dark();
+        theme.id = "../evil".to_string();
+        assert!(save_theme(&paths, &theme).is_err());
+    }
+
+    #[test]
+    fn 사용자_테마는_저장하고_목록에_나타난다() {
+        let dir = std::env::temp_dir().join(format!("taide-theme-ok-{}", uuid::Uuid::new_v4()));
+        let paths = AppPaths::new(dir);
+        let mut theme = builtin_dark();
+        theme.id = "my-theme".to_string();
+        theme.name = "My Theme".to_string();
+        theme.extends = Some(BUILTIN_DARK_ID.to_string());
+        let summary = save_theme(&paths, &theme).expect("save");
+        assert!(!summary.builtin);
+        assert!(list_themes(&paths).iter().any(|item| item.id == "my-theme"));
+        delete_theme(&paths, "my-theme").expect("delete");
+        assert!(!list_themes(&paths).iter().any(|item| item.id == "my-theme"));
+    }
+
+    #[test]
+    fn 시스템_테마_문자열을_내장_테마_아이디로_매핑한다() {
+        assert_eq!(builtin_id_for_system("light"), BUILTIN_LIGHT_ID);
+        assert_eq!(builtin_id_for_system("Light"), BUILTIN_LIGHT_ID);
+        assert_eq!(builtin_id_for_system("dark"), BUILTIN_DARK_ID);
+        assert_eq!(builtin_id_for_system(""), BUILTIN_DARK_ID);
     }
 
     #[test]

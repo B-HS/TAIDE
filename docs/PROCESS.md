@@ -506,3 +506,43 @@ CJK 입력 끊김은 P1 적용본으로 재확인 대기.
       호출부가 깨지던 것을 한 곳으로 모음.
 
 **남은 검증**: 실제 앱에서 ⌘W·toast 위치·리사이저·설정 화면·팔레트 `>` 모드를 눈으로 확인 필요.
+
+### 7.5-D 진행 (2026-08-06) — 계약 확정분
+
+메인이 먼저 확정한 것(에이전트는 이 위에서만 작업):
+
+- [x] Rust `domain/font` — `fontdb` 0.24 로 시스템 폰트 열거. `FontFamily { name, monospaced }`,
+      `font_list()` 커맨드. 가족명 중복 제거 + 정렬. 테스트 2건
+- [x] `settings.editorFontFamily` / `terminalFontFamily` / `uiFontFamily` 필드
+- [x] `theme_save(theme)` / `theme_delete(themeId)` 커맨드 — 내장 테마 덮어쓰기 차단,
+      경로 구분자(`/ \ .`) 포함 id 거부(경로 탈출 방지). 테스트 3건
+- [x] **`followSystemTheme` no-op 수정** — `theme_get_current(systemTheme)` 로 시그니처 변경.
+      판단은 Rust(`builtin_id_for_system`), 시스템 값 감지는 view 가 센서 역할(locale 과 동일 패턴).
+      프론트는 `prefers-color-scheme` 구독으로 OS 테마 변경 시 즉시 무효화
+- [x] **pty 로케일 누락 수정** — `LANG`/`LC_CTYPE` 를 UTF-8 로케일로 설정.
+      Finder 실행 릴리스 빌드에서 pty 가 non-UTF-8 이 되어 한글이 깨지는 것을 막는다.
+      기존 환경변수에 UTF-8 이 있으면 승계, 없으면 `en_US.UTF-8`
+
+미착수로 남은 것: themes/locales 디렉토리 watcher 핫리로드(둘 다 없음 — 대칭적으로 함께 처리 필요).
+
+### 7.5-D 표시·꾸밈 — 구현 완료 (2026-08-06)
+
+- [x] **시스템 폰트 선택(1번)** — Rust `font_list()`(fontdb 0.24), 검색형 `FontPicker`(cmdk 재사용,
+      monospace 필터 기본 on, 항목별 미리보기). `buildMonospaceFontStack` 으로 **폴백 체인 강제**.
+      Monaco 는 `updateOptions`, xterm 은 `options.fontFamily` + **`fit()` 재호출**(안 하면 커서 밀림)
+- [x] **파일 아이콘(6번)** — `resolveFileIcon`/`resolveFolderIcon` 순수 함수 + 테스트 18건.
+      탐색기 행과 탭 아이콘 양쪽에 적용
+- [x] **테마 편집기(14번)** — 자체 HSV 색 피커(native color input 미사용), 라이브 프리뷰,
+      `extends` 로 **바뀐 토큰만** 저장. `theme-draft.ts`/`color.ts` 순수 로직 + 테스트 30건
+- [x] **타이틀바 중앙 정보(18번)** — 활성 탭 · 프로젝트명 · git 브랜치. 폭이 좁아지면
+      브랜치→프로젝트명 순으로 생략. `data-tauri-drag-region` 을 자식마다 부여(상속 안 됨)
+- [x] **footer(15번)** — 상태바 + 에디터/터미널 폰트 크기 컨트롤(앱 UI 배율 아님)
+
+**메인이 직접 처리한 것**
+- `shared/ui/**` 가 eslint `ignores`(shadcn 전용)라 에이전트가 거기 만든 자체 아이콘 파일이
+  **lint 검사를 빠져나갔다.** `src/shared/icons/` 로 이동해 검사 대상에 포함시켰다.
+
+**남은 결정**
+- material-icon-theme 실제 SVG 도입 — 라이선스·번들 크기 검토 필요. 현재는 분류만 참조
+- 파일 타입 전용 색 토큰 부재 — 기존 8색 토큰 재사용이라 ts/css/md 가 같은 색
+- 테마 내보내기/가져오기 — `@tauri-apps/plugin-fs` 미설치

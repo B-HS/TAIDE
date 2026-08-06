@@ -76,12 +76,15 @@ export const commands = {
 	terminalSessions: (projectId: ProjectId) => typedError<TerminalSession[], AppError>(__TAURI_INVOKE("terminal_sessions", { projectId })),
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
+	fontList: () => typedError<FontFamily[], AppError>(__TAURI_INVOKE("font_list")),
 	localeList: () => typedError<LocaleSummary[], AppError>(__TAURI_INVOKE("locale_list")),
 	localeGet: (localeId: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get", { localeId })),
 	localeGetCurrent: (systemLanguage: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get_current", { systemLanguage })),
 	themeList: () => typedError<ThemeSummary[], AppError>(__TAURI_INVOKE("theme_list")),
 	themeGet: (themeId: string) => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get", { themeId })),
-	themeGetCurrent: () => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get_current")),
+	themeGetCurrent: (systemTheme: string) => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get_current", { systemTheme })),
+	themeSave: (theme: Theme) => typedError<ThemeSummary, AppError>(__TAURI_INVOKE("theme_save", { theme })),
+	themeDelete: (themeId: string) => typedError<null, AppError>(__TAURI_INVOKE("theme_delete", { themeId })),
 	settingsGet: () => typedError<Settings, AppError>(__TAURI_INVOKE("settings_get")),
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
@@ -188,6 +191,11 @@ export type ExternalOpenRequest = {
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
 
 export type FocusKind = "file" | "terminal" | "settings" | "diff" | "welcome";
+
+export type FontFamily = {
+	name: string,
+	monospaced: boolean,
+};
 
 export type FsChange = {
 	kind: FsChangeKind,
@@ -455,6 +463,9 @@ export type Settings = {
 	language?: string,
 	toastPosition?: string,
 	resizerThickness?: number,
+	editorFontFamily?: string | null,
+	terminalFontFamily?: string | null,
+	uiFontFamily?: string | null,
 };
 
 export type SettingsPatch = {
@@ -466,6 +477,9 @@ export type SettingsPatch = {
 	language: string | null,
 	toastPosition: string | null,
 	resizerThickness: number | null,
+	editorFontFamily: string | null,
+	terminalFontFamily: string | null,
+	uiFontFamily: string | null,
 };
 
 export type ShellProfile = {
@@ -521,6 +535,18 @@ export type TerminalSession = {
 	cwd: string,
 	shell: string,
 	running: boolean,
+};
+
+export type Theme = {
+	version: number,
+	id: string,
+	name: string,
+	type: ThemeType,
+	extends?: string | null,
+	palette?: { [key in string]: string },
+	colors?: { [key in string]: string },
+	syntax?: { [key in string]: SyntaxStyle },
+	terminal?: { [key in string]: string },
 };
 
 export type ThemeChanged = {

@@ -1,0 +1,1 @@
+export const TITLE_BAR_TRAFFIC_LIGHT_INSET_PX = 78

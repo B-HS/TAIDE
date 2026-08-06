@@ -6,12 +6,15 @@ import { toast } from 'sonner'
 import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
+import { buildMonospaceFontStack } from '@shared/lib/font-stack'
+import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { fileQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { getGitBlameRange } from '@entities/git/git.ipc'
 import { gitCurrentUserQueryOptions, gitGutterQueryOptions } from '@entities/git/git.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { CodeEditor } from '@features/editor/code-editor'
 import { ConflictBanner } from '@features/editor/conflict-banner'
@@ -48,6 +51,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const { t } = useTranslation()
     const queryClient = useQueryClient()
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { data: gutterHunks } = useQuery(gitGutterQueryOptions({ projectId, path }))
     const { data: currentUser } = useQuery(gitCurrentUserQueryOptions(projectId))
     const { mutate: saveFile } = useSaveFile()
@@ -210,6 +214,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                 value={file.content}
                 readOnly={file.readOnly}
                 largeFile={file.tier === 'large' || file.tier === 'readOnly'}
+                fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
+                fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
                 onChange={handleChange}
                 onSave={handleSave}
                 onCursorLineChange={setCursorLine}

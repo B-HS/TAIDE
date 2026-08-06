@@ -11,6 +11,9 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     language: null,
     toastPosition: null,
     resizerThickness: null,
+    editorFontFamily: null,
+    terminalFontFamily: null,
+    uiFontFamily: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

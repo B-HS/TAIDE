@@ -18,6 +18,9 @@ pub struct SettingsPatch {
     pub language: Option<String>,
     pub toast_position: Option<String>,
     pub resizer_thickness: Option<u32>,
+    pub editor_font_family: Option<String>,
+    pub terminal_font_family: Option<String>,
+    pub ui_font_family: Option<String>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -54,6 +57,9 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         language: patch.language.clone().unwrap_or_else(|| settings.language.clone()),
         toast_position: patch.toast_position.clone().unwrap_or_else(|| settings.toast_position.clone()),
         resizer_thickness: patch.resizer_thickness.unwrap_or(settings.resizer_thickness),
+        editor_font_family: patch.editor_font_family.clone().or_else(|| settings.editor_font_family.clone()),
+        terminal_font_family: patch.terminal_font_family.clone().or_else(|| settings.terminal_font_family.clone()),
+        ui_font_family: patch.ui_font_family.clone().or_else(|| settings.ui_font_family.clone()),
     }
 }
 

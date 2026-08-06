@@ -3,10 +3,11 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQuery } from '@tanstack/react-query'
 import { openPath } from '@tauri-apps/plugin-opener'
-import { File, FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
+import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import type { PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
+import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSplitPane } from '@entities/layout/layout.query'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
@@ -17,7 +18,8 @@ const TAB_ICON_SIZE_CLASS = 'size-3.5'
 export type TabContainerDropData = { type: 'tab-container'; paneId: PaneId }
 
 export const getTabIcon = (kind: TabKind): ReactNode => {
-    if (kind.kind === 'file') return <File className={TAB_ICON_SIZE_CLASS} />
+    if (kind.kind === 'file')
+        return <FileTypeIcon fileName={kind.path.split('/').filter(Boolean).at(-1) ?? kind.path} className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'terminal') return <Terminal className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'settings') return <Settings className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'diff') return <FileDiff className={TAB_ICON_SIZE_CLASS} />

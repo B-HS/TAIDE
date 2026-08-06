@@ -17,6 +17,7 @@ export type TerminalAttachHandle = {
 
 export type TerminalViewProps = {
     fontSize: number
+    fontFamily: string
     theme: ITheme
     onData: (data: string) => void
     onResize: (cols: number, rows: number) => void
@@ -25,7 +26,7 @@ export type TerminalViewProps = {
     attachRef: RefObject<TerminalAttachHandle | null>
 }
 
-export const TerminalView: FC<TerminalViewProps> = ({ fontSize, theme, onData, onResize, onReady, onWriteBacklogChange, attachRef }) => {
+export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, theme, onData, onResize, onReady, onWriteBacklogChange, attachRef }) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const termRef = useRef<Terminal | null>(null)
     const fitRef = useRef<FitAddon | null>(null)
@@ -35,6 +36,7 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, theme, onData, o
     const onWriteBacklogChangeRef = useRef(onWriteBacklogChange)
     const attachRefRef = useRef(attachRef)
     const initialFontSizeRef = useRef(fontSize)
+    const initialFontFamilyRef = useRef(fontFamily)
     const initialThemeRef = useRef(theme)
 
     useEffect(() => {
@@ -55,6 +57,13 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, theme, onData, o
     useEffect(() => {
         const term = termRef.current
         if (!term) return
+        term.options.fontFamily = fontFamily
+        fitRef.current?.fit()
+    }, [fontFamily])
+
+    useEffect(() => {
+        const term = termRef.current
+        if (!term) return
         term.options.theme = theme
     }, [theme])
 
@@ -65,6 +74,7 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, theme, onData, o
         const term = new Terminal({
             allowProposedApi: true,
             fontSize: initialFontSizeRef.current,
+            fontFamily: initialFontFamilyRef.current,
             theme: initialThemeRef.current,
             scrollback: DEFAULT_SCROLLBACK,
             cursorBlink: true,

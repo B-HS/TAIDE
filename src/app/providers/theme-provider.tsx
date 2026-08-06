@@ -1,14 +1,17 @@
-import { useLayoutEffect, type FC, type PropsWithChildren } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useLayoutEffect, type FC, type PropsWithChildren } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
 import { applyThemeVariables } from '@shared/lib/theme-variables'
 import { applyWindowAppearance } from '@shared/lib/window-appearance'
 import { applyMonacoTheme } from '@shared/lib/monaco/theme'
 import { monaco } from '@shared/lib/monaco/setup'
 import { useRevealWindow } from '@shared/hooks/use-reveal-window'
+import { subscribeSystemTheme } from '@shared/lib/system-appearance'
+import { QUERY_KEY } from '@shared/constants/query-key'
 
 export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
     const { data: theme, isFetched } = useQuery(currentThemeQueryOptions())
+    const queryClient = useQueryClient()
 
     useLayoutEffect(() => {
         if (!theme) return
@@ -17,6 +20,8 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
         applyMonacoTheme(theme, monaco.editor)
         applyWindowAppearance(theme.type)
     }, [theme])
+
+    useEffect(() => subscribeSystemTheme(() => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })), [queryClient])
 
     useRevealWindow(isFetched)
 

@@ -11,6 +11,7 @@ import { useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
+import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { DEFAULT_FONT_SIZE } from '@shared/constants/terminal'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 
@@ -96,6 +97,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         <TerminalPane
             sessionId={sessionId}
             fontSize={settings?.terminalFontSize ?? DEFAULT_FONT_SIZE}
+            fontFamily={buildMonospaceFontStack(settings?.terminalFontFamily ?? null)}
             theme={toXtermTheme(theme)}
             onWrite={handleWrite}
             onResize={handleResize}

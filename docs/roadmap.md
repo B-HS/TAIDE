@@ -159,10 +159,15 @@
 
 ### 7.5-D 표시·꾸밈
 
-- [ ] 시스템 폰트 열거 + 폰트 선택 (1번) — `theme-system.md` §7.1
-- [ ] 테마 편집기 + 저장 (14번) — `theme-system.md` §7.3
-- [ ] 파일 아이콘 세트 (6번) — `explorer-sidebar.md` §5
-- [ ] 타이틀바 중앙 정보 + footer(폰트 크기 컨트롤) (15·18번) — `window-chrome.md` §1·§3
+- [x] 시스템 폰트 열거 + 폰트 선택 (1번) — Rust `font_list()`(fontdb) + 검색형 FontPicker + 폴백 체인
+- [x] 테마 편집기 + 저장 (14번) — `theme_save`/`theme_delete` + 자체 HSV 색 피커 + 라이브 프리뷰
+- [x] 파일 아이콘 세트 (6번) — material-icon-theme **분류만 참조**, lucide 매핑. SVG 도입은 별도 결정
+- [x] 타이틀바 중앙 정보 + footer(폰트 크기 컨트롤) (15·18번)
+- [x] `followSystemTheme` 백엔드 no-op 수정 — `theme_get_current(systemTheme)` + OS 테마 변경 구독
+- [x] pty `LANG`/`LC_CTYPE` 누락 수정 (Finder 실행 시 non-UTF-8 방지)
+- [ ] 테마 내보내기/가져오기 — `@tauri-apps/plugin-fs` 미설치라 보류
+- [ ] 파일 타입 전용 색 토큰(`fileIcon.*`) — 현재 8색 토큰 재사용 중. 테마 스키마 확장 필요
+- [ ] footer 커서 위치 표시 — 에디터가 값을 올려주는 구조 필요
 
 ### 7.5-E 미리보기
 

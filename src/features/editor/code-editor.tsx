@@ -9,6 +9,8 @@ export type CodeEditorProps = {
     value: string
     readOnly: boolean
     largeFile: boolean
+    fontFamily: string
+    fontSize: number
     onChange: (value: string) => void
     onSave: () => void
     onCursorLineChange: (line: number) => void
@@ -33,6 +35,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     value,
     readOnly,
     largeFile,
+    fontFamily,
+    fontSize,
     onChange,
     onSave,
     onCursorLineChange,
@@ -42,6 +46,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
     const activePathRef = useRef<string | null>(null)
     const valueRef = useRef(value)
+    const initialFontFamilyRef = useRef(fontFamily)
+    const initialFontSizeRef = useRef(fontSize)
     const onChangeRef = useRef(onChange)
     const onSaveRef = useRef(onSave)
     const onCursorLineChangeRef = useRef(onCursorLineChange)
@@ -58,7 +64,12 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     useEffect(() => {
         if (!containerRef.current) return
 
-        const editor = monaco.editor.create(containerRef.current, { automaticLayout: true, largeFileOptimizations: true })
+        const editor = monaco.editor.create(containerRef.current, {
+            automaticLayout: true,
+            largeFileOptimizations: true,
+            fontFamily: initialFontFamilyRef.current,
+            fontSize: initialFontSizeRef.current,
+        })
         editorRef.current = editor
         onEditorMountRef.current?.(editor)
 
@@ -91,6 +102,14 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     useEffect(() => {
         editorRef.current?.updateOptions({ readOnly })
     }, [readOnly])
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ fontFamily })
+    }, [fontFamily])
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ fontSize })
+    }, [fontSize])
 
     useEffect(() => {
         const editor = editorRef.current
