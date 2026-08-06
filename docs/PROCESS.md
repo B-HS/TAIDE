@@ -546,3 +546,29 @@ CJK 입력 끊김은 P1 적용본으로 재확인 대기.
 - material-icon-theme 실제 SVG 도입 — 라이선스·번들 크기 검토 필요. 현재는 분류만 참조
 - 파일 타입 전용 색 토큰 부재 — 기존 8색 토큰 재사용이라 ts/css/md 가 같은 색
 - 테마 내보내기/가져오기 — `@tauri-apps/plugin-fs` 미설치
+
+### 7.5-E 미리보기 — 구현 완료 (2026-08-06)
+
+**메인이 확정한 계약**
+- `file_read_raw(path)` — raw 바이트를 `ArrayBuffer` 로 반환하는 커맨드. specta 를 안 거치므로
+  `RAW_CHANNEL_COMMANDS` 에 등록하고 `invoke<ArrayBuffer>('file_read_raw', { path })` 로 호출한다.
+  20MB(`READ_ONLY_FILE_BYTES`) 상한은 Rust 가 강제
+- **asset 프로토콜 활성화** — 비디오·오디오 스트리밍용(전체 메모리 적재 금지).
+  `protocol-asset` 피처 + CSP `media-src`/`frame-src` 추가.
+  **스코프는 `[]` 로 두고 열린 프로젝트 루트만 런타임 등록**(`allow_asset_access`) — 임의 경로 노출 차단
+- **`TabKind::Preview` 를 만들지 않기로 결정** — 위 roadmap 주석 참조
+
+**구현**
+- [x] 이미지(SVG 는 `<img>` 로만 — 인라인 시 스크립트 실행 위험) / 비디오 / 오디오 / HTML
+- [x] PDF(pdfjs-dist 6.2.108, worker 는 Monaco 와 동일 `?worker` 패턴, unmount 시 `destroy()`)
+- [x] xlsx(SheetJS 0.18.5) — 순수 변환 함수 + 테스트 5건, 행 수 상한 + "일부만 표시" 안내
+- [x] HWP/HWPX(`@rhwp/core` 0.8.2)
+- [x] pptx 개요 — 한계를 UI 에 명시
+- [x] 미지원·실패 시 "외부 앱에서 열기"
+
+**메인이 직접 처리한 것**
+- 에이전트가 만든 PDF/xlsx/HWP/pptx 컴포넌트가 **`PreviewPane` 에 배선되지 않은 채 남아 있었다.**
+  4종을 dispatch 에 연결(objectUrl 이 필요한 것과 ArrayBuffer 를 그대로 넘기는 것을 분리)
+- HTML iframe 이 blob URL 을 여는데 **CSP 에 `frame-src` 가 없었다** — 추가
+
+**남은 것**: LibreOffice 폴백(Rust 커맨드 필요), 실제 파일로 각 미리보기 렌더 확인(눈으로 검증 필요)

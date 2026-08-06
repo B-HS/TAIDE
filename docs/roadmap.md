@@ -171,9 +171,16 @@
 
 ### 7.5-E 미리보기
 
-- [ ] 이미지·비디오·오디오·PDF·HTML (3번) — `preview.md` §1
-- [ ] xlsx (SheetJS) · HWP/HWPX (`@rhwp/core`) (3번) — `preview.md` §3
-- [ ] pptx — 개요 수준 + LibreOffice 감지 폴백 (**원본 충실 렌더러 부재를 UI 에 명시**) — `preview.md` §3.1
+- [x] 이미지·비디오·오디오·PDF·HTML (3번) — 비디오·오디오는 asset 프로토콜 스트리밍,
+      HTML 은 `allow-scripts` 없는 sandbox iframe
+- [x] xlsx (SheetJS) · HWP/HWPX (`@rhwp/core`) (3번)
+- [x] pptx — 개요 수준 + "레이아웃이 원본과 다를 수 있습니다" 안내
+- [ ] pptx LibreOffice 감지 폴백 — 외부 바이너리 감지 Rust 커맨드 필요 (`soffice_detect`/`soffice_convert_to_pdf`)
+
+> **설계 편차**: `preview.md` §1 은 `TabKind::Preview` 신설을 제안했으나 **만들지 않았다.**
+> 레이아웃 스키마 변경은 영속 데이터 마이그레이션을 부르는데, "어떤 렌더러로 그릴지"는
+> 도메인 상태가 아니라 view 판단이다. 기존 `TabKind::File` + `pane-node-view` 확장자 분기로 처리했고
+> preview/pin 규칙도 그대로 유지된다.
 
 ### 7.5-F remote-control — **Phase 7.5 에서 구현하지 않음** (검토 결과)
 

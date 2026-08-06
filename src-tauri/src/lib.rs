@@ -172,7 +172,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
 
 const LAYOUT_FLUSH_INTERVAL_MS: u64 = 2_000;
 
-const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach"];
+const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "file_read_raw"];
 
 fn flush_dirty_layouts(state: &AppState) {
     let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
@@ -249,7 +249,8 @@ pub fn run() {
     let specta_handler = builder.invoke_handler();
     let raw_channel_handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
         domain::terminal::commands::pty_spawn,
-        domain::terminal::commands::pty_attach
+        domain::terminal::commands::pty_attach,
+        domain::file::commands::file_read_raw
     ]);
 
     let mut app = tauri::Builder::default();
@@ -301,6 +302,7 @@ pub fn run() {
                 .map(|project| (project.id.clone(), project.root.clone()))
                 .collect();
             for (project_id, root) in &restored {
+                domain::project::commands::allow_asset_access(app.handle(), root);
                 domain::project::commands::attach_watcher(app.handle(), &state, project_id, root);
                 domain::project::commands::attach_git_watcher(app.handle(), &state, project_id, root);
             }

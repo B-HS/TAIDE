@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
@@ -13,6 +13,12 @@ use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged, ProjectActivate
 use crate::ids::ProjectId;
 use crate::infra::watcher;
 use crate::state::AppState;
+
+pub fn allow_asset_access(app: &AppHandle, root: &str) {
+    if let Err(error) = app.asset_protocol_scope().allow_directory(root, true) {
+        log::warn!("asset scope 등록 실패 {root}: {error}");
+    }
+}
 
 pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
     let emit_handle = app.clone();
@@ -111,6 +117,7 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
     if !result.already_open {
         let layout = layout_service::load_layout(&state.paths, &result.project.id);
         state.layouts.write().insert(result.project.id.clone(), layout);
+        allow_asset_access(&app, &result.project.root);
         attach_watcher(&app, &state, &result.project.id, &result.project.root);
         attach_git_watcher(&app, &state, &result.project.id, &result.project.root);
 

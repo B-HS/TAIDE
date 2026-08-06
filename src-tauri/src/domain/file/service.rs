@@ -324,6 +324,17 @@ fn now_epoch_ms() -> f64 {
         .unwrap_or(0.0)
 }
 
+pub fn read_raw(path: &Path) -> AppResult<Vec<u8>> {
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > crate::constants::READ_ONLY_FILE_BYTES {
+        return Err(AppError::InvalidArgument(format!(
+            "파일이 너무 커서 미리보기를 만들 수 없습니다: {}",
+            path.display()
+        )));
+    }
+    Ok(std::fs::read(path)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

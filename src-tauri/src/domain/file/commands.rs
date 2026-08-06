@@ -77,3 +77,11 @@ pub async fn file_mirror_dirty(state: State<'_, AppState>, project_id: ProjectId
 
     service::mirror_dirty(&state.paths, &project_id, &resolved, &content)
 }
+
+#[tauri::command]
+pub async fn file_read_raw(state: State<'_, AppState>, path: String) -> Result<tauri::ipc::Response, crate::error::AppError> {
+    let projects = state.projects.read().clone();
+    let (_, resolved) = service::resolve_owning_project(&projects, Path::new(&path))?;
+    let bytes = service::read_raw(&resolved)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}

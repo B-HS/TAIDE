@@ -10,15 +10,18 @@ import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { DropEdgeName } from '@features/split/split-drop-zones'
 import { SplitDropZones } from '@features/split/split-drop-zones'
 import { PaneSeparator } from '@features/split/pane-separator'
+import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
 import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
+import { PreviewPane } from '@widgets/preview-pane/preview-pane'
 import { SettingsView } from '@widgets/settings-view/settings-view'
 import { TerminalSession } from '@widgets/terminal-pane/terminal-session'
 
 const EQUAL_SPLIT_TOTAL_PERCENT = 100
 const MIN_PANEL_SIZE_PX = 120
+const PATH_SEPARATOR = '/'
 
 export type SplitDropData = { type: 'split'; paneId: PaneId; edge: DropEdge }
 
@@ -73,6 +76,9 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
     }
 
     const activeTab = node.tabs.find((tab) => tab.id === node.active) ?? null
+    const activeFilePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
+    const activeFileName = activeFilePath ? activeFilePath.slice(activeFilePath.lastIndexOf(PATH_SEPARATOR) + 1) : null
+    const activePreviewKind = activeFileName ? resolvePreviewKind(activeFileName) : null
     const dropRefByEdge: Record<DropEdgeName, (element: HTMLElement | null) => void> = {
         left: dropLeft.setNodeRef,
         right: dropRight.setNodeRef,
@@ -85,7 +91,10 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         <div className='flex h-full min-h-0 w-full min-w-0 flex-1 flex-col'>
             <PaneTabBar projectId={projectId} paneId={node.id} tabs={node.tabs} activeTabId={node.active} focused={node.id === focusedPaneId} />
             <div className='bg-editor-background text-editor-foreground relative min-h-0 flex-1 overflow-hidden'>
-                {activeTab?.kind.kind === 'file' && <EditorPane projectId={projectId} tabId={activeTab.id} path={activeTab.kind.path} />}
+                {activeTab?.kind.kind === 'file' && activePreviewKind === null && (
+                    <EditorPane projectId={projectId} tabId={activeTab.id} path={activeTab.kind.path} />
+                )}
+                {activeTab?.kind.kind === 'file' && activePreviewKind !== null && <PreviewPane key={activeTab.id} path={activeTab.kind.path} />}
                 {activeTab?.kind.kind === 'terminal' && (
                     <TerminalSession key={activeTab.id} projectId={projectId} tabId={activeTab.id} sessionId={activeTab.kind.sessionId} />
                 )}

@@ -18,6 +18,7 @@ export const QUERY_KEY = {
     FILE: {
         ALL: ['file'] as const,
         CONTENT: (path: string) => ['file', 'content', path] as const,
+        RAW: (path: string) => ['file', 'raw', path] as const,
     },
     TREE: {
         ALL: ['tree'] as const,
