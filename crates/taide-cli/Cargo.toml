@@ -1,0 +1,12 @@
+[package]
+name = "taide-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+[[bin]]
+name = "taide-cli"
+path = "src/main.rs"
+
+[dependencies]
+uuid = { version = "1", features = ["v4"] }

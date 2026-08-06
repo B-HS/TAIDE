@@ -1,0 +1,109 @@
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+pub const GRAPH_LANE_COLOR_COUNT: u32 = 12;
+pub const LOG_PAGE_SIZE: u32 = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum GitChangeKind {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Untracked,
+    TypeChange,
+    Conflicted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusRow {
+    pub path: String,
+    #[serde(default)]
+    pub orig_path: Option<String>,
+    #[serde(default)]
+    pub staged: Option<GitChangeKind>,
+    #[serde(default)]
+    pub unstaged: Option<GitChangeKind>,
+    pub is_conflicted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStatus {
+    pub rows: Vec<StatusRow>,
+    pub branch: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub has_remote: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemote {
+    pub name: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum HunkKind {
+    Added,
+    Modified,
+    Deleted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GutterHunk {
+    pub kind: HunkKind,
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BlameLine {
+    pub line: u32,
+    pub commit_id: String,
+    pub author: String,
+    pub time_unix: f64,
+    pub summary: String,
+    pub is_uncommitted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LogEntry {
+    pub id: String,
+    pub parents: Vec<String>,
+    pub summary: String,
+    pub author: String,
+    pub time_unix: f64,
+    pub refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DiffMode {
+    WorkdirVsIndex,
+    IndexVsHead,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffSides {
+    pub original: String,
+    pub modified: String,
+    pub language_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitOptions {
+    #[serde(default)]
+    pub amend: bool,
+    #[serde(default)]
+    pub stage_all: bool,
+}

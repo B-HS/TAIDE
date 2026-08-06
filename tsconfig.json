@@ -1,0 +1,32 @@
+{
+    "compilerOptions": {
+        "target": "ES2023",
+        "useDefineForClassFields": true,
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "module": "ESNext",
+        "skipLibCheck": true,
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "moduleDetection": "force",
+        "noEmit": true,
+        "jsx": "react-jsx",
+        "strict": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedSideEffectImports": true,
+        "verbatimModuleSyntax": true,
+        "types": ["vite/client", "bun"],
+        "baseUrl": ".",
+        "paths": {
+            "@app/*": ["src/app/*"],
+            "@widgets/*": ["src/widgets/*"],
+            "@features/*": ["src/features/*"],
+            "@entities/*": ["src/entities/*"],
+            "@shared/*": ["src/shared/*"]
+        }
+    },
+    "include": ["src", "vite.config.ts", "eslint.config.js", "prettier.config.js"]
+}

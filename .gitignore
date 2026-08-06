@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-*
+.DS_Store
+*.local
+.vite
+
+target
+src-tauri/target
+src-tauri/gen/schemas
+
+.env
+.env.*
+!.env.example
+
+.claude/settings.local.json

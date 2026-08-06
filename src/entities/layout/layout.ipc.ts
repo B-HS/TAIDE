@@ -1,0 +1,31 @@
+import { commands } from '@shared/api/bindings'
+import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
+import { unwrapResult } from '@shared/api/unwrap-result'
+
+export const getLayout = (projectId: ProjectId) => unwrapResult(commands.layoutGet(projectId))
+
+export const openTab = (input: { projectId: ProjectId; kind: TabKind; title: string; target: PaneId | null; preview: boolean }) =>
+    unwrapResult(commands.layoutOpenTab(input.projectId, input.kind, input.title, input.target, input.preview))
+
+export const closeTab = (tabId: TabId) => unwrapResult(commands.layoutCloseTab(tabId))
+
+export const activateTab = (tabId: TabId) => unwrapResult(commands.layoutActivateTab(tabId))
+
+export const moveTab = (input: { tabId: TabId; paneId: PaneId; index: number }) =>
+    unwrapResult(commands.layoutMoveTab(input.tabId, input.paneId, input.index))
+
+export const splitPane = (input: { paneId: PaneId; edge: DropEdge; tabId: TabId }) =>
+    unwrapResult(commands.layoutSplit(input.paneId, input.edge, input.tabId))
+
+export const resizePane = (input: { paneId: PaneId; sizes: number[] }) => unwrapResult(commands.layoutResize(input.paneId, input.sizes))
+
+export const focusPane = (paneId: PaneId) => unwrapResult(commands.layoutFocusPane(paneId))
+
+export const pinTab = (input: { tabId: TabId; pinned: boolean }) => unwrapResult(commands.layoutPinTab(input.tabId, input.pinned))
+
+export const setTabDirty = (input: { tabId: TabId; dirty: boolean }) => unwrapResult(commands.layoutSetDirty(input.tabId, input.dirty))
+
+export const setTerminalSession = (input: { tabId: TabId; sessionId: string }) =>
+    unwrapResult(commands.layoutSetTerminalSession(input.tabId, input.sessionId))
+
+export const reopenClosedTab = (projectId: ProjectId) => unwrapResult(commands.layoutReopenClosed(projectId))

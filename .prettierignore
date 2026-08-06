@@ -1,0 +1,10 @@
+.claude
+dist
+dist-*
+docs
+node_modules
+target
+src-tauri/target
+src-tauri/gen
+src/shared/api/bindings.ts
+bun.lock

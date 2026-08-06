@@ -1,0 +1,305 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+:root {
+    --taide-app-background: #1e1e2e;
+    --taide-app-foreground: #cdd6f4;
+    --taide-app-border: #313244;
+    --taide-app-focus-border: #89b4fa;
+    --taide-app-accent: #89b4fa;
+
+    --taide-app-sidebar-background: #181825;
+    --taide-app-sidebar-item-hover: #313244;
+    --taide-app-sidebar-item-active: #45475a;
+    --taide-app-sidebar-icon-default: #a6adc8;
+    --taide-app-sidebar-icon-agent-running: #a6e3a1;
+    --taide-app-sidebar-badge: #f38ba8;
+
+    --taide-tab-bar-background: #181825;
+    --taide-tab-bar-tab-active-background: #1e1e2e;
+    --taide-tab-bar-tab-inactive-background: #181825;
+    --taide-tab-bar-tab-active-foreground: #cdd6f4;
+    --taide-tab-bar-tab-inactive-foreground: #7f849c;
+    --taide-tab-bar-tab-border: #313244;
+    --taide-tab-bar-tab-active-indicator: #89b4fa;
+    --taide-tab-bar-dirty-dot: #f9e2af;
+    --taide-tab-bar-drop-target: #89b4fa;
+
+    --taide-explorer-background: #181825;
+    --taide-explorer-item-hover: #313244;
+    --taide-explorer-item-selected: #45475a;
+    --taide-explorer-indent-guide: #313244;
+
+    --taide-panel-background: #181825;
+    --taide-panel-section-header: #a6adc8;
+    --taide-panel-input-background: #1e1e2e;
+    --taide-panel-input-border: #313244;
+    --taide-panel-match-highlight: #f9e2af;
+
+    --taide-editor-background: #1e1e2e;
+    --taide-editor-foreground: #cdd6f4;
+    --taide-editor-line-highlight: #313244;
+    --taide-editor-cursor: #f5e0dc;
+    --taide-editor-selection: #45475a;
+    --taide-editor-line-number: #6c7086;
+    --taide-editor-line-number-active: #cdd6f4;
+    --taide-editor-widget-background: #181825;
+    --taide-editor-widget-border: #313244;
+
+    --taide-editor-gutter-added-background: #a6e3a1;
+    --taide-editor-gutter-modified-background: #89b4fa;
+    --taide-editor-gutter-deleted-background: #f38ba8;
+    --taide-editor-blame-foreground: #6c7086;
+    --taide-editor-blame-background: transparent;
+
+    --taide-terminal-background: #1e1e2e;
+    --taide-terminal-foreground: #cdd6f4;
+    --taide-terminal-cursor: #f5e0dc;
+    --taide-terminal-selection: #45475a;
+
+    --taide-git-added: #a6e3a1;
+    --taide-git-modified: #f9e2af;
+    --taide-git-deleted: #f38ba8;
+    --taide-git-renamed: #74c7ec;
+    --taide-git-untracked: #a6e3a1;
+    --taide-git-conflicted: #fab387;
+    --taide-git-staged: #cba6f7;
+
+    --taide-graph-lane1: #f5e0dc;
+    --taide-graph-lane2: #f2cdcd;
+    --taide-graph-lane3: #f5c2e7;
+    --taide-graph-lane4: #cba6f7;
+    --taide-graph-lane5: #f38ba8;
+    --taide-graph-lane6: #eba0ac;
+    --taide-graph-lane7: #fab387;
+    --taide-graph-lane8: #f9e2af;
+    --taide-graph-lane9: #a6e3a1;
+    --taide-graph-lane10: #94e2d5;
+    --taide-graph-lane11: #89dceb;
+    --taide-graph-lane12: #74c7ec;
+    --taide-graph-ref-branch: #89b4fa;
+    --taide-graph-ref-tag: #f9e2af;
+    --taide-graph-ref-head: #a6e3a1;
+
+    --taide-status-indicator-info: #89b4fa;
+    --taide-status-indicator-warning: #f9e2af;
+    --taide-status-indicator-error: #f38ba8;
+    --taide-status-indicator-success: #a6e3a1;
+
+    --taide-menu-background: #181825;
+    --taide-menu-border: #313244;
+    --taide-menu-item-hover: #313244;
+    --taide-menu-separator: #313244;
+
+    --taide-scrollbar-thumb: #45475a;
+    --taide-scrollbar-thumb-hover: #585b70;
+    --taide-scrollbar-track: transparent;
+
+    --background: var(--taide-app-background);
+    --foreground: var(--taide-app-foreground);
+    --card: var(--taide-panel-background);
+    --card-foreground: var(--taide-app-foreground);
+    --popover: var(--taide-menu-background);
+    --popover-foreground: var(--taide-app-foreground);
+    --primary: var(--taide-app-accent);
+    --primary-foreground: var(--taide-app-background);
+    --secondary: var(--taide-app-sidebar-item-active);
+    --secondary-foreground: var(--taide-app-foreground);
+    --muted: var(--taide-app-sidebar-item-hover);
+    --muted-foreground: var(--taide-app-sidebar-icon-default);
+    --accent: var(--taide-app-sidebar-item-hover);
+    --accent-foreground: var(--taide-app-foreground);
+    --destructive: var(--taide-status-indicator-error);
+    --border: var(--taide-app-border);
+    --input: var(--taide-panel-input-border);
+    --ring: var(--taide-app-focus-border);
+    --radius: 0.375rem;
+}
+
+@theme inline {
+    --color-app-background: var(--taide-app-background);
+    --color-app-foreground: var(--taide-app-foreground);
+    --color-app-border: var(--taide-app-border);
+    --color-app-accent: var(--taide-app-accent);
+
+    --color-app-sidebar-background: var(--taide-app-sidebar-background);
+    --color-app-sidebar-item-hover: var(--taide-app-sidebar-item-hover);
+    --color-app-sidebar-item-active: var(--taide-app-sidebar-item-active);
+    --color-app-sidebar-icon-default: var(--taide-app-sidebar-icon-default);
+    --color-app-sidebar-icon-agent-running: var(--taide-app-sidebar-icon-agent-running);
+    --color-app-sidebar-badge: var(--taide-app-sidebar-badge);
+
+    --color-tab-bar-background: var(--taide-tab-bar-background);
+    --color-tab-bar-tab-active-background: var(--taide-tab-bar-tab-active-background);
+    --color-tab-bar-tab-inactive-background: var(--taide-tab-bar-tab-inactive-background);
+    --color-tab-bar-tab-active-foreground: var(--taide-tab-bar-tab-active-foreground);
+    --color-tab-bar-tab-inactive-foreground: var(--taide-tab-bar-tab-inactive-foreground);
+    --color-tab-bar-tab-border: var(--taide-tab-bar-tab-border);
+    --color-tab-bar-tab-active-indicator: var(--taide-tab-bar-tab-active-indicator);
+    --color-tab-bar-dirty-dot: var(--taide-tab-bar-dirty-dot);
+    --color-tab-bar-drop-target: var(--taide-tab-bar-drop-target);
+
+    --color-explorer-background: var(--taide-explorer-background);
+    --color-explorer-item-hover: var(--taide-explorer-item-hover);
+    --color-explorer-item-selected: var(--taide-explorer-item-selected);
+    --color-explorer-indent-guide: var(--taide-explorer-indent-guide);
+
+    --color-panel-background: var(--taide-panel-background);
+    --color-panel-section-header: var(--taide-panel-section-header);
+    --color-panel-input-background: var(--taide-panel-input-background);
+    --color-panel-input-border: var(--taide-panel-input-border);
+    --color-panel-match-highlight: var(--taide-panel-match-highlight);
+
+    --color-editor-background: var(--taide-editor-background);
+    --color-editor-foreground: var(--taide-editor-foreground);
+    --color-editor-widget-background: var(--taide-editor-widget-background);
+    --color-editor-widget-border: var(--taide-editor-widget-border);
+
+    --color-terminal-background: var(--taide-terminal-background);
+    --color-terminal-foreground: var(--taide-terminal-foreground);
+
+    --color-git-added: var(--taide-git-added);
+    --color-git-modified: var(--taide-git-modified);
+    --color-git-deleted: var(--taide-git-deleted);
+    --color-git-renamed: var(--taide-git-renamed);
+    --color-git-untracked: var(--taide-git-untracked);
+    --color-git-conflicted: var(--taide-git-conflicted);
+    --color-git-staged: var(--taide-git-staged);
+
+    --color-graph-lane1: var(--taide-graph-lane1);
+    --color-graph-lane2: var(--taide-graph-lane2);
+    --color-graph-lane3: var(--taide-graph-lane3);
+    --color-graph-lane4: var(--taide-graph-lane4);
+    --color-graph-lane5: var(--taide-graph-lane5);
+    --color-graph-lane6: var(--taide-graph-lane6);
+    --color-graph-lane7: var(--taide-graph-lane7);
+    --color-graph-lane8: var(--taide-graph-lane8);
+    --color-graph-lane9: var(--taide-graph-lane9);
+    --color-graph-lane10: var(--taide-graph-lane10);
+    --color-graph-lane11: var(--taide-graph-lane11);
+    --color-graph-lane12: var(--taide-graph-lane12);
+    --color-graph-ref-branch: var(--taide-graph-ref-branch);
+    --color-graph-ref-tag: var(--taide-graph-ref-tag);
+    --color-graph-ref-head: var(--taide-graph-ref-head);
+
+    --color-status-info: var(--taide-status-indicator-info);
+    --color-status-warning: var(--taide-status-indicator-warning);
+    --color-status-error: var(--taide-status-indicator-error);
+    --color-status-success: var(--taide-status-indicator-success);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --radius-sm: calc(var(--radius) - 2px);
+    --radius-md: var(--radius);
+    --radius-lg: calc(var(--radius) + 2px);
+}
+
+@layer base {
+    * {
+        border-color: var(--color-border);
+    }
+
+    html,
+    body,
+    #root {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+    }
+
+    body {
+        background-color: var(--color-background);
+        color: var(--color-foreground);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans KR', sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+    }
+
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--taide-scrollbar-track);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--taide-scrollbar-thumb);
+        border-radius: 5px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--taide-scrollbar-thumb-hover);
+    }
+}
+
+.taide-gutter-added,
+.taide-gutter-modified {
+    position: relative;
+}
+
+.taide-gutter-added::before,
+.taide-gutter-modified::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 3px;
+}
+
+.taide-gutter-added::before {
+    background-color: var(--taide-editor-gutter-added-background);
+}
+
+.taide-gutter-modified::before {
+    background-color: var(--taide-editor-gutter-modified-background);
+}
+
+.taide-gutter-deleted {
+    position: relative;
+}
+
+.taide-gutter-deleted::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 4px 0 4px 6px;
+    border-color: transparent transparent transparent var(--taide-editor-gutter-deleted-background);
+}
+
+.taide-blame-text {
+    color: var(--taide-editor-blame-foreground);
+    font-style: italic;
+    opacity: 0.7;
+}
+
+.xterm textarea.xterm-helper-textarea {
+    left: 0;
+    top: 0;
+    width: 1px;
+    height: 1px;
+}

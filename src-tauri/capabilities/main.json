@@ -1,0 +1,22 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "main",
+    "description": "TAIDE 메인 윈도우 최소 권한 — 파일·프로세스 접근은 전부 커스텀 command 경유 (ipc-contract §4)",
+    "windows": ["main"],
+    "permissions": [
+        "core:default",
+        "core:window:allow-show",
+        "core:window:allow-hide",
+        "core:window:allow-set-title",
+        "core:window:allow-set-theme",
+        "core:window:allow-start-dragging",
+        "core:window:allow-minimize",
+        "core:window:allow-toggle-maximize",
+        "core:window:allow-close",
+        "core:webview:allow-internal-toggle-devtools",
+        "dialog:allow-open",
+        "opener:allow-open-path",
+        "opener:allow-open-url",
+        "log:default"
+    ]
+}
