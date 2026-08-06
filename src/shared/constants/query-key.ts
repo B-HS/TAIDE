@@ -52,6 +52,11 @@ export const QUERY_KEY = {
         PROFILES: ['terminal', 'profiles'] as const,
         SESSIONS: (projectId: string) => ['terminal', 'sessions', projectId] as const,
     },
+    LOCALE: {
+        ALL: ['locale'] as const,
+        LIST: ['locale', 'list'] as const,
+        CURRENT: ['locale', 'current'] as const,
+    },
     THEME: {
         ALL: ['theme'] as const,
         LIST: ['theme', 'list'] as const,

@@ -1,4 +1,5 @@
 import type { FC, KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { IS_MAC } from '@shared/constants/platform'
 import { Button } from '@shared/ui/button'
 
@@ -12,6 +13,7 @@ type CommitBoxProps = {
 const COMMIT_TEXTAREA_ROWS = 3
 
 export const CommitBox: FC<CommitBoxProps> = ({ message, onMessageChange, onCommit, isCommitting }) => {
+    const { t } = useTranslation()
     const isMessageEmpty = message.trim().length === 0
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -27,12 +29,12 @@ export const CommitBox: FC<CommitBoxProps> = ({ message, onMessageChange, onComm
                 value={message}
                 onChange={(event) => onMessageChange(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder='커밋 메시지 입력'
+                placeholder={t('git.commitMessagePlaceholder')}
                 rows={COMMIT_TEXTAREA_ROWS}
                 className='bg-panel-input-background border-panel-input-border focus:border-app-focus-border resize-none rounded-sm border px-2 py-1.5 text-xs outline-none'
             />
             <Button size='sm' disabled={isMessageEmpty || isCommitting} onClick={onCommit}>
-                {isCommitting ? '커밋 중…' : 'Commit'}
+                {isCommitting ? t('git.committing') : t('git.commit')}
             </Button>
         </div>
     )

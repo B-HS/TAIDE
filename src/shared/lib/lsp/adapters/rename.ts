@@ -3,6 +3,7 @@ import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { LspRange, PrepareRenameResult, WorkspaceEdit } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
+import { i18next } from '@shared/i18n/i18n'
 
 const NOOP_DISPOSABLE = { dispose: () => {} }
 
@@ -44,7 +45,7 @@ export const registerRename = (monaco: Monaco, client: LspClient, languageId: st
                   const fallbackRange = word
                       ? new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
                       : monaco.Range.fromPositions(position, position)
-                  if (!result) return { range: fallbackRange, text: word?.word ?? '', rejectReason: '이름을 바꿀 수 없는 위치입니다' }
+                  if (!result) return { range: fallbackRange, text: word?.word ?? '', rejectReason: i18next.t('editor.renameUnavailable') }
                   const range: LspRange = 'range' in result ? result.range : result
                   const text = 'placeholder' in result ? result.placeholder : (word?.word ?? '')
                   return { range: lspRangeToMonaco(range), text }

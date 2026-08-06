@@ -3,6 +3,7 @@ pub mod app;
 pub mod file;
 pub mod git;
 pub mod layout;
+pub mod locale;
 pub mod lsp;
 pub mod plugin;
 pub mod project;

@@ -1,6 +1,7 @@
 import type { LogEntry } from '@shared/api/bindings'
 import type { FC } from 'react'
 import { useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { computeGraphLanes } from '@shared/lib/graph-lanes'
 
@@ -24,15 +25,15 @@ const OVERSCAN = 12
 const laneX = (lane: number) => lane * LANE_WIDTH + LANE_WIDTH / 2
 const laneColor = (lane: number) => `var(--taide-graph-lane${(lane % LANE_COLOR_COUNT) + 1})`
 
-const formatRelativeTime = (timeUnix: number) => {
+const relativeTimeToken = (timeUnix: number) => {
     const diffSeconds = Math.max(0, Math.floor(Date.now() / 1000) - timeUnix)
     const diffMinutes = Math.floor(diffSeconds / SECONDS_PER_MINUTE)
     const diffHours = Math.floor(diffMinutes / MINUTES_PER_HOUR)
     const diffDays = Math.floor(diffHours / HOURS_PER_DAY)
-    if (diffDays > 0) return `${diffDays}일 전`
-    if (diffHours > 0) return `${diffHours}시간 전`
-    if (diffMinutes > 0) return `${diffMinutes}분 전`
-    return '방금'
+    if (diffDays > 0) return { key: 'git.timeDaysAgo', params: { n: diffDays } }
+    if (diffHours > 0) return { key: 'git.timeHoursAgo', params: { n: diffHours } }
+    if (diffMinutes > 0) return { key: 'git.timeMinutesAgo', params: { n: diffMinutes } }
+    return { key: 'git.timeJustNow', params: undefined }
 }
 
 export const CommitGraph: FC<CommitGraphProps> = ({ commits }) => {
@@ -50,12 +51,15 @@ export const CommitGraph: FC<CommitGraphProps> = ({ commits }) => {
         getItemKey: (index) => nodes[index].id,
     })
 
+    const { t } = useTranslation()
+
     return (
         <div ref={parentRef} className='min-w-0 overflow-y-auto' style={{ maxHeight: VIEWPORT_HEIGHT_PX }}>
             <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const node = nodes[virtualRow.index]
                     const commit = commits[virtualRow.index]
+                    const relativeTime = relativeTimeToken(commit.timeUnix ?? 0)
                     return (
                         <div
                             key={virtualRow.key}
@@ -116,7 +120,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ commits }) => {
                             )}
                             <span className='truncate'>{commit.summary}</span>
                             <span className='text-app-sidebar-icon-default shrink-0'>{commit.author}</span>
-                            <span className='text-app-sidebar-icon-default shrink-0'>{formatRelativeTime(commit.timeUnix ?? 0)}</span>
+                            <span className='text-app-sidebar-icon-default shrink-0'>{t(relativeTime.key, relativeTime.params)}</span>
                             <span className='text-app-sidebar-icon-default shrink-0 font-mono'>{commit.id.slice(0, 7)}</span>
                         </div>
                     )

@@ -5,6 +5,7 @@ pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_THEME_ID: &str = "taide-dark";
 pub const DEFAULT_EDITOR_FONT_SIZE: u32 = 13;
 pub const DEFAULT_TERMINAL_FONT_SIZE: u32 = 13;
+pub const DEFAULT_LANGUAGE: &str = "system";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -20,10 +21,16 @@ pub struct Settings {
     pub shell_override: Option<String>,
     #[serde(default)]
     pub follow_system_theme: bool,
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 fn default_theme_id() -> String {
     DEFAULT_THEME_ID.to_string()
+}
+
+fn default_language() -> String {
+    DEFAULT_LANGUAGE.to_string()
 }
 
 fn default_editor_font_size() -> u32 {
@@ -43,6 +50,7 @@ impl Default for Settings {
             terminal_font_size: default_terminal_font_size(),
             shell_override: None,
             follow_system_theme: false,
+            language: default_language(),
         }
     }
 }

@@ -5,6 +5,7 @@ import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-ki
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import { Plus, Settings } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { projectListQueryOptions, useActivateProject, useOpenProject, useReorderProjects } from '@entities/project/project.query'
@@ -19,6 +20,7 @@ type AppSidebarProps = {
 }
 
 export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps) => {
+    const { t } = useTranslation()
     const [draggingId, setDraggingId] = useState<string | null>(null)
 
     const { data: projects = [] } = useQuery(projectListQueryOptions())
@@ -52,7 +54,7 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
 
     return (
         <nav
-            aria-label='프로젝트'
+            aria-label={t('sidebar.projectsAriaLabel')}
             className='bg-app-sidebar-background border-app-border flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r py-2'>
             <DndContext
                 sensors={sensors}
@@ -76,7 +78,7 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
 
             <button
                 type='button'
-                aria-label='폴더 열기'
+                aria-label={t('sidebar.openFolderAriaLabel')}
                 onClick={handleOpenProject}
                 className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover flex size-10 shrink-0 items-center justify-center rounded-md'>
                 <Plus className='size-5' />
@@ -84,7 +86,7 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
 
             <button
                 type='button'
-                aria-label='설정'
+                aria-label={t('sidebar.settingsAriaLabel')}
                 onClick={onOpenSettings}
                 className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover mt-auto flex size-10 shrink-0 items-center justify-center rounded-md'>
                 <Settings className='size-5' />

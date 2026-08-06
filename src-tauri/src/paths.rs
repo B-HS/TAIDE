@@ -23,6 +23,10 @@ impl AppPaths {
         self.data_dir.join("themes")
     }
 
+    pub fn locales_dir(&self) -> PathBuf {
+        self.data_dir.join("locales")
+    }
+
     pub fn project_dir(&self, id: &ProjectId) -> PathBuf {
         self.data_dir.join("projects").join(id.as_str())
     }

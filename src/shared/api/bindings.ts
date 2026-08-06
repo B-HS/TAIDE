@@ -76,6 +76,9 @@ export const commands = {
 	terminalSessions: (projectId: ProjectId) => typedError<TerminalSession[], AppError>(__TAURI_INVOKE("terminal_sessions", { projectId })),
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
+	localeList: () => typedError<LocaleSummary[], AppError>(__TAURI_INVOKE("locale_list")),
+	localeGet: (localeId: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get", { localeId })),
+	localeGetCurrent: (systemLanguage: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get_current", { systemLanguage })),
 	themeList: () => typedError<ThemeSummary[], AppError>(__TAURI_INVOKE("theme_list")),
 	themeGet: (themeId: string) => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get", { themeId })),
 	themeGetCurrent: () => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get_current")),
@@ -242,6 +245,12 @@ export type LoadedPlugin = {
 	error?: string | null,
 };
 
+export type LocaleSummary = {
+	id: string,
+	name: string,
+	builtin: boolean,
+};
+
 export type LogEntry = {
 	id: string,
 	parents: string[],
@@ -392,6 +401,22 @@ export type PtySpawnOptions = {
 	rows: number,
 };
 
+export type ResolvedLocale = ResolvedLocale_Serialize | ResolvedLocale_Deserialize;
+
+export type ResolvedLocale_Deserialize = {
+	id: string,
+	name: string,
+	messages: { [key in string]: string },
+	warnings?: string[],
+};
+
+export type ResolvedLocale_Serialize = {
+	id: string,
+	name: string,
+	messages: { [key in string]: string },
+	warnings?: string[],
+};
+
 export type ResolvedTheme = {
 	id: string,
 	name: string,
@@ -427,6 +452,7 @@ export type Settings = {
 	terminalFontSize?: number,
 	shellOverride?: string | null,
 	followSystemTheme?: boolean,
+	language?: string,
 };
 
 export type SettingsPatch = {
@@ -435,6 +461,7 @@ export type SettingsPatch = {
 	terminalFontSize: number | null,
 	shellOverride: string | null,
 	followSystemTheme: boolean | null,
+	language: string | null,
 };
 
 export type ShellProfile = {

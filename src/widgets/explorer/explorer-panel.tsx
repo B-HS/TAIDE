@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { useState } from 'react'
 import { FolderTree, GitBranch, Search } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { ProjectId } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { cn } from '@shared/lib/cn'
@@ -10,10 +11,10 @@ import { SearchPanelContainer } from '@widgets/search-panel/search-panel-contain
 
 type ExplorerView = 'files' | 'search' | 'git'
 
-const EXPLORER_VIEWS: { id: ExplorerView; label: string; icon: typeof FolderTree }[] = [
-    { id: 'files', label: '탐색기', icon: FolderTree },
-    { id: 'search', label: '검색', icon: Search },
-    { id: 'git', label: 'Git', icon: GitBranch },
+const EXPLORER_VIEWS: { id: ExplorerView; labelKey: string; icon: typeof FolderTree }[] = [
+    { id: 'files', labelKey: 'explorer.title', icon: FolderTree },
+    { id: 'search', labelKey: 'search.title', icon: Search },
+    { id: 'git', labelKey: 'git.title', icon: GitBranch },
 ]
 
 type ExplorerPanelProps = {
@@ -26,18 +27,22 @@ type ExplorerPanelProps = {
 }
 
 export const ExplorerPanel: FC<ExplorerPanelProps> = ({ projectId, rows, onToggleExpand, onOpenPreview, onOpenPinned, onOpenSearchMatch }) => {
+    const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
 
     return (
         <div className='bg-explorer-background flex h-full min-h-0 w-full flex-col'>
-            <div role='tablist' aria-label='탐색 사이드바 전환' className='border-app-border flex shrink-0 items-center gap-1 border-b px-2 py-1.5'>
-                {EXPLORER_VIEWS.map(({ id, label, icon: Icon }) => (
+            <div
+                role='tablist'
+                aria-label={t('explorer.sidebarSwitchLabel')}
+                className='border-app-border flex shrink-0 items-center gap-1 border-b px-2 py-1.5'>
+                {EXPLORER_VIEWS.map(({ id, labelKey, icon: Icon }) => (
                     <button
                         key={id}
                         type='button'
                         role='tab'
                         aria-selected={view === id}
-                        aria-label={label}
+                        aria-label={t(labelKey)}
                         onClick={() => setView(id)}
                         className={cn(
                             'flex size-6 items-center justify-center rounded-sm',

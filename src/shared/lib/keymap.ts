@@ -22,7 +22,7 @@ export type KeymapEntry = {
     key: string
     mods: KeymapModifier[]
     when?: string
-    description: string
+    descriptionKey: string
 }
 
 export type KeymapEvent = {
@@ -34,19 +34,19 @@ export type KeymapEvent = {
 }
 
 export const APP_KEYMAP: KeymapEntry[] = [
-    { id: 'quick-open', key: 'p', mods: ['mod'], description: '파일 퀵 오픈' },
-    { id: 'close-tab', key: 'w', mods: ['mod'], description: '탭 닫기' },
-    { id: 'toggle-sidebar', key: 'b', mods: ['mod'], description: '사이드바 토글' },
-    { id: 'search', key: 'f', mods: ['mod', 'shift'], description: '검색' },
-    { id: 'explorer', key: 'e', mods: ['mod', 'shift'], description: '탐색기' },
-    { id: 'git', key: 'g', mods: ['ctrl', 'shift'], description: 'Git' },
-    { id: 'split', key: '\\', mods: ['mod'], description: '에디터 분할' },
-    { id: 'tab-cycle-next', key: 'Tab', mods: ['ctrl'], description: '다음 탭' },
-    { id: 'tab-cycle-prev', key: 'Tab', mods: ['ctrl', 'shift'], description: '이전 탭' },
-    { id: 'reopen-closed-tab', key: 't', mods: ['mod', 'shift'], description: '닫은 탭 다시 열기' },
-    { id: 'save', key: 's', mods: ['mod'], description: '저장' },
-    { id: 'toggle-terminal', key: '`', mods: ['ctrl'], description: '터미널 토글' },
-    { id: 'new-terminal', key: '`', mods: ['ctrl', 'shift'], description: '새 터미널' },
+    { id: 'quick-open', key: 'p', mods: ['mod'], descriptionKey: 'keymap.quickOpen' },
+    { id: 'close-tab', key: 'w', mods: ['mod'], descriptionKey: 'keymap.closeTab' },
+    { id: 'toggle-sidebar', key: 'b', mods: ['mod'], descriptionKey: 'keymap.toggleSidebar' },
+    { id: 'search', key: 'f', mods: ['mod', 'shift'], descriptionKey: 'keymap.search' },
+    { id: 'explorer', key: 'e', mods: ['mod', 'shift'], descriptionKey: 'keymap.explorer' },
+    { id: 'git', key: 'g', mods: ['ctrl', 'shift'], descriptionKey: 'git.title' },
+    { id: 'split', key: '\\', mods: ['mod'], descriptionKey: 'keymap.split' },
+    { id: 'tab-cycle-next', key: 'Tab', mods: ['ctrl'], descriptionKey: 'keymap.tabCycleNext' },
+    { id: 'tab-cycle-prev', key: 'Tab', mods: ['ctrl', 'shift'], descriptionKey: 'keymap.tabCyclePrev' },
+    { id: 'reopen-closed-tab', key: 't', mods: ['mod', 'shift'], descriptionKey: 'keymap.reopenClosedTab' },
+    { id: 'save', key: 's', mods: ['mod'], descriptionKey: 'keymap.save' },
+    { id: 'toggle-terminal', key: '`', mods: ['ctrl'], descriptionKey: 'keymap.toggleTerminal' },
+    { id: 'new-terminal', key: '`', mods: ['ctrl', 'shift'], descriptionKey: 'keymap.newTerminal' },
 ]
 
 export const matchesKeymapEntry = (entry: KeymapEntry, event: KeymapEvent, isMac: boolean) => {

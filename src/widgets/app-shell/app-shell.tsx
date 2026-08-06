@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
+import { useTranslation } from 'react-i18next'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import { useOpenTab } from '@entities/layout/layout.query'
@@ -11,9 +12,8 @@ import { AppSidebar } from '@widgets/app-sidebar/app-sidebar'
 import { EditorArea } from '@widgets/editor-area/editor-area'
 import { ExplorerContainer } from '@widgets/explorer/explorer-container'
 
-const SETTINGS_TAB_TITLE = '설정'
-
 export const AppShell = () => {
+    const { t } = useTranslation()
     const { data: projects = [], isPending } = useQuery(projectListQueryOptions())
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { mutate: openProject } = useOpenProject()
@@ -27,9 +27,9 @@ export const AppShell = () => {
     }
 
     const handleOpenSettings = () => {
-        if (!activeProjectId) return toast.info('먼저 프로젝트를 여세요')
+        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
         openTab(
-            { projectId: activeProjectId, kind: { kind: 'settings' }, title: SETTINGS_TAB_TITLE, target: null, preview: false },
+            { projectId: activeProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
             { onError: (error) => toast.error(error.message) },
         )
     }
@@ -58,7 +58,7 @@ export const AppShell = () => {
                                 </Panel>
                             </Group>
                         ) : (
-                            <span className='text-app-sidebar-icon-default m-auto'>프로젝트를 선택하세요</span>
+                            <span className='text-app-sidebar-icon-default m-auto'>{t('app.selectProject')}</span>
                         )}
                     </main>
                 </div>

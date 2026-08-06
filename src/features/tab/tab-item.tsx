@@ -1,5 +1,6 @@
 import type { FC, MouseEvent, ReactNode } from 'react'
 import { Pin, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@shared/lib/cn'
 
 const MIDDLE_MOUSE_BUTTON = 1
@@ -16,6 +17,8 @@ type TabItemProps = {
 }
 
 export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, preview, onActivate, onClose }) => {
+    const { t } = useTranslation()
+
     const handleAuxClick = (event: MouseEvent) => {
         if (event.button !== MIDDLE_MOUSE_BUTTON) return
         event.preventDefault()
@@ -41,7 +44,7 @@ export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, 
             <span className={cn('truncate', preview && 'italic')}>{title}</span>
             <button
                 type='button'
-                aria-label={pinned ? `${title} 고정 해제` : `${title} 닫기`}
+                aria-label={pinned ? t('tab.unpinAriaLabel').replace('{title}', title) : t('tab.closeAriaLabel').replace('{title}', title)}
                 onClick={(event) => {
                     event.stopPropagation()
                     onClose()

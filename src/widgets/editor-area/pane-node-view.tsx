@@ -1,4 +1,5 @@
 import type { FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useDroppable } from '@dnd-kit/core'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
@@ -27,6 +28,7 @@ type PaneNodeViewProps = {
 }
 
 export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPaneId, isDragging, overTarget }) => {
+    const { t } = useTranslation()
     const { mutate: resizePane } = useResizePane(projectId)
     const dropLeft = useDroppable({ id: `${node.id}:left`, data: { type: 'split', paneId: node.id, edge: 'left' } satisfies SplitDropData })
     const dropRight = useDroppable({ id: `${node.id}:right`, data: { type: 'split', paneId: node.id, edge: 'right' } satisfies SplitDropData })
@@ -91,7 +93,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     activeTab.kind.kind !== 'diff' && (
                         <div className='flex h-full w-full items-center justify-center text-sm opacity-60'>{activeTab.title}</div>
                     )}
-                {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>파일을 열지 않았습니다</div>}
+                {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>}
                 {isDragging && (
                     <SplitDropZones
                         activeEdge={overTarget?.paneId === node.id ? overTarget.edge : null}

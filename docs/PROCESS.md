@@ -465,3 +465,21 @@ CJK 입력 끊김은 P1 적용본으로 재확인 대기.
 - [ ] `followSystemTheme` 이 백엔드 no-op — `theme_get_current` 가 `settings.theme_id` 만 읽는다
       (`domain/theme/commands.rs:19-23`). 설정 UI 에 체크박스는 있으나 동작 안 함 → 7.5-D
 - [ ] `⌘W` 가 앱을 종료 → 7.5-C
+
+### 7.5-H 다국어 — 구현 완료 (2026-08-06)
+
+- [x] Rust `domain/locale` — `LocalePack`/`LocaleSummary`/`ResolvedLocale`(flat dotted key),
+      내장 en/ko/ja 137키, `extends` 부분 오버라이드, `{app_data}/locales/*.json` 사용자 팩 열거,
+      `resolve_language(system|명시)` — 테스트 8건
+- [x] `lib.rs` 커맨드 3종 등록 + `bindings.ts` 재생성
+- [x] 프론트 `shared/i18n/i18n.ts` — i18next 26.3.6 / react-i18next 17.0.11.
+      `keySeparator: false` 로 flat 키 사용, `addResourceBundle` 로 런타임 주입
+      (**언어팩 요구를 만족시키는 핵심** — 컴파일타임 방식은 이래서 배제)
+- [x] `entities/locale` + `LocaleProvider` 배선, `settings.language` + 언어 선택 UI(네이티브 select 미사용)
+- [x] UI 하드코딩 문자열 전량 치환 — 22개 파일, `grep [가-힣]` 잔여 0건.
+      `keymap.ts` 의 `description` 은 `descriptionKey` 로 바꿔 렌더 시점에 번역
+- [x] **보간 문법 정정** — Rust 메시지가 `{count}` 였는데 i18next 기본은 `{{count}}` 라
+      치환이 안 됐다. Rust 쪽을 표준으로 맞춤
+- [ ] locales watcher 핫리로드 (미착수)
+
+**남은 검증**: 실제 앱에서 언어 전환이 즉시 반영되는지 눈으로 확인 필요.

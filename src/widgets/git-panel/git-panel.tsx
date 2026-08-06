@@ -1,6 +1,7 @@
 import type { GitRemote, StatusRow } from '@shared/api/bindings'
 import type { FC } from 'react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowDown, ArrowUp, File, GitBranch, Loader2, Minus, Plus, RefreshCw, Undo2 } from 'lucide-react'
 import {
     AlertDialog,
@@ -101,11 +102,13 @@ export const GitPanel: FC<GitPanelProps> = ({
         setDiscardTargets(null)
     }
 
+    const { t } = useTranslation()
+
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
             <div className='border-app-border flex shrink-0 items-center gap-1.5 border-b px-2 py-1.5 text-xs'>
                 <GitBranch className='size-3.5 shrink-0' />
-                <span className='truncate font-medium'>{branch ?? '리포지토리 없음'}</span>
+                <span className='truncate font-medium'>{branch ?? t('git.noRepositoryLabel')}</span>
                 {hasRemote && ahead > 0 && (
                     <span className='flex items-center gap-0.5'>
                         <ArrowUp className='size-3' />
@@ -121,7 +124,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                 {hasRemote && (
                     <button
                         type='button'
-                        aria-label='동기화'
+                        aria-label={t('git.sync')}
                         disabled={isSyncing}
                         onClick={onSync}
                         className='hover:bg-explorer-item-hover ml-auto flex size-5 shrink-0 items-center justify-center rounded-sm disabled:opacity-50'>
@@ -157,8 +160,8 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         <ContextMenuItem onSelect={() => onOpenFile(row.path)}>Open File</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>Open Changes</ContextMenuItem>
                                         <ContextMenuSeparator />
-                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>Copy Path</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>Reveal in Explorer</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
                             )
@@ -197,8 +200,8 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'staged')}>Open Changes</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onUnstage([row.path])}>Unstage Changes</ContextMenuItem>
                                         <ContextMenuSeparator />
-                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>Copy Path</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>Reveal in Explorer</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
                             )
@@ -220,7 +223,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                                 { id: 'stage', label: 'Stage Changes', icon: <Plus className='size-3' />, onClick: () => onStage([row.path]) },
                                 {
                                     id: 'discard',
-                                    label: 'Discard Changes',
+                                    label: t('git.discard'),
                                     icon: <Undo2 className='size-3' />,
                                     onClick: () => setDiscardTargets([row.path]),
                                 },
@@ -243,11 +246,11 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>Open Changes</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onStage([row.path])}>Stage Changes</ContextMenuItem>
                                         <ContextMenuItem variant='destructive' onSelect={() => setDiscardTargets([row.path])}>
-                                            Discard Changes
+                                            {t('git.discard')}
                                         </ContextMenuItem>
                                         <ContextMenuSeparator />
-                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>Copy Path</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>Reveal in Explorer</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
                             )
@@ -266,16 +269,17 @@ export const GitPanel: FC<GitPanelProps> = ({
             <AlertDialog open={discardTargets !== null} onOpenChange={(open) => !open && setDiscardTargets(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>변경사항을 취소할까요?</AlertDialogTitle>
+                        <AlertDialogTitle>{t('git.discardTitle')}</AlertDialogTitle>
                         <AlertDialogDescription>
-                            {discardTargets?.length === 1 ? discardTargets[0] : `${discardTargets?.length ?? 0}개 파일`}의 변경사항을 되돌립니다. 이
-                            작업은 취소할 수 없습니다.
+                            {t('git.discardDescription', {
+                                target: discardTargets?.length === 1 ? discardTargets[0] : t('git.fileCount', { count: discardTargets?.length ?? 0 }),
+                            })}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>취소</AlertDialogCancel>
+                        <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                         <AlertDialogAction variant='destructive' onClick={confirmDiscard}>
-                            변경 취소
+                            {t('git.discardConfirm')}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -284,12 +288,12 @@ export const GitPanel: FC<GitPanelProps> = ({
             <AlertDialog open={confirmStageAllOpen} onOpenChange={setConfirmStageAllOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>변경 전체를 스테이지하고 커밋할까요?</AlertDialogTitle>
-                        <AlertDialogDescription>스테이지된 변경사항이 없습니다. 모든 변경사항을 스테이지한 뒤 커밋합니다.</AlertDialogDescription>
+                        <AlertDialogTitle>{t('git.stageAllTitle')}</AlertDialogTitle>
+                        <AlertDialogDescription>{t('git.stageAllDescription')}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>취소</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmStageAllAndCommit}>커밋</AlertDialogAction>
+                        <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmStageAllAndCommit}>{t('git.commit')}</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

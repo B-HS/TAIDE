@@ -15,6 +15,7 @@ pub struct SettingsPatch {
     pub terminal_font_size: Option<u32>,
     pub shell_override: Option<String>,
     pub follow_system_theme: Option<bool>,
+    pub language: Option<String>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -48,6 +49,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         terminal_font_size: patch.terminal_font_size.unwrap_or(settings.terminal_font_size),
         shell_override: patch.shell_override.clone().or_else(|| settings.shell_override.clone()),
         follow_system_theme: patch.follow_system_theme.unwrap_or(settings.follow_system_theme),
+        language: patch.language.clone().unwrap_or_else(|| settings.language.clone()),
     }
 }
 

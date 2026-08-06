@@ -11,6 +11,7 @@ export const useUpdateSettings = () => {
         onSuccess: (settings) => {
             queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, settings)
             queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY.LOCALE.ALL })
         },
     })
 }

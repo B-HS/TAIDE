@@ -3,6 +3,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { Folder } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectRef } from '@shared/api/bindings'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
@@ -21,6 +22,7 @@ type SortableProjectIconProps = {
 }
 
 export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, active, dragging, agentRunning, onActivate }) => {
+    const { t } = useTranslation()
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: project.id.toString() })
     const { mutate: closeProject } = useCloseProject()
 
@@ -55,12 +57,12 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
             </ContextMenuTrigger>
 
             <ContextMenuContent>
-                <ContextMenuItem onSelect={() => closeProject(project.id)}>프로젝트 닫기</ContextMenuItem>
+                <ContextMenuItem onSelect={() => closeProject(project.id)}>{t('project.close')}</ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onSelect={() => void openPath(project.root).catch((error: Error) => toast.error(error.message))}>
-                    파일 관리자에서 열기
+                    {t('project.openInFileManager')}
                 </ContextMenuItem>
-                <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(project.root)}>경로 복사</ContextMenuItem>
+                <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(project.root)}>{t('project.copyPath')}</ContextMenuItem>
             </ContextMenuContent>
         </ContextMenu>
     )

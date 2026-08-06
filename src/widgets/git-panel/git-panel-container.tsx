@@ -1,5 +1,6 @@
 import type { FC } from 'react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { toast } from 'sonner'
@@ -26,6 +27,8 @@ const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => {
     const [commitMessage, setCommitMessage] = useState('')
+
+    const { t } = useTranslation()
 
     const { data: status, isError } = useQuery(gitStatusQueryOptions(projectId))
     const { data: log = [] } = useQuery(gitLogQueryOptions(projectId))
@@ -63,7 +66,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     if (isError) {
         return (
             <div className='bg-panel-background text-app-sidebar-icon-default flex h-full w-full items-center justify-center p-4 text-center text-sm'>
-                이 프로젝트는 Git 저장소가 아닙니다
+                {t('git.notARepository')}
             </div>
         )
     }

@@ -1,5 +1,6 @@
 import type { FC } from 'react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
 import { gitDiffFileQueryOptions } from '@entities/git/git.query'
@@ -14,6 +15,7 @@ type DiffPaneProps = {
 }
 
 export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged }) => {
+    const { t } = useTranslation()
     const [renderSideBySide, setRenderSideBySide] = useState(true)
 
     const { data, isPending, isError } = useQuery(gitDiffFileQueryOptions({ projectId, path, mode: staged ? 'indexVsHead' : 'workdirVsIndex' }))
@@ -34,7 +36,7 @@ export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged }) => {
     if (isError) {
         return (
             <div className='bg-editor-background text-status-error flex h-full w-full items-center justify-center text-sm'>
-                diff 를 불러오지 못했습니다
+                {t('editor.diffLoadFailed')}
             </div>
         )
     }

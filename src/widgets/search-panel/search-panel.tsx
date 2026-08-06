@@ -1,6 +1,7 @@
 import type { FC, KeyboardEvent } from 'react'
 import { useState } from 'react'
 import { CaseSensitive, Loader2, Search, WholeWord } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { SearchFileGroupHeader } from '@features/search/search-file-group-header'
 import type { SearchMatchRowData } from '@features/search/search-match-row'
 import { SearchMatchRow } from '@features/search/search-match-row'
@@ -48,6 +49,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     results,
     onOpenMatch,
 }) => {
+    const { t } = useTranslation()
     const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -66,12 +68,12 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                         value={query}
                         onChange={(event) => onQueryChange(event.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder='검색어 입력'
+                        placeholder={t('search.placeholder')}
                         className='min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs outline-none'
                     />
                     <button
                         type='button'
-                        aria-label='대소문자 구분'
+                        aria-label={t('search.caseSensitive')}
                         aria-pressed={caseSensitive}
                         onClick={() => onCaseSensitiveChange(!caseSensitive)}
                         className={cn(
@@ -84,7 +86,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                     </button>
                     <button
                         type='button'
-                        aria-label='단어 단위 검색'
+                        aria-label={t('search.wholeWord')}
                         aria-pressed={wholeWord}
                         onClick={() => onWholeWordChange(!wholeWord)}
                         className={cn(
@@ -99,12 +101,12 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                 {isSearching && (
                     <div className='text-app-sidebar-icon-default flex items-center gap-1.5 text-xs'>
                         <Loader2 className='size-3 animate-spin' />
-                        검색 중…
+                        {t('search.searching')}
                     </div>
                 )}
                 {!isSearching && hasQuery && (
                     <div className='text-app-sidebar-icon-default text-xs'>
-                        {totalMatches > 0 ? `${totalMatches}개 결과, 파일 ${results.length}개` : '결과 없음'}
+                        {totalMatches > 0 ? t('search.matchCount', { count: totalMatches, files: results.length }) : t('search.noMatches')}
                     </div>
                 )}
             </div>
@@ -113,12 +115,12 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                 {!hasQuery && (
                     <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
                         <Search className='size-5 opacity-60' />
-                        검색어를 입력하고 Enter 를 누르세요
+                        {t('search.pressEnterHint')}
                     </div>
                 )}
                 {hasQuery && !isSearching && !hasResults && (
                     <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
-                        일치하는 결과가 없습니다
+                        {t('search.noResults')}
                     </div>
                 )}
                 {hasResults &&

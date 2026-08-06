@@ -128,15 +128,17 @@
 
 > 결정: `docs/acknowledge/2026-08-06-i18n-and-session-findings.md` §1. 7.5-G 다음 순서.
 
-- [ ] `react-i18next` 도입 + 내장 en/ko/ja 번들 (`src/shared/i18n/`)
-- [ ] `settings` 도메인에 `language` 필드(`system|en|ko|ja`) — Rust 소유·영속화
-- [ ] Rust `locale_list()` / `locale_get(id)` — `{app_data}/locales/*.json` 열거·로드 +
-      내장 base 부분 오버라이드 + watcher 핫리로드 (테마와 동일 구조)
-- [ ] 설정 UI 언어 선택 + 하드코딩 한국어 문자열 전량 치환
+- [x] `react-i18next` 도입 + 내장 en/ko/ja 번들 — 번들은 Rust 소유, 런타임 `addResourceBundle` 주입
+- [x] `settings` 도메인에 `language` 필드(`system|en|ko|ja|커스텀`) — Rust 소유·영속화
+- [x] Rust `locale_list()` / `locale_get(id)` / `locale_get_current(systemLanguage)` —
+      `{app_data}/locales/*.json` 열거·로드 + `extends` 부분 오버라이드 + 시스템 언어 해석
+- [x] 설정 UI 언어 선택(자체 컴포넌트) + 하드코딩 한국어 문자열 전량 치환 (잔여 0건)
+- [ ] locales 디렉토리 watcher 핫리로드 (테마와 동일 구조 — 미착수)
 
 ### 7.5-C UI 일관성 · 확장성
 
 - [ ] `⌘W` 가 앱을 종료하는 문제 — 탭 닫기로 (WebView 기본 동작 선점 차단)
+- [ ] 파일 트리 툴바 (19번) — 새 폴더·새 파일·새로고침·모두 접기 (VSCode 탐색기 헤더 액션)
 - [ ] 탭 context menu 를 **view component 로 교체** + 항목 전량 (8·9번) — `tabs.md` §3.1
 - [ ] 탭 열기 규칙 확정 — `⌘+클릭` 분할, Move/Copy into New Window (7번) — `tabs.md` §4.4
 - [ ] 커맨드 레지스트리 + `>` 접두 모드 (10번) — `command-palette.md` §2

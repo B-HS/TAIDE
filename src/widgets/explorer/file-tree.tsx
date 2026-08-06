@@ -1,6 +1,7 @@
 import type { FC, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { useTranslation } from 'react-i18next'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeRowItem } from '@features/explorer/file-tree-row'
 import { findTypeaheadMatchIndex } from '@shared/lib/typeahead'
@@ -25,6 +26,7 @@ const findParentIndex = (rows: FileTreeRow[], fromIndex: number) => {
 }
 
 export const FileTree: FC<FileTreeProps> = ({ rows, onToggleExpand, onOpenPreview, onOpenPinned }) => {
+    const { t } = useTranslation()
     const parentRef = useRef<HTMLDivElement>(null)
     const typeaheadTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -129,7 +131,7 @@ export const FileTree: FC<FileTreeProps> = ({ rows, onToggleExpand, onOpenPrevie
         <div
             ref={parentRef}
             role='tree'
-            aria-label='탐색기'
+            aria-label={t('explorer.title')}
             tabIndex={0}
             onKeyDown={handleKeyDown}
             className='bg-explorer-background h-full w-full overflow-y-auto outline-none'>

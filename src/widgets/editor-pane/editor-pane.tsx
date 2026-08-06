@@ -1,5 +1,6 @@
 import type { FC } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
@@ -44,6 +45,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const [cursorLine, setCursorLine] = useState<number | null>(null)
     const [blameLine, setBlameLine] = useState<BlameLine | null>(null)
 
+    const { t } = useTranslation()
     const queryClient = useQueryClient()
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
     const { data: gutterHunks } = useQuery(gitGutterQueryOptions({ projectId, path }))
@@ -182,7 +184,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     if (isError) {
         return (
             <div className='bg-editor-background text-status-error flex h-full w-full items-center justify-center text-sm'>
-                {error instanceof Error ? error.message : '파일을 열지 못했습니다'}
+                {error instanceof Error ? error.message : t('editor.openFailed')}
             </div>
         )
     }
@@ -190,8 +192,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     if (file.tier === 'refused') {
         return (
             <div className='bg-editor-background text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-1 text-sm'>
-                <span>이 파일은 에디터로 열 수 없습니다</span>
-                <span className='text-xs opacity-70'>바이너리이거나 크기가 너무 큽니다</span>
+                <span>{t('editor.cannotOpen')}</span>
+                <span className='text-xs opacity-70'>{t('editor.binaryOrTooLarge')}</span>
             </div>
         )
     }
@@ -199,7 +201,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
             {file.readOnly && (
-                <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>큰 파일이라 열람 전용으로 열렸습니다</div>
+                <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
             )}
             {conflict && <ConflictBanner onViewDisk={handleViewDisk} onKeepMine={handleKeepMine} />}
             <CodeEditor
