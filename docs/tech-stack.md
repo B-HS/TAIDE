@@ -124,3 +124,22 @@
   버그가 아니라 컴파일러가 안전하게 bail 한 것. 현재 파일 트리·커밋 그래프 2곳에서 발생(무해).
 - **`@xterm/xterm` 6.0.0 유지 확정** — Phase 7.5 재평가 결과 대체재 없음.
   VS Code 도 같은 라이브러리(`^6.1.0-beta.292`)를 쓴다. 상세 `research/terminal-reevaluation.md`.
+
+
+## Phase 7.5~7.6 에서 추가된 의존성 (2026-08-07 기준, 실사 확인)
+
+| 패키지 | 버전 | 용도 | 선정 이유 |
+|--------|------|------|-----------|
+| `i18next` | 26.3.6 | 다국어 코어 | **런타임에 `addResourceBundle` 로 리소스를 추가할 수 있는 유일한 후보.** 사용자 언어팩 요구가 이 한 가지로 후보를 갈랐다 |
+| `react-i18next` | 17.0.11 | React 바인딩 | 위와 짝 |
+| `pdfjs-dist` | 6.2.108 | PDF 미리보기 | worker 배선은 Monaco 와 동일한 Vite `?worker` 패턴 |
+| `xlsx` (SheetJS) | 0.18.5 | xlsx 미리보기 | 수식은 계산값만 표시 |
+| `@rhwp/core` | 0.8.2 | HWP/HWPX 미리보기 | 사용자 지정. Rust+WASM, MIT |
+| `fontdb` (Rust) | 0.24.0 | 시스템 폰트 열거 | 순수 Rust, macOS/Windows/Linux 를 한 크레이트로. `monospaced` 플래그 제공 |
+
+**기각**: Paraglide JS / LinguiJS — 컴파일 타임에 메시지가 고정돼 **사용자 언어팩을 런타임에 못 붙인다.**
+요구와 정면 충돌해 후보에서 제외했다.
+
+**`tauri` 피처 변경**: `protocol-asset` 추가 (7.5-E 비디오·오디오 스트리밍).
+`assetProtocol.scope` 는 빈 배열로 두고 **열린 프로젝트 루트만 런타임 등록**한다
+(`allow_asset_access` — `src-tauri/src/domain/project/commands.rs`). 임의 경로 노출을 막기 위해서다.

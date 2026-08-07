@@ -97,13 +97,33 @@
 
 ### theme / settings (`theme-system.md`)
 
-- query: `theme_get(themeId)`, `theme_get_current()`, `theme_list`, `settings_get`
+- query: `theme_get(themeId)`, `theme_get_current(systemTheme)`, `theme_list`, `settings_get`
 - mutation: `settings_set_theme(themeId)`, `settings_update(patch)`
   (구현 시 정정: 초안의 `theme_set(id)` 을 **`settings_set_theme`** 로 확정.
   선택된 테마 id 는 `Settings` 가 소유하는 값이라 mutation 도 settings 도메인에 두는 것이 맞다.
   theme 도메인은 읽기 전용(로드·해석)만 담당한다. `theme_get_current` 는 view 부팅 시
   "현재 설정의 테마"를 한 번에 받기 위한 query 로 추가.)
+- mutation(7.5-D 추가): `theme_save(theme)`, `theme_delete(themeId)`
+  — 테마 편집기(`theme-system.md` §7.3)용. 내장 테마 덮어쓰기를 거부하고,
+  id 에 경로 구분자(`/ \ .`)가 있으면 거부한다(경로 탈출 방지).
 - event: `theme:changed`, `settings:changed`
+
+**`theme_get_current` 가 `systemTheme` 을 받는 이유(7.5-D 정정)**: `followSystemTheme` 판단은
+Rust 가 하되 OS 다크/라이트 감지는 view 가 센서 역할을 한다. Rust 가 웹뷰 없이 OS 테마를
+읽으려면 플랫폼 분기가 늘어나는데, view 에는 이미 `prefers-color-scheme` 이 있다.
+locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형태다.
+
+### locale (7.5-H 신설 — `acknowledge/2026-08-06-i18n-and-session-findings.md`)
+
+- query: `locale_list`, `locale_get(localeId)`, `locale_get_current(systemLanguage)`
+- 메시지는 **flat dotted key**(`"common.cancel"`). 중첩 객체가 아니다 —
+  사용자 언어팩이 키 단위로 부분 오버라이드하기 쉬운 구조를 택했다.
+- 사용자 팩은 `{app_data}/locales/*.json`. `extends` 로 내장(en/ko/ja)을 상속하고 바꾼 키만 담는다.
+
+### font (7.5-D 신설)
+
+- query: `font_list` → `FontFamily { name, monospaced }[]`
+- `fontdb` 로 시스템 폰트를 열거한다. `monospaced` 플래그로 에디터·터미널 목록을 기본 필터링한다.
 
 ### agent 연동 (`agent-integration.md`)
 
@@ -114,6 +134,27 @@
 
 - query: `plugin_list`
 - mutation: `plugin_reload`, `plugin_set_lsp_enabled(pluginId, lspId, enabled)`
+
+### 7.6 추가 (IDE 핵심 루프)
+
+- git: `git_branches`, `git_branch_create(name, checkout)`, `git_branch_checkout(name)`,
+  `git_branch_delete(name, force)`, `git_stash_list`, `git_stash_push(message?)`,
+  `git_stash_apply(index)`, `git_stash_drop(index)`, `git_discard_hunk(path, hunkStart, hunkEnd)`
+- search: `search_replace(query, replacement, paths?)` → `SearchReplaceResult { changedFiles, replacedMatches }`
+
+**`git_discard_hunk` 의 좌표 계약**: hunk 경계는 `git_gutter` 가 반환한 `GutterHunk { start, end }`
+를 그대로 넘긴다. Rust 쪽에서 두 함수가 **같은 diff 옵션과 같은 경계 계산 헬퍼**를 공유하므로
+프론트가 받은 좌표와 어긋날 수 없다. 이 불변식이 깨지면 엉뚱한 줄이 되돌려진다.
+
+### raw 커맨드 (specta 밖)
+
+`RAW_CHANNEL_COMMANDS`(`src-tauri/src/lib.rs`)에 등록된 3종은 specta 를 통과하지 못해
+`bindings.ts` 에 생성되지 않는다. `invoke()` 로 직접 호출한다.
+
+| 커맨드 | 이유 |
+|--------|------|
+| `pty_spawn` / `pty_attach` | raw 바이트 `Channel`(`InvokeResponseBody::Raw`) — `Vec<u8>` 로 보내면 JSON 숫자 배열이 되어 성능이 붕괴한다 |
+| `file_read_raw(path)` | 미리보기용 원본 바이트를 `ArrayBuffer` 로 전달. 20MB(`READ_ONLY_FILE_BYTES`) 상한은 Rust 가 강제 |
 
 ## 4. 보안 (NFR-7)
 

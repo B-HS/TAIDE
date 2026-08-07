@@ -45,7 +45,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── lsp/         LSP 세션 관리, 서버 감지, 루트 탐지
     │   │   ├── search/      프로젝트 전역 텍스트 검색 (자체 병렬 스캔 + regex)
     │   │   ├── agent/       에이전트 감지, wait 마커, CLI 설치 상태
-    │   │   ├── theme/       테마 로드/해석/내장 테마
+    │   │   ├── theme/       테마 로드/해석/내장 테마 + 사용자 테마 저장·삭제 (7.5-D)
+    │   │   ├── locale/      번역 메시지 로드/병합 + 사용자 언어팩 (7.5-H)
+    │   │   ├── font/        시스템 폰트 열거 (fontdb) (7.5-D)
     │   │   ├── settings/    앱 설정
     │   │   └── plugin/      플러그인 매니페스트 로드·검증
     │   └── infra/           외부 자원 어댑터
@@ -61,7 +63,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 > - `infra/repo.rs`(git2 래퍼)는 만들지 않았다 — git2 호출이 `domain/git/service.rs` 안에 있다.
 > - `infra/proc.rs` 대신 용도별로 `infra/pty.rs` 와 `infra/lsp_proc.rs` 로 나뉘었다.
 > - `src/cli/` 가 아니라 **별도 크레이트 `crates/taide-cli`** 다 (워크스페이스 구성).
-> - 초안에 없던 도메인 3개가 추가됐다: `app`, `tree`, `agent`.
+> - 초안에 없던 도메인 5개가 추가됐다: `app`, `tree`, `agent`, 그리고 Phase 7.5 에서 `locale`·`font`.
+>   `locale` 은 **테마와 완전히 같은 구조**다(내장 정의 + 사용자 파일 열거 + `extends` 부분 병합).
+>   같은 문제를 두 번 푸는 대신 검증된 구조를 재사용했다.
 > - 도메인별 저장소(`TreeStore`·`TerminalStore`·`GitStore`·`LspStore`·`SearchStore`·`PluginStore`·
 >   `AgentStore`)는 `state.rs` 가 아니라 각 도메인 `commands.rs` 에 정의하고 `app.manage()` 로 등록한다.
 >   (병렬 구현 시 `state.rs` 충돌을 피하려는 선택 — 결과적으로 도메인 응집도가 높아졌다)
