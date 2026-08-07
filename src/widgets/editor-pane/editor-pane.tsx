@@ -18,7 +18,8 @@ import { fileQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { getGitBlameRange } from '@entities/git/git.ipc'
-import { gitCurrentUserQueryOptions, gitGutterQueryOptions } from '@entities/git/git.query'
+import { gitCurrentUserQueryOptions, gitGutterQueryOptions, useDiscardGitHunk } from '@entities/git/git.query'
+import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
@@ -61,6 +62,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const [dirty, setDirty] = useState(false)
     const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
     const [cursorLine, setCursorLine] = useState<number | null>(null)
+    const [pendingHunk, setPendingHunk] = useState<{ start: number; end: number } | null>(null)
     const [blameLine, setBlameLine] = useState<BlameLine | null>(null)
     const [showMarkdownPreview, setShowMarkdownPreview] = useState(false)
     const [previewSource, setPreviewSource] = useState<string | null>(null)
@@ -70,6 +72,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: gutterHunks } = useQuery(gitGutterQueryOptions({ projectId, path }))
+    const { mutate: discardHunk } = useDiscardGitHunk(projectId)
     const { data: currentUser } = useQuery(gitCurrentUserQueryOptions(projectId))
     const { mutate: saveFile } = useSaveFile()
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
@@ -197,6 +200,19 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     }, [editor, gutterHunks])
 
     useEffect(() => {
+        if (!editor) return
+        const subscription = editor.onMouseDown((event) => {
+            if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) return
+            const line = event.target.position?.lineNumber
+            if (!line) return
+            const hunk = (gutterHunks ?? []).find((candidate) => line >= candidate.start && line <= candidate.end)
+            if (!hunk) return
+            setPendingHunk({ start: hunk.start, end: hunk.end })
+        })
+        return () => subscription.dispose()
+    }, [editor, gutterHunks])
+
+    useEffect(() => {
         if (!editor || cursorLine === null) return
 
         clearTimeout(blameTimeoutRef.current)
@@ -270,8 +286,23 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         />
     )
 
+    const handleConfirmDiscardHunk = () => {
+        if (!pendingHunk) return
+        discardHunk(
+            { projectId, path, hunkStart: pendingHunk.start, hunkEnd: pendingHunk.end },
+            { onError: (mutationError) => toast.error(mutationError.message) },
+        )
+        setPendingHunk(null)
+    }
+
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
+            <HunkDiscardDialog
+                startLine={pendingHunk?.start ?? null}
+                endLine={pendingHunk?.end ?? null}
+                onCancel={() => setPendingHunk(null)}
+                onConfirm={handleConfirmDiscardHunk}
+            />
             {file.readOnly && (
                 <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
             )}

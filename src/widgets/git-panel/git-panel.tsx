@@ -1,8 +1,8 @@
-import type { GitBranch as GitBranchInfo, GitRemote, StatusRow } from '@shared/api/bindings'
+import type { GitBranch as GitBranchInfo, GitRemote, GitStashEntry, StatusRow } from '@shared/api/bindings'
 import type { FC } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, File, Loader2, Minus, Plus, RefreshCw, Undo2 } from 'lucide-react'
+import { Archive, ArrowDown, ArrowUp, File, Loader2, Minus, Plus, RefreshCw, Undo2 } from 'lucide-react'
 import { BranchSwitcher } from '@features/git/branch-switcher'
 import {
     AlertDialog,
@@ -17,6 +17,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
 import { CommitBox } from '@features/git/commit-box'
 import { ResourceGroupHeader } from '@features/git/resource-group-header'
+import { StashList } from '@features/git/stash-list'
 import type { GitStatusChangeKind, StatusRowAction } from '@features/git/status-row-item'
 import { StatusRowItem } from '@features/git/status-row-item'
 import { CommitGraph, type GraphLogEntry } from '@widgets/git-panel/commit-graph'
@@ -48,6 +49,12 @@ export type GitPanelProps = {
     onSync: () => void
     isSyncing: boolean
     branches: GitBranchInfo[]
+    stashes: GitStashEntry[]
+    canStash: boolean
+    isStashing: boolean
+    onStashPush: () => void
+    onStashApply: (index: number) => void
+    onStashDrop: (index: number) => void
     onCheckoutBranch: (name: string) => void
     onCreateBranch: (name: string) => void
     graphCommits: GraphLogEntry[]
@@ -78,6 +85,12 @@ export const GitPanel: FC<GitPanelProps> = ({
     onSync,
     isSyncing,
     branches,
+    stashes,
+    canStash,
+    isStashing,
+    onStashPush,
+    onStashApply,
+    onStashDrop,
     onCheckoutBranch,
     onCreateBranch,
     graphCommits,
@@ -149,6 +162,18 @@ export const GitPanel: FC<GitPanelProps> = ({
             <CommitBox message={commitMessage} onMessageChange={onCommitMessageChange} onCommit={requestCommit} isCommitting={isCommitting} />
 
             <div className='min-h-0 flex-1 overflow-y-auto'>
+                {(stashes.length > 0 || canStash) && (
+                    <div>
+                        <ResourceGroupHeader
+                            title={t('git.stash')}
+                            count={stashes.length}
+                            actionLabel={canStash ? t('git.stashPush') : undefined}
+                            actionIcon={<Archive className='size-3' />}
+                            onAction={canStash ? onStashPush : undefined}
+                        />
+                        <StashList stashes={stashes} disabled={isStashing} onApply={onStashApply} onDrop={onStashDrop} />
+                    </div>
+                )}
                 {mergeRows.length > 0 && (
                     <div>
                         <ResourceGroupHeader title='Merge Changes' count={mergeRows.length} />

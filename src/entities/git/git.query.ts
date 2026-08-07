@@ -7,6 +7,7 @@ import {
     commitGit,
     createGitBranch,
     deleteGitBranch,
+    discardGitHunk,
     discardGitPaths,
     dropGitStash,
     getGitBranches,
@@ -122,3 +123,5 @@ export const usePushGitStash = (projectId: ProjectId | null) => useGitMutation(p
 export const useApplyGitStash = (projectId: ProjectId | null) => useGitMutation(projectId, applyGitStash)
 
 export const useDropGitStash = (projectId: ProjectId | null) => useGitMutation(projectId, dropGitStash)
+
+export const useDiscardGitHunk = (projectId: ProjectId | null) => useGitMutation(projectId, discardGitHunk)

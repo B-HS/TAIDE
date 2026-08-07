@@ -212,8 +212,11 @@
 - [x] 터미널 분할·다중 세션
 - [x] 최근 프로젝트 목록
 - [x] 드래그&드롭으로 파일/폴더 열기
-- [ ] **git stash UI** — 커맨드(`git_stash_list/push/apply/drop`)와 entities 훅은 있으나 화면이 없다
-- [ ] **hunk 단위 되돌리기 UI** — `git_discard_hunk` 커맨드는 있으나 gutter 에서 호출하는 경로가 없다
+- [x] **git stash UI** — git 패널 상단 stash 섹션(목록·스태시·적용·삭제)
+- [x] **hunk 단위 되돌리기 UI** — gutter 클릭 → 확인 다이얼로그 → `git_discard_hunk`.
+      되돌리면 복구할 수 없으므로 확인을 강제한다
+
+**Phase 7.6 완료.** 남은 것은 실제 화면 확인뿐이다.
 
 ## Phase 8 — 배포·확장 (2차) — **게이트: Phase 0~7.5 가 로컬에서 전부 테스트·확인 완료된 후에만 진행 (사용자 합의)**
 

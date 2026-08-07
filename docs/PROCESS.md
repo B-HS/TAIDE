@@ -602,3 +602,16 @@ Rust 커맨드 10종 `lib.rs` 등록 + bindings 재생성.
 - i18n 키 11종 추가(3언어) — 키 목록 배열에도 등록해야 파리티 테스트를 통과한다
 
 **남은 것**: git stash UI, hunk 되돌리기 UI(커맨드·훅은 준비됨), 그리고 **전 기능 시각 확인**
+
+### Phase 7.6 마무리 (2026-08-07)
+
+- [x] **git stash UI** — git 패널 상단에 stash 섹션. 목록 + 스태시(변경이 있을 때만 활성) + 적용 + 삭제.
+      `ResourceGroupHeader` 의 기존 action prop 형태(`actionLabel`/`actionIcon`/`onAction`)를 그대로 따랐다
+- [x] **hunk 단위 되돌리기 UI** — Monaco `onMouseDown` 에서 `GUTTER_LINE_DECORATIONS` 타겟을 잡아
+      클릭한 줄이 속한 hunk 를 찾고, **확인 다이얼로그**를 거쳐 `git_discard_hunk` 를 호출한다.
+      되돌리면 복구가 불가능하므로 확인 없이 실행하지 않는다
+- [x] i18n 키 5종 추가(3언어) + 네임스페이스 키 목록 등록
+
+**Phase 7.6 구현 완료.** 프론트 279 tests / Rust 218 tests, lint 0 errors, 한글 리터럴 잔여 0건.
+**전 기능 시각 확인이 남아 있다** — 이번 Phase 에서만 찾기/바꾸기·Problems·아웃라인·브랜치 전환·
+stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추가됐다.

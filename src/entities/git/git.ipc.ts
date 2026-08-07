@@ -51,3 +51,6 @@ export const pushGitStash = (input: { projectId: ProjectId; message: string | nu
 export const applyGitStash = (input: { projectId: ProjectId; index: number }) => unwrapResult(commands.gitStashApply(input.projectId, input.index))
 
 export const dropGitStash = (input: { projectId: ProjectId; index: number }) => unwrapResult(commands.gitStashDrop(input.projectId, input.index))
+
+export const discardGitHunk = (input: { projectId: ProjectId; path: string; hunkStart: number; hunkEnd: number }) =>
+    unwrapResult(commands.gitDiscardHunk(input.projectId, input.path, input.hunkStart, input.hunkEnd))

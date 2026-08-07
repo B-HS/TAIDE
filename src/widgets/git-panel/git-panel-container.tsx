@@ -8,12 +8,16 @@ import type { ProjectId } from '@shared/api/bindings'
 import {
     gitBranchesQueryOptions,
     gitLogQueryOptions,
+    gitStashesQueryOptions,
     gitRemotesQueryOptions,
     gitStatusQueryOptions,
+    useApplyGitStash,
     useCheckoutGitBranch,
     useCommitGit,
     useCreateGitBranch,
     useDiscardGitPaths,
+    useDropGitStash,
+    usePushGitStash,
     usePullGit,
     usePushGit,
     useStageGitPaths,
@@ -47,6 +51,20 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const { data: branches = [] } = useQuery(gitBranchesQueryOptions(projectId))
     const { mutate: checkoutBranch } = useCheckoutGitBranch(projectId)
     const { mutate: createBranch } = useCreateGitBranch(projectId)
+    const { data: stashes = [] } = useQuery(gitStashesQueryOptions(projectId))
+    const { mutate: pushStash, isPending: isStashPushing } = usePushGitStash(projectId)
+    const { mutate: applyStash, isPending: isStashApplying } = useApplyGitStash(projectId)
+    const { mutate: dropStash, isPending: isStashDropping } = useDropGitStash(projectId)
+
+    const handleStashPush = () =>
+        pushStash(
+            { projectId, message: null },
+            { onSuccess: () => toast.success(t('git.stashPushed')), onError: (error) => toast.error(error.message) },
+        )
+
+    const handleStashApply = (index: number) => applyStash({ projectId, index }, { onError: (error) => toast.error(error.message) })
+
+    const handleStashDrop = (index: number) => dropStash({ projectId, index }, { onError: (error) => toast.error(error.message) })
 
     const handleCheckoutBranch = (name: string) =>
         checkoutBranch(
@@ -110,6 +128,12 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onRevealInExplorer={(path) => void openPath(path).catch(notifyError)}
             onSync={handleSync}
             branches={branches}
+            stashes={stashes}
+            canStash={(status?.rows.length ?? 0) > 0}
+            isStashing={isStashPushing || isStashApplying || isStashDropping}
+            onStashPush={handleStashPush}
+            onStashApply={handleStashApply}
+            onStashDrop={handleStashDrop}
             onCheckoutBranch={handleCheckoutBranch}
             onCreateBranch={handleCreateBranch}
             isSyncing={isPushing || isPulling}
