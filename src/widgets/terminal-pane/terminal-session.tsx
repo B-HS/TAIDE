@@ -37,7 +37,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const sessionId = spawnedSessionId ?? (isPersistedAlive ? persistedSessionId : null)
 
     const spawnWithMeasuredSize = async (cols: number, rows: number) => {
-        const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId))
+        const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId, null))
         const created = await spawnPty({ ...defaults, cols, rows }, () => undefined)
         setSpawnedSessionId(created)
         persistTerminalSession({ tabId, sessionId: created })

@@ -10,6 +10,7 @@ pub mod plugin;
 pub mod project;
 pub mod search;
 pub mod settings;
+pub mod system;
 pub mod terminal;
 pub mod theme;
 pub mod tree;

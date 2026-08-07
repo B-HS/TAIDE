@@ -1,0 +1,3 @@
+export const SYSTEM_USAGE_POLL_INTERVAL_MS = 3_000
+
+export const BYTES_PER_MEBIBYTE = 1024 * 1024

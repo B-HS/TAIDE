@@ -146,6 +146,30 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
 를 그대로 넘긴다. Rust 쪽에서 두 함수가 **같은 diff 옵션과 같은 경계 계산 헬퍼**를 공유하므로
 프론트가 받은 좌표와 어긋날 수 없다. 이 불변식이 깨지면 엉뚱한 줄이 되돌려진다.
 
+### 7.7 계약 확정 추가
+
+- system(신설): query `system_usage_get` → `SystemUsage { cpuPercent: number | null, memoryBytes: number }`.
+  TAIDE 메인 프로세스만 측정한다(자손 프로세스 미포함). 첫 호출은 `cpuPercent: null`
+  (CPU 사용률은 두 번째 샘플부터 유효). 프론트는 `refetchInterval` 폴링으로 주기를 소유하고,
+  설정 토글이 꺼지면 호출 자체를 하지 않는다(`enabled`).
+- layout: `layout_set_preview(tabId, preview)` 신설 — `layout_pin_tab` 과 동일한 형태.
+  `TabKind::Terminal` 에 `cwd?: string | null` 필드, `TabKind::Diff` 에 `compareWith?: string | null`
+  필드 추가(둘 다 기존 데이터와 하위 호환). `TabKind::ClaudeDiff { requestId, path }` variant 신설 —
+  **레이아웃 영속 저장에서 제외되는 휘발성 탭**이다(저장 직전 필터링, 사라지는 활성 탭은 인접 탭으로 대체).
+- terminal: `pty_default_options(projectId, cwd)` — `cwd` 가 주어지면 프로젝트 루트 하위인지 검증 후
+  사용하고, `null` 이면 기존처럼 project.root 를 쓴다.
+- file: `file_delete(path)` 를 실제로 휴지통 이동(`trash` 크레이트)으로 구현
+  (기존엔 영구 삭제였고 문서만 휴지통이라 적혀 있었다 — 문서-코드 불일치 해소).
+  `file_create(path, isDir)` 는 대상 경로가 이미 존재하면 오류를 반환한다
+  (기존엔 폴더 중복 생성이 `create_dir_all` 때문에 조용히 성공했다).
+- settings: `editorMinimap`, `showSystemUsage`, `agentStatusBadgeEnabled`, `agentHooksEnabled`,
+  `ideIntegrationEnabled`, `ideAutoOpenDiff` 필드 6종 추가(전부 `SettingsPatch`/`emptySettingsPatch` 동반).
+  `SETTINGS_SCHEMA_VERSION` 은 1 유지(전 필드 serde default).
+- agent: `DetectedAgent` 에 `activity: AgentActivity`(`"idle" | "working" | "awaitingInput" | "unknown"`)
+  필드 추가 — 기존 `agent:state-changed` 이벤트 payload 가 그대로 확장된다(신규 이벤트 없음).
+  `AgentHooksStatus { installed }` 타입만 추가(커맨드는 후속 단계).
+- capabilities: `opener:allow-reveal-item-in-dir` 추가 — "Finder 에서 보기" 계열 기능의 전제.
+
 ### raw 커맨드 (specta 밖)
 
 `RAW_CHANNEL_COMMANDS`(`src-tauri/src/lib.rs`)에 등록된 3종은 specta 를 통과하지 못해

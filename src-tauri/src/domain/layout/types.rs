@@ -33,12 +33,21 @@ pub enum TabKind {
     #[serde(rename_all = "camelCase")]
     Terminal {
         session_id: String,
+        #[serde(default)]
+        cwd: Option<String>,
     },
     Settings,
     #[serde(rename_all = "camelCase")]
     Diff {
         path: String,
         staged: bool,
+        #[serde(default)]
+        compare_with: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    ClaudeDiff {
+        request_id: String,
+        path: String,
     },
     Welcome,
 }
@@ -100,6 +109,7 @@ pub enum FocusKind {
     Terminal,
     Settings,
     Diff,
+    ClaudeDiff,
     Welcome,
 }
 
@@ -110,6 +120,7 @@ impl From<&TabKind> for FocusKind {
             TabKind::Terminal { .. } => FocusKind::Terminal,
             TabKind::Settings => FocusKind::Settings,
             TabKind::Diff { .. } => FocusKind::Diff,
+            TabKind::ClaudeDiff { .. } => FocusKind::ClaudeDiff,
             TabKind::Welcome => FocusKind::Welcome,
         }
     }

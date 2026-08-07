@@ -616,3 +616,21 @@ Rust 커맨드 10종 `lib.rs` 등록 + bindings 재생성.
 **Phase 7.6 구현 완료.** 프론트 279 tests / Rust 218 tests, lint 0 errors, 한글 리터럴 잔여 0건.
 **전 기능 시각 확인이 남아 있다** — 이번 Phase 에서만 찾기/바꾸기·Problems·아웃라인·브랜치 전환·
 stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추가됐다.
+
+## 진행 중: Phase 7.7 — QA 1차 반영 (2026-08-07)
+
+> 사용자 실기기 QA 결과 9그룹. 운영 방식(사용자 확정): 오케스트레이팅·상세플랜 = 메인 세션(Fable),
+> 리서치·판단·최종검증 = opus+medium, 구현 = sonnet+high, 버그 1차 = opus+high, 2차 = Fable+medium.
+> 메인은 직접 구현하지 않고 계약 확정·배선·검증만 한다.
+
+- [ ] 7.7-R. 사전 리서치 워크플로 (8개 영역 병렬 조사) — 완료 후 계약 확정·상세플랜 작성
+- [ ] 7.7-1. Problems 재배치 — footer 에러 아이콘(에러 있으면 적색) + 클릭 시 에디터 영역 패널 토글
+- [ ] 7.7-2. 파일트리 툴바 hover 시에만 표시(Cursor 형태) + 새 파일/폴더 트리 내 인라인 입력(모달 금지)
+- [ ] 7.7-3. 파일트리 context menu 항목 전량 (VSCode 급)
+- [ ] 7.7-4. 탭 context menu 항목 보강 + 미니맵 토글(설정 또는 미니맵 우클릭)
+- [ ] 7.7-5. 커스텀 스크롤바 — bblog `virtual-scroll.tsx` 참조 고도화, 네이티브 스크롤바 대체
+- [ ] 7.7-6. UI 폴리시 — split border 떠있음·트리/코드뷰 공백·설정 overflow 심층 조사 후 수정
+- [ ] 7.7-7. Claude Code 1급 연동 — 상세 리서치 후 범위 합의 (diff 표시·IDE 연동)
+- [ ] 7.7-8. footer CPU/RAM 표시 + 설정 토글
+- [ ] 7.7-9. 설정 버그 — select 류가 열린 채 안 닫힘·plugin 클릭 시 영역 점프
+- [ ] 7.7-10. AI 상태 배지 — 프로젝트 아이콘 우하단 (IDLE/WORKING/NEED DECISION 등 + 열린 AI 창 구분)

@@ -22,6 +22,7 @@ export const commands = {
 	layoutResize: (paneId: PaneId, sizes: (number | null)[]) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_resize", { paneId, sizes })),
 	layoutFocusPane: (paneId: PaneId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_focus_pane", { paneId })),
 	layoutPinTab: (tabId: TabId, pinned: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_pin_tab", { tabId, pinned })),
+	layoutSetPreview: (tabId: TabId, preview: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_preview", { tabId, preview })),
 	layoutReopenClosed: (projectId: ProjectId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_reopen_closed", { projectId })),
 	layoutSetViewState: (tabId: TabId, viewState: string | null) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_view_state", { tabId, viewState })),
 	layoutSetDirty: (tabId: TabId, dirty: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_dirty", { tabId, dirty })),
@@ -78,7 +79,7 @@ export const commands = {
 	gitStashDrop: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_drop", { projectId, index })),
 	gitDiscardHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_discard_hunk", { projectId, path, hunkStart, hunkEnd })),
 	gitCurrentUser: (projectId: ProjectId) => typedError<string | null, AppError>(__TAURI_INVOKE("git_current_user", { projectId })),
-	ptyDefaultOptions: (projectId: ProjectId) => typedError<PtySpawnOptions, AppError>(__TAURI_INVOKE("pty_default_options", { projectId })),
+	ptyDefaultOptions: (projectId: ProjectId, cwd: string | null) => typedError<PtySpawnOptions, AppError>(__TAURI_INVOKE("pty_default_options", { projectId, cwd })),
 	ptyWrite: (sessionId: string, data: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_write", { sessionId, data })),
 	ptyResize: (sessionId: string, cols: number, rows: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_resize", { sessionId, cols, rows })),
 	ptyKill: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_kill", { sessionId })),
@@ -98,6 +99,7 @@ export const commands = {
 	settingsGet: () => typedError<Settings, AppError>(__TAURI_INVOKE("settings_get")),
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
+	systemUsageGet: () => typedError<SystemUsage, AppError>(__TAURI_INVOKE("system_usage_get")),
 };
 
 /** Events */
@@ -121,6 +123,8 @@ export const events = {
 };
 
 /* Types */
+export type AgentActivity = "idle" | "working" | "awaitingInput" | "unknown";
+
 export type AgentExternalOpen = {
 	request: ExternalOpenRequest,
 };
@@ -181,6 +185,7 @@ export type DetectedAgent = {
 	sessionId: string,
 	name: string,
 	pid: number,
+	activity: AgentActivity,
 };
 
 export type DiffMode = "workdirVsIndex" | "indexVsHead";
@@ -200,7 +205,7 @@ export type ExternalOpenRequest = {
 
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
 
-export type FocusKind = "file" | "terminal" | "settings" | "diff" | "welcome";
+export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome";
 
 export type FontFamily = {
 	name: string,
@@ -496,6 +501,12 @@ export type Settings = {
 	formatOnSave?: boolean,
 	autoSaveDelayMs?: number,
 	keymapOverrides?: string | null,
+	editorMinimap?: boolean,
+	showSystemUsage?: boolean,
+	agentStatusBadgeEnabled?: boolean,
+	agentHooksEnabled?: boolean,
+	ideIntegrationEnabled?: boolean,
+	ideAutoOpenDiff?: boolean,
 };
 
 export type SettingsPatch = {
@@ -513,6 +524,12 @@ export type SettingsPatch = {
 	formatOnSave: boolean | null,
 	autoSaveDelayMs: number | null,
 	keymapOverrides: string | null,
+	editorMinimap: boolean | null,
+	showSystemUsage: boolean | null,
+	agentStatusBadgeEnabled: boolean | null,
+	agentHooksEnabled: boolean | null,
+	ideIntegrationEnabled: boolean | null,
+	ideAutoOpenDiff: boolean | null,
 };
 
 export type ShellProfile = {
@@ -538,6 +555,11 @@ export type SyntaxStyle = {
 	italic?: boolean,
 };
 
+export type SystemUsage = {
+	cpuPercent: number | null,
+	memoryBytes: number | null,
+};
+
 export type Tab = {
 	id: TabId,
 	kind: TabKind,
@@ -550,7 +572,7 @@ export type Tab = {
 
 export type TabId = string;
 
-export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean } | { kind: "welcome" };
+export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" };
 
 export type TerminalCwdChanged = {
 	sessionId: string,

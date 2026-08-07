@@ -24,6 +24,12 @@ pub struct SettingsPatch {
     pub format_on_save: Option<bool>,
     pub auto_save_delay_ms: Option<u32>,
     pub keymap_overrides: Option<String>,
+    pub editor_minimap: Option<bool>,
+    pub show_system_usage: Option<bool>,
+    pub agent_status_badge_enabled: Option<bool>,
+    pub agent_hooks_enabled: Option<bool>,
+    pub ide_integration_enabled: Option<bool>,
+    pub ide_auto_open_diff: Option<bool>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -66,6 +72,12 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         format_on_save: patch.format_on_save.unwrap_or(settings.format_on_save),
         auto_save_delay_ms: patch.auto_save_delay_ms.unwrap_or(settings.auto_save_delay_ms),
         keymap_overrides: patch.keymap_overrides.clone().or_else(|| settings.keymap_overrides.clone()),
+        editor_minimap: patch.editor_minimap.unwrap_or(settings.editor_minimap),
+        show_system_usage: patch.show_system_usage.unwrap_or(settings.show_system_usage),
+        agent_status_badge_enabled: patch.agent_status_badge_enabled.unwrap_or(settings.agent_status_badge_enabled),
+        agent_hooks_enabled: patch.agent_hooks_enabled.unwrap_or(settings.agent_hooks_enabled),
+        ide_integration_enabled: patch.ide_integration_enabled.unwrap_or(settings.ide_integration_enabled),
+        ide_auto_open_diff: patch.ide_auto_open_diff.unwrap_or(settings.ide_auto_open_diff),
     }
 }
 
@@ -137,6 +149,29 @@ mod tests {
 
         assert!(updated.format_on_save);
         assert_eq!(updated.auto_save_delay_ms, 1_500);
+    }
+
+    #[test]
+    fn patch로_미니맵과_리소스_표시_agent_ide_설정을_변경한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            editor_minimap: Some(false),
+            show_system_usage: Some(false),
+            agent_status_badge_enabled: Some(false),
+            agent_hooks_enabled: Some(true),
+            ide_integration_enabled: Some(false),
+            ide_auto_open_diff: Some(false),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(!updated.editor_minimap);
+        assert!(!updated.show_system_usage);
+        assert!(!updated.agent_status_badge_enabled);
+        assert!(updated.agent_hooks_enabled);
+        assert!(!updated.ide_integration_enabled);
+        assert!(!updated.ide_auto_open_diff);
     }
 
     #[test]

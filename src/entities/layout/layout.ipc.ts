@@ -23,6 +23,8 @@ export const focusPane = (paneId: PaneId) => unwrapResult(commands.layoutFocusPa
 
 export const pinTab = (input: { tabId: TabId; pinned: boolean }) => unwrapResult(commands.layoutPinTab(input.tabId, input.pinned))
 
+export const setTabPreview = (input: { tabId: TabId; preview: boolean }) => unwrapResult(commands.layoutSetPreview(input.tabId, input.preview))
+
 export const setTabDirty = (input: { tabId: TabId; dirty: boolean }) => unwrapResult(commands.layoutSetDirty(input.tabId, input.dirty))
 
 export const setTerminalSession = (input: { tabId: TabId; sessionId: string }) =>

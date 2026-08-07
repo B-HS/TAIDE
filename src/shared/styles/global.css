@@ -13,6 +13,10 @@
     --taide-app-sidebar-item-active: #45475a;
     --taide-app-sidebar-icon-default: #a6adc8;
     --taide-app-sidebar-icon-agent-running: #a6e3a1;
+    --taide-app-sidebar-icon-agent-working: #89b4fa;
+    --taide-app-sidebar-icon-agent-awaiting: #f9e2af;
+    --taide-app-sidebar-icon-agent-idle: #a6e3a1;
+    --taide-app-sidebar-icon-agent-unknown: #6c7086;
     --taide-app-sidebar-badge: #f38ba8;
 
     --taide-tab-bar-background: #181825;
@@ -127,6 +131,10 @@
     --color-app-sidebar-item-active: var(--taide-app-sidebar-item-active);
     --color-app-sidebar-icon-default: var(--taide-app-sidebar-icon-default);
     --color-app-sidebar-icon-agent-running: var(--taide-app-sidebar-icon-agent-running);
+    --color-app-sidebar-icon-agent-working: var(--taide-app-sidebar-icon-agent-working);
+    --color-app-sidebar-icon-agent-awaiting: var(--taide-app-sidebar-icon-agent-awaiting);
+    --color-app-sidebar-icon-agent-idle: var(--taide-app-sidebar-icon-agent-idle);
+    --color-app-sidebar-icon-agent-unknown: var(--taide-app-sidebar-icon-agent-unknown);
     --color-app-sidebar-badge: var(--taide-app-sidebar-badge);
 
     --color-tab-bar-background: var(--taide-tab-bar-background);
@@ -186,6 +194,10 @@
     --color-status-warning: var(--taide-status-indicator-warning);
     --color-status-error: var(--taide-status-indicator-error);
     --color-status-success: var(--taide-status-indicator-success);
+
+    --color-scrollbar-thumb: var(--taide-scrollbar-thumb);
+    --color-scrollbar-thumb-hover: var(--taide-scrollbar-thumb-hover);
+    --color-scrollbar-track: var(--taide-scrollbar-track);
 
     --color-background: var(--background);
     --color-foreground: var(--foreground);

@@ -8,12 +8,28 @@ pub const AGENT_POLL_WINDOWS_MS: u64 = 2_000;
 pub const KNOWN_AGENT_NAMES: &[&str] = &["claude", "codex", "gemini"];
 pub const WAIT_MARKER_PREFIX: &str = "taide-wait-";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentActivity {
+    Idle,
+    Working,
+    AwaitingInput,
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DetectedAgent {
     pub session_id: String,
     pub name: String,
     pub pid: u32,
+    pub activity: AgentActivity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentHooksStatus {
+    pub installed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

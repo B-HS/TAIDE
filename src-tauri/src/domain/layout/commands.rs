@@ -219,6 +219,21 @@ pub async fn layout_pin_tab(app: AppHandle, state: State<'_, AppState>, tab_id: 
 
 #[tauri::command]
 #[specta::specta]
+pub async fn layout_set_preview(app: AppHandle, state: State<'_, AppState>, tab_id: TabId, preview: bool) -> AppResult<ProjectLayout> {
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let project_id = locate_project_with_tab(&layouts, &tab_id)?;
+    let layout = get_layout_mut(&mut layouts, &project_id)?;
+
+    service::set_preview(layout, &tab_id, preview)?;
+
+    let updated = finish_mutation(&app, &state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn layout_reopen_closed(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<ProjectLayout> {
     let _guard = state.begin_mutation().await;
     let mut layouts = state.layouts.read().clone();

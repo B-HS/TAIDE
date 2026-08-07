@@ -74,4 +74,8 @@ export const QUERY_KEY = {
         ALL: ['settings'] as const,
         CURRENT: ['settings', 'current'] as const,
     },
+    SYSTEM: {
+        ALL: ['system'] as const,
+        USAGE: ['system', 'usage'] as const,
+    },
 }

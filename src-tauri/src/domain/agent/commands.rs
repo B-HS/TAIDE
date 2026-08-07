@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use tauri::State;
 
 use super::service;
-use super::types::{CliInstallStatus, DetectedAgent, ProjectAgents};
+use super::types::{AgentActivity, CliInstallStatus, DetectedAgent, ProjectAgents};
 use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -122,6 +122,7 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<DetectedAgent> {
                 session_id,
                 name: name.to_string(),
                 pid,
+                activity: AgentActivity::Unknown,
             })
         })
         .collect()
@@ -143,6 +144,7 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<DetectedAgent> {
                 session_id,
                 name: name.to_string(),
                 pid: agent_pid,
+                activity: AgentActivity::Unknown,
             })
         })
         .collect()

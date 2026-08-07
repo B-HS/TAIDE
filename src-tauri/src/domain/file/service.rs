@@ -106,6 +106,10 @@ pub fn save_file(path: &Path, content: &str) -> AppResult<()> {
 }
 
 pub fn create_entry(path: &Path, is_dir: bool) -> AppResult<()> {
+    if path.exists() {
+        return Err(AppError::InvalidArgument(format!("already exists: {}", path.display())));
+    }
+
     if is_dir {
         return Ok(std::fs::create_dir_all(path)?);
     }
@@ -124,13 +128,21 @@ pub fn rename_entry(from: &Path, to: &Path) -> AppResult<()> {
     Ok(std::fs::rename(from, to)?)
 }
 
+#[cfg(target_os = "macos")]
 pub fn delete_entry(path: &Path) -> AppResult<()> {
-    let metadata = std::fs::metadata(path)?;
-    if metadata.is_dir() {
-        Ok(std::fs::remove_dir_all(path)?)
-    } else {
-        Ok(std::fs::remove_file(path)?)
-    }
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    use trash::TrashContext;
+
+    let mut context = TrashContext::default();
+    context.set_delete_method(DeleteMethod::NsFileManager);
+    context
+        .delete_all([path])
+        .map_err(|error| AppError::Internal(format!("휴지통으로 이동하지 못했습니다: {error}")))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn delete_entry(path: &Path) -> AppResult<()> {
+    trash::delete(path).map_err(|error| AppError::Internal(format!("휴지통으로 이동하지 못했습니다: {error}")))
 }
 
 pub fn copy_entry(from: &Path, to: &Path) -> AppResult<()> {
@@ -477,6 +489,38 @@ mod tests {
 
         let resolved = ensure_within_root(&root, &new_file).expect("허용되어야 한다");
         assert!(resolved.starts_with(std::fs::canonicalize(&root).unwrap()));
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 이미_존재하는_경로에_생성하면_오류를_반환한다() {
+        let dir = temp_dir("create-duplicate");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("existing.txt");
+        std::fs::write(&file, "hello").unwrap();
+
+        let result = create_entry(&file, false);
+        assert!(result.is_err());
+
+        let existing_dir = dir.join("existing-dir");
+        std::fs::create_dir_all(&existing_dir).unwrap();
+        let dir_result = create_entry(&existing_dir, true);
+        assert!(dir_result.is_err());
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 삭제된_항목은_휴지통으로_이동해_워킹디렉토리에서_사라진다() {
+        let dir = temp_dir("delete-to-trash");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("to-delete.txt");
+        std::fs::write(&file, "bye").unwrap();
+
+        delete_entry(&file).expect("delete");
+
+        assert!(!file.exists());
 
         cleanup(&dir);
     }

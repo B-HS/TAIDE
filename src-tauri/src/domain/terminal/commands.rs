@@ -9,6 +9,7 @@ use tauri_specta::Event;
 
 use super::service;
 use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
+use crate::domain::file::service::ensure_within_root;
 use crate::error::{AppError, AppResult};
 use crate::events::TerminalExited;
 use crate::ids::ProjectId;
@@ -221,17 +222,24 @@ const DEFAULT_TERMINAL_ROWS: u16 = 24;
 
 #[tauri::command]
 #[specta::specta]
-pub async fn pty_default_options(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<PtySpawnOptions> {
-    let cwd = state
+pub async fn pty_default_options(state: State<'_, AppState>, project_id: ProjectId, cwd: Option<String>) -> AppResult<PtySpawnOptions> {
+    let root = state
         .projects
         .read()
         .get(&project_id)
         .map(|project| project.root.clone())
         .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
 
+    let resolved_cwd = match cwd {
+        Some(requested) => ensure_within_root(std::path::Path::new(&root), std::path::Path::new(&requested))?
+            .to_string_lossy()
+            .to_string(),
+        None => root,
+    };
+
     Ok(PtySpawnOptions {
         project_id,
-        cwd,
+        cwd: resolved_cwd,
         shell: state.settings.read().shell_override.clone(),
         cols: DEFAULT_TERMINAL_COLS,
         rows: DEFAULT_TERMINAL_ROWS,

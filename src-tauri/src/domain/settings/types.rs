@@ -41,6 +41,18 @@ pub struct Settings {
     pub auto_save_delay_ms: u32,
     #[serde(default)]
     pub keymap_overrides: Option<String>,
+    #[serde(default = "default_true")]
+    pub editor_minimap: bool,
+    #[serde(default = "default_true")]
+    pub show_system_usage: bool,
+    #[serde(default = "default_true")]
+    pub agent_status_badge_enabled: bool,
+    #[serde(default)]
+    pub agent_hooks_enabled: bool,
+    #[serde(default = "default_true")]
+    pub ide_integration_enabled: bool,
+    #[serde(default = "default_true")]
+    pub ide_auto_open_diff: bool,
 }
 
 fn default_theme_id() -> String {
@@ -61,6 +73,10 @@ fn default_resizer_thickness() -> u32 {
 
 fn default_editor_font_size() -> u32 {
     DEFAULT_EDITOR_FONT_SIZE
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_terminal_font_size() -> u32 {
@@ -85,6 +101,12 @@ impl Default for Settings {
             format_on_save: false,
             auto_save_delay_ms: 0,
             keymap_overrides: None,
+            editor_minimap: default_true(),
+            show_system_usage: default_true(),
+            agent_status_badge_enabled: default_true(),
+            agent_hooks_enabled: false,
+            ide_integration_enabled: default_true(),
+            ide_auto_open_diff: default_true(),
         }
     }
 }

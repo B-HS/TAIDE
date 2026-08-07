@@ -17,6 +17,12 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     formatOnSave: null,
     autoSaveDelayMs: null,
     keymapOverrides: null,
+    editorMinimap: null,
+    showSystemUsage: null,
+    agentStatusBadgeEnabled: null,
+    agentHooksEnabled: null,
+    ideIntegrationEnabled: null,
+    ideAutoOpenDiff: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

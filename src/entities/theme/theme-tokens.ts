@@ -2,7 +2,21 @@ export const BUILTIN_THEME_ID = { DARK: 'taide-dark', LIGHT: 'taide-light' } as 
 
 export const COLOR_NAMESPACES = [
     { id: 'app', tokens: ['background', 'foreground', 'border', 'focusBorder', 'shadow', 'accent'] },
-    { id: 'appSidebar', tokens: ['background', 'itemHover', 'itemActive', 'iconDefault', 'iconAgentRunning', 'badge'] },
+    {
+        id: 'appSidebar',
+        tokens: [
+            'background',
+            'itemHover',
+            'itemActive',
+            'iconDefault',
+            'iconAgentRunning',
+            'iconAgentWorking',
+            'iconAgentAwaiting',
+            'iconAgentIdle',
+            'iconAgentUnknown',
+            'badge',
+        ],
+    },
     {
         id: 'tabBar',
         tokens: [

@@ -20,7 +20,10 @@ pub fn default_layout() -> ProjectLayout {
     };
     let terminal = Tab {
         id: TabId::new(),
-        kind: super::types::TabKind::Terminal { session_id: String::new() },
+        kind: super::types::TabKind::Terminal {
+            session_id: String::new(),
+            cwd: None,
+        },
         title: "Terminal".to_string(),
         pinned: false,
         preview: false,
@@ -375,6 +378,13 @@ pub fn pin_tab(layout: &mut ProjectLayout, tab_id: &TabId, pinned: bool) -> AppR
     Ok(())
 }
 
+pub fn set_preview(layout: &mut ProjectLayout, tab_id: &TabId, preview: bool) -> AppResult<()> {
+    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    tab.preview = preview;
+    layout.revision += 1;
+    Ok(())
+}
+
 pub fn move_tab(layout: &mut ProjectLayout, tab_id: &TabId, target_pane: &PaneId, index: usize) -> AppResult<()> {
     if find_leaf(&layout.root, target_pane).is_none() {
         return Err(AppError::NotFound(format!("pane not found: {target_pane}")));
@@ -481,7 +491,7 @@ pub fn set_dirty(layout: &mut ProjectLayout, tab_id: &TabId, dirty: bool) -> App
 
 pub fn set_terminal_session(layout: &mut ProjectLayout, tab_id: &TabId, session_id: String) -> AppResult<()> {
     let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    let TabKind::Terminal { session_id: existing } = &mut tab.kind else {
+    let TabKind::Terminal { session_id: existing, .. } = &mut tab.kind else {
         return Err(AppError::InvalidArgument(format!("tab is not a terminal: {tab_id}")));
     };
     *existing = session_id;
@@ -497,8 +507,37 @@ pub fn focus_kind(layout: &ProjectLayout) -> Option<FocusKind> {
     Some(FocusKind::from(&tab.kind))
 }
 
+fn strip_claude_diff_node(node: &mut PaneNode) {
+    match node {
+        PaneNode::Leaf { tabs, active, .. } => {
+            let removed_index = active
+                .as_ref()
+                .and_then(|active_id| tabs.iter().position(|tab| &tab.id == active_id));
+            let active_was_claude_diff = removed_index
+                .map(|index| matches!(tabs[index].kind, TabKind::ClaudeDiff { .. }))
+                .unwrap_or(false);
+            tabs.retain(|tab| !matches!(tab.kind, TabKind::ClaudeDiff { .. }));
+            if active_was_claude_diff {
+                *active = if tabs.is_empty() {
+                    None
+                } else {
+                    Some(tabs[removed_index.unwrap_or(0).min(tabs.len() - 1)].id.clone())
+                };
+            }
+        }
+        PaneNode::Split { children, .. } => children.iter_mut().for_each(strip_claude_diff_node),
+    }
+}
+
+pub fn strip_claude_diff_tabs(layout: &ProjectLayout) -> ProjectLayout {
+    let mut persisted = layout.clone();
+    strip_claude_diff_node(&mut persisted.root);
+    persisted
+}
+
 pub fn save_layout(paths: &AppPaths, project_id: &ProjectId, layout: &ProjectLayout) -> AppResult<()> {
-    persist::write_json(&paths.layout_file(project_id), layout)
+    let persisted = strip_claude_diff_tabs(layout);
+    persist::write_json(&paths.layout_file(project_id), &persisted)
 }
 
 pub fn load_layout(paths: &AppPaths, project_id: &ProjectId) -> ProjectLayout {
@@ -517,6 +556,21 @@ mod tests {
         Tab {
             id: TabId::new(),
             kind: TabKind::File { path: path.to_string() },
+            title: path.to_string(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }
+    }
+
+    fn 클로드_diff_탭(path: &str) -> Tab {
+        Tab {
+            id: TabId::new(),
+            kind: TabKind::ClaudeDiff {
+                request_id: "req-1".to_string(),
+                path: path.to_string(),
+            },
             title: path.to_string(),
             pinned: false,
             preview: false,
@@ -848,7 +902,7 @@ mod tests {
         let PaneNode::Leaf { tabs, .. } = &layout.root else {
             panic!("expected leaf")
         };
-        assert!(matches!(&tabs[1].kind, TabKind::Terminal { session_id } if session_id == "session-1"));
+        assert!(matches!(&tabs[1].kind, TabKind::Terminal { session_id, .. } if session_id == "session-1"));
         assert_eq!(layout.revision, revision_before + 1);
     }
 
@@ -862,5 +916,46 @@ mod tests {
 
         let result = set_terminal_session(&mut layout, &welcome_tab_id, "session-1".to_string());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn 저장시_클로드_diff_탭은_필터링되고_활성탭은_인접탭으로_넘어간다() {
+        let file_tab = 파일_탭("a.rs");
+        let file_tab_id = file_tab.id.clone();
+        let claude_diff_tab = 클로드_diff_탭("b.rs");
+        let claude_diff_tab_id = claude_diff_tab.id.clone();
+        let root = PaneNode::Leaf {
+            id: PaneId::new(),
+            tabs: vec![file_tab, claude_diff_tab],
+            active: Some(claude_diff_tab_id),
+        };
+        let layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root,
+            focused_pane: PaneId::new(),
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        let persisted = strip_claude_diff_tabs(&layout);
+
+        let PaneNode::Leaf { tabs, active, .. } = &persisted.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].id, file_tab_id);
+        assert_eq!(active, &Some(file_tab_id));
+    }
+
+    #[test]
+    fn 클로드_diff_탭이_없으면_저장_대상이_그대로_유지된다() {
+        let layout = default_layout();
+
+        let persisted = strip_claude_diff_tabs(&layout);
+
+        let PaneNode::Leaf { tabs, .. } = &persisted.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 2);
     }
 }

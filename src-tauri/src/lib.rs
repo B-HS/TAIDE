@@ -16,6 +16,7 @@ use crate::domain::git::commands::GitStore;
 use crate::domain::lsp::commands::LspStore;
 use crate::domain::plugin::commands::PluginStore;
 use crate::domain::search::commands::SearchStore;
+use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::events::{
@@ -83,6 +84,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::layout::commands::layout_resize,
             domain::layout::commands::layout_focus_pane,
             domain::layout::commands::layout_pin_tab,
+            domain::layout::commands::layout_set_preview,
             domain::layout::commands::layout_reopen_closed,
             domain::layout::commands::layout_set_view_state,
             domain::layout::commands::layout_set_dirty,
@@ -159,6 +161,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::settings::commands::settings_get,
             domain::settings::commands::settings_update,
             domain::settings::commands::settings_set_theme,
+            domain::system::commands::system_usage_get,
         ])
         .events(collect_events![
             AppReady,
@@ -325,6 +328,7 @@ pub fn run() {
             app.manage(SearchStore::default());
             app.manage(PluginStore::default());
             app.manage(AgentStore::default());
+            app.manage(SystemUsageStore::default());
 
             let agent_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

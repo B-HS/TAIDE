@@ -50,7 +50,7 @@ VSCode 의 color ID 체계를 참조해 다음 네임스페이스로 나눈다. 
 | 네임스페이스 | 대상 토큰 예 |
 |--------------|-------------|
 | `app.*` | background, foreground, border, focusBorder, shadow, accent |
-| `appSidebar.*` | background, itemHover, itemActive, iconDefault, iconAgentRunning, badge |
+| `appSidebar.*` | background, itemHover, itemActive, iconDefault, iconAgentRunning, iconAgentWorking, iconAgentAwaiting, iconAgentIdle, iconAgentUnknown, badge |
 | `tabBar.*` | background, tabActiveBackground, tabInactiveBackground, tabActiveForeground, tabInactiveForeground, tabBorder, tabActiveIndicator, dirtyDot, previewForeground(이탤릭용), dropTarget |
 | `explorer.*` | background, itemHover, itemSelected, itemFocused, indentGuide, folderIcon, gitModified, gitAdded, gitDeleted, gitUntracked, gitIgnored |
 | `panel.*` (검색·git 등 사이드 패널 공통) | background, sectionHeader, inputBackground, inputBorder, matchHighlight |

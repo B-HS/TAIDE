@@ -12,6 +12,7 @@ import {
     reopenClosedTab,
     resizePane,
     setTabDirty,
+    setTabPreview,
     setTerminalSession,
     splitPane,
 } from '@entities/layout/layout.ipc'
@@ -46,6 +47,8 @@ export const useResizePane = (projectId: ProjectId | null) => useLayoutMutation(
 export const useFocusPane = (projectId: ProjectId | null) => useLayoutMutation(projectId, focusPane)
 
 export const usePinTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, pinTab)
+
+export const useSetTabPreview = (projectId: ProjectId | null) => useLayoutMutation(projectId, setTabPreview)
 
 export const useSetTabDirty = (projectId: ProjectId | null) => useLayoutMutation(projectId, setTabDirty)
 

@@ -146,6 +146,7 @@ pub fn strip_windows_exe_suffix(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::AgentActivity;
     use super::*;
 
     #[test]
@@ -222,11 +223,13 @@ mod tests {
             session_id: "term-1".to_string(),
             name: "claude".to_string(),
             pid: 1,
+            activity: AgentActivity::Unknown,
         };
         let b = DetectedAgent {
             session_id: "term-2".to_string(),
             name: "codex".to_string(),
             pid: 2,
+            activity: AgentActivity::Unknown,
         };
         assert!(!agents_changed(&[a.clone(), b.clone()], &[b, a]));
     }
@@ -237,6 +240,7 @@ mod tests {
             session_id: "term-1".to_string(),
             name: "claude".to_string(),
             pid: 1,
+            activity: AgentActivity::Unknown,
         };
         assert!(agents_changed(&[], &[a]));
     }
