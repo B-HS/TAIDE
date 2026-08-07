@@ -1,6 +1,8 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { findPaneTab } from '@shared/lib/pane-tree'
+import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import {
     activateTab,
     closeTab,
@@ -34,7 +36,18 @@ const useLayoutMutation = <TVariables>(projectId: ProjectId | null, mutationFn: 
 
 export const useOpenTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, openTab)
 
-export const useCloseTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, closeTab)
+export const useCloseTab = (projectId: ProjectId | null) => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: closeTab,
+        onSuccess: (layout, tabId) => {
+            const previous = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''))
+            const closedKind = previous ? findPaneTab(previous.root, tabId)?.kind : null
+            if (closedKind?.kind === 'claudeDiff') removePendingClaudeDiff(closedKind.requestId)
+            queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''), layout)
+        },
+    })
+}
 
 export const useActivateTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, activateTab)
 

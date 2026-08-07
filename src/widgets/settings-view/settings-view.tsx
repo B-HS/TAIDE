@@ -208,14 +208,14 @@ export const SettingsView = () => {
                             <label className='flex items-center justify-between gap-3 text-xs'>
                                 <span className='text-app-foreground'>{t('settings.showSystemUsage')}</span>
                                 <Switch
-                                    checked={settings.showSystemUsage ?? false}
+                                    checked={settings.showSystemUsage ?? true}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), showSystemUsage: checked })}
                                 />
                             </label>
                             <label className='flex items-center justify-between gap-3 text-xs'>
                                 <span className='text-app-foreground'>{t('settings.editorMinimap')}</span>
                                 <Switch
-                                    checked={settings.editorMinimap ?? false}
+                                    checked={settings.editorMinimap ?? true}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorMinimap: checked })}
                                 />
                             </label>

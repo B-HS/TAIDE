@@ -20,7 +20,7 @@ import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { getGitBlameRange } from '@entities/git/git.ipc'
 import { ideStatusQueryOptions } from '@entities/ide/ide.query'
-import { setIdeSelection } from '@entities/ide/ide.ipc'
+import { clearIdeSelection, setIdeSelection } from '@entities/ide/ide.ipc'
 import { gitCurrentUserQueryOptions, gitGutterQueryOptions, useDiscardGitHunk } from '@entities/git/git.query'
 import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
@@ -243,6 +243,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         return () => {
             subscription.dispose()
             clearTimeout(selectionTimeoutRef.current)
+            void clearIdeSelection().catch(() => undefined)
         }
     }, [editor, ideStatus?.running, projectId, path])
 
@@ -313,7 +314,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             largeFile={file.tier === 'large' || file.tier === 'readOnly'}
             fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
             fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
-            minimap={settings?.editorMinimap ?? false}
+            minimap={settings?.editorMinimap ?? true}
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}

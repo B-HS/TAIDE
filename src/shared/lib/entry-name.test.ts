@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { validateEntryName } from '@shared/lib/entry-name'
+import { resolveEntryParentDir, validateEntryName } from '@shared/lib/entry-name'
 
 describe('validateEntryName', () => {
     test('빈 문자열이면 null 을 반환한다', () => {
@@ -46,5 +46,24 @@ describe('validateEntryName', () => {
 
     test('슬래시만 있으면 invalidChar 를 반환한다', () => {
         expect(validateEntryName('/', [])).toBe('explorer.entryNameInvalidChar')
+    })
+})
+
+describe('resolveEntryParentDir', () => {
+    test('중첩이 없으면 기준 디렉터리를 그대로 반환한다', () => {
+        expect(resolveEntryParentDir('/repo/src', 'a.ts')).toBe('/repo/src')
+    })
+
+    test('중첩 경로면 앞 세그먼트를 붙인 실제 부모 디렉터리를 반환한다', () => {
+        expect(resolveEntryParentDir('/repo/src', 'utils/index.ts')).toBe('/repo/src/utils')
+        expect(resolveEntryParentDir('/repo/src', 'a/b/c.ts')).toBe('/repo/src/a/b')
+    })
+
+    test('기준 디렉터리가 루트여도 구분자가 중복되지 않는다', () => {
+        expect(resolveEntryParentDir('/', 'utils/index.ts')).toBe('/utils')
+    })
+
+    test('앞뒤 공백은 trim 후 계산한다', () => {
+        expect(resolveEntryParentDir('/repo', '  utils/a.ts  ')).toBe('/repo/utils')
     })
 })

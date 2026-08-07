@@ -1,7 +1,6 @@
 import type { FC } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { openPath } from '@tauri-apps/plugin-opener'
 import { Folder } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -10,6 +9,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ProjectIconButton } from '@features/project/project-icon-button'
 import { useCloseProject } from '@entities/project/project.query'
+import { systemOpenPath } from '@entities/system/system.ipc'
 
 const DRAGGING_OPACITY = 0.4
 
@@ -73,7 +73,7 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
             <ContextMenuContent>
                 <ContextMenuItem onSelect={() => closeProject(project.id)}>{t('project.close')}</ContextMenuItem>
                 <ContextMenuSeparator />
-                <ContextMenuItem onSelect={() => void openPath(project.root).catch((error: Error) => toast.error(error.message))}>
+                <ContextMenuItem onSelect={() => void systemOpenPath(project.root).catch((error: Error) => toast.error(error.message))}>
                     {t('project.openInFileManager')}
                 </ContextMenuItem>
                 <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(project.root)}>{t('project.copyPath')}</ContextMenuItem>

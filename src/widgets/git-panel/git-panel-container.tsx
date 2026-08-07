@@ -2,7 +2,6 @@ import type { FC } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import {
@@ -24,6 +23,7 @@ import {
     useUnstageGitPaths,
 } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
+import { systemRevealPath } from '@entities/system/system.ipc'
 import { GitPanel } from '@widgets/git-panel/git-panel'
 
 type GitPanelContainerProps = {
@@ -125,7 +125,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onOpenFile={openFileTab}
             onOpenChanges={openDiffTab}
             onCopyPath={(path) => void navigator.clipboard.writeText(path)}
-            onRevealInExplorer={(path) => void revealItemInDir(path).catch(notifyError)}
+            onRevealInExplorer={(path) => void systemRevealPath(path).catch(notifyError)}
             onSync={handleSync}
             branches={branches}
             stashes={stashes}

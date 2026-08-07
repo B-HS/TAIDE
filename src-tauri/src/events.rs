@@ -158,4 +158,5 @@ pub struct IdeSaveRequested {
 #[tauri_specta(event_name = "ide:close-tab-requested")]
 pub struct IdeCloseTabRequested {
     pub tab_name: String,
+    pub request_id: Option<String>,
 }

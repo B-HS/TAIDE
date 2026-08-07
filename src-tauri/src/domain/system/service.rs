@@ -1,3 +1,11 @@
+use std::path::Path;
+
+const FILE_URL_SCHEME: &str = "file://";
+
+pub fn file_url(path: &Path) -> String {
+    format!("{FILE_URL_SCHEME}{}", path.display())
+}
+
 pub fn normalize_cpu_percent(raw_percent: f32, cpu_count: usize) -> f64 {
     if cpu_count == 0 {
         return 0.0;
@@ -8,6 +16,11 @@ pub fn normalize_cpu_percent(raw_percent: f32, cpu_count: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 파일_경로를_file_url_로_변환한다() {
+        assert_eq!(file_url(Path::new("/workspace/a b.html")), "file:///workspace/a b.html");
+    }
 
     #[test]
     fn 코어_수만큼_cpu_사용률을_정규화한다() {

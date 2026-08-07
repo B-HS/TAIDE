@@ -101,6 +101,7 @@ pub struct HooksServerInfo {
 #[derive(Default)]
 struct AgentHooksStoreInner {
     server: Option<HooksServerInfo>,
+    accept_handle: Option<tauri::async_runtime::JoinHandle<()>>,
     project_overrides: HashMap<ProjectId, (AgentActivity, Instant)>,
 }
 
@@ -116,12 +117,26 @@ impl AgentHooksStore {
         self.0.lock().server.clone()
     }
 
-    pub fn set_server(&self, info: HooksServerInfo) {
-        self.0.lock().server = Some(info);
+    pub fn set_server(&self, info: HooksServerInfo, accept_handle: tauri::async_runtime::JoinHandle<()>) {
+        let mut guard = self.0.lock();
+        guard.server = Some(info);
+        guard.accept_handle = Some(accept_handle);
+    }
+
+    /// 서버 정보·accept 핸들을 회수하고 남은 hook override 도 버린다(배지 오염 방지).
+    pub fn take_server(&self) -> Option<tauri::async_runtime::JoinHandle<()>> {
+        let mut guard = self.0.lock();
+        guard.server = None;
+        guard.project_overrides.clear();
+        guard.accept_handle.take()
     }
 
     pub fn set_project_override(&self, project_id: ProjectId, activity: AgentActivity) {
         self.0.lock().project_overrides.insert(project_id, (activity, Instant::now()));
+    }
+
+    pub fn clear_project_override(&self, project_id: &ProjectId) {
+        self.0.lock().project_overrides.remove(project_id);
     }
 
     pub fn fresh_project_override(&self, project_id: &ProjectId) -> Option<AgentActivity> {
@@ -258,16 +273,26 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
         .collect()
 }
 
+/// hook override 는 Claude Code 가 보낸 것이므로 hook 을 보내는 에이전트에만 적용한다.
+/// 같은 프로젝트의 다른 에이전트(codex 등)까지 물들이지 않고,
+/// 해당 프로세스가 다시 활동하면 override 를 버려 휴리스틱으로 복귀한다.
 pub fn resolve_activity(
     agents: &AgentStore,
     hooks_store: &AgentHooksStore,
     project_id: &ProjectId,
     probe: &service::DetectedAgentProbe,
 ) -> AgentActivity {
-    if let Some(activity) = hooks_store.fresh_project_override(project_id) {
-        return activity;
+    let probe_active = service::is_probe_active(probe.state);
+    let heuristic = agents.compute_activity(&probe.session_id, probe_active);
+
+    if !service::is_hook_managed_agent(&probe.name) {
+        return heuristic;
     }
-    agents.compute_activity(&probe.session_id, service::is_probe_active(probe.state))
+    if probe_active {
+        hooks_store.clear_project_override(project_id);
+        return heuristic;
+    }
+    hooks_store.fresh_project_override(project_id).unwrap_or(heuristic)
 }
 
 pub fn build_detected_agents(
@@ -305,7 +330,7 @@ fn settings_local_path(root: &str) -> PathBuf {
     Path::new(root).join(".claude").join("settings.local.json")
 }
 
-fn read_settings_local(root: &str) -> AppResult<serde_json::Value> {
+pub(super) fn read_settings_local(root: &str) -> AppResult<serde_json::Value> {
     let path = settings_local_path(root);
     match std::fs::read_to_string(&path) {
         Ok(text) => Ok(serde_json::from_str(&text)?),
@@ -314,16 +339,10 @@ fn read_settings_local(root: &str) -> AppResult<serde_json::Value> {
     }
 }
 
-fn write_settings_local(root: &str, value: &serde_json::Value) -> AppResult<()> {
-    let path = settings_local_path(root);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+/// hook URL 에 토큰이 들어가므로 소유자 전용 권한으로 기록한다.
+pub(super) fn write_settings_local(root: &str, value: &serde_json::Value) -> AppResult<()> {
     let text = serde_json::to_string_pretty(value)?;
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, text)?;
-    std::fs::rename(&tmp_path, &path)?;
-    Ok(())
+    crate::infra::persist::write_private_atomic(&settings_local_path(root), text.as_bytes())
 }
 
 #[tauri::command]

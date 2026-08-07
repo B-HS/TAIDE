@@ -166,6 +166,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::settings::commands::settings_update,
             domain::settings::commands::settings_set_theme,
             domain::system::commands::system_usage_get,
+            domain::system::commands::system_open_path,
+            domain::system::commands::system_reveal_path,
+            domain::system::commands::system_open_in_browser,
             domain::ide::commands::ide_get_status,
             domain::ide::commands::ide_start,
             domain::ide::commands::ide_stop,
@@ -359,7 +362,7 @@ pub fn run() {
             if app.state::<AppState>().settings.read().agent_hooks_enabled {
                 let hooks_boot_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = domain::agent::hooks::ensure_hooks_server_started(&hooks_boot_handle).await;
+                    domain::agent::hooks::reconcile_installed_hooks(&hooks_boot_handle).await;
                 });
             }
 

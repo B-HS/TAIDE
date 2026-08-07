@@ -3,9 +3,9 @@ use tauri_specta::Event;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use super::commands::{AgentHooksStore, AgentStore, HooksServerInfo};
+use super::commands::{self, AgentHooksStore, AgentStore, HooksServerInfo};
 use super::service;
-use super::types::{HOOKS_HTTP_PATH, HOOKS_TOKEN_QUERY_KEY, HOOKS_URL_MARKER, MAX_HOOKS_REQUEST_BYTES};
+use super::types::{HOOKS_HTTP_PATH, HOOKS_READ_TIMEOUT_MS, HOOKS_TOKEN_QUERY_KEY, HOOKS_URL_MARKER, MAX_HOOKS_REQUEST_BYTES};
 use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
 use crate::state::AppState;
@@ -20,10 +20,9 @@ pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServ
     let port = listener.local_addr().map_err(AppError::from)?.port();
     let token = uuid::Uuid::new_v4().simple().to_string();
     let info = HooksServerInfo { port, token };
-    store.set_server(info.clone());
 
     let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
+    let accept_handle = tauri::async_runtime::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 break;
@@ -34,8 +33,49 @@ pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServ
             });
         }
     });
+    store.set_server(info.clone(), accept_handle);
 
     Ok(info)
+}
+
+/// 설정에서 hooks 를 끄면 리스너를 실제로 내린다 — 토글이 재시작 전까지 무효이던 문제를 막는다.
+pub fn stop_hooks_server(app: &AppHandle) {
+    if let Some(handle) = app.state::<AgentHooksStore>().take_server() {
+        handle.abort();
+    }
+}
+
+/// hook URL 의 포트·토큰은 실행마다 바뀌는데 프로젝트 파일에는 영구 기록된다.
+/// 서버가 새로 뜬 뒤 열려 있는 프로젝트의 기록을 현재 URL 로 맞춰, 재시작 후 훅이 조용히 죽는 것을 막는다.
+pub async fn reconcile_installed_hooks(app: &AppHandle) {
+    let is_enabled = app.state::<AppState>().settings.read().agent_hooks_enabled;
+    if !is_enabled {
+        return;
+    }
+
+    let Ok(server) = ensure_hooks_server_started(app).await else {
+        return;
+    };
+    let hook_url = build_hook_url(&server);
+
+    let roots: Vec<String> = {
+        let state = app.state::<AppState>();
+        let guard = state.projects.read();
+        guard.values().map(|project| project.root.clone()).collect()
+    };
+
+    for root in roots {
+        let Ok(value) = commands::read_settings_local(&root) else {
+            continue;
+        };
+        if !service::has_taide_hook_entries(&value) || service::has_hook_entries_for_url(&value, &hook_url) {
+            continue;
+        }
+        let updated = service::inject_taide_hook_entries(value, &hook_url);
+        if let Err(error) = commands::write_settings_local(&root, &updated) {
+            log::warn!("hooks URL 갱신 실패 ({root}): {error}");
+        }
+    }
 }
 
 pub fn build_hook_url(info: &HooksServerInfo) -> String {
@@ -115,7 +155,11 @@ async fn write_response(stream: &mut TcpStream, status_line: &str) -> std::io::R
 }
 
 async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> std::io::Result<()> {
-    let (header_text, body) = read_request(&mut stream).await?;
+    let read = tokio::time::timeout(std::time::Duration::from_millis(HOOKS_READ_TIMEOUT_MS), read_request(&mut stream)).await;
+    let Ok(read) = read else {
+        return Ok(());
+    };
+    let (header_text, body) = read?;
     let Some(request_line) = header_text.split("\r\n").next().filter(|line| !line.is_empty()) else {
         return Ok(());
     };
@@ -168,7 +212,9 @@ fn apply_hook_payload(app: &AppHandle, payload: &service::HookPayload) {
     let updated: Vec<_> = current
         .into_iter()
         .map(|mut agent| {
-            agent.activity = activity;
+            if service::is_hook_managed_agent(&agent.name) {
+                agent.activity = activity;
+            }
             agent
         })
         .collect();

@@ -28,7 +28,7 @@ export const OverlayScrollbar: FC<OverlayScrollbarProps> = ({ viewportRef, orien
                 ref={thumbRef}
                 data-slot='overlay-scrollbar-thumb'
                 className={cn(
-                    'bg-scrollbar-thumb hover:bg-scrollbar-thumb-hover pointer-events-auto absolute touch-none rounded-full transition-colors select-none',
+                    'bg-scrollbar-thumb hover:bg-scrollbar-thumb-hover absolute touch-none rounded-full transition-colors select-none',
                     isVertical ? 'top-0 right-0 w-full' : 'bottom-0 left-0 h-full',
                 )}
             />

@@ -3,7 +3,6 @@ import { useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQuery } from '@tanstack/react-query'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -17,6 +16,7 @@ import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSetTabPreview, useSplitPane } from '@entities/layout/layout.query'
+import { systemRevealPath } from '@entities/system/system.ipc'
 import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
 import { SortableTab } from '@widgets/editor-area/sortable-tab'
@@ -136,7 +136,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 onSplit={(edge: SplitEdge) => splitPane({ paneId, edge, tabId: tab.id })}
                 onCopyPath={filePath ? () => void navigator.clipboard.writeText(filePath) : undefined}
                 onCopyRelativePath={relativePath ? () => void navigator.clipboard.writeText(relativePath) : undefined}
-                onRevealInFinder={filePath ? () => void revealItemInDir(filePath).catch(notifyError) : undefined}
+                onRevealInFinder={filePath ? () => void systemRevealPath(filePath).catch(notifyError) : undefined}
                 onOpenChanges={
                     filePath
                         ? () =>

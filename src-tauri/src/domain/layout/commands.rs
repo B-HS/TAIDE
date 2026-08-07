@@ -103,7 +103,9 @@ pub async fn layout_open_tab(
 /// 탭을 닫고 후처리(레이아웃 갱신 이벤트 발신 + IDE 도메인의 pending diff 해소)까지 마친다.
 /// Tauri 커맨드(`layout_close_tab`)와 IDE 도메인의 `close_tab`/`closeAllDiffTabs` 도구 핸들러가
 /// 동일한 경로를 타도록 공유한다 — ClaudeDiff 탭이 어떤 경로로 닫히든 pending 요청이 반드시 해소된다.
-pub fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &TabId) -> AppResult<(ProjectId, ClosedTab, ProjectLayout)> {
+/// 레이아웃 read-clone-write 경합을 막기 위해 뮤테이션 가드는 이 함수가 직접 잡는다.
+pub async fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &TabId) -> AppResult<(ProjectId, ClosedTab, ProjectLayout)> {
+    let _guard = state.begin_mutation().await;
     let mut layouts = state.layouts.read().clone();
     let project_id = locate_project_with_tab(&layouts, tab_id)?;
     let layout = get_layout_mut(&mut layouts, &project_id)?;
@@ -121,8 +123,7 @@ pub fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &TabId) -
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_close_tab(app: AppHandle, state: State<'_, AppState>, tab_id: TabId) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let (_, _, updated) = close_tab_and_finish(&app, &state, &tab_id)?;
+    let (_, _, updated) = close_tab_and_finish(&app, &state, &tab_id).await?;
     Ok(updated)
 }
 

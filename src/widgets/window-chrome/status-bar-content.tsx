@@ -6,7 +6,7 @@ import type { LspSessionStatus, PaneNode, ProjectLayout, Tab } from '@shared/api
 import { events } from '@shared/api/bindings'
 import { lspSessionsQueryOptions } from '@entities/lsp/lsp.query'
 import { activeProjectQueryOptions } from '@entities/project/project.query'
-import { emptySettingsPatch } from '@entities/settings/settings.ipc'
+import { emptySettingsPatch, getSettings } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemUsageQueryOptions } from '@entities/system/system.query'
 import { toProblemSeverity } from '@features/problems/problem-severity'
@@ -19,8 +19,8 @@ import { getModel } from '@entities/editor/model-registry'
 import { saveFile } from '@entities/file/file.ipc'
 import { openTab, setTabDirty } from '@entities/layout/layout.ipc'
 import { ideStatusQueryOptions, useIdeStatusSync } from '@entities/ide/ide.query'
-import { publishIdeDiagnostics, resolveIdeSave } from '@entities/ide/ide.ipc'
-import { setPendingClaudeDiff } from '@entities/ide/claude-diff-registry'
+import { publishIdeDiagnostics, resolveIdeDiff, resolveIdeSave } from '@entities/ide/ide.ipc'
+import { removePendingClaudeDiff, setPendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import { StatusBar } from '@features/window/status-bar'
 
 const IDE_DIAGNOSTICS_PUSH_DEBOUNCE_MS = 300
@@ -51,7 +51,7 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: ideStatus = null } = useQuery(ideStatusQueryOptions())
     const { data: lspSessions = [] } = useQuery(lspSessionsQueryOptions(activeProjectId))
-    const showSystemUsage = settings?.showSystemUsage ?? false
+    const showSystemUsage = settings?.showSystemUsage ?? true
     const { data: systemUsage = null } = useQuery(systemUsageQueryOptions(showSystemUsage))
     const { mutate: updateSettings } = useUpdateSettings()
     const markers = useMonacoMarkers()
@@ -71,17 +71,24 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
 
     useTauriEvent(events.ideDiffRequested, ({ payload }) => {
         setPendingClaudeDiff(payload.requestId, { oldPath: payload.oldPath, newContents: payload.newContents, tabName: payload.tabName })
-        if (!settings?.ideAutoOpenDiff) return
 
-        void openTab({
-            projectId: payload.projectId,
-            kind: { kind: 'claudeDiff', requestId: payload.requestId, path: payload.newPath },
-            title: payload.tabName,
-            target: null,
-            preview: false,
-        })
-            .then((layout) => queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(payload.projectId), layout))
-            .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)))
+        void (async () => {
+            const current = settings ?? (await getSettings())
+            if (!current.ideAutoOpenDiff) {
+                removePendingClaudeDiff(payload.requestId)
+                await resolveIdeDiff({ requestId: payload.requestId, outcome: 'rejected', content: null })
+                return
+            }
+
+            const layout = await openTab({
+                projectId: payload.projectId,
+                kind: { kind: 'claudeDiff', requestId: payload.requestId, path: payload.newPath },
+                title: payload.tabName,
+                target: null,
+                preview: false,
+            })
+            queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(payload.projectId), layout)
+        })().catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)))
     })
 
     useTauriEvent(events.ideSaveRequested, ({ payload }) => {
@@ -109,6 +116,10 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
                 await resolveIdeSave({ requestId: payload.requestId, saved: false }).catch(() => undefined)
             }
         })()
+    })
+
+    useTauriEvent(events.ideCloseTabRequested, ({ payload }) => {
+        if (payload.requestId) removePendingClaudeDiff(payload.requestId)
     })
 
     useIdeStatusSync()

@@ -16,7 +16,9 @@ pub const HOOKS_HTTP_PATH: &str = "/claude/hook";
 pub const HOOKS_TOKEN_QUERY_KEY: &str = "token";
 pub const HOOKS_URL_MARKER: &str = "taide=1";
 pub const HOOKS_HTTP_TIMEOUT_SECONDS: u64 = 5;
+pub const HOOKS_READ_TIMEOUT_MS: u64 = 5_000;
 pub const MAX_HOOKS_REQUEST_BYTES: usize = 65_536;
+pub const HOOK_MANAGED_AGENT_NAME: &str = "claude";
 
 pub const HOOK_EVENT_USER_PROMPT_SUBMIT: &str = "UserPromptSubmit";
 pub const HOOK_EVENT_NOTIFICATION: &str = "Notification";

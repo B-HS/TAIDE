@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::types::{IDE_NAME, IDE_TRANSPORT};
 use crate::error::{AppError, AppResult};
+use crate::infra::persist;
 
 const CLAUDE_CONFIG_DIR_ENV: &str = "CLAUDE_CONFIG_DIR";
 const HOME_ENV: &str = "HOME";
@@ -13,7 +14,7 @@ const CLAUDE_DIR: &str = ".claude";
 
 #[cfg(unix)]
 const LOCKFILE_DIR_MODE: u32 = 0o700;
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 const LOCKFILE_FILE_MODE: u32 = 0o600;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -60,35 +61,29 @@ pub fn lockfile_path(dir: &Path, port: u32) -> PathBuf {
     dir.join(format!("{port}.lock"))
 }
 
-fn tmp_lockfile_path(dir: &Path, port: u32) -> PathBuf {
-    dir.join(format!(".{port}.lock.tmp"))
-}
-
 #[cfg(unix)]
-fn set_permissions(path: &Path, mode: u32) -> AppResult<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+fn create_private_dir(dir: &Path) -> AppResult<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    if dir.exists() {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(LOCKFILE_DIR_MODE))?;
+        return Ok(());
+    }
+    std::fs::DirBuilder::new().recursive(true).mode(LOCKFILE_DIR_MODE).create(dir)?;
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn set_permissions(_path: &Path, _mode: u32) -> AppResult<()> {
+fn create_private_dir(dir: &Path) -> AppResult<()> {
+    std::fs::create_dir_all(dir)?;
     Ok(())
 }
 
 pub fn write_lockfile_atomic(dir: &Path, port: u32, content: &IdeLockfileContent) -> AppResult<()> {
-    std::fs::create_dir_all(dir)?;
-    #[cfg(unix)]
-    set_permissions(dir, LOCKFILE_DIR_MODE)?;
+    create_private_dir(dir)?;
 
     let json = serde_json::to_string_pretty(content)?;
-    let tmp_path = tmp_lockfile_path(dir, port);
-    std::fs::write(&tmp_path, json)?;
-    #[cfg(unix)]
-    set_permissions(&tmp_path, LOCKFILE_FILE_MODE)?;
-
-    std::fs::rename(&tmp_path, lockfile_path(dir, port))?;
-    Ok(())
+    persist::write_private_atomic(&lockfile_path(dir, port), json.as_bytes())
 }
 
 pub fn remove_lockfile(dir: &Path, port: u32) -> AppResult<()> {

@@ -1,22 +1,21 @@
 import type { FC } from 'react'
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'sonner'
 import type { PaneId, PaneNode, ProjectId, TreeRow } from '@shared/api/bindings'
 import type { FileTreeNodeKind, FileTreeRow } from '@features/explorer/file-tree-row'
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
-import { validateEntryName } from '@shared/lib/entry-name'
+import { resolveEntryParentDir, validateEntryName } from '@shared/lib/entry-name'
 import { buildUniqueEntryName } from '@shared/lib/unique-entry-name'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
-import { copyEntry, deleteEntry, renameEntry } from '@entities/file/file.ipc'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
 import { useOpenTab, useSplitPane } from '@entities/layout/layout.query'
-import { useCreateEntry } from '@entities/file/file.query'
+import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
 import { projectQueryOptions } from '@entities/project/project.query'
+import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
 import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@widgets/explorer/file-tree'
 import { ExplorerPanel } from '@widgets/explorer/explorer-panel'
 
@@ -72,9 +71,9 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     const { mutateAsync: refreshTreeDir } = useRefreshTreeDir(projectId)
     const { mutateAsync: revealTreeNode } = useRevealTreeNode(projectId)
     const { mutateAsync: createEntry } = useCreateEntry()
-    const { mutateAsync: renameEntryAsync } = useMutation({ mutationFn: renameEntry })
-    const { mutateAsync: copyEntryAsync } = useMutation({ mutationFn: copyEntry })
-    const { mutateAsync: deleteEntryAsync } = useMutation({ mutationFn: deleteEntry })
+    const { mutateAsync: renameEntryAsync } = useRenameEntry(projectId)
+    const { mutateAsync: copyEntryAsync } = useCopyEntry(projectId)
+    const { mutateAsync: deleteEntryAsync } = useDeleteEntry(projectId)
     const { mutate: openTab, mutateAsync: openTabAsync } = useOpenTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
 
@@ -119,7 +118,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
             return
         }
 
-        const siblingNames = rows.filter((row) => parentDirOf(row.path) === draft.parentDir).map((row) => row.name)
+        const targetDir = resolveEntryParentDir(draft.parentDir, trimmedName)
+        const siblingNames = rows.filter((row) => parentDirOf(row.path) === targetDir).map((row) => row.name)
         const errorKey = validateEntryName(trimmedName, siblingNames)
         if (errorKey) {
             setDraftError(t(errorKey, { name: trimmedName }))
@@ -163,7 +163,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         }
 
         const parentDir = parentDirOf(renameTarget.path)
-        const siblingNames = rows.filter((row) => parentDirOf(row.path) === parentDir && row.path !== renameTarget.path).map((row) => row.name)
+        const targetDir = resolveEntryParentDir(parentDir, trimmedName)
+        const siblingNames = rows.filter((row) => parentDirOf(row.path) === targetDir && row.path !== renameTarget.path).map((row) => row.name)
         const errorKey = validateEntryName(trimmedName, siblingNames)
         if (errorKey) {
             setRenameError(t(errorKey, { name: trimmedName }))
@@ -275,8 +276,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
             setOpenWithOverride(row.path, null)
             openFileTab(row, true)
         },
-        onOpenInBrowser: (row) => void openUrl(`file://${row.path}`).catch(notifyError),
-        onRevealInFinder: (row) => void revealItemInDir(row.path).catch(notifyError),
+        onOpenInBrowser: (row) => void systemOpenInBrowser(row.path).catch(notifyError),
+        onRevealInFinder: (row) => void systemRevealPath(row.path).catch(notifyError),
         onOpenInTerminal: openInTerminal,
         onFindInFolder: findInFolder,
         onSelectForCompare: (row) => setCompareSourcePath(row.path),

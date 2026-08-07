@@ -6,7 +6,7 @@ use serde::Deserialize;
 use super::types::{
     AgentActivity, CliInstallStatus, DetectedAgent, ExternalOpenRequest, ACTIVITY_IDLE_QUIET_MS, ACTIVITY_WORKING_HOLD_MS,
     HOOKS_HTTP_TIMEOUT_SECONDS, HOOKS_URL_MARKER, HOOK_EVENT_NOTIFICATION, HOOK_EVENT_STOP, HOOK_EVENT_USER_PROMPT_SUBMIT,
-    KNOWN_AGENT_NAMES, MANAGED_HOOK_EVENTS, WAIT_MARKER_PREFIX,
+    HOOK_MANAGED_AGENT_NAME, KNOWN_AGENT_NAMES, MANAGED_HOOK_EVENTS, WAIT_MARKER_PREFIX,
 };
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -212,6 +212,10 @@ pub fn map_hook_event_to_activity(event_name: &str) -> Option<AgentActivity> {
     }
 }
 
+pub fn is_hook_managed_agent(name: &str) -> bool {
+    name == HOOK_MANAGED_AGENT_NAME
+}
+
 fn is_taide_managed_entry(entry: &serde_json::Value) -> bool {
     entry
         .get("hooks")
@@ -247,30 +251,56 @@ pub fn remove_taide_hook_entries(mut root: serde_json::Value) -> serde_json::Val
     root
 }
 
+/// 사용자가 손으로 쓴 `settings.local.json` 은 `hooks` 가 객체가 아니거나
+/// 이벤트 값이 배열이 아닐 수 있다. 기대 형태가 아니면 교체해 패닉 없이 주입한다.
 pub fn inject_taide_hook_entries(root: serde_json::Value, hook_url: &str) -> serde_json::Value {
     let root = remove_taide_hook_entries(root);
     let mut root = if root.is_object() { root } else { serde_json::json!({}) };
 
-    let hooks_obj = root
-        .as_object_mut()
-        .expect("root normalized to object above")
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .expect("hooks value normalized to object");
+    if let Some(root_obj) = root.as_object_mut() {
+        let hooks_slot = root_obj.entry("hooks".to_string()).or_insert_with(|| serde_json::json!({}));
+        if !hooks_slot.is_object() {
+            *hooks_slot = serde_json::json!({});
+        }
 
-    for event in MANAGED_HOOK_EVENTS {
-        let entries = hooks_obj
-            .entry(event.to_string())
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("hook event value normalized to array");
-        entries.push(serde_json::json!({
-            "hooks": [{ "type": "http", "url": hook_url, "timeout": HOOKS_HTTP_TIMEOUT_SECONDS }]
-        }));
+        if let Some(hooks_obj) = hooks_slot.as_object_mut() {
+            for event in MANAGED_HOOK_EVENTS {
+                let event_slot = hooks_obj.entry(event.to_string()).or_insert_with(|| serde_json::json!([]));
+                if !event_slot.is_array() {
+                    *event_slot = serde_json::json!([]);
+                }
+                if let Some(entries) = event_slot.as_array_mut() {
+                    entries.push(serde_json::json!({
+                        "hooks": [{ "type": "http", "url": hook_url, "timeout": HOOKS_HTTP_TIMEOUT_SECONDS }]
+                    }));
+                }
+            }
+        }
     }
 
     root
+}
+
+pub fn has_hook_entries_for_url(root: &serde_json::Value, hook_url: &str) -> bool {
+    let Some(hooks_obj) = root.get("hooks").and_then(|value| value.as_object()) else {
+        return false;
+    };
+    MANAGED_HOOK_EVENTS.iter().all(|event| {
+        hooks_obj.get(*event).and_then(|value| value.as_array()).is_some_and(|entries| {
+            entries
+                .iter()
+                .filter(|entry| is_taide_managed_entry(entry))
+                .any(|entry| entry_has_url(entry, hook_url))
+        })
+    })
+}
+
+fn entry_has_url(entry: &serde_json::Value, hook_url: &str) -> bool {
+    entry.get("hooks").and_then(|hooks| hooks.as_array()).is_some_and(|hooks| {
+        hooks
+            .iter()
+            .any(|hook| hook.get("url").and_then(|url| url.as_str()) == Some(hook_url))
+    })
 }
 
 pub fn has_taide_hook_entries(root: &serde_json::Value) -> bool {
@@ -583,6 +613,39 @@ mod tests {
         for event in MANAGED_HOOK_EVENTS {
             assert_eq!(twice["hooks"][event].as_array().unwrap().len(), 1);
         }
+    }
+
+    #[test]
+    fn hooks_값이_객체가_아니어도_패닉없이_주입한다() {
+        let broken = serde_json::json!({ "hooks": "disabled" });
+        let injected = inject_taide_hook_entries(broken, "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
+        assert!(has_taide_hook_entries(&injected));
+    }
+
+    #[test]
+    fn hook_이벤트_값이_배열이_아니어도_패닉없이_주입한다() {
+        let broken = serde_json::json!({ "hooks": { "Stop": {}, "Notification": 3 } });
+        let injected = inject_taide_hook_entries(broken, "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
+        for event in MANAGED_HOOK_EVENTS {
+            assert_eq!(injected["hooks"][event].as_array().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn 기록된_hook_url이_현재_서버와_다르면_재주입_대상이다() {
+        let url = "http://127.0.0.1:9999/claude/hook?token=abc&taide=1";
+        let injected = inject_taide_hook_entries(serde_json::json!({}), url);
+        assert!(has_hook_entries_for_url(&injected, url));
+        assert!(!has_hook_entries_for_url(
+            &injected,
+            "http://127.0.0.1:10000/claude/hook?token=xyz&taide=1"
+        ));
+    }
+
+    #[test]
+    fn hook_override는_claude_에이전트에만_적용된다() {
+        assert!(is_hook_managed_agent("claude"));
+        assert!(!is_hook_managed_agent("codex"));
     }
 
     #[test]

@@ -1,12 +1,15 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 use tauri::State;
 
-use super::service::normalize_cpu_percent;
+use super::service::{file_url, normalize_cpu_percent};
 use super::types::SystemUsage;
 use crate::error::{AppError, AppResult};
+use crate::infra::root_guard;
+use crate::state::AppState;
 
 const FALLBACK_CPU_COUNT: usize = 1;
 
@@ -68,4 +71,33 @@ pub async fn system_usage_get(store: State<'_, SystemUsageStore>) -> AppResult<S
     tauri::async_runtime::spawn_blocking(move || collect_system_usage(&inner))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+/// 열린 프로젝트 루트 안의 경로만 OS 셸로 넘긴다 — opener 플러그인 권한을 열지 않고
+/// 이 커맨드를 유일한 통로로 두기 위한 게이트다(ipc-contract §4).
+fn resolve_within_open_project(state: &AppState, path: &str) -> AppResult<PathBuf> {
+    let projects = state.projects.read().clone();
+    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(path))?;
+    Ok(resolved)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn system_open_path(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let resolved = resolve_within_open_project(&state, &path)?;
+    tauri_plugin_opener::open_path(resolved, None::<&str>).map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn system_reveal_path(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let resolved = resolve_within_open_project(&state, &path)?;
+    tauri_plugin_opener::reveal_item_in_dir(resolved).map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn system_open_in_browser(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let resolved = resolve_within_open_project(&state, &path)?;
+    tauri_plugin_opener::open_url(file_url(&resolved), None::<&str>).map_err(|error| AppError::Internal(error.to_string()))
 }

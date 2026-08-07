@@ -103,6 +103,9 @@ export const commands = {
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
 	systemUsageGet: () => typedError<SystemUsage, AppError>(__TAURI_INVOKE("system_usage_get")),
+	systemOpenPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_path", { path })),
+	systemRevealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_reveal_path", { path })),
+	systemOpenInBrowser: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_in_browser", { path })),
 	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
 	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
 	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
@@ -290,6 +293,7 @@ export type HunkKind = "added" | "modified" | "deleted";
 
 export type IdeCloseTabRequested = {
 	tabName: string,
+	requestId: string | null,
 };
 
 export type IdeDiagnostic = {

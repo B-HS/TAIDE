@@ -2,7 +2,9 @@ import type { FC } from 'react'
 import { useEffect, useState } from 'react'
 import { FolderTree, GitBranch, ListTree, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
+import { projectQueryOptions } from '@entities/project/project.query'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
@@ -81,6 +83,8 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     const [view, setView] = useState<ExplorerView>('files')
     const [searchScope, setSearchScope] = useState<SearchPanelScope | null>(null)
 
+    const { data: project } = useQuery(projectQueryOptions(projectId))
+
     useEffect(
         () =>
             subscribeOpenSearchPanel((scope) => {
@@ -104,7 +108,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
             <div
                 role='tablist'
                 aria-label={t('explorer.sidebarSwitchLabel')}
-                className='border-app-border flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1.5'>
+                className='border-app-border flex shrink-0 items-center gap-1 border-b px-2 py-1.5'>
                 <div className='flex items-center gap-1'>
                     {EXPLORER_VIEWS.map(({ id, labelKey, icon: Icon }) => (
                         <button
@@ -124,11 +128,16 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                         </button>
                     ))}
                 </div>
-
-                {view === 'files' && (
-                    <FileTreeToolbar onNewFile={onNewFile} onNewFolder={onNewFolder} onRefresh={onRefresh} onCollapseAll={onCollapseAll} />
-                )}
             </div>
+
+            {view === 'files' && (
+                <div className='border-app-border flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1'>
+                    <h2 className='text-app-foreground truncate text-xs font-medium tracking-wide uppercase'>
+                        {project?.name ?? t('explorer.title')}
+                    </h2>
+                    <FileTreeToolbar onNewFile={onNewFile} onNewFolder={onNewFolder} onRefresh={onRefresh} onCollapseAll={onCollapseAll} />
+                </div>
+            )}
 
             <div className='min-h-0 flex-1'>
                 {view === 'files' && (
@@ -158,7 +167,8 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                     <SearchPanelContainer
                         projectId={projectId}
                         onOpenMatch={onOpenSearchMatch}
-                        initialIncludeGlob={searchScope?.includeGlob ?? null}
+                        includeGlob={searchScope?.includeGlob ?? null}
+                        onClearScope={() => setSearchScope(null)}
                     />
                 )}
                 {view === 'git' && <GitPanelContainer projectId={projectId} />}

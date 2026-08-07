@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use regex::{Regex, RegexBuilder};
 
 use crate::constants;
-use crate::domain::file::service as file_service;
 use crate::error::{AppError, AppResult};
 use crate::infra::persist;
+use crate::infra::root_guard;
 
 use super::types::{SearchMatch, SearchQuery, SearchReplaceResult, SEARCH_MATCH_LIMIT};
 
@@ -381,7 +381,7 @@ pub fn replace(root: &Path, query: &SearchQuery, replacement: &str, paths: Optio
     let target_files = match paths {
         Some(explicit) => explicit
             .iter()
-            .filter_map(|path| file_service::ensure_within_root(root, path).ok())
+            .filter_map(|path| root_guard::ensure_within_root(root, path).ok())
             .collect::<Vec<_>>(),
         None => collect_project_files(root, query),
     };

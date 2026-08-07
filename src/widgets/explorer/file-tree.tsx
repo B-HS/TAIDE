@@ -211,6 +211,7 @@ export const FileTree: FC<FileTreeProps> = ({
         const row = displayRows[index]
         if (!row || row.id === DRAFT_ROW_ID) {
             setContextRow(null)
+            setSelectedId(null)
             contextMenuHandlers.onClearSelection()
             return
         }

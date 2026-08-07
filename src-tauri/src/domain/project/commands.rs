@@ -121,6 +121,13 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
         attach_watcher(&app, &state, &result.project.id, &result.project.root);
         attach_git_watcher(&app, &state, &result.project.id, &result.project.root);
 
+        crate::domain::ide::commands::refresh_lockfile(&app);
+
+        let hooks_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::domain::agent::hooks::reconcile_installed_hooks(&hooks_handle).await;
+        });
+
         let _ = ProjectOpened {
             project: result.project.clone(),
         }
@@ -146,6 +153,8 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
     state.layouts.write().remove(&project_id);
     state.watchers.write().remove(&project_id);
     state.git_watchers.write().remove(&project_id);
+
+    crate::domain::ide::commands::refresh_lockfile(&app);
 
     let _ = ProjectClosed {
         project_id: project_id.clone(),

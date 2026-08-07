@@ -633,8 +633,20 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] 7.7-W2. 웨이브 2 구현 (커밋 `91b3637`) — B1(context menu·미니맵) ∥ B2a(IDE Rust, 테스트 46건) ∥
       B3(hooks 배선·overflow) → B2b(IDE 프론트). 메인 전체 verify 재실행 통과(프론트 295·Rust 298),
       i18n 사용 키 104종 실존 확인. 소유권 경계로 미뤄진 배선 4건 + Rust 주석/allow 위반(세션 이전 선례 0건 실측)은 W3-C2 로
-- [ ] 7.7-W3. 웨이브 3 구현 — C2(배선 마무리·컨벤션 정리) → C1(커스텀 스크롤바 전면 적용)
-- [ ] 7.7-검토. 전체 diff 버그 1차(opus high) → 2차(Fable) → bun run verify → dev 커밋
+- [x] 7.7-W3. 웨이브 3 구현 (커밋 `8678cba`) — C2(cwd·미니맵·Compare·스코프 칩 배선 + Rust 주석 56건 제거·
+      ide_set_selection 구조체화) → C1(오버레이 스크롤바 15표면, 계산 lib 테스트 13건).
+      메인 verify 재실행 통과(프론트 308·Rust 298)
+- [ ] 7.7-검토. 전체 diff(13f31b2..8678cba) 버그 1차 — 렌즈 5 탐색(opus high) → 적대적 검증(opus medium) →
+      수정(opus high) → 2차(Fable) → bun run verify → dev 커밋
+- [x] 7.7-검토2. 2차 검토 확정 후속 4건 (미커밋) —
+      ① opener 권한 재설계: capabilities 의 opener 3종 제거 + `system_open_path`/`system_reveal_path`/
+      `system_open_in_browser` 신설(루트 검증 후 `tauri_plugin_opener` Rust API 직접 호출),
+      프론트 6곳 교체·`@tauri-apps/plugin-opener` import 전면 제거.
+      ② `close_tab` 이 ClaudeDiff 탭을 closed_tabs 에 push 하지 않도록(좀비 탭 방지) + 테스트 1건.
+      ③ `ide:close-tab-requested` payload 에 `requestId` 추가 → 프론트에서 pending 레지스트리 prune.
+      ④ `showSystemUsage` 프론트 폴백을 백엔드 기본값(`true`)과 정렬.
+      부수: 루트 검증 헬퍼를 `infra/root_guard.rs` 로 승격(file→terminal 직접 import 편차 해소).
+      `bun run verify` 전 단계 통과(프론트 312·Rust 296+5+9)
 - [ ] 7.7-1. Problems 재배치 — footer 에러 아이콘(에러 있으면 적색) + 클릭 시 에디터 영역 패널 토글
 - [ ] 7.7-2. 파일트리 툴바 hover 시에만 표시(Cursor 형태) + 새 파일/폴더 트리 내 인라인 입력(모달 금지)
 - [ ] 7.7-3. 파일트리 context menu 항목 전량 (VSCode 급)

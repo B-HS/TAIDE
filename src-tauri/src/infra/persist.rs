@@ -6,6 +6,9 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 
+#[cfg(unix)]
+const PRIVATE_FILE_MODE: u32 = 0o600;
+
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> AppResult<()> {
     let parent = path
         .parent()
@@ -14,6 +17,33 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> AppResult<()> {
 
     let temp_path = temp_sibling(path);
     let mut file = std::fs::File::create(&temp_path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+
+    std::fs::rename(&temp_path, path)?;
+    Ok(())
+}
+
+/// Writes a file that may contain secrets (auth tokens).
+/// The temporary file is created with owner-only permissions from the start,
+/// so the content is never readable through a default-umask window.
+pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| AppError::InvalidArgument(format!("no parent directory: {}", path.display())))?;
+    std::fs::create_dir_all(parent)?;
+
+    let temp_path = temp_sibling(path);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(PRIVATE_FILE_MODE);
+    }
+
+    let mut file = options.open(&temp_path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
@@ -61,6 +91,21 @@ mod tests {
         let loaded: Option<Sample> = read_json(&path).expect("read");
 
         assert_eq!(loaded, Some(Sample { value: 7 }));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_atomic_은_소유자_전용_권한으로_기록한다() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("taide-private-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("secret.json");
+
+        write_private_atomic(&path, b"{}").expect("write");
+
+        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+        assert_eq!(mode, PRIVATE_FILE_MODE);
         std::fs::remove_dir_all(&dir).ok();
     }
 

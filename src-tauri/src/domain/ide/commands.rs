@@ -137,6 +137,15 @@ impl IdeStore {
         })
     }
 
+    pub fn lockfile_context(&self) -> Option<(u32, String, PathBuf)> {
+        let inner = self.inner.lock();
+        if !inner.running {
+            return None;
+        }
+        let dir = inner.lockfile_dir.clone()?;
+        Some((inner.port, inner.token.clone(), dir))
+    }
+
     pub fn register_connection(&self, handle: tauri::async_runtime::JoinHandle<()>) {
         let mut inner = self.inner.lock();
         inner.connection_handles.retain(|existing| !existing.inner().is_finished());
@@ -279,6 +288,20 @@ pub fn stop_server(app: &AppHandle, ide: &IdeStore) {
         status: IdeStatus::default(),
     }
     .emit(app);
+}
+
+/// lockfile 의 `workspaceFolders` 는 Claude Code 가 후보 IDE 를 판정하는 근거다.
+/// 프로젝트가 열리거나 닫히면 즉시 다시 써서 기동 시점 스냅샷으로 굳지 않게 한다.
+pub fn refresh_lockfile(app: &AppHandle) {
+    let ide = app.state::<IdeStore>();
+    let Some((port, token, dir)) = ide.lockfile_context() else {
+        return;
+    };
+    let workspace_folders = service::workspace_folders(&app.state::<AppState>().projects.read());
+    let content = lockfile::build_lockfile_content(std::process::id(), workspace_folders, token);
+    if let Err(error) = lockfile::write_lockfile_atomic(&dir, port, &content) {
+        log::warn!("IDE lockfile 갱신 실패: {error}");
+    }
 }
 
 pub fn reconcile_stale_pending(app: &AppHandle) {

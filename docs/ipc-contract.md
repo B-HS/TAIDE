@@ -152,10 +152,20 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
   TAIDE 메인 프로세스만 측정한다(자손 프로세스 미포함). 첫 호출은 `cpuPercent: null`
   (CPU 사용률은 두 번째 샘플부터 유효). 프론트는 `refetchInterval` 폴링으로 주기를 소유하고,
   설정 토글이 꺼지면 호출 자체를 하지 않는다(`enabled`).
+- system(7.7 후속): mutation `system_open_path(path)`(기본 앱으로 열기),
+  `system_reveal_path(path)`(파일 관리자에서 표시), `system_open_in_browser(path)`(`file://` URL 을
+  기본 브라우저로) 3종 신설. 셋 다 실행 전에 경로가 **열린 프로젝트 루트 내부(루트 자신 포함)** 인지
+  검증하고, 벗어나면 `InvalidArgument` 를 반환한다. 내부적으로 `tauri_plugin_opener` 의 Rust API
+  (`open_path` / `reveal_item_in_dir` / `open_url`)를 호출하므로 capability 권한이 필요 없다.
+  프론트는 `@tauri-apps/plugin-opener` 를 import 하지 않는다(§4).
 - layout: `layout_set_preview(tabId, preview)` 신설 — `layout_pin_tab` 과 동일한 형태.
   `TabKind::Terminal` 에 `cwd?: string | null` 필드, `TabKind::Diff` 에 `compareWith?: string | null`
   필드 추가(둘 다 기존 데이터와 하위 호환). `TabKind::ClaudeDiff { requestId, path }` variant 신설 —
   **레이아웃 영속 저장에서 제외되는 휘발성 탭**이다(저장 직전 필터링, 사라지는 활성 탭은 인접 탭으로 대체).
+  7.7 후속: `layout_reopen_closed` 의 닫은 탭 스택에도 넣지 않는다 — 닫는 순간 pending diff 요청이
+  해소되므로 되살리면 수락/거부가 항상 실패하는 좀비 탭이 된다.
+  `ide:close-tab-requested` payload 에 `requestId: string | null` 추가 — Claude 가 `close_tab` /
+  `closeAllDiffTabs` 로 스스로 diff 탭을 닫는 경로에서 프론트 pending 레지스트리를 정리하기 위한 값이다.
 - terminal: `pty_default_options(projectId, cwd)` — `cwd` 가 주어지면 프로젝트 루트 하위인지 검증 후
   사용하고, `null` 이면 기존처럼 project.root 를 쓴다.
 - file: `file_delete(path)` 를 실제로 휴지통 이동(`trash` 크레이트)으로 구현
@@ -168,7 +178,10 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
 - agent: `DetectedAgent` 에 `activity: AgentActivity`(`"idle" | "working" | "awaitingInput" | "unknown"`)
   필드 추가 — 기존 `agent:state-changed` 이벤트 payload 가 그대로 확장된다(신규 이벤트 없음).
   `AgentHooksStatus { installed }` 타입만 추가(커맨드는 후속 단계).
-- capabilities: `opener:allow-reveal-item-in-dir` 추가 — "Finder 에서 보기" 계열 기능의 전제.
+- capabilities: opener 계열 권한(`opener:allow-open-path` / `opener:allow-open-url` /
+  `opener:allow-reveal-item-in-dir`)은 7.7 후속에서 **전부 제거**했다. 광역 스코프(`path: "**"`)가
+  §4 의 "view 는 fs/shell 플러그인 API 를 직접 호출하지 않는다" 선언과 충돌했기 때문이다 —
+  같은 기능은 위 `system_*` 커맨드가 루트 검증을 거쳐 제공한다.
 
 ### raw 커맨드 (specta 밖)
 

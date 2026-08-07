@@ -9,13 +9,13 @@ use tauri_specta::Event;
 
 use super::service;
 use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
-use crate::domain::file::service::ensure_within_root;
 use crate::domain::ide::commands::IdeStore;
 use crate::domain::ide::types::CLAUDE_CODE_SSE_PORT_ENV;
 use crate::error::{AppError, AppResult};
 use crate::events::TerminalExited;
 use crate::ids::ProjectId;
 use crate::infra::pty;
+use crate::infra::root_guard::ensure_within_root;
 use crate::state::AppState;
 
 struct SessionEntry {

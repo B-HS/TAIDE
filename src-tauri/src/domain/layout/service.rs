@@ -136,6 +136,14 @@ pub fn collect_claude_diff_tab_ids(node: &PaneNode) -> Vec<TabId> {
     }
 }
 
+/// ClaudeDiff 탭이면 그 탭이 붙잡고 있던 IDE diff 요청 id 를 돌려준다.
+pub fn claude_diff_request_id(tab: &Tab) -> Option<String> {
+    match &tab.kind {
+        TabKind::ClaudeDiff { request_id, .. } => Some(request_id.clone()),
+        _ => None,
+    }
+}
+
 fn is_empty_leaf(node: &PaneNode) -> bool {
     matches!(node, PaneNode::Leaf { tabs, .. } if tabs.is_empty())
 }
@@ -344,7 +352,12 @@ pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<Closed
     Ok(closed)
 }
 
+/// ClaudeDiff 탭은 닫히는 순간 pending 요청이 해소되므로(`reconcile_closed_tab`),
+/// 되살려도 수락/거부가 실패하는 좀비 탭이 된다. 스택에 넣지 않는다.
 fn push_closed(layout: &mut ProjectLayout, closed: ClosedTab) {
+    if matches!(closed.tab.kind, TabKind::ClaudeDiff { .. }) {
+        return;
+    }
     layout.closed_tabs.push(closed);
     if layout.closed_tabs.len() > CLOSED_TAB_STACK_LIMIT {
         layout.closed_tabs.remove(0);
@@ -550,10 +563,23 @@ fn strip_claude_diff_node(node: &mut PaneNode) {
     }
 }
 
+/// `normalize` 로 패널이 사라지면 `focused_pane` 이 존재하지 않는 pane 을 가리킬 수 있다.
+/// 그 상태로 저장/복원되면 이후 탭 열기가 계속 실패하므로 첫 리프로 보정한다.
+pub fn ensure_focused_pane_valid(layout: &mut ProjectLayout) {
+    if find_leaf(&layout.root, &layout.focused_pane).is_some() {
+        return;
+    }
+    let fallback = collect_leaves(&layout.root).first().map(|leaf| pane_id_of(leaf).clone());
+    if let Some(pane_id) = fallback {
+        layout.focused_pane = pane_id;
+    }
+}
+
 pub fn strip_claude_diff_tabs(layout: &ProjectLayout) -> ProjectLayout {
     let mut persisted = layout.clone();
     strip_claude_diff_node(&mut persisted.root);
     normalize(&mut persisted.root);
+    ensure_focused_pane_valid(&mut persisted);
     persisted
         .closed_tabs
         .retain(|closed| !matches!(closed.tab.kind, TabKind::ClaudeDiff { .. }));
@@ -567,7 +593,11 @@ pub fn save_layout(paths: &AppPaths, project_id: &ProjectId, layout: &ProjectLay
 
 pub fn load_layout(paths: &AppPaths, project_id: &ProjectId) -> ProjectLayout {
     match persist::read_json::<ProjectLayout>(&paths.layout_file(project_id)) {
-        Ok(Some(layout)) if layout.version == LAYOUT_SCHEMA_VERSION => layout,
+        Ok(Some(layout)) if layout.version == LAYOUT_SCHEMA_VERSION => {
+            let mut layout = layout;
+            ensure_focused_pane_valid(&mut layout);
+            layout
+        }
         _ => default_layout(),
     }
 }
@@ -985,6 +1015,28 @@ mod tests {
     }
 
     #[test]
+    fn 클로드_diff_탭은_닫아도_닫힌_탭_스택에_쌓이지_않는다() {
+        let file_tab = 파일_탭("a.rs");
+        let file_tab_id = file_tab.id.clone();
+        let claude_diff_tab = 클로드_diff_탭("b.rs");
+        let claude_diff_tab_id = claude_diff_tab.id.clone();
+        let mut layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root: 리프(vec![file_tab, claude_diff_tab]),
+            focused_pane: PaneId::new(),
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        close_tab(&mut layout, &claude_diff_tab_id).expect("close claude diff");
+        assert!(layout.closed_tabs.is_empty());
+
+        close_tab(&mut layout, &file_tab_id).expect("close file");
+        assert_eq!(layout.closed_tabs.len(), 1);
+        assert_eq!(layout.closed_tabs[0].tab.id, file_tab_id);
+    }
+
+    #[test]
     fn 저장시_닫힌_탭_스택에서도_클로드_diff_탭이_제거된다() {
         let file_closed = ClosedTab {
             tab: 파일_탭("a.rs"),
@@ -1031,6 +1083,49 @@ mod tests {
         let persisted = strip_claude_diff_tabs(&layout);
 
         assert!(matches!(&persisted.root, PaneNode::Leaf { .. }));
+    }
+
+    #[test]
+    fn 제거된_패널을_가리키던_focused_pane은_남은_리프로_보정된다() {
+        let claude_only_leaf = 리프(vec![클로드_diff_탭("b.rs")]);
+        let removed_pane_id = pane_id_of(&claude_only_leaf).clone();
+        let file_leaf = 리프(vec![파일_탭("a.rs")]);
+        let kept_pane_id = pane_id_of(&file_leaf).clone();
+        let root = PaneNode::Split {
+            id: PaneId::new(),
+            dir: SplitDir::Horizontal,
+            children: vec![claude_only_leaf, file_leaf],
+            sizes: vec![0.5, 0.5],
+        };
+        let layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root,
+            focused_pane: removed_pane_id,
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        let persisted = strip_claude_diff_tabs(&layout);
+
+        assert_eq!(persisted.focused_pane, kept_pane_id);
+        assert!(find_leaf(&persisted.root, &persisted.focused_pane).is_some());
+    }
+
+    #[test]
+    fn 살아있는_focused_pane은_그대로_유지된다() {
+        let file_leaf = 리프(vec![파일_탭("a.rs")]);
+        let focused = pane_id_of(&file_leaf).clone();
+        let mut layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root: file_leaf,
+            focused_pane: focused.clone(),
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        ensure_focused_pane_valid(&mut layout);
+
+        assert_eq!(layout.focused_pane, focused);
     }
 
     #[test]

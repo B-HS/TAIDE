@@ -24,47 +24,54 @@ export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requ
     const { t } = useTranslation()
     const containerRef = useRef<HTMLDivElement>(null)
     const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+    const originalModelRef = useRef<monaco.editor.ITextModel | null>(null)
+    const modifiedModelRef = useRef<monaco.editor.ITextModel | null>(null)
+    const requestedContentsRef = useRef(getPendingClaudeDiff(requestId)?.newContents ?? '')
     const [isResolving, setIsResolving] = useState(false)
 
-    const pending = getPendingClaudeDiff(requestId)
     const { data: file } = useQuery({ ...fileQueryOptions(path), retry: false })
     const { mutateAsync: resolveDiff } = useResolveIdeDiff()
     const { mutate: closeTab } = useCloseTab(projectId)
 
     const languageId = file?.languageId ?? FALLBACK_LANGUAGE_ID
     const originalContent = file?.content ?? ''
-    const modifiedContent = pending?.newContents ?? ''
 
     useEffect(() => {
         if (!containerRef.current) return
 
         const diffEditor = monaco.editor.createDiffEditor(containerRef.current, { automaticLayout: true, readOnly: false })
+        const originalModel = monaco.editor.createModel('', FALLBACK_LANGUAGE_ID)
+        const modifiedModel = monaco.editor.createModel(requestedContentsRef.current, FALLBACK_LANGUAGE_ID)
+        diffEditor.setModel({ original: originalModel, modified: modifiedModel })
         diffEditorRef.current = diffEditor
+        originalModelRef.current = originalModel
+        modifiedModelRef.current = modifiedModel
 
         return () => {
-            diffEditor.dispose()
+            diffEditor.setModel(null)
             diffEditorRef.current = null
+            originalModelRef.current = null
+            modifiedModelRef.current = null
+            diffEditor.dispose()
+            originalModel.dispose()
+            modifiedModel.dispose()
         }
     }, [])
 
     useEffect(() => {
-        const diffEditor = diffEditorRef.current
-        if (!diffEditor) return
+        const originalModel = originalModelRef.current
+        const modifiedModel = modifiedModelRef.current
+        if (!originalModel || !modifiedModel) return
 
-        const originalModel = monaco.editor.createModel(originalContent, languageId)
-        const modifiedModel = monaco.editor.createModel(modifiedContent, languageId)
-        diffEditor.setModel({ original: originalModel, modified: modifiedModel })
-
-        return () => {
-            originalModel.dispose()
-            modifiedModel.dispose()
-        }
-    }, [originalContent, modifiedContent, languageId])
+        if (originalModel.getValue() !== originalContent) originalModel.setValue(originalContent)
+        monaco.editor.setModelLanguage(originalModel, languageId)
+        monaco.editor.setModelLanguage(modifiedModel, languageId)
+    }, [originalContent, languageId])
 
     const handleAccept = async () => {
         if (isResolving) return
         setIsResolving(true)
-        const content = diffEditorRef.current?.getModifiedEditor().getValue() ?? modifiedContent
+        const content = diffEditorRef.current?.getModifiedEditor().getValue() ?? requestedContentsRef.current
         try {
             await resolveDiff({ requestId, outcome: 'saved', content })
             removePendingClaudeDiff(requestId)

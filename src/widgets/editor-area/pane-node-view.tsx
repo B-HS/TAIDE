@@ -107,7 +107,15 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     <TerminalSession key={activeTab.id} projectId={projectId} tabId={activeTab.id} sessionId={activeTab.kind.sessionId} />
                 )}
                 {activeTab?.kind.kind === 'settings' && <SettingsView />}
-                {activeTab?.kind.kind === 'diff' && <DiffPane projectId={projectId} path={activeTab.kind.path} staged={activeTab.kind.staged} />}
+                {activeTab?.kind.kind === 'diff' && (
+                    <DiffPane
+                        key={activeTab.id}
+                        projectId={projectId}
+                        path={activeTab.kind.path}
+                        staged={activeTab.kind.staged}
+                        compareWith={activeTab.kind.compareWith ?? null}
+                    />
+                )}
                 {activeTab?.kind.kind === 'claudeDiff' && (
                     <ClaudeDiffPane
                         key={activeTab.id}

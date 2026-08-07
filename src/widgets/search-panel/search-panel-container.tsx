@@ -10,7 +10,8 @@ import { SearchPanel } from '@widgets/search-panel/search-panel'
 type SearchPanelContainerProps = {
     projectId: ProjectId
     onOpenMatch: (path: string) => void
-    initialIncludeGlob?: string | null
+    includeGlob: string | null
+    onClearScope: () => void
 }
 
 const SCOPE_GLOB_SUFFIX = /\/\*\*$/
@@ -25,7 +26,7 @@ const groupMatches = (matches: SearchMatch[]) => {
     return [...byPath.values()]
 }
 
-export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId, onOpenMatch, initialIncludeGlob = null }) => {
+export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId, onOpenMatch, includeGlob, onClearScope }) => {
     const { t } = useTranslation()
     const [query, setQuery] = useState('')
     const [caseSensitive, setCaseSensitive] = useState(false)
@@ -34,15 +35,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
     const [totalMatches, setTotalMatches] = useState(0)
     const [isSearching, setIsSearching] = useState(false)
     const [isReplacing, setIsReplacing] = useState(false)
-    const [scopeCleared, setScopeCleared] = useState(false)
-    const [syncedIncludeGlob, setSyncedIncludeGlob] = useState(initialIncludeGlob)
 
-    if (initialIncludeGlob !== syncedIncludeGlob) {
-        setSyncedIncludeGlob(initialIncludeGlob)
-        setScopeCleared(false)
-    }
-
-    const includeGlob = scopeCleared ? null : initialIncludeGlob
     const scopePath = includeGlob ? includeGlob.replace(SCOPE_GLOB_SUFFIX, '') : null
 
     const handleSubmit = () => {
@@ -101,7 +94,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
             onReplaceAll={handleReplaceAll}
             isReplacing={isReplacing}
             scopePath={scopePath}
-            onClearScope={() => setScopeCleared(true)}
+            onClearScope={onClearScope}
         />
     )
 }

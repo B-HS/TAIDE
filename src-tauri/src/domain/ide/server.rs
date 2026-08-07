@@ -14,7 +14,10 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::commands::{self, IdeSelectionSnapshot, IdeStore, PendingDiff, PendingSave};
 use super::service;
-use super::types::{IdeDiagnostic, IdeDiagnosticSeverity, IdeDiffOutcome, IDE_AUTH_HEADER_NAME, IDE_NAME, IDE_SAVE_TIMEOUT_MS};
+use super::types::{
+    IdeDiagnostic, IdeDiagnosticSeverity, IdeDiffOutcome, IDE_AUTH_HEADER_NAME, IDE_DIFF_TIMEOUT_MS, IDE_HANDSHAKE_TIMEOUT_MS, IDE_NAME,
+    IDE_SAVE_TIMEOUT_MS,
+};
 use crate::domain::layout::commands as layout_commands;
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
@@ -323,7 +326,7 @@ async fn tool_open_diff(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     );
 
     let _ = IdeDiffRequested {
-        request_id,
+        request_id: request_id.clone(),
         project_id,
         old_path,
         new_path: resolved_new_path.to_string_lossy().to_string(),
@@ -332,7 +335,14 @@ async fn tool_open_diff(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     }
     .emit(app);
 
-    let (outcome, _content) = receiver.await.unwrap_or((IdeDiffOutcome::Rejected, None));
+    let resolved = tokio::time::timeout(std::time::Duration::from_millis(IDE_DIFF_TIMEOUT_MS), receiver).await;
+    let outcome = match resolved {
+        Ok(received) => received.map(|(outcome, _content)| outcome).unwrap_or(IdeDiffOutcome::Rejected),
+        Err(_) => {
+            app.state::<IdeStore>().take_pending_diff(&request_id);
+            IdeDiffOutcome::Rejected
+        }
+    };
     Ok(text_content(diff_outcome_text(outcome)))
 }
 
@@ -477,21 +487,24 @@ async fn tool_save_document(app: &AppHandle, arguments: &Value) -> Result<Value,
     })))
 }
 
-fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, ToolError> {
+async fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, ToolError> {
     let Some(tab_name) = arguments.get("tab_name").and_then(Value::as_str) else {
         return Err(tool_error(RPC_INVALID_PARAMS, "tab_name is required"));
     };
 
     let state = app.state::<AppState>();
-    let layouts = state.layouts.read().clone();
-    let found = layouts
-        .values()
-        .find_map(|layout| layout_service::find_tab_by_title(&layout.root, tab_name));
+    let found = {
+        let layouts = state.layouts.read();
+        layouts
+            .values()
+            .find_map(|layout| layout_service::find_tab_by_title(&layout.root, tab_name))
+    };
 
     if let Some(tab_id) = found {
-        if layout_commands::close_tab_and_finish(app, &state, &tab_id).is_ok() {
+        if let Ok((_, closed_tab, _)) = layout_commands::close_tab_and_finish(app, &state, &tab_id).await {
             let _ = IdeCloseTabRequested {
                 tab_name: tab_name.to_string(),
+                request_id: layout_service::claude_diff_request_id(&closed_tab.tab),
             }
             .emit(app);
         }
@@ -500,17 +513,18 @@ fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, ToolError
     Ok(text_content("TAB_CLOSED"))
 }
 
-fn tool_close_all_diff_tabs(app: &AppHandle) -> Value {
+async fn tool_close_all_diff_tabs(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
     let layouts = state.layouts.read().clone();
     let mut closed = 0u32;
 
     for layout in layouts.values() {
         for tab_id in layout_service::collect_claude_diff_tab_ids(&layout.root) {
-            if let Ok((_, closed_tab, _)) = layout_commands::close_tab_and_finish(app, &state, &tab_id) {
+            if let Ok((_, closed_tab, _)) = layout_commands::close_tab_and_finish(app, &state, &tab_id).await {
                 closed += 1;
                 let _ = IdeCloseTabRequested {
                     tab_name: closed_tab.tab.title.clone(),
+                    request_id: layout_service::claude_diff_request_id(&closed_tab.tab),
                 }
                 .emit(app);
             }
@@ -531,8 +545,8 @@ pub async fn dispatch_tool_call(app: &AppHandle, name: &str, arguments: &Value) 
         "getDiagnostics" => tool_get_diagnostics(app, arguments),
         "checkDocumentDirty" => tool_check_document_dirty(app, arguments),
         "saveDocument" => tool_save_document(app, arguments).await,
-        "close_tab" => tool_close_tab(app, arguments),
-        "closeAllDiffTabs" => Ok(tool_close_all_diff_tabs(app)),
+        "close_tab" => tool_close_tab(app, arguments).await,
+        "closeAllDiffTabs" => Ok(tool_close_all_diff_tabs(app).await),
         "executeCode" => Err(tool_error(RPC_UNSUPPORTED, "executeCode is not supported")),
         _ => Err(tool_error(RPC_METHOD_NOT_FOUND, format!("unknown tool: {name}"))),
     }
@@ -582,9 +596,13 @@ fn auth_callback(expected_token: String) -> impl FnOnce(&Request, Response) -> R
 }
 
 async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: String) {
-    let ws_stream = match tokio_tungstenite::accept_hdr_async(stream, auth_callback(expected_token)).await {
-        Ok(stream) => stream,
-        Err(_) => return,
+    let handshake = tokio::time::timeout(
+        std::time::Duration::from_millis(IDE_HANDSHAKE_TIMEOUT_MS),
+        tokio_tungstenite::accept_hdr_async(stream, auth_callback(expected_token)),
+    )
+    .await;
+    let Ok(Ok(ws_stream)) = handshake else {
+        return;
     };
 
     let (write_half, mut read_half) = ws_stream.split();
@@ -617,23 +635,30 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
 
     commands::emit_status_changed(&app, app.state::<IdeStore>().client_connected());
 
+    let mut request_handles: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
+
     while let Some(message) = read_half.next().await {
         let Ok(message) = message else { break };
         match message {
             Message::Text(text) => {
-                if let Ok(incoming) = parse_incoming(text.as_str()) {
-                    if let Some(response) = handle_incoming(&app, incoming).await {
-                        if out_tx.send(encode(&response)).is_err() {
-                            break;
-                        }
+                let Ok(incoming) = parse_incoming(text.as_str()) else { continue };
+                let request_app = app.clone();
+                let request_out_tx = out_tx.clone();
+                request_handles.retain(|handle| !handle.inner().is_finished());
+                request_handles.push(tauri::async_runtime::spawn(async move {
+                    if let Some(response) = handle_incoming(&request_app, incoming).await {
+                        let _ = request_out_tx.send(encode(&response));
                     }
-                }
+                }));
             }
             Message::Close(_) => break,
             _ => {}
         }
     }
 
+    for handle in &request_handles {
+        handle.abort();
+    }
     writer_handle.abort();
     forwarder_handle.abort();
     commands::emit_status_changed(&app, app.state::<IdeStore>().client_disconnected());

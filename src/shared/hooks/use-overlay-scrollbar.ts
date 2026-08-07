@@ -44,7 +44,12 @@ export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: U
         const measure = () => {
             const metrics = computeScrollbarThumbMetrics(readGeometry())
             track.dataset.scrollable = String(metrics.scrollable)
-            if (!metrics.scrollable) return
+            if (!metrics.scrollable) {
+                thumb.style.height = ''
+                thumb.style.width = ''
+                thumb.style.transform = ''
+                return
+            }
             if (isVertical) {
                 thumb.style.height = `${metrics.thumbSize}px`
                 thumb.style.width = ''
@@ -81,7 +86,17 @@ export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: U
 
         const resizeObserver = new ResizeObserver(scheduleMeasure)
         resizeObserver.observe(viewport)
-        if (viewport.firstElementChild) resizeObserver.observe(viewport.firstElementChild)
+
+        const observeContentChildren = () => {
+            for (const child of Array.from(viewport.children)) resizeObserver.observe(child)
+        }
+        observeContentChildren()
+
+        const contentObserver = new MutationObserver(() => {
+            observeContentChildren()
+            scheduleMeasure()
+        })
+        contentObserver.observe(viewport, { childList: true })
 
         const handleTrackPointerEnter = () => {
             isHovering = true
@@ -156,6 +171,7 @@ export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: U
         return () => {
             viewport.removeEventListener('scroll', handleScroll)
             resizeObserver.disconnect()
+            contentObserver.disconnect()
             track.removeEventListener('pointerenter', handleTrackPointerEnter)
             track.removeEventListener('pointerleave', handleTrackPointerLeave)
             thumb.removeEventListener('pointerdown', handleThumbPointerDown)

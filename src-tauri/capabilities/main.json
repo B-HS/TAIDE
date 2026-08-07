@@ -15,9 +15,6 @@
         "core:window:allow-close",
         "core:webview:allow-internal-toggle-devtools",
         "dialog:allow-open",
-        "opener:allow-open-path",
-        "opener:allow-open-url",
-        "opener:allow-reveal-item-in-dir",
         "log:default"
     ]
 }

@@ -6,6 +6,7 @@ use crate::domain::layout::types::{ProjectLayout, TabKind};
 use crate::domain::project::types::Project;
 use crate::error::AppResult;
 use crate::ids::ProjectId;
+use crate::infra::root_guard;
 
 const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
     ("ts", "typescript"),
@@ -79,7 +80,7 @@ pub fn guess_language_id(path: &str) -> &'static str {
 }
 
 pub fn ensure_path_within_any_project(projects: &HashMap<ProjectId, Project>, path: &Path) -> AppResult<(ProjectId, PathBuf)> {
-    crate::domain::file::service::resolve_owning_project(projects, path)
+    root_guard::resolve_owning_project(projects, path)
 }
 
 pub fn workspace_folders(projects: &HashMap<ProjectId, Project>) -> Vec<String> {
