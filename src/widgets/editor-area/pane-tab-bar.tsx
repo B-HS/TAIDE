@@ -2,16 +2,20 @@ import type { FC, ReactNode, WheelEvent } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQuery } from '@tanstack/react-query'
-import { openPath } from '@tauri-apps/plugin-opener'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
+import { resolvePreviewKind } from '@shared/lib/preview-kind'
+import { toRelativePath } from '@shared/lib/relative-path'
+import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
+import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { projectQueryOptions } from '@entities/project/project.query'
-import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSplitPane } from '@entities/layout/layout.query'
+import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSetTabPreview, useSplitPane } from '@entities/layout/layout.query'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
 import { SortableTab } from '@widgets/editor-area/sortable-tab'
 
@@ -36,11 +40,6 @@ export const getTabIcon = (kind: TabKind, agent?: DetectedAgent): ReactNode => {
     return <Sparkles className={TAB_ICON_SIZE_CLASS} />
 }
 
-const toRelativePath = (root: string, filePath: string) => {
-    const normalizedRoot = root.endsWith('/') ? root : `${root}/`
-    return filePath.startsWith(normalizedRoot) ? filePath.slice(normalizedRoot.length) : filePath
-}
-
 type PaneTabBarProps = {
     projectId: ProjectId
     paneId: PaneId
@@ -56,6 +55,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { mutate: closeTab } = useCloseTab(projectId)
     const { mutateAsync: closeTabAsync } = useCloseTab(projectId)
     const { mutate: pinTab } = usePinTab(projectId)
+    const { mutate: setTabPreview } = useSetTabPreview(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
     const { mutate: focusPane } = useFocusPane(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
@@ -109,6 +109,8 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const renderTab = (tab: Tab) => {
         const filePath = tab.kind.kind === 'file' ? tab.kind.path : null
         const relativePath = filePath && project ? toRelativePath(project.root, filePath) : null
+        const fileName = filePath ? (filePath.split('/').filter(Boolean).at(-1) ?? filePath) : null
+        const canReopenWith = fileName ? resolvePreviewKind(fileName) !== null : false
         const agent = tab.kind.kind === 'terminal' && tab.kind.sessionId ? agentBySessionId.get(tab.kind.sessionId) : undefined
         const agentTooltip = agent ? t('agent.sessionTooltip', { name: agent.name, status: t(`agent.status.${agent.activity}`) }) : undefined
 
@@ -130,7 +132,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 onSplit={(edge: SplitEdge) => splitPane({ paneId, edge, tabId: tab.id })}
                 onCopyPath={filePath ? () => void navigator.clipboard.writeText(filePath) : undefined}
                 onCopyRelativePath={relativePath ? () => void navigator.clipboard.writeText(relativePath) : undefined}
-                onRevealInFinder={filePath ? () => void openPath(filePath).catch(notifyError) : undefined}
+                onRevealInFinder={filePath ? () => void revealItemInDir(filePath).catch(notifyError) : undefined}
                 onOpenChanges={
                     filePath
                         ? () =>
@@ -146,6 +148,10 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                               )
                         : undefined
                 }
+                onKeepOpen={() => setTabPreview({ tabId: tab.id, preview: false })}
+                onRevealInExplorerView={filePath ? () => requestRevealInExplorer(filePath) : undefined}
+                onReopenWithEditor={filePath && canReopenWith ? () => setOpenWithOverride(filePath, 'editor') : undefined}
+                onReopenWithPreview={filePath && canReopenWith ? () => setOpenWithOverride(filePath, null) : undefined}
             />
         )
     }

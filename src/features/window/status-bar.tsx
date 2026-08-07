@@ -1,7 +1,7 @@
 import type { FC } from 'react'
-import { Activity, CheckCircle2, CircleX, SquareTerminal, Type, XCircle } from 'lucide-react'
+import { Activity, CheckCircle2, CircleX, Plug, PlugZap, SquareTerminal, Type, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { SystemUsage } from '@shared/api/bindings'
+import type { IdeStatus, SystemUsage } from '@shared/api/bindings'
 import { BYTES_PER_MEBIBYTE } from '@shared/constants/system-usage'
 import { cn } from '@shared/lib/cn'
 import { FontSizeStepper } from '@features/window/font-size-stepper'
@@ -18,6 +18,7 @@ type StatusBarProps = {
     isProblemsOpen: boolean
     onToggleProblems: () => void
     systemUsage: SystemUsage | null
+    ideStatus: IdeStatus | null
     editorFontSize: number
     terminalFontSize: number
     onEditorFontSizeDecrease: () => void
@@ -34,6 +35,7 @@ export const StatusBar: FC<StatusBarProps> = ({
     isProblemsOpen,
     onToggleProblems,
     systemUsage,
+    ideStatus,
     editorFontSize,
     terminalFontSize,
     onEditorFontSizeDecrease,
@@ -65,6 +67,17 @@ export const StatusBar: FC<StatusBarProps> = ({
                     <span className={cn('flex shrink-0 items-center gap-1', lspSummary.hasCrashed ? 'text-status-error' : 'text-status-success')}>
                         {lspSummary.hasCrashed ? <XCircle className='size-3' /> : <CheckCircle2 className='size-3' />}
                         {t('window.lspStatus', { running: lspSummary.running, total: lspSummary.total })}
+                    </span>
+                )}
+                {ideStatus?.running && (
+                    <span
+                        className={cn(
+                            'flex shrink-0 items-center gap-1',
+                            ideStatus.connected ? 'text-status-success' : 'text-app-sidebar-icon-default',
+                        )}
+                        title={t('ide.title')}>
+                        {ideStatus.connected ? <PlugZap className='size-3' /> : <Plug className='size-3' />}
+                        {t(ideStatus.connected ? 'ide.connected' : 'ide.disconnected')}
                     </span>
                 )}
             </div>

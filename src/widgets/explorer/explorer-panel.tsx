@@ -6,8 +6,10 @@ import type { ProjectId } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
+import type { SearchPanelScope } from '@shared/lib/search-panel-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
-import type { FileTreeDraft } from '@widgets/explorer/file-tree'
+import { subscribeRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
+import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@widgets/explorer/file-tree'
 import { FileTree } from '@widgets/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
 import { OutlinePanelContainer } from '@widgets/outline-panel/outline-panel-container'
@@ -27,7 +29,11 @@ type ExplorerPanelProps = {
     rows: FileTreeRow[]
     draft: FileTreeDraft | null
     draftError: string | null
+    renameTarget: FileTreeRenameTarget | null
+    renameError: string | null
     selectPathRequest: string | null
+    canPaste: boolean
+    contextMenuHandlers: FileTreeContextMenuHandlers
     onToggleExpand: (row: FileTreeRow) => void
     onOpenPreview: (row: FileTreeRow) => void
     onOpenPinned: (row: FileTreeRow) => void
@@ -39,7 +45,10 @@ type ExplorerPanelProps = {
     onCollapseAll: () => void
     onDraftCommit: (name: string) => void
     onDraftCancel: () => void
+    onRenameCommit: (name: string) => void
+    onRenameCancel: () => void
     onSelectPathRequestHandled: () => void
+    onRevealInExplorerRequest: (path: string) => void
 }
 
 export const ExplorerPanel: FC<ExplorerPanelProps> = ({
@@ -47,7 +56,11 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     rows,
     draft,
     draftError,
+    renameTarget,
+    renameError,
     selectPathRequest,
+    canPaste,
+    contextMenuHandlers,
     onToggleExpand,
     onOpenPreview,
     onOpenPinned,
@@ -59,12 +72,32 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     onCollapseAll,
     onDraftCommit,
     onDraftCancel,
+    onRenameCommit,
+    onRenameCancel,
     onSelectPathRequestHandled,
+    onRevealInExplorerRequest,
 }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
+    const [searchScope, setSearchScope] = useState<SearchPanelScope | null>(null)
 
-    useEffect(() => subscribeOpenSearchPanel(() => setView('search')), [])
+    useEffect(
+        () =>
+            subscribeOpenSearchPanel((scope) => {
+                setView('search')
+                setSearchScope(scope)
+            }),
+        [],
+    )
+
+    useEffect(
+        () =>
+            subscribeRevealInExplorer((path) => {
+                setView('files')
+                onRevealInExplorerRequest(path)
+            }),
+        [onRevealInExplorerRequest],
+    )
 
     return (
         <div className='group/explorer bg-explorer-background flex h-full min-h-0 w-full flex-col'>
@@ -103,17 +136,31 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                         rows={rows}
                         draft={draft}
                         draftError={draftError}
+                        renameTarget={renameTarget}
+                        renameError={renameError}
                         selectPathRequest={selectPathRequest}
+                        canPaste={canPaste}
+                        contextMenuHandlers={contextMenuHandlers}
                         onToggleExpand={onToggleExpand}
                         onOpenPreview={onOpenPreview}
                         onOpenPinned={onOpenPinned}
                         onSelectionChange={onSelectionChange}
                         onDraftCommit={onDraftCommit}
                         onDraftCancel={onDraftCancel}
+                        onRenameCommit={onRenameCommit}
+                        onRenameCancel={onRenameCancel}
                         onSelectPathRequestHandled={onSelectPathRequestHandled}
+                        onNewFile={onNewFile}
+                        onNewFolder={onNewFolder}
                     />
                 )}
-                {view === 'search' && <SearchPanelContainer projectId={projectId} onOpenMatch={onOpenSearchMatch} />}
+                {view === 'search' && (
+                    <SearchPanelContainer
+                        projectId={projectId}
+                        onOpenMatch={onOpenSearchMatch}
+                        initialIncludeGlob={searchScope?.includeGlob ?? null}
+                    />
+                )}
                 {view === 'git' && <GitPanelContainer projectId={projectId} />}
                 {view === 'outline' && <OutlinePanelContainer projectId={projectId} />}
             </div>

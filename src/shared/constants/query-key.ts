@@ -45,6 +45,7 @@ export const QUERY_KEY = {
         ALL: ['agent'] as const,
         PROJECT: (projectId: ProjectId) => ['agent', 'project', projectId] as const,
         CLI: ['agent', 'cli'] as const,
+        HOOKS: (projectId: ProjectId) => ['agent', 'hooks', projectId] as const,
     },
     PLUGIN: {
         ALL: ['plugin'] as const,
@@ -77,5 +78,9 @@ export const QUERY_KEY = {
     SYSTEM: {
         ALL: ['system'] as const,
         USAGE: ['system', 'usage'] as const,
+    },
+    IDE: {
+        ALL: ['ide'] as const,
+        STATUS: ['ide', 'status'] as const,
     },
 }

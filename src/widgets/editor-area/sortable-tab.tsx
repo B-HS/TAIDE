@@ -28,6 +28,10 @@ type SortableTabProps = {
     onCopyRelativePath?: () => void
     onRevealInFinder?: () => void
     onOpenChanges?: () => void
+    onKeepOpen?: () => void
+    onRevealInExplorerView?: () => void
+    onReopenWithEditor?: () => void
+    onReopenWithPreview?: () => void
 }
 
 export const SortableTab: FC<SortableTabProps> = ({
@@ -48,6 +52,10 @@ export const SortableTab: FC<SortableTabProps> = ({
     onCopyRelativePath,
     onRevealInFinder,
     onOpenChanges,
+    onKeepOpen,
+    onRevealInExplorerView,
+    onReopenWithEditor,
+    onReopenWithPreview,
 }) => {
     const dragData: TabDragData = { type: 'tab', paneId, pinned: tab.pinned ?? false }
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id, data: dragData })
@@ -70,7 +78,11 @@ export const SortableTab: FC<SortableTabProps> = ({
                 onCopyPath={onCopyPath}
                 onCopyRelativePath={onCopyRelativePath}
                 onRevealInFinder={onRevealInFinder}
-                onOpenChanges={onOpenChanges}>
+                onOpenChanges={onOpenChanges}
+                onKeepOpen={onKeepOpen}
+                onRevealInExplorerView={onRevealInExplorerView}
+                onReopenWithEditor={onReopenWithEditor}
+                onReopenWithPreview={onReopenWithPreview}>
                 <TabItem
                     title={tab.title}
                     icon={icon}

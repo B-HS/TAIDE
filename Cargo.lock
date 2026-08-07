@@ -3807,6 +3807,7 @@ name = "taide"
 version = "0.1.0"
 dependencies = [
  "fontdb",
+ "futures-util",
  "git2",
  "log",
  "notify",

@@ -24,12 +24,12 @@ export const ThemePicker: FC<ThemePickerProps> = ({ themes, activeThemeId, onSel
                         onClick={() => onSelect(theme.id)}
                         aria-pressed={isActive}
                         className={cn(
-                            'border-app-border hover:bg-app-sidebar-item-hover flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs',
+                            'border-app-border hover:bg-app-sidebar-item-hover flex min-w-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-xs',
                             isActive && 'border-app-focus-border bg-app-sidebar-item-active',
                         )}>
-                        <span className='flex flex-col'>
-                            <span className='text-app-foreground font-medium'>{theme.name}</span>
-                            <span className='text-app-sidebar-icon-default'>
+                        <span className='flex min-w-0 flex-col'>
+                            <span className='text-app-foreground truncate font-medium'>{theme.name}</span>
+                            <span className='text-app-sidebar-icon-default truncate'>
                                 {theme.type === 'dark' ? t('settings.themeDark') : t('settings.themeLight')}
                             </span>
                         </span>

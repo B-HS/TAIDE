@@ -627,7 +627,9 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       범위 결정 3건(사용자)·세부 결정은 `docs/acknowledge/2026-08-07-qa-batch-decisions.md`
 - [x] 7.7-계약. 스파인 선행 확정 (커밋 `70424a2`) — system 도메인·설정 6필드·TabKind 확장(ClaudeDiff 휘발성)·
       file 휴지통 전환·테마 토큰·i18n 65키·capabilities. opus 검증 pass, minor 6건 중 3건은 웨이브 1 S 트랙에서 수정
-- [ ] 7.7-W1. 웨이브 1 구현 — P(UI폴리시→Problems→리소스) ∥ Q(트리 인라인) ∥ R(AI 배지) ∥ S(minor 수정)
+- [x] 7.7-W1. 웨이브 1 구현 (커밋 `60a23b8`) — P(UI폴리시→Problems→리소스) ∥ Q(트리 인라인) ∥ R(AI 배지) ∥ S(minor).
+      메인이 전체 verify 재실행으로 확인(Rust 253·프론트 290·clippy 0). 발견된 배선 공백
+      (agent_hooks_* 호출 UI 부재)과 A1 이 소유권 문제로 보류한 설정 overflow 잔여분은 W2-B3 으로 이관
 - [ ] 7.7-W2. 웨이브 2 구현 — B1(context menu·미니맵) ∥ B2a(IDE Rust) → B2b(IDE 프론트)
 - [ ] 7.7-W3. 웨이브 3 구현 — C1(커스텀 스크롤바 전면 적용)
 - [ ] 7.7-검토. 전체 diff 버그 1차(opus high) → 2차(Fable) → bun run verify → dev 커밋

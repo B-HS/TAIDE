@@ -1,4 +1,5 @@
 import type { FC } from 'react'
+import { useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useDroppable } from '@dnd-kit/core'
@@ -11,8 +12,10 @@ import type { DropEdgeName } from '@features/split/split-drop-zones'
 import { SplitDropZones } from '@features/split/split-drop-zones'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
+import { getOpenWithOverride, subscribeOpenWithOverride } from '@entities/editor/open-with-registry'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
+import { ClaudeDiffPane } from '@widgets/claude-diff-pane/claude-diff-pane'
 import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
 import { PreviewPane } from '@widgets/preview-pane/preview-pane'
@@ -42,6 +45,9 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
     const dropTop = useDroppable({ id: `${node.id}:top`, data: { type: 'split', paneId: node.id, edge: 'top' } satisfies SplitDropData })
     const dropBottom = useDroppable({ id: `${node.id}:bottom`, data: { type: 'split', paneId: node.id, edge: 'bottom' } satisfies SplitDropData })
     const dropCenter = useDroppable({ id: `${node.id}:center`, data: { type: 'split', paneId: node.id, edge: 'center' } satisfies SplitDropData })
+    const activeTab = node.node === 'leaf' ? (node.tabs.find((tab) => tab.id === node.active) ?? null) : null
+    const activeFilePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
+    const openWithOverride = useSyncExternalStore(subscribeOpenWithOverride, () => (activeFilePath ? getOpenWithOverride(activeFilePath) : null))
 
     if (node.node === 'split') {
         const children = node.children
@@ -79,10 +85,8 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         )
     }
 
-    const activeTab = node.tabs.find((tab) => tab.id === node.active) ?? null
-    const activeFilePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
     const activeFileName = activeFilePath ? activeFilePath.slice(activeFilePath.lastIndexOf(PATH_SEPARATOR) + 1) : null
-    const activePreviewKind = activeFileName ? resolvePreviewKind(activeFileName) : null
+    const activePreviewKind = openWithOverride === 'editor' ? null : activeFileName ? resolvePreviewKind(activeFileName) : null
     const dropRefByEdge: Record<DropEdgeName, (element: HTMLElement | null) => void> = {
         left: dropLeft.setNodeRef,
         right: dropRight.setNodeRef,
@@ -104,11 +108,21 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                 )}
                 {activeTab?.kind.kind === 'settings' && <SettingsView />}
                 {activeTab?.kind.kind === 'diff' && <DiffPane projectId={projectId} path={activeTab.kind.path} staged={activeTab.kind.staged} />}
+                {activeTab?.kind.kind === 'claudeDiff' && (
+                    <ClaudeDiffPane
+                        key={activeTab.id}
+                        projectId={projectId}
+                        tabId={activeTab.id}
+                        requestId={activeTab.kind.requestId}
+                        path={activeTab.kind.path}
+                    />
+                )}
                 {activeTab &&
                     activeTab.kind.kind !== 'file' &&
                     activeTab.kind.kind !== 'terminal' &&
                     activeTab.kind.kind !== 'settings' &&
-                    activeTab.kind.kind !== 'diff' && (
+                    activeTab.kind.kind !== 'diff' &&
+                    activeTab.kind.kind !== 'claudeDiff' && (
                         <div className='flex h-full w-full items-center justify-center text-sm opacity-60'>{activeTab.title}</div>
                     )}
                 {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>}

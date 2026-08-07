@@ -13,6 +13,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::git::commands::GitStore;
+use crate::domain::ide::commands::IdeStore;
 use crate::domain::lsp::commands::LspStore;
 use crate::domain::plugin::commands::PluginStore;
 use crate::domain::search::commands::SearchStore;
@@ -20,9 +21,9 @@ use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::events::{
-    AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, LayoutChanged, LspSessionStatusChanged,
-    ProjectActivated, ProjectClosed, ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, TerminalCwdChanged, TerminalExited,
-    ThemeChanged,
+    AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested,
+    IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspSessionStatusChanged, ProjectActivated, ProjectClosed, ProjectFocusKindChanged,
+    ProjectListChanged, ProjectOpened, TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
 use crate::paths::AppPaths;
 use crate::state::AppState;
@@ -165,6 +166,15 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::settings::commands::settings_update,
             domain::settings::commands::settings_set_theme,
             domain::system::commands::system_usage_get,
+            domain::ide::commands::ide_get_status,
+            domain::ide::commands::ide_start,
+            domain::ide::commands::ide_stop,
+            domain::ide::commands::ide_set_selection,
+            domain::ide::commands::ide_clear_selection,
+            domain::ide::commands::ide_publish_diagnostics,
+            domain::ide::commands::ide_resolve_diff,
+            domain::ide::commands::ide_resolve_save,
+            domain::ide::commands::ide_notify_at_mention,
         ])
         .events(collect_events![
             AppReady,
@@ -182,7 +192,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
             GitRefsChanged,
             LspSessionStatusChanged,
             AgentStateChanged,
-            AgentExternalOpen
+            AgentExternalOpen,
+            IdeStatusChanged,
+            IdeDiffRequested,
+            IdeSaveRequested,
+            IdeCloseTabRequested
         ])
 }
 
@@ -340,6 +354,7 @@ pub fn run() {
             app.manage(AgentStore::default());
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
+            app.manage(IdeStore::default());
 
             if app.state::<AppState>().settings.read().agent_hooks_enabled {
                 let hooks_boot_handle = app.handle().clone();
@@ -347,6 +362,30 @@ pub fn run() {
                     let _ = domain::agent::hooks::ensure_hooks_server_started(&hooks_boot_handle).await;
                 });
             }
+
+            if app.state::<AppState>().settings.read().ide_integration_enabled {
+                let ide_boot_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = domain::ide::commands::ide_start(
+                        ide_boot_handle.clone(),
+                        ide_boot_handle.state::<AppState>(),
+                        ide_boot_handle.state::<IdeStore>(),
+                    )
+                    .await
+                    {
+                        log::warn!("IDE 연동 자동 시작 실패: {error}");
+                    }
+                });
+            }
+
+            let ide_reconcile_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_millis(domain::ide::types::IDE_RECONCILE_INTERVAL_MS));
+                loop {
+                    ticker.tick().await;
+                    domain::ide::commands::reconcile_stale_pending(&ide_reconcile_handle);
+                }
+            });
 
             let agent_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -386,6 +425,7 @@ pub fn run() {
                 app_handle.state::<TerminalStore>().kill_all();
                 app_handle.state::<LspStore>().kill_all();
                 domain::agent::commands::cleanup_all_wait_markers(&app_handle.state::<AgentStore>());
+                domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
             }
         });
 }

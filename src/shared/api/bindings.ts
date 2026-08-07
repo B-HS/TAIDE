@@ -103,6 +103,19 @@ export const commands = {
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
 	systemUsageGet: () => typedError<SystemUsage, AppError>(__TAURI_INVOKE("system_usage_get")),
+	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
+	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
+	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
+	/**
+	 *  프론트가 에디터 selection 변경을 push 한다. 계약(9종 커맨드)이 평면 파라미터로 고정돼 있어
+	 *  인자 수를 줄일 수 없다(clippy::too_many_arguments 예외).
+	 */
+	ideSetSelection: (projectId: ProjectId, path: string, text: string, startLine: number, startCharacter: number, endLine: number, endCharacter: number, isEmpty: boolean) => typedError<null, AppError>(__TAURI_INVOKE("ide_set_selection", { projectId, path, text, startLine, startCharacter, endLine, endCharacter, isEmpty })),
+	ideClearSelection: () => typedError<null, AppError>(__TAURI_INVOKE("ide_clear_selection")),
+	idePublishDiagnostics: (projectId: ProjectId, items: IdeDiagnostic[]) => typedError<null, AppError>(__TAURI_INVOKE("ide_publish_diagnostics", { projectId, items })),
+	ideResolveDiff: (requestId: string, outcome: IdeDiffOutcome, content: string | null) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_diff", { requestId, outcome, content })),
+	ideResolveSave: (requestId: string, saved: boolean) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_save", { requestId, saved })),
+	ideNotifyAtMention: (path: string, lineStart: number, lineEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("ide_notify_at_mention", { path, lineStart, lineEnd })),
 };
 
 /** Events */
@@ -113,6 +126,10 @@ export const events = {
 	fsChanged: makeEvent<FsChanged>("fs:changed"),
 	gitRefsChanged: makeEvent<GitRefsChanged>("git:refs-changed"),
 	gitStatusChanged: makeEvent<GitStatusChanged>("git:status-changed"),
+	ideCloseTabRequested: makeEvent<IdeCloseTabRequested>("ide:close-tab-requested"),
+	ideDiffRequested: makeEvent<IdeDiffRequested>("ide:diff-requested"),
+	ideSaveRequested: makeEvent<IdeSaveRequested>("ide:save-requested"),
+	ideStatusChanged: makeEvent<IdeStatusChanged>("ide:status-changed"),
 	layoutChanged: makeEvent<LayoutChanged>("layout:changed"),
 	lspSessionStatusChanged: makeEvent<LspSessionStatusChanged>("lsp:session-status-changed"),
 	projectActivated: makeEvent<ProjectActivated>("project:activated"),
@@ -274,6 +291,51 @@ export type GutterHunk = {
 };
 
 export type HunkKind = "added" | "modified" | "deleted";
+
+export type IdeCloseTabRequested = {
+	tabName: string,
+};
+
+export type IdeDiagnostic = {
+	path: string,
+	severity: IdeDiagnosticSeverity,
+	startLine: number,
+	startCharacter: number,
+	endLine: number,
+	endCharacter: number,
+	message: string,
+	source?: string | null,
+};
+
+export type IdeDiagnosticSeverity = "error" | "warning" | "info" | "hint";
+
+export type IdeDiffOutcome = "saved" | "rejected" | "tabClosed";
+
+export type IdeDiffRequested = {
+	requestId: string,
+	projectId: ProjectId,
+	oldPath: string,
+	newPath: string,
+	newContents: string,
+	tabName: string,
+};
+
+export type IdeSaveRequested = {
+	requestId: string,
+	projectId: ProjectId,
+	path: string,
+};
+
+export type IdeStatus = {
+	running: boolean,
+	port: number,
+	connected: boolean,
+	clientCount: number,
+};
+
+export type IdeStatusChanged = {
+	status: IdeStatus,
+};
 
 export type LayoutChanged = {
 	projectId: ProjectId,

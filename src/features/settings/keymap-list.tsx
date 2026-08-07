@@ -38,10 +38,12 @@ export const KeymapList: FC<KeymapListProps> = ({ entries, overriddenActionIds, 
                 const isOverridden = overriddenActionIds.includes(entry.id)
 
                 return (
-                    <li key={entry.id} className='border-app-border flex items-center justify-between gap-3 rounded-sm border px-3 py-1.5 text-xs'>
-                        <span className='flex items-center gap-2'>
-                            <span className='text-app-foreground'>{t(entry.descriptionKey)}</span>
-                            {isOverridden && <span className='text-app-sidebar-icon-default'>{t('settings.keymapCustomized')}</span>}
+                    <li
+                        key={entry.id}
+                        className='border-app-border flex min-w-0 items-center justify-between gap-3 rounded-sm border px-3 py-1.5 text-xs'>
+                        <span className='flex min-w-0 items-center gap-2'>
+                            <span className='text-app-foreground truncate'>{t(entry.descriptionKey)}</span>
+                            {isOverridden && <span className='text-app-sidebar-icon-default shrink-0'>{t('settings.keymapCustomized')}</span>}
                         </span>
                         {isCapturing ? (
                             <button
@@ -49,11 +51,11 @@ export const KeymapList: FC<KeymapListProps> = ({ entries, overriddenActionIds, 
                                 autoFocus
                                 onKeyDown={(event) => handleCaptureKeyDown(event, entry.id)}
                                 onBlur={() => setCapturingActionId(null)}
-                                className='border-app-focus-border bg-app-sidebar-item-active text-app-foreground rounded-sm border px-2 py-1 font-mono'>
+                                className='border-app-focus-border bg-app-sidebar-item-active text-app-foreground shrink-0 rounded-sm border px-2 py-1 font-mono'>
                                 {t('settings.keymapCapturePrompt')}
                             </button>
                         ) : (
-                            <div className='flex items-center gap-2'>
+                            <div className='flex shrink-0 items-center gap-2'>
                                 <span className={cn('text-app-foreground font-mono', isOverridden && 'text-app-accent')}>
                                     {formatKeymapShortcut(entry)}
                                 </span>

@@ -1,5 +1,6 @@
 import type { FC } from 'react'
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { monaco } from '@shared/lib/monaco/setup'
 import { createModel, getModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
@@ -9,6 +10,7 @@ export type CodeEditorProps = {
     value: string
     readOnly: boolean
     largeFile: boolean
+    minimap?: boolean
     fontFamily: string
     fontSize: number
     onChange: (value: string) => void
@@ -18,16 +20,17 @@ export type CodeEditorProps = {
 }
 
 const LARGE_FILE_EDITOR_OPTIONS: monaco.editor.IEditorOptions = {
-    minimap: { enabled: false },
     folding: false,
     bracketPairColorization: { enabled: false },
 }
 
 const DEFAULT_EDITOR_OPTIONS: monaco.editor.IEditorOptions = {
-    minimap: { enabled: true },
     folding: true,
     bracketPairColorization: { enabled: true },
 }
+
+const TOGGLE_MINIMAP_ACTION_ID = 'taide.toggleMinimap'
+const TOGGLE_MINIMAP_CONTEXT_MENU_ORDER = 1.5
 
 export const CodeEditor: FC<CodeEditorProps> = ({
     path,
@@ -35,6 +38,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     value,
     readOnly,
     largeFile,
+    minimap,
     fontFamily,
     fontSize,
     onChange,
@@ -42,6 +46,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     onCursorLineChange,
     onEditorMount,
 }) => {
+    const { t } = useTranslation()
     const containerRef = useRef<HTMLDivElement>(null)
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
     const activePathRef = useRef<string | null>(null)
@@ -96,8 +101,28 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     }, [])
 
     useEffect(() => {
+        const editor = editorRef.current
+        if (!editor) return
+        const toggleMinimapAction = editor.addAction({
+            id: TOGGLE_MINIMAP_ACTION_ID,
+            label: t('editor.toggleMinimap'),
+            contextMenuGroupId: 'navigation',
+            contextMenuOrder: TOGGLE_MINIMAP_CONTEXT_MENU_ORDER,
+            run: (instance) => {
+                const enabled = instance.getOption(monaco.editor.EditorOption.minimap).enabled
+                instance.updateOptions({ minimap: { enabled: !enabled } })
+            },
+        })
+        return () => toggleMinimapAction.dispose()
+    }, [t])
+
+    useEffect(() => {
         editorRef.current?.updateOptions(largeFile ? LARGE_FILE_EDITOR_OPTIONS : DEFAULT_EDITOR_OPTIONS)
     }, [largeFile])
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ minimap: { enabled: (minimap ?? true) && !largeFile } })
+    }, [minimap, largeFile])
 
     useEffect(() => {
         editorRef.current?.updateOptions({ readOnly })

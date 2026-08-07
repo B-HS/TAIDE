@@ -3,6 +3,7 @@ pub mod app;
 pub mod file;
 pub mod font;
 pub mod git;
+pub mod ide;
 pub mod layout;
 pub mod locale;
 pub mod lsp;

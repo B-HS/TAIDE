@@ -10,6 +10,7 @@ import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
+import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -18,6 +19,8 @@ import { fileQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { getGitBlameRange } from '@entities/git/git.ipc'
+import { ideStatusQueryOptions } from '@entities/ide/ide.query'
+import { setIdeSelection } from '@entities/ide/ide.ipc'
 import { gitCurrentUserQueryOptions, gitGutterQueryOptions, useDiscardGitHunk } from '@entities/git/git.query'
 import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
@@ -32,6 +35,7 @@ import { useLspSession } from '@widgets/editor-pane/use-lsp-session'
 const DIRTY_MIRROR_DEBOUNCE_MS = 1_500
 const BLAME_DEBOUNCE_MS = 300
 const MARKDOWN_PREVIEW_DEBOUNCE_MS = 200
+const IDE_SELECTION_PUSH_DEBOUNCE_MS = 300
 const MARKDOWN_LANGUAGE_ID = 'markdown'
 const FORMAT_DOCUMENT_ACTION_ID = 'editor.action.formatDocument'
 const TOGGLE_PREVIEW_BUTTON_CLASS =
@@ -55,6 +59,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const blameTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+    const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameRequestSeqRef = useRef(0)
 
     const [syncedPath, setSyncedPath] = useState(path)
@@ -71,6 +76,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const queryClient = useQueryClient()
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
     const { data: settings } = useQuery(settingsQueryOptions())
+    const { data: ideStatus } = useQuery(ideStatusQueryOptions())
     const { data: gutterHunks } = useQuery(gitGutterQueryOptions({ projectId, path }))
     const { mutate: discardHunk } = useDiscardGitHunk(projectId)
     const { data: currentUser } = useQuery(gitCurrentUserQueryOptions(projectId))
@@ -211,6 +217,34 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         })
         return () => subscription.dispose()
     }, [editor, gutterHunks])
+
+    useEffect(() => {
+        if (!editor || !ideStatus?.running) return
+
+        const subscription = editor.onDidChangeCursorSelection((event) => {
+            clearTimeout(selectionTimeoutRef.current)
+            selectionTimeoutRef.current = setTimeout(() => {
+                const model = editor.getModel()
+                if (!model) return
+                const range = monacoRangeToLsp(event.selection)
+                void setIdeSelection({
+                    projectId,
+                    path,
+                    text: model.getValueInRange(event.selection),
+                    startLine: range.start.line,
+                    startCharacter: range.start.character,
+                    endLine: range.end.line,
+                    endCharacter: range.end.character,
+                    isEmpty: event.selection.isEmpty(),
+                }).catch(() => undefined)
+            }, IDE_SELECTION_PUSH_DEBOUNCE_MS)
+        })
+
+        return () => {
+            subscription.dispose()
+            clearTimeout(selectionTimeoutRef.current)
+        }
+    }, [editor, ideStatus?.running, projectId, path])
 
     useEffect(() => {
         if (!editor || cursorLine === null) return

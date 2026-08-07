@@ -124,3 +124,38 @@ pub struct AgentStateChanged {
 pub struct AgentExternalOpen {
     pub request: crate::domain::agent::types::ExternalOpenRequest,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "ide:status-changed")]
+pub struct IdeStatusChanged {
+    pub status: crate::domain::ide::types::IdeStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "ide:diff-requested")]
+pub struct IdeDiffRequested {
+    pub request_id: String,
+    pub project_id: ProjectId,
+    pub old_path: String,
+    pub new_path: String,
+    pub new_contents: String,
+    pub tab_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "ide:save-requested")]
+pub struct IdeSaveRequested {
+    pub request_id: String,
+    pub project_id: ProjectId,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "ide:close-tab-requested")]
+pub struct IdeCloseTabRequested {
+    pub tab_name: String,
+}

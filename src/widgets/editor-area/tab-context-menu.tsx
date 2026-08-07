@@ -1,6 +1,6 @@
 import type { FC, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitCompare, PanelBottom, PanelLeft, PanelRight, PanelTop, Pin, PinOff, X } from 'lucide-react'
+import { FolderOpen, FolderTree, GitCompare, PanelBottom, PanelLeft, PanelRight, PanelTop, Pin, PinOff, X } from 'lucide-react'
 import type { DropEdge, Tab } from '@shared/api/bindings'
 import {
     ContextMenu,
@@ -36,6 +36,10 @@ type TabContextMenuProps = {
     onCopyRelativePath?: () => void
     onRevealInFinder?: () => void
     onOpenChanges?: () => void
+    onKeepOpen?: () => void
+    onRevealInExplorerView?: () => void
+    onReopenWithEditor?: () => void
+    onReopenWithPreview?: () => void
 }
 
 export const TabContextMenu: FC<TabContextMenuProps> = ({
@@ -52,9 +56,14 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
     onCopyRelativePath,
     onRevealInFinder,
     onOpenChanges,
+    onKeepOpen,
+    onRevealInExplorerView,
+    onReopenWithEditor,
+    onReopenWithPreview,
 }) => {
     const { t } = useTranslation()
     const isFileTab = tab.kind.kind === 'file'
+    const showReopenWith = isFileTab && onReopenWithEditor && onReopenWithPreview
 
     return (
         <ContextMenu>
@@ -73,6 +82,7 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                     {tab.pinned ? <PinOff className='size-4' /> : <Pin className='size-4' />}
                     {tab.pinned ? t('tab.unpin') : t('tab.pin')}
                 </ContextMenuItem>
+                {tab.preview && onKeepOpen && <ContextMenuItem onSelect={onKeepOpen}>{t('tab.keepOpen')}</ContextMenuItem>}
                 {isFileTab && (onCopyPath || onCopyRelativePath) && (
                     <>
                         <ContextMenuSeparator />
@@ -80,12 +90,32 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                         {onCopyRelativePath && <ContextMenuItem onSelect={onCopyRelativePath}>{t('tab.copyRelativePath')}</ContextMenuItem>}
                     </>
                 )}
-                {isFileTab && (onRevealInFinder || onOpenChanges) && (
+                {isFileTab && (onRevealInFinder || onRevealInExplorerView || onOpenChanges) && (
                     <>
                         <ContextMenuSeparator />
-                        {onRevealInFinder && <ContextMenuItem onSelect={onRevealInFinder}>{t('explorer.reveal')}</ContextMenuItem>}
+                        {onRevealInFinder && (
+                            <ContextMenuItem onSelect={onRevealInFinder}>
+                                <FolderOpen className='size-4' />
+                                {t('explorer.revealInFinder')}
+                            </ContextMenuItem>
+                        )}
+                        {onRevealInExplorerView && (
+                            <ContextMenuItem onSelect={onRevealInExplorerView}>
+                                <FolderTree className='size-4' />
+                                {t('tab.revealInExplorerView')}
+                            </ContextMenuItem>
+                        )}
                         {onOpenChanges && <ContextMenuItem onSelect={onOpenChanges}>{t('tab.openChanges')}</ContextMenuItem>}
                     </>
+                )}
+                {showReopenWith && (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger>{t('tab.reopenEditorWith')}</ContextMenuSubTrigger>
+                        <ContextMenuSubContent>
+                            <ContextMenuItem onSelect={onReopenWithEditor}>{t('explorer.openWithEditor')}</ContextMenuItem>
+                            <ContextMenuItem onSelect={onReopenWithPreview}>{t('explorer.openWithPreview')}</ContextMenuItem>
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
                 )}
                 <ContextMenuSeparator />
                 <ContextMenuSub>

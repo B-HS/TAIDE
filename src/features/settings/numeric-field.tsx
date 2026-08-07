@@ -10,14 +10,14 @@ type NumericFieldProps = {
 
 export const NumericField: FC<NumericFieldProps> = ({ label, value, min, max, onCommit }) => (
     <label className='flex items-center justify-between gap-3 text-xs'>
-        <span className='text-app-foreground'>{label}</span>
+        <span className='text-app-foreground min-w-0 truncate'>{label}</span>
         <input
             key={value}
             type='number'
             defaultValue={value}
             min={min}
             max={max}
-            className='bg-panel-input-background border-panel-input-border text-app-foreground w-20 rounded-sm border px-2 py-1 text-right'
+            className='bg-panel-input-background border-panel-input-border text-app-foreground w-20 shrink-0 rounded-sm border px-2 py-1 text-right'
             onBlur={(event) => {
                 const next = event.currentTarget.valueAsNumber
                 if (Number.isNaN(next)) return

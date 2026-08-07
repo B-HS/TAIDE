@@ -115,6 +115,27 @@ pub fn collect_leaves(node: &PaneNode) -> Vec<&PaneNode> {
     }
 }
 
+/// title 이 일치하는 첫 탭을 찾는다(Claude Code 의 `close_tab(tab_name)` 처럼 안정적인 id 대신
+/// 표시 이름으로 탭을 지칭하는 외부 프로토콜을 위한 헬퍼).
+pub fn find_tab_by_title(node: &PaneNode, title: &str) -> Option<TabId> {
+    match node {
+        PaneNode::Leaf { tabs, .. } => tabs.iter().find(|tab| tab.title == title).map(|tab| tab.id.clone()),
+        PaneNode::Split { children, .. } => children.iter().find_map(|child| find_tab_by_title(child, title)),
+    }
+}
+
+/// 열려 있는 모든 ClaudeDiff 탭의 id 를 모은다(`closeAllDiffTabs` 용).
+pub fn collect_claude_diff_tab_ids(node: &PaneNode) -> Vec<TabId> {
+    match node {
+        PaneNode::Leaf { tabs, .. } => tabs
+            .iter()
+            .filter(|tab| matches!(tab.kind, TabKind::ClaudeDiff { .. }))
+            .map(|tab| tab.id.clone())
+            .collect(),
+        PaneNode::Split { children, .. } => children.iter().flat_map(collect_claude_diff_tab_ids).collect(),
+    }
+}
+
 fn is_empty_leaf(node: &PaneNode) -> bool {
     matches!(node, PaneNode::Leaf { tabs, .. } if tabs.is_empty())
 }
@@ -1010,5 +1031,59 @@ mod tests {
         let persisted = strip_claude_diff_tabs(&layout);
 
         assert!(matches!(&persisted.root, PaneNode::Leaf { .. }));
+    }
+
+    #[test]
+    fn title로_탭을_찾는다() {
+        let tab = 클로드_diff_탭("b.rs");
+        let tab_id = tab.id.clone();
+        let root = 리프(vec![파일_탭("a.rs"), tab]);
+
+        assert_eq!(find_tab_by_title(&root, "b.rs"), Some(tab_id));
+    }
+
+    #[test]
+    fn 일치하는_title이_없으면_none이다() {
+        let root = 리프(vec![파일_탭("a.rs")]);
+        assert_eq!(find_tab_by_title(&root, "없는파일.rs"), None);
+    }
+
+    #[test]
+    fn split_안쪽_패널의_탭도_title로_찾는다() {
+        let tab = 클로드_diff_탭("nested.rs");
+        let tab_id = tab.id.clone();
+        let root = PaneNode::Split {
+            id: PaneId::new(),
+            dir: SplitDir::Horizontal,
+            children: vec![리프(vec![파일_탭("a.rs")]), 리프(vec![tab])],
+            sizes: vec![0.5, 0.5],
+        };
+
+        assert_eq!(find_tab_by_title(&root, "nested.rs"), Some(tab_id));
+    }
+
+    #[test]
+    fn claude_diff_탭_id를_전부_모은다() {
+        let diff_a = 클로드_diff_탭("a.rs");
+        let diff_b = 클로드_diff_탭("b.rs");
+        let ids = [diff_a.id.clone(), diff_b.id.clone()];
+        let root = PaneNode::Split {
+            id: PaneId::new(),
+            dir: SplitDir::Horizontal,
+            children: vec![리프(vec![파일_탭("plain.rs"), diff_a]), 리프(vec![diff_b])],
+            sizes: vec![0.5, 0.5],
+        };
+
+        let mut collected = collect_claude_diff_tab_ids(&root);
+        collected.sort_by_key(|id| id.as_str().to_string());
+        let mut expected = ids.to_vec();
+        expected.sort_by_key(|id| id.as_str().to_string());
+        assert_eq!(collected, expected);
+    }
+
+    #[test]
+    fn claude_diff_탭이_없으면_빈_목록이다() {
+        let root = 리프(vec![파일_탭("a.rs")]);
+        assert!(collect_claude_diff_tab_ids(&root).is_empty());
     }
 }

@@ -4,11 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { fontListQueryOptions } from '@entities/font/font.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { projectListQueryOptions } from '@entities/project/project.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
 import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { localeListQueryOptions } from '@entities/locale/locale.query'
+import { AgentHooksProjectList } from '@features/settings/agent-hooks-project-list'
+import { AgentHooksToggle } from '@features/settings/agent-hooks-toggle'
 import { FontPicker } from '@features/settings/font-picker'
 import { KeymapList } from '@features/settings/keymap-list'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
@@ -76,6 +79,7 @@ export const SettingsView = () => {
     const { data: shellProfiles = [], isPending: isShellPending } = useQuery(shellProfilesQueryOptions())
     const { data: locales = [], isPending: isLocalesPending } = useQuery(localeListQueryOptions())
     const { data: fonts = [], isPending: isFontsPending } = useQuery(fontListQueryOptions())
+    const { data: projects = [] } = useQuery(projectListQueryOptions())
     const { mutate: setThemeId } = useSetThemeId()
     const { mutate: updateSettings } = useUpdateSettings()
 
@@ -221,16 +225,30 @@ export const SettingsView = () => {
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentStatusBadgeEnabled: checked })}
                                 />
                             </label>
-                            <div className='flex flex-col gap-1'>
-                                <label className='flex items-center justify-between gap-3 text-xs'>
-                                    <span className='text-app-foreground'>{t('settings.agentHooks')}</span>
-                                    <Switch
-                                        checked={settings.agentHooksEnabled ?? false}
-                                        onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentHooksEnabled: checked })}
-                                    />
-                                </label>
-                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.agentHooksHint')}</span>
+                            <div className='flex flex-col gap-2'>
+                                <AgentHooksToggle
+                                    checked={settings.agentHooksEnabled ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentHooksEnabled: checked })}
+                                />
+                                {(settings.agentHooksEnabled ?? false) && <AgentHooksProjectList projects={projects} />}
                             </div>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.ideIntegration')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.ideIntegrationHint')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.ideIntegrationEnabled ?? true}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideIntegrationEnabled: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='text-app-foreground'>{t('settings.ideAutoOpenDiff')}</span>
+                                <Switch
+                                    checked={settings.ideAutoOpenDiff ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideAutoOpenDiff: checked })}
+                                />
+                            </label>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.EDITOR} title={t('settings.editor')}>

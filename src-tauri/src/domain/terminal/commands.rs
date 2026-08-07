@@ -10,6 +10,8 @@ use tauri_specta::Event;
 use super::service;
 use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
 use crate::domain::file::service::ensure_within_root;
+use crate::domain::ide::commands::IdeStore;
+use crate::domain::ide::types::CLAUDE_CODE_SSE_PORT_ENV;
 use crate::error::{AppError, AppResult};
 use crate::events::TerminalExited;
 use crate::ids::ProjectId;
@@ -73,6 +75,7 @@ pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, TerminalStore>,
+    ide: State<'_, IdeStore>,
     opts: PtySpawnOptions,
     on_data: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
@@ -91,11 +94,19 @@ pub async fn pty_spawn(
     let exit_session_id = session_id.clone();
     let exit_running = running.clone();
 
+    let ide_status = ide.status();
+    let extra_env = if ide_status.running {
+        vec![(CLAUDE_CODE_SSE_PORT_ENV.to_string(), ide_status.port.to_string())]
+    } else {
+        Vec::new()
+    };
+
     let config = pty::PtySpawnConfig {
         shell: opts.shell.clone(),
         cwd: opts.cwd.clone(),
         cols: opts.cols,
         rows: opts.rows,
+        extra_env,
     };
 
     let handle = pty::spawn(

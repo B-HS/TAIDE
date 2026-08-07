@@ -10,6 +10,7 @@ import { SearchPanel } from '@widgets/search-panel/search-panel'
 type SearchPanelContainerProps = {
     projectId: ProjectId
     onOpenMatch: (path: string) => void
+    initialIncludeGlob?: string | null
 }
 
 const groupMatches = (matches: SearchMatch[]) => {
@@ -22,7 +23,7 @@ const groupMatches = (matches: SearchMatch[]) => {
     return [...byPath.values()]
 }
 
-export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId, onOpenMatch }) => {
+export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId, onOpenMatch, initialIncludeGlob = null }) => {
     const { t } = useTranslation()
     const [query, setQuery] = useState('')
     const [caseSensitive, setCaseSensitive] = useState(false)
@@ -44,7 +45,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
 
         void runSearch({
             projectId,
-            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob: null, excludeGlob: null },
+            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob: initialIncludeGlob, excludeGlob: null },
             onMatch: (match) => {
                 collected.push(match)
                 setResults(groupMatches(collected))
@@ -60,7 +61,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
         setIsReplacing(true)
         void replaceSearch({
             projectId,
-            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob: null, excludeGlob: null },
+            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob: initialIncludeGlob, excludeGlob: null },
             replacement: input.replacement,
             paths: input.paths.length > 0 ? input.paths : null,
         })

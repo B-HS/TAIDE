@@ -1,9 +1,9 @@
-import { queryOptions, useQueryClient } from '@tanstack/react-query'
-import type { ProjectId } from '@shared/api/bindings'
+import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { AgentHooksStatus, ProjectId } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
-import { getCliInstallStatus, listProjectAgents } from '@entities/agent/agent.ipc'
+import { getAgentHooksStatus, getCliInstallStatus, installAgentHooks, listProjectAgents, uninstallAgentHooks } from '@entities/agent/agent.ipc'
 
 export const projectAgentsQueryOptions = (projectId: ProjectId | null) =>
     queryOptions({
@@ -13,6 +13,21 @@ export const projectAgentsQueryOptions = (projectId: ProjectId | null) =>
     })
 
 export const cliInstallStatusQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.AGENT.CLI, queryFn: getCliInstallStatus })
+
+export const agentHooksStatusQueryOptions = (projectId: ProjectId) =>
+    queryOptions({ queryKey: QUERY_KEY.AGENT.HOOKS(projectId), queryFn: () => getAgentHooksStatus(projectId) })
+
+const useAgentHooksMutation = (mutationFn: (projectId: ProjectId) => Promise<AgentHooksStatus>) => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn,
+        onSuccess: (status, projectId) => queryClient.setQueryData(QUERY_KEY.AGENT.HOOKS(projectId), status),
+    })
+}
+
+export const useInstallAgentHooks = () => useAgentHooksMutation(installAgentHooks)
+
+export const useUninstallAgentHooks = () => useAgentHooksMutation(uninstallAgentHooks)
 
 /**
  * `agent:state-changed` 는 프로젝트의 완전한 최신 에이전트 목록을 push 로 전달한다.

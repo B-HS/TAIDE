@@ -12,15 +12,16 @@ const ROW_ICON_SIZE_CLASS = 'size-3.5'
 type FileTreeDraftRowItemProps = {
     depth: number
     kind: FileTreeNodeKind
+    initialName?: string
     error: string | null
     style: CSSProperties
     onCommit: (name: string) => void
     onCancel: () => void
 }
 
-export const FileTreeDraftRowItem: FC<FileTreeDraftRowItemProps> = ({ depth, kind, error, style, onCommit, onCancel }) => {
+export const FileTreeDraftRowItem: FC<FileTreeDraftRowItemProps> = ({ depth, kind, initialName = '', error, style, onCommit, onCancel }) => {
     const { t } = useTranslation()
-    const [name, setName] = useState('')
+    const [name, setName] = useState(initialName)
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         event.stopPropagation()
@@ -54,6 +55,7 @@ export const FileTreeDraftRowItem: FC<FileTreeDraftRowItemProps> = ({ depth, kin
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 onKeyDown={handleKeyDown}
+                onFocus={(event) => event.target.select()}
                 onBlur={onCancel}
                 placeholder={t('explorer.entryNamePlaceholder')}
                 aria-invalid={error !== null}

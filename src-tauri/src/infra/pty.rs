@@ -14,6 +14,7 @@ pub struct PtySpawnConfig {
     pub cwd: String,
     pub cols: u16,
     pub rows: u16,
+    pub extra_env: Vec<(String, String)>,
 }
 
 struct PauseGate {
@@ -157,6 +158,9 @@ fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
     let locale = utf8_locale();
     cmd.env("LANG", &locale);
     cmd.env("LC_CTYPE", &locale);
+    for (key, value) in &config.extra_env {
+        cmd.env(key, value);
+    }
     cmd
 }
 
