@@ -106,11 +106,7 @@ export const commands = {
 	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
 	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
 	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
-	/**
-	 *  프론트가 에디터 selection 변경을 push 한다. 계약(9종 커맨드)이 평면 파라미터로 고정돼 있어
-	 *  인자 수를 줄일 수 없다(clippy::too_many_arguments 예외).
-	 */
-	ideSetSelection: (projectId: ProjectId, path: string, text: string, startLine: number, startCharacter: number, endLine: number, endCharacter: number, isEmpty: boolean) => typedError<null, AppError>(__TAURI_INVOKE("ide_set_selection", { projectId, path, text, startLine, startCharacter, endLine, endCharacter, isEmpty })),
+	ideSetSelection: (input: IdeSelectionInput) => typedError<null, AppError>(__TAURI_INVOKE("ide_set_selection", { input })),
 	ideClearSelection: () => typedError<null, AppError>(__TAURI_INVOKE("ide_clear_selection")),
 	idePublishDiagnostics: (projectId: ProjectId, items: IdeDiagnostic[]) => typedError<null, AppError>(__TAURI_INVOKE("ide_publish_diagnostics", { projectId, items })),
 	ideResolveDiff: (requestId: string, outcome: IdeDiffOutcome, content: string | null) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_diff", { requestId, outcome, content })),
@@ -324,6 +320,17 @@ export type IdeSaveRequested = {
 	requestId: string,
 	projectId: ProjectId,
 	path: string,
+};
+
+export type IdeSelectionInput = {
+	projectId: ProjectId,
+	path: string,
+	text: string,
+	startLine: number,
+	startCharacter: number,
+	endLine: number,
+	endCharacter: number,
+	isEmpty: boolean,
 };
 
 export type IdeStatus = {

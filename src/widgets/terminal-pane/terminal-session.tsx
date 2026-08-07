@@ -7,11 +7,12 @@ import { currentThemeQueryOptions } from '@entities/theme/theme.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
 import { attachPty, resizePty, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
-import { useSetTerminalSession } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
+import { findPaneTab } from '@shared/lib/pane-tree'
 import { DEFAULT_FONT_SIZE } from '@shared/constants/terminal'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 
@@ -31,13 +32,16 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const { data: theme } = useQuery(currentThemeQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: liveSessions, isFetched: isSessionsFetched } = useQuery(terminalSessionsQueryOptions(projectId))
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: persistTerminalSession } = useSetTerminalSession(projectId)
 
     const isPersistedAlive = (liveSessions ?? []).some((session) => session.id === persistedSessionId)
     const sessionId = spawnedSessionId ?? (isPersistedAlive ? persistedSessionId : null)
+    const activeTabKind = layout ? findPaneTab(layout.root, tabId)?.kind : null
+    const tabCwd = activeTabKind?.kind === 'terminal' ? (activeTabKind.cwd ?? null) : null
 
     const spawnWithMeasuredSize = async (cols: number, rows: number) => {
-        const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId, null))
+        const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId, tabCwd))
         const created = await spawnPty({ ...defaults, cols, rows }, () => undefined)
         setSpawnedSessionId(created)
         persistTerminalSession({ tabId, sessionId: created })

@@ -20,6 +20,7 @@ import { ResourceGroupHeader } from '@features/git/resource-group-header'
 import { StashList } from '@features/git/stash-list'
 import type { GitStatusChangeKind, StatusRowAction } from '@features/git/status-row-item'
 import { StatusRowItem } from '@features/git/status-row-item'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { CommitGraph, type GraphLogEntry } from '@widgets/git-panel/commit-graph'
 
 export type { GitStatusChangeKind } from '@features/git/status-row-item'
@@ -161,7 +162,7 @@ export const GitPanel: FC<GitPanelProps> = ({
 
             <CommitBox message={commitMessage} onMessageChange={onCommitMessageChange} onCommit={requestCommit} isCommitting={isCommitting} />
 
-            <div className='min-h-0 flex-1 overflow-y-auto'>
+            <ScrollContainer className='min-h-0 flex-1'>
                 {(stashes.length > 0 || canStash) && (
                     <div>
                         <ResourceGroupHeader
@@ -301,7 +302,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                         <CommitGraph commits={graphCommits} />
                     </div>
                 )}
-            </div>
+            </ScrollContainer>
 
             <AlertDialog open={discardTargets !== null} onOpenChange={(open) => !open && setDiscardTargets(null)}>
                 <AlertDialogContent>

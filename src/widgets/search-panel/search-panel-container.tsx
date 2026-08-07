@@ -13,6 +13,8 @@ type SearchPanelContainerProps = {
     initialIncludeGlob?: string | null
 }
 
+const SCOPE_GLOB_SUFFIX = /\/\*\*$/
+
 const groupMatches = (matches: SearchMatch[]) => {
     const byPath = new Map<string, SearchResultGroup>()
     for (const match of matches) {
@@ -32,6 +34,16 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
     const [totalMatches, setTotalMatches] = useState(0)
     const [isSearching, setIsSearching] = useState(false)
     const [isReplacing, setIsReplacing] = useState(false)
+    const [scopeCleared, setScopeCleared] = useState(false)
+    const [syncedIncludeGlob, setSyncedIncludeGlob] = useState(initialIncludeGlob)
+
+    if (initialIncludeGlob !== syncedIncludeGlob) {
+        setSyncedIncludeGlob(initialIncludeGlob)
+        setScopeCleared(false)
+    }
+
+    const includeGlob = scopeCleared ? null : initialIncludeGlob
+    const scopePath = includeGlob ? includeGlob.replace(SCOPE_GLOB_SUFFIX, '') : null
 
     const handleSubmit = () => {
         if (!query.trim()) return
@@ -45,7 +57,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
 
         void runSearch({
             projectId,
-            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob: initialIncludeGlob, excludeGlob: null },
+            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob, excludeGlob: null },
             onMatch: (match) => {
                 collected.push(match)
                 setResults(groupMatches(collected))
@@ -61,7 +73,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
         setIsReplacing(true)
         void replaceSearch({
             projectId,
-            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob: initialIncludeGlob, excludeGlob: null },
+            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob, excludeGlob: null },
             replacement: input.replacement,
             paths: input.paths.length > 0 ? input.paths : null,
         })
@@ -88,6 +100,8 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
             onOpenMatch={onOpenMatch}
             onReplaceAll={handleReplaceAll}
             isReplacing={isReplacing}
+            scopePath={scopePath}
+            onClearScope={() => setScopeCleared(true)}
         />
     )
 }

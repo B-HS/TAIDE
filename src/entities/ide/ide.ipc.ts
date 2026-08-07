@@ -1,5 +1,5 @@
 import { commands } from '@shared/api/bindings'
-import type { IdeDiagnostic, IdeDiffOutcome, ProjectId } from '@shared/api/bindings'
+import type { IdeDiagnostic, IdeDiffOutcome, IdeSelectionInput, ProjectId } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const getIdeStatus = () => unwrapResult(commands.ideGetStatus())
@@ -8,28 +8,7 @@ export const startIde = () => unwrapResult(commands.ideStart())
 
 export const stopIde = () => unwrapResult(commands.ideStop())
 
-export const setIdeSelection = (input: {
-    projectId: ProjectId
-    path: string
-    text: string
-    startLine: number
-    startCharacter: number
-    endLine: number
-    endCharacter: number
-    isEmpty: boolean
-}) =>
-    unwrapResult(
-        commands.ideSetSelection(
-            input.projectId,
-            input.path,
-            input.text,
-            input.startLine,
-            input.startCharacter,
-            input.endLine,
-            input.endCharacter,
-            input.isEmpty,
-        ),
-    )
+export const setIdeSelection = (input: IdeSelectionInput) => unwrapResult(commands.ideSetSelection(input))
 
 export const clearIdeSelection = () => unwrapResult(commands.ideClearSelection())
 

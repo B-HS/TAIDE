@@ -40,6 +40,7 @@ import {
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
 import { Button } from '@shared/ui/button'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 type ThemeEditorProps = {
     sourceThemeId: string
@@ -126,7 +127,7 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existin
             </div>
 
             <div className='flex min-h-0 flex-1'>
-                <div className='min-w-0 flex-1 overflow-y-auto px-6 py-4'>
+                <ScrollContainer className='min-w-0 flex-1' viewportClassName='px-6 py-4'>
                     <input
                         value={search}
                         onChange={(event) => setSearch(event.currentTarget.value)}
@@ -189,12 +190,12 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existin
                             </SettingsSection>
                         )}
                     </div>
-                </div>
+                </ScrollContainer>
 
-                <div className='border-app-border w-80 shrink-0 overflow-y-auto border-l px-4 py-4'>
+                <ScrollContainer className='border-app-border w-80 shrink-0 border-l' viewportClassName='px-4 py-4'>
                     <div className='text-app-sidebar-icon-default mb-2 text-xs font-medium'>{t('themeEditor.previewTitle')}</div>
                     <ThemeLivePreview colors={draft.current.colors} syntax={draft.current.syntax} />
-                </div>
+                </ScrollContainer>
             </div>
 
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

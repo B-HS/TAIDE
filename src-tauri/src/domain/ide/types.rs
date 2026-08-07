@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::ids::ProjectId;
+
 pub const IDE_NAME: &str = "TAIDE";
 pub const IDE_TRANSPORT: &str = "ws";
 pub const IDE_AUTH_HEADER_NAME: &str = "X-Claude-Code-Ide-Authorization";
@@ -49,4 +51,17 @@ pub enum IdeDiffOutcome {
     Saved,
     Rejected,
     TabClosed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeSelectionInput {
+    pub project_id: ProjectId,
+    pub path: String,
+    pub text: String,
+    pub start_line: u32,
+    pub start_character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub is_empty: bool,
 }

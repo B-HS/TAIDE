@@ -5,6 +5,7 @@ import wasmUrl from '@rhwp/core/rhwp_bg.wasm?url'
 import { ChevronLeft, ChevronRight, FileWarning, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@shared/ui/button'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { PreviewStatusMessage } from '@features/preview/preview-status'
 
 export type HwpPreviewProps = {
@@ -146,7 +147,7 @@ export const HwpPreview: FC<HwpPreviewProps> = ({ data, onOpenExternally }) => {
                     <ChevronRight className='size-3.5' />
                 </Button>
             </div>
-            <div className='flex-1 overflow-auto'>
+            <ScrollContainer className='flex-1' orientation='both'>
                 {pageImageUrl && (
                     <img
                         src={pageImageUrl}
@@ -154,7 +155,7 @@ export const HwpPreview: FC<HwpPreviewProps> = ({ data, onOpenExternally }) => {
                         className='mx-auto my-4 block max-w-full'
                     />
                 )}
-            </div>
+            </ScrollContainer>
         </div>
     )
 }

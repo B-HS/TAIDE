@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, FileWarning, Loader2, ZoomIn, ZoomOut } from
 import { useTranslation } from 'react-i18next'
 import { pdfjs } from '@shared/lib/pdf/setup'
 import { Button } from '@shared/ui/button'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { PreviewStatusMessage } from '@features/preview/preview-status'
 
 export type PdfPreviewProps = {
@@ -146,9 +147,9 @@ export const PdfPreview: FC<PdfPreviewProps> = ({ data, onOpenExternally }) => {
                     <ZoomIn className='size-3.5' />
                 </Button>
             </div>
-            <div className='flex-1 overflow-auto'>
+            <ScrollContainer className='flex-1' orientation='both'>
                 <canvas ref={canvasRef} className='mx-auto my-4 block shadow' />
-            </div>
+            </ScrollContainer>
         </div>
     )
 }

@@ -4,9 +4,11 @@ import {
     ClipboardPaste,
     Columns2,
     Copy,
+    FileDiff,
     FilePlus,
     FolderOpen,
     FolderPlus,
+    GitCompare,
     Globe,
     Pencil,
     Scissors,
@@ -41,6 +43,9 @@ type FileTreeContextMenuProps = {
     onRevealInFinder: () => void
     onOpenInTerminal: () => void
     onFindInFolder: () => void
+    onSelectForCompare: () => void
+    onCompareWithSelected: () => void
+    canCompareWithSelected: boolean
     onCut: () => void
     onCopy: () => void
     onPaste: () => void
@@ -64,6 +69,9 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
     onRevealInFinder,
     onOpenInTerminal,
     onFindInFolder,
+    onSelectForCompare,
+    onCompareWithSelected,
+    canCompareWithSelected,
     onCut,
     onCopy,
     onPaste,
@@ -114,6 +122,14 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
                                 {t('explorer.openInBrowser')}
                             </ContextMenuItem>
                         )}
+                        <ContextMenuItem onSelect={onSelectForCompare}>
+                            <FileDiff className='size-4' />
+                            {t('explorer.selectForCompare')}
+                        </ContextMenuItem>
+                        <ContextMenuItem disabled={!canCompareWithSelected} onSelect={onCompareWithSelected}>
+                            <GitCompare className='size-4' />
+                            {t('explorer.compareWithSelected')}
+                        </ContextMenuItem>
                     </>
                 )}
 

@@ -88,3 +88,79 @@ taide [--wait|-w] <file> [<file>...]
 | 1차 | 2차 | 3차 |
 |-----|-----|-----|
 | 에이전트 감지(사이드바/탭 반영), `taide` CLI + `--wait` 마커 방식, single-instance 파일 열기 | IDE MCP 서버(diff·선택 컨텍스트·진단) | hooks/statusline 브리지, at-mention 단축키, `claude-cli://` 연계 |
+
+## 7. 구현 세부 제약
+
+> Phase 7.7-W3 컨벤션 정리(코드 주석 금지 원칙 적용)에서 `domain/agent`·`domain/ide` 의
+> `///` 주석을 제거하며 옮긴 비자명한 제약 설명. 대상 파일·함수는 괄호로 표기.
+
+### 7.1 활동 판정 히스테리시스 (`domain/agent/types.rs`)
+
+- `ACTIVITY_WORKING_HOLD_MS`(2000ms): 프로세스가 "실행 중"으로 관측된 뒤에도 이 시간 동안은
+  Working 을 유지한다(폴링 사이 관측 누락 보정).
+- `ACTIVITY_IDLE_QUIET_MS`(6000ms): 마지막 활동 관측 이후 이 시간이 지나면 Idle 로 전이한다.
+  그 사이 구간(hold~quiet)은 직전 상태를 유지하는 히스테리시스 구간이다.
+- `HOOK_OVERRIDE_STALE_MS`(900000ms=15분): hooks 로 설정된 프로젝트 단위 활동 override 가
+  이 시간보다 오래되면 무시하고 프로세스 신호 기반 휴리스틱으로 복귀한다(hooks 미설치·비정상
+  종료 등으로 override 가 갱신되지 않는 경우의 안전망).
+
+### 7.2 프로세스 활동 신호 (`domain/agent/service.rs::is_probe_active`)
+
+프로세스가 지금 이 순간 CPU 위에서 실행 중인지("R" 상태)만을 활동 신호로 본다. sleeping 상태는
+"API 응답 대기"와 "사용자 입력 대기" 양쪽에서 동일하게 관측되어 구분할 수 없으므로, sleeping 은
+전부 활동 없음으로 취급한다. (이 한계 때문에 `AwaitingInput` 판정은 hooks 브리지가 전담한다 — §4)
+
+### 7.3 hooks 항목 병합 (`domain/agent/service.rs::remove_taide_hook_entries` / `inject_taide_hook_entries`)
+
+`remove_taide_hook_entries` 는 TAIDE 가 주입한 hook 항목(`HOOKS_URL_MARKER` 포함 URL)만 골라
+제거하고, 사용자가 직접 추가한 다른 hook 은 그대로 둔다. `inject_taide_hook_entries` 는 먼저
+제거 후 삽입하는 방식으로 **재주입해도 항목이 중복되지 않게(멱등)** 만든다. 두 함수 모두
+`.claude/settings.local.json` 의 기존 설정을 보존한 채 병합해야 한다는 §4 의 "팀 설정 오염 금지"
+제약을 구현한다.
+
+### 7.4 IDE MCP 서버 (`domain/ide`)
+
+- **토큰 비교** (`service.rs::constant_time_eq`): 인증 토큰 검증에 타이밍 사이드채널을 남기지
+  않기 위한 상수시간 비교. `domain::agent::service::constant_time_eq` 와 로직이 동일하지만,
+  도메인 경계를 넘어 재사용하지 않고 각 도메인에 독립적으로 둔다.
+- **토큰 생성** (`service.rs::generate_auth_token`): CLI 와 동일한 형식(32자 소문자 hex, OS
+  CSPRNG 기반)의 인증 토큰을 만든다. 신규 `rand` 의존성을 들이지 않고, 이미 동일 용도(hooks.rs)로
+  쓰이는 uuid v4 를 재사용한다(`docs/acknowledge/2026-08-07-qa-batch-decisions.md` §3 신규 의존성
+  결정과 일치).
+- **경로 접근 차단** (`service.rs::ensure_path_within_any_project`): `openFile`/`saveDocument` 가
+  프로젝트 루트 밖 경로에 접근하지 못하도록, file 도메인의 기존 검증(`ensure_within_root` 기반)을
+  그대로 재사용한다(임의 파일 접근 차단).
+- **열린 에디터 목록** (`service.rs::open_editors_snapshot`): 모든 프로젝트의 레이아웃에서 File
+  탭만 모아 `getOpenEditors` 응답을 만든다. `is_active` 는 각 프로젝트 레이아웃의 focused pane 의
+  active tab 기준으로 판정한다(여러 프로젝트가 열려 있어도 프로젝트별로 하나씩 active 가 나올 수
+  있다).
+- **진단 None vs 빈 배열** (`commands.rs::IdeStore::diagnostics`): 진단이 한 번도 push 된 적
+  없으면 `None`(= "아직 준비 안 됨")을 반환한다. 빈 배열(진단 0건)과 "아직 모름"을 구분해
+  `getDiagnostics` 호출자의 거짓 음성(오탐 없음으로 오인)을 방지한다.
+- **탭 닫기 경로와의 정합** (`commands.rs::reconcile_closed_tab`): ClaudeDiff 탭이 (도구 호출
+  경로가 아니라) 일반 탭 닫기 경로로 닫혔을 때, 그 탭에 매인 pending `openDiff` 요청을
+  `TabClosed` 로 해소한다. layout 도메인의 모든 탭 닫기 경로(Tauri 커맨드·IDE 도구 핸들러 공용
+  `close_tab_and_finish`)에서 반드시 호출되어야 하는 불변조건이다 — 누락하면 `openDiff` 가
+  무기한 대기 상태로 남는다.
+- **종료 시 즉시 중단** (`commands.rs::stop_server`): 앱 종료·`ide_stop` 공용 정리 경로. pending
+  요청을 전부 해소하고 lockfile 을 지운 뒤 accept 루프와 커넥션 태스크를 즉시 종료(abort)한다.
+  `openDiff`/`saveDocument` 는 무기한 블로킹 커맨드이므로, 이 경로에서 pending 요청이 반드시
+  해소되어야 좀비 대기가 남지 않는다.
+- **프로젝트 닫기 정리를 폴링으로 처리** (`commands.rs::reconcile_stale_pending`): 프로젝트가
+  닫혀 더 이상 유효하지 않은 pending diff 요청을 주기적으로 정리한다. `project_close` 커맨드는
+  다른 도메인 소유라 직접 후킹할 수 없어, "프로젝트 닫기 시 정리" 요구사항을 폴링 방식으로
+  대신 만족시킨다.
+- **selection 세팅 범위 제한** (`server.rs::tool_open_file`): `startText`/`endText`/
+  `selectToEndOfLine`(텍스트 패턴으로 선택 영역을 지정하는 옵션)는 IDE MCP 1차 구현 범위에서
+  구현하지 않는다 — 파일을 열고 프론트마다 유지되는 활성 selection 을 세팅하려면 프론트 에디터
+  인스턴스 접근이 필요해, 서버 단독 구현으로는 불가능하다.
+- **핸드셰이크 콜백 분리** (`server.rs::auth_callback`): 헤더 콜백을 생산하는 함수를
+  `handle_connection` 과 핸드셰이크 단위 테스트가 동일 로직을 쓰도록 별도 함수로 분리했다
+  (테스트-운영 드리프트 방지). `#[allow(clippy::result_large_err)]` 의 불가피성 사유는
+  `docs/acknowledge/2026-08-07-qa-batch-decisions.md` 참고.
+- **lockfile 디렉터리 결정** (`lockfile.rs::resolve_lockfile_dir`): `CLAUDE_CONFIG_DIR` 가
+  설정돼 있으면 그 하위 `ide/`, 없으면 홈 디렉터리의 `.claude/ide/` 를 쓴다. env 값을 인자로
+  받는 순수 함수로 유지해, 테스트에서 실제 프로세스 env 를 건드리지 않고 양쪽 분기를 검증한다.
+- **lockfile 원자적 쓰기** (`lockfile.rs::write_lockfile_atomic`): lockfile 을 tmp 파일에 쓴 뒤
+  rename 으로 원자적으로 교체한다. CLI 가 쓰다 만 lockfile 을 읽고 파싱 실패로 삭제해버리는
+  경쟁 상태를 피하기 위함이다.

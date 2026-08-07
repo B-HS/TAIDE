@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@shared/lib/cn'
 import { parseSpreadsheetWorkbook, workbookToSheets } from '@shared/lib/spreadsheet'
 import type { SpreadsheetSheet } from '@shared/lib/spreadsheet'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { PreviewStatusMessage } from '@features/preview/preview-status'
 
 export type SpreadsheetPreviewProps = {
@@ -76,7 +77,7 @@ export const SpreadsheetPreview: FC<SpreadsheetPreviewProps> = ({ data, onOpenEx
                 </div>
             )}
 
-            <div className='flex-1 overflow-auto'>
+            <ScrollContainer className='flex-1' orientation='both'>
                 {activeSheet.rows.length === 0 ? (
                     <PreviewStatusMessage icon={<TableProperties className='size-5' />} message={t('preview.spreadsheet.emptySheet')} />
                 ) : (
@@ -94,7 +95,7 @@ export const SpreadsheetPreview: FC<SpreadsheetPreviewProps> = ({ data, onOpenEx
                         </tbody>
                     </table>
                 )}
-            </div>
+            </ScrollContainer>
         </div>
     )
 }

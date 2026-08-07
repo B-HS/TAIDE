@@ -39,8 +39,6 @@ pub fn build_lockfile_content(pid: u32, workspace_folders: Vec<String>, auth_tok
     }
 }
 
-/// `CLAUDE_CONFIG_DIR` 가 설정돼 있으면 그 하위 `ide/`, 없으면 홈 디렉터리의 `.claude/ide/` 를 쓴다.
-/// env 값을 인자로 받아 순수 함수로 유지한다(테스트에서 실제 프로세스 env 를 건드리지 않기 위함).
 pub fn resolve_lockfile_dir(config_dir_env: Option<&str>, home_env: Option<&str>) -> AppResult<PathBuf> {
     if let Some(config_dir) = config_dir_env.filter(|value| !value.is_empty()) {
         return Ok(PathBuf::from(config_dir).join(IDE_SUBDIR));
@@ -78,8 +76,6 @@ fn set_permissions(_path: &Path, _mode: u32) -> AppResult<()> {
     Ok(())
 }
 
-/// lockfile 을 tmp 파일에 쓴 뒤 rename 으로 원자적 교체한다. CLI 가 쓰다 만 lockfile 을 읽고
-/// 파싱 실패로 삭제해버리는 경쟁을 피하기 위함이다(research risk #3).
 pub fn write_lockfile_atomic(dir: &Path, port: u32, content: &IdeLockfileContent) -> AppResult<()> {
     std::fs::create_dir_all(dir)?;
     #[cfg(unix)]

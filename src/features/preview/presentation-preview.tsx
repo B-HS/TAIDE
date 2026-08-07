@@ -4,6 +4,7 @@ import { AlertTriangle, FileWarning, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@shared/lib/cn'
 import { parsePptxOutline, type PptxOutline } from '@shared/lib/pptx-outline'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { PreviewStatusMessage } from '@features/preview/preview-status'
 
 export type PresentationPreviewProps = {
@@ -63,7 +64,7 @@ export const PresentationPreview: FC<PresentationPreviewProps> = ({ data, onOpen
                 <span>{t('preview.presentation.layoutDisclaimer')}</span>
             </div>
             <div className='flex min-h-0 flex-1'>
-                <div className='border-app-border flex w-48 shrink-0 flex-col overflow-y-auto border-r py-1'>
+                <ScrollContainer className='border-app-border w-48 shrink-0 border-r' viewportClassName='flex flex-col py-1'>
                     {outline.slides.map((slide, position) => (
                         <button
                             key={slide.index}
@@ -76,8 +77,8 @@ export const PresentationPreview: FC<PresentationPreviewProps> = ({ data, onOpen
                             {t('preview.presentation.slideLabel', { index: slide.index })}
                         </button>
                     ))}
-                </div>
-                <div className='min-h-0 flex-1 overflow-y-auto px-4 py-3'>
+                </ScrollContainer>
+                <ScrollContainer className='min-h-0 flex-1' viewportClassName='px-4 py-3'>
                     {activeSlide && activeSlide.paragraphs.length > 0 && (
                         <ul className='flex flex-col gap-2 text-sm'>
                             {activeSlide.paragraphs.map((paragraph, position) => (
@@ -86,7 +87,7 @@ export const PresentationPreview: FC<PresentationPreviewProps> = ({ data, onOpen
                         </ul>
                     )}
                     {activeSlide && activeSlide.paragraphs.length === 0 && <p className='text-xs opacity-60'>{t('preview.presentation.noText')}</p>}
-                </div>
+                </ScrollContainer>
             </div>
         </div>
     )

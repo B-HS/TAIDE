@@ -166,15 +166,10 @@ pub struct HookPayload {
     pub cwd: String,
 }
 
-/// 프로세스가 지금 이 순간 CPU 위에서 실행 중인지("R" 상태)만을 활동 신호로 본다.
-/// sleeping 상태는 "API 응답 대기"·"사용자 입력 대기" 둘 다에서 관측되어 구분할 수 없으므로
-/// 활동 없음으로 취급한다(risk: agent-status-badge.md risks §2).
 pub fn is_probe_active(state: Option<char>) -> bool {
     matches!(state, Some('R'))
 }
 
-/// 활동 신호가 마지막으로 관측된 시점(ms)을 바탕으로 idle/working 을 판정한다.
-/// 순수 함수로 두어 실제 타이머 없이 테스트 가능하게 한다.
 pub fn classify_activity(previous: AgentActivity, ms_since_active: Option<u64>) -> AgentActivity {
     match ms_since_active {
         None => AgentActivity::Unknown,
@@ -197,8 +192,6 @@ fn is_cwd_within_root(cwd: &str, root: &str) -> bool {
     cwd == root || cwd.starts_with(&format!("{root}/"))
 }
 
-/// cwd 가 속한 프로젝트를 루트 prefix 매칭으로 찾는다. 중첩 프로젝트에서는 가장 긴(가장 구체적인)
-/// 루트를 우선한다.
 pub fn match_project_by_cwd<'a>(cwd: &str, projects: &'a [(ProjectId, String)]) -> Option<&'a ProjectId> {
     if cwd.is_empty() {
         return None;
@@ -233,7 +226,6 @@ fn is_taide_managed_entry(entry: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// TAIDE 가 주입한 hook 항목만 골라 제거한다. 사용자가 직접 추가한 다른 hook 은 그대로 둔다.
 pub fn remove_taide_hook_entries(mut root: serde_json::Value) -> serde_json::Value {
     if let Some(hooks_obj) = root.get_mut("hooks").and_then(|value| value.as_object_mut()) {
         for event in MANAGED_HOOK_EVENTS {
@@ -255,7 +247,6 @@ pub fn remove_taide_hook_entries(mut root: serde_json::Value) -> serde_json::Val
     root
 }
 
-/// 기존 설정을 보존한 채(병합) TAIDE hook 항목을 주입한다. 이미 주입된 항목은 먼저 제거해 멱등하게 만든다.
 pub fn inject_taide_hook_entries(root: serde_json::Value, hook_url: &str) -> serde_json::Value {
     let root = remove_taide_hook_entries(root);
     let mut root = if root.is_object() { root } else { serde_json::json!({}) };

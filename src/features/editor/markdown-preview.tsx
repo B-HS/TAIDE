@@ -1,7 +1,9 @@
 import type { FC } from 'react'
+import { useRef } from 'react'
+import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 
 const MARKDOWN_PREVIEW_CLASS =
-    'bg-editor-background text-editor-foreground h-full w-full overflow-auto px-6 py-4 text-sm ' +
+    'scrollbar-hidden bg-editor-background text-editor-foreground h-full w-full overflow-auto px-6 py-4 text-sm ' +
     '[&_a]:text-app-accent [&_a]:underline ' +
     '[&_blockquote]:border-l-2 [&_blockquote]:border-app-border [&_blockquote]:pl-3 [&_blockquote]:opacity-80 ' +
     '[&_code]:rounded [&_code]:bg-app-sidebar-item-hover [&_code]:px-1 [&_code]:py-0.5 ' +
@@ -23,6 +25,14 @@ type MarkdownPreviewProps = {
     html: string
 }
 
-export const MarkdownPreview: FC<MarkdownPreviewProps> = ({ html }) => (
-    <div className={MARKDOWN_PREVIEW_CLASS} dangerouslySetInnerHTML={{ __html: html }} />
-)
+export const MarkdownPreview: FC<MarkdownPreviewProps> = ({ html }) => {
+    const viewportRef = useRef<HTMLDivElement>(null)
+
+    return (
+        <div className='relative h-full w-full'>
+            <div ref={viewportRef} className={MARKDOWN_PREVIEW_CLASS} dangerouslySetInnerHTML={{ __html: html }} />
+            <OverlayScrollbar viewportRef={viewportRef} orientation='vertical' trackClassName='bottom-2.5' />
+            <OverlayScrollbar viewportRef={viewportRef} orientation='horizontal' trackClassName='right-2.5' />
+        </div>
+    )
+}

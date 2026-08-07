@@ -7,6 +7,7 @@ import { FileTreeRowItem } from '@features/explorer/file-tree-row'
 import { FileTreeDraftRowItem } from '@features/explorer/file-tree-draft-row'
 import { FileTreeContextMenu } from '@features/explorer/file-tree-context-menu'
 import { findTypeaheadMatchIndex } from '@shared/lib/typeahead'
+import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 
 const FILE_TREE_ROW_HEIGHT_PX = 22
 const FILE_TREE_OVERSCAN = 12
@@ -24,6 +25,9 @@ export type FileTreeContextMenuHandlers = {
     onRevealInFinder: (row: FileTreeRow) => void
     onOpenInTerminal: (row: FileTreeRow) => void
     onFindInFolder: (row: FileTreeRow) => void
+    onSelectForCompare: (row: FileTreeRow) => void
+    onCompareWithSelected: (row: FileTreeRow) => void
+    canCompareWithSelected: boolean
     onCut: (row: FileTreeRow) => void
     onCopy: (row: FileTreeRow) => void
     onPaste: (row: FileTreeRow | null) => void
@@ -31,6 +35,7 @@ export type FileTreeContextMenuHandlers = {
     onCopyRelativePath: (row: FileTreeRow) => void
     onStartRename: (row: FileTreeRow) => void
     onRequestDelete: (row: FileTreeRow) => void
+    onClearSelection: () => void
 }
 
 type FileTreeProps = {
@@ -206,6 +211,7 @@ export const FileTree: FC<FileTreeProps> = ({
         const row = displayRows[index]
         if (!row || row.id === DRAFT_ROW_ID) {
             setContextRow(null)
+            contextMenuHandlers.onClearSelection()
             return
         }
         setSelectedId(row.id)
@@ -251,6 +257,9 @@ export const FileTree: FC<FileTreeProps> = ({
             onRevealInFinder={() => contextRow && contextMenuHandlers.onRevealInFinder(contextRow)}
             onOpenInTerminal={() => contextRow && contextMenuHandlers.onOpenInTerminal(contextRow)}
             onFindInFolder={() => contextRow && contextMenuHandlers.onFindInFolder(contextRow)}
+            onSelectForCompare={() => contextRow && contextMenuHandlers.onSelectForCompare(contextRow)}
+            onCompareWithSelected={() => contextRow && contextMenuHandlers.onCompareWithSelected(contextRow)}
+            canCompareWithSelected={contextMenuHandlers.canCompareWithSelected}
             onCut={() => contextRow && contextMenuHandlers.onCut(contextRow)}
             onCopy={() => contextRow && contextMenuHandlers.onCopy(contextRow)}
             onPaste={() => contextMenuHandlers.onPaste(contextRow)}
@@ -258,67 +267,70 @@ export const FileTree: FC<FileTreeProps> = ({
             onCopyRelativePath={() => contextRow && contextMenuHandlers.onCopyRelativePath(contextRow)}
             onRename={() => contextRow && contextMenuHandlers.onStartRename(contextRow)}
             onDelete={() => contextRow && contextMenuHandlers.onRequestDelete(contextRow)}>
-            <div
-                ref={parentRef}
-                role='tree'
-                aria-label={t('explorer.title')}
-                tabIndex={0}
-                onKeyDown={handleKeyDown}
-                onContextMenu={handleContainerContextMenu}
-                className='bg-explorer-background h-full w-full overflow-y-auto outline-none'>
-                <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                        const row = displayRows[virtualRow.index]
-                        const rowStyle = {
-                            position: 'absolute' as const,
-                            top: 0,
-                            left: 0,
-                            width: '100%',
-                            height: virtualRow.size,
-                            transform: `translateY(${virtualRow.start}px)`,
-                        }
+            <div className='relative h-full w-full'>
+                <div
+                    ref={parentRef}
+                    role='tree'
+                    aria-label={t('explorer.title')}
+                    tabIndex={0}
+                    onKeyDown={handleKeyDown}
+                    onContextMenu={handleContainerContextMenu}
+                    className='bg-explorer-background scrollbar-hidden h-full w-full overflow-y-auto outline-none'>
+                    <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const row = displayRows[virtualRow.index]
+                            const rowStyle = {
+                                position: 'absolute' as const,
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: virtualRow.size,
+                                transform: `translateY(${virtualRow.start}px)`,
+                            }
 
-                        if (row.id === DRAFT_ROW_ID) {
+                            if (row.id === DRAFT_ROW_ID) {
+                                return (
+                                    <FileTreeDraftRowItem
+                                        key={virtualRow.key}
+                                        depth={row.depth}
+                                        kind={row.kind}
+                                        error={draftError}
+                                        style={rowStyle}
+                                        onCommit={onDraftCommit}
+                                        onCancel={onDraftCancel}
+                                    />
+                                )
+                            }
+
+                            if (renameTarget && row.path === renameTarget.path) {
+                                return (
+                                    <FileTreeDraftRowItem
+                                        key={virtualRow.key}
+                                        depth={row.depth}
+                                        kind={row.kind}
+                                        initialName={renameTarget.name}
+                                        error={renameError}
+                                        style={rowStyle}
+                                        onCommit={onRenameCommit}
+                                        onCancel={onRenameCancel}
+                                    />
+                                )
+                            }
+
                             return (
-                                <FileTreeDraftRowItem
+                                <FileTreeRowItem
                                     key={virtualRow.key}
-                                    depth={row.depth}
-                                    kind={row.kind}
-                                    error={draftError}
+                                    row={row}
+                                    selected={row.id === selectedId}
                                     style={rowStyle}
-                                    onCommit={onDraftCommit}
-                                    onCancel={onDraftCancel}
+                                    onClick={() => handleRowClick(row)}
+                                    onDoubleClick={() => handleRowDoubleClick(row)}
                                 />
                             )
-                        }
-
-                        if (renameTarget && row.path === renameTarget.path) {
-                            return (
-                                <FileTreeDraftRowItem
-                                    key={virtualRow.key}
-                                    depth={row.depth}
-                                    kind={row.kind}
-                                    initialName={renameTarget.name}
-                                    error={renameError}
-                                    style={rowStyle}
-                                    onCommit={onRenameCommit}
-                                    onCancel={onRenameCancel}
-                                />
-                            )
-                        }
-
-                        return (
-                            <FileTreeRowItem
-                                key={virtualRow.key}
-                                row={row}
-                                selected={row.id === selectedId}
-                                style={rowStyle}
-                                onClick={() => handleRowClick(row)}
-                                onDoubleClick={() => handleRowDoubleClick(row)}
-                            />
-                        )
-                    })}
+                        })}
+                    </div>
                 </div>
+                <OverlayScrollbar viewportRef={parentRef} orientation='vertical' />
             </div>
         </FileTreeContextMenu>
     )

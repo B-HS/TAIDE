@@ -58,8 +58,6 @@ impl AgentStore {
         self.0.lock().agents.get(project_id).cloned().unwrap_or_default()
     }
 
-    /// 세션의 활동을 판정한다. probe_active 면 즉시 Working 으로 확정하고 관측 시각을 갱신한다.
-    /// 그렇지 않으면 마지막 관측 이후 경과 시간을 히스테리시스 규칙(service::classify_activity)에 넘긴다.
     pub fn compute_activity(&self, session_id: &str, probe_active: bool) -> AgentActivity {
         let mut guard = self.0.lock();
         if probe_active {
@@ -74,7 +72,6 @@ impl AgentStore {
         service::classify_activity(previous, ms_since_active)
     }
 
-    /// 더 이상 감지되지 않는 세션의 활동 이력을 정리한다(메모리 누수 방지).
     pub fn prune_activity(&self, valid_session_ids: &HashSet<String>) {
         self.0
             .lock()
@@ -127,7 +124,6 @@ impl AgentHooksStore {
         self.0.lock().project_overrides.insert(project_id, (activity, Instant::now()));
     }
 
-    /// hooks 로 설정된 프로젝트 단위 override 를 반환한다. 오래되었으면(hooks 미설치/이상 등) 무시한다.
     pub fn fresh_project_override(&self, project_id: &ProjectId) -> Option<AgentActivity> {
         let guard = self.0.lock();
         let (activity, set_at) = guard.project_overrides.get(project_id)?;
@@ -262,8 +258,6 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
         .collect()
 }
 
-/// hooks 로 프로젝트 단위 override 가 걸려 있으면 그것을 우선하고, 없으면 프로세스 신호 기반
-/// 휴리스틱(AgentStore::compute_activity)을 사용한다.
 pub fn resolve_activity(
     agents: &AgentStore,
     hooks_store: &AgentHooksStore,

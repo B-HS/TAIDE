@@ -7,6 +7,7 @@ import { ProblemRow } from '@features/problems/problem-row'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
 import { ProblemSeverityFilter } from '@features/problems/problem-severity-filter'
 import { FileGroupHeader } from '@shared/ui/file-group-header'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 export type ProblemGroup = {
     path: string
@@ -63,7 +64,7 @@ export const ProblemsPanel: FC<ProblemsPanelProps> = ({
                 </button>
             </div>
 
-            <div className='min-h-0 flex-1 overflow-y-auto'>
+            <ScrollContainer className='min-h-0 flex-1'>
                 {!hasVisibleGroups && (
                     <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
                         <CircleCheck className='size-5 opacity-60' />
@@ -92,7 +93,7 @@ export const ProblemsPanel: FC<ProblemsPanelProps> = ({
                             </div>
                         )
                     })}
-            </div>
+            </ScrollContainer>
         </div>
     )
 }

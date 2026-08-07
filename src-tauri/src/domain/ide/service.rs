@@ -42,8 +42,6 @@ const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
 ];
 const DEFAULT_LANGUAGE_ID: &str = "plaintext";
 
-/// 토큰 검증에 타이밍 사이드채널을 남기지 않기 위한 상수시간 비교.
-/// 도메인 경계를 넘지 않기 위해 `domain::agent::service::constant_time_eq` 와 별개로 유지한다.
 pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -51,14 +49,10 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// CLI 와 동일한 형식(32자 소문자 hex, OS CSPRNG 기반)의 인증 토큰을 만든다.
-/// `rand` 크레이트를 새로 들이지 않고, 이미 동일 용도(hooks.rs)로 쓰이는 uuid v4 를 재사용한다.
 pub fn generate_auth_token() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-/// 임의의 32비트 엔트로피를 [start, end] 범위의 포트 번호로 접는다. 순수 함수로 분리해
-/// 실제 난수 소스 없이도 경계값을 테스트할 수 있게 한다.
 pub fn port_from_entropy(raw: u32, start: u32, end: u32) -> u32 {
     start + (raw % (end - start + 1))
 }
@@ -84,8 +78,6 @@ pub fn guess_language_id(path: &str) -> &'static str {
         .unwrap_or(DEFAULT_LANGUAGE_ID)
 }
 
-/// openFile/saveDocument 가 프로젝트 루트 밖 경로에 접근하지 못하도록 파일 도메인의
-/// 검증(ensure_within_root 기반)을 그대로 재사용한다(임의 파일 접근 차단).
 pub fn ensure_path_within_any_project(projects: &HashMap<ProjectId, Project>, path: &Path) -> AppResult<(ProjectId, PathBuf)> {
     crate::domain::file::service::resolve_owning_project(projects, path)
 }
@@ -117,8 +109,6 @@ fn file_label(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// 모든 프로젝트의 레이아웃에서 File 탭만 모아 열린 에디터 목록을 만든다.
-/// active 여부는 각 프로젝트 레이아웃의 focused pane 의 active tab 기준으로 판정한다.
 pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>) -> Vec<OpenEditorEntry> {
     let mut entries = Vec::new();
 

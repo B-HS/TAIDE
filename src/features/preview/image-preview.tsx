@@ -1,4 +1,5 @@
 import type { FC } from 'react'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 export type ImagePreviewProps = {
     src: string
@@ -6,7 +7,7 @@ export type ImagePreviewProps = {
 }
 
 export const ImagePreview: FC<ImagePreviewProps> = ({ src, alt }) => (
-    <div className='bg-editor-background flex h-full w-full items-center justify-center overflow-auto p-4'>
+    <ScrollContainer className='bg-editor-background h-full w-full' viewportClassName='flex items-center justify-center p-4' orientation='both'>
         <img src={src} alt={alt} className='max-h-full max-w-full object-contain' />
-    </div>
+    </ScrollContainer>
 )

@@ -1,6 +1,6 @@
 import type { FC, KeyboardEvent } from 'react'
 import { useState } from 'react'
-import { CaseSensitive, Loader2, Replace, ReplaceAll, Search, WholeWord } from 'lucide-react'
+import { CaseSensitive, Loader2, Replace, ReplaceAll, Search, WholeWord, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { SearchMatchRowData } from '@features/search/search-match-row'
 import { SearchMatchRow } from '@features/search/search-match-row'
@@ -16,6 +16,7 @@ import {
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
 import { FileGroupHeader } from '@shared/ui/file-group-header'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 export type SearchResultGroup = {
     path: string
@@ -41,6 +42,8 @@ type SearchPanelProps = {
     onOpenMatch: (path: string) => void
     onReplaceAll: (input: ReplaceAllInput) => void
     isReplacing: boolean
+    scopePath: string | null
+    onClearScope: () => void
 }
 
 const toggleInSet = (set: Set<string>, value: string) => {
@@ -67,6 +70,8 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     onOpenMatch,
     onReplaceAll,
     isReplacing,
+    scopePath,
+    onClearScope,
 }) => {
     const { t } = useTranslation()
     const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
@@ -164,6 +169,18 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                         )}
                     </div>
                 </div>
+                {scopePath && (
+                    <div className='bg-explorer-item-selected text-app-foreground flex w-fit max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs'>
+                        <span className='truncate'>{t('explorer.searchScopeLabel', { path: scopePath })}</span>
+                        <button
+                            type='button'
+                            aria-label={t('common.close')}
+                            onClick={onClearScope}
+                            className='text-app-sidebar-icon-default hover:text-app-foreground shrink-0'>
+                            <X className='size-3' />
+                        </button>
+                    </div>
+                )}
                 {isSearching && (
                     <div className='text-app-sidebar-icon-default flex items-center gap-1.5 text-xs'>
                         <Loader2 className='size-3 animate-spin' />
@@ -177,7 +194,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                 )}
             </div>
 
-            <div className='min-h-0 flex-1 overflow-y-auto'>
+            <ScrollContainer className='min-h-0 flex-1'>
                 {!hasQuery && (
                     <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
                         <Search className='size-5 opacity-60' />
@@ -214,7 +231,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                             </div>
                         )
                     })}
-            </div>
+            </ScrollContainer>
 
             <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                 <AlertDialogContent size='sm'>

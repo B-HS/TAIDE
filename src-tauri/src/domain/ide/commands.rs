@@ -9,7 +9,7 @@ use tokio::sync::{broadcast, oneshot};
 use super::lockfile;
 use super::server;
 use super::service;
-use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeStatus, IDE_PORT_BIND_MAX_ATTEMPTS};
+use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeSelectionInput, IdeStatus, IDE_PORT_BIND_MAX_ATTEMPTS};
 use crate::domain::layout::types::{Tab, TabKind};
 use crate::error::{AppError, AppResult};
 use crate::events::IdeStatusChanged;
@@ -96,7 +96,6 @@ impl IdeStore {
         self.inner.lock().running
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn mark_started(&self, port: u32, token: String, dir: PathBuf, server_handle: tauri::async_runtime::JoinHandle<()>) -> IdeStatus {
         let mut inner = self.inner.lock();
         inner.running = true;
@@ -222,8 +221,6 @@ impl IdeStore {
         inner.diagnostics_ready = true;
     }
 
-    /// 진단이 한 번도 push 된 적 없으면 None(= "아직 준비 안 됨")을 반환한다.
-    /// 빈 배열과 "아직 모름"을 구분해 거짓 음성을 방지한다(research risk #7).
     pub fn diagnostics(&self, uri_path: Option<&str>) -> Option<Vec<IdeDiagnostic>> {
         let inner = self.inner.lock();
         if !inner.diagnostics_ready {
@@ -237,7 +234,6 @@ impl IdeStore {
     }
 }
 
-/// 커넥션 수 변화(클라이언트 연결/해제)를 상태바 등 프론트에 알린다.
 pub fn emit_status_changed(app: &AppHandle, client_count: u32) {
     let ide = app.state::<IdeStore>();
     let mut status = ide.status();
@@ -246,9 +242,6 @@ pub fn emit_status_changed(app: &AppHandle, client_count: u32) {
     let _ = IdeStatusChanged { status }.emit(app);
 }
 
-/// ClaudeDiff 탭이 (도구 호출 경로가 아니라) 일반 탭 닫기 경로로 닫혔을 때 그 탭에 매인
-/// pending openDiff 요청을 TabClosed 로 해소한다. layout 도메인의 모든 탭 닫기 경로
-/// (Tauri 커맨드·IDE 도구 핸들러 공용 `close_tab_and_finish`)에서 호출된다.
 pub fn reconcile_closed_tab(app: &AppHandle, tab: &Tab) {
     let TabKind::ClaudeDiff { request_id, .. } = &tab.kind else {
         return;
@@ -259,8 +252,6 @@ pub fn reconcile_closed_tab(app: &AppHandle, tab: &Tab) {
     }
 }
 
-/// 앱 종료·`ide_stop` 공용 정리 경로. pending 요청을 전부 해소하고 lockfile 을 지운 뒤
-/// accept 루프와 커넥션 태스크를 즉시 종료(abort)한다(무기한 블로킹 금지 — research risk #5).
 pub fn stop_server(app: &AppHandle, ide: &IdeStore) {
     let Some(shutdown) = ide.take_shutdown_state() else {
         return;
@@ -290,9 +281,6 @@ pub fn stop_server(app: &AppHandle, ide: &IdeStore) {
     .emit(app);
 }
 
-/// 프로젝트가 닫혀 더 이상 유효하지 않은 pending diff 요청을 주기적으로 정리한다.
-/// `project_close` 커맨드(도메인 밖 소유)를 직접 후킹하지 않고도 "프로젝트 닫기" 정리 경로를
-/// 만족시키기 위한 폴링 방식이다.
 pub fn reconcile_stale_pending(app: &AppHandle) {
     let ide = app.state::<IdeStore>();
     if !ide.is_running() {
@@ -363,31 +351,18 @@ pub async fn ide_stop(app: AppHandle, ide: State<'_, IdeStore>) -> AppResult<()>
     Ok(())
 }
 
-/// 프론트가 에디터 selection 변경을 push 한다. 계약(9종 커맨드)이 평면 파라미터로 고정돼 있어
-/// 인자 수를 줄일 수 없다(clippy::too_many_arguments 예외).
-#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
-pub async fn ide_set_selection(
-    ide: State<'_, IdeStore>,
-    project_id: ProjectId,
-    path: String,
-    text: String,
-    start_line: u32,
-    start_character: u32,
-    end_line: u32,
-    end_character: u32,
-    is_empty: bool,
-) -> AppResult<()> {
+pub async fn ide_set_selection(ide: State<'_, IdeStore>, input: IdeSelectionInput) -> AppResult<()> {
     let selection = IdeSelectionSnapshot {
-        project_id,
-        path,
-        text,
-        start_line,
-        start_character,
-        end_line,
-        end_character,
-        is_empty,
+        project_id: input.project_id,
+        path: input.path,
+        text: input.text,
+        start_line: input.start_line,
+        start_character: input.start_character,
+        end_line: input.end_line,
+        end_character: input.end_character,
+        is_empty: input.is_empty,
     };
     let notification = server::selection_changed_notification(&selection);
     ide.set_selection(selection);
@@ -492,8 +467,6 @@ mod tests {
         assert!(store.take_shutdown_state().is_none());
     }
 
-    /// openDiff/saveDocument 는 무기한 블로킹이므로, 앱 종료·`ide_stop` 경로에서
-    /// pending 요청이 반드시 해소되어야 한다(research risk #5).
     #[test]
     fn take_shutdown_state는_pending_diff와_save를_모두_드레인하고_해소된다() {
         let store = IdeStore::default();
@@ -598,7 +571,6 @@ mod tests {
         assert!(store.latest_selection().is_some());
     }
 
-    /// 빈 배열과 "아직 한 번도 push 안 됨"을 구분해 거짓 음성을 방지한다(research risk #7).
     #[test]
     fn 진단은_한_번도_push되지_않으면_none이다() {
         let store = IdeStore::default();

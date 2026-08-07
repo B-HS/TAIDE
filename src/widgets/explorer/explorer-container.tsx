@@ -64,6 +64,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     const [deleteTarget, setDeleteTarget] = useState<FileTreeRow | null>(null)
     const [clipboard, setClipboard] = useState<ClipboardEntry | null>(null)
     const [selectPathRequest, setSelectPathRequest] = useState<string | null>(null)
+    const [compareSourcePath, setCompareSourcePath] = useState<string | null>(null)
 
     const { data: page } = useQuery(treeRowsQueryOptions(projectId))
     const { data: project } = useQuery(projectQueryOptions(projectId))
@@ -249,6 +250,21 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         requestOpenSearchPanel({ includeGlob: `${toRelativePath(project.root, row.path)}/**` })
     }
 
+    const compareWithSelected = (row: FileTreeRow) => {
+        if (!compareSourcePath) return
+        openTab(
+            {
+                projectId,
+                kind: { kind: 'diff', path: row.path, staged: false, compareWith: compareSourcePath },
+                title: `${fileNameOf(compareSourcePath)} vs ${fileNameOf(row.path)}`,
+                target: null,
+                preview: true,
+            },
+            { onError: notifyError },
+        )
+        setCompareSourcePath(null)
+    }
+
     const contextMenuHandlers: FileTreeContextMenuHandlers = {
         onOpenToTheSide: (row) => void openToTheSide(row),
         onOpenWithEditor: (row) => {
@@ -263,6 +279,9 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         onRevealInFinder: (row) => void revealItemInDir(row.path).catch(notifyError),
         onOpenInTerminal: openInTerminal,
         onFindInFolder: findInFolder,
+        onSelectForCompare: (row) => setCompareSourcePath(row.path),
+        onCompareWithSelected: compareWithSelected,
+        canCompareWithSelected: compareSourcePath !== null,
         onCut: (row) => setClipboard({ mode: 'cut', path: row.path }),
         onCopy: (row) => setClipboard({ mode: 'copy', path: row.path }),
         onPaste: (row) => void pasteClipboard(row),
@@ -270,6 +289,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         onCopyRelativePath: (row) => project && void navigator.clipboard.writeText(toRelativePath(project.root, row.path)),
         onStartRename: startRename,
         onRequestDelete: setDeleteTarget,
+        onClearSelection: () => setSelectedRow(null),
     }
 
     const collapseAllExpanded = async () => {

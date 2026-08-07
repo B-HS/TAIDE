@@ -1,4 +1,5 @@
 import type { FC, ReactNode, WheelEvent } from 'react'
+import { useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQuery } from '@tanstack/react-query'
@@ -16,6 +17,7 @@ import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSetTabPreview, useSplitPane } from '@entities/layout/layout.query'
+import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
 import { SortableTab } from '@widgets/editor-area/sortable-tab'
 
@@ -49,6 +51,8 @@ type PaneTabBarProps = {
 }
 
 export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activeTabId, focused }) => {
+    const scrollRef = useRef<HTMLDivElement>(null)
+
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: projectAgents } = useQuery(projectAgentsQueryOptions(projectId))
     const { mutate: activateTab } = useActivateTab(projectId)
@@ -157,23 +161,27 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     }
 
     return (
-        <div
-            role='tablist'
-            onMouseDown={() => focusPane(paneId)}
-            onWheel={handleWheel}
-            className={cn(
-                'bg-tab-bar-background border-tab-bar-tab-border flex h-9 min-w-0 shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b',
-                focused && 'border-b-ring',
-            )}>
-            {pinnedTabs.length > 0 && (
-                <SortableContext items={pinnedTabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
-                    <div className='flex shrink-0 items-stretch'>{pinnedTabs.map(renderTab)}</div>
+        <div className='relative shrink-0'>
+            <div
+                ref={scrollRef}
+                role='tablist'
+                onMouseDown={() => focusPane(paneId)}
+                onWheel={handleWheel}
+                className={cn(
+                    'bg-tab-bar-background border-tab-bar-tab-border scrollbar-hidden flex h-9 min-w-0 items-stretch overflow-x-auto overflow-y-hidden border-b',
+                    focused && 'border-b-ring',
+                )}>
+                {pinnedTabs.length > 0 && (
+                    <SortableContext items={pinnedTabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
+                        <div className='flex shrink-0 items-stretch'>{pinnedTabs.map(renderTab)}</div>
+                    </SortableContext>
+                )}
+                <SortableContext items={unpinnedTabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
+                    <div className='flex min-w-0 shrink-0 items-stretch'>{unpinnedTabs.map(renderTab)}</div>
                 </SortableContext>
-            )}
-            <SortableContext items={unpinnedTabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
-                <div className='flex min-w-0 shrink-0 items-stretch'>{unpinnedTabs.map(renderTab)}</div>
-            </SortableContext>
-            <div ref={setContainerRef} className='min-w-8 flex-1' />
+                <div ref={setContainerRef} className='min-w-8 flex-1' />
+            </div>
+            <OverlayScrollbar viewportRef={scrollRef} orientation='horizontal' trackClassName='h-[3px]' />
         </div>
     )
 }

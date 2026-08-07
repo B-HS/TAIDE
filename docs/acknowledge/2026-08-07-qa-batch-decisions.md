@@ -46,3 +46,10 @@
   자동 연결 트리거는 `CLAUDE_CODE_SSE_PORT` 단독. 기존 `docs/features/agent-integration.md`·
   `docs/research/claude-code-integration.md` 의 해당 서술은 구버전/커뮤니티 오류로 정정 대상.
 - 기존 `DiffPane` 은 git 전용이라 CC diff 에 재사용 불가 — 신규 형제 위젯으로 구현.
+
+## 5. Phase 7.7-W3 컨벤션 정리에서 남긴 결정
+
+- `domain/ide/server.rs::auth_callback` 의 `#[allow(clippy::result_large_err)]` 는 유지한다 —
+  tungstenite `Callback` 트레잇의 반환 타입(`Result<Response, ErrorResponse>`)이 라이브러리
+  쪽에 고정돼 있어 `ErrorResponse`(= `http::Response<Option<String>>`, 136바이트) 크기를 코드
+  변경만으로 줄일 수 없다(불가피).

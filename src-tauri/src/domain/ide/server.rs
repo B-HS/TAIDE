@@ -244,9 +244,6 @@ fn find_file_tab(layouts: &HashMap<ProjectId, ProjectLayout>, path: &str) -> Opt
         })
 }
 
-/// `startText`/`endText`/`selectToEndOfLine`(텍스트 패턴으로 선택 영역을 지정하는 옵션)는
-/// B2a 범위에서 구현하지 않는다 — 파일을 열고 프론트마다 유지되는 활성 selection 을 세팅하려면
-/// B2b 의 에디터 인스턴스 접근이 필요하다.
 async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, ToolError> {
     let Some(file_path) = arguments.get("filePath").and_then(Value::as_str) else {
         return Err(tool_error(RPC_INVALID_PARAMS, "filePath is required"));
@@ -566,10 +563,6 @@ async fn handle_incoming(app: &AppHandle, incoming: JsonRpcIncoming) -> Option<J
     Some(response)
 }
 
-/// 헤더 콜백을 생산하는 함수. `handle_connection` 과 핸드셰이크 단위 테스트가 동일 로직을 쓰도록
-/// 분리했다(테스트-운영 드리프트 방지).
-/// tungstenite `Callback` 트레잇의 반환 타입(`Result<Response, ErrorResponse>`)이 고정돼 있어
-/// `ErrorResponse`(= `http::Response<Option<String>>`, 136바이트) 크기를 줄일 수 없다.
 #[allow(clippy::result_large_err)]
 fn auth_callback(expected_token: String) -> impl FnOnce(&Request, Response) -> Result<Response, ErrorResponse> {
     move |request, response| {

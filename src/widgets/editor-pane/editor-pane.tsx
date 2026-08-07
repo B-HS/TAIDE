@@ -313,6 +313,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             largeFile={file.tier === 'large' || file.tier === 'readOnly'}
             fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
             fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
+            minimap={settings?.editorMinimap ?? false}
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}

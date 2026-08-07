@@ -3,6 +3,7 @@ import type { languages } from 'monaco-editor'
 import { ListTree } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { OutlineSymbolRow } from '@features/outline/outline-symbol-row'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 type OutlinePanelProps = {
     hasActiveFile: boolean
@@ -15,7 +16,7 @@ export const OutlinePanel: FC<OutlinePanelProps> = ({ hasActiveFile, symbols, on
 
     return (
         <div className='bg-panel-background flex h-full min-h-0 w-full flex-col'>
-            <div className='min-h-0 flex-1 overflow-y-auto'>
+            <ScrollContainer className='min-h-0 flex-1'>
                 {symbols.length === 0 && (
                     <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
                         <ListTree className='size-5 opacity-60' />
@@ -25,7 +26,7 @@ export const OutlinePanel: FC<OutlinePanelProps> = ({ hasActiveFile, symbols, on
                 {symbols.map((symbol, index) => (
                     <OutlineSymbolRow key={`${symbol.name}-${index}`} symbol={symbol} depth={0} onSelect={onSelectSymbol} />
                 ))}
-            </div>
+            </ScrollContainer>
         </div>
     )
 }

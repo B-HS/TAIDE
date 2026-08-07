@@ -244,23 +244,16 @@
         -webkit-font-smoothing: antialiased;
         user-select: none;
     }
+}
 
-    ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-    }
+@utility scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 
-    ::-webkit-scrollbar-track {
-        background: var(--taide-scrollbar-track);
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: var(--taide-scrollbar-thumb);
-        border-radius: 5px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--taide-scrollbar-thumb-hover);
+    &::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
     }
 }
 
@@ -314,6 +307,10 @@
     top: 0;
     width: 1px;
     height: 1px;
+}
+
+.xterm-viewport {
+    scrollbar-width: thin;
 }
 
 [data-sonner-toaster].taide-toaster-middle {

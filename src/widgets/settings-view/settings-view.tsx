@@ -33,6 +33,7 @@ import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { Switch } from '@shared/ui/switch'
 import { Button } from '@shared/ui/button'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 const SETTINGS_SCROLL_OFFSET_PX = 32
 
@@ -120,7 +121,7 @@ export const SettingsView = () => {
         )
 
     return (
-        <div ref={scrollContainerRef} className='bg-panel-background text-app-foreground h-full w-full overflow-x-hidden overflow-y-auto'>
+        <ScrollContainer viewportRef={scrollContainerRef} className='bg-panel-background text-app-foreground h-full w-full'>
             <div className='flex flex-col gap-6 px-8 py-8'>
                 <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
 
@@ -352,6 +353,6 @@ export const SettingsView = () => {
                     </div>
                 </div>
             </div>
-        </div>
+        </ScrollContainer>
     )
 }

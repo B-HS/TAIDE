@@ -1,0 +1,5 @@
+export const SCROLLBAR_AUTO_HIDE_MS = 1000
+
+export const SCROLLBAR_MIN_THUMB_PX = 24
+
+export const SCROLLBAR_SCROLL_EPSILON_PX = 1

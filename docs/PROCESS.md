@@ -630,8 +630,10 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] 7.7-W1. 웨이브 1 구현 (커밋 `60a23b8`) — P(UI폴리시→Problems→리소스) ∥ Q(트리 인라인) ∥ R(AI 배지) ∥ S(minor).
       메인이 전체 verify 재실행으로 확인(Rust 253·프론트 290·clippy 0). 발견된 배선 공백
       (agent_hooks_* 호출 UI 부재)과 A1 이 소유권 문제로 보류한 설정 overflow 잔여분은 W2-B3 으로 이관
-- [ ] 7.7-W2. 웨이브 2 구현 — B1(context menu·미니맵) ∥ B2a(IDE Rust) → B2b(IDE 프론트)
-- [ ] 7.7-W3. 웨이브 3 구현 — C1(커스텀 스크롤바 전면 적용)
+- [x] 7.7-W2. 웨이브 2 구현 (커밋 `91b3637`) — B1(context menu·미니맵) ∥ B2a(IDE Rust, 테스트 46건) ∥
+      B3(hooks 배선·overflow) → B2b(IDE 프론트). 메인 전체 verify 재실행 통과(프론트 295·Rust 298),
+      i18n 사용 키 104종 실존 확인. 소유권 경계로 미뤄진 배선 4건 + Rust 주석/allow 위반(세션 이전 선례 0건 실측)은 W3-C2 로
+- [ ] 7.7-W3. 웨이브 3 구현 — C2(배선 마무리·컨벤션 정리) → C1(커스텀 스크롤바 전면 적용)
 - [ ] 7.7-검토. 전체 diff 버그 1차(opus high) → 2차(Fable) → bun run verify → dev 커밋
 - [ ] 7.7-1. Problems 재배치 — footer 에러 아이콘(에러 있으면 적색) + 클릭 시 에디터 영역 패널 토글
 - [ ] 7.7-2. 파일트리 툴바 hover 시에만 표시(Cursor 형태) + 새 파일/폴더 트리 내 인라인 입력(모달 금지)

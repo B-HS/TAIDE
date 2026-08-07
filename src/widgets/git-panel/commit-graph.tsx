@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { computeGraphLanes } from '@shared/lib/graph-lanes'
+import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 
 export type GraphLogEntry = LogEntry
 
@@ -54,78 +55,83 @@ export const CommitGraph: FC<CommitGraphProps> = ({ commits }) => {
     const { t } = useTranslation()
 
     return (
-        <div ref={parentRef} className='min-w-0 overflow-y-auto' style={{ maxHeight: VIEWPORT_HEIGHT_PX }}>
-            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const node = nodes[virtualRow.index]
-                    const commit = commits[virtualRow.index]
-                    const relativeTime = relativeTimeToken(commit.timeUnix ?? 0)
-                    return (
-                        <div
-                            key={virtualRow.key}
-                            className='hover:bg-explorer-item-hover flex items-center gap-2 px-2 text-xs'
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: virtualRow.size,
-                                transform: `translateY(${virtualRow.start}px)`,
-                            }}>
-                            <svg width={graphWidth} height={ROW_HEIGHT} className='shrink-0'>
-                                {node.passthroughLanes.map((lane) => (
-                                    <line
-                                        key={`pass-${lane}`}
-                                        x1={laneX(lane)}
-                                        y1={0}
-                                        x2={laneX(lane)}
-                                        y2={ROW_HEIGHT}
-                                        stroke={laneColor(lane)}
-                                        strokeWidth={STROKE_WIDTH}
-                                    />
-                                ))}
-                                {node.continuesFromAbove && (
-                                    <line
-                                        x1={laneX(node.lane)}
-                                        y1={0}
-                                        x2={laneX(node.lane)}
-                                        y2={center}
-                                        stroke={laneColor(node.lane)}
-                                        strokeWidth={STROKE_WIDTH}
-                                    />
-                                )}
-                                {node.edges.map((edge) => (
-                                    <path
-                                        key={`edge-${edge.parentId}`}
-                                        d={
-                                            edge.toLane === node.lane
-                                                ? `M ${laneX(node.lane)} ${center} L ${laneX(node.lane)} ${ROW_HEIGHT}`
-                                                : `M ${laneX(node.lane)} ${center} C ${laneX(node.lane)} ${ROW_HEIGHT}, ${laneX(edge.toLane)} ${center}, ${laneX(edge.toLane)} ${ROW_HEIGHT}`
-                                        }
-                                        fill='none'
-                                        stroke={laneColor(node.lane)}
-                                        strokeWidth={STROKE_WIDTH}
-                                    />
-                                ))}
-                                <circle cx={laneX(node.lane)} cy={center} r={NODE_RADIUS} fill={laneColor(node.lane)} />
-                            </svg>
-                            {commit.refs.length > 0 && (
-                                <span className='flex shrink-0 gap-1'>
-                                    {commit.refs.map((ref) => (
-                                        <span key={ref} className='text-graph-ref-branch border-graph-ref-branch rounded-sm border px-1 text-[10px]'>
-                                            {ref}
-                                        </span>
+        <div className='relative min-w-0'>
+            <div ref={parentRef} className='scrollbar-hidden overflow-y-auto' style={{ maxHeight: VIEWPORT_HEIGHT_PX }}>
+                <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const node = nodes[virtualRow.index]
+                        const commit = commits[virtualRow.index]
+                        const relativeTime = relativeTimeToken(commit.timeUnix ?? 0)
+                        return (
+                            <div
+                                key={virtualRow.key}
+                                className='hover:bg-explorer-item-hover flex items-center gap-2 px-2 text-xs'
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: virtualRow.size,
+                                    transform: `translateY(${virtualRow.start}px)`,
+                                }}>
+                                <svg width={graphWidth} height={ROW_HEIGHT} className='shrink-0'>
+                                    {node.passthroughLanes.map((lane) => (
+                                        <line
+                                            key={`pass-${lane}`}
+                                            x1={laneX(lane)}
+                                            y1={0}
+                                            x2={laneX(lane)}
+                                            y2={ROW_HEIGHT}
+                                            stroke={laneColor(lane)}
+                                            strokeWidth={STROKE_WIDTH}
+                                        />
                                     ))}
-                                </span>
-                            )}
-                            <span className='truncate'>{commit.summary}</span>
-                            <span className='text-app-sidebar-icon-default shrink-0'>{commit.author}</span>
-                            <span className='text-app-sidebar-icon-default shrink-0'>{t(relativeTime.key, relativeTime.params)}</span>
-                            <span className='text-app-sidebar-icon-default shrink-0 font-mono'>{commit.id.slice(0, 7)}</span>
-                        </div>
-                    )
-                })}
+                                    {node.continuesFromAbove && (
+                                        <line
+                                            x1={laneX(node.lane)}
+                                            y1={0}
+                                            x2={laneX(node.lane)}
+                                            y2={center}
+                                            stroke={laneColor(node.lane)}
+                                            strokeWidth={STROKE_WIDTH}
+                                        />
+                                    )}
+                                    {node.edges.map((edge) => (
+                                        <path
+                                            key={`edge-${edge.parentId}`}
+                                            d={
+                                                edge.toLane === node.lane
+                                                    ? `M ${laneX(node.lane)} ${center} L ${laneX(node.lane)} ${ROW_HEIGHT}`
+                                                    : `M ${laneX(node.lane)} ${center} C ${laneX(node.lane)} ${ROW_HEIGHT}, ${laneX(edge.toLane)} ${center}, ${laneX(edge.toLane)} ${ROW_HEIGHT}`
+                                            }
+                                            fill='none'
+                                            stroke={laneColor(node.lane)}
+                                            strokeWidth={STROKE_WIDTH}
+                                        />
+                                    ))}
+                                    <circle cx={laneX(node.lane)} cy={center} r={NODE_RADIUS} fill={laneColor(node.lane)} />
+                                </svg>
+                                {commit.refs.length > 0 && (
+                                    <span className='flex shrink-0 gap-1'>
+                                        {commit.refs.map((ref) => (
+                                            <span
+                                                key={ref}
+                                                className='text-graph-ref-branch border-graph-ref-branch rounded-sm border px-1 text-[10px]'>
+                                                {ref}
+                                            </span>
+                                        ))}
+                                    </span>
+                                )}
+                                <span className='truncate'>{commit.summary}</span>
+                                <span className='text-app-sidebar-icon-default shrink-0'>{commit.author}</span>
+                                <span className='text-app-sidebar-icon-default shrink-0'>{t(relativeTime.key, relativeTime.params)}</span>
+                                <span className='text-app-sidebar-icon-default shrink-0 font-mono'>{commit.id.slice(0, 7)}</span>
+                            </div>
+                        )
+                    })}
+                </div>
             </div>
+            <OverlayScrollbar viewportRef={parentRef} orientation='vertical' />
         </div>
     )
 }

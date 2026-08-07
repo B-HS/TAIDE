@@ -10,7 +10,6 @@ use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
 use crate::state::AppState;
 
-/// 로컬 HTTP 수신부를 지연 기동한다. 이미 떠 있으면 기존 정보를 그대로 반환한다(멱등).
 pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServerInfo> {
     let store = app.state::<AgentHooksStore>();
     if let Some(info) = store.server_info() {
