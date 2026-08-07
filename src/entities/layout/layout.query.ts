@@ -6,10 +6,12 @@ import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import {
     activateTab,
     closeTab,
+    convertUntitledTab,
     focusPane,
     getLayout,
     moveTab,
     openTab,
+    openUntitledTab,
     pinTab,
     reopenClosedTab,
     resizePane,
@@ -68,3 +70,7 @@ export const useSetTabDirty = (projectId: ProjectId | null) => useLayoutMutation
 export const useSetTerminalSession = (projectId: ProjectId | null) => useLayoutMutation(projectId, setTerminalSession)
 
 export const useReopenClosedTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, reopenClosedTab)
+
+export const useOpenUntitledTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, openUntitledTab)
+
+export const useConvertUntitledTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, convertUntitledTab)

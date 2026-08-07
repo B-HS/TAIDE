@@ -1,25 +1,41 @@
 import type { FC, ReactNode, WheelEvent } from 'react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQuery } from '@tanstack/react-query'
 import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, PaneId, PaneNode, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
+import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
+import { pruneUntitledContents } from '@entities/editor/untitled-registry'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { projectQueryOptions } from '@entities/project/project.query'
-import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSetTabPreview, useSplitPane } from '@entities/layout/layout.query'
+import {
+    layoutQueryOptions,
+    useActivateTab,
+    useCloseTab,
+    useFocusPane,
+    useOpenTab,
+    useOpenUntitledTab,
+    usePinTab,
+    useSetTabPreview,
+    useSplitPane,
+} from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
 import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
 import { SortableTab } from '@widgets/editor-area/sortable-tab'
+import { TabBarAddMenu } from '@features/tab/tab-bar-add-menu'
+
+const collectTabIds = (node: PaneNode): TabId[] =>
+    node.node === 'leaf' ? node.tabs.map((tab) => tab.id) : node.children.flatMap((child) => collectTabIds(child))
 
 const TAB_ICON_SIZE_CLASS = 'size-3.5'
 
@@ -39,6 +55,7 @@ export const getTabIcon = (kind: TabKind, agent?: DetectedAgent): ReactNode => {
     if (kind.kind === 'terminal') return <Terminal className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'settings') return <Settings className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'diff') return <FileDiff className={TAB_ICON_SIZE_CLASS} />
+    if (kind.kind === 'untitled') return <FileTypeIcon fileName='untitled' className={TAB_ICON_SIZE_CLASS} />
     return <Sparkles className={TAB_ICON_SIZE_CLASS} />
 }
 
@@ -55,6 +72,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: projectAgents } = useQuery(projectAgentsQueryOptions(projectId))
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: activateTab } = useActivateTab(projectId)
     const { mutate: closeTab } = useCloseTab(projectId)
     const { mutateAsync: closeTabAsync } = useCloseTab(projectId)
@@ -63,6 +81,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { mutate: splitPane } = useSplitPane(projectId)
     const { mutate: focusPane } = useFocusPane(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
+    const { mutate: openUntitledTab } = useOpenUntitledTab(projectId)
     const { setNodeRef: setContainerRef } = useDroppable({
         id: `pane-container:${paneId}`,
         data: { type: 'tab-container', paneId } satisfies TabContainerDropData,
@@ -79,6 +98,14 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
         if (event.deltaY === 0) return
         event.currentTarget.scrollLeft += event.deltaY
     }
+
+    const handleNewUntitledFile = () => openUntitledTab({ projectId, target: paneId }, { onError: notifyError })
+
+    const handleNewTerminal = () =>
+        openTab(
+            { projectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: paneId, preview: false },
+            { onError: notifyError },
+        )
 
     const handleCloseOthers = async (keepId: TabId) => {
         for (const tab of tabs) {
@@ -160,15 +187,22 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
         )
     }
 
+    useEffect(() => {
+        if (!layout) return
+        const keepTabIds = [...collectTabIds(layout.root), ...(layout.closedTabs ?? []).map((closed) => closed.tab.id)]
+        const removedTabIds = pruneUntitledContents(keepTabIds)
+        for (const removedTabId of removedTabIds) disposeModel(toUntitledModelPath(removedTabId))
+    }, [layout])
+
     return (
-        <div className='relative shrink-0'>
+        <div className='relative flex shrink-0 items-stretch'>
             <div
                 ref={scrollRef}
                 role='tablist'
                 onMouseDown={() => focusPane(paneId)}
                 onWheel={handleWheel}
                 className={cn(
-                    'bg-tab-bar-background border-tab-bar-tab-border scrollbar-hidden flex h-9 min-w-0 items-stretch overflow-x-auto overflow-y-hidden border-b',
+                    'bg-tab-bar-background border-tab-bar-tab-border scrollbar-hidden flex h-9 min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden border-b',
                     focused && 'border-b-ring',
                 )}>
                 {pinnedTabs.length > 0 && (
@@ -179,7 +213,14 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 <SortableContext items={unpinnedTabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
                     <div className='flex min-w-0 shrink-0 items-stretch'>{unpinnedTabs.map(renderTab)}</div>
                 </SortableContext>
-                <div ref={setContainerRef} className='min-w-8 flex-1' />
+                <div ref={setContainerRef} onDoubleClick={handleNewUntitledFile} className='min-w-8 flex-1' />
+            </div>
+            <div
+                className={cn(
+                    'bg-tab-bar-background border-tab-bar-tab-border flex h-9 shrink-0 items-center border-b px-1',
+                    focused && 'border-b-ring',
+                )}>
+                <TabBarAddMenu onNewFile={handleNewUntitledFile} onNewTerminal={handleNewTerminal} />
             </div>
             <OverlayScrollbar viewportRef={scrollRef} orientation='horizontal' trackClassName='h-[3px]' />
         </div>

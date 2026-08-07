@@ -9,14 +9,15 @@ use tauri_specta::Event;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
-use tokio_tungstenite::tungstenite::http::StatusCode;
+use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use tokio_tungstenite::tungstenite::Message;
 
 use super::commands::{self, IdeSelectionSnapshot, IdeStore, PendingDiff, PendingSave};
 use super::service;
 use super::types::{
-    IdeDiagnostic, IdeDiagnosticSeverity, IdeDiffOutcome, IDE_AUTH_HEADER_NAME, IDE_DIFF_TIMEOUT_MS, IDE_HANDSHAKE_TIMEOUT_MS, IDE_NAME,
-    IDE_SAVE_TIMEOUT_MS,
+    IdeDiagnostic, IdeDiagnosticSeverity, IdeDiffOutcome, IDE_ACCEPT_RETRY_DELAY_MS, IDE_AUTH_HEADER_NAME, IDE_DIFF_TIMEOUT_MS,
+    IDE_HANDSHAKE_TIMEOUT_MS, IDE_NAME, IDE_SAVE_TIMEOUT_MS, MCP_SUBPROTOCOL,
 };
 use crate::domain::layout::commands as layout_commands;
 use crate::domain::layout::service as layout_service;
@@ -577,21 +578,36 @@ async fn handle_incoming(app: &AppHandle, incoming: JsonRpcIncoming) -> Option<J
     Some(response)
 }
 
+fn offers_mcp_subprotocol(request: &Request) -> bool {
+    request
+        .headers()
+        .get_all(SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|value| value.split(',').any(|protocol| protocol.trim() == MCP_SUBPROTOCOL))
+}
+
 #[allow(clippy::result_large_err)]
 fn auth_callback(expected_token: String) -> impl FnOnce(&Request, Response) -> Result<Response, ErrorResponse> {
-    move |request, response| {
+    move |request, mut response| {
         let provided = request
             .headers()
             .get(IDE_AUTH_HEADER_NAME)
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
 
-        if service::constant_time_eq(provided.as_bytes(), expected_token.as_bytes()) {
-            Ok(response)
-        } else {
+        if !service::constant_time_eq(provided.as_bytes(), expected_token.as_bytes()) {
             let rejection: Result<ErrorResponse, _> = Response::builder().status(StatusCode::UNAUTHORIZED).body(None);
-            Err(rejection.unwrap_or_else(|_| ErrorResponse::new(None)))
+            return Err(rejection.unwrap_or_else(|_| ErrorResponse::new(None)));
         }
+
+        if offers_mcp_subprotocol(request) {
+            response
+                .headers_mut()
+                .insert(SEC_WEBSOCKET_PROTOCOL, HeaderValue::from_static(MCP_SUBPROTOCOL));
+        }
+
+        Ok(response)
     }
 }
 
@@ -601,17 +617,28 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
         tokio_tungstenite::accept_hdr_async(stream, auth_callback(expected_token)),
     )
     .await;
-    let Ok(Ok(ws_stream)) = handshake else {
-        return;
+    let ws_stream = match handshake {
+        Ok(Ok(stream)) => {
+            log::info!("IDE 핸드셰이크 성공");
+            stream
+        }
+        Ok(Err(error)) => {
+            log::warn!("IDE 핸드셰이크 거부: {error}");
+            return;
+        }
+        Err(_) => {
+            log::warn!("IDE 핸드셰이크 타임아웃({IDE_HANDSHAKE_TIMEOUT_MS}ms)");
+            return;
+        }
     };
 
     let (write_half, mut read_half) = ws_stream.split();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
 
     let writer_handle = tauri::async_runtime::spawn(async move {
         let mut sink = write_half;
-        while let Some(text) = out_rx.recv().await {
-            if sink.send(Message::text(text)).await.is_err() {
+        while let Some(message) = out_rx.recv().await {
+            if sink.send(message).await.is_err() {
                 break;
             }
         }
@@ -623,7 +650,7 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
         loop {
             match notify_rx.recv().await {
                 Ok(message) => {
-                    if broadcast_out_tx.send(message).is_err() {
+                    if broadcast_out_tx.send(Message::text(message)).is_err() {
                         break;
                     }
                 }
@@ -633,7 +660,9 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
         }
     });
 
-    commands::emit_status_changed(&app, app.state::<IdeStore>().client_connected());
+    let client_count = app.state::<IdeStore>().client_connected();
+    log::info!("IDE 클라이언트 연결: count={client_count}");
+    commands::emit_status_changed(&app, client_count);
 
     let mut request_handles: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
 
@@ -647,9 +676,12 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
                 request_handles.retain(|handle| !handle.inner().is_finished());
                 request_handles.push(tauri::async_runtime::spawn(async move {
                     if let Some(response) = handle_incoming(&request_app, incoming).await {
-                        let _ = request_out_tx.send(encode(&response));
+                        let _ = request_out_tx.send(Message::text(encode(&response)));
                     }
                 }));
+            }
+            Message::Ping(payload) => {
+                let _ = out_tx.send(Message::Pong(payload));
             }
             Message::Close(_) => break,
             _ => {}
@@ -661,18 +693,28 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
     }
     writer_handle.abort();
     forwarder_handle.abort();
-    commands::emit_status_changed(&app, app.state::<IdeStore>().client_disconnected());
+    let client_count = app.state::<IdeStore>().client_disconnected();
+    log::info!("IDE 클라이언트 연결 해제: count={client_count}");
+    commands::emit_status_changed(&app, client_count);
 }
 
 pub async fn accept_loop(app: AppHandle, listener: TcpListener, token: String) {
     loop {
-        let Ok((stream, _addr)) = listener.accept().await else { break };
-        let app_for_conn = app.clone();
-        let token_for_conn = token.clone();
-        let handle = tauri::async_runtime::spawn(async move {
-            handle_connection(app_for_conn, stream, token_for_conn).await;
-        });
-        app.state::<IdeStore>().register_connection(handle);
+        match listener.accept().await {
+            Ok((stream, addr)) => {
+                log::info!("IDE 연결 수락: {addr}");
+                let app_for_conn = app.clone();
+                let token_for_conn = token.clone();
+                let handle = tauri::async_runtime::spawn(async move {
+                    handle_connection(app_for_conn, stream, token_for_conn).await;
+                });
+                app.state::<IdeStore>().register_connection(handle);
+            }
+            Err(error) => {
+                log::warn!("IDE accept 실패(계속): {error}");
+                tokio::time::sleep(std::time::Duration::from_millis(IDE_ACCEPT_RETRY_DELAY_MS)).await;
+            }
+        }
     }
 }
 

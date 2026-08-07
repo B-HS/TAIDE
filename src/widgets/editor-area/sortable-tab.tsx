@@ -61,28 +61,28 @@ export const SortableTab: FC<SortableTabProps> = ({
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id, data: dragData })
 
     return (
-        <div
-            ref={setNodeRef}
-            style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? DRAGGING_OPACITY : 1 }}
-            {...attributes}
-            {...listeners}>
-            <TabContextMenu
-                tab={tab}
-                onClose={onClose}
-                onCloseOthers={onCloseOthers}
-                onCloseToRight={onCloseToRight}
-                onCloseSaved={onCloseSaved}
-                onCloseAll={onCloseAll}
-                onTogglePin={onTogglePin}
-                onSplit={onSplit}
-                onCopyPath={onCopyPath}
-                onCopyRelativePath={onCopyRelativePath}
-                onRevealInFinder={onRevealInFinder}
-                onOpenChanges={onOpenChanges}
-                onKeepOpen={onKeepOpen}
-                onRevealInExplorerView={onRevealInExplorerView}
-                onReopenWithEditor={onReopenWithEditor}
-                onReopenWithPreview={onReopenWithPreview}>
+        <TabContextMenu
+            tab={tab}
+            onClose={onClose}
+            onCloseOthers={onCloseOthers}
+            onCloseToRight={onCloseToRight}
+            onCloseSaved={onCloseSaved}
+            onCloseAll={onCloseAll}
+            onTogglePin={onTogglePin}
+            onSplit={onSplit}
+            onCopyPath={onCopyPath}
+            onCopyRelativePath={onCopyRelativePath}
+            onRevealInFinder={onRevealInFinder}
+            onOpenChanges={onOpenChanges}
+            onKeepOpen={onKeepOpen}
+            onRevealInExplorerView={onRevealInExplorerView}
+            onReopenWithEditor={onReopenWithEditor}
+            onReopenWithPreview={onReopenWithPreview}>
+            <div
+                ref={setNodeRef}
+                style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? DRAGGING_OPACITY : 1 }}
+                {...attributes}
+                {...listeners}>
                 <TabItem
                     title={tab.title}
                     icon={icon}
@@ -94,7 +94,7 @@ export const SortableTab: FC<SortableTabProps> = ({
                     onActivate={onActivate}
                     onClose={onClose}
                 />
-            </TabContextMenu>
-        </div>
+            </div>
+        </TabContextMenu>
     )
 }

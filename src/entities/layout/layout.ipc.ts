@@ -31,3 +31,8 @@ export const setTerminalSession = (input: { tabId: TabId; sessionId: string }) =
     unwrapResult(commands.layoutSetTerminalSession(input.tabId, input.sessionId))
 
 export const reopenClosedTab = (projectId: ProjectId) => unwrapResult(commands.layoutReopenClosed(projectId))
+
+export const openUntitledTab = (input: { projectId: ProjectId; target: PaneId | null }) =>
+    unwrapResult(commands.layoutOpenUntitled(input.projectId, input.target))
+
+export const convertUntitledTab = (input: { tabId: TabId; path: string }) => unwrapResult(commands.layoutConvertUntitled(input.tabId, input.path))

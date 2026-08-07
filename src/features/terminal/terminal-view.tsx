@@ -9,16 +9,20 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { resolveImeInput } from '@shared/lib/ime-input'
-import { DEFAULT_SCROLLBACK } from '@shared/constants/terminal'
 
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void
 }
 
+export type TerminalCursorStyle = 'bar' | 'block' | 'underline'
+
 export type TerminalViewProps = {
     fontSize: number
     fontFamily: string
     theme: ITheme
+    scrollback: number
+    cursorStyle: TerminalCursorStyle
+    cursorBlink: boolean
     onData: (data: string) => void
     onResize: (cols: number, rows: number) => void
     onReady: (cols: number, rows: number) => void
@@ -26,7 +30,19 @@ export type TerminalViewProps = {
     attachRef: RefObject<TerminalAttachHandle | null>
 }
 
-export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, theme, onData, onResize, onReady, onWriteBacklogChange, attachRef }) => {
+export const TerminalView: FC<TerminalViewProps> = ({
+    fontSize,
+    fontFamily,
+    theme,
+    scrollback,
+    cursorStyle,
+    cursorBlink,
+    onData,
+    onResize,
+    onReady,
+    onWriteBacklogChange,
+    attachRef,
+}) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const termRef = useRef<Terminal | null>(null)
     const fitRef = useRef<FitAddon | null>(null)
@@ -38,6 +54,9 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, them
     const initialFontSizeRef = useRef(fontSize)
     const initialFontFamilyRef = useRef(fontFamily)
     const initialThemeRef = useRef(theme)
+    const initialScrollbackRef = useRef(scrollback)
+    const initialCursorStyleRef = useRef(cursorStyle)
+    const initialCursorBlinkRef = useRef(cursorBlink)
 
     useEffect(() => {
         onDataRef.current = onData
@@ -68,6 +87,24 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, them
     }, [theme])
 
     useEffect(() => {
+        const term = termRef.current
+        if (!term) return
+        term.options.scrollback = scrollback
+    }, [scrollback])
+
+    useEffect(() => {
+        const term = termRef.current
+        if (!term) return
+        term.options.cursorStyle = cursorStyle
+    }, [cursorStyle])
+
+    useEffect(() => {
+        const term = termRef.current
+        if (!term) return
+        term.options.cursorBlink = cursorBlink
+    }, [cursorBlink])
+
+    useEffect(() => {
         const container = containerRef.current
         if (!container) return
 
@@ -76,9 +113,9 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, them
             fontSize: initialFontSizeRef.current,
             fontFamily: initialFontFamilyRef.current,
             theme: initialThemeRef.current,
-            scrollback: DEFAULT_SCROLLBACK,
-            cursorBlink: true,
-            cursorStyle: 'bar',
+            scrollback: initialScrollbackRef.current,
+            cursorBlink: initialCursorBlinkRef.current,
+            cursorStyle: initialCursorStyleRef.current,
             macOptionIsMeta: true,
             minimumContrastRatio: 1,
             drawBoldTextInBrightColors: true,

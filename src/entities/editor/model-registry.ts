@@ -7,6 +7,9 @@ type ModelEntry = {
 
 const registry = new Map<string, ModelEntry>()
 
+const UNTITLED_URI_PREFIX = 'untitled:'
+const WINDOWS_DRIVE_PATH_PATTERN = /^[a-zA-Z]:[\\/]/
+
 export class ModelAlreadyExistsError extends Error {
     constructor(path: string) {
         super(`model already exists for path: ${path}`)
@@ -14,12 +17,20 @@ export class ModelAlreadyExistsError extends Error {
     }
 }
 
-const toKey = (path: string) => monaco.Uri.file(path).toString()
+const isAbsoluteFilePath = (path: string) => path.startsWith('/') || WINDOWS_DRIVE_PATH_PATTERN.test(path)
+
+const isUntitledPath = (path: string) => !isAbsoluteFilePath(path) && path.startsWith(UNTITLED_URI_PREFIX)
+
+const toUri = (path: string) => (isUntitledPath(path) ? monaco.Uri.parse(path) : monaco.Uri.file(path))
+
+const toKey = (path: string) => toUri(path).toString()
+
+export const toUntitledModelPath = (tabId: string) => `${UNTITLED_URI_PREFIX}${tabId}`
 
 export const getModel = (path: string) => registry.get(toKey(path))?.model
 
 export const createModel = (path: string, content: string, languageId: string) => {
-    const uri = monaco.Uri.file(path)
+    const uri = toUri(path)
     const key = uri.toString()
     if (registry.has(key) || monaco.editor.getModel(uri)) throw new ModelAlreadyExistsError(path)
 

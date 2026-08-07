@@ -1,6 +1,6 @@
 import type { FC, KeyboardEvent } from 'react'
-import { useState } from 'react'
-import { CaseSensitive, Loader2, Replace, ReplaceAll, Search, WholeWord, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { CaseSensitive, ChevronRight, Loader2, Regex, ReplaceAll, Search, WholeWord, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { SearchMatchRowData } from '@features/search/search-match-row'
 import { SearchMatchRow } from '@features/search/search-match-row'
@@ -35,6 +35,8 @@ type SearchPanelProps = {
     onCaseSensitiveChange: (value: boolean) => void
     wholeWord: boolean
     onWholeWordChange: (value: boolean) => void
+    regex: boolean
+    onRegexChange: (value: boolean) => void
     onSubmit: () => void
     isSearching: boolean
     totalMatches: number
@@ -44,6 +46,8 @@ type SearchPanelProps = {
     isReplacing: boolean
     scopePath: string | null
     onClearScope: () => void
+    openReplace: boolean
+    openNonce: number
 }
 
 const toggleInSet = (set: Set<string>, value: string) => {
@@ -63,6 +67,8 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     onCaseSensitiveChange,
     wholeWord,
     onWholeWordChange,
+    regex,
+    onRegexChange,
     onSubmit,
     isSearching,
     totalMatches,
@@ -72,13 +78,22 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     isReplacing,
     scopePath,
     onClearScope,
+    openReplace,
+    openNonce,
 }) => {
     const { t } = useTranslation()
+    const queryInputRef = useRef<HTMLInputElement>(null)
     const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
     const [replaceOpen, setReplaceOpen] = useState(false)
     const [replaceText, setReplaceText] = useState('')
     const [excludedPaths, setExcludedPaths] = useState<Set<string>>(new Set())
     const [confirmOpen, setConfirmOpen] = useState(false)
+    const [appliedOpenNonce, setAppliedOpenNonce] = useState(openNonce)
+
+    if (openNonce !== appliedOpenNonce) {
+        setAppliedOpenNonce(openNonce)
+        if (openReplace) setReplaceOpen(true)
+    }
 
     const hasQuery = query.trim().length > 0
     const hasResults = results.length > 0
@@ -96,6 +111,11 @@ export const SearchPanel: FC<SearchPanelProps> = ({
         setConfirmOpen(false)
     }
 
+    useEffect(() => {
+        queryInputRef.current?.focus()
+        queryInputRef.current?.select()
+    }, [openNonce])
+
     return (
         <div className='bg-panel-background flex h-full min-h-0 w-full flex-col'>
             <div className='border-app-border flex shrink-0 flex-col gap-1.5 border-b px-2 py-1.5'>
@@ -105,17 +125,13 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                         aria-label={t('search.replaceToggle')}
                         aria-pressed={replaceOpen}
                         onClick={() => setReplaceOpen(!replaceOpen)}
-                        className={cn(
-                            'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm',
-                            replaceOpen
-                                ? 'bg-explorer-item-selected text-app-foreground'
-                                : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                        )}>
-                        <Replace className='size-3.5' />
+                        className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm'>
+                        <ChevronRight className={cn('size-3.5 transition-transform', replaceOpen && 'rotate-90')} />
                     </button>
                     <div className='flex min-w-0 flex-1 flex-col gap-1'>
                         <div className='bg-panel-input-background border-panel-input-border focus-within:border-app-focus-border flex items-center rounded-sm border'>
                             <input
+                                ref={queryInputRef}
                                 value={query}
                                 onChange={(event) => onQueryChange(event.target.value)}
                                 onKeyDown={handleKeyDown}
@@ -141,12 +157,25 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                 aria-pressed={wholeWord}
                                 onClick={() => onWholeWordChange(!wholeWord)}
                                 className={cn(
-                                    'mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm',
+                                    'flex size-6 shrink-0 items-center justify-center rounded-sm',
                                     wholeWord
                                         ? 'bg-explorer-item-selected text-app-foreground'
                                         : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
                                 )}>
                                 <WholeWord className='size-3.5' />
+                            </button>
+                            <button
+                                type='button'
+                                aria-label={t('search.regex')}
+                                aria-pressed={regex}
+                                onClick={() => onRegexChange(!regex)}
+                                className={cn(
+                                    'mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm',
+                                    regex
+                                        ? 'bg-explorer-item-selected text-app-foreground'
+                                        : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
+                                )}>
+                                <Regex className='size-3.5' />
                             </button>
                         </div>
                         {replaceOpen && (

@@ -81,15 +81,17 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
 }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
-    const [searchScope, setSearchScope] = useState<SearchPanelRequest | null>(null)
+    const [searchRequest, setSearchRequest] = useState<SearchPanelRequest | null>(null)
+    const [openNonce, setOpenNonce] = useState(0)
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
 
     useEffect(
         () =>
-            subscribeOpenSearchPanel((scope) => {
+            subscribeOpenSearchPanel((request) => {
                 setView('search')
-                setSearchScope(scope)
+                setSearchRequest(request)
+                setOpenNonce((nonce) => nonce + 1)
             }),
         [],
     )
@@ -167,8 +169,11 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                     <SearchPanelContainer
                         projectId={projectId}
                         onOpenMatch={onOpenSearchMatch}
-                        includeGlob={searchScope?.includeGlob ?? null}
-                        onClearScope={() => setSearchScope(null)}
+                        includeGlob={searchRequest?.includeGlob ?? null}
+                        onClearScope={() => setSearchRequest((current) => (current ? { ...current, includeGlob: null } : null))}
+                        seedText={searchRequest?.seedText ?? null}
+                        openReplace={searchRequest?.openReplace ?? false}
+                        openNonce={openNonce}
                     />
                 )}
                 {view === 'git' && <GitPanelContainer projectId={projectId} />}

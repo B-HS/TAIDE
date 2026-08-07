@@ -5,10 +5,76 @@ import {
     buildThemeColors,
     buildTokenRules,
     InvalidHexColorError,
+    MONACO_COLOR_SOURCE,
     toMonacoFontStyle,
     toRuleForeground,
     toThemeColor,
 } from '@shared/lib/monaco/theme'
+
+const VALID_TAIDE_COLOR_TOKENS = new Set([
+    'app.background',
+    'app.foreground',
+    'app.border',
+    'app.focusBorder',
+    'app.shadow',
+    'app.accent',
+    'appSidebar.iconDefault',
+    'appSidebar.badge',
+    'explorer.indentGuide',
+    'panel.background',
+    'panel.sectionHeader',
+    'editor.background',
+    'editor.foreground',
+    'editor.lineHighlight',
+    'editor.cursor',
+    'editor.selection',
+    'editor.inactiveSelection',
+    'editor.lineNumber',
+    'editor.lineNumberActive',
+    'editor.indentGuide',
+    'editor.whitespace',
+    'editor.bracketMatch',
+    'editor.findMatch',
+    'editor.findMatchHighlight',
+    'editor.hoverBackground',
+    'editor.widgetBackground',
+    'editor.widgetBorder',
+    'editorGutter.addedBackground',
+    'editorGutter.modifiedBackground',
+    'editorGutter.deletedBackground',
+    'editorBlame.foreground',
+    'diff.insertedBackground',
+    'diff.insertedLineBackground',
+    'diff.removedBackground',
+    'diff.removedLineBackground',
+    'diff.border',
+    'terminal.linkForeground',
+    'statusIndicator.info',
+    'statusIndicator.warning',
+    'statusIndicator.error',
+    'menu.background',
+    'menu.border',
+    'menu.itemHover',
+    'menu.separator',
+    'popover.background',
+    'popover.border',
+    'modal.background',
+    'scrollbar.thumb',
+    'scrollbar.thumbHover',
+    'input.background',
+    'input.foreground',
+    'input.border',
+    'input.placeholder',
+    'button.background',
+    'button.foreground',
+    'button.hoverBackground',
+    'button.primaryBackground',
+    'button.primaryForeground',
+    'list.background',
+    'list.hoverBackground',
+    'list.activeBackground',
+    'list.foreground',
+])
 
 const baseTheme: ResolvedTheme = {
     id: 'taide-dark',
@@ -100,7 +166,37 @@ describe('buildThemeColors', () => {
 
     test('테마에 없는 색은 결과에서 생략한다', () => {
         const colors = buildThemeColors({ 'editor.background': '#1e1e2e' })
-        expect(Object.keys(colors)).toEqual(['editor.background'])
+        const expectedKeys = Object.entries(MONACO_COLOR_SOURCE)
+            .filter(([, taideToken]) => taideToken === 'editor.background')
+            .map(([monacoColorId]) => monacoColorId)
+        expect(Object.keys(colors).sort()).toEqual(expectedKeys.sort())
+        expect(new Set(Object.values(colors))).toEqual(new Set(['#1e1e2e']))
+    })
+
+    test('하나의 TAIDE 토큰이 여러 Monaco 위젯 키를 동시에 채운다', () => {
+        const colors = buildThemeColors({ 'editor.widgetBackground': '#181825' })
+        expect(colors['editorWidget.background']).toBe('#181825')
+        expect(colors['editorSuggestWidget.background']).toBe('#181825')
+        expect(colors['peekViewTitle.background']).toBe('#181825')
+    })
+
+    test('peek(references) 결과 리스트 색을 내보낸다', () => {
+        const colors = buildThemeColors({ 'list.background': '#11111b', 'list.activeBackground': '#313244' })
+        expect(colors['peekViewResult.background']).toBe('#11111b')
+        expect(colors['peekViewResult.selectionBackground']).toBe('#313244')
+    })
+
+    test('hex 가 아닌 값(transparent)은 예외 없이 건너뛴다', () => {
+        expect(() => buildThemeColors({ 'editor.background': 'transparent', 'scrollbar.track': 'transparent' })).not.toThrow()
+        const colors = buildThemeColors({ 'editor.background': 'transparent', 'scrollbar.track': 'transparent' })
+        expect(Object.keys(colors)).toHaveLength(0)
+    })
+})
+
+describe('MONACO_COLOR_SOURCE', () => {
+    test('모든 TAIDE 토큰 값이 유효한 토큰 집합에 속한다', () => {
+        const invalidEntries = Object.entries(MONACO_COLOR_SOURCE).filter(([, taideToken]) => !VALID_TAIDE_COLOR_TOKENS.has(taideToken))
+        expect(invalidEntries).toEqual([])
     })
 })
 

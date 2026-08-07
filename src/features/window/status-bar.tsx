@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { Activity, CheckCircle2, CircleX, Plug, PlugZap, SquareTerminal, Type, XCircle } from 'lucide-react'
+import { Activity, CheckCircle2, CircleX, Plug, PlugZap, SquareTerminal, Type, Unplug, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { IdeStatus, SystemUsage } from '@shared/api/bindings'
 import { BYTES_PER_MEBIBYTE } from '@shared/constants/system-usage'
@@ -11,6 +11,26 @@ type LspSummary = {
     total: number
     hasCrashed: boolean
 }
+
+type IdeConnectionState = 'connected' | 'waiting' | 'notRunning'
+
+const resolveIdeConnectionState = (status: IdeStatus | null): IdeConnectionState => {
+    if (status?.connected) return 'connected'
+    if (status?.running) return 'waiting'
+    return 'notRunning'
+}
+
+const IDE_STATE_ICON = {
+    connected: PlugZap,
+    waiting: Plug,
+    notRunning: Unplug,
+} as const
+
+const IDE_STATE_LABEL_KEY = {
+    connected: 'ide.connected',
+    waiting: 'ide.starting',
+    notRunning: 'ide.disconnected',
+} as const
 
 type StatusBarProps = {
     lspSummary: LspSummary | null
@@ -47,6 +67,10 @@ export const StatusBar: FC<StatusBarProps> = ({
 }) => {
     const { t } = useTranslation()
 
+    const ideConnectionState = resolveIdeConnectionState(ideStatus)
+    const IdeStateIcon = IDE_STATE_ICON[ideConnectionState]
+    const ideTitle = ideConnectionState === 'notRunning' ? undefined : t('ide.title', { port: ideStatus?.port ?? 0 })
+
     return (
         <div className='bg-app-sidebar-background border-app-border text-app-sidebar-icon-default flex h-6 shrink-0 items-center justify-between gap-3 border-t px-2 text-[11px] select-none'>
             <div className='flex min-w-0 items-center gap-3'>
@@ -69,17 +93,15 @@ export const StatusBar: FC<StatusBarProps> = ({
                         {t('window.lspStatus', { running: lspSummary.running, total: lspSummary.total })}
                     </span>
                 )}
-                {ideStatus?.running && (
-                    <span
-                        className={cn(
-                            'flex shrink-0 items-center gap-1',
-                            ideStatus.connected ? 'text-status-success' : 'text-app-sidebar-icon-default',
-                        )}
-                        title={t('ide.title', { port: ideStatus.port })}>
-                        {ideStatus.connected ? <PlugZap className='size-3' /> : <Plug className='size-3' />}
-                        {t(ideStatus.connected ? 'ide.connected' : 'ide.disconnected')}
-                    </span>
-                )}
+                <span
+                    className={cn(
+                        'flex shrink-0 items-center gap-1',
+                        ideConnectionState === 'connected' ? 'text-status-success' : 'text-app-sidebar-icon-default',
+                    )}
+                    title={ideTitle}>
+                    <IdeStateIcon className='size-3' />
+                    {t(IDE_STATE_LABEL_KEY[ideConnectionState])}
+                </span>
             </div>
             <div className='flex shrink-0 items-center gap-3'>
                 {systemUsage && (

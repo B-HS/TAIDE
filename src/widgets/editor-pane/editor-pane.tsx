@@ -23,9 +23,11 @@ import { ideStatusQueryOptions } from '@entities/ide/ide.query'
 import { clearIdeSelection, setIdeSelection } from '@entities/ide/ide.ipc'
 import { gitCurrentUserQueryOptions, gitGutterQueryOptions, useDiscardGitHunk } from '@entities/git/git.query'
 import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
-import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
+import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
+import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
 import { CodeEditor } from '@features/editor/code-editor'
 import { ConflictBanner } from '@features/editor/conflict-banner'
 import { MarkdownPreview } from '@features/editor/markdown-preview'
@@ -40,6 +42,11 @@ const MARKDOWN_LANGUAGE_ID = 'markdown'
 const FORMAT_DOCUMENT_ACTION_ID = 'editor.action.formatDocument'
 const TOGGLE_PREVIEW_BUTTON_CLASS =
     'text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'
+
+const DEFAULT_EDITOR_TAB_SIZE = 4
+const DEFAULT_EDITOR_RENDER_WHITESPACE: EditorRenderWhitespace = 'selection'
+const DEFAULT_EDITOR_CURSOR_STYLE: EditorCursorStyle = 'line'
+const DEFAULT_EDITOR_CURSOR_BLINKING: EditorCursorBlinkingStyle = 'blink'
 
 const GUTTER_CLASS_BY_HUNK_KIND: Record<HunkKind, string> = {
     added: 'taide-gutter-added',
@@ -82,6 +89,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const { data: currentUser } = useQuery(gitCurrentUserQueryOptions(projectId))
     const { mutate: saveFile } = useSaveFile()
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
+    const { mutate: updateSettings } = useUpdateSettings()
 
     if (path !== syncedPath) {
         setSyncedPath(path)
@@ -165,6 +173,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const handleKeepMine = () => {
         if (file) setSyncedContent(file.content)
     }
+
+    const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
     useLspSession({
         projectId,
@@ -315,10 +325,22 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
             fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
             minimap={settings?.editorMinimap ?? true}
+            wordWrap={settings?.editorWordWrap ?? false}
+            lineNumbers={settings?.editorLineNumbers ?? true}
+            tabSize={settings?.editorTabSize ?? DEFAULT_EDITOR_TAB_SIZE}
+            insertSpaces={settings?.editorInsertSpaces ?? true}
+            detectIndentation={settings?.editorDetectIndentation ?? true}
+            renderWhitespace={(settings?.editorRenderWhitespace ?? DEFAULT_EDITOR_RENDER_WHITESPACE) as EditorRenderWhitespace}
+            bracketPairColorization={settings?.editorBracketPairColorization ?? true}
+            fontLigatures={settings?.editorFontLigatures ?? false}
+            cursorStyle={(settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE) as EditorCursorStyle}
+            cursorBlinking={(settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING) as EditorCursorBlinkingStyle}
+            scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}
             onEditorMount={setEditor}
+            onMinimapToggle={handleMinimapToggle}
         />
     )
 

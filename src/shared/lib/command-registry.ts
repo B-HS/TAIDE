@@ -71,7 +71,7 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
     { id: 'tab.close', titleKey: 'keymap.closeTab', keymapId: 'close-tab', run: notImplementedRun, isEnabled: alwaysDisabled },
     { id: 'view.toggleSidebar', titleKey: 'keymap.toggleSidebar', keymapId: 'toggle-sidebar', run: notImplementedRun, isEnabled: alwaysDisabled },
     { id: 'editor.find', titleKey: 'keymap.find', keymapId: 'find', run: notImplementedRun, isEnabled: alwaysDisabled },
-    { id: 'search.find', titleKey: 'keymap.search', keymapId: 'search', run: notImplementedRun, isEnabled: alwaysDisabled },
+    { id: 'search.find', titleKey: 'keymap.search', keymapId: 'search', run: () => requestOpenSearchPanel() },
     { id: 'search.replace', titleKey: 'keymap.searchReplace', keymapId: 'search-replace', run: () => requestOpenSearchPanel({ openReplace: true }) },
     { id: 'view.explorer', titleKey: 'keymap.explorer', keymapId: 'explorer', run: notImplementedRun, isEnabled: alwaysDisabled },
     { id: 'view.git', titleKey: 'git.title', keymapId: 'git', run: notImplementedRun, isEnabled: alwaysDisabled },

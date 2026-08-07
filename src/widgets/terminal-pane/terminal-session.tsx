@@ -13,8 +13,11 @@ import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { findPaneTab } from '@shared/lib/pane-tree'
-import { DEFAULT_FONT_SIZE } from '@shared/constants/terminal'
+import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/terminal'
+import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
+
+const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
 
 type TerminalSessionProps = {
     projectId: ProjectId
@@ -103,6 +106,9 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
             fontSize={settings?.terminalFontSize ?? DEFAULT_FONT_SIZE}
             fontFamily={buildMonospaceFontStack(settings?.terminalFontFamily ?? null)}
             theme={toXtermTheme(theme)}
+            scrollback={settings?.terminalScrollback ?? DEFAULT_SCROLLBACK}
+            cursorStyle={(settings?.terminalCursorStyle ?? DEFAULT_TERMINAL_CURSOR_STYLE) as TerminalCursorStyle}
+            cursorBlink={settings?.terminalCursorBlink ?? true}
             onWrite={handleWrite}
             onResize={handleResize}
             onReady={handleReady}

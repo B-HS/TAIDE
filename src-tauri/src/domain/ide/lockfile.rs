@@ -94,6 +94,55 @@ pub fn remove_lockfile(dir: &Path, port: u32) -> AppResult<()> {
     }
 }
 
+fn is_pid_alive(pid: u32) -> bool {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+        true,
+        sysinfo::ProcessRefreshKind::nothing(),
+    );
+    system.process(sysinfo::Pid::from_u32(pid)).is_some()
+}
+
+/// Removes lockfiles left behind by TAIDE processes that no longer exist.
+///
+/// Only files that parse as `IdeLockfileContent`, name TAIDE as the owner, and
+/// reference a dead pid (never the caller's own pid) are removed. Unparseable
+/// files and lockfiles owned by other IDEs are always left untouched so that
+/// another editor's Claude Code integration is never disturbed.
+pub fn cleanup_stale_lockfiles(dir: &Path, current_pid: u32) -> AppResult<u32> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(AppError::from(error)),
+    };
+
+    let mut removed = 0u32;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("lock") {
+            continue;
+        }
+
+        let Ok(raw) = std::fs::read_to_string(&path) else { continue };
+        let Ok(content) = serde_json::from_str::<IdeLockfileContent>(&raw) else {
+            continue;
+        };
+        if content.ide_name != IDE_NAME || content.pid == current_pid || is_pid_alive(content.pid) {
+            continue;
+        }
+
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                removed += 1;
+                log::info!("정지된 IDE lockfile 정리: pid={}", content.pid);
+            }
+            Err(error) => log::warn!("정지된 IDE lockfile 삭제 실패: {error}"),
+        }
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +224,80 @@ mod tests {
         assert_eq!(dir_mode, LOCKFILE_DIR_MODE);
         assert_eq!(file_mode, LOCKFILE_FILE_MODE);
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    fn stale_cleanup_test_dir() -> PathBuf {
+        std::env::temp_dir().join(format!("taide-ide-lock-stale-test-{}", uuid::Uuid::new_v4()))
+    }
+
+    fn spawn_and_reap_dead_pid() -> u32 {
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("spawn 'true' for a disposable pid");
+        let pid = child.id();
+        child.wait().expect("reap the disposable process");
+        pid
+    }
+
+    #[test]
+    fn 죽은_taide_lock은_정리된다() {
+        let tmp = stale_cleanup_test_dir();
+        let dead_pid = spawn_and_reap_dead_pid();
+        let content = build_lockfile_content(dead_pid, vec!["/repo".to_string()], "a".repeat(32));
+        write_lockfile_atomic(&tmp, 60001, &content).unwrap();
+
+        let removed = cleanup_stale_lockfiles(&tmp, std::process::id()).unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(!lockfile_path(&tmp, 60001).exists());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn 살아있는_pid의_lock은_보존된다() {
+        let tmp = stale_cleanup_test_dir();
+        let alive_pid = std::process::id();
+        let content = build_lockfile_content(alive_pid, vec!["/repo".to_string()], "a".repeat(32));
+        write_lockfile_atomic(&tmp, 60002, &content).unwrap();
+
+        let removed = cleanup_stale_lockfiles(&tmp, alive_pid.wrapping_add(1)).unwrap();
+
+        assert_eq!(removed, 0);
+        assert!(lockfile_path(&tmp, 60002).exists());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn 타_ide의_lock은_pid가_죽었어도_보존된다() {
+        let tmp = stale_cleanup_test_dir();
+        let dead_pid = spawn_and_reap_dead_pid();
+        let mut content = build_lockfile_content(dead_pid, vec!["/repo".to_string()], "a".repeat(32));
+        content.ide_name = "OtherIDE".to_string();
+        write_lockfile_atomic(&tmp, 60003, &content).unwrap();
+
+        let removed = cleanup_stale_lockfiles(&tmp, std::process::id()).unwrap();
+
+        assert_eq!(removed, 0);
+        assert!(lockfile_path(&tmp, 60003).exists());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn 깨진_json_lock은_보존된다() {
+        let tmp = stale_cleanup_test_dir();
+        create_private_dir(&tmp).unwrap();
+        std::fs::write(tmp.join("60004.lock"), "not json").unwrap();
+
+        let removed = cleanup_stale_lockfiles(&tmp, std::process::id()).unwrap();
+
+        assert_eq!(removed, 0);
+        assert!(tmp.join("60004.lock").exists());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn 디렉터리가_없으면_0을_반환한다() {
+        let tmp = stale_cleanup_test_dir();
+        assert_eq!(cleanup_stale_lockfiles(&tmp, std::process::id()).unwrap(), 0);
     }
 }

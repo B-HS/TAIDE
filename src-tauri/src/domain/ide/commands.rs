@@ -319,13 +319,20 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
     let workspace_folders = service::workspace_folders(&state.projects.read());
     let token = service::generate_auth_token();
     let dir = lockfile::lockfile_dir()?;
+    let current_pid = std::process::id();
+
+    match lockfile::cleanup_stale_lockfiles(&dir, current_pid) {
+        Ok(0) => {}
+        Ok(removed) => log::info!("정지된 IDE lockfile {removed}개 정리"),
+        Err(error) => log::warn!("정지된 IDE lockfile 정리 실패: {error}"),
+    }
 
     let mut last_error: Option<std::io::Error> = None;
     for _ in 0..IDE_PORT_BIND_MAX_ATTEMPTS {
         let candidate_port = service::random_port();
         match tokio::net::TcpListener::bind(("127.0.0.1", candidate_port as u16)).await {
             Ok(listener) => {
-                let content = lockfile::build_lockfile_content(std::process::id(), workspace_folders, token.clone());
+                let content = lockfile::build_lockfile_content(current_pid, workspace_folders, token.clone());
                 lockfile::write_lockfile_atomic(&dir, candidate_port, &content)?;
 
                 let app_for_loop = app.clone();
@@ -335,7 +342,8 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
                 });
 
                 let ide = app.state::<IdeStore>();
-                let status = ide.mark_started(candidate_port, token, dir, server_handle);
+                let status = ide.mark_started(candidate_port, token, dir.clone(), server_handle);
+                log::info!("IDE 서버 기동: port={candidate_port}, lockfile={}", dir.display());
                 let _ = IdeStatusChanged { status }.emit(app);
                 return Ok(status);
             }

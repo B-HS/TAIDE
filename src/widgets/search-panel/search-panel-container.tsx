@@ -12,6 +12,9 @@ type SearchPanelContainerProps = {
     onOpenMatch: (path: string) => void
     includeGlob: string | null
     onClearScope: () => void
+    seedText: string | null
+    openReplace: boolean
+    openNonce: number
 }
 
 const SCOPE_GLOB_SUFFIX = /\/\*\*$/
@@ -26,17 +29,32 @@ const groupMatches = (matches: SearchMatch[]) => {
     return [...byPath.values()]
 }
 
-export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId, onOpenMatch, includeGlob, onClearScope }) => {
+export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
+    projectId,
+    onOpenMatch,
+    includeGlob,
+    onClearScope,
+    seedText,
+    openReplace,
+    openNonce,
+}) => {
     const { t } = useTranslation()
     const [query, setQuery] = useState('')
     const [caseSensitive, setCaseSensitive] = useState(false)
     const [wholeWord, setWholeWord] = useState(false)
+    const [regex, setRegex] = useState(false)
     const [results, setResults] = useState<SearchResultGroup[]>([])
     const [totalMatches, setTotalMatches] = useState(0)
     const [isSearching, setIsSearching] = useState(false)
     const [isReplacing, setIsReplacing] = useState(false)
+    const [seededNonce, setSeededNonce] = useState(openNonce)
 
     const scopePath = includeGlob ? includeGlob.replace(SCOPE_GLOB_SUFFIX, '') : null
+
+    if (openNonce !== seededNonce) {
+        setSeededNonce(openNonce)
+        if (seedText) setQuery(seedText)
+    }
 
     const handleSubmit = () => {
         if (!query.trim()) return
@@ -50,7 +68,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
 
         void runSearch({
             projectId,
-            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob, excludeGlob: null },
+            query: { text: query, caseSensitive, wholeWord, regex, includeGlob, excludeGlob: null },
             onMatch: (match) => {
                 collected.push(match)
                 setResults(groupMatches(collected))
@@ -66,7 +84,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
         setIsReplacing(true)
         void replaceSearch({
             projectId,
-            query: { text: query, caseSensitive, wholeWord, regex: false, includeGlob, excludeGlob: null },
+            query: { text: query, caseSensitive, wholeWord, regex, includeGlob, excludeGlob: null },
             replacement: input.replacement,
             paths: input.paths.length > 0 ? input.paths : null,
         })
@@ -86,6 +104,8 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
             onCaseSensitiveChange={setCaseSensitive}
             wholeWord={wholeWord}
             onWholeWordChange={setWholeWord}
+            regex={regex}
+            onRegexChange={setRegex}
             onSubmit={handleSubmit}
             isSearching={isSearching}
             totalMatches={totalMatches}
@@ -95,6 +115,8 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({ projectId,
             isReplacing={isReplacing}
             scopePath={scopePath}
             onClearScope={onClearScope}
+            openReplace={openReplace}
+            openNonce={openNonce}
         />
     )
 }

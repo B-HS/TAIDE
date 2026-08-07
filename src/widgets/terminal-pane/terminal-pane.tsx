@@ -2,7 +2,7 @@ import type { FC } from 'react'
 import { useEffect, useRef } from 'react'
 import type { ITheme } from '@xterm/xterm'
 import { TerminalView } from '@features/terminal/terminal-view'
-import type { TerminalAttachHandle } from '@features/terminal/terminal-view'
+import type { TerminalAttachHandle, TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { INITIAL_FLOW_CONTROL_STATE, evaluateFlowControl, shouldTogglePause } from '@widgets/terminal-pane/terminal-flow-control'
 
 export type TerminalPaneProps = {
@@ -10,6 +10,9 @@ export type TerminalPaneProps = {
     fontSize: number
     fontFamily: string
     theme: ITheme
+    scrollback: number
+    cursorStyle: TerminalCursorStyle
+    cursorBlink: boolean
     onWrite: (data: string) => void
     onResize: (cols: number, rows: number) => void
     onReady: (cols: number, rows: number) => void
@@ -22,6 +25,9 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     fontSize,
     fontFamily,
     theme,
+    scrollback,
+    cursorStyle,
+    cursorBlink,
     onWrite,
     onResize,
     onReady,
@@ -68,6 +74,9 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
             fontSize={fontSize}
             fontFamily={fontFamily}
             theme={theme}
+            scrollback={scrollback}
+            cursorStyle={cursorStyle}
+            cursorBlink={cursorBlink}
             onData={handleData}
             onResize={handleResize}
             onReady={handleReady}

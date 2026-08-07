@@ -4,29 +4,35 @@ import { useTranslation } from 'react-i18next'
 import { monaco } from '@shared/lib/monaco/setup'
 import { createModel, getModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
+export type EditorCursorStyle = 'line' | 'block' | 'underline'
+export type EditorCursorBlinkingStyle = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid'
+export type EditorRenderWhitespace = 'none' | 'boundary' | 'selection' | 'all'
+
 export type CodeEditorProps = {
     path: string
     language: string
     value: string
     readOnly: boolean
     largeFile: boolean
-    minimap?: boolean
+    minimap: boolean
     fontFamily: string
     fontSize: number
+    wordWrap: boolean
+    lineNumbers: boolean
+    tabSize: number
+    insertSpaces: boolean
+    detectIndentation: boolean
+    renderWhitespace: EditorRenderWhitespace
+    bracketPairColorization: boolean
+    fontLigatures: boolean
+    cursorStyle: EditorCursorStyle
+    cursorBlinking: EditorCursorBlinkingStyle
+    scrollBeyondLastLine: boolean
     onChange: (value: string) => void
     onSave: () => void
     onCursorLineChange: (line: number) => void
     onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor | null) => void
-}
-
-const LARGE_FILE_EDITOR_OPTIONS: monaco.editor.IEditorOptions = {
-    folding: false,
-    bracketPairColorization: { enabled: false },
-}
-
-const DEFAULT_EDITOR_OPTIONS: monaco.editor.IEditorOptions = {
-    folding: true,
-    bracketPairColorization: { enabled: true },
+    onMinimapToggle: (enabled: boolean) => void
 }
 
 const TOGGLE_MINIMAP_ACTION_ID = 'taide.toggleMinimap'
@@ -41,10 +47,22 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     minimap,
     fontFamily,
     fontSize,
+    wordWrap,
+    lineNumbers,
+    tabSize,
+    insertSpaces,
+    detectIndentation,
+    renderWhitespace,
+    bracketPairColorization,
+    fontLigatures,
+    cursorStyle,
+    cursorBlinking,
+    scrollBeyondLastLine,
     onChange,
     onSave,
     onCursorLineChange,
     onEditorMount,
+    onMinimapToggle,
 }) => {
     const { t } = useTranslation()
     const containerRef = useRef<HTMLDivElement>(null)
@@ -53,17 +71,21 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     const valueRef = useRef(value)
     const initialFontFamilyRef = useRef(fontFamily)
     const initialFontSizeRef = useRef(fontSize)
+    const minimapRef = useRef(minimap)
     const onChangeRef = useRef(onChange)
     const onSaveRef = useRef(onSave)
     const onCursorLineChangeRef = useRef(onCursorLineChange)
     const onEditorMountRef = useRef(onEditorMount)
+    const onMinimapToggleRef = useRef(onMinimapToggle)
 
     useEffect(() => {
         valueRef.current = value
+        minimapRef.current = minimap
         onChangeRef.current = onChange
         onSaveRef.current = onSave
         onCursorLineChangeRef.current = onCursorLineChange
         onEditorMountRef.current = onEditorMount
+        onMinimapToggleRef.current = onMinimapToggle
     })
 
     useEffect(() => {
@@ -108,21 +130,44 @@ export const CodeEditor: FC<CodeEditorProps> = ({
             label: t('editor.toggleMinimap'),
             contextMenuGroupId: 'navigation',
             contextMenuOrder: TOGGLE_MINIMAP_CONTEXT_MENU_ORDER,
-            run: (instance) => {
-                const enabled = instance.getOption(monaco.editor.EditorOption.minimap).enabled
-                instance.updateOptions({ minimap: { enabled: !enabled } })
-            },
+            run: () => onMinimapToggleRef.current(!minimapRef.current),
         })
         return () => toggleMinimapAction.dispose()
     }, [t])
 
     useEffect(() => {
-        editorRef.current?.updateOptions(largeFile ? LARGE_FILE_EDITOR_OPTIONS : DEFAULT_EDITOR_OPTIONS)
-    }, [largeFile])
+        editorRef.current?.updateOptions({ folding: !largeFile, bracketPairColorization: { enabled: bracketPairColorization && !largeFile } })
+    }, [largeFile, bracketPairColorization])
 
     useEffect(() => {
-        editorRef.current?.updateOptions({ minimap: { enabled: (minimap ?? true) && !largeFile } })
+        editorRef.current?.updateOptions({ minimap: { enabled: minimap && !largeFile } })
     }, [minimap, largeFile])
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({
+            wordWrap: wordWrap ? 'on' : 'off',
+            lineNumbers: lineNumbers ? 'on' : 'off',
+            tabSize,
+            insertSpaces,
+            detectIndentation,
+            renderWhitespace,
+            fontLigatures,
+            cursorStyle,
+            cursorBlinking,
+            scrollBeyondLastLine,
+        })
+    }, [
+        wordWrap,
+        lineNumbers,
+        tabSize,
+        insertSpaces,
+        detectIndentation,
+        renderWhitespace,
+        fontLigatures,
+        cursorStyle,
+        cursorBlinking,
+        scrollBeyondLastLine,
+    ])
 
     useEffect(() => {
         editorRef.current?.updateOptions({ readOnly })

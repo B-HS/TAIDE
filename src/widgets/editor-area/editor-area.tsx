@@ -67,9 +67,24 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         requestOpenSearchPanel()
     }
 
+    const openGlobalSearch = () => {
+        const focusedEditor = monaco.editor.getEditors().find((instance) => instance.hasTextFocus())
+        const selection = focusedEditor?.getSelection()
+        const selectedText = selection && !selection.isEmpty() ? (focusedEditor?.getModel()?.getValueInRange(selection) ?? null) : null
+        requestOpenSearchPanel({ seedText: selectedText && !selectedText.includes('\n') ? selectedText : null })
+    }
+
     const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
 
-    useGlobalKeymap({ 'close-tab': closeFocusedTab, find: openFind }, keymapEntries)
+    useGlobalKeymap(
+        {
+            'close-tab': closeFocusedTab,
+            find: openFind,
+            search: openGlobalSearch,
+            'search-replace': () => requestOpenSearchPanel({ openReplace: true }),
+        },
+        keymapEntries,
+    )
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 
