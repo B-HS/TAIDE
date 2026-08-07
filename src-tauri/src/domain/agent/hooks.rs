@@ -38,15 +38,12 @@ pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServ
     Ok(info)
 }
 
-/// 설정에서 hooks 를 끄면 리스너를 실제로 내린다 — 토글이 재시작 전까지 무효이던 문제를 막는다.
 pub fn stop_hooks_server(app: &AppHandle) {
     if let Some(handle) = app.state::<AgentHooksStore>().take_server() {
         handle.abort();
     }
 }
 
-/// hook URL 의 포트·토큰은 실행마다 바뀌는데 프로젝트 파일에는 영구 기록된다.
-/// 서버가 새로 뜬 뒤 열려 있는 프로젝트의 기록을 현재 URL 로 맞춰, 재시작 후 훅이 조용히 죽는 것을 막는다.
 pub async fn reconcile_installed_hooks(app: &AppHandle) {
     let is_enabled = app.state::<AppState>().settings.read().agent_hooks_enabled;
     if !is_enabled {
@@ -74,6 +71,30 @@ pub async fn reconcile_installed_hooks(app: &AppHandle) {
         let updated = service::inject_taide_hook_entries(value, &hook_url);
         if let Err(error) = commands::write_settings_local(&root, &updated) {
             log::warn!("hooks URL 갱신 실패 ({root}): {error}");
+        }
+    }
+}
+
+pub async fn uninstall_hooks_from_open_projects(app: &AppHandle) {
+    let roots: Vec<String> = {
+        let state = app.state::<AppState>();
+        let guard = state.projects.read();
+        guard.values().map(|project| project.root.clone()).collect()
+    };
+    remove_taide_hooks_from_roots(&roots);
+}
+
+pub fn remove_taide_hooks_from_roots(roots: &[String]) {
+    for root in roots {
+        let Ok(value) = commands::read_settings_local(root) else {
+            continue;
+        };
+        if !service::has_taide_hook_entries(&value) {
+            continue;
+        }
+        let updated = service::remove_taide_hook_entries(value);
+        if let Err(error) = commands::write_settings_local(root, &updated) {
+            log::warn!("hooks 제거 실패 ({root}): {error}");
         }
     }
 }
@@ -225,5 +246,73 @@ fn apply_hook_payload(app: &AppHandle, payload: &service::HookPayload) {
             agents: changed,
         }
         .emit(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_project_root(name: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("taide-hooks-uninstall-test-{name}-{}", uuid::Uuid::new_v4()));
+        dir.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn 훅_비활성화시_taide_항목만_제거하고_사용자_항목은_보존한다() {
+        let root = make_project_root("keep-user-hooks");
+
+        let existing = serde_json::json!({
+            "hooks": {
+                "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]
+            }
+        });
+        let injected = service::inject_taide_hook_entries(existing, "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
+        commands::write_settings_local(&root, &injected).expect("write settings");
+
+        remove_taide_hooks_from_roots(std::slice::from_ref(&root));
+
+        let after = commands::read_settings_local(&root).expect("read settings");
+        assert!(!service::has_taide_hook_entries(&after));
+        let stop_entries = after["hooks"]["Stop"].as_array().expect("stop entries");
+        assert_eq!(stop_entries.len(), 1);
+        assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo done");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn taide_항목이_없는_프로젝트는_건드리지_않는다() {
+        let root = make_project_root("no-taide-hooks");
+
+        let existing = serde_json::json!({
+            "hooks": {
+                "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]
+            }
+        });
+        commands::write_settings_local(&root, &existing).expect("write settings");
+
+        remove_taide_hooks_from_roots(std::slice::from_ref(&root));
+
+        let after = commands::read_settings_local(&root).expect("read settings");
+        assert_eq!(after, existing);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 존재하지_않는_프로젝트가_섞여도_나머지는_계속_처리한다() {
+        let missing_root = make_project_root("missing-parent-remains-absent");
+        let real_root = make_project_root("real-project");
+
+        let injected = service::inject_taide_hook_entries(serde_json::json!({}), "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
+        commands::write_settings_local(&real_root, &injected).expect("write settings");
+
+        remove_taide_hooks_from_roots(&[missing_root.clone(), real_root.clone()]);
+
+        let after = commands::read_settings_local(&real_root).expect("read settings");
+        assert!(!service::has_taide_hook_entries(&after));
+
+        std::fs::remove_dir_all(&real_root).ok();
     }
 }

@@ -53,3 +53,23 @@
   tungstenite `Callback` 트레잇의 반환 타입(`Result<Response, ErrorResponse>`)이 라이브러리
   쪽에 고정돼 있어 `ErrorResponse`(= `http::Response<Option<String>>`, 136바이트) 크기를 코드
   변경만으로 줄일 수 없다(불가피).
+
+## 6. `agentHooksEnabled` OFF 전이 시 주입분 자동 제거 (사용자가 권장안 위임)
+
+- **결정**: `settings_update` 에서 `agent_hooks_enabled` 가 true→false 로 전이하면, 리스너를
+  내리는 것(`hooks::stop_hooks_server`)에 더해 **그 시점에 열려 있는 프로젝트 전부**에서
+  `.claude/settings.local.json` 의 TAIDE 주입 hook 항목을 자동 제거한다
+  (`domain/agent/hooks.rs::uninstall_hooks_from_open_projects` 신설 — `agent_hooks_uninstall`
+  커맨드가 쓰는 `service::remove_taide_hook_entries` 를 그대로 재사용해 사용자 소유 hook·다른
+  설정은 보존한다).
+- **실패 처리**: 프로젝트별 파일 IO 는 `remove_taide_hooks_from_roots` 내부에서 개별적으로
+  흡수한다(실패 시 `log::warn!` 후 다음 프로젝트로 계속). 토글(`settings_update`) 자체는 파일
+  하나를 못 지웠다는 이유로 실패하지 않는다 — 설정 저장과 hook 정리를 같은 트랜잭션으로 묶지
+  않는다.
+- **한계(이번 범위 밖)**: 이 자동 제거는 **토글 시점에 열려 있는 프로젝트에만** 적용된다. 토글
+  이전에 hook 을 설치해 두고 이미 닫아 둔 프로젝트의 `.claude/settings.local.json` 에는 TAIDE
+  항목이 그대로 남는다 — 다음에 그 프로젝트를 열어도 별도 조치 없이는 제거되지 않는다(설정이
+  꺼져 있으므로 실행에 영향은 없지만 파일에는 잔존). 닫힌 프로젝트까지 훑는 전역 정리는
+  프로젝트 인덱스가 없는 현재 구조상 별도 설계가 필요해 범위 밖으로 뒀다.
+- **문안 확인**: `settings.agentHooksHint`(en/ko/ja)는 "이 프로젝트에만 로컬 훅을 설치한다"는
+  설치 시점 설명만 담고 있어 자동 제거 동작과 모순되지 않는다 — 3개 언어 모두 수정하지 않았다.

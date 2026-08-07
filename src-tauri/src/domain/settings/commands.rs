@@ -31,8 +31,6 @@ pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppS
     Ok(updated)
 }
 
-/// IDE 연동·hooks 토글은 설정 파일만 바꾸면 무의미하다 — 리스너를 실제로 켜고 끈다.
-/// (끄면 lockfile 과 인증 토큰이 사라지고, 켜면 즉시 대기 상태가 된다)
 async fn apply_integration_toggles(app: &tauri::AppHandle, current: &Settings, updated: &Settings) {
     if current.ide_integration_enabled != updated.ide_integration_enabled {
         let ide = app.state::<IdeStore>();
@@ -49,6 +47,7 @@ async fn apply_integration_toggles(app: &tauri::AppHandle, current: &Settings, u
         if updated.agent_hooks_enabled {
             hooks::reconcile_installed_hooks(app).await;
         } else {
+            hooks::uninstall_hooks_from_open_projects(app).await;
             hooks::stop_hooks_server(app);
         }
     }
