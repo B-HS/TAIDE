@@ -17,6 +17,7 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
         if (!theme) return
         applyThemeVariables(theme.colors, document.documentElement)
         document.documentElement.dataset.themeType = theme.type
+        document.documentElement.dataset.appearance = theme.type
         applyMonacoTheme(theme, monaco.editor)
         applyWindowAppearance(theme.type)
     }, [theme])

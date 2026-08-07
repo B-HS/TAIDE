@@ -35,7 +35,7 @@ export const ToastPositionPicker: FC<ToastPositionPickerProps> = ({ value, trans
                         aria-label={translateLabel(POSITION_LABEL_KEY[position] ?? '')}
                         title={translateLabel(POSITION_LABEL_KEY[position] ?? '')}
                         className={cn(
-                            'border-app-border hover:bg-app-sidebar-item-hover h-9 rounded-sm border',
+                            'border-app-border hover:bg-app-sidebar-item-hover h-9 rounded-md border',
                             isActive && 'border-app-focus-border bg-app-accent/20',
                         )}
                     />

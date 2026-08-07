@@ -90,7 +90,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                     className='border-app-border flex h-6 items-center gap-1.5 rounded-sm border px-1.5'
                     aria-label={t('themeEditor.pickColor')}>
                     <span
-                        className={cn('size-4 shrink-0 rounded-xs border border-black/10', isTransparent && 'bg-panel-input-background')}
+                        className={cn('size-4 shrink-0 rounded-xs border border-app-border', isTransparent && 'bg-panel-input-background')}
                         style={isTransparent ? undefined : { backgroundColor: value }}
                     />
                     <span className='text-app-foreground font-mono text-[11px]'>{isTransparent ? t('themeEditor.transparentLabel') : value}</span>

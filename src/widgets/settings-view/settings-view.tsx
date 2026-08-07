@@ -134,7 +134,7 @@ export const SettingsView = () => {
         container.scrollTo({ top, behavior: 'smooth' })
     }
 
-    if (isSettingsPending || !settings) return <div className='bg-panel-background h-full w-full' />
+    if (isSettingsPending || !settings) return <div className='bg-app-background h-full w-full' />
 
     const keymapOverrides = parseKeymapOverrides(settings.keymapOverrides ?? null)
     const effectiveKeymapEntries = applyKeymapOverrides(APP_KEYMAP, keymapOverrides)
@@ -154,13 +154,13 @@ export const SettingsView = () => {
             <ThemeEditor
                 sourceThemeId={themeEditorState.sourceThemeId}
                 mode={themeEditorState.mode}
-                existingThemeIds={themes.map((theme) => theme.id)}
+                themes={themes}
                 onClose={() => setThemeEditorState(null)}
             />
         )
 
     return (
-        <ScrollContainer viewportRef={scrollContainerRef} className='bg-panel-background text-app-foreground h-full w-full'>
+        <ScrollContainer viewportRef={scrollContainerRef} className='bg-app-background text-app-foreground h-full w-full'>
             <div className='flex flex-col gap-6 px-8 py-8'>
                 <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
 
@@ -178,7 +178,12 @@ export const SettingsView = () => {
                             {isThemesPending ? (
                                 <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
                             ) : (
-                                <ThemePicker themes={themes} activeThemeId={settings.themeId ?? ''} onSelect={setThemeId} />
+                                <ThemePicker
+                                    themes={themes}
+                                    activeThemeId={settings.themeId ?? ''}
+                                    onSelect={setThemeId}
+                                    onDuplicate={(sourceThemeId) => setThemeEditorState({ mode: 'create', sourceThemeId })}
+                                />
                             )}
                             <label className='flex items-center justify-between gap-3 text-xs'>
                                 <span className='text-app-foreground'>{t('settings.followSystemTheme')}</span>

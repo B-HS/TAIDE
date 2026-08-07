@@ -644,7 +644,19 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 
 ## 진행 중: Phase 7.8 — QA 2차 반영 (2026-08-07)
 
-- [ ] 7.8-R. 리서치 (1·4·5·6·7·8·9·11번 — 8영역 병렬 opus)
+- [x] 7.8-R. 리서치 8영역 완료 — 탭 메뉴는 7.5-C 부터 미동작(asChild+FC), CC 는 accept 기아/stale lockfile 유력,
+      테마 무반응은 토큰 37개 CSS 미매핑. 원문: 세션 scratchpad research2/
+- [x] 7.8-계약. 선행 확정 (커밋 `aa39bc4`) — 설정 15필드·Untitled(휘발, closed_tabs 차단 확정)·theme 메타·i18n 44키.
+      opus 검증 pass, minor 7건은 웨이브 A 지시에 반영
+- [x] 7.8-WA. 웨이브 A (커밋 `7b9e098`) — 탭메뉴 복구·CC 연결 안정화·Monaco 위젯 90키·검색UX·설정 15필드 배선·
+      untitled 탭. 메인 verify 재실행 통과(프론트 322·Rust 330). A2 가 소유 경계로 남긴 2건(pty env 레이스·로그 필터)은 WB-B3 으로
+- [ ] 7.8-WB. 웨이브 B — B1 디자인 정비(CSS 매핑 42·dark variant) ∥ B2 테마 프리뷰·번들 테마 9종 ∥
+      [x] B3 CC 잔여(A2 소유 경계 2건) — pty env 레이스: `pty_spawn` 이 IDE 연동 켜져있고 미기동 상태면
+      `IDE_READY_WAIT_MS`(2s) 한도 내 `IDE_READY_POLL_INTERVAL_MS`(50ms) 간격 폴링 후 env 구성(대기 판정은
+      `terminal/service.rs::should_wait_for_ide_ready` 로 분리해 단위테스트 3건, mutation guard 밖에서 대기해 다른
+      명령 블로킹 방지) · 로그필터: `lib.rs` tauri_plugin_log 에 tungstenite/tokio_tungstenite Warn 제한(TRACE 프레임
+      덤프 선택영역·파일내용 노출 차단). verify: 프론트 322 / Rust 333(+3) / clippy·fmt 0 / typecheck·lint 0
+- [ ] 7.8-검토. diff 검토(opus) → 2차(Fable) → verify → 커밋
 - [ ] 7.8-1. 파일 탭 우클릭 시 네이티브 메뉴(Reload/Inspect)가 뜸 — 커스텀 탭 메뉴 회귀 원인 조사·수정
 - [ ] 7.8-2. divider thickness 0 허용
 - [ ] 7.8-3. 미니맵 우클릭 토글이 설정에 영속되지 않아 새 탭에서 되살아남 — 토글을 settings 갱신으로

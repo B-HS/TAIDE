@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from 'react'
 import { cn } from '@shared/lib/cn'
+import { ICON_BUTTON_CLASS } from '@shared/constants/ui-class'
 
 export type GitStatusChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'typeChange' | 'conflicted'
 
@@ -70,7 +71,7 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
                                 event.stopPropagation()
                                 action.onClick()
                             }}
-                            className='flex size-4 items-center justify-center rounded-sm hover:bg-white/10'>
+                            className={cn(ICON_BUTTON_CLASS, 'size-4')}>
                             {action.icon}
                         </button>
                     ))}

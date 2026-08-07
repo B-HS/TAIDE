@@ -1,0 +1,324 @@
+{
+    "version": 1,
+    "id": "one-dark-pro",
+    "name": "One Dark Pro",
+    "type": "dark",
+    "palette": {},
+    "colors": {
+        "app.background": "#282c34",
+        "app.foreground": "#282c34",
+        "app.border": "#3e4452",
+        "app.focusBorder": "#3e4452",
+        "app.shadow": "#23252c",
+        "app.accent": "#61afef",
+        "appSidebar.background": "#282c34",
+        "appSidebar.itemHover": "#2c313a",
+        "appSidebar.itemActive": "#2c313a",
+        "appSidebar.iconDefault": "#282c34",
+        "appSidebar.iconAgentRunning": "#8cc265",
+        "appSidebar.iconAgentWorking": "#4aa5f0",
+        "appSidebar.iconAgentAwaiting": "#d18f52",
+        "appSidebar.iconAgentIdle": "#a5e075",
+        "appSidebar.iconAgentUnknown": "#abb2bf",
+        "appSidebar.badge": "#4d78cc",
+        "tabBar.background": "#21252b",
+        "tabBar.tabActiveBackground": "#282c34",
+        "tabBar.tabInactiveBackground": "#21252b",
+        "tabBar.tabActiveForeground": "#dcdcdc",
+        "tabBar.tabInactiveForeground": "#282c34",
+        "tabBar.tabBorder": "#181a1f",
+        "tabBar.tabActiveIndicator": "#b4b4b4",
+        "tabBar.dirtyDot": "#282c34",
+        "tabBar.previewForeground": "#282c34",
+        "tabBar.dropTarget": "#3e4452",
+        "explorer.background": "#21252b",
+        "explorer.itemHover": "#2c313a",
+        "explorer.itemSelected": "#2c313a",
+        "explorer.itemFocused": "#323842",
+        "explorer.indentGuide": "#ffffff1d",
+        "explorer.folderIcon": "#abb2bf",
+        "explorer.gitModified": "#282c34",
+        "explorer.gitAdded": "#282c34",
+        "explorer.gitDeleted": "#282c34",
+        "explorer.gitUntracked": "#282c34",
+        "explorer.gitIgnored": "#636b78",
+        "panel.background": "#21252b",
+        "panel.sectionHeader": "#abb2bf",
+        "panel.inputBackground": "#1d1f23",
+        "panel.inputBorder": "#21252b",
+        "panel.matchHighlight": "#ecebeb",
+        "editor.background": "#282c34",
+        "editor.foreground": "#abb2bf",
+        "editor.lineHighlight": "#2c313c",
+        "editor.cursor": "#528bff",
+        "editor.selection": "#67769660",
+        "editor.inactiveSelection": "#282c34",
+        "editor.lineNumber": "#495162",
+        "editor.lineNumberActive": "#abb2bf",
+        "editor.indentGuide": "#3b4048",
+        "editor.whitespace": "#ffffff1d",
+        "editor.bracketMatch": "#515a6b",
+        "editor.findMatch": "#d19a6644",
+        "editor.findMatchHighlight": "#ffffff22",
+        "editor.hoverBackground": "#21252b",
+        "editor.widgetBackground": "#21252b",
+        "editor.widgetBorder": "#181a1f",
+        "editorGutter.addedBackground": "#109868",
+        "editorGutter.modifiedBackground": "#948B60",
+        "editorGutter.deletedBackground": "#9A353D",
+        "editorBlame.foreground": "#abb2bf",
+        "editorBlame.background": "transparent",
+        "diff.insertedBackground": "#00809b33",
+        "diff.insertedLineBackground": "#282c34",
+        "diff.removedBackground": "#282c34",
+        "diff.removedLineBackground": "#282c34",
+        "diff.border": "#181a1f",
+        "terminal.background": "#282c34",
+        "terminal.foreground": "#abb2bf",
+        "terminal.cursor": "#528bff",
+        "terminal.selection": "#abb2bf30",
+        "terminal.commandBlockBorder": "#3e4452",
+        "terminal.linkForeground": "#61afef",
+        "git.added": "#282c34",
+        "git.modified": "#282c34",
+        "git.deleted": "#282c34",
+        "git.renamed": "#282c34",
+        "git.untracked": "#282c34",
+        "git.conflicted": "#282c34",
+        "git.staged": "#282c34",
+        "graph.lane1": "#4aa5f0",
+        "graph.lane2": "#8cc265",
+        "graph.lane3": "#d18f52",
+        "graph.lane4": "#c162de",
+        "graph.lane5": "#42b3c2",
+        "graph.lane6": "#e05561",
+        "graph.lane7": "#4dc4ff",
+        "graph.lane8": "#a5e075",
+        "graph.lane9": "#f0a45d",
+        "graph.lane10": "#de73ff",
+        "graph.lane11": "#4cd1e0",
+        "graph.lane12": "#ff616e",
+        "graph.refBranch": "#4aa5f0",
+        "graph.refTag": "#d18f52",
+        "graph.refHead": "#8cc265",
+        "statusIndicator.info": "#282c34",
+        "statusIndicator.warning": "#d19a66",
+        "statusIndicator.error": "#c24038",
+        "statusIndicator.success": "#8cc265",
+        "menu.background": "#21252b",
+        "menu.border": "#21252b",
+        "menu.itemHover": "#2c313a",
+        "menu.separator": "#343a45",
+        "popover.background": "#21252b",
+        "popover.border": "#282c34",
+        "popover.itemHover": "#2c313a",
+        "popover.separator": "#343a45",
+        "tooltip.background": "#21252b",
+        "tooltip.border": "#181a1f",
+        "tooltip.itemHover": "#2c313a",
+        "tooltip.separator": "#343a45",
+        "modal.background": "#21252b",
+        "modal.border": "#282c34",
+        "modal.itemHover": "#2c313a",
+        "modal.separator": "#343a45",
+        "scrollbar.thumb": "#4e566660",
+        "scrollbar.thumbHover": "#5a637580",
+        "scrollbar.track": "transparent",
+        "input.background": "#1d1f23",
+        "input.foreground": "#abb2bf",
+        "input.border": "#21252b",
+        "input.placeholder": "#282c34",
+        "input.focusBorder": "#3e4452",
+        "button.background": "#30333d",
+        "button.foreground": "#c0bdbd",
+        "button.hoverBackground": "#282c34",
+        "button.primaryBackground": "#404754",
+        "button.primaryForeground": "#282c34",
+        "list.background": "#21252b",
+        "list.hoverBackground": "#2c313a",
+        "list.activeBackground": "#2c313a",
+        "list.foreground": "#abb2bf"
+    },
+    "syntax": {
+        "keyword": {
+            "fg": "#c678dd",
+            "bold": false,
+            "italic": false
+        },
+        "storage": {
+            "fg": "#c678dd",
+            "bold": false,
+            "italic": false
+        },
+        "operator": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        },
+        "string": {
+            "fg": "#98c379",
+            "bold": false,
+            "italic": false
+        },
+        "number": {
+            "fg": "#d19a66",
+            "bold": false,
+            "italic": false
+        },
+        "regexp": {
+            "fg": "#56b6c2",
+            "bold": false,
+            "italic": false
+        },
+        "comment": {
+            "fg": "#7f848e",
+            "bold": false,
+            "italic": true
+        },
+        "docComment": {
+            "fg": "#7f848e",
+            "bold": false,
+            "italic": true
+        },
+        "function": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "method": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "variable": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "parameter": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "property": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "type": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "class": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "interface": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "enum": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "constant": {
+            "fg": "#d19a66",
+            "bold": false,
+            "italic": false
+        },
+        "namespace": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "decorator": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "tag": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "attribute": {
+            "fg": "#d19a66",
+            "bold": false,
+            "italic": false
+        },
+        "punctuation": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        },
+        "invalid": {
+            "fg": "#ffffff",
+            "bold": false,
+            "italic": false
+        },
+        "link": {
+            "fg": "#98c379",
+            "bold": false,
+            "italic": false
+        },
+        "markdownHeading": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "markdownEmphasis": {
+            "fg": "#c678dd",
+            "bold": false,
+            "italic": false
+        },
+        "markdownStrong": {
+            "fg": "#d19a66",
+            "bold": false,
+            "italic": false
+        },
+        "markdownCode": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        },
+        "markdownQuote": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        },
+        "markdownListMarker": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        }
+    },
+    "terminal": {
+        "black": "#3f4451",
+        "red": "#e05561",
+        "green": "#8cc265",
+        "yellow": "#d18f52",
+        "blue": "#4aa5f0",
+        "magenta": "#c162de",
+        "cyan": "#42b3c2",
+        "white": "#d7dae0",
+        "brightBlack": "#4f5666",
+        "brightRed": "#ff616e",
+        "brightGreen": "#a5e075",
+        "brightYellow": "#f0a45d",
+        "brightBlue": "#4dc4ff",
+        "brightMagenta": "#de73ff",
+        "brightCyan": "#4cd1e0",
+        "brightWhite": "#e6e6e6",
+        "background": "#282c34",
+        "foreground": "#abb2bf",
+        "cursor": "#528bff",
+        "selection": "#abb2bf30"
+    },
+    "author": "Binaryify",
+    "license": "MIT",
+    "source": "https://github.com/Binaryify/OneDark-Pro"
+}

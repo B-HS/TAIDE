@@ -13,6 +13,7 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "bun test",
+        "themes:convert": "bun run scripts/convert-vscode-theme.ts",
         "rust:fmt": "cargo fmt --all --check",
         "rust:lint": "cargo clippy --workspace --all-targets -- -D warnings",
         "rust:test": "cargo test --workspace",

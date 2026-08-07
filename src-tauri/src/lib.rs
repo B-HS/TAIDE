@@ -314,7 +314,12 @@ pub fn run() {
         }));
     }
 
-    app.plugin(tauri_plugin_log::Builder::new().build())
+    let log_plugin = tauri_plugin_log::Builder::new()
+        .level_for("tungstenite", log::LevelFilter::Warn)
+        .level_for("tokio_tungstenite", log::LevelFilter::Warn)
+        .build();
+
+    app.plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())

@@ -8,6 +8,19 @@ use crate::paths::AppPaths;
 pub const BUILTIN_DARK_ID: &str = "taide-dark";
 pub const BUILTIN_LIGHT_ID: &str = "taide-light";
 
+const BUNDLED_THEME_SOURCES: &[(&str, &str)] = &[
+    ("one-dark-pro", include_str!("../../../resources/themes/one-dark-pro.json")),
+    ("dracula", include_str!("../../../resources/themes/dracula.json")),
+    ("github-dark", include_str!("../../../resources/themes/github-dark.json")),
+    ("github-light", include_str!("../../../resources/themes/github-light.json")),
+    ("tokyo-night", include_str!("../../../resources/themes/tokyo-night.json")),
+    ("catppuccin-mocha", include_str!("../../../resources/themes/catppuccin-mocha.json")),
+    ("nord", include_str!("../../../resources/themes/nord.json")),
+    ("gruvbox-dark", include_str!("../../../resources/themes/gruvbox-dark.json")),
+    ("monokai", include_str!("../../../resources/themes/monokai.json")),
+    ("solarized-light", include_str!("../../../resources/themes/solarized-light.json")),
+];
+
 const COLOR_NAMESPACES: &[(&str, &[&str])] = &[
     ("app", &["background", "foreground", "border", "focusBorder", "shadow", "accent"]),
     (
@@ -672,11 +685,24 @@ pub fn builtin_light() -> Theme {
     }
 }
 
+fn bundled_by_id(theme_id: &str) -> Option<Theme> {
+    let (_, source) = BUNDLED_THEME_SOURCES.iter().find(|(id, _)| *id == theme_id)?;
+    serde_json::from_str::<Theme>(source).ok()
+}
+
+pub fn bundled_themes() -> Vec<Theme> {
+    BUNDLED_THEME_SOURCES
+        .iter()
+        .filter_map(|(id, source)| serde_json::from_str::<Theme>(source).ok().map(|theme| (id, theme)))
+        .map(|(_, theme)| theme)
+        .collect()
+}
+
 pub fn builtin_by_id(theme_id: &str) -> Option<Theme> {
     match theme_id {
         BUILTIN_DARK_ID => Some(builtin_dark()),
         BUILTIN_LIGHT_ID => Some(builtin_light()),
-        _ => None,
+        _ => bundled_by_id(theme_id),
     }
 }
 
@@ -799,6 +825,7 @@ pub fn resolve_theme(theme: &Theme, base: Option<&Theme>) -> ResolvedTheme {
 
 pub fn list_themes(paths: &AppPaths) -> Vec<ThemeSummary> {
     let mut list = vec![summarize(&builtin_dark(), true), summarize(&builtin_light(), true)];
+    list.extend(bundled_themes().iter().map(|theme| summarize(theme, true)));
 
     let Ok(entries) = std::fs::read_dir(paths.themes_dir()) else {
         return list;
@@ -1066,12 +1093,95 @@ mod tests {
 
         let list = list_themes(&paths);
 
-        assert_eq!(list.len(), 3);
+        assert_eq!(list.len(), 2 + BUNDLED_THEME_SOURCES.len() + 1);
         assert!(list.iter().any(|summary| summary.id == BUILTIN_DARK_ID && summary.builtin));
         assert!(list.iter().any(|summary| summary.id == BUILTIN_LIGHT_ID && summary.builtin));
         assert!(list.iter().any(|summary| summary.id == "my-light" && !summary.builtin));
 
         std::fs::remove_dir_all(paths.themes_dir()).ok();
+    }
+
+    #[test]
+    fn 번들_테마는_모두_파싱되고_이름이_비어있지_않다() {
+        let themes = bundled_themes();
+        assert_eq!(themes.len(), BUNDLED_THEME_SOURCES.len());
+        for theme in &themes {
+            assert!(!theme.name.trim().is_empty(), "bundled theme missing name: {}", theme.id);
+            assert!(theme.extends.is_none(), "bundled theme must not use extends: {}", theme.id);
+        }
+    }
+
+    #[test]
+    fn 번들_테마는_모두_시맨틱_토큰_전량을_포함하고_경고가_없다() {
+        for theme in bundled_themes() {
+            for key in required_color_keys() {
+                assert!(
+                    theme.colors.contains_key(&key),
+                    "missing color token '{key}' in bundled theme '{}'",
+                    theme.id
+                );
+            }
+            for key in required_syntax_keys() {
+                assert!(
+                    theme.syntax.contains_key(key),
+                    "missing syntax token '{key}' in bundled theme '{}'",
+                    theme.id
+                );
+            }
+            for key in required_terminal_keys() {
+                assert!(
+                    theme.terminal.contains_key(key),
+                    "missing terminal token '{key}' in bundled theme '{}'",
+                    theme.id
+                );
+            }
+
+            let resolved = resolve_theme(&theme, None);
+            assert!(
+                resolved.warnings.is_empty(),
+                "bundled theme '{}' has resolve warnings: {:?}",
+                theme.id,
+                resolved.warnings
+            );
+        }
+    }
+
+    #[test]
+    fn 번들_테마_아이디로는_저장하거나_삭제할_수_없다() {
+        let paths = AppPaths::new(temp_data_dir("bundled-guard"));
+        let mut theme = builtin_dark();
+        theme.id = "dracula".to_string();
+        assert!(save_theme(&paths, &theme).is_err());
+        assert!(delete_theme(&paths, "dracula").is_err());
+    }
+
+    #[test]
+    fn 번들_테마는_extends의_base로_해석된다() {
+        let mut colors = BTreeMap::new();
+        colors.insert("app.accent".to_string(), "#abcdef".to_string());
+
+        let child = Theme {
+            version: THEME_SCHEMA_VERSION,
+            id: "custom-from-dracula".to_string(),
+            name: "Custom From Dracula".to_string(),
+            theme_type: ThemeType::Dark,
+            extends: Some("dracula".to_string()),
+            palette: BTreeMap::new(),
+            colors,
+            syntax: BTreeMap::new(),
+            terminal: BTreeMap::new(),
+            author: None,
+            license: None,
+            source: None,
+        };
+
+        let base = builtin_by_id("dracula").expect("dracula bundled theme resolves");
+        let resolved = resolve_theme(&child, Some(&base));
+
+        assert_eq!(resolved.colors.get("app.accent"), Some(&"#abcdef".to_string()));
+        for key in required_color_keys() {
+            assert!(resolved.colors.contains_key(&key));
+        }
     }
 
     #[test]

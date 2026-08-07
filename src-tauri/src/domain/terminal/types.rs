@@ -7,6 +7,7 @@ pub const DEFAULT_SCROLLBACK_BYTES: usize = 2 * 1024 * 1024;
 pub const READ_BUFFER_BYTES: usize = 64 * 1024;
 pub const OUTPUT_BATCH_MS: u64 = 4;
 pub const OUTPUT_FLUSH_TICK_MS: u64 = 5;
+pub const IDE_READY_POLL_INTERVAL_MS: u64 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

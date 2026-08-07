@@ -1,0 +1,324 @@
+{
+    "version": 1,
+    "id": "dracula",
+    "name": "Dracula",
+    "type": "dark",
+    "palette": {},
+    "colors": {
+        "app.background": "#282A36",
+        "app.foreground": "#F8F8F2",
+        "app.border": "#BD93F9",
+        "app.focusBorder": "#6272A4",
+        "app.shadow": "#F8F8F2",
+        "app.accent": "#44475A",
+        "appSidebar.background": "#343746",
+        "appSidebar.itemHover": "#44475A75",
+        "appSidebar.itemActive": "#44475A",
+        "appSidebar.iconDefault": "#6272A4",
+        "appSidebar.iconAgentRunning": "#50FA7B",
+        "appSidebar.iconAgentWorking": "#BD93F9",
+        "appSidebar.iconAgentAwaiting": "#F1FA8C",
+        "appSidebar.iconAgentIdle": "#69FF94",
+        "appSidebar.iconAgentUnknown": "#F8F8F2",
+        "appSidebar.badge": "#FF79C6",
+        "tabBar.background": "#191A21",
+        "tabBar.tabActiveBackground": "#282A36",
+        "tabBar.tabInactiveBackground": "#21222C",
+        "tabBar.tabActiveForeground": "#F8F8F2",
+        "tabBar.tabInactiveForeground": "#6272A4",
+        "tabBar.tabBorder": "#191A21",
+        "tabBar.tabActiveIndicator": "#FF79C680",
+        "tabBar.dirtyDot": "#8BE9FD",
+        "tabBar.previewForeground": "#6272A4",
+        "tabBar.dropTarget": "#44475A",
+        "explorer.background": "#21222C",
+        "explorer.itemHover": "#44475A75",
+        "explorer.itemSelected": "#44475A",
+        "explorer.itemFocused": "#44475A75",
+        "explorer.indentGuide": "#F8F8F2",
+        "explorer.folderIcon": "#F8F8F2",
+        "explorer.gitModified": "#8BE9FD",
+        "explorer.gitAdded": "#F8F8F2",
+        "explorer.gitDeleted": "#FF5555",
+        "explorer.gitUntracked": "#50FA7B",
+        "explorer.gitIgnored": "#6272A4",
+        "panel.background": "#21222C",
+        "panel.sectionHeader": "#F8F8F2",
+        "panel.inputBackground": "#282A36",
+        "panel.inputBorder": "#191A21",
+        "panel.matchHighlight": "#8BE9FD",
+        "editor.background": "#282A36",
+        "editor.foreground": "#F8F8F2",
+        "editor.lineHighlight": "#F8F8F2",
+        "editor.cursor": "#F8F8F2",
+        "editor.selection": "#44475A",
+        "editor.inactiveSelection": "#F8F8F2",
+        "editor.lineNumber": "#6272A4",
+        "editor.lineNumberActive": "#F8F8F2",
+        "editor.indentGuide": "#FFFFFF1A",
+        "editor.whitespace": "#FFFFFF1A",
+        "editor.bracketMatch": "#F8F8F2",
+        "editor.findMatch": "#FFB86C80",
+        "editor.findMatchHighlight": "#FFFFFF40",
+        "editor.hoverBackground": "#282A36",
+        "editor.widgetBackground": "#21222C",
+        "editor.widgetBorder": "#6272A4",
+        "editorGutter.addedBackground": "#50FA7B80",
+        "editorGutter.modifiedBackground": "#8BE9FD80",
+        "editorGutter.deletedBackground": "#FF555580",
+        "editorBlame.foreground": "#6272A4",
+        "editorBlame.background": "transparent",
+        "diff.insertedBackground": "#50FA7B20",
+        "diff.insertedLineBackground": "#F8F8F2",
+        "diff.removedBackground": "#FF555550",
+        "diff.removedLineBackground": "#F8F8F2",
+        "diff.border": "#BD93F9",
+        "terminal.background": "#282A36",
+        "terminal.foreground": "#F8F8F2",
+        "terminal.cursor": "#F8F8F2",
+        "terminal.selection": "#F8F8F2",
+        "terminal.commandBlockBorder": "#BD93F9",
+        "terminal.linkForeground": "#8BE9FD",
+        "git.added": "#F8F8F2",
+        "git.modified": "#8BE9FD",
+        "git.deleted": "#FF5555",
+        "git.renamed": "#F8F8F2",
+        "git.untracked": "#50FA7B",
+        "git.conflicted": "#FFB86C",
+        "git.staged": "#8BE9FD",
+        "graph.lane1": "#BD93F9",
+        "graph.lane2": "#50FA7B",
+        "graph.lane3": "#F1FA8C",
+        "graph.lane4": "#FF79C6",
+        "graph.lane5": "#8BE9FD",
+        "graph.lane6": "#FF5555",
+        "graph.lane7": "#D6ACFF",
+        "graph.lane8": "#69FF94",
+        "graph.lane9": "#FFFFA5",
+        "graph.lane10": "#FF92DF",
+        "graph.lane11": "#A4FFFF",
+        "graph.lane12": "#FF6E6E",
+        "graph.refBranch": "#8BE9FD",
+        "graph.refTag": "#F1FA8C",
+        "graph.refHead": "#50FA7B",
+        "statusIndicator.info": "#F8F8F2",
+        "statusIndicator.warning": "#8BE9FD",
+        "statusIndicator.error": "#FF5555",
+        "statusIndicator.success": "#50FA7B",
+        "menu.background": "#343746",
+        "menu.border": "#191A21",
+        "menu.itemHover": "#44475A75",
+        "menu.separator": "#F8F8F2",
+        "popover.background": "#21222C",
+        "popover.border": "#F8F8F2",
+        "popover.itemHover": "#44475A75",
+        "popover.separator": "#F8F8F2",
+        "tooltip.background": "#282A36",
+        "tooltip.border": "#6272A4",
+        "tooltip.itemHover": "#44475A75",
+        "tooltip.separator": "#F8F8F2",
+        "modal.background": "#21222C",
+        "modal.border": "#F8F8F2",
+        "modal.itemHover": "#44475A75",
+        "modal.separator": "#F8F8F2",
+        "scrollbar.thumb": "#F8F8F2",
+        "scrollbar.thumbHover": "#F8F8F2",
+        "scrollbar.track": "transparent",
+        "input.background": "#282A36",
+        "input.foreground": "#F8F8F2",
+        "input.border": "#191A21",
+        "input.placeholder": "#6272A4",
+        "input.focusBorder": "#6272A4",
+        "button.background": "#282A36",
+        "button.foreground": "#F8F8F2",
+        "button.hoverBackground": "#343746",
+        "button.primaryBackground": "#44475A",
+        "button.primaryForeground": "#F8F8F2",
+        "list.background": "#21222C",
+        "list.hoverBackground": "#44475A75",
+        "list.activeBackground": "#44475A",
+        "list.foreground": "#F8F8F2"
+    },
+    "syntax": {
+        "keyword": {
+            "fg": "#FF79C6",
+            "bold": false,
+            "italic": false
+        },
+        "storage": {
+            "fg": "#FF79C6",
+            "bold": false,
+            "italic": false
+        },
+        "operator": {
+            "fg": "#FF79C6",
+            "bold": false,
+            "italic": false
+        },
+        "string": {
+            "fg": "#F1FA8C",
+            "bold": false,
+            "italic": false
+        },
+        "number": {
+            "fg": "#BD93F9",
+            "bold": false,
+            "italic": false
+        },
+        "regexp": {
+            "fg": "#F1FA8C",
+            "bold": false,
+            "italic": false
+        },
+        "comment": {
+            "fg": "#6272A4",
+            "bold": false,
+            "italic": false
+        },
+        "docComment": {
+            "fg": "#6272A4",
+            "bold": false,
+            "italic": false
+        },
+        "function": {
+            "fg": "#50FA7B",
+            "bold": false,
+            "italic": false
+        },
+        "method": {
+            "fg": "#50FA7B",
+            "bold": false,
+            "italic": false
+        },
+        "variable": {
+            "fg": "#F8F8F2",
+            "bold": false,
+            "italic": false
+        },
+        "parameter": {
+            "fg": "#FFB86C",
+            "bold": false,
+            "italic": true
+        },
+        "property": {
+            "fg": "#F8F8F2",
+            "bold": false,
+            "italic": false
+        },
+        "type": {
+            "fg": "#8BE9FD",
+            "bold": false,
+            "italic": true
+        },
+        "class": {
+            "fg": "#8BE9FD",
+            "bold": false,
+            "italic": false
+        },
+        "interface": {
+            "fg": "#8BE9FD",
+            "bold": false,
+            "italic": true
+        },
+        "enum": {
+            "fg": "#8BE9FD",
+            "bold": false,
+            "italic": true
+        },
+        "constant": {
+            "fg": "#BD93F9",
+            "bold": false,
+            "italic": false
+        },
+        "namespace": {
+            "fg": "#8BE9FD",
+            "bold": false,
+            "italic": true
+        },
+        "decorator": {
+            "fg": "#50FA7B",
+            "bold": false,
+            "italic": false
+        },
+        "tag": {
+            "fg": "#FF79C6",
+            "bold": false,
+            "italic": false
+        },
+        "attribute": {
+            "fg": "#50FA7B",
+            "bold": false,
+            "italic": true
+        },
+        "punctuation": {
+            "fg": "#F8F8F2",
+            "bold": false,
+            "italic": false
+        },
+        "invalid": {
+            "fg": "#FF5555",
+            "bold": false,
+            "italic": true
+        },
+        "link": {
+            "fg": "#8BE9FD",
+            "bold": false,
+            "italic": false
+        },
+        "markdownHeading": {
+            "fg": "#BD93F9",
+            "bold": true,
+            "italic": false
+        },
+        "markdownEmphasis": {
+            "fg": "#F1FA8C",
+            "bold": false,
+            "italic": true
+        },
+        "markdownStrong": {
+            "fg": "#FFB86C",
+            "bold": true,
+            "italic": false
+        },
+        "markdownCode": {
+            "fg": "#50FA7B",
+            "bold": false,
+            "italic": false
+        },
+        "markdownQuote": {
+            "fg": "#F1FA8C",
+            "bold": false,
+            "italic": true
+        },
+        "markdownListMarker": {
+            "fg": "#F8F8F2",
+            "bold": false,
+            "italic": false
+        }
+    },
+    "terminal": {
+        "black": "#21222C",
+        "red": "#FF5555",
+        "green": "#50FA7B",
+        "yellow": "#F1FA8C",
+        "blue": "#BD93F9",
+        "magenta": "#FF79C6",
+        "cyan": "#8BE9FD",
+        "white": "#F8F8F2",
+        "brightBlack": "#6272A4",
+        "brightRed": "#FF6E6E",
+        "brightGreen": "#69FF94",
+        "brightYellow": "#FFFFA5",
+        "brightBlue": "#D6ACFF",
+        "brightMagenta": "#FF92DF",
+        "brightCyan": "#A4FFFF",
+        "brightWhite": "#FFFFFF",
+        "background": "#282A36",
+        "foreground": "#F8F8F2",
+        "cursor": "#F8F8F2",
+        "selection": "#F8F8F2"
+    },
+    "author": "Dracula Theme",
+    "license": "MIT",
+    "source": "https://github.com/dracula/visual-studio-code"
+}

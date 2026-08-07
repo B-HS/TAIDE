@@ -1,11 +1,14 @@
 import type { CSSProperties, FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SyntaxStyle } from '@shared/api/bindings'
+import { TERMINAL_TOKENS } from '@entities/theme/theme-tokens'
+import type { ThemeValues } from '@shared/lib/theme-draft'
 import { toCssVariables } from '@shared/lib/theme-variables'
 
+const TERMINAL_ANSI_TOKEN_COUNT = 16
+
 type ThemeLivePreviewProps = {
-    colors: Record<string, string>
-    syntax: Record<string, SyntaxStyle>
+    values: ThemeValues
 }
 
 const syntaxStyle = (style: SyntaxStyle | undefined): CSSProperties => ({
@@ -14,9 +17,11 @@ const syntaxStyle = (style: SyntaxStyle | undefined): CSSProperties => ({
     fontStyle: style?.italic ? 'italic' : undefined,
 })
 
-export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ colors, syntax }) => {
+export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ values }) => {
     const { t } = useTranslation()
+    const { colors, syntax, terminal } = values
     const vars = toCssVariables(colors) as CSSProperties
+    const ansiTokens = TERMINAL_TOKENS.slice(0, TERMINAL_ANSI_TOKEN_COUNT)
 
     return (
         <div style={vars} className='border-app-border flex flex-col overflow-hidden rounded-md border text-xs'>
@@ -31,7 +36,7 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ colors, syntax }) 
                     {t('themeEditor.previewTerminalTab')}
                 </div>
             </div>
-            <div className='bg-editor-background flex flex-col gap-0.5 px-3 py-3 font-mono'>
+            <div className='bg-editor-background text-editor-foreground flex flex-col gap-0.5 px-3 py-3 font-mono'>
                 <div>
                     <span style={syntaxStyle(syntax.keyword)}>const</span> <span style={syntaxStyle(syntax.variable)}>greeting</span> ={' '}
                     <span style={syntaxStyle(syntax.string)}>&apos;taide&apos;</span>
@@ -43,6 +48,9 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ colors, syntax }) 
                     <span style={syntaxStyle(syntax.punctuation)}>)</span> {'{'}
                 </div>
                 <div className='pl-4'>
+                    <span style={syntaxStyle(syntax.decorator)}>@decorator</span>
+                </div>
+                <div className='pl-4'>
                     <span style={syntaxStyle(syntax.comment)}>{'// ' + t('themeEditor.previewCommentText')}</span>
                 </div>
                 <div className='pl-4'>
@@ -50,13 +58,18 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ colors, syntax }) 
                 </div>
                 <div>{'}'}</div>
             </div>
-            <div className='bg-terminal-background text-terminal-foreground flex flex-col gap-1 px-3 py-2 font-mono'>
+            <div style={{ backgroundColor: terminal.background, color: terminal.foreground }} className='flex flex-col gap-2 px-3 py-2 font-mono'>
                 <div>
                     <span style={{ color: colors['statusIndicator.success'] }}>{t('themeEditor.previewTerminalPrompt')}</span>{' '}
                     {t('themeEditor.previewTerminalCommand')}
                 </div>
                 <div className='flex items-center gap-1'>
-                    <span className='h-3.5 w-1.5' style={{ backgroundColor: colors['terminal.cursor'] }} />
+                    <span className='h-3.5 w-1.5' style={{ backgroundColor: terminal.cursor }} />
+                </div>
+                <div className='grid grid-cols-8 gap-1'>
+                    {ansiTokens.map((token) => (
+                        <span key={token} className='size-3 rounded-sm' style={{ backgroundColor: terminal[token] }} title={token} />
+                    ))}
                 </div>
             </div>
         </div>

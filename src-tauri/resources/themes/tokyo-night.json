@@ -1,0 +1,324 @@
+{
+    "version": 1,
+    "id": "tokyo-night",
+    "name": "Tokyo Night",
+    "type": "dark",
+    "palette": {},
+    "colors": {
+        "app.background": "#1a1b26",
+        "app.foreground": "#787c99",
+        "app.border": "#101014",
+        "app.focusBorder": "#545c7e33",
+        "app.shadow": "#ffffff00",
+        "app.accent": "#6183bb",
+        "appSidebar.background": "#16161e",
+        "appSidebar.itemHover": "#13131a",
+        "appSidebar.itemActive": "#202330",
+        "appSidebar.iconDefault": "#3b3e52",
+        "appSidebar.iconAgentRunning": "#73daca",
+        "appSidebar.iconAgentWorking": "#7aa2f7",
+        "appSidebar.iconAgentAwaiting": "#e0af68",
+        "appSidebar.iconAgentIdle": "#73daca",
+        "appSidebar.iconAgentUnknown": "#545c7e",
+        "appSidebar.badge": "#3d59a1",
+        "tabBar.background": "#16161e",
+        "tabBar.tabActiveBackground": "#16161e",
+        "tabBar.tabInactiveBackground": "#16161e",
+        "tabBar.tabActiveForeground": "#a9b1d6",
+        "tabBar.tabInactiveForeground": "#787c99",
+        "tabBar.tabBorder": "#101014",
+        "tabBar.tabActiveIndicator": "#3d59a1",
+        "tabBar.dirtyDot": "#1a1b26",
+        "tabBar.previewForeground": "#a9b1d6",
+        "tabBar.dropTarget": "#1e202e",
+        "explorer.background": "#16161e",
+        "explorer.itemHover": "#13131a",
+        "explorer.itemSelected": "#202330",
+        "explorer.itemFocused": "#1c1d29",
+        "explorer.indentGuide": "#2b2b3b",
+        "explorer.folderIcon": "#787c99",
+        "explorer.gitModified": "#6183bb",
+        "explorer.gitAdded": "#449dab",
+        "explorer.gitDeleted": "#914c54",
+        "explorer.gitUntracked": "#449dab",
+        "explorer.gitIgnored": "#515670",
+        "panel.background": "#16161e",
+        "panel.sectionHeader": "#a9b1d6",
+        "panel.inputBackground": "#14141b",
+        "panel.inputBorder": "#0f0f14",
+        "panel.matchHighlight": "#668ac4",
+        "editor.background": "#1a1b26",
+        "editor.foreground": "#a9b1d6",
+        "editor.lineHighlight": "#1e202e",
+        "editor.cursor": "#c0caf5",
+        "editor.selection": "#515c7e4d",
+        "editor.inactiveSelection": "#515c7e25",
+        "editor.lineNumber": "#363b54",
+        "editor.lineNumberActive": "#787c99",
+        "editor.indentGuide": "#232433",
+        "editor.whitespace": "#363b54",
+        "editor.bracketMatch": "#42465d",
+        "editor.findMatch": "#3d59a166",
+        "editor.findMatchHighlight": "#3d59a166",
+        "editor.hoverBackground": "#16161e",
+        "editor.widgetBackground": "#16161e",
+        "editor.widgetBorder": "#101014",
+        "editorGutter.addedBackground": "#164846",
+        "editorGutter.modifiedBackground": "#394b70",
+        "editorGutter.deletedBackground": "#823c41",
+        "editorBlame.foreground": "#51597d",
+        "editorBlame.background": "transparent",
+        "diff.insertedBackground": "#41a6b520",
+        "diff.insertedLineBackground": "#41a6b520",
+        "diff.removedBackground": "#db4b4b22",
+        "diff.removedLineBackground": "#db4b4b22",
+        "diff.border": "#101014",
+        "terminal.background": "#16161e",
+        "terminal.foreground": "#787c99",
+        "terminal.cursor": "#c0caf5",
+        "terminal.selection": "#515c7e4d",
+        "terminal.commandBlockBorder": "#101014",
+        "terminal.linkForeground": "#6183bb",
+        "git.added": "#449dab",
+        "git.modified": "#6183bb",
+        "git.deleted": "#914c54",
+        "git.renamed": "#449dab",
+        "git.untracked": "#449dab",
+        "git.conflicted": "#e0af68cc",
+        "git.staged": "#6183bb",
+        "graph.lane1": "#7aa2f7",
+        "graph.lane2": "#73daca",
+        "graph.lane3": "#e0af68",
+        "graph.lane4": "#bb9af7",
+        "graph.lane5": "#7dcfff",
+        "graph.lane6": "#f7768e",
+        "graph.lane7": "#7aa2f7",
+        "graph.lane8": "#73daca",
+        "graph.lane9": "#e0af68",
+        "graph.lane10": "#bb9af7",
+        "graph.lane11": "#7dcfff",
+        "graph.lane12": "#f7768e",
+        "graph.refBranch": "#6183bb",
+        "graph.refTag": "#e0af68",
+        "graph.refHead": "#73daca",
+        "statusIndicator.info": "#0da0ba",
+        "statusIndicator.warning": "#e0af68",
+        "statusIndicator.error": "#db4b4b",
+        "statusIndicator.success": "#73daca",
+        "menu.background": "#16161e",
+        "menu.border": "#101014",
+        "menu.itemHover": "#1e202e",
+        "menu.separator": "#101014",
+        "popover.background": "#16161e",
+        "popover.border": "#101014",
+        "popover.itemHover": "#13131a",
+        "popover.separator": "#101014",
+        "tooltip.background": "#16161e",
+        "tooltip.border": "#101014",
+        "tooltip.itemHover": "#13131a",
+        "tooltip.separator": "#101014",
+        "modal.background": "#16161e",
+        "modal.border": "#101014",
+        "modal.itemHover": "#13131a",
+        "modal.separator": "#101014",
+        "scrollbar.thumb": "#868bc415",
+        "scrollbar.thumbHover": "#868bc410",
+        "scrollbar.track": "transparent",
+        "input.background": "#14141b",
+        "input.foreground": "#a9b1d6",
+        "input.border": "#0f0f14",
+        "input.placeholder": "#787c998A",
+        "input.focusBorder": "#545c7e33",
+        "button.background": "#3b3e52",
+        "button.foreground": "#ffffff",
+        "button.hoverBackground": "#3d59a1AA",
+        "button.primaryBackground": "#3d59a1dd",
+        "button.primaryForeground": "#ffffff",
+        "list.background": "#16161e",
+        "list.hoverBackground": "#13131a",
+        "list.activeBackground": "#202330",
+        "list.foreground": "#787c99"
+    },
+    "syntax": {
+        "keyword": {
+            "fg": "#bb9af7",
+            "bold": false,
+            "italic": false
+        },
+        "storage": {
+            "fg": "#bb9af7",
+            "bold": false,
+            "italic": false
+        },
+        "operator": {
+            "fg": "#89ddff",
+            "bold": false,
+            "italic": false
+        },
+        "string": {
+            "fg": "#9ece6a",
+            "bold": false,
+            "italic": false
+        },
+        "number": {
+            "fg": "#ff9e64",
+            "bold": false,
+            "italic": false
+        },
+        "regexp": {
+            "fg": "#b4f9f8",
+            "bold": false,
+            "italic": false
+        },
+        "comment": {
+            "fg": "#51597d",
+            "bold": false,
+            "italic": false
+        },
+        "docComment": {
+            "fg": "#51597d",
+            "bold": false,
+            "italic": false
+        },
+        "function": {
+            "fg": "#7aa2f7",
+            "bold": false,
+            "italic": false
+        },
+        "method": {
+            "fg": "#7aa2f7",
+            "bold": false,
+            "italic": false
+        },
+        "variable": {
+            "fg": "#c0caf5",
+            "bold": false,
+            "italic": false
+        },
+        "parameter": {
+            "fg": "#e0af68",
+            "bold": false,
+            "italic": false
+        },
+        "property": {
+            "fg": "#7dcfff",
+            "bold": false,
+            "italic": false
+        },
+        "type": {
+            "fg": "#0db9d7",
+            "bold": false,
+            "italic": false
+        },
+        "class": {
+            "fg": "#c0caf5",
+            "bold": false,
+            "italic": false
+        },
+        "interface": {
+            "fg": "#c0caf5",
+            "bold": false,
+            "italic": false
+        },
+        "enum": {
+            "fg": "#c0caf5",
+            "bold": false,
+            "italic": false
+        },
+        "constant": {
+            "fg": "#ff9e64",
+            "bold": false,
+            "italic": false
+        },
+        "namespace": {
+            "fg": "#0db9d7",
+            "bold": false,
+            "italic": false
+        },
+        "decorator": {
+            "fg": "#7aa2f7",
+            "bold": false,
+            "italic": false
+        },
+        "tag": {
+            "fg": "#f7768e",
+            "bold": false,
+            "italic": false
+        },
+        "attribute": {
+            "fg": "#bb9af7",
+            "bold": false,
+            "italic": false
+        },
+        "punctuation": {
+            "fg": "#89ddff",
+            "bold": false,
+            "italic": false
+        },
+        "invalid": {
+            "fg": "#ff5370",
+            "bold": false,
+            "italic": false
+        },
+        "link": {
+            "fg": "#73daca",
+            "bold": false,
+            "italic": false
+        },
+        "markdownHeading": {
+            "fg": "#a9b1d6",
+            "bold": false,
+            "italic": false
+        },
+        "markdownEmphasis": {
+            "fg": "#c0caf5",
+            "bold": false,
+            "italic": true
+        },
+        "markdownStrong": {
+            "fg": "#c0caf5",
+            "bold": true,
+            "italic": false
+        },
+        "markdownCode": {
+            "fg": "#a9b1d6",
+            "bold": false,
+            "italic": false
+        },
+        "markdownQuote": {
+            "fg": "#a9b1d6",
+            "bold": false,
+            "italic": false
+        },
+        "markdownListMarker": {
+            "fg": "#89ddff",
+            "bold": false,
+            "italic": false
+        }
+    },
+    "terminal": {
+        "black": "#363b54",
+        "red": "#f7768e",
+        "green": "#73daca",
+        "yellow": "#e0af68",
+        "blue": "#7aa2f7",
+        "magenta": "#bb9af7",
+        "cyan": "#7dcfff",
+        "white": "#787c99",
+        "brightBlack": "#363b54",
+        "brightRed": "#f7768e",
+        "brightGreen": "#73daca",
+        "brightYellow": "#e0af68",
+        "brightBlue": "#7aa2f7",
+        "brightMagenta": "#bb9af7",
+        "brightCyan": "#7dcfff",
+        "brightWhite": "#acb0d0",
+        "background": "#16161e",
+        "foreground": "#787c99",
+        "cursor": "#c0caf5",
+        "selection": "#515c7e4d"
+    },
+    "author": "Enkia",
+    "license": "MIT",
+    "source": "https://github.com/enkia/tokyo-night-vscode-theme"
+}

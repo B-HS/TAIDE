@@ -1,10 +1,10 @@
 import type { FC } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ThemeType } from '@shared/api/bindings'
-import { themeQueryOptions, useDeleteTheme, useSaveTheme } from '@entities/theme/theme.query'
+import type { ThemeSummary, ThemeType } from '@shared/api/bindings'
+import { themeQueryOptions, useDeleteTheme, useSaveTheme, useThemePreview } from '@entities/theme/theme.query'
 import { BUILTIN_THEME_ID, COLOR_NAMESPACES, SYNTAX_TOKENS, TERMINAL_TOKENS, colorTokenKey } from '@entities/theme/theme-tokens'
 import {
     buildThemeFromDraft,
@@ -45,13 +45,16 @@ import { ScrollContainer } from '@shared/scroll/scroll-container'
 type ThemeEditorProps = {
     sourceThemeId: string
     mode: 'create' | 'edit'
-    existingThemeIds: readonly string[]
+    themes: ThemeSummary[]
     onClose: () => void
 }
 
 const builtinIdForType = (type: ThemeType) => (type === 'dark' ? BUILTIN_THEME_ID.DARK : BUILTIN_THEME_ID.LIGHT)
 
-export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existingThemeIds, onClose }) => {
+const resolveBaseThemeId = (sourceThemeId: string, themes: ThemeSummary[], type: ThemeType) =>
+    themes.find((theme) => theme.id === sourceThemeId)?.builtin ? sourceThemeId : builtinIdForType(type)
+
+export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes, onClose }) => {
     const { t } = useTranslation()
 
     const [draft, setDraft] = useState<ThemeDraft | null>(null)
@@ -60,10 +63,11 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existin
     const [deleteOpen, setDeleteOpen] = useState(false)
 
     const { data: sourceResolved } = useQuery(themeQueryOptions(sourceThemeId))
-    const baseThemeId = sourceResolved ? builtinIdForType(sourceResolved.type) : null
+    const baseThemeId = sourceResolved ? resolveBaseThemeId(sourceThemeId, themes, sourceResolved.type) : null
     const { data: baseResolved } = useQuery({ ...themeQueryOptions(baseThemeId ?? ''), enabled: Boolean(baseThemeId) })
     const { mutate: saveThemeMutate, isPending: isSaving } = useSaveTheme()
     const { mutate: deleteThemeMutate, isPending: isDeleting } = useDeleteTheme()
+    const { setPreview, clearPreview } = useThemePreview()
 
     if (sourceThemeId !== syncedSourceId) {
         setSyncedSourceId(sourceThemeId)
@@ -71,7 +75,13 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existin
     } else if (!draft && sourceResolved && baseResolved && baseThemeId) {
         setDraft(
             createThemeDraft({
-                id: mode === 'create' ? generateUniqueThemeId(sourceResolved.name, existingThemeIds) : sourceThemeId,
+                id:
+                    mode === 'create'
+                        ? generateUniqueThemeId(
+                              sourceResolved.name,
+                              themes.map((theme) => theme.id),
+                          )
+                        : sourceThemeId,
                 name: mode === 'create' ? t('themeEditor.duplicateNameTemplate', { name: sourceResolved.name }) : sourceResolved.name,
                 themeType: sourceResolved.type,
                 extendsId: baseThemeId,
@@ -93,14 +103,19 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existin
         deleteThemeMutate(sourceThemeId, { onSuccess: onClose, onError: (error) => toast.error(error.message) })
     }
 
-    if (!draft) return <div className='bg-panel-background h-full w-full' />
+    useEffect(() => {
+        if (draft) setPreview(draft)
+    }, [draft, setPreview])
+    useEffect(() => clearPreview, [clearPreview])
+
+    if (!draft) return <div className='bg-app-background h-full w-full' />
 
     const changedCount = countChangedTokens(draft)
     const syntaxRows = SYNTAX_TOKENS.filter((token) => matchesQuery(token))
     const terminalRows = TERMINAL_TOKENS.filter((token) => matchesQuery(token))
 
     return (
-        <div className='bg-panel-background text-app-foreground flex h-full w-full flex-col overflow-hidden'>
+        <div className='bg-app-background text-app-foreground flex h-full w-full flex-col overflow-hidden'>
             <div className='border-app-border flex items-center justify-between gap-4 border-b px-6 py-4'>
                 <div className='flex items-center gap-3'>
                     <Button variant='ghost' size='sm' onClick={onClose}>
@@ -192,9 +207,10 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, existin
                     </div>
                 </ScrollContainer>
 
-                <ScrollContainer className='border-app-border w-80 shrink-0 border-l' viewportClassName='px-4 py-4'>
+                <ScrollContainer className='border-app-border w-96 shrink-0 border-l' viewportClassName='px-4 py-4'>
                     <div className='text-app-sidebar-icon-default mb-2 text-xs font-medium'>{t('themeEditor.previewTitle')}</div>
-                    <ThemeLivePreview colors={draft.current.colors} syntax={draft.current.syntax} />
+                    <div className='text-app-sidebar-icon-default mb-3 text-xs'>{t('themeEditor.livePreviewHint')}</div>
+                    <ThemeLivePreview values={draft.current} />
                 </ScrollContainer>
             </div>
 

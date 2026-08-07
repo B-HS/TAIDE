@@ -14,7 +14,7 @@ export const LspServerStatusList: FC<LspServerStatusListProps> = ({ servers }) =
     return (
         <ul className='flex flex-col gap-1.5'>
             {servers.map((server) => (
-                <li key={server.id} className='border-app-border flex min-w-0 flex-col gap-0.5 rounded-sm border px-3 py-2 text-xs'>
+                <li key={server.id} className='border-app-border flex min-w-0 flex-col gap-0.5 rounded-md border px-3 py-2 text-xs'>
                     <div className='flex min-w-0 items-center gap-2'>
                         {server.available ? (
                             <CheckCircle2 className='text-app-sidebar-icon-agent-running size-3.5 shrink-0' />

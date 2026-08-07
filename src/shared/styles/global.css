@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+@custom-variant dark (&:where([data-appearance='dark'], [data-appearance='dark'] *));
+
 :root {
     --taide-app-background: #1e1e2e;
     --taide-app-foreground: #cdd6f4;
@@ -99,23 +101,48 @@
     --taide-scrollbar-thumb-hover: #585b70;
     --taide-scrollbar-track: transparent;
 
+    --taide-popover-background: #181825;
+    --taide-popover-border: #313244;
+    --taide-popover-item-hover: #45475a;
+    --taide-popover-separator: #313244;
+    --taide-tooltip-background: #181825;
+    --taide-tooltip-border: #313244;
+    --taide-modal-background: #181825;
+    --taide-modal-border: #313244;
+    --taide-input-background: #1e1e2e;
+    --taide-input-foreground: #cdd6f4;
+    --taide-input-border: #313244;
+    --taide-input-placeholder: #6c7086;
+    --taide-input-focus-border: #89b4fa;
+    --taide-button-background: #313244;
+    --taide-button-foreground: #cdd6f4;
+    --taide-button-hover-background: #45475a;
+    --taide-button-primary-background: #89b4fa;
+    --taide-button-primary-foreground: #1e1e2e;
+    --taide-list-background: #181825;
+    --taide-list-hover-background: #313244;
+    --taide-list-active-background: #45475a;
+    --taide-list-foreground: #cdd6f4;
+    --taide-app-shadow: #00000066;
+    --taide-tab-bar-preview-foreground: #7f849c;
+
     --background: var(--taide-app-background);
     --foreground: var(--taide-app-foreground);
     --card: var(--taide-panel-background);
     --card-foreground: var(--taide-app-foreground);
-    --popover: var(--taide-menu-background);
+    --popover: var(--taide-popover-background);
     --popover-foreground: var(--taide-app-foreground);
-    --primary: var(--taide-app-accent);
-    --primary-foreground: var(--taide-app-background);
-    --secondary: var(--taide-app-sidebar-item-active);
-    --secondary-foreground: var(--taide-app-foreground);
+    --primary: var(--taide-button-primary-background);
+    --primary-foreground: var(--taide-button-primary-foreground);
+    --secondary: var(--taide-button-background);
+    --secondary-foreground: var(--taide-button-foreground);
     --muted: var(--taide-app-sidebar-item-hover);
     --muted-foreground: var(--taide-app-sidebar-icon-default);
-    --accent: var(--taide-app-sidebar-item-hover);
-    --accent-foreground: var(--taide-app-foreground);
+    --accent: var(--taide-list-hover-background);
+    --accent-foreground: var(--taide-list-foreground);
     --destructive: var(--taide-status-indicator-error);
     --border: var(--taide-app-border);
-    --input: var(--taide-panel-input-border);
+    --input: var(--taide-input-border);
     --ring: var(--taide-app-focus-border);
     --radius: 0.375rem;
 }
@@ -124,6 +151,7 @@
     --color-app-background: var(--taide-app-background);
     --color-app-foreground: var(--taide-app-foreground);
     --color-app-border: var(--taide-app-border);
+    --color-app-focus-border: var(--taide-app-focus-border);
     --color-app-accent: var(--taide-app-accent);
 
     --color-app-sidebar-background: var(--taide-app-sidebar-background);
@@ -194,6 +222,25 @@
     --color-status-warning: var(--taide-status-indicator-warning);
     --color-status-error: var(--taide-status-indicator-error);
     --color-status-success: var(--taide-status-indicator-success);
+
+    --color-popover-border: var(--taide-popover-border);
+    --color-popover-item-hover: var(--taide-popover-item-hover);
+    --color-tooltip-background: var(--taide-tooltip-background);
+    --color-tooltip-border: var(--taide-tooltip-border);
+    --color-modal-background: var(--taide-modal-background);
+    --color-modal-border: var(--taide-modal-border);
+    --color-input-background: var(--taide-input-background);
+    --color-input-foreground: var(--taide-input-foreground);
+    --color-input-placeholder: var(--taide-input-placeholder);
+    --color-input-focus-border: var(--taide-input-focus-border);
+    --color-button-background: var(--taide-button-background);
+    --color-button-foreground: var(--taide-button-foreground);
+    --color-button-hover-background: var(--taide-button-hover-background);
+    --color-list-background: var(--taide-list-background);
+    --color-list-hover-background: var(--taide-list-hover-background);
+    --color-list-active-background: var(--taide-list-active-background);
+    --color-list-foreground: var(--taide-list-foreground);
+    --color-tab-bar-preview-foreground: var(--taide-tab-bar-preview-foreground);
 
     --color-scrollbar-thumb: var(--taide-scrollbar-thumb);
     --color-scrollbar-thumb-hover: var(--taide-scrollbar-thumb-hover);
