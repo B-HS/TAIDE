@@ -636,8 +636,10 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] 7.7-W3. 웨이브 3 구현 (커밋 `8678cba`) — C2(cwd·미니맵·Compare·스코프 칩 배선 + Rust 주석 56건 제거·
       ide_set_selection 구조체화) → C1(오버레이 스크롤바 15표면, 계산 lib 테스트 13건).
       메인 verify 재실행 통과(프론트 308·Rust 298)
-- [ ] 7.7-검토. 전체 diff(13f31b2..8678cba) 버그 1차 — 렌즈 5 탐색(opus high) → 적대적 검증(opus medium) →
-      수정(opus high) → 2차(Fable) → bun run verify → dev 커밋
+- [x] 7.7-검토. 전체 diff 버그 검토 (커밋 `36f4fc4`) — 발견 50 → 적대적 검증 확정 44 → 수정 29+4 / 보류 7(backlog 기록).
+      2차(메인)에서 1차 수정의 opener 권한 광역 개방(path:**)을 회수하고 루트 검증 Rust 커맨드 경유로 재설계,
+      root_guard 승격으로 terminal→file import 편차 해소. 최종 기준선: 프론트 312 tests / Rust 310 / lint·clippy 0
+- [ ] 7.7-QA. 실기 화면 검증 (사용자 — `bun run tauri dev`) 후 발견 버그 수정
 - [x] 7.7-검토2. 2차 검토 확정 후속 4건 (미커밋) —
       ① opener 권한 재설계: capabilities 의 opener 3종 제거 + `system_open_path`/`system_reveal_path`/
       `system_open_in_browser` 신설(루트 검증 후 `tauri_plugin_opener` Rust API 직접 호출),
