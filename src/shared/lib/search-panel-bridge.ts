@@ -1,11 +1,16 @@
-export type SearchPanelScope = { includeGlob: string }
+export type SearchPanelRequest = {
+    includeGlob: string | null
+    seedText: string | null
+    openReplace: boolean
+}
 
-type OpenSearchPanelListener = (scope: SearchPanelScope | null) => void
+type OpenSearchPanelListener = (request: SearchPanelRequest) => void
 
 const listeners = new Set<OpenSearchPanelListener>()
 
-export const requestOpenSearchPanel = (scope: SearchPanelScope | null = null) => {
-    for (const listener of listeners) listener(scope)
+export const requestOpenSearchPanel = (request: Partial<SearchPanelRequest> = {}) => {
+    const payload: SearchPanelRequest = { includeGlob: null, seedText: null, openReplace: false, ...request }
+    for (const listener of listeners) listener(payload)
 }
 
 export const subscribeOpenSearchPanel = (listener: OpenSearchPanelListener) => {

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::domain::settings::types::Settings;
+use crate::domain::settings::types::{
+    Settings, DEFAULT_EDITOR_CURSOR_BLINKING, DEFAULT_EDITOR_CURSOR_STYLE, DEFAULT_EDITOR_RENDER_WHITESPACE, DEFAULT_TERMINAL_CURSOR_STYLE,
+};
 use crate::domain::theme::service as theme_service;
 use crate::error::{AppError, AppResult};
 use crate::infra::persist;
@@ -30,6 +32,21 @@ pub struct SettingsPatch {
     pub agent_hooks_enabled: Option<bool>,
     pub ide_integration_enabled: Option<bool>,
     pub ide_auto_open_diff: Option<bool>,
+    pub editor_word_wrap: Option<bool>,
+    pub editor_line_numbers: Option<bool>,
+    pub editor_tab_size: Option<u32>,
+    pub editor_insert_spaces: Option<bool>,
+    pub editor_detect_indentation: Option<bool>,
+    pub editor_render_whitespace: Option<String>,
+    pub editor_bracket_pair_colorization: Option<bool>,
+    pub editor_font_ligatures: Option<bool>,
+    pub editor_cursor_style: Option<String>,
+    pub editor_cursor_blinking: Option<String>,
+    pub editor_scroll_beyond_last_line: Option<bool>,
+    pub terminal_scrollback: Option<u32>,
+    pub terminal_cursor_style: Option<String>,
+    pub terminal_cursor_blink: Option<bool>,
+    pub enable_preview_tabs: Option<bool>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -55,8 +72,54 @@ fn backup_corrupted(path: &std::path::Path) {
     let _ = std::fs::rename(path, backup_path);
 }
 
-pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
+const EDITOR_TAB_SIZE_MIN: u32 = 1;
+const EDITOR_TAB_SIZE_MAX: u32 = 8;
+const TERMINAL_SCROLLBACK_MIN: u32 = 100;
+const TERMINAL_SCROLLBACK_MAX: u32 = 100_000;
+const RESIZER_THICKNESS_MIN: u32 = 0;
+const RESIZER_THICKNESS_MAX: u32 = 8;
+const EDITOR_CURSOR_STYLES: &[&str] = &["line", "block", "underline"];
+const EDITOR_CURSOR_BLINKING_STYLES: &[&str] = &["blink", "smooth", "phase", "expand", "solid"];
+const EDITOR_RENDER_WHITESPACE_MODES: &[&str] = &["none", "boundary", "selection", "all"];
+const TERMINAL_CURSOR_STYLES: &[&str] = &["bar", "block", "underline"];
+
+fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
+    if allowed.contains(&value.as_str()) {
+        value
+    } else {
+        fallback.to_string()
+    }
+}
+
+/// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `apply_patch` 마지막에 항상 거친다 —
+/// patch 로 들어온 값이 검증 없이 Monaco/xterm 런타임까지 그대로 흘러가는 것을 막는다.
+fn sanitize(settings: Settings) -> Settings {
     Settings {
+        editor_tab_size: settings.editor_tab_size.clamp(EDITOR_TAB_SIZE_MIN, EDITOR_TAB_SIZE_MAX),
+        terminal_scrollback: settings.terminal_scrollback.clamp(TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX),
+        resizer_thickness: settings.resizer_thickness.clamp(RESIZER_THICKNESS_MIN, RESIZER_THICKNESS_MAX),
+        editor_cursor_style: sanitize_enum(settings.editor_cursor_style, EDITOR_CURSOR_STYLES, DEFAULT_EDITOR_CURSOR_STYLE),
+        editor_cursor_blinking: sanitize_enum(
+            settings.editor_cursor_blinking,
+            EDITOR_CURSOR_BLINKING_STYLES,
+            DEFAULT_EDITOR_CURSOR_BLINKING,
+        ),
+        editor_render_whitespace: sanitize_enum(
+            settings.editor_render_whitespace,
+            EDITOR_RENDER_WHITESPACE_MODES,
+            DEFAULT_EDITOR_RENDER_WHITESPACE,
+        ),
+        terminal_cursor_style: sanitize_enum(
+            settings.terminal_cursor_style,
+            TERMINAL_CURSOR_STYLES,
+            DEFAULT_TERMINAL_CURSOR_STYLE,
+        ),
+        ..settings
+    }
+}
+
+pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
+    sanitize(Settings {
         version: settings.version,
         theme_id: patch.theme_id.clone().unwrap_or_else(|| settings.theme_id.clone()),
         editor_font_size: patch.editor_font_size.unwrap_or(settings.editor_font_size),
@@ -78,7 +141,38 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         agent_hooks_enabled: patch.agent_hooks_enabled.unwrap_or(settings.agent_hooks_enabled),
         ide_integration_enabled: patch.ide_integration_enabled.unwrap_or(settings.ide_integration_enabled),
         ide_auto_open_diff: patch.ide_auto_open_diff.unwrap_or(settings.ide_auto_open_diff),
-    }
+        editor_word_wrap: patch.editor_word_wrap.unwrap_or(settings.editor_word_wrap),
+        editor_line_numbers: patch.editor_line_numbers.unwrap_or(settings.editor_line_numbers),
+        editor_tab_size: patch.editor_tab_size.unwrap_or(settings.editor_tab_size),
+        editor_insert_spaces: patch.editor_insert_spaces.unwrap_or(settings.editor_insert_spaces),
+        editor_detect_indentation: patch.editor_detect_indentation.unwrap_or(settings.editor_detect_indentation),
+        editor_render_whitespace: patch
+            .editor_render_whitespace
+            .clone()
+            .unwrap_or_else(|| settings.editor_render_whitespace.clone()),
+        editor_bracket_pair_colorization: patch
+            .editor_bracket_pair_colorization
+            .unwrap_or(settings.editor_bracket_pair_colorization),
+        editor_font_ligatures: patch.editor_font_ligatures.unwrap_or(settings.editor_font_ligatures),
+        editor_cursor_style: patch
+            .editor_cursor_style
+            .clone()
+            .unwrap_or_else(|| settings.editor_cursor_style.clone()),
+        editor_cursor_blinking: patch
+            .editor_cursor_blinking
+            .clone()
+            .unwrap_or_else(|| settings.editor_cursor_blinking.clone()),
+        editor_scroll_beyond_last_line: patch
+            .editor_scroll_beyond_last_line
+            .unwrap_or(settings.editor_scroll_beyond_last_line),
+        terminal_scrollback: patch.terminal_scrollback.unwrap_or(settings.terminal_scrollback),
+        terminal_cursor_style: patch
+            .terminal_cursor_style
+            .clone()
+            .unwrap_or_else(|| settings.terminal_cursor_style.clone()),
+        terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
+        enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
+    })
 }
 
 pub fn set_theme(paths: &AppPaths, settings: &Settings, theme_id: &str) -> AppResult<Settings> {
@@ -185,6 +279,85 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert_eq!(updated.keymap_overrides, Some("[]".to_string()));
+    }
+
+    #[test]
+    fn patch로_에디터와_터미널_신규_설정_15필드를_변경한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            editor_word_wrap: Some(true),
+            editor_line_numbers: Some(false),
+            editor_tab_size: Some(2),
+            editor_insert_spaces: Some(false),
+            editor_detect_indentation: Some(false),
+            editor_render_whitespace: Some("all".to_string()),
+            editor_bracket_pair_colorization: Some(false),
+            editor_font_ligatures: Some(true),
+            editor_cursor_style: Some("block".to_string()),
+            editor_cursor_blinking: Some("smooth".to_string()),
+            editor_scroll_beyond_last_line: Some(false),
+            terminal_scrollback: Some(5_000),
+            terminal_cursor_style: Some("underline".to_string()),
+            terminal_cursor_blink: Some(false),
+            enable_preview_tabs: Some(false),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.editor_word_wrap);
+        assert!(!updated.editor_line_numbers);
+        assert_eq!(updated.editor_tab_size, 2);
+        assert!(!updated.editor_insert_spaces);
+        assert!(!updated.editor_detect_indentation);
+        assert_eq!(updated.editor_render_whitespace, "all");
+        assert!(!updated.editor_bracket_pair_colorization);
+        assert!(updated.editor_font_ligatures);
+        assert_eq!(updated.editor_cursor_style, "block");
+        assert_eq!(updated.editor_cursor_blinking, "smooth");
+        assert!(!updated.editor_scroll_beyond_last_line);
+        assert_eq!(updated.terminal_scrollback, 5_000);
+        assert_eq!(updated.terminal_cursor_style, "underline");
+        assert!(!updated.terminal_cursor_blink);
+        assert!(!updated.enable_preview_tabs);
+    }
+
+    #[test]
+    fn 범위를_벗어난_숫자와_허용목록_밖의_문자열은_보정된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            editor_tab_size: Some(100),
+            terminal_scrollback: Some(1),
+            resizer_thickness: Some(999),
+            editor_cursor_style: Some("invalid".to_string()),
+            editor_cursor_blinking: Some("invalid".to_string()),
+            editor_render_whitespace: Some("invalid".to_string()),
+            terminal_cursor_style: Some("invalid".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.editor_tab_size, 8);
+        assert_eq!(updated.terminal_scrollback, 100);
+        assert_eq!(updated.resizer_thickness, 8);
+        assert_eq!(updated.editor_cursor_style, DEFAULT_EDITOR_CURSOR_STYLE);
+        assert_eq!(updated.editor_cursor_blinking, DEFAULT_EDITOR_CURSOR_BLINKING);
+        assert_eq!(updated.editor_render_whitespace, DEFAULT_EDITOR_RENDER_WHITESPACE);
+        assert_eq!(updated.terminal_cursor_style, DEFAULT_TERMINAL_CURSOR_STYLE);
+    }
+
+    #[test]
+    fn resizer_thickness는_0을_허용한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            resizer_thickness: Some(0),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.resizer_thickness, 0);
     }
 
     #[test]

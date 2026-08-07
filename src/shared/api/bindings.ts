@@ -27,6 +27,8 @@ export const commands = {
 	layoutSetViewState: (tabId: TabId, viewState: string | null) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_view_state", { tabId, viewState })),
 	layoutSetDirty: (tabId: TabId, dirty: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_dirty", { tabId, dirty })),
 	layoutSetTerminalSession: (tabId: TabId, sessionId: string) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_terminal_session", { tabId, sessionId })),
+	layoutOpenUntitled: (projectId: ProjectId, target: string | null) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_untitled", { projectId, target })),
+	layoutConvertUntitled: (tabId: TabId, path: string) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_convert_untitled", { tabId, path })),
 	fileOpen: (path: string) => typedError<OpenedFile, AppError>(__TAURI_INVOKE("file_open", { path })),
 	fileSave: (path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_save", { path, content })),
 	fileCreate: (path: string, isDir: boolean) => typedError<null, AppError>(__TAURI_INVOKE("file_create", { path, isDir })),
@@ -228,7 +230,7 @@ export type ExternalOpenRequest = {
 
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
 
-export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome";
+export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome" | "untitled";
 
 export type FontFamily = {
 	name: string,
@@ -540,6 +542,9 @@ export type ResolvedTheme = {
 	syntax: { [key in string]: SyntaxStyle },
 	terminal: { [key in string]: string },
 	warnings?: string[],
+	author?: string | null,
+	license?: string | null,
+	source?: string | null,
 };
 
 export type SearchMatch = {
@@ -587,6 +592,21 @@ export type Settings = {
 	agentHooksEnabled?: boolean,
 	ideIntegrationEnabled?: boolean,
 	ideAutoOpenDiff?: boolean,
+	editorWordWrap?: boolean,
+	editorLineNumbers?: boolean,
+	editorTabSize?: number,
+	editorInsertSpaces?: boolean,
+	editorDetectIndentation?: boolean,
+	editorRenderWhitespace?: string,
+	editorBracketPairColorization?: boolean,
+	editorFontLigatures?: boolean,
+	editorCursorStyle?: string,
+	editorCursorBlinking?: string,
+	editorScrollBeyondLastLine?: boolean,
+	terminalScrollback?: number,
+	terminalCursorStyle?: string,
+	terminalCursorBlink?: boolean,
+	enablePreviewTabs?: boolean,
 };
 
 export type SettingsPatch = {
@@ -610,6 +630,21 @@ export type SettingsPatch = {
 	agentHooksEnabled: boolean | null,
 	ideIntegrationEnabled: boolean | null,
 	ideAutoOpenDiff: boolean | null,
+	editorWordWrap: boolean | null,
+	editorLineNumbers: boolean | null,
+	editorTabSize: number | null,
+	editorInsertSpaces: boolean | null,
+	editorDetectIndentation: boolean | null,
+	editorRenderWhitespace: string | null,
+	editorBracketPairColorization: boolean | null,
+	editorFontLigatures: boolean | null,
+	editorCursorStyle: string | null,
+	editorCursorBlinking: string | null,
+	editorScrollBeyondLastLine: boolean | null,
+	terminalScrollback: number | null,
+	terminalCursorStyle: string | null,
+	terminalCursorBlink: boolean | null,
+	enablePreviewTabs: boolean | null,
 };
 
 export type ShellProfile = {
@@ -652,7 +687,7 @@ export type Tab = {
 
 export type TabId = string;
 
-export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" };
+export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" } | { kind: "untitled"; index: number };
 
 export type TerminalCwdChanged = {
 	sessionId: string,
@@ -682,6 +717,9 @@ export type Theme = {
 	colors?: { [key in string]: string },
 	syntax?: { [key in string]: SyntaxStyle },
 	terminal?: { [key in string]: string },
+	author?: string | null,
+	license?: string | null,
+	source?: string | null,
 };
 
 export type ThemeChanged = {

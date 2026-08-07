@@ -23,6 +23,21 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     agentHooksEnabled: null,
     ideIntegrationEnabled: null,
     ideAutoOpenDiff: null,
+    editorWordWrap: null,
+    editorLineNumbers: null,
+    editorTabSize: null,
+    editorInsertSpaces: null,
+    editorDetectIndentation: null,
+    editorRenderWhitespace: null,
+    editorBracketPairColorization: null,
+    editorFontLigatures: null,
+    editorCursorStyle: null,
+    editorCursorBlinking: null,
+    editorScrollBeyondLastLine: null,
+    terminalScrollback: null,
+    terminalCursorStyle: null,
+    terminalCursorBlink: null,
+    enablePreviewTabs: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

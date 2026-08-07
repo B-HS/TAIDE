@@ -5,6 +5,7 @@ use crate::ids::{PaneId, TabId};
 
 pub const LAYOUT_SCHEMA_VERSION: u32 = 1;
 pub const CLOSED_TAB_STACK_LIMIT: usize = 20;
+pub const FIRST_UNTITLED_INDEX: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +51,10 @@ pub enum TabKind {
         path: String,
     },
     Welcome,
+    #[serde(rename_all = "camelCase")]
+    Untitled {
+        index: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -111,6 +116,7 @@ pub enum FocusKind {
     Diff,
     ClaudeDiff,
     Welcome,
+    Untitled,
 }
 
 impl From<&TabKind> for FocusKind {
@@ -122,6 +128,7 @@ impl From<&TabKind> for FocusKind {
             TabKind::Diff { .. } => FocusKind::Diff,
             TabKind::ClaudeDiff { .. } => FocusKind::ClaudeDiff,
             TabKind::Welcome => FocusKind::Welcome,
+            TabKind::Untitled { .. } => FocusKind::Untitled,
         }
     }
 }

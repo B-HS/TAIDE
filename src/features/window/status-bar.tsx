@@ -75,7 +75,7 @@ export const StatusBar: FC<StatusBarProps> = ({
                             'flex shrink-0 items-center gap-1',
                             ideStatus.connected ? 'text-status-success' : 'text-app-sidebar-icon-default',
                         )}
-                        title={t('ide.title')}>
+                        title={t('ide.title', { port: ideStatus.port })}>
                         {ideStatus.connected ? <PlugZap className='size-3' /> : <Plug className='size-3' />}
                         {t(ideStatus.connected ? 'ide.connected' : 'ide.disconnected')}
                     </span>

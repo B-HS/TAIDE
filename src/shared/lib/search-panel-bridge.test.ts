@@ -44,4 +44,16 @@ describe('searchPanelBridge', () => {
         expect(first).toBe(1)
         expect(second).toBe(1)
     })
+
+    test('부분 요청은 나머지 필드가 기본값으로 채워진다', () => {
+        let received: unknown
+        const unsubscribe = subscribeOpenSearchPanel((request) => {
+            received = request
+        })
+
+        requestOpenSearchPanel({ includeGlob: 'src/**' })
+        unsubscribe()
+
+        expect(received).toEqual({ includeGlob: 'src/**', seedText: null, openReplace: false })
+    })
 })

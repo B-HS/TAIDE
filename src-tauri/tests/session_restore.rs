@@ -172,6 +172,49 @@ fn 레이아웃_파일이_없으면_기본_레이아웃으로_시작한다() {
 }
 
 #[test]
+fn 재시작_후_untitled_탭이_사라진다() {
+    let data = TempDir::new("data-untitled");
+    let workspace = TempDir::new("ws-untitled");
+    std::fs::create_dir_all(workspace.path().join(".git")).expect("create .git");
+
+    let paths = AppPaths::new(data.path().clone());
+
+    let mut session = SessionState::default();
+    let mut projects = HashMap::new();
+    let opened = project_service::open_project(&paths, &mut session, &mut projects, workspace.path()).expect("open project");
+    let project_id = opened.project.id.clone();
+
+    let mut layout = layout_service::default_layout();
+    let target_pane = layout.focused_pane.clone();
+    layout_service::open_tab(
+        &mut layout,
+        &target_pane,
+        taide_lib::domain::layout::types::Tab {
+            id: taide_lib::ids::TabId::new(),
+            kind: TabKind::Untitled { index: 1 },
+            title: "Untitled-1".to_string(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        },
+        false,
+    )
+    .expect("open untitled tab");
+
+    layout_service::save_layout(&paths, &project_id, &layout).expect("save layout");
+
+    let reopened_paths = AppPaths::new(data.path().clone());
+    let restored_layout = layout_service::load_layout(&reopened_paths, &project_id);
+
+    let restored_kinds = leaf_tab_kinds(&restored_layout.root);
+    assert!(
+        !restored_kinds.iter().any(|kind| matches!(kind, TabKind::Untitled { .. })),
+        "untitled 탭은 재시작 후 남지 않아야 한다"
+    );
+}
+
+#[test]
 fn 스플릿_사이즈는_퍼센트_단위로_합이_100이_된다() {
     let mut layout = layout_service::default_layout();
     let target_pane = layout.focused_pane.clone();

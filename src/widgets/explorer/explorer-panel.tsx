@@ -8,7 +8,7 @@ import { projectQueryOptions } from '@entities/project/project.query'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
-import type { SearchPanelScope } from '@shared/lib/search-panel-bridge'
+import type { SearchPanelRequest } from '@shared/lib/search-panel-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { subscribeRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
 import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@widgets/explorer/file-tree'
@@ -81,7 +81,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
 }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
-    const [searchScope, setSearchScope] = useState<SearchPanelScope | null>(null)
+    const [searchScope, setSearchScope] = useState<SearchPanelRequest | null>(null)
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
 

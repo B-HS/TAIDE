@@ -40,6 +40,12 @@ pub struct Theme {
     pub syntax: BTreeMap<String, SyntaxStyle>,
     #[serde(default)]
     pub terminal: BTreeMap<String, String>,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub license: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -64,4 +70,10 @@ pub struct ResolvedTheme {
     pub terminal: BTreeMap<String, String>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub license: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
 }

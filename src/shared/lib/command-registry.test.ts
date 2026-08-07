@@ -128,7 +128,7 @@ describe('DEFAULT_COMMANDS', () => {
     })
 
     test('실행 구현이 있는 기본 커맨드는 항상 실행 가능하다', () => {
-        const runnableIds = ['window.reload', 'settings.open', 'terminal.new', 'tab.reopenClosed', 'file.quickOpen']
+        const runnableIds = ['window.reload', 'settings.open', 'terminal.new', 'tab.reopenClosed', 'file.quickOpen', 'search.replace']
         for (const id of runnableIds) {
             const command = DEFAULT_COMMANDS.find((entry) => entry.id === id)
             expect(command).toBeDefined()

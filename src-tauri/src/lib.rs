@@ -90,6 +90,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::layout::commands::layout_set_view_state,
             domain::layout::commands::layout_set_dirty,
             domain::layout::commands::layout_set_terminal_session,
+            domain::layout::commands::layout_open_untitled,
+            domain::layout::commands::layout_convert_untitled,
             domain::file::commands::file_open,
             domain::file::commands::file_save,
             domain::file::commands::file_create,

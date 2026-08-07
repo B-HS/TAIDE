@@ -1,6 +1,6 @@
 export const DEFAULT_RESIZER_THICKNESS = 1
 
-export const MIN_RESIZER_THICKNESS = 1
+export const MIN_RESIZER_THICKNESS = 0
 
 export const MAX_RESIZER_THICKNESS = 8
 

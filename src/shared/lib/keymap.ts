@@ -7,6 +7,7 @@ export type KeymapActionId =
     | 'toggle-sidebar'
     | 'find'
     | 'search'
+    | 'search-replace'
     | 'explorer'
     | 'git'
     | 'split'
@@ -42,6 +43,7 @@ export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'toggle-sidebar', key: 'b', mods: ['mod'], descriptionKey: 'keymap.toggleSidebar' },
     { id: 'find', key: 'f', mods: ['mod'], descriptionKey: 'keymap.find' },
     { id: 'search', key: 'f', mods: ['mod', 'shift'], descriptionKey: 'keymap.search' },
+    { id: 'search-replace', key: 'h', mods: ['mod', 'shift'], descriptionKey: 'keymap.searchReplace' },
     { id: 'explorer', key: 'e', mods: ['mod', 'shift'], descriptionKey: 'keymap.explorer' },
     { id: 'git', key: 'g', mods: ['ctrl', 'shift'], descriptionKey: 'git.title' },
     { id: 'split', key: '\\', mods: ['mod'], descriptionKey: 'keymap.split' },

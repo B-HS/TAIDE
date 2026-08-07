@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use tauri::{AppHandle, State};
 use tauri_specta::Event;
@@ -8,6 +9,7 @@ use super::types::{ClosedTab, DropEdge, ProjectLayout, Tab, TabKind};
 use crate::error::{AppError, AppResult};
 use crate::events::{LayoutChanged, ProjectFocusKindChanged};
 use crate::ids::{PaneId, ProjectId, TabId};
+use crate::infra::root_guard;
 use crate::state::AppState;
 
 fn locate_project_with_tab(layouts: &HashMap<ProjectId, ProjectLayout>, tab_id: &TabId) -> AppResult<ProjectId> {
@@ -307,6 +309,58 @@ pub async fn layout_set_terminal_session(
     let layout = get_layout_mut(&mut layouts, &project_id)?;
 
     service::set_terminal_session(layout, &tab_id, session_id)?;
+
+    let updated = finish_mutation(&app, &state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn layout_open_untitled(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: ProjectId,
+    target: Option<PaneId>,
+) -> AppResult<ProjectLayout> {
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let layout = get_layout_mut(&mut layouts, &project_id)?;
+
+    let pane_id = target.unwrap_or_else(|| layout.focused_pane.clone());
+    let index = service::next_untitled_index(layout);
+    let tab = Tab {
+        id: TabId::new(),
+        kind: TabKind::Untitled { index },
+        title: format!("Untitled-{index}"),
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    };
+    service::open_tab(layout, &pane_id, tab, false)?;
+
+    let updated = finish_mutation(&app, &state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn layout_convert_untitled(app: AppHandle, state: State<'_, AppState>, tab_id: TabId, path: String) -> AppResult<ProjectLayout> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
+    let title = resolved
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or_else(|| AppError::InvalidArgument(format!("invalid path: {path}")))?;
+
+    let mut layouts = state.layouts.read().clone();
+    let project_id = locate_project_with_tab(&layouts, &tab_id)?;
+    let layout = get_layout_mut(&mut layouts, &project_id)?;
+
+    service::convert_untitled_to_file(layout, &tab_id, resolved.to_string_lossy().into_owned(), title)?;
 
     let updated = finish_mutation(&app, &state, &project_id, layout);
     *state.layouts.write() = layouts;

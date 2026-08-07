@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use super::types::{
-    ClosedTab, DropEdge, FocusKind, PaneNode, ProjectLayout, SplitDir, Tab, TabKind, CLOSED_TAB_STACK_LIMIT, LAYOUT_SCHEMA_VERSION,
+    ClosedTab, DropEdge, FocusKind, PaneNode, ProjectLayout, SplitDir, Tab, TabKind, CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX,
+    LAYOUT_SCHEMA_VERSION,
 };
 use crate::error::{AppError, AppResult};
 use crate::ids::{PaneId, ProjectId, TabId};
@@ -335,6 +338,67 @@ pub fn open_tab(layout: &mut ProjectLayout, pane_id: &PaneId, mut tab: Tab, prev
     Ok(id)
 }
 
+/// 현재 열려 있는 Untitled 탭들이 쓰지 않는 최소 번호를 돌려준다(1부터, VSCode 와 동일한 번호 재사용).
+/// Untitled 탭은 `closed_tabs` 에 남지 않으므로(`push_closed`) 열린 탭만 훑으면 된다.
+pub fn next_untitled_index(layout: &ProjectLayout) -> u32 {
+    let used: HashSet<u32> = collect_leaves(&layout.root)
+        .into_iter()
+        .filter_map(|leaf| match leaf {
+            PaneNode::Leaf { tabs, .. } => Some(tabs),
+            PaneNode::Split { .. } => None,
+        })
+        .flatten()
+        .filter_map(|tab| match &tab.kind {
+            TabKind::Untitled { index } => Some(*index),
+            _ => None,
+        })
+        .collect();
+
+    let mut candidate = FIRST_UNTITLED_INDEX;
+    while used.contains(&candidate) {
+        candidate += 1;
+    }
+    candidate
+}
+
+/// Untitled 탭을 저장된 파일 탭으로 in-place 치환한다. 같은 leaf 에 동일 경로의 File 탭이
+/// 이미 있으면 그 탭을 재사용하고(중복 탭 방지 — `open_tab` 의 중복 정책과 동일 철학) untitled 탭은 제거한다.
+pub fn convert_untitled_to_file(layout: &mut ProjectLayout, tab_id: &TabId, path: String, title: String) -> AppResult<TabId> {
+    let (pane_id, _) = find_tab(&layout.root, tab_id)
+        .map(|(pane_id, index)| (pane_id.clone(), index))
+        .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+
+    let leaf = find_leaf(&layout.root, &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let PaneNode::Leaf { tabs, .. } = leaf else {
+        return Err(AppError::Internal("expected leaf pane".to_string()));
+    };
+    if !tabs
+        .iter()
+        .any(|tab| &tab.id == tab_id && matches!(tab.kind, TabKind::Untitled { .. }))
+    {
+        return Err(AppError::InvalidArgument(format!("tab is not untitled: {tab_id}")));
+    }
+    let existing_id = tabs
+        .iter()
+        .find(|existing| matches!(&existing.kind, TabKind::File { path: existing_path } if existing_path == &path))
+        .map(|existing| existing.id.clone());
+
+    if let Some(existing_id) = existing_id {
+        extract_tab(&mut layout.root, tab_id);
+        normalize(&mut layout.root);
+        activate_tab(layout, &existing_id)?;
+        return Ok(existing_id);
+    }
+
+    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    tab.kind = TabKind::File { path };
+    tab.title = title;
+    tab.dirty = false;
+    tab.preview = false;
+    layout.revision += 1;
+    Ok(tab_id.clone())
+}
+
 pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<ClosedTab> {
     let (pane_id, index) = find_tab(&layout.root, tab_id)
         .map(|(pane_id, index)| (pane_id.clone(), index))
@@ -353,9 +417,10 @@ pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<Closed
 }
 
 /// ClaudeDiff 탭은 닫히는 순간 pending 요청이 해소되므로(`reconcile_closed_tab`),
-/// 되살려도 수락/거부가 실패하는 좀비 탭이 된다. 스택에 넣지 않는다.
+/// 되살려도 수락/거부가 실패하는 좀비 탭이 된다. Untitled 탭은 내용이 휘발 버퍼에만 있어
+/// 스택에 남겨도 빈 내용으로 되살아난다. 둘 다 스택에 넣지 않는다.
 fn push_closed(layout: &mut ProjectLayout, closed: ClosedTab) {
-    if matches!(closed.tab.kind, TabKind::ClaudeDiff { .. }) {
+    if is_volatile(&closed.tab.kind) {
         return;
     }
     layout.closed_tabs.push(closed);
@@ -541,17 +606,21 @@ pub fn focus_kind(layout: &ProjectLayout) -> Option<FocusKind> {
     Some(FocusKind::from(&tab.kind))
 }
 
-fn strip_claude_diff_node(node: &mut PaneNode) {
+/// 영속 저장에서 제외되는(휘발) 탭 종류. ClaudeDiff 는 pending IDE 요청과 묶여 있고,
+/// Untitled 는 내용이 저장되지 않는 in-memory 버퍼라 재시작 시 살아남으면 좀비/빈 탭이 된다.
+fn is_volatile(kind: &TabKind) -> bool {
+    matches!(kind, TabKind::ClaudeDiff { .. } | TabKind::Untitled { .. })
+}
+
+fn strip_volatile_node(node: &mut PaneNode) {
     match node {
         PaneNode::Leaf { tabs, active, .. } => {
             let removed_index = active
                 .as_ref()
                 .and_then(|active_id| tabs.iter().position(|tab| &tab.id == active_id));
-            let active_was_claude_diff = removed_index
-                .map(|index| matches!(tabs[index].kind, TabKind::ClaudeDiff { .. }))
-                .unwrap_or(false);
-            tabs.retain(|tab| !matches!(tab.kind, TabKind::ClaudeDiff { .. }));
-            if active_was_claude_diff {
+            let active_was_volatile = removed_index.map(|index| is_volatile(&tabs[index].kind)).unwrap_or(false);
+            tabs.retain(|tab| !is_volatile(&tab.kind));
+            if active_was_volatile {
                 *active = if tabs.is_empty() {
                     None
                 } else {
@@ -559,7 +628,7 @@ fn strip_claude_diff_node(node: &mut PaneNode) {
                 };
             }
         }
-        PaneNode::Split { children, .. } => children.iter_mut().for_each(strip_claude_diff_node),
+        PaneNode::Split { children, .. } => children.iter_mut().for_each(strip_volatile_node),
     }
 }
 
@@ -575,19 +644,17 @@ pub fn ensure_focused_pane_valid(layout: &mut ProjectLayout) {
     }
 }
 
-pub fn strip_claude_diff_tabs(layout: &ProjectLayout) -> ProjectLayout {
+pub fn strip_volatile_tabs(layout: &ProjectLayout) -> ProjectLayout {
     let mut persisted = layout.clone();
-    strip_claude_diff_node(&mut persisted.root);
+    strip_volatile_node(&mut persisted.root);
     normalize(&mut persisted.root);
     ensure_focused_pane_valid(&mut persisted);
-    persisted
-        .closed_tabs
-        .retain(|closed| !matches!(closed.tab.kind, TabKind::ClaudeDiff { .. }));
+    persisted.closed_tabs.retain(|closed| !is_volatile(&closed.tab.kind));
     persisted
 }
 
 pub fn save_layout(paths: &AppPaths, project_id: &ProjectId, layout: &ProjectLayout) -> AppResult<()> {
-    let persisted = strip_claude_diff_tabs(layout);
+    let persisted = strip_volatile_tabs(layout);
     persist::write_json(&paths.layout_file(project_id), &persisted)
 }
 
@@ -627,6 +694,18 @@ mod tests {
                 path: path.to_string(),
             },
             title: path.to_string(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }
+    }
+
+    fn 언타이틀드_탭(index: u32) -> Tab {
+        Tab {
+            id: TabId::new(),
+            kind: TabKind::Untitled { index },
+            title: format!("Untitled-{index}"),
             pinned: false,
             preview: false,
             dirty: false,
@@ -992,7 +1071,7 @@ mod tests {
             closed_tabs: Vec::new(),
         };
 
-        let persisted = strip_claude_diff_tabs(&layout);
+        let persisted = strip_volatile_tabs(&layout);
 
         let PaneNode::Leaf { tabs, active, .. } = &persisted.root else {
             panic!("expected leaf")
@@ -1006,7 +1085,7 @@ mod tests {
     fn 클로드_diff_탭이_없으면_저장_대상이_그대로_유지된다() {
         let layout = default_layout();
 
-        let persisted = strip_claude_diff_tabs(&layout);
+        let persisted = strip_volatile_tabs(&layout);
 
         let PaneNode::Leaf { tabs, .. } = &persisted.root else {
             panic!("expected leaf")
@@ -1056,7 +1135,7 @@ mod tests {
             closed_tabs: vec![file_closed, claude_diff_closed],
         };
 
-        let persisted = strip_claude_diff_tabs(&layout);
+        let persisted = strip_volatile_tabs(&layout);
 
         assert_eq!(persisted.closed_tabs.len(), 1);
         assert!(!matches!(persisted.closed_tabs[0].tab.kind, TabKind::ClaudeDiff { .. }));
@@ -1080,7 +1159,7 @@ mod tests {
             closed_tabs: Vec::new(),
         };
 
-        let persisted = strip_claude_diff_tabs(&layout);
+        let persisted = strip_volatile_tabs(&layout);
 
         assert!(matches!(&persisted.root, PaneNode::Leaf { .. }));
     }
@@ -1105,7 +1184,7 @@ mod tests {
             closed_tabs: Vec::new(),
         };
 
-        let persisted = strip_claude_diff_tabs(&layout);
+        let persisted = strip_volatile_tabs(&layout);
 
         assert_eq!(persisted.focused_pane, kept_pane_id);
         assert!(find_leaf(&persisted.root, &persisted.focused_pane).is_some());
@@ -1180,5 +1259,138 @@ mod tests {
     fn claude_diff_탭이_없으면_빈_목록이다() {
         let root = 리프(vec![파일_탭("a.rs")]);
         assert!(collect_claude_diff_tab_ids(&root).is_empty());
+    }
+
+    #[test]
+    fn untitled_탭은_인덱스가_1부터_증가한다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+
+        assert_eq!(next_untitled_index(&layout), 1);
+
+        let first_index = next_untitled_index(&layout);
+        open_tab(&mut layout, &leaf_id, 언타이틀드_탭(first_index), false).expect("open first untitled");
+        assert_eq!(next_untitled_index(&layout), 2);
+
+        let second_index = next_untitled_index(&layout);
+        open_tab(&mut layout, &leaf_id, 언타이틀드_탭(second_index), false).expect("open second untitled");
+        assert_eq!(next_untitled_index(&layout), 3);
+    }
+
+    #[test]
+    fn 닫은_untitled_인덱스는_바로_재사용된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+
+        let first_index = next_untitled_index(&layout);
+        let first_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(first_index), false).expect("open first untitled");
+        assert_eq!(next_untitled_index(&layout), 2);
+
+        close_tab(&mut layout, &first_id).expect("close untitled");
+
+        assert_eq!(next_untitled_index(&layout), 1);
+    }
+
+    #[test]
+    fn untitled_두개를_열면_각각_별도_탭이_된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+
+        let first_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(1), false).expect("open first");
+        let second_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(2), false).expect("open second");
+
+        assert_ne!(first_id, second_id);
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.iter().filter(|tab| matches!(tab.kind, TabKind::Untitled { .. })).count(), 2);
+    }
+
+    #[test]
+    fn untitled_탭은_영속_저장에서_제외된다() {
+        let file_tab = 파일_탭("a.rs");
+        let file_tab_id = file_tab.id.clone();
+        let untitled_tab = 언타이틀드_탭(1);
+        let untitled_id = untitled_tab.id.clone();
+        let layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root: 리프(vec![file_tab, untitled_tab]),
+            focused_pane: PaneId::new(),
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        let persisted = strip_volatile_tabs(&layout);
+
+        let PaneNode::Leaf { tabs, .. } = &persisted.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].id, file_tab_id);
+        assert!(!tabs.iter().any(|tab| tab.id == untitled_id));
+    }
+
+    #[test]
+    fn untitled_탭은_닫아도_닫힌_탭_스택에_쌓이지_않는다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let untitled_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(1), false).expect("open untitled");
+
+        close_tab(&mut layout, &untitled_id).expect("close untitled");
+
+        assert!(layout.closed_tabs.is_empty());
+    }
+
+    #[test]
+    fn 저장하면_같은_자리에서_file_탭이_된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let untitled_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(1), false).expect("open untitled");
+
+        let converted_id =
+            convert_untitled_to_file(&mut layout, &untitled_id, "notes.md".to_string(), "notes.md".to_string()).expect("convert");
+
+        assert_eq!(converted_id, untitled_id);
+        let (pane_id, _) = find_tab(&layout.root, &converted_id).expect("tab exists");
+        assert_eq!(pane_id, &leaf_id);
+        let tab = find_tab_mut(&mut layout.root, &converted_id).expect("tab exists");
+        assert_eq!(
+            tab.kind,
+            TabKind::File {
+                path: "notes.md".to_string()
+            }
+        );
+        assert_eq!(tab.title, "notes.md");
+        assert!(!tab.dirty);
+    }
+
+    #[test]
+    fn 같은_leaf에_동일_경로_파일_탭이_있으면_기존_탭이_활성화된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let existing_id = open_tab(&mut layout, &leaf_id, 파일_탭("notes.md"), false).expect("open existing file");
+        let untitled_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(1), false).expect("open untitled");
+
+        let converted_id =
+            convert_untitled_to_file(&mut layout, &untitled_id, "notes.md".to_string(), "notes.md".to_string()).expect("convert");
+
+        assert_eq!(converted_id, existing_id);
+        assert!(find_tab(&layout.root, &untitled_id).is_none());
+        let PaneNode::Leaf { tabs, active, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.iter().filter(|tab| tab.id == existing_id).count(), 1);
+        assert_eq!(active, &Some(existing_id));
+    }
+
+    #[test]
+    fn untitled이_아닌_탭을_변환하려_하면_에러() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let file_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open file");
+
+        let result = convert_untitled_to_file(&mut layout, &file_id, "b.rs".to_string(), "b.rs".to_string());
+
+        assert!(result.is_err());
     }
 }

@@ -649,6 +649,9 @@ pub fn builtin_dark() -> Theme {
         colors: dark_colors(),
         syntax: dark_syntax(),
         terminal: dark_terminal(),
+        author: None,
+        license: None,
+        source: None,
     }
 }
 
@@ -663,6 +666,9 @@ pub fn builtin_light() -> Theme {
         colors: light_colors(),
         syntax: light_syntax(),
         terminal: light_terminal(),
+        author: None,
+        license: None,
+        source: None,
     }
 }
 
@@ -785,6 +791,9 @@ pub fn resolve_theme(theme: &Theme, base: Option<&Theme>) -> ResolvedTheme {
         syntax,
         terminal,
         warnings,
+        author: theme.author.clone(),
+        license: theme.license.clone(),
+        source: theme.source.clone(),
     }
 }
 
@@ -977,6 +986,9 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            author: None,
+            license: None,
+            source: None,
         };
 
         let resolved = resolve_theme(&theme, None);
@@ -999,6 +1011,9 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            author: None,
+            license: None,
+            source: None,
         };
 
         let resolved = resolve_theme(&theme, None);
@@ -1021,6 +1036,9 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            author: None,
+            license: None,
+            source: None,
         };
 
         let base = builtin_dark();
