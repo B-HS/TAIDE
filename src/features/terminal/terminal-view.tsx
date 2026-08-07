@@ -128,13 +128,22 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, them
 
         const textarea = term.textarea
         let composing = ''
+        let pendingReplaceLength: number | null = null
+        const handleBeforeInput = (event: Event) => {
+            const input = event as InputEvent
+            if (typeof input.getTargetRanges !== 'function') return
+            const range = input.getTargetRanges()[0]
+            pendingReplaceLength = range ? range.endOffset - range.startOffset : null
+        }
         const handleImeInput = (event: Event) => {
             const input = event as InputEvent
-            const resolved = resolveImeInput(input.inputType, input.data ?? '', composing)
+            const resolved = resolveImeInput(input.inputType, input.data ?? '', composing, pendingReplaceLength)
+            pendingReplaceLength = null
             if (!resolved) return
             composing = resolved.composing
             if (resolved.output) onDataRef.current(resolved.output)
         }
+        textarea?.addEventListener('beforeinput', handleBeforeInput, true)
         textarea?.addEventListener('input', handleImeInput, true)
 
         const dataSubscription = term.onData((data) => onDataRef.current(data))
@@ -155,6 +164,7 @@ export const TerminalView: FC<TerminalViewProps> = ({ fontSize, fontFamily, them
         }
 
         return () => {
+            textarea?.removeEventListener('beforeinput', handleBeforeInput, true)
             textarea?.removeEventListener('input', handleImeInput, true)
             attachRefRef.current.current = null
             cancelAnimationFrame(resizeRafId)

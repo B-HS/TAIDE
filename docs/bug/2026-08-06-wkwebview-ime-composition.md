@@ -73,6 +73,22 @@ Monaco 가 같은 조건에서 멀쩡한 방식(요소 값 직접 해석)을 xte
 | `.xterm-helper-textarea` 를 1×1 로 키우기 | 조합 이벤트는 여전히 미발생. **조합 버그의 해결책이 아님.** 다만 IME 후보창이 `left:-9999em` 로 화면 밖에 뜨는 것을 막는 실익이 있어 유지 |
 | tao 가 IME 를 전역 가로챈다는 가설 | `input`→`keydown` 역순을 근거로 세웠으나, 어댑터로 해결된 것으로 보아 웹뷰 레벨 동작임 |
 
+## 2026-08-07 추가 — 빠른 입력 시 글자 씹힘 (교체 범위 desync)
+
+증상: Claude Code 터미널에서 한글을 빠르게 치면 글자가 유실된다 (iTerm 은 정상 — 어댑터 경로가 없으므로).
+
+원인 가설(코드 분석으로 특정): 어댑터가 `insertReplacementText` 를 항상 "직전 조합 문자열 전체 교체"로
+가정하고 `composing.length` 만큼 `\x7f` 를 보냈다. 빠른 입력에서 음절 분리·재조합(`간` → `가` 확정 + `나` 새 조합)이
+일어나면 실제 교체 범위는 조합의 꼬리 일부뿐이라, 백스페이스 수가 어긋나 확정 글자를 지우거나 덜 지운다.
+
+수정: `beforeinput` 의 `getTargetRanges()` 로 **실제 교체 범위 길이**를 받아 그만큼만 지운다.
+`resolveImeInput(inputType, data, composing, replaceLength)` — 범위가 없으면(null) 기존 전체 교체 폴백.
+조합 상태는 `composing` 의 꼬리 `eraseCount` 만큼을 `data` 로 치환해 부분 교체를 정확히 미러링한다.
+분리 시나리오 테스트(`가나` 수렴) 포함 10건.
+
+검증 방법: 내장 터미널(Claude Code 포함)에서 한글 문장을 최대 속도로 입력 → 유실·중복 없이 표시되면 정상.
+재현되면 `beforeinput` 이벤트의 inputType/data/getTargetRanges 를 로깅해 실측 시퀀스를 확보한 뒤 재분석한다.
+
 ## 후속
 
 - Tauri/wry/tao 상위 버전에서 수정되면 이 어댑터를 걷어낸다. 걷어낼 때는

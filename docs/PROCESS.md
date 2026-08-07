@@ -639,7 +639,23 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] 7.7-검토. 전체 diff 버그 검토 (커밋 `36f4fc4`) — 발견 50 → 적대적 검증 확정 44 → 수정 29+4 / 보류 7(backlog 기록).
       2차(메인)에서 1차 수정의 opener 권한 광역 개방(path:**)을 회수하고 루트 검증 Rust 커맨드 경유로 재설계,
       root_guard 승격으로 terminal→file import 편차 해소. 최종 기준선: 프론트 312 tests / Rust 310 / lint·clippy 0
-- [ ] 7.7-QA. 실기 화면 검증 (사용자 — `bun run tauri dev`) 후 발견 버그 수정
+- [x] 7.7-QA. 실기 화면 검증 1회차 (사용자) — 11건 접수 → 아래 7.8
+- [x] 7.7-후속. opener npm 제거·hooks OFF 자동 제거 (커밋 `41d740b`)
+
+## 진행 중: Phase 7.8 — QA 2차 반영 (2026-08-07)
+
+- [ ] 7.8-R. 리서치 (1·4·5·6·7·8·9·11번 — 8영역 병렬 opus)
+- [ ] 7.8-1. 파일 탭 우클릭 시 네이티브 메뉴(Reload/Inspect)가 뜸 — 커스텀 탭 메뉴 회귀 원인 조사·수정
+- [ ] 7.8-2. divider thickness 0 허용
+- [ ] 7.8-3. 미니맵 우클릭 토글이 설정에 영속되지 않아 새 탭에서 되살아남 — 토글을 settings 갱신으로
+- [ ] 7.8-4. 탭바 빈 곳 더블클릭 = untitled 새 파일 + `+` 버튼(새 파일/새 터미널)
+- [ ] 7.8-5. Monaco find/references 위젯 테마 미적용 — 위젯 색 토큰 매핑 확장
+- [ ] 7.8-6. 전반 border·round·radius·색 불일치 일제 점검
+- [ ] 7.8-7. `⇧⌘F` 전역 검색 진입 단축키 + 검색 패널 replace 입력 + regex 모드 (VSCode 참조)
+- [ ] 7.8-8. 테마 편집기 live preview 수정 + VSCode 테마 변환 샘플 테마 다수 내장
+- [ ] 7.8-9. CC 연동 "Disconnected" — 연결 경로(서버 기동·lockfile·pty env) 원인 조사·수정
+- [ ] 7.8-10. CC 터미널 한글 빠른 입력 씹힘 — **메인(Fable) 직접 디버그** (IME 어댑터 경합)
+- [ ] 7.8-11. 설정 항목 확충 — 하드코딩된 설정 가능값 인벤토리 후 설정 UI 노출
 - [x] 7.7-검토2. 2차 검토 확정 후속 4건 (미커밋) —
       ① opener 권한 재설계: capabilities 의 opener 3종 제거 + `system_open_path`/`system_reveal_path`/
       `system_open_in_browser` 신설(루트 검증 후 `tauri_plugin_opener` Rust API 직접 호출),
