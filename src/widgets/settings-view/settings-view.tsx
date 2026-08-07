@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -30,6 +30,8 @@ import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { Switch } from '@shared/ui/switch'
 import { Button } from '@shared/ui/button'
+
+const SETTINGS_SCROLL_OFFSET_PX = 32
 
 const MIN_FONT_SIZE = 8
 const MAX_FONT_SIZE = 32
@@ -63,6 +65,8 @@ const SETTINGS_TOC_ITEMS = [
 ]
 
 export const SettingsView = () => {
+    const scrollContainerRef = useRef<HTMLDivElement>(null)
+
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
     const [themeEditorState, setThemeEditorState] = useState<ThemeEditorState | null>(null)
 
@@ -79,7 +83,11 @@ export const SettingsView = () => {
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
-        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        const container = scrollContainerRef.current
+        const target = container?.querySelector(`#${CSS.escape(id)}`)
+        if (!container || !target) return
+        const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - SETTINGS_SCROLL_OFFSET_PX
+        container.scrollTo({ top, behavior: 'smooth' })
     }
 
     if (isSettingsPending || !settings) return <div className='bg-panel-background h-full w-full' />
@@ -108,7 +116,7 @@ export const SettingsView = () => {
         )
 
     return (
-        <div className='bg-panel-background text-app-foreground h-full w-full overflow-y-auto'>
+        <div ref={scrollContainerRef} className='bg-panel-background text-app-foreground h-full w-full overflow-x-hidden overflow-y-auto'>
             <div className='flex flex-col gap-6 px-8 py-8'>
                 <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
 
@@ -192,6 +200,37 @@ export const SettingsView = () => {
                                 max={MAX_RESIZER_THICKNESS}
                                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), resizerThickness: value })}
                             />
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='text-app-foreground'>{t('settings.showSystemUsage')}</span>
+                                <Switch
+                                    checked={settings.showSystemUsage ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), showSystemUsage: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='text-app-foreground'>{t('settings.editorMinimap')}</span>
+                                <Switch
+                                    checked={settings.editorMinimap ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorMinimap: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='text-app-foreground'>{t('settings.agentStatusBadge')}</span>
+                                <Switch
+                                    checked={settings.agentStatusBadgeEnabled ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentStatusBadgeEnabled: checked })}
+                                />
+                            </label>
+                            <div className='flex flex-col gap-1'>
+                                <label className='flex items-center justify-between gap-3 text-xs'>
+                                    <span className='text-app-foreground'>{t('settings.agentHooks')}</span>
+                                    <Switch
+                                        checked={settings.agentHooksEnabled ?? false}
+                                        onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentHooksEnabled: checked })}
+                                    />
+                                </label>
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.agentHooksHint')}</span>
+                            </div>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.EDITOR} title={t('settings.editor')}>
@@ -290,6 +329,8 @@ export const SettingsView = () => {
                         <SettingsSection id={SETTINGS_SECTION_ID.PLUGINS} title={t('settings.plugins')}>
                             <PluginSectionPlaceholder />
                         </SettingsSection>
+
+                        <div aria-hidden className='h-[50vh] shrink-0' />
                     </div>
                 </div>
             </div>

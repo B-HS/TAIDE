@@ -623,7 +623,14 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 > 리서치·판단·최종검증 = opus+medium, 구현 = sonnet+high, 버그 1차 = opus+high, 2차 = Fable+medium.
 > 메인은 직접 구현하지 않고 계약 확정·배선·검증만 한다.
 
-- [ ] 7.7-R. 사전 리서치 워크플로 (8개 영역 병렬 조사) — 완료 후 계약 확정·상세플랜 작성
+- [x] 7.7-R. 사전 리서치 워크플로 (8영역 병렬, opus) — 핵심 주장 메인 직접 검증 후 채택.
+      범위 결정 3건(사용자)·세부 결정은 `docs/acknowledge/2026-08-07-qa-batch-decisions.md`
+- [x] 7.7-계약. 스파인 선행 확정 (커밋 `70424a2`) — system 도메인·설정 6필드·TabKind 확장(ClaudeDiff 휘발성)·
+      file 휴지통 전환·테마 토큰·i18n 65키·capabilities. opus 검증 pass, minor 6건 중 3건은 웨이브 1 S 트랙에서 수정
+- [ ] 7.7-W1. 웨이브 1 구현 — P(UI폴리시→Problems→리소스) ∥ Q(트리 인라인) ∥ R(AI 배지) ∥ S(minor 수정)
+- [ ] 7.7-W2. 웨이브 2 구현 — B1(context menu·미니맵) ∥ B2a(IDE Rust) → B2b(IDE 프론트)
+- [ ] 7.7-W3. 웨이브 3 구현 — C1(커스텀 스크롤바 전면 적용)
+- [ ] 7.7-검토. 전체 diff 버그 1차(opus high) → 2차(Fable) → bun run verify → dev 커밋
 - [ ] 7.7-1. Problems 재배치 — footer 에러 아이콘(에러 있으면 적색) + 클릭 시 에디터 영역 패널 토글
 - [ ] 7.7-2. 파일트리 툴바 hover 시에만 표시(Cursor 형태) + 새 파일/폴더 트리 내 인라인 입력(모달 금지)
 - [ ] 7.7-3. 파일트리 context menu 항목 전량 (VSCode 급)

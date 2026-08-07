@@ -1,54 +1,65 @@
 import type { FC } from 'react'
 import { useEffect, useState } from 'react'
-import { AlertTriangle, FolderTree, GitBranch, ListTree, Search } from 'lucide-react'
+import { FolderTree, GitBranch, ListTree, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ProjectId } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+import type { FileTreeDraft } from '@widgets/explorer/file-tree'
 import { FileTree } from '@widgets/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
 import { OutlinePanelContainer } from '@widgets/outline-panel/outline-panel-container'
-import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 import { SearchPanelContainer } from '@widgets/search-panel/search-panel-container'
 
-type ExplorerView = 'files' | 'search' | 'git' | 'problems' | 'outline'
+type ExplorerView = 'files' | 'search' | 'git' | 'outline'
 
 const EXPLORER_VIEWS: { id: ExplorerView; labelKey: string; icon: typeof FolderTree }[] = [
     { id: 'files', labelKey: 'explorer.title', icon: FolderTree },
     { id: 'search', labelKey: 'search.title', icon: Search },
     { id: 'git', labelKey: 'git.title', icon: GitBranch },
-    { id: 'problems', labelKey: 'problems.title', icon: AlertTriangle },
     { id: 'outline', labelKey: 'outline.title', icon: ListTree },
 ]
 
 type ExplorerPanelProps = {
     projectId: ProjectId
     rows: FileTreeRow[]
+    draft: FileTreeDraft | null
+    draftError: string | null
+    selectPathRequest: string | null
     onToggleExpand: (row: FileTreeRow) => void
     onOpenPreview: (row: FileTreeRow) => void
     onOpenPinned: (row: FileTreeRow) => void
     onSelectionChange: (row: FileTreeRow) => void
     onOpenSearchMatch: (path: string) => void
-    onCreateFile: (name: string) => void
-    onCreateFolder: (name: string) => void
+    onNewFile: () => void
+    onNewFolder: () => void
     onRefresh: () => void
     onCollapseAll: () => void
+    onDraftCommit: (name: string) => void
+    onDraftCancel: () => void
+    onSelectPathRequestHandled: () => void
 }
 
 export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     projectId,
     rows,
+    draft,
+    draftError,
+    selectPathRequest,
     onToggleExpand,
     onOpenPreview,
     onOpenPinned,
     onSelectionChange,
     onOpenSearchMatch,
-    onCreateFile,
-    onCreateFolder,
+    onNewFile,
+    onNewFolder,
     onRefresh,
     onCollapseAll,
+    onDraftCommit,
+    onDraftCancel,
+    onSelectPathRequestHandled,
 }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
@@ -56,7 +67,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     useEffect(() => subscribeOpenSearchPanel(() => setView('search')), [])
 
     return (
-        <div className='bg-explorer-background flex h-full min-h-0 w-full flex-col'>
+        <div className='group/explorer bg-explorer-background flex h-full min-h-0 w-full flex-col'>
             <div
                 role='tablist'
                 aria-label={t('explorer.sidebarSwitchLabel')}
@@ -82,12 +93,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                 </div>
 
                 {view === 'files' && (
-                    <FileTreeToolbar
-                        onCreateFile={onCreateFile}
-                        onCreateFolder={onCreateFolder}
-                        onRefresh={onRefresh}
-                        onCollapseAll={onCollapseAll}
-                    />
+                    <FileTreeToolbar onNewFile={onNewFile} onNewFolder={onNewFolder} onRefresh={onRefresh} onCollapseAll={onCollapseAll} />
                 )}
             </div>
 
@@ -95,15 +101,20 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                 {view === 'files' && (
                     <FileTree
                         rows={rows}
+                        draft={draft}
+                        draftError={draftError}
+                        selectPathRequest={selectPathRequest}
                         onToggleExpand={onToggleExpand}
                         onOpenPreview={onOpenPreview}
                         onOpenPinned={onOpenPinned}
                         onSelectionChange={onSelectionChange}
+                        onDraftCommit={onDraftCommit}
+                        onDraftCancel={onDraftCancel}
+                        onSelectPathRequestHandled={onSelectPathRequestHandled}
                     />
                 )}
                 {view === 'search' && <SearchPanelContainer projectId={projectId} onOpenMatch={onOpenSearchMatch} />}
                 {view === 'git' && <GitPanelContainer projectId={projectId} />}
-                {view === 'problems' && <ProblemsPanelContainer projectId={projectId} />}
                 {view === 'outline' && <OutlinePanelContainer projectId={projectId} />}
             </div>
         </div>

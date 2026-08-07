@@ -11,7 +11,7 @@ use tauri::Manager;
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-use crate::domain::agent::commands::AgentStore;
+use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::git::commands::GitStore;
 use crate::domain::lsp::commands::LspStore;
 use crate::domain::plugin::commands::PluginStore;
@@ -108,6 +108,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::agent::commands::agent_list,
             domain::agent::commands::agent_release_marker,
             domain::agent::commands::agent_cli_status,
+            domain::agent::commands::agent_hooks_status,
+            domain::agent::commands::agent_hooks_install,
+            domain::agent::commands::agent_hooks_uninstall,
             domain::lsp::commands::lsp_spawn,
             domain::lsp::commands::lsp_send,
             domain::lsp::commands::lsp_stop,
@@ -212,11 +215,16 @@ fn poll_agents(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let terminals = app.state::<TerminalStore>();
     let agents = app.state::<AgentStore>();
+    let agent_hooks = app.state::<AgentHooksStore>();
 
     let project_ids: Vec<_> = state.projects.read().keys().cloned().collect();
+    let mut valid_session_ids = std::collections::HashSet::new();
 
     for project_id in project_ids {
-        let detected = domain::agent::commands::detect_agents_for_pids(terminals.foreground_pids(&project_id));
+        let probes = domain::agent::commands::detect_agents_for_pids(terminals.foreground_pids(&project_id));
+        let detected = domain::agent::commands::build_detected_agents(&agents, &agent_hooks, &project_id, probes);
+        valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
+
         if let Some(changed) = agents.diff(&project_id, &detected) {
             let _ = AgentStateChanged {
                 project_id: project_id.clone(),
@@ -225,6 +233,8 @@ fn poll_agents(app: &tauri::AppHandle) {
             .emit(app);
         }
     }
+
+    agents.prune_activity(&valid_session_ids);
 }
 
 fn restore_state(state: &AppState) -> Vec<String> {
@@ -328,7 +338,15 @@ pub fn run() {
             app.manage(SearchStore::default());
             app.manage(PluginStore::default());
             app.manage(AgentStore::default());
+            app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
+
+            if app.state::<AppState>().settings.read().agent_hooks_enabled {
+                let hooks_boot_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = domain::agent::hooks::ensure_hooks_server_started(&hooks_boot_handle).await;
+                });
+            }
 
             let agent_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

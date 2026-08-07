@@ -7,3 +7,9 @@ export const listProjectAgents = (projectId: ProjectId) => unwrapResult(commands
 export const releaseWaitMarker = (marker: string) => unwrapResult(commands.agentReleaseMarker(marker))
 
 export const getCliInstallStatus = () => unwrapResult(commands.agentCliStatus())
+
+export const getAgentHooksStatus = (projectId: ProjectId) => unwrapResult(commands.agentHooksStatus(projectId))
+
+export const installAgentHooks = (projectId: ProjectId) => unwrapResult(commands.agentHooksInstall(projectId))
+
+export const uninstallAgentHooks = (projectId: ProjectId) => unwrapResult(commands.agentHooksUninstall(projectId))

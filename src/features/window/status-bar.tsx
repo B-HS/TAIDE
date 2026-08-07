@@ -1,6 +1,8 @@
 import type { FC } from 'react'
-import { CheckCircle2, SquareTerminal, Type, XCircle } from 'lucide-react'
+import { Activity, CheckCircle2, CircleX, SquareTerminal, Type, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { SystemUsage } from '@shared/api/bindings'
+import { BYTES_PER_MEBIBYTE } from '@shared/constants/system-usage'
 import { cn } from '@shared/lib/cn'
 import { FontSizeStepper } from '@features/window/font-size-stepper'
 
@@ -12,6 +14,10 @@ type LspSummary = {
 
 type StatusBarProps = {
     lspSummary: LspSummary | null
+    errorCount: number
+    isProblemsOpen: boolean
+    onToggleProblems: () => void
+    systemUsage: SystemUsage | null
     editorFontSize: number
     terminalFontSize: number
     onEditorFontSizeDecrease: () => void
@@ -24,6 +30,10 @@ type StatusBarProps = {
 
 export const StatusBar: FC<StatusBarProps> = ({
     lspSummary,
+    errorCount,
+    isProblemsOpen,
+    onToggleProblems,
+    systemUsage,
     editorFontSize,
     terminalFontSize,
     onEditorFontSizeDecrease,
@@ -38,6 +48,19 @@ export const StatusBar: FC<StatusBarProps> = ({
     return (
         <div className='bg-app-sidebar-background border-app-border text-app-sidebar-icon-default flex h-6 shrink-0 items-center justify-between gap-3 border-t px-2 text-[11px] select-none'>
             <div className='flex min-w-0 items-center gap-3'>
+                <button
+                    type='button'
+                    aria-label={t('problems.toggleAriaLabel')}
+                    aria-pressed={isProblemsOpen}
+                    onClick={onToggleProblems}
+                    className={cn(
+                        'flex shrink-0 items-center gap-1 rounded-sm px-1',
+                        errorCount > 0 ? 'text-status-error' : 'text-app-sidebar-icon-default',
+                        isProblemsOpen ? 'bg-explorer-item-selected' : 'hover:bg-explorer-item-hover',
+                    )}>
+                    <CircleX className='size-3' />
+                    <span className='tabular-nums'>{errorCount}</span>
+                </button>
                 {lspSummary && (
                     <span className={cn('flex shrink-0 items-center gap-1', lspSummary.hasCrashed ? 'text-status-error' : 'text-status-success')}>
                         {lspSummary.hasCrashed ? <XCircle className='size-3' /> : <CheckCircle2 className='size-3' />}
@@ -46,6 +69,15 @@ export const StatusBar: FC<StatusBarProps> = ({
                 )}
             </div>
             <div className='flex shrink-0 items-center gap-3'>
+                {systemUsage && (
+                    <span className='text-app-sidebar-icon-default flex shrink-0 items-center gap-1' title={t('window.systemUsageHint')}>
+                        <Activity className='size-3' />
+                        {t('window.systemUsage', {
+                            cpu: systemUsage.cpuPercent === null ? '--' : Math.round(systemUsage.cpuPercent),
+                            memory: Math.round((systemUsage.memoryBytes ?? 0) / BYTES_PER_MEBIBYTE),
+                        })}
+                    </span>
+                )}
                 <FontSizeStepper
                     label={t('window.editorFontSize')}
                     icon={<Type className='size-3' />}

@@ -15,6 +15,7 @@ type SortableTabProps = {
     paneId: PaneId
     active: boolean
     icon: ReactNode
+    agentTooltip?: string
     onActivate: () => void
     onClose: () => void
     onCloseOthers: () => void
@@ -34,6 +35,7 @@ export const SortableTab: FC<SortableTabProps> = ({
     paneId,
     active,
     icon,
+    agentTooltip,
     onActivate,
     onClose,
     onCloseOthers,
@@ -76,6 +78,7 @@ export const SortableTab: FC<SortableTabProps> = ({
                     dirty={tab.dirty ?? false}
                     pinned={tab.pinned ?? false}
                     preview={tab.preview ?? false}
+                    agentTooltip={agentTooltip}
                     onActivate={onActivate}
                     onClose={onClose}
                 />

@@ -7,9 +7,10 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { Plus, Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { ProjectId } from '@shared/api/bindings'
+import type { DetectedAgent, ProjectId } from '@shared/api/bindings'
 import { projectListQueryOptions, useActivateProject, useOpenProject, useReorderProjects } from '@entities/project/project.query'
-import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
+import { projectAgentsQueryOptions, useAgentStateSync } from '@entities/agent/agent.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { SortableProjectIcon } from '@widgets/app-sidebar/sortable-project-icon'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
@@ -24,6 +25,7 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
     const [draggingId, setDraggingId] = useState<string | null>(null)
 
     const { data: projects = [] } = useQuery(projectListQueryOptions())
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: openProject } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
     const { mutate: reorderProjects } = useReorderProjects()
@@ -31,7 +33,10 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
     const agentQueries = useQueries({
         queries: projects.map((project) => projectAgentsQueryOptions(project.id)),
     })
-    const agentProjectIds = new Set(agentQueries.flatMap((result) => (result.data && result.data.agents.length > 0 ? [result.data.projectId] : [])))
+    const agentsByProjectId = new Map<ProjectId, DetectedAgent[]>(
+        agentQueries.flatMap((result) => (result.data ? [[result.data.projectId, result.data.agents] as const] : [])),
+    )
+    const badgeEnabled = settings?.agentStatusBadgeEnabled ?? true
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 
@@ -52,6 +57,8 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
         reorderProjects(arrayMove(projects, from, to).map((project) => project.id))
     }
 
+    useAgentStateSync()
+
     return (
         <nav
             aria-label={t('sidebar.projectsAriaLabel')}
@@ -69,7 +76,8 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
                             project={project}
                             active={project.id === activeProjectId}
                             dragging={draggingId === project.id}
-                            agentRunning={agentProjectIds.has(project.id)}
+                            agents={agentsByProjectId.get(project.id) ?? []}
+                            badgeEnabled={badgeEnabled}
                             onActivate={() => activateProject(project.id)}
                         />
                     ))}

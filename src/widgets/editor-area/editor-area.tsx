@@ -3,10 +3,13 @@ import { useState } from 'react'
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useQuery } from '@tanstack/react-query'
+import { Group, Panel } from 'react-resizable-panels'
 import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
 import { layoutQueryOptions, useCloseTab, useMoveTab, useSplitPane } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
+import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
@@ -17,6 +20,7 @@ import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
 import type { SplitDropData } from '@widgets/editor-area/pane-node-view'
 import { PaneNodeView } from '@widgets/editor-area/pane-node-view'
 import type { TabDragData } from '@widgets/editor-area/sortable-tab'
+import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
 
@@ -33,9 +37,11 @@ type DragTabState = {
 
 type EditorAreaProps = {
     projectId: ProjectId
+    isProblemsOpen: boolean
+    onCloseProblems: () => void
 }
 
-export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
+export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onCloseProblems }) => {
     const [dragTab, setDragTab] = useState<DragTabState | null>(null)
     const [overTarget, setOverTarget] = useState<{ paneId: PaneId; edge: DropEdge } | null>(null)
 
@@ -136,15 +142,25 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId }) => {
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}>
-            <div className='relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden'>
-                <PaneNodeView
-                    node={layout.root}
-                    projectId={projectId}
-                    focusedPaneId={layout.focusedPane}
-                    isDragging={!!dragTab}
-                    overTarget={overTarget}
-                />
-            </div>
+            <Group orientation='vertical' className='min-h-0 min-w-0 flex-1'>
+                <Panel id='editor-panes' minSize='30%' className='min-h-0 min-w-0'>
+                    <div className='relative flex h-full min-h-0 w-full min-w-0 overflow-hidden'>
+                        <PaneNodeView
+                            node={layout.root}
+                            projectId={projectId}
+                            focusedPaneId={layout.focusedPane}
+                            isDragging={!!dragTab}
+                            overTarget={overTarget}
+                        />
+                    </div>
+                </Panel>
+                {isProblemsOpen && <PaneSeparator orientation='vertical' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />}
+                {isProblemsOpen && (
+                    <Panel id='problems-panel' defaultSize='220px' minSize='120px' className='min-h-0 min-w-0'>
+                        <ProblemsPanelContainer projectId={projectId} onClose={onCloseProblems} />
+                    </Panel>
+                )}
+            </Group>
             <DragOverlay>
                 {dragTab && (
                     <div className='pointer-events-none opacity-90'>

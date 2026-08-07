@@ -4,10 +4,12 @@ import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortabl
 import { useQuery } from '@tanstack/react-query'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
+import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { useActivateTab, useCloseTab, useFocusPane, useOpenTab, usePinTab, useSplitPane } from '@entities/layout/layout.query'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
@@ -17,9 +19,17 @@ const TAB_ICON_SIZE_CLASS = 'size-3.5'
 
 export type TabContainerDropData = { type: 'tab-container'; paneId: PaneId }
 
-export const getTabIcon = (kind: TabKind): ReactNode => {
+const ICON_AGENT_ACTIVITY_CLASS: Record<AgentActivity, string> = {
+    working: 'text-app-sidebar-icon-agent-working',
+    awaitingInput: 'text-app-sidebar-icon-agent-awaiting',
+    idle: 'text-app-sidebar-icon-agent-idle',
+    unknown: 'text-app-sidebar-icon-agent-unknown',
+}
+
+export const getTabIcon = (kind: TabKind, agent?: DetectedAgent): ReactNode => {
     if (kind.kind === 'file')
         return <FileTypeIcon fileName={kind.path.split('/').filter(Boolean).at(-1) ?? kind.path} className={TAB_ICON_SIZE_CLASS} />
+    if (kind.kind === 'terminal' && agent) return <Sparkles className={cn(TAB_ICON_SIZE_CLASS, ICON_AGENT_ACTIVITY_CLASS[agent.activity])} />
     if (kind.kind === 'terminal') return <Terminal className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'settings') return <Settings className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'diff') return <FileDiff className={TAB_ICON_SIZE_CLASS} />
@@ -41,6 +51,7 @@ type PaneTabBarProps = {
 
 export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activeTabId, focused }) => {
     const { data: project } = useQuery(projectQueryOptions(projectId))
+    const { data: projectAgents } = useQuery(projectAgentsQueryOptions(projectId))
     const { mutate: activateTab } = useActivateTab(projectId)
     const { mutate: closeTab } = useCloseTab(projectId)
     const { mutateAsync: closeTabAsync } = useCloseTab(projectId)
@@ -52,9 +63,11 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
         id: `pane-container:${paneId}`,
         data: { type: 'tab-container', paneId } satisfies TabContainerDropData,
     })
+    const { t } = useTranslation()
 
     const pinnedTabs = tabs.filter((tab) => tab.pinned)
     const unpinnedTabs = tabs.filter((tab) => !tab.pinned)
+    const agentBySessionId = new Map((projectAgents?.agents ?? []).map((agent) => [agent.sessionId, agent] as const))
 
     const notifyError = (error: Error) => toast.error(error.message)
 
@@ -96,6 +109,8 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const renderTab = (tab: Tab) => {
         const filePath = tab.kind.kind === 'file' ? tab.kind.path : null
         const relativePath = filePath && project ? toRelativePath(project.root, filePath) : null
+        const agent = tab.kind.kind === 'terminal' && tab.kind.sessionId ? agentBySessionId.get(tab.kind.sessionId) : undefined
+        const agentTooltip = agent ? t('agent.sessionTooltip', { name: agent.name, status: t(`agent.status.${agent.activity}`) }) : undefined
 
         return (
             <SortableTab
@@ -103,7 +118,8 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 tab={tab}
                 paneId={paneId}
                 active={tab.id === activeTabId}
-                icon={getTabIcon(tab.kind)}
+                icon={getTabIcon(tab.kind, agent)}
+                agentTooltip={agentTooltip}
                 onActivate={() => activateTab(tab.id)}
                 onClose={() => closeTab(tab.id)}
                 onCloseOthers={() => void handleCloseOthers(tab.id)}

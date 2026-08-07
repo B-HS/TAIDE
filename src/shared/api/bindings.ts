@@ -46,6 +46,9 @@ export const commands = {
 	agentList: (projectId: ProjectId) => typedError<ProjectAgents, AppError>(__TAURI_INVOKE("agent_list", { projectId })),
 	agentReleaseMarker: (marker: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_release_marker", { marker })),
 	agentCliStatus: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_status")),
+	agentHooksStatus: (projectId: ProjectId) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_status", { projectId })),
+	agentHooksInstall: (projectId: ProjectId) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_install", { projectId })),
+	agentHooksUninstall: (projectId: ProjectId) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_uninstall", { projectId })),
 	lspSpawn: (projectId: ProjectId, serverId: LspServerId, root: string, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { projectId, serverId, root, onMessage })),
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	lspStop: (sessionId: string, root: string | null) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root })),
@@ -127,6 +130,10 @@ export type AgentActivity = "idle" | "working" | "awaitingInput" | "unknown";
 
 export type AgentExternalOpen = {
 	request: ExternalOpenRequest,
+};
+
+export type AgentHooksStatus = {
+	installed: boolean,
 };
 
 export type AgentStateChanged = {

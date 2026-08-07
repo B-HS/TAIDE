@@ -13,7 +13,7 @@ import { activeProjectQueryOptions, projectListQueryOptions, useActivateProject,
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
-import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { IS_MAC } from '@shared/constants/platform'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
@@ -30,6 +30,7 @@ const dragDropEventSource = { listen: (handler: EventCallback<DragDropEvent>) =>
 
 export const AppShell = () => {
     const [isDragActive, setIsDragActive] = useState(false)
+    const [isProblemsOpen, setIsProblemsOpen] = useState(false)
 
     const { t } = useTranslation()
     const queryClient = useQueryClient()
@@ -112,13 +113,17 @@ export const AppShell = () => {
                     <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />
                     <main className='flex min-w-0 flex-1'>
                         {activeProjectId ? (
-                            <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1'>
+                            <Group orientation='horizontal' resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE} className='min-h-0 min-w-0 flex-1'>
                                 <Panel id='explorer' defaultSize='240px' minSize='180px' maxSize='40%' collapsible collapsedSize={0}>
                                     <ExplorerContainer projectId={activeProjectId} />
                                 </Panel>
                                 <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
                                 <Panel id='editor' minSize='30%'>
-                                    <EditorArea projectId={activeProjectId} />
+                                    <EditorArea
+                                        projectId={activeProjectId}
+                                        isProblemsOpen={isProblemsOpen}
+                                        onCloseProblems={() => setIsProblemsOpen(false)}
+                                    />
                                 </Panel>
                             </Group>
                         ) : (
@@ -127,7 +132,7 @@ export const AppShell = () => {
                     </main>
                 </div>
             )}
-            <StatusBarContent />
+            <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
         </div>
     )
 }

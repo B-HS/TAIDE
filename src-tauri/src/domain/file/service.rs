@@ -512,15 +512,14 @@ mod tests {
     }
 
     #[test]
-    fn 삭제된_항목은_휴지통으로_이동해_워킹디렉토리에서_사라진다() {
-        let dir = temp_dir("delete-to-trash");
+    fn 존재하지_않는_경로를_삭제하면_오류를_반환한다() {
+        let dir = temp_dir("delete-missing");
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("to-delete.txt");
-        std::fs::write(&file, "bye").unwrap();
+        let missing = dir.join("does-not-exist.txt");
 
-        delete_entry(&file).expect("delete");
+        let result = delete_entry(&missing);
 
-        assert!(!file.exists());
+        assert!(result.is_err());
 
         cleanup(&dir);
     }

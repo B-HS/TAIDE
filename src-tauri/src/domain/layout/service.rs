@@ -532,6 +532,10 @@ fn strip_claude_diff_node(node: &mut PaneNode) {
 pub fn strip_claude_diff_tabs(layout: &ProjectLayout) -> ProjectLayout {
     let mut persisted = layout.clone();
     strip_claude_diff_node(&mut persisted.root);
+    normalize(&mut persisted.root);
+    persisted
+        .closed_tabs
+        .retain(|closed| !matches!(closed.tab.kind, TabKind::ClaudeDiff { .. }));
     persisted
 }
 
@@ -957,5 +961,54 @@ mod tests {
             panic!("expected leaf")
         };
         assert_eq!(tabs.len(), 2);
+    }
+
+    #[test]
+    fn 저장시_닫힌_탭_스택에서도_클로드_diff_탭이_제거된다() {
+        let file_closed = ClosedTab {
+            tab: 파일_탭("a.rs"),
+            pane_id: PaneId::new(),
+            index: 0,
+        };
+        let claude_diff_closed = ClosedTab {
+            tab: 클로드_diff_탭("b.rs"),
+            pane_id: PaneId::new(),
+            index: 1,
+        };
+        let layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root: 리프(vec![파일_탭("root.rs")]),
+            focused_pane: PaneId::new(),
+            revision: 0,
+            closed_tabs: vec![file_closed, claude_diff_closed],
+        };
+
+        let persisted = strip_claude_diff_tabs(&layout);
+
+        assert_eq!(persisted.closed_tabs.len(), 1);
+        assert!(!matches!(persisted.closed_tabs[0].tab.kind, TabKind::ClaudeDiff { .. }));
+    }
+
+    #[test]
+    fn 클로드_diff_탭만_있던_리프는_저장시_정규화로_제거된다() {
+        let claude_only_leaf = 리프(vec![클로드_diff_탭("b.rs")]);
+        let file_leaf = 리프(vec![파일_탭("a.rs")]);
+        let root = PaneNode::Split {
+            id: PaneId::new(),
+            dir: SplitDir::Horizontal,
+            children: vec![claude_only_leaf, file_leaf],
+            sizes: vec![0.5, 0.5],
+        };
+        let layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root,
+            focused_pane: PaneId::new(),
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        let persisted = strip_claude_diff_tabs(&layout);
+
+        assert!(matches!(&persisted.root, PaneNode::Leaf { .. }));
     }
 }

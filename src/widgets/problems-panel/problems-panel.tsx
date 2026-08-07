@@ -1,6 +1,6 @@
 import type { FC } from 'react'
 import { useState } from 'react'
-import { CircleCheck } from 'lucide-react'
+import { CircleCheck, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ProblemRowData } from '@features/problems/problem-row'
 import { ProblemRow } from '@features/problems/problem-row'
@@ -20,6 +20,7 @@ type ProblemsPanelProps = {
     activeSeverities: Record<ProblemSeverity, boolean>
     onToggleSeverity: (severity: ProblemSeverity) => void
     onOpenProblem: (path: string, line: number, column: number) => void
+    onClose: () => void
 }
 
 const toggleInSet = (set: Set<string>, value: string) => {
@@ -32,7 +33,15 @@ const toggleInSet = (set: Set<string>, value: string) => {
     return next
 }
 
-export const ProblemsPanel: FC<ProblemsPanelProps> = ({ groups, hasAnyProblem, counts, activeSeverities, onToggleSeverity, onOpenProblem }) => {
+export const ProblemsPanel: FC<ProblemsPanelProps> = ({
+    groups,
+    hasAnyProblem,
+    counts,
+    activeSeverities,
+    onToggleSeverity,
+    onOpenProblem,
+    onClose,
+}) => {
     const { t } = useTranslation()
     const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
 
@@ -40,8 +49,18 @@ export const ProblemsPanel: FC<ProblemsPanelProps> = ({ groups, hasAnyProblem, c
 
     return (
         <div className='bg-panel-background flex h-full min-h-0 w-full flex-col'>
-            <div className='border-app-border flex shrink-0 items-center border-b px-2 py-1.5'>
-                <ProblemSeverityFilter counts={counts} active={activeSeverities} onToggle={onToggleSeverity} />
+            <div className='border-app-border flex shrink-0 items-center justify-between gap-2 border-b px-2 py-1.5'>
+                <div className='flex min-w-0 items-center gap-2'>
+                    <span className='text-app-foreground shrink-0 text-xs font-medium'>{t('problems.title')}</span>
+                    <ProblemSeverityFilter counts={counts} active={activeSeverities} onToggle={onToggleSeverity} />
+                </div>
+                <button
+                    type='button'
+                    aria-label={t('common.close')}
+                    onClick={onClose}
+                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex size-5 shrink-0 items-center justify-center rounded-sm'>
+                    <X className='size-3.5' />
+                </button>
             </div>
 
             <div className='min-h-0 flex-1 overflow-y-auto'>

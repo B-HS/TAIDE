@@ -11,7 +11,7 @@ import type { DropEdgeName } from '@features/split/split-drop-zones'
 import { SplitDropZones } from '@features/split/split-drop-zones'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
-import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
 import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
@@ -69,7 +69,11 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         ])
 
         return (
-            <Group orientation={node.dir} onLayoutChanged={handleLayoutChanged} className='min-h-0 min-w-0 flex-1'>
+            <Group
+                orientation={node.dir}
+                onLayoutChanged={handleLayoutChanged}
+                resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
+                className='min-h-0 min-w-0 flex-1'>
                 {items}
             </Group>
         )

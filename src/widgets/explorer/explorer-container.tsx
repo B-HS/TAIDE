@@ -1,13 +1,16 @@
 import type { FC } from 'react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectId, TreeRow } from '@shared/api/bindings'
-import type { FileTreeRow } from '@features/explorer/file-tree-row'
+import type { FileTreeNodeKind, FileTreeRow } from '@features/explorer/file-tree-row'
+import { validateEntryName } from '@shared/lib/entry-name'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { useCreateEntry } from '@entities/file/file.query'
 import { projectQueryOptions } from '@entities/project/project.query'
+import type { FileTreeDraft } from '@widgets/explorer/file-tree'
 import { ExplorerPanel } from '@widgets/explorer/explorer-panel'
 
 type ExplorerContainerProps = {
@@ -34,7 +37,11 @@ const parentDirOf = (path: string) => {
 const joinPath = (dir: string, name: string) => `${dir.endsWith(PATH_SEPARATOR) ? dir.slice(0, -1) : dir}${PATH_SEPARATOR}${name}`
 
 export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => {
+    const { t } = useTranslation()
     const [selectedRow, setSelectedRow] = useState<FileTreeRow | null>(null)
+    const [draft, setDraft] = useState<FileTreeDraft | null>(null)
+    const [draftError, setDraftError] = useState<string | null>(null)
+    const [selectPathRequest, setSelectPathRequest] = useState<string | null>(null)
 
     const { data: page } = useQuery(treeRowsQueryOptions(projectId))
     const { data: project } = useQuery(projectQueryOptions(projectId))
@@ -67,15 +74,50 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
             { onError: (error) => toast.error(error.message) },
         )
 
-    const createTreeEntry = async (name: string, isDir: boolean) => {
+    const startDraft = async (kind: FileTreeNodeKind) => {
         const targetDir = targetDirFor(selectedRow)
         if (!targetDir) return
+        const targetRow = rows.find((row) => row.path === targetDir)
+        if (targetRow && !targetRow.expanded) await toggleNodeAsync({ projectId, path: targetDir })
+        setDraft({ kind, parentDir: targetDir })
+        setDraftError(null)
+    }
+
+    const cancelDraft = () => {
+        setDraft(null)
+        setDraftError(null)
+    }
+
+    const commitDraft = async (name: string) => {
+        if (!draft) return
+        const trimmedName = name.trim()
+        if (!trimmedName) {
+            cancelDraft()
+            return
+        }
+
+        const siblingNames = rows.filter((row) => parentDirOf(row.path) === draft.parentDir).map((row) => row.name)
+        const errorKey = validateEntryName(trimmedName, siblingNames)
+        if (errorKey) {
+            setDraftError(t(errorKey, { name: trimmedName }))
+            return
+        }
+
+        const path = joinPath(draft.parentDir, trimmedName)
         try {
-            const path = joinPath(targetDir, name)
-            await createEntry({ path, isDir })
+            await createEntry({ path, isDir: draft.kind === 'directory' })
+            await refreshTreeDir({ projectId, dir: draft.parentDir })
             await revealTreeNode({ projectId, path })
+            if (draft.kind === 'file') {
+                openFileTab({ id: path, path, name: fileNameOf(path), depth: 0, kind: 'file', expanded: false, gitStatus: null }, false)
+            }
+            setDraft(null)
+            setDraftError(null)
+            setSelectPathRequest(path)
         } catch (error) {
-            if (error instanceof Error) toast.error(error.message)
+            const message = error instanceof Error ? error.message : String(error)
+            setDraftError(message)
+            toast.error(message)
         }
     }
 
@@ -98,15 +140,21 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         <ExplorerPanel
             projectId={projectId}
             rows={rows}
+            draft={draft}
+            draftError={draftError}
+            selectPathRequest={selectPathRequest}
             onToggleExpand={(row) => toggleNode({ projectId, path: row.path })}
             onOpenPreview={(row) => openFileTab(row, true)}
             onOpenPinned={(row) => openFileTab(row, false)}
             onSelectionChange={setSelectedRow}
             onOpenSearchMatch={openSearchMatch}
-            onCreateFile={(name) => void createTreeEntry(name, false)}
-            onCreateFolder={(name) => void createTreeEntry(name, true)}
+            onNewFile={() => void startDraft('file')}
+            onNewFolder={() => void startDraft('directory')}
             onRefresh={() => void refreshVisibleTree()}
             onCollapseAll={() => void collapseAllExpanded()}
+            onDraftCommit={(name) => void commitDraft(name)}
+            onDraftCancel={cancelDraft}
+            onSelectPathRequestHandled={() => setSelectPathRequest(null)}
         />
     )
 }

@@ -5,7 +5,7 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import { Folder } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { ProjectRef } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, ProjectRef } from '@shared/api/bindings'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ProjectIconButton } from '@features/project/project-icon-button'
@@ -13,15 +13,23 @@ import { useCloseProject } from '@entities/project/project.query'
 
 const DRAGGING_OPACITY = 0.4
 
+const ACTIVITY_PRIORITY: Record<AgentActivity, number> = { awaitingInput: 3, working: 2, idle: 1, unknown: 0 }
+
+const aggregateActivity = (agents: DetectedAgent[]): AgentActivity | null => {
+    if (agents.length === 0) return null
+    return agents.reduce((top, agent) => (ACTIVITY_PRIORITY[agent.activity] > ACTIVITY_PRIORITY[top] ? agent.activity : top), agents[0].activity)
+}
+
 type SortableProjectIconProps = {
     project: ProjectRef
     active: boolean
     dragging: boolean
-    agentRunning: boolean
+    agents: DetectedAgent[]
+    badgeEnabled: boolean
     onActivate: () => void
 }
 
-export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, active, dragging, agentRunning, onActivate }) => {
+export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, active, dragging, agents, badgeEnabled, onActivate }) => {
     const { t } = useTranslation()
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: project.id.toString() })
     const { mutate: closeProject } = useCloseProject()
@@ -41,7 +49,8 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
                                     name={project.name}
                                     icon={<Folder className='size-5' />}
                                     active={active}
-                                    agentRunning={agentRunning}
+                                    agentActivity={aggregateActivity(agents)}
+                                    badgeEnabled={badgeEnabled}
                                     onActivate={onActivate}
                                 />
                             </div>
@@ -50,6 +59,11 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
                             <div className='flex flex-col'>
                                 <span>{project.name}</span>
                                 <span className='opacity-70'>{project.root}</span>
+                                {agents.map((agent) => (
+                                    <span key={agent.sessionId} className='opacity-70'>
+                                        {t('agent.sessionTooltip', { name: agent.name, status: t(`agent.status.${agent.activity}`) })}
+                                    </span>
+                                ))}
                             </div>
                         </TooltipContent>
                     </Tooltip>

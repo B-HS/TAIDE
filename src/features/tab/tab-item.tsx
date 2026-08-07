@@ -2,6 +2,7 @@ import type { FC, MouseEvent, ReactNode } from 'react'
 import { Pin, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@shared/lib/cn'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const MIDDLE_MOUSE_BUTTON = 1
 
@@ -12,11 +13,12 @@ type TabItemProps = {
     dirty: boolean
     pinned: boolean
     preview: boolean
+    agentTooltip?: string
     onActivate: () => void
     onClose: () => void
 }
 
-export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, preview, onActivate, onClose }) => {
+export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, preview, agentTooltip, onActivate, onClose }) => {
     const { t } = useTranslation()
 
     const handleAuxClick = (event: MouseEvent) => {
@@ -24,6 +26,8 @@ export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, 
         event.preventDefault()
         onClose()
     }
+
+    const iconSlot = <span className='flex size-3.5 shrink-0 items-center justify-center'>{icon}</span>
 
     return (
         <div
@@ -40,7 +44,14 @@ export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, 
                     : 'bg-tab-bar-tab-inactive-background text-tab-bar-tab-inactive-foreground hover:text-tab-bar-tab-active-foreground',
             )}>
             {active && <span className='bg-tab-bar-tab-active-indicator absolute inset-x-0 top-0 h-0.5' />}
-            <span className='flex size-3.5 shrink-0 items-center justify-center'>{icon}</span>
+            {agentTooltip ? (
+                <Tooltip>
+                    <TooltipTrigger asChild>{iconSlot}</TooltipTrigger>
+                    <TooltipContent side='bottom'>{agentTooltip}</TooltipContent>
+                </Tooltip>
+            ) : (
+                iconSlot
+            )}
             <span className={cn('truncate', preview && 'italic')}>{title}</span>
             <button
                 type='button'

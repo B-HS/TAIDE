@@ -13,6 +13,7 @@ import { ProblemsPanel } from '@widgets/problems-panel/problems-panel'
 
 type ProblemsPanelContainerProps = {
     projectId: ProjectId
+    onClose: () => void
 }
 
 const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
@@ -22,7 +23,7 @@ const emptySeverityRecord = <T,>(value: T): Record<ProblemSeverity, T> =>
 
 const compareProblems = (a: ProblemRowData, b: ProblemRowData) => a.line - b.line || a.column - b.column
 
-export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projectId }) => {
+export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projectId, onClose }) => {
     const [activeSeverities, setActiveSeverities] = useState<Record<ProblemSeverity, boolean>>(emptySeverityRecord(true))
 
     const markers = useMonacoMarkers()
@@ -62,6 +63,7 @@ export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projec
             activeSeverities={activeSeverities}
             onToggleSeverity={(severity) => setActiveSeverities((current) => ({ ...current, [severity]: !current[severity] }))}
             onOpenProblem={handleOpenProblem}
+            onClose={onClose}
         />
     )
 }
