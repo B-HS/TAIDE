@@ -167,3 +167,78 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 §4.1 의 FOUC 방지가 `tauri.conf.json` 의 **정적** `backgroundColor` 에 의존한다.
 테마 전환 시 이 값이 갱신되지 않으면 타이틀바 주변이 이전 테마 색으로 남는다.
 → 테마 적용 흐름(§5)에 **윈도우 배경색 갱신**을 포함한다. 상세는 `window-chrome.md` §1.2.
+
+## 8. 번들 테마 (VS Code 테마 변환 · QA 8번)
+
+내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 10종을 **번들 테마**로 함께 내장한다.
+`{app_data}/themes`(사용자 테마 디렉터리)가 아니라 **Rust `include_str!`** 로 바이너리에
+내장한다 — 이유는 두 가지다.
+
+1. `{app_data}/themes` 로 두면 `theme_list` 상 `builtin: false` 가 되어 사용자가 실수로
+   삭제할 수 있고, 최초 실행 시드/재시드 로직이 필요해진다.
+2. **내장(`builtin_by_id`)이어야 `extends` 의 base 로 해석된다** (`service.rs` `load_theme`).
+   번들로 두면 "Dracula 를 상속해 3개 토큰만 바꾼 사용자 테마"가 가능해진다.
+
+### 8.1 목록
+
+| id | 이름 | 유형 | 출처 |
+|----|------|------|------|
+| `one-dark-pro` | One Dark Pro | dark | github.com/Binaryify/OneDark-Pro |
+| `dracula` | Dracula | dark | github.com/dracula/visual-studio-code |
+| `github-dark` | GitHub Dark | dark | github.com/primer/github-vscode-theme |
+| `github-light` | GitHub Light | light | github.com/primer/github-vscode-theme |
+| `tokyo-night` | Tokyo Night | dark | github.com/enkia/tokyo-night-vscode-theme |
+| `catppuccin-mocha` | Catppuccin Mocha | dark | github.com/catppuccin/vscode |
+| `nord` | Nord | dark | github.com/nordtheme/visual-studio-code |
+| `gruvbox-dark` | Gruvbox Dark | dark | github.com/jdinhify/vscode-theme-gruvbox |
+| `monokai` | Monokai | dark | VS Code 내장 확장(microsoft/vscode) |
+| `solarized-light` | Solarized Light | light | VS Code 내장 확장(microsoft/vscode) |
+
+전부 MIT. 저작권 표시는 루트 `THIRD_PARTY_LICENSES.md` 를 따른다(MIT 는 저작권·허가
+표시를 모든 사본에 포함해야 한다 — 색상값만 재가공한 파생물도 대상으로 취급).
+
+### 8.2 변환 파이프라인
+
+`scripts/convert-vscode-theme.ts` (Bun 스크립트, `bun run themes:convert` 로 실행)가
+VS Code 테마 JSON(JSONC 허용)을 §2 스키마로 변환한다.
+
+```
+bun run scripts/convert-vscode-theme.ts \
+  --input <vscode-theme.json> --id <kebab-id> --name <display-name> \
+  --type dark|light --source-url <repo-url> --author <name> --license MIT \
+  --out src-tauri/resources/themes/
+```
+
+- VS Code `colors`(353개 color ID) → TAIDE `colors`(133 토큰) 는 **fallback 체인**
+  (`A ?? B ?? C`, 전부 없으면 파생 규칙)으로 매핑한다. `graph.*`(15) 처럼 VS Code 에
+  대응이 없는 토큰은 ANSI 팔레트에서 전량 파생한다.
+- VS Code `tokenColors`(TextMate scope) → TAIDE `syntax`(31 토큰) 는 **최장-prefix
+  scope 해석**(가장 구체적인 scope 우선, VS Code 자체 규칙과 동일)으로 매핑한다.
+- `terminal`(20 토큰) 은 ANSI 16색 + background/foreground/cursor/selection(TAIDE
+  `colors.terminal.*` 와 동일 값 미러링)으로 구성한다. ANSI 16색이 누락된 테마는
+  **변환 실패(`exit 1`)** 로 처리한다 — 임의 팔레트로 채우지 않는다.
+- `syntax.fg` 는 Monaco 룰이 6자리 hex 만 허용하므로, VS Code 의 8자리(`#rrggbbaa`)/
+  4자리(`#rgba`) 알파 값은 `editor.background` 위에 합성해 6자리로 낮춘다. `colors`/
+  `terminal` 은 8자리 알파를 그대로 허용한다.
+- 출력이 133 colors + 31 syntax + 20 terminal 을 **전량** 채우지 못하면 스크립트가
+  누락 토큰 목록을 출력하고 `exit 1` 한다 — 번들 테마는 항상 `extends` 없는 완전한
+  base 여야 한다(§2, §6).
+- 원본 VS Code 테마 JSON 은 레포에 커밋하지 않는다. 변환 산출물(TAIDE 스키마 JSON)만
+  `src-tauri/resources/themes/*.json` 에 커밋하고, 출처는 `--source-url`/`--author`/
+  `--license` 로 받아 출력 JSON 의 `source`/`author`/`license` 필드에 남긴다.
+
+### 8.3 Rust 등록
+
+`src-tauri/src/domain/theme/service.rs` 의 `BUNDLED_THEME_SOURCES` 에
+`(id, include_str!("../../../resources/themes/{id}.json"))` 항목을 추가하면
+`builtin_by_id`/`list_themes`(`builtin: true`)/`extends` 해석에 자동으로 반영된다.
+테스트는 번들 테마 전부가 §3 토큰 전량을 포함하고 `resolve_theme` 경고가 없는지
+검증한다(`service.rs` `번들_테마는_모두_시맨틱_토큰_전량을_포함하고_경고가_없다`).
+
+### 8.4 UI 노출
+
+`ThemePicker`(`src/features/settings/theme-picker.tsx`) 는 `theme_list` 를
+`builtin` 커스텀 여부가 아니라 **내장(TAIDE) / 번들(VS Code 변환) / 사용자**
+3개 섹션으로 나눠 그린다(`settings.builtinThemesSection` /
+`settings.bundledThemesSection` / `themeEditor.customThemes`). 각 카드에는
+복제 버튼(`onDuplicate`)이 있어 번들 테마를 곧바로 `extends` 상속 복제할 수 있다.
