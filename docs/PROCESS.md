@@ -658,7 +658,12 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       `terminal/service.rs::should_wait_for_ide_ready` 로 분리해 단위테스트 3건, mutation guard 밖에서 대기해 다른
       명령 블로킹 방지) · 로그필터: `lib.rs` tauri_plugin_log 에 tungstenite/tokio_tungstenite Warn 제한(TRACE 프레임
       덤프 선택영역·파일내용 노출 차단). verify: 프론트 322 / Rust 333(+3) / clippy·fmt 0 / typecheck·lint 0
-- [ ] 7.8-검토. diff 검토(opus) → 2차(Fable) → verify → 커밋
+- [x] 7.8-검토. diff 검토 완료 (커밋 `cc0ea19`·`64fa63d`) — 발견 29 → 확정 22 → 수정 8 + 번들 테마 재변환.
+      주요: untitled 프로젝트 간 데이터 유실·검색 첫 호출 시딩·enablePreviewTabs 미배선·번들 테마 3종 fg=bg
+      (변환기 폴백 계열 교차가 원인 — 재설계 + 대비 검증 내장 + Rust 회귀 테스트).
+      라이브 프리뷰 되돌림(high)은 React Compiler 실컴파일로 오탐 판정. 보류 4건 backlog 기록.
+      테마 재변환 트랙은 API 연결 끊김으로 2회 사망 → 원본을 메인이 직접 확보(scratchpad)해 네트워크 제거 후 성공.
+      최종 기준선: 프론트 326 tests / Rust 340 / lint·clippy 0. **실기 화면 검증(QA 3회차) 대기**
 - [x] 7.8-1. 탭 우클릭 네이티브 메뉴 — 회귀 아님, 7.5-C 부터 미동작(asChild 자식이 FC). 구조 교정 + 전역 차단 (WA-A1)
 - [x] 7.8-2. divider thickness 0 허용 (계약+WA-A5)
 - [x] 7.8-3. 미니맵 토글 설정 영속 (WA-A5)
