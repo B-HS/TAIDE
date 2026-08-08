@@ -32,8 +32,11 @@ type VscodeTheme = {
 
 type SyntaxStyle = { fg: string; bold: boolean; italic: boolean }
 
+type ColorCategory = 'foreground' | 'background' | 'border' | 'status' | 'shadow'
+
 type ColorMappingEntry = {
     taideKey: string
+    category: ColorCategory
     candidates?: string[]
     derive?: (ctx: ResolveContext) => string | undefined
 }
@@ -42,6 +45,31 @@ type ResolveContext = {
     vscodeColors: Record<string, string>
     resolved: Record<string, string>
     ansi: Record<string, string | undefined>
+}
+
+const FAMILY_FALLBACK_SOURCE_KEYS: Record<ColorCategory, string[]> = {
+    foreground: ['editor.foreground', 'foreground'],
+    background: ['editor.background'],
+    border: ['panel.border', 'editorGroup.border', 'contrastBorder'],
+    status: [],
+    shadow: [],
+}
+
+const SAFE_DEFAULT_COLORS: Record<ThemeTypeArg, Record<ColorCategory, string>> = {
+    dark: {
+        foreground: '#D4D4D4',
+        background: '#1E1E1E',
+        border: '#3C3C3C',
+        status: '#569CD6',
+        shadow: '#00000080',
+    },
+    light: {
+        foreground: '#1E1E1E',
+        background: '#FFFFFF',
+        border: '#D4D4D4',
+        status: '#0066BF',
+        shadow: '#00000026',
+    },
 }
 
 const COLOR_NAMESPACES: readonly { id: string; tokens: readonly string[] }[] = [
@@ -259,152 +287,156 @@ const GRAPH_LANE_ANSI_ORDER = [
     'brightRed',
 ] as const
 
-const chain = (taideKey: string, candidates: string[]): ColorMappingEntry => ({ taideKey, candidates })
-const derived = (taideKey: string, derive: (ctx: ResolveContext) => string | undefined): ColorMappingEntry => ({ taideKey, derive })
+const chain = (taideKey: string, category: ColorCategory, candidates: string[]): ColorMappingEntry => ({ taideKey, category, candidates })
+const derived = (taideKey: string, category: ColorCategory, derive: (ctx: ResolveContext) => string | undefined): ColorMappingEntry => ({
+    taideKey,
+    category,
+    derive,
+})
 
 const COLOR_MAPPING: ColorMappingEntry[] = [
-    chain('app.background', ['editor.background']),
-    chain('app.foreground', ['foreground']),
-    chain('app.border', ['panel.border', 'editorGroup.border', 'contrastBorder']),
-    chain('app.focusBorder', ['focusBorder']),
-    chain('app.shadow', ['widget.shadow', 'scrollbar.shadow']),
-    chain('app.accent', ['textLink.foreground', 'button.background', 'focusBorder']),
+    chain('app.background', 'background', ['editor.background']),
+    chain('app.foreground', 'foreground', ['foreground']),
+    chain('app.border', 'border', ['panel.border', 'editorGroup.border', 'contrastBorder']),
+    chain('app.focusBorder', 'border', ['focusBorder']),
+    chain('app.shadow', 'shadow', ['widget.shadow', 'scrollbar.shadow']),
+    chain('app.accent', 'status', ['textLink.foreground', 'button.background', 'focusBorder']),
 
-    chain('appSidebar.background', ['activityBar.background', 'sideBar.background']),
-    chain('appSidebar.itemHover', ['list.hoverBackground']),
-    chain('appSidebar.itemActive', ['list.activeSelectionBackground']),
-    chain('appSidebar.iconDefault', ['activityBar.inactiveForeground', 'icon.foreground']),
-    derived('appSidebar.iconAgentRunning', (ctx) => ctx.ansi.green),
-    derived('appSidebar.iconAgentWorking', (ctx) => ctx.ansi.blue),
-    derived('appSidebar.iconAgentAwaiting', (ctx) => ctx.ansi.yellow),
-    derived('appSidebar.iconAgentIdle', (ctx) => ctx.ansi.brightGreen ?? ctx.ansi.green),
-    chain('appSidebar.iconAgentUnknown', ['disabledForeground', 'descriptionForeground']),
-    chain('appSidebar.badge', ['activityBarBadge.background', 'badge.background']),
+    chain('appSidebar.background', 'background', ['activityBar.background', 'sideBar.background']),
+    chain('appSidebar.itemHover', 'background', ['list.hoverBackground']),
+    chain('appSidebar.itemActive', 'background', ['list.activeSelectionBackground']),
+    chain('appSidebar.iconDefault', 'foreground', ['activityBar.inactiveForeground', 'icon.foreground']),
+    derived('appSidebar.iconAgentRunning', 'status', (ctx) => ctx.ansi.green),
+    derived('appSidebar.iconAgentWorking', 'status', (ctx) => ctx.ansi.blue),
+    derived('appSidebar.iconAgentAwaiting', 'status', (ctx) => ctx.ansi.yellow),
+    derived('appSidebar.iconAgentIdle', 'status', (ctx) => ctx.ansi.brightGreen ?? ctx.ansi.green),
+    chain('appSidebar.iconAgentUnknown', 'foreground', ['disabledForeground', 'descriptionForeground']),
+    chain('appSidebar.badge', 'status', ['activityBarBadge.background', 'badge.background']),
 
-    chain('tabBar.background', ['editorGroupHeader.tabsBackground']),
-    chain('tabBar.tabActiveBackground', ['tab.activeBackground']),
-    chain('tabBar.tabInactiveBackground', ['tab.inactiveBackground']),
-    chain('tabBar.tabActiveForeground', ['tab.activeForeground']),
-    chain('tabBar.tabInactiveForeground', ['tab.inactiveForeground']),
-    chain('tabBar.tabBorder', ['tab.border']),
-    chain('tabBar.tabActiveIndicator', ['tab.activeBorderTop', 'tab.activeBorder', 'focusBorder']),
-    chain('tabBar.dirtyDot', ['tab.activeModifiedBorder', 'gitDecoration.modifiedResourceForeground']),
-    chain('tabBar.previewForeground', ['tab.unfocusedActiveForeground', 'tab.inactiveForeground']),
-    chain('tabBar.dropTarget', ['list.dropBackground', 'editorGroup.dropBackground', 'focusBorder']),
+    chain('tabBar.background', 'background', ['editorGroupHeader.tabsBackground']),
+    chain('tabBar.tabActiveBackground', 'background', ['tab.activeBackground']),
+    chain('tabBar.tabInactiveBackground', 'background', ['tab.inactiveBackground']),
+    chain('tabBar.tabActiveForeground', 'foreground', ['tab.activeForeground']),
+    chain('tabBar.tabInactiveForeground', 'foreground', ['tab.inactiveForeground']),
+    chain('tabBar.tabBorder', 'border', ['tab.border']),
+    chain('tabBar.tabActiveIndicator', 'status', ['tab.activeBorderTop', 'tab.activeBorder', 'focusBorder']),
+    chain('tabBar.dirtyDot', 'status', ['tab.activeModifiedBorder', 'gitDecoration.modifiedResourceForeground', 'terminal.ansiYellow']),
+    chain('tabBar.previewForeground', 'foreground', ['tab.unfocusedActiveForeground', 'tab.inactiveForeground']),
+    chain('tabBar.dropTarget', 'status', ['list.dropBackground', 'editorGroup.dropBackground', 'focusBorder']),
 
-    chain('explorer.background', ['sideBar.background']),
-    chain('explorer.itemHover', ['list.hoverBackground']),
-    chain('explorer.itemSelected', ['list.activeSelectionBackground']),
-    chain('explorer.itemFocused', ['list.focusBackground', 'list.inactiveSelectionBackground']),
-    chain('explorer.indentGuide', ['tree.indentGuidesStroke']),
-    chain('explorer.folderIcon', ['icon.foreground', 'sideBar.foreground']),
-    chain('explorer.gitModified', ['gitDecoration.modifiedResourceForeground']),
-    chain('explorer.gitAdded', ['gitDecoration.addedResourceForeground']),
-    chain('explorer.gitDeleted', ['gitDecoration.deletedResourceForeground']),
-    chain('explorer.gitUntracked', ['gitDecoration.untrackedResourceForeground']),
-    chain('explorer.gitIgnored', ['gitDecoration.ignoredResourceForeground']),
+    chain('explorer.background', 'background', ['sideBar.background']),
+    chain('explorer.itemHover', 'background', ['list.hoverBackground']),
+    chain('explorer.itemSelected', 'background', ['list.activeSelectionBackground']),
+    chain('explorer.itemFocused', 'background', ['list.focusBackground', 'list.inactiveSelectionBackground']),
+    chain('explorer.indentGuide', 'border', ['tree.indentGuidesStroke']),
+    chain('explorer.folderIcon', 'foreground', ['icon.foreground', 'sideBar.foreground']),
+    chain('explorer.gitModified', 'status', ['gitDecoration.modifiedResourceForeground', 'terminal.ansiYellow']),
+    chain('explorer.gitAdded', 'status', ['gitDecoration.addedResourceForeground', 'terminal.ansiGreen']),
+    chain('explorer.gitDeleted', 'status', ['gitDecoration.deletedResourceForeground', 'terminal.ansiRed']),
+    chain('explorer.gitUntracked', 'status', ['gitDecoration.untrackedResourceForeground', 'terminal.ansiGreen']),
+    chain('explorer.gitIgnored', 'status', ['gitDecoration.ignoredResourceForeground', 'terminal.ansiBrightBlack']),
 
-    chain('panel.background', ['sideBar.background']),
-    chain('panel.sectionHeader', ['sideBarSectionHeader.foreground', 'sideBarTitle.foreground']),
-    chain('panel.inputBackground', ['input.background']),
-    chain('panel.inputBorder', ['input.border', 'panelInput.border', 'dropdown.border']),
-    chain('panel.matchHighlight', ['list.highlightForeground', 'editor.findMatchHighlightBackground']),
+    chain('panel.background', 'background', ['sideBar.background']),
+    chain('panel.sectionHeader', 'foreground', ['sideBarSectionHeader.foreground', 'sideBarTitle.foreground']),
+    chain('panel.inputBackground', 'background', ['input.background']),
+    chain('panel.inputBorder', 'border', ['input.border', 'panelInput.border', 'dropdown.border']),
+    chain('panel.matchHighlight', 'status', ['list.highlightForeground', 'editor.findMatchHighlightBackground']),
 
-    chain('editor.background', ['editor.background']),
-    chain('editor.foreground', ['editor.foreground']),
-    chain('editor.lineHighlight', ['editor.lineHighlightBackground']),
-    chain('editor.cursor', ['editorCursor.foreground']),
-    chain('editor.selection', ['editor.selectionBackground']),
-    chain('editor.inactiveSelection', ['editor.inactiveSelectionBackground']),
-    chain('editor.lineNumber', ['editorLineNumber.foreground']),
-    chain('editor.lineNumberActive', ['editorLineNumber.activeForeground']),
-    chain('editor.indentGuide', ['editorIndentGuide.background1', 'editorIndentGuide.background']),
-    chain('editor.whitespace', ['editorWhitespace.foreground']),
-    chain('editor.bracketMatch', ['editorBracketMatch.border', 'editorBracketMatch.background']),
-    chain('editor.findMatch', ['editor.findMatchBackground']),
-    chain('editor.findMatchHighlight', ['editor.findMatchHighlightBackground']),
-    chain('editor.hoverBackground', ['editorHoverWidget.background']),
-    chain('editor.widgetBackground', ['editorWidget.background', 'editorSuggestWidget.background']),
-    chain('editor.widgetBorder', ['editorWidget.border', 'editorHoverWidget.border']),
+    chain('editor.background', 'background', ['editor.background']),
+    chain('editor.foreground', 'foreground', ['editor.foreground']),
+    chain('editor.lineHighlight', 'background', ['editor.lineHighlightBackground']),
+    chain('editor.cursor', 'status', ['editorCursor.foreground', 'terminal.ansiWhite']),
+    chain('editor.selection', 'background', ['editor.selectionBackground']),
+    chain('editor.inactiveSelection', 'background', ['editor.inactiveSelectionBackground']),
+    chain('editor.lineNumber', 'foreground', ['editorLineNumber.foreground']),
+    chain('editor.lineNumberActive', 'foreground', ['editorLineNumber.activeForeground']),
+    chain('editor.indentGuide', 'border', ['editorIndentGuide.background1', 'editorIndentGuide.background']),
+    chain('editor.whitespace', 'foreground', ['editorWhitespace.foreground']),
+    chain('editor.bracketMatch', 'border', ['editorBracketMatch.border', 'editorBracketMatch.background']),
+    chain('editor.findMatch', 'status', ['editor.findMatchBackground', 'terminal.ansiYellow']),
+    chain('editor.findMatchHighlight', 'status', ['editor.findMatchHighlightBackground', `${SELF_REF_PREFIX}editor.findMatch`]),
+    chain('editor.hoverBackground', 'background', ['editorHoverWidget.background']),
+    chain('editor.widgetBackground', 'background', ['editorWidget.background', 'editorSuggestWidget.background']),
+    chain('editor.widgetBorder', 'border', ['editorWidget.border', 'editorHoverWidget.border']),
 
-    chain('editorGutter.addedBackground', ['editorGutter.addedBackground']),
-    chain('editorGutter.modifiedBackground', ['editorGutter.modifiedBackground']),
-    chain('editorGutter.deletedBackground', ['editorGutter.deletedBackground']),
+    chain('editorGutter.addedBackground', 'status', ['editorGutter.addedBackground', 'terminal.ansiGreen']),
+    chain('editorGutter.modifiedBackground', 'status', ['editorGutter.modifiedBackground', 'terminal.ansiBlue']),
+    chain('editorGutter.deletedBackground', 'status', ['editorGutter.deletedBackground', 'terminal.ansiRed']),
 
-    chain('editorBlame.foreground', ['editorCodeLens.foreground', 'editorInlayHint.foreground', 'descriptionForeground']),
-    derived('editorBlame.background', () => 'transparent'),
+    chain('editorBlame.foreground', 'foreground', ['editorCodeLens.foreground', 'editorInlayHint.foreground', 'descriptionForeground']),
+    derived('editorBlame.background', 'background', () => 'transparent'),
 
-    chain('diff.insertedBackground', ['diffEditor.insertedTextBackground']),
-    chain('diff.insertedLineBackground', ['diffEditor.insertedLineBackground']),
-    chain('diff.removedBackground', ['diffEditor.removedTextBackground']),
-    chain('diff.removedLineBackground', ['diffEditor.removedLineBackground']),
-    chain('diff.border', ['diffEditor.border', 'editorGroup.border']),
+    chain('diff.insertedBackground', 'status', ['diffEditor.insertedTextBackground', 'terminal.ansiGreen']),
+    chain('diff.insertedLineBackground', 'status', ['diffEditor.insertedLineBackground', `${SELF_REF_PREFIX}diff.insertedBackground`]),
+    chain('diff.removedBackground', 'status', ['diffEditor.removedTextBackground', 'terminal.ansiRed']),
+    chain('diff.removedLineBackground', 'status', ['diffEditor.removedLineBackground', `${SELF_REF_PREFIX}diff.removedBackground`]),
+    chain('diff.border', 'border', ['diffEditor.border', 'editorGroup.border']),
 
-    chain('terminal.background', ['terminal.background', 'panel.background', 'editor.background']),
-    chain('terminal.foreground', ['terminal.foreground', 'foreground']),
-    chain('terminal.cursor', ['terminalCursor.foreground', 'editorCursor.foreground']),
-    chain('terminal.selection', ['terminal.selectionBackground']),
-    chain('terminal.commandBlockBorder', ['panel.border', `${SELF_REF_PREFIX}app.border`]),
-    chain('terminal.linkForeground', ['textLink.foreground', 'editorLink.activeForeground']),
+    chain('terminal.background', 'background', ['terminal.background', 'panel.background', 'editor.background']),
+    chain('terminal.foreground', 'foreground', ['terminal.foreground', 'foreground']),
+    chain('terminal.cursor', 'status', ['terminalCursor.foreground', 'editorCursor.foreground', 'terminal.ansiWhite']),
+    chain('terminal.selection', 'background', ['terminal.selectionBackground']),
+    chain('terminal.commandBlockBorder', 'border', ['panel.border', `${SELF_REF_PREFIX}app.border`]),
+    chain('terminal.linkForeground', 'foreground', ['textLink.foreground', 'editorLink.activeForeground']),
 
-    chain('git.added', ['gitDecoration.addedResourceForeground']),
-    chain('git.modified', ['gitDecoration.modifiedResourceForeground']),
-    chain('git.deleted', ['gitDecoration.deletedResourceForeground']),
-    chain('git.renamed', ['gitDecoration.renamedResourceForeground']),
-    chain('git.untracked', ['gitDecoration.untrackedResourceForeground']),
-    chain('git.conflicted', ['gitDecoration.conflictingResourceForeground']),
-    chain('git.staged', ['gitDecoration.stageModifiedResourceForeground', `${SELF_REF_PREFIX}git.modified`]),
+    chain('git.added', 'status', ['gitDecoration.addedResourceForeground', 'terminal.ansiGreen']),
+    chain('git.modified', 'status', ['gitDecoration.modifiedResourceForeground', 'terminal.ansiYellow']),
+    chain('git.deleted', 'status', ['gitDecoration.deletedResourceForeground', 'terminal.ansiRed']),
+    chain('git.renamed', 'status', ['gitDecoration.renamedResourceForeground', 'terminal.ansiBlue']),
+    chain('git.untracked', 'status', ['gitDecoration.untrackedResourceForeground', 'terminal.ansiGreen']),
+    chain('git.conflicted', 'status', ['gitDecoration.conflictingResourceForeground', 'terminal.ansiMagenta']),
+    chain('git.staged', 'status', ['gitDecoration.stageModifiedResourceForeground', `${SELF_REF_PREFIX}git.modified`]),
 
-    ...GRAPH_LANE_ANSI_ORDER.map((ansiName, index) => derived(`graph.lane${index + 1}`, (ctx) => ctx.ansi[ansiName])),
-    derived('graph.refBranch', (ctx) => ctx.vscodeColors['gitDecoration.modifiedResourceForeground'] ?? ctx.ansi.blue),
-    derived('graph.refTag', (ctx) => ctx.ansi.yellow),
-    derived('graph.refHead', (ctx) => ctx.ansi.green),
+    ...GRAPH_LANE_ANSI_ORDER.map((ansiName, index) => derived(`graph.lane${index + 1}`, 'status', (ctx) => ctx.ansi[ansiName])),
+    derived('graph.refBranch', 'status', (ctx) => ctx.vscodeColors['gitDecoration.modifiedResourceForeground'] ?? ctx.ansi.blue),
+    derived('graph.refTag', 'status', (ctx) => ctx.ansi.yellow),
+    derived('graph.refHead', 'status', (ctx) => ctx.ansi.green),
 
-    chain('statusIndicator.info', ['editorInfo.foreground', 'notificationsInfoIcon.foreground']),
-    chain('statusIndicator.warning', ['editorWarning.foreground', 'notificationsWarningIcon.foreground']),
-    chain('statusIndicator.error', ['editorError.foreground', 'errorForeground']),
-    derived('statusIndicator.success', (ctx) => ctx.ansi.green ?? ctx.vscodeColors['gitDecoration.addedResourceForeground']),
+    chain('statusIndicator.info', 'status', ['editorInfo.foreground', 'notificationsInfoIcon.foreground', 'terminal.ansiBlue']),
+    chain('statusIndicator.warning', 'status', ['editorWarning.foreground', 'notificationsWarningIcon.foreground', 'terminal.ansiYellow']),
+    chain('statusIndicator.error', 'status', ['editorError.foreground', 'errorForeground', 'terminal.ansiRed']),
+    derived('statusIndicator.success', 'status', (ctx) => ctx.ansi.green ?? ctx.vscodeColors['gitDecoration.addedResourceForeground']),
 
-    chain('menu.background', ['menu.background', 'dropdown.background']),
-    chain('menu.border', ['menu.border', 'dropdown.border']),
-    chain('menu.itemHover', ['menu.selectionBackground', 'list.hoverBackground']),
-    chain('menu.separator', ['menu.separatorBackground']),
+    chain('menu.background', 'background', ['menu.background', 'dropdown.background']),
+    chain('menu.border', 'border', ['menu.border', 'dropdown.border']),
+    chain('menu.itemHover', 'background', ['menu.selectionBackground', 'list.hoverBackground']),
+    chain('menu.separator', 'border', ['menu.separatorBackground']),
 
-    chain('popover.background', ['editorWidget.background', 'menu.background']),
-    chain('popover.border', ['editorWidget.border']),
-    chain('popover.itemHover', ['list.hoverBackground']),
-    chain('popover.separator', ['menu.separatorBackground']),
+    chain('popover.background', 'background', ['editorWidget.background', 'menu.background']),
+    chain('popover.border', 'border', ['editorWidget.border']),
+    chain('popover.itemHover', 'background', ['list.hoverBackground']),
+    chain('popover.separator', 'border', ['menu.separatorBackground']),
 
-    chain('tooltip.background', ['editorHoverWidget.background']),
-    chain('tooltip.border', ['editorHoverWidget.border']),
-    chain('tooltip.itemHover', ['list.hoverBackground']),
-    chain('tooltip.separator', ['menu.separatorBackground']),
+    chain('tooltip.background', 'background', ['editorHoverWidget.background', 'editorWidget.background']),
+    chain('tooltip.border', 'border', ['editorHoverWidget.border']),
+    chain('tooltip.itemHover', 'background', ['list.hoverBackground']),
+    chain('tooltip.separator', 'border', ['menu.separatorBackground']),
 
-    chain('modal.background', ['editorWidget.background', 'notifications.background']),
-    chain('modal.border', ['editorWidget.border', 'notificationCenter.border']),
-    chain('modal.itemHover', ['list.hoverBackground']),
-    chain('modal.separator', ['menu.separatorBackground']),
+    chain('modal.background', 'background', ['editorWidget.background', 'notifications.background']),
+    chain('modal.border', 'border', ['editorWidget.border', 'notificationCenter.border']),
+    chain('modal.itemHover', 'background', ['list.hoverBackground']),
+    chain('modal.separator', 'border', ['menu.separatorBackground']),
 
-    chain('scrollbar.thumb', ['scrollbarSlider.background']),
-    chain('scrollbar.thumbHover', ['scrollbarSlider.hoverBackground']),
-    derived('scrollbar.track', () => 'transparent'),
+    chain('scrollbar.thumb', 'background', ['scrollbarSlider.background']),
+    chain('scrollbar.thumbHover', 'background', ['scrollbarSlider.hoverBackground']),
+    derived('scrollbar.track', 'background', () => 'transparent'),
 
-    chain('input.background', ['input.background']),
-    chain('input.foreground', ['input.foreground']),
-    chain('input.border', ['input.border', 'dropdown.border']),
-    chain('input.placeholder', ['input.placeholderForeground']),
-    chain('input.focusBorder', ['focusBorder']),
+    chain('input.background', 'background', ['input.background']),
+    chain('input.foreground', 'foreground', ['input.foreground']),
+    chain('input.border', 'border', ['input.border', 'dropdown.border']),
+    chain('input.placeholder', 'foreground', ['input.placeholderForeground']),
+    chain('input.focusBorder', 'border', ['focusBorder']),
 
-    chain('button.background', ['button.secondaryBackground', 'button.background']),
-    chain('button.foreground', ['button.secondaryForeground', 'button.foreground']),
-    chain('button.hoverBackground', ['button.secondaryHoverBackground', 'button.hoverBackground']),
-    chain('button.primaryBackground', ['button.background']),
-    chain('button.primaryForeground', ['button.foreground']),
+    chain('button.background', 'background', ['button.secondaryBackground', 'button.background']),
+    chain('button.foreground', 'foreground', ['button.secondaryForeground', 'button.foreground']),
+    chain('button.hoverBackground', 'background', ['button.secondaryHoverBackground', 'button.hoverBackground']),
+    chain('button.primaryBackground', 'background', ['button.background']),
+    chain('button.primaryForeground', 'foreground', ['button.foreground']),
 
-    chain('list.background', ['sideBar.background']),
-    chain('list.hoverBackground', ['list.hoverBackground']),
-    chain('list.activeBackground', ['list.activeSelectionBackground']),
-    chain('list.foreground', ['sideBar.foreground', 'foreground']),
+    chain('list.background', 'background', ['sideBar.background']),
+    chain('list.hoverBackground', 'background', ['list.hoverBackground']),
+    chain('list.activeBackground', 'background', ['list.activeSelectionBackground']),
+    chain('list.foreground', 'foreground', ['sideBar.foreground', 'foreground']),
 ]
 
 const parseArgs = (argv: string[]): CliArgs => {
@@ -540,13 +572,16 @@ const readVscodeTheme = (raw: Record<string, unknown>): VscodeTheme => {
 const resolveCandidate = (candidate: string, ctx: ResolveContext): string | undefined =>
     candidate.startsWith(SELF_REF_PREFIX) ? ctx.resolved[candidate.slice(SELF_REF_PREFIX.length)] : ctx.vscodeColors[candidate]
 
+const resolveFamilyFallback = (category: ColorCategory, ctx: ResolveContext): string | undefined =>
+    FAMILY_FALLBACK_SOURCE_KEYS[category].map((key) => ctx.vscodeColors[key]).find((value) => value !== undefined)
+
 const resolveColorEntry = (entry: ColorMappingEntry, ctx: ResolveContext): string | undefined => {
-    if (entry.derive) return entry.derive(ctx)
+    if (entry.derive) return entry.derive(ctx) ?? resolveFamilyFallback(entry.category, ctx)
     for (const candidate of entry.candidates ?? []) {
         const value = resolveCandidate(candidate, ctx)
         if (value) return value
     }
-    return undefined
+    return resolveFamilyFallback(entry.category, ctx)
 }
 
 const buildAnsiLookup = (vscodeColors: Record<string, string>) => {
@@ -560,20 +595,17 @@ const buildAnsiLookup = (vscodeColors: Record<string, string>) => {
     return ansi
 }
 
-const resolveColors = (vscodeColors: Record<string, string>) => {
+const resolveColors = (vscodeColors: Record<string, string>, type: ThemeTypeArg) => {
     const ctx: ResolveContext = { vscodeColors, resolved: {}, ansi: buildAnsiLookup(vscodeColors) }
-    const missing: string[] = []
+    const safeDefaultNotices: string[] = []
 
     for (const entry of COLOR_MAPPING) {
-        const value = resolveColorEntry(entry, ctx) ?? ctx.vscodeColors['foreground'] ?? ctx.vscodeColors['editor.background']
-        if (!value) {
-            missing.push(entry.taideKey)
-            continue
-        }
-        ctx.resolved[entry.taideKey] = value
+        const resolved = resolveColorEntry(entry, ctx)
+        if (resolved === undefined) safeDefaultNotices.push(`${entry.taideKey} (category: ${entry.category})`)
+        ctx.resolved[entry.taideKey] = resolved ?? SAFE_DEFAULT_COLORS[type][entry.category]
     }
 
-    return { colors: ctx.resolved, missing }
+    return { colors: ctx.resolved, safeDefaultNotices }
 }
 
 const compositeAlphaOverBackground = (fgHex8: string, backgroundHex: string) => {
@@ -647,6 +679,99 @@ const validateCompleteness = (colors: Record<string, string>, syntax: Record<str
     return { missingColors, missingSyntax, missingTerminal }
 }
 
+const RGB_CHANNEL_MAX = 255
+const SRGB_LINEAR_THRESHOLD = 0.03928
+const SRGB_LINEAR_DIVISOR = 12.92
+const SRGB_GAMMA_OFFSET = 0.055
+const SRGB_GAMMA_DIVISOR = 1.055
+const SRGB_GAMMA_EXPONENT = 2.4
+const LUMINANCE_WEIGHT_R = 0.2126
+const LUMINANCE_WEIGHT_G = 0.7152
+const LUMINANCE_WEIGHT_B = 0.0722
+const CONTRAST_RATIO_OFFSET = 0.05
+const MIN_CONTRAST_RATIO = 3
+
+const srgbChannelToLinear = (channel: number) => {
+    const normalized = channel / RGB_CHANNEL_MAX
+    return normalized <= SRGB_LINEAR_THRESHOLD
+        ? normalized / SRGB_LINEAR_DIVISOR
+        : ((normalized + SRGB_GAMMA_OFFSET) / SRGB_GAMMA_DIVISOR) ** SRGB_GAMMA_EXPONENT
+}
+
+const relativeLuminance = (hex: string): number | null => {
+    const rgb = hexToRgb(hex)
+    if (!rgb) return null
+    return (
+        LUMINANCE_WEIGHT_R * srgbChannelToLinear(rgb.r) +
+        LUMINANCE_WEIGHT_G * srgbChannelToLinear(rgb.g) +
+        LUMINANCE_WEIGHT_B * srgbChannelToLinear(rgb.b)
+    )
+}
+
+const contrastRatio = (hexA: string, hexB: string): number | null => {
+    const luminanceA = relativeLuminance(hexA)
+    const luminanceB = relativeLuminance(hexB)
+    if (luminanceA === null || luminanceB === null) return null
+    const lighter = Math.max(luminanceA, luminanceB)
+    const darker = Math.min(luminanceA, luminanceB)
+    return (lighter + CONTRAST_RATIO_OFFSET) / (darker + CONTRAST_RATIO_OFFSET)
+}
+
+const CONTRAST_PAIRS: readonly { label: string; foregroundKey: string; backgroundKey: string }[] = [
+    { label: 'app', foregroundKey: 'app.foreground', backgroundKey: 'app.background' },
+    { label: 'editor', foregroundKey: 'editor.foreground', backgroundKey: 'editor.background' },
+    { label: 'panel', foregroundKey: 'panel.sectionHeader', backgroundKey: 'panel.background' },
+    { label: 'tooltip', foregroundKey: 'app.foreground', backgroundKey: 'tooltip.background' },
+]
+
+const CONTRAST_REPAIR_CANDIDATES: Record<string, string[]> = {
+    'tooltip.background': ['editorWidget.background', 'menu.background', 'dropdown.background'],
+}
+
+const repairContrastPairs = (colors: Record<string, string>, vscodeColors: Record<string, string>) => {
+    const repairs: string[] = []
+    let repairedColors = colors
+
+    for (const pair of CONTRAST_PAIRS) {
+        const foreground = repairedColors[pair.foregroundKey]
+        const background = repairedColors[pair.backgroundKey]
+        const ratio = contrastRatio(foreground, background)
+        if (ratio !== null && ratio >= MIN_CONTRAST_RATIO) continue
+
+        const repairCandidates = CONTRAST_REPAIR_CANDIDATES[pair.backgroundKey] ?? []
+        const repaired = repairCandidates
+            .map((key) => vscodeColors[key])
+            .find((value) => value && (contrastRatio(foreground, value) ?? 0) >= MIN_CONTRAST_RATIO)
+        if (!repaired) continue
+
+        repairedColors = { ...repairedColors, [pair.backgroundKey]: repaired }
+        repairs.push(`${pair.backgroundKey}: ${background} -> ${repaired} (${pair.label} 대비 확보)`)
+    }
+
+    return { colors: repairedColors, repairs }
+}
+
+const validateOutputColors = (colors: Record<string, string>) => {
+    const errors: string[] = []
+
+    if (colors['app.foreground'] === colors['app.background']) {
+        errors.push(`app.foreground와 app.background가 동일한 색(${colors['app.foreground']})입니다`)
+    }
+
+    for (const pair of CONTRAST_PAIRS) {
+        const foreground = colors[pair.foregroundKey]
+        const background = colors[pair.backgroundKey]
+        const ratio = contrastRatio(foreground, background)
+        if (ratio === null || ratio < MIN_CONTRAST_RATIO) {
+            errors.push(
+                `${pair.label} 대비 부족: ${pair.foregroundKey}(${foreground}) vs ${pair.backgroundKey}(${background}) = ${ratio?.toFixed(2) ?? 'N/A'} (최소 ${MIN_CONTRAST_RATIO})`,
+            )
+        }
+    }
+
+    return errors
+}
+
 const main = async () => {
     const args = parseArgs(process.argv.slice(2))
 
@@ -654,17 +779,35 @@ const main = async () => {
     const raw = parseJsonc(source)
     const theme = readVscodeTheme(raw)
 
-    const { colors, missing: missingColorSources } = resolveColors(theme.colors)
+    const { colors: resolvedColors, safeDefaultNotices } = resolveColors(theme.colors, args.type)
+    const { colors, repairs } = repairContrastPairs(resolvedColors, theme.colors)
     const editorBackground = colors['editor.background'] ?? theme.colors['editor.background'] ?? '#000000'
     const syntax = resolveSyntax(theme, editorBackground)
     const { terminal, missing: missingTerminalSources } = resolveTerminal(theme.colors, colors)
 
     const { missingColors, missingSyntax, missingTerminal } = validateCompleteness(colors, syntax, terminal)
-    const allMissing = [...new Set([...missingColorSources, ...missingColors, ...missingSyntax, ...missingTerminalSources, ...missingTerminal])]
+    const allMissing = [...new Set([...missingColors, ...missingSyntax, ...missingTerminalSources, ...missingTerminal])]
 
     if (allMissing.length > 0) {
         console.error(`convert-vscode-theme: incomplete output for '${args.id}', missing tokens:`)
         for (const key of allMissing) console.error(`  - ${key}`)
+        process.exit(1)
+    }
+
+    if (safeDefaultNotices.length > 0) {
+        console.warn(`convert-vscode-theme: '${args.id}' used ${args.type} safe-default fallback for tokens with no matching source color:`)
+        for (const notice of safeDefaultNotices) console.warn(`  - ${notice}`)
+    }
+
+    if (repairs.length > 0) {
+        console.warn(`convert-vscode-theme: '${args.id}' substituted low-contrast background with a same-family alternative:`)
+        for (const repair of repairs) console.warn(`  - ${repair}`)
+    }
+
+    const outputColorErrors = validateOutputColors(colors)
+    if (outputColorErrors.length > 0) {
+        console.error(`convert-vscode-theme: output color validation failed for '${args.id}':`)
+        for (const error of outputColorErrors) console.error(`  - ${error}`)
         process.exit(1)
     }
 

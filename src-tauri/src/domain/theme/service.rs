@@ -1147,6 +1147,18 @@ mod tests {
     }
 
     #[test]
+    fn 번들_테마는_app_전경색과_배경색이_서로_다르다() {
+        for theme in bundled_themes() {
+            assert_ne!(
+                theme.colors.get("app.foreground"),
+                theme.colors.get("app.background"),
+                "bundled theme '{}' has app.foreground identical to app.background",
+                theme.id
+            );
+        }
+    }
+
+    #[test]
     fn 번들_테마_아이디로는_저장하거나_삭제할_수_없다() {
         let paths = AppPaths::new(temp_data_dir("bundled-guard"));
         let mut theme = builtin_dark();
