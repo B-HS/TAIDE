@@ -170,7 +170,7 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 
 ## 8. 번들 테마 (VS Code 테마 변환 · QA 8번)
 
-내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 10종을 **번들 테마**로 함께 내장한다.
+내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 36종을 **번들 테마**로 함께 내장한다.
 `{app_data}/themes`(사용자 테마 디렉터리)가 아니라 **Rust `include_str!`** 로 바이너리에
 내장한다 — 이유는 두 가지다.
 
@@ -193,9 +193,38 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 | `gruvbox-dark` | Gruvbox Dark | dark | github.com/jdinhify/vscode-theme-gruvbox |
 | `monokai` | Monokai | dark | VS Code 내장 확장(microsoft/vscode) |
 | `solarized-light` | Solarized Light | light | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-abyss` | Abyss | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-monokai-dimmed` | Monokai Dimmed | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-solarized-dark` | Solarized Dark | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-tomorrow-night-blue` | Tomorrow Night Blue | dark | VS Code 내장 확장(microsoft/vscode) |
+| `intellij-islands-light` | IntelliJ Islands Light | light | github.com/a-havrysh/vscode-intellij-theme |
+| `ayu-dark` | Ayu Dark | dark | github.com/ayu-theme/vscode-ayu |
+| `ayu-light` | Ayu Light | light | github.com/ayu-theme/vscode-ayu |
+| `palenight` | Palenight | dark | github.com/whizkydee/vscode-palenight-theme |
+| `night-owl` | Night Owl | dark | github.com/sdras/night-owl-vscode-theme |
+| `night-owl-light` | Night Owl Light | light | github.com/sdras/night-owl-vscode-theme |
+| `rose-pine` | Rosé Pine | dark | github.com/rose-pine/vscode |
+| `rose-pine-dawn` | Rosé Pine Dawn | light | github.com/rose-pine/vscode |
+| `everforest-dark` | Everforest Dark | dark | github.com/sainnhe/everforest-vscode |
+| `everforest-light` | Everforest Light | light | github.com/sainnhe/everforest-vscode |
+| `kanagawa-wave` | Kanagawa Wave | dark | github.com/paccodes/kanagawa-vscode-theme |
+| `vitesse-dark` | Vitesse Dark | dark | github.com/antfu/vscode-theme-vitesse |
+| `vitesse-light` | Vitesse Light | light | github.com/antfu/vscode-theme-vitesse |
+| `one-monokai` | One Monokai | dark | github.com/azemoh/vscode-one-monokai |
+| `vscode-dark-plus` | Dark+ (Default Dark) | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-light-plus` | Light+ (Default Light) | light | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-dark-modern` | Dark Modern | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-light-modern` | Light Modern | light | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-kimbie-dark` | Kimbie Dark | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-red` | Red | dark | VS Code 내장 확장(microsoft/vscode) |
+| `vscode-quiet-light` | Quiet Light | light | VS Code 내장 확장(microsoft/vscode) |
+| `darcula` | Darcula | dark | github.com/rokoroku/vscode-theme-darcula (IntelliJ Darcula 포트) |
 
 전부 MIT. 저작권 표시는 루트 `THIRD_PARTY_LICENSES.md` 를 따른다(MIT 는 저작권·허가
 표시를 모든 사본에 포함해야 한다 — 색상값만 재가공한 파생물도 대상으로 취급).
+`vscode-dark-plus`/`vscode-light-plus`/`vscode-dark-modern`/`vscode-light-modern`/
+`vscode-kimbie-dark`/`vscode-red`/`vscode-quiet-light`/`darcula` 8종은 원본에
+`terminal.ansi*` 색이 전혀 없어 §8.2 "VS Code 기본 ANSI 팔레트 폴백"이 적용됐다.
 
 ### 8.2 변환 파이프라인
 
@@ -215,17 +244,54 @@ bun run scripts/convert-vscode-theme.ts \
 - VS Code `tokenColors`(TextMate scope) → TAIDE `syntax`(31 토큰) 는 **최장-prefix
   scope 해석**(가장 구체적인 scope 우선, VS Code 자체 규칙과 동일)으로 매핑한다.
 - `terminal`(20 토큰) 은 ANSI 16색 + background/foreground/cursor/selection(TAIDE
-  `colors.terminal.*` 와 동일 값 미러링)으로 구성한다. ANSI 16색이 누락된 테마는
-  **변환 실패(`exit 1`)** 로 처리한다 — 임의 팔레트로 채우지 않는다.
+  `colors.terminal.*` 와 동일 값 미러링)으로 구성한다. 원본에 ANSI 16색이 없는 테마는
+  **8.2.1 의 VS Code 기본 ANSI 팔레트 폴백**으로 채운다 — 이 폴백은 값을 발명하는
+  것이 아니라, VS Code 자신이 런타임에 적용하는 공식 기본값을 그대로 재현한 것이다.
 - `syntax.fg` 는 Monaco 룰이 6자리 hex 만 허용하므로, VS Code 의 8자리(`#rrggbbaa`)/
   4자리(`#rgba`) 알파 값은 `editor.background` 위에 합성해 6자리로 낮춘다. `colors`/
   `terminal` 은 8자리 알파를 그대로 허용한다.
 - 출력이 133 colors + 31 syntax + 20 terminal 을 **전량** 채우지 못하면 스크립트가
   누락 토큰 목록을 출력하고 `exit 1` 한다 — 번들 테마는 항상 `extends` 없는 완전한
-  base 여야 한다(§2, §6).
+  base 여야 한다(§2, §6). ANSI 16색 자체는 8.2.1 폴백이 항상 채우므로 이 실패 경로에
+  걸리지 않는다.
 - 원본 VS Code 테마 JSON 은 레포에 커밋하지 않는다. 변환 산출물(TAIDE 스키마 JSON)만
   `src-tauri/resources/themes/*.json` 에 커밋하고, 출처는 `--source-url`/`--author`/
   `--license` 로 받아 출력 JSON 의 `source`/`author`/`license` 필드에 남긴다.
+
+#### 8.2.1 VS Code 기본 ANSI 팔레트 폴백 (출처: terminalColorRegistry)
+
+VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 무채색으로 두지 않고,
+`src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts` 에 정의된 **공식
+기본 ANSI 16색**으로 폴백한다. `convert-vscode-theme.ts` 는 이 동작을 그대로 재현한다
+— 원본에 값이 없다고 임의 팔레트를 발명하는 게 아니라, VS Code 가 실제로 적용하는
+기본값을 이식하는 것이다.
+
+이 폴백은 `terminal.*` 출력뿐 아니라, `COLOR_MAPPING` 에서 ANSI 색을 후보로 삼는 다른
+시맨틱 토큰(`git.*`, `editorGutter.*`, `graph.lane*`, `statusIndicator.*` 등)에도 동일하게
+적용된다 — 원본에 `terminal.ansiGreen` 이 없으면 이들도 전부 VS Code 의 기본 초록색을
+쓰지, 관련 없는 카테고리 공용 안전값(`SAFE_DEFAULT_COLORS`)으로 뭉개지지 않는다.
+
+폴백이 쓰이면 변환 스크립트가 콘솔에 경고 1줄을 출력한다(어느 테마가 기본 팔레트를
+썼는지 표기). 대상 8종은 §8.1 목록의 각주를 참고한다.
+
+| 토큰 | dark 기본값 | light 기본값 |
+|------|------------|-------------|
+| black | `#000000` | `#000000` |
+| red | `#cd3131` | `#cd3131` |
+| green | `#0dbc79` | `#107c10` |
+| yellow | `#e5e510` | `#949800` |
+| blue | `#2472c8` | `#0451a5` |
+| magenta | `#bc3fbc` | `#bc05bc` |
+| cyan | `#11a8cd` | `#0598bc` |
+| white | `#e5e5e5` | `#555555` |
+| brightBlack | `#666666` | `#666666` |
+| brightRed | `#f14c4c` | `#cd3131` |
+| brightGreen | `#23d18b` | `#14ce14` |
+| brightYellow | `#f5f543` | `#b5ba00` |
+| brightBlue | `#3b8eea` | `#0451a5` |
+| brightMagenta | `#d670d6` | `#bc05bc` |
+| brightCyan | `#29b8db` | `#0598bc` |
+| brightWhite | `#e5e5e5` | `#a5a5a5` |
 
 ### 8.3 Rust 등록
 

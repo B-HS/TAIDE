@@ -133,7 +133,17 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "timeMinutesAgo",
         ],
     ),
-    ("terminal", &["title", "newTerminal", "processExited", "restart", "copyImeDebugLog", "imeDebugCopied"]),
+    (
+        "terminal",
+        &[
+            "title",
+            "newTerminal",
+            "processExited",
+            "restart",
+            "copyImeDebugLog",
+            "imeDebugCopied",
+        ],
+    ),
     (
         "editor",
         &[

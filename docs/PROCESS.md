@@ -703,3 +703,53 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [ ] 7.7-8. footer CPU/RAM 표시 + 설정 토글
 - [ ] 7.7-9. 설정 버그 — select 류가 열린 채 안 닫힘·plugin 클릭 시 영역 점프
 - [ ] 7.7-10. AI 상태 배지 — 프로젝트 아이콘 우하단 (IDLE/WORKING/NEED DECISION 등 + 열린 AI 창 구분)
+
+## 완료: 번들 테마 18종 확충 (2026-08-08)
+
+- [x] T-1. `scripts/convert-vscode-theme.ts` 에 include 체인 병합 지원 — `--include-dir` CLI 인자,
+      VS Code 원본 파일명(`dark_vs.json` 등)을 로컬 미러 파일명(`base-dark-vs.json` 등)으로 매핑하는
+      `INCLUDE_ROLE_FILENAME_MAP`, 재귀 로더 `loadRawThemeChain`(base → child 순으로 배열 구성) +
+      `mergeVscodeThemeChain`(colors 키 단위 병합·tokenColors 는 base 뒤에 child 이어붙임)
+- [x] T-2. 변환 중 발견한 기존 스크립트 결함 2건 근본 수정(신규 테마 소스에서 처음 노출됨, 기존 번들
+      10종은 우연히 회피됨) — ① VS Code 컬러 값이 `null`(명시적 unset)인 항목이 `expandVscodeHex`
+      에서 크래시 → 문자열 값만 필터링 후 처리 ② `editor.foreground` 키가 아예 없는 테마(quiet-light·
+      one-monokai)에서 `resolveSyntax` 의 fallback 이 `undefined` 를 그대로 넘겨 크래시 → 이미
+      전량 fallback 을 거쳐 확정된 TAIDE `colors['editor.foreground']` 를 syntax fallback 으로 사용하도록 교정
+- [x] T-3. `repairContrastPairs` 후보를 배경뿐 아니라 전경(foreground)까지 확장
+      (`CONTRAST_REPAIR_FOREGROUND_CANDIDATES`) — everforest-light 의 `app.foreground`/
+      `panel.sectionHeader` 가 `foreground`(#879686, 대비 2.89) 대신 같은 테마의 `editor.foreground`
+      (#5c6a72, 대비 5.18)로 대체되어 통과
+- [x] T-4. 26종 시도 → 18종 변환 성공(`src-tauri/resources/themes/*.json`), 8종은 원본 데이터 결함으로
+      제외 — vscode-dark-plus/light-plus/dark-modern/light-modern/kimbie-dark/red/quiet-light/darcula
+      전부 VS Code 원본에 `terminal.ansi*` 16색이 전혀 없음(대비 문제가 아니라 값 자체가 없어 발명 불가,
+      `docs/theme-system.md` §8.2 의 "임의 팔레트로 채우지 않는다" 정책상 배제).
+- [x] T-5. `src-tauri/src/domain/theme/service.rs` `BUNDLED_THEME_SOURCES` 에 18종 `include_str!` 등록
+      (`builtin: true`, 기존 10종 무변경) — 카운트 기반 테스트가 자동으로 28종 전량 커버
+- [x] T-6. `THIRD_PARTY_LICENSES.md` 에 18종 출처·라이선스 추가 (실패한 8종은 미기재)
+- [x] T-7. 게이트 전량 통과 — `cargo test --workspace` 325 pass, `cargo clippy -D warnings` 0,
+      `cargo fmt --check` 0, `bun run typecheck`/`lint`(사전 존재 warning 4건 외 0)/`test` 326 pass/
+      `format:check` 0
+
+## 완료: 제외 8종 ANSI 폴백 구제 — 번들 테마 36종 완성 (2026-08-08)
+
+- [x] U-1. `scripts/convert-vscode-theme.ts` 에 VS Code 공식 기본 ANSI 팔레트(dark/light, 출처
+      `terminalColorRegistry.ts`) 를 `VSCODE_DEFAULT_ANSI_PALETTE` 상수로 추가하고, ANSI 색을 쓰는
+      모든 경로가 공유하는 `resolveAnsiLookup`(원본에 없으면 폴백 채움 + 폴백 토큰 목록 반환)으로
+      일원화 — `terminal.*` 출력뿐 아니라 `COLOR_MAPPING` 의 `derived()`(`graph.lane*` 등)와
+      `chain()` 후보 중 `terminal.ansi*` 리터럴(`git.*`/`editorGutter.*`/`statusIndicator.*` 등)도
+      전부 이 폴백을 공유하도록 `resolveCandidate` 를 확장(`ansiNameFromCandidate`) — 그전엔 후자가
+      원본 raw color 만 봐서 ANSI 부재 시 무관한 카테고리 공용 안전값으로 뭉개졌던 문제를 함께 해소
+- [x] U-2. 폴백 발생 시 콘솔 경고 1줄(테마 id·타입·대상 토큰 목록) 출력. 출처 표기는 코드 주석이 아니라
+      `docs/theme-system.md` §8.2.1 "VS Code 기본 ANSI 팔레트 폴백(출처: terminalColorRegistry)" 절로
+- [x] U-3. T-4 에서 제외됐던 8종 변환 — vscode-dark-plus/light-plus/dark-modern/light-modern/
+      kimbie-dark/red/quiet-light/darcula. 전부 exit 0, 대비 검증 통과. include 체인은 기존
+      `INCLUDE_ROLE_FILENAME_MAP`(dark_plus→vscode-dark-plus.json 등) 그대로 재사용
+- [x] U-4. `service.rs` `BUNDLED_THEME_SOURCES` 에 8종 등록 (`builtin: true`, 기존 28종 무변경) —
+      번들 테마 총 36종. `cargo fmt` 가 요구하는 멀티라인 tuple 포맷으로 정리
+- [x] U-5. `THIRD_PARTY_LICENSES.md` 갱신 — Dark+/Light+/Dark Modern/Light Modern/Kimbie Dark/Red/
+      Quiet Light(Microsoft, VS Code 내장) + Darcula(rokoroku, MIT) 항목 추가, 총 개수 28→36
+- [x] U-6. `docs/theme-system.md` §8.1 목록을 코드(`BUNDLED_THEME_SOURCES`)와 동기화해 36종 전량으로
+      재작성(기존에 10종만 기재된 채로 밀려 있던 것도 함께 정정) + §8.2.1 폴백 절(dark/light 16색 표) 신설
+- [x] U-7. 게이트 전량 통과 — `cargo test --workspace` 340 pass(325+6+9, 번들 테마 경고 0 테스트
+      포함), `cargo clippy -D warnings` 0, `cargo fmt --check` 0, `bun run typecheck`/
+      `lint`(사전 존재 warning 4건 외 0)/`test` 326 pass/`format:check` 0

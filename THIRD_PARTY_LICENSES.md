@@ -1,6 +1,6 @@
 # Third-Party Licenses — Bundled Themes
 
-TAIDE ships 10 color themes derived from popular VS Code extensions as built-in
+TAIDE ships 36 color themes derived from popular VS Code extensions as built-in
 (`builtin: true`) themes under `src-tauri/resources/themes/*.json`. Each source
 extension is MIT licensed; this file records the copyright notices required by
 the MIT license ("include the copyright notice and this permission notice in
@@ -75,6 +75,99 @@ values, which are re-expressed under TAIDE's own token names.
 - Source: https://github.com/microsoft/vscode/tree/main/extensions/theme-solarized-light
 - License: MIT (VS Code built-in extension; original Solarized color scheme by Ethan Schoonover)
 - Copyright (c) 2015 - present Microsoft Corporation
+
+## Abyss / Monokai Dimmed / Solarized Dark / Tomorrow Night Blue
+
+- Bundled as: `vscode-abyss`, `vscode-monokai-dimmed`, `vscode-solarized-dark`, `vscode-tomorrow-night-blue`
+- Source: https://github.com/microsoft/vscode (extensions/theme-abyss, theme-monokai-dimmed,
+  theme-solarized-dark, theme-tomorrow-night-blue)
+- License: MIT (VS Code built-in extensions)
+- Copyright (c) 2015 - present Microsoft Corporation
+
+## IntelliJ Islands Light
+
+- Bundled as: `intellij-islands-light`
+- Source: https://github.com/a-havrysh/vscode-intellij-theme
+- License: MIT
+- Copyright (c) a-havrysh
+
+## Ayu Dark / Ayu Light
+
+- Bundled as: `ayu-dark`, `ayu-light`
+- Source: https://github.com/ayu-theme/vscode-ayu
+- License: MIT
+- Copyright (c) ayu-theme (dempfi)
+
+## Palenight
+
+- Bundled as: `palenight`
+- Source: https://github.com/whizkydee/vscode-palenight-theme
+- License: MIT
+- Copyright (c) Olaolu Olawuyi (whizkydee)
+
+## Night Owl / Night Owl Light
+
+- Bundled as: `night-owl`, `night-owl-light`
+- Source: https://github.com/sdras/night-owl-vscode-theme
+- License: MIT
+- Copyright (c) Sarah Drasner
+
+## Rosé Pine / Rosé Pine Dawn
+
+- Bundled as: `rose-pine`, `rose-pine-dawn`
+- Source: https://github.com/rose-pine/vscode
+- License: MIT
+- Copyright (c) Rosé Pine
+
+## Everforest Dark / Everforest Light
+
+- Bundled as: `everforest-dark`, `everforest-light`
+- Source: https://github.com/sainnhe/everforest-vscode
+- License: MIT
+- Copyright (c) sainnhe
+
+## Kanagawa Wave
+
+- Bundled as: `kanagawa-wave`
+- Source: https://github.com/paccodes/kanagawa-vscode-theme
+- License: MIT
+- Copyright (c) paccodes (original color scheme: rebelot/kanagawa.nvim, also MIT)
+
+## Vitesse Dark / Vitesse Light
+
+- Bundled as: `vitesse-dark`, `vitesse-light`
+- Source: https://github.com/antfu/vscode-theme-vitesse
+- License: MIT
+- Copyright (c) Anthony Fu (antfu)
+
+## One Monokai
+
+- Bundled as: `one-monokai`
+- Source: https://github.com/azemoh/vscode-one-monokai
+- License: MIT
+- Copyright (c) Joshua Azemoh (azemoh)
+
+## Dark+ / Light+ / Dark Modern / Light Modern / Kimbie Dark / Red / Quiet Light
+
+- Bundled as: `vscode-dark-plus`, `vscode-light-plus`, `vscode-dark-modern`,
+  `vscode-light-modern`, `vscode-kimbie-dark`, `vscode-red`, `vscode-quiet-light`
+- Source: https://github.com/microsoft/vscode (extensions/theme-defaults,
+  theme-kimbie-dark, theme-red, theme-quietlight)
+- License: MIT (VS Code built-in extensions)
+- Copyright (c) 2015 - present Microsoft Corporation
+- Note: none of these source themes declare `terminal.ansi*` colors. The
+  missing ANSI 16-color set was filled with VS Code's own official default
+  ANSI palette (see `docs/theme-system.md` §8.2) — the same fallback VS Code
+  itself applies at runtime when a theme is silent on terminal colors.
+
+## Darcula
+
+- Bundled as: `darcula`
+- Source: https://github.com/rokoroku/vscode-theme-darcula
+- License: MIT
+- Copyright (c) rokoroku (original color scheme: JetBrains Darcula)
+- Note: source theme declares no `terminal.ansi*` colors; filled with VS
+  Code's official default dark ANSI palette (see `docs/theme-system.md` §8.2).
 
 ---
 

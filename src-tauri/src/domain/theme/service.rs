@@ -19,6 +19,59 @@ const BUNDLED_THEME_SOURCES: &[(&str, &str)] = &[
     ("gruvbox-dark", include_str!("../../../resources/themes/gruvbox-dark.json")),
     ("monokai", include_str!("../../../resources/themes/monokai.json")),
     ("solarized-light", include_str!("../../../resources/themes/solarized-light.json")),
+    ("vscode-abyss", include_str!("../../../resources/themes/vscode-abyss.json")),
+    (
+        "vscode-monokai-dimmed",
+        include_str!("../../../resources/themes/vscode-monokai-dimmed.json"),
+    ),
+    (
+        "vscode-solarized-dark",
+        include_str!("../../../resources/themes/vscode-solarized-dark.json"),
+    ),
+    (
+        "vscode-tomorrow-night-blue",
+        include_str!("../../../resources/themes/vscode-tomorrow-night-blue.json"),
+    ),
+    (
+        "intellij-islands-light",
+        include_str!("../../../resources/themes/intellij-islands-light.json"),
+    ),
+    ("ayu-dark", include_str!("../../../resources/themes/ayu-dark.json")),
+    ("ayu-light", include_str!("../../../resources/themes/ayu-light.json")),
+    ("palenight", include_str!("../../../resources/themes/palenight.json")),
+    ("night-owl", include_str!("../../../resources/themes/night-owl.json")),
+    ("night-owl-light", include_str!("../../../resources/themes/night-owl-light.json")),
+    ("rose-pine", include_str!("../../../resources/themes/rose-pine.json")),
+    ("rose-pine-dawn", include_str!("../../../resources/themes/rose-pine-dawn.json")),
+    ("everforest-dark", include_str!("../../../resources/themes/everforest-dark.json")),
+    ("everforest-light", include_str!("../../../resources/themes/everforest-light.json")),
+    ("kanagawa-wave", include_str!("../../../resources/themes/kanagawa-wave.json")),
+    ("vitesse-dark", include_str!("../../../resources/themes/vitesse-dark.json")),
+    ("vitesse-light", include_str!("../../../resources/themes/vitesse-light.json")),
+    ("one-monokai", include_str!("../../../resources/themes/one-monokai.json")),
+    ("vscode-dark-plus", include_str!("../../../resources/themes/vscode-dark-plus.json")),
+    (
+        "vscode-light-plus",
+        include_str!("../../../resources/themes/vscode-light-plus.json"),
+    ),
+    (
+        "vscode-dark-modern",
+        include_str!("../../../resources/themes/vscode-dark-modern.json"),
+    ),
+    (
+        "vscode-light-modern",
+        include_str!("../../../resources/themes/vscode-light-modern.json"),
+    ),
+    (
+        "vscode-kimbie-dark",
+        include_str!("../../../resources/themes/vscode-kimbie-dark.json"),
+    ),
+    ("vscode-red", include_str!("../../../resources/themes/vscode-red.json")),
+    (
+        "vscode-quiet-light",
+        include_str!("../../../resources/themes/vscode-quiet-light.json"),
+    ),
+    ("darcula", include_str!("../../../resources/themes/darcula.json")),
 ];
 
 const COLOR_NAMESPACES: &[(&str, &[&str])] = &[

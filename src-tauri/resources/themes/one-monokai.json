@@ -1,0 +1,324 @@
+{
+    "version": 1,
+    "id": "one-monokai",
+    "name": "One Monokai",
+    "type": "dark",
+    "palette": {},
+    "colors": {
+        "app.background": "#282c34",
+        "app.foreground": "#D4D4D4",
+        "app.border": "#181A1F",
+        "app.focusBorder": "#181A1F",
+        "app.shadow": "#00000080",
+        "app.accent": "#528bff",
+        "appSidebar.background": "#2F333D",
+        "appSidebar.itemHover": "#292d35",
+        "appSidebar.itemActive": "#2c313a",
+        "appSidebar.iconDefault": "#D4D4D4",
+        "appSidebar.iconAgentRunning": "#98c379",
+        "appSidebar.iconAgentWorking": "#528bff",
+        "appSidebar.iconAgentAwaiting": "#e5c07b",
+        "appSidebar.iconAgentIdle": "#98c379",
+        "appSidebar.iconAgentUnknown": "#D4D4D4",
+        "appSidebar.badge": "#528bff",
+        "tabBar.background": "#21252B",
+        "tabBar.tabActiveBackground": "#383E4A",
+        "tabBar.tabInactiveBackground": "#21252B",
+        "tabBar.tabActiveForeground": "#D4D4D4",
+        "tabBar.tabInactiveForeground": "#D4D4D4",
+        "tabBar.tabBorder": "#181A1F",
+        "tabBar.tabActiveIndicator": "#569CD6",
+        "tabBar.dirtyDot": "#e5c07b",
+        "tabBar.previewForeground": "#D4D4D4",
+        "tabBar.dropTarget": "#569CD6",
+        "explorer.background": "#21252b",
+        "explorer.itemHover": "#292d35",
+        "explorer.itemSelected": "#2c313a",
+        "explorer.itemFocused": "#383E4A",
+        "explorer.indentGuide": "#181A1F",
+        "explorer.folderIcon": "#D4D4D4",
+        "explorer.gitModified": "#e5c07b",
+        "explorer.gitAdded": "#98c379",
+        "explorer.gitDeleted": "#e06c75",
+        "explorer.gitUntracked": "#98c379",
+        "explorer.gitIgnored": "#7f848e",
+        "panel.background": "#21252b",
+        "panel.sectionHeader": "#D4D4D4",
+        "panel.inputBackground": "#1d1f23",
+        "panel.inputBorder": "#181A1F",
+        "panel.matchHighlight": "#C5C5C5",
+        "editor.background": "#282c34",
+        "editor.foreground": "#D4D4D4",
+        "editor.lineHighlight": "#383E4A",
+        "editor.cursor": "#f8f8f0",
+        "editor.selection": "#3E4451",
+        "editor.inactiveSelection": "#282c34",
+        "editor.lineNumber": "#495162",
+        "editor.lineNumberActive": "#D4D4D4",
+        "editor.indentGuide": "#3B4048",
+        "editor.whitespace": "#484a50",
+        "editor.bracketMatch": "#181A1F",
+        "editor.findMatch": "#42557B",
+        "editor.findMatchHighlight": "#314365",
+        "editor.hoverBackground": "#21252B",
+        "editor.widgetBackground": "#21252B",
+        "editor.widgetBorder": "#181A1F",
+        "editorGutter.addedBackground": "#98c379",
+        "editorGutter.modifiedBackground": "#528bff",
+        "editorGutter.deletedBackground": "#e06c75",
+        "editorBlame.foreground": "#D4D4D4",
+        "editorBlame.background": "transparent",
+        "diff.insertedBackground": "#00809B33",
+        "diff.insertedLineBackground": "#00809B33",
+        "diff.removedBackground": "#e06c75",
+        "diff.removedLineBackground": "#e06c75",
+        "diff.border": "#181A1F",
+        "terminal.background": "#282c34",
+        "terminal.foreground": "#abb2bf",
+        "terminal.cursor": "#f8f8f0",
+        "terminal.selection": "#282c34",
+        "terminal.commandBlockBorder": "#181A1F",
+        "terminal.linkForeground": "#D4D4D4",
+        "git.added": "#98c379",
+        "git.modified": "#e5c07b",
+        "git.deleted": "#e06c75",
+        "git.renamed": "#528bff",
+        "git.untracked": "#98c379",
+        "git.conflicted": "#c678dd",
+        "git.staged": "#e5c07b",
+        "graph.lane1": "#528bff",
+        "graph.lane2": "#98c379",
+        "graph.lane3": "#e5c07b",
+        "graph.lane4": "#c678dd",
+        "graph.lane5": "#56b6c2",
+        "graph.lane6": "#e06c75",
+        "graph.lane7": "#528bff",
+        "graph.lane8": "#98c379",
+        "graph.lane9": "#e5c07b",
+        "graph.lane10": "#7e0097",
+        "graph.lane11": "#56b6c2",
+        "graph.lane12": "#f44747",
+        "graph.refBranch": "#528bff",
+        "graph.refTag": "#e5c07b",
+        "graph.refHead": "#98c379",
+        "statusIndicator.info": "#528bff",
+        "statusIndicator.warning": "#e5c07b",
+        "statusIndicator.error": "#c24038",
+        "statusIndicator.success": "#98c379",
+        "menu.background": "#1d1f23",
+        "menu.border": "#181A1F",
+        "menu.itemHover": "#292d35",
+        "menu.separator": "#181A1F",
+        "popover.background": "#21252B",
+        "popover.border": "#181A1F",
+        "popover.itemHover": "#292d35",
+        "popover.separator": "#181A1F",
+        "tooltip.background": "#21252B",
+        "tooltip.border": "#181A1F",
+        "tooltip.itemHover": "#292d35",
+        "tooltip.separator": "#181A1F",
+        "modal.background": "#21252B",
+        "modal.border": "#181A1F",
+        "modal.itemHover": "#292d35",
+        "modal.separator": "#181A1F",
+        "scrollbar.thumb": "#4E566680",
+        "scrollbar.thumbHover": "#5A637580",
+        "scrollbar.track": "transparent",
+        "input.background": "#1d1f23",
+        "input.foreground": "#D4D4D4",
+        "input.border": "#181A1F",
+        "input.placeholder": "#D4D4D4",
+        "input.focusBorder": "#181A1F",
+        "button.background": "#528bff",
+        "button.foreground": "#D4D4D4",
+        "button.hoverBackground": "#282c34",
+        "button.primaryBackground": "#528bff",
+        "button.primaryForeground": "#D4D4D4",
+        "list.background": "#21252b",
+        "list.hoverBackground": "#292d35",
+        "list.activeBackground": "#2c313a",
+        "list.foreground": "#D4D4D4"
+    },
+    "syntax": {
+        "keyword": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "storage": {
+            "fg": "#56b6c2",
+            "bold": false,
+            "italic": false
+        },
+        "operator": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "string": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "number": {
+            "fg": "#c678dd",
+            "bold": false,
+            "italic": false
+        },
+        "regexp": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "comment": {
+            "fg": "#676f7d",
+            "bold": false,
+            "italic": false
+        },
+        "docComment": {
+            "fg": "#676f7d",
+            "bold": false,
+            "italic": false
+        },
+        "function": {
+            "fg": "#98c379",
+            "bold": false,
+            "italic": false
+        },
+        "method": {
+            "fg": "#98c379",
+            "bold": false,
+            "italic": false
+        },
+        "variable": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        },
+        "parameter": {
+            "fg": "#d19a66",
+            "bold": false,
+            "italic": true
+        },
+        "property": {
+            "fg": "#abb2bf",
+            "bold": false,
+            "italic": false
+        },
+        "type": {
+            "fg": "#56b6c2",
+            "bold": false,
+            "italic": false
+        },
+        "class": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "interface": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "enum": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "constant": {
+            "fg": "#56b6c2",
+            "bold": false,
+            "italic": false
+        },
+        "namespace": {
+            "fg": "#61afef",
+            "bold": false,
+            "italic": false
+        },
+        "decorator": {
+            "fg": "#98c379",
+            "bold": false,
+            "italic": false
+        },
+        "tag": {
+            "fg": "#e06c75",
+            "bold": false,
+            "italic": false
+        },
+        "attribute": {
+            "fg": "#98c379",
+            "bold": false,
+            "italic": false
+        },
+        "punctuation": {
+            "fg": "#D4D4D4",
+            "bold": false,
+            "italic": false
+        },
+        "invalid": {
+            "fg": "#F8F8F0",
+            "bold": false,
+            "italic": false
+        },
+        "link": {
+            "fg": "#e5c07b",
+            "bold": false,
+            "italic": false
+        },
+        "markdownHeading": {
+            "fg": "#D4D4D4",
+            "bold": false,
+            "italic": false
+        },
+        "markdownEmphasis": {
+            "fg": "#D4D4D4",
+            "bold": false,
+            "italic": false
+        },
+        "markdownStrong": {
+            "fg": "#D4D4D4",
+            "bold": false,
+            "italic": false
+        },
+        "markdownCode": {
+            "fg": "#56b6c2",
+            "bold": false,
+            "italic": false
+        },
+        "markdownQuote": {
+            "fg": "#D4D4D4",
+            "bold": false,
+            "italic": false
+        },
+        "markdownListMarker": {
+            "fg": "#D4D4D4",
+            "bold": false,
+            "italic": false
+        }
+    },
+    "terminal": {
+        "black": "#2d3139",
+        "red": "#e06c75",
+        "green": "#98c379",
+        "yellow": "#e5c07b",
+        "blue": "#528bff",
+        "magenta": "#c678dd",
+        "cyan": "#56b6c2",
+        "white": "#d7dae0",
+        "brightBlack": "#7f848e",
+        "brightRed": "#f44747",
+        "brightGreen": "#98c379",
+        "brightYellow": "#e5c07b",
+        "brightBlue": "#528bff",
+        "brightMagenta": "#7e0097",
+        "brightCyan": "#56b6c2",
+        "brightWhite": "#d7dae0",
+        "background": "#282c34",
+        "foreground": "#abb2bf",
+        "cursor": "#f8f8f0",
+        "selection": "#282c34"
+    },
+    "author": "Joshua Azemoh (azemoh)",
+    "license": "MIT",
+    "source": "https://github.com/azemoh/vscode-one-monokai"
+}

@@ -4,6 +4,7 @@ const HEX_ALPHA_LENGTH = 9
 const ALPHA_CHANNEL_MAX = 255
 const KEBAB_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const SELF_REF_PREFIX = '@'
+const MAX_INCLUDE_CHAIN_DEPTH = 5
 
 type ThemeTypeArg = 'dark' | 'light'
 
@@ -16,6 +17,7 @@ type CliArgs = {
     author: string
     license: string
     out: string
+    includeDir?: string
 }
 
 type VscodeTokenColorRule = {
@@ -44,7 +46,7 @@ type ColorMappingEntry = {
 type ResolveContext = {
     vscodeColors: Record<string, string>
     resolved: Record<string, string>
-    ansi: Record<string, string | undefined>
+    ansi: AnsiLookup
 }
 
 const FAMILY_FALLBACK_SOURCE_KEYS: Record<ColorCategory, string[]> = {
@@ -265,12 +267,53 @@ const TERMINAL_ANSI_TOKENS = [
     'brightWhite',
 ] as const
 
+type AnsiLookup = Record<(typeof TERMINAL_ANSI_TOKENS)[number], string>
+
 const TERMINAL_MIRRORED_TOKENS = {
     background: 'terminal.background',
     foreground: 'terminal.foreground',
     cursor: 'terminal.cursor',
     selection: 'terminal.selection',
 } as const
+
+const VSCODE_DEFAULT_ANSI_PALETTE: Record<ThemeTypeArg, AnsiLookup> = {
+    dark: {
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#e5e5e5',
+    },
+    light: {
+        black: '#000000',
+        red: '#cd3131',
+        green: '#107c10',
+        yellow: '#949800',
+        blue: '#0451a5',
+        magenta: '#bc05bc',
+        cyan: '#0598bc',
+        white: '#555555',
+        brightBlack: '#666666',
+        brightRed: '#cd3131',
+        brightGreen: '#14ce14',
+        brightYellow: '#b5ba00',
+        brightBlue: '#0451a5',
+        brightMagenta: '#bc05bc',
+        brightCyan: '#0598bc',
+        brightWhite: '#a5a5a5',
+    },
+}
 
 const GRAPH_LANE_ANSI_ORDER = [
     'blue',
@@ -476,6 +519,7 @@ const parseArgs = (argv: string[]): CliArgs => {
         author: flags.get('author') ?? '',
         license: flags.get('license') ?? '',
         out: flags.get('out') ?? 'src-tauri/resources/themes/',
+        includeDir: flags.get('include-dir'),
     }
 }
 
@@ -551,8 +595,12 @@ const expandVscodeHex = (value: string) => {
 }
 
 const readVscodeTheme = (raw: Record<string, unknown>): VscodeTheme => {
-    const rawColors = typeof raw.colors === 'object' && raw.colors !== null ? (raw.colors as Record<string, string>) : {}
-    const colors = Object.fromEntries(Object.entries(rawColors).map(([key, value]) => [key, expandVscodeHex(value)]))
+    const rawColors = typeof raw.colors === 'object' && raw.colors !== null ? (raw.colors as Record<string, unknown>) : {}
+    const colors = Object.fromEntries(
+        Object.entries(rawColors)
+            .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+            .map(([key, value]) => [key, expandVscodeHex(value)]),
+    )
     const rawTokenColors = Array.isArray(raw.tokenColors) ? raw.tokenColors : []
 
     const tokenColors: VscodeTokenColorRule[] = rawTokenColors.flatMap((entry) => {
@@ -569,8 +617,66 @@ const readVscodeTheme = (raw: Record<string, unknown>): VscodeTheme => {
     return { colors, tokenColors }
 }
 
-const resolveCandidate = (candidate: string, ctx: ResolveContext): string | undefined =>
-    candidate.startsWith(SELF_REF_PREFIX) ? ctx.resolved[candidate.slice(SELF_REF_PREFIX.length)] : ctx.vscodeColors[candidate]
+/**
+ * VS Code's built-in theme-defaults extension ships include chains that
+ * reference sibling files by their original repo filename (e.g.
+ * "./dark_vs.json"). This repo's local mirror of those sources uses
+ * different filenames (base-dark-vs.json, vscode-dark-plus.json, ...), so
+ * an include path must be mapped explicitly to the file that actually
+ * holds that role rather than resolved literally against --include-dir.
+ */
+const INCLUDE_ROLE_FILENAME_MAP: Record<string, string> = {
+    'dark_vs.json': 'base-dark-vs.json',
+    'light_vs.json': 'base-light-vs.json',
+    'dark_plus.json': 'vscode-dark-plus.json',
+    'light_plus.json': 'vscode-light-plus.json',
+}
+
+const resolveIncludeFilename = (includePath: string): string => {
+    const normalized = includePath.replace(/^\.\//, '')
+    return INCLUDE_ROLE_FILENAME_MAP[normalized] ?? normalized
+}
+
+const loadRawThemeChain = async (inputPath: string, includeDir: string | undefined, depth = 0): Promise<Record<string, unknown>[]> => {
+    if (depth > MAX_INCLUDE_CHAIN_DEPTH) {
+        console.error(`convert-vscode-theme: include chain deeper than ${MAX_INCLUDE_CHAIN_DEPTH} levels while resolving '${inputPath}'`)
+        process.exit(1)
+    }
+
+    const source = await Bun.file(inputPath).text()
+    const raw = parseJsonc(source)
+    const includePath = typeof raw.include === 'string' ? raw.include : undefined
+    if (!includePath) return [raw]
+
+    if (!includeDir) {
+        console.error(`convert-vscode-theme: '${inputPath}' declares "include": "${includePath}" but --include-dir was not provided`)
+        process.exit(1)
+    }
+
+    const basePath = `${includeDir.replace(/\/$/, '')}/${resolveIncludeFilename(includePath)}`
+    const baseChain = await loadRawThemeChain(basePath, includeDir, depth + 1)
+    return [...baseChain, raw]
+}
+
+const mergeVscodeThemeChain = (rawChain: Record<string, unknown>[]): VscodeTheme =>
+    rawChain
+        .map(readVscodeTheme)
+        .reduce((merged, theme) => ({ colors: { ...merged.colors, ...theme.colors }, tokenColors: [...merged.tokenColors, ...theme.tokenColors] }))
+
+const TERMINAL_ANSI_CANDIDATE_PREFIX = 'terminal.ansi'
+
+const ansiNameFromCandidate = (candidate: string): (typeof TERMINAL_ANSI_TOKENS)[number] | undefined => {
+    if (!candidate.startsWith(TERMINAL_ANSI_CANDIDATE_PREFIX)) return undefined
+    const rest = candidate.slice(TERMINAL_ANSI_CANDIDATE_PREFIX.length)
+    const name = `${rest.charAt(0).toLowerCase()}${rest.slice(1)}` as (typeof TERMINAL_ANSI_TOKENS)[number]
+    return TERMINAL_ANSI_TOKENS.includes(name) ? name : undefined
+}
+
+const resolveCandidate = (candidate: string, ctx: ResolveContext): string | undefined => {
+    if (candidate.startsWith(SELF_REF_PREFIX)) return ctx.resolved[candidate.slice(SELF_REF_PREFIX.length)]
+    const ansiName = ansiNameFromCandidate(candidate)
+    return ansiName ? ctx.ansi[ansiName] : ctx.vscodeColors[candidate]
+}
 
 const resolveFamilyFallback = (category: ColorCategory, ctx: ResolveContext): string | undefined =>
     FAMILY_FALLBACK_SOURCE_KEYS[category].map((key) => ctx.vscodeColors[key]).find((value) => value !== undefined)
@@ -584,19 +690,46 @@ const resolveColorEntry = (entry: ColorMappingEntry, ctx: ResolveContext): strin
     return resolveFamilyFallback(entry.category, ctx)
 }
 
-const buildAnsiLookup = (vscodeColors: Record<string, string>) => {
-    const names = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
-    const ansi: Record<string, string | undefined> = {}
+const readAnsiFromVscodeColors = (vscodeColors: Record<string, string>): Partial<AnsiLookup> => {
+    const names: (typeof TERMINAL_ANSI_TOKENS)[number][] = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+    const ansi: Partial<AnsiLookup> = {}
     for (const name of names) {
         const capitalized = name[0].toUpperCase() + name.slice(1)
-        ansi[name] = vscodeColors[`terminal.ansi${capitalized}`]
-        ansi[`bright${capitalized}`] = vscodeColors[`terminal.ansiBright${capitalized}`]
+        const base = vscodeColors[`terminal.ansi${capitalized}`]
+        const bright = vscodeColors[`terminal.ansiBright${capitalized}`]
+        if (base) ansi[name] = base
+        if (bright) ansi[`bright${capitalized}` as (typeof TERMINAL_ANSI_TOKENS)[number]] = bright
     }
     return ansi
 }
 
-const resolveColors = (vscodeColors: Record<string, string>, type: ThemeTypeArg) => {
-    const ctx: ResolveContext = { vscodeColors, resolved: {}, ansi: buildAnsiLookup(vscodeColors) }
+/**
+ * Mirrors VS Code's own terminal ANSI resolution: when a theme declares no
+ * `terminal.ansi*` colors, the editor falls back to its built-in default ANSI
+ * palette (see docs/theme-system.md §8.2) rather than leaving the terminal
+ * uncolored. Every consumer of ANSI colors in this script (terminal output
+ * and ANSI-derived semantic tokens like `graph.lane*`) shares this resolved,
+ * always-complete lookup so a theme with no ANSI colors still gets VS Code's
+ * real defaults instead of a generic single-color fallback.
+ */
+const resolveAnsiLookup = (vscodeColors: Record<string, string>, type: ThemeTypeArg): { ansi: AnsiLookup; fallbackTokens: string[] } => {
+    const sourceAnsi = readAnsiFromVscodeColors(vscodeColors)
+    const fallbackTokens: string[] = []
+    const ansi = {} as AnsiLookup
+    for (const name of TERMINAL_ANSI_TOKENS) {
+        const value = sourceAnsi[name]
+        if (value) {
+            ansi[name] = value
+            continue
+        }
+        ansi[name] = VSCODE_DEFAULT_ANSI_PALETTE[type][name]
+        fallbackTokens.push(name)
+    }
+    return { ansi, fallbackTokens }
+}
+
+const resolveColors = (vscodeColors: Record<string, string>, type: ThemeTypeArg, ansi: AnsiLookup) => {
+    const ctx: ResolveContext = { vscodeColors, resolved: {}, ansi }
     const safeDefaultNotices: string[] = []
 
     for (const entry of COLOR_MAPPING) {
@@ -634,12 +767,12 @@ const findBestRule = (candidateScope: string, rules: VscodeTokenColorRule[]) => 
     return best?.rule
 }
 
-const resolveSyntax = (theme: VscodeTheme, editorBackground: string) => {
+const resolveSyntax = (theme: VscodeTheme, editorForeground: string, editorBackground: string) => {
     const syntax: Record<string, SyntaxStyle> = {}
     for (const token of SYNTAX_TOKENS) {
         const candidates = SYNTAX_SCOPE_CANDIDATES[token]
         const matchedRule = candidates.map((candidate) => findBestRule(candidate, theme.tokenColors)).find((rule) => rule !== undefined)
-        const fg = matchedRule?.fg ?? theme.colors['editor.foreground']
+        const fg = matchedRule?.fg ?? editorForeground
         syntax[token] = {
             fg: normalizeSyntaxForeground(fg, editorBackground),
             bold: matchedRule?.bold ?? false,
@@ -649,25 +782,14 @@ const resolveSyntax = (theme: VscodeTheme, editorBackground: string) => {
     return syntax
 }
 
-const resolveTerminal = (vscodeColors: Record<string, string>, resolvedColors: Record<string, string>) => {
-    const terminal: Record<string, string> = {}
-    const missing: string[] = []
-    const ansi = buildAnsiLookup(vscodeColors)
-
-    for (const name of TERMINAL_ANSI_TOKENS) {
-        const value = ansi[name]
-        if (!value) {
-            missing.push(name)
-            continue
-        }
-        terminal[name] = value
-    }
+const resolveTerminal = (resolvedColors: Record<string, string>, ansi: AnsiLookup) => {
+    const terminal: Record<string, string> = { ...ansi }
 
     for (const [terminalKey, colorKey] of Object.entries(TERMINAL_MIRRORED_TOKENS)) {
         terminal[terminalKey] = resolvedColors[colorKey]
     }
 
-    return { terminal, missing }
+    return terminal
 }
 
 const validateCompleteness = (colors: Record<string, string>, syntax: Record<string, SyntaxStyle>, terminal: Record<string, string>) => {
@@ -724,8 +846,13 @@ const CONTRAST_PAIRS: readonly { label: string; foregroundKey: string; backgroun
     { label: 'tooltip', foregroundKey: 'app.foreground', backgroundKey: 'tooltip.background' },
 ]
 
-const CONTRAST_REPAIR_CANDIDATES: Record<string, string[]> = {
+const CONTRAST_REPAIR_BACKGROUND_CANDIDATES: Record<string, string[]> = {
     'tooltip.background': ['editorWidget.background', 'menu.background', 'dropdown.background'],
+}
+
+const CONTRAST_REPAIR_FOREGROUND_CANDIDATES: Record<string, string[]> = {
+    'app.foreground': ['editor.foreground'],
+    'panel.sectionHeader': ['editor.foreground'],
 }
 
 const repairContrastPairs = (colors: Record<string, string>, vscodeColors: Record<string, string>) => {
@@ -738,14 +865,24 @@ const repairContrastPairs = (colors: Record<string, string>, vscodeColors: Recor
         const ratio = contrastRatio(foreground, background)
         if (ratio !== null && ratio >= MIN_CONTRAST_RATIO) continue
 
-        const repairCandidates = CONTRAST_REPAIR_CANDIDATES[pair.backgroundKey] ?? []
-        const repaired = repairCandidates
+        const backgroundCandidates = CONTRAST_REPAIR_BACKGROUND_CANDIDATES[pair.backgroundKey] ?? []
+        const repairedBackground = backgroundCandidates
             .map((key) => vscodeColors[key])
             .find((value) => value && (contrastRatio(foreground, value) ?? 0) >= MIN_CONTRAST_RATIO)
-        if (!repaired) continue
+        if (repairedBackground) {
+            repairedColors = { ...repairedColors, [pair.backgroundKey]: repairedBackground }
+            repairs.push(`${pair.backgroundKey}: ${background} -> ${repairedBackground} (${pair.label} 대비 확보)`)
+            continue
+        }
 
-        repairedColors = { ...repairedColors, [pair.backgroundKey]: repaired }
-        repairs.push(`${pair.backgroundKey}: ${background} -> ${repaired} (${pair.label} 대비 확보)`)
+        const foregroundCandidates = CONTRAST_REPAIR_FOREGROUND_CANDIDATES[pair.foregroundKey] ?? []
+        const repairedForeground = foregroundCandidates
+            .map((key) => vscodeColors[key])
+            .find((value) => value && (contrastRatio(value, background) ?? 0) >= MIN_CONTRAST_RATIO)
+        if (!repairedForeground) continue
+
+        repairedColors = { ...repairedColors, [pair.foregroundKey]: repairedForeground }
+        repairs.push(`${pair.foregroundKey}: ${foreground} -> ${repairedForeground} (${pair.label} 대비 확보)`)
     }
 
     return { colors: repairedColors, repairs }
@@ -775,18 +912,19 @@ const validateOutputColors = (colors: Record<string, string>) => {
 const main = async () => {
     const args = parseArgs(process.argv.slice(2))
 
-    const source = await Bun.file(args.input).text()
-    const raw = parseJsonc(source)
-    const theme = readVscodeTheme(raw)
+    const rawChain = await loadRawThemeChain(args.input, args.includeDir)
+    const theme = mergeVscodeThemeChain(rawChain)
 
-    const { colors: resolvedColors, safeDefaultNotices } = resolveColors(theme.colors, args.type)
+    const { ansi, fallbackTokens: ansiFallbackTokens } = resolveAnsiLookup(theme.colors, args.type)
+    const { colors: resolvedColors, safeDefaultNotices } = resolveColors(theme.colors, args.type, ansi)
     const { colors, repairs } = repairContrastPairs(resolvedColors, theme.colors)
     const editorBackground = colors['editor.background'] ?? theme.colors['editor.background'] ?? '#000000'
-    const syntax = resolveSyntax(theme, editorBackground)
-    const { terminal, missing: missingTerminalSources } = resolveTerminal(theme.colors, colors)
+    const editorForeground = colors['editor.foreground'] ?? theme.colors['editor.foreground'] ?? theme.colors.foreground ?? '#000000'
+    const syntax = resolveSyntax(theme, editorForeground, editorBackground)
+    const terminal = resolveTerminal(colors, ansi)
 
     const { missingColors, missingSyntax, missingTerminal } = validateCompleteness(colors, syntax, terminal)
-    const allMissing = [...new Set([...missingColors, ...missingSyntax, ...missingTerminalSources, ...missingTerminal])]
+    const allMissing = [...new Set([...missingColors, ...missingSyntax, ...missingTerminal])]
 
     if (allMissing.length > 0) {
         console.error(`convert-vscode-theme: incomplete output for '${args.id}', missing tokens:`)
@@ -799,8 +937,14 @@ const main = async () => {
         for (const notice of safeDefaultNotices) console.warn(`  - ${notice}`)
     }
 
+    if (ansiFallbackTokens.length > 0) {
+        console.warn(
+            `convert-vscode-theme: '${args.id}' has no terminal.ansi* colors in source — used VS Code's official default ${args.type} ANSI palette (terminalColorRegistry) for: ${ansiFallbackTokens.join(', ')}`,
+        )
+    }
+
     if (repairs.length > 0) {
-        console.warn(`convert-vscode-theme: '${args.id}' substituted low-contrast background with a same-family alternative:`)
+        console.warn(`convert-vscode-theme: '${args.id}' substituted a low-contrast token with a same-family alternative:`)
         for (const repair of repairs) console.warn(`  - ${repair}`)
     }
 
