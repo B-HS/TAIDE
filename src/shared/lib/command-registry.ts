@@ -1,4 +1,7 @@
+import { toast } from 'sonner'
 import type { KeymapActionId } from '@shared/lib/keymap'
+import { buildImeDebugReport } from '@shared/lib/ime-debug'
+import { i18next } from '@shared/i18n/i18n'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 
 export type CommandContext = {
@@ -80,4 +83,12 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
     { id: 'tab.cyclePrev', titleKey: 'keymap.tabCyclePrev', keymapId: 'tab-cycle-prev', run: notImplementedRun, isEnabled: alwaysDisabled },
     { id: 'editor.save', titleKey: 'keymap.save', keymapId: 'save', run: notImplementedRun, isEnabled: alwaysDisabled },
     { id: 'view.toggleTerminal', titleKey: 'keymap.toggleTerminal', keymapId: 'toggle-terminal', run: notImplementedRun, isEnabled: alwaysDisabled },
+    {
+        id: 'terminal.copyImeDebug',
+        titleKey: 'terminal.copyImeDebugLog',
+        run: async () => {
+            await navigator.clipboard.writeText(buildImeDebugReport())
+            toast.success(i18next.t('terminal.imeDebugCopied'))
+        },
+    },
 ]

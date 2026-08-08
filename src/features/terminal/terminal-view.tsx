@@ -9,6 +9,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { resolveImeInput } from '@shared/lib/ime-input'
+import { recordImeDebug } from '@shared/lib/ime-debug'
 
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void
@@ -171,10 +172,26 @@ export const TerminalView: FC<TerminalViewProps> = ({
             if (typeof input.getTargetRanges !== 'function') return
             const range = input.getTargetRanges()[0]
             pendingReplaceLength = range ? range.endOffset - range.startOffset : null
+            recordImeDebug({
+                source: 'beforeinput',
+                inputType: input.inputType,
+                data: input.data ?? '',
+                rangeLength: pendingReplaceLength,
+                composing,
+                output: '',
+            })
         }
         const handleImeInput = (event: Event) => {
             const input = event as InputEvent
             const resolved = resolveImeInput(input.inputType, input.data ?? '', composing, pendingReplaceLength)
+            recordImeDebug({
+                source: 'input',
+                inputType: input.inputType,
+                data: input.data ?? '',
+                rangeLength: pendingReplaceLength,
+                composing: resolved?.composing ?? '',
+                output: resolved?.output ?? '',
+            })
             pendingReplaceLength = null
             if (!resolved) return
             composing = resolved.composing
@@ -183,7 +200,10 @@ export const TerminalView: FC<TerminalViewProps> = ({
         textarea?.addEventListener('beforeinput', handleBeforeInput, true)
         textarea?.addEventListener('input', handleImeInput, true)
 
-        const dataSubscription = term.onData((data) => onDataRef.current(data))
+        const dataSubscription = term.onData((data) => {
+            recordImeDebug({ source: 'data', inputType: '', data, rangeLength: null, composing, output: data })
+            onDataRef.current(data)
+        })
         const resizeSubscription = term.onResize(({ cols, rows }) => onResizeRef.current(cols, rows))
 
         termRef.current = term
