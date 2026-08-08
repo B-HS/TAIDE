@@ -3,7 +3,7 @@ use specta::Type;
 
 use crate::ids::ProjectId;
 
-pub const AGENT_POLL_UNIX_MS: u64 = 1_000;
+pub const AGENT_POLL_UNIX_MS: u64 = 500;
 pub const AGENT_POLL_WINDOWS_MS: u64 = 2_000;
 pub const KNOWN_AGENT_NAMES: &[&str] = &["claude", "codex", "gemini"];
 pub const WAIT_MARKER_PREFIX: &str = "taide-wait-";

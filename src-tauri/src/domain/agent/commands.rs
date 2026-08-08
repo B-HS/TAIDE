@@ -273,6 +273,12 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
         .collect()
 }
 
+pub async fn detect_agents_for_pids_blocking(pids: Vec<(String, u32)>) -> AppResult<Vec<service::DetectedAgentProbe>> {
+    tauri::async_runtime::spawn_blocking(move || detect_agents_for_pids(pids))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
 /// hook override 는 Claude Code 가 보낸 것이므로 hook 을 보내는 에이전트에만 적용한다.
 /// 같은 프로젝트의 다른 에이전트(codex 등)까지 물들이지 않고,
 /// 해당 프로세스가 다시 활동하면 override 를 버려 휴리스틱으로 복귀한다.
@@ -357,9 +363,7 @@ pub async fn agent_list(
     ensure_project_open(&state, &project_id)?;
 
     let pids = terminals.foreground_pids(&project_id);
-    let probes = tauri::async_runtime::spawn_blocking(move || detect_agents_for_pids(pids))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let probes = detect_agents_for_pids_blocking(pids).await?;
 
     let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
     Ok(ProjectAgents {

@@ -230,7 +230,7 @@ fn flush_dirty_layouts(state: &AppState) {
     }
 }
 
-fn poll_agents(app: &tauri::AppHandle) {
+async fn poll_agents(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let terminals = app.state::<TerminalStore>();
     let agents = app.state::<AgentStore>();
@@ -240,7 +240,10 @@ fn poll_agents(app: &tauri::AppHandle) {
     let mut valid_session_ids = std::collections::HashSet::new();
 
     for project_id in project_ids {
-        let probes = domain::agent::commands::detect_agents_for_pids(terminals.foreground_pids(&project_id));
+        let pids = terminals.foreground_pids(&project_id);
+        let Ok(probes) = domain::agent::commands::detect_agents_for_pids_blocking(pids).await else {
+            continue;
+        };
         let detected = domain::agent::commands::build_detected_agents(&agents, &agent_hooks, &project_id, probes);
         valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
 
@@ -407,7 +410,7 @@ pub fn run() {
                 let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval));
                 loop {
                     ticker.tick().await;
-                    poll_agents(&agent_handle);
+                    poll_agents(&agent_handle).await;
                 }
             });
 
