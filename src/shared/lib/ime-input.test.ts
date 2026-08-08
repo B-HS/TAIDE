@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { INSERT_REPLACEMENT_TEXT, INSERT_TEXT, resolveImeInput } from '@shared/lib/ime-input'
+import { INSERT_REPLACEMENT_TEXT, INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/lib/ime-input'
 
 describe('resolveImeInput', () => {
     test('새 음절 시작은 xterm 이 보내므로 출력 없이 조합 상태만 기록한다', () => {
@@ -56,6 +56,69 @@ describe('resolveImeInput', () => {
 
     test('교체 범위가 없으면 기존처럼 조합 전체를 지운다', () => {
         expect(resolveImeInput(INSERT_REPLACEMENT_TEXT, '호', 'ㅎ', null)).toEqual({ output: '\x7f호', composing: '호' })
+    })
+
+    test('xterm 이 먼저 보낸 insertText 는 중복 전송하지 않는다', () => {
+        const deduper = createInsertTextDeduper()
+        expect(deduper.onXtermData('ㅇ', 100)).toBe('forward')
+        expect(deduper.onInsertText('ㅇ', 101)).toBe('already-sent')
+    })
+
+    test('xterm 이 누락한 insertText 는 자체 전송한다', () => {
+        const deduper = createInsertTextDeduper()
+        expect(deduper.onInsertText('니', 100)).toBe('self-send')
+    })
+
+    test('자체 전송 후 늦게 도착한 xterm 중복은 1회만 버린다', () => {
+        const deduper = createInsertTextDeduper()
+        expect(deduper.onInsertText('니', 100)).toBe('self-send')
+        expect(deduper.onXtermData('니', 110)).toBe('drop')
+        expect(deduper.onXtermData('니', 120)).toBe('forward')
+    })
+
+    test('같은 글자 연타에서 두 번째가 누락돼도 자체 전송한다', () => {
+        const deduper = createInsertTextDeduper()
+        expect(deduper.onXtermData('ㅇ', 100)).toBe('forward')
+        expect(deduper.onInsertText('ㅇ', 101)).toBe('already-sent')
+        expect(deduper.onInsertText('ㅇ', 130)).toBe('self-send')
+    })
+
+    test('다른 데이터가 지나가면 억제 상태가 풀린다', () => {
+        const deduper = createInsertTextDeduper()
+        expect(deduper.onInsertText(' ', 100)).toBe('self-send')
+        expect(deduper.onXtermData('\r', 110)).toBe('forward')
+        expect(deduper.onXtermData(' ', 120)).toBe('forward')
+    })
+
+    test('실기 로그 재현 — xterm 이 니 를 누락한 아니 입력이 화면상 아니 로 수렴한다', () => {
+        const deduper = createInsertTextDeduper()
+        let composing = ''
+        let screen = ''
+        const send = (text: string) => {
+            for (const char of text) {
+                screen = char === '\x7f' ? screen.slice(0, -1) : screen + char
+            }
+        }
+        const xtermData = (data: string, at: number) => {
+            if (deduper.onXtermData(data, at) === 'forward') send(data)
+        }
+        const imeInput = (inputType: string, data: string, at: number) => {
+            const resolved = resolveImeInput(inputType, data, composing, null)
+            if (inputType === INSERT_TEXT && deduper.onInsertText(data, at) === 'self-send') send(data)
+            if (!resolved) return
+            composing = resolved.composing
+            if (resolved.output) send(resolved.output)
+        }
+
+        xtermData('ㅇ', 100)
+        imeInput(INSERT_TEXT, 'ㅇ', 101)
+        imeInput(INSERT_REPLACEMENT_TEXT, '아', 150)
+        imeInput(INSERT_REPLACEMENT_TEXT, '안', 200)
+        imeInput(INSERT_REPLACEMENT_TEXT, '아', 250)
+        imeInput(INSERT_TEXT, '니', 252)
+        imeInput(INSERT_REPLACEMENT_TEXT, '니', 300)
+
+        expect(screen).toBe('아니')
     })
 
     test('가나 를 빠르게 입력하는 분리 시나리오가 화면상 가나 로 수렴한다', () => {

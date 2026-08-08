@@ -89,6 +89,27 @@ Monaco 가 같은 조건에서 멀쩡한 방식(요소 값 직접 해석)을 xte
 검증 방법: 내장 터미널(Claude Code 포함)에서 한글 문장을 최대 속도로 입력 → 유실·중복 없이 표시되면 정상.
 재현되면 `beforeinput` 이벤트의 inputType/data/getTargetRanges 를 로깅해 실측 시퀀스를 확보한 뒤 재분석한다.
 
+## 2026-08-08 확정 — 실기 로그로 판명된 진짜 원인 (insertText 간헐 미전송)
+
+IME 계측(링버퍼 + 팔레트 복사)으로 사용자 실기 로그를 확보해 분석한 결과:
+
+1. **getTargetRanges 는 WKWebView 에서 항상 빈 배열** — 위의 교체 범위 가설은 무효였다.
+   단, 폴백(조합 전체 교체)은 로그 전 구간에서 정확했다. 교체 이벤트는 결백.
+2. **확정 원인: 음절 시작 `insertText` 를 xterm 이 간헐적으로 pty 에 보내지 않는다.**
+   로그에서 `니`(70661ms)·`ㅆ`(72025)·`ㅇ`(73252·77522)은 `beforeinput→input` 만 있고 xterm 의
+   `onData` 발화가 없다. 어댑터는 "insertText 는 xterm 이 보낸다"를 전제로 출력을 생략했으므로
+   그 글자는 전송 자체가 누락되고, 직후 교체 이벤트의 `\x7f` 가 앞의 확정 글자까지 지운다.
+   WKWebView 의 뒤집힌 이벤트 순서(input↔keydown)로 xterm 내부 중복 방지 플래그가 어긋나는 것으로
+   추정되며, 간헐성과 정확히 일치한다.
+
+해결: `createInsertTextDeduper` — 어댑터가 insertText 전송을 직접 책임진다.
+- xterm 이 직전 `IME_DUPLICATE_WINDOW_MS`(50ms) 내에 동일 data 를 이미 보냈으면(1회 소비) 중복 전송 안 함
+- 안 보냈으면 자체 전송하고, 늦게 도착하는 xterm 중복은 1회만 억제(다른 데이터가 지나가면 억제 해제)
+- 실기 로그의 "아니" 씹힘 시퀀스를 그대로 재현하는 테스트 포함 (총 16건)
+
+계측(링버퍼·팔레트 커맨드)은 재발 검증용으로 유지한다. 로그의 inputType 에 `:self-send`/`:already-sent`,
+data 행에 `forward`/`drop` 이 표기되어 판정 경로를 바로 확인할 수 있다.
+
 ## 후속
 
 - Tauri/wry/tao 상위 버전에서 수정되면 이 어댑터를 걷어낸다. 걷어낼 때는

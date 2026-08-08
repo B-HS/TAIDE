@@ -8,7 +8,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
-import { resolveImeInput } from '@shared/lib/ime-input'
+import { INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/lib/ime-input'
 import { recordImeDebug } from '@shared/lib/ime-debug'
 
 export type TerminalAttachHandle = {
@@ -181,18 +181,22 @@ export const TerminalView: FC<TerminalViewProps> = ({
                 output: '',
             })
         }
+        const insertTextDeduper = createInsertTextDeduper()
         const handleImeInput = (event: Event) => {
             const input = event as InputEvent
-            const resolved = resolveImeInput(input.inputType, input.data ?? '', composing, pendingReplaceLength)
+            const data = input.data ?? ''
+            const resolved = resolveImeInput(input.inputType, data, composing, pendingReplaceLength)
+            const insertTextVerdict = input.inputType === INSERT_TEXT && data ? insertTextDeduper.onInsertText(data, performance.now()) : null
             recordImeDebug({
                 source: 'input',
-                inputType: input.inputType,
-                data: input.data ?? '',
+                inputType: `${input.inputType}${insertTextVerdict ? `:${insertTextVerdict}` : ''}`,
+                data,
                 rangeLength: pendingReplaceLength,
                 composing: resolved?.composing ?? '',
-                output: resolved?.output ?? '',
+                output: insertTextVerdict === 'self-send' ? data : (resolved?.output ?? ''),
             })
             pendingReplaceLength = null
+            if (insertTextVerdict === 'self-send') onDataRef.current(data)
             if (!resolved) return
             composing = resolved.composing
             if (resolved.output) onDataRef.current(resolved.output)
@@ -201,7 +205,9 @@ export const TerminalView: FC<TerminalViewProps> = ({
         textarea?.addEventListener('input', handleImeInput, true)
 
         const dataSubscription = term.onData((data) => {
-            recordImeDebug({ source: 'data', inputType: '', data, rangeLength: null, composing, output: data })
+            const verdict = insertTextDeduper.onXtermData(data, performance.now())
+            recordImeDebug({ source: 'data', inputType: verdict, data, rangeLength: null, composing, output: verdict === 'forward' ? data : '' })
+            if (verdict === 'drop') return
             onDataRef.current(data)
         })
         const resizeSubscription = term.onResize(({ cols, rows }) => onResizeRef.current(cols, rows))
