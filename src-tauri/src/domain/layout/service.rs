@@ -857,6 +857,25 @@ mod tests {
     }
 
     #[test]
+    fn 프리뷰가_꺼진_채_열린_탭은_서로를_대체하지_않는다() {
+        let mut layout = default_layout();
+        let PaneNode::Leaf { id: leaf_id, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        let leaf_id = leaf_id.clone();
+
+        open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open a");
+        open_tab(&mut layout, &leaf_id, 파일_탭("b.rs"), false).expect("open b");
+
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        let file_tabs: Vec<_> = tabs.iter().filter(|tab| matches!(&tab.kind, TabKind::File { .. })).collect();
+        assert_eq!(file_tabs.len(), 2);
+        assert!(file_tabs.iter().all(|tab| !tab.preview));
+    }
+
+    #[test]
     fn 핀_탭은_좌측_정렬을_유지한다() {
         let mut layout = default_layout();
         let PaneNode::Leaf { id: leaf_id, .. } = &layout.root else {

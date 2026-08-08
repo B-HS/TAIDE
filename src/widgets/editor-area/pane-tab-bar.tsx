@@ -190,9 +190,9 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     useEffect(() => {
         if (!layout) return
         const keepTabIds = [...collectTabIds(layout.root), ...(layout.closedTabs ?? []).map((closed) => closed.tab.id)]
-        const removedTabIds = pruneUntitledContents(keepTabIds)
+        const removedTabIds = pruneUntitledContents(projectId, keepTabIds)
         for (const removedTabId of removedTabIds) disposeModel(toUntitledModelPath(removedTabId))
-    }, [layout])
+    }, [layout, projectId])
 
     return (
         <div className='relative flex shrink-0 items-stretch'>

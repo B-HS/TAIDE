@@ -1,37 +1,25 @@
-import type { TabId } from '@shared/api/bindings'
+import type { ProjectId, TabId } from '@shared/api/bindings'
 
-type Listener = () => void
+const contentByProjectId = new Map<ProjectId, Map<TabId, string>>()
 
-const contentByTabId = new Map<TabId, string>()
-const listeners = new Set<Listener>()
+export const getUntitledContent = (projectId: ProjectId, tabId: TabId) => contentByProjectId.get(projectId)?.get(tabId) ?? null
 
-const notify = () => {
-    for (const listener of listeners) listener()
-}
-
-export const getUntitledContent = (tabId: TabId) => contentByTabId.get(tabId) ?? null
-
-export const setUntitledContent = (tabId: TabId, content: string) => {
+export const setUntitledContent = (projectId: ProjectId, tabId: TabId, content: string) => {
+    const contentByTabId = contentByProjectId.get(projectId) ?? new Map<TabId, string>()
     contentByTabId.set(tabId, content)
-    notify()
+    contentByProjectId.set(projectId, contentByTabId)
 }
 
-export const dropUntitledContent = (tabId: TabId) => {
-    if (!contentByTabId.delete(tabId)) return
-    notify()
+export const dropUntitledContent = (projectId: ProjectId, tabId: TabId) => {
+    contentByProjectId.get(projectId)?.delete(tabId)
 }
 
-export const pruneUntitledContents = (keepTabIds: TabId[]) => {
+export const pruneUntitledContents = (projectId: ProjectId, keepTabIds: TabId[]) => {
+    const contentByTabId = contentByProjectId.get(projectId)
+    if (!contentByTabId) return []
+
     const keep = new Set(keepTabIds)
     const removed = [...contentByTabId.keys()].filter((tabId) => !keep.has(tabId))
     for (const tabId of removed) contentByTabId.delete(tabId)
-    if (removed.length > 0) notify()
     return removed
-}
-
-export const subscribeUntitledContent = (listener: Listener) => {
-    listeners.add(listener)
-    return () => {
-        listeners.delete(listener)
-    }
 }

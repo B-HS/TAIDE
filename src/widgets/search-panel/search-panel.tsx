@@ -88,7 +88,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     const [replaceText, setReplaceText] = useState('')
     const [excludedPaths, setExcludedPaths] = useState<Set<string>>(new Set())
     const [confirmOpen, setConfirmOpen] = useState(false)
-    const [appliedOpenNonce, setAppliedOpenNonce] = useState(openNonce)
+    const [appliedOpenNonce, setAppliedOpenNonce] = useState<number | null>(null)
 
     if (openNonce !== appliedOpenNonce) {
         setAppliedOpenNonce(openNonce)

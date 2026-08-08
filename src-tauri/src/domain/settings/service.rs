@@ -52,7 +52,13 @@ pub struct SettingsPatch {
 pub fn load_settings(paths: &AppPaths) -> Settings {
     let path = paths.settings_file();
     match persist::read_json::<Settings>(&path) {
-        Ok(Some(settings)) => settings,
+        Ok(Some(settings)) => {
+            let sanitized = sanitize(settings.clone());
+            if sanitized != settings {
+                let _ = persist::write_json(&path, &sanitized);
+            }
+            sanitized
+        }
         Ok(None) => Settings::default(),
         Err(_) => {
             backup_corrupted(&path);
@@ -91,8 +97,9 @@ fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
     }
 }
 
-/// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `apply_patch` 마지막에 항상 거친다 —
-/// patch 로 들어온 값이 검증 없이 Monaco/xterm 런타임까지 그대로 흘러가는 것을 막는다.
+/// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `Settings` 가 만들어지는 모든 출구
+/// (`apply_patch` · 디스크 로드)에서 항상 거친다 — patch 든 손으로 편집한 settings.json 이든
+/// 검증되지 않은 값이 Monaco/xterm 런타임까지 그대로 흘러가는 것을 막는다.
 fn sanitize(settings: Settings) -> Settings {
     Settings {
         editor_tab_size: settings.editor_tab_size.clamp(EDITOR_TAB_SIZE_MIN, EDITOR_TAB_SIZE_MAX),
@@ -378,6 +385,29 @@ mod tests {
 
         assert_eq!(settings, Settings::default());
         assert!(path.with_extension("json.bak").exists());
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn 손으로_편집된_settings_파일의_잘못된_값은_로드시_보정되어_재저장된다() {
+        let paths = AppPaths::new(temp_data_dir("hand-edited"));
+        let path = paths.settings_file();
+        std::fs::create_dir_all(path.parent().unwrap()).expect("create dir");
+        std::fs::write(
+            &path,
+            br#"{"version":1,"terminalCursorStyle":"banana","editorTabSize":0,"terminalScrollback":99999999}"#,
+        )
+        .expect("write settings file");
+
+        let settings = load_settings(&paths);
+
+        assert_eq!(settings.terminal_cursor_style, DEFAULT_TERMINAL_CURSOR_STYLE);
+        assert_eq!(settings.editor_tab_size, EDITOR_TAB_SIZE_MIN);
+        assert_eq!(settings.terminal_scrollback, TERMINAL_SCROLLBACK_MAX);
+
+        let reloaded = persist::read_json::<Settings>(&path).expect("reread").expect("some");
+        assert_eq!(reloaded, settings);
 
         std::fs::remove_dir_all(paths.data_dir).ok();
     }

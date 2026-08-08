@@ -85,6 +85,7 @@ pub async fn layout_open_tab(
     let mut layouts = state.layouts.read().clone();
     let layout = get_layout_mut(&mut layouts, &project_id)?;
 
+    let preview = preview && state.settings.read().enable_preview_tabs;
     let pane_id = target.unwrap_or_else(|| layout.focused_pane.clone());
     let tab = Tab {
         id: TabId::new(),

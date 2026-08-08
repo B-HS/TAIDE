@@ -47,7 +47,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
     const [totalMatches, setTotalMatches] = useState(0)
     const [isSearching, setIsSearching] = useState(false)
     const [isReplacing, setIsReplacing] = useState(false)
-    const [seededNonce, setSeededNonce] = useState(openNonce)
+    const [seededNonce, setSeededNonce] = useState<number | null>(null)
 
     const scopePath = includeGlob ? includeGlob.replace(SCOPE_GLOB_SUFFIX, '') : null
 

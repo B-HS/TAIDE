@@ -650,24 +650,27 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       opus 검증 pass, minor 7건은 웨이브 A 지시에 반영
 - [x] 7.8-WA. 웨이브 A (커밋 `7b9e098`) — 탭메뉴 복구·CC 연결 안정화·Monaco 위젯 90키·검색UX·설정 15필드 배선·
       untitled 탭. 메인 verify 재실행 통과(프론트 322·Rust 330). A2 가 소유 경계로 남긴 2건(pty env 레이스·로그 필터)은 WB-B3 으로
-- [ ] 7.8-WB. 웨이브 B — B1 디자인 정비(CSS 매핑 42·dark variant) ∥ B2 테마 프리뷰·번들 테마 9종 ∥
+- [x] 7.8-WB. 웨이브 B (커밋 `5e16c13`·`c3eda29`) — B1 디자인 토큰 정비(미매핑 43 해소·dark→data-appearance·
+      카드/페이지 분리·radius/hover 정규화) ∥ B2 테마 라이브 프리뷰(캐시 주입)+번들 테마 10종+변환 스크립트
+      (후속 후보: Monaco syntax 토큰 19종 미전달로 번들 테마가 에디터에서 밋밋 — B2 보고) ∥
       [x] B3 CC 잔여(A2 소유 경계 2건) — pty env 레이스: `pty_spawn` 이 IDE 연동 켜져있고 미기동 상태면
       `IDE_READY_WAIT_MS`(2s) 한도 내 `IDE_READY_POLL_INTERVAL_MS`(50ms) 간격 폴링 후 env 구성(대기 판정은
       `terminal/service.rs::should_wait_for_ide_ready` 로 분리해 단위테스트 3건, mutation guard 밖에서 대기해 다른
       명령 블로킹 방지) · 로그필터: `lib.rs` tauri_plugin_log 에 tungstenite/tokio_tungstenite Warn 제한(TRACE 프레임
       덤프 선택영역·파일내용 노출 차단). verify: 프론트 322 / Rust 333(+3) / clippy·fmt 0 / typecheck·lint 0
 - [ ] 7.8-검토. diff 검토(opus) → 2차(Fable) → verify → 커밋
-- [ ] 7.8-1. 파일 탭 우클릭 시 네이티브 메뉴(Reload/Inspect)가 뜸 — 커스텀 탭 메뉴 회귀 원인 조사·수정
-- [ ] 7.8-2. divider thickness 0 허용
-- [ ] 7.8-3. 미니맵 우클릭 토글이 설정에 영속되지 않아 새 탭에서 되살아남 — 토글을 settings 갱신으로
-- [ ] 7.8-4. 탭바 빈 곳 더블클릭 = untitled 새 파일 + `+` 버튼(새 파일/새 터미널)
-- [ ] 7.8-5. Monaco find/references 위젯 테마 미적용 — 위젯 색 토큰 매핑 확장
-- [ ] 7.8-6. 전반 border·round·radius·색 불일치 일제 점검
-- [ ] 7.8-7. `⇧⌘F` 전역 검색 진입 단축키 + 검색 패널 replace 입력 + regex 모드 (VSCode 참조)
-- [ ] 7.8-8. 테마 편집기 live preview 수정 + VSCode 테마 변환 샘플 테마 다수 내장
-- [ ] 7.8-9. CC 연동 "Disconnected" — 연결 경로(서버 기동·lockfile·pty env) 원인 조사·수정
-- [ ] 7.8-10. CC 터미널 한글 빠른 입력 씹힘 — **메인(Fable) 직접 디버그** (IME 어댑터 경합)
-- [ ] 7.8-11. 설정 항목 확충 — 하드코딩된 설정 가능값 인벤토리 후 설정 UI 노출
+- [x] 7.8-1. 탭 우클릭 네이티브 메뉴 — 회귀 아님, 7.5-C 부터 미동작(asChild 자식이 FC). 구조 교정 + 전역 차단 (WA-A1)
+- [x] 7.8-2. divider thickness 0 허용 (계약+WA-A5)
+- [x] 7.8-3. 미니맵 토글 설정 영속 (WA-A5)
+- [x] 7.8-4. untitled 탭 + `+` 메뉴 — 휘발성, ⌘S save-as 변환 (계약+WA-A6)
+- [x] 7.8-5. Monaco 위젯 색 90키 매핑 (WA-A3)
+- [x] 7.8-6. 디자인 일제 정비 — 미매핑 토큰 43·dark variant·카드 분리·radius/hover (WB-B1, 시각 판단 후보 6건은 보고만)
+- [x] 7.8-7. ⇧⌘F/⇧⌘H 배선 + replace 상시 노출 + regex 토글 (WA-A4)
+- [x] 7.8-8. 라이브 프리뷰 재설계 + 번들 테마 10종 + 변환 스크립트 (WB-B2)
+- [x] 7.8-9. CC 연결 — accept 재시도·stale lockfile 정리·서브프로토콜·env 레이스 대기·진단 로그·footer 3상태
+      (WA-A2 + WB-B3). **실기 재검증 필요** — 유력 원인 대응이며 재현 시 신규 진단 로그로 확정
+- [x] 7.8-10. 한글 빠른 입력 씹힘 — 메인 직접 수정 (커밋 `d59304c`, getTargetRanges). **실기 재검증 필요**
+- [x] 7.8-11. 설정 15필드 확충 (계약+WA-A5)
 - [x] 7.7-검토2. 2차 검토 확정 후속 4건 (미커밋) —
       ① opener 권한 재설계: capabilities 의 opener 3종 제거 + `system_open_path`/`system_reveal_path`/
       `system_open_in_browser` 신설(루트 검증 후 `tauri_plugin_opener` Rust API 직접 호출),

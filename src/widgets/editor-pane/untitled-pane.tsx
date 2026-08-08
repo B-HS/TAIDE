@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { save } from '@tauri-apps/plugin-dialog'
@@ -31,7 +31,7 @@ type UntitledPaneProps = {
 }
 
 export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index }) => {
-    const seedContent = getUntitledContent(tabId) ?? ''
+    const seedContent = getUntitledContent(projectId, tabId) ?? ''
 
     const draftRef = useRef(seedContent)
 
@@ -51,7 +51,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
 
     const handleChange = (value: string) => {
         draftRef.current = value
-        setUntitledContent(tabId, value)
+        setUntitledContent(projectId, tabId, value)
         if (!dirty) {
             setDirty(true)
             setTabDirty({ tabId, dirty: true })
@@ -59,7 +59,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
     }
 
     const handleConvertSuccess = () => {
-        dropUntitledContent(tabId)
+        dropUntitledContent(projectId, tabId)
         disposeModel(untitledPath)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
     }
@@ -80,6 +80,10 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
     }
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
+
+    useEffect(() => {
+        setUntitledContent(projectId, tabId, draftRef.current)
+    }, [projectId, tabId])
 
     return (
         <CodeEditor
