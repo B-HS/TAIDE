@@ -644,9 +644,11 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 
 ## 진행 중: Phase 7.9 — QA 3차 반영 (2026-08-08)
 
-- [~] 7.9-1. 한글 씹힘 잔존 — **메인(Fable) 직접**: getTargetRanges 수정으로 미해결.
-      계측 배포 완료(커밋 `de51533` — beforeinput/input/onData 3지점 링버퍼 + 팔레트 "IME 디버그 로그 복사").
-      **사용자 재현 로그 대기** — 로그 수신 후 원인 확정·수정
+- [x] 7.9-1. 한글 씹힘 — **메인(Fable) 직접, 실기 로그로 원인 확정 후 수정** (커밋 `06fc8c3`).
+      getTargetRanges 는 WKWebView 에서 항상 빈 배열(가설 무효, 폴백은 정확했음). 진짜 원인은
+      **xterm 이 음절 시작 insertText 를 간헐적으로 pty 에 미전송**(로그의 니·ㅆ·ㅇ — onData 부재).
+      createInsertTextDeduper 로 어댑터가 전송을 직접 책임(50ms 중복 소비/자체 전송/늦은 중복 1회 억제).
+      로그 재현 테스트 포함. 정본: docs/bug/2026-08-06-wkwebview-ime-composition.md. **실기 재검증 필요**
 - [x] 7.9-2. AI 배지 지연 (커밋 `e81f847`) — 폴링 틱의 ps 스캔 spawn_blocking 격리 + unix 폴링 500ms.
       hooks emit·프론트 구독은 이미 즉시 경로 확인. Working→Idle 6s 디바운스는 의도값 유지(단축은 텔레메트리 필요)
 - [x] 7.9-3. 번들 테마 26종 확충 → 총 36종 (커밋 `ae4b1fa`) — include 체인 병합·VSCode 공식 기본 ANSI 폴백·
