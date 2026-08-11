@@ -617,7 +617,7 @@ Rust 커맨드 10종 `lib.rs` 등록 + bindings 재생성.
 **전 기능 시각 확인이 남아 있다** — 이번 Phase 에서만 찾기/바꾸기·Problems·아웃라인·브랜치 전환·
 stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추가됐다.
 
-## 진행 중: Phase 7.7 — QA 1차 반영 (2026-08-07)
+## 완료: Phase 7.7 — QA 1차 반영 (2026-08-07)
 
 > 사용자 실기기 QA 결과 9그룹. 운영 방식(사용자 확정): 오케스트레이팅·상세플랜 = 메인 세션(Fable),
 > 리서치·판단·최종검증 = opus+medium, 구현 = sonnet+high, 버그 1차 = opus+high, 2차 = Fable+medium.
@@ -642,7 +642,7 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] 7.7-QA. 실기 화면 검증 1회차 (사용자) — 11건 접수 → 아래 7.8
 - [x] 7.7-후속. opener npm 제거·hooks OFF 자동 제거 (커밋 `41d740b`)
 
-## 진행 중: Phase 7.9 — QA 3차 반영 (2026-08-08)
+## 완료: Phase 7.9 — QA 3차 반영 (2026-08-08) — 실기 재검증(QA 4회차)은 HANDOFF §8
 
 - [x] 7.9-1. 한글 씹힘 — **메인(Fable) 직접, 실기 로그로 원인 확정 후 수정** (커밋 `06fc8c3`).
       getTargetRanges 는 WKWebView 에서 항상 빈 배열(가설 무효, 폴백은 정확했음). 진짜 원인은
@@ -655,7 +655,7 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       변환기 실버그 2건 수정. 전 종 MIT 실확인. Cursor 자체 테마는 재배포 허가 부재로 제외(추가 후보:
       Winter is Coming·Andromeda·Cobalt2·SynthWave 84 — 검증 완료 상태로 대기)
 
-## 진행 중: Phase 7.8 — QA 2차 반영 (2026-08-07)
+## 완료: Phase 7.8 — QA 2차 반영 (2026-08-07)
 
 - [x] 7.8-R. 리서치 8영역 완료 — 탭 메뉴는 7.5-C 부터 미동작(asChild+FC), CC 는 accept 기아/stale lockfile 유력,
       테마 무반응은 토큰 37개 CSS 미매핑. 원문: 세션 scratchpad research2/
