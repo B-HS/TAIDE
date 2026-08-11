@@ -53,9 +53,10 @@
 
 ## Phase 7.10 결정에서 분리된 후속 후보 (2026-08-11)
 
+> TextMate 문법 엔진은 2026-08-11 사용자 확정으로 **7.10-W7 로 승격**되어 이 목록에서 제외됐다.
+
 | 항목 | 내용 | 보류 사유 |
 |------|------|-----------|
-| TextMate 문법 엔진 | VSIX grammar 실행(shiki JS 엔진 우선 검토) + 테마 스키마에 원본 tokenColors 보존 | 테마 파이프라인 개정·36종 재검증 동반 — 규모가 별도 단계급. 현 Monarch 는 syntax 토큰 31종 중 절반 미사용(실측) |
 | Gemini IDE companion | HTTP MCP 서버 + discovery 파일로 openDiff·컨텍스트 공유 (공식 스펙 존재) | domain/ide 급 증분(HTTP 트랜스포트 신설) — hooks 배지(W4)와 분리 |
 | Codex app-server 패널 | `codex app-server` JSON-RPC 클라이언트로 에이전트 UI 내장 | 터미널 연동과 다른 제품 축. auto-tab(Codex 토큰)과 별개 |
 | chord·when 키맵 엔진 | ⌘K ⌘S 류 2단 조합 + 컨텍스트(when) 평가 | keymap 타입·매칭·overrides 직렬화 전면 개정 필요 |

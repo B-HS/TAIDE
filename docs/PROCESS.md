@@ -803,4 +803,7 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [ ] 7.10-W4. 멀티 에이전트 hooks(codex·gemini) + taide-cli shim + override 스코프 확장
 - [ ] 7.10-W5. VSIX 임포트(테마 추출 + 관리 UI)
 - [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블)
+- [ ] 7.10-W7. TextMate 문법 엔진 (backlog 에서 승격, 2026-08-11 사용자 확정) — shiki JS 엔진 우선
+      검증(CSP 무변경, 실패 시 WASM+CSP 완화 폴백), 테마 스키마에 원본 tokenColors 보존, 번들 36종
+      재변환(원본 재다운로드는 메인 직접), 전 테마 시각 검증
 - [ ] 7.10-V. 각 웨이브: 검토(렌즈→적대적 검증→수정) + 메인 2차(verify 재실행·실측)
