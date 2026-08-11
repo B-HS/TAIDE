@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn 번들된_매니페스트는_유효하다() {
         let specs = servers();
-        assert_eq!(specs.len(), 18);
+        assert_eq!(specs.len(), 19);
     }
 
     #[test]
@@ -122,6 +122,14 @@ mod tests {
         ] {
             assert!(ids.contains(&id), "{id} 가 매니페스트에 없습니다");
         }
+    }
+
+    #[test]
+    fn zls_서버_아이디가_반영된다() {
+        let specs = servers();
+        let ids: Vec<_> = specs.iter().map(|spec| spec.id.as_str()).collect();
+
+        assert!(ids.contains(&"zls"));
     }
 
     #[test]

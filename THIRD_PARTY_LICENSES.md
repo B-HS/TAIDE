@@ -261,6 +261,14 @@ redistributes those.
 - Copyright (c) the Taplo contributors — see the archive's own `LICENSE`
   file for the exact notice
 
+### zls (Zig)
+
+- Bundled as: `zls`
+- Source: https://github.com/zigtools/zls
+- License: MIT (see `## Full MIT License Text` above)
+- Copyright (c) the zigtools / zls contributors — see the archive's own
+  `LICENSE` file for the exact notice
+
 ### terraform-ls
 
 - Bundled as: `terraformLs`

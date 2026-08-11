@@ -111,6 +111,7 @@ pub enum LspInstallStrategy {
 #[serde(rename_all = "kebab-case")]
 pub enum LspArchiveKind {
     TarGz,
+    TarXz,
     Zip,
     Binary,
     Gz,

@@ -7,6 +7,8 @@ use crate::error::{AppError, AppResult};
 
 const PROGRESS_EMIT_MIN_INTERVAL_MS: u128 = 100;
 const PROGRESS_EMIT_MIN_BYTES: u64 = 256 * 1024;
+#[cfg(test)]
+const XZ_TEST_COMPRESSION_LEVEL: u32 = 6;
 
 pub struct DownloadProgress {
     pub received_bytes: u64,
@@ -68,6 +70,15 @@ pub fn extract_tar_gz(source_path: &Path, dest: &Path) -> AppResult<()> {
     archive
         .unpack(dest)
         .map_err(|error| AppError::Internal(format!("tar.gz 해제 실패: {error}")))
+}
+
+pub fn extract_tar_xz(source_path: &Path, dest: &Path) -> AppResult<()> {
+    let file = std::fs::File::open(source_path)?;
+    let decoder = xz2::read::XzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    archive
+        .unpack(dest)
+        .map_err(|error| AppError::Internal(format!("tar.xz 해제 실패: {error}")))
 }
 
 pub fn extract_zip(source_path: &Path, dest: &Path) -> AppResult<()> {
@@ -326,6 +337,41 @@ mod tests {
 
         let dest = temp_dir("targz-dest");
         extract_tar_gz(&archive_path, &dest).unwrap();
+
+        assert_eq!(std::fs::read(dest.join("bin")).unwrap(), b"binary-content");
+
+        std::fs::remove_dir_all(&src).ok();
+        std::fs::remove_file(&archive_path).ok();
+        std::fs::remove_dir_all(&dest).ok();
+    }
+
+    #[test]
+    fn tar_xz_아카이브를_해제한다() {
+        use std::io::Write;
+
+        let src = temp_dir("tarxz-src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("bin"), b"binary-content").unwrap();
+
+        let mut tar_bytes = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_bytes);
+            builder.append_dir_all(".", &src).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut xz_bytes = Vec::new();
+        {
+            let mut encoder = xz2::write::XzEncoder::new(&mut xz_bytes, XZ_TEST_COMPRESSION_LEVEL);
+            encoder.write_all(&tar_bytes).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let archive_path = temp_dir("tarxz-archive.tar.xz");
+        std::fs::write(&archive_path, &xz_bytes).unwrap();
+
+        let dest = temp_dir("tarxz-dest");
+        extract_tar_xz(&archive_path, &dest).unwrap();
 
         assert_eq!(std::fs::read(dest.join("bin")).unwrap(), b"binary-content");
 

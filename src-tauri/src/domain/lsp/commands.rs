@@ -593,6 +593,7 @@ async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &Language
     // large archives (e.g. the ~387MB kotlin-lsp payload) and stall other IPC handlers.
     let extract_result = tokio::task::spawn_blocking(move || match archive_kind {
         super::types::LspArchiveKind::TarGz => lsp_install::extract_tar_gz(&source_path, &extract_dir),
+        super::types::LspArchiveKind::TarXz => lsp_install::extract_tar_xz(&source_path, &extract_dir),
         super::types::LspArchiveKind::Zip => lsp_install::extract_zip(&source_path, &extract_dir),
         super::types::LspArchiveKind::Binary => {
             lsp_install::write_binary_from_file(&source_path, &extract_dir, bin_path_in_archive.as_deref())

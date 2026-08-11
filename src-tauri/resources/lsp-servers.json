@@ -217,6 +217,27 @@
             }
         },
         {
+            "id": "zls",
+            "name": "zls",
+            "languageIds": ["zig"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "zls", "args": [] },
+            "rootMarkers": ["build.zig", "build.zig.zon", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "brew install zls (또는 앱 내 설치)",
+                "download": {
+                    "version": "0.16.0",
+                    "urls": { "darwin-arm64": "https://github.com/zigtools/zls/releases/download/0.16.0/zls-aarch64-macos.tar.xz" },
+                    "sha256": { "darwin-arm64": "b93ec549f8558a7e85984a840e9276d274f1059b54ade4254296ef4982958359" },
+                    "archive": "tar-xz",
+                    "binPathInArchive": "zls"
+                }
+            }
+        },
+        {
             "id": "terraformLs",
             "name": "terraform-ls",
             "languageIds": ["hcl"],

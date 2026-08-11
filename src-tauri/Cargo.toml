@@ -41,6 +41,7 @@ sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+xz2 = "0.1"
 
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "0.0.12"
