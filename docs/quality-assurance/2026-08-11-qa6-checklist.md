@@ -31,11 +31,12 @@
 - [ ] 신규 확장자(.java·.rb·.dart·.swift·.scala·.ex·.hs·.kt·.lua·.zig·.tf 등) 하이라이팅
 
 ## W3 — AI Provider·auto-tab·GitHub 동기화
-
-(W3 완료 시 상세 확정 — 예정 항목)
 - [ ] 설정 AI 섹션: Ollama Cloud API key 저장(재시작 후 유지 — keychain), Codex access token 저장(whoami 검증)
 - [ ] settings.json 파일에 토큰이 없는지 직접 확인 (`~/Library/Application Support/dev.taide.app/settings.json`)
 - [ ] auto-tab: 에디터 타이핑 시 ghost text 표시 → Tab 수락, 빠른 타이핑 시 요청 폭주 없음
 - [ ] Codex provider 로 모델 목록·완성 실동작 (Business 토큰)
 - [ ] GitHub 동기화: PAT 연결 → 업로드 → gist 생성 확인 → 설정 변경 후 다운로드 복원, 충돌 2택
 - [ ] gist 내용에 토큰·절대경로가 없는지 확인
+- [ ] Codex 토큰 저장 시 잘못된 토큰이면 저장 거부(whoami 실패) 확인
+- [ ] auto-tab 제안이 LSP 자동완성 팝업과 충돌하지 않는가
+- [ ] 커맨드 팔레트의 동기화 업로드/다운로드 2개 커맨드 동작

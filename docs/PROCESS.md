@@ -820,7 +820,26 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       (Cargo.toml 스파인 충돌 회피): xz2 + LspArchiveKind TarXz + 매니페스트 + THIRD_PARTY 기재.
       kotlin-lsp 배포물에 proprietary 컴포넌트 포함 경고 기재됨.
       실기 확인 대기: 설치 버튼 실동작(다운로드→기동), 미서명 바이너리 Gatekeeper 정책
-- [ ] 7.10-W3. AI provider(Ollama Cloud·Codex) + Monaco auto-tab + keyring + GitHub sync(Gist)
+- [x] 7.10-W3. 완료 (커밋 76da94c) — keyring 시크릿 인프라, Ollama Cloud(FIM+chat 폴백)·
+      Codex(b-hub 이식: whoami·SSE·폴백 모델) provider, Monaco auto-tab(디바운스·취소·캐시),
+      설정 AI/SYNC 섹션, domain/sync(Gist 화이트리스트·schemaVersion 게이트·충돌 2택).
+      검토 10건 확정·전량 수정(마스킹 패닉·SSE UTF-8 경계·절대경로 유출 등). 메인 2차:
+      settings 무토큰·화이트리스트 테스트 실측, bun run verify 전량 통과
+      - [x] GitHub 동기화 설정 UI(프론트) — `entities/sync/sync.query.ts`(status queryOptions +
+            connect/disconnect/upload/download mutation, `sync:state-changed` 이벤트로
+            `IpcSyncProvider` 가 SYNC.STATUS 갱신 + SETTINGS/THEME/LOCALE 무효화 — 다운로드 적용 후
+            즉시 반영), `features/settings/sync-section.tsx`(미연결 시 PAT 입력 + gist scope 안내,
+            연결 시 gist id·마지막 동기화·업로드/가져오기/연결해제 + secret gist 비공개 아님 경고 +
+            remote-newer 배지), `features/settings/sync-conflict-dialog.tsx`(2택 AlertDialog —
+            로컬 유지·업로드 / 원격 가져오기), 커맨드 팔레트 `sync.uploadNow`/`sync.downloadNow`
+            (`entities/sync/sync.commands.ts`, FSD 상 entities 가 shared/command-registry 만
+            참조하도록 배치). i18n 25키 `domain/locale/service.rs` 4곳(en/ko/ja+MESSAGE_NAMESPACES)
+            동기, 파리티 테스트 통과. **의도적 변경**: PAT 생성 안내는 실제 `<a>` 하이퍼링크 대신
+            평문 URL 노출로 처리 — capabilities(`main.json`)에 opener 권한이 없고, 기존
+            `system_open_in_browser` 류 커맨드는 열린 프로젝트 루트 내부 경로만 허용해 외부 URL에
+            쓸 수 없음(ipc-contract §4 게이트). 새 "외부 URL 열기" 커맨드 신설은 이번 작업 범위 밖으로
+            판단해 보류. 검증: `bun run typecheck`/`lint`/`test`(340 pass) +
+            `cargo fmt`/`clippy -D warnings`/`test --workspace`(438+6+9 pass) 전량 통과.
 - [ ] 7.10-W4. 멀티 에이전트 hooks(codex·gemini) + taide-cli shim + override 스코프 확장
 - [ ] 7.10-W5. VSIX 임포트(테마 추출 + 관리 UI)
 - [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블)
