@@ -4,9 +4,12 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use super::types::{
-    AgentActivity, CliInstallStatus, DetectedAgent, ExternalOpenRequest, ACTIVITY_IDLE_QUIET_MS, ACTIVITY_WORKING_HOLD_MS,
-    HOOKS_HTTP_TIMEOUT_SECONDS, HOOKS_URL_MARKER, HOOK_EVENT_NOTIFICATION, HOOK_EVENT_STOP, HOOK_EVENT_USER_PROMPT_SUBMIT,
-    HOOK_MANAGED_AGENT_NAME, KNOWN_AGENT_NAMES, MANAGED_HOOK_EVENTS, WAIT_MARKER_PREFIX,
+    AgentActivity, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ACTIVITY_IDLE_QUIET_MS,
+    ACTIVITY_WORKING_HOLD_MS, AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI, CODEX_HOOK_COMMAND_TIMEOUT_SECONDS,
+    CODEX_MANAGED_HOOK_EVENTS, GEMINI_HOOK_COMMAND_TIMEOUT_MS, GEMINI_MANAGED_HOOK_EVENTS, HOOKS_HTTP_TIMEOUT_SECONDS, HOOKS_URL_MARKER,
+    HOOK_EVENT_AFTER_AGENT, HOOK_EVENT_BEFORE_AGENT, HOOK_EVENT_NOTIFICATION, HOOK_EVENT_PERMISSION_REQUEST, HOOK_EVENT_POST_TOOL_USE,
+    HOOK_EVENT_STOP, HOOK_EVENT_USER_PROMPT_SUBMIT, HOOK_HANDLER_TYPE_COMMAND, HOOK_HANDLER_TYPE_HTTP, KNOWN_AGENT_NAMES,
+    MANAGED_HOOK_EVENTS, WAIT_MARKER_PREFIX,
 };
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -203,36 +206,110 @@ pub fn match_project_by_cwd<'a>(cwd: &str, projects: &'a [(ProjectId, String)]) 
         .map(|(id, _)| id)
 }
 
-pub fn map_hook_event_to_activity(event_name: &str) -> Option<AgentActivity> {
-    match event_name {
-        HOOK_EVENT_USER_PROMPT_SUBMIT => Some(AgentActivity::Working),
-        HOOK_EVENT_NOTIFICATION => Some(AgentActivity::AwaitingInput),
-        HOOK_EVENT_STOP => Some(AgentActivity::Idle),
+pub fn map_hook_event_to_activity(agent_name: &str, event_name: &str) -> Option<AgentActivity> {
+    match agent_name {
+        AGENT_NAME_CLAUDE => match event_name {
+            HOOK_EVENT_USER_PROMPT_SUBMIT => Some(AgentActivity::Working),
+            HOOK_EVENT_NOTIFICATION => Some(AgentActivity::AwaitingInput),
+            HOOK_EVENT_STOP => Some(AgentActivity::Idle),
+            _ => None,
+        },
+        AGENT_NAME_CODEX => match event_name {
+            HOOK_EVENT_USER_PROMPT_SUBMIT => Some(AgentActivity::Working),
+            HOOK_EVENT_PERMISSION_REQUEST => Some(AgentActivity::AwaitingInput),
+            HOOK_EVENT_POST_TOOL_USE => Some(AgentActivity::Working),
+            HOOK_EVENT_STOP => Some(AgentActivity::Idle),
+            _ => None,
+        },
+        AGENT_NAME_GEMINI => match event_name {
+            HOOK_EVENT_BEFORE_AGENT => Some(AgentActivity::Working),
+            HOOK_EVENT_NOTIFICATION => Some(AgentActivity::AwaitingInput),
+            HOOK_EVENT_AFTER_AGENT => Some(AgentActivity::Idle),
+            _ => None,
+        },
         _ => None,
     }
 }
 
 pub fn is_hook_managed_agent(name: &str) -> bool {
-    name == HOOK_MANAGED_AGENT_NAME
+    KNOWN_AGENT_NAMES.contains(&name)
+}
+
+pub fn hook_scope_for_agent(agent_name: &str) -> AppResult<HookInstallScope> {
+    match agent_name {
+        AGENT_NAME_CLAUDE => Ok(HookInstallScope::Project),
+        AGENT_NAME_CODEX | AGENT_NAME_GEMINI => Ok(HookInstallScope::User),
+        other => Err(AppError::InvalidArgument(format!("unknown agent name: {other}"))),
+    }
+}
+
+pub fn build_command_hook_shell_command(taide_cli_path: &str, hook_url: &str) -> String {
+    format!("\"{taide_cli_path}\" hook --url \"{hook_url}\"")
+}
+
+pub fn managed_hook_events_for(agent_name: &str) -> &'static [&'static str] {
+    match agent_name {
+        AGENT_NAME_CLAUDE => MANAGED_HOOK_EVENTS,
+        AGENT_NAME_CODEX => CODEX_MANAGED_HOOK_EVENTS,
+        AGENT_NAME_GEMINI => GEMINI_MANAGED_HOOK_EVENTS,
+        _ => &[],
+    }
+}
+
+pub fn user_level_hook_command_timeout(agent_name: &str) -> u64 {
+    match agent_name {
+        AGENT_NAME_CODEX => CODEX_HOOK_COMMAND_TIMEOUT_SECONDS,
+        AGENT_NAME_GEMINI => GEMINI_HOOK_COMMAND_TIMEOUT_MS,
+        _ => HOOKS_HTTP_TIMEOUT_SECONDS,
+    }
+}
+
+const CODEX_HOME_RELATIVE_PATH: &str = ".codex/hooks.json";
+const GEMINI_HOME_RELATIVE_PATH: &str = ".gemini/settings.json";
+
+pub fn user_level_hooks_path(agent_name: &str, home_env: Option<&str>) -> AppResult<PathBuf> {
+    let relative = match agent_name {
+        AGENT_NAME_CODEX => CODEX_HOME_RELATIVE_PATH,
+        AGENT_NAME_GEMINI => GEMINI_HOME_RELATIVE_PATH,
+        other => return Err(AppError::InvalidArgument(format!("agent has no user-level hooks path: {other}"))),
+    };
+    let home = home_env
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::Internal("home directory not found".to_string()))?;
+    Ok(PathBuf::from(home).join(relative))
+}
+
+fn json_value_contains_marker(value: &serde_json::Value, marker: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text.contains(marker),
+        serde_json::Value::Array(items) => items.iter().any(|item| json_value_contains_marker(item, marker)),
+        serde_json::Value::Object(map) => map.values().any(|item| json_value_contains_marker(item, marker)),
+        _ => false,
+    }
+}
+
+pub fn has_taide_marker_anywhere(root: &serde_json::Value) -> bool {
+    json_value_contains_marker(root, HOOKS_URL_MARKER)
+}
+
+fn hook_handler_value_contains(hook: &serde_json::Value, needle: &str) -> bool {
+    hook.get("url")
+        .or_else(|| hook.get("command"))
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| value.contains(needle))
 }
 
 fn is_taide_managed_entry(entry: &serde_json::Value) -> bool {
     entry
         .get("hooks")
         .and_then(|hooks| hooks.as_array())
-        .map(|hooks| {
-            hooks.iter().any(|hook| {
-                hook.get("url")
-                    .and_then(|url| url.as_str())
-                    .is_some_and(|url| url.contains(HOOKS_URL_MARKER))
-            })
-        })
+        .map(|hooks| hooks.iter().any(|hook| hook_handler_value_contains(hook, HOOKS_URL_MARKER)))
         .unwrap_or(false)
 }
 
-pub fn remove_taide_hook_entries(mut root: serde_json::Value) -> serde_json::Value {
+fn remove_taide_managed_entries(mut root: serde_json::Value, events: &[&str]) -> serde_json::Value {
     if let Some(hooks_obj) = root.get_mut("hooks").and_then(|value| value.as_object_mut()) {
-        for event in MANAGED_HOOK_EVENTS {
+        for event in events {
             if let Some(entries) = hooks_obj.get_mut(*event).and_then(|value| value.as_array_mut()) {
                 entries.retain(|entry| !is_taide_managed_entry(entry));
             }
@@ -251,10 +328,8 @@ pub fn remove_taide_hook_entries(mut root: serde_json::Value) -> serde_json::Val
     root
 }
 
-/// 사용자가 손으로 쓴 `settings.local.json` 은 `hooks` 가 객체가 아니거나
-/// 이벤트 값이 배열이 아닐 수 있다. 기대 형태가 아니면 교체해 패닉 없이 주입한다.
-pub fn inject_taide_hook_entries(root: serde_json::Value, hook_url: &str) -> serde_json::Value {
-    let root = remove_taide_hook_entries(root);
+fn inject_taide_managed_entries(root: serde_json::Value, events: &[&str], hook_handler: serde_json::Value) -> serde_json::Value {
+    let root = remove_taide_managed_entries(root, events);
     let mut root = if root.is_object() { root } else { serde_json::json!({}) };
 
     if let Some(root_obj) = root.as_object_mut() {
@@ -264,21 +339,43 @@ pub fn inject_taide_hook_entries(root: serde_json::Value, hook_url: &str) -> ser
         }
 
         if let Some(hooks_obj) = hooks_slot.as_object_mut() {
-            for event in MANAGED_HOOK_EVENTS {
-                let event_slot = hooks_obj.entry(event.to_string()).or_insert_with(|| serde_json::json!([]));
+            for event in events {
+                let event_slot = hooks_obj.entry((*event).to_string()).or_insert_with(|| serde_json::json!([]));
                 if !event_slot.is_array() {
                     *event_slot = serde_json::json!([]);
                 }
                 if let Some(entries) = event_slot.as_array_mut() {
-                    entries.push(serde_json::json!({
-                        "hooks": [{ "type": "http", "url": hook_url, "timeout": HOOKS_HTTP_TIMEOUT_SECONDS }]
-                    }));
+                    entries.push(serde_json::json!({ "hooks": [hook_handler.clone()] }));
                 }
             }
         }
     }
 
     root
+}
+
+pub fn remove_taide_hook_entries(root: serde_json::Value) -> serde_json::Value {
+    remove_taide_managed_entries(root, MANAGED_HOOK_EVENTS)
+}
+
+pub fn inject_taide_hook_entries(root: serde_json::Value, hook_url: &str) -> serde_json::Value {
+    inject_taide_managed_entries(
+        root,
+        MANAGED_HOOK_EVENTS,
+        serde_json::json!({ "type": HOOK_HANDLER_TYPE_HTTP, "url": hook_url, "timeout": HOOKS_HTTP_TIMEOUT_SECONDS }),
+    )
+}
+
+pub fn remove_taide_command_hook_entries(root: serde_json::Value, events: &[&str]) -> serde_json::Value {
+    remove_taide_managed_entries(root, events)
+}
+
+pub fn inject_taide_command_hook_entries(root: serde_json::Value, events: &[&str], command: &str, timeout: u64) -> serde_json::Value {
+    inject_taide_managed_entries(
+        root,
+        events,
+        serde_json::json!({ "type": HOOK_HANDLER_TYPE_COMMAND, "command": command, "timeout": timeout }),
+    )
 }
 
 pub fn has_hook_entries_for_url(root: &serde_json::Value, hook_url: &str) -> bool {
@@ -300,6 +397,29 @@ fn entry_has_url(entry: &serde_json::Value, hook_url: &str) -> bool {
         hooks
             .iter()
             .any(|hook| hook.get("url").and_then(|url| url.as_str()) == Some(hook_url))
+    })
+}
+
+pub fn has_command_hook_entries_for_command(root: &serde_json::Value, events: &[&str], command: &str) -> bool {
+    let Some(hooks_obj) = root.get("hooks").and_then(|value| value.as_object()) else {
+        return false;
+    };
+    !events.is_empty()
+        && events.iter().all(|event| {
+            hooks_obj.get(*event).and_then(|value| value.as_array()).is_some_and(|entries| {
+                entries
+                    .iter()
+                    .filter(|entry| is_taide_managed_entry(entry))
+                    .any(|entry| entry_has_command(entry, command))
+            })
+        })
+}
+
+fn entry_has_command(entry: &serde_json::Value, command: &str) -> bool {
+    entry.get("hooks").and_then(|hooks| hooks.as_array()).is_some_and(|hooks| {
+        hooks
+            .iter()
+            .any(|hook| hook.get("command").and_then(|value| value.as_str()) == Some(command))
     })
 }
 
@@ -578,11 +698,47 @@ mod tests {
     }
 
     #[test]
-    fn hook_이벤트를_활동으로_매핑한다() {
-        assert_eq!(map_hook_event_to_activity("UserPromptSubmit"), Some(AgentActivity::Working));
-        assert_eq!(map_hook_event_to_activity("Notification"), Some(AgentActivity::AwaitingInput));
-        assert_eq!(map_hook_event_to_activity("Stop"), Some(AgentActivity::Idle));
-        assert_eq!(map_hook_event_to_activity("PreToolUse"), None);
+    fn claude_hook_이벤트를_활동으로_매핑한다() {
+        assert_eq!(
+            map_hook_event_to_activity("claude", "UserPromptSubmit"),
+            Some(AgentActivity::Working)
+        );
+        assert_eq!(
+            map_hook_event_to_activity("claude", "Notification"),
+            Some(AgentActivity::AwaitingInput)
+        );
+        assert_eq!(map_hook_event_to_activity("claude", "Stop"), Some(AgentActivity::Idle));
+        assert_eq!(map_hook_event_to_activity("claude", "PreToolUse"), None);
+    }
+
+    #[test]
+    fn codex_hook_이벤트를_활동으로_매핑한다() {
+        assert_eq!(
+            map_hook_event_to_activity("codex", "UserPromptSubmit"),
+            Some(AgentActivity::Working)
+        );
+        assert_eq!(
+            map_hook_event_to_activity("codex", "PermissionRequest"),
+            Some(AgentActivity::AwaitingInput)
+        );
+        assert_eq!(map_hook_event_to_activity("codex", "PostToolUse"), Some(AgentActivity::Working));
+        assert_eq!(map_hook_event_to_activity("codex", "Stop"), Some(AgentActivity::Idle));
+        assert_eq!(map_hook_event_to_activity("codex", "Notification"), None);
+    }
+
+    #[test]
+    fn gemini_hook_이벤트를_활동으로_매핑한다() {
+        assert_eq!(map_hook_event_to_activity("gemini", "BeforeAgent"), Some(AgentActivity::Working));
+        assert_eq!(
+            map_hook_event_to_activity("gemini", "Notification"),
+            Some(AgentActivity::AwaitingInput)
+        );
+        assert_eq!(map_hook_event_to_activity("gemini", "AfterAgent"), Some(AgentActivity::Idle));
+    }
+
+    #[test]
+    fn 알려지지_않은_에이전트는_hook_이벤트를_매핑하지_않는다() {
+        assert_eq!(map_hook_event_to_activity("unknown", "Stop"), None);
     }
 
     #[test]
@@ -643,9 +799,61 @@ mod tests {
     }
 
     #[test]
-    fn hook_override는_claude_에이전트에만_적용된다() {
+    fn 기록된_command_hook이_현재_커맨드와_다르면_재주입_대상이다() {
+        let injected = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        assert!(has_command_hook_entries_for_command(
+            &injected,
+            CODEX_MANAGED_HOOK_EVENTS,
+            &codex_command()
+        ));
+        let stale_command = build_command_hook_shell_command(
+            "/usr/local/bin/taide",
+            "http://127.0.0.1:10000/claude/hook?token=xyz&agent=codex&taide=1",
+        );
+        assert!(!has_command_hook_entries_for_command(
+            &injected,
+            CODEX_MANAGED_HOOK_EVENTS,
+            &stale_command
+        ));
+    }
+
+    #[test]
+    fn hook_override는_알려진_에이전트_3종에만_적용된다() {
         assert!(is_hook_managed_agent("claude"));
-        assert!(!is_hook_managed_agent("codex"));
+        assert!(is_hook_managed_agent("codex"));
+        assert!(is_hook_managed_agent("gemini"));
+        assert!(!is_hook_managed_agent("bash"));
+    }
+
+    #[test]
+    fn claude는_프로젝트_스코프이고_codex_gemini는_사용자_스코프다() {
+        assert_eq!(hook_scope_for_agent("claude").unwrap(), HookInstallScope::Project);
+        assert_eq!(hook_scope_for_agent("codex").unwrap(), HookInstallScope::User);
+        assert_eq!(hook_scope_for_agent("gemini").unwrap(), HookInstallScope::User);
+        assert!(hook_scope_for_agent("bash").is_err());
+    }
+
+    #[test]
+    fn 사용자_레벨_hooks_경로를_홈_디렉토리_기준으로_구성한다() {
+        assert_eq!(
+            user_level_hooks_path("codex", Some("/Users/dev")).unwrap(),
+            PathBuf::from("/Users/dev/.codex/hooks.json")
+        );
+        assert_eq!(
+            user_level_hooks_path("gemini", Some("/Users/dev")).unwrap(),
+            PathBuf::from("/Users/dev/.gemini/settings.json")
+        );
+        assert!(user_level_hooks_path("claude", Some("/Users/dev")).is_err());
+        assert!(user_level_hooks_path("codex", None).is_err());
+    }
+
+    #[test]
+    fn 문서_어디에_있어도_taide_마커를_찾는다() {
+        let nested = serde_json::json!({
+            "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "taide-cli hook --url http://127.0.0.1:9999/claude/hook?token=abc&agent=codex&taide=1" }] }] }
+        });
+        assert!(has_taide_marker_anywhere(&nested));
+        assert!(!has_taide_marker_anywhere(&serde_json::json!({ "hooks": {} })));
     }
 
     #[test]
@@ -669,5 +877,155 @@ mod tests {
         let injected = inject_taide_hook_entries(serde_json::json!({}), "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
         let removed = remove_taide_hook_entries(injected);
         assert!(removed.get("hooks").is_none());
+    }
+
+    #[test]
+    fn 에이전트별_관리대상_이벤트_목록이_다르다() {
+        assert_eq!(managed_hook_events_for("claude"), MANAGED_HOOK_EVENTS);
+        assert_eq!(managed_hook_events_for("codex"), CODEX_MANAGED_HOOK_EVENTS);
+        assert_eq!(managed_hook_events_for("gemini"), GEMINI_MANAGED_HOOK_EVENTS);
+        assert!(managed_hook_events_for("bash").is_empty());
+    }
+
+    #[test]
+    fn 에이전트별_command_hook_timeout_단위가_다르다() {
+        assert_eq!(user_level_hook_command_timeout("codex"), CODEX_HOOK_COMMAND_TIMEOUT_SECONDS);
+        assert_eq!(user_level_hook_command_timeout("gemini"), GEMINI_HOOK_COMMAND_TIMEOUT_MS);
+        assert_eq!(
+            user_level_hook_command_timeout("gemini"),
+            CODEX_HOOK_COMMAND_TIMEOUT_SECONDS * 1_000
+        );
+    }
+
+    #[test]
+    fn 쉘_커맨드는_바이너리_경로와_url을_각각_큰따옴표로_감싼다() {
+        let command = build_command_hook_shell_command(
+            "/usr/local/bin/taide",
+            "http://127.0.0.1:9999/claude/hook?token=abc&agent=codex&taide=1",
+        );
+        assert_eq!(
+            command,
+            "\"/usr/local/bin/taide\" hook --url \"http://127.0.0.1:9999/claude/hook?token=abc&agent=codex&taide=1\""
+        );
+    }
+
+    fn codex_hook_url() -> &'static str {
+        "http://127.0.0.1:9999/claude/hook?token=abc&agent=codex&taide=1"
+    }
+
+    fn codex_command() -> String {
+        build_command_hook_shell_command("/usr/local/bin/taide", codex_hook_url())
+    }
+
+    #[test]
+    fn codex_빈_설정에_command_hook을_주입하면_관리대상_이벤트_4종이_생긴다() {
+        let injected = inject_taide_command_hook_entries(
+            serde_json::json!({}),
+            CODEX_MANAGED_HOOK_EVENTS,
+            &codex_command(),
+            CODEX_HOOK_COMMAND_TIMEOUT_SECONDS,
+        );
+        for event in CODEX_MANAGED_HOOK_EVENTS {
+            let entries = injected["hooks"][event].as_array().expect("event entries");
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0]["hooks"][0]["type"], HOOK_HANDLER_TYPE_COMMAND);
+            assert_eq!(entries[0]["hooks"][0]["command"], codex_command());
+        }
+    }
+
+    #[test]
+    fn codex_기존_사용자_hook은_보존하고_taide_command_항목만_주입한다() {
+        let existing = serde_json::json!({
+            "hooks": {
+                "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]
+            }
+        });
+        let injected = inject_taide_command_hook_entries(existing, CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        let stop_entries = injected["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop_entries.len(), 2);
+        assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo done");
+    }
+
+    #[test]
+    fn codex_두_번_주입해도_taide_command_항목이_중복되지_않는다() {
+        let once = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        let other_command = build_command_hook_shell_command(
+            "/usr/local/bin/taide",
+            "http://127.0.0.1:10000/claude/hook?token=xyz&agent=codex&taide=1",
+        );
+        let twice = inject_taide_command_hook_entries(once, CODEX_MANAGED_HOOK_EVENTS, &other_command, 5);
+        for event in CODEX_MANAGED_HOOK_EVENTS {
+            let entries = twice["hooks"][event].as_array().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0]["hooks"][0]["command"], other_command);
+        }
+    }
+
+    #[test]
+    fn codex_taide_command_hook을_제거하면_사용자_hook만_남고_제거_대상이_없으면_hooks_키가_사라진다() {
+        let injected = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        let removed = remove_taide_command_hook_entries(injected, CODEX_MANAGED_HOOK_EVENTS);
+        assert!(removed.get("hooks").is_none());
+
+        let existing = serde_json::json!({
+            "hooks": {
+                "Stop": [
+                    { "hooks": [{ "type": "command", "command": "echo done" }] },
+                    { "hooks": [{ "type": "command", "command": codex_command() }] }
+                ]
+            }
+        });
+        let injected_with_user_hook = inject_taide_command_hook_entries(existing, CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        let removed = remove_taide_command_hook_entries(injected_with_user_hook, CODEX_MANAGED_HOOK_EVENTS);
+        let stop_entries = removed["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop_entries.len(), 1);
+        assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo done");
+    }
+
+    fn gemini_hook_url() -> &'static str {
+        "http://127.0.0.1:9999/claude/hook?token=abc&agent=gemini&taide=1"
+    }
+
+    fn gemini_command() -> String {
+        build_command_hook_shell_command("/usr/local/bin/taide", gemini_hook_url())
+    }
+
+    #[test]
+    fn gemini_빈_설정에_command_hook을_주입하면_관리대상_이벤트_3종이_생긴다() {
+        let injected = inject_taide_command_hook_entries(
+            serde_json::json!({}),
+            GEMINI_MANAGED_HOOK_EVENTS,
+            &gemini_command(),
+            GEMINI_HOOK_COMMAND_TIMEOUT_MS,
+        );
+        for event in GEMINI_MANAGED_HOOK_EVENTS {
+            let entries = injected["hooks"][event].as_array().expect("event entries");
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0]["hooks"][0]["command"], gemini_command());
+            assert_eq!(entries[0]["hooks"][0]["timeout"], GEMINI_HOOK_COMMAND_TIMEOUT_MS);
+        }
+    }
+
+    #[test]
+    fn gemini_두_번_주입해도_taide_command_항목이_중복되지_않고_다른_에이전트_이벤트와_섞이지_않는다() {
+        let with_codex = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        let with_both = inject_taide_command_hook_entries(with_codex, GEMINI_MANAGED_HOOK_EVENTS, &gemini_command(), 5_000);
+
+        assert_eq!(with_both["hooks"][HOOK_EVENT_STOP].as_array().unwrap().len(), 1);
+        assert!(with_both["hooks"][HOOK_EVENT_BEFORE_AGENT].as_array().unwrap()[0]["hooks"][0]["command"] == gemini_command());
+        assert!(with_both["hooks"][HOOK_EVENT_PERMISSION_REQUEST].as_array().unwrap()[0]["hooks"][0]["command"] == codex_command());
+    }
+
+    #[test]
+    fn gemini_taide_command_hook을_제거해도_codex_항목은_그대로다() {
+        let with_codex = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
+        let with_both = inject_taide_command_hook_entries(with_codex, GEMINI_MANAGED_HOOK_EVENTS, &gemini_command(), 5_000);
+
+        let gemini_removed = remove_taide_command_hook_entries(with_both, GEMINI_MANAGED_HOOK_EVENTS);
+        assert!(gemini_removed["hooks"].get(HOOK_EVENT_BEFORE_AGENT).is_none());
+        assert_eq!(
+            gemini_removed["hooks"][HOOK_EVENT_STOP].as_array().unwrap()[0]["hooks"][0]["command"],
+            codex_command()
+        );
     }
 }

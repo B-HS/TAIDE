@@ -369,6 +369,8 @@ export const SettingsView = () => {
                             </label>
                             <div className='flex flex-col gap-2'>
                                 <AgentHooksToggle
+                                    label={t('settings.agentHooks')}
+                                    hint={t('settings.agentHooksHint')}
                                     checked={settings.agentHooksEnabled ?? false}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentHooksEnabled: checked })}
                                 />

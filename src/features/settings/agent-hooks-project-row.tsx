@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import {
     AlertDialog,
@@ -19,19 +20,20 @@ import { agentHooksStatusQueryOptions, useInstallAgentHooks, useUninstallAgentHo
 type AgentHooksProjectRowProps = {
     projectId: ProjectId
     projectName: string
+    agentName: string
 }
 
-export const AgentHooksProjectRow: FC<AgentHooksProjectRowProps> = ({ projectId, projectName }) => {
+export const AgentHooksProjectRow: FC<AgentHooksProjectRowProps> = ({ projectId, projectName, agentName }) => {
     const [isConsentOpen, setIsConsentOpen] = useState(false)
 
-    const { data: status, isPending } = useQuery(agentHooksStatusQueryOptions(projectId))
+    const { data: status, isPending } = useQuery(agentHooksStatusQueryOptions(projectId, agentName))
     const { mutate: installHooks, isPending: isInstalling } = useInstallAgentHooks()
     const { mutate: uninstallHooks, isPending: isUninstalling } = useUninstallAgentHooks()
 
     const { t } = useTranslation()
 
     const handleConfirmInstall = () => {
-        installHooks(projectId)
+        installHooks({ projectId, agentName }, { onError: (error) => toast.error(error.message) })
         setIsConsentOpen(false)
     }
 
@@ -44,7 +46,12 @@ export const AgentHooksProjectRow: FC<AgentHooksProjectRowProps> = ({ projectId,
             ) : status?.installed ? (
                 <div className='flex shrink-0 items-center gap-2'>
                     <span className='text-app-sidebar-icon-agent-running'>{t('agent.hooksInstalled')}</span>
-                    <Button type='button' variant='outline' size='xs' disabled={isUninstalling} onClick={() => uninstallHooks(projectId)}>
+                    <Button
+                        type='button'
+                        variant='outline'
+                        size='xs'
+                        disabled={isUninstalling}
+                        onClick={() => uninstallHooks({ projectId, agentName }, { onError: (error) => toast.error(error.message) })}>
                         {t('agent.hooksUninstall')}
                     </Button>
                 </div>

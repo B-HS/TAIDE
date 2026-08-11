@@ -840,7 +840,60 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
             쓸 수 없음(ipc-contract §4 게이트). 새 "외부 URL 열기" 커맨드 신설은 이번 작업 범위 밖으로
             판단해 보류. 검증: `bun run typecheck`/`lint`/`test`(340 pass) +
             `cargo fmt`/`clippy -D warnings`/`test --workspace`(438+6+9 pass) 전량 통과.
-- [ ] 7.10-W4. 멀티 에이전트 hooks(codex·gemini) + taide-cli shim + override 스코프 확장
+- [x] 7.10-W4. 완료 — 멀티 에이전트 hooks 스파인 계약. `taide-cli hook --url <u>`(stdin 전량 →
+      TcpStream 수제 HTTP POST, 127.0.0.1 만 허용, 1.5s 연결/쓰기 타임아웃, 항상 exit 0·stdout/stderr
+      무오염, 파서·URL 검증 단위 테스트 10건) + hooks URL 에 `agent=claude|codex|gemini` 쿼리 추가
+      (`build_hook_url(info, agent_name)`, 기존 claude 주입 URL 도 재부팅 시 자가 치유 경로로 갱신) +
+      override 키를 `(ProjectId, agent_name)` 로 확장(`AgentHooksStore`, `resolve_activity`) +
+      `is_hook_managed_agent` 를 `KNOWN_AGENT_NAMES` 3종 전체로 확장 + 에이전트별 이벤트 매핑
+      (Codex: UserPromptSubmit/PermissionRequest/PostToolUse/Stop, Gemini: BeforeAgent/
+      Notification/AfterAgent) + IPC `agent_hooks_status/install/uninstall` 에 `agent_name` 축 추가,
+      `AgentHooksStatus` 에 `scope`(project/user) 필드 반영 — claude 는 기존 프로젝트 로직 그대로,
+      codex/gemini 는 사용자 레벨 상태 조회(`user_level_hooks_path`+`has_taide_marker_anywhere` 관대한
+      마커 탐지)만 구현하고 설치(install)는 다음 웨이브(주입기) 몫으로 명시적 에러 반환.
+      i18n 5키(agentHooksAgent{Claude,Codex,Gemini}·agentHooksUserLevel{Description,Warning})
+      `domain/locale/service.rs` 4곳(스키마+en/ko/ja) 동기, 파리티 테스트 통과.
+      프론트 `entities/agent` ipc/query 래퍼 + 유일한 소비처(`agent-hooks-project-row.tsx`)를
+      `agentName` 인자로 갱신(claude 리터럴 상수화). 주입기(codex/gemini 파일 병합) 자체는
+      의도적으로 범위 밖 — 다음 에이전트 몫.
+      검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) ·
+      `cargo test --workspace`(456+6+17 pass, bindings 재생성 확인) ·
+      `bun run typecheck`/`lint`(에러 0, 기존 warning 4건 무관)/`bun test`(340 pass) 전량 통과.
+- [x] 7.10-W4 후속. 완료 — Codex·Gemini 사용자 레벨 hooks **실주입기**(`domain/agent` 내부만,
+      IPC 시그니처 변경 없음). 공식 스키마 웹 재확인 결과 Claude 의 `type:"http"` 는 Codex·Gemini
+      둘 다 지원하지 않음(`type:"command"` 셸 커맨드만) — 두 파일 모두
+      `hooks.<Event>: [{ hooks: [{ type, command, timeout }] }]` 구조가 동일해, 마커 탐지·주입·제거
+      로직을 `inject_taide_managed_entries`/`remove_taide_managed_entries` 공용 헬퍼로 추출하고
+      Claude(`inject_taide_hook_entries`, http)·Codex/Gemini(`inject_taide_command_hook_entries`,
+      command)가 이를 재사용하도록 리팩터(`is_taide_managed_entry` 마커 검사도 `url`/`command`
+      양쪽 필드를 보도록 일반화 — 기존 Claude 테스트 전량 그대로 통과 확인). 이벤트 목록도
+      `CODEX_MANAGED_HOOK_EVENTS`(4)/`GEMINI_MANAGED_HOOK_EVENTS`(3) 상수로 분리.
+      커맨드 문자열은 `build_command_hook_shell_command` — 기존 `TAIDE_CLI_TARGET_PATH`(설치 경로
+      탐지 로직 재사용) + hook URL 을 각각 큰따옴표로 감싸 `taide-cli hook --url <u>` 셸 호출을
+      만든다. **timeout 단위가 다르다** — Codex 는 초(기존 `HOOKS_HTTP_TIMEOUT_SECONDS=5` 그대로
+      재사용), Gemini 는 밀리초(`GEMINI_HOOK_COMMAND_TIMEOUT_MS = 5_000`, 상수 곱으로 유도) —
+      `user_level_hook_command_timeout(agent_name)` 로 분기.
+      `agent_hooks_install`/`agent_hooks_uninstall` 의 `HookInstallScope::User` 분기를 실구현으로
+      교체(기존엔 install 이 "not implemented yet" 에러 반환, uninstall 은 아무 것도 안 함 —
+      이번에 둘 다 실제 파일 병합/제거). 파일 IO 는 `commands.rs` 에 `read_json_file_or_empty_object`/
+      `write_json_file_private_atomic` 공용 헬퍼로 추출해 프로젝트 스코프(`.claude/settings.local.json`)
+      · 사용자 스코프(`~/.codex/hooks.json`·`~/.gemini/settings.json`) 양쪽이 재사용(2회 이상 규칙).
+      **OFF 전이 자동 제거 확장**: `uninstall_hooks_from_open_projects` 에
+      `remove_taide_hooks_from_user_level_files` 를 추가 호출 — 프로젝트 목록과 무관하게 두 사용자
+      레벨 파일을 항상 점검(파일별 실패는 기존 패턴대로 `log::warn!` 후 계속). `home_dir_env` 를
+      `pub(super)` 로 올려 `hooks.rs` 가 재사용.
+      테스트는 전부 `std::env::temp_dir()` 기반 fake HOME/root 사용(`~/.` 실경로 미접근) —
+      주입 멱등성(2회 주입에도 taide 항목 1건 유지, 새 URL 로 자가 치유)·기존 사용자 hook 보존·
+      제거 후 원상 복귀(taide 항목만 있었으면 `hooks` 키 자체 소거)·에이전트별 이벤트 목록이
+      서로 침범하지 않음·`agent_hooks_enabled` OFF 시 codex/gemini 사용자 레벨 항목도 제거되고
+      사용자 항목은 보존됨을 검증(신규 13건 — service.rs 10건 + hooks.rs 3건).
+      **범위 밖으로 남긴 것**: 재부팅으로 포트가 바뀐 뒤의 codex/gemini 자가 치유(Claude 의
+      `reconcile_installed_hooks` 는 프로젝트 순회 전제라 사용자 레벨엔 미적용 — 재설치 시에만
+      최신 URL 로 갱신됨), Windows 셸 인용 규칙 검증(현재 이중따옴표 하나로 POSIX/Windows 공통
+      처리했으나 Windows 실기기 미검증).
+      검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) ·
+      `cargo test --workspace`(469+6+17 pass, bindings 재생성 확인 — 커맨드 시그니처 무변경이라
+      bindings.ts diff 불변) · `bun run typecheck`(무오류).
 - [ ] 7.10-W5. VSIX 임포트(테마 추출 + 관리 UI)
 - [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블)
 - [ ] 7.10-W7. TextMate 문법 엔진 (backlog 에서 승격, 2026-08-11 사용자 확정) — shiki JS 엔진 우선

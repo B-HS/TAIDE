@@ -46,7 +46,7 @@ export const QUERY_KEY = {
         ALL: ['agent'] as const,
         PROJECT: (projectId: ProjectId) => ['agent', 'project', projectId] as const,
         CLI: ['agent', 'cli'] as const,
-        HOOKS: (projectId: ProjectId) => ['agent', 'hooks', projectId] as const,
+        HOOKS: (projectId: ProjectId, agentName: string) => ['agent', 'hooks', projectId, agentName] as const,
     },
     PLUGIN: {
         ALL: ['plugin'] as const,

@@ -245,6 +245,12 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "agentStatusBadge",
             "agentHooks",
             "agentHooksHint",
+            "agentHooksAgentClaude",
+            "agentHooksAgentCodex",
+            "agentHooksAgentGemini",
+            "agentHooksUserLevelDescription",
+            "agentHooksUserLevelWarning",
+            "agentHooksCliMissing",
             "ideIntegration",
             "ideIntegrationHint",
             "ideAutoOpenDiff",
@@ -784,6 +790,21 @@ fn en_messages() -> BTreeMap<String, String> {
             "settings.agentHooksHint",
             "Lets TAIDE detect when Claude Code is waiting for your input. Installs a local hook in this project only.",
         ),
+        ("settings.agentHooksAgentClaude", "Claude Code"),
+        ("settings.agentHooksAgentCodex", "Codex"),
+        ("settings.agentHooksAgentGemini", "Gemini"),
+        (
+            "settings.agentHooksUserLevelDescription",
+            "Installs at the user level (~/.codex or ~/.gemini) instead of per-project.",
+        ),
+        (
+            "settings.agentHooksUserLevelWarning",
+            "This applies to every session on this machine, even outside TAIDE, and hooks are silently ignored while TAIDE isn't running.",
+        ),
+        (
+            "settings.agentHooksCliMissing",
+            "The taide CLI isn't installed yet — install it first to enable this hook.",
+        ),
         ("settings.ideIntegration", "IDE integration"),
         (
             "settings.ideIntegrationHint",
@@ -1309,6 +1330,21 @@ fn ko_messages() -> BTreeMap<String, String> {
         (
             "settings.agentHooksHint",
             "Claude Code 가 입력을 기다리는 시점을 TAIDE 가 감지하도록 합니다. 이 프로젝트에만 로컬 훅을 설치합니다.",
+        ),
+        ("settings.agentHooksAgentClaude", "Claude Code"),
+        ("settings.agentHooksAgentCodex", "Codex"),
+        ("settings.agentHooksAgentGemini", "Gemini"),
+        (
+            "settings.agentHooksUserLevelDescription",
+            "프로젝트 단위가 아니라 사용자 레벨(~/.codex 또는 ~/.gemini)에 설치됩니다.",
+        ),
+        (
+            "settings.agentHooksUserLevelWarning",
+            "이 기기의 모든 세션에 적용되며 TAIDE 밖에서도 마찬가지입니다. TAIDE 가 실행 중이 아니면 훅은 조용히 무시됩니다.",
+        ),
+        (
+            "settings.agentHooksCliMissing",
+            "taide CLI 가 아직 설치되지 않았습니다. 이 훅을 사용하려면 먼저 설치하세요.",
         ),
         ("settings.ideIntegration", "IDE 연동"),
         (
@@ -1850,6 +1886,21 @@ fn ja_messages() -> BTreeMap<String, String> {
         (
             "settings.agentHooksHint",
             "Claude Code が入力待ちになったタイミングを TAIDE が検知できるようにします。このプロジェクトのみにローカルフックをインストールします。",
+        ),
+        ("settings.agentHooksAgentClaude", "Claude Code"),
+        ("settings.agentHooksAgentCodex", "Codex"),
+        ("settings.agentHooksAgentGemini", "Gemini"),
+        (
+            "settings.agentHooksUserLevelDescription",
+            "プロジェクト単位ではなく、ユーザーレベル(~/.codex または ~/.gemini)にインストールされます。",
+        ),
+        (
+            "settings.agentHooksUserLevelWarning",
+            "この端末のすべてのセッションに適用され、TAIDE の外でも同様です。TAIDE が起動していない間、フックは静かに無視されます。",
+        ),
+        (
+            "settings.agentHooksCliMissing",
+            "taide CLI がまだインストールされていません。このフックを使うには先にインストールしてください。",
         ),
         ("settings.ideIntegration", "IDE 連携"),
         (

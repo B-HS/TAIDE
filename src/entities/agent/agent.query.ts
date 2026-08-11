@@ -14,14 +14,18 @@ export const projectAgentsQueryOptions = (projectId: ProjectId | null) =>
 
 export const cliInstallStatusQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.AGENT.CLI, queryFn: getCliInstallStatus })
 
-export const agentHooksStatusQueryOptions = (projectId: ProjectId) =>
-    queryOptions({ queryKey: QUERY_KEY.AGENT.HOOKS(projectId), queryFn: () => getAgentHooksStatus(projectId) })
+export const USER_LEVEL_AGENT_HOOKS_UNUSED_PROJECT_ID = ''
 
-const useAgentHooksMutation = (mutationFn: (projectId: ProjectId) => Promise<AgentHooksStatus>) => {
+export const agentHooksStatusQueryOptions = (projectId: ProjectId, agentName: string) =>
+    queryOptions({ queryKey: QUERY_KEY.AGENT.HOOKS(projectId, agentName), queryFn: () => getAgentHooksStatus(projectId, agentName) })
+
+type AgentHooksMutationVariables = { projectId: ProjectId; agentName: string }
+
+const useAgentHooksMutation = (mutationFn: (projectId: ProjectId, agentName: string) => Promise<AgentHooksStatus>) => {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn,
-        onSuccess: (status, projectId) => queryClient.setQueryData(QUERY_KEY.AGENT.HOOKS(projectId), status),
+        mutationFn: ({ projectId, agentName }: AgentHooksMutationVariables) => mutationFn(projectId, agentName),
+        onSuccess: (status, { projectId, agentName }) => queryClient.setQueryData(QUERY_KEY.AGENT.HOOKS(projectId, agentName), status),
     })
 }
 

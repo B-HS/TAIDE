@@ -48,9 +48,9 @@ export const commands = {
 	agentList: (projectId: ProjectId) => typedError<ProjectAgents, AppError>(__TAURI_INVOKE("agent_list", { projectId })),
 	agentReleaseMarker: (marker: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_release_marker", { marker })),
 	agentCliStatus: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_status")),
-	agentHooksStatus: (projectId: ProjectId) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_status", { projectId })),
-	agentHooksInstall: (projectId: ProjectId) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_install", { projectId })),
-	agentHooksUninstall: (projectId: ProjectId) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_uninstall", { projectId })),
+	agentHooksStatus: (projectId: ProjectId, agentName: string) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_status", { projectId, agentName })),
+	agentHooksInstall: (projectId: ProjectId, agentName: string) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_install", { projectId, agentName })),
+	agentHooksUninstall: (projectId: ProjectId, agentName: string) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_uninstall", { projectId, agentName })),
 	lspSpawn: (projectId: ProjectId, serverId: LspServerId, root: string, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { projectId, serverId, root, onMessage })),
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	lspStop: (sessionId: string, root: string | null) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root })),
@@ -168,6 +168,8 @@ export type AgentExternalOpen = {
 };
 
 export type AgentHooksStatus = {
+	agentName: string,
+	scope: HookInstallScope,
 	installed: boolean,
 };
 
@@ -336,6 +338,8 @@ export type GutterHunk = {
 	start: number,
 	end: number,
 };
+
+export type HookInstallScope = "project" | "user";
 
 export type HunkKind = "added" | "modified" | "deleted";
 

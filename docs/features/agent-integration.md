@@ -164,3 +164,61 @@ taide [--wait|-w] <file> [<file>...]
 - **lockfile 원자적 쓰기** (`lockfile.rs::write_lockfile_atomic`): lockfile 을 tmp 파일에 쓴 뒤
   rename 으로 원자적으로 교체한다. CLI 가 쓰다 만 lockfile 을 읽고 파싱 실패로 삭제해버리는
   경쟁 상태를 피하기 위함이다.
+
+### 7.5 멀티 에이전트 hooks 확장 (`domain/agent/service.rs`, `domain/agent/commands.rs`)
+
+> 7.10-W4 — Codex·Gemini hooks 브리지 확장에서 추가한 비자명한 제약.
+
+- **이벤트 매핑은 에이전트별 분기** (`service.rs::map_hook_event_to_activity`): 같은 활동을 알리는
+  이벤트 이름이 에이전트마다 다르다 — Claude 는 `Notification`, Codex 는 `PermissionRequest`,
+  Gemini 는 `BeforeAgent`/`AfterAgent` 로 시작·종료를 알린다. 매핑 함수는 `agent_name` 을 1차
+  분기 기준으로 삼는다. Codex 의 `PostToolUse` 는 (도구 실행이 재개됐다는 뜻이므로) `Working` 으로
+  매핑해 직전의 `AwaitingInput` override 를 자연히 덮어쓴다 — 별도의 "override 해제" 코드 경로를
+  두지 않고, 기존 override 값 자체가 최신 이벤트로 대체되는 방식으로 처리한다.
+- **hook override 스코프는 (프로젝트, 에이전트) 쌍** (`commands.rs::AgentHooksStore`): 기존에는
+  프로젝트 단위로만 override 를 쌓아 같은 프로젝트의 claude·codex 세션이 서로의 활동 판정을
+  덮어썼다. 키를 `(ProjectId, agent_name)` 로 확장해 에이전트별로 독립된 override 를 유지한다.
+  `resolve_activity` 의 override 소비·해제(`fresh_project_override`/`clear_project_override`)도
+  동일 키로 조회한다.
+- **설치 스코프는 에이전트 정체성으로 결정** (`service.rs::hook_scope_for_agent`): Claude 는
+  프로젝트 파일(`.claude/settings.local.json`, gitignore 대상)에 설치하지만 Codex·Gemini 는
+  프로젝트 파일이 커밋 대상이라 오염 위험이 있어 사용자 레벨(`~/.codex/hooks.json`,
+  `~/.gemini/settings.json`)에만 설치한다 (`docs/acknowledge/2026-08-11-qa5-batch-decisions.md`).
+- **사용자 레벨 경로는 순수 함수** (`service.rs::user_level_hooks_path`): `lockfile.rs::resolve_lockfile_dir`
+  와 동일 패턴 — `home_env: Option<&str>` 를 인자로 받아, 테스트에서 실제 프로세스 env 를 건드리지
+  않고 양쪽 에이전트 분기를 검증한다.
+- **마커 탐지는 문서 전체 재귀 스캔** (`service.rs::has_taide_marker_anywhere`): Codex·Gemini 의
+  실제 hook 항목(`type: "command"`, shim 커맨드라인에 hook URL 이 인자로 박힘)은 특정 JSON 키
+  구조에 의존하지 않고 문서 전체에서 `HOOKS_URL_MARKER` 문자열을 재귀적으로 찾는 관대한 탐지로
+  판정한다. 스키마가 바뀌거나 사용자가 파일을 수기로 편집해도(키 이름·중첩 구조가 달라져도)
+  상태 조회(`agent_hooks_status`)가 계속 동작하게 하기 위함이다.
+- **주입은 기대 형태가 아니면 교체한다** (`service.rs::inject_taide_managed_entries`): 사용자가
+  손으로 편집한 설정 파일은 `hooks` 가 객체가 아니거나 이벤트 값이 배열이 아닐 수 있다. 기대
+  형태가 아니면 패닉 대신 빈 객체/배열로 교체한 뒤 주입한다.
+- **command hook 커맨드 문자열의 인용 규칙** (`service.rs::build_command_hook_shell_command`):
+  Codex·Gemini 는 `type: "http"` 를 지원하지 않고 `type: "command"` 셸 커맨드만 실행하므로,
+  shim(`taide-cli hook --url <u>`)이 페이로드를 로컬 서버로 중계한다. 바이너리 경로와 URL 을
+  각각 큰따옴표로 감싸는데, 경로는 공백을 포함할 수 있고(Windows `Program Files`) URL 은
+  `&`/`?` 를 포함하기 때문이다.
+- **command hook timeout 은 에이전트별 단위가 다르다** (`service.rs::user_level_hook_command_timeout`):
+  Codex 는 `timeout` 을 초 단위로, Gemini 는 밀리초 단위로 해석한다. 두 사용자 레벨 hooks 파일은
+  이 값을 서로 바꿔 쓸 수 없어 별도 상수(`CODEX_HOOK_COMMAND_TIMEOUT_SECONDS`,
+  `GEMINI_HOOK_COMMAND_TIMEOUT_MS`)로 분리했다.
+- **사용자 레벨 파일 정리는 열린 프로젝트 목록과 무관** (`hooks.rs::remove_taide_hooks_from_user_level_files`):
+  Codex·Gemini 는 사용자 레벨 설정 파일을 1개씩만 가지므로(프로젝트별이 아님) OFF 전이 시
+  열린 프로젝트가 0개여도 항상 정리 대상이다.
+- **재부팅 후 사용자 레벨 hook URL 자가 치유** (`hooks.rs::reconcile_user_level_hooks`): hooks 서버는
+  기동마다 랜덤 포트·새 토큰으로 뜨므로(`ensure_hooks_server_started`), 이전 실행에서
+  `~/.codex/hooks.json`·`~/.gemini/settings.json` 에 박아 둔 커맨드 문자열은 재시작 후 죽은
+  포트를 가리킨다. `reconcile_installed_hooks`(부팅·`agent_hooks_enabled` ON 전이·프로젝트
+  열기 시 호출)가 Claude 의 프로젝트 파일 갱신에 이어 Codex·Gemini 의 사용자 레벨 파일도
+  훑어, taide 마커가 있는데 현재 서버 기준 커맨드와 다르면(`has_command_hook_entries_for_command`)
+  새 URL 로 재주입한다.
+- **사용자 레벨 설치는 CLI 존재를 전제로 한다** (`commands.rs::agent_hooks_install`): command
+  hook 이 실행하는 shim 커맨드라인은 `TAIDE_CLI_TARGET_PATH`(`/usr/local/bin/taide` 등)를
+  절대경로로 참조한다. CLI 가 심볼릭 링크로 설치돼 있지 않으면 모든 hook 이벤트가 실행 실패로
+  조용히 죽으므로, 설치 전에 `resolve_cli_install_status().installed` 를 확인해 미설치면
+  설치를 거부한다.
+- **uninstall 은 taide 항목이 없으면 파일을 새로 만들지 않는다** (`commands.rs::agent_hooks_uninstall`):
+  프로젝트·사용자 레벨 양쪽 모두 기록된 taide 마커가 있을 때만 쓰기를 수행한다. 존재하지 않는
+  파일(설치한 적 없는 상태)에 uninstall 을 호출해도 빈 JSON 파일이 새로 생기지 않는다.

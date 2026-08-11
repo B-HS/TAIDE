@@ -1,5 +1,7 @@
 use std::env;
 use std::fs;
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::sleep;
@@ -14,6 +16,12 @@ const APP_PATH_ENV_VAR: &str = "TAIDE_APP_PATH";
 const MACOS_APP_BUNDLE_PATH: &str = "/Applications/TAIDE.app/Contents/MacOS/TAIDE";
 const DEV_APP_RELATIVE_PATH: &str = "target/debug/taide";
 const WAIT_MARKER_FLAG: &str = "--wait-marker";
+
+const HOOK_SUBCOMMAND: &str = "hook";
+const HOOK_URL_FLAG: &str = "--url";
+const HOOK_LOOPBACK_HOST: &str = "127.0.0.1";
+const HOOK_CONNECT_TIMEOUT_MS: u64 = 1_500;
+const HOOK_WRITE_TIMEOUT_MS: u64 = 1_500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedArgs {
@@ -137,6 +145,104 @@ fn block_until_marker_removed(marker: &Path, timeout: Duration) -> bool {
     true
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HookArgs {
+    url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HookArgsError {
+    MissingUrl,
+    MissingUrlValue,
+}
+
+fn parse_hook_args(args: &[String]) -> Result<HookArgs, HookArgsError> {
+    let mut url: Option<String> = None;
+
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == HOOK_URL_FLAG {
+            url = Some(iter.next().ok_or(HookArgsError::MissingUrlValue)?.clone());
+        }
+    }
+
+    url.map(|url| HookArgs { url })
+        .ok_or(HookArgsError::MissingUrl)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HookTarget {
+    host: String,
+    port: u16,
+    path_and_query: String,
+}
+
+fn parse_hook_url(url: &str) -> Option<HookTarget> {
+    let rest = url.strip_prefix("http://")?;
+    let (authority, path_and_query) = match rest.find('/') {
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, "/"),
+    };
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().ok()?),
+        None => (authority, 80),
+    };
+
+    if host != HOOK_LOOPBACK_HOST {
+        return None;
+    }
+
+    Some(HookTarget {
+        host: host.to_string(),
+        port,
+        path_and_query: path_and_query.to_string(),
+    })
+}
+
+fn send_hook_request(target: &HookTarget, body: &[u8]) -> io::Result<()> {
+    let addr: SocketAddr = format!("{}:{}", target.host, target.port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "could not resolve hook target address",
+            )
+        })?;
+
+    let mut stream =
+        TcpStream::connect_timeout(&addr, Duration::from_millis(HOOK_CONNECT_TIMEOUT_MS))?;
+    stream.set_write_timeout(Some(Duration::from_millis(HOOK_WRITE_TIMEOUT_MS)))?;
+
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
+        path = target.path_and_query,
+        host = target.host,
+        port = target.port,
+        len = body.len(),
+    );
+    stream.write_all(request.as_bytes())?;
+    stream.write_all(body)?;
+    Ok(())
+}
+
+fn run_hook(args: &[String]) -> i32 {
+    let Ok(parsed) = parse_hook_args(args) else {
+        return 0;
+    };
+    let Some(target) = parse_hook_url(&parsed.url) else {
+        return 0;
+    };
+
+    let mut body = Vec::new();
+    if io::stdin().read_to_end(&mut body).is_err() {
+        return 0;
+    }
+
+    let _ = send_hook_request(&target, &body);
+    0
+}
+
 fn run() -> i32 {
     let raw_args: Vec<String> = env::args().skip(1).collect();
 
@@ -210,6 +316,10 @@ fn run() -> i32 {
 }
 
 fn main() {
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    if raw_args.first().map(String::as_str) == Some(HOOK_SUBCOMMAND) {
+        std::process::exit(run_hook(&raw_args[1..]));
+    }
     std::process::exit(run());
 }
 
@@ -299,5 +409,63 @@ mod tests {
         let resolved = normalize_absolute("relative.txt").unwrap();
         assert!(resolved.is_absolute());
         assert!(resolved.ends_with("relative.txt"));
+    }
+
+    #[test]
+    fn hook_서브커맨드는_url_플래그를_파싱한다() {
+        let args = vec![
+            "--url".to_string(),
+            "http://127.0.0.1:9999/claude/hook?token=abc".to_string(),
+        ];
+        let parsed = parse_hook_args(&args).unwrap();
+        assert_eq!(parsed.url, "http://127.0.0.1:9999/claude/hook?token=abc");
+    }
+
+    #[test]
+    fn hook_서브커맨드는_url_플래그가_없으면_에러를_반환한다() {
+        let args: Vec<String> = vec![];
+        assert_eq!(parse_hook_args(&args), Err(HookArgsError::MissingUrl));
+    }
+
+    #[test]
+    fn hook_서브커맨드는_url_값이_없으면_에러를_반환한다() {
+        let args = vec!["--url".to_string()];
+        assert_eq!(parse_hook_args(&args), Err(HookArgsError::MissingUrlValue));
+    }
+
+    #[test]
+    fn 루프백_주소만_hook_url로_허용한다() {
+        let target =
+            parse_hook_url("http://127.0.0.1:9999/claude/hook?token=abc&agent=codex&taide=1")
+                .unwrap();
+        assert_eq!(target.host, "127.0.0.1");
+        assert_eq!(target.port, 9999);
+        assert_eq!(
+            target.path_and_query,
+            "/claude/hook?token=abc&agent=codex&taide=1"
+        );
+    }
+
+    #[test]
+    fn 루프백이_아닌_호스트는_거부한다() {
+        assert!(parse_hook_url("http://example.com/claude/hook").is_none());
+        assert!(parse_hook_url("http://localhost:9999/claude/hook").is_none());
+    }
+
+    #[test]
+    fn https_스킴은_거부한다() {
+        assert!(parse_hook_url("https://127.0.0.1:9999/claude/hook").is_none());
+    }
+
+    #[test]
+    fn 포트가_없으면_80을_기본값으로_쓴다() {
+        let target = parse_hook_url("http://127.0.0.1/claude/hook").unwrap();
+        assert_eq!(target.port, 80);
+    }
+
+    #[test]
+    fn 경로가_없으면_루트로_보정한다() {
+        let target = parse_hook_url("http://127.0.0.1:9999").unwrap();
+        assert_eq!(target.path_and_query, "/");
     }
 }
