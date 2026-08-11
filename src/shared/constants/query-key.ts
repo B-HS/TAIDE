@@ -40,6 +40,7 @@ export const QUERY_KEY = {
         ALL: ['lsp'] as const,
         SERVERS: ['lsp', 'servers'] as const,
         SESSIONS: (projectId: ProjectId) => ['lsp', 'sessions', projectId] as const,
+        INSTALL_PROGRESS: ['lsp', 'install-progress'] as const,
     },
     AGENT: {
         ALL: ['agent'] as const,

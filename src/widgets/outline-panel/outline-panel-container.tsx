@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
-import { LANGUAGE_SERVERS_BY_LANGUAGE_ID } from '@shared/lib/lsp/language-servers'
 import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { fileQueryOptions } from '@entities/file/file.query'
@@ -37,9 +36,7 @@ export const OutlinePanelContainer: FC<OutlinePanelContainerProps> = ({ projectI
     useEffect(() => {
         if (!activePath || !languageId || !servers) return
 
-        const availableServerIds = (LANGUAGE_SERVERS_BY_LANGUAGE_ID[languageId] ?? []).filter(
-            (serverId) => servers.find((server) => server.id === serverId)?.available,
-        )
+        const availableServerIds = servers.filter((server) => server.languageIds.includes(languageId) && server.available).map((server) => server.id)
         if (availableServerIds.length === 0) return
 
         let cancelled = false

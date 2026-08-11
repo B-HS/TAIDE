@@ -1,3 +1,4 @@
+pub mod lsp_install;
 pub mod lsp_proc;
 pub mod persist;
 pub mod pty;

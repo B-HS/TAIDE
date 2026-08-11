@@ -14,7 +14,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeStore;
-use crate::domain::lsp::commands::LspStore;
+use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::commands::PluginStore;
 use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
@@ -22,8 +22,8 @@ use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested,
-    IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspSessionStatusChanged, ProjectActivated, ProjectClosed, ProjectFocusKindChanged,
-    ProjectListChanged, ProjectOpened, TerminalCwdChanged, TerminalExited, ThemeChanged,
+    IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated, ProjectClosed,
+    ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
 use crate::paths::AppPaths;
 use crate::state::AppState;
@@ -121,6 +121,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::lsp::commands::lsp_sessions,
             domain::lsp::commands::lsp_detect_servers,
             domain::lsp::commands::lsp_resolve_root,
+            domain::lsp::commands::lsp_install,
+            domain::lsp::commands::lsp_install_cancel,
             domain::git::commands::git_init,
             domain::git::commands::git_status,
             domain::git::commands::git_diff_file,
@@ -198,6 +200,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             GitStatusChanged,
             GitRefsChanged,
             LspSessionStatusChanged,
+            LspInstallProgress,
             AgentStateChanged,
             AgentExternalOpen,
             IdeStatusChanged,
@@ -364,6 +367,7 @@ pub fn run() {
             app.manage(TerminalStore::default());
             app.manage(GitStore::default());
             app.manage(LspStore::default());
+            app.manage(LspInstallStore::default());
             app.manage(SearchStore::default());
             app.manage(PluginStore::default());
             app.manage(AgentStore::default());

@@ -58,6 +58,8 @@ export const commands = {
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),
 	lspDetectServers: () => typedError<LspServerDetection[], AppError>(__TAURI_INVOKE("lsp_detect_servers")),
 	lspResolveRoot: (serverId: LspServerId, filePath: string) => typedError<string | null, AppError>(__TAURI_INVOKE("lsp_resolve_root", { serverId, filePath })),
+	lspInstall: (serverId: LspServerId) => typedError<null, AppError>(__TAURI_INVOKE("lsp_install", { serverId })),
+	lspInstallCancel: (serverId: LspServerId) => typedError<null, AppError>(__TAURI_INVOKE("lsp_install_cancel", { serverId })),
 	gitInit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_init", { projectId })),
 	gitStatus: (projectId: ProjectId) => typedError<GitStatus, AppError>(__TAURI_INVOKE("git_status", { projectId })),
 	gitDiffFile: (projectId: ProjectId, path: string, mode: DiffMode) => typedError<DiffSides, AppError>(__TAURI_INVOKE("git_diff_file", { projectId, path, mode })),
@@ -134,6 +136,7 @@ export const events = {
 	ideSaveRequested: makeEvent<IdeSaveRequested>("ide:save-requested"),
 	ideStatusChanged: makeEvent<IdeStatusChanged>("ide:status-changed"),
 	layoutChanged: makeEvent<LayoutChanged>("layout:changed"),
+	lspInstallProgress: makeEvent<LspInstallProgress>("lsp:install-progress"),
 	lspSessionStatusChanged: makeEvent<LspSessionStatusChanged>("lsp:session-status-changed"),
 	projectActivated: makeEvent<ProjectActivated>("project:activated"),
 	projectClosed: makeEvent<ProjectClosed>("project:closed"),
@@ -381,15 +384,34 @@ export type LogEntry = {
 	refs: string[],
 };
 
+export type LspInstallPhase = "downloading" | "verifying" | "extracting" | "done" | "failed";
+
+export type LspInstallProgress = {
+	serverId: LspServerId,
+	phase: LspInstallPhase,
+	receivedBytes: number | null,
+	totalBytes: number | null,
+	message?: string | null,
+};
+
+export type LspInstallStrategy = "download" | "toolchain" | "sdk-detect";
+
 export type LspServerDetection = {
 	id: LspServerId,
 	name: string,
+	languageIds: string[],
 	resolvedPath?: string | null,
 	available: boolean,
 	installHint?: string | null,
+	installStrategy: LspInstallStrategy,
+	installedVersion?: string | null,
+	toolchainAvailable?: boolean | null,
+	sdkAvailable?: boolean | null,
+	toolchainTool?: string | null,
+	downloadAvailable?: boolean | null,
 };
 
-export type LspServerId = "vtsls" | "rustAnalyzer" | "basedPyright" | "ruff" | "marksman";
+export type LspServerId = string;
 
 export type LspSessionInfo = {
 	sessionId: string,

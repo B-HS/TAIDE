@@ -1,0 +1,406 @@
+{
+    "servers": [
+        {
+            "id": "vtsls",
+            "name": "vtsls",
+            "languageIds": ["typescript", "typescriptreact", "javascript", "javascriptreact"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "vtsls", "args": ["--stdio"] },
+            "rootMarkers": ["package.json", "tsconfig.json"],
+            "rootStrategy": "jsTsDenoAware",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "npm install -g @vtsls/language-server",
+                "sdkDetect": { "probes": [{ "kind": "path-command", "command": "vtsls" }] }
+            }
+        },
+        {
+            "id": "rustAnalyzer",
+            "name": "rust-analyzer",
+            "languageIds": ["rust"],
+            "sharesSessions": false,
+            "command": { "kind": "path", "bin": "rust-analyzer", "args": [] },
+            "rootMarkers": ["Cargo.toml"],
+            "rootStrategy": "cargoWorkspace",
+            "initializationOptions": {
+                "cargo": { "features": "all", "buildScripts": { "enable": true } },
+                "procMacro": { "enable": true },
+                "check": { "command": "clippy" },
+                "checkOnSave": true
+            },
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "rustup component add rust-analyzer",
+                "sdkDetect": { "probes": [{ "kind": "path-command", "command": "rust-analyzer" }] }
+            }
+        },
+        {
+            "id": "basedPyright",
+            "name": "basedpyright",
+            "languageIds": ["python"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "basedpyright-langserver", "args": ["--stdio"] },
+            "rootMarkers": ["pyproject.toml"],
+            "rootStrategy": "venvFallback",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "uv tool install basedpyright",
+                "sdkDetect": { "probes": [{ "kind": "path-command", "command": "basedpyright-langserver" }] }
+            }
+        },
+        {
+            "id": "ruff",
+            "name": "ruff",
+            "languageIds": ["python"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "ruff", "args": ["server"] },
+            "rootMarkers": ["pyproject.toml"],
+            "rootStrategy": "venvFallback",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "uv tool install ruff",
+                "sdkDetect": { "probes": [{ "kind": "path-command", "command": "ruff" }] }
+            }
+        },
+        {
+            "id": "marksman",
+            "name": "marksman",
+            "languageIds": ["markdown"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "marksman", "args": ["server"] },
+            "rootMarkers": [".git", ".marksman.toml"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "brew install marksman",
+                "sdkDetect": { "probes": [{ "kind": "path-command", "command": "marksman" }] }
+            }
+        },
+        {
+            "id": "jdtls",
+            "name": "Eclipse JDT Language Server",
+            "languageIds": ["java"],
+            "sharesSessions": true,
+            "command": {
+                "kind": "managed",
+                "bin": "java",
+                "args": [
+                    "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                    "-Dosgi.bundles.defaultStartLevel=4",
+                    "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                    "-Dlog.level=ALL",
+                    "-Xmx1G",
+                    "--add-modules=ALL-SYSTEM",
+                    "--add-opens",
+                    "java.base/java.util=ALL-UNNAMED",
+                    "--add-opens",
+                    "java.base/java.lang=ALL-UNNAMED",
+                    "-jar",
+                    "{serverDir}/plugins/org.eclipse.equinox.launcher_1.7.200.v20260619-2039.jar",
+                    "-configuration",
+                    "{serverDir}/config_mac_arm",
+                    "-data",
+                    "{workspaceDir}/.jdtls-data"
+                ]
+            },
+            "rootMarkers": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "JDK 21 이상이 필요합니다 (brew install openjdk@21). 서버는 앱이 자동 설치합니다.",
+                "download": {
+                    "version": "1.60.0-202606262232",
+                    "urls": {
+                        "darwin-arm64": "https://download.eclipse.org/jdtls/milestones/1.60.0/jdt-language-server-1.60.0-202606262232.tar.gz"
+                    },
+                    "sha256": { "darwin-arm64": "e94c303d8198f977930803582738771fd18c52c5492878410bf222b1aa81ef1d" },
+                    "archive": "tar-gz",
+                    "binPathInArchive": null
+                },
+                "sdkDetect": {
+                    "probes": [
+                        { "kind": "path-command", "command": "java" },
+                        { "kind": "fixed-path", "path": "/usr/libexec/java_home" }
+                    ]
+                }
+            }
+        },
+        {
+            "id": "clangd",
+            "name": "clangd",
+            "languageIds": ["c", "cpp"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "clangd", "args": ["--background-index"] },
+            "rootMarkers": ["compile_commands.json", "compile_flags.txt", ".clangd", "CMakeLists.txt", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "brew install llvm (또는 앱 내 설치)",
+                "download": {
+                    "version": "22.1.6",
+                    "urls": { "darwin-arm64": "https://github.com/clangd/clangd/releases/download/22.1.6/clangd-mac-22.1.6.zip" },
+                    "sha256": { "darwin-arm64": "631aef462556cbd74e0ebaae1778a38d1997d0ba3371652ca54f82652a179e7d" },
+                    "archive": "zip",
+                    "binPathInArchive": "clangd_22.1.6/bin/clangd"
+                }
+            }
+        },
+        {
+            "id": "expert",
+            "name": "Expert (Elixir)",
+            "languageIds": ["elixir", "heex"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "expert", "args": ["--stdio"] },
+            "rootMarkers": ["mix.exs", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "Expert 는 alpha 단계입니다. 앱 내 설치 또는 릴리스 바이너리를 PATH 에 두세요.",
+                "download": {
+                    "version": "0.1.8",
+                    "urls": { "darwin-arm64": "https://github.com/expert-lsp/expert/releases/download/v0.1.8/expert_darwin_arm64" },
+                    "sha256": { "darwin-arm64": "65b574eb64cbf3ccb0f5c1e0d8147e5f67f71f087a7a93c05ebec757659d4d72" },
+                    "archive": "binary",
+                    "binPathInArchive": "expert"
+                }
+            }
+        },
+        {
+            "id": "luaLanguageServer",
+            "name": "lua-language-server",
+            "languageIds": ["lua"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "lua-language-server", "args": [] },
+            "rootMarkers": [".luarc.json", ".luarc.jsonc", ".luacheckrc", "stylua.toml", ".stylua.toml", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "brew install lua-language-server (또는 앱 내 설치)",
+                "download": {
+                    "version": "3.19.0",
+                    "urls": {
+                        "darwin-arm64": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.0/lua-language-server-3.19.0-darwin-arm64.tar.gz"
+                    },
+                    "sha256": { "darwin-arm64": "c952adb8521d316ecbfe3b6add88e7cc03a4b5d74143911cbb61b30bbeafd7bb" },
+                    "archive": "tar-gz",
+                    "binPathInArchive": "bin/lua-language-server"
+                }
+            }
+        },
+        {
+            "id": "taplo",
+            "name": "Taplo (TOML)",
+            "languageIds": ["toml"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "taplo", "args": ["lsp", "stdio"] },
+            "rootMarkers": ["taplo.toml", ".taplo.toml", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "brew install taplo (또는 앱 내 설치)",
+                "download": {
+                    "version": "0.10.0",
+                    "urls": { "darwin-arm64": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz" },
+                    "sha256": { "darwin-arm64": "713734314c3e71894b9e77513c5349835eefbd52908445a0d73b0c7dc469347d" },
+                    "archive": "gz",
+                    "binPathInArchive": "taplo"
+                }
+            }
+        },
+        {
+            "id": "terraformLs",
+            "name": "terraform-ls",
+            "languageIds": ["hcl"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "terraform-ls", "args": ["serve"] },
+            "rootMarkers": [".terraform", ".terraform.lock.hcl", "main.tf", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "brew install hashicorp/tap/terraform-ls (또는 앱 내 설치)",
+                "download": {
+                    "version": "0.39.0",
+                    "urls": { "darwin-arm64": "https://releases.hashicorp.com/terraform-ls/0.39.0/terraform-ls_0.39.0_darwin_arm64.zip" },
+                    "sha256": { "darwin-arm64": "6f80fe0b34af184175508f3d9135d8159f5dce4000d9b39540553eb1c267c54b" },
+                    "archive": "zip",
+                    "binPathInArchive": "terraform-ls"
+                }
+            }
+        },
+        {
+            "id": "kotlinLsp",
+            "name": "Kotlin LSP (JetBrains)",
+            "languageIds": ["kotlin"],
+            "sharesSessions": true,
+            "command": { "kind": "managed", "bin": "intellij-server", "args": ["--stdio"] },
+            "rootMarkers": ["build.gradle.kts", "build.gradle", "settings.gradle.kts", "settings.gradle", "pom.xml", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "download",
+                "hint": "brew install JetBrains/utils/kotlin-lsp (또는 앱 내 설치 — 약 387MB)",
+                "download": {
+                    "version": "262.9593.0",
+                    "urls": {
+                        "darwin-arm64": "https://download-cdn.jetbrains.com/language-server/kotlin-server/262.9593.0/kotlin-server-262.9593.0-aarch64.sit"
+                    },
+                    "sha256": { "darwin-arm64": "6ba6021a706b21e64cef33f7e2b79f187c0910320722bb2d3ed05ad1115ec43f" },
+                    "archive": "zip",
+                    "binPathInArchive": "kotlin-server-262.9593.0/bin/intellij-server"
+                }
+            }
+        },
+        {
+            "id": "gopls",
+            "name": "gopls",
+            "languageIds": ["go"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "gopls", "args": [] },
+            "rootMarkers": ["go.work", "go.mod"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "toolchain",
+                "hint": "go install golang.org/x/tools/gopls@latest",
+                "toolchain": {
+                    "tool": "go",
+                    "installArgs": ["install", "golang.org/x/tools/gopls@latest"],
+                    "toolDetect": { "command": "go", "args": ["version"] }
+                }
+            }
+        },
+        {
+            "id": "rubyLsp",
+            "name": "ruby-lsp",
+            "languageIds": ["ruby", "erb"],
+            "sharesSessions": false,
+            "command": { "kind": "path", "bin": "ruby-lsp", "args": [] },
+            "rootMarkers": ["Gemfile", ".ruby-version", "Rakefile"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "toolchain",
+                "hint": "gem install ruby-lsp",
+                "toolchain": {
+                    "tool": "gem",
+                    "installArgs": ["install", "ruby-lsp"],
+                    "toolDetect": { "command": "gem", "args": ["--version"] }
+                }
+            }
+        },
+        {
+            "id": "metals",
+            "name": "Metals",
+            "languageIds": ["scala"],
+            "sharesSessions": false,
+            "command": { "kind": "path", "bin": "metals", "args": [] },
+            "rootMarkers": [
+                "build.sbt",
+                "build.sc",
+                "build.mill",
+                "project/build.properties",
+                "pom.xml",
+                "build.gradle",
+                "build.gradle.kts",
+                ".bsp",
+                ".scala-build"
+            ],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "toolchain",
+                "hint": "cs install metals (Coursier + JDK 17 필요)",
+                "toolchain": {
+                    "tool": "coursier",
+                    "installArgs": ["install", "metals"],
+                    "toolDetect": { "command": "cs", "args": ["version"] }
+                }
+            }
+        },
+        {
+            "id": "haskellLanguageServer",
+            "name": "haskell-language-server",
+            "languageIds": ["haskell"],
+            "sharesSessions": false,
+            "command": { "kind": "path", "bin": "haskell-language-server-wrapper", "args": ["--lsp"] },
+            "rootMarkers": ["hie.yaml", "cabal.project", "stack.yaml", "package.yaml"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "toolchain",
+                "hint": "ghcup install hls",
+                "toolchain": {
+                    "tool": "ghcup",
+                    "installArgs": ["install", "hls", "--set"],
+                    "toolDetect": { "command": "ghcup", "args": ["--numeric-version"] }
+                }
+            }
+        },
+        {
+            "id": "dartls",
+            "name": "dart language-server",
+            "languageIds": ["dart"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "dart", "args": ["language-server", "--protocol=lsp"] },
+            "rootMarkers": ["pubspec.yaml"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": {
+                "onlyAnalyzeProjectsWithOpenFiles": true,
+                "suggestFromUnimportedLibraries": true,
+                "closingLabels": false,
+                "outline": false,
+                "flutterOutline": false
+            },
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "brew install --cask flutter",
+                "sdkDetect": {
+                    "probes": [
+                        { "kind": "path-command", "command": "dart" },
+                        { "kind": "path-command", "command": "flutter" },
+                        { "kind": "fixed-path", "path": "/opt/homebrew/bin/dart" },
+                        { "kind": "fixed-path", "path": "/opt/homebrew/bin/flutter" },
+                        { "kind": "fixed-path", "path": "/opt/homebrew/share/flutter/bin/cache/dart-sdk/bin/dart" },
+                        { "kind": "fixed-path", "path": "/opt/homebrew/opt/dart-sdk/libexec/bin/dart" }
+                    ]
+                }
+            }
+        },
+        {
+            "id": "sourcekitLsp",
+            "name": "sourcekit-lsp",
+            "languageIds": ["swift"],
+            "sharesSessions": true,
+            "command": { "kind": "path", "bin": "sourcekit-lsp", "args": [] },
+            "rootMarkers": ["Package.swift", "buildServer.json", "compile_commands.json", ".git"],
+            "rootStrategy": "nearestMarker",
+            "initializationOptions": null,
+            "install": {
+                "strategy": "sdk-detect",
+                "hint": "xcode-select --install",
+                "sdkDetect": {
+                    "probes": [
+                        { "kind": "xcrun", "tool": "sourcekit-lsp" },
+                        { "kind": "path-command", "command": "sourcekit-lsp" },
+                        { "kind": "fixed-path", "path": "/usr/bin/sourcekit-lsp" },
+                        {
+                            "kind": "fixed-path",
+                            "path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/sourcekit-lsp"
+                        },
+                        { "kind": "fixed-path", "path": "/Library/Developer/CommandLineTools/usr/bin/sourcekit-lsp" }
+                    ]
+                }
+            }
+        }
+    ]
+}

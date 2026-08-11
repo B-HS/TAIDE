@@ -4,7 +4,13 @@ import { useQuery } from '@tanstack/react-query'
 import { FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { fontListQueryOptions } from '@entities/font/font.query'
-import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import {
+    lspInstallProgressQueryOptions,
+    lspServersQueryOptions,
+    useCancelLspInstall,
+    useInstallLspServer,
+    useLspInstallProgressSync,
+} from '@entities/lsp/lsp.query'
 import { projectListQueryOptions } from '@entities/project/project.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
@@ -24,7 +30,7 @@ import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
-import type { AppDataPathKind } from '@shared/api/bindings'
+import type { AppDataPathKind, LspServerId } from '@shared/api/bindings'
 import type { KeymapActionId, KeymapModifier } from '@shared/lib/keymap'
 import { APP_KEYMAP, applyKeymapOverrides, findKeymapConflict, parseKeymapOverrides, serializeKeymapOverrides } from '@shared/lib/keymap'
 import { SettingsToc } from '@features/settings/settings-toc'
@@ -119,14 +125,22 @@ export const SettingsView = () => {
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [], isPending: isThemesPending } = useQuery(themeListQueryOptions())
     const { data: lspServers = [], isPending: isLspPending } = useQuery(lspServersQueryOptions())
+    const { data: lspInstallProgressByServerId = {} } = useQuery(lspInstallProgressQueryOptions())
     const { data: shellProfiles = [], isPending: isShellPending } = useQuery(shellProfilesQueryOptions())
     const { data: locales = [], isPending: isLocalesPending } = useQuery(localeListQueryOptions())
     const { data: fonts = [], isPending: isFontsPending } = useQuery(fontListQueryOptions())
     const { data: projects = [] } = useQuery(projectListQueryOptions())
     const { mutate: setThemeId } = useSetThemeId()
     const { mutate: updateSettings } = useUpdateSettings()
+    const { mutate: installLspServer } = useInstallLspServer()
+    const { mutate: cancelLspInstall } = useCancelLspInstall()
 
     const { t } = useTranslation()
+
+    useLspInstallProgressSync()
+
+    const handleInstallLspServer = (serverId: LspServerId) => installLspServer(serverId, { onError: (error: Error) => toast.error(error.message) })
+    const handleCancelLspInstall = (serverId: LspServerId) => cancelLspInstall(serverId, { onError: (error: Error) => toast.error(error.message) })
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
@@ -509,7 +523,12 @@ export const SettingsView = () => {
                             {isLspPending ? (
                                 <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
                             ) : (
-                                <LspServerStatusList servers={lspServers} />
+                                <LspServerStatusList
+                                    servers={lspServers}
+                                    installProgressByServerId={lspInstallProgressByServerId}
+                                    onInstall={handleInstallLspServer}
+                                    onCancelInstall={handleCancelLspInstall}
+                                />
                             )}
                         </SettingsSection>
 

@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { FileSizeTier, LspServerId, ProjectId } from '@shared/api/bindings'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
-import { LANGUAGE_SERVERS_BY_LANGUAGE_ID } from '@shared/lib/lsp/language-servers'
 import { getModel } from '@entities/editor/model-registry'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
@@ -92,13 +91,10 @@ export const useLspSession = ({ projectId, path, languageId, tier, enabled }: Us
         if (!enabled || !languageId || tier === 'large' || tier === 'readOnly') return
         if (!project?.root || !servers) return
 
-        const serverIds = LANGUAGE_SERVERS_BY_LANGUAGE_ID[languageId]
-        if (!serverIds) return
-
         const projectRoot = project.root
-        const cleanups = serverIds
-            .filter((serverId) => servers.find((server) => server.id === serverId)?.available)
-            .map((serverId) => attachLspSession({ projectId, serverId, projectRoot, path, languageId }))
+        const cleanups = servers
+            .filter((server) => server.languageIds.includes(languageId) && server.available)
+            .map((server) => attachLspSession({ projectId, serverId: server.id, projectRoot, path, languageId }))
 
         return () => {
             cleanups.forEach((cleanup) => cleanup())

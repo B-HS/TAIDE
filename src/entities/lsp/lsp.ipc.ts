@@ -21,3 +21,7 @@ export const detectLspServers = () => unwrapResult(commands.lspDetectServers())
 
 export const resolveLspRoot = (input: { serverId: LspServerId; filePath: string }) =>
     unwrapResult(commands.lspResolveRoot(input.serverId, input.filePath))
+
+export const installLspServer = (serverId: LspServerId) => unwrapResult(commands.lspInstall(serverId))
+
+export const cancelLspInstall = (serverId: LspServerId) => unwrapResult(commands.lspInstallCancel(serverId))

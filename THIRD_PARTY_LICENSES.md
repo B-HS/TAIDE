@@ -1,4 +1,12 @@
-# Third-Party Licenses — Bundled Themes
+# Third-Party Licenses
+
+This file covers two kinds of third-party code TAIDE distributes notices for:
+bundled color themes (shipped inside the app), and language servers that the
+in-app LSP installer downloads on demand (not bundled — fetched from the
+upstream project's own release infrastructure at install time, and cached
+under the user's app-data directory).
+
+## Bundled Themes
 
 TAIDE ships 36 color themes derived from popular VS Code extensions as built-in
 (`builtin: true`) themes under `src-tauri/resources/themes/*.json`. Each source
@@ -195,3 +203,83 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+---
+
+## Downloaded Language Servers
+
+The entries below use the `download` install strategy in
+`src-tauri/resources/lsp-servers.json` — TAIDE's LSP installer fetches the
+listed release artifact from the upstream project directly, verifies it by
+SHA-256, and unpacks it into `{appData}/lsp/<server>/<version>/`. No source
+or binary code from these projects is committed to the TAIDE repository or
+embedded in the TAIDE application bundle; each is retrieved by the end user's
+own running copy of TAIDE, on demand, from the upstream project's own release
+infrastructure. Language servers installed via a system toolchain (`go
+install`, `gem install`, Coursier, GHCup) or detected from an existing SDK
+(Dart/Flutter, Xcode) are not listed here — TAIDE never downloads or
+redistributes those.
+
+### Eclipse JDT Language Server (jdtls)
+
+- Bundled as: `jdtls`
+- Source: https://github.com/eclipse-jdtls/eclipse.jdt.ls
+- License: EPL-2.0 (Eclipse Public License 2.0) — full text:
+  https://www.eclipse.org/legal/epl-2.0/
+- Copyright (c) the Eclipse JDT Language Server contributors
+
+### clangd
+
+- Bundled as: `clangd`
+- Source: https://github.com/clangd/clangd (upstream: LLVM/clang-tools-extra)
+- License: Apache-2.0 WITH LLVM-exception — full text:
+  https://llvm.org/LICENSE.txt
+- Copyright (c) the LLVM Project contributors
+
+### Expert (Elixir)
+
+- Bundled as: `expert`
+- Source: https://github.com/expert-lsp/expert (formerly `elixir-lang/expert`)
+- License: Apache-2.0 — full text: https://www.apache.org/licenses/LICENSE-2.0
+- Copyright (c) the Expert contributors
+- Note: the project is in alpha (per upstream README). The settings UI should
+  surface this to users before they trigger an install.
+
+### lua-language-server
+
+- Bundled as: `luaLanguageServer`
+- Source: https://github.com/LuaLS/lua-language-server
+- License: MIT (see `## Full MIT License Text` above)
+- Copyright (c) the LuaLS / lua-language-server contributors — see the
+  archive's own `LICENSE` file for the exact notice
+
+### Taplo (TOML)
+
+- Bundled as: `taplo`
+- Source: https://github.com/tamasfe/taplo
+- License: MIT (see `## Full MIT License Text` above)
+- Copyright (c) the Taplo contributors — see the archive's own `LICENSE`
+  file for the exact notice
+
+### terraform-ls
+
+- Bundled as: `terraformLs`
+- Source: https://github.com/hashicorp/terraform-ls
+- License: MPL-2.0 (Mozilla Public License 2.0) — full text:
+  https://www.mozilla.org/en-US/MPL/2.0/
+- Copyright (c) HashiCorp, Inc.
+
+### Kotlin LSP (JetBrains)
+
+- Bundled as: `kotlinLsp`
+- Source: https://github.com/Kotlin/kotlin-lsp
+- License: the `kotlin-lsp` repository is Apache-2.0, but the distributed
+  release archive bundles a JetBrains Runtime (JBR) and, per the project's
+  own README, "proprietary parts of JetBrains Air and Fleet". This is **not**
+  a pure Apache-2.0 redistribution — copyright/license notices from
+  `license/` inside the release archive should be reviewed before any wider
+  redistribution of a cached copy, beyond the on-demand per-user download
+  TAIDE performs.
+- Copyright (c) JetBrains s.r.o.
+- Note: the project is in alpha (per upstream README). The settings UI should
+  surface this to users before they trigger an install.

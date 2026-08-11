@@ -112,6 +112,18 @@ pub struct LspSessionStatusChanged {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "lsp:install-progress")]
+pub struct LspInstallProgress {
+    pub server_id: crate::domain::lsp::types::LspServerId,
+    pub phase: crate::domain::lsp::types::LspInstallPhase,
+    pub received_bytes: f64,
+    pub total_bytes: Option<f64>,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "agent:state-changed")]
 pub struct AgentStateChanged {
     pub project_id: ProjectId,
