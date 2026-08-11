@@ -808,7 +808,14 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
             축소·:root 동기 2건) 수정. bun run verify 전량 통과 실측 후 커밋
       - 보류 보고: appSidebar/popover/tooltip/modal 의 itemHover 동일 원본 결함(theme-system.md
         §8.2.2 기록), ⌃Tab/⌃⇧Tab WKWebView 도달 여부는 실기 확인 필요
-- [ ] 7.10-W2. LSP 원클릭 — 스펙 데이터화 + 설치 인프라(다운로드·체크섬·해제) + 14종 매니페스트
+- [x] 7.10-W2. 완료 (커밋 5416689) — LSP 원클릭: 스펙 데이터화(enum→newtype+lsp-servers.json,
+      기존 5종 무손실)·설치 인프라(스트리밍 다운로드·sha256·해제·원자 설치)·신규 13종(다운로드 7·
+      툴체인 4·SDK 2)·설정 UI 설치 버튼/진행률. 검토 15건 확정·전량 수정(managed 신뢰 경계·실패
+      이벤트·동시 설치 레이스·라우팅 맵 고착 등). 메인 2차: 공식 체크섬 미공개 3종(clangd·lua-ls·
+      taplo) 독립 재다운로드로 일치 확인, bun run verify 전량 통과.
+      **결정 대기: zls** — darwin-arm64 가 .tar.xz 뿐이라 xz2 의존 승인 필요 (a) xz2 승인 후 다운로드형
+      (b) sdk-detect 강등. kotlin-lsp 배포물에 proprietary 컴포넌트 포함 경고 기재됨.
+      실기 확인 대기: 설치 버튼 실동작(다운로드→기동), 미서명 바이너리 Gatekeeper 정책
 - [ ] 7.10-W3. AI provider(Ollama Cloud·Codex) + Monaco auto-tab + keyring + GitHub sync(Gist)
 - [ ] 7.10-W4. 멀티 에이전트 hooks(codex·gemini) + taide-cli shim + override 스코프 확장
 - [ ] 7.10-W5. VSIX 임포트(테마 추출 + 관리 UI)
