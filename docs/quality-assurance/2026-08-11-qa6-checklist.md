@@ -29,6 +29,7 @@
 - [ ] SDK 형: Xcode 있는 환경에서 sourcekit-lsp 감지 표시
 - [ ] expert(alpha)·kotlin-lsp 행에 실험 표기
 - [ ] 신규 확장자(.java·.rb·.dart·.swift·.scala·.ex·.hs·.kt·.lua·.zig·.tf 등) 하이라이팅
+- [ ] zls 설치(tar.xz 해제 경로) 후 .zig 파일에서 동작
 
 ## W3 — AI Provider·auto-tab·GitHub 동기화
 - [ ] 설정 AI 섹션: Ollama Cloud API key 저장(재시작 후 유지 — keychain), Codex access token 저장(whoami 검증)
