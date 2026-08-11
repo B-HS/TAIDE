@@ -813,8 +813,12 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       툴체인 4·SDK 2)·설정 UI 설치 버튼/진행률. 검토 15건 확정·전량 수정(managed 신뢰 경계·실패
       이벤트·동시 설치 레이스·라우팅 맵 고착 등). 메인 2차: 공식 체크섬 미공개 3종(clangd·lua-ls·
       taplo) 독립 재다운로드로 일치 확인, bun run verify 전량 통과.
-      **결정 대기: zls** — darwin-arm64 가 .tar.xz 뿐이라 xz2 의존 승인 필요 (a) xz2 승인 후 다운로드형
-      (b) sdk-detect 강등. kotlin-lsp 배포물에 proprietary 컴포넌트 포함 경고 기재됨.
+      **zls 결정 확정(2026-08-11 사용자 A안)**: xz2 승인 + 다운로드형. 메인 실측 완료 —
+      v0.16.0, https://github.com/zigtools/zls/releases/download/0.16.0/zls-aarch64-macos.tar.xz,
+      sha256 b93ec549f8558a7e85984a840e9276d274f1059b54ade4254296ef4982958359 (메인 직접 계산),
+      아카이브 루트 평면(zls·LICENSE(MIT)·README). 반영은 W3 완료 직후 소형 워크플로
+      (Cargo.toml 스파인 충돌 회피): xz2 + LspArchiveKind TarXz + 매니페스트 + THIRD_PARTY 기재.
+      kotlin-lsp 배포물에 proprietary 컴포넌트 포함 경고 기재됨.
       실기 확인 대기: 설치 버튼 실동작(다운로드→기동), 미서명 바이너리 Gatekeeper 정책
 - [ ] 7.10-W3. AI provider(Ollama Cloud·Codex) + Monaco auto-tab + keyring + GitHub sync(Gist)
 - [ ] 7.10-W4. 멀티 에이전트 hooks(codex·gemini) + taide-cli shim + override 스코프 확장
