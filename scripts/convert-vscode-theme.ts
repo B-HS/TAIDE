@@ -47,6 +47,7 @@ type ResolveContext = {
     vscodeColors: Record<string, string>
     resolved: Record<string, string>
     ansi: AnsiLookup
+    type: ThemeTypeArg
 }
 
 const FAMILY_FALLBACK_SOURCE_KEYS: Record<ColorCategory, string[]> = {
@@ -72,6 +73,46 @@ const SAFE_DEFAULT_COLORS: Record<ThemeTypeArg, Record<ColorCategory, string>> =
         status: '#0066BF',
         shadow: '#00000026',
     },
+}
+
+/**
+ * VS Code's official `list.hoverBackground` default (src/vs/platform/theme/common/colors/listColors.ts,
+ * registerColor('list.hoverBackground', { dark: '#2A2D2E', light: '#F0F0F0', ... })). Themes that either
+ * omit `list.hoverBackground` or set it to a value indistinguishable from the row background (same RGB,
+ * or alpha 00) fall back to this instead of the generic same-family background fallback — otherwise the
+ * hover state silently disappears (docs/theme-system.md §8.2.2).
+ */
+const VSCODE_LIST_HOVER_BACKGROUND_DEFAULT: Record<ThemeTypeArg, string> = {
+    dark: '#2A2D2E',
+    light: '#F0F0F0',
+}
+
+/**
+ * VS Code's official `list.activeSelectionBackground` default (src/vs/platform/theme/common/colors/listColors.ts,
+ * registerColor('list.activeSelectionBackground', { dark: '#04395E', light: '#0060C0', ... })). Themes that either
+ * omit `list.activeSelectionBackground` or set it to a value indistinguishable from the row background fall back
+ * to this instead of the generic same-family background fallback — otherwise the focused selection silently
+ * disappears (docs/theme-system.md §8.2.2).
+ *
+ * The `light` value diverges from VS Code's own default (`#0060C0`). VS Code pairs that dark blue with a
+ * dedicated `list.activeSelectionForeground` (white) that TAIDE has no equivalent token for, so rows inherit
+ * `app.foreground` (black) and land at ~3.4:1 contrast — below the 4.5:1 AA floor for small text. `#ADD6FF`
+ * is VS Code's own light-theme `editor.selectionBackground` default, which clears 13.8:1 against black
+ * (docs/theme-system.md §8.2.2).
+ */
+const VSCODE_LIST_ACTIVE_SELECTION_BACKGROUND_DEFAULT: Record<ThemeTypeArg, string> = {
+    dark: '#04395E',
+    light: '#ADD6FF',
+}
+
+/**
+ * VS Code's official `list.inactiveSelectionBackground` default (src/vs/platform/theme/common/colors/listColors.ts,
+ * registerColor('list.inactiveSelectionBackground', { dark: '#37373D', light: '#E4E6F1', ... })). Same fallback
+ * reasoning as `VSCODE_LIST_ACTIVE_SELECTION_BACKGROUND_DEFAULT` above, applied to the unfocused selection state.
+ */
+const VSCODE_LIST_INACTIVE_SELECTION_BACKGROUND_DEFAULT: Record<ThemeTypeArg, string> = {
+    dark: '#37373D',
+    light: '#E4E6F1',
 }
 
 const COLOR_NAMESPACES: readonly { id: string; tokens: readonly string[] }[] = [
@@ -368,9 +409,23 @@ const COLOR_MAPPING: ColorMappingEntry[] = [
     chain('tabBar.dropTarget', 'status', ['list.dropBackground', 'editorGroup.dropBackground', 'focusBorder']),
 
     chain('explorer.background', 'background', ['sideBar.background']),
-    chain('explorer.itemHover', 'background', ['list.hoverBackground']),
-    chain('explorer.itemSelected', 'background', ['list.activeSelectionBackground']),
-    chain('explorer.itemFocused', 'background', ['list.focusBackground', 'list.inactiveSelectionBackground']),
+    derived('explorer.itemHover', 'background', (ctx) => {
+        const candidate = ctx.vscodeColors['list.hoverBackground']
+        const background = ctx.resolved['explorer.background']
+        return isUsableListBackground(candidate, background) ? candidate : VSCODE_LIST_HOVER_BACKGROUND_DEFAULT[ctx.type]
+    }),
+    derived('explorer.itemSelected', 'background', (ctx) => {
+        const candidate = ctx.vscodeColors['list.activeSelectionBackground']
+        const background = ctx.resolved['explorer.background']
+        return isUsableListBackground(candidate, background) ? candidate : VSCODE_LIST_ACTIVE_SELECTION_BACKGROUND_DEFAULT[ctx.type]
+    }),
+    derived('explorer.itemFocused', 'background', (ctx) => {
+        const background = ctx.resolved['explorer.background']
+        const candidate = [ctx.vscodeColors['list.focusBackground'], ctx.vscodeColors['list.inactiveSelectionBackground']].find((value) =>
+            isUsableListBackground(value, background),
+        )
+        return candidate ?? VSCODE_LIST_INACTIVE_SELECTION_BACKGROUND_DEFAULT[ctx.type]
+    }),
     chain('explorer.indentGuide', 'border', ['tree.indentGuidesStroke']),
     chain('explorer.folderIcon', 'foreground', ['icon.foreground', 'sideBar.foreground']),
     chain('explorer.gitModified', 'status', ['gitDecoration.modifiedResourceForeground', 'terminal.ansiYellow']),
@@ -690,6 +745,23 @@ const resolveColorEntry = (entry: ColorMappingEntry, ctx: ResolveContext): strin
     return resolveFamilyFallback(entry.category, ctx)
 }
 
+/**
+ * A `list.*Background` candidate (hover/activeSelection/inactiveSelection) is unusable when it is fully
+ * transparent (alpha 00) or shares the exact same RGB as the row background — both render as "no state at
+ * all" (docs/theme-system.md §8.2.2). Themes that hit either case fall back to VS Code's official default
+ * for that token instead.
+ */
+const isUsableListBackground = (candidateHex: string | undefined, backgroundHex: string | undefined): candidateHex is string => {
+    if (!candidateHex) return false
+    const alpha = candidateHex.length === HEX_ALPHA_LENGTH ? Number.parseInt(candidateHex.slice(7, HEX_ALPHA_LENGTH), 16) : ALPHA_CHANNEL_MAX
+    if (alpha === 0) return false
+    if (!backgroundHex) return true
+    const candidateRgb = hexToRgb(candidateHex)
+    const backgroundRgb = hexToRgb(backgroundHex)
+    if (!candidateRgb || !backgroundRgb) return true
+    return candidateRgb.r !== backgroundRgb.r || candidateRgb.g !== backgroundRgb.g || candidateRgb.b !== backgroundRgb.b
+}
+
 const readAnsiFromVscodeColors = (vscodeColors: Record<string, string>): Partial<AnsiLookup> => {
     const names: (typeof TERMINAL_ANSI_TOKENS)[number][] = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
     const ansi: Partial<AnsiLookup> = {}
@@ -729,7 +801,7 @@ const resolveAnsiLookup = (vscodeColors: Record<string, string>, type: ThemeType
 }
 
 const resolveColors = (vscodeColors: Record<string, string>, type: ThemeTypeArg, ansi: AnsiLookup) => {
-    const ctx: ResolveContext = { vscodeColors, resolved: {}, ansi }
+    const ctx: ResolveContext = { vscodeColors, resolved: {}, ansi, type }
     const safeDefaultNotices: string[] = []
 
     for (const entry of COLOR_MAPPING) {

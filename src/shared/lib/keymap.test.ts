@@ -69,6 +69,13 @@ describe('findMatchingKeymapEntry', () => {
         expect(next?.id).toBe('tab-cycle-next')
         expect(prev?.id).toBe('tab-cycle-prev')
     })
+
+    test('폰트 크기 확대/축소는 mod+=/mod+- 로 매칭된다', () => {
+        const up = findMatchingKeymapEntry(APP_KEYMAP, { key: '=', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        const down = findMatchingKeymapEntry(APP_KEYMAP, { key: '-', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        expect(up?.id).toBe('font-size-up')
+        expect(down?.id).toBe('font-size-down')
+    })
 })
 
 describe('parseKeymapOverrides', () => {

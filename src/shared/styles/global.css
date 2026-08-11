@@ -33,8 +33,10 @@
 
     --taide-explorer-background: #181825;
     --taide-explorer-item-hover: #313244;
-    --taide-explorer-item-selected: #45475a;
+    --taide-explorer-item-selected: #585b70;
+    --taide-explorer-item-focused: #45475a;
     --taide-explorer-indent-guide: #313244;
+    --taide-explorer-git-ignored: #6c7086;
 
     --taide-panel-background: #181825;
     --taide-panel-section-header: #a6adc8;
@@ -67,7 +69,7 @@
     --taide-git-modified: #f9e2af;
     --taide-git-deleted: #f38ba8;
     --taide-git-renamed: #74c7ec;
-    --taide-git-untracked: #a6e3a1;
+    --taide-git-untracked: #94e2d5;
     --taide-git-conflicted: #fab387;
     --taide-git-staged: #cba6f7;
 
@@ -94,7 +96,7 @@
 
     --taide-menu-background: #181825;
     --taide-menu-border: #313244;
-    --taide-menu-item-hover: #313244;
+    --taide-menu-item-hover: #45475a;
     --taide-menu-separator: #313244;
 
     --taide-scrollbar-thumb: #45475a;
@@ -178,7 +180,9 @@
     --color-explorer-background: var(--taide-explorer-background);
     --color-explorer-item-hover: var(--taide-explorer-item-hover);
     --color-explorer-item-selected: var(--taide-explorer-item-selected);
+    --color-explorer-item-focused: var(--taide-explorer-item-focused);
     --color-explorer-indent-guide: var(--taide-explorer-indent-guide);
+    --color-explorer-git-ignored: var(--taide-explorer-git-ignored);
 
     --color-panel-background: var(--taide-panel-background);
     --color-panel-section-header: var(--taide-panel-section-header);
@@ -284,12 +288,17 @@
     }
 
     body {
+        visibility: hidden;
         background-color: var(--color-background);
         color: var(--color-foreground);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans KR', sans-serif;
         font-size: 13px;
         -webkit-font-smoothing: antialiased;
         user-select: none;
+    }
+
+    html[data-theme-ready] body {
+        visibility: visible;
     }
 }
 

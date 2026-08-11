@@ -20,11 +20,13 @@ import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { getGitBlameRange } from '@entities/git/git.ipc'
 import { ideStatusQueryOptions } from '@entities/ide/ide.query'
+import { systemOpenPath } from '@entities/system/system.ipc'
 import { clearIdeSelection, setIdeSelection } from '@entities/ide/ide.ipc'
 import { gitCurrentUserQueryOptions, gitGutterQueryOptions, useDiscardGitHunk } from '@entities/git/git.query'
 import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
+import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
 import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
@@ -32,6 +34,7 @@ import { CodeEditor } from '@features/editor/code-editor'
 import { ConflictBanner } from '@features/editor/conflict-banner'
 import { MarkdownPreview } from '@features/editor/markdown-preview'
 import { PaneSeparator } from '@features/split/pane-separator'
+import { Button } from '@shared/ui/button'
 import { useLspSession } from '@widgets/editor-pane/use-lsp-session'
 
 const DIRTY_MIRROR_DEBOUNCE_MS = 1_500
@@ -176,6 +179,12 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
+    const handleEditorMount = (nextEditor: monaco.editor.IStandaloneCodeEditor | null) => {
+        setEditor(nextEditor)
+        if (nextEditor) registerEditorInstance(tabId, nextEditor)
+        else unregisterEditorInstance(tabId)
+    }
+
     useLspSession({
         projectId,
         path,
@@ -308,9 +317,16 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     if (file.tier === 'refused') {
         return (
-            <div className='bg-editor-background text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-1 text-sm'>
+            <div className='bg-editor-background text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 text-sm'>
                 <span>{t('editor.cannotOpen')}</span>
                 <span className='text-xs opacity-70'>{t('editor.binaryOrTooLarge')}</span>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='xs'
+                    onClick={() => void systemOpenPath(path).catch((error: Error) => toast.error(error.message))}>
+                    {t('editor.openExternally')}
+                </Button>
             </div>
         )
     }
@@ -339,7 +355,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}
-            onEditorMount={setEditor}
+            onEditorMount={handleEditorMount}
             onMinimapToggle={handleMinimapToggle}
         />
     )

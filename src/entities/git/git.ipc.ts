@@ -2,6 +2,8 @@ import { commands } from '@shared/api/bindings'
 import type { CommitOptions, DiffMode, ProjectId } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
+export const initGitRepository = (projectId: ProjectId) => unwrapResult(commands.gitInit(projectId))
+
 export const getGitStatus = (projectId: ProjectId) => unwrapResult(commands.gitStatus(projectId))
 
 export const getGitLog = (input: { projectId: ProjectId; skip: number; take: number }) =>

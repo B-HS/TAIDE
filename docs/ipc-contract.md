@@ -75,7 +75,7 @@
 - query: `git_status`, `git_gutter(path)`, `git_blame_range(path, from, to)`,
   `git_diff_file(path, mode)`, `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`,
   `git_ahead_behind`, `git_remotes`, `git_stash_list`
-- mutation: `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`,
+- mutation: `git_init(projectId)`, `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`,
   `git_commit(message, opts)`, `git_push`, `git_pull`, `git_fetch`, `git_undo_last_commit`,
   `git_stash_push/apply/pop/drop`
 - event: `git:status-changed`, `git:refs-changed`, `git:operation-progress`, `git:operation-finished`
@@ -182,6 +182,27 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
   `opener:allow-reveal-item-in-dir`)은 7.7 후속에서 **전부 제거**했다. 광역 스코프(`path: "**"`)가
   §4 의 "view 는 fs/shell 플러그인 API 를 직접 호출하지 않는다" 선언과 충돌했기 때문이다 —
   같은 기능은 위 `system_*` 커맨드가 루트 검증을 거쳐 제공한다.
+
+### 7.10 계약 확정 추가 (dead-end UX 스파인)
+
+- system(신설): mutation `system_open_app_data_path(kind)` — `kind` 는 `"plugins" | "themes" | "locales"`
+  열거값만 받는다(`AppDataPathKind`). 대상 디렉토리를 `create_dir_all` 로 없으면 만든 뒤
+  `tauri_plugin_opener::reveal_item_in_dir` 로 Finder/파일 관리자에 표시한다.
+  **`system_reveal_path` 와 달리 `resolve_within_open_project`(프로젝트 루트 가드)를 거치지 않는다** —
+  임의 경로 문자열을 프론트에서 받지 않고 열거값 3종(=앱 데이터 디렉토리 3종)으로 입력 자체를
+  고정했으므로 경로 탈출이 애초에 불가능한 설계다. 프론트는 플러그인/테마/로케일 설정 패널의
+  "폴더 열기" 버튼에서 사용한다.
+- git(신설): mutation `git_init(projectId)` — 프로젝트 루트에서 시스템 `git init` 을 실행한다.
+  이미 초기화된 저장소에 다시 호출해도 git 자체가 재초기화를 정상 종료(exit 0)로 처리하므로
+  에러가 아니라 무해한 동작이다(별도 존재 여부 분기를 두지 않는다). 성공 시 `git:status-changed` /
+  `git:refs-changed` 를 발행하고, 캐시된 저장소 루트(`GitStore`)를 무효화해 다음 조회가 새로
+  초기화된 저장소를 다시 discover 하게 한다. `git_status` 가 `notARepository` 상태를 반환하는
+  화면에서 "저장소 초기화" 버튼으로 이어진다.
+- plugin: `LoadedPlugin.error` 타입이 자유 형식 한국어 문자열에서 **안정된 코드 union**
+  (`PluginErrorCode = "parse-failed" | "id-mismatch" | "version-mismatch" | "path-escape"`) 으로
+  바뀌었다. 프론트는 `settings.pluginError.{parseFailed,idMismatch,versionMismatch,pathEscape}`
+  로케일 키로 코드를 문구로 매핑해 렌더링한다(하드코딩된 한국어 메시지를 그대로 노출하던 기존
+  동작은 다국어 요구사항과 충돌해 제거).
 
 ### raw 커맨드 (specta 밖)
 

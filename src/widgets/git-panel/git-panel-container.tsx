@@ -16,6 +16,7 @@ import {
     useCreateGitBranch,
     useDiscardGitPaths,
     useDropGitStash,
+    useInitGitRepository,
     usePushGitStash,
     usePullGit,
     usePushGit,
@@ -24,6 +25,7 @@ import {
 } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
+import { Button } from '@shared/ui/button'
 import { GitPanel } from '@widgets/git-panel/git-panel'
 
 type GitPanelContainerProps = {
@@ -55,6 +57,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const { mutate: pushStash, isPending: isStashPushing } = usePushGitStash(projectId)
     const { mutate: applyStash, isPending: isStashApplying } = useApplyGitStash(projectId)
     const { mutate: dropStash, isPending: isStashDropping } = useDropGitStash(projectId)
+    const { mutate: initRepository, isPending: isInitializing } = useInitGitRepository(projectId)
 
     const handleStashPush = () =>
         pushStash(
@@ -80,6 +83,9 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
 
     const notifyError = (error: Error) => toast.error(error.message)
 
+    const handleInitRepository = () =>
+        initRepository(projectId, { onSuccess: () => toast.success(t('git.initSuccess')), onError: () => toast.error(t('git.initFailed')) })
+
     const handleCommit = () => {
         const hasStaged = (status?.rows ?? []).some((row) => row.staged !== null)
         commit(
@@ -101,8 +107,11 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
 
     if (isError) {
         return (
-            <div className='bg-panel-background text-app-sidebar-icon-default flex h-full w-full items-center justify-center p-4 text-center text-sm'>
-                {t('git.notARepository')}
+            <div className='bg-panel-background text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-3 p-4 text-center text-sm'>
+                <span>{t('git.notARepository')}</span>
+                <Button type='button' variant='outline' size='sm' disabled={isInitializing} onClick={handleInitRepository}>
+                    {t('git.initRepository')}
+                </Button>
             </div>
         )
     }

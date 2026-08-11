@@ -1,15 +1,20 @@
 import type { FC } from 'react'
-import { useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Group, Panel } from 'react-resizable-panels'
+import { toast } from 'sonner'
 import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
-import { layoutQueryOptions, useCloseTab, useMoveTab, useSplitPane } from '@entities/layout/layout.query'
+import { getEditorInstance } from '@entities/editor/editor-instance-registry'
+import { layoutQueryOptions, useActivateTab, useCloseTab, useMoveTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
+import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
+import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
@@ -45,11 +50,14 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const [dragTab, setDragTab] = useState<DragTabState | null>(null)
     const [overTarget, setOverTarget] = useState<{ paneId: PaneId; edge: DropEdge } | null>(null)
 
+    const { t } = useTranslation()
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: moveTab } = useMoveTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
     const { mutate: closeTab } = useCloseTab(projectId)
+    const { mutate: activateTab } = useActivateTab(projectId)
+    const { mutate: openTab } = useOpenTab(projectId)
 
     const closeFocusedTab = () => {
         if (!layout) return
@@ -74,6 +82,55 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         requestOpenSearchPanel({ seedText: selectedText && !selectedText.includes('\n') ? selectedText : null })
     }
 
+    const splitActiveEditor = () => {
+        if (!layout) return
+        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!leaf?.active) return
+        splitPane({ paneId: layout.focusedPane, edge: 'right', tabId: leaf.active })
+    }
+
+    const cycleTab = (direction: TabCycleDirection) => {
+        if (!layout) return
+        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!leaf?.active) return
+        if (leaf.tabs.length < 2) return
+        const currentIndex = leaf.tabs.findIndex((tab) => tab.id === leaf.active)
+        if (currentIndex < 0) return
+        const step = direction === 'next' ? 1 : -1
+        const nextIndex = (currentIndex + step + leaf.tabs.length) % leaf.tabs.length
+        activateTab(leaf.tabs[nextIndex].id)
+    }
+
+    const saveActiveTab = () => {
+        if (!layout) return
+        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        const activeTab = leaf?.tabs.find((tab) => tab.id === leaf.active)
+        if (activeTab?.kind.kind !== 'file') return
+        const targetEditor = getEditorInstance(activeTab.id)
+        targetEditor?.getAction('taide.saveFile')?.run()
+    }
+
+    const toggleTerminal = () => {
+        if (!layout) return
+        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!leaf) return
+        const activeTab = leaf.tabs.find((tab) => tab.id === leaf.active)
+        if (activeTab?.kind.kind === 'terminal') {
+            const fallbackTab = leaf.tabs.find((tab) => tab.id !== leaf.active)
+            if (fallbackTab) activateTab(fallbackTab.id)
+            return
+        }
+        const terminalTab = leaf.tabs.find((tab) => tab.kind.kind === 'terminal')
+        if (terminalTab) {
+            activateTab(terminalTab.id)
+            return
+        }
+        openTab(
+            { projectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: null, preview: false },
+            { onError: (error) => toast.error(error.message) },
+        )
+    }
+
     const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
 
     useGlobalKeymap(
@@ -82,9 +139,23 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
             find: openFind,
             search: openGlobalSearch,
             'search-replace': () => requestOpenSearchPanel({ openReplace: true }),
+            split: splitActiveEditor,
+            'tab-cycle-next': () => cycleTab('next'),
+            'tab-cycle-prev': () => cycleTab('prev'),
+            save: saveActiveTab,
+            'toggle-terminal': toggleTerminal,
         },
         keymapEntries,
     )
+
+    const handleEditorPaneCommand = useEffectEvent((command: EditorPaneCommand) => {
+        if (command.type === 'split') return splitActiveEditor()
+        if (command.type === 'cycle-tab') return cycleTab(command.direction)
+        if (command.type === 'save-active-tab') return saveActiveTab()
+        if (command.type === 'toggle-terminal') return toggleTerminal()
+    })
+
+    useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 

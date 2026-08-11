@@ -7,3 +7,11 @@ pub struct SystemUsage {
     pub cpu_percent: Option<f64>,
     pub memory_bytes: f64,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AppDataPathKind {
+    Plugins,
+    Themes,
+    Locales,
+}

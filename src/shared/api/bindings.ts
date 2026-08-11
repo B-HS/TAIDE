@@ -58,6 +58,7 @@ export const commands = {
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),
 	lspDetectServers: () => typedError<LspServerDetection[], AppError>(__TAURI_INVOKE("lsp_detect_servers")),
 	lspResolveRoot: (serverId: LspServerId, filePath: string) => typedError<string | null, AppError>(__TAURI_INVOKE("lsp_resolve_root", { serverId, filePath })),
+	gitInit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_init", { projectId })),
 	gitStatus: (projectId: ProjectId) => typedError<GitStatus, AppError>(__TAURI_INVOKE("git_status", { projectId })),
 	gitDiffFile: (projectId: ProjectId, path: string, mode: DiffMode) => typedError<DiffSides, AppError>(__TAURI_INVOKE("git_diff_file", { projectId, path, mode })),
 	gitShowFile: (projectId: ProjectId, rev: string, path: string) => typedError<string, AppError>(__TAURI_INVOKE("git_show_file", { projectId, rev, path })),
@@ -108,6 +109,7 @@ export const commands = {
 	systemOpenPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_path", { path })),
 	systemRevealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_reveal_path", { path })),
 	systemOpenInBrowser: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_in_browser", { path })),
+	systemOpenAppDataPath: (kind: AppDataPathKind) => typedError<null, AppError>(__TAURI_INVOKE("system_open_app_data_path", { kind })),
 	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
 	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
 	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
@@ -163,6 +165,8 @@ export type AheadBehind = {
 	ahead: number,
 	behind: number,
 };
+
+export type AppDataPathKind = "plugins" | "themes" | "locales";
 
 export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Internal"; message: string };
 
@@ -359,7 +363,7 @@ export type LoadedPlugin = {
 	manifest: PluginManifest,
 	root: string,
 	enabled: boolean,
-	error?: string | null,
+	error?: PluginErrorCode | null,
 };
 
 export type LocaleSummary = {
@@ -424,6 +428,8 @@ export type PluginContributions = {
 	lsp?: PluginLspContribution[],
 	themes?: PluginThemeContribution[],
 };
+
+export type PluginErrorCode = "parse-failed" | "id-mismatch" | "version-mismatch" | "path-escape";
 
 export type PluginLanguageContribution = {
 	id: string,

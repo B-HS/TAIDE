@@ -8,6 +8,7 @@ import { projectQueryOptions } from '@entities/project/project.query'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { FileTreeToolbar } from '@features/explorer/file-tree-toolbar'
 import { cn } from '@shared/lib/cn'
+import { subscribeShowExplorerView } from '@shared/lib/explorer-panel-bridge'
 import type { SearchPanelRequest } from '@shared/lib/search-panel-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { subscribeRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
@@ -96,6 +97,8 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
         [],
     )
 
+    useEffect(() => subscribeShowExplorerView((requestedView) => setView(requestedView)), [])
+
     useEffect(
         () =>
             subscribeRevealInExplorer((path) => {
@@ -110,7 +113,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
             <div
                 role='tablist'
                 aria-label={t('explorer.sidebarSwitchLabel')}
-                className='border-app-border flex shrink-0 items-center gap-1 border-b px-2 py-1.5'>
+                className='border-tab-bar-tab-border flex h-9 shrink-0 items-center gap-1 border-b px-2'>
                 <div className='flex items-center gap-1'>
                     {EXPLORER_VIEWS.map(({ id, labelKey, icon: Icon }) => (
                         <button
@@ -133,7 +136,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
             </div>
 
             {view === 'files' && (
-                <div className='border-app-border flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1'>
+                <div className='border-tab-bar-tab-border flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1'>
                     <h2 className='text-app-foreground truncate text-xs font-medium tracking-wide uppercase'>
                         {project?.name ?? t('explorer.title')}
                     </h2>

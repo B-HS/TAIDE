@@ -40,6 +40,10 @@ pub struct AheadBehind {
     pub behind: u32,
 }
 
+pub fn init(root: &Path) -> AppResult<()> {
+    run_git(root, &["init"]).map(|_| ())
+}
+
 pub fn discover(root: &Path) -> AppResult<PathBuf> {
     let repo = Repository::discover(root).map_err(|error| AppError::NotFound(format!(".git 저장소를 찾을 수 없습니다: {error}")))?;
     let workdir = repo
@@ -872,6 +876,27 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.dir);
         }
+    }
+
+    #[test]
+    fn init은_빈_디렉토리에_git_저장소를_생성한다() {
+        let dir = std::env::temp_dir().join(format!("taide-git-init-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        init(&dir).expect("init");
+
+        assert!(dir.join(".git").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn init은_이미_초기화된_저장소에도_에러_없이_동작한다() {
+        let repo = TestRepo::new();
+
+        let result = init(repo.path());
+
+        assert!(result.is_ok());
+        assert!(repo.path().join(".git").exists());
     }
 
     #[test]

@@ -12,10 +12,18 @@ import { useOpenTab } from '@entities/layout/layout.query'
 import { activeProjectQueryOptions, projectListQueryOptions, useActivateProject, useOpenProject } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
+import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { IS_MAC } from '@shared/constants/platform'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import {
+    requestShowExplorerView,
+    requestToggleExplorerSidebar,
+    subscribeShowExplorerView,
+    subscribeToggleExplorerSidebar,
+} from '@shared/lib/explorer-panel-bridge'
+import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
@@ -104,6 +112,17 @@ export const AppShell = () => {
         event.preventDefault()
     }
 
+    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
+
+    useGlobalKeymap(
+        {
+            'toggle-sidebar': () => requestToggleExplorerSidebar(),
+            explorer: () => requestShowExplorerView('files'),
+            git: () => requestShowExplorerView('git'),
+        },
+        keymapEntries,
+    )
+
     useTauriEvent(dragDropEventSource, handleDragDropEvent)
 
     useEffect(() => {
@@ -112,13 +131,28 @@ export const AppShell = () => {
     }, [])
 
     useEffect(() => subscribeOpenSearchPanel(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
+    useEffect(() => subscribeShowExplorerView(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
+    useEffect(
+        () =>
+            subscribeToggleExplorerSidebar(() => {
+                const panel = explorerPanelRef.current
+                if (!panel) return
+                if (panel.isCollapsed()) panel.expand()
+                else panel.collapse()
+            }),
+        [explorerPanelRef],
+    )
 
     if (isPending) return <div className='bg-app-background h-full w-full' />
 
     return (
         <div className='bg-app-background text-app-foreground relative flex h-full w-full flex-col'>
             <DragDropOverlay visible={isDragActive} label={t('app.dropToOpen')} />
-            {IS_MAC && <TitleBarContent />}
+            {IS_MAC && (
+                <div className='border-tab-bar-tab-border shrink-0 border-b'>
+                    <TitleBarContent />
+                </div>
+            )}
             {projects.length === 0 ? (
                 <div className='min-h-0 flex-1'>
                     <WelcomeScreen recentProjects={[]} onOpenProject={() => void handleOpenProject()} onSelectRecent={(id) => activateProject(id)} />

@@ -17,6 +17,8 @@ export type KeymapActionId =
     | 'save'
     | 'toggle-terminal'
     | 'new-terminal'
+    | 'font-size-up'
+    | 'font-size-down'
 
 export type KeymapModifier = 'mod' | 'ctrl' | 'shift' | 'alt'
 
@@ -53,6 +55,8 @@ export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'save', key: 's', mods: ['mod'], descriptionKey: 'keymap.save' },
     { id: 'toggle-terminal', key: '`', mods: ['ctrl'], descriptionKey: 'keymap.toggleTerminal' },
     { id: 'new-terminal', key: '`', mods: ['ctrl', 'shift'], descriptionKey: 'keymap.newTerminal' },
+    { id: 'font-size-up', key: '=', mods: ['mod'], descriptionKey: 'keymap.fontSizeUp' },
+    { id: 'font-size-down', key: '-', mods: ['mod'], descriptionKey: 'keymap.fontSizeDown' },
 ]
 
 export const matchesKeymapEntry = (entry: KeymapEntry, event: KeymapEvent, isMac: boolean) => {

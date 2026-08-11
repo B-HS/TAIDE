@@ -19,6 +19,7 @@ import {
     getGitLog,
     getGitRemotes,
     getGitStatus,
+    initGitRepository,
     pullGit,
     pushGit,
     stageGitPaths,
@@ -83,6 +84,8 @@ const useGitMutation = <TVariables, TResult>(projectId: ProjectId | null, mutati
         onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId ?? '') }),
     })
 }
+
+export const useInitGitRepository = (projectId: ProjectId | null) => useGitMutation(projectId, initGitRepository)
 
 export const useStageGitPaths = (projectId: ProjectId | null) => useGitMutation(projectId, stageGitPaths)
 

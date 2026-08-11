@@ -37,6 +37,7 @@ export type CodeEditorProps = {
 
 const TOGGLE_MINIMAP_ACTION_ID = 'taide.toggleMinimap'
 const TOGGLE_MINIMAP_CONTEXT_MENU_ORDER = 1.5
+const LINE_NUMBERS_MIN_CHARS = 3
 
 export const CodeEditor: FC<CodeEditorProps> = ({
     path,
@@ -96,6 +97,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
             largeFileOptimizations: true,
             fontFamily: initialFontFamilyRef.current,
             fontSize: initialFontSizeRef.current,
+            glyphMargin: false,
+            lineNumbersMinChars: LINE_NUMBERS_MIN_CHARS,
         })
         editorRef.current = editor
         onEditorMountRef.current?.(editor)
@@ -103,7 +106,6 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         editor.addAction({
             id: 'taide.saveFile',
             label: 'Save File',
-            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
             run: () => onSaveRef.current(),
         })
 

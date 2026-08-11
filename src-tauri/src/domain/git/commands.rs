@@ -54,6 +54,24 @@ fn emit_refs_changed(app: &AppHandle, project_id: &ProjectId) {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn git_init(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let root = state
+        .projects
+        .read()
+        .get(&project_id)
+        .map(|project| project.root.clone())
+        .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
+
+    service::init(Path::new(&root))?;
+    store.0.lock().remove(&project_id);
+    emit_status_changed(&app, &project_id);
+    emit_refs_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn git_status(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<GitStatus> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
     service::status(&repo_root)

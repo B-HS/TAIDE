@@ -128,7 +128,23 @@ describe('DEFAULT_COMMANDS', () => {
     })
 
     test('실행 구현이 있는 기본 커맨드는 항상 실행 가능하다', () => {
-        const runnableIds = ['window.reload', 'settings.open', 'terminal.new', 'tab.reopenClosed', 'file.quickOpen', 'search.find', 'search.replace']
+        const runnableIds = [
+            'window.reload',
+            'settings.open',
+            'terminal.new',
+            'tab.reopenClosed',
+            'file.quickOpen',
+            'search.find',
+            'search.replace',
+            'view.toggleSidebar',
+            'view.explorer',
+            'view.git',
+            'editor.split',
+            'tab.cycleNext',
+            'tab.cyclePrev',
+            'editor.save',
+            'view.toggleTerminal',
+        ]
         for (const id of runnableIds) {
             const command = DEFAULT_COMMANDS.find((entry) => entry.id === id)
             expect(command).toBeDefined()
@@ -136,9 +152,9 @@ describe('DEFAULT_COMMANDS', () => {
         }
     })
 
-    test('실행 구현이 없는 keymap 미러 커맨드는 항상 비활성이다', () => {
+    test('실행 구현이 없는 keymap 미러 커맨드(탭 닫기·파일 내 찾기)는 항상 비활성이다', () => {
         const disabledIds = DEFAULT_COMMANDS.filter((command) => command.isEnabled).map((command) => command.id)
-        expect(disabledIds.length).toBeGreaterThan(0)
+        expect(disabledIds).toEqual(['tab.close', 'editor.find'])
         for (const command of DEFAULT_COMMANDS) {
             if (!command.isEnabled) continue
             expect(isCommandRunnable(command, dummyContext)).toBe(false)

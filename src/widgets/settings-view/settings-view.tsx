@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
+import { FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { fontListQueryOptions } from '@entities/font/font.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectListQueryOptions } from '@entities/project/project.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
+import { systemOpenAppDataPath } from '@entities/system/system.ipc'
 import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { localeListQueryOptions } from '@entities/locale/locale.query'
@@ -17,11 +19,12 @@ import { KeymapList } from '@features/settings/keymap-list'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { OptionPicker } from '@features/settings/option-picker'
-import { PluginSectionPlaceholder } from '@features/settings/plugin-section-placeholder'
+import { PluginList } from '@features/settings/plugin-list'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
+import type { AppDataPathKind } from '@shared/api/bindings'
 import type { KeymapActionId, KeymapModifier } from '@shared/lib/keymap'
 import { APP_KEYMAP, applyKeymapOverrides, findKeymapConflict, parseKeymapOverrides, serializeKeymapOverrides } from '@shared/lib/keymap'
 import { SettingsToc } from '@features/settings/settings-toc'
@@ -149,6 +152,8 @@ export const SettingsView = () => {
 
     const handleKeymapResetAll = () => updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides([]) })
 
+    const handleOpenAppDataFolder = (kind: AppDataPathKind) => void systemOpenAppDataPath(kind).catch((error: Error) => toast.error(error.message))
+
     if (themeEditorState)
         return (
             <ThemeEditor
@@ -161,7 +166,7 @@ export const SettingsView = () => {
 
     return (
         <ScrollContainer viewportRef={scrollContainerRef} className='bg-app-background text-app-foreground h-full w-full'>
-            <div className='flex flex-col gap-6 px-8 py-8'>
+            <div className='flex flex-col gap-6 px-4 py-8'>
                 <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
 
                 <div className='flex w-full items-start gap-8'>
@@ -196,17 +201,23 @@ export const SettingsView = () => {
                             <div className='flex flex-col gap-2 pt-2'>
                                 <div className='flex items-center justify-between gap-3'>
                                     <span className='text-app-sidebar-icon-default text-xs'>{t('themeEditor.customThemes')}</span>
-                                    <Button
-                                        variant='outline'
-                                        size='xs'
-                                        onClick={() =>
-                                            setThemeEditorState({
-                                                mode: 'create',
-                                                sourceThemeId: settings.themeId ?? BUILTIN_THEME_ID.DARK,
-                                            })
-                                        }>
-                                        {t('themeEditor.createNew')}
-                                    </Button>
+                                    <div className='flex items-center gap-2'>
+                                        <Button variant='outline' size='xs' onClick={() => handleOpenAppDataFolder('themes')}>
+                                            <FolderOpen className='size-3.5' />
+                                            {t('settings.themesOpenFolder')}
+                                        </Button>
+                                        <Button
+                                            variant='outline'
+                                            size='xs'
+                                            onClick={() =>
+                                                setThemeEditorState({
+                                                    mode: 'create',
+                                                    sourceThemeId: settings.themeId ?? BUILTIN_THEME_ID.DARK,
+                                                })
+                                            }>
+                                            {t('themeEditor.createNew')}
+                                        </Button>
+                                    </div>
                                 </div>
                                 {isThemesPending ? (
                                     <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
@@ -231,6 +242,12 @@ export const SettingsView = () => {
                                     onSelect={(language) => updateSettings({ ...emptySettingsPatch(), language })}
                                 />
                             )}
+                            <div className='flex justify-end'>
+                                <Button variant='outline' size='xs' onClick={() => handleOpenAppDataFolder('locales')}>
+                                    <FolderOpen className='size-3.5' />
+                                    {t('settings.localesOpenFolder')}
+                                </Button>
+                            </div>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.INTERFACE} title={t('settings.interface')}>
@@ -497,7 +514,7 @@ export const SettingsView = () => {
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.PLUGINS} title={t('settings.plugins')}>
-                            <PluginSectionPlaceholder />
+                            <PluginList />
                         </SettingsSection>
 
                         <div aria-hidden className='h-[50vh] shrink-0' />

@@ -22,6 +22,11 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
         applyWindowAppearance(theme.type)
     }, [theme])
 
+    useLayoutEffect(() => {
+        if (!isFetched) return
+        document.documentElement.dataset.themeReady = ''
+    }, [isFetched])
+
     useEffect(() => subscribeSystemTheme(() => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })), [queryClient])
 
     useRevealWindow(isFetched)

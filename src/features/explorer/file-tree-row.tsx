@@ -27,18 +27,19 @@ const GIT_STATUS_TEXT_CLASS: Record<Exclude<FileTreeGitStatus, null>, string> = 
     modified: 'text-git-modified',
     deleted: 'text-git-deleted',
     conflicted: 'text-git-conflicted',
-    ignored: 'opacity-50',
+    ignored: 'text-explorer-git-ignored',
 }
 
 type FileTreeRowItemProps = {
     row: FileTreeRow
     selected: boolean
+    focused: boolean
     style: CSSProperties
     onClick: () => void
     onDoubleClick: () => void
 }
 
-export const FileTreeRowItem: FC<FileTreeRowItemProps> = ({ row, selected, style, onClick, onDoubleClick }) => (
+export const FileTreeRowItem: FC<FileTreeRowItemProps> = ({ row, selected, focused, style, onClick, onDoubleClick }) => (
     <div
         role='treeitem'
         aria-selected={selected}
@@ -47,8 +48,8 @@ export const FileTreeRowItem: FC<FileTreeRowItemProps> = ({ row, selected, style
         onDoubleClick={onDoubleClick}
         style={{ ...style, paddingLeft: row.depth * ROW_INDENT_PX }}
         className={cn(
-            'hover:bg-explorer-item-hover flex cursor-default items-center gap-1 pr-2 text-xs select-none',
-            selected && 'bg-explorer-item-selected',
+            'hover:bg-explorer-item-hover flex cursor-default items-center gap-1 pr-2 text-xs transition-colors select-none',
+            selected && (focused ? 'bg-explorer-item-selected' : 'bg-explorer-item-focused'),
             row.gitStatus && GIT_STATUS_TEXT_CLASS[row.gitStatus],
         )}>
         <span className={cn('flex size-4 shrink-0 items-center justify-center', row.kind === 'file' && 'invisible')}>

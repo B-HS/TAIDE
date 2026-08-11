@@ -60,6 +60,15 @@ pub struct PluginManifest {
     pub contributes: PluginContributions,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginErrorCode {
+    ParseFailed,
+    IdMismatch,
+    VersionMismatch,
+    PathEscape,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadedPlugin {
@@ -67,5 +76,5 @@ pub struct LoadedPlugin {
     pub root: String,
     pub enabled: bool,
     #[serde(default)]
-    pub error: Option<String>,
+    pub error: Option<PluginErrorCode>,
 }

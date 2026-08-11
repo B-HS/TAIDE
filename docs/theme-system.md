@@ -293,6 +293,61 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 | brightCyan | `#29b8db` | `#0598bc` |
 | brightWhite | `#e5e5e5` | `#a5a5a5` |
 
+### 8.2.2 VS Code 기본 리스트 상태 배경 폴백 (출처: listColors.ts)
+
+`explorer.itemHover`/`explorer.itemSelected`/`explorer.itemFocused` 는 각각 원본 VS Code
+테마의 `list.hoverBackground`/`list.activeSelectionBackground`/`list.focusBackground`
+(없으면 `list.inactiveSelectionBackground`) 를 그대로 옮긴 값이다. 그런데 일부 원본
+테마는 이 색을 **실질적으로 제공하지 않는다** — 값 자체가 없어 배경색 계열
+(`editor.background`)로 같이 흘러가거나(`itemHover`: `vscode-dark-plus`·`darcula`·
+`night-owl`, `itemSelected`/`itemFocused`: `vscode-dark-plus`·`darcula`·
+`vscode-light-plus`), 값은 있지만 알파가 `00`이라 실제로는 투명이다(`itemHover`:
+`everforest-dark`·`everforest-light`). 두 경우 모두 파일트리에서 해당 상태가
+`explorer.background` 와 구분되지 않아 사라진 것처럼 보인다 — `itemSelected`/
+`itemFocused` 가 사라지면 선택된 항목 자체를 알아볼 수 없다(파일트리 배선은
+`src/features/explorer/file-tree-row.tsx` 가 포커스 시 `itemSelected`, 비포커스 시
+`itemFocused` 를 쓴다).
+
+`convert-vscode-theme.ts` 는 이 세 토큰을 해석할 때 원본 후보를 그대로 쓰기 전에
+**사용 가능성**을 먼저 검사한다(`isUsableListBackground`) — 알파가 0 이거나, 같은
+시점에 이미 해석된 `explorer.background` 와 RGB 가 동일하면 "제공되지 않은 것"으로
+취급한다. 이 경우 §8.2.1 과 같은 이유로, 관련 없는 카테고리 공용 안전값
+(`SAFE_DEFAULT_COLORS`) 대신 **VS Code 가 실제로 적용하는 공식 기본값**
+(`src/vs/platform/theme/common/colors/listColors.ts` 의 각 `registerColor(...)`)으로
+폴백한다 — 값을 새로 만드는 게 아니라 VS Code 자신의 기본값을 이식하는 것이다.
+
+| 토큰 | 대응 TAIDE 토큰 | dark 기본값 | light 기본값 |
+|------|-----------------|------------|-------------|
+| `list.hoverBackground` | `explorer.itemHover` | `#2A2D2E` | `#F0F0F0` |
+| `list.activeSelectionBackground` | `explorer.itemSelected` | `#04395E` | `#ADD6FF`* |
+| `list.inactiveSelectionBackground` | `explorer.itemFocused` | `#37373D` | `#E4E6F1` |
+
+번들 테마 36종 전수 스캔 결과, `itemHover` 는 위 두 조건(≈ 배경, 또는 알파 0)에 해당한
+5종(`darcula`·`vscode-dark-plus`·`night-owl`·`everforest-dark`·`everforest-light`)의
+`resources/themes/*.json` 을 이 폴백값으로 직접 보정했다. `itemSelected`/`itemFocused`
+는 배경과 완전 동일했던 3종(`darcula`·`vscode-dark-plus`·`vscode-light-plus`)을 같은
+방식으로 직접 보정했다(원본 소스 JSON 은 레포에 없어 재변환이 불가능 — §8.2 참고).
+재보정 후 36종 전수 재스캔 결과 `explorer.itemSelected`/`itemFocused` 가
+`explorer.background` 와 동일한 테마는 0건이다. `appSidebar.itemHover`/
+`popover.itemHover`/`tooltip.itemHover`/`modal.itemHover`/`list.hoverBackground` 등
+같은 `list.hoverBackground` 후보를 쓰는 다른 네임스페이스에도 동일한 결함이 있을 수
+있으나, 이번 스캔·수정 범위는 파일트리에서 실측된 `explorer.itemHover`/`itemSelected`/
+`itemFocused` 로 한정했다 — 나머지는 별도 확인이 필요하다.
+
+\* `list.activeSelectionBackground` 의 **light 기본값은 VS Code 자신의 값(`#0060C0`)을
+그대로 쓰지 않는다.** VS Code 는 `#0060C0` 을 `list.activeSelectionForeground`(흰색)와
+짝지어 등록하지만, TAIDE 의 `explorer.*` 네임스페이스에는 그 짝이 되는 선택 전경색
+토큰이 없다 — 선택된 행은 `app.foreground`(검정, `#000000`)를 그대로 상속한다.
+`#0060C0` 위 검정 텍스트는 대비 약 3.4:1 로 12px 소형 텍스트의 WCAG AA 기준(4.5:1)에
+미달해 가독성이 무너진다(`file-tree-row.tsx`·`search-panel.tsx`·`explorer-panel.tsx`
+등 전경색 미지정/명시 소비처 다수 영향). 대신 VS Code 자신의 light 테마
+`editor.selectionBackground` 기본값이었던 `#ADD6FF` 를 쓴다 — 검정 위 대비
+약 13.8:1 로 여유 있게 AA 를 통과한다. `vscode-light-plus.json` 의
+`explorer.itemSelected` 도 동일하게 `#ADD6FF` 로 고정했다. 선택 전경색 토큰을 별도로
+도입해 VS Code 원본값(`#0060C0`+흰색)을 그대로 재현하는 방안은 `explorer.*` 전체
+스키마·5곳 동기(§ "테마 토큰은 5곳 동기") 변경이 필요해 범위를 넘어선다고 판단해
+보류했다 — 필요해지면 별도 작업으로 진행한다.
+
 ### 8.3 Rust 등록
 
 `src-tauri/src/domain/theme/service.rs` 의 `BUNDLED_THEME_SOURCES` 에

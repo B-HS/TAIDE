@@ -140,7 +140,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             setDraftError(message)
-            toast.error(message)
+            toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitDraft(trimmedName) } })
         }
     }
 
@@ -182,7 +182,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             setRenameError(message)
-            toast.error(message)
+            toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitRename(trimmedName) } })
         }
     }
 

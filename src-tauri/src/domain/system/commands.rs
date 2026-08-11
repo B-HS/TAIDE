@@ -6,7 +6,7 @@ use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 use tauri::State;
 
 use super::service::{file_url, normalize_cpu_percent};
-use super::types::SystemUsage;
+use super::types::{AppDataPathKind, SystemUsage};
 use crate::error::{AppError, AppResult};
 use crate::infra::root_guard;
 use crate::state::AppState;
@@ -100,4 +100,16 @@ pub async fn system_reveal_path(state: State<'_, AppState>, path: String) -> App
 pub async fn system_open_in_browser(state: State<'_, AppState>, path: String) -> AppResult<()> {
     let resolved = resolve_within_open_project(&state, &path)?;
     tauri_plugin_opener::open_url(file_url(&resolved), None::<&str>).map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn system_open_app_data_path(state: State<'_, AppState>, kind: AppDataPathKind) -> AppResult<()> {
+    let dir = match kind {
+        AppDataPathKind::Plugins => state.paths.plugins_dir(),
+        AppDataPathKind::Themes => state.paths.themes_dir(),
+        AppDataPathKind::Locales => state.paths.locales_dir(),
+    };
+    std::fs::create_dir_all(&dir)?;
+    tauri_plugin_opener::reveal_item_in_dir(dir).map_err(|error| AppError::Internal(error.to_string()))
 }

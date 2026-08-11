@@ -105,6 +105,7 @@ export const FileTree: FC<FileTreeProps> = ({
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const [typeaheadBuffer, setTypeaheadBuffer] = useState('')
     const [contextRow, setContextRow] = useState<FileTreeRow | null>(null)
+    const [isContainerFocused, setIsContainerFocused] = useState(false)
 
     const displayRows = buildDisplayRows(rows, draft)
     const selectedIndex = displayRows.findIndex((row) => row.id === selectedId)
@@ -276,6 +277,8 @@ export const FileTree: FC<FileTreeProps> = ({
                     tabIndex={0}
                     onKeyDown={handleKeyDown}
                     onContextMenu={handleContainerContextMenu}
+                    onFocus={() => setIsContainerFocused(true)}
+                    onBlur={() => setIsContainerFocused(false)}
                     className='bg-explorer-background scrollbar-hidden h-full w-full overflow-y-auto outline-none'>
                     <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -323,6 +326,7 @@ export const FileTree: FC<FileTreeProps> = ({
                                     key={virtualRow.key}
                                     row={row}
                                     selected={row.id === selectedId}
+                                    focused={row.id === selectedId && isContainerFocused}
                                     style={rowStyle}
                                     onClick={() => handleRowClick(row)}
                                     onDoubleClick={() => handleRowDoubleClick(row)}

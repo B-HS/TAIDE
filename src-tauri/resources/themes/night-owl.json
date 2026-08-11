@@ -32,7 +32,7 @@
         "tabBar.previewForeground": "#5f7e97",
         "tabBar.dropTarget": "#011627",
         "explorer.background": "#011627",
-        "explorer.itemHover": "#011627",
+        "explorer.itemHover": "#2A2D2E",
         "explorer.itemSelected": "#234d708c",
         "explorer.itemFocused": "#010d18",
         "explorer.indentGuide": "#5f7e97",

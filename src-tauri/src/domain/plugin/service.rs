@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
 
-use super::types::{LoadedPlugin, PluginContributions, PluginManifest, PLUGIN_MANIFEST_FILE, PLUGIN_MANIFEST_VERSION};
+use super::types::{LoadedPlugin, PluginContributions, PluginErrorCode, PluginManifest, PLUGIN_MANIFEST_FILE, PLUGIN_MANIFEST_VERSION};
 
 pub fn load_plugins(plugins_dir: &Path) -> Vec<LoadedPlugin> {
     let Ok(entries) = fs::read_dir(plugins_dir) else {
@@ -26,12 +26,12 @@ fn load_plugin_dir(dir: &Path) -> LoadedPlugin {
 
     let manifest_content = match fs::read_to_string(&manifest_path) {
         Ok(content) => content,
-        Err(err) => return disabled_plugin(&dir_name, dir, format!("매니페스트를 읽을 수 없습니다: {err}")),
+        Err(_) => return disabled_plugin(&dir_name, dir, PluginErrorCode::ParseFailed),
     };
 
     let manifest: PluginManifest = match serde_json::from_str(&manifest_content) {
         Ok(manifest) => manifest,
-        Err(err) => return disabled_plugin(&dir_name, dir, format!("매니페스트 형식이 올바르지 않습니다: {err}")),
+        Err(_) => return disabled_plugin(&dir_name, dir, PluginErrorCode::ParseFailed),
     };
 
     match validate_manifest(dir, &dir_name, &manifest) {
@@ -41,16 +41,16 @@ fn load_plugin_dir(dir: &Path) -> LoadedPlugin {
             enabled: true,
             error: None,
         },
-        Err(message) => LoadedPlugin {
+        Err(code) => LoadedPlugin {
             manifest,
             root: dir.display().to_string(),
             enabled: false,
-            error: Some(message),
+            error: Some(code),
         },
     }
 }
 
-fn disabled_plugin(dir_name: &str, dir: &Path, message: String) -> LoadedPlugin {
+fn disabled_plugin(dir_name: &str, dir: &Path, code: PluginErrorCode) -> LoadedPlugin {
     LoadedPlugin {
         manifest: PluginManifest {
             manifest_version: PLUGIN_MANIFEST_VERSION,
@@ -61,30 +61,27 @@ fn disabled_plugin(dir_name: &str, dir: &Path, message: String) -> LoadedPlugin 
         },
         root: dir.display().to_string(),
         enabled: false,
-        error: Some(message),
+        error: Some(code),
     }
 }
 
-fn validate_manifest(dir: &Path, dir_name: &str, manifest: &PluginManifest) -> Result<(), String> {
+fn validate_manifest(dir: &Path, dir_name: &str, manifest: &PluginManifest) -> Result<(), PluginErrorCode> {
     if manifest.manifest_version != PLUGIN_MANIFEST_VERSION {
-        return Err(format!("지원하지 않는 매니페스트 버전입니다: {}", manifest.manifest_version));
+        return Err(PluginErrorCode::VersionMismatch);
     }
 
     if manifest.id != dir_name {
-        return Err(format!(
-            "매니페스트 id({})가 디렉토리명({dir_name})과 일치하지 않습니다",
-            manifest.id
-        ));
+        return Err(PluginErrorCode::IdMismatch);
     }
 
     for language in &manifest.contributes.languages {
         if let Some(grammar) = &language.grammar {
-            resolve_contribution_path(dir, grammar).map_err(|err| err.to_string())?;
+            resolve_contribution_path(dir, grammar).map_err(|_| PluginErrorCode::PathEscape)?;
         }
     }
 
     for theme in &manifest.contributes.themes {
-        resolve_contribution_path(dir, &theme.path).map_err(|err| err.to_string())?;
+        resolve_contribution_path(dir, &theme.path).map_err(|_| PluginErrorCode::PathEscape)?;
     }
 
     Ok(())
@@ -188,7 +185,7 @@ mod tests {
         let loaded = load_plugin_dir(&dir);
 
         assert!(!loaded.enabled);
-        assert!(loaded.error.is_some());
+        assert_eq!(loaded.error, Some(PluginErrorCode::IdMismatch));
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -205,6 +202,7 @@ mod tests {
         let loaded = load_plugin_dir(&dir);
 
         assert!(!loaded.enabled);
+        assert_eq!(loaded.error, Some(PluginErrorCode::VersionMismatch));
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -217,7 +215,7 @@ mod tests {
         let loaded = load_plugin_dir(&dir);
 
         assert!(!loaded.enabled);
-        assert!(loaded.error.is_some());
+        assert_eq!(loaded.error, Some(PluginErrorCode::ParseFailed));
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -230,6 +228,7 @@ mod tests {
         let loaded = load_plugin_dir(&dir);
 
         assert!(!loaded.enabled);
+        assert_eq!(loaded.error, Some(PluginErrorCode::ParseFailed));
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -251,6 +250,26 @@ mod tests {
 
         assert!(loaded.enabled);
         assert!(loaded.error.is_none());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 기여_경로가_플러그인_루트를_벗어나면_비활성화된다() {
+        let dir_name = format!("taide-plugin-path-escape-{}", Uuid::new_v4());
+        let dir = std::env::temp_dir().join(&dir_name);
+        fs::create_dir_all(&dir).unwrap();
+        write_manifest(
+            &dir,
+            &format!(
+                r#"{{"manifestVersion":1,"id":"{dir_name}","name":"Escape","version":"1.0.0","contributes":{{"languages":[{{"id":"go","extensions":[".go"],"grammar":"../../../../etc/passwd"}}]}}}}"#
+            ),
+        );
+
+        let loaded = load_plugin_dir(&dir);
+
+        assert!(!loaded.enabled);
+        assert_eq!(loaded.error, Some(PluginErrorCode::PathEscape));
 
         fs::remove_dir_all(&dir).ok();
     }

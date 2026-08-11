@@ -1,8 +1,10 @@
 import type { FC } from 'react'
-import { CheckCircle2, XCircle } from 'lucide-react'
+import { CheckCircle2, Copy, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import type { LspServerDetection } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
+import { Button } from '@shared/ui/button'
 
 type LspServerStatusListProps = {
     servers: LspServerDetection[]
@@ -10,6 +12,15 @@ type LspServerStatusListProps = {
 
 export const LspServerStatusList: FC<LspServerStatusListProps> = ({ servers }) => {
     const { t } = useTranslation()
+
+    const handleCopyCommand = async (command: string) => {
+        try {
+            await navigator.clipboard.writeText(command)
+            toast.success(t('settings.lspCommandCopied'))
+        } catch {
+            toast.error(t('settings.lspCommandCopyFailed'))
+        }
+    }
 
     return (
         <ul className='flex flex-col gap-1.5'>
@@ -30,7 +41,17 @@ export const LspServerStatusList: FC<LspServerStatusListProps> = ({ servers }) =
                         <span className='text-app-sidebar-icon-default min-w-0 pl-5.5 font-mono break-all'>{server.resolvedPath}</span>
                     )}
                     {!server.available && server.installHint && (
-                        <span className='text-app-sidebar-icon-default min-w-0 pl-5.5'>{server.installHint}</span>
+                        <div className='flex min-w-0 items-center gap-1.5 pl-5.5'>
+                            <span className='text-app-sidebar-icon-default min-w-0'>{server.installHint}</span>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon-xs'
+                                aria-label={t('settings.lspCopyCommand')}
+                                onClick={() => void handleCopyCommand(server.installHint ?? '')}>
+                                <Copy className='size-3' />
+                            </Button>
+                        </div>
                     )}
                 </li>
             ))}

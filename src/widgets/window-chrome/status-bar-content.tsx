@@ -10,11 +10,13 @@ import { emptySettingsPatch, getSettings } from '@entities/settings/settings.ipc
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemUsageQueryOptions } from '@entities/system/system.query'
 import { toProblemSeverity } from '@features/problems/problem-severity'
+import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { CODE_FONT_SIZE_STEP, DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { getModel } from '@entities/editor/model-registry'
 import { saveFile } from '@entities/file/file.ipc'
 import { openTab, setTabDirty } from '@entities/layout/layout.ipc'
@@ -68,6 +70,16 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
                   hasCrashed: lspSessions.some((session) => isLspCrashed(session.status)),
               }
             : null
+
+    const increaseEditorFontSize = () =>
+        updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize + CODE_FONT_SIZE_STEP) })
+
+    const decreaseEditorFontSize = () =>
+        updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize - CODE_FONT_SIZE_STEP) })
+
+    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
+
+    useGlobalKeymap({ 'font-size-up': increaseEditorFontSize, 'font-size-down': decreaseEditorFontSize }, keymapEntries)
 
     useTauriEvent(events.ideDiffRequested, ({ payload }) => {
         setPendingClaudeDiff(payload.requestId, { oldPath: payload.oldPath, newContents: payload.newContents, tabName: payload.tabName })
@@ -157,12 +169,8 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
             ideStatus={ideStatus}
             editorFontSize={editorFontSize}
             terminalFontSize={terminalFontSize}
-            onEditorFontSizeDecrease={() =>
-                updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize - CODE_FONT_SIZE_STEP) })
-            }
-            onEditorFontSizeIncrease={() =>
-                updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize + CODE_FONT_SIZE_STEP) })
-            }
+            onEditorFontSizeDecrease={decreaseEditorFontSize}
+            onEditorFontSizeIncrease={increaseEditorFontSize}
             onEditorFontSizeReset={() => updateSettings({ ...emptySettingsPatch(), editorFontSize: DEFAULT_CODE_FONT_SIZE })}
             onTerminalFontSizeDecrease={() =>
                 updateSettings({ ...emptySettingsPatch(), terminalFontSize: clampFontSize(terminalFontSize - CODE_FONT_SIZE_STEP) })
