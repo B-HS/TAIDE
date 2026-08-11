@@ -132,6 +132,7 @@ export const commands = {
 	syncDisconnect: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_disconnect")),
 	syncUpload: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_upload")),
 	syncDownload: (force: boolean) => typedError<SyncDownloadResult, AppError>(__TAURI_INVOKE("sync_download", { force })),
+	vsixExtractThemes: (vsixPath: string) => typedError<VsixThemeExtractionResult, AppError>(__TAURI_INVOKE("vsix_extract_themes", { vsixPath })),
 };
 
 /** Events */
@@ -841,6 +842,30 @@ export type TreeRow = {
 export type TreeRowPage = {
 	rows: TreeRow[],
 	total: number,
+};
+
+export type VsixExtensionInfo = {
+	name: string,
+	displayName: string,
+	publisher: string,
+	version: string,
+};
+
+export type VsixExtractedTheme = {
+	label: string,
+	uiTheme: string,
+	rawJson: string,
+	includeChain: VsixThemeIncludeEntry[],
+};
+
+export type VsixThemeExtractionResult = {
+	extension: VsixExtensionInfo,
+	themes: VsixExtractedTheme[],
+};
+
+export type VsixThemeIncludeEntry = {
+	path: string,
+	rawJson: string,
 };
 
 /* Tauri Specta runtime */

@@ -197,6 +197,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::sync::commands::sync_disconnect,
             domain::sync::commands::sync_upload,
             domain::sync::commands::sync_download,
+            domain::vsix::commands::vsix_extract_themes,
         ])
         .events(collect_events![
             AppReady,

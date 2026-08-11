@@ -894,7 +894,78 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) ·
       `cargo test --workspace`(469+6+17 pass, bindings 재생성 확인 — 커맨드 시그니처 무변경이라
       bindings.ts diff 불변) · `bun run typecheck`(무오류).
-- [ ] 7.10-W5. VSIX 임포트(테마 추출 + 관리 UI)
+- [x] 7.10-W5-A/B. 완료 — VSIX 임포트 Rust 스파인 계약(A) + hooks 파일 안전성 W4 보류분(B).
+      **A. `vsix_extract_themes(vsixPath)`**: 신규 `domain/vsix`(도메인 분리 근거는
+      `ipc-contract.md` "vsix" 절 — `domain/plugin` 은 TAIDE 자체 선언적 확장 스키마라 VSCode
+      `.vsix` 포맷과 검증 규칙이 겹치지 않음). zip(기존 `zip` 의존) 으로 `extension/package.json`
+      을 표준 JSON 파싱해 `displayName`/`publisher`/`version`(임포트 출처 표기용, XML
+      `extension.vsixmanifest` 는 미파싱 — package.json 표준 필드로 충분해 신규 XML 의존 회피) +
+      `contributes.themes[]` 를 읽고, 각 테마의 `rawJson`(파싱 없이 원본 문자열 — 변환·jsonc
+      주석 제거는 기존 `scripts/convert-vscode-theme.ts` 를 재사용할 프론트 몫)과 `include` 체인
+      (`includeChain[]`, 정규식으로 값만 추출해 엄격 JSON 이 아니어도 체인 추적 가능 — 깊이 상한
+      5 는 프론트 스크립트 동명 상수와 값만 정합, 방문 집합으로 순환도 차단)을 반환한다. zip
+      가상 경로 전용 정규화(`normalize_zip_path`)로 `extension/` 루트 탈출을 차단(canonicalize
+      불가한 가상 경로라 plugin 도메인과 다른 방식), 항목당 2MiB 상한은 zip 메타데이터의 선언
+      크기를 신뢰하지 않고 `Read::take` 로 실제 읽기 자체를 제한. 손상된 개별 테마 항목은 전체
+      호출을 실패시키지 않고 skip(plugin 도메인과 동일한 견고성 원칙). `vsixPath` 는 사용자가
+      dialog 로 직접 고른 읽기 전용 입력이라 프로젝트 루트 가드 미적용(`project_open` 과 동일
+      성격 — `ipc-contract.md`에 근거 기록). lib.rs 등록 → `cargo test` 로 bindings 재생성 →
+      `entities/vsix/vsix.ipc.ts` 얇은 래퍼(plugin.ipc.ts 패턴). 단위 테스트 11건(픽스처 zip 은
+      테스트에서 `zip::ZipWriter` 로 생성 — `infra/lsp_install.rs` 기존 패턴 재사용). 상세는
+      `docs/features/vsix-theme-import.md`(신설) 참고. 범위 밖: 변환기 이식·임포트 UI·저장 배선
+      (다음 웨이브).
+      **B. hooks 파일 안전성**: `domain/agent/commands.rs` 의 파싱 실패 거부 동작은 실측 결과
+      기존 코드가 이미 안전했다(`read_json_file_rejecting_invalid`로 개명 — NotFound 만 빈 객체,
+      그 외 파싱/IO 실패는 전부 `?` 로 즉시 전파돼 후속 쓰기가 호출되지 않음). 이번 웨이브는 이
+      불변식을 회귀 테스트로 고정(비 JSON 파일 보존 1건)하고, 두 번째 요구사항인 **권한 보존**을
+      신규 구현: 범용 `write_private_atomic`(항상 `0600` 강제)의 계약은 그대로 두고, hooks 파일
+      전용 `write_hooks_file_preserving_mode` 를 새로 만들어 재작성 시 기존 파일의 unix mode 를
+      읽어 유지하고 신규 생성 시에만 `0600`(`NEW_HOOKS_FILE_MODE`) 적용. 임시파일 명명 규칙은
+      `infra::persist::temp_sibling` 을 `pub(crate)` 로 승격해 재사용(중복 방지, 원 함수 자체는
+      무변경). i18n `agent.hooksFileInvalid` 1키 4곳(스키마+en/ko/ja) 동기. 테스트 3건(비 JSON
+      보존·기존 권한 보존 실측·신규 생성 0600). 상세는 `agent-integration.md` §7.6(신설) 참고.
+      결정 1줄은 `docs/acknowledge/2026-08-11-qa5-batch-decisions.md` §2 에 추가.
+      i18n: `settings.themeImport*` 5키(버튼·다이얼로그 제목·성공·실패·중복 안내) +
+      `agent.hooksFileInvalid` 1키, 전부 `domain/locale/service.rs` 4곳(스키마+en/ko/ja) 동기,
+      파리티 테스트 통과. UI 미소비 — 다음 웨이브 몫으로 스파인만 먼저 추가(플러그인
+      `PluginErrorCode` 로케일 키 선례와 동일 패턴).
+      검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`
+      (무경고) · `cargo test --workspace`(486+6+17 pass, bindings 재생성 확인 —
+      `vsixExtractThemes`/`Vsix*` 타입 신규 생성) · `bun run typecheck`(무오류) ·
+      `bun run lint`(에러 0, 기존 warning 4건 무관) · `bun test`(340 pass, 프론트 변경 없음).
+- [x] 7.10-W5-C. VSIX 변환기 이식 + 임포트 플로우 UI + 로케일 키 소비. `scripts/
+      convert-vscode-theme.ts` 의 순수 변환 로직(색 매핑·계열 폴백·대비 검증·ANSI 폴백·
+      include 체인 병합·주석/트레일링 콤마 허용 파싱)을 `src/shared/lib/theme-convert/`
+      9개 모듈로 이식(색상표·병합·색상 해석·syntax 해석·terminal 해석·대비·완전성 검증을
+      분리, orchestrator `convertVscodeTheme()`) — CLI 스크립트는 그 위에서 파일 IO·인자
+      파싱만 남기고 import 해 재사용(2회 사용 규칙). **회귀 확인**: 원본을 레포에 커밋하지
+      않는 정책이라(§8.2) `microsoft/vscode` 레포에서 Monokai 원본을 재취득해 동일 인자로
+      재변환한 뒤 기존 `resources/themes/monokai.json` 과 `diff` 했다 — **0바이트 차이**로
+      포팅이 동작을 바꾸지 않았음을 실측.
+      임포트 플로우: `entities/vsix/vsix.query.ts`(`useExtractVsixThemes` — `vsix.ipc.ts` 는
+      W5-A 산출물 재사용) + `features/theme/vsix-theme-import.ts`(추출 결과 → 후보 목록 —
+      `includeChain[]` 은 Rust 가 가장 구체적인 파일을 먼저 반환해 `convertVscodeTheme` 이
+      기대하는 순서(base 먼저)로 프론트에서 뒤집어 병합, `uiTheme` → `ThemeType` 매핑, 확장
+      표시 이름 슬러그 기반 id 생성) + `vsix-theme-import-dialog.tsx`(선택 목록 — 다크/라이트
+      배지·변환 경고 수·실패 항목 비활성) + `vsix-theme-import-button.tsx`(dialog open(.vsix
+      필터) → 추출 → 목록 오픈), `settings-view.tsx` 커스텀 테마 영역에 배선.
+      **id 충돌(조용한 덮어쓰기 금지)**: `theme_save` 가 같은 id 를 확인 없이 덮어쓰는 리스크가
+      있어, 저장 전 목록에 충돌 표시 + 저장 시 충돌 항목이 있으면 확인 다이얼로그(AlertDialog)를
+      먼저 띄운다. 확인하면 충돌 항목만 `generateUniqueThemeId`(테마 편집기 복제 로직 재사용)로
+      새 id 를 받아 **사본으로 저장**(기존 테마는 덮어쓰지 않음) — 기존 `settings.
+      themeImportDuplicate` 로케일 문구("이미 있어 사본으로 가져왔습니다")와 정합.
+      로케일: W5-A/B 에서 스파인만 추가했던 `settings.themeImport*` 5키(버튼·다이얼로그
+      제목·성공·실패·중복 안내) 전부 이번에 소비(신규 키 추가 없음), `common.cancel`/
+      `common.confirm`/`common.save`·`settings.themeDark`/`themeLight`·
+      `themeEditor.duplicateNameTemplate` 등 기존 공통 키 재사용.
+      테스트: `theme-convert/` 9건(jsonc 파싱 4건 + orchestrator 5건) + `vsix-theme-import`
+      5건(단일/다중 id 슬러그·충돌 표시·파싱 실패·include 체인 병합 순서) 신규 15건.
+      문서: `docs/theme-system.md` §9(파이프라인·id 충돌 정책·변환 실패 사유) 신설.
+      검증: `bun run typecheck`(무오류) · `bun run lint`(에러 0, 기존 warning 4건 무관) ·
+      `bun run format:check`(전부 통과) · `bun test`(355 pass, +15) · `cargo fmt --all --check`
+      (무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) · `cargo test
+      --workspace`(486+6+17 pass, Rust 무변경 — bindings.ts 재생성도 diff 없음) + Monokai
+      대표 회귀 diff 0 실측(위 참고). Rust 변경 없음(이번 웨이브는 프론트 전용).
 - [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블)
 - [ ] 7.10-W7. TextMate 문법 엔진 (backlog 에서 승격, 2026-08-11 사용자 확정) — shiki JS 엔진 우선
       검증(CSP 무변경, 실패 시 WASM+CSP 완화 폴백), 테마 스키마에 원본 tokenColors 보존, 번들 36종

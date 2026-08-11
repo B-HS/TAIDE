@@ -363,3 +363,71 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 3개 섹션으로 나눠 그린다(`settings.builtinThemesSection` /
 `settings.bundledThemesSection` / `themeEditor.customThemes`). 각 카드에는
 복제 버튼(`onDuplicate`)이 있어 번들 테마를 곧바로 `extends` 상속 복제할 수 있다.
+
+## 9. VSIX 테마 임포트 (7.10-W5)
+
+> 범위: **테마만.** VS Code 확장(`.vsix`)의 `contributes.themes` 기여점만 추출·변환해
+> 로컬에 저장한다. **확장 실행(코드 실행형 extension host)은 공식적으로 미지원**이고,
+> MS Marketplace 와의 네트워크 연동도 하지 않는다(사용자가 로컬에 내려받은 `.vsix`
+> 파일만 dialog 로 선택). TextMate 문법(`contributes.grammars`)·스니펫·커맨드 등 다른
+> 기여점은 다루지 않는다(TextMate 문법 엔진은 7.10-W7 로 별도). 설계 근거 전문은
+> `docs/features/vsix-theme-import.md`, IPC 계약은 `docs/ipc-contract.md` "vsix" 절.
+
+### 9.1 파이프라인
+
+```
+설정 > 외관 > "VSIX 에서 테마 가져오기…" 버튼
+  → plugin-dialog open(.vsix 필터)
+  → vsix_extract_themes(vsixPath)  (Rust, §9.2)
+  → 테마별 include 체인 병합 + convertVscodeTheme()  (프론트, §8.2 변환 파이프라인 재사용)
+  → 선택 목록(다크/라이트 배지 · 변환 경고 수 · 실패 항목 비활성 표시)
+  → theme_save (선택한 테마마다)
+  → theme_list invalidate + toast
+```
+
+- 변환은 `scripts/convert-vscode-theme.ts` 가 쓰던 **순수 로직을 `src/shared/lib/theme-convert/`
+  로 이식**한 것을 그대로 재사용한다(CLI 스크립트와 임포트 플로우 2곳에서 쓰여 "2회 이상"
+  공통화 기준을 충족) — `convertVscodeTheme(rawChain, type)`. 파일 IO·CLI 인자 파싱만
+  `scripts/convert-vscode-theme.ts` 에 남아 있다. 포팅은 동작을 바꾸지 않았다 — 대표 1종
+  (Monokai, 원본은 `microsoft/vscode` 레포에서 재취득)으로 재변환한 산출물이 기존
+  `src-tauri/resources/themes/monokai.json` 과 바이트 단위로 diff 0 임을 실측했다.
+- `vsix_extract_themes` 가 돌려주는 `includeChain[]` 은 **가장 구체적인 파일이 먼저**
+  온다(현재 테마의 직속 부모, 그 다음 조부모 순 — `vsix-theme-import.md` §6). `convertVscodeTheme` 이
+  기대하는 병합 순서(base 가 먼저, 가장 구체적인 것이 마지막에 와서 덮어쓴다)와 반대라
+  프론트에서 `[...includeChain].reverse()` 로 뒤집은 뒤 테마 본문(`rawJson`)을 마지막에
+  붙여 병합한다(`src/features/theme/vsix-theme-import.ts` `buildRawChain`).
+- `uiTheme`(`vs`/`vs-dark`/`hc-black`/`hc-light`) → TAIDE `ThemeType` 매핑은 `vs`/`hc-light`
+  는 `light`, `vs-dark`/`hc-black` 은 `dark` 다(고대비 변형도 dark/light 두 갈래로 접는다 —
+  TAIDE 는 별도 고대비 테마 타입이 없다).
+
+### 9.2 id 충돌 — 조용한 덮어쓰기 금지
+
+`theme_save` 는 같은 id 파일을 **조용히 덮어쓴다**(`service.rs` `save_theme` — 존재 여부를
+확인하지 않고 바로 write). 임포트 id 는 확장의 `publisher`+`name`(매니페스트 필드, 항상
+ASCII 인 안정 식별자)을 슬러그화해 만든다(`slugifyThemeId`, 여러 테마가 있으면 각 테마 라벨을
+덧붙여 구분) — `displayName` 은 쓰지 않는다. NLS 플레이스홀더(`%displayName%`)가 남아 있거나
+비ASCII 문자열이면 슬러그가 무너져 서로 다른 확장이 같은 id 로 충돌할 수 있기 때문이다
+(`vsix-theme-import.md` §4-1·§9). 그래도 같은 확장을 다시 가져오거나 슬러그가 우연히 기존
+커스텀 테마와 겹치면 사용자 모르게 기존 테마가 사라질 위험은 남는다.
+
+임포트 목록에서 **저장 전에** 기존 `theme_list` id 와 겹치는 항목을 표시하고, 저장을
+누르면 겹치는 항목이 있는 경우 확인 다이얼로그를 먼저 띄운다. 확인하면 겹치는 항목만
+`generateUniqueThemeId`(기존 테마 편집기의 복제 로직과 동일 — `theme-draft.ts`)로 새
+id 를 받아 **사본으로 저장**한다 — 기존 테마를 덮어쓰지 않는다(`settings.themeImportDuplicate`
+로케일 문구 그대로: "이미 있어 사본으로 가져왔습니다"). 겹치지 않는 항목은 슬러그 id
+그대로 저장된다.
+
+### 9.3 변환 실패 항목
+
+`convertVscodeTheme` 은 133 색상 전량을 항상 폴백으로 채우므로(§8.2 SAFE_DEFAULT_COLORS·
+family fallback) `missingColors`/`missingSyntax`/`missingTerminal` 은 사실상 매핑 테이블
+자체의 내부 정합성 검사에 가깝다. 임포트가 실제로 실패하는 경우는 둘뿐이다.
+
+1. `rawJson`/`includeChain[].rawJson` 이 `parseJsonc` 로도 파싱되지 않는 손상된 JSON.
+2. 대비 보정(`repairContrastPairs`) 후에도 `validateOutputColors` 가 최소 대비 미달을
+   보고하는 경우(`outputColorErrors`).
+
+두 경우 모두 해당 테마만 목록에서 **비활성(체크 불가)** 으로 표시하고, 다른 테마는 정상
+가져올 수 있다(vsix 하나에 여러 테마가 있을 때 하나가 깨져도 나머지는 계속 진행 — Rust
+쪽 `vsix_extract_themes` 의 "항목 하나가 깨져도 전체를 실패시키지 않는다" 원칙과 같은
+맥락을 프론트 변환 단계에도 유지한다).

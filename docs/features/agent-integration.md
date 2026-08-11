@@ -222,3 +222,28 @@ taide [--wait|-w] <file> [<file>...]
 - **uninstall 은 taide 항목이 없으면 파일을 새로 만들지 않는다** (`commands.rs::agent_hooks_uninstall`):
   프로젝트·사용자 레벨 양쪽 모두 기록된 taide 마커가 있을 때만 쓰기를 수행한다. 존재하지 않는
   파일(설치한 적 없는 상태)에 uninstall 을 호출해도 빈 JSON 파일이 새로 생기지 않는다.
+
+### 7.6 서드파티 hooks 파일 안전성 (`domain/agent/commands.rs`)
+
+> 7.10-W5-B — W4 보류분. `.claude/settings.local.json`·`~/.codex/hooks.json`·
+> `~/.gemini/settings.json` 은 TAIDE 가 아니라 각 CLI 도구가 소유·기록하는 파일이므로, TAIDE 는
+> 이 파일들에 대해 "손님"으로서 최소 개입 원칙을 지킨다.
+
+- **파싱 실패는 항상 거부, 빈 객체 대체 금지** (`read_json_file_rejecting_invalid`): 파일이
+  존재하지 않으면 빈 객체(`{}`)로 취급해 신규 설치를 허용하지만, 파일이 **존재하는데 유효한
+  JSON 이 아니면** `AppError` 를 반환하고 끝낸다. `agent_hooks_install`/`agent_hooks_uninstall`
+  은 이 함수의 결과를 `?` 로 즉시 전파하므로, 파싱에 실패한 시점에 쓰기 경로(`write_settings_local`/
+  `write_user_level_hooks`) 자체가 호출되지 않는다 — 손상된(비 JSON) 파일을 빈 객체로 되살려
+  덮어쓰는 사고를 원천 차단한다. 프론트에는 `agent.hooksFileInvalid` 로케일 키를 스파인으로
+  먼저 추가했다(소비하는 UI 는 후속 웨이브).
+- **third-party 파일은 기존 권한을 보존한다** (`write_hooks_file_preserving_mode`): 범용
+  `infra::persist::write_private_atomic` 은 재작성할 때마다 무조건 `0600` 으로 되돌리는데, 이
+  hooks 파일들은 Claude Code·Codex·Gemini CLI 가 직접 만들고 스스로의 규칙으로 권한을 설정할
+  수 있는 파일이다(예: 팀 정책으로 그룹 읽기를 허용해 뒀을 수 있다). TAIDE 가 재작성 때마다
+  그 권한을 조용히 `0600` 으로 좁히면 그 CLI 도구 입장에서는 예고 없는 권한 변경이 된다. 이
+  경로 전용 헬퍼는 재작성 직전 기존 파일의 mode 를 읽어 그대로 유지하고, **파일이 새로
+  생성되는 경우에만** `0600`(`NEW_HOOKS_FILE_MODE`, hook URL 에 토큰이 실리므로 소유자 전용)을
+  적용한다. `write_private_atomic` 자신의 범용 계약(항상 `0600`)은 바꾸지 않았다 — 다른
+  호출자(`lockfile.rs` 등)는 여전히 원래 동작 그대로다. 임시파일 이름 규칙만
+  `infra::persist::temp_sibling` 을 `pub(crate)` 로 노출해 재사용했다(atomic rename 규약 중복
+  방지).

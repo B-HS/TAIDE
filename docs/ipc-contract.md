@@ -135,6 +135,27 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
 - query: `plugin_list`
 - mutation: `plugin_reload`, `plugin_set_lsp_enabled(pluginId, lspId, enabled)`
 
+### vsix (7.10-W5 신설 — `vsix-theme-import.md`)
+
+- query: `vsix_extract_themes(vsixPath)` → `VsixThemeExtractionResult { extension, themes[] }`.
+  `extension`(`VsixExtensionInfo { displayName, publisher, version }`)은 `extension/package.json`
+  에서 그대로 읽는다(임포트 출처 표기용 — extension.vsixmanifest XML 은 파싱하지 않는다, 신규
+  의존성 회피). `themes[]`(`VsixExtractedTheme { label, uiTheme, rawJson, includeChain[] }`)의
+  `rawJson`/`includeChain[].rawJson` 은 **파싱하지 않은 원본 문자열**이다 — 변환(색상 매핑·jsonc
+  주석 제거)은 `scripts/convert-vscode-theme.ts` 의 기존 로직을 재사용하는 프론트 몫이다(Rust 는
+  추출만). 손상되거나 확장 루트를 벗어나는 개별 테마 항목은 전체 호출을 실패시키지 않고
+  건너뛴다(`plugins.md` §3 "하나가 깨져도 나머지는 계속 로드된다"와 동일한 견고성 원칙).
+  **`vsixPath` 는 `resolve_within_open_project`(프로젝트 루트 가드)를 거치지 않는다** — 프론트
+  `dialog` 로 사용자가 직접 고른 파일 경로이고 Rust 는 그 파일을 읽기만 한다(쓰기 없음). 이는
+  `project_open(path)` 가 이미 사용자 선택 경로를 루트 가드 없이 받는 것과 같은 성격이다(프로젝트
+  루트를 정하는 진입점 자체이므로 검증할 "루트"가 아직 없다).
+- 도메인 분리 근거: `domain/plugin` 은 TAIDE 자체 선언적 확장 체계(`{app_data}/plugins/*/
+  taide-plugin.json`, 부팅 시 스캔, ADR-0010 "코드 실행 없음")이고 `domain/vsix` 는 VS Code
+  확장(.vsix) 이라는 **별개 포맷**을 사용자가 그때그때 선택한 파일에서 1회성으로 추출하는
+  기능이다. 스키마·트리거·검증 규칙이 전혀 겹치지 않아(taide-plugin.json 의 경로 탈출 검증은
+  플러그인 루트 기준, vsix 는 zip 아카이브 내 `extension/` 루트 기준) `domain/plugin` 에
+  얹으면 두 스키마가 뒤섞인다 — 신규 `domain/vsix` 로 분리했다.
+
 ### 7.6 추가 (IDE 핵심 루프)
 
 - git: `git_branches`, `git_branch_create(name, checkout)`, `git_branch_checkout(name)`,

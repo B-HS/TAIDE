@@ -33,6 +33,11 @@
   — 프로젝트 파일은 커밋 대상이라 오염 금지), shim 은 `taide-cli` 서브커맨드(stdin→HTTP 중계,
   짧은 타임아웃 + 무조건 exit 0 + stdout 무오염), override 키 (ProjectId, agentName) 확장,
   Codex awaitingInput 해제는 PostToolUse/Stop + 프로세스 활동 신호
+- **멀티 에이전트 hooks 파일 안전성(W4 보류분, W5 에서 처리)**: 서드파티 소유 hooks 파일
+  (`.claude/settings.local.json`·`~/.codex/hooks.json`·`~/.gemini/settings.json`)은 파싱 실패
+  시 빈 객체 대체 없이 항상 쓰기를 거부하고(`AppError` 반환), 재작성 시 기존 파일의 권한(mode)을
+  보존하며 신규 생성 시에만 `0600` 을 적용한다 — `write_private_atomic` 의 범용 계약(항상 `0600`)
+  은 바꾸지 않고 이 경로 전용 헬퍼로 격리(`agent-integration.md` §7.6).
 - **LSP**: 스펙 enum→데이터화(기존 PluginLspContribution 스키마 발판), mason-registry 는 참고용만,
   Elixir 는 expert(alpha 배지 표기), 툴체인 자체 설치는 안 함(감지+대행 실행까지),
   매니페스트에 sha256 고정·`{app_data}/lsp/` 격리 설치

@@ -340,7 +340,9 @@ fn settings_local_path(root: &str) -> PathBuf {
     Path::new(root).join(".claude").join("settings.local.json")
 }
 
-fn read_json_file_or_empty_object(path: &Path) -> AppResult<serde_json::Value> {
+const NEW_HOOKS_FILE_MODE: u32 = 0o600;
+
+fn read_json_file_rejecting_invalid(path: &Path) -> AppResult<serde_json::Value> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(serde_json::from_str(&text)?),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
@@ -348,26 +350,37 @@ fn read_json_file_or_empty_object(path: &Path) -> AppResult<serde_json::Value> {
     }
 }
 
-/// hook URL 에 토큰이 들어가므로 소유자 전용 권한으로 기록한다.
-fn write_json_file_private_atomic(path: &Path, value: &serde_json::Value) -> AppResult<()> {
+#[cfg(unix)]
+fn existing_file_mode(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).ok().map(|metadata| metadata.permissions().mode() & 0o777)
+}
+
+fn write_hooks_file_preserving_mode(path: &Path, value: &serde_json::Value) -> AppResult<()> {
     let text = serde_json::to_string_pretty(value)?;
-    crate::infra::persist::write_private_atomic(path, text.as_bytes())
+
+    #[cfg(unix)]
+    let mode = existing_file_mode(path).unwrap_or(NEW_HOOKS_FILE_MODE);
+    #[cfg(not(unix))]
+    let mode = NEW_HOOKS_FILE_MODE;
+
+    crate::infra::persist::write_atomic_with_mode(path, text.as_bytes(), mode)
 }
 
 pub(super) fn read_settings_local(root: &str) -> AppResult<serde_json::Value> {
-    read_json_file_or_empty_object(&settings_local_path(root))
+    read_json_file_rejecting_invalid(&settings_local_path(root))
 }
 
 pub(super) fn write_settings_local(root: &str, value: &serde_json::Value) -> AppResult<()> {
-    write_json_file_private_atomic(&settings_local_path(root), value)
+    write_hooks_file_preserving_mode(&settings_local_path(root), value)
 }
 
 pub(super) fn read_user_level_hooks(path: &Path) -> AppResult<serde_json::Value> {
-    read_json_file_or_empty_object(path)
+    read_json_file_rejecting_invalid(path)
 }
 
 pub(super) fn write_user_level_hooks(path: &Path, value: &serde_json::Value) -> AppResult<()> {
-    write_json_file_private_atomic(path, value)
+    write_hooks_file_preserving_mode(path, value)
 }
 
 pub(super) fn home_dir_env() -> Option<String> {
@@ -527,4 +540,68 @@ pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: Proje
         scope,
         installed: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn temp_project_root(name: &str) -> String {
+        std::env::temp_dir()
+            .join(format!("taide-agent-hooks-file-safety-{name}-{}", Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string()
+    }
+
+    #[test]
+    fn 비_json_파일은_읽기_실패로_원본을_보존한다() {
+        let root = temp_project_root("invalid-json-preserved");
+        let path = settings_local_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+
+        let result = read_settings_local(&root);
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 기존_파일의_권한을_보존해서_재작성한다() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_project_root("preserve-mode");
+        let path = settings_local_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_settings_local(&root, &serde_json::json!({ "hooks": {} })).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 신규_파일은_0600_권한으로_생성된다() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_project_root("new-file-mode");
+        let path = settings_local_path(&root);
+
+        write_settings_local(&root, &serde_json::json!({ "hooks": {} })).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, NEW_HOOKS_FILE_MODE);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

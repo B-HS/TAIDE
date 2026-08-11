@@ -45,6 +45,7 @@ import { TextField } from '@features/settings/text-field'
 import { LanguagePicker, SYSTEM_LANGUAGE_ID } from '@features/settings/language-picker'
 import { ThemePicker } from '@features/settings/theme-picker'
 import { CustomThemeList } from '@features/theme/custom-theme-list'
+import { VsixThemeImportButton } from '@features/theme/vsix-theme-import-button'
 import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { Switch } from '@shared/ui/switch'
@@ -286,6 +287,7 @@ export const SettingsView = () => {
                                             <FolderOpen className='size-3.5' />
                                             {t('settings.themesOpenFolder')}
                                         </Button>
+                                        <VsixThemeImportButton themes={themes} />
                                         <Button
                                             variant='outline'
                                             size='xs'

@@ -17,3 +17,4 @@ pub mod system;
 pub mod terminal;
 pub mod theme;
 pub mod tree;
+pub mod vsix;
