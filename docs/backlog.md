@@ -50,3 +50,13 @@
 
 - 1·2순위 구현 중 이 목록의 선행 조건이 이미 충족됐는지 (예: layout 필드 추가 여부)
 - 실사용에서 실제로 아쉬웠던 것이 무엇인지 — 목록 순서보다 그것이 우선한다
+
+## Phase 7.10 결정에서 분리된 후속 후보 (2026-08-11)
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| TextMate 문법 엔진 | VSIX grammar 실행(shiki JS 엔진 우선 검토) + 테마 스키마에 원본 tokenColors 보존 | 테마 파이프라인 개정·36종 재검증 동반 — 규모가 별도 단계급. 현 Monarch 는 syntax 토큰 31종 중 절반 미사용(실측) |
+| Gemini IDE companion | HTTP MCP 서버 + discovery 파일로 openDiff·컨텍스트 공유 (공식 스펙 존재) | domain/ide 급 증분(HTTP 트랜스포트 신설) — hooks 배지(W4)와 분리 |
+| Codex app-server 패널 | `codex app-server` JSON-RPC 클라이언트로 에이전트 UI 내장 | 터미널 연동과 다른 제품 축. auto-tab(Codex 토큰)과 별개 |
+| chord·when 키맵 엔진 | ⌘K ⌘S 류 2단 조합 + 컨텍스트(when) 평가 | keymap 타입·매칭·overrides 직렬화 전면 개정 필요 |
+| 앱데이터 파일 에디터 편집 | 설정/플러그인 파일을 에디터 탭에서 직접 편집·저장 | file_save 루트 가드 + 탭 projectId 종속 동시 해제 필요 — W1 은 Finder/기본 앱 열기까지 |

@@ -758,3 +758,49 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] U-7. 게이트 전량 통과 — `cargo test --workspace` 340 pass(325+6+9, 번들 테마 경고 0 테스트
       포함), `cargo clippy -D warnings` 0, `cargo fmt --check` 0, `bun run typecheck`/
       `lint`(사전 존재 warning 4건 외 0)/`test` 326 pass/`format:check` 0
+
+## 완료: QA 4회차 실기 재검증 (2026-08-11)
+
+- [x] 전건 통과 (사용자 실기 확인) — 한글 빠른 입력(씹힘 해결 확정), CC 연결, 테마 36종, 배지 반영 속도.
+      HANDOFF §8 1순위 표 종결. IME deduper·ide 진단 로그·AGENT_POLL_UNIX_MS=500 이 실기에서 유효 판정
+
+## 진행 중: Phase 7.10 — QA 5차 신규 요구 6그룹 (2026-08-11)
+
+> 접수 원문 요지: ① 프로젝트별 remote-control(로컬 serving `127.0.0.1:{port}/{session-id}`,
+> 외부 노출은 사용자가 cloudflare tunnel — 잠자기 이슈는 스코프 밖 확정) ② Codex·Gemini CLI 지원
+> ③ AI Provider 2종(Ollama Cloud·Codex access token) + Monaco auto-tab(프롬프트 커스텀 가능)
+> ④ UI/UX 5건(파일트리 hover/active·줄번호 x패딩 축소·탭바/트리 헤더 1px 정렬·단축키 VSCode 수준 보강·
+> **메뉴바 하단 전폭 가로 border 1줄 신설** — 좌측 프로젝트 레일·파일트리·에디터 탭 위를 오차 없이
+> 관통하는 연속 직선, 현재는 패널별로 끊겨 중간이 비어 보임(스크린샷 접수 2026-08-11)·
+> **설정 화면 좌측 패딩 축소** — Settings 타이틀·좌측 내비(Appearance~Plugins)의 좌측 여백 과다,
+> 스크린샷 접수 2026-08-11)
+> ⑤ VSCode/Cursor extension 호환 검토(가능 시 구현, 아이콘은 설정 톱니 위) ⑥ 설정 GitHub 저장
+> ⑦ LSP 원클릭 설치 확충 — java·go·ruby·flutter·swift·scala·haskell·elixir·**C/C++(clangd, 추가 확정)**
+> 필수(현 5종: vtsls·rust-analyzer·basedpyright·ruff·marksman), 추가 추천은 제시 후 확정.
+> **사용자 승인(2026-08-11)**: 툴체인 선행이 불가피한 언어는 "LSP 바이너리 원클릭 + SDK 미설치 시
+> 감지·안내"까지가 범위
+> ⑧ 안내문구형 dead-end UX 전수검사 — 예: 플러그인 "manifest 를 직접 두라" 문구 → Edit 버튼으로
+> 파일을 바로 열어 수정 가능하게. 같은 부류 전수 수집 후 수정 계획 수립.
+
+- [x] 7.10-R. 리서치 워크플로 8영역 (opus+medium) — ①~⑥: wf_83d6725a-ecb (remote-control·
+      multi-agent·ai-provider-autotab·vscode-extensions·settings-github-sync·uiux-shortcuts),
+      ⑦~⑧: wf_b3d1604c-da7 (lsp-oneclick·deadend-ux). 메인 스팟체크 4건 일치(KNOWN_AGENT_NAMES
+      3종·CSP 잠김·죽은 바인딩 8개·1px 원인). 핵심 판정: Codex 토큰 auto-tab 기술·약관상 불가,
+      extension host 실행 불가(정적 자산 추출만 현실), 플러그인 "미배선" 문구는 거짓(코어 완비·UI 미소비),
+      LSP 원클릭은 하이브리드(다운로드+툴체인 대행+SDK 감지) 필요
+- [ ] 7.10-B1. 버그: reload 시 테마 플래시 — TAIDE Dark(기본 토큰)가 먼저 그려졌다 선택 테마로 전환.
+      메인 1차 특정(읽기 전용): theme-provider 의 useRevealWindow(isFetched) 가드는 최초 실행만 커버,
+      reload 는 창이 이미 노출돼 무력 — 테마 쿼리(IPC) 도착 전까지 global.css 기본 토큰이 페인트됨.
+      수정 후보: 마지막 적용 테마 스냅샷을 로컬에 캐시해 첫 페인트 전 동기 적용. opus+high 검토로 확정
+- [x] 7.10-D. 결정 묶음 사용자 확정 — `docs/acknowledge/2026-08-11-qa5-batch-decisions.md`.
+      전부 추천안 + Codex 정정(b-hub 검증 구현 이식, auto-tab = Ollama Cloud + Codex 2종).
+      오판 기록: `docs/feedback/2026-08-11-codex-token-feasibility-misjudgment.md`
+- [ ] 7.10-W1. UI/UX(1px 정렬·메뉴바 전폭 border·줄번호 패딩·파일트리 hover/active·설정 좌측 패딩)
+      + 단축키 B안(죽은 바인딩 8 + ⌘+/⌘- 폰트) + dead-end(플러그인 목록 렌더·앱데이터 열기 커맨드·
+      git_init·문구 정리·토스트 action) + 테마 reload 플래시 버그(opus+high)
+- [ ] 7.10-W2. LSP 원클릭 — 스펙 데이터화 + 설치 인프라(다운로드·체크섬·해제) + 14종 매니페스트
+- [ ] 7.10-W3. AI provider(Ollama Cloud·Codex) + Monaco auto-tab + keyring + GitHub sync(Gist)
+- [ ] 7.10-W4. 멀티 에이전트 hooks(codex·gemini) + taide-cli shim + override 스코프 확장
+- [ ] 7.10-W5. VSIX 임포트(테마 추출 + 관리 UI)
+- [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블)
+- [ ] 7.10-V. 각 웨이브: 검토(렌즈→적대적 검증→수정) + 메인 2차(verify 재실행·실측)
