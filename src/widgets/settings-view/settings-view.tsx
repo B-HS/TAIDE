@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
+import { aiModelsQueryOptions, aiTokenStatusQueryOptions, useClearAiToken, useSetAiToken } from '@entities/ai/ai.query'
 import { fontListQueryOptions } from '@entities/font/font.query'
 import {
     lspInstallProgressQueryOptions,
@@ -16,6 +17,7 @@ import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemOpenAppDataPath } from '@entities/system/system.ipc'
 import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
+import { syncStatusQueryOptions, useConnectSync, useDisconnectSync, useDownloadSync, useUploadSync } from '@entities/sync/sync.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { localeListQueryOptions } from '@entities/locale/locale.query'
 import { AgentHooksProjectList } from '@features/settings/agent-hooks-project-list'
@@ -30,11 +32,15 @@ import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
-import type { AppDataPathKind, LspServerId } from '@shared/api/bindings'
+import type { AiProviderId, AppDataPathKind, LspServerId } from '@shared/api/bindings'
 import type { KeymapActionId, KeymapModifier } from '@shared/lib/keymap'
 import { APP_KEYMAP, applyKeymapOverrides, findKeymapConflict, parseKeymapOverrides, serializeKeymapOverrides } from '@shared/lib/keymap'
+import { AiAutoTabToggle } from '@features/settings/ai-auto-tab-toggle'
+import { AiProviderTokenRow } from '@features/settings/ai-provider-token-row'
 import { SettingsToc } from '@features/settings/settings-toc'
 import { ShellProfileList } from '@features/settings/shell-profile-list'
+import { SyncConflictDialog } from '@features/settings/sync-conflict-dialog'
+import { SyncSection } from '@features/settings/sync-section'
 import { TextField } from '@features/settings/text-field'
 import { LanguagePicker, SYSTEM_LANGUAGE_ID } from '@features/settings/language-picker'
 import { ThemePicker } from '@features/settings/theme-picker'
@@ -92,6 +98,13 @@ const TERMINAL_CURSOR_STYLE_OPTIONS = [
     { id: 'underline', labelKey: 'settings.cursorStyleUnderline' },
 ] as const
 
+const DEFAULT_AI_AUTO_TAB_PROVIDER: AiProviderId = 'ollamaCloud'
+
+const AI_PROVIDER_OPTIONS: { id: AiProviderId; labelKey: string }[] = [
+    { id: 'ollamaCloud', labelKey: 'settings.aiProviderOllamaCloud' },
+    { id: 'codex', labelKey: 'settings.aiProviderCodex' },
+]
+
 type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
 
 const SETTINGS_SECTION_ID = {
@@ -102,7 +115,9 @@ const SETTINGS_SECTION_ID = {
     TERMINAL: 'settings-section-terminal',
     KEYMAP: 'settings-section-keymap',
     LSP: 'settings-section-lsp',
+    AI: 'settings-section-ai',
     PLUGINS: 'settings-section-plugins',
+    SYNC: 'settings-section-sync',
 } as const
 
 const SETTINGS_TOC_ITEMS = [
@@ -113,7 +128,9 @@ const SETTINGS_TOC_ITEMS = [
     { id: SETTINGS_SECTION_ID.TERMINAL, labelKey: 'settings.terminal' },
     { id: SETTINGS_SECTION_ID.KEYMAP, labelKey: 'settings.keymap' },
     { id: SETTINGS_SECTION_ID.LSP, labelKey: 'settings.lspStatus' },
+    { id: SETTINGS_SECTION_ID.AI, labelKey: 'settings.aiSectionTitle' },
     { id: SETTINGS_SECTION_ID.PLUGINS, labelKey: 'settings.plugins' },
+    { id: SETTINGS_SECTION_ID.SYNC, labelKey: 'settings.syncSectionTitle' },
 ]
 
 export const SettingsView = () => {
@@ -121,6 +138,7 @@ export const SettingsView = () => {
 
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
     const [themeEditorState, setThemeEditorState] = useState<ThemeEditorState | null>(null)
+    const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false)
 
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [], isPending: isThemesPending } = useQuery(themeListQueryOptions())
@@ -130,10 +148,26 @@ export const SettingsView = () => {
     const { data: locales = [], isPending: isLocalesPending } = useQuery(localeListQueryOptions())
     const { data: fonts = [], isPending: isFontsPending } = useQuery(fontListQueryOptions())
     const { data: projects = [] } = useQuery(projectListQueryOptions())
+    const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
+    const { data: syncStatus } = useQuery(syncStatusQueryOptions())
     const { mutate: setThemeId } = useSetThemeId()
     const { mutate: updateSettings } = useUpdateSettings()
     const { mutate: installLspServer } = useInstallLspServer()
     const { mutate: cancelLspInstall } = useCancelLspInstall()
+    const { mutate: setAiToken, isPending: isSettingAiToken, variables: settingAiTokenVariables } = useSetAiToken()
+    const { mutate: clearAiToken } = useClearAiToken()
+    const { mutate: connectSync, isPending: isConnectingSync } = useConnectSync()
+    const { mutate: disconnectSync, isPending: isDisconnectingSync } = useDisconnectSync()
+    const { mutate: uploadSync, isPending: isUploadingSync } = useUploadSync()
+    const { mutate: downloadSync, isPending: isDownloadingSync } = useDownloadSync()
+
+    const selectedAiProvider = (settings?.aiAutoTabProvider ?? DEFAULT_AI_AUTO_TAB_PROVIDER) as AiProviderId
+    const isSelectedAiProviderConfigured = aiTokenStatus?.[selectedAiProvider] ?? false
+    const {
+        data: aiModels = [],
+        isPending: isAiModelsPending,
+        isError: isAiModelsError,
+    } = useQuery(aiModelsQueryOptions(isSelectedAiProviderConfigured ? selectedAiProvider : null))
 
     const { t } = useTranslation()
 
@@ -141,6 +175,38 @@ export const SettingsView = () => {
 
     const handleInstallLspServer = (serverId: LspServerId) => installLspServer(serverId, { onError: (error: Error) => toast.error(error.message) })
     const handleCancelLspInstall = (serverId: LspServerId) => cancelLspInstall(serverId, { onError: (error: Error) => toast.error(error.message) })
+
+    const handleSaveAiToken = (provider: AiProviderId, token: string) =>
+        setAiToken({ provider, token }, { onError: () => toast.error(t('settings.aiTokenSaveFailed')) })
+    const handleClearAiToken = (provider: AiProviderId) => clearAiToken(provider)
+
+    const handleConnectSync = (pat: string) => connectSync(pat, { onError: () => toast.error(t('settings.syncConnectFailed')) })
+    const handleDisconnectSync = () =>
+        disconnectSync(undefined, {
+            onSuccess: () => toast.success(t('settings.syncDisconnected')),
+            onError: () => toast.error(t('settings.syncDisconnectFailed')),
+        })
+    const handleUploadSync = () =>
+        uploadSync(undefined, {
+            onSuccess: () => toast.success(t('settings.syncUploadSuccess')),
+            onError: () => toast.error(t('settings.syncUploadFailed')),
+        })
+    const handleDownloadSync = () =>
+        downloadSync(false, {
+            onSuccess: (result) => (result.kind === 'conflict' ? setIsSyncConflictOpen(true) : toast.success(t('settings.syncDownloadSuccess'))),
+            onError: () => toast.error(t('settings.syncDownloadFailed')),
+        })
+    const handleSyncConflictKeepLocal = () => {
+        setIsSyncConflictOpen(false)
+        handleUploadSync()
+    }
+    const handleSyncConflictPullRemote = () => {
+        setIsSyncConflictOpen(false)
+        downloadSync(true, {
+            onSuccess: () => toast.success(t('settings.syncDownloadSuccess')),
+            onError: () => toast.error(t('settings.syncDownloadFailed')),
+        })
+    }
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
@@ -532,14 +598,87 @@ export const SettingsView = () => {
                             )}
                         </SettingsSection>
 
+                        <SettingsSection id={SETTINGS_SECTION_ID.AI} title={t('settings.aiSectionTitle')}>
+                            <ul className='flex flex-col gap-1.5'>
+                                <AiProviderTokenRow
+                                    label={t('settings.aiProviderOllamaCloud')}
+                                    configured={aiTokenStatus?.ollamaCloud ?? false}
+                                    saving={isSettingAiToken && settingAiTokenVariables?.provider === 'ollamaCloud'}
+                                    onSave={(token) => handleSaveAiToken('ollamaCloud', token)}
+                                    onClear={() => handleClearAiToken('ollamaCloud')}
+                                />
+                                <AiProviderTokenRow
+                                    label={t('settings.aiProviderCodex')}
+                                    warning={t('settings.aiCodexUnofficialWarning')}
+                                    configured={aiTokenStatus?.codex ?? false}
+                                    saving={isSettingAiToken && settingAiTokenVariables?.provider === 'codex'}
+                                    onSave={(token) => handleSaveAiToken('codex', token)}
+                                    onClear={() => handleClearAiToken('codex')}
+                                />
+                            </ul>
+                            <OptionPicker
+                                label={t('settings.aiProviderLabel')}
+                                options={AI_PROVIDER_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
+                                value={selectedAiProvider}
+                                onSelect={(providerId) =>
+                                    updateSettings({ ...emptySettingsPatch(), aiAutoTabProvider: providerId, aiAutoTabModel: null })
+                                }
+                            />
+                            {isSelectedAiProviderConfigured && isAiModelsError && (
+                                <span className='text-status-error text-xs'>{t('settings.aiModelLoadFailed')}</span>
+                            )}
+                            {isSelectedAiProviderConfigured && !isAiModelsError && !isAiModelsPending && aiModels.length === 0 && (
+                                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.aiModelSelectPlaceholder')}</span>
+                            )}
+                            {isSelectedAiProviderConfigured && !isAiModelsError && aiModels.length > 0 && (
+                                <OptionPicker
+                                    label={t('settings.aiModelLabel')}
+                                    options={aiModels.map((model) => ({ id: model.modelId, label: model.displayName ?? model.modelId }))}
+                                    value={settings.aiAutoTabModel ?? ''}
+                                    onSelect={(modelId) =>
+                                        updateSettings({ ...emptySettingsPatch(), aiAutoTabProvider: selectedAiProvider, aiAutoTabModel: modelId })
+                                    }
+                                />
+                            )}
+                            <AiAutoTabToggle
+                                checked={settings.aiAutoTabEnabled ?? false}
+                                disabled={!isSelectedAiProviderConfigured}
+                                onCheckedChange={(checked) =>
+                                    updateSettings({ ...emptySettingsPatch(), aiAutoTabProvider: selectedAiProvider, aiAutoTabEnabled: checked })
+                                }
+                            />
+                        </SettingsSection>
+
                         <SettingsSection id={SETTINGS_SECTION_ID.PLUGINS} title={t('settings.plugins')}>
                             <PluginList />
+                        </SettingsSection>
+
+                        <SettingsSection id={SETTINGS_SECTION_ID.SYNC} title={t('settings.syncSectionTitle')}>
+                            <SyncSection
+                                status={syncStatus}
+                                gistId={settings.syncGistId ?? null}
+                                connecting={isConnectingSync}
+                                disconnecting={isDisconnectingSync}
+                                uploading={isUploadingSync}
+                                downloading={isDownloadingSync}
+                                onConnect={handleConnectSync}
+                                onDisconnect={handleDisconnectSync}
+                                onUpload={handleUploadSync}
+                                onDownload={handleDownloadSync}
+                            />
                         </SettingsSection>
 
                         <div aria-hidden className='h-[50vh] shrink-0' />
                     </div>
                 </div>
             </div>
+
+            <SyncConflictDialog
+                open={isSyncConflictOpen}
+                onCancel={() => setIsSyncConflictOpen(false)}
+                onKeepLocal={handleSyncConflictKeepLocal}
+                onPullRemote={handleSyncConflictPullRemote}
+            />
         </ScrollContainer>
     )
 }

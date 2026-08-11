@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod ai;
 pub mod app;
 pub mod file;
 pub mod font;
@@ -11,6 +12,7 @@ pub mod plugin;
 pub mod project;
 pub mod search;
 pub mod settings;
+pub mod sync;
 pub mod system;
 pub mod terminal;
 pub mod theme;

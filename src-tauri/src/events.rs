@@ -172,3 +172,10 @@ pub struct IdeCloseTabRequested {
     pub tab_name: String,
     pub request_id: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "sync:state-changed")]
+pub struct SyncStateChanged {
+    pub status: crate::domain::sync::types::SyncStatus,
+}

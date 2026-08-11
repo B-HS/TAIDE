@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "fim": {
+        "prompt": "{prefix}",
+        "suffix": "{suffix}",
+        "stop": ["\n\n\n"]
+    },
+    "chat": {
+        "system": "You are a code completion engine embedded in a code editor. Given the code before and after the cursor, respond with ONLY the text that should be inserted at the cursor to complete the code. Do not repeat the given code, do not add explanations, do not use markdown code fences. Language: {language}. File: {filePath}.",
+        "user": "<PREFIX>\n{prefix}\n<SUFFIX>\n{suffix}\n<INSTRUCTION>\nReturn only the missing code that belongs between PREFIX and SUFFIX."
+    }
+}

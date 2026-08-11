@@ -12,6 +12,7 @@ use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
+use crate::domain::ai::commands::AiInlineStore;
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeStore;
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
@@ -23,8 +24,9 @@ use crate::domain::tree::commands::TreeStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested,
     IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated, ProjectClosed,
-    ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, TerminalCwdChanged, TerminalExited, ThemeChanged,
+    ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, SyncStateChanged, TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
+use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
@@ -184,6 +186,17 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::ide::commands::ide_resolve_diff,
             domain::ide::commands::ide_resolve_save,
             domain::ide::commands::ide_notify_at_mention,
+            domain::ai::commands::ai_token_status,
+            domain::ai::commands::ai_set_token,
+            domain::ai::commands::ai_clear_token,
+            domain::ai::commands::ai_list_models,
+            domain::ai::commands::ai_inline_complete,
+            domain::ai::commands::ai_inline_cancel,
+            domain::sync::commands::sync_status,
+            domain::sync::commands::sync_connect,
+            domain::sync::commands::sync_disconnect,
+            domain::sync::commands::sync_upload,
+            domain::sync::commands::sync_download,
         ])
         .events(collect_events![
             AppReady,
@@ -206,7 +219,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             IdeStatusChanged,
             IdeDiffRequested,
             IdeSaveRequested,
-            IdeCloseTabRequested
+            IdeCloseTabRequested,
+            SyncStateChanged
         ])
 }
 
@@ -374,6 +388,8 @@ pub fn run() {
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
             app.manage(IdeStore::default());
+            app.manage(AiInlineStore::default());
+            app.manage(SecretStoreState::default());
 
             if app.state::<AppState>().settings.read().agent_hooks_enabled {
                 let hooks_boot_handle = app.handle().clone();

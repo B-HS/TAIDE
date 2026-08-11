@@ -38,6 +38,9 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     terminalCursorStyle: null,
     terminalCursorBlink: null,
     enablePreviewTabs: null,
+    aiAutoTabEnabled: null,
+    aiAutoTabProvider: null,
+    aiAutoTabModel: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

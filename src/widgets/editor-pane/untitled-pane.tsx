@@ -5,9 +5,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { save } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import type { ProjectId, TabId } from '@shared/api/bindings'
+import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { useSaveFile } from '@entities/file/file.query'
 import { useConvertUntitledTab, useSetTabDirty } from '@entities/layout/layout.query'
 import { projectQueryOptions } from '@entities/project/project.query'
@@ -42,6 +44,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
     const queryClient = useQueryClient()
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: settings } = useQuery(settingsQueryOptions())
+    const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { mutate: saveFile } = useSaveFile()
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
     const { mutate: convertUntitled } = useConvertUntitledTab(projectId)
@@ -81,6 +84,8 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
+    const aiCompletionConfig = resolveAiInlineCompletionConfig(settings, aiTokenStatus)
+
     useEffect(() => {
         setUntitledContent(projectId, tabId, draftRef.current)
     }, [projectId, tabId])
@@ -106,6 +111,8 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
             cursorStyle={(settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE) as EditorCursorStyle}
             cursorBlinking={(settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING) as EditorCursorBlinkingStyle}
             scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
+            aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
+            aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}
             onSave={() => void handleSaveAs()}
             onCursorLineChange={() => undefined}

@@ -282,6 +282,51 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "builtinThemesSection",
             "themeCredits",
             "themesOpenFolder",
+            "aiSectionTitle",
+            "aiProviderLabel",
+            "aiProviderOllamaCloud",
+            "aiProviderCodex",
+            "aiTokenLabel",
+            "aiTokenPlaceholder",
+            "aiTokenSave",
+            "aiTokenSaved",
+            "aiTokenClear",
+            "aiTokenCleared",
+            "aiTokenSaveFailed",
+            "aiTokenNotSet",
+            "aiModelLabel",
+            "aiModelSelectPlaceholder",
+            "aiModelLoadFailed",
+            "aiAutoTabToggle",
+            "aiAutoTabToggleHint",
+            "aiAutoTabProviderRequired",
+            "aiCompletionFailed",
+            "aiCodexUnofficialWarning",
+            "syncSectionTitle",
+            "syncDescription",
+            "syncTokenScopeHint",
+            "syncTokenPlaceholder",
+            "syncConnect",
+            "syncConnectFailed",
+            "syncGistIdLabel",
+            "syncGistIdNone",
+            "syncLastSyncedLabel",
+            "syncLastSyncedNever",
+            "syncUploadNow",
+            "syncUploadFailed",
+            "syncUploadSuccess",
+            "syncDownloadNow",
+            "syncDownloadFailed",
+            "syncDownloadSuccess",
+            "syncDisconnect",
+            "syncDisconnectFailed",
+            "syncDisconnected",
+            "syncRemoteNewerBadge",
+            "syncSecretGistWarning",
+            "syncConflictTitle",
+            "syncConflictDescription",
+            "syncConflictKeepLocal",
+            "syncConflictPullRemote",
         ],
     ),
     (
@@ -782,6 +827,63 @@ fn en_messages() -> BTreeMap<String, String> {
         ("settings.builtinThemesSection", "Built-in"),
         ("settings.themesOpenFolder", "Open Themes Folder"),
         ("settings.themeCredits", "Theme sources & licenses"),
+        ("settings.aiSectionTitle", "AI"),
+        ("settings.aiProviderLabel", "Provider"),
+        ("settings.aiProviderOllamaCloud", "Ollama Cloud"),
+        ("settings.aiProviderCodex", "Codex"),
+        ("settings.aiTokenLabel", "Access Token"),
+        ("settings.aiTokenPlaceholder", "Paste access token"),
+        ("settings.aiTokenSave", "Save Token"),
+        ("settings.aiTokenSaved", "Token saved"),
+        ("settings.aiTokenClear", "Clear Token"),
+        ("settings.aiTokenCleared", "Token cleared"),
+        ("settings.aiTokenSaveFailed", "Failed to save token"),
+        ("settings.aiTokenNotSet", "Not set"),
+        ("settings.aiModelLabel", "Model"),
+        ("settings.aiModelSelectPlaceholder", "Select a model"),
+        ("settings.aiModelLoadFailed", "Failed to load models"),
+        ("settings.aiAutoTabToggle", "Enable Auto-Tab Completion"),
+        ("settings.aiAutoTabToggleHint", "Suggests inline completions as you type"),
+        ("settings.aiAutoTabProviderRequired", "Set a provider token to enable auto-tab"),
+        ("settings.aiCompletionFailed", "Completion request failed"),
+        (
+            "settings.aiCodexUnofficialWarning",
+            "Uses an unofficial Codex protocol — a Codex CLI update may break it without notice",
+        ),
+        ("settings.syncSectionTitle", "GitHub Sync"),
+        (
+            "settings.syncDescription",
+            "Sync your settings, themes, and locales across machines using a private GitHub Gist",
+        ),
+        ("settings.syncTokenScopeHint", "Create a token with the gist scope"),
+        ("settings.syncTokenPlaceholder", "Paste personal access token"),
+        ("settings.syncConnect", "Connect"),
+        ("settings.syncConnectFailed", "Failed to connect"),
+        ("settings.syncGistIdLabel", "Gist ID"),
+        ("settings.syncGistIdNone", "Not created yet"),
+        ("settings.syncLastSyncedLabel", "Last synced"),
+        ("settings.syncLastSyncedNever", "Never"),
+        ("settings.syncUploadNow", "Upload Now"),
+        ("settings.syncUploadFailed", "Upload failed"),
+        ("settings.syncUploadSuccess", "Uploaded to GitHub Gist"),
+        ("settings.syncDownloadNow", "Download Now"),
+        ("settings.syncDownloadFailed", "Download failed"),
+        ("settings.syncDownloadSuccess", "Downloaded from GitHub Gist"),
+        ("settings.syncDisconnect", "Disconnect"),
+        ("settings.syncDisconnectFailed", "Failed to disconnect"),
+        ("settings.syncDisconnected", "Disconnected"),
+        ("settings.syncRemoteNewerBadge", "Remote has newer changes"),
+        (
+            "settings.syncSecretGistWarning",
+            "Secret gists are not private — anyone with the link can view them",
+        ),
+        ("settings.syncConflictTitle", "Sync conflict"),
+        (
+            "settings.syncConflictDescription",
+            "The remote gist has changes newer than your last sync. Choose how to resolve it.",
+        ),
+        ("settings.syncConflictKeepLocal", "Keep local & upload"),
+        ("settings.syncConflictPullRemote", "Pull remote"),
         ("themeEditor.backToSettings", "Back to Settings"),
         ("themeEditor.createNew", "Create Theme"),
         ("themeEditor.duplicateTheme", "Duplicate"),
@@ -1251,6 +1353,63 @@ fn ko_messages() -> BTreeMap<String, String> {
         ("settings.builtinThemesSection", "기본 제공"),
         ("settings.themesOpenFolder", "테마 폴더 열기"),
         ("settings.themeCredits", "테마 출처·라이선스"),
+        ("settings.aiSectionTitle", "AI"),
+        ("settings.aiProviderLabel", "프로바이더"),
+        ("settings.aiProviderOllamaCloud", "Ollama Cloud"),
+        ("settings.aiProviderCodex", "Codex"),
+        ("settings.aiTokenLabel", "액세스 토큰"),
+        ("settings.aiTokenPlaceholder", "액세스 토큰을 붙여넣으세요"),
+        ("settings.aiTokenSave", "토큰 저장"),
+        ("settings.aiTokenSaved", "토큰이 저장되었습니다"),
+        ("settings.aiTokenClear", "토큰 해제"),
+        ("settings.aiTokenCleared", "토큰이 해제되었습니다"),
+        ("settings.aiTokenSaveFailed", "토큰 저장에 실패했습니다"),
+        ("settings.aiTokenNotSet", "설정되지 않음"),
+        ("settings.aiModelLabel", "모델"),
+        ("settings.aiModelSelectPlaceholder", "모델을 선택하세요"),
+        ("settings.aiModelLoadFailed", "모델 목록을 불러오지 못했습니다"),
+        ("settings.aiAutoTabToggle", "자동완성(Auto-Tab) 사용"),
+        ("settings.aiAutoTabToggleHint", "입력하는 동안 인라인 완성을 제안합니다"),
+        ("settings.aiAutoTabProviderRequired", "자동완성을 사용하려면 프로바이더 토큰을 설정하세요"),
+        ("settings.aiCompletionFailed", "완성 요청이 실패했습니다"),
+        (
+            "settings.aiCodexUnofficialWarning",
+            "비공식 Codex 프로토콜을 사용합니다 — Codex CLI 업데이트로 예고 없이 동작이 깨질 수 있습니다",
+        ),
+        ("settings.syncSectionTitle", "GitHub 동기화"),
+        (
+            "settings.syncDescription",
+            "비공개 GitHub Gist 를 통해 설정·테마·언어팩을 다른 기기와 동기화합니다",
+        ),
+        ("settings.syncTokenScopeHint", "gist 권한을 가진 토큰 생성하기"),
+        ("settings.syncTokenPlaceholder", "개인 액세스 토큰 붙여넣기"),
+        ("settings.syncConnect", "연결"),
+        ("settings.syncConnectFailed", "연결에 실패했습니다"),
+        ("settings.syncGistIdLabel", "Gist ID"),
+        ("settings.syncGistIdNone", "아직 생성되지 않음"),
+        ("settings.syncLastSyncedLabel", "마지막 동기화"),
+        ("settings.syncLastSyncedNever", "없음"),
+        ("settings.syncUploadNow", "지금 업로드"),
+        ("settings.syncUploadFailed", "업로드에 실패했습니다"),
+        ("settings.syncUploadSuccess", "GitHub Gist 로 업로드했습니다"),
+        ("settings.syncDownloadNow", "지금 가져오기"),
+        ("settings.syncDownloadFailed", "가져오기에 실패했습니다"),
+        ("settings.syncDownloadSuccess", "GitHub Gist 에서 가져왔습니다"),
+        ("settings.syncDisconnect", "연결 해제"),
+        ("settings.syncDisconnectFailed", "연결 해제에 실패했습니다"),
+        ("settings.syncDisconnected", "연결이 해제되었습니다"),
+        ("settings.syncRemoteNewerBadge", "원격에 더 최신 변경사항이 있습니다"),
+        (
+            "settings.syncSecretGistWarning",
+            "secret gist 는 비공개가 아닙니다 — 링크를 아는 사람은 누구나 볼 수 있습니다",
+        ),
+        ("settings.syncConflictTitle", "동기화 충돌"),
+        (
+            "settings.syncConflictDescription",
+            "원격 gist 에 마지막 동기화 이후의 변경사항이 있습니다. 처리 방법을 선택하세요",
+        ),
+        ("settings.syncConflictKeepLocal", "로컬 유지 후 업로드"),
+        ("settings.syncConflictPullRemote", "원격 가져오기"),
         ("themeEditor.backToSettings", "설정으로 돌아가기"),
         ("themeEditor.createNew", "새 테마 만들기"),
         ("themeEditor.duplicateTheme", "복제"),
@@ -1735,6 +1894,63 @@ fn ja_messages() -> BTreeMap<String, String> {
         ("settings.builtinThemesSection", "組み込み"),
         ("settings.themesOpenFolder", "テーマフォルダを開く"),
         ("settings.themeCredits", "テーマの出典・ライセンス"),
+        ("settings.aiSectionTitle", "AI"),
+        ("settings.aiProviderLabel", "プロバイダー"),
+        ("settings.aiProviderOllamaCloud", "Ollama Cloud"),
+        ("settings.aiProviderCodex", "Codex"),
+        ("settings.aiTokenLabel", "アクセストークン"),
+        ("settings.aiTokenPlaceholder", "アクセストークンを貼り付け"),
+        ("settings.aiTokenSave", "トークンを保存"),
+        ("settings.aiTokenSaved", "トークンを保存しました"),
+        ("settings.aiTokenClear", "トークンを解除"),
+        ("settings.aiTokenCleared", "トークンを解除しました"),
+        ("settings.aiTokenSaveFailed", "トークンの保存に失敗しました"),
+        ("settings.aiTokenNotSet", "未設定"),
+        ("settings.aiModelLabel", "モデル"),
+        ("settings.aiModelSelectPlaceholder", "モデルを選択"),
+        ("settings.aiModelLoadFailed", "モデル一覧の取得に失敗しました"),
+        ("settings.aiAutoTabToggle", "オートタブ補完を有効化"),
+        ("settings.aiAutoTabToggleHint", "入力中にインライン補完を提案します"),
+        ("settings.aiAutoTabProviderRequired", "オートタブを使うにはプロバイダートークンを設定してください"),
+        ("settings.aiCompletionFailed", "補完リクエストが失敗しました"),
+        (
+            "settings.aiCodexUnofficialWarning",
+            "非公式の Codex プロトコルを使用しています — Codex CLI の更新で予告なく動作しなくなる可能性があります",
+        ),
+        ("settings.syncSectionTitle", "GitHub 同期"),
+        (
+            "settings.syncDescription",
+            "非公開の GitHub Gist を使って設定・テーマ・言語パックを他の端末と同期します",
+        ),
+        ("settings.syncTokenScopeHint", "gist 権限のトークンを作成"),
+        ("settings.syncTokenPlaceholder", "個人アクセストークンを貼り付け"),
+        ("settings.syncConnect", "接続"),
+        ("settings.syncConnectFailed", "接続に失敗しました"),
+        ("settings.syncGistIdLabel", "Gist ID"),
+        ("settings.syncGistIdNone", "未作成"),
+        ("settings.syncLastSyncedLabel", "最終同期"),
+        ("settings.syncLastSyncedNever", "なし"),
+        ("settings.syncUploadNow", "今すぐアップロード"),
+        ("settings.syncUploadFailed", "アップロードに失敗しました"),
+        ("settings.syncUploadSuccess", "GitHub Gist にアップロードしました"),
+        ("settings.syncDownloadNow", "今すぐダウンロード"),
+        ("settings.syncDownloadFailed", "ダウンロードに失敗しました"),
+        ("settings.syncDownloadSuccess", "GitHub Gist からダウンロードしました"),
+        ("settings.syncDisconnect", "接続解除"),
+        ("settings.syncDisconnectFailed", "接続解除に失敗しました"),
+        ("settings.syncDisconnected", "接続を解除しました"),
+        ("settings.syncRemoteNewerBadge", "リモートに新しい変更があります"),
+        (
+            "settings.syncSecretGistWarning",
+            "secret gist は非公開ではありません — リンクを知っていれば誰でも閲覧できます",
+        ),
+        ("settings.syncConflictTitle", "同期の競合"),
+        (
+            "settings.syncConflictDescription",
+            "リモートの gist に前回の同期以降の変更があります。解決方法を選択してください",
+        ),
+        ("settings.syncConflictKeepLocal", "ローカルを保持してアップロード"),
+        ("settings.syncConflictPullRemote", "リモートを取得"),
         ("themeEditor.backToSettings", "設定に戻る"),
         ("themeEditor.createNew", "新しいテーマを作成"),
         ("themeEditor.duplicateTheme", "複製"),
@@ -2013,6 +2229,22 @@ pub fn locale_exists(paths: &AppPaths, locale_id: &str) -> bool {
     builtin_by_id(locale_id).is_some() || paths.locales_dir().join(format!("{locale_id}.json")).exists()
 }
 
+pub fn save_locale(paths: &AppPaths, pack: &LocalePack) -> AppResult<LocaleSummary> {
+    if pack.id.trim().is_empty() {
+        return Err(AppError::InvalidArgument("locale id must not be empty".to_string()));
+    }
+    if builtin_by_id(&pack.id).is_some() {
+        return Err(AppError::InvalidArgument(format!("cannot overwrite builtin locale: {}", pack.id)));
+    }
+    if pack.id.contains(['/', '\\', '.']) {
+        return Err(AppError::InvalidArgument(format!("invalid locale id: {}", pack.id)));
+    }
+
+    std::fs::create_dir_all(paths.locales_dir())?;
+    persist::write_json(&paths.locales_dir().join(format!("{}.json", pack.id)), pack)?;
+    Ok(summarize(pack, false))
+}
+
 pub fn resolve_language(paths: &AppPaths, language: &str, system_language: &str) -> String {
     if language != "system" {
         if locale_exists(paths, language) {
@@ -2147,6 +2379,39 @@ mod tests {
     fn resolve_language는_명시된_언어를_그대로_사용한다() {
         let paths = AppPaths::new(temp_data_dir("resolve-explicit"));
         assert_eq!(resolve_language(&paths, BUILTIN_JA_ID, "en-US"), BUILTIN_JA_ID);
+    }
+
+    #[test]
+    fn 내장_로케일_아이디로는_저장할_수_없다() {
+        let paths = AppPaths::new(temp_data_dir("save-builtin"));
+        let mut pack = builtin_en();
+        pack.id = BUILTIN_EN_ID.to_string();
+        assert!(save_locale(&paths, &pack).is_err());
+    }
+
+    #[test]
+    fn 경로_구분자가_섞인_아이디는_저장을_거부한다() {
+        let paths = AppPaths::new(temp_data_dir("save-path"));
+        let mut pack = builtin_en();
+        pack.id = "../evil".to_string();
+        assert!(save_locale(&paths, &pack).is_err());
+    }
+
+    #[test]
+    fn 사용자_로케일_팩은_저장하고_목록에_나타난다() {
+        let data_dir = temp_data_dir("save-ok");
+        let paths = AppPaths::new(data_dir);
+        let mut pack = builtin_en();
+        pack.id = "my-locale".to_string();
+        pack.name = "My Locale".to_string();
+        pack.extends = Some(BUILTIN_EN_ID.to_string());
+
+        let summary = save_locale(&paths, &pack).expect("save");
+
+        assert!(!summary.builtin);
+        assert!(list_locales(&paths).iter().any(|item| item.id == "my-locale"));
+
+        std::fs::remove_dir_all(paths.locales_dir()).ok();
     }
 
     #[test]

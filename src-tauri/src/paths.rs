@@ -27,6 +27,10 @@ impl AppPaths {
         self.data_dir.join("locales")
     }
 
+    pub fn prompts_dir(&self) -> PathBuf {
+        self.data_dir.join("prompts")
+    }
+
     pub fn project_dir(&self, id: &ProjectId) -> PathBuf {
         self.data_dir.join("projects").join(id.as_str())
     }
@@ -72,6 +76,12 @@ mod tests {
         assert_eq!(paths.layout_file(&id), PathBuf::from("/data/projects/prj-1/layout.json"));
         assert_eq!(paths.buffers_dir(&id), PathBuf::from("/data/projects/prj-1/buffers"));
         assert_eq!(paths.session_file(), PathBuf::from("/data/session.json"));
+    }
+
+    #[test]
+    fn prompts_디렉토리는_data_dir_하위에_위치한다() {
+        let paths = AppPaths::new(PathBuf::from("/data"));
+        assert_eq!(paths.prompts_dir(), PathBuf::from("/data/prompts"));
     }
 
     #[test]

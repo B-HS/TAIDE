@@ -6,6 +6,7 @@ import { Columns2 } from 'lucide-react'
 import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
+import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
@@ -15,6 +16,7 @@ import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
+import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { fileQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
@@ -86,6 +88,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const queryClient = useQueryClient()
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
     const { data: settings } = useQuery(settingsQueryOptions())
+    const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { data: ideStatus } = useQuery(ideStatusQueryOptions())
     const { data: gutterHunks } = useQuery(gitGutterQueryOptions({ projectId, path }))
     const { mutate: discardHunk } = useDiscardGitHunk(projectId)
@@ -331,6 +334,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         )
     }
 
+    const aiCompletionConfig = resolveAiInlineCompletionConfig(settings, aiTokenStatus)
+
     const codeEditor = (
         <CodeEditor
             path={file.path}
@@ -352,6 +357,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             cursorStyle={(settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE) as EditorCursorStyle}
             cursorBlinking={(settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING) as EditorCursorBlinkingStyle}
             scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
+            aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
+            aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}

@@ -14,8 +14,10 @@ import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { SYNC_COMMANDS } from '@entities/sync/sync.commands'
 
 registerCommands(DEFAULT_COMMANDS)
+registerCommands(SYNC_COMMANDS)
 
 const FILE_RESULT_LIMIT = 200
 

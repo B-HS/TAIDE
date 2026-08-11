@@ -1,4 +1,4 @@
-import type { DiffMode, ProjectId } from '@shared/api/bindings'
+import type { AiProviderId, DiffMode, ProjectId } from '@shared/api/bindings'
 
 export const QUERY_KEY = {
     APP: {
@@ -83,5 +83,14 @@ export const QUERY_KEY = {
     IDE: {
         ALL: ['ide'] as const,
         STATUS: ['ide', 'status'] as const,
+    },
+    AI: {
+        ALL: ['ai'] as const,
+        TOKEN_STATUS: ['ai', 'token-status'] as const,
+        MODELS: (provider: AiProviderId) => ['ai', 'models', provider] as const,
+    },
+    SYNC: {
+        ALL: ['sync'] as const,
+        STATUS: ['sync', 'status'] as const,
     },
 }

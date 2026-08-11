@@ -1,8 +1,13 @@
 import type { FC } from 'react'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
+import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
+import { cancelAiInline, completeAiInline } from '@entities/ai/ai.ipc'
 import { createModel, getModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
+
+const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiInline }
 
 export type EditorCursorStyle = 'line' | 'block' | 'underline'
 export type EditorCursorBlinkingStyle = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid'
@@ -28,6 +33,8 @@ export type CodeEditorProps = {
     cursorStyle: EditorCursorStyle
     cursorBlinking: EditorCursorBlinkingStyle
     scrollBeyondLastLine: boolean
+    aiAutoTabEnabled: boolean
+    aiCompletionConfig: AiInlineCompletionConfig | null
     onChange: (value: string) => void
     onSave: () => void
     onCursorLineChange: (line: number) => void
@@ -59,6 +66,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     cursorStyle,
     cursorBlinking,
     scrollBeyondLastLine,
+    aiAutoTabEnabled,
+    aiCompletionConfig,
     onChange,
     onSave,
     onCursorLineChange,
@@ -73,6 +82,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     const initialFontFamilyRef = useRef(fontFamily)
     const initialFontSizeRef = useRef(fontSize)
     const minimapRef = useRef(minimap)
+    const aiCompletionConfigRef = useRef(aiCompletionConfig)
     const onChangeRef = useRef(onChange)
     const onSaveRef = useRef(onSave)
     const onCursorLineChangeRef = useRef(onCursorLineChange)
@@ -82,6 +92,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     useEffect(() => {
         valueRef.current = value
         minimapRef.current = minimap
+        aiCompletionConfigRef.current = aiCompletionConfig
         onChangeRef.current = onChange
         onSaveRef.current = onSave
         onCursorLineChangeRef.current = onCursorLineChange
@@ -174,6 +185,15 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     useEffect(() => {
         editorRef.current?.updateOptions({ readOnly })
     }, [readOnly])
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ inlineSuggest: { enabled: aiAutoTabEnabled } })
+    }, [aiAutoTabEnabled])
+
+    useEffect(() => {
+        if (!aiAutoTabEnabled) return
+        return acquireAiInlineCompletionProvider(monaco, () => aiCompletionConfigRef.current, AI_INLINE_COMPLETION_CLIENT)
+    }, [aiAutoTabEnabled])
 
     useEffect(() => {
         editorRef.current?.updateOptions({ fontFamily })

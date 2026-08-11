@@ -49,6 +49,13 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(payload.projectId) })
     })
 
+    useTauriEvent(events.syncStateChanged, ({ payload }) => {
+        queryClient.setQueryData(QUERY_KEY.SYNC.STATUS, payload.status)
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SETTINGS.CURRENT })
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.LOCALE.ALL })
+    })
+
     useTauriEvent(events.fsChanged, ({ payload }) => {
         const { projectId, change } = payload
 

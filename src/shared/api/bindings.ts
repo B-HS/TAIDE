@@ -121,6 +121,17 @@ export const commands = {
 	ideResolveDiff: (requestId: string, outcome: IdeDiffOutcome, content: string | null) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_diff", { requestId, outcome, content })),
 	ideResolveSave: (requestId: string, saved: boolean) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_save", { requestId, saved })),
 	ideNotifyAtMention: (path: string, lineStart: number, lineEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("ide_notify_at_mention", { path, lineStart, lineEnd })),
+	aiTokenStatus: () => typedError<AiTokenStatus, AppError>(__TAURI_INVOKE("ai_token_status")),
+	aiSetToken: (provider: AiProviderId, token: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_set_token", { provider, token })),
+	aiClearToken: (provider: AiProviderId) => typedError<null, AppError>(__TAURI_INVOKE("ai_clear_token", { provider })),
+	aiListModels: (provider: AiProviderId) => typedError<AiModelInfo[], AppError>(__TAURI_INVOKE("ai_list_models", { provider })),
+	aiInlineComplete: (request: AiInlineCompleteRequest) => typedError<AiInlineCompleteResponse, AppError>(__TAURI_INVOKE("ai_inline_complete", { request })),
+	aiInlineCancel: (requestId: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_inline_cancel", { requestId })),
+	syncStatus: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_status")),
+	syncConnect: (pat: string) => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_connect", { pat })),
+	syncDisconnect: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_disconnect")),
+	syncUpload: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_upload")),
+	syncDownload: (force: boolean) => typedError<SyncDownloadResult, AppError>(__TAURI_INVOKE("sync_download", { force })),
 };
 
 /** Events */
@@ -143,6 +154,7 @@ export const events = {
 	projectFocusKindChanged: makeEvent<ProjectFocusKindChanged>("project:focus-kind-changed"),
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
+	syncStateChanged: makeEvent<SyncStateChanged>("sync:state-changed"),
 	terminalCwdChanged: makeEvent<TerminalCwdChanged>("terminal:cwd-changed"),
 	terminalExited: makeEvent<TerminalExited>("terminal:exited"),
 	themeChanged: makeEvent<ThemeChanged>("theme:changed"),
@@ -167,6 +179,33 @@ export type AgentStateChanged = {
 export type AheadBehind = {
 	ahead: number,
 	behind: number,
+};
+
+export type AiInlineCompleteRequest = {
+	requestId: string,
+	provider: AiProviderId,
+	model: string,
+	prefix: string,
+	suffix: string,
+	language: string,
+	filePath: string,
+};
+
+export type AiInlineCompleteResponse = {
+	requestId: string,
+	text: string | null,
+};
+
+export type AiModelInfo = {
+	modelId: string,
+	displayName: string | null,
+};
+
+export type AiProviderId = "ollamaCloud" | "codex";
+
+export type AiTokenStatus = {
+	ollamaCloud: boolean,
+	codex: boolean,
 };
 
 export type AppDataPathKind = "plugins" | "themes" | "locales";
@@ -635,6 +674,11 @@ export type Settings = {
 	terminalCursorStyle?: string,
 	terminalCursorBlink?: boolean,
 	enablePreviewTabs?: boolean,
+	aiAutoTabEnabled?: boolean,
+	aiAutoTabProvider?: string | null,
+	aiAutoTabModel?: string | null,
+	syncGistId?: string | null,
+	syncLastSyncedAt?: string | null,
 };
 
 export type SettingsPatch = {
@@ -673,6 +717,9 @@ export type SettingsPatch = {
 	terminalCursorStyle: string | null,
 	terminalCursorBlink: boolean | null,
 	enablePreviewTabs: boolean | null,
+	aiAutoTabEnabled: boolean | null,
+	aiAutoTabProvider: string | null,
+	aiAutoTabModel: string | null,
 };
 
 export type ShellProfile = {
@@ -690,6 +737,19 @@ export type StatusRow = {
 	staged?: GitChangeKind | null,
 	unstaged?: GitChangeKind | null,
 	isConflicted: boolean,
+};
+
+export type SyncDownloadResult = { kind: "applied"; status: SyncStatus } | { kind: "conflict"; remoteUpdatedAt: string };
+
+export type SyncStateChanged = {
+	status: SyncStatus,
+};
+
+export type SyncStatus = {
+	connected: boolean,
+	hasGist: boolean,
+	lastSyncedAt: string | null,
+	remoteNewer: boolean | null,
 };
 
 export type SyntaxStyle = {

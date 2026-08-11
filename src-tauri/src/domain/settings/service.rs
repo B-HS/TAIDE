@@ -47,6 +47,9 @@ pub struct SettingsPatch {
     pub terminal_cursor_style: Option<String>,
     pub terminal_cursor_blink: Option<bool>,
     pub enable_preview_tabs: Option<bool>,
+    pub ai_auto_tab_enabled: Option<bool>,
+    pub ai_auto_tab_provider: Option<String>,
+    pub ai_auto_tab_model: Option<String>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -88,6 +91,7 @@ const EDITOR_CURSOR_STYLES: &[&str] = &["line", "block", "underline"];
 const EDITOR_CURSOR_BLINKING_STYLES: &[&str] = &["blink", "smooth", "phase", "expand", "solid"];
 const EDITOR_RENDER_WHITESPACE_MODES: &[&str] = &["none", "boundary", "selection", "all"];
 const TERMINAL_CURSOR_STYLES: &[&str] = &["bar", "block", "underline"];
+const AI_AUTO_TAB_PROVIDERS: &[&str] = &["ollamaCloud", "codex"];
 
 fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
     if allowed.contains(&value.as_str()) {
@@ -95,6 +99,13 @@ fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
     } else {
         fallback.to_string()
     }
+}
+
+/// Unlike `sanitize_enum`, an out-of-list value here has no meaningful fallback string to fall
+/// back to (there is no default AI provider) — it is dropped back to `None`, the same "not
+/// configured" state as if it had never been set.
+fn sanitize_optional_enum(value: Option<String>, allowed: &[&str]) -> Option<String> {
+    value.filter(|v| allowed.contains(&v.as_str()))
 }
 
 /// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `Settings` 가 만들어지는 모든 출구
@@ -121,6 +132,7 @@ fn sanitize(settings: Settings) -> Settings {
             TERMINAL_CURSOR_STYLES,
             DEFAULT_TERMINAL_CURSOR_STYLE,
         ),
+        ai_auto_tab_provider: sanitize_optional_enum(settings.ai_auto_tab_provider, AI_AUTO_TAB_PROVIDERS),
         ..settings
     }
 }
@@ -179,6 +191,11 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
             .unwrap_or_else(|| settings.terminal_cursor_style.clone()),
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
         enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
+        ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
+        ai_auto_tab_provider: patch.ai_auto_tab_provider.clone().or_else(|| settings.ai_auto_tab_provider.clone()),
+        ai_auto_tab_model: patch.ai_auto_tab_model.clone().or_else(|| settings.ai_auto_tab_model.clone()),
+        sync_gist_id: settings.sync_gist_id.clone(),
+        sync_last_synced_at: settings.sync_last_synced_at.clone(),
     })
 }
 
@@ -352,6 +369,36 @@ mod tests {
         assert_eq!(updated.editor_cursor_blinking, DEFAULT_EDITOR_CURSOR_BLINKING);
         assert_eq!(updated.editor_render_whitespace, DEFAULT_EDITOR_RENDER_WHITESPACE);
         assert_eq!(updated.terminal_cursor_style, DEFAULT_TERMINAL_CURSOR_STYLE);
+    }
+
+    #[test]
+    fn patch로_auto_tab_설정을_변경한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            ai_auto_tab_enabled: Some(true),
+            ai_auto_tab_provider: Some("ollamaCloud".to_string()),
+            ai_auto_tab_model: Some("qwen2.5-coder".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.ai_auto_tab_enabled);
+        assert_eq!(updated.ai_auto_tab_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(updated.ai_auto_tab_model, Some("qwen2.5-coder".to_string()));
+    }
+
+    #[test]
+    fn 허용목록_밖의_auto_tab_provider는_none으로_보정된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            ai_auto_tab_provider: Some("anthropic".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_auto_tab_provider, None);
     }
 
     #[test]

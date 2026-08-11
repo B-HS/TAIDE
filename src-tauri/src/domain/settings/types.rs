@@ -89,6 +89,16 @@ pub struct Settings {
     pub terminal_cursor_blink: bool,
     #[serde(default = "default_true")]
     pub enable_preview_tabs: bool,
+    #[serde(default)]
+    pub ai_auto_tab_enabled: bool,
+    #[serde(default)]
+    pub ai_auto_tab_provider: Option<String>,
+    #[serde(default)]
+    pub ai_auto_tab_model: Option<String>,
+    #[serde(default)]
+    pub sync_gist_id: Option<String>,
+    #[serde(default)]
+    pub sync_last_synced_at: Option<String>,
 }
 
 fn default_theme_id() -> String {
@@ -182,6 +192,11 @@ impl Default for Settings {
             terminal_cursor_style: default_terminal_cursor_style(),
             terminal_cursor_blink: default_true(),
             enable_preview_tabs: default_true(),
+            ai_auto_tab_enabled: false,
+            ai_auto_tab_provider: None,
+            ai_auto_tab_model: None,
+            sync_gist_id: None,
+            sync_last_synced_at: None,
         }
     }
 }
