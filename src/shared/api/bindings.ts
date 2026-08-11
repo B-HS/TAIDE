@@ -133,6 +133,11 @@ export const commands = {
 	syncUpload: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_upload")),
 	syncDownload: (force: boolean) => typedError<SyncDownloadResult, AppError>(__TAURI_INVOKE("sync_download", { force })),
 	vsixExtractThemes: (vsixPath: string) => typedError<VsixThemeExtractionResult, AppError>(__TAURI_INVOKE("vsix_extract_themes", { vsixPath })),
+	remoteStatus: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_status")),
+	remoteStart: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_start")),
+	remoteStop: () => typedError<null, AppError>(__TAURI_INVOKE("remote_stop")),
+	remoteIssueLink: () => typedError<RemoteLinkInfo, AppError>(__TAURI_INVOKE("remote_issue_link")),
+	remoteRevokeSessions: () => typedError<null, AppError>(__TAURI_INVOKE("remote_revoke_sessions")),
 };
 
 /** Events */
@@ -155,6 +160,7 @@ export const events = {
 	projectFocusKindChanged: makeEvent<ProjectFocusKindChanged>("project:focus-kind-changed"),
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
+	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
 	syncStateChanged: makeEvent<SyncStateChanged>("sync:state-changed"),
 	terminalCwdChanged: makeEvent<TerminalCwdChanged>("terminal:cwd-changed"),
 	terminalExited: makeEvent<TerminalExited>("terminal:exited"),
@@ -590,6 +596,20 @@ export type PtySpawnOptions = {
 	rows: number,
 };
 
+export type RemoteLinkInfo = {
+	url: string,
+};
+
+export type RemoteStateChanged = {
+	status: RemoteStatus,
+};
+
+export type RemoteStatus = {
+	running: boolean,
+	port: number,
+	clientCount: number,
+};
+
 export type ResolvedLocale = ResolvedLocale_Serialize | ResolvedLocale_Deserialize;
 
 export type ResolvedLocale_Deserialize = {
@@ -684,6 +704,7 @@ export type Settings = {
 	aiAutoTabModel?: string | null,
 	syncGistId?: string | null,
 	syncLastSyncedAt?: string | null,
+	remoteAccessEnabled?: boolean,
 };
 
 export type SettingsPatch = {
@@ -725,6 +746,7 @@ export type SettingsPatch = {
 	aiAutoTabEnabled: boolean | null,
 	aiAutoTabProvider: string | null,
 	aiAutoTabModel: string | null,
+	remoteAccessEnabled: boolean | null,
 };
 
 export type ShellProfile = {

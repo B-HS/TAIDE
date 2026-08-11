@@ -1,7 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from '@app/app'
+import { installRemoteInternalsShim } from '@shared/lib/remote/tauri-internals-shim'
 import '@shared/styles/global.css'
+
+installRemoteInternalsShim()
 
 const container = document.getElementById('root')
 

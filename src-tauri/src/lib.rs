@@ -7,7 +7,7 @@ pub mod infra;
 pub mod paths;
 pub mod state;
 
-use tauri::Manager;
+use tauri::{Listener, Manager};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -17,6 +17,7 @@ use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeStore;
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::commands::PluginStore;
+use crate::domain::remote::commands::RemoteStore;
 use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
@@ -24,7 +25,8 @@ use crate::domain::tree::commands::TreeStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested,
     IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated, ProjectClosed,
-    ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, SyncStateChanged, TerminalCwdChanged, TerminalExited, ThemeChanged,
+    ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SyncStateChanged, TerminalCwdChanged, TerminalExited,
+    ThemeChanged,
 };
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
@@ -198,6 +200,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::sync::commands::sync_upload,
             domain::sync::commands::sync_download,
             domain::vsix::commands::vsix_extract_themes,
+            domain::remote::commands::remote_status,
+            domain::remote::commands::remote_start,
+            domain::remote::commands::remote_stop,
+            domain::remote::commands::remote_issue_link,
+            domain::remote::commands::remote_revoke_sessions,
         ])
         .events(collect_events![
             AppReady,
@@ -221,13 +228,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
             IdeDiffRequested,
             IdeSaveRequested,
             IdeCloseTabRequested,
-            SyncStateChanged
+            SyncStateChanged,
+            RemoteStateChanged
         ])
 }
 
 const LAYOUT_FLUSH_INTERVAL_MS: u64 = 2_000;
 
-const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "file_read_raw"];
+pub(crate) const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "file_read_raw"];
 
 fn flush_dirty_layouts(state: &AppState) {
     let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
@@ -391,6 +399,53 @@ pub fn run() {
             app.manage(IdeStore::default());
             app.manage(AiInlineStore::default());
             app.manage(SecretStoreState::default());
+            app.manage(RemoteStore::default());
+
+            macro_rules! fanout_remote_events {
+                ($($event:ty),+ $(,)?) => {
+                    $({
+                        let broadcast_handle = app.handle().clone();
+                        app.listen_any(<$event as tauri_specta::Event>::NAME, move |event| {
+                            let remote = broadcast_handle.state::<RemoteStore>();
+                            if !remote.has_event_subscribers() {
+                                return;
+                            }
+                            let frame = serde_json::json!({
+                                "t": "event",
+                                "event": <$event as tauri_specta::Event>::NAME,
+                                "payload": event.payload(),
+                            })
+                            .to_string();
+                            remote.broadcast_event(frame);
+                        });
+                    })+
+                };
+            }
+            fanout_remote_events!(
+                AppReady,
+                ProjectOpened,
+                ProjectClosed,
+                ProjectActivated,
+                ProjectListChanged,
+                ProjectFocusKindChanged,
+                LayoutChanged,
+                ThemeChanged,
+                FsChanged,
+                TerminalExited,
+                TerminalCwdChanged,
+                GitStatusChanged,
+                GitRefsChanged,
+                LspSessionStatusChanged,
+                LspInstallProgress,
+                AgentStateChanged,
+                AgentExternalOpen,
+                IdeStatusChanged,
+                IdeDiffRequested,
+                IdeSaveRequested,
+                IdeCloseTabRequested,
+                SyncStateChanged,
+                RemoteStateChanged,
+            );
 
             if app.state::<AppState>().settings.read().agent_hooks_enabled {
                 let hooks_boot_handle = app.handle().clone();
@@ -410,6 +465,17 @@ pub fn run() {
                     .await
                     {
                         log::warn!("IDE 연동 자동 시작 실패: {error}");
+                    }
+                });
+            }
+
+            if app.state::<AppState>().settings.read().remote_access_enabled {
+                let remote_boot_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) =
+                        domain::remote::commands::remote_start(remote_boot_handle.clone(), remote_boot_handle.state::<RemoteStore>()).await
+                    {
+                        log::warn!("원격 접속 서버 자동 시작 실패: {error}");
                     }
                 });
             }
@@ -462,6 +528,7 @@ pub fn run() {
                 app_handle.state::<LspStore>().kill_all();
                 domain::agent::commands::cleanup_all_wait_markers(&app_handle.state::<AgentStore>());
                 domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
+                domain::remote::commands::stop_server(app_handle, &app_handle.state::<RemoteStore>());
             }
         });
 }

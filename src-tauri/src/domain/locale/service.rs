@@ -516,6 +516,24 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "clientDisconnected",
         ],
     ),
+    (
+        "remote",
+        &[
+            "title",
+            "description",
+            "enableToggle",
+            "enableToggleHint",
+            "statusRunning",
+            "statusStopped",
+            "clientCountLabel",
+            "issueLink",
+            "linkCopied",
+            "revokeSessions",
+            "sessionsRevoked",
+            "startFailed",
+            "securityWarning",
+        ],
+    ),
 ];
 
 pub fn required_message_keys() -> Vec<String> {
@@ -1080,6 +1098,25 @@ fn en_messages() -> BTreeMap<String, String> {
         ("ide.lockfileWriteFailed", "Failed to write the IDE lock file"),
         ("ide.clientConnected", "{{name}} connected"),
         ("ide.clientDisconnected", "{{name}} disconnected"),
+        ("remote.title", "Remote Access"),
+        (
+            "remote.description",
+            "Open TAIDE in a browser on another device on the same network",
+        ),
+        ("remote.enableToggle", "Enable remote access"),
+        ("remote.enableToggleHint", "Starts a local web server other devices can connect to"),
+        ("remote.statusRunning", "Running on port {{port}}"),
+        ("remote.statusStopped", "Stopped"),
+        ("remote.clientCountLabel", "{{count}} connected"),
+        ("remote.issueLink", "Create Access Link"),
+        ("remote.linkCopied", "Link copied to clipboard"),
+        ("remote.revokeSessions", "Sign Out All Devices"),
+        ("remote.sessionsRevoked", "All devices signed out"),
+        ("remote.startFailed", "Failed to start remote access"),
+        (
+            "remote.securityWarning",
+            "Remote access grants full file and terminal control. Only connect from trusted devices; plain HTTP over LAN is not a secure context.",
+        ),
     ])
 }
 
@@ -1637,6 +1674,22 @@ fn ko_messages() -> BTreeMap<String, String> {
         ("ide.lockfileWriteFailed", "IDE 잠금 파일을 쓰지 못했습니다"),
         ("ide.clientConnected", "{{name}} 연결됨"),
         ("ide.clientDisconnected", "{{name}} 연결 끊김"),
+        ("remote.title", "원격 접속"),
+        ("remote.description", "같은 네트워크의 다른 기기 브라우저에서 TAIDE를 엽니다"),
+        ("remote.enableToggle", "원격 접속 활성화"),
+        ("remote.enableToggleHint", "다른 기기가 접속할 수 있는 로컬 웹 서버를 시작합니다"),
+        ("remote.statusRunning", "포트 {{port}}에서 실행 중"),
+        ("remote.statusStopped", "중지됨"),
+        ("remote.clientCountLabel", "{{count}}개 연결됨"),
+        ("remote.issueLink", "접속 링크 생성"),
+        ("remote.linkCopied", "링크가 클립보드에 복사되었습니다"),
+        ("remote.revokeSessions", "모든 기기 로그아웃"),
+        ("remote.sessionsRevoked", "모든 기기가 로그아웃되었습니다"),
+        ("remote.startFailed", "원격 접속을 시작하지 못했습니다"),
+        (
+            "remote.securityWarning",
+            "원격 접속은 파일과 터미널 전체 제어 권한을 부여합니다. 신뢰할 수 있는 기기에서만 접속하세요. LAN 평문 HTTP 는 보안 컨텍스트가 아닙니다.",
+        ),
     ])
 }
 
@@ -2206,6 +2259,22 @@ fn ja_messages() -> BTreeMap<String, String> {
         ("ide.lockfileWriteFailed", "IDE ロックファイルの書き込みに失敗しました"),
         ("ide.clientConnected", "{{name}} が接続しました"),
         ("ide.clientDisconnected", "{{name}} が切断しました"),
+        ("remote.title", "リモートアクセス"),
+        ("remote.description", "同じネットワーク上の他のデバイスのブラウザから TAIDE を開きます"),
+        ("remote.enableToggle", "リモートアクセスを有効にする"),
+        ("remote.enableToggleHint", "他のデバイスが接続できるローカル Web サーバーを起動します"),
+        ("remote.statusRunning", "ポート {{port}} で実行中"),
+        ("remote.statusStopped", "停止中"),
+        ("remote.clientCountLabel", "{{count}} 件接続中"),
+        ("remote.issueLink", "アクセスリンクを作成"),
+        ("remote.linkCopied", "リンクをクリップボードにコピーしました"),
+        ("remote.revokeSessions", "すべてのデバイスをサインアウト"),
+        ("remote.sessionsRevoked", "すべてのデバイスをサインアウトしました"),
+        ("remote.startFailed", "リモートアクセスの起動に失敗しました"),
+        (
+            "remote.securityWarning",
+            "リモートアクセスはファイルとターミナルの完全な制御を許可します。信頼できるデバイスからのみ接続してください。LAN の平文 HTTP はセキュアコンテキストではありません。",
+        ),
     ])
 }
 

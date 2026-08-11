@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { aiModelsQueryOptions, aiTokenStatusQueryOptions, useClearAiToken, useSetAiToken } from '@entities/ai/ai.query'
@@ -13,6 +13,7 @@ import {
     useLspInstallProgressSync,
 } from '@entities/lsp/lsp.query'
 import { projectListQueryOptions } from '@entities/project/project.query'
+import { remoteStatusQueryOptions, useIssueRemoteLink, useRevokeRemoteSessions } from '@entities/remote/remote.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemOpenAppDataPath } from '@entities/system/system.ipc'
@@ -28,9 +29,11 @@ import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { OptionPicker } from '@features/settings/option-picker'
 import { PluginList } from '@features/settings/plugin-list'
+import { RemoteSection } from '@features/settings/remote-section'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { QUERY_KEY } from '@shared/constants/query-key'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
 import type { AiProviderId, AppDataPathKind, LspServerId } from '@shared/api/bindings'
 import type { KeymapActionId, KeymapModifier } from '@shared/lib/keymap'
@@ -119,6 +122,7 @@ const SETTINGS_SECTION_ID = {
     AI: 'settings-section-ai',
     PLUGINS: 'settings-section-plugins',
     SYNC: 'settings-section-sync',
+    REMOTE: 'settings-section-remote',
 } as const
 
 const SETTINGS_TOC_ITEMS = [
@@ -132,6 +136,7 @@ const SETTINGS_TOC_ITEMS = [
     { id: SETTINGS_SECTION_ID.AI, labelKey: 'settings.aiSectionTitle' },
     { id: SETTINGS_SECTION_ID.PLUGINS, labelKey: 'settings.plugins' },
     { id: SETTINGS_SECTION_ID.SYNC, labelKey: 'settings.syncSectionTitle' },
+    { id: SETTINGS_SECTION_ID.REMOTE, labelKey: 'remote.title' },
 ]
 
 export const SettingsView = () => {
@@ -140,6 +145,7 @@ export const SettingsView = () => {
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
     const [themeEditorState, setThemeEditorState] = useState<ThemeEditorState | null>(null)
     const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false)
+    const [issuedRemoteUrl, setIssuedRemoteUrl] = useState<string | null>(null)
 
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [], isPending: isThemesPending } = useQuery(themeListQueryOptions())
@@ -151,6 +157,7 @@ export const SettingsView = () => {
     const { data: projects = [] } = useQuery(projectListQueryOptions())
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { data: syncStatus } = useQuery(syncStatusQueryOptions())
+    const { data: remoteStatus } = useQuery(remoteStatusQueryOptions())
     const { mutate: setThemeId } = useSetThemeId()
     const { mutate: updateSettings } = useUpdateSettings()
     const { mutate: installLspServer } = useInstallLspServer()
@@ -161,6 +168,9 @@ export const SettingsView = () => {
     const { mutate: disconnectSync, isPending: isDisconnectingSync } = useDisconnectSync()
     const { mutate: uploadSync, isPending: isUploadingSync } = useUploadSync()
     const { mutate: downloadSync, isPending: isDownloadingSync } = useDownloadSync()
+    const { mutate: issueRemoteLink, isPending: isIssuingRemoteLink } = useIssueRemoteLink()
+    const { mutate: revokeRemoteSessions, isPending: isRevokingRemoteSessions } = useRevokeRemoteSessions()
+    const queryClient = useQueryClient()
 
     const selectedAiProvider = (settings?.aiAutoTabProvider ?? DEFAULT_AI_AUTO_TAB_PROVIDER) as AiProviderId
     const isSelectedAiProviderConfigured = aiTokenStatus?.[selectedAiProvider] ?? false
@@ -208,6 +218,26 @@ export const SettingsView = () => {
             onError: () => toast.error(t('settings.syncDownloadFailed')),
         })
     }
+
+    const handleToggleRemote = (enabled: boolean) => {
+        setIssuedRemoteUrl(null)
+        updateSettings(
+            { ...emptySettingsPatch(), remoteAccessEnabled: enabled },
+            { onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.REMOTE.STATUS }) },
+        )
+    }
+    const handleIssueRemoteLink = () =>
+        issueRemoteLink(undefined, {
+            onSuccess: (info) => {
+                setIssuedRemoteUrl(info.url)
+                void navigator.clipboard.writeText(info.url).then(
+                    () => toast.success(t('remote.linkCopied')),
+                    () => undefined,
+                )
+            },
+            onError: () => toast.error(t('remote.startFailed')),
+        })
+    const handleRevokeRemoteSessions = () => revokeRemoteSessions(undefined, { onSuccess: () => toast.success(t('remote.sessionsRevoked')) })
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
@@ -669,6 +699,19 @@ export const SettingsView = () => {
                                 onDisconnect={handleDisconnectSync}
                                 onUpload={handleUploadSync}
                                 onDownload={handleDownloadSync}
+                            />
+                        </SettingsSection>
+
+                        <SettingsSection id={SETTINGS_SECTION_ID.REMOTE} title={t('remote.title')} description={t('remote.description')}>
+                            <RemoteSection
+                                status={remoteStatus}
+                                enabled={settings.remoteAccessEnabled ?? false}
+                                issuedUrl={issuedRemoteUrl}
+                                issuing={isIssuingRemoteLink}
+                                revoking={isRevokingRemoteSessions}
+                                onToggle={handleToggleRemote}
+                                onIssueLink={handleIssueRemoteLink}
+                                onRevokeSessions={handleRevokeRemoteSessions}
                             />
                         </SettingsSection>
 

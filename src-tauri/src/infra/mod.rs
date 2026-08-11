@@ -1,3 +1,4 @@
+pub mod crypto;
 pub mod http;
 pub mod lsp_install;
 pub mod lsp_proc;

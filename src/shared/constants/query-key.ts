@@ -93,4 +93,7 @@ export const QUERY_KEY = {
         ALL: ['sync'] as const,
         STATUS: ['sync', 'status'] as const,
     },
+    REMOTE: {
+        STATUS: ['remote', 'status'] as const,
+    },
 }

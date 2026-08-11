@@ -99,6 +99,8 @@ pub struct Settings {
     pub sync_gist_id: Option<String>,
     #[serde(default)]
     pub sync_last_synced_at: Option<String>,
+    #[serde(default)]
+    pub remote_access_enabled: bool,
 }
 
 fn default_theme_id() -> String {
@@ -197,6 +199,7 @@ impl Default for Settings {
             ai_auto_tab_model: None,
             sync_gist_id: None,
             sync_last_synced_at: None,
+            remote_access_enabled: false,
         }
     }
 }

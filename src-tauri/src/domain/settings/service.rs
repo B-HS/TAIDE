@@ -50,6 +50,7 @@ pub struct SettingsPatch {
     pub ai_auto_tab_enabled: Option<bool>,
     pub ai_auto_tab_provider: Option<String>,
     pub ai_auto_tab_model: Option<String>,
+    pub remote_access_enabled: Option<bool>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -196,6 +197,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         ai_auto_tab_model: patch.ai_auto_tab_model.clone().or_else(|| settings.ai_auto_tab_model.clone()),
         sync_gist_id: settings.sync_gist_id.clone(),
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
+        remote_access_enabled: patch.remote_access_enabled.unwrap_or(settings.remote_access_enabled),
     })
 }
 
@@ -399,6 +401,21 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert_eq!(updated.ai_auto_tab_provider, None);
+    }
+
+    #[test]
+    fn patch로_원격_접속_활성화를_변경한다() {
+        let settings = Settings::default();
+        assert!(!settings.remote_access_enabled);
+
+        let patch = SettingsPatch {
+            remote_access_enabled: Some(true),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_access_enabled);
     }
 
     #[test]

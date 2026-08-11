@@ -179,3 +179,10 @@ pub struct IdeCloseTabRequested {
 pub struct SyncStateChanged {
     pub status: crate::domain::sync::types::SyncStatus,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "remote:state-changed")]
+pub struct RemoteStateChanged {
+    pub status: crate::domain::remote::types::RemoteStatus,
+}

@@ -966,7 +966,30 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       (무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) · `cargo test
       --workspace`(486+6+17 pass, Rust 무변경 — bindings.ts 재생성도 diff 없음) + Monokai
       대표 회귀 diff 0 실측(위 참고). Rust 변경 없음(이번 웨이브는 프론트 전용).
-- [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블)
+- [ ] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블) — 2026-08-12 착수
+    - [x] W6-0. 정찰 리서치(opus+medium 워크플로 5영역, wf_5639db9b-912) 완료 — 커맨드 131종·이벤트
+          팬아웃 무수정·shim 최소표면·axum 0.8.9·서빙 전략 소스 검증. 메인 코드 교차검증 완료
+    - [x] W6-계약. `docs/acknowledge/2026-08-12-w6-remote-contract.md` 확정(메인)
+    - [x] W6-A. Rust 스파인(wf_883336a9-855, sonnet+high) 완료 — Cargo(axum 0.8·rust 1.80) +
+          `domain/remote/`(types·service·server·dispatch·commands) + `infra/crypto`(constant_time_eq
+          승격) + lib.rs 등록(remote_* 5커맨드·RemoteStore·부트자동시작·Exit stop) + RemoteStateChanged
+          이벤트 + settings.remote_access_enabled + locale remote 12키. 컴파일·clippy·514test 통과.
+          메인 seam 전수 검증 완료. **미완(B 몫)**: WS 루프 본체·디스패치 136암·이벤트 23 팬아웃·
+          서빙 Range/정적·프론트 shim·설정 UI. 최종 수치: collect_commands 133·events 23·RAW 3 →
+          디스패치 136종(remote_* 포함)
+    - [x] W6-B. 구현 완료 — **위임 전면 차단(안전 분류기)으로 메인 직접 구현(사용자 승인 예외)**.
+          Workflow 위임(다중·단일)이 "Create Unsafe Agents/Auto-Mode Bypass"로 반복 차단, 완화 설정
+          없음 → 사용자 승인으로 메인 Edit/Write 직접 구현. 상세: `docs/acknowledge/2026-08-12-w6-delegation-blocked.md`.
+          산출: `domain/remote/{types,dispatch,ws,serving,server,commands,service}.rs`(dispatch 136암·
+          WS 루프·채널 브리지 binary+end-guard·서빙 asset_resolver/vite proxy·Range 파일 라우트) +
+          lib.rs 이벤트 23 팬아웃(has_event_subscribers 게이트) + 프론트 shim
+          `src/shared/lib/remote/{tauri-internals-shim,remote-ws-client,callback-registry,remote-json}.ts`
+          +main.tsx first-import + 설정 REMOTE 섹션(`features/settings/remote-section.tsx`·
+          `entities/remote/*`·query-key) + locale remote.securityWarning 4곳.
+    - [x] W6-C/D. 메인 자체 적대적 검토(위임 차단 대체) + 2차 verify 완료 — 디스패치 136암 전치 오류
+          0(기계 검증), 파리티 테스트 활성·통과. **검증 실측**: cargo build/clippy(-D warnings)/fmt ✓,
+          cargo test 538(515 lib+6+17, 파리티 136 활성·0 ignored) ✓, typecheck ✓, lint 0 errors ✓,
+          bun test 358 ✓, vite build ✓, format:check ✓. QA6 체크리스트 W6 항목 추가 완료.
 - [ ] 7.10-W7. TextMate 문법 엔진 (backlog 에서 승격, 2026-08-11 사용자 확정) — shiki JS 엔진 우선
       검증(CSP 무변경, 실패 시 WASM+CSP 완화 폴백), 테마 스키마에 원본 tokenColors 보존, 번들 36종
       재변환(원본 재다운로드는 메인 직접), 전 테마 시각 검증

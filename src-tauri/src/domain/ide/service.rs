@@ -43,12 +43,7 @@ const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
 ];
 const DEFAULT_LANGUAGE_ID: &str = "plaintext";
 
-pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
+pub use crate::infra::crypto::constant_time_eq;
 
 pub fn generate_auth_token() -> String {
     uuid::Uuid::new_v4().simple().to_string()

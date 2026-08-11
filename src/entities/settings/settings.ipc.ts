@@ -41,6 +41,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     aiAutoTabEnabled: null,
     aiAutoTabProvider: null,
     aiAutoTabModel: null,
+    remoteAccessEnabled: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

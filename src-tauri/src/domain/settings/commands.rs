@@ -6,6 +6,8 @@ use super::types::Settings;
 use crate::domain::agent::hooks;
 use crate::domain::ide::commands as ide_commands;
 use crate::domain::ide::commands::IdeStore;
+use crate::domain::remote::commands as remote_commands;
+use crate::domain::remote::commands::RemoteStore;
 use crate::error::AppResult;
 use crate::events::ThemeChanged;
 use crate::state::AppState;
@@ -49,6 +51,17 @@ async fn apply_integration_toggles(app: &tauri::AppHandle, current: &Settings, u
         } else {
             hooks::uninstall_hooks_from_open_projects(app).await;
             hooks::stop_hooks_server(app);
+        }
+    }
+
+    if current.remote_access_enabled != updated.remote_access_enabled {
+        let remote = app.state::<RemoteStore>();
+        if updated.remote_access_enabled {
+            if let Err(error) = remote_commands::remote_start(app.clone(), remote).await {
+                log::warn!("원격 접속 서버 시작 실패: {error}");
+            }
+        } else {
+            remote_commands::stop_server(app, &remote);
         }
     }
 }

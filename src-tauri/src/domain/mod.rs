@@ -10,6 +10,7 @@ pub mod locale;
 pub mod lsp;
 pub mod plugin;
 pub mod project;
+pub mod remote;
 pub mod search;
 pub mod settings;
 pub mod sync;

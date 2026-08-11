@@ -93,6 +93,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         ai_auto_tab_enabled: Some(settings.ai_auto_tab_enabled),
         ai_auto_tab_provider: settings.ai_auto_tab_provider.clone(),
         ai_auto_tab_model: settings.ai_auto_tab_model.clone(),
+        remote_access_enabled: None,
     }
 }
 
