@@ -795,7 +795,7 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - [x] 7.10-D. 결정 묶음 사용자 확정 — `docs/acknowledge/2026-08-11-qa5-batch-decisions.md`.
       전부 추천안 + Codex 정정(b-hub 검증 구현 이식, auto-tab = Ollama Cloud + Codex 2종).
       오판 기록: `docs/feedback/2026-08-11-codex-token-feasibility-misjudgment.md`
-- [ ] 7.10-W1. UI/UX(1px 정렬·메뉴바 전폭 border·줄번호 패딩·파일트리 hover/active·설정 좌측 패딩)
+- [x] 7.10-W1. 완료 (커밋 34578b0) — UI/UX(1px 정렬·메뉴바 전폭 border·줄번호 패딩·파일트리 hover/active·설정 좌측 패딩)
       + 단축키 B안(죽은 바인딩 8 + ⌘+/⌘- 폰트) + dead-end(플러그인 목록 렌더·앱데이터 열기 커맨드·
       git_init·문구 정리·토스트 action) + 테마 reload 플래시 버그(opus+high)
       - [x] W1 워크플로 완료 (wf_ed6b541d, 19 에이전트) — 계약(IPC 2종·locale 정비·플러그인 오류
@@ -803,8 +803,9 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
             오배선(editor-instance-registry 신설)·focused 토큰 역배선·중복 버튼·clipboard catch·
             조기 추상화 회수). 테마 플래시는 A안(테마 settle 게이트 — data-theme-ready +
             visibility, 실패 경로는 isFetched 로 안전) 채택. 검증: bun run verify + cargo 전량 통과 보고
-      - [ ] 메인 2차 — 잔여 테마 결함 수정 중(선택 비가시 3종(darcula·dark-plus·light-plus,
-            itemSelected==bg 실측)·내장 taide-dark/light 강조 역전) → 전체 verify 재실행 → 커밋
+      - [x] 메인 2차 — 잔여 결함 2건 발견·수정(선택 비가시 3종 VSCode 공식값 이식·내장 테마 강조
+            역전 교정) + 검토 워크플로가 추가 3건(라이트 선택 대비 미달 → #ADD6FF·변환기 후보 체인
+            축소·:root 동기 2건) 수정. bun run verify 전량 통과 실측 후 커밋
       - 보류 보고: appSidebar/popover/tooltip/modal 의 itemHover 동일 원본 결함(theme-system.md
         §8.2.2 기록), ⌃Tab/⌃⇧Tab WKWebView 도달 여부는 실기 확인 필요
 - [ ] 7.10-W2. LSP 원클릭 — 스펙 데이터화 + 설치 인프라(다운로드·체크섬·해제) + 14종 매니페스트
