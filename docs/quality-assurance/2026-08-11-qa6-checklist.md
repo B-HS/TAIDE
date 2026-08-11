@@ -41,3 +41,14 @@
 - [ ] Codex 토큰 저장 시 잘못된 토큰이면 저장 거부(whoami 실패) 확인
 - [ ] auto-tab 제안이 LSP 자동완성 팝업과 충돌하지 않는가
 - [ ] 커맨드 팔레트의 동기화 업로드/다운로드 2개 커맨드 동작
+
+## W4 — Codex·Gemini hooks 배지
+
+- [ ] 설정 에이전트 섹션: claude(프로젝트별)·codex/gemini(사용자 레벨) 행 구분, taide-cli 미설치 시 토글 비활성+안내
+- [ ] codex 설치 → ~/.codex/hooks.json 에 TAIDE 항목 생성·기존 사용자 항목 보존 확인, 제거 시 원상복구
+- [ ] gemini 동일 (~/.gemini/settings.json)
+- [ ] 내장 터미널에서 codex 실행 → 프롬프트 제출 시 Working, 승인 요청 시 NEED DECISION, 완료 시 Idle
+- [ ] gemini 실행 → BeforeAgent/Notification/AfterAgent 배지 전이
+- [ ] 같은 프로젝트에서 claude+codex 동시 실행 시 배지가 섞이지 않는가 (override 에이전트 축)
+- [ ] TAIDE 재시작 후(포트 변경) 기존 주입 hook 이 자동 재조정되는가
+- [ ] TAIDE 를 끈 상태에서 codex/gemini 턴이 지연되지 않는가 (shim 1.5s 타임아웃·exit 0)
