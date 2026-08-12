@@ -27,13 +27,17 @@
         "app.background": "$bg0",
         "sidebar.background": "$bg1"
     },
-    "syntax": {                        // 구문 토큰 → Monaco 토큰 룰로 변환 (아래 §4)
+    "syntax": {                        // 구문 토큰 → 오버레이 근거 (아래 §4)
         "keyword": { "fg": "#c678dd", "bold": false },
         "string": { "fg": "#98c379" }
     },
     "terminal": {                      // ANSI 16 + 커서·선택 (아래 §5)
         "black": "#...", "red": "#...", "brightBlack": "#..."
-    }
+    },
+    "tokenColors": [                   // 선택 — 원본 TextMate 룰 전량 보존 (7.10-W7)
+        { "scope": ["comment", "punctuation.definition.comment"],
+          "settings": { "foreground": "#6a9955", "fontStyle": "italic" } }
+    ]
 }
 ```
 
@@ -41,6 +45,26 @@
 - 내장 테마(dark/light)는 앱 리소스로 포함하고, 사용자 테마는 `themes/` 에 두면 목록에 나타난다.
 - 사용자 테마는 내장 테마를 `extends` 로 상속해 일부 토큰만 오버라이드할 수 있다
   (누락 토큰은 base 에서 채움 — 전체 나열 강제 금지).
+
+### 2.1 `tokenColors` (7.10-W7)
+
+- 형태는 VS Code `tokenColors`/TextMate `settings` 배열과 동일: `{ scope: string[], settings:
+  { foreground?, background?, fontStyle? } }`. `scope` 는 항상 **배열로 정규화**한다(원본이
+  문자열/콤마구분이어도 변환 단계에서 배열로 접는다). `name` 필드는 버린다(페이로드 절약, TextMate
+  동작에 무관).
+- `fontStyle` 은 **원문 문자열을 그대로 보존**한다(`"bold italic underline"` 등) — 기존 `syntax`
+  절의 `SyntaxStyle`(fg + bold/italic 2불린)과 달리 underline·strikethrough 도 표현 가능하다.
+- **순서가 의미를 가진다**(TextMate 매칭은 나중 룰이 이긴다) — 배열이며 키 병합 대상이 아니다.
+- **선택 필드**다. `#[serde(default, skip_serializing_if = "Option::is_none")]` 로 기존 테마
+  파일·사용자 테마와 하위호환(없으면 `None`, 파일에 `null` 이 새로 찍히지 않는다).
+- **extends 상속 규칙**: 자식이 `tokenColors` 를 **명시하지 않으면(`None`)** base 의 것을 그대로
+  상속한다. 자식이 `tokenColors` 를 **명시하면(`Some`)** base 것을 **전체 교체**한다(배열이라 키
+  단위 병합이 불가능 — colors/syntax/terminal 의 키 단위 or_insert 와 다르다). 테마 에디터는 diff 만
+  저장하므로(§7.3) 사용자 테마는 사실상 항상 `None` 이고, 결과적으로 번들 원본의 TextMate 충실도가
+  자동 유지된다.
+- `syntax` 절과의 관계: `tokenColors` 가 있으면 **그것이 구문 강조의 원본 진실**이고, `syntax` 31
+  토큰은 그 위에 얹는 **오버레이**(사용자가 앱 UI 에서 편집한 토큰만 추가 반영)다. 상세 합성 규칙은
+  §4.2.
 
 ## 3. 시맨틱 토큰 (colors) — 영역별 세분화
 
@@ -80,15 +104,72 @@ VSCode 의 color ID 체계를 참조해 다음 네임스페이스로 나눈다. 
   저장하지 않음).
 - 컴포넌트에서 hex·palette 직접 사용 금지 — 시맨틱 토큰 클래스/변수만 사용.
 
-### 4.2 Monaco
+### 4.2 Monaco — shiki(TextMate) 경유 전량 토큰화 (7.10-W7 재작성)
 
-- `syntax` 절을 Monaco `defineTheme` 의 토큰 룰(scope→색)로 변환하고, `editor.*`/`diff.*` 토큰을
-  Monaco `colors` 맵으로 변환하는 **단일 변환 함수**를 둔다. 테마 전환 시 재정의·재적용.
-- 구문 토큰 최소 집합: keyword, storage, operator, string, number, regexp, comment, docComment,
-  function, method, variable, parameter, property, type, class, interface, enum, constant,
-  namespace, decorator, tag(HTML/JSX), attribute, punctuation, invalid, link,
-  markdown(heading, emphasis, strong, code, quote, listMarker).
-- semantic token(LSP semantic highlighting) 매핑도 같은 집합에서 파생한다.
+> 이전 버전의 이 절은 "31 토큰 고정 집합을 Monaco `defineTheme` 룰로 직접 변환"을 정의했다.
+> 7.10-W7 로 **TextMate scope 전량을 shiki 로 토큰화**하는 방식으로 대체됐다. 아래는 확정 설계이며,
+> 실기(WKWebView) 검증은 QA6 대기(`docs/quality-assurance/2026-08-11-qa6-checklist.md`).
+
+**엔진**: `@shikijs/core` + `@shikijs/engine-javascript`(JS RegExp 엔진) + `@shikijs/langs` +
+`@shikijs/monaco` 4.4.3 고정(`shiki` 메타 패키지는 미설치 — oniguruma WASM 이 기본이라 CSP 위반).
+`createHighlighterCore({ themes, langs, engine: createJavaScriptRegexEngine() })` 로 highlighter 를
+만들고, `shikiToMonaco(highlighter, monaco)` 로 `monaco.languages.setTokensProvider` 를 부착한다.
+CSP(`script-src 'self'`)는 변경하지 않는다(정적 검증 완료 — `docs/research/shiki.md`).
+
+**언어 등록**: `shikiToMonaco` 는 `monaco.languages.register` 를 하지 않는다 — highlighter 가 로드한
+언어와 monaco 에 이미 등록된 언어 id 의 교집합에만 토크나이저가 붙는다. TAIDE 31언어(+plaintext)
+전부를 `monaco.languages.register({ id })` 로 **우리가 선행 등록**한다(기존 등록 id 재호출은 병합돼
+안전). TAIDE id ↔ shiki lang id 매핑: `typescriptreact`→`tsx`, `javascriptreact`→`jsx`,
+`heex`→`html`(폴백, §4.2.1), 나머지는 동일명. `plaintext` 는 shiki 대상에서 제외(monaco 내장 유지).
+highlighter 에는 TAIDE id 를 lang name 으로 재명명해 등록한다(`setTokensProvider` 가 TAIDE id 기준
+이어야 하므로).
+
+**단일 테마명**: shiki 에는 항상 `taide` 테마 하나만 로드한다(라이트/다크 전환 시 `loadTheme` 로
+같은 이름을 교체 — `@shikijs/core` 의 `Map.set` 동작으로 교체가 성립). 테마 전환 시 절차:
+① `highlighter.loadTheme(buildShikiTheme(resolved))`(§4.2.2), ② `monaco.editor.setTheme`/`create`
+몽키패치 원본 복원, ③ `shikiToMonaco(highlighter, monaco)` 재호출(패치 재중첩 방지, 말미에
+`setTheme('taide')` 자동 호출). 플러그인 grammar 변경 시(§3 grammar 재구성)는 highlighter 를
+`dispose()` 후 재생성하고 동일 절차를 반복한다.
+
+**§4.1 fallback 대비 위상 변화**: 과거 문서가 정의한 "31 토큰 → Monaco 룰" 변환은 이제 **①
+`tokenColors` 가 없는 테마의 폴백 경로**, **② 사용자가 앱 UI 에서 편집한 토큰의 오버레이 경로**
+두 가지로만 쓰인다(§4.2.2). `tokenColors` 를 가진 테마(번들 대다수 — §8.2)는 원본 TextMate 룰이
+그대로 shiki 에 전달되어 훨씬 세밀하게 토큰화된다.
+
+#### 4.2.1 `heex` grammar 폴백
+
+`@shikijs/langs` 4.4.3 에 `heex` grammar 가 없다(shiki 전체에 없음). shiki `html` grammar 로
+매핑한다(현재 plaintext 대비 순개선 — HEEx 는 HTML + `<%= %>` 확장이라 태그·속성·문자열은 정확해진다).
+사용자 결정(계약 §2 결정 2).
+
+#### 4.2.2 `buildShikiTheme` — ResolvedTheme → shiki 테마 조립
+
+```
+buildShikiTheme(resolved) = {
+    name: 'taide',
+    type: resolved.type,
+    colors: buildThemeColors(resolved.colors) (기존 MONACO_COLOR_SOURCE 매핑 재사용)
+            + editor.background/editor.foreground,
+    tokenColors: raw ++ overlay
+}
+```
+
+- `raw = resolved.tokenColors ?? fallbackFromSyntax(resolved.syntax)`. `tokenColors` 가 없는
+  테마는 31 토큰에서 TextMate 룰을 역생성한다(스코프 중복은 "먼저 등장한 토큰이 소유"하는 규칙으로
+  충돌을 없앤다 — 예: `docComment` 는 `comment` 후보를 잃지 않도록 `comment.block.documentation`
+  만 남긴다).
+- `overlay`: `resolved.syntaxOverrides`(자식 테마가 스스로 명시한 syntax 키 목록)에 있는 토큰만
+  `SYNTAX_SCOPE_CANDIDATES[token]` 스코프로 raw 뒤에 **append** 한다. 사용자가 테마 에디터에서
+  건드린 토큰만 raw 위에 얹히는 구조다.
+- **한계(의도된 제약, 문서화)**: TextMate 매칭은 룰의 등장 순서(specificity)를 따른다 — 넓은
+  scope 후보를 쓰는 오버레이 룰이 raw 안의 더 깊이 한정된 scope 룰을 못 이길 수 있다. 오버레이는
+  "보정"이지 "강제 치환"이 아니다.
+- `colors` 는 shiki 가 실제로 읽는 키가 `editor.background`/`editor.foreground` 2개뿐이라는 사실에
+  기반한다(`@shikijs/primitive` `normalizeTheme` 실측) — 나머지 UI 색은 `shikiToMonaco` 가 그대로
+  `defineTheme` colors 로 통과시켜 monaco 에 적용된다.
+
+**semantic token**(LSP semantic highlighting)은 이 변경의 대상이 아니다 — colors/syntax/terminal
+토큰 집합 자체는 불변이므로 "테마 토큰 5곳 동기"(`docs/HANDOFF.md`)에 걸리지 않는다.
 
 ### 4.3 xterm
 
@@ -242,7 +323,12 @@ bun run scripts/convert-vscode-theme.ts \
   (`A ?? B ?? C`, 전부 없으면 파생 규칙)으로 매핑한다. `graph.*`(15) 처럼 VS Code 에
   대응이 없는 토큰은 ANSI 팔레트에서 전량 파생한다.
 - VS Code `tokenColors`(TextMate scope) → TAIDE `syntax`(31 토큰) 는 **최장-prefix
-  scope 해석**(가장 구체적인 scope 우선, VS Code 자체 규칙과 동일)으로 매핑한다.
+  scope 해석**(가장 구체적인 scope 우선, VS Code 자체 규칙과 동일)으로 매핑한다. 이 매핑은
+  7.10-W7 이후 **주 경로가 아니라 폴백/앱 UI(오버레이) 용**으로 위상이 바뀌었다(§4.2.2) — 원본
+  `tokenColors` 를 그대로 보존하는 경로가 별도로 생겼기 때문이다.
+- VS Code `tokenColors` 원문(scope 배열 + `settings.foreground`/`background`/`fontStyle`)은
+  **손실 없이 그대로** TAIDE `tokenColors` 절로 passthrough 된다(§2.1) — `fontStyle` 도 원문
+  문자열 그대로 보존한다(`syntax` 절의 bold/italic 2불린 축약과 별개 경로).
 - `terminal`(20 토큰) 은 ANSI 16색 + background/foreground/cursor/selection(TAIDE
   `colors.terminal.*` 와 동일 값 미러링)으로 구성한다. 원본에 ANSI 16색이 없는 테마는
   **8.2.1 의 VS Code 기본 ANSI 팔레트 폴백**으로 채운다 — 이 폴백은 값을 발명하는
@@ -316,6 +402,13 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 (`src/vs/platform/theme/common/colors/listColors.ts` 의 각 `registerColor(...)`)으로
 폴백한다 — 값을 새로 만드는 게 아니라 VS Code 자신의 기본값을 이식하는 것이다.
 
+**이 보정 로직은 변환기 코드 자체에 내장돼 있다**(`mapping-tables.ts` 의 `derived(...)` +
+`isUsableListBackground` + `VSCODE_LIST_*_DEFAULT` 상수). 즉 **재변환해도 이 보정은 그대로
+재적용된다** — 아래 문단의 "재변환이 불가능해 산출물을 직접 보정했다"는 서술은 낡은 것이었다
+(2026-08-12 코드 재확인으로 정정). 다만 재변환 결과가 지금 커밋된 값과 바이트 단위로 완전히
+같다는 보장은 없다(원본 저장소가 그 사이 갱신됐을 수 있음) — 재변환 시에는 colors/syntax/terminal
+3절의 diff 가 0 인지 게이트로 확인하고, 0 이 아니면 원인(원본 갱신 여부)을 규명한다.
+
 | 토큰 | 대응 TAIDE 토큰 | dark 기본값 | light 기본값 |
 |------|-----------------|------------|-------------|
 | `list.hoverBackground` | `explorer.itemHover` | `#2A2D2E` | `#F0F0F0` |
@@ -326,7 +419,9 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 5종(`darcula`·`vscode-dark-plus`·`night-owl`·`everforest-dark`·`everforest-light`)의
 `resources/themes/*.json` 을 이 폴백값으로 직접 보정했다. `itemSelected`/`itemFocused`
 는 배경과 완전 동일했던 3종(`darcula`·`vscode-dark-plus`·`vscode-light-plus`)을 같은
-방식으로 직접 보정했다(원본 소스 JSON 은 레포에 없어 재변환이 불가능 — §8.2 참고).
+방식으로 직접 보정했다(당시 원본 소스 JSON 을 레포에 두지 않는 정책이라 즉시 재변환 대신
+산출물을 직접 보정한 것 — 보정 로직 자체는 변환기에 있으므로 재변환해도 유실되지 않는다,
+위 단락 참고).
 재보정 후 36종 전수 재스캔 결과 `explorer.itemSelected`/`itemFocused` 가
 `explorer.background` 와 동일한 테마는 0건이다. `appSidebar.itemHover`/
 `popover.itemHover`/`tooltip.itemHover`/`modal.itemHover`/`list.hoverBackground` 등
@@ -369,9 +464,14 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 > 범위: **테마만.** VS Code 확장(`.vsix`)의 `contributes.themes` 기여점만 추출·변환해
 > 로컬에 저장한다. **확장 실행(코드 실행형 extension host)은 공식적으로 미지원**이고,
 > MS Marketplace 와의 네트워크 연동도 하지 않는다(사용자가 로컬에 내려받은 `.vsix`
-> 파일만 dialog 로 선택). TextMate 문법(`contributes.grammars`)·스니펫·커맨드 등 다른
-> 기여점은 다루지 않는다(TextMate 문법 엔진은 7.10-W7 로 별도). 설계 근거 전문은
-> `docs/features/vsix-theme-import.md`, IPC 계약은 `docs/ipc-contract.md` "vsix" 절.
+> 파일만 dialog 로 선택). VS Code 확장의 `contributes.grammars`(TextMate 문법) 임포트·
+> 스니펫·커맨드 등 다른 기여점은 다루지 않는다 — **7.10-W7 에서 TextMate 문법 렌더링
+> 엔진(shiki, §4.2) 자체는 확정됐지만, VSIX 에서 grammar 를 추출해 신규 언어를 늘리는
+> 기능은 W7 에서도 범위 밖이다**(`docs/backlog.md` — 언어 id 충돌 정책과
+> `LANGUAGE_ID_BY_EXTENSION` 런타임화가 선행돼야 하는 별개 축). 플러그인의 `grammar`
+> 기여(`docs/features/plugins.md` §2)로 같은 목적을 사용자가 직접 달성할 수는 있다.
+> 설계 근거 전문은 `docs/features/vsix-theme-import.md`, IPC 계약은
+> `docs/ipc-contract.md` "vsix" 절.
 
 ### 9.1 파이프라인
 

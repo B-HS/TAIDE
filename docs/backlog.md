@@ -61,3 +61,10 @@
 | Codex app-server 패널 | `codex app-server` JSON-RPC 클라이언트로 에이전트 UI 내장 | 터미널 연동과 다른 제품 축. auto-tab(Codex 토큰)과 별개 |
 | chord·when 키맵 엔진 | ⌘K ⌘S 류 2단 조합 + 컨텍스트(when) 평가 | keymap 타입·매칭·overrides 직렬화 전면 개정 필요 |
 | 앱데이터 파일 에디터 편집 | 설정/플러그인 파일을 에디터 탭에서 직접 편집·저장 | file_save 루트 가드 + 탭 projectId 종속 동시 해제 필요 — W1 은 Finder/기본 앱 열기까지 |
+
+## 7.10-W7 결정에서 분리된 후속 후보 (2026-08-12)
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| VSIX `contributes.grammars` 임포트 | .vsix 에서 TextMate 문법 + languages 기여를 함께 추출해 신규 언어를 추가 | W7 은 기존 31종의 토큰화 정확도가 목표. 신규 언어 추가는 `LANGUAGE_ID_BY_EXTENSION`(Rust 컴파일 타임 상수)의 런타임 오버레이화 + 언어 id 충돌 정책(테마의 "사본 저장"이 언어에는 적용 불가) 설계가 선행돼야 한다. 같은 목적은 플러그인 `grammar` 기여(`docs/features/plugins.md` §2)로 이미 달성 가능 |
+| `.tf`→`terraform` / `.mdx`→`mdx` grammar 정밀화 | 현재 `.tf` 는 shiki `hcl` grammar, `.mdx` 는 `markdown` grammar 로 매핑된다. shiki 에는 각각 전용 `terraform`(hcl 과 별도, MPL-2.0)·`mdx`(MIT) grammar 가 존재해 더 정밀한 토큰화가 가능하다 | W7 범위 밖의 동작 변경(기존 매핑을 바꾸는 것) — 별도 검토·사용자 확인 후 진행 |

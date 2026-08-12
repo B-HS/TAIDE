@@ -984,16 +984,41 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
           **검증 실측**: cargo build/clippy(-D warnings)/fmt ✓, cargo test 538(515 lib+6+17, 파리티
           136 활성·0 ignored) ✓, typecheck ✓, lint 0 errors ✓, bun test 358 ✓, vite build ✓,
           format:check ✓. QA6 체크리스트 W6 16항목 추가. 실기 검증은 QA6 대기.
-- [ ] 7.10-W7. TextMate 문법 엔진 (backlog 승격, 사용자 확정) — **새 세션에서 착수**
-      - [ ] W7-0. 정찰 리서치: shiki+monaco 통합(shikiToMonaco)·JS regex 엔진의 CSP script-src 'self'
-            동작 여부·테마 소비 방식(raw VSCode 테마)·번들 크기·기존 resolve-syntax 축소 파이프라인과의
-            관계·grammar 소싱·VSIX grammar 경로. context7 로 shiki/monaco 공식 확인
-      - [ ] W7-계약. 엔진 선택(shiki JS vs oniguruma WASM+CSP 완화) 확정 + 테마 스키마 raw tokenColors
-            보존 설계 + 번들 36종 재변환 방식(원본 재다운로드는 메인 직접) 확정. 신규 프론트 의존
-            도입은 사용자 보고
-      - [ ] W7-구현. 웨이브(위임 가능하면 Workflow, 아니면 메인 직접): monaco 토큰화 교체·테마 raw
-            보존·번들 재변환·ADR-0010/plugins.md/theme-system.md 개정
-      - [ ] W7-검토/verify. 검토 + 메인 2차 verify + 전 테마 시각 검증(QA6)
+- [x] 7.10-W7. TextMate 문법 엔진 (backlog 승격, 사용자 확정) — 완료 (실기 검증은 QA6 대기)
+      - [x] W7-0. 정찰 리서치(wf_e7ad421e-c8b, opus+medium 3영역) — shiki 4.4.3 JS 엔진 CSP 정적 안전
+            (eval/new Function 0건)·shikiToMonaco 내부(스냅샷·inherit:false·setTheme 몽키패치)·
+            monaco 미등록 9종 id 는 현재 plaintext 렌더·heex grammar 부재·라이선스 분포(GPL 무·회색 4종)·
+            §8.2.2 보정은 변환기 내장 확인. 메인이 tarball·monaco 소스로 교차검증 (2026-08-12)
+      - [x] W7-계약. `docs/acknowledge/2026-08-12-w7-textmate-contract.md` 확정 — 사용자 결정 4건
+            (의존 5종·heex→html·라이선스 포함+고지·플러그인 grammar 실배선 포함, VSIX grammars 는 backlog)
+      - [x] W7-A. 스파인(단일 sonnet+high, wf_5462a8ae-832) — 의존 5종 설치(메인 직접)·TokenColorRule·
+            token_colors·syntax_overrides·plugin grammar 검증 3에러코드·plugin_read_grammar·locale 4곳
+            3키·dispatch 137종·bindings 재생성. 메인 재검증: cargo lib 524 통과·주석 0·파리티 일치
+      - [x] W7-B. 구현 웨이브(파일 소유권 분리, wf_00cac56c-3ac):
+            - [x] B1 shiki 통합 — lang-map 31종(재명명 방식, langAlias 는 core 미적용 확인)·
+                  shiki-monaco(수명 관리 3함수)·build-shiki-theme(폴백·오버레이)·monaco 31종 등록·
+                  theme-provider 교체. 신규 테스트 17
+            - [x] B2 theme-convert — fontStyle/background 원문 보존·tokenColors passthrough·CLI 경고·
+                  VSIX 전달·프리뷰(base 캐시 경유). 신규 테스트 6
+            - [x] B3 플러그인 grammar 프론트 배선 — plugin-grammar(조립·개별 실패 스킵)·ipc·reload 시
+                  reinitShiki. 신규 테스트 11
+            - [x] B4 문서 개정 9건(ADR-0010·plugins·theme-system·vsix·ipc-contract·research/monaco·
+                  research/shiki 신설·backlog·THIRD_PARTY_LICENSES) — wf_80770902-48b, 메인 표본 검증 통과
+            - 메인 통합 검증: typecheck 0·bun test 392 통과·format 수정(THIRD_PARTY prettier)
+      - [x] W7-C. 번들 36종 재변환 (메인 직접) — ① 원본 38파일 확보(raw 31·릴리스 vsix 2·Open VSX 1·
+            gruvbox v1.22.0, 실패 0) ② 파일럿 monokai diff 0 게이트 통과 ③ 36종 일괄: 26종 비tokenColors
+            절 diff 0, 10종 상이 — 원인 규명 완료(W5 include 체인 순서 결함 수정 4종·상류 2026-08-11
+            갱신 1종·W5 미기록 출처 5종). 신규 값 채택(사용자 보고, 가역) ④ 번들 tokenColors assert 추가,
+            cargo lib 524 통과
+      - [x] W7-검토/verify (wf_ef557887-1a6) — 렌즈 4종(opus+high)→적대적 검증(opus+medium)→수정
+            (sonnet+high): finding 10건 → 실결함 5건 전부 수정. 핵심: syntax_overrides 가 루트 테마에서
+            31키 전량이 되어 번들 raw tokenColors 를 오버레이가 덮던 치명 결함(base 있을 때만 채우도록),
+            initShiki 실패 영구화(재시도 가능화)·reinit dispose 순서(swap-then-dispose)·grammar 없는
+            id 충돌 과잉 비활성(해당 grammar 만 무효)·embeddedLangs 화이트리스트. 메인 2차:
+            변환 산출물 prettier 정합(스크립트가 prettier API 로 출력하게 근본 수정) 후
+            **bun run verify 전체 통과**(typecheck·lint 0err·format·bun test 392·clippy -D·cargo 527+6+17)
+            + vite build 성공(grammar 언어별 lazy 청크 분리 확인). QA6 체크리스트 W7 16항목 추가.
+            재변환 재현 매니페스트 docs/utils/2026-08-12-w7-theme-original-sources.md
 - [ ] 7.10-V. 각 웨이브: 검토(렌즈→적대적 검증→수정) + 메인 2차(verify 재실행·실측)
 
 > **진행 방침(사용자 확정 2026-08-11)**: W3~W7 논스톱 연속 진행. 실기 QA 는 W7 완료 후 일괄

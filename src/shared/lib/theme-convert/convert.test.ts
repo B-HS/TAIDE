@@ -78,4 +78,61 @@ describe('convertVscodeTheme', () => {
 
         expect(result.syntax.keyword.fg).toBe('#00ff00')
     })
+
+    test('tokenColors 는 fontStyle 원문 문자열을 그대로 보존한다', () => {
+        const source = {
+            ...MINIMAL_DARK_SOURCE,
+            tokenColors: [{ scope: 'comment', settings: { foreground: '#6a9955', fontStyle: 'italic underline' } }],
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.tokenColors).toContainEqual({ scope: ['comment'], settings: { foreground: '#6a9955', fontStyle: 'italic underline' } })
+    })
+
+    test('tokenColors 는 background 를 보존한다', () => {
+        const source = {
+            ...MINIMAL_DARK_SOURCE,
+            tokenColors: [{ scope: 'markup.inserted', settings: { background: '#003300' } }],
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.tokenColors).toContainEqual({ scope: ['markup.inserted'], settings: { background: '#003300' } })
+    })
+
+    test('scope 없는 전역 룰도 tokenColors 에 보존한다', () => {
+        const source = {
+            ...MINIMAL_DARK_SOURCE,
+            tokenColors: [{ settings: { foreground: '#d4d4d4' } }],
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.tokenColors).toContainEqual({ scope: [], settings: { foreground: '#d4d4d4' } })
+    })
+
+    test('settings 가 비어 있는 룰은 tokenColors 에서 제외한다', () => {
+        const source = {
+            ...MINIMAL_DARK_SOURCE,
+            tokenColors: [
+                { scope: 'comment', settings: {} },
+                { scope: 'keyword', settings: { foreground: '#ff0000' } },
+            ],
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.tokenColors).toHaveLength(1)
+        expect(result.tokenColors[0]?.scope).toEqual(['keyword'])
+    })
+
+    test('include 체인의 tokenColors 는 base 를 먼저, leaf 를 뒤에 이어붙인다', () => {
+        const base = { ...MINIMAL_DARK_SOURCE, tokenColors: [{ scope: 'comment', settings: { foreground: '#6a9955' } }] }
+        const leaf = { tokenColors: [{ scope: 'keyword', settings: { foreground: '#ff0000' } }] }
+
+        const result = convertVscodeTheme([base, leaf], 'dark')
+
+        expect(result.tokenColors.map((rule) => rule.scope)).toEqual([['comment'], ['keyword']])
+    })
 })

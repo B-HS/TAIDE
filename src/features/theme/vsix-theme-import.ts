@@ -75,6 +75,7 @@ const buildTheme = (id: string, label: string, themeType: ThemeType, conversion:
     colors: conversion.colors,
     syntax: conversion.syntax,
     terminal: conversion.terminal,
+    tokenColors: conversion.tokenColors,
     author: extension.publisher || null,
     license: null,
     source: [extension.displayName, extension.version].filter(Boolean).join(' ') || null,

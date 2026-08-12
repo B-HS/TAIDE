@@ -237,6 +237,9 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "pluginError.idMismatch",
             "pluginError.versionMismatch",
             "pluginError.pathEscape",
+            "pluginError.grammarMissing",
+            "pluginError.grammarInvalid",
+            "pluginError.grammarConflict",
             "editorMinimap",
             "showSystemUsage",
             "languageSelectPlaceholder",
@@ -806,6 +809,12 @@ fn en_messages() -> BTreeMap<String, String> {
         (
             "settings.pluginError.pathEscape",
             "A contributed path points outside the plugin folder",
+        ),
+        ("settings.pluginError.grammarMissing", "The contributed grammar file could not be found"),
+        ("settings.pluginError.grammarInvalid", "The contributed grammar file is not a valid TextMate grammar"),
+        (
+            "settings.pluginError.grammarConflict",
+            "Another plugin already contributes this language or grammar scope",
         ),
         ("settings.editorMinimap", "Minimap"),
         ("settings.showSystemUsage", "Show resource usage in status bar"),
@@ -1379,6 +1388,12 @@ fn ko_messages() -> BTreeMap<String, String> {
         (
             "settings.pluginError.pathEscape",
             "기여 경로가 플러그인 폴더 밖을 가리킵니다",
+        ),
+        ("settings.pluginError.grammarMissing", "기여된 grammar 파일을 찾을 수 없습니다"),
+        ("settings.pluginError.grammarInvalid", "기여된 grammar 파일이 유효한 TextMate grammar 가 아닙니다"),
+        (
+            "settings.pluginError.grammarConflict",
+            "다른 플러그인이 이미 이 언어 또는 grammar scope 를 기여하고 있습니다",
         ),
         ("settings.editorMinimap", "미니맵"),
         ("settings.showSystemUsage", "상태 표시줄에 리소스 사용량 표시"),
@@ -1964,6 +1979,18 @@ fn ja_messages() -> BTreeMap<String, String> {
         (
             "settings.pluginError.pathEscape",
             "コントリビュートされたパスがプラグインフォルダの外を指しています",
+        ),
+        (
+            "settings.pluginError.grammarMissing",
+            "コントリビュートされた grammar ファイルが見つかりません",
+        ),
+        (
+            "settings.pluginError.grammarInvalid",
+            "コントリビュートされた grammar ファイルが有効な TextMate grammar ではありません",
+        ),
+        (
+            "settings.pluginError.grammarConflict",
+            "他のプラグインが既にこの言語または grammar scope をコントリビュートしています",
         ),
         ("settings.editorMinimap", "ミニマップ"),
         ("settings.showSystemUsage", "ステータスバーにリソース使用量を表示"),

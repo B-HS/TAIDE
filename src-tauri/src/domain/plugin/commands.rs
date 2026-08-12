@@ -40,3 +40,22 @@ pub async fn plugin_reload(state: State<'_, AppState>, store: State<'_, PluginSt
     *store.0.write() = Some(loaded.clone());
     Ok(loaded)
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_read_grammar(
+    state: State<'_, AppState>,
+    store: State<'_, PluginStore>,
+    plugin_id: String,
+    language_id: String,
+) -> AppResult<String> {
+    let loaded = match store.0.read().clone() {
+        Some(cached) => cached,
+        None => {
+            let loaded = service::load_plugins(&state.paths.plugins_dir());
+            *store.0.write() = Some(loaded.clone());
+            loaded
+        }
+    };
+    service::read_grammar(&loaded, &plugin_id, &language_id)
+}

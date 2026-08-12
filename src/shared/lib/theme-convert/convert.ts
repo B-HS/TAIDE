@@ -1,10 +1,11 @@
+import type { TokenColorRule } from '@shared/api/bindings'
 import { mergeVscodeThemeChain } from '@shared/lib/theme-convert/merge'
 import { resolveAnsiLookup, resolveColors } from '@shared/lib/theme-convert/resolve-colors'
 import { resolveSyntax } from '@shared/lib/theme-convert/resolve-syntax'
 import { resolveTerminal } from '@shared/lib/theme-convert/resolve-terminal'
 import { repairContrastPairs, validateOutputColors } from '@shared/lib/theme-convert/contrast'
 import { validateCompleteness } from '@shared/lib/theme-convert/validate-completeness'
-import type { SyntaxStyle, ThemeTypeArg } from '@shared/lib/theme-convert/types'
+import type { SyntaxStyle, ThemeTypeArg, VscodeTokenColorRule } from '@shared/lib/theme-convert/types'
 
 const FALLBACK_BACKGROUND = '#000000'
 const FALLBACK_FOREGROUND = '#000000'
@@ -14,6 +15,7 @@ export type ThemeConversionResult = {
     colors: Record<string, string>
     syntax: Record<string, SyntaxStyle>
     terminal: Record<string, string>
+    tokenColors: TokenColorRule[]
     missingColors: string[]
     missingSyntax: string[]
     missingTerminal: string[]
@@ -22,6 +24,23 @@ export type ThemeConversionResult = {
     repairs: string[]
     outputColorErrors: string[]
 }
+
+/**
+ * Converts merged VS Code tokenColors rules (base-first, name discarded) into TAIDE's
+ * `TokenColorRule` shape, dropping rules whose settings end up empty (no foreground,
+ * background, or fontStyle survives normalization).
+ */
+const buildTokenColors = (rules: VscodeTokenColorRule[]): TokenColorRule[] =>
+    rules
+        .map((rule) => ({
+            scope: rule.scopes,
+            settings: {
+                ...(rule.fg !== undefined && { foreground: rule.fg }),
+                ...(rule.background !== undefined && { background: rule.background }),
+                ...(rule.fontStyle && { fontStyle: rule.fontStyle }),
+            },
+        }))
+        .filter((rule) => Object.keys(rule.settings).length > 0)
 
 /**
  * Converts an already-parsed VS Code theme include chain (base-first, most specific last —
@@ -40,6 +59,7 @@ export const convertVscodeTheme = (rawChain: Record<string, unknown>[], type: Th
     const editorForeground = colors['editor.foreground'] ?? theme.colors['editor.foreground'] ?? theme.colors.foreground ?? FALLBACK_FOREGROUND
     const syntax = resolveSyntax(theme, editorForeground, editorBackground)
     const terminal = resolveTerminal(colors, ansi)
+    const tokenColors = buildTokenColors(theme.tokenColors)
 
     const { missingColors, missingSyntax, missingTerminal } = validateCompleteness(colors, syntax, terminal)
     const outputColorErrors = validateOutputColors(colors)
@@ -49,6 +69,7 @@ export const convertVscodeTheme = (rawChain: Record<string, unknown>[], type: Th
         colors,
         syntax,
         terminal,
+        tokenColors,
         missingColors,
         missingSyntax,
         missingTerminal,

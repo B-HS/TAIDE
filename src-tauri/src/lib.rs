@@ -112,6 +112,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::search::commands::search_replace,
             domain::plugin::commands::plugin_list,
             domain::plugin::commands::plugin_reload,
+            domain::plugin::commands::plugin_read_grammar,
             domain::agent::commands::agent_list,
             domain::agent::commands::agent_release_marker,
             domain::agent::commands::agent_cli_status,

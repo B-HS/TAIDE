@@ -82,3 +82,36 @@
 - [ ] 앱 종료 시 원격 서버가 함께 종료되는가 (포트 해제)
 - [ ] 데스크톱 앱 자체 동작에 영향이 없는가 (shim self-gate — 원격 미사용 시 무영향)
 - [ ] (dev) vite 프록시 경유로 원격이 최신 프론트를 서빙하는가 (HMR 은 미지원 정상)
+
+## W7 — TextMate 문법 엔진 (shiki)
+
+> 계약: docs/acknowledge/2026-08-12-w7-textmate-contract.md. 정적으로 검증 못 한 항목이 많아
+> 실기 우선순위가 높다. 특히 첫 항목(CSP)은 실패 시 W7 전체가 무효 — 최우선 확인.
+
+- [ ] **CSP 무변경 동작(최우선)**: 앱 기동 후 에디터 하이라이팅이 나오는가. devtools 콘솔에
+      CSP 위반(EvalError·wasm)·shiki 로드 오류가 없는가 (tauri.conf.json csp 무수정 상태에서)
+- [ ] **신규 하이라이팅 9종**: .tsx / .jsx / .sh / .toml / .jsonc / .erb / .hs / .zig / .heex 파일이
+      plaintext 가 아니라 구문 강조되는가 (W7 전에는 9종 전부 무강조였음 — 각각 개별 확인)
+- [ ] 기존 언어(rust·ts·js·py·md·html·css·json 등)의 강조가 W7 전보다 세밀해졌는가
+      (예: TS 에서 데코레이터·타입 파라미터·정규식 리터럴 색 구분)
+- [ ] .heex 가 html 문법으로 폴백 강조되는가 (계약 결정 — elixir 삽입부는 미강조 정상)
+- [ ] 테마 전환(설정 > 외관): 번들 테마 간 전환 시 에디터 구문색이 즉시 함께 바뀌는가,
+      원본 테마의 전체 tokenColors 색 다양성이 보이는가 (31토큰 축소 대비 풍부해야 함)
+- [ ] Dark+ / Dark Modern: 제어 키워드(if·return)가 보라(#C586C0)로 보이는가 (W7 재변환 수정),
+      Dark Modern 파일트리에서 선택 항목 배경이 구분되는가 (W7 전 invisible 버그 수정 확인)
+- [ ] 시스템 다크/라이트 추종 전환 시 에디터 색 정상 추종
+- [ ] 테마 에디터: syntax 토큰 편집 시 라이브 프리뷰·실제 에디터 반영(오버레이 — 넓은 스코프라
+      원본의 세분화 색 일부는 안 바뀔 수 있음이 문서화된 정상), 저장 후 재적용 정상
+- [ ] 커스텀 테마(raw tokenColors 없음)가 폴백(31토큰 역생성)으로 정상 강조되는가
+- [ ] VSIX 테마 임포트 후 그 테마의 원본 tokenColors 가 보존·적용되는가 (W5 경로 + W7 보존)
+- [ ] TS/JS 리치 기능 유지: 진단(빨간 줄)·자동완성·호버가 shiki 교체 후에도 동작하는가 (worker 경로)
+- [ ] 에디터 첫 페인트·타이핑 지연 체감 저하 없음 (shiki 는 에디터 로드 후 비동기 초기화),
+      대용량 파일(large tier)에서 토큰화로 인한 프리즈 없음 (tokenizeTimeLimit 500ms)
+- [ ] 플러그인 grammar: {app_data}/plugins/ 에 tmLanguage 기여 플러그인 배치 → 해당 확장자 파일
+      강조, "플러그인 다시 읽기" 로 재생성 반영, 잘못된 grammar(scopeName 없음)는 설정 UI 에
+      grammar-invalid 사유로 비활성 표시 (en/ko/ja 문구)
+- [ ] 원격(W6) 브라우저에서도 하이라이팅·테마 전환이 데스크톱과 동일하게 동작하는가
+- [ ] 번들 36종 전 테마 육안 스팟 확인(최소: one-dark-pro·dracula·github-light·night-owl·
+      catppuccin-mocha·vscode-light-plus) — 배경/전경/구문색 이상 없음. night-owl 등 10종은
+      W7 재변환으로 일부 색이 W6 시점과 다름(원인 규명·채택 완료 — PROCESS W7-C 참조)
+- [ ] vite build 산출물 크기 확인: grammar 청크가 lazy 분리되어 초기 로드에 포함되지 않는가

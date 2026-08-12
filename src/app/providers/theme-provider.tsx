@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, type FC, type PropsWithChildren } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
+import { loadPluginGrammarRegistrations } from '@entities/plugin/plugin-grammar'
 import { applyThemeVariables } from '@shared/lib/theme-variables'
 import { applyWindowAppearance } from '@shared/lib/window-appearance'
-import { applyMonacoTheme } from '@shared/lib/monaco/theme'
-import { monaco } from '@shared/lib/monaco/setup'
+import { applyShikiTheme, initShiki } from '@shared/lib/shiki/shiki-monaco'
 import { useRevealWindow } from '@shared/hooks/use-reveal-window'
 import { subscribeSystemTheme } from '@shared/lib/system-appearance'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -18,7 +18,7 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
         applyThemeVariables(theme.colors, document.documentElement)
         document.documentElement.dataset.themeType = theme.type
         document.documentElement.dataset.appearance = theme.type
-        applyMonacoTheme(theme, monaco.editor)
+        void applyShikiTheme(theme).catch((error: unknown) => console.error('[shiki] failed to apply theme', error))
         applyWindowAppearance(theme.type)
     }, [theme])
 
@@ -28,6 +28,12 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
     }, [isFetched])
 
     useEffect(() => subscribeSystemTheme(() => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })), [queryClient])
+
+    useEffect(() => {
+        void loadPluginGrammarRegistrations()
+            .then(initShiki)
+            .catch((error: unknown) => console.error('[shiki] failed to initialize highlighter', error))
+    }, [])
 
     useRevealWindow(isFetched)
 

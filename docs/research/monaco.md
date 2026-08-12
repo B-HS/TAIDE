@@ -68,6 +68,33 @@ monaco-editor/esm/vs/editor/editor.worker.js   -> node_modules/monaco-editor/esm
 
 `esm/vs/languages/definitions/` 실측 목록 (일부): `abap apex azcli bat bicep cameligo clojure coffee cpp csharp csp css cypher dart dockerfile ecl elixir flow9 freemarker2 fsharp go graphql handlebars hcl html ini java javascript julia kotlin less lexon liquid lua m3 markdown mdx mips msdax mysql objective-c pascal pascaligo perl pgsql php pla postiats powerquery powershell protobuf pug python qsharp r razor redis redshift restructuredtext ruby rust sb scala scheme scss shell solidity sophia sparql sql st swift systemverilog tcl twig typescript typespec vb wgsl xml yaml`
 
+### 미등록 languageId → plaintext 폴백 (2026-08-12 추가, W7 리서치)
+
+`esm/vs/editor/common/services/languageService.js` (`_createAndGetLanguageIdentifier`) 실측:
+
+```js
+_createAndGetLanguageIdentifier(languageId) {
+    if (!languageId || !this.isRegisteredLanguageId(languageId)) {
+        // Fall back to plain text if language is unknown
+        languageId = PLAINTEXT_LANGUAGE_ID;
+    }
+```
+
+**등록되지 않은 languageId 로 `createModel`/`setModelLanguage` 를 호출하면 예외 없이 조용히
+`plaintext` 로 떨어진다.** 위 basic-languages 등록 목록과 TAIDE `LANGUAGE_ID_BY_EXTENSION`
+(`src-tauri/src/domain/file/service.rs`)을 전수 대조한 결과, TAIDE 가 쓰는 32개 id 중 아래
+**9종은 monaco 0.56 패키지 전체에 등록되어 있지 않다**(문자열 grep 0건):
+
+`typescriptreact`(.tsx) · `javascriptreact`(.jsx) · `jsonc`(.jsonc) · `toml`(.toml) ·
+`shellscript`(.sh/.bash — monaco 는 `shell` 로만 등록) · `erb`(.erb) · `heex`(.heex) ·
+`haskell`(.hs/.lhs) · `zig`(.zig)
+
+즉 이 확장자의 파일은 **현재 구문 강조 없이(plaintext) 렌더되고 있다.** 소스 근거는 위와 같고,
+실기 화면 확인(에이전트 셸 앱 실행 금지로 미수행)은 QA6 대상이다. 7.10-W7 의 shiki 전환은 이
+9종 중 `heex` 를 제외한 8종에 등록을 대행해 하이라이팅을 처음 켠다(`docs/theme-system.md` §4.2,
+`docs/research/shiki.md`). `json`/`plaintext` 는 각각 `vs/language/json` 리치 기능·에디터 코어가
+별도 등록하므로 이 9종에 포함되지 않는다.
+
 ---
 
 ## 핵심 API·사용법

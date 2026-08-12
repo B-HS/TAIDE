@@ -113,6 +113,13 @@ Rust 가 하되 OS 다크/라이트 감지는 view 가 센서 역할을 한다. 
 읽으려면 플랫폼 분기가 늘어나는데, view 에는 이미 `prefers-color-scheme` 이 있다.
 locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형태다.
 
+**페이로드 확장(7.10-W7)**: `Theme`·`ResolvedTheme` 에 `tokenColors?: TokenColorRule[]`(원본
+TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐다. `ResolvedTheme` 에는 추가로
+`syntaxOverrides: string[]`(자식 테마가 스스로 명시한 `syntax` 키 목록 — 프론트가 오버레이 합성
+근거로 쓴다)이 붙는다. colors/syntax/terminal 의 토큰 집합·타입은 불변이다 — `theme_get`/
+`theme_get_current`/`theme_save` 세 커맨드 모두 이 확장된 형태를 주고받는다(자동 생성 타입은
+`bindings.ts`, 상세 스키마는 `docs/theme-system.md` §2.1).
+
 ### locale (7.5-H 신설 — `acknowledge/2026-08-06-i18n-and-session-findings.md`)
 
 - query: `locale_list`, `locale_get(localeId)`, `locale_get_current(systemLanguage)`
@@ -132,7 +139,11 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
 
 ### plugin (`plugins.md`)
 
-- query: `plugin_list`
+- query: `plugin_list`, `plugin_read_grammar(pluginId, languageId) -> string`(7.10-W7 신설 — grammar
+  파일 본문을 온디맨드로 가져온다. `plugin_list` 응답에 본문을 인라인하지 않는 이유는 매니페스트
+  스캔마다 수 MB 를 흘리지 않기 위함이다. 프론트는 highlighter 생성 시 이 query 로 각 플러그인의
+  language 기여를 fetch 해 shiki `LanguageRegistration` 으로 주입한다 — 실패한 플러그인은 스킵 +
+  경고)
 - mutation: `plugin_reload`, `plugin_set_lsp_enabled(pluginId, lspId, enabled)`
 
 ### vsix (7.10-W5 신설 — `vsix-theme-import.md`)
@@ -149,6 +160,11 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
   `dialog` 로 사용자가 직접 고른 파일 경로이고 Rust 는 그 파일을 읽기만 한다(쓰기 없음). 이는
   `project_open(path)` 가 이미 사용자 선택 경로를 루트 가드 없이 받는 것과 같은 성격이다(프로젝트
   루트를 정하는 진입점 자체이므로 검증할 "루트"가 아직 없다).
+- **grammar 는 다루지 않는다**: `vsix_extract_themes` 는 `contributes.themes` 만 읽고
+  `contributes.grammars`(TextMate 문법)는 추출하지 않는다 — grammar 는 `contributes.languages`
+  (언어 id·확장자)와 쌍으로 가져와야 의미가 있고, TAIDE 의 확장자→언어id 매핑
+  (`LANGUAGE_ID_BY_EXTENSION`)이 Rust 컴파일 타임 상수라 런타임 오버레이화가 선행돼야 한다 —
+  W7 에서도 범위 밖(`docs/backlog.md`).
 - 도메인 분리 근거: `domain/plugin` 은 TAIDE 자체 선언적 확장 체계(`{app_data}/plugins/*/
   taide-plugin.json`, 부팅 시 스캔, ADR-0010 "코드 실행 없음")이고 `domain/vsix` 는 VS Code
   확장(.vsix) 이라는 **별개 포맷**을 사용자가 그때그때 선택한 파일에서 1회성으로 추출하는
@@ -224,6 +240,10 @@ locale 의 `locale_get_current(systemLanguage)` 도 같은 이유로 같은 형�
   바뀌었다. 프론트는 `settings.pluginError.{parseFailed,idMismatch,versionMismatch,pathEscape}`
   로케일 키로 코드를 문구로 매핑해 렌더링한다(하드코딩된 한국어 메시지를 그대로 노출하던 기존
   동작은 다국어 요구사항과 충돌해 제거).
+- plugin(7.10-W7 추가): `PluginErrorCode` 에 grammar 검증 3종 `"grammar-missing" | "grammar-invalid"
+  | "grammar-conflict"` 추가(파일 미존재 / JSON 파싱·`scopeName` 누락 / scopeName·languageId 충돌).
+  `settings.pluginError.{grammarMissing,grammarInvalid,grammarConflict}` 로케일 키를 en/ko/ja
+  4곳(스키마+3언어)에 동기 추가한다.
 
 ### raw 커맨드 (specta 밖)
 

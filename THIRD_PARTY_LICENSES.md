@@ -1,10 +1,11 @@
 # Third-Party Licenses
 
-This file covers two kinds of third-party code TAIDE distributes notices for:
-bundled color themes (shipped inside the app), and language servers that the
-in-app LSP installer downloads on demand (not bundled — fetched from the
-upstream project's own release infrastructure at install time, and cached
-under the user's app-data directory).
+This file covers three kinds of third-party code TAIDE distributes notices for:
+bundled color themes (shipped inside the app), bundled TextMate grammars used
+for syntax highlighting (shipped inside the app via the `shiki` package), and
+language servers that the in-app LSP installer downloads on demand (not
+bundled — fetched from the upstream project's own release infrastructure at
+install time, and cached under the user's app-data directory).
 
 ## Bundled Themes
 
@@ -203,6 +204,162 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+---
+
+## Bundled TextMate Grammars
+
+TAIDE renders syntax highlighting via [shiki](https://shiki.style) 4.4.3
+(`@shikijs/core`, `@shikijs/engine-javascript`, `@shikijs/langs`,
+`@shikijs/monaco`, `@shikijs/vscode-textmate`), which bundles TextMate
+grammar files (`.tmLanguage.json`) sourced from upstream editor/extension
+projects. **Unlike the color themes above, grammar files are redistributed
+as-is** — shiki repackages the upstream TextMate grammar JSON largely
+unmodified, so this is closer to "including the file" than "extracting
+values from the file." TAIDE imports 30 of these grammars individually
+(never the full `@shikijs/langs` barrel — see "Individual subpath imports
+only" below).
+
+### shiki packages (MIT)
+
+- `@shikijs/core`, `@shikijs/langs`, `@shikijs/monaco`,
+  `@shikijs/engine-javascript`, `@shikijs/vscode-textmate` — MIT.
+- Copyright (c) 2021 Pine Wu
+- Copyright (c) 2023 Anthony Fu and Shiki contributors
+- Full MIT text: see `## Full MIT License Text` above.
+
+### Bundled grammars — 30 languages
+
+| TAIDE language id | shiki language id | Upstream source                           | License                                  |
+| ----------------- | ----------------- | ----------------------------------------- | ---------------------------------------- |
+| `rust`            | `rust`            | github.com/microsoft/vscode               | MIT                                      |
+| `typescript`      | `typescript`      | github.com/microsoft/vscode               | MIT                                      |
+| `typescriptreact` | `tsx`             | github.com/microsoft/vscode               | MIT                                      |
+| `javascript`      | `javascript`      | github.com/microsoft/vscode               | MIT                                      |
+| `javascriptreact` | `jsx`             | github.com/microsoft/vscode               | MIT                                      |
+| `json`            | `json`            | github.com/microsoft/vscode               | MIT                                      |
+| `jsonc`           | `jsonc`           | github.com/microsoft/vscode               | MIT                                      |
+| `markdown`        | `markdown`        | github.com/microsoft/vscode               | MIT                                      |
+| `toml`            | `toml`            | github.com/textmate/toml.tmbundle         | _(no upstream LICENSE file — see below)_ |
+| `yaml`            | `yaml`            | github.com/textmate/yaml.tmbundle         | _(no upstream LICENSE file — see below)_ |
+| `html`            | `html`            | github.com/microsoft/vscode               | MIT                                      |
+| `css`             | `css`             | github.com/microsoft/vscode               | MIT                                      |
+| `scss`            | `scss`            | github.com/microsoft/vscode               | MIT                                      |
+| `python`          | `python`          | github.com/microsoft/vscode               | MIT                                      |
+| `go`              | `go`              | github.com/microsoft/vscode               | MIT                                      |
+| `shellscript`     | `shellscript`     | github.com/microsoft/vscode               | MIT                                      |
+| `java`            | `java`            | github.com/microsoft/vscode               | MIT                                      |
+| `ruby`            | `ruby`            | github.com/microsoft/vscode               | MIT                                      |
+| `erb`             | `erb`             | github.com/textmate/ruby.tmbundle         | _(no upstream LICENSE file — see below)_ |
+| `dart`            | `dart`            | github.com/microsoft/vscode               | MIT                                      |
+| `swift`           | `swift`           | github.com/jtbandes/swift-tmlanguage      | MIT                                      |
+| `scala`           | `scala`           | github.com/scala/vscode-scala-syntax      | MIT                                      |
+| `elixir`          | `elixir`          | github.com/elixir-editors/elixir-tmbundle | NOASSERTION (see below)                  |
+| `haskell`         | `haskell`         | github.com/octref/language-haskell        | BSD-3-Clause (see below)                 |
+| `c`               | `c`               | github.com/microsoft/vscode               | MIT                                      |
+| `cpp`             | `cpp`             | github.com/microsoft/vscode               | MIT                                      |
+| `kotlin`          | `kotlin`          | github.com/fwcd/vscode-kotlin             | MIT                                      |
+| `lua`             | `lua`             | github.com/microsoft/vscode               | MIT                                      |
+| `zig`             | `zig`             | github.com/ziglang/vscode-zig             | MIT                                      |
+| `hcl`             | `hcl`             | github.com/hashicorp/syntax               | MPL-2.0 (see below)                      |
+
+`heex` (`.heex` files) has **no bundled grammar** — `@shikijs/langs` 4.4.3 does
+not ship a `heex` TextMate grammar. TAIDE maps `.heex` files to the shiki
+`html` grammar as a partial fallback (HTML tags/attributes/strings render
+correctly; the `<%= %>` EEx expression syntax does not). `plaintext` has no
+grammar by design.
+
+MIT-licensed entries above: copyright and permission notices are as
+recorded by the individual upstream projects; TAIDE does not modify the
+grammar files, satisfying the MIT notice-preservation requirement via
+unmodified redistribution. See `## Full MIT License Text` above for the
+license text.
+
+### Haskell grammar — BSD-3-Clause
+
+- Bundled as: shiki `haskell` (TAIDE id `haskell`)
+- Source: https://github.com/octref/language-haskell
+- License: BSD-3-Clause
+
+```
+Copyright (c) the language-haskell contributors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+```
+
+### HCL grammar — MPL-2.0
+
+- Bundled as: shiki `hcl` (TAIDE id `hcl`)
+- Source: https://github.com/hashicorp/syntax
+- License: MPL-2.0 (Mozilla Public License 2.0) — full text:
+  https://www.mozilla.org/en-US/MPL/2.0/
+- Copyright (c) HashiCorp, Inc.
+- **MPL-2.0 is file-level copyleft.** TAIDE imports this grammar file
+  unmodified via `@shikijs/langs/hcl` and does not patch or re-derive it.
+  TAIDE's policy is to **never modify** shiki-provided grammar files — doing
+  so would trigger the obligation to publish the modified file's source.
+  Unmodified redistribution is satisfied by pointing to the source above.
+
+### Elixir grammar — NOASSERTION
+
+- Bundled as: shiki `elixir` (TAIDE id `elixir`)
+- Source: https://github.com/elixir-editors/elixir-tmbundle
+- License: NOASSERTION — the upstream repository does not declare an
+  SPDX-identifiable license.
+
+### TOML / YAML / ERB grammars — no upstream LICENSE file
+
+- Bundled as: shiki `toml`, `yaml`, `erb` (TAIDE ids `toml`, `yaml`, `erb`)
+- Sources: github.com/textmate/toml.tmbundle, github.com/textmate/yaml.tmbundle,
+  github.com/textmate/ruby.tmbundle
+- These upstream repositories do not include a `LICENSE` file at all.
+
+### Redistribution basis for the gray-area entries above
+
+The four entries with no clear SPDX license (`elixir` NOASSERTION; `toml`,
+`yaml`, `erb` with no upstream `LICENSE` file) do not have a legally crisp
+redistribution basis. TAIDE bundles them on the following grounds, which
+were presented to and approved by the user on 2026-08-12
+(`docs/acknowledge/2026-08-12-w7-textmate-contract.md`):
+
+1. These exact grammar files have been redistributed by VS Code, GitHub
+   Linguist, and shiki itself (as an MIT-licensed package) for years,
+   establishing a widely-relied-upon industry practice.
+2. shiki — the package TAIDE depends on — already redistributes them under
+   its own MIT license without separately relicensing the grammar content.
+3. This is not a legal determination; if any of these upstream projects
+   later publish a license that conflicts with redistribution, TAIDE will
+   remove or replace the affected grammar.
+
+### Individual subpath imports only
+
+TAIDE imports each grammar via its own `@shikijs/langs/<id>` subpath (e.g.
+`@shikijs/langs/rust`) and never imports the `@shikijs/langs` package root
+(barrel import). This is a deliberate license-hygiene measure: `@shikijs/langs`
+as a whole also ships several GPL-3.0 grammars (`ada`, `gnuplot`, `nginx`,
+`org`, `racket`) that TAIDE does not use and must not pull in incidentally.
 
 ---
 

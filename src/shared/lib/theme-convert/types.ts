@@ -3,6 +3,8 @@ export type ThemeTypeArg = 'dark' | 'light'
 export type VscodeTokenColorRule = {
     scopes: string[]
     fg?: string
+    background?: string
+    fontStyle?: string
     bold: boolean
     italic: boolean
 }

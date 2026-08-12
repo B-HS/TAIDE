@@ -1,4 +1,3 @@
-import type { editor as MonacoEditorAPI } from 'monaco-editor'
 import type { ResolvedTheme, SyntaxStyle } from '@shared/api/bindings'
 
 export const TAIDE_MONACO_THEME_NAME = 'taide'
@@ -266,10 +265,3 @@ export const buildMonacoThemeData = (theme: ResolvedTheme): MonacoThemeData => (
     rules: buildTokenRules(theme.syntax),
     colors: buildThemeColors(theme.colors),
 })
-
-type MonacoEditorNamespace = Pick<typeof MonacoEditorAPI, 'defineTheme' | 'setTheme'>
-
-export const applyMonacoTheme = (theme: ResolvedTheme, editorNamespace: MonacoEditorNamespace) => {
-    editorNamespace.defineTheme(TAIDE_MONACO_THEME_NAME, buildMonacoThemeData(theme))
-    editorNamespace.setTheme(TAIDE_MONACO_THEME_NAME)
-}

@@ -24,6 +24,24 @@ pub struct SyntaxStyle {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct TokenColorSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_style: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenColorRule {
+    pub scope: Vec<String>,
+    pub settings: TokenColorSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct Theme {
     pub version: u32,
     pub id: String,
@@ -40,6 +58,8 @@ pub struct Theme {
     pub syntax: BTreeMap<String, SyntaxStyle>,
     #[serde(default)]
     pub terminal: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_colors: Option<Vec<TokenColorRule>>,
     #[serde(default)]
     pub author: Option<String>,
     #[serde(default)]
@@ -68,6 +88,10 @@ pub struct ResolvedTheme {
     pub colors: BTreeMap<String, String>,
     pub syntax: BTreeMap<String, SyntaxStyle>,
     pub terminal: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_colors: Option<Vec<TokenColorRule>>,
+    #[serde(default)]
+    pub syntax_overrides: Vec<String>,
     #[serde(default)]
     pub warnings: Vec<String>,
     #[serde(default)]

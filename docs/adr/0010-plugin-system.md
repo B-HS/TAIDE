@@ -13,7 +13,7 @@ VSCode 식 코드 실행형 확장(임의 JS 실행)은 보안 표면·API 안�
 
 1. 플러그인은 **선언적 매니페스트(JSON) + 정적 자산** 으로 정의한다. 임의 코드 실행은 하지 않는다.
 2. 1차 지원 기여 지점(contribution point):
-   - `language`: 언어 id, 파일 확장자, Monaco 문법(textmate/monarch) 자산
+   - `language`: 언어 id, 파일 확장자, TextMate 문법(`.tmLanguage.json`) 자산
    - `lsp`: 서버 실행 커맨드·args·initializationOptions, 서버 설치 안내(또는 다운로드 URL)
    - `theme`: 테마 파일 기여
 3. 설치 = `plugins/{id}/` 폴더에 배치(수동 설치 우선, 설치 UI 는 추후). Rust plugin 도메인이
@@ -33,3 +33,16 @@ VSCode 식 코드 실행형 확장(임의 JS 실행)은 보안 표면·API 안�
 - 미래 remote-control 등 앱 수준 기능은 플러그인이 아니라 **프로젝트 capability**(ADR-0004,
   `architecture.md` §3)로 부착한다. 두 확장 축을 혼동하지 않는다: 플러그인 = 선언적 리소스 추가,
   capability = 코어에 컴파일되는 기능 모듈.
+
+## 7.10-W7 보강 (2026-08-12)
+
+- `language` 기여의 문법 자산은 **TextMate(`.tmLanguage.json`) 단일**로 확정한다. 위 "결정" 2항의
+  "textmate/monarch" 양다리 표현은 이 문서 작성 당시의 미확정 상태를 반영한 것이었고, 실제 구현은
+  한 번도 Monarch 경로가 동작한 적이 없다(프론트 소비자 0건 실증 — `docs/features/plugins.md` 참고).
+- 렌더링 엔진은 **shiki 4.4.3**(JS RegExp 엔진, `createHighlighterCore` + `createJavaScriptRegexEngine`)
+  로 확정한다. 현행 CSP(`script-src 'self'`)는 변경하지 않는다 — WASM 엔진(oniguruma)은 채택하지 않는다.
+- 매니페스트 `grammar` 필드의 **의미를 TextMate 로 재정의**했다(값 형태는 그대로 상대 경로 문자열).
+  `manifestVersion` 은 1을 유지한다 — 재정의로 깨질 기존 소비자가 실증적으로 0건이기 때문이다.
+  선택 필드 `embeddedLanguages` 를 신설한다(§ 상세는 `docs/features/plugins.md` §2).
+- VS Code 확장(`.vsix`)의 `contributes.grammars` 임포트는 W7 범위 밖이다(`docs/backlog.md`) —
+  언어 id 충돌 정책과 `LANGUAGE_ID_BY_EXTENSION` 런타임화가 선행돼야 하는 별개 축.

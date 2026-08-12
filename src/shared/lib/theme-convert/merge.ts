@@ -12,13 +12,26 @@ export const readVscodeTheme = (raw: Record<string, unknown>): VscodeTheme => {
 
     const tokenColors: VscodeTokenColorRule[] = rawTokenColors.flatMap((entry) => {
         if (typeof entry !== 'object' || entry === null) return []
-        const { scope, settings } = entry as { scope?: string | string[]; settings?: { foreground?: string; fontStyle?: string } }
+        const { scope, settings } = entry as {
+            scope?: string | string[]
+            settings?: { foreground?: string; background?: string; fontStyle?: string }
+        }
         if (!settings) return []
         const scopeList = scope === undefined ? [] : Array.isArray(scope) ? scope : scope.split(',')
         const scopes = scopeList.map((value) => value.trim()).filter((value) => value.length > 0)
-        const fontStyle = settings.fontStyle ?? ''
+        const fontStyleText = settings.fontStyle ?? ''
         const fg = settings.foreground === undefined ? undefined : expandVscodeHex(settings.foreground)
-        return [{ scopes, fg, bold: fontStyle.includes('bold'), italic: fontStyle.includes('italic') }]
+        const background = settings.background === undefined ? undefined : expandVscodeHex(settings.background)
+        return [
+            {
+                scopes,
+                fg,
+                background,
+                fontStyle: settings.fontStyle,
+                bold: fontStyleText.includes('bold'),
+                italic: fontStyleText.includes('italic'),
+            },
+        ]
     })
 
     return { colors, tokenColors }

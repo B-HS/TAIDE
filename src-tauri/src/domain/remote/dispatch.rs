@@ -54,6 +54,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "search_cancel",
     "plugin_list",
     "plugin_reload",
+    "plugin_read_grammar",
     "agent_list",
     "agent_release_marker",
     "agent_cli_status",
@@ -324,6 +325,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
 
         "plugin_list" => respond(plugin::plugin_list(app.state(), app.state()).await),
         "plugin_reload" => respond(plugin::plugin_reload(app.state(), app.state()).await),
+        "plugin_read_grammar" => {
+            respond(plugin::plugin_read_grammar(app.state(), app.state(), arg!(args, "pluginId"), arg!(args, "languageId")).await)
+        }
 
         "agent_list" => respond(agent::agent_list(app.state(), app.state(), app.state(), app.state(), arg!(args, "projectId")).await),
         "agent_release_marker" => respond(agent::agent_release_marker(app.state(), app.state(), arg!(args, "marker")).await),

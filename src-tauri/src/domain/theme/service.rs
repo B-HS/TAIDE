@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::domain::theme::types::{ResolvedTheme, SyntaxStyle, Theme, ThemeSummary, ThemeType, THEME_SCHEMA_VERSION};
+use crate::domain::theme::types::{ResolvedTheme, SyntaxStyle, Theme, ThemeSummary, ThemeType, TokenColorRule, THEME_SCHEMA_VERSION};
 use crate::error::{AppError, AppResult};
 use crate::infra::persist;
 use crate::paths::AppPaths;
@@ -715,6 +715,7 @@ pub fn builtin_dark() -> Theme {
         colors: dark_colors(),
         syntax: dark_syntax(),
         terminal: dark_terminal(),
+        token_colors: None,
         author: None,
         license: None,
         source: None,
@@ -732,6 +733,7 @@ pub fn builtin_light() -> Theme {
         colors: light_colors(),
         syntax: light_syntax(),
         terminal: light_terminal(),
+        token_colors: None,
         author: None,
         license: None,
         source: None,
@@ -822,6 +824,13 @@ fn resolve_syntax(theme: &Theme, warnings: &mut Vec<String>) -> BTreeMap<String,
         .collect()
 }
 
+fn resolve_token_colors(theme: &Theme, base: Option<&Theme>) -> Option<Vec<TokenColorRule>> {
+    theme
+        .token_colors
+        .clone()
+        .or_else(|| base.and_then(|base_theme| base_theme.token_colors.clone()))
+}
+
 fn resolve_terminal(theme: &Theme, warnings: &mut Vec<String>) -> BTreeMap<String, String> {
     theme
         .terminal
@@ -835,6 +844,11 @@ pub fn resolve_theme(theme: &Theme, base: Option<&Theme>) -> ResolvedTheme {
     let mut colors = resolve_colors(theme, &mut warnings);
     let mut syntax = resolve_syntax(theme, &mut warnings);
     let mut terminal = resolve_terminal(theme, &mut warnings);
+    let syntax_overrides: Vec<String> = match base {
+        Some(_) => theme.syntax.keys().cloned().collect(),
+        None => Vec::new(),
+    };
+    let token_colors = resolve_token_colors(theme, base);
 
     if let Some(base_theme) = base {
         let mut base_warnings = Vec::new();
@@ -869,6 +883,8 @@ pub fn resolve_theme(theme: &Theme, base: Option<&Theme>) -> ResolvedTheme {
         colors,
         syntax,
         terminal,
+        token_colors,
+        syntax_overrides,
         warnings,
         author: theme.author.clone(),
         license: theme.license.clone(),
@@ -949,6 +965,7 @@ pub fn theme_exists(paths: &AppPaths, theme_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::theme::types::TokenColorSettings;
 
     fn temp_data_dir(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("taide-theme-{name}-{}", uuid::Uuid::new_v4()))
@@ -1066,6 +1083,7 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            token_colors: None,
             author: None,
             license: None,
             source: None,
@@ -1091,6 +1109,7 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            token_colors: None,
             author: None,
             license: None,
             source: None,
@@ -1116,6 +1135,7 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            token_colors: None,
             author: None,
             license: None,
             source: None,
@@ -1196,6 +1216,9 @@ mod tests {
                 theme.id,
                 resolved.warnings
             );
+
+            let token_colors = theme.token_colors.as_deref().unwrap_or_default();
+            assert!(!token_colors.is_empty(), "bundled theme '{}' has no tokenColors", theme.id);
         }
     }
 
@@ -1235,6 +1258,7 @@ mod tests {
             colors,
             syntax: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            token_colors: None,
             author: None,
             license: None,
             source: None,
@@ -1262,5 +1286,76 @@ mod tests {
         let paths = AppPaths::new(temp_data_dir("load-missing"));
         let result = load_theme(&paths, "does-not-exist");
         assert!(matches!(result, Err(AppError::NotFound(_))));
+    }
+
+    fn keyword_rule(fg: &str) -> TokenColorRule {
+        TokenColorRule {
+            scope: vec!["keyword".to_string()],
+            settings: TokenColorSettings {
+                foreground: Some(fg.to_string()),
+                background: None,
+                font_style: None,
+            },
+        }
+    }
+
+    #[test]
+    fn 자식의_token_colors가_none이면_base에서_상속된다() {
+        let mut base = builtin_dark();
+        base.token_colors = Some(vec![keyword_rule("#cba6f7")]);
+
+        let mut child = builtin_dark();
+        child.id = "custom-dark".to_string();
+        child.extends = Some(base.id.clone());
+        child.token_colors = None;
+
+        let resolved = resolve_theme(&child, Some(&base));
+        assert_eq!(resolved.token_colors, base.token_colors);
+    }
+
+    #[test]
+    fn 자식의_token_colors가_some이면_base를_완전히_교체한다() {
+        let mut base = builtin_dark();
+        base.token_colors = Some(vec![keyword_rule("#cba6f7")]);
+
+        let mut child = builtin_dark();
+        child.id = "custom-dark".to_string();
+        child.extends = Some(base.id.clone());
+        child.token_colors = Some(vec![keyword_rule("#ff0000")]);
+
+        let resolved = resolve_theme(&child, Some(&base));
+        assert_eq!(resolved.token_colors, child.token_colors);
+        assert_ne!(resolved.token_colors, base.token_colors);
+    }
+
+    #[test]
+    fn syntax_overrides는_자식이_명시한_syntax_키만_담는다() {
+        let base = builtin_dark();
+
+        let mut child = builtin_dark();
+        child.id = "custom-dark".to_string();
+        child.extends = Some(base.id.clone());
+        child.syntax = syntax_from_pairs(&[("keyword", "#ff0000", false, false), ("string", "#00ff00", false, false)]);
+
+        let resolved = resolve_theme(&child, Some(&base));
+        assert_eq!(resolved.syntax_overrides, vec!["keyword".to_string(), "string".to_string()]);
+    }
+
+    #[test]
+    fn base가_없는_루트_테마는_syntax_overrides가_비어있다() {
+        let resolved = resolve_theme(&builtin_dark(), None);
+        assert!(resolved.syntax_overrides.is_empty());
+    }
+
+    #[test]
+    fn 번들_테마_전체는_base가_없어_syntax_overrides가_비어있다() {
+        for theme in bundled_themes() {
+            let resolved = resolve_theme(&theme, None);
+            assert!(
+                resolved.syntax_overrides.is_empty(),
+                "{} must have empty syntax_overrides",
+                theme.id
+            );
+        }
     }
 }

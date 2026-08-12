@@ -61,6 +61,18 @@ describe('buildVsixThemeCandidates', () => {
         expect(candidate.theme).toBeNull()
     })
 
+    test('tokenColors 변환 결과가 Theme 에 실린다', () => {
+        const themeJson = JSON.stringify({
+            colors: { 'editor.background': '#1e1e1e', 'editor.foreground': '#d4d4d4', foreground: '#d4d4d4' },
+            tokenColors: [{ scope: 'comment', settings: { foreground: '#6a9955', fontStyle: 'italic' } }],
+        })
+        const result = extensionResult({ themes: [{ label: 'My Cool Theme', uiTheme: 'vs-dark', rawJson: themeJson, includeChain: [] }] })
+
+        const [candidate] = buildVsixThemeCandidates(result, [])
+
+        expect(candidate.theme?.tokenColors).toContainEqual({ scope: ['comment'], settings: { foreground: '#6a9955', fontStyle: 'italic' } })
+    })
+
     test('includeChain 은 base 를 먼저 병합하고 테마 본문이 마지막에 덮어쓴다', () => {
         const base = JSON.stringify({ colors: { 'editor.background': '#000000', 'editor.foreground': '#d4d4d4', foreground: '#d4d4d4' } })
         const leaf = JSON.stringify({ colors: { 'editor.background': '#222222' }, include: './base.json' })

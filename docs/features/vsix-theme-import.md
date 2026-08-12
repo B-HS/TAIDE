@@ -9,8 +9,11 @@
 
 - 로컬 `.vsix` 파일(사용자가 dialog 로 직접 선택)에서 **테마 기여만** 추출한다. Rust
   (`vsix_extract_themes`)는 원본 텍스트 추출까지만 담당한다.
-- TextMate 문법(`contributes.grammars`)·스니펫·커맨드 등 다른 기여점은 이 단계에서 다루지
-  않는다 — TextMate 문법 엔진은 7.10-W7 로 별도 승격(`docs/PROCESS.md` 참고).
+- VS Code 확장의 `contributes.grammars`(TextMate 문법)·스니펫·커맨드 등 다른 기여점은 이
+  단계에서 다루지 않는다. 7.10-W7 에서 TextMate 문법 렌더링 엔진(shiki) 자체는 확정됐지만,
+  **VSIX 에서 grammar 를 추출해 신규 언어를 늘리는 기능은 W7 에서도 범위 밖**이다
+  (`docs/backlog.md` 참고 — 언어 id 충돌 정책과 `LANGUAGE_ID_BY_EXTENSION` 런타임화가 선행돼야
+  하는 별개 축). 임포트가 테마의 `tokenColors`(원본 TextMate 룰)는 보존한다(§9, §10).
 - 변환(VSCode 색상 키 → TAIDE 시맨틱 토큰)은 프론트가 담당한다 — `scripts/convert-vscode-theme.ts`
   의 순수 로직을 `src/shared/lib/theme-convert/` 로 옮겨 CLI 스크립트와 임포트 플로우가 공유한다
   (2회 이상 사용 규칙 충족, §9).
@@ -150,5 +153,15 @@ JSON 은 통상 수십~수백 KB 라 여유 있게 잡았다). zip 메타데이�
 
 다음 웨이브 몫 (범위 밖):
 
-- TextMate 문법(`contributes.grammars`) 엔진 — 7.10-W7.
+- VSIX `contributes.grammars` 임포트(신규 언어 추가) — W7 에서도 범위 밖(`docs/backlog.md`).
+  TextMate 문법 렌더링 엔진 자체(기존 31언어 대상)는 7.10-W7 에서 shiki 로 확정됐다
+  (`docs/theme-system.md` §4.2).
 - 로케일별 NLS 파일(`package.nls.<locale>.json`) — 현재는 기본(영어) `package.nls.json` 만 읽는다(§4-1).
+
+## 10. tokenColors 보존 (7.10-W7)
+
+`convertVscodeTheme` 의 반환에 `tokenColors`(TAIDE `Theme` 스키마 §2.1 형태)가 추가됐다.
+`readVscodeTheme` 이 `fontStyle` 원문 필드를 함께 보존하므로, VSIX 로 임포트한 테마는 변환
+시점에 버려지던 원본 TextMate 룰(및 underline 등 bold/italic 으로 표현 못 하던 fontStyle)이
+그대로 저장된다. `buildTheme`(`src/features/theme/vsix-theme-import.ts`)이 이 필드를 `theme_save`
+페이로드에 실어 전달한다. 상세 스키마·오버레이 합성 규칙은 `docs/theme-system.md` §2.1·§4.2.2.

@@ -13,6 +13,9 @@ const PLUGIN_ERROR_MESSAGE_KEY: Record<PluginErrorCode, string> = {
     'id-mismatch': 'settings.pluginError.idMismatch',
     'version-mismatch': 'settings.pluginError.versionMismatch',
     'path-escape': 'settings.pluginError.pathEscape',
+    'grammar-missing': 'settings.pluginError.grammarMissing',
+    'grammar-invalid': 'settings.pluginError.grammarInvalid',
+    'grammar-conflict': 'settings.pluginError.grammarConflict',
 }
 
 export const PluginList = () => {

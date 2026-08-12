@@ -45,6 +45,7 @@ export const commands = {
 	searchReplace: (projectId: ProjectId, query: SearchQuery, replacement: string, paths: string[] | null) => typedError<SearchReplaceResult, AppError>(__TAURI_INVOKE("search_replace", { projectId, query, replacement, paths })),
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
+	pluginReadGrammar: (pluginId: string, languageId: string) => typedError<string, AppError>(__TAURI_INVOKE("plugin_read_grammar", { pluginId, languageId })),
 	agentList: (projectId: ProjectId) => typedError<ProjectAgents, AppError>(__TAURI_INVOKE("agent_list", { projectId })),
 	agentReleaseMarker: (marker: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_release_marker", { marker })),
 	agentCliStatus: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_status")),
@@ -100,9 +101,9 @@ export const commands = {
 	localeGet: (localeId: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get", { localeId })),
 	localeGetCurrent: (systemLanguage: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get_current", { systemLanguage })),
 	themeList: () => typedError<ThemeSummary[], AppError>(__TAURI_INVOKE("theme_list")),
-	themeGet: (themeId: string) => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get", { themeId })),
-	themeGetCurrent: (systemTheme: string) => typedError<ResolvedTheme, AppError>(__TAURI_INVOKE("theme_get_current", { systemTheme })),
-	themeSave: (theme: Theme) => typedError<ThemeSummary, AppError>(__TAURI_INVOKE("theme_save", { theme })),
+	themeGet: (themeId: string) => typedError<ResolvedTheme_Serialize, AppError>(__TAURI_INVOKE("theme_get", { themeId })),
+	themeGetCurrent: (systemTheme: string) => typedError<ResolvedTheme_Serialize, AppError>(__TAURI_INVOKE("theme_get_current", { systemTheme })),
+	themeSave: (theme: Theme_Deserialize) => typedError<ThemeSummary, AppError>(__TAURI_INVOKE("theme_save", { theme })),
 	themeDelete: (themeId: string) => typedError<null, AppError>(__TAURI_INVOKE("theme_delete", { themeId })),
 	settingsGet: () => typedError<Settings, AppError>(__TAURI_INVOKE("settings_get")),
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
@@ -501,13 +502,14 @@ export type PluginContributions = {
 	themes?: PluginThemeContribution[],
 };
 
-export type PluginErrorCode = "parse-failed" | "id-mismatch" | "version-mismatch" | "path-escape";
+export type PluginErrorCode = "parse-failed" | "id-mismatch" | "version-mismatch" | "path-escape" | "grammar-missing" | "grammar-invalid" | "grammar-conflict";
 
 export type PluginLanguageContribution = {
 	id: string,
 	extensions: string[],
 	aliases?: string[],
 	grammar?: string | null,
+	embeddedLanguages?: string[] | null,
 };
 
 export type PluginLspContribution = {
@@ -626,17 +628,36 @@ export type ResolvedLocale_Serialize = {
 	warnings?: string[],
 };
 
-export type ResolvedTheme = {
+export type ResolvedTheme = ResolvedTheme_Serialize | ResolvedTheme_Deserialize;
+
+export type ResolvedTheme_Deserialize = {
 	id: string,
 	name: string,
 	type: ThemeType,
 	colors: { [key in string]: string },
 	syntax: { [key in string]: SyntaxStyle },
 	terminal: { [key in string]: string },
+	tokenColors?: TokenColorRule_Deserialize[] | null,
+	syntaxOverrides?: string[],
 	warnings?: string[],
 	author?: string | null,
 	license?: string | null,
 	source?: string | null,
+};
+
+export type ResolvedTheme_Serialize = {
+	id: string,
+	name: string,
+	type: ThemeType,
+	colors: { [key in string]: string },
+	syntax: { [key in string]: SyntaxStyle },
+	terminal: { [key in string]: string },
+	tokenColors?: TokenColorRule_Serialize[] | null,
+	syntaxOverrides: string[],
+	warnings: string[],
+	author: string | null,
+	license: string | null,
+	source: string | null,
 };
 
 export type SearchMatch = {
@@ -822,20 +843,7 @@ export type TerminalSession = {
 	running: boolean,
 };
 
-export type Theme = {
-	version: number,
-	id: string,
-	name: string,
-	type: ThemeType,
-	extends?: string | null,
-	palette?: { [key in string]: string },
-	colors?: { [key in string]: string },
-	syntax?: { [key in string]: SyntaxStyle },
-	terminal?: { [key in string]: string },
-	author?: string | null,
-	license?: string | null,
-	source?: string | null,
-};
+export type Theme = Theme_Serialize | Theme_Deserialize;
 
 export type ThemeChanged = {
 	themeId: string,
@@ -849,6 +857,64 @@ export type ThemeSummary = {
 };
 
 export type ThemeType = "dark" | "light";
+
+export type Theme_Deserialize = {
+	version: number,
+	id: string,
+	name: string,
+	type: ThemeType,
+	extends?: string | null,
+	palette?: { [key in string]: string },
+	colors?: { [key in string]: string },
+	syntax?: { [key in string]: SyntaxStyle },
+	terminal?: { [key in string]: string },
+	tokenColors?: TokenColorRule_Deserialize[] | null,
+	author?: string | null,
+	license?: string | null,
+	source?: string | null,
+};
+
+export type Theme_Serialize = {
+	version: number,
+	id: string,
+	name: string,
+	type: ThemeType,
+	extends: string | null,
+	palette: { [key in string]: string },
+	colors: { [key in string]: string },
+	syntax: { [key in string]: SyntaxStyle },
+	terminal: { [key in string]: string },
+	tokenColors?: TokenColorRule_Serialize[] | null,
+	author: string | null,
+	license: string | null,
+	source: string | null,
+};
+
+export type TokenColorRule = TokenColorRule_Serialize | TokenColorRule_Deserialize;
+
+export type TokenColorRule_Deserialize = {
+	scope: string[],
+	settings: TokenColorSettings_Deserialize,
+};
+
+export type TokenColorRule_Serialize = {
+	scope: string[],
+	settings: TokenColorSettings_Serialize,
+};
+
+export type TokenColorSettings = TokenColorSettings_Serialize | TokenColorSettings_Deserialize;
+
+export type TokenColorSettings_Deserialize = {
+	foreground?: string | null,
+	background?: string | null,
+	fontStyle?: string | null,
+};
+
+export type TokenColorSettings_Serialize = {
+	foreground?: string | null,
+	background?: string | null,
+	fontStyle?: string | null,
+};
 
 export type TreeEntryKind = "file" | "directory";
 

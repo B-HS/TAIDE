@@ -1,3 +1,5 @@
+import { format, resolveConfig } from 'prettier'
+import { isHexColor } from '@shared/lib/color'
 import { convertVscodeTheme } from '@shared/lib/theme-convert/convert'
 import { parseJsonc } from '@shared/lib/theme-convert/jsonc'
 import type { ThemeTypeArg } from '@shared/lib/theme-convert/types'
@@ -134,6 +136,18 @@ const main = async () => {
         process.exit(1)
     }
 
+    if (result.tokenColors.length === 0) {
+        console.warn(`convert-vscode-theme: '${args.id}' produced 0 tokenColors rules — source may lack usable scope-based syntax rules`)
+    }
+
+    const nonHexForegroundScopes = result.tokenColors
+        .filter((rule) => typeof rule.settings.foreground === 'string' && !isHexColor(rule.settings.foreground))
+        .map((rule) => rule.scope.join(', '))
+    if (nonHexForegroundScopes.length > 0) {
+        console.warn(`convert-vscode-theme: '${args.id}' has tokenColors rules with a non-hex foreground:`)
+        for (const scope of nonHexForegroundScopes) console.warn(`  - ${scope}`)
+    }
+
     const output = {
         version: 1,
         id: args.id,
@@ -142,14 +156,19 @@ const main = async () => {
         palette: {},
         colors: result.colors,
         syntax: result.syntax,
+        tokenColors: result.tokenColors,
         terminal: result.terminal,
         author: args.author,
         license: args.license,
         source: args.sourceUrl,
     }
 
-    await Bun.write(`${args.out.replace(/\/$/, '')}/${args.id}.json`, `${JSON.stringify(output, null, 4)}\n`)
-    console.log(`convert-vscode-theme: wrote ${args.out.replace(/\/$/, '')}/${args.id}.json (133 colors, 31 syntax, 20 terminal)`)
+    const outputPath = `${args.out.replace(/\/$/, '')}/${args.id}.json`
+    const prettierConfig = await resolveConfig(outputPath)
+    await Bun.write(outputPath, await format(JSON.stringify(output), { ...prettierConfig, filepath: outputPath }))
+    console.log(
+        `convert-vscode-theme: wrote ${args.out.replace(/\/$/, '')}/${args.id}.json (${Object.keys(result.colors).length} colors, ${Object.keys(result.syntax).length} syntax, ${Object.keys(result.terminal).length} terminal, ${result.tokenColors.length} tokenColors)`,
+    )
 }
 
 await main()
