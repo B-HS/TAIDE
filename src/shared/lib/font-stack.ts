@@ -1,4 +1,4 @@
-const MONOSPACE_FONT_FALLBACK_STACK = ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace']
+const MONOSPACE_FONT_FALLBACK_STACK = ['ui-monospace', 'SFMono-Regular', 'Menlo', '"Apple SD Gothic Neo"', 'monospace']
 
 const quoteFontFamily = (fontFamily: string) => (fontFamily.includes(' ') ? `"${fontFamily}"` : fontFamily)
 
