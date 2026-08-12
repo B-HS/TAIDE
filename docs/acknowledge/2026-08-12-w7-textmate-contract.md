@@ -165,6 +165,32 @@ pub struct TokenColorRule { scope: Vec<String>, settings: TokenColorSettings }
   research/monaco.md(plaintext 폴백 사실 보강), research/shiki.md 신설, backlog.md(VSIX grammars·
   tf/mdx 행), acknowledge 2건 정정 참조, HANDOFF·qa6-checklist.
 
+## 3.7 기각된 대안 (재론 방지 — 리서치 원문은 세션 소멸로 이 목록이 유일 기록)
+
+| 기각안 | 사유 |
+|--------|------|
+| oniguruma WASM 엔진(폴백 포함) | CSP `wasm-unsafe-eval` 필요 = 보안 후퇴, W6 원격 파생 CSP 도 동반 완화 |
+| `@shikijs/langs-precompiled` | 공식 "not yet supported"(shikijs/shiki#918) + ES2024 v 플래그 필수 |
+| `shiki` 메타 패키지 설치 | `createHighlighter` 기본이 WASM — 실수 유입 위험. 개별 4종이 동등 |
+| `vscode-textmate`+`vscode-oniguruma` 직접 통합 | WASM 강제 + grammar 수집·monaco 브리지 자체 구현 부담, oniguruma 2023 이후 정체 |
+| `monaco-editor-textmate`/`onigasm` 계열 | 2019~2022 이후 유지보수 중단, 0.56 호환 보장 없음 |
+| `modern-monaco` | monaco 를 감싸는 상위 프레임워크 — 기존 직접 세팅에 침습적 |
+| monaco-editor-core 타입을 tsconfig paths 로 해결 | 타 패키지 내부 경로 의존 — devDep(타입 전용)이 정확 |
+| shiki `langAlias` 로 TAIDE id 매핑 | `createHighlighterCore`(객체 주입 경로)에는 미적용 — 소스 확인. 재명명 주입 채택 |
+| grammar 파일별 사후 lazy 로드 | shikiToMonaco 가 호출 시점 스냅샷 — 언어마다 재호출·패치 중첩 유발. init 전량 로드 채택 |
+| tokenColors 를 `serde_json::Value` 로 | specta 의 Value 는 태그드 enum — serde 실제 직렬화와 불일치한 TS 생성 |
+| tokenColors 를 원문 String 으로 | Rust 테스트·검증 불가, 프론트 매회 파싱 |
+| extends 병합 = base++child concat | "전부 새로 쓰기" 표현 불가, 편집마다 룰 누적 |
+| extends 병합 = scope 키 단위 | TextMate 매칭은 specificity 기반 — 키 병합 의미 불명 |
+| syntax 편집 시 raw tokenColors 무효화 | 토큰 1개 편집에 테마 전체가 31토큰 근사로 퇴화 |
+| syntax 편집을 raw 룰에 역반영 | 토큰↔scope 1:N — 정확한 역반영 불가. 오버레이 append 채택 |
+| 플러그인 manifestVersion 2 상향 | 기존 v1 플러그인의 lsp/theme 기여까지 전멸(`!=` 검사). 필드 의미 재정의 채택 |
+| Monarch grammar 필드 병행 유지 | 프론트 소비자 0건(사장)·shiki 전면 교체와 양립 불가 |
+| grammar 본문을 plugin_list 응답에 인라인 | 매니페스트 스캔마다 수 MB IPC. 온디맨드 query 채택 |
+| VSIX contributes.grammars W7 포함 | `LANGUAGE_ID_BY_EXTENSION` 런타임화 + 언어 id 충돌 정책(테마식 "사본 저장" 불가) 선행 필요 — backlog |
+| 재변환 diff 10종을 커밋본(구값)으로 고정 | W5 취득 경로 미기록이라 재현 불가, Dark+/Modern 의 실제 결함(키워드색·파일트리 선택 불가시)을 보존하게 됨 |
+| themes:convert 뒤에 npm script 로 prettier 체인 | `bun run` 이 인자를 스크립트 문자열 끝에 붙여 전달 — 체인 시 인자가 prettier 로 샘. 스크립트 내 prettier API 채택 |
+
 ## 4. 미결·위험 (구현·QA 중 확인)
 
 - **WKWebView 런타임에서 JS 엔진 CSP 무변경 동작**(정적 확인만 완료) — 구현 직후 사용자 실기 1순위.

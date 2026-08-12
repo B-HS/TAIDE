@@ -67,7 +67,8 @@
 ## 4. 의사결정 요약
 
 상세는 `docs/acknowledge/`(결정 1건 = 파일 1개). **W7 구현 계약 전문:
-`docs/acknowledge/2026-08-12-w7-textmate-contract.md`** (확정 사실·사용자 결정 4건·설계·위험).
+`docs/acknowledge/2026-08-12-w7-textmate-contract.md`** (확정 사실·사용자 결정 4건·설계·
+**§3.7 기각된 대안 21건**·위험 — 리서치 원문은 세션 소멸, 이 문서가 유일 기록).
 
 ### 4.1 W7 채택 + 이유
 
