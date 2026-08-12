@@ -4,6 +4,7 @@ import type { SyntaxStyle } from '@shared/api/bindings'
 import { TERMINAL_TOKENS } from '@entities/theme/theme-tokens'
 import type { ThemeValues } from '@shared/lib/theme-draft'
 import { toCssVariables } from '@shared/lib/theme-variables'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const TERMINAL_ANSI_TOKEN_COUNT = 16
 
@@ -68,7 +69,12 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ values }) => {
                 </div>
                 <div className='grid grid-cols-8 gap-1'>
                     {ansiTokens.map((token) => (
-                        <span key={token} className='size-3 rounded-sm' style={{ backgroundColor: terminal[token] }} title={token} />
+                        <Tooltip key={token}>
+                            <TooltipTrigger asChild>
+                                <span className='size-3 rounded-sm' style={{ backgroundColor: terminal[token] }} />
+                            </TooltipTrigger>
+                            <TooltipContent side='top'>{token}</TooltipContent>
+                        </Tooltip>
                     ))}
                 </div>
             </div>

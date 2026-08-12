@@ -6,6 +6,7 @@ import type { LspInstallProgress, LspServerDetection, LspServerId } from '@share
 import { cn } from '@shared/lib/cn'
 import { Button } from '@shared/ui/button'
 import { Progress } from '@shared/ui/progress'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const ALPHA_LSP_SERVER_IDS: readonly string[] = ['expert']
 
@@ -152,14 +153,19 @@ const LspServerRow: FC<LspServerRowProps> = ({ server, progress, onInstall, onCa
             {showHintCopy && (
                 <div className='flex min-w-0 items-center gap-1.5 pl-5.5'>
                     <span className='text-app-sidebar-icon-default min-w-0'>{server.installHint}</span>
-                    <Button
-                        type='button'
-                        variant='ghost'
-                        size='icon-xs'
-                        aria-label={t('settings.lspCopyCommand')}
-                        onClick={() => void handleCopyCommand(server.installHint ?? '')}>
-                        <Copy className='size-3' />
-                    </Button>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon-xs'
+                                aria-label={t('settings.lspCopyCommand')}
+                                onClick={() => void handleCopyCommand(server.installHint ?? '')}>
+                                <Copy className='size-3' />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side='bottom'>{t('settings.lspCopyCommand')}</TooltipContent>
+                    </Tooltip>
                 </div>
             )}
         </li>

@@ -7,6 +7,7 @@ import { ProblemRow } from '@features/problems/problem-row'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
 import { ProblemSeverityFilter } from '@features/problems/problem-severity-filter'
 import { FileGroupHeader } from '@shared/ui/file-group-header'
+import { IconButton } from '@shared/ui/icon-button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 export type ProblemGroup = {
@@ -55,13 +56,13 @@ export const ProblemsPanel: FC<ProblemsPanelProps> = ({
                     <span className='text-app-foreground shrink-0 text-xs font-medium'>{t('problems.title')}</span>
                     <ProblemSeverityFilter counts={counts} active={activeSeverities} onToggle={onToggleSeverity} />
                 </div>
-                <button
-                    type='button'
-                    aria-label={t('common.close')}
+                <IconButton
+                    label={t('common.close')}
+                    icon={<X className='size-3.5' />}
                     onClick={onClose}
-                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex size-5 shrink-0 items-center justify-center rounded-sm'>
-                    <X className='size-3.5' />
-                </button>
+                    side='bottom'
+                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex size-5 shrink-0 items-center justify-center rounded-sm'
+                />
             </div>
 
             <ScrollContainer className='min-h-0 flex-1'>

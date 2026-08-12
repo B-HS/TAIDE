@@ -211,11 +211,12 @@ export type AiModelInfo = {
 	displayName: string | null,
 };
 
-export type AiProviderId = "ollamaCloud" | "codex";
+export type AiProviderId = "ollamaCloud" | "codex" | "omlx";
 
 export type AiTokenStatus = {
 	ollamaCloud: boolean,
 	codex: boolean,
+	omlx: boolean,
 };
 
 export type AppDataPathKind = "plugins" | "themes" | "locales";
@@ -723,6 +724,7 @@ export type Settings = {
 	aiAutoTabEnabled?: boolean,
 	aiAutoTabProvider?: string | null,
 	aiAutoTabModel?: string | null,
+	aiOmlxBaseUrl?: string | null,
 	syncGistId?: string | null,
 	syncLastSyncedAt?: string | null,
 	remoteAccessEnabled?: boolean,
@@ -767,6 +769,7 @@ export type SettingsPatch = {
 	aiAutoTabEnabled: boolean | null,
 	aiAutoTabProvider: string | null,
 	aiAutoTabModel: string | null,
+	aiOmlxBaseUrl: string | null,
 	remoteAccessEnabled: boolean | null,
 };
 

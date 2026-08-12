@@ -15,6 +15,7 @@ import {
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
+import { IconButton } from '@shared/ui/icon-button'
 import { CommitBox } from '@features/git/commit-box'
 import { ResourceGroupHeader } from '@features/git/resource-group-header'
 import { StashList } from '@features/git/stash-list'
@@ -148,14 +149,14 @@ export const GitPanel: FC<GitPanelProps> = ({
                     </span>
                 )}
                 {hasRemote && (
-                    <button
-                        type='button'
-                        aria-label={t('git.sync')}
+                    <IconButton
+                        label={t('git.sync')}
+                        icon={isSyncing ? <Loader2 className='size-3.5 animate-spin' /> : <RefreshCw className='size-3.5' />}
                         disabled={isSyncing}
                         onClick={onSync}
-                        className='hover:bg-explorer-item-hover ml-auto flex size-5 shrink-0 items-center justify-center rounded-sm disabled:opacity-50'>
-                        {isSyncing ? <Loader2 className='size-3.5 animate-spin' /> : <RefreshCw className='size-3.5' />}
-                    </button>
+                        side='bottom'
+                        className='hover:bg-explorer-item-hover ml-auto flex size-5 shrink-0 items-center justify-center rounded-sm disabled:opacity-50'
+                    />
                 )}
                 {remote && <span className='text-app-sidebar-icon-default ml-1 shrink-0 truncate text-[11px]'>{remote.name}</span>}
             </div>
@@ -177,10 +178,15 @@ export const GitPanel: FC<GitPanelProps> = ({
                 )}
                 {mergeRows.length > 0 && (
                     <div>
-                        <ResourceGroupHeader title='Merge Changes' count={mergeRows.length} />
+                        <ResourceGroupHeader title={t('git.mergeChanges')} count={mergeRows.length} />
                         {mergeRows.map((row) => {
                             const actions: StatusRowAction[] = [
-                                { id: 'open-file', label: 'Open File', icon: <File className='size-3' />, onClick: () => onOpenFile(row.path) },
+                                {
+                                    id: 'open-file',
+                                    label: t('git.openFile'),
+                                    icon: <File className='size-3' />,
+                                    onClick: () => onOpenFile(row.path),
+                                },
                             ]
                             return (
                                 <ContextMenu key={row.path}>
@@ -195,8 +201,8 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         />
                                     </ContextMenuTrigger>
                                     <ContextMenuContent>
-                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>Open File</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>Open Changes</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>{t('git.openFile')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>{t('git.openChanges')}</ContextMenuItem>
                                         <ContextMenuSeparator />
                                         <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
@@ -210,16 +216,26 @@ export const GitPanel: FC<GitPanelProps> = ({
                 {stagedRows.length > 0 && (
                     <div>
                         <ResourceGroupHeader
-                            title='Staged Changes'
+                            title={t('git.stagedChanges')}
                             count={stagedRows.length}
-                            actionLabel='Unstage All'
+                            actionLabel={t('git.unstageAll')}
                             actionIcon={<Minus className='size-3' />}
                             onAction={() => onUnstage(stagedRows.map((row) => row.path))}
                         />
                         {stagedRows.map((row) => {
                             const actions: StatusRowAction[] = [
-                                { id: 'unstage', label: 'Unstage Changes', icon: <Minus className='size-3' />, onClick: () => onUnstage([row.path]) },
-                                { id: 'open-file', label: 'Open File', icon: <File className='size-3' />, onClick: () => onOpenFile(row.path) },
+                                {
+                                    id: 'unstage',
+                                    label: t('git.unstageChanges'),
+                                    icon: <Minus className='size-3' />,
+                                    onClick: () => onUnstage([row.path]),
+                                },
+                                {
+                                    id: 'open-file',
+                                    label: t('git.openFile'),
+                                    icon: <File className='size-3' />,
+                                    onClick: () => onOpenFile(row.path),
+                                },
                             ]
                             return (
                                 <ContextMenu key={row.path}>
@@ -234,9 +250,9 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         />
                                     </ContextMenuTrigger>
                                     <ContextMenuContent>
-                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>Open File</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'staged')}>Open Changes</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onUnstage([row.path])}>Unstage Changes</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>{t('git.openFile')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'staged')}>{t('git.openChanges')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onUnstage([row.path])}>{t('git.unstageChanges')}</ContextMenuItem>
                                         <ContextMenuSeparator />
                                         <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
@@ -250,22 +266,27 @@ export const GitPanel: FC<GitPanelProps> = ({
                 {unstagedRows.length > 0 && (
                     <div>
                         <ResourceGroupHeader
-                            title='Changes'
+                            title={t('git.changes')}
                             count={unstagedRows.length}
-                            actionLabel='Stage All'
+                            actionLabel={t('git.stageAll')}
                             actionIcon={<Plus className='size-3' />}
                             onAction={() => onStage(unstagedRows.map((row) => row.path))}
                         />
                         {unstagedRows.map((row) => {
                             const actions: StatusRowAction[] = [
-                                { id: 'stage', label: 'Stage Changes', icon: <Plus className='size-3' />, onClick: () => onStage([row.path]) },
+                                { id: 'stage', label: t('git.stageChanges'), icon: <Plus className='size-3' />, onClick: () => onStage([row.path]) },
                                 {
                                     id: 'discard',
                                     label: t('git.discard'),
                                     icon: <Undo2 className='size-3' />,
                                     onClick: () => setDiscardTargets([row.path]),
                                 },
-                                { id: 'open-file', label: 'Open File', icon: <File className='size-3' />, onClick: () => onOpenFile(row.path) },
+                                {
+                                    id: 'open-file',
+                                    label: t('git.openFile'),
+                                    icon: <File className='size-3' />,
+                                    onClick: () => onOpenFile(row.path),
+                                },
                             ]
                             return (
                                 <ContextMenu key={row.path}>
@@ -280,9 +301,9 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         />
                                     </ContextMenuTrigger>
                                     <ContextMenuContent>
-                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>Open File</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>Open Changes</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onStage([row.path])}>Stage Changes</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>{t('git.openFile')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>{t('git.openChanges')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onStage([row.path])}>{t('git.stageChanges')}</ContextMenuItem>
                                         <ContextMenuItem variant='destructive' onSelect={() => setDiscardTargets([row.path])}>
                                             {t('git.discard')}
                                         </ContextMenuItem>
@@ -298,7 +319,7 @@ export const GitPanel: FC<GitPanelProps> = ({
 
                 {graphCommits.length > 0 && (
                     <div className='border-app-border mt-2 border-t pt-2'>
-                        <div className='text-panel-section-header px-2 pb-1 text-[11px] font-semibold tracking-wide uppercase'>Graph</div>
+                        <div className='text-panel-section-header px-2 pb-1 text-[11px] font-semibold tracking-wide uppercase'>{t('git.graph')}</div>
                         <CommitGraph commits={graphCommits} />
                     </div>
                 )}

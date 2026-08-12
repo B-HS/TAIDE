@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { hexToHsv, hsvToHex, isTransparentKeyword, isValidThemeColorValue, normalizeHexColor } from '@shared/lib/color'
 import { cn } from '@shared/lib/cn'
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const SV_SQUARE_SIZE_PX = 176
 const HUE_SLIDER_HEIGHT_PX = 14
@@ -84,18 +85,25 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
 
     return (
         <Popover>
-            <PopoverTrigger asChild>
-                <button
-                    type='button'
-                    className='border-app-border flex h-6 items-center gap-1.5 rounded-sm border px-1.5'
-                    aria-label={t('themeEditor.pickColor')}>
-                    <span
-                        className={cn('size-4 shrink-0 rounded-xs border border-app-border', isTransparent && 'bg-panel-input-background')}
-                        style={isTransparent ? undefined : { backgroundColor: value }}
-                    />
-                    <span className='text-app-foreground font-mono text-[11px]'>{isTransparent ? t('themeEditor.transparentLabel') : value}</span>
-                </button>
-            </PopoverTrigger>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                        <button
+                            type='button'
+                            className='border-app-border flex h-6 items-center gap-1.5 rounded-sm border px-1.5'
+                            aria-label={t('themeEditor.pickColor')}>
+                            <span
+                                className={cn('size-4 shrink-0 rounded-xs border border-app-border', isTransparent && 'bg-panel-input-background')}
+                                style={isTransparent ? undefined : { backgroundColor: value }}
+                            />
+                            <span className='text-app-foreground font-mono text-[11px]'>
+                                {isTransparent ? t('themeEditor.transparentLabel') : value}
+                            </span>
+                        </button>
+                    </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side='bottom'>{t('themeEditor.pickColor')}</TooltipContent>
+            </Tooltip>
             <PopoverContent className='w-52 space-y-3'>
                 <div
                     ref={squareRef}

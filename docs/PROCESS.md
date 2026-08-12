@@ -1024,3 +1024,47 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 > **진행 방침(사용자 확정 2026-08-11)**: W3~W7 논스톱 연속 진행. 실기 QA 는 W7 완료 후 일괄
 > (QA 6회차). 각 웨이브의 실기 확인 항목은 docs/quality-assurance/2026-08-11-qa6-checklist.md 에
 > 누적 기록해 최종 QA 에서 사용한다.
+
+## 진행 중: QA6 후속 1차 — 사용자 실기 보고 5건 (2026-08-12)
+
+> 사용자 실기(QA6 진행 중) 보고. W7 CSP 항목은 **하이라이팅 실기 동작 확인됨**(devtools 콘솔
+> 무오류 확인만 잔여 — W7 재설계 불필요 방향). 역할: 3·4번 IME 버그 = **fable+high**(사용자 지정),
+> 정찰·리서치 = opus+medium, 구현 = sonnet+high, 메인 2차.
+
+- [ ] a. IME 버그 2건 — 영→한 전환 직후 자모 분리(다음 글자에 해소)·한글 타이핑 중 상하 떨림.
+      발생 표면 monaco 에디터 한정(사용자 확인). fable+high 디버그·수정 (wf_830fe067-9a9 debug:ime)
+      - [x] a-1. 떨림(버그 4): 원인 = 폰트 폴백 스택에 한글 글리프 폰트 부재 → 조합 오버레이
+            textarea/뷰 라인 간 폴백 비결정성. 수정 = font-stack 에 "Apple SD Gothic Neo" 추가
+            (monaco 소스 인용 3곳 메인 실물 대조·typecheck·393 테스트 메인 재실행 통과). 실기 확인 대기
+      - [x] a-2. 자모 분리(버그 3): 판정 = WKWebView↔monaco 환경층(앱 코드 무혐의). 상류 조사
+            (opus+medium) 완료 — monaco 0.56.0 이 최신·상위 버전 부재·vscode main 에 수정 0건 →
+            사용자 결정 분기대로 backlog 확정. 실험 옵션(accessibilitySupport off — 미검증 가설)
+            포함 상세: docs/bug/2026-08-12-editor-korean-ime.md, backlog.md
+- [x] b. 단축키 설정 전면 확장 — 전 커맨드(미할당 포함) 노출 + **별도 모달**(VS Code 식 검색·
+      재바인딩 강화, 사용자 결정 2026-08-12). chord/when 은 backlog 유지. 정찰 → 계약(§3.1) → 구현
+      완료 — `shared/lib/keybinding-catalog.ts`(신설) + `widgets/keybindings-editor/` +
+      `features/settings/keybinding-row.tsx` + `KeymapOverrideEntry.actionId: string` 확장.
+      실기 확인은 e 로 이관.
+- [x] c. AI provider "OMLX" 추가 — jundot/omlx 특정, FIM 우선→chat 폴백 통합(사용자: 리서치 위임)
+      완료 — `src-tauri/src/domain/ai/providers/omlx.rs` + `AiProviderId::Omlx` +
+      `Settings.ai_omlx_base_url` + `features/settings/ai-omlx-row.tsx`. 실기(실서버 왕복)는 e 로 이관.
+- [x] d. 툴팁 전수 감사 — raw i18n 키 노출·툴팁 부재·비일관 사용 전수 조사 → 수정(locale 4곳 동기 주의)
+      완료 — `shared/ui/icon-button.tsx`(신설, aria-label+Tooltip 강제) 일괄 적용 + native title= 승격
+      + 재렌더 결함 수정(`bindI18nStore`). **툴팁 side 규범 문서는 계약 §3.3 이 명시한
+      `docs/features` 가 아니라 `docs/memory/tooltip-conventions.md` 에 있다** — 다음 세션은 이 경로로
+      찾는다. 육안 확인은 e 로 이관.
+- [ ] e. QA6 잔여 — W7 콘솔 무오류 확인 + b/c/d 실기 확인(단축키 모달·OMLX 실서버 왕복·툴팁 육안) +
+      체크리스트 나머지 항목 계속(사용자 실기)
+- [x] f. QA6 후속 1차 확정 결함 14건 수정 (defect-fix 에이전트, 2026-08-12) — OMLX base URL 해제 불가
+      (settings-view.tsx + service.rs `merge_ai_omlx_base_url` 신설, empty-string 센티널) · 스킴만
+      있는/host 없는 URL 통과 및 조용한 기존값 폐기(`sanitize_optional_url` host 검증 + 유효성 실패
+      시 기존값 보존) · keybinding-row 아이콘 버튼 native title=→Tooltip+aria-label 승격 · 커맨드
+      팔레트 단축키 표시가 새 바인딩 모델(override·unbind) 미반영 → `findKeybindingRowById` 로 교체 ·
+      팔레트 검색이 카테고리 라벨과 불일치 → `formatCategorizedLabel` 로 통일 · `formatKeymapShortcut`
+      mac 순서 역행(Apple 표기 ⌘ 항상 마지막) 수정 · 수식키 없는 캡처가 저장되어 전역 커맨드로
+      실행되는 결함(keybinding-row·keybindings-editor 양쪽에 mods.length===0 가드) · `IconButton`
+      disabled 상태에서 Radix 툴팁이 뜨지 않던 결함(span 트리거로 감싸 hover/focus 위임) ·
+      locale-provider 마운트 게이트가 `bindI18nStore` 구독 타이밍과 충돌해 en 사용자 재렌더 0회 +
+      로케일 쿼리 실패 시 영구 백지 → 게이트를 CSS(`data-locale-ready`, 기존 `data-theme-ready` 패턴
+      확장)로 이전, 에러 배너+재시도 추가 · 본 항목(PROCESS.md b/c/d 미체크·문서 위치 불일치).
+      검증: `bun run typecheck`·`bun run lint`·`bun test`·`cargo fmt`·`cargo test` — 상세는 세션 보고 참고.

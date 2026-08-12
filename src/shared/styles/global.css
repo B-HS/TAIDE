@@ -297,7 +297,7 @@
         user-select: none;
     }
 
-    html[data-theme-ready] body {
+    html[data-theme-ready][data-locale-ready] body {
         visibility: visible;
     }
 }

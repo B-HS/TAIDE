@@ -11,6 +11,7 @@ void i18next.use(initReactI18next).init({
     keySeparator: false,
     interpolation: { escapeValue: false },
     returnNull: false,
+    react: { bindI18nStore: 'added removed' },
 })
 
 export const applyLocaleMessages = (localeId: string, messages: Record<string, string>) => {

@@ -1,4 +1,5 @@
 import type { FC, ReactNode } from 'react'
+import { IconButton } from '@shared/ui/icon-button'
 
 type ResourceGroupHeaderProps = {
     title: string
@@ -15,13 +16,13 @@ export const ResourceGroupHeader: FC<ResourceGroupHeaderProps> = ({ title, count
             {count}
         </span>
         {onAction && actionLabel && (
-            <button
-                type='button'
-                aria-label={actionLabel}
+            <IconButton
+                label={actionLabel}
+                icon={actionIcon}
                 onClick={onAction}
-                className='hover:bg-explorer-item-selected ml-auto hidden size-4 items-center justify-center rounded-sm group-hover:flex'>
-                {actionIcon}
-            </button>
+                side='bottom'
+                className='hover:bg-explorer-item-selected ml-auto hidden size-4 items-center justify-center rounded-sm group-hover:flex'
+            />
         )}
     </div>
 )

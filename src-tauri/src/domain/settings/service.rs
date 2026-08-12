@@ -50,6 +50,7 @@ pub struct SettingsPatch {
     pub ai_auto_tab_enabled: Option<bool>,
     pub ai_auto_tab_provider: Option<String>,
     pub ai_auto_tab_model: Option<String>,
+    pub ai_omlx_base_url: Option<String>,
     pub remote_access_enabled: Option<bool>,
 }
 
@@ -92,7 +93,7 @@ const EDITOR_CURSOR_STYLES: &[&str] = &["line", "block", "underline"];
 const EDITOR_CURSOR_BLINKING_STYLES: &[&str] = &["blink", "smooth", "phase", "expand", "solid"];
 const EDITOR_RENDER_WHITESPACE_MODES: &[&str] = &["none", "boundary", "selection", "all"];
 const TERMINAL_CURSOR_STYLES: &[&str] = &["bar", "block", "underline"];
-const AI_AUTO_TAB_PROVIDERS: &[&str] = &["ollamaCloud", "codex"];
+const AI_AUTO_TAB_PROVIDERS: &[&str] = &["ollamaCloud", "codex", "omlx"];
 
 fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
     if allowed.contains(&value.as_str()) {
@@ -107,6 +108,25 @@ fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
 /// configured" state as if it had never been set.
 fn sanitize_optional_enum(value: Option<String>, allowed: &[&str]) -> Option<String> {
     value.filter(|v| allowed.contains(&v.as_str()))
+}
+
+fn sanitize_optional_url(value: Option<String>) -> Option<String> {
+    value.and_then(|v| {
+        let authority = v.strip_prefix("http://").or_else(|| v.strip_prefix("https://"))?;
+        let host = authority.split(['/', '?', '#']).next().unwrap_or("");
+        if host.is_empty() {
+            return None;
+        }
+        Some(v.trim_end_matches('/').to_string())
+    })
+}
+
+fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
+    match patch_value {
+        None => existing.cloned(),
+        Some(value) if value.is_empty() => None,
+        Some(value) => sanitize_optional_url(Some(value.clone())).or_else(|| existing.cloned()),
+    }
 }
 
 /// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `Settings` 가 만들어지는 모든 출구
@@ -134,6 +154,7 @@ fn sanitize(settings: Settings) -> Settings {
             DEFAULT_TERMINAL_CURSOR_STYLE,
         ),
         ai_auto_tab_provider: sanitize_optional_enum(settings.ai_auto_tab_provider, AI_AUTO_TAB_PROVIDERS),
+        ai_omlx_base_url: sanitize_optional_url(settings.ai_omlx_base_url),
         ..settings
     }
 }
@@ -195,6 +216,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
         ai_auto_tab_provider: patch.ai_auto_tab_provider.clone().or_else(|| settings.ai_auto_tab_provider.clone()),
         ai_auto_tab_model: patch.ai_auto_tab_model.clone().or_else(|| settings.ai_auto_tab_model.clone()),
+        ai_omlx_base_url: merge_ai_omlx_base_url(patch.ai_omlx_base_url.as_ref(), settings.ai_omlx_base_url.as_ref()),
         sync_gist_id: settings.sync_gist_id.clone(),
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
         remote_access_enabled: patch.remote_access_enabled.unwrap_or(settings.remote_access_enabled),
@@ -401,6 +423,93 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert_eq!(updated.ai_auto_tab_provider, None);
+    }
+
+    #[test]
+    fn patch로_omlx_base_url을_설정하면_trailing_slash가_제거된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            ai_omlx_base_url: Some("http://localhost:8000/".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_omlx_base_url, Some("http://localhost:8000".to_string()));
+    }
+
+    #[test]
+    fn http_https로_시작하지_않는_omlx_base_url은_none으로_보정된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            ai_omlx_base_url: Some("ftp://localhost:8000".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_omlx_base_url, None);
+    }
+
+    #[test]
+    fn 스킴만_있고_host가_없는_omlx_base_url은_none으로_보정된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            ai_omlx_base_url: Some("http://".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_omlx_base_url, None);
+    }
+
+    #[test]
+    fn 빈_문자열_패치는_기존_omlx_base_url을_해제한다() {
+        let settings = Settings {
+            ai_omlx_base_url: Some("http://localhost:8000".to_string()),
+            ..Settings::default()
+        };
+        let patch = SettingsPatch {
+            ai_omlx_base_url: Some(String::new()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_omlx_base_url, None);
+    }
+
+    #[test]
+    fn 유효하지_않은_omlx_base_url_패치는_기존_값을_보존한다() {
+        let settings = Settings {
+            ai_omlx_base_url: Some("http://localhost:8000".to_string()),
+            ..Settings::default()
+        };
+        let patch = SettingsPatch {
+            ai_omlx_base_url: Some("localhost:8123".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_omlx_base_url, Some("http://localhost:8000".to_string()));
+    }
+
+    #[test]
+    fn patch에_omlx_base_url이_없으면_기존_값을_유지한다() {
+        let settings = Settings {
+            ai_omlx_base_url: Some("http://localhost:8000".to_string()),
+            ..Settings::default()
+        };
+        let patch = SettingsPatch {
+            editor_font_size: Some(16),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.ai_omlx_base_url, Some("http://localhost:8000".to_string()));
     }
 
     #[test]

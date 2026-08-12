@@ -24,7 +24,6 @@ import { localeListQueryOptions } from '@entities/locale/locale.query'
 import { AgentHooksProjectList } from '@features/settings/agent-hooks-project-list'
 import { AgentHooksToggle } from '@features/settings/agent-hooks-toggle'
 import { FontPicker } from '@features/settings/font-picker'
-import { KeymapList } from '@features/settings/keymap-list'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { OptionPicker } from '@features/settings/option-picker'
@@ -36,9 +35,9 @@ import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
 import type { AiProviderId, AppDataPathKind, LspServerId } from '@shared/api/bindings'
-import type { KeymapActionId, KeymapModifier } from '@shared/lib/keymap'
-import { APP_KEYMAP, applyKeymapOverrides, findKeymapConflict, parseKeymapOverrides, serializeKeymapOverrides } from '@shared/lib/keymap'
+import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { AiAutoTabToggle } from '@features/settings/ai-auto-tab-toggle'
+import { AiOmlxRow } from '@features/settings/ai-omlx-row'
 import { AiProviderTokenRow } from '@features/settings/ai-provider-token-row'
 import { SettingsToc } from '@features/settings/settings-toc'
 import { ShellProfileList } from '@features/settings/shell-profile-list'
@@ -107,6 +106,7 @@ const DEFAULT_AI_AUTO_TAB_PROVIDER: AiProviderId = 'ollamaCloud'
 const AI_PROVIDER_OPTIONS: { id: AiProviderId; labelKey: string }[] = [
     { id: 'ollamaCloud', labelKey: 'settings.aiProviderOllamaCloud' },
     { id: 'codex', labelKey: 'settings.aiProviderCodex' },
+    { id: 'omlx', labelKey: 'settings.aiProviderOmlx' },
 ]
 
 type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
@@ -190,6 +190,7 @@ export const SettingsView = () => {
     const handleSaveAiToken = (provider: AiProviderId, token: string) =>
         setAiToken({ provider, token }, { onError: () => toast.error(t('settings.aiTokenSaveFailed')) })
     const handleClearAiToken = (provider: AiProviderId) => clearAiToken(provider)
+    const handleOmlxBaseUrlCommit = (value: string) => updateSettings({ ...emptySettingsPatch(), aiOmlxBaseUrl: value.trim() })
 
     const handleConnectSync = (pat: string) => connectSync(pat, { onError: () => toast.error(t('settings.syncConnectFailed')) })
     const handleDisconnectSync = () =>
@@ -249,19 +250,6 @@ export const SettingsView = () => {
     }
 
     if (isSettingsPending || !settings) return <div className='bg-app-background h-full w-full' />
-
-    const keymapOverrides = parseKeymapOverrides(settings.keymapOverrides ?? null)
-    const effectiveKeymapEntries = applyKeymapOverrides(APP_KEYMAP, keymapOverrides)
-
-    const handleKeymapChange = (actionId: KeymapActionId, key: string, mods: KeymapModifier[]) => {
-        const conflict = findKeymapConflict(effectiveKeymapEntries, { key, mods }, actionId)
-        if (conflict) toast.warning(t('settings.keymapConflictWarning', { action: t(conflict.descriptionKey) }))
-
-        const nextOverrides = [...keymapOverrides.filter((override) => override.actionId !== actionId), { actionId, key, mods }]
-        updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides(nextOverrides) })
-    }
-
-    const handleKeymapResetAll = () => updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides([]) })
 
     const handleOpenAppDataFolder = (kind: AppDataPathKind) => void systemOpenAppDataPath(kind).catch((error: Error) => toast.error(error.message))
 
@@ -607,16 +595,9 @@ export const SettingsView = () => {
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.KEYMAP} title={t('settings.keymap')} description={t('settings.keymapDescription')}>
-                            <div className='flex items-center justify-end'>
-                                <Button type='button' variant='outline' size='xs' onClick={handleKeymapResetAll}>
-                                    {t('settings.keymapReset')}
-                                </Button>
-                            </div>
-                            <KeymapList
-                                entries={effectiveKeymapEntries}
-                                overriddenActionIds={keymapOverrides.map((override) => override.actionId)}
-                                onChangeBinding={handleKeymapChange}
-                            />
+                            <Button type='button' variant='outline' size='sm' onClick={() => requestOpenKeybindingsEditor()}>
+                                {t('settings.keymapOpenEditor')}
+                            </Button>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.LSP} title={t('settings.lspStatus')} description={t('settings.lspDescription')}>
@@ -649,6 +630,13 @@ export const SettingsView = () => {
                                     onSave={(token) => handleSaveAiToken('codex', token)}
                                     onClear={() => handleClearAiToken('codex')}
                                 />
+                                <AiOmlxRow
+                                    baseUrl={settings.aiOmlxBaseUrl ?? ''}
+                                    onBaseUrlCommit={handleOmlxBaseUrlCommit}
+                                    apiKeySaving={isSettingAiToken && settingAiTokenVariables?.provider === 'omlx'}
+                                    onSaveApiKey={(token) => handleSaveAiToken('omlx', token)}
+                                    onClearApiKey={() => handleClearAiToken('omlx')}
+                                />
                             </ul>
                             <OptionPicker
                                 label={t('settings.aiProviderLabel')}
@@ -659,7 +647,9 @@ export const SettingsView = () => {
                                 }
                             />
                             {isSelectedAiProviderConfigured && isAiModelsError && (
-                                <span className='text-status-error text-xs'>{t('settings.aiModelLoadFailed')}</span>
+                                <span className='text-status-error text-xs'>
+                                    {t(selectedAiProvider === 'omlx' ? 'settings.aiOmlxConnectFailed' : 'settings.aiModelLoadFailed')}
+                                </span>
                             )}
                             {isSelectedAiProviderConfigured && !isAiModelsError && !isAiModelsPending && aiModels.length === 0 && (
                                 <span className='text-app-sidebar-icon-default text-xs'>{t('settings.aiModelSelectPlaceholder')}</span>

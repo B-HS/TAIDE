@@ -8,6 +8,7 @@ pub const SECRET_SERVICE: &str = "dev.taide.app";
 pub enum SecretAccount {
     AiOllamaCloud,
     AiCodex,
+    AiOmlx,
     GithubSync,
 }
 
@@ -16,6 +17,7 @@ impl SecretAccount {
         match self {
             Self::AiOllamaCloud => "ai-ollama-cloud",
             Self::AiCodex => "ai-codex",
+            Self::AiOmlx => "ai-omlx",
             Self::GithubSync => "github-sync",
         }
     }

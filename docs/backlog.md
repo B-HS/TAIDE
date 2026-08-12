@@ -68,3 +68,10 @@
 |------|------|-----------|
 | VSIX `contributes.grammars` 임포트 | .vsix 에서 TextMate 문법 + languages 기여를 함께 추출해 신규 언어를 추가 | W7 은 기존 31종의 토큰화 정확도가 목표. 신규 언어 추가는 `LANGUAGE_ID_BY_EXTENSION`(Rust 컴파일 타임 상수)의 런타임 오버레이화 + 언어 id 충돌 정책(테마의 "사본 저장"이 언어에는 적용 불가) 설계가 선행돼야 한다. 같은 목적은 플러그인 `grammar` 기여(`docs/features/plugins.md` §2)로 이미 달성 가능 |
 | `.tf`→`terraform` / `.mdx`→`mdx` grammar 정밀화 | 현재 `.tf` 는 shiki `hcl` grammar, `.mdx` 는 `markdown` grammar 로 매핑된다. shiki 에는 각각 전용 `terraform`(hcl 과 별도, MPL-2.0)·`mdx`(MIT) grammar 가 존재해 더 정밀한 토큰화가 가능하다 | W7 범위 밖의 동작 변경(기존 매핑을 바꾸는 것) — 별도 검토·사용자 확인 후 진행 |
+
+## QA6 후속에서 분리된 후속 후보 (2026-08-12)
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| 에디터 한글 자모 분리 — 상류 대응 | monaco 재현 이슈 제출(+WebKit #274700 케이스 첨부), `monaco-editor` latest 변경 또는 vscode `editContext/textArea/**` IME 커밋 등장 시 재검토. 실험 옵션 `accessibilitySupport: 'off'`(시드 축소) 는 미검증 가설 | 원인이 WebKit 계층(EditContext 미구현 #269922·한글 조합 이벤트 결함 #274700, 전부 미수정)이라 앱 레벨 근본 수정 불가. monaco 0.56.0 이 최신 — 업그레이드 대상 부재. 상세: `docs/bug/2026-08-12-editor-korean-ime.md` |
+| shift+기호 키 캡처 정밀화 | 키 바인딩 캡처가 `event.key` 기반이라 shift+`=` 가 `+` 로 기록되는 등 레이아웃·IME 의존. VS Code 식 물리 코드(`event.code`) 기반 전환 검토 | 단축키 모달(QA6 후속)의 범위 밖 — 매칭·직렬화 전면 개정 필요, chord/when 엔진과 함께 다루는 것이 효율적 |

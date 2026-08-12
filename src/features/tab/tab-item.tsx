@@ -3,6 +3,7 @@ import { Pin, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@shared/lib/cn'
 import { ICON_BUTTON_CLASS } from '@shared/constants/ui-class'
+import { IconButton } from '@shared/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const MIDDLE_MOUSE_BUTTON = 1
@@ -54,18 +55,22 @@ export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, 
                 iconSlot
             )}
             <span className={cn('truncate', preview && 'text-tab-bar-preview-foreground italic')}>{title}</span>
-            <button
-                type='button'
-                aria-label={pinned ? t('tab.unpinAriaLabel').replace('{title}', title) : t('tab.closeAriaLabel').replace('{title}', title)}
+            <IconButton
+                label={pinned ? t('tab.unpinAriaLabel', { title }) : t('tab.closeAriaLabel', { title })}
+                icon={
+                    <>
+                        {dirty && <span className='bg-tab-bar-dirty-dot size-2 rounded-full group-hover:hidden' />}
+                        {pinned && !dirty && <Pin className='size-3' />}
+                        <X className={cn('size-3', (dirty || pinned) && 'hidden group-hover:block')} />
+                    </>
+                }
                 onClick={(event) => {
                     event.stopPropagation()
                     onClose()
                 }}
-                className={cn(ICON_BUTTON_CLASS, 'ml-auto size-4 shrink-0')}>
-                {dirty && <span className='bg-tab-bar-dirty-dot size-2 rounded-full group-hover:hidden' />}
-                {pinned && !dirty && <Pin className='size-3' />}
-                <X className={cn('size-3', (dirty || pinned) && 'hidden group-hover:block')} />
-            </button>
+                side='bottom'
+                className={cn(ICON_BUTTON_CLASS, 'ml-auto size-4 shrink-0')}
+            />
         </div>
     )
 }

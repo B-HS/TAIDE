@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::ai::providers::codex::CodexProvider;
 use crate::domain::ai::providers::ollama::OllamaCloudProvider;
+use crate::domain::ai::providers::omlx::OmlxProvider;
 use crate::domain::ai::providers::{mask_provider_error, AiProviderClient};
 use crate::domain::ai::types::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiProviderId, AiTokenStatus};
 use crate::error::{AppError, AppResult};
@@ -27,13 +28,19 @@ fn provider_account(provider: AiProviderId) -> SecretAccount {
     match provider {
         AiProviderId::OllamaCloud => SecretAccount::AiOllamaCloud,
         AiProviderId::Codex => SecretAccount::AiCodex,
+        AiProviderId::Omlx => SecretAccount::AiOmlx,
     }
 }
 
-pub fn token_status(secret: &dyn SecretStore) -> AppResult<AiTokenStatus> {
+/// OMLX has no fixed base URL (unlike Ollama Cloud/Codex's hardcoded hosts), so "configured" for
+/// it means "the user has pointed it at a server" rather than "a token is stored" — an API key is
+/// optional for oMLX. `omlx_base_url` is `Settings.ai_omlx_base_url`, read by the caller (a
+/// keyring-only `SecretStore` has no visibility into app settings).
+pub fn token_status(secret: &dyn SecretStore, omlx_base_url: Option<&str>) -> AppResult<AiTokenStatus> {
     Ok(AiTokenStatus {
         ollama_cloud: secret.get(SecretAccount::AiOllamaCloud)?.is_some(),
         codex: secret.get(SecretAccount::AiCodex)?.is_some(),
+        omlx: omlx_base_url.is_some(),
     })
 }
 
@@ -58,8 +65,14 @@ async fn fetch_codex_account_id(client: &reqwest::Client, access_token: &str) ->
 
 /// Stores a provider token. Codex is verified against `whoami` first (and its resolved
 /// `accountId` bundled into the stored credential) — on verification failure nothing is written,
-/// so a bad paste never leaves a half-configured provider behind.
+/// so a bad paste never leaves a half-configured provider behind. OMLX's API key is optional and
+/// unverified (the local server may be down when the key is saved — that's an allowed state, per
+/// the "configured = base URL set" contract in `token_status`), so an empty OMLX token is treated
+/// as "clear the stored key" rather than rejected outright like the other providers' required tokens.
 pub async fn set_token(secret: &dyn SecretStore, client: &reqwest::Client, provider: AiProviderId, token: String) -> AppResult<()> {
+    if provider == AiProviderId::Omlx && token.trim().is_empty() {
+        return clear_token(secret, provider);
+    }
     if token.trim().is_empty() {
         return Err(AppError::InvalidArgument("token must not be empty".to_string()));
     }
@@ -74,6 +87,7 @@ pub async fn set_token(secret: &dyn SecretStore, client: &reqwest::Client, provi
             })?;
             secret.set(SecretAccount::AiCodex, &encoded)
         }
+        AiProviderId::Omlx => secret.set(SecretAccount::AiOmlx, &token),
     }
 }
 
@@ -101,7 +115,24 @@ fn codex_provider(credential: CodexCredential) -> CodexProvider {
     }
 }
 
-pub async fn list_models(secret: &dyn SecretStore, client: &reqwest::Client, provider: AiProviderId) -> AppResult<Vec<AiModelInfo>> {
+/// `omlx_base_url` is `Settings.ai_omlx_base_url`, unused for the other two providers (they use a
+/// hardcoded host). A `None` base URL for an `Omlx` request/list is a caller error — surfaced as
+/// `AppError::InvalidArgument` rather than silently no-op'd — since the settings UI always writes
+/// this field before enabling OMLX as the auto-tab provider.
+fn omlx_provider(secret: &dyn SecretStore, base_url: Option<String>) -> AppResult<OmlxProvider> {
+    let base_url = base_url.ok_or_else(|| AppError::InvalidArgument("OMLX base URL is not configured".to_string()))?;
+    Ok(OmlxProvider {
+        base_url,
+        api_key: secret.get(SecretAccount::AiOmlx)?,
+    })
+}
+
+pub async fn list_models(
+    secret: &dyn SecretStore,
+    client: &reqwest::Client,
+    provider: AiProviderId,
+    omlx_base_url: Option<String>,
+) -> AppResult<Vec<AiModelInfo>> {
     match provider {
         AiProviderId::OllamaCloud => {
             OllamaCloudProvider {
@@ -111,6 +142,7 @@ pub async fn list_models(secret: &dyn SecretStore, client: &reqwest::Client, pro
             .await
         }
         AiProviderId::Codex => codex_provider(load_codex_credential(secret)?).list_models(client).await,
+        AiProviderId::Omlx => omlx_provider(secret, omlx_base_url)?.list_models(client).await,
     }
 }
 
@@ -119,6 +151,7 @@ pub async fn complete(
     client: &reqwest::Client,
     request: &AiInlineCompleteRequest,
     template: &AiPromptTemplate,
+    omlx_base_url: Option<String>,
 ) -> AppResult<Option<String>> {
     match request.provider {
         AiProviderId::OllamaCloud => {
@@ -133,6 +166,7 @@ pub async fn complete(
                 .complete(client, request, template)
                 .await
         }
+        AiProviderId::Omlx => omlx_provider(secret, omlx_base_url)?.complete(client, request, template).await,
     }
 }
 
@@ -144,9 +178,10 @@ mod tests {
     #[test]
     fn 토큰이_없으면_상태는_전부_false다() {
         let store = InMemorySecretStore::default();
-        let status = token_status(&store).unwrap();
+        let status = token_status(&store, None).unwrap();
         assert!(!status.ollama_cloud);
         assert!(!status.codex);
+        assert!(!status.omlx);
     }
 
     #[test]
@@ -154,10 +189,20 @@ mod tests {
         let store = InMemorySecretStore::default();
         store.set(SecretAccount::AiOllamaCloud, "ollama-key").unwrap();
 
-        let status = token_status(&store).unwrap();
+        let status = token_status(&store, None).unwrap();
 
         assert!(status.ollama_cloud);
         assert!(!status.codex);
+        assert!(!status.omlx);
+    }
+
+    #[test]
+    fn omlx는_api_키_없이도_base_url만_설정되면_상태가_true다() {
+        let store = InMemorySecretStore::default();
+
+        let status = token_status(&store, Some("http://localhost:8000")).unwrap();
+
+        assert!(status.omlx);
     }
 
     #[test]
@@ -182,6 +227,27 @@ mod tests {
     }
 
     #[test]
+    fn omlx_토큰은_검증없이_원문_그대로_저장된다() {
+        let store = InMemorySecretStore::default();
+        let client = reqwest::Client::new();
+
+        tauri::async_runtime::block_on(set_token(&store, &client, AiProviderId::Omlx, "omlx-key".to_string())).unwrap();
+
+        assert_eq!(store.get(SecretAccount::AiOmlx).unwrap(), Some("omlx-key".to_string()));
+    }
+
+    #[test]
+    fn omlx는_빈_토큰_입력을_해제로_간주한다() {
+        let store = InMemorySecretStore::default();
+        store.set(SecretAccount::AiOmlx, "existing-key").unwrap();
+        let client = reqwest::Client::new();
+
+        tauri::async_runtime::block_on(set_token(&store, &client, AiProviderId::Omlx, "   ".to_string())).unwrap();
+
+        assert_eq!(store.get(SecretAccount::AiOmlx).unwrap(), None);
+    }
+
+    #[test]
     fn clear_token은_해당_provider_항목만_지운다() {
         let store = InMemorySecretStore::default();
         store.set(SecretAccount::AiOllamaCloud, "ollama-key").unwrap();
@@ -198,7 +264,7 @@ mod tests {
         let store = InMemorySecretStore::default();
         let client = reqwest::Client::new();
 
-        let result = tauri::async_runtime::block_on(list_models(&store, &client, AiProviderId::OllamaCloud));
+        let result = tauri::async_runtime::block_on(list_models(&store, &client, AiProviderId::OllamaCloud, None));
 
         assert!(matches!(result, Err(AppError::InvalidArgument(_))));
     }
@@ -209,8 +275,18 @@ mod tests {
         store.set(SecretAccount::AiCodex, "not json").unwrap();
         let client = reqwest::Client::new();
 
-        let result = tauri::async_runtime::block_on(list_models(&store, &client, AiProviderId::Codex));
+        let result = tauri::async_runtime::block_on(list_models(&store, &client, AiProviderId::Codex, None));
 
         assert!(matches!(result, Err(AppError::Internal(_))));
+    }
+
+    #[test]
+    fn omlx는_base_url이_없으면_모델_조회가_설정_필요_에러를_반환한다() {
+        let store = InMemorySecretStore::default();
+        let client = reqwest::Client::new();
+
+        let result = tauri::async_runtime::block_on(list_models(&store, &client, AiProviderId::Omlx, None));
+
+        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
     }
 }

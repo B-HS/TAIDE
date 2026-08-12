@@ -556,10 +556,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             respond(ide::ide_notify_at_mention(app.state(), arg!(args, "path"), arg!(args, "lineStart"), arg!(args, "lineEnd")).await)
         }
 
-        "ai_token_status" => respond(ai::ai_token_status(app.state()).await),
+        "ai_token_status" => respond(ai::ai_token_status(app.state(), app.state()).await),
         "ai_set_token" => respond(ai::ai_set_token(app.state(), arg!(args, "provider"), arg!(args, "token")).await),
         "ai_clear_token" => respond(ai::ai_clear_token(app.state(), arg!(args, "provider")).await),
-        "ai_list_models" => respond(ai::ai_list_models(app.state(), arg!(args, "provider")).await),
+        "ai_list_models" => respond(ai::ai_list_models(app.state(), app.state(), arg!(args, "provider")).await),
         "ai_inline_complete" => respond(ai::ai_inline_complete(app.state(), app.state(), app.state(), arg!(args, "request")).await),
         "ai_inline_cancel" => respond(ai::ai_inline_cancel(app.state(), arg!(args, "requestId")).await),
 

@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { Archive, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { GitStashEntry } from '@shared/api/bindings'
+import { IconButton } from '@shared/ui/icon-button'
 
 type StashListProps = {
     stashes: GitStashEntry[]
@@ -24,18 +25,19 @@ export const StashList: FC<StashListProps> = ({ stashes, disabled, onApply, onDr
                     <button
                         type='button'
                         disabled={disabled}
+                        aria-label={t('git.stashApply')}
                         onClick={() => onApply(stash.index)}
                         className='hover:bg-app-sidebar-item-active shrink-0 rounded-sm px-1.5 py-0.5 disabled:opacity-50'>
                         {t('git.stashApply')}
                     </button>
-                    <button
-                        type='button'
+                    <IconButton
+                        label={t('git.stashDrop')}
+                        icon={<Trash2 className='size-3.5' />}
                         disabled={disabled}
-                        aria-label={t('git.stashDrop')}
                         onClick={() => onDrop(stash.index)}
-                        className='hover:bg-app-sidebar-item-active text-status-error shrink-0 rounded-sm p-1 disabled:opacity-50'>
-                        <Trash2 className='size-3.5' />
-                    </button>
+                        side='bottom'
+                        className='hover:bg-app-sidebar-item-active text-status-error shrink-0 rounded-sm p-1 disabled:opacity-50'
+                    />
                 </li>
             ))}
         </ul>

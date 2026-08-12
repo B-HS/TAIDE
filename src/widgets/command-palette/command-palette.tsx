@@ -4,7 +4,15 @@ import { useQuery } from '@tanstack/react-query'
 import { File, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
-import { DEFAULT_COMMANDS, isCommandRunnable, listRegisteredCommands, parsePaletteQuery, registerCommands } from '@shared/lib/command-registry'
+import {
+    formatCategorizedLabel,
+    getRegisteredCommand,
+    isCommandRunnable,
+    listRegisteredCommands,
+    parsePaletteQuery,
+} from '@shared/lib/command-registry'
+import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
+import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
 import { APP_KEYMAP, applyKeymapOverrides, formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
@@ -14,10 +22,6 @@ import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
-import { SYNC_COMMANDS } from '@entities/sync/sync.commands'
-
-registerCommands(DEFAULT_COMMANDS)
-registerCommands(SYNC_COMMANDS)
 
 const FILE_RESULT_LIMIT = 200
 
@@ -33,8 +37,8 @@ export const CommandPalette = () => {
     const { mutate: openTab } = useOpenTab(activeProjectId)
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
 
-    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
-    const findKeymapEntry = (keymapId: AppCommand['keymapId']) => keymapEntries.find((entry) => entry.id === keymapId) ?? null
+    const keymapOverrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
+    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, keymapOverrides)
 
     const handleOpenChange = (next: boolean) => {
         setOpen(next)
@@ -86,9 +90,22 @@ export const CommandPalette = () => {
         switchToFileSearchMode: () => setQuery(''),
     }
 
+    const commandKeybindingRows = buildKeybindingRows(listRegisteredCommands(), keymapOverrides)
+
+    useKeydownCapture((event) => {
+        const row = findRunnableCommandBinding(commandKeybindingRows, event)
+        if (!row?.commandId) return
+        const command = getRegisteredCommand(row.commandId)
+        if (!command || !isCommandRunnable(command, commandContext)) return
+        event.preventDefault()
+        void command.run(commandContext)
+    })
+
     const fileRows = (treePage?.rows ?? []).filter((row) => row.kind === 'file')
     const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => row.path).slice(0, FILE_RESULT_LIMIT)
-    const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) => t(command.titleKey))
+    const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) =>
+        formatCategorizedLabel(t, command.categoryKey, command.titleKey),
+    )
 
     const runCommand = (command: AppCommand) => {
         if (!isCommandRunnable(command, commandContext)) return
@@ -123,13 +140,13 @@ export const CommandPalette = () => {
                         {mode === 'commands' && (
                             <CommandGroup heading={t('palette.commands')}>
                                 {filteredCommands.map(({ item }) => {
-                                    const keymapEntry = findKeymapEntry(item.keymapId)
+                                    const keybindingRow = findKeybindingRowById(commandKeybindingRows, item.keymapId ?? item.id)
                                     const runnable = isCommandRunnable(item, commandContext)
                                     return (
                                         <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
                                             <Terminal className='size-4' />
-                                            <span>{t(item.titleKey)}</span>
-                                            {keymapEntry && <CommandShortcut>{formatKeymapShortcut(keymapEntry)}</CommandShortcut>}
+                                            <span>{formatCategorizedLabel(t, item.categoryKey, item.titleKey)}</span>
+                                            {keybindingRow?.key && <CommandShortcut>{formatKeymapShortcut(keybindingRow)}</CommandShortcut>}
                                         </CommandItem>
                                     )
                                 })}

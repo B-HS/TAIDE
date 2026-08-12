@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ColorPicker } from '@features/theme/color-picker'
 import { cn } from '@shared/lib/cn'
+import { IconButton } from '@shared/ui/icon-button'
 
 type ColorTokenRowProps = {
     label: string
@@ -20,13 +21,13 @@ export const ColorTokenRow: FC<ColorTokenRowProps> = ({ label, value, changed, o
             <span className={cn('text-app-foreground truncate text-xs', changed && 'font-medium')}>{label}</span>
             <div className='flex shrink-0 items-center gap-1'>
                 {changed && (
-                    <button
-                        type='button'
+                    <IconButton
                         onClick={onReset}
-                        aria-label={t('themeEditor.resetToken')}
-                        className='text-app-sidebar-icon-default hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'>
-                        <RotateCcw className='size-3.5' />
-                    </button>
+                        label={t('themeEditor.resetToken')}
+                        icon={<RotateCcw className='size-3.5' />}
+                        side='bottom'
+                        className='text-app-sidebar-icon-default hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'
+                    />
                 )}
                 <ColorPicker value={value} onChange={onChange} />
             </div>

@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { cn } from '@shared/lib/cn'
 import { TOAST_HORIZONTAL_POSITIONS, TOAST_VERTICAL_POSITIONS } from '@shared/constants/toast'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const POSITION_LABEL_KEY: Record<string, string> = {
     'top-left': 'settings.positionTopLeft',
@@ -26,19 +27,23 @@ export const ToastPositionPicker: FC<ToastPositionPickerProps> = ({ value, trans
             TOAST_HORIZONTAL_POSITIONS.map((horizontal) => {
                 const position = `${vertical}-${horizontal}`
                 const isActive = position === value
+                const label = translateLabel(POSITION_LABEL_KEY[position] ?? '')
                 return (
-                    <button
-                        key={position}
-                        type='button'
-                        onClick={() => onSelect(position)}
-                        aria-pressed={isActive}
-                        aria-label={translateLabel(POSITION_LABEL_KEY[position] ?? '')}
-                        title={translateLabel(POSITION_LABEL_KEY[position] ?? '')}
-                        className={cn(
-                            'border-app-border hover:bg-app-sidebar-item-hover h-9 rounded-md border',
-                            isActive && 'border-app-focus-border bg-app-accent/20',
-                        )}
-                    />
+                    <Tooltip key={position}>
+                        <TooltipTrigger asChild>
+                            <button
+                                type='button'
+                                onClick={() => onSelect(position)}
+                                aria-pressed={isActive}
+                                aria-label={label}
+                                className={cn(
+                                    'border-app-border hover:bg-app-sidebar-item-hover h-9 rounded-md border',
+                                    isActive && 'border-app-focus-border bg-app-accent/20',
+                                )}
+                            />
+                        </TooltipTrigger>
+                        <TooltipContent side='top'>{label}</TooltipContent>
+                    </Tooltip>
                 )
             }),
         )}

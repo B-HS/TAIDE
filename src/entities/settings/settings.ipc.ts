@@ -41,6 +41,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     aiAutoTabEnabled: null,
     aiAutoTabProvider: null,
     aiAutoTabModel: null,
+    aiOmlxBaseUrl: null,
     remoteAccessEnabled: null,
 })
 

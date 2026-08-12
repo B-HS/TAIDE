@@ -1,6 +1,8 @@
 import type { FC, ReactNode } from 'react'
 import { cn } from '@shared/lib/cn'
 import { ICON_BUTTON_CLASS } from '@shared/constants/ui-class'
+import { IconButton } from '@shared/ui/icon-button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 export type GitStatusChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'typeChange' | 'conflicted'
 
@@ -45,12 +47,11 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
     const fileName = lastSlashIndex === -1 ? path : path.slice(lastSlashIndex + 1)
     const dirPath = lastSlashIndex === -1 ? '' : path.slice(0, lastSlashIndex)
 
-    return (
+    const rowContent = (
         <div
             role='button'
             tabIndex={0}
             onClick={onClick}
-            title={origPath ? `${origPath} → ${path}` : path}
             className={cn(
                 'group hover:bg-explorer-item-hover flex h-6 w-full cursor-default items-center gap-1.5 px-2 text-xs select-none',
                 selected && 'bg-explorer-item-selected',
@@ -63,20 +64,27 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
                 </span>
                 <span className='hidden items-center gap-0.5 group-hover:flex'>
                     {actions.map((action) => (
-                        <button
+                        <IconButton
                             key={action.id}
-                            type='button'
-                            aria-label={action.label}
+                            label={action.label}
+                            icon={action.icon}
                             onClick={(event) => {
                                 event.stopPropagation()
                                 action.onClick()
                             }}
-                            className={cn(ICON_BUTTON_CLASS, 'size-4')}>
-                            {action.icon}
-                        </button>
+                            side='bottom'
+                            className={cn(ICON_BUTTON_CLASS, 'size-4')}
+                        />
                     ))}
                 </span>
             </span>
         </div>
+    )
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>{rowContent}</TooltipTrigger>
+            <TooltipContent side='bottom'>{origPath ? `${origPath} → ${path}` : path}</TooltipContent>
+        </Tooltip>
     )
 }

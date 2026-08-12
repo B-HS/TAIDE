@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import type { IdeStatus, SystemUsage } from '@shared/api/bindings'
 import { BYTES_PER_MEBIBYTE } from '@shared/constants/system-usage'
 import { cn } from '@shared/lib/cn'
+import { IconButton } from '@shared/ui/icon-button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { FontSizeStepper } from '@features/window/font-size-stepper'
 
 type LspSummary = {
@@ -74,44 +76,68 @@ export const StatusBar: FC<StatusBarProps> = ({
     return (
         <div className='bg-app-sidebar-background border-app-border text-app-sidebar-icon-default flex h-6 shrink-0 items-center justify-between gap-3 border-t px-2 text-[11px] select-none'>
             <div className='flex min-w-0 items-center gap-3'>
-                <button
-                    type='button'
-                    aria-label={t('problems.toggleAriaLabel')}
+                <IconButton
+                    label={t('problems.toggleAriaLabel')}
+                    icon={
+                        <>
+                            <CircleX className='size-3' />
+                            <span className='tabular-nums'>{errorCount}</span>
+                        </>
+                    }
                     aria-pressed={isProblemsOpen}
                     onClick={onToggleProblems}
+                    side='top'
                     className={cn(
                         'flex shrink-0 items-center gap-1 rounded-sm px-1',
                         errorCount > 0 ? 'text-status-error' : 'text-app-sidebar-icon-default',
                         isProblemsOpen ? 'bg-explorer-item-selected' : 'hover:bg-explorer-item-hover',
-                    )}>
-                    <CircleX className='size-3' />
-                    <span className='tabular-nums'>{errorCount}</span>
-                </button>
+                    )}
+                />
                 {lspSummary && (
                     <span className={cn('flex shrink-0 items-center gap-1', lspSummary.hasCrashed ? 'text-status-error' : 'text-status-success')}>
                         {lspSummary.hasCrashed ? <XCircle className='size-3' /> : <CheckCircle2 className='size-3' />}
                         {t('window.lspStatus', { running: lspSummary.running, total: lspSummary.total })}
                     </span>
                 )}
-                <span
-                    className={cn(
-                        'flex shrink-0 items-center gap-1',
-                        ideConnectionState === 'connected' ? 'text-status-success' : 'text-app-sidebar-icon-default',
-                    )}
-                    title={ideTitle}>
-                    <IdeStateIcon className='size-3' />
-                    {t(IDE_STATE_LABEL_KEY[ideConnectionState])}
-                </span>
+                {ideTitle ? (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span
+                                className={cn(
+                                    'flex shrink-0 items-center gap-1',
+                                    ideConnectionState === 'connected' ? 'text-status-success' : 'text-app-sidebar-icon-default',
+                                )}>
+                                <IdeStateIcon className='size-3' />
+                                {t(IDE_STATE_LABEL_KEY[ideConnectionState])}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side='top'>{ideTitle}</TooltipContent>
+                    </Tooltip>
+                ) : (
+                    <span
+                        className={cn(
+                            'flex shrink-0 items-center gap-1',
+                            ideConnectionState === 'connected' ? 'text-status-success' : 'text-app-sidebar-icon-default',
+                        )}>
+                        <IdeStateIcon className='size-3' />
+                        {t(IDE_STATE_LABEL_KEY[ideConnectionState])}
+                    </span>
+                )}
             </div>
             <div className='flex shrink-0 items-center gap-3'>
                 {systemUsage && (
-                    <span className='text-app-sidebar-icon-default flex shrink-0 items-center gap-1' title={t('window.systemUsageHint')}>
-                        <Activity className='size-3' />
-                        {t('window.systemUsage', {
-                            cpu: systemUsage.cpuPercent === null ? '--' : Math.round(systemUsage.cpuPercent),
-                            memory: Math.round((systemUsage.memoryBytes ?? 0) / BYTES_PER_MEBIBYTE),
-                        })}
-                    </span>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className='text-app-sidebar-icon-default flex shrink-0 items-center gap-1'>
+                                <Activity className='size-3' />
+                                {t('window.systemUsage', {
+                                    cpu: systemUsage.cpuPercent === null ? '--' : Math.round(systemUsage.cpuPercent),
+                                    memory: Math.round((systemUsage.memoryBytes ?? 0) / BYTES_PER_MEBIBYTE),
+                                })}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side='top'>{t('window.systemUsageHint')}</TooltipContent>
+                    </Tooltip>
                 )}
                 <FontSizeStepper
                     label={t('window.editorFontSize')}

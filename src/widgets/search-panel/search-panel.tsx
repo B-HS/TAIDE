@@ -16,6 +16,7 @@ import {
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
 import { FileGroupHeader } from '@shared/ui/file-group-header'
+import { IconButton } from '@shared/ui/icon-button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 export type SearchResultGroup = {
@@ -120,14 +121,14 @@ export const SearchPanel: FC<SearchPanelProps> = ({
         <div className='bg-panel-background flex h-full min-h-0 w-full flex-col'>
             <div className='border-app-border flex shrink-0 flex-col gap-1.5 border-b px-2 py-1.5'>
                 <div className='flex items-start gap-1'>
-                    <button
-                        type='button'
-                        aria-label={t('search.replaceToggle')}
+                    <IconButton
+                        label={t('search.replaceToggle')}
+                        icon={<ChevronRight className={cn('size-3.5 transition-transform', replaceOpen && 'rotate-90')} />}
                         aria-pressed={replaceOpen}
                         onClick={() => setReplaceOpen(!replaceOpen)}
-                        className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm'>
-                        <ChevronRight className={cn('size-3.5 transition-transform', replaceOpen && 'rotate-90')} />
-                    </button>
+                        side='bottom'
+                        className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm'
+                    />
                     <div className='flex min-w-0 flex-1 flex-col gap-1'>
                         <div className='bg-panel-input-background border-panel-input-border focus-within:border-app-focus-border flex items-center rounded-sm border'>
                             <input
@@ -138,45 +139,45 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                 placeholder={t('search.placeholder')}
                                 className='min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs outline-none'
                             />
-                            <button
-                                type='button'
-                                aria-label={t('search.caseSensitive')}
+                            <IconButton
+                                label={t('search.caseSensitive')}
+                                icon={<CaseSensitive className='size-3.5' />}
                                 aria-pressed={caseSensitive}
                                 onClick={() => onCaseSensitiveChange(!caseSensitive)}
+                                side='bottom'
                                 className={cn(
                                     'flex size-6 shrink-0 items-center justify-center rounded-sm',
                                     caseSensitive
                                         ? 'bg-explorer-item-selected text-app-foreground'
                                         : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                                )}>
-                                <CaseSensitive className='size-3.5' />
-                            </button>
-                            <button
-                                type='button'
-                                aria-label={t('search.wholeWord')}
+                                )}
+                            />
+                            <IconButton
+                                label={t('search.wholeWord')}
+                                icon={<WholeWord className='size-3.5' />}
                                 aria-pressed={wholeWord}
                                 onClick={() => onWholeWordChange(!wholeWord)}
+                                side='bottom'
                                 className={cn(
                                     'flex size-6 shrink-0 items-center justify-center rounded-sm',
                                     wholeWord
                                         ? 'bg-explorer-item-selected text-app-foreground'
                                         : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                                )}>
-                                <WholeWord className='size-3.5' />
-                            </button>
-                            <button
-                                type='button'
-                                aria-label={t('search.regex')}
+                                )}
+                            />
+                            <IconButton
+                                label={t('search.regex')}
+                                icon={<Regex className='size-3.5' />}
                                 aria-pressed={regex}
                                 onClick={() => onRegexChange(!regex)}
+                                side='bottom'
                                 className={cn(
                                     'mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm',
                                     regex
                                         ? 'bg-explorer-item-selected text-app-foreground'
                                         : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                                )}>
-                                <Regex className='size-3.5' />
-                            </button>
+                                )}
+                            />
                         </div>
                         {replaceOpen && (
                             <div className='bg-panel-input-background border-panel-input-border focus-within:border-app-focus-border flex items-center rounded-sm border'>
@@ -186,14 +187,14 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                     placeholder={t('search.replacePlaceholder')}
                                     className='min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs outline-none'
                                 />
-                                <button
-                                    type='button'
-                                    aria-label={t('search.replaceAll')}
+                                <IconButton
+                                    label={t('search.replaceAll')}
+                                    icon={<ReplaceAll className='size-3.5' />}
                                     disabled={!canReplaceAll}
                                     onClick={() => setConfirmOpen(true)}
-                                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm disabled:pointer-events-none disabled:opacity-40'>
-                                    <ReplaceAll className='size-3.5' />
-                                </button>
+                                    side='bottom'
+                                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm disabled:pointer-events-none disabled:opacity-40'
+                                />
                             </div>
                         )}
                     </div>
@@ -201,13 +202,13 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                 {scopePath && (
                     <div className='bg-explorer-item-selected text-app-foreground flex w-fit max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs'>
                         <span className='truncate'>{t('explorer.searchScopeLabel', { path: scopePath })}</span>
-                        <button
-                            type='button'
-                            aria-label={t('common.close')}
+                        <IconButton
+                            label={t('search.clearScope')}
+                            icon={<X className='size-3' />}
                             onClick={onClearScope}
-                            className='text-app-sidebar-icon-default hover:text-app-foreground shrink-0'>
-                            <X className='size-3' />
-                        </button>
+                            side='bottom'
+                            className='text-app-sidebar-icon-default hover:text-app-foreground shrink-0'
+                        />
                     </div>
                 )}
                 {isSearching && (

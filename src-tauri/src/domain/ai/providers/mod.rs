@@ -1,5 +1,6 @@
 pub mod codex;
 pub mod ollama;
+pub mod omlx;
 
 use crate::domain::ai::types::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate};
 use crate::error::AppResult;

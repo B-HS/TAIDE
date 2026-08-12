@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { ThemeSummary } from '@shared/api/bindings'
 import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
 import { cn } from '@shared/lib/cn'
+import { IconButton } from '@shared/ui/icon-button'
 
 type ThemePickerProps = {
     themes: ThemeSummary[]
@@ -53,13 +54,13 @@ const ThemePickerSection: FC<ThemePickerSectionProps> = ({ title, themes, active
                             </button>
                             <div className='flex shrink-0 items-center gap-1'>
                                 {onDuplicate && (
-                                    <button
-                                        type='button'
+                                    <IconButton
                                         onClick={() => onDuplicate(theme.id)}
-                                        aria-label={t('themeEditor.duplicateTheme')}
-                                        className='text-app-sidebar-icon-default hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'>
-                                        <Copy className='size-3.5' />
-                                    </button>
+                                        label={t('themeEditor.duplicateTheme')}
+                                        icon={<Copy className='size-3.5' />}
+                                        side='bottom'
+                                        className='text-app-sidebar-icon-default hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'
+                                    />
                                 )}
                                 {isActive && <Check className='text-app-accent size-4 shrink-0' />}
                             </div>

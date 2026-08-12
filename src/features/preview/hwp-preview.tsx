@@ -5,6 +5,7 @@ import wasmUrl from '@rhwp/core/rhwp_bg.wasm?url'
 import { ChevronLeft, ChevronRight, FileWarning, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@shared/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { PreviewStatusMessage } from '@features/preview/preview-status'
 
@@ -127,25 +128,35 @@ export const HwpPreview: FC<HwpPreviewProps> = ({ data, onOpenExternally }) => {
     return (
         <div className='bg-editor-background flex h-full w-full flex-col'>
             <div className='border-editor-widget-border bg-editor-widget-background text-editor-foreground flex shrink-0 items-center justify-center gap-2 border-b px-3 py-1.5 text-xs'>
-                <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon-xs'
-                    aria-label={t('preview.hwp.previousPage')}
-                    disabled={currentPage <= 0}
-                    onClick={goToPreviousPage}>
-                    <ChevronLeft className='size-3.5' />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-xs'
+                            aria-label={t('preview.hwp.previousPage')}
+                            disabled={currentPage <= 0}
+                            onClick={goToPreviousPage}>
+                            <ChevronLeft className='size-3.5' />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom'>{t('preview.hwp.previousPage')}</TooltipContent>
+                </Tooltip>
                 <span>{t('preview.hwp.pageIndicator', { current: currentPage + 1, total: pageCount })}</span>
-                <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon-xs'
-                    aria-label={t('preview.hwp.nextPage')}
-                    disabled={currentPage >= pageCount - 1}
-                    onClick={goToNextPage}>
-                    <ChevronRight className='size-3.5' />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-xs'
+                            aria-label={t('preview.hwp.nextPage')}
+                            disabled={currentPage >= pageCount - 1}
+                            onClick={goToNextPage}>
+                            <ChevronRight className='size-3.5' />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom'>{t('preview.hwp.nextPage')}</TooltipContent>
+                </Tooltip>
             </div>
             <ScrollContainer className='flex-1' orientation='both'>
                 {pageImageUrl && (

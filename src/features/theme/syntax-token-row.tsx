@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { SyntaxStyle } from '@shared/api/bindings'
 import { ColorPicker } from '@features/theme/color-picker'
 import { cn } from '@shared/lib/cn'
+import { IconButton } from '@shared/ui/icon-button'
 
 type SyntaxTokenRowProps = {
     label: string
@@ -24,34 +25,36 @@ export const SyntaxTokenRow: FC<SyntaxTokenRowProps> = ({ label, style, changed,
                 {label}
             </span>
             <div className='flex shrink-0 items-center gap-1'>
-                <button
-                    type='button'
+                <IconButton
                     onClick={() => onChange({ bold: !style.bold })}
                     aria-pressed={style.bold}
+                    label={t('themeEditor.boldToggle')}
+                    icon={t('themeEditor.boldAbbreviation')}
+                    side='bottom'
                     className={cn(
                         'border-app-border text-app-foreground flex size-6 items-center justify-center rounded-sm border text-xs font-bold',
                         style.bold && 'bg-app-sidebar-item-active',
-                    )}>
-                    {t('themeEditor.boldAbbreviation')}
-                </button>
-                <button
-                    type='button'
+                    )}
+                />
+                <IconButton
                     onClick={() => onChange({ italic: !style.italic })}
                     aria-pressed={style.italic}
+                    label={t('themeEditor.italicToggle')}
+                    icon={t('themeEditor.italicAbbreviation')}
+                    side='bottom'
                     className={cn(
                         'border-app-border text-app-foreground flex size-6 items-center justify-center rounded-sm border text-xs italic',
                         style.italic && 'bg-app-sidebar-item-active',
-                    )}>
-                    {t('themeEditor.italicAbbreviation')}
-                </button>
+                    )}
+                />
                 {changed && (
-                    <button
-                        type='button'
+                    <IconButton
                         onClick={onReset}
-                        aria-label={t('themeEditor.resetToken')}
-                        className='text-app-sidebar-icon-default hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'>
-                        <RotateCcw className='size-3.5' />
-                    </button>
+                        label={t('themeEditor.resetToken')}
+                        icon={<RotateCcw className='size-3.5' />}
+                        side='bottom'
+                        className='text-app-sidebar-icon-default hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'
+                    />
                 )}
                 <ColorPicker value={style.fg} onChange={(fg) => onChange({ fg })} />
             </div>

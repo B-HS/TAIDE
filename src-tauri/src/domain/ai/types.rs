@@ -6,6 +6,7 @@ use specta::Type;
 pub enum AiProviderId {
     OllamaCloud,
     Codex,
+    Omlx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -13,6 +14,7 @@ pub enum AiProviderId {
 pub struct AiTokenStatus {
     pub ollama_cloud: bool,
     pub codex: bool,
+    pub omlx: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -80,6 +82,7 @@ mod tests {
     fn provider_아이디는_카멜케이스로_직렬화된다() {
         assert_eq!(serde_json::to_string(&AiProviderId::OllamaCloud).unwrap(), "\"ollamaCloud\"");
         assert_eq!(serde_json::to_string(&AiProviderId::Codex).unwrap(), "\"codex\"");
+        assert_eq!(serde_json::to_string(&AiProviderId::Omlx).unwrap(), "\"omlx\"");
     }
 
     #[test]
@@ -87,7 +90,11 @@ mod tests {
         let status = AiTokenStatus {
             ollama_cloud: true,
             codex: false,
+            omlx: true,
         };
-        assert_eq!(serde_json::to_string(&status).unwrap(), r#"{"ollamaCloud":true,"codex":false}"#);
+        assert_eq!(
+            serde_json::to_string(&status).unwrap(),
+            r#"{"ollamaCloud":true,"codex":false,"omlx":true}"#
+        );
     }
 }

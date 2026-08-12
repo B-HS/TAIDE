@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
 import type { AppCommand } from '@shared/lib/command-registry'
+import { KEYMAP_CATEGORY } from '@shared/lib/command-registry'
 import { i18next } from '@shared/i18n/i18n'
 import { downloadSync, uploadSync } from '@entities/sync/sync.ipc'
 
@@ -29,6 +30,6 @@ const runSyncDownload = async () => {
 }
 
 export const SYNC_COMMANDS: AppCommand[] = [
-    { id: 'sync.uploadNow', titleKey: 'settings.syncUploadNow', run: runSyncUpload },
-    { id: 'sync.downloadNow', titleKey: 'settings.syncDownloadNow', run: runSyncDownload },
+    { id: 'sync.uploadNow', titleKey: 'settings.syncUploadNow', categoryKey: KEYMAP_CATEGORY.SYNC, run: runSyncUpload },
+    { id: 'sync.downloadNow', titleKey: 'settings.syncDownloadNow', categoryKey: KEYMAP_CATEGORY.SYNC, run: runSyncDownload },
 ]

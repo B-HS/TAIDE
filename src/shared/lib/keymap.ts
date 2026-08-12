@@ -59,7 +59,8 @@ export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'font-size-down', key: '-', mods: ['mod'], descriptionKey: 'keymap.fontSizeDown' },
 ]
 
-export const matchesKeymapEntry = (entry: KeymapEntry, event: KeymapEvent, isMac: boolean) => {
+export const matchesKeymapEntry = (entry: Pick<KeymapEntry, 'key' | 'mods'>, event: KeymapEvent, isMac: boolean) => {
+    if (!entry.key) return false
     if (event.key.toLowerCase() !== entry.key.toLowerCase()) return false
 
     const wantsMeta = entry.mods.includes('mod') && isMac
@@ -74,7 +75,7 @@ export const findMatchingKeymapEntry = (entries: KeymapEntry[], event: KeymapEve
     entries.find((entry) => matchesKeymapEntry(entry, event, isMac)) ?? null
 
 export type KeymapOverrideEntry = {
-    actionId: KeymapActionId
+    actionId: string
     key: string
     mods: KeymapModifier[]
 }
@@ -111,17 +112,24 @@ export const keymapEntryToEvent = (entry: Pick<KeymapEntry, 'key' | 'mods'>, isM
     altKey: entry.mods.includes('alt'),
 })
 
-export const findKeymapConflict = (
-    entries: KeymapEntry[],
+export const findKeymapConflict = <T extends { id: string; key: string; mods: KeymapModifier[] }>(
+    entries: T[],
     candidate: Pick<KeymapEntry, 'key' | 'mods'>,
-    excludeActionId: KeymapActionId,
+    excludeId: string,
     isMac: boolean = IS_MAC,
-) => entries.find((entry) => entry.id !== excludeActionId && matchesKeymapEntry(entry, keymapEntryToEvent(candidate, isMac), isMac)) ?? null
+) => entries.find((entry) => entry.id !== excludeId && matchesKeymapEntry(entry, keymapEntryToEvent(candidate, isMac), isMac)) ?? null
+
+const MAC_MODIFIER_ORDER: KeymapModifier[] = ['ctrl', 'alt', 'shift', 'mod']
+const NON_MAC_MODIFIER_ORDER: KeymapModifier[] = ['mod', 'ctrl', 'alt', 'shift']
+const MAC_MODIFIER_LABEL: Record<KeymapModifier, string> = { mod: '⌘', ctrl: '⌃', alt: '⌥', shift: '⇧' }
+const NON_MAC_MODIFIER_LABEL: Record<KeymapModifier, string> = { mod: 'Ctrl', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }
 
 export const formatKeymapShortcut = (entry: Pick<KeymapEntry, 'key' | 'mods'>, isMac: boolean = IS_MAC) => {
-    const modLabel = entry.mods.includes('mod') ? (isMac ? '⌘' : 'Ctrl') : ''
-    const otherLabels = entry.mods.filter((mod) => mod !== 'mod').map((mod) => (mod === 'shift' ? '⇧' : mod === 'alt' ? '⌥' : 'Ctrl'))
-    return [...otherLabels, modLabel, entry.key.toUpperCase()].filter(Boolean).join('')
+    const modifierLabel = isMac ? MAC_MODIFIER_LABEL : NON_MAC_MODIFIER_LABEL
+    const modifierOrder = isMac ? MAC_MODIFIER_ORDER : NON_MAC_MODIFIER_ORDER
+    const labels = modifierOrder.filter((mod) => entry.mods.includes(mod)).map((mod) => modifierLabel[mod])
+    const dedupedLabels = labels.filter((label, index) => labels.indexOf(label) === index)
+    return [...dedupedLabels, entry.key.toUpperCase()].join(isMac ? '' : '+')
 }
 
 export const captureModsFromEvent = (
@@ -138,3 +146,5 @@ export const captureModsFromEvent = (
 }
 
 export const normalizeKeymapKey = (key: string) => (key.length === 1 ? key.toLowerCase() : key)
+
+export const MODIFIER_ONLY_KEYS = ['Shift', 'Control', 'Alt', 'Meta']

@@ -17,6 +17,7 @@ import { FileTree } from '@widgets/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
 import { OutlinePanelContainer } from '@widgets/outline-panel/outline-panel-container'
 import { SearchPanelContainer } from '@widgets/search-panel/search-panel-container'
+import { IconButton } from '@shared/ui/icon-button'
 
 type ExplorerView = 'files' | 'search' | 'git' | 'outline'
 
@@ -116,21 +117,21 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                 className='border-tab-bar-tab-border flex h-9 shrink-0 items-center gap-1 border-b px-2'>
                 <div className='flex items-center gap-1'>
                     {EXPLORER_VIEWS.map(({ id, labelKey, icon: Icon }) => (
-                        <button
+                        <IconButton
                             key={id}
-                            type='button'
                             role='tab'
                             aria-selected={view === id}
-                            aria-label={t(labelKey)}
+                            label={t(labelKey)}
+                            icon={<Icon className='size-4' />}
                             onClick={() => setView(id)}
+                            side='bottom'
                             className={cn(
                                 'flex size-6 items-center justify-center rounded-sm',
                                 view === id
                                     ? 'bg-explorer-item-selected text-app-foreground'
                                     : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                            )}>
-                            <Icon className='size-4' />
-                        </button>
+                            )}
+                        />
                     ))}
                 </div>
             </div>

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, FileWarning, Loader2, ZoomIn, ZoomOut } from
 import { useTranslation } from 'react-i18next'
 import { pdfjs } from '@shared/lib/pdf/setup'
 import { Button } from '@shared/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { PreviewStatusMessage } from '@features/preview/preview-status'
 
@@ -107,45 +108,65 @@ export const PdfPreview: FC<PdfPreviewProps> = ({ data, onOpenExternally }) => {
     return (
         <div className='bg-editor-background flex h-full w-full flex-col'>
             <div className='border-editor-widget-border bg-editor-widget-background text-editor-foreground flex shrink-0 items-center justify-center gap-2 border-b px-3 py-1.5 text-xs'>
-                <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon-xs'
-                    aria-label={t('preview.pdf.previousPage')}
-                    disabled={currentPage <= 1}
-                    onClick={goToPreviousPage}>
-                    <ChevronLeft className='size-3.5' />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-xs'
+                            aria-label={t('preview.pdf.previousPage')}
+                            disabled={currentPage <= 1}
+                            onClick={goToPreviousPage}>
+                            <ChevronLeft className='size-3.5' />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom'>{t('preview.pdf.previousPage')}</TooltipContent>
+                </Tooltip>
                 <span>{t('preview.pdf.pageIndicator', { current: currentPage, total: numPages })}</span>
-                <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon-xs'
-                    aria-label={t('preview.pdf.nextPage')}
-                    disabled={currentPage >= numPages}
-                    onClick={goToNextPage}>
-                    <ChevronRight className='size-3.5' />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-xs'
+                            aria-label={t('preview.pdf.nextPage')}
+                            disabled={currentPage >= numPages}
+                            onClick={goToNextPage}>
+                            <ChevronRight className='size-3.5' />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom'>{t('preview.pdf.nextPage')}</TooltipContent>
+                </Tooltip>
                 <span className='bg-editor-widget-border mx-1 h-4 w-px' />
-                <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon-xs'
-                    aria-label={t('preview.pdf.zoomOut')}
-                    disabled={scale <= PDF_MIN_SCALE}
-                    onClick={zoomOut}>
-                    <ZoomOut className='size-3.5' />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-xs'
+                            aria-label={t('preview.pdf.zoomOut')}
+                            disabled={scale <= PDF_MIN_SCALE}
+                            onClick={zoomOut}>
+                            <ZoomOut className='size-3.5' />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom'>{t('preview.pdf.zoomOut')}</TooltipContent>
+                </Tooltip>
                 <span>{Math.round(scale * 100)}%</span>
-                <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon-xs'
-                    aria-label={t('preview.pdf.zoomIn')}
-                    disabled={scale >= PDF_MAX_SCALE}
-                    onClick={zoomIn}>
-                    <ZoomIn className='size-3.5' />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-xs'
+                            aria-label={t('preview.pdf.zoomIn')}
+                            disabled={scale >= PDF_MAX_SCALE}
+                            onClick={zoomIn}>
+                            <ZoomIn className='size-3.5' />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom'>{t('preview.pdf.zoomIn')}</TooltipContent>
+                </Tooltip>
             </div>
             <ScrollContainer className='flex-1' orientation='both'>
                 <canvas ref={canvasRef} className='mx-auto my-4 block shadow' />

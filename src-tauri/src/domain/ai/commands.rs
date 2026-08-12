@@ -47,8 +47,9 @@ impl AiInlineStore {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn ai_token_status(secret: State<'_, SecretStoreState>) -> AppResult<AiTokenStatus> {
-    service::token_status(secret.0.as_ref())
+pub async fn ai_token_status(state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<AiTokenStatus> {
+    let omlx_base_url = state.settings.read().ai_omlx_base_url.clone();
+    service::token_status(secret.0.as_ref(), omlx_base_url.as_deref())
 }
 
 #[tauri::command]
@@ -66,9 +67,14 @@ pub async fn ai_clear_token(secret: State<'_, SecretStoreState>, provider: AiPro
 
 #[tauri::command]
 #[specta::specta]
-pub async fn ai_list_models(secret: State<'_, SecretStoreState>, provider: AiProviderId) -> AppResult<Vec<AiModelInfo>> {
+pub async fn ai_list_models(
+    state: State<'_, AppState>,
+    secret: State<'_, SecretStoreState>,
+    provider: AiProviderId,
+) -> AppResult<Vec<AiModelInfo>> {
+    let omlx_base_url = state.settings.read().ai_omlx_base_url.clone();
     let client = create_outbound_http_client();
-    service::list_models(secret.0.as_ref(), &client, provider).await
+    service::list_models(secret.0.as_ref(), &client, provider, omlx_base_url).await
 }
 
 #[tauri::command]
@@ -87,10 +93,11 @@ pub async fn ai_inline_complete(
     };
 
     let template = prompt::load_prompt_template(&state.paths);
+    let omlx_base_url = state.settings.read().ai_omlx_base_url.clone();
     let client = create_outbound_http_client();
 
     let text = tokio::select! {
-        result = service::complete(secret.0.as_ref(), &client, &request, &template) => result,
+        result = service::complete(secret.0.as_ref(), &client, &request, &template, omlx_base_url) => result,
         _ = cancel_rx => Ok(None),
     };
 

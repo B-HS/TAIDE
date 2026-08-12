@@ -5,6 +5,7 @@ import type { FileTreeNodeKind } from '@features/explorer/file-tree-row'
 import { cn } from '@shared/lib/cn'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { FolderTypeIcon } from '@shared/icons/folder-type-icon'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
 const ROW_INDENT_PX = 12
 const ROW_ICON_SIZE_CLASS = 'size-3.5'
@@ -50,21 +51,25 @@ export const FileTreeDraftRowItem: FC<FileTreeDraftRowItemProps> = ({ depth, kin
                     <FileTypeIcon fileName={name} className={ROW_ICON_SIZE_CLASS} />
                 )}
             </span>
-            <input
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={(event) => event.target.select()}
-                onBlur={onCancel}
-                placeholder={t('explorer.entryNamePlaceholder')}
-                aria-invalid={error !== null}
-                title={error ?? undefined}
-                className={cn(
-                    'bg-panel-input-background border-panel-input-border focus:border-app-focus-border text-app-foreground box-border h-full min-w-0 flex-1 rounded-sm border px-1 py-0 leading-none outline-none',
-                    error !== null && 'border-status-error',
-                )}
-            />
+            <Tooltip open={error !== null}>
+                <TooltipTrigger asChild>
+                    <input
+                        autoFocus
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onFocus={(event) => event.target.select()}
+                        onBlur={onCancel}
+                        placeholder={t('explorer.entryNamePlaceholder')}
+                        aria-invalid={error !== null}
+                        className={cn(
+                            'bg-panel-input-background border-panel-input-border focus:border-app-focus-border text-app-foreground box-border h-full min-w-0 flex-1 rounded-sm border px-1 py-0 leading-none outline-none',
+                            error !== null && 'border-status-error',
+                        )}
+                    />
+                </TooltipTrigger>
+                {error !== null && <TooltipContent side='bottom'>{error}</TooltipContent>}
+            </Tooltip>
         </div>
     )
 }

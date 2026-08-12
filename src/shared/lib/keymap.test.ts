@@ -6,6 +6,7 @@ import {
     captureModsFromEvent,
     findKeymapConflict,
     findMatchingKeymapEntry,
+    formatKeymapShortcut,
     matchesKeymapEntry,
     normalizeKeymapKey,
     parseKeymapOverrides,
@@ -49,6 +50,11 @@ describe('matchesKeymapEntry', () => {
     test('키 문자 대소문자를 구분하지 않는다', () => {
         const entry: KeymapEntry = { id: 'save', key: 's', mods: ['mod'], descriptionKey: 'keymap.quickOpen' }
         expect(matchesKeymapEntry(entry, { key: 'S', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)).toBe(true)
+    })
+
+    test('key 가 빈 문자열(unbind 센티널)이면 항상 매칭되지 않는다', () => {
+        const entry: KeymapEntry = { id: 'save', key: '', mods: ['mod'], descriptionKey: 'keymap.quickOpen' }
+        expect(matchesKeymapEntry(entry, { key: 's', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)).toBe(false)
     })
 })
 
@@ -157,6 +163,53 @@ describe('captureModsFromEvent', () => {
 
     test('수식키가 없으면 빈 배열을 반환한다', () => {
         expect(captureModsFromEvent({ metaKey: false, ctrlKey: false, shiftKey: false, altKey: false }, true)).toEqual([])
+    })
+})
+
+describe('formatKeymapShortcut', () => {
+    test('mac 에서는 심볼을 구분자 없이 연접한다(Apple 표기 순서 — mod(⌘) 는 항상 마지막)', () => {
+        const entry: Pick<KeymapEntry, 'key' | 'mods'> = { key: 'p', mods: ['mod', 'shift'] }
+        expect(formatKeymapShortcut(entry, true)).toBe('⇧⌘P')
+    })
+
+    test('mac 에서 ctrl 은 ⌃ 심볼로 표기된다', () => {
+        const entry: Pick<KeymapEntry, 'key' | 'mods'> = { key: 'g', mods: ['ctrl', 'shift'] }
+        expect(formatKeymapShortcut(entry, true)).toBe('⌃⇧G')
+    })
+
+    test('비-mac 에서는 + 로 구분된 단어로 표기된다', () => {
+        const entry: Pick<KeymapEntry, 'key' | 'mods'> = { key: 'g', mods: ['ctrl', 'shift'] }
+        expect(formatKeymapShortcut(entry, false)).toBe('Ctrl+Shift+G')
+    })
+
+    test('비-mac 에서 mod 와 ctrl 이 함께 있어도 Ctrl 이 중복 표기되지 않는다', () => {
+        const entry: Pick<KeymapEntry, 'key' | 'mods'> = { key: 'g', mods: ['mod', 'ctrl'] }
+        expect(formatKeymapShortcut(entry, false)).toBe('Ctrl+G')
+    })
+
+    test('단일 mod 조합은 플랫폼에 따라 다르게 표기된다', () => {
+        const entry: Pick<KeymapEntry, 'key' | 'mods'> = { key: 's', mods: ['mod'] }
+        expect(formatKeymapShortcut(entry, true)).toBe('⌘S')
+        expect(formatKeymapShortcut(entry, false)).toBe('Ctrl+S')
+    })
+})
+
+describe('findKeymapConflict 는 일반화된 행(id/key/mods) 목록에도 동작한다', () => {
+    test('KeymapEntry 가 아닌 임의의 행 배열에서도 충돌을 찾는다', () => {
+        type Row = { id: string; key: string; mods: KeymapEntry['mods'] }
+        const rows: Row[] = [
+            { id: 'command.a', key: 'k', mods: ['mod'] },
+            { id: 'command.b', key: 'k', mods: ['mod'] },
+        ]
+        const conflict = findKeymapConflict(rows, { key: 'k', mods: ['mod'] }, 'command.a', true)
+        expect(conflict?.id).toBe('command.b')
+    })
+
+    test('candidate 의 key 가 빈 문자열이면(unbind) 충돌로 보지 않는다', () => {
+        type Row = { id: string; key: string; mods: KeymapEntry['mods'] }
+        const rows: Row[] = [{ id: 'command.a', key: '', mods: [] }]
+        const conflict = findKeymapConflict(rows, { key: '', mods: [] }, 'command.b', true)
+        expect(conflict).toBeNull()
     })
 })
 

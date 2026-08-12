@@ -11,6 +11,7 @@ import type { DetectedAgent, ProjectId } from '@shared/api/bindings'
 import { projectListQueryOptions, useActivateProject, useOpenProject, useReorderProjects } from '@entities/project/project.query'
 import { projectAgentsQueryOptions, useAgentStateSync } from '@entities/agent/agent.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { IconButton } from '@shared/ui/icon-button'
 import { SortableProjectIcon } from '@widgets/app-sidebar/sortable-project-icon'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
@@ -84,21 +85,21 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
                 </SortableContext>
             </DndContext>
 
-            <button
-                type='button'
-                aria-label={t('sidebar.openFolderAriaLabel')}
+            <IconButton
+                label={t('sidebar.openFolderAriaLabel')}
+                icon={<Plus className='size-5' />}
                 onClick={handleOpenProject}
-                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover flex size-10 shrink-0 items-center justify-center rounded-md'>
-                <Plus className='size-5' />
-            </button>
+                side='right'
+                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover flex size-10 shrink-0 items-center justify-center rounded-md'
+            />
 
-            <button
-                type='button'
-                aria-label={t('sidebar.settingsAriaLabel')}
+            <IconButton
+                label={t('sidebar.settingsAriaLabel')}
+                icon={<Settings className='size-5' />}
                 onClick={onOpenSettings}
-                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover mt-auto flex size-10 shrink-0 items-center justify-center rounded-md'>
-                <Settings className='size-5' />
-            </button>
+                side='right'
+                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover mt-auto flex size-10 shrink-0 items-center justify-center rounded-md'
+            />
         </nav>
     )
 }
