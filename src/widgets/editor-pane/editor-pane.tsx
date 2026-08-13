@@ -8,7 +8,6 @@ import { toast } from 'sonner'
 import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
-import { createBlameZoneController } from '@shared/lib/monaco/blame-zone'
 import { formatBlameLine } from '@shared/lib/blame-format'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
@@ -34,6 +33,7 @@ import { applyExternalContent } from '@entities/editor/model-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
 import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
 import { CodeEditor } from '@features/editor/code-editor'
+import { BlameFooterBar } from '@features/editor/blame-footer-bar'
 import { ConflictBanner } from '@features/editor/conflict-banner'
 import { MarkdownPreview } from '@features/editor/markdown-preview'
 import { PaneSeparator } from '@features/split/pane-separator'
@@ -74,7 +74,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameRequestSeqRef = useRef(0)
-    const blameZoneRef = useRef<ReturnType<typeof createBlameZoneController> | null>(null)
+    const blameFooterTextRef = useRef<HTMLSpanElement>(null)
 
     const [syncedPath, setSyncedPath] = useState(path)
     const [syncedContent, setSyncedContent] = useState<string | null>(null)
@@ -292,26 +292,11 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     }, [editor, cursorLine, projectId, path])
 
     useEffect(() => {
-        if (!editor) return
-        const controller = createBlameZoneController(editor)
-        blameZoneRef.current = controller
-        return () => {
-            controller.dispose()
-            blameZoneRef.current = null
-        }
-    }, [editor])
+        const node = blameFooterTextRef.current
+        if (!node) return
 
-    useEffect(() => {
-        const controller = blameZoneRef.current
-        if (!editor || !controller) return
-
-        const model = editor.getModel()
-        if (!blameLine || !model || blameLine.line > model.getLineCount()) {
-            controller.hide()
-            return
-        }
-
-        controller.show(blameLine.line, formatBlameLine(blameLine, Date.now(), currentUser))
+        const model = editor?.getModel() ?? null
+        node.textContent = !blameLine || (model && blameLine.line > model.getLineCount()) ? '' : formatBlameLine(blameLine, Date.now(), currentUser)
     }, [editor, blameLine, currentUser])
 
     if (isPending) return <div className='bg-editor-background h-full w-full' />
@@ -374,6 +359,13 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         />
     )
 
+    const codeEditorWithBlameFooter = (
+        <div className='flex h-full min-h-0 w-full flex-col'>
+            <div className='min-h-0 flex-1'>{codeEditor}</div>
+            <BlameFooterBar textRef={blameFooterTextRef} />
+        </div>
+    )
+
     const handleConfirmDiscardHunk = () => {
         if (!pendingHunk) return
         discardHunk(
@@ -415,7 +407,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             {isMarkdown && showMarkdownPreview ? (
                 <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1'>
                     <Panel id={`${tabId}-editor`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
-                        {codeEditor}
+                        {codeEditorWithBlameFooter}
                     </Panel>
                     <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
                     <Panel id={`${tabId}-preview`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
@@ -423,7 +415,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                     </Panel>
                 </Group>
             ) : (
-                codeEditor
+                codeEditorWithBlameFooter
             )}
         </div>
     )

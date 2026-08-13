@@ -8,6 +8,7 @@ import {
     findMatchingKeymapEntry,
     formatKeymapShortcut,
     matchesKeymapEntry,
+    normalizeKeymapEventKey,
     normalizeKeymapKey,
     parseKeymapOverrides,
     serializeKeymapOverrides,
@@ -55,6 +56,36 @@ describe('matchesKeymapEntry', () => {
     test('key 가 빈 문자열(unbind 센티널)이면 항상 매칭되지 않는다', () => {
         const entry: KeymapEntry = { id: 'save', key: '', mods: ['mod'], descriptionKey: 'keymap.quickOpen' }
         expect(matchesKeymapEntry(entry, { key: 's', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)).toBe(false)
+    })
+
+    test('mac Option+Space 는 합성 문자(NBSP)로 도착해도 space 항목에 매칭된다', () => {
+        const entry: KeymapEntry = { id: 'save', key: 'space', mods: ['alt'], descriptionKey: 'keymap.quickOpen' }
+        expect(matchesKeymapEntry(entry, { key: ' ', code: 'Space', metaKey: false, ctrlKey: false, shiftKey: false, altKey: true }, true)).toBe(true)
+    })
+
+    test('mac Option+문자는 합성 문자로 도착해도 물리 키 항목에 매칭된다', () => {
+        const entry: KeymapEntry = { id: 'save', key: 'k', mods: ['alt'], descriptionKey: 'keymap.quickOpen' }
+        expect(matchesKeymapEntry(entry, { key: '˚', code: 'KeyK', metaKey: false, ctrlKey: false, shiftKey: false, altKey: true }, true)).toBe(true)
+    })
+
+    test("레거시 저장분 ' '(공백 한 글자)도 Space 이벤트에 매칭된다", () => {
+        const entry: KeymapEntry = { id: 'save', key: ' ', mods: ['mod'], descriptionKey: 'keymap.quickOpen' }
+        expect(matchesKeymapEntry(entry, { key: ' ', code: 'Space', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)).toBe(true)
+    })
+
+    test('레거시 스킴(구버전 event.key 원문)으로 저장된 mac Option 합성 문자도 물리 키 이벤트에 매칭된다', () => {
+        const entry: KeymapEntry = { id: 'toggle-terminal', key: '˚', mods: ['alt'], descriptionKey: 'keymap.toggleTerminal' }
+        expect(matchesKeymapEntry(entry, { key: '˚', code: 'KeyK', metaKey: false, ctrlKey: false, shiftKey: false, altKey: true }, true)).toBe(true)
+    })
+
+    test('레거시 스킴으로 저장된 mac Option+Space 의 NBSP 원문도 매칭된다', () => {
+        const entry: KeymapEntry = { id: 'save', key: ' ', mods: ['alt'], descriptionKey: 'keymap.quickOpen' }
+        expect(matchesKeymapEntry(entry, { key: ' ', code: 'Space', metaKey: false, ctrlKey: false, shiftKey: false, altKey: true }, true)).toBe(true)
+    })
+
+    test('신규 스킴(정규화된 물리 키)으로 저장된 항목은 그대로 매칭된다', () => {
+        const entry: KeymapEntry = { id: 'toggle-terminal', key: 'k', mods: ['alt'], descriptionKey: 'keymap.toggleTerminal' }
+        expect(matchesKeymapEntry(entry, { key: '˚', code: 'KeyK', metaKey: false, ctrlKey: false, shiftKey: false, altKey: true }, true)).toBe(true)
     })
 })
 
@@ -221,5 +252,45 @@ describe('normalizeKeymapKey', () => {
     test('여러 글자 키는 그대로 유지한다', () => {
         expect(normalizeKeymapKey('Tab')).toBe('Tab')
         expect(normalizeKeymapKey('Escape')).toBe('Escape')
+    })
+})
+
+describe('normalizeKeymapEventKey', () => {
+    test('mac Option+Space 의 NBSP(U+00A0)는 code 로 space 를 유도한다', () => {
+        expect(normalizeKeymapEventKey({ key: ' ', code: 'Space' })).toBe('space')
+    })
+
+    test('일반 Space(공백 문자)도 canonical space 로 정규화한다', () => {
+        expect(normalizeKeymapEventKey({ key: ' ', code: 'Space' })).toBe('space')
+    })
+
+    test('mac Option+문자의 합성 문자는 code 로 물리 키를 유도한다', () => {
+        expect(normalizeKeymapEventKey({ key: '˚', code: 'KeyK' })).toBe('k')
+        expect(normalizeKeymapEventKey({ key: '•', code: 'Digit8' })).toBe('8')
+        expect(normalizeKeymapEventKey({ key: '–', code: 'Minus' })).toBe('-')
+    })
+
+    test('dead key(Option+E 등)는 code 로 물리 키를 유도한다', () => {
+        expect(normalizeKeymapEventKey({ key: 'Dead', code: 'KeyE' })).toBe('e')
+    })
+
+    test('깨끗한 단일 문자 key 는 code 보다 우선한다(비 US 레이아웃 보존)', () => {
+        expect(normalizeKeymapEventKey({ key: 'z', code: 'KeyY' })).toBe('z')
+        expect(normalizeKeymapEventKey({ key: 'A', code: 'KeyA' })).toBe('a')
+    })
+
+    test('Enter·Tab·화살표·F키는 기존 key 경로를 유지한다', () => {
+        expect(normalizeKeymapEventKey({ key: 'Enter', code: 'Enter' })).toBe('Enter')
+        expect(normalizeKeymapEventKey({ key: 'ArrowUp', code: 'ArrowUp' })).toBe('ArrowUp')
+        expect(normalizeKeymapEventKey({ key: 'F12', code: 'F12' })).toBe('F12')
+    })
+
+    test('code 가 없으면 key 정규화로 폴백한다', () => {
+        expect(normalizeKeymapEventKey({ key: 'P' })).toBe('p')
+        expect(normalizeKeymapEventKey({ key: 'Tab' })).toBe('Tab')
+    })
+
+    test('code 도 key 도 유도 불가하면 합성 문자를 그대로 소문자 정규화한다', () => {
+        expect(normalizeKeymapEventKey({ key: 'ß', code: 'IntlBackslash' })).toBe('ß')
     })
 })

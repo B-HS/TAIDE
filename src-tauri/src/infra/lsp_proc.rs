@@ -22,6 +22,7 @@ pub struct LspProcConfig {
 pub struct LspProcHandle {
     stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
     kill_requested: Arc<AtomicBool>,
+    pid: Option<u32>,
 }
 
 impl LspProcHandle {
@@ -35,6 +36,12 @@ impl LspProcHandle {
 
     pub fn kill(&self) {
         self.kill_requested.store(true, Ordering::SeqCst);
+    }
+
+    /// PID of the spawned language server process, for system-usage attribution
+    /// (`domain::system::commands::system_usage_breakdown`).
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
     }
 }
 
@@ -94,6 +101,7 @@ where
     let mut child = command
         .spawn()
         .map_err(|error| AppError::Internal(format!("언어 서버를 시작하지 못했습니다 ({}): {error}", config.command)))?;
+    let pid = child.id();
 
     let stdin = child
         .stdin
@@ -149,6 +157,7 @@ where
     Ok(LspProcHandle {
         stdin: tokio::sync::Mutex::new(stdin),
         kill_requested,
+        pid,
     })
 }
 

@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { LspSessionStatus, PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
@@ -27,6 +27,7 @@ import { ideStatusQueryOptions, useIdeStatusSync } from '@entities/ide/ide.query
 import { publishIdeDiagnostics, resolveIdeDiff, resolveIdeSave } from '@entities/ide/ide.ipc'
 import { removePendingClaudeDiff, setPendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import { StatusBar } from '@features/window/status-bar'
+import { SystemUsageModal } from '@widgets/system-usage-modal/system-usage-modal'
 
 const IDE_DIAGNOSTICS_PUSH_DEBOUNCE_MS = 300
 
@@ -52,6 +53,8 @@ type StatusBarContentProps = {
 
 export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, onToggleProblems }) => {
     const cursorSnapshotRef = useRef<{ line: number; column: number } | null>(null)
+
+    const [isUsageModalOpen, setUsageModalOpen] = useState(false)
 
     const queryClient = useQueryClient()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
@@ -204,26 +207,30 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
     }, [markers, activeProjectId, ideStatus?.running])
 
     return (
-        <StatusBar
-            lspSummary={lspSummary}
-            errorCount={errorCount}
-            isProblemsOpen={isProblemsOpen}
-            onToggleProblems={onToggleProblems}
-            systemUsage={showSystemUsage ? systemUsage : null}
-            ideStatus={ideStatus}
-            cursorPosition={cursorPosition}
-            editorFontSize={editorFontSize}
-            terminalFontSize={terminalFontSize}
-            onEditorFontSizeDecrease={decreaseEditorFontSize}
-            onEditorFontSizeIncrease={increaseEditorFontSize}
-            onEditorFontSizeReset={() => updateSettings({ ...emptySettingsPatch(), editorFontSize: DEFAULT_CODE_FONT_SIZE })}
-            onTerminalFontSizeDecrease={() =>
-                updateSettings({ ...emptySettingsPatch(), terminalFontSize: clampFontSize(terminalFontSize - CODE_FONT_SIZE_STEP) })
-            }
-            onTerminalFontSizeIncrease={() =>
-                updateSettings({ ...emptySettingsPatch(), terminalFontSize: clampFontSize(terminalFontSize + CODE_FONT_SIZE_STEP) })
-            }
-            onTerminalFontSizeReset={() => updateSettings({ ...emptySettingsPatch(), terminalFontSize: DEFAULT_CODE_FONT_SIZE })}
-        />
+        <>
+            <StatusBar
+                lspSummary={lspSummary}
+                errorCount={errorCount}
+                isProblemsOpen={isProblemsOpen}
+                onToggleProblems={onToggleProblems}
+                systemUsage={showSystemUsage ? systemUsage : null}
+                onOpenUsageDetail={() => setUsageModalOpen(true)}
+                ideStatus={ideStatus}
+                cursorPosition={cursorPosition}
+                editorFontSize={editorFontSize}
+                terminalFontSize={terminalFontSize}
+                onEditorFontSizeDecrease={decreaseEditorFontSize}
+                onEditorFontSizeIncrease={increaseEditorFontSize}
+                onEditorFontSizeReset={() => updateSettings({ ...emptySettingsPatch(), editorFontSize: DEFAULT_CODE_FONT_SIZE })}
+                onTerminalFontSizeDecrease={() =>
+                    updateSettings({ ...emptySettingsPatch(), terminalFontSize: clampFontSize(terminalFontSize - CODE_FONT_SIZE_STEP) })
+                }
+                onTerminalFontSizeIncrease={() =>
+                    updateSettings({ ...emptySettingsPatch(), terminalFontSize: clampFontSize(terminalFontSize + CODE_FONT_SIZE_STEP) })
+                }
+                onTerminalFontSizeReset={() => updateSettings({ ...emptySettingsPatch(), terminalFontSize: DEFAULT_CODE_FONT_SIZE })}
+            />
+            <SystemUsageModal open={isUsageModalOpen} onOpenChange={setUsageModalOpen} />
+        </>
     )
 }

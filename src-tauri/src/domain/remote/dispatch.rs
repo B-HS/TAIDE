@@ -121,6 +121,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "settings_update",
     "settings_set_theme",
     "system_usage_get",
+    "system_usage_breakdown",
     "system_open_path",
     "system_reveal_path",
     "system_open_in_browser",
@@ -536,6 +537,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "settings_set_theme" => respond(settings::settings_set_theme(app.clone(), app.state(), arg!(args, "themeId")).await),
 
         "system_usage_get" => respond(system::system_usage_get(app.state()).await),
+        "system_usage_breakdown" => {
+            respond(system::system_usage_breakdown(app.state(), app.state(), app.state(), app.state(), app.state()).await)
+        }
         "system_open_path" => respond(system::system_open_path(app.state(), arg!(args, "path")).await),
         "system_reveal_path" => respond(system::system_reveal_path(app.state(), arg!(args, "path")).await),
         "system_open_in_browser" => respond(system::system_open_in_browser(app.state(), arg!(args, "path")).await),

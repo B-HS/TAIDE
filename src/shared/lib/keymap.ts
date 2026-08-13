@@ -32,6 +32,7 @@ export type KeymapEntry = {
 
 export type KeymapEvent = {
     key: string
+    code?: string
     metaKey: boolean
     ctrlKey: boolean
     shiftKey: boolean
@@ -59,9 +60,24 @@ export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'font-size-down', key: '-', mods: ['mod'], descriptionKey: 'keymap.fontSizeDown' },
 ]
 
+/**
+ * A stored entry.key may come from either of two capture schemes: the current physical-key
+ * scheme (`normalizeKeymapEventKey` — code-based, survives macOS Option composition) or the
+ * legacy scheme it replaced (raw `event.key`, lowercased). Entries saved under the legacy
+ * scheme have no `code` on record to re-derive the physical key from, so matching accepts
+ * either derivation of the live event rather than requiring a one-time data migration that
+ * would be lossy for composed/dead keys (Option+K, Option+Space, ...).
+ */
+const matchesEntryKey = (entryKey: string, event: KeymapEvent) => {
+    const canonicalEntryKey = canonicalizeKeymapKey(entryKey).toLowerCase()
+    const physicalKey = normalizeKeymapEventKey(event).toLowerCase()
+    const legacyKey = canonicalizeKeymapKey(normalizeKeymapKey(event.key)).toLowerCase()
+    return canonicalEntryKey === physicalKey || canonicalEntryKey === legacyKey
+}
+
 export const matchesKeymapEntry = (entry: Pick<KeymapEntry, 'key' | 'mods'>, event: KeymapEvent, isMac: boolean) => {
     if (!entry.key) return false
-    if (event.key.toLowerCase() !== entry.key.toLowerCase()) return false
+    if (!matchesEntryKey(entry.key, event)) return false
 
     const wantsMeta = entry.mods.includes('mod') && isMac
     const wantsCtrl = entry.mods.includes('ctrl') || (entry.mods.includes('mod') && !isMac)
@@ -146,5 +162,43 @@ export const captureModsFromEvent = (
 }
 
 export const normalizeKeymapKey = (key: string) => (key.length === 1 ? key.toLowerCase() : key)
+
+const canonicalizeKeymapKey = (key: string) => (key === ' ' ? 'space' : key)
+
+const CLEAN_SINGLE_KEY_PATTERN = /^[a-z0-9\-=[\];'`,./\\ ]$/i
+const LETTER_EVENT_CODE_PATTERN = /^Key([A-Z])$/
+const DIGIT_EVENT_CODE_PATTERN = /^Digit([0-9])$/
+const PUNCTUATION_KEY_BY_EVENT_CODE: Record<string, string> = {
+    Space: 'space',
+    Minus: '-',
+    Equal: '=',
+    BracketLeft: '[',
+    BracketRight: ']',
+    Semicolon: ';',
+    Quote: "'",
+    Backquote: '`',
+    Comma: ',',
+    Period: '.',
+    Slash: '/',
+    Backslash: '\\',
+}
+
+/**
+ * Derives the canonical keymap key from a keyboard event. A clean bindable single character in
+ * `event.key` wins (keeps non-US layouts correct — monaco resolves through the layout-aware legacy
+ * keyCode). When `event.key` arrives composed or dead instead (macOS Option combos: Option+Space
+ * = U+00A0, Option+K = '˚', Option+E = 'Dead'), the physical `event.code` supplies the canonical
+ * key for the layout-stable set (Space, KeyA-Z, Digit0-9, basic punctuation). Everything else
+ * (Enter, Tab, arrows, F-keys, ...) keeps the `event.key` path.
+ */
+export const normalizeKeymapEventKey = (event: Pick<KeymapEvent, 'key' | 'code'>) => {
+    if (CLEAN_SINGLE_KEY_PATTERN.test(event.key)) return canonicalizeKeymapKey(event.key.toLowerCase())
+    const code = event.code ?? ''
+    const letterMatch = LETTER_EVENT_CODE_PATTERN.exec(code)
+    if (letterMatch) return letterMatch[1].toLowerCase()
+    const digitMatch = DIGIT_EVENT_CODE_PATTERN.exec(code)
+    if (digitMatch) return digitMatch[1]
+    return PUNCTUATION_KEY_BY_EVENT_CODE[code] ?? normalizeKeymapKey(event.key)
+}
 
 export const MODIFIER_ONLY_KEYS = ['Shift', 'Control', 'Alt', 'Meta']

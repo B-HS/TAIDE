@@ -76,6 +76,19 @@ impl LspStore {
             }
         }
     }
+
+    /// Live language-server PIDs for system-usage attribution, keyed by owning
+    /// project and labeled with the server's display name (`LanguageServerSpec.name`).
+    pub fn server_pids(&self) -> Vec<(ProjectId, String, u32)> {
+        self.0
+            .lock()
+            .values()
+            .filter_map(|entry| {
+                let pid = entry.proc.lock().as_ref().and_then(|proc| proc.pid())?;
+                Some((entry.project_id.clone(), entry.spec.name.clone(), pid))
+            })
+            .collect()
+    }
 }
 
 #[derive(Default)]

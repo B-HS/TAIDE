@@ -179,6 +179,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::settings::commands::settings_update,
             domain::settings::commands::settings_set_theme,
             domain::system::commands::system_usage_get,
+            domain::system::commands::system_usage_breakdown,
             domain::system::commands::system_open_path,
             domain::system::commands::system_reveal_path,
             domain::system::commands::system_open_in_browser,

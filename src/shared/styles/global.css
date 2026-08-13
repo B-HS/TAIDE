@@ -194,6 +194,8 @@
     --color-editor-foreground: var(--taide-editor-foreground);
     --color-editor-widget-background: var(--taide-editor-widget-background);
     --color-editor-widget-border: var(--taide-editor-widget-border);
+    --color-editor-blame-foreground: var(--taide-editor-blame-foreground);
+    --color-editor-blame-background: var(--taide-editor-blame-background);
 
     --color-terminal-background: var(--taide-terminal-background);
     --color-terminal-foreground: var(--taide-terminal-foreground);
@@ -350,19 +352,6 @@
     border-style: solid;
     border-width: 4px 0 4px 6px;
     border-color: transparent transparent transparent var(--taide-editor-gutter-deleted-background);
-}
-
-.taide-blame-zone {
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-    color: var(--taide-editor-blame-foreground);
-    background: var(--taide-editor-blame-background);
-    font-style: italic;
-    opacity: 0.7;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    pointer-events: none;
 }
 
 .xterm textarea.xterm-helper-textarea {

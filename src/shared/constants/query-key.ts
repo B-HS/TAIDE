@@ -79,6 +79,7 @@ export const QUERY_KEY = {
     SYSTEM: {
         ALL: ['system'] as const,
         USAGE: ['system', 'usage'] as const,
+        USAGE_BREAKDOWN: ['system', 'usage', 'breakdown'] as const,
     },
     IDE: {
         ALL: ['ide'] as const,

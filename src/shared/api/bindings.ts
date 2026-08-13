@@ -112,6 +112,7 @@ export const commands = {
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
 	systemUsageGet: () => typedError<SystemUsage, AppError>(__TAURI_INVOKE("system_usage_get")),
+	systemUsageBreakdown: () => typedError<SystemUsageProcess[], AppError>(__TAURI_INVOKE("system_usage_breakdown")),
 	systemOpenPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_path", { path })),
 	systemRevealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_reveal_path", { path })),
 	systemOpenInBrowser: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_in_browser", { path })),
@@ -823,6 +824,21 @@ export type SystemUsage = {
 	cpuPercent: number | null,
 	memoryBytes: number | null,
 };
+
+export type SystemUsageProcess = {
+	pid: number,
+	kind: SystemUsageProcessKind,
+	label: string,
+	/**
+	 *  `null` until this pid has survived one prior breakdown refresh — sysinfo reports
+	 *  `cpu_usage() == 0.0` for a pid it has never refreshed before, which is indistinguishable
+	 *  from a genuinely idle process (ipc-contract.md §기능 확장 2차 계약 확정 추가).
+	 */
+	cpuPercent: number | null,
+	memoryBytes: number | null,
+};
+
+export type SystemUsageProcessKind = "app" | "terminal" | "lsp" | "agent" | "other";
 
 export type Tab = {
 	id: TabId,

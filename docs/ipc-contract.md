@@ -245,6 +245,40 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `settings.pluginError.{grammarMissing,grammarInvalid,grammarConflict}` 로케일 키를 en/ko/ja
   4곳(스키마+3언어)에 동기 추가한다.
 
+### 기능 확장 1차 계약 확정 추가 (taide CLI·sticky scroll)
+
+- agent(신설 3종, 디스패치 파리티 137→140): mutation `agent_cli_install` / `agent_cli_uninstall`
+  → `CliInstallStatus`(+`dangling: boolean` — 심링크는 있으나 canonicalize 실패 = 재설치 필요).
+  macOS 전용(그 외 플랫폼·dev 빌드는 `InvalidArgument` 거부). install 은 멱등(이미 우리 target
+  이면 osascript 생략), uninstall 은 `remove_file` → `PermissionDenied` 시에만 osascript,
+  `read_link` 가 `taide-cli` 로 끝나지 않으면 거부(타 도구 심링크 보호), 사용자 취소(exit 1 +
+  "-128")는 조용한 no-op. query `agent_pending_external_opens` → `ExternalOpenRequest[]`(drain) —
+  콜드스타트 argv 와 single-instance 콜백이 적재한 pending 열기 요청을 프론트가 부팅 시 1회 +
+  `AgentExternalOpen` 이벤트 수신 시마다 소진한다(이벤트 payload 직접 처리 금지 — 중복 재오픈 방지).
+- settings: `Settings`/`SettingsPatch` 에 `editorStickyScrollEnabled: boolean`(기본 true),
+  `aiOmlxBaseUrl: string | null`(QA6 후속 1차 — sanitize: http/https 만, trailing slash 제거,
+  빈 문자열 패치 = 명시 해제) 추가.
+
+### 기능 확장 2차 계약 확정 추가 (system usage breakdown)
+
+- system(신설): query `system_usage_breakdown` → `SystemUsageProcess[]`.
+  `SystemUsageProcess { pid: number, kind: SystemUsageProcessKind, label: string,
+  cpuPercent: number | null, memoryBytes: number }`,
+  `SystemUsageProcessKind = "app" | "terminal" | "lsp" | "agent" | "other"`.
+  TAIDE 프로세스(root pid)와 그 자손 프로세스 전체를 반환한다(터미널 pty·LSP 서버·감지된 에이전트
+  포함). pid 분류는 **도메인 라벨 우선**(터미널 foreground pid·LSP 서버 pid·에이전트 pid — 각
+  도메인이 이미 알고 있는 매핑)이고, 도메인이 모르는 pid 는 `classify_process_name` 프로세스명
+  폴백으로 분류한다(`SHELL_PROCESS_NAMES` → terminal, `KNOWN_LSP_BINARY_NAMES` → lsp, 그 외 other).
+  `system_usage_get` 과는 **완전히 분리된 별도 `System` 인스턴스**로 갱신한다 — 두 커맨드가 하나의
+  `System` 을 공유하면 두 폴러의 위상차가 sysinfo 의 200ms 최소 갱신 간격보다 좁을 때 앱 pid 의
+  CPU 델타가 붕괴한다. 처음 등장한 pid(이전 breakdown 호출에서 본 적 없는 pid)는
+  `cpuPercent: null` 로 반환한다(sysinfo 는 한 번도 refresh 하지 않은 pid 의 `cpu_usage()` 를 0.0 으로
+  주는데, 이는 진짜 idle 과 구분이 안 되므로 `system_usage_get` 의 `has_previous_sample` 게이트와
+  같은 원칙을 pid 단위로 적용한 것). 프론트는 모달이 열려 있는 동안만(`enabled`) `refetchInterval` 로
+  폴링하고 `gcTime: 0` 이라 모달을 닫으면 캐시를 버리지만, 백엔드 `System` 인스턴스 자체는 앱
+  생애주기 동안 유지되므로 이미 알려진 pid 는 재오픈 즉시 유효한 값을 돌려준다(모달을 반복해 열어도
+  값이 붕괴하지 않는다). 디스패치 파리티: 140→141.
+
 ### raw 커맨드 (specta 밖)
 
 `RAW_CHANNEL_COMMANDS`(`src-tauri/src/lib.rs`)에 등록된 3종은 specta 를 통과하지 못해

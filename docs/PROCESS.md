@@ -1077,6 +1077,25 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
 - 검토 웨이브: 렌즈 30건 → 검증 14건 → 확정 11건(중복 제외 9) 전부 수정(critical: sticky prop
   누락 / major: 액션 회색 고착·중복 재오픈·blame 뷰포트 이탈·wait marker 누수 등). 오버플로
   16건 중 실질 신규 2건은 메인이 직접 수정, 잔여는 중복 또는 minor(알려진 한계로 기록)
+
+## 진행 중: 기능 확장 2차 — 사용자 실기 보고 3건 (2026-08-13)
+
+- [x] k. 단축키 재바인딩 버그(Trigger Suggest = Opt+Space 무동작) — 원인 확정(fable+high): macOS
+      Alt 조합은 event.key 가 합성 문자(NBSP·˚)로 도착, 캡처가 event.key 기반 + 가드 무피드백 거부.
+      수정 = `normalizeKeymapEventKey`(**event.key 가 깨끗한 단일 문자면 유지, 합성/데드 문자일
+      때만 event.code 유도** — code 무조건 우선은 비US 레이아웃에서 monaco 의 keyCode 해석과
+      어긋나 기각) + 캡처·런타임 매칭 통일 + 거부 토스트 2종(바인딩 불가·수식어 필요) + 레거시
+      합성 문자 저장분 OR 매칭 하위호환. monaco 측은 keyCode 기반이라 무결(소스 논증)
+- [x] l. blame footer 바 — view zone 전량 삭제, `features/editor/blame-footer-bar.tsx` 신설
+      (pane 별 자기 커서 줄, 고정 높이 h-6 — 레이아웃 흔들림 방지 근거 기록, ref.textContent
+      갱신은 외부 시스템 동기화 패턴 — 렌즈 지적을 사유와 함께 수용 기각)
+- [x] m. 시스템 usage 상세 모달 — `system_usage_breakdown` IPC(디스패치 141), 자손 BFS + 도메인
+      PID 매핑(터미널 foreground_pids·LSP server_pids 신설·에이전트 캐시) + 프로세스명 폴백,
+      모달 열림 동안만 3초 폴링. LSP PID 미저장 갭도 최소 침습으로 해소
+- 검토 웨이브: 렌즈 25건 → 확정 7건(중복 제외 5) 전부 수정 — 레거시 override 하위호환(OR 매칭),
+  System 인스턴스 분리(상태바 CPU% 붕괴), 첫 pid 샘플 cpuPercent null 게이팅, 수식어 없는 캡처
+  토스트, ipc-contract.md 정본화(1차 커맨드 3종은 메인이 보완). 기각 5건(footer 고정 높이 등은
+  의도 설계로 판정)
 - [x] f. QA6 후속 1차 확정 결함 14건 수정 (defect-fix 에이전트, 2026-08-12) — OMLX base URL 해제 불가
       (settings-view.tsx + service.rs `merge_ai_omlx_base_url` 신설, empty-string 센티널) · 스킴만
       있는/host 없는 URL 통과 및 조용한 기존값 폐기(`sanitize_optional_url` host 검증 + 유효성 실패

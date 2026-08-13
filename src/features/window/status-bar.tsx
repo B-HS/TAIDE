@@ -45,6 +45,7 @@ type StatusBarProps = {
     isProblemsOpen: boolean
     onToggleProblems: () => void
     systemUsage: SystemUsage | null
+    onOpenUsageDetail: () => void
     ideStatus: IdeStatus | null
     cursorPosition: CursorPosition | null
     editorFontSize: number
@@ -63,6 +64,7 @@ export const StatusBar: FC<StatusBarProps> = ({
     isProblemsOpen,
     onToggleProblems,
     systemUsage,
+    onOpenUsageDetail,
     ideStatus,
     cursorPosition,
     editorFontSize,
@@ -140,13 +142,16 @@ export const StatusBar: FC<StatusBarProps> = ({
                 {systemUsage && (
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <span className='text-app-sidebar-icon-default flex shrink-0 items-center gap-1'>
+                            <button
+                                type='button'
+                                onClick={onOpenUsageDetail}
+                                className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex shrink-0 items-center gap-1 rounded-sm px-1'>
                                 <Activity className='size-3' />
                                 {t('window.systemUsage', {
                                     cpu: systemUsage.cpuPercent === null ? '--' : Math.round(systemUsage.cpuPercent),
                                     memory: Math.round((systemUsage.memoryBytes ?? 0) / BYTES_PER_MEBIBYTE),
                                 })}
-                            </span>
+                            </button>
                         </TooltipTrigger>
                         <TooltipContent side='top'>{t('window.systemUsageHint')}</TooltipContent>
                     </Tooltip>

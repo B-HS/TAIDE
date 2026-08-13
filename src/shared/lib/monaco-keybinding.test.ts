@@ -17,6 +17,11 @@ describe('resolveMonacoKeyCode', () => {
         expect(resolveMonacoKeyCode('\\')).toBe(93)
     })
 
+    test("canonical 'space' 와 레거시 ' ' 모두 Space KeyCode(10)로 변환한다", () => {
+        expect(resolveMonacoKeyCode('space')).toBe(10)
+        expect(resolveMonacoKeyCode(' ')).toBe(10)
+    })
+
     test('알 수 없는 키는 null 을 반환한다', () => {
         expect(resolveMonacoKeyCode('Unknown')).toBeNull()
     })
@@ -37,6 +42,10 @@ describe('buildMonacoKeybinding', () => {
 
     test('modifier 없이 키만 지정할 수 있다', () => {
         expect(buildMonacoKeybinding('F12', [])).toBe(70)
+    })
+
+    test('Option+Space(alt+space) 는 Alt 비트(512)와 Space(10)의 조합이 된다', () => {
+        expect(buildMonacoKeybinding('space', ['alt'])).toBe(512 | 10)
     })
 
     test('알 수 없는 키면 null 을 반환한다', () => {

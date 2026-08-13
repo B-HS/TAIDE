@@ -4,6 +4,8 @@ import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const getSystemUsage = () => unwrapResult(commands.systemUsageGet())
 
+export const getSystemUsageBreakdown = () => unwrapResult(commands.systemUsageBreakdown())
+
 export const systemOpenPath = (path: string) => unwrapResult(commands.systemOpenPath(path))
 
 export const systemRevealPath = (path: string) => unwrapResult(commands.systemRevealPath(path))

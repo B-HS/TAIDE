@@ -21,7 +21,7 @@ import {
     MODIFIER_ONLY_KEYS,
     captureModsFromEvent,
     formatKeymapShortcut,
-    normalizeKeymapKey,
+    normalizeKeymapEventKey,
     parseKeymapOverrides,
     serializeKeymapOverrides,
 } from '@shared/lib/keymap'
@@ -91,7 +91,10 @@ export const KeybindingsEditor = () => {
 
     const handleChangeBinding = (rowId: string, key: string, mods: KeymapModifier[]) => {
         if (mods.length === 0) return
-        if (isMonacoCommandId(rowId) && resolveMonacoKeyCode(key) === null) return
+        if (isMonacoCommandId(rowId) && resolveMonacoKeyCode(key) === null) {
+            toast.warning(t('settings.keymapKeyNotBindable'))
+            return
+        }
         const currentRow = findKeybindingRowById(rows, rowId)
         const conflict = currentRow ? findConflictingRow(rows, { ...currentRow, key, mods }) : null
         if (conflict)
@@ -115,7 +118,7 @@ export const KeybindingsEditor = () => {
             return
         }
         if (MODIFIER_ONLY_KEYS.includes(event.key)) return
-        setSearchedKey({ key: normalizeKeymapKey(event.key), mods: captureModsFromEvent(event) })
+        setSearchedKey({ key: normalizeKeymapEventKey(event), mods: captureModsFromEvent(event) })
     }
 
     const handleDialogEscapeKeyDown = (event: KeyboardEvent) => {

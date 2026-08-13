@@ -1,11 +1,12 @@
 import type { FC, KeyboardEvent } from 'react'
 import { RotateCcw, TriangleAlert, Unlink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import type { KeybindingRow as KeybindingRowData } from '@shared/lib/keybinding-catalog'
 import { isKeybindingRowUnassigned } from '@shared/lib/keybinding-catalog'
 import { formatCategorizedLabel } from '@shared/lib/command-registry'
 import type { KeymapModifier } from '@shared/lib/keymap'
-import { MODIFIER_ONLY_KEYS, captureModsFromEvent, formatKeymapShortcut, normalizeKeymapKey } from '@shared/lib/keymap'
+import { MODIFIER_ONLY_KEYS, captureModsFromEvent, formatKeymapShortcut, normalizeKeymapEventKey } from '@shared/lib/keymap'
 import { cn } from '@shared/lib/cn'
 import { Button } from '@shared/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
@@ -42,8 +43,8 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
         if (event.key === 'Escape') return onCancelCapture()
         if (MODIFIER_ONLY_KEYS.includes(event.key)) return
         const mods = captureModsFromEvent(event)
-        if (mods.length === 0) return
-        onCaptureKey(normalizeKeymapKey(event.key), mods)
+        if (mods.length === 0) return toast.warning(t('settings.keymapModifierRequired'))
+        onCaptureKey(normalizeKeymapEventKey(event), mods)
     }
 
     return (
