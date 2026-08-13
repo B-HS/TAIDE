@@ -7,7 +7,9 @@ use tauri::State;
 
 use super::hooks;
 use super::service;
-use super::types::{AgentActivity, AgentHooksStatus, CliInstallStatus, DetectedAgent, HookInstallScope, ProjectAgents};
+use super::types::{
+    AgentActivity, AgentHooksStatus, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ProjectAgents,
+};
 use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -23,6 +25,7 @@ struct AgentStoreInner {
     agents: HashMap<ProjectId, Vec<DetectedAgent>>,
     wait_markers: HashSet<String>,
     activity_last_active: HashMap<String, Instant>,
+    pending_external_opens: Vec<ExternalOpenRequest>,
 }
 
 #[derive(Default)]
@@ -89,6 +92,17 @@ impl AgentStore {
 
     pub fn take_all_markers(&self) -> Vec<String> {
         std::mem::take(&mut self.0.lock().wait_markers).into_iter().collect()
+    }
+
+    /// Queues an external-open request (from a cold-start or single-instance `taide <file>`
+    /// invocation) so the frontend can drain it once it has mounted and subscribed, even if it
+    /// missed the corresponding `AgentExternalOpen` event.
+    pub fn push_pending_external_open(&self, request: ExternalOpenRequest) {
+        self.0.lock().pending_external_opens.push(request);
+    }
+
+    pub fn drain_pending_external_opens(&self) -> Vec<ExternalOpenRequest> {
+        std::mem::take(&mut self.0.lock().pending_external_opens)
     }
 }
 
@@ -330,10 +344,35 @@ fn resolve_cli_install_status() -> CliInstallStatus {
     match std::fs::symlink_metadata(target) {
         Ok(_) => {
             let resolved = std::fs::canonicalize(target).ok().map(|path| path.to_string_lossy().to_string());
-            service::build_cli_install_status(TAIDE_CLI_TARGET_PATH, true, resolved)
+            let dangling = resolved.is_none();
+            service::build_cli_install_status(TAIDE_CLI_TARGET_PATH, true, resolved, dangling)
         }
-        Err(_) => service::build_cli_install_status(TAIDE_CLI_TARGET_PATH, false, None),
+        Err(_) => service::build_cli_install_status(TAIDE_CLI_TARGET_PATH, false, None, false),
     }
+}
+
+/// Resolves the CLI sidecar symlink target from the running app's own executable path, rejecting
+/// unbundled dev builds. Shared by install (needs the target) and uninstall (only needs the gate).
+#[cfg(target_os = "macos")]
+fn cli_install_target() -> AppResult<PathBuf> {
+    let exe = std::env::current_exe()?;
+    service::resolve_cli_install_target(&exe).ok_or_else(|| {
+        AppError::InvalidArgument("taide CLI shell command is only available in the installed TAIDE.app (not a dev build)".to_string())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn run_cli_osascript(script: &str) -> AppResult<()> {
+    let args = service::build_osascript_args(script);
+    let output = std::process::Command::new("osascript").args(&args).output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if service::is_osascript_user_cancelled(output.status.code(), &stderr) {
+        return Ok(());
+    }
+    Err(AppError::Internal(format!("osascript failed: {stderr}")))
 }
 
 fn settings_local_path(root: &str) -> PathBuf {
@@ -440,6 +479,77 @@ pub async fn agent_release_marker(state: State<'_, AppState>, agents: State<'_, 
 #[specta::specta]
 pub async fn agent_cli_status() -> AppResult<CliInstallStatus> {
     Ok(resolve_cli_install_status())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_cli_install() -> AppResult<CliInstallStatus> {
+    let target = cli_install_target()?;
+    let source = Path::new(TAIDE_CLI_TARGET_PATH);
+
+    let already_linked = std::fs::read_link(source).is_ok_and(|existing| existing == target);
+    if !already_linked {
+        run_cli_osascript(&service::build_cli_install_apple_script(&target, source))?;
+    }
+
+    Ok(resolve_cli_install_status())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_cli_install() -> AppResult<CliInstallStatus> {
+    Err(AppError::InvalidArgument(
+        "taide CLI shell command install is only supported on macOS".to_string(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_cli_uninstall() -> AppResult<CliInstallStatus> {
+    cli_install_target()?;
+    let source = Path::new(TAIDE_CLI_TARGET_PATH);
+
+    match std::fs::symlink_metadata(source) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(resolve_cli_install_status()),
+        Err(error) => return Err(AppError::from(error)),
+    }
+
+    let owned = std::fs::read_link(source).is_ok_and(|link_target| service::is_cli_symlink_owned(&link_target));
+    if !owned {
+        return Err(AppError::InvalidArgument(
+            "the existing 'taide' command is not managed by TAIDE and was not removed".to_string(),
+        ));
+    }
+
+    match std::fs::remove_file(source) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            run_cli_osascript(&service::build_cli_uninstall_apple_script(source))?;
+        }
+        Err(error) => return Err(AppError::from(error)),
+    }
+
+    Ok(resolve_cli_install_status())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_cli_uninstall() -> AppResult<CliInstallStatus> {
+    Err(AppError::InvalidArgument(
+        "taide CLI shell command uninstall is only supported on macOS".to_string(),
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_pending_external_opens(agents: State<'_, AgentStore>) -> AppResult<Vec<ExternalOpenRequest>> {
+    Ok(agents.drain_pending_external_opens())
 }
 
 #[tauri::command]

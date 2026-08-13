@@ -101,6 +101,10 @@ pub struct CliInstallStatus {
     pub installed: bool,
     #[serde(default)]
     pub resolved_path: Option<String>,
+    /// True when the symlink exists but its target can no longer be resolved
+    /// (e.g. the app bundle moved or was removed) — a reinstall is needed.
+    #[serde(default)]
+    pub dangling: bool,
     pub target_path: String,
     pub editor_env_hint: String,
 }

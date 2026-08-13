@@ -111,6 +111,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
             cursorStyle={(settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE) as EditorCursorStyle}
             cursorBlinking={(settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING) as EditorCursorBlinkingStyle}
             scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
+            stickyScroll={settings?.editorStickyScrollEnabled ?? true}
             aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
             aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}

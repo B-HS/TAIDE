@@ -119,6 +119,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::agent::commands::agent_hooks_status,
             domain::agent::commands::agent_hooks_install,
             domain::agent::commands::agent_hooks_uninstall,
+            domain::agent::commands::agent_cli_install,
+            domain::agent::commands::agent_cli_uninstall,
+            domain::agent::commands::agent_pending_external_opens,
             domain::lsp::commands::lsp_spawn,
             domain::lsp::commands::lsp_send,
             domain::lsp::commands::lsp_stop,
@@ -311,6 +314,22 @@ fn restore_state(state: &AppState) -> Vec<String> {
     warnings
 }
 
+/// Handles a cold-start `taide <file>` invocation. `tauri-plugin-single-instance` only forwards
+/// argv to a *second* launch's callback, so a cold start that spawns the app fresh never reaches
+/// it; this queues the request into `AgentStore` instead so the frontend can drain it on boot.
+fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
+    let argv: Vec<String> = std::env::args().collect();
+    let Some(request) = domain::agent::service::parse_cli_payload(&argv) else {
+        return;
+    };
+
+    let agent_store = app_handle.state::<AgentStore>();
+    if let Some(marker) = request.wait_marker.clone() {
+        agent_store.register_wait_marker(marker);
+    }
+    agent_store.push_pending_external_open(request);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = specta_builder();
@@ -338,9 +357,11 @@ pub fn run() {
             }
 
             if let Some(request) = domain::agent::service::parse_cli_payload(&argv) {
+                let agent_store = app_handle.state::<AgentStore>();
                 if let Some(marker) = request.wait_marker.clone() {
-                    app_handle.state::<AgentStore>().register_wait_marker(marker);
+                    agent_store.register_wait_marker(marker);
                 }
+                agent_store.push_pending_external_open(request.clone());
                 let _ = AgentExternalOpen { request }.emit(app_handle);
             }
         }));
@@ -401,6 +422,8 @@ pub fn run() {
             app.manage(AiInlineStore::default());
             app.manage(SecretStoreState::default());
             app.manage(RemoteStore::default());
+
+            queue_cold_start_external_open(app.handle());
 
             macro_rules! fanout_remote_events {
                 ($($event:ty),+ $(,)?) => {

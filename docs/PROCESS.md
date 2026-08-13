@@ -1055,6 +1055,28 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       찾는다. 육안 확인은 e 로 이관.
 - [ ] e. QA6 잔여 — W7 콘솔 무오류 확인 + b/c/d 실기 확인(단축키 모달·OMLX 실서버 왕복·툴팁 육안) +
       체크리스트 나머지 항목 계속(사용자 실기)
+
+## 진행 중: 기능 확장 1차 — 사용자 요구 4건 (2026-08-13)
+
+> 사용자 보고: VS Code·Cursor 대비 기능 격차 체감. 정찰(opus) → 계약 → 구현 순.
+
+- [x] g. blame 표시 UX 변경 — IViewZone 으로 포커스 줄 위 이동(`shared/lib/monaco/blame-zone.ts`,
+      keepCursorStable 시프트 보정·StableEditorScrollState 관용구·첫 줄 afterLineNumber 0).
+      ghost text 충돌 구조적 소멸. 실기 확인 대기
+- [x] h. monaco 에디터 액션 노출 — 150건 전수(`shared/lib/monaco-actions.ts`), B안(실행 monaco·
+      표시/재바인딩 모달, addKeybindingRules), 하이브리드 i18n(tier1 42 번역). capture
+      stopPropagation 잠재결함 수정 동반. 메인 2차 추가 수정 2건: 변환 불가 키 재바인딩 시 기본
+      바인딩 보존+캡처 거부, 미지정 판정을 isKeybindingRowUnassigned 로 통일(표시·필터·카운트)
+- [x] i. taide CLI — install/uninstall(osascript·멱등·소유 검증·dangling 판정) + 콜드스타트 argv
+      pending 큐 + AgentExternalOpen 프론트 배선(폴더/파일 분기·wait marker 해제) + externalBin
+      사이드카(`scripts/tauri.ts` 진입점 — dev 를 깨지 않도록 tauri.bundle.conf.json 분리, 계약
+      문언 대비 정당한 편차). 디스패치 137→140. 실기 확인 대기
+- [x] j. VS Code·Cursor 갭 분석 — `docs/research/2026-08-13-vscode-cursor-gap.md`(P0 10·P1 10·
+      우위 9·비추천 목록). backlog 정정 1건. P0 퀵윈 5건 동반 구현: sticky scroll 설정·커서 위치
+      상태바·documentHighlight/selectionRange 어댑터·LSP initialize capabilities 확충
+- 검토 웨이브: 렌즈 30건 → 검증 14건 → 확정 11건(중복 제외 9) 전부 수정(critical: sticky prop
+  누락 / major: 액션 회색 고착·중복 재오픈·blame 뷰포트 이탈·wait marker 누수 등). 오버플로
+  16건 중 실질 신규 2건은 메인이 직접 수정, 잔여는 중복 또는 minor(알려진 한계로 기록)
 - [x] f. QA6 후속 1차 확정 결함 14건 수정 (defect-fix 에이전트, 2026-08-12) — OMLX base URL 해제 불가
       (settings-view.tsx + service.rs `merge_ai_omlx_base_url` 신설, empty-string 센티널) · 스킴만
       있는/host 없는 URL 통과 및 조용한 기존값 폐기(`sanitize_optional_url` host 검증 + 유효성 실패

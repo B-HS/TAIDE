@@ -52,6 +52,10 @@ const FEATURE_CAPABILITY_CHECKS: Record<string, (capabilities: ServerCapabilitie
     'textDocument/inlayHint': (capabilities) => capabilities.inlayHintProvider !== undefined && capabilities.inlayHintProvider !== false,
     'textDocument/documentSymbol': (capabilities) =>
         capabilities.documentSymbolProvider !== undefined && capabilities.documentSymbolProvider !== false,
+    'textDocument/documentHighlight': (capabilities) =>
+        capabilities.documentHighlightProvider !== undefined && capabilities.documentHighlightProvider !== false,
+    'textDocument/selectionRange': (capabilities) =>
+        capabilities.selectionRangeProvider !== undefined && capabilities.selectionRangeProvider !== false,
     'textDocument/diagnostic': (capabilities) => capabilities.diagnosticProvider !== undefined,
 }
 

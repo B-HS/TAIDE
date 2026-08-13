@@ -81,6 +81,8 @@ pub struct Settings {
     pub editor_cursor_blinking: String,
     #[serde(default = "default_true")]
     pub editor_scroll_beyond_last_line: bool,
+    #[serde(default = "default_true")]
+    pub editor_sticky_scroll_enabled: bool,
     #[serde(default = "default_terminal_scrollback")]
     pub terminal_scrollback: u32,
     #[serde(default = "default_terminal_cursor_style")]
@@ -192,6 +194,7 @@ impl Default for Settings {
             editor_cursor_style: default_editor_cursor_style(),
             editor_cursor_blinking: default_editor_cursor_blinking(),
             editor_scroll_beyond_last_line: default_true(),
+            editor_sticky_scroll_enabled: default_true(),
             terminal_scrollback: default_terminal_scrollback(),
             terminal_cursor_style: default_terminal_cursor_style(),
             terminal_cursor_blink: default_true(),

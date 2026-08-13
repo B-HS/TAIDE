@@ -5,12 +5,14 @@ import { createLspClient } from '@shared/lib/lsp/client'
 import { registerCompletion } from '@shared/lib/lsp/adapters/completion'
 import { registerDefinition } from '@shared/lib/lsp/adapters/definition'
 import { registerDiagnostics } from '@shared/lib/lsp/adapters/diagnostics'
+import { registerDocumentHighlight } from '@shared/lib/lsp/adapters/document-highlight'
 import { registerDocumentSymbol } from '@shared/lib/lsp/adapters/document-symbol'
 import { registerFormatting } from '@shared/lib/lsp/adapters/formatting'
 import { registerHover } from '@shared/lib/lsp/adapters/hover'
 import { registerInlayHints } from '@shared/lib/lsp/adapters/inlay-hints'
 import { registerReferences } from '@shared/lib/lsp/adapters/references'
 import { registerRename } from '@shared/lib/lsp/adapters/rename'
+import { registerSelectionRange } from '@shared/lib/lsp/adapters/selection-range'
 import { registerSignatureHelp } from '@shared/lib/lsp/adapters/signature-help'
 import { sendLspMessage, spawnLspSession, stopLspSession } from '@entities/lsp/lsp.ipc'
 
@@ -19,12 +21,14 @@ type Disposable = { dispose: () => void }
 const LANGUAGE_ADAPTER_REGISTRARS = [
     registerCompletion,
     registerDefinition,
+    registerDocumentHighlight,
     registerDocumentSymbol,
     registerFormatting,
     registerHover,
     registerInlayHints,
     registerReferences,
     registerRename,
+    registerSelectionRange,
     registerSignatureHelp,
 ]
 
@@ -39,6 +43,7 @@ export type SessionRecord = {
 
 const sessionsByKey = new Map<string, SessionRecord>()
 const waitersByKey = new Map<string, Set<() => void>>()
+const languageAdapterListeners = new Set<() => void>()
 
 const toSessionKey = (projectId: ProjectId, serverId: LspServerId) => `${projectId}::${serverId}`
 
@@ -167,12 +172,25 @@ export const releaseLspSession = (key: string, record: SessionRecord) => {
     void disposeSession(key, record)
 }
 
+/**
+ * Notifies subscribers whenever LSP-backed monaco providers (formatting/rename/etc.) are newly
+ * registered for a language. `editor.getSupportedActions()` precondition results depend on these
+ * providers, so consumers that cache a supported-action snapshot must recompute it on this event.
+ */
+export const subscribeLanguageAdapterRegistration = (listener: () => void) => {
+    languageAdapterListeners.add(listener)
+    return () => {
+        languageAdapterListeners.delete(listener)
+    }
+}
+
 export const ensureLanguageRegistered = (record: SessionRecord, client: LspClient, serverId: LspServerId, languageId: string) => {
     if (!record.diagnosticsDisposable) record.diagnosticsDisposable = registerDiagnostics(monaco, client, serverId)
     if (record.languageDisposables.has(languageId)) return
 
     const disposables = LANGUAGE_ADAPTER_REGISTRARS.map((register) => register(monaco, client, languageId))
     record.languageDisposables.set(languageId, disposables)
+    for (const listener of languageAdapterListeners) listener()
 }
 
 export const acquireDocument = (record: SessionRecord, client: LspClient, uri: string, languageId: string, text: string) => {

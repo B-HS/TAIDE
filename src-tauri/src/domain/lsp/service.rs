@@ -314,6 +314,15 @@ pub fn initialize_params(spec: &LanguageServerSpec, roots: &[PathBuf]) -> serde_
                 "completion": { "completionItem": { "snippetSupport": true } },
                 "rename": { "prepareSupport": true },
                 "publishDiagnostics": { "relatedInformation": true },
+                "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+                "hover": { "contentFormat": ["markdown", "plaintext"] },
+                "signatureHelp": {},
+                "inlayHint": {},
+                "references": {},
+                "definition": {},
+                "formatting": {},
+                "documentHighlight": {},
+                "selectionRange": {},
             },
         },
         "initializationOptions": spec.initialization_options.clone().unwrap_or(serde_json::Value::Null),
@@ -582,6 +591,31 @@ mod tests {
 
         assert_eq!(params["capabilities"]["general"]["positionEncoding"], serde_json::json!(["utf-16"]));
         assert_eq!(params["clientInfo"]["name"], serde_json::json!("TAIDE"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn initialize_파라미터에_구현된_어댑터에_대응하는_capability가_선언된다() {
+        let spec = spec_by_id("vtsls");
+        let root = make_temp_dir();
+        let params = initialize_params(&spec, std::slice::from_ref(&root));
+        let text_document = &params["capabilities"]["textDocument"];
+
+        assert_eq!(
+            text_document["documentSymbol"]["hierarchicalDocumentSymbolSupport"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            text_document["hover"]["contentFormat"],
+            serde_json::json!(["markdown", "plaintext"])
+        );
+        assert!(text_document["signatureHelp"].is_object());
+        assert!(text_document["inlayHint"].is_object());
+        assert!(text_document["references"].is_object());
+        assert!(text_document["definition"].is_object());
+        assert!(text_document["formatting"].is_object());
+        assert!(text_document["documentHighlight"].is_object());
+        assert!(text_document["selectionRange"].is_object());
         std::fs::remove_dir_all(&root).ok();
     }
 

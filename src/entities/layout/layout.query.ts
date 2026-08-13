@@ -2,6 +2,8 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import type { ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { findPaneTab } from '@shared/lib/pane-tree'
+import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
+import { releaseWaitMarker } from '@entities/agent/agent.ipc'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import {
     activateTab,
@@ -46,6 +48,9 @@ export const useCloseTab = (projectId: ProjectId | null) => {
             const previous = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''))
             const closedKind = previous ? findPaneTab(previous.root, tabId)?.kind : null
             if (closedKind?.kind === 'claudeDiff') removePendingClaudeDiff(closedKind.requestId)
+            if (closedKind?.kind === 'file') {
+                for (const marker of takeWaitMarkers(closedKind.path)) void releaseWaitMarker(marker)
+            }
             queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''), layout)
         },
     })

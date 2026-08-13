@@ -2,6 +2,7 @@ import type { FC, KeyboardEvent } from 'react'
 import { RotateCcw, TriangleAlert, Unlink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { KeybindingRow as KeybindingRowData } from '@shared/lib/keybinding-catalog'
+import { isKeybindingRowUnassigned } from '@shared/lib/keybinding-catalog'
 import { formatCategorizedLabel } from '@shared/lib/command-registry'
 import type { KeymapModifier } from '@shared/lib/keymap'
 import { MODIFIER_ONLY_KEYS, captureModsFromEvent, formatKeymapShortcut, normalizeKeymapKey } from '@shared/lib/keymap'
@@ -33,6 +34,8 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
     onResolveConflict,
 }) => {
     const { t } = useTranslation()
+    const isUnassigned = isKeybindingRowUnassigned(row)
+    const assignedBindingLabel = row.key ? formatKeymapShortcut(row) : (row.defaultBindingLabel ?? '')
 
     const handleCaptureKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
         event.preventDefault()
@@ -46,7 +49,9 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
     return (
         <li className='border-app-border grid min-w-0 grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-sm border px-3 py-1.5 text-xs'>
             <div className='flex min-w-0 flex-col gap-0.5'>
-                <span className='text-app-foreground truncate'>{formatCategorizedLabel(t, row.categoryKey, row.titleKey)}</span>
+                <span className='text-app-foreground truncate'>
+                    {formatCategorizedLabel(t, row.categoryKey, row.titleKey, row.titleDefaultValue ?? undefined)}
+                </span>
                 {conflictLabel && (
                     <span className='text-status-warning flex min-w-0 items-center gap-1'>
                         <TriangleAlert className='size-3 shrink-0' />
@@ -73,9 +78,9 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
                         className={cn(
                             'text-app-foreground font-mono',
                             row.isOverridden && 'text-app-accent',
-                            !row.key && 'text-app-sidebar-icon-default',
+                            isUnassigned && 'text-app-sidebar-icon-default',
                         )}>
-                        {row.key ? formatKeymapShortcut(row) : t('settings.keymapUnassigned')}
+                        {isUnassigned ? t('settings.keymapUnassigned') : assignedBindingLabel}
                     </span>
                     {conflictLabel && (
                         <span className='bg-status-warning/15 text-status-warning rounded-sm px-1 py-0.5 text-[10px]'>
@@ -103,7 +108,7 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
                         <TooltipContent side='bottom'>{t('settings.keymapResetOne')}</TooltipContent>
                     </Tooltip>
                 )}
-                {row.key && (
+                {(row.key || row.defaultBindingLabel) && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button type='button' variant='ghost' size='icon-xs' aria-label={t('settings.keymapUnbind')} onClick={onUnbind}>

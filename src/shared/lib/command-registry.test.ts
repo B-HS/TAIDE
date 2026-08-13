@@ -15,6 +15,7 @@ import {
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
+    activeEditorActionIds: null,
     openSettingsTab: () => {},
     openTerminalTab: () => {},
     reopenClosedTab: () => {},

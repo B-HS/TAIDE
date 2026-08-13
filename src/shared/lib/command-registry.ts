@@ -18,10 +18,20 @@ export const KEYMAP_CATEGORY = {
     FILE: 'keymap.category.file',
     SYNC: 'keymap.category.sync',
     WINDOW: 'keymap.category.window',
+    EDITOR_SUGGEST: 'keymap.category.editorSuggest',
+    EDITOR_NAVIGATION: 'keymap.category.editorNavigation',
+    EDITOR_SELECTION: 'keymap.category.editorSelection',
+    EDITOR_LINES: 'keymap.category.editorLines',
+    EDITOR_FOLDING: 'keymap.category.editorFolding',
+    EDITOR_FORMAT: 'keymap.category.editorFormat',
+    EDITOR_REFACTOR: 'keymap.category.editorRefactor',
+    EDITOR_DISPLAY: 'keymap.category.editorDisplay',
+    SHELL_COMMAND: 'keymap.category.shellCommand',
 } as const
 
 export type CommandContext = {
     activeProjectId: string | null
+    activeEditorActionIds: Set<string> | null
     openSettingsTab: () => void
     openTerminalTab: () => void
     reopenClosedTab: () => void
@@ -33,6 +43,7 @@ export type AppCommand = {
     titleKey: string
     categoryKey?: string
     keymapId?: KeymapActionId
+    titleDefaultValue?: string
     run: (context: CommandContext) => void | Promise<void>
     isEnabled?: (context: CommandContext) => boolean
 }
@@ -77,8 +88,10 @@ export const listRegisteredCommands = () => Array.from(commandRegistry.values())
 
 export const isCommandRunnable = (command: AppCommand, context: CommandContext) => (command.isEnabled ? command.isEnabled(context) : true)
 
-export const formatCategorizedLabel = (t: TFunction, categoryKey: string | null | undefined, titleKey: string) =>
-    categoryKey ? `${t(categoryKey)}: ${t(titleKey)}` : t(titleKey)
+export const formatCategorizedLabel = (t: TFunction, categoryKey: string | null | undefined, titleKey: string, titleDefaultValue?: string) => {
+    const title = titleDefaultValue ? t(titleKey, { defaultValue: titleDefaultValue }) : t(titleKey)
+    return categoryKey ? `${t(categoryKey)}: ${title}` : title
+}
 
 const notImplementedRun = () => {}
 

@@ -17,6 +17,13 @@ const commands: AppCommand[] = [
     { id: 'view.toggleSidebar', titleKey: 'keymap.toggleSidebar', categoryKey: 'keymap.category.view', keymapId: 'toggle-sidebar', run: () => {} },
     { id: 'window.reload', titleKey: 'app.reloadWindow', categoryKey: 'keymap.category.window', run: () => {} },
     { id: 'settings.open', titleKey: 'settings.title', categoryKey: 'keymap.category.app', run: () => {} },
+    {
+        id: 'monaco.editor.action.triggerSuggest',
+        titleKey: 'keymap.monaco.editor.action.triggerSuggest',
+        titleDefaultValue: 'Trigger Suggest',
+        categoryKey: 'keymap.category.editorSuggest',
+        run: () => {},
+    },
 ]
 
 describe('buildKeybindingRows', () => {
@@ -111,6 +118,34 @@ describe('findRunnableCommandBinding', () => {
         const rows = buildKeybindingRows(commands, [])
         const match = findRunnableCommandBinding(rows, { key: 's', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
         expect(match).toBeNull()
+    })
+})
+
+describe('monaco 커맨드 행', () => {
+    test('monaco. 접두 커맨드는 source: monaco 이고 카탈로그의 defaultBindingLabel 을 표시 전용으로 가져온다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        const row = rows.find((r) => r.commandId === 'monaco.editor.action.triggerSuggest')
+        expect(row).toMatchObject({ source: 'monaco', key: '', mods: [], defaultBindingLabel: '⌃Space', titleDefaultValue: 'Trigger Suggest' })
+    })
+
+    test('monaco 행은 오버라이드가 없어도 runsViaCommand 가 false 다 (전역 capture 가 실행하지 않는다)', () => {
+        const rows = buildKeybindingRows(commands, [])
+        const row = rows.find((r) => r.commandId === 'monaco.editor.action.triggerSuggest')
+        expect(row?.runsViaCommand).toBe(false)
+    })
+
+    test('monaco 행에 오버라이드를 지정해도 findRunnableCommandBinding 은 매칭하지 않는다 (이중 실행 방지)', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'monaco.editor.action.triggerSuggest', key: 'i', mods: ['mod'] }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const match = findRunnableCommandBinding(rows, { key: 'i', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        expect(match).toBeNull()
+    })
+
+    test('monaco 행에 오버라이드를 지정하면 key/mods 와 isOverridden 은 정상적으로 갱신된다 (표시·재바인딩 용도)', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'monaco.editor.action.triggerSuggest', key: 'i', mods: ['mod'] }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const row = rows.find((r) => r.commandId === 'monaco.editor.action.triggerSuggest')
+        expect(row).toMatchObject({ key: 'i', mods: ['mod'], isOverridden: true })
     })
 })
 

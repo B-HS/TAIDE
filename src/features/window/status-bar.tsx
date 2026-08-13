@@ -34,6 +34,11 @@ const IDE_STATE_LABEL_KEY = {
     notRunning: 'ide.disconnected',
 } as const
 
+type CursorPosition = {
+    line: number
+    column: number
+}
+
 type StatusBarProps = {
     lspSummary: LspSummary | null
     errorCount: number
@@ -41,6 +46,7 @@ type StatusBarProps = {
     onToggleProblems: () => void
     systemUsage: SystemUsage | null
     ideStatus: IdeStatus | null
+    cursorPosition: CursorPosition | null
     editorFontSize: number
     terminalFontSize: number
     onEditorFontSizeDecrease: () => void
@@ -58,6 +64,7 @@ export const StatusBar: FC<StatusBarProps> = ({
     onToggleProblems,
     systemUsage,
     ideStatus,
+    cursorPosition,
     editorFontSize,
     terminalFontSize,
     onEditorFontSizeDecrease,
@@ -125,6 +132,11 @@ export const StatusBar: FC<StatusBarProps> = ({
                 )}
             </div>
             <div className='flex shrink-0 items-center gap-3'>
+                {cursorPosition && (
+                    <span className='text-app-sidebar-icon-default shrink-0 tabular-nums'>
+                        {t('editor.cursorPosition', { line: cursorPosition.line, column: cursorPosition.column })}
+                    </span>
+                )}
                 {systemUsage && (
                     <Tooltip>
                         <TooltipTrigger asChild>

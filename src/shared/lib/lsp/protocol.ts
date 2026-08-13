@@ -146,6 +146,13 @@ export type DocumentSymbol = {
 
 export type SymbolInformation = { name: string; kind: number; location: Location }
 
+export const DOCUMENT_HIGHLIGHT_KIND = { TEXT: 1, READ: 2, WRITE: 3 } as const
+export type DocumentHighlightKind = (typeof DOCUMENT_HIGHLIGHT_KIND)[keyof typeof DOCUMENT_HIGHLIGHT_KIND]
+
+export type DocumentHighlight = { range: LspRange; kind?: DocumentHighlightKind }
+
+export type SelectionRange = { range: LspRange; parent?: SelectionRange }
+
 export type ServerCapabilities = {
     positionEncoding?: string
     completionProvider?: { triggerCharacters?: string[]; resolveProvider?: boolean }
@@ -158,6 +165,8 @@ export type ServerCapabilities = {
     signatureHelpProvider?: { triggerCharacters?: string[]; retriggerCharacters?: string[] }
     inlayHintProvider?: boolean | Record<string, never>
     documentSymbolProvider?: boolean | Record<string, never>
+    documentHighlightProvider?: boolean | Record<string, never>
+    selectionRangeProvider?: boolean | Record<string, never>
     diagnosticProvider?: { interFileDependencies?: boolean; workspaceDiagnostics?: boolean }
 }
 

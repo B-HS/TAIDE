@@ -11,6 +11,7 @@ import {
     filterKeybindingRowsByCapturedKey,
     findConflictingRow,
     findKeybindingRowById,
+    isKeybindingRowUnassigned,
     mergeKeybindingOverride,
     removeKeybindingOverride,
     sortKeybindingRows,
@@ -26,6 +27,8 @@ import {
 } from '@shared/lib/keymap'
 import { setKeymapCapturing } from '@shared/lib/keymap-capture'
 import { subscribeOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
+import { isMonacoCommandId, resolveMonacoKeyCode } from '@shared/lib/monaco-keybinding'
+import { applyMonacoKeybindingOverrides } from '@shared/lib/monaco-keybinding-runtime'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { cn } from '@shared/lib/cn'
 import { KeybindingRow } from '@features/settings/keybinding-row'
@@ -67,29 +70,36 @@ export const KeybindingsEditor = () => {
 
     const overrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
     const rows = buildKeybindingRows(listRegisteredCommands(), overrides)
-    const sortedRows = sortKeybindingRows(rows, (row) => formatCategorizedLabel(t, row.categoryKey, row.titleKey))
+    const sortedRows = sortKeybindingRows(rows, (row) => formatCategorizedLabel(t, row.categoryKey, row.titleKey, row.titleDefaultValue ?? undefined))
 
     const textFilteredRows = query
-        ? fuzzyFilter(query, sortedRows, (row) => `${formatCategorizedLabel(t, row.categoryKey, row.titleKey)} ${row.id}`).map(
-              (ranked) => ranked.item,
-          )
+        ? fuzzyFilter(
+              query,
+              sortedRows,
+              (row) => `${formatCategorizedLabel(t, row.categoryKey, row.titleKey, row.titleDefaultValue ?? undefined)} ${row.id}`,
+          ).map((ranked) => ranked.item)
         : sortedRows
     const keyFilteredRows = searchedKey ? filterKeybindingRowsByCapturedKey(textFilteredRows, searchedKey.key, searchedKey.mods) : textFilteredRows
     const conflictFilteredRows = showConflictsOnly ? keyFilteredRows.filter((row) => findConflictingRow(rows, row)) : keyFilteredRows
-    const visibleRows = showUnassignedOnly ? conflictFilteredRows.filter((row) => !row.key) : conflictFilteredRows
+    const visibleRows = showUnassignedOnly ? conflictFilteredRows.filter(isKeybindingRowUnassigned) : conflictFilteredRows
 
     const conflictCount = rows.filter((row) => findConflictingRow(rows, row)).length
-    const unassignedCount = rows.filter((row) => !row.key).length
+    const unassignedCount = rows.filter(isKeybindingRowUnassigned).length
 
     const saveOverrides = (nextOverrides: typeof overrides) =>
         updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides(nextOverrides) })
 
     const handleChangeBinding = (rowId: string, key: string, mods: KeymapModifier[]) => {
         if (mods.length === 0) return
+        if (isMonacoCommandId(rowId) && resolveMonacoKeyCode(key) === null) return
         const currentRow = findKeybindingRowById(rows, rowId)
         const conflict = currentRow ? findConflictingRow(rows, { ...currentRow, key, mods }) : null
         if (conflict)
-            toast.warning(t('settings.keymapConflictWarning', { action: formatCategorizedLabel(t, conflict.categoryKey, conflict.titleKey) }))
+            toast.warning(
+                t('settings.keymapConflictWarning', {
+                    action: formatCategorizedLabel(t, conflict.categoryKey, conflict.titleKey, conflict.titleDefaultValue ?? undefined),
+                }),
+            )
         saveOverrides(mergeKeybindingOverride(overrides, { actionId: rowId, key, mods }))
         setCaptureTarget(null)
     }
@@ -128,6 +138,7 @@ export const KeybindingsEditor = () => {
     useEffect(() => subscribeOpenKeybindingsEditor(() => setOpen(true)), [])
     useEffect(() => setKeymapCapturing(isCapturing), [isCapturing])
     useEffect(() => () => setKeymapCapturing(false), [])
+    useEffect(() => applyMonacoKeybindingOverrides(parseKeymapOverrides(settings?.keymapOverrides ?? null)), [settings?.keymapOverrides])
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -200,7 +211,16 @@ export const KeybindingsEditor = () => {
                                         key={row.id}
                                         row={row}
                                         isCapturing={captureTarget?.kind === 'row' && captureTarget.rowId === row.id}
-                                        conflictLabel={conflict ? formatCategorizedLabel(t, conflict.categoryKey, conflict.titleKey) : null}
+                                        conflictLabel={
+                                            conflict
+                                                ? formatCategorizedLabel(
+                                                      t,
+                                                      conflict.categoryKey,
+                                                      conflict.titleKey,
+                                                      conflict.titleDefaultValue ?? undefined,
+                                                  )
+                                                : null
+                                        }
                                         onStartCapture={() => setCaptureTarget({ kind: 'row', rowId: row.id })}
                                         onCaptureKey={(key, mods) => handleChangeBinding(row.id, key, mods)}
                                         onCancelCapture={() => setCaptureTarget(null)}

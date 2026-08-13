@@ -86,6 +86,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         editor_cursor_style: Some(settings.editor_cursor_style.clone()),
         editor_cursor_blinking: Some(settings.editor_cursor_blinking.clone()),
         editor_scroll_beyond_last_line: Some(settings.editor_scroll_beyond_last_line),
+        editor_sticky_scroll_enabled: Some(settings.editor_sticky_scroll_enabled),
         terminal_scrollback: Some(settings.terminal_scrollback),
         terminal_cursor_style: Some(settings.terminal_cursor_style.clone()),
         terminal_cursor_blink: Some(settings.terminal_cursor_blink),

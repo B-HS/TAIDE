@@ -1,7 +1,11 @@
 export type TabCycleDirection = 'next' | 'prev'
 
 export type EditorPaneCommand =
-    { type: 'split' } | { type: 'cycle-tab'; direction: TabCycleDirection } | { type: 'save-active-tab' } | { type: 'toggle-terminal' }
+    | { type: 'split' }
+    | { type: 'cycle-tab'; direction: TabCycleDirection }
+    | { type: 'save-active-tab' }
+    | { type: 'toggle-terminal' }
+    | { type: 'run-monaco-action'; actionId: string }
 
 type EditorPaneCommandListener = (command: EditorPaneCommand) => void
 

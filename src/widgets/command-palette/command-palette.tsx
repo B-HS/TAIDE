@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { File, Terminal } from 'lucide-react'
@@ -11,6 +11,7 @@ import {
     listRegisteredCommands,
     parsePaletteQuery,
 } from '@shared/lib/command-registry'
+import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
 import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
 import { APP_KEYMAP, applyKeymapOverrides, formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
@@ -28,6 +29,8 @@ const FILE_RESULT_LIMIT = 200
 export const CommandPalette = () => {
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
+
+    const activeEditorActionIds = useSyncExternalStore(subscribeActiveEditorActionIds, getActiveEditorActionIdsSnapshot)
 
     const { t } = useTranslation()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
@@ -84,6 +87,7 @@ export const CommandPalette = () => {
 
     const commandContext: CommandContext = {
         activeProjectId,
+        activeEditorActionIds,
         openSettingsTab,
         openTerminalTab,
         reopenClosedTab,
@@ -98,13 +102,14 @@ export const CommandPalette = () => {
         const command = getRegisteredCommand(row.commandId)
         if (!command || !isCommandRunnable(command, commandContext)) return
         event.preventDefault()
+        event.stopPropagation()
         void command.run(commandContext)
     })
 
     const fileRows = (treePage?.rows ?? []).filter((row) => row.kind === 'file')
     const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => row.path).slice(0, FILE_RESULT_LIMIT)
     const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) =>
-        formatCategorizedLabel(t, command.categoryKey, command.titleKey),
+        formatCategorizedLabel(t, command.categoryKey, command.titleKey, command.titleDefaultValue),
     )
 
     const runCommand = (command: AppCommand) => {
@@ -145,8 +150,11 @@ export const CommandPalette = () => {
                                     return (
                                         <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
                                             <Terminal className='size-4' />
-                                            <span>{formatCategorizedLabel(t, item.categoryKey, item.titleKey)}</span>
+                                            <span>{formatCategorizedLabel(t, item.categoryKey, item.titleKey, item.titleDefaultValue)}</span>
                                             {keybindingRow?.key && <CommandShortcut>{formatKeymapShortcut(keybindingRow)}</CommandShortcut>}
+                                            {!keybindingRow?.key && keybindingRow?.defaultBindingLabel && (
+                                                <CommandShortcut>{keybindingRow.defaultBindingLabel}</CommandShortcut>
+                                            )}
                                         </CommandItem>
                                     )
                                 })}

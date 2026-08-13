@@ -18,7 +18,7 @@
 | **스니펫** | 사용자 정의 코드 조각 + Monaco completion 기여 | LSP completion 어댑터와 우선순위 조정 필요 |
 | **작업 러너 패널** | `package.json` scripts / `Cargo.toml` / Makefile 감지 후 실행 | 터미널 세션 재사용. pty 도메인 위에 얹으면 된다 |
 | **git 충돌 해결 UI** | 3-way merge 뷰 | Monaco DiffEditor 는 있으나 3-way 는 별개. `git.md` 2차 범위 |
-| **임의 두 파일 비교** | 파일 선택 → diff 탭 | `DiffPane` 재사용 가능. 파일 선택 UX 만 필요 |
+| ~~임의 두 파일 비교~~ | 파일 선택 → diff 탭 | **구현 완료 확인**(2026-08-13 갭 분석 — `src/widgets/explorer/explorer-container.tsx:254`). 항목 종결 |
 | **북마크 / 북마크 패널** | 줄 단위 북마크 + 목록 | 영속화 위치(project.json vs 별도 파일) 결정 필요 |
 | **에디터 설정 확장** | word wrap · minimap 토글 · 들여쓰기 가이드 · 줄 번호 스타일 | 현재 `code-editor.tsx` 에 **하드코딩**돼 있다. settings 필드 추가 + 설정 UI |
 | **접근성** | 키보드만으로 전체 조작, 포커스 트랩, 스크린리더 라벨 | Radix 가 상당 부분 제공. 전수 점검이 필요한 성격 |

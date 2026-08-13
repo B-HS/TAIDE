@@ -34,6 +34,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     editorCursorStyle: null,
     editorCursorBlinking: null,
     editorScrollBeyondLastLine: null,
+    editorStickyScrollEnabled: null,
     terminalScrollback: null,
     terminalCursorStyle: null,
     terminalCursorBlink: null,

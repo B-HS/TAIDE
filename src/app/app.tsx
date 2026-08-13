@@ -1,4 +1,5 @@
 import '@app/bootstrap-commands'
+import { AgentExternalOpenProvider } from '@app/providers/agent-external-open-provider'
 import { AppProviders } from '@app/providers/app-providers'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
 import { LocaleProvider } from '@app/providers/locale-provider'
@@ -10,13 +11,15 @@ import { KeybindingsEditor } from '@widgets/keybindings-editor/keybindings-edito
 export const App = () => (
     <AppProviders>
         <IpcSyncProvider>
-            <LocaleProvider>
-                <ThemeProvider>
-                    <AppShell />
-                    <CommandPalette />
-                    <KeybindingsEditor />
-                </ThemeProvider>
-            </LocaleProvider>
+            <AgentExternalOpenProvider>
+                <LocaleProvider>
+                    <ThemeProvider>
+                        <AppShell />
+                        <CommandPalette />
+                        <KeybindingsEditor />
+                    </ThemeProvider>
+                </LocaleProvider>
+            </AgentExternalOpenProvider>
         </IpcSyncProvider>
     </AppProviders>
 )

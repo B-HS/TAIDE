@@ -1,5 +1,9 @@
 import { DEFAULT_COMMANDS, registerCommands } from '@shared/lib/command-registry'
+import { MONACO_ACTION_COMMANDS } from '@shared/lib/monaco-action-commands'
+import { AGENT_CLI_COMMANDS } from '@entities/agent/agent.commands'
 import { SYNC_COMMANDS } from '@entities/sync/sync.commands'
 
 registerCommands(DEFAULT_COMMANDS)
 registerCommands(SYNC_COMMANDS)
+registerCommands(MONACO_ACTION_COMMANDS)
+registerCommands(AGENT_CLI_COMMANDS)

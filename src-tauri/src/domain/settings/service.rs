@@ -43,6 +43,7 @@ pub struct SettingsPatch {
     pub editor_cursor_style: Option<String>,
     pub editor_cursor_blinking: Option<String>,
     pub editor_scroll_beyond_last_line: Option<bool>,
+    pub editor_sticky_scroll_enabled: Option<bool>,
     pub terminal_scrollback: Option<u32>,
     pub terminal_cursor_style: Option<String>,
     pub terminal_cursor_blink: Option<bool>,
@@ -206,6 +207,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         editor_scroll_beyond_last_line: patch
             .editor_scroll_beyond_last_line
             .unwrap_or(settings.editor_scroll_beyond_last_line),
+        editor_sticky_scroll_enabled: patch.editor_sticky_scroll_enabled.unwrap_or(settings.editor_sticky_scroll_enabled),
         terminal_scrollback: patch.terminal_scrollback.unwrap_or(settings.terminal_scrollback),
         terminal_cursor_style: patch
             .terminal_cursor_style

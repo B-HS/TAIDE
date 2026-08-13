@@ -8,6 +8,12 @@ export const releaseWaitMarker = (marker: string) => unwrapResult(commands.agent
 
 export const getCliInstallStatus = () => unwrapResult(commands.agentCliStatus())
 
+export const installCliCommand = () => unwrapResult(commands.agentCliInstall())
+
+export const uninstallCliCommand = () => unwrapResult(commands.agentCliUninstall())
+
+export const pendingExternalOpens = () => unwrapResult(commands.agentPendingExternalOpens())
+
 export const getAgentHooksStatus = (projectId: ProjectId, agentName: string) => unwrapResult(commands.agentHooksStatus(projectId, agentName))
 
 export const installAgentHooks = (projectId: ProjectId, agentName: string) => unwrapResult(commands.agentHooksInstall(projectId, agentName))

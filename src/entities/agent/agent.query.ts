@@ -3,7 +3,15 @@ import type { AgentHooksStatus, ProjectId } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
-import { getAgentHooksStatus, getCliInstallStatus, installAgentHooks, listProjectAgents, uninstallAgentHooks } from '@entities/agent/agent.ipc'
+import {
+    getAgentHooksStatus,
+    getCliInstallStatus,
+    installAgentHooks,
+    installCliCommand,
+    listProjectAgents,
+    uninstallAgentHooks,
+    uninstallCliCommand,
+} from '@entities/agent/agent.ipc'
 
 export const projectAgentsQueryOptions = (projectId: ProjectId | null) =>
     queryOptions({
@@ -13,6 +21,18 @@ export const projectAgentsQueryOptions = (projectId: ProjectId | null) =>
     })
 
 export const cliInstallStatusQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.AGENT.CLI, queryFn: getCliInstallStatus })
+
+const useCliInstallMutation = (mutationFn: () => ReturnType<typeof getCliInstallStatus>) => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn,
+        onSuccess: (status) => queryClient.setQueryData(QUERY_KEY.AGENT.CLI, status),
+    })
+}
+
+export const useInstallCliCommand = () => useCliInstallMutation(installCliCommand)
+
+export const useUninstallCliCommand = () => useCliInstallMutation(uninstallCliCommand)
 
 export const USER_LEVEL_AGENT_HOOKS_UNUSED_PROJECT_ID = ''
 

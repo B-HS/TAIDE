@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
+import { createBlameZoneController } from '@shared/lib/monaco/blame-zone'
 import { formatBlameLine } from '@shared/lib/blame-format'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
@@ -73,6 +74,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameRequestSeqRef = useRef(0)
+    const blameZoneRef = useRef<ReturnType<typeof createBlameZoneController> | null>(null)
 
     const [syncedPath, setSyncedPath] = useState(path)
     const [syncedContent, setSyncedContent] = useState<string | null>(null)
@@ -290,22 +292,26 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     }, [editor, cursorLine, projectId, path])
 
     useEffect(() => {
-        if (!editor || !blameLine) return
+        if (!editor) return
+        const controller = createBlameZoneController(editor)
+        blameZoneRef.current = controller
+        return () => {
+            controller.dispose()
+            blameZoneRef.current = null
+        }
+    }, [editor])
+
+    useEffect(() => {
+        const controller = blameZoneRef.current
+        if (!editor || !controller) return
 
         const model = editor.getModel()
-        if (!model || blameLine.line > model.getLineCount()) return
+        if (!blameLine || !model || blameLine.line > model.getLineCount()) {
+            controller.hide()
+            return
+        }
 
-        const column = model.getLineMaxColumn(blameLine.line)
-        const collection = editor.createDecorationsCollection([
-            {
-                range: new monaco.Range(blameLine.line, column, blameLine.line, column),
-                options: {
-                    after: { content: `  ${formatBlameLine(blameLine, Date.now(), currentUser)}`, inlineClassName: 'taide-blame-text' },
-                    showIfCollapsed: true,
-                },
-            },
-        ])
-        return () => collection.clear()
+        controller.show(blameLine.line, formatBlameLine(blameLine, Date.now(), currentUser))
     }, [editor, blameLine, currentUser])
 
     if (isPending) return <div className='bg-editor-background h-full w-full' />
@@ -357,6 +363,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             cursorStyle={(settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE) as EditorCursorStyle}
             cursorBlinking={(settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING) as EditorCursorBlinkingStyle}
             scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
+            stickyScroll={settings?.editorStickyScrollEnabled ?? true}
             aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
             aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}

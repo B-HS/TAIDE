@@ -7,17 +7,19 @@
         "dev": "vite",
         "build": "vite build",
         "preview": "vite preview",
-        "tauri": "tauri",
+        "tauri": "bun scripts/tauri.ts",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "bun test",
         "themes:convert": "bun run scripts/convert-vscode-theme.ts",
+        "cli:sidecar": "bun run scripts/build-cli-sidecar.ts",
         "rust:fmt": "cargo fmt --all --check",
         "rust:lint": "cargo clippy --workspace --all-targets -- -D warnings",
         "rust:test": "cargo test --workspace",
-        "verify": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run rust:fmt && bun run rust:lint && bun run rust:test"
+        "verify": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run rust:fmt && bun run rust:lint && bun run rust:test",
+        "tauri:build": "bun run tauri build"
     },
     "dependencies": {
         "@dnd-kit/core": "6.3.1",

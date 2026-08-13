@@ -7,11 +7,12 @@ import { useTranslation } from 'react-i18next'
 import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
-import { getEditorInstance } from '@entities/editor/editor-instance-registry'
+import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { layoutQueryOptions, useActivateTab, useCloseTab, useMoveTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
+import { setActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
@@ -25,6 +26,7 @@ import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
 import type { SplitDropData } from '@widgets/editor-area/pane-node-view'
 import { PaneNodeView } from '@widgets/editor-area/pane-node-view'
 import type { TabDragData } from '@widgets/editor-area/sortable-tab'
+import { subscribeLanguageAdapterRegistration } from '@widgets/editor-pane/lsp-session-registry'
 import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
@@ -101,14 +103,21 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         activateTab(leaf.tabs[nextIndex].id)
     }
 
-    const saveActiveTab = () => {
-        if (!layout) return
+    const getFocusedFileTabId = () => {
+        if (!layout) return null
         const leaf = findPaneLeaf(layout.root, layout.focusedPane)
         const activeTab = leaf?.tabs.find((tab) => tab.id === leaf.active)
-        if (activeTab?.kind.kind !== 'file') return
-        const targetEditor = getEditorInstance(activeTab.id)
-        targetEditor?.getAction('taide.saveFile')?.run()
+        return activeTab?.kind.kind === 'file' ? activeTab.id : null
     }
+
+    const getFocusedFileEditor = () => {
+        const tabId = getFocusedFileTabId()
+        return tabId ? getEditorInstance(tabId) : null
+    }
+
+    const saveActiveTab = () => getFocusedFileEditor()?.getAction('taide.saveFile')?.run()
+
+    const runMonacoAction = (actionId: string) => getFocusedFileEditor()?.trigger('taide.command', actionId, undefined)
 
     const toggleTerminal = () => {
         if (!layout) return
@@ -153,9 +162,45 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (command.type === 'cycle-tab') return cycleTab(command.direction)
         if (command.type === 'save-active-tab') return saveActiveTab()
         if (command.type === 'toggle-terminal') return toggleTerminal()
+        if (command.type === 'run-monaco-action') return runMonacoAction(command.actionId)
     })
 
     useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])
+
+    const focusedFileTabId = getFocusedFileTabId()
+
+    useEffect(() => {
+        if (!focusedFileTabId) {
+            setActiveEditorActionIds(null)
+            return
+        }
+
+        let modelSubscription: { dispose: () => void } | null = null
+
+        const updateActionIds = () => {
+            const activeEditor = getEditorInstance(focusedFileTabId)
+            setActiveEditorActionIds(activeEditor ? new Set(activeEditor.getSupportedActions().map((action) => action.id)) : null)
+        }
+
+        const attachToEditor = () => {
+            modelSubscription?.dispose()
+            const activeEditor = getEditorInstance(focusedFileTabId)
+            modelSubscription = activeEditor?.onDidChangeModel(updateActionIds) ?? null
+            updateActionIds()
+        }
+
+        attachToEditor()
+        const editorSubscription = subscribeEditorInstance(focusedFileTabId, attachToEditor)
+        const languageAdapterSubscription = subscribeLanguageAdapterRegistration(updateActionIds)
+
+        return () => {
+            editorSubscription()
+            languageAdapterSubscription()
+            modelSubscription?.dispose()
+        }
+    }, [focusedFileTabId])
+
+    useEffect(() => () => setActiveEditorActionIds(null), [])
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 

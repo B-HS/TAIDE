@@ -33,6 +33,7 @@ export type CodeEditorProps = {
     cursorStyle: EditorCursorStyle
     cursorBlinking: EditorCursorBlinkingStyle
     scrollBeyondLastLine: boolean
+    stickyScroll: boolean
     aiAutoTabEnabled: boolean
     aiCompletionConfig: AiInlineCompletionConfig | null
     onChange: (value: string) => void
@@ -66,6 +67,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     cursorStyle,
     cursorBlinking,
     scrollBeyondLastLine,
+    stickyScroll,
     aiAutoTabEnabled,
     aiCompletionConfig,
     onChange,
@@ -155,6 +157,10 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     useEffect(() => {
         editorRef.current?.updateOptions({ minimap: { enabled: minimap && !largeFile } })
     }, [minimap, largeFile])
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ stickyScroll: { enabled: stickyScroll } })
+    }, [stickyScroll])
 
     useEffect(() => {
         editorRef.current?.updateOptions({

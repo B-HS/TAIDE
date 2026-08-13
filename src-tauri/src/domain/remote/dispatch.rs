@@ -61,6 +61,9 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "agent_hooks_status",
     "agent_hooks_install",
     "agent_hooks_uninstall",
+    "agent_cli_install",
+    "agent_cli_uninstall",
+    "agent_pending_external_opens",
     "lsp_spawn",
     "lsp_send",
     "lsp_stop",
@@ -339,6 +342,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "agent_hooks_uninstall" => {
             respond(agent::agent_hooks_uninstall(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
         }
+        "agent_cli_install" => respond(agent::agent_cli_install().await),
+        "agent_cli_uninstall" => respond(agent::agent_cli_uninstall().await),
+        "agent_pending_external_opens" => respond(agent::agent_pending_external_opens(app.state()).await),
 
         "lsp_spawn" => respond(
             lsp::lsp_spawn(

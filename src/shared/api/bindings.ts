@@ -52,6 +52,9 @@ export const commands = {
 	agentHooksStatus: (projectId: ProjectId, agentName: string) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_status", { projectId, agentName })),
 	agentHooksInstall: (projectId: ProjectId, agentName: string) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_install", { projectId, agentName })),
 	agentHooksUninstall: (projectId: ProjectId, agentName: string) => typedError<AgentHooksStatus, AppError>(__TAURI_INVOKE("agent_hooks_uninstall", { projectId, agentName })),
+	agentCliInstall: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_install")),
+	agentCliUninstall: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_uninstall")),
+	agentPendingExternalOpens: () => typedError<ExternalOpenRequest[], AppError>(__TAURI_INVOKE("agent_pending_external_opens")),
 	lspSpawn: (projectId: ProjectId, serverId: LspServerId, root: string, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { projectId, serverId, root, onMessage })),
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	lspStop: (sessionId: string, root: string | null) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root })),
@@ -248,6 +251,11 @@ export type CapabilityKind = "git" | "lsp" | "terminal" | "agentWatch";
 export type CliInstallStatus = {
 	installed: boolean,
 	resolvedPath?: string | null,
+	/**
+	 *  True when the symlink exists but its target can no longer be resolved
+	 *  (e.g. the app bundle moved or was removed) — a reinstall is needed.
+	 */
+	dangling?: boolean,
 	targetPath: string,
 	editorEnvHint: string,
 };
@@ -717,6 +725,7 @@ export type Settings = {
 	editorCursorStyle?: string,
 	editorCursorBlinking?: string,
 	editorScrollBeyondLastLine?: boolean,
+	editorStickyScrollEnabled?: boolean,
 	terminalScrollback?: number,
 	terminalCursorStyle?: string,
 	terminalCursorBlink?: boolean,
@@ -762,6 +771,7 @@ export type SettingsPatch = {
 	editorCursorStyle: string | null,
 	editorCursorBlinking: string | null,
 	editorScrollBeyondLastLine: boolean | null,
+	editorStickyScrollEnabled: boolean | null,
 	terminalScrollback: number | null,
 	terminalCursorStyle: string | null,
 	terminalCursorBlink: boolean | null,

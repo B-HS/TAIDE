@@ -21,6 +21,7 @@ import { shellProfilesQueryOptions } from '@entities/terminal/terminal.query'
 import { syncStatusQueryOptions, useConnectSync, useDisconnectSync, useDownloadSync, useUploadSync } from '@entities/sync/sync.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { localeListQueryOptions } from '@entities/locale/locale.query'
+import { AgentCliStatusRow } from '@features/settings/agent-cli-status-row'
 import { AgentHooksProjectList } from '@features/settings/agent-hooks-project-list'
 import { AgentHooksToggle } from '@features/settings/agent-hooks-toggle'
 import { FontPicker } from '@features/settings/font-picker'
@@ -387,6 +388,7 @@ export const SettingsView = () => {
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentStatusBadgeEnabled: checked })}
                                 />
                             </label>
+                            <AgentCliStatusRow />
                             <div className='flex flex-col gap-2'>
                                 <AgentHooksToggle
                                     label={t('settings.agentHooks')}
@@ -535,6 +537,16 @@ export const SettingsView = () => {
                                 <Switch
                                     checked={settings.editorScrollBeyondLastLine ?? true}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorScrollBeyondLastLine: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.editorStickyScroll')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.editorStickyScrollDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.editorStickyScrollEnabled ?? true}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorStickyScrollEnabled: checked })}
                                 />
                             </label>
                         </SettingsSection>

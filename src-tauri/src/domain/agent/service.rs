@@ -19,6 +19,16 @@ const NODE_RUNTIME_NAMES: &[&str] = &["node", "bun", "deno"];
 const EDITOR_ENV_HINT: &str = "export EDITOR=\"taide --wait\"";
 const CLI_WAIT_MARKER_FLAG: &str = "--wait-marker";
 
+/// Filename of the bundled CLI sidecar binary (also the symlink ownership marker).
+pub const CLI_SIDECAR_BIN_NAME: &str = "taide-cli";
+const MACOS_BUNDLE_MACOS_DIR_NAME: &str = "MacOS";
+const MACOS_BUNDLE_CONTENTS_DIR_NAME: &str = "Contents";
+const MACOS_BUNDLE_EXTENSION: &str = "app";
+const OSASCRIPT_ADMIN_PRIVILEGES_SUFFIX: &str = "with administrator privileges";
+const OSASCRIPT_ARG_FLAG: &str = "-e";
+const OSASCRIPT_CANCELLED_EXIT_CODE: i32 = 1;
+const OSASCRIPT_CANCELLED_STDERR_MARKER: &str = "-128";
+
 fn process_basename(raw: &str) -> &str {
     raw.rsplit(['/', '\\']).next().unwrap_or(raw)
 }
@@ -78,13 +88,93 @@ pub fn validate_wait_marker_path(marker: &str, temp_dir: &Path) -> AppResult<Pat
     Ok(candidate)
 }
 
-pub fn build_cli_install_status(target_path: &str, installed: bool, resolved_path: Option<String>) -> CliInstallStatus {
+pub fn build_cli_install_status(target_path: &str, installed: bool, resolved_path: Option<String>, dangling: bool) -> CliInstallStatus {
     CliInstallStatus {
         installed,
         resolved_path,
+        dangling,
         target_path: target_path.to_string(),
         editor_env_hint: EDITOR_ENV_HINT.to_string(),
     }
+}
+
+/// True when `exe_path` sits under a macOS `.app` bundle's `Contents/MacOS/` directory
+/// (e.g. `/Applications/TAIDE.app/Contents/MacOS/TAIDE`). Used to reject CLI shell-command
+/// install/uninstall from unbundled dev builds, since the CLI sidecar only exists in the bundle.
+pub fn is_running_from_macos_app_bundle(exe_path: &Path) -> bool {
+    let Some(macos_dir) = exe_path.parent() else { return false };
+    if macos_dir.file_name().and_then(|name| name.to_str()) != Some(MACOS_BUNDLE_MACOS_DIR_NAME) {
+        return false;
+    }
+    let Some(contents_dir) = macos_dir.parent() else { return false };
+    if contents_dir.file_name().and_then(|name| name.to_str()) != Some(MACOS_BUNDLE_CONTENTS_DIR_NAME) {
+        return false;
+    }
+    let Some(app_dir) = contents_dir.parent() else { return false };
+    app_dir.extension().and_then(|extension| extension.to_str()) == Some(MACOS_BUNDLE_EXTENSION)
+}
+
+/// Resolves the CLI sidecar path (`.../Contents/MacOS/taide-cli`) to symlink to, derived from the
+/// currently running app's own executable path. Returns `None` for unbundled dev builds.
+pub fn resolve_cli_install_target(exe_path: &Path) -> Option<PathBuf> {
+    if !is_running_from_macos_app_bundle(exe_path) {
+        return None;
+    }
+    exe_path.parent().map(|macos_dir| macos_dir.join(CLI_SIDECAR_BIN_NAME))
+}
+
+/// Escapes a value so it can be embedded inside an AppleScript double-quoted string literal.
+pub fn escape_applescript_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Wraps a value in single quotes for safe embedding as one POSIX shell argument.
+pub fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// Builds the `do shell script ... with administrator privileges` AppleScript source that creates
+/// (or replaces) the `taide` symlink. Passed to `osascript -e` as a single argv element (no shell
+/// involved), so only the AppleScript string escaping and the inner shell single-quoting matter.
+pub fn build_cli_install_apple_script(target: &Path, source: &Path) -> String {
+    let shell_command = format!(
+        "mkdir -p /usr/local/bin && ln -sf {} {}",
+        shell_single_quote(&target.to_string_lossy()),
+        shell_single_quote(&source.to_string_lossy()),
+    );
+    format!(
+        "do shell script \"{}\" {OSASCRIPT_ADMIN_PRIVILEGES_SUFFIX}",
+        escape_applescript_string(&shell_command)
+    )
+}
+
+/// Builds the `do shell script ... with administrator privileges` AppleScript source that removes
+/// the `taide` symlink (used only when a plain `remove_file` fails with `PermissionDenied`).
+pub fn build_cli_uninstall_apple_script(source: &Path) -> String {
+    let shell_command = format!("rm {}", shell_single_quote(&source.to_string_lossy()));
+    format!(
+        "do shell script \"{}\" {OSASCRIPT_ADMIN_PRIVILEGES_SUFFIX}",
+        escape_applescript_string(&shell_command)
+    )
+}
+
+/// Builds the `osascript` argv (excluding the program name itself) for a given AppleScript source.
+/// `-e` is passed as its own argv element so the script never goes through a shell.
+pub fn build_osascript_args(script: &str) -> Vec<String> {
+    vec![OSASCRIPT_ARG_FLAG.to_string(), script.to_string()]
+}
+
+/// True when an `osascript` failure represents the user dismissing the administrator-privileges
+/// prompt (exit code 1, stderr containing the `-128` "User canceled" marker) rather than a real
+/// error. Callers should treat this as a quiet no-op, not a failure.
+pub fn is_osascript_user_cancelled(exit_code: Option<i32>, stderr: &str) -> bool {
+    exit_code == Some(OSASCRIPT_CANCELLED_EXIT_CODE) && stderr.contains(OSASCRIPT_CANCELLED_STDERR_MARKER)
+}
+
+/// True when a symlink's target file name is the CLI sidecar binary, i.e. the symlink was created
+/// by TAIDE's own install flow. Used to refuse uninstalling a symlink/file we don't own.
+pub fn is_cli_symlink_owned(link_target: &Path) -> bool {
+    link_target.file_name().and_then(|name| name.to_str()) == Some(CLI_SIDECAR_BIN_NAME)
 }
 
 pub fn parse_cli_payload(argv: &[String]) -> Option<ExternalOpenRequest> {
@@ -504,9 +594,109 @@ mod tests {
 
     #[test]
     fn cli_설치_상태_문자열을_구성한다() {
-        let status = build_cli_install_status("/usr/local/bin/taide", true, Some("/usr/local/bin/taide".to_string()));
+        let status = build_cli_install_status("/usr/local/bin/taide", true, Some("/usr/local/bin/taide".to_string()), false);
         assert!(status.installed);
+        assert!(!status.dangling);
         assert_eq!(status.editor_env_hint, EDITOR_ENV_HINT);
+    }
+
+    #[test]
+    fn dangling_상태도_설치_상태_문자열에_반영된다() {
+        let status = build_cli_install_status("/usr/local/bin/taide", true, None, true);
+        assert!(status.installed);
+        assert!(status.dangling);
+        assert!(status.resolved_path.is_none());
+    }
+
+    #[test]
+    fn 앱_번들_경로는_macos_번들_실행으로_판정한다() {
+        assert!(is_running_from_macos_app_bundle(Path::new(
+            "/Applications/TAIDE.app/Contents/MacOS/TAIDE"
+        )));
+    }
+
+    #[test]
+    fn 이동된_앱_번들_경로도_macos_번들_실행으로_판정한다() {
+        assert!(is_running_from_macos_app_bundle(Path::new(
+            "/Users/dev/Applications/TAIDE.app/Contents/MacOS/TAIDE"
+        )));
+    }
+
+    #[test]
+    fn dev_빌드_경로는_macos_번들_실행이_아니다() {
+        assert!(!is_running_from_macos_app_bundle(Path::new(
+            "/Users/dev/TAIDE/src-tauri/target/debug/taide"
+        )));
+    }
+
+    #[test]
+    fn 번들_구조가_비슷해도_확장자가_app이_아니면_거부한다() {
+        assert!(!is_running_from_macos_app_bundle(Path::new(
+            "/Applications/TAIDE.notapp/Contents/MacOS/TAIDE"
+        )));
+    }
+
+    #[test]
+    fn 번들_실행_파일_기준으로_사이드카_설치_대상_경로를_만든다() {
+        let target = resolve_cli_install_target(Path::new("/Applications/TAIDE.app/Contents/MacOS/TAIDE")).unwrap();
+        assert_eq!(target, PathBuf::from("/Applications/TAIDE.app/Contents/MacOS/taide-cli"));
+    }
+
+    #[test]
+    fn dev_빌드에서는_설치_대상_경로가_없다() {
+        assert!(resolve_cli_install_target(Path::new("/Users/dev/TAIDE/src-tauri/target/debug/taide")).is_none());
+    }
+
+    #[test]
+    fn applescript_문자열은_백슬래시와_큰따옴표를_이스케이프한다() {
+        assert_eq!(escape_applescript_string(r#"say "hi" \ bye"#), r#"say \"hi\" \\ bye"#);
+    }
+
+    #[test]
+    fn 셸_단일_인용은_내부_작은따옴표를_안전하게_이스케이프한다() {
+        assert_eq!(shell_single_quote("/usr/local/bin/taide"), "'/usr/local/bin/taide'");
+        assert_eq!(shell_single_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn 설치_스크립트는_mkdir와_ln_sf를_관리자_권한으로_실행한다() {
+        let script = build_cli_install_apple_script(
+            Path::new("/Applications/TAIDE.app/Contents/MacOS/taide-cli"),
+            Path::new("/usr/local/bin/taide"),
+        );
+        assert_eq!(
+            script,
+            "do shell script \"mkdir -p /usr/local/bin && ln -sf '/Applications/TAIDE.app/Contents/MacOS/taide-cli' '/usr/local/bin/taide'\" with administrator privileges"
+        );
+    }
+
+    #[test]
+    fn 제거_스크립트는_rm을_관리자_권한으로_실행한다() {
+        let script = build_cli_uninstall_apple_script(Path::new("/usr/local/bin/taide"));
+        assert_eq!(
+            script,
+            "do shell script \"rm '/usr/local/bin/taide'\" with administrator privileges"
+        );
+    }
+
+    #[test]
+    fn osascript_인자는_e_플래그와_스크립트_두_요소뿐이다() {
+        let args = build_osascript_args("do shell script \"echo hi\"");
+        assert_eq!(args, vec!["-e".to_string(), "do shell script \"echo hi\"".to_string()]);
+    }
+
+    #[test]
+    fn 사용자_취소는_exit_1과_128_마커로_판정한다() {
+        assert!(is_osascript_user_cancelled(Some(1), "execution error: User canceled. (-128)"));
+        assert!(!is_osascript_user_cancelled(Some(0), "execution error: User canceled. (-128)"));
+        assert!(!is_osascript_user_cancelled(Some(1), "execution error: something else"));
+        assert!(!is_osascript_user_cancelled(None, "execution error: User canceled. (-128)"));
+    }
+
+    #[test]
+    fn 심링크_소유_판정은_파일명이_taide_cli일_때만_참이다() {
+        assert!(is_cli_symlink_owned(Path::new("/Applications/TAIDE.app/Contents/MacOS/taide-cli")));
+        assert!(!is_cli_symlink_owned(Path::new("/opt/homebrew/bin/some-other-tool")));
     }
 
     #[test]

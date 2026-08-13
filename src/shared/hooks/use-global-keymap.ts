@@ -11,6 +11,7 @@ export const useGlobalKeymap = (handlers: KeymapHandlers, entries: KeymapEntry[]
         const handler = handlers[entry.id]
         if (!handler) return
         event.preventDefault()
+        event.stopPropagation()
         handler()
     })
 }

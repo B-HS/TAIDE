@@ -1,9 +1,11 @@
 import type { FC } from 'react'
-import { useEffect } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { LspSessionStatus, PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
+import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
+import { layoutQueryOptions } from '@entities/layout/layout.query'
 import { lspSessionsQueryOptions } from '@entities/lsp/lsp.query'
 import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { emptySettingsPatch, getSettings } from '@entities/settings/settings.ipc'
@@ -13,6 +15,7 @@ import { toProblemSeverity } from '@features/problems/problem-severity'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { findActiveTab } from '@shared/lib/pane-tree'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { CODE_FONT_SIZE_STEP, DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -48,10 +51,13 @@ type StatusBarContentProps = {
 }
 
 export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, onToggleProblems }) => {
+    const cursorSnapshotRef = useRef<{ line: number; column: number } | null>(null)
+
     const queryClient = useQueryClient()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: ideStatus = null } = useQuery(ideStatusQueryOptions())
+    const { data: layout } = useQuery(layoutQueryOptions(activeProjectId))
     const { data: lspSessions = [] } = useQuery(lspSessionsQueryOptions(activeProjectId))
     const showSystemUsage = settings?.showSystemUsage ?? true
     const { data: systemUsage = null } = useQuery(systemUsageQueryOptions(showSystemUsage))
@@ -61,6 +67,44 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
     const editorFontSize = settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE
     const terminalFontSize = settings?.terminalFontSize ?? DEFAULT_CODE_FONT_SIZE
     const errorCount = markers.filter((marker) => toProblemSeverity(marker.severity) === 'error').length
+    const focusedTabId = layout ? findActiveTab(layout.root, layout.focusedPane)?.id : undefined
+
+    const getCursorSnapshot = () => {
+        const editor = focusedTabId ? getEditorInstance(focusedTabId) : null
+        const position = editor?.getPosition()
+        if (!position) {
+            cursorSnapshotRef.current = null
+            return null
+        }
+        const cached = cursorSnapshotRef.current
+        if (cached && cached.line === position.lineNumber && cached.column === position.column) return cached
+        const next = { line: position.lineNumber, column: position.column }
+        cursorSnapshotRef.current = next
+        return next
+    }
+
+    const subscribeToCursor = (onStoreChange: () => void) => {
+        if (!focusedTabId) return () => {}
+
+        let cursorSubscription: { dispose: () => void } | null = null
+
+        const attachToEditor = () => {
+            cursorSubscription?.dispose()
+            const editor = getEditorInstance(focusedTabId)
+            cursorSubscription = editor?.onDidChangeCursorPosition(onStoreChange) ?? null
+            onStoreChange()
+        }
+
+        attachToEditor()
+        const editorSubscription = subscribeEditorInstance(focusedTabId, attachToEditor)
+
+        return () => {
+            editorSubscription()
+            cursorSubscription?.dispose()
+        }
+    }
+
+    const cursorPosition = useSyncExternalStore(subscribeToCursor, getCursorSnapshot)
 
     const lspSummary =
         lspSessions.length > 0
@@ -167,6 +211,7 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
             onToggleProblems={onToggleProblems}
             systemUsage={showSystemUsage ? systemUsage : null}
             ideStatus={ideStatus}
+            cursorPosition={cursorPosition}
             editorFontSize={editorFontSize}
             terminalFontSize={terminalFontSize}
             onEditorFontSizeDecrease={decreaseEditorFontSize}
