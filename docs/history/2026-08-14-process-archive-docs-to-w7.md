@@ -1,0 +1,1027 @@
+# PROCESS 아카이브 — 문서화·Phase 0~7.10(W1~W7) (2026-08-06 ~ 2026-08-12)
+
+> 2026-08-14 아카이브. `docs/PROCESS.md` 가 1,171줄로 규정(~300줄)을 초과해 완료 섹션을 이전함.
+> 원본 위치·시점의 기록 그대로이며, 이 시점 이후 갱신되지 않는다. 최신 상태는 `docs/PROCESS.md`.
+
+## 완료: 문서화 (2026-08-06)
+
+- [x] a~o 전건 완료 — PRD·아키텍처·tech-stack·ADR 0001~0011·IPC 계약·data-model·theme-system·
+      features 9건·roadmap·정합성 검수 (커밋 `718d64d`, `d1e8f80`)
+
+## 진행 중: Phase 0 — 스캐폴딩 (2026-08-06)
+
+- [x] 0-1. Tauri 2 + Vite 8 + React 19 프로젝트 생성 (bun, `tech-stack.md` 버전 고정)
+- [x] 0-2. React Compiler 설정 + **적용 실측 검증** (`useMemoCache` ×7 · `compiler-runtime` ×3 확인)
+- [x] 0-3. Tailwind 4.3 + shadcn 배선 (`components.json` → `@shared/ui`, button 으로 동작 확인)
+- [x] 0-4. FSD 디렉토리 골격 + path alias (`@app`/`@widgets`/`@features`/`@entities`/`@shared`)
+- [x] 0-5. Rust 골격 (`state.rs`/`error.rs`/`events.rs`/`domain/app`/`infra/persist`)
+- [x] 0-6. tauri-specta 배선 + `bindings.ts` 생성 파이프라인 (`cargo test` 로 재생성 — 결정론적)
+- [x] 0-7. `useTauriEvent` 훅, QueryClient 기본값(`networkMode:'always'` 등), 에러 토스트(sonner)
+- [x] 0-8. 검증 스크립트 `bun run verify` (typecheck→lint→format→test→cargo fmt→clippy→cargo test)
+- [x] 0-9. capabilities 최소 구성 + CSP (Monaco 요구 `style-src 'unsafe-inline'`·`worker-src blob:` 반영)
+- [x] 0-10. **FSD 의존 방향 ESLint 가드** (로드맵 외 추가 — 실제 위반 1건을 잡아 도입)
+- [x] 0-11. 실기기 기동 확인 — 사용자가 창 렌더 확인(`TAIDE / macos v0.1.0` 표시).
+      Rust→Vite→React→specta bindings→invoke→응답 전 구간 동작 확정.
+
+### Phase 0 에서 확정한 것 (문서 기재값과 다른 부분)
+
+| 항목 | 문서/템플릿 값 | 실제 채택 | 사유 |
+|------|---------------|----------|------|
+| TypeScript | "최신" | **5.9.3** | typescript-eslint 8.66 peer 가 `<6.1.0` — TS7 이면 `.tsx` 린트가 통째로 죽음 |
+| `build.minify` | `'esbuild'` (Tauri 템플릿) | **`'oxc'`** | Vite 8 은 esbuild 를 번들하지 않음 (빌드 실패로 확인) |
+| react-hooks flat config | `configs['recommended-latest']` | **`configs.flat['recommended-latest']`** | 전자는 legacy 형식이라 ESLint 10 flat config 에서 거부 |
+| React Compiler 실행기 | — | **Babel 유지** | oxc 네이티브 포트는 Rolldown 이 되돌림(바이너리 +5.1MB·성능). 실측 비용 +0.1s/90모듈 |
+
+## 진행 중: Phase 1 — 셸(프로젝트·레이아웃·탭·테마·영속화)
+
+### Rust 코어
+
+- [x] 1-1. 공유 계약 작성 (main 직접): `ids.rs`·`paths.rs`·`state.rs`·`events.rs` +
+      각 도메인 `types.rs`(layout/project/theme/settings) — **IPC 계약이라 에이전트 수정 금지**
+- [x] 1-2. layout 도메인 — PaneNode 트리 변형·정규화·preview/pin·closed 스택 (테스트 15건)
+- [x] 1-3. project 도메인 — open/close/activate/reorder·세션 복원·파손 파일 bak 정책 (테스트 8건)
+- [x] 1-4. theme + settings 도메인 — 내장 dark/light 전량 토큰·`$` palette 해석·부분 patch
+      (테스트 12건 — 토큰 전량 존재·ANSI 16색 존재를 CI 로 검증)
+- [x] 1-5. lib.rs 배선 (main 직접) — 커맨드 21종 등록·이벤트 발행·세션/레이아웃 복원·bindings 재생성.
+      Rust 총 44 테스트 통과, clippy `-D warnings` 무경고.
+
+#### 1-5 에서 함께 처리할 것 (통합 시 내가 판단한 사항)
+
+- **동시 mutation lost-update 방어**: 현재 mutation command 는 `read().clone()` → service → `write()` 대입
+  패턴이라(락 안 IO 금지 규율 준수) 두 mutation 이 겹치면 갱신이 유실된다.
+  → `AppState` 에 mutation 직렬화 guard(`tokio::sync::Mutex<()>`)를 두고 mutation command 가 획득한다.
+- **영속화 시점 — 스펙 대비 의도적 편차**: `data-model.md` §4 는 debounce 저장이지만,
+  project mutation(open/close/activate/reorder)은 **빈도가 낮고 유실 비용이 커서 동기 저장을 유지**한다.
+  debounce 는 빈도가 높은 **layout·dirty 버퍼에만** 적용한다(Phase 1-5·Phase 2).
+
+### 프론트엔드
+
+- [x] 1-6. shadcn 프리미티브 (context-menu/tooltip/scroll-area/dialog/alert-dialog/separator/dropdown-menu)
+      — **resizable 은 제외**: shadcn 판이 react-resizable-panels 구 API(`PanelGroup`) 기반이라 v4 와 불일치
+- [x] 1-7. 테마 토큰→CSS 변수 변환기 (`shared/lib/theme-variables.ts`, 테스트 4건)
+- [x] 1-8. entities (project/layout/theme/settings) — ipc + queryOptions + `IpcSyncProvider` 이벤트 invalidate.
+      `useTauriEvent` 는 **생성 바인딩의 이벤트 객체를 받도록 시그니처 변경**(문자열 이름 대신) —
+      ADR-0011 타입 안전성을 구독까지 확장. 핸들러는 React 19.2 `useEffectEvent` 로 고정해
+      매 렌더 재구독을 막았다.
+- [x] 1-9. 앱 사이드바 위젯 (프로젝트 목록·툴팁·context menu·세로 DND·폴더 열기)
+- [x] 1-10. 탭 바 + pane 트리 렌더 (v4 `Group`/`Separator`, `onLayoutChanged` + `isUserInteraction` 로 드래그 종료 시 1회만 IPC)
+- [x] 1-11. 탭 DND (단일 DndContext + DragOverlay + pointerWithin, 5분할 드롭존, pinned 구역 클램프)
+- [x] 1-12. 테마 프로바이더 (CSS 변수 주입 + 테마 로드 완료 후 `show()` — FOUC 방지)
+- [x] 1-13. 빈 상태(웰컴) 화면
+- [x] 1-14a. 복원 E2E **통합 테스트** (`src-tauri/tests/session_restore.rs`, 4건) —
+      재시작 시 프로젝트·탭 구성·스플릿 구조·focused pane 복원 / root 부재 시 `root_missing` /
+      활성 프로젝트 닫기 시 승계 / 레이아웃 파일 부재 시 기본 레이아웃.
+- [ ] 1-14b. 실기기 복원 확인 (사용자 피드백 루프)
+
+#### 통합 테스트가 잡아낸 실제 버그 2건 (수정 완료)
+
+1. **`project_open` 이 `active_project` 를 설정하지 않았다** — 프로젝트를 열어도 활성 프로젝트가
+   `None` 이라 사이드바에는 뜨지만 아무것도 선택되지 않은 상태가 됐다. 신규/기존(중복 열기) 양쪽 모두
+   활성화하도록 수정 (layout-shell.md §3 "중복 열기는 기존 프로젝트를 활성화한다").
+2. **`close_project` 가 활성 프로젝트를 닫을 때 `None` 으로 비웠다** — 다른 프로젝트가 남아 있어도
+   빈 상태가 됐다. 남은 프로젝트로 승계하고, 마지막 하나를 닫을 때만 `None` 이 되도록 수정
+   (layout-shell.md §6 "마지막 프로젝트를 닫으면 빈 상태 화면").
+
+두 건 다 도메인 단위 테스트는 통과하던 상태였다 — 도메인 경계를 넘는 통합 테스트에서만 드러났다.
+
+3. **스플릿 `sizes` 단위 불일치 (Rust ↔ react-resizable-panels)** — Rust 는 스플릿을 `0.5`(분수)로
+   seed 하는데 v4 `Layout` 은 `0..100` 이고 **숫자 `defaultSize` 는 px 로 해석**된다.
+   그대로면 스플릿이 0.5px 로 그려지고 첫 드래그 후엔 100 스케일로 덮여 값이 뒤섞인다.
+   → 퍼센트(0..100)로 통일 + 프론트는 `` `${size}%` `` 문자열 전달 + `sizes` 합이 100인지
+   회귀 테스트 추가. 양쪽 단위 테스트로는 잡히지 않는 종류의 버그.
+
+## 진행 중: Phase 2 — 에디터·파일 (2026-08-06)
+
+- [x] 2-1. 공유 계약 (main 직접): `constants.rs`(무시목록·크기 4단계 임계값)·
+      `domain/file/types.rs`·`domain/tree/types.rs`·`fs:changed`/`tree:changed` 이벤트
+- [x] 2-2. file 도메인 + watcher 인프라 (테스트 22건) — 크기 4단계·언어 감지·경로 루트 검증·dirty 미러
+- [x] 2-3. tree 도메인 (테스트 8건) — flatten·lazy load·페이지네이션·reveal·펼침 직렬화
+- [x] 2-4. Monaco 통합 — worker 5종 청크 분리 **빌드 산출물로 실측 확인**, 모델 레지스트리, 테마 파생(monaco 비의존 순수함수+테스트), 순수 code-editor
+- [x] 2-5. 파일 트리 위젯(가상스크롤·typeahead) + 전역 키맵 모듈(캡처 단계)
+- [x] 2-6. lib.rs 배선 (main 직접) — 커맨드 총 37종 등록·프로젝트별 watcher 부착/해제·TreeStore 등록·bindings 재생성
+- [x] 2-7a. 컨테이너 위젯 배선 (main 직접) — `explorer-container`(트리↔IPC), `editor-pane`(파일↔Monaco↔dirty 미러), 셸에 사이드바 스플릿 배치
+- [x] 2-7b. `fs:changed` 수신 배선 — 변경 파일 쿼리 무효화 + **변경된 부모 디렉토리만** `tree_refresh`
+      (explorer-sidebar §2.3 "루트 재스캔 금지"). 충돌 배너(dirty 상태 외부 변경)는 Phase 2 잔여로 남김
+- [ ] 2-8. 실기기 확인 (사용자 피드백 루프)
+
+
+## 진행 중: Phase 3 — 터미널 (2026-08-06)
+
+- [x] 3-1. 공유 계약 (main 직접): `domain/terminal/types.rs`(ShellProfile·PtySpawnOptions·TerminalSession·
+      배칭/링버퍼 상수) + `terminal:exited`/`terminal:cwd-changed` 이벤트
+- [x] 3-2. pty 인프라 + terminal 도메인 (테스트 12건) — portable-pty 0.9 함정 대응
+      (slave drop·take_writer 1회·clone_killer 분리·default_prog arg 금지), Condvar flow control,
+      링버퍼, `/etc/shells` 파싱, `path:line:col` 해석
+- [x] 3-3. xterm 위젯 (flow control 순수함수 8건·링크 매칭 13건 테스트) — WebGL contextLoss 재로드,
+      ResizeObserver+rAF+NaN 가드, 바이트 그대로 `term.write`
+- [x] 3-4. lib.rs 배선 (main 직접) — TerminalStore 등록, 앱 종료 시 전 세션 kill(`kill_all` 추가),
+      **raw Channel 커맨드 분리 라우팅**(아래 참조)
+- [x] 3-5. 컨테이너 배선 (main 직접) — `terminal-session`(spawn/attach/theme/flow control),
+      pane 트리에 터미널 탭 마운트, `xterm-theme.ts`(테마 토큰→ANSI ITheme)
+- [ ] 3-6. 실기기 확인 (사용자 피드백 루프)
+
+### raw 바이트 Channel 은 tauri-specta 를 통과할 수 없다 (구조적 제약 — 우회 설계)
+
+터미널 출력은 성능상 `InvokeResponseBody::Raw` 로 보내야 하는데(`Vec<u8>` 을 그대로 send 하면
+JSON 숫자 배열이 된다 — research/xterm-pty.md), 이 타입은 tauri-specta 로 등록할 수 없다:
+
+- `specta::Type` 을 `InvokeResponseBody` 에 구현 → **orphan rule 위반**(둘 다 외부 크레이트)
+- 자체 newtype 에 `IpcResponse` 구현 → **coherence 위반**: tauri 에 `impl<T: Serialize> IpcResponse for T`
+  블랭킷 impl 이 있어 특정 impl 을 추가할 수 없다
+
+→ **채택**: `pty_spawn`·`pty_attach` 두 개만 `tauri::generate_handler!` 로 별도 등록하고,
+`invoke_handler` 에서 **커맨드 이름으로 분기**해 specta 핸들러와 raw 핸들러를 나눈다.
+이 둘의 TS 래퍼는 `entities/terminal/terminal.ipc.ts` 에 **수동 작성**(bindings 생성 대상 아님).
+파라미터 타입 `PtySpawnOptions` 는 드리프트를 막기 위해 **`pty_default_options` query 를 새로 추가**해
+specta 가 계속 생성하도록 했다(프론트가 셸·cwd 기본값을 추측하지 않아도 되므로 기능적으로도 필요).
+
+## 진행 중: Phase 4 — Git (2026-08-06)
+
+- [x] 4-1. 공유 계약 (main 직접): `domain/git/types.rs`(StatusRow 정규화·GutterHunk·BlameLine·
+      LogEntry·DiffSides·CommitOptions) + `git:status-changed`/`git:refs-changed` 이벤트
+- [x] 4-2. git 도메인 (테스트 9건, 실제 temp 저장소 기반) — git2 읽기/stage + git CLI commit/push/pull
+- [x] 4-3. SCM 패널 · 커밋 그래프(레인 배치 순수함수 5건 테스트) · diff 뷰(순수 컴포넌트)
+- [x] 4-4a. lib.rs 배선 (커맨드 16종·GitStore·이벤트) + entities/git + GitPanelContainer 실배선
+- [ ] 4-4b. gutter/blame 을 에디터에 연결 (데이터 API 는 완성, Monaco 데코레이션 주입 남음)
+- [ ] 4-5. 실기기 확인
+
+## 대기: Phase 5~7 공유 계약 (main 직접, 미리 확정)
+
+- [x] `domain/lsp/types.rs` (LanguageServerSpec·LspServerDetection·LspSessionInfo·상태 enum)
+      + `lsp:session-status-changed` 이벤트
+- [x] `domain/search/types.rs` (SearchQuery·SearchMatch·상한 상수)
+- [x] `domain/plugin/types.rs` (매니페스트 스키마 — plugins.md §2 정본)
+- [x] `domain/agent/types.rs` (DetectedAgent·폴링 주기·감지 대상 목록) + `agent:state-changed` 이벤트
+
+계약을 먼저 고정해 두면 각 Phase 의 병렬 에이전트가 서로의 타입을 기다리지 않아도 된다
+(Phase 1~3 에서 검증된 방식 — 에이전트는 service/commands 만 채우고 배선은 메인이 한다).
+
+
+## 진행 중: Phase 5 — LSP (2026-08-06)
+
+- [x] 5-1. 공유 계약 (main 직접): `domain/lsp/types.rs` + `lsp:session-status-changed` 이벤트
+- [x] 5-2. lsp 도메인 + JSON-RPC 프레이밍 인프라 — **프레이밍 6케이스 테스트**
+      (헤더 부분수신·바디 부분수신·한 버퍼 다중 메시지·헤더 대소문자·Content-Type 혼재·왕복),
+      루트 탐지 13건(Deno 회피·Cargo workspace 우선·rust-src 외부경로 등)
+- [x] 5-3. 자체 경량 LSP 클라이언트 + Monaco 어댑터 10종 (completion/hover/definition/references/
+      rename/formatting/signatureHelp/inlayHints/documentSymbol/diagnostics)
+- [x] 5-4. lib.rs 배선 (커맨드 6종·LspStore·이벤트) + entities/lsp
+- [ ] 5-5. 에디터에 LSP 클라이언트 연결 (어댑터 등록·didOpen/didChange 배선) — **Phase 5 잔여**
+- [ ] 5-6. 실기기 확인 (사용자 피드백 루프)
+
+### Phase 4·5 배선에서 고친 것
+
+- **specta BigInt 재발**: `BlameLine.time_unix`/`LogEntry.time_unix` 가 `i64` 라 바인딩 생성 실패.
+  `f64` 로 변경(JS number 가 어차피 f64, i32 로 낮추면 2038 문제). `Eq` derive 도 함께 제거.
+- **위젯의 미러 타입 ↔ 생성 타입 불일치**: bindings 미생성 시점에 에이전트가 손으로 만든
+  `GitStatusRow`/`GraphLogEntry` 가 실제 생성 타입과 어긋남(`origPath` 의 `undefined`,
+  `timeUnix` 의 `null`). 미러 타입을 **생성 타입 재export 로 교체**하고 nullable 을 호출부에서 좁혔다.
+- **`PluginContributions` 수동 Default** → clippy `derivable_impls` 지적, derive 로 교체.
+
+
+## Phase 5 종료 시점 검증 결과 (2026-08-06)
+
+전체 게이트 통과: `typecheck` / `eslint`(에러 0) / `prettier` / `bun test 110 pass` /
+`cargo fmt` / `cargo clippy -D warnings` / `cargo test 105 + 5(통합) pass`.
+
+남은 경고 1건은 `file-tree.tsx` 의 `@tanstack/react-virtual` React Compiler 비호환
+(컴파일러가 안전하게 bail 한 것 — QA §4.2 에 기록, 조치 불필요).
+
+### Phase 4·5 배선에서 추가로 고친 것
+
+- **LSP 프로세스 누수**: `LspStore::kill_all()` 이 구현돼 있었지만 앱 종료 경로에서 호출되지 않아
+  언어 서버 자식 프로세스가 잔존할 수 있었다. `RunEvent::Exit` 핸들러에 `TerminalStore` 와 함께 배선
+  (lsp.md §5 · architecture §6.3 "자식 프로세스 종료까지 보장").
+
+### Phase 5 이후로 넘긴 것 (에이전트 보고 + 내 확인)
+
+- **에디터↔LSP 실배선**: 클라이언트·어댑터 10종·Rust 세션 관리는 완성됐고 테스트도 있지만,
+  Monaco 에디터에 provider 를 실제 등록하고 didOpen/didChange 를 흘리는 배선은 남았다.
+- **세션 공유(`didChangeWorkspaceFolders`)**: 현재는 `lsp_spawn` 마다 새 프로세스. vtsls/basedpyright/
+  marksman 의 폴더 추가 방식(ADR-0007)은 미구현.
+- **shutdown 핸드셰이크**: 응답 상관 없이 고정 2초 타임아웃 2단계(shutdown→exit→kill).
+  요청/응답 id 추적이 view 책임이라는 원칙 때문에 Rust 단독으로는 응답을 못 기다린다.
+- **git gutter/blame 의 Monaco 데코레이션 주입**: 데이터 API(`git_gutter`/`git_blame_range`)는 완성,
+  에디터 표시는 남음.
+- **diff 탭 마운트**: `DiffView` 순수 컴포넌트는 완성, `TabKind::Diff` 를 pane 에 렌더하는 배선은 남음.
+- **git watcher 연동**: 외부(터미널 등)에서 워킹트리가 바뀔 때 status 자동 무효화 미배선.
+  현재는 앱 내 mutation 직후에만 갱신된다.
+
+## 완료: Phase 6 — 에이전트 연동 (2026-08-06)
+
+- [x] 6-1. 공유 계약 (main 직접): `domain/agent/types.rs` + `agent:state-changed`/`agent:external-open`
+- [x] 6-2. 에이전트 감지 — `process_group_leader()` → pid → `ps -o comm=,args=` 해석.
+      **판정 로직 순수 함수 + 테스트 13건**(`claude` 직접 / `node .../claude` 런타임 경유 /
+      Linux comm 15자 잘림 / 무관 프로세스)
+- [x] 6-3. wait 마커 해제 — **경로 검증 순수 함수 + 테스트**(temp_dir 직속 + `taide-wait-` prefix,
+      `../` 탈출 차단). 임의 경로 삭제를 구조적으로 막는다
+- [x] 6-4. CLI 설치 상태 조회 + 사이드바 에이전트 배지 실데이터 연결
+- [ ] 6-5. `taide` CLI 바이너리(`crates/taide-cli`) — **미착수**(별도 크레이트/workspace 구성 필요)
+- [ ] 6-6. Windows 감지(sysinfo 프로세스 트리) — **스텁**(의존성 추가 필요)
+- [ ] 6-7. IDE MCP 서버 / hooks·statusline 브리지 — 문서상 2·3차
+
+## 완료: Phase 7 — 검색·설정·플러그인·팔레트 (2026-08-06)
+
+- [x] 7-1. 전역 검색 — 자체 병렬 스캔(외부 크레이트 없이), 무시목록 공유, 바이너리 스킵,
+      `AtomicBool` 취소, Channel 스트리밍. **매칭·프리뷰·glob 순수 함수 + 테스트**
+- [x] 7-2. 설정 UI — 테마/폰트/셸/LSP 감지 상태/플러그인 목록
+- [x] 7-3. 플러그인 로더 — 매니페스트 검증, **경로 탈출(`..`) 차단 순수 함수 + 테스트**,
+      실패한 플러그인만 비활성(나머지는 계속 로드), LSP 기여는 자동 기동 안 함(ADR-0010)
+- [x] 7-4. 커맨드 팔레트(`⌘⇧P`) + 파일 퀵오픈(`⌘P`) — **fuzzy 매칭 순수 함수 + 테스트**
+- [x] 7-5. lib.rs 배선 (커맨드 총 60종·SearchStore/PluginStore/AgentStore·이벤트) + entities 4종
+- [ ] 7-6. regex 검색 — **미지원**(regex 크레이트 미추가, 명시적 에러 반환)
+
+## 완료: Phase 4·5 잔여 배선 (2026-08-06)
+
+- [x] diff 탭 마운트(`diff-pane`), `⌥\` side-by-side/inline 토글
+- [x] git gutter 데코레이션(`createDecorationsCollection`) + 인라인 blame(injected text,
+      300ms debounce, **포맷 순수 함수 + 테스트 15건**)
+- [x] LSP 클라이언트 ↔ 에디터 실연결 — 첫 didOpen 시점 lazy 기동, 어댑터 10종 등록,
+      `(projectId, serverId)` ref-count 세션 공유, unmount 시 dispose, 대형 파일 스킵,
+      서버 미설치 시 조용히 스킵
+- [x] `git:status-changed`/`git:refs-changed` 구독 → gutter/diff 자동 갱신
+
+## Phase 7 종료 검증 (2026-08-06)
+
+전체 게이트 통과: `typecheck` / `eslint`(에러 0) / `prettier` / `bun test 135 pass` /
+`cargo fmt` / `cargo clippy -D warnings` / `cargo test 139 + 5(통합) pass`.
+남은 경고 1건은 `@tanstack/react-virtual` 의 React Compiler 비호환(QA §4.2 기록, 조치 불필요).
+
+## 진행 중: Phase 8 전 잔여 정리 (2026-08-06)
+
+메인이 먼저 처리한 선행 작업:
+- [x] **Cargo workspace 구성** — 루트 `Cargo.toml` 에 `members = ["src-tauri", "crates/taide-cli"]`.
+      release 프로파일을 워크스페이스 루트로 이동(멤버에 두면 무시된다).
+- [x] 의존성 추가 — `sysinfo 0.39`(Windows 감지) · `regex 1`(정규식 검색) · `trash 5`(휴지통 discard)
+- [x] 검증 스크립트를 워크스페이스 기준으로 변경
+      (`cargo fmt --all` / `clippy --workspace` / `test --workspace`)
+
+에이전트 병렬 작업 4건:
+- [ ] R-1. `taide` CLI 바이너리 — `--wait` 마커 방식, 조기 exit 금지(R1~R9), 앱 측 마커 등록/정리
+- [ ] R-2. Rust 갭 — Windows 에이전트 감지(sysinfo) · regex 검색 · untracked discard 휴지통 ·
+      git watcher 무효화 분류(`.git/index`→status, `refs/**`→refs, `objects/**` 무시)
+- [ ] R-3. LSP 갭 — `find_root` 를 실제 사용(`lsp_resolve_root` 커맨드) · ruff 병행 세션
+      (진단 owner 를 서버별 분리해 덮어쓰기 방지) · `didChangeWorkspaceFolders` 세션 공유
+- [ ] R-4. 프론트 갭 — 외부 변경 충돌 배너(dirty 시) · 커밋 그래프 가상 스크롤 ·
+      blame "You" 치환(`git_current_user` 추가) · 터미널 sessionId 를 layout 탭에 영속
+
+### 메인이 배선할 것 (에이전트가 못 건드리는 `lib.rs`)
+
+- 에이전트 감지 **폴링 태스크** — `TerminalStore::foreground_pids` → 감지 → `AgentStore::diff` →
+  변경 시에만 `AgentStateChanged` emit (unix 1s / windows 2s)
+- single-instance 콜백 → `parse_cli_payload` → `AgentExternalOpen` emit
+- 앱 종료 시 미해결 wait 마커 일괄 삭제
+- git watcher 콜백에 `classify_git_change` 연결
+
+## 완료: Phase 8 전 잔여 전량 (2026-08-06)
+
+- [x] R-1. `taide` CLI (`crates/taide-cli`, 테스트 9건) — `--wait` 마커 + 300ms 폴링 블록,
+      절대경로 정규화, detach spawn, **stdout 무오염·exit code 실측 검증 완료**
+- [x] R-2. Rust 갭 — Windows 에이전트 감지(sysinfo 후손 트리) · regex 검색(잘못된 정규식은 패닉 아닌
+      `InvalidArgument`) · untracked discard 휴지통(macOS 는 `NsFileManager` — 기본 Finder 방식은
+      Apple Event 권한이 필요해 실패) · `classify_git_change` 순수 함수
+- [x] R-3. LSP 갭 — `lsp_resolve_root` 커맨드 추가 후 프론트가 루트 결정에 사용,
+      ruff 병행 세션(진단 owner 를 `lsp-{serverId}` 로 분리해 마커 덮어쓰기 방지),
+      `didChangeWorkspaceFolders` 세션 공유 + ref-count
+- [x] R-4. 프론트 갭 — 외부 변경 충돌 배너 · 커밋 그래프 가상 스크롤 · blame "You" 치환
+      (`git_current_user` 추가) · 터미널 sessionId 를 layout 탭에 영속(`layout_set_terminal_session`)
+
+### 메인이 직접 처리한 배선·수정
+
+- **`taide` 바이너리 이름 충돌 (실제 사고)** — `src-tauri` 패키지(`taide`)와 `taide-cli` 의
+  `[[bin]] name = "taide"` 가 **같은 `target/debug/taide` 로 출력**되어 CLI 가 GUI 앱 바이너리를
+  덮어썼다(48MB → 684KB). Cargo 도 "향후 hard error" 경고.
+  → CLI bin 을 `taide-cli` 로 분리. 설치 시 `/usr/local/bin/taide` 로 심링크하는 정책은 그대로.
+- 커맨드 3종 등록 누락 보완: `layout_set_terminal_session` · `git_current_user` · `lsp_resolve_root`
+  (등록 후 프론트의 수동 `invoke` 우회 래퍼를 생성 바인딩으로 교체)
+- **에이전트 감지 폴링 태스크** — unix 1s / windows 2s, `AgentStore::diff` 로 **상태 변화 시에만** emit
+- **single-instance argv 수신** → `parse_cli_payload` → `AgentExternalOpen` emit + 마커 안전망 등록
+- **앱 종료 시 미해결 wait 마커 일괄 삭제** (`cleanup_all_wait_markers`)
+- **git watcher 부착** — `.git` 은 무시목록에 있어 기존 워처가 못 봤다. `.git` 전용 워처를 따로 달고
+  `classify_git_change` 로 status/refs 를 분류해 이벤트 발행. 프로젝트 close 시 함께 해제.
+- 워크스페이스 전환 부수효과: `target/` 위치 변경으로 ESLint 가 Rust 빌드 산출물을 린트 →
+  `eslint.config.js`/`.prettierignore`/`.gitignore` 에 `target/**` 추가
+
+### 최종 검증 (2026-08-06)
+
+`typecheck` ✓ / `eslint`(에러 0, 경고 2) ✓ / `prettier` ✓ / `bun test 141 pass` ✓ /
+`cargo fmt --all` ✓ / `cargo clippy --workspace -D warnings` ✓ /
+`cargo test --workspace` — 169 + 5(통합) + 9(CLI) pass ✓
+
+경고 2건은 `@tanstack/react-virtual` 의 React Compiler 비호환(file-tree·commit-graph).
+컴파일러가 안전하게 bail 한 것으로 QA §4.2 에 기록됨 — 조치 불필요.
+
+
+## 계획: Phase 7.5 — 실사용 피드백 18건 (2026-08-06)
+
+문서화 완료. 순서·상세는 `docs/roadmap.md` Phase 7.5, 결정은
+`docs/acknowledge/2026-08-06-phase75-decisions.md`.
+
+### 작성·갱신한 문서
+
+| 문서 | 내용 |
+|------|------|
+| `acknowledge/2026-08-06-phase75-decisions.md` (신규) | 18건 전량 + 사용자 확인 3건 + 반복 원칙 3가지 |
+| `features/preview.md` (신규) | 이미지/비디오/PDF/HTML/xlsx/pptx/HWP 미리보기 |
+| `features/window-chrome.md` (신규) | 타이틀바·footer·기동 흰화면·다크모드 미반영 |
+| `features/command-palette.md` (신규) | `>` 접두 모드 + **커맨드 레지스트리**(확장성) |
+| `features/settings-ui.md` (신규) | 설정 레이아웃·자체 컴포넌트·toast 9분할·리사이저 |
+| `features/tabs.md` (갱신) | §3.1 context menu 전량(view component), §4.4 새 창 규칙 |
+| `theme-system.md` (갱신) | §7 폰트 커스텀·codeview 테마 버그·테마 편집기·윈도우 배경색 |
+| `features/explorer-sidebar.md` (갱신) | §5 파일 아이콘 세트 |
+| `roadmap.md` (갱신) | Phase 7.5 A~F + Phase 8 게이트를 7.5 포함으로 수정 |
+
+### 사용자 확인을 받은 결정 3건
+
+1. **탭 열기 = VSCode 규칙** — 단일=preview / 더블·편집=고정 / `⌘+클릭`=분할 /
+   새 OS 창은 context menu 로만
+2. **미리보기 = 오피스 전량 + HWP** — HWP 는 `rhwp` 사용
+   (실사 확인: Rust+WASM, MIT, npm `@rhwp/core` 0.8.2, SVG 렌더 API)
+3. **footer 확대/축소 = 에디터·터미널 폰트만** (앱 UI 배율 아님)
+
+### 문서 작성 중 확인한 사실 (추측 아님)
+
+- `@rhwp/core` 0.8.2 / `@rhwp/editor` 0.8.2 · `pdfjs-dist` 6.2.108 · `xlsx` 0.18.5 — npm 실재 확인
+- **`pptxgenjs`(4.0.1)는 생성기이지 렌더러가 아니다** — pptx 원본 충실 렌더러는 확인 실패(미확인).
+  → `preview.md` §3.1 에 한계를 명시하고 개요 렌더 + LibreOffice 폴백으로 설계
+- **sonner 는 `middle-*` 위치를 지원하지 않는다**(6종만) → 9분할 중 3종은 컨테이너 CSS 필요
+
+### 기술 검토 2건 — 완료 (2026-08-06)
+
+- [x] `docs/research/remote-control.md` (374줄) → 요약 `features/remote-control.md`
+- [x] `docs/research/terminal-reevaluation.md` (578줄) → 요약 `features/terminal.md` §12
+
+**remote-control**: 잠자기 중 동작은 **OS 정책상 불가**(뚜껑 닫힘·배터리·명시적 잠자기).
+잠금은 가능. "화면 그대로"는 픽셀 스트리밍이 아니라 **상태 미러링**이 답이고 ADR-0004 가 이점.
+→ **Phase 7.5 에서 구현하지 않는다.** 사용자 기대와 제약이 다르므로 범위 재합의가 먼저.
+단 **IPC 계약에 "전송 = Tauri IPC" 가정을 넣지 않는 것**만은 지금부터 지킨다.
+
+**터미널**: **xterm 유지**(임베드 가능한 대체재 없음, VS Code 도 `@xterm/xterm@^6.1.0-beta.292` 사용).
+자동완성 잔상의 원인을 **우리 코드 3건**으로 특정 → roadmap 7.5-G.
+
+### Phase 7.5 남은 작업 (구현 미착수 — 별도 세션에서 진행)
+
+문서화만 완료했고 코드는 손대지 않았다. 순서·상세는 `docs/roadmap.md` Phase 7.5.
+
+| 그룹 | 내용 | 상태 |
+|------|------|------|
+| 7.5-A | 버그 3건 (codeview 테마·기동 흰화면·타이틀바 다크모드) | 미착수 |
+| 7.5-B | 기술 검토 2건 | **완료** |
+| 7.5-C | UI 일관성·확장성 (탭 메뉴·새창 규칙·커맨드 레지스트리·설정·toast·리사이저) | 미착수 |
+| 7.5-D | 표시·꾸밈 (폰트·테마 편집기·파일 아이콘·헤더/footer) | 미착수 |
+| 7.5-E | 미리보기 (이미지/PDF/비디오/HTML/xlsx/pptx/HWP) | 미착수 |
+| 7.5-F | remote-control | **구현 안 함** (범위 재합의 필요) |
+| 7.5-G | 터미널 잔상 수정 (원인 3건 특정 완료) | 미착수 |
+
+~~현재 코드 기준선: 프론트 141 tests / Rust 169 + 5(통합) + 9(CLI) tests~~
+(2026-08-06 시점 값. **현재 기준선은 `docs/HANDOFF.md` §7 이 정본**이다 — 이 줄은 이력으로만 남긴다)
+
+## 진행 중: Phase 7.5 구현 (2026-08-06, 2번째 세션)
+
+> 기준: `docs/roadmap.md` Phase 7.5. 결정은 `docs/acknowledge/2026-08-06-phase75-decisions.md`,
+> 추가 결정은 `docs/acknowledge/2026-08-06-i18n-and-session-findings.md`.
+
+### 7.5-A 버그 3건 — 코드 반영 완료, 시각 확인 대기
+
+- [x] a. codeview 테마 미반영 (2번) — `ThemeProvider` 에서 `applyMonacoTheme(theme, monaco.editor)` 호출.
+      monaco 는 `@shared/lib/monaco/setup` 재export 경유. `applyMonacoTheme` 이 매번 `defineTheme`+`setTheme`
+      을 부르므로 테마 전환 시 재정의도 함께 처리된다.
+- [x] b. 기동 시 흰 화면 (4번) — 실제 원인은 reveal 타이밍이 아니라 **웹뷰 기본 흰 배경**이었다.
+      `body` 배경이 `global.css`(JS 번들 주입)에만 있어 첫 페인트에 없었고, 헤더만 색이 맞았던 것은
+      창 `backgroundColor` 가 비쳐 보인 것. → `index.html` 인라인 `<style>` 로 첫 페인트 바탕색 확보 +
+      변수 주입을 `useLayoutEffect` 로 옮겨 reveal 보다 먼저 DOM 에 반영되게 했다.
+- [x] c. 타이틀바 다크/라이트 (17번) — 테마 적용 시 `getCurrentWindow().setBackgroundColor(app.background)`.
+      `capabilities/main.json` 에 `core:window:allow-set-background-color` 추가.
+
+파일: `src/app/providers/theme-provider.tsx`, `src/shared/lib/window-background.ts`(신규),
+`src/shared/constants/theme.ts`(신규), `index.html`, `src-tauri/capabilities/main.json`.
+
+### 7.5-G 터미널 — 원인 판별 후 A·B·P1 수정 완료
+
+판별 체크리스트(`terminal.md` §12.5) 실행 결과:
+
+- `tput cols` → **80** → **원인 B 확정**
+- 잔상 + **한글 입력 한 템포 지연** → **원인 A 지목**(버스트 끝 소량 청크가 갇힘)
+
+- [x] P0-1. reader 타이머 flush — `OutputBatch` 구조체 + 5ms 틱 flusher 스레드.
+      `infra/pty.rs`, 상수 `OUTPUT_FLUSH_TICK_MS`(`domain/terminal/types.rs`). 테스트 4건 추가.
+- [x] P0-2. 실측 cols/rows 로 spawn — `TerminalView.onReady(cols, rows)` 신설 →
+      `TerminalPane`(sessionId nullable) → `TerminalSession` 이 실측값으로 spawn + 비동기 spawn 중
+      크기가 바뀌었으면 후속 resize. Rust 기본값은 fallback 으로만 남는다.
+- [x] P1. `pty_write`/`pty_resize`/`pty_set_paused` 에서 `begin_mutation` 제거 —
+      셋 다 `TerminalStore` 와 pty 내부 락만 건드리고 영속 상태를 바꾸지 않는다.
+      키 입력이 파일 저장·git 뒤에 줄 서던 문제 해소. `bindings.ts` 변경 없음(State 는 JS 인자가 아님).
+- [ ] P0-3. 탭 전환 시 숨김 유지(원인 C) — **A·B 실사용 확인 후 판단**. 아직 미착수.
+
+사용자 실측 결과: `tput cols` 창 폭에 맞음(B 해결), 잔상 사라짐(A 해결).
+CJK 입력 끊김은 P1 적용본으로 재확인 대기.
+
+### 부수 발견 (별건)
+
+- [x] **새 터미널을 여는 경로가 없었다** — 기본 레이아웃의 Terminal 탭 1개뿐이고 닫으면 복구 불가.
+      `toggle-terminal` 은 keymap 선언만 있고 핸들러가 없었다.
+      → keymap `new-terminal`(`⌃⇧\``) 추가 + 커맨드 팔레트/전역 단축키 배선.
+- [ ] **`⌘W` 가 앱을 종료한다** — IDE 라면 탭 닫기여야 한다. 7.5-C 로.
+- [ ] **타이틀바 중앙 정보(프로젝트·파일·브랜치)는 미구현** — 7.5-D(18번). 버그 아님.
+- [ ] `applyMonacoTheme` 은 6자리 hex 가 아니면 예외를 던진다. 사용자 테마(7.5-D §7.3) 도입 전
+      Rust 로더 검증(`theme-system.md` §6)이 선행돼야 한다.
+
+### 세션 운영 교훈 (중요)
+
+- **에이전트 셸에서 앱을 띄우면 안 된다.** 두 번 오진했다.
+  1. 샌드박스 셸에서 띄운 인스턴스는 웹뷰가 IPC 부트스트랩을 못 받아 파일트리 빈 상태 + 테마 미적용이 됐다.
+     코드 회귀로 오인했다.
+  2. macOS **TCC 권한은 부모 프로세스에 귀속**된다 → 에이전트 셸에서 띄우면 보호 폴더 접근이
+     `Operation not permitted (os error 1)` 로 막힌다.
+  → **앱 실행은 사용자가 직접 한다.** 에이전트는 코드·검증까지만.
+- 진단용으로 Chrome 을 `localhost:5173` 에 붙이면 **vite 클라이언트 로그가 섞여** 앱 콘솔로 오인된다.
+  (Tauri 런타임이 없어 `__TAURI_INTERNALS__` undefined 에러가 대량 발생) 진단 후 반드시 탭을 닫는다.
+
+### 7.5-G 후속 — 한글(CJK) 입력 불가 (2026-08-06, 같은 세션)
+
+잔상(A·B) 수정 후 남은 **한글 입력 불가**를 별건으로 추적해 해결했다.
+근본 원인·실측·시도 이력 정본: `docs/bug/2026-08-06-wkwebview-ime-composition.md`.
+
+- [x] Safari 격리 테스트로 xterm 무죄 입증 — 같은 WebKit 엔진에서 조합이 정상 동작
+- [x] 앱 내 계측으로 **WKWebView 가 조합 이벤트를 전혀 발생시키지 않음**을 확정
+      (`document` 캡처 리스너로 커맨드 팔레트까지 확인 → 앱 전역 문제)
+- [x] `resolveImeInput` 어댑터 + 테스트 5건 — `insertReplacementText` 를 백스페이스+재전송으로 번역
+- [x] 임시 계측 전량 제거
+- [ ] Tauri/wry/tao 상위 버전에서 수정되면 어댑터 제거 (조사 진행 중)
+
+**부수 수정**
+- [x] 재시작 후 터미널 빈 화면 — 죽은 `sessionId` 를 재사용하던 문제.
+      `terminalSessionsQueryOptions` 로 살아있는 세션을 확인 후 없으면 새로 spawn
+      (`terminal.md` §3 이 정한 동작이 미구현이었음)
+- [x] 타이틀바가 IDE 테마색이 아니던 문제 — `titleBarStyle` `Transparent`→`Overlay`
+      (`Transparent` 는 `fullsize_content_view(false)` 라 웹뷰가 그 영역을 안 그림) +
+      신호등 겹침 방지용 `features/window/title-bar.tsx` 스트립
+- [x] **`setBackgroundColor` 호출 제거** — `@tauri-apps/api` 가 `{ color }` 로 보내는데
+      Rust 커맨드는 `value` 를 기대해(`tauri-2.11.5 window/plugin.rs` setter 매크로)
+      `None` 으로 역직렬화되고 `NSWindow.setBackgroundColor(nil)` 로 config 값을 지운다.
+      **내가 추가한 이 호출이 타이틀바를 밝게 만든 원인이었다.** 업스트림 버그
+- [x] 새 터미널 커맨드(`⌃⇧\``) — 열 방법이 아예 없었음
+
+**미해결로 넘김**
+- [ ] `followSystemTheme` 이 백엔드 no-op — `theme_get_current` 가 `settings.theme_id` 만 읽는다
+      (`domain/theme/commands.rs:19-23`). 설정 UI 에 체크박스는 있으나 동작 안 함 → 7.5-D
+- [ ] `⌘W` 가 앱을 종료 → 7.5-C
+
+### 7.5-H 다국어 — 구현 완료 (2026-08-06)
+
+- [x] Rust `domain/locale` — `LocalePack`/`LocaleSummary`/`ResolvedLocale`(flat dotted key),
+      내장 en/ko/ja 137키, `extends` 부분 오버라이드, `{app_data}/locales/*.json` 사용자 팩 열거,
+      `resolve_language(system|명시)` — 테스트 8건
+- [x] `lib.rs` 커맨드 3종 등록 + `bindings.ts` 재생성
+- [x] 프론트 `shared/i18n/i18n.ts` — i18next 26.3.6 / react-i18next 17.0.11.
+      `keySeparator: false` 로 flat 키 사용, `addResourceBundle` 로 런타임 주입
+      (**언어팩 요구를 만족시키는 핵심** — 컴파일타임 방식은 이래서 배제)
+- [x] `entities/locale` + `LocaleProvider` 배선, `settings.language` + 언어 선택 UI(네이티브 select 미사용)
+- [x] UI 하드코딩 문자열 전량 치환 — 22개 파일, `grep [가-힣]` 잔여 0건.
+      `keymap.ts` 의 `description` 은 `descriptionKey` 로 바꿔 렌더 시점에 번역
+- [x] **보간 문법 정정** — Rust 메시지가 `{count}` 였는데 i18next 기본은 `{{count}}` 라
+      치환이 안 됐다. Rust 쪽을 표준으로 맞춤
+- [ ] locales watcher 핫리로드 (미착수)
+
+**남은 검증**: 실제 앱에서 언어 전환이 즉시 반영되는지 눈으로 확인 필요.
+
+### 7.5-C UI 일관성·확장성 — 구현 완료 (2026-08-06)
+
+- [x] **`⌘W` 앱 종료** — 원인은 커스텀 메뉴 부재. Tauri 가 만든 macOS 기본 메뉴의 "Close Window"(⌘W)가
+      키를 선점하고 있었다. `lib.rs` 에 앱 메뉴를 직접 구성해 그 항목만 제거.
+      **Edit 메뉴(undo/redo/cut/copy/paste/select_all)는 반드시 유지** — 빼면 macOS 에서 ⌘C/⌘V 가 죽는다.
+      프론트는 `EditorArea` 가 `close-tab` 키맵으로 포커스 pane 의 활성 탭을 닫는다.
+- [x] **커맨드 레지스트리 + `>` 모드** — `shared/lib/command-registry.ts`(순수, React/IPC 미import),
+      테스트 21건. `⌘P`=파일 모드, `⌘⇧P`=커맨드 모드(`>` 프리필). 실행 구현이 없는 항목은
+      disabled 로 표시(가짜 toast 제거).
+- [x] **탭 context menu 확장** — Close/Others/ToRight/Saved/All, Copy Path/Relative Path,
+      Reveal in Finder/Open Changes, Split 4방향. 기존 버그도 발견·수정(`onCloseOthers` 에
+      `tab.closeAll` 라벨이 잘못 붙어 있었음).
+- [x] **파일 트리 툴바** — 새 파일·새 폴더·새로고침·모두 접기. 이름 입력은 네이티브 prompt 대신 Dialog.
+- [x] **설정 화면 재구성** — 좌측 sticky TOC + Card + `max-w` 제거 + native checkbox → 자체 Switch.
+- [x] **toast 9분할** — sonner 는 6종만 지원(`top/bottom` × `left/center/right`)이라
+      중간 행은 `top-*` 앵커 + CSS 수직 보정. 순수 함수로 분리하고 테스트 4건.
+      **부수 수정**: `Toaster theme='dark'` 하드코딩이라 라이트 테마에서 토스트만 다크였던 것을 테마 추종으로.
+- [x] **리사이저 두께** — `PaneSeparator` 로 히트영역(8px 고정)과 시각 두께(설정값) 분리. VSCode 방식.
+- [x] `emptyPatch` 를 `entities/settings` 의 `emptySettingsPatch()` 로 이전 — 설정 필드가 늘 때마다
+      호출부가 깨지던 것을 한 곳으로 모음.
+
+**남은 검증**: 실제 앱에서 ⌘W·toast 위치·리사이저·설정 화면·팔레트 `>` 모드를 눈으로 확인 필요.
+
+### 7.5-D 진행 (2026-08-06) — 계약 확정분
+
+메인이 먼저 확정한 것(에이전트는 이 위에서만 작업):
+
+- [x] Rust `domain/font` — `fontdb` 0.24 로 시스템 폰트 열거. `FontFamily { name, monospaced }`,
+      `font_list()` 커맨드. 가족명 중복 제거 + 정렬. 테스트 2건
+- [x] `settings.editorFontFamily` / `terminalFontFamily` / `uiFontFamily` 필드
+- [x] `theme_save(theme)` / `theme_delete(themeId)` 커맨드 — 내장 테마 덮어쓰기 차단,
+      경로 구분자(`/ \ .`) 포함 id 거부(경로 탈출 방지). 테스트 3건
+- [x] **`followSystemTheme` no-op 수정** — `theme_get_current(systemTheme)` 로 시그니처 변경.
+      판단은 Rust(`builtin_id_for_system`), 시스템 값 감지는 view 가 센서 역할(locale 과 동일 패턴).
+      프론트는 `prefers-color-scheme` 구독으로 OS 테마 변경 시 즉시 무효화
+- [x] **pty 로케일 누락 수정** — `LANG`/`LC_CTYPE` 를 UTF-8 로케일로 설정.
+      Finder 실행 릴리스 빌드에서 pty 가 non-UTF-8 이 되어 한글이 깨지는 것을 막는다.
+      기존 환경변수에 UTF-8 이 있으면 승계, 없으면 `en_US.UTF-8`
+
+미착수로 남은 것: themes/locales 디렉토리 watcher 핫리로드(둘 다 없음 — 대칭적으로 함께 처리 필요).
+
+### 7.5-D 표시·꾸밈 — 구현 완료 (2026-08-06)
+
+- [x] **시스템 폰트 선택(1번)** — Rust `font_list()`(fontdb 0.24), 검색형 `FontPicker`(cmdk 재사용,
+      monospace 필터 기본 on, 항목별 미리보기). `buildMonospaceFontStack` 으로 **폴백 체인 강제**.
+      Monaco 는 `updateOptions`, xterm 은 `options.fontFamily` + **`fit()` 재호출**(안 하면 커서 밀림)
+- [x] **파일 아이콘(6번)** — `resolveFileIcon`/`resolveFolderIcon` 순수 함수 + 테스트 18건.
+      탐색기 행과 탭 아이콘 양쪽에 적용
+- [x] **테마 편집기(14번)** — 자체 HSV 색 피커(native color input 미사용), 라이브 프리뷰,
+      `extends` 로 **바뀐 토큰만** 저장. `theme-draft.ts`/`color.ts` 순수 로직 + 테스트 30건
+- [x] **타이틀바 중앙 정보(18번)** — 활성 탭 · 프로젝트명 · git 브랜치. 폭이 좁아지면
+      브랜치→프로젝트명 순으로 생략. `data-tauri-drag-region` 을 자식마다 부여(상속 안 됨)
+- [x] **footer(15번)** — 상태바 + 에디터/터미널 폰트 크기 컨트롤(앱 UI 배율 아님)
+
+**메인이 직접 처리한 것**
+- `shared/ui/**` 가 eslint `ignores`(shadcn 전용)라 에이전트가 거기 만든 자체 아이콘 파일이
+  **lint 검사를 빠져나갔다.** `src/shared/icons/` 로 이동해 검사 대상에 포함시켰다.
+
+**남은 결정**
+- material-icon-theme 실제 SVG 도입 — 라이선스·번들 크기 검토 필요. 현재는 분류만 참조
+- 파일 타입 전용 색 토큰 부재 — 기존 8색 토큰 재사용이라 ts/css/md 가 같은 색
+- 테마 내보내기/가져오기 — `@tauri-apps/plugin-fs` 미설치
+
+### 7.5-E 미리보기 — 구현 완료 (2026-08-06)
+
+**메인이 확정한 계약**
+- `file_read_raw(path)` — raw 바이트를 `ArrayBuffer` 로 반환하는 커맨드. specta 를 안 거치므로
+  `RAW_CHANNEL_COMMANDS` 에 등록하고 `invoke<ArrayBuffer>('file_read_raw', { path })` 로 호출한다.
+  20MB(`READ_ONLY_FILE_BYTES`) 상한은 Rust 가 강제
+- **asset 프로토콜 활성화** — 비디오·오디오 스트리밍용(전체 메모리 적재 금지).
+  `protocol-asset` 피처 + CSP `media-src`/`frame-src` 추가.
+  **스코프는 `[]` 로 두고 열린 프로젝트 루트만 런타임 등록**(`allow_asset_access`) — 임의 경로 노출 차단
+- **`TabKind::Preview` 를 만들지 않기로 결정** — 위 roadmap 주석 참조
+
+**구현**
+- [x] 이미지(SVG 는 `<img>` 로만 — 인라인 시 스크립트 실행 위험) / 비디오 / 오디오 / HTML
+- [x] PDF(pdfjs-dist 6.2.108, worker 는 Monaco 와 동일 `?worker` 패턴, unmount 시 `destroy()`)
+- [x] xlsx(SheetJS 0.18.5) — 순수 변환 함수 + 테스트 5건, 행 수 상한 + "일부만 표시" 안내
+- [x] HWP/HWPX(`@rhwp/core` 0.8.2)
+- [x] pptx 개요 — 한계를 UI 에 명시
+- [x] 미지원·실패 시 "외부 앱에서 열기"
+
+**메인이 직접 처리한 것**
+- 에이전트가 만든 PDF/xlsx/HWP/pptx 컴포넌트가 **`PreviewPane` 에 배선되지 않은 채 남아 있었다.**
+  4종을 dispatch 에 연결(objectUrl 이 필요한 것과 ArrayBuffer 를 그대로 넘기는 것을 분리)
+- HTML iframe 이 blob URL 을 여는데 **CSP 에 `frame-src` 가 없었다** — 추가
+
+**남은 것**: LibreOffice 폴백(Rust 커맨드 필요), 실제 파일로 각 미리보기 렌더 확인(눈으로 검증 필요)
+
+### Phase 7.6 IDE 핵심 루프 — 구현 (2026-08-06)
+
+**메인이 확정한 계약**: `GitBranch` / `GitStashEntry` / `SearchReplaceResult` 타입,
+Rust 커맨드 10종 `lib.rs` 등록 + bindings 재생성.
+
+**Rust**
+- [x] git 브랜치·stash·hunk — `CheckoutBuilder::safe()` 로 커밋 안 된 변경을 덮어쓰지 않고,
+      충돌 시 명확한 에러로 떨어뜨린다. `branch_delete` 는 현재 브랜치 거부 + force 없으면 미머지 거부.
+      `discard_hunk` 는 `gutter()` 와 **같은 diff 옵션·같은 hunk 경계 계산**을 공유하도록
+      헬퍼를 추출해, 프론트가 받은 좌표와 어긋날 수 없게 했다. 테스트 17건
+- [x] `search_replace` — 매칭 로직을 `search()` 와 공유(규칙이 갈리면 안 된다),
+      `persist::write_atomic` 로 원자적 쓰기, 바이너리·비UTF8 skip, 줄 종결자(LF/CRLF) 보존.
+      실패해도 실제 변경분을 정확히 반환. 테스트 7건
+
+**프론트**
+- [x] `⌘F` 스마트 분기 — 에디터 포커스면 Monaco find, 아니면 전역 검색.
+      `⇧⌘F`(전역)는 문서화된 값이라 건드리지 않고 `find` 액션을 신설
+- [x] 전역 치환 UI — 파일 단위 선택 + 확인 다이얼로그(되돌릴 수 없으므로 필수)
+- [x] Problems 패널 / 아웃라인 패널 / 키맵 오버라이드 UI / 저장 시 포맷·자동 저장
+- [x] 마크다운 미리보기 / 터미널 다중 세션 / 최근 프로젝트 / 드래그&드롭
+
+**메인이 직접 채운 것**
+- **워크플로 설계 누락**: git 브랜치 UI 를 프론트 작업에 배정하지 않아 Rust 만 만들어졌다.
+  `BranchSwitcher`(popover + cmdk 검색, 로컬/원격 그룹, 없는 이름이면 생성 제안)를 직접 만들고
+  git 패널 헤더의 브랜치 이름을 이것으로 교체
+- 전역 치환이 `replaceNotWired` toast 로 막혀 있던 것을 실제 커맨드에 배선
+- i18n 키 11종 추가(3언어) — 키 목록 배열에도 등록해야 파리티 테스트를 통과한다
+
+**남은 것**: git stash UI, hunk 되돌리기 UI(커맨드·훅은 준비됨), 그리고 **전 기능 시각 확인**
+
+### Phase 7.6 마무리 (2026-08-07)
+
+- [x] **git stash UI** — git 패널 상단에 stash 섹션. 목록 + 스태시(변경이 있을 때만 활성) + 적용 + 삭제.
+      `ResourceGroupHeader` 의 기존 action prop 형태(`actionLabel`/`actionIcon`/`onAction`)를 그대로 따랐다
+- [x] **hunk 단위 되돌리기 UI** — Monaco `onMouseDown` 에서 `GUTTER_LINE_DECORATIONS` 타겟을 잡아
+      클릭한 줄이 속한 hunk 를 찾고, **확인 다이얼로그**를 거쳐 `git_discard_hunk` 를 호출한다.
+      되돌리면 복구가 불가능하므로 확인 없이 실행하지 않는다
+- [x] i18n 키 5종 추가(3언어) + 네임스페이스 키 목록 등록
+
+**Phase 7.6 구현 완료.** 프론트 279 tests / Rust 218 tests, lint 0 errors, 한글 리터럴 잔여 0건.
+**전 기능 시각 확인이 남아 있다** — 이번 Phase 에서만 찾기/바꾸기·Problems·아웃라인·브랜치 전환·
+stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추가됐다.
+
+## 완료: Phase 7.7 — QA 1차 반영 (2026-08-07)
+
+> 사용자 실기기 QA 결과 9그룹. 운영 방식(사용자 확정): 오케스트레이팅·상세플랜 = 메인 세션(Fable),
+> 리서치·판단·최종검증 = opus+medium, 구현 = sonnet+high, 버그 1차 = opus+high, 2차 = Fable+medium.
+> 메인은 직접 구현하지 않고 계약 확정·배선·검증만 한다.
+
+- [x] 7.7-R. 사전 리서치 워크플로 (8영역 병렬, opus) — 핵심 주장 메인 직접 검증 후 채택.
+      범위 결정 3건(사용자)·세부 결정은 `docs/acknowledge/2026-08-07-qa-batch-decisions.md`
+- [x] 7.7-계약. 스파인 선행 확정 (커밋 `70424a2`) — system 도메인·설정 6필드·TabKind 확장(ClaudeDiff 휘발성)·
+      file 휴지통 전환·테마 토큰·i18n 65키·capabilities. opus 검증 pass, minor 6건 중 3건은 웨이브 1 S 트랙에서 수정
+- [x] 7.7-W1. 웨이브 1 구현 (커밋 `60a23b8`) — P(UI폴리시→Problems→리소스) ∥ Q(트리 인라인) ∥ R(AI 배지) ∥ S(minor).
+      메인이 전체 verify 재실행으로 확인(Rust 253·프론트 290·clippy 0). 발견된 배선 공백
+      (agent_hooks_* 호출 UI 부재)과 A1 이 소유권 문제로 보류한 설정 overflow 잔여분은 W2-B3 으로 이관
+- [x] 7.7-W2. 웨이브 2 구현 (커밋 `91b3637`) — B1(context menu·미니맵) ∥ B2a(IDE Rust, 테스트 46건) ∥
+      B3(hooks 배선·overflow) → B2b(IDE 프론트). 메인 전체 verify 재실행 통과(프론트 295·Rust 298),
+      i18n 사용 키 104종 실존 확인. 소유권 경계로 미뤄진 배선 4건 + Rust 주석/allow 위반(세션 이전 선례 0건 실측)은 W3-C2 로
+- [x] 7.7-W3. 웨이브 3 구현 (커밋 `8678cba`) — C2(cwd·미니맵·Compare·스코프 칩 배선 + Rust 주석 56건 제거·
+      ide_set_selection 구조체화) → C1(오버레이 스크롤바 15표면, 계산 lib 테스트 13건).
+      메인 verify 재실행 통과(프론트 308·Rust 298)
+- [x] 7.7-검토. 전체 diff 버그 검토 (커밋 `36f4fc4`) — 발견 50 → 적대적 검증 확정 44 → 수정 29+4 / 보류 7(backlog 기록).
+      2차(메인)에서 1차 수정의 opener 권한 광역 개방(path:**)을 회수하고 루트 검증 Rust 커맨드 경유로 재설계,
+      root_guard 승격으로 terminal→file import 편차 해소. 최종 기준선: 프론트 312 tests / Rust 310 / lint·clippy 0
+- [x] 7.7-QA. 실기 화면 검증 1회차 (사용자) — 11건 접수 → 아래 7.8
+- [x] 7.7-후속. opener npm 제거·hooks OFF 자동 제거 (커밋 `41d740b`)
+
+## 완료: Phase 7.9 — QA 3차 반영 (2026-08-08) — 실기 재검증(QA 4회차)은 HANDOFF §8
+
+- [x] 7.9-1. 한글 씹힘 — **메인(Fable) 직접, 실기 로그로 원인 확정 후 수정** (커밋 `06fc8c3`).
+      getTargetRanges 는 WKWebView 에서 항상 빈 배열(가설 무효, 폴백은 정확했음). 진짜 원인은
+      **xterm 이 음절 시작 insertText 를 간헐적으로 pty 에 미전송**(로그의 니·ㅆ·ㅇ — onData 부재).
+      createInsertTextDeduper 로 어댑터가 전송을 직접 책임(50ms 중복 소비/자체 전송/늦은 중복 1회 억제).
+      로그 재현 테스트 포함. 정본: docs/bug/2026-08-06-wkwebview-ime-composition.md. **실기 재검증 필요**
+- [x] 7.9-2. AI 배지 지연 (커밋 `e81f847`) — 폴링 틱의 ps 스캔 spawn_blocking 격리 + unix 폴링 500ms.
+      hooks emit·프론트 구독은 이미 즉시 경로 확인. Working→Idle 6s 디바운스는 의도값 유지(단축은 텔레메트리 필요)
+- [x] 7.9-3. 번들 테마 26종 확충 → 총 36종 (커밋 `ae4b1fa`) — include 체인 병합·VSCode 공식 기본 ANSI 폴백·
+      변환기 실버그 2건 수정. 전 종 MIT 실확인. Cursor 자체 테마는 재배포 허가 부재로 제외(추가 후보:
+      Winter is Coming·Andromeda·Cobalt2·SynthWave 84 — 검증 완료 상태로 대기)
+
+## 완료: Phase 7.8 — QA 2차 반영 (2026-08-07)
+
+- [x] 7.8-R. 리서치 8영역 완료 — 탭 메뉴는 7.5-C 부터 미동작(asChild+FC), CC 는 accept 기아/stale lockfile 유력,
+      테마 무반응은 토큰 37개 CSS 미매핑. 원문: 세션 scratchpad research2/
+- [x] 7.8-계약. 선행 확정 (커밋 `aa39bc4`) — 설정 15필드·Untitled(휘발, closed_tabs 차단 확정)·theme 메타·i18n 44키.
+      opus 검증 pass, minor 7건은 웨이브 A 지시에 반영
+- [x] 7.8-WA. 웨이브 A (커밋 `7b9e098`) — 탭메뉴 복구·CC 연결 안정화·Monaco 위젯 90키·검색UX·설정 15필드 배선·
+      untitled 탭. 메인 verify 재실행 통과(프론트 322·Rust 330). A2 가 소유 경계로 남긴 2건(pty env 레이스·로그 필터)은 WB-B3 으로
+- [x] 7.8-WB. 웨이브 B (커밋 `5e16c13`·`c3eda29`) — B1 디자인 토큰 정비(미매핑 43 해소·dark→data-appearance·
+      카드/페이지 분리·radius/hover 정규화) ∥ B2 테마 라이브 프리뷰(캐시 주입)+번들 테마 10종+변환 스크립트
+      (후속 후보: Monaco syntax 토큰 19종 미전달로 번들 테마가 에디터에서 밋밋 — B2 보고) ∥
+      [x] B3 CC 잔여(A2 소유 경계 2건) — pty env 레이스: `pty_spawn` 이 IDE 연동 켜져있고 미기동 상태면
+      `IDE_READY_WAIT_MS`(2s) 한도 내 `IDE_READY_POLL_INTERVAL_MS`(50ms) 간격 폴링 후 env 구성(대기 판정은
+      `terminal/service.rs::should_wait_for_ide_ready` 로 분리해 단위테스트 3건, mutation guard 밖에서 대기해 다른
+      명령 블로킹 방지) · 로그필터: `lib.rs` tauri_plugin_log 에 tungstenite/tokio_tungstenite Warn 제한(TRACE 프레임
+      덤프 선택영역·파일내용 노출 차단). verify: 프론트 322 / Rust 333(+3) / clippy·fmt 0 / typecheck·lint 0
+- [x] 7.8-검토. diff 검토 완료 (커밋 `cc0ea19`·`64fa63d`) — 발견 29 → 확정 22 → 수정 8 + 번들 테마 재변환.
+      주요: untitled 프로젝트 간 데이터 유실·검색 첫 호출 시딩·enablePreviewTabs 미배선·번들 테마 3종 fg=bg
+      (변환기 폴백 계열 교차가 원인 — 재설계 + 대비 검증 내장 + Rust 회귀 테스트).
+      라이브 프리뷰 되돌림(high)은 React Compiler 실컴파일로 오탐 판정. 보류 4건 backlog 기록.
+      테마 재변환 트랙은 API 연결 끊김으로 2회 사망 → 원본을 메인이 직접 확보(scratchpad)해 네트워크 제거 후 성공.
+      최종 기준선: 프론트 326 tests / Rust 340 / lint·clippy 0. **실기 화면 검증(QA 3회차) 대기**
+- [x] 7.8-1. 탭 우클릭 네이티브 메뉴 — 회귀 아님, 7.5-C 부터 미동작(asChild 자식이 FC). 구조 교정 + 전역 차단 (WA-A1)
+- [x] 7.8-2. divider thickness 0 허용 (계약+WA-A5)
+- [x] 7.8-3. 미니맵 토글 설정 영속 (WA-A5)
+- [x] 7.8-4. untitled 탭 + `+` 메뉴 — 휘발성, ⌘S save-as 변환 (계약+WA-A6)
+- [x] 7.8-5. Monaco 위젯 색 90키 매핑 (WA-A3)
+- [x] 7.8-6. 디자인 일제 정비 — 미매핑 토큰 43·dark variant·카드 분리·radius/hover (WB-B1, 시각 판단 후보 6건은 보고만)
+- [x] 7.8-7. ⇧⌘F/⇧⌘H 배선 + replace 상시 노출 + regex 토글 (WA-A4)
+- [x] 7.8-8. 라이브 프리뷰 재설계 + 번들 테마 10종 + 변환 스크립트 (WB-B2)
+- [x] 7.8-9. CC 연결 — accept 재시도·stale lockfile 정리·서브프로토콜·env 레이스 대기·진단 로그·footer 3상태
+      (WA-A2 + WB-B3). **실기 재검증 필요** — 유력 원인 대응이며 재현 시 신규 진단 로그로 확정
+- [x] 7.8-10. 한글 빠른 입력 씹힘 — 메인 직접 수정 (커밋 `d59304c`, getTargetRanges). **실기 재검증 필요**
+- [x] 7.8-11. 설정 15필드 확충 (계약+WA-A5)
+- [x] 7.7-검토2. 2차 검토 확정 후속 4건 (미커밋) —
+      ① opener 권한 재설계: capabilities 의 opener 3종 제거 + `system_open_path`/`system_reveal_path`/
+      `system_open_in_browser` 신설(루트 검증 후 `tauri_plugin_opener` Rust API 직접 호출),
+      프론트 6곳 교체·`@tauri-apps/plugin-opener` import 전면 제거.
+      ② `close_tab` 이 ClaudeDiff 탭을 closed_tabs 에 push 하지 않도록(좀비 탭 방지) + 테스트 1건.
+      ③ `ide:close-tab-requested` payload 에 `requestId` 추가 → 프론트에서 pending 레지스트리 prune.
+      ④ `showSystemUsage` 프론트 폴백을 백엔드 기본값(`true`)과 정렬.
+      부수: 루트 검증 헬퍼를 `infra/root_guard.rs` 로 승격(file→terminal 직접 import 편차 해소).
+      `bun run verify` 전 단계 통과(프론트 312·Rust 296+5+9)
+- [ ] 7.7-1. Problems 재배치 — footer 에러 아이콘(에러 있으면 적색) + 클릭 시 에디터 영역 패널 토글
+- [ ] 7.7-2. 파일트리 툴바 hover 시에만 표시(Cursor 형태) + 새 파일/폴더 트리 내 인라인 입력(모달 금지)
+- [ ] 7.7-3. 파일트리 context menu 항목 전량 (VSCode 급)
+- [ ] 7.7-4. 탭 context menu 항목 보강 + 미니맵 토글(설정 또는 미니맵 우클릭)
+- [ ] 7.7-5. 커스텀 스크롤바 — bblog `virtual-scroll.tsx` 참조 고도화, 네이티브 스크롤바 대체
+- [ ] 7.7-6. UI 폴리시 — split border 떠있음·트리/코드뷰 공백·설정 overflow 심층 조사 후 수정
+- [ ] 7.7-7. Claude Code 1급 연동 — 상세 리서치 후 범위 합의 (diff 표시·IDE 연동)
+- [ ] 7.7-8. footer CPU/RAM 표시 + 설정 토글
+- [ ] 7.7-9. 설정 버그 — select 류가 열린 채 안 닫힘·plugin 클릭 시 영역 점프
+- [ ] 7.7-10. AI 상태 배지 — 프로젝트 아이콘 우하단 (IDLE/WORKING/NEED DECISION 등 + 열린 AI 창 구분)
+
+## 완료: 번들 테마 18종 확충 (2026-08-08)
+
+- [x] T-1. `scripts/convert-vscode-theme.ts` 에 include 체인 병합 지원 — `--include-dir` CLI 인자,
+      VS Code 원본 파일명(`dark_vs.json` 등)을 로컬 미러 파일명(`base-dark-vs.json` 등)으로 매핑하는
+      `INCLUDE_ROLE_FILENAME_MAP`, 재귀 로더 `loadRawThemeChain`(base → child 순으로 배열 구성) +
+      `mergeVscodeThemeChain`(colors 키 단위 병합·tokenColors 는 base 뒤에 child 이어붙임)
+- [x] T-2. 변환 중 발견한 기존 스크립트 결함 2건 근본 수정(신규 테마 소스에서 처음 노출됨, 기존 번들
+      10종은 우연히 회피됨) — ① VS Code 컬러 값이 `null`(명시적 unset)인 항목이 `expandVscodeHex`
+      에서 크래시 → 문자열 값만 필터링 후 처리 ② `editor.foreground` 키가 아예 없는 테마(quiet-light·
+      one-monokai)에서 `resolveSyntax` 의 fallback 이 `undefined` 를 그대로 넘겨 크래시 → 이미
+      전량 fallback 을 거쳐 확정된 TAIDE `colors['editor.foreground']` 를 syntax fallback 으로 사용하도록 교정
+- [x] T-3. `repairContrastPairs` 후보를 배경뿐 아니라 전경(foreground)까지 확장
+      (`CONTRAST_REPAIR_FOREGROUND_CANDIDATES`) — everforest-light 의 `app.foreground`/
+      `panel.sectionHeader` 가 `foreground`(#879686, 대비 2.89) 대신 같은 테마의 `editor.foreground`
+      (#5c6a72, 대비 5.18)로 대체되어 통과
+- [x] T-4. 26종 시도 → 18종 변환 성공(`src-tauri/resources/themes/*.json`), 8종은 원본 데이터 결함으로
+      제외 — vscode-dark-plus/light-plus/dark-modern/light-modern/kimbie-dark/red/quiet-light/darcula
+      전부 VS Code 원본에 `terminal.ansi*` 16색이 전혀 없음(대비 문제가 아니라 값 자체가 없어 발명 불가,
+      `docs/theme-system.md` §8.2 의 "임의 팔레트로 채우지 않는다" 정책상 배제).
+- [x] T-5. `src-tauri/src/domain/theme/service.rs` `BUNDLED_THEME_SOURCES` 에 18종 `include_str!` 등록
+      (`builtin: true`, 기존 10종 무변경) — 카운트 기반 테스트가 자동으로 28종 전량 커버
+- [x] T-6. `THIRD_PARTY_LICENSES.md` 에 18종 출처·라이선스 추가 (실패한 8종은 미기재)
+- [x] T-7. 게이트 전량 통과 — `cargo test --workspace` 325 pass, `cargo clippy -D warnings` 0,
+      `cargo fmt --check` 0, `bun run typecheck`/`lint`(사전 존재 warning 4건 외 0)/`test` 326 pass/
+      `format:check` 0
+
+## 완료: 제외 8종 ANSI 폴백 구제 — 번들 테마 36종 완성 (2026-08-08)
+
+- [x] U-1. `scripts/convert-vscode-theme.ts` 에 VS Code 공식 기본 ANSI 팔레트(dark/light, 출처
+      `terminalColorRegistry.ts`) 를 `VSCODE_DEFAULT_ANSI_PALETTE` 상수로 추가하고, ANSI 색을 쓰는
+      모든 경로가 공유하는 `resolveAnsiLookup`(원본에 없으면 폴백 채움 + 폴백 토큰 목록 반환)으로
+      일원화 — `terminal.*` 출력뿐 아니라 `COLOR_MAPPING` 의 `derived()`(`graph.lane*` 등)와
+      `chain()` 후보 중 `terminal.ansi*` 리터럴(`git.*`/`editorGutter.*`/`statusIndicator.*` 등)도
+      전부 이 폴백을 공유하도록 `resolveCandidate` 를 확장(`ansiNameFromCandidate`) — 그전엔 후자가
+      원본 raw color 만 봐서 ANSI 부재 시 무관한 카테고리 공용 안전값으로 뭉개졌던 문제를 함께 해소
+- [x] U-2. 폴백 발생 시 콘솔 경고 1줄(테마 id·타입·대상 토큰 목록) 출력. 출처 표기는 코드 주석이 아니라
+      `docs/theme-system.md` §8.2.1 "VS Code 기본 ANSI 팔레트 폴백(출처: terminalColorRegistry)" 절로
+- [x] U-3. T-4 에서 제외됐던 8종 변환 — vscode-dark-plus/light-plus/dark-modern/light-modern/
+      kimbie-dark/red/quiet-light/darcula. 전부 exit 0, 대비 검증 통과. include 체인은 기존
+      `INCLUDE_ROLE_FILENAME_MAP`(dark_plus→vscode-dark-plus.json 등) 그대로 재사용
+- [x] U-4. `service.rs` `BUNDLED_THEME_SOURCES` 에 8종 등록 (`builtin: true`, 기존 28종 무변경) —
+      번들 테마 총 36종. `cargo fmt` 가 요구하는 멀티라인 tuple 포맷으로 정리
+- [x] U-5. `THIRD_PARTY_LICENSES.md` 갱신 — Dark+/Light+/Dark Modern/Light Modern/Kimbie Dark/Red/
+      Quiet Light(Microsoft, VS Code 내장) + Darcula(rokoroku, MIT) 항목 추가, 총 개수 28→36
+- [x] U-6. `docs/theme-system.md` §8.1 목록을 코드(`BUNDLED_THEME_SOURCES`)와 동기화해 36종 전량으로
+      재작성(기존에 10종만 기재된 채로 밀려 있던 것도 함께 정정) + §8.2.1 폴백 절(dark/light 16색 표) 신설
+- [x] U-7. 게이트 전량 통과 — `cargo test --workspace` 340 pass(325+6+9, 번들 테마 경고 0 테스트
+      포함), `cargo clippy -D warnings` 0, `cargo fmt --check` 0, `bun run typecheck`/
+      `lint`(사전 존재 warning 4건 외 0)/`test` 326 pass/`format:check` 0
+
+## 완료: QA 4회차 실기 재검증 (2026-08-11)
+
+- [x] 전건 통과 (사용자 실기 확인) — 한글 빠른 입력(씹힘 해결 확정), CC 연결, 테마 36종, 배지 반영 속도.
+      HANDOFF §8 1순위 표 종결. IME deduper·ide 진단 로그·AGENT_POLL_UNIX_MS=500 이 실기에서 유효 판정
+
+## 진행 중: Phase 7.10 — QA 5차 신규 요구 6그룹 (2026-08-11)
+
+> 접수 원문 요지: ① 프로젝트별 remote-control(로컬 serving `127.0.0.1:{port}/{session-id}`,
+> 외부 노출은 사용자가 cloudflare tunnel — 잠자기 이슈는 스코프 밖 확정) ② Codex·Gemini CLI 지원
+> ③ AI Provider 2종(Ollama Cloud·Codex access token) + Monaco auto-tab(프롬프트 커스텀 가능)
+> ④ UI/UX 5건(파일트리 hover/active·줄번호 x패딩 축소·탭바/트리 헤더 1px 정렬·단축키 VSCode 수준 보강·
+> **메뉴바 하단 전폭 가로 border 1줄 신설** — 좌측 프로젝트 레일·파일트리·에디터 탭 위를 오차 없이
+> 관통하는 연속 직선, 현재는 패널별로 끊겨 중간이 비어 보임(스크린샷 접수 2026-08-11)·
+> **설정 화면 좌측 패딩 축소** — Settings 타이틀·좌측 내비(Appearance~Plugins)의 좌측 여백 과다,
+> 스크린샷 접수 2026-08-11)
+> ⑤ VSCode/Cursor extension 호환 검토(가능 시 구현, 아이콘은 설정 톱니 위) ⑥ 설정 GitHub 저장
+> ⑦ LSP 원클릭 설치 확충 — java·go·ruby·flutter·swift·scala·haskell·elixir·**C/C++(clangd, 추가 확정)**
+> 필수(현 5종: vtsls·rust-analyzer·basedpyright·ruff·marksman), 추가 추천은 제시 후 확정.
+> **사용자 승인(2026-08-11)**: 툴체인 선행이 불가피한 언어는 "LSP 바이너리 원클릭 + SDK 미설치 시
+> 감지·안내"까지가 범위
+> ⑧ 안내문구형 dead-end UX 전수검사 — 예: 플러그인 "manifest 를 직접 두라" 문구 → Edit 버튼으로
+> 파일을 바로 열어 수정 가능하게. 같은 부류 전수 수집 후 수정 계획 수립.
+
+- [x] 7.10-R. 리서치 워크플로 8영역 (opus+medium) — ①~⑥: wf_83d6725a-ecb (remote-control·
+      multi-agent·ai-provider-autotab·vscode-extensions·settings-github-sync·uiux-shortcuts),
+      ⑦~⑧: wf_b3d1604c-da7 (lsp-oneclick·deadend-ux). 메인 스팟체크 4건 일치(KNOWN_AGENT_NAMES
+      3종·CSP 잠김·죽은 바인딩 8개·1px 원인). 핵심 판정: Codex 토큰 auto-tab 기술·약관상 불가,
+      extension host 실행 불가(정적 자산 추출만 현실), 플러그인 "미배선" 문구는 거짓(코어 완비·UI 미소비),
+      LSP 원클릭은 하이브리드(다운로드+툴체인 대행+SDK 감지) 필요
+- [ ] 7.10-B1. 버그: reload 시 테마 플래시 — TAIDE Dark(기본 토큰)가 먼저 그려졌다 선택 테마로 전환.
+      메인 1차 특정(읽기 전용): theme-provider 의 useRevealWindow(isFetched) 가드는 최초 실행만 커버,
+      reload 는 창이 이미 노출돼 무력 — 테마 쿼리(IPC) 도착 전까지 global.css 기본 토큰이 페인트됨.
+      수정 후보: 마지막 적용 테마 스냅샷을 로컬에 캐시해 첫 페인트 전 동기 적용. opus+high 검토로 확정
+- [x] 7.10-D. 결정 묶음 사용자 확정 — `docs/acknowledge/2026-08-11-qa5-batch-decisions.md`.
+      전부 추천안 + Codex 정정(b-hub 검증 구현 이식, auto-tab = Ollama Cloud + Codex 2종).
+      오판 기록: `docs/feedback/2026-08-11-codex-token-feasibility-misjudgment.md`
+- [x] 7.10-W1. 완료 (커밋 34578b0) — UI/UX(1px 정렬·메뉴바 전폭 border·줄번호 패딩·파일트리 hover/active·설정 좌측 패딩)
+      + 단축키 B안(죽은 바인딩 8 + ⌘+/⌘- 폰트) + dead-end(플러그인 목록 렌더·앱데이터 열기 커맨드·
+      git_init·문구 정리·토스트 action) + 테마 reload 플래시 버그(opus+high)
+      - [x] W1 워크플로 완료 (wf_ed6b541d, 19 에이전트) — 계약(IPC 2종·locale 정비·플러그인 오류
+            코드화·bindings), Impl 5건, 검토 발견 10→확정 7→전량 수정(저장 2회 실행·pane 별 저장
+            오배선(editor-instance-registry 신설)·focused 토큰 역배선·중복 버튼·clipboard catch·
+            조기 추상화 회수). 테마 플래시는 A안(테마 settle 게이트 — data-theme-ready +
+            visibility, 실패 경로는 isFetched 로 안전) 채택. 검증: bun run verify + cargo 전량 통과 보고
+      - [x] 메인 2차 — 잔여 결함 2건 발견·수정(선택 비가시 3종 VSCode 공식값 이식·내장 테마 강조
+            역전 교정) + 검토 워크플로가 추가 3건(라이트 선택 대비 미달 → #ADD6FF·변환기 후보 체인
+            축소·:root 동기 2건) 수정. bun run verify 전량 통과 실측 후 커밋
+      - 보류 보고: appSidebar/popover/tooltip/modal 의 itemHover 동일 원본 결함(theme-system.md
+        §8.2.2 기록), ⌃Tab/⌃⇧Tab WKWebView 도달 여부는 실기 확인 필요
+- [x] 7.10-W2. 완료 (커밋 5416689) — LSP 원클릭: 스펙 데이터화(enum→newtype+lsp-servers.json,
+      기존 5종 무손실)·설치 인프라(스트리밍 다운로드·sha256·해제·원자 설치)·신규 13종(다운로드 7·
+      툴체인 4·SDK 2)·설정 UI 설치 버튼/진행률. 검토 15건 확정·전량 수정(managed 신뢰 경계·실패
+      이벤트·동시 설치 레이스·라우팅 맵 고착 등). 메인 2차: 공식 체크섬 미공개 3종(clangd·lua-ls·
+      taplo) 독립 재다운로드로 일치 확인, bun run verify 전량 통과.
+      **zls 결정 확정(2026-08-11 사용자 A안)**: xz2 승인 + 다운로드형. 메인 실측 완료 —
+      v0.16.0, https://github.com/zigtools/zls/releases/download/0.16.0/zls-aarch64-macos.tar.xz,
+      sha256 b93ec549f8558a7e85984a840e9276d274f1059b54ade4254296ef4982958359 (메인 직접 계산),
+      아카이브 루트 평면(zls·LICENSE(MIT)·README). 반영은 W3 완료 직후 소형 워크플로
+      (Cargo.toml 스파인 충돌 회피): xz2 + LspArchiveKind TarXz + 매니페스트 + THIRD_PARTY 기재.
+      kotlin-lsp 배포물에 proprietary 컴포넌트 포함 경고 기재됨.
+      실기 확인 대기: 설치 버튼 실동작(다운로드→기동), 미서명 바이너리 Gatekeeper 정책
+- [x] 7.10-W3. 완료 (커밋 76da94c) — keyring 시크릿 인프라, Ollama Cloud(FIM+chat 폴백)·
+      Codex(b-hub 이식: whoami·SSE·폴백 모델) provider, Monaco auto-tab(디바운스·취소·캐시),
+      설정 AI/SYNC 섹션, domain/sync(Gist 화이트리스트·schemaVersion 게이트·충돌 2택).
+      검토 10건 확정·전량 수정(마스킹 패닉·SSE UTF-8 경계·절대경로 유출 등). 메인 2차:
+      settings 무토큰·화이트리스트 테스트 실측, bun run verify 전량 통과
+      - [x] GitHub 동기화 설정 UI(프론트) — `entities/sync/sync.query.ts`(status queryOptions +
+            connect/disconnect/upload/download mutation, `sync:state-changed` 이벤트로
+            `IpcSyncProvider` 가 SYNC.STATUS 갱신 + SETTINGS/THEME/LOCALE 무효화 — 다운로드 적용 후
+            즉시 반영), `features/settings/sync-section.tsx`(미연결 시 PAT 입력 + gist scope 안내,
+            연결 시 gist id·마지막 동기화·업로드/가져오기/연결해제 + secret gist 비공개 아님 경고 +
+            remote-newer 배지), `features/settings/sync-conflict-dialog.tsx`(2택 AlertDialog —
+            로컬 유지·업로드 / 원격 가져오기), 커맨드 팔레트 `sync.uploadNow`/`sync.downloadNow`
+            (`entities/sync/sync.commands.ts`, FSD 상 entities 가 shared/command-registry 만
+            참조하도록 배치). i18n 25키 `domain/locale/service.rs` 4곳(en/ko/ja+MESSAGE_NAMESPACES)
+            동기, 파리티 테스트 통과. **의도적 변경**: PAT 생성 안내는 실제 `<a>` 하이퍼링크 대신
+            평문 URL 노출로 처리 — capabilities(`main.json`)에 opener 권한이 없고, 기존
+            `system_open_in_browser` 류 커맨드는 열린 프로젝트 루트 내부 경로만 허용해 외부 URL에
+            쓸 수 없음(ipc-contract §4 게이트). 새 "외부 URL 열기" 커맨드 신설은 이번 작업 범위 밖으로
+            판단해 보류. 검증: `bun run typecheck`/`lint`/`test`(340 pass) +
+            `cargo fmt`/`clippy -D warnings`/`test --workspace`(438+6+9 pass) 전량 통과.
+- [x] 7.10-W4. 완료 — 멀티 에이전트 hooks 스파인 계약. `taide-cli hook --url <u>`(stdin 전량 →
+      TcpStream 수제 HTTP POST, 127.0.0.1 만 허용, 1.5s 연결/쓰기 타임아웃, 항상 exit 0·stdout/stderr
+      무오염, 파서·URL 검증 단위 테스트 10건) + hooks URL 에 `agent=claude|codex|gemini` 쿼리 추가
+      (`build_hook_url(info, agent_name)`, 기존 claude 주입 URL 도 재부팅 시 자가 치유 경로로 갱신) +
+      override 키를 `(ProjectId, agent_name)` 로 확장(`AgentHooksStore`, `resolve_activity`) +
+      `is_hook_managed_agent` 를 `KNOWN_AGENT_NAMES` 3종 전체로 확장 + 에이전트별 이벤트 매핑
+      (Codex: UserPromptSubmit/PermissionRequest/PostToolUse/Stop, Gemini: BeforeAgent/
+      Notification/AfterAgent) + IPC `agent_hooks_status/install/uninstall` 에 `agent_name` 축 추가,
+      `AgentHooksStatus` 에 `scope`(project/user) 필드 반영 — claude 는 기존 프로젝트 로직 그대로,
+      codex/gemini 는 사용자 레벨 상태 조회(`user_level_hooks_path`+`has_taide_marker_anywhere` 관대한
+      마커 탐지)만 구현하고 설치(install)는 다음 웨이브(주입기) 몫으로 명시적 에러 반환.
+      i18n 5키(agentHooksAgent{Claude,Codex,Gemini}·agentHooksUserLevel{Description,Warning})
+      `domain/locale/service.rs` 4곳(스키마+en/ko/ja) 동기, 파리티 테스트 통과.
+      프론트 `entities/agent` ipc/query 래퍼 + 유일한 소비처(`agent-hooks-project-row.tsx`)를
+      `agentName` 인자로 갱신(claude 리터럴 상수화). 주입기(codex/gemini 파일 병합) 자체는
+      의도적으로 범위 밖 — 다음 에이전트 몫.
+      검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) ·
+      `cargo test --workspace`(456+6+17 pass, bindings 재생성 확인) ·
+      `bun run typecheck`/`lint`(에러 0, 기존 warning 4건 무관)/`bun test`(340 pass) 전량 통과.
+- [x] 7.10-W4 후속. 완료 — Codex·Gemini 사용자 레벨 hooks **실주입기**(`domain/agent` 내부만,
+      IPC 시그니처 변경 없음). 공식 스키마 웹 재확인 결과 Claude 의 `type:"http"` 는 Codex·Gemini
+      둘 다 지원하지 않음(`type:"command"` 셸 커맨드만) — 두 파일 모두
+      `hooks.<Event>: [{ hooks: [{ type, command, timeout }] }]` 구조가 동일해, 마커 탐지·주입·제거
+      로직을 `inject_taide_managed_entries`/`remove_taide_managed_entries` 공용 헬퍼로 추출하고
+      Claude(`inject_taide_hook_entries`, http)·Codex/Gemini(`inject_taide_command_hook_entries`,
+      command)가 이를 재사용하도록 리팩터(`is_taide_managed_entry` 마커 검사도 `url`/`command`
+      양쪽 필드를 보도록 일반화 — 기존 Claude 테스트 전량 그대로 통과 확인). 이벤트 목록도
+      `CODEX_MANAGED_HOOK_EVENTS`(4)/`GEMINI_MANAGED_HOOK_EVENTS`(3) 상수로 분리.
+      커맨드 문자열은 `build_command_hook_shell_command` — 기존 `TAIDE_CLI_TARGET_PATH`(설치 경로
+      탐지 로직 재사용) + hook URL 을 각각 큰따옴표로 감싸 `taide-cli hook --url <u>` 셸 호출을
+      만든다. **timeout 단위가 다르다** — Codex 는 초(기존 `HOOKS_HTTP_TIMEOUT_SECONDS=5` 그대로
+      재사용), Gemini 는 밀리초(`GEMINI_HOOK_COMMAND_TIMEOUT_MS = 5_000`, 상수 곱으로 유도) —
+      `user_level_hook_command_timeout(agent_name)` 로 분기.
+      `agent_hooks_install`/`agent_hooks_uninstall` 의 `HookInstallScope::User` 분기를 실구현으로
+      교체(기존엔 install 이 "not implemented yet" 에러 반환, uninstall 은 아무 것도 안 함 —
+      이번에 둘 다 실제 파일 병합/제거). 파일 IO 는 `commands.rs` 에 `read_json_file_or_empty_object`/
+      `write_json_file_private_atomic` 공용 헬퍼로 추출해 프로젝트 스코프(`.claude/settings.local.json`)
+      · 사용자 스코프(`~/.codex/hooks.json`·`~/.gemini/settings.json`) 양쪽이 재사용(2회 이상 규칙).
+      **OFF 전이 자동 제거 확장**: `uninstall_hooks_from_open_projects` 에
+      `remove_taide_hooks_from_user_level_files` 를 추가 호출 — 프로젝트 목록과 무관하게 두 사용자
+      레벨 파일을 항상 점검(파일별 실패는 기존 패턴대로 `log::warn!` 후 계속). `home_dir_env` 를
+      `pub(super)` 로 올려 `hooks.rs` 가 재사용.
+      테스트는 전부 `std::env::temp_dir()` 기반 fake HOME/root 사용(`~/.` 실경로 미접근) —
+      주입 멱등성(2회 주입에도 taide 항목 1건 유지, 새 URL 로 자가 치유)·기존 사용자 hook 보존·
+      제거 후 원상 복귀(taide 항목만 있었으면 `hooks` 키 자체 소거)·에이전트별 이벤트 목록이
+      서로 침범하지 않음·`agent_hooks_enabled` OFF 시 codex/gemini 사용자 레벨 항목도 제거되고
+      사용자 항목은 보존됨을 검증(신규 13건 — service.rs 10건 + hooks.rs 3건).
+      **범위 밖으로 남긴 것**: 재부팅으로 포트가 바뀐 뒤의 codex/gemini 자가 치유(Claude 의
+      `reconcile_installed_hooks` 는 프로젝트 순회 전제라 사용자 레벨엔 미적용 — 재설치 시에만
+      최신 URL 로 갱신됨), Windows 셸 인용 규칙 검증(현재 이중따옴표 하나로 POSIX/Windows 공통
+      처리했으나 Windows 실기기 미검증).
+      검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) ·
+      `cargo test --workspace`(469+6+17 pass, bindings 재생성 확인 — 커맨드 시그니처 무변경이라
+      bindings.ts diff 불변) · `bun run typecheck`(무오류).
+- [x] 7.10-W5-A/B. 완료 — VSIX 임포트 Rust 스파인 계약(A) + hooks 파일 안전성 W4 보류분(B).
+      **A. `vsix_extract_themes(vsixPath)`**: 신규 `domain/vsix`(도메인 분리 근거는
+      `ipc-contract.md` "vsix" 절 — `domain/plugin` 은 TAIDE 자체 선언적 확장 스키마라 VSCode
+      `.vsix` 포맷과 검증 규칙이 겹치지 않음). zip(기존 `zip` 의존) 으로 `extension/package.json`
+      을 표준 JSON 파싱해 `displayName`/`publisher`/`version`(임포트 출처 표기용, XML
+      `extension.vsixmanifest` 는 미파싱 — package.json 표준 필드로 충분해 신규 XML 의존 회피) +
+      `contributes.themes[]` 를 읽고, 각 테마의 `rawJson`(파싱 없이 원본 문자열 — 변환·jsonc
+      주석 제거는 기존 `scripts/convert-vscode-theme.ts` 를 재사용할 프론트 몫)과 `include` 체인
+      (`includeChain[]`, 정규식으로 값만 추출해 엄격 JSON 이 아니어도 체인 추적 가능 — 깊이 상한
+      5 는 프론트 스크립트 동명 상수와 값만 정합, 방문 집합으로 순환도 차단)을 반환한다. zip
+      가상 경로 전용 정규화(`normalize_zip_path`)로 `extension/` 루트 탈출을 차단(canonicalize
+      불가한 가상 경로라 plugin 도메인과 다른 방식), 항목당 2MiB 상한은 zip 메타데이터의 선언
+      크기를 신뢰하지 않고 `Read::take` 로 실제 읽기 자체를 제한. 손상된 개별 테마 항목은 전체
+      호출을 실패시키지 않고 skip(plugin 도메인과 동일한 견고성 원칙). `vsixPath` 는 사용자가
+      dialog 로 직접 고른 읽기 전용 입력이라 프로젝트 루트 가드 미적용(`project_open` 과 동일
+      성격 — `ipc-contract.md`에 근거 기록). lib.rs 등록 → `cargo test` 로 bindings 재생성 →
+      `entities/vsix/vsix.ipc.ts` 얇은 래퍼(plugin.ipc.ts 패턴). 단위 테스트 11건(픽스처 zip 은
+      테스트에서 `zip::ZipWriter` 로 생성 — `infra/lsp_install.rs` 기존 패턴 재사용). 상세는
+      `docs/features/vsix-theme-import.md`(신설) 참고. 범위 밖: 변환기 이식·임포트 UI·저장 배선
+      (다음 웨이브).
+      **B. hooks 파일 안전성**: `domain/agent/commands.rs` 의 파싱 실패 거부 동작은 실측 결과
+      기존 코드가 이미 안전했다(`read_json_file_rejecting_invalid`로 개명 — NotFound 만 빈 객체,
+      그 외 파싱/IO 실패는 전부 `?` 로 즉시 전파돼 후속 쓰기가 호출되지 않음). 이번 웨이브는 이
+      불변식을 회귀 테스트로 고정(비 JSON 파일 보존 1건)하고, 두 번째 요구사항인 **권한 보존**을
+      신규 구현: 범용 `write_private_atomic`(항상 `0600` 강제)의 계약은 그대로 두고, hooks 파일
+      전용 `write_hooks_file_preserving_mode` 를 새로 만들어 재작성 시 기존 파일의 unix mode 를
+      읽어 유지하고 신규 생성 시에만 `0600`(`NEW_HOOKS_FILE_MODE`) 적용. 임시파일 명명 규칙은
+      `infra::persist::temp_sibling` 을 `pub(crate)` 로 승격해 재사용(중복 방지, 원 함수 자체는
+      무변경). i18n `agent.hooksFileInvalid` 1키 4곳(스키마+en/ko/ja) 동기. 테스트 3건(비 JSON
+      보존·기존 권한 보존 실측·신규 생성 0600). 상세는 `agent-integration.md` §7.6(신설) 참고.
+      결정 1줄은 `docs/acknowledge/2026-08-11-qa5-batch-decisions.md` §2 에 추가.
+      i18n: `settings.themeImport*` 5키(버튼·다이얼로그 제목·성공·실패·중복 안내) +
+      `agent.hooksFileInvalid` 1키, 전부 `domain/locale/service.rs` 4곳(스키마+en/ko/ja) 동기,
+      파리티 테스트 통과. UI 미소비 — 다음 웨이브 몫으로 스파인만 먼저 추가(플러그인
+      `PluginErrorCode` 로케일 키 선례와 동일 패턴).
+      검증: `cargo fmt --all`(무변경) · `cargo clippy --workspace --all-targets -D warnings`
+      (무경고) · `cargo test --workspace`(486+6+17 pass, bindings 재생성 확인 —
+      `vsixExtractThemes`/`Vsix*` 타입 신규 생성) · `bun run typecheck`(무오류) ·
+      `bun run lint`(에러 0, 기존 warning 4건 무관) · `bun test`(340 pass, 프론트 변경 없음).
+- [x] 7.10-W5-C. VSIX 변환기 이식 + 임포트 플로우 UI + 로케일 키 소비. `scripts/
+      convert-vscode-theme.ts` 의 순수 변환 로직(색 매핑·계열 폴백·대비 검증·ANSI 폴백·
+      include 체인 병합·주석/트레일링 콤마 허용 파싱)을 `src/shared/lib/theme-convert/`
+      9개 모듈로 이식(색상표·병합·색상 해석·syntax 해석·terminal 해석·대비·완전성 검증을
+      분리, orchestrator `convertVscodeTheme()`) — CLI 스크립트는 그 위에서 파일 IO·인자
+      파싱만 남기고 import 해 재사용(2회 사용 규칙). **회귀 확인**: 원본을 레포에 커밋하지
+      않는 정책이라(§8.2) `microsoft/vscode` 레포에서 Monokai 원본을 재취득해 동일 인자로
+      재변환한 뒤 기존 `resources/themes/monokai.json` 과 `diff` 했다 — **0바이트 차이**로
+      포팅이 동작을 바꾸지 않았음을 실측.
+      임포트 플로우: `entities/vsix/vsix.query.ts`(`useExtractVsixThemes` — `vsix.ipc.ts` 는
+      W5-A 산출물 재사용) + `features/theme/vsix-theme-import.ts`(추출 결과 → 후보 목록 —
+      `includeChain[]` 은 Rust 가 가장 구체적인 파일을 먼저 반환해 `convertVscodeTheme` 이
+      기대하는 순서(base 먼저)로 프론트에서 뒤집어 병합, `uiTheme` → `ThemeType` 매핑, 확장
+      표시 이름 슬러그 기반 id 생성) + `vsix-theme-import-dialog.tsx`(선택 목록 — 다크/라이트
+      배지·변환 경고 수·실패 항목 비활성) + `vsix-theme-import-button.tsx`(dialog open(.vsix
+      필터) → 추출 → 목록 오픈), `settings-view.tsx` 커스텀 테마 영역에 배선.
+      **id 충돌(조용한 덮어쓰기 금지)**: `theme_save` 가 같은 id 를 확인 없이 덮어쓰는 리스크가
+      있어, 저장 전 목록에 충돌 표시 + 저장 시 충돌 항목이 있으면 확인 다이얼로그(AlertDialog)를
+      먼저 띄운다. 확인하면 충돌 항목만 `generateUniqueThemeId`(테마 편집기 복제 로직 재사용)로
+      새 id 를 받아 **사본으로 저장**(기존 테마는 덮어쓰지 않음) — 기존 `settings.
+      themeImportDuplicate` 로케일 문구("이미 있어 사본으로 가져왔습니다")와 정합.
+      로케일: W5-A/B 에서 스파인만 추가했던 `settings.themeImport*` 5키(버튼·다이얼로그
+      제목·성공·실패·중복 안내) 전부 이번에 소비(신규 키 추가 없음), `common.cancel`/
+      `common.confirm`/`common.save`·`settings.themeDark`/`themeLight`·
+      `themeEditor.duplicateNameTemplate` 등 기존 공통 키 재사용.
+      테스트: `theme-convert/` 9건(jsonc 파싱 4건 + orchestrator 5건) + `vsix-theme-import`
+      5건(단일/다중 id 슬러그·충돌 표시·파싱 실패·include 체인 병합 순서) 신규 15건.
+      문서: `docs/theme-system.md` §9(파이프라인·id 충돌 정책·변환 실패 사유) 신설.
+      검증: `bun run typecheck`(무오류) · `bun run lint`(에러 0, 기존 warning 4건 무관) ·
+      `bun run format:check`(전부 통과) · `bun test`(355 pass, +15) · `cargo fmt --all --check`
+      (무변경) · `cargo clippy --workspace --all-targets -D warnings`(무경고) · `cargo test
+      --workspace`(486+6+17 pass, Rust 무변경 — bindings.ts 재생성도 diff 없음) + Monokai
+      대표 회귀 diff 0 실측(위 참고). Rust 변경 없음(이번 웨이브는 프론트 전용).
+- [x] 7.10-W6. remote-control(HTTP 서빙 + shim + WS 브리지 + 디스패치 테이블) — 완료·커밋(`0846b8e`)
+    - [x] W6-0. 정찰 리서치(5영역) — 커맨드 131종·이벤트 팬아웃 무수정·shim 최소표면·axum 0.8.9·
+          서빙 전략 소스 검증. 메인 코드 교차검증 완료
+    - [x] W6-계약. `docs/acknowledge/2026-08-12-w6-remote-contract.md` 확정
+    - [x] W6-A. Rust 스파인 — Cargo(axum 0.8·rust 1.80) + `domain/remote/`(types·service·server·
+          dispatch·commands) + `infra/crypto`(constant_time_eq 승격) + lib.rs 등록(remote_* 5커맨드·
+          RemoteStore·부트자동시작·Exit stop) + RemoteStateChanged 이벤트 + settings.remote_access_enabled
+          + locale remote. 최종 수치: collect_commands 133·events 23·RAW 3 → 디스패치 136종(remote_* 포함)
+    - [x] W6-B. 구현 — 산출: `domain/remote/{types,dispatch,ws,serving,server,commands,service}.rs`
+          (dispatch 136암·WS 루프·채널 브리지 binary+end-guard·서빙 asset_resolver/vite proxy·Range
+          파일 라우트) + lib.rs 이벤트 23 팬아웃(has_event_subscribers 게이트) + 프론트 shim
+          `src/shared/lib/remote/{tauri-internals-shim,remote-ws-client,callback-registry,remote-json}.ts`
+          + main.tsx first-import + 설정 REMOTE 섹션(`features/settings/remote-section.tsx`·
+          `entities/remote/*`·query-key) + locale remote.securityWarning 4곳.
+    - [x] W6-검토/verify — 디스패치 136암 전치 오류 0(기계 검증), 파리티 테스트 활성·통과.
+          **검증 실측**: cargo build/clippy(-D warnings)/fmt ✓, cargo test 538(515 lib+6+17, 파리티
+          136 활성·0 ignored) ✓, typecheck ✓, lint 0 errors ✓, bun test 358 ✓, vite build ✓,
+          format:check ✓. QA6 체크리스트 W6 16항목 추가. 실기 검증은 QA6 대기.
+- [x] 7.10-W7. TextMate 문법 엔진 (backlog 승격, 사용자 확정) — 완료 (실기 검증은 QA6 대기)
+      - [x] W7-0. 정찰 리서치(wf_e7ad421e-c8b, opus+medium 3영역) — shiki 4.4.3 JS 엔진 CSP 정적 안전
+            (eval/new Function 0건)·shikiToMonaco 내부(스냅샷·inherit:false·setTheme 몽키패치)·
+            monaco 미등록 9종 id 는 현재 plaintext 렌더·heex grammar 부재·라이선스 분포(GPL 무·회색 4종)·
+            §8.2.2 보정은 변환기 내장 확인. 메인이 tarball·monaco 소스로 교차검증 (2026-08-12)
+      - [x] W7-계약. `docs/acknowledge/2026-08-12-w7-textmate-contract.md` 확정 — 사용자 결정 4건
+            (의존 5종·heex→html·라이선스 포함+고지·플러그인 grammar 실배선 포함, VSIX grammars 는 backlog)
+      - [x] W7-A. 스파인(단일 sonnet+high, wf_5462a8ae-832) — 의존 5종 설치(메인 직접)·TokenColorRule·
+            token_colors·syntax_overrides·plugin grammar 검증 3에러코드·plugin_read_grammar·locale 4곳
+            3키·dispatch 137종·bindings 재생성. 메인 재검증: cargo lib 524 통과·주석 0·파리티 일치
+      - [x] W7-B. 구현 웨이브(파일 소유권 분리, wf_00cac56c-3ac):
+            - [x] B1 shiki 통합 — lang-map 31종(재명명 방식, langAlias 는 core 미적용 확인)·
+                  shiki-monaco(수명 관리 3함수)·build-shiki-theme(폴백·오버레이)·monaco 31종 등록·
+                  theme-provider 교체. 신규 테스트 17
+            - [x] B2 theme-convert — fontStyle/background 원문 보존·tokenColors passthrough·CLI 경고·
+                  VSIX 전달·프리뷰(base 캐시 경유). 신규 테스트 6
+            - [x] B3 플러그인 grammar 프론트 배선 — plugin-grammar(조립·개별 실패 스킵)·ipc·reload 시
+                  reinitShiki. 신규 테스트 11
+            - [x] B4 문서 개정 9건(ADR-0010·plugins·theme-system·vsix·ipc-contract·research/monaco·
+                  research/shiki 신설·backlog·THIRD_PARTY_LICENSES) — wf_80770902-48b, 메인 표본 검증 통과
+            - 메인 통합 검증: typecheck 0·bun test 392 통과·format 수정(THIRD_PARTY prettier)
+      - [x] W7-C. 번들 36종 재변환 (메인 직접) — ① 원본 38파일 확보(raw 31·릴리스 vsix 2·Open VSX 1·
+            gruvbox v1.22.0, 실패 0) ② 파일럿 monokai diff 0 게이트 통과 ③ 36종 일괄: 26종 비tokenColors
+            절 diff 0, 10종 상이 — 원인 규명 완료(W5 include 체인 순서 결함 수정 4종·상류 2026-08-11
+            갱신 1종·W5 미기록 출처 5종). 신규 값 채택(사용자 보고, 가역) ④ 번들 tokenColors assert 추가,
+            cargo lib 524 통과
+      - [x] W7-검토/verify (wf_ef557887-1a6) — 렌즈 4종(opus+high)→적대적 검증(opus+medium)→수정
+            (sonnet+high): finding 10건 → 실결함 5건 전부 수정. 핵심: syntax_overrides 가 루트 테마에서
+            31키 전량이 되어 번들 raw tokenColors 를 오버레이가 덮던 치명 결함(base 있을 때만 채우도록),
+            initShiki 실패 영구화(재시도 가능화)·reinit dispose 순서(swap-then-dispose)·grammar 없는
+            id 충돌 과잉 비활성(해당 grammar 만 무효)·embeddedLangs 화이트리스트. 메인 2차:
+            변환 산출물 prettier 정합(스크립트가 prettier API 로 출력하게 근본 수정) 후
+            **bun run verify 전체 통과**(typecheck·lint 0err·format·bun test 392·clippy -D·cargo 527+6+17)
+            + vite build 성공(grammar 언어별 lazy 청크 분리 확인). QA6 체크리스트 W7 16항목 추가.
+            재변환 재현 매니페스트 docs/utils/2026-08-12-w7-theme-original-sources.md
+- [ ] 7.10-V. 각 웨이브: 검토(렌즈→적대적 검증→수정) + 메인 2차(verify 재실행·실측)
+
+> **진행 방침(사용자 확정 2026-08-11)**: W3~W7 논스톱 연속 진행. 실기 QA 는 W7 완료 후 일괄
+> (QA 6회차). 각 웨이브의 실기 확인 항목은 docs/quality-assurance/2026-08-11-qa6-checklist.md 에
+> 누적 기록해 최종 QA 에서 사용한다.
+
