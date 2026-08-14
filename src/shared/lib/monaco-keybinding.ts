@@ -1,4 +1,4 @@
-import type { KeymapModifier } from '@shared/lib/keymap'
+import type { KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap'
 
 /**
  * KeyMod bit flags (monaco-editor 0.56, `vs/base/common/keybindings.js` `BinaryKeybindingsMask`).
@@ -118,3 +118,97 @@ export const isMonacoCommandId = (id: string) => id.startsWith(MONACO_ACTION_ID_
 
 export const toMonacoActionId = (commandOrOverrideId: string) =>
     isMonacoCommandId(commandOrOverrideId) ? commandOrOverrideId.slice(MONACO_ACTION_ID_PREFIX.length) : commandOrOverrideId
+
+export type MonacoKeybindingRule = {
+    keybinding: number
+    command: string
+    when?: string
+}
+
+const MONACO_UNBIND_KEYBINDING = 0
+
+const SUGGEST_WIDGET_NAV_WHEN = 'suggestWidgetVisible && textInputFocus && (suggestWidgetMultipleSuggestions || !suggestWidgetHasFocusedSuggestion)'
+/**
+ * Same as {@link SUGGEST_WIDGET_NAV_WHEN}, but yields to an already-visible, multi-signature
+ * parameter hints widget. Monaco's own default only binds Alt+Up/Down to parameter hints
+ * navigation (see {@link PARAMETER_HINTS_NAV_WHEN}) because plain Up/Down are already claimed by
+ * suggest navigation. When a rebind makes suggest navigation itself held-Alt (e.g. triggerSuggest
+ * rebound to Alt+Space), Alt+Up/Down would otherwise collide with that escape hatch whenever both
+ * widgets are open at once (a common state while typing function arguments), silently disabling
+ * signature-hint cycling. This guard is scoped to Up/Down only — parameter hints never claims
+ * PageUp/PageDown, so {@link SUGGEST_WIDGET_NAV_WHEN} is used unmodified there.
+ */
+const SUGGEST_WIDGET_ARROW_NAV_WHEN = `${SUGGEST_WIDGET_NAV_WHEN} && !(parameterHintsVisible && parameterHintsMultipleSignatures)`
+/**
+ * Mirrors monaco 0.56's own `showPrevParameterHint`/`showNextParameterHint` `when` clause exactly:
+ * `kbExpr: EditorContextKeys.focus` (context key `editorFocus`) ANDed with
+ * `precondition: Visible && MultipleSignatures` (`contrib/parameterHints/browser/parameterHints.js`).
+ */
+const PARAMETER_HINTS_NAV_WHEN = 'editorFocus && parameterHintsVisible && parameterHintsMultipleSignatures'
+
+type WidgetNavCompanion = { key: string; command: string; when: string }
+
+const WIDGET_NAV_COMPANIONS_BY_ACTION_ID: Record<string, WidgetNavCompanion[]> = {
+    'editor.action.triggerSuggest': [
+        { key: 'arrowup', command: 'selectPrevSuggestion', when: SUGGEST_WIDGET_ARROW_NAV_WHEN },
+        { key: 'arrowdown', command: 'selectNextSuggestion', when: SUGGEST_WIDGET_ARROW_NAV_WHEN },
+        { key: 'pageup', command: 'selectPrevPageSuggestion', when: SUGGEST_WIDGET_NAV_WHEN },
+        { key: 'pagedown', command: 'selectNextPageSuggestion', when: SUGGEST_WIDGET_NAV_WHEN },
+    ],
+    'editor.action.triggerParameterHints': [
+        { key: 'arrowup', command: 'showPrevParameterHint', when: PARAMETER_HINTS_NAV_WHEN },
+        { key: 'arrowdown', command: 'showNextParameterHint', when: PARAMETER_HINTS_NAV_WHEN },
+    ],
+}
+
+const buildUnbindRule = (actionId: string): MonacoKeybindingRule => ({ keybinding: MONACO_UNBIND_KEYBINDING, command: `-${actionId}` })
+
+/**
+ * Builds widget-navigation rules for the modifier set the user must hold to fire a rebound
+ * popup-trigger action. Monaco ships this coverage for its own default triggers only
+ * (suggest: WinCtrl+P/N and CtrlCmd+Up/Down secondaries, parameter hints: Alt+Up/Down),
+ * so a rebind like Alt+Space leaves held-Alt+ArrowUp resolving to `moveLinesUpAction`
+ * instead of widget navigation. The `when` clauses mirror the monaco 0.56 defaults in
+ * `contrib/suggest/browser/suggestController.js` / `contrib/parameterHints/browser/parameterHints.js`,
+ * so outside the widget the same keys keep their default commands.
+ */
+const buildHeldModifierNavRules = (actionId: string, mods: KeymapModifier[]) => {
+    const companions = WIDGET_NAV_COMPANIONS_BY_ACTION_ID[actionId] ?? []
+    if (mods.length === 0) return []
+    return companions.flatMap((companion): MonacoKeybindingRule[] => {
+        const keybinding = buildMonacoKeybinding(companion.key, mods)
+        return keybinding === null ? [] : [{ keybinding, command: companion.command, when: companion.when }]
+    })
+}
+
+const buildMonacoKeybindingRuleGroup = (override: KeymapOverrideEntry) => {
+    const actionId = toMonacoActionId(override.actionId)
+    const unbindRule = buildUnbindRule(actionId)
+    if (!override.key) return { primary: [unbindRule], companions: [] }
+
+    const keybinding = buildMonacoKeybinding(override.key, override.mods)
+    if (keybinding === null) return { primary: [], companions: [] }
+
+    return { primary: [unbindRule, { keybinding, command: actionId }], companions: buildHeldModifierNavRules(actionId, override.mods) }
+}
+
+/**
+ * Builds the full `addKeybindingRules` batch for every stored `monaco.*` keymap override:
+ * per override an unbind rule (`keybinding: 0` + `-command`, which removes only that command's
+ * default bindings inside monaco's `KeybindingResolver.handleRemovals`), the rebind rule, and
+ * held-modifier widget-navigation companions for popup-trigger actions. An override whose key
+ * has no KeyCode mapping is skipped entirely — the monaco default stays active rather than
+ * being unbound with nothing to replace it.
+ *
+ * All companion rules are appended after every override's own unbind/rebind rules, regardless of
+ * where in `overrides` they were produced. Monaco's `KeybindingResolver` resolves same-keypress
+ * conflicts by taking the *last* rule (by array position) whose `when` clause matches — so without
+ * this grouping, a companion rule's priority over an unrelated action rebound to the same
+ * held-modifier combo would depend on which override happened to be stored first, silently
+ * shadowing widget navigation half the time. Placing companions last makes them win whenever
+ * their widget-open `when` clause is true, independent of override storage order.
+ */
+export const buildMonacoKeybindingOverrideRules = (overrides: KeymapOverrideEntry[]) => {
+    const groups = overrides.filter((override) => isMonacoCommandId(override.actionId)).map(buildMonacoKeybindingRuleGroup)
+    return [...groups.flatMap((group) => group.primary), ...groups.flatMap((group) => group.companions)]
+}

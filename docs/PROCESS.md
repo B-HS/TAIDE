@@ -1096,6 +1096,17 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
   System 인스턴스 분리(상태바 CPU% 붕괴), 첫 pid 샘플 cpuPercent null 게이팅, 수식어 없는 캡처
   토스트, ipc-contract.md 정본화(1차 커맨드 3종은 메인이 보완). 기각 5건(footer 고정 높이 등은
   의도 설계로 판정)
+- [x] n. suggest 위젯 화살표 누수 — 원인 확정(fable+high, monaco resolver 를 bun 으로 실로드한
+      리프로 실증): unbind keybinding:0 규칙은 무혐의(커맨드 한정 제거·부작용 0). 실제 원인은
+      **재바인딩 modifier(⌥)를 유지한 채 누른 ↑** 가 Alt+Up=moveLinesUp 으로 해석되는 커버리지
+      공백(monaco 는 자기 기본 트리거의 modifier 만 secondary 로 커버). 수정 = 팝업 트리거
+      (suggest·parameterHints) 재바인딩 시 그 modifier+Up/Down/PgUp/PgDn 을 위젯 탐색에 바인딩하는
+      **동반 규칙**(when 은 monaco 기본 미러 + parameterHints 동시 열림 양보 가드). 위젯 컨텍스트
+      키 전수 감사 표 작성(Enter/Tab/Esc/find/rename/hover/마커/메뉴 전부 통과 판정). 검토 확정
+      4건 중 3건 수정(⌥↑ 시그니처 전환 보존·규칙 순서 결정론화·editorFocus 조건), 1건은
+      "⌥ 유지 타건" 전제의 실기 미확증 지적 — **사용자 실기 확인 대기**(1건 제안 시 ↑=커서 이동은
+      VS Code 동일 스펙임도 안내). 구조적 한계 2건 기록(위젯 사용 키로의 앱/모나코 재바인딩은
+      컨텍스트 프리라 위젯 선취 — 의미상 불가피)
 - [x] f. QA6 후속 1차 확정 결함 14건 수정 (defect-fix 에이전트, 2026-08-12) — OMLX base URL 해제 불가
       (settings-view.tsx + service.rs `merge_ai_omlx_base_url` 신설, empty-string 센티널) · 스킴만
       있는/host 없는 URL 통과 및 조용한 기존값 폐기(`sanitize_optional_url` host 검증 + 유효성 실패
