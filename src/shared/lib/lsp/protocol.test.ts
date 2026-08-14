@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+    JSON_RPC_ERROR_CODE,
     createRequestIdGenerator,
     isCapabilityEnabled,
     isJsonRpcErrorResponse,
@@ -69,6 +70,16 @@ describe('isJsonRpcRequest', () => {
 
     test('id 가 없으면 요청이 아니다', () => {
         expect(isJsonRpcRequest({ jsonrpc: '2.0', method: 'window/logMessage', params: {} })).toBe(false)
+    })
+})
+
+describe('JSON_RPC_ERROR_CODE', () => {
+    test('MethodNotFound 는 JSON-RPC 표준값 -32601 이다', () => {
+        expect(JSON_RPC_ERROR_CODE.METHOD_NOT_FOUND).toBe(-32601)
+    })
+
+    test('InternalError 는 JSON-RPC 표준값 -32603 이다', () => {
+        expect(JSON_RPC_ERROR_CODE.INTERNAL_ERROR).toBe(-32603)
     })
 })
 

@@ -1,4 +1,4 @@
-import type { IRange } from 'monaco-editor'
+import type { CancellationToken, IRange } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { CompletionItem, CompletionList } from '@shared/lib/lsp/protocol'
@@ -62,11 +62,12 @@ export const registerCompletion = (monaco: Monaco, client: LspClient, languageId
 
     return monaco.languages.registerCompletionItemProvider(languageId, {
         triggerCharacters,
-        provideCompletionItems: async (model, position) => {
+        provideCompletionItems: async (model, position, _context, token: CancellationToken) => {
             const result = await client.request<CompletionItem[] | CompletionList | null>('textDocument/completion', {
                 textDocument: { uri: model.uri.toString() },
                 position: monacoPositionToLsp(position),
             })
+            if (token.isCancellationRequested) return { suggestions: [] }
             const items = result === null ? [] : Array.isArray(result) ? result : result.items
             const word = model.getWordUntilPosition(position)
             const defaultRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)

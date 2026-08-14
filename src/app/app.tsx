@@ -1,4 +1,5 @@
 import '@app/bootstrap-commands'
+import '@app/bootstrap-lsp'
 import { AgentExternalOpenProvider } from '@app/providers/agent-external-open-provider'
 import { AppProviders } from '@app/providers/app-providers'
 import { HotExitFlushProvider } from '@app/providers/hot-exit-flush-provider'

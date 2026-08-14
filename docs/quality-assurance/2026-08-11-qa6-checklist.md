@@ -200,3 +200,47 @@
       상황인지 확인(1건+포커스 시 ↑=커서 이동은 VS Code 동일 스펙) 후 아니면 보고. 위젯 닫힌
       상태 ⌥↑ = 라인 이동 원복. 함수 인자 입력 중 suggest+parameter hints 동시 열림에서 ⌥↑/⌥↓
       시그니처 전환이 살아 있는가. Enter/Tab 수락·Esc 닫기 정상
+
+## Wave A — LSP 인텔리전스 (계약: docs/acknowledge/2026-08-14-wave-a-lsp-intelligence-contract.md)
+
+> LSP 세션이 붙는 언어(rust-analyzer·vtsls·basedpyright·marksman 등)의 파일에서 확인. 항목 대부분은
+> rust-analyzer(.rs) 로 1차 확인 후 vtsls(.ts)로 교차 확인을 권장(서버 광고 capability 차이 확인).
+
+- [ ] (quickfix) 진단(빨간 줄) 위에서 ⌘. → Quick Fix 목록이 뜨는가, 적용 시 편집이 실제로 반영되고
+      해당 진단이 사라지는가. rust-analyzer 미열린 다른 파일에 걸친 fix(예: import 추가)도 정상
+      적용되는가(WorkspaceEdit 적용기가 미열린 파일 IPC 경로를 타는지)
+- [ ] (source action) ⌘. 또는 우클릭 메뉴에서 source.organizeImports/source.fixAll 계열이 뜨고
+      적용되는가(kind 계층 필터 확인 — refactor 등 무관 kind 가 섞이지 않는가)
+- [ ] (on-save) 설정 EDITOR 섹션에서 "저장 시 import 정리"/"저장 시 자동 수정" 토글 on → 지저분한
+      import 가 있는 파일을 ⌘S 로 명시 저장 시 자동 정리되는가. autoSave(디바운스 자동저장)로는
+      **정리되지 않는가**(명시적 저장만 대상 — 의도된 동작). 매우 느린/응답 없는 서버에서 5초
+      초과 시 스킵 토스트가 뜨고 저장 자체는 멈추지 않는가
+- [ ] (F12/⌘F12) 정의로 이동이 **다른 파일**을 대상일 때 실제로 그 파일 탭이 열리고 해당 위치로
+      커서가 이동하는가(cross-file — 오프너 부재 시 무음 실패했던 항목). 같은 파일 내 이동은 탭
+      전환 없이 즉시 이동하는가
+- [ ] (Peek) ⌥F12(Peek Definition)·Shift+F12(Peek References) 가 **탭이 열려 있지 않은 파일**의
+      내용도 위젯 안에서 미리보기로 렌더되는가(빈 화면/에러 없이)
+- [ ] (F8) F8/⇧F8(다음/이전 문제로 이동)이 **다른 파일**의 진단으로도 넘어가는가(파일 간 순회)
+- [ ] (구현/타입/선언 이동) rust-analyzer 에서 "Go to Implementation"·"Go to Type Definition" 이
+      동작하는가. gopls/tsls 처럼 declaration 미지원 서버에서는 해당 메뉴가 조용히 없거나
+      비활성인가(에러 없음)
+- [ ] (References) Shift+F12 참조 목록에 cross-file 결과가 포함되고, 그 중 하나를 클릭하면 해당
+      파일이 열리며 이동하는가
+- [ ] (CodeLens) rust-analyzer 에서 함수 위 "N references" 등 CodeLens 가 표시되는가, 클릭 시
+      참조 Peek 또는 이동이 실제로 동작하는가(showReferences/gotoLocation 커맨드 배선 확인).
+      설정 토글 "CodeLens 표시"를 끄면 다음 재계산 시점(편집 또는 서버 refresh)에 사라지고,
+      다시 켜면 다음 재계산 시점에 다시 나타나는가(즉시 반영은 아님 — 알려진 한계)
+- [ ] (folding) 함수/블록 좌측 거터의 접기 화살표가 LSP 기반으로 뜨는가(대형 파일은 기존 정책대로
+      비활성 유지), 접기/펼치기 정상 동작
+- [ ] (ra 파일 생성형 액션) rust-analyzer 의 "Extract to module" 등 파일을 새로 만들거나 이름을
+      바꾸는 코드 액션이 에러 없이 적용되는가(CreateFile/RenameFile 리소스 오퍼레이션 경로)
+- [ ] (rename) ⇧F6/F2 심볼 rename 이 **미열린 파일**에 걸친 참조까지 포함해 정상 적용되는가
+      (기존엔 미열린 파일 rename 이 한계였던 항목 — 적용기 통일로 해소)
+- [ ] (didSave) 저장 후 LSP 서버가 반영한 진단이 갱신되는가(didSave 미전송이던 기존 결함 확인)
+- [ ] (initializationOptions) rust-analyzer 설정(예: checkOnSave)이 매니페스트값대로 실제 서버에
+      전달되는가 — 간접 확인: rust-analyzer 상태가 정상 초기화·인덱싱되는가(무설정 대비 차이가
+      없다면 정상, checkOnSave 관련 진단이 예상대로 뜨면 강한 확인)
+- [ ] (회귀) 기존 LSP 기능(자동완성·hover·서명 도움말·문서 심볼·rename prepare·formatting·
+      documentHighlight·selectionRange·inlayHints)이 이번 변경 후에도 정상 동작하는가
+- [ ] (세션 재사용) 같은 프로젝트에서 여러 언어 파일을 오가도 CodeLens/CodeAction/이동 계열이
+      중복 등록 징후(같은 액션이 목록에 2번 뜨는 등) 없이 정상 동작하는가

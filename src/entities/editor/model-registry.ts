@@ -1,3 +1,4 @@
+import { cancelPeekModelDispose } from '@shared/lib/lsp/peek-model-preload'
 import { monaco } from '@shared/lib/monaco/setup'
 
 type ModelEntry = {
@@ -9,13 +10,6 @@ const registry = new Map<string, ModelEntry>()
 
 const UNTITLED_URI_PREFIX = 'untitled:'
 const WINDOWS_DRIVE_PATH_PATTERN = /^[a-zA-Z]:[\\/]/
-
-export class ModelAlreadyExistsError extends Error {
-    constructor(path: string) {
-        super(`model already exists for path: ${path}`)
-        this.name = 'ModelAlreadyExistsError'
-    }
-}
 
 const isAbsoluteFilePath = (path: string) => path.startsWith('/') || WINDOWS_DRIVE_PATH_PATTERN.test(path)
 
@@ -29,10 +23,32 @@ export const toUntitledModelPath = (tabId: string) => `${UNTITLED_URI_PREFIX}${t
 
 export const getModel = (path: string) => registry.get(toKey(path))?.model
 
-export const createModel = (path: string, content: string, languageId: string) => {
+/**
+ * Returns the model registered for `path`, adopting one already present in monaco's own model
+ * service (an orphan not yet tracked by this registry — `peek-model-preload.ts` creates real
+ * models at the real file uri via `monaco.editor.createModel` directly, so Peek can preview a
+ * file that has no open tab) before falling back to creating a fresh model. `content`/`languageId`
+ * are only used in that fallback case.
+ *
+ * Adopting an orphan cancels its peek-preload auto-dispose timer (`cancelPeekModelDispose`) —
+ * once a real tab takes over a model's lifecycle, the bounded TTL that exists only to reclaim
+ * unused peek previews must no longer be able to dispose it out from under the tab. A cached
+ * entry whose model has since been disposed by something outside this registry's control is
+ * dropped and rebuilt instead of being handed back disposed (self-healing, defensive).
+ */
+export const getOrCreateModel = (path: string, content: string, languageId: string) => {
     const uri = toUri(path)
     const key = uri.toString()
-    if (registry.has(key) || monaco.editor.getModel(uri)) throw new ModelAlreadyExistsError(path)
+    const existing = registry.get(key)
+    if (existing && !existing.model.isDisposed()) return existing.model
+    if (existing) registry.delete(key)
+
+    const orphanModel = monaco.editor.getModel(uri)
+    if (orphanModel) {
+        cancelPeekModelDispose(path)
+        registry.set(key, { model: orphanModel, viewState: null })
+        return orphanModel
+    }
 
     const model = monaco.editor.createModel(content, languageId, uri)
     registry.set(key, { model, viewState: null })

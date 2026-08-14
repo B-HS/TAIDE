@@ -1,3 +1,4 @@
+import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { SelectionRange } from '@shared/lib/lsp/protocol'
@@ -23,12 +24,12 @@ export const registerSelectionRange = (monaco: Monaco, client: LspClient, langua
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.selectionRangeProvider))) return NOOP_DISPOSABLE
 
     return monaco.languages.registerSelectionRangeProvider(languageId, {
-        provideSelectionRanges: async (model, positions) => {
+        provideSelectionRanges: async (model, positions, token: CancellationToken) => {
             const result = await client.request<(SelectionRange | null)[] | null>('textDocument/selectionRange', {
                 textDocument: { uri: model.uri.toString() },
                 positions: positions.map(monacoPositionToLsp),
             })
-            if (!result) return positions.map(() => [])
+            if (token.isCancellationRequested || !result) return positions.map(() => [])
             return result.map(toMonacoSelectionRangeChain)
         },
     })

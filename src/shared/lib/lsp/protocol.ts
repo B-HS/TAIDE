@@ -48,6 +48,8 @@ export const isJsonRpcNotification = (message: unknown): message is JsonRpcNotif
 export const isJsonRpcRequest = (message: unknown): message is JsonRpcRequest =>
     isPlainObject(message) && typeof message.method === 'string' && 'id' in message && isJsonRpcId((message as { id: unknown }).id)
 
+export const JSON_RPC_ERROR_CODE = { METHOD_NOT_FOUND: -32601, INTERNAL_ERROR: -32603 } as const
+
 export const createRequestIdGenerator = () => {
     let nextId = 0
     return () => {
@@ -80,6 +82,7 @@ export type Diagnostic = {
     source?: string
     message: string
     tags?: number[]
+    data?: unknown
 }
 
 export type PublishDiagnosticsParams = { uri: string; version?: number; diagnostics: Diagnostic[] }
@@ -112,7 +115,22 @@ export type Location = { uri: string; range: LspRange }
 
 export type LocationLink = { targetUri: string; targetRange: LspRange; targetSelectionRange: LspRange; originSelectionRange?: LspRange }
 
-export type WorkspaceEdit = { changes?: Record<string, TextEdit[]> }
+export type OptionalVersionedTextDocumentIdentifier = TextDocumentIdentifier & { version: number | null }
+
+export type TextDocumentEdit = { textDocument: OptionalVersionedTextDocumentIdentifier; edits: TextEdit[] }
+
+export type CreateFileOptions = { overwrite?: boolean; ignoreIfExists?: boolean }
+export type CreateFile = { kind: 'create'; uri: string; options?: CreateFileOptions }
+
+export type RenameFileOptions = { overwrite?: boolean; ignoreIfExists?: boolean }
+export type RenameFile = { kind: 'rename'; oldUri: string; newUri: string; options?: RenameFileOptions }
+
+export type DeleteFileOptions = { recursive?: boolean; ignoreIfNotExists?: boolean }
+export type DeleteFile = { kind: 'delete'; uri: string; options?: DeleteFileOptions }
+
+export type DocumentChangeOperation = TextDocumentEdit | CreateFile | RenameFile | DeleteFile
+
+export type WorkspaceEdit = { changes?: Record<string, TextEdit[]>; documentChanges?: DocumentChangeOperation[] }
 
 export type PrepareRenameResult = LspRange | { range: LspRange; placeholder: string }
 
@@ -153,6 +171,10 @@ export type DocumentHighlight = { range: LspRange; kind?: DocumentHighlightKind 
 
 export type SelectionRange = { range: LspRange; parent?: SelectionRange }
 
+export type CodeActionOptions = { codeActionKinds?: string[]; resolveProvider?: boolean }
+export type CodeLensOptions = { resolveProvider?: boolean }
+export type ExecuteCommandOptions = { commands?: string[] }
+
 export type ServerCapabilities = {
     positionEncoding?: string
     completionProvider?: { triggerCharacters?: string[]; resolveProvider?: boolean }
@@ -168,6 +190,13 @@ export type ServerCapabilities = {
     documentHighlightProvider?: boolean | Record<string, never>
     selectionRangeProvider?: boolean | Record<string, never>
     diagnosticProvider?: { interFileDependencies?: boolean; workspaceDiagnostics?: boolean }
+    codeActionProvider?: boolean | CodeActionOptions
+    codeLensProvider?: CodeLensOptions
+    foldingRangeProvider?: boolean | Record<string, never>
+    implementationProvider?: boolean | Record<string, never>
+    typeDefinitionProvider?: boolean | Record<string, never>
+    declarationProvider?: boolean | Record<string, never>
+    executeCommandProvider?: ExecuteCommandOptions
 }
 
 export type InitializeResult = {

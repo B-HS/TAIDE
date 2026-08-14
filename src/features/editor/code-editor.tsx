@@ -5,7 +5,7 @@ import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared
 import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
 import { cancelAiInline, completeAiInline } from '@entities/ai/ai.ipc'
-import { createModel, getModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
+import { getOrCreateModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
 const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiInline }
 
@@ -215,7 +215,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
 
         if (activePathRef.current && activePathRef.current !== path) saveViewState(activePathRef.current, editor)
 
-        const model = getModel(path) ?? createModel(path, valueRef.current, language)
+        const model = getOrCreateModel(path, valueRef.current, language)
         editor.setModel(model)
         restoreViewState(path, editor)
         editor.focus()

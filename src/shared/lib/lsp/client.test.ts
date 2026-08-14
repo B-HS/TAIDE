@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import type { JsonRpcNotification, JsonRpcRequest } from '@shared/lib/lsp/protocol'
+import type { JsonRpcErrorResponse, JsonRpcNotification, JsonRpcRequest, ServerCapabilities } from '@shared/lib/lsp/protocol'
 import { LspCapabilityNotSupportedError, LspDocumentNotOpenError, createLspClient } from '@shared/lib/lsp/client'
+import type { OutgoingMessage } from '@shared/lib/lsp/client'
+import { registerServerRequestHandler } from '@shared/lib/lsp/server-request-handler-registry'
 
 const createHarness = () => {
-    const sent: (JsonRpcRequest | JsonRpcNotification)[] = []
+    const sent: OutgoingMessage[] = []
     const notifications: JsonRpcNotification[] = []
     const client = createLspClient({
         send: (message) => sent.push(message),
@@ -13,6 +15,8 @@ const createHarness = () => {
 }
 
 const respond = (id: number, result: unknown) => ({ jsonrpc: '2.0', id, result })
+
+const flushMicrotasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 describe('createLspClient — request/response id 매칭', () => {
     test('요청에 발급한 id 와 응답의 id 를 매칭해 resolve 한다', async () => {
@@ -156,8 +160,180 @@ describe('createLspClient — capabilities 미지원 시 요청 안 보냄', () 
 
     test('capability map 에 없는 임의 메서드는 게이팅 없이 항상 전송된다', () => {
         const { sent, client } = createHarness()
-        client.request('workspace/executeCommand', { command: 'custom' })
+        client.request('workspace/symbol', { query: 'foo' })
         expect(sent).toHaveLength(1)
+    })
+})
+
+describe('createLspClient — 확장 capability 게이트', () => {
+    const initializeWithCapabilities = async (
+        client: ReturnType<typeof createLspClient>,
+        sent: OutgoingMessage[],
+        capabilities: ServerCapabilities,
+    ) => {
+        const initializePending = client.initialize({})
+        const initializeRequest = sent[0] as JsonRpcRequest
+        client.handleMessage(respond(initializeRequest.id as number, { capabilities }))
+        await initializePending
+    }
+
+    const capabilityCases: { method: string; capabilities: ServerCapabilities }[] = [
+        { method: 'textDocument/codeAction', capabilities: { codeActionProvider: true } },
+        { method: 'textDocument/codeLens', capabilities: { codeLensProvider: {} } },
+        { method: 'codeLens/resolve', capabilities: { codeLensProvider: { resolveProvider: true } } },
+        { method: 'textDocument/foldingRange', capabilities: { foldingRangeProvider: true } },
+        { method: 'textDocument/implementation', capabilities: { implementationProvider: true } },
+        { method: 'textDocument/typeDefinition', capabilities: { typeDefinitionProvider: true } },
+        { method: 'textDocument/declaration', capabilities: { declarationProvider: true } },
+        { method: 'workspace/executeCommand', capabilities: { executeCommandProvider: {} } },
+    ]
+
+    for (const { method, capabilities } of capabilityCases) {
+        test(`${method} 는 해당 capability 가 선언되면 전송된다`, async () => {
+            const { sent, client } = createHarness()
+            await initializeWithCapabilities(client, sent, capabilities)
+
+            client.request(method, {})
+            expect(sent).toHaveLength(3)
+        })
+
+        test(`${method} 는 capability 가 선언되지 않으면 게이팅된다`, async () => {
+            const { sent, client } = createHarness()
+            await initializeWithCapabilities(client, sent, {})
+
+            const pending = client.request(method, {})
+            expect(sent).toHaveLength(2)
+            await expect(pending).rejects.toBeInstanceOf(LspCapabilityNotSupportedError)
+        })
+    }
+
+    test('codeAction/resolve 와 codeLens/resolve 는 resolveProvider 가 없으면 게이팅된다', async () => {
+        const { sent, client } = createHarness()
+        await initializeWithCapabilities(client, sent, { codeActionProvider: true, codeLensProvider: {} })
+
+        const codeActionResolvePending = client.request('codeAction/resolve', {})
+        const codeLensResolvePending = client.request('codeLens/resolve', {})
+        expect(sent).toHaveLength(2)
+        await expect(codeActionResolvePending).rejects.toBeInstanceOf(LspCapabilityNotSupportedError)
+        await expect(codeLensResolvePending).rejects.toBeInstanceOf(LspCapabilityNotSupportedError)
+    })
+
+    test('codeAction/resolve 는 codeActionProvider.resolveProvider 가 true 면 전송된다', async () => {
+        const { sent, client } = createHarness()
+        await initializeWithCapabilities(client, sent, { codeActionProvider: { resolveProvider: true } })
+
+        client.request('codeAction/resolve', {})
+        expect(sent).toHaveLength(3)
+    })
+})
+
+describe('createLspClient — 서버→클라이언트 요청 라우팅', () => {
+    test('등록된 핸들러의 결과를 JSON-RPC 응답으로 돌려보낸다', async () => {
+        const { sent, client } = createHarness()
+        const dispose = registerServerRequestHandler('test/echo', async (params) => ({ echoed: params }))
+
+        client.handleMessage({ jsonrpc: '2.0', id: 'req-1', method: 'test/echo', params: { value: 1 } })
+        await flushMicrotasks()
+
+        expect(sent).toEqual([{ jsonrpc: '2.0', id: 'req-1', result: { echoed: { value: 1 } } }])
+        dispose()
+    })
+
+    test('등록되지 않은 메서드는 -32601 MethodNotFound 에러 응답을 보낸다', async () => {
+        const { sent, client } = createHarness()
+
+        client.handleMessage({ jsonrpc: '2.0', id: 7, method: 'test/unregistered-method', params: {} })
+        await flushMicrotasks()
+
+        expect(sent).toHaveLength(1)
+        const response = sent[0] as JsonRpcErrorResponse
+        expect(response.id).toBe(7)
+        expect(response.error.code).toBe(-32601)
+    })
+
+    test('핸들러가 실패하면 내부 에러 응답을 보낸다', async () => {
+        const { sent, client } = createHarness()
+        const dispose = registerServerRequestHandler('test/throwing', async () => {
+            throw new Error('boom')
+        })
+
+        client.handleMessage({ jsonrpc: '2.0', id: 3, method: 'test/throwing', params: {} })
+        await flushMicrotasks()
+
+        expect(sent).toHaveLength(1)
+        const response = sent[0] as JsonRpcErrorResponse
+        expect(response.error.code).toBe(-32603)
+        expect(response.error.message).toBe('boom')
+        dispose()
+    })
+
+    test('핸들러 등록을 해제하면 다시 -32601 로 응답한다', async () => {
+        const { sent, client } = createHarness()
+        const dispose = registerServerRequestHandler('test/once', async () => null)
+        dispose()
+
+        client.handleMessage({ jsonrpc: '2.0', id: 9, method: 'test/once', params: {} })
+        await flushMicrotasks()
+
+        expect(sent).toHaveLength(1)
+        const response = sent[0] as JsonRpcErrorResponse
+        expect(response.error.code).toBe(-32601)
+    })
+
+    test('registerRequestHandler 로 등록한 인스턴스 핸들러가 전역 레지스트리보다 우선한다', async () => {
+        const { sent, client } = createHarness()
+        const globalDispose = registerServerRequestHandler('test/scoped', async () => ({ from: 'global' }))
+        const instanceDispose = client.registerRequestHandler('test/scoped', async () => ({ from: 'instance' }))
+
+        client.handleMessage({ jsonrpc: '2.0', id: 'scoped-1', method: 'test/scoped', params: {} })
+        await flushMicrotasks()
+
+        expect(sent).toEqual([{ jsonrpc: '2.0', id: 'scoped-1', result: { from: 'instance' } }])
+        instanceDispose()
+        globalDispose()
+    })
+
+    test('registerRequestHandler 는 다른 클라이언트 인스턴스에 영향을 주지 않는다 (세션별 격리)', async () => {
+        const first = createHarness()
+        const second = createHarness()
+        first.client.registerRequestHandler('test/session-scoped', async () => ({ from: 'first' }))
+
+        second.client.handleMessage({ jsonrpc: '2.0', id: 'sess-1', method: 'test/session-scoped', params: {} })
+        await flushMicrotasks()
+
+        expect(second.sent).toHaveLength(1)
+        const response = second.sent[0] as JsonRpcErrorResponse
+        expect(response.error.code).toBe(-32601)
+    })
+
+    test('인스턴스 핸들러를 해제하면 전역 레지스트리로 폴백한다', async () => {
+        const { sent, client } = createHarness()
+        const globalDispose = registerServerRequestHandler('test/fallback', async () => ({ from: 'global' }))
+        const instanceDispose = client.registerRequestHandler('test/fallback', async () => ({ from: 'instance' }))
+        instanceDispose()
+
+        client.handleMessage({ jsonrpc: '2.0', id: 'fallback-1', method: 'test/fallback', params: {} })
+        await flushMicrotasks()
+
+        expect(sent).toEqual([{ jsonrpc: '2.0', id: 'fallback-1', result: { from: 'global' } }])
+        globalDispose()
+    })
+
+    test('서버 요청 처리는 pending 클라이언트 요청 매칭에 영향을 주지 않는다', async () => {
+        const { sent, client } = createHarness()
+        const dispose = registerServerRequestHandler('test/interleaved', async () => [null])
+
+        const pending = client.request('workspace/symbol', { query: 'foo' })
+        const clientRequest = sent[0] as JsonRpcRequest
+
+        client.handleMessage({ jsonrpc: '2.0', id: 'server-1', method: 'test/interleaved', params: { items: [{}] } })
+        await flushMicrotasks()
+
+        client.handleMessage(respond(clientRequest.id as number, { ok: true }))
+        await expect(pending).resolves.toEqual({ ok: true })
+
+        expect(sent).toContainEqual({ jsonrpc: '2.0', id: 'server-1', result: [null] })
+        dispose()
     })
 })
 
@@ -208,6 +384,38 @@ describe('createLspClient — 문서 동기화', () => {
         const { sent, client } = createHarness()
         client.didClose('file:///never-opened.ts')
         expect(sent).toHaveLength(0)
+    })
+
+    test('열린 문서에 didSave 를 호출하면 textDocument/didSave 알림을 보낸다', () => {
+        const { sent, client } = createHarness()
+        client.didOpen({ uri: 'file:///a.ts', languageId: 'typescript', version: 1, text: 'x' })
+        client.didSave('file:///a.ts')
+
+        expect(sent[1]).toEqual({ jsonrpc: '2.0', method: 'textDocument/didSave', params: { textDocument: { uri: 'file:///a.ts' } } })
+    })
+
+    test('열리지 않은 문서에 didSave 를 호출해도 알림을 보내지 않는다', () => {
+        const { sent, client } = createHarness()
+        client.didSave('file:///never-opened.ts')
+        expect(sent).toHaveLength(0)
+    })
+
+    test('didClose 이후에는 같은 uri 로 didSave 를 호출해도 알림을 보내지 않는다', () => {
+        const { sent, client } = createHarness()
+        client.didOpen({ uri: 'file:///a.ts', languageId: 'typescript', version: 1, text: 'x' })
+        client.didClose('file:///a.ts')
+        client.didSave('file:///a.ts')
+
+        expect(sent).toHaveLength(2)
+    })
+
+    test('getDocumentVersion 은 열린 문서의 현재 버전을 반환하고, 열리지 않은 문서는 undefined 를 반환한다', () => {
+        const { client } = createHarness()
+        client.didOpen({ uri: 'file:///a.ts', languageId: 'typescript', version: 1, text: 'x' })
+        client.didChange('file:///a.ts', [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, text: 'y' }])
+
+        expect(client.getDocumentVersion('file:///a.ts')).toBe(2)
+        expect(client.getDocumentVersion('file:///never-opened.ts')).toBeUndefined()
     })
 })
 

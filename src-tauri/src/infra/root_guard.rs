@@ -18,7 +18,11 @@ pub fn resolve_owning_project(projects: &HashMap<ProjectId, Project>, path: &Pat
             return Ok((project_id.clone(), resolved));
         }
     }
-    Err(AppError::InvalidArgument(format!(
+    // `Forbidden`, not `InvalidArgument` — a boundary rejection is a distinct failure mode from a
+    // malformed/duplicate argument (e.g. `file/service.rs`'s "already exists"), and callers that
+    // probe path existence via `file_open` (`workspace-edit-applier.ts`'s `pathExists`) rely on the
+    // two being distinguishable by error code.
+    Err(AppError::Forbidden(format!(
         "열린 프로젝트 루트 밖의 경로입니다: {}",
         path.display()
     )))
@@ -31,7 +35,7 @@ pub fn ensure_within_root(root: &Path, path: &Path) -> AppResult<PathBuf> {
     if resolved.starts_with(&canonical_root) {
         Ok(resolved)
     } else {
-        Err(AppError::InvalidArgument(format!(
+        Err(AppError::Forbidden(format!(
             "경로가 프로젝트 루트 밖에 있습니다: {}",
             path.display()
         )))
@@ -89,6 +93,34 @@ mod tests {
 
         assert!(ensure_within_root(&root, &inside).is_ok());
         assert!(ensure_within_root(&root, &outside).is_err());
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 루트_밖_경로_거부는_forbidden_이지_invalid_argument_가_아니다() {
+        let dir = temp_dir("root-guard-forbidden");
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(dir.join("outside")).unwrap();
+        let outside = dir.join("outside").join("secret.txt");
+
+        let error = ensure_within_root(&root, &outside).expect_err("root 밖 경로는 실패해야 한다");
+        assert!(matches!(error, AppError::Forbidden(_)));
+
+        let mut projects = HashMap::new();
+        projects.insert(
+            ProjectId::from("project-1".to_string()),
+            Project {
+                id: ProjectId::from("project-1".to_string()),
+                root: root.to_string_lossy().to_string(),
+                name: "project".to_string(),
+                capabilities: Vec::new(),
+                root_missing: false,
+            },
+        );
+        let error = resolve_owning_project(&projects, &outside).expect_err("어떤 프로젝트 루트에도 속하지 않아야 한다");
+        assert!(matches!(error, AppError::Forbidden(_)));
 
         cleanup(&dir);
     }

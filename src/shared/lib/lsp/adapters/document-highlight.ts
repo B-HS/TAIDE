@@ -1,3 +1,4 @@
+import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { DocumentHighlight, DocumentHighlightKind } from '@shared/lib/lsp/protocol'
@@ -24,12 +25,12 @@ export const registerDocumentHighlight = (monaco: Monaco, client: LspClient, lan
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.documentHighlightProvider))) return NOOP_DISPOSABLE
 
     return monaco.languages.registerDocumentHighlightProvider(languageId, {
-        provideDocumentHighlights: async (model, position) => {
+        provideDocumentHighlights: async (model, position, token: CancellationToken) => {
             const result = await client.request<DocumentHighlight[] | null>('textDocument/documentHighlight', {
                 textDocument: { uri: model.uri.toString() },
                 position: monacoPositionToLsp(position),
             })
-            if (!result) return []
+            if (token.isCancellationRequested || !result) return []
             return result.map(toMonacoDocumentHighlight)
         },
     })

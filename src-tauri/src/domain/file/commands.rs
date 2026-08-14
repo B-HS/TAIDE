@@ -12,8 +12,11 @@ use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
-pub async fn file_open(path: String) -> AppResult<OpenedFile> {
-    service::open_file(Path::new(&path))
+pub async fn file_open(state: State<'_, AppState>, path: String) -> AppResult<OpenedFile> {
+    let projects = state.projects.read().clone();
+    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
+
+    service::open_file(&resolved)
 }
 
 #[tauri::command]

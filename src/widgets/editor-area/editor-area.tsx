@@ -10,12 +10,14 @@ import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bi
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { pruneMirrors, pruneUntitledMirrors } from '@entities/file/file.ipc'
 import { layoutQueryOptions, useActivateTab, useCloseTab, useMoveTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
+import { requestReveal } from '@entities/editor/reveal-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { setActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { subscribeOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
 import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
@@ -32,6 +34,8 @@ import { subscribeLanguageAdapterRegistration } from '@widgets/editor-pane/lsp-s
 import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
+
+const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 type OverDropData = SplitDropData | TabContainerDropData
 
@@ -171,6 +175,22 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     })
 
     useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])
+
+    /**
+     * Consumes the cross-file navigation requests `registerLspEditorOpener` (app bootstrap) emits
+     * when monaco needs to open a resource outside the current model — go-to-definition/
+     * implementation/type-definition/declaration/references/F8 landing on another file. Mirrors
+     * `ProblemsPanelContainer.handleOpenProblem`'s reveal-then-open pattern exactly.
+     */
+    const handleOpenFileFromEditor = useEffectEvent(({ path: targetPath, line, column }: { path: string; line: number; column: number }) => {
+        requestReveal(targetPath, line, column)
+        openTab(
+            { projectId, kind: { kind: 'file', path: targetPath }, title: fileNameOf(targetPath), target: null, preview: true },
+            { onError: (error) => toast.error(error.message) },
+        )
+    })
+
+    useEffect(() => subscribeOpenFileFromEditor(handleOpenFileFromEditor), [])
 
     const focusedFileTabId = getFocusedFileTabId()
 

@@ -1,3 +1,4 @@
+import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { Hover } from '@shared/lib/lsp/protocol'
@@ -15,12 +16,12 @@ export const registerHover = (monaco: Monaco, client: LspClient, languageId: str
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.hoverProvider))) return NOOP_DISPOSABLE
 
     return monaco.languages.registerHoverProvider(languageId, {
-        provideHover: async (model, position) => {
+        provideHover: async (model, position, token: CancellationToken) => {
             const result = await client.request<Hover | null>('textDocument/hover', {
                 textDocument: { uri: model.uri.toString() },
                 position: monacoPositionToLsp(position),
             })
-            if (!result) return null
+            if (token.isCancellationRequested || !result) return null
             return {
                 contents: [{ value: toContentsValue(result.contents) }],
                 range: result.range ? lspRangeToMonaco(result.range) : undefined,

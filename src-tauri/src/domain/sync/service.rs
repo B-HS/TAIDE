@@ -97,6 +97,9 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         ai_omlx_base_url: settings.ai_omlx_base_url.clone(),
         remote_access_enabled: None,
         remote_password_only_login: None,
+        organize_imports_on_save: Some(settings.organize_imports_on_save),
+        fix_all_on_save: Some(settings.fix_all_on_save),
+        editor_code_lens_enabled: Some(settings.editor_code_lens_enabled),
     }
 }
 

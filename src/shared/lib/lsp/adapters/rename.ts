@@ -3,20 +3,10 @@ import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { LspRange, PrepareRenameResult, WorkspaceEdit } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
+import { applyWorkspaceEdit } from '@shared/lib/lsp/workspace-edit-applier'
 import { i18next } from '@shared/i18n/i18n'
 
 const NOOP_DISPOSABLE = { dispose: () => {} }
-
-const toResourceEdits = (monaco: Monaco, edit: WorkspaceEdit) => {
-    const changes = edit.changes ?? {}
-    return Object.entries(changes).flatMap(([uri, edits]) =>
-        edits.map((textEdit) => ({
-            resource: monaco.Uri.parse(uri),
-            textEdit: { range: lspRangeToMonaco(textEdit.range), text: textEdit.newText },
-            versionId: undefined,
-        })),
-    )
-}
 
 export const registerRename = (monaco: Monaco, client: LspClient, languageId: string) => {
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.renameProvider))) return NOOP_DISPOSABLE
@@ -26,6 +16,15 @@ export const registerRename = (monaco: Monaco, client: LspClient, languageId: st
     )
 
     return monaco.languages.registerRenameProvider(languageId, {
+        /**
+         * Applies the rename itself via {@link applyWorkspaceEdit} (open models get
+         * `pushEditOperations`, unopened files go through the file IPC, resource operations are
+         * supported) and always returns an empty edit list — monaco's own `bulkEditService.apply`
+         * on an *empty* `WorkspaceEdit` is a guaranteed no-op, so this sidesteps
+         * `StandaloneBulkEditService` throwing for files it has no open model for (the rename
+         * limitation this unifies away). A failed apply surfaces through `rejectReason`, the same
+         * channel `resolveRenameLocation` below already uses for "no result" cases.
+         */
         provideRenameEdits: async (model, position, newName) => {
             const result = await client.request<WorkspaceEdit | null>('textDocument/rename', {
                 textDocument: { uri: model.uri.toString() },
@@ -33,7 +32,9 @@ export const registerRename = (monaco: Monaco, client: LspClient, languageId: st
                 newName,
             })
             if (!result) return { edits: [] }
-            return { edits: toResourceEdits(monaco, result) }
+            const applyResult = await applyWorkspaceEdit(monaco, result, undefined, { getDocumentVersion: client.getDocumentVersion })
+            if (!applyResult.applied) return { edits: [], rejectReason: applyResult.failureReason ?? i18next.t('editor.workspaceEditApplyFailed') }
+            return { edits: [] }
         },
         resolveRenameLocation: supportsPrepare
             ? async (model, position) => {

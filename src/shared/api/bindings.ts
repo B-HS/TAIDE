@@ -70,6 +70,13 @@ export const commands = {
 	agentCliUninstall: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_uninstall")),
 	agentPendingExternalOpens: () => typedError<ExternalOpenRequest[], AppError>(__TAURI_INVOKE("agent_pending_external_opens")),
 	lspSpawn: (projectId: ProjectId, serverId: LspServerId, root: string, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { projectId, serverId, root, onMessage })),
+	/**
+	 *  Not guarded by `AppState::begin_mutation` — this command never touches `AppState`, and
+	 *  per-session stdin writes are already serialized by `LspProcHandle`'s own
+	 *  `tokio::sync::Mutex` (`infra::lsp_proc::LspProcHandle::write_message`). Gating this behind
+	 *  the global mutation lock would only make LSP requests (which fire far more often than
+	 *  saves/git operations) queue behind unrelated mutating commands for no correctness benefit.
+	 */
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	lspStop: (sessionId: string, root: string | null) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root })),
 	lspRestart: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_restart", { sessionId })),
@@ -483,6 +490,16 @@ export type LogEntry = {
 	refs: string[],
 };
 
+/**
+ *  Structural mirror of an arbitrary JSON value, used only as the `#[specta(type = ...)]`
+ *  export target for `LspServerDetection::initialization_options`. Specta's built-in
+ *  `serde_json::Value` mapping cannot be exported to TypeScript because its number
+ *  representation carries `i64`/`u64`, which Specta forbids (precision-loss guard). This type
+ *  is never constructed at runtime — the real field keeps `serde_json::Value` so the JSON
+ *  payload forwarded from the LSP manifest is unaffected.
+ */
+export type LspInitializationOptionsValue = boolean | number | null | string | (LspInitializationOptionsValue | null)[] | { [key in string]: LspInitializationOptionsValue | null };
+
 export type LspInstallPhase = "downloading" | "verifying" | "extracting" | "done" | "failed";
 
 export type LspInstallProgress = {
@@ -508,6 +525,7 @@ export type LspServerDetection = {
 	sdkAvailable?: boolean | null,
 	toolchainTool?: string | null,
 	downloadAvailable?: boolean | null,
+	initializationOptions?: LspInitializationOptionsValue | null,
 };
 
 export type LspServerId = string;
@@ -792,6 +810,9 @@ export type Settings = {
 	syncLastSyncedAt?: string | null,
 	remoteAccessEnabled?: boolean,
 	remotePasswordOnlyLogin?: boolean,
+	organizeImportsOnSave?: boolean,
+	fixAllOnSave?: boolean,
+	editorCodeLensEnabled?: boolean,
 };
 
 export type SettingsPatch = {
@@ -837,6 +858,9 @@ export type SettingsPatch = {
 	aiOmlxBaseUrl: string | null,
 	remoteAccessEnabled: boolean | null,
 	remotePasswordOnlyLogin: boolean | null,
+	organizeImportsOnSave: boolean | null,
+	fixAllOnSave: boolean | null,
+	editorCodeLensEnabled: boolean | null,
 };
 
 export type ShellProfile = {

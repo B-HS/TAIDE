@@ -54,6 +54,9 @@ pub struct SettingsPatch {
     pub ai_omlx_base_url: Option<String>,
     pub remote_access_enabled: Option<bool>,
     pub remote_password_only_login: Option<bool>,
+    pub organize_imports_on_save: Option<bool>,
+    pub fix_all_on_save: Option<bool>,
+    pub editor_code_lens_enabled: Option<bool>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -224,6 +227,9 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
         remote_access_enabled: patch.remote_access_enabled.unwrap_or(settings.remote_access_enabled),
         remote_password_only_login: patch.remote_password_only_login.unwrap_or(settings.remote_password_only_login),
+        organize_imports_on_save: patch.organize_imports_on_save.unwrap_or(settings.organize_imports_on_save),
+        fix_all_on_save: patch.fix_all_on_save.unwrap_or(settings.fix_all_on_save),
+        editor_code_lens_enabled: patch.editor_code_lens_enabled.unwrap_or(settings.editor_code_lens_enabled),
     })
 }
 
@@ -544,6 +550,27 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert!(updated.remote_password_only_login);
+    }
+
+    #[test]
+    fn patch로_organize_imports_fix_all_code_lens_설정을_변경한다() {
+        let settings = Settings::default();
+        assert!(!settings.organize_imports_on_save);
+        assert!(!settings.fix_all_on_save);
+        assert!(settings.editor_code_lens_enabled);
+
+        let patch = SettingsPatch {
+            organize_imports_on_save: Some(true),
+            fix_all_on_save: Some(true),
+            editor_code_lens_enabled: Some(false),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.organize_imports_on_save);
+        assert!(updated.fix_all_on_save);
+        assert!(!updated.editor_code_lens_enabled);
     }
 
     #[test]

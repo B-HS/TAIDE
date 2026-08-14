@@ -196,6 +196,7 @@ pub fn detect_servers(lsp_dir: &Path) -> Vec<LspServerDetection> {
                 sdk_available,
                 toolchain_tool,
                 download_available,
+                initialization_options: spec.initialization_options.clone(),
             }
         })
         .collect()
@@ -279,55 +280,6 @@ pub fn find_root(spec: &LanguageServerSpec, file_path: &Path) -> Option<PathBuf>
         LspRootStrategy::CargoWorkspace => find_root_rust(file_path),
         LspRootStrategy::VenvFallback => find_root_python(file_path),
     }
-}
-
-fn path_to_file_uri(path: &Path) -> String {
-    format!("file://{}", path.to_string_lossy())
-}
-
-pub fn initialize_params(spec: &LanguageServerSpec, roots: &[PathBuf]) -> serde_json::Value {
-    let workspace_folders: Vec<serde_json::Value> = roots
-        .iter()
-        .map(|root| {
-            serde_json::json!({
-                "uri": path_to_file_uri(root),
-                "name": root.file_name().and_then(|name| name.to_str()).unwrap_or("workspace"),
-            })
-        })
-        .collect();
-
-    serde_json::json!({
-        "processId": std::process::id(),
-        "clientInfo": { "name": "TAIDE" },
-        "rootUri": workspace_folders.first().and_then(|folder| folder.get("uri").cloned()),
-        "rootPath": roots.first().map(|root| root.to_string_lossy().to_string()),
-        "workspaceFolders": workspace_folders,
-        "capabilities": {
-            "general": { "positionEncoding": ["utf-16"] },
-            "workspace": {
-                "workspaceFolders": true,
-                "configuration": true,
-                "didChangeConfiguration": { "dynamicRegistration": true },
-            },
-            "textDocument": {
-                "synchronization": { "didSave": true },
-                "completion": { "completionItem": { "snippetSupport": true } },
-                "rename": { "prepareSupport": true },
-                "publishDiagnostics": { "relatedInformation": true },
-                "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
-                "hover": { "contentFormat": ["markdown", "plaintext"] },
-                "signatureHelp": {},
-                "inlayHint": {},
-                "references": {},
-                "definition": {},
-                "formatting": {},
-                "documentHighlight": {},
-                "selectionRange": {},
-            },
-        },
-        "initializationOptions": spec.initialization_options.clone().unwrap_or(serde_json::Value::Null),
-        "trace": "off",
-    })
 }
 
 #[cfg(test)]
@@ -584,49 +536,23 @@ mod tests {
     }
 
     #[test]
-    fn initialize_파라미터에_position_encoding_이_포함된다() {
-        let spec = spec_by_id("vtsls");
-        let root = make_temp_dir();
-        let params = initialize_params(&spec, std::slice::from_ref(&root));
+    fn detect_servers는_매니페스트의_initialization_options을_그대로_전달한다() {
+        let lsp_dir = make_temp_dir();
+        let detections = detect_servers(&lsp_dir);
 
-        assert_eq!(params["capabilities"]["general"]["positionEncoding"], serde_json::json!(["utf-16"]));
-        assert_eq!(params["clientInfo"]["name"], serde_json::json!("TAIDE"));
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn initialize_파라미터에_구현된_어댑터에_대응하는_capability가_선언된다() {
-        let spec = spec_by_id("vtsls");
-        let root = make_temp_dir();
-        let params = initialize_params(&spec, std::slice::from_ref(&root));
-        let text_document = &params["capabilities"]["textDocument"];
-
+        let rust_analyzer = detections.iter().find(|detection| detection.id == "rustAnalyzer").unwrap();
         assert_eq!(
-            text_document["documentSymbol"]["hierarchicalDocumentSymbolSupport"],
-            serde_json::json!(true)
+            rust_analyzer
+                .initialization_options
+                .as_ref()
+                .and_then(|value| value.get("checkOnSave")),
+            Some(&serde_json::json!(true))
         );
-        assert_eq!(
-            text_document["hover"]["contentFormat"],
-            serde_json::json!(["markdown", "plaintext"])
-        );
-        assert!(text_document["signatureHelp"].is_object());
-        assert!(text_document["inlayHint"].is_object());
-        assert!(text_document["references"].is_object());
-        assert!(text_document["definition"].is_object());
-        assert!(text_document["formatting"].is_object());
-        assert!(text_document["documentHighlight"].is_object());
-        assert!(text_document["selectionRange"].is_object());
-        std::fs::remove_dir_all(&root).ok();
-    }
 
-    #[test]
-    fn rust_analyzer_는_initialization_options_에_prefix_없는_설정을_담는다() {
-        let spec = spec_by_id("rustAnalyzer");
-        let root = make_temp_dir();
-        let params = initialize_params(&spec, std::slice::from_ref(&root));
+        let vtsls = detections.iter().find(|detection| detection.id == "vtsls").unwrap();
+        assert_eq!(vtsls.initialization_options, None);
 
-        assert_eq!(params["initializationOptions"]["checkOnSave"], serde_json::json!(true));
-        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&lsp_dir).ok();
     }
 
     #[test]

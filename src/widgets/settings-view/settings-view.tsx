@@ -463,6 +463,36 @@ export const SettingsView = () => {
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), formatOnSave: checked })}
                                 />
                             </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.organizeImportsOnSave')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.organizeImportsOnSaveDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.organizeImportsOnSave ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), organizeImportsOnSave: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.fixAllOnSave')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.fixAllOnSaveDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.fixAllOnSave ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), fixAllOnSave: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.editorCodeLens')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.editorCodeLensDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.editorCodeLensEnabled ?? true}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorCodeLensEnabled: checked })}
+                                />
+                            </label>
                             <div className='flex flex-col gap-1'>
                                 <NumericField
                                     label={t('settings.autoSaveDelayMs')}

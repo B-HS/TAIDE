@@ -21,7 +21,9 @@ Tauri path API 의 앱 데이터 디렉토리(`app_data_dir`, macOS: `~/Library/
 
 ```
 TAIDE/
-├── settings.json            앱 전역 설정 (테마 선택, 폰트, 셸 오버라이드, 키바인딩 오버라이드)
+├── settings.json            앱 전역 설정 (테마 선택, 폰트, 셸 오버라이드, 키바인딩 오버라이드,
+│                            LSP: organizeImportsOnSave·fixAllOnSave(기본 false)·
+│                            editorCodeLensEnabled(기본 true) — Wave A, `features/lsp.md` §3)
 ├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트, 윈도우 크기/위치
 ├── projects/
 │   └── {projectId}/

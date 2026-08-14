@@ -331,7 +331,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             respond(layout::layout_convert_untitled(app.clone(), app.state(), arg!(args, "tabId"), arg!(args, "path")).await)
         }
 
-        "file_open" => respond(file::file_open(arg!(args, "path")).await),
+        "file_open" => respond(file::file_open(app.state(), arg!(args, "path")).await),
         "file_save" => respond(file::file_save(app.state(), arg!(args, "path"), arg!(args, "content")).await),
         "file_create" => respond(file::file_create(app.state(), arg!(args, "path"), arg!(args, "isDir")).await),
         "file_rename" => respond(file::file_rename(app.state(), arg!(args, "from"), arg!(args, "to")).await),
@@ -430,7 +430,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "lsp_send" => respond(lsp::lsp_send(app.state(), app.state(), arg!(args, "sessionId"), arg!(args, "message")).await),
+        "lsp_send" => respond(lsp::lsp_send(app.state(), arg!(args, "sessionId"), arg!(args, "message")).await),
         "lsp_stop" => respond(lsp::lsp_stop(app.clone(), app.state(), app.state(), arg!(args, "sessionId"), arg!(args, "root")).await),
         "lsp_restart" => respond(lsp::lsp_restart(app.clone(), app.state(), app.state(), arg!(args, "sessionId")).await),
         "lsp_sessions" => respond(lsp::lsp_sessions(app.state(), arg!(args, "projectId")).await),

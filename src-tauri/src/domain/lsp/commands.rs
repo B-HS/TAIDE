@@ -398,10 +398,14 @@ pub async fn lsp_spawn(
     Ok(session_id)
 }
 
+/// Not guarded by `AppState::begin_mutation` — this command never touches `AppState`, and
+/// per-session stdin writes are already serialized by `LspProcHandle`'s own
+/// `tokio::sync::Mutex` (`infra::lsp_proc::LspProcHandle::write_message`). Gating this behind
+/// the global mutation lock would only make LSP requests (which fire far more often than
+/// saves/git operations) queue behind unrelated mutating commands for no correctness benefit.
 #[tauri::command]
 #[specta::specta]
-pub async fn lsp_send(state: State<'_, AppState>, store: State<'_, LspStore>, session_id: String, message: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
+pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: String) -> AppResult<()> {
     let entry = find_entry(&store, &session_id)?;
     let proc = entry
         .proc

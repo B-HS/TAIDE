@@ -1,4 +1,4 @@
-import type { languages } from 'monaco-editor'
+import type { CancellationToken, languages } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { DocumentSymbol, SymbolInformation } from '@shared/lib/lsp/protocol'
@@ -59,10 +59,16 @@ const toMonacoDocumentSymbol = (monaco: Monaco, symbol: DocumentSymbol | SymbolI
     return { name: symbol.name, detail: '', kind: toMonacoKind(monaco, symbol.kind), tags: [], range, selectionRange: range }
 }
 
-export const requestDocumentSymbols = async (monaco: Monaco, client: LspClient, uri: string) => {
+/**
+ * `token` is optional because this function is also called directly by the outline panel
+ * (`widgets/outline-panel`) for a one-off request outside monaco's provider lifecycle, where no
+ * `CancellationToken` exists. Only the monaco provider path below supplies one.
+ */
+export const requestDocumentSymbols = async (monaco: Monaco, client: LspClient, uri: string, token?: CancellationToken) => {
     const result = await client.request<(DocumentSymbol | SymbolInformation)[] | null>('textDocument/documentSymbol', {
         textDocument: { uri },
     })
+    if (token?.isCancellationRequested) return []
     return (result ?? []).map((symbol) => toMonacoDocumentSymbol(monaco, symbol))
 }
 
@@ -70,6 +76,6 @@ export const registerDocumentSymbol = (monaco: Monaco, client: LspClient, langua
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.documentSymbolProvider))) return NOOP_DISPOSABLE
 
     return monaco.languages.registerDocumentSymbolProvider(languageId, {
-        provideDocumentSymbols: (model) => requestDocumentSymbols(monaco, client, model.uri.toString()),
+        provideDocumentSymbols: (model, token) => requestDocumentSymbols(monaco, client, model.uri.toString(), token),
     })
 }

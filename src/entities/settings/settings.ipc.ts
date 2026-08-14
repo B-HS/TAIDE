@@ -45,6 +45,9 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     aiOmlxBaseUrl: null,
     remoteAccessEnabled: null,
     remotePasswordOnlyLogin: null,
+    organizeImportsOnSave: null,
+    fixAllOnSave: null,
+    editorCodeLensEnabled: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

@@ -210,6 +210,22 @@ pub struct LspManifest {
     pub servers: Vec<LanguageServerSpec>,
 }
 
+/// Structural mirror of an arbitrary JSON value, used only as the `#[specta(type = ...)]`
+/// export target for `LspServerDetection::initialization_options`. Specta's built-in
+/// `serde_json::Value` mapping cannot be exported to TypeScript because its number
+/// representation carries `i64`/`u64`, which Specta forbids (precision-loss guard). This type
+/// is never constructed at runtime — the real field keeps `serde_json::Value` so the JSON
+/// payload forwarded from the LSP manifest is unaffected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(untagged)]
+pub enum LspInitializationOptionsValue {
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<Option<LspInitializationOptionsValue>>),
+    Object(BTreeMap<String, Option<LspInitializationOptionsValue>>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LspServerDetection {
@@ -232,6 +248,9 @@ pub struct LspServerDetection {
     pub toolchain_tool: Option<String>,
     #[serde(default)]
     pub download_available: Option<bool>,
+    #[serde(default)]
+    #[specta(type = Option<LspInitializationOptionsValue>)]
+    pub initialization_options: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

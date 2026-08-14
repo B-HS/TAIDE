@@ -148,7 +148,17 @@
           결정 4건 전부 추천안). **중대 발견**: 직전 세션 P0-0(LSP capabilities 확충)은 dead code
           적용이라 런타임 무효 / 서버→클라 요청 전면 폐기(configuration 무응답 기존 결함) /
           cross-file F12·Peek 이 원래부터 무음 실패(registerEditorOpener 부재).
-          구현 S→B1→C(3병렬)→D 진행 중 → 4렌즈 → 적대적 검증 → 수정 → 메인 2차 → 커밋
+          구현 완료(wf_7238f3c1-544, 6에이전트 — D 가 병렬 축 openIssues 6건 수정 포함).
+          검토 완료(wf_ecdeda9d-40f, 28에이전트): 4렌즈 발견 42건 → critical/major 24건 적대적
+          검증 → **확정 20·반증 4**. 확정 전건 + minor 12건 수정, 기각 5건(사유 기록 — L1-8
+          코스메틱 하이라이트·L3-7~10 구조 제안은 후속 분리). 주요 확정 결함: peek orphan 모델이
+          cross-file 편집을 디스크 미기록으로 삼킴(critical·적용기 분기 수정+저장 동기화) /
+          프리로드 TTL dispose 가 입양된 탭 모델 파괴(critical·타이머 해제) / 백그라운드 탭 편집
+          디스크 덮어쓰기(model-dirty-tracker 신설) / file_open 루트 가드 부재(Rust 수정) /
+          applyEdit 핸들러 프로젝트 간 침범(세션 root 스코프) / ra CodeLens experimental.commands
+          미선언 / targetSelectionRange 유실 / waitForLspSession 행(tier 게이트) / failureHandling
+          선언 불일치(abort 로 정정) / 진단 사이드 맵 uri 정규화 / executeCommand 미대기.
+          메인 2차: 수정 7건 실물 재확인 + verify 전체·vite build·bindings diff 검수 그린. 커밋
     - [ ] c-B ~ c-I. 순차 진행
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

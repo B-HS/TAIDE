@@ -1,3 +1,4 @@
+import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { InlayHint } from '@shared/lib/lsp/protocol'
@@ -21,11 +22,12 @@ export const registerInlayHints = (monaco: Monaco, client: LspClient, languageId
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.inlayHintProvider))) return NOOP_DISPOSABLE
 
     return monaco.languages.registerInlayHintsProvider(languageId, {
-        provideInlayHints: async (model, range) => {
+        provideInlayHints: async (model, range, token: CancellationToken) => {
             const result = await client.request<InlayHint[] | null>('textDocument/inlayHint', {
                 textDocument: { uri: model.uri.toString() },
                 range: monacoRangeToLsp(range),
             })
+            if (token.isCancellationRequested) return { hints: [], dispose: () => {} }
             return { hints: (result ?? []).map((hint) => toMonacoInlayHint(monaco, hint)), dispose: () => {} }
         },
     })
