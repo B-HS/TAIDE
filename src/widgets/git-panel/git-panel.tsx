@@ -155,7 +155,8 @@ export const GitPanel: FC<GitPanelProps> = ({
                         disabled={isSyncing}
                         onClick={onSync}
                         side='bottom'
-                        className='hover:bg-explorer-item-hover ml-auto flex size-5 shrink-0 items-center justify-center rounded-sm disabled:opacity-50'
+                        containerClassName='ml-auto'
+                        className='hover:bg-explorer-item-hover flex size-5 shrink-0 items-center justify-center rounded-sm disabled:opacity-50'
                     />
                 )}
                 {remote && <span className='text-app-sidebar-icon-default ml-1 shrink-0 truncate text-[11px]'>{remote.name}</span>}

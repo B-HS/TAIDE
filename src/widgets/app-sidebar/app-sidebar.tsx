@@ -98,7 +98,8 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
                 icon={<Settings className='size-5' />}
                 onClick={onOpenSettings}
                 side='right'
-                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover mt-auto flex size-10 shrink-0 items-center justify-center rounded-md'
+                containerClassName='mt-auto'
+                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover flex size-10 shrink-0 items-center justify-center rounded-md'
             />
         </nav>
     )

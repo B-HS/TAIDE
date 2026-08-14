@@ -127,7 +127,8 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                         aria-pressed={replaceOpen}
                         onClick={() => setReplaceOpen(!replaceOpen)}
                         side='bottom'
-                        className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm'
+                        containerClassName='mt-0.5'
+                        className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex size-6 shrink-0 items-center justify-center rounded-sm'
                     />
                     <div className='flex min-w-0 flex-1 flex-col gap-1'>
                         <div className='bg-panel-input-background border-panel-input-border focus-within:border-app-focus-border flex items-center rounded-sm border'>
@@ -193,7 +194,8 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                     disabled={!canReplaceAll}
                                     onClick={() => setConfirmOpen(true)}
                                     side='bottom'
-                                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm disabled:pointer-events-none disabled:opacity-40'
+                                    containerClassName='mr-1'
+                                    className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex size-6 shrink-0 items-center justify-center rounded-sm disabled:pointer-events-none disabled:opacity-40'
                                 />
                             </div>
                         )}

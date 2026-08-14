@@ -21,7 +21,8 @@ export const ResourceGroupHeader: FC<ResourceGroupHeaderProps> = ({ title, count
                 icon={actionIcon}
                 onClick={onAction}
                 side='bottom'
-                className='hover:bg-explorer-item-selected ml-auto hidden size-4 items-center justify-center rounded-sm group-hover:flex'
+                containerClassName='ml-auto hidden group-hover:flex'
+                className='hover:bg-explorer-item-selected flex size-4 items-center justify-center rounded-sm'
             />
         )}
     </div>
