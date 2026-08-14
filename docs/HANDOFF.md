@@ -1,8 +1,8 @@
-# HANDOFF — 2026-08-12 세션 스냅샷 (W7 완료)
+# HANDOFF — 2026-08-14 세션 스냅샷 (QA6 후속·기능 확장 1~3차 완료)
 
-> 최종 갱신: 2026-08-12 / 대응 커밋: **`bc27352`** (`dev`, origin 푸시 완료)
+> 최종 갱신: 2026-08-14 / 대응 커밋: **`06b0397`** (`dev`, origin 푸시 완료, 워킹트리 클린)
 > 이 문서는 세션 인수인계 **단일 진입점**이다. 새 세션은 이것부터 읽는다.
-> 수치는 이 문서 작성 시점에 재실측했다(§7).
+> 직전 스냅샷(W7 완료 시점)은 `git show 6a25673:docs/HANDOFF.md`.
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -13,182 +13,149 @@
 
 | 층위 | 내용 |
 |------|------|
-| 최종 목표 | `docs/PRD.md` FR-A~J 전량 구현 → Phase 8 배포(서명·공증) |
-| 현재 마일스톤 | **Phase 7.10 — QA 5차 신규 요구 8그룹** 7개 웨이브(W1~W7) **전량 구현 완료** |
-| 직전 작업 | **W7(TextMate 문법 엔진) 완료·커밋·푸시**. **다음은 QA 6회차 일괄 실기 검증(사용자)** |
+| 최종 목표 | `docs/PRD.md` FR-A~J → Phase 8 배포(서명·공증) |
+| 현재 마일스톤 | Phase 7.10 W1~W7 + **QA6 후속 1차 + 기능 확장 1~3차 전량 구현 완료** |
+| 직전 작업 | IconButton 레이아웃 회귀 수정(`c675d6f`). **다음 = 실기 QA 일괄**(사용자) → backlog P0 또는 Phase 8 |
 
-**진행률**: W1 ✅ · W2 ✅ · W3 ✅ · W4 ✅ · W5 ✅ · W6 ✅ · **W7 ✅** → **QA6 실기 검증 대기**
+사용자 명시: "이거까지만 하면 일단 거의 다 된 듯" — 기능 스트림 일단락 선언.
 
 ## 3. 완료 / 진행 중 / 미착수
 
-### 3.1 이번 세션에서 완료 (W7, 커밋 `bc27352`)
+### 3.1 이번 세션 완료 (커밋 8건, 시간순)
 
-**W7 — TextMate 문법 엔진**: monaco 0.56 내장 Monarch + 31토큰 축소 매핑을 **shiki 4.4.3
-(JS RegExp 엔진, CSP `script-src 'self'` 무변경)** 로 교체. 테마 스키마에 원본 tokenColors
-보존 필드 추가, 번들 36종 재변환(원본 재취득), 플러그인 grammar 기여를 TextMate 로 재정의·실배선.
+| 커밋 | 내용 | 핵심 파일 |
+|------|------|-----------|
+| `53e8969` | 한글 조합 상하 떨림 수정 — 폰트 폴백 스택에 Apple SD Gothic Neo | `src/shared/lib/font-stack.ts` |
+| `a1dd3de` | **QA6 후속 1차**: 단축키 편집 모달(전 커맨드 23행·검색·재바인딩·unbind·충돌, `KeymapOverrideEntry.actionId: string` A안) / OMLX provider(`jundot/omlx`, FIM 센티널 패밀리 6종→chat 폴백, base URL settings·key keyring) / 툴팁·i18n(재렌더 결함 `bindI18nStore`+`data-locale-ready` 수정 — 누락 키 0건이 진실, IconButton 신설·37건, git 패널 15건, 87키 동기) | `src/widgets/keybindings-editor/`, `src-tauri/src/domain/ai/providers/omlx.rs`, `src/shared/ui/icon-button.tsx`, `src/shared/i18n/i18n.ts` |
+| `e3c13bd` | **기능 확장 1차**: blame 줄 위 view zone / monaco 액션 150종 노출(**B안: 실행은 monaco**·`addKeybindingRules`·하이브리드 i18n tier1 42) / taide CLI(externalBin 사이드카·`/usr/local/bin` 설치/제거·열기 배선 3끊김 해소·pending 큐) / **갭 분석**(`docs/research/2026-08-13-vscode-cursor-gap.md` P0 10·P1 10) / 퀵윈 5(sticky scroll·커서위치 상태바·documentHighlight·selectionRange 어댑터·LSP capabilities 확충) | `src/shared/lib/monaco-actions.ts`, `crates/taide-cli`(무변경—배선만), `scripts/{tauri,build-cli-sidecar}.ts`, `src-tauri/tauri.bundle.conf.json` |
+| `23c3fb2` | **기능 확장 2차**: Alt 조합 재바인딩 수정(`normalizeKeymapEventKey` — event.key 우선·합성 문자만 code 유도, 레거시 OR 매칭 하위호환) / blame → **에디터 페인 footer 바**(view zone 삭제) / usage 상세 모달(`system_usage_breakdown`, 자손 BFS+도메인 PID 매핑, System 인스턴스 분리) | `src/shared/lib/keymap.ts`, `src/features/editor/blame-footer-bar.tsx`, `src/widgets/system-usage-modal/` |
+| `4c08d31` | suggest 위젯 화살표 누수 수정 — 원인은 **⌥ 유지 타건 커버리지 공백**(unbind `keybinding:0` 은 resolver 리프로로 무혐의 실증). 팝업 트리거 재바인딩 시 그 modifier+화살표를 위젯 탐색에 바인딩하는 **동반 규칙**(+parameter hints 양보 가드) | `src/shared/lib/monaco-keybinding.ts` |
+| `39c17fc` | **기능 확장 3차**: Hot Exit(미러 복원 IPC 7종·untitled 비휘발성화·baseline mtime 충돌→ConflictBanner·CloseRequested 인터셉트+⌘Q 메뉴 교체·디바운스 500ms·블러/언마운트 플러시·GC) / Remote 비밀번호(2요소 게이트·keyring salt+sha256·세션 7일 만료·지수 백오프·JS 없는 로그인 페이지 3언어·fail-closed·**WS epoch 즉시 단절**·원격 settings_update 게이트 필드 스트립) | `src-tauri/src/domain/{file,remote}/`, `src/app/providers/hot-exit-flush-provider.tsx`, `src-tauri/src/domain/remote/login_page.rs`, `src/features/settings/remote-password-row.tsx` |
+| `c675d6f` | IconButton 레이아웃 회귀 수정 — 툴팁 span 래퍼가 flex 자식이 되어 위치 클래스 무효(동종 5곳). `containerClassName`(위치=래퍼/시각·상태=버튼) 분리 + 래퍼 기본 `shrink-0` | `src/shared/ui/icon-button.tsx` 외 4 |
+| `06b0397` | PROCESS 기록 | docs |
 
-| 영역 | 핵심 파일 |
-|------|-----------|
-| shiki 통합(수명 관리: 원본 setTheme/create 캡처→복원→shikiToMonaco 재호출, 단일 테마명 'taide', init 실패 재시도, reinit swap-then-dispose) | `src/shared/lib/shiki/shiki-monaco.ts` |
-| 언어 매핑 31종(재명명 방식 — langAlias 는 core 미적용, heex→html 폴백, 배럴 import 금지) | `src/shared/lib/shiki/lang-map.ts` |
-| 테마 조립(colors=buildThemeColors 재사용, tokenColors=raw??31토큰 역생성 폴백, syntaxOverrides 오버레이 — 스코프 선점 소유 규칙 공유) | `src/shared/lib/shiki/build-shiki-theme.ts` |
-| monaco 31종 언어 선등록·applyMonacoTheme 제거(빌더 함수는 폴백용 유지) | `src/shared/lib/monaco/{setup,theme}.ts` |
-| 테마 스키마: `Theme`/`ResolvedTheme.token_colors: Option<Vec<TokenColorRule>>`(fontStyle 원문·순서 보존·extends 는 자식 Some=전체 교체/None=상속), `ResolvedTheme.syntax_overrides`(**base 있는 자식만** — 검토에서 잡은 치명 결함 수정) | `src-tauri/src/domain/theme/{types,service}.rs` |
-| 변환 파이프라인 tokenColors passthrough(fontStyle/background 원문 보존·전역 룰 보존·빈 settings 제외)·CLI prettier 출력·경고 2종 | `src/shared/lib/theme-convert/{types,merge,convert}.ts`, `scripts/convert-vscode-theme.ts` |
-| 번들 36종 재변환(+tokenColors). 26종은 기존 3절 diff 0, **10종은 색 일부 변경 — 원인 규명 후 신규 값 채택**(W5 include 체인 순서 결함 수정 4종·상류 갱신·미기록 출처. `docs/PROCESS.md` W7-C) | `src-tauri/resources/themes/*.json` |
-| 플러그인 grammar: TextMate 재정의(manifestVersion 1 유지)·검증 3에러코드(grammar-missing/invalid/conflict, 충돌은 해당 grammar 만 무효)·`plugin_read_grammar` IPC·프론트 조립(개별 실패 스킵·embeddedLangs 화이트리스트)·reload 시 reinitShiki | `src-tauri/src/domain/plugin/*`, `src/entities/plugin/{plugin-grammar,plugin.ipc,plugin.query}.ts` |
-| VSIX 임포트·테마 에디터 프리뷰의 tokenColors 보존 | `src/features/theme/vsix-theme-import.ts`, `src/entities/theme/theme.query.ts` |
-| 디스패치 137종(+plugin_read_grammar)·locale 3키(en/ko/ja)·bindings 재생성 | `src-tauri/src/domain/remote/dispatch.rs`, `domain/locale/service.rs`, `src/shared/api/bindings.ts` |
-| 문서 개정 9건 + 신설: W7 계약·shiki 리서치·원본 취득 매니페스트·QA6 W7 16항목 | `docs/acknowledge/2026-08-12-w7-textmate-contract.md`, `docs/research/shiki.md`, `docs/utils/2026-08-12-w7-theme-original-sources.md`, ADR-0010·plugins.md·theme-system.md·vsix-theme-import.md·ipc-contract.md·research/monaco.md·backlog.md·`THIRD_PARTY_LICENSES.md`(Bundled TextMate Grammars 절) |
-
-신규 의존(사용자 승인 2026-08-12): `@shikijs/core`·`@shikijs/engine-javascript`·`@shikijs/langs`·
-`@shikijs/monaco` 4.4.3 고정 + `monaco-editor-core@0.56.0`(devDep, 타입 전용).
+각 웨이브는 "계약 → 스파인 → 구현 병렬(파일 소유권 분리) → 렌즈 검토 → 적대적 검증 → 수정 → 메인 2차(verify+실측)" 패턴으로 진행됐고, 검토 웨이브가 잡은 확정 결함(경로 탈출·keyring fail-open·⌘Q 인터셉트 우회·탭 전환 편집 소실·상태바 CPU% 붕괴 등)은 전부 수정 후 커밋됨.
 
 ### 3.2 진행 중
 
-**없음.** W7 완료·커밋·푸시됨.
+**없음.** 전 작업 커밋·푸시 완료, verify 그린.
 
 ### 3.3 미착수 / 대기
 
-- **QA 6회차 일괄 실기 검증**(§8 1순위) — W1~W7 전량, `docs/quality-assurance/2026-08-11-qa6-checklist.md`.
-  W7 16항목 추가됨. **W7 최우선 항목 = CSP 무변경 실기 동작**(실패 시 W7 무효 — 정적 검증만 완료 상태).
-- backlog: VSIX contributes.grammars 임포트, `.tf`→terraform/`.mdx`→mdx 정밀화(W7 에서 분리),
-  Gemini IDE companion, Codex app-server 패널, chord/when 키맵, 원격 파일 피커 등(`docs/backlog.md`).
+1. **실기 QA 일괄**(사용자만 실행 가능) — `docs/quality-assurance/2026-08-11-qa6-checklist.md`:
+   W1~W7 원본 + "QA6 후속 1차" + "기능 확장 1차"(10) + "기능 확장 2차"(3) + "기능 확장 3차"(13)
+   + suggest 키 항목. W7 CSP 는 하이라이팅 동작 확인됨(devtools 콘솔 무오류 확인만 잔여).
+2. **backlog**(`docs/backlog.md`) — 갭 P0 대형(Code Action/Quick Fix 가 최대 공백, 3-way 머지,
+   태스크 러너, 터미널 OSC133, Semantic Tokens, Breadcrumbs, 팔레트 @/: 모드, Workspace Symbol,
+   git 줄 단위 stage·커밋 상세·파일 히스토리, chord/when 키맵), 프로젝트 스코프 원격 세션,
+   Remote 하드닝 minor 9건, Hot Exit 미세 3건, monaco IME 상류 대응, shift+기호 캡처.
+3. **Phase 8(서명·공증)** — 사이드카(`taide-cli`)가 tauri bundler 로 함께 서명되는 것은 확인됐으나
+   **공증 파이프라인은 미구성**(`tauri.conf.json` 에 macOS 서명 섹션 없음).
+4. `docs/PROCESS.md` 아카이브 — 1,145줄(규정 ~300줄 초과). 완료 섹션을 `docs/history/` 로 이전 필요.
 
 ### 3.4 알려진 미검증 (KNOWN ISSUE)
 
-- **W1~W7 전량 실기 미검증** — 기계 검증(verify·vite build)만 통과. 실기는 QA6 몫.
-- **W7 특유**: WKWebView 런타임 CSP 동작(정적 grep 만), shiki 교체 후 TS/JSON worker 리치 기능 유지,
-  embedded language(erb 등) 정확도, 첫 페인트·타이핑 체감, 테마 에디터 프리뷰 연타 성능,
-  monaco 몽키패치 수명 관리(단위 테스트 불가 — 실기), 플러그인 grammar 실물 왕복.
-- **번들 10종 색 변경**(W7-C) — 사용자 육안 확인 전. 되돌리려면 `git show fddb584:src-tauri/resources/themes/<id>.json`.
-- W6 원격 실접속·pty·Range·쿠키 승격·tunnel, LSP Gatekeeper, Codex/Gemini hooks 실왕복, Windows 컴파일 — 이전과 동일.
+- **이번 세션 신기능 전량 실기 미검증** — 기계 검증(verify·vite build)만. 특히:
+  suggest 화살표 수정의 전제("⌥ 를 유지한 채 타건")는 소스 논증이며 실기 미확증 —
+  ⌥ 뗀 ↑ 도 새면 별개 원인(제안 1건 시 ↑=커서 이동은 VS Code 동일 스펙임을 사용자에게 안내).
+- CLI `taide <경로>` 실동작은 **번들 빌드에서만** 확인 가능(`bun run tauri build` — dev 는 의도적 거부).
+- OMLX FIM 은 실서버·코더 모델로만 검증 가능. Remote 로그인 왕복·WS 즉시 단절도 실기 몫.
+- 이전 세션 잔여: W1~W7 실기, 번들 테마 10종 색 육안, W6 원격 실접속, Windows 컴파일.
 
-## 4. 의사결정 요약
+## 4. 의사결정 요약 (상세·기각 대안은 acknowledge 계약 3건이 정본)
 
-상세는 `docs/acknowledge/`(결정 1건 = 파일 1개). **W7 구현 계약 전문:
-`docs/acknowledge/2026-08-12-w7-textmate-contract.md`** (확정 사실·사용자 결정 4건·설계·
-**§3.7 기각된 대안 21건**·위험 — 리서치 원문은 세션 소멸, 이 문서가 유일 기록).
+| 계약 문서 | 핵심 결정 |
+|-----------|-----------|
+| `docs/acknowledge/2026-08-12-qa6-followup-contract.md` | IME 2건 판정(떨림=폰트/자모 분리=WKWebView 층·수정 불가→backlog), 단축키 A안(actionId string 확장), OMLX FIM 필수(chat-only 기각 — 사용자 질책 "tab 기능이 안 되면 무슨 의미"), i18n 재렌더가 raw key 원인(키 추가 아님), 기각 8건 |
+| `docs/acknowledge/2026-08-13-feature-expansion-contract.md` | blame IViewZone(CodeLens·오버레이 기각), 액션 B안(실행 monaco — A안은 chord 기본값 표현 불가로 기각), 하이브리드 i18n, CLI 열기 배선 포함(심링크만 = "설치 성공 착시" 기각), 갭 P0 퀵윈만 편입, 기각 12건 |
+| `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` | Hot Exit 전체 패키지(untitled 포함·0-손실), Remote 2요소+keyring sha256(+salt)·7일 만료·fail-closed, **프로젝트별 비밀번호는 전역 1개만**(스코프 세션은 10배 규모·계약 번복이라 backlog, 암호만 나누는 안은 보안 착각 유발로 기각), 기각 7건 |
 
-### 4.1 W7 채택 + 이유
-
-| 결정 | 이유 |
-|------|------|
-| shiki 4.4.3 JS RegExp 엔진, WASM 폴백 없음 | dist 실물 grep eval/new Function 0건 → CSP `script-src 'self'` 무변경. WASM 은 `wasm-unsafe-eval` 필요(보안 후퇴). 31언어 전부 JS 엔진 호환 |
-| `createHighlighterCore` 강제, `createHighlighter` 금지 | 메타 패키지 기본 엔진이 oniguruma WASM — 실수 방지 리뷰 관문 |
-| 몽키패치 수명 관리 = 원본 복원 후 shikiToMonaco 재호출, 단일 테마명 | shikiToMonaco 는 호출 시점 스냅샷 + setTheme 패치 중첩. loadTheme 동일 이름 교체(Map.set) 실측으로 성립 |
-| tokenColors = `Vec<TokenColorRule>`(fontStyle 원문), extends 는 전체 교체/상속 | 룰 순서가 의미. BTreeMap·키 병합 불가. 테마 에디터 diff 저장과 정합 |
-| syntax_overrides 는 base 있는 자식 테마만 | 루트/번들에 채우면 31토큰 오버레이가 raw 를 도로 덮음(검토 웨이브가 잡은 치명 결함) |
-| heex→html 폴백 / 회색 라이선스 4종 포함+고지 / 플러그인 grammar 실배선 / VSIX grammars 는 backlog | 사용자 결정(계약 §2). grammar 30종 개별 서브패스 import 로 GPL 유입 차단 |
-| 번들 10종 색 변경 채택 | 격리 실험(구변환기+신원본=동일 diff)으로 변환기 무혐의 입증. Dark+/Modern 은 실 VS Code 렌더 일치·파일트리 선택 불가시 버그 수정. 출처는 이번에 문서화 |
+세션 중 추가 판정(계약 외): 자모 분리 monaco 업그레이드 불가(0.56.0 이 최신·상류 수정 0건 —
+`docs/bug/2026-08-12-editor-korean-ime.md`), suggest 화살표의 unbind 규칙 무혐의(resolver 실로드 리프로),
+Alt 캡처 정규화는 "code 무조건 우선" 아닌 "합성 문자만 code"(비US 레이아웃 보호 — 에이전트 정제를 채택).
 
 ## 5. 사용자 방향성 & 작업 규칙
 
-### 5.1 운영 방식 (역할 5단)
+### 5.1 운영 방식 (역할 5단 — 기존 유지 + 이번 세션 추가분)
 
-| 역할 | 담당 |
-|------|------|
-| 오케스트레이팅·상세플랜·계약 확정·배선 판단·2차 검토 | 메인 세션 |
-| 리서치·판단·최종 검증 | opus + medium |
-| 구현 | sonnet + high |
-| 버그 1차 검토·해결 | opus + high |
+- 오케스트레이팅·계약·2차 검토 = 메인 / 리서치·최종검증 = opus+medium / 구현 = sonnet+high /
+  버그 1차 = opus+high. **입력 관련 민감 버그(IME·키바인딩)는 fable+high**(사용자 지정, 이번 세션 3회 적용).
+- 서브에이전트 위임은 규모 무관 Workflow 로만. 패턴: 계약(스파인 단일) → 구현 웨이브(파일 소유권
+  분리, **Rust 는 한 시점 한 에이전트** — enum variant 선추가로 컴파일 깨진 사고 1회, settings 필드는
+  sync/service.rs 리터럴까지) → 렌즈 검토(보안 렌즈 포함) → 적대적 검증 → 수정 → 메인 2차.
+- 에이전트 보고 불신·핵심 주장 메인 실물 재검증(이번 세션: monaco 소스·npm·react-i18next·
+  WS revoke 코드 등 매회 수행 — 실결함 추가 발견 2회).
+- **확인 질문은 추천안 패키지로 묶어** "전부 추천안대로" 한마디로 답할 수 있게(사용자가 매회 그렇게 답함).
+- **반쪽 기능 금지** — 설치는 되는데 안 열리는 CLI, FIM 없는 auto-tab 같은 "동작 착시"에 사용자가
+  강하게 반응. 기능은 끝까지 배선한다.
 
-- **메인은 직접 구현하지 않는다.** 예외: 취약한 네트워크 다운로드(체크섬·원본 취득), 2차 검토의 소규모 수정.
-- **서브에이전트 위임은 규모와 무관하게 Workflow 도구로만.** 단일 작업도 agent() 1개 워크플로로.
-- 검증된 워크플로 패턴: **계약(스파인 단일) → 구현 웨이브(파일 소유권 분리 병렬, 공유 파일은 직렬) →
-  검토(렌즈별 탐색 → 적대적 검증 → 수정) → 메인 2차(verify 재실행 + 실측)**. W7 에서도 검토 웨이브가
-  치명 결함 1건 포함 실결함 5건을 잡음 — 이 패턴 유지.
-- 스파인 파일(lib.rs·events·locale/service.rs·settings·bindings·Cargo.toml)은 한 시점에 한 에이전트만.
-- **에이전트 보고는 검증 후 채택.** 핵심 주장은 메인이 실물(소스·tarball·레지스트리)로 재확인.
+### 5.2 답변·코드 규칙 (기존 유지)
 
-### 5.2 답변·보고 스타일
+- 한국어+존댓말·간결·이모지 금지. 검증 안 된 단언 금지. 보고만 하고 멈추지 말 것.
+- arrow fn만·반환 타입 명시 금지·any/enum 금지·주석 금지(영어 JSDoc 만)·매직넘버 금지·
+  useCallback/useMemo 금지·삼항 2중첩 금지·named export·1파일 1컴포넌트·FSD 위→아래·barrel 금지.
+- i18n 4곳 동기(locale/service.rs — en/ko/ja+MESSAGE_NAMESPACES, en⊆required 역방향 테스트가 강제),
+  IPC 숫자 f64(i64/u64/usize 금지), Rust 후 cargo fmt, @shikijs/langs 배럴 import 금지.
+- 시크릿·비밀번호는 keyring 에만(settings.json 은 gist 동기화됨 — 화이트리스트 None 필수 확인).
 
-- 한국어+존댓말, 간결, 미사여구·자축 금지, 이모지·아스키아트 금지.
-- 검증 안 된 "완벽/잘 됨" 단언 금지. 보고만 하고 턴을 끝내지 말 것 — goal 이 있으면 이어서 진행.
+### 5.3 금지 사항 (기존 + 추가)
 
-### 5.3 코드 규칙 (ESLint 강제 + 파리티 테스트)
-
-- arrow fn만, 반환 타입 명시 금지, any/enum 금지, **코드 주석 금지(JSDoc 영어만 — Rust `///` 도 금지)**,
-  매직넘버 금지, useCallback/useMemo 금지, named export, 1파일 1컴포넌트, FSD 위→아래, barrel 금지,
-  색은 시맨틱 토큰만(테마 JSON 데이터 파일 예외)
-- **i18n 키는 4곳 동기**: `domain/locale/service.rs` MESSAGE_NAMESPACES + en/ko/ja (파리티 테스트)
-- **테마 토큰은 5곳 동기**(tokenColors 는 토큰 집합이 아니라 비대상), IPC 타입에 i64/u64/usize 금지
-- **Rust 수정 후 반드시 `cargo fmt`**, `@shikijs/langs` 배럴 import 금지(개별 서브패스만 — GPL 차단)
-- 시크릿(토큰)은 keyring 에만. settings.json·로그·IPC 응답·이벤트·에러 문자열에 비노출.
-
-### 5.4 금지 사항
-
-- main 직접 커밋 금지 (dev 에서 작업, **자동 커밋·푸시 ON — dev 한정**, main 머지는 지시 시)
-- git add -A 금지(선별 스테이징), force push 금지, Co-Authored-By 금지, .env 접근 금지
-- HACK·검사기 끄기(`#[allow]`·@ts-ignore·eslint-disable) 금지
-- 신규 패키지 임의 설치 금지(승인분: reqwest·keyring·sha2·flate2·tar·zip·xz2·axum + **@shikijs 4종·
-  monaco-editor-core(W7 승인)**)
-- **에이전트 셸에서 앱 실행 금지**, Chrome 을 localhost:5173 에 붙인 채 두지 말 것
-- VSCode extension "그대로 실행" 금지(테마/문법 임포트만), MS Marketplace 연동 금지
+- 에이전트 셸에서 앱 실행 금지(`bun run tauri dev` 는 사용자만). main 커밋 금지(dev 자동 커밋·푸시 ON).
+- git add -A·force push·Co-Authored-By·.env 금지. HACK·검사기 끄기(#[allow] 포함) 금지.
+- 신규 패키지 임의 설치 금지. 승인 누적분: reqwest·keyring·sha2·flate2·tar·zip·xz2·axum·
+  @shikijs 4종·monaco-editor-core(dev). **argon2 는 미승인**(원하면 승격 — 저장 형식 호환 설계됨).
+- createHighlighter(WASM) 금지·CSP wasm-unsafe-eval 금지. 계약들의 기각 대안 재론 금지.
+- TAIDE 레포를 앱에서 열고 테스트 타이핑 금지(전역 ⌘S 우발 저장으로 소스 오염 사고 1회 — 복원함).
 
 ## 6. 미해결 질문 / 사용자 확인 필요
 
-1. **QA 6회차 실기 검증**(§8) — W1~W7 전량. W7 은 CSP 실기 동작이 최우선(체크리스트 첫 항목).
-2. 번들 10종 색 변경(§3.4) 육안 수용 여부 — QA6 스팟 확인 항목에 포함됨.
-3. 추가 테마 4종(Winter is Coming 등) 확충 여부(이월).
+1. **실기 QA 결과 전반**(§3.3-1) — 특히 Hot Exit 재시작 복원, Remote 로그인 왕복·비밀번호 변경 시
+   웹 화면 즉시 단절, ⌥Space 후 ⌥ 유지 화살표, blame footer 체감, 설정 버튼 위치 복구.
+2. 자모 분리 실험 옵션(`accessibilitySupport: 'off'` — 1줄·가역) 적용 시도 여부.
+3. QA 후 다음 방향: backlog P0(추천 1순위 = Code Action/Quick Fix) vs Phase 8(서명·공증).
+4. 번들 테마 10종 색 변경 육안 수용(이월 — `git show fddb584:src-tauri/resources/themes/<id>.json`).
 
 ## 7. 환경 & 전제
 
 | 항목 | 값 |
 |------|-----|
-| 플랫폼 | macOS (arm64). Windows/Linux 미검증 |
-| 패키지 매니저 | bun 1.3.x |
-| **cargo 경로** | PATH 에 없음 — `export CARGO_HOME="$HOME/development/rust/cargo"; export RUSTUP_HOME="$HOME/development/rust/rustup"; export PATH="$CARGO_HOME/bin:$PATH"` |
-| **셸 주의** | zsh 에서 스크립트 변수명 `path` 사용 금지(PATH 연동 예약 변수 — 세션 중 1회 사고) |
-| 리모트 | origin=github.com/B-HS/TAIDE (비공개). main=prod, dev=개발. 자동 커밋·푸시 ON(dev) |
-| 실행 | `bun run tauri dev` (**사용자만** — 에이전트 셸 금지) |
-| 검증 | `bun run verify` = typecheck→lint→format:check→bun test→cargo fmt/clippy/test |
-| bindings 재생성 | `cargo test`(lib.rs 의 `typescript_바인딩을_생성한다`)가 `src/shared/api/bindings.ts` 생성 |
-| 앱 데이터 | `~/Library/Application Support/dev.taide.app/` (themes/·locales/·plugins/·lsp/·prompts/ 하위) |
-
-**현재 기준선 (2026-08-12 W7 후 재실측)**
-- 프론트 **392 tests** / Rust **550 tests**(527 lib + 6 통합 + 17 CLI)
-- IPC 커맨드 **134종**(collect_commands, plugin_read_grammar 포함), 이벤트 **23종**, RAW 채널 **3종**
-  → 원격 디스패치 대상 **137종**
-- Rust 도메인 **21개**, 번들 테마 **36종**(전부 tokenColors 보유), LSP 매니페스트 **19종**
-- 프론트 의존 신규: @shikijs/core·engine-javascript·langs·monaco 4.4.3 / monaco-editor-core 0.56.0(dev)
-- 번들 테마 원본 재취득 매니페스트: `docs/utils/2026-08-12-w7-theme-original-sources.md`
+| 플랫폼 | macOS(arm64), bun 1.3.x. cargo 는 PATH 밖 — `export CARGO_HOME="$HOME/development/rust/cargo"; export RUSTUP_HOME="$HOME/development/rust/rustup"; export PATH="$CARGO_HOME/bin:$PATH"` (zsh 변수명 `path` 금지) |
+| 실행 | dev = `bun run tauri dev`(사용자만). **프로덕션 빌드 = `bun run tauri build`**(신규 `scripts/tauri.ts` 가 CLI 사이드카 빌드+`tauri.bundle.conf.json` 자동 합성 — externalBin 을 기본 conf 에 넣으면 dev 컴파일이 깨져 분리함) |
+| 검증 | `bun run verify` = typecheck→lint→format→bun test→cargo fmt/clippy/test. bindings 재생성은 `cargo test`(`typescript_바인딩을_생성한다`) |
+| 기준선(2026-08-14 실측) | 프론트 **472 tests**(46 files) / Rust **635**(612 lib+6+17) / 커맨드 **148**(JSON 145+RAW 3 — 디스패치 파리티 테스트 강제) / 이벤트 24 / `src-tauri/binaries/` 는 gitignore(사이드카 산출물) |
+| 앱 데이터 | `~/Library/Application Support/dev.taide.app/` — buffers/(미러)·themes/·locales/·plugins/·lsp/·prompts/ |
+| 스크래치패드(세션 소멸) | 정찰·검토 보고서 원문은 세션 스크래치패드에만 있음 — **요지는 전부 계약·PROCESS 에 반영됨**, 새 세션은 문서만 믿으면 됨 |
 
 ## 8. 다음 세션 TODO (우선순위 순)
 
-### 1순위 — QA 6회차 일괄 실기 검증 (사용자 실기)
-
-- `docs/quality-assurance/2026-08-11-qa6-checklist.md` 를 사용자가 `bun run tauri dev` 로 검증.
-  W1~W7 누적(W7 16항목 — **첫 항목 CSP 가 최우선**, 실패 시 W7 재설계 필요).
-- 버그 발견 시 역할 분담대로: 1차 검토·해결 = opus+high 워크플로, 메인 2차.
-
-### 2순위 — QA6 통과 후
-
-- `docs/backlog.md` 후보 착수 또는 `docs/roadmap.md` Phase 8(서명·공증) — 사용자 지시에 따름.
+1. **실기 QA 지원** — 사용자가 `bun run tauri dev`(+CLI 는 `bun run tauri build`)로 체크리스트 진행.
+   버그 보고 시: 입력 관련 = fable+high, 그 외 1차 = opus+high 워크플로 → 메인 2차.
+2. QA 통과 후 사용자 지시에 따라: backlog P0(갭 분석 `docs/research/2026-08-13-vscode-cursor-gap.md`
+   §9 의 10건 — Code Action 이 단일 최대 공백) 또는 Phase 8(서명·공증 — 사이드카 공증 미구성 유의).
+3. `docs/PROCESS.md` 아카이브(1,145줄 → 완료 섹션을 `docs/history/` 로).
 
 ## 9. 문서 지도
 
 | 문서 | 내용 |
 |------|------|
 | `docs/HANDOFF.md` | **이 문서** — 단일 진입점 |
-| `docs/PROCESS.md` | Phase 0~7.10 시간순 체크리스트. W1~W7 상세 완료 기록(W7-C 재변환 판정 포함) |
-| `docs/acknowledge/2026-08-12-w7-textmate-contract.md` | **W7 구현 계약**(확정 사실·사용자 결정 4건·설계·위험) |
-| `docs/acknowledge/2026-08-12-w6-remote-contract.md` | W6 구현 계약 |
-| `docs/acknowledge/2026-08-11-qa5-batch-decisions.md` | QA 5차 전 웨이브 결정 집약 |
-| `docs/research/shiki.md` | shiki 패키지 구성·CSP 검증·shikiToMonaco 동작·수명 관리 설계·대안 비교 |
-| `docs/utils/2026-08-12-w7-theme-original-sources.md` | 번들 36종 원본 취득 URL 매니페스트(재변환 재현) |
-| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | **W1~W7 일괄 실기 검증 체크리스트** |
-| `docs/theme-system.md` | 테마 토큰·번들 36종·변환·tokenColors(W7 개정 완료) |
-| `docs/features/plugins.md` | 플러그인 매니페스트 정본(TextMate grammar — W7 개정 완료) |
-| `docs/adr/0010-plugin-system.md` | 선언적 매니페스트 + W7 보강 항 |
-| `THIRD_PARTY_LICENSES.md` | 테마 36종 + LSP + **TextMate grammar 30종**(W7 신설 절) |
-| `docs/PRD.md`·`architecture.md`·`tech-stack.md`·`ipc-contract.md`·`data-model.md`·`adr/`·`roadmap.md`·`backlog.md` | 기존 정본 |
+| `docs/PROCESS.md` | 시간순 체크리스트 — "QA6 후속 1차"·"기능 확장 1~3차" 절에 이번 세션 상세 |
+| `docs/acknowledge/2026-08-12-qa6-followup-contract.md` | 후속 1차 계약(결정·기각 8) |
+| `docs/acknowledge/2026-08-13-feature-expansion-contract.md` | 확장 1차 계약(결정·기각 12·tier1 42 목록) |
+| `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` | 확장 3차 계약(결정·기각 7) |
+| `docs/research/2026-08-13-vscode-cursor-gap.md` | **VS Code·Cursor 갭 분석**(P0/P1/우위/비추천) |
+| `docs/bug/2026-08-12-editor-korean-ime.md` | IME 2건 판정·상류 조사·실험 옵션 |
+| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | **실기 체크리스트 전체**(W1~W7+후속+확장 1~3차) |
+| `docs/memory/tooltip-conventions.md` | 툴팁 side 규범·IconButton 사용법 |
+| `docs/backlog.md` | P0 대형·스코프 세션·하드닝 잔여 등 후속 후보 전량 |
+| `docs/ipc-contract.md` | 커맨드 정본 — 이번 세션 신규(미러·CLI·usage·remote 비밀번호) 반영 완료 |
+| `docs/features/editor.md` | Hot Exit 미러 규약(재작성됨) |
+| `docs/theme-system.md`·`data-model.md`·`PRD.md`·`architecture.md`·`roadmap.md`·ADR | 기존 정본 |
 
 ## 10. 복기 신뢰도
 
-- **높음**: W7 은 커밋 `bc27352` 로 고정, 전 산출물 파일 경로 단위 기록. §7 수치는 verify 실행 결과
-  (프론트 392·Rust 550·커맨드 134·디스패치 137·테마 36 전부 tokenColors). 번들 10종 색 변경은
-  격리 실험으로 원인 규명됨.
-- **중간**: W7 내부 로직(shiki 수명 관리·오버레이·플러그인 grammar)은 기계 검증(파리티·컴파일·테스트·
-  빌드)까지. 실기 렌더·CSP 런타임은 QA6 몫.
-- **낮음**: 없음.
+- **높음**: 커밋 8건이 전부 dev 에 고정, 계약 3건·PROCESS·ipc-contract 가 웨이브마다 동기 갱신됨.
+  §7 수치는 세션 말 실측.
+- **중간**: 각 웨이브 내부 구현 디테일(예: WS epoch 구독 지점, FIM 센티널 문자열)은 문서보다 코드가
+  정본 — 재론 시 해당 파일을 직접 읽을 것.
+- **낮음**: 없음. 단, 정찰·검토 보고서 원문(스크래치패드)은 세션 소멸로 접근 불가 — 요지는 계약에 있음.
