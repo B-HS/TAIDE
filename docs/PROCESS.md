@@ -1092,6 +1092,10 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
       폴링 키링 캐시·nonce 다중 슬롯. 메인 추가 검증 후 마감 2건(wf_9814ec51-946):
       **WS 세션 epoch 즉시 단절**(revoke·비밀번호 변경 시 열린 소켓 종료)·원격 settings_update
       의 게이트 필드 스트립. 실기 확인 대기
+- [x] q. IconButton 레이아웃 회귀(사용자 보고: 설정 버튼이 위로) — 툴팁 래퍼 span 이 flex 자식이
+      되며 내부 버튼의 위치 클래스(mt-auto·ml-auto·mt-0.5·mr-1·hidden/group-hover)가 무효.
+      전 소비처 grep 으로 동종 4곳 추가 발견, containerClassName(위치=래퍼/시각·상태=버튼) 분리
+      + 래퍼 기본 shrink-0 으로 근본 수정(메인 직접, c675d6f)
 - 잔여 minor 하드닝(미검증 오버플로 — backlog 등재): 개별 세션 TTL 만료의 라이브 WS 단절,
   Host 허용목록(DNS rebinding), 비밀번호 최소 길이·trim 정합, 전역 잠금 DoS 완화, stale nonce
   실패 집계, X-Forwarded-Proto 신뢰, gist 인바운드 게이트 필드 필터, 저장 직후 디바운스 부활,
