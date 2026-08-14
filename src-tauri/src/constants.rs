@@ -16,6 +16,8 @@ pub const IGNORED_DIR_NAMES: &[&str] = &[
 
 pub const WATCH_DEBOUNCE_MS: u64 = 300;
 
+pub const HOT_EXIT_FLUSH_TIMEOUT_MS: u64 = 2_500;
+
 pub const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub const LARGE_FILE_LINES: usize = 50_000;
 pub const READ_ONLY_FILE_BYTES: u64 = 20 * 1024 * 1024;

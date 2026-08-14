@@ -105,6 +105,8 @@ pub struct Settings {
     pub sync_last_synced_at: Option<String>,
     #[serde(default)]
     pub remote_access_enabled: bool,
+    #[serde(default)]
+    pub remote_password_only_login: bool,
 }
 
 fn default_theme_id() -> String {
@@ -206,6 +208,7 @@ impl Default for Settings {
             sync_gist_id: None,
             sync_last_synced_at: None,
             remote_access_enabled: false,
+            remote_password_only_login: false,
         }
     }
 }

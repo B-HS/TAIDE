@@ -75,3 +75,11 @@
 |------|------|-----------|
 | 에디터 한글 자모 분리 — 상류 대응 | monaco 재현 이슈 제출(+WebKit #274700 케이스 첨부), `monaco-editor` latest 변경 또는 vscode `editContext/textArea/**` IME 커밋 등장 시 재검토. 실험 옵션 `accessibilitySupport: 'off'`(시드 축소) 는 미검증 가설 | 원인이 WebKit 계층(EditContext 미구현 #269922·한글 조합 이벤트 결함 #274700, 전부 미수정)이라 앱 레벨 근본 수정 불가. monaco 0.56.0 이 최신 — 업그레이드 대상 부재. 상세: `docs/bug/2026-08-12-editor-korean-ime.md` |
 | shift+기호 키 캡처 정밀화 | 키 바인딩 캡처가 `event.key` 기반이라 shift+`=` 가 `+` 로 기록되는 등 레이아웃·IME 의존. VS Code 식 물리 코드(`event.code`) 기반 전환 검토 | 단축키 모달(QA6 후속)의 범위 밖 — 매칭·직렬화 전면 개정 필요, chord/when 엔진과 함께 다루는 것이 효율적 |
+
+## 기능 확장 3차에서 분리된 후속 후보 (2026-08-14)
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| 프로젝트 스코프 원격 세션 | 프로젝트별 비밀번호로 들어온 세션은 그 프로젝트만 미러(진짜 격리) | 커맨드 90+곳·이벤트 22종 필터링 재설계 = 게이트의 10배 규모 + "상태 완전 공유" 확정 계약 번복. 사용자 결정(2026-08-14)으로 전역 비밀번호 1개만 채택, 스코프는 별도 안건 |
+| Remote 하드닝 잔여 | 개별 세션 TTL 만료의 라이브 WS 단절(현재는 전체 revoke 만 즉시 단절), Host 허용목록(DNS rebinding 방어), 비밀번호 최소 길이·trim 정합, 잠금의 전역 카운터 DoS 완화, stale nonce 실패 집계 제외, X-Forwarded-Proto 검증, gist 인바운드 patch 의 게이트 필드 필터 | 검토 웨이브 미검증 오버플로(minor 등급) — 2요소+백오프+fail-closed 로 핵심 방벽은 확보된 상태. 상세: docs/PROCESS.md 기능 확장 3차 절 |
+| Hot Exit 미세 항목 | 저장 직후 디바운스 발화로 미러 부활 가능성(락 직렬화로 실발생 미확인), 미러 쓰기의 begin_mutation 락 빈도(500ms·대용량), HotExitFlushRequested.timeoutMs payload 프론트 미사용 | 실기 QA 에서 증상 관찰 후 판단 — 코드상 가능성만 확인된 항목들 |

@@ -83,9 +83,67 @@ struct Tab {
 - 모든 영속 파일은 `version` 필드를 가진다. 로더는 `현재 버전`까지 순차 마이그레이션 함수를 적용한다.
 - 필드 추가는 `#[serde(default)]` 로 무마이그레이션 흡수, 구조 변경만 버전을 올린다.
 
-## 6. 미저장 버퍼 미러 (dirty mirror)
+## 6. 미저장 버퍼 미러 (dirty mirror, Hot Exit — 기능 확장 3차)
 
-- 에디터에서 dirty 상태의 파일 내용은 debounce(1~2초)로 `buffers/` 에 스냅샷된다.
-- 복원 시 원본 파일 mtime 이 스냅샷 이후로 바뀌었으면 충돌로 간주하고 사용자에게
-  (스냅샷 유지 / 디스크 내용 사용) 선택을 제공한다.
-- 파일 저장 완료 시 해당 스냅샷은 즉시 삭제한다.
+> 계약: `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.1.
+> 구현: `src-tauri/src/domain/file/service.rs`(스키마·판정) · `commands.rs`(IPC) ·
+> `src-tauri/src/lib.rs`(`WindowEvent::CloseRequested` 인터셉트).
+
+### 6.1 경로 미러 — `buffers/<pathHash>.json`
+
+파일이 있는 탭의 dirty 내용은 debounce 로 경로 해시(FNV-1a 64bit hex) 파일명으로 스냅샷된다.
+
+```rust
+struct MirrorFile {
+    path: String,
+    content: String,
+    saved_at_ms: f64,
+    #[serde(default)]
+    disk_modified_ms: Option<f64>,  // 미러 작성 시점의 원본 baseline mtime(view 가 file.modifiedMs 전달)
+}
+```
+
+- `file_list_mirrors(projectId)` 는 저장된 `MirrorFile` 각각에 대해 **현재** 디스크 mtime 을 다시 읽어
+  `disk_modified_ms`(baseline) 와 비교한 뒤 `MirrorEntry { path, content, savedAtMs, diskModifiedMs, conflict }`
+  로 반환한다. `conflict = 현재_mtime > baseline`(baseline 이 `None` 이면 항상 `false`).
+- 미러의 원본 파일이 디스크에서 사라졌으면 **그 항목은 목록에서 제외한다**(유령 복원 금지). 미러
+  JSON 자체는 지우지 않고 `file_prune_mirrors` 의 GC 대상으로 남긴다.
+- `file_clear_mirror(projectId, path)` 로 개별 삭제(저장 성공 시 `file_save` 가 자동 호출, "디스크
+  내용 사용" 선택 시 view 가 호출), `file_prune_mirrors(projectId, keepPaths)` 로 `keepPaths` 에 없는
+  미러(닫힌 탭·삭제된 파일 등)를 일괄 삭제(프로젝트 열 때 view 가 호출).
+
+### 6.2 untitled 미러 — `buffers/untitled/<tabId>.json`
+
+경로가 없는 untitled 탭은 별도 축으로 `TabId` 를 키로 미러된다(`ensure_within_root` 비대상).
+
+```rust
+struct UntitledMirrorFile {
+    tab_id: String,
+    content: String,
+    saved_at_ms: f64,
+}
+```
+
+- `file_mirror_untitled(projectId, tabId, content)` / `file_list_untitled_mirrors(projectId)` /
+  `file_clear_untitled_mirror(projectId, tabId)`.
+- Untitled 탭 자체도 이번 계약으로 `layout::is_volatile` 대상에서 제외되어 **레이아웃에 영속**된다
+  (`layout/service.rs`). 재시작 시 탭이 먼저 복원되고, 그 탭이 활성화될 때 view 가 이 미러로 내용을
+  lazy 복원한다.
+
+### 6.3 종료 시 0-손실 플러시
+
+`WindowEvent::CloseRequested` 를 가로채 `prevent_close()` 후 `HotExitFlushRequested` 이벤트를
+emit 한다. view 는 모든 dirty 모델을 미러 IPC 로 밀어넣은 뒤 `file_flush_complete` 를 호출해야
+실제 종료가 재개된다. `HOT_EXIT_FLUSH_TIMEOUT_MS`(2.5초) 안에 응답이 없으면 타임아웃 폴백으로
+강제 종료한다(하드행 방지). `AppState` 의 `Idle → Pending → Ready` 3단 상태로 재진입(연타)·이중
+emit·이중 `exit()` 를 가드한다.
+
+### 6.4 판정 기준 요약
+
+| 판정 | 근거 |
+|------|------|
+| 복원 가능 | 미러 존재 + 원본 파일이 현재 디스크에 존재 |
+| conflict | `현재 디스크 mtime > 미러의 disk_modified_ms baseline` |
+| 목록에서 제외 | 원본 파일이 디스크에서 사라짐(경로 미러) — 유령 복원 금지 |
+| GC(prune) | 열린 탭(`keepPaths`) 에 없는 경로 미러 — 프로젝트 열 때 |
+| 미러 삭제(clear) | 저장 성공(자동) · "디스크 내용 사용" 선택 · 탭 닫기(view 정책) |

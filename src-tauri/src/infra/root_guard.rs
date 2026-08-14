@@ -38,6 +38,18 @@ pub fn ensure_within_root(root: &Path, path: &Path) -> AppResult<PathBuf> {
     }
 }
 
+/// Rejects identifiers that would traverse or escape a directory when used
+/// as a single path component (joined verbatim, not resolved via a project
+/// root). Untitled-tab mirror files are keyed by `TabId` this way, so the id
+/// must not contain path separators or `.`/`..` segments.
+pub fn ensure_safe_component(value: &str) -> AppResult<()> {
+    let is_traversal = value.is_empty() || value == "." || value == ".." || value.contains('/') || value.contains('\\');
+    if is_traversal {
+        return Err(AppError::InvalidArgument(format!("유효하지 않은 식별자입니다: {value}")));
+    }
+    Ok(())
+}
+
 fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
     if let Ok(canonical) = std::fs::canonicalize(path) {
         return Ok(canonical);
@@ -104,5 +116,20 @@ mod tests {
         assert!(resolved.starts_with(std::fs::canonicalize(&root).unwrap()));
 
         cleanup(&dir);
+    }
+
+    #[test]
+    fn 일반_식별자는_안전_컴포넌트로_허용된다() {
+        assert!(ensure_safe_component("tab-1234").is_ok());
+    }
+
+    #[test]
+    fn 경로_탈출_시도는_안전_컴포넌트에서_거부된다() {
+        assert!(ensure_safe_component("..").is_err());
+        assert!(ensure_safe_component(".").is_err());
+        assert!(ensure_safe_component("").is_err());
+        assert!(ensure_safe_component("../../etc/passwd").is_err());
+        assert!(ensure_safe_component("a/b").is_err());
+        assert!(ensure_safe_component("a\\b").is_err());
     }
 }

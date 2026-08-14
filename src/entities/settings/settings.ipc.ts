@@ -44,6 +44,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     aiAutoTabModel: null,
     aiOmlxBaseUrl: null,
     remoteAccessEnabled: null,
+    remotePasswordOnlyLogin: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

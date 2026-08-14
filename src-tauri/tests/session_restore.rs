@@ -172,7 +172,7 @@ fn 레이아웃_파일이_없으면_기본_레이아웃으로_시작한다() {
 }
 
 #[test]
-fn 재시작_후_untitled_탭이_사라진다() {
+fn 재시작_후_untitled_탭이_유지된다() {
     let data = TempDir::new("data-untitled");
     let workspace = TempDir::new("ws-untitled");
     std::fs::create_dir_all(workspace.path().join(".git")).expect("create .git");
@@ -186,7 +186,7 @@ fn 재시작_후_untitled_탭이_사라진다() {
 
     let mut layout = layout_service::default_layout();
     let target_pane = layout.focused_pane.clone();
-    layout_service::open_tab(
+    let untitled_id = layout_service::open_tab(
         &mut layout,
         &target_pane,
         taide_lib::domain::layout::types::Tab {
@@ -209,8 +209,12 @@ fn 재시작_후_untitled_탭이_사라진다() {
 
     let restored_kinds = leaf_tab_kinds(&restored_layout.root);
     assert!(
-        !restored_kinds.iter().any(|kind| matches!(kind, TabKind::Untitled { .. })),
-        "untitled 탭은 재시작 후 남지 않아야 한다"
+        restored_kinds.iter().any(|kind| matches!(kind, TabKind::Untitled { .. })),
+        "untitled 탭은 재시작 후에도 남아 있어야 한다(hot-exit 미러로 복원)"
+    );
+    assert!(
+        layout_service::find_tab(&restored_layout.root, &untitled_id).is_some(),
+        "복원된 레이아웃에도 같은 탭 id가 유지되어야 미러 축과 매칭된다"
     );
 }
 

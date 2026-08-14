@@ -70,6 +70,14 @@ sleep 방지 assertion 을 잡는다는 사실과 배터리 영향을 사용자�
 - **macOS 15 로컬 네트워크 권한**은 Bonjour 광고를 켜는 순간 걸린다.
 - 토큰 기반 페어링 + 요청별 인증. 포트는 임의 고포트, 기본은 루프백 바인드.
 
+> **갱신 (2026-08-14)**: 이 절이 계획하던 인증은 이후 실제로 구현되어 아래처럼 구체화됐다 —
+> 1회용 링크 토큰(uuid v4) → `HttpOnly`/`SameSite=Strict` 세션 쿠키(7일 만료), Origin/Host
+> 화이트리스트, 그리고 이번 세션에서 **선택적 비밀번호 2요소**(keyring 저장, sha256+salt, 실패
+> 지수 백오프 잠금)가 추가됐다. 정본은 `docs/ipc-contract.md` "Remote 비밀번호" 절과
+> `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.2 — 이 문서(§6 이 "Phase
+> 7.5 에서는 구현하지 않는다"고 적은 부분 포함)는 착수 전 리서치 스냅샷이라 더 이상 현재 상태를
+> 반영하지 않는다.
+
 ## 5. 후속 조사 필요 (미확인 8건)
 
 `docs/research/remote-control.md` 말미 참조 — clamshell 공식 문서, Apple silicon Power Nap 1차 출처,

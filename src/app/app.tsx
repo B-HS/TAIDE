@@ -1,6 +1,7 @@
 import '@app/bootstrap-commands'
 import { AgentExternalOpenProvider } from '@app/providers/agent-external-open-provider'
 import { AppProviders } from '@app/providers/app-providers'
+import { HotExitFlushProvider } from '@app/providers/hot-exit-flush-provider'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
 import { LocaleProvider } from '@app/providers/locale-provider'
 import { ThemeProvider } from '@app/providers/theme-provider'
@@ -11,15 +12,17 @@ import { KeybindingsEditor } from '@widgets/keybindings-editor/keybindings-edito
 export const App = () => (
     <AppProviders>
         <IpcSyncProvider>
-            <AgentExternalOpenProvider>
-                <LocaleProvider>
-                    <ThemeProvider>
-                        <AppShell />
-                        <CommandPalette />
-                        <KeybindingsEditor />
-                    </ThemeProvider>
-                </LocaleProvider>
-            </AgentExternalOpenProvider>
+            <HotExitFlushProvider>
+                <AgentExternalOpenProvider>
+                    <LocaleProvider>
+                        <ThemeProvider>
+                            <AppShell />
+                            <CommandPalette />
+                            <KeybindingsEditor />
+                        </ThemeProvider>
+                    </LocaleProvider>
+                </AgentExternalOpenProvider>
+            </HotExitFlushProvider>
         </IpcSyncProvider>
     </AppProviders>
 )

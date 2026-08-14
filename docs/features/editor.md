@@ -35,10 +35,33 @@
   20MB 초과는 열람 전용(편집 비활성) + 안내 배너.
 - 저장: `⌘S` → 모델 내용 `file_save(path, content)`. 저장 완료 시 dirty 해제·버퍼 미러 삭제.
   포맷-온-세이브는 설정 옵션(LSP formatting 연동, 기본 off — 1차).
-- dirty 미러: 모델 변경 debounce 1~2s → `file_mirror_dirty(path, content)` (ADR-0004 예외 경로,
-  `data-model.md` §6).
+- **hot-exit 미러(파일 탭)**: 모델 변경 debounce `HOT_EXIT_MIRROR_DEBOUNCE_MS`(500ms,
+  `shared/constants/mirror.ts`) → `file_mirror_dirty(projectId, path, content, diskModifiedMs)`
+  (`diskModifiedMs` = 열람 시점 `file.modifiedMs` baseline, ADR-0004 예외 경로, `data-model.md` §6).
+  window `blur`·탭 언마운트 시 즉시 flush(`entities/editor/mirror-flush-registry.ts` 에 탭당 flush
+  콜백 등록). 프로젝트 활성화 시 `file_list_mirrors(projectId)` 1회 조회 → path→entry 캐시
+  (TanStack Query `staleTime: Infinity`, 매 `file_mirror_dirty` 성공마다 `setQueryData` 로 직접
+  갱신 — 재조회 없이 캐시를 최신 상태로 유지). 탭 활성화 시 미러가 있으면
+  `applyExternalContent` + `setDirty(true)` 로 lazy 복원, Rust 가 `disk_modified_ms` 대비 현재
+  디스크 mtime 으로 계산한 `conflict` 가 true 면 `ConflictBanner` 의 `mirrorRestoredConflict`
+  variant(위험, 선택 강제), false 면 `mirrorRestored` variant(경미, 닫기만 가능)를 띄운다.
+  "디스크 보기" 선택 시 `file_clear_mirror`. 탭 닫기 시 미러 삭제, 프로젝트 열기 시
+  `file_prune_mirrors(projectId, keepPaths)` 로 열린 탭 외 미러 GC.
+- **hot-exit 미러(untitled 탭)**: untitled 탭은 더 이상 휘발성이 아니다(레이아웃에 영속) —
+  탭ID 를 키로 `file_mirror_untitled(projectId, tabId, content)` / `file_list_untitled_mirrors` /
+  `file_clear_untitled_mirror` / `file_prune_untitled_mirrors(projectId, keepTabIds)`. 파일 탭과
+  동일한 debounce·blur/언마운트 flush·`setQueryData` 캐시 동기화를 따르되 경로가 없으므로
+  conflict 판정은 없다(항상 `mirrorRestored`류 복원 없이 조용히 적용).
+- **종료 시 0-손실 플러시**: 창 X 버튼(`WindowEvent::CloseRequested`)을 Rust 가 가로채
+  `prevent_close()` 후 `HotExitFlushRequested` 이벤트를 emit → 프론트(`HotExitFlushProvider`)가
+  마운트된 모든 편집기 pane 의 flush 콜백을 `Promise.all` 로 실행·대기(각 콜백은 실제
+  `file_mirror_dirty`/`file_mirror_untitled` IPC 완료까지 await)한 뒤 `file_flush_complete` 호출 →
+  Rust 가 `app.exit(0)`. 프론트 무응답 시 `HOT_EXIT_FLUSH_TIMEOUT_MS`(2.5s, `constants.rs`) 타임아웃
+  폴백이 강제 종료한다. 앱 메뉴 Quit(⌘Q)도 `NSApplication terminate:` 로 직행하는 대신 커스텀
+  메뉴 아이템이 메인 윈도우의 `close()` 를 호출해 같은 경로를 탄다. 이 핸드셰이크는
+  데스크톱 로컬 전용이며 원격 클라이언트에는 전파되지 않는다(원격 세션은 종료를 제어할 수 없음).
 - 외부 변경: watcher 이벤트로 열린 파일이 바뀌면 — dirty 아니면 조용히 리로드(viewState 유지),
-  dirty 면 충돌 배너(디스크 내용 보기 / 덮어쓰기 / 유지).
+  dirty 면 충돌 배너(디스크 내용 보기 / 덮어쓰기 / 유지, `changedOnDisk` variant).
 
 ## 4. Git gutter (FR-D2)
 

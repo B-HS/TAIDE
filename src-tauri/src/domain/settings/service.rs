@@ -53,6 +53,7 @@ pub struct SettingsPatch {
     pub ai_auto_tab_model: Option<String>,
     pub ai_omlx_base_url: Option<String>,
     pub remote_access_enabled: Option<bool>,
+    pub remote_password_only_login: Option<bool>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -222,6 +223,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         sync_gist_id: settings.sync_gist_id.clone(),
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
         remote_access_enabled: patch.remote_access_enabled.unwrap_or(settings.remote_access_enabled),
+        remote_password_only_login: patch.remote_password_only_login.unwrap_or(settings.remote_password_only_login),
     })
 }
 
@@ -527,6 +529,21 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert!(updated.remote_access_enabled);
+    }
+
+    #[test]
+    fn patch로_원격_비밀번호만_로그인_허용을_변경한다() {
+        let settings = Settings::default();
+        assert!(!settings.remote_password_only_login);
+
+        let patch = SettingsPatch {
+            remote_password_only_login: Some(true),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_password_only_login);
     }
 
     #[test]

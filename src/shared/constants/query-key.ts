@@ -19,6 +19,8 @@ export const QUERY_KEY = {
         ALL: ['file'] as const,
         CONTENT: (path: string) => ['file', 'content', path] as const,
         RAW: (path: string) => ['file', 'raw', path] as const,
+        MIRRORS: (projectId: ProjectId) => ['file', 'mirrors', projectId] as const,
+        UNTITLED_MIRRORS: (projectId: ProjectId) => ['file', 'untitled-mirrors', projectId] as const,
     },
     TREE: {
         ALL: ['tree'] as const,

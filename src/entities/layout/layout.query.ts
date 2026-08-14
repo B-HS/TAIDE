@@ -4,6 +4,7 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { findPaneTab } from '@shared/lib/pane-tree'
 import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
 import { releaseWaitMarker } from '@entities/agent/agent.ipc'
+import { clearMirror } from '@entities/file/file.ipc'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import {
     activateTab,
@@ -50,6 +51,10 @@ export const useCloseTab = (projectId: ProjectId | null) => {
             if (closedKind?.kind === 'claudeDiff') removePendingClaudeDiff(closedKind.requestId)
             if (closedKind?.kind === 'file') {
                 for (const marker of takeWaitMarkers(closedKind.path)) void releaseWaitMarker(marker)
+                if (projectId) {
+                    void clearMirror({ projectId, path: closedKind.path }).catch(() => undefined)
+                    void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
+                }
             }
             queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''), layout)
         },

@@ -23,3 +23,5 @@ export const findActiveTab = (node: PaneNode, paneId: PaneId): Tab | null => {
     if (!leaf?.active) return null
     return leaf.tabs.find((tab) => tab.id === leaf.active) ?? null
 }
+
+export const collectPaneTabs = (node: PaneNode): Tab[] => (node.node === 'leaf' ? node.tabs : node.children.flatMap(collectPaneTabs))

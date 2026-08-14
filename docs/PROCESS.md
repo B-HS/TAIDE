@@ -1078,6 +1078,25 @@ stash·hunk 되돌리기·키맵 설정·마크다운·드래그&드롭이 추�
   누락 / major: 액션 회색 고착·중복 재오픈·blame 뷰포트 이탈·wait marker 누수 등). 오버플로
   16건 중 실질 신규 2건은 메인이 직접 수정, 잔여는 중복 또는 minor(알려진 한계로 기록)
 
+## 진행 중: 기능 확장 3차 — 사용자 요구 2건 (2026-08-14)
+
+- [x] o. Hot Exit 구현 완료(wf_371d9fa7-504) — 미러 복원 IPC 7종+untitled 축(탭 비휘발성화)·
+      baseline mtime 충돌 판정·CloseRequested 인터셉트(타임아웃 폴백)·디바운스 500ms·
+      언마운트/블러 플러시·탭 활성화 lazy 복원·ConflictBanner variant·GC(탭닫기+prune).
+      검토 확정 수정: **경로 탈출(root_guard)**·탭 전환 편집 소실(캐시 직접 갱신+플러시 await)·
+      **⌘Q 인터셉트 우회**(메뉴 Quit 교체)·플러시 이벤트 원격 팬아웃 제거. 디스패치 145.
+      실기 확인 대기(qa6-checklist "기능 확장 3차" 13항목)
+- [x] p. Remote 비밀번호 구현 완료 — 2요소 게이트(미설정 시 현행 유지)·password_only 토글·
+      keyring salt+sha256·세션 7일 만료·지수 백오프 잠금·로그인 페이지(JS 0·3언어)·
+      remote_set/clear_password(원격 차단). 검토 확정 수정: **keyring 실패 fail-closed**·
+      폴링 키링 캐시·nonce 다중 슬롯. 메인 추가 검증 후 마감 2건(wf_9814ec51-946):
+      **WS 세션 epoch 즉시 단절**(revoke·비밀번호 변경 시 열린 소켓 종료)·원격 settings_update
+      의 게이트 필드 스트립. 실기 확인 대기
+- 잔여 minor 하드닝(미검증 오버플로 — backlog 등재): 개별 세션 TTL 만료의 라이브 WS 단절,
+  Host 허용목록(DNS rebinding), 비밀번호 최소 길이·trim 정합, 전역 잠금 DoS 완화, stale nonce
+  실패 집계, X-Forwarded-Proto 신뢰, gist 인바운드 게이트 필드 필터, 저장 직후 디바운스 부활,
+  timeout_ms payload 미사용
+
 ## 진행 중: 기능 확장 2차 — 사용자 실기 보고 3건 (2026-08-13)
 
 - [x] k. 단축키 재바인딩 버그(Trigger Suggest = Opt+Space 무동작) — 원인 확정(fable+high): macOS

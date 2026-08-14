@@ -2,19 +2,22 @@ import type { FC, ReactNode, WheelEvent } from 'react'
 import { useEffect, useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { AgentActivity, DetectedAgent, PaneId, PaneNode, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
+import { QUERY_KEY } from '@shared/constants/query-key'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
+import { collectPaneTabs } from '@shared/lib/pane-tree'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
 import { pruneUntitledContents } from '@entities/editor/untitled-registry'
+import { clearUntitledMirror } from '@entities/file/file.ipc'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import {
@@ -33,9 +36,6 @@ import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
 import { SortableTab } from '@widgets/editor-area/sortable-tab'
 import { TabBarAddMenu } from '@features/tab/tab-bar-add-menu'
-
-const collectTabIds = (node: PaneNode): TabId[] =>
-    node.node === 'leaf' ? node.tabs.map((tab) => tab.id) : node.children.flatMap((child) => collectTabIds(child))
 
 const TAB_ICON_SIZE_CLASS = 'size-3.5'
 
@@ -70,6 +70,7 @@ type PaneTabBarProps = {
 export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activeTabId, focused }) => {
     const scrollRef = useRef<HTMLDivElement>(null)
 
+    const queryClient = useQueryClient()
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: projectAgents } = useQuery(projectAgentsQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
@@ -189,10 +190,14 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
 
     useEffect(() => {
         if (!layout) return
-        const keepTabIds = [...collectTabIds(layout.root), ...(layout.closedTabs ?? []).map((closed) => closed.tab.id)]
+        const keepTabIds = [...collectPaneTabs(layout.root).map((tab) => tab.id), ...(layout.closedTabs ?? []).map((closed) => closed.tab.id)]
         const removedTabIds = pruneUntitledContents(projectId, keepTabIds)
-        for (const removedTabId of removedTabIds) disposeModel(toUntitledModelPath(removedTabId))
-    }, [layout, projectId])
+        for (const removedTabId of removedTabIds) {
+            disposeModel(toUntitledModelPath(removedTabId))
+            void clearUntitledMirror({ projectId, tabId: removedTabId }).catch(() => undefined)
+        }
+        if (removedTabIds.length > 0) void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.UNTITLED_MIRRORS(projectId) })
+    }, [layout, projectId, queryClient])
 
     return (
         <div className='relative flex shrink-0 items-stretch'>

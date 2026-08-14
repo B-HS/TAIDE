@@ -1,5 +1,5 @@
 import { commands } from '@shared/api/bindings'
-import type { ProjectId } from '@shared/api/bindings'
+import type { ProjectId, TabId } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const openFile = (path: string) => unwrapResult(commands.fileOpen(path))
@@ -14,5 +14,25 @@ export const deleteEntry = (path: string) => unwrapResult(commands.fileDelete(pa
 
 export const copyEntry = (input: { from: string; to: string }) => unwrapResult(commands.fileCopy(input.from, input.to))
 
-export const mirrorDirty = (input: { projectId: ProjectId; path: string; content: string }) =>
-    unwrapResult(commands.fileMirrorDirty(input.projectId, input.path, input.content))
+export const mirrorDirty = (input: { projectId: ProjectId; path: string; content: string; diskModifiedMs: number | null }) =>
+    unwrapResult(commands.fileMirrorDirty(input.projectId, input.path, input.content, input.diskModifiedMs))
+
+export const listMirrors = (projectId: ProjectId) => unwrapResult(commands.fileListMirrors(projectId))
+
+export const clearMirror = (input: { projectId: ProjectId; path: string }) => unwrapResult(commands.fileClearMirror(input.projectId, input.path))
+
+export const pruneMirrors = (input: { projectId: ProjectId; keepPaths: string[] }) =>
+    unwrapResult(commands.filePruneMirrors(input.projectId, input.keepPaths))
+
+export const mirrorUntitled = (input: { projectId: ProjectId; tabId: TabId; content: string }) =>
+    unwrapResult(commands.fileMirrorUntitled(input.projectId, input.tabId, input.content))
+
+export const listUntitledMirrors = (projectId: ProjectId) => unwrapResult(commands.fileListUntitledMirrors(projectId))
+
+export const clearUntitledMirror = (input: { projectId: ProjectId; tabId: TabId }) =>
+    unwrapResult(commands.fileClearUntitledMirror(input.projectId, input.tabId))
+
+export const pruneUntitledMirrors = (input: { projectId: ProjectId; keepTabIds: TabId[] }) =>
+    unwrapResult(commands.filePruneUntitledMirrors(input.projectId, input.keepTabIds))
+
+export const flushMirrorsComplete = () => unwrapResult(commands.fileFlushComplete())

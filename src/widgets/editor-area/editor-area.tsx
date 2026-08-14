@@ -1,24 +1,26 @@
 import type { FC } from 'react'
-import { useEffect, useEffectEvent, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
+import { pruneMirrors, pruneUntitledMirrors } from '@entities/file/file.ipc'
 import { layoutQueryOptions, useActivateTab, useCloseTab, useMoveTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { setActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { QUERY_KEY } from '@shared/constants/query-key'
 import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { monaco } from '@shared/lib/monaco/setup'
-import { findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
+import { collectPaneTabs, findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
@@ -49,10 +51,13 @@ type EditorAreaProps = {
 }
 
 export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onCloseProblems }) => {
+    const prunedProjectIdRef = useRef<ProjectId | null>(null)
+
     const [dragTab, setDragTab] = useState<DragTabState | null>(null)
     const [overTarget, setOverTarget] = useState<{ paneId: PaneId; edge: DropEdge } | null>(null)
 
     const { t } = useTranslation()
+    const queryClient = useQueryClient()
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: moveTab } = useMoveTab(projectId)
@@ -201,6 +206,37 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     }, [focusedFileTabId])
 
     useEffect(() => () => setActiveEditorActionIds(null), [])
+
+    /**
+     * GC sweep for hot-exit mirrors, run once per project activation (guarded by
+     * `prunedProjectIdRef` so later layout revisions in the same project don't re-trigger it).
+     * File-path mirrors are kept for currently open tabs only — closing a file tab already clears
+     * its mirror eagerly (`useCloseTab`'s `onSuccess`), so this is just a safety net for mirrors
+     * left over from a session predating this feature or a crash.
+     *
+     * Untitled-tab mirrors are kept for open tabs *and* the closed-tab reopen stack (matching
+     * `pane-tab-bar.tsx`'s own `pruneUntitledContents` keep set), since reopening a closed untitled
+     * tab should still restore its draft. This is also the *authoritative* sweep for untitled
+     * mirrors: it reads the restored layout directly rather than the frontend's in-memory
+     * `untitled-registry`, which starts empty after every restart and so can't drive
+     * `pruneUntitledContents` on its own.
+     */
+    useEffect(() => {
+        if (!layout || prunedProjectIdRef.current === projectId) return
+        prunedProjectIdRef.current = projectId
+
+        const openTabs = collectPaneTabs(layout.root)
+        const closedTabs = (layout.closedTabs ?? []).map((closed) => closed.tab)
+        const keepPaths = openTabs.flatMap((tab) => (tab.kind.kind === 'file' ? [tab.kind.path] : []))
+        const keepTabIds = [...openTabs, ...closedTabs].flatMap((tab) => (tab.kind.kind === 'untitled' ? [tab.id] : []))
+
+        void pruneMirrors({ projectId, keepPaths })
+            .then(() => queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) }))
+            .catch(() => undefined)
+        void pruneUntitledMirrors({ projectId, keepTabIds })
+            .then(() => queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.UNTITLED_MIRRORS(projectId) }))
+            .catch(() => undefined)
+    }, [projectId, layout, queryClient])
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 

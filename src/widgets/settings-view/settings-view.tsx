@@ -13,7 +13,13 @@ import {
     useLspInstallProgressSync,
 } from '@entities/lsp/lsp.query'
 import { projectListQueryOptions } from '@entities/project/project.query'
-import { remoteStatusQueryOptions, useIssueRemoteLink, useRevokeRemoteSessions } from '@entities/remote/remote.query'
+import {
+    remoteStatusQueryOptions,
+    useClearRemotePassword,
+    useIssueRemoteLink,
+    useRevokeRemoteSessions,
+    useSetRemotePassword,
+} from '@entities/remote/remote.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemOpenAppDataPath } from '@entities/system/system.ipc'
@@ -171,6 +177,8 @@ export const SettingsView = () => {
     const { mutate: downloadSync, isPending: isDownloadingSync } = useDownloadSync()
     const { mutate: issueRemoteLink, isPending: isIssuingRemoteLink } = useIssueRemoteLink()
     const { mutate: revokeRemoteSessions, isPending: isRevokingRemoteSessions } = useRevokeRemoteSessions()
+    const { mutate: setRemotePassword, isPending: isSettingRemotePassword } = useSetRemotePassword()
+    const { mutate: clearRemotePassword, isPending: isClearingRemotePassword } = useClearRemotePassword()
     const queryClient = useQueryClient()
 
     const selectedAiProvider = (settings?.aiAutoTabProvider ?? DEFAULT_AI_AUTO_TAB_PROVIDER) as AiProviderId
@@ -240,6 +248,9 @@ export const SettingsView = () => {
             onError: () => toast.error(t('remote.startFailed')),
         })
     const handleRevokeRemoteSessions = () => revokeRemoteSessions(undefined, { onSuccess: () => toast.success(t('remote.sessionsRevoked')) })
+    const handleSaveRemotePassword = (password: string) => setRemotePassword(password)
+    const handleClearRemotePassword = () => clearRemotePassword()
+    const handleTogglePasswordOnlyLogin = (checked: boolean) => updateSettings({ ...emptySettingsPatch(), remotePasswordOnlyLogin: checked })
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
@@ -711,9 +722,14 @@ export const SettingsView = () => {
                                 issuedUrl={issuedRemoteUrl}
                                 issuing={isIssuingRemoteLink}
                                 revoking={isRevokingRemoteSessions}
+                                passwordSaving={isSettingRemotePassword || isClearingRemotePassword}
+                                passwordOnlyLogin={settings.remotePasswordOnlyLogin ?? false}
                                 onToggle={handleToggleRemote}
                                 onIssueLink={handleIssueRemoteLink}
                                 onRevokeSessions={handleRevokeRemoteSessions}
+                                onSavePassword={handleSaveRemotePassword}
+                                onClearPassword={handleClearRemotePassword}
+                                onTogglePasswordOnlyLogin={handleTogglePasswordOnlyLogin}
                             />
                         </SettingsSection>
 

@@ -35,7 +35,21 @@ export const commands = {
 	fileRename: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_rename", { from, to })),
 	fileDelete: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_delete", { path })),
 	fileCopy: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_copy", { from, to })),
-	fileMirrorDirty: (projectId: ProjectId, path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content })),
+	fileMirrorDirty: (projectId: ProjectId, path: string, content: string, diskModifiedMs: number | null) => typedError<null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content, diskModifiedMs })),
+	fileListMirrors: (projectId: ProjectId) => typedError<MirrorEntry[], AppError>(__TAURI_INVOKE("file_list_mirrors", { projectId })),
+	fileClearMirror: (projectId: ProjectId, path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_mirror", { projectId, path })),
+	filePruneMirrors: (projectId: ProjectId, keepPaths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("file_prune_mirrors", { projectId, keepPaths })),
+	fileMirrorUntitled: (projectId: ProjectId, tabId: TabId, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_mirror_untitled", { projectId, tabId, content })),
+	fileListUntitledMirrors: (projectId: ProjectId) => typedError<UntitledMirrorEntry[], AppError>(__TAURI_INVOKE("file_list_untitled_mirrors", { projectId })),
+	fileClearUntitledMirror: (projectId: ProjectId, tabId: TabId) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_untitled_mirror", { projectId, tabId })),
+	filePruneUntitledMirrors: (projectId: ProjectId, keepTabIds: TabId[]) => typedError<null, AppError>(__TAURI_INVOKE("file_prune_untitled_mirrors", { projectId, keepTabIds })),
+	/**
+	 *  Confirms the frontend has finished flushing every dirty editor model to
+	 *  the hot-exit mirror in response to `HotExitFlushRequested`, then resumes
+	 *  the app exit that `CloseRequested` deferred. A no-op if the flush was
+	 *  already completed by the timeout fallback.
+	 */
+	fileFlushComplete: () => typedError<null, AppError>(__TAURI_INVOKE("file_flush_complete")),
 	treeRows: (projectId: ProjectId, offset: number, limit: number) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_rows", { projectId, offset, limit })),
 	treeToggle: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_toggle", { projectId, path })),
 	treeReveal: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_reveal", { projectId, path })),
@@ -143,12 +157,26 @@ export const commands = {
 	remoteStop: () => typedError<null, AppError>(__TAURI_INVOKE("remote_stop")),
 	remoteIssueLink: () => typedError<RemoteLinkInfo, AppError>(__TAURI_INVOKE("remote_issue_link")),
 	remoteRevokeSessions: () => typedError<null, AppError>(__TAURI_INVOKE("remote_revoke_sessions")),
+	/**
+	 *  Sets (or replaces) the remote-access password: hashed with a fresh salt
+	 *  and stored in the OS keyring (never in `settings.json` — see
+	 *  `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.2).
+	 *  Every existing session is invalidated so devices authenticated under the
+	 *  old password (or under no-password mode) must re-authenticate.
+	 */
+	remoteSetPassword: (password: string) => typedError<null, AppError>(__TAURI_INVOKE("remote_set_password", { password })),
+	/**
+	 *  Removes the remote-access password, reverting to link-only access
+	 *  (backward-compatible legacy mode). Invalidates every existing session.
+	 */
+	remoteClearPassword: () => typedError<null, AppError>(__TAURI_INVOKE("remote_clear_password")),
 };
 
 /** Events */
 export const events = {
 	agentExternalOpen: makeEvent<AgentExternalOpen>("agent:external-open"),
 	agentStateChanged: makeEvent<AgentStateChanged>("agent:state-changed"),
+	appHotExitFlushRequested: makeEvent<HotExitFlushRequested>("app:hot-exit-flush-requested"),
 	appReady: makeEvent<AppReady>("app:ready"),
 	fsChanged: makeEvent<FsChanged>("fs:changed"),
 	gitRefsChanged: makeEvent<GitRefsChanged>("git:refs-changed"),
@@ -225,7 +253,7 @@ export type AiTokenStatus = {
 
 export type AppDataPathKind = "plugins" | "themes" | "locales";
 
-export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Internal"; message: string };
+export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Forbidden"; message: string } | { code: "Internal"; message: string };
 
 export type AppInfo = {
 	name: string,
@@ -359,6 +387,16 @@ export type GutterHunk = {
 
 export type HookInstallScope = "project" | "user";
 
+/**
+ *  Emitted once when the OS requests the window to close, asking the
+ *  frontend to flush every dirty editor model to the hot-exit mirror before
+ *  the app actually exits. `timeout_ms` mirrors `HOT_EXIT_FLUSH_TIMEOUT_MS`
+ *  so the frontend never needs its own copy of that constant.
+ */
+export type HotExitFlushRequested = {
+	timeoutMs: number | null,
+};
+
 export type HunkKind = "added" | "modified" | "deleted";
 
 export type IdeCloseTabRequested = {
@@ -491,6 +529,20 @@ export type LspSessionStatusChanged = {
 	lastError: string | null,
 };
 
+/**
+ *  A restorable hot-exit mirror, resolved against the file's *current* disk
+ *  state at list time. `conflict` is `true` when the disk was modified after
+ *  the mirror's `disk_modified_ms` baseline was captured, meaning applying
+ *  the mirror as-is would silently discard an external change.
+ */
+export type MirrorEntry = {
+	path: string,
+	content: string,
+	savedAtMs: number | null,
+	diskModifiedMs: number | null,
+	conflict: boolean,
+};
+
 export type OpenedFile = {
 	path: string,
 	content: string,
@@ -620,6 +672,7 @@ export type RemoteStatus = {
 	running: boolean,
 	port: number,
 	clientCount: number,
+	passwordConfigured: boolean,
 };
 
 export type ResolvedLocale = ResolvedLocale_Serialize | ResolvedLocale_Deserialize;
@@ -738,6 +791,7 @@ export type Settings = {
 	syncGistId?: string | null,
 	syncLastSyncedAt?: string | null,
 	remoteAccessEnabled?: boolean,
+	remotePasswordOnlyLogin?: boolean,
 };
 
 export type SettingsPatch = {
@@ -782,6 +836,7 @@ export type SettingsPatch = {
 	aiAutoTabModel: string | null,
 	aiOmlxBaseUrl: string | null,
 	remoteAccessEnabled: boolean | null,
+	remotePasswordOnlyLogin: boolean | null,
 };
 
 export type ShellProfile = {
@@ -959,6 +1014,12 @@ export type TreeRow = {
 export type TreeRowPage = {
 	rows: TreeRow[],
 	total: number,
+};
+
+export type UntitledMirrorEntry = {
+	tabId: TabId,
+	content: string,
+	savedAtMs: number | null,
 };
 
 export type VsixExtensionInfo = {

@@ -1,11 +1,11 @@
 import type { FC } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Columns2 } from 'lucide-react'
 import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
-import type { BlameLine, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
+import type { BlameLine, HunkKind, MirrorEntry, ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
@@ -14,11 +14,12 @@ import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { HOT_EXIT_MIRROR_DEBOUNCE_MS } from '@shared/constants/mirror'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
-import { fileQueryOptions, useSaveFile } from '@entities/file/file.query'
-import { mirrorDirty } from '@entities/file/file.ipc'
+import { fileMirrorsQueryOptions, fileQueryOptions, useSaveFile } from '@entities/file/file.query'
+import { clearMirror, mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { getGitBlameRange } from '@entities/git/git.ipc'
 import { ideStatusQueryOptions } from '@entities/ide/ide.query'
@@ -30,17 +31,18 @@ import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/sett
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
 import { applyExternalContent } from '@entities/editor/model-registry'
+import { registerMirrorFlush, unregisterMirrorFlush } from '@entities/editor/mirror-flush-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
 import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
 import { CodeEditor } from '@features/editor/code-editor'
 import { BlameFooterBar } from '@features/editor/blame-footer-bar'
+import type { ConflictBannerVariant } from '@features/editor/conflict-banner'
 import { ConflictBanner } from '@features/editor/conflict-banner'
 import { MarkdownPreview } from '@features/editor/markdown-preview'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { Button } from '@shared/ui/button'
 import { useLspSession } from '@widgets/editor-pane/use-lsp-session'
 
-const DIRTY_MIRROR_DEBOUNCE_MS = 1_500
 const BLAME_DEBOUNCE_MS = 300
 const MARKDOWN_PREVIEW_DEBOUNCE_MS = 200
 const IDE_SELECTION_PUSH_DEBOUNCE_MS = 300
@@ -68,6 +70,7 @@ type EditorPaneProps = {
 
 export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const draftRef = useRef<string | null>(null)
+    const pendingMirrorRef = useRef(false)
     const mirrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -85,6 +88,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const [blameLine, setBlameLine] = useState<BlameLine | null>(null)
     const [showMarkdownPreview, setShowMarkdownPreview] = useState(false)
     const [previewSource, setPreviewSource] = useState<string | null>(null)
+    const [restoreNotice, setRestoreNotice] = useState<Exclude<ConflictBannerVariant, 'changedOnDisk'> | 'none'>('none')
 
     const { t } = useTranslation()
     const queryClient = useQueryClient()
@@ -93,6 +97,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { data: ideStatus } = useQuery(ideStatusQueryOptions())
     const { data: gutterHunks } = useQuery(gitGutterQueryOptions({ projectId, path }))
+    const { data: mirrors } = useQuery(fileMirrorsQueryOptions(projectId))
     const { mutate: discardHunk } = useDiscardGitHunk(projectId)
     const { data: currentUser } = useQuery(gitCurrentUserQueryOptions(projectId))
     const { mutate: saveFile } = useSaveFile()
@@ -105,6 +110,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         setPreviewSource(null)
         setDirty(false)
         setBlameLine(null)
+        setRestoreNotice('none')
     } else if (file && syncedContent === null) {
         setSyncedContent(file.content)
     } else if (file && !dirty && syncedContent !== null && file.content !== syncedContent) {
@@ -115,6 +121,24 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
     const isMarkdown = file?.languageId === MARKDOWN_LANGUAGE_ID
 
+    /**
+     * Writes to the hot-exit mirror and keeps the `FILE.MIRRORS` query cache in lockstep, instead
+     * of leaving it at its `staleTime: Infinity` project-activation snapshot until the next
+     * save/view-disk/prune. Without this, revisiting this tab after a same-pane detour to another
+     * tab (`EditorPane` has no `key`, so a path switch reuses this instance) would restore from a
+     * stale cached entry — either missing entirely (this tab's edits since activation never landed
+     * in the cache) or, worse, an *older* mirror than what's already on screen, silently rolling
+     * back newer edits. `disk_modified_ms`/`conflict` mirror what Rust would compute for a mirror
+     * written against the currently-known disk baseline with nothing external having changed it.
+     */
+    const persistMirror = async (content: string) => {
+        await mirrorDirty({ projectId, path, content, diskModifiedMs: file?.modifiedMs ?? null })
+        queryClient.setQueryData(QUERY_KEY.FILE.MIRRORS(projectId), (previous?: MirrorEntry[]) => [
+            ...(previous ?? []).filter((entry) => entry.path !== path),
+            { path, content, savedAtMs: Date.now(), diskModifiedMs: file?.modifiedMs ?? null, conflict: false },
+        ])
+    }
+
     const handleChange = (value: string) => {
         draftRef.current = value
         if (!dirty) {
@@ -122,10 +146,12 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             setTabDirty({ tabId, dirty: true })
         }
 
+        pendingMirrorRef.current = true
         clearTimeout(mirrorTimeoutRef.current)
         mirrorTimeoutRef.current = setTimeout(() => {
-            void mirrorDirty({ projectId, path, content: value }).catch(() => undefined)
-        }, DIRTY_MIRROR_DEBOUNCE_MS)
+            pendingMirrorRef.current = false
+            void persistMirror(value).catch(() => undefined)
+        }, HOT_EXIT_MIRROR_DEBOUNCE_MS)
 
         const autoSaveDelayMs = settings?.autoSaveDelayMs ?? 0
         clearTimeout(autoSaveTimeoutRef.current)
@@ -159,9 +185,12 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             {
                 onSuccess: () => {
                     clearTimeout(mirrorTimeoutRef.current)
+                    pendingMirrorRef.current = false
                     setDirty(false)
                     setTabDirty({ tabId, dirty: false })
+                    setRestoreNotice('none')
                     void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
+                    void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
                 },
                 onError: (saveError) => toast.error(saveError.message),
             },
@@ -171,15 +200,21 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const handleViewDisk = () => {
         if (!file) return
 
+        clearTimeout(mirrorTimeoutRef.current)
+        pendingMirrorRef.current = false
         draftRef.current = file.content
         setSyncedContent(file.content)
         setPreviewSource(null)
         setDirty(false)
         setTabDirty({ tabId, dirty: false })
+        setRestoreNotice('none')
+        void clearMirror({ projectId, path }).catch(() => undefined)
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
     }
 
     const handleKeepMine = () => {
         if (file) setSyncedContent(file.content)
+        setRestoreNotice('none')
     }
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
@@ -198,11 +233,61 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         enabled: !isPending && !isError && file?.tier !== 'refused',
     })
 
+    /**
+     * `useEffectEvent` so the restore below can read the always-current `editor`/`path`/`tabId`
+     * without being a reactive dependency of the effect that calls it — the effect's own guard
+     * (`draftRef.current !== null`) is what decides whether a restore is due, not this event's deps.
+     */
+    const applyMirrorRestore = useEffectEvent((mirror: MirrorEntry) => {
+        if (!editor) return
+        applyExternalContent(path, mirror.content, editor)
+        draftRef.current = mirror.content
+        setDirty(true)
+        setTabDirty({ tabId, dirty: true })
+        setRestoreNotice(mirror.conflict ? 'mirrorRestoredConflict' : 'mirrorRestored')
+    })
+
     useEffect(() => {
         draftRef.current = null
     }, [path])
 
-    useEffect(() => () => clearTimeout(mirrorTimeoutRef.current), [])
+    /**
+     * Restores unsaved edits from the hot-exit mirror the first time the monaco editor is mounted
+     * and nothing has been typed yet for this `path` (a fresh mount or a path switch, never
+     * mid-edit — the reset effect above always runs first for a path switch within the same commit).
+     * `mirror.conflict` (computed in Rust from `disk_modified_ms` vs the mirror's baseline) decides
+     * whether this surfaces as a plain restore notice or a conflict requiring the user to choose.
+     */
+    useEffect(() => {
+        if (!editor || draftRef.current !== null) return
+        const mirror = (mirrors ?? []).find((entry) => entry.path === path)
+        if (mirror) queueMicrotask(() => applyMirrorRestore(mirror))
+    }, [editor, path, mirrors])
+
+    /**
+     * Registers a flush callback the hot-exit `CloseRequested` handler (and window blur / a path
+     * switch that unmounts this content) can invoke to push the last debounced edit to the mirror
+     * immediately, instead of losing up to `HOT_EXIT_MIRROR_DEBOUNCE_MS` of unmirrored edits.
+     * `pendingMirrorRef` (not `dirty`) gates the write so a save/view-disk that clears the mirror
+     * right before this effect's `file.modifiedMs` dependency changes can't race a stale flush back
+     * into existence.
+     */
+    useEffect(() => {
+        const flush = async () => {
+            clearTimeout(mirrorTimeoutRef.current)
+            if (!pendingMirrorRef.current || draftRef.current === null) return
+            pendingMirrorRef.current = false
+            await persistMirror(draftRef.current).catch(() => undefined)
+        }
+
+        registerMirrorFlush(tabId, flush)
+        window.addEventListener('blur', flush)
+        return () => {
+            window.removeEventListener('blur', flush)
+            void flush()
+            unregisterMirrorFlush(tabId)
+        }
+    }, [projectId, path, tabId, file?.modifiedMs])
 
     useEffect(() => () => clearTimeout(autoSaveTimeoutRef.current), [])
 
@@ -375,6 +460,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         setPendingHunk(null)
     }
 
+    const bannerVariant: ConflictBannerVariant | 'none' = conflict ? 'changedOnDisk' : restoreNotice
+
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
             <HunkDiscardDialog
@@ -386,7 +473,14 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             {file.readOnly && (
                 <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
             )}
-            {conflict && <ConflictBanner onViewDisk={handleViewDisk} onKeepMine={handleKeepMine} />}
+            {bannerVariant !== 'none' && (
+                <ConflictBanner
+                    variant={bannerVariant}
+                    onViewDisk={handleViewDisk}
+                    onKeepMine={handleKeepMine}
+                    onDismiss={() => setRestoreNotice('none')}
+                />
+            )}
             {isMarkdown && (
                 <div className='border-app-border flex h-8 shrink-0 items-center justify-end border-b px-2'>
                     <Tooltip>

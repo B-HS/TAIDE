@@ -58,9 +58,23 @@
 
 - query: `file_open(path)` (내용+언어+크기 정책 판정), `file_read_raw(path)`(Response —
   뷰어 모드/대형)
-- mutation: `file_save(path, content)`, `file_mirror_dirty(path, content)`, `file_create(path, isDir)`,
-  `file_rename(from, to)`, `file_delete(path)`(휴지통), `file_copy(from, to)`
-- event: `fs:changed(paths[], kind, origin)` (watcher — debounce·배치·echo 플래그)
+- mutation: `file_save(path, content)`, `file_create(path, isDir)`, `file_rename(from, to)`,
+  `file_delete(path)`(휴지통), `file_copy(from, to)`
+- Hot Exit(기능 확장 3차 — §"기능 확장 3차" 참조): mutation `file_mirror_dirty(projectId, path,
+  content, diskModifiedMs)`, `file_clear_mirror(projectId, path)`, `file_prune_mirrors(projectId,
+  keepPaths)`, `file_mirror_untitled(projectId, tabId, content)`,
+  `file_clear_untitled_mirror(projectId, tabId)`, `file_prune_untitled_mirrors(projectId,
+  keepTabIds)`(재시작 후 레이아웃 기준 authoritative GC — untitled 탭이 열려 있거나 닫힘 스택에
+  남아 있지 않으면 미러 삭제), `file_flush_complete()`(**원격 세션에서는 거부** — `dispatch.rs`
+  가 명시 arm 으로 차단, 데스크톱 자신의 종료만 재개 가능); query `file_list_mirrors(projectId)`
+  → `MirrorEntry[]`, `file_list_untitled_mirrors(projectId)` → `UntitledMirrorEntry[]`
+  - 모든 project-scoped 미러 커맨드(`file_list_mirrors`·`file_prune_mirrors`·
+    `file_mirror_untitled`·`file_list_untitled_mirrors`·`file_clear_untitled_mirror`·
+    `file_prune_untitled_mirrors`)는 `projectId` 가 현재 열린 프로젝트인지
+    `root_guard::project_root` 로 검증하고, `tabId` 를 파일명 컴포넌트로 쓰는 두 커맨드는 추가로
+    `root_guard::ensure_safe_component` 로 경로 탈출 문자(`/`·`\`·`..`)를 거부한다(경로 조작 방지).
+- event: `fs:changed(paths[], kind, origin)` (watcher — debounce·배치·echo 플래그),
+  `app:hot-exit-flush-requested(timeoutMs)` (Hot Exit — 종료 인터셉트)
 
 ### tree / search (`explorer-sidebar.md`)
 
@@ -279,6 +293,144 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   생애주기 동안 유지되므로 이미 알려진 pid 는 재오픈 즉시 유효한 값을 돌려준다(모달을 반복해 열어도
   값이 붕괴하지 않는다). 디스패치 파리티: 140→141.
 
+### 기능 확장 3차 계약 확정 추가 (Hot Exit — B1 Rust)
+
+> 계약: `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.1. 상세 스키마·판정
+> 기준은 `docs/data-model.md` §6.
+
+- file(신설 8종, 디스패치 파리티 138→146 — `file_prune_untitled_mirrors` 는 QA6 결함 수정으로
+  후속 추가, 아래 "QA6 확정 결함 수정" 참조): query `file_list_mirrors(projectId)` →
+  `MirrorEntry { path, content, savedAtMs, diskModifiedMs, conflict }`(디스크 현재 mtime 을
+  baseline 과 비교해 Rust 가 `conflict` 를 판정 — 원본이 사라진 항목은 목록에서 제외, 유령 복원
+  금지), `file_list_untitled_mirrors(projectId)` → `UntitledMirrorEntry { tabId, content,
+  savedAtMs }`. mutation `file_mirror_dirty(projectId, path, content, diskModifiedMs)`(기존 시그니처에
+  baseline 인자 추가 — 호출부는 `file.modifiedMs` 를 그대로 전달), `file_clear_mirror(projectId,
+  path)`, `file_prune_mirrors(projectId, keepPaths)`(`keepPaths` 밖의 경로 미러 일괄 삭제 —
+  프로젝트 열 때 GC), `file_mirror_untitled(projectId, tabId, content)`,
+  `file_clear_untitled_mirror(projectId, tabId)`, `file_flush_complete()`(아래 종료 플러시 완료
+  신호 — 인자 없음).
+- event(신설): `app:hot-exit-flush-requested(timeoutMs)` — `WindowEvent::CloseRequested` 를
+  가로채 emit. view 는 모든 dirty 모델을 미러 mutation 으로 밀어넣은 뒤 `file_flush_complete` 를
+  호출해야 실제 종료가 재개된다. `timeoutMs`(= `HOT_EXIT_FLUSH_TIMEOUT_MS`, 2.5초)는 Rust 상수를
+  이벤트로 실어 보내 view 가 같은 매직넘버를 따로 들지 않게 한다 — 미응답 시 Rust 가 타임아웃
+  폴백으로 강제 종료한다(하드행 방지).
+- layout: `TabKind::Untitled` 를 `is_volatile` 대상에서 제외 — untitled 탭이 레이아웃에 영속되고
+  닫힌 탭 undo 스택에도 쌓인다(이전에는 재시작 시 소실). `ClaudeDiff` 만 남은 유일한 volatile
+  kind.
+
+### 기능 확장 3차 계약 확정 추가 (Remote 비밀번호 — C1 Rust)
+
+> 계약: `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.2. 파일:라인 근거는
+> 세션 정찰 `recon3-remoteAuth.md`.
+
+- remote(신설 2종, 디스패치 파리티 145→147): mutation `remote_set_password(password)` — 비밀번호를
+  `salt$sha256(salt+password)` 형식으로 해시해 keyring(`SecretAccount::RemoteAccess`)에 저장하고
+  기존 세션을 전부 무효화한다(신규 의존 0 — 저장은 `settings.json` 이 아니라 keyring, gist 동기화
+  화이트리스트에도 없음). `remote_clear_password()` — 비밀번호를 keyring 에서 삭제하고 링크만으로
+  접속하던 현행으로 되돌리며, 마찬가지로 기존 세션을 전부 무효화한다. **두 커맨드는 원격 세션에서
+  호출하면 항상 거부된다** — `dispatch.rs` 의 `match` arm 이 실제 핸들러를 부르지 않고
+  `AppError::Forbidden` 을 즉시 반환한다(원격 세션이 자신의 게이트를 바꾸는 것을 막기 위함).
+  파리티 테스트(`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`)는 이름 집합만 보므로
+  `IMPLEMENTED_JSON_COMMANDS` 에는 정상 등록되어 있다.
+- `RemoteStatus` 에 `passwordConfigured: boolean` 추가(5초 폴링에 편승 — 별도 쿼리 불필요).
+  `Settings.remotePasswordOnlyLogin: boolean`(기본 false, sync 화이트리스트 비포함)은 기존
+  `settings_get`/`settings_update` 로 그대로 노출된다(Remote 전용 커맨드 신설 불필요). 단
+  `settings_update` 는 원격 세션에서도 호출 가능한 커맨드이므로, `dispatch.rs` 의 `settings_update`
+  arm 이 원격 요청의 patch 에서 `remotePasswordOnlyLogin` 필드를 `None` 으로 스트립한 뒤 위임한다
+  (원격 세션이 자기 게이트 모드는 못 바꾸되 그 외 설정은 정상 변경 가능 — `remoteAccessEnabled` 는
+  자가 차단=자기 접근 상실이라 스트립 대상에서 제외).
+- 인증 흐름 재배치(`auth_middleware`, 예외 0개였던 종전 구조에 최초로 예외 추가):
+  1. Origin/Host 검사(그대로, Origin 헤더 부재는 허용 — 브라우저 GET 내비게이션 대응).
+  2. 유효한 세션 쿠키(`taide_remote_session`, 이제 `HashMap<digest, 만료 Instant>` 로 저장되어
+     `REMOTE_SESSION_TTL_MS`(7일)가 지나면 자동 무효화)면 통과.
+  3. `GET`/`POST /__taide/login` 은 인증 없이 핸들러로 통과.
+  4. `?t=<link_token>` 유효 시: **비밀번호 미설정**이면 (구현상) 토큰을 nonce 로 소모한 뒤 그
+     nonce 를 즉시 세션으로 승격해 원 요청을 계속 처리 — 바깥에서 관찰되는 동작은 종전과 동일한
+     "링크 클릭 = 즉시 세션". **비밀번호 설정됨**이면 nonce 쿠키(`taide_remote_login_nonce`,
+     `REMOTE_LOGIN_NONCE_TTL_MS`=5분)를 발급하고 로그인 폼으로 303.
+  5. 그 외: `remotePasswordOnlyLogin` on 이면 로그인 폼으로 303, off 면 401.
+  - `consume_link_token` 은 더 이상 세션을 직접 발급하지 않는다 — "토큰 검증·소모 → nonce 발급"
+    으로 책임이 좁혀졌고, "nonce 검증 → 세션 발급"은 신설 `promote_nonce_to_session` 이 맡는다
+    (기존 세션 승격 테스트 3건이 이 2단 호출로 갱신됨).
+- 로그인 `POST`: Origin **필수**(부재 시 즉시 403 — 미들웨어의 관대한 검사와 별개로 CSRF 방어를
+  이중화), 잠금 중이면 비밀번호 검증 없이 429 + 남은 초, `remotePasswordOnlyLogin` 이 아니면 nonce
+  쿠키 필수, `service::verify_password`(constant-time) 로 검증. 실패 시 지수 백오프 잠금
+  (`REMOTE_LOGIN_MAX_ATTEMPTS`=5회 초과부터, `REMOTE_LOGIN_LOCKOUT_BASE_MS`=1초씩 배가,
+  `REMOTE_LOGIN_LOCKOUT_MAX_MS`=60초 상한 — 전역 카운터, 세션이 아니라 서버 단위). 성공 시
+  세션 쿠키 발급 + nonce 쿠키 제거 + `/` 로 303. axum 이 `form` feature 없이 빌드되어
+  (`default-features = false, features = ["http1", "tokio", "ws"]`) `Form` 추출기를 쓸 수 없으므로
+  `application/x-www-form-urlencoded` 바디는 `server.rs` 가 신규 의존 없이 직접 파싱한다.
+- `login_page.rs`(신설): self-contained HTML(인라인 `<style>`, 스크립트 0 — CSP
+  `script-src 'none'; connect-src 'none'`). 문자열은 앱의 `locale::service::builtin_by_id` 를
+  그대로 재사용(로그인 페이지 전용 복제본을 만들지 않음) — `settings.language` 로 선택하되
+  `"system"`이거나 en/ko/ja 가 아니면 영어로 대체(로그인 페이지는 OS 로케일을 알 방법이 없는
+  순수 Rust 서버 렌더라 프론트의 `resolve_language` 흐름과 다름). 팔레트는 중립 다크 기본 +
+  `prefers-color-scheme: light` 오버라이드. `X-Forwarded-Proto` 헤더가 `https` 가 아니면
+  "이 연결은 암호화되지 않았습니다" 고지를 보여준다(서버 자체는 TLS 를 종단하지 않음 — 루프백
+  평문 바인드가 전제, 터널 뒤에 있을 때만 이 헤더로 판별 가능).
+
+### QA6 확정 결함 수정 (Hot Exit·Remote 비밀번호, 2026-08-14)
+
+> 위 두 절("기능 확장 3차 계약 확정 추가")의 초판 구현에서 발견된 결함을 원인 해결한 기록.
+
+- **경로 탈출**: `file_list_mirrors`/`file_prune_mirrors`/`file_mirror_untitled`/
+  `file_list_untitled_mirrors`/`file_clear_untitled_mirror` 5종이 `projectId` 검증 없이 바로
+  `buffers_dir(project_id)` 를 조립해, 열린 프로젝트가 아닌 임의 `projectId`(`"../.."` 등)로
+  호출하면 앱데이터 밖 경로를 읽고/쓰고/삭제할 수 있었다(`file_mirror_dirty`/`file_clear_mirror`
+  만 `ensure_within_root` 를 거치던 비대칭). 5종 모두 `root_guard::project_root` 로 "열린
+  프로젝트인가"를 먼저 확인하도록 수정했고, `tabId` 를 파일명 컴포넌트로 쓰는 2종
+  (`file_mirror_untitled`·`file_clear_untitled_mirror`)에는 신설
+  `root_guard::ensure_safe_component`(경로 구분자·`.`/`..` 거부)를 추가했다.
+- **원격 종료 제어**: `HotExitFlushRequested` 이벤트가 `fanout_remote_events!` 목록에 있어 원격
+  브라우저에도 전파되었고, `file_flush_complete` 는 원격 디스패치가 허용되어 있어 dirty 모델이
+  없는 원격 세션이 먼저 회신하면 데스크톱의 플러시가 끝나기 전에 `app.exit(0)` 이 실행될 수
+  있었다. 이벤트를 fanout 목록에서 제거하고, `file_flush_complete` 는
+  `remote_set_password`/`remote_clear_password` 와 같은 패턴으로 `dispatch.rs` 의 `match` arm 이
+  `AppError::Forbidden` 을 즉시 반환하도록 막았다(`IMPLEMENTED_JSON_COMMANDS` 에는 파리티
+  유지를 위해 그대로 남긴다).
+- **비밀번호 게이트 fail-open**: `server.rs::is_password_configured` 가 키링 조회 오류를 `Ok(None)`
+  과 동일 취급해(`.ok().flatten()`), 키체인 접근이 일시 실패하면 비밀번호가 설정돼 있어도
+  링크 토큰만으로 즉시 세션이 발급됐다. `Ok(None)` 만 "미설정"으로, 그 외(`Ok(Some)`·`Err`)는 전부
+  "설정됨"으로 fail-closed 하도록 수정.
+- **⌘Q 가 hot-exit 핸드셰이크를 우회**: macOS 앱 메뉴의 `PredefinedMenuItem::quit` 은
+  `NSApplication terminate:` 로 직행해 `WindowEvent::CloseRequested` 를 전혀 발생시키지 않는다
+  (tao 의 macOS 델리게이트에 `applicationShouldTerminate:` 훅이 없음 — `applicationWillTerminate`
+  가 곧장 `RunEvent::Exit`, 가로챌 지점이 없다). Quit 항목을 커스텀 `MenuItem`(accelerator
+  `CmdOrCtrl+Q`)으로 교체해 클릭 시 메인 윈도우의 `close()` 를 호출하도록 바꿔, X 버튼과 동일한
+  `CloseRequested` 경로를 타게 했다.
+- **심볼릭 링크 경로의 미러 소실**: `mirror_dirty` 가 `MirrorFile.path` 에 `ensure_within_root` 가
+  돌려준 canonicalize 된 실경로를 저장해, 심볼릭 링크로 열린 탭의 경로(프론트가 보내는 keepPaths·
+  복원 비교 기준)와 어긋나 `prune_mirrors` 가 열려 있는 탭의 미러를 지워버렸다. 저장 위치(파일명
+  해시)는 canonicalize 된 경로를 계속 쓰되, `MirrorFile.path`(비교용 필드)는 호출자가 IPC 로 보낸
+  원래 경로 문자열을 저장하도록 분리(`storage_path`/`display_path` 파라미터 분리).
+- **untitled 미러 GC 부재**: `prune_mirrors` 는 `buffers/` 최상위 파일만 훑어 `untitled/` 하위
+  디렉터리를 건드리지 않고, 프론트의 `pruneUntitledContents` 는 재시작 후 비어 있는 메모리
+  레지스트리에만 의존해 재시작 이후 닫힌 untitled 탭의 미러가 영구 잔존했다. 신설
+  `file_prune_untitled_mirrors(projectId, keepTabIds)` 가 복원된 레이아웃(열린 탭 + 닫힌 탭
+  undo 스택)을 authoritative keep 목록으로 삼아 프로젝트 활성화 시 `file_prune_mirrors` 와 함께
+  스윕한다.
+- **`remote_status` 5초 폴링마다 키링 접근**: `RemoteStatus.passwordConfigured` 조회가 매 폴링마다
+  OS 키링을 때렸다. `RemoteStore` 에 `password_configured: bool` 캐시를 추가해 앱 부팅 시 1회,
+  `remote_set_password`/`remote_clear_password` 호출 시에만 갱신하고 폴링은 캐시만 읽는다.
+- **로그인 nonce 슬롯 1개**: `pending_login_nonce: Option<(Vec<u8>, Instant)>` 단일 슬롯이라 두
+  기기가 연달아 링크를 발급받으면 먼저 발급받은 기기의 nonce 가 무효화돼 올바른 비밀번호를
+  입력해도 실패로 집계됐다(잠금 카운터 오염). `session_token_digests` 와 같은 방식의
+  `pending_login_nonces: HashMap<digest, 만료 Instant>` 로 교체해 여러 개의 진행 중 로그인을
+  동시에 허용한다.
+- **미러 쿼리 캐시 미동기화**(`FILE.MIRRORS`/`FILE.UNTITLED_MIRRORS`, `staleTime: Infinity`): 저장·
+  view-disk·prune 시점에만 무효화되고 500ms 디바운스·flush 쓰기에는 캐시 갱신이 없어, `EditorPane`
+  이 `key` 없이 같은 pane 안에서 재사용되는 탭 왕복(A→B→A)에서 (a) 프로젝트 활성화 이후 쓰인
+  미러가 캐시에 없어 복원되지 않거나 (b) 캐시된 **오래된** 미러가 최신 편집 위에 재적용되는 두
+  경로로 미저장 편집이 소실될 수 있었다. `editor-pane.tsx`/`untitled-pane.tsx` 의 미러 쓰기 경로를
+  `persistMirror` 로 통일해, IPC 쓰기가 성공할 때마다 `queryClient.setQueryData` 로 해당 엔트리를
+  직접 갱신한다(매 디바운스마다 전체 목록을 `invalidateQueries` 로 재조회하지 않고 캐시만 갱신 —
+  I/O 비용 없이 신선도 유지).
+- **flush 콜백이 쓰기 완료를 기다리지 않음**: `mirror-flush-registry` 의 `flushAllMirrors` 는
+  `await` 를 지원하는데, 등록된 flush 콜백(`editor-pane.tsx`/`untitled-pane.tsx`)이
+  `void mirrorDirty(...).catch(...)` 로 Promise 를 버리고 즉시 반환해 `HotExitFlushProvider` 가
+  실제 쓰기 완료 전에 `file_flush_complete` 를 호출할 수 있었다. flush 콜백을 `async` 로 바꿔
+  `persistMirror`(내부에서 `mirrorDirty`/`mirrorUntitled` 를 `await`)를 반환하도록 수정.
+
 ### raw 커맨드 (specta 밖)
 
 `RAW_CHANNEL_COMMANDS`(`src-tauri/src/lib.rs`)에 등록된 3종은 specta 를 통과하지 못해
@@ -297,3 +449,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   루트 밖 접근은 명시된 command 만).
 - CSP: Monaco 요구(`style-src 'unsafe-inline'`, `worker-src 'self' blob:`)를 포함해 최소로 조인다
   (`editor.md` §1).
+- Remote 도메인: 비밀번호·해시·세션/nonce 토큰 원문은 로그(`log::info!`/`log::warn!`)·IPC 응답·
+  이벤트 payload 어디에도 실리지 않는다(`RemoteStatus` 는 `passwordConfigured: bool` 만 노출).
+  비교는 전부 `constant_time_eq` 경유(토큰·비밀번호 동일 경로). 자세한 흐름은 §3 "Remote 비밀번호"
+  절 참조.

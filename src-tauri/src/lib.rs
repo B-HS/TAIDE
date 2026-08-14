@@ -23,19 +23,28 @@ use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::events::{
-    AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested,
-    IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated, ProjectClosed,
-    ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SyncStateChanged, TerminalCwdChanged, TerminalExited,
-    ThemeChanged,
+    AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
+    IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
+    ProjectActivated, ProjectClosed, ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SyncStateChanged,
+    TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
 const BINDINGS_PATH: &str = "../src/shared/api/bindings.ts";
+const MAIN_WINDOW_LABEL: &str = "main";
+
+/// A custom (non-predefined) menu item id for the app menu's Quit entry —
+/// see [`handle_menu_event`] for why this can't be `PredefinedMenuItem::quit`.
+const MENU_ID_QUIT: &str = "taide-quit";
 
 fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+
+    let quit_item = MenuItemBuilder::with_id(MENU_ID_QUIT, "Quit")
+        .accelerator("CmdOrCtrl+Q")
+        .build(handle)?;
 
     let app_menu = SubmenuBuilder::new(handle, "TAIDE")
         .item(&PredefinedMenuItem::about(handle, None, None)?)
@@ -46,7 +55,7 @@ fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<
         .item(&PredefinedMenuItem::hide_others(handle, None)?)
         .item(&PredefinedMenuItem::show_all(handle, None)?)
         .separator()
-        .item(&PredefinedMenuItem::quit(handle, None)?)
+        .item(&quit_item)
         .build()?;
 
     let edit_menu = SubmenuBuilder::new(handle, "Edit")
@@ -103,6 +112,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::file::commands::file_delete,
             domain::file::commands::file_copy,
             domain::file::commands::file_mirror_dirty,
+            domain::file::commands::file_list_mirrors,
+            domain::file::commands::file_clear_mirror,
+            domain::file::commands::file_prune_mirrors,
+            domain::file::commands::file_mirror_untitled,
+            domain::file::commands::file_list_untitled_mirrors,
+            domain::file::commands::file_clear_untitled_mirror,
+            domain::file::commands::file_prune_untitled_mirrors,
+            domain::file::commands::file_flush_complete,
             domain::tree::commands::tree_rows,
             domain::tree::commands::tree_toggle,
             domain::tree::commands::tree_reveal,
@@ -210,6 +227,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::remote::commands::remote_stop,
             domain::remote::commands::remote_issue_link,
             domain::remote::commands::remote_revoke_sessions,
+            domain::remote::commands::remote_set_password,
+            domain::remote::commands::remote_clear_password,
         ])
         .events(collect_events![
             AppReady,
@@ -234,7 +253,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             IdeSaveRequested,
             IdeCloseTabRequested,
             SyncStateChanged,
-            RemoteStateChanged
+            RemoteStateChanged,
+            HotExitFlushRequested
         ])
 }
 
@@ -260,6 +280,53 @@ fn flush_dirty_layouts(state: &AppState) {
         if let Err(error) = domain::layout::service::save_layout(&state.paths, &project_id, &layout) {
             log::warn!("레이아웃 저장 실패 ({project_id}): {error}");
         }
+    }
+}
+
+/// Intercepts the window close request to give the frontend a chance to
+/// flush every dirty editor model to the hot-exit mirror before the app
+/// actually exits. Always defers the close (`prevent_close`) and lets either
+/// `file_flush_complete` or the timeout fallback below perform the real
+/// `AppHandle::exit`, so the window is never destroyed by the OS's default
+/// close path. `AppState::begin_hot_exit_flush` guards re-entrant close
+/// attempts (e.g. mashing Cmd+Q) from emitting the flush event twice.
+fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
+    api.prevent_close();
+
+    let state = window.state::<AppState>();
+    if !state.begin_hot_exit_flush() {
+        return;
+    }
+
+    let _ = HotExitFlushRequested {
+        timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
+    }
+    .emit(window);
+
+    let app_handle = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS)).await;
+        if app_handle.state::<AppState>().complete_hot_exit_flush() {
+            log::warn!("hot exit flush timed out; exiting without frontend confirmation");
+            app_handle.exit(0);
+        }
+    });
+}
+
+/// Routes the app menu's Quit item through the same `WindowEvent::CloseRequested`
+/// flush handshake as clicking the window's close button, instead of the native
+/// `NSApplication terminate:` binding `PredefinedMenuItem::quit` uses on macOS.
+/// `terminate:` runs straight to `applicationWillTerminate` and `RunEvent::Exit`
+/// with no `CloseRequested` (or preventable `ExitRequested`) event in between —
+/// tao's macOS app delegate has no `applicationShouldTerminate:` hook to catch it
+/// — so Cmd+Q would otherwise skip `handle_close_requested` entirely and drop
+/// any hot-exit mirror writes still pending in the last debounce window.
+fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
+    if event.id() != MENU_ID_QUIT {
+        return;
+    }
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.close();
     }
 }
 
@@ -352,7 +419,7 @@ pub fn run() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         app = app.plugin(tauri_plugin_single_instance::init(|app_handle, argv, _cwd| {
-            if let Some(window) = app_handle.get_webview_window("main") {
+            if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -377,6 +444,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .on_menu_event(handle_menu_event)
         .invoke_handler(move |invoke| {
             if RAW_CHANNEL_COMMANDS.contains(&invoke.message.command()) {
                 raw_channel_handler(invoke)
@@ -423,6 +491,7 @@ pub fn run() {
             app.manage(AiInlineStore::default());
             app.manage(SecretStoreState::default());
             app.manage(RemoteStore::default());
+            domain::remote::commands::refresh_password_configured_cache(app.handle());
 
             queue_cold_start_external_open(app.handle());
 
@@ -539,10 +608,10 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
-                flush_dirty_layouts(&window.state::<AppState>());
-            }
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Destroyed => flush_dirty_layouts(&window.state::<AppState>()),
+            tauri::WindowEvent::CloseRequested { api, .. } => handle_close_requested(window, api),
+            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

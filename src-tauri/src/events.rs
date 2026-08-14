@@ -186,3 +186,14 @@ pub struct SyncStateChanged {
 pub struct RemoteStateChanged {
     pub status: crate::domain::remote::types::RemoteStatus,
 }
+
+/// Emitted once when the OS requests the window to close, asking the
+/// frontend to flush every dirty editor model to the hot-exit mirror before
+/// the app actually exits. `timeout_ms` mirrors `HOT_EXIT_FLUSH_TIMEOUT_MS`
+/// so the frontend never needs its own copy of that constant.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "app:hot-exit-flush-requested")]
+pub struct HotExitFlushRequested {
+    pub timeout_ms: f64,
+}

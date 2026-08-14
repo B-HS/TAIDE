@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use super::service;
+use super::service::{MirrorEntry, UntitledMirrorEntry};
 use super::types::OpenedFile;
 use crate::error::AppResult;
-use crate::ids::ProjectId;
+use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
@@ -70,13 +71,103 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
 
 #[tauri::command]
 #[specta::specta]
-pub async fn file_mirror_dirty(state: State<'_, AppState>, project_id: ProjectId, path: String, content: String) -> AppResult<()> {
+pub async fn file_mirror_dirty(
+    state: State<'_, AppState>,
+    project_id: ProjectId,
+    path: String,
+    content: String,
+    disk_modified_ms: Option<f64>,
+) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let projects = state.projects.read().clone();
     let root = root_guard::project_root(&projects, &project_id)?;
     let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
 
-    service::mirror_dirty(&state.paths, &project_id, &resolved, &content)
+    service::mirror_dirty(&state.paths, &project_id, &resolved, &path, &content, disk_modified_ms)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_list_mirrors(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<MirrorEntry>> {
+    let projects = state.projects.read().clone();
+    root_guard::project_root(&projects, &project_id)?;
+
+    service::list_mirrors(&state.paths, &project_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_clear_mirror(state: State<'_, AppState>, project_id: ProjectId, path: String) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    let root = root_guard::project_root(&projects, &project_id)?;
+    let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
+
+    service::clear_mirror(&state.paths, &project_id, &resolved)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_prune_mirrors(state: State<'_, AppState>, project_id: ProjectId, keep_paths: Vec<String>) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    root_guard::project_root(&projects, &project_id)?;
+
+    service::prune_mirrors(&state.paths, &project_id, &keep_paths)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_mirror_untitled(state: State<'_, AppState>, project_id: ProjectId, tab_id: TabId, content: String) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    root_guard::project_root(&projects, &project_id)?;
+    root_guard::ensure_safe_component(tab_id.as_str())?;
+
+    service::mirror_untitled(&state.paths, &project_id, &tab_id, &content)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_list_untitled_mirrors(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<UntitledMirrorEntry>> {
+    let projects = state.projects.read().clone();
+    root_guard::project_root(&projects, &project_id)?;
+
+    service::list_untitled_mirrors(&state.paths, &project_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_clear_untitled_mirror(state: State<'_, AppState>, project_id: ProjectId, tab_id: TabId) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    root_guard::project_root(&projects, &project_id)?;
+    root_guard::ensure_safe_component(tab_id.as_str())?;
+
+    service::clear_untitled_mirror(&state.paths, &project_id, &tab_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_prune_untitled_mirrors(state: State<'_, AppState>, project_id: ProjectId, keep_tab_ids: Vec<TabId>) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    root_guard::project_root(&projects, &project_id)?;
+
+    service::prune_untitled_mirrors(&state.paths, &project_id, &keep_tab_ids)
+}
+
+/// Confirms the frontend has finished flushing every dirty editor model to
+/// the hot-exit mirror in response to `HotExitFlushRequested`, then resumes
+/// the app exit that `CloseRequested` deferred. A no-op if the flush was
+/// already completed by the timeout fallback.
+#[tauri::command]
+#[specta::specta]
+pub async fn file_flush_complete(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    if state.complete_hot_exit_flush() {
+        app.exit(0);
+    }
+    Ok(())
 }
 
 #[tauri::command]

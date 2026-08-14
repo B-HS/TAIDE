@@ -416,9 +416,9 @@ pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<Closed
     Ok(closed)
 }
 
-/// ClaudeDiff 탭은 닫히는 순간 pending 요청이 해소되므로(`reconcile_closed_tab`),
-/// 되살려도 수락/거부가 실패하는 좀비 탭이 된다. Untitled 탭은 내용이 휘발 버퍼에만 있어
-/// 스택에 남겨도 빈 내용으로 되살아난다. 둘 다 스택에 넣지 않는다.
+/// ClaudeDiff tabs resolve their pending IDE request the moment they close
+/// (`reconcile_closed_tab`), so reviving one from the undo stack would
+/// restore a zombie tab whose accept/reject can never succeed again.
 fn push_closed(layout: &mut ProjectLayout, closed: ClosedTab) {
     if is_volatile(&closed.tab.kind) {
         return;
@@ -606,10 +606,12 @@ pub fn focus_kind(layout: &ProjectLayout) -> Option<FocusKind> {
     Some(FocusKind::from(&tab.kind))
 }
 
-/// 영속 저장에서 제외되는(휘발) 탭 종류. ClaudeDiff 는 pending IDE 요청과 묶여 있고,
-/// Untitled 는 내용이 저장되지 않는 in-memory 버퍼라 재시작 시 살아남으면 좀비/빈 탭이 된다.
+/// Tab kinds excluded from persisted storage. ClaudeDiff tabs are tied to a
+/// pending IDE request that only exists for the current session, so nothing
+/// else qualifies — Untitled tabs are hot-exit mirrored by `TabId` and are
+/// safe to persist and restore.
 fn is_volatile(kind: &TabKind) -> bool {
-    matches!(kind, TabKind::ClaudeDiff { .. } | TabKind::Untitled { .. })
+    matches!(kind, TabKind::ClaudeDiff { .. })
 }
 
 fn strip_volatile_node(node: &mut PaneNode) {
@@ -1326,7 +1328,7 @@ mod tests {
     }
 
     #[test]
-    fn untitled_탭은_영속_저장에서_제외된다() {
+    fn untitled_탭은_영속_저장에_포함된다() {
         let file_tab = 파일_탭("a.rs");
         let file_tab_id = file_tab.id.clone();
         let untitled_tab = 언타이틀드_탭(1);
@@ -1344,20 +1346,21 @@ mod tests {
         let PaneNode::Leaf { tabs, .. } = &persisted.root else {
             panic!("expected leaf")
         };
-        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs.len(), 2);
         assert_eq!(tabs[0].id, file_tab_id);
-        assert!(!tabs.iter().any(|tab| tab.id == untitled_id));
+        assert!(tabs.iter().any(|tab| tab.id == untitled_id));
     }
 
     #[test]
-    fn untitled_탭은_닫아도_닫힌_탭_스택에_쌓이지_않는다() {
+    fn untitled_탭은_닫으면_닫힌_탭_스택에_쌓인다() {
         let mut layout = default_layout();
         let leaf_id = layout.focused_pane.clone();
         let untitled_id = open_tab(&mut layout, &leaf_id, 언타이틀드_탭(1), false).expect("open untitled");
 
         close_tab(&mut layout, &untitled_id).expect("close untitled");
 
-        assert!(layout.closed_tabs.is_empty());
+        assert_eq!(layout.closed_tabs.len(), 1);
+        assert_eq!(layout.closed_tabs[0].tab.id, untitled_id);
     }
 
     #[test]

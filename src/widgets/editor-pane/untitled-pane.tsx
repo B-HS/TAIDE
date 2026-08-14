@@ -1,21 +1,25 @@
 import type { FC } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { save } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
-import type { ProjectId, TabId } from '@shared/api/bindings'
+import type { ProjectId, TabId, UntitledMirrorEntry } from '@shared/api/bindings'
+import type { monaco } from '@shared/lib/monaco/setup'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
+import { HOT_EXIT_MIRROR_DEBOUNCE_MS } from '@shared/constants/mirror'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
-import { useSaveFile } from '@entities/file/file.query'
+import { clearUntitledMirror, mirrorUntitled } from '@entities/file/file.ipc'
+import { untitledMirrorsQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { useConvertUntitledTab, useSetTabDirty } from '@entities/layout/layout.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
-import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
+import { applyExternalContent, disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
+import { registerMirrorFlush, unregisterMirrorFlush } from '@entities/editor/mirror-flush-registry'
 import { dropUntitledContent, getUntitledContent, setUntitledContent } from '@entities/editor/untitled-registry'
 import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
 import { CodeEditor } from '@features/editor/code-editor'
@@ -33,24 +37,43 @@ type UntitledPaneProps = {
 }
 
 export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index }) => {
-    const seedContent = getUntitledContent(projectId, tabId) ?? ''
+    const seedContent = getUntitledContent(projectId, tabId)
+    const restoredFromMirrorRef = useRef(seedContent !== null)
+    const pendingMirrorRef = useRef(false)
+    const mirrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-    const draftRef = useRef(seedContent)
+    const draftRef = useRef(seedContent ?? '')
 
-    const [initialContent] = useState(() => seedContent)
+    const [initialContent] = useState(() => seedContent ?? '')
     const [dirty, setDirty] = useState(false)
+    const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
 
     const { t } = useTranslation()
     const queryClient = useQueryClient()
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
+    const { data: untitledMirrors } = useQuery(untitledMirrorsQueryOptions(projectId))
     const { mutate: saveFile } = useSaveFile()
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
     const { mutate: convertUntitled } = useConvertUntitledTab(projectId)
     const { mutate: updateSettings } = useUpdateSettings()
 
     const untitledPath = toUntitledModelPath(tabId)
+
+    /**
+     * Writes to the untitled hot-exit mirror and keeps the `FILE.UNTITLED_MIRRORS` query cache in
+     * lockstep, instead of leaving it at its `staleTime: Infinity` project-activation snapshot until
+     * the next convert-to-file/prune. See the equivalent `persistMirror` in `editor-pane.tsx` for why
+     * an unsynced cache lets a same-pane tab detour restore a stale (or entirely missing) mirror.
+     */
+    const persistMirror = async (content: string) => {
+        await mirrorUntitled({ projectId, tabId, content })
+        queryClient.setQueryData(QUERY_KEY.FILE.UNTITLED_MIRRORS(projectId), (previous?: UntitledMirrorEntry[]) => [
+            ...(previous ?? []).filter((entry) => entry.tabId !== tabId),
+            { tabId, content, savedAtMs: Date.now() },
+        ])
+    }
 
     const handleChange = (value: string) => {
         draftRef.current = value
@@ -59,12 +82,23 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
             setDirty(true)
             setTabDirty({ tabId, dirty: true })
         }
+
+        pendingMirrorRef.current = true
+        clearTimeout(mirrorTimeoutRef.current)
+        mirrorTimeoutRef.current = setTimeout(() => {
+            pendingMirrorRef.current = false
+            void persistMirror(value).catch(() => undefined)
+        }, HOT_EXIT_MIRROR_DEBOUNCE_MS)
     }
 
     const handleConvertSuccess = () => {
+        clearTimeout(mirrorTimeoutRef.current)
+        pendingMirrorRef.current = false
         dropUntitledContent(projectId, tabId)
         disposeModel(untitledPath)
+        void clearUntitledMirror({ projectId, tabId }).catch(() => undefined)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.UNTITLED_MIRRORS(projectId) })
     }
 
     const handleSaveAs = async () => {
@@ -84,10 +118,55 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
+    const handleEditorMount = (nextEditor: monaco.editor.IStandaloneCodeEditor | null) => setEditor(nextEditor)
+
     const aiCompletionConfig = resolveAiInlineCompletionConfig(settings, aiTokenStatus)
 
     useEffect(() => {
         setUntitledContent(projectId, tabId, draftRef.current)
+    }, [projectId, tabId])
+
+    /**
+     * `useEffectEvent` so the restore below can read the always-current `editor`/`untitledPath`/
+     * `tabId` without being a reactive dependency of the effect that calls it.
+     */
+    const applyMirrorRestore = useEffectEvent((mirror: UntitledMirrorEntry) => {
+        if (!editor) return
+        applyExternalContent(untitledPath, mirror.content, editor)
+        draftRef.current = mirror.content
+        setUntitledContent(projectId, tabId, mirror.content)
+        setDirty(true)
+        setTabDirty({ tabId, dirty: true })
+    })
+
+    /**
+     * Restores unsaved content from the hot-exit untitled mirror once, the first time the monaco
+     * editor is mounted and no in-memory registry content already existed at mount (a fresh session
+     * after an app restart). `restoredFromMirrorRef` guards against re-applying on later refetches.
+     */
+    useEffect(() => {
+        if (!editor || restoredFromMirrorRef.current) return
+        const mirror = (untitledMirrors ?? []).find((entry) => entry.tabId === tabId)
+        if (!mirror) return
+        restoredFromMirrorRef.current = true
+        queueMicrotask(() => applyMirrorRestore(mirror))
+    }, [editor, untitledMirrors, tabId])
+
+    useEffect(() => {
+        const flush = async () => {
+            clearTimeout(mirrorTimeoutRef.current)
+            if (!pendingMirrorRef.current) return
+            pendingMirrorRef.current = false
+            await persistMirror(draftRef.current).catch(() => undefined)
+        }
+
+        registerMirrorFlush(tabId, flush)
+        window.addEventListener('blur', flush)
+        return () => {
+            window.removeEventListener('blur', flush)
+            void flush()
+            unregisterMirrorFlush(tabId)
+        }
     }, [projectId, tabId])
 
     return (
@@ -117,6 +196,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
             onChange={handleChange}
             onSave={() => void handleSaveAs()}
             onCursorLineChange={() => undefined}
+            onEditorMount={handleEditorMount}
             onMinimapToggle={handleMinimapToggle}
         />
     )

@@ -212,6 +212,11 @@ ADR-0004 가 이미 답을 정해 뒀다.
 - 원격 제어는 **파일시스템·터미널 전권**과 같다. 인증 실패 = 임의 코드 실행이다. 터미널/편집을 허용한다면
   토큰 유출은 곧 머신 침해이므로, 최소한 프로젝트 루트 밖 접근 차단과 감사 로그가 필요하다.
 
+> **이 절은 착수 전 리서치 시점의 초안이다.** 실제 구현(프로젝트 단위 스코프가 아닌 **앱 전체
+> 공유 세션** — `docs/acknowledge/2026-08-12-w6-remote-contract.md` §3 — + 1회용 링크 토큰 →
+> 세션 쿠키 + 선택적 비밀번호 2요소)은 `docs/ipc-contract.md` "Remote 비밀번호" 절과
+> `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.2 가 정본이다.
+
 ### 4.2 TLS 와 secure context (놓치기 쉬운 함정)
 
 브라우저는 `http://localhost` / `http://127.0.0.1` 만 "potentially trustworthy" 로 취급한다.

@@ -1,0 +1,1 @@
+export const HOT_EXIT_MIRROR_DEBOUNCE_MS = 500

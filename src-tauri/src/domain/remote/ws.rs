@@ -116,10 +116,17 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
     }
 }
 
+/// Drives one upgraded remote WebSocket connection. Besides the request/
+/// response and event-fanout loops, this races the connection's own read
+/// loop against [`RemoteStore::subscribe_session_epoch`] so a bulk session
+/// revocation (revoke-all, a password change, or server stop) that happens
+/// *after* the upgrade closes the socket immediately — see that method's
+/// doc comment for what this does and does not cover.
 pub async fn handle_socket(socket: WebSocket, app: AppHandle) {
     let remote = app.state::<RemoteStore>();
     remote.client_connected();
     let mut events = remote.subscribe_events();
+    let mut session_epoch = remote.subscribe_session_epoch();
 
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
@@ -152,21 +159,30 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle) {
 
     let factory = make_channel_factory(tx.clone());
 
-    while let Some(Ok(message)) = stream.next().await {
-        match message {
-            Message::Text(text) => {
-                let Ok(request) = serde_json::from_str::<RemoteRequest>(text.as_str()) else {
-                    continue;
-                };
-                let request_app = app.clone();
-                let request_factory = factory.clone();
-                let request_out = tx.clone();
-                tauri::async_runtime::spawn(async move {
-                    handle_request(&request_app, request, request_factory, &request_out).await;
-                });
+    loop {
+        tokio::select! {
+            frame = stream.next() => {
+                let Some(Ok(message)) = frame else { break };
+                match message {
+                    Message::Text(text) => {
+                        let Ok(request) = serde_json::from_str::<RemoteRequest>(text.as_str()) else {
+                            continue;
+                        };
+                        let request_app = app.clone();
+                        let request_factory = factory.clone();
+                        let request_out = tx.clone();
+                        tauri::async_runtime::spawn(async move {
+                            handle_request(&request_app, request, request_factory, &request_out).await;
+                        });
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
             }
-            Message::Close(_) => break,
-            _ => {}
+            _ = session_epoch.changed() => {
+                log::info!("원격 세션이 무효화되어 연결을 종료합니다");
+                break;
+            }
         }
     }
 

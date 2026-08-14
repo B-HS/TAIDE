@@ -96,6 +96,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         ai_auto_tab_model: settings.ai_auto_tab_model.clone(),
         ai_omlx_base_url: settings.ai_omlx_base_url.clone(),
         remote_access_enabled: None,
+        remote_password_only_login: None,
     }
 }
 

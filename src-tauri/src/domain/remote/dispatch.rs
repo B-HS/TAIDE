@@ -45,6 +45,14 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "file_delete",
     "file_copy",
     "file_mirror_dirty",
+    "file_list_mirrors",
+    "file_clear_mirror",
+    "file_prune_mirrors",
+    "file_mirror_untitled",
+    "file_list_untitled_mirrors",
+    "file_clear_untitled_mirror",
+    "file_prune_untitled_mirrors",
+    "file_flush_complete",
     "tree_rows",
     "tree_toggle",
     "tree_reveal",
@@ -152,6 +160,8 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "remote_stop",
     "remote_issue_link",
     "remote_revoke_sessions",
+    "remote_set_password",
+    "remote_clear_password",
 ];
 
 fn err(error: AppError) -> Value {
@@ -185,6 +195,46 @@ fn make_channel<T>(args: &Value, key: &str, factory: &ChannelFactory) -> Result<
 
 fn unknown_command(name: &str) -> Value {
     err(AppError::InvalidArgument(format!("알 수 없는 커맨드: {name}")))
+}
+
+/// Answers `remote_set_password`/`remote_clear_password` with an explicit
+/// denial instead of dispatching to the real handler — a remote session must
+/// never be able to change its own access gate. Both names stay listed in
+/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test
+/// (`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`) still passes; only the
+/// `match` arm in [`dispatch`] refuses to call through.
+fn deny_remote_password_change(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 원격 접속 비밀번호를 변경할 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `file_flush_complete` with an explicit denial instead of
+/// dispatching to the real handler. That command resumes the desktop app's
+/// own `CloseRequested` exit sequence (`AppState::complete_hot_exit_flush`
+/// racing to `AppHandle::exit`) — a remote browser session has no OS window
+/// to close and must never be able to end the desktop process early by
+/// racing ahead of the desktop's own hot-exit flush. Stays listed in
+/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still
+/// passes; only the `match` arm in [`dispatch`] refuses to call through.
+fn deny_remote_flush_complete(name: &str) -> Value {
+    err(AppError::Forbidden(format!("원격 세션에서는 앱 종료를 제어할 수 없습니다: {name}")))
+}
+
+/// Strips `remote_password_only_login` from a `settings_update` patch arriving
+/// through the remote dispatch table — a remote session must never be able to
+/// flip its own access gate from password-optional to password-only (or back).
+/// `dispatch()` is exclusively the remote request path (desktop calls invoke
+/// `settings_update` directly as a Tauri command, bypassing this table
+/// entirely — see `ws.rs`), so every patch reaching this arm is remote by
+/// construction; no additional "is this remote" check is needed here.
+/// `remote_access_enabled` is intentionally left untouched: a remote session
+/// disabling remote access only revokes its own future access, matching the
+/// existing self-service philosophy for that field (see
+/// `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §4).
+fn strip_remote_gated_settings_patch(mut patch: domain::settings::service::SettingsPatch) -> domain::settings::service::SettingsPatch {
+    patch.remote_password_only_login = None;
+    patch
 }
 
 macro_rules! arg {
@@ -287,9 +337,30 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "file_rename" => respond(file::file_rename(app.state(), arg!(args, "from"), arg!(args, "to")).await),
         "file_delete" => respond(file::file_delete(app.state(), arg!(args, "path")).await),
         "file_copy" => respond(file::file_copy(app.state(), arg!(args, "from"), arg!(args, "to")).await),
-        "file_mirror_dirty" => {
-            respond(file::file_mirror_dirty(app.state(), arg!(args, "projectId"), arg!(args, "path"), arg!(args, "content")).await)
+        "file_mirror_dirty" => respond(
+            file::file_mirror_dirty(
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "content"),
+                arg!(args, "diskModifiedMs"),
+            )
+            .await,
+        ),
+        "file_list_mirrors" => respond(file::file_list_mirrors(app.state(), arg!(args, "projectId")).await),
+        "file_clear_mirror" => respond(file::file_clear_mirror(app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
+        "file_prune_mirrors" => respond(file::file_prune_mirrors(app.state(), arg!(args, "projectId"), arg!(args, "keepPaths")).await),
+        "file_mirror_untitled" => {
+            respond(file::file_mirror_untitled(app.state(), arg!(args, "projectId"), arg!(args, "tabId"), arg!(args, "content")).await)
         }
+        "file_list_untitled_mirrors" => respond(file::file_list_untitled_mirrors(app.state(), arg!(args, "projectId")).await),
+        "file_clear_untitled_mirror" => {
+            respond(file::file_clear_untitled_mirror(app.state(), arg!(args, "projectId"), arg!(args, "tabId")).await)
+        }
+        "file_prune_untitled_mirrors" => {
+            respond(file::file_prune_untitled_mirrors(app.state(), arg!(args, "projectId"), arg!(args, "keepTabIds")).await)
+        }
+        "file_flush_complete" => Err(deny_remote_flush_complete(name)),
 
         "tree_rows" => respond(
             tree::tree_rows(
@@ -533,7 +604,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "theme_delete" => respond(theme::theme_delete(app.state(), arg!(args, "themeId")).await),
 
         "settings_get" => respond(settings::settings_get(app.state()).await),
-        "settings_update" => respond(settings::settings_update(app.clone(), app.state(), arg!(args, "patch")).await),
+        "settings_update" => {
+            let patch = strip_remote_gated_settings_patch(arg!(args, "patch"));
+            respond(settings::settings_update(app.clone(), app.state(), patch).await)
+        }
         "settings_set_theme" => respond(settings::settings_set_theme(app.clone(), app.state(), arg!(args, "themeId")).await),
 
         "system_usage_get" => respond(system::system_usage_get(app.state()).await),
@@ -586,6 +660,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "remote_stop" => respond(remote::remote_stop(app.clone(), app.state()).await),
         "remote_issue_link" => respond(remote::remote_issue_link(app.state()).await),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),
+        "remote_set_password" | "remote_clear_password" => Err(deny_remote_password_change(name)),
 
         _ => Err(unknown_command(name)),
     }
@@ -657,5 +732,35 @@ mod tests {
         let encoded = json_ok(serde_json::json!({"ok": true})).expect("직렬화 성공");
         let parsed: Value = serde_json::from_str(&encoded).expect("파싱 성공");
         assert_eq!(parsed["ok"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn 원격_settings_update_패치는_비밀번호_전용_로그인_필드가_제거된다() {
+        let patch = domain::settings::service::SettingsPatch {
+            remote_password_only_login: Some(true),
+            editor_font_size: Some(18),
+            ..Default::default()
+        };
+
+        let stripped = strip_remote_gated_settings_patch(patch);
+
+        assert_eq!(stripped.remote_password_only_login, None);
+        assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+    }
+
+    #[test]
+    fn 원격_접속_활성화_필드는_스트립되지_않는다() {
+        let patch = domain::settings::service::SettingsPatch {
+            remote_access_enabled: Some(false),
+            ..Default::default()
+        };
+
+        let stripped = strip_remote_gated_settings_patch(patch);
+
+        assert_eq!(
+            stripped.remote_access_enabled,
+            Some(false),
+            "원격 접속 자가 차단은 기존 철학대로 허용되어야 한다"
+        );
     }
 }

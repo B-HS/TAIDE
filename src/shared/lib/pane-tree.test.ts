@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { PaneNode, Tab } from '@shared/api/bindings'
-import { findActiveTab, findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
+import { collectPaneTabs, findActiveTab, findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
 
 const buildTab = (id: string): Tab => ({ id, kind: { kind: 'file', path: `/${id}.ts` }, title: id })
 
@@ -33,6 +33,17 @@ describe('findPaneTab', () => {
 
     test('존재하지 않는 tabId 는 null 을 반환한다', () => {
         expect(findPaneTab(buildTree(), 'missing')).toBeNull()
+    })
+})
+
+describe('collectPaneTabs', () => {
+    test('중첩된 split 트리의 모든 leaf 탭을 순서대로 모은다', () => {
+        expect(collectPaneTabs(buildTree()).map((tab) => tab.id)).toEqual(['a', 'b', 'c'])
+    })
+
+    test('단일 leaf 노드는 그 탭만 반환한다', () => {
+        const leaf: PaneNode = { node: 'leaf', id: 'only', tabs: [buildTab('x')], active: 'x' }
+        expect(collectPaneTabs(leaf).map((tab) => tab.id)).toEqual(['x'])
     })
 })
 

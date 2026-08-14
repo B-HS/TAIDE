@@ -13,6 +13,9 @@ pub enum AppError {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("operation failed: {0}")]
     Internal(String),
 }

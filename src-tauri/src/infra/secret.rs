@@ -10,6 +10,7 @@ pub enum SecretAccount {
     AiCodex,
     AiOmlx,
     GithubSync,
+    RemoteAccess,
 }
 
 impl SecretAccount {
@@ -19,6 +20,7 @@ impl SecretAccount {
             Self::AiCodex => "ai-codex",
             Self::AiOmlx => "ai-omlx",
             Self::GithubSync => "github-sync",
+            Self::RemoteAccess => "remote-access",
         }
     }
 }
