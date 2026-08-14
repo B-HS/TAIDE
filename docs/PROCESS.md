@@ -143,7 +143,12 @@
 - [ ] c. 잔여 기능 구현 — 갭 P0 잔여 9건 + Remote 하드닝 9 + Hot Exit 미세 3 + P1 10건.
       **웨이브 A→I 확정**(계약 §2-2): A LSP 인텔리전스 → B 하드닝 → C Git → D 탐색·검색 →
       E 터미널·태스크 → F 에디터 표현 → G AI → H 키맵 엔진 → I 셸·워크스페이스
-    - [ ] c-A. Wave A 정찰 중 (wf_0d6ea4d6-7b4, opus+high 4축) → 계약 → 구현 → 4렌즈 → 검증 → 커밋
+    - [ ] c-A. Wave A — LSP 인텔리전스. 정찰 완료(wf_0d6ea4d6-7b4, 529 재시도 4차 만에 성공,
+          하중 주장 8건 메인 재검증) + 계약 확정(`2026-08-14-wave-a-lsp-intelligence-contract.md`,
+          결정 4건 전부 추천안). **중대 발견**: 직전 세션 P0-0(LSP capabilities 확충)은 dead code
+          적용이라 런타임 무효 / 서버→클라 요청 전면 폐기(configuration 무응답 기존 결함) /
+          cross-file F12·Peek 이 원래부터 무음 실패(registerEditorOpener 부재).
+          구현 S→B1→C(3병렬)→D 진행 중 → 4렌즈 → 적대적 검증 → 수정 → 메인 2차 → 커밋
     - [ ] c-B ~ c-I. 순차 진행
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
