@@ -31,10 +31,10 @@
 | 찾기/바꾸기(정규식·단어단위) | **있음** (Monaco find) | `command-registry.ts:133` | - | - | - |
 | **Sticky Scroll** | **없음** (옵션 미설정) | `code-editor.tsx:106-113` | 중 | **하** (옵션 1줄 + 설정 필드) | **P0** |
 | **Breadcrumbs (경로+심볼 계층)** | **없음** | grep 0건 | 중 | 중 (documentSymbol 어댑터 재사용 + 헤더 UI) | **P0** |
-| **사용자 정의 스니펫** (tabstop/placeholder/변수/transform) | **없음** (LSP 서버가 주는 스니펫만 통과) | backlog 참조 | 중 | 중 (Monaco `CompletionItemInsertTextRule.InsertAsSnippet` + 스니펫 파일 스키마·Rust 소유) | **P0** (backlog 기재) |
-| **Emmet** (HTML/CSS 약어 확장) | **없음** | grep 0건 | 중(웹 작업 시 상) | 중 (`emmet-monaco-es` 의존성 추가 필요 → 승인 사항) | P1 |
+| **사용자 정의 스니펫** (tabstop/placeholder/변수/transform) | **없음** (LSP 서버가 주는 스니펫만 통과) | backlog 참조 | 중 | 중 (Monaco `CompletionItemInsertTextRule.InsertAsSnippet` + 스니펫 파일 스키마·Rust 소유) | **P0** (backlog 기재) — **구현 완료**(Wave F, 2026-08-15 — `entities/snippet`·`widgets/snippet-editor`·`docs/features/editor.md` §10). 항목 종결 |
+| **Emmet** (HTML/CSS 약어 확장) | **없음** | grep 0건 | 중(웹 작업 시 상) | 중 (`emmet-monaco-es` 의존성 추가 필요 → 승인 사항) | P1 — **구현 완료**(Wave F, 2026-08-15 — `shared/lib/emmet-integration.ts`·`docs/features/editor.md` §11). 항목 종결 |
 | Format Document / Selection | 있음 (LSP formatting 어댑터) | `adapters/formatting.ts` | - | - | - |
-| **Format on Type / on Paste** | 없음 (`registerOnTypeFormattingEditProvider` 미사용) | monaco.d.ts 대조 | 하 | 하 | P2 |
+| **Format on Type / on Paste** | 없음 (`registerOnTypeFormattingEditProvider` 미사용) | monaco.d.ts 대조 | 하 | 하 | P2 — **구현 완료**(Wave F, 2026-08-15 — `adapters/formatting.ts`의 `registerOnTypeFormatting`/`registerRangeFormatting`·`docs/features/editor.md` §9). 항목 종결 |
 | **Code Actions on Save** (organizeImports 등) | **없음** | codeAction 자체 부재 | 상 | 중 (codeAction 선행) | **P0**(codeAction 묶음) |
 | Auto Save / 저장 시 포맷 | 있음 | `settings/types.rs:44-47` | - | - | - |
 | Hot Exit(미저장 복원) | **있음(동등)** | `file/service.rs:187` mirror_dirty | - | - | - |
@@ -52,7 +52,7 @@ TAIDE 어댑터 11종: completion·diagnostics·hover·definition·references·r
 |---|---|---|---|---|---|
 | **Code Action / Quick Fix (⌘.)** | **없음** — grep `codeAction` 0건 | `registerCodeActionProvider` 있음 | **최상** (진단은 보이는데 고칠 수단이 없음) | 중 (어댑터 1 + `workspace/applyEdit`·`executeCommand` 대응 + initialize 선언) | **P0-1** |
 | **LSP initialize capabilities 확충** | **최소 선언** | - | 상 (기존 기능 정확도에도 영향) | 하~중 | **P0-0 (선행)** |
-| **Semantic Tokens** | 없음 | `registerDocumentSemanticTokensProvider` | 상 (TextMate 만으로는 타입/변수 구분 불가) | 중 (토큰 legend → 테마 토큰 매핑 필요, W7 build-shiki-theme 와 연결) | **P0** |
+| **Semantic Tokens** | 없음 | `registerDocumentSemanticTokensProvider` | 상 (TextMate 만으로는 타입/변수 구분 불가) | 중 (토큰 legend → 테마 토큰 매핑 필요, W7 build-shiki-theme 와 연결) | **P0** — **구현 완료**(Wave F, 2026-08-15 — `adapters/semantic-tokens.ts`·`mapping-tables.ts`·`build-shiki-theme.ts`·`docs/features/editor.md` §8). 항목 종결 |
 | **Document Highlight** (커서 심볼 동일 위치 강조) | 없음 | `registerDocumentHighlightProvider` | 상 (일상 체감 큼, 구현은 가장 쌈) | **하** | **P0** |
 | **Selection Range** (⌃⇧⌘←/→ 확장 선택) | 없음 | `registerSelectionRangeProvider` | 중 | **하** | **P0** |
 | **Folding Range (LSP 기반)** | 없음 (Monaco 들여쓰기 추정만) | `registerFoldingRangeProvider` | 중 | 하 | P1 |

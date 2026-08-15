@@ -139,6 +139,9 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "theme_get_current",
     "theme_save",
     "theme_delete",
+    "snippet_list",
+    "snippet_save",
+    "snippet_delete",
     "settings_get",
     "settings_update",
     "settings_set_theme",
@@ -311,6 +314,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
     use domain::remote::commands as remote;
     use domain::search::commands as search;
     use domain::settings::commands as settings;
+    use domain::snippet::commands as snippet;
     use domain::sync::commands as sync;
     use domain::system::commands as system;
     use domain::task::commands as task;
@@ -756,6 +760,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "theme_get_current" => respond(theme::theme_get_current(app.state(), arg!(args, "systemTheme")).await),
         "theme_save" => respond(theme::theme_save(app.state(), arg!(args, "theme")).await),
         "theme_delete" => respond(theme::theme_delete(app.state(), arg!(args, "themeId")).await),
+
+        "snippet_list" => respond(snippet::snippet_list(app.state()).await),
+        "snippet_save" => respond(snippet::snippet_save(app.state(), arg!(args, "fileName"), arg!(args, "content")).await),
+        "snippet_delete" => respond(snippet::snippet_delete(app.state(), arg!(args, "fileName")).await),
 
         "settings_get" => respond(settings::settings_get(app.state()).await),
         "settings_update" => {

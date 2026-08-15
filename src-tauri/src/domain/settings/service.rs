@@ -58,6 +58,10 @@ pub struct SettingsPatch {
     pub organize_imports_on_save: Option<bool>,
     pub fix_all_on_save: Option<bool>,
     pub editor_code_lens_enabled: Option<bool>,
+    pub editor_semantic_highlighting: Option<bool>,
+    pub editor_format_on_type: Option<bool>,
+    pub editor_format_on_paste: Option<bool>,
+    pub emmet_enabled: Option<bool>,
     pub recent_searches: Option<Vec<String>>,
 }
 
@@ -289,6 +293,10 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         organize_imports_on_save: patch.organize_imports_on_save.unwrap_or(settings.organize_imports_on_save),
         fix_all_on_save: patch.fix_all_on_save.unwrap_or(settings.fix_all_on_save),
         editor_code_lens_enabled: patch.editor_code_lens_enabled.unwrap_or(settings.editor_code_lens_enabled),
+        editor_semantic_highlighting: patch.editor_semantic_highlighting.unwrap_or(settings.editor_semantic_highlighting),
+        editor_format_on_type: patch.editor_format_on_type.unwrap_or(settings.editor_format_on_type),
+        editor_format_on_paste: patch.editor_format_on_paste.unwrap_or(settings.editor_format_on_paste),
+        emmet_enabled: patch.emmet_enabled.unwrap_or(settings.emmet_enabled),
         recent_searches: patch.recent_searches.clone().unwrap_or_else(|| settings.recent_searches.clone()),
     })
 }
@@ -704,6 +712,30 @@ mod tests {
         assert!(updated.organize_imports_on_save);
         assert!(updated.fix_all_on_save);
         assert!(!updated.editor_code_lens_enabled);
+    }
+
+    #[test]
+    fn patch로_semantic_하이라이팅_포매팅_emmet_설정을_변경한다() {
+        let settings = Settings::default();
+        assert!(settings.editor_semantic_highlighting);
+        assert!(!settings.editor_format_on_type);
+        assert!(!settings.editor_format_on_paste);
+        assert!(settings.emmet_enabled);
+
+        let patch = SettingsPatch {
+            editor_semantic_highlighting: Some(false),
+            editor_format_on_type: Some(true),
+            editor_format_on_paste: Some(true),
+            emmet_enabled: Some(false),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(!updated.editor_semantic_highlighting);
+        assert!(updated.editor_format_on_type);
+        assert!(updated.editor_format_on_paste);
+        assert!(!updated.emmet_enabled);
     }
 
     #[test]

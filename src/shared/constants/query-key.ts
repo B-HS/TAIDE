@@ -96,6 +96,10 @@ export const QUERY_KEY = {
         ALL: ['settings'] as const,
         CURRENT: ['settings', 'current'] as const,
     },
+    SNIPPET: {
+        ALL: ['snippet'] as const,
+        LIST: ['snippet', 'list'] as const,
+    },
     SYSTEM: {
         ALL: ['system'] as const,
         USAGE: ['system', 'usage'] as const,

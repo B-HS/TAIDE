@@ -1,7 +1,9 @@
 import '@app/bootstrap-commands'
 import '@app/bootstrap-lsp'
+import '@app/bootstrap-snippets'
 import { AgentExternalOpenProvider } from '@app/providers/agent-external-open-provider'
 import { AppProviders } from '@app/providers/app-providers'
+import { EmmetProvider } from '@app/providers/emmet-provider'
 import { HotExitFlushProvider } from '@app/providers/hot-exit-flush-provider'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
 import { LocaleProvider } from '@app/providers/locale-provider'
@@ -18,10 +20,12 @@ export const App = () => (
                 <AgentExternalOpenProvider>
                     <LocaleProvider>
                         <ThemeProvider>
-                            <AppShell />
-                            <CommandPalette />
-                            <KeybindingsEditor />
-                            <TaskRunnerDialog />
+                            <EmmetProvider>
+                                <AppShell />
+                                <CommandPalette />
+                                <KeybindingsEditor />
+                                <TaskRunnerDialog />
+                            </EmmetProvider>
                         </ThemeProvider>
                     </LocaleProvider>
                 </AgentExternalOpenProvider>

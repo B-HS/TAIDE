@@ -57,6 +57,7 @@ import { CustomThemeList } from '@features/theme/custom-theme-list'
 import { VsixThemeImportButton } from '@features/theme/vsix-theme-import-button'
 import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
+import { SnippetEditor } from '@widgets/snippet-editor/snippet-editor'
 import { Switch } from '@shared/ui/switch'
 import { Button } from '@shared/ui/button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
@@ -123,6 +124,7 @@ const SETTINGS_SECTION_ID = {
     LANGUAGE: 'settings-section-language',
     INTERFACE: 'settings-section-interface',
     EDITOR: 'settings-section-editor',
+    SNIPPETS: 'settings-section-snippets',
     TERMINAL: 'settings-section-terminal',
     KEYMAP: 'settings-section-keymap',
     LSP: 'settings-section-lsp',
@@ -137,6 +139,7 @@ const SETTINGS_TOC_ITEMS = [
     { id: SETTINGS_SECTION_ID.LANGUAGE, labelKey: 'settings.language' },
     { id: SETTINGS_SECTION_ID.INTERFACE, labelKey: 'settings.interface' },
     { id: SETTINGS_SECTION_ID.EDITOR, labelKey: 'settings.editor' },
+    { id: SETTINGS_SECTION_ID.SNIPPETS, labelKey: 'settings.snippetsSectionTitle' },
     { id: SETTINGS_SECTION_ID.TERMINAL, labelKey: 'settings.terminal' },
     { id: SETTINGS_SECTION_ID.KEYMAP, labelKey: 'settings.keymap' },
     { id: SETTINGS_SECTION_ID.LSP, labelKey: 'settings.lspStatus' },
@@ -151,6 +154,7 @@ export const SettingsView = () => {
 
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
     const [themeEditorState, setThemeEditorState] = useState<ThemeEditorState | null>(null)
+    const [isSnippetEditorOpen, setIsSnippetEditorOpen] = useState(false)
     const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false)
     const [issuedRemoteUrl, setIssuedRemoteUrl] = useState<string | null>(null)
 
@@ -276,6 +280,8 @@ export const SettingsView = () => {
                 onClose={() => setThemeEditorState(null)}
             />
         )
+
+    if (isSnippetEditorOpen) return <SnippetEditor onClose={() => setIsSnippetEditorOpen(false)} />
 
     return (
         <ScrollContainer viewportRef={scrollContainerRef} className='bg-app-background text-app-foreground h-full w-full'>
@@ -592,6 +598,58 @@ export const SettingsView = () => {
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorStickyScrollEnabled: checked })}
                                 />
                             </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.editorSemanticHighlighting')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.editorSemanticHighlightingDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.editorSemanticHighlighting ?? true}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorSemanticHighlighting: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.editorFormatOnType')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.editorFormatOnTypeDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.editorFormatOnType ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFormatOnType: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.editorFormatOnPaste')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.editorFormatOnPasteDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.editorFormatOnPaste ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFormatOnPaste: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.emmetEnabled')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.emmetEnabledDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.emmetEnabled ?? true}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), emmetEnabled: checked })}
+                                />
+                            </label>
+                        </SettingsSection>
+
+                        <SettingsSection id={SETTINGS_SECTION_ID.SNIPPETS} title={t('settings.snippetsSectionTitle')}>
+                            <div className='flex items-center gap-2'>
+                                <Button type='button' variant='outline' size='sm' onClick={() => setIsSnippetEditorOpen(true)}>
+                                    {t('settings.snippetsManage')}
+                                </Button>
+                                <Button type='button' variant='outline' size='xs' onClick={() => handleOpenAppDataFolder('snippets')}>
+                                    <FolderOpen className='size-3.5' />
+                                    {t('settings.snippetsOpenFolder')}
+                                </Button>
+                            </div>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.TERMINAL} title={t('settings.terminal')}>

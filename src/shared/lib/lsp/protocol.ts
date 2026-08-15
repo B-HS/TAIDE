@@ -215,6 +215,55 @@ export type DocumentHighlight = { range: LspRange; kind?: DocumentHighlightKind 
 
 export type SelectionRange = { range: LspRange; parent?: SelectionRange }
 
+export const SEMANTIC_TOKEN_TYPES = [
+    'namespace',
+    'type',
+    'class',
+    'enum',
+    'interface',
+    'struct',
+    'typeParameter',
+    'parameter',
+    'variable',
+    'property',
+    'enumMember',
+    'event',
+    'function',
+    'method',
+    'macro',
+    'keyword',
+    'modifier',
+    'comment',
+    'string',
+    'number',
+    'regexp',
+    'operator',
+    'decorator',
+] as const
+export type SemanticTokenType = (typeof SEMANTIC_TOKEN_TYPES)[number]
+
+export const SEMANTIC_TOKEN_MODIFIERS = [
+    'declaration',
+    'definition',
+    'readonly',
+    'static',
+    'deprecated',
+    'abstract',
+    'async',
+    'modification',
+    'documentation',
+    'defaultLibrary',
+] as const
+export type SemanticTokenModifier = (typeof SEMANTIC_TOKEN_MODIFIERS)[number]
+
+export type SemanticTokensLegend = { tokenTypes: string[]; tokenModifiers: string[] }
+export type SemanticTokensOptions = { legend: SemanticTokensLegend; full?: boolean | { delta?: boolean }; range?: boolean | Record<string, never> }
+export type DocumentOnTypeFormattingOptions = { firstTriggerCharacter: string; moreTriggerCharacter?: string[] }
+
+export type SemanticTokens = { resultId?: string; data: number[] }
+export type SemanticTokensEdit = { start: number; deleteCount: number; data?: number[] }
+export type SemanticTokensDelta = { resultId?: string; edits: SemanticTokensEdit[] }
+
 export type CodeActionOptions = { codeActionKinds?: string[]; resolveProvider?: boolean }
 export type CodeLensOptions = { resolveProvider?: boolean }
 export type ExecuteCommandOptions = { commands?: string[] }
@@ -228,12 +277,14 @@ export type ServerCapabilities = {
     renameProvider?: boolean | { prepareProvider?: boolean }
     documentFormattingProvider?: boolean | Record<string, never>
     documentRangeFormattingProvider?: boolean | Record<string, never>
+    documentOnTypeFormattingProvider?: DocumentOnTypeFormattingOptions
     signatureHelpProvider?: { triggerCharacters?: string[]; retriggerCharacters?: string[] }
     inlayHintProvider?: boolean | Record<string, never>
     documentSymbolProvider?: boolean | Record<string, never>
     workspaceSymbolProvider?: boolean | { resolveProvider?: boolean }
     documentHighlightProvider?: boolean | Record<string, never>
     selectionRangeProvider?: boolean | Record<string, never>
+    semanticTokensProvider?: SemanticTokensOptions
     diagnosticProvider?: { interFileDependencies?: boolean; workspaceDiagnostics?: boolean }
     codeActionProvider?: boolean | CodeActionOptions
     codeLensProvider?: CodeLensOptions

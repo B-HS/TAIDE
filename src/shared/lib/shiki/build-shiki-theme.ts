@@ -1,6 +1,6 @@
 import type { ResolvedTheme, SyntaxStyle, ThemeType, TokenColorRule } from '@shared/api/bindings'
 import { buildThemeColors, TAIDE_MONACO_THEME_NAME, toMonacoFontStyle, toThemeColor } from '@shared/lib/monaco/theme'
-import { SYNTAX_SCOPE_CANDIDATES, SYNTAX_TOKENS } from '@shared/lib/theme-convert/mapping-tables'
+import { SEMANTIC_TOKEN_TYPE_MAP, SYNTAX_SCOPE_CANDIDATES, SYNTAX_TOKENS, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/mapping-tables'
 
 export type ShikiTokenColorSettings = {
     foreground?: string
@@ -62,6 +62,41 @@ const buildClaimedScopeRules = (tokens: readonly (typeof SYNTAX_TOKENS)[number][
  */
 export const fallbackFromSyntax = (syntax: ResolvedTheme['syntax']): ShikiTokenColorRule[] => buildClaimedScopeRules(SYNTAX_TOKENS, syntax)
 
+/** Every distinct `SYNTAX_TOKENS` name a semantic token type can map to (`SEMANTIC_TOKEN_TYPE_MAP`'s value set), in first-appearance order. */
+const SEMANTIC_TOKEN_THEME_TARGETS = [...new Set(Object.values(SEMANTIC_TOKEN_TYPE_MAP))]
+
+/**
+ * Appends one namespaced-scope rule (`toSemanticTokenLegendScope(token)`, e.g.
+ * `'taideSemantic.variable'` — never a bare TextMate scope like `'variable'`) per
+ * `SEMANTIC_TOKEN_THEME_TARGETS` entry, reusing `buildClaimedScopeRules`'s own color source
+ * (`syntax[token]`, the theme's per-token syntax color — never a new color). monaco's semantic
+ * token styling looks up `[type, ...modifiers].join('.')` against this same theme's `rules` trie
+ * (`standaloneThemeService.js`) and falls back step by step to shorter prefixes; the adapter's own
+ * legend (`adapters/semantic-tokens.ts`'s `buildSemanticTokensLegendMapping`) reports this same
+ * namespaced string as each type's monaco-facing name, so `type` in that join is always
+ * `taideSemantic.<token>` and the lookup bottoms out on the rule appended here.
+ *
+ * The namespace prefix is not cosmetic: a bare token name (e.g. `'variable'`) is also a real
+ * TextMate scope many bundled themes' own `tokenColors` already declare a rule for. monaco's token
+ * theme trie (`resolveParsedTokenThemeRules`) sorts all rules by their `token` string and, for two
+ * rules with the *identical* string, by array index — so a bare-scope rule appended here would sort
+ * to the same trie node as the theme's own rule and, per `ThemeTrieElement.insert`'s exact-match
+ * `acceptOverwrite`, the later (appended) rule always wins and silently replaces the theme's color
+ * for every *regular* (non-semantic) token that resolves through that scope — not just semantic
+ * ones. Namespacing avoids that collision entirely: no TextMate grammar emits a scope under
+ * `taideSemantic.*`, so a rule scoped there can never exact-match — or even prefix-match — a scope
+ * a real grammar or theme author actually uses.
+ */
+const buildSemanticTokenThemeRules = (syntax: ResolvedTheme['syntax']): ShikiTokenColorRule[] => {
+    const rules: ShikiTokenColorRule[] = []
+    for (const token of SEMANTIC_TOKEN_THEME_TARGETS) {
+        const style = syntax[token]
+        if (!style) continue
+        rules.push({ scope: [toSemanticTokenLegendScope(token)], settings: toSyntaxSettings(style) })
+    }
+    return rules
+}
+
 /**
  * Assembles the single `taide` shiki theme from a resolved TAIDE theme: UI colors (reusing the
  * existing Monaco color mapping, plus an explicit `editor.background`/`editor.foreground` pair so
@@ -79,10 +114,11 @@ export const buildShikiTheme = (resolved: ResolvedTheme): ShikiThemeInput => {
     const rawTokenColors = resolved.tokenColors ? resolved.tokenColors.map(toShikiTokenColorRule) : fallbackFromSyntax(resolved.syntax)
     const overlayTokens = (resolved.syntaxOverrides ?? []).filter(isSyntaxToken)
     const overlayTokenColors = buildClaimedScopeRules(overlayTokens, resolved.syntax)
+    const semanticTokenColors = buildSemanticTokenThemeRules(resolved.syntax)
     return {
         name: TAIDE_MONACO_THEME_NAME,
         type: resolved.type,
         colors,
-        tokenColors: [...rawTokenColors, ...overlayTokenColors],
+        tokenColors: [...rawTokenColors, ...overlayTokenColors, ...semanticTokenColors],
     }
 }

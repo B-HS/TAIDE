@@ -163,6 +163,9 @@ export const commands = {
 	themeGetCurrent: (systemTheme: string) => typedError<ResolvedTheme_Serialize, AppError>(__TAURI_INVOKE("theme_get_current", { systemTheme })),
 	themeSave: (theme: Theme_Deserialize) => typedError<ThemeSummary, AppError>(__TAURI_INVOKE("theme_save", { theme })),
 	themeDelete: (themeId: string) => typedError<null, AppError>(__TAURI_INVOKE("theme_delete", { themeId })),
+	snippetList: () => typedError<SnippetFile_Serialize[], AppError>(__TAURI_INVOKE("snippet_list")),
+	snippetSave: (fileName: string, content: string) => typedError<SnippetFile_Serialize, AppError>(__TAURI_INVOKE("snippet_save", { fileName, content })),
+	snippetDelete: (fileName: string) => typedError<null, AppError>(__TAURI_INVOKE("snippet_delete", { fileName })),
 	settingsGet: () => typedError<Settings, AppError>(__TAURI_INVOKE("settings_get")),
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
@@ -314,7 +317,7 @@ export type AiTokenStatus = {
 	omlx: boolean,
 };
 
-export type AppDataPathKind = "plugins" | "themes" | "locales";
+export type AppDataPathKind = "plugins" | "themes" | "locales" | "snippets";
 
 export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Forbidden"; message: string } | { code: "Internal"; message: string };
 
@@ -912,6 +915,10 @@ export type Settings = {
 	organizeImportsOnSave?: boolean,
 	fixAllOnSave?: boolean,
 	editorCodeLensEnabled?: boolean,
+	editorSemanticHighlighting?: boolean,
+	editorFormatOnType?: boolean,
+	editorFormatOnPaste?: boolean,
+	emmetEnabled?: boolean,
 	/**
 	 *  Most-recent-first search terms, newest at index `0`. The cap
 	 *  (currently 20) and dedup/prepend logic are the frontend's
@@ -970,6 +977,10 @@ export type SettingsPatch = {
 	organizeImportsOnSave: boolean | null,
 	fixAllOnSave: boolean | null,
 	editorCodeLensEnabled: boolean | null,
+	editorSemanticHighlighting: boolean | null,
+	editorFormatOnType: boolean | null,
+	editorFormatOnPaste: boolean | null,
+	emmetEnabled: boolean | null,
 	recentSearches: string[] | null,
 };
 
@@ -979,6 +990,93 @@ export type ShellProfile = {
 	path: string,
 	args?: string[],
 };
+
+/**
+ *  One named snippet entry, matching VS Code's `<languageId>.json` /
+ *  `*.code-snippets` schema. `scope` only has meaning inside a
+ *  `.code-snippets` file (a comma-separated `languageId` list); it is kept as
+ *  a plain optional field here and interpreted by the frontend completion
+ *  provider (`docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md`
+ *  §3.3). `isFileTemplate`/`include`/`exclude` from the upstream schema are
+ *  intentionally not modeled — unknown JSON fields are dropped silently by
+ *  serde's default (non-`deny_unknown_fields`) behavior, matching the
+ *  contract's "1차 무시" decision.
+ */
+export type SnippetEntry = SnippetEntry_Serialize | SnippetEntry_Deserialize;
+
+/**
+ *  One named snippet entry, matching VS Code's `<languageId>.json` /
+ *  `*.code-snippets` schema. `scope` only has meaning inside a
+ *  `.code-snippets` file (a comma-separated `languageId` list); it is kept as
+ *  a plain optional field here and interpreted by the frontend completion
+ *  provider (`docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md`
+ *  §3.3). `isFileTemplate`/`include`/`exclude` from the upstream schema are
+ *  intentionally not modeled — unknown JSON fields are dropped silently by
+ *  serde's default (non-`deny_unknown_fields`) behavior, matching the
+ *  contract's "1차 무시" decision.
+ */
+export type SnippetEntry_Deserialize = {
+	prefix: SnippetStringOrList,
+	body: SnippetStringOrList,
+	description?: SnippetStringOrList | null,
+	scope?: string | null,
+};
+
+/**
+ *  One named snippet entry, matching VS Code's `<languageId>.json` /
+ *  `*.code-snippets` schema. `scope` only has meaning inside a
+ *  `.code-snippets` file (a comma-separated `languageId` list); it is kept as
+ *  a plain optional field here and interpreted by the frontend completion
+ *  provider (`docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md`
+ *  §3.3). `isFileTemplate`/`include`/`exclude` from the upstream schema are
+ *  intentionally not modeled — unknown JSON fields are dropped silently by
+ *  serde's default (non-`deny_unknown_fields`) behavior, matching the
+ *  contract's "1차 무시" decision.
+ */
+export type SnippetEntry_Serialize = {
+	prefix: SnippetStringOrList,
+	body: SnippetStringOrList,
+	description?: SnippetStringOrList | null,
+	scope?: string | null,
+};
+
+/**
+ *  One snippet file plus its parsed contents, as returned by `snippet_list`.
+ *  The frontend's completion provider derives the file's `languageId` from
+ *  `file_name` itself (`<languageId>.json` vs. global `*.code-snippets`) —
+ *  see the contract §3.3 — so no separate language field is carried here.
+ */
+export type SnippetFile = SnippetFile_Serialize | SnippetFile_Deserialize;
+
+/**
+ *  One snippet file plus its parsed contents, as returned by `snippet_list`.
+ *  The frontend's completion provider derives the file's `languageId` from
+ *  `file_name` itself (`<languageId>.json` vs. global `*.code-snippets`) —
+ *  see the contract §3.3 — so no separate language field is carried here.
+ */
+export type SnippetFile_Deserialize = {
+	fileName: string,
+	snippets: { [key in string]: SnippetEntry_Deserialize },
+};
+
+/**
+ *  One snippet file plus its parsed contents, as returned by `snippet_list`.
+ *  The frontend's completion provider derives the file's `languageId` from
+ *  `file_name` itself (`<languageId>.json` vs. global `*.code-snippets`) —
+ *  see the contract §3.3 — so no separate language field is carried here.
+ */
+export type SnippetFile_Serialize = {
+	fileName: string,
+	snippets: { [key in string]: SnippetEntry_Serialize },
+};
+
+/**
+ *  A VS Code snippet field that accepts either a single line or an array of
+ *  lines (`prefix`, `body`, `description` in the upstream schema all share
+ *  this shape). `#[serde(untagged)]` picks whichever variant matches the JSON
+ *  value on the wire, so callers don't need a discriminant field.
+ */
+export type SnippetStringOrList = string | string[];
 
 export type SplitDir = "horizontal" | "vertical";
 

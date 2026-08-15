@@ -58,8 +58,14 @@ const FEATURE_CAPABILITY_CHECKS: Record<string, (capabilities: ServerCapabilitie
         capabilities.documentFormattingProvider !== undefined && capabilities.documentFormattingProvider !== false,
     'textDocument/rangeFormatting': (capabilities) =>
         capabilities.documentRangeFormattingProvider !== undefined && capabilities.documentRangeFormattingProvider !== false,
+    'textDocument/onTypeFormatting': (capabilities) => capabilities.documentOnTypeFormattingProvider !== undefined,
     'textDocument/signatureHelp': (capabilities) => capabilities.signatureHelpProvider !== undefined,
     'textDocument/inlayHint': (capabilities) => capabilities.inlayHintProvider !== undefined && capabilities.inlayHintProvider !== false,
+    'textDocument/semanticTokens/full': (capabilities) => isCapabilityEnabled(capabilities.semanticTokensProvider?.full),
+    'textDocument/semanticTokens/full/delta': (capabilities) =>
+        capabilities.semanticTokensProvider !== undefined &&
+        typeof capabilities.semanticTokensProvider.full === 'object' &&
+        capabilities.semanticTokensProvider.full.delta === true,
     'textDocument/documentSymbol': (capabilities) =>
         capabilities.documentSymbolProvider !== undefined && capabilities.documentSymbolProvider !== false,
     'textDocument/documentHighlight': (capabilities) =>

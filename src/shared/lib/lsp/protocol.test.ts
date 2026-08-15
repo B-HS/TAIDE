@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
     JSON_RPC_ERROR_CODE,
+    SEMANTIC_TOKEN_MODIFIERS,
+    SEMANTIC_TOKEN_TYPES,
     SYMBOL_KIND,
     SYMBOL_KIND_VALUE_SET,
     createRequestIdGenerator,
@@ -11,6 +13,10 @@ import {
     isJsonRpcResponse,
     markupContentToString,
 } from '@shared/lib/lsp/protocol'
+
+/** LSP 3.17's `SemanticTokenTypes`/`SemanticTokenModifiers` enums — the standard's fixed sizes. */
+const LSP_STANDARD_SEMANTIC_TOKEN_TYPE_COUNT = 23
+const LSP_STANDARD_SEMANTIC_TOKEN_MODIFIER_COUNT = 10
 
 describe('createRequestIdGenerator', () => {
     test('호출할 때마다 1부터 증가하는 id 를 발급한다', () => {
@@ -109,6 +115,20 @@ describe('SYMBOL_KIND_VALUE_SET', () => {
 
     test('SYMBOL_KIND 의 값에서 유도된다', () => {
         expect(SYMBOL_KIND_VALUE_SET).toEqual(Object.values(SYMBOL_KIND))
+    })
+})
+
+describe('SEMANTIC_TOKEN_TYPES', () => {
+    test('LSP 3.17 표준 23종을 중복 없이 담는다', () => {
+        expect(SEMANTIC_TOKEN_TYPES).toHaveLength(LSP_STANDARD_SEMANTIC_TOKEN_TYPE_COUNT)
+        expect(new Set(SEMANTIC_TOKEN_TYPES).size).toBe(SEMANTIC_TOKEN_TYPES.length)
+    })
+})
+
+describe('SEMANTIC_TOKEN_MODIFIERS', () => {
+    test('LSP 3.17 표준 10종을 중복 없이 담는다', () => {
+        expect(SEMANTIC_TOKEN_MODIFIERS).toHaveLength(LSP_STANDARD_SEMANTIC_TOKEN_MODIFIER_COUNT)
+        expect(new Set(SEMANTIC_TOKEN_MODIFIERS).size).toBe(SEMANTIC_TOKEN_MODIFIERS.length)
     })
 })
 

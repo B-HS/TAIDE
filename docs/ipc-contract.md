@@ -141,6 +141,26 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 `theme_get_current`/`theme_save` 세 커맨드 모두 이 확장된 형태를 주고받는다(자동 생성 타입은
 `bindings.ts`, 상세 스키마는 `docs/theme-system.md` §2.1).
 
+### snippet (Wave F 신설 — `editor.md` §10)
+
+- query: `snippet_list` → `SnippetFile[]`(`{ fileName, snippets: Record<string, SnippetEntry> }`,
+  `SnippetEntry = { prefix, body, description?, scope? }` — `prefix`/`body`/`description` 은
+  `string | string[]`). `paths.snippets_dir()` 아래 `<languageId>.json` + `*.code-snippets` 를
+  스캔하고, 파싱 실패 파일은 스킵 + `log::warn!`(테마 목록과 동일한 견고성 원칙 — 하나가 깨져도
+  나머지는 계속 로드).
+- mutation: `snippet_save(fileName, content)` → `SnippetFile`, `snippet_delete(fileName)`.
+  `fileName` 은 `theme_save` 와 동일한 경로 탈출 방지(`/`·`\`·`..` 거부)에 더해 확장자
+  화이트리스트(`.json`/`.code-snippets`)까지 강제한다 — 리스트 스캔(`snippet_list`)과 같은
+  predicate 를 공유시켜 "저장은 되는데 목록에 안 보이는 파일"이 생기지 않게 하기 위함
+  (`theme_save` 대비 한 단계 더 엄격). `content` 는 JSON 스키마 검증(`SnippetFile.snippets` 형태)
+  후 **재직렬화 없이 원문 그대로** 저장 — 프론트가 조립한 문자열이 그대로 디스크에 남는다.
+- Rust 는 스니펫을 캐시하지 않는다 — 프론트 TanStack Query(`QUERY_KEY.SNIPPET`)가 캐시를 소유하고
+  save/delete 성공 시 invalidate 로 다시 받는다. 파일 워처(외부 편집 즉시 반영)는 1차 제외.
+- `system_open_app_data_path(kind)` 의 `AppDataPathKind` 에 `"snippets"` 추가(아래 7.10 항목 갱신).
+- settings: `editorSemanticHighlighting`(기본 true) · `editorFormatOnType`(기본 false) ·
+  `editorFormatOnPaste`(기본 false) · `emmetEnabled`(기본 true) 필드 4종 추가(전부
+  `SettingsPatch`/`emptySettingsPatch`/sync 동반 — 상세는 `data-model.md`).
+
 ### locale (7.5-H 신설 — `acknowledge/2026-08-06-i18n-and-session-findings.md`)
 
 - query: `locale_list`, `locale_get(localeId)`, `locale_get_current(systemLanguage)`
@@ -249,7 +269,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   **`system_reveal_path` 와 달리 `resolve_within_open_project`(프로젝트 루트 가드)를 거치지 않는다** —
   임의 경로 문자열을 프론트에서 받지 않고 열거값 3종(=앱 데이터 디렉토리 3종)으로 입력 자체를
   고정했으므로 경로 탈출이 애초에 불가능한 설계다. 프론트는 플러그인/테마/로케일 설정 패널의
-  "폴더 열기" 버튼에서 사용한다.
+  "폴더 열기" 버튼에서 사용한다. (Wave F: `"snippets"` 추가 — 4종. 설정 SNIPPETS 섹션의
+  "Open Snippets Folder" 버튼이 사용한다.)
 - git(신설): mutation `git_init(projectId)` — 프로젝트 루트에서 시스템 `git init` 을 실행한다.
   이미 초기화된 저장소에 다시 호출해도 git 자체가 재초기화를 정상 종료(exit 0)로 처리하므로
   에러가 아니라 무해한 동작이다(별도 존재 여부 분기를 두지 않는다). 성공 시 `git:status-changed` /

@@ -13,6 +13,7 @@ pub mod project;
 pub mod remote;
 pub mod search;
 pub mod settings;
+pub mod snippet;
 pub mod sync;
 pub mod system;
 pub mod task;

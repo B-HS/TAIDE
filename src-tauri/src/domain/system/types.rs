@@ -14,6 +14,7 @@ pub enum AppDataPathKind {
     Plugins,
     Themes,
     Locales,
+    Snippets,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

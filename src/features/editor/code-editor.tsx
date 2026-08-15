@@ -34,6 +34,8 @@ export type CodeEditorProps = {
     cursorBlinking: EditorCursorBlinkingStyle
     scrollBeyondLastLine: boolean
     stickyScroll: boolean
+    formatOnType: boolean
+    formatOnPaste: boolean
     aiAutoTabEnabled: boolean
     aiCompletionConfig: AiInlineCompletionConfig | null
     onChange: (value: string) => void
@@ -68,6 +70,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     cursorBlinking,
     scrollBeyondLastLine,
     stickyScroll,
+    formatOnType,
+    formatOnPaste,
     aiAutoTabEnabled,
     aiCompletionConfig,
     onChange,
@@ -112,6 +116,20 @@ export const CodeEditor: FC<CodeEditorProps> = ({
             fontSize: initialFontSizeRef.current,
             glyphMargin: false,
             lineNumbersMinChars: LINE_NUMBERS_MIN_CHARS,
+            /**
+             * Monaco's semantic-highlighting styling pass (`semanticTokensProviderStyling.js`) never
+             * runs unless this is set — the option defaults to `'configuredByTheme'`, and every
+             * `StandaloneTheme` hardcodes `semanticHighlighting: false` (contract §2-2). Set once at
+             * construction and left `true` for the editor's lifetime — `settings.editorSemanticHighlighting`
+             * on/off is instead enforced at the semantic-tokens provider itself (a request-time getter
+             * gate, the `isCodeLensEnabled` precedent), which fires the provider's own `onDidChange`
+             * on toggle (`use-lsp-session.ts`'s `attachLspSession`) so monaco recomputes immediately
+             * without needing this option flipped. (`StandaloneEditor.create` and `.updateOptions` both
+             * resolve through the same `updateConfigurationService` call, so toggling this option via
+             * `updateOptions` *would* work too — TAIDE just doesn't route the setting through it, to
+             * keep one enforcement point instead of two.)
+             */
+            'semanticHighlighting.enabled': true,
         })
         editorRef.current = editor
         onEditorMountRef.current?.(editor)
@@ -174,6 +192,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
             cursorStyle,
             cursorBlinking,
             scrollBeyondLastLine,
+            formatOnType,
+            formatOnPaste,
         })
     }, [
         wordWrap,
@@ -186,6 +206,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         cursorStyle,
         cursorBlinking,
         scrollBeyondLastLine,
+        formatOnType,
+        formatOnPaste,
     ])
 
     useEffect(() => {

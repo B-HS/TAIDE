@@ -125,6 +125,14 @@ mod tests {
     }
 
     #[test]
+    fn gopls는_semantic_tokens_initialization_option을_선언한다() {
+        let specs = servers();
+        let gopls = specs.iter().find(|spec| spec.id == "gopls").expect("gopls spec exists");
+
+        assert_eq!(gopls.initialization_options, Some(serde_json::json!({ "semanticTokens": true })));
+    }
+
+    #[test]
     fn zls_서버_아이디가_반영된다() {
         let specs = servers();
         let ids: Vec<_> = specs.iter().map(|spec| spec.id.as_str()).collect();

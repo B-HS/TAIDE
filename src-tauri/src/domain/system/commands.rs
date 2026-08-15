@@ -233,6 +233,7 @@ pub async fn system_open_app_data_path(state: State<'_, AppState>, kind: AppData
         AppDataPathKind::Plugins => state.paths.plugins_dir(),
         AppDataPathKind::Themes => state.paths.themes_dir(),
         AppDataPathKind::Locales => state.paths.locales_dir(),
+        AppDataPathKind::Snippets => state.paths.snippets_dir(),
     };
     std::fs::create_dir_all(&dir)?;
     tauri_plugin_opener::reveal_item_in_dir(dir).map_err(|error| AppError::Internal(error.to_string()))

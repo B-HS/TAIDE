@@ -289,7 +289,7 @@
             "command": { "kind": "path", "bin": "gopls", "args": [] },
             "rootMarkers": ["go.work", "go.mod"],
             "rootStrategy": "nearestMarker",
-            "initializationOptions": null,
+            "initializationOptions": { "semanticTokens": true },
             "install": {
                 "strategy": "toolchain",
                 "hint": "go install golang.org/x/tools/gopls@latest",

@@ -956,6 +956,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             cursorBlinking={(settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING) as EditorCursorBlinkingStyle}
             scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
             stickyScroll={settings?.editorStickyScrollEnabled ?? true}
+            formatOnType={settings?.editorFormatOnType ?? false}
+            formatOnPaste={settings?.editorFormatOnPaste ?? false}
             aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
             aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}

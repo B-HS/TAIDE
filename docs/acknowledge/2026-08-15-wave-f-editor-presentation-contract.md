@@ -179,3 +179,40 @@
 - 문서: features/editor.md(semantic·포매팅·스니펫·emmet — 서버별 지원표 포함)·ipc-contract(스니펫 3커맨드)·
   data-model(설정 4필드)·tech-stack(emmet-monaco-es 승인)·qa6-checklist Wave F 실기 항목. 갭 분석 §1·§2
   해당 항목 종결 표기.
+
+---
+
+## 6. Phase E 검토 결함 수정 반영 (2026-08-15)
+
+> 검토 wf_97ea3033-c77 — 4렌즈 발견 33건(critical 1·major 9·minor 23) → 적대적 검증에서 critical/major
+> 10건 **전건 confirmed**(3건은 minor 로 강등) → 중복 제거 시 4개 근본 클러스터 + minor 전건 처리.
+> 메인 2차: 핵심 수정 7건 실물 재검증 + `bun run verify` 전체 exit 0 + vite build exit 0.
+
+- **[critical] semantic 테마 rule 의 bare scope append 가 monaco 토큰 트라이를 last-index-wins 로
+  덮어써 번들 테마 11종의 일반 구문 색까지 변화**(§3.1 의 "끝 append 는 안전" 가정이 역매핑(first-wins)만
+  보고 트라이 정방향(last-wins)을 놓침 — 렌즈가 github-dark 등 실데이터로 재현): legend 토큰명과 테마
+  rule scope 를 **`taideSemantic.<token>` 네임스페이스**로 통일(mapping-tables.ts
+  `SEMANTIC_TOKEN_LEGEND_SCOPE_PREFIX`·`toSemanticTokenLegendScope`) — TextMate scope 와 충돌 불가.
+  monaco 의 `[type,...modifiers].join('.')` 매칭·프리픽스 폴백은 그대로 성립. 번들 테마 전량 회귀 테스트 동반.
+- **[major] bootstrap prefetchQuery 는 옵저버를 만들지 않아 gcTime(10분) 후 스니펫 캐시가 GC — completion
+  영구 빈 목록**(3개 렌즈 중복 발견): `QueryObserver(queryClient, snippetListQueryOptions()).subscribe()`
+  앱 수명 구독으로 교체 — invalidate 의 refetchType 'active' 재조회도 정상화.
+- **[major] snippet 파일명 sanitize 가 Windows 드라이브 상대경로(`C:name.json`) 통과**: `':'` 를 금지
+  문자에 추가(`has_unsafe_path_characters` — 플랫폼 무관 순수 문자열 검사, 회귀 테스트 동반).
+- **[major→구현] editorSemanticHighlighting 토글이 다음 편집 전까지 반영 안 됨**: use-lsp-session 에
+  SETTINGS 쿼리 캐시 구독 → 값 변화 시 `triggerSemanticTokensRefresh`. code-editor.tsx 의 사실과 다른
+  JSDoc(updateOptions 재설정 불가) 정정.
+- **[minor 강등·수정] delta edits 정순 적용 → monaco 참조 구현과 동일한 역순 적용**으로 정정.
+- **[minor 수정 요지]**: ra/clangd 실 legend 재대조(존재하지 않는 `closure` 제거,
+  procMacro·invalidEscapeSequence·const·static·punctuation·concept 추가) · SEMANTIC_TOKEN_TYPE_MAP 조회를
+  `Object.hasOwn` 가드 함수로 교체(프로토타입 오염 방지) · THIRD_PARTY_LICENSES 의 emmet-monaco-es
+  출처·저작권자 오기 정정(troy351) · 스니펫 저장 오류를 invalidFileName/parseError 로 분리 + 다이얼로그
+  사전 검증(locale 4곳 추가) · description 콤마 분해 제거(개행 의미론, prefix 만 콤마) · 스니펫 이름 중복
+  무음 손실 차단 · snippet-file.ts 로 중복 상수·predicate 통합 · 갭 분석 §1·§2·backlog 종결 표기.
+- **기각 1항목**: isFileTemplate·include/exclude 소실 지적은 §4 보류 결정의 의도된 설계(문서화 확인).
+- **보류 1건**: emmet-monaco-es 내부 언어 테이블에 javascriptreact/typescriptreact/heex 별칭이 없어 이 3개
+  언어는 trigger character 자동 발동이 안 됨(수동 ⌘Space·quickSuggestions 는 정상) — 추가 private API
+  리치인이 필요해 보류, features/editor.md·qa6 에 알려진 한계로 명시.
+- 구현 자진 신고 10건 판정 결과: 확장자 화이트리스트·description 타입 확장·heex 포함·QUERY_KEY 소유 밖
+  추가·prop required 통일·prefetch 보강(→QueryObserver 로 재수정)은 타당 유지, ra 별칭 5종 중 `closure` 만
+  실 legend 부재로 제거, gopls null configuration 상호작용은 코드 수준 무해 판정(실기 확증은 qa6 이월).

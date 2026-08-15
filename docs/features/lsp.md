@@ -70,12 +70,15 @@
   declaration(4종은 `definition.ts` 의 `createLocationRequestAdapter` 팩토리 공용 — capability
   술어·LSP 메서드·monaco 등록 함수만 주입), references, documentHighlight, documentSymbol,
   rename(+prepare, WorkspaceEdit 적용기로 통일 — 미열린 파일 rename 가능), formatting
-  (document/range), **codeAction**(+resolve, on-save 겸용), **codeLens**(+resolve,
-  `editorCodeLensEnabled` 설정 게이트), inlayHints, foldingRange(0-based↔1-based 변환,
-  `FOLDING_RANGE_CLIENT_LIMIT`=5000 클라 측 절삭), selectionRange. semanticTokens·documentLink 는
-  2차 잔존. `LANGUAGE_ADAPTER_REGISTRARS` 배열에 표준 3-인자(`monaco, client, languageId`) 어댑터가
-  모두 등록되고, `serverId` 가 추가로 필요한 diagnostics·codeAction 과 `isCodeLensEnabled` 게터가
-  필요한 codeLens 는 `ensureLanguageRegistered` 가 별도로 호출한다.
+  (document/**range**(Wave F 로 실배선 — 이전엔 capability 게이트만 있고 등록 호출자가 없는 dead
+  entry 였다)/**onTypeFormatting**(Wave F 신설)), **codeAction**(+resolve, on-save 겸용),
+  **codeLens**(+resolve, `editorCodeLensEnabled` 설정 게이트), **semanticTokens**(Wave F 신설,
+  full+delta 재인코딩 — `editor.md` §8), inlayHints, foldingRange(0-based↔1-based 변환,
+  `FOLDING_RANGE_CLIENT_LIMIT`=5000 클라 측 절삭), selectionRange. documentLink 는 2차 잔존.
+  `LANGUAGE_ADAPTER_REGISTRARS` 배열에 표준 3-인자(`monaco, client, languageId`) 어댑터가 모두
+  등록되고, `serverId` 가 추가로 필요한 diagnostics·codeAction 과 `isCodeLensEnabled`/
+  `isSemanticHighlightingEnabled` 게터가 필요한 codeLens·semanticTokens 는 `ensureLanguageRegistered`
+  가 별도로 호출한다.
 - **WorkspaceEdit 적용기**(`workspace-edit-applier.ts`): `changes`/`documentChanges`
   (TextDocumentEdit·CreateFile·RenameFile·DeleteFile)를 배열 순서대로 적용. 열린 모델은
   `pushEditOperations`, 미열린 파일은 file IPC 로 읽기→치환→저장. monaco 표준
@@ -147,4 +150,4 @@
 
 | 1차 | 2차 |
 |-----|-----|
-| vtsls·rust-analyzer·basedpyright(+ruff)·marksman 기동/감지, 진단·completion·hover·definition/implementation/typeDefinition/declaration·references·rename·formatting·signatureHelp·inlayHints·documentSymbol·selectionRange·codeAction(+resolve, on-save 포함)·codeLens·foldingRange | semanticTokens·documentLink·call hierarchy·workspace symbol(⌘T)·TS7 백엔드 옵션·다운로드 매니저·codeLens runSingle/debugSingle·workspace/configuration 서버별 매핑 |
+| vtsls·rust-analyzer·basedpyright(+ruff)·marksman 기동/감지, 진단·completion·hover·definition/implementation/typeDefinition/declaration·references·rename·formatting(document/range/onType)·signatureHelp·inlayHints·documentSymbol·selectionRange·codeAction(+resolve, on-save 포함)·codeLens·foldingRange·**semanticTokens(full+delta, Wave F)** | documentLink·call hierarchy·workspace symbol(⌘T)·TS7 백엔드 옵션·다운로드 매니저·codeLens runSingle/debugSingle·workspace/configuration 서버별 매핑·semanticTokens range(뷰포트) |

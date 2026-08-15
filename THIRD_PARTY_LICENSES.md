@@ -1,11 +1,14 @@
 # Third-Party Licenses
 
-This file covers three kinds of third-party code TAIDE distributes notices for:
+This file covers four kinds of third-party code TAIDE distributes notices for:
 bundled color themes (shipped inside the app), bundled TextMate grammars used
-for syntax highlighting (shipped inside the app via the `shiki` package), and
+for syntax highlighting (shipped inside the app via the `shiki` package),
 language servers that the in-app LSP installer downloads on demand (not
 bundled — fetched from the upstream project's own release infrastructure at
-install time, and cached under the user's app-data directory).
+install time, and cached under the user's app-data directory), and a small
+number of bundled npm libraries whose non-trivial internal licensing (a
+transitive dependency, or non-obvious authorship) warrants its own notice
+rather than relying on `package.json`/`bun.lock` alone.
 
 ## Bundled Themes
 
@@ -448,3 +451,23 @@ redistributes those.
 - Copyright (c) JetBrains s.r.o.
 - Note: the project is in alpha (per upstream README). The settings UI should
   surface this to users before they trigger an install.
+
+---
+
+## Bundled npm Libraries
+
+### emmet-monaco-es
+
+- Bundled as: an npm runtime dependency (`emmet-monaco-es` in `package.json`),
+  compiled into the app bundle — not downloaded on demand like the language
+  servers above.
+- Source: https://github.com/troy351/emmet-monaco-es
+- License: MIT (see `## Full MIT License Text` above)
+- Copyright (c) 2017 Troy (`troy351`) — the package's own `LICENSE` carries no
+  name (`Copyright (c) 2017` only); attributed here from `package.json`'s
+  `author`/`repository` fields.
+- Note: wires monaco's editor to
+  [Emmet](https://github.com/emmetio/emmet)'s abbreviation-expansion engine
+  (`docs/features/editor.md` — Emmet). `emmet-monaco-es`'s own `emmet`
+  transitive dependency is also MIT licensed.
+- Copyright (c) Sergey Chikuyonok (`emmet`)

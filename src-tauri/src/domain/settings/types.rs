@@ -115,6 +115,14 @@ pub struct Settings {
     pub fix_all_on_save: bool,
     #[serde(default = "default_true")]
     pub editor_code_lens_enabled: bool,
+    #[serde(default = "default_true")]
+    pub editor_semantic_highlighting: bool,
+    #[serde(default)]
+    pub editor_format_on_type: bool,
+    #[serde(default)]
+    pub editor_format_on_paste: bool,
+    #[serde(default = "default_true")]
+    pub emmet_enabled: bool,
     /// Most-recent-first search terms, newest at index `0`. The cap
     /// (currently 20) and dedup/prepend logic are the frontend's
     /// responsibility (`entities/search`) — this field is a plain passthrough,
@@ -229,6 +237,10 @@ impl Default for Settings {
             organize_imports_on_save: false,
             fix_all_on_save: false,
             editor_code_lens_enabled: default_true(),
+            editor_semantic_highlighting: default_true(),
+            editor_format_on_type: false,
+            editor_format_on_paste: false,
+            emmet_enabled: default_true(),
             recent_searches: Vec::new(),
         }
     }

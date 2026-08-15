@@ -124,6 +124,10 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         organize_imports_on_save: Some(settings.organize_imports_on_save),
         fix_all_on_save: Some(settings.fix_all_on_save),
         editor_code_lens_enabled: Some(settings.editor_code_lens_enabled),
+        editor_semantic_highlighting: Some(settings.editor_semantic_highlighting),
+        editor_format_on_type: Some(settings.editor_format_on_type),
+        editor_format_on_paste: Some(settings.editor_format_on_paste),
+        emmet_enabled: Some(settings.emmet_enabled),
         recent_searches: Some(settings.recent_searches.clone()),
     })
 }

@@ -49,6 +49,10 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     organizeImportsOnSave: null,
     fixAllOnSave: null,
     editorCodeLensEnabled: null,
+    editorSemanticHighlighting: null,
+    editorFormatOnType: null,
+    editorFormatOnPaste: null,
+    emmetEnabled: null,
     recentSearches: null,
 })
 

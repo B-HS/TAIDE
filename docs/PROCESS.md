@@ -245,8 +245,19 @@
           - [x] 계약 확정 (`2026-08-15-wave-f-editor-presentation-contract.md`, 결정 4건 — ①풀 패키지+
                 emmet-monaco-es 5.7.0 승인 ②Semantic **delta 포함**(추천안+확장) ③포매팅 둘 다+어댑터
                 2종 ④스니펫 추천 패키지). **신규 승인 의존성: emmet-monaco-es(+전이 emmet)**
-          - [ ] 구현 (sonnet+xhigh — Rust 단독 소유·프론트 파일 소유 분리 병렬)
-          - [ ] 4렌즈 검토(opus+xhigh) → 적대적 검증(opus+high) → 수정 → 메인 2차 → 커밋
+          - [x] 구현 완료 (wf_583cce34-8a3, 6에이전트: S Rust 스파인∥B0 LSP 코어 → C1 semantic
+                재인코딩·delta∥C2 포매팅 어댑터 2종∥C3 스니펫·Emmet → D 통합·문서). 전체 verify
+                체인 그린(프론트 928·Rust 765+6+17·vite build). D 가 선행 openIssues 3건 근본 수정
+                (CodeEditorProps required 통일·AppDataPathKind::Snippets·snippetsManage locale).
+                검토 이월 항목 10건 명시(ra 별칭 소스 미대조·확장자 화이트리스트·prefetch 추가 등)
+          - [x] 검토 완료(wf_97ea3033-c77, 15에이전트): 4렌즈 발견 33건 → critical/major 10건 적대적
+                검증 **전건 confirmed**(3건 minor 강등) → 4개 근본 클러스터 + minor 전건 수정.
+                **critical: semantic 테마 rule bare scope 가 monaco 트라이 last-wins 덮어쓰기로 번들
+                테마 11종 실색 변화** → `taideSemantic.<token>` 네임스페이스로 재설계. major: prefetch
+                옵저버 부재 gcTime GC(→QueryObserver 구독)·Windows 드라이브 경로 탈출(':' 금지)·설정
+                토글 미반영(캐시 구독→refresh). 상세: 계약 §6. 보류 1건(emmet jsx/tsx/heex 트리거 —
+                문서화). 메인 2차: 수정 7건 실물 재검증 + verify 전체 exit 0(937/766+6+17) + vite
+                build exit 0. 커밋
     - [ ] c-G ~ c-I. 순차 진행 (AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

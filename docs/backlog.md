@@ -15,7 +15,7 @@
 |------|------|------------------|
 | **멀티 윈도우** | Move/Copy into New Window, 새 OS 창으로 탭 분리 | 요구 7번과 탭 context menu 4항목(Move/Copy into New Window, Reveal in Explorer View 일부)의 전제. `capabilities/main.json` 이 단일 `main` 창 전제라 권한 구조부터 손봐야 한다. **규모가 크고 다른 기능의 전제가 아니라서 뒤로 미뤘다** |
 | **Zen / 포커스 모드** | 사이드바·탭바·상태바 숨김 토글 | layout 도메인에 표시 상태 필드 추가 필요 |
-| **스니펫** | 사용자 정의 코드 조각 + Monaco completion 기여 | LSP completion 어댑터와 우선순위 조정 필요 |
+| ~~스니펫~~ | 사용자 정의 코드 조각 + Monaco completion 기여 | **구현 완료 확인**(2026-08-15 Wave F — `entities/snippet`·`widgets/snippet-editor`·`docs/features/editor.md` §10). 항목 종결 |
 | **작업 러너 패널** | `package.json` scripts / `Cargo.toml` / Makefile 감지 후 실행 | 터미널 세션 재사용. pty 도메인 위에 얹으면 된다 |
 | **git 충돌 해결 UI** | 3-way merge 뷰 | Monaco DiffEditor 는 있으나 3-way 는 별개. `git.md` 2차 범위 |
 | ~~임의 두 파일 비교~~ | 파일 선택 → diff 탭 | **구현 완료 확인**(2026-08-13 갭 분석 — `src/widgets/explorer/explorer-container.tsx:254`). 항목 종결 |

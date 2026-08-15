@@ -153,3 +153,17 @@
 **기각(캠페인)**: `toml` 크레이트 — 태스크 러너의 Cargo.toml 정밀 파싱(alias·[[bin]])용으로 검토했으나,
 Cargo 태스크는 고정 명령 세트(build/test/run/check/clippy)로 P0 를 충족해 신규 의존성을 회피했다.
 alias·bin 정밀 파싱은 backlog. `argon2` 도 미승인 유지(Remote 비밀번호는 sha256+salt).
+
+## Wave F(에디터 표현)에서 추가된 의존성 (2026-08-15)
+
+| 패키지 | 버전 | 용도 | 선정 이유 |
+|--------|------|------|-----------|
+| `emmet-monaco-es` | 5.7.0 | Emmet 약어 확장(HTML/CSS/JSX, `features/editor.md` §11) | monaco 에는 Emmet 통합이 내장돼 있지 않다(grep 0 건 확인). `@vscode/emmet-helper` 자작·emmet 코어 최소 구현은 유지보수 비용 대비 이득이 낮아 기각 — 이미 monaco 연동을 캡슐화한 라이브러리를 채택했다. 전이 의존 `emmet` ^2.4.11 포함 MIT, 최소 번들 96KB, CSP 적합(dist 에 `eval`/`new Function` 0건 확인) |
+
+- **비공개 API 리치인**: shiki(`setTokensProvider`) 토큰화 환경에서 이 라이브러리를 쓰려면
+  `{ tokenizer: 'standard' }` 옵션이 필수이고, 그 경로가 `model.tokenization.getLineTokens`/
+  `getStandardTokenType` 비공개 monaco API 를 사용한다 — 근거는 이 파일이 아니라
+  `docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md` §2-8/§3.4 이 기록한다
+  (`monaco-command-service-deep-import.md` 선례와 같은 범주).
+- 라이선스 고지: `THIRD_PARTY_LICENSES.md` "Bundled npm Libraries" 섹션(`emmet-monaco-es` + 전이
+  의존 `emmet`, 둘 다 MIT).

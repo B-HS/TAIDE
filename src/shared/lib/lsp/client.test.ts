@@ -187,6 +187,12 @@ describe('createLspClient — 확장 capability 게이트', () => {
         { method: 'textDocument/declaration', capabilities: { declarationProvider: true } },
         { method: 'workspace/symbol', capabilities: { workspaceSymbolProvider: true } },
         { method: 'workspace/executeCommand', capabilities: { executeCommandProvider: {} } },
+        { method: 'textDocument/rangeFormatting', capabilities: { documentRangeFormattingProvider: true } },
+        { method: 'textDocument/onTypeFormatting', capabilities: { documentOnTypeFormattingProvider: { firstTriggerCharacter: ';' } } },
+        {
+            method: 'textDocument/semanticTokens/full',
+            capabilities: { semanticTokensProvider: { legend: { tokenTypes: [], tokenModifiers: [] }, full: true } },
+        },
     ]
 
     for (const { method, capabilities } of capabilityCases) {
@@ -224,6 +230,38 @@ describe('createLspClient — 확장 capability 게이트', () => {
         await initializeWithCapabilities(client, sent, { codeActionProvider: { resolveProvider: true } })
 
         client.request('codeAction/resolve', {})
+        expect(sent).toHaveLength(3)
+    })
+
+    test('textDocument/semanticTokens/full/delta 는 semanticTokensProvider.full 이 boolean 이면 게이팅된다', async () => {
+        const { sent, client } = createHarness()
+        await initializeWithCapabilities(client, sent, {
+            semanticTokensProvider: { legend: { tokenTypes: [], tokenModifiers: [] }, full: true },
+        })
+
+        const pending = client.request('textDocument/semanticTokens/full/delta', {})
+        expect(sent).toHaveLength(2)
+        await expect(pending).rejects.toBeInstanceOf(LspCapabilityNotSupportedError)
+    })
+
+    test('textDocument/semanticTokens/full/delta 는 full.delta 가 true 가 아니면 게이팅된다', async () => {
+        const { sent, client } = createHarness()
+        await initializeWithCapabilities(client, sent, {
+            semanticTokensProvider: { legend: { tokenTypes: [], tokenModifiers: [] }, full: { delta: false } },
+        })
+
+        const pending = client.request('textDocument/semanticTokens/full/delta', {})
+        expect(sent).toHaveLength(2)
+        await expect(pending).rejects.toBeInstanceOf(LspCapabilityNotSupportedError)
+    })
+
+    test('textDocument/semanticTokens/full/delta 는 full.delta 가 true 면 전송된다', async () => {
+        const { sent, client } = createHarness()
+        await initializeWithCapabilities(client, sent, {
+            semanticTokensProvider: { legend: { tokenTypes: [], tokenModifiers: [] }, full: { delta: true } },
+        })
+
+        client.request('textDocument/semanticTokens/full/delta', {})
         expect(sent).toHaveLength(3)
     })
 })

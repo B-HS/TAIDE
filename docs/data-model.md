@@ -23,7 +23,10 @@ Tauri path API 의 앱 데이터 디렉토리(`app_data_dir`, macOS: `~/Library/
 TAIDE/
 ├── settings.json            앱 전역 설정 (테마 선택, 폰트, 셸 오버라이드, 키바인딩 오버라이드,
 │                            LSP: organizeImportsOnSave·fixAllOnSave(기본 false)·
-│                            editorCodeLensEnabled(기본 true) — Wave A, `features/lsp.md` §3)
+│                            editorCodeLensEnabled(기본 true) — Wave A, `features/lsp.md` §3.
+│                            editorSemanticHighlighting(기본 true)·editorFormatOnType(기본 false)·
+│                            editorFormatOnPaste(기본 false)·emmetEnabled(기본 true) — Wave F,
+│                            `features/editor.md` §8/§9/§11)
 ├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트, 윈도우 크기/위치
 ├── projects/
 │   └── {projectId}/
@@ -31,6 +34,8 @@ TAIDE/
 │       ├── layout.json      탭·스플릿 트리, 탭 순서, 활성 탭, 에디터별 viewState(커서·스크롤)
 │       └── buffers/         미저장(dirty) 버퍼 미러 — 파일 경로 해시별 스냅샷
 ├── themes/                  사용자 커스텀 테마 (*.json) — theme-system.md 스키마
+├── snippets/                사용자 스니펫 (`<languageId>.json` + `*.code-snippets`, VS Code 호환
+│                            포맷) — Wave F, `features/editor.md` §10
 ├── plugins/                 설치된 플러그인 (features/plugins.md)
 └── logs/                    앱 로그 (회전)
 ```

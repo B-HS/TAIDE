@@ -23,6 +23,10 @@ impl AppPaths {
         self.data_dir.join("themes")
     }
 
+    pub fn snippets_dir(&self) -> PathBuf {
+        self.data_dir.join("snippets")
+    }
+
     pub fn locales_dir(&self) -> PathBuf {
         self.data_dir.join("locales")
     }
@@ -82,6 +86,12 @@ mod tests {
     fn prompts_디렉토리는_data_dir_하위에_위치한다() {
         let paths = AppPaths::new(PathBuf::from("/data"));
         assert_eq!(paths.prompts_dir(), PathBuf::from("/data/prompts"));
+    }
+
+    #[test]
+    fn snippets_디렉토리는_data_dir_하위에_위치한다() {
+        let paths = AppPaths::new(PathBuf::from("/data"));
+        assert_eq!(paths.snippets_dir(), PathBuf::from("/data/snippets"));
     }
 
     #[test]

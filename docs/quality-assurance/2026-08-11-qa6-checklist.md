@@ -274,3 +274,66 @@
       현재 줄이 대신 실행되는가
 - [ ] (회귀) 기존 터미널 기능(스크롤백 복원·flow control·파일 링크·폰트 크기·검색·복사/붙여넣기)이
       이번 변경 후에도 정상 동작하는가
+
+## Wave F — 에디터 표현 (계약: docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md)
+
+> Semantic Tokens·Format on Type/Paste 는 Rust(.rs, rust-analyzer)·TypeScript(.ts, vtsls)·Go
+> (.go, gopls) 각 1파일에서 교차 확인(서버별 지원 차이가 크다 — `features/editor.md` §8/§9 표
+> 참고). 스니펫·Emmet 은 언어 무관하게 1회 확인으로 충분하다.
+
+- [ ] (semantic 색 on/off) 설정 EDITOR 섹션의 "Semantic Highlighting" 토글이 기본 켜져 있는가.
+      .rs 파일에서 로컬 변수·매개변수·타입 등이 syntax 색과 구분되는 semantic 색으로 보이는가
+      (워시아웃 없음 — 매핑 안 되는 토큰이 기본 전경색으로 덮이지 않는가). 토글을 끄면 편집 없이도
+      즉시 semantic 색이 사라지고 기존 syntax 색만 남는가(재등록 없이 반영, onDidChange 발화로
+      즉시 재계산 — 2026-08-15 검토에서 "다음 편집까지 반영 안 됨" 회귀 수정), 다시 켜면 즉시
+      다시 나타나는가
+- [ ] (일반 구문 색 워시아웃 없음) 여러 번들 테마(예: github-dark·vitesse-dark·vscode-dark-plus)로
+      바꿔가며 .ts/.rs 파일을 열어, semantic highlighting 이 꺼져 있어도 일반 구문 강조(변수·
+      키워드·문자열·주석) 색이 테마 고유 색과 일치하는가(semantic rule append 가 실제 구문 색을
+      바꾸던 회귀가 2026-08-15 검토에서 수정됨 — 특히 github-dark 의 변수 주황색, vitesse-dark 의
+      주석 색 확인)
+- [ ] (semantic delta) .rs 파일을 열어 둔 채 일부만 편집했을 때도 편집과 무관한 나머지 줄의
+      semantic 색이 깜빡이거나 사라지지 않는가(delta 재인코딩 정합성)
+- [ ] (semantic Rust) .rs 에서 self·라이프타임·매크로 호출 등 rust-analyzer 특유 토큰이 합리적인
+      색으로(최소한 어색한 미매핑 색 없이) 보이는가
+- [ ] (semantic TypeScript) .ts 에서 semantic 색이 정상 표시되는가(vtsls, delta 미지원 — 매 편집마다
+      전체 재요청되어도 깜빡임 외의 오류가 없는가)
+- [ ] (semantic Go) .go 파일에서 semantic 색이 표시되는가(gopls 는 매니페스트
+      `initializationOptions.semanticTokens: true` 로 활성화 — 기본값 그대로면 무동작이었을 항목).
+      표시되지 않는다면 "조용한 0토큰"(계약 §3.1 마지막 항목) 재현 여부를 보고
+- [ ] (format on type) 설정에서 "Format on Type" 켠 뒤 .rs 파일에서 `.`·`=`·`{` 등 트리거 문자
+      입력 시 자동 포매팅이 즉시 적용되는가(rust-analyzer). .go 파일에서는 트리거가 없으므로
+      아무 일도 일어나지 않는 것이 정상인가(gopls 미지원)
+- [ ] (format on paste) 설정에서 "Format on Paste" 켠 뒤 들여쓰기가 흐트러진 코드를 .rs/.ts 파일에
+      붙여넣었을 때 자동으로 재포맷되는가. .go 파일에서는 rangeFormatting provider 자체가
+      게이팅되어 아무 일도 일어나지 않는가(gopls 미지원 — 알려진 한계)
+- [ ] (스니펫 생성→완성 노출→삽입) 설정 SNIPPETS 섹션 "Manage Snippets" 진입 → 새 스니펫 파일
+      생성(특정 언어 또는 전역) → prefix/body 입력 후 저장 → 설정 화면을 나가서 해당 언어
+      파일에서 그 prefix 를 타이핑하면 completion 목록에 Snippet 항목으로 뜨는가 → 선택 시
+      body 가 탭스톱(`$1`, `${1:default}`)과 함께 정상 삽입되는가
+- [ ] (스니펫 completion 즉시성) TAIDE 를 재시작한 뒤(설정 화면을 한 번도 열지 않은 새 세션)
+      기존에 저장해 둔 스니펫이 첫 파일을 연 순간부터 completion 에 뜨는가(부트스트랩
+      `QueryObserver` 구독 확인 — 이 항목이 실패하면 "설정을 먼저 열어야만 동작"하는 회귀)
+- [ ] (스니펫 completion 10분 뒤 지속성) 설정 화면을 한 번도 열지 않은 채 10분(전역 `gcTime`)
+      이상 기다린 뒤에도 같은 prefix 로 completion 이 계속 뜨는가(옵저버 없는 `prefetchQuery` 만
+      쓰던 시절엔 GC 로 캐시가 비어 이 시점부터 영구히 빈 목록이 되는 회귀가 있었다 —
+      2026-08-15 검토에서 발견·수정)
+- [ ] (스니펫 삭제) 저장한 스니펫/스니펫 파일을 삭제하면 completion 목록에서도 사라지는가
+- [ ] (스니펫 파일명 검증) 새 스니펫 파일 생성 시 `.json`/`.code-snippets` 외 확장자나 `/`·`\`·
+      `..`·`:` 가 포함된 이름이 다이얼로그 단계에서 확인 버튼 비활성화로 막히는가(`:` 는
+      Windows 드라이브 상대경로 탈출 방지 — 2026-08-15 검토에서 추가), 우회해 저장 요청을
+      보내면 "파일 이름" 관련 에러 메시지가 뜨는가(JSON 오류 메시지와 구분되는가)
+- [ ] (Open Snippets Folder) 설정 SNIPPETS 섹션의 "Open Snippets Folder" 버튼이 Finder 에서
+      `snippets/` 디렉토리를 여는가(존재하지 않으면 생성 후 열기)
+- [ ] (emmet html) .html 파일에서 `div.container>ul>li*3` 같은 Emmet 약어를 입력하면 completion
+      목록에 확장 결과가 뜨고, 선택(Tab/Enter) 시 마크업으로 확장되는가
+- [ ] (emmet css) .css/.scss 파일에서 `m10-20-30-40` 같은 약어가 `margin: 10px 20px 30px 40px;`
+      로 확장되는가
+- [ ] (emmet jsx) .tsx 파일에서 HTML 계열 약어가 JSX 로 확장되는가(className 등 JSX 속성명 사용).
+      알려진 한계: `}`/`>`/`*` 등 비-단어 문자로 끝나는 약어는 .tsx/.jsx/.heex 에서 자동으로
+      제안이 뜨지 않을 수 있다(`emmet-monaco-es` 의 트리거 문자 테이블에 이 언어들의 별칭이
+      없음 — `features/editor.md` §11) — `⌃Space` 로 수동 호출하면 정상 확장되는지만 확인
+- [ ] (emmet 토글) 설정에서 "Emmet Abbreviations" 를 끄면 위 확장 completion 이 더 이상 뜨지
+      않고, 다시 켜면 재시작 없이 다시 뜨는가(dispose/재등록 확인)
+- [ ] (회귀) 기존 LSP 기능(자동완성·hover·정의 이동·rename·formatting·codeAction·codeLens·
+      진단)이 이번 변경 후에도 정상 동작하는가
