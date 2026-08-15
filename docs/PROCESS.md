@@ -221,7 +221,13 @@
     - **문서 부채(캠페인 누적)**: Wave D 계약 §5 문서 갱신(features·ipc-contract·data-model·
       tech-stack `ignore`·qa6-checklist) 유예. Wave B 도 일부 유예 가능성. → 전문 QA(d) 착수 전
       문서화 워크플로로 일괄 정리 예정
-    - [ ] c-E ~ c-I. 순차 진행 (터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
+    - [ ] c-E. Wave E — 터미널·태스크(OSC133 셸 통합·태스크 러너·Run Selected Text). 정찰
+          (wf_a5ff7069-171) 축0 터미널·축1 태스크 완료, 축2 OSC133 웹 리서치 2회 실패 → 기존
+          `docs/research/xterm-pty.md §8`(셸 rc 주입 설계 완비) + xterm 6.0 API 실측으로 대체.
+          계약 확정(`2026-08-15-wave-e-terminal-tasks-contract.md`, 결정 3건 추천: OSC133 자동 주입
+          +opt-out·순수 133/⌘↑↓·태스크 Rust 감지+pty 실행(toml 크레이트 회피, 고정 명령 세트)·
+          Run Selected 포커스 터미널+현재 줄 폴백). 구현 A(백엔드)→B(프론트 병렬 2)→검토 진행
+    - [ ] c-F ~ c-I. 순차 진행 (에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
