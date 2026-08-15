@@ -73,6 +73,10 @@ export const QUERY_KEY = {
         PROFILES: ['terminal', 'profiles'] as const,
         SESSIONS: (projectId: string) => ['terminal', 'sessions', projectId] as const,
     },
+    TASK: {
+        ALL: ['task'] as const,
+        LIST: (projectId: ProjectId) => ['task', 'list', projectId] as const,
+    },
     FONT: {
         ALL: ['font'] as const,
         LIST: ['font', 'list'] as const,

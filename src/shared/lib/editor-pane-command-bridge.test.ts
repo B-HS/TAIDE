@@ -43,4 +43,28 @@ describe('editorPaneCommandBridge', () => {
         expect(first).toBe(1)
         expect(second).toBe(1)
     })
+
+    test('run-selected-text-in-terminal 커맨드는 페이로드 없이 그대로 전달된다', () => {
+        let received: unknown
+        const unsubscribe = subscribeEditorPaneCommand((command) => {
+            received = command
+        })
+
+        requestEditorPaneCommand({ type: 'run-selected-text-in-terminal' })
+        unsubscribe()
+
+        expect(received).toEqual({ type: 'run-selected-text-in-terminal' })
+    })
+
+    test('run-in-terminal 커맨드는 text·cwd 페이로드를 그대로 전달한다', () => {
+        let received: unknown
+        const unsubscribe = subscribeEditorPaneCommand((command) => {
+            received = command
+        })
+
+        requestEditorPaneCommand({ type: 'run-in-terminal', text: 'npm run build', cwd: '/repo' })
+        unsubscribe()
+
+        expect(received).toEqual({ type: 'run-in-terminal', text: 'npm run build', cwd: '/repo' })
+    })
 })

@@ -244,3 +244,33 @@
       documentHighlight·selectionRange·inlayHints)이 이번 변경 후에도 정상 동작하는가
 - [ ] (세션 재사용) 같은 프로젝트에서 여러 언어 파일을 오가도 CodeLens/CodeAction/이동 계열이
       중복 등록 징후(같은 액션이 목록에 2번 뜨는 등) 없이 정상 동작하는가
+
+## Wave E — 터미널·태스크 (계약: docs/acknowledge/2026-08-15-wave-e-terminal-tasks-contract.md)
+
+> zsh 를 기본 셸로 우선 확인(macOS 기본값). bash·fish 는 `shell_profiles` 로 프로젝트별 오버라이드
+> 후 교차 확인. 셸 통합은 새로 연 터미널 탭에서만 적용된다(이미 열린 세션은 재주입 안 됨).
+
+- [ ] (zsh 셸 통합) 새 터미널 탭에서 `echo $PATH`·`echo $HOMEBREW_PREFIX`(또는 `.zshenv`/`.zprofile`
+      에 심어둔 커스텀 env)가 일반 터미널.app 과 동일하게 나오는가 — Homebrew 기본 설치처럼
+      `~/.zprofile` 에 `eval "$(brew shellenv)"` 가 있는 환경에서 `brew`·`/opt/homebrew/bin` 경로가
+      살아있는가
+- [ ] (zsh 명령 블록) 명령 실행 후 좌측 거터에 색 막대(성공=success 색, 실패=failure 색)가 붙는가,
+      `⌘↑`/`⌘↓` 로 이전/다음 명령 시작 줄로 스크롤되는가
+- [ ] (zsh 사용자 rc 무결성) 기존에 쓰던 `.zshrc`/`.zshenv`/`.zprofile` 의 커스텀 프롬프트·alias·
+      함수가 TAIDE 터미널에서도 전부 그대로 동작하는가(깨지거나 사라지는 것 없어야 함)
+- [ ] (bash 셸 통합) 프로젝트 셸을 bash 로 오버라이드한 새 터미널 탭에서 명령 블록 데코가
+      뜨는가. macOS 기본 bash(3.2) 사용 시 exit code 배지(D 이벤트)는 정상, 명령 실행 시작 시점
+      마킹(C, output-start)은 뜨지 않는 것이 **알려진 한계**임을 인지(정오표 §4 참고)
+- [ ] (fish 셸 통합) fish 4.0+ 환경에서 별도 주입 없이도 명령 블록 데코가 뜨는가(네이티브 지원)
+- [ ] (opt-out) `TAIDE_SHELL_INTEGRATION=1` 을 미리 export 한 뒤 TAIDE 를 실행하면 새 터미널
+      탭에서 명령 블록 데코가 전혀 뜨지 않는가(주입 스킵 확인)
+- [ ] (Run Task) 팔레트에서 "Run Task" 실행 → package.json scripts·Makefile 타겟·(Cargo 프로젝트면)
+      `cargo build/test/run/check/clippy` 5종이 목록에 뜨는가. 선택 시 포커스된 터미널(없으면 신규
+      탭)에서 올바른 명령이 실행되는가
+- [ ] (Run Task 소스 배지) npm/make/cargo 소스 라벨이 항목별로 올바르게 표시되는가
+- [ ] (Run Selected Text) 에디터에서 텍스트를 선택한 뒤 팔레트/컨텍스트 메뉴로 "Run Selected Text
+      in Terminal" 실행 → 포커스 터미널(없으면 신규 탭)에 선택 텍스트가 개행과 함께 입력·실행되는가
+- [ ] (Run Selected Text 폴백) 아무것도 선택하지 않은 상태로 같은 커맨드를 실행하면 커서가 있는
+      현재 줄이 대신 실행되는가
+- [ ] (회귀) 기존 터미널 기능(스크롤백 복원·flow control·파일 링크·폰트 크기·검색·복사/붙여넣기)이
+      이번 변경 후에도 정상 동작하는가

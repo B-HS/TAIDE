@@ -196,6 +196,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::terminal::commands::terminal_sessions,
             domain::terminal::commands::shell_profiles,
             domain::terminal::commands::resolve_terminal_path,
+            domain::task::commands::detect_tasks,
             domain::font::commands::font_list,
             domain::locale::commands::locale_list,
             domain::locale::commands::locale_get,

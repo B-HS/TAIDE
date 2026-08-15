@@ -681,6 +681,46 @@ term.parser.registerOscHandler(133, (data) => {
 
 블록 기반 UX(명령 단위 접기/복사/재실행, exit code 배지, 이전/다음 명령 점프)는 이 `blocks` 배열 + `IDecoration`(`term.registerDecoration({ marker })`)으로 구현한다. `term.scrollToLine(marker.line)` 로 점프.
 
+#### 구현 반영 (Wave E, 2026-08-15) — 위 설계 대비 확정된 사실·변경점
+
+정본 구현: `src-tauri/src/infra/shell_integration.rs`(주입) ·
+`src/features/terminal/terminal-osc133.ts`(파싱·블록 모델). 계약:
+`docs/acknowledge/2026-08-15-wave-e-terminal-tasks-contract.md`.
+
+- **zsh 주입은 `.zshrc` 하나가 아니라 `.zshenv`/`.zprofile`/`.zshrc` 세 파일**이 필요하다(§8 원안의
+  "(a)(b)"는 `.zshrc` 만 다뤘으나 불충분함이 구현 후 리뷰에서 드러남). zsh 는 `.zshenv`(항상)와
+  `.zprofile`(로그인 셸)을 `.zshrc` 보다 먼저, 그 시점의 `$ZDOTDIR`(=임시 디렉터리) 기준으로
+  읽는다. `.zshrc` 안에서만 `ZDOTDIR` 을 복원하면 이미 늦어 사용자의 실제 `.zshenv`/`.zprofile`
+  (PATH·env 설정 — 예: Homebrew 기본 설치가 쓰는 `~/.zprofile` 의 `shellenv`)이 조용히 유실된다.
+  VS Code 실제 소스(`shellIntegration-env.zsh`/`-profile.zsh`)를 실측 확인해, 세 파일 모두 "원래
+  `ZDOTDIR` 로 잠깐 전환 → 사용자 동명 파일 source → 다시 임시 디렉터리로 복귀" 패스스루 구조를
+  채택했다. `.zlogin` 은 `.zshrc` 가 `ZDOTDIR` 을 영구 복원한 **이후** 읽히므로 패스스루가
+  필요 없다(사용자의 실제 `.zlogin` 이 그대로 읽힘).
+- **fish 는 주입하지 않는다** — 원안의 "이벤트 함수" 스니펫(위 코드블록)은 실제로는 불필요했다.
+  fish 는 fish-shell#10352(**fish 4.0+**)부터 `fish_prompt`/`fish_preexec`/`fish_postexec` 가
+  OSC133 을 네이티브로 방출한다(fish 4.8.1 로 실측 확인). **다만 fish 4.0 미만(여전히 사용 중인
+  구버전)은 버전 감지도 폴백 주입도 없어 OSC133 을 전혀 받지 못한다** — 이 gap 은 위 이벤트-함수
+  스니펫으로 메울 수 있으나, 이번 구현은 버전 감지 로직 추가 없이 "fish 는 항상 네이티브"로
+  단순화했다. 의도적 보류로 기록(사용자 승인 필요 시 후속 채택).
+- **bash 는 로그인/비로그인 캐스케이드를 손수 재현한다** — `CommandBuilder::new(path)`(주입 시
+  필수 경로)는 `new_default_prog()` 와 달리 argv0 에 로그인 프리픽스(`-`)를 붙이지 않는다. 그래서
+  주입 전 로그인 셸로 스폰됐을 세션(= `config.shell` 이 `None`)은 `/etc/profile` +
+  `.bash_profile`/`.bash_login`/`.profile` 캐스케이드를 스크립트가 직접 재현하고, 명시적 셸
+  오버라이드(이미 비로그인이었던 세션)는 `.bashrc` 만 재현한다.
+  **알려진 한계**: macOS 기본 배포 bash 는 3.2.57(2007년 GPLv2 동결)로 `PS0` 를 지원하지 않는다
+  (`PS0` 는 bash **4.4+** 전용). 따라서 이 환경에서는 `C`(output-start) 마커가 발생하지 않고
+  `outputStartMarker` 가 항상 `null` 로 남는다 — `A`/`D` 만으로 블록 경계·종료코드 배지는 정상
+  동작하므로 degradation 으로 수용(DEBUG trap 기반 대안은 재진입·중복 발화 가드가 필요해 별도
+  검증 없이는 채택하지 않음).
+- **`posix_quote`(`infra/shell_quote.rs`) 는 백슬래시도 이중 이스케이프한다** — 원래 구현은
+  홑따옴표(`'`)만 `'\''` 로 이스케이프했는데, 이는 POSIX sh/bash/zsh 에는 충분해도 **fish 에는
+  불충분**하다. fish 는 홑따옴표 안에서도 `\'`·`\\` 를 살아있는 이스케이프로 해석하므로, 원본 값에
+  홑따옴표 앞에 백슬래시가 있으면(`foo\'; rm -rf ~ #` 등) 그 백슬래시가 이 함수 자신의 `'\''`
+  이스케이프와 결합해 fish 에서 인용을 조기 종료시키고 `;` 뒤가 별도 명령으로 실행될 수 있었다.
+  백슬래시를 항상 `\\` 로 이중 이스케이프하면 POSIX 셸에서는 무해(홑따옴표 안 백슬래시는 원래도
+  완전히 리터럴)하면서 fish 에서도 인용 탈출을 막는다.
+- OSC7 cwd 추적은 원안 그대로 계약 §3.1 에 따라 이번 범위 밖(backlog).
+
 ### 9. 폰트 크기 동적 변경 + FitAddon 재계산
 
 폰트 변경 → 셀 크기 변경 → cols/rows 변경 → PTY resize 까지 한 흐름으로 묶는다.

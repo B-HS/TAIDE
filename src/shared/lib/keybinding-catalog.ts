@@ -29,6 +29,8 @@ const KEYMAP_ONLY_CATEGORY: Partial<Record<KeymapActionId, string>> = {
     'command-palette': KEYMAP_CATEGORY.APP,
     'font-size-up': KEYMAP_CATEGORY.EDITOR,
     'font-size-down': KEYMAP_CATEGORY.EDITOR,
+    'terminal-jump-to-previous-command': KEYMAP_CATEGORY.TERMINAL,
+    'terminal-jump-to-next-command': KEYMAP_CATEGORY.TERMINAL,
 }
 
 export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOverrideEntry[]): KeybindingRow[] => {

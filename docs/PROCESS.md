@@ -226,8 +226,15 @@
           `docs/research/xterm-pty.md §8`(셸 rc 주입 설계 완비) + xterm 6.0 API 실측으로 대체.
           계약 확정(`2026-08-15-wave-e-terminal-tasks-contract.md`, 결정 3건 추천: OSC133 자동 주입
           +opt-out·순수 133/⌘↑↓·태스크 Rust 감지+pty 실행(toml 크레이트 회피, 고정 명령 세트)·
-          Run Selected 포커스 터미널+현재 줄 폴백). 구현 A(백엔드)→B(프론트 병렬 2)→검토 진행
-    - [ ] c-F ~ c-I. 순차 진행 (에디터 표현 → AI → 키맵 → 셸)
+          Run Selected 포커스 터미널+현재 줄 폴백). 구현(wf_035e2cd5-46b) — fish 실설치 검증 후
+          네이티브 OSC133 지원 확인해 주입 생략·posix_quote injection 방어·zsh/bash 실행으로 rc
+          검증. 검토(wf_0510f5df-39e, 4렌즈): **major 확정 4건**(zsh 주입이 .zshenv/.zprofile 유실 →
+          PATH/env(brew) 손실, 검토가 실제 zsh 로 재현 — 3중복 + posix_quote fish 백슬래시 탈출) +
+          minor 다수 수정. fixer 가 VS Code 방식 .zshenv/.zprofile 패스스루 추가·백슬래시 이중
+          이스케이프·Makefile ::= 가드·OSC133 블록 인덱스/무한누적 상한·키맵 카테고리 수정.
+          fish 4.0 미만·bash 3.2 PS0 미지원은 의도적 보류(계약 §4·§6 명시). 메인 2차: zsh 패스스루·
+          posix_quote 수정 실물 확인, verify 전체(856/751+6+17) 그린. 커밋
+    - [ ] c-F ~ c-I. 순차 진행 (에디터 표현 → AI → 키맵 → 셸) — **F 착수 전 근황보고·정지(사용자 지시)**
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)

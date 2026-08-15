@@ -153,6 +153,7 @@ export const commands = {
 	terminalSessions: (projectId: ProjectId) => typedError<TerminalSession[], AppError>(__TAURI_INVOKE("terminal_sessions", { projectId })),
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
+	detectTasks: (projectId: ProjectId) => typedError<Task[], AppError>(__TAURI_INVOKE("detect_tasks", { projectId })),
 	fontList: () => typedError<FontFamily[], AppError>(__TAURI_INVOKE("font_list")),
 	localeList: () => typedError<LocaleSummary[], AppError>(__TAURI_INVOKE("locale_list")),
 	localeGet: (localeId: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get", { localeId })),
@@ -1062,6 +1063,15 @@ export type TagInfo = {
 	message?: string | null,
 	annotated: boolean,
 };
+
+export type Task = {
+	label: string,
+	command: string,
+	source: TaskSource,
+	cwd: string,
+};
+
+export type TaskSource = "npm" | "make" | "cargo";
 
 export type TerminalCwdChanged = {
 	sessionId: string,

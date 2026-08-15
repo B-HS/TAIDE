@@ -114,6 +114,13 @@ describe('findMatchingKeymapEntry', () => {
         expect(down?.id).toBe('font-size-down')
     })
 
+    test('터미널 명령 간 이동은 mod+ArrowUp/ArrowDown 으로 매칭된다', () => {
+        const previous = findMatchingKeymapEntry(APP_KEYMAP, { key: 'ArrowUp', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        const next = findMatchingKeymapEntry(APP_KEYMAP, { key: 'ArrowDown', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        expect(previous?.id).toBe('terminal-jump-to-previous-command')
+        expect(next?.id).toBe('terminal-jump-to-next-command')
+    })
+
     test('Workspace Symbol 은 mod+t 로 매칭되고, 탭 재열기(mod+shift+t)와 shift 유무로 구분된다', () => {
         const workspaceSymbol = findMatchingKeymapEntry(APP_KEYMAP, { key: 't', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
         const reopenClosedTab = findMatchingKeymapEntry(APP_KEYMAP, { key: 't', metaKey: true, ctrlKey: false, shiftKey: true, altKey: false }, true)

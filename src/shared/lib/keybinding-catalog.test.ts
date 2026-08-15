@@ -45,6 +45,14 @@ describe('buildKeybindingRows', () => {
         expect(commandPaletteRow).toMatchObject({ commandId: null, keymapId: 'command-palette', categoryKey: 'keymap.category.app' })
     })
 
+    test('터미널 명령 간 이동 키맵 전용 액션도 터미널 카테고리가 부여된다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        const prevRow = rows.find((row) => row.id === 'terminal-jump-to-previous-command')
+        const nextRow = rows.find((row) => row.id === 'terminal-jump-to-next-command')
+        expect(prevRow).toMatchObject({ commandId: null, categoryKey: 'keymap.category.terminal' })
+        expect(nextRow).toMatchObject({ commandId: null, categoryKey: 'keymap.category.terminal' })
+    })
+
     test('keymapId 가 있는 커맨드에 대응하는 APP_KEYMAP 항목은 중복 행으로 나타나지 않는다', () => {
         const rows = buildKeybindingRows(commands, [])
         const saveRows = rows.filter((row) => row.id === 'save')

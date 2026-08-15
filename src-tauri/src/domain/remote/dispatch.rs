@@ -129,6 +129,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "shell_profiles",
     "resolve_terminal_path",
     "pty_default_options",
+    "detect_tasks",
     "font_list",
     "locale_list",
     "locale_get",
@@ -312,6 +313,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
     use domain::settings::commands as settings;
     use domain::sync::commands as sync;
     use domain::system::commands as system;
+    use domain::task::commands as task;
     use domain::terminal::commands as terminal;
     use domain::theme::commands as theme;
     use domain::tree::commands as tree;
@@ -740,6 +742,8 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "shell_profiles" => respond(terminal::shell_profiles().await),
         "resolve_terminal_path" => respond(terminal::resolve_terminal_path(arg!(args, "path"), arg!(args, "cwd")).await),
         "pty_default_options" => respond(terminal::pty_default_options(app.state(), arg!(args, "projectId"), arg!(args, "cwd")).await),
+
+        "detect_tasks" => respond(task::detect_tasks(app.state(), arg!(args, "projectId")).await),
 
         "font_list" => respond(domain::font::commands::font_list().await),
 

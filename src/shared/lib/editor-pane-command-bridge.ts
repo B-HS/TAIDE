@@ -6,6 +6,8 @@ export type EditorPaneCommand =
     | { type: 'save-active-tab' }
     | { type: 'toggle-terminal' }
     | { type: 'run-monaco-action'; actionId: string }
+    | { type: 'run-selected-text-in-terminal' }
+    | { type: 'run-in-terminal'; text: string; cwd: string | null }
 
 type EditorPaneCommandListener = (command: EditorPaneCommand) => void
 

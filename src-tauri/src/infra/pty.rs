@@ -8,6 +8,7 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 
 use crate::domain::terminal::types::{OUTPUT_BATCH_MS, OUTPUT_FLUSH_TICK_MS, READ_BUFFER_BYTES};
 use crate::error::{AppError, AppResult};
+use crate::infra::shell_integration;
 
 pub struct PtySpawnConfig {
     pub shell: Option<String>,
@@ -146,11 +147,28 @@ fn utf8_locale() -> String {
     FALLBACK_LOCALE.to_string()
 }
 
+/// Assembles the `CommandBuilder` for a pty spawn. **Not pure**: it delegates
+/// to [`shell_integration::prepare`], which — for zsh/bash — creates a temp
+/// directory and writes the OSC 133 integration script(s) into it as a side
+/// effect (`std::fs::create_dir_all`/`std::fs::write`), swallowing any I/O
+/// failure into a `log::warn!` + no-injection fallback rather than surfacing
+/// it through this function's `CommandBuilder` return type. Every call to
+/// [`spawn`] therefore performs a filesystem write before the child process
+/// exists.
 fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
-    let mut cmd = match config.shell.as_deref() {
-        Some(shell) => CommandBuilder::new(shell),
-        None => CommandBuilder::new_default_prog(),
+    let integration = shell_integration::prepare(config.shell.as_deref());
+
+    let mut cmd = match integration.as_ref().and_then(|plan| plan.override_program.as_ref()) {
+        Some((program, _)) => CommandBuilder::new(program),
+        None => match config.shell.as_deref() {
+            Some(shell) => CommandBuilder::new(shell),
+            None => CommandBuilder::new_default_prog(),
+        },
     };
+    if let Some((_, args)) = integration.as_ref().and_then(|plan| plan.override_program.as_ref()) {
+        cmd.args(args);
+    }
+
     cmd.cwd(&config.cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -158,6 +176,11 @@ fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
     let locale = utf8_locale();
     cmd.env("LANG", &locale);
     cmd.env("LC_CTYPE", &locale);
+    if let Some(plan) = &integration {
+        for (key, value) in &plan.extra_env {
+            cmd.env(key, value);
+        }
+    }
     for (key, value) in &config.extra_env {
         cmd.env(key, value);
     }
@@ -300,5 +323,62 @@ mod tests {
         batch.push(b"b");
         batch.flush();
         assert_eq!(sent.lock().as_slice(), [b"a".to_vec(), b"b".to_vec()]);
+    }
+
+    fn base_config(shell: Option<&str>) -> PtySpawnConfig {
+        PtySpawnConfig {
+            shell: shell.map(str::to_string),
+            cwd: std::env::temp_dir().to_string_lossy().to_string(),
+            cols: 80,
+            rows: 24,
+            extra_env: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn 셸_통합이_비활성이면_기존_default_prog_빌더_그대로다() {
+        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
+        std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, "1");
+
+        let cmd = build_command(&base_config(None));
+
+        match original {
+            Some(value) => std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value),
+            None => std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR),
+        }
+
+        assert!(cmd.is_default_prog(), "주입이 없으면 프로그램 선택을 바꾸지 않아야 한다");
+    }
+
+    #[test]
+    fn zsh_주입은_프로그램은_바꾸지_않고_zdotdir만_추가한다() {
+        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
+        std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
+
+        let cmd = build_command(&base_config(Some("/bin/zsh")));
+
+        if let Some(value) = original {
+            std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
+        }
+
+        assert!(!cmd.is_default_prog());
+        assert_eq!(cmd.get_argv(), &vec![std::ffi::OsString::from("/bin/zsh")]);
+        assert!(cmd.get_env("ZDOTDIR").is_some());
+    }
+
+    #[test]
+    fn bash_주입은_init_file_인자를_추가한다() {
+        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
+        std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
+
+        let cmd = build_command(&base_config(Some("/bin/bash")));
+
+        if let Some(value) = original {
+            std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
+        }
+
+        let argv = cmd.get_argv();
+        assert_eq!(argv[0], std::ffi::OsString::from("/bin/bash"));
+        assert_eq!(argv[1], std::ffi::OsString::from("--init-file"));
     }
 }

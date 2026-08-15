@@ -17,6 +17,7 @@ import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { setActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { subscribeOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
 import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
@@ -24,6 +25,7 @@ import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/
 import { monaco } from '@shared/lib/monaco/setup'
 import { collectPaneTabs, findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+import { requestTerminalWrite } from '@shared/lib/terminal-write-bridge'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
@@ -149,6 +151,46 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         )
     }
 
+    /**
+     * Ensures the focused pane has a terminal tab (reusing one if present, otherwise opening a
+     * new one) and writes `text` into its pty followed by a newline — the shared delivery path for
+     * both "Run Selected Text in Terminal" and the task runner's "Run Task". Writes to a
+     * freshly-opened tab race its pty spawn (`TerminalSession` measures/spawns asynchronously), so
+     * they go through `terminal-write-bridge`'s queue-until-ready registration instead of `pty_write`
+     * directly.
+     */
+    const runInTerminal = (text: string, cwd: string | null) => {
+        if (!layout) return
+        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!leaf) return
+        const payload = `${text}\n`
+
+        const terminalTab = leaf.tabs.find((tab) => tab.kind.kind === 'terminal')
+        if (terminalTab) {
+            if (terminalTab.id !== leaf.active) activateTab(terminalTab.id)
+            requestTerminalWrite(terminalTab.id, payload)
+            return
+        }
+
+        openTab(
+            { projectId, kind: { kind: 'terminal', sessionId: '', cwd }, title: t('terminal.title'), target: null, preview: false },
+            {
+                onSuccess: (nextLayout) => {
+                    const nextActiveTabId = findPaneLeaf(nextLayout.root, nextLayout.focusedPane)?.active
+                    if (nextActiveTabId) requestTerminalWrite(nextActiveTabId, payload)
+                },
+                onError: (error) => toast.error(error.message),
+            },
+        )
+    }
+
+    const runSelectedTextInTerminal = () => {
+        const editor = getFocusedFileEditor()
+        if (!editor) return
+        const text = resolveSelectedTextOrCurrentLine(editor)
+        if (text !== null) runInTerminal(text, null)
+    }
+
     const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
 
     useGlobalKeymap(
@@ -172,6 +214,8 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (command.type === 'save-active-tab') return saveActiveTab()
         if (command.type === 'toggle-terminal') return toggleTerminal()
         if (command.type === 'run-monaco-action') return runMonacoAction(command.actionId)
+        if (command.type === 'run-selected-text-in-terminal') return runSelectedTextInTerminal()
+        if (command.type === 'run-in-terminal') return runInTerminal(command.text, command.cwd)
     })
 
     useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])

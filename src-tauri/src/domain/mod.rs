@@ -15,6 +15,7 @@ pub mod search;
 pub mod settings;
 pub mod sync;
 pub mod system;
+pub mod task;
 pub mod terminal;
 pub mod theme;
 pub mod tree;

@@ -10,6 +10,8 @@ import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completio
 import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
+import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
+import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { getStoredDiagnostics } from '@shared/lib/lsp/adapters/diagnostics'
@@ -889,6 +891,20 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         })
         return () => action.dispose()
     }, [editor, t, path])
+
+    useEffect(() => {
+        if (!editor) return
+        const action = editor.addAction({
+            id: 'taide.runSelectedTextInTerminal',
+            label: t('terminal.runSelectedText'),
+            contextMenuGroupId: '9_terminal',
+            run: (targetEditor) => {
+                const text = resolveSelectedTextOrCurrentLine(targetEditor)
+                if (text !== null) requestEditorPaneCommand({ type: 'run-in-terminal', text, cwd: null })
+            },
+        })
+        return () => action.dispose()
+    }, [editor, t])
 
     if (isPending) return <div className='bg-editor-background h-full w-full' />
 

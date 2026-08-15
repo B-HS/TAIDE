@@ -102,6 +102,13 @@
 - query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`
 - event: `terminal:exited`, `agent:state-changed`
 
+### task (Wave E 추가 — `tasks.md`)
+
+- query: `detect_tasks(projectId)` → `Task[]`(`{ label, command, source, cwd }`) — 프로젝트 루트를
+  훑기만 하는 부수효과 없는 조회. `source` 는 `npm`/`make`/`cargo`. 실행은 별도 command 없이
+  프론트가 `Task.command` 를 기존 `pty_write` 경로로 포커스(또는 신규) 터미널 탭에 흘려보낸다
+  (`terminal.md` §9 재사용 — Run Selected Text 와 동일 전달 경로).
+
 ### lsp (`lsp.md`)
 
 - mutation(C): `lsp_spawn(spec, folders, onMessage)` → sessionId

@@ -18,6 +18,8 @@ export type KeymapActionId =
     | 'save'
     | 'toggle-terminal'
     | 'new-terminal'
+    | 'terminal-jump-to-previous-command'
+    | 'terminal-jump-to-next-command'
     | 'font-size-up'
     | 'font-size-down'
 
@@ -58,6 +60,8 @@ export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'save', key: 's', mods: ['mod'], descriptionKey: 'keymap.save' },
     { id: 'toggle-terminal', key: '`', mods: ['ctrl'], descriptionKey: 'keymap.toggleTerminal' },
     { id: 'new-terminal', key: '`', mods: ['ctrl', 'shift'], descriptionKey: 'keymap.newTerminal' },
+    { id: 'terminal-jump-to-previous-command', key: 'ArrowUp', mods: ['mod'], descriptionKey: 'keymap.terminalJumpToPreviousCommand' },
+    { id: 'terminal-jump-to-next-command', key: 'ArrowDown', mods: ['mod'], descriptionKey: 'keymap.terminalJumpToNextCommand' },
     { id: 'font-size-up', key: '=', mods: ['mod'], descriptionKey: 'keymap.fontSizeUp' },
     { id: 'font-size-down', key: '-', mods: ['mod'], descriptionKey: 'keymap.fontSizeDown' },
 ]

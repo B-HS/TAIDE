@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ProjectId, TabId } from '@shared/api/bindings'
@@ -13,8 +13,10 @@ import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { findPaneTab } from '@shared/lib/pane-tree'
+import { registerTerminalWriteHandler } from '@shared/lib/terminal-write-bridge'
 import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/terminal'
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
+import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
@@ -94,6 +96,21 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         }
     }
 
+    const handleTerminalWriteRequest = useEffectEvent((data: string) => handleWrite(data))
+
+    /**
+     * Exposes this tab's pty input path (`handleWrite`, via the non-reactive `useEffectEvent`
+     * wrapper so the effect doesn't need to re-subscribe on every render) to `terminal-write-bridge`
+     * so cross-widget callers — "Run Selected Text in Terminal", the task runner — can write into
+     * this session without holding a reference to it. Registered only once `sessionId` is live so
+     * writes that arrive before the first spawn resolves are queued (see the bridge's own doc)
+     * rather than silently dropped.
+     */
+    useEffect(() => {
+        if (!sessionId) return
+        return registerTerminalWriteHandler(tabId, handleTerminalWriteRequest)
+    }, [tabId, sessionId])
+
     if (failure) {
         return <div className='bg-terminal-background text-status-error flex h-full w-full items-center justify-center text-sm'>{failure}</div>
     }
@@ -109,6 +126,8 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
             scrollback={settings?.terminalScrollback ?? DEFAULT_SCROLLBACK}
             cursorStyle={(settings?.terminalCursorStyle ?? DEFAULT_TERMINAL_CURSOR_STYLE) as TerminalCursorStyle}
             cursorBlink={settings?.terminalCursorBlink ?? true}
+            commandSuccessColor={normalizeDecorationHexColor(theme.colors['statusIndicator.success'])}
+            commandFailureColor={normalizeDecorationHexColor(theme.colors['statusIndicator.error'])}
             onWrite={handleWrite}
             onResize={handleResize}
             onReady={handleReady}

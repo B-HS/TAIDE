@@ -9,6 +9,7 @@ import { ThemeProvider } from '@app/providers/theme-provider'
 import { AppShell } from '@widgets/app-shell/app-shell'
 import { CommandPalette } from '@widgets/command-palette/command-palette'
 import { KeybindingsEditor } from '@widgets/keybindings-editor/keybindings-editor'
+import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
 
 export const App = () => (
     <AppProviders>
@@ -20,6 +21,7 @@ export const App = () => (
                             <AppShell />
                             <CommandPalette />
                             <KeybindingsEditor />
+                            <TaskRunnerDialog />
                         </ThemeProvider>
                     </LocaleProvider>
                 </AgentExternalOpenProvider>

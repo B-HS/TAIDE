@@ -6,4 +6,6 @@ pub mod persist;
 pub mod pty;
 pub mod root_guard;
 pub mod secret;
+pub mod shell_integration;
+pub mod shell_quote;
 pub mod watcher;

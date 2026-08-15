@@ -10,9 +10,15 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/lib/ime-input'
 import { recordImeDebug } from '@shared/lib/ime-debug'
+import type { CommandBlockDecorationColors } from '@features/terminal/terminal-osc133'
+import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
+
+const OVERVIEW_RULER_WIDTH_PX = 14
 
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void
+    jumpToPreviousCommand: () => void
+    jumpToNextCommand: () => void
 }
 
 export type TerminalCursorStyle = 'bar' | 'block' | 'underline'
@@ -24,10 +30,13 @@ export type TerminalViewProps = {
     scrollback: number
     cursorStyle: TerminalCursorStyle
     cursorBlink: boolean
+    commandSuccessColor: string | null
+    commandFailureColor: string | null
     onData: (data: string) => void
     onResize: (cols: number, rows: number) => void
     onReady: (cols: number, rows: number) => void
     onWriteBacklogChange: (pendingBytes: number) => void
+    onFocusChange: (isFocused: boolean) => void
     attachRef: RefObject<TerminalAttachHandle | null>
 }
 
@@ -38,10 +47,13 @@ export const TerminalView: FC<TerminalViewProps> = ({
     scrollback,
     cursorStyle,
     cursorBlink,
+    commandSuccessColor,
+    commandFailureColor,
     onData,
     onResize,
     onReady,
     onWriteBacklogChange,
+    onFocusChange,
     attachRef,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -51,6 +63,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
     const onResizeRef = useRef(onResize)
     const onReadyRef = useRef(onReady)
     const onWriteBacklogChangeRef = useRef(onWriteBacklogChange)
+    const onFocusChangeRef = useRef(onFocusChange)
     const attachRefRef = useRef(attachRef)
     const initialFontSizeRef = useRef(fontSize)
     const initialFontFamilyRef = useRef(fontFamily)
@@ -58,13 +71,16 @@ export const TerminalView: FC<TerminalViewProps> = ({
     const initialScrollbackRef = useRef(scrollback)
     const initialCursorStyleRef = useRef(cursorStyle)
     const initialCursorBlinkRef = useRef(cursorBlink)
+    const commandBlockColorsRef = useRef<CommandBlockDecorationColors>({ success: commandSuccessColor, failure: commandFailureColor })
 
     useEffect(() => {
         onDataRef.current = onData
         onResizeRef.current = onResize
         onReadyRef.current = onReady
         onWriteBacklogChangeRef.current = onWriteBacklogChange
+        onFocusChangeRef.current = onFocusChange
         attachRefRef.current = attachRef
+        commandBlockColorsRef.current = { success: commandSuccessColor, failure: commandFailureColor }
     })
 
     useEffect(() => {
@@ -121,6 +137,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
             minimumContrastRatio: 1,
             drawBoldTextInBrightColors: true,
             smoothScrollDuration: 0,
+            overviewRuler: { width: OVERVIEW_RULER_WIDTH_PX },
         })
 
         const fit = new FitAddon()
@@ -204,6 +221,13 @@ export const TerminalView: FC<TerminalViewProps> = ({
         textarea?.addEventListener('beforeinput', handleBeforeInput, true)
         textarea?.addEventListener('input', handleImeInput, true)
 
+        const handleFocus = () => onFocusChangeRef.current(true)
+        const handleBlur = () => onFocusChangeRef.current(false)
+        textarea?.addEventListener('focus', handleFocus)
+        textarea?.addEventListener('blur', handleBlur)
+
+        const osc133Tracker = attachOsc133BlockTracker(term, commandBlockColorsRef)
+
         const dataSubscription = term.onData((data) => {
             const verdict = insertTextDeduper.onXtermData(data, performance.now())
             recordImeDebug({ source: 'data', inputType: verdict, data, rangeLength: null, composing, output: verdict === 'forward' ? data : '' })
@@ -224,16 +248,21 @@ export const TerminalView: FC<TerminalViewProps> = ({
                     reportBacklog()
                 })
             },
+            jumpToPreviousCommand: () => osc133Tracker.jumpToPreviousCommand(),
+            jumpToNextCommand: () => osc133Tracker.jumpToNextCommand(),
         }
 
         return () => {
             textarea?.removeEventListener('beforeinput', handleBeforeInput, true)
             textarea?.removeEventListener('input', handleImeInput, true)
+            textarea?.removeEventListener('focus', handleFocus)
+            textarea?.removeEventListener('blur', handleBlur)
             attachRefRef.current.current = null
             cancelAnimationFrame(resizeRafId)
             resizeObserver.disconnect()
             dataSubscription.dispose()
             resizeSubscription.dispose()
+            osc133Tracker.dispose()
             webgl?.dispose()
             search.dispose()
             unicode11.dispose()

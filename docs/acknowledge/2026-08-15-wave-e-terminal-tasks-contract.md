@@ -77,6 +77,8 @@
 | cwd(OSC7) TerminalCwdChanged 활성화 | 보류 — OSC133 과 별개, backlog |
 | 전용 태스크 패널 | 보류 — 팔레트 quick-pick(경량) |
 | PowerShell rc 주입 | 후속 — macOS 셸 3종(zsh/bash/fish) 우선 |
+| fish 4.0 미만 버전 감지 + 이벤트-함수 폴백 주입 | **보류(Phase C 결함 수정에서 명시 인지, 2026-08-15)** — fish 는 4.0+(fish-shell#10352) 부터 OSC133 을 네이티브 방출해 주입을 생략(`FishNative`)하는데, 이 처리는 4.0 미만(여전히 사용 중)엔 버전 감지·폴백이 없어 OSC133 을 아예 못 받는 gap 을 남긴다. `xterm-pty.md` §8 의 이벤트-함수 스니펫으로 메울 수 있으나 이번 구현 범위에서는 명시적으로 채택하지 않음 — 사용자 승인 시 후속 채택 |
+| bash 3.2(macOS 기본) 의 output-start(`C`) 마커 미제공 | **보류(Phase C 결함 수정에서 명시 인지, 2026-08-15)** — `PS0` 가 bash 4.4+ 전용이라 macOS 기본 배포 bash(3.2.57)에서는 `C` 이벤트가 발생하지 않는다(`A`/`D` 는 정상 — 블록 경계·종료코드 배지는 영향 없음). DEBUG trap 기반 대안은 재진입 가드 검증 없이는 채택하지 않음 |
 
 ## 5. 완료 조건
 
@@ -86,3 +88,40 @@
   터미널 write 브리지의 원격 세션 노출, Run Selected 현재 줄 폴백.
 - 문서: features(터미널·태스크)·ipc-contract(detect_tasks)·xterm-pty.md(구현 반영)·qa6-checklist Wave E.
   (Wave D 문서 부채와 함께 문서화 워크플로 후보). 갭 §6 항목 종결.
+
+## 6. Phase C 결함 수정 반영 (2026-08-15)
+
+4렌즈+적대적 검증에서 발견된 확정/불확실 결함 전건과 minor 판정을 근본 수정했다.
+
+- **zsh 셸 통합이 `.zshrc` 만 재-source 하고 `.zshenv`/`.zprofile` 를 유실**(major, 3건 중복 보고):
+  `infra/shell_integration.rs` 가 임시 `ZDOTDIR` 에 `.zshenv`/`.zprofile` 패스스루 파일을 추가로
+  심도록 수정(VS Code 실소스 확인 후 채택) — 상세는 `xterm-pty.md` §8 "구현 반영".
+- **`posix_quote` 가 fish 의 홑따옴표 내 백슬래시 이스케이프를 고려하지 않아 인용 탈출 가능**
+  (major→적대적 검증에서 minor 로 하향 — 태스크 실행 자체가 이미 저장소 코드 실행이라 실질 노출은
+  제한적): 백슬래시를 항상 이중 이스케이프하도록 수정, 주석의 "세 셸 모두 로컬 검증" 과장 표현도
+  정정.
+- **Makefile `::=`(POSIX 즉시 대입) 가 `:=` 가드를 통과해 가짜 타겟으로 오검출**(minor):
+  가드를 `rest.starts_with('=') || rest.starts_with(":=")` 로 확장(`target::` 이중 콜론 규칙은
+  계속 정상 감지).
+  `detect_make_tasks` 의 정규식도 `vsix/service.rs` 선례를 따라 `OnceLock` 캐싱으로 통일.
+- **OSC133 블록 트래커의 `currentBlockIndex` 가 dead marker 정리 후 어긋나 완료 데코가 누락될 수
+  있음**(minor): `pruneDisposedBlocks` 가 배열뿐 아니라 상태 전체를 받아 식별자 기준으로
+  `currentBlockIndex` 를 재계산하도록 수정.
+- **개행 없는 `133;A` 반복으로 블록/마커가 무한 누적**(minor): `MAX_TRACKED_COMMAND_BLOCKS`(500)
+  상한을 넘으면 가장 오래된 블록을 강제 dispose 해 기존 dead-marker 정리 경로를 재사용.
+- **키맵 전용 명령 간 이동 액션 2종이 키바인딩 설정 화면에서 카테고리 없이 노출**(minor):
+  `KEYMAP_ONLY_CATEGORY` 에 `KEYMAP_CATEGORY.TERMINAL` 등록.
+- **fish 4.0 미만 미지원**·**macOS 기본 bash 3.2 의 `PS0` 미지원**(minor 2건): 코드 주석·이 문서
+  §4·`xterm-pty.md` §8 에 의도적 보류로 명시(위 §4 표). 자동 폴백은 채택하지 않음.
+- **`build_command` 이 파일시스템 부작용(임시 rc 파일 쓰기)을 시그니처로 드러내지 않음**(minor):
+  Rust doc comment 로 부작용을 명시(구조 변경 없음 — 최소 변경 원칙).
+- **`outputStartMarker`/`endMarker` 가 등록만 되고 소비되지 않아 과설계로 보임**(minor, 기각): 두
+  마커 모두 `disposeBlockMarkers` 로 정확히 정리되어 누수는 없고, OSC133 스펙 자체의 C/D 경계를
+  그대로 보존한 것이라 향후 "명령 출력 선택/점프" 기능의 자연스러운 확장 지점이다. 코드 삭제 대신
+  타입 필드에 JSDoc 으로 의도(현재 write-only)를 명시.
+- **`terminal-write-bridge` 가 `entities/editor/editor-instance-registry` 와 다른 레이어(`shared/lib`)
+  에 있음**(minor, 기각): `shared/lib` 에 이미 `-bridge` 접미사 파일 12개가 일관되게 모여 있는
+  기존 관행과 일치하며, 유사물 1개(editor-instance-registry)와의 대칭을 위해 이 관행을 깨는 이동은
+  기능적 이득이 없다고 판단.
+- 이번 문서 갱신(features/terminal.md·features/tasks.md 신설·ipc-contract.md·xterm-pty.md §8·
+  qa6-checklist Wave E)으로 §5 문서 완료조건과 §6 갭을 종결한다.

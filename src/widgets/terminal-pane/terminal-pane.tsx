@@ -1,9 +1,10 @@
 import type { FC } from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ITheme } from '@xterm/xterm'
 import { TerminalView } from '@features/terminal/terminal-view'
 import type { TerminalAttachHandle, TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { INITIAL_FLOW_CONTROL_STATE, evaluateFlowControl, shouldTogglePause } from '@widgets/terminal-pane/terminal-flow-control'
+import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 
 export type TerminalPaneProps = {
     sessionId: string | null
@@ -13,6 +14,8 @@ export type TerminalPaneProps = {
     scrollback: number
     cursorStyle: TerminalCursorStyle
     cursorBlink: boolean
+    commandSuccessColor: string | null
+    commandFailureColor: string | null
     onWrite: (data: string) => void
     onResize: (cols: number, rows: number) => void
     onReady: (cols: number, rows: number) => void
@@ -28,6 +31,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     scrollback,
     cursorStyle,
     cursorBlink,
+    commandSuccessColor,
+    commandFailureColor,
     onWrite,
     onResize,
     onReady,
@@ -41,6 +46,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const onReadyRef = useRef(onReady)
     const onSetPausedRef = useRef(onSetPaused)
     const attachDataRef = useRef(attachData)
+
+    const [isFocused, setIsFocused] = useState(false)
 
     useEffect(() => {
         onWriteRef.current = onWrite
@@ -62,6 +69,13 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
         flowStateRef.current = next
     }
 
+    const handleFocusChange = (focused: boolean) => setIsFocused(focused)
+
+    useGlobalKeymap({
+        'terminal-jump-to-previous-command': isFocused ? () => attachRef.current?.jumpToPreviousCommand() : undefined,
+        'terminal-jump-to-next-command': isFocused ? () => attachRef.current?.jumpToNextCommand() : undefined,
+    })
+
     useEffect(() => {
         if (!sessionId) return
         flowStateRef.current = INITIAL_FLOW_CONTROL_STATE
@@ -77,10 +91,13 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
             scrollback={scrollback}
             cursorStyle={cursorStyle}
             cursorBlink={cursorBlink}
+            commandSuccessColor={commandSuccessColor}
+            commandFailureColor={commandFailureColor}
             onData={handleData}
             onResize={handleResize}
             onReady={handleReady}
             onWriteBacklogChange={handleWriteBacklogChange}
+            onFocusChange={handleFocusChange}
             attachRef={attachRef}
         />
     )

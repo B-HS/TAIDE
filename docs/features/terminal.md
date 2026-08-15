@@ -48,14 +48,52 @@
 - Windows: `windowsPty: { backend: 'conpty', buildNumber }` 를 xterm 에 전달(리사이즈 유실 방지 —
   research 함정 10).
 
-## 5. 명령 블록 — OSC 133 (warp 스타일, 선택 기능)
+## 5. 명령 블록 — OSC 133 (Wave E 구현 완료)
 
-- 주입: zsh ZDOTDIR 트릭 / bash `--init-file` / fish·PowerShell 은 2차(research §8 스니펫 채택).
-  **opt-out 설정 + 수동 설치 안내 병행**(p10k instant prompt 충돌 사례 — 함정 15).
-- 파싱: `parser.registerOscHandler(133, ...)` → `registerMarker` 로 블록 모델(A/B/C/D;exit).
-  핸들러는 `false` 반환(기본 처리 전달). dead marker 주기 정리(함정 13).
-- UX: 블록 경계 표시, exit code 배지, 이전/다음 명령 점프, 블록 단위 복사(serialize range).
-- OSC 7 로 cwd 추적(파일 링크 해석·새 탭 cwd 계승·복원 cwd 에 사용).
+> 계약: `docs/acknowledge/2026-08-15-wave-e-terminal-tasks-contract.md`. 설계 근거:
+> `docs/research/xterm-pty.md` §8(구현 반영 갱신됨).
+
+- **주입**(`infra/shell_integration.rs`, spawn 시 `TAIDE_SHELL_INTEGRATION` 미설정일 때만):
+  - **zsh**: `ZDOTDIR` 을 프로젝트마다 새로 만드는 임시 디렉터리로 돌리고, 그 안에 `.zshenv`·
+    `.zprofile`·`.zshrc` 세 파일을 심는다(VS Code 방식). 세 파일 모두 "원래 `ZDOTDIR`(또는
+    `$HOME`)로 잠깐 돌아가 사용자의 동명 파일을 source 한 뒤 다시 임시 디렉터리로 복귀"하는
+    패스스루 구조라, zsh 자체가 이 세 파일보다 먼저 읽는 어떤 시작파일도 임시 디렉터리 안에서
+    빈손으로 끝나지 않는다. `.zshrc` 만은 사용자 rc 를 source 한 뒤 `ZDOTDIR` 을 영구 복원하고
+    OSC133 훅(precmd/preexec)·`PS1` 마커를 마지막에 덧붙인다 — 로그인 셸의 `.zlogin` 은 이 시점
+    이후 사용자의 실제 `ZDOTDIR` 에서 그대로 읽히므로 별도 임시 파일이 필요 없다.
+    powerlevel10k instant prompt 충돌 방지로 `POWERLEVEL9K_INSTANT_PROMPT=quiet` 기본값을 깐다.
+  - **bash**: `--init-file` 로 주입 스크립트를 지정한다. `CommandBuilder::new(shell)` 경로는 로그인
+    프리픽스가 없어, `config.shell` 이 비어 기본 로그인 셸로 스폰됐을 세션은 `/etc/profile` +
+    `.bash_profile`/`.bash_login`/`.profile` 캐스케이드를 스크립트가 직접 재현한다(비로그인
+    오버라이드는 `.bashrc` 만). `PROMPT_COMMAND`/`PS0`/`PS1` 체이닝으로 A/B/C/D 를 방출.
+    **알려진 한계**: macOS 기본 배포 bash(3.2.57)는 `PS0` 를 지원하지 않는(bash 4.4+ 전용) 구버전이라
+    `C`(output-start) 마커가 발생하지 않는다 — `A`/`D` 만으로 블록 경계·종료코드는 정상 동작하는
+    degradation 으로 수용(사용자 승인 필요 시 DEBUG trap 대안 검토, 2026-08-15 acknowledge).
+  - **fish**: fish-shell#10352(fish **4.0+**)부터 `fish_prompt`/`fish_preexec`/`fish_postexec` 가
+    OSC133 을 네이티브로 방출하므로 주입하지 않는다(`FishNative` 분기, `prepare()` 가 `None`
+    반환). **알려진 갭**: fish 4.0 미만(2025년 이전 설치, 여전히 존재)은 버전 감지·폴백 주입이
+    없어 OSC133 을 전혀 받지 못한다 — 2026-08-15 acknowledge 에 기록된 의도적 보류.
+  - 공통: 각 셸 스크립트는 자기 임시 디렉터리를 정리 후 삭제(`rm -rf`), 경로는
+    `infra/shell_quote::posix_quote` 로 인용(홑따옴표 idiom + fish 의 `\\`/`\'` 이스케이프까지
+    고려한 백슬래시 이중 이스케이프).
+  - PowerShell 은 후속(macOS zsh/bash/fish 우선).
+- **파싱**(`features/terminal/terminal-osc133.ts`): `parser.registerOscHandler(133, ...)` → 순수
+  리듀서(`applyOsc133Event`)가 A(시작)/C(출력 시작)/D(종료+exit) 로 블록 모델을 갱신한다(핸들러는
+  `false` 반환 — 기본 처리 위임). `startMarker` 가 블록의 유일한 안정 식별자이며, 데코레이션은
+  `startMarker` 를 키로 `WeakMap` 에 보관한다.
+  - **dead marker 정리**: 블록의 `startMarker` 가 scrollback 밀림으로 `onDispose` 되면
+    `pruneDisposedBlocks` 가 배열에서 제거하고 `currentBlockIndex` 를 (숫자 위치가 아니라) 블록
+    식별자 기준으로 재계산한다 — 앞선 블록이 먼저 정리돼도 열린 블록의 인덱스가 어긋나지 않는다.
+  - **상한**: 개행 없이 `133;A` 만 반복하는 비정상 출력에 대비해 `MAX_TRACKED_COMMAND_BLOCKS`(500)
+    를 넘으면 가장 오래된 블록의 마커를 강제 dispose 해 같은 정리 경로를 재사용한다.
+- **UX**: 거터 박스섀도 + `overviewRulerOptions` 스크롤바 데코(테마 success/failure 색상, exit
+  code 0/비0), `⌘↑`/`⌘↓`(키맵 `terminal-jump-to-previous-command`/`-next-command`)로 이전/다음
+  명령 블록으로 스크롤. 블록 단위 복사·OSC7 cwd 추적 고도화는 여전히 2차(§11).
+
+## 5.1 태스크 러너 · Run Selected Text (Wave E, `tasks.md`)
+
+팔레트의 "Run Task"(`detect_tasks` query)와 에디터의 "Run Selected Text in Terminal" 은 모두 이
+문서의 IPC(§9) 를 재사용해 텍스트를 터미널에 흘려보낸다. 상세는 `docs/features/tasks.md`.
 
 ## 6. 파일 링크 (FR-G2)
 
@@ -105,7 +143,7 @@
 
 | 1차 | 2차 |
 |-----|-----|
-| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기·파일 링크(cmd+click)·검색·복사/붙여넣기·셸 프로필 열거 | OSC 133 블록 UX·OSC7 cwd 추적 고도화·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기 |
+| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기·파일 링크(cmd+click)·검색·복사/붙여넣기·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)** | OSC7 cwd 추적 고도화·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
 
 
 ## 12. Phase 7.5 재평가 결과 (2026-08-06) — **xterm 유지, 우리 코드가 원인**
