@@ -143,3 +143,13 @@
 **`tauri` 피처 변경**: `protocol-asset` 추가 (7.5-E 비디오·오디오 스트리밍).
 `assetProtocol.scope` 는 빈 배열로 두고 **열린 프로젝트 루트만 런타임 등록**한다
 (`allow_asset_access` — `src-tauri/src/domain/project/commands.rs`). 임의 경로 노출을 막기 위해서다.
+
+## 잔여 기능 캠페인에서 추가된 의존성 (2026-08-14~15, Wave A~E)
+
+| 패키지 | 버전 | 용도 | 선정 이유 |
+|--------|------|------|-----------|
+| `ignore` (Rust) | 0.4.30 | 검색의 `.gitignore` 존중 walker (Wave D) | **ripgrep 이 쓰는 표준 gitignore walker.** 수동 파서는 부정(!)·중첩·`**` 문법 복잡도로 정확도가 낮아 기각. `IGNORED_DIR_NAMES`(`.git`·`node_modules` 등)는 gitignore on/off 무관 항상 병행 제외 |
+
+**기각(캠페인)**: `toml` 크레이트 — 태스크 러너의 Cargo.toml 정밀 파싱(alias·[[bin]])용으로 검토했으나,
+Cargo 태스크는 고정 명령 세트(build/test/run/check/clippy)로 P0 를 충족해 신규 의존성을 회피했다.
+alias·bin 정밀 파싱은 backlog. `argon2` 도 미승인 유지(Remote 비밀번호는 sha256+salt).
