@@ -234,7 +234,15 @@
           이스케이프·Makefile ::= 가드·OSC133 블록 인덱스/무한누적 상한·키맵 카테고리 수정.
           fish 4.0 미만·bash 3.2 PS0 미지원은 의도적 보류(계약 §4·§6 명시). 메인 2차: zsh 패스스루·
           posix_quote 수정 실물 확인, verify 전체(856/751+6+17) 그린. 커밋
-    - [ ] c-F ~ c-I. 순차 진행 (에디터 표현 → AI → 키맵 → 셸) — **F 착수 전 근황보고·정지(사용자 지시)**
+    - [ ] c-F. Wave F — 에디터 표현(Semantic Tokens·사용자 스니펫·Format on Type/Paste·Emmet).
+          착수 승인(2026-08-15, 3건 전부 추천안 — Wave E prod 병합 완료(`d525640` fast-forward)·
+          다음=F·recent_searches 동기화 유지: `2026-08-15-wave-f-kickoff-decisions.md`).
+          - [ ] 정찰 (wf_12eece29-284, opus+high 4축: 프론트 구조·monaco 0.56 실물·LSP 스펙+서버
+                3종·Emmet/스니펫 재료) → 하중 주장 메인 실물 재검증
+          - [ ] 계약 (추천안 패키지 — Emmet `emmet-monaco-es` 의존성 승인 여부 포함)
+          - [ ] 구현 (sonnet+xhigh — Rust 단독 소유·프론트 파일 소유 분리 병렬)
+          - [ ] 4렌즈 검토(opus+xhigh) → 적대적 검증(opus+high) → 수정 → 메인 2차 → 커밋
+    - [ ] c-G ~ c-I. 순차 진행 (AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
