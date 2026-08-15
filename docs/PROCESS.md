@@ -170,7 +170,13 @@
           후속 구현·검토(wf_37dd3b24-7a4): 포트 완화(loopback 엄격·등록 호스트 포트 무관)·링크
           호스트 반영·편집 위젯 + minor 6 수정(L0-0 @-userinfo 방어심층·L0-1 remote_issue_link
           원격 거부). 메인 2차: format 정리·스팟 검증·verify 전체(678/664+6+17)·vite build 그린. 커밋
-    - [ ] c-C ~ c-I. 순차 진행 (Git → 탐색·검색 → 터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
+    - [ ] c-C. Wave C — Git 확장(3-way 머지·줄 stage·커밋 상세·파일 히스토리·revert/tag·원격
+          checkout·파일 blame 뷰). 정찰(wf_563a88b2-20f) 축1 Rust·축3 API 완료(git 커맨드 27종·
+          git2+CLI 하이브리드 확인), 축2 프론트 UI 는 StructuredOutput 초과 실패 → resume 재실행 중.
+          정찰 3축 완료(축2 resume 성공) → 계약 확정(`2026-08-15-wave-c-git-contract.md`, 결정 4건:
+          3-way 인라인 데코레이터·hunk stage git2 native+선택 라인·경량 배치·revert/tag/checkout
+          추천). 구현 A(백엔드 Rust 단독)→B(프론트 병렬 3)→검토 진행
+    - [ ] c-D ~ c-I. 순차 진행 (탐색·검색 → 터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
