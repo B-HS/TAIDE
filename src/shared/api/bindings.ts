@@ -35,10 +35,30 @@ export const commands = {
 	fileRename: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_rename", { from, to })),
 	fileDelete: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_delete", { path })),
 	fileCopy: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_copy", { from, to })),
-	fileMirrorDirty: (projectId: ProjectId, path: string, content: string, diskModifiedMs: number | null) => typedError<null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content, diskModifiedMs })),
+	/**
+	 *  Not guarded by `AppState::begin_mutation` — this command only reads `state.projects` (an
+	 *  `RwLock` read, not the mutation lock) to resolve the project root; it never touches `AppState`
+	 *  itself, and `persist::write_atomic`'s UUID temp-file + rename (`persist.rs`) already serializes
+	 *  concurrent writers to the same mirror file (last writer wins, atomically), the same rationale
+	 *  `lsp_send` (`lsp/commands.rs`) uses to skip the lock. Frequency is the practical reason this
+	 *  matters: this fires on a 500ms debounce timer while the user types, far more often than
+	 *  saves/git operations, so gating it behind the global mutation lock would queue every keystroke's
+	 *  mirror write behind unrelated long-held mutations for no correctness benefit — ordering relative
+	 *  to `file_save`'s own `clear_mirror` is guaranteed by the frontend's save-epoch guard
+	 *  (`editor-pane.tsx`'s `persistMirror`), not by lock ordering. The real cost of keeping the lock
+	 *  here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
+	 *  a long lock holder (e.g. `git_push`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
+	 *  unflushed mirror instead of writing it — the opposite of what hot exit exists for.
+	 */
+	fileMirrorDirty: (projectId: ProjectId, path: string, content: string) => typedError<number | null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content })),
 	fileListMirrors: (projectId: ProjectId) => typedError<MirrorEntry[], AppError>(__TAURI_INVOKE("file_list_mirrors", { projectId })),
 	fileClearMirror: (projectId: ProjectId, path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_mirror", { projectId, path })),
 	filePruneMirrors: (projectId: ProjectId, keepPaths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("file_prune_mirrors", { projectId, keepPaths })),
+	/**
+	 *  Not guarded by `AppState::begin_mutation` — same rationale as `file_mirror_dirty` above: reads
+	 *  only `state.projects` to validate the project exists, never touches `AppState` otherwise, and
+	 *  `persist::write_atomic` already serializes concurrent writers to the same untitled-mirror file.
+	 */
 	fileMirrorUntitled: (projectId: ProjectId, tabId: TabId, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_mirror_untitled", { projectId, tabId, content })),
 	fileListUntitledMirrors: (projectId: ProjectId) => typedError<UntitledMirrorEntry[], AppError>(__TAURI_INVOKE("file_list_untitled_mirrors", { projectId })),
 	fileClearUntitledMirror: (projectId: ProjectId, tabId: TabId) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_untitled_mirror", { projectId, tabId })),
@@ -162,6 +182,17 @@ export const commands = {
 	remoteStatus: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_status")),
 	remoteStart: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_start")),
 	remoteStop: () => typedError<null, AppError>(__TAURI_INVOKE("remote_stop")),
+	/**
+	 *  Issues a one-time link token and formats it into a URL the user shares
+	 *  with another device. When `Settings::remote_allowed_hosts` has at least
+	 *  one registered tunnel hostname, the link points at that hostname over
+	 *  `https` instead of the loopback address — a device reached only through
+	 *  the tunnel (not on the same machine/network as the loopback bind) could
+	 *  never resolve `http://127.0.0.1:{port}` (`docs/acknowledge/
+	 *  2026-08-15-wave-b-hardening-contract.md` §6). The first registered host is
+	 *  used; `auth_middleware`/`is_allowed_host` accept a request addressed to
+	 *  *any* registered host regardless of which one the link happened to name.
+	 */
 	remoteIssueLink: () => typedError<RemoteLinkInfo, AppError>(__TAURI_INVOKE("remote_issue_link")),
 	remoteRevokeSessions: () => typedError<null, AppError>(__TAURI_INVOKE("remote_revoke_sessions")),
 	/**
@@ -170,6 +201,17 @@ export const commands = {
 	 *  `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.2).
 	 *  Every existing session is invalidated so devices authenticated under the
 	 *  old password (or under no-password mode) must re-authenticate.
+	 * 
+	 *  The password is trimmed before both the length check and the hash (see
+	 *  [`service::validate_and_trim_password`]): the settings UI already trims
+	 *  client-side, so this makes the backend the single source of truth instead
+	 *  of trusting that every caller does the same. `REMOTE_PASSWORD_MIN_LEN` is
+	 *  only enforced here, on write — a password already stored below that
+	 *  length (set before this check existed) keeps working until the user
+	 *  changes it, per `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md`
+	 *  §3.1. The login form itself deliberately does *not* trim (see
+	 *  `server.rs`'s `login_post_route`) since the stored value is already
+	 *  trimmed.
 	 */
 	remoteSetPassword: (password: string) => typedError<null, AppError>(__TAURI_INVOKE("remote_set_password", { password })),
 	/**
@@ -810,6 +852,7 @@ export type Settings = {
 	syncLastSyncedAt?: string | null,
 	remoteAccessEnabled?: boolean,
 	remotePasswordOnlyLogin?: boolean,
+	remoteAllowedHosts?: string[],
 	organizeImportsOnSave?: boolean,
 	fixAllOnSave?: boolean,
 	editorCodeLensEnabled?: boolean,
@@ -858,6 +901,7 @@ export type SettingsPatch = {
 	aiOmlxBaseUrl: string | null,
 	remoteAccessEnabled: boolean | null,
 	remotePasswordOnlyLogin: boolean | null,
+	remoteAllowedHosts: string[] | null,
 	organizeImportsOnSave: boolean | null,
 	fixAllOnSave: boolean | null,
 	editorCodeLensEnabled: boolean | null,

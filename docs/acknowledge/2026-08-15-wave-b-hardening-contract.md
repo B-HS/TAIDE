@@ -132,3 +132,23 @@
   터널 회귀·잠금 카운터 분리 정확성·미러 부활 에포크 가드·저장 타이핑 보존·cross-file 미러·락 해제 종료 플러시.
 - 문서: data-model(신규 필드)·features/editor(미러 부활·cross-file)·research/remote-control(Host·잠금·gist
   sanitize)·acknowledge 계약·qa6-checklist Wave B 실기 항목. 하드닝 minor backlog 항목 종결 표기.
+
+---
+
+## 6. 검토 후속 — Host 허용목록 UI 완결 (2026-08-15 결정)
+
+> Wave B 검토(wf_8e6238d4-bd2)가 L0-0 으로 지적: Host 허용목록 강제가 외부 호스트 보존 터널
+> (cloudflared/ngrok — W6 "폰 터널 접속")을 403 으로 막는데 등록 GUI·링크 반영이 없다(fixer 가 죽은
+> 키까지 제거). 사용자 결정(2026-08-15): **UI+링크까지 완결**. #2(잠금 축 선택)는 L2-0 수정으로 해소 확인.
+
+- **포트 요구 완화**: `is_allowed_host` — loopback(127.0.0.1/localhost/::1)은 포트 == bind_port 유지
+  (로컬 방어), **등록된 allowed_hosts 는 hostname 일치 시 포트 무관 통과**(443 종단·임의 포트 터널 지원).
+- **링크 URL**: `remote_issue_link` — allowed_hosts 비어있지 않으면 첫 호스트로 `https://<host>/?t=...`,
+  비어있으면 현행 `http://127.0.0.1:{port}` 유지.
+- **locale 복원+확장**: remote.allowedHostsLabel·allowedHostsDescription 4곳 재추가 + 입력 placeholder·
+  추가/삭제 액션 라벨(필요분).
+- **편집 위젯**: features/settings/remote-section 에 allowed hosts 목록 편집(추가/삭제, settings_update
+  로 저장 — 기존 remote 설정 저장 경로 재사용). remote_allowed_hosts 는 이미 sync 제외·dispatch strip
+  대상(원격 세션 자가 확장 차단 유지).
+- 검증: 4렌즈 축소(보안+정확성 opus+xhigh) → 수정 → 메인 2차. 포트 완화가 loopback 방어를 훼손하지
+  않는지·등록 호스트 매칭 우회 없는지 집중.

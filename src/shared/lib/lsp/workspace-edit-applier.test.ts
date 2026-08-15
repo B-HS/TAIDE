@@ -8,7 +8,8 @@ import { applyTextEditsToContent, applyWorkspaceEdit, type WorkspaceEditApplierD
 
 type FakeModelEditCall = { range: unknown; text: string }[]
 
-const createFakeModel = () => {
+/** `value` is a static stand-in for "the model's content after the edit" — this fake never actually applies `pushEditOperations`' ranges/text to it, so tests that care about the post-edit value assert against whatever `value` was passed in, not a real splice. */
+const createFakeModel = (value = 'fake-model-value') => {
     const edits: FakeModelEditCall[] = []
     return {
         model: {
@@ -16,6 +17,7 @@ const createFakeModel = () => {
                 edits.push(operations)
                 return null
             },
+            getValue: () => value,
         },
         getEdits: () => edits,
     }
@@ -37,8 +39,12 @@ const createFakeMonaco = (openModels: Record<string, ReturnType<typeof createFak
 
 type CallLog = { fn: string; args: unknown[] }[]
 
+const FAKE_ACTIVE_PROJECT_ID = 'proj-1'
+
 const createFakeDeps = (overrides: Partial<WorkspaceEditApplierDeps> = {}) => {
     const calls: CallLog = []
+    /** Kept separate from `calls` — the 5 file-IPC deps above already have tests asserting an exact `calls` sequence, and the cross-file mirror write (§`mirrorBackgroundModelEdit`) fires alongside those on every "open model, no attached editor" fake (this file's `createFakeMonaco` reports no attached editors by default), which would otherwise break every one of those unrelated assertions. */
+    const mirrorCalls: CallLog = []
     const files = new Map<string, string>()
 
     const deps: WorkspaceEditApplierDeps = {
@@ -70,10 +76,18 @@ const createFakeDeps = (overrides: Partial<WorkspaceEditApplierDeps> = {}) => {
             files.delete(path)
             return null
         }) as WorkspaceEditApplierDeps['deleteEntry'],
+        getActiveProjectId: (async () => {
+            mirrorCalls.push({ fn: 'getActiveProjectId', args: [] })
+            return FAKE_ACTIVE_PROJECT_ID
+        }) as WorkspaceEditApplierDeps['getActiveProjectId'],
+        mirrorDirtyExternally: (async (input: { projectId: string; path: string; content: string }) => {
+            mirrorCalls.push({ fn: 'mirrorDirtyExternally', args: [input] })
+            return null
+        }) as WorkspaceEditApplierDeps['mirrorDirtyExternally'],
         ...overrides,
     }
 
-    return { deps, calls, files }
+    return { deps, calls, mirrorCalls, files }
 }
 
 describe('applyTextEditsToContent', () => {
@@ -335,9 +349,9 @@ const createFakeMonacoWithLiveModels = () => {
 }
 
 describe('applyWorkspaceEdit — 백그라운드 탭(에디터 미부착) 모델 편집은 외부 dirty 로 표시된다', () => {
-    test('어떤 에디터에도 부착되지 않은 열린 모델을 편집하면 model-dirty-tracker 에 표시한다', async () => {
-        const { model, getEdits } = createFakeModel()
-        const { deps } = createFakeDeps()
+    test('어떤 에디터에도 부착되지 않은 열린 모델을 편집하면 model-dirty-tracker 에 표시하고 hot-exit 미러도 즉시 기록한다', async () => {
+        const { model, getEdits } = createFakeModel('background edit applied')
+        const { deps, mirrorCalls } = createFakeDeps()
         const monaco = createFakeMonaco({ 'file:///bg.ts': model })
 
         const edit: WorkspaceEdit = {
@@ -348,6 +362,47 @@ describe('applyWorkspaceEdit — 백그라운드 탭(에디터 미부착) 모델
         expect(result).toEqual({ applied: true })
         expect(getEdits()).toHaveLength(1)
         expect(consumeExternallyDirtyModel('/bg.ts')).toBe(true)
+        expect(mirrorCalls).toEqual([
+            { fn: 'getActiveProjectId', args: [] },
+            { fn: 'mirrorDirtyExternally', args: [{ projectId: FAKE_ACTIVE_PROJECT_ID, path: '/bg.ts', content: 'background edit applied' }] },
+        ])
+    })
+
+    test('활성 프로젝트가 없으면(모든 프로젝트 종료) hot-exit 미러 기록을 건너뛴다', async () => {
+        const { model } = createFakeModel()
+        const { deps, mirrorCalls } = createFakeDeps({
+            getActiveProjectId: (async () => {
+                mirrorCalls.push({ fn: 'getActiveProjectId', args: [] })
+                return null
+            }) as WorkspaceEditApplierDeps['getActiveProjectId'],
+        })
+        const monaco = createFakeMonaco({ 'file:///bg-no-project.ts': model })
+
+        const edit: WorkspaceEdit = {
+            changes: { 'file:///bg-no-project.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' }] },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps)
+
+        expect(result).toEqual({ applied: true })
+        expect(mirrorCalls).toEqual([{ fn: 'getActiveProjectId', args: [] }])
+    })
+
+    test('options.projectId 가 주어지면 활성 프로젝트 대신 그 프로젝트로 미러를 기록한다 (세션의 소유 프로젝트 ≠ 전역 활성 프로젝트)', async () => {
+        const { model, getEdits } = createFakeModel('owning-project edit')
+        const { deps, mirrorCalls } = createFakeDeps()
+        const monaco = createFakeMonaco({ 'file:///owning.ts': model })
+        const OWNING_PROJECT_ID = 'proj-owning'
+
+        const edit: WorkspaceEdit = {
+            changes: { 'file:///owning.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' }] },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { projectId: OWNING_PROJECT_ID })
+
+        expect(result).toEqual({ applied: true })
+        expect(getEdits()).toHaveLength(1)
+        expect(mirrorCalls).toEqual([
+            { fn: 'mirrorDirtyExternally', args: [{ projectId: OWNING_PROJECT_ID, path: '/owning.ts', content: 'owning-project edit' }] },
+        ])
     })
 
     test('현재 에디터에 부착된(포그라운드) 모델을 편집하면 표시하지 않는다 — 자체 onDidChangeModelContent 경로가 이미 추적한다', async () => {
@@ -408,6 +463,8 @@ describe('applyWorkspaceEdit — refused tier 파일', () => {
             createEntry: (async () => null) as WorkspaceEditApplierDeps['createEntry'],
             renameEntry: (async () => null) as WorkspaceEditApplierDeps['renameEntry'],
             deleteEntry: (async () => null) as WorkspaceEditApplierDeps['deleteEntry'],
+            getActiveProjectId: (async () => FAKE_ACTIVE_PROJECT_ID) as WorkspaceEditApplierDeps['getActiveProjectId'],
+            mirrorDirtyExternally: (async () => null) as WorkspaceEditApplierDeps['mirrorDirtyExternally'],
         }
         const monaco = createFakeMonaco()
 

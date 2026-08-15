@@ -28,6 +28,27 @@ pub const REMOTE_LOGIN_LOCKOUT_BASE_MS: u64 = 1_000;
 /// Upper bound for the exponential-backoff lockout duration.
 pub const REMOTE_LOGIN_LOCKOUT_MAX_MS: u64 = 60_000;
 
+/// Minimum accepted length (in `chars`, after trimming) for a newly set
+/// remote-access password. Only enforced on write (`remote_set_password`) —
+/// a password already stored below this length keeps working until the user
+/// changes it.
+pub const REMOTE_PASSWORD_MIN_LEN: usize = 8;
+
+/// Hostnames that always resolve to this loopback-only server regardless of
+/// `Settings::remote_allowed_hosts` — the server only ever binds `127.0.0.1`
+/// (see `commands.rs::bind_and_start`), so these three aliases for it are
+/// permanently allowed and are never exposed to sync/dispatch stripping the
+/// way the user-registered tunnel hosts are.
+pub const REMOTE_LOOPBACK_HOSTNAMES: &[&str] = &["127.0.0.1", "localhost", "::1"];
+
+/// WebSocket close code sent when an individual session's `REMOTE_SESSION_TTL_MS`
+/// expires while a socket authenticated under it is still open. A private-use
+/// code (RFC 6455 reserves 4000-4999 for applications) so the frontend can
+/// distinguish this from an ordinary network drop and redirect to the login
+/// page instead of silently retrying — see `ws.rs::handle_socket`.
+pub const REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED: u16 = 4001;
+pub const REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED: &str = "session_expired";
+
 pub const REMOTE_CHANNEL_PREFIX: &str = "__CHANNEL__:";
 pub const REMOTE_BINARY_TAG_RESPONSE: u8 = 0x02;
 pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;

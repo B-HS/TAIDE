@@ -201,7 +201,7 @@ const createSession = async (
      * session's server can never be asked to believe it edited files under a different project.
      */
     const applyEditDisposable = {
-        dispose: client.registerRequestHandler('workspace/applyEdit', createWorkspaceApplyEditHandler(monaco, root, client)),
+        dispose: client.registerRequestHandler('workspace/applyEdit', createWorkspaceApplyEditHandler(monaco, root, client, projectId)),
     }
 
     return { client, sessionId, executeCommandsDisposable, applyEditDisposable }

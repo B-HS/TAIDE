@@ -14,8 +14,9 @@ export const deleteEntry = (path: string) => unwrapResult(commands.fileDelete(pa
 
 export const copyEntry = (input: { from: string; to: string }) => unwrapResult(commands.fileCopy(input.from, input.to))
 
-export const mirrorDirty = (input: { projectId: ProjectId; path: string; content: string; diskModifiedMs: number | null }) =>
-    unwrapResult(commands.fileMirrorDirty(input.projectId, input.path, input.content, input.diskModifiedMs))
+/** Returns the disk `modifiedMs` baseline the backend derived live at write time (see `file/service.rs`'s `mirror_dirty` doc comment) — never caller-supplied. */
+export const mirrorDirty = (input: { projectId: ProjectId; path: string; content: string }) =>
+    unwrapResult(commands.fileMirrorDirty(input.projectId, input.path, input.content))
 
 export const listMirrors = (projectId: ProjectId) => unwrapResult(commands.fileListMirrors(projectId))
 

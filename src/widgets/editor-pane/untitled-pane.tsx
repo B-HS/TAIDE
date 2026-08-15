@@ -41,6 +41,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
     const restoredFromMirrorRef = useRef(seedContent !== null)
     const pendingMirrorRef = useRef(false)
     const mirrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+    const saveEpochRef = useRef(0)
 
     const draftRef = useRef(seedContent ?? '')
 
@@ -66,13 +67,28 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
      * lockstep, instead of leaving it at its `staleTime: Infinity` project-activation snapshot until
      * the next convert-to-file/prune. See the equivalent `persistMirror` in `editor-pane.tsx` for why
      * an unsynced cache lets a same-pane tab detour restore a stale (or entirely missing) mirror.
+     *
+     * `epoch` guards the same resurrection-after-conversion race `editor-pane.tsx`'s `persistMirror`
+     * guards for regular files: `handleConvertSuccess` (below) already clears the untitled mirror the
+     * moment `handleSaveAs` finishes, so a write scheduled before that point must not be trusted to
+     * still apply once it resolves — checked both before the IPC call and after it returns, reverting
+     * (`clearUntitledMirror`) rather than trusting a write that raced past a completed conversion.
+     * Returns whether the write committed, so `handleChange`'s debounce timer knows whether it's safe
+     * to clear `pendingMirrorRef`.
      */
-    const persistMirror = async (content: string) => {
+    const persistMirror = async (content: string, epoch: number) => {
+        if (epoch !== saveEpochRef.current) return false
         await mirrorUntitled({ projectId, tabId, content })
+        if (epoch !== saveEpochRef.current) {
+            void clearUntitledMirror({ projectId, tabId }).catch(() => undefined)
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.UNTITLED_MIRRORS(projectId) })
+            return false
+        }
         queryClient.setQueryData(QUERY_KEY.FILE.UNTITLED_MIRRORS(projectId), (previous?: UntitledMirrorEntry[]) => [
             ...(previous ?? []).filter((entry) => entry.tabId !== tabId),
             { tabId, content, savedAtMs: Date.now() },
         ])
+        return true
     }
 
     const handleChange = (value: string) => {
@@ -85,13 +101,18 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
 
         pendingMirrorRef.current = true
         clearTimeout(mirrorTimeoutRef.current)
+        const scheduledEpoch = saveEpochRef.current
         mirrorTimeoutRef.current = setTimeout(() => {
-            pendingMirrorRef.current = false
-            void persistMirror(value).catch(() => undefined)
+            void persistMirror(value, scheduledEpoch)
+                .then((committed) => {
+                    if (committed) pendingMirrorRef.current = false
+                })
+                .catch(() => undefined)
         }, HOT_EXIT_MIRROR_DEBOUNCE_MS)
     }
 
     const handleConvertSuccess = () => {
+        saveEpochRef.current += 1
         clearTimeout(mirrorTimeoutRef.current)
         pendingMirrorRef.current = false
         dropUntitledContent(projectId, tabId)
@@ -156,8 +177,8 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
         const flush = async () => {
             clearTimeout(mirrorTimeoutRef.current)
             if (!pendingMirrorRef.current) return
-            pendingMirrorRef.current = false
-            await persistMirror(draftRef.current).catch(() => undefined)
+            const committed = await persistMirror(draftRef.current, saveEpochRef.current).catch(() => false)
+            if (committed) pendingMirrorRef.current = false
         }
 
         registerMirrorFlush(tabId, flush)

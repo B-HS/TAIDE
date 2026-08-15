@@ -218,21 +218,38 @@ pub fn copy_entry(from: &Path, to: &Path) -> AppResult<()> {
 /// tab's original, non-canonicalized path string; storing the resolved path
 /// instead would silently desync a symlinked file's mirror from its tab,
 /// making it invisible to both restore-matching and prune's keep-list.
+///
+/// The `disk_modified_ms` baseline is read live, right here, from
+/// `storage_path`'s own metadata — never accepted as a caller-supplied value.
+/// A caller-supplied baseline (the previous design) could only ever be as
+/// fresh as whatever the *frontend* last observed the disk to be, which is
+/// stale by construction across any render/effect boundary between "the
+/// frontend last learned the file's `modifiedMs`" and "this call actually
+/// reaches the backend" — including, concretely, a save's own `onSuccess`
+/// landing (and refetching a *newer* `modifiedMs`) while an older-scheduled
+/// mirror write from before that save is still in flight. Deriving it here
+/// instead ties the baseline to the one instant that actually matters: what
+/// the disk looked like at the moment this exact write happened, which is
+/// the only baseline `list_mirrors`'s `conflict` check can ever legitimately
+/// compare an *external* change against. Returned to the caller so
+/// `editor-pane.tsx`'s optimistic `FILE.MIRRORS` cache update can reuse the
+/// same authoritative value instead of guessing.
 pub fn mirror_dirty(
     paths: &AppPaths,
     project_id: &ProjectId,
     storage_path: &Path,
     display_path: &str,
     content: &str,
-    disk_modified_ms: Option<f64>,
-) -> AppResult<()> {
+) -> AppResult<Option<f64>> {
+    let disk_modified_ms = current_modified_ms(storage_path);
     let mirror = MirrorFile {
         path: display_path.to_string(),
         content: content.to_string(),
         saved_at_ms: now_epoch_ms(),
         disk_modified_ms,
     };
-    persist::write_json(&mirror_file_path(paths, project_id, storage_path), &mirror)
+    persist::write_json(&mirror_file_path(paths, project_id, storage_path), &mirror)?;
+    Ok(disk_modified_ms)
 }
 
 pub fn clear_mirror(paths: &AppPaths, project_id: &ProjectId, path: &Path) -> AppResult<()> {
@@ -684,7 +701,7 @@ mod tests {
         let target = dir.join("main.rs");
         std::fs::write(&target, "on disk").unwrap();
 
-        mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "dirty content", None).expect("mirror");
+        mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "dirty content").expect("mirror");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
 
         assert_eq!(mirrors.len(), 1);
@@ -701,6 +718,36 @@ mod tests {
     }
 
     #[test]
+    fn mirror_dirty는_호출_시점의_실제_디스크_mtime을_baseline으로_반환한다() {
+        let dir = temp_dir("mirror-live-baseline");
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = AppPaths::new(dir.clone());
+        let project_id = ProjectId::new();
+        let target = dir.join("live.rs");
+        std::fs::write(&target, "on disk").unwrap();
+        let expected = current_modified_ms(&target);
+
+        let returned = mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "dirty content").expect("mirror");
+
+        assert_eq!(
+            returned, expected,
+            "mirror_dirty가 반환하는 baseline은 호출자가 넘긴 값이 아니라 호출 시점의 실제 디스크 mtime이어야 한다"
+        );
+        let mirrors = list_mirrors(&paths, &project_id).expect("list");
+        assert!(
+            !mirrors[0].conflict,
+            "방금 읽은 baseline과 현재 디스크 상태가 같으므로 충돌이 아니어야 한다"
+        );
+
+        cleanup(&dir);
+    }
+
+    /// `list_mirrors`'s conflict comparison (`current_disk_modified_ms > baseline`) is exercised
+    /// directly against a hand-written `MirrorFile` rather than through `mirror_dirty` — since
+    /// `mirror_dirty` now derives its baseline live from disk (see its own doc comment), it can no
+    /// longer be handed an artificial one, but the comparison it feeds still needs coverage for both
+    /// directions independent of what wrote the mirror.
+    #[test]
     fn 디스크가_baseline보다_새로우면_충돌로_판정된다() {
         let dir = temp_dir("mirror-conflict");
         std::fs::create_dir_all(&dir).unwrap();
@@ -709,15 +756,13 @@ mod tests {
         let target = dir.join("conflict.rs");
         std::fs::write(&target, "changed on disk").unwrap();
 
-        mirror_dirty(
-            &paths,
-            &project_id,
-            &target,
-            &target.to_string_lossy(),
-            "mirrored content",
-            Some(0.0),
-        )
-        .expect("mirror");
+        let mirror = MirrorFile {
+            path: target.to_string_lossy().to_string(),
+            content: "mirrored content".to_string(),
+            saved_at_ms: now_epoch_ms(),
+            disk_modified_ms: Some(0.0),
+        };
+        persist::write_json(&mirror_file_path(&paths, &project_id, &target), &mirror).expect("write mirror directly");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
 
         assert_eq!(mirrors.len(), 1);
@@ -736,15 +781,13 @@ mod tests {
         std::fs::write(&target, "unchanged on disk").unwrap();
 
         let baseline = now_epoch_ms() + CONFLICT_TEST_FUTURE_OFFSET_MS;
-        mirror_dirty(
-            &paths,
-            &project_id,
-            &target,
-            &target.to_string_lossy(),
-            "mirrored content",
-            Some(baseline),
-        )
-        .expect("mirror");
+        let mirror = MirrorFile {
+            path: target.to_string_lossy().to_string(),
+            content: "mirrored content".to_string(),
+            saved_at_ms: now_epoch_ms(),
+            disk_modified_ms: Some(baseline),
+        };
+        persist::write_json(&mirror_file_path(&paths, &project_id, &target), &mirror).expect("write mirror directly");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
 
         assert_eq!(mirrors.len(), 1);
@@ -762,7 +805,7 @@ mod tests {
         let target = dir.join("gone.rs");
         std::fs::write(&target, "will be deleted").unwrap();
 
-        mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "mirrored content", None).expect("mirror");
+        mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "mirrored content").expect("mirror");
         std::fs::remove_file(&target).unwrap();
 
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
@@ -783,8 +826,8 @@ mod tests {
         std::fs::write(&keep, "keep").unwrap();
         std::fs::write(&drop, "drop").unwrap();
 
-        mirror_dirty(&paths, &project_id, &keep, &keep.to_string_lossy(), "keep content", None).expect("mirror keep");
-        mirror_dirty(&paths, &project_id, &drop, &drop.to_string_lossy(), "drop content", None).expect("mirror drop");
+        mirror_dirty(&paths, &project_id, &keep, &keep.to_string_lossy(), "keep content").expect("mirror keep");
+        mirror_dirty(&paths, &project_id, &drop, &drop.to_string_lossy(), "drop content").expect("mirror drop");
 
         prune_mirrors(&paths, &project_id, &[keep.to_string_lossy().to_string()]).expect("prune");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
@@ -810,7 +853,7 @@ mod tests {
         let storage_path = std::fs::canonicalize(&link).expect("canonicalize symlink");
         let display_path = link.to_string_lossy().to_string();
 
-        mirror_dirty(&paths, &project_id, &storage_path, &display_path, "dirty content", None).expect("mirror");
+        mirror_dirty(&paths, &project_id, &storage_path, &display_path, "dirty content").expect("mirror");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
 
         assert_eq!(mirrors.len(), 1);

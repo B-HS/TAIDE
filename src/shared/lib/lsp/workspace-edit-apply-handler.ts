@@ -1,3 +1,4 @@
+import type { ProjectId } from '@shared/api/bindings'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { WorkspaceEdit } from '@shared/lib/lsp/protocol'
@@ -26,13 +27,25 @@ const APPLY_EDIT_FAILURE_REASON_FOR_SERVER = 'edit rejected'
  * any session (any language server, for any open project) could use this request to create,
  * rename, delete, or overwrite files belonging to a *different* open project — `resolve_owning_project`
  * on the Rust side only checks that a path falls under *some* open project, not this session's own.
+ *
+ * `projectId` — this session's own owning project, known by the caller (`lsp-session-registry.ts`
+ * creates one session per `(projectId, serverId)` pair) — is threaded into `applyWorkspaceEdit` so a
+ * cross-file edit landing on a background (open-but-unattached) model gets its hot-exit mirror
+ * write scoped to *this* project rather than whichever project happens to be globally active when
+ * the push arrives; see `workspace-edit-applier.ts`'s `mirrorBackgroundModelEdit` doc comment.
  */
-export const createWorkspaceApplyEditHandler = (monaco: Monaco, allowedRoot: string, client: LspClient): ServerRequestHandler => {
+export const createWorkspaceApplyEditHandler = (
+    monaco: Monaco,
+    allowedRoot: string,
+    client: LspClient,
+    projectId: ProjectId,
+): ServerRequestHandler => {
     return async (params) => {
         if (!isApplyWorkspaceEditParams(params)) return { applied: false, failureReason: 'invalid ApplyWorkspaceEditParams' }
         const result = await applyWorkspaceEdit(monaco, params.edit, undefined, {
             allowedRoot,
             getDocumentVersion: client.getDocumentVersion,
+            projectId,
         })
         return result.applied ? result : { applied: false, failureReason: APPLY_EDIT_FAILURE_REASON_FOR_SERVER }
     }

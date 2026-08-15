@@ -89,6 +89,18 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const draftRef = useRef<string | null>(null)
     const pendingMirrorRef = useRef(false)
     const savingRef = useRef(false)
+    const saveEpochRef = useRef(0)
+    /**
+     * Monotonic counter bumped once per `persistMirror` write attempt that actually reaches the
+     * IPC call (not the writes that bail out on the pre-check). Lets a write's post-await epoch
+     * mismatch tell "a newer write already started for this path" (skip reverting — that newer
+     * write owns the outcome) apart from "nothing newer is coming" (safe to revert). Without this,
+     * `persistMirror`'s revert branch unconditionally cleared the mirror on any epoch mismatch,
+     * which could delete a *different*, already-committed write for the same path that simply
+     * finished first (a save landing between two overlapping mirror writes — debounce vs. a
+     * blur/hot-exit flush racing it).
+     */
+    const mirrorWriteSeqRef = useRef(0)
     const mirrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -147,15 +159,64 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * tab (`EditorPane` has no `key`, so a path switch reuses this instance) would restore from a
      * stale cached entry — either missing entirely (this tab's edits since activation never landed
      * in the cache) or, worse, an *older* mirror than what's already on screen, silently rolling
-     * back newer edits. `disk_modified_ms`/`conflict` mirror what Rust would compute for a mirror
-     * written against the currently-known disk baseline with nothing external having changed it.
+     * back newer edits. The cache write reuses whatever `disk_modified_ms` baseline `mirrorDirty`
+     * (the IPC call) reports back — the backend derives that live from the file's actual on-disk
+     * mtime at the moment it writes the mirror (`file/service.rs`'s `mirror_dirty`), not from
+     * anything this component tracks itself. That matters specifically because this function's
+     * *own* closure can go stale: it can run from a previous render's `flush` (the mirror-flush
+     * effect's cleanup, invoked when `file?.modifiedMs` changes — see that effect's own doc
+     * comment) after a save has already landed a newer `modifiedMs`. Reading `file?.modifiedMs`
+     * directly here (the earlier design) would silently use whichever render's `file` that
+     * particular closure happened to capture — stale relative to the disk by the time the write
+     * actually reaches the backend, and wrongly baselined as a result (false "restored" conflict
+     * banner on next launch even though nothing external touched the file). Sourcing the baseline
+     * from the backend's own live read instead makes which closure ran irrelevant.
+     *
+     * `epoch` is the value of `saveEpochRef` at the moment this write was *scheduled* (armed by the
+     * debounce timer or a flush), not when it runs — `handleSave`'s `onSuccess`/`handleViewDisk`
+     * bump `saveEpochRef` the instant disk is known to match, and Rust's own `file_save` already
+     * clears the mirror in that same request. A write scheduled before that bump can otherwise land
+     * *after* the clear (the backend's mutation lock is FIFO but no longer orders these two commands
+     * relative to each other — see `file_mirror_dirty`'s doc comment), resurrecting a mirror for a
+     * file that's already clean and triggering a false "restored" conflict banner on next launch.
+     * Checked twice — before the IPC call (skip entirely if already stale) and after it resolves (a
+     * save can complete *during* the round trip).
+     *
+     * The post-await mismatch does *not* always mean "revert" though — two further cases are
+     * distinguished before falling back to that:
+     *  1. A *newer* write has already started for this path (`mirrorWriteSeqRef` moved past the
+     *     sequence number this call claimed) — that write owns the outcome; reverting here would
+     *     risk clobbering whatever it already committed (or is about to), so this call just backs
+     *     off instead.
+     *  2. `content` is still exactly the live draft and a mirror is still owed for it (`draftRef`
+     *     unchanged, `pendingMirrorRef` still set) — the epoch bump came from a save that finished
+     *     concurrently with (not before) this content existing, so it's not stale, only mis-baselined
+     *     against a now-outdated epoch/disk snapshot. Retried once against the current epoch instead
+     *     of being deleted — otherwise a hot-exit flush racing a same-tick save's `onSuccess` could
+     *     write the very last unsaved edit and then immediately erase it right as the window closes.
+     * Only when neither holds is the write genuinely superseded, and the mirror reverted via
+     * `clearMirror` (fire-and-forget, matching this function's other IPC side effects) with the
+     * cache left alone so the stale entry never becomes visible.
+     *
+     * Returns whether the write actually took effect, so callers know whether it's safe to treat the
+     * outstanding edit as flushed (see `handleChange`'s and the mirror-flush effect's use of this).
      */
-    const persistMirror = async (content: string) => {
-        await mirrorDirty({ projectId, path, content, diskModifiedMs: file?.modifiedMs ?? null })
-        queryClient.setQueryData(QUERY_KEY.FILE.MIRRORS(projectId), (previous?: MirrorEntry[]) => [
-            ...(previous ?? []).filter((entry) => entry.path !== path),
-            { path, content, savedAtMs: Date.now(), diskModifiedMs: file?.modifiedMs ?? null, conflict: false },
-        ])
+    const persistMirror = async (content: string, epoch: number): Promise<boolean> => {
+        if (epoch !== saveEpochRef.current) return false
+        const writeSeq = ++mirrorWriteSeqRef.current
+        const diskModifiedMs = await mirrorDirty({ projectId, path, content })
+        if (epoch === saveEpochRef.current) {
+            queryClient.setQueryData(QUERY_KEY.FILE.MIRRORS(projectId), (previous?: MirrorEntry[]) => [
+                ...(previous ?? []).filter((entry) => entry.path !== path),
+                { path, content, savedAtMs: Date.now(), diskModifiedMs, conflict: false },
+            ])
+            return true
+        }
+        if (writeSeq !== mirrorWriteSeqRef.current) return false
+        if (draftRef.current === content && pendingMirrorRef.current) return persistMirror(content, saveEpochRef.current)
+        void clearMirror({ projectId, path }).catch(() => undefined)
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
+        return false
     }
 
     const handleChange = (value: string) => {
@@ -167,9 +228,19 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
         pendingMirrorRef.current = true
         clearTimeout(mirrorTimeoutRef.current)
+        /**
+         * Captured now, not read inside the timeout — `saveEpochRef` can bump while this timer is
+         * still counting down (a save started before this keystroke can finish after it). Passed
+         * straight through to `persistMirror`, which compares it against the *current* epoch both
+         * before writing and after the IPC round trip; see that function's doc comment.
+         */
+        const scheduledEpoch = saveEpochRef.current
         mirrorTimeoutRef.current = setTimeout(() => {
-            pendingMirrorRef.current = false
-            void persistMirror(value).catch(() => undefined)
+            void persistMirror(value, scheduledEpoch)
+                .then((committed) => {
+                    if (committed) pendingMirrorRef.current = false
+                })
+                .catch(() => undefined)
         }, HOT_EXIT_MIRROR_DEBOUNCE_MS)
 
         /**
@@ -320,13 +391,34 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         saveFile(
             { path, content: finalContent },
             {
+                /**
+                 * `saveEpochRef` bumps unconditionally — Rust's `file_save` already cleared the
+                 * mirror server-side for `finalContent` regardless of what's typed since, so any
+                 * mirror write `persistMirror` scheduled before this point must not be trusted to
+                 * still reflect reality (see `persistMirror`'s doc comment). *Not* bumped on
+                 * `onError` below — a failed save changes nothing on disk, so a write already in
+                 * flight for the pre-save content is still exactly the recovery data hot exit needs.
+                 *
+                 * The rest of this success handling only fires when `draftRef.current` still equals
+                 * `finalContent` — i.e. nothing was typed during the save round trip. If it doesn't
+                 * match, the user kept typing while the save/format/code-actions were in flight; that
+                 * content was never sent to disk and must stay `dirty` with its mirror timer left
+                 * armed (it will find `pendingMirrorRef` still true and, thanks to the epoch bump
+                 * above, either fire successfully with a fresh schedule or fall through to the
+                 * mirror-flush effect — either way the still-unsaved edit reaches the mirror, never
+                 * gets silently marked clean, and is never clobbered by the `FILE.CONTENT` refetch
+                 * this mutation's `onSuccess` triggers.
+                 */
                 onSuccess: () => {
                     savingRef.current = false
-                    clearTimeout(mirrorTimeoutRef.current)
-                    pendingMirrorRef.current = false
-                    setDirty(false)
-                    setTabDirty({ tabId, dirty: false })
-                    setRestoreNotice('none')
+                    saveEpochRef.current += 1
+                    if (draftRef.current === finalContent) {
+                        clearTimeout(mirrorTimeoutRef.current)
+                        pendingMirrorRef.current = false
+                        setDirty(false)
+                        setTabDirty({ tabId, dirty: false })
+                        setRestoreNotice('none')
+                    }
                     void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
                     void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
                     void notifyLspSessionsOfSave()
@@ -342,6 +434,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const handleViewDisk = () => {
         if (!file) return
 
+        saveEpochRef.current += 1
         clearTimeout(mirrorTimeoutRef.current)
         pendingMirrorRef.current = false
         draftRef.current = file.content
@@ -412,14 +505,20 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * immediately, instead of losing up to `HOT_EXIT_MIRROR_DEBOUNCE_MS` of unmirrored edits.
      * `pendingMirrorRef` (not `dirty`) gates the write so a save/view-disk that clears the mirror
      * right before this effect's `file.modifiedMs` dependency changes can't race a stale flush back
-     * into existence.
+     * into existence — reinforced by `persistMirror`'s own epoch check (`saveEpochRef.current`, read
+     * fresh at flush time rather than captured ahead like the debounce timer's `scheduledEpoch`,
+     * since a flush always fires in direct response to a real event, never on a timer of its own).
+     * Only clears `pendingMirrorRef` when `persistMirror` reports the write actually committed — if a
+     * save raced this and won, the edit stays flagged pending so the *next* flush (now past the save,
+     * with a current epoch) retries it against `draftRef.current` instead of the attempt being
+     * silently dropped.
      */
     useEffect(() => {
         const flush = async () => {
             clearTimeout(mirrorTimeoutRef.current)
             if (!pendingMirrorRef.current || draftRef.current === null) return
-            pendingMirrorRef.current = false
-            await persistMirror(draftRef.current).catch(() => undefined)
+            const committed = await persistMirror(draftRef.current, saveEpochRef.current).catch(() => false)
+            if (committed) pendingMirrorRef.current = false
         }
 
         registerMirrorFlush(tabId, flush)

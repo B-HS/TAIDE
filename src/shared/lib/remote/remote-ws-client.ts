@@ -6,6 +6,27 @@ const RECONNECT_DELAY_MS = 1_000
 const CHANNEL_FRAME_HEADER_BYTES = 9
 const RESPONSE_FRAME_HEADER_BYTES = 5
 
+/**
+ * Mirrors Rust's `remote::types::REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED` — the private-use WebSocket
+ * close code (RFC 6455 reserves 4000-4999 for applications) `ws.rs::handle_socket` sends when the
+ * individual session backing this socket outlives its TTL while the socket is still open. No
+ * generated binding carries this value across (it's a bare Rust `const`, not part of a
+ * `#[derive(Type)]` struct/enum), so it's kept in sync by convention here the same way this file's
+ * own binary frame tags (`RESPONSE_TAG`/`CHANNEL_TAG` above) mirror their Rust counterparts.
+ */
+const CLOSE_CODE_SESSION_EXPIRED = 4_001
+
+/** Mirrors Rust's `remote::types::REMOTE_LOGIN_PATH` — same binding gap as {@link CLOSE_CODE_SESSION_EXPIRED} above. */
+const REMOTE_LOGIN_PATH = '/__taide/login'
+
+/**
+ * Whether a WebSocket close should send the browser to re-authenticate instead of feeding the
+ * reconnect loop below — a socket closed for this reason will only ever fail its next handshake the
+ * same way (the session really is gone), so retrying it every {@link RECONNECT_DELAY_MS} is a
+ * spin loop with no way to ever succeed on its own.
+ */
+export const isSessionExpiredClose = (code: number) => code === CLOSE_CODE_SESSION_EXPIRED
+
 export type NonResponseFrame =
     | { kind: 'chan'; channelId: number; index: number; message: unknown }
     | { kind: 'chanEnd'; channelId: number; index: number }
@@ -96,9 +117,13 @@ export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void)
             if (typeof event.data === 'string') handleTextFrame(event.data)
             else if (event.data instanceof ArrayBuffer) handleBinaryFrame(event.data)
         }
-        next.onclose = () => {
+        next.onclose = (event) => {
             socket = null
             rejectAll()
+            if (isSessionExpiredClose(event.code)) {
+                location.assign(REMOTE_LOGIN_PATH)
+                return
+            }
             setTimeout(connect, RECONNECT_DELAY_MS)
         }
         next.onerror = () => next.close()

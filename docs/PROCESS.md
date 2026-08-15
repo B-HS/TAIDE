@@ -163,7 +163,13 @@
           넘는 **신규 중대 4건** 발견·메인 재검증: gist 인바운드 shell_override 미필터(RCE급)·
           게이트 필드 미필터·저장 왕복 타이핑 소실·cross-file 편집 hot-exit 미러 구멍(Wave A 회귀).
           계약 확정(`2026-08-15-wave-b-hardening-contract.md`, 결정 3건 전부 추천안 — 범위=신규 4+잔여
-          10, Remote 보안 패키지, Hot Exit 패키지). 구현 S→B1(Remote Rust)→B2(Hot Exit)→검토 예정
+          10, Remote 보안 패키지, Hot Exit 패키지). 구현(wf_9ddbde2a-6d0 S→B1∥B2) 완료 →
+          검토(wf_8e6238d4-bd2, 4렌즈+적대): 확정 3(stale nonce 오라클·저장 타이핑 미러 baseline
+          stale·비밀번호 무피드백) + minor 6 수정, #2(잠금 축 선택)는 L2-0 수정으로 해소 확인(메인
+          재판정). Host 허용목록 터널 회귀(L0-0) → 사용자 결정 UI+링크 완결(계약 §6) →
+          후속 구현·검토(wf_37dd3b24-7a4): 포트 완화(loopback 엄격·등록 호스트 포트 무관)·링크
+          호스트 반영·편집 위젯 + minor 6 수정(L0-0 @-userinfo 방어심층·L0-1 remote_issue_link
+          원격 거부). 메인 2차: format 정리·스팟 검증·verify 전체(678/664+6+17)·vite build 그린. 커밋
     - [ ] c-C ~ c-I. 순차 진행 (Git → 탐색·검색 → 터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

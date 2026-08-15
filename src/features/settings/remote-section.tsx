@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { CheckCircle2, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { RemoteStatus } from '@shared/api/bindings'
+import { RemoteAllowedHostsRow } from '@features/settings/remote-allowed-hosts-row'
 import { RemotePasswordRow } from '@features/settings/remote-password-row'
 import { Button } from '@shared/ui/button'
 import { Switch } from '@shared/ui/switch'
@@ -14,12 +15,15 @@ type RemoteSectionProps = {
     revoking: boolean
     passwordSaving: boolean
     passwordOnlyLogin: boolean
+    allowedHosts: string[]
+    allowedHostsSaving: boolean
     onToggle: (enabled: boolean) => void
     onIssueLink: () => void
     onRevokeSessions: () => void
     onSavePassword: (password: string) => void
     onClearPassword: () => void
     onTogglePasswordOnlyLogin: (enabled: boolean) => void
+    onChangeAllowedHosts: (hosts: string[]) => void
 }
 
 export const RemoteSection: FC<RemoteSectionProps> = ({
@@ -30,12 +34,15 @@ export const RemoteSection: FC<RemoteSectionProps> = ({
     revoking,
     passwordSaving,
     passwordOnlyLogin,
+    allowedHosts,
+    allowedHostsSaving,
     onToggle,
     onIssueLink,
     onRevokeSessions,
     onSavePassword,
     onClearPassword,
     onTogglePasswordOnlyLogin,
+    onChangeAllowedHosts,
 }) => {
     const { t } = useTranslation()
     const running = status?.running ?? false
@@ -80,6 +87,7 @@ export const RemoteSection: FC<RemoteSectionProps> = ({
                     <Switch checked={passwordOnlyLogin} onCheckedChange={onTogglePasswordOnlyLogin} />
                 </label>
             )}
+            <RemoteAllowedHostsRow hosts={allowedHosts} saving={allowedHostsSaving} onChange={onChangeAllowedHosts} />
             {issuedUrl && <span className='text-app-foreground break-all select-all'>{issuedUrl}</span>}
             <div className='flex items-center gap-1.5'>
                 <Button type='button' variant='outline' size='xs' disabled={!running || issuing} onClick={onIssueLink}>

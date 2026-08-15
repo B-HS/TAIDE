@@ -1,1 +1,3 @@
 export const HOT_EXIT_MIRROR_DEBOUNCE_MS = 500
+
+export const HOT_EXIT_FLUSH_SAFETY_MARGIN_MS = 300

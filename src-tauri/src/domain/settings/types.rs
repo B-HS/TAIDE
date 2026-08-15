@@ -108,6 +108,8 @@ pub struct Settings {
     #[serde(default)]
     pub remote_password_only_login: bool,
     #[serde(default)]
+    pub remote_allowed_hosts: Vec<String>,
+    #[serde(default)]
     pub organize_imports_on_save: bool,
     #[serde(default)]
     pub fix_all_on_save: bool,
@@ -215,6 +217,7 @@ impl Default for Settings {
             sync_last_synced_at: None,
             remote_access_enabled: false,
             remote_password_only_login: false,
+            remote_allowed_hosts: Vec::new(),
             organize_imports_on_save: false,
             fix_all_on_save: false,
             editor_code_lens_enabled: default_true(),

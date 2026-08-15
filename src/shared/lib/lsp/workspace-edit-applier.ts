@@ -1,3 +1,4 @@
+import type { ProjectId } from '@shared/api/bindings'
 import { commands } from '@shared/api/bindings'
 import { IpcError, unwrapResult } from '@shared/api/unwrap-result'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
@@ -30,6 +31,9 @@ const saveFile = (input: { path: string; content: string }) => unwrapResult(comm
 const createEntry = (input: { path: string; isDir: boolean }) => unwrapResult(commands.fileCreate(input.path, input.isDir))
 const renameEntry = (input: { from: string; to: string }) => unwrapResult(commands.fileRename(input.from, input.to))
 const deleteEntry = (path: string) => unwrapResult(commands.fileDelete(path))
+const getActiveProjectId = () => unwrapResult(commands.projectGetActive())
+const mirrorDirtyExternally = (input: { projectId: ProjectId; path: string; content: string }) =>
+    unwrapResult(commands.fileMirrorDirty(input.projectId, input.path, input.content))
 
 /**
  * File-IPC side of the applier, factored out for dependency injection (`common.md`/`backend.md`
@@ -45,9 +49,19 @@ export type WorkspaceEditApplierDeps = {
     createEntry: typeof createEntry
     renameEntry: typeof renameEntry
     deleteEntry: typeof deleteEntry
+    getActiveProjectId: typeof getActiveProjectId
+    mirrorDirtyExternally: typeof mirrorDirtyExternally
 }
 
-const defaultDeps: WorkspaceEditApplierDeps = { openFile, saveFile, createEntry, renameEntry, deleteEntry }
+const defaultDeps: WorkspaceEditApplierDeps = {
+    openFile,
+    saveFile,
+    createEntry,
+    renameEntry,
+    deleteEntry,
+    getActiveProjectId,
+    mirrorDirtyExternally,
+}
 
 const APPLIED: WorkspaceEditApplyResult = { applied: true }
 
@@ -74,6 +88,18 @@ export type WorkspaceEditApplyOptions = {
     allowedRoot?: string
     /** When set, a `TextDocumentEdit` whose `textDocument.version` doesn't match the client's tracked version for that uri is rejected instead of applied against stale offsets. */
     getDocumentVersion?: (uri: string) => number | undefined
+    /**
+     * The project this edit's originating LSP session belongs to — supplied by
+     * `createWorkspaceApplyEditHandler` (registered per-session, so it always knows its own
+     * project) for the server-initiated `workspace/applyEdit` push. Threaded down to
+     * {@link mirrorBackgroundModelEdit} so a background-model hot-exit mirror write lands under the
+     * edit's *actual* owning project rather than whichever project happens to be globally active —
+     * see that function's doc comment for why the two can differ. Left unset by the interactive
+     * rename/code-action callers (`adapters/rename.ts`, `adapters/code-action.ts`), which act on
+     * whatever the user is currently looking at, so falling back to the active project there is
+     * exact, not a guess.
+     */
+    projectId?: ProjectId
 }
 
 const OUTSIDE_ROOT_FAILURE: WorkspaceEditApplyResult = { applied: false, failureReason: 'edit rejected: outside workspace root' }
@@ -144,6 +170,47 @@ export const applyTextEditsToContent = (content: string, edits: readonly TextEdi
 }
 
 /**
+ * Immediately persists an edit that just landed on a background (open-but-unattached) model to the
+ * hot-exit mirror, instead of leaving that edit covered only by `mirror-flush-registry.ts` — whose
+ * flush callbacks are registered exclusively by *mounted* `EditorPane`/`UntitledPane` instances and
+ * therefore never run for a tab this edit lands on while unmounted (a background split-pane tab, or
+ * one simply not active in its pane — see `model-dirty-tracker.ts`). Without this, the edit sits
+ * only in the monaco model until that tab is next activated; a hot exit before then loses it even
+ * though `markModelDirtyExternally` already flags the tab dirty in-memory.
+ *
+ * Needs a `ProjectId` the mirror IPC is scoped to. The server-initiated `workspace/applyEdit` push
+ * — the only caller that can reach a model belonging to a project other than the active one, since
+ * `createWorkspaceApplyEditHandler` is registered per LSP session against that session's own project
+ * — supplies it explicitly via `WorkspaceEditApplyOptions.projectId` (threaded down from
+ * `lsp-session-registry.ts`, where a session's owning project *is* known; this module itself cannot
+ * reach into `widgets/editor-pane/lsp-session-registry.ts` directly since `shared` cannot import
+ * `widgets`). Without an explicit `projectId` (the interactive rename/code-action adapters, and the
+ * process-wide fallback handler registered with no session context at all), falling back to
+ * `getActiveProjectId` is exact, not a guess, for those callers: `app-shell.tsx` mounts exactly one
+ * `EditorArea` at a time, keyed off that same active project, and interactive edits only ever act on
+ * whatever the user is currently looking at. The mirror's `disk_modified_ms` baseline is derived by
+ * the backend itself, live, from the file's on-disk mtime at write time (see `file/service.rs`'s
+ * `mirror_dirty`) — this call doesn't supply one, so a restore correctly flags a conflict if the
+ * file changes on disk after this edit but before the next launch, the same as any other mirror
+ * write. Best-effort: a failure just
+ * leaves this edit exactly as exposed as it already was (the text edit itself already landed in the
+ * model either way), so every step — including reading `model.getValue()` itself — runs inside this
+ * `async` function rather than at the call site, so a throw from *any* of it (a fake or a real model
+ * behaving unexpectedly) becomes a rejected promise the caller's `.catch()` can swallow, not a
+ * synchronous throw that would incorrectly fail the text edit that already succeeded.
+ */
+const mirrorBackgroundModelEdit = async (
+    deps: WorkspaceEditApplierDeps,
+    path: string,
+    model: { getValue: () => string },
+    projectId: ProjectId | undefined,
+) => {
+    const resolvedProjectId = projectId ?? (await deps.getActiveProjectId())
+    if (!resolvedProjectId) return
+    await deps.mirrorDirtyExternally({ projectId: resolvedProjectId, path, content: model.getValue() })
+}
+
+/**
  * `monaco.editor.getModel(uri)` alone cannot distinguish a genuinely open, saved-through document
  * from a peek-preview model `peek-model-preload.ts` created ahead of time at the same real file
  * uri (so monaco's Peek widget can render a preview for a file with no open tab). A peek-only
@@ -156,6 +223,7 @@ const applyTextEditsToUri = async (
     deps: WorkspaceEditApplierDeps,
     uri: string,
     edits: readonly TextEdit[],
+    projectId: ProjectId | undefined,
 ): Promise<WorkspaceEditApplyResult> => {
     if (edits.length === 0) return APPLIED
 
@@ -179,7 +247,10 @@ const applyTextEditsToUri = async (
              * `editor-pane.tsx`'s activation-sync effect finds out not to do that.
              */
             const isAttachedToAnEditor = monaco.editor.getEditors().some((editor) => editor.getModel() === model)
-            if (!isAttachedToAnEditor) markModelDirtyExternally(path)
+            if (!isAttachedToAnEditor) {
+                markModelDirtyExternally(path)
+                await mirrorBackgroundModelEdit(deps, path, model, projectId).catch(() => undefined)
+            }
             return APPLIED
         }
 
@@ -265,7 +336,7 @@ const applyDocumentChangeOperation = async (
     if (isTextDocumentEdit(operation)) {
         const staleFailure = assertVersionCurrent(operation.textDocument, options.getDocumentVersion)
         if (staleFailure) return staleFailure
-        return applyTextEditsToUri(monaco, deps, operation.textDocument.uri, operation.edits)
+        return applyTextEditsToUri(monaco, deps, operation.textDocument.uri, operation.edits, options.projectId)
     }
     if (operation.kind === 'create') return applyCreateFile(monaco, deps, operation)
     if (operation.kind === 'rename') return applyRenameFile(monaco, deps, operation)
@@ -301,7 +372,7 @@ export const applyWorkspaceEdit = async (
     for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
         const rootFailure = assertPathsWithinRoot(monaco, options.allowedRoot, [uri])
         if (rootFailure) return rootFailure
-        const result = await applyTextEditsToUri(monaco, deps, uri, edits)
+        const result = await applyTextEditsToUri(monaco, deps, uri, edits, options.projectId)
         if (!result.applied) return result
     }
     return APPLIED

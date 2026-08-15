@@ -53,12 +53,35 @@ pub fn is_remote_newer(remote_updated_at: &str, last_synced_at: Option<&str>) ->
     }
 }
 
-pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
+/// Fields on [`SettingsPatch`] that must never cross the sync gist boundary in
+/// either direction. Uploads exclude these so a leaked/shared gist can't leak
+/// the local shell override or gate state; downloads exclude the same fields
+/// so a hand-edited or attacker-controlled gist can't remotely flip
+/// `remoteAccessEnabled`/`remotePasswordOnlyLogin` (bypassing the link-gate),
+/// grow `remoteAllowedHosts` (self-expanding the Host allowlist), or override
+/// `shellOverride` (arbitrary executable spawned the next time a terminal
+/// opens). [`settings_to_sync_patch`] (upload) and [`apply_payload_settings`]
+/// (download) both funnel through this single function so the two directions
+/// can never drift apart — see `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md`
+/// §3.1. This is distinct from `remote::dispatch::strip_remote_gated_settings_patch`,
+/// which guards the live remote-session `settings_update` path, not the gist
+/// round-trip.
+fn strip_non_syncable(patch: &SettingsPatch) -> SettingsPatch {
     SettingsPatch {
+        shell_override: None,
+        remote_access_enabled: None,
+        remote_password_only_login: None,
+        remote_allowed_hosts: None,
+        ..patch.clone()
+    }
+}
+
+pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
+    strip_non_syncable(&SettingsPatch {
         theme_id: Some(settings.theme_id.clone()),
         editor_font_size: Some(settings.editor_font_size),
         terminal_font_size: Some(settings.terminal_font_size),
-        shell_override: None,
+        shell_override: settings.shell_override.clone(),
         follow_system_theme: Some(settings.follow_system_theme),
         language: Some(settings.language.clone()),
         toast_position: Some(settings.toast_position.clone()),
@@ -95,12 +118,13 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         ai_auto_tab_provider: settings.ai_auto_tab_provider.clone(),
         ai_auto_tab_model: settings.ai_auto_tab_model.clone(),
         ai_omlx_base_url: settings.ai_omlx_base_url.clone(),
-        remote_access_enabled: None,
-        remote_password_only_login: None,
+        remote_access_enabled: Some(settings.remote_access_enabled),
+        remote_password_only_login: Some(settings.remote_password_only_login),
+        remote_allowed_hosts: Some(settings.remote_allowed_hosts.clone()),
         organize_imports_on_save: Some(settings.organize_imports_on_save),
         fix_all_on_save: Some(settings.fix_all_on_save),
         editor_code_lens_enabled: Some(settings.editor_code_lens_enabled),
-    }
+    })
 }
 
 pub fn assemble_payload(
@@ -204,7 +228,7 @@ pub fn ensure_supported_schema_version(schema_version: u32) -> AppResult<()> {
 }
 
 pub fn apply_payload_settings(current: &Settings, payload: &SyncPayload) -> Settings {
-    settings_service::apply_patch(current, &payload.settings)
+    settings_service::apply_patch(current, &strip_non_syncable(&payload.settings))
 }
 
 #[cfg(test)]
@@ -292,6 +316,76 @@ mod tests {
     fn 지원보다_높은_스키마_버전은_거부된다() {
         let result = ensure_supported_schema_version(SETTINGS_SCHEMA_VERSION + 1);
         assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+    }
+
+    /// Regresses the gist-inbound filter gap the contract calls out explicitly:
+    /// `apply_payload_settings는_settings_update와_동일한_apply_patch를_재사용한다`
+    /// below only ever exercises payloads built through [`assemble_payload`],
+    /// which already excludes `shellOverride`/the remote gate fields at the
+    /// source — it can never reach the code path a hand-edited or
+    /// attacker-controlled gist takes. This test deserializes a raw JSON
+    /// string (as `sync_download` does with the gist body) so the filter is
+    /// exercised on the actual untrusted-input boundary, not just on payloads
+    /// this build already knows how to produce safely.
+    #[test]
+    fn 손으로_만든_gist_페이로드의_shell_override와_원격_게이트_필드는_적용되지_않는다() {
+        let malicious_json = r#"{
+            "schemaVersion": 1,
+            "updatedAt": "2026-08-15T00:00:00Z",
+            "settings": {
+                "shellOverride": "/tmp/evil.sh",
+                "remoteAccessEnabled": true,
+                "remotePasswordOnlyLogin": true,
+                "remoteAllowedHosts": ["attacker.example.com"]
+            }
+        }"#;
+        let payload: SyncPayload = serde_json::from_str(malicious_json).expect("손으로 작성한 페이로드가 파싱되어야 함");
+
+        let current = Settings::default();
+        let applied = apply_payload_settings(&current, &payload);
+
+        assert_eq!(applied.shell_override, current.shell_override);
+        assert_eq!(applied.remote_access_enabled, current.remote_access_enabled);
+        assert_eq!(applied.remote_password_only_login, current.remote_password_only_login);
+        assert_eq!(applied.remote_allowed_hosts, current.remote_allowed_hosts);
+    }
+
+    #[test]
+    fn strip_non_syncable은_그_외_필드는_그대로_통과시킨다() {
+        let patch = SettingsPatch {
+            theme_id: Some("taide-light".to_string()),
+            editor_font_size: Some(18),
+            shell_override: Some("/bin/zsh".to_string()),
+            remote_access_enabled: Some(true),
+            remote_password_only_login: Some(true),
+            remote_allowed_hosts: Some(vec!["tunnel.example.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let stripped = strip_non_syncable(&patch);
+
+        assert_eq!(stripped.theme_id, Some("taide-light".to_string()));
+        assert_eq!(stripped.editor_font_size, Some(18));
+        assert_eq!(stripped.shell_override, None);
+        assert_eq!(stripped.remote_access_enabled, None);
+        assert_eq!(stripped.remote_password_only_login, None);
+        assert_eq!(stripped.remote_allowed_hosts, None);
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_원격_게이트와_허용_호스트를_제외한다() {
+        let settings = Settings {
+            remote_access_enabled: true,
+            remote_password_only_login: true,
+            remote_allowed_hosts: vec!["tunnel.example.com".to_string()],
+            ..Settings::default()
+        };
+
+        let patch = settings_to_sync_patch(&settings);
+
+        assert_eq!(patch.remote_access_enabled, None);
+        assert_eq!(patch.remote_password_only_login, None);
+        assert_eq!(patch.remote_allowed_hosts, None);
     }
 
     #[test]

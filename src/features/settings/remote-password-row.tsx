@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { useState } from 'react'
 import { CheckCircle2, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { REMOTE_PASSWORD_MIN_LEN } from '@entities/remote/remote.ipc'
 import { cn } from '@shared/lib/cn'
 import { Button } from '@shared/ui/button'
 
@@ -17,9 +18,11 @@ export const RemotePasswordRow: FC<RemotePasswordRowProps> = ({ configured, warn
     const { t } = useTranslation()
     const [password, setPassword] = useState('')
 
+    const trimmed = password.trim()
+    const isTooShort = trimmed.length > 0 && trimmed.length < REMOTE_PASSWORD_MIN_LEN
+
     const handleSave = () => {
-        const trimmed = password.trim()
-        if (!trimmed) return
+        if (!trimmed || isTooShort) return
         setPassword('')
         onSave(trimmed)
     }
@@ -38,6 +41,9 @@ export const RemotePasswordRow: FC<RemotePasswordRowProps> = ({ configured, warn
                 </span>
             </div>
             {warning && <span className='text-status-warning min-w-0 pl-5.5'>{warning}</span>}
+            {isTooShort && (
+                <span className='text-status-warning min-w-0 pl-5.5'>{t('remote.passwordTooShort', { min: REMOTE_PASSWORD_MIN_LEN })}</span>
+            )}
             <div className='flex min-w-0 items-center gap-1.5 pl-5.5'>
                 <input
                     type='password'
@@ -46,7 +52,7 @@ export const RemotePasswordRow: FC<RemotePasswordRowProps> = ({ configured, warn
                     onChange={(event) => setPassword(event.target.value)}
                     className='bg-panel-input-background border-panel-input-border text-app-foreground min-w-0 flex-1 rounded-sm border px-2 py-1'
                 />
-                <Button type='button' variant='outline' size='xs' disabled={!password.trim() || saving} onClick={handleSave}>
+                <Button type='button' variant='outline' size='xs' disabled={!trimmed || isTooShort || saving} onClick={handleSave}>
                     {t('remote.passwordSet')}
                 </Button>
                 {configured && (

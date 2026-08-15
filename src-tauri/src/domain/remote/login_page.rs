@@ -117,6 +117,13 @@ button:disabled {
 pub struct LoginPageParams<'a> {
     pub language: &'a str,
     pub failed: bool,
+    /// The login nonce (minted when the one-time link token was consumed)
+    /// expired, was already consumed, or was lost to a server restart before
+    /// the password form was submitted. Distinct from `failed` — the
+    /// password itself was never wrong, so this renders a "request a new
+    /// link" message instead of "incorrect password" and (per `server.rs`'s
+    /// `login_post_route`) never counts against the login lockout.
+    pub link_expired: bool,
     pub locked_remaining_seconds: Option<u64>,
     pub insecure: bool,
 }
@@ -147,16 +154,17 @@ pub fn render(params: LoginPageParams) -> String {
     let password_label = escape_html(&message(&pack, "remote.loginPasswordLabel"));
     let submit_label = escape_html(&message(&pack, "remote.loginSubmit"));
 
-    let status_html = match (params.locked_remaining_seconds, params.failed) {
-        (Some(remaining_seconds), _) => {
-            let locked_text = escape_html(&message(&pack, "remote.loginLocked").replace("{{seconds}}", &remaining_seconds.to_string()));
-            format!(r#"<p class="status status-locked">{locked_text}</p>"#)
-        }
-        (None, true) => {
-            let failed_text = escape_html(&message(&pack, "remote.loginFailed"));
-            format!(r#"<p class="status status-error">{failed_text}</p>"#)
-        }
-        (None, false) => String::new(),
+    let status_html = if let Some(remaining_seconds) = params.locked_remaining_seconds {
+        let locked_text = escape_html(&message(&pack, "remote.loginLocked").replace("{{seconds}}", &remaining_seconds.to_string()));
+        format!(r#"<p class="status status-locked">{locked_text}</p>"#)
+    } else if params.failed {
+        let failed_text = escape_html(&message(&pack, "remote.loginFailed"));
+        format!(r#"<p class="status status-error">{failed_text}</p>"#)
+    } else if params.link_expired {
+        let link_expired_text = escape_html(&message(&pack, "remote.loginLinkExpired"));
+        format!(r#"<p class="status status-error">{link_expired_text}</p>"#)
+    } else {
+        String::new()
     };
 
     let insecure_html = if params.insecure {
@@ -207,6 +215,7 @@ mod tests {
         let html = render(LoginPageParams {
             language: "fr",
             failed: false,
+            link_expired: false,
             locked_remaining_seconds: None,
             insecure: false,
         });
@@ -218,6 +227,7 @@ mod tests {
         let html = render(LoginPageParams {
             language: "ko",
             failed: false,
+            link_expired: false,
             locked_remaining_seconds: None,
             insecure: false,
         });
@@ -229,6 +239,7 @@ mod tests {
         let html = render(LoginPageParams {
             language: "en",
             failed: true,
+            link_expired: false,
             locked_remaining_seconds: None,
             insecure: false,
         });
@@ -240,6 +251,7 @@ mod tests {
         let html = render(LoginPageParams {
             language: "en",
             failed: false,
+            link_expired: false,
             locked_remaining_seconds: Some(42),
             insecure: false,
         });
@@ -248,16 +260,43 @@ mod tests {
     }
 
     #[test]
+    fn 링크_만료_상태에서_전용_안내_문구를_보여준다() {
+        let html = render(LoginPageParams {
+            language: "en",
+            failed: false,
+            link_expired: true,
+            locked_remaining_seconds: None,
+            insecure: false,
+        });
+        assert!(html.contains("This link has expired"));
+        assert!(!html.contains("Incorrect password"));
+    }
+
+    #[test]
+    fn 잠금_상태가_링크_만료보다_우선한다() {
+        let html = render(LoginPageParams {
+            language: "en",
+            failed: false,
+            link_expired: true,
+            locked_remaining_seconds: Some(7),
+            insecure: false,
+        });
+        assert!(!html.contains("This link has expired"));
+    }
+
+    #[test]
     fn 비암호화_고지는_insecure일_때만_보인다() {
         let secure_html = render(LoginPageParams {
             language: "en",
             failed: false,
+            link_expired: false,
             locked_remaining_seconds: None,
             insecure: false,
         });
         let insecure_html = render(LoginPageParams {
             language: "en",
             failed: false,
+            link_expired: false,
             locked_remaining_seconds: None,
             insecure: true,
         });
@@ -270,6 +309,7 @@ mod tests {
         let html = render(LoginPageParams {
             language: "en",
             failed: false,
+            link_expired: false,
             locked_remaining_seconds: None,
             insecure: false,
         });

@@ -12,6 +12,8 @@ const createFakeMonaco = () =>
 
 const createFakeClient = () => createLspClient({ send: () => {}, onNotification: () => {} })
 
+const FAKE_PROJECT_ID = 'proj-1'
+
 describe('registerWorkspaceApplyEditHandler', () => {
     test('workspace/applyEdit 핸들러를 레지스트리에 등록한다', () => {
         const dispose = registerWorkspaceApplyEditHandler(createFakeMonaco())
@@ -43,7 +45,7 @@ describe('registerWorkspaceApplyEditHandler', () => {
 
 describe('createWorkspaceApplyEditHandler — 세션별 root 스코프', () => {
     test('allowedRoot 밖의 경로를 대상으로 하면 적용 없이 일반화된 사유로 거절한다 (절대경로를 서버에 노출하지 않는다)', async () => {
-        const handler = createWorkspaceApplyEditHandler(createFakeMonaco(), '/workspace', createFakeClient())
+        const handler = createWorkspaceApplyEditHandler(createFakeMonaco(), '/workspace', createFakeClient(), FAKE_PROJECT_ID)
 
         const result = await handler({
             edit: {
@@ -57,7 +59,7 @@ describe('createWorkspaceApplyEditHandler — 세션별 root 스코프', () => {
     })
 
     test('allowedRoot 하위 경로는 정상 적용된다', async () => {
-        const handler = createWorkspaceApplyEditHandler(createFakeMonaco(), '/workspace', createFakeClient())
+        const handler = createWorkspaceApplyEditHandler(createFakeMonaco(), '/workspace', createFakeClient(), FAKE_PROJECT_ID)
 
         const result = await handler({ edit: { changes: {} } })
 
@@ -65,7 +67,7 @@ describe('createWorkspaceApplyEditHandler — 세션별 root 스코프', () => {
     })
 
     test('잘못된 params 는 root 검사 전에 그 사유를 그대로 반환한다 (경로 정보가 없어 일반화가 불필요)', async () => {
-        const handler = createWorkspaceApplyEditHandler(createFakeMonaco(), '/workspace', createFakeClient())
+        const handler = createWorkspaceApplyEditHandler(createFakeMonaco(), '/workspace', createFakeClient(), FAKE_PROJECT_ID)
 
         const result = await handler({})
 

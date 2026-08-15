@@ -209,6 +209,23 @@ fn deny_remote_password_change(name: &str) -> Value {
     )))
 }
 
+/// Answers `remote_issue_link` with an explicit denial instead of dispatching
+/// to the real handler — issuing a link is a local-only capability. With no
+/// password configured, the returned link alone establishes a new session
+/// (see `server.rs`'s `password_configured == false` branch), so letting an
+/// already-authenticated remote session mint its own externally-reachable
+/// onboarding link would let it self-provision additional access the desktop
+/// user never saw or approved — see
+/// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6. Stays
+/// listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity
+/// test still passes; only the `match` arm in [`dispatch`] refuses to call
+/// through.
+fn deny_remote_link_issue(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 접속 링크를 발급할 수 없습니다: {name}"
+    )))
+}
+
 /// Answers `file_flush_complete` with an explicit denial instead of
 /// dispatching to the real handler. That command resumes the desktop app's
 /// own `CloseRequested` exit sequence (`AppState::complete_hot_exit_flush`
@@ -221,9 +238,30 @@ fn deny_remote_flush_complete(name: &str) -> Value {
     err(AppError::Forbidden(format!("원격 세션에서는 앱 종료를 제어할 수 없습니다: {name}")))
 }
 
-/// Strips `remote_password_only_login` from a `settings_update` patch arriving
-/// through the remote dispatch table — a remote session must never be able to
-/// flip its own access gate from password-optional to password-only (or back).
+/// Strips `remote_password_only_login`, `remote_allowed_hosts`, and
+/// `shell_override` from a `settings_update` patch arriving through the
+/// remote dispatch table.
+///
+/// The first two guard self-expansion: a remote session must never be able
+/// to flip its own access gate from password-optional to password-only (or
+/// back), nor grow the Host allowlist that gates which `Host` headers
+/// `auth_middleware` accepts (self-expanding it would let an
+/// already-connected remote session register a new tunnel hostname for
+/// itself, defeating the allowlist's purpose — see
+/// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §3.1).
+///
+/// `shell_override` guards persistence instead: an authenticated remote
+/// session already has terminal RCE via `pty_spawn` (also reachable through
+/// this same dispatch table), so stripping it here doesn't close an
+/// *immediate* capability gap — but left unfiltered, that same session could
+/// use `settings_update` to plant an arbitrary executable as the shell the
+/// desktop user's *next* locally-opened terminal spawns (`terminal/commands.rs`
+/// reads `shell_override` fresh at spawn time), a backdoor that outlives the
+/// remote session itself (survives a password change, session revocation, or
+/// the remote server being stopped entirely). The gist-sync path treats this
+/// same field as "[RCE급]" for the identical reason (`sync/service.rs`'s
+/// `strip_non_syncable`); this is the live-session analogue of that filter.
+///
 /// `dispatch()` is exclusively the remote request path (desktop calls invoke
 /// `settings_update` directly as a Tauri command, bypassing this table
 /// entirely — see `ws.rs`), so every patch reaching this arm is remote by
@@ -234,6 +272,8 @@ fn deny_remote_flush_complete(name: &str) -> Value {
 /// `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §4).
 fn strip_remote_gated_settings_patch(mut patch: domain::settings::service::SettingsPatch) -> domain::settings::service::SettingsPatch {
     patch.remote_password_only_login = None;
+    patch.remote_allowed_hosts = None;
+    patch.shell_override = None;
     patch
 }
 
@@ -337,16 +377,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "file_rename" => respond(file::file_rename(app.state(), arg!(args, "from"), arg!(args, "to")).await),
         "file_delete" => respond(file::file_delete(app.state(), arg!(args, "path")).await),
         "file_copy" => respond(file::file_copy(app.state(), arg!(args, "from"), arg!(args, "to")).await),
-        "file_mirror_dirty" => respond(
-            file::file_mirror_dirty(
-                app.state(),
-                arg!(args, "projectId"),
-                arg!(args, "path"),
-                arg!(args, "content"),
-                arg!(args, "diskModifiedMs"),
-            )
-            .await,
-        ),
+        "file_mirror_dirty" => {
+            respond(file::file_mirror_dirty(app.state(), arg!(args, "projectId"), arg!(args, "path"), arg!(args, "content")).await)
+        }
         "file_list_mirrors" => respond(file::file_list_mirrors(app.state(), arg!(args, "projectId")).await),
         "file_clear_mirror" => respond(file::file_clear_mirror(app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
         "file_prune_mirrors" => respond(file::file_prune_mirrors(app.state(), arg!(args, "projectId"), arg!(args, "keepPaths")).await),
@@ -658,7 +691,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "remote_status" => respond(remote::remote_status(app.state()).await),
         "remote_start" => respond(remote::remote_start(app.clone(), app.state()).await),
         "remote_stop" => respond(remote::remote_stop(app.clone(), app.state()).await),
-        "remote_issue_link" => respond(remote::remote_issue_link(app.state()).await),
+        "remote_issue_link" => Err(deny_remote_link_issue(name)),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),
         "remote_set_password" | "remote_clear_password" => Err(deny_remote_password_change(name)),
 
@@ -746,6 +779,46 @@ mod tests {
 
         assert_eq!(stripped.remote_password_only_login, None);
         assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+    }
+
+    #[test]
+    fn 원격_settings_update_패치는_허용_호스트_목록_필드가_제거된다() {
+        let patch = domain::settings::service::SettingsPatch {
+            remote_allowed_hosts: Some(vec!["attacker.example.com".to_string()]),
+            editor_font_size: Some(18),
+            ..Default::default()
+        };
+
+        let stripped = strip_remote_gated_settings_patch(patch);
+
+        assert_eq!(
+            stripped.remote_allowed_hosts, None,
+            "원격 세션이 스스로 Host 허용목록을 확장하면 안 된다"
+        );
+        assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+    }
+
+    #[test]
+    fn 원격_settings_update_패치는_shell_override_필드가_제거된다() {
+        let patch = domain::settings::service::SettingsPatch {
+            shell_override: Some("/tmp/evil.sh".to_string()),
+            editor_font_size: Some(18),
+            ..Default::default()
+        };
+
+        let stripped = strip_remote_gated_settings_patch(patch);
+
+        assert_eq!(
+            stripped.shell_override, None,
+            "원격 세션이 자신의 종료 이후에도 살아남는 셸 백도어를 심으면 안 된다"
+        );
+        assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+    }
+
+    #[test]
+    fn 원격_세션은_링크_발급을_할_수_없다() {
+        let value = deny_remote_link_issue("remote_issue_link");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
     #[test]

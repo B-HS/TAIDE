@@ -54,6 +54,7 @@ pub struct SettingsPatch {
     pub ai_omlx_base_url: Option<String>,
     pub remote_access_enabled: Option<bool>,
     pub remote_password_only_login: Option<bool>,
+    pub remote_allowed_hosts: Option<Vec<String>>,
     pub organize_imports_on_save: Option<bool>,
     pub fix_all_on_save: Option<bool>,
     pub editor_code_lens_enabled: Option<bool>,
@@ -90,6 +91,8 @@ fn backup_corrupted(path: &std::path::Path) {
 
 const EDITOR_TAB_SIZE_MIN: u32 = 1;
 const EDITOR_TAB_SIZE_MAX: u32 = 8;
+const DNS_HOSTNAME_MAX_LEN: usize = 253;
+const DNS_LABEL_MAX_LEN: usize = 63;
 const TERMINAL_SCROLLBACK_MIN: u32 = 100;
 const TERMINAL_SCROLLBACK_MAX: u32 = 100_000;
 const RESIZER_THICKNESS_MIN: u32 = 0;
@@ -126,6 +129,41 @@ fn sanitize_optional_url(value: Option<String>) -> Option<String> {
     })
 }
 
+fn is_valid_dns_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= DNS_LABEL_MAX_LEN
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// Accepts only a bare hostname or IPv4 literal for a `remote_allowed_hosts`
+/// entry — no scheme, userinfo, path/query, whitespace, or port.
+/// `remote::service::is_allowed_host` matches entries against the `Host`
+/// header's hostname alone, and `remote::service::format_issue_link_url`
+/// interpolates the first entry verbatim into `https://{host}/...`; anything
+/// else either never matches (silently disabling the tunnel) or corrupts the
+/// issued link (a scheme yields `https://https://...`, and
+/// `real.example.com@attacker.example` would make a browser send the link's
+/// one-time token to `attacker.example` as if `real.example.com` were
+/// userinfo). See `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6.
+fn is_valid_allowed_host(value: &str) -> bool {
+    !value.is_empty() && value.len() <= DNS_HOSTNAME_MAX_LEN && value.split('.').all(is_valid_dns_label)
+}
+
+/// Trims, lower-cases, and drops malformed entries from a
+/// `remote_allowed_hosts` patch/disk value. Applied inside [`sanitize`] so
+/// every entry point (patch or hand-edited `settings.json`) is covered, the
+/// same defense-in-depth already used for `ai_omlx_base_url`
+/// ([`sanitize_optional_url`]).
+fn sanitize_allowed_hosts(hosts: Vec<String>) -> Vec<String> {
+    hosts
+        .into_iter()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| is_valid_allowed_host(host))
+        .collect()
+}
+
 fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
     match patch_value {
         None => existing.cloned(),
@@ -160,6 +198,7 @@ fn sanitize(settings: Settings) -> Settings {
         ),
         ai_auto_tab_provider: sanitize_optional_enum(settings.ai_auto_tab_provider, AI_AUTO_TAB_PROVIDERS),
         ai_omlx_base_url: sanitize_optional_url(settings.ai_omlx_base_url),
+        remote_allowed_hosts: sanitize_allowed_hosts(settings.remote_allowed_hosts),
         ..settings
     }
 }
@@ -227,6 +266,10 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
         remote_access_enabled: patch.remote_access_enabled.unwrap_or(settings.remote_access_enabled),
         remote_password_only_login: patch.remote_password_only_login.unwrap_or(settings.remote_password_only_login),
+        remote_allowed_hosts: patch
+            .remote_allowed_hosts
+            .clone()
+            .unwrap_or_else(|| settings.remote_allowed_hosts.clone()),
         organize_imports_on_save: patch.organize_imports_on_save.unwrap_or(settings.organize_imports_on_save),
         fix_all_on_save: patch.fix_all_on_save.unwrap_or(settings.fix_all_on_save),
         editor_code_lens_enabled: patch.editor_code_lens_enabled.unwrap_or(settings.editor_code_lens_enabled),
@@ -550,6 +593,79 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert!(updated.remote_password_only_login);
+    }
+
+    #[test]
+    fn patch로_원격_허용_호스트_목록을_변경한다() {
+        let settings = Settings::default();
+        assert!(settings.remote_allowed_hosts.is_empty());
+
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["tunnel.example.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.remote_allowed_hosts, vec!["tunnel.example.com".to_string()]);
+    }
+
+    #[test]
+    fn 스킴이_포함된_허용_호스트는_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["https://tunnel.example.com".to_string(), "tunnel.example.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.remote_allowed_hosts, vec!["tunnel.example.com".to_string()]);
+    }
+
+    #[test]
+    fn userinfo가_포함된_허용_호스트는_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["real.example.com@attacker.example".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(
+            updated.remote_allowed_hosts.is_empty(),
+            "userinfo 형태의 허용 호스트가 링크 토큰 탈취 경로로 저장되면 안 된다"
+        );
+    }
+
+    #[test]
+    fn 포트나_공백이_포함된_허용_호스트는_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["tunnel.example.com:8080".to_string(), "tunnel example.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_allowed_hosts.is_empty());
+    }
+
+    #[test]
+    fn 유효한_호스트명과_ipv4는_소문자로_정규화되어_저장된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["Tunnel.Example.Com".to_string(), " 192.168.1.5 ".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(
+            updated.remote_allowed_hosts,
+            vec!["tunnel.example.com".to_string(), "192.168.1.5".to_string()]
+        );
     }
 
     #[test]

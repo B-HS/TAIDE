@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-use axum::extract::ws::{Message, WebSocket};
+use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tauri::ipc::InvokeResponseBody;
@@ -11,11 +11,15 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 
 use super::commands::RemoteStore;
 use super::dispatch::{self, ChannelFactory, ChannelSink};
-use super::types::{RemoteRequest, REMOTE_BINARY_TAG_CHANNEL, REMOTE_BINARY_TAG_RESPONSE};
+use super::types::{
+    RemoteRequest, REMOTE_BINARY_TAG_CHANNEL, REMOTE_BINARY_TAG_RESPONSE, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED,
+    REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED,
+};
 
 enum WsOut {
     Text(String),
     Binary(Vec<u8>),
+    Close(u16, &'static str),
 }
 
 impl WsOut {
@@ -23,6 +27,10 @@ impl WsOut {
         match self {
             WsOut::Text(text) => Message::Text(text.into()),
             WsOut::Binary(bytes) => Message::Binary(bytes.into()),
+            WsOut::Close(code, reason) => Message::Close(Some(CloseFrame {
+                code,
+                reason: reason.into(),
+            })),
         }
     }
 }
@@ -118,15 +126,39 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
 
 /// Drives one upgraded remote WebSocket connection. Besides the request/
 /// response and event-fanout loops, this races the connection's own read
-/// loop against [`RemoteStore::subscribe_session_epoch`] so a bulk session
-/// revocation (revoke-all, a password change, or server stop) that happens
-/// *after* the upgrade closes the socket immediately — see that method's
-/// doc comment for what this does and does not cover.
-pub async fn handle_socket(socket: WebSocket, app: AppHandle) {
+/// loop against two independent session-invalidation signals:
+///
+/// - [`RemoteStore::subscribe_session_epoch`] — a *bulk* revocation
+///   (revoke-all, a password change, or server stop) closes every open
+///   socket immediately, regardless of which session each one authenticated
+///   under.
+/// - a `sleep_until` deadline at `session_digest`'s own
+///   `REMOTE_SESSION_TTL_MS` expiry (`session_digest` is what
+///   `ws_upgrade_route` extracted from the upgrade request's session
+///   cookie) — closes *this* socket specifically the moment its own session
+///   ages out, even though nothing else changed. Without this, a socket that
+///   was live before its session's 7-day mark would otherwise stay connected
+///   indefinitely (the epoch above only fires on bulk revocation, not
+///   natural per-session expiry) — see
+///   `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §3.1. The
+///   deadline-fired branch re-checks [`RemoteStore::has_active_session_digest`]
+///   rather than closing unconditionally, both to log accurately and — as a
+///   side effect of that check — to prune the now-stale entry out of
+///   `RemoteStore`'s session map immediately instead of waiting for the next
+///   [`RemoteStore::sweep_expired_sessions`] pass. The close carries
+///   `REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED`/`REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED`
+///   so the frontend can tell this apart from an ordinary network drop and
+///   redirect to the login page instead of silently retrying forever.
+pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: String) {
     let remote = app.state::<RemoteStore>();
+    remote.sweep_expired_sessions();
     remote.client_connected();
     let mut events = remote.subscribe_events();
     let mut session_epoch = remote.subscribe_session_epoch();
+    let deadline = remote
+        .session_expires_at(&session_digest)
+        .map(tokio::time::Instant::from_std)
+        .unwrap_or_else(tokio::time::Instant::now);
 
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
@@ -183,6 +215,13 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle) {
                 log::info!("원격 세션이 무효화되어 연결을 종료합니다");
                 break;
             }
+            _ = tokio::time::sleep_until(deadline) => {
+                if !remote.has_active_session_digest(&session_digest) {
+                    log::info!("원격 세션이 만료되어 연결을 종료합니다");
+                    let _ = tx.send(WsOut::Close(REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED));
+                }
+                break;
+            }
         }
     }
 
@@ -191,4 +230,20 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle) {
     drop(tx);
     let _ = writer.await;
     remote.client_disconnected();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_변형은_코드와_사유를_담은_close_프레임으로_변환된다() {
+        let message = WsOut::Close(REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED).into_message();
+
+        let Message::Close(Some(frame)) = message else {
+            panic!("Close 변형은 CloseFrame을 담은 Message::Close로 변환되어야 한다");
+        };
+        assert_eq!(frame.code, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED);
+        assert_eq!(frame.reason.as_str(), REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED);
+    }
 }

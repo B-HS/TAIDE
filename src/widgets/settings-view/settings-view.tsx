@@ -166,7 +166,7 @@ export const SettingsView = () => {
     const { data: syncStatus } = useQuery(syncStatusQueryOptions())
     const { data: remoteStatus } = useQuery(remoteStatusQueryOptions())
     const { mutate: setThemeId } = useSetThemeId()
-    const { mutate: updateSettings } = useUpdateSettings()
+    const { mutate: updateSettings, isPending: isUpdatingSettings } = useUpdateSettings()
     const { mutate: installLspServer } = useInstallLspServer()
     const { mutate: cancelLspInstall } = useCancelLspInstall()
     const { mutate: setAiToken, isPending: isSettingAiToken, variables: settingAiTokenVariables } = useSetAiToken()
@@ -251,6 +251,8 @@ export const SettingsView = () => {
     const handleSaveRemotePassword = (password: string) => setRemotePassword(password)
     const handleClearRemotePassword = () => clearRemotePassword()
     const handleTogglePasswordOnlyLogin = (checked: boolean) => updateSettings({ ...emptySettingsPatch(), remotePasswordOnlyLogin: checked })
+    const handleChangeRemoteAllowedHosts = (remoteAllowedHosts: string[]) =>
+        updateSettings({ ...emptySettingsPatch(), remoteAllowedHosts }, { onError: () => toast.error(t('remote.allowedHostsSaveFailed')) })
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
@@ -754,12 +756,15 @@ export const SettingsView = () => {
                                 revoking={isRevokingRemoteSessions}
                                 passwordSaving={isSettingRemotePassword || isClearingRemotePassword}
                                 passwordOnlyLogin={settings.remotePasswordOnlyLogin ?? false}
+                                allowedHosts={settings.remoteAllowedHosts ?? []}
+                                allowedHostsSaving={isUpdatingSettings}
                                 onToggle={handleToggleRemote}
                                 onIssueLink={handleIssueRemoteLink}
                                 onRevokeSessions={handleRevokeRemoteSessions}
                                 onSavePassword={handleSaveRemotePassword}
                                 onClearPassword={handleClearRemotePassword}
                                 onTogglePasswordOnlyLogin={handleTogglePasswordOnlyLogin}
+                                onChangeAllowedHosts={handleChangeRemoteAllowedHosts}
                             />
                         </SettingsSection>
 

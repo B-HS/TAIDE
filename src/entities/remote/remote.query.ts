@@ -21,6 +21,7 @@ export const useSetRemotePassword = () => {
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.REMOTE.STATUS })
             toast.success(i18next.t('remote.passwordSessionsRevoked'))
         },
+        onError: () => toast.error(i18next.t('remote.passwordSaveFailed')),
     })
 }
 

@@ -72,21 +72,27 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
     service::copy_entry(&resolved_from, &resolved_to)
 }
 
+/// Not guarded by `AppState::begin_mutation` — this command only reads `state.projects` (an
+/// `RwLock` read, not the mutation lock) to resolve the project root; it never touches `AppState`
+/// itself, and `persist::write_atomic`'s UUID temp-file + rename (`persist.rs`) already serializes
+/// concurrent writers to the same mirror file (last writer wins, atomically), the same rationale
+/// `lsp_send` (`lsp/commands.rs`) uses to skip the lock. Frequency is the practical reason this
+/// matters: this fires on a 500ms debounce timer while the user types, far more often than
+/// saves/git operations, so gating it behind the global mutation lock would queue every keystroke's
+/// mirror write behind unrelated long-held mutations for no correctness benefit — ordering relative
+/// to `file_save`'s own `clear_mirror` is guaranteed by the frontend's save-epoch guard
+/// (`editor-pane.tsx`'s `persistMirror`), not by lock ordering. The real cost of keeping the lock
+/// here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
+/// a long lock holder (e.g. `git_push`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
+/// unflushed mirror instead of writing it — the opposite of what hot exit exists for.
 #[tauri::command]
 #[specta::specta]
-pub async fn file_mirror_dirty(
-    state: State<'_, AppState>,
-    project_id: ProjectId,
-    path: String,
-    content: String,
-    disk_modified_ms: Option<f64>,
-) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
+pub async fn file_mirror_dirty(state: State<'_, AppState>, project_id: ProjectId, path: String, content: String) -> AppResult<Option<f64>> {
     let projects = state.projects.read().clone();
     let root = root_guard::project_root(&projects, &project_id)?;
     let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
 
-    service::mirror_dirty(&state.paths, &project_id, &resolved, &path, &content, disk_modified_ms)
+    service::mirror_dirty(&state.paths, &project_id, &resolved, &path, &content)
 }
 
 #[tauri::command]
@@ -119,10 +125,12 @@ pub async fn file_prune_mirrors(state: State<'_, AppState>, project_id: ProjectI
     service::prune_mirrors(&state.paths, &project_id, &keep_paths)
 }
 
+/// Not guarded by `AppState::begin_mutation` — same rationale as `file_mirror_dirty` above: reads
+/// only `state.projects` to validate the project exists, never touches `AppState` otherwise, and
+/// `persist::write_atomic` already serializes concurrent writers to the same untitled-mirror file.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_mirror_untitled(state: State<'_, AppState>, project_id: ProjectId, tab_id: TabId, content: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
     let projects = state.projects.read().clone();
     root_guard::project_root(&projects, &project_id)?;
     root_guard::ensure_safe_component(tab_id.as_str())?;
