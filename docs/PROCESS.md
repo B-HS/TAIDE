@@ -159,7 +159,12 @@
           미선언 / targetSelectionRange 유실 / waitForLspSession 행(tier 게이트) / failureHandling
           선언 불일치(abort 로 정정) / 진단 사이드 맵 uri 정규화 / executeCommand 미대기.
           메인 2차: 수정 7건 실물 재확인 + verify 전체·vite build·bindings diff 검수 그린. 커밋
-    - [ ] c-B ~ c-I. 순차 진행
+    - [ ] c-B. Wave B — 하드닝 마감. 정찰 완료(wf_e628c338-e87, opus+high 2축)에서 "minor" 를
+          넘는 **신규 중대 4건** 발견·메인 재검증: gist 인바운드 shell_override 미필터(RCE급)·
+          게이트 필드 미필터·저장 왕복 타이핑 소실·cross-file 편집 hot-exit 미러 구멍(Wave A 회귀).
+          계약 확정(`2026-08-15-wave-b-hardening-contract.md`, 결정 3건 전부 추천안 — 범위=신규 4+잔여
+          10, Remote 보안 패키지, Hot Exit 패키지). 구현 S→B1(Remote Rust)→B2(Hot Exit)→검토 예정
+    - [ ] c-C ~ c-I. 순차 진행 (Git → 탐색·검색 → 터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
