@@ -115,6 +115,14 @@ pub struct Settings {
     pub fix_all_on_save: bool,
     #[serde(default = "default_true")]
     pub editor_code_lens_enabled: bool,
+    /// Most-recent-first search terms, newest at index `0`. The cap
+    /// (currently 20) and dedup/prepend logic are the frontend's
+    /// responsibility (`entities/search`) — this field is a plain passthrough,
+    /// same as `remote_allowed_hosts`' list shape but without server-side
+    /// validation, since search history carries no security weight. See
+    /// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
+    #[serde(default)]
+    pub recent_searches: Vec<String>,
 }
 
 fn default_theme_id() -> String {
@@ -221,6 +229,7 @@ impl Default for Settings {
             organize_imports_on_save: false,
             fix_all_on_save: false,
             editor_code_lens_enabled: default_true(),
+            recent_searches: Vec::new(),
         }
     }
 }

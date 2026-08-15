@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileDiff, Settings, Sparkles, Terminal } from 'lucide-react'
+import { FileDiff, FileSearch2, Settings, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
@@ -56,6 +56,7 @@ export const getTabIcon = (kind: TabKind, agent?: DetectedAgent): ReactNode => {
     if (kind.kind === 'terminal') return <Terminal className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'settings') return <Settings className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'diff') return <FileDiff className={TAB_ICON_SIZE_CLASS} />
+    if (kind.kind === 'searchEditor') return <FileSearch2 className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'untitled') return <FileTypeIcon fileName='untitled' className={TAB_ICON_SIZE_CLASS} />
     return <Sparkles className={TAB_ICON_SIZE_CLASS} />
 }

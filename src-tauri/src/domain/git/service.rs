@@ -1346,7 +1346,10 @@ fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
             .to_path_buf()
     };
 
-    if relative.components().any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))) {
+    if relative
+        .components()
+        .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+    {
         return Err(AppError::InvalidArgument(format!("경로가 저장소 밖에 있습니다: {raw}")));
     }
 

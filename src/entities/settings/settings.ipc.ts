@@ -49,6 +49,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     organizeImportsOnSave: null,
     fixAllOnSave: null,
     editorCodeLensEnabled: null,
+    recentSearches: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

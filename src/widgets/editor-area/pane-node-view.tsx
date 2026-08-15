@@ -20,6 +20,7 @@ import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
 import { UntitledPane } from '@widgets/editor-pane/untitled-pane'
 import { PreviewPane } from '@widgets/preview-pane/preview-pane'
+import { SearchEditorPane } from '@widgets/search-editor/search-editor-pane'
 import { SettingsView } from '@widgets/settings-view/settings-view'
 import { TerminalSession } from '@widgets/terminal-pane/terminal-session'
 
@@ -129,13 +130,17 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                 {activeTab?.kind.kind === 'untitled' && (
                     <UntitledPane key={activeTab.id} projectId={projectId} tabId={activeTab.id} index={activeTab.kind.index} />
                 )}
+                {activeTab?.kind.kind === 'searchEditor' && (
+                    <SearchEditorPane key={activeTab.id} projectId={projectId} tabId={activeTab.id} query={activeTab.kind.query} />
+                )}
                 {activeTab &&
                     activeTab.kind.kind !== 'file' &&
                     activeTab.kind.kind !== 'terminal' &&
                     activeTab.kind.kind !== 'settings' &&
                     activeTab.kind.kind !== 'diff' &&
                     activeTab.kind.kind !== 'claudeDiff' &&
-                    activeTab.kind.kind !== 'untitled' && (
+                    activeTab.kind.kind !== 'untitled' &&
+                    activeTab.kind.kind !== 'searchEditor' && (
                         <div className='flex h-full w-full items-center justify-center text-sm opacity-60'>{activeTab.title}</div>
                     )}
                 {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>}

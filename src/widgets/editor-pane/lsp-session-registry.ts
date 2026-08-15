@@ -2,6 +2,7 @@ import type { LspInitializationOptionsValue, LspServerId, ProjectId } from '@sha
 import { monaco } from '@shared/lib/monaco/setup'
 import type { LspClient, OutgoingMessage } from '@shared/lib/lsp/client'
 import { createLspClient } from '@shared/lib/lsp/client'
+import { SYMBOL_KIND_VALUE_SET } from '@shared/lib/lsp/protocol'
 import { registerCodeAction } from '@shared/lib/lsp/adapters/code-action'
 import { registerCodeLens } from '@shared/lib/lsp/adapters/code-lens'
 import { registerCompletion } from '@shared/lib/lsp/adapters/completion'
@@ -124,6 +125,12 @@ const buildInitializeParams = (root: string, initializationOptions?: LspInitiali
                     failureHandling: 'abort',
                 },
                 codeLens: { refreshSupport: true },
+                /**
+                 * Enables `⌘T` Workspace Symbol search (contract §3.2, `adapters/workspace-symbol.ts`).
+                 * `symbolKind.valueSet` mirrors `textDocument.documentSymbol` below so a server never
+                 * has to guess which `SymbolKind` numbers this client understands for either request.
+                 */
+                symbol: { symbolKind: { valueSet: SYMBOL_KIND_VALUE_SET } },
             },
             textDocument: {
                 synchronization: { dynamicRegistration: false, didSave: true },
@@ -132,7 +139,13 @@ const buildInitializeParams = (root: string, initializationOptions?: LspInitiali
                 signatureHelp: {},
                 definition: { linkSupport: true },
                 references: {},
-                documentSymbol: {},
+                /**
+                 * `hierarchicalDocumentSymbolSupport` tells the server it may return nested
+                 * `DocumentSymbol` trees instead of flat `SymbolInformation[]` — the palette's `@`
+                 * mode (`command-palette.tsx`) and the Breadcrumbs symbol path (Wave D §3.3) both
+                 * depend on that hierarchy to build a "Class > method" container label.
+                 */
+                documentSymbol: { hierarchicalDocumentSymbolSupport: true, symbolKind: { valueSet: SYMBOL_KIND_VALUE_SET } },
                 formatting: {},
                 rename: { prepareSupport: true },
                 publishDiagnostics: { relatedInformation: true },
@@ -249,6 +262,19 @@ export const acquireLspSession = (
 }
 
 export const peekLspSession = (projectId: ProjectId, serverId: LspServerId) => sessionsByKey.get(toSessionKey(projectId, serverId)) ?? null
+
+/**
+ * Every currently-acquired session for `projectId`, across every server/language — used by the
+ * command palette's `⌘T` Workspace Symbol search (`command-palette.tsx`), which queries all of a
+ * project's active sessions in parallel rather than one language's sessions like `waitForLspSession`
+ * callers (outline, `@` mode) do.
+ */
+export const listSessionRecordsForProject = (projectId: ProjectId): SessionRecord[] => {
+    const prefix = `${projectId}::`
+    return Array.from(sessionsByKey.entries())
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([, record]) => record)
+}
 
 export const waitForLspSession = (projectId: ProjectId, serverId: LspServerId) => {
     const key = toSessionKey(projectId, serverId)

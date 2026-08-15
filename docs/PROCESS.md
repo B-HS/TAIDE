@@ -188,8 +188,39 @@
           정찰 3축 완료(축0 resume 성공) → 계약 확정(`2026-08-15-wave-d-search-nav-contract.md`,
           결정 4건 전부 추천: 팔레트 VS Code 규약(@문서/#Workspace Symbol ⌘T/:줄)+monaco 병존·
           Search Editor 신규 TabKind·gitignore=`ignore` 크레이트 도입(신규 의존성 승인)·capability
-          확충+히스토리 Settings). 구현 A(백엔드 Rust 단독)→B(프론트 병렬 3)→검토 진행.
+          확충+히스토리 Settings). 구현 A(백엔드 Rust 단독)→B(프론트 병렬 3) 완료.
           **신규 승인 의존성: `ignore` 크레이트**(ripgrep gitignore walker)
+          검토(4렌즈) 확정 2(L1-0 검색 취소 스토어가 `ProjectId` 단일 키라 패널·Search Editor
+          동시 검색이 서로 조용히 절단·L3-0 검색 실행 오케스트레이션 3중 중복 — 검증에서 major→
+          minor 강등) + minor 9건(우발 판정 포함) → 전건 처리:
+          - L1-0: `SearchStore` 를 `ProjectId` 대신 caller 세션 id(패널=`useId()`, Search Editor
+            탭=`tabId`) 로 키 교체. `search_run`/`search_cancel` 에 `session_id` 파라미터 추가,
+            같은 세션의 재검색만 이전 실행을 취소. 완료 시 자기 항목만 정리(`Arc::ptr_eq`)해 스토어
+            무한 증식 방지. bindings 재생성(cargo test) 확인.
+          - L3-0(강등 후 함께 처리): `entities/search/use-search-run.ts` 신설 — 스트리밍 검색
+            오케스트레이션(collected→group→total→toast→isSearching) 을 단일 훅으로 통합, 패널·
+            에디터·초기 자동검색 3곳 중복 제거. 세대(generation) ref 로 구식 실행의 콜백이 최신
+            실행 상태를 덮어쓰는 경쟁(L1-2) 도 함께 해소.
+          - minor: L1-1 workspace-symbol file 스킴 가드 추가(definition.ts 선례) · L1-3
+            addRecentSearchTerm 동일 최상단 재검색 시 참조 보존(불필요 재동기화 방지) · L1-4
+            인접 매치 컨텍스트 줄 중복 렌더 제거(`dedupeAdjacentContext`) · L2-0 gitignore 상위
+            디렉토리 읽기(미적용) 관련 부정확한 doc comment 정정 · L2-1 `recent_searches` 상한을
+            서버(`sanitize`)에도 강제(gist 다운로드 경로 방어, sync 포함 정책은 유지) · L0-0/L3-2
+            `search.excludeGlobPlaceholder` locale 키 3개 언어 추가(B3 결정기록 제안 문구) ·
+            L3-3 `toggleInSet`/`fileNameOf` 를 Wave D 가 건드린 파일 한정으로 `shared/lib` 승격.
+            기각: L0-1 심볼릭링크 미추적 주장은 `DirEntry::metadata()` 가 symlink_metadata 와
+            동일(심링크 비추적)함을 실측 확인 — Wave D 이전에도 동일 동작이라 회귀 아님. L0-3
+            문서 5종 갱신은 계약 §3.6 Phase C 몫으로 명시 유예된 항목이라 이번 결함수정 범위 밖으로
+            판단(별도 보류). L0-2 git 도메인 rustfmt 재포맷은 `cargo fmt --check` 로 현재 툴체인
+            기준 필수임을 확인 — 되돌리면 fmt 게이트 실패.
+          검증: `bun run verify` 전체 그린(tsc·eslint 0 error·prettier·bun test 809/809·
+          `cargo fmt --check`·`cargo clippy -D warnings`·`cargo test --workspace` 733/733).
+          메인 2차: 스팟 검증(세션 취소·file 스킴 가드·상한) 정합, search-editor-pane 초기검색
+          useEffect 의 신규 exhaustive-deps 경고를 didAutoRunRef 가드+run deps 로 정리(eslint-disable
+          우회 없이, 경고 6건 기존 관행 수준 복귀). Wave C fmt 누락(to_repo_relative)도 이번에 정리. 커밋
+    - **문서 부채(캠페인 누적)**: Wave D 계약 §5 문서 갱신(features·ipc-contract·data-model·
+      tech-stack `ignore`·qa6-checklist) 유예. Wave B 도 일부 유예 가능성. → 전문 QA(d) 착수 전
+      문서화 워크플로로 일괄 정리 예정
     - [ ] c-E ~ c-I. 순차 진행 (터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

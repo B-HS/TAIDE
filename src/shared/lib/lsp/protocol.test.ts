@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
     JSON_RPC_ERROR_CODE,
+    SYMBOL_KIND,
+    SYMBOL_KIND_VALUE_SET,
     createRequestIdGenerator,
     isCapabilityEnabled,
     isJsonRpcErrorResponse,
@@ -93,6 +95,20 @@ describe('isCapabilityEnabled', () => {
         expect(isCapabilityEnabled(true)).toBe(true)
         expect(isCapabilityEnabled({})).toBe(true)
         expect(isCapabilityEnabled({ prepareProvider: true })).toBe(true)
+    })
+})
+
+describe('SYMBOL_KIND_VALUE_SET', () => {
+    test('LSP SymbolKind 스펙 전체 범위(1~26)를 오름차순 중복 없이 담는다', () => {
+        expect(SYMBOL_KIND_VALUE_SET).toHaveLength(26)
+        expect(SYMBOL_KIND_VALUE_SET).toEqual(SYMBOL_KIND_VALUE_SET.toSorted((a, b) => a - b))
+        expect(new Set(SYMBOL_KIND_VALUE_SET).size).toBe(SYMBOL_KIND_VALUE_SET.length)
+        expect(Math.min(...SYMBOL_KIND_VALUE_SET)).toBe(1)
+        expect(Math.max(...SYMBOL_KIND_VALUE_SET)).toBe(26)
+    })
+
+    test('SYMBOL_KIND 의 값에서 유도된다', () => {
+        expect(SYMBOL_KIND_VALUE_SET).toEqual(Object.values(SYMBOL_KIND))
     })
 })
 

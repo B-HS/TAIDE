@@ -1,10 +1,14 @@
 import type { FC, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { CaseSensitive, ChevronRight, Loader2, Regex, ReplaceAll, Search, WholeWord, X } from 'lucide-react'
+import { ChevronRight, FileSearch2, Loader2, ReplaceAll, Search, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { SearchMatchRowData } from '@features/search/search-match-row'
-import { SearchMatchRow } from '@features/search/search-match-row'
+import type { SearchResultGroup } from '@entities/search/search-result'
+import { SearchExcludeGlobInput } from '@features/search/search-exclude-glob-input'
+import { SearchHistoryDropdown } from '@features/search/search-history-dropdown'
+import { SearchOptionToggles } from '@features/search/search-option-toggles'
+import { SearchResultsList } from '@features/search/search-results-list'
 import { cn } from '@shared/lib/cn'
+import { toggleInSet } from '@shared/lib/set'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -15,14 +19,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
-import { FileGroupHeader } from '@shared/ui/file-group-header'
 import { IconButton } from '@shared/ui/icon-button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
-
-export type SearchResultGroup = {
-    path: string
-    matches: SearchMatchRowData[]
-}
 
 export type ReplaceAllInput = {
     replacement: string
@@ -38,27 +36,24 @@ type SearchPanelProps = {
     onWholeWordChange: (value: boolean) => void
     regex: boolean
     onRegexChange: (value: boolean) => void
+    respectGitignore: boolean
+    onRespectGitignoreChange: (value: boolean) => void
+    excludeGlob: string
+    onExcludeGlobChange: (value: string) => void
+    history: string[]
+    onSelectHistory: (term: string) => void
     onSubmit: () => void
     isSearching: boolean
     totalMatches: number
     results: SearchResultGroup[]
-    onOpenMatch: (path: string) => void
+    onOpenMatch: (path: string, line: number, column: number) => void
     onReplaceAll: (input: ReplaceAllInput) => void
     isReplacing: boolean
     scopePath: string | null
     onClearScope: () => void
     openReplace: boolean
     openNonce: number
-}
-
-const toggleInSet = (set: Set<string>, value: string) => {
-    const next = new Set(set)
-    if (next.has(value)) {
-        next.delete(value)
-    } else {
-        next.add(value)
-    }
-    return next
+    onOpenInEditor: () => void
 }
 
 export const SearchPanel: FC<SearchPanelProps> = ({
@@ -70,6 +65,12 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     onWholeWordChange,
     regex,
     onRegexChange,
+    respectGitignore,
+    onRespectGitignoreChange,
+    excludeGlob,
+    onExcludeGlobChange,
+    history,
+    onSelectHistory,
     onSubmit,
     isSearching,
     totalMatches,
@@ -81,10 +82,10 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     onClearScope,
     openReplace,
     openNonce,
+    onOpenInEditor,
 }) => {
     const { t } = useTranslation()
     const queryInputRef = useRef<HTMLInputElement>(null)
-    const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
     const [replaceOpen, setReplaceOpen] = useState(false)
     const [replaceText, setReplaceText] = useState('')
     const [excludedPaths, setExcludedPaths] = useState<Set<string>>(new Set())
@@ -140,44 +141,16 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                 placeholder={t('search.placeholder')}
                                 className='min-w-0 flex-1 bg-transparent px-2 py-1.5 text-xs outline-none'
                             />
-                            <IconButton
-                                label={t('search.caseSensitive')}
-                                icon={<CaseSensitive className='size-3.5' />}
-                                aria-pressed={caseSensitive}
-                                onClick={() => onCaseSensitiveChange(!caseSensitive)}
-                                side='bottom'
-                                className={cn(
-                                    'flex size-6 shrink-0 items-center justify-center rounded-sm',
-                                    caseSensitive
-                                        ? 'bg-explorer-item-selected text-app-foreground'
-                                        : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                                )}
-                            />
-                            <IconButton
-                                label={t('search.wholeWord')}
-                                icon={<WholeWord className='size-3.5' />}
-                                aria-pressed={wholeWord}
-                                onClick={() => onWholeWordChange(!wholeWord)}
-                                side='bottom'
-                                className={cn(
-                                    'flex size-6 shrink-0 items-center justify-center rounded-sm',
-                                    wholeWord
-                                        ? 'bg-explorer-item-selected text-app-foreground'
-                                        : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                                )}
-                            />
-                            <IconButton
-                                label={t('search.regex')}
-                                icon={<Regex className='size-3.5' />}
-                                aria-pressed={regex}
-                                onClick={() => onRegexChange(!regex)}
-                                side='bottom'
-                                className={cn(
-                                    'mr-1 flex size-6 shrink-0 items-center justify-center rounded-sm',
-                                    regex
-                                        ? 'bg-explorer-item-selected text-app-foreground'
-                                        : 'text-app-sidebar-icon-default hover:bg-explorer-item-hover',
-                                )}
+                            <SearchHistoryDropdown history={history} onSelect={onSelectHistory} />
+                            <SearchOptionToggles
+                                caseSensitive={caseSensitive}
+                                onCaseSensitiveChange={onCaseSensitiveChange}
+                                wholeWord={wholeWord}
+                                onWholeWordChange={onWholeWordChange}
+                                regex={regex}
+                                onRegexChange={onRegexChange}
+                                respectGitignore={respectGitignore}
+                                onRespectGitignoreChange={onRespectGitignoreChange}
                             />
                         </div>
                         {replaceOpen && (
@@ -199,7 +172,16 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                 />
                             </div>
                         )}
+                        <SearchExcludeGlobInput value={excludeGlob} onChange={onExcludeGlobChange} />
                     </div>
+                    <IconButton
+                        label={t('searchEditor.title')}
+                        icon={<FileSearch2 className='size-3.5' />}
+                        onClick={onOpenInEditor}
+                        side='bottom'
+                        containerClassName='mt-0.5'
+                        className='text-app-sidebar-icon-default hover:bg-explorer-item-hover flex size-6 shrink-0 items-center justify-center rounded-sm'
+                    />
                 </div>
                 {scopePath && (
                     <div className='bg-explorer-item-selected text-app-foreground flex w-fit max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs'>
@@ -238,31 +220,17 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                         {t('search.noResults')}
                     </div>
                 )}
-                {hasResults &&
-                    results.map((group) => {
-                        const collapsed = collapsedPaths.has(group.path)
-                        return (
-                            <div key={group.path}>
-                                <FileGroupHeader
-                                    path={group.path}
-                                    count={group.matches.length}
-                                    expanded={!collapsed}
-                                    onToggle={() => setCollapsedPaths((current) => toggleInSet(current, group.path))}
-                                    selected={replaceOpen ? !excludedPaths.has(group.path) : undefined}
-                                    onToggleSelect={replaceOpen ? () => setExcludedPaths((current) => toggleInSet(current, group.path)) : undefined}
-                                    selectAriaLabel={t('search.selectFile', { path: group.path })}
-                                />
-                                {!collapsed &&
-                                    group.matches.map((match) => (
-                                        <SearchMatchRow
-                                            key={`${group.path}:${match.line}:${match.column}`}
-                                            match={match}
-                                            onClick={() => onOpenMatch(group.path)}
-                                        />
-                                    ))}
-                            </div>
-                        )
-                    })}
+                {hasResults && (
+                    <SearchResultsList
+                        results={results}
+                        onOpenMatch={onOpenMatch}
+                        selection={
+                            replaceOpen
+                                ? { excludedPaths, onToggleSelect: (path) => setExcludedPaths((current) => toggleInSet(current, path)) }
+                                : undefined
+                        }
+                    />
+                )}
             </ScrollContainer>
 
             <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

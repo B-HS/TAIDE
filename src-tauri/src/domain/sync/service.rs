@@ -124,6 +124,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         organize_imports_on_save: Some(settings.organize_imports_on_save),
         fix_all_on_save: Some(settings.fix_all_on_save),
         editor_code_lens_enabled: Some(settings.editor_code_lens_enabled),
+        recent_searches: Some(settings.recent_searches.clone()),
     })
 }
 
@@ -286,6 +287,18 @@ mod tests {
 
         assert_eq!(patch.shell_override, None);
         assert_eq!(patch.theme_id, Some("taide-light".to_string()));
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_recent_searches를_포함한다() {
+        let settings = Settings {
+            recent_searches: vec!["needle".to_string(), "haystack".to_string()],
+            ..Settings::default()
+        };
+
+        let patch = settings_to_sync_patch(&settings);
+
+        assert_eq!(patch.recent_searches, Some(vec!["needle".to_string(), "haystack".to_string()]));
     }
 
     #[test]

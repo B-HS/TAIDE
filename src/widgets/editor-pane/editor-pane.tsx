@@ -67,6 +67,7 @@ import { PaneSeparator } from '@features/split/pane-separator'
 import { Button } from '@shared/ui/button'
 import { isLspAttachableTier, useLspSession } from '@widgets/editor-pane/use-lsp-session'
 import { peekLspSession, waitForLspSession } from '@widgets/editor-pane/lsp-session-registry'
+import { BreadcrumbsBar } from '@widgets/editor-pane/breadcrumbs-bar'
 
 const BLAME_DEBOUNCE_MS = 300
 const MARKDOWN_PREVIEW_DEBOUNCE_MS = 200
@@ -984,6 +985,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                 onCompare={handleCompareConflict}
             />
             <ConflictCompareDialog sides={compareSides} languageId={file.languageId} onOpenChange={(open) => !open && setCompareSides(null)} />
+            <BreadcrumbsBar projectId={projectId} tabId={tabId} path={path} />
             {file.readOnly && (
                 <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
             )}

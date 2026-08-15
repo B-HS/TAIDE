@@ -76,6 +76,7 @@ const FEATURE_CAPABILITY_CHECKS: Record<string, (capabilities: ServerCapabilitie
     'textDocument/implementation': (capabilities) => isCapabilityEnabled(capabilities.implementationProvider),
     'textDocument/typeDefinition': (capabilities) => isCapabilityEnabled(capabilities.typeDefinitionProvider),
     'textDocument/declaration': (capabilities) => isCapabilityEnabled(capabilities.declarationProvider),
+    'workspace/symbol': (capabilities) => isCapabilityEnabled(capabilities.workspaceSymbolProvider),
     'workspace/executeCommand': (capabilities) => capabilities.executeCommandProvider !== undefined,
 }
 

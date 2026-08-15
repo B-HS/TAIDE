@@ -164,6 +164,50 @@ export type DocumentSymbol = {
 
 export type SymbolInformation = { name: string; kind: number; location: Location }
 
+export type ResolvableWorkspaceSymbolLocation = Location | { uri: string }
+
+export type WorkspaceSymbol = {
+    name: string
+    kind: number
+    tags?: number[]
+    containerName?: string
+    location: ResolvableWorkspaceSymbolLocation
+    data?: unknown
+}
+
+export const SYMBOL_KIND = {
+    FILE: 1,
+    MODULE: 2,
+    NAMESPACE: 3,
+    PACKAGE: 4,
+    CLASS: 5,
+    METHOD: 6,
+    PROPERTY: 7,
+    FIELD: 8,
+    CONSTRUCTOR: 9,
+    ENUM: 10,
+    INTERFACE: 11,
+    FUNCTION: 12,
+    VARIABLE: 13,
+    CONSTANT: 14,
+    STRING: 15,
+    NUMBER: 16,
+    BOOLEAN: 17,
+    ARRAY: 18,
+    OBJECT: 19,
+    KEY: 20,
+    NULL: 21,
+    ENUM_MEMBER: 22,
+    STRUCT: 23,
+    EVENT: 24,
+    OPERATOR: 25,
+    TYPE_PARAMETER: 26,
+} as const
+export type SymbolKind = (typeof SYMBOL_KIND)[keyof typeof SYMBOL_KIND]
+
+/** Full LSP `SymbolKind` enum range, declared as the `symbolKind.valueSet` client capability for both `textDocument/documentSymbol` and `workspace/symbol` (`lsp-session-registry.ts`'s `buildInitializeParams`) so a server never has to guess which kinds this client understands. */
+export const SYMBOL_KIND_VALUE_SET: SymbolKind[] = Object.values(SYMBOL_KIND)
+
 export const DOCUMENT_HIGHLIGHT_KIND = { TEXT: 1, READ: 2, WRITE: 3 } as const
 export type DocumentHighlightKind = (typeof DOCUMENT_HIGHLIGHT_KIND)[keyof typeof DOCUMENT_HIGHLIGHT_KIND]
 
@@ -187,6 +231,7 @@ export type ServerCapabilities = {
     signatureHelpProvider?: { triggerCharacters?: string[]; retriggerCharacters?: string[] }
     inlayHintProvider?: boolean | Record<string, never>
     documentSymbolProvider?: boolean | Record<string, never>
+    workspaceSymbolProvider?: boolean | { resolveProvider?: boolean }
     documentHighlightProvider?: boolean | Record<string, never>
     selectionRangeProvider?: boolean | Record<string, never>
     diagnosticProvider?: { interFileDependencies?: boolean; workspaceDiagnostics?: boolean }

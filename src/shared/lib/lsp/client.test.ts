@@ -22,10 +22,10 @@ describe('createLspClient — request/response id 매칭', () => {
     test('요청에 발급한 id 와 응답의 id 를 매칭해 resolve 한다', async () => {
         const { sent, client } = createHarness()
 
-        const pending = client.request<{ ok: boolean }>('workspace/symbol', { query: 'foo' })
+        const pending = client.request<{ ok: boolean }>('a/method', { query: 'foo' })
         expect(sent).toHaveLength(1)
         const request = sent[0] as JsonRpcRequest
-        expect(request.method).toBe('workspace/symbol')
+        expect(request.method).toBe('a/method')
 
         client.handleMessage(respond(request.id as number, { ok: true }))
 
@@ -35,7 +35,7 @@ describe('createLspClient — request/response id 매칭', () => {
     test('id 가 일치하지 않는 응답은 무시된다', async () => {
         const { sent, client } = createHarness()
 
-        const pending = client.request('workspace/symbol', {})
+        const pending = client.request('a/method', {})
         const request = sent[0] as JsonRpcRequest
 
         client.handleMessage(respond(9999, { ignored: true }))
@@ -71,7 +71,7 @@ describe('createLspClient — 에러 응답 처리', () => {
     test('error 필드를 가진 응답은 pending 요청을 reject 한다', async () => {
         const { sent, client } = createHarness()
 
-        const pending = client.request('workspace/symbol', {})
+        const pending = client.request('a/method', {})
         const request = sent[0] as JsonRpcRequest
 
         client.handleMessage({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'method not found' } })
@@ -160,7 +160,7 @@ describe('createLspClient — capabilities 미지원 시 요청 안 보냄', () 
 
     test('capability map 에 없는 임의 메서드는 게이팅 없이 항상 전송된다', () => {
         const { sent, client } = createHarness()
-        client.request('workspace/symbol', { query: 'foo' })
+        client.request('a/method', { query: 'foo' })
         expect(sent).toHaveLength(1)
     })
 })
@@ -185,6 +185,7 @@ describe('createLspClient — 확장 capability 게이트', () => {
         { method: 'textDocument/implementation', capabilities: { implementationProvider: true } },
         { method: 'textDocument/typeDefinition', capabilities: { typeDefinitionProvider: true } },
         { method: 'textDocument/declaration', capabilities: { declarationProvider: true } },
+        { method: 'workspace/symbol', capabilities: { workspaceSymbolProvider: true } },
         { method: 'workspace/executeCommand', capabilities: { executeCommandProvider: {} } },
     ]
 
@@ -323,7 +324,7 @@ describe('createLspClient — 서버→클라이언트 요청 라우팅', () => 
         const { sent, client } = createHarness()
         const dispose = registerServerRequestHandler('test/interleaved', async () => [null])
 
-        const pending = client.request('workspace/symbol', { query: 'foo' })
+        const pending = client.request('a/method', { query: 'foo' })
         const clientRequest = sent[0] as JsonRpcRequest
 
         client.handleMessage({ jsonrpc: '2.0', id: 'server-1', method: 'test/interleaved', params: { items: [{}] } })
@@ -422,7 +423,7 @@ describe('createLspClient — 문서 동기화', () => {
 describe('createLspClient — dispose', () => {
     test('dispose 시 pending 요청을 모두 reject 한다', async () => {
         const { client } = createHarness()
-        const pending = client.request('workspace/symbol', {})
+        const pending = client.request('a/method', {})
         client.dispose()
         await expect(pending).rejects.toBeInstanceOf(Error)
     })

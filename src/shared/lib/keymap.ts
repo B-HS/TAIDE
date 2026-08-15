@@ -3,6 +3,7 @@ import { IS_MAC } from '@shared/constants/platform'
 export type KeymapActionId =
     | 'quick-open'
     | 'command-palette'
+    | 'workspace-symbol'
     | 'close-tab'
     | 'toggle-sidebar'
     | 'find'
@@ -42,6 +43,7 @@ export type KeymapEvent = {
 export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'quick-open', key: 'p', mods: ['mod'], descriptionKey: 'keymap.quickOpen' },
     { id: 'command-palette', key: 'p', mods: ['mod', 'shift'], descriptionKey: 'keymap.commandPalette' },
+    { id: 'workspace-symbol', key: 't', mods: ['mod'], descriptionKey: 'palette.workspaceSymbols' },
     { id: 'close-tab', key: 'w', mods: ['mod'], descriptionKey: 'keymap.closeTab' },
     { id: 'toggle-sidebar', key: 'b', mods: ['mod'], descriptionKey: 'keymap.toggleSidebar' },
     { id: 'find', key: 'f', mods: ['mod'], descriptionKey: 'keymap.find' },

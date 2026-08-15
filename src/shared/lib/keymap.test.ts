@@ -113,6 +113,13 @@ describe('findMatchingKeymapEntry', () => {
         expect(up?.id).toBe('font-size-up')
         expect(down?.id).toBe('font-size-down')
     })
+
+    test('Workspace Symbol 은 mod+t 로 매칭되고, 탭 재열기(mod+shift+t)와 shift 유무로 구분된다', () => {
+        const workspaceSymbol = findMatchingKeymapEntry(APP_KEYMAP, { key: 't', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        const reopenClosedTab = findMatchingKeymapEntry(APP_KEYMAP, { key: 't', metaKey: true, ctrlKey: false, shiftKey: true, altKey: false }, true)
+        expect(workspaceSymbol?.id).toBe('workspace-symbol')
+        expect(reopenClosedTab?.id).toBe('reopen-closed-tab')
+    })
 })
 
 describe('parseKeymapOverrides', () => {

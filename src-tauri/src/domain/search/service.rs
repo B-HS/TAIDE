@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use ignore::WalkBuilder;
 use regex::{Regex, RegexBuilder};
 
 use crate::constants;
@@ -184,6 +185,17 @@ fn passes_glob_filters(root: &Path, path: &Path, query: &SearchQuery) -> bool {
     true
 }
 
+fn context_before(lines: &[&str], line_index: usize, context: usize) -> Vec<String> {
+    let start = line_index.saturating_sub(context);
+    lines[start..line_index].iter().map(|line| (*line).to_string()).collect()
+}
+
+fn context_after(lines: &[&str], line_index: usize, context: usize) -> Vec<String> {
+    let start = (line_index + 1).min(lines.len());
+    let end = (line_index + 1 + context).min(lines.len());
+    lines[start..end].iter().map(|line| (*line).to_string()).collect()
+}
+
 fn search_file(
     path: &Path,
     query: &SearchQuery,
@@ -205,10 +217,12 @@ fn search_file(
     }
 
     let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = text.lines().collect();
     let path_string = path.to_string_lossy().to_string();
+    let context = query.context_lines as usize;
     let mut emitted = 0u32;
 
-    'lines: for (line_index, line) in text.lines().enumerate() {
+    'lines: for (line_index, line) in lines.iter().copied().enumerate() {
         for (match_start, match_end) in matches_for_line(line, query, mode) {
             if emitted >= remaining {
                 break 'lines;
@@ -222,12 +236,57 @@ fn search_file(
                 preview,
                 match_start: preview_start,
                 match_end: preview_end,
+                before: context_before(&lines, line_index, context),
+                after: context_after(&lines, line_index, context),
             });
             emitted += 1;
         }
     }
 
     Ok(emitted)
+}
+
+/// Builds the directory walker shared by [`search`] and [`collect_project_files`].
+///
+/// `constants::IGNORED_DIR_NAMES` is pruned unconditionally (via `filter_entry`)
+/// regardless of `respect_gitignore` — those directories (`.git`, `node_modules`, ...)
+/// were never searchable before this feature and are not meant to become
+/// searchable just because a project has no `.gitignore` or the toggle is off.
+/// `respect_gitignore` only gates the `ignore` crate's own `.gitignore`/
+/// `.git/info/exclude` recognition. Global git config excludes, parent-directory
+/// ignore *rules*, hidden-file filtering, and `.ignore` files are deliberately
+/// left unapplied in both modes — matching VS Code's own `search.useIgnoreFiles`
+/// scope (repo-local git ignore rules only) and preserving the pre-existing
+/// behavior of searching dotfiles that don't match `IGNORED_DIR_NAMES`.
+/// `.parents(false)` above is what disables applying those ancestor rules to
+/// the results (verified: no ancestor-only-ignored file ever appears). It
+/// does *not* stop the `ignore` crate from opening and parsing each ancestor
+/// directory's `.gitignore` on every call when `respect_gitignore` is on —
+/// the crate ties that read to `git_ignore`/`git_exclude`, not to `parents`
+/// (`ignore::dir::Ignore::add_parents`). Those reads never leave the
+/// filesystem/never affect results, so this is a (tiny, per-search) I/O
+/// cost rather than a correctness or sandboxing gap. See
+/// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
+fn build_walk(root: &Path, respect_gitignore: bool) -> ignore::Walk {
+    WalkBuilder::new(root)
+        .hidden(false)
+        .parents(false)
+        .ignore(false)
+        .git_global(false)
+        .git_ignore(respect_gitignore)
+        .git_exclude(respect_gitignore)
+        .require_git(false)
+        .filter_entry(|entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            let is_dir = entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false);
+            if !is_dir {
+                return true;
+            }
+            !constants::is_ignored_dir(&entry.file_name().to_string_lossy())
+        })
+        .build()
 }
 
 pub fn search(root: &Path, query: &SearchQuery, cancelled: &AtomicBool, mut on_match: impl FnMut(SearchMatch)) -> AppResult<u32> {
@@ -242,77 +301,39 @@ pub fn search(root: &Path, query: &SearchQuery, cancelled: &AtomicBool, mut on_m
     };
 
     let mut total = 0u32;
-    let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
 
-    'walk: while let Some(dir) = stack.pop() {
-        if cancelled.load(Ordering::Relaxed) {
+    for entry in build_walk(root, query.respect_gitignore) {
+        if cancelled.load(Ordering::Relaxed) || total >= SEARCH_MATCH_LIMIT {
             break;
         }
 
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+        let Ok(entry) = entry else {
             continue;
         };
-
-        for entry in entries.flatten() {
-            if cancelled.load(Ordering::Relaxed) || total >= SEARCH_MATCH_LIMIT {
-                break 'walk;
-            }
-
-            let Ok(metadata) = entry.metadata() else {
-                continue;
-            };
-            let path = entry.path();
-
-            if metadata.is_dir() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if !constants::is_ignored_dir(&name) {
-                    stack.push(path);
-                }
-                continue;
-            }
-
-            if !metadata.is_file() || !passes_glob_filters(root, &path, query) {
-                continue;
-            }
-
-            let remaining = SEARCH_MATCH_LIMIT - total;
-            total += search_file(&path, query, &mode, remaining, &mut on_match)?;
+        let is_file = entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false);
+        if !is_file {
+            continue;
         }
+
+        let path = entry.path();
+        if !passes_glob_filters(root, path, query) {
+            continue;
+        }
+
+        let remaining = SEARCH_MATCH_LIMIT - total;
+        total += search_file(path, query, &mode, remaining, &mut on_match)?;
     }
 
     Ok(total)
 }
 
 fn collect_project_files(root: &Path, query: &SearchQuery) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
-
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-
-        for entry in entries.flatten() {
-            let Ok(metadata) = entry.metadata() else {
-                continue;
-            };
-            let path = entry.path();
-
-            if metadata.is_dir() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if !constants::is_ignored_dir(&name) {
-                    stack.push(path);
-                }
-                continue;
-            }
-
-            if metadata.is_file() && passes_glob_filters(root, &path, query) {
-                files.push(path);
-            }
-        }
-    }
-
-    files
+    build_walk(root, query.respect_gitignore)
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false))
+        .map(|entry| entry.into_path())
+        .filter(|path| passes_glob_filters(root, path, query))
+        .collect()
 }
 
 fn strip_line_terminator(chunk: &str) -> &str {
@@ -414,6 +435,8 @@ mod tests {
             regex: false,
             include_glob: None,
             exclude_glob: None,
+            context_lines: 0,
+            respect_gitignore: true,
         }
     }
 
@@ -595,6 +618,94 @@ mod tests {
 
         assert_eq!(total, 0);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn context_before는_시작_경계에서_잘린다() {
+        let lines = ["a", "b", "c"];
+        assert_eq!(context_before(&lines, 0, 2), Vec::<String>::new());
+        assert_eq!(context_before(&lines, 2, 2), vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn context_after는_끝_경계에서_잘린다() {
+        let lines = ["a", "b", "c"];
+        assert_eq!(context_after(&lines, 2, 2), Vec::<String>::new());
+        assert_eq!(context_after(&lines, 0, 2), vec!["b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn 컨텍스트_줄이_0이면_전후_줄이_비어있다() {
+        let fixture = build_fixture();
+        let cancelled = AtomicBool::new(false);
+        let mut results = Vec::new();
+
+        search(&fixture.root, &query("needle"), &cancelled, |item| results.push(item)).unwrap();
+
+        assert!(results[0].before.is_empty());
+        assert!(results[0].after.is_empty());
+    }
+
+    #[test]
+    fn 컨텍스트_줄_옵션은_전후_줄을_채우고_파일_경계에서_잘린다() {
+        let fixture = build_fixture();
+        let mut q = query("needle");
+        q.context_lines = 2;
+        let cancelled = AtomicBool::new(false);
+        let mut results = Vec::new();
+
+        search(&fixture.root, &q, &cancelled, |item| results.push(item)).unwrap();
+
+        assert_eq!(results[0].before, vec!["fn main() {".to_string()]);
+        assert_eq!(results[0].after, vec!["}".to_string()]);
+    }
+
+    fn build_gitignore_fixture() -> Fixture {
+        let root = std::env::temp_dir().join(format!("taide-search-gitignore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("ignored-by-git")).unwrap();
+        std::fs::write(root.join(".gitignore"), "ignored-by-git/\n").unwrap();
+        std::fs::write(root.join("kept.rs"), "needle").unwrap();
+        std::fs::write(root.join("ignored-by-git").join("skip.rs"), "needle").unwrap();
+        Fixture { root }
+    }
+
+    #[test]
+    fn respect_gitignore_기본값은_gitignore된_파일을_제외한다() {
+        let fixture = build_gitignore_fixture();
+        let cancelled = AtomicBool::new(false);
+        let mut results = Vec::new();
+
+        let total = search(&fixture.root, &query("needle"), &cancelled, |item| results.push(item)).unwrap();
+
+        assert_eq!(total, 1);
+        assert!(results[0].path.ends_with("kept.rs"));
+    }
+
+    #[test]
+    fn respect_gitignore가_꺼지면_gitignore된_파일도_포함한다() {
+        let fixture = build_gitignore_fixture();
+        let mut q = query("needle");
+        q.respect_gitignore = false;
+        let cancelled = AtomicBool::new(false);
+        let mut results = Vec::new();
+
+        let total = search(&fixture.root, &q, &cancelled, |item| results.push(item)).unwrap();
+
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn respect_gitignore가_꺼져도_ignored_dir_names는_항상_제외된다() {
+        let fixture = build_fixture();
+        let mut q = query("needle");
+        q.respect_gitignore = false;
+        let cancelled = AtomicBool::new(false);
+        let mut results = Vec::new();
+
+        let total = search(&fixture.root, &q, &cancelled, |item| results.push(item)).unwrap();
+
+        assert_eq!(total, 1);
+        assert!(results[0].path.ends_with("main.rs"));
     }
 
     fn replace_temp_root(label: &str) -> PathBuf {

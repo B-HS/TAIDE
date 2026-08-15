@@ -427,6 +427,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
+                arg!(args, "sessionId"),
                 arg!(args, "query"),
                 make_channel(&args, "onMatch", &channel_factory)?,
             )
@@ -442,7 +443,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "search_cancel" => respond(search::search_cancel(app.state(), app.state(), arg!(args, "projectId")).await),
+        "search_cancel" => respond(search::search_cancel(app.state(), app.state(), arg!(args, "sessionId")).await),
 
         "plugin_list" => respond(plugin::plugin_list(app.state(), app.state()).await),
         "plugin_reload" => respond(plugin::plugin_reload(app.state(), app.state()).await),

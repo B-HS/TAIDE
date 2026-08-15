@@ -74,8 +74,8 @@ export const commands = {
 	treeToggle: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_toggle", { projectId, path })),
 	treeReveal: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_reveal", { projectId, path })),
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
-	searchRun: (projectId: ProjectId, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, query, onMatch })),
-	searchCancel: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { projectId })),
+	searchRun: (projectId: ProjectId, sessionId: string, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, sessionId, query, onMatch })),
+	searchCancel: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { sessionId })),
 	searchReplace: (projectId: ProjectId, query: SearchQuery, replacement: string, paths: string[] | null) => typedError<SearchReplaceResult, AppError>(__TAURI_INVOKE("search_replace", { projectId, query, replacement, paths })),
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
@@ -406,7 +406,7 @@ export type ExternalOpenRequest = {
 
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
 
-export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome" | "untitled";
+export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome" | "untitled" | "searchEditor";
 
 export type FontFamily = {
 	name: string,
@@ -833,6 +833,16 @@ export type SearchMatch = {
 	preview: string,
 	matchStart: number,
 	matchEnd: number,
+	/**
+	 *  Up to `SearchQuery::context_lines` lines immediately before the match
+	 *  line, in file order. Empty when `context_lines` is `0`.
+	 */
+	before: string[],
+	/**
+	 *  Up to `SearchQuery::context_lines` lines immediately after the match
+	 *  line, in file order. Empty when `context_lines` is `0`.
+	 */
+	after: string[],
 };
 
 export type SearchQuery = {
@@ -842,6 +852,8 @@ export type SearchQuery = {
 	regex?: boolean,
 	includeGlob?: string | null,
 	excludeGlob?: string | null,
+	contextLines?: number,
+	respectGitignore?: boolean,
 };
 
 export type SearchReplaceResult = {
@@ -899,6 +911,15 @@ export type Settings = {
 	organizeImportsOnSave?: boolean,
 	fixAllOnSave?: boolean,
 	editorCodeLensEnabled?: boolean,
+	/**
+	 *  Most-recent-first search terms, newest at index `0`. The cap
+	 *  (currently 20) and dedup/prepend logic are the frontend's
+	 *  responsibility (`entities/search`) — this field is a plain passthrough,
+	 *  same as `remote_allowed_hosts`' list shape but without server-side
+	 *  validation, since search history carries no security weight. See
+	 *  `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
+	 */
+	recentSearches?: string[],
 };
 
 export type SettingsPatch = {
@@ -948,6 +969,7 @@ export type SettingsPatch = {
 	organizeImportsOnSave: boolean | null,
 	fixAllOnSave: boolean | null,
 	editorCodeLensEnabled: boolean | null,
+	recentSearches: string[] | null,
 };
 
 export type ShellProfile = {
@@ -1018,7 +1040,16 @@ export type Tab = {
 
 export type TabId = string;
 
-export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" } | { kind: "untitled"; index: number };
+export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" } | { kind: "untitled"; index: number } | 
+/**
+ *  A persistent, editable search results surface (VS Code calls this a "Search Editor").
+ *  Only the query is kept — results are cheap to re-run (`search::commands::search_run`)
+ *  and streaming a potentially large `SearchMatch` list through hot-exit/session-restore
+ *  JSON would bloat the layout file for no benefit, so the tab restores to the query and
+ *  re-searches rather than replaying stale results. See
+ *  `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
+ */
+{ kind: "searchEditor"; query: SearchQuery };
 
 export type TagCreateOptions = {
 	message?: string | null,

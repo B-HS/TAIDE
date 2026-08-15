@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::domain::search::types::SearchQuery;
 use crate::ids::{PaneId, TabId};
 
 pub const LAYOUT_SCHEMA_VERSION: u32 = 1;
@@ -54,6 +55,16 @@ pub enum TabKind {
     #[serde(rename_all = "camelCase")]
     Untitled {
         index: u32,
+    },
+    /// A persistent, editable search results surface (VS Code calls this a "Search Editor").
+    /// Only the query is kept — results are cheap to re-run (`search::commands::search_run`)
+    /// and streaming a potentially large `SearchMatch` list through hot-exit/session-restore
+    /// JSON would bloat the layout file for no benefit, so the tab restores to the query and
+    /// re-searches rather than replaying stale results. See
+    /// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
+    #[serde(rename_all = "camelCase")]
+    SearchEditor {
+        query: SearchQuery,
     },
 }
 
@@ -117,6 +128,7 @@ pub enum FocusKind {
     ClaudeDiff,
     Welcome,
     Untitled,
+    SearchEditor,
 }
 
 impl From<&TabKind> for FocusKind {
@@ -129,6 +141,7 @@ impl From<&TabKind> for FocusKind {
             TabKind::ClaudeDiff { .. } => FocusKind::ClaudeDiff,
             TabKind::Welcome => FocusKind::Welcome,
             TabKind::Untitled { .. } => FocusKind::Untitled,
+            TabKind::SearchEditor { .. } => FocusKind::SearchEditor,
         }
     }
 }

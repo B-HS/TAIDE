@@ -675,6 +675,34 @@ pub fn load_layout(paths: &AppPaths, project_id: &ProjectId) -> ProjectLayout {
 mod tests {
     use super::super::types::TabKind;
     use super::*;
+    use crate::domain::search::types::SearchQuery;
+
+    fn 검색_쿼리(text: &str) -> SearchQuery {
+        SearchQuery {
+            text: text.to_string(),
+            case_sensitive: false,
+            whole_word: false,
+            regex: false,
+            include_glob: None,
+            exclude_glob: None,
+            context_lines: 0,
+            respect_gitignore: true,
+        }
+    }
+
+    fn 검색_에디터_탭(text: &str) -> Tab {
+        Tab {
+            id: TabId::new(),
+            kind: TabKind::SearchEditor {
+                query: 검색_쿼리(text)
+            },
+            title: format!("Search: {text}"),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }
+    }
 
     fn 파일_탭(path: &str) -> Tab {
         Tab {
@@ -1414,5 +1442,75 @@ mod tests {
         let result = convert_untitled_to_file(&mut layout, &file_id, "b.rs".to_string(), "b.rs".to_string());
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn 검색_에디터_탭은_영속_저장에_포함된다() {
+        let file_tab = 파일_탭("a.rs");
+        let file_tab_id = file_tab.id.clone();
+        let search_tab = 검색_에디터_탭("needle");
+        let search_tab_id = search_tab.id.clone();
+        let layout = ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root: 리프(vec![file_tab, search_tab]),
+            focused_pane: PaneId::new(),
+            revision: 0,
+            closed_tabs: Vec::new(),
+        };
+
+        let persisted = strip_volatile_tabs(&layout);
+
+        let PaneNode::Leaf { tabs, .. } = &persisted.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].id, file_tab_id);
+        assert!(tabs.iter().any(|tab| tab.id == search_tab_id));
+    }
+
+    #[test]
+    fn 같은_쿼리의_검색_에디터_재열기는_활성화만_한다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+
+        let first_id = open_tab(&mut layout, &leaf_id, 검색_에디터_탭("needle"), false).expect("open search editor");
+        let second_id = open_tab(&mut layout, &leaf_id, 검색_에디터_탭("needle"), false).expect("reopen same query");
+
+        let PaneNode::Leaf { tabs, active, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(first_id, second_id);
+        assert_eq!(
+            tabs.iter().filter(|tab| matches!(tab.kind, TabKind::SearchEditor { .. })).count(),
+            1
+        );
+        assert_eq!(active, &Some(first_id));
+    }
+
+    #[test]
+    fn 다른_쿼리의_검색_에디터는_별도_탭으로_열린다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+
+        open_tab(&mut layout, &leaf_id, 검색_에디터_탭("needle"), false).expect("open first search editor");
+        open_tab(&mut layout, &leaf_id, 검색_에디터_탭("haystack"), false).expect("open second search editor");
+
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(
+            tabs.iter().filter(|tab| matches!(tab.kind, TabKind::SearchEditor { .. })).count(),
+            2
+        );
+    }
+
+    #[test]
+    fn 검색_에디터_탭의_포커스_종류는_search_editor다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &leaf_id, 검색_에디터_탭("needle"), false).expect("open search editor");
+        activate_tab(&mut layout, &tab_id).expect("activate");
+
+        assert_eq!(focus_kind(&layout), Some(FocusKind::SearchEditor));
     }
 }

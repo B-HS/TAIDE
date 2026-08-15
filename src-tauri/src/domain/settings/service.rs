@@ -58,6 +58,7 @@ pub struct SettingsPatch {
     pub organize_imports_on_save: Option<bool>,
     pub fix_all_on_save: Option<bool>,
     pub editor_code_lens_enabled: Option<bool>,
+    pub recent_searches: Option<Vec<String>>,
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -102,6 +103,15 @@ const EDITOR_CURSOR_BLINKING_STYLES: &[&str] = &["blink", "smooth", "phase", "ex
 const EDITOR_RENDER_WHITESPACE_MODES: &[&str] = &["none", "boundary", "selection", "all"];
 const TERMINAL_CURSOR_STYLES: &[&str] = &["bar", "block", "underline"];
 const AI_AUTO_TAB_PROVIDERS: &[&str] = &["ollamaCloud", "codex", "omlx"];
+
+/// Mirrors the frontend's `SEARCH_HISTORY_LIMIT`
+/// (`src/entities/search/search-history.ts`). The frontend already caps
+/// `recent_searches` at this length before every `settings_update`, but this
+/// field also arrives via [`apply_payload_settings`] (sync gist download),
+/// which the frontend cap can't guard — a malformed or hand-edited gist
+/// payload could otherwise store an unbounded array. Enforced here so every
+/// entry point is covered, the same defense-in-depth as [`sanitize_allowed_hosts`].
+const RECENT_SEARCHES_MAX: usize = 20;
 
 fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
     if allowed.contains(&value.as_str()) {
@@ -164,6 +174,11 @@ fn sanitize_allowed_hosts(hosts: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn sanitize_recent_searches(mut searches: Vec<String>) -> Vec<String> {
+    searches.truncate(RECENT_SEARCHES_MAX);
+    searches
+}
+
 fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
     match patch_value {
         None => existing.cloned(),
@@ -199,6 +214,7 @@ fn sanitize(settings: Settings) -> Settings {
         ai_auto_tab_provider: sanitize_optional_enum(settings.ai_auto_tab_provider, AI_AUTO_TAB_PROVIDERS),
         ai_omlx_base_url: sanitize_optional_url(settings.ai_omlx_base_url),
         remote_allowed_hosts: sanitize_allowed_hosts(settings.remote_allowed_hosts),
+        recent_searches: sanitize_recent_searches(settings.recent_searches),
         ..settings
     }
 }
@@ -273,6 +289,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         organize_imports_on_save: patch.organize_imports_on_save.unwrap_or(settings.organize_imports_on_save),
         fix_all_on_save: patch.fix_all_on_save.unwrap_or(settings.fix_all_on_save),
         editor_code_lens_enabled: patch.editor_code_lens_enabled.unwrap_or(settings.editor_code_lens_enabled),
+        recent_searches: patch.recent_searches.clone().unwrap_or_else(|| settings.recent_searches.clone()),
     })
 }
 
@@ -687,6 +704,48 @@ mod tests {
         assert!(updated.organize_imports_on_save);
         assert!(updated.fix_all_on_save);
         assert!(!updated.editor_code_lens_enabled);
+    }
+
+    #[test]
+    fn patch로_recent_searches를_변경한다() {
+        let settings = Settings::default();
+        assert!(settings.recent_searches.is_empty());
+
+        let patch = SettingsPatch {
+            recent_searches: Some(vec!["needle".to_string(), "haystack".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.recent_searches, vec!["needle".to_string(), "haystack".to_string()]);
+    }
+
+    #[test]
+    fn patch에_recent_searches가_없으면_기존_값을_유지한다() {
+        let settings = Settings {
+            recent_searches: vec!["needle".to_string()],
+            ..Settings::default()
+        };
+
+        let updated = apply_patch(&settings, &SettingsPatch::default());
+
+        assert_eq!(updated.recent_searches, vec!["needle".to_string()]);
+    }
+
+    #[test]
+    fn recent_searches는_상한을_초과하면_잘려나간다() {
+        let settings = Settings::default();
+        let oversized: Vec<String> = (0..(RECENT_SEARCHES_MAX + 10)).map(|index| format!("term-{index}")).collect();
+        let patch = SettingsPatch {
+            recent_searches: Some(oversized.clone()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.recent_searches.len(), RECENT_SEARCHES_MAX);
+        assert_eq!(updated.recent_searches, oversized[..RECENT_SEARCHES_MAX]);
     }
 
     #[test]
