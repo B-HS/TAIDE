@@ -237,9 +237,14 @@
     - [ ] c-F. Wave F — 에디터 표현(Semantic Tokens·사용자 스니펫·Format on Type/Paste·Emmet).
           착수 승인(2026-08-15, 3건 전부 추천안 — Wave E prod 병합 완료(`d525640` fast-forward)·
           다음=F·recent_searches 동기화 유지: `2026-08-15-wave-f-kickoff-decisions.md`).
-          - [ ] 정찰 (wf_12eece29-284, opus+high 4축: 프론트 구조·monaco 0.56 실물·LSP 스펙+서버
-                3종·Emmet/스니펫 재료) → 하중 주장 메인 실물 재검증
-          - [ ] 계약 (추천안 패키지 — Emmet `emmet-monaco-es` 의존성 승인 여부 포함)
+          - [x] 정찰 완료 (wf_12eece29-284, opus+high 4축, 805k 토큰) — 하중 주장 메인 재검증 완료
+                (monaco 소스 5곳 직독 + 웹 3건 fetch). **반증 1건**: gopls 는 initializationOptions 를
+                `options.Set` 으로 파싱(설정 맵 불필요). 핵심 확정: semantic 워시아웃 경로·
+                'semanticHighlighting.enabled' 필수·formatOnPaste 의 rangeFormatting 게이트·monaco 스니펫
+                completion 부재(파서·변수는 완비)·emmet-monaco-es tokenizer 'standard' 필수
+          - [x] 계약 확정 (`2026-08-15-wave-f-editor-presentation-contract.md`, 결정 4건 — ①풀 패키지+
+                emmet-monaco-es 5.7.0 승인 ②Semantic **delta 포함**(추천안+확장) ③포매팅 둘 다+어댑터
+                2종 ④스니펫 추천 패키지). **신규 승인 의존성: emmet-monaco-es(+전이 emmet)**
           - [ ] 구현 (sonnet+xhigh — Rust 단독 소유·프론트 파일 소유 분리 병렬)
           - [ ] 4렌즈 검토(opus+xhigh) → 적대적 검증(opus+high) → 수정 → 메인 2차 → 커밋
     - [ ] c-G ~ c-I. 순차 진행 (AI → 키맵 → 셸)
