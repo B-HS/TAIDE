@@ -183,7 +183,14 @@
           메인 2차: verify 전체(729/690)·vite build 그린. 커밋
           - 후속 기록: 신규 파괴 커맨드 원격 dispatch 허용은 기존 27종 정책 유지(pty_spawn 동급·
             checkout safe)·문서화만. 계약 문언 갱신 필요분은 `2026-08-15-wave-c-review-fix-decisions.md`
-    - [ ] c-D ~ c-I. 순차 진행 (탐색·검색 → 터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
+    - [ ] c-D. Wave D — 탐색·검색(팔레트 @/: 모드·Workspace Symbol ⌘T·Breadcrumbs·Search Editor·
+          검색 히스토리·gitignore 토글). 정찰(wf_33479e2a-2e3) 축1 검색·축2 breadcrumbs/LSP 완료,
+          정찰 3축 완료(축0 resume 성공) → 계약 확정(`2026-08-15-wave-d-search-nav-contract.md`,
+          결정 4건 전부 추천: 팔레트 VS Code 규약(@문서/#Workspace Symbol ⌘T/:줄)+monaco 병존·
+          Search Editor 신규 TabKind·gitignore=`ignore` 크레이트 도입(신규 의존성 승인)·capability
+          확충+히스토리 Settings). 구현 A(백엔드 Rust 단독)→B(프론트 병렬 3)→검토 진행.
+          **신규 승인 의존성: `ignore` 크레이트**(ripgrep gitignore walker)
+    - [ ] c-E ~ c-I. 순차 진행 (터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
