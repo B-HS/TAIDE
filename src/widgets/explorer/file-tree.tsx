@@ -28,6 +28,7 @@ export type FileTreeContextMenuHandlers = {
     onSelectForCompare: (row: FileTreeRow) => void
     onCompareWithSelected: (row: FileTreeRow) => void
     canCompareWithSelected: boolean
+    onFileHistory: (row: FileTreeRow) => void
     onCut: (row: FileTreeRow) => void
     onCopy: (row: FileTreeRow) => void
     onPaste: (row: FileTreeRow | null) => void
@@ -262,6 +263,7 @@ export const FileTree: FC<FileTreeProps> = ({
             onSelectForCompare={() => contextRow && contextMenuHandlers.onSelectForCompare(contextRow)}
             onCompareWithSelected={() => contextRow && contextMenuHandlers.onCompareWithSelected(contextRow)}
             canCompareWithSelected={contextMenuHandlers.canCompareWithSelected}
+            onFileHistory={() => contextRow && contextMenuHandlers.onFileHistory(contextRow)}
             onCut={() => contextRow && contextMenuHandlers.onCut(contextRow)}
             onCopy={() => contextRow && contextMenuHandlers.onCopy(contextRow)}
             onPaste={() => contextMenuHandlers.onPaste(contextRow)}

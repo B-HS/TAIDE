@@ -8,6 +8,7 @@ import type { FileTreeNodeKind, FileTreeRow } from '@features/explorer/file-tree
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
 import { resolveEntryParentDir, validateEntryName } from '@shared/lib/entry-name'
 import { buildUniqueEntryName } from '@shared/lib/unique-entry-name'
+import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
@@ -18,6 +19,7 @@ import { projectQueryOptions } from '@entities/project/project.query'
 import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
 import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@widgets/explorer/file-tree'
 import { ExplorerPanel } from '@widgets/explorer/explorer-panel'
+import { FileHistoryPanel } from '@widgets/file-history/file-history-panel'
 
 type ExplorerContainerProps = {
     projectId: ProjectId
@@ -283,6 +285,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         onSelectForCompare: (row) => setCompareSourcePath(row.path),
         onCompareWithSelected: compareWithSelected,
         canCompareWithSelected: compareSourcePath !== null,
+        onFileHistory: (row) => requestOpenFileHistory(row.path),
         onCut: (row) => setClipboard({ mode: 'cut', path: row.path }),
         onCopy: (row) => setClipboard({ mode: 'copy', path: row.path }),
         onPaste: (row) => void pasteClipboard(row),
@@ -342,6 +345,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                 }}
             />
             <EntryDeleteDialog entryName={deleteTarget?.name ?? null} onCancel={() => setDeleteTarget(null)} onConfirm={() => void confirmDelete()} />
+            <FileHistoryPanel projectId={projectId} />
         </>
     )
 }

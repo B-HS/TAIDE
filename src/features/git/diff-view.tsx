@@ -7,19 +7,27 @@ export type DiffViewProps = {
     modified: string
     languageId: string
     renderSideBySide: boolean
+    onDiffEditorMount?: (diffEditor: monaco.editor.IStandaloneDiffEditor | null) => void
 }
 
-export const DiffView: FC<DiffViewProps> = ({ original, modified, languageId, renderSideBySide }) => {
+export const DiffView: FC<DiffViewProps> = ({ original, modified, languageId, renderSideBySide, onDiffEditorMount }) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+    const onDiffEditorMountRef = useRef(onDiffEditorMount)
+
+    useEffect(() => {
+        onDiffEditorMountRef.current = onDiffEditorMount
+    })
 
     useEffect(() => {
         if (!containerRef.current) return
 
         const diffEditor = monaco.editor.createDiffEditor(containerRef.current, { automaticLayout: true, readOnly: true })
         diffEditorRef.current = diffEditor
+        onDiffEditorMountRef.current?.(diffEditor)
 
         return () => {
+            onDiffEditorMountRef.current?.(null)
             diffEditor.dispose()
             diffEditorRef.current = null
         }

@@ -1,5 +1,8 @@
 import type { AiProviderId, DiffMode, ProjectId } from '@shared/api/bindings'
 
+const GIT_SCOPE_COMMIT_FILES = 'commit-files'
+const GIT_SCOPE_SHOW = 'show'
+
 export const QUERY_KEY = {
     APP: {
         ALL: ['app'] as const,
@@ -37,6 +40,17 @@ export const QUERY_KEY = {
         CURRENT_USER: (projectId: ProjectId) => ['git', projectId, 'current-user'] as const,
         BRANCHES: (projectId: ProjectId) => ['git', projectId, 'branches'] as const,
         STASHES: (projectId: ProjectId) => ['git', projectId, 'stashes'] as const,
+        COMMIT_FILES: (projectId: ProjectId, rev: string) => ['git', projectId, GIT_SCOPE_COMMIT_FILES, rev] as const,
+        FILE_LOG: (projectId: ProjectId, path: string) => ['git', projectId, 'file-log', path] as const,
+        SHOW: (projectId: ProjectId, rev: string, path: string) => ['git', projectId, GIT_SCOPE_SHOW, rev, path] as const,
+        /**
+         * Scopes keyed by an immutable `rev` (commit SHA) rather than by live working-tree/index
+         * state — their `staleTime: Infinity` queries (see `git.query.ts`) should survive an
+         * unrelated mutation's coarse `PROJECT`-prefix invalidation instead of being refetched for
+         * no reason every time the user stages/unstages/stashes/etc. while a commit-detail or
+         * file-history panel happens to be open.
+         */
+        REV_IMMUTABLE_SCOPES: [GIT_SCOPE_COMMIT_FILES, GIT_SCOPE_SHOW] as const,
     },
     LSP: {
         ALL: ['lsp'] as const,

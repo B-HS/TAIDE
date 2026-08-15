@@ -10,6 +10,7 @@ import {
     FolderPlus,
     GitCompare,
     Globe,
+    History,
     Pencil,
     Scissors,
     Search,
@@ -46,6 +47,7 @@ type FileTreeContextMenuProps = {
     onSelectForCompare: () => void
     onCompareWithSelected: () => void
     canCompareWithSelected: boolean
+    onFileHistory: () => void
     onCut: () => void
     onCopy: () => void
     onPaste: () => void
@@ -72,6 +74,7 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
     onSelectForCompare,
     onCompareWithSelected,
     canCompareWithSelected,
+    onFileHistory,
     onCut,
     onCopy,
     onPaste,
@@ -129,6 +132,10 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
                         <ContextMenuItem disabled={!canCompareWithSelected} onSelect={onCompareWithSelected}>
                             <GitCompare className='size-4' />
                             {t('explorer.compareWithSelected')}
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={onFileHistory}>
+                            <History className='size-4' />
+                            {t('git.fileHistory')}
                         </ContextMenuItem>
                     </>
                 )}

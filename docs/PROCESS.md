@@ -173,9 +173,16 @@
     - [ ] c-C. Wave C — Git 확장(3-way 머지·줄 stage·커밋 상세·파일 히스토리·revert/tag·원격
           checkout·파일 blame 뷰). 정찰(wf_563a88b2-20f) 축1 Rust·축3 API 완료(git 커맨드 27종·
           git2+CLI 하이브리드 확인), 축2 프론트 UI 는 StructuredOutput 초과 실패 → resume 재실행 중.
-          정찰 3축 완료(축2 resume 성공) → 계약 확정(`2026-08-15-wave-c-git-contract.md`, 결정 4건:
-          3-way 인라인 데코레이터·hunk stage git2 native+선택 라인·경량 배치·revert/tag/checkout
-          추천). 구현 A(백엔드 Rust 단독)→B(프론트 병렬 3)→검토 진행
+          정찰 3축 완료(축2 resume 성공) → 계약 확정(`2026-08-15-wave-c-git-contract.md`, 결정 4건).
+          구현(wf_3d5d4450-95b, 백엔드 13커맨드+프론트 3): git_apply anchor 버그 실패테스트 재현·수정.
+          검토(wf_aa0a4674-768, 4렌즈): 발견 18 → L1-0 에디터 unstage 좌표 불일치(confirmed, unstage
+          제거)·L1-1 미추적 파일 stage 실패·minor 다수 수정. L0-0 revert 혼입은 검증자 standalone
+          재현으로 반증(git2 SAFE checkout guard). **보안 렌즈 critical(git_resolve_conflict 경로
+          트래버설 — to_repo_relative 가 상대경로 `..` 무검증)은 검증 실패로 fixer 누락 → 메인 직접
+          수정**(Component::ParentDir/RootDir/Prefix 거부 + 테스트, 모든 git write 커맨드 공유 방어).
+          메인 2차: verify 전체(729/690)·vite build 그린. 커밋
+          - 후속 기록: 신규 파괴 커맨드 원격 dispatch 허용은 기존 27종 정책 유지(pty_spawn 동급·
+            checkout safe)·문서화만. 계약 문언 갱신 필요분은 `2026-08-15-wave-c-review-fix-decisions.md`
     - [ ] c-D ~ c-I. 순차 진행 (탐색·검색 → 터미널·태스크 → 에디터 표현 → AI → 키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

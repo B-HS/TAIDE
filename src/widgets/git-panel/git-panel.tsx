@@ -1,4 +1,4 @@
-import type { GitBranch as GitBranchInfo, GitRemote, GitStashEntry, StatusRow } from '@shared/api/bindings'
+import type { GitBranch as GitBranchInfo, GitRemote, GitStashEntry, ProjectId, StatusRow } from '@shared/api/bindings'
 import type { FC } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -22,6 +22,7 @@ import { StashList } from '@features/git/stash-list'
 import type { GitStatusChangeKind, StatusRowAction } from '@features/git/status-row-item'
 import { StatusRowItem } from '@features/git/status-row-item'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
+import { CommitDetailPanel } from '@widgets/git-panel/commit-detail-panel'
 import { CommitGraph, type GraphLogEntry } from '@widgets/git-panel/commit-graph'
 
 export type { GitStatusChangeKind } from '@features/git/status-row-item'
@@ -31,6 +32,7 @@ export type GitStatusRow = StatusRow
 export type GitRemoteInfo = GitRemote
 
 export type GitPanelProps = {
+    projectId: ProjectId
     branch: string | null
     ahead: number
     behind: number
@@ -58,6 +60,7 @@ export type GitPanelProps = {
     onStashApply: (index: number) => void
     onStashDrop: (index: number) => void
     onCheckoutBranch: (name: string) => void
+    onCheckoutRemoteBranch: (remoteRef: string) => void
     onCreateBranch: (name: string) => void
     graphCommits: GraphLogEntry[]
 }
@@ -67,6 +70,7 @@ const isStagedRow = (row: GitStatusRow): row is GitStatusRow & { staged: GitStat
 const isUnstagedRow = (row: GitStatusRow): row is GitStatusRow & { unstaged: GitStatusChangeKind } => !row.isConflicted && row.unstaged !== null
 
 export const GitPanel: FC<GitPanelProps> = ({
+    projectId,
     branch,
     ahead,
     behind,
@@ -94,15 +98,18 @@ export const GitPanel: FC<GitPanelProps> = ({
     onStashApply,
     onStashDrop,
     onCheckoutBranch,
+    onCheckoutRemoteBranch,
     onCreateBranch,
     graphCommits,
 }) => {
     const [discardTargets, setDiscardTargets] = useState<string[] | null>(null)
     const [confirmStageAllOpen, setConfirmStageAllOpen] = useState(false)
+    const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null)
 
     const mergeRows = rows.filter((row) => row.isConflicted)
     const stagedRows = rows.filter(isStagedRow)
     const unstagedRows = rows.filter(isUnstagedRow)
+    const selectedCommit = selectedCommitId ? (graphCommits.find((commit) => commit.id === selectedCommitId) ?? null) : null
 
     const requestCommit = () => {
         if (stagedRows.length === 0 && unstagedRows.length > 0) {
@@ -134,6 +141,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                     currentBranch={branch}
                     disabled={!branch}
                     onCheckout={onCheckoutBranch}
+                    onCheckoutRemote={onCheckoutRemoteBranch}
                     onCreate={onCreateBranch}
                 />
                 {hasRemote && ahead > 0 && (
@@ -321,7 +329,21 @@ export const GitPanel: FC<GitPanelProps> = ({
                 {graphCommits.length > 0 && (
                     <div className='border-app-border mt-2 border-t pt-2'>
                         <div className='text-panel-section-header px-2 pb-1 text-[11px] font-semibold tracking-wide uppercase'>{t('git.graph')}</div>
-                        <CommitGraph commits={graphCommits} />
+                        <CommitGraph
+                            projectId={projectId}
+                            commits={graphCommits}
+                            selectedCommitId={selectedCommitId}
+                            onSelectCommit={(id) => setSelectedCommitId((current) => (current === id ? null : id))}
+                            onOpenFile={onOpenFile}
+                        />
+                        {selectedCommit && (
+                            <CommitDetailPanel
+                                key={selectedCommit.id}
+                                projectId={projectId}
+                                commit={selectedCommit}
+                                onClose={() => setSelectedCommitId(null)}
+                            />
+                        )}
                     </div>
                 )}
             </ScrollContainer>

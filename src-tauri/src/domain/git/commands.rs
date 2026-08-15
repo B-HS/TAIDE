@@ -6,7 +6,10 @@ use tauri::{AppHandle, State};
 use tauri_specta::Event;
 
 use super::service;
-use super::types::{BlameLine, CommitOptions, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk, LogEntry};
+use super::types::{
+    BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk,
+    LogEntry, RevertOutcome, TagCreateOptions, TagInfo,
+};
 use crate::error::{AppError, AppResult};
 use crate::events::{GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
@@ -413,6 +416,228 @@ pub async fn git_undo_last_commit(
     let _guard = state.begin_mutation().await;
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
     service::undo_last_commit(&repo_root)?;
+    emit_status_changed(&app, &project_id);
+    emit_refs_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_conflict_sides(
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+) -> AppResult<ConflictSides> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::conflict_sides(&repo_root, &path))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_resolve_conflict(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    content: String,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::resolve_conflict(&repo_root, &path, &content)?;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_stage_hunk(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    hunk_start: u32,
+    hunk_end: u32,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::stage_hunk(&repo_root, &path, hunk_start, hunk_end))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_unstage_hunk(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    hunk_start: u32,
+    hunk_end: u32,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::unstage_hunk(&repo_root, &path, hunk_start, hunk_end))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_stage_lines(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    line_start: u32,
+    line_end: u32,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::stage_lines(&repo_root, &path, line_start, line_end))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_unstage_lines(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    line_start: u32,
+    line_end: u32,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::unstage_lines(&repo_root, &path, line_start, line_end))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    emit_status_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_commit_files(
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    rev: String,
+) -> AppResult<Vec<CommitFile>> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::commit_files(&repo_root, &rev))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_file_log(
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    path: String,
+    skip: u32,
+    take: u32,
+) -> AppResult<Vec<LogEntry>> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::file_log(&repo_root, &path, skip as usize, take as usize))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_revert_commit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    rev: String,
+) -> AppResult<RevertOutcome> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    let outcome = tauri::async_runtime::spawn_blocking(move || service::revert_commit(&repo_root, &rev))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    emit_status_changed(&app, &project_id);
+    if !outcome.conflicted {
+        emit_refs_changed(&app, &project_id);
+    }
+    Ok(outcome)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_tags(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<TagInfo>> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::tags(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_tag_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    name: String,
+    target: String,
+    opts: TagCreateOptions,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::tag_create(&repo_root, &name, &target, &opts)?;
+    emit_refs_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_tag_delete(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    name: String,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::tag_delete(&repo_root, &name)?;
+    emit_refs_changed(&app, &project_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_checkout_remote_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    remote_ref: String,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    service::checkout_remote_branch(&repo_root, &remote_ref)?;
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(())

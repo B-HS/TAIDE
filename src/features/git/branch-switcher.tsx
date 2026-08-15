@@ -13,10 +13,11 @@ type BranchSwitcherProps = {
     currentBranch: string | null
     disabled: boolean
     onCheckout: (name: string) => void
+    onCheckoutRemote: (remoteRef: string) => void
     onCreate: (name: string) => void
 }
 
-export const BranchSwitcher: FC<BranchSwitcherProps> = ({ branches, currentBranch, disabled, onCheckout, onCreate }) => {
+export const BranchSwitcher: FC<BranchSwitcherProps> = ({ branches, currentBranch, disabled, onCheckout, onCheckoutRemote, onCreate }) => {
     const { t } = useTranslation()
     const [open, setOpen] = useState(false)
     const [filter, setFilter] = useState('')
@@ -29,6 +30,11 @@ export const BranchSwitcher: FC<BranchSwitcherProps> = ({ branches, currentBranc
     const handleSelect = (name: string) => {
         setOpen(false)
         setFilter('')
+        const branch = branches.find((candidate) => candidate.name === name)
+        if (branch?.isRemote) {
+            onCheckoutRemote(name)
+            return
+        }
         onCheckout(name)
     }
 

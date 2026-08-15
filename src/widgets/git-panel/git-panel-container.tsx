@@ -12,6 +12,7 @@ import {
     gitStatusQueryOptions,
     useApplyGitStash,
     useCheckoutGitBranch,
+    useCheckoutRemoteGitBranch,
     useCommitGit,
     useCreateGitBranch,
     useDiscardGitPaths,
@@ -52,6 +53,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const { mutate: openTab } = useOpenTab(projectId)
     const { data: branches = [] } = useQuery(gitBranchesQueryOptions(projectId))
     const { mutate: checkoutBranch } = useCheckoutGitBranch(projectId)
+    const { mutate: checkoutRemoteBranch } = useCheckoutRemoteGitBranch(projectId)
     const { mutate: createBranch } = useCreateGitBranch(projectId)
     const { data: stashes = [] } = useQuery(gitStashesQueryOptions(projectId))
     const { mutate: pushStash, isPending: isStashPushing } = usePushGitStash(projectId)
@@ -73,6 +75,12 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
         checkoutBranch(
             { projectId, name },
             { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(error.message) },
+        )
+
+    const handleCheckoutRemoteBranch = (remoteRef: string) =>
+        checkoutRemoteBranch(
+            { projectId, remoteRef },
+            { onSuccess: () => toast.success(t('git.branchSwitched', { name: remoteRef })), onError: (error) => toast.error(error.message) },
         )
 
     const handleCreateBranch = (name: string) =>
@@ -118,6 +126,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
 
     return (
         <GitPanel
+            projectId={projectId}
             branch={status?.branch ?? null}
             ahead={status?.ahead ?? 0}
             behind={status?.behind ?? 0}
@@ -144,6 +153,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onStashApply={handleStashApply}
             onStashDrop={handleStashDrop}
             onCheckoutBranch={handleCheckoutBranch}
+            onCheckoutRemoteBranch={handleCheckoutRemoteBranch}
             onCreateBranch={handleCreateBranch}
             isSyncing={isPushing || isPulling}
             graphCommits={log}

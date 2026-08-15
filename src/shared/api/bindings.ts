@@ -132,6 +132,19 @@ export const commands = {
 	gitStashDrop: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_drop", { projectId, index })),
 	gitDiscardHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_discard_hunk", { projectId, path, hunkStart, hunkEnd })),
 	gitCurrentUser: (projectId: ProjectId) => typedError<string | null, AppError>(__TAURI_INVOKE("git_current_user", { projectId })),
+	gitConflictSides: (projectId: ProjectId, path: string) => typedError<ConflictSides, AppError>(__TAURI_INVOKE("git_conflict_sides", { projectId, path })),
+	gitResolveConflict: (projectId: ProjectId, path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("git_resolve_conflict", { projectId, path, content })),
+	gitStageHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stage_hunk", { projectId, path, hunkStart, hunkEnd })),
+	gitUnstageHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_unstage_hunk", { projectId, path, hunkStart, hunkEnd })),
+	gitStageLines: (projectId: ProjectId, path: string, lineStart: number, lineEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stage_lines", { projectId, path, lineStart, lineEnd })),
+	gitUnstageLines: (projectId: ProjectId, path: string, lineStart: number, lineEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_unstage_lines", { projectId, path, lineStart, lineEnd })),
+	gitCommitFiles: (projectId: ProjectId, rev: string) => typedError<CommitFile[], AppError>(__TAURI_INVOKE("git_commit_files", { projectId, rev })),
+	gitFileLog: (projectId: ProjectId, path: string, skip: number, take: number) => typedError<LogEntry[], AppError>(__TAURI_INVOKE("git_file_log", { projectId, path, skip, take })),
+	gitRevertCommit: (projectId: ProjectId, rev: string) => typedError<RevertOutcome, AppError>(__TAURI_INVOKE("git_revert_commit", { projectId, rev })),
+	gitTags: (projectId: ProjectId) => typedError<TagInfo[], AppError>(__TAURI_INVOKE("git_tags", { projectId })),
+	gitTagCreate: (projectId: ProjectId, name: string, target: string, opts: TagCreateOptions) => typedError<null, AppError>(__TAURI_INVOKE("git_tag_create", { projectId, name, target, opts })),
+	gitTagDelete: (projectId: ProjectId, name: string) => typedError<null, AppError>(__TAURI_INVOKE("git_tag_delete", { projectId, name })),
+	gitCheckoutRemoteBranch: (projectId: ProjectId, remoteRef: string) => typedError<null, AppError>(__TAURI_INVOKE("git_checkout_remote_branch", { projectId, remoteRef })),
 	ptyDefaultOptions: (projectId: ProjectId, cwd: string | null) => typedError<PtySpawnOptions, AppError>(__TAURI_INVOKE("pty_default_options", { projectId, cwd })),
 	ptyWrite: (sessionId: string, data: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_write", { sessionId, data })),
 	ptyResize: (sessionId: string, cols: number, rows: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_resize", { sessionId, cols, rows })),
@@ -344,9 +357,29 @@ export type ClosedTab = {
 	index: number,
 };
 
+export type CommitFile = {
+	path: string,
+	origPath?: string | null,
+	kind: GitChangeKind,
+};
+
 export type CommitOptions = {
 	amend?: boolean,
 	stageAll?: boolean,
+};
+
+/**
+ *  The three sides of an unresolved merge conflict, keyed by index stage
+ *  (1 = ancestor/base, 2 = ours, 3 = theirs), plus the file's current
+ *  on-disk content. A side is `None` when that stage has no entry — e.g.
+ *  the ancestor is absent for an add/add conflict, or "ours"/"theirs" is
+ *  absent for a delete/modify conflict.
+ */
+export type ConflictSides = {
+	base?: string | null,
+	ours?: string | null,
+	theirs?: string | null,
+	workdir: string,
 };
 
 export type DetectedAgent = {
@@ -783,6 +816,16 @@ export type ResolvedTheme_Serialize = {
 	source: string | null,
 };
 
+export type RevertOutcome = {
+	conflicted: boolean,
+	/**
+	 *  Paths left with unresolved conflict markers, so the caller can route the user straight to
+	 *  them (e.g. open the first one) instead of leaving conflict resolution to be discovered via
+	 *  the next status refresh. Always empty when `conflicted` is `false`.
+	 */
+	conflictedPaths: string[],
+};
+
 export type SearchMatch = {
 	path: string,
 	line: number,
@@ -976,6 +1019,18 @@ export type Tab = {
 export type TabId = string;
 
 export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" } | { kind: "untitled"; index: number };
+
+export type TagCreateOptions = {
+	message?: string | null,
+	annotated?: boolean,
+};
+
+export type TagInfo = {
+	name: string,
+	target: string,
+	message?: string | null,
+	annotated: boolean,
+};
 
 export type TerminalCwdChanged = {
 	sessionId: string,

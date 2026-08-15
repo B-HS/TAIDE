@@ -1,5 +1,5 @@
 import { commands } from '@shared/api/bindings'
-import type { CommitOptions, DiffMode, ProjectId } from '@shared/api/bindings'
+import type { CommitOptions, DiffMode, ProjectId, TagCreateOptions } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const initGitRepository = (projectId: ProjectId) => unwrapResult(commands.gitInit(projectId))
@@ -56,3 +56,41 @@ export const dropGitStash = (input: { projectId: ProjectId; index: number }) => 
 
 export const discardGitHunk = (input: { projectId: ProjectId; path: string; hunkStart: number; hunkEnd: number }) =>
     unwrapResult(commands.gitDiscardHunk(input.projectId, input.path, input.hunkStart, input.hunkEnd))
+
+export const getGitConflictSides = (input: { projectId: ProjectId; path: string }) =>
+    unwrapResult(commands.gitConflictSides(input.projectId, input.path))
+
+export const resolveGitConflict = (input: { projectId: ProjectId; path: string; content: string }) =>
+    unwrapResult(commands.gitResolveConflict(input.projectId, input.path, input.content))
+
+export const stageGitHunk = (input: { projectId: ProjectId; path: string; hunkStart: number; hunkEnd: number }) =>
+    unwrapResult(commands.gitStageHunk(input.projectId, input.path, input.hunkStart, input.hunkEnd))
+
+export const unstageGitHunk = (input: { projectId: ProjectId; path: string; hunkStart: number; hunkEnd: number }) =>
+    unwrapResult(commands.gitUnstageHunk(input.projectId, input.path, input.hunkStart, input.hunkEnd))
+
+export const stageGitLines = (input: { projectId: ProjectId; path: string; lineStart: number; lineEnd: number }) =>
+    unwrapResult(commands.gitStageLines(input.projectId, input.path, input.lineStart, input.lineEnd))
+
+export const unstageGitLines = (input: { projectId: ProjectId; path: string; lineStart: number; lineEnd: number }) =>
+    unwrapResult(commands.gitUnstageLines(input.projectId, input.path, input.lineStart, input.lineEnd))
+
+export const revertGitCommit = (input: { projectId: ProjectId; rev: string }) => unwrapResult(commands.gitRevertCommit(input.projectId, input.rev))
+
+export const getGitTags = (projectId: ProjectId) => unwrapResult(commands.gitTags(projectId))
+
+export const createGitTag = (input: { projectId: ProjectId; name: string; target: string; opts: TagCreateOptions }) =>
+    unwrapResult(commands.gitTagCreate(input.projectId, input.name, input.target, input.opts))
+
+export const deleteGitTag = (input: { projectId: ProjectId; name: string }) => unwrapResult(commands.gitTagDelete(input.projectId, input.name))
+
+export const checkoutRemoteGitBranch = (input: { projectId: ProjectId; remoteRef: string }) =>
+    unwrapResult(commands.gitCheckoutRemoteBranch(input.projectId, input.remoteRef))
+
+export const getGitCommitFiles = (input: { projectId: ProjectId; rev: string }) => unwrapResult(commands.gitCommitFiles(input.projectId, input.rev))
+
+export const getGitFileLog = (input: { projectId: ProjectId; path: string; skip: number; take: number }) =>
+    unwrapResult(commands.gitFileLog(input.projectId, input.path, input.skip, input.take))
+
+export const getGitShowFile = (input: { projectId: ProjectId; rev: string; path: string }) =>
+    unwrapResult(commands.gitShowFile(input.projectId, input.rev, input.path))

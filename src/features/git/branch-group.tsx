@@ -1,5 +1,6 @@
 import type { FC } from 'react'
 import { Check, GitBranch } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { GitBranch as GitBranchInfo } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { CommandGroup, CommandItem } from '@shared/ui/command'
@@ -12,6 +13,7 @@ type BranchGroupProps = {
 }
 
 export const BranchGroup: FC<BranchGroupProps> = ({ heading, branches, filter, onSelect }) => {
+    const { t } = useTranslation()
     const visible = branches.filter((branch) => branch.name.toLowerCase().includes(filter.toLowerCase()))
     if (visible.length === 0) return null
 
@@ -22,6 +24,9 @@ export const BranchGroup: FC<BranchGroupProps> = ({ heading, branches, filter, o
                     <GitBranch className={cn('size-4', branch.isHead && 'text-app-accent')} />
                     <span className='truncate'>{branch.name}</span>
                     {branch.isHead && <Check className='text-app-accent ml-auto size-4 shrink-0' />}
+                    {branch.isRemote && (
+                        <span className='text-app-sidebar-icon-default ml-auto shrink-0 text-[10px]'>{t('git.checkoutRemoteBranch')}</span>
+                    )}
                 </CommandItem>
             ))}
         </CommandGroup>

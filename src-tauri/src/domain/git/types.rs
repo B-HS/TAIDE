@@ -123,3 +123,58 @@ pub struct CommitOptions {
     #[serde(default)]
     pub stage_all: bool,
 }
+
+/// The three sides of an unresolved merge conflict, keyed by index stage
+/// (1 = ancestor/base, 2 = ours, 3 = theirs), plus the file's current
+/// on-disk content. A side is `None` when that stage has no entry — e.g.
+/// the ancestor is absent for an add/add conflict, or "ours"/"theirs" is
+/// absent for a delete/modify conflict.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictSides {
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub ours: Option<String>,
+    #[serde(default)]
+    pub theirs: Option<String>,
+    pub workdir: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFile {
+    pub path: String,
+    #[serde(default)]
+    pub orig_path: Option<String>,
+    pub kind: GitChangeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TagInfo {
+    pub name: String,
+    pub target: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    pub annotated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCreateOptions {
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub annotated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RevertOutcome {
+    pub conflicted: bool,
+    /// Paths left with unresolved conflict markers, so the caller can route the user straight to
+    /// them (e.g. open the first one) instead of leaving conflict resolution to be discovered via
+    /// the next status refresh. Always empty when `conflicted` is `false`.
+    pub conflicted_paths: Vec<String>,
+}

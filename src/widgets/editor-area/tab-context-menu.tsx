@@ -1,6 +1,6 @@
 import type { FC, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FolderOpen, FolderTree, GitCompare, PanelBottom, PanelLeft, PanelRight, PanelTop, Pin, PinOff, X } from 'lucide-react'
+import { FolderOpen, FolderTree, GitCompare, History, PanelBottom, PanelLeft, PanelRight, PanelTop, Pin, PinOff, X } from 'lucide-react'
 import type { DropEdge, Tab } from '@shared/api/bindings'
 import {
     ContextMenu,
@@ -36,6 +36,7 @@ type TabContextMenuProps = {
     onCopyRelativePath?: () => void
     onRevealInFinder?: () => void
     onOpenChanges?: () => void
+    onFileHistory?: () => void
     onKeepOpen?: () => void
     onRevealInExplorerView?: () => void
     onReopenWithEditor?: () => void
@@ -56,6 +57,7 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
     onCopyRelativePath,
     onRevealInFinder,
     onOpenChanges,
+    onFileHistory,
     onKeepOpen,
     onRevealInExplorerView,
     onReopenWithEditor,
@@ -90,7 +92,7 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                         {onCopyRelativePath && <ContextMenuItem onSelect={onCopyRelativePath}>{t('tab.copyRelativePath')}</ContextMenuItem>}
                     </>
                 )}
-                {isFileTab && (onRevealInFinder || onRevealInExplorerView || onOpenChanges) && (
+                {isFileTab && (onRevealInFinder || onRevealInExplorerView || onOpenChanges || onFileHistory) && (
                     <>
                         <ContextMenuSeparator />
                         {onRevealInFinder && (
@@ -106,6 +108,12 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                             </ContextMenuItem>
                         )}
                         {onOpenChanges && <ContextMenuItem onSelect={onOpenChanges}>{t('tab.openChanges')}</ContextMenuItem>}
+                        {onFileHistory && (
+                            <ContextMenuItem onSelect={onFileHistory}>
+                                <History className='size-4' />
+                                {t('git.fileHistory')}
+                            </ContextMenuItem>
+                        )}
                     </>
                 )}
                 {showReopenWith && (

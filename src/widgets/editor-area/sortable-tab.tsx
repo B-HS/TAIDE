@@ -28,6 +28,7 @@ type SortableTabProps = {
     onCopyRelativePath?: () => void
     onRevealInFinder?: () => void
     onOpenChanges?: () => void
+    onFileHistory?: () => void
     onKeepOpen?: () => void
     onRevealInExplorerView?: () => void
     onReopenWithEditor?: () => void
@@ -52,6 +53,7 @@ export const SortableTab: FC<SortableTabProps> = ({
     onCopyRelativePath,
     onRevealInFinder,
     onOpenChanges,
+    onFileHistory,
     onKeepOpen,
     onRevealInExplorerView,
     onReopenWithEditor,
@@ -74,6 +76,7 @@ export const SortableTab: FC<SortableTabProps> = ({
             onCopyRelativePath={onCopyRelativePath}
             onRevealInFinder={onRevealInFinder}
             onOpenChanges={onOpenChanges}
+            onFileHistory={onFileHistory}
             onKeepOpen={onKeepOpen}
             onRevealInExplorerView={onRevealInExplorerView}
             onReopenWithEditor={onReopenWithEditor}

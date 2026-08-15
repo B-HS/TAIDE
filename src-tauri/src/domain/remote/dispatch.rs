@@ -108,6 +108,19 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "git_stash_drop",
     "git_discard_hunk",
     "git_undo_last_commit",
+    "git_conflict_sides",
+    "git_resolve_conflict",
+    "git_stage_hunk",
+    "git_unstage_hunk",
+    "git_stage_lines",
+    "git_unstage_lines",
+    "git_commit_files",
+    "git_file_log",
+    "git_revert_commit",
+    "git_tags",
+    "git_tag_create",
+    "git_tag_delete",
+    "git_checkout_remote_branch",
     "pty_write",
     "pty_resize",
     "pty_kill",
@@ -594,6 +607,109 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             .await,
         ),
         "git_undo_last_commit" => respond(git::git_undo_last_commit(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_conflict_sides" => {
+            respond(git::git_conflict_sides(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await)
+        }
+        "git_resolve_conflict" => respond(
+            git::git_resolve_conflict(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "content"),
+            )
+            .await,
+        ),
+        "git_stage_hunk" => respond(
+            git::git_stage_hunk(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "hunkStart"),
+                arg!(args, "hunkEnd"),
+            )
+            .await,
+        ),
+        "git_unstage_hunk" => respond(
+            git::git_unstage_hunk(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "hunkStart"),
+                arg!(args, "hunkEnd"),
+            )
+            .await,
+        ),
+        "git_stage_lines" => respond(
+            git::git_stage_lines(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "lineStart"),
+                arg!(args, "lineEnd"),
+            )
+            .await,
+        ),
+        "git_unstage_lines" => respond(
+            git::git_unstage_lines(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "lineStart"),
+                arg!(args, "lineEnd"),
+            )
+            .await,
+        ),
+        "git_commit_files" => respond(git::git_commit_files(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "rev")).await),
+        "git_file_log" => respond(
+            git::git_file_log(
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "skip"),
+                arg!(args, "take"),
+            )
+            .await,
+        ),
+        "git_revert_commit" => {
+            respond(git::git_revert_commit(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "rev")).await)
+        }
+        "git_tags" => respond(git::git_tags(app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_tag_create" => respond(
+            git::git_tag_create(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "name"),
+                arg!(args, "target"),
+                arg!(args, "opts"),
+            )
+            .await,
+        ),
+        "git_tag_delete" => {
+            respond(git::git_tag_delete(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "name")).await)
+        }
+        "git_checkout_remote_branch" => respond(
+            git::git_checkout_remote_branch(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "remoteRef"),
+            )
+            .await,
+        ),
 
         "pty_spawn" => respond(
             terminal::pty_spawn(

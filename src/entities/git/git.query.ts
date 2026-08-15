@@ -4,25 +4,37 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import {
     applyGitStash,
     checkoutGitBranch,
+    checkoutRemoteGitBranch,
     commitGit,
     createGitBranch,
+    createGitTag,
     deleteGitBranch,
+    deleteGitTag,
     discardGitHunk,
     discardGitPaths,
     dropGitStash,
     getGitBranches,
+    getGitCommitFiles,
     getGitStashes,
     pushGitStash,
     getGitCurrentUser,
     getGitDiffFile,
+    getGitFileLog,
     getGitGutter,
     getGitLog,
     getGitRemotes,
+    getGitShowFile,
     getGitStatus,
     initGitRepository,
     pullGit,
     pushGit,
+    resolveGitConflict,
+    revertGitCommit,
+    stageGitHunk,
+    stageGitLines,
     stageGitPaths,
+    unstageGitHunk,
+    unstageGitLines,
     unstageGitPaths,
 } from '@entities/git/git.ipc'
 
@@ -77,11 +89,31 @@ export const gitCurrentUserQueryOptions = (projectId: ProjectId | null) =>
         retry: false,
     })
 
+/**
+ * Whether a git query outside the rev-immutable scopes (`QUERY_KEY.GIT.REV_IMMUTABLE_SCOPES` —
+ * commit file lists, commit blob diffs) should be swept up by a mutation's coarse project-prefix
+ * invalidation. Those scopes are keyed by an immutable `rev` rather than live working-tree/index
+ * state, so their `staleTime: Infinity` queries already stay correct for as long as the panel
+ * showing them stays open — invalidating them on every unrelated stage/unstage/stash/etc. would
+ * just discard that cache for no reason.
+ */
+export const isGitQueryScopeMutable = (queryKey: readonly unknown[]) =>
+    !(QUERY_KEY.GIT.REV_IMMUTABLE_SCOPES as readonly unknown[]).includes(queryKey[2])
+
+/**
+ * `queryKey` and `predicate` combine with AND (TanStack Query's `matchQuery`), so scoping the
+ * predicate to {@link isGitQueryScopeMutable} keeps the coarse `['git', projectId, ...]`-prefix
+ * invalidation everything else relies on.
+ */
 const useGitMutation = <TVariables, TResult>(projectId: ProjectId | null, mutationFn: (variables: TVariables) => Promise<TResult>) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn,
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId ?? '') }),
+        onSuccess: () =>
+            queryClient.invalidateQueries({
+                queryKey: QUERY_KEY.GIT.PROJECT(projectId ?? ''),
+                predicate: (query) => isGitQueryScopeMutable(query.queryKey),
+            }),
     })
 }
 
@@ -128,3 +160,47 @@ export const useApplyGitStash = (projectId: ProjectId | null) => useGitMutation(
 export const useDropGitStash = (projectId: ProjectId | null) => useGitMutation(projectId, dropGitStash)
 
 export const useDiscardGitHunk = (projectId: ProjectId | null) => useGitMutation(projectId, discardGitHunk)
+
+export const useResolveGitConflict = (projectId: ProjectId | null) => useGitMutation(projectId, resolveGitConflict)
+
+export const useStageGitHunk = (projectId: ProjectId | null) => useGitMutation(projectId, stageGitHunk)
+
+export const useUnstageGitHunk = (projectId: ProjectId | null) => useGitMutation(projectId, unstageGitHunk)
+
+export const useStageGitLines = (projectId: ProjectId | null) => useGitMutation(projectId, stageGitLines)
+
+export const useUnstageGitLines = (projectId: ProjectId | null) => useGitMutation(projectId, unstageGitLines)
+
+export const useRevertGitCommit = (projectId: ProjectId | null) => useGitMutation(projectId, revertGitCommit)
+
+export const useCreateGitTag = (projectId: ProjectId | null) => useGitMutation(projectId, createGitTag)
+
+export const useDeleteGitTag = (projectId: ProjectId | null) => useGitMutation(projectId, deleteGitTag)
+
+export const useCheckoutRemoteGitBranch = (projectId: ProjectId | null) => useGitMutation(projectId, checkoutRemoteGitBranch)
+
+export const gitCommitFilesQueryOptions = (input: { projectId: ProjectId | null; rev: string | null }) =>
+    queryOptions({
+        queryKey: QUERY_KEY.GIT.COMMIT_FILES(input.projectId ?? '', input.rev ?? ''),
+        queryFn: () => getGitCommitFiles({ projectId: input.projectId ?? '', rev: input.rev ?? '' }),
+        enabled: !!input.projectId && !!input.rev,
+        staleTime: Infinity,
+        retry: false,
+    })
+
+export const gitFileLogQueryOptions = (input: { projectId: ProjectId | null; path: string | null }) =>
+    queryOptions({
+        queryKey: QUERY_KEY.GIT.FILE_LOG(input.projectId ?? '', input.path ?? ''),
+        queryFn: () => getGitFileLog({ projectId: input.projectId ?? '', path: input.path ?? '', skip: 0, take: LOG_PAGE_SIZE }),
+        enabled: !!input.projectId && !!input.path,
+        retry: false,
+    })
+
+export const gitShowFileQueryOptions = (input: { projectId: ProjectId | null; rev: string | null; path: string | null }) =>
+    queryOptions({
+        queryKey: QUERY_KEY.GIT.SHOW(input.projectId ?? '', input.rev ?? '', input.path ?? ''),
+        queryFn: () => getGitShowFile({ projectId: input.projectId ?? '', rev: input.rev ?? '', path: input.path ?? '' }),
+        enabled: !!input.projectId && !!input.rev && !!input.path,
+        staleTime: Infinity,
+        retry: false,
+    })

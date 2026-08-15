@@ -354,6 +354,44 @@
     border-color: transparent transparent transparent var(--taide-editor-gutter-deleted-background);
 }
 
+.taide-blame-overlay-text {
+    color: var(--taide-editor-blame-foreground);
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.taide-conflict-current-background {
+    background-color: var(--taide-diff-inserted-line-background, transparent);
+}
+
+.taide-conflict-incoming-background {
+    background-color: var(--taide-diff-removed-line-background, transparent);
+}
+
+.taide-conflict-gutter-action,
+.taide-diff-gutter-stage {
+    position: relative;
+    cursor: pointer;
+}
+
+.taide-conflict-gutter-action::before,
+.taide-diff-gutter-stage::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 3px;
+}
+
+.taide-conflict-gutter-action::before {
+    background-color: var(--taide-git-conflicted);
+}
+
+.taide-diff-gutter-stage::before {
+    background-color: var(--taide-git-staged);
+}
+
 .xterm textarea.xterm-helper-textarea {
     left: 0;
     top: 0;

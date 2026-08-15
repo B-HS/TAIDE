@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Columns2 } from 'lucide-react'
 import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
-import type { BlameLine, FileSizeTier, HunkKind, MirrorEntry, ProjectId, TabId } from '@shared/api/bindings'
+import type { BlameLine, ConflictSides, FileSizeTier, HunkKind, MirrorEntry, ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { monaco } from '@shared/lib/monaco/setup'
 import { formatBlameLine } from '@shared/lib/blame-format'
@@ -24,12 +24,32 @@ import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { fileMirrorsQueryOptions, fileQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { clearMirror, mirrorDirty } from '@entities/file/file.ipc'
 import { useSetTabDirty } from '@entities/layout/layout.query'
-import { getGitBlameRange } from '@entities/git/git.ipc'
+import { getGitBlameRange, getGitConflictSides } from '@entities/git/git.ipc'
+import { OPEN_FILE_HISTORY_MONACO_ACTION_ID, TOGGLE_BLAME_MONACO_ACTION_ID } from '@entities/git/git.constant'
+import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { ideStatusQueryOptions } from '@entities/ide/ide.query'
 import { systemOpenPath } from '@entities/system/system.ipc'
 import { clearIdeSelection, setIdeSelection } from '@entities/ide/ide.ipc'
-import { gitCurrentUserQueryOptions, gitGutterQueryOptions, useDiscardGitHunk } from '@entities/git/git.query'
+import {
+    gitCurrentUserQueryOptions,
+    gitGutterQueryOptions,
+    gitStatusQueryOptions,
+    useDiscardGitHunk,
+    useResolveGitConflict,
+    useStageGitHunk,
+    useStageGitLines,
+} from '@entities/git/git.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import {
+    acceptBothChanges,
+    acceptCurrentChange,
+    acceptIncomingChange,
+    parseConflictMarkers,
+    type ConflictRegion,
+} from '@features/git/conflict-marker'
+import { ConflictCompareDialog } from '@features/git/conflict-compare-dialog'
+import { ConflictResolutionDialog } from '@features/git/conflict-resolution-dialog'
+import { resolveSelectedLineRange } from '@features/git/selection-line-range'
 import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
@@ -79,6 +99,9 @@ const GUTTER_CLASS_BY_HUNK_KIND: Record<HunkKind, string> = {
     deleted: 'taide-gutter-deleted',
 }
 
+const BLAME_OVERLAY_INLINE_CLASS_NAME = 'taide-blame-overlay-text'
+const BLAME_OVERLAY_TEXT_PREFIX = '    '
+
 type EditorPaneProps = {
     projectId: ProjectId
     tabId: TabId
@@ -116,9 +139,14 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const [cursorLine, setCursorLine] = useState<number | null>(null)
     const [pendingHunk, setPendingHunk] = useState<{ start: number; end: number } | null>(null)
     const [blameLine, setBlameLine] = useState<BlameLine | null>(null)
+    const [blameOverlayEnabled, setBlameOverlayEnabled] = useState(false)
+    const [blameOverlayLines, setBlameOverlayLines] = useState<BlameLine[] | null>(null)
     const [showMarkdownPreview, setShowMarkdownPreview] = useState(false)
     const [previewSource, setPreviewSource] = useState<string | null>(null)
     const [restoreNotice, setRestoreNotice] = useState<Exclude<ConflictBannerVariant, 'changedOnDisk'> | 'none'>('none')
+    const [conflictRegions, setConflictRegions] = useState<ConflictRegion[]>([])
+    const [pendingConflict, setPendingConflict] = useState<ConflictRegion | null>(null)
+    const [compareSides, setCompareSides] = useState<ConflictSides | null>(null)
 
     const { t } = useTranslation()
     const queryClient = useQueryClient()
@@ -134,6 +162,10 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const { mutate: saveFile } = useSaveFile()
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
     const { mutate: updateSettings } = useUpdateSettings()
+    const { data: gitStatus } = useQuery(gitStatusQueryOptions(projectId))
+    const { mutate: resolveConflict } = useResolveGitConflict(projectId)
+    const { mutate: stageHunk } = useStageGitHunk(projectId)
+    const { mutate: stageLines } = useStageGitLines(projectId)
 
     if (path !== syncedPath) {
         setSyncedPath(path)
@@ -141,6 +173,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         setPreviewSource(null)
         setDirty(false)
         setBlameLine(null)
+        setBlameOverlayEnabled(false)
         setRestoreNotice('none')
     } else if (file && syncedContent === null) {
         setSyncedContent(file.content)
@@ -151,6 +184,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
     const isMarkdown = file?.languageId === MARKDOWN_LANGUAGE_ID
+    const isConflicted = (gitStatus?.rows ?? []).some((row) => row.path === path && row.isConflicted)
 
     /**
      * Writes to the hot-exit mirror and keeps the `FILE.MIRRORS` query cache in lockstep, instead
@@ -460,6 +494,57 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         else unregisterEditorInstance(tabId)
     }
 
+    /**
+     * Applies one side's transform to `region` as a single undoable `executeEdits` op (replacing
+     * the whole buffer via `getFullModelRange` rather than hand-computing the region's own range —
+     * simpler and avoids edge cases around the region sitting at the very end of the file). Once
+     * the resulting content has no conflict markers left at all — not just none in `region` — the
+     * file is fully resolved, so `git_resolve_conflict` writes it to disk and re-stages it in the
+     * same step. A resolve while markers remain elsewhere would incorrectly clear the index's
+     * unmerged entry for a file that still has unresolved regions.
+     *
+     * `executeEdits` fires `onDidChangeModelContent` synchronously, so by the time it returns
+     * `handleChange` has already marked the tab dirty and armed a mirror write for `newContent` —
+     * both of which `git_resolve_conflict`'s own write to disk (below) makes redundant once it
+     * succeeds. `onSuccess` clears them the same way `handleSave`'s own success handler does, plus
+     * invalidates `FILE.CONTENT` so the query cache catches up to what's now on disk.
+     */
+    const applyConflictResolution = (region: ConflictRegion, transform: (content: string, target: ConflictRegion) => string) => {
+        setPendingConflict(null)
+        const model = editor?.getModel()
+        if (!model) return
+        const newContent = transform(model.getValue(), region)
+        editor?.executeEdits('taide.conflictResolution', [{ range: model.getFullModelRange(), text: newContent }])
+        if (parseConflictMarkers(newContent).length > 0) return
+        resolveConflict(
+            { projectId, path, content: newContent },
+            {
+                onSuccess: () => {
+                    saveEpochRef.current += 1
+                    clearTimeout(mirrorTimeoutRef.current)
+                    pendingMirrorRef.current = false
+                    setDirty(false)
+                    setTabDirty({ tabId, dirty: false })
+                    void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
+                    void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
+                    toast.success(t('git.conflictResolved'))
+                },
+                onError: (mutationError) => toast.error(mutationError.message),
+            },
+        )
+    }
+
+    const handleAcceptCurrentChange = () => pendingConflict && applyConflictResolution(pendingConflict, acceptCurrentChange)
+    const handleAcceptIncomingChange = () => pendingConflict && applyConflictResolution(pendingConflict, acceptIncomingChange)
+    const handleAcceptBothChanges = () => pendingConflict && applyConflictResolution(pendingConflict, acceptBothChanges)
+
+    const handleCompareConflict = () => {
+        setPendingConflict(null)
+        void getGitConflictSides({ projectId, path })
+            .then(setCompareSides)
+            .catch((compareError: Error) => toast.error(compareError.message))
+    }
+
     useLspSession({
         projectId,
         path,
@@ -567,29 +652,124 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         consumePendingReveal(path, editor)
     }, [editor, path])
 
+    /**
+     * Re-parses conflict markers out of the live model on every content change (not just the
+     * initial `file.content` snapshot) — resolving one region via `applyConflictResolution` edits
+     * the model directly, and the decorations/dialog below must reflect the remaining regions
+     * immediately, without waiting on a git-status refetch. Every consumer of `conflictRegions`
+     * already gates on `isConflicted` itself, so there is nothing to reset when it goes false —
+     * the stale array is simply never read. The initial parse is deferred to a microtask rather
+     * than called synchronously in the effect body (an effect body must not call `setState`
+     * synchronously — matches the same constraint `applyMirrorRestore`'s caller works around above).
+     */
+    useEffect(() => {
+        if (!editor || !isConflicted) return
+        const model = editor.getModel()
+        if (!model) return
+        const parseAndSetConflictRegions = () => setConflictRegions(parseConflictMarkers(model.getValue()))
+        queueMicrotask(parseAndSetConflictRegions)
+        const subscription = editor.onDidChangeModelContent(parseAndSetConflictRegions)
+        return () => subscription.dispose()
+    }, [editor, path, isConflicted])
+
     useEffect(() => {
         if (!editor) return
 
-        const decorations = (gutterHunks ?? []).map((hunk) => ({
-            range: new monaco.Range(hunk.start, 1, hunk.end, 1),
-            options: { linesDecorationsClassName: GUTTER_CLASS_BY_HUNK_KIND[hunk.kind], isWholeLine: true },
-        }))
+        const decorations = isConflicted
+            ? conflictRegions.flatMap((region) => [
+                  {
+                      range: new monaco.Range(region.startLine, 1, (region.baseLine ?? region.separatorLine) - 1, 1),
+                      options: { className: 'taide-conflict-current-background', isWholeLine: true },
+                  },
+                  {
+                      range: new monaco.Range(region.separatorLine, 1, region.endLine, 1),
+                      options: { className: 'taide-conflict-incoming-background', isWholeLine: true },
+                  },
+                  {
+                      range: new monaco.Range(region.startLine, 1, region.startLine, 1),
+                      options: { linesDecorationsClassName: 'taide-conflict-gutter-action', isWholeLine: true },
+                  },
+              ])
+            : (gutterHunks ?? []).map((hunk) => ({
+                  range: new monaco.Range(hunk.start, 1, hunk.end, 1),
+                  options: { linesDecorationsClassName: GUTTER_CLASS_BY_HUNK_KIND[hunk.kind], isWholeLine: true },
+              }))
         const collection = editor.createDecorationsCollection(decorations)
         return () => collection.clear()
-    }, [editor, gutterHunks])
+    }, [editor, gutterHunks, isConflicted, conflictRegions])
 
+    /**
+     * A conflicted file's gutter shows conflict-region markers instead of hunk bars (above), so a
+     * click there must open {@link ConflictResolutionDialog} instead of the plain hunk-discard
+     * flow — diffing this file against HEAD (what `gutterHunks` reflects) is meaningless while it
+     * still has unresolved conflict markers.
+     */
     useEffect(() => {
         if (!editor) return
         const subscription = editor.onMouseDown((event) => {
             if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) return
             const line = event.target.position?.lineNumber
             if (!line) return
+            if (isConflicted) {
+                const region = conflictRegions.find((candidate) => candidate.startLine === line)
+                if (region) setPendingConflict(region)
+                return
+            }
             const hunk = (gutterHunks ?? []).find((candidate) => line >= candidate.start && line <= candidate.end)
             if (!hunk) return
             setPendingHunk({ start: hunk.start, end: hunk.end })
         })
         return () => subscription.dispose()
-    }, [editor, gutterHunks])
+    }, [editor, gutterHunks, isConflicted, conflictRegions])
+
+    /**
+     * Registers "Stage Changes" in the editor's right-click context menu — `run()` reads the
+     * *current* selection/cursor at invocation time rather than reacting to selection-change
+     * events. A non-empty selection stages exactly those lines (`resolveSelectedLineRange` trims a
+     * trailing line the selection only touches at column 1), while an empty selection (just a
+     * cursor) falls back to the whole hunk containing that line. No-ops while the file is still
+     * conflicted — `gutterHunks`' workdir-relative hunks don't correspond to anything
+     * `git_stage_hunk` can act on until the markers are resolved.
+     *
+     * There is deliberately no "Unstage Changes" counterpart here. `gutterHunks` reports hunks in
+     * *workdir* coordinates (`git_gutter` diffs HEAD against the workdir), which only line up with
+     * `git_unstage_hunk`/`git_unstage_lines`'s *index*-relative matching when the file's staged and
+     * unstaged regions are identical — i.e. never for a partially staged file, which is exactly the
+     * case unstage exists to serve. Unstage is offered instead on the indexVsHead diff tab
+     * (`DiffPane` with `staged=true`, opened from the git panel's "Staged Changes" group), whose
+     * hunk ranges are already index-relative and match the backend one-to-one.
+     */
+    useEffect(() => {
+        if (!editor) return
+
+        const stageSelection = (targetEditor: monaco.editor.ICodeEditor) => {
+            if (isConflicted) return
+            const selection = targetEditor.getSelection()
+            if (!selection) return
+            const onError = (mutationError: Error) => toast.error(mutationError.message)
+
+            if (!selection.isEmpty()) {
+                const { start, end } = resolveSelectedLineRange(selection)
+                stageLines({ projectId, path, lineStart: start, lineEnd: end }, { onError })
+                return
+            }
+
+            const line = selection.startLineNumber
+            const hunk = (gutterHunks ?? []).find((candidate) => line >= candidate.start && line <= candidate.end)
+            if (!hunk) return
+            stageHunk({ projectId, path, hunkStart: hunk.start, hunkEnd: hunk.end }, { onError })
+        }
+
+        const stageAction = editor.addAction({
+            id: 'taide.gitStageSelection',
+            label: t('git.stageChanges'),
+            contextMenuGroupId: '9_git',
+            contextMenuOrder: 1,
+            run: stageSelection,
+        })
+
+        return () => stageAction.dispose()
+    }, [editor, t, isConflicted, gutterHunks, projectId, path, stageHunk, stageLines])
 
     useEffect(() => {
         if (!editor || !ideStatus?.running) return
@@ -647,6 +827,67 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         const model = editor?.getModel() ?? null
         node.textContent = !blameLine || (model && blameLine.line > model.getLineCount()) ? '' : formatBlameLine(blameLine, Date.now(), currentUser)
     }, [editor, blameLine, currentUser])
+
+    useEffect(() => {
+        if (!editor || !blameOverlayEnabled) return
+        const model = editor.getModel()
+        if (!model) return
+
+        let cancelled = false
+        void getGitBlameRange({ projectId, path, from: 1, to: model.getLineCount() })
+            .then((lines) => {
+                if (!cancelled) setBlameOverlayLines(lines)
+            })
+            .catch(() => {
+                if (!cancelled) setBlameOverlayLines(null)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [editor, blameOverlayEnabled, projectId, path])
+
+    useEffect(() => {
+        if (!editor || !blameOverlayEnabled || !blameOverlayLines) return
+        const model = editor.getModel()
+        if (!model) return
+
+        const decorations = blameOverlayLines
+            .filter((line) => line.line <= model.getLineCount())
+            .map((line) => ({
+                range: new monaco.Range(line.line, model.getLineMaxColumn(line.line), line.line, model.getLineMaxColumn(line.line)),
+                options: {
+                    after: {
+                        content: `${BLAME_OVERLAY_TEXT_PREFIX}${formatBlameLine(line, Date.now(), currentUser)}`,
+                        inlineClassName: BLAME_OVERLAY_INLINE_CLASS_NAME,
+                    },
+                },
+            }))
+        const collection = editor.createDecorationsCollection(decorations)
+        return () => collection.clear()
+    }, [editor, blameOverlayEnabled, blameOverlayLines, currentUser])
+
+    useEffect(() => {
+        if (!editor) return
+        const action = editor.addAction({
+            id: TOGGLE_BLAME_MONACO_ACTION_ID,
+            label: t('git.toggleBlame'),
+            contextMenuGroupId: 'navigation',
+            run: () => setBlameOverlayEnabled((previous) => !previous),
+        })
+        return () => action.dispose()
+    }, [editor, t])
+
+    useEffect(() => {
+        if (!editor) return
+        const action = editor.addAction({
+            id: OPEN_FILE_HISTORY_MONACO_ACTION_ID,
+            label: t('git.fileHistory'),
+            contextMenuGroupId: '9_git',
+            contextMenuOrder: 3,
+            run: () => requestOpenFileHistory(path),
+        })
+        return () => action.dispose()
+    }, [editor, t, path])
 
     if (isPending) return <div className='bg-editor-background h-full w-full' />
 
@@ -734,6 +975,15 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                 onCancel={() => setPendingHunk(null)}
                 onConfirm={handleConfirmDiscardHunk}
             />
+            <ConflictResolutionDialog
+                region={pendingConflict}
+                onCancel={() => setPendingConflict(null)}
+                onAcceptCurrent={handleAcceptCurrentChange}
+                onAcceptIncoming={handleAcceptIncomingChange}
+                onAcceptBoth={handleAcceptBothChanges}
+                onCompare={handleCompareConflict}
+            />
+            <ConflictCompareDialog sides={compareSides} languageId={file.languageId} onOpenChange={(open) => !open && setCompareSides(null)} />
             {file.readOnly && (
                 <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
             )}

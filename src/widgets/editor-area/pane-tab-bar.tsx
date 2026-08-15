@@ -13,6 +13,7 @@ import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { collectPaneTabs } from '@shared/lib/pane-tree'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { toRelativePath } from '@shared/lib/relative-path'
+import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
@@ -180,6 +181,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                               )
                         : undefined
                 }
+                onFileHistory={filePath ? () => requestOpenFileHistory(filePath) : undefined}
                 onKeepOpen={() => setTabPreview({ tabId: tab.id, preview: false })}
                 onRevealInExplorerView={filePath ? () => requestRevealInExplorer(filePath) : undefined}
                 onReopenWithEditor={filePath && canReopenWith ? () => setOpenWithOverride(filePath, 'editor') : undefined}

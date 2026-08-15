@@ -18,6 +18,7 @@ export const KEYMAP_CATEGORY = {
     FILE: 'keymap.category.file',
     SYNC: 'keymap.category.sync',
     WINDOW: 'keymap.category.window',
+    GIT: 'keymap.category.git',
     EDITOR_SUGGEST: 'keymap.category.editorSuggest',
     EDITOR_NAVIGATION: 'keymap.category.editorNavigation',
     EDITOR_SELECTION: 'keymap.category.editorSelection',
