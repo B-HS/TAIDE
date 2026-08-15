@@ -258,7 +258,16 @@
                 토글 미반영(캐시 구독→refresh). 상세: 계약 §6. 보류 1건(emmet jsx/tsx/heex 트리거 —
                 문서화). 메인 2차: 수정 7건 실물 재검증 + verify 전체 exit 0(937/766+6+17) + vite
                 build exit 0. 커밋
-    - [ ] c-G ~ c-I. 순차 진행 (AI → 키맵 → 셸)
+    - [ ] c-G. Wave G — AI(Inline Edit ⌘I·AI 커밋 메시지). Wave F prod 병합 완료(56712b0 fast-forward).
+          - [x] 정찰 완료(wf_8904a89d-424, opus+high 4축) — 하중 7건 메인 재검증 전건 확정. **갭 문서
+                "git_diff 재사용·난이도 하" 전제 오류 판명**(통합 diff 커맨드 부재·provider chat 진입점
+                부재·⌘K=monaco chord 21건 1단계·프롬프트 오버라이드 무경고 파손·ViewZone 선례 0)
+          - [x] 계약 확정(`2026-08-16-wave-g-ai-contract.md`, 결정 4건 — F 병합·공통기반+**설정 리네임**
+                (ai_provider/ai_model, serde alias)·Inline Edit 추천(⌘I·모델 무변경 프리뷰·일괄 응답)·
+                커밋 메시지 추천(git_diff_staged_text git2 native·log 20건·Sparkles))
+          - [ ] 구현(S Rust 단독 → B1 Inline Edit∥B2 커밋 메시지 UI → D 통합) → 4렌즈 → 적대적 →
+                수정 → 메인 2차 → 커밋
+    - [ ] c-H ~ c-I. 순차 진행 (키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
