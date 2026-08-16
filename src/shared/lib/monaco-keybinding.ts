@@ -1,4 +1,4 @@
-import type { KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap'
+import type { KeymapChordStage, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap'
 
 /**
  * KeyMod bit flags (monaco-editor 0.56, `vs/base/common/keybindings.js` `BinaryKeybindingsMask`).
@@ -112,12 +112,42 @@ export const buildMonacoKeybinding = (key: string, mods: KeymapModifier[]) => {
     return mods.reduce((combo, mod) => combo | MONACO_MODIFIER_MOD[mod], keyCode)
 }
 
+/**
+ * Builds the numeric keybinding value for a two-stage chord override, matching monaco's own
+ * `decodeKeybinding` packing (`vs/base/common/keybindings.js`): the first stage occupies the low
+ * 16 bits, the second stage is shifted into the high 16 bits (`(first & 0xffff) | (second << 16)`).
+ * Every value `buildMonacoKeybinding` can produce (max modifier-bits + KeyCode sum is well under
+ * 0xffff) fits safely in either half. Returns `null` if either stage has no known KeyCode mapping.
+ */
+export const buildMonacoChordKeybinding = (firstStage: KeymapChordStage, secondStage: KeymapChordStage) => {
+    const first = buildMonacoKeybinding(firstStage.key, firstStage.mods)
+    const second = buildMonacoKeybinding(secondStage.key, secondStage.mods)
+    if (first === null || second === null) return null
+    return (first & 0xffff) | ((second & 0xffff) << 16)
+}
+
 export const MONACO_ACTION_ID_PREFIX = 'monaco.'
 
 export const isMonacoCommandId = (id: string) => id.startsWith(MONACO_ACTION_ID_PREFIX)
 
 export const toMonacoActionId = (commandOrOverrideId: string) =>
     isMonacoCommandId(commandOrOverrideId) ? commandOrOverrideId.slice(MONACO_ACTION_ID_PREFIX.length) : commandOrOverrideId
+
+/**
+ * The first stage of every `monaco.*` override that carries its own `chord` — additional prefixes
+ * `decideKeymapDispatch` must arm the monaco-deferral window for, alongside `MONACO_CHORD_PREFIX_KEY`
+ * (Cmd/Ctrl+K). Without this, rebinding a monaco action to a chord under a *different* prefix (e.g.
+ * Cmd+J Cmd+S) leaves that prefix unobserved: the app never arms the deferral window for it, so its
+ * second stage falls straight through to normal single-stage matching and gets stolen by whichever
+ * `APP_KEYMAP` entry happens to own that same key — the exact "2단 키를 window capture 가 삼킨다"
+ * defect class Wave H's `MONACO_CHORD_PREFIX_KEY` fixes for the Cmd/Ctrl+K case, recurring for any
+ * other prefix the user picks. A rebound *first* stage always reaches monaco fine on its own — this
+ * only needs to widen deferral-arming, not the matching each entry already gets.
+ */
+export const deriveMonacoChordPrefixes = (overrides: KeymapOverrideEntry[]): KeymapChordStage[] =>
+    overrides
+        .filter((override) => isMonacoCommandId(override.actionId) && override.chord && override.key)
+        .map((override) => ({ key: override.key, mods: override.mods }))
 
 export type MonacoKeybindingRule = {
     keybinding: number
@@ -181,15 +211,26 @@ const buildHeldModifierNavRules = (actionId: string, mods: KeymapModifier[]) => 
     })
 }
 
+/**
+ * A chord override's `keybinding` is the two-stage encoding from `buildMonacoChordKeybinding`
+ * rather than a single-stage `buildMonacoKeybinding` value. Held-modifier widget-nav companions
+ * (`buildHeldModifierNavRules`) are skipped entirely for chord overrides — that scheme models a
+ * modifier held down through a *simultaneous* arrow press, which has no equivalent once the
+ * trigger itself is a two-key *sequence*; only `WIDGET_NAV_COMPANIONS_BY_ACTION_ID`'s two popup
+ * triggers use companions at all, and neither is expected to be chord-rebound in practice.
+ */
 const buildMonacoKeybindingRuleGroup = (override: KeymapOverrideEntry) => {
     const actionId = toMonacoActionId(override.actionId)
     const unbindRule = buildUnbindRule(actionId)
     if (!override.key) return { primary: [unbindRule], companions: [] }
 
-    const keybinding = buildMonacoKeybinding(override.key, override.mods)
+    const keybinding = override.chord
+        ? buildMonacoChordKeybinding({ key: override.key, mods: override.mods }, override.chord)
+        : buildMonacoKeybinding(override.key, override.mods)
     if (keybinding === null) return { primary: [], companions: [] }
 
-    return { primary: [unbindRule, { keybinding, command: actionId }], companions: buildHeldModifierNavRules(actionId, override.mods) }
+    const companions = override.chord ? [] : buildHeldModifierNavRules(actionId, override.mods)
+    return { primary: [unbindRule, { keybinding, command: actionId }], companions }
 }
 
 /**

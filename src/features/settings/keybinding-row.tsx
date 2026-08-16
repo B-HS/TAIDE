@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import type { KeybindingRow as KeybindingRowData } from '@shared/lib/keybinding-catalog'
 import { isKeybindingRowUnassigned } from '@shared/lib/keybinding-catalog'
 import { formatCategorizedLabel } from '@shared/lib/command-registry'
-import type { KeymapModifier } from '@shared/lib/keymap'
+import type { KeymapChordStage, KeymapModifier } from '@shared/lib/keymap'
 import { MODIFIER_ONLY_KEYS, captureModsFromEvent, formatKeymapShortcut, normalizeKeymapEventKey } from '@shared/lib/keymap'
 import { cn } from '@shared/lib/cn'
 import { Button } from '@shared/ui/button'
@@ -14,9 +14,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 type KeybindingRowProps = {
     row: KeybindingRowData
     isCapturing: boolean
+    pendingChordFirstStage: KeymapChordStage | null
     conflictLabel: string | null
     onStartCapture: () => void
-    onCaptureKey: (key: string, mods: KeymapModifier[]) => void
+    onCaptureStage: (key: string, mods: KeymapModifier[]) => void
+    onConfirmSingleStage: () => void
     onCancelCapture: () => void
     onResetToDefault: () => void
     onUnbind: () => void
@@ -26,9 +28,11 @@ type KeybindingRowProps = {
 export const KeybindingRow: FC<KeybindingRowProps> = ({
     row,
     isCapturing,
+    pendingChordFirstStage,
     conflictLabel,
     onStartCapture,
-    onCaptureKey,
+    onCaptureStage,
+    onConfirmSingleStage,
     onCancelCapture,
     onResetToDefault,
     onUnbind,
@@ -43,8 +47,16 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
         if (event.key === 'Escape') return onCancelCapture()
         if (MODIFIER_ONLY_KEYS.includes(event.key)) return
         const mods = captureModsFromEvent(event)
+        /**
+         * A bare Enter (no modifiers held) confirms the pending first stage as a single-key bind —
+         * but a *modified* Enter (Cmd+Enter, Shift+Enter, ...) is a capturable stage key in its own
+         * right (monaco maps `enter` to a real `KeyCode`), so only the unmodified case short-circuits
+         * here. Without this, "confirm" would win unconditionally and a chord's second stage could
+         * never be Enter at all.
+         */
+        if (pendingChordFirstStage && event.key === 'Enter' && mods.length === 0) return onConfirmSingleStage()
         if (mods.length === 0) return toast.warning(t('settings.keymapModifierRequired'))
-        onCaptureKey(normalizeKeymapEventKey(event), mods)
+        onCaptureStage(normalizeKeymapEventKey(event), mods)
     }
 
     return (
@@ -65,14 +77,33 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
             </div>
 
             {isCapturing ? (
-                <button
-                    type='button'
-                    autoFocus
-                    onKeyDown={handleCaptureKeyDown}
-                    onBlur={onCancelCapture}
-                    className='border-app-focus-border bg-app-sidebar-item-active text-app-foreground shrink-0 rounded-sm border px-2 py-1 font-mono'>
-                    {t('settings.keymapCapturePrompt')}
-                </button>
+                <span className='flex shrink-0 items-center gap-1.5'>
+                    <button
+                        type='button'
+                        autoFocus
+                        onKeyDown={handleCaptureKeyDown}
+                        onBlur={onCancelCapture}
+                        className='border-app-focus-border bg-app-sidebar-item-active text-app-foreground shrink-0 rounded-sm border px-2 py-1 font-mono'>
+                        {pendingChordFirstStage
+                            ? t('settings.keymapChordCapturePrompt', { shortcut: formatKeymapShortcut(pendingChordFirstStage) })
+                            : t('settings.keymapCapturePrompt')}
+                    </button>
+                    {pendingChordFirstStage && (
+                        <>
+                            <span className='bg-app-accent/15 text-app-accent shrink-0 rounded-sm px-1 py-0.5 text-[10px]'>
+                                {t('settings.keymapChordWaitingBadge')}
+                            </span>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                size='xs'
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={onConfirmSingleStage}>
+                                {t('settings.keymapChordConfirmSingle')}
+                            </Button>
+                        </>
+                    )}
+                </span>
             ) : (
                 <span className='flex shrink-0 items-center gap-1.5'>
                     <span

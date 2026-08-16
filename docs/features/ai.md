@@ -107,10 +107,15 @@
 ## 4. AI 커밋 메시지 생성
 
 - **진입**: SCM 패널 커밋 입력란(`features/git/commit-box.tsx`) 우상단의 Sparkles
-  `IconButton`(생성 중에는 `Loader2` 스피너로 교체, 재클릭 시 취소). staged 변경이 없으면 비활성
-  + 툴팁이 `git.noStagedChangesForCommitMessage` 로 바뀐다.
+  `IconButton`(생성 중에는 `Loader2` 스피너로 교체, 재클릭 시 취소). staged·unstaged 변경이
+  **둘 다** 없으면(작업 트리에 변경 자체가 없음) 비활성 + 툴팁이 `git.noChangesForCommitMessage`
+  로 바뀐다(Wave H — staged 만 보던 기존 조건을 unstaged 폴백과 함께 넓혔다. 이 툴팁 키는 Wave H
+  이전 `git.noStagedChangesForCommitMessage` 를 대체한 이름이다 — "스테이지 없음"이 아니라 "변경
+  없음"이 정확한 의미이므로).
 - **조립** (`widgets/git-panel/git-panel-container.tsx::handleGenerateCommitMessage`):
-  1. `getGitDiffStagedText(projectId)` (§7) 로 staged 통합 diff 조회
+  1. `getGitDiffStagedText(projectId)` (§7) 로 diff 조회. staged 델타가 0건이면 §7 의 워킹트리
+     폴백이 자동으로 발동한다 — 이 계층은 `usedFallback` 여부를 신경 쓰지 않고 항상 같은 응답
+     셰이프(`StagedDiffText`)를 받는다.
   2. `buildRecentCommitsSummaryForAi(log)`(`widgets/git-panel/ai-commit-message.ts`)가 이미 로드된
      git log 캐시에서 최근 20건(`RECENT_COMMITS_FOR_AI_CONTEXT_COUNT`)을
      `{shortHash(7자)} {summary}` 줄로 조립 — **새 IPC 조회를 추가하지 않고** 패널이 이미 들고 있는
@@ -125,8 +130,13 @@
      실수로 지우지 않기 위함.
   5. 성공 토스트(`git.commitMessageGenerated`)에 diff 가 절삭됐으면(`truncated`)
      `git.commitMessageDiffTruncated`, 제외 파일이 있으면(`skippedFiles.length`)
-     `git.commitMessageFilesSkipped({count})` 를 부가 설명으로 붙인다(사용자용). 이 두 사실은
-     **모델에게도** 전달된다 — `diffText` 본문 자체에 절삭/제외 안내 문자열이 이미 포함돼 있다(§7).
+     `git.commitMessageFilesSkipped({count})`, staged 0건이라 워킹트리 폴백을 썼으면
+     (`usedFallback`) `git.commitMessageUsedUnstaged`(Wave H) 를 부가 설명으로 붙인다(사용자용).
+     `truncated`/`skippedFiles` 는 **모델에게도** 전달된다 — `diffText` 본문 자체에 절삭/제외
+     안내 문자열이 이미 포함돼 있다(§7). `usedFallback` 은 **사용자에게만**(토스트) 알린다 — 모델이
+     받는 `diffText` 는 staged/워킹트리 어느 쪽이든 동일한 unified diff 포맷이라 굳이 구분해
+     알려줄 필요가 없고(모델은 "무엇이 바뀌었는가"만 요약하면 된다), 실제로 사람이 확인해야 하는
+     사실("내가 스테이지한 적 없는 변경으로 메시지가 만들어졌다")은 사용자 쪽이기 때문이다.
      실패 시 `git.generateCommitMessageFailed` 토스트 + 에러 메시지를 설명으로.
   6. 취소 후 곧바로 재요청하거나 응답이 늦게 도착하는 레이스는 `latestCommitMessageRequestIdRef`
      (컨테이너 로컬 ref)로 방어한다 — 완료된 요청이 `requestId` 를 리렌더 시점 기준 최신 요청과
@@ -198,9 +208,9 @@
 > 상세는 `git.md` §4/§6 — git2 native 구현·상한·바이너리/lock 제외 로직은 거기서 관리한다. 여기서는
 > AI 커밋 메시지가 이 커맨드를 어떻게 소비하는지만 요약한다.
 
-- `git_diff_staged_text(projectId) → StagedDiffText{ diffText, truncated, skippedFiles }` — HEAD
-  트리 ↔ index 의 통합 unified diff 텍스트. 초기 커밋(HEAD 없음)에서는 libgit2 의 암묵적 빈 트리로
-  처리(Wave C 선례 재사용).
+- `git_diff_staged_text(projectId) → StagedDiffText{ diffText, truncated, skippedFiles,
+  usedFallback }` — HEAD 트리 ↔ index 의 통합 unified diff 텍스트. 초기 커밋(HEAD 없음)에서는
+  libgit2 의 암묵적 빈 트리로 처리(Wave C 선례 재사용).
 - 32KiB(`STAGED_DIFF_TEXT_MAX_BYTES`) 상한 초과 시 UTF-8 문자 경계 안전하게 절삭하고
   `truncated: true`. 바이너리 델타·lock 파일(`bun.lock`·`Cargo.lock`·`package-lock.json`·
   `pnpm-lock.yaml`·`yarn.lock`)·시크릿류 파일(`.env`·`.env.*`·`*.pem`·`*.key`·`*.p12`·`*.pfx`·
@@ -211,6 +221,14 @@
   아니라) — 그렇지 않으면 모델이 부분 diff 를 전체로 착각하거나, 바이너리/시크릿 파일이 변경됐다는
   사실 자체를 몰라 부정확한 커밋 메시지를 자신 있게 써낸다. 파일명만 노출하고 내용은 절대 넣지 않는다
   (위 제외 규칙과 동일 경계).
+- **staged 델타가 0건이면 HEAD ↔ 워킹트리(index 무시, `include_untracked`+
+  `show_untracked_content`) 전체 변경으로 폴백한다**(Wave H, VS Code 관성 동일 — 아무것도 스테이지
+  하지 않은 사용자도 "생성" 버튼을 누를 수 있게). untracked 파일도 포함하는 이유: "워킹트리 변경"의
+  의미가 §2 의 `gutter` 전체 워킹트리 diff 와 동일해야 하기 때문(이미 추적 중인 파일 수정만이
+  아니라). 어느 diff 를 썼는지는 `usedFallback` 으로만 보고된다 — **`truncated`/`skippedFiles`
+  와 달리 `diffText` 본문에는 폴백 안내 문자열을 넣지 않는다**(모델이 받는 unified diff 자체는
+  staged 든 워킹트리든 포맷이 동일해 굳이 구분해 알려줄 필요가 없다). 절삭·바이너리/lock/시크릿
+  제외 파이프라인은 어느 diff 를 골랐든 **동일하게** 적용된다(폴백 diff 도 예외 없음).
 - `spawn_blocking` 조회(무거운 git2 diff 관행, ADR-0006 스레드 모델).
 
 ## 8. 원격 세션 노출

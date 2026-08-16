@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
+    buildMonacoChordKeybinding,
     buildMonacoKeybinding,
     buildMonacoKeybindingOverrideRules,
+    deriveMonacoChordPrefixes,
     isMonacoCommandId,
     resolveMonacoKeyCode,
     toMonacoActionId,
@@ -56,6 +58,20 @@ describe('buildMonacoKeybinding', () => {
 
     test('알 수 없는 키면 null 을 반환한다', () => {
         expect(buildMonacoKeybinding('Unknown', ['mod'])).toBeNull()
+    })
+})
+
+describe('buildMonacoChordKeybinding', () => {
+    test('1단을 하위 16비트에, 2단을 상위 16비트로 시프트해 조합한다 (monaco decodeKeybinding 과 동일 인코딩)', () => {
+        const combined = buildMonacoChordKeybinding({ key: 'k', mods: ['mod'] }, { key: 's', mods: [] })
+        const first = buildMonacoKeybinding('k', ['mod'])
+        const second = buildMonacoKeybinding('s', [])
+        expect(combined).toBe(((first as number) & 0xffff) | (((second as number) & 0xffff) << 16))
+    })
+
+    test('1단·2단 중 하나라도 KeyCode 매핑이 없으면 null 을 반환한다', () => {
+        expect(buildMonacoChordKeybinding({ key: 'Unknown', mods: [] }, { key: 's', mods: [] })).toBeNull()
+        expect(buildMonacoChordKeybinding({ key: 'k', mods: ['mod'] }, { key: 'Unknown', mods: [] })).toBeNull()
     })
 })
 
@@ -148,6 +164,24 @@ describe('buildMonacoKeybindingOverrideRules', () => {
         }
     })
 
+    test('chord 오버라이드는 2단 인코딩된 단일 keybinding 규칙을 만들고 동반 위젯-탐색 규칙은 만들지 않는다', () => {
+        const rules = buildMonacoKeybindingOverrideRules([
+            { actionId: 'monaco.editor.action.triggerSuggest', key: 'k', mods: ['mod'], chord: { key: 's', mods: [] } },
+        ])
+        expect(rules).toEqual([
+            { keybinding: 0, command: '-editor.action.triggerSuggest' },
+            { keybinding: ((2048 | 41) & 0xffff) | ((49 & 0xffff) << 16), command: 'editor.action.triggerSuggest' },
+        ])
+    })
+
+    test('chord 오버라이드의 2단에 KeyCode 매핑이 없으면 규칙 전체를 생략해 monaco 기본을 유지한다', () => {
+        expect(
+            buildMonacoKeybindingOverrideRules([
+                { actionId: 'monaco.editor.action.rename', key: 'k', mods: ['mod'], chord: { key: 'Unknown', mods: [] } },
+            ]),
+        ).toEqual([])
+    })
+
     test('modifier 가 없는 재바인딩(레거시 데이터)에는 탐색 규칙을 만들지 않는다', () => {
         const rules = buildMonacoKeybindingOverrideRules([{ actionId: 'monaco.editor.action.triggerSuggest', key: 'F5', mods: [] }])
         expect(rules).toEqual([
@@ -167,5 +201,31 @@ describe('buildMonacoKeybindingOverrideRules', () => {
             { keybinding: 0, command: '-editor.action.formatDocument' },
             { keybinding: 512 | 1024 | 36, command: 'editor.action.formatDocument' },
         ])
+    })
+})
+
+describe('deriveMonacoChordPrefixes', () => {
+    test('chord 를 가진 monaco 오버라이드의 1단을 프리픽스로 뽑아낸다', () => {
+        const prefixes = deriveMonacoChordPrefixes([
+            { actionId: 'monaco.editor.action.rename', key: 'j', mods: ['mod'], chord: { key: 's', mods: ['mod'] } },
+        ])
+        expect(prefixes).toEqual([{ key: 'j', mods: ['mod'] }])
+    })
+
+    test('chord 가 없는 monaco 오버라이드는 제외한다(1단 재바인딩만으로는 프리픽스가 아니다)', () => {
+        const prefixes = deriveMonacoChordPrefixes([{ actionId: 'monaco.editor.action.rename', key: 'j', mods: ['mod'] }])
+        expect(prefixes).toEqual([])
+    })
+
+    test('monaco.* 가 아닌(앱 자체) 오버라이드는 제외한다', () => {
+        const prefixes = deriveMonacoChordPrefixes([{ actionId: 'save', key: 'j', mods: ['mod'], chord: { key: 's', mods: ['mod'] } }])
+        expect(prefixes).toEqual([])
+    })
+
+    test('unbind 센티널(key 빈 문자열)은 프리픽스로 삼지 않는다', () => {
+        const prefixes = deriveMonacoChordPrefixes([
+            { actionId: 'monaco.editor.action.rename', key: '', mods: [], chord: { key: 's', mods: ['mod'] } },
+        ])
+        expect(prefixes).toEqual([])
     })
 })

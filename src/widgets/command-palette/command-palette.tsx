@@ -17,7 +17,8 @@ import {
 import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
 import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
-import { APP_KEYMAP, applyKeymapOverrides, formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
+import { formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
+import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap-chord-store'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
@@ -74,7 +75,6 @@ export const CommandPalette = () => {
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
 
     const keymapOverrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
-    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, keymapOverrides)
 
     const handleOpenChange = (next: boolean) => {
         setOpen(next)
@@ -102,25 +102,22 @@ export const CommandPalette = () => {
         reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(error.message) })
     }
 
-    useGlobalKeymap(
-        {
-            'quick-open': () => {
-                setQuery('')
-                setOpen(true)
-            },
-            'command-palette': () => {
-                setQuery('>')
-                setOpen(true)
-            },
-            'workspace-symbol': () => {
-                setQuery('#')
-                setOpen(true)
-            },
-            'new-terminal': openTerminalTab,
-            'reopen-closed-tab': reopenClosedTab,
+    useGlobalKeymap({
+        'quick-open': () => {
+            setQuery('')
+            setOpen(true)
         },
-        keymapEntries,
-    )
+        'command-palette': () => {
+            setQuery('>')
+            setOpen(true)
+        },
+        'workspace-symbol': () => {
+            setQuery('#')
+            setOpen(true)
+        },
+        'new-terminal': openTerminalTab,
+        'reopen-closed-tab': reopenClosedTab,
+    })
 
     const commandContext: CommandContext = {
         activeProjectId,
@@ -133,7 +130,22 @@ export const CommandPalette = () => {
 
     const commandKeybindingRows = buildKeybindingRows(listRegisteredCommands(), keymapOverrides)
 
+    /**
+     * A second, independent `window` keydown-capture listener alongside `useGlobalKeymap`'s own
+     * (`command-palette.tsx` renders both) — `runsViaCommand` rows (no `keymapId`, not a `monaco.*`
+     * id) have no `APP_KEYMAP` entry for `useGlobalKeymap`/`decideKeymapDispatch` to dispatch, so
+     * this is their only live-keydown path. Because it's a sibling listener on the same `window`
+     * target, `useGlobalKeymap`'s `preventDefault`/`stopPropagation` never reaches it (`stopPropagation`
+     * only stops propagation to other DOM nodes, not sibling listeners on the same node — see
+     * `docs/features/keymap.md` §3) — so it must independently defer to the chord/monaco-deferral
+     * state machine itself. Without this check, a `runsViaCommand` row rebound to a key that
+     * collides with a chord's 2nd stage or a monaco-deferred keydown would fire *underneath* that
+     * state machine: the "2단은 무조건 삼킨다" mis-input guard and the monaco chord yield window
+     * would both leak past this listener (Wave H contract §3.1).
+     */
     useKeydownCapture((event) => {
+        const chordState = getKeymapChordDispatchSnapshot(event)
+        if (chordState.pending || chordState.monacoDeferral) return
         const row = findRunnableCommandBinding(commandKeybindingRows, event)
         if (!row?.commandId) return
         const command = getRegisteredCommand(row.commandId)

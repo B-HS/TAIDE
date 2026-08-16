@@ -151,6 +151,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
 
             setCommitMessage(sanitized)
             const notices = [
+                diff.usedFallback ? t('git.commitMessageUsedUnstaged') : null,
                 diff.truncated ? t('git.commitMessageDiffTruncated') : null,
                 diff.skippedFiles.length > 0 ? t('git.commitMessageFilesSkipped', { count: diff.skippedFiles.length }) : null,
             ].filter((notice): notice is string => notice !== null)

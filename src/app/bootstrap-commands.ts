@@ -1,5 +1,5 @@
 import { DEFAULT_COMMANDS, registerCommands } from '@shared/lib/command-registry'
-import { MONACO_ACTION_COMMANDS } from '@shared/lib/monaco-action-commands'
+import { MONACO_ACTION_COMMANDS, registerTaideCustomActionCommands } from '@shared/lib/monaco-action-commands'
 import { AGENT_CLI_COMMANDS } from '@entities/agent/agent.commands'
 import { AI_COMMANDS } from '@entities/ai/ai.commands'
 import { GIT_COMMANDS } from '@entities/git/git.commands'
@@ -15,3 +15,4 @@ registerCommands(AI_COMMANDS)
 registerCommands(GIT_COMMANDS)
 registerCommands(TERMINAL_COMMANDS)
 registerCommands(TASK_COMMANDS)
+registerTaideCustomActionCommands()

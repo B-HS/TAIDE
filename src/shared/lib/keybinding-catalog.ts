@@ -1,7 +1,7 @@
 import { IS_MAC } from '@shared/constants/platform'
 import type { AppCommand } from '@shared/lib/command-registry'
 import { KEYMAP_CATEGORY } from '@shared/lib/command-registry'
-import type { KeymapActionId, KeymapEvent, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap'
+import type { KeymapActionId, KeymapChordStage, KeymapEvent, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap'
 import { APP_KEYMAP, findKeymapConflict, keymapEntryToEvent, matchesKeymapEntry } from '@shared/lib/keymap'
 import { MONACO_ACTIONS } from '@shared/lib/monaco-actions'
 import { isMonacoCommandId, toMonacoActionId } from '@shared/lib/monaco-keybinding'
@@ -17,6 +17,7 @@ export type KeybindingRow = {
     keymapId: KeymapActionId | null
     key: string
     mods: KeymapModifier[]
+    chord?: KeymapChordStage
     isOverridden: boolean
     runsViaCommand: boolean
     source: KeybindingRowSource
@@ -48,6 +49,7 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
             keymapId: command.keymapId ?? null,
             key: baseEntry?.key ?? '',
             mods: baseEntry?.mods ?? [],
+            chord: baseEntry?.chord,
             isOverridden: false,
             runsViaCommand: !command.keymapId && !isMonaco,
             source: isMonaco ? 'monaco' : 'app',
@@ -64,6 +66,7 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
         keymapId: entry.id,
         key: entry.key,
         mods: entry.mods,
+        chord: entry.chord,
         isOverridden: false,
         runsViaCommand: false,
         source: 'app',
@@ -72,7 +75,7 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
 
     return [...commandRows, ...keymapOnlyRows].map((row) => {
         const override = overrides.find((item) => item.actionId === row.id)
-        return override ? { ...row, key: override.key, mods: override.mods, isOverridden: true } : row
+        return override ? { ...row, key: override.key, mods: override.mods, chord: override.chord, isOverridden: true } : row
     })
 }
 
@@ -95,8 +98,18 @@ export const sortKeybindingRows = (rows: KeybindingRow[], getLabel: (row: Keybin
         return getLabel(a).localeCompare(getLabel(b))
     })
 
+/**
+ * Only matches a row's *first* stage and only when it has no `chord` — this dispatch path
+ * (`command-palette.tsx`'s standalone command-binding listener) doesn't participate in the
+ * chord/monaco-deferral state machine `decideKeymapDispatch` drives for `APP_KEYMAP`/`monaco.*`
+ * rows, so a `runsViaCommand` row the user rebinds to a chord would otherwise fire on its first
+ * stage alone (immediately, on a single keypress) while every catalog/palette surface still labels
+ * it as a two-stage shortcut — a display/behavior mismatch. Treating a chord-carrying row as
+ * unbound *through this path* (rather than trying to half-implement two-stage dispatch here) is
+ * the same stance `findMatchingKeymapEntry` takes for `APP_KEYMAP` chord entries.
+ */
 export const findRunnableCommandBinding = (rows: KeybindingRow[], event: KeymapEvent, isMac: boolean = IS_MAC) =>
-    rows.find((row) => row.runsViaCommand && row.commandId && matchesKeymapEntry(row, event, isMac)) ?? null
+    rows.find((row) => row.runsViaCommand && row.commandId && !row.chord && matchesKeymapEntry(row, event, isMac)) ?? null
 
 export const findKeybindingRowById = (rows: KeybindingRow[], id: string) => rows.find((row) => row.id === id) ?? null
 

@@ -139,3 +139,51 @@
   제외·상한 규칙 동일성.
 - 문서: 키맵 문서(chord·when·인스펙터)·features/git.md(폴백)·ipc-contract·qa6 Wave H 실기 항목·
   갭 분석 §7 정정·§7 chord/when 종결 표기.
+
+## 6. 구현 시 정정 (Wave H 검토·수정 단계, 2026-08-16)
+
+- **§3.2 terminal-jump 게이팅 유지**: §3.3 은 "핸들러 undefined 게이팅 제거"라고만 적었으나, 구현은
+  `terminal-pane.tsx` 의 `isFocused` 삼항 가드를 그대로 유지한 채 `when: 'terminalFocus'` 를
+  데이터로 병행 추가했다. 근거: `terminalFocus` 게터(`keymap-context.ts`)가 전역 판정이라 스플릿
+  터미널 여러 개 중 하나만 포커스돼도 모든 인스턴스에 대해 참이 된다 — 삼항을 제거하면 비포커스
+  패널까지 각자의 ref 로 커맨드를 실행해 "기존 21 엔트리 행동 변화 0" 을 직접 위반한다. 두 게이트를
+  AND 로 두면 관측 동작은 기존과 동일하고, 오버라이드 미적용 결함은 훅 반전으로 이미 상환되므로
+  §3.3 의 실질 목적(재바인딩 반영)도 달성된다. 상세: `docs/features/keymap.md` §7.
+- **터미널 포커스 시 ⌘K chord 프리픽스 억제**: `open-keybindings-editor` 엔트리에
+  `when: '!terminalFocus'` 를 추가했다(계약 §3.1 원문에는 없던 제약). 근거: chord 1단 게이트가
+  `!editorTextFocus` 만이었을 때 터미널 포커스 상태에서 ⌘K 를 누르면 대기에 들어가 다음 keydown
+  1개를 무조건 삼켜, macOS 터미널 관용구(⌘K = 화면 지우기)를 쓰는 사용자의 입력 1자가 소실되는
+  신규 회귀였다. `terminalFocus` 는 이미 화이트리스트 게터이므로 데이터(엔트리 `when`)만으로
+  해소했다 — 코어 디스패치 로직 변경 없음.
+
+---
+
+## 7. Phase E 검토 결함 수정 반영 (2026-08-16)
+
+> 검토 wf_8f13dc1e-79c — 4렌즈 발견 48건(critical 2·major 14·minor 32) → 적대적 검증에서
+> critical/major 16건 **전건 confirmed**(중복 제거 시 7개 근본 클러스터, critical 2건은 major 로
+> 재판정) → 수정 43 fixed·4 deferred(사유 기록)·1 rejected. 메인 2차: 핵심 수정 7건 실물 재검증 +
+> `bun run verify` 전체 exit 0(프론트 1098·Rust 822+6+17) + vite build exit 0.
+
+- **[critical→major] taide.* 카탈로그 편입이 실제로 무동작** — `editor.addAction` 은 커맨드를
+  `editorId:id` 로만 등록해 재바인딩은 키만 삼키고 무동작·팔레트 행 영구 비활성(monaco 소스 재현):
+  `registerTaideCustomActionCommands`(monaco.editor.registerCommand 로 bare id 전역 등록 — 공개 API)
+  + activeEditorActionIds prefix 정규화로 실동작화. 사실과 다른 JSDoc 정정.
+- **[critical→major] 팔레트의 독립 window 리스너가 chord/유예 상태머신 우회** — 2단 삼킴·유예 창이
+  사용자 재바인딩 커맨드 경로에서 뚫림: `getKeymapChordDispatchSnapshot` 가드 + chord 보유 행의
+  1단 오발동 제외.
+- **[major] 컨텍스트 인스펙터가 modal 포커스 트랩으로 항상 빈 목록** — 열기 직전 스냅샷 동결
+  표시로 재설계(+500ms 폴링 리렌더 낭비 겸수).
+- **[major] 표본 chord 가 ⌘K S(무수식 2단)로 구현 — 계약 문언(⌘K ⌘S) 이탈**: 2단 mods ['mod'] 로
+  정정, 테스트·문서 동기화.
+- **[major→minor·수정] 터미널 포커스 ⌘K 가 다음 입력 1자를 삼키는 신규 회귀**: `when:
+  '!terminalFocus'` 데이터 추가(§6 둘째 항).
+- **[major→minor·수정] keybindings.open→open-keybindings-editor 행 id 변경으로 기존 오버라이드
+  무음 소실**: parseKeymapOverrides 에 1회성 레거시 actionId 별칭 마이그레이션.
+- **[major] 비-⌘K monaco chord 프리픽스의 2단 탈취**: `deriveMonacoChordPrefixes` — 저장된 monaco.*
+  chord 오버라이드의 1단을 동적으로 유예 프리픽스에 합류.
+- **minor 32건**: 24 수정(코드펜스·표시·정리 계열), 4 deferred(계약 문언 상충·화이트리스트 범위
+  확장은 사용자 확인 선행 — editorTextFocus 의미 차이는 JSDoc 경고로 완화, AppCommand 중복 통합은
+  제품 판단 보류·keymap.md §10 기록), 1 rejected(taide.* 만 완전 번역은 기존 titleDefaultValue
+  폴백 패턴과 비일관).
+- 메인 2차 부기: `dirty_미러` 병렬 flaky 1회 재관측(단독 5회·재실행 통과 — 기존 결함, Wave H 무관).

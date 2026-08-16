@@ -137,8 +137,8 @@ TAIDE 어댑터 11종: completion·diagnostics·hover·definition·references·r
 |---|---|---|---|---|
 | 설정 UI 12섹션·키맵 편집·폰트·i18n·테마 에디터 | 있음 (VS Code 보다 GUI 완성도 높음) | - | - | - |
 | **settings.json 을 에디터 탭에서 직접 편집** | 없음 (Finder 열기까지) | 중 | 중 (root_guard + 탭 projectId 종속 해제) | P1 (backlog 기재) |
-| **키맵 chord (⌘K ⌘S) · when 컨텍스트** | 없음 | **상** (VS Code 관성 직결) | 상 (매칭·직렬화 전면 개정) | **P0** (backlog 기재) |
-| shift+기호 키 캡처(`event.code` 기반) | 부분 (`event.key` 기반 → 레이아웃 의존) | 중 | 중 | P1 (backlog 기재) |
+| **키맵 chord (⌘K ⌘S) · when 컨텍스트** | **있음 — Wave H 구현 완료**(⌘K 프리픽스·2단 무조건 삼킴·전역 chord 스토어·monaco 유예 창으로 기존 monaco chord 21건 보존·when 기반 컨텍스트 게이팅·컨텍스트 인스펙터. `docs/features/keymap.md` 참조) | - | - | - |
+| shift+기호 키 캡처(`event.code` 기반) | **있음 — 이 행 자체가 stale 이었다**: `normalizeKeymapEventKey`(기능확장 2차 k, 커밋 23c3fb2)가 이미 기호를 `event.code` 기반으로 유도해 레이아웃 독립적이다. Wave H 에서 실물 재검증 + 회귀 테스트로 확정(`docs/acknowledge/2026-08-16-wave-h-keymap-contract.md` §2-1) | - | - | - |
 | **Profiles(설정 프로파일 전환·워크스페이스 연결·템플릿)** | 없음 | 하 (단일 사용자) | 상 | P2 |
 | Settings Sync | 있음 (Gist 기반 자체 구현, 실기 미검증) | - | - | - |
 | **확장 마켓플레이스 / 플러그인 설치 UI** | 없음 (앱데이터 폴더 수동 배치) | 중 | 중 (레지스트리 정책 결정 선행) | P1 — MS Marketplace 연동은 금지 방침 유지 |
@@ -176,7 +176,7 @@ TAIDE 의 AI 전략은 "터미널 에이전트 연동 우선, 자체 AI 는 추�
 | 7 | **Sticky Scroll + Breadcrumbs + 커서 위치(줄:열) 상태바** | sticky/커서위치는 옵션·이벤트 수준, breadcrumbs 만 UI 신설 | 하~중 |
 | 8 | **Git: 3-way 충돌 해결 UI + 줄 단위 stage + 커밋 상세 뷰 + 파일 히스토리** | 충돌 시 TAIDE 밖으로 나가야 함 → 성공 기준 1(dogfooding) 직접 위협 | 중~상 |
 | 9 | **터미널 Shell Integration (OSC 133)** — 명령 블록·명령 간 이동·종료 코드 | warp 를 참조 제품으로 삼은 PRD 대비 가장 큰 미달 | 중 |
-| 10 | **태스크 러너 (npm/Cargo/Makefile 감지 실행) + 키맵 chord(⌘K ⌘S)** | 둘 다 backlog 기재. chord 는 "VS Code 관성 존중"(PRD §5-4) 위반 상태 | 중~상 |
+| 10 | ~~태스크 러너 (npm/Cargo/Makefile 감지 실행) + 키맵 chord(⌘K ⌘S)~~ | 태스크 러너는 Wave E, chord 는 Wave H 에서 각각 구현 완료 — 이 행은 해소됨 | - |
 
 보너스 P0 후보(11): **사용자 정의 스니펫** — backlog 기재, LSP completion 과 우선순위 조정 필요.
 
@@ -225,8 +225,8 @@ TAIDE 의 AI 전략은 "터미널 에이전트 연동 우선, 자체 AI 는 추�
 
 ## 14. backlog 중복 항목 (신규 생성 금지, 참조만)
 
-멀티 윈도우 · Zen/포커스 모드 · 스니펫 · 작업 러너 패널 · git 충돌 해결 UI · 북마크 · 접근성 · chord/when 키맵 · 앱데이터 파일 에디터 편집 · VSIX grammars 임포트 · shift+기호 키 캡처 · Gemini IDE companion · Codex app-server 패널.
-**backlog 정정 필요 1건**: "임의 두 파일 비교"는 이미 구현됨(`src/widgets/explorer/explorer-container.tsx:254`).
+멀티 윈도우 · Zen/포커스 모드 · 스니펫 · git 충돌 해결 UI · 북마크 · 접근성 · 앱데이터 파일 에디터 편집 · VSIX grammars 임포트 · Gemini IDE companion · Codex app-server 패널.
+**backlog 정정 필요 2건**: "임의 두 파일 비교"는 이미 구현됨(`src/widgets/explorer/explorer-container.tsx:254`). "작업 러너 패널"·"chord/when 키맵"·"shift+기호 키 캡처"는 각각 Wave E·Wave H(chord/when)·Wave H(shift+기호 회귀 확정)에서 이미 구현/확정되어 이 목록(신규 생성 금지 대상)에서 제외한다.
 
 ---
 

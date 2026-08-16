@@ -146,6 +146,7 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
         id: 'keybindings.open',
         titleKey: 'settings.keymapOpenEditor',
         categoryKey: KEYMAP_CATEGORY.APP,
+        keymapId: 'open-keybindings-editor',
         run: () => requestOpenKeybindingsEditor(),
     },
     {

@@ -312,8 +312,56 @@
           - [x] 계약 확정(`2026-08-16-wave-h-keymap-contract.md`, 결정 4건 — G prod 병합 완료
                 (c3e60c4)·Sparkles unstaged 폴백 채택(G 보류 해소)·범위 재정의+결함 상환·chord/when
                 추천 패키지+**마이그레이션 보수**(행동 변화 0))
-          - [ ] 구현(A Rust 소규모 → B 키맵 코어 단독 → C1 캡처 UI∥C2 소비처·카탈로그 → D 통합)
-                → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋
+          - [x] 구현(A Rust 소규모 → B 키맵 코어 단독 → C1 캡처 UI∥C2 소비처·카탈로그 → D 통합)
+                완료. D 에서 접합부 정리 중 **핵심 회귀 재발견·수정**: N개 `useGlobalKeymap`
+                리스너가 같은 물리 keydown 을 전부 처리하는 구조라(`stopPropagation` 은 형제
+                리스너를 막지 못함), chord/monaco유예 진입 판정이 리스너별로 반복되며 첫 리스너의
+                mutation 을 나머지가 "다음 keydown" 으로 오판 → 마이크로태스크로 유예/대기가
+                진짜 두 번째 keydown 도착 전에 풀려 monaco chord 4건·⌘K⌘S 자체가 동작하지 않는
+                상태였음(유닛 테스트로 결정적 재현). `getKeymapChordDispatchSnapshot(event)`(이벤트
+                참조 동등성으로 메모이즈)로 근본 수정 — 회귀 테스트 고정(`keymap-chord-store.test.ts`).
+                그 외: monaco 소스 행 chord 재바인딩이 표시만 되고 실제 미동작하던 인코딩 누락 수정
+                (`buildMonacoChordKeybinding`)·`findKeymapConflict` chord 2단 오탐 수정·
+                `handleChangeBinding` 미배선(새 chord 후보 누락) 수정·`keybindings.open` 팔레트
+                중복 행 수정·locale 키 부정확(`noStagedChangesForCommitMessage`→
+                `noChangesForCommitMessage`, staged+unstaged 통합 조건과 정합) 수정. terminal-pane
+                의 `isFocused` 게이팅은 계약 문구("제거")와 달리 **의도적으로 유지**(스플릿 다중
+                터미널 인스턴스 오발동 회귀 방지 — "기존 21 엔트리 행동 변화 0" 완료조건 우선,
+                근거는 `features/keymap.md` §7). 문서 신설(`features/keymap.md`) + 기존 문서 정정
+                (`ai.md`·`git.md`·`ipc-contract.md`·갭분석 §7·qa6 Wave H 실기 항목). `bun run
+                verify`(typecheck·lint·format·test 1060/1060·rust fmt/clippy/test 819/819)+vite
+                build 전부 통과(LSP PATH 테스트 1회 flaky 재확인 — 격리 재실행 통과, Wave H 무관)
+                → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋(Phase E — wf_8f13dc1e-79c).
+          - [x] 4렌즈+적대적 검증 완료 → major 확정 4(중복 제거, 실제로는 5개 결함 클러스터를
+                중복 보고) + minor 확정 다수. **수정 완료(sonnet+xhigh)**:
+                (1) `taide.*` 커스텀 monaco 액션 카탈로그(§3.3)가 팔레트 영구 비활성+재바인딩
+                무동작이던 근본 원인(`editor.addAction` 이 `id` 를 `${editorId}:${id}` 로만
+                등록) 수정 — `editor-area.tsx` 의 활성 액션 id 정규화 + `monaco-action-commands.ts`
+                의 `registerTaideCustomActionCommands()`(전역 커맨드 신규 등록). (2) command-palette
+                의 독립 window 리스너가 chord `pending`/`monacoDeferral` 을 무시하고 우회하던 결함
+                수정(스냅샷 가드 + `findRunnableCommandBinding` 의 chord 행 제외). (3) 컨텍스트
+                인스펙터가 Radix 모달 포커스 트랩으로 항상 비어 있던 구조적 결함 수정(다이얼로그
+                닫혀 있을 때만 폴링 → 열기 직전 스냅샷을 얼려 표시). (4) 표본 chord 를 계약 문언대로
+                `⌘K ⌘S`(2단도 `mod` 필요)로 정정. (5) 터미널 포커스 시 ⌘K 가 터미널 입력을 삼키던
+                신규 회귀를 `when: '!terminalFocus'` 로 해소. 그 외 minor: `keybindings.open`→
+                `open-keybindings-editor` 리네임에 대한 오버라이드 레거시 별칭 마이그레이션·
+                monaco 유예 창이 앱 내부 포커스 이동으로는 안 풀리던 문제(focusin 리스너)·비-⌘K
+                monaco chord 프리픽스 2단이 앱 단일 키에 뺏기던 문제(`deriveMonacoChordPrefixes`
+                동적 프리픽스)·키 자동반복/IME 조합 중 keydown 이 chord 대기·유예를 스스로 소비하던
+                문제·상태바 인디케이터가 monaco 유예 창에서는 안 뜨던 문제·chord 2단에 Enter 를
+                쓸 수 없던 캡처 UI 결함·Sparkles 폴백의 untracked 하위 디렉토리 누락(`recurse_untracked_dirs`)
+                +시크릿 확장자 목록 보강(jks·ppk·der·crt·keystore·.netrc·.npmrc)+충돌 전용 상태
+                버튼 비활성 불일치·chord 스토어 notify 낭비(idle 재알림)·이벤트 참조 누수. 반려
+                (사유 기록): taide.* 신규 locale 키 미등록(기존에도 monaco 액션 158건 중 42건만
+                번역되는 확립된 패턴, 7건 추가는 비일관성만 키움)·팔레트 중복 행 통합(어느 쪽을
+                남길지는 제품 판단 필요, keymap.md §10 에 결정 보류로 기록)·에디터 밖 전역 ⌘K 삼킴
+                범위 축소(계약 범위 밖 확장, 사용자 확인 필요)·`editorTextFocus` 게터 명명(계약
+                §3.2 가 명시한 정의라 재정의는 계약 위반 — JSDoc 로 의미 차이만 명시). `bun run
+                verify` 전체 + vite build 통과 확인.
+          - [x] 메인 2차 완료 — 핵심 수정 7건 실물 재검증(registerTaideCustomActionCommands·팔레트
+                스냅샷 가드·인스펙터 동결·⌘K ⌘S mods·when !terminalFocus·레거시 별칭·
+                deriveMonacoChordPrefixes 전건 소스 확인) + verify 전체 exit 0(프론트 1098·Rust
+                822+6+17) + vite build exit 0 메인 직접 실행. 계약 §7 검토 요약 보강. 커밋
     - [ ] c-I. Wave I — 셸·워크스페이스 (최후)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

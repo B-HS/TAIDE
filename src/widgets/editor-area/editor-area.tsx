@@ -21,7 +21,6 @@ import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { subscribeOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
 import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
-import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { monaco } from '@shared/lib/monaco/setup'
 import { collectPaneTabs, findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
@@ -191,22 +190,17 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (text !== null) runInTerminal(text, null)
     }
 
-    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
-
-    useGlobalKeymap(
-        {
-            'close-tab': closeFocusedTab,
-            find: openFind,
-            search: openGlobalSearch,
-            'search-replace': () => requestOpenSearchPanel({ openReplace: true }),
-            split: splitActiveEditor,
-            'tab-cycle-next': () => cycleTab('next'),
-            'tab-cycle-prev': () => cycleTab('prev'),
-            save: saveActiveTab,
-            'toggle-terminal': toggleTerminal,
-        },
-        keymapEntries,
-    )
+    useGlobalKeymap({
+        'close-tab': closeFocusedTab,
+        find: openFind,
+        search: openGlobalSearch,
+        'search-replace': () => requestOpenSearchPanel({ openReplace: true }),
+        split: splitActiveEditor,
+        'tab-cycle-next': () => cycleTab('next'),
+        'tab-cycle-prev': () => cycleTab('prev'),
+        save: saveActiveTab,
+        'toggle-terminal': toggleTerminal,
+    })
 
     const handleEditorPaneCommand = useEffectEvent((command: EditorPaneCommand) => {
         if (command.type === 'split') return splitActiveEditor()
@@ -248,7 +242,25 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
 
         const updateActionIds = () => {
             const activeEditor = getEditorInstance(focusedFileTabId)
-            setActiveEditorActionIds(activeEditor ? new Set(activeEditor.getSupportedActions().map((action) => action.id)) : null)
+            if (!activeEditor) {
+                setActiveEditorActionIds(null)
+                return
+            }
+            /**
+             * `editor.addAction`-registered actions (TAIDE's own `taide.*` catalog entries) report
+             * `action.id` as `${editor.getId()}:${originalId}` — monaco mangles the id into a
+             * per-editor-instance "unique id" internally (`standaloneCodeEditor.js`'s `addAction`)
+             * so the same action id can be registered on multiple editor instances at once, but
+             * every id-keyed consumer of this set (`monaco-action-commands.ts`'s `isEnabled` gate,
+             * the keybindings editor's context checks) only knows the original, unprefixed id monaco
+             * built-in actions report unchanged. Stripping this editor's own prefix restores that —
+             * built-in action ids never start with it, so they pass through untouched.
+             */
+            const uniqueIdPrefix = `${activeEditor.getId()}:`
+            const ids = activeEditor
+                .getSupportedActions()
+                .map((action) => (action.id.startsWith(uniqueIdPrefix) ? action.id.slice(uniqueIdPrefix.length) : action.id))
+            setActiveEditorActionIds(new Set(ids))
         }
 
         const attachToEditor = () => {

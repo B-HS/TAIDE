@@ -14,6 +14,45 @@ export type MonacoActionEntry = {
     defaultBindingLabel: string | null
 }
 
+/**
+ * TAIDE's own `editor.addAction`-registered actions (not monaco built-ins) — `code-editor.tsx`
+ * (`taide.saveFile`, `taide.toggleMinimap`), `ai-inline-edit.ts` (`taide.aiInlineEdit`), and
+ * `editor-pane.tsx` (`taide.gitStageSelection`, `taide.toggleBlame`, `taide.openFileHistory`,
+ * `taide.runSelectedTextInTerminal`). Folded into {@link MONACO_ACTIONS} (Wave H contract §3.3,
+ * confirmed fact §2-9) so `monaco-action-commands.ts` registers a palette command for each and
+ * `monaco-keybinding.ts`'s `addKeybindingRules` path treats them as rebindable/conflict-checkable
+ * exactly like a monaco built-in row.
+ *
+ * Unlike a monaco built-in, `editor.addAction` does *not* register its `id` as a real global
+ * command — monaco mangles it into `${editor.getId()}:${id}` (a per-editor-instance "unique id",
+ * so the same action id can be registered on several editors at once) and registers *that* in
+ * `CommandsRegistry`, not the bare id an override rule's `command` field names. Bootstrap
+ * (`monaco-action-commands.ts`) additionally registers a real global command under each bare id
+ * here (via `monaco.editor.registerCommand`) so the `addKeybindingRules` rebind/unbind path
+ * (`buildMonacoKeybindingOverrideRules`) actually resolves — see that file for the registration and
+ * `editor-area.tsx` for the matching `getSupportedActions()` id-normalization this list's `isEnabled`
+ * gating depends on. Only `taide.aiInlineEdit` ships a real default keybinding (`⌘I`, registered
+ * directly on the action); the rest have none today, so `defaultBindingLabel` is `null` for them.
+ * `taide.aiInlineEdit`'s own default `⌘I` binding is an `addAction` dynamic keybinding, which monaco
+ * never treats as removable via an `addKeybindingRules` unbind rule (that mechanism only strips
+ * `isDefault: true` entries, and no `editor.addAction` keybinding is ever marked default) — rebinding
+ * this one row therefore adds a working second binding rather than replacing the first.
+ */
+export const TAIDE_CUSTOM_ACTIONS: MonacoActionEntry[] = [
+    { actionId: 'taide.saveFile', categoryKey: KEYMAP_CATEGORY.EDITOR, defaultLabel: 'Save File', defaultBindingLabel: null },
+    { actionId: 'taide.toggleMinimap', categoryKey: KEYMAP_CATEGORY.EDITOR_DISPLAY, defaultLabel: 'Toggle Minimap', defaultBindingLabel: null },
+    { actionId: 'taide.aiInlineEdit', categoryKey: KEYMAP_CATEGORY.EDITOR, defaultLabel: 'AI Edit', defaultBindingLabel: '⌘I' },
+    { actionId: 'taide.gitStageSelection', categoryKey: KEYMAP_CATEGORY.GIT, defaultLabel: 'Stage Changes', defaultBindingLabel: null },
+    { actionId: 'taide.toggleBlame', categoryKey: KEYMAP_CATEGORY.GIT, defaultLabel: 'Toggle Blame', defaultBindingLabel: null },
+    { actionId: 'taide.openFileHistory', categoryKey: KEYMAP_CATEGORY.GIT, defaultLabel: 'File History', defaultBindingLabel: null },
+    {
+        actionId: 'taide.runSelectedTextInTerminal',
+        categoryKey: KEYMAP_CATEGORY.TERMINAL,
+        defaultLabel: 'Run Selected Text in Terminal',
+        defaultBindingLabel: null,
+    },
+]
+
 export const MONACO_ACTIONS: MonacoActionEntry[] = [
     { actionId: 'actions.find', categoryKey: KEYMAP_CATEGORY.EDITOR_NAVIGATION, defaultLabel: 'Find', defaultBindingLabel: '⌘F' },
     {
@@ -785,4 +824,5 @@ export const MONACO_ACTIONS: MonacoActionEntry[] = [
         defaultLabel: 'Expand Line Selection',
         defaultBindingLabel: '⌘L',
     },
+    ...TAIDE_CUSTOM_ACTIONS,
 ]

@@ -87,8 +87,11 @@
 ### git (`git.md`)
 
 - query: `git_status`, `git_gutter(path)`, `git_blame_range(path, from, to)`,
-  `git_diff_file(path, mode)`, `git_diff_staged_text(projectId)`(Wave G — `ai.md` §4/§7 의 AI 커밋
-  메시지 생성 전용 소비처, unified diff 텍스트 + 32KiB 상한 + 바이너리/lock 파일 제외),
+  `git_diff_file(path, mode)`, `git_diff_staged_text(projectId) → StagedDiffText{ diffText,
+  truncated, skippedFiles, usedFallback }`(Wave G — `ai.md` §4/§7 의 AI 커밋 메시지 생성 전용
+  소비처, unified diff 텍스트 + 32KiB 상한 + 바이너리/lock 파일 제외; `usedFallback` 은 Wave H 신설
+  — staged 델타 0건이면 HEAD↔워킹트리(untracked 포함) 전체 변경으로 폴백했다는 표시, 동일
+  제외·상한 규칙이 폴백 diff 에도 적용된다),
   `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`, `git_ahead_behind`, `git_remotes`,
   `git_stash_list`
 - mutation: `git_init(projectId)`, `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`,

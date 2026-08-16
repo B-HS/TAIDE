@@ -16,7 +16,7 @@ import {
     removeKeybindingOverride,
     sortKeybindingRows,
 } from '@shared/lib/keybinding-catalog'
-import type { KeymapModifier } from '@shared/lib/keymap'
+import type { KeymapChordStage, KeymapModifier } from '@shared/lib/keymap'
 import {
     MODIFIER_ONLY_KEYS,
     captureModsFromEvent,
@@ -26,6 +26,8 @@ import {
     serializeKeymapOverrides,
 } from '@shared/lib/keymap'
 import { setKeymapCapturing } from '@shared/lib/keymap-capture'
+import { clearKeymapChordState } from '@shared/lib/keymap-chord-store'
+import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap-context'
 import { subscribeOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { isMonacoCommandId, resolveMonacoKeyCode } from '@shared/lib/monaco-keybinding'
 import { applyMonacoKeybindingOverrides } from '@shared/lib/monaco-keybinding-runtime'
@@ -38,7 +40,9 @@ import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 
-type CaptureTarget = { kind: 'row'; rowId: string } | { kind: 'search-key' }
+type CaptureTarget = { kind: 'row'; rowId: string; pendingFirstStage: KeymapChordStage | null } | { kind: 'search-key' }
+
+const KEYMAP_CONTEXT_INSPECTOR_POLL_MS = 500
 
 export const KeybindingsEditor = () => {
     const [open, setOpen] = useState(false)
@@ -47,6 +51,7 @@ export const KeybindingsEditor = () => {
     const [searchedKey, setSearchedKey] = useState<{ key: string; mods: KeymapModifier[] } | null>(null)
     const [showConflictsOnly, setShowConflictsOnly] = useState(false)
     const [showUnassignedOnly, setShowUnassignedOnly] = useState(false)
+    const [activeContextKeys, setActiveContextKeys] = useState<string[]>([])
 
     const { t } = useTranslation()
     const { data: settings } = useQuery(settingsQueryOptions())
@@ -89,22 +94,36 @@ export const KeybindingsEditor = () => {
     const saveOverrides = (nextOverrides: typeof overrides) =>
         updateSettings({ ...emptySettingsPatch(), keymapOverrides: serializeKeymapOverrides(nextOverrides) })
 
-    const handleChangeBinding = (rowId: string, key: string, mods: KeymapModifier[]) => {
+    const isKeyBindable = (rowId: string, key: string) => !isMonacoCommandId(rowId) || resolveMonacoKeyCode(key) !== null
+
+    const handleChangeBinding = (rowId: string, key: string, mods: KeymapModifier[], chord?: KeymapChordStage) => {
         if (mods.length === 0) return
-        if (isMonacoCommandId(rowId) && resolveMonacoKeyCode(key) === null) {
-            toast.warning(t('settings.keymapKeyNotBindable'))
-            return
-        }
+        if (chord && chord.mods.length === 0) return
+        if (!isKeyBindable(rowId, key)) return toast.warning(t('settings.keymapKeyNotBindable'))
+        if (chord && !isKeyBindable(rowId, chord.key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         const currentRow = findKeybindingRowById(rows, rowId)
-        const conflict = currentRow ? findConflictingRow(rows, { ...currentRow, key, mods }) : null
+        const conflict = currentRow ? findConflictingRow(rows, { ...currentRow, key, mods, chord }) : null
         if (conflict)
             toast.warning(
                 t('settings.keymapConflictWarning', {
                     action: formatCategorizedLabel(t, conflict.categoryKey, conflict.titleKey, conflict.titleDefaultValue ?? undefined),
                 }),
             )
-        saveOverrides(mergeKeybindingOverride(overrides, { actionId: rowId, key, mods }))
+        saveOverrides(mergeKeybindingOverride(overrides, { actionId: rowId, key, mods, chord }))
         setCaptureTarget(null)
+    }
+
+    const handleCaptureStage = (rowId: string, key: string, mods: KeymapModifier[]) => {
+        if (captureTarget?.kind !== 'row' || captureTarget.rowId !== rowId) return
+        if (captureTarget.pendingFirstStage)
+            return handleChangeBinding(rowId, captureTarget.pendingFirstStage.key, captureTarget.pendingFirstStage.mods, { key, mods })
+        if (!isKeyBindable(rowId, key)) return toast.warning(t('settings.keymapKeyNotBindable'))
+        setCaptureTarget({ ...captureTarget, pendingFirstStage: { key, mods } })
+    }
+
+    const handleConfirmSingleStage = (rowId: string) => {
+        if (captureTarget?.kind !== 'row' || captureTarget.rowId !== rowId || !captureTarget.pendingFirstStage) return
+        handleChangeBinding(rowId, captureTarget.pendingFirstStage.key, captureTarget.pendingFirstStage.mods)
     }
 
     const handleResetToDefault = (rowId: string) => saveOverrides(removeKeybindingOverride(overrides, rowId))
@@ -139,9 +158,35 @@ export const KeybindingsEditor = () => {
     }
 
     useEffect(() => subscribeOpenKeybindingsEditor(() => setOpen(true)), [])
-    useEffect(() => setKeymapCapturing(isCapturing), [isCapturing])
+    useEffect(() => {
+        setKeymapCapturing(isCapturing)
+        if (isCapturing) clearKeymapChordState()
+    }, [isCapturing])
     useEffect(() => () => setKeymapCapturing(false), [])
     useEffect(() => applyMonacoKeybindingOverrides(parseKeymapOverrides(settings?.keymapOverrides ?? null)), [settings?.keymapOverrides])
+    /**
+     * Radix's `Dialog` traps focus inside its content while `open` — `document.activeElement` never
+     * sits inside `.monaco-editor`/`.xterm` for as long as the dialog is up, so polling *while open*
+     * can only ever read "no active context key", making the inspector permanently empty (the exact
+     * opposite of its purpose — debugging `when` context). Instead this keeps tracking in the
+     * background *while the dialog is closed* and simply stops (via the effect cleanup below,
+     * triggered by `open` flipping true) the instant it opens — so the panel shows a frozen snapshot
+     * of whatever was focused right before the user opened it, which is the most recent real signal
+     * available once focus is trapped. The `previous`/`next` array-equality check avoids publishing
+     * a new array reference (and re-rendering this dialog's whole catalog+filter pipeline) every poll
+     * when the context genuinely hasn't changed.
+     */
+    useEffect(() => {
+        if (open) return
+        const readActiveContextKeys = () =>
+            setActiveContextKeys((previous) => {
+                const next = Object.keys(DEFAULT_KEYMAP_CONTEXT_GETTERS).filter((key) => getKeymapContextValue(key))
+                return previous.length === next.length && previous.every((key, index) => key === next[index]) ? previous : next
+            })
+        readActiveContextKeys()
+        const intervalId = setInterval(readActiveContextKeys, KEYMAP_CONTEXT_INSPECTOR_POLL_MS)
+        return () => clearInterval(intervalId)
+    }, [open])
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -196,6 +241,19 @@ export const KeybindingsEditor = () => {
                     </button>
                 </div>
 
+                <div className='text-app-sidebar-icon-default flex shrink-0 flex-wrap items-center gap-2 text-[10px]'>
+                    <span className='tracking-wide uppercase'>{t('settings.keymapInspectorTitle')}</span>
+                    {activeContextKeys.length === 0 ? (
+                        <span>{t('settings.keymapInspectorEmpty')}</span>
+                    ) : (
+                        activeContextKeys.map((key) => (
+                            <span key={key} className='bg-app-sidebar-item-active text-app-foreground rounded-full px-1.5 py-0.5 font-mono'>
+                                {key}
+                            </span>
+                        ))
+                    )}
+                </div>
+
                 <div className='text-app-sidebar-icon-default flex shrink-0 items-center gap-3 px-3 text-[10px] tracking-wide uppercase'>
                     <span className='flex-1'>{t('settings.keymapCommandColumn')}</span>
                     <span>{t('settings.keymapKeyColumn')}</span>
@@ -214,6 +272,9 @@ export const KeybindingsEditor = () => {
                                         key={row.id}
                                         row={row}
                                         isCapturing={captureTarget?.kind === 'row' && captureTarget.rowId === row.id}
+                                        pendingChordFirstStage={
+                                            captureTarget?.kind === 'row' && captureTarget.rowId === row.id ? captureTarget.pendingFirstStage : null
+                                        }
                                         conflictLabel={
                                             conflict
                                                 ? formatCategorizedLabel(
@@ -224,8 +285,9 @@ export const KeybindingsEditor = () => {
                                                   )
                                                 : null
                                         }
-                                        onStartCapture={() => setCaptureTarget({ kind: 'row', rowId: row.id })}
-                                        onCaptureKey={(key, mods) => handleChangeBinding(row.id, key, mods)}
+                                        onStartCapture={() => setCaptureTarget({ kind: 'row', rowId: row.id, pendingFirstStage: null })}
+                                        onCaptureStage={(key, mods) => handleCaptureStage(row.id, key, mods)}
+                                        onConfirmSingleStage={() => handleConfirmSingleStage(row.id)}
                                         onCancelCapture={() => setCaptureTarget(null)}
                                         onResetToDefault={() => handleResetToDefault(row.id)}
                                         onUnbind={() => handleUnbind(row.id)}

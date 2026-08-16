@@ -16,10 +16,11 @@ import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { findActiveTab } from '@shared/lib/pane-tree'
+import { MONACO_CHORD_PREFIX_KEY, formatKeymapShortcut } from '@shared/lib/keymap'
+import { getKeymapChordStoreSnapshot, subscribeKeymapChordNoMatch, subscribeKeymapChordStore } from '@shared/lib/keymap-chord-store'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { CODE_FONT_SIZE_STEP, DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
 import { getModel } from '@entities/editor/model-registry'
 import { saveFile } from '@entities/file/file.ipc'
 import { openTab, setTabDirty } from '@entities/layout/layout.ipc'
@@ -30,6 +31,7 @@ import { StatusBar } from '@features/window/status-bar'
 import { SystemUsageModal } from '@widgets/system-usage-modal/system-usage-modal'
 
 const IDE_DIAGNOSTICS_PUSH_DEBOUNCE_MS = 300
+const CHORD_NO_MATCH_INDICATOR_DURATION_MS = 1500
 
 const clampFontSize = (value: number) => Math.min(MAX_CODE_FONT_SIZE, Math.max(MIN_CODE_FONT_SIZE, value))
 
@@ -53,8 +55,10 @@ type StatusBarContentProps = {
 
 export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, onToggleProblems }) => {
     const cursorSnapshotRef = useRef<{ line: number; column: number } | null>(null)
+    const chordNoMatchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const [isUsageModalOpen, setUsageModalOpen] = useState(false)
+    const [chordNoMatchFlash, setChordNoMatchFlash] = useState(false)
 
     const queryClient = useQueryClient()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
@@ -108,6 +112,20 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
     }
 
     const cursorPosition = useSyncExternalStore(subscribeToCursor, getCursorSnapshot)
+    const chordState = useSyncExternalStore(subscribeKeymapChordStore, getKeymapChordStoreSnapshot)
+    /**
+     * The monaco-deferral window has no indicator of its own on monaco's side (Wave H contract §2.4
+     * — standalone's own chord-status display is a no-op stub), so this is the *only* feedback the
+     * user gets while it's armed. Reuses the same "waiting for next key" presentation as an app chord
+     * wait — `MONACO_CHORD_PREFIX_KEY` for the shortcut label — since both mean the same thing to the
+     * user: a keydown is coming, and the next key needs to land on a specific target.
+     */
+    const resolveChordPendingShortcut = () => {
+        if (chordState.pending) return formatKeymapShortcut(chordState.pending.prefix)
+        if (chordState.monacoDeferral) return formatKeymapShortcut(MONACO_CHORD_PREFIX_KEY)
+        return null
+    }
+    const chordPendingShortcut = resolveChordPendingShortcut()
 
     const lspSummary =
         lspSessions.length > 0
@@ -124,9 +142,7 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
     const decreaseEditorFontSize = () =>
         updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize - CODE_FONT_SIZE_STEP) })
 
-    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
-
-    useGlobalKeymap({ 'font-size-up': increaseEditorFontSize, 'font-size-down': decreaseEditorFontSize }, keymapEntries)
+    useGlobalKeymap({ 'font-size-up': increaseEditorFontSize, 'font-size-down': decreaseEditorFontSize })
 
     useTauriEvent(events.ideDiffRequested, ({ payload }) => {
         setPendingClaudeDiff(payload.requestId, { oldPath: payload.oldPath, newContents: payload.newContents, tabName: payload.tabName })
@@ -206,6 +222,18 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
         return () => clearTimeout(timeout)
     }, [markers, activeProjectId, ideStatus?.running])
 
+    useEffect(() => {
+        const unsubscribe = subscribeKeymapChordNoMatch(() => {
+            if (chordNoMatchTimeoutRef.current) clearTimeout(chordNoMatchTimeoutRef.current)
+            setChordNoMatchFlash(true)
+            chordNoMatchTimeoutRef.current = setTimeout(() => setChordNoMatchFlash(false), CHORD_NO_MATCH_INDICATOR_DURATION_MS)
+        })
+        return () => {
+            unsubscribe()
+            if (chordNoMatchTimeoutRef.current) clearTimeout(chordNoMatchTimeoutRef.current)
+        }
+    }, [])
+
     return (
         <>
             <StatusBar
@@ -217,6 +245,8 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
                 onOpenUsageDetail={() => setUsageModalOpen(true)}
                 ideStatus={ideStatus}
                 cursorPosition={cursorPosition}
+                chordPendingShortcut={chordPendingShortcut}
+                chordNoMatchFlash={chordNoMatchFlash}
                 editorFontSize={editorFontSize}
                 terminalFontSize={terminalFontSize}
                 onEditorFontSizeDecrease={decreaseEditorFontSize}

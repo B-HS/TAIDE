@@ -34,13 +34,13 @@ const STAGED_DIFF_LOCK_FILE_NAMES: &[&str] = &["bun.lock", "Cargo.lock", "packag
 /// Exact basenames that conventionally hold secrets (SSH private keys) — a staged one must never
 /// reach an external AI provider's request body, so it's excluded from [`diff_staged_text`] the
 /// same way lock files are (security.md §1 "시크릿은 … 클라이언트 어디에도 노출하지 않는다").
-const STAGED_DIFF_SECRET_FILE_NAMES: &[&str] = &["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"];
+const STAGED_DIFF_SECRET_FILE_NAMES: &[&str] = &["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", ".netrc", ".npmrc"];
 
 /// Basename prefixes that conventionally hold secrets (`.env`, `.env.local`, `.env.production`, ...).
 const STAGED_DIFF_SECRET_FILE_NAME_PREFIXES: &[&str] = &[".env"];
 
 /// Basename extensions that conventionally hold secrets (private keys, certificates, keystores).
-const STAGED_DIFF_SECRET_FILE_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx"];
+const STAGED_DIFF_SECRET_FILE_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "jks", "keystore", "ppk", "der", "crt"];
 
 const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
     ("ts", "typescript"),
@@ -335,6 +335,17 @@ fn utf8_safe_truncate_len(bytes: &[u8], max_bytes: usize) -> usize {
 /// ([`STAGED_DIFF_LOCK_FILE_NAMES`]) are left out of the patch body and listed in `skippedFiles`
 /// instead; the patch body itself is capped at [`STAGED_DIFF_TEXT_MAX_BYTES`].
 ///
+/// When the index has zero deltas against HEAD, this falls back to a HEAD↔workdir diff
+/// (`diff_tree_to_workdir_with_index`, VS Code parity — see
+/// `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md` §3.4) so the AI commit-message flow
+/// still has something to summarize when the user hasn't staged anything yet. The fallback diff
+/// includes untracked files (`include_untracked`/`show_untracked_content`) since "workdir changes"
+/// should mean the same thing here as it does for [`gutter`]'s full working-tree diff, not just
+/// modifications to already-tracked paths. Which diff got used is reported back via
+/// `used_fallback` so the caller can surface it (a toast, in the current UI) rather than silently
+/// describing unstaged changes as if they were staged. The same exclusion/truncation pipeline
+/// below runs unmodified over whichever [`git2::Diff`] was selected.
+///
 /// `skipped_files` is collected from *inside* the [`git2::Diff::print`] callback rather than a
 /// separate pass over `diff.deltas()` beforehand — libgit2 only determines whether a delta's
 /// content is binary while generating its patch (i.e. during this same `print` call), so a
@@ -344,7 +355,22 @@ pub fn diff_staged_text(repo_path: &Path) -> AppResult<StagedDiffText> {
     let repo = open_repo(repo_path)?;
     let head_tree = head_tree_of(&repo);
 
-    let diff = repo.diff_tree_to_index(head_tree.as_ref(), None, None).map_err(map_git_err)?;
+    let staged_diff = repo.diff_tree_to_index(head_tree.as_ref(), None, None).map_err(map_git_err)?;
+    let used_fallback = staged_diff.deltas().len() == 0;
+    let diff = if used_fallback {
+        let mut fallback_opts = git2::DiffOptions::new();
+        // `recurse_untracked_dirs` defaults to off in libgit2 — without it, a brand-new untracked
+        // *directory* collapses into a single opaque delta for the directory path instead of one
+        // delta per file inside it, so its file contents never reach `Diff::print` at all.
+        fallback_opts
+            .include_untracked(true)
+            .show_untracked_content(true)
+            .recurse_untracked_dirs(true);
+        repo.diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut fallback_opts))
+            .map_err(map_git_err)?
+    } else {
+        staged_diff
+    };
 
     let mut buffer: Vec<u8> = Vec::new();
     let mut truncated = false;
@@ -382,6 +408,7 @@ pub fn diff_staged_text(repo_path: &Path) -> AppResult<StagedDiffText> {
         diff_text,
         truncated,
         skipped_files,
+        used_fallback,
     })
 }
 
@@ -2523,6 +2550,7 @@ mod tests {
         assert!(result.diff_text.contains("+CHANGED"));
         assert!(!result.truncated);
         assert!(result.skipped_files.is_empty());
+        assert!(!result.used_fallback);
     }
 
     #[test]
@@ -2535,6 +2563,7 @@ mod tests {
 
         assert!(result.diff_text.contains("a.txt"));
         assert!(result.diff_text.contains("+new file content"));
+        assert!(!result.used_fallback);
     }
 
     #[test]
@@ -2548,6 +2577,61 @@ mod tests {
         assert!(result.diff_text.is_empty());
         assert!(!result.truncated);
         assert!(result.skipped_files.is_empty());
+    }
+
+    #[test]
+    fn diff_staged_text는_스테이지된_변경이_없고_워킹트리에_변경이_있으면_워킹트리_diff로_폴백한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nCHANGED\n");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.used_fallback);
+        assert!(result.diff_text.contains("a.txt"));
+        assert!(result.diff_text.contains("-line2"));
+        assert!(result.diff_text.contains("+CHANGED"));
+    }
+
+    #[test]
+    fn diff_staged_text는_폴백_시_untracked_파일도_추가로_포함한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\n");
+        repo.commit_all("init");
+        repo.write_file("new.txt", "brand new content\n");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.used_fallback);
+        assert!(result.diff_text.contains("new.txt"));
+        assert!(result.diff_text.contains("+brand new content"));
+    }
+
+    #[test]
+    fn diff_staged_text는_폴백_시_untracked_하위_디렉토리_안의_파일_내용도_포함한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\n");
+        repo.commit_all("init");
+        repo.write_file("feature/nested.txt", "content inside a new untracked directory\n");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.used_fallback);
+        assert!(result.diff_text.contains("feature/nested.txt"));
+        assert!(result.diff_text.contains("+content inside a new untracked directory"));
+    }
+
+    #[test]
+    fn diff_staged_text는_최초_커밋_이전_상태에서도_워킹트리_diff로_폴백한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\n");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.used_fallback);
+        assert!(result.diff_text.contains("a.txt"));
+        assert!(result.diff_text.contains("+line1"));
     }
 
     #[test]
@@ -2605,6 +2689,20 @@ mod tests {
 
         assert!(!result.diff_text.contains("placeholder key material"));
         assert_eq!(result.skipped_files, vec!["id_rsa".to_string()]);
+    }
+
+    #[test]
+    fn diff_staged_text는_jks_키스토어와_netrc를_본문에서_제외한다() {
+        let repo = TestRepo::new();
+        repo.write_file("release.jks", "not a real keystore, placeholder binary-ish content");
+        repo.write_file(".netrc", "machine example.com login user password placeholder-secret");
+        stage(repo.path(), &["release.jks".to_string(), ".netrc".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(!result.diff_text.contains("placeholder-secret"));
+        assert!(result.skipped_files.contains(&"release.jks".to_string()));
+        assert!(result.skipped_files.contains(&".netrc".to_string()));
     }
 
     #[test]

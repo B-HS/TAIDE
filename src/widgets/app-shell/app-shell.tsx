@@ -23,7 +23,7 @@ import {
     subscribeShowExplorerView,
     subscribeToggleExplorerSidebar,
 } from '@shared/lib/explorer-panel-bridge'
-import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
+import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
@@ -112,16 +112,12 @@ export const AppShell = () => {
         event.preventDefault()
     }
 
-    const keymapEntries = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
-
-    useGlobalKeymap(
-        {
-            'toggle-sidebar': () => requestToggleExplorerSidebar(),
-            explorer: () => requestShowExplorerView('files'),
-            git: () => requestShowExplorerView('git'),
-        },
-        keymapEntries,
-    )
+    useGlobalKeymap({
+        'toggle-sidebar': () => requestToggleExplorerSidebar(),
+        explorer: () => requestShowExplorerView('files'),
+        git: () => requestShowExplorerView('git'),
+        'open-keybindings-editor': () => requestOpenKeybindingsEditor(),
+    })
 
     useTauriEvent(dragDropEventSource, handleDragDropEvent)
 

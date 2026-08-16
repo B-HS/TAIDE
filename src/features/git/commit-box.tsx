@@ -39,7 +39,7 @@ export const CommitBox: FC<CommitBoxProps> = ({
     const resolveGenerateCommitMessageLabel = () => {
         if (isGeneratingCommitMessage) return t('git.generatingCommitMessage')
         if (canGenerateCommitMessage) return t('git.generateCommitMessage')
-        return t('git.noStagedChangesForCommitMessage')
+        return t('git.noChangesForCommitMessage')
     }
 
     return (

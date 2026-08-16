@@ -88,6 +88,20 @@ describe('findConflictingRow', () => {
         const reloadRow = rows.find((row) => row.id === 'window.reload')!
         expect(findConflictingRow(rows, reloadRow, true)).toBeNull()
     })
+
+    test('같은 1단 프리픽스(⌘K)를 쓰지만 2단이 다른 chord 로 재바인딩하면 기본 제공 chord 행(open-keybindings-editor, ⌘K ⌘S)과 충돌로 보지 않는다', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'window.reload', key: 'k', mods: ['mod'], chord: { key: 'x', mods: [] } }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const reloadRow = rows.find((row) => row.id === 'window.reload')!
+        expect(findConflictingRow(rows, reloadRow, true)).toBeNull()
+    })
+
+    test('같은 1단 프리픽스에 2단까지 동일한 chord 로 재바인딩하면 기본 제공 chord 행과 충돌로 본다', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'window.reload', key: 'k', mods: ['mod'], chord: { key: 's', mods: ['mod'] } }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const reloadRow = rows.find((row) => row.id === 'window.reload')!
+        expect(findConflictingRow(rows, reloadRow, true)?.id).toBe('open-keybindings-editor')
+    })
 })
 
 describe('filterKeybindingRowsByCapturedKey', () => {
@@ -127,6 +141,13 @@ describe('findRunnableCommandBinding', () => {
         const match = findRunnableCommandBinding(rows, { key: 's', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
         expect(match).toBeNull()
     })
+
+    test('chord 로 재바인딩된 행은 1단만으로 매칭되지 않는다(chord/유예 상태머신 밖 경로라 2단을 구현할 수 없음)', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'window.reload', key: 'r', mods: ['mod'], chord: { key: 's', mods: ['mod'] } }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const match = findRunnableCommandBinding(rows, { key: 'r', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        expect(match).toBeNull()
+    })
 })
 
 describe('monaco 커맨드 행', () => {
@@ -154,6 +175,43 @@ describe('monaco 커맨드 행', () => {
         const rows = buildKeybindingRows(commands, overrides)
         const row = rows.find((r) => r.commandId === 'monaco.editor.action.triggerSuggest')
         expect(row).toMatchObject({ key: 'i', mods: ['mod'], isOverridden: true })
+    })
+})
+
+describe('chord 필드 전달', () => {
+    test('커맨드에 대응하는 커맨드 없는 키맵 전용 행은 APP_KEYMAP 엔트리의 chord 를 그대로 가져온다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        const openEditorRow = rows.find((row) => row.id === 'open-keybindings-editor')
+        expect(openEditorRow?.chord).toEqual({ key: 's', mods: ['mod'] })
+    })
+
+    test('keymapId 가 chord 를 가진 APP_KEYMAP 엔트리를 가리키는 커맨드 행도 그 chord 를 가져온다', () => {
+        const commandsWithChord: AppCommand[] = [
+            { id: 'settings.openKeybindingsEditor', titleKey: 'settings.keymapOpenEditor', keymapId: 'open-keybindings-editor', run: () => {} },
+        ]
+        const rows = buildKeybindingRows(commandsWithChord, [])
+        const row = rows.find((r) => r.commandId === 'settings.openKeybindingsEditor')
+        expect(row?.chord).toEqual({ key: 's', mods: ['mod'] })
+    })
+
+    test('chord 를 가진 오버라이드는 base 엔트리의 chord 를 대체한다', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'save', key: 'k', mods: ['mod'], chord: { key: 'd', mods: ['shift'] } }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const saveRow = rows.find((row) => row.id === 'save')
+        expect(saveRow).toMatchObject({ key: 'k', mods: ['mod'], chord: { key: 'd', mods: ['shift'] }, isOverridden: true })
+    })
+
+    test('chord 없는 오버라이드는 base 엔트리의 chord 를 제거한다(단일 키로 다운그레이드)', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'open-keybindings-editor', key: 'j', mods: ['mod'] }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const openEditorRow = rows.find((row) => row.id === 'open-keybindings-editor')
+        expect(openEditorRow).toMatchObject({ key: 'j', mods: ['mod'], chord: undefined, isOverridden: true })
+    })
+
+    test('chord 가 없는 APP_KEYMAP 엔트리의 행은 chord 가 undefined 다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        const saveRow = rows.find((row) => row.id === 'save')
+        expect(saveRow?.chord).toBeUndefined()
     })
 })
 

@@ -181,7 +181,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                 isCommitting={isCommitting}
                 onGenerateCommitMessage={onGenerateCommitMessage}
                 isGeneratingCommitMessage={isGeneratingCommitMessage}
-                canGenerateCommitMessage={stagedRows.length > 0}
+                canGenerateCommitMessage={stagedRows.length > 0 || unstagedRows.length > 0 || mergeRows.length > 0}
             />
 
             <ScrollContainer className='min-h-0 flex-1'>

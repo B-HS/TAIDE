@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { Activity, CheckCircle2, CircleX, Plug, PlugZap, SquareTerminal, Type, Unplug, XCircle } from 'lucide-react'
+import { Activity, CheckCircle2, CircleX, Keyboard, Plug, PlugZap, SquareTerminal, Type, Unplug, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { IdeStatus, SystemUsage } from '@shared/api/bindings'
 import { BYTES_PER_MEBIBYTE } from '@shared/constants/system-usage'
@@ -48,6 +48,8 @@ type StatusBarProps = {
     onOpenUsageDetail: () => void
     ideStatus: IdeStatus | null
     cursorPosition: CursorPosition | null
+    chordPendingShortcut: string | null
+    chordNoMatchFlash: boolean
     editorFontSize: number
     terminalFontSize: number
     onEditorFontSizeDecrease: () => void
@@ -67,6 +69,8 @@ export const StatusBar: FC<StatusBarProps> = ({
     onOpenUsageDetail,
     ideStatus,
     cursorPosition,
+    chordPendingShortcut,
+    chordNoMatchFlash,
     editorFontSize,
     terminalFontSize,
     onEditorFontSizeDecrease,
@@ -81,6 +85,13 @@ export const StatusBar: FC<StatusBarProps> = ({
     const ideConnectionState = resolveIdeConnectionState(ideStatus)
     const IdeStateIcon = IDE_STATE_ICON[ideConnectionState]
     const ideTitle = ideConnectionState === 'notRunning' ? undefined : t('ide.title', { port: ideStatus?.port ?? 0 })
+
+    const resolveChordIndicatorLabel = () => {
+        if (chordNoMatchFlash) return t('keymap.chordNoMatch')
+        if (chordPendingShortcut) return t('keymap.chordPending', { shortcut: chordPendingShortcut })
+        return null
+    }
+    const chordIndicatorLabel = resolveChordIndicatorLabel()
 
     return (
         <div className='bg-app-sidebar-background border-app-border text-app-sidebar-icon-default flex h-6 shrink-0 items-center justify-between gap-3 border-t px-2 text-[11px] select-none'>
@@ -130,6 +141,12 @@ export const StatusBar: FC<StatusBarProps> = ({
                         )}>
                         <IdeStateIcon className='size-3' />
                         {t(IDE_STATE_LABEL_KEY[ideConnectionState])}
+                    </span>
+                )}
+                {chordIndicatorLabel && (
+                    <span className={cn('flex shrink-0 items-center gap-1', chordNoMatchFlash ? 'text-status-error' : 'text-status-warning')}>
+                        <Keyboard className='size-3' />
+                        {chordIndicatorLabel}
                     </span>
                 )}
             </div>
