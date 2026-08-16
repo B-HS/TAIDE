@@ -8,7 +8,15 @@ use crate::domain::ai::types::{
 use crate::error::{AppError, AppResult};
 
 const OLLAMA_BASE: &str = "https://ollama.com/api";
+/// Output budget for the auto-tab ghost-text path (`complete_chat`) — a single-line/few-line
+/// suggestion never needs more, and this value must not change without re-validating auto-tab
+/// latency (contract §3.1 "auto-tab 회귀 0").
 const OLLAMA_NUM_PREDICT: u32 = 256;
+/// Output budget for [`AiProviderClient::instruct`] (Inline Edit selection replacement, AI commit
+/// messages) — a whole-selection replacement is routinely tens of lines, far beyond
+/// [`OLLAMA_NUM_PREDICT`]'s ghost-text budget. Kept separate so raising it can never regress
+/// auto-tab latency/cost.
+const OLLAMA_INSTRUCT_NUM_PREDICT: u32 = 4_096;
 
 pub struct OllamaCloudProvider {
     pub api_key: String,
@@ -47,6 +55,8 @@ struct OllamaChatResponse {
     message: Option<OllamaChatMessage>,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    done_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,7 +75,7 @@ fn build_generate_body(model: &str, prompt: &str, suffix: &str, stop: &[String])
     })
 }
 
-fn build_chat_body(model: &str, system: &str, user: &str) -> serde_json::Value {
+fn build_chat_body(model: &str, system: &str, user: &str, num_predict: u32) -> serde_json::Value {
     serde_json::json!({
         "model": model,
         "messages": [
@@ -73,7 +83,7 @@ fn build_chat_body(model: &str, system: &str, user: &str) -> serde_json::Value {
             { "role": "user", "content": user },
         ],
         "stream": false,
-        "options": { "num_predict": OLLAMA_NUM_PREDICT },
+        "options": { "num_predict": num_predict },
     })
 }
 
@@ -82,6 +92,11 @@ fn is_fim_response_usable(parsed: &OllamaGenerateResponse) -> bool {
 }
 
 impl AiProviderClient for OllamaCloudProvider {
+    async fn instruct(&self, client: &reqwest::Client, model: &str, system: &str, user: &str) -> AppResult<Option<String>> {
+        self.send_chat_request(client, model, system, user, OLLAMA_INSTRUCT_NUM_PREDICT, true)
+            .await
+    }
+
     async fn list_models(&self, client: &reqwest::Client) -> AppResult<Vec<AiModelInfo>> {
         let res = client
             .get(format!("{OLLAMA_BASE}/tags"))
@@ -176,7 +191,28 @@ impl OllamaCloudProvider {
     ) -> AppResult<Option<String>> {
         let system = prompt::render(&chat.system, vars);
         let user = prompt::render(&chat.user, vars);
-        let body = build_chat_body(&request.model, &system, &user);
+        self.send_chat_request(client, &request.model, &system, &user, OLLAMA_NUM_PREDICT, false)
+            .await
+    }
+
+    /// The `/api/chat` request/response mechanics shared by the auto-tab chat-fallback path
+    /// ([`Self::complete_chat`], which renders a template first, ghost-text budget, truncation
+    /// tolerated) and [`AiProviderClient::instruct`] (already-rendered strings, larger
+    /// selection-replacement budget). `fail_on_truncation` turns a `done_reason: "length"` response
+    /// into an error instead of silently returning the cut-off text — appropriate for `instruct`
+    /// (a truncated code replacement would otherwise look like a valid, complete suggestion) but
+    /// not for auto-tab ghost text, where a short completion hitting the budget is an expected,
+    /// harmless outcome.
+    async fn send_chat_request(
+        &self,
+        client: &reqwest::Client,
+        model: &str,
+        system: &str,
+        user: &str,
+        num_predict: u32,
+        fail_on_truncation: bool,
+    ) -> AppResult<Option<String>> {
+        let body = build_chat_body(model, system, user, num_predict);
 
         let res = client
             .post(format!("{OLLAMA_BASE}/chat"))
@@ -199,15 +235,28 @@ impl OllamaCloudProvider {
             .json()
             .await
             .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
-        if let Some(error) = parsed.error {
-            return Err(AppError::Internal(mask_provider_error(&error)));
-        }
-
-        Ok(parsed
-            .message
-            .map(|message| message.content)
-            .filter(|content| !content.trim().is_empty()))
+        extract_chat_text(parsed, fail_on_truncation)
     }
+}
+
+/// Turns a parsed `/api/chat` response into the caller's `Option<String>` result — pulled out of
+/// [`OllamaCloudProvider::send_chat_request`] so the truncation/error handling can be unit tested
+/// without a live HTTP round trip. A `done_reason: "length"` response only becomes an error when
+/// `fail_on_truncation` is set (see [`OllamaCloudProvider::send_chat_request`]'s doc comment).
+fn extract_chat_text(parsed: OllamaChatResponse, fail_on_truncation: bool) -> AppResult<Option<String>> {
+    if let Some(error) = parsed.error {
+        return Err(AppError::Internal(mask_provider_error(&error)));
+    }
+    if fail_on_truncation && parsed.done_reason.as_deref() == Some("length") {
+        return Err(AppError::Internal(
+            "ollama response was truncated at the output token limit".to_string(),
+        ));
+    }
+
+    Ok(parsed
+        .message
+        .map(|message| message.content)
+        .filter(|content| !content.trim().is_empty()))
 }
 
 #[cfg(test)]
@@ -228,12 +277,20 @@ mod tests {
 
     #[test]
     fn chat_요청_바디는_system_user_메시지_순서를_지킨다() {
-        let body = build_chat_body("qwen2.5-coder", "system prompt", "user prompt");
+        let body = build_chat_body("qwen2.5-coder", "system prompt", "user prompt", OLLAMA_NUM_PREDICT);
 
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], "system prompt");
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["messages"][1]["content"], "user prompt");
+        assert_eq!(body["options"]["num_predict"], OLLAMA_NUM_PREDICT);
+    }
+
+    #[test]
+    fn instruct_요청_바디는_auto_tab보다_큰_토큰_예산을_사용한다() {
+        let body = build_chat_body("qwen2.5-coder", "system prompt", "user prompt", OLLAMA_INSTRUCT_NUM_PREDICT);
+
+        assert_eq!(body["options"]["num_predict"], OLLAMA_INSTRUCT_NUM_PREDICT);
     }
 
     #[test]
@@ -261,5 +318,50 @@ mod tests {
             error: None,
         };
         assert!(is_fim_response_usable(&parsed));
+    }
+
+    #[test]
+    fn instruct_경로에서_길이_제한으로_잘린_응답은_에러로_처리된다() {
+        let parsed = OllamaChatResponse {
+            message: Some(OllamaChatMessage {
+                content: "half a function".to_string(),
+            }),
+            error: None,
+            done_reason: Some("length".to_string()),
+        };
+
+        let result = extract_chat_text(parsed, true);
+
+        assert!(matches!(result, Err(AppError::Internal(_))));
+    }
+
+    #[test]
+    fn auto_tab_경로에서_길이_제한으로_잘린_응답은_그대로_반환된다() {
+        let parsed = OllamaChatResponse {
+            message: Some(OllamaChatMessage {
+                content: "short suggestion".to_string(),
+            }),
+            error: None,
+            done_reason: Some("length".to_string()),
+        };
+
+        let result = extract_chat_text(parsed, false).unwrap();
+
+        assert_eq!(result, Some("short suggestion".to_string()));
+    }
+
+    #[test]
+    fn done_reason이_stop이면_잘리지_않은_것으로_처리된다() {
+        let parsed = OllamaChatResponse {
+            message: Some(OllamaChatMessage {
+                content: "complete response".to_string(),
+            }),
+            error: None,
+            done_reason: Some("stop".to_string()),
+        };
+
+        let result = extract_chat_text(parsed, true).unwrap();
+
+        assert_eq!(result, Some("complete response".to_string()));
     }
 }

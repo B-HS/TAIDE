@@ -15,7 +15,7 @@ export type AiInlineCompletionConfig = {
 
 /**
  * IPC boundary the provider calls through — injected by the caller (`ai_inline_complete`/
- * `ai_inline_cancel` from `entities/ai/ai.ipc`) so this `shared` module never imports `entities`
+ * `ai_request_cancel` from `entities/ai/ai.ipc`) so this `shared` module never imports `entities`
  * directly (fsd.md §2), mirroring how `shared/lib/lsp/adapters/*` take an injected `LspClient`.
  */
 export type AiInlineCompletionClient = {
@@ -30,11 +30,11 @@ type GetAiInlineCompletionConfig = () => AiInlineCompletionConfig | null
  * usable configuration (no provider/model chosen yet, or the chosen provider's token was cleared).
  */
 export const resolveAiInlineCompletionConfig = (
-    settings: Pick<Settings, 'aiAutoTabProvider' | 'aiAutoTabModel'> | undefined,
+    settings: Pick<Settings, 'aiProvider' | 'aiModel'> | undefined,
     tokenStatus: AiTokenStatus | undefined,
 ): AiInlineCompletionConfig | null => {
-    const provider = settings?.aiAutoTabProvider as AiProviderId | undefined
-    const model = settings?.aiAutoTabModel
+    const provider = settings?.aiProvider as AiProviderId | undefined
+    const model = settings?.aiModel
     if (!provider || !model) return null
     if (!(tokenStatus?.[provider] ?? false)) return null
     return { provider, model }

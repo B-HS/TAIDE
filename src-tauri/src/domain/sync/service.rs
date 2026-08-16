@@ -115,8 +115,8 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         terminal_cursor_blink: Some(settings.terminal_cursor_blink),
         enable_preview_tabs: Some(settings.enable_preview_tabs),
         ai_auto_tab_enabled: Some(settings.ai_auto_tab_enabled),
-        ai_auto_tab_provider: settings.ai_auto_tab_provider.clone(),
-        ai_auto_tab_model: settings.ai_auto_tab_model.clone(),
+        ai_provider: settings.ai_provider.clone(),
+        ai_model: settings.ai_model.clone(),
         ai_omlx_base_url: settings.ai_omlx_base_url.clone(),
         remote_access_enabled: Some(settings.remote_access_enabled),
         remote_password_only_login: Some(settings.remote_password_only_login),
@@ -234,6 +234,20 @@ pub fn ensure_supported_schema_version(schema_version: u32) -> AppResult<()> {
 
 pub fn apply_payload_settings(current: &Settings, payload: &SyncPayload) -> Settings {
     settings_service::apply_patch(current, &strip_non_syncable(&payload.settings))
+}
+
+/// Parses a downloaded gist body into a [`SyncPayload`], migrating any pre-rename
+/// `aiAutoTabProvider`/`aiAutoTabModel` keys in its nested `settings` object first — see
+/// [`settings_service::migrate_legacy_ai_provider_keys`]'s doc comment for why this is a raw-JSON
+/// migration rather than `#[serde(alias = ...)]`. `None` covers both an unparseable JSON body and
+/// a body that doesn't match [`SyncPayload`]'s shape — `sync_download` reports either the same way
+/// to the caller ("sync payload from the gist was malformed"), so the two aren't distinguished here.
+pub fn parse_synced_payload(content: &str) -> Option<SyncPayload> {
+    let mut raw: serde_json::Value = serde_json::from_str(content).ok()?;
+    if let Some(settings_object) = raw.get_mut("settings").and_then(|value| value.as_object_mut()) {
+        settings_service::migrate_legacy_ai_provider_keys(settings_object);
+    }
+    serde_json::from_value(raw).ok()
 }
 
 #[cfg(test)]
@@ -365,6 +379,52 @@ mod tests {
         assert_eq!(applied.remote_access_enabled, current.remote_access_enabled);
         assert_eq!(applied.remote_password_only_login, current.remote_password_only_login);
         assert_eq!(applied.remote_allowed_hosts, current.remote_allowed_hosts);
+    }
+
+    /// A gist uploaded before the `ai_auto_tab_provider`/`ai_auto_tab_model` → `ai_provider`/
+    /// `ai_model` rename (`docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-2/§3.1) still
+    /// carries the old field names — [`parse_synced_payload`] (the same parse path
+    /// `sync_download` uses) must migrate them to the renamed fields, exercised here the same way
+    /// as the shell-override/remote-gate regression above: a raw hand-written JSON string, not a
+    /// payload this build already knows how to produce safely.
+    #[test]
+    fn 구_필드명의_gist_페이로드도_ai_provider_ai_model로_읽힌다() {
+        let legacy_json = r#"{
+            "schemaVersion": 1,
+            "updatedAt": "2026-08-15T00:00:00Z",
+            "settings": {
+                "aiAutoTabProvider": "ollamaCloud",
+                "aiAutoTabModel": "qwen2.5-coder"
+            }
+        }"#;
+        let payload = parse_synced_payload(legacy_json).expect("구 필드명 gist 페이로드가 파싱되어야 함");
+
+        let current = Settings::default();
+        let applied = apply_payload_settings(&current, &payload);
+
+        assert_eq!(applied.ai_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(applied.ai_model, Some("qwen2.5-coder".to_string()));
+    }
+
+    #[test]
+    fn parse_synced_payload는_신_필드명_gist_페이로드도_그대로_파싱한다() {
+        let json = r#"{
+            "schemaVersion": 1,
+            "updatedAt": "2026-08-15T00:00:00Z",
+            "settings": {
+                "aiProvider": "codex",
+                "aiModel": "gpt-5.6-sol"
+            }
+        }"#;
+        let payload = parse_synced_payload(json).expect("신 필드명 gist 페이로드가 파싱되어야 함");
+
+        assert_eq!(payload.settings.ai_provider, Some("codex".to_string()));
+        assert_eq!(payload.settings.ai_model, Some("gpt-5.6-sol".to_string()));
+    }
+
+    #[test]
+    fn parse_synced_payload는_깨진_json에_none을_반환한다() {
+        assert!(parse_synced_payload("{not json").is_none());
     }
 
     #[test]

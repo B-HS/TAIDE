@@ -94,3 +94,5 @@ export const getGitFileLog = (input: { projectId: ProjectId; path: string; skip:
 
 export const getGitShowFile = (input: { projectId: ProjectId; rev: string; path: string }) =>
     unwrapResult(commands.gitShowFile(input.projectId, input.rev, input.path))
+
+export const getGitDiffStagedText = (projectId: ProjectId) => unwrapResult(commands.gitDiffStagedText(projectId))

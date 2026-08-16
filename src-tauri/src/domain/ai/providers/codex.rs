@@ -252,7 +252,28 @@ impl AiProviderClient for CodexProvider {
         };
         let instructions = prompt::render(&template.chat.system, &vars);
         let user_text = prompt::render(&template.chat.user, &vars);
-        let body = build_responses_body(&request.model, &instructions, &user_text);
+        self.send_responses_request(client, &request.model, &instructions, &user_text).await
+    }
+
+    async fn instruct(&self, client: &reqwest::Client, model: &str, system: &str, user: &str) -> AppResult<Option<String>> {
+        self.send_responses_request(client, model, system, user).await
+    }
+}
+
+impl CodexProvider {
+    /// The `/responses` SSE request/response mechanics shared by the auto-tab completion path
+    /// ([`AiProviderClient::complete`], which renders a template first) and
+    /// [`AiProviderClient::instruct`] (which is handed already-rendered strings) — Codex has no
+    /// separate FIM endpoint, so this *is* the provider's only completion mechanism, unlike Ollama
+    /// Cloud/oMLX's FIM-first/chat-fallback split.
+    async fn send_responses_request(
+        &self,
+        client: &reqwest::Client,
+        model: &str,
+        instructions: &str,
+        user_text: &str,
+    ) -> AppResult<Option<String>> {
+        let body = build_responses_body(model, instructions, user_text);
 
         let res = self
             .apply_auth_headers(client.post(format!("{CODEX_BASE}/responses")))

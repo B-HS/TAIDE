@@ -12,7 +12,7 @@ use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
-use crate::domain::ai::commands::AiInlineStore;
+use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeStore;
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
@@ -151,6 +151,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::git::commands::git_init,
             domain::git::commands::git_status,
             domain::git::commands::git_diff_file,
+            domain::git::commands::git_diff_staged_text,
             domain::git::commands::git_show_file,
             domain::git::commands::git_log,
             domain::git::commands::git_ahead_behind,
@@ -232,7 +233,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::ai::commands::ai_clear_token,
             domain::ai::commands::ai_list_models,
             domain::ai::commands::ai_inline_complete,
-            domain::ai::commands::ai_inline_cancel,
+            domain::ai::commands::ai_inline_edit,
+            domain::ai::commands::ai_commit_message,
+            domain::ai::commands::ai_request_cancel,
             domain::sync::commands::sync_status,
             domain::sync::commands::sync_connect,
             domain::sync::commands::sync_disconnect,
@@ -505,7 +508,7 @@ pub fn run() {
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
             app.manage(IdeStore::default());
-            app.manage(AiInlineStore::default());
+            app.manage(AiRequestStore::default());
             app.manage(SecretStoreState::default());
             app.manage(RemoteStore::default());
             domain::remote::commands::refresh_password_configured_cache(app.handle());

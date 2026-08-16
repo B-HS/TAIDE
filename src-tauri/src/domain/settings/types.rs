@@ -93,10 +93,21 @@ pub struct Settings {
     pub enable_preview_tabs: bool,
     #[serde(default)]
     pub ai_auto_tab_enabled: bool,
+    /// Renamed from `ai_auto_tab_provider` — this field now backs every AI feature's default
+    /// provider (auto-tab, Inline Edit, AI commit messages), not just auto-tab, so the name was
+    /// generalized. A pre-rename `settings.json`/synced gist payload (`aiAutoTabProvider`) is
+    /// migrated to this field name by
+    /// [`crate::domain::settings::service::migrate_legacy_ai_provider_keys`] before
+    /// deserialization — deliberately *not* a `#[serde(alias = ...)]` on this field, since with
+    /// the `specta` version this project pins, an alias makes `Settings`' Serialize and
+    /// Deserialize shapes diverge, splitting every TS consumer of `Settings` (including ones
+    /// unrelated to this field) into `_Serialize`/`_Deserialize`/union type variants. See
+    /// `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-2/§3.1.
     #[serde(default)]
-    pub ai_auto_tab_provider: Option<String>,
+    pub ai_provider: Option<String>,
+    /// Renamed from `ai_auto_tab_model` — see [`Settings::ai_provider`]'s doc comment.
     #[serde(default)]
-    pub ai_auto_tab_model: Option<String>,
+    pub ai_model: Option<String>,
     #[serde(default)]
     pub ai_omlx_base_url: Option<String>,
     #[serde(default)]
@@ -226,8 +237,8 @@ impl Default for Settings {
             terminal_cursor_blink: default_true(),
             enable_preview_tabs: default_true(),
             ai_auto_tab_enabled: false,
-            ai_auto_tab_provider: None,
-            ai_auto_tab_model: None,
+            ai_provider: None,
+            ai_model: None,
             ai_omlx_base_url: None,
             sync_gist_id: None,
             sync_last_synced_at: None,

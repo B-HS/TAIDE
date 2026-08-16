@@ -109,7 +109,8 @@ const TERMINAL_CURSOR_STYLE_OPTIONS = [
     { id: 'underline', labelKey: 'settings.cursorStyleUnderline' },
 ] as const
 
-const DEFAULT_AI_AUTO_TAB_PROVIDER: AiProviderId = 'ollamaCloud'
+/** Default for `Settings.aiProvider` — shared by auto-tab, Inline Edit, and AI commit messages (not auto-tab-only, despite the field's Wave G predecessor name). */
+const DEFAULT_AI_PROVIDER: AiProviderId = 'ollamaCloud'
 
 const AI_PROVIDER_OPTIONS: { id: AiProviderId; labelKey: string }[] = [
     { id: 'ollamaCloud', labelKey: 'settings.aiProviderOllamaCloud' },
@@ -185,7 +186,7 @@ export const SettingsView = () => {
     const { mutate: clearRemotePassword, isPending: isClearingRemotePassword } = useClearRemotePassword()
     const queryClient = useQueryClient()
 
-    const selectedAiProvider = (settings?.aiAutoTabProvider ?? DEFAULT_AI_AUTO_TAB_PROVIDER) as AiProviderId
+    const selectedAiProvider = (settings?.aiProvider ?? DEFAULT_AI_PROVIDER) as AiProviderId
     const isSelectedAiProviderConfigured = aiTokenStatus?.[selectedAiProvider] ?? false
     const {
         data: aiModels = [],
@@ -755,9 +756,7 @@ export const SettingsView = () => {
                                 label={t('settings.aiProviderLabel')}
                                 options={AI_PROVIDER_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
                                 value={selectedAiProvider}
-                                onSelect={(providerId) =>
-                                    updateSettings({ ...emptySettingsPatch(), aiAutoTabProvider: providerId, aiAutoTabModel: null })
-                                }
+                                onSelect={(providerId) => updateSettings({ ...emptySettingsPatch(), aiProvider: providerId, aiModel: null })}
                             />
                             {isSelectedAiProviderConfigured && isAiModelsError && (
                                 <span className='text-status-error text-xs'>
@@ -771,9 +770,9 @@ export const SettingsView = () => {
                                 <OptionPicker
                                     label={t('settings.aiModelLabel')}
                                     options={aiModels.map((model) => ({ id: model.modelId, label: model.displayName ?? model.modelId }))}
-                                    value={settings.aiAutoTabModel ?? ''}
+                                    value={settings.aiModel ?? ''}
                                     onSelect={(modelId) =>
-                                        updateSettings({ ...emptySettingsPatch(), aiAutoTabProvider: selectedAiProvider, aiAutoTabModel: modelId })
+                                        updateSettings({ ...emptySettingsPatch(), aiProvider: selectedAiProvider, aiModel: modelId })
                                     }
                                 />
                             )}
@@ -781,7 +780,7 @@ export const SettingsView = () => {
                                 checked={settings.aiAutoTabEnabled ?? false}
                                 disabled={!isSelectedAiProviderConfigured}
                                 onCheckedChange={(checked) =>
-                                    updateSettings({ ...emptySettingsPatch(), aiAutoTabProvider: selectedAiProvider, aiAutoTabEnabled: checked })
+                                    updateSettings({ ...emptySettingsPatch(), aiProvider: selectedAiProvider, aiAutoTabEnabled: checked })
                                 }
                             />
                         </SettingsSection>

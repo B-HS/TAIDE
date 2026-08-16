@@ -108,6 +108,7 @@ export const commands = {
 	gitInit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_init", { projectId })),
 	gitStatus: (projectId: ProjectId) => typedError<GitStatus, AppError>(__TAURI_INVOKE("git_status", { projectId })),
 	gitDiffFile: (projectId: ProjectId, path: string, mode: DiffMode) => typedError<DiffSides, AppError>(__TAURI_INVOKE("git_diff_file", { projectId, path, mode })),
+	gitDiffStagedText: (projectId: ProjectId) => typedError<StagedDiffText, AppError>(__TAURI_INVOKE("git_diff_staged_text", { projectId })),
 	gitShowFile: (projectId: ProjectId, rev: string, path: string) => typedError<string, AppError>(__TAURI_INVOKE("git_show_file", { projectId, rev, path })),
 	gitLog: (projectId: ProjectId, skip: number, take: number) => typedError<LogEntry[], AppError>(__TAURI_INVOKE("git_log", { projectId, skip, take })),
 	gitAheadBehind: (projectId: ProjectId) => typedError<AheadBehind, AppError>(__TAURI_INVOKE("git_ahead_behind", { projectId })),
@@ -189,7 +190,19 @@ export const commands = {
 	aiClearToken: (provider: AiProviderId) => typedError<null, AppError>(__TAURI_INVOKE("ai_clear_token", { provider })),
 	aiListModels: (provider: AiProviderId) => typedError<AiModelInfo[], AppError>(__TAURI_INVOKE("ai_list_models", { provider })),
 	aiInlineComplete: (request: AiInlineCompleteRequest) => typedError<AiInlineCompleteResponse, AppError>(__TAURI_INVOKE("ai_inline_complete", { request })),
-	aiInlineCancel: (requestId: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_inline_cancel", { requestId })),
+	/**
+	 *  `provider`/`model` are resolved before `request_store.begin()` — resolving after would leave a
+	 *  `begin()`ed entry stranded with no matching `finish()` on a resolution failure (see
+	 *  [`AiRequestStore::begin`]'s doc comment on why a stray entry blocks `requestId` reuse and leaks
+	 *  its cancel sender).
+	 */
+	aiInlineEdit: (request: AiInlineEditRequest) => typedError<AiInlineEditResponse, AppError>(__TAURI_INVOKE("ai_inline_edit", { request })),
+	/**
+	 *  `provider`/`model` are resolved before `request_store.begin()` — see [`ai_inline_edit`]'s doc
+	 *  comment for why.
+	 */
+	aiCommitMessage: (request: AiCommitMessageRequest) => typedError<AiCommitMessageResponse, AppError>(__TAURI_INVOKE("ai_commit_message", { request })),
+	aiRequestCancel: (requestId: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_request_cancel", { requestId })),
 	syncStatus: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_status")),
 	syncConnect: (pat: string) => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_connect", { pat })),
 	syncDisconnect: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_disconnect")),
@@ -289,6 +302,19 @@ export type AheadBehind = {
 	behind: number,
 };
 
+export type AiCommitMessageRequest = {
+	requestId: string,
+	provider?: AiProviderId | null,
+	model?: string | null,
+	diffText: string,
+	recentCommits: string,
+};
+
+export type AiCommitMessageResponse = {
+	requestId: string,
+	text: string | null,
+};
+
 export type AiInlineCompleteRequest = {
 	requestId: string,
 	provider: AiProviderId,
@@ -300,6 +326,23 @@ export type AiInlineCompleteRequest = {
 };
 
 export type AiInlineCompleteResponse = {
+	requestId: string,
+	text: string | null,
+};
+
+export type AiInlineEditRequest = {
+	requestId: string,
+	provider?: AiProviderId | null,
+	model?: string | null,
+	selection: string,
+	instruction: string,
+	language: string,
+	filePath: string,
+	prefix: string,
+	suffix: string,
+};
+
+export type AiInlineEditResponse = {
 	requestId: string,
 	text: string | null,
 };
@@ -904,8 +947,21 @@ export type Settings = {
 	terminalCursorBlink?: boolean,
 	enablePreviewTabs?: boolean,
 	aiAutoTabEnabled?: boolean,
-	aiAutoTabProvider?: string | null,
-	aiAutoTabModel?: string | null,
+	/**
+	 *  Renamed from `ai_auto_tab_provider` — this field now backs every AI feature's default
+	 *  provider (auto-tab, Inline Edit, AI commit messages), not just auto-tab, so the name was
+	 *  generalized. A pre-rename `settings.json`/synced gist payload (`aiAutoTabProvider`) is
+	 *  migrated to this field name by
+	 *  [`crate::domain::settings::service::migrate_legacy_ai_provider_keys`] before
+	 *  deserialization — deliberately *not* a `#[serde(alias = ...)]` on this field, since with
+	 *  the `specta` version this project pins, an alias makes `Settings`' Serialize and
+	 *  Deserialize shapes diverge, splitting every TS consumer of `Settings` (including ones
+	 *  unrelated to this field) into `_Serialize`/`_Deserialize`/union type variants. See
+	 *  `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-2/§3.1.
+	 */
+	aiProvider?: string | null,
+	/**  Renamed from `ai_auto_tab_model` — see [`Settings::ai_provider`]'s doc comment. */
+	aiModel?: string | null,
 	aiOmlxBaseUrl?: string | null,
 	syncGistId?: string | null,
 	syncLastSyncedAt?: string | null,
@@ -968,8 +1024,8 @@ export type SettingsPatch = {
 	terminalCursorBlink: boolean | null,
 	enablePreviewTabs: boolean | null,
 	aiAutoTabEnabled: boolean | null,
-	aiAutoTabProvider: string | null,
-	aiAutoTabModel: string | null,
+	aiProvider: string | null,
+	aiModel: string | null,
 	aiOmlxBaseUrl: string | null,
 	remoteAccessEnabled: boolean | null,
 	remotePasswordOnlyLogin: boolean | null,
@@ -1079,6 +1135,17 @@ export type SnippetFile_Serialize = {
 export type SnippetStringOrList = string | string[];
 
 export type SplitDir = "horizontal" | "vertical";
+
+/**
+ *  Unified diff text of staged changes (HEAD vs index), for AI commit message generation
+ *  (`ai_commit_message`) — see [`crate::domain::git::service::diff_staged_text`] for how
+ *  `truncated`/`skipped_files` get populated.
+ */
+export type StagedDiffText = {
+	diffText: string,
+	truncated: boolean,
+	skippedFiles: string[],
+};
 
 export type StatusRow = {
 	path: string,

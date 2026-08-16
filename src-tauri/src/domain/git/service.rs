@@ -11,7 +11,7 @@ use crate::error::{AppError, AppResult};
 
 use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitChangeKind, GitRemote, GitStashEntry,
-    GitStatus, GutterHunk, HunkKind, LogEntry, RevertOutcome, StatusRow, TagCreateOptions, TagInfo,
+    GitStatus, GutterHunk, HunkKind, LogEntry, RevertOutcome, StagedDiffText, StatusRow, TagCreateOptions, TagInfo,
 };
 
 const DEFAULT_STASH_MESSAGE: &str = "WIP";
@@ -19,6 +19,28 @@ const DEFAULT_STASH_MESSAGE: &str = "WIP";
 /// Regular, non-executable file mode — see [`build_patch_text`]'s doc comment for why a synthetic
 /// add/delete patch needs one at all.
 const NEW_FILE_MODE: &str = "100644";
+
+/// Upper bound on [`diff_staged_text`]'s returned patch text — keeps the AI commit-message request
+/// payload (and its token cost) bounded regardless of how large the staged change is. Exceeding it
+/// sets `truncated: true` on [`StagedDiffText`] rather than erroring, since a summary from a
+/// partial diff is still useful.
+const STAGED_DIFF_TEXT_MAX_BYTES: usize = 32 * 1024;
+
+/// Lock files carry no information useful to an AI commit-message summary (their diffs are large,
+/// mechanically generated, and never hand-written) — excluded from [`diff_staged_text`] the same
+/// way binary deltas are, and listed in `skippedFiles` instead of their content.
+const STAGED_DIFF_LOCK_FILE_NAMES: &[&str] = &["bun.lock", "Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
+
+/// Exact basenames that conventionally hold secrets (SSH private keys) — a staged one must never
+/// reach an external AI provider's request body, so it's excluded from [`diff_staged_text`] the
+/// same way lock files are (security.md §1 "시크릿은 … 클라이언트 어디에도 노출하지 않는다").
+const STAGED_DIFF_SECRET_FILE_NAMES: &[&str] = &["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"];
+
+/// Basename prefixes that conventionally hold secrets (`.env`, `.env.local`, `.env.production`, ...).
+const STAGED_DIFF_SECRET_FILE_NAME_PREFIXES: &[&str] = &[".env"];
+
+/// Basename extensions that conventionally hold secrets (private keys, certificates, keystores).
+const STAGED_DIFF_SECRET_FILE_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx"];
 
 const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
     ("ts", "typescript"),
@@ -243,6 +265,144 @@ pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode) -> AppResult<Diff
         modified,
         language_id: language_id_for(Path::new(&relative)),
     })
+}
+
+/// `true` when `delta` should be left out of [`diff_staged_text`]'s patch body — a lock file, a
+/// secret-like file (by basename, on whichever side has a path — see [`is_secret_like_path`]), or
+/// a binary delta on either side. Called from inside the [`git2::Diff::print`] callback, which both
+/// skips emitting these deltas' lines and collects their paths into `skippedFiles` from the same
+/// check — see [`diff_staged_text`]'s doc comment for why that has to happen during `print` rather
+/// than a pass over `diff.deltas()` beforehand.
+fn is_excluded_from_staged_diff(delta: &git2::DiffDelta) -> bool {
+    let is_excluded_by_name = staged_diff_delta_path(delta).is_some_and(|path| is_lock_file_path(&path) || is_secret_like_path(&path));
+    is_excluded_by_name || delta.new_file().is_binary() || delta.old_file().is_binary()
+}
+
+fn is_lock_file_path(path: &str) -> bool {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| STAGED_DIFF_LOCK_FILE_NAMES.contains(&name))
+}
+
+/// `true` when `path`'s basename matches one of [`STAGED_DIFF_SECRET_FILE_NAMES`] exactly, starts
+/// with one of [`STAGED_DIFF_SECRET_FILE_NAME_PREFIXES`], or ends with one of
+/// [`STAGED_DIFF_SECRET_FILE_EXTENSIONS`] — a conservative, extension/name-based heuristic (not a
+/// content scan) for files that conventionally hold credentials.
+fn is_secret_like_path(path: &str) -> bool {
+    let Some(name) = Path::new(path).file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    STAGED_DIFF_SECRET_FILE_NAMES.contains(&name)
+        || STAGED_DIFF_SECRET_FILE_NAME_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+        || STAGED_DIFF_SECRET_FILE_EXTENSIONS
+            .iter()
+            .any(|extension| Path::new(name).extension().and_then(|value| value.to_str()) == Some(extension))
+}
+
+/// The path a [`StagedDiffText`]-facing message should show for `delta` — `new_file`'s path, or
+/// `old_file`'s when the delta has no new side (a deletion).
+fn staged_diff_delta_path(delta: &git2::DiffDelta) -> Option<String> {
+    delta
+        .new_file()
+        .path()
+        .or_else(|| delta.old_file().path())
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// Finds the largest `cut <= bytes.len().min(max_bytes)` that doesn't land inside a multi-byte
+/// UTF-8 sequence — used to hard-truncate [`diff_staged_text`]'s patch buffer at a `char` boundary
+/// so `String::from_utf8_lossy` never has to paper over a chopped-off character with `U+FFFD`.
+/// `max_bytes >= bytes.len()` (nothing to cut) returns `bytes.len()` immediately rather than
+/// indexing `bytes[cut]` at that length — one past the last valid index, which would panic.
+fn utf8_safe_truncate_len(bytes: &[u8], max_bytes: usize) -> usize {
+    let mut cut = max_bytes.min(bytes.len());
+    if cut >= bytes.len() {
+        return bytes.len();
+    }
+    while cut > 0 && bytes[cut] & 0b1100_0000 == 0b1000_0000 {
+        cut -= 1;
+    }
+    cut
+}
+
+/// Builds the unified diff text of staged changes (HEAD vs index) for AI commit-message
+/// generation, via `git2`'s native `diff_tree_to_index` + `Diff::print` (see
+/// `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §3.3) rather than shelling out to the `git`
+/// CLI. `head_tree_of` returning `None` (no commits yet) diffs against libgit2's implicit empty
+/// tree, so an initial commit's staged files show up as additions — the same behavior
+/// [`ensure_clean_index`] already relies on. Binary deltas and lock files
+/// ([`STAGED_DIFF_LOCK_FILE_NAMES`]) are left out of the patch body and listed in `skippedFiles`
+/// instead; the patch body itself is capped at [`STAGED_DIFF_TEXT_MAX_BYTES`].
+///
+/// `skipped_files` is collected from *inside* the [`git2::Diff::print`] callback rather than a
+/// separate pass over `diff.deltas()` beforehand — libgit2 only determines whether a delta's
+/// content is binary while generating its patch (i.e. during this same `print` call), so a
+/// delta's `is_binary()` flag reads as unset (`false`) on a fresh [`git2::Diff`] that hasn't been
+/// printed/patched yet.
+pub fn diff_staged_text(repo_path: &Path) -> AppResult<StagedDiffText> {
+    let repo = open_repo(repo_path)?;
+    let head_tree = head_tree_of(&repo);
+
+    let diff = repo.diff_tree_to_index(head_tree.as_ref(), None, None).map_err(map_git_err)?;
+
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut truncated = false;
+    let mut skipped_files: Vec<String> = Vec::new();
+    diff.print(git2::DiffFormat::Patch, |delta, _hunk, line| {
+        if is_excluded_from_staged_diff(&delta) {
+            if let Some(path) = staged_diff_delta_path(&delta) {
+                if !skipped_files.contains(&path) {
+                    skipped_files.push(path);
+                }
+            }
+            return true;
+        }
+        if buffer.len() >= STAGED_DIFF_TEXT_MAX_BYTES {
+            truncated = true;
+            return true;
+        }
+        if matches!(line.origin(), '+' | '-' | ' ') {
+            buffer.push(line.origin() as u8);
+        }
+        buffer.extend_from_slice(line.content());
+        true
+    })
+    .map_err(map_git_err)?;
+
+    if buffer.len() > STAGED_DIFF_TEXT_MAX_BYTES {
+        buffer.truncate(utf8_safe_truncate_len(&buffer, STAGED_DIFF_TEXT_MAX_BYTES));
+        truncated = true;
+    }
+
+    let mut diff_text = String::from_utf8_lossy(&buffer).into_owned();
+    append_staged_diff_notices(&mut diff_text, truncated, &skipped_files);
+
+    Ok(StagedDiffText {
+        diff_text,
+        truncated,
+        skipped_files,
+    })
+}
+
+/// Appends [`diff_staged_text`]'s truncation/skip facts as plain-text notices directly onto the
+/// body handed to the AI model — `truncated`/`skipped_files` alone only reach the user (as a
+/// toast), so without this the model has no way to know it's summarizing a partial diff, or that
+/// binary/lock files changed at all, and would confidently describe an incomplete picture as
+/// complete (contract §3.3 "절삭 사실 문자열 명시"). Filenames only, never file content — the same
+/// exclusion [`is_excluded_from_staged_diff`] already enforces for the body itself.
+fn append_staged_diff_notices(diff_text: &mut String, truncated: bool, skipped_files: &[String]) {
+    if truncated {
+        diff_text.push_str("\n\n[diff truncated at the size limit — later changes are not shown]\n");
+    }
+    if !skipped_files.is_empty() {
+        diff_text.push_str("\n[files omitted from this diff — binary or lock file, content not shown]:\n");
+        for path in skipped_files {
+            diff_text.push_str("- ");
+            diff_text.push_str(path);
+            diff_text.push('\n');
+        }
+    }
 }
 
 pub fn log(repo_path: &Path, skip: usize, take: usize) -> AppResult<Vec<LogEntry>> {
@@ -2346,6 +2506,162 @@ mod tests {
         assert_eq!(kind_of("a.txt"), Some(GitChangeKind::Modified));
         assert_eq!(kind_of("b.txt"), Some(GitChangeKind::Deleted));
         assert_eq!(kind_of("c.txt"), Some(GitChangeKind::Added));
+    }
+
+    #[test]
+    fn diff_staged_text는_스테이지된_변경사항의_통합_diff를_반환한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nCHANGED\n");
+        stage(repo.path(), &["a.txt".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.diff_text.contains("a.txt"));
+        assert!(result.diff_text.contains("-line2"));
+        assert!(result.diff_text.contains("+CHANGED"));
+        assert!(!result.truncated);
+        assert!(result.skipped_files.is_empty());
+    }
+
+    #[test]
+    fn diff_staged_text는_최초_커밋_이전에도_스테이지된_추가_파일을_diff로_반환한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "new file content\n");
+        stage(repo.path(), &["a.txt".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.diff_text.contains("a.txt"));
+        assert!(result.diff_text.contains("+new file content"));
+    }
+
+    #[test]
+    fn diff_staged_text는_스테이지된_변경이_없으면_빈_diff를_반환한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "a");
+        repo.commit_all("init");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.diff_text.is_empty());
+        assert!(!result.truncated);
+        assert!(result.skipped_files.is_empty());
+    }
+
+    #[test]
+    fn diff_staged_text는_lock_파일을_본문에서_제외하되_파일명_안내는_남긴다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "a");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "a2");
+        repo.write_file("bun.lock", "lockfile content that should never reach the AI prompt");
+        stage(repo.path(), &["a.txt".to_string(), "bun.lock".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.diff_text.contains("a.txt"));
+        assert!(!result.diff_text.contains("lockfile content"));
+        assert!(result.diff_text.contains("bun.lock"));
+        assert_eq!(result.skipped_files, vec!["bun.lock".to_string()]);
+    }
+
+    #[test]
+    fn diff_staged_text는_바이너리_파일을_본문에서_제외하되_파일명_안내는_남긴다() {
+        let repo = TestRepo::new();
+        let binary_path = repo.path().join("image.png");
+        std::fs::write(&binary_path, [0u8, 1, 2, 3, 0, 255, 254]).expect("write binary file");
+        stage(repo.path(), &["image.png".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.diff_text.contains("image.png"));
+        assert_eq!(result.skipped_files, vec!["image.png".to_string()]);
+    }
+
+    #[test]
+    fn diff_staged_text는_env_파일을_본문에서_제외하고_skipped_files에_기록한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "a");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "a2");
+        repo.write_file(".env", "some placeholder credential value for the test");
+        stage(repo.path(), &["a.txt".to_string(), ".env".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(!result.diff_text.contains("placeholder credential value"));
+        assert_eq!(result.skipped_files, vec![".env".to_string()]);
+    }
+
+    #[test]
+    fn diff_staged_text는_ssh_개인키_파일명을_본문에서_제외하고_skipped_files에_기록한다() {
+        let repo = TestRepo::new();
+        repo.write_file("id_rsa", "not a real key, just placeholder key material for the test");
+        stage(repo.path(), &["id_rsa".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(!result.diff_text.contains("placeholder key material"));
+        assert_eq!(result.skipped_files, vec!["id_rsa".to_string()]);
+    }
+
+    #[test]
+    fn diff_staged_text는_상한_바이트를_넘으면_잘라내고_절삭_사실을_본문에_명시한다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line\n".repeat(STAGED_DIFF_TEXT_MAX_BYTES).as_str());
+        stage(repo.path(), &["a.txt".to_string()]).expect("stage");
+
+        let result = diff_staged_text(repo.path()).expect("diff_staged_text");
+
+        assert!(result.truncated);
+        assert!(result.diff_text.contains("truncated"));
+    }
+
+    #[test]
+    fn is_secret_like_path는_정확한_파일명을_매칭한다() {
+        assert!(is_secret_like_path("id_rsa"));
+        assert!(is_secret_like_path("nested/dir/id_ed25519"));
+        assert!(!is_secret_like_path("id_rsa.pub"));
+    }
+
+    #[test]
+    fn is_secret_like_path는_env_접두사_파일명을_매칭한다() {
+        assert!(is_secret_like_path(".env"));
+        assert!(is_secret_like_path(".env.local"));
+        assert!(is_secret_like_path("config/.env.production"));
+        assert!(!is_secret_like_path("environment.ts"));
+    }
+
+    #[test]
+    fn is_secret_like_path는_시크릿_확장자를_매칭한다() {
+        assert!(is_secret_like_path("server.pem"));
+        assert!(is_secret_like_path("cert.key"));
+        assert!(is_secret_like_path("keystore.p12"));
+        assert!(!is_secret_like_path("notes.keys"));
+    }
+
+    #[test]
+    fn is_secret_like_path는_일반_파일은_매칭하지_않는다() {
+        assert!(!is_secret_like_path("src/main.rs"));
+        assert!(!is_secret_like_path("README.md"));
+    }
+
+    #[test]
+    fn utf8_safe_truncate_len은_상한이_길이보다_크거나_같으면_전체_길이를_반환한다() {
+        let bytes = "abc".as_bytes();
+        assert_eq!(utf8_safe_truncate_len(bytes, 3), 3);
+        assert_eq!(utf8_safe_truncate_len(bytes, 10), 3);
+        assert_eq!(utf8_safe_truncate_len(&[], 5), 0);
+    }
+
+    #[test]
+    fn utf8_safe_truncate_len은_멀티바이트_경계에서_안전하게_잘라낸다() {
+        let bytes = "가".as_bytes();
+        assert_eq!(bytes.len(), 3);
+        assert_eq!(utf8_safe_truncate_len(bytes, 1), 0);
+        assert_eq!(utf8_safe_truncate_len(bytes, 2), 0);
     }
 
     #[test]

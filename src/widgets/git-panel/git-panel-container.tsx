@@ -1,9 +1,10 @@
 import type { FC } from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
+import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
 import {
     gitBranchesQueryOptions,
     gitLogQueryOptions,
@@ -24,9 +25,11 @@ import {
     useStageGitPaths,
     useUnstageGitPaths,
 } from '@entities/git/git.query'
+import { getGitDiffStagedText } from '@entities/git/git.ipc'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
 import { Button } from '@shared/ui/button'
+import { buildRecentCommitsSummaryForAi, sanitizeAiCommitMessageResponse } from '@widgets/git-panel/ai-commit-message'
 import { GitPanel } from '@widgets/git-panel/git-panel'
 
 type GitPanelContainerProps = {
@@ -36,7 +39,16 @@ type GitPanelContainerProps = {
 const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => {
+    /**
+     * Mirrors `commitMessageRequestId` state so `handleGenerateCommitMessage`'s async callbacks can
+     * check "am I still the latest request?" without a stale closure — state read inside a
+     * `.then`/`finally` body would still see the value from the render that started this call, not
+     * whatever a later cancel-then-restart click has since set it to.
+     */
+    const latestCommitMessageRequestIdRef = useRef<string | null>(null)
+
     const [commitMessage, setCommitMessage] = useState('')
+    const [commitMessageRequestId, setCommitMessageRequestId] = useState<string | null>(null)
 
     const { t } = useTranslation()
 
@@ -102,6 +114,56 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
         )
     }
 
+    /**
+     * A cancel-then-restart click (or a plain cancel) may supersede this call's own request before
+     * it resolves — every check against `latestCommitMessageRequestIdRef.current` below drops a
+     * stale result instead of clobbering whatever a newer request (or the user, after cancelling)
+     * has since put in the commit message input/state.
+     */
+    const handleGenerateCommitMessage = async () => {
+        if (commitMessageRequestId) {
+            latestCommitMessageRequestIdRef.current = null
+            await cancelAiRequest(commitMessageRequestId).catch(() => undefined)
+            setCommitMessageRequestId(null)
+            return
+        }
+
+        const requestId = crypto.randomUUID()
+        latestCommitMessageRequestIdRef.current = requestId
+        setCommitMessageRequestId(requestId)
+        try {
+            const diff = await getGitDiffStagedText(projectId)
+            const response = await generateAiCommitMessage({
+                requestId,
+                provider: null,
+                model: null,
+                diffText: diff.diffText,
+                recentCommits: buildRecentCommitsSummaryForAi(log),
+            })
+            if (latestCommitMessageRequestIdRef.current !== requestId) return
+            if (!response.text) return
+
+            const sanitized = sanitizeAiCommitMessageResponse(response.text)
+            if (!sanitized) {
+                toast.error(t('git.commitMessageEmptyResponse'))
+                return
+            }
+
+            setCommitMessage(sanitized)
+            const notices = [
+                diff.truncated ? t('git.commitMessageDiffTruncated') : null,
+                diff.skippedFiles.length > 0 ? t('git.commitMessageFilesSkipped', { count: diff.skippedFiles.length }) : null,
+            ].filter((notice): notice is string => notice !== null)
+            toast.success(t('git.commitMessageGenerated'), { description: notices.length > 0 ? notices.join(' · ') : undefined })
+        } catch (error) {
+            if (latestCommitMessageRequestIdRef.current === requestId) {
+                toast.error(t('git.generateCommitMessageFailed'), { description: error instanceof Error ? error.message : undefined })
+            }
+        } finally {
+            if (latestCommitMessageRequestIdRef.current === requestId) setCommitMessageRequestId(null)
+        }
+    }
+
     const handleSync = () => pull(projectId, { onSuccess: () => push(projectId, { onError: notifyError }), onError: notifyError })
 
     const openFileTab = (path: string) =>
@@ -137,6 +199,8 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onCommitMessageChange={setCommitMessage}
             onCommit={handleCommit}
             isCommitting={isCommitting}
+            onGenerateCommitMessage={() => void handleGenerateCommitMessage()}
+            isGeneratingCommitMessage={commitMessageRequestId !== null}
             onStage={(paths) => stagePaths({ projectId, paths }, { onError: notifyError })}
             onUnstage={(paths) => unstagePaths({ projectId, paths }, { onError: notifyError })}
             onDiscard={(paths) => discardPaths({ projectId, paths }, { onError: notifyError })}

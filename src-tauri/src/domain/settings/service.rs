@@ -49,8 +49,8 @@ pub struct SettingsPatch {
     pub terminal_cursor_blink: Option<bool>,
     pub enable_preview_tabs: Option<bool>,
     pub ai_auto_tab_enabled: Option<bool>,
-    pub ai_auto_tab_provider: Option<String>,
-    pub ai_auto_tab_model: Option<String>,
+    pub ai_provider: Option<String>,
+    pub ai_model: Option<String>,
     pub ai_omlx_base_url: Option<String>,
     pub remote_access_enabled: Option<bool>,
     pub remote_password_only_login: Option<bool>,
@@ -65,9 +65,49 @@ pub struct SettingsPatch {
     pub recent_searches: Option<Vec<String>>,
 }
 
+/// Legacy → current key renames applied by [`migrate_legacy_ai_provider_keys`] — see that
+/// function's doc comment for why this is a raw-JSON migration rather than `#[serde(alias)]`.
+const LEGACY_AI_PROVIDER_KEY_RENAMES: &[(&str, &str)] = &[("aiAutoTabProvider", "aiProvider"), ("aiAutoTabModel", "aiModel")];
+
+/// Renames pre-rename `aiAutoTabProvider`/`aiAutoTabModel` JSON keys (the `Settings`/
+/// `SettingsPatch` field names before
+/// `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-2/§3.1) to their current `aiProvider`/
+/// `aiModel` names, in place, on an untyped JSON object — applied before deserializing into
+/// `Settings`/`SettingsPatch` at every boundary a pre-rename value could still arrive from (a
+/// hand-edited/legacy `settings.json` via [`load_settings`], a gist payload synced before the
+/// rename via `sync::commands::sync_download`).
+///
+/// This is a `serde_json::Value` pre-pass rather than `#[serde(alias = "aiAutoTabProvider")]` on
+/// the struct fields directly, because with the `specta` version this project pins, a field alias
+/// makes `Settings`'/`SettingsPatch`'s Serialize and Deserialize shapes diverge — which splits
+/// every TS consumer of those types (including ones with no relation to these two fields) into
+/// `_Serialize`/`_Deserialize`/union type variants.
+pub fn migrate_legacy_ai_provider_keys(object: &mut serde_json::Map<String, serde_json::Value>) {
+    for (legacy_key, current_key) in LEGACY_AI_PROVIDER_KEY_RENAMES {
+        if object.contains_key(*current_key) {
+            continue;
+        }
+        if let Some(legacy_value) = object.remove(*legacy_key) {
+            object.insert((*current_key).to_string(), legacy_value);
+        }
+    }
+}
+
+/// Reads and type-checks `settings.json`, applying [`migrate_legacy_ai_provider_keys`] to its raw
+/// JSON object first.
+fn read_settings_file(path: &std::path::Path) -> AppResult<Option<Settings>> {
+    let Some(mut raw) = persist::read_json::<serde_json::Value>(path)? else {
+        return Ok(None);
+    };
+    if let Some(object) = raw.as_object_mut() {
+        migrate_legacy_ai_provider_keys(object);
+    }
+    Ok(Some(serde_json::from_value(raw)?))
+}
+
 pub fn load_settings(paths: &AppPaths) -> Settings {
     let path = paths.settings_file();
-    match persist::read_json::<Settings>(&path) {
+    match read_settings_file(&path) {
         Ok(Some(settings)) => {
             let sanitized = sanitize(settings.clone());
             if sanitized != settings {
@@ -106,7 +146,7 @@ const EDITOR_CURSOR_STYLES: &[&str] = &["line", "block", "underline"];
 const EDITOR_CURSOR_BLINKING_STYLES: &[&str] = &["blink", "smooth", "phase", "expand", "solid"];
 const EDITOR_RENDER_WHITESPACE_MODES: &[&str] = &["none", "boundary", "selection", "all"];
 const TERMINAL_CURSOR_STYLES: &[&str] = &["bar", "block", "underline"];
-const AI_AUTO_TAB_PROVIDERS: &[&str] = &["ollamaCloud", "codex", "omlx"];
+const AI_PROVIDERS: &[&str] = &["ollamaCloud", "codex", "omlx"];
 
 /// Mirrors the frontend's `SEARCH_HISTORY_LIMIT`
 /// (`src/entities/search/search-history.ts`). The frontend already caps
@@ -215,7 +255,7 @@ fn sanitize(settings: Settings) -> Settings {
             TERMINAL_CURSOR_STYLES,
             DEFAULT_TERMINAL_CURSOR_STYLE,
         ),
-        ai_auto_tab_provider: sanitize_optional_enum(settings.ai_auto_tab_provider, AI_AUTO_TAB_PROVIDERS),
+        ai_provider: sanitize_optional_enum(settings.ai_provider, AI_PROVIDERS),
         ai_omlx_base_url: sanitize_optional_url(settings.ai_omlx_base_url),
         remote_allowed_hosts: sanitize_allowed_hosts(settings.remote_allowed_hosts),
         recent_searches: sanitize_recent_searches(settings.recent_searches),
@@ -279,8 +319,8 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
         enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
         ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
-        ai_auto_tab_provider: patch.ai_auto_tab_provider.clone().or_else(|| settings.ai_auto_tab_provider.clone()),
-        ai_auto_tab_model: patch.ai_auto_tab_model.clone().or_else(|| settings.ai_auto_tab_model.clone()),
+        ai_provider: patch.ai_provider.clone().or_else(|| settings.ai_provider.clone()),
+        ai_model: patch.ai_model.clone().or_else(|| settings.ai_model.clone()),
         ai_omlx_base_url: merge_ai_omlx_base_url(patch.ai_omlx_base_url.as_ref(), settings.ai_omlx_base_url.as_ref()),
         sync_gist_id: settings.sync_gist_id.clone(),
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
@@ -478,29 +518,71 @@ mod tests {
         let settings = Settings::default();
         let patch = SettingsPatch {
             ai_auto_tab_enabled: Some(true),
-            ai_auto_tab_provider: Some("ollamaCloud".to_string()),
-            ai_auto_tab_model: Some("qwen2.5-coder".to_string()),
+            ai_provider: Some("ollamaCloud".to_string()),
+            ai_model: Some("qwen2.5-coder".to_string()),
             ..SettingsPatch::default()
         };
 
         let updated = apply_patch(&settings, &patch);
 
         assert!(updated.ai_auto_tab_enabled);
-        assert_eq!(updated.ai_auto_tab_provider, Some("ollamaCloud".to_string()));
-        assert_eq!(updated.ai_auto_tab_model, Some("qwen2.5-coder".to_string()));
+        assert_eq!(updated.ai_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(updated.ai_model, Some("qwen2.5-coder".to_string()));
     }
 
     #[test]
-    fn 허용목록_밖의_auto_tab_provider는_none으로_보정된다() {
+    fn 허용목록_밖의_ai_provider는_none으로_보정된다() {
         let settings = Settings::default();
         let patch = SettingsPatch {
-            ai_auto_tab_provider: Some("anthropic".to_string()),
+            ai_provider: Some("anthropic".to_string()),
             ..SettingsPatch::default()
         };
 
         let updated = apply_patch(&settings, &patch);
 
-        assert_eq!(updated.ai_auto_tab_provider, None);
+        assert_eq!(updated.ai_provider, None);
+    }
+
+    #[test]
+    fn 구_필드명_객체는_마이그레이션_후_ai_provider_키로_파싱된다() {
+        let mut value: serde_json::Value = serde_json::from_str(r#"{"aiAutoTabProvider":"ollamaCloud","aiAutoTabModel":"qwen2.5-coder"}"#)
+            .expect("구 필드명 JSON이 파싱되어야 함");
+        migrate_legacy_ai_provider_keys(value.as_object_mut().expect("object"));
+
+        let patch: SettingsPatch = serde_json::from_value(value).expect("마이그레이션된 JSON이 SettingsPatch로 파싱되어야 함");
+
+        assert_eq!(patch.ai_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(patch.ai_model, Some("qwen2.5-coder".to_string()));
+    }
+
+    #[test]
+    fn 신_필드명이_이미_있으면_구_필드명_마이그레이션은_덮어쓰지_않는다() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(r#"{"aiAutoTabProvider":"codex","aiProvider":"omlx"}"#).expect("JSON이 파싱되어야 함");
+        migrate_legacy_ai_provider_keys(value.as_object_mut().expect("object"));
+
+        let patch: SettingsPatch = serde_json::from_value(value).expect("마이그레이션된 JSON이 SettingsPatch로 파싱되어야 함");
+
+        assert_eq!(patch.ai_provider, Some("omlx".to_string()));
+    }
+
+    #[test]
+    fn 구_필드명_ai_auto_tab_provider로_저장된_settings_json도_ai_provider로_읽힌다() {
+        let paths = AppPaths::new(temp_data_dir("legacy-ai-provider-field"));
+        let path = paths.settings_file();
+        std::fs::create_dir_all(path.parent().unwrap()).expect("create dir");
+        std::fs::write(
+            &path,
+            br#"{"version":1,"aiAutoTabProvider":"codex","aiAutoTabModel":"gpt-5.6-sol"}"#,
+        )
+        .expect("write legacy settings file");
+
+        let settings = load_settings(&paths);
+
+        assert_eq!(settings.ai_provider, Some("codex".to_string()));
+        assert_eq!(settings.ai_model, Some("gpt-5.6-sol".to_string()));
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
     }
 
     #[test]

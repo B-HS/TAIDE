@@ -7,7 +7,12 @@ use crate::domain::ai::types::{
 };
 use crate::error::{AppError, AppResult};
 
+/// Output budget for the auto-tab ghost-text path (`complete_chat`) — see
+/// `OLLAMA_NUM_PREDICT`'s doc comment in `providers/ollama.rs` (same reasoning applies here).
 const OMLX_MAX_TOKENS: u32 = 256;
+/// Output budget for [`AiProviderClient::instruct`] (Inline Edit selection replacement, AI commit
+/// messages) — see `OLLAMA_INSTRUCT_NUM_PREDICT`'s doc comment in `providers/ollama.rs`.
+const OMLX_INSTRUCT_MAX_TOKENS: u32 = 4_096;
 
 /// Fill-in-the-middle sentinel families, keyed by a case-insensitive substring match against the
 /// model id (oMLX exposes the model *directory name* as `id` — see `providers/mod.rs` doc on
@@ -150,6 +155,8 @@ struct OmlxChatResponse {
 struct OmlxChatChoice {
     #[serde(default)]
     message: Option<OmlxChatMessage>,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,7 +175,7 @@ fn build_completions_body(model: &str, prompt: &str, stop: &[String]) -> serde_j
     })
 }
 
-fn build_chat_body(model: &str, system: &str, user: &str) -> serde_json::Value {
+fn build_chat_body(model: &str, system: &str, user: &str, max_tokens: u32) -> serde_json::Value {
     serde_json::json!({
         "model": model,
         "messages": [
@@ -176,11 +183,16 @@ fn build_chat_body(model: &str, system: &str, user: &str) -> serde_json::Value {
             { "role": "user", "content": user },
         ],
         "stream": false,
-        "max_tokens": OMLX_MAX_TOKENS,
+        "max_tokens": max_tokens,
     })
 }
 
 impl AiProviderClient for OmlxProvider {
+    async fn instruct(&self, client: &reqwest::Client, model: &str, system: &str, user: &str) -> AppResult<Option<String>> {
+        self.send_chat_request(client, model, system, user, OMLX_INSTRUCT_MAX_TOKENS, true)
+            .await
+    }
+
     async fn list_models(&self, client: &reqwest::Client) -> AppResult<Vec<AiModelInfo>> {
         let res = self
             .apply_auth(client.get(format!("{}/v1/models", self.base_url)))
@@ -284,7 +296,25 @@ impl OmlxProvider {
     ) -> AppResult<Option<String>> {
         let system = prompt::render(&chat.system, vars);
         let user = prompt::render(&chat.user, vars);
-        let body = build_chat_body(&request.model, &system, &user);
+        self.send_chat_request(client, &request.model, &system, &user, OMLX_MAX_TOKENS, false)
+            .await
+    }
+
+    /// The `/v1/chat/completions` request/response mechanics shared by the auto-tab
+    /// chat-fallback path ([`Self::complete_chat`], ghost-text budget, truncation tolerated) and
+    /// [`AiProviderClient::instruct`] (already-rendered strings, larger selection-replacement
+    /// budget). `fail_on_truncation` mirrors the Ollama Cloud provider's `send_chat_request` — see
+    /// its doc comment for why `instruct` treats a truncated response as an error.
+    async fn send_chat_request(
+        &self,
+        client: &reqwest::Client,
+        model: &str,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        fail_on_truncation: bool,
+    ) -> AppResult<Option<String>> {
+        let body = build_chat_body(model, system, user, max_tokens);
 
         let res = self
             .apply_auth(client.post(format!("{}/v1/chat/completions", self.base_url)))
@@ -306,14 +336,28 @@ impl OmlxProvider {
             .json()
             .await
             .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
-        Ok(parsed
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|choice| choice.message)
-            .map(|message| message.content)
-            .filter(|content| !content.trim().is_empty()))
+        extract_chat_text(parsed, fail_on_truncation)
     }
+}
+
+/// Turns a parsed `/v1/chat/completions` response into the caller's `Option<String>` result —
+/// pulled out of [`OmlxProvider::send_chat_request`] so the truncation handling can be unit tested
+/// without a live HTTP round trip. A `finish_reason: "length"` first choice only becomes an error
+/// when `fail_on_truncation` is set (see [`OmlxProvider::send_chat_request`]'s doc comment).
+fn extract_chat_text(parsed: OmlxChatResponse, fail_on_truncation: bool) -> AppResult<Option<String>> {
+    let Some(choice) = parsed.choices.into_iter().next() else {
+        return Ok(None);
+    };
+    if fail_on_truncation && choice.finish_reason.as_deref() == Some("length") {
+        return Err(AppError::Internal(
+            "omlx response was truncated at the output token limit".to_string(),
+        ));
+    }
+
+    Ok(choice
+        .message
+        .map(|message| message.content)
+        .filter(|content| !content.trim().is_empty()))
 }
 
 #[cfg(test)]
@@ -402,12 +446,68 @@ mod tests {
 
     #[test]
     fn chat_요청_바디는_system_user_메시지_순서를_지킨다() {
-        let body = build_chat_body("qwen2.5-coder", "system prompt", "user prompt");
+        let body = build_chat_body("qwen2.5-coder", "system prompt", "user prompt", OMLX_MAX_TOKENS);
 
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], "system prompt");
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["messages"][1]["content"], "user prompt");
+        assert_eq!(body["max_tokens"], OMLX_MAX_TOKENS);
+    }
+
+    #[test]
+    fn instruct_요청_바디는_auto_tab보다_큰_토큰_예산을_사용한다() {
+        let body = build_chat_body("qwen2.5-coder", "system prompt", "user prompt", OMLX_INSTRUCT_MAX_TOKENS);
+
+        assert_eq!(body["max_tokens"], OMLX_INSTRUCT_MAX_TOKENS);
+    }
+
+    #[test]
+    fn instruct_경로에서_길이_제한으로_잘린_응답은_에러로_처리된다() {
+        let parsed = OmlxChatResponse {
+            choices: vec![OmlxChatChoice {
+                message: Some(OmlxChatMessage {
+                    content: "half a function".to_string(),
+                }),
+                finish_reason: Some("length".to_string()),
+            }],
+        };
+
+        let result = extract_chat_text(parsed, true);
+
+        assert!(matches!(result, Err(AppError::Internal(_))));
+    }
+
+    #[test]
+    fn auto_tab_경로에서_길이_제한으로_잘린_응답은_그대로_반환된다() {
+        let parsed = OmlxChatResponse {
+            choices: vec![OmlxChatChoice {
+                message: Some(OmlxChatMessage {
+                    content: "short suggestion".to_string(),
+                }),
+                finish_reason: Some("length".to_string()),
+            }],
+        };
+
+        let result = extract_chat_text(parsed, false).unwrap();
+
+        assert_eq!(result, Some("short suggestion".to_string()));
+    }
+
+    #[test]
+    fn finish_reason이_stop이면_잘리지_않은_것으로_처리된다() {
+        let parsed = OmlxChatResponse {
+            choices: vec![OmlxChatChoice {
+                message: Some(OmlxChatMessage {
+                    content: "complete response".to_string(),
+                }),
+                finish_reason: Some("stop".to_string()),
+            }],
+        };
+
+        let result = extract_chat_text(parsed, true).unwrap();
+
+        assert_eq!(result, Some("complete response".to_string()));
     }
 
     #[test]

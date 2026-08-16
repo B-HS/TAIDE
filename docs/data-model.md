@@ -26,7 +26,12 @@ TAIDE/
 │                            editorCodeLensEnabled(기본 true) — Wave A, `features/lsp.md` §3.
 │                            editorSemanticHighlighting(기본 true)·editorFormatOnType(기본 false)·
 │                            editorFormatOnPaste(기본 false)·emmetEnabled(기본 true) — Wave F,
-│                            `features/editor.md` §8/§9/§11)
+│                            `features/editor.md` §8/§9/§11.
+│                            aiAutoTabEnabled(기본 false)·aiProvider·aiModel·aiOmlxBaseUrl — Wave G,
+│                            `features/ai.md` §1, 필드 리네임은 §7)
+├── prompts/                 사용자 AI 프롬프트 오버라이드(`<id>.json`, `auto-tab-default`·
+│                            `inline-edit-default`·`commit-message-default`) — Wave G,
+│                            `features/ai.md` §5
 ├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트, 윈도우 크기/위치
 ├── projects/
 │   └── {projectId}/
@@ -154,3 +159,33 @@ emit·이중 `exit()` 를 가드한다.
 | 목록에서 제외 | 원본 파일이 디스크에서 사라짐(경로 미러) — 유령 복원 금지 |
 | GC(prune) | 열린 탭(`keepPaths`) 에 없는 경로 미러 — 프로젝트 열 때 |
 | 미러 삭제(clear) | 저장 성공(자동) · "디스크 내용 사용" 선택 · 탭 닫기(view 정책) |
+
+## 7. 설정 필드 리네임 — `ai_auto_tab_provider`/`ai_auto_tab_model` → `ai_provider`/`ai_model` (Wave G)
+
+> 계약: `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §3.1. 상세: `features/ai.md` §1.
+
+- 자동완성 전용이던 `Settings.ai_auto_tab_provider`/`ai_auto_tab_model` 이 Inline Edit·AI 커밋
+  메시지까지 공유하는 필드로 일반화되며 `ai_provider`/`ai_model` 로 리네임됐다(TS:
+  `aiAutoTabProvider`/`aiAutoTabModel` → `aiProvider`/`aiModel`). `ai_auto_tab_enabled` 는
+  auto-tab 전용 토글이라 이름 그대로 유지한다.
+- **하위호환 메커니즘 — `#[serde(alias = ...)]` 가 아니다.** 계약은 필드 단위 serde alias 를
+  지시했으나, 이 프로젝트가 고정한 specta(`=2.0.0-rc.25`) 에서 필드 alias 를 붙이면
+  `Settings`/`SettingsPatch` 의 생성된 TS 타입이 `Settings_Serialize`/`Settings_Deserialize` 유니온
+  으로 쪼개지고, `aiProvider`/`aiModel` 과 무관한 필드(예: `editorCodeLensEnabled`)까지
+  `Pick<Settings, ...>` 를 쓰는 모든 소비처(`use-lsp-session.ts` 등)에서 타입이 깨지는 것을 실물
+  검증으로 확인했다. 대신 **raw `serde_json::Value` 사전 마이그레이션**
+  (`domain::settings::service::migrate_legacy_ai_provider_keys`)으로 구현했다 — 역직렬화 직전에
+  JSON 객체의 `aiAutoTabProvider`/`aiAutoTabModel` 키를 `aiProvider`/`aiModel` 로 옮긴다(신 키가
+  이미 있으면 구 키는 건드리지 않고 그대로 둔다 — `Settings`/`SettingsPatch` 에 없는 필드라 역직렬화
+  시 조용히 무시된다). 그 결과를 평범한 플랫 `Settings`/`SettingsPatch` 로 파싱한다.
+  결과적으로 하위호환 기능은 계약과 동일하게 보장되지만, `Settings`/`SettingsPatch` 타입 자체는
+  구 필드명을 전혀 모르는 순수 플랫 타입으로 남는다.
+- **적용 지점은 디스크/동기화 페이로드 로드 두 곳뿐이다** — `settings::service::load_settings`
+  (→ `read_settings_file`) 와 `sync::service::parse_synced_payload`(gist 다운로드). **살아있는
+  IPC 경계(`settings_update` 로 오는 `SettingsPatch`)에는 적용되지 않는다** — `bindings.ts` 가 이미
+  `aiProvider`/`aiModel` 만 노출하므로 정상 프론트 소비처가 구 필드명을 보낼 경로 자체가 없다.
+- 검증: `migrate_legacy_ai_provider_keys` 자체의 역직렬화 테스트(`settings/service.rs`) +
+  구 필드명으로 저장된 `settings.json` 을 읽는 통합 테스트 + gist 페이로드 쪽 동일 테스트
+  (`sync/service.rs`). 필드 단위 alias 대비 이 방식의 트레이드오프: 마이그레이션 지점이 "역직렬화가
+  일어나는 모든 곳"이 아니라 "JSON 을 처음 읽어들이는 두 진입점"으로 좁혀지므로, 향후 구 페이로드를
+  읽는 새 진입점이 추가되면 이 사전 마이그레이션 호출을 함께 추가해야 한다(자동으로 따라오지 않음).

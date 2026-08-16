@@ -84,6 +84,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "git_init",
     "git_status",
     "git_diff_file",
+    "git_diff_staged_text",
     "git_show_file",
     "git_log",
     "git_ahead_behind",
@@ -165,7 +166,9 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "ai_clear_token",
     "ai_list_models",
     "ai_inline_complete",
-    "ai_inline_cancel",
+    "ai_inline_edit",
+    "ai_commit_message",
+    "ai_request_cancel",
     "sync_status",
     "sync_connect",
     "sync_disconnect",
@@ -504,6 +507,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
+        "git_diff_staged_text" => respond(git::git_diff_staged_text(app.state(), app.state(), arg!(args, "projectId")).await),
         "git_show_file" => respond(
             git::git_show_file(
                 app.state(),
@@ -807,7 +811,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "ai_clear_token" => respond(ai::ai_clear_token(app.state(), arg!(args, "provider")).await),
         "ai_list_models" => respond(ai::ai_list_models(app.state(), app.state(), arg!(args, "provider")).await),
         "ai_inline_complete" => respond(ai::ai_inline_complete(app.state(), app.state(), app.state(), arg!(args, "request")).await),
-        "ai_inline_cancel" => respond(ai::ai_inline_cancel(app.state(), arg!(args, "requestId")).await),
+        "ai_inline_edit" => respond(ai::ai_inline_edit(app.state(), app.state(), app.state(), arg!(args, "request")).await),
+        "ai_commit_message" => respond(ai::ai_commit_message(app.state(), app.state(), app.state(), arg!(args, "request")).await),
+        "ai_request_cancel" => respond(ai::ai_request_cancel(app.state(), arg!(args, "requestId")).await),
 
         "sync_status" => respond(sync::sync_status(app.state(), app.state()).await),
         "sync_connect" => respond(sync::sync_connect(app.state(), app.state(), arg!(args, "pat")).await),

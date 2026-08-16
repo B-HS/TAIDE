@@ -87,12 +87,37 @@
 ### git (`git.md`)
 
 - query: `git_status`, `git_gutter(path)`, `git_blame_range(path, from, to)`,
-  `git_diff_file(path, mode)`, `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`,
-  `git_ahead_behind`, `git_remotes`, `git_stash_list`
+  `git_diff_file(path, mode)`, `git_diff_staged_text(projectId)`(Wave G — `ai.md` §4/§7 의 AI 커밋
+  메시지 생성 전용 소비처, unified diff 텍스트 + 32KiB 상한 + 바이너리/lock 파일 제외),
+  `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`, `git_ahead_behind`, `git_remotes`,
+  `git_stash_list`
 - mutation: `git_init(projectId)`, `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`,
   `git_commit(message, opts)`, `git_push`, `git_pull`, `git_fetch`, `git_undo_last_commit`,
   `git_stash_push/apply/pop/drop`
 - event: `git:status-changed`, `git:refs-changed`, `git:operation-progress`, `git:operation-finished`
+- (이 목록은 stage/unstage hunk·conflict 해결·tag·revert·file log 등 이후 Wave 에서 추가된 git
+  커맨드를 전부 반영하지 못한 기존 doc debt — Wave G 범위 밖이라 이번엔 `git_diff_staged_text` 만
+  추가했다. 전체 재정리는 별도 문서화 작업으로 유예.)
+
+### ai (Wave G 신설 — `ai.md`)
+
+> Wave G 이전부터 자동완성(auto-tab) 커맨드 6종이 존재했으나 이 문서에 정본 항목이 없었다 — 이번에
+> 처음 문서화하며, 신규 3종·리네임 1건을 함께 반영한다. 상세 시맨틱은 `ai.md`.
+
+- query: `ai_token_status()` → `AiTokenStatus{ollamaCloud, codex, omlx}`,
+  `ai_list_models(provider)` → `AiModelInfo[]`
+- mutation: `ai_set_token(provider, token)`, `ai_clear_token(provider)`
+- mutation(취소 가능, `requestId` 기반 — 셋이 `AiRequestStore` 하나를 공유):
+  `ai_inline_complete(request: AiInlineCompleteRequest)` → `AiInlineCompleteResponse{requestId, text}`
+  (auto-tab, FIM-우선/chat-폴백) · **`ai_inline_edit(request: AiInlineEditRequest)`**(신규) →
+  `AiInlineEditResponse{requestId, text}` · **`ai_commit_message(request: AiCommitMessageRequest)`**
+  (신규) → `AiCommitMessageResponse{requestId, text}` · **`ai_request_cancel(requestId)`**
+  (`ai_inline_cancel` 에서 리네임 — auto-tab 전용이던 취소가 세 커맨드 공용으로 일반화됐다)
+- `AiInlineEditRequest{requestId, provider?, model?, selection, instruction, language, filePath,
+  prefix, suffix}` / `AiCommitMessageRequest{requestId, provider?, model?, diffText, recentCommits}`
+  — `provider`/`model` 을 생략하면 `Settings.aiProvider`/`aiModel` 로 폴백한다(`ai.md` §1). 텍스트
+  응답은 둘 다 실패가 아니라 `text: null`(빈 응답/취소)로 표현될 수 있다.
+- 원격 dispatch: ai 8종 전부 허용(§4 공통 원칙과 별개로 명시 거부 arm 없음) — `ai.md` §8.
 
 ### terminal (`terminal.md`)
 

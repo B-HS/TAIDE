@@ -43,6 +43,8 @@ export type GitPanelProps = {
     onCommitMessageChange: (value: string) => void
     onCommit: () => void
     isCommitting: boolean
+    onGenerateCommitMessage: () => void
+    isGeneratingCommitMessage: boolean
     onStage: (paths: string[]) => void
     onUnstage: (paths: string[]) => void
     onDiscard: (paths: string[]) => void
@@ -81,6 +83,8 @@ export const GitPanel: FC<GitPanelProps> = ({
     onCommitMessageChange,
     onCommit,
     isCommitting,
+    onGenerateCommitMessage,
+    isGeneratingCommitMessage,
     onStage,
     onUnstage,
     onDiscard,
@@ -170,7 +174,15 @@ export const GitPanel: FC<GitPanelProps> = ({
                 {remote && <span className='text-app-sidebar-icon-default ml-1 shrink-0 truncate text-[11px]'>{remote.name}</span>}
             </div>
 
-            <CommitBox message={commitMessage} onMessageChange={onCommitMessageChange} onCommit={requestCommit} isCommitting={isCommitting} />
+            <CommitBox
+                message={commitMessage}
+                onMessageChange={onCommitMessageChange}
+                onCommit={requestCommit}
+                isCommitting={isCommitting}
+                onGenerateCommitMessage={onGenerateCommitMessage}
+                isGeneratingCommitMessage={isGeneratingCommitMessage}
+                canGenerateCommitMessage={stagedRows.length > 0}
+            />
 
             <ScrollContainer className='min-h-0 flex-1'>
                 {(stashes.length > 0 || canStash) && (

@@ -139,3 +139,39 @@
   코드펜스 스트립 경계·프리뷰 중 문서 편집 무효화.
 - 문서: features/ai.md·features/git.md·ipc-contract(3커맨드+리네임)·data-model(설정 리네임)·qa6
   Wave G 실기 항목·갭 분석 §5(AI 커밋)·§8(Inline Edit) 종결 표기.
+
+---
+
+## 6. Phase E 검토 결함 수정 반영 (2026-08-16)
+
+> 검토 wf_1f2bcdcf-0bb — 4렌즈 발견 52건(major 11·minor 41) → 적대적 검증에서 major **전건
+> confirmed**(중복 제거 시 5개 근본 클러스터) → 수정 50 fixed·1 rejected·1 deferred.
+> 메인 2차: 핵심 수정 6건 실물 재검증 + 반환 타입 컨벤션 1건 직접 수정 + `bun run verify` 전체
+> exit 0(프론트 972·Rust 817+6+17) + vite build exit 0.
+
+- **[major] instruct 가 auto-tab 용 256 토큰 출력 캡을 상속 — Inline Edit 결과 무경고 절단**:
+  instruct 전용 예산 분리(OLLAMA_INSTRUCT_NUM_PREDICT=4096 등, complete 경로 256 유지) +
+  ollama `done_reason`/omlx `finish_reason` == "length" 를 에러로 전환(잘린 코드가 정상 응답처럼
+  수락되는 경로 차단).
+- **[major] 팔레트 'AI: 선택 영역 편집' 무동작**: monaco 의 `precondition` 이 run() 자체를
+  게이트(팔레트 포커스에서 editorTextFocus=false)함을 소스로 확인 — `keybindingContext` 로 이전해
+  ⌘I 키 스코프는 유지하고 팔레트 실행은 허용.
+- **[major] 코드펜스 스트립이 후행 설명문 응답에서 실패 — 펜스·산문이 소스에 삽입**: 전문 앵커
+  매칭을 첫/마지막 마커 스캔 방식 관대 파서로 재작성(선행/후행 산문·단일 라인·CRLF), ai-commit-message
+  의 중복 구현 제거(공용 재사용). 회귀 테스트 7건 동반.
+- **[major] truncated·skippedFiles 가 모델에 미전달(계약 §3.3 문언 이탈)**: diffText 본문에 제외
+  파일·절삭 안내 문자열 직접 삽입(오버라이드 무관 보장) + **시크릿류 파일(.env·id_rsa·*.pem 등)
+  diff 제외 추가**(is_secret_like_path — 보안 렌즈 파생).
+- **[major] 제출 직후 입력 hidden 으로 포커스가 body 이탈 — ⌘Enter/Esc 키 계약 불능**: 상태 전환
+  시 가시 컨트롤(취소/수락 버튼) 재포커스로 키 계약 복구.
+- **minor 41 수정 요지**: AiRequestStore 누수·커밋 메시지 취소/재요청 레이스·ViewZone 높이 불일치·
+  utf8 절삭 경계 패닉 위험·프롬프트 체인 치환 재주입(단일 패스 렌더러 교체 — diff/selection 이
+  후속 플레이스홀더를 탈취하는 주입 차단)·요청 크기 상한·세션 종료 시 미취소·ipc-contract 수치
+  정정·중첩 삼항 등.
+- **기각 1**: features 레이어의 entities IPC 직접 호출 — code-editor.tsx 기존 선례와 동일(FSD 합법
+  방향), Wave G 신규 이탈 아님.
+- **보류 1(사용자 재확인 여지)**: 계약 §3.3 명문대로 staged 0건이면 Sparkles 버튼 비활성 —
+  unstaged 폴백 제안은 계약 상충으로 미채택, features/ai.md §9 에 비대칭 사실 기록.
+- 메인 2차 부기: `stripCodeFence` 의 자명한 반환 타입 명시 1건 메인 직접 제거(컨벤션).
+  `dirty_미러` 테스트 병렬 실행 플레이키 1회 재관측 — Wave G 무관(file/service.rs 미변경)·단독
+  5회 연속 통과, 기존 산발 플레이키로 기록.

@@ -5,7 +5,7 @@ use crate::domain::settings::service as settings_service;
 use crate::domain::settings::types::Settings;
 use crate::domain::sync::github::GistClient;
 use crate::domain::sync::service;
-use crate::domain::sync::types::{SyncDownloadResult, SyncPayload, SyncStatus};
+use crate::domain::sync::types::{SyncDownloadResult, SyncStatus};
 use crate::error::{AppError, AppResult};
 use crate::events::SyncStateChanged;
 use crate::infra::http::create_outbound_http_client;
@@ -162,8 +162,8 @@ pub async fn sync_download(
         return Ok(SyncDownloadResult::Conflict { remote_updated_at });
     }
 
-    let payload: SyncPayload =
-        serde_json::from_str(&content).map_err(|_| AppError::Internal("sync payload from the gist was malformed".to_string()))?;
+    let payload = service::parse_synced_payload(&content)
+        .ok_or_else(|| AppError::Internal("sync payload from the gist was malformed".to_string()))?;
     service::ensure_supported_schema_version(payload.schema_version)?;
 
     let applied = service::apply_payload_settings(&settings, &payload);

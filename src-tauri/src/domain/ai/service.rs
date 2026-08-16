@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+use crate::domain::ai::prompt;
 use crate::domain::ai::providers::codex::CodexProvider;
 use crate::domain::ai::providers::ollama::OllamaCloudProvider;
 use crate::domain::ai::providers::omlx::OmlxProvider;
 use crate::domain::ai::providers::{mask_provider_error, AiProviderClient};
-use crate::domain::ai::types::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiProviderId, AiTokenStatus};
+use crate::domain::ai::types::{
+    AiCommitMessagePromptTemplate, AiCommitMessagePromptVars, AiCommitMessageRequest, AiInlineCompleteRequest, AiInlineEditPromptTemplate,
+    AiInlineEditPromptVars, AiInlineEditRequest, AiModelInfo, AiPromptTemplate, AiProviderId, AiTokenStatus,
+};
 use crate::error::{AppError, AppResult};
 use crate::infra::secret::{SecretAccount, SecretStore};
 
@@ -170,6 +174,101 @@ pub async fn complete(
     }
 }
 
+fn parse_provider_id(raw: &str) -> Option<AiProviderId> {
+    serde_json::from_value(serde_json::Value::String(raw.to_string())).ok()
+}
+
+/// Resolves the provider/model an `ai_inline_edit`/`ai_commit_message` request should run
+/// against: the request's own `provider`/`model` win when the caller supplied them, otherwise the
+/// app's configured `Settings.ai_provider`/`ai_model` (the same fields auto-tab reads) act as the
+/// default — so most call sites don't need to resolve "the configured AI provider" themselves,
+/// only override it for a one-off request. Errors when neither the request nor settings name a
+/// usable provider/model, rather than silently guessing one.
+pub fn resolve_provider_and_model(
+    request_provider: Option<AiProviderId>,
+    request_model: Option<String>,
+    default_provider: Option<String>,
+    default_model: Option<String>,
+) -> AppResult<(AiProviderId, String)> {
+    let provider = match request_provider {
+        Some(provider) => provider,
+        None => {
+            let raw = default_provider.ok_or_else(|| AppError::InvalidArgument("AI provider is not configured".to_string()))?;
+            parse_provider_id(&raw).ok_or_else(|| AppError::InvalidArgument(format!("unknown AI provider: {raw}")))?
+        }
+    };
+    let model = request_model
+        .or(default_model)
+        .ok_or_else(|| AppError::InvalidArgument("AI model is not configured".to_string()))?;
+    Ok((provider, model))
+}
+
+async fn instruct(
+    secret: &dyn SecretStore,
+    client: &reqwest::Client,
+    provider: AiProviderId,
+    model: &str,
+    system: &str,
+    user: &str,
+    omlx_base_url: Option<String>,
+) -> AppResult<Option<String>> {
+    match provider {
+        AiProviderId::OllamaCloud => {
+            OllamaCloudProvider {
+                api_key: load_ollama_api_key(secret)?,
+            }
+            .instruct(client, model, system, user)
+            .await
+        }
+        AiProviderId::Codex => {
+            codex_provider(load_codex_credential(secret)?)
+                .instruct(client, model, system, user)
+                .await
+        }
+        AiProviderId::Omlx => omlx_provider(secret, omlx_base_url)?.instruct(client, model, system, user).await,
+    }
+}
+
+pub async fn inline_edit(
+    secret: &dyn SecretStore,
+    client: &reqwest::Client,
+    provider: AiProviderId,
+    model: &str,
+    request: &AiInlineEditRequest,
+    template: &AiInlineEditPromptTemplate,
+    omlx_base_url: Option<String>,
+) -> AppResult<Option<String>> {
+    let vars = AiInlineEditPromptVars {
+        selection: &request.selection,
+        instruction: &request.instruction,
+        language: &request.language,
+        file_path: &request.file_path,
+        prefix: &request.prefix,
+        suffix: &request.suffix,
+    };
+    let system = prompt::render_inline_edit(&template.system, &vars);
+    let user = prompt::render_inline_edit(&template.user, &vars);
+    instruct(secret, client, provider, model, &system, &user, omlx_base_url).await
+}
+
+pub async fn commit_message(
+    secret: &dyn SecretStore,
+    client: &reqwest::Client,
+    provider: AiProviderId,
+    model: &str,
+    request: &AiCommitMessageRequest,
+    template: &AiCommitMessagePromptTemplate,
+    omlx_base_url: Option<String>,
+) -> AppResult<Option<String>> {
+    let vars = AiCommitMessagePromptVars {
+        diff: &request.diff_text,
+        recent_commits: &request.recent_commits,
+    };
+    let system = prompt::render_commit_message(&template.system, &vars);
+    let user = prompt::render_commit_message(&template.user, &vars);
+    instruct(secret, client, provider, model, &system, &user, omlx_base_url).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,6 +386,47 @@ mod tests {
 
         let result = tauri::async_runtime::block_on(list_models(&store, &client, AiProviderId::Omlx, None));
 
+        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn 요청에_provider_모델이_있으면_설정값보다_우선한다() {
+        let (provider, model) = resolve_provider_and_model(
+            Some(AiProviderId::Codex),
+            Some("gpt-5.6-sol".to_string()),
+            Some("ollamaCloud".to_string()),
+            Some("qwen2.5-coder".to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(provider, AiProviderId::Codex);
+        assert_eq!(model, "gpt-5.6-sol");
+    }
+
+    #[test]
+    fn 요청에_provider_모델이_없으면_설정값으로_폴백한다() {
+        let (provider, model) =
+            resolve_provider_and_model(None, None, Some("omlx".to_string()), Some("qwen2.5-coder".to_string())).unwrap();
+
+        assert_eq!(provider, AiProviderId::Omlx);
+        assert_eq!(model, "qwen2.5-coder");
+    }
+
+    #[test]
+    fn provider가_요청과_설정_양쪽에_없으면_에러를_반환한다() {
+        let result = resolve_provider_and_model(None, Some("qwen2.5-coder".to_string()), None, None);
+        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn 모델이_요청과_설정_양쪽에_없으면_에러를_반환한다() {
+        let result = resolve_provider_and_model(Some(AiProviderId::Codex), None, None, None);
+        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn 설정의_provider_문자열이_알수없는_값이면_에러를_반환한다() {
+        let result = resolve_provider_and_model(None, Some("gpt-5.6-sol".to_string()), Some("anthropic".to_string()), None);
         assert!(matches!(result, Err(AppError::InvalidArgument(_))));
     }
 }

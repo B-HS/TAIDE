@@ -3,11 +3,12 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
+import { attachAiInlineEditAction } from '@features/editor/ai-inline-edit'
 import { monaco } from '@shared/lib/monaco/setup'
-import { cancelAiInline, completeAiInline } from '@entities/ai/ai.ipc'
+import { cancelAiRequest, completeAiInline } from '@entities/ai/ai.ipc'
 import { getOrCreateModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
-const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiInline }
+const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiRequest }
 
 export type EditorCursorStyle = 'line' | 'block' | 'underline'
 export type EditorCursorBlinkingStyle = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid'
@@ -166,6 +167,13 @@ export const CodeEditor: FC<CodeEditorProps> = ({
             run: () => onMinimapToggleRef.current(!minimapRef.current),
         })
         return () => toggleMinimapAction.dispose()
+    }, [t])
+
+    useEffect(() => {
+        const editor = editorRef.current
+        if (!editor) return
+        const aiInlineEdit = attachAiInlineEditAction(editor, t)
+        return () => aiInlineEdit.dispose()
     }, [t])
 
     useEffect(() => {

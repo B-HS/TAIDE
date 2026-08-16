@@ -265,8 +265,44 @@
           - [x] 계약 확정(`2026-08-16-wave-g-ai-contract.md`, 결정 4건 — F 병합·공통기반+**설정 리네임**
                 (ai_provider/ai_model, serde alias)·Inline Edit 추천(⌘I·모델 무변경 프리뷰·일괄 응답)·
                 커밋 메시지 추천(git_diff_staged_text git2 native·log 20건·Sparkles))
-          - [ ] 구현(S Rust 단독 → B1 Inline Edit∥B2 커밋 메시지 UI → D 통합) → 4렌즈 → 적대적 →
-                수정 → 메인 2차 → 커밋
+          - [x] 구현(S Rust 단독 → B1 Inline Edit∥B2 커밋 메시지 UI → D 통합) 완료. S: provider
+                trait `instruct` 추가(complete 무변경)·프롬프트 2파일 신설+로더 공통화·
+                `AiInlineStore`→`AiRequestStore`+`ai_inline_cancel`→`ai_request_cancel` 리네임·
+                신규 커맨드 3종(`ai_inline_edit`/`ai_commit_message`/`git_diff_staged_text`)·설정
+                리네임(`ai_auto_tab_provider/model`→`ai_provider/ai_model`, `ai_auto_tab_enabled`
+                유지) — **설계 이탈**: 계약이 지시한 `#[serde(alias)]` 는 이 프로젝트의 specta
+                고정 버전에서 `Settings`/`SettingsPatch` 를 `_Serialize`/`_Deserialize` 유니온으로
+                쪼개 무관 필드까지 타입을 깨뜨림을 실물 검증으로 확인 → raw JSON 사전 마이그레이션
+                (`migrate_legacy_ai_provider_keys`)으로 대체, 하위호환 기능은 동일 보장(근거:
+                `data-model.md` §7). B1: ⌘I 모나코 액션+ContentWidget 입력+ViewZone 프리뷰(레포
+                최초 도입)+모델 무변경 불변식+undo 1스텝. B2: SCM 패널 Sparkles 버튼+diff/log 조립+
+                응답 후처리, 설정 리네임 프론트 소비처 갱신. 병렬 산출물 접합부 결함(팔레트 미배선·
+                구 필드명/커맨드명 잔존 10건·중복 취소 래퍼)은 D 가 처리.
+          - [x] Phase D 통합 완료 — `AI_COMMANDS` 를 `app/bootstrap-commands.ts` 에 배선(팔레트
+                노출), `cancelAiInline`→`cancelAiRequest` 개명 정리 + `entities/ai/ai-inline-edit.ipc.ts`
+                의 중복 취소 래퍼 제거(단일 소스는 `entities/ai/ai.ipc.ts`), B2 가 미배선 남긴
+                locale 키 2종(`git.generateCommitMessageFailed`/`noStagedChangesForCommitMessage`)
+                을 커밋 메시지 실패 토스트·Sparkles 버튼 비활성 툴팁에 근본 배선(死locale 키 제거).
+                키맵 카탈로그 미노출은 `git.toggleBlame` 등 기존 커스텀 모나코 액션과 동일한
+                구조적 한계로 확인(Wave G 신규 결함 아님, Wave H chord 엔진까지 보류). 프리뷰
+                모델-무변경 불변식 코드 추적 검수 통과(수락 전 `executeEdits` 호출 없음). 문서:
+                `features/ai.md` 신설·`features/git.md`(`git_diff_staged_text`)·`ipc-contract.md`
+                (신규 `ai` 도메인 섹션+`git_diff_staged_text`)·`data-model.md` §7(설정 리네임
+                메커니즘)·`quality-assurance/2026-08-11-qa6-checklist.md`(Wave G 실기 21항목)·
+                `research/2026-08-13-vscode-cursor-gap.md` §5·§8(AI 커밋 메시지·Inline Edit 종결
+                표기) 갱신. 검증: `bun run verify` 전체 그린(tsc·eslint 0 error·prettier·
+                bun test 966/966·`cargo fmt --check`·`cargo clippy -D warnings`·
+                `cargo test --workspace` 796+6+17/819) + `vite build` exit 0. 4렌즈·적대적 검증·
+                메인 2차·커밋은 후속(Phase E)
+          - [x] Phase E 검토 완료(wf_1f2bcdcf-0bb, 16에이전트) — 4렌즈 52건(major 11 → 중복 제거
+                **5 클러스터 전건 confirmed**·minor 41) → 수정 50/기각 1/보류 1. 클러스터:
+                instruct 256 토큰 캡 상속(→전용 4096+length 감지 에러)·팔레트 무동작(precondition
+                이 run() 게이트 → keybindingContext 이전)·펜스 스트립 앵커 실패(→스캔 관대 파서
+                +공용화)·truncated/skipped 모델 미전달(→diffText 본문 안내+**시크릿 파일 제외**)·
+                제출 시 포커스 이탈(→상태별 재포커스). 보류 1: staged 0건 버튼 비활성(계약 명문
+                유지 — 사용자 재확인 여지, features/ai.md §9). 상세: 계약 §6. 메인 2차: 수정 6건
+                실물 재검증+반환 타입 1건 직접 수정+verify 전체 exit 0(972/817+6+17)+vite build 0.
+                플레이키 1건(dirty 미러 — Wave G 무관·단독 5회 통과) 기록. 커밋
     - [ ] c-H ~ c-I. 순차 진행 (키맵 → 셸)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)

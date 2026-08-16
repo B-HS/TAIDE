@@ -115,6 +115,17 @@ pub struct DiffSides {
     pub language_id: String,
 }
 
+/// Unified diff text of staged changes (HEAD vs index), for AI commit message generation
+/// (`ai_commit_message`) — see [`crate::domain::git::service::diff_staged_text`] for how
+/// `truncated`/`skipped_files` get populated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedDiffText {
+    pub diff_text: String,
+    pub truncated: bool,
+    pub skipped_files: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitOptions {

@@ -111,7 +111,7 @@ TAIDE 어댑터 11종: completion·diagnostics·hover·definition·references·r
 | **revert commit · rebase · cherry-pick · tag · worktree · submodule** | 없음 | 중 (revert/tag 는 중, rebase 는 하) | 중 (커맨드별 증분) | P1 (revert·tag) / P2 (rebase·worktree) |
 | **원격 브랜치 checkout / 브랜치 rename·merge GUI** | 미확인 (`git_branches`·`git_checkout` 은 있음, 원격 추적 브랜치 처리 미확인) | 중 | 하 | P1 |
 | **PR/이슈 통합(GitHub)** | 없음 | 하 | 상 | P2 — 범위 밖 권장 |
-| AI 커밋 메시지 생성 | 없음 (VS Code·Cursor 는 있음) | 중 | **하** — provider 3종(`domain/ai/providers/`) + `git_diff` 재사용이면 얹기 쉬움 | P1 |
+| AI 커밋 메시지 생성 | 없음 (VS Code·Cursor 는 있음) | 중 | **하** — provider 3종(`domain/ai/providers/`) + `git_diff` 재사용이면 얹기 쉬움 | P1 — **구현 완료**(Wave G, 2026-08-16 — `ai_commit_message`+신규 `git_diff_staged_text`(**주의**: 정찰 당시 "`git_diff` 재사용" 전제는 오류로 판명 — 통합 diff 커맨드가 당시 없어 신설했다, 계약 §2-2), `features/ai.md` §4/§7). 항목 종결 |
 
 ---
 
@@ -153,13 +153,13 @@ TAIDE 의 AI 전략은 "터미널 에이전트 연동 우선, 자체 AI 는 추�
 | Cursor 기능 | TAIDE 상태 | 체감 | 난이도 | 우선순위 |
 |---|---|---|---|---|
 | **Tab (다중 라인·import 자동 추가·다음 편집 위치 점프·크로스파일 예측)** | **부분** — FIM 인라인 완성은 있음(`ai_inline_complete`, `code-editor.tsx:190-196`), 단 **단일 위치 제안**. jump-to-next-edit·크로스파일 예측 없음. 실기 미검증 | 중 | 상 (모델 품질 종속) | P2 |
-| **Inline Edit (⌘K)** — 선택 영역 자연어 편집 → diff 수락/거절 | **없음** | **상** | **중** — provider 3종·프롬프트 파일화(`domain/ai/prompt.rs`)·인라인 완성 인프라가 이미 있어 재사용 가능 | **P1 (AI 축 최우선)** |
+| **Inline Edit (⌘K)** — 선택 영역 자연어 편집 → diff 수락/거절 | **없음** | **상** | **중** — provider 3종·프롬프트 파일화(`domain/ai/prompt.rs`)·인라인 완성 인프라가 이미 있어 재사용 가능 | **P1 (AI 축 최우선)** — **구현 완료**(Wave G, 2026-08-16 — 기본 키는 **⌘I**로 채택(⌘K 는 모나코 chord 21건이 이미 점유해 보류, 계약 §4), 모델 무변경 프리뷰(삭제 데코+ViewZone)·`taide.aiInlineEdit`·`features/ai.md` §3). 항목 종결 |
 | Agent / Composer (에이전트 채팅 패널, 체크포인트, 큐잉, 도구 호출) | 없음 — 대신 **터미널 에이전트 + IDE MCP 서버 내장** | 상 | 최상 | 비추천 (PRD 비목표) — 단 Codex app-server 패널은 backlog 기재 |
 | Rules (`.cursor/rules`, AGENTS.md, 중첩·글롭) | 없음 (파일 규약이라 에디터가 관여 안 해도 에이전트가 읽음) | 하 | 하 | P2 |
 | Codebase indexing / semantic search / Instant Grep | 없음 (리터럴·정규식 검색만) | 중 | 상 (임베딩 인프라) | P2 |
 | @-컨텍스트 심볼(파일·폴더·심볼·docs·git) | 없음 | 중 | 상 (채팅 UI 선행) | 비추천 |
 | Background / Cloud Agent, Bugbot, Slack·Linear 통합, iPad 앱 | 없음 | 하 (개인용) | 최상 | 비추천 — 범위 밖 |
-| AI 커밋 메시지 / 코드 리뷰 | 없음 | 중 | 하~중 | P1 (§5 참조) |
+| AI 커밋 메시지 / 코드 리뷰 | 없음 | 중 | 하~중 | P1 (§5 참조) — **커밋 메시지 구현 완료**(Wave G, §5 참조. 코드 리뷰는 범위 밖으로 유지). 커밋 메시지 항목 종결 |
 
 ---
 

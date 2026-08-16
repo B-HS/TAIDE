@@ -48,6 +48,8 @@
   - **커밋 대상 규칙(사용자 확정, 2026-08-06)**: staged 가 있으면 그것만 커밋. 없으면
     "변경 전체를 스테이지하고 커밋할까요?" 확인 다이얼로그 후 진행(현행 VSCode 실동작과 동일).
   - 빈 메시지면 커밋 버튼 비활성. user.name/email 미설정이면(`repo.signature()` 실패) 안내 배너.
+- 커밋 입력란 우상단 Sparkles 버튼으로 AI 가 staged diff 로부터 커밋 메시지를 생성한다(Wave G,
+  §4 의 `git_diff_staged_text` 를 소비) — 흐름·프롬프트·취소는 `ai.md` §4 가 정본.
 - Commit 드롭다운(1차 범위): `Commit` / `Commit (Amend)` / `Commit All` / `Undo Last Commit`.
   (`Commit & Push`·`Commit & Sync` 는 2차.)
 - Push / Pull / Fetch / Sync: 헤더 버튼 + 드롭다운.
@@ -69,6 +71,14 @@
 - 원본(old side) 내용은 Rust 가 blob 을 추출해 제공(`git_show_file(rev, path)`), 새 쪽은 파일/버퍼.
 - diff 탭은 `TabKind::Diff{ path, mode }` — 같은 파일 diff 재클릭 시 기존 탭 재사용(preview 규칙).
 - 툴바: inline 토글, Collapse Unchanged Regions(2차), 파일로 이동 버튼.
+- **`git_diff_staged_text(projectId)`**(Wave G, git2 native — `diff_tree_to_index` + `Diff::print`):
+  파일별 `DiffSides` 가 아니라 staged 전체를 **하나의 unified diff 텍스트**로 반환한다. 에디터 diff
+  뷰가 아니라 AI 커밋 메시지 생성(`ai.md` §4·§7)의 유일한 소비처 — 32KiB 상한(초과 시 UTF-8 경계
+  안전 절삭 + `truncated`), 바이너리·lock 파일(`bun.lock`·`Cargo.lock`·`package-lock.json`·
+  `pnpm-lock.yaml`·`yarn.lock`)·시크릿류 파일(`.env`·`.env.*`·`*.pem`·`*.key`·`*.p12`·`*.pfx`·
+  `id_rsa`/`id_dsa`/`id_ecdsa`/`id_ed25519`)은 본문에서 제외하고 `skippedFiles` 에 경로만 나열한다
+  (시크릿류는 외부 AI provider 로 평문 전송되지 않도록 — security.md §1). 절삭·제외 사실은
+  `truncated`/`skippedFiles` 필드뿐 아니라 `diffText` 본문에도 안내 문자열로 남는다(`ai.md` §7).
 
 ## 5. 커밋 그래프 (FR-F6)
 
@@ -87,9 +97,9 @@
 
 ## 6. IPC (상세: `docs/ipc-contract.md`)
 
-- query: `git_status`, `git_diff_file(path, mode)`, `git_show_file(rev, path)`, `git_log(skip, take)`,
-  `git_refs`, `git_ahead_behind`, `git_remotes`, `git_gutter(path)`, `git_blame_range(path, from, to)`,
-  `git_stash_list`
+- query: `git_status`, `git_diff_file(path, mode)`, `git_diff_staged_text(projectId)`(Wave G — §4),
+  `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`, `git_ahead_behind`, `git_remotes`,
+  `git_gutter(path)`, `git_blame_range(path, from, to)`, `git_stash_list`
 - mutation: `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`, `git_commit(message, opts)`,
   `git_push`, `git_pull`, `git_fetch`, `git_stash_push/apply/pop/drop`, `git_undo_last_commit`
 - event: `git:status-changed`, `git:refs-changed`, `git:operation-progress`, `git:operation-finished`

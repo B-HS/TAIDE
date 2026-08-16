@@ -8,7 +8,7 @@ use tauri_specta::Event;
 use super::service;
 use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk,
-    LogEntry, RevertOutcome, TagCreateOptions, TagInfo,
+    LogEntry, RevertOutcome, StagedDiffText, TagCreateOptions, TagInfo,
 };
 use crate::error::{AppError, AppResult};
 use crate::events::{GitRefsChanged, GitStatusChanged};
@@ -91,6 +91,19 @@ pub async fn git_diff_file(
 ) -> AppResult<DiffSides> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
     tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn git_diff_staged_text(
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<StagedDiffText> {
+    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || service::diff_staged_text(&repo_root))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
 }

@@ -74,6 +74,85 @@ pub struct AiPromptVars<'a> {
     pub file_path: &'a str,
 }
 
+/// Dedicated prompt template for the Inline Edit feature (`ai_inline_edit`) — kept separate from
+/// [`AiPromptTemplate`] (auto-tab) even though both currently carry a `{system, user}` chat shape,
+/// so a user override at `{app_data}/prompts/inline-edit-default.json` can never collide with (or
+/// be silently reset by) the auto-tab template file. See `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-3.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiInlineEditPromptTemplate {
+    pub version: u32,
+    pub system: String,
+    pub user: String,
+}
+
+pub struct AiInlineEditPromptVars<'a> {
+    pub selection: &'a str,
+    pub instruction: &'a str,
+    pub language: &'a str,
+    pub file_path: &'a str,
+    pub prefix: &'a str,
+    pub suffix: &'a str,
+}
+
+/// Dedicated prompt template for AI commit message generation (`ai_commit_message`) — see
+/// [`AiInlineEditPromptTemplate`]'s doc comment for why this is a separate type/file rather than a
+/// new section bolted onto an existing template.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCommitMessagePromptTemplate {
+    pub version: u32,
+    pub system: String,
+    pub user: String,
+}
+
+pub struct AiCommitMessagePromptVars<'a> {
+    pub diff: &'a str,
+    pub recent_commits: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiInlineEditRequest {
+    pub request_id: String,
+    #[serde(default)]
+    pub provider: Option<AiProviderId>,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub selection: String,
+    pub instruction: String,
+    pub language: String,
+    pub file_path: String,
+    pub prefix: String,
+    pub suffix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiInlineEditResponse {
+    pub request_id: String,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCommitMessageRequest {
+    pub request_id: String,
+    #[serde(default)]
+    pub provider: Option<AiProviderId>,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub diff_text: String,
+    pub recent_commits: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCommitMessageResponse {
+    pub request_id: String,
+    pub text: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
