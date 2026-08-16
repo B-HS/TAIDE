@@ -1,10 +1,12 @@
+import type { FC } from 'react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen } from 'lucide-react'
+import { FileJson, FolderOpen, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { aiModelsQueryOptions, aiTokenStatusQueryOptions, useClearAiToken, useSetAiToken } from '@entities/ai/ai.query'
 import { fontListQueryOptions } from '@entities/font/font.query'
+import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
 import {
     lspInstallProgressQueryOptions,
     lspServersQueryOptions,
@@ -34,15 +36,16 @@ import { FontPicker } from '@features/settings/font-picker'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { NumericField } from '@features/settings/numeric-field'
 import { OptionPicker } from '@features/settings/option-picker'
-import { PluginList } from '@features/settings/plugin-list'
 import { RemoteSection } from '@features/settings/remote-section'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
+import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
-import type { AiProviderId, AppDataPathKind, LspServerId } from '@shared/api/bindings'
+import type { AiProviderId, AppDataPathKind, LspServerId, ProjectId, PromptTemplateId } from '@shared/api/bindings'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
+import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { AiAutoTabToggle } from '@features/settings/ai-auto-tab-toggle'
 import { AiOmlxRow } from '@features/settings/ai-omlx-row'
 import { AiProviderTokenRow } from '@features/settings/ai-provider-token-row'
@@ -54,12 +57,13 @@ import { TextField } from '@features/settings/text-field'
 import { LanguagePicker, SYSTEM_LANGUAGE_ID } from '@features/settings/language-picker'
 import { ThemePicker } from '@features/settings/theme-picker'
 import { CustomThemeList } from '@features/theme/custom-theme-list'
-import { VsixThemeImportButton } from '@features/theme/vsix-theme-import-button'
 import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
+import { PluginManager } from '@widgets/plugin-manager/plugin-manager'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { SnippetEditor } from '@widgets/snippet-editor/snippet-editor'
 import { Switch } from '@shared/ui/switch'
 import { Button } from '@shared/ui/button'
+import { IconButton } from '@shared/ui/icon-button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 const SETTINGS_SCROLL_OFFSET_PX = 32
@@ -118,6 +122,12 @@ const AI_PROVIDER_OPTIONS: { id: AiProviderId; labelKey: string }[] = [
     { id: 'omlx', labelKey: 'settings.aiProviderOmlx' },
 ]
 
+const PROMPT_ROWS: { id: PromptTemplateId; labelKey: string }[] = [
+    { id: 'auto-tab-default', labelKey: 'prompts.autoTabTitle' },
+    { id: 'inline-edit-default', labelKey: 'prompts.inlineEditTitle' },
+    { id: 'commit-message-default', labelKey: 'prompts.commitMessageTitle' },
+]
+
 type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
 
 const SETTINGS_SECTION_ID = {
@@ -150,7 +160,20 @@ const SETTINGS_TOC_ITEMS = [
     { id: SETTINGS_SECTION_ID.REMOTE, labelKey: 'remote.title' },
 ]
 
-export const SettingsView = () => {
+type SettingsViewProps = {
+    projectId: ProjectId
+}
+
+/**
+ * `projectId` is the project whose layout owns this tab — not necessarily the app's globally
+ * active project. It only ever leaves this window's pane tree once `layoutMoveTabToWindow` moves
+ * this "Settings" tab elsewhere (Wave I contract §3.2), which is exactly when the two can diverge:
+ * an auxiliary window renders this component for its own fixed project regardless of which
+ * project the main window currently has active. New tabs opened from here (`settings.json`, prompt
+ * templates) must land in *this* project's layout, so every settings-view-owned mutation below
+ * threads `projectId` through instead of re-deriving it from the global active-project query.
+ */
+export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null)
 
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
@@ -184,7 +207,9 @@ export const SettingsView = () => {
     const { mutate: revokeRemoteSessions, isPending: isRevokingRemoteSessions } = useRevokeRemoteSessions()
     const { mutate: setRemotePassword, isPending: isSettingRemotePassword } = useSetRemotePassword()
     const { mutate: clearRemotePassword, isPending: isClearingRemotePassword } = useClearRemotePassword()
+    const { mutate: openTab } = useOpenTab(projectId)
     const queryClient = useQueryClient()
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
 
     const selectedAiProvider = (settings?.aiProvider ?? DEFAULT_AI_PROVIDER) as AiProviderId
     const isSelectedAiProviderConfigured = aiTokenStatus?.[selectedAiProvider] ?? false
@@ -205,6 +230,30 @@ export const SettingsView = () => {
         setAiToken({ provider, token }, { onError: () => toast.error(t('settings.aiTokenSaveFailed')) })
     const handleClearAiToken = (provider: AiProviderId) => clearAiToken(provider)
     const handleOmlxBaseUrlCommit = (value: string) => updateSettings({ ...emptySettingsPatch(), aiOmlxBaseUrl: value.trim() })
+
+    const handleOpenSettingsFile = () =>
+        openTab(
+            {
+                projectId,
+                kind: { kind: 'appFile', target: { kind: 'settings' } },
+                title: SETTINGS_JSON_TAB_TITLE,
+                target: currentWindowFocusedPane(layout),
+                preview: false,
+            },
+            { onError: (error) => toast.error(error.message) },
+        )
+
+    const handleOpenPromptFile = (id: PromptTemplateId, labelKey: string) =>
+        openTab(
+            {
+                projectId,
+                kind: { kind: 'appFile', target: { kind: 'prompt', id } },
+                title: t(labelKey),
+                target: currentWindowFocusedPane(layout),
+                preview: false,
+            },
+            { onError: (error) => toast.error(error.message) },
+        )
 
     const handleConnectSync = (pat: string) => connectSync(pat, { onError: () => toast.error(t('settings.syncConnectFailed')) })
     const handleDisconnectSync = () =>
@@ -287,7 +336,13 @@ export const SettingsView = () => {
     return (
         <ScrollContainer viewportRef={scrollContainerRef} className='bg-app-background text-app-foreground h-full w-full'>
             <div className='flex flex-col gap-6 px-4 py-8'>
-                <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
+                <div className='flex items-center justify-between gap-3'>
+                    <h1 className='text-lg font-semibold'>{t('settings.title')}</h1>
+                    <Button type='button' variant='outline' size='xs' onClick={handleOpenSettingsFile}>
+                        <FileJson className='size-3.5' />
+                        {t('app.openSettingsFile')}
+                    </Button>
+                </div>
 
                 <div className='flex w-full items-start gap-8'>
                     <div className='sticky top-8 self-start'>
@@ -326,7 +381,6 @@ export const SettingsView = () => {
                                             <FolderOpen className='size-3.5' />
                                             {t('settings.themesOpenFolder')}
                                         </Button>
-                                        <VsixThemeImportButton themes={themes} />
                                         <Button
                                             variant='outline'
                                             size='xs'
@@ -443,6 +497,26 @@ export const SettingsView = () => {
                                 <Switch
                                     checked={settings.enablePreviewTabs ?? true}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), enablePreviewTabs: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.zenFullscreen')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.zenFullscreenDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.zenFullscreen ?? false}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenFullscreen: checked })}
+                                />
+                            </label>
+                            <label className='flex items-center justify-between gap-3 text-xs'>
+                                <span className='flex flex-col gap-0.5'>
+                                    <span className='text-app-foreground'>{t('settings.zenHideStatusBar')}</span>
+                                    <span className='text-app-sidebar-icon-default'>{t('settings.zenHideStatusBarDescription')}</span>
+                                </span>
+                                <Switch
+                                    checked={settings.zenHideStatusBar ?? true}
+                                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenHideStatusBar: checked })}
                                 />
                             </label>
                         </SettingsSection>
@@ -783,10 +857,22 @@ export const SettingsView = () => {
                                     updateSettings({ ...emptySettingsPatch(), aiProvider: selectedAiProvider, aiAutoTabEnabled: checked })
                                 }
                             />
+                            <ul className='border-app-border flex flex-col gap-1.5 border-t pt-3'>
+                                {PROMPT_ROWS.map((row) => (
+                                    <li key={row.id} className='flex items-center justify-between gap-3 text-xs'>
+                                        <span className='text-app-foreground'>{t(row.labelKey)}</span>
+                                        <IconButton
+                                            label={t('prompts.editEntry')}
+                                            icon={<Pencil className='size-3.5' />}
+                                            onClick={() => handleOpenPromptFile(row.id, row.labelKey)}
+                                        />
+                                    </li>
+                                ))}
+                            </ul>
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.PLUGINS} title={t('settings.plugins')}>
-                            <PluginList />
+                            <PluginManager />
                         </SettingsSection>
 
                         <SettingsSection id={SETTINGS_SECTION_ID.SYNC} title={t('settings.syncSectionTitle')}>

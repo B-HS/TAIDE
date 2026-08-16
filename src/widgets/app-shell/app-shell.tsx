@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { EventCallback } from '@tauri-apps/api/event'
@@ -6,12 +6,14 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { DragDropEvent } from '@tauri-apps/api/webview'
 import { useTranslation } from 'react-i18next'
 import { Group, Panel, usePanelRef } from 'react-resizable-panels'
+import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import { openTab as openTabRaw } from '@entities/layout/layout.ipc'
-import { useOpenTab } from '@entities/layout/layout.query'
+import { useOpenTab, useSetShellView } from '@entities/layout/layout.query'
 import { activeProjectQueryOptions, projectListQueryOptions, useActivateProject, useOpenProject } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
+import { useZenMode } from '@features/window/use-zen-mode'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
@@ -26,6 +28,7 @@ import {
 import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
+import { ZenModeHint } from '@features/window/zen-mode-hint'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
 import { AppSidebar } from '@widgets/app-sidebar/app-sidebar'
 import { EditorArea } from '@widgets/editor-area/editor-area'
@@ -50,6 +53,8 @@ export const AppShell = () => {
     const { mutate: openProject, mutateAsync: openProjectAsync } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
     const { mutate: openTab } = useOpenTab(activeProjectId)
+    const { mutate: setShellView } = useSetShellView(activeProjectId)
+    const { zen, sidebarCollapsed, hideStatusBar } = useZenMode(activeProjectId)
 
     const handleOpenProject = async () => {
         const selected = await open({ directory: true, multiple: false })
@@ -112,6 +117,18 @@ export const AppShell = () => {
         event.preventDefault()
     }
 
+    /** Promotes the explorer panel's collapsed/expanded state from view-local (pre-Wave-I) to Rust-owned `shell_view.sidebarCollapsed` (ADR-0004) — the panel's *width* stays a view-local default, per contract §3.2. */
+    const persistSidebarCollapsed = (collapsed: boolean) => {
+        if (!activeProjectId) return
+        setShellView({ projectId: activeProjectId, patch: { zen: null, sidebarCollapsed: collapsed } })
+    }
+
+    /** Catches a *drag*-driven collapse/expand (dragging the separator past `minSize`) — imperative `.collapse()`/`.expand()` calls (below, and in `subscribeToggleExplorerSidebar`'s handler) report `isUserInteraction: false` and persist explicitly at their own call site instead. */
+    const handleShellLayoutChanged = (_layout: Layout, meta: LayoutChangedMeta) => {
+        if (!meta.isUserInteraction) return
+        persistSidebarCollapsed(explorerPanelRef.current?.isCollapsed() ?? false)
+    }
+
     useGlobalKeymap({
         'toggle-sidebar': () => requestToggleExplorerSidebar(),
         explorer: () => requestShowExplorerView('files'),
@@ -128,22 +145,41 @@ export const AppShell = () => {
 
     useEffect(() => subscribeOpenSearchPanel(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
     useEffect(() => subscribeShowExplorerView(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
-    useEffect(
-        () =>
-            subscribeToggleExplorerSidebar(() => {
-                const panel = explorerPanelRef.current
-                if (!panel) return
-                if (panel.isCollapsed()) panel.expand()
-                else panel.collapse()
-            }),
-        [explorerPanelRef],
-    )
+
+    /**
+     * A no-op while Zen mode holds the panel force-collapsed — toggling it mid-Zen would desync
+     * from the `shouldCollapse` sync effect below (no separator to drag it back with either, since
+     * that's also hidden in Zen), so the manual toggle is suppressed until the user leaves Zen
+     * mode. `useEffectEvent` (not a dependency array) so the effect subscribes exactly once while
+     * still always reading the *latest* `zen`/`activeProjectId` at the moment the bridge fires.
+     */
+    const handleToggleSidebarRequested = useEffectEvent(() => {
+        if (zen) return
+        const panel = explorerPanelRef.current
+        if (!panel) return
+        const collapsed = panel.isCollapsed()
+        if (collapsed) panel.expand()
+        else panel.collapse()
+        persistSidebarCollapsed(!collapsed)
+    })
+    useEffect(() => subscribeToggleExplorerSidebar(handleToggleSidebarRequested), [])
+
+    /** Applies Zen mode (always collapsed) and the persisted `sidebarCollapsed` preference (otherwise) to the panel's actual imperative state — an external-widget sync, not a derived render value, since `Panel` has no controlled "collapsed" prop. */
+    useEffect(() => {
+        const panel = explorerPanelRef.current
+        if (!panel) return
+        const shouldCollapse = zen || sidebarCollapsed
+        if (panel.isCollapsed() === shouldCollapse) return
+        if (shouldCollapse) panel.collapse()
+        else panel.expand()
+    }, [explorerPanelRef, zen, sidebarCollapsed])
 
     if (isPending) return <div className='bg-app-background h-full w-full' />
 
     return (
         <div className='bg-app-background text-app-foreground relative flex h-full w-full flex-col'>
             <DragDropOverlay visible={isDragActive} label={t('app.dropToOpen')} />
+            <ZenModeHint zen={zen} />
             {IS_MAC && (
                 <div className='border-tab-bar-tab-border shrink-0 border-b'>
                     <TitleBarContent />
@@ -155,10 +191,14 @@ export const AppShell = () => {
                 </div>
             ) : (
                 <div className='flex min-h-0 flex-1'>
-                    <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />
+                    {!zen && <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />}
                     <main className='flex min-w-0 flex-1'>
                         {activeProjectId ? (
-                            <Group orientation='horizontal' resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE} className='min-h-0 min-w-0 flex-1'>
+                            <Group
+                                orientation='horizontal'
+                                onLayoutChanged={handleShellLayoutChanged}
+                                resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
+                                className='min-h-0 min-w-0 flex-1'>
                                 <Panel
                                     id='explorer'
                                     panelRef={explorerPanelRef}
@@ -169,7 +209,9 @@ export const AppShell = () => {
                                     collapsedSize={0}>
                                     <ExplorerContainer projectId={activeProjectId} />
                                 </Panel>
-                                <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
+                                {!zen && (
+                                    <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
+                                )}
                                 <Panel id='editor' minSize='30%'>
                                     <EditorArea
                                         projectId={activeProjectId}
@@ -184,7 +226,9 @@ export const AppShell = () => {
                     </main>
                 </div>
             )}
-            <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
+            {!(zen && hideStatusBar) && (
+                <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
+            )}
         </div>
     )
 }

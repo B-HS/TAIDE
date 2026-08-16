@@ -6,7 +6,8 @@
 ## 1. 모델
 
 - 에디터 영역은 **pane 트리**다: `Split(dir, children, sizes)` / `Leaf(tabs, active)` (data-model §3).
-- 탭 타입(`TabKind`): `File{path}` · `Terminal{sessionId}` · `Settings` · `Diff{spec}` — 확장 가능 enum.
+- 탭 타입(`TabKind`): `File{path}` · `Terminal{sessionId}` · `Settings` · `Diff{spec}` ·
+  `AppFile{target}`(Wave I — 앱 소유 파일. `data-model.md` §8) · `SearchEditor{query}` — 확장 가능 enum.
 - 모든 변형(열기·닫기·이동·분할·리사이즈·활성화)은 **mutation → Rust layout 도메인**이 수행하고
   `layout:changed(projectId)` 이벤트로 view 가 갱신된다(ADR-0004). view 는 낙관적 UI 를 쓰지 않는다
   (로컬 IPC 라 지연이 체감되지 않음 — 문제 시 재검토).
@@ -45,7 +46,7 @@ macOS/Windows/Linux 에서 동일하게 보이게 한다(acknowledge §3.1).
 | 탐색 | Reveal in Finder · Reveal in Explorer View | Finder 는 `opener`, Explorer 는 `tree_reveal` |
 | 고정 | Keep Open · Pin | Keep Open = preview → 고정 승격 |
 | 분할 | Split Up · Split Down · Split Left · Split Right · Split in Group | `layout_split` |
-| 창 | Move into New Window · Copy into New Window | **새 OS 창은 이 경로로만** (§4.4) |
+| 창 | Move into New Window · Move back to Main Window(보조 창에서만) · Move to Window N(다른 열린 보조 창마다) | Wave I 로 완전 구현(§4.4). **Copy into New Window 는 미구현**(backlog) — 동일 탭을 두 창이 공유하는 동기화 설계가 이번 범위 밖 |
 | 참조 | Find File References | LSP `references` |
 
 - 조건에 맞지 않는 항목(git 없음·에이전트 없음·File 탭 아님)은 **숨긴다**(비활성 대신).
@@ -78,7 +79,7 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
 - 마지막 남은 Leaf 의 마지막 탭을 닫으면 빈 placeholder Leaf 하나를 유지한다(영역 소멸 금지).
 
 
-### 4.4 새 창 규칙 (Phase 7.5 확정)
+### 4.4 새 창 규칙 (Phase 7.5 확정, Wave I 로 멀티 윈도우 완전 구현)
 
 사용자가 "새창의 기준이 모호하다"고 지적해 아래로 확정했다(acknowledge §1.1).
 
@@ -87,10 +88,15 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
 | 파일 트리 단일 클릭 | preview 탭 (기존 §3) |
 | 더블 클릭 · 편집 시작 | 고정 탭 승격 (기존 §3) |
 | **`⌘`(Ctrl) + 클릭** | **옆 pane 으로 분할해서 열기** |
-| context menu → Move into New Window | **별도 OS 창** |
+| context menu → Move into New Window | **별도 OS 창(보조 편집 창)** |
+| context menu → Move back to Main Window / Move to Window N | 보조 창 ↔ main 창, 보조 창 ↔ 보조 창 간 탭 이동 |
 
-**파일 클릭만으로는 새 OS 창이 절대 열리지 않는다.** 멀티윈도우는 `architecture.md` §8 이
-"추후"로 둔 항목이므로, 이번엔 Move/Copy into New Window 두 경로만 연다.
+**파일 클릭만으로는 새 OS 창이 절대 열리지 않는다** — 이 표의 세 "창" 액션으로만 연다는 원칙은
+그대로다. 다만 멀티윈도우 자체는 더 이상 "추후" 항목이 아니다: **Wave I
+(`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md`)가 완전 구현했다** — 창 생성·탭
+창간 이동·창별 닫기(main 복귀)·다중 창의 LSP/터미널 세션 공유까지 전부 동작한다. 모델·엣지 케이스
+정본은 `layout-shell.md` §7, 크롬은 `window-chrome.md` §5. `Copy into New Window`(같은 탭을 두 창이
+동시에 공유)만 이번 범위에서 제외됐다(backlog).
 \n## 5. 스플릿 리사이즈
 
 - react-resizable-panels 로 Split 의 `sizes` 렌더·드래그. 드래그 종료 시 `layout_resize` mutation 으로

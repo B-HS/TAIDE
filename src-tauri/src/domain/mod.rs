@@ -21,3 +21,4 @@ pub mod terminal;
 pub mod theme;
 pub mod tree;
 pub mod vsix;
+pub mod window;

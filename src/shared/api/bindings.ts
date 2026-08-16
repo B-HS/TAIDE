@@ -29,6 +29,17 @@ export const commands = {
 	layoutSetTerminalSession: (tabId: TabId, sessionId: string) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_terminal_session", { tabId, sessionId })),
 	layoutOpenUntitled: (projectId: ProjectId, target: string | null) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_untitled", { projectId, target })),
 	layoutConvertUntitled: (tabId: TabId, path: string) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_convert_untitled", { tabId, path })),
+	/**
+	 *  Moves a tab to the main window, an already-open auxiliary window, or a brand-new one —
+	 *  "Move into New Window"/"Move back to Main Window" (contract §3.2). `NewAuxiliary` reserves a
+	 *  slot and opens the real OS window *before* touching the layout, so a window-creation failure
+	 *  never leaves the layout half-mutated; if the subsequent move somehow fails anyway (unreachable
+	 *  in practice, since the tab was already located above), `layout::service::move_tab_to_new_window`
+	 *  itself rolls back the just-inserted empty window entry, and this command additionally closes the
+	 *  now-pointless OS window it just opened.
+	 */
+	layoutMoveTabToWindow: (tabId: TabId, target: TabWindowTarget) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_move_tab_to_window", { tabId, target })),
+	layoutSetShellView: (projectId: ProjectId, patch: ShellViewPatch) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_shell_view", { projectId, patch })),
 	fileOpen: (path: string) => typedError<OpenedFile, AppError>(__TAURI_INVOKE("file_open", { path })),
 	fileSave: (path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_save", { path, content })),
 	fileCreate: (path: string, isDir: boolean) => typedError<null, AppError>(__TAURI_INVOKE("file_create", { path, isDir })),
@@ -64,10 +75,13 @@ export const commands = {
 	fileClearUntitledMirror: (projectId: ProjectId, tabId: TabId) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_untitled_mirror", { projectId, tabId })),
 	filePruneUntitledMirrors: (projectId: ProjectId, keepTabIds: TabId[]) => typedError<null, AppError>(__TAURI_INVOKE("file_prune_untitled_mirrors", { projectId, keepTabIds })),
 	/**
-	 *  Confirms the frontend has finished flushing every dirty editor model to
-	 *  the hot-exit mirror in response to `HotExitFlushRequested`, then resumes
-	 *  the app exit that `CloseRequested` deferred. A no-op if the flush was
-	 *  already completed by the timeout fallback.
+	 *  Confirms the calling window has finished flushing every dirty editor
+	 *  model to the hot-exit mirror in response to `HotExitFlushRequested`, then
+	 *  resumes the app exit that the main window's `CloseRequested` deferred
+	 *  once every window expected to confirm has done so (Wave I: main plus any
+	 *  currently-open `editor-*` auxiliary windows — see
+	 *  `AppState::begin_hot_exit_flush`). A no-op if the flush was already
+	 *  completed (by every window confirming, or by the timeout fallback).
 	 */
 	fileFlushComplete: () => typedError<null, AppError>(__TAURI_INVOKE("file_flush_complete")),
 	treeRows: (projectId: ProjectId, offset: number, limit: number) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_rows", { projectId, offset, limit })),
@@ -80,6 +94,12 @@ export const commands = {
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
 	pluginReadGrammar: (pluginId: string, languageId: string) => typedError<string, AppError>(__TAURI_INVOKE("plugin_read_grammar", { pluginId, languageId })),
+	pluginInstall: (sourcePath: string) => typedError<LoadedPlugin, AppError>(__TAURI_INVOKE("plugin_install", { sourcePath })),
+	/**
+	 *  No built-in-plugin protection — every entry in `plugins_dir` is a user-installed directory
+	 *  (contract §3.4: "빌트인 보호 없음 — 사용자 디렉토리만"), since TAIDE ships no bundled plugins.
+	 */
+	pluginUninstall: (pluginId: string) => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
 	agentList: (projectId: ProjectId) => typedError<ProjectAgents, AppError>(__TAURI_INVOKE("agent_list", { projectId })),
 	agentReleaseMarker: (marker: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_release_marker", { marker })),
 	agentCliStatus: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_status")),
@@ -89,7 +109,14 @@ export const commands = {
 	agentCliInstall: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_install")),
 	agentCliUninstall: () => typedError<CliInstallStatus, AppError>(__TAURI_INVOKE("agent_cli_uninstall")),
 	agentPendingExternalOpens: () => typedError<ExternalOpenRequest[], AppError>(__TAURI_INVOKE("agent_pending_external_opens")),
-	lspSpawn: (projectId: ProjectId, serverId: LspServerId, root: string, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { projectId, serverId, root, onMessage })),
+	/**
+	 *  `request.owner` identifies the calling window (`getCurrentWindow().label` on the frontend —
+	 *  `main`, `editor-<n>`, or the remote client's fixed `"remote"` label) so [`find_reusable_entry`]
+	 *  only reuses a session within the same window. See the `channels` field doc on [`SessionEntry`]
+	 *  for why. `request` bundles `project_id`/`server_id`/`root`/`owner` into one struct (mirroring
+	 *  `pty_spawn`'s `opts`) purely to stay under `clippy::too_many_arguments`.
+	 */
+	lspSpawn: (request: LspSpawnRequest, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { request, onMessage })),
 	/**
 	 *  Not guarded by `AppState::begin_mutation` — this command never touches `AppState`, and
 	 *  per-session stdin writes are already serialized by `LspProcHandle`'s own
@@ -98,7 +125,15 @@ export const commands = {
 	 *  saves/git operations) queue behind unrelated mutating commands for no correctness benefit.
 	 */
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
-	lspStop: (sessionId: string, root: string | null) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root })),
+	/**
+	 *  `owner` (`getCurrentWindow().label`, same value the caller originally passed to `lsp_spawn`)
+	 *  removes exactly that caller's subscriber entry from `entry.channels` — see the `channels` field
+	 *  doc on [`SessionEntry`] for why this can't be left to `broadcast_message`'s send-failure pruning
+	 *  alone. Root refcounting (`root`) then decides, independently, whether the whole session (process
+	 *  included) gets torn down — a still-live owner keeps receiving messages from the shared session
+	 *  even after some other owner's root is removed from it.
+	 */
+	lspStop: (sessionId: string, root: string | null, owner: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root, owner })),
 	lspRestart: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_restart", { sessionId })),
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),
 	lspDetectServers: () => typedError<LspServerDetection[], AppError>(__TAURI_INVOKE("lsp_detect_servers")),
@@ -151,6 +186,14 @@ export const commands = {
 	ptyResize: (sessionId: string, cols: number, rows: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_resize", { sessionId, cols, rows })),
 	ptyKill: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_kill", { sessionId })),
 	ptySetPaused: (sessionId: string, paused: boolean) => typedError<null, AppError>(__TAURI_INVOKE("pty_set_paused", { sessionId, paused })),
+	/**
+	 *  Removes exactly the subscriber `pty_attach` registered under `subscription_id` — the counterpart
+	 *  that lets a still-open window stop receiving a session's output without waiting for
+	 *  `broadcast_output`'s send-failure pruning (which only fires once the window itself closes). A
+	 *  session or subscription that no longer exists is treated as already-detached rather than an
+	 *  error, since cleanup can legitimately race a `pty_kill` for the same session.
+	 */
+	ptyDetach: (sessionId: string, subscriptionId: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_detach", { sessionId, subscriptionId })),
 	terminalSessions: (projectId: ProjectId) => typedError<TerminalSession[], AppError>(__TAURI_INVOKE("terminal_sessions", { projectId })),
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
@@ -209,6 +252,12 @@ export const commands = {
 	syncUpload: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_upload")),
 	syncDownload: (force: boolean) => typedError<SyncDownloadResult, AppError>(__TAURI_INVOKE("sync_download", { force })),
 	vsixExtractThemes: (vsixPath: string) => typedError<VsixThemeExtractionResult, AppError>(__TAURI_INVOKE("vsix_extract_themes", { vsixPath })),
+	/**
+	 *  Imports a real VS Code `.vsix`'s language/grammar contributions as a new TAIDE plugin
+	 *  (`service::import_vsix_as_plugin`), then reloads the plugin list the same way `plugin_install`
+	 *  does so the frontend gets the freshly-installed plugin's enabled/error state immediately.
+	 */
+	vsixImportPlugin: (vsixPath: string) => typedError<LoadedPlugin, AppError>(__TAURI_INVOKE("vsix_import_plugin", { vsixPath })),
 	remoteStatus: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_status")),
 	remoteStart: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_start")),
 	remoteStop: () => typedError<null, AppError>(__TAURI_INVOKE("remote_stop")),
@@ -249,6 +298,29 @@ export const commands = {
 	 *  (backward-compatible legacy mode). Invalidates every existing session.
 	 */
 	remoteClearPassword: () => typedError<null, AppError>(__TAURI_INVOKE("remote_clear_password")),
+	windowOpenAuxiliary: (projectId: ProjectId, windowSlot: number) => typedError<AuxiliaryWindowInfo, AppError>(__TAURI_INVOKE("window_open_auxiliary", { projectId, windowSlot })),
+	/**
+	 *  Toggles Zen mode's optional fullscreen (`Settings::zen_fullscreen`) for the calling window —
+	 *  `window: tauri::Window` is Tauri-injected as whichever window's webview made this IPC call
+	 *  (same pattern as `file::commands::file_flush_complete`), so the frontend never needs to name its
+	 *  own label and can't fullscreen a window that isn't itself. A plain wrapper over
+	 *  `tauri::Window::set_fullscreen` — a custom app command, so (per the S1 capability audit) it
+	 *  needs no `core:window:allow-set-fullscreen` ACL permission; that permission only gates the
+	 *  window plugin's own JS-exposed `setFullscreen` call, not a Rust-side call made from inside a
+	 *  command handler.
+	 */
+	windowSetFullscreen: (fullscreen: boolean) => typedError<null, AppError>(__TAURI_INVOKE("window_set_fullscreen", { fullscreen })),
+	appFileRead: (target: AppFileTarget) => typedError<string, AppError>(__TAURI_INVOKE("app_file_read", { target })),
+	/**
+	 *  Writes an `AppFileTarget`'s content. `Settings` runs the exact same
+	 *  parse→sanitize→apply→broadcast pipeline as `settings_update`/`sync_download`
+	 *  (`settings::commands::apply_and_broadcast`) so a hand-edited `settings.json` reaches every
+	 *  window/remote session the same way a patch-based update does; invalid JSON is rejected and the
+	 *  on-disk file is left untouched. `Prompt` is a plain validate-then-write with no cross-window
+	 *  broadcast, since prompt templates are only read lazily at the moment an AI request builds its
+	 *  prompt (`ai::prompt::load_*`), not cached in `AppState`.
+	 */
+	appFileWrite: (target: AppFileTarget, content: string) => typedError<null, AppError>(__TAURI_INVOKE("app_file_write", { target, content })),
 };
 
 /** Events */
@@ -273,6 +345,7 @@ export const events = {
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
 	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
+	settingsChanged: makeEvent<SettingsChanged>("settings:changed"),
 	syncStateChanged: makeEvent<SyncStateChanged>("sync:state-changed"),
 	terminalCwdChanged: makeEvent<TerminalCwdChanged>("terminal:cwd-changed"),
 	terminalExited: makeEvent<TerminalExited>("terminal:exited"),
@@ -364,6 +437,13 @@ export type AppDataPathKind = "plugins" | "themes" | "locales" | "snippets";
 
 export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Forbidden"; message: string } | { code: "Internal"; message: string };
 
+/**
+ *  Which app-owned config file an `AppFile` tab (or `app_file_read`/`app_file_write`) addresses.
+ *  `AppPaths`-derived on the Rust side only — neither variant carries a path, so the frontend and
+ *  the persisted layout JSON never see an absolute filesystem path for these tabs (contract §3.3).
+ */
+export type AppFileTarget = { kind: "settings" } | { kind: "prompt"; id: PromptTemplateId };
+
 export type AppInfo = {
 	name: string,
 	version: string,
@@ -373,6 +453,32 @@ export type AppInfo = {
 
 export type AppReady = {
 	version: string,
+};
+
+/**
+ *  One auxiliary editor window's own pane tree, keyed by `slot` — a project-scoped semantic id
+ *  (allocated by `service::next_window_slot`) distinct from the OS-level Tauri window label
+ *  (`editor-<n>`, allocated globally by `domain::window::service::next_auxiliary_label`). A window
+ *  close returns its tabs to the main tree's tail and drops this entry
+ *  (`service::return_auxiliary_window_tabs`) — TAIDE's 0-loss philosophy, unlike VS Code discarding
+ *  an auxiliary window's content on close.
+ */
+export type AuxWindowLayout = {
+	slot: number,
+	root: PaneNode,
+	focusedPane: PaneId,
+};
+
+/**
+ *  Result of `commands::window_open_auxiliary`. `label` is the Rust-assigned Tauri window label
+ *  (`editor-<n>`) the frontend needs to address this specific OS window (e.g. to correlate it
+ *  against `getAllWebviewWindows()`); `project_id`/`window_slot` echo the request back so the
+ *  caller doesn't have to thread its own copies through the async round-trip.
+ */
+export type AuxiliaryWindowInfo = {
+	label: string,
+	projectId: ProjectId,
+	windowSlot: number,
 };
 
 export type BlameLine = {
@@ -453,7 +559,7 @@ export type ExternalOpenRequest = {
 
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
 
-export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome" | "untitled" | "searchEditor";
+export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome" | "untitled" | "searchEditor" | "appFile";
 
 export type FontFamily = {
 	name: string,
@@ -670,6 +776,20 @@ export type LspSessionStatusChanged = {
 };
 
 /**
+ *  `lsp_spawn`'s business-identity args, grouped into one struct (mirroring
+ *  `terminal::types::PtySpawnOptions`) purely to stay under `clippy::too_many_arguments` once
+ *  `owner` (window-scoped session reuse — see the `channels` field doc on `lsp::commands::SessionEntry`)
+ *  joined `project_id`/`server_id`/`root` as a fourth plain argument. `on_message` (the `Channel`)
+ *  stays a separate top-level command parameter, matching `pty_spawn`'s `opts`/`on_data` split.
+ */
+export type LspSpawnRequest = {
+	projectId: ProjectId,
+	serverId: LspServerId,
+	root: string,
+	owner: string,
+};
+
+/**
  *  A restorable hot-exit mirror, resolved against the file's *current* disk
  *  state at list time. `conflict` is `true` when the disk was modified after
  *  the mirror's `disk_modified_ms` baseline was captured, meaning applying
@@ -771,6 +891,8 @@ export type ProjectLayout = {
 	focusedPane: PaneId,
 	revision?: number,
 	closedTabs?: ClosedTab[],
+	auxiliaryWindows?: AuxWindowLayout[],
+	shellView?: ShellViewState,
 };
 
 export type ProjectListChanged = {
@@ -791,6 +913,16 @@ export type ProjectRef = {
 	root: string,
 	name: string,
 };
+
+/**
+ *  Closed set of prompt-template overrides editable through an `AppFile` tab — deliberately a real
+ *  enum (not a raw `String` id) so an invalid id can never reach `app::service::app_file_path` in
+ *  the first place; there is no runtime whitelist check to forget. Variant names are the
+ *  kebab-case-serialized wire form (`#[serde(rename_all = "kebab-case")]` below), matching
+ *  `ai::prompt`'s existing `*_PROMPT_ID` constants exactly — [`PromptTemplateId::as_str`] ties the
+ *  two together so the file name on disk and the id embedded in a tab never drift independently.
+ */
+export type PromptTemplateId = "auto-tab-default" | "inline-edit-default" | "commit-message-default";
 
 export type PtySpawnOptions = {
 	projectId: ProjectId,
@@ -984,6 +1116,31 @@ export type Settings = {
 	 *  `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
 	 */
 	recentSearches?: string[],
+	/**
+	 *  When `true`, entering Zen mode also fullscreens the main window
+	 *  (`window::commands::window_set_fullscreen`). Defaults to `false` — Zen mode's chrome hiding
+	 *  is opt-out (`zen_hide_status_bar`), but fullscreen is opt-in, since it also affects the OS
+	 *  window itself, not just TAIDE's own chrome. See
+	 *  `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2.
+	 */
+	zenFullscreen?: boolean,
+	/**
+	 *  Whether Zen mode hides the status bar in addition to the sidebar/tab bar it always hides.
+	 *  Defaults to `true`.
+	 */
+	zenHideStatusBar?: boolean,
+};
+
+/**
+ *  Emitted after every settings write reaches the shared reapply path
+ *  (`settings::commands::apply_and_broadcast`) — a `settings_update` patch, a `sync_download`, or an
+ *  `app_file_write` on the `Settings` target. Carries the full sanitized `Settings` so a listener
+ *  can update immediately without a round-trip, though the frontend's own convention is to
+ *  invalidate its cached `SETTINGS.CURRENT` query and let TanStack Query refetch
+ *  (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.3).
+ */
+export type SettingsChanged = {
+	settings: Settings,
 };
 
 export type SettingsPatch = {
@@ -1038,6 +1195,8 @@ export type SettingsPatch = {
 	editorFormatOnPaste: boolean | null,
 	emmetEnabled: boolean | null,
 	recentSearches: string[] | null,
+	zenFullscreen: boolean | null,
+	zenHideStatusBar: boolean | null,
 };
 
 export type ShellProfile = {
@@ -1045,6 +1204,24 @@ export type ShellProfile = {
 	name: string,
 	path: string,
 	args?: string[],
+};
+
+/**
+ *  Partial update for [`ShellViewState`] — `None` fields are left at their current value, same
+ *  merge convention as `settings::service::SettingsPatch`/`apply_patch`.
+ */
+export type ShellViewPatch = {
+	zen: boolean | null,
+	sidebarCollapsed: boolean | null,
+};
+
+/**
+ *  Per-project display-chrome state for the **main** window only — auxiliary windows are
+ *  sidebar/status-bar-less editor chrome by design (contract §3.2), so this isn't per-window.
+ */
+export type ShellViewState = {
+	zen?: boolean,
+	sidebarCollapsed?: boolean,
 };
 
 /**
@@ -1218,7 +1395,23 @@ export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessi
  *  re-searches rather than replaying stale results. See
  *  `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
  */
-{ kind: "searchEditor"; query: SearchQuery };
+{ kind: "searchEditor"; query: SearchQuery } | 
+/**
+ *  An app-owned config file (`settings.json` or a prompt template override) opened as a tab —
+ *  unlike `File`, its path is never carried in the tab itself: `target` is a closed enum Rust
+ *  resolves to an `AppPaths`-derived location (`app::service::app_file_path`), so neither the
+ *  layout JSON nor the frontend ever sees an absolute path for it. See
+ *  `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.3.
+ */
+{ kind: "appFile"; target: AppFileTarget };
+
+/**
+ *  Destination for `layout_move_tab_to_window`. `Existing` addresses an auxiliary window already
+ *  recorded in `ProjectLayout::auxiliary_windows` by its project-scoped `slot`; `NewAuxiliary`
+ *  allocates a fresh slot (`service::next_window_slot`) and asks `domain::window` to open a real OS
+ *  window for it before the tab lands there.
+ */
+export type TabWindowTarget = { kind: "main" } | { kind: "newAuxiliary" } | { kind: "existing"; slot: number };
 
 export type TagCreateOptions = {
 	message?: string | null,

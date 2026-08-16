@@ -9,7 +9,7 @@ use crate::domain::ide::commands::IdeStore;
 use crate::domain::remote::commands as remote_commands;
 use crate::domain::remote::commands::RemoteStore;
 use crate::error::AppResult;
-use crate::events::ThemeChanged;
+use crate::events::{SettingsChanged, ThemeChanged};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -18,19 +18,33 @@ pub async fn settings_get(state: tauri::State<'_, AppState>) -> AppResult<Settin
     Ok(state.settings.read().clone())
 }
 
+/// Sanitizes, persists, applies to live `AppState`, reconciles integration toggles (IDE/agent
+/// hooks/remote access) against the previous value, and broadcasts `SettingsChanged` — the single
+/// reapply path every settings-writing entry point funnels through
+/// (`settings_update`, `sync_download`, `app_file_write`'s `Settings` target), so a hand-edited
+/// `settings.json` or a synced gist download reaches every window/remote session exactly the same
+/// way a `settings_update` patch does. Callers already inside `state.begin_mutation()` must call
+/// this directly rather than through a command — it does **not** take the mutation guard itself, to
+/// avoid a re-entrant deadlock on `AppState`'s single global `tokio::sync::Mutex`.
+pub async fn apply_and_broadcast(app: &tauri::AppHandle, state: &AppState, next: Settings) -> AppResult<Settings> {
+    let current = state.settings.read().clone();
+    let updated = service::sanitize(next);
+    service::save_settings(&state.paths, &updated)?;
+    *state.settings.write() = updated.clone();
+    apply_integration_toggles(app, &current, &updated).await;
+
+    let _ = SettingsChanged { settings: updated.clone() }.emit(app);
+
+    Ok(updated)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppState>, patch: SettingsPatch) -> AppResult<Settings> {
-    let updated = {
-        let _guard = state.begin_mutation().await;
-        let current = state.settings.read().clone();
-        let updated = service::apply_patch(&current, &patch);
-        service::save_settings(&state.paths, &updated)?;
-        *state.settings.write() = updated.clone();
-        apply_integration_toggles(&app, &current, &updated).await;
-        updated
-    };
-    Ok(updated)
+    let _guard = state.begin_mutation().await;
+    let current = state.settings.read().clone();
+    let updated = service::apply_patch(&current, &patch);
+    apply_and_broadcast(&app, &state, updated).await
 }
 
 async fn apply_integration_toggles(app: &tauri::AppHandle, current: &Settings, updated: &Settings) {

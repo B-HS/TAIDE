@@ -3,45 +3,11 @@ use std::path::{Path, PathBuf};
 
 use super::types::{IDE_PORT_RANGE_END, IDE_PORT_RANGE_START};
 use crate::domain::layout::types::{ProjectLayout, TabKind};
+use crate::domain::plugin::types::LoadedPlugin;
 use crate::domain::project::types::Project;
 use crate::error::AppResult;
 use crate::ids::ProjectId;
-use crate::infra::root_guard;
-
-const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
-    ("ts", "typescript"),
-    ("tsx", "typescriptreact"),
-    ("js", "javascript"),
-    ("jsx", "javascriptreact"),
-    ("mjs", "javascript"),
-    ("cjs", "javascript"),
-    ("json", "json"),
-    ("rs", "rust"),
-    ("py", "python"),
-    ("go", "go"),
-    ("java", "java"),
-    ("c", "c"),
-    ("h", "c"),
-    ("cpp", "cpp"),
-    ("hpp", "cpp"),
-    ("cs", "csharp"),
-    ("rb", "ruby"),
-    ("php", "php"),
-    ("sh", "shellscript"),
-    ("bash", "shellscript"),
-    ("zsh", "shellscript"),
-    ("html", "html"),
-    ("css", "css"),
-    ("scss", "scss"),
-    ("md", "markdown"),
-    ("toml", "toml"),
-    ("yaml", "yaml"),
-    ("yml", "yaml"),
-    ("sql", "sql"),
-    ("swift", "swift"),
-    ("kt", "kotlin"),
-];
-const DEFAULT_LANGUAGE_ID: &str = "plaintext";
+use crate::infra::{language, root_guard};
 
 pub use crate::infra::crypto::constant_time_eq;
 
@@ -60,18 +26,33 @@ pub fn random_port() -> u32 {
     port_from_entropy(raw, IDE_PORT_RANGE_START, IDE_PORT_RANGE_END)
 }
 
-pub fn guess_language_id(path: &str) -> &'static str {
-    Path::new(path)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| extension.to_lowercase())
-        .and_then(|extension| {
-            LANGUAGE_ID_BY_EXTENSION
-                .iter()
-                .find(|(key, _)| *key == extension)
-                .map(|(_, id)| *id)
-        })
-        .unwrap_or(DEFAULT_LANGUAGE_ID)
+/// Extensions the MCP `languageId` response (`getOpenEditors`/`openFile`) should still identify
+/// precisely even though TAIDE has no bundled grammar for them —
+/// `infra::language::LANGUAGE_ID_BY_EXTENSION` deliberately excludes them for that reason (see its
+/// doc comment: every entry there doubles as a member of the frontend's `TAIDE_LANGUAGE_IDS`, and
+/// these three aren't). An external MCP client (Claude Code) has no notion of "TAIDE doesn't
+/// highlight C#" — `languageId` there is just metadata the client uses to judge what kind of file
+/// it's looking at, so collapsing it to `"plaintext"` loses real information for no benefit to this
+/// consumer. Checked only once [`guess_language_id`]'s shared-table/plugin-overlay lookup has
+/// already missed (resolved to `"plaintext"`), so a plugin-contributed or future bundled grammar
+/// for the same extension always wins over this fallback.
+const MCP_ONLY_LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[("cs", "csharp"), ("php", "php"), ("sql", "sql")];
+
+pub fn guess_language_id(path: &str, plugins: &[LoadedPlugin]) -> String {
+    let resolved = language::language_id_for_path(Path::new(path), plugins);
+    if resolved != "plaintext" {
+        return resolved;
+    }
+
+    let Some(extension) = Path::new(path).extension().and_then(|value| value.to_str()) else {
+        return resolved;
+    };
+    let extension = extension.to_lowercase();
+    MCP_ONLY_LANGUAGE_ID_BY_EXTENSION
+        .iter()
+        .find(|(key, _)| *key == extension)
+        .map(|(_, id)| (*id).to_string())
+        .unwrap_or(resolved)
 }
 
 pub fn ensure_path_within_any_project(projects: &HashMap<ProjectId, Project>, path: &Path) -> AppResult<(ProjectId, PathBuf)> {
@@ -105,7 +86,12 @@ fn file_label(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>) -> Vec<OpenEditorEntry> {
+/// Snapshots every open `File` tab across a project's main tree *and* its auxiliary windows
+/// (`layout::service::all_roots`) — an auxiliary-window tab is still an open editor from the
+/// external MCP client's point of view, even though it renders in a different OS window.
+/// "Active" is scoped to the main tree's focused pane only: auxiliary windows don't have a
+/// project-wide notion of "the" active tab, so their tabs are always reported `is_active: false`.
+pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>, plugins: &[LoadedPlugin]) -> Vec<OpenEditorEntry> {
     let mut entries = Vec::new();
 
     for layout in layouts.values() {
@@ -116,19 +102,21 @@ pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>) -> Vec
             active.clone()
         });
 
-        for node in crate::domain::layout::service::collect_leaves(&layout.root) {
-            let crate::domain::layout::types::PaneNode::Leaf { tabs, .. } = node else {
-                continue;
-            };
-            for tab in tabs {
-                let TabKind::File { path } = &tab.kind else { continue };
-                entries.push(OpenEditorEntry {
-                    path: path.clone(),
-                    is_active: active_tab_id.as_ref() == Some(&tab.id),
-                    label: file_label(path),
-                    language_id: guess_language_id(path).to_string(),
-                    is_dirty: tab.dirty,
-                });
+        for root in crate::domain::layout::service::all_roots(layout) {
+            for node in crate::domain::layout::service::collect_leaves(root) {
+                let crate::domain::layout::types::PaneNode::Leaf { tabs, .. } = node else {
+                    continue;
+                };
+                for tab in tabs {
+                    let TabKind::File { path } = &tab.kind else { continue };
+                    entries.push(OpenEditorEntry {
+                        path: path.clone(),
+                        is_active: active_tab_id.as_ref() == Some(&tab.id),
+                        label: file_label(path),
+                        language_id: guess_language_id(path, plugins),
+                        is_dirty: tab.dirty,
+                    });
+                }
             }
         }
     }
@@ -174,14 +162,21 @@ mod tests {
 
     #[test]
     fn 알려진_확장자는_언어id로_매핑된다() {
-        assert_eq!(guess_language_id("/a/b/main.rs"), "rust");
-        assert_eq!(guess_language_id("/a/b/App.tsx"), "typescriptreact");
+        assert_eq!(guess_language_id("/a/b/main.rs", &[]), "rust");
+        assert_eq!(guess_language_id("/a/b/App.tsx", &[]), "typescriptreact");
     }
 
     #[test]
     fn 모르는_확장자는_plaintext다() {
-        assert_eq!(guess_language_id("/a/b/data.unknownext"), "plaintext");
-        assert_eq!(guess_language_id("/a/b/noext"), "plaintext");
+        assert_eq!(guess_language_id("/a/b/data.unknownext", &[]), "plaintext");
+        assert_eq!(guess_language_id("/a/b/noext", &[]), "plaintext");
+    }
+
+    #[test]
+    fn 그래머_없는_확장자도_mcp_전용_보강_테이블로_식별된다() {
+        assert_eq!(guess_language_id("/a/b/Service.cs", &[]), "csharp");
+        assert_eq!(guess_language_id("/a/b/index.php", &[]), "php");
+        assert_eq!(guess_language_id("/a/b/schema.SQL", &[]), "sql");
     }
 
     fn project(id: &str, root: &str, root_missing: bool) -> (ProjectId, Project) {

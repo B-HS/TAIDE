@@ -1,4 +1,4 @@
-import type { AiProviderId, DiffMode, ProjectId } from '@shared/api/bindings'
+import type { AiProviderId, AppFileTarget, DiffMode, ProjectId } from '@shared/api/bindings'
 
 const GIT_SCOPE_COMMIT_FILES = 'commit-files'
 const GIT_SCOPE_SHOW = 'show'
@@ -95,6 +95,10 @@ export const QUERY_KEY = {
     SETTINGS: {
         ALL: ['settings'] as const,
         CURRENT: ['settings', 'current'] as const,
+    },
+    APP_FILE: {
+        ALL: ['app-file'] as const,
+        CONTENT: (target: AppFileTarget) => ['app-file', 'content', target] as const,
     },
     SNIPPET: {
         ALL: ['snippet'] as const,

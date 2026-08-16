@@ -10,6 +10,7 @@ use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk,
     LogEntry, RevertOutcome, StagedDiffText, TagCreateOptions, TagInfo,
 };
+use crate::domain::plugin::commands::{self as plugin_commands, PluginStore};
 use crate::error::{AppError, AppResult};
 use crate::events::{GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
@@ -85,12 +86,14 @@ pub async fn git_status(state: State<'_, AppState>, store: State<'_, GitStore>, 
 pub async fn git_diff_file(
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
+    plugins: State<'_, PluginStore>,
     project_id: ProjectId,
     path: String,
     mode: DiffMode,
 ) -> AppResult<DiffSides> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode))
+    let loaded_plugins = plugin_commands::ensure_loaded(&plugins, &state.paths.plugins_dir());
+    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, &loaded_plugins))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
 }

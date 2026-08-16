@@ -58,9 +58,11 @@ struct SessionState {
 struct ProjectRef { id: ProjectId, root: PathBuf, name: String }
 
 struct ProjectLayout {
-    version: u32,
-    root: PaneNode,                     // 스플릿 트리
+    version: u32,                       // Wave I: 2 (§8 마이그레이션 참조)
+    root: PaneNode,                     // 스플릿 트리 — main 창
     focused_pane: PaneId,
+    auxiliary_windows: Vec<AuxWindowLayout>,  // Wave I 신설 — §8
+    shell_view: ShellViewState,               // Wave I 신설 — §8
 }
 
 enum PaneNode {
@@ -70,7 +72,7 @@ enum PaneNode {
 
 struct Tab {
     id: TabId,
-    kind: TabKind,                      // File { path } | Terminal { session } | Settings | Diff { .. } | ...
+    kind: TabKind,                      // File { path } | Terminal { session } | Settings | Diff { .. } | AppFile { target } | ...
     pinned: bool,
     preview: bool,
 }
@@ -189,3 +191,76 @@ emit·이중 `exit()` 를 가드한다.
   (`sync/service.rs`). 필드 단위 alias 대비 이 방식의 트레이드오프: 마이그레이션 지점이 "역직렬화가
   일어나는 모든 곳"이 아니라 "JSON 을 처음 읽어들이는 두 진입점"으로 좁혀지므로, 향후 구 페이로드를
   읽는 새 진입점이 추가되면 이 사전 마이그레이션 호출을 함께 추가해야 한다(자동으로 따라오지 않음).
+
+## 8. 레이아웃 스키마 v2 — 멀티 윈도우·Zen·AppFile (Wave I)
+
+> 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.1/§3.2/§3.3.
+> 상세: `layout-shell.md` §7, `window-chrome.md` §5, `tabs.md` §3.1/§4.4.
+
+- **`LAYOUT_SCHEMA_VERSION` 1 → 2.** 순수 가산(additive) 변경 — v1 이 갖던 필드는 그대로이고
+  `auxiliary_windows`/`shell_view` 두 필드만 새로 붙는다. 둘 다 `#[serde(default)]` 라 v1 JSON 은
+  구조 변경 없이 현재 `ProjectLayout` 형태로 그대로 역직렬화된다.
+- **마이그레이션은 이번에 처음 생겼다.** Wave I 이전에는 `load_layout` 이 `version` 이 현재와 다르면
+  무조건 `default_layout()` 로 폴백해 **기존 탭을 전량 유실**시켰다(§2 확정 사실 5). 이제는
+  `version <= LAYOUT_SCHEMA_VERSION` 이면 `migrate_layout` 이 버전 필드만 올려 스탬프하고 탭은 그대로
+  보존한다. `default_layout()` 폴백은 ① JSON 자체가 파싱 불가(파손)이거나 ② 이 빌드가 모르는 **더
+  높은** 버전일 때만 남는다(다운그레이드 마이그레이션은 안전하게 만들 수 없으므로). 회귀 테스트가
+  실제 v1 형태 JSON(신필드 제거 후 저장)의 왕복을 고정한다(`layout/service.rs`
+  `v1_레이아웃_파일은_기존_탭을_보존한채_v2로_마이그레이션된다`).
+- **`AuxWindowLayout`** — 보조 편집 창(`editor-<n>`) 하나당 하나, main 창과 **구조적으로 동일한**
+  자기만의 스플릿 트리를 가진다.
+
+  ```rust
+  struct AuxWindowLayout {
+      slot: u32,             // 창의 논리적 식별자 — OS 창 라벨(editor-<n>)과 1:1 이 아니다.
+                              // 라벨은 Rust 가 재사용 가능한 최소 미사용 번호로 발급하고, slot 은
+                              // 레이아웃이 "이 트리는 어느 보조 창의 것인가"를 기억하는 값이다.
+      root: PaneNode,
+      focused_pane: PaneId,
+  }
+  ```
+
+  - 보조 창을 닫으면(플레인 ✕/⌘W 로 마지막 탭까지 다 닫아 빈 트리가 된 경우는 예외 — 아래 참조)
+    Rust 가 그 슬롯의 탭 전체를 main 창 포커스 pane 말미로 옮기고 슬롯 자체를 제거한다
+    (`window::service::plan_return_of_auxiliary_window_tabs`) — VS Code 는 보조 창을 닫으면 탭이
+    그냥 사라지지만, TAIDE 는 "0-손실" 철학상 항상 main 으로 복귀시킨다.
+  - `layout_move_tab_to_window` 로 빈 슬롯이 만들어지면 그 자리에서 즉시 슬롯이 제거된다
+    (`cleanup_emptied_auxiliary_windows`). 사용자가 보조 창 안에서 그냥 마지막 탭을 닫아 트리가
+    비는 경로는 이 정리를 타지 않는다 — 프론트(`auxiliary-window-shell.tsx`)가 자기 트리가 빈 것을
+    감지해 OS 창을 스스로 닫는 것으로 대칭을 완성한다(재시작 시 빈 슬롯은 저장 단계에서 제외되어
+    복원되지 않는다).
+  - 재시작 시 열려 있던(활성 프로젝트 여부와 무관하게, 세션에 남아있는 모든 프로젝트의) 보조 창을
+    Rust 가 전부 재생성한다(`lib.rs::restore_auxiliary_windows`).
+- **`ShellViewState`** — main 창 전용 표시 상태(보조 창은 사이드바·상태바가 원래 없는 에디터 전용
+  크롬이라 이 값의 영향을 받지 않는다).
+
+  ```rust
+  struct ShellViewState {
+      zen: bool,               // 기본 false
+      sidebar_collapsed: bool, // 기본 false — 폭 자체는 여전히 프론트 로컬 debounce(ADR-0004 예외)
+  }
+  ```
+
+  - Zen 모드는 사이드바·탭바·(설정에 따라) 상태바를 숨긴다. `Settings.zen_fullscreen`(기본 false)이
+    켜져 있으면 Zen 진입 시 OS 창도 함께 전체화면 전환한다(`window_set_fullscreen`).
+    `Settings.zen_hide_status_bar`(기본 true)가 상태바까지 숨길지를 결정한다.
+- **`TabKind::AppFile`** — 프로젝트 폴더 밖에 있는 앱 소유 파일(`settings.json`, 프롬프트 템플릿
+  오버라이드)을 일반 파일 탭과 같은 UX(탭·dirty 표시·닫기 확인)로 열되, 그 파일들이 실제로 어느
+  경로에 있는지는 프론트/레이아웃에 전혀 노출하지 않는다.
+
+  ```rust
+  enum AppFileTarget {
+      Settings,
+      Prompt { id: PromptTemplateId },  // 'auto-tab-default' | 'inline-edit-default' | 'commit-message-default'
+  }
+  ```
+
+  - 읽기/쓰기는 `app_file_read`/`app_file_write` 전용 커맨드로만 하며, 둘 다 `root_guard` 의 프로젝트
+    루트 검증 대상이 아니다(경로는 Rust `AppPaths` 내부에서만 유도된다).
+  - **hot-exit 미러는 1차 제외**(계약 명시) — 저장하지 않은 `AppFile` 탭 내용은 창이 비정상 종료되면
+    복구되지 않는다. dirty 표시와 "닫기 시 확인" 다이얼로그는 기존 파일 탭과 동일한 흐름을 그대로
+    재사용한다.
+  - 동일 `target` 을 여러 pane 에 중복해서 여는 정책은 일반 파일 탭과 동일(같은 leaf 안에서는 재사용,
+    다른 leaf 로는 명시적 분할 이동으로만 중복 — `tabs.md` §3).
+- **`Settings` 신규 필드 2종**: `zen_fullscreen: bool`(기본 false) · `zen_hide_status_bar: bool`
+  (기본 true). 둘 다 `SettingsPatch`/`emptySettingsPatch`/sync 페이로드에 포함된다.

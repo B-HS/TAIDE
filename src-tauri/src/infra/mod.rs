@@ -1,5 +1,6 @@
 pub mod crypto;
 pub mod http;
+pub mod language;
 pub mod lsp_install;
 pub mod lsp_proc;
 pub mod persist;

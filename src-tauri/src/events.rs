@@ -4,6 +4,7 @@ use tauri_specta::Event;
 
 use crate::domain::layout::types::FocusKind;
 use crate::domain::project::types::{Project, ProjectRef};
+use crate::domain::settings::types::Settings;
 use crate::ids::ProjectId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -61,6 +62,19 @@ pub struct LayoutChanged {
 #[tauri_specta(event_name = "theme:changed")]
 pub struct ThemeChanged {
     pub theme_id: String,
+}
+
+/// Emitted after every settings write reaches the shared reapply path
+/// (`settings::commands::apply_and_broadcast`) — a `settings_update` patch, a `sync_download`, or an
+/// `app_file_write` on the `Settings` target. Carries the full sanitized `Settings` so a listener
+/// can update immediately without a round-trip, though the frontend's own convention is to
+/// invalidate its cached `SETTINGS.CURRENT` query and let TanStack Query refetch
+/// (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.3).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "settings:changed")]
+pub struct SettingsChanged {
+    pub settings: Settings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]

@@ -29,6 +29,7 @@ import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
+import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
@@ -97,6 +98,20 @@ export const CommandPalette = () => {
         )
     }
 
+    const openSettingsFile = () => {
+        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        openTab(
+            {
+                projectId: activeProjectId,
+                kind: { kind: 'appFile', target: { kind: 'settings' } },
+                title: SETTINGS_JSON_TAB_TITLE,
+                target: null,
+                preview: false,
+            },
+            { onError: (error) => toast.error(error.message) },
+        )
+    }
+
     const reopenClosedTab = () => {
         if (!activeProjectId) return
         reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(error.message) })
@@ -123,6 +138,7 @@ export const CommandPalette = () => {
         activeProjectId,
         activeEditorActionIds,
         openSettingsTab,
+        openSettingsFile,
         openTerminalTab,
         reopenClosedTab,
         switchToFileSearchMode: () => setQuery(''),

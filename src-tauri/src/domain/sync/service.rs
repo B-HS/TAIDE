@@ -129,6 +129,8 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         editor_format_on_paste: Some(settings.editor_format_on_paste),
         emmet_enabled: Some(settings.emmet_enabled),
         recent_searches: Some(settings.recent_searches.clone()),
+        zen_fullscreen: Some(settings.zen_fullscreen),
+        zen_hide_status_bar: Some(settings.zen_hide_status_bar),
     })
 }
 

@@ -2,7 +2,7 @@ import type { KeymapActionId, KeymapChordStage, KeymapEntry, KeymapEvent } from 
 import {
     MODIFIER_ONLY_KEYS,
     MONACO_CHORD_PREFIX_KEY,
-    findMatchingChordPrefixEntry,
+    findMatchingChordPrefixEntries,
     findMatchingKeymapEntry,
     matchesChordSecondStage,
     matchesKeymapEntry,
@@ -23,7 +23,7 @@ export type KeymapDispatchAction =
     | { type: 'ignore-modifier-only' }
     | { type: 'defer-to-monaco' }
     | { type: 'observe-monaco-chord-prefix' }
-    | { type: 'enter-chord'; entryId: KeymapActionId; prefix: KeymapChordStage }
+    | { type: 'enter-chord'; entryIds: KeymapActionId[]; prefix: KeymapChordStage }
     | { type: 'resolve-chord-matched'; entryId: KeymapActionId }
     | { type: 'resolve-chord-no-match' }
     | { type: 'dispatch'; entryId: KeymapActionId }
@@ -74,15 +74,29 @@ export const decideKeymapDispatch = (
 
     if (chordState.pending) {
         if (isIgnorableKeydown(event)) return { type: 'ignore-modifier-only' }
-        const pendingEntry = entries.find((entry) => entry.id === chordState.pending?.entryId) ?? null
-        if (pendingEntry && matchesChordSecondStage(pendingEntry, event, isMac)) return { type: 'resolve-chord-matched', entryId: pendingEntry.id }
+        /**
+         * Several sibling chords can share one first stage (`KeymapChordPendingState.entryIds`),
+         * so stage-2 resolution tries every candidate the first-stage keydown matched and picks
+         * whichever one's own second stage matches this keydown — not just the first candidate in
+         * `entries` order, which would permanently starve every sibling but the first.
+         */
+        const matchedEntry = chordState.pending.entryIds
+            .map((entryId) => entries.find((entry) => entry.id === entryId))
+            .find((entry): entry is KeymapEntry => entry !== undefined && matchesChordSecondStage(entry, event, isMac))
+        if (matchedEntry) return { type: 'resolve-chord-matched', entryId: matchedEntry.id }
         return { type: 'resolve-chord-no-match' }
     }
 
     const isEditorTextFocused = getKeymapContextValue('editorTextFocus', getters)
     const isWhenSatisfied = (when: string | undefined) => !isEditorTextFocused && evaluateKeymapWhen(when, getters)
-    const chordEntry = findMatchingChordPrefixEntry(entries, event, isMac, isWhenSatisfied)
-    if (chordEntry) return { type: 'enter-chord', entryId: chordEntry.id, prefix: { key: chordEntry.key, mods: chordEntry.mods } }
+    const chordEntries = findMatchingChordPrefixEntries(entries, event, isMac, isWhenSatisfied)
+    if (chordEntries.length > 0) {
+        return {
+            type: 'enter-chord',
+            entryIds: chordEntries.map((entry) => entry.id),
+            prefix: { key: chordEntries[0].key, mods: chordEntries[0].mods },
+        }
+    }
 
     if (isEditorTextFocused && monacoChordPrefixes.some((prefix) => matchesKeymapEntry(prefix, event, isMac))) {
         return { type: 'observe-monaco-chord-prefix' }

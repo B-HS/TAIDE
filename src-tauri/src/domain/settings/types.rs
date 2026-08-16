@@ -142,6 +142,17 @@ pub struct Settings {
     /// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
     #[serde(default)]
     pub recent_searches: Vec<String>,
+    /// When `true`, entering Zen mode also fullscreens the main window
+    /// (`window::commands::window_set_fullscreen`). Defaults to `false` — Zen mode's chrome hiding
+    /// is opt-out (`zen_hide_status_bar`), but fullscreen is opt-in, since it also affects the OS
+    /// window itself, not just TAIDE's own chrome. See
+    /// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2.
+    #[serde(default)]
+    pub zen_fullscreen: bool,
+    /// Whether Zen mode hides the status bar in addition to the sidebar/tab bar it always hides.
+    /// Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub zen_hide_status_bar: bool,
 }
 
 fn default_theme_id() -> String {
@@ -253,6 +264,8 @@ impl Default for Settings {
             editor_format_on_paste: false,
             emmet_enabled: default_true(),
             recent_searches: Vec::new(),
+            zen_fullscreen: false,
+            zen_hide_status_bar: default_true(),
         }
     }
 }

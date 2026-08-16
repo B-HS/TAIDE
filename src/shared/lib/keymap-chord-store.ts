@@ -1,6 +1,13 @@
 import type { KeymapActionId, KeymapChordStage, KeymapEvent } from '@shared/lib/keymap'
 
-export type KeymapChordPendingState = { entryId: KeymapActionId; prefix: KeymapChordStage; at: number }
+/**
+ * `entryIds` (not a single `entryId`) — several sibling `APP_KEYMAP` chord entries can share the
+ * same first stage (see `findMatchingChordPrefixEntries`), so entering chord-pending must carry
+ * every candidate the first-stage keydown matched, not just one arbitrarily chosen winner. Stage-2
+ * resolution (`decideKeymapDispatch`'s `chordState.pending` branch) searches this list for whichever
+ * entry's own second stage matches the incoming keydown.
+ */
+export type KeymapChordPendingState = { entryIds: KeymapActionId[]; prefix: KeymapChordStage; at: number }
 export type KeymapChordStoreState = { pending: KeymapChordPendingState | null; monacoDeferral: boolean }
 
 /** Mirrors monaco's own chord timeout (`abstractKeybindingService.js`) — see Wave H contract §2.4. */
@@ -101,17 +108,21 @@ export const notifyKeymapChordNoMatch = () => {
  * (`keybindings-editor.tsx`) records a chord being newly *defined* through its own local
  * `CaptureTarget.pendingFirstStage` state instead of this store, and is short-circuited out of the
  * dispatch path entirely while active (`use-keydown-capture.ts`'s `isCapturing` guard) — so this
- * store never needs an entry-less "recording" variant. Idempotent for equal `(entryId, prefix)`: up
- * to 5 independent `useGlobalKeymap` window listeners (one per consumer widget) evaluate the same
- * keydown and may all call this for the same match; re-writing identical values has no observable
- * effect beyond restarting the timeout, which is itself harmless (all 5 calls land within the same
- * synchronous dispatch pass).
+ * store never needs an entry-less "recording" variant. Idempotent for equal `(entryIds, prefix)`:
+ * up to 5 independent `useGlobalKeymap` window listeners (one per consumer widget) evaluate the
+ * same keydown and may all call this for the same match; re-writing identical values has no
+ * observable effect beyond restarting the timeout, which is itself harmless (all 5 calls land
+ * within the same synchronous dispatch pass).
  */
-export const enterKeymapChordPending = (prefix: KeymapChordStage, entryId: KeymapActionId, timeoutMs: number = KEYMAP_CHORD_PENDING_TIMEOUT_MS) => {
+export const enterKeymapChordPending = (
+    prefix: KeymapChordStage,
+    entryIds: KeymapActionId[],
+    timeoutMs: number = KEYMAP_CHORD_PENDING_TIMEOUT_MS,
+) => {
     pendingEpoch += 1
     const myEpoch = pendingEpoch
     clearPendingTimeout()
-    state = { ...state, pending: { entryId, prefix, at: Date.now() } }
+    state = { ...state, pending: { entryIds, prefix, at: Date.now() } }
     pendingTimeoutId = setTimeout(() => {
         pendingTimeoutId = null
         if (pendingEpoch !== myEpoch) return

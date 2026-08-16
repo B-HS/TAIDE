@@ -20,6 +20,7 @@ const dummyContext: CommandContext = {
     activeProjectId: null,
     activeEditorActionIds: null,
     openSettingsTab: () => {},
+    openSettingsFile: () => {},
     openTerminalTab: () => {},
     reopenClosedTab: () => {},
     switchToFileSearchMode: () => {},
@@ -155,6 +156,7 @@ describe('DEFAULT_COMMANDS', () => {
         const runnableIds = [
             'window.reload',
             'settings.open',
+            'app.openSettingsFile',
             'terminal.new',
             'tab.reopenClosed',
             'file.quickOpen',
@@ -168,6 +170,7 @@ describe('DEFAULT_COMMANDS', () => {
             'tab.cyclePrev',
             'editor.save',
             'view.toggleTerminal',
+            'tab.moveToNewWindow',
         ]
         for (const id of runnableIds) {
             const command = DEFAULT_COMMANDS.find((entry) => entry.id === id)
@@ -177,12 +180,23 @@ describe('DEFAULT_COMMANDS', () => {
     })
 
     test('실행 구현이 없는 keymap 미러 커맨드(탭 닫기·파일 내 찾기)는 항상 비활성이다', () => {
-        const disabledIds = DEFAULT_COMMANDS.filter((command) => command.isEnabled).map((command) => command.id)
-        expect(disabledIds).toEqual(['tab.close', 'editor.find'])
-        for (const command of DEFAULT_COMMANDS) {
-            if (!command.isEnabled) continue
-            expect(isCommandRunnable(command, dummyContext)).toBe(false)
+        for (const id of ['tab.close', 'editor.find']) {
+            const command = DEFAULT_COMMANDS.find((entry) => entry.id === id)
+            expect(command).toBeDefined()
+            expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(false)
         }
+    })
+
+    /**
+     * `tab.moveToMainWindow` gates on `getWindowContext()` (module-scoped, not `CommandContext`) —
+     * `bun:test` has no `window` global, so `getWindowContext()` always resolves to the main window
+     * here and only the disabled branch is reachable from this test file. The enabled branch is
+     * covered by `window-context.test.ts`'s `readWindowContext` tests instead.
+     */
+    test('tab.moveToMainWindow 은 window-context 기반으로 활성 여부를 판단한다(테스트 환경엔 window 전역이 없어 비활성 경로만 검증)', () => {
+        const command = DEFAULT_COMMANDS.find((entry) => entry.id === 'tab.moveToMainWindow')
+        expect(command).toBeDefined()
+        expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(false)
     })
 })
 

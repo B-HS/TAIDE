@@ -5,6 +5,7 @@ use tauri::{AppHandle, State};
 use super::service;
 use super::service::{MirrorEntry, UntitledMirrorEntry};
 use super::types::OpenedFile;
+use crate::domain::plugin::commands::{self as plugin_commands, PluginStore};
 use crate::error::AppResult;
 use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
@@ -12,11 +13,12 @@ use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
-pub async fn file_open(state: State<'_, AppState>, path: String) -> AppResult<OpenedFile> {
+pub async fn file_open(state: State<'_, AppState>, plugins: State<'_, PluginStore>, path: String) -> AppResult<OpenedFile> {
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
 
-    service::open_file(&resolved)
+    let loaded_plugins = plugin_commands::ensure_loaded(&plugins, &state.paths.plugins_dir());
+    service::open_file(&resolved, &loaded_plugins)
 }
 
 #[tauri::command]
@@ -168,14 +170,17 @@ pub async fn file_prune_untitled_mirrors(state: State<'_, AppState>, project_id:
     service::prune_untitled_mirrors(&state.paths, &project_id, &keep_tab_ids)
 }
 
-/// Confirms the frontend has finished flushing every dirty editor model to
-/// the hot-exit mirror in response to `HotExitFlushRequested`, then resumes
-/// the app exit that `CloseRequested` deferred. A no-op if the flush was
-/// already completed by the timeout fallback.
+/// Confirms the calling window has finished flushing every dirty editor
+/// model to the hot-exit mirror in response to `HotExitFlushRequested`, then
+/// resumes the app exit that the main window's `CloseRequested` deferred
+/// once every window expected to confirm has done so (Wave I: main plus any
+/// currently-open `editor-*` auxiliary windows — see
+/// `AppState::begin_hot_exit_flush`). A no-op if the flush was already
+/// completed (by every window confirming, or by the timeout fallback).
 #[tauri::command]
 #[specta::specta]
-pub async fn file_flush_complete(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
-    if state.complete_hot_exit_flush() {
+pub async fn file_flush_complete(app: AppHandle, window: tauri::Window<tauri::Wry>, state: State<'_, AppState>) -> AppResult<()> {
+    if state.complete_hot_exit_flush(window.label()) {
         app.exit(0);
     }
     Ok(())

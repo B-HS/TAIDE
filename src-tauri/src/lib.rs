@@ -7,6 +7,8 @@ pub mod infra;
 pub mod paths;
 pub mod state;
 
+use std::collections::HashSet;
+
 use tauri::{Listener, Manager};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -22,18 +24,19 @@ use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
+use crate::domain::window::commands::WindowStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
     IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
-    ProjectActivated, ProjectClosed, ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SyncStateChanged,
-    TerminalCwdChanged, TerminalExited, ThemeChanged,
+    ProjectActivated, ProjectClosed, ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged,
+    SyncStateChanged, TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
+use crate::ids::ProjectId;
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
 const BINDINGS_PATH: &str = "../src/shared/api/bindings.ts";
-const MAIN_WINDOW_LABEL: &str = "main";
 
 /// A custom (non-predefined) menu item id for the app menu's Quit entry —
 /// see [`handle_menu_event`] for why this can't be `PredefinedMenuItem::quit`.
@@ -105,6 +108,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::layout::commands::layout_set_terminal_session,
             domain::layout::commands::layout_open_untitled,
             domain::layout::commands::layout_convert_untitled,
+            domain::layout::commands::layout_move_tab_to_window,
+            domain::layout::commands::layout_set_shell_view,
             domain::file::commands::file_open,
             domain::file::commands::file_save,
             domain::file::commands::file_create,
@@ -130,6 +135,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::plugin::commands::plugin_list,
             domain::plugin::commands::plugin_reload,
             domain::plugin::commands::plugin_read_grammar,
+            domain::plugin::commands::plugin_install,
+            domain::plugin::commands::plugin_uninstall,
             domain::agent::commands::agent_list,
             domain::agent::commands::agent_release_marker,
             domain::agent::commands::agent_cli_status,
@@ -194,6 +201,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::terminal::commands::pty_resize,
             domain::terminal::commands::pty_kill,
             domain::terminal::commands::pty_set_paused,
+            domain::terminal::commands::pty_detach,
             domain::terminal::commands::terminal_sessions,
             domain::terminal::commands::shell_profiles,
             domain::terminal::commands::resolve_terminal_path,
@@ -242,6 +250,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::sync::commands::sync_upload,
             domain::sync::commands::sync_download,
             domain::vsix::commands::vsix_extract_themes,
+            domain::vsix::commands::vsix_import_plugin,
             domain::remote::commands::remote_status,
             domain::remote::commands::remote_start,
             domain::remote::commands::remote_stop,
@@ -249,6 +258,10 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::remote::commands::remote_revoke_sessions,
             domain::remote::commands::remote_set_password,
             domain::remote::commands::remote_clear_password,
+            domain::window::commands::window_open_auxiliary,
+            domain::window::commands::window_set_fullscreen,
+            domain::app::commands::app_file_read,
+            domain::app::commands::app_file_write,
         ])
         .events(collect_events![
             AppReady,
@@ -274,7 +287,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             IdeCloseTabRequested,
             SyncStateChanged,
             RemoteStateChanged,
-            HotExitFlushRequested
+            HotExitFlushRequested,
+            SettingsChanged
         ])
 }
 
@@ -303,21 +317,55 @@ fn flush_dirty_layouts(state: &AppState) {
     }
 }
 
-/// Intercepts the window close request to give the frontend a chance to
-/// flush every dirty editor model to the hot-exit mirror before the app
-/// actually exits. Always defers the close (`prevent_close`) and lets either
-/// `file_flush_complete` or the timeout fallback below perform the real
+/// Handles `CloseRequested` for an auxiliary editor window (`editor-<n>`).
+/// Before Wave I every window funneled into the same hot-exit flush/exit
+/// sequence `handle_close_requested` runs for the main window below, so
+/// closing a second window silently terminated the whole app
+/// (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.1).
+/// The close is intentionally left un-prevented here so the OS's default
+/// close proceeds and only this one window goes away. Both registry cleanups
+/// are idempotent with the `Destroyed` handler below, which runs this same
+/// cleanup again as a backstop for closes that don't go through
+/// `CloseRequested` at all (e.g. a crash).
+fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>) {
+    if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
+        window.app_handle().exit(0);
+    }
+
+    if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
+        domain::window::service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
+    }
+}
+
+/// Intercepts the window close request to give every open window a chance to
+/// flush its own dirty editor models to the hot-exit mirror before the app
+/// actually exits. Only the main window runs this path — see
+/// [`handle_auxiliary_close_requested`] for `editor-*` windows, which close
+/// immediately instead. Always defers the main window's close
+/// (`prevent_close`) and lets either every expected window's own
+/// `file_flush_complete` call or the timeout fallback below perform the real
 /// `AppHandle::exit`, so the window is never destroyed by the OS's default
 /// close path. `AppState::begin_hot_exit_flush` guards re-entrant close
 /// attempts (e.g. mashing Cmd+Q) from emitting the flush event twice.
 fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
-    api.prevent_close();
-
-    let state = window.state::<AppState>();
-    if !state.begin_hot_exit_flush() {
+    if domain::window::service::is_auxiliary_label(window.label()) {
+        handle_auxiliary_close_requested(window);
         return;
     }
 
+    api.prevent_close();
+
+    let state = window.state::<AppState>();
+    // `windows()` needs the `unstable` Tauri feature this project doesn't enable;
+    // `webview_windows()` is the stable equivalent and every window here is a webview window.
+    let expected_windows: HashSet<String> = window.webview_windows().into_keys().collect();
+    if !state.begin_hot_exit_flush(expected_windows) {
+        return;
+    }
+
+    // `Event::emit` broadcasts to every window/webview app-wide regardless of which handle it's
+    // called through, so every currently-open auxiliary window already receives this alongside
+    // the main window — no separate per-window fanout loop is needed here.
     let _ = HotExitFlushRequested {
         timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
     }
@@ -326,8 +374,8 @@ fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::Close
     let app_handle = window.app_handle().clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS)).await;
-        if app_handle.state::<AppState>().complete_hot_exit_flush() {
-            log::warn!("hot exit flush timed out; exiting without frontend confirmation");
+        if app_handle.state::<AppState>().force_complete_hot_exit_flush() {
+            log::warn!("hot exit flush timed out; exiting without every window's confirmation");
             app_handle.exit(0);
         }
     });
@@ -345,8 +393,52 @@ fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     if event.id() != MENU_ID_QUIT {
         return;
     }
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
         let _ = window.close();
+    }
+}
+
+/// Recreates every `AuxWindowLayout` recorded across every restored (non-`root_missing`) project as
+/// a real OS window — the boot-time half of "보조 창 레이아웃 영속·재시작 시 복원(창 재생성)"
+/// (contract §3.2). Spawns one task per window rather than awaiting them serially so restoration
+/// doesn't block the rest of `setup()`; each task still takes `AppState::begin_mutation` for the
+/// duration of its own `window::commands::open_auxiliary_window` call, so concurrent restorations
+/// serialize through that single guard instead of racing to coin the same `editor-<n>` label (see
+/// that function's doc comment).
+fn restore_auxiliary_windows(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let project_ids: Vec<ProjectId> = state
+        .projects
+        .read()
+        .iter()
+        .filter(|(_, project)| !project.root_missing)
+        .map(|(project_id, _)| project_id.clone())
+        .collect();
+
+    let layouts = state.layouts.read();
+    let restorations: Vec<(ProjectId, u32)> = project_ids
+        .into_iter()
+        .filter_map(|project_id| {
+            layouts
+                .get(&project_id)
+                .map(|layout| (project_id, layout.auxiliary_windows.clone()))
+        })
+        .flat_map(|(project_id, windows)| windows.into_iter().map(move |window| (project_id.clone(), window.slot)))
+        .collect();
+    drop(layouts);
+
+    for (project_id, window_slot) in restorations {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app_handle.state::<AppState>();
+            let _guard = state.begin_mutation().await;
+            let windows = app_handle.state::<WindowStore>();
+            if let Err(error) =
+                domain::window::commands::open_auxiliary_window(&app_handle, &state, &windows, project_id.clone(), window_slot).await
+            {
+                log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
+            }
+        });
     }
 }
 
@@ -439,7 +531,7 @@ pub fn run() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         app = app.plugin(tauri_plugin_single_instance::init(|app_handle, argv, _cwd| {
-            if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
+            if let Some(window) = app_handle.get_webview_window(constants::MAIN_WINDOW_LABEL) {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -463,7 +555,21 @@ pub fn run() {
     app.plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .map_label(domain::window::service::normalize_window_state_label)
+                // Auxiliary windows are excluded from persisted position/size entirely (contract
+                // §3.1's other blessed option — "보조 창 제외" — rather than the `map_label`
+                // collapse alone): `map_label` still folds every `editor-<n>` label onto the same
+                // `AUXILIARY_WINDOW_STATE_KEY` cache key (stopping `.window-state.json` from
+                // growing one entry per window ever opened), but the plugin's `with_filter`
+                // callback runs *after* that mapping, so filtering out that one shared key also
+                // stops the plugin from restoring (or ever saving) a position/size for it —
+                // without this, two auxiliary windows sharing that single cache key would restore
+                // to the exact same saved geometry and open perfectly overlapping each other.
+                .with_filter(|label| label != domain::window::types::AUXILIARY_WINDOW_STATE_KEY)
+                .build(),
+        )
         .on_menu_event(handle_menu_event)
         .invoke_handler(move |invoke| {
             if RAW_CHANNEL_COMMANDS.contains(&invoke.message.command()) {
@@ -511,6 +617,8 @@ pub fn run() {
             app.manage(AiRequestStore::default());
             app.manage(SecretStoreState::default());
             app.manage(RemoteStore::default());
+            app.manage(WindowStore::default());
+            restore_auxiliary_windows(app.handle());
             domain::remote::commands::refresh_password_configured_cache(app.handle());
 
             queue_cold_start_external_open(app.handle());
@@ -559,6 +667,7 @@ pub fn run() {
                 IdeCloseTabRequested,
                 SyncStateChanged,
                 RemoteStateChanged,
+                SettingsChanged,
             );
 
             if app.state::<AppState>().settings.read().agent_hooks_enabled {
@@ -629,7 +738,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            tauri::WindowEvent::Destroyed => flush_dirty_layouts(&window.state::<AppState>()),
+            tauri::WindowEvent::Destroyed => {
+                flush_dirty_layouts(&window.state::<AppState>());
+                if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
+                    window.app_handle().exit(0);
+                }
+                if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
+                    domain::window::service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
+                }
+            }
             tauri::WindowEvent::CloseRequested { api, .. } => handle_close_requested(window, api),
             _ => {}
         })

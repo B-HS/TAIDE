@@ -13,11 +13,13 @@ import {
     focusPane,
     getLayout,
     moveTab,
+    moveTabToWindow,
     openTab,
     openUntitledTab,
     pinTab,
     reopenClosedTab,
     resizePane,
+    setShellView,
     setTabDirty,
     setTabPreview,
     setTerminalSession,
@@ -84,3 +86,7 @@ export const useReopenClosedTab = (projectId: ProjectId | null) => useLayoutMuta
 export const useOpenUntitledTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, openUntitledTab)
 
 export const useConvertUntitledTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, convertUntitledTab)
+
+export const useMoveTabToWindow = (projectId: ProjectId | null) => useLayoutMutation(projectId, moveTabToWindow)
+
+export const useSetShellView = (projectId: ProjectId | null) => useLayoutMutation(projectId, setShellView)

@@ -6,7 +6,7 @@ import {
     applyKeymapOverrides,
     captureModsFromEvent,
     findKeymapConflict,
-    findMatchingChordPrefixEntry,
+    findMatchingChordPrefixEntries,
     findMatchingKeymapEntry,
     formatKeymapShortcut,
     matchesChordSecondStage,
@@ -163,30 +163,56 @@ describe('findMatchingKeymapEntry', () => {
     })
 })
 
-describe('findMatchingChordPrefixEntry', () => {
+describe('findMatchingChordPrefixEntries', () => {
     const chordEntries: KeymapEntry[] = [
         { id: 'save', key: 'k', mods: ['mod'], chord: { key: 's', mods: [] }, descriptionKey: 'keymap.save' },
         { id: 'close-tab', key: 'w', mods: ['mod'], descriptionKey: 'keymap.closeTab' },
     ]
 
     test('chord 를 가진 엔트리의 1단만 후보로 삼는다', () => {
-        const found = findMatchingChordPrefixEntry(chordEntries, { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
-        expect(found?.id).toBe('save')
+        const found = findMatchingChordPrefixEntries(chordEntries, { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        expect(found.map((entry) => entry.id)).toEqual(['save'])
     })
 
     test('chord 가 없는 엔트리는 키가 일치해도 후보에서 제외된다', () => {
-        const found = findMatchingChordPrefixEntry(chordEntries, { key: 'w', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
-        expect(found).toBeNull()
+        const found = findMatchingChordPrefixEntries(chordEntries, { key: 'w', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
+        expect(found).toEqual([])
     })
 
     test('isWhenSatisfied predicate 가 false 면 매칭되지 않는다(에디터 포커스 시 chord 1단 억제)', () => {
-        const found = findMatchingChordPrefixEntry(
+        const found = findMatchingChordPrefixEntries(
             chordEntries,
             { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false },
             true,
             () => false,
         )
-        expect(found).toBeNull()
+        expect(found).toEqual([])
+    })
+})
+
+describe('findMatchingChordPrefixEntries — 형제 chord', () => {
+    const siblingChordEntries: KeymapEntry[] = [
+        { id: 'save', key: 'k', mods: ['mod'], chord: { key: 's', mods: [] }, descriptionKey: 'keymap.save' },
+        { id: 'toggle-zen-mode', key: 'k', mods: ['mod'], chord: { key: 'z', mods: [] }, descriptionKey: 'keymap.toggleZenMode' },
+        { id: 'close-tab', key: 'w', mods: ['mod'], descriptionKey: 'keymap.closeTab' },
+    ]
+
+    test('같은 1단을 공유하는 형제 chord 를 모두 후보로 반환한다', () => {
+        const found = findMatchingChordPrefixEntries(
+            siblingChordEntries,
+            { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false },
+            true,
+        )
+        expect(found.map((entry) => entry.id)).toEqual(['save', 'toggle-zen-mode'])
+    })
+
+    test('1단이 일치하지 않으면 빈 배열을 반환한다', () => {
+        const found = findMatchingChordPrefixEntries(
+            siblingChordEntries,
+            { key: 'x', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false },
+            true,
+        )
+        expect(found).toEqual([])
     })
 })
 

@@ -12,7 +12,7 @@ use super::manifest;
 use super::service;
 use super::types::{
     LanguageServerSpec, LspInstallPhase, LspInstallStrategy, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus,
-    RESTART_BACKOFF_LIMIT,
+    LspSpawnRequest, RESTART_BACKOFF_LIMIT,
 };
 use crate::error::{AppError, AppResult};
 use crate::events::{LspInstallProgress, LspSessionStatusChanged};
@@ -31,7 +31,25 @@ struct SessionEntry {
     root: String,
     spec: LanguageServerSpec,
     proc: Mutex<Option<Arc<lsp_proc::LspProcHandle>>>,
-    channel: Mutex<Option<Channel<String>>>,
+    /// Every window/client currently subscribed to this session's server messages, keyed by the
+    /// `owner` label the caller passed `lsp_spawn` (`getCurrentWindow().label` on the frontend —
+    /// `main`/`editor-<n>`, or the remote client's fixed `"remote"` label). `find_reusable_entry`
+    /// only offers a session for reuse to an owner already present in this map (or, for the
+    /// creating owner, the one it seeds on the fresh-entry path below) — so two *different* windows
+    /// editing the same project can never end up sharing one JSON-RPC connection: each window's LSP
+    /// client is an independent JS realm with its own request-id counter and its own `initialize`
+    /// handshake it unconditionally performs on acquiring a session, so two windows sharing one
+    /// connection would send `initialize` twice (the language server rejects the second with an
+    /// error, leaving that window's client capless forever) and could mint colliding request ids
+    /// that resolve the wrong window's pending request. Reuse *within* the same window (re-spawning
+    /// while already a member, or two tabs of the same project/server) is unaffected — that's the
+    /// scenario `shares_sessions` was designed for and it predates Wave I. `lsp_stop` removes
+    /// exactly its caller's `owner` entry before deciding whether the whole session is torn down, so
+    /// a still-live owner is never left broadcasting into a channel its window no longer reads from
+    /// — the gap Wave I's original `Vec`-based design left (`broadcast_message`'s send-failure
+    /// pruning alone only catches a *closed* window, not one that simply released this session while
+    /// staying open). See `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.2.
+    channels: Mutex<HashMap<String, Channel<String>>>,
     status: Mutex<LspSessionStatus>,
     last_error: Mutex<Option<String>>,
     restart_count: AtomicU32,
@@ -134,12 +152,22 @@ fn find_entry(store: &LspStore, session_id: &str) -> AppResult<Arc<SessionEntry>
         .ok_or_else(|| AppError::NotFound(format!("lsp session not found: {session_id}")))
 }
 
-fn find_reusable_entry(store: &LspStore, project_id: &ProjectId, server_id: &LspServerId) -> Option<(String, Arc<SessionEntry>)> {
+fn find_reusable_entry(
+    store: &LspStore,
+    project_id: &ProjectId,
+    server_id: &LspServerId,
+    owner: &str,
+) -> Option<(String, Arc<SessionEntry>)> {
     store
         .0
         .lock()
         .iter()
-        .find(|(_, entry)| &entry.project_id == project_id && &entry.server_id == server_id && entry.spec.shares_sessions)
+        .find(|(_, entry)| {
+            &entry.project_id == project_id
+                && &entry.server_id == server_id
+                && entry.spec.shares_sessions
+                && entry.channels.lock().contains_key(owner)
+        })
         .map(|(id, entry)| (id.clone(), entry.clone()))
 }
 
@@ -219,14 +247,20 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
             let Ok(entry) = find_entry(&store, &message_session_id) else {
                 return;
             };
-            if let Some(channel) = entry.channel.lock().as_ref() {
-                let _ = channel.send(message);
-            };
+            broadcast_message(&entry.channels, &message);
         },
         move |code| handle_process_exit(&exit_app, exit_session_id, code),
     )?;
 
     Ok(Arc::new(handle))
+}
+
+/// Sends `message` to every subscriber, keeping only the ones that accept it — a subscriber whose
+/// `send` fails (e.g. its window has closed) is dropped rather than aborting the whole broadcast
+/// or being retried. Extracted from the process message handler above so the broadcast/prune
+/// behavior itself can be unit tested without spawning a real language server process.
+fn broadcast_message(channels: &Mutex<HashMap<String, Channel<String>>>, message: &str) {
+    channels.lock().retain(|_, channel| channel.send(message.to_string()).is_ok());
 }
 
 fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
@@ -320,24 +354,34 @@ async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str)
     set_status(app, session_id, entry, LspSessionStatus::Stopped, None);
 }
 
+/// `request.owner` identifies the calling window (`getCurrentWindow().label` on the frontend —
+/// `main`, `editor-<n>`, or the remote client's fixed `"remote"` label) so [`find_reusable_entry`]
+/// only reuses a session within the same window. See the `channels` field doc on [`SessionEntry`]
+/// for why. `request` bundles `project_id`/`server_id`/`root`/`owner` into one struct (mirroring
+/// `pty_spawn`'s `opts`) purely to stay under `clippy::too_many_arguments`.
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_spawn(
     app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, LspStore>,
-    project_id: ProjectId,
-    server_id: LspServerId,
-    root: String,
+    request: LspSpawnRequest,
     on_message: Channel<String>,
 ) -> AppResult<String> {
+    let LspSpawnRequest {
+        project_id,
+        server_id,
+        root,
+        owner,
+    } = request;
+
     let _guard = state.begin_mutation().await;
     ensure_project_open(&state, &project_id)?;
 
     let spec = manifest::find_spec(server_id.as_str())
         .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
 
-    if let Some((existing_id, existing_entry)) = find_reusable_entry(&store, &project_id, &server_id) {
+    if let Some((existing_id, existing_entry)) = find_reusable_entry(&store, &project_id, &server_id, &owner) {
         let existing_roots: Vec<String> = existing_entry.roots.lock().iter().map(|(root, _)| root.clone()).collect();
 
         if service::should_reuse_session(&spec, &existing_roots, &root) {
@@ -354,6 +398,12 @@ pub async fn lsp_spawn(
                     }
                 }
             };
+
+            // Subscribe this caller's channel to the shared session instead of discarding it — see
+            // the `channels` field doc on `SessionEntry` for why every owner needs its own slot
+            // rather than only the first one ever getting messages, and why keying by `owner`
+            // (replacing any previous entry of its own) rather than appending is correct.
+            existing_entry.channels.lock().insert(owner, on_message);
 
             if is_new_root {
                 let proc = existing_entry.proc.lock().clone();
@@ -374,7 +424,7 @@ pub async fn lsp_spawn(
         root: root.clone(),
         spec: spec.clone(),
         proc: Mutex::new(None),
-        channel: Mutex::new(Some(on_message)),
+        channels: Mutex::new(HashMap::from([(owner, on_message)])),
         status: Mutex::new(LspSessionStatus::Starting),
         last_error: Mutex::new(None),
         restart_count: AtomicU32::new(0),
@@ -415,6 +465,12 @@ pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: S
     proc.write_message(&message).await
 }
 
+/// `owner` (`getCurrentWindow().label`, same value the caller originally passed to `lsp_spawn`)
+/// removes exactly that caller's subscriber entry from `entry.channels` — see the `channels` field
+/// doc on [`SessionEntry`] for why this can't be left to `broadcast_message`'s send-failure pruning
+/// alone. Root refcounting (`root`) then decides, independently, whether the whole session (process
+/// included) gets torn down — a still-live owner keeps receiving messages from the shared session
+/// even after some other owner's root is removed from it.
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_stop(
@@ -423,9 +479,11 @@ pub async fn lsp_stop(
     store: State<'_, LspStore>,
     session_id: String,
     root: Option<String>,
+    owner: String,
 ) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let entry = find_entry(&store, &session_id)?;
+    entry.channels.lock().remove(&owner);
 
     if let Some(root) = root {
         let (removed_root, remaining_roots) = {
@@ -803,4 +861,80 @@ pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, serve
         cancel.store(true, Ordering::SeqCst);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recording_channel(received: Arc<Mutex<Vec<String>>>) -> Channel<String> {
+        Channel::new(move |body| {
+            let text = match body {
+                tauri::ipc::InvokeResponseBody::Json(text) => text,
+                tauri::ipc::InvokeResponseBody::Raw(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            };
+            received.lock().push(serde_json::from_str(&text).unwrap_or(text));
+            Ok(())
+        })
+    }
+
+    fn failing_channel() -> Channel<String> {
+        Channel::new(|_| Err(tauri::Error::AssetNotFound("closed".to_string())))
+    }
+
+    #[test]
+    fn broadcast_은_모든_구독자에게_전달된다() {
+        let received_a = Arc::new(Mutex::new(Vec::new()));
+        let received_b = Arc::new(Mutex::new(Vec::new()));
+        let channels = Mutex::new(HashMap::from([
+            ("a".to_string(), recording_channel(received_a.clone())),
+            ("b".to_string(), recording_channel(received_b.clone())),
+        ]));
+
+        broadcast_message(&channels, "hello");
+
+        assert_eq!(*received_a.lock(), vec!["hello".to_string()]);
+        assert_eq!(*received_b.lock(), vec!["hello".to_string()]);
+    }
+
+    #[test]
+    fn 단일_구독자_시나리오는_기존과_동일하게_전달된다() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let channels = Mutex::new(HashMap::from([("a".to_string(), recording_channel(received.clone()))]));
+
+        broadcast_message(&channels, "first");
+        broadcast_message(&channels, "second");
+
+        assert_eq!(*received.lock(), vec!["first".to_string(), "second".to_string()]);
+    }
+
+    #[test]
+    fn 전송에_실패한_구독자는_다음_브로드캐스트에서_제거되고_남은_구독자는_계속_받는다() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let channels = Mutex::new(HashMap::from([
+            ("a".to_string(), failing_channel()),
+            ("b".to_string(), recording_channel(received.clone())),
+        ]));
+
+        broadcast_message(&channels, "first");
+        assert_eq!(channels.lock().len(), 1, "실패한 구독자는 제거되어야 한다");
+
+        broadcast_message(&channels, "second");
+        assert_eq!(*received.lock(), vec!["first".to_string(), "second".to_string()]);
+    }
+
+    #[test]
+    fn owner_로_제거하면_그_구독만_사라지고_나머지_owner_는_계속_받는다() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let channels = Mutex::new(HashMap::from([
+            ("window-a".to_string(), failing_channel()),
+            ("window-b".to_string(), recording_channel(received.clone())),
+        ]));
+
+        channels.lock().remove("window-a");
+        assert_eq!(channels.lock().keys().collect::<Vec<_>>(), vec!["window-b"]);
+
+        broadcast_message(&channels, "data");
+        assert_eq!(*received.lock(), vec!["data".to_string()]);
+    }
 }

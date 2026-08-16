@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
 import type { ProjectId, SearchQuery, TabId } from '@shared/api/bindings'
 import { DEFAULT_SEARCH_OPTIONS } from '@entities/search/search.type'
 import { useRecentSearches } from '@entities/search/search-history'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
-import { useOpenTab } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
 import { SearchExcludeGlobInput } from '@features/search/search-exclude-glob-input'
 import { SearchHistoryDropdown } from '@features/search/search-history-dropdown'
 import { SearchOptionToggles } from '@features/search/search-option-toggles'
@@ -18,6 +19,7 @@ import {
     SEARCH_EDITOR_MAX_CONTEXT_LINES,
     SEARCH_EDITOR_MIN_CONTEXT_LINES,
 } from '@widgets/search-editor/search-editor-context-lines'
+import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 
@@ -42,6 +44,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
     const [contextLines, setContextLines] = useState(clampContextLines(query.contextLines ?? DEFAULT_SEARCH_OPTIONS.contextLines))
 
     const recentSearches = useRecentSearches()
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: openTab } = useOpenTab(projectId)
     const { results, totalMatches, isSearching, run } = useSearchRun(projectId, tabId)
 
@@ -71,7 +74,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
     const handleOpenMatch = (path: string, line: number, column: number) => {
         requestReveal(path, line, column)
         openTab(
-            { projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
+            { projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: currentWindowFocusedPane(layout), preview: true },
             { onError: (error) => toast.error(error.message) },
         )
     }

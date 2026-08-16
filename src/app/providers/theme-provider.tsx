@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, type FC, type PropsWithChildren } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
-import { loadPluginGrammarRegistrations } from '@entities/plugin/plugin-grammar'
+import { assemblePluginGrammarRegistrations } from '@entities/plugin/plugin-grammar'
+import { listPlugins, readPluginGrammar } from '@entities/plugin/plugin.ipc'
 import { applyThemeVariables } from '@shared/lib/theme-variables'
 import { applyWindowAppearance } from '@shared/lib/window-appearance'
+import { registerPluginLanguages } from '@shared/lib/monaco/register-plugin-languages'
 import { applyShikiTheme, initShiki } from '@shared/lib/shiki/shiki-monaco'
 import { useRevealWindow } from '@shared/hooks/use-reveal-window'
 import { subscribeSystemTheme } from '@shared/lib/system-appearance'
@@ -30,7 +32,11 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
     useEffect(() => subscribeSystemTheme(() => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })), [queryClient])
 
     useEffect(() => {
-        void loadPluginGrammarRegistrations()
+        void listPlugins()
+            .then((plugins) => {
+                registerPluginLanguages(plugins)
+                return assemblePluginGrammarRegistrations(plugins, readPluginGrammar)
+            })
             .then(initShiki)
             .catch((error: unknown) => console.error('[shiki] failed to initialize highlighter', error))
     }, [])

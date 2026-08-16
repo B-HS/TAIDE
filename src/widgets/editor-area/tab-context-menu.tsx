@@ -1,6 +1,20 @@
 import type { FC, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FolderOpen, FolderTree, GitCompare, History, PanelBottom, PanelLeft, PanelRight, PanelTop, Pin, PinOff, X } from 'lucide-react'
+import {
+    AppWindow,
+    ArrowLeftToLine,
+    FolderOpen,
+    FolderTree,
+    GitCompare,
+    History,
+    PanelBottom,
+    PanelLeft,
+    PanelRight,
+    PanelTop,
+    Pin,
+    PinOff,
+    X,
+} from 'lucide-react'
 import type { DropEdge, Tab } from '@shared/api/bindings'
 import {
     ContextMenu,
@@ -41,6 +55,10 @@ type TabContextMenuProps = {
     onRevealInExplorerView?: () => void
     onReopenWithEditor?: () => void
     onReopenWithPreview?: () => void
+    onMoveToNewWindow: () => void
+    onMoveToMainWindow?: () => void
+    moveToWindowSlots: number[]
+    onMoveToWindow: (slot: number) => void
 }
 
 export const TabContextMenu: FC<TabContextMenuProps> = ({
@@ -62,6 +80,10 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
     onRevealInExplorerView,
     onReopenWithEditor,
     onReopenWithPreview,
+    onMoveToNewWindow,
+    onMoveToMainWindow,
+    moveToWindowSlots,
+    onMoveToWindow,
 }) => {
     const { t } = useTranslation()
     const isFileTab = tab.kind.kind === 'file'
@@ -140,6 +162,22 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                         ))}
                     </ContextMenuSubContent>
                 </ContextMenuSub>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={onMoveToNewWindow}>
+                    <AppWindow className='size-4' />
+                    {t('tab.moveToNewWindow')}
+                </ContextMenuItem>
+                {onMoveToMainWindow && (
+                    <ContextMenuItem onSelect={onMoveToMainWindow}>
+                        <ArrowLeftToLine className='size-4' />
+                        {t('tab.moveToMainWindow')}
+                    </ContextMenuItem>
+                )}
+                {moveToWindowSlots.map((slot) => (
+                    <ContextMenuItem key={slot} onSelect={() => onMoveToWindow(slot)}>
+                        {t('tab.moveToWindowNumbered', { slot })}
+                    </ContextMenuItem>
+                ))}
             </ContextMenuContent>
         </ContextMenu>
     )

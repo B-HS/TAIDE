@@ -8,6 +8,8 @@ import { buildImeDebugReport } from '@shared/lib/ime-debug'
 import { i18next } from '@shared/i18n/i18n'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+import { getWindowContext } from '@shared/lib/window-context'
+import { requestToggleZenMode } from '@shared/lib/zen-mode-bridge'
 
 export const KEYMAP_CATEGORY = {
     APP: 'keymap.category.app',
@@ -35,6 +37,7 @@ export type CommandContext = {
     activeProjectId: string | null
     activeEditorActionIds: Set<string> | null
     openSettingsTab: () => void
+    openSettingsFile: () => void
     openTerminalTab: () => void
     reopenClosedTab: () => void
     switchToFileSearchMode: () => void
@@ -142,6 +145,12 @@ const alwaysDisabled = () => false
 export const DEFAULT_COMMANDS: AppCommand[] = [
     { id: 'window.reload', titleKey: 'app.reloadWindow', categoryKey: KEYMAP_CATEGORY.WINDOW, run: () => window.location.reload() },
     { id: 'settings.open', titleKey: 'settings.title', categoryKey: KEYMAP_CATEGORY.APP, run: (context) => context.openSettingsTab() },
+    {
+        id: 'app.openSettingsFile',
+        titleKey: 'app.openSettingsFile',
+        categoryKey: KEYMAP_CATEGORY.APP,
+        run: (context) => context.openSettingsFile(),
+    },
     {
         id: 'keybindings.open',
         titleKey: 'settings.keymapOpenEditor',
@@ -252,5 +261,41 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
             await navigator.clipboard.writeText(buildImeDebugReport())
             toast.success(i18next.t('terminal.imeDebugCopied'))
         },
+    },
+    {
+        id: 'tab.moveToNewWindow',
+        titleKey: 'tab.moveToNewWindow',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        run: () => requestEditorPaneCommand({ type: 'move-focused-tab-to-window', target: { kind: 'newAuxiliary' } }),
+    },
+    {
+        id: 'tab.moveToMainWindow',
+        titleKey: 'tab.moveToMainWindow',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        run: () => requestEditorPaneCommand({ type: 'move-focused-tab-to-window', target: { kind: 'main' } }),
+        /**
+         * Only meaningful from inside an auxiliary window — this app's command palette is only
+         * mounted in the main window (`app.tsx`, Wave I contract §3.1: `widgets/command-palette`
+         * reads the global active-project session, which an auxiliary window deliberately never
+         * queries), so in practice this stays disabled wherever it's actually shown today. Gated on
+         * window context (rather than reusing `tab.close`'s hardcoded-off `alwaysDisabled`) so the
+         * command is genuinely runnable the moment any surface mounts the palette inside an
+         * auxiliary window; the tab context menu (`tab-context-menu.tsx`) already exercises the
+         * same "Move back to Main Window" action unconditionally there.
+         */
+        isEnabled: () => getWindowContext().kind === 'auxiliary',
+    },
+    {
+        id: 'view.toggleZenMode',
+        titleKey: 'keymap.toggleZenMode',
+        categoryKey: KEYMAP_CATEGORY.VIEW,
+        keymapId: 'toggle-zen-mode',
+        run: () => requestToggleZenMode(),
+        /**
+         * `ProjectLayout::shell_view` is main-window-only (contract §3.2) — same rationale as
+         * `tab.moveToMainWindow` right above disabling itself outside an auxiliary window, mirrored
+         * here in the other direction.
+         */
+        isEnabled: () => getWindowContext().kind !== 'auxiliary',
     },
 ]

@@ -1,10 +1,15 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::domain::app::types::AppFileTarget;
 use crate::domain::search::types::SearchQuery;
 use crate::ids::{PaneId, TabId};
 
-pub const LAYOUT_SCHEMA_VERSION: u32 = 1;
+/// v2 adds the auxiliary-window axis (`ProjectLayout::auxiliary_windows`) and per-project shell
+/// chrome state (`ProjectLayout::shell_view`) — both purely additive over v1, since every new field
+/// already deserializes via `#[serde(default)]`. See `service::migrate_layout` and
+/// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2.
+pub const LAYOUT_SCHEMA_VERSION: u32 = 2;
 pub const CLOSED_TAB_STACK_LIMIT: usize = 20;
 pub const FIRST_UNTITLED_INDEX: u32 = 1;
 
@@ -66,6 +71,15 @@ pub enum TabKind {
     SearchEditor {
         query: SearchQuery,
     },
+    /// An app-owned config file (`settings.json` or a prompt template override) opened as a tab —
+    /// unlike `File`, its path is never carried in the tab itself: `target` is a closed enum Rust
+    /// resolves to an `AppPaths`-derived location (`app::service::app_file_path`), so neither the
+    /// layout JSON nor the frontend ever sees an absolute path for it. See
+    /// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.3.
+    #[serde(rename_all = "camelCase")]
+    AppFile {
+        target: AppFileTarget,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -98,6 +112,55 @@ pub enum PaneNode {
     Leaf { id: PaneId, tabs: Vec<Tab>, active: Option<TabId> },
 }
 
+/// One auxiliary editor window's own pane tree, keyed by `slot` — a project-scoped semantic id
+/// (allocated by `service::next_window_slot`) distinct from the OS-level Tauri window label
+/// (`editor-<n>`, allocated globally by `domain::window::service::next_auxiliary_label`). A window
+/// close returns its tabs to the main tree's tail and drops this entry
+/// (`service::return_auxiliary_window_tabs`) — TAIDE's 0-loss philosophy, unlike VS Code discarding
+/// an auxiliary window's content on close.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuxWindowLayout {
+    pub slot: u32,
+    pub root: PaneNode,
+    pub focused_pane: PaneId,
+}
+
+/// Per-project display-chrome state for the **main** window only — auxiliary windows are
+/// sidebar/status-bar-less editor chrome by design (contract §3.2), so this isn't per-window.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellViewState {
+    #[serde(default)]
+    pub zen: bool,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
+}
+
+/// Partial update for [`ShellViewState`] — `None` fields are left at their current value, same
+/// merge convention as `settings::service::SettingsPatch`/`apply_patch`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellViewPatch {
+    pub zen: Option<bool>,
+    pub sidebar_collapsed: Option<bool>,
+}
+
+/// Destination for `layout_move_tab_to_window`. `Existing` addresses an auxiliary window already
+/// recorded in `ProjectLayout::auxiliary_windows` by its project-scoped `slot`; `NewAuxiliary`
+/// allocates a fresh slot (`service::next_window_slot`) and asks `domain::window` to open a real OS
+/// window for it before the tab lands there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TabWindowTarget {
+    Main,
+    NewAuxiliary,
+    #[serde(rename_all = "camelCase")]
+    Existing {
+        slot: u32,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectLayout {
@@ -108,6 +171,10 @@ pub struct ProjectLayout {
     pub revision: u32,
     #[serde(default)]
     pub closed_tabs: Vec<ClosedTab>,
+    #[serde(default)]
+    pub auxiliary_windows: Vec<AuxWindowLayout>,
+    #[serde(default)]
+    pub shell_view: ShellViewState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -129,6 +196,7 @@ pub enum FocusKind {
     Welcome,
     Untitled,
     SearchEditor,
+    AppFile,
 }
 
 impl From<&TabKind> for FocusKind {
@@ -142,6 +210,7 @@ impl From<&TabKind> for FocusKind {
             TabKind::Welcome => FocusKind::Welcome,
             TabKind::Untitled { .. } => FocusKind::Untitled,
             TabKind::SearchEditor { .. } => FocusKind::SearchEditor,
+            TabKind::AppFile { .. } => FocusKind::AppFile,
         }
     }
 }

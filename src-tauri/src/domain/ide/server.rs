@@ -22,6 +22,7 @@ use super::types::{
 use crate::domain::layout::commands as layout_commands;
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
+use crate::domain::plugin::commands::{self as plugin_commands, PluginStore};
 use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested};
 use crate::ids::ProjectId;
 use crate::state::AppState;
@@ -239,7 +240,8 @@ fn selection_json(selection: &IdeSelectionSnapshot) -> Value {
 fn find_file_tab(layouts: &HashMap<ProjectId, ProjectLayout>, path: &str) -> Option<Tab> {
     layouts
         .values()
-        .flat_map(|layout| layout_service::collect_leaves(&layout.root))
+        .flat_map(layout_service::all_roots)
+        .flat_map(layout_service::collect_leaves)
         .find_map(|node| {
             let PaneNode::Leaf { tabs, .. } = node else { return None };
             tabs.iter()
@@ -281,10 +283,11 @@ async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     if make_frontmost {
         Ok(text_content(format!("Opened file: {path_string}")))
     } else {
+        let plugins = plugin_commands::ensure_loaded(&app.state::<PluginStore>(), &app.state::<AppState>().paths.plugins_dir());
         Ok(json_text_content(json!({
             "success": true,
             "filePath": path_string,
-            "languageId": service::guess_language_id(&path_string),
+            "languageId": service::guess_language_id(&path_string, &plugins),
         })))
     }
 }
@@ -364,7 +367,8 @@ fn tool_get_latest_selection(app: &AppHandle) -> Value {
 fn tool_get_open_editors(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
     let layouts = state.layouts.read().clone();
-    let tabs: Vec<Value> = service::open_editors_snapshot(&layouts)
+    let plugins = plugin_commands::ensure_loaded(&app.state::<PluginStore>(), &state.paths.plugins_dir());
+    let tabs: Vec<Value> = service::open_editors_snapshot(&layouts, &plugins)
         .into_iter()
         .map(|entry| {
             json!({
@@ -498,7 +502,7 @@ async fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, Too
         let layouts = state.layouts.read();
         layouts
             .values()
-            .find_map(|layout| layout_service::find_tab_by_title(&layout.root, tab_name))
+            .find_map(|layout| layout_service::all_roots(layout).find_map(|root| layout_service::find_tab_by_title(root, tab_name)))
     };
 
     if let Some(tab_id) = found {
@@ -520,7 +524,7 @@ async fn tool_close_all_diff_tabs(app: &AppHandle) -> Value {
     let mut closed = 0u32;
 
     for layout in layouts.values() {
-        for tab_id in layout_service::collect_claude_diff_tab_ids(&layout.root) {
+        for tab_id in layout_service::all_roots(layout).flat_map(layout_service::collect_claude_diff_tab_ids) {
             if let Ok((_, closed_tab, _)) = layout_commands::close_tab_and_finish(app, &state, &tab_id).await {
                 closed += 1;
                 let _ = IdeCloseTabRequested {

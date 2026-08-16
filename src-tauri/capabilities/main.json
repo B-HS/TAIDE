@@ -1,8 +1,8 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "main",
-    "description": "TAIDE 메인 윈도우 최소 권한 — 파일·프로세스 접근은 전부 커스텀 command 경유 (ipc-contract §4)",
-    "windows": ["main"],
+    "description": "TAIDE 메인·보조 에디터 윈도우 최소 권한 — 파일·프로세스 접근은 전부 커스텀 command 경유 (ipc-contract §4). `editor-*` 는 라벨 글로브(glob::Pattern, tauri-utils resolved.rs) 로 매칭되며 Wave I 보조 창(domain::window)이 발급하는 editor-<n> 라벨을 모두 포함한다.",
+    "windows": ["main", "editor-*"],
     "permissions": [
         "core:default",
         "core:window:allow-show",

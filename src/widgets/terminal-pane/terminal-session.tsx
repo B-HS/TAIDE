@@ -6,7 +6,7 @@ import type { ProjectId, TabId } from '@shared/api/bindings'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
-import { attachPty, resizePty, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
+import { attachPty, detachPty, resizePty, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
 import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
@@ -87,12 +87,23 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
 
     const handleAttachData = (onData: (bytes: Uint8Array) => void) => {
         if (!sessionId) return () => undefined
+        const activeSessionId = sessionId
         let active = true
-        void attachPty(sessionId, (bytes) => {
+        let subscriptionId: number | null = null
+        void attachPty(activeSessionId, (bytes) => {
             if (active) onData(bytes)
-        }).catch(() => undefined)
+        })
+            .then((resolvedSubscriptionId) => {
+                if (!active) {
+                    void detachPty(activeSessionId, resolvedSubscriptionId).catch(() => undefined)
+                    return
+                }
+                subscriptionId = resolvedSubscriptionId
+            })
+            .catch(() => undefined)
         return () => {
             active = false
+            if (subscriptionId !== null) void detachPty(activeSessionId, subscriptionId).catch(() => undefined)
         }
     }
 

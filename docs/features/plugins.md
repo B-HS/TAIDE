@@ -89,3 +89,84 @@
 
 - 플러그인 = 선언적 리소스 추가(언어·테마). **remote-control 등 앱 기능 확장은 프로젝트
   capability**(`architecture.md` §3)로 코어에 컴파일된다. 두 축을 혼동하지 않는다(ADR-0010).
+
+## 6. 설치 UI · VSIX grammar 임포트 · 동적 언어 등록 (Wave I)
+
+> 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.4. §2 확정 사실 8이
+> 지적한 결함(신규 언어가 monaco/shiki 게이트에 막혀 화면에 도달하지 않음·확장자→언어 테이블
+> 4벌 중복·vsix 원격 노출·zip 하드닝 부재)을 전부 이 웨이브에서 해소했다.
+
+### 6.1 설치·제거 UI
+
+- 설정 화면 PLUGINS 섹션(`widgets/plugin-manager`)에 목록(활성/비활성·오류 표면화)·설치·제거·
+  "플러그인 폴더 열기"가 있다. 목록 항목의 오류(`grammarMissing`·`grammarInvalid`·`grammarConflict`
+  등, §3)는 플러그인별로 인라인 표시된다.
+- `plugin_install(sourcePath)` — 디렉토리 또는 `.zip`/`.vsix` 아카이브를 받는다. **설치 UI 는
+  아카이브 전용 파일 피커만 제공한다** — Tauri `@tauri-apps/plugin-dialog` 의 `open()` 은 파일
+  선택과 폴더 선택을 한 네이티브 호출에서 동시에 지원하지 않기 때문이다. 디렉토리 형태 플러그인은
+  "플러그인 폴더 열기"로 수동 배치한 뒤 "다시 읽기"로 인식시킨다(별도 폴더 피커는 후속 개선 여지).
+  이미 설치된 `id` 는 거부한다(업그레이드는 제거 후 재설치만 가능 — 계약이 upgrade 시맨틱을 정하지
+  않아 가장 안전한 기본값을 택했다).
+- `plugin_uninstall(pluginId)` — 빌트인 보호는 없다(사용자 디렉토리만 다루므로 애초에 빌트인을
+  지울 수 없다). 확인 다이얼로그를 거친다.
+- 비활성 토글(`disabledPlugins`)은 이번에도 도입하지 않았다 — 삭제로 갈음한다(1차 방침 유지, E1).
+
+### 6.2 VSIX → 플러그인 (grammar/languages 임포트)
+
+- `vsix_import_plugin(vsixPath)` — 실제 VS Code 확장의 `contributes.languages`/
+  `contributes.grammars` 를 읽어 `taide-plugin.json` 을 **합성**한 뒤, `plugin_install` 과 완전히
+  동일한 검증·등록 경로(`plugins/{publisher}-{name}/`)로 착지시킨다. 부분 선택 없이 "그 확장이 기여한
+  언어 전부"를 한 번에 들여오는 all-or-nothing 동작이다.
+  - `AppError` 는 실패 사유를 세분화된 코드로 주지 않으므로(Io/NotFound/InvalidArgument/Forbidden/
+    Internal 뿐), 설치 UI(`VsixImportGrammarsSection`)는 모든 실패를 "이 확장에는 언어 기여가
+    없습니다"(`pluginImportVsixNoGrammars`) 한 메시지로 보여준다 — 문자열 매칭으로 사유를 추측하는
+    편법 대신 의도적으로 단순화한 것이다. 이 다이얼로그가 열리는 시점엔 이미 `vsix_extract_themes`
+    가 아카이브 자체는 파싱 가능함을 증명했으므로, 실제로 가장 흔한 실패는 "그냥 테마 전용 확장이라
+    contributes 가 비어 있음"이다.
+- 기존 테마 전용 임포트 플로우(`vsix-theme-import.md`)와 **하나의 다이얼로그**로 통합됐다 — Themes
+  섹션(기존 후보 선택 로직 그대로)과 Grammars 섹션(위 tri-state)이 같은 다이얼로그 안에 나란히
+  있다.
+
+### 6.3 zip 하드닝 — `vsix::service::extract_hardened_zip`
+
+- `plugin_install`(아카이브 경로)·`vsix_import_plugin` 이 공유하는 전용 추출 함수. 엔트리 수 상한
+  5000·누적 압축 해제 바이트 예산 128MB(zip bomb 방어)·`enclosed_name()` 기반 zip-slip 방어·파일/
+  디렉토리 모드를 `0o644`/`0o755` 로 고정(아카이브 안의 unix 모드 비트를 신뢰하지 않는다).
+- 기존 `infra::lsp_install::extract_zip` 은 **재사용하지 않았다** — 그건 신뢰된 자체 배포 아카이브
+  전용(zip-slip 만 방어)이고, 사용자가 임의로 고른 `.vsix`/`.zip` 은 신뢰 전제가 다르다.
+
+### 6.4 동적 언어 등록 (C1 — monaco/shiki 게이트 해소)
+
+> §2 확정 사실 8의 핵심 결함: 플러그인이 새 언어를 기여해도 monaco 가 그 언어 id 를 모르면(고정
+> 32종 등록 루프) 에디터가 plaintext 로만 표시했다.
+
+- `shared/lib/monaco/register-plugin-languages.ts` 의 `registerPluginLanguages(plugins)` 가 활성
+  플러그인의 `contributes.languages[]` 를 순회해 `monaco.languages.register` 로 등록한다(이미
+  등록된 id 는 건너뛰어 중복/재등록 없음).
+- 이어서 grammar 를 shiki 하이라이터에 반영하기 위해 **전체 재생성**(`reinitShiki`/`initShiki`,
+  증분 아님 — 플러그인 설치는 드문 이벤트라 증분 로드는 이번 범위에서 기각했다, H2 backlog).
+- 이 두 단계는 `plugin_install`·`plugin_uninstall`·`plugin_reload`·`vsix_import_plugin` 4개
+  뮤테이션의 성공 콜백과 앱 부팅(`theme-provider.tsx`) 양쪽에서 공유된다(`entities/plugin/
+  plugin.query.ts` 의 `applyPluginList`/`refetchAndApplyPluginList`) — 어느 경로로 플러그인 목록이
+  바뀌어도 monaco 언어 등록과 shiki 하이라이팅이 항상 최신 목록과 정합한다.
+
+### 6.5 확장자 → 언어 테이블 통합 (D1)
+
+- `infra::language::language_id_for_path` 하나가 `file::service`·`git::service`·`ide::service`
+  3곳이 각자 갖고 있던 확장자→언어id 테이블을 대체한다(플러그인 오버레이 포함). 프론트 사본
+  (`shared/lib/language-from-path.ts`)은 별도로 유지된다 — git blob diff 의 언어 판정처럼 Rust IPC
+  왕복이 없는 경로가 있어 손으로 포트된 채로 남는다(D2 는 기각 — Rust 단일 소유가 원칙이지만 이
+  프론트 사본만은 이미 존재하던 예외).
+- 통합 과정에서 `ide::service` 가 예전에만 갖고 있던 `csharp`/`php`/`sql` 매핑을 의도적으로
+  드롭했다 — 셋 다 shiki grammar 가 없어(`TAIDE_LANGUAGE_IDS` 밖) 애초에 렌더 불가능한 죽은 언어
+  id 였고, `file`/`git` 서비스는 원래도 이 셋을 plaintext 로 취급했다. IDE MCP 클라이언트가 이
+  3개 확장자에 옛 문자열을 기대하고 있었다면 그 경로만 회귀로 보일 수 있다(알려진 트레이드오프).
+
+### 6.6 원격 정책
+
+- `plugin_install`·`plugin_uninstall`·`vsix_import_plugin` 은 원격에서 **명시 거부**된다 — 파일
+  경로/네이티브 다이얼로그가 필요한 로컬 전용 동작이기 때문이다.
+- `vsix_extract_themes` 도 이번에 **허용 → 거부로 전환**했다 — 이전에는 원격 세션도 로컬 임의 파일
+  경로를 zip 으로 열어 읽을 수 있는 제한적 임의 파일 읽기 표면이었다(§2 확정 사실 8). 이 전환은
+  회귀가 아니라 의도된 보안 정책 변경이다.
+- `plugin_list`/`plugin_reload` 는 원격에서도 계속 허용된다(읽기 전용, 로컬 자원 접근 없음).

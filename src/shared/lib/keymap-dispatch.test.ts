@@ -11,6 +11,13 @@ const terminalFocused: KeymapContextGetters = { terminalFocus: () => true }
 const idleChordState: KeymapChordStoreState = { pending: null, monacoDeferral: false }
 
 const chordEntry: KeymapEntry = { id: 'save', key: 'k', mods: ['mod'], chord: { key: 's', mods: [] }, descriptionKey: 'keymap.save' }
+const siblingChordEntry: KeymapEntry = {
+    id: 'toggle-zen-mode',
+    key: 'k',
+    mods: ['mod'],
+    chord: { key: 'z', mods: [] },
+    descriptionKey: 'keymap.toggleZenMode',
+}
 const singleEntry: KeymapEntry = { id: 'close-tab', key: 'w', mods: ['mod'], descriptionKey: 'keymap.closeTab' }
 const terminalScopedEntry: KeymapEntry = {
     id: 'terminal-jump-to-previous-command',
@@ -56,7 +63,7 @@ describe('decideKeymapDispatch — when 게이팅', () => {
 describe('decideKeymapDispatch — chord 1단 진입', () => {
     test('에디터 포커스가 아니면 chord 1단 진입을 반환한다', () => {
         const action = decideKeymapDispatch(keyEvent({ key: 'k', metaKey: true }), [chordEntry], idleChordState, true, noContext)
-        expect(action).toEqual({ type: 'enter-chord', entryId: 'save', prefix: { key: 'k', mods: ['mod'] } })
+        expect(action).toEqual({ type: 'enter-chord', entryIds: ['save'], prefix: { key: 'k', mods: ['mod'] } })
     })
 
     test('에디터 포커스 상태면 chord 1단 진입이 억제되고, 프리픽스가 monaco 전용(Cmd/Ctrl+K) 키와 같으면 monaco 프리픽스 관찰로 대체된다', () => {
@@ -67,6 +74,40 @@ describe('decideKeymapDispatch — chord 1단 진입', () => {
     test('chord 를 가진 엔트리는 pending 이 없어도 dispatch(단일 키 취급) 되지 않는다', () => {
         const action = decideKeymapDispatch(keyEvent({ key: 'k', metaKey: true }), [chordEntry], idleChordState, true, noContext)
         expect(action.type).not.toBe('dispatch')
+    })
+})
+
+describe('decideKeymapDispatch — 같은 1단을 공유하는 형제 chord (예: ⌘K ⌘S 와 ⌘K Z)', () => {
+    test('1단 진입 시 두 후보 모두 entryIds 에 담긴다', () => {
+        const action = decideKeymapDispatch(keyEvent({ key: 'k', metaKey: true }), [chordEntry, siblingChordEntry], idleChordState, true, noContext)
+        expect(action).toEqual({ type: 'enter-chord', entryIds: ['save', 'toggle-zen-mode'], prefix: { key: 'k', mods: ['mod'] } })
+    })
+
+    test('2단이 첫 번째 후보(save)의 stage 와 일치하면 그 후보로 resolve 된다', () => {
+        const pendingState: KeymapChordStoreState = {
+            pending: { entryIds: ['save', 'toggle-zen-mode'], prefix: { key: 'k', mods: ['mod'] }, at: Date.now() },
+            monacoDeferral: false,
+        }
+        const action = decideKeymapDispatch(keyEvent({ key: 's' }), [chordEntry, siblingChordEntry], pendingState, true, noContext)
+        expect(action).toEqual({ type: 'resolve-chord-matched', entryId: 'save' })
+    })
+
+    test('2단이 두 번째 후보(zen)의 stage 와 일치하면 첫 번째 후보를 건너뛰고 정확히 그 후보로 resolve 된다', () => {
+        const pendingState: KeymapChordStoreState = {
+            pending: { entryIds: ['save', 'toggle-zen-mode'], prefix: { key: 'k', mods: ['mod'] }, at: Date.now() },
+            monacoDeferral: false,
+        }
+        const action = decideKeymapDispatch(keyEvent({ key: 'z' }), [chordEntry, siblingChordEntry], pendingState, true, noContext)
+        expect(action).toEqual({ type: 'resolve-chord-matched', entryId: 'toggle-zen-mode' })
+    })
+
+    test('두 후보 중 어느 stage 와도 일치하지 않으면 no-match 로 무조건 삼킨다', () => {
+        const pendingState: KeymapChordStoreState = {
+            pending: { entryIds: ['save', 'toggle-zen-mode'], prefix: { key: 'k', mods: ['mod'] }, at: Date.now() },
+            monacoDeferral: false,
+        }
+        const action = decideKeymapDispatch(keyEvent({ key: 'x' }), [chordEntry, siblingChordEntry], pendingState, true, noContext)
+        expect(action).toEqual({ type: 'resolve-chord-no-match' })
     })
 })
 
@@ -103,7 +144,7 @@ describe('decideKeymapDispatch — monaco 프리픽스 관찰/유예', () => {
 
 describe('decideKeymapDispatch — chord 2단 (무조건 삼킴)', () => {
     const pendingState: KeymapChordStoreState = {
-        pending: { entryId: 'save', prefix: { key: 'k', mods: ['mod'] }, at: Date.now() },
+        pending: { entryIds: ['save'], prefix: { key: 'k', mods: ['mod'] }, at: Date.now() },
         monacoDeferral: false,
     }
 
@@ -122,7 +163,7 @@ describe('decideKeymapDispatch — chord 2단 (무조건 삼킴)', () => {
         expect(action).toEqual({ type: 'ignore-modifier-only' })
     })
 
-    test('pending.entryId 에 대응하는 엔트리가 entries 에 없으면 방어적으로 no-match 처리한다', () => {
+    test('pending.entryIds 에 대응하는 엔트리가 entries 에 없으면 방어적으로 no-match 처리한다', () => {
         const action = decideKeymapDispatch(keyEvent({ key: 's' }), [singleEntry], pendingState, true, noContext)
         expect(action).toEqual({ type: 'resolve-chord-no-match' })
     })

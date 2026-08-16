@@ -9,6 +9,7 @@ import { monaco } from '@shared/lib/monaco/setup'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
+import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import {
     buildSegmentPaths,
     filterDirectChildren,
@@ -20,10 +21,10 @@ import {
 import { waitForLspSession } from '@widgets/editor-pane/lsp-session-registry'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { fileQueryOptions } from '@entities/file/file.query'
+import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
-import { useOpenTab } from '@entities/layout/layout.query'
 import { treeRowsQueryOptions, useRevealTreeNode } from '@entities/tree/tree.query'
 import type { BreadcrumbSegmentEntry } from '@features/editor/breadcrumb-segment'
 import { BreadcrumbSegment } from '@features/editor/breadcrumb-segment'
@@ -54,6 +55,7 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
     const { data: file } = useQuery(fileQueryOptions(path))
     const { data: servers } = useQuery(lspServersQueryOptions())
     const { data: treeRowPage } = useQuery(treeRowsQueryOptions(projectId))
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: revealTreeNode } = useRevealTreeNode(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
     const languageId = file?.languageId ?? null
@@ -106,7 +108,13 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
     const handleOpenFile = (targetPath: string) => {
         requestReveal(targetPath, 1, 1)
         openTab(
-            { projectId, kind: { kind: 'file', path: targetPath }, title: fileNameOf(targetPath), target: null, preview: true },
+            {
+                projectId,
+                kind: { kind: 'file', path: targetPath },
+                title: fileNameOf(targetPath),
+                target: currentWindowFocusedPane(layout),
+                preview: true,
+            },
             { onError: (error) => toast.error(error.message) },
         )
     }

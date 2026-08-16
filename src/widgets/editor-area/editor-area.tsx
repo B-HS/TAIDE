@@ -6,10 +6,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Group, Panel } from 'react-resizable-panels'
 import { toast } from 'sonner'
-import type { DropEdge, PaneId, ProjectId, TabId, TabKind } from '@shared/api/bindings'
+import type { DropEdge, PaneId, ProjectId, TabId, TabKind, TabWindowTarget } from '@shared/api/bindings'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { pruneMirrors, pruneUntitledMirrors } from '@entities/file/file.ipc'
-import { layoutQueryOptions, useActivateTab, useCloseTab, useMoveTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
+import {
+    layoutQueryOptions,
+    useActivateTab,
+    useCloseTab,
+    useMoveTab,
+    useMoveTabToWindow,
+    useOpenTab,
+    useSplitPane,
+} from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
@@ -22,9 +30,10 @@ import { subscribeOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
 import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { monaco } from '@shared/lib/monaco/setup'
-import { collectPaneTabs, findPaneLeaf, findPaneTab } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { requestTerminalWrite } from '@shared/lib/terminal-write-bridge'
+import { getWindowContext } from '@shared/lib/window-context'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
@@ -70,12 +79,37 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const { mutate: closeTab } = useCloseTab(projectId)
     const { mutate: activateTab } = useActivateTab(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
+    const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
+
+    /**
+     * Which of the project's pane trees *this* window renders — the main tree for the main window,
+     * or this window's own `AuxWindowLayout` entry for an auxiliary window (Wave I contract §3.1).
+     * Every place below that used to read `layout.root`/`layout.focusedPane` directly now reads
+     * `paneTree` instead, so the exact same keymap/DnD/render logic works unmodified for whichever
+     * tree this window owns — see `resolveWindowPaneTree`'s doc comment for the `null` case.
+     */
+    const windowContext = getWindowContext()
+    const paneTree = layout ? resolveWindowPaneTree(layout, windowContext) : null
+
+    /**
+     * `ProjectLayout::shell_view` is main-window-only (Wave I contract §3.2) — an auxiliary window
+     * is editor-only chrome with no sidebar/status bar to begin with, so it never hides its own tab
+     * bar just because the main window happens to be in Zen mode.
+     */
+    const zen = windowContext.kind === 'main' && (layout?.shellView?.zen ?? false)
 
     const closeFocusedTab = () => {
-        if (!layout) return
-        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf?.active) return
         closeTab(leaf.active)
+    }
+
+    const moveFocusedTabToWindow = (target: TabWindowTarget) => {
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
+        if (!leaf?.active) return
+        moveTabToWindow({ tabId: leaf.active, target }, { onError: (error) => toast.error(error.message) })
     }
 
     const openFind = () => {
@@ -95,15 +129,15 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     }
 
     const splitActiveEditor = () => {
-        if (!layout) return
-        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf?.active) return
-        splitPane({ paneId: layout.focusedPane, edge: 'right', tabId: leaf.active })
+        splitPane({ paneId: paneTree.focusedPane, edge: 'right', tabId: leaf.active })
     }
 
     const cycleTab = (direction: TabCycleDirection) => {
-        if (!layout) return
-        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf?.active) return
         if (leaf.tabs.length < 2) return
         const currentIndex = leaf.tabs.findIndex((tab) => tab.id === leaf.active)
@@ -114,8 +148,8 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     }
 
     const getFocusedFileTabId = () => {
-        if (!layout) return null
-        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!paneTree) return null
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         const activeTab = leaf?.tabs.find((tab) => tab.id === leaf.active)
         return activeTab?.kind.kind === 'file' ? activeTab.id : null
     }
@@ -130,8 +164,8 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const runMonacoAction = (actionId: string) => getFocusedFileEditor()?.trigger('taide.command', actionId, undefined)
 
     const toggleTerminal = () => {
-        if (!layout) return
-        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf) return
         const activeTab = leaf.tabs.find((tab) => tab.id === leaf.active)
         if (activeTab?.kind.kind === 'terminal') {
@@ -145,7 +179,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
             return
         }
         openTab(
-            { projectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: null, preview: false },
+            { projectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: paneTree.focusedPane, preview: false },
             { onError: (error) => toast.error(error.message) },
         )
     }
@@ -159,8 +193,8 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
      * directly.
      */
     const runInTerminal = (text: string, cwd: string | null) => {
-        if (!layout) return
-        const leaf = findPaneLeaf(layout.root, layout.focusedPane)
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf) return
         const payload = `${text}\n`
 
@@ -172,10 +206,11 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         }
 
         openTab(
-            { projectId, kind: { kind: 'terminal', sessionId: '', cwd }, title: t('terminal.title'), target: null, preview: false },
+            { projectId, kind: { kind: 'terminal', sessionId: '', cwd }, title: t('terminal.title'), target: paneTree.focusedPane, preview: false },
             {
                 onSuccess: (nextLayout) => {
-                    const nextActiveTabId = findPaneLeaf(nextLayout.root, nextLayout.focusedPane)?.active
+                    const nextPaneTree = resolveWindowPaneTree(nextLayout, windowContext)
+                    const nextActiveTabId = nextPaneTree ? findPaneLeaf(nextPaneTree.root, nextPaneTree.focusedPane)?.active : null
                     if (nextActiveTabId) requestTerminalWrite(nextActiveTabId, payload)
                 },
                 onError: (error) => toast.error(error.message),
@@ -210,6 +245,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (command.type === 'run-monaco-action') return runMonacoAction(command.actionId)
         if (command.type === 'run-selected-text-in-terminal') return runSelectedTextInTerminal()
         if (command.type === 'run-in-terminal') return runInTerminal(command.text, command.cwd)
+        if (command.type === 'move-focused-tab-to-window') return moveFocusedTabToWindow(command.target)
     })
 
     useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])
@@ -223,7 +259,13 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const handleOpenFileFromEditor = useEffectEvent(({ path: targetPath, line, column }: { path: string; line: number; column: number }) => {
         requestReveal(targetPath, line, column)
         openTab(
-            { projectId, kind: { kind: 'file', path: targetPath }, title: fileNameOf(targetPath), target: null, preview: true },
+            {
+                projectId,
+                kind: { kind: 'file', path: targetPath },
+                title: fileNameOf(targetPath),
+                target: paneTree?.focusedPane ?? null,
+                preview: true,
+            },
             { onError: (error) => toast.error(error.message) },
         )
     })
@@ -296,12 +338,17 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
      * mirrors: it reads the restored layout directly rather than the frontend's in-memory
      * `untitled-registry`, which starts empty after every restart and so can't drive
      * `pruneUntitledContents` on its own.
+     *
+     * Reads `collectAllPaneTabs` (main tree *and* every auxiliary window's tree), not just this
+     * window's own `paneTree` — both the main and every auxiliary window mount their own
+     * `EditorArea` and independently run this same sweep, so a window scoping it to only its own
+     * tabs would prune mirrors for files merely open in a *different* window.
      */
     useEffect(() => {
         if (!layout || prunedProjectIdRef.current === projectId) return
         prunedProjectIdRef.current = projectId
 
-        const openTabs = collectPaneTabs(layout.root)
+        const openTabs = collectAllPaneTabs(layout)
         const closedTabs = (layout.closedTabs ?? []).map((closed) => closed.tab)
         const keepPaths = openTabs.flatMap((tab) => (tab.kind.kind === 'file' ? [tab.kind.path] : []))
         const keepTabIds = [...openTabs, ...closedTabs].flatMap((tab) => (tab.kind.kind === 'untitled' ? [tab.id] : []))
@@ -317,8 +364,8 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
 
     const handleDragStart = ({ active }: DragStartEvent) => {
-        if (!layout) return
-        const tab = findPaneTab(layout.root, active.id as TabId)
+        if (!paneTree) return
+        const tab = findPaneTab(paneTree.root, active.id as TabId)
         if (!tab) return
         setDragTab({
             id: tab.id,
@@ -343,7 +390,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const handleDragEnd = ({ active, over }: DragEndEvent) => {
         setDragTab(null)
         setOverTarget(null)
-        if (!over || !layout) return
+        if (!over || !paneTree) return
 
         const tabId = active.id as TabId
         const activeData = active.data.current as TabDragData | undefined
@@ -352,7 +399,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
 
         if (overData.type === 'split') {
             if (overData.edge === 'center') {
-                const leaf = findPaneLeaf(layout.root, overData.paneId)
+                const leaf = findPaneLeaf(paneTree.root, overData.paneId)
                 if (leaf) moveTab({ tabId, paneId: overData.paneId, index: leaf.tabs.length })
                 return
             }
@@ -361,12 +408,12 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         }
 
         if (overData.type === 'tab-container') {
-            const leaf = findPaneLeaf(layout.root, overData.paneId)
+            const leaf = findPaneLeaf(paneTree.root, overData.paneId)
             if (leaf) moveTab({ tabId, paneId: overData.paneId, index: leaf.tabs.length })
             return
         }
 
-        const leaf = findPaneLeaf(layout.root, overData.paneId)
+        const leaf = findPaneLeaf(paneTree.root, overData.paneId)
         if (!leaf) return
         const rawIndex = leaf.tabs.findIndex((tab) => tab.id === over.id)
         if (rawIndex < 0) return
@@ -375,7 +422,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         moveTab({ tabId, paneId: overData.paneId, index })
     }
 
-    if (!layout) return <div className='bg-editor-background h-full w-full' />
+    if (!layout || !paneTree) return <div className='bg-editor-background h-full w-full' />
 
     return (
         <DndContext
@@ -389,11 +436,12 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
                 <Panel id='editor-panes' minSize='30%' className='min-h-0 min-w-0'>
                     <div className='relative flex h-full min-h-0 w-full min-w-0 overflow-hidden'>
                         <PaneNodeView
-                            node={layout.root}
+                            node={paneTree.root}
                             projectId={projectId}
-                            focusedPaneId={layout.focusedPane}
+                            focusedPaneId={paneTree.focusedPane}
                             isDragging={!!dragTab}
                             overTarget={overTarget}
+                            zen={zen}
                         />
                     </div>
                 </Panel>

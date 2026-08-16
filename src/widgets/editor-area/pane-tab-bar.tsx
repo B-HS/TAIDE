@@ -6,15 +6,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileDiff, FileSearch2, Settings, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind, TabWindowTarget } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
-import { collectPaneTabs } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
+import { getWindowContext } from '@shared/lib/window-context'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
 import { pruneUntitledContents } from '@entities/editor/untitled-registry'
@@ -26,6 +27,7 @@ import {
     useActivateTab,
     useCloseTab,
     useFocusPane,
+    useMoveTabToWindow,
     useOpenTab,
     useOpenUntitledTab,
     usePinTab,
@@ -55,6 +57,7 @@ export const getTabIcon = (kind: TabKind, agent?: DetectedAgent): ReactNode => {
     if (kind.kind === 'terminal' && agent) return <Sparkles className={cn(TAB_ICON_SIZE_CLASS, ICON_AGENT_ACTIVITY_CLASS[agent.activity])} />
     if (kind.kind === 'terminal') return <Terminal className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'settings') return <Settings className={TAB_ICON_SIZE_CLASS} />
+    if (kind.kind === 'appFile') return <Settings className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'diff') return <FileDiff className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'searchEditor') return <FileSearch2 className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'untitled') return <FileTypeIcon fileName='untitled' className={TAB_ICON_SIZE_CLASS} />
@@ -85,6 +88,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { mutate: focusPane } = useFocusPane(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
     const { mutate: openUntitledTab } = useOpenUntitledTab(projectId)
+    const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
     const { setNodeRef: setContainerRef } = useDroppable({
         id: `pane-container:${paneId}`,
         data: { type: 'tab-container', paneId } satisfies TabContainerDropData,
@@ -96,6 +100,20 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const agentBySessionId = new Map((projectAgents?.agents ?? []).map((agent) => [agent.sessionId, agent] as const))
 
     const notifyError = (error: Error) => toast.error(error.message)
+
+    /**
+     * "Move into New Window"/"Move back to Main Window"/"Move to Window N" (contract §3.2) all
+     * dispatch through `layout_move_tab_to_window` — the only branching needed here is which
+     * targets to *offer*: `windowContext` (this OS window's own identity, not the tab's project)
+     * decides whether "back to Main Window" applies, and `layout.auxiliaryWindows` — read off the
+     * same `ProjectLayout` this pane bar already queries — lists every other open auxiliary window
+     * to offer as an "existing window" destination, excluding this window's own slot.
+     */
+    const windowContext = getWindowContext()
+    const otherAuxiliaryWindowSlots = (layout?.auxiliaryWindows ?? [])
+        .map((window) => window.slot)
+        .filter((slot) => windowContext.kind !== 'auxiliary' || slot !== windowContext.windowSlot)
+    const handleMoveToWindow = (tabId: TabId, target: TabWindowTarget) => moveTabToWindow({ tabId, target }, { onError: notifyError })
 
     const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
         if (event.deltaY === 0) return
@@ -175,7 +193,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                                       projectId,
                                       kind: { kind: 'diff', path: filePath, staged: false },
                                       title: `${tab.title} (diff)`,
-                                      target: null,
+                                      target: currentWindowFocusedPane(layout),
                                       preview: true,
                                   },
                                   { onError: notifyError },
@@ -187,13 +205,24 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 onRevealInExplorerView={filePath ? () => requestRevealInExplorer(filePath) : undefined}
                 onReopenWithEditor={filePath && canReopenWith ? () => setOpenWithOverride(filePath, 'editor') : undefined}
                 onReopenWithPreview={filePath && canReopenWith ? () => setOpenWithOverride(filePath, null) : undefined}
+                onMoveToNewWindow={() => handleMoveToWindow(tab.id, { kind: 'newAuxiliary' })}
+                onMoveToMainWindow={windowContext.kind === 'auxiliary' ? () => handleMoveToWindow(tab.id, { kind: 'main' }) : undefined}
+                moveToWindowSlots={otherAuxiliaryWindowSlots}
+                onMoveToWindow={(slot) => handleMoveToWindow(tab.id, { kind: 'existing', slot })}
             />
         )
     }
 
+    /**
+     * Keeps every tree in the project (main plus every auxiliary window's own tree — see
+     * `collectAllPaneTabs`'s doc comment) in the keep set, not just this pane's own `layout.root` —
+     * this effect runs once per rendered pane, in whichever window that pane lives in, so scoping it
+     * to a single tree would GC an untitled tab's draft the moment it's open only in a *different*
+     * window.
+     */
     useEffect(() => {
         if (!layout) return
-        const keepTabIds = [...collectPaneTabs(layout.root).map((tab) => tab.id), ...(layout.closedTabs ?? []).map((closed) => closed.tab.id)]
+        const keepTabIds = [...collectAllPaneTabs(layout).map((tab) => tab.id), ...(layout.closedTabs ?? []).map((closed) => closed.tab.id)]
         const removedTabIds = pruneUntitledContents(projectId, keepTabIds)
         for (const removedTabId of removedTabIds) {
             disposeModel(toUntitledModelPath(removedTabId))

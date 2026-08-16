@@ -487,6 +487,55 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   실제 쓰기 완료 전에 `file_flush_complete` 를 호출할 수 있었다. flush 콜백을 `async` 로 바꿔
   `persistMirror`(내부에서 `mirrorDirty`/`mirrorUntitled` 를 `await`)를 반환하도록 수정.
 
+### Wave I 계약 확정 추가 (셸·워크스페이스 — 멀티 윈도우·Zen·AppFile·플러그인)
+
+> 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md`. 상세: `layout-shell.md`
+> §7, `window-chrome.md` §5, `tabs.md` §3.1/§4.4, `plugins.md` §6, `data-model.md` §8.
+
+- **window(신설)**: mutation `window_open_auxiliary(projectId, windowSlot) → AuxiliaryWindowInfo{
+  label, projectId, windowSlot }`(Rust 가 `editor-<n>` 라벨을 발급 — 호출부는 어떤 라벨이 나올지
+  모른다), `window_set_fullscreen(fullscreen)`(호출한 창 자체가 대상 — `window: tauri::Window` 가
+  Tauri 에 의해 자동 주입되므로 라벨 파라미터가 없다, `file_flush_complete` 와 동일 패턴).
+- **layout(추가)**: mutation `layout_move_tab_to_window(tabId, target: TabWindowTarget)` —
+  `TabWindowTarget = {kind:'main'} | {kind:'newAuxiliary'} | {kind:'existing', slot}`, 대상 보조
+  창이 없으면(`newAuxiliary`) `window_open_auxiliary` 코어를 내부적으로 재사용해 새로 연다. 이동으로
+  빈 보조 창은 서버에서 자동으로 닫힌다(`cleanup_emptied_auxiliary_windows`) — 단 탭을 그냥
+  닫아서(이동이 아니라) 비게 된 보조 창은 이 경로를 타지 않으므로 자동으로 닫히지 않는다(프론트
+  `auxiliary-window-shell.tsx` 가 자기 트리가 비면 스스로 `getCurrentWindow().close()` 하는 것으로
+  대칭을 완성한다). `layout_set_shell_view(projectId, patch: ShellViewPatch{zen?, sidebarCollapsed?})`
+  — main 창 전용 표시 상태(§`ShellViewState`, `data-model.md` §8).
+- **app(신설 도메인)**: query `app_file_read(target: AppFileTarget)` → `string`, mutation
+  `app_file_write(target, content)` → (성공 시 `settings:changed` 를 함께 발신하는 것은 `target.kind
+  === 'settings'` 일 때만 — Prompt 타깃은 순수 쓰기). `AppFileTarget = {kind:'settings'} |
+  {kind:'prompt', id: PromptTemplateId}`(`'auto-tab-default' | 'inline-edit-default' |
+  'commit-message-default'`, `ai.md` §5 의 기존 파일과 동일 화이트리스트). 두 커맨드 모두
+  `root_guard` 의 프로젝트 루트 검증 대상이 **아니다** — 경로 자체를 Rust `AppPaths` 가 유도하고
+  프론트/레이아웃에는 절대 경로가 노출되지 않는다.
+- **settings(이벤트 실제 배선)**: `event: settings:changed` 는 이 문서에 이미 등재돼 있었지만 Wave I
+  이전에는 실제로 발신되지 않았다(§2 확정 사실 7 — "load_settings 는 부팅 1회, 설정 변경 이벤트
+  없음"). `settings::commands::apply_and_broadcast` 가 `settings_update`·`sync_download`·
+  `app_file_write`(Settings 타깃) 세 진입점의 공용 코어가 되면서 셋 다 이제 실제로 이 이벤트를
+  전 창(+원격, `lib.rs` 의 `fanout_remote_events!` 목록에 등록됨) 발신한다. 프론트는
+  `ipc-sync-provider.tsx` 에서 이 이벤트로 `SETTINGS.CURRENT` 를 직접 `setQueryData` 한다(무효화가
+  아니라 페이로드를 즉시 반영).
+- **plugin(추가)**: mutation `plugin_install(sourcePath)` → `LoadedPlugin`(디렉토리 또는
+  `.zip`/`.vsix` 아카이브 — 아카이브는 `vsix::service::extract_hardened_zip` 으로 추출, 이미 설치된
+  id 면 거부), `plugin_uninstall(pluginId)` → `LoadedPlugin[]`(빌트인 보호 없음).
+- **vsix(추가)**: mutation `vsix_import_plugin(vsixPath)` → `LoadedPlugin` — VS Code 확장의
+  `contributes.languages`/`contributes.grammars` 를 읽어 `taide-plugin.json` 을 합성한 뒤
+  `plugin_install` 과 동일한 검증·등록 경로로 착지시킨다(`plugins.md` §6). 기존
+  `vsix_extract_themes` 는 그대로 있지만 **원격 dispatch 는 이번에 허용→거부로 전환**(아래 참조).
+- **원격 dispatch 명시 거부(신규 6종)**: `window_open_auxiliary`·`window_set_fullscreen`·
+  `layout_move_tab_to_window`·`plugin_install`·`plugin_uninstall`·`vsix_import_plugin` — 전부
+  "원격 세션은 로컬 디스플레이/파일시스템 다이얼로그가 없다"는 기존 `file_flush_complete`/
+  `remote_issue_link` 류 거부와 같은 근거. **`vsix_extract_themes` 도 이번에 허용→거부로 전환**했다
+  — 이전에는 원격에서도 임의 로컬 파일 경로를 zip 으로 열어 읽을 수 있었다(§2 확정 사실 8, 제한적
+  임의 파일 읽기 표면). `plugin_list`/`plugin_reload` 는 원격에서도 그대로 허용(읽기 전용).
+- **채널 다중화(내부 구현, 새 IPC 표면 아님)**: `lsp_spawn`(reuse 경로)과 `pty_attach` 는 이제 세션당
+  구독자 목록을 유지해 여러 창이 같은 LSP 세션/pty 세션을 동시에 구독할 수 있다 — 메시지/출력은 전
+  구독자에 브로드캐스트되고 `send` 가 실패한(창이 닫힌) 구독자는 다음 브로드캐스트에서 자동
+  제거된다. 커맨드 시그니처·응답 타입은 변경되지 않았다.
+
 ### raw 커맨드 (specta 밖)
 
 `RAW_CHANNEL_COMMANDS`(`src-tauri/src/lib.rs`)에 등록된 3종은 specta 를 통과하지 못해
@@ -509,3 +558,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   이벤트 payload 어디에도 실리지 않는다(`RemoteStatus` 는 `passwordConfigured: bool` 만 노출).
   비교는 전부 `constant_time_eq` 경유(토큰·비밀번호 동일 경로). 자세한 흐름은 §3 "Remote 비밀번호"
   절 참조.
+- **zip 아카이브 하드닝(Wave I)**: `plugin_install`(아카이브 경로)·`vsix_import_plugin` 이 공유하는
+  `vsix::service::extract_hardened_zip` 은 엔트리 수 상한(`VSIX_ARCHIVE_MAX_ENTRIES` 5000)·누적
+  압축 해제 바이트 예산(`VSIX_ARCHIVE_MAX_TOTAL_BYTES` 128MB — zip bomb 방어)·경로는
+  `enclosed_name()`(zip-slip 방어, `../` 를 포함한 엔트리는 스킵)·파일 모드는 항상 `0o644`/디렉토리는
+  `0o755` 로 고정(zip 안에 담긴 unix 모드 비트를 신뢰하지 않는다)한다. 기존 `infra::lsp_install::
+  extract_zip`(신뢰된 자체 배포 아카이브 전용, zip-slip 만 방어)과는 별개 함수로 분리했다 — 사용자가
+  임의로 고른 `.vsix`/`.zip` 은 신뢰 전제가 다르기 때문(`plugins.md` §6).

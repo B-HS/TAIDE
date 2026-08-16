@@ -74,7 +74,7 @@ export const useGlobalKeymap = (handlers: KeymapHandlers) => {
             case 'enter-chord':
                 event.preventDefault()
                 event.stopPropagation()
-                enterKeymapChordPending(action.prefix, action.entryId)
+                enterKeymapChordPending(action.prefix, action.entryIds)
                 return
             case 'resolve-chord-no-match':
                 event.preventDefault()

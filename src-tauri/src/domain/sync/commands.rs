@@ -172,8 +172,7 @@ pub async fn sync_download(
         sync_last_synced_at: Some(remote_updated_at),
         ..applied
     };
-    settings_service::save_settings(&state.paths, &final_settings)?;
-    *state.settings.write() = final_settings.clone();
+    let final_settings = crate::domain::settings::commands::apply_and_broadcast(&app, &state, final_settings).await?;
 
     service::apply_theme_entries(&state.paths, &payload.themes);
     service::apply_locale_entries(&state.paths, &payload.locales);

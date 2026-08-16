@@ -18,6 +18,12 @@ pub const WATCH_DEBOUNCE_MS: u64 = 300;
 
 pub const HOT_EXIT_FLUSH_TIMEOUT_MS: u64 = 2_500;
 
+/// The label of the single window that existed before Wave I's multi-window support. Kept as the
+/// target for menu Quit and single-instance focus-forwarding (`lib.rs`) — those two flows are
+/// intentionally main-window-only, unlike the general `editor-*` auxiliary windows
+/// `domain::window` issues at runtime (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.9).
+pub const MAIN_WINDOW_LABEL: &str = "main";
+
 pub const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub const LARGE_FILE_LINES: usize = 50_000;
 pub const READ_ONLY_FILE_BYTES: u64 = 20 * 1024 * 1024;

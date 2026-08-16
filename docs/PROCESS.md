@@ -375,8 +375,212 @@
                 close·capability 글로브)·Zen 추천(레이아웃 영속+마이그레이션 arm 신설)·설정탭+
                 플러그인 추천(AppFile·SettingsChanged·VSIX→플러그인 착지·동적 언어 등록·원격 거부
                 전환·zip 하드닝))
-          - [ ] 구현(S1 Rust 인프라 → S2 Rust 도메인 → F1 창∥F2 Zen∥F3 설정탭·플러그인 → D 통합)
-                → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋
+          - [x] 구현 완료(wf_45c10e53-806, 6에이전트: S1 인프라 → S2 도메인 → F1 창∥F2 Zen∥F3
+                설정탭·플러그인 → D 통합) — 프론트 1128·Rust 872+6 그린, D 가 접합부 결함 4건 근본
+                수정(SettingsView projectId prop·aux shell isError·팔레트 openSettingsFile·zen 토글
+                UI). **F2 가 Wave H 엔진 실결함 발견·수정**(chord pending entryId→entryIds — 형제
+                chord 공존 불가 결함). 하위 상세는 아래 페이즈별 기록 참조
+          - [x] Phase E 검토 완료(wf_04872c23-eb7, 37에이전트) — 4렌즈 61건 → critical/major **31건
+                confirmed·1 refuted** → 수정 24/보류 4/기각 4. **3 critical 클러스터**: 보조 창 layout
+                커맨드 전부 NotFound(all_roots 탐색)·원격 app_file_write RCE 우회(strip 가드 신설)·LSP
+                세션 재사용 창간 id 충돌+중복 initialize(owner 스코프 재사용으로 창별 독립 세션 —
+                계약 §3.1 문언 정정). major: pty detach 누수·vsix 경로탈출·window-state 겹침·.tmp 유령·
+                focused_pane dangling·Zen fullscreen 강제해제·target:null 보조 창 오생성 등. 보류 4
+                (보조 창 flush 핸드셰이크·restore 정책·팔레트·chord 삼킴 — backlog). 상세 계약 §6.
+                메인 2차: 핵심 6건 실물 재검증+verify 전체 exit 0(1127/881+6+17)+vite build 0. 커밋
+                - [x] S1 Rust 인프라(sonnet+xhigh) 완료 — 차단급 결함 4종 근본 수정. **LSP 채널
+                      다중화**(`domain::lsp::commands::SessionEntry.channels: Vec<Channel<String>>`,
+                      `lsp_spawn` 재사용 경로가 새 `on_message` 를 폐기 대신 구독 추가, 브로드캐스트
+                      +send 실패 자동 제거, `broadcast_message` 단위 테스트 3건). **pty 다중
+                      구독자**(`TerminalStore` `subscribers: Vec<Channel<...>>`, `pty_attach` 마다
+                      추가+ring buffer 개별 replay+브로드캐스트, `broadcast_output` 단위 테스트 3건,
+                      PauseGate 는 세션 전역이라 다중 구독자와 무관함을 doc comment 로 명시).
+                      **창 생명주기**: `domain::window` 신설(`window_open_auxiliary` 커맨드 —
+                      Rust 가 `editor-<n>` 라벨 발급, `WindowStore` 로 라벨→(project, slot) 레지스트리)
+                      + `handle_close_requested` 라벨 분기(보조 창은 close 를 막지 않고 그냥
+                      닫히며 `plan_return_of_auxiliary_window_tabs` 훅 — 실제 탭 복귀는 S2 의
+                      `ProjectLayout.auxiliary_windows` 스키마가 없어 **S2 로 인계**, main 은 기존
+                      전역 flush 유지) + `AppState` hot-exit 을 `Pending(HashSet<라벨>)` 로 바꿔
+                      **창별 confirm 집계**(`state.rs` 테스트 7건) + `file_flush_complete` 가
+                      호출 창 라벨을 받아 확인 + `tauri-plugin-window-state` `map_label` 로 보조
+                      창 정규화. **capability**: `capabilities/main.json` windows 를
+                      `["main","editor-*"]` 로 글로브 확장 — tauri-utils/tauri 소스 직접 확인
+                      (`glob::Pattern` 매칭, `ipc/authority.rs::resolve_access`) 으로 실동작
+                      검증 완료(별도 capability 파일 불필요). 원격 dispatch: `window_open_auxiliary`
+                      명시 거부(`deny_remote_window_open`). 배선(lib.rs 커맨드 등록·dispatch 파리티·
+                      bindings 재생성) 완료. 검증: cargo fmt/clippy(-D warnings)/test(843) 그린,
+                      bun typecheck/lint/format/test 그린. 기존 단일 창 시나리오 회귀 없음(state.rs
+                      테스트로 고정). 미해결: `domain::file::service::tests::dirty_미러는...`
+                      mtime 기반 사전 존재 flaky 테스트(내 변경 무관, base 커밋에서도 재현 확인,
+                      S1 파일 무접촉) — 별도 트리아지 필요. S2(레이아웃 스키마+마이그레이션+Zen+
+                      AppFile+플러그인)·F(프론트 3분할)·D(통합·문서) 완료. E(검토) 잔여.
+                - [x] S2 Rust 도메인(sonnet+xhigh) 완료. **레이아웃 스키마 v2**: `ProjectLayout`
+                      에 `auxiliary_windows: Vec<AuxWindowLayout{slot,root,focused_pane}>` +
+                      `shell_view: ShellViewState{zen,sidebar_collapsed}` 추가,
+                      `LAYOUT_SCHEMA_VERSION` 1→2 + `migrate_layout`(v1 무손실 마이그레이션 —
+                      순수 가산 필드라 버전 스탬프만, 왕복 테스트로 고정) + `load_layout` 이
+                      `version <= 현재` 는 마이그레이션·초과분만 default 폴백(기존 "버전 불일치=
+                      전량 소실" 결함 상환). **다중 창 인식 pane 연산**: 내부 `PaneTreeRef`(Main/
+                      Auxiliary(idx))로 `open_tab`·`close_tab`·`move_tab`·`split`·`resize`·
+                      `activate_tab`·`pin_tab`·`focus_pane`·`reopen_closed`·
+                      `convert_untitled_to_file`·`next_untitled_index` 전부를 tree-aware 로
+                      재작성(단일 창 시나리오는 정확히 기존 순서 보존 — 같은 리프 재정렬 엣지
+                      케이스 포함). **탭 창간 이동**: `layout_move_tab_to_window`(Main/Existing/
+                      NewAuxiliary) — `move_tab`의 cross-tree 능력을 그대로 재사용, 빈 보조 창
+                      정리(`cleanup_emptied_auxiliary_windows`, `WindowStore::label_for` 역조회
+                      추가). `window::commands::open_auxiliary_window` 를 mutation-guard-free
+                      코어로 리팩터(창 열기 호출부 3곳 — 커맨드·부팅 복원·탭 이동 — 이 각자
+                      가드를 잡아 재진입 데드락 회피 + 동시 라벨 경합 방지). **보조 창 닫기 인계
+                      완결**: `window::service::plan_return_of_auxiliary_window_tabs` 스텁 →
+                      실제 구현(탭을 main 말미로 복귀, LayoutChanged 이벤트+dirty 마킹). **부팅
+                      시 보조 창 복원**: `lib.rs::restore_auxiliary_windows` 신설(열려있는 전
+                      프로젝트의 `auxiliary_windows` 를 순회해 창 재생성, 각자 mutation guard로
+                      직렬화). **Zen**: `layout_set_shell_view`+`ShellViewPatch` +
+                      `Settings.zen_fullscreen`(기본 false)·`zen_hide_status_bar`(기본 true,
+                      types·Default·SettingsPatch·apply_patch·sync 왕복 5곳) +
+                      `window_set_fullscreen`(호출 창 자동 주입, capability 불필요 — 커스텀
+                      커맨드는 ACL 밖). **AppFile**: `domain::app` 신설(`AppFileTarget`·
+                      `PromptTemplateId` 실제 enum) + `TabKind::AppFile` + `app_file_read`/
+                      `app_file_write` + `settings::commands::apply_and_broadcast`(가드-프리
+                      공유 코어 — settings_update·sync_download·app_file_write 3곳이 동일
+                      parse→sanitize→적용→`SettingsChanged`(신설, 전 창+원격 fanout) 경로
+                      공유, sync_download 의 "저장은 되는데 반영 안 됨" 기존 결함 동반 해소).
+                      **플러그인**: `plugin_install`(디렉토리/zip)·`plugin_uninstall`(빌트인
+                      보호 없음) + `vsix::service::extract_hardened_zip`(엔트리 상한 5000·
+                      스트리밍 예산 128MB·0o644/0o755 마스킹, `lsp_install::extract_zip`
+                      재사용 안 함) + `vsix_import_plugin`(실 VS Code vsix
+                      languages+grammars→`taide-plugin.json` 합성 후 기존 `install_from_*`
+                      경로 재사용) + `infra::language::language_id_for_path`(플러그인
+                      오버레이+빌트인 46개 캐노니컬 테이블로 file/git/ide 3벌 중복 통합 —
+                      ide 의 grammar-미지원 csharp/php/sql 3개는 의도적으로 드롭). **원격
+                      정책**: `plugin_install`·`plugin_uninstall`·`vsix_import_plugin`·
+                      `window_set_fullscreen`·`layout_move_tab_to_window` 명시 거부,
+                      `vsix_extract_themes` 허용→거부 전환. **locale**: 신규 네임스페이스
+                      `zen`·`prompts` + 기존 `app`·`tab`·`keymap`·`settings` 확장, 총 33키×
+                      en/ko/ja(필요 키 집합 809개 3벌 완전 일치 자동 검증). 검증: cargo fmt/
+                      clippy(경고 0)/test(S1 843 → 878, 신규 35건 — layout 멀티 윈도우·마이그
+                      레이션 12·app::service AppFile 5·plugin install/uninstall 6·
+                      infra::language 오버레이 5·기타) 전부 그린, bindings.ts 재생성(2회 — 파리티
+                      테스트 포함) 통과, `bun run typecheck`/`lint`/`format:check`/`bun test`
+                      (1098) 전부 통과 — `settings.ipc.ts`의 `emptySettingsPatch`(S2 명시 소유)
+                      에 zenFullscreen/zenHideStatusBar 2필드만 추가, 그 외 프론트 소비처 깨짐
+                      0건. F1/F3·D 완료. E(검토) 잔여.
+                - [x] F2 프론트 Zen·표시 상태(sonnet+xhigh) 완료. **shell_view 소비**:
+                      `entities/layout`에 `setShellView`/`useSetShellView` 추가, `AppShell`이
+                      zen 시 사이드바(AppSidebar)·explorer 패널(force-collapse)·상태바(설정 시)를
+                      숨기고, `EditorArea`→`PaneNodeView`에 `zen` prop 을 스레딩해 모든 리프의
+                      탭바를 숨김(보조 창은 main-only shell_view 라 항상 `zen=false`). 사이드바
+                      접힘은 `shell_view.sidebarCollapsed`로 영속(드래그·⌘B 토글 양쪽 경로 모두
+                      persist, 폭은 기존 로컬 default 유지 — ADR-0004 예외). **⌘K Z chord**:
+                      `open-keybindings-editor`(⌘K ⌘S)와 1단(⌘K)을 공유하는 두 번째 실제 chord
+                      로 추가하면서 Wave H 디스패치 엔진의 실제 결함을 발견·수정 — pending 상태가
+                      `entryId`(단수)만 기억해 같은 1단을 공유하는 형제 chord 중 배열상 먼저 오는
+                      것만 영구 우선했다(§8 충돌 판정은 형제 chord 를 이미 허용했지만 디스패치는
+                      아니었음). `entryIds`(복수)로 전환 + `findMatchingChordPrefixEntries` 신설,
+                      기존 단일 chord 시나리오 회귀 0(전체 keymap 테스트 156→충분히 확장 후 그린) +
+                      신규 다중 chord 유닛/통합 테스트 다수 추가(`keymap.test.ts`·
+                      `keymap-dispatch.test.ts`·`keymap-chord-store.test.ts`). ESC 복귀는 capture
+                      단계가 아닌 `window` bubble 단계 리스너로 별도 구현(`event.defaultPrevented`
+                      가드) — Radix 다이얼로그·monaco 자체 Escape 처리와 우선순위 충돌 없음.
+                      `zen_fullscreen` 설정 시 `windowSetFullscreen` 호출(`entities/window` 신설).
+                      팔레트 커맨드 `view.toggleZenMode`(auxiliary 창에서 비활성) 추가. Zen 진입
+                      힌트 오버레이(`features/window/zen-mode-hint.tsx`, 3초 자동 소멸,
+                      `useState(true)` 초기값 + 마운트 자체가 세션 경계라 effect 내 동기 setState
+                      없음 — `react-hooks/set-state-in-effect` 준수). 설정 UI 2필드 토글은 F3
+                      소유(경계만 설계, 미구현). 검증: `bun run typecheck`/`lint`(0 error)/
+                      `format:check`/`test`(1125 pass) 전부 그린. `docs/features/keymap.md` 에
+                      Wave I 추가분(entryIds 복수화) 콜아웃 반영.
+                - [x] F1 프론트 창 부트스트랩(sonnet+xhigh) 완료. **부트스트랩 분기**:
+                      `shared/lib/window-context.ts`(URL 쿼리 파싱) + `app.tsx` 가 보조 창엔
+                      `AuxiliaryWindowShell`(사이드바·상태바 없는 에디터 전용 크롬)만, main 창엔
+                      기존 `AppShell`+`CommandPalette`+`KeybindingsEditor`+`TaskRunnerDialog`(셋
+                      다 전역 활성 프로젝트 의존이라 보조 창엔 미마운트 — 설계 결정으로 문서화)를
+                      렌더. **다중 윈도우 인식 pane 연산**: `shared/lib/pane-tree.ts`
+                      (`resolveWindowPaneTree`·`isPaneTreeEmpty`·`collectAllPaneTabs`)로
+                      `editor-area.tsx`·`pane-tab-bar.tsx`의 GC/DnD/탭 커맨드 전부를 main-only
+                      전제에서 다중 창 인식으로 전환. **Move Tab UI**: 탭 컨텍스트 메뉴에 "Move
+                      into New Window"·"Move back to Main Window"·"Move to Window N" 3액션 +
+                      팔레트 커맨드 2종. 검증: `typecheck`/`lint`/`format:check`/`test`(1128 pass)
+                      전부 그린. 열린 이슈(D 가 처리): 보조 창의 layout query 가 에러로 실패해도
+                      자동 닫기 effect 가 감지 못함, `settings-view.tsx` 가 전역 활성 프로젝트를
+                      써서 보조 창의 Settings 탭이 잘못된 프로젝트 기준으로 동작할 수 있음.
+                - [x] F3 프론트 설정탭·플러그인 UI(sonnet+xhigh) 완료. **AppFile**:
+                      `TabKind::AppFile` 라우팅(`pane-node-view.tsx`) + `widgets/app-file-pane`
+                      (monaco JSON 에디터, dirty·저장·에러 표시) + `entities/app-file` +
+                      설정 화면 "Open settings.json" 버튼·프롬프트 3종 편집 진입점 +
+                      `ipc-sync-provider.tsx`의 `SettingsChanged` 구독(`SETTINGS.CURRENT`
+                      직접 갱신). **플러그인 UI**: `widgets/plugin-manager`(목록+설치+제거+VSIX
+                      통합 임포트 다이얼로그)로 구 `features/settings/plugin-list.tsx`·
+                      `features/theme/vsix-theme-import-*.tsx` 완전 대체(삭제). **monaco 동적
+                      언어**: `shared/lib/monaco/register-plugin-languages.ts` — 플러그인 목록이
+                      바뀌는 4개 뮤테이션(install/uninstall/reload/vsix-import) + 부팅
+                      부트스트랩 전부에서 호출해 monaco 언어 등록 + shiki 재생성을 공유.
+                      검증: `typecheck`/`test`(1128 pass)/`lint`(0 error, 내 파일 기준) 전부 그린.
+                      열린 이슈(D 가 처리): 팔레트로 "Open settings.json" 여는 경로가 없었음
+                      (command-registry.ts/command-palette.tsx 는 F1/F2 동시 수정 중이라 미착수로
+                      명시 위임).
+                - [x] D 통합·문서·전체 verify(sonnet+xhigh, 단독) 완료. **접합부 수정**(선행
+                      openIssues 전수 검토 후 근본 수정): ① `settings-view.tsx` 가
+                      `activeProjectQueryOptions()`(전역 활성 프로젝트) 대신 `PaneNodeView` 가
+                      이미 갖고 있던 `projectId` prop 을 받도록 전환(`SettingsView: FC<{projectId}>`)
+                      — 보조 창으로 옮겨진 Settings 탭이 그 창의 고정 프로젝트가 아니라 main 창의
+                      활성 프로젝트 기준으로 "settings.json 열기"/프롬프트 탭을 열던 결함의 근본
+                      수정(F1 openIssue). ② `auxiliary-window-shell.tsx`의 자동 닫기 effect 가
+                      `!layout`뿐 아니라 `isError`도 감지하도록 확장 — `useQuery` 가 실패 후에도
+                      마지막 성공 데이터를 들고 있어(project_close 로 `layout_get` 이 `NotFound`
+                      로 계속 실패해도) 그 창이 마지막 상태에 얼어붙어 영원히 안 닫히던 결함의 근본
+                      수정(F1 openIssue). ③ 팔레트에 `app.openSettingsFile` 커맨드 신설
+                      (`command-registry.ts`+`command-palette.tsx`) — F3 가 소유 경계(command
+                      palette 는 F1/F2 동시 수정 파일이라 위임)로 미룬 접합부 배선(F3 openIssue).
+                      ④ 설정 화면 INTERFACE 섹션에 `zenFullscreen`/`zenHideStatusBar` 토글 2개
+                      추가 — F2 가 "F3 소유로 위임"했고 F3 도 구현하지 않아 **양쪽 다 놓친** 배선
+                      갭(Rust `Settings` 필드·locale 키·`use-zen-mode.ts` 소비 로직은 이미 있었으나
+                      설정 UI 에 노출하는 스위치 자체가 없어 사용자가 절대 켤 수 없었다). 로케일
+                      키 자체는 en/ko/ja 693키 3벌 완전 일치(자동 대조 재확인, 갭 0)로 이미
+                      맞아 있어 신규 로케일 텍스트 추가는 필요 없었다.
+                      **동작 검수(코드 추적, 실행 금지 준수)**: 부창 닫기 격리(`handle_close_
+                      requested`가 `editor-*` 라벨을 `prevent_close` 없이 그냥 통과시킴, main 은
+                      기존 전역 flush 유지) / LSP `channels: Vec<Channel<String>>`·pty
+                      `subscribers: Vec<Channel<...>>` 가 단일 원소일 때 기존 단일 창 동작과
+                      동치임을 브로드캐스트 함수·테스트로 확인 / 레이아웃 v1→v2 마이그레이션이
+                      실제 v1 셰입 JSON(신필드 제거 후 저장) 왕복 테스트로 무손실 고정돼 있음을
+                      확인 / `SettingsChanged` 가 `settings_update`·`sync_download`·
+                      `app_file_write`(Settings) 3경로 전부에서 `apply_and_broadcast` 하나를
+                      공유하고 프론트가 `setQueryData` 로 즉시 반영함을 확인 / 플러그인 설치→
+                      `registerPluginLanguages`→`reinitShiki` 도달 경로가 install/uninstall/
+                      reload/vsix-import 4개 뮤테이션 전부에서 공유됨을 확인 / 원격 거부 6종
+                      (`window_open_auxiliary`·`window_set_fullscreen`·
+                      `layout_move_tab_to_window`·`plugin_install`·`plugin_uninstall`·
+                      `vsix_import_plugin`)+전환 1종(`vsix_extract_themes`)이 `dispatch.rs` 에
+                      전부 배선돼 있음을 확인. **문서**: `layout-shell.md` §7(멀티 윈도우 신설)·
+                      `window-chrome.md` §5/§6(보조 창 크롬·Zen 신설)·`tabs.md`
+                      §3.1/§4.4("추후"·"미지원" stale 문구 정정, TabKind 목록에 AppFile 추가)·
+                      `plugins.md` §6(설치 UI·VSIX grammar·zip 하드닝·동적 언어·원격 정책 신설)·
+                      `ipc-contract.md`(Wave I 신규 커맨드·이벤트·zip 하드닝 보안 절)·
+                      `data-model.md` §8(레이아웃 스키마 v2·AppFile·Settings 신필드)·
+                      `qa6-checklist.md`(Wave I 실기 섹션 신설 — 창 열기/이동/닫기/복귀·공유 자원·
+                      Zen·AppFile·플러그인·회귀 7개 카테고리)·`research/2026-08-13-vscode-cursor-
+                      gap.md` §3·§7(멀티 윈도우·Zen·settings.json 편집·플러그인 설치 UI·VSIX
+                      grammar 항목 전부 "구현 완료" 표기, P1 목록·backlog 중복 목록 정리)·
+                      `docs/backlog.md`(멀티 윈도우·Zen·앱데이터 파일 에디터 편집·VSIX grammar
+                      임포트 항목 종결, Copy into New Window 만 잔여 항목으로 분리). **해소 불가로
+                      보고만 한 항목**(소유 밖·설계 판단·계약 승인 범위): LSP 채널의 root 별
+                      소유 추적 부재(S1 문서화된 단순화) / plugin 재설치 거부(재설치=업그레이드
+                      시맨틱 미정의, 안전한 기본값) / `layout_move_tab_to_window` 3변형 전부 원격
+                      거부(확장 해석이나 근거 동일) / 빈 보조 창은 `layout_move_tab_to_window`
+                      경로에서만 자동 정리(플레인 탭 닫기는 프론트가 감지해 자기 창을 닫는 것으로
+                      대칭) / `restore_auxiliary_windows` 가 활성 프로젝트 무관 전체 복원(계약
+                      문언 그대로) / `domain::file::service` 의 mtime 기반 사전 존재 flaky 테스트
+                      (S1·S2 가 이미 base 커밋에서도 재현 확인 — 이번 세션 `cargo test` 반복
+                      실행에서도 재현 1회 관찰, 무관한 도메인이라 미수정) / 팔레트가 보조 창에
+                      미마운트되는 설계(F1 결정 유지) / `Copy into New Window` 미구현(신규 backlog
+                      분리) / plugin 디렉토리 설치용 폴더 피커 부재(Tauri dialog 제약) / VSIX
+                      grammar 실패 사유 세분화 불가(`AppError` 코드 부족).
+                      **전체 검증**: `bun run verify`(typecheck→lint→format:check→test 1128 pass→
+                      cargo fmt→cargo clippy -D warnings→cargo test 895) exit 0 +
+                      `bunx vite build` exit 0(청크 크기 경고만, 에러 0) 재확인 완료.
+                      F(3분할)·D 전부 완료. **E(4렌즈 검토)만 잔여** — 캠페인 A~I 코드/문서
+                      작업은 이번 세션으로 종결, 검토·커밋은 별도 단계.
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)

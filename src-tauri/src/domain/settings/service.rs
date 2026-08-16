@@ -63,6 +63,8 @@ pub struct SettingsPatch {
     pub editor_format_on_paste: Option<bool>,
     pub emmet_enabled: Option<bool>,
     pub recent_searches: Option<Vec<String>>,
+    pub zen_fullscreen: Option<bool>,
+    pub zen_hide_status_bar: Option<bool>,
 }
 
 /// Legacy → current key renames applied by [`migrate_legacy_ai_provider_keys`] — see that
@@ -93,16 +95,37 @@ pub fn migrate_legacy_ai_provider_keys(object: &mut serde_json::Map<String, serd
     }
 }
 
-/// Reads and type-checks `settings.json`, applying [`migrate_legacy_ai_provider_keys`] to its raw
-/// JSON object first.
-fn read_settings_file(path: &std::path::Path) -> AppResult<Option<Settings>> {
-    let Some(mut raw) = persist::read_json::<serde_json::Value>(path)? else {
-        return Ok(None);
-    };
+/// Applies [`migrate_legacy_ai_provider_keys`] to a raw JSON object before converting it into
+/// `Settings` — the shared core of both [`read_settings_file`] (loading `settings.json` from disk)
+/// and [`parse_settings_json`] (validating a hand-edited `AppFile` save), so a pre-rename or
+/// otherwise legacy-shaped payload is migrated identically through either entry point.
+fn settings_from_value(mut raw: serde_json::Value) -> AppResult<Settings> {
     if let Some(object) = raw.as_object_mut() {
         migrate_legacy_ai_provider_keys(object);
     }
-    Ok(Some(serde_json::from_value(raw)?))
+    Ok(serde_json::from_value(raw)?)
+}
+
+/// Reads and type-checks `settings.json`, applying [`migrate_legacy_ai_provider_keys`] to its raw
+/// JSON object first.
+fn read_settings_file(path: &std::path::Path) -> AppResult<Option<Settings>> {
+    let Some(raw) = persist::read_json::<serde_json::Value>(path)? else {
+        return Ok(None);
+    };
+    Ok(Some(settings_from_value(raw)?))
+}
+
+/// Parses a hand-edited `settings.json` save (the `AppFile` tab's "Settings" target) into
+/// `Settings`, applying the same legacy-key migration [`read_settings_file`] applies. Kept separate
+/// from `read_settings_file` because it parses a `String` already in memory (an unsaved editor
+/// buffer), not a file on disk, and reports a parse/schema failure as
+/// [`AppError::InvalidArgument`] — a save-time error the caller should surface to the user and
+/// reject, not the load-time "fall back to defaults and back up the corrupt file" behavior
+/// [`load_settings`] uses for a `settings.json` the app itself can no longer make sense of.
+pub fn parse_settings_json(content: &str) -> AppResult<Settings> {
+    let raw: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| AppError::InvalidArgument(format!("settings.json이 유효한 JSON이 아닙니다: {error}")))?;
+    settings_from_value(raw).map_err(|error| AppError::InvalidArgument(format!("settings.json 스키마가 올바르지 않습니다: {error}")))
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {
@@ -234,7 +257,7 @@ fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String
 /// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `Settings` 가 만들어지는 모든 출구
 /// (`apply_patch` · 디스크 로드)에서 항상 거친다 — patch 든 손으로 편집한 settings.json 이든
 /// 검증되지 않은 값이 Monaco/xterm 런타임까지 그대로 흘러가는 것을 막는다.
-fn sanitize(settings: Settings) -> Settings {
+pub fn sanitize(settings: Settings) -> Settings {
     Settings {
         editor_tab_size: settings.editor_tab_size.clamp(EDITOR_TAB_SIZE_MIN, EDITOR_TAB_SIZE_MAX),
         terminal_scrollback: settings.terminal_scrollback.clamp(TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX),
@@ -338,6 +361,8 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         editor_format_on_paste: patch.editor_format_on_paste.unwrap_or(settings.editor_format_on_paste),
         emmet_enabled: patch.emmet_enabled.unwrap_or(settings.emmet_enabled),
         recent_searches: patch.recent_searches.clone().unwrap_or_else(|| settings.recent_searches.clone()),
+        zen_fullscreen: patch.zen_fullscreen.unwrap_or(settings.zen_fullscreen),
+        zen_hide_status_bar: patch.zen_hide_status_bar.unwrap_or(settings.zen_hide_status_bar),
     })
 }
 
@@ -918,6 +943,24 @@ mod tests {
         assert_eq!(reloaded, settings);
 
         std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn patch로_zen_설정을_변경한다() {
+        let settings = Settings::default();
+        assert!(!settings.zen_fullscreen);
+        assert!(settings.zen_hide_status_bar);
+
+        let patch = SettingsPatch {
+            zen_fullscreen: Some(true),
+            zen_hide_status_bar: Some(false),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.zen_fullscreen);
+        assert!(!updated.zen_hide_status_bar);
     }
 
     #[test]

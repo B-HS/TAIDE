@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use super::types::{
-    ClosedTab, DropEdge, FocusKind, PaneNode, ProjectLayout, SplitDir, Tab, TabKind, CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX,
-    LAYOUT_SCHEMA_VERSION,
+    AuxWindowLayout, ClosedTab, DropEdge, FocusKind, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind,
+    CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
 };
 use crate::error::{AppError, AppResult};
 use crate::ids::{PaneId, ProjectId, TabId};
@@ -10,6 +10,89 @@ use crate::infra::persist;
 use crate::paths::AppPaths;
 
 const SPLIT_TOTAL_PERCENT: f32 = 100.0;
+const FIRST_WINDOW_SLOT: u32 = 1;
+
+/// Identifies which of a `ProjectLayout`'s pane trees a pane/tab lives in — the main tree, or one
+/// auxiliary window's own tree (indexed into `ProjectLayout::auxiliary_windows`). Every pane/tab
+/// mutation locates this first so it can operate on (and, for focus bookkeeping, update) the right
+/// tree regardless of which OS window the caller is in. See
+/// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.1/§3.2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaneTreeRef {
+    Main,
+    Auxiliary(usize),
+}
+
+/// Every pane tree a project's layout owns — the main tree followed by each auxiliary window's own
+/// tree, in `auxiliary_windows` order. Callers that only care "does this project have the tab/pane
+/// anywhere" (project-level lookups in `layout::commands` and `ide::service`/`ide::server`) iterate
+/// this instead of hardcoding `&layout.root`, so auxiliary-window content isn't invisible to them.
+pub fn all_roots(layout: &ProjectLayout) -> impl Iterator<Item = &PaneNode> {
+    std::iter::once(&layout.root).chain(layout.auxiliary_windows.iter().map(|window| &window.root))
+}
+
+fn tree_root(layout: &ProjectLayout, tree: PaneTreeRef) -> &PaneNode {
+    match tree {
+        PaneTreeRef::Main => &layout.root,
+        PaneTreeRef::Auxiliary(index) => &layout.auxiliary_windows[index].root,
+    }
+}
+
+fn tree_root_mut(layout: &mut ProjectLayout, tree: PaneTreeRef) -> &mut PaneNode {
+    match tree {
+        PaneTreeRef::Main => &mut layout.root,
+        PaneTreeRef::Auxiliary(index) => &mut layout.auxiliary_windows[index].root,
+    }
+}
+
+fn set_tree_focused_pane(layout: &mut ProjectLayout, tree: PaneTreeRef, pane_id: PaneId) {
+    match tree {
+        PaneTreeRef::Main => layout.focused_pane = pane_id,
+        PaneTreeRef::Auxiliary(index) => layout.auxiliary_windows[index].focused_pane = pane_id,
+    }
+}
+
+fn locate_tree_of_pane(layout: &ProjectLayout, pane_id: &PaneId) -> Option<PaneTreeRef> {
+    if contains_pane(&layout.root, pane_id) {
+        return Some(PaneTreeRef::Main);
+    }
+    layout
+        .auxiliary_windows
+        .iter()
+        .position(|window| contains_pane(&window.root, pane_id))
+        .map(PaneTreeRef::Auxiliary)
+}
+
+fn locate_tree_of_tab(layout: &ProjectLayout, tab_id: &TabId) -> Option<PaneTreeRef> {
+    if find_tab(&layout.root, tab_id).is_some() {
+        return Some(PaneTreeRef::Main);
+    }
+    layout
+        .auxiliary_windows
+        .iter()
+        .position(|window| find_tab(&window.root, tab_id).is_some())
+        .map(PaneTreeRef::Auxiliary)
+}
+
+/// Finds a tab regardless of which tree it lives in — used by mutations that only need the `Tab`
+/// itself (`set_preview`/`set_dirty`/`set_view_state`/`set_terminal_session`), not the pane/focus
+/// bookkeeping `PaneTreeRef`-aware operations need.
+fn find_tab_mut_in_layout<'a>(layout: &'a mut ProjectLayout, tab_id: &TabId) -> Option<&'a mut Tab> {
+    if let Some(tab) = find_tab_mut(&mut layout.root, tab_id) {
+        return Some(tab);
+    }
+    layout
+        .auxiliary_windows
+        .iter_mut()
+        .find_map(|window| find_tab_mut(&mut window.root, tab_id))
+}
+
+/// A pane tree with no tabs anywhere in it — always a single empty `Leaf` once `normalize` has run,
+/// since `normalize_owned` collapses every empty-leaf-only split down to one. Used to decide when an
+/// auxiliary window's entry (and its now-pointless OS window) should be cleaned up.
+pub fn is_layout_tree_empty(root: &PaneNode) -> bool {
+    matches!(root, PaneNode::Leaf { tabs, .. } if tabs.is_empty())
+}
 
 pub fn default_layout() -> ProjectLayout {
     let welcome = Tab {
@@ -47,6 +130,8 @@ pub fn default_layout() -> ProjectLayout {
         focused_pane: leaf_id,
         revision: 0,
         closed_tabs: Vec::new(),
+        auxiliary_windows: Vec::new(),
+        shell_view: ShellViewState::default(),
     }
 }
 
@@ -307,7 +392,9 @@ fn normalize_owned(node: PaneNode) -> PaneNode {
 }
 
 pub fn open_tab(layout: &mut ProjectLayout, pane_id: &PaneId, mut tab: Tab, preview: bool) -> AppResult<TabId> {
-    let leaf = find_leaf_mut(&mut layout.root, pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let tree = locate_tree_of_pane(layout, pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let leaf =
+        find_leaf_mut(tree_root_mut(layout, tree), pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
     let PaneNode::Leaf { tabs, active, .. } = leaf else {
         return Err(AppError::Internal("expected leaf pane".to_string()));
     };
@@ -341,8 +428,8 @@ pub fn open_tab(layout: &mut ProjectLayout, pane_id: &PaneId, mut tab: Tab, prev
 /// 현재 열려 있는 Untitled 탭들이 쓰지 않는 최소 번호를 돌려준다(1부터, VSCode 와 동일한 번호 재사용).
 /// Untitled 탭은 `closed_tabs` 에 남지 않으므로(`push_closed`) 열린 탭만 훑으면 된다.
 pub fn next_untitled_index(layout: &ProjectLayout) -> u32 {
-    let used: HashSet<u32> = collect_leaves(&layout.root)
-        .into_iter()
+    let used: HashSet<u32> = all_roots(layout)
+        .flat_map(collect_leaves)
         .filter_map(|leaf| match leaf {
             PaneNode::Leaf { tabs, .. } => Some(tabs),
             PaneNode::Split { .. } => None,
@@ -364,11 +451,12 @@ pub fn next_untitled_index(layout: &ProjectLayout) -> u32 {
 /// Untitled 탭을 저장된 파일 탭으로 in-place 치환한다. 같은 leaf 에 동일 경로의 File 탭이
 /// 이미 있으면 그 탭을 재사용하고(중복 탭 방지 — `open_tab` 의 중복 정책과 동일 철학) untitled 탭은 제거한다.
 pub fn convert_untitled_to_file(layout: &mut ProjectLayout, tab_id: &TabId, path: String, title: String) -> AppResult<TabId> {
-    let (pane_id, _) = find_tab(&layout.root, tab_id)
+    let tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let (pane_id, _) = find_tab(tree_root(layout, tree), tab_id)
         .map(|(pane_id, index)| (pane_id.clone(), index))
         .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
 
-    let leaf = find_leaf(&layout.root, &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let leaf = find_leaf(tree_root(layout, tree), &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
     let PaneNode::Leaf { tabs, .. } = leaf else {
         return Err(AppError::Internal("expected leaf pane".to_string()));
     };
@@ -384,13 +472,13 @@ pub fn convert_untitled_to_file(layout: &mut ProjectLayout, tab_id: &TabId, path
         .map(|existing| existing.id.clone());
 
     if let Some(existing_id) = existing_id {
-        extract_tab(&mut layout.root, tab_id);
-        normalize(&mut layout.root);
+        extract_tab(tree_root_mut(layout, tree), tab_id);
+        normalize(tree_root_mut(layout, tree));
         activate_tab(layout, &existing_id)?;
         return Ok(existing_id);
     }
 
-    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab = find_tab_mut(tree_root_mut(layout, tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     tab.kind = TabKind::File { path };
     tab.title = title;
     tab.dirty = false;
@@ -400,11 +488,12 @@ pub fn convert_untitled_to_file(layout: &mut ProjectLayout, tab_id: &TabId, path
 }
 
 pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<ClosedTab> {
-    let (pane_id, index) = find_tab(&layout.root, tab_id)
+    let tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let (pane_id, index) = find_tab(tree_root(layout, tree), tab_id)
         .map(|(pane_id, index)| (pane_id.clone(), index))
         .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    let tab = extract_tab(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    normalize(&mut layout.root);
+    let tab = extract_tab(tree_root_mut(layout, tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    normalize(tree_root_mut(layout, tree));
 
     let closed = ClosedTab {
         tab,
@@ -433,40 +522,46 @@ pub fn reopen_closed(layout: &mut ProjectLayout) -> Option<TabId> {
     let ClosedTab { tab, pane_id, index } = layout.closed_tabs.pop()?;
     let tab_id = tab.id.clone();
 
-    let target_pane = if find_leaf(&layout.root, &pane_id).is_some() {
-        pane_id
+    let (target_tree, target_pane) = if let Some(tree) = locate_tree_of_pane(layout, &pane_id) {
+        (tree, pane_id)
     } else if find_leaf(&layout.root, &layout.focused_pane).is_some() {
-        layout.focused_pane.clone()
+        (PaneTreeRef::Main, layout.focused_pane.clone())
     } else {
-        collect_leaves(&layout.root).first().map(|leaf| pane_id_of(leaf).clone())?
+        let fallback = collect_leaves(&layout.root).first().map(|leaf| pane_id_of(leaf).clone())?;
+        (PaneTreeRef::Main, fallback)
     };
 
-    if let Some(leaf) = find_leaf_mut(&mut layout.root, &target_pane) {
+    let root = tree_root_mut(layout, target_tree);
+    if let Some(leaf) = find_leaf_mut(root, &target_pane) {
         insert_tab(leaf, tab, Some(index as usize));
     }
-    layout.focused_pane = target_pane;
+    set_tree_focused_pane(layout, target_tree, target_pane);
     layout.revision += 1;
     Some(tab_id)
 }
 
 pub fn activate_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<()> {
-    let pane_id = find_tab(&layout.root, tab_id)
+    let tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let pane_id = find_tab(tree_root(layout, tree), tab_id)
         .map(|(pane_id, _)| pane_id.clone())
         .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    let leaf = find_leaf_mut(&mut layout.root, &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let leaf =
+        find_leaf_mut(tree_root_mut(layout, tree), &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
     if let PaneNode::Leaf { active, .. } = leaf {
         *active = Some(tab_id.clone());
     }
-    layout.focused_pane = pane_id;
+    set_tree_focused_pane(layout, tree, pane_id);
     layout.revision += 1;
     Ok(())
 }
 
 pub fn pin_tab(layout: &mut ProjectLayout, tab_id: &TabId, pinned: bool) -> AppResult<()> {
-    let pane_id = find_tab(&layout.root, tab_id)
+    let tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let pane_id = find_tab(tree_root(layout, tree), tab_id)
         .map(|(pane_id, _)| pane_id.clone())
         .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    let leaf = find_leaf_mut(&mut layout.root, &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let leaf =
+        find_leaf_mut(tree_root_mut(layout, tree), &pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
     if let PaneNode::Leaf { tabs, .. } = leaf {
         if let Some(tab) = tabs.iter_mut().find(|tab| &tab.id == tab_id) {
             tab.pinned = pinned;
@@ -478,36 +573,59 @@ pub fn pin_tab(layout: &mut ProjectLayout, tab_id: &TabId, pinned: bool) -> AppR
 }
 
 pub fn set_preview(layout: &mut ProjectLayout, tab_id: &TabId, preview: bool) -> AppResult<()> {
-    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab = find_tab_mut_in_layout(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     tab.preview = preview;
     layout.revision += 1;
     Ok(())
 }
 
+/// Moves `tab_id` to `index` within whichever leaf `target_pane` resolves to — same-tree
+/// (reordering, or a drop into a different pane of the same window) or, since the source and
+/// target pane are each located independently by id, across trees too (the mechanism
+/// `move_tab_to_main`/`move_tab_to_existing_window`/`move_tab_to_new_window` below reuse). When
+/// source and target share a tree, extraction and insertion happen back-to-back with a single
+/// `normalize` at the end — matching the pre-multi-window behavior exactly, including the
+/// same-leaf-reorder edge case (extracting a leaf's only tab must not let it get pruned as "empty"
+/// before the very next line reinserts it). Only when the trees differ is the source tree
+/// normalized separately, right after extraction, since at that point it can no longer affect
+/// `target_pane`'s lookup.
 pub fn move_tab(layout: &mut ProjectLayout, tab_id: &TabId, target_pane: &PaneId, index: usize) -> AppResult<()> {
-    if find_leaf(&layout.root, target_pane).is_none() {
-        return Err(AppError::NotFound(format!("pane not found: {target_pane}")));
-    }
-    let tab = extract_tab(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let target_tree =
+        locate_tree_of_pane(layout, target_pane).ok_or_else(|| AppError::NotFound(format!("pane not found: {target_pane}")))?;
+    let source_tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
 
-    let target = find_leaf_mut(&mut layout.root, target_pane).ok_or_else(|| AppError::Internal("pane vanished during move".to_string()))?;
-    insert_tab(target, tab, Some(index));
-    layout.focused_pane = target_pane.clone();
-    normalize(&mut layout.root);
+    let tab =
+        extract_tab(tree_root_mut(layout, source_tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    if source_tree != target_tree {
+        normalize(tree_root_mut(layout, source_tree));
+    }
+
+    let target_root = tree_root_mut(layout, target_tree);
+    let leaf = find_leaf_mut(target_root, target_pane).ok_or_else(|| AppError::Internal("pane vanished during move".to_string()))?;
+    insert_tab(leaf, tab, Some(index));
+
+    set_tree_focused_pane(layout, target_tree, target_pane.clone());
+    normalize(tree_root_mut(layout, target_tree));
+    ensure_focused_pane_valid(layout);
     layout.revision += 1;
     Ok(())
 }
 
 pub fn split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, tab_id: &TabId) -> AppResult<()> {
-    if find_leaf(&layout.root, target_pane).is_none() {
-        return Err(AppError::NotFound(format!("pane not found: {target_pane}")));
-    }
+    let target_tree =
+        locate_tree_of_pane(layout, target_pane).ok_or_else(|| AppError::NotFound(format!("pane not found: {target_pane}")))?;
 
     if edge == DropEdge::Center {
         return move_tab(layout, tab_id, target_pane, usize::MAX);
     }
 
-    let tab = extract_tab(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let source_tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab =
+        extract_tab(tree_root_mut(layout, source_tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    if source_tree != target_tree {
+        normalize(tree_root_mut(layout, source_tree));
+    }
+
     let dir = match edge {
         DropEdge::Left | DropEdge::Right => SplitDir::Horizontal,
         DropEdge::Top | DropEdge::Bottom => SplitDir::Vertical,
@@ -522,31 +640,35 @@ pub fn split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, t
         active: Some(new_tab_id),
     };
 
-    let is_root_target = matches!(&layout.root, PaneNode::Leaf { id, .. } if id == target_pane);
+    let target_root = tree_root_mut(layout, target_tree);
+    let is_root_target = matches!(target_root, PaneNode::Leaf { id, .. } if id == target_pane);
     if is_root_target {
         let placeholder = PaneNode::Leaf {
             id: PaneId::new(),
             tabs: Vec::new(),
             active: None,
         };
-        let existing = std::mem::replace(&mut layout.root, placeholder);
-        layout.root = wrap_leaf_in_split(existing, new_leaf, dir, edge);
+        let existing = std::mem::replace(target_root, placeholder);
+        *tree_root_mut(layout, target_tree) = wrap_leaf_in_split(existing, new_leaf, dir, edge);
     } else {
         let mut pending = Some(new_leaf);
-        insert_split_at(&mut layout.root, target_pane, dir, edge, &mut pending);
+        insert_split_at(tree_root_mut(layout, target_tree), target_pane, dir, edge, &mut pending);
         if pending.is_some() {
             return Err(AppError::NotFound(format!("pane not found: {target_pane}")));
         }
     }
 
-    layout.focused_pane = new_leaf_id;
-    normalize(&mut layout.root);
+    set_tree_focused_pane(layout, target_tree, new_leaf_id);
+    normalize(tree_root_mut(layout, target_tree));
+    ensure_focused_pane_valid(layout);
     layout.revision += 1;
     Ok(())
 }
 
 pub fn resize(layout: &mut ProjectLayout, pane_id: &PaneId, sizes: Vec<f32>) -> AppResult<()> {
-    let node = find_split_mut(&mut layout.root, pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let tree = locate_tree_of_pane(layout, pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let node =
+        find_split_mut(tree_root_mut(layout, tree), pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
     let PaneNode::Split {
         children, sizes: existing, ..
     } = node
@@ -566,36 +688,161 @@ pub fn resize(layout: &mut ProjectLayout, pane_id: &PaneId, sizes: Vec<f32>) -> 
 }
 
 pub fn focus_pane(layout: &mut ProjectLayout, pane_id: &PaneId) -> AppResult<()> {
-    if find_leaf(&layout.root, pane_id).is_none() {
-        return Err(AppError::NotFound(format!("pane not found: {pane_id}")));
-    }
-    layout.focused_pane = pane_id.clone();
+    let tree = locate_tree_of_pane(layout, pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    set_tree_focused_pane(layout, tree, pane_id.clone());
     layout.revision += 1;
     Ok(())
 }
 
 pub fn set_view_state(layout: &mut ProjectLayout, tab_id: &TabId, view_state: Option<String>) -> AppResult<()> {
-    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab = find_tab_mut_in_layout(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     tab.view_state = view_state;
     layout.revision += 1;
     Ok(())
 }
 
 pub fn set_dirty(layout: &mut ProjectLayout, tab_id: &TabId, dirty: bool) -> AppResult<()> {
-    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab = find_tab_mut_in_layout(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     tab.dirty = dirty;
     layout.revision += 1;
     Ok(())
 }
 
 pub fn set_terminal_session(layout: &mut ProjectLayout, tab_id: &TabId, session_id: String) -> AppResult<()> {
-    let tab = find_tab_mut(&mut layout.root, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab = find_tab_mut_in_layout(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     let TabKind::Terminal { session_id: existing, .. } = &mut tab.kind else {
         return Err(AppError::InvalidArgument(format!("tab is not a terminal: {tab_id}")));
     };
     *existing = session_id;
     layout.revision += 1;
     Ok(())
+}
+
+/// Lowest unused auxiliary-window `slot` for this project, starting at 1 — a project-scoped
+/// semantic key distinct from the global OS-level `editor-<n>` window label
+/// (`domain::window::service::next_auxiliary_label`), mirroring that function's lowest-unused
+/// allocation strategy so closed/returned slots get reused instead of counting up forever.
+pub fn next_window_slot(layout: &ProjectLayout) -> u32 {
+    let used: HashSet<u32> = layout.auxiliary_windows.iter().map(|window| window.slot).collect();
+    let mut candidate = FIRST_WINDOW_SLOT;
+    while used.contains(&candidate) {
+        candidate += 1;
+    }
+    candidate
+}
+
+/// `TabWindowTarget::Main` — moves `tab_id` to the end of the main tree's currently focused pane
+/// (or the first available leaf, via [`ensure_focused_pane_valid`], if that pane no longer exists).
+pub fn move_tab_to_main(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<()> {
+    ensure_focused_pane_valid(layout);
+    let target = layout.focused_pane.clone();
+    move_tab(layout, tab_id, &target, usize::MAX)
+}
+
+/// `TabWindowTarget::Existing { slot }` — moves `tab_id` into an auxiliary window already recorded
+/// in `auxiliary_windows`, targeting that window's own focused pane.
+pub fn move_tab_to_existing_window(layout: &mut ProjectLayout, tab_id: &TabId, slot: u32) -> AppResult<()> {
+    let index = layout
+        .auxiliary_windows
+        .iter()
+        .position(|window| window.slot == slot)
+        .ok_or_else(|| AppError::NotFound(format!("auxiliary window not found: slot {slot}")))?;
+    let tree = PaneTreeRef::Auxiliary(index);
+    let target = {
+        let root = tree_root(layout, tree);
+        let focused = &layout.auxiliary_windows[index].focused_pane;
+        if find_leaf(root, focused).is_some() {
+            focused.clone()
+        } else {
+            collect_leaves(root)
+                .first()
+                .map(|leaf| pane_id_of(leaf).clone())
+                .ok_or_else(|| AppError::Internal(format!("auxiliary window has no panes: slot {slot}")))?
+        }
+    };
+    move_tab(layout, tab_id, &target, usize::MAX)
+}
+
+/// `TabWindowTarget::NewAuxiliary` — records a brand-new `slot` (already reserved by the caller via
+/// [`next_window_slot`] before it asked `domain::window` to open the OS window, so the two stay in
+/// sync even if this call fails) as a single fresh leaf, then moves `tab_id` into it. On failure
+/// (`tab_id` vanished between the caller's lookup and this call — not reachable through the
+/// `layout_move_tab_to_window` command, which locates the tab first, but kept defensive) the
+/// just-inserted empty window entry is rolled back so a failed move never leaves a phantom
+/// auxiliary window in the layout.
+pub fn move_tab_to_new_window(layout: &mut ProjectLayout, tab_id: &TabId, slot: u32) -> AppResult<()> {
+    let leaf_id = PaneId::new();
+    layout.auxiliary_windows.push(AuxWindowLayout {
+        slot,
+        root: PaneNode::Leaf {
+            id: leaf_id.clone(),
+            tabs: Vec::new(),
+            active: None,
+        },
+        focused_pane: leaf_id.clone(),
+    });
+
+    if let Err(error) = move_tab(layout, tab_id, &leaf_id, 0) {
+        layout.auxiliary_windows.retain(|window| window.slot != slot);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Merges an auxiliary window's tabs back into the main tree's tail before dropping that window's
+/// layout entry — TAIDE's 0-loss philosophy on aux-window close (contract §3.1), unlike VS Code
+/// discarding an auxiliary window's content when it closes. Tabs are appended in the window's
+/// leaf-traversal order without stealing the main tree's current focus (only an empty target leaf's
+/// `active` gets set, so a user actively working in main isn't yanked away when a background
+/// window closes). Returns `false` (a no-op) if `window_slot` doesn't name a currently-recorded
+/// auxiliary window — already-processed idempotent closes (`CloseRequested` then `Destroyed` for
+/// the same window) hit this path harmlessly.
+pub fn return_auxiliary_window_tabs(layout: &mut ProjectLayout, window_slot: u32) -> bool {
+    let Some(position) = layout.auxiliary_windows.iter().position(|window| window.slot == window_slot) else {
+        return false;
+    };
+    let removed = layout.auxiliary_windows.remove(position);
+    let tabs: Vec<Tab> = collect_leaves(&removed.root)
+        .into_iter()
+        .filter_map(|leaf| match leaf {
+            PaneNode::Leaf { tabs, .. } => Some(tabs.clone()),
+            PaneNode::Split { .. } => None,
+        })
+        .flatten()
+        .collect();
+
+    if tabs.is_empty() {
+        layout.revision += 1;
+        return true;
+    }
+
+    ensure_focused_pane_valid(layout);
+    let target = layout.focused_pane.clone();
+    if let Some(PaneNode::Leaf {
+        tabs: leaf_tabs, active, ..
+    }) = find_leaf_mut(&mut layout.root, &target)
+    {
+        let had_active = active.is_some();
+        for tab in tabs {
+            let id = tab.id.clone();
+            leaf_tabs.push(tab);
+            if !had_active {
+                *active = Some(id);
+            }
+        }
+    }
+    layout.revision += 1;
+    true
+}
+
+pub fn apply_shell_view_patch(layout: &mut ProjectLayout, patch: &ShellViewPatch) {
+    if let Some(zen) = patch.zen {
+        layout.shell_view.zen = zen;
+    }
+    if let Some(sidebar_collapsed) = patch.sidebar_collapsed {
+        layout.shell_view.sidebar_collapsed = sidebar_collapsed;
+    }
+    layout.revision += 1;
 }
 
 pub fn focus_kind(layout: &ProjectLayout) -> Option<FocusKind> {
@@ -635,21 +882,35 @@ fn strip_volatile_node(node: &mut PaneNode) {
 }
 
 /// `normalize` 로 패널이 사라지면 `focused_pane` 이 존재하지 않는 pane 을 가리킬 수 있다.
-/// 그 상태로 저장/복원되면 이후 탭 열기가 계속 실패하므로 첫 리프로 보정한다.
+/// 그 상태로 저장/복원되면 이후 탭 열기가 계속 실패하므로 첫 리프로 보정한다. 보조 창 각각의
+/// `focused_pane` 도 동일하게 보정한다.
 pub fn ensure_focused_pane_valid(layout: &mut ProjectLayout) {
-    if find_leaf(&layout.root, &layout.focused_pane).is_some() {
-        return;
+    if find_leaf(&layout.root, &layout.focused_pane).is_none() {
+        if let Some(pane_id) = collect_leaves(&layout.root).first().map(|leaf| pane_id_of(leaf).clone()) {
+            layout.focused_pane = pane_id;
+        }
     }
-    let fallback = collect_leaves(&layout.root).first().map(|leaf| pane_id_of(leaf).clone());
-    if let Some(pane_id) = fallback {
-        layout.focused_pane = pane_id;
+    for window in layout.auxiliary_windows.iter_mut() {
+        if find_leaf(&window.root, &window.focused_pane).is_none() {
+            if let Some(pane_id) = collect_leaves(&window.root).first().map(|leaf| pane_id_of(leaf).clone()) {
+                window.focused_pane = pane_id;
+            }
+        }
     }
 }
 
+/// Strips volatile tabs from every tree (main and each auxiliary window), then drops any auxiliary
+/// window whose tree is left fully empty — an aux window that would restore with zero tabs (every
+/// tab in it was volatile) isn't worth recreating as an OS window on next launch.
 pub fn strip_volatile_tabs(layout: &ProjectLayout) -> ProjectLayout {
     let mut persisted = layout.clone();
     strip_volatile_node(&mut persisted.root);
     normalize(&mut persisted.root);
+    for window in persisted.auxiliary_windows.iter_mut() {
+        strip_volatile_node(&mut window.root);
+        normalize(&mut window.root);
+    }
+    persisted.auxiliary_windows.retain(|window| !is_layout_tree_empty(&window.root));
     ensure_focused_pane_valid(&mut persisted);
     persisted.closed_tabs.retain(|closed| !is_volatile(&closed.tab.kind));
     persisted
@@ -660,11 +921,53 @@ pub fn save_layout(paths: &AppPaths, project_id: &ProjectId, layout: &ProjectLay
     persist::write_json(&paths.layout_file(project_id), &persisted)
 }
 
+/// v1 → v2: adds the auxiliary-window axis and per-project shell chrome state. Both are purely
+/// additive — a v1 payload already deserializes cleanly into the current `ProjectLayout` shape via
+/// `#[serde(default)]` on every new field — so migrating is just stamping the current version onto
+/// the same tabs/tree v1 already had, not a structural rewrite. Existing tabs are preserved
+/// untouched. See `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2.
+fn migrate_layout(mut layout: ProjectLayout) -> ProjectLayout {
+    if layout.version < LAYOUT_SCHEMA_VERSION {
+        layout.version = LAYOUT_SCHEMA_VERSION;
+    }
+    layout
+}
+
+/// `AppFile` tabs (`settings.json`/prompt overrides) have no hot-exit mirror (contract §3.3: 1차
+/// 제외) — their `dirty` flag is the only persisted signal of an in-progress edit, and it survives
+/// a save/restore round trip with nothing behind it to actually restore. Restoring a layout with
+/// `dirty: true` on one of these tabs would therefore show the clean synced-from-disk content
+/// (there is nothing else to show) marked as if it had unsaved changes — a permanent, un-clearable
+/// ghost, since the only way to flip it back is a save that would just re-persist what's already on
+/// disk. Called once at load time (not on every mutation) so a *live* session's dirty flag — set by
+/// `layout_set_dirty` while the app is running, when the frontend's local `draftRef` genuinely does
+/// hold unsaved text — is left alone.
+fn clear_app_file_dirty(node: &mut PaneNode) {
+    match node {
+        PaneNode::Leaf { tabs, .. } => {
+            for tab in tabs.iter_mut() {
+                if matches!(tab.kind, TabKind::AppFile { .. }) {
+                    tab.dirty = false;
+                }
+            }
+        }
+        PaneNode::Split { children, .. } => children.iter_mut().for_each(clear_app_file_dirty),
+    }
+}
+
+/// Loads a project's layout, migrating an older-but-parseable schema version forward
+/// ([`migrate_layout`]) instead of discarding it — only a genuinely unparseable file (corrupt JSON)
+/// or one from a *newer* schema version than this build understands falls back to
+/// [`default_layout`], since downgrading a future schema safely isn't possible.
 pub fn load_layout(paths: &AppPaths, project_id: &ProjectId) -> ProjectLayout {
     match persist::read_json::<ProjectLayout>(&paths.layout_file(project_id)) {
-        Ok(Some(layout)) if layout.version == LAYOUT_SCHEMA_VERSION => {
-            let mut layout = layout;
+        Ok(Some(layout)) if layout.version <= LAYOUT_SCHEMA_VERSION => {
+            let mut layout = migrate_layout(layout);
             ensure_focused_pane_valid(&mut layout);
+            clear_app_file_dirty(&mut layout.root);
+            for window in layout.auxiliary_windows.iter_mut() {
+                clear_app_file_dirty(&mut window.root);
+            }
             layout
         }
         _ => default_layout(),
@@ -1118,6 +1421,8 @@ mod tests {
             focused_pane: PaneId::new(),
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         let persisted = strip_volatile_tabs(&layout);
@@ -1154,6 +1459,8 @@ mod tests {
             focused_pane: PaneId::new(),
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         close_tab(&mut layout, &claude_diff_tab_id).expect("close claude diff");
@@ -1182,6 +1489,8 @@ mod tests {
             focused_pane: PaneId::new(),
             revision: 0,
             closed_tabs: vec![file_closed, claude_diff_closed],
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         let persisted = strip_volatile_tabs(&layout);
@@ -1206,6 +1515,8 @@ mod tests {
             focused_pane: PaneId::new(),
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         let persisted = strip_volatile_tabs(&layout);
@@ -1231,6 +1542,8 @@ mod tests {
             focused_pane: removed_pane_id,
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         let persisted = strip_volatile_tabs(&layout);
@@ -1249,6 +1562,8 @@ mod tests {
             focused_pane: focused.clone(),
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         ensure_focused_pane_valid(&mut layout);
@@ -1367,6 +1682,8 @@ mod tests {
             focused_pane: PaneId::new(),
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         let persisted = strip_volatile_tabs(&layout);
@@ -1456,6 +1773,8 @@ mod tests {
             focused_pane: PaneId::new(),
             revision: 0,
             closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
         };
 
         let persisted = strip_volatile_tabs(&layout);
@@ -1512,5 +1831,286 @@ mod tests {
         activate_tab(&mut layout, &tab_id).expect("activate");
 
         assert_eq!(focus_kind(&layout), Some(FocusKind::SearchEditor));
+    }
+
+    fn temp_data_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("taide-layout-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn v1_레이아웃_파일은_기존_탭을_보존한채_v2로_마이그레이션된다() {
+        let paths = AppPaths::new(temp_data_dir("migrate-v1"));
+        let project_id = ProjectId::new();
+
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        open_tab(&mut layout, &leaf_id, 파일_탭("kept.rs"), false).expect("open");
+        layout.version = 1;
+
+        let mut raw = serde_json::to_value(&layout).expect("serialize");
+        let object = raw.as_object_mut().expect("object");
+        object.remove("auxiliaryWindows");
+        object.remove("shellView");
+        std::fs::create_dir_all(paths.project_dir(&project_id)).expect("create project dir");
+        std::fs::write(
+            paths.layout_file(&project_id),
+            serde_json::to_vec_pretty(&raw).expect("serialize v1 json"),
+        )
+        .expect("write v1 layout file");
+
+        let loaded = load_layout(&paths, &project_id);
+
+        assert_eq!(loaded.version, LAYOUT_SCHEMA_VERSION);
+        assert!(loaded.auxiliary_windows.is_empty());
+        assert_eq!(loaded.shell_view, ShellViewState::default());
+        let PaneNode::Leaf { tabs, .. } = &loaded.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 3, "welcome + terminal + kept.rs 가 모두 보존되어야 한다");
+        assert!(tabs
+            .iter()
+            .any(|tab| matches!(&tab.kind, TabKind::File { path } if path == "kept.rs")));
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn 미래_버전의_레이아웃_파일은_기본값으로_폴백한다() {
+        let paths = AppPaths::new(temp_data_dir("migrate-future"));
+        let project_id = ProjectId::new();
+        let mut layout = default_layout();
+        layout.version = LAYOUT_SCHEMA_VERSION + 1;
+        std::fs::create_dir_all(paths.project_dir(&project_id)).expect("create project dir");
+        persist::write_json(&paths.layout_file(&project_id), &layout).expect("write");
+
+        let loaded = load_layout(&paths, &project_id);
+
+        assert_eq!(loaded.version, LAYOUT_SCHEMA_VERSION);
+        let PaneNode::Leaf { tabs, .. } = &loaded.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 2, "미래 버전은 마이그레이션하지 않고 기본 레이아웃으로 폴백해야 한다");
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn 손상된_레이아웃_파일은_기본값으로_폴백한다() {
+        let paths = AppPaths::new(temp_data_dir("migrate-corrupt"));
+        let project_id = ProjectId::new();
+        std::fs::create_dir_all(paths.project_dir(&project_id)).expect("create project dir");
+        std::fs::write(paths.layout_file(&project_id), b"{not json").expect("write corrupt");
+
+        let loaded = load_layout(&paths, &project_id);
+
+        assert_eq!(loaded.version, LAYOUT_SCHEMA_VERSION);
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn appfile_탭의_dirty는_불러올때_초기화된다() {
+        use crate::domain::app::types::AppFileTarget;
+
+        let paths = AppPaths::new(temp_data_dir("appfile-dirty"));
+        let project_id = ProjectId::new();
+
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let mut app_file_tab = 파일_탭("unused.rs");
+        app_file_tab.kind = TabKind::AppFile {
+            target: AppFileTarget::Settings,
+        };
+        app_file_tab.dirty = true;
+        open_tab(&mut layout, &leaf_id, app_file_tab, false).expect("open");
+        std::fs::create_dir_all(paths.project_dir(&project_id)).expect("create project dir");
+        persist::write_json(&paths.layout_file(&project_id), &layout).expect("write");
+
+        let loaded = load_layout(&paths, &project_id);
+
+        let PaneNode::Leaf { tabs, .. } = &loaded.root else {
+            panic!("expected leaf")
+        };
+        let app_file_tab = tabs
+            .iter()
+            .find(|tab| matches!(tab.kind, TabKind::AppFile { .. }))
+            .expect("appFile 탭이 보존되어야 한다");
+        assert!(
+            !app_file_tab.dirty,
+            "미러가 없는 AppFile 탭의 dirty 는 재시작 후 유령으로 남으면 안 된다"
+        );
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn 새_보조_창으로_탭을_이동하면_dirty_pinned_view_state가_보존된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let mut tab = 파일_탭("a.rs");
+        tab.dirty = true;
+        tab.pinned = true;
+        tab.view_state = Some("scroll:10".to_string());
+        let tab_id = tab.id.clone();
+        open_tab(&mut layout, &leaf_id, tab, false).expect("open");
+
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &tab_id, slot).expect("move to new window");
+
+        assert_eq!(layout.auxiliary_windows.len(), 1);
+        let window = &layout.auxiliary_windows[0];
+        assert_eq!(window.slot, slot);
+        let PaneNode::Leaf { tabs, .. } = &window.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 1);
+        assert!(tabs[0].dirty);
+        assert!(tabs[0].pinned);
+        assert_eq!(tabs[0].view_state, Some("scroll:10".to_string()));
+        assert!(find_tab(&layout.root, &tab_id).is_none(), "탭은 main 트리에서 사라져야 한다");
+    }
+
+    #[test]
+    fn 기존_보조_창으로_탭을_이동할_수_있다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let first_tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open a");
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &first_tab_id, slot).expect("move a to new window");
+
+        let second_tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("b.rs"), false).expect("open b");
+        move_tab_to_existing_window(&mut layout, &second_tab_id, slot).expect("move b to existing window");
+
+        let window = layout
+            .auxiliary_windows
+            .iter()
+            .find(|window| window.slot == slot)
+            .expect("window exists");
+        let PaneNode::Leaf { tabs, .. } = &window.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.len(), 2);
+    }
+
+    #[test]
+    fn 존재하지_않는_슬롯으로_이동하면_에러() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open");
+
+        let result = move_tab_to_existing_window(&mut layout, &tab_id, 999);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn 보조_창의_마지막_탭을_main으로_되돌리면_창이_비워진다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open");
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &tab_id, slot).expect("move to new window");
+
+        move_tab_to_main(&mut layout, &tab_id).expect("move back to main");
+
+        let window = layout
+            .auxiliary_windows
+            .iter()
+            .find(|window| window.slot == slot)
+            .expect("window still recorded");
+        assert!(is_layout_tree_empty(&window.root));
+        assert!(find_tab(&layout.root, &tab_id).is_some(), "탭은 main으로 돌아와야 한다");
+    }
+
+    #[test]
+    fn 보조_창_닫기는_탭을_main_말미로_복귀시키고_창_항목을_제거한다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open");
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &tab_id, slot).expect("move to new window");
+
+        let active_before = {
+            let PaneNode::Leaf { active, .. } = &layout.root else {
+                panic!("expected leaf")
+            };
+            active.clone()
+        };
+
+        let returned = return_auxiliary_window_tabs(&mut layout, slot);
+
+        assert!(returned);
+        assert!(layout.auxiliary_windows.is_empty());
+        let PaneNode::Leaf { tabs, active, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert!(tabs.iter().any(|tab| tab.id == tab_id));
+        assert_eq!(active, &active_before, "복귀는 main의 현재 포커스를 빼앗지 않는다");
+    }
+
+    #[test]
+    fn 존재하지_않는_슬롯의_탭_복귀는_아무_일도_하지_않는다() {
+        let mut layout = default_layout();
+        assert!(!return_auxiliary_window_tabs(&mut layout, 999));
+    }
+
+    #[test]
+    fn 닫힌_보조_창의_슬롯_번호는_재사용된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open");
+        let first_slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &tab_id, first_slot).expect("move");
+        assert_eq!(first_slot, 1);
+
+        return_auxiliary_window_tabs(&mut layout, first_slot);
+
+        assert_eq!(next_window_slot(&layout), 1, "닫힌 슬롯 번호는 재사용되어야 한다");
+    }
+
+    #[test]
+    fn 보조_창_내부에서도_스플릿과_탭_열기가_그_창의_트리에만_반영된다() {
+        let mut layout = default_layout();
+        let leaf_id = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &leaf_id, 파일_탭("a.rs"), false).expect("open");
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &tab_id, slot).expect("move to new window");
+
+        let aux_leaf_id = layout.auxiliary_windows[0].focused_pane.clone();
+        let second_tab = 파일_탭("b.rs");
+        let second_tab_id = second_tab.id.clone();
+        open_tab(&mut layout, &aux_leaf_id, second_tab, false).expect("open second tab in aux window");
+        split(&mut layout, &aux_leaf_id, DropEdge::Right, &second_tab_id).expect("split within aux window");
+
+        let window = &layout.auxiliary_windows[0];
+        assert!(
+            matches!(&window.root, PaneNode::Split { .. }),
+            "보조 창 내부 스플릿이 그 창의 트리에 반영되어야 한다"
+        );
+        assert!(matches!(&layout.root, PaneNode::Leaf { .. }), "main 트리는 영향을 받지 않아야 한다");
+    }
+
+    #[test]
+    fn shell_view_패치는_none_필드를_보존한다() {
+        let mut layout = default_layout();
+        apply_shell_view_patch(
+            &mut layout,
+            &ShellViewPatch {
+                zen: Some(true),
+                sidebar_collapsed: None,
+            },
+        );
+        assert!(layout.shell_view.zen);
+        assert!(!layout.shell_view.sidebar_collapsed);
+
+        apply_shell_view_patch(
+            &mut layout,
+            &ShellViewPatch {
+                zen: None,
+                sidebar_collapsed: Some(true),
+            },
+        );
+        assert!(layout.shell_view.zen, "zen 값은 유지되어야 한다");
+        assert!(layout.shell_view.sidebar_collapsed);
     }
 }

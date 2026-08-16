@@ -38,6 +38,8 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "layout_set_terminal_session",
     "layout_open_untitled",
     "layout_convert_untitled",
+    "layout_move_tab_to_window",
+    "layout_set_shell_view",
     "file_open",
     "file_save",
     "file_create",
@@ -63,6 +65,8 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "plugin_list",
     "plugin_reload",
     "plugin_read_grammar",
+    "plugin_install",
+    "plugin_uninstall",
     "agent_list",
     "agent_release_marker",
     "agent_cli_status",
@@ -126,6 +130,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "pty_resize",
     "pty_kill",
     "pty_set_paused",
+    "pty_detach",
     "terminal_sessions",
     "shell_profiles",
     "resolve_terminal_path",
@@ -175,6 +180,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "sync_upload",
     "sync_download",
     "vsix_extract_themes",
+    "vsix_import_plugin",
     "remote_status",
     "remote_start",
     "remote_stop",
@@ -182,6 +188,10 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "remote_revoke_sessions",
     "remote_set_password",
     "remote_clear_password",
+    "window_open_auxiliary",
+    "window_set_fullscreen",
+    "app_file_read",
+    "app_file_write",
 ];
 
 fn err(error: AppError) -> Value {
@@ -258,6 +268,77 @@ fn deny_remote_flush_complete(name: &str) -> Value {
     err(AppError::Forbidden(format!("원격 세션에서는 앱 종료를 제어할 수 없습니다: {name}")))
 }
 
+/// Answers `window_open_auxiliary` with an explicit denial instead of
+/// dispatching to the real handler. Auxiliary editor windows are native OS
+/// windows (`tauri::WebviewWindowBuilder`) on the desktop's own display — a
+/// remote browser session has no local display to place one on and no way
+/// to interact with it even if it appeared, so honoring the request would
+/// only ever pop up an orphaned, unreachable window on the desktop user's
+/// machine. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the
+/// bindings/dispatch parity test still passes; only the `match` arm in
+/// [`dispatch`] refuses to call through.
+fn deny_remote_window_open(name: &str) -> Value {
+    err(AppError::Forbidden(format!("원격 세션에서는 새 창을 열 수 없습니다: {name}")))
+}
+
+/// Answers `window_set_fullscreen` with an explicit denial. That command's real handler takes a
+/// `tauri::Window` extractor auto-injected by the *real* Tauri IPC invoke path per-call — there is
+/// no such window to inject for a request arriving through this manually-dispatched remote table
+/// (unlike every other entry here, which calls the real handler with explicit arguments), so this
+/// command literally cannot be dispatched this way even if it were desirable to. Stays listed in
+/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still passes.
+fn deny_remote_window_fullscreen(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 전체화면을 전환할 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `layout_move_tab_to_window` with an explicit denial — every destination
+/// (`TabWindowTarget::Main`/`Existing`/`NewAuxiliary`) ultimately concerns a native OS window a
+/// remote browser session has no way to correspondingly render (remote access mirrors the main
+/// window's layout only), and `NewAuxiliary` additionally opens a real desktop window the same way
+/// `window_open_auxiliary` does — already denied remotely for the identical reason. Stays listed in
+/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still passes.
+fn deny_remote_move_tab_to_window(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 탭을 다른 창으로 옮길 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `plugin_install`/`plugin_uninstall` with an explicit denial — both name an arbitrary
+/// filesystem path (or existing plugin directory) on the *desktop* machine; a remote session must
+/// never be able to read from or write into the desktop's local filesystem outside the already
+/// tightly root-guarded project/file commands. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the
+/// bindings/dispatch parity test still passes.
+fn deny_remote_plugin_install(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 플러그인을 설치/제거할 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `vsix_import_plugin` with the same denial as `plugin_install` — it's the same
+/// arbitrary-local-path plugin-write capability, just sourced from a real VS Code `.vsix` instead
+/// of a TAIDE-native bundle. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch
+/// parity test still passes.
+fn deny_remote_vsix_import(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 vsix로부터 플러그인을 가져올 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `vsix_extract_themes` with an explicit denial — previously dispatched to the real
+/// handler, which reads an arbitrary local `vsix_path` off the desktop's filesystem with no
+/// root-guard. That's fine for a *local* file-picker-sourced path (the same trust boundary every
+/// native "Open File" dialog already carries) but was never meant to double as a remote arbitrary
+/// local-file-read primitive. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch
+/// parity test still passes. See
+/// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.4.
+fn deny_remote_vsix_extract_themes(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 vsix 테마를 추출할 수 없습니다: {name}"
+    )))
+}
+
 /// Strips `remote_password_only_login`, `remote_allowed_hosts`, and
 /// `shell_override` from a `settings_update` patch arriving through the
 /// remote dispatch table.
@@ -297,6 +378,27 @@ fn strip_remote_gated_settings_patch(mut patch: domain::settings::service::Setti
     patch
 }
 
+/// Same guarantee as [`strip_remote_gated_settings_patch`], for the `Settings`-target
+/// `app_file_write` arm — that command applies a *whole* `settings.json` body (parsed from
+/// arbitrary remote-supplied JSON), not a `settings_update` patch, so it can't reuse the
+/// patch-shaped strip above. Rather than clearing the three gated fields, this forces them back to
+/// `current`'s live values: `Settings` has no `Option` wrapper for `remote_password_only_login`/
+/// `remote_allowed_hosts` (only `shell_override` does), so "clear" isn't representable — "leave
+/// unchanged" is the equivalent operation. Without this, a remote session could plant a persistent
+/// `shell_override` (a backdoor that outlives the session — see the doc comment above) or
+/// self-expand its own access gate purely by calling `app_file_write` instead of `settings_update`,
+/// silently defeating the strip those two entry points are supposed to share equally
+/// (contract §3.3: "app_file_* 는 settings_update 와 동급으로 허용").
+fn strip_remote_gated_settings(
+    mut next: domain::settings::types::Settings,
+    current: &domain::settings::types::Settings,
+) -> domain::settings::types::Settings {
+    next.remote_password_only_login = current.remote_password_only_login;
+    next.remote_allowed_hosts = current.remote_allowed_hosts.clone();
+    next.shell_override = current.shell_override.clone();
+    next
+}
+
 macro_rules! arg {
     ($args:expr, $key:literal) => {
         from_arg(&$args, $key)?
@@ -324,10 +426,25 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
     use domain::terminal::commands as terminal;
     use domain::theme::commands as theme;
     use domain::tree::commands as tree;
-    use domain::vsix::commands as vsix;
 
     match name {
         "app_get_info" => respond(domain::app::commands::app_get_info().await),
+        "app_file_read" => respond(domain::app::commands::app_file_read(app.state(), arg!(args, "target")).await),
+        "app_file_write" => {
+            let target: domain::app::types::AppFileTarget = arg!(args, "target");
+            let content: String = arg!(args, "content");
+            match target {
+                domain::app::types::AppFileTarget::Settings => match domain::settings::service::parse_settings_json(&content) {
+                    Ok(parsed) => {
+                        let current = app.state::<AppState>().settings.read().clone();
+                        let sanitized = strip_remote_gated_settings(parsed, &current);
+                        respond(domain::app::commands::apply_settings_file(app.clone(), app.state(), sanitized).await)
+                    }
+                    Err(error) => Err(err(error)),
+                },
+                other => respond(domain::app::commands::app_file_write(app.clone(), app.state(), other, content).await),
+            }
+        }
 
         "project_list" => respond(project::project_list(app.state()).await),
         "project_get" => respond(project::project_get(app.state(), arg!(args, "projectId")).await),
@@ -392,8 +509,12 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "layout_convert_untitled" => {
             respond(layout::layout_convert_untitled(app.clone(), app.state(), arg!(args, "tabId"), arg!(args, "path")).await)
         }
+        "layout_move_tab_to_window" => Err(deny_remote_move_tab_to_window(name)),
+        "layout_set_shell_view" => {
+            respond(layout::layout_set_shell_view(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
+        }
 
-        "file_open" => respond(file::file_open(app.state(), arg!(args, "path")).await),
+        "file_open" => respond(file::file_open(app.state(), app.state(), arg!(args, "path")).await),
         "file_save" => respond(file::file_save(app.state(), arg!(args, "path"), arg!(args, "content")).await),
         "file_create" => respond(file::file_create(app.state(), arg!(args, "path"), arg!(args, "isDir")).await),
         "file_rename" => respond(file::file_rename(app.state(), arg!(args, "from"), arg!(args, "to")).await),
@@ -459,6 +580,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "plugin_read_grammar" => {
             respond(plugin::plugin_read_grammar(app.state(), app.state(), arg!(args, "pluginId"), arg!(args, "languageId")).await)
         }
+        "plugin_install" | "plugin_uninstall" => Err(deny_remote_plugin_install(name)),
 
         "agent_list" => respond(agent::agent_list(app.state(), app.state(), app.state(), app.state(), arg!(args, "projectId")).await),
         "agent_release_marker" => respond(agent::agent_release_marker(app.state(), app.state(), arg!(args, "marker")).await),
@@ -479,15 +601,23 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                 app.clone(),
                 app.state(),
                 app.state(),
-                arg!(args, "projectId"),
-                arg!(args, "serverId"),
-                arg!(args, "root"),
+                arg!(args, "request"),
                 make_channel(&args, "onMessage", &channel_factory)?,
             )
             .await,
         ),
         "lsp_send" => respond(lsp::lsp_send(app.state(), arg!(args, "sessionId"), arg!(args, "message")).await),
-        "lsp_stop" => respond(lsp::lsp_stop(app.clone(), app.state(), app.state(), arg!(args, "sessionId"), arg!(args, "root")).await),
+        "lsp_stop" => respond(
+            lsp::lsp_stop(
+                app.clone(),
+                app.state(),
+                app.state(),
+                arg!(args, "sessionId"),
+                arg!(args, "root"),
+                arg!(args, "owner"),
+            )
+            .await,
+        ),
         "lsp_restart" => respond(lsp::lsp_restart(app.clone(), app.state(), app.state(), arg!(args, "sessionId")).await),
         "lsp_sessions" => respond(lsp::lsp_sessions(app.state(), arg!(args, "projectId")).await),
         "lsp_detect_servers" => respond(lsp::lsp_detect_servers(app.state()).await),
@@ -499,6 +629,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "git_status" => respond(git::git_status(app.state(), app.state(), arg!(args, "projectId")).await),
         "git_diff_file" => respond(
             git::git_diff_file(
+                app.state(),
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
@@ -746,6 +877,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "pty_resize" => respond(terminal::pty_resize(app.state(), arg!(args, "sessionId"), arg!(args, "cols"), arg!(args, "rows")).await),
         "pty_kill" => respond(terminal::pty_kill(app.state(), app.state(), arg!(args, "sessionId")).await),
         "pty_set_paused" => respond(terminal::pty_set_paused(app.state(), arg!(args, "sessionId"), arg!(args, "paused")).await),
+        "pty_detach" => {
+            respond(terminal::pty_detach(app.state(), app.state(), arg!(args, "sessionId"), arg!(args, "subscriptionId")).await)
+        }
         "terminal_sessions" => respond(terminal::terminal_sessions(app.state(), arg!(args, "projectId")).await),
         "shell_profiles" => respond(terminal::shell_profiles().await),
         "resolve_terminal_path" => respond(terminal::resolve_terminal_path(arg!(args, "path"), arg!(args, "cwd")).await),
@@ -821,7 +955,8 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state()).await),
         "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), arg!(args, "force")).await),
 
-        "vsix_extract_themes" => respond(vsix::vsix_extract_themes(arg!(args, "vsixPath")).await),
+        "vsix_extract_themes" => Err(deny_remote_vsix_extract_themes(name)),
+        "vsix_import_plugin" => Err(deny_remote_vsix_import(name)),
 
         "remote_status" => respond(remote::remote_status(app.state()).await),
         "remote_start" => respond(remote::remote_start(app.clone(), app.state()).await),
@@ -829,6 +964,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "remote_issue_link" => Err(deny_remote_link_issue(name)),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),
         "remote_set_password" | "remote_clear_password" => Err(deny_remote_password_change(name)),
+
+        "window_open_auxiliary" => Err(deny_remote_window_open(name)),
+        "window_set_fullscreen" => Err(deny_remote_window_fullscreen(name)),
 
         _ => Err(unknown_command(name)),
     }
@@ -953,6 +1091,12 @@ mod tests {
     #[test]
     fn 원격_세션은_링크_발급을_할_수_없다() {
         let value = deny_remote_link_issue("remote_issue_link");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+    }
+
+    #[test]
+    fn 원격_세션은_보조_창을_열_수_없다() {
+        let value = deny_remote_window_open("window_open_auxiliary");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 

@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::constants::{LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES};
+use crate::domain::plugin::types::LoadedPlugin;
 use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
+use crate::infra::language;
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
@@ -19,53 +21,6 @@ const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 const MS_PER_SECOND: f64 = 1_000.0;
 const UNTITLED_MIRROR_DIR_NAME: &str = "untitled";
-
-const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
-    ("rs", "rust"),
-    ("ts", "typescript"),
-    ("tsx", "typescriptreact"),
-    ("js", "javascript"),
-    ("jsx", "javascriptreact"),
-    ("mjs", "javascript"),
-    ("cjs", "javascript"),
-    ("json", "json"),
-    ("jsonc", "jsonc"),
-    ("md", "markdown"),
-    ("mdx", "markdown"),
-    ("toml", "toml"),
-    ("yaml", "yaml"),
-    ("yml", "yaml"),
-    ("html", "html"),
-    ("css", "css"),
-    ("scss", "scss"),
-    ("py", "python"),
-    ("go", "go"),
-    ("sh", "shellscript"),
-    ("bash", "shellscript"),
-    ("java", "java"),
-    ("rb", "ruby"),
-    ("erb", "erb"),
-    ("dart", "dart"),
-    ("swift", "swift"),
-    ("scala", "scala"),
-    ("sbt", "scala"),
-    ("ex", "elixir"),
-    ("exs", "elixir"),
-    ("heex", "heex"),
-    ("hs", "haskell"),
-    ("lhs", "haskell"),
-    ("c", "c"),
-    ("h", "c"),
-    ("cpp", "cpp"),
-    ("hpp", "cpp"),
-    ("cc", "cpp"),
-    ("kt", "kotlin"),
-    ("kts", "kotlin"),
-    ("lua", "lua"),
-    ("zig", "zig"),
-    ("tf", "hcl"),
-];
-const DEFAULT_LANGUAGE_ID: &str = "plaintext";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MirrorFile {
@@ -105,7 +60,7 @@ pub struct UntitledMirrorEntry {
     pub saved_at_ms: f64,
 }
 
-pub fn open_file(path: &Path) -> AppResult<OpenedFile> {
+pub fn open_file(path: &Path, plugins: &[LoadedPlugin]) -> AppResult<OpenedFile> {
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(AppError::InvalidArgument(format!("파일이 아닙니다: {}", path.display())));
@@ -113,7 +68,7 @@ pub fn open_file(path: &Path) -> AppResult<OpenedFile> {
 
     let byte_size = metadata.len();
     let modified_ms = modified_epoch_ms(&metadata)?;
-    let language_id = language_id_for_path(path).to_string();
+    let language_id = language::language_id_for_path(path, plugins);
     let path_string = path.to_string_lossy().to_string();
 
     if byte_size >= REFUSED_FILE_BYTES {
@@ -457,19 +412,6 @@ fn is_binary(sniff: &[u8]) -> bool {
     sniff.contains(&0)
 }
 
-fn language_id_for_path(path: &Path) -> &'static str {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| extension.to_lowercase())
-        .and_then(|extension| {
-            LANGUAGE_ID_BY_EXTENSION
-                .iter()
-                .find(|(key, _)| *key == extension)
-                .map(|(_, language_id)| *language_id)
-        })
-        .unwrap_or(DEFAULT_LANGUAGE_ID)
-}
-
 fn refused_file(path: String, language_id: String, byte_size: u64, modified_ms: f64) -> OpenedFile {
     OpenedFile {
         path,
@@ -562,7 +504,7 @@ mod tests {
         let file = dir.join("main.rs");
         std::fs::write(&file, "fn main() {}\n").unwrap();
 
-        let opened = open_file(&file).expect("open");
+        let opened = open_file(&file, &[]).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Normal);
         assert!(!opened.read_only);
@@ -580,7 +522,7 @@ mod tests {
         let content = "a".repeat((LARGE_FILE_BYTES) as usize);
         std::fs::write(&file, &content).unwrap();
 
-        let opened = open_file(&file).expect("open");
+        let opened = open_file(&file, &[]).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Large);
         assert!(!opened.read_only);
@@ -596,7 +538,7 @@ mod tests {
         let content = "x\n".repeat(LARGE_FILE_LINES + 1);
         std::fs::write(&file, &content).unwrap();
 
-        let opened = open_file(&file).expect("open");
+        let opened = open_file(&file, &[]).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Large);
 
@@ -611,7 +553,7 @@ mod tests {
         let content = "a".repeat((READ_ONLY_FILE_BYTES) as usize);
         std::fs::write(&file, &content).unwrap();
 
-        let opened = open_file(&file).expect("open");
+        let opened = open_file(&file, &[]).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::ReadOnly);
         assert!(opened.read_only);
@@ -627,7 +569,7 @@ mod tests {
         let handle = std::fs::File::create(&file).unwrap();
         handle.set_len(REFUSED_FILE_BYTES).unwrap();
 
-        let opened = open_file(&file).expect("open");
+        let opened = open_file(&file, &[]).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Refused);
         assert!(opened.read_only);
@@ -643,7 +585,7 @@ mod tests {
         let file = dir.join("binary.dat");
         std::fs::write(&file, [0x00u8, 0x01, 0x02, 0x03]).unwrap();
 
-        let opened = open_file(&file).expect("open");
+        let opened = open_file(&file, &[]).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Refused);
         assert!(opened.content.is_empty());
@@ -651,12 +593,21 @@ mod tests {
         cleanup(&dir);
     }
 
+    /// The extension→language mapping itself is covered exhaustively by
+    /// `infra::language::language_id_for_path`'s own tests — this only checks that `open_file`
+    /// actually wires its result into `OpenedFile::language_id`.
     #[test]
-    fn 확장자에_따라_language_id가_매핑된다() {
-        assert_eq!(language_id_for_path(Path::new("a.ts")), "typescript");
-        assert_eq!(language_id_for_path(Path::new("a.TSX")), "typescriptreact");
-        assert_eq!(language_id_for_path(Path::new("a.unknown")), "plaintext");
-        assert_eq!(language_id_for_path(Path::new("Makefile")), "plaintext");
+    fn open_file은_language_id를_infra_language에서_가져온다() {
+        let dir = temp_dir("language-id");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.ts");
+        std::fs::write(&file, "export const x = 1").unwrap();
+
+        let opened = open_file(&file, &[]).expect("open");
+
+        assert_eq!(opened.language_id, "typescript");
+
+        cleanup(&dir);
     }
 
     #[test]

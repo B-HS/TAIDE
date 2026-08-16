@@ -7,6 +7,7 @@ const dummyContext: CommandContext = {
     activeProjectId: null,
     activeEditorActionIds: null,
     openSettingsTab: () => {},
+    openSettingsFile: () => {},
     openTerminalTab: () => {},
     reopenClosedTab: () => {},
     switchToFileSearchMode: () => {},

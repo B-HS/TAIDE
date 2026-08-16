@@ -253,6 +253,20 @@ pub struct LspServerDetection {
     pub initialization_options: Option<serde_json::Value>,
 }
 
+/// `lsp_spawn`'s business-identity args, grouped into one struct (mirroring
+/// `terminal::types::PtySpawnOptions`) purely to stay under `clippy::too_many_arguments` once
+/// `owner` (window-scoped session reuse — see the `channels` field doc on `lsp::commands::SessionEntry`)
+/// joined `project_id`/`server_id`/`root` as a fourth plain argument. `on_message` (the `Channel`)
+/// stays a separate top-level command parameter, matching `pty_spawn`'s `opts`/`on_data` split.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LspSpawnRequest {
+    pub project_id: ProjectId,
+    pub server_id: LspServerId,
+    pub root: String,
+    pub owner: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LspSessionInfo {

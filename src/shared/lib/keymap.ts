@@ -23,6 +23,7 @@ export type KeymapActionId =
     | 'font-size-up'
     | 'font-size-down'
     | 'open-keybindings-editor'
+    | 'toggle-zen-mode'
 
 export type KeymapModifier = 'mod' | 'ctrl' | 'shift' | 'alt'
 
@@ -36,7 +37,7 @@ export type KeymapEntry = {
     /**
      * Second stage of a two-key chord (e.g. Cmd+K Cmd+S). When present, `key`/`mods` above are the
      * chord's *first* stage (the prefix) rather than a standalone binding — see
-     * `findMatchingChordPrefixEntry`/`matchesChordSecondStage`. Optional so a pre-Wave-H parser
+     * `findMatchingChordPrefixEntries`/`matchesChordSecondStage`. Optional so a pre-Wave-H parser
      * (which only knows `key`/`mods`) silently reads a chord entry as if it were bound to the
      * prefix alone: no throw, no data loss, just a stale single-stage interpretation until upgraded.
      */
@@ -102,11 +103,26 @@ export const APP_KEYMAP: KeymapEntry[] = [
          * Cmd+K "clear screen" muscle memory — without this, focusing a terminal and pressing Cmd+K
          * arms this chord's pending-wait (swallowing the very next keystroke, matched or not) instead
          * of ever reaching xterm. `terminalFocus` is already a whitelisted context getter
-         * (`keymap-context.ts`); `findMatchingChordPrefixEntry` consults `when` for every candidate,
+         * (`keymap-context.ts`); `findMatchingChordPrefixEntries` consults `when` for every candidate,
          * `when`-less entries included, so this is the one entry that opts *out* of that default.
          */
         when: '!terminalFocus',
         descriptionKey: 'settings.keymapOpenEditor',
+    },
+    {
+        id: 'toggle-zen-mode',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'z', mods: [] },
+        /**
+         * Same `!terminalFocus` rationale as `open-keybindings-editor` right above — this entry
+         * shares the exact same first stage (Cmd/Ctrl+K), and without the gate a terminal-focused
+         * Cmd+K would arm *this* chord's pending-wait instead of ever reaching xterm's own Cmd+K
+         * binding. See {@link findMatchingChordPrefixEntries} for how two sibling chord entries
+         * (this one and `open-keybindings-editor`) coexist under the same first stage.
+         */
+        when: '!terminalFocus',
+        descriptionKey: 'keymap.toggleZenMode',
     },
 ]
 
@@ -117,7 +133,7 @@ export const APP_KEYMAP: KeymapEntry[] = [
  * (`armKeymapMonacoDeferral`) must protect monaco's chord namespace even when the app defines no
  * chord of its own under this prefix, and must *not* expand to protect prefixes the app *does* own
  * (an app chord's own first stage already gets its `!editorTextFocus` gate — see
- * `findMatchingChordPrefixEntry`). See `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md` §2.2-3.
+ * `findMatchingChordPrefixEntries`). See `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md` §2.2-3.
  */
 export const MONACO_CHORD_PREFIX_KEY: KeymapChordStage = { key: 'k', mods: ['mod'] }
 
@@ -153,7 +169,7 @@ const alwaysSatisfiedWhen = () => true
 
 /**
  * Matches single-stage entries only (no `chord`) — a chord-carrying entry's `key`/`mods` is its
- * *first* stage, which must go through `findMatchingChordPrefixEntry` instead so pressing the
+ * *first* stage, which must go through `findMatchingChordPrefixEntries` instead so pressing the
  * prefix alone never fires the chord's action. `isWhenSatisfied` is injected (not evaluated here)
  * so this module stays DOM/monaco-free and unit-testable without a browser context; real callers
  * pass an evaluator built from `keymap-context.ts` getters + `keymap-when.ts`.
@@ -172,18 +188,26 @@ export const findMatchingKeymapEntry = (
     null
 
 /**
- * Matches a chord entry's *first* stage (the prefix) — entries without `chord` are never
- * candidates. Unlike {@link findMatchingKeymapEntry}, `isWhenSatisfied` is consulted for *every*
- * candidate, including ones with no `when` of their own: chord dispatch's implicit
- * `!editorTextFocus` gate (Wave H contract §3.1) lives in the caller-supplied predicate itself
- * (see `keymap-dispatch.ts`), not in each entry's `when` field, so it must never be bypassed.
+ * Matches *every* chord entry whose first stage (the prefix) fires for this keydown — entries
+ * without `chord` are never candidates. Unlike {@link findMatchingKeymapEntry}, `isWhenSatisfied`
+ * is consulted for *every* candidate, including ones with no `when` of their own: chord dispatch's
+ * implicit `!editorTextFocus` gate (Wave H contract §3.1) lives in the caller-supplied predicate
+ * itself (see `keymap-dispatch.ts`), not in each entry's `when` field, so it must never be bypassed.
+ *
+ * Returns a list, not a single winner: `APP_KEYMAP` can hold several sibling chords sharing one
+ * first stage (Cmd/Ctrl+K prefixes `open-keybindings-editor`'s ⌘K ⌘S *and* `toggle-zen-mode`'s
+ * ⌘K Z — mirrors VS Code's own ⌘K namespace of ~21 sibling chords). `decideKeymapDispatch` carries
+ * every candidate's id into the pending-chord wait (`KeymapChordPendingState.entryIds`) so the
+ * stage-2 keydown can resolve against whichever candidate's second stage it actually matches,
+ * instead of a single first-registered entry permanently shadowing every other chord under the
+ * same prefix.
  */
-export const findMatchingChordPrefixEntry = (
+export const findMatchingChordPrefixEntries = (
     entries: KeymapEntry[],
     event: KeymapEvent,
     isMac: boolean = IS_MAC,
     isWhenSatisfied: (when: string | undefined) => boolean = alwaysSatisfiedWhen,
-) => entries.find((entry) => entry.chord && matchesKeymapEntry(entry, event, isMac) && isWhenSatisfied(entry.when)) ?? null
+) => entries.filter((entry) => entry.chord && matchesKeymapEntry(entry, event, isMac) && isWhenSatisfied(entry.when))
 
 /** Matches a chord entry's *second* stage while the store's `pending` state names `entry` as the one awaiting completion. No `when` gate — reaching stage 2 already implies the app committed to owning this chord at stage 1. */
 export const matchesChordSecondStage = (entry: Pick<KeymapEntry, 'chord'>, event: KeymapEvent, isMac: boolean = IS_MAC) =>
@@ -268,7 +292,7 @@ const areKeymapModsEqual = (a: KeymapModifier[], b: KeymapModifier[]) => a.lengt
  * conflicting only when *both* declare a second stage and it differs — VS Code's own ⌘K
  * namespace holds ~21 sibling chords this way. A chord entry vs. a plain (non-chord) entry that
  * shares the same first-stage key+mods always conflicts regardless of this check: the chord's
- * `findMatchingChordPrefixEntry` match wins dispatch priority ahead of plain matching
+ * `findMatchingChordPrefixEntries` match wins dispatch priority ahead of plain matching
  * (`decideKeymapDispatch`), permanently shadowing the plain entry, so leaving either side
  * chord-less must NOT excuse the collision (mirrors `hasDisjointKeymapWhenScopes`'s stance on an
  * unscoped side).

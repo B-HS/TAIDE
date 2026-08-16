@@ -15,6 +15,7 @@ import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { getOpenWithOverride, subscribeOpenWithOverride } from '@entities/editor/open-with-registry'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
+import { AppFilePane } from '@widgets/app-file-pane/app-file-pane'
 import { ClaudeDiffPane } from '@widgets/claude-diff-pane/claude-diff-pane'
 import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
@@ -36,9 +37,11 @@ type PaneNodeViewProps = {
     focusedPaneId: PaneId
     isDragging: boolean
     overTarget: { paneId: PaneId; edge: DropEdge } | null
+    /** Hides every leaf's tab bar while Zen mode is active (Wave I contract §3.2) — passed down through split recursion so it applies uniformly across every pane, not just the focused one. */
+    zen: boolean
 }
 
-export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPaneId, isDragging, overTarget }) => {
+export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPaneId, isDragging, overTarget, zen }) => {
     const { t } = useTranslation()
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: resizePane } = useResizePane(projectId)
@@ -72,7 +75,14 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                 defaultSize={`${node.sizes[index] ?? EQUAL_SPLIT_TOTAL_PERCENT / children.length}%`}
                 minSize={MIN_PANEL_SIZE_PX}
                 className='min-h-0 min-w-0'>
-                <PaneNodeView node={child} projectId={projectId} focusedPaneId={focusedPaneId} isDragging={isDragging} overTarget={overTarget} />
+                <PaneNodeView
+                    node={child}
+                    projectId={projectId}
+                    focusedPaneId={focusedPaneId}
+                    isDragging={isDragging}
+                    overTarget={overTarget}
+                    zen={zen}
+                />
             </Panel>,
         ])
 
@@ -99,7 +109,9 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
 
     return (
         <div className='flex h-full min-h-0 w-full min-w-0 flex-1 flex-col'>
-            <PaneTabBar projectId={projectId} paneId={node.id} tabs={node.tabs} activeTabId={node.active} focused={node.id === focusedPaneId} />
+            {!zen && (
+                <PaneTabBar projectId={projectId} paneId={node.id} tabs={node.tabs} activeTabId={node.active} focused={node.id === focusedPaneId} />
+            )}
             <div className='bg-editor-background text-editor-foreground relative min-h-0 flex-1 overflow-hidden'>
                 {activeTab?.kind.kind === 'file' && activePreviewKind === null && (
                     <EditorPane projectId={projectId} tabId={activeTab.id} path={activeTab.kind.path} />
@@ -108,7 +120,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                 {activeTab?.kind.kind === 'terminal' && (
                     <TerminalSession key={activeTab.id} projectId={projectId} tabId={activeTab.id} sessionId={activeTab.kind.sessionId} />
                 )}
-                {activeTab?.kind.kind === 'settings' && <SettingsView />}
+                {activeTab?.kind.kind === 'settings' && <SettingsView projectId={projectId} />}
                 {activeTab?.kind.kind === 'diff' && (
                     <DiffPane
                         key={activeTab.id}
@@ -133,6 +145,15 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                 {activeTab?.kind.kind === 'searchEditor' && (
                     <SearchEditorPane key={activeTab.id} projectId={projectId} tabId={activeTab.id} query={activeTab.kind.query} />
                 )}
+                {activeTab?.kind.kind === 'appFile' && (
+                    <AppFilePane
+                        key={activeTab.id}
+                        projectId={projectId}
+                        tabId={activeTab.id}
+                        target={activeTab.kind.target}
+                        initialDirty={activeTab.dirty ?? false}
+                    />
+                )}
                 {activeTab &&
                     activeTab.kind.kind !== 'file' &&
                     activeTab.kind.kind !== 'terminal' &&
@@ -140,7 +161,8 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     activeTab.kind.kind !== 'diff' &&
                     activeTab.kind.kind !== 'claudeDiff' &&
                     activeTab.kind.kind !== 'untitled' &&
-                    activeTab.kind.kind !== 'searchEditor' && (
+                    activeTab.kind.kind !== 'searchEditor' &&
+                    activeTab.kind.kind !== 'appFile' && (
                         <div className='flex h-full w-full items-center justify-center text-sm opacity-60'>{activeTab.title}</div>
                     )}
                 {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>}

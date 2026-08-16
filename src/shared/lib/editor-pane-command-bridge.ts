@@ -1,3 +1,5 @@
+import type { TabWindowTarget } from '@shared/api/bindings'
+
 export type TabCycleDirection = 'next' | 'prev'
 
 export type EditorPaneCommand =
@@ -8,6 +10,7 @@ export type EditorPaneCommand =
     | { type: 'run-monaco-action'; actionId: string }
     | { type: 'run-selected-text-in-terminal' }
     | { type: 'run-in-terminal'; text: string; cwd: string | null }
+    | { type: 'move-focused-tab-to-window'; target: TabWindowTarget }
 
 type EditorPaneCommandListener = (command: EditorPaneCommand) => void
 

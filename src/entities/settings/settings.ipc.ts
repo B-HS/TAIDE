@@ -54,6 +54,8 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     editorFormatOnPaste: null,
     emmetEnabled: null,
     recentSearches: null,
+    zenFullscreen: null,
+    zenHideStatusBar: null,
 })
 
 export const getSettings = () => unwrapResult(commands.settingsGet())

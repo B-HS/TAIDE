@@ -33,6 +33,10 @@ type SortableTabProps = {
     onRevealInExplorerView?: () => void
     onReopenWithEditor?: () => void
     onReopenWithPreview?: () => void
+    onMoveToNewWindow: () => void
+    onMoveToMainWindow?: () => void
+    moveToWindowSlots: number[]
+    onMoveToWindow: (slot: number) => void
 }
 
 export const SortableTab: FC<SortableTabProps> = ({
@@ -58,6 +62,10 @@ export const SortableTab: FC<SortableTabProps> = ({
     onRevealInExplorerView,
     onReopenWithEditor,
     onReopenWithPreview,
+    onMoveToNewWindow,
+    onMoveToMainWindow,
+    moveToWindowSlots,
+    onMoveToWindow,
 }) => {
     const dragData: TabDragData = { type: 'tab', paneId, pinned: tab.pinned ?? false }
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id, data: dragData })
@@ -80,7 +88,11 @@ export const SortableTab: FC<SortableTabProps> = ({
             onKeepOpen={onKeepOpen}
             onRevealInExplorerView={onRevealInExplorerView}
             onReopenWithEditor={onReopenWithEditor}
-            onReopenWithPreview={onReopenWithPreview}>
+            onReopenWithPreview={onReopenWithPreview}
+            onMoveToNewWindow={onMoveToNewWindow}
+            onMoveToMainWindow={onMoveToMainWindow}
+            moveToWindowSlots={moveToWindowSlots}
+            onMoveToWindow={onMoveToWindow}>
             <div
                 ref={setNodeRef}
                 style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? DRAGGING_OPACITY : 1 }}

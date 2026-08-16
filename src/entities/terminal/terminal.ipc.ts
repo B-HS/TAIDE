@@ -16,7 +16,9 @@ export const spawnPty = (options: PtySpawnOptions, onData: (bytes: Uint8Array) =
     invoke<string>(SPAWN_COMMAND, { opts: options, onData: createByteChannel(onData) })
 
 export const attachPty = (sessionId: string, onData: (bytes: Uint8Array) => void) =>
-    invoke<void>(ATTACH_COMMAND, { sessionId, onData: createByteChannel(onData) })
+    invoke<number>(ATTACH_COMMAND, { sessionId, onData: createByteChannel(onData) })
+
+export const detachPty = (sessionId: string, subscriptionId: number) => unwrapResult(commands.ptyDetach(sessionId, subscriptionId))
 
 export const writePty = (input: { sessionId: string; data: string }) => unwrapResult(commands.ptyWrite(input.sessionId, input.data))
 

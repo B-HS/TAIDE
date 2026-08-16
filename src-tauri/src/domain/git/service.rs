@@ -7,7 +7,9 @@ use git2::Repository;
 use serde::Serialize;
 use specta::Type;
 
+use crate::domain::plugin::types::LoadedPlugin;
 use crate::error::{AppError, AppResult};
+use crate::infra::language;
 
 use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitChangeKind, GitRemote, GitStashEntry,
@@ -41,24 +43,6 @@ const STAGED_DIFF_SECRET_FILE_NAME_PREFIXES: &[&str] = &[".env"];
 
 /// Basename extensions that conventionally hold secrets (private keys, certificates, keystores).
 const STAGED_DIFF_SECRET_FILE_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "jks", "keystore", "ppk", "der", "crt"];
-
-const LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[
-    ("ts", "typescript"),
-    ("tsx", "typescriptreact"),
-    ("js", "javascript"),
-    ("jsx", "javascriptreact"),
-    ("mjs", "javascript"),
-    ("rs", "rust"),
-    ("py", "python"),
-    ("json", "json"),
-    ("md", "markdown"),
-    ("toml", "toml"),
-    ("yaml", "yaml"),
-    ("yml", "yaml"),
-    ("css", "css"),
-    ("html", "html"),
-];
-const DEFAULT_LANGUAGE_ID: &str = "plaintext";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -242,7 +226,7 @@ pub fn show_file(repo_path: &Path, rev: &str, path: &str) -> AppResult<String> {
     Ok(String::from_utf8_lossy(blob.content()).into_owned())
 }
 
-pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode) -> AppResult<DiffSides> {
+pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode, plugins: &[LoadedPlugin]) -> AppResult<DiffSides> {
     let repo = open_repo(repo_path)?;
     let workdir = repo_workdir(&repo)?;
     let relative = to_repo_relative(&workdir, path)?;
@@ -263,7 +247,7 @@ pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode) -> AppResult<Diff
     Ok(DiffSides {
         original,
         modified,
-        language_id: language_id_for(Path::new(&relative)),
+        language_id: language::language_id_for_path(Path::new(&relative), plugins),
     })
 }
 
@@ -1720,20 +1704,6 @@ fn read_head_blob(repo: &Repository, relative: &str) -> Option<String> {
     Some(String::from_utf8_lossy(blob.content()).into_owned())
 }
 
-fn language_id_for(path: &Path) -> String {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(str::to_lowercase)
-        .and_then(|extension| {
-            LANGUAGE_ID_BY_EXTENSION
-                .iter()
-                .find(|(key, _)| *key == extension)
-                .map(|(_, id)| *id)
-        })
-        .unwrap_or(DEFAULT_LANGUAGE_ID)
-        .to_string()
-}
-
 fn map_git_err(error: git2::Error) -> AppError {
     AppError::Internal(error.to_string())
 }
@@ -2283,7 +2253,7 @@ mod tests {
 
         stage_hunk(repo.path(), "a.txt", first_start, first_end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nline4\nline5\n");
 
         let result = status(repo.path()).expect("status");
@@ -2307,12 +2277,12 @@ mod tests {
         stage_hunk(repo.path(), "a.txt", first_start, first_end).expect("stage first");
         stage_hunk(repo.path(), "a.txt", second_start, second_end).expect("stage second");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nCHANGED4\nline5\n");
 
         unstage_hunk(repo.path(), "a.txt", second_start, second_end).expect("unstage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nline4\nline5\n");
     }
 
@@ -2340,7 +2310,7 @@ mod tests {
 
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline3\n");
     }
 
@@ -2354,12 +2324,12 @@ mod tests {
         let hunks = gutter(repo.path(), "a.txt").expect("gutter");
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline3\n");
 
         unstage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("unstage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline2\nline3\n");
     }
 
@@ -2375,12 +2345,12 @@ mod tests {
 
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEW\nline2\n");
 
         unstage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("unstage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline2\n");
     }
 
@@ -2397,7 +2367,7 @@ mod tests {
 
         stage_hunk(repo.path(), "new.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "hello\nworld\n");
 
         let result = status(repo.path()).expect("status");
@@ -2421,7 +2391,7 @@ mod tests {
 
         stage_lines(repo.path(), "new.txt", 1, 1).expect("stage_lines");
 
-        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "hello\n");
 
         let workdir = std::fs::read_to_string(repo.path().join("new.txt")).unwrap();
@@ -2443,7 +2413,7 @@ mod tests {
 
         stage_lines(repo.path(), "a.txt", 2, 2).expect("stage_lines");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEWA\nline2\n");
 
         let workdir = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
@@ -2460,12 +2430,12 @@ mod tests {
         let hunks = gutter(repo.path(), "a.txt").expect("gutter");
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEWA\nNEWB\nline2\n");
 
         unstage_lines(repo.path(), "a.txt", 3, 3).expect("unstage_lines");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEWA\nline2\n");
     }
 
@@ -2495,7 +2465,7 @@ mod tests {
 
         assert!(result.is_err());
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline2\nline3\nline4\nline5\n");
     }
 
@@ -2846,7 +2816,7 @@ mod tests {
         let result = revert_commit(repo.path(), &second);
 
         assert!(result.is_err());
-        let staged = diff_file(repo.path(), "b.txt", DiffMode::IndexVsHead).expect("diff_file b.txt");
+        let staged = diff_file(repo.path(), "b.txt", DiffMode::IndexVsHead, &[]).expect("diff_file b.txt");
         assert_eq!(staged.modified, "unrelated staged work\n");
         let entries = log(repo.path(), 0, 10).expect("log");
         assert_eq!(entries.len(), 2);

@@ -49,6 +49,17 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(payload.projectId) })
     })
 
+    useTauriEvent(events.settingsChanged, ({ payload }) => {
+        queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, payload.settings)
+        // The settings.json `AppFile` tab (`app-file-pane.tsx`) reads this same content through its
+        // own `staleTime: Infinity` query, so without this it silently keeps showing whatever it
+        // last fetched even after settings changed elsewhere (the settings screen, sync_download,
+        // a remote session) — saving from that stale tab would then overwrite the just-applied
+        // change right back to its old value. `SETTINGS.CURRENT` above only refreshes the settings
+        // screen's own cache entry, not this one.
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.APP_FILE.CONTENT({ kind: 'settings' }) })
+    })
+
     useTauriEvent(events.syncStateChanged, ({ payload }) => {
         queryClient.setQueryData(QUERY_KEY.SYNC.STATUS, payload.status)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SETTINGS.CURRENT })

@@ -1,5 +1,16 @@
 # 기능 — 키맵 엔진: chord · when (Wave H)
 
+> Wave I(F2) 추가: `toggle-zen-mode`(⌘K Z)가 `open-keybindings-editor`(⌘K ⌘S)와 같은 1단(⌘K)을
+> 공유하는 두 번째 실제 chord 엔트리로 들어오면서, §1·§2 가 서술하던 "pending 은 엔트리 하나만
+> 기억한다" 전제가 깨졌다. `KeymapChordPendingState.entryId`(단수) → `entryIds`(복수,
+> `KeymapActionId[]`)로 바뀌었고, `findMatchingChordPrefixEntry`(단수, 첫 후보만) 옆에
+> `findMatchingChordPrefixEntries`(복수, 전체 후보)가 신설되어 `decideKeymapDispatch` 가 실제로
+> 이걸 쓴다 — §8 이 진작부터 서술하던 "같은 1단을 여러 chord 가 공유할 수 있다"는 지금까지는
+> 충돌*판정*에만 해당하고 실제 *디스패치*는 첫 엔트리만 영구 우선했던 결함이었다(2단 pending 이
+> 하나의 `entryId` 만 기억). 아래 본문(Wave H 원문)은 이 변경 이전 기준으로 "엔트리 하나"를
+> 전제로 서술되어 있으니, `entryId`를 읽는 곳은 전부 `entryIds`(배열)로 치환해서 읽는다 — 자세한
+> 근거는 `keymap-chord-store.ts`/`keymap-dispatch.ts`의 최신 doc comment 참고.
+>
 > 계약: `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md`.
 > ContextKeyExpr 딥임포트 선례: `docs/acknowledge/2026-08-16-monaco-contextkeyexpr-deep-import.md`.
 > 핵심 파일: `shared/lib/keymap.ts`(엔트리·매칭·직렬화) · `shared/lib/keymap-dispatch.ts`(순수

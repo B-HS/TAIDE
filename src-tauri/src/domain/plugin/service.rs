@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
+use crate::infra::lsp_install;
+use crate::infra::root_guard;
 
 use super::types::{
     LoadedPlugin, PluginContributions, PluginErrorCode, PluginManifest, PLUGIN_GRAMMAR_MAX_BYTES, PLUGIN_MANIFEST_FILE,
@@ -14,10 +16,24 @@ pub fn load_plugins(plugins_dir: &Path) -> Vec<LoadedPlugin> {
         return Vec::new();
     };
 
+    // Every install path (`install_from_directory`/`install_from_archive` here,
+    // `vsix::service::import_vsix_as_plugin`) stages under `plugins_dir/.tmp/<uuid>` before an
+    // atomic rename into its final `plugins_dir/<id>/` home, and only ever removes that `<uuid>`
+    // child — the parent `.tmp` directory itself is left behind (empty, after a successful
+    // install; possibly non-empty, after an install that failed mid-extraction). Without this
+    // filter, `.tmp` looks like any other plugin directory here, has no `taide-plugin.json`, and
+    // surfaces permanently in the PLUGINS list as a disabled `ParseFailed` entry named literally
+    // `.tmp` the moment a user installs anything.
     let mut plugin_dirs: Vec<PathBuf> = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
+        .filter(|path| {
+            !path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with('.'))
+        })
         .collect();
     plugin_dirs.sort();
 
@@ -192,6 +208,101 @@ pub fn resolve_contribution_path(plugin_root: &Path, relative: &str) -> AppResul
     }
 }
 
+/// Copies `source` into `dest` recursively — plain files and directories only. A symlink inside
+/// `source` is deliberately skipped rather than followed, so an odd/malicious source directory
+/// can't smuggle a link that resolves outside itself into `plugins_dir` (`std::fs::copy` on a
+/// symlink path would otherwise copy whatever it points at, silently reading arbitrary files the
+/// caller may not have intended to expose).
+fn copy_dir_recursive(source: &Path, dest: &Path) -> AppResult<()> {
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dest_path = dest.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn read_and_validate_manifest(dir: &Path) -> AppResult<PluginManifest> {
+    let manifest_path = dir.join(PLUGIN_MANIFEST_FILE);
+    let manifest_content = fs::read_to_string(&manifest_path)
+        .map_err(|_| AppError::InvalidArgument(format!("{PLUGIN_MANIFEST_FILE}을(를) 찾을 수 없습니다")))?;
+    let manifest: PluginManifest = serde_json::from_str(&manifest_content)
+        .map_err(|error| AppError::InvalidArgument(format!("{PLUGIN_MANIFEST_FILE} 파싱 실패: {error}")))?;
+    if manifest.manifest_version != PLUGIN_MANIFEST_VERSION {
+        return Err(AppError::InvalidArgument(format!(
+            "지원하지 않는 manifestVersion 입니다: {}",
+            manifest.manifest_version
+        )));
+    }
+    root_guard::ensure_safe_component(&manifest.id)?;
+    Ok(manifest)
+}
+
+/// Installs a plugin already laid out as a directory (containing a top-level `taide-plugin.json`)
+/// by copying it into `plugins_dir/{id}/` — the local-import counterpart to
+/// [`install_from_archive`]. Refuses to overwrite an already-installed id (uninstall first) rather
+/// than silently replacing it. Returns the installed plugin's id.
+pub fn install_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<String> {
+    let manifest = read_and_validate_manifest(source)?;
+
+    let final_dir = plugins_dir.join(&manifest.id);
+    if final_dir.exists() {
+        return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {}", manifest.id)));
+    }
+
+    let temp_dir = plugins_dir.join(".tmp").join(format!("{}-{}", manifest.id, uuid::Uuid::new_v4()));
+    let result = copy_dir_recursive(source, &temp_dir).and_then(|()| lsp_install::atomic_install(&temp_dir, &final_dir));
+    if result.is_err() {
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+    result.map(|()| manifest.id)
+}
+
+/// Installs a plugin distributed as a zip archive (a TAIDE-native `.vsix`/zip bundle containing a
+/// top-level `taide-plugin.json`, distinct from a real VS Code extension `.vsix` — see
+/// `vsix::service::import_vsix_as_plugin` for that flow) by extracting it with
+/// `vsix::service::extract_hardened_zip` (budget/entry-cap/permission-masking hardened, unlike
+/// `infra::lsp_install::extract_zip` — contract §3.4) into `plugins_dir/{id}/`. Refuses to
+/// overwrite an already-installed id.
+pub fn install_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<String> {
+    let temp_extract_dir = plugins_dir.join(".tmp").join(format!("extract-{}", uuid::Uuid::new_v4()));
+
+    let result = (|| -> AppResult<String> {
+        crate::domain::vsix::service::extract_hardened_zip(source, &temp_extract_dir)?;
+        let manifest = read_and_validate_manifest(&temp_extract_dir)?;
+
+        let final_dir = plugins_dir.join(&manifest.id);
+        if final_dir.exists() {
+            return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {}", manifest.id)));
+        }
+
+        lsp_install::atomic_install(&temp_extract_dir, &final_dir)?;
+        Ok(manifest.id)
+    })();
+
+    if result.is_err() {
+        fs::remove_dir_all(&temp_extract_dir).ok();
+    }
+    result
+}
+
+/// Removes a plugin's directory outright — no built-in-plugin protection, since every entry in
+/// `plugins_dir` is a user-installed directory (contract §3.4).
+pub fn uninstall(plugins_dir: &Path, plugin_id: &str) -> AppResult<()> {
+    root_guard::ensure_safe_component(plugin_id)?;
+    let dir = plugins_dir.join(plugin_id);
+    if !dir.exists() {
+        return Err(AppError::NotFound(format!("plugin not found: {plugin_id}")));
+    }
+    fs::remove_dir_all(&dir).map_err(AppError::from)
+}
+
 fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
     if let Ok(canonical) = fs::canonicalize(path) {
         return Ok(canonical);
@@ -312,6 +423,24 @@ mod tests {
         assert_eq!(loaded.error, Some(PluginErrorCode::ParseFailed));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 설치_스테이징_디렉토리_tmp_는_플러그인_목록에서_제외된다() {
+        let plugins_dir = temp_dir("staging-parent");
+        fs::create_dir_all(plugins_dir.join(".tmp")).unwrap();
+        let dir_name = format!("real-plugin-{}", Uuid::new_v4());
+        write_manifest(
+            &plugins_dir.join(&dir_name),
+            &format!(r#"{{"manifestVersion":1,"id":"{dir_name}","name":"X","version":"1.0.0","contributes":{{}}}}"#),
+        );
+
+        let plugins = load_plugins(&plugins_dir);
+
+        assert_eq!(plugins.len(), 1, "숨김 디렉토리(.tmp)는 유령 플러그인으로 잡히면 안 된다");
+        assert_eq!(plugins[0].manifest.id, dir_name);
+
+        fs::remove_dir_all(&plugins_dir).ok();
     }
 
     #[test]
@@ -617,5 +746,90 @@ mod tests {
         assert!(result.is_err());
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn install_from_directory는_디렉토리를_plugins_dir로_복사한다() {
+        let plugins_dir = temp_dir("install-dir-plugins");
+        let source_name = format!("taide-plugin-install-src-{}", Uuid::new_v4());
+        let source = std::env::temp_dir().join(&source_name);
+        write_manifest(
+            &source,
+            &format!(r#"{{"manifestVersion":1,"id":"{source_name}","name":"Src","version":"1.0.0","contributes":{{}}}}"#),
+        );
+
+        let installed_id = install_from_directory(&plugins_dir, &source).expect("install");
+
+        assert_eq!(installed_id, source_name);
+        assert!(plugins_dir.join(&source_name).join(PLUGIN_MANIFEST_FILE).exists());
+
+        fs::remove_dir_all(&plugins_dir).ok();
+        fs::remove_dir_all(&source).ok();
+    }
+
+    #[test]
+    fn install_from_directory는_이미_설치된_id를_거부한다() {
+        let plugins_dir = temp_dir("install-dir-dup-plugins");
+        let source_name = format!("taide-plugin-dup-{}", Uuid::new_v4());
+        let source = std::env::temp_dir().join(&source_name);
+        write_manifest(
+            &source,
+            &format!(r#"{{"manifestVersion":1,"id":"{source_name}","name":"Src","version":"1.0.0","contributes":{{}}}}"#),
+        );
+        fs::create_dir_all(plugins_dir.join(&source_name)).unwrap();
+
+        let result = install_from_directory(&plugins_dir, &source);
+
+        assert!(result.is_err());
+
+        fs::remove_dir_all(&plugins_dir).ok();
+        fs::remove_dir_all(&source).ok();
+    }
+
+    #[test]
+    fn install_from_directory는_manifest가_없으면_거부한다() {
+        let plugins_dir = temp_dir("install-dir-nomanifest-plugins");
+        let source = temp_dir("install-dir-nomanifest-src");
+        fs::create_dir_all(&source).unwrap();
+
+        let result = install_from_directory(&plugins_dir, &source);
+
+        assert!(result.is_err());
+
+        fs::remove_dir_all(&plugins_dir).ok();
+        fs::remove_dir_all(&source).ok();
+    }
+
+    #[test]
+    fn uninstall은_플러그인_디렉토리를_삭제한다() {
+        let plugins_dir = temp_dir("uninstall-plugins");
+        let plugin_id = "taide-plugin-to-remove";
+        fs::create_dir_all(plugins_dir.join(plugin_id)).unwrap();
+
+        uninstall(&plugins_dir, plugin_id).expect("uninstall");
+
+        assert!(!plugins_dir.join(plugin_id).exists());
+
+        fs::remove_dir_all(&plugins_dir).ok();
+    }
+
+    #[test]
+    fn uninstall은_존재하지_않는_id를_거부한다() {
+        let plugins_dir = temp_dir("uninstall-missing-plugins");
+
+        let result = uninstall(&plugins_dir, "does-not-exist");
+
+        assert!(result.is_err());
+
+        fs::remove_dir_all(&plugins_dir).ok();
+    }
+
+    #[test]
+    fn uninstall은_경로_탈출_시도를_거부한다() {
+        let plugins_dir = temp_dir("uninstall-escape-plugins");
+
+        let result = uninstall(&plugins_dir, "../../etc");
+
+        assert!(result.is_err());
     }
 }

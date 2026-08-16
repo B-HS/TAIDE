@@ -74,15 +74,15 @@ TAIDE 어댑터 11종: completion·diagnostics·hover·definition·references·r
 | 기능 | TAIDE 상태 | 체감 | 난이도 | 우선순위 |
 |---|---|---|---|---|
 | 파일 트리(가상화·lazy·watcher·CRUD·컨텍스트 메뉴) | 있음, VS Code 동급 이상 | - | - | - |
-| **멀티 윈도우 / Move into New Window / 부동 에디터** | **없음** — `capabilities/main.json` 단일 `main` 전제 | 중 | **상** | P1 (backlog 기재) |
+| **멀티 윈도우 / Move into New Window** | **구현 완료**(Wave I, 2026-08-16 — `domain::window`+레이아웃 `auxiliary_windows` 축+`layout_move_tab_to_window`(Main/Existing/NewAuxiliary)+창별 close/hot-exit+LSP·pty 다중 구독. `docs/features/layout-shell.md` §7). "부동 에디터"(앱 안에 떠 있는 패널)는 계약 §4 가 명시적으로 기각하고 완전한 별도 OS 창 모델을 채택했다 — 별개 항목으로 취급하지 않는다. `Copy into New Window` 만 미구현으로 남음(backlog). 항목 종결 |
 | **멀티 루트 워크스페이스(`.code-workspace`)** | 없음 (프로젝트 1 = 폴더 1, 다중 프로젝트는 사이드바로 분리) | 중 | 상 (프로젝트 모델 변경) | P2 — TAIDE 멀티프로젝트로 상당 부분 대체 |
-| **Zen / 포커스 모드, Centered Layout** | 없음 | 중 | 중 (layout 도메인 표시 필드) | P1 (backlog 기재) |
+| **Zen / 포커스 모드, Centered Layout** | **구현 완료**(Wave I, 2026-08-16 — `layout_set_shell_view`+`ShellViewState`(zen·사이드바 접힘)+⌘K Z chord+Esc 복귀+`zen_fullscreen`/`zen_hide_status_bar` 설정. `docs/features/window-chrome.md` §6). Centered Layout(본문 중앙 정렬)은 범위에 없었다 — 별도 backlog. 항목 종결 |
 | **Timeline 뷰 / 파일 단위 히스토리** | 없음 | **상** | 중 (`git_log -- <path>` + 패널) | **P0** |
 | **로컬 히스토리(파일 자동 백업·복구)** | 없음 | 중 | 중 | P2 |
 | **북마크** | 없음 | 하 | 중 | P2 (backlog 기재) |
 | **커서 위치(줄:열) 상태바 표시** | 없음 | 중 (VS Code 관성) | **하** | **P0** (roadmap 7.5-D) |
 | Secondary Side Bar / 패널 위치 이동 | 없음 | 하 | 중 | P2 |
-| 탭 컨텍스트 메뉴 5항목(Move/Copy into New Window·File History·Find File References·Keep Open) | 부분 | 하 | 멀티윈도우 종속 | P1 |
+| 탭 컨텍스트 메뉴 5항목(Move/Copy into New Window·File History·Find File References·Keep Open) | 부분 — Move into New Window·File History·Keep Open 은 있음, **Copy into New Window** 만 미구현(Wave I 범위 밖, backlog), Find File References 는 §2 P1 목록 참조 | 하 | 멀티윈도우 종속 부분은 Wave I 로 해소 | P1 |
 
 ---
 
@@ -136,13 +136,13 @@ TAIDE 어댑터 11종: completion·diagnostics·hover·definition·references·r
 | 기능 | TAIDE 상태 | 체감 | 난이도 | 우선순위 |
 |---|---|---|---|---|
 | 설정 UI 12섹션·키맵 편집·폰트·i18n·테마 에디터 | 있음 (VS Code 보다 GUI 완성도 높음) | - | - | - |
-| **settings.json 을 에디터 탭에서 직접 편집** | 없음 (Finder 열기까지) | 중 | 중 (root_guard + 탭 projectId 종속 해제) | P1 (backlog 기재) |
+| **settings.json 을 에디터 탭에서 직접 편집** | **구현 완료**(Wave I, 2026-08-16 — `TabKind::AppFile`+`app_file_read`/`app_file_write`+`SettingsChanged` 이벤트(수동 편집·sync 양 경로 재적용 결함 동반 해소)+프롬프트 템플릿 3종 편집 진입점. hot-exit 미러는 1차 제외. `docs/data-model.md` §8, `docs/features/plugins.md`·`window-chrome.md` 무관, 정본은 `data-model.md` §8). 항목 종결 |
 | **키맵 chord (⌘K ⌘S) · when 컨텍스트** | **있음 — Wave H 구현 완료**(⌘K 프리픽스·2단 무조건 삼킴·전역 chord 스토어·monaco 유예 창으로 기존 monaco chord 21건 보존·when 기반 컨텍스트 게이팅·컨텍스트 인스펙터. `docs/features/keymap.md` 참조) | - | - | - |
 | shift+기호 키 캡처(`event.code` 기반) | **있음 — 이 행 자체가 stale 이었다**: `normalizeKeymapEventKey`(기능확장 2차 k, 커밋 23c3fb2)가 이미 기호를 `event.code` 기반으로 유도해 레이아웃 독립적이다. Wave H 에서 실물 재검증 + 회귀 테스트로 확정(`docs/acknowledge/2026-08-16-wave-h-keymap-contract.md` §2-1) | - | - | - |
 | **Profiles(설정 프로파일 전환·워크스페이스 연결·템플릿)** | 없음 | 하 (단일 사용자) | 상 | P2 |
 | Settings Sync | 있음 (Gist 기반 자체 구현, 실기 미검증) | - | - | - |
-| **확장 마켓플레이스 / 플러그인 설치 UI** | 없음 (앱데이터 폴더 수동 배치) | 중 | 중 (레지스트리 정책 결정 선행) | P1 — MS Marketplace 연동은 금지 방침 유지 |
-| VSIX grammar/languages 임포트 | 없음 (테마만) | 중 | 중 | P1 (backlog 기재) |
+| **확장 마켓플레이스 / 플러그인 설치 UI** | **플러그인 설치 UI 구현 완료**(Wave I — `plugin_install`/`plugin_uninstall`+설정 PLUGINS 섹션 UI. `docs/features/plugins.md` §6). **마켓플레이스(원격 레지스트리) 연동은 계약 §4 가 명시적으로 기각 유지** — 로컬 임포트만. 항목 종결(로컬 설치 UI 범위) |
+| VSIX grammar/languages 임포트 | **구현 완료**(Wave I — `vsix_import_plugin` 이 VS Code 확장의 `contributes.languages`/`grammars` 를 `taide-plugin.json` 으로 합성해 플러그인으로 착지, monaco 동적 언어 등록+shiki 재생성(C1)까지 연결. `docs/features/plugins.md` §6). 항목 종결 |
 
 ---
 
@@ -189,9 +189,9 @@ TAIDE 의 AI 전략은 "터미널 에이전트 연동 우선, 자체 AI 는 추�
 5. **Search Editor(검색 결과 탭·결과 내 편집) + 검색 히스토리 + `.gitignore` 존중 토글**
 6. **git revert commit · tag · 원격 브랜치 checkout + 파일 전체 blame 뷰**
 7. **AI 커밋 메시지 생성** (`git_diff` + 기존 provider)
-8. **Zen/포커스 모드 + 멀티 윈도우**(backlog) — 멀티 윈도우는 탭 메뉴 4항목의 전제
+8. ~~Zen/포커스 모드 + 멀티 윈도우~~ — 둘 다 Wave I(2026-08-16)에서 구현 완료, 이 행은 해소됨
 9. **Emmet** (`emmet-monaco-es` 의존성 추가 승인 필요) + Format on Type/Paste
-10. **설정 파일 에디터 탭 편집 + 플러그인 설치 UI + VSIX grammar 임포트**(전부 backlog 기재)
+10. ~~설정 파일 에디터 탭 편집 + 플러그인 설치 UI + VSIX grammar 임포트~~ — 셋 다 Wave I(2026-08-16)에서 구현 완료, 이 행은 해소됨(마켓플레이스 연동만 방침대로 계속 제외)
 
 ## 11. 비추천 (범위 밖 — 착수 권고하지 않음)
 
@@ -225,8 +225,10 @@ TAIDE 의 AI 전략은 "터미널 에이전트 연동 우선, 자체 AI 는 추�
 
 ## 14. backlog 중복 항목 (신규 생성 금지, 참조만)
 
-멀티 윈도우 · Zen/포커스 모드 · 스니펫 · git 충돌 해결 UI · 북마크 · 접근성 · 앱데이터 파일 에디터 편집 · VSIX grammars 임포트 · Gemini IDE companion · Codex app-server 패널.
+스니펫 · git 충돌 해결 UI · 북마크 · 접근성 · Gemini IDE companion · Codex app-server 패널 ·
+Copy into New Window(멀티 윈도우의 일부만 미구현).
 **backlog 정정 필요 2건**: "임의 두 파일 비교"는 이미 구현됨(`src/widgets/explorer/explorer-container.tsx:254`). "작업 러너 패널"·"chord/when 키맵"·"shift+기호 키 캡처"는 각각 Wave E·Wave H(chord/when)·Wave H(shift+기호 회귀 확정)에서 이미 구현/확정되어 이 목록(신규 생성 금지 대상)에서 제외한다.
+**멀티 윈도우 · Zen/포커스 모드 · 앱데이터 파일 에디터 편집 · VSIX grammars 임포트는 Wave I(2026-08-16)에서 구현 완료되어 이 목록에서 제외한다**(§3·§7 참조).
 
 ---
 

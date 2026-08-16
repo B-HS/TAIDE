@@ -1,6 +1,6 @@
 import type { LanguageRegistration } from '@shikijs/core'
 import type { LoadedPlugin, PluginLanguageContribution } from '@shared/api/bindings'
-import { listPlugins, readPluginGrammar } from '@entities/plugin/plugin.ipc'
+import type { readPluginGrammar } from '@entities/plugin/plugin.ipc'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -48,5 +48,3 @@ export const assemblePluginGrammarRegistrations = async (plugins: LoadedPlugin[]
 
     return registrations.filter((registration): registration is LanguageRegistration => registration !== null)
 }
-
-export const loadPluginGrammarRegistrations = async () => assemblePluginGrammarRegistrations(await listPlugins(), readPluginGrammar)

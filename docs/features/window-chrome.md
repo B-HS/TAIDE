@@ -75,3 +75,55 @@
   **폴링 금지.**
 - footer 의 커서 위치는 Monaco `onDidChangeCursorPosition` 을 **에디터 위젯이 올려주는 값**으로 받는다.
   footer 가 에디터 인스턴스를 직접 잡지 않는다(FSD 역참조 방지).
+
+## 5. 보조 편집 창의 크롬 (Wave I)
+
+> 멀티 윈도우 모델 자체는 `layout-shell.md` §7 이 정본이다. 여기서는 그 창의 **크롬**만 다룬다.
+
+- 보조 창(`editor-<n>`)은 앱 사이드바·탐색 사이드바·상태바가 전혀 없다 — 탭바 + pane 트리(스플릿
+  포함)만 있는 **에디터 전용 크롬**(`AuxiliaryWindowShell`).
+- 타이틀바는 macOS 에서만 렌더(다른 플랫폼은 OS 네이티브 타이틀바를 그대로 쓴다 — main 창과 동일
+  정책)하며, main 창의 `TitleBar` 컴포넌트를 그대로 재사용한다. 단 표시하는 값(활성 탭 이름·
+  프로젝트명·git 브랜치)은 전역 활성 프로젝트가 아니라 **이 창 자신의 고정 `(projectId,
+  windowSlot)`** 에서 유도한다(`AuxiliaryTitleBarContent`).
+- 보조 창은 `shell_view`(Zen·사이드바 접힘)의 영향을 받지 않는다 — 애초에 숨길 사이드바/상태바가
+  없다. 아래 §6 의 Zen 모드는 main 창 전용이다.
+
+## 6. Zen 모드 (Wave I)
+
+> 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2. 스키마:
+> `data-model.md` §8 `ShellViewState`. IPC: `layout_set_shell_view`.
+
+### 6.1 무엇을 숨기는가
+
+- 탐색 사이드바(explorer/search/git 패널) — 강제 접힘.
+- **앱 사이드바(프로젝트 아이콘 레일, §2)도 함께 숨긴다.** 계약 원문은 "사이드바·탭바(+상태바)"만
+  명시해 아이콘 레일 포함 여부가 불명확했는데, VS Code 의 실제 Zen Mode(Activity Bar 도 숨김)에
+  맞춰 완전한 distraction-free 로 해석했다 — 좁게 해석하고 싶다면 `app-shell.tsx` 의 조건 렌더
+  한 줄만 되돌리면 된다.
+- 모든 pane 의 탭바.
+- 상태바 — `Settings.zen_hide_status_bar`(기본 true)가 켜져 있을 때만.
+- 위 넷 다 `layout.shell_view.zen` 하나로 제어되고, **프로젝트 단위로 영속**된다(창을 닫았다 다시
+  열거나 앱을 재시작해도 유지 — 로컬 `useState` 가 아니다).
+
+### 6.2 진입·이탈
+
+| 방법 | 동작 |
+|------|------|
+| `⌘K Z` chord | `toggle-zen-mode` 커맨드 — `open-keybindings-editor`(`⌘K ⌘S`)와 1단(`⌘K`)을 공유하는 두 번째 chord (`keymap.md` 참조) |
+| 팔레트 `view.toggleZenMode` | main 창에서만 활성(보조 창엔 `shell_view` 개념이 없다) |
+| `Esc` | Zen 상태일 때만 리스너를 붙이는 `window` **bubble 단계** 리스너 — Radix 다이얼로그·팔레트·monaco 자체 Escape 처리가 전부 먼저 `preventDefault()` 할 기회를 가진 **뒤에** 평가되므로, 다이얼로그가 열려 있을 때 Esc 를 누르면 다이얼로그만 닫히고 Zen 은 유지된다(`event.defaultPrevented` 가드) |
+| 진입 힌트 오버레이 | Zen 진입 시 3초간 "Zen Mode · Press Esc to exit" 배너(`zen.hint`/`zen.hintExit`) — 자동 소멸 |
+
+- `Settings.zen_fullscreen`(기본 false)이 켜져 있으면 Zen 진입/이탈이 OS 창 전체화면도 함께
+  전환한다(`window_set_fullscreen` — 호출한 창 자신이 대상, 라벨 불필요). 설정을 Zen 도중에 바꿔도
+  즉시 반영되고, Zen 을 나가면 그 순간의 설정값과 무관하게 항상 전체화면을 해제한다(전체화면에 갇히지
+  않는다).
+- 사이드바 **접힘 여부**(`shell_view.sidebar_collapsed`)는 Zen 과 별개로 드래그/`⌘B` 양쪽 경로 모두
+  영속된다. 사이드바 **폭**은 기존과 동일하게 프론트 로컬 debounce 로만 저장한다(ADR-0004 예외 —
+  변경 없음).
+
+### 6.3 설정 UI
+
+설정 화면 INTERFACE 섹션에 `zen_fullscreen`/`zen_hide_status_bar` 토글 2개가 있다(`settings-view.tsx`
+— 기존 `settingsUpdate` 플로우 그대로, 별도 저장 경로 없음).

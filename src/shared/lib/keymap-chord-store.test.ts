@@ -49,11 +49,16 @@ afterEach(() => {
 
 describe('enterKeymapChordPending / getKeymapChordStoreSnapshot', () => {
     test('진입하면 pending 상태가 채워진다', () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         const snapshot = getKeymapChordStoreSnapshot()
-        expect(snapshot.pending?.entryId).toBe('save')
+        expect(snapshot.pending?.entryIds).toEqual(['save'])
         expect(snapshot.pending?.prefix).toEqual({ key: 'k', mods: ['mod'] })
         expect(typeof snapshot.pending?.at).toBe('number')
+    })
+
+    test('여러 후보 엔트리를 함께 담을 수 있다(같은 1단을 공유하는 형제 chord)', () => {
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['open-keybindings-editor', 'toggle-zen-mode'])
+        expect(getKeymapChordStoreSnapshot().pending?.entryIds).toEqual(['open-keybindings-editor', 'toggle-zen-mode'])
     })
 
     test('구독자에게 알린다', () => {
@@ -61,13 +66,13 @@ describe('enterKeymapChordPending / getKeymapChordStoreSnapshot', () => {
         const unsubscribe = subscribeKeymapChordStore(() => {
             calls += 1
         })
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         expect(calls).toBe(1)
         unsubscribe()
     })
 
     test(`${SHORT_TIMEOUT_MS}ms 타임아웃이 지나면 자동으로 해제된다`, async () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save', SHORT_TIMEOUT_MS)
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'], SHORT_TIMEOUT_MS)
         expect(getKeymapChordStoreSnapshot().pending).not.toBeNull()
         await new Promise((resolve) => setTimeout(resolve, SHORT_TIMEOUT_MS * 3))
         expect(getKeymapChordStoreSnapshot().pending).toBeNull()
@@ -76,7 +81,7 @@ describe('enterKeymapChordPending / getKeymapChordStoreSnapshot', () => {
 
 describe('resolveKeymapChordPending', () => {
     test('마이크로태스크로 지연 클리어된다 — 동일 이벤트를 처리하는 다른 리스너가 동기적으로는 여전히 pending 을 본다', async () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         resolveKeymapChordPending()
         expect(getKeymapChordStoreSnapshot().pending).not.toBeNull()
         await Promise.resolve()
@@ -84,7 +89,7 @@ describe('resolveKeymapChordPending', () => {
     })
 
     test('같은 틱 안에서 여러 번 호출해도(5개 리스너 팬아웃) 한 번만 해제된다', async () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         resolveKeymapChordPending()
         resolveKeymapChordPending()
         resolveKeymapChordPending()
@@ -95,7 +100,7 @@ describe('resolveKeymapChordPending', () => {
 
 describe('clearKeymapChordPending', () => {
     test('즉시(동기) pending 을 해제한다', () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         clearKeymapChordPending()
         expect(getKeymapChordStoreSnapshot().pending).toBeNull()
     })
@@ -160,19 +165,19 @@ describe('armKeymapMonacoDeferral / consumeKeymapMonacoDeferral', () => {
 
 describe('clearKeymapChordState', () => {
     test('pending 과 monacoDeferral 을 모두 즉시 해제한다', () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         armKeymapMonacoDeferral()
         clearKeymapChordState()
         expect(getKeymapChordStoreSnapshot()).toEqual({ pending: null, monacoDeferral: false })
     })
 
     test('예약된 지연 클리어(resolve/consume)를 무효화한다 — window blur 가 진행 중인 마이크로태스크를 앞지른다', async () => {
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'save')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['save'])
         resolveKeymapChordPending()
         clearKeymapChordState()
-        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, 'reopen-closed-tab')
+        enterKeymapChordPending({ key: 'k', mods: ['mod'] }, ['reopen-closed-tab'])
         await Promise.resolve()
-        expect(getKeymapChordStoreSnapshot().pending?.entryId).toBe('reopen-closed-tab')
+        expect(getKeymapChordStoreSnapshot().pending?.entryIds).toEqual(['reopen-closed-tab'])
     })
 
     test('이미 idle 상태(pending·monacoDeferral 둘 다 없음)에서 호출하면 구독자에게 알리지 않는다', () => {
@@ -239,7 +244,7 @@ describe('멀티 리스너 팬아웃 통합 — decideKeymapDispatch + 실제 �
     test('에디터 포커스가 아닌 상태에서 앱 자체 chord(⌘K ⌘S)의 1단을 4개 리스너가 모두 처리해도 전부 enter-chord 로 일관되고, 실제 2단(⌘S)에서 정확히 매칭된다', async () => {
         const cmdK: KeymapEvent = { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }
         const cmdKActions = dispatchToAllListeners(cmdK, notEditorGetters, (action) => {
-            if (action.type === 'enter-chord') enterKeymapChordPending(action.prefix, action.entryId)
+            if (action.type === 'enter-chord') enterKeymapChordPending(action.prefix, action.entryIds)
         })
         expect(cmdKActions.map((action) => action.type)).toEqual(Array(MOCK_LISTENER_COUNT).fill('enter-chord'))
 
@@ -249,6 +254,30 @@ describe('멀티 리스너 팬아웃 통합 — decideKeymapDispatch + 실제 �
         const cmdS: KeymapEvent = { key: 's', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }
         const cmdSActions = dispatchToAllListeners(cmdS, notEditorGetters)
         expect(cmdSActions).toEqual(Array(MOCK_LISTENER_COUNT).fill({ type: 'resolve-chord-matched', entryId: 'open-keybindings-editor' }))
+    })
+
+    /**
+     * The actual bug this Wave fixed: `open-keybindings-editor` (⌘K ⌘S) and `toggle-zen-mode`
+     * (⌘K Z) are two real `APP_KEYMAP` entries sharing the exact same first stage. Before
+     * `entryIds` went plural, `findMatchingChordPrefixEntry`'s single-winner `.find()` always
+     * picked whichever entry appears first in `APP_KEYMAP`, permanently starving every sibling
+     * chord registered after it — this test dispatches the *real* array (not a hand-built fixture)
+     * and resolves the second sibling's own second stage (Z) to prove it still fires.
+     */
+    test('형제 chord(⌘K Z)의 1단도 함께 pending 후보에 담기고, 실제 2단(Z)에서 open-keybindings-editor 가 아니라 toggle-zen-mode 로 정확히 매칭된다', async () => {
+        const cmdK: KeymapEvent = { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }
+        const cmdKActions = dispatchToAllListeners(cmdK, notEditorGetters, (action) => {
+            if (action.type === 'enter-chord') enterKeymapChordPending(action.prefix, action.entryIds)
+        })
+        expect(cmdKActions.map((action) => action.type)).toEqual(Array(MOCK_LISTENER_COUNT).fill('enter-chord'))
+        expect(getKeymapChordStoreSnapshot().pending?.entryIds).toEqual(['open-keybindings-editor', 'toggle-zen-mode'])
+
+        await Promise.resolve()
+        await Promise.resolve()
+
+        const z: KeymapEvent = { key: 'z', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false }
+        const zActions = dispatchToAllListeners(z, notEditorGetters)
+        expect(zActions).toEqual(Array(MOCK_LISTENER_COUNT).fill({ type: 'resolve-chord-matched', entryId: 'toggle-zen-mode' }))
     })
 })
 

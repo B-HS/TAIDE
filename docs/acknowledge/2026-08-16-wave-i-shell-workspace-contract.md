@@ -174,3 +174,61 @@
   재생성 정합·기존 단일 창 사용자 경험 무변화.
 - 문서: features/layout-shell(stale 정정 포함)·window-chrome(stale 정정)·plugins·tabs(§4.4 이행)·
   ipc-contract·data-model·qa6 Wave I 실기 항목·갭 분석 §3·§7 종결 표기. 캠페인 A~I 전 웨이브 종결.
+
+---
+
+## 6. Phase E 검토 결함 수정 반영 (2026-08-16)
+
+> 검토 wf_04872c23-eb7 — 4렌즈 발견 61건(critical 다수·major·minor) → 적대적 검증에서 critical/major
+> **31건 confirmed·1건 refuted** → 중복 제거 시 3 critical 클러스터 + major·minor. 수정 24 fixed·
+> 4 deferred(사유 기록)·4 rejected(정당). "MVP 가 아니라 완벽하게" 지시로 표면이 커진 만큼 검토가
+> 대규모로 잡음 — 검토의 값어치가 최대로 입증된 웨이브. 메인 2차: 핵심 수정 6건 실물 재검증 +
+> `bun run verify` 전체 exit 0(프론트 1127·Rust 881+6+17) + vite build exit 0.
+
+### 확정 3 critical 클러스터 (전건 수정)
+
+- **[critical] 보조 창의 모든 layout 커맨드가 NotFound** — commands.rs 의 locate_project_with_tab/pane
+  이 main 트리(layout.root)만 탐색해, 탭이 보조 창으로 이동한 직후부터 close/activate/move-back/
+  set_dirty 등 전부 불통(멀티 윈도우가 렌더 이후 동작 불가). service::all_roots 기반으로 보조 창
+  트리까지 탐색·ide 4곳 동일 교체. 회귀 테스트 동반.
+- **[critical] 원격 app_file_write(Settings) 가 원격 게이트(shell_override 등) 우회 — 지속형 RCE**:
+  settings_update 는 shell_override·remote_password_only_login·remote_allowed_hosts 를 원격 스트립하나
+  신설 app_file_write 는 whole-settings 를 스트립 없이 적용. 원격 경로 전용
+  strip_remote_gated_settings 신설(현재 값 강제 복원). 회귀 테스트 동반.
+- **[critical] LSP 세션 재사용 시 창간 중복 initialize·요청 id 충돌**(차단급 결함 2 실질 미해결) —
+  같은 프로젝트 2창이 세션 공유 시 두 번째 창이 initialize 재전송(서버 InvalidRequest)·요청 id
+  (창별 0-기반 카운터) 충돌로 응답이 다른 창 결과로 뒤바뀜. **세션 재사용을 owner(창 라벨) 스코프로
+  제한**(channels 를 owner 키 HashMap 으로 — 창마다 독립 세션. 계약 §3.1 "재사용 시 구독 추가"
+  문언을 정정: 서버 종류 무관 창별 독립 프로세스로 통일). lsp_stop 이 자기 owner 구독만 제거.
+
+### major (수정 요지)
+
+pty 구독자 detach 경로 신설(subscription id·pty_detach — 리마운트 누적 누수 상환, spawn no-op 채널
+미등록)·vsix grammar language_id 경로탈출 root_guard 차단·window-state 보조 창 추적 제외(겹침 제거)·
+플러그인 .tmp 스테이징 디렉토리 목록 제외·창간 이동 후 main focused_pane dangling·Zen 전체화면 이펙트
+가 마운트/전환마다 setFullscreen(false) 강제(ref 가드)·AppFile 재마운트 콘텐츠 파괴·target:null 위젯
+4개가 보조 창에서 main 에 탭 생성(공용 currentWindowFocusedPane)·settings.json AppFile 캐시
+SettingsChanged 무효화·마지막 대기 창 forget 시 종료 트리거·csharp/php/sql MCP languageId 복원.
+
+### deferred 4건 (사유 기록 — 잔여 후속)
+
+- **보조 창 hot-exit flush 미핸드셰이크**(minor 하향) — 보조 창 ✕ 클릭 시 최대 500ms 미저장 편집
+  유실 레이스. blur/언마운트 플러시가 대부분 경로 커버·트리거 좁음. 보조 창 전용 per-window flush
+  핸드셰이크(상태머신+이벤트+커맨드) 신설이 범위가 커 보류 → backlog·qa6.
+- **restore_auxiliary_windows 전 프로젝트 일괄 복원** — 정책 결정(활성만/전체+오프셋/토글) 필요,
+  계약 문언 그대로 구현이라 버그 아님 → 사용자 확인 여지·backlog.
+- **보조 창 팔레트 미마운트** — tab.moveToMainWindow 팔레트 커맨드 도달 불가(컨텍스트 메뉴로
+  기능 자체는 도달). projectId prop 우선 재범위화가 큰 리팩터 → backlog.
+- **보조 창 소유자 없는 chord 1단 삼킴** — 보조 창에서 ⌘K 등이 preventDefault/stopPropagation.
+  실시도 수정이 Wave H keymap-chord-store idempotent 불변식과 충돌 → 후속(별도 설계).
+
+### rejected 4건 (정당)
+
+플러그인 제거 후 monaco 언어 잔존(monaco unregister API 부재 — 프레임워크 제약, 문서화만)·존재하지
+않는 스크래치 테스트 파일 참조·design-7(세션 공유 비일관 — critical 수정으로 자연 해소)·correctness-5
+(정상 종료 시 Destroyed 미발생 — tao/tauri 런타임 반증).
+
+### 메인 2차 부기
+
+`dirty_미러` mtime flaky 는 이번에도 사전 존재 결함(Wave I 무관·base 커밋 재현)으로 확인·별도
+트리아지 대상. clippy too_many_arguments/complex-type 는 구조체·타입 별칭으로 근본 해결(검사기 끄기 없음).

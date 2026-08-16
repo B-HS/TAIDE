@@ -13,8 +13,9 @@
 
 | 항목 | 내용 | 선행 조건 / 메모 |
 |------|------|------------------|
-| **멀티 윈도우** | Move/Copy into New Window, 새 OS 창으로 탭 분리 | 요구 7번과 탭 context menu 4항목(Move/Copy into New Window, Reveal in Explorer View 일부)의 전제. `capabilities/main.json` 이 단일 `main` 창 전제라 권한 구조부터 손봐야 한다. **규모가 크고 다른 기능의 전제가 아니라서 뒤로 미뤘다** |
-| **Zen / 포커스 모드** | 사이드바·탭바·상태바 숨김 토글 | layout 도메인에 표시 상태 필드 추가 필요 |
+| ~~멀티 윈도우~~ | Move into New Window, 새 OS 창으로 탭 분리 | **구현 완료 확인**(2026-08-16 Wave I — 사용자 지시로 "MVP 가 아니라 완전 구현" 격상. `domain::window`+레이아웃 `auxiliary_windows` 축+`layout_move_tab_to_window`+창별 close/hot-exit+LSP·pty 다중 구독+capability 글로브. `docs/features/layout-shell.md` §7). 항목 종결. **`Copy into New Window` 만 미구현으로 신규 하위 항목화**(같은 탭을 두 창이 공유하는 별도 동기화 설계 필요, 이번 범위 밖) |
+| ~~Zen / 포커스 모드~~ | 사이드바·탭바·상태바 숨김 토글 | **구현 완료 확인**(2026-08-16 Wave I — `layout_set_shell_view`+`ShellViewState`+⌘K Z chord+Esc 복귀+전체화면/상태바 설정 2종. `docs/features/window-chrome.md` §6). 항목 종결 |
+| **Copy into New Window** | 같은 탭을 두 OS 창이 동시에 열어 상태를 공유 | 멀티 윈도우(위 항목)에서 분리된 잔여 항목. `Tab` 자체를 두 트리가 참조하는 동기화 설계가 필요해 Wave I 범위에서 제외됐다 |
 | ~~스니펫~~ | 사용자 정의 코드 조각 + Monaco completion 기여 | **구현 완료 확인**(2026-08-15 Wave F — `entities/snippet`·`widgets/snippet-editor`·`docs/features/editor.md` §10). 항목 종결 |
 | **작업 러너 패널** | `package.json` scripts / `Cargo.toml` / Makefile 감지 후 실행 | 터미널 세션 재사용. pty 도메인 위에 얹으면 된다 |
 | **git 충돌 해결 UI** | 3-way merge 뷰 | Monaco DiffEditor 는 있으나 3-way 는 별개. `git.md` 2차 범위 |
@@ -60,13 +61,13 @@
 | Gemini IDE companion | HTTP MCP 서버 + discovery 파일로 openDiff·컨텍스트 공유 (공식 스펙 존재) | domain/ide 급 증분(HTTP 트랜스포트 신설) — hooks 배지(W4)와 분리 |
 | Codex app-server 패널 | `codex app-server` JSON-RPC 클라이언트로 에이전트 UI 내장 | 터미널 연동과 다른 제품 축. auto-tab(Codex 토큰)과 별개 |
 | chord·when 키맵 엔진 | ⌘K ⌘S 류 2단 조합 + 컨텍스트(when) 평가 | keymap 타입·매칭·overrides 직렬화 전면 개정 필요 |
-| 앱데이터 파일 에디터 편집 | 설정/플러그인 파일을 에디터 탭에서 직접 편집·저장 | file_save 루트 가드 + 탭 projectId 종속 동시 해제 필요 — W1 은 Finder/기본 앱 열기까지 |
+~~앱데이터 파일 에디터 편집~~ | 설정/프롬프트 파일을 에디터 탭에서 직접 편집·저장 | **구현 완료 확인**(2026-08-16 Wave I — `TabKind::AppFile`+`app_file_read`/`app_file_write`(root_guard 무접촉, 전용 화이트리스트 가드)+`SettingsChanged` 이벤트. `docs/data-model.md` §8). 항목 종결 |
 
 ## 7.10-W7 결정에서 분리된 후속 후보 (2026-08-12)
 
 | 항목 | 내용 | 보류 사유 |
 |------|------|-----------|
-| VSIX `contributes.grammars` 임포트 | .vsix 에서 TextMate 문법 + languages 기여를 함께 추출해 신규 언어를 추가 | W7 은 기존 31종의 토큰화 정확도가 목표. 신규 언어 추가는 `LANGUAGE_ID_BY_EXTENSION`(Rust 컴파일 타임 상수)의 런타임 오버레이화 + 언어 id 충돌 정책(테마의 "사본 저장"이 언어에는 적용 불가) 설계가 선행돼야 한다. 같은 목적은 플러그인 `grammar` 기여(`docs/features/plugins.md` §2)로 이미 달성 가능 |
+~~VSIX `contributes.grammars` 임포트~~ | .vsix 에서 TextMate 문법 + languages 기여를 함께 추출해 신규 언어를 추가 | **구현 완료 확인**(2026-08-16 Wave I — `vsix_import_plugin`+`infra::language::language_id_for_path`(확장자→언어 테이블 오버레이, D1)+monaco 동적 언어 등록·shiki 재생성(C1). `docs/features/plugins.md` §6). 항목 종결 |
 | `.tf`→`terraform` / `.mdx`→`mdx` grammar 정밀화 | 현재 `.tf` 는 shiki `hcl` grammar, `.mdx` 는 `markdown` grammar 로 매핑된다. shiki 에는 각각 전용 `terraform`(hcl 과 별도, MPL-2.0)·`mdx`(MIT) grammar 가 존재해 더 정밀한 토큰화가 가능하다 | W7 범위 밖의 동작 변경(기존 매핑을 바꾸는 것) — 별도 검토·사용자 확인 후 진행 |
 
 ## QA6 후속에서 분리된 후속 후보 (2026-08-12)
