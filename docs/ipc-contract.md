@@ -3,6 +3,12 @@
 > 아키텍처 §4 의 상세. 타입 생성은 ADR-0011(tauri-specta), 전송 원칙 근거는
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
+>
+> **실측(2026-08-16)**: command **178종** — `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수
+> (raw 3종 제외) = `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소
+> 수와 정확히 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제).
+> raw 채널 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **181종**. event 는 **25종**
+> (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수).
 
 ## 1. 공통 규칙
 
@@ -35,6 +41,14 @@
 
 각 상세 시맨틱은 해당 `features/*.md` 참조. (C)=Channel 파라미터 포함.
 
+### app (최상위 도메인 — 이전 판 `app_get_info` 누락)
+
+- query: `app_get_info() → AppInfo{ name, version, platform, arch }`(부팅 시 About/타이틀바용).
+- `app_file_read`/`app_file_write` 는 Wave I 신설(§"Wave I 계약 확정 추가" 절)이라 그쪽에서 다룬다.
+- event: `app:ready(version)` — 타입·`collect_events!`·`fanout_remote_events!` 등록까지는 돼 있으나
+  **Rust 쪽에서 실제로 `.emit()` 호출하는 지점이 없고 프론트도 구독하지 않는다**(정찰 확인 — 죽은
+  이벤트 배선. 제거 여부는 이 문서 범위 밖이라 사실만 기록한다).
+
 ### project (`layout-shell.md`)
 
 - query: `project_list`, `project_get`, `project_get_active`
@@ -47,26 +61,34 @@
 ### layout (`tabs.md`)
 
 - query: `layout_get(projectId)`
-- mutation: `layout_open_tab(projectId, kind, target?)`, `layout_close_tab(tabId)`,
+- mutation: `layout_open_tab(projectId, kind, title, target, preview)`(이전 판은 `target?` 뒤에
+  `title`·`preview` 두 인자가 빠져 있었다 — 정정), `layout_close_tab(tabId)`,
   `layout_activate_tab(tabId)`, `layout_move_tab(tabId, paneId, index)`,
-  `layout_split(paneId, dir, tabId)`, `layout_resize(paneId, sizes)`, `layout_focus_pane(paneId)`,
-  `layout_pin_tab(tabId, pinned)`, `layout_reopen_closed(projectId)`,
-  `layout_set_view_state(tabId, viewState)`
+  `layout_split(paneId, edge: DropEdge, tabId)`, `layout_resize(paneId, sizes)`,
+  `layout_focus_pane(paneId)`, `layout_pin_tab(tabId, pinned)`, `layout_set_preview(tabId, preview)`
+  (7.7 후속 — 아래 절 참조), `layout_reopen_closed(projectId)`,
+  `layout_set_view_state(tabId, viewState)`, `layout_set_dirty(tabId, dirty)`,
+  `layout_set_terminal_session(tabId, sessionId)`, `layout_open_untitled(projectId, target)`,
+  `layout_convert_untitled(tabId, path)`(이 4종은 이전 판에 전혀 없던 기재 누락 — 정정),
+  `layout_move_tab_to_window(tabId, target: TabWindowTarget)`,
+  `layout_set_shell_view(projectId, patch: ShellViewPatch)`(둘 다 Wave I — 아래 절 참조)
 - event: `layout:changed(projectId, revision)`
 
 ### file (`editor.md`)
 
 - query: `file_open(path)` (내용+언어+크기 정책 판정), `file_read_raw(path)`(Response —
-  뷰어 모드/대형)
+  뷰어 모드/대형, raw 커맨드 — 아래 절)
 - mutation: `file_save(path, content)`, `file_create(path, isDir)`, `file_rename(from, to)`,
   `file_delete(path)`(휴지통), `file_copy(from, to)`
 - Hot Exit(기능 확장 3차 — §"기능 확장 3차" 참조): mutation `file_mirror_dirty(projectId, path,
-  content, diskModifiedMs)`, `file_clear_mirror(projectId, path)`, `file_prune_mirrors(projectId,
-  keepPaths)`, `file_mirror_untitled(projectId, tabId, content)`,
+  content) → number | null`(반환값은 Rust 가 쓰기 시점에 직접 stat 한 디스크 mtime baseline — 원래
+  시그니처는 프론트가 `diskModifiedMs` 인자로 baseline 을 넘겼으나 Wave B 하드닝의 미러 부활 수정에서
+  빠졌다, 아래 "기능 확장 3차 계약 확정 추가 (Hot Exit — B1 Rust)" 절 참조), `file_clear_mirror(projectId,
+  path)`, `file_prune_mirrors(projectId, keepPaths)`, `file_mirror_untitled(projectId, tabId, content)`,
   `file_clear_untitled_mirror(projectId, tabId)`, `file_prune_untitled_mirrors(projectId,
   keepTabIds)`(재시작 후 레이아웃 기준 authoritative GC — untitled 탭이 열려 있거나 닫힘 스택에
-  남아 있지 않으면 미러 삭제), `file_flush_complete()`(**원격 세션에서는 거부** — `dispatch.rs`
-  가 명시 arm 으로 차단, 데스크톱 자신의 종료만 재개 가능); query `file_list_mirrors(projectId)`
+  남아 있지 않으면 미러 삭제), `file_flush_complete()`(**원격 세션에서는 거부** — §"원격 dispatch
+  정책" 참조, 데스크톱 자신의 종료만 재개 가능); query `file_list_mirrors(projectId)`
   → `MirrorEntry[]`, `file_list_untitled_mirrors(projectId)` → `UntitledMirrorEntry[]`
   - 모든 project-scoped 미러 커맨드(`file_list_mirrors`·`file_prune_mirrors`·
     `file_mirror_untitled`·`file_list_untitled_mirrors`·`file_clear_untitled_mirror`·
@@ -78,29 +100,74 @@
 
 ### tree / search (`explorer-sidebar.md`)
 
-- query: `tree_rows(projectId, offset, limit)`, `tree_node(projectId, nodeId)`
-- mutation: `tree_expand(nodeId)`, `tree_collapse(nodeId)`
-- event: `tree:changed(projectId, revision)`
-- mutation(C): `search_start(projectId, query, opts, onResult: Channel)` → `searchId`,
-  `search_cancel(searchId)`
+> 이전 판의 `tree_expand`/`tree_collapse`/`tree_node`·`tree:changed` 이벤트·`search_start`/`searchId`
+> 는 전부 코드에 없는 이름이었다(정정).
+
+- query: `tree_rows(projectId, offset, limit) → TreeRowPage`
+- mutation: `tree_toggle(projectId, path)`, `tree_reveal(projectId, path)`,
+  `tree_refresh(projectId, dir)` — 셋 다 갱신된 `TreeRowPage` 를 **반환값으로 직접** 돌려준다. 트리
+  갱신을 알리는 별도 이벤트는 없다(옛 `tree:changed` 는 실재하지 않는다 — 정정).
+- mutation(C): `search_run(projectId, sessionId, query: SearchQuery, onMatch: Channel<SearchMatch>) →
+  number`(정정: 이전 판이 말한 Rust 발급 `searchId` 는 없다 — `sessionId` 는 **호출자(프론트)가
+  검색 표면마다 하나씩 발급**해 넘기고, 반환값은 매치 총수다. 같은 `sessionId` 의 새 실행은 이전
+  실행을 자동 취소한다 — `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4),
+  `search_cancel(sessionId)`
+- mutation: `search_replace(projectId, query: SearchQuery, replacement, paths?) →
+  SearchReplaceResult { changedFiles, replacedMatches }`(이전 판은 `projectId` 인자가 빠져 있었다 —
+  정정)
+- Wave D: `TabKind::SearchEditor { query }`(신규 tab variant, "Search Editor") — 결과 목록은 저장하지
+  않고 쿼리만 레이아웃에 영속화한다. 복원 시 같은 `search_run` 으로 재검색한다(대량 `SearchMatch[]`
+  를 레이아웃 JSON 에 싣지 않기 위함).
 
 ### git (`git.md`)
 
-- query: `git_status`, `git_gutter(path)`, `git_blame_range(path, from, to)`,
-  `git_diff_file(path, mode)`, `git_diff_staged_text(projectId) → StagedDiffText{ diffText,
-  truncated, skippedFiles, usedFallback }`(Wave G — `ai.md` §4/§7 의 AI 커밋 메시지 생성 전용
-  소비처, unified diff 텍스트 + 32KiB 상한 + 바이너리/lock 파일 제외; `usedFallback` 은 Wave H 신설
-  — staged 델타 0건이면 HEAD↔워킹트리(untracked 포함) 전체 변경으로 폴백했다는 표시, 동일
-  제외·상한 규칙이 폴백 diff 에도 적용된다),
-  `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`, `git_ahead_behind`, `git_remotes`,
-  `git_stash_list`
-- mutation: `git_init(projectId)`, `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`,
-  `git_commit(message, opts)`, `git_push`, `git_pull`, `git_fetch`, `git_undo_last_commit`,
-  `git_stash_push/apply/pop/drop`
-- event: `git:status-changed`, `git:refs-changed`, `git:operation-progress`, `git:operation-finished`
-- (이 목록은 stage/unstage hunk·conflict 해결·tag·revert·file log 등 이후 Wave 에서 추가된 git
-  커맨드를 전부 반영하지 못한 기존 doc debt — Wave G 범위 밖이라 이번엔 `git_diff_staged_text` 만
-  추가했다. 전체 재정리는 별도 문서화 작업으로 유예.)
+> 커맨드 **41종**(query 16 · mutation 25). Wave C(`docs/acknowledge/2026-08-15-wave-c-git-contract.md`)
+> 가 기존 27종에 13종(3-way 충돌 해소·hunk/line 단위 stage·커밋 상세·파일 히스토리·revert·tag·원격
+> 브랜치 checkout)을 더했다. 이전 판은 이 13종 전부와 `git_current_user`가 누락돼 있었고, **`git_refs`
+> 라는 query 커맨드는 애초에 코드에 존재한 적이 없다**(정정 — refs 변경 "알림"은 `git:refs-changed`
+> 이벤트가 담당하고, 실제 목록은 `git_branches`/`git_tags`/`git_stash_list` 를 각각 호출해 받는다).
+
+- query: `git_status(projectId)`, `git_gutter(projectId, path)`,
+  `git_blame_range(projectId, path, from, to)`, `git_diff_file(projectId, path, mode: DiffMode)`,
+  `git_diff_staged_text(projectId) → StagedDiffText{ diffText, truncated, skippedFiles, usedFallback }`
+  (Wave G — `ai.md` §4/§7 의 AI 커밋 메시지 생성 전용 소비처, unified diff 텍스트 + 32KiB 상한 +
+  바이너리/lock 파일 제외; `usedFallback` 은 Wave H 신설 — staged 델타 0건이면 HEAD↔워킹트리(untracked
+  포함) 전체 변경으로 폴백했다는 표시, 동일 제외·상한 규칙이 폴백 diff 에도 적용된다),
+  `git_show_file(projectId, rev, path)`, `git_log(projectId, skip, take)`, `git_ahead_behind(projectId)`,
+  `git_remotes(projectId)`, `git_stash_list(projectId)`, `git_branches(projectId)`,
+  `git_current_user(projectId) → string | null`, `git_tags(projectId) → TagInfo[]`(Wave C),
+  `git_conflict_sides(projectId, path) → ConflictSides{ base?, ours?, theirs?, workdir }`(Wave C —
+  index conflict entry 의 stage 1/2/3 blob + workdir 현재 내용, base 없는 add/add 충돌은
+  `base: null`), `git_commit_files(projectId, rev) → CommitFile[]`(Wave C — 부모 tree 대비 변경 파일,
+  병합 커밋은 first-parent 기준·초기 커밋은 empty tree 대비), `git_file_log(projectId, path, skip,
+  take) → LogEntry[]`(Wave C — 파일 단위 히스토리, `--follow` rename 추적은 범위 밖)
+- mutation: `git_init(projectId)`, `git_stage(projectId, paths)`, `git_unstage(projectId, paths)`,
+  `git_discard(projectId, paths)`, `git_commit(projectId, message, opts: CommitOptions{ amend?,
+  stageAll? })`, `git_push(projectId)`, `git_pull(projectId)`, `git_fetch(projectId)`,
+  `git_undo_last_commit(projectId)`, `git_branch_create(projectId, name, checkout)`,
+  `git_branch_checkout(projectId, name)`, `git_branch_delete(projectId, name, force)`,
+  `git_stash_push(projectId, message?)`, `git_stash_apply(projectId, index)`,
+  `git_stash_drop(projectId, index)`, `git_discard_hunk(projectId, path, hunkStart, hunkEnd)`,
+  `git_stage_hunk(projectId, path, hunkStart, hunkEnd)` / `git_unstage_hunk(projectId, path, hunkStart,
+  hunkEnd)`(Wave C — git2 `Repository::apply` 로 선택 hunk 만 index 에/에서 적용, stage/unstage 대칭),
+  `git_stage_lines(projectId, path, lineStart, lineEnd)` / `git_unstage_lines(projectId, path,
+  lineStart, lineEnd)`(Wave C — hunk 가 아니라 선택 라인 단위로 patch 재합성), `git_resolve_conflict(
+  projectId, path, content)`(Wave C — workdir 기록 + index stage 0 으로 충돌 자동 해소),
+  `git_revert_commit(projectId, rev) → RevertOutcome{ conflicted, conflictedPaths[] }`(Wave C — 충돌
+  시 conflicted 상태로 착지해 위 3-way 흐름과 연계), `git_tag_create(projectId, name, target, opts:
+  TagCreateOptions{ message?, annotated? })` / `git_tag_delete(projectId, name)`(Wave C — annotated
+  가 기본값, `message` 없으면 lightweight), `git_checkout_remote_branch(projectId, remoteRef)`(Wave C
+  — 로컬 추적 브랜치 생성 + upstream 설정 + checkout, 동명 로컬 브랜치가 있으면 에러 없이 그냥
+  checkout)
+- event: `git:status-changed`, `git:refs-changed` — **`git:operation-progress`/`git:operation-finished`
+  이벤트는 코드에 존재하지 않는다**(이전 판의 기재 오류, 정정).
+
+**`git_discard_hunk` 의 좌표 계약**: hunk 경계는 `git_gutter` 가 반환한 `GutterHunk { start, end }`
+를 그대로 넘긴다. Rust 쪽에서 두 함수가 **같은 diff 옵션과 같은 경계 계산 헬퍼**를 공유하므로
+프론트가 받은 좌표와 어긋날 수 없다. 이 불변식이 깨지면 엉뚱한 줄이 되돌려진다. (`git_stage_hunk`/
+`git_unstage_hunk`/`git_stage_lines`/`git_unstage_lines` 는 파라미터 형태는 같지만 diff 기준선이
+다르므로 — 예: `git_stage_hunk` 는 index↔workdir, `git_gutter`/`discard_hunk` 는 HEAD↔workdir-with-index
+— 이 불변식을 그대로 확장 적용하지 않는다.)
 
 ### ai (Wave G 신설 — `ai.md`)
 
@@ -119,16 +186,24 @@
 - `AiInlineEditRequest{requestId, provider?, model?, selection, instruction, language, filePath,
   prefix, suffix}` / `AiCommitMessageRequest{requestId, provider?, model?, diffText, recentCommits}`
   — `provider`/`model` 을 생략하면 `Settings.aiProvider`/`aiModel` 로 폴백한다(`ai.md` §1). 텍스트
-  응답은 둘 다 실패가 아니라 `text: null`(빈 응답/취소)로 표현될 수 있다.
-- 원격 dispatch: ai 8종 전부 허용(§4 공통 원칙과 별개로 명시 거부 arm 없음) — `ai.md` §8.
+  응답은 둘 다 실패가 아니라 `text: null`(빈 응답/취소)로 표현될 수 있다. (`AiInlineCompleteRequest`
+  는 `provider`/`model` 이 필수다 — 폴백 대상이 아니다.)
+- 원격 dispatch: ai 8종 전부 허용(§"원격 dispatch 정책" 참조) — `ai.md` §8.
 
 ### terminal (`terminal.md`)
 
-- mutation(C): `pty_spawn(opts, onData, onExit)` → sessionId, `pty_attach(sessionId, onData)`
+- mutation(C): `pty_spawn(opts: PtySpawnOptions, onData) → sessionId`, `pty_attach(sessionId, onData)
+  → subscriptionId`(둘 다 raw 커맨드 — 아래 절)
 - mutation: `pty_write(sessionId, data)`, `pty_resize(sessionId, cols, rows)`, `pty_kill(sessionId)`,
-  `pty_set_paused(sessionId, paused)`, `terminal_report_cwd(sessionId, cwd)`
-- query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`
-- event: `terminal:exited`, `agent:state-changed`
+  `pty_set_paused(sessionId, paused)`, `pty_detach(sessionId, subscriptionId)`(Wave I 채널 다중화 —
+  세션당 여러 창이 구독할 수 있게 되면서 신설. 세션/구독이 이미 없으면 에러가 아니라 already-detached
+  로 취급한다)
+- query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`,
+  `pty_default_options(projectId, cwd?)`(7.7 후속 — 아래 절 참조)
+- event: `terminal:exited(sessionId, ...)`, `terminal:cwd-changed(sessionId, cwd)`,
+  `agent:state-changed(projectId, agents: DetectedAgent[])` — **`terminal_report_cwd` 라는 mutation
+  은 코드에 없다**(정정: cwd 보고는 프론트→Rust mutation 이 아니라 Rust→view 이벤트
+  `terminal:cwd-changed` 로 흐른다)
 
 ### task (Wave E 추가 — `tasks.md`)
 
@@ -139,10 +214,18 @@
 
 ### lsp (`lsp.md`)
 
-- mutation(C): `lsp_spawn(spec, folders, onMessage)` → sessionId
-- mutation: `lsp_send(sessionId, message)`, `lsp_stop(sessionId)`, `lsp_restart(sessionId)`
-- query: `lsp_sessions(projectId)`
-- event: `lsp:session-status-changed`
+> `lsp_detect_servers`·`lsp_resolve_root`·`lsp_install`·`lsp_install_cancel` 4종과 `lsp:install-progress`
+> 이벤트는 이 캠페인(Wave A~I) 이전(2026-08-11 전후)부터 있었지만 이 문서에 실린 적이 없었다 —
+> 이번에 처음 문서화한다.
+
+- mutation(C): `lsp_spawn(request: LspSpawnRequest, onMessage) → sessionId`
+- mutation: `lsp_send(sessionId, message)`, `lsp_stop(sessionId, root?, owner)`,
+  `lsp_restart(sessionId)`, `lsp_install(serverId)`(서버 바이너리 자동 다운로드·설치, 진행률은
+  `lsp:install-progress` 이벤트로), `lsp_install_cancel(serverId)`
+- query: `lsp_sessions(projectId)`, `lsp_detect_servers() → LspServerDetection[]`(설치된 LSP 바이너리
+  감지), `lsp_resolve_root(serverId, filePath) → string | null`
+- event: `lsp:session-status-changed`, `lsp:install-progress(serverId, phase, receivedBytes?,
+  totalBytes?, message?)`
 
 ### theme / settings (`theme-system.md`)
 
@@ -201,10 +284,40 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - query: `font_list` → `FontFamily { name, monospaced }[]`
 - `fontdb` 로 시스템 폰트를 열거한다. `monospaced` 플래그로 에디터·터미널 목록을 기본 필터링한다.
 
-### agent 연동 (`agent-integration.md`)
+### agent (`agent-integration.md`)
 
-- mutation: `release_wait_marker(marker)`
-- event: `editor-bridge:open-file(path, waitMarker?)` (CLI/single-instance 유입)
+> 커맨드 9종. 이전 판은 `release_wait_marker(marker)` 1건만 실었으나 **이 이름의 커맨드는 코드에
+> 없다** — 실제 이름은 `agent_release_marker`(정정)이고, 나머지 8종(감지·CLI 설치·hooks 설치)도
+> 통째로 누락돼 있었다.
+
+- query: `agent_list(projectId) → ProjectAgents`(pty 프로세스 트리에서 에이전트 감지, unix 1s/
+  Windows 2s 폴링), `agent_cli_status() → CliInstallStatus`(`taide` CLI 심링크 설치 여부, macOS
+  전용), `agent_hooks_status(projectId, agentName) → AgentHooksStatus`,
+  `agent_pending_external_opens() → ExternalOpenRequest[]`(drain — "기능 확장 1차" 절 참조)
+- mutation: `agent_release_marker(marker)`(외부 에디터 왕복 탭 닫힘 → 마커 삭제,
+  `agent-integration.md` §2.2), `agent_cli_install()` / `agent_cli_uninstall() → CliInstallStatus`
+  ("기능 확장 1차" 절 참조), `agent_hooks_install(projectId, agentName)` /
+  `agent_hooks_uninstall(projectId, agentName) → AgentHooksStatus`
+- event: `agent:state-changed(projectId, agents: DetectedAgent[])`,
+  `agent:external-open(request: ExternalOpenRequest{ path, waitMarker? })`(콜드스타트 argv·
+  single-instance 유입 — **이전 판의 `editor-bridge:open-file` 이라는 이벤트 이름은 코드에 존재하지
+  않는다**, 정정: 실제 이벤트명은 `agent:external-open`)
+
+### ide — Claude Code IDE MCP 연동 (`agent-integration.md` §3, 신설 도메인 — 이전 판 전체 누락)
+
+- query: `ide_get_status() → IdeStatus{ running, port, connected, clientCount }`
+- mutation: `ide_start()` / `ide_stop()`(내장 MCP 서버 시작/중단), `ide_set_selection(input:
+  IdeSelectionInput{ projectId, path, text, startLine, startCharacter, endLine, endCharacter,
+  isEmpty })` / `ide_clear_selection()`, `ide_publish_diagnostics(projectId, items: IdeDiagnostic[])`
+  (LSP 진단을 MCP `getDiagnostics` 도구로 노출), `ide_resolve_diff(requestId, outcome: "saved" |
+  "rejected" | "tabClosed", content)`, `ide_resolve_save(requestId, saved)`,
+  `ide_notify_at_mention(path, lineStart, lineEnd)`
+- event: `ide:status-changed(status: IdeStatus)`, `ide:diff-requested(requestId, projectId, oldPath,
+  newPath, newContents, tabName)`(Claude 의 `openDiff` 도구 호출 → TAIDE 가 diff 탭을 연다 —
+  `TabKind::ClaudeDiff`, "7.7 계약 확정 추가" 절 참조), `ide:save-requested(requestId, projectId,
+  path)`, `ide:close-tab-requested(tabName, requestId: string | null)`(Claude 가 `close_tab`/
+  `closeAllDiffTabs` 로 스스로 diff 탭을 닫을 때 — `requestId` 는 "7.7 계약 확정 추가" 절에서 이미
+  다룬 pending 레지스트리 정리용 필드)
 
 ### plugin (`plugins.md`)
 
@@ -213,7 +326,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   스캔마다 수 MB 를 흘리지 않기 위함이다. 프론트는 highlighter 생성 시 이 query 로 각 플러그인의
   language 기여를 fetch 해 shiki `LanguageRegistration` 으로 주입한다 — 실패한 플러그인은 스킵 +
   경고)
-- mutation: `plugin_reload`, `plugin_set_lsp_enabled(pluginId, lspId, enabled)`
+- mutation: `plugin_reload`, `plugin_install(sourcePath) → LoadedPlugin`,
+  `plugin_uninstall(pluginId) → LoadedPlugin[]`(둘 다 Wave I 신설 — "Wave I 계약 확정 추가" 절
+  참조). **이전 판의 `plugin_set_lsp_enabled(pluginId, lspId, enabled)` 는 코드에 존재하지 않는
+  커맨드였다**(기재 오류, 정정 — 삭제).
 
 ### vsix (7.10-W5 신설 — `vsix-theme-import.md`)
 
@@ -228,12 +344,14 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   **`vsixPath` 는 `resolve_within_open_project`(프로젝트 루트 가드)를 거치지 않는다** — 프론트
   `dialog` 로 사용자가 직접 고른 파일 경로이고 Rust 는 그 파일을 읽기만 한다(쓰기 없음). 이는
   `project_open(path)` 가 이미 사용자 선택 경로를 루트 가드 없이 받는 것과 같은 성격이다(프로젝트
-  루트를 정하는 진입점 자체이므로 검증할 "루트"가 아직 없다).
+  루트를 정하는 진입점 자체이므로 검증할 "루트"가 아직 없다). **원격 dispatch 는 Wave I 에서
+  허용→거부로 전환됐다** — §"원격 dispatch 정책" 참조.
 - **grammar 는 다루지 않는다**: `vsix_extract_themes` 는 `contributes.themes` 만 읽고
   `contributes.grammars`(TextMate 문법)는 추출하지 않는다 — grammar 는 `contributes.languages`
   (언어 id·확장자)와 쌍으로 가져와야 의미가 있고, TAIDE 의 확장자→언어id 매핑
   (`LANGUAGE_ID_BY_EXTENSION`)이 Rust 컴파일 타임 상수라 런타임 오버레이화가 선행돼야 한다 —
-  W7 에서도 범위 밖(`docs/backlog.md`).
+  W7 에서도 범위 밖(`docs/backlog.md`). (Wave I 의 `vsix_import_plugin` 은 grammar/language 기여를
+  다룬다 — 아래 "Wave I 계약 확정 추가" 절.)
 - 도메인 분리 근거: `domain/plugin` 은 TAIDE 자체 선언적 확장 체계(`{app_data}/plugins/*/
   taide-plugin.json`, 부팅 시 스캔, ADR-0010 "코드 실행 없음")이고 `domain/vsix` 는 VS Code
   확장(.vsix) 이라는 **별개 포맷**을 사용자가 그때그때 선택한 파일에서 1회성으로 추출하는
@@ -241,16 +359,35 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   플러그인 루트 기준, vsix 는 zip 아카이브 내 `extension/` 루트 기준) `domain/plugin` 에
   얹으면 두 스키마가 뒤섞인다 — 신규 `domain/vsix` 로 분리했다.
 
+### remote (`remote-control.md`)
+
+> 커맨드 7종. 이전 판은 `remote_set_password`/`remote_clear_password` 2종만 개별 절에서 서술했고,
+> 나머지 5종(상태 조회·서버 시작/중단·링크 발급·세션 전체 폐기)은 도메인으로 묶여 문서화된 적이
+> 없었다.
+
+- query: `remote_status() → RemoteStatus{ running, port, clientCount, passwordConfigured }`(5초 폴링)
+- mutation: `remote_start()` / `remote_stop()`(로컬 HTTP/WS 서버 시작·중단), `remote_issue_link() →
+  RemoteLinkInfo{ url }`(**원격에서 거부** — §"원격 dispatch 정책"), `remote_revoke_sessions()`
+  (모든 세션 즉시 무효화), `remote_set_password(password)` / `remote_clear_password()`(둘 다
+  **원격에서 거부** — "기능 확장 3차 계약 확정 추가 (Remote 비밀번호 — C1 Rust)" 절 참조)
+- event: `remote:state-changed(status: RemoteStatus)`
+
+### sync (설정 gist 동기화 — 신설 도메인, 이전 판 전체 누락. `data-model.md` §6 참조)
+
+- query: `sync_status() → SyncStatus{ connected, hasGist, lastSyncedAt, remoteNewer }`
+- mutation: `sync_connect(pat)`(GitHub PAT 로 연결), `sync_disconnect()`, `sync_upload()`(현재 설정을
+  gist 로 업로드 — `strip_non_syncable` 로 `remoteAccessEnabled`·`remotePasswordOnlyLogin`·
+  `shellOverride`·`remoteAllowedHosts` 를 제외하고 업로드, Wave B §3.1), `sync_download(force) →
+  SyncDownloadResult`(`{ kind: 'applied', status } | { kind: 'conflict', remoteUpdatedAt }` — 로컬이
+  더 최신이면 `force` 없이는 충돌로 보고, 다운로드 페이로드도 동일 4필드를 강제 제외한다)
+- event: `sync:state-changed(status: SyncStatus)`
+
 ### 7.6 추가 (IDE 핵심 루프)
 
-- git: `git_branches`, `git_branch_create(name, checkout)`, `git_branch_checkout(name)`,
-  `git_branch_delete(name, force)`, `git_stash_list`, `git_stash_push(message?)`,
-  `git_stash_apply(index)`, `git_stash_drop(index)`, `git_discard_hunk(path, hunkStart, hunkEnd)`
-- search: `search_replace(query, replacement, paths?)` → `SearchReplaceResult { changedFiles, replacedMatches }`
+> git·search 신규 커맨드 목록은 위 `### git`·`### tree / search` 절로 통합했다 — 이 절에 다시 따로
+> 적으면 두 출처가 갈라져 이번처럼 문서 부채가 쌓인다(SSOT 유지).
 
-**`git_discard_hunk` 의 좌표 계약**: hunk 경계는 `git_gutter` 가 반환한 `GutterHunk { start, end }`
-를 그대로 넘긴다. Rust 쪽에서 두 함수가 **같은 diff 옵션과 같은 경계 계산 헬퍼**를 공유하므로
-프론트가 받은 좌표와 어긋날 수 없다. 이 불변식이 깨지면 엉뚱한 줄이 되돌려진다.
+**`git_discard_hunk` 의 좌표 계약**은 위 `### git` 절 말미로 옮겼다.
 
 ### 7.7 계약 확정 추가
 
@@ -359,8 +496,12 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `MirrorEntry { path, content, savedAtMs, diskModifiedMs, conflict }`(디스크 현재 mtime 을
   baseline 과 비교해 Rust 가 `conflict` 를 판정 — 원본이 사라진 항목은 목록에서 제외, 유령 복원
   금지), `file_list_untitled_mirrors(projectId)` → `UntitledMirrorEntry { tabId, content,
-  savedAtMs }`. mutation `file_mirror_dirty(projectId, path, content, diskModifiedMs)`(기존 시그니처에
-  baseline 인자 추가 — 호출부는 `file.modifiedMs` 를 그대로 전달), `file_clear_mirror(projectId,
+  savedAtMs }`. mutation `file_mirror_dirty(projectId, path, content) → number | null`(**Wave B
+  하드닝에서 정정**: B1 원안은 프론트가 `diskModifiedMs` 인자로 baseline 을 넘기는 4번째 인자
+  구조였으나, 미러 부활 버그 수정(Wave B 하드닝 패키지 §3.2 "미러 부활 A안" — `docs/acknowledge/
+  2026-08-15-wave-b-hardening-contract.md`) 과정에서 baseline 을 프론트가 신뢰해 넘기는 대신 Rust
+  가 쓰기 시점에 직접 stat 해 반환값으로 돌려주는 구조로 바뀌었다 — 인자에서 빠지고 반환값
+  `number | null` 이 됐다), `file_clear_mirror(projectId,
   path)`, `file_prune_mirrors(projectId, keepPaths)`(`keepPaths` 밖의 경로 미러 일괄 삭제 —
   프로젝트 열 때 GC), `file_mirror_untitled(projectId, tabId, content)`,
   `file_clear_untitled_mirror(projectId, tabId)`, `file_flush_complete()`(아래 종료 플러시 완료
@@ -394,7 +535,12 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `settings_update` 는 원격 세션에서도 호출 가능한 커맨드이므로, `dispatch.rs` 의 `settings_update`
   arm 이 원격 요청의 patch 에서 `remotePasswordOnlyLogin` 필드를 `None` 으로 스트립한 뒤 위임한다
   (원격 세션이 자기 게이트 모드는 못 바꾸되 그 외 설정은 정상 변경 가능 — `remoteAccessEnabled` 는
-  자가 차단=자기 접근 상실이라 스트립 대상에서 제외).
+  자가 차단=자기 접근 상실이라 스트립 대상에서 제외). **Wave B 하드닝에서 확장(정정)**: 스트립
+  대상이 `remotePasswordOnlyLogin` 1필드에서 `remoteAllowedHosts`·`shellOverride` 를 더한 **3필드**
+  로 늘었다 — gist 인바운드(§sync)의 `shellOverride` 미필터가 RCE 급 결함으로 확인되면서
+  (`docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §2·§3.1), `settings_update` 원격 경로도
+  같은 필드를 동일 원칙으로 스트립하도록 맞췄다. 자세한 허용/거부/스트립 전체 그림은
+  §"원격 dispatch 정책" 참조.
 - 인증 흐름 재배치(`auth_middleware`, 예외 0개였던 종전 구조에 최초로 예외 추가):
   1. Origin/Host 검사(그대로, Origin 헤더 부재는 허용 — 브라우저 GET 내비게이션 대응).
   2. 유효한 세션 쿠키(`taide_remote_session`, 이제 `HashMap<digest, 만료 Instant>` 로 저장되어
@@ -510,7 +656,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   {kind:'prompt', id: PromptTemplateId}`(`'auto-tab-default' | 'inline-edit-default' |
   'commit-message-default'`, `ai.md` §5 의 기존 파일과 동일 화이트리스트). 두 커맨드 모두
   `root_guard` 의 프로젝트 루트 검증 대상이 **아니다** — 경로 자체를 Rust `AppPaths` 가 유도하고
-  프론트/레이아웃에는 절대 경로가 노출되지 않는다.
+  프론트/레이아웃에는 절대 경로가 노출되지 않는다. `app_get_info` 도 같은 `app` 도메인에 속한다
+  (§"app" 절 — 이 커맨드는 Wave I 이전부터 있었다).
 - **settings(이벤트 실제 배선)**: `event: settings:changed` 는 이 문서에 이미 등재돼 있었지만 Wave I
   이전에는 실제로 발신되지 않았다(§2 확정 사실 7 — "load_settings 는 부팅 1회, 설정 변경 이벤트
   없음"). `settings::commands::apply_and_broadcast` 가 `settings_update`·`sync_download`·
@@ -530,16 +677,60 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   "원격 세션은 로컬 디스플레이/파일시스템 다이얼로그가 없다"는 기존 `file_flush_complete`/
   `remote_issue_link` 류 거부와 같은 근거. **`vsix_extract_themes` 도 이번에 허용→거부로 전환**했다
   — 이전에는 원격에서도 임의 로컬 파일 경로를 zip 으로 열어 읽을 수 있었다(§2 확정 사실 8, 제한적
-  임의 파일 읽기 표면). `plugin_list`/`plugin_reload` 는 원격에서도 그대로 허용(읽기 전용).
+  임의 파일 읽기 표면). `plugin_list`/`plugin_reload` 는 원격에서도 그대로 허용(읽기 전용). 전체
+  거부 목록(11종, 이 6종 + 이전부터 있던 4종 + `vsix_extract_themes` 전환분)은 §"원격 dispatch
+  정책" 참조.
 - **채널 다중화(내부 구현, 새 IPC 표면 아님)**: `lsp_spawn`(reuse 경로)과 `pty_attach` 는 이제 세션당
   구독자 목록을 유지해 여러 창이 같은 LSP 세션/pty 세션을 동시에 구독할 수 있다 — 메시지/출력은 전
   구독자에 브로드캐스트되고 `send` 가 실패한(창이 닫힌) 구독자는 다음 브로드캐스트에서 자동
   제거된다. 커맨드 시그니처·응답 타입은 변경되지 않았다.
 
+### 원격 dispatch 정책 (허용 · 거부 · 부분 스트립)
+
+> `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 는 178종 전부(raw 3종 제외)를 담고, 파리티 테스트
+> (`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`)가 이 목록과 `bindings.ts` 의 커맨드
+> 이름 집합이 완전히 같음을 강제한다. **목록에 있다고 전부 원격에서 실제로 실행되는 것은 아니다** —
+> `dispatch()` 의 `match` arm 이 실제로 무엇을 하는지에 따라 아래 3갈래로 나뉜다.
+
+- **기본 허용(위 목록에서 언급되지 않은 나머지 전부)**: `match` arm 이 실제 핸들러로 그대로 위임한다.
+  예: `git_*` 전종·`file_*`(아래 예외 제외)·`ai_*` 8종·`plugin_list`/`plugin_reload`/
+  `plugin_read_grammar`·`remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·
+  `sync_*`·`search_replace`(원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화
+  없음)·`theme_save`/`theme_delete`·`snippet_save`/`snippet_delete`·`git_init`.
+- **명시 거부(11종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
+  `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해 그대로 남아 있다(코드는 커맨드별 `deny_remote_*`
+  헬퍼):
+
+  | 커맨드 | 거부 사유(요약) |
+  |--------|-----------------|
+  | `remote_set_password` / `remote_clear_password` | 원격 세션이 자기 접속 게이트를 바꾸지 못하게 |
+  | `remote_issue_link` | 이미 인증된 원격 세션이 스스로 새 온보딩 링크를 발급해 접근을 자가 확장하지 못하게(Wave B §6) |
+  | `file_flush_complete` | 데스크톱 자신의 `CloseRequested` 종료 시퀀스만 재개 가능(Hot Exit) |
+  | `window_open_auxiliary` / `window_set_fullscreen` / `layout_move_tab_to_window` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I) |
+  | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) |
+  | `vsix_extract_themes` | Wave I 에서 허용→거부로 전환 — 임의 로컬 파일 읽기 표면이었음 |
+
+- **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종)**:
+  - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`
+    3필드를 `None` 으로 스트립한 뒤 위임(`remoteAccessEnabled` 는 자가 차단=자기 접근 상실이라
+    스트립 대상에서 제외) — Wave B 하드닝에서 1필드(`remotePasswordOnlyLogin`)에 나머지 2필드가
+    추가됐다.
+  - `app_file_write`(`target.kind === 'settings'` 일 때만): 파싱된 전체 `Settings` 에서 같은 3필드를
+    현재(적용 전) 값으로 되돌려쓴다 — patch 가 아니라 파일 전체 대치라 "지운다"가 아니라 "현재값
+    유지"로 구현된다(`settings_update` 와 동급 게이트 — Wave I §3.3). `target.kind === 'prompt'`
+    는 스트립 없이 그대로 위임한다.
+- **raw 채널 3종**(`pty_spawn`·`pty_attach`·`file_read_raw`)은 specta 파리티 대상이 아니라
+  `IMPLEMENTED_JSON_COMMANDS` 목록 자체에는 없지만, `dispatch()`/`dispatch_raw()` 의 별도 `match`
+  arm 으로 **원격에서도 그대로 허용**된다 — 목록에 없는 것이 원격 차단을 뜻하지 않는다(아래 "raw
+  커맨드" 절 참조).
+
 ### raw 커맨드 (specta 밖)
 
 `RAW_CHANNEL_COMMANDS`(`src-tauri/src/lib.rs`)에 등록된 3종은 specta 를 통과하지 못해
-`bindings.ts` 에 생성되지 않는다. `invoke()` 로 직접 호출한다.
+`bindings.ts` 에 생성되지 않는다. `invoke()` 로 직접 호출한다. 셋 다 `dispatch()`(`pty_spawn`·
+`pty_attach`) 또는 `dispatch_raw()`(`file_read_raw`)의 전용 `match` arm 으로 원격에서도 다뤄진다
+(§"원격 dispatch 정책" 참조) — `IMPLEMENTED_JSON_COMMANDS` 배열에 없는 것은 파리티 테스트 대상이
+아니기 때문일 뿐, 원격 미지원을 뜻하지 않는다.
 
 | 커맨드 | 이유 |
 |--------|------|
@@ -557,7 +748,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - Remote 도메인: 비밀번호·해시·세션/nonce 토큰 원문은 로그(`log::info!`/`log::warn!`)·IPC 응답·
   이벤트 payload 어디에도 실리지 않는다(`RemoteStatus` 는 `passwordConfigured: bool` 만 노출).
   비교는 전부 `constant_time_eq` 경유(토큰·비밀번호 동일 경로). 자세한 흐름은 §3 "Remote 비밀번호"
-  절 참조.
+  절, 커맨드별 허용/거부 전체 그림은 §3 "원격 dispatch 정책" 절 참조.
 - **zip 아카이브 하드닝(Wave I)**: `plugin_install`(아카이브 경로)·`vsix_import_plugin` 이 공유하는
   `vsix::service::extract_hardened_zip` 은 엔트리 수 상한(`VSIX_ARCHIVE_MAX_ENTRIES` 5000)·누적
   압축 해제 바이트 예산(`VSIX_ARCHIVE_MAX_TOTAL_BYTES` 128MB — zip bomb 방어)·경로는

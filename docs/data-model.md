@@ -28,7 +28,14 @@ TAIDE/
 │                            editorFormatOnPaste(기본 false)·emmetEnabled(기본 true) — Wave F,
 │                            `features/editor.md` §8/§9/§11.
 │                            aiAutoTabEnabled(기본 false)·aiProvider·aiModel·aiOmlxBaseUrl — Wave G,
-│                            `features/ai.md` §1, 필드 리네임은 §7)
+│                            `features/ai.md` §1, 필드 리네임은 §7.
+│                            remoteAllowedHosts(기본 []) — Wave B,
+│                            `acknowledge/2026-08-15-wave-b-hardening-contract.md`(원격 세션 허용
+│                            호스트명 화이트리스트, sync 업로드·원격 dispatch 대상에서 제외).
+│                            recentSearches(기본 [], 상한 20·중복 제거는 프론트 담당·서버는 순수
+│                            passthrough) — Wave D,
+│                            `acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
+│                            zenFullscreen(기본 false)·zenHideStatusBar(기본 true) — Wave I, §8)
 ├── prompts/                 사용자 AI 프롬프트 오버라이드(`<id>.json`, `auto-tab-default`·
 │                            `inline-edit-default`·`commit-message-default`) — Wave G,
 │                            `features/ai.md` §5
@@ -61,6 +68,8 @@ struct ProjectLayout {
     version: u32,                       // Wave I: 2 (§8 마이그레이션 참조)
     root: PaneNode,                     // 스플릿 트리 — main 창
     focused_pane: PaneId,
+    revision: u32,                      // 낙관적 동시성 카운터 — LayoutChanged{projectId, revision} 로 브로드캐스트
+    closed_tabs: Vec<ClosedTab>,        // 최근 닫은 탭 스택(≤ CLOSED_TAB_STACK_LIMIT=20) — 재-오픈 지원
     auxiliary_windows: Vec<AuxWindowLayout>,  // Wave I 신설 — §8
     shell_view: ShellViewState,               // Wave I 신설 — §8
 }
@@ -72,10 +81,17 @@ enum PaneNode {
 
 struct Tab {
     id: TabId,
-    kind: TabKind,                      // File { path } | Terminal { session } | Settings | Diff { .. } | AppFile { target } | ...
+    kind: TabKind,                      // File{path} | Terminal{sessionId, cwd?} | Settings | Diff{path,staged,compareWith?}
+                                         // | ClaudeDiff{requestId,path} | Welcome | Untitled{index} | SearchEditor{query}(Wave D)
+                                         // | AppFile{target}(Wave I) — 9종, §8
+    title: String,
     pinned: bool,
     preview: bool,
+    dirty: bool,
+    view_state: Option<String>,         // 에디터별 viewState(커서·스크롤) — monaco 가 직렬화한 불투명 JSON 문자열
 }
+
+struct ClosedTab { tab: Tab, pane_id: PaneId, index: u32 }
 ```
 
 - `ProjectId` 는 **UUID** 다. 경로 해시가 아니므로 폴더가 이동해도 프로젝트 상태를 잇는다
@@ -264,3 +280,155 @@ emit·이중 `exit()` 를 가드한다.
     다른 leaf 로는 명시적 분할 이동으로만 중복 — `tabs.md` §3).
 - **`Settings` 신규 필드 2종**: `zen_fullscreen: bool`(기본 false) · `zen_hide_status_bar: bool`
   (기본 true). 둘 다 `SettingsPatch`/`emptySettingsPatch`/sync 페이로드에 포함된다.
+
+## 9. Wave A~I 신규 도메인 타입 — 영속 스키마에 포함되는 것
+
+> Rust 정본은 각 도메인의 `types.rs`, TS 는 `src/shared/api/bindings.ts` 자동 생성(ADR-0011).
+> 아래 세 타입은 §1의 "영속 상태"에 실제로 쓰인다 — 나머지 신규 타입(Task·git·AI 요청/응답 등)은
+> 디스크에 쓰이지 않는 순수 IPC 페이로드라 §10 에 별도 정리한다.
+
+### 9.1 스니펫 파일 — `snippets/<languageId>.json` · `*.code-snippets` (Wave F)
+
+```rust
+enum SnippetStringOrList { Single(String), Multiple(Vec<String>) }  // #[serde(untagged)] → TS: string | string[]
+
+struct SnippetEntry {
+    prefix: SnippetStringOrList,
+    body: SnippetStringOrList,
+    description: Option<SnippetStringOrList>,  // 없으면 직렬화 생략
+    scope: Option<String>,                     // `.code-snippets` 전용(languageId 콤마 목록), 프론트가 해석
+}
+
+struct SnippetFile { file_name: String, snippets: BTreeMap<String, SnippetEntry> }
+```
+
+- VS Code 스니펫 스키마 호환. `isFileTemplate`/`include`/`exclude` 는 의도적으로 모델링하지 않는다
+  (알 수 없는 JSON 필드는 serde 기본 동작으로 조용히 버려짐 — `2026-08-15-wave-f-editor-presentation-contract.md`
+  §3.3 "1차 무시" 결정).
+- 파싱 실패 파일은 목록에서 스킵 + 로그만 남긴다(테마 목록 로딩과 동일한 견고성 원칙). Rust 는
+  캐시하지 않고 프론트 TanStack Query 가 `snippet_save`/`snippet_delete` 성공 시 invalidate 로 재조회한다.
+- **실측 확인**: `bindings.ts` 는 `SnippetEntry`/`SnippetFile` 을 각각 `SnippetEntry_Serialize` |
+  `SnippetEntry_Deserialize`(`SnippetFile` 도 동형)로 쪼갠다 — §7 에서 `Settings`/`SettingsPatch` 가
+  피해간 것과 같은 specta 유니온 분할 현상이 여기서는 실제로 발생해 있다(중첩된
+  `SnippetStringOrList` 의 `#[serde(untagged)]` 이 원인으로 보인다). 두 절반의 필드 구성은 현재
+  동일해 기능상 문제는 없지만, `ipc-contract.md` 의 snippet 절(`SnippetEntry = { prefix, body,
+  description?, scope? }`)은 이 분할을 반영하지 않은 단순화된 표기다.
+
+### 9.2 AI 프롬프트 오버라이드 — `prompts/<id>.json` (Wave G)
+
+```rust
+struct AiPromptTemplate            { version: u32, fim: AiFimPromptTemplate, chat: AiChatPromptTemplate }  // 기존(auto-tab)
+struct AiInlineEditPromptTemplate  { version: u32, system: String, user: String }  // Wave G 신설
+struct AiCommitMessagePromptTemplate { version: u32, system: String, user: String }  // Wave G 신설
+```
+
+- `id` 는 `app::types::PromptTemplateId`(`auto-tab-default` | `inline-edit-default` |
+  `commit-message-default`, kebab-case 직렬화)와 1:1. `ai::prompt::load_*` 가 `prompts_dir()/{id}.json`
+  을 읽어 실패(부재·파싱 실패) 시 내장 기본값(`bundled_*_template`)으로 폴백한다.
+- Inline Edit·AI 커밋 메시지가 별도 템플릿 파일로 분리된 이유: 기존 `AiPromptTemplate`(auto-tab, FIM
+  구조)과 셰이프가 달라 재사용하면 사용자 오버라이드가 서로 충돌한다 —
+  `2026-08-16-wave-g-ai-contract.md` §2-3.
+- `TabKind::AppFile { target: AppFileTarget::Prompt { id } }` 로 이 파일들을 일반 파일 탭처럼 여닫을
+  수 있다(§8). hot-exit 미러 대상에서는 제외.
+
+### 9.3 `SearchQuery` — `TabKind::SearchEditor` 에 임베드되어 `layout.json` 에 영속 (Wave D)
+
+```rust
+struct SearchQuery {
+    text: String,
+    case_sensitive: bool,           // 기본 false
+    whole_word: bool,                // 기본 false
+    regex: bool,                     // 기본 false
+    include_glob: Option<String>,
+    exclude_glob: Option<String>,
+    context_lines: u32,              // 기본 0 — Search Editor 만 opt-in, 기존 퀵서치 패널은 컨텍스트 없음 그대로
+    respect_gitignore: bool,         // 기본 true — VS Code `search.useIgnoreFiles` 기본값과 동일
+}
+```
+
+- Search Editor 탭은 **쿼리만** 영속하고 결과(`SearchMatch[]`)는 영속하지 않는다 — 재시작 시
+  탭 복원 직후 `search_run` 을 다시 실행한다(대량 결과를 매 세션 저장 파일에 태우지 않기 위함,
+  `2026-08-15-wave-d-search-nav-contract.md` §3.4). `SearchMatch` 자체는 §10.3 참조.
+- `context_lines`/`respect_gitignore` 모두 `#[serde(default = ...)]` 라 이 필드가 없던 이전 호출부
+  (퀵서치 패널)도 그대로 역직렬화된다.
+
+## 10. Wave A~I 신규 도메인 타입 — 비영속 IPC 타입 (참고 인벤토리)
+
+> 아래는 디스크에 쓰이지 않는 요청/응답 DTO다. 커맨드 시그니처·이벤트의 정본은
+> `docs/ipc-contract.md`(도메인별 §3) · 각 `docs/features/*.md` 이며, 여기서는 캠페인 문서 정합화
+> 범위에 맞춰 타입 셰이프만 실측 대조해 둔다.
+
+### 10.1 태스크 러너 — `Task`/`TaskSource` (Wave E)
+
+```rust
+enum TaskSource { Npm, Make, Cargo }               // TS: "npm" | "make" | "cargo"
+struct Task { label: String, command: String, source: TaskSource, cwd: String }
+```
+
+- `task::commands::detect_tasks(projectId)` 가 매 호출 `package.json`/`Makefile`/`Cargo.toml` 을 훑어
+  즉석에서 만들어내는 순수 파생값이다. 저장·캐시하지 않는다 — 재시작 후에도 다시 감지된다.
+
+### 10.2 git 신규 타입 (Wave C 3-way·hunk·revert·tag·파일히스토리, Wave G/H AI 커밋 메시지)
+
+```rust
+struct ConflictSides { base: Option<String>, ours: Option<String>, theirs: Option<String>, workdir: String }  // Wave C
+struct CommitFile    { path: String, orig_path: Option<String>, kind: GitChangeKind }                          // Wave C
+struct TagInfo        { name: String, target: String, message: Option<String>, annotated: bool }              // Wave C
+struct TagCreateOptions { message: Option<String>, annotated: bool }                                            // Wave C
+struct RevertOutcome  { conflicted: bool, conflicted_paths: Vec<String> }                                       // Wave C
+struct StagedDiffText { diff_text: String, truncated: bool, skipped_files: Vec<String>, used_fallback: bool }  // Wave G, used_fallback 은 Wave H
+```
+
+- `ConflictSides` 는 index stage 1/2/3(ancestor/ours/theirs) blob + workdir 현재 내용을 함께 준다
+  (`git_conflict_sides`). add/add 충돌처럼 base 가 없는 경우는 `None`.
+- `RevertOutcome.conflicted_paths` 는 revert 가 충돌로 끝났을 때 다음 상태 새로고침을 기다리지 않고
+  바로 첫 충돌 파일로 안내하기 위한 필드.
+- `StagedDiffText.used_fallback` 은 staged 델타가 0건이라 HEAD↔워킹트리(untracked 포함) 전체 diff 로
+  대체됐다는 표시(Wave H, `2026-08-16-wave-h-keymap-contract.md` §3.4). AI 커밋 메시지 생성
+  (`ai_commit_message`, §10.4) 의 유일한 소비처다.
+
+### 10.3 `SearchMatch` (Wave D) — §9.3 의 영속 `SearchQuery` 와 대비되는 비영속 결과
+
+```rust
+struct SearchMatch {
+    path: String, line: u32, column: u32, preview: String, match_start: u32, match_end: u32,
+    before: Vec<String>,  // SearchQuery.context_lines 만큼, 기본 0 이면 항상 빈 배열
+    after: Vec<String>,
+}
+```
+
+### 10.4 AI 요청/응답 (Wave G — Inline Edit·AI 커밋 메시지, `AiInlineComplete*`(auto-tab)는 캠페인 이전부터 존재해 제외)
+
+```rust
+struct AiInlineEditRequest  { request_id, provider: Option<AiProviderId>, model: Option<String>,
+                               selection, instruction, language, file_path, prefix, suffix: String }
+struct AiInlineEditResponse { request_id: String, text: Option<String> }
+struct AiCommitMessageRequest  { request_id, provider: Option<AiProviderId>, model: Option<String>,
+                                  diff_text, recent_commits: String }
+struct AiCommitMessageResponse { request_id: String, text: Option<String> }
+```
+
+- `provider`/`model` 이 없으면 `Settings.ai_provider`/`ai_model`(§7)을 기본값으로 쓴다.
+- 프롬프트 렌더링에는 §9.2 의 `AiInlineEditPromptTemplate`/`AiCommitMessagePromptTemplate` 을 쓴다.
+
+### 10.5 `AuxiliaryWindowInfo` (Wave I) — `window_open_auxiliary` 의 반환값, §8 의 영속 `AuxWindowLayout` 과는 다른 타입
+
+```rust
+struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: u32 }
+```
+
+- `label`(Rust 가 발급하는 `editor-<n>` OS 창 라벨)은 이 반환값에만 있고 §8 의 `AuxWindowLayout` 에는
+  없다 — 레이아웃은 `slot`(프로젝트 범위 논리 id)만 기억하고, OS 창 라벨과의 매핑은 런타임
+  `WindowStore` 가 들고 있다가 창이 닫히면 버려진다(영속되지 않음).
+
+## 11. 설정 변경 브로드캐스트 — `SettingsChanged` 이벤트 (Wave I 신설 배선)
+
+- `event::SettingsChanged { settings: Settings }` 는 이벤트 자체는 Wave I 이전부터 `events.rs` 에
+  등재돼 있었으나 실제로 발신된 적이 없었다. Wave I 에서 `settings::commands::apply_and_broadcast` 가
+  `settings_update`(patch)·`sync_download`(gist)·`app_file_write`(Settings 타깃, §9.2/§8) 세
+  진입점의 공용 코어가 되면서 셋 다 이 이벤트를 전 창(+원격)에 발신하기 시작했다.
+- 페이로드는 sanitize 를 마친 **전체** `Settings`(§3) 다 — 리스너가 왕복 없이 즉시 반영할 수 있게
+  하려는 설계이며, 프론트 관례는 이 페이로드로 `SETTINGS.CURRENT` 쿼리를 직접 `setQueryData` 하는
+  것이다(무효화 후 재조회가 아니다). 이벤트/커맨드 전체 카탈로그의 정본은
+  `docs/ipc-contract.md`(§3 "Wave I 계약 확정 추가")이며, 이 절은 §2 의 `settings.json` 영속
+  스키마가 변경 시 실제로 어떻게 전파되는지를 잇기 위한 최소 교차 참조다.
