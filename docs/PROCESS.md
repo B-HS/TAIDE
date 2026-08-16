@@ -364,9 +364,19 @@
                 822+6+17) + vite build exit 0 메인 직접 실행. 계약 §7 검토 요약 보강. 커밋
     - [ ] c-I. Wave I — 셸·워크스페이스(Zen/포커스·멀티 윈도우·설정 파일 탭 편집·플러그인 설치
           UI·VSIX grammar — 최대 구조 변경, 캠페인 최종).
-          - [ ] 정찰(wf_c2974bc4-295, opus+high 4축: 레이아웃·윈도우 현행+Zen 재료 / 설정 탭 편집·
-                root_guard / 플러그인·VSIX / Tauri 2 멀티윈도우 실태+MVP 재평가) → 하중 재검증 →
-                계약(추천안 패키지) → 구현 → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋
+          - [x] 정찰 완료(wf_c2974bc4-295, opus+high 4축) — 하중 전건 메인 재검증. **멀티 윈도우
+                차단급 결함 4종 확정**(부창 닫기=앱 전체 종료·lsp_spawn 재사용 Channel 폐기·
+                pty_attach 단일 구독자 탈취·capability 반생존) + load_layout 버전 폴백(마이그레이션
+                없음 — 탭 전량 소실 위험)·설정 저장 미반영(sync 동일 기존 결함)·플러그인 신규 언어
+                grammar 화면 미도달·vsix 원격 노출·zip 하드닝 부재
+          - [x] 계약 확정(`2026-08-16-wave-i-shell-workspace-contract.md`, 결정 4건 — H prod 병합
+                (9f16b3e)·**멀티 윈도우 완전 구현**(사용자: "MVP 가 아니라 제대로 완벽하게" — 창=탭
+                분리 tabs.md §4.4 정합·차단급 4종 근본 수정: LSP 채널 다중화·pty 다중 구독자·창별
+                close·capability 글로브)·Zen 추천(레이아웃 영속+마이그레이션 arm 신설)·설정탭+
+                플러그인 추천(AppFile·SettingsChanged·VSIX→플러그인 착지·동적 언어 등록·원격 거부
+                전환·zip 하드닝))
+          - [ ] 구현(S1 Rust 인프라 → S2 Rust 도메인 → F1 창∥F2 Zen∥F3 설정탭·플러그인 → D 통합)
+                → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
