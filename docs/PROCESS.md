@@ -304,12 +304,16 @@
                 실물 재검증+반환 타입 1건 직접 수정+verify 전체 exit 0(972/817+6+17)+vite build 0.
                 플레이키 1건(dirty 미러 — Wave G 무관·단독 5회 통과) 기록. 커밋
     - [ ] c-H. Wave H — 키맵 엔진(chord ⌘K ⌘S·when 컨텍스트·shift+기호 캡처 — 전면 개정).
-          - [ ] 정찰(wf_21fd174b-f0d, opus+high 4축: 현행 키맵 전수·chord 엔진·when 컨텍스트·
-                shift+기호 캡처+통합 리스크) → 하중 재검증. **선행 결정 존중**: 기능확장 2차 k 의
-                "code 무조건 우선 기각"과 양립하는 설계만. Wave G 보류분(⌘K 재검토) 이 웨이브 소관
-          - [ ] 계약(추천안 패키지 — **Wave G prod 병합 여부·Sparkles 버튼 staged 0건 정책(검토
-                보류 design-11) 재확인을 질문 묶음에 포함**) → 구현 → 4렌즈 → 적대적 → 수정 →
-                메인 2차 → 커밋
+          - [x] 정찰 완료(wf_21fd174b-f0d, opus+high 4축) — 하중 전건 메인 재검증. **핵심 발견**:
+                shift+기호는 이미 code 경로 동작(갭 §7 stale)·window capture 가 monaco 선행(⌘K
+                점유 시 chord 21건 전멸)·**기존 회귀 4건**(APP_KEYMAP ⌘B/F/=/- 가 monaco chord 2단
+                삼킴)·monaco chord 5000ms 타임아웃+status no-op·when dead field·terminal-pane
+                오버라이드 미적용·ContextKeyExpr 번들 실존
+          - [x] 계약 확정(`2026-08-16-wave-h-keymap-contract.md`, 결정 4건 — G prod 병합 완료
+                (c3e60c4)·Sparkles unstaged 폴백 채택(G 보류 해소)·범위 재정의+결함 상환·chord/when
+                추천 패키지+**마이그레이션 보수**(행동 변화 0))
+          - [ ] 구현(A Rust 소규모 → B 키맵 코어 단독 → C1 캡처 UI∥C2 소비처·카탈로그 → D 통합)
+                → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋
     - [ ] c-I. Wave I — 셸·워크스페이스 (최후)
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
