@@ -362,7 +362,11 @@
                 스냅샷 가드·인스펙터 동결·⌘K ⌘S mods·when !terminalFocus·레거시 별칭·
                 deriveMonacoChordPrefixes 전건 소스 확인) + verify 전체 exit 0(프론트 1098·Rust
                 822+6+17) + vite build exit 0 메인 직접 실행. 계약 §7 검토 요약 보강. 커밋
-    - [ ] c-I. Wave I — 셸·워크스페이스 (최후)
+    - [ ] c-I. Wave I — 셸·워크스페이스(Zen/포커스·멀티 윈도우·설정 파일 탭 편집·플러그인 설치
+          UI·VSIX grammar — 최대 구조 변경, 캠페인 최종).
+          - [ ] 정찰(wf_c2974bc4-295, opus+high 4축: 레이아웃·윈도우 현행+Zen 재료 / 설정 탭 편집·
+                root_guard / 플러그인·VSIX / Tauri 2 멀티윈도우 실태+MVP 재평가) → 하중 재검증 →
+                계약(추천안 패키지) → 구현 → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
