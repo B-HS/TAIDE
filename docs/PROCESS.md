@@ -589,6 +589,13 @@
           TreeStore/LSP kill/restart_count/asset scope 재등록 — T0 #15 롤백분 근본안)·T1-B
           Settings 타입 union 좁히기(as 9지점 제거). 실행 R1→R2→R3 순차→F 병렬→D→E. 대형
           3건(T1-H·T1-I/C13·T2-E)은 후반 — 착수 시 위험 재고지
+    - [ ] d-9. 감사 T1 정비 2차 배치(T1-G·asset scope·T1-F) — **착수**(2026-08-18 사용자: T1
+          2차 배치). 1차 완료(main=682ca6a) 위. **계약 정본:
+          `docs/acknowledge/2026-08-18-audit-t1-batch2-contract.md`**. T1-G 인프라·보안 하드닝
+          (nonce Secure·/__taide/file CSP·nosniff·shell temp 권한·resolve_owning_project 결정성·
+          http 싱글톤·manifest expect 제거·ai bytes 상한)·asset scope 재등록(X1#7 1차 이월 —
+          Range 위험 재평가 후 진행/재이월)·T1-F 레이어 이동(C1 12파일). R1→R2→F→D→E. T1-C·T1-D
+          는 3차. 대형(T1-H·T1-I)은 후반·위험 재고지
     - [x] d-7. mtime flaky 근본 수정 완료(dev `d2204f7`) — **실은 프로덕션 데이터 무결성 버그**.
           진단(wf_1798253b-8ad, fable+high): serde_json 기본 파서가 f64 를 ~5.5% 확률로 1 ULP
           낮게 파싱(float_roundtrip 피처 부재) → 앱 재시작 후 미러 복원 시 디스크 무변경에도
