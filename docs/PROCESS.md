@@ -504,7 +504,14 @@
           재검증 9건 전건 확정**(watcher .git 필터·project_close 미회수·ime-debug 원문 수집·
           auto-save 경로 이월·agent_cli_install/lsp_install 원격 허용·forbid_directory 0·
           search_replace 가드부재·pty_kill 호출0). 확인 문항 12건은 보고서 §9
-    - [ ] d-5. 감사 T0 수정 착수 — 사용자 확인 대기(보고서 §9 결정 문항)
+    - [ ] d-5. 감사 T0(즉시 수정) 24항목 — **착수**(2026-08-18 사용자 4문항 전부 추천안:
+          T0 지금·세부 8건 추천안·대형 3건 T1 포함·e2e 파일럿 준비). **계약 정본:
+          `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md`**. 실행: R1(Rust 보안 deny 5)
+          → R2(Rust 데이터·기능, 순차) → F 병렬 4 → D 통합 → E 검토(별도). 대형 3건
+          (T1-H 락 IO·T2-E AppError·C13 도메인경계)은 T1 편성 — T1-H 착수 시 동시성 위험
+          재고지 필요
+    - [ ] d-6. e2e 파일럿 실행 — 사용자 준비(앱 기동·REMOTE·비밀번호 export) 후 bun run e2e,
+          결과 메인 분석(WebGL·포트 발견 실측). T0 와 독립 병행
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
