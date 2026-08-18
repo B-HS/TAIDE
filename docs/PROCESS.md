@@ -505,22 +505,46 @@
               content-box 전제 파괴(오버라이드 1규칙으로 근본 해결) ⑥커밋 diff: Wave C 계약
               §3.2 원문이 원래 "파일 클릭→기존 diff 탭"(L0-2 가 범위 밖으로 미룬 TabKind::Diff
               rev 확장이 실행 수단 — 기각 재론 아님, 원계약 복귀)
-    - [ ] d-2. 손 QA 1차 발견 6건(2026-08-18 사용자 실기 보고) — 진단·재검증·계약 확정 완료,
-          수정 착수. **수정 계약 정본: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md`**
-          (사용자 승인: 전부 추천안 — 수식어 ⌘·⌥+altClickMovesCursor 해제·follow_system_theme
-          자동 해제·와일드카드 베이스 불포함·LSP Rust+프론트 병행). 실행: Phase R(Rust 단독)
-          → F 병렬 4 → D 통합 → E 검토(4렌즈+적대적+수정+메인 2차) → 커밋
-        - [ ] d-2-1. 터미널 링크 Option+클릭 시 외부 브라우저로 안 열림
-        - [ ] d-2-2. 초기 기동 시 테마 색상 미추종 의심(콜드 스타트 — reload 플래시 수정과 별개
-              경로 여부 확인)
-        - [ ] d-2-3. remote allowed hosts 와일드카드 미지원 → 지원 추가(패턴 의미론·보안 영향
-              검토 동반)
-        - [ ] d-2-4. 파일 열기 후 로딩("코드베이스 읽기") 완료 전까지 단축키·힌트 무반응, 닫기
-              지연 — 원인 미상(LSP/인덱싱/프리로드 후보) 진단 필요
-        - [ ] d-2-5. Peek Definitions 우측 파일 트리에서 파일명과 chevron(캐럿) 겹침(스크린샷
-              확보) — monaco peek 트리 스타일 결함
-        - [ ] d-2-6. git 커밋 상세: 파일 클릭 시 diff 가 커밋 파일 목록 패널 안에 렌더됨 → 에디터
-              code view(디프 탭) 로 열리게 변경(Wave C L0-2 결정과의 관계 확인 동반)
+    - [ ] d-2. 손 QA 1차 발견 6건(2026-08-18 사용자 실기 보고) — 진단·재검증·계약 확정·수정 완료,
+          **Phase E(검토)·커밋만 잔여**. **수정 계약 정본: `docs/acknowledge/2026-08-18-hand-qa-fix-
+          contract.md`** (사용자 승인: 전부 추천안 — 수식어 ⌘·⌥+altClickMovesCursor 해제·
+          follow_system_theme 자동 해제·와일드카드 베이스 불포함·LSP Rust+프론트 병행). 실행:
+          Phase R(Rust 단독)·F 병렬 4·D 통합 완료 → **E 검토(4렌즈+적대적+수정+메인 2차) → 커밋**.
+          구현(wf_5a1c9ff7-dfb) 후 **메인 실물 재검증 완료**: lsp_stop diff 원분기 보존·스토어
+          선제거·검증기·매칭 fn·TabKind·배선 전건 대조 일치, `bun run verify` 메인 직접 재실행
+          exit 0(테스트 1127→1159 프론트·904→933 Rust). R 자진 하드닝 1건(lsp_restart 스토어
+          재확인 — 가드 축소가 새로 연 stop/restart 경합 leak 차단)·D 접합부 결함 1건 발견·수정
+          (flushLspSessionDisposal 미배선 → lsp-session-flush-registry). **Phase E 검토 일시중지
+          (2026-08-18 사용자 지시 — 자리 이동)**: wf_0fefd373-dac 를 렌즈 4개 완료 0건 시점에
+          정지(캐시 손실 없음 — 처음부터 재실행 동등). 구현분은 사용자 지시로 검토 전 dev 커밋.
+          **재개 절차**: 검토 스크립트 보존본 `docs/utils/2026-08-18-hand-qa-fix-review.workflow.js`
+          를 Workflow({scriptPath}) 로 신규 실행(4렌즈 opus+xhigh → critical/major 적대적 검증
+          opus+high → confirmed+minor 수정 sonnet+xhigh) → 메인 2차(핵심 수정 실물 재검증 +
+          bun run verify + vite build) → 수정분 커밋. 주의: 검토 대상은 "직전 커밋의 손 QA 수정
+          diff"(git show 또는 커밋 범위 diff — 워킹트리가 클린해졌으므로 스크립트 내 "워킹트리
+          변경" 문구를 해당 커밋 해시 기준으로 치환해 실행)
+        - [x] d-2-1. 터미널 링크 Option+클릭 시 외부 브라우저로 안 열림 — `system_open_external_url`
+              신설(http/https 화이트리스트, 원격 거부) + `WebLinksAddon` 핸들러 주입(⌘/⌥ 겸용) +
+              `window.open` 선시도→IPC 폴백 + `altClickMovesCursor: false`로 수정
+        - [x] d-2-2. 초기 기동 시 테마 색상 미추종 — reveal 게이트가 로케일 `isFetched` 도 함께
+              보도록 수정(`isWindowReadyToReveal`) + `follow_system_theme` 자동 해제(`set_theme`) +
+              테마 로드 실패 배너
+        - [x] d-2-3. remote allowed hosts 와일드카드 지원 추가 — `*.` 접두 1레이블 매칭(RFC 6125,
+              베이스 도메인 불포함), `host_matches_allowed_entry` 로 `is_allowed_host`/
+              `is_insecure_connection` 매칭 단일화, sanitize·링크 발급 폴백 동반
+        - [x] d-2-4. 파일 열기 후 무반응·닫기 지연 — 원인 확정(`lsp_stop` 전역 락 보유 중 고정
+              4초 sleep). `lsp_stop`/`lsp_restart` 가드 축소 + 프로세스 종료 폴링(`wait_for_
+              process_exit`) + 프론트 세션 dispose 유예(`LSP_SESSION_DISPOSE_GRACE_MS`)로 수정.
+              접합부(Phase D): 유예 세션의 프로젝트 닫기·hot-exit 확정 정리 배선 추가
+        - [x] d-2-5. Peek Definitions 우측 파일 트리 chevron·파일명 겹침 — `.monaco-tl-twistie
+              { box-sizing: content-box }` 1규칙으로 수정(`docs/bug/2026-08-18-peek-tree-caret-
+              overlap.md`)
+        - [x] d-2-6. git 커밋 상세 diff 를 에디터 탭으로 승격 — `TabKind::Diff` 에 `rev`/
+              `parentRev`/`beforePath` 확장(하위 호환), 기존 `CommitFileDiff`/`git_show_file`
+              재사용, 신규 커맨드 0(`docs/features/git.md` §9)
+        - 실기 재검(qa6 추가 — 코드/자동테스트가 아니라 실제 기동으로만 확인 가능한 항목)은
+          `docs/quality-assurance/2026-08-11-qa6-checklist.md` "손 QA 1차 수정 재검(2026-08-18)"
+          절로 이월
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
 - [x] f. PROCESS.md 아카이브 완료 — 문서화·Phase 0~7.10(W1~W7) 섹션 1,022줄을
       `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 이전 (1,171줄 → 151줄).

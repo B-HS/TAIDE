@@ -22,6 +22,11 @@ pub struct LspProcConfig {
 pub struct LspProcHandle {
     stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
     kill_requested: Arc<AtomicBool>,
+    /// Flipped to `true` by the wait loop below the instant `child.try_wait()`/`wait()`
+    /// observes the process has actually exited — *before* the `on_exit` callback runs, so a
+    /// caller polling [`LspProcHandle::is_exited`] (see `domain::lsp::commands::shutdown_entry`)
+    /// can detect real process death directly instead of guessing from a fixed sleep.
+    exited: Arc<AtomicBool>,
     pid: Option<u32>,
 }
 
@@ -42,6 +47,13 @@ impl LspProcHandle {
     /// (`domain::system::commands::system_usage_breakdown`).
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    /// Whether the wait loop spawned in [`spawn`] has observed this process exit. Lets a shutdown
+    /// sequence poll for real process death (bounded by its own timeout) instead of blindly
+    /// sleeping for a fixed duration regardless of how quickly the server actually exits.
+    pub fn is_exited(&self) -> bool {
+        self.exited.load(Ordering::SeqCst)
     }
 }
 
@@ -131,6 +143,8 @@ where
 
     let kill_requested = Arc::new(AtomicBool::new(false));
     let kill_for_wait = kill_requested.clone();
+    let exited = Arc::new(AtomicBool::new(false));
+    let exited_for_wait = exited.clone();
 
     tokio::spawn(async move {
         loop {
@@ -140,6 +154,7 @@ where
 
             match child.try_wait() {
                 Ok(Some(status)) => {
+                    exited_for_wait.store(true, Ordering::SeqCst);
                     on_exit(status.code());
                     break;
                 }
@@ -147,6 +162,7 @@ where
                     tokio::time::sleep(Duration::from_millis(LSP_WAIT_POLL_MS)).await;
                 }
                 Err(_) => {
+                    exited_for_wait.store(true, Ordering::SeqCst);
                     on_exit(None);
                     break;
                 }
@@ -157,6 +173,7 @@ where
     Ok(LspProcHandle {
         stdin: tokio::sync::Mutex::new(stdin),
         kill_requested,
+        exited,
         pid,
     })
 }
@@ -216,5 +233,44 @@ mod tests {
     fn content_type_헤더가_섞여도_content_length만_읽는다() {
         let mut buffer = b"Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 5\r\n\r\nhello".to_vec();
         assert_eq!(try_take_message(&mut buffer), Some("hello".to_string()));
+    }
+
+    /// Real-process exercise of the `exited` flag `domain::lsp::commands::shutdown_entry`'s
+    /// polling loop reads via [`LspProcHandle::is_exited`]. `sh -c "exit 0"` is a real child
+    /// process, not a mock, so this genuinely proves the wait loop's `try_wait` branch flips the
+    /// flag on real process death rather than only on the `kill_requested` path.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 프로세스가_스스로_종료하면_is_exited가_true로_바뀐다() {
+        let config = LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "exit 0".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+
+        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while !handle.is_exited() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        assert!(handle.is_exited(), "짧게 실행되고 종료하는 프로세스는 곧 감지되어야 한다");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kill을_호출하지_않으면_is_exited는_계속_실행중인_프로세스에서_false를_유지한다() {
+        let config = LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 5".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+
+        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(!handle.is_exited(), "아직 실행 중인 프로세스는 종료로 감지되면 안 된다");
+        handle.kill();
     }
 }

@@ -215,17 +215,35 @@ fn is_valid_dns_label(label: &str) -> bool {
 }
 
 /// Accepts only a bare hostname or IPv4 literal for a `remote_allowed_hosts`
-/// entry — no scheme, userinfo, path/query, whitespace, or port.
+/// entry — no scheme, userinfo, path/query, whitespace, or port — with one
+/// exception: a leading `*.` marks the entry as an RFC 6125 single-label
+/// wildcard (`remote::service::host_matches_allowed_entry` is the matcher).
 /// `remote::service::is_allowed_host` matches entries against the `Host`
 /// header's hostname alone, and `remote::service::format_issue_link_url`
-/// interpolates the first entry verbatim into `https://{host}/...`; anything
-/// else either never matches (silently disabling the tunnel) or corrupts the
-/// issued link (a scheme yields `https://https://...`, and
+/// interpolates the first non-wildcard entry verbatim into `https://{host}/...`;
+/// anything else either never matches (silently disabling the tunnel) or
+/// corrupts the issued link (a scheme yields `https://https://...`, and
 /// `real.example.com@attacker.example` would make a browser send the link's
 /// one-time token to `attacker.example` as if `real.example.com` were
 /// userinfo). See `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6.
+///
+/// The wildcard's remainder is validated the same way a bare hostname is,
+/// plus one extra requirement: it must itself contain at least one more `.`
+/// (i.e. two or more labels), so a bare `*` (no `*.` prefix, falls through to
+/// the non-wildcard branch and fails there since `*` isn't a valid DNS label)
+/// and `*.com` (single-label remainder) are both rejected — the latter would
+/// otherwise register a wildcard broad enough to match almost any TLD-only
+/// hostname. A wildcard elsewhere than the very front (`foo.*.com`) or fused
+/// into a label (`*foo.com`) never matches the literal `*.` prefix check at
+/// all, so both fall through to the non-wildcard branch and are rejected
+/// there too (`*` isn't a valid DNS label).
 fn is_valid_allowed_host(value: &str) -> bool {
-    !value.is_empty() && value.len() <= DNS_HOSTNAME_MAX_LEN && value.split('.').all(is_valid_dns_label)
+    match value.strip_prefix("*.") {
+        Some(remainder) => {
+            remainder.contains('.') && remainder.len() <= DNS_HOSTNAME_MAX_LEN && remainder.split('.').all(is_valid_dns_label)
+        }
+        None => !value.is_empty() && value.len() <= DNS_HOSTNAME_MAX_LEN && value.split('.').all(is_valid_dns_label),
+    }
 }
 
 /// Trims, lower-cases, and drops malformed entries from a
@@ -366,6 +384,11 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
     })
 }
 
+/// Explicitly picking a theme also turns `follow_system_theme` off. Without this, a theme chosen
+/// from the picker while that flag was on would be silently ignored — `theme::commands::theme_get_current`
+/// keeps resolving the OS theme every time, so the picker's own selection never actually shows,
+/// with no indication in the UI that the pick was overridden (see
+/// `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.2).
 pub fn set_theme(paths: &AppPaths, settings: &Settings, theme_id: &str) -> AppResult<Settings> {
     if !theme_service::theme_exists(paths, theme_id) {
         return Err(AppError::NotFound(format!("theme not found: {theme_id}")));
@@ -373,6 +396,7 @@ pub fn set_theme(paths: &AppPaths, settings: &Settings, theme_id: &str) -> AppRe
 
     let updated = Settings {
         theme_id: theme_id.to_string(),
+        follow_system_theme: false,
         ..settings.clone()
     };
     save_settings(paths, &updated)?;
@@ -801,6 +825,87 @@ mod tests {
     }
 
     #[test]
+    fn 접미사가_두_레이블_이상인_와일드카드_허용_호스트는_그대로_저장된다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["*.Trycloudflare.Com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.remote_allowed_hosts, vec!["*.trycloudflare.com".to_string()]);
+    }
+
+    #[test]
+    fn 맨몸_별표는_허용_호스트에서_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["*".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_allowed_hosts.is_empty());
+    }
+
+    #[test]
+    fn 접미사가_한_레이블뿐인_와일드카드는_허용_호스트에서_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["*.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(
+            updated.remote_allowed_hosts.is_empty(),
+            "*.com 처럼 TLD 하나만 남는 와일드카드는 폭이 너무 넓다"
+        );
+    }
+
+    #[test]
+    fn 중간에_별표가_있는_허용_호스트는_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["foo.*.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_allowed_hosts.is_empty());
+    }
+
+    #[test]
+    fn 레이블에_별표가_섞인_허용_호스트는_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["*foo.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_allowed_hosts.is_empty());
+    }
+
+    #[test]
+    fn 와일드카드가_여러_개_섞인_허용_호스트는_걸러진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            remote_allowed_hosts: Some(vec!["*.*.com".to_string()]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.remote_allowed_hosts.is_empty());
+    }
+
+    #[test]
     fn patch로_organize_imports_fix_all_code_lens_설정을_변경한다() {
         let settings = Settings::default();
         assert!(!settings.organize_imports_on_save);
@@ -975,6 +1080,23 @@ mod tests {
 
         let err = set_theme(&paths, &settings, "does-not-exist");
         assert!(matches!(err, Err(AppError::NotFound(_))));
+
+        std::fs::remove_dir_all(paths.data_dir).ok();
+    }
+
+    #[test]
+    fn set_theme는_시스템_테마_따라가기를_자동으로_해제한다() {
+        let paths = AppPaths::new(temp_data_dir("set-theme-follow-system"));
+        std::fs::create_dir_all(paths.themes_dir()).expect("create themes dir");
+        let settings = Settings {
+            follow_system_theme: true,
+            ..Settings::default()
+        };
+
+        let updated = set_theme(&paths, &settings, theme_service::BUILTIN_LIGHT_ID).expect("set_theme 성공");
+
+        assert!(!updated.follow_system_theme, "테마를 명시적으로 고르면 시스템 팔로우가 꺼져야 한다");
+        assert_eq!(updated.theme_id, theme_service::BUILTIN_LIGHT_ID);
 
         std::fs::remove_dir_all(paths.data_dir).ok();
     }

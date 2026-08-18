@@ -72,9 +72,11 @@
 - diff 원본 선택:
   - Changes 그룹 파일: index ↔ workdir
   - Staged 그룹 파일: HEAD ↔ index
-  - (2차) 커밋 상세에서: parent ↔ commit
+  - 커밋 상세에서: parent ↔ commit — 손 QA 1차 수정(2026-08-18)으로 **에디터 탭**(패널 내부 인라인
+    아님)에 뜬다. 아래 §9 참조.
 - 원본(old side) 내용은 Rust 가 blob 을 추출해 제공(`git_show_file(rev, path)`), 새 쪽은 파일/버퍼.
 - diff 탭은 `TabKind::Diff{ path, mode }` — 같은 파일 diff 재클릭 시 기존 탭 재사용(preview 규칙).
+  커밋 상세 diff 는 같은 variant 를 `rev`/`parentRev`/`beforePath` 로 확장해 재사용한다(§9).
 - 툴바: inline 토글, Collapse Unchanged Regions(2차), 파일로 이동 버튼.
 - **`git_diff_staged_text(projectId)`**(Wave G, git2 native — `diff_tree_to_index` + `Diff::print`):
   파일별 `DiffSides` 가 아니라 staged 전체를 **하나의 unified diff 텍스트**로 반환한다. 에디터 diff
@@ -101,7 +103,7 @@
   4. 레인 색 = `graph.lane{n%12}` 토큰(12색 순환)
 - 렌더: SVG(rounded 곡선), 행 = 점 + 메시지 + author + 상대시각 + short hash.
   브랜치 라벨(로컬/원격 병합 표시)·태그 라벨·HEAD 마커. 미커밋 변경은 최상단 회색 열린 원.
-- 행 클릭(2차): 커밋 상세(변경 파일 목록 → diff).
+- 행 클릭: 커밋 상세(변경 파일 목록 → 파일 클릭 시 diff 에디터 탭, §9).
 - 성능: 가상 스크롤(행 높이 고정), 페이지 100 커밋 단위 로드.
 
 ## 6. IPC (상세: `docs/ipc-contract.md`)
@@ -129,3 +131,37 @@
 | 1차 (MVP) | 2차 |
 |-----------|-----|
 | status·그룹·stage/unstage/discard·commit(⌘Enter, Amend, Commit All, Undo)·push/pull·diff(split/inline)·remote 표시·ahead/behind·그래프(레인·라벨·무한스크롤)·gutter·blame 데이터 | 브랜치 생성/전환/머지 UI, 커밋 상세 diff, 파일 히스토리, stash UI, Collapse Unchanged, Commit & Push/Sync, 서브모듈, 충돌 해결 UI |
+
+> 위 표는 MVP 시점 스코프 구분이며, 브랜치/커밋 상세/파일 히스토리/stash UI/충돌 해결 UI 는 Wave C
+> (`acknowledge/2026-08-15-wave-c-git-contract.md`)로 이미 구현됐다. §9 는 그중 커밋 상세 diff 의
+> **배치**가 손 QA 1차 수정(2026-08-18)으로 다시 바뀐 부분만 다룬다.
+
+## 9. 커밋 diff — 에디터 탭 승격 (손 QA 1차 수정, 2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.6·§3. `ipc-contract.md`(§3 "손 QA
+> 1차 발견 6건 수정")·`data-model.md`(§12) 교차 참조.
+
+- **증상·원인**: Wave C 구현은 커밋 상세 패널(`commit-detail-panel.tsx`) 내부에 `h-80` 고정 높이
+  영역을 두고 그 안에 `CommitFileDiff` 를 인라인 렌더했다 — 사이드바만한 폭에서 diff 를 보게 되는
+  좁은 UX. Wave C 원계약 §3.2 원문은 "파일 클릭 → 기존 diff 탭(rev vs parent, `git_show_file`)"
+  이었고, 검토 중 정정 L0-2 가 "`TabKind::Diff` 의 rev 확장은 별도 설계 결정이라 범위 밖"으로 미뤄
+  두면서 인라인 렌더로 착지했었다. 이번 수정은 그 L0-2 가 미뤄 둔 확장을 채워 **원계약 문언으로
+  복귀**한 것이지, 한 번 기각된 안(전용 `TabKind::CommitDiff` 신설)의 재론이 아니다.
+  스크린샷 비교 등 실기 검증 없이 코드/문서 대조로 확정된 결함이라 `docs/bug/` 에 별도 리포트는
+  없다 — 근거는 계약 §1 항목 6.
+- **수정**: `commit-detail-panel.tsx` 의 `selectedFile` 상태·인라인 `CommitFileDiff` 렌더를 제거하고,
+  파일 클릭 시 `useOpenTab` 으로 `TabKind::Diff{ path, staged: false, rev: commit.id, parentRev:
+  commit.parents[0] ?? null, beforePath }`(rename 파일은 `beforePath` 가 `origPath`) 탭을
+  `preview: true` 로 연다. 탭 제목은 `"{파일명} @ {짧은 해시}"`(`COMMIT_SHORT_HASH_LENGTH = 7` —
+  `entities/git/git.constant.ts`, 커밋 그래프·파일 히스토리 패널의 짧은 해시 표기와 공용 상수).
+- **렌더 분기**: `pane-node-view.tsx` 가 `kind === 'diff'` 탭을 `rev` 유무로 나눈다 — `rev` 가
+  `null`(워킹트리/스테이지 diff, 기존 동작)이면 `DiffPane`, `rev` 가 있으면(커밋 diff)
+  `CommitFileDiff`(`renderSideBySide: true` — 이제 패널이 아니라 에디터 영역 전체를 쓰므로 인라인이
+  아니라 기본 side-by-side)를 그린다. `DiffPane` 자체는 무변경이다 — hunk stage 거터가 커밋 diff
+  에 붙을 여지를 원천 차단하기 위해 두 렌더 경로를 분리했다(기각안 참조).
+  `CommitFileDiff`(`widgets/commit-file-diff/commit-file-diff.tsx`)는 Wave C 때 이미 만들어져 있던
+  컴포넌트를 그대로 재사용한다 — 신규 컴포넌트는 없다.
+  `git_show_file(rev, path)` / `git_show_file(parentRev, beforePath ?? path)` 두 기존 커맨드를
+  그대로 부른다(신규 git 커맨드 없음 — §6).
+  file-history 모달(파일 단위 히스토리)의 diff 는 **무변경**이다 — 동일 방식 에디터 탭 승격 여부는
+  이번 계약 범위 밖의 후속 별도 결정이다.

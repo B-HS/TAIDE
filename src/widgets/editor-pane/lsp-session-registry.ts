@@ -29,6 +29,7 @@ import {
 } from '@shared/lib/lsp/command-relay'
 import { createWorkspaceApplyEditHandler } from '@shared/lib/lsp/workspace-edit-apply-handler'
 import { sendLspMessage, spawnLspSession, stopLspSession } from '@entities/lsp/lsp.ipc'
+import { registerLspSessionAllFlush } from '@widgets/editor-pane/lsp-session-flush-registry'
 
 type Disposable = { dispose: () => void }
 
@@ -65,6 +66,7 @@ export type SessionRecord = {
     languageDisposables: Map<string, Disposable[]>
     diagnosticsDisposable: Disposable | null
     openDocuments: Map<string, number>
+    disposeTimer: ReturnType<typeof setTimeout> | null
 }
 
 const sessionsByKey = new Map<string, SessionRecord>()
@@ -81,6 +83,18 @@ const notifyWaiters = (key: string) => {
 }
 
 const toWorkspaceFolderName = (root: string) => root.split('/').filter(Boolean).at(-1) ?? root
+
+/**
+ * How long a fully-released LSP session (`refCount` reaching 0) stays alive before its process is
+ * actually torn down. Covers the common case of a user clicking through several files of the same
+ * project/language within a few seconds (file-tree browsing, code review, `⌘P` quick-open chains) —
+ * without this, every such switch tore the session down and respawned it, and the teardown
+ * (`lsp_stop`) held the shared mutation lock other layout/file/lsp commands queue behind, making
+ * the next file open feel briefly frozen (qa contract `docs/acknowledge/2026-08-18-hand-qa-fix-
+ * contract.md` §1 item 4). Long enough to absorb that browsing rhythm, short enough that a session
+ * nobody reacquires still gets reclaimed soon after the last tab referencing it actually closes.
+ */
+export const LSP_SESSION_DISPOSE_GRACE_MS = 5000
 
 const CODE_ACTION_KIND_VALUE_SET = [
     '',
@@ -299,6 +313,17 @@ const disposeSession = async (key: string, record: SessionRecord) => {
     if (sessionsByKey.get(key) === record) sessionsByKey.delete(key)
 }
 
+/**
+ * Removes `record` from the registry (if it's still the current entry for `key`) and disposes it —
+ * the terminal step of both the grace-period timer firing (`releaseLspSession`) and a forced,
+ * bypass-the-timer teardown (`flushLspSessionDisposal`), so both paths end up in the exact same
+ * disposed state.
+ */
+const finalizeSessionDisposal = (key: string, record: SessionRecord) => {
+    if (sessionsByKey.get(key) === record) sessionsByKey.delete(key)
+    void disposeSession(key, record)
+}
+
 export const acquireLspSession = (
     projectId: ProjectId,
     serverId: LspServerId,
@@ -308,6 +333,10 @@ export const acquireLspSession = (
     const key = toSessionKey(projectId, serverId)
     const existing = sessionsByKey.get(key)
     if (existing) {
+        if (existing.disposeTimer !== null) {
+            clearTimeout(existing.disposeTimer)
+            existing.disposeTimer = null
+        }
         existing.refCount += 1
         return { key, record: existing }
     }
@@ -319,6 +348,7 @@ export const acquireLspSession = (
         languageDisposables: new Map(),
         diagnosticsDisposable: null,
         openDocuments: new Map(),
+        disposeTimer: null,
     }
     void record.ready.catch(() => sessionsByKey.delete(key))
     sessionsByKey.set(key, record)
@@ -357,12 +387,62 @@ export const waitForLspSession = (projectId: ProjectId, serverId: LspServerId) =
     return { promise, cancel }
 }
 
-export const releaseLspSession = (key: string, record: SessionRecord) => {
+/**
+ * `graceMs` defaults to {@link LSP_SESSION_DISPOSE_GRACE_MS} and exists as a parameter purely so
+ * tests can shrink the wait (this codebase's established pattern for timer-driven modules, see
+ * `enterKeymapChordPending`/`armKeymapMonacoDeferral` in `keymap-chord-store.ts`) — production call
+ * sites never pass it.
+ */
+export const releaseLspSession = (key: string, record: SessionRecord, graceMs: number = LSP_SESSION_DISPOSE_GRACE_MS) => {
     record.refCount -= 1
     if (record.refCount > 0) return
-    if (sessionsByKey.get(key) === record) sessionsByKey.delete(key)
-    void disposeSession(key, record)
+    record.disposeTimer = setTimeout(() => {
+        record.disposeTimer = null
+        finalizeSessionDisposal(key, record)
+    }, graceMs)
 }
+
+/**
+ * Cancels a session's pending grace-period timer (if any) and disposes it immediately — for
+ * teardown paths where waiting out {@link LSP_SESSION_DISPOSE_GRACE_MS} would be wrong: definitive
+ * project-close / full-app-exit (`kill_all`, hot-exit flush) / explicit-stop cleanup, as opposed to
+ * the everyday file-switch the grace period exists to absorb. A no-op if `record` never entered
+ * grace (still has an active `refCount`) or was already disposed.
+ */
+export const flushLspSessionDisposal = (key: string, record: SessionRecord) => {
+    if (record.disposeTimer === null) return
+    clearTimeout(record.disposeTimer)
+    record.disposeTimer = null
+    finalizeSessionDisposal(key, record)
+}
+
+/**
+ * Flushes every session key-scoped to `projectId` still sitting in its grace period —
+ * `project_close` (Rust) removes the project's layout/watchers but never touches `LspStore`, so
+ * without this a closed project's language servers would otherwise linger for the full
+ * {@link LSP_SESSION_DISPOSE_GRACE_MS} after their last editor pane unmounts, `lsp_stop`-ing
+ * against a project the user already explicitly closed. A session that's still actively held
+ * (`refCount > 0`, its owning pane not unmounted yet) is untouched — {@link flushLspSessionDisposal}
+ * no-ops for those, same as calling it directly.
+ */
+export const flushLspSessionsForProject = (projectId: ProjectId) => {
+    const prefix = `${projectId}::`
+    for (const [key, record] of sessionsByKey) {
+        if (key.startsWith(prefix)) flushLspSessionDisposal(key, record)
+    }
+}
+
+/**
+ * Flushes every session currently in its grace period, regardless of project — called from the
+ * hot-exit flush handshake (`HotExitFlushProvider`) so a session mid-grace when the app starts
+ * quitting sends its graceful `shutdown`/`exit` JSON-RPC sequence instead of only ever being
+ * reaped by `LspStore::kill_all`'s unconditional process kill on `RunEvent::Exit`.
+ */
+export const flushAllLspSessionDisposals = () => {
+    for (const [key, record] of sessionsByKey) flushLspSessionDisposal(key, record)
+}
+
+registerLspSessionAllFlush(flushAllLspSessionDisposals)
 
 /**
  * Notifies subscribers whenever LSP-backed monaco providers (formatting/rename/etc.) are newly

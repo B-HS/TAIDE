@@ -12,4 +12,6 @@ export const systemRevealPath = (path: string) => unwrapResult(commands.systemRe
 
 export const systemOpenInBrowser = (path: string) => unwrapResult(commands.systemOpenInBrowser(path))
 
+export const systemOpenExternalUrl = (url: string) => unwrapResult(commands.systemOpenExternalUrl(url))
+
 export const systemOpenAppDataPath = (kind: AppDataPathKind) => unwrapResult(commands.systemOpenAppDataPath(kind))

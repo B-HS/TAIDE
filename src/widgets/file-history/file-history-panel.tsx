@@ -6,6 +6,7 @@ import { ArrowLeft, X } from 'lucide-react'
 import type { LogEntry, ProjectId } from '@shared/api/bindings'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { subscribeOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
+import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitFileLogQueryOptions } from '@entities/git/git.query'
 import { CommitFileDiff } from '@widgets/commit-file-diff/commit-file-diff'
 import { Dialog, DialogContent, DialogTitle } from '@shared/ui/dialog'
@@ -97,7 +98,7 @@ export const FileHistoryPanel: FC<FileHistoryPanelProps> = ({ projectId }) => {
                                         <span className='text-app-sidebar-icon-default flex shrink-0 gap-1.5 text-[10px]'>
                                             <span className='truncate'>{entry.author}</span>
                                             <span className='shrink-0'>{t(relativeTime.key, relativeTime.params)}</span>
-                                            <span className='shrink-0 font-mono'>{entry.id.slice(0, 7)}</span>
+                                            <span className='shrink-0 font-mono'>{entry.id.slice(0, COMMIT_SHORT_HASH_LENGTH)}</span>
                                         </span>
                                     </div>
                                 )

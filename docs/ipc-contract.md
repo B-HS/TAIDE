@@ -169,6 +169,13 @@
 다르므로 — 예: `git_stage_hunk` 는 index↔workdir, `git_gutter`/`discard_hunk` 는 HEAD↔workdir-with-index
 — 이 불변식을 그대로 확장 적용하지 않는다.)
 
+**커밋 diff 의 에디터 탭 승격(손 QA 1차 수정, 2026-08-18)**: 커밋 상세 패널에서 파일을 클릭하면
+패널 내부가 아니라 `layout_open_tab` 으로 에디터 탭(`TabKind::Diff`, `rev` 필드 있음)을 연다 —
+신규 git 커맨드는 없다. 탭이 그 안에서 부르는 데이터도 `git_show_file(rev, path)` /
+`git_show_file(parentRev, beforePath ?? path)` 이 두 기존 커맨드 그대로다(`rev`/`parentRev` 는 각각
+커밋의 `id`/첫 부모, `beforePath` 는 rename 파일의 커밋 이전 경로 — `origPath`). 상세는 아래 손 QA
+절과 `git.md` §"커밋 diff" 참조.
+
 ### ai (Wave G 신설 — `ai.md`)
 
 > Wave G 이전부터 자동완성(auto-tab) 커맨드 6종이 존재했으나 이 문서에 정본 항목이 없었다 — 이번에
@@ -234,7 +241,10 @@
   (구현 시 정정: 초안의 `theme_set(id)` 을 **`settings_set_theme`** 로 확정.
   선택된 테마 id 는 `Settings` 가 소유하는 값이라 mutation 도 settings 도메인에 두는 것이 맞다.
   theme 도메인은 읽기 전용(로드·해석)만 담당한다. `theme_get_current` 는 view 부팅 시
-  "현재 설정의 테마"를 한 번에 받기 위한 query 로 추가.)
+  "현재 설정의 테마"를 한 번에 받기 위한 query 로 추가. **손 QA 1차 수정(2026-08-18)**:
+  `settings_set_theme` 이 이제 `follow_system_theme` 을 `false` 로 함께 끈다 — 이전에는 이 플래그가
+  켜진 채로 테마를 골라도 `theme_get_current` 가 계속 OS 테마로 재해석해 선택이 조용히 무시됐다.
+  아래 손 QA 절·`data-model.md` §Settings 참조.)
 - mutation(7.5-D 추가): `theme_save(theme)`, `theme_delete(themeId)`
   — 테마 편집기(`theme-system.md` §7.3)용. 내장 테마 덮어쓰기를 거부하고,
   id 에 경로 구분자(`/ \ .`)가 있으면 거부한다(경로 탈출 방지).
@@ -685,9 +695,57 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   구독자에 브로드캐스트되고 `send` 가 실패한(창이 닫힌) 구독자는 다음 브로드캐스트에서 자동
   제거된다. 커맨드 시그니처·응답 타입은 변경되지 않았다.
 
+### 손 QA 1차 발견 6건 수정 (2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md`. 사용자 실기 QA 6건 중 IPC 표면에
+> 영향을 준 4건(터미널 링크·와일드카드·파일 열기 블로킹·커밋 diff)을 이 절에 담는다. 부트 테마·
+> peek 트위스티 2건은 IPC 변경이 없다(`window-chrome.md`/`docs/bug` 참조).
+
+- **system(신설)**: mutation `system_open_external_url(url)` — `http://`/`https://` 접두(ASCII
+  대소문자 무시) 화이트리스트 + 제어문자·공백 거부만 검증하고(스킴 파싱용 `url` 크레이트는 도입하지
+  않았다), 통과하면 `tauri_plugin_opener::open_url` 로 OS 기본 브라우저를 연다. 터미널
+  (`terminal.md` §"링크")의 xterm `WebLinksAddon` 이 ⌘/⌥ 클릭으로 인식한 URL 이 유일한 호출부다.
+  **원격에서는 명시 거부**(`system_open_external_url` 행 — 위 "원격 dispatch 정책" 표) — 원격
+  세션이 데스크톱 자신의 OS 브라우저를 대신 열게 할 수는 없다는, `remote_issue_link` 자가 확장
+  거부와 같은 근거.
+- **layout**: `TabKind::Diff` 에 옵션 필드 3종 `rev`/`parentRev`/`beforePath`(전부
+  `#[serde(default)]` — 구 `layout.json` 은 필드 없이도 그대로 역직렬화된다) 추가. `rev` 가 있으면
+  그 diff 는 워킹트리/스테이지 비교가 아니라 **커밋 diff**(`git_show_file(rev, path)` vs
+  `git_show_file(parentRev, beforePath ?? path)`)를 뜻한다 — 전용 `TabKind` 신설은 검토에서
+  기각됐고(Wave C L0-2, `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §3) 기존 variant
+  확장으로 처리했다. 신규 커맨드는 없다 — 위 `### git` 절의 "커밋 diff 의 에디터 탭 승격" 참조.
+- **settings**: `remote_allowed_hosts` 항목에 `*.` 접두 와일드카드를 허용한다(RFC 6125, 선두
+  1레이블만 매칭 — `*.example.com` 은 `foo.example.com` 은 매칭하지만 `example.com` 자신·
+  `a.b.example.com` 은 매칭하지 않는다). sanitize(`is_valid_allowed_host`)는 맨몸 `*`·접미사가
+  1레이블뿐인 와일드카드(`*.com`)·선두가 아닌 와일드카드(`foo.*.com`)·레이블에 섞인 와일드카드
+  (`*foo.com`)를 전부 걸러낸다. 매칭(`remote::service::host_matches_allowed_entry`)은
+  `is_allowed_host`(원격 Host 헤더 검증)와 `is_insecure_connection`(HTTPS 강제 예외) 양쪽이 공유하는
+  단일 함수다 — `ends_with` 계열 유사 도메인(`evil-trycloudflare.com` 이 `*.trycloudflare.com` 을
+  통과하는 함정)을 구조적으로 배제하려 `split_once('.')` 로 선두 1레이블만 떼어 비교한다.
+  `remote_issue_link` 가 쓰는 `format_issue_link_url` 은 **첫 비와일드카드 항목**을 우선하고(와일드
+  카드 패턴은 브라우저가 실제로 열 수 있는 호스트가 아니다), 등록된 호스트가 전부 와일드카드면
+  루프백 링크로 폴백한다. 프론트 `remote-allowed-hosts-row.tsx` 의 `isValidAllowedHost` 가 같은
+  형태 검증을 미러링한다(`remote.allowedHostsDescription` locale 문구도 함께 갱신).
+- **lsp**: IPC 표면(커맨드 시그니처)은 변경 없음 — `lsp_stop`/`lsp_restart` 내부의 전역 뮤테이션
+  가드 보유 구간이 줄고(가드 하 처리는 동기 북키핑 + `LspStore` 선제거까지만, `shutdown_entry` 는
+  가드 밖에서 대기) `shutdown_entry` 의 고정 2s+2s sleep 이 프로세스 종료 폴링(`wait_for_process_exit`,
+  상한은 기존 `LSP_SHUTDOWN_TIMEOUT_MS`)으로 바뀌었을 뿐이다. 프론트 `lsp-session-registry.ts` 의
+  `releaseLspSession` 도 refCount 0 즉시 dispose 대신 `LSP_SESSION_DISPOSE_GRACE_MS`(5초) 유예 후
+  dispose 하도록 바뀌었다(그 사이 재획득하면 타이머 취소 — 파일 전환 시 세션 재사용). 상세 원인은
+  `lsp.md` 참고. **접합부 수정(Phase D)**: 유예 도입 직후엔 `flushLspSessionDisposal`(유예를 건너
+  뛰고 즉시 dispose)이 정의만 되고 어디서도 호출되지 않아, 유예 중이던 세션이 `project_close`(Rust
+  가 `LspStore` 를 건드리지 않는다)나 hot-exit 이후에도 계속 5초를 마저 기다린 뒤에야 정리됐다.
+  `ipc-sync-provider.tsx` 의 `events.projectClosed` 핸들러에 `flushLspSessionsForProject(projectId)`
+  를, `HotExitFlushProvider` 에 `flushAllLspSessions()`(간접 참조 이유는 아래)를 배선해 두 경로 모두
+  유예 중인 세션을 즉시 정리하도록 마감했다 — 신설 `lsp-session-flush-registry.ts` 를 하나 더 둔
+  것은 `hot-exit-flush-provider.tsx` 가 `lsp-session-registry.ts`(실제 monaco worker 를 import 하는
+  모듈이라 `bun test` 정적 임포트 그래프 해석이 실패한다)를 직접 참조하지 않게 하기 위해서다 —
+  `lsp-session-registry.ts` 가 자기 모듈 로드 시 `flushAllLspSessionDisposals` 를 이 레지스트리에
+  스스로 등록한다.
+
 ### 원격 dispatch 정책 (허용 · 거부 · 부분 스트립)
 
-> `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 는 178종 전부(raw 3종 제외)를 담고, 파리티 테스트
+> `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 는 179종 전부(raw 3종 제외)를 담고, 파리티 테스트
 > (`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`)가 이 목록과 `bindings.ts` 의 커맨드
 > 이름 집합이 완전히 같음을 강제한다. **목록에 있다고 전부 원격에서 실제로 실행되는 것은 아니다** —
 > `dispatch()` 의 `match` arm 이 실제로 무엇을 하는지에 따라 아래 3갈래로 나뉜다.
@@ -697,7 +755,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `plugin_read_grammar`·`remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·
   `sync_*`·`search_replace`(원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화
   없음)·`theme_save`/`theme_delete`·`snippet_save`/`snippet_delete`·`git_init`.
-- **명시 거부(11종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
+- **명시 거부(12종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
   `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해 그대로 남아 있다(코드는 커맨드별 `deny_remote_*`
   헬퍼):
 
@@ -709,6 +767,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `window_open_auxiliary` / `window_set_fullscreen` / `layout_move_tab_to_window` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I) |
   | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) |
   | `vsix_extract_themes` | Wave I 에서 허용→거부로 전환 — 임의 로컬 파일 읽기 표면이었음 |
+  | `system_open_external_url` | 원격 세션이 데스크톱 자신의 OS 기본 브라우저를 열게 할 수는 없음(손 QA 1차 수정, 아래 절 참조) |
 
 - **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종)**:
   - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`

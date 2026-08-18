@@ -82,6 +82,31 @@ pub fn is_loopback_hostname(hostname: &str) -> bool {
     REMOTE_LOOPBACK_HOSTNAMES.contains(&lower.as_str())
 }
 
+/// Matches a lower-cased request hostname against one `Settings::remote_allowed_hosts` entry. A
+/// `*.` prefix on `entry` matches exactly one leading DNS label of `hostname` — RFC 6125 wildcard
+/// semantics — via `split_once('.')`, which structurally can only ever peel off one label,
+/// deliberately excluding the base domain itself (`*.example.com` matches `foo.example.com` but
+/// not `example.com`, and not `a.b.example.com` either — that hostname's first label is `a`, whose
+/// remainder `b.example.com` still isn't `example.com`).
+///
+/// This is structurally immune to the classic `ends_with`-style wildcard bug, where a naive
+/// `hostname.ends_with(&format!(".{suffix}"))` check (or worse, `hostname.ends_with(suffix)`)
+/// would wrongly accept a look-alike hostname that shares a byte suffix with the registered
+/// domain but not an actual label boundary — e.g. `evil-trycloudflare.com` or
+/// `foo.eviltrycloudflare.com` against a `*.trycloudflare.com` entry. Splitting on the *first* dot
+/// instead compares `hostname`'s remainder-after-first-label (`com`, and
+/// `eviltrycloudflare.com` respectively) against the entry's `trycloudflare.com` suffix as whole
+/// strings, which never matches either impostor. A bare `entry` (no `*.` prefix) still requires an
+/// exact, case-insensitive match, unchanged from before.
+pub fn host_matches_allowed_entry(hostname: &str, entry: &str) -> bool {
+    match entry.strip_prefix("*.") {
+        Some(suffix) => hostname
+            .split_once('.')
+            .is_some_and(|(label, rest)| !label.is_empty() && rest.eq_ignore_ascii_case(suffix)),
+        None => entry.eq_ignore_ascii_case(hostname),
+    }
+}
+
 /// DNS-rebinding defense: the remote server only ever binds `127.0.0.1` on a
 /// random port, so any request whose `Host` header doesn't resolve to a
 /// loopback alias or a hostname the user explicitly registered
@@ -108,21 +133,23 @@ pub fn is_allowed_host(host: Option<&str>, allowed_hosts: &[String], bind_port: 
     if is_loopback_hostname(&hostname) {
         return port == Some(bind_port);
     }
-    allowed_hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(&hostname))
+    allowed_hosts.iter().any(|allowed| host_matches_allowed_entry(&hostname, allowed))
 }
 
 /// Formats the URL handed back to [`remote_issue_link`]'s caller. Prefers
-/// the first `Settings::remote_allowed_hosts` entry (over `https`) so a link
-/// meant for a device that can only reach this app through a registered
-/// tunnel actually resolves — `http://127.0.0.1:{port}` is meaningless off
-/// the machine the server is bound on. Falls back to the loopback URL when
-/// no host is registered (unchanged legacy behavior — same-machine/LAN
-/// access). See `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md`
-/// §6.
+/// the first non-wildcard `Settings::remote_allowed_hosts` entry (over
+/// `https`) so a link meant for a device that can only reach this app
+/// through a registered tunnel actually resolves — `http://127.0.0.1:{port}`
+/// is meaningless off the machine the server is bound on, and a `*.`-prefixed
+/// entry is a pattern, not a hostname a browser could actually navigate to.
+/// Falls back to the loopback URL when no host is registered, or when every
+/// registered host is a wildcard pattern (unchanged legacy behavior —
+/// same-machine/LAN access). See
+/// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6.
 ///
 /// [`remote_issue_link`]: super::commands::remote_issue_link
 pub fn format_issue_link_url(allowed_hosts: &[String], port: u32, token: &str) -> String {
-    match allowed_hosts.first() {
+    match allowed_hosts.iter().find(|host| !host.starts_with("*.")) {
         Some(host) => format!("https://{host}/?{REMOTE_LINK_TOKEN_QUERY_KEY}={token}"),
         None => format!("http://127.0.0.1:{port}/?{REMOTE_LINK_TOKEN_QUERY_KEY}={token}"),
     }
@@ -276,6 +303,55 @@ mod tests {
     }
 
     #[test]
+    fn 와일드카드_등록은_선두_한_레이블만_허용한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string()];
+        assert!(is_allowed_host(Some("foo.trycloudflare.com:53211"), &allowed, 53_211));
+    }
+
+    #[test]
+    fn 와일드카드_등록은_레이블이_두_개_이상이면_거부한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string()];
+        assert!(!is_allowed_host(Some("a.b.trycloudflare.com:53211"), &allowed, 53_211));
+    }
+
+    #[test]
+    fn 와일드카드_등록은_베이스_도메인_자체를_거부한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string()];
+        assert!(
+            !is_allowed_host(Some("trycloudflare.com:53211"), &allowed, 53_211),
+            "*.example.com 은 example.com 자체를 포함하지 않아야 한다"
+        );
+    }
+
+    #[test]
+    fn 와일드카드_매칭은_대소문자를_구분하지_않는다() {
+        let allowed = vec!["*.TryCloudflare.Com".to_string()];
+        assert!(is_allowed_host(Some("foo.trycloudflare.com:53211"), &allowed, 53_211));
+    }
+
+    #[test]
+    fn 와일드카드_등록은_유사_도메인을_거부한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string()];
+        assert!(
+            !is_allowed_host(Some("evil-trycloudflare.com:53211"), &allowed, 53_211),
+            "레이블 경계가 없는 유사 도메인은 거부해야 한다"
+        );
+        assert!(
+            !is_allowed_host(Some("foo.eviltrycloudflare.com:53211"), &allowed, 53_211),
+            "ends_with 함정 형태의 유사 도메인은 거부해야 한다"
+        );
+    }
+
+    #[test]
+    fn 루프백_호스트는_와일드카드_등록이_있어도_포트_불일치면_거부한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string()];
+        assert!(
+            !is_allowed_host(Some("127.0.0.1:9999"), &allowed, 53_211),
+            "와일드카드 등재로 루프백의 포트 방어를 우회할 수 없어야 한다"
+        );
+    }
+
+    #[test]
     fn 루프백_판정은_대소문자를_구분하지_않는다() {
         assert!(is_loopback_hostname("LOCALHOST"));
         assert!(!is_loopback_hostname("tunnel.example.com"));
@@ -307,6 +383,25 @@ mod tests {
         assert_eq!(
             format_issue_link_url(&allowed, 53_211, "tok123"),
             "https://first.example.com/?t=tok123"
+        );
+    }
+
+    #[test]
+    fn 첫_호스트가_와일드카드면_건너뛰고_다음_비와일드카드_호스트를_사용한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string(), "second.example.com".to_string()];
+        assert_eq!(
+            format_issue_link_url(&allowed, 53_211, "tok123"),
+            "https://second.example.com/?t=tok123",
+            "와일드카드 패턴은 브라우저가 실제로 열 수 있는 호스트가 아니므로 링크에 쓰지 않아야 한다"
+        );
+    }
+
+    #[test]
+    fn 등록된_호스트가_전부_와일드카드면_루프백_링크로_폴백한다() {
+        let allowed = vec!["*.trycloudflare.com".to_string(), "*.ngrok.io".to_string()];
+        assert_eq!(
+            format_issue_link_url(&allowed, 53_211, "tok123"),
+            "http://127.0.0.1:53211/?t=tok123"
         );
     }
 

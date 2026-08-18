@@ -408,3 +408,7 @@
     bottom: auto !important;
     transform: translateY(-50%);
 }
+
+.monaco-tl-twistie {
+    box-sizing: content-box;
+}

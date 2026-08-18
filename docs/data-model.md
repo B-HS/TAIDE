@@ -32,6 +32,13 @@ TAIDE/
 │                            remoteAllowedHosts(기본 []) — Wave B,
 │                            `acknowledge/2026-08-15-wave-b-hardening-contract.md`(원격 세션 허용
 │                            호스트명 화이트리스트, sync 업로드·원격 dispatch 대상에서 제외).
+│                            항목에 `*.` 접두 와일드카드 허용 — 손 QA 1차 수정(2026-08-18),
+│                            `acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.3(선두 1레이블만
+│                            매칭, 베이스 도메인 자신은 불포함 — RFC 6125).
+│                            themeId 를 `settings_set_theme` 로 바꾸면 followSystemTheme 이 자동으로
+│                            false 로 꺼진다 — 손 QA 1차 수정(2026-08-18), 이전엔 이 플래그가 켜진
+│                            채로 테마를 골라도 `theme_get_current` 가 계속 OS 테마로 재해석해 선택이
+│                            조용히 무시됐다.
 │                            recentSearches(기본 [], 상한 20·중복 제거는 프론트 담당·서버는 순수
 │                            passthrough) — Wave D,
 │                            `acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
@@ -81,7 +88,10 @@ enum PaneNode {
 
 struct Tab {
     id: TabId,
-    kind: TabKind,                      // File{path} | Terminal{sessionId, cwd?} | Settings | Diff{path,staged,compareWith?}
+    kind: TabKind,                      // File{path} | Terminal{sessionId, cwd?} | Settings
+                                         // | Diff{path,staged,compareWith?,rev?,parentRev?,beforePath?}
+                                         //   (rev? 이하 3필드는 손 QA 1차 수정(2026-08-18) 신설 —
+                                         //   커밋 diff 확장, 전부 #[serde(default)] 로 하위 호환)
                                          // | ClaudeDiff{requestId,path} | Welcome | Untitled{index} | SearchEditor{query}(Wave D)
                                          // | AppFile{target}(Wave I) — 9종, §8
     title: String,
@@ -432,3 +442,26 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   것이다(무효화 후 재조회가 아니다). 이벤트/커맨드 전체 카탈로그의 정본은
   `docs/ipc-contract.md`(§3 "Wave I 계약 확정 추가")이며, 이 절은 §2 의 `settings.json` 영속
   스키마가 변경 시 실제로 어떻게 전파되는지를 잇기 위한 최소 교차 참조다.
+
+## 12. 손 QA 1차 발견 6건 수정 — 영속 스키마 영향 (2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md`. 이벤트/커맨드 전체 카탈로그는
+> `docs/ipc-contract.md`(§3 "손 QA 1차 발견 6건 수정") — 이 절은 §2/§3 의 영속 스키마가 실제로 어떻게
+> 바뀌었는지에 한정한다.
+
+- **`TabKind::Diff` 확장**(§3): `rev`/`parentRev`/`beforePath` 옵션 필드 3종 — `rev` 가 있으면 그
+  탭은 워킹트리/스테이지 diff 가 아니라 특정 커밋의 파일 diff 를 뜻한다. 전부
+  `#[serde(default)]` 라 구 `layout.json`(이 필드 세트가 생기기 전에 저장된 파일)도 그대로
+  역직렬화된다 — `compare_with` 가 이미 쓰던 것과 같은 하위 호환 패턴. `ProjectLayout.version` 은
+  그대로 2 다(스키마 버전을 올릴 필요가 없는 순수 옵션 필드 추가).
+- **`settings.json` — `remoteAllowedHosts` 항목 형태 확장**(§2): 항목 문자열에 `*.` 접두를 허용하는
+  것만 바뀌었고, 필드 자체의 타입(`Vec<String>`)·저장 위치는 그대로다. 저장되는 값은 sanitize 를
+  통과한 소문자 문자열이므로(대소문자 무시 매칭), 예전에 저장된 비-와일드카드 항목과 섞여 있어도
+  파싱/마이그레이션이 필요 없다.
+- **`settings.json` — `themeId` 변경 시 `followSystemTheme` 자동 false**(§2): 저장 포맷 변경은
+  없다(두 필드 모두 기존 필드) — `settings_set_theme` 핸들러가 쓰는 값이 하나 더 늘었을 뿐이다.
+  기존에 저장된 `{ themeId, followSystemTheme: true }` 조합은 다음 `settings_set_theme` 호출까지는
+  그대로 유지된다(마이그레이션 없음, 읽기 시점 강제 정정 없음).
+- **LSP 세션 dispose 유예**: `LSP_SESSION_DISPOSE_GRACE_MS` 유예·`lsp-session-flush-registry.ts`
+  경유 확정 정리는 전부 **런타임 상태**(§1 표의 두 번째 층위, `sessionsByKey` — 프론트 메모리)다.
+  영속 스키마에는 아무 영향이 없다.

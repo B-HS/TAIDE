@@ -23,6 +23,9 @@ use crate::paths::AppPaths;
 use crate::state::AppState;
 
 const LSP_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
+/// Poll interval [`wait_for_process_exit`] sleeps between `LspProcHandle::is_exited` checks while
+/// waiting (bounded by `LSP_SHUTDOWN_TIMEOUT_MS`) for a language server to exit during shutdown.
+const LSP_SHUTDOWN_POLL_INTERVAL_MS: u64 = 50;
 const LSP_RESTART_BACKOFF_BASE_MS: u64 = 500;
 
 struct SessionEntry {
@@ -335,6 +338,30 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
     });
 }
 
+/// Polls `proc.is_exited()` at [`LSP_SHUTDOWN_POLL_INTERVAL_MS`] intervals until the process has
+/// exited or `timeout_ms` has elapsed, whichever comes first. Replaces a blind
+/// `tokio::time::sleep(timeout_ms)` in [`shutdown_entry`] with an early return the moment the
+/// language server actually exits — which is normally well under `timeout_ms` — while still
+/// bounding the wait for a server that never responds to `shutdown`/`exit`.
+async fn wait_for_process_exit(proc: &lsp_proc::LspProcHandle, timeout_ms: u64) {
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+    while !proc.is_exited() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(tokio::time::Duration::from_millis(LSP_SHUTDOWN_POLL_INTERVAL_MS)).await;
+    }
+}
+
+/// Deliberately **not** guarded by `AppState::begin_mutation` — both callers ([`lsp_stop`],
+/// [`lsp_restart`]) drop their guard before awaiting this, the same rationale `lsp_send` already
+/// documents (holding the single global mutation lock across a multi-second, network/process-bound
+/// wait would queue every unrelated layout/file/`lsp_spawn` command behind it, which is the exact
+/// "file open blocks on LSP teardown" bug this restructuring fixes). By the time this runs, the
+/// caller has already unlinked the entry from `LspStore` (for `lsp_stop`'s full-teardown path) or
+/// otherwise made sure a concurrent `find_reusable_entry`/`find_entry` can't hand this
+/// mid-shutdown session out to a new caller, so nothing outside this `Arc<SessionEntry>` needs the
+/// guard for the duration of the wait. Sends the LSP `shutdown` request, waits (bounded) for the
+/// process to exit, sends `exit`, waits (bounded) again, then unconditionally kills — the same
+/// shutdown sequence as before, just with [`wait_for_process_exit`]'s early-return polling in
+/// place of a blind sleep.
 async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str) {
     entry.stopping.store(true, Ordering::SeqCst);
 
@@ -342,11 +369,11 @@ async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str)
     if let Some(proc) = proc {
         let shutdown_request = serde_json::json!({ "jsonrpc": "2.0", "id": "taide-shutdown", "method": "shutdown" }).to_string();
         let _ = proc.write_message(&shutdown_request).await;
-        tokio::time::sleep(tokio::time::Duration::from_millis(LSP_SHUTDOWN_TIMEOUT_MS)).await;
+        wait_for_process_exit(&proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
 
         let exit_notification = serde_json::json!({ "jsonrpc": "2.0", "method": "exit" }).to_string();
         let _ = proc.write_message(&exit_notification).await;
-        tokio::time::sleep(tokio::time::Duration::from_millis(LSP_SHUTDOWN_TIMEOUT_MS)).await;
+        wait_for_process_exit(&proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
 
         proc.kill();
     }
@@ -470,7 +497,32 @@ pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: S
 /// doc on [`SessionEntry`] for why this can't be left to `broadcast_message`'s send-failure pruning
 /// alone. Root refcounting (`root`) then decides, independently, whether the whole session (process
 /// included) gets torn down — a still-live owner keeps receiving messages from the shared session
-/// even after some other owner's root is removed from it.
+/// even after some other owner's root is removed from it. **This owner-scoping is preserved
+/// unchanged** by the guard restructuring below: the "still has remaining roots" branch still
+/// returns early, under the guard, without ever reaching teardown.
+///
+/// The guard (`AppState::begin_mutation`) is held only for the synchronous bookkeeping above and,
+/// on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.0.lock().remove`
+/// runs *before* the guard is dropped, specifically so a concurrent `lsp_spawn`'s
+/// `find_reusable_entry` or another `lsp_stop`/`lsp_send`'s `find_entry` can never observe this
+/// session while [`shutdown_entry`] is mid-flight. [`shutdown_entry`] itself then runs unguarded
+/// (see its own doc comment for why that's safe) — this is what stops LSP teardown from queuing
+/// every other mutating command (`layout_*`, `file_save`, `lsp_spawn`) behind it for the whole
+/// shutdown sequence, the file-open-blocks-on-LSP-teardown bug this restructuring fixes.
+///
+/// Two overlapping full-teardown calls for the same `session_id` (double-invoked `lsp_stop`, e.g.
+/// from a React effect cleanup racing a manual close) are safe by construction: whichever call's
+/// guarded section runs first removes the entry from the store; the second call's own
+/// `find_entry` then fails fast with `NotFound` instead of running a second redundant
+/// `shutdown_entry` — strictly better than the previous behavior, where both calls could hold the
+/// entry live long enough to both reach `shutdown_entry` and both harmlessly re-send
+/// shutdown/exit/kill to the same (possibly already-dead) process. A concurrent `lsp_spawn` for the
+/// same project/server/owner racing this teardown *can* still lose to it (spawning a fresh session
+/// while the old one's process is still being killed in the background) — but that window is now
+/// bounded by however long the language server actually takes to exit (typically well under
+/// `LSP_SHUTDOWN_TIMEOUT_MS`, per [`wait_for_process_exit`]'s polling) rather than a blind 4-second
+/// hold, and the old process is guaranteed to be killed regardless once its `shutdown_entry` call
+/// completes.
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_stop(
@@ -481,47 +533,73 @@ pub async fn lsp_stop(
     root: Option<String>,
     owner: String,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let entry = find_entry(&store, &session_id)?;
-    entry.channels.lock().remove(&owner);
+    let entry = {
+        let _guard = state.begin_mutation().await;
+        let entry = find_entry(&store, &session_id)?;
+        entry.channels.lock().remove(&owner);
 
-    if let Some(root) = root {
-        let (removed_root, remaining_roots) = {
-            let mut roots = entry.roots.lock();
-            let mut removed_root: Option<String> = None;
-            if let Some(position) = roots.iter().position(|(existing_root, _)| existing_root == &root) {
-                roots[position].1 = roots[position].1.saturating_sub(1);
-                if roots[position].1 == 0 {
-                    removed_root = Some(roots.remove(position).0);
+        if let Some(root) = root {
+            let (removed_root, remaining_roots) = {
+                let mut roots = entry.roots.lock();
+                let mut removed_root: Option<String> = None;
+                if let Some(position) = roots.iter().position(|(existing_root, _)| existing_root == &root) {
+                    roots[position].1 = roots[position].1.saturating_sub(1);
+                    if roots[position].1 == 0 {
+                        removed_root = Some(roots.remove(position).0);
+                    }
                 }
-            }
-            (removed_root, !roots.is_empty())
-        };
+                (removed_root, !roots.is_empty())
+            };
 
-        if remaining_roots {
-            if let Some(removed_root) = removed_root {
-                let proc = entry.proc.lock().clone();
-                if let Some(proc) = proc {
-                    let notification = workspace_folders_notification(&[], std::slice::from_ref(&removed_root));
-                    let _ = proc.write_message(&notification).await;
+            if remaining_roots {
+                if let Some(removed_root) = removed_root {
+                    let proc = entry.proc.lock().clone();
+                    if let Some(proc) = proc {
+                        let notification = workspace_folders_notification(&[], std::slice::from_ref(&removed_root));
+                        let _ = proc.write_message(&notification).await;
+                    }
                 }
+                return Ok(());
             }
-            return Ok(());
         }
-    }
+
+        store.0.lock().remove(&session_id);
+        entry
+    };
 
     shutdown_entry(&app, &entry, &session_id).await;
-    store.0.lock().remove(&session_id);
     Ok(())
 }
 
+/// Guard-restructuring mirrors [`lsp_stop`]'s: the guard covers only the synchronous `find_entry`
+/// lookup, is dropped before the unguarded [`shutdown_entry`] await, then re-acquired for the
+/// respawn bookkeeping. Unlike `lsp_stop`'s full-teardown path, the entry is **not** unlinked from
+/// [`LspStore`] here — `session_id` is reused for the restarted process, so `find_entry` continues
+/// to resolve it throughout *this* call. That does leave a narrow unguarded window where a
+/// concurrent `lsp_stop` for this same `session_id` can also observe the entry (still in the
+/// store) and run its own full teardown — including unlinking it from `LspStore` — while this
+/// call's `shutdown_entry` is also in flight against the identical `Arc<SessionEntry>` (harmless:
+/// both converge on the same stopping/kill/`Stopped` end state). The respawn below re-checks the
+/// store for `session_id` before installing the freshly spawned process specifically to catch that
+/// case: if `lsp_stop` won the race and already removed the entry, spawning anyway would leak an
+/// unreachable process no `session_id` could ever `lsp_stop`/`lsp_send` again (the old code
+/// couldn't hit this — `begin_mutation`'s single guard spanned each call's *entire* body, so
+/// `lsp_stop` and `lsp_restart` could never interleave at all).
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: State<'_, LspStore>, session_id: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let entry = find_entry(&store, &session_id)?;
+    let entry = {
+        let _guard = state.begin_mutation().await;
+        find_entry(&store, &session_id)?
+    };
 
     shutdown_entry(&app, &entry, &session_id).await;
+
+    let _guard = state.begin_mutation().await;
+    if !store.0.lock().contains_key(&session_id) {
+        return Err(AppError::NotFound(format!("lsp session not found: {session_id}")));
+    }
+
     entry.stopping.store(false, Ordering::SeqCst);
     entry.restart_count.store(0, Ordering::SeqCst);
     set_status(&app, &session_id, &entry, LspSessionStatus::Starting, None);
@@ -936,5 +1014,47 @@ mod tests {
 
         broadcast_message(&channels, "data");
         assert_eq!(*received.lock(), vec!["data".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_for_process_exit는_프로세스가_먼저_종료하면_타임아웃보다_일찍_반환한다() {
+        let config = lsp_proc::LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "exit 0".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        let proc = lsp_proc::spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+
+        let started = tokio::time::Instant::now();
+        wait_for_process_exit(&proc, 2_000).await;
+
+        assert!(proc.is_exited(), "폴링이 반환했다면 프로세스는 이미 종료된 상태여야 한다");
+        assert!(
+            started.elapsed() < tokio::time::Duration::from_millis(1_000),
+            "빨리 종료하는 프로세스는 2초 타임아웃을 다 기다리지 않고 일찍 반환해야 한다"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_for_process_exit는_계속_살아있는_프로세스에서_타임아웃까지_대기한다() {
+        let config = lsp_proc::LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 5".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        let proc = lsp_proc::spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+
+        let started = tokio::time::Instant::now();
+        wait_for_process_exit(&proc, 200).await;
+
+        assert!(
+            !proc.is_exited(),
+            "타임아웃 안에 스스로 종료하지 않는 프로세스는 여전히 살아있어야 한다"
+        );
+        assert!(started.elapsed() >= tokio::time::Duration::from_millis(200));
+
+        proc.kill();
     }
 }

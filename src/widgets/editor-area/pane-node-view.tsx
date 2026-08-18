@@ -17,6 +17,7 @@ import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/const
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
 import { AppFilePane } from '@widgets/app-file-pane/app-file-pane'
 import { ClaudeDiffPane } from '@widgets/claude-diff-pane/claude-diff-pane'
+import { CommitFileDiff } from '@widgets/commit-file-diff/commit-file-diff'
 import { DiffPane } from '@widgets/diff-pane/diff-pane'
 import { EditorPane } from '@widgets/editor-pane/editor-pane'
 import { UntitledPane } from '@widgets/editor-pane/untitled-pane'
@@ -121,13 +122,24 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     <TerminalSession key={activeTab.id} projectId={projectId} tabId={activeTab.id} sessionId={activeTab.kind.sessionId} />
                 )}
                 {activeTab?.kind.kind === 'settings' && <SettingsView projectId={projectId} />}
-                {activeTab?.kind.kind === 'diff' && (
+                {activeTab?.kind.kind === 'diff' && activeTab.kind.rev == null && (
                     <DiffPane
                         key={activeTab.id}
                         projectId={projectId}
                         path={activeTab.kind.path}
                         staged={activeTab.kind.staged}
                         compareWith={activeTab.kind.compareWith ?? null}
+                    />
+                )}
+                {activeTab?.kind.kind === 'diff' && activeTab.kind.rev != null && (
+                    <CommitFileDiff
+                        key={activeTab.id}
+                        projectId={projectId}
+                        rev={activeTab.kind.rev}
+                        parentRev={activeTab.kind.parentRev ?? null}
+                        path={activeTab.kind.path}
+                        beforePath={activeTab.kind.beforePath ?? activeTab.kind.path}
+                        renderSideBySide
                     />
                 )}
                 {activeTab?.kind.kind === 'claudeDiff' && (

@@ -227,6 +227,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::system::commands::system_reveal_path,
             domain::system::commands::system_open_in_browser,
             domain::system::commands::system_open_app_data_path,
+            domain::system::commands::system_open_external_url,
             domain::ide::commands::ide_get_status,
             domain::ide::commands::ide_start,
             domain::ide::commands::ide_stop,

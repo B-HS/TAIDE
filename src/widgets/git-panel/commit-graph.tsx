@@ -20,6 +20,7 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from '@shared/ui/context-menu'
+import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { getGitTags } from '@entities/git/git.ipc'
 import { useCreateGitTag, useDeleteGitTag, useRevertGitCommit } from '@entities/git/git.query'
 import { CreateTagDialog } from '@features/git/create-tag-dialog'
@@ -212,7 +213,9 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                                         <span className='truncate'>{commit.summary}</span>
                                         <span className='text-app-sidebar-icon-default shrink-0'>{commit.author}</span>
                                         <span className='text-app-sidebar-icon-default shrink-0'>{t(relativeTime.key, relativeTime.params)}</span>
-                                        <span className='text-app-sidebar-icon-default shrink-0 font-mono'>{commit.id.slice(0, 7)}</span>
+                                        <span className='text-app-sidebar-icon-default shrink-0 font-mono'>
+                                            {commit.id.slice(0, COMMIT_SHORT_HASH_LENGTH)}
+                                        </span>
                                     </div>
                                 </ContextMenuTrigger>
                                 <ContextMenuContent>

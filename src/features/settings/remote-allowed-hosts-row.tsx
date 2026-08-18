@@ -21,7 +21,20 @@ const normalizeHost = (value: string) => value.trim().toLowerCase()
 const isValidAllowedHostLabel = (label: string) =>
     label.length > 0 && label.length <= 63 && !label.startsWith('-') && !label.endsWith('-') && /^[a-z0-9-]+$/.test(label)
 
-const isValidAllowedHost = (value: string) => value.length > 0 && value.length <= 253 && value.split('.').every(isValidAllowedHostLabel)
+/**
+ * Matches the backend's `is_valid_allowed_host` (`src-tauri/src/domain/settings/service.rs`) —
+ * a bare hostname, or a `*.` wildcard whose remainder still has two or more labels (RFC 6125
+ * single-label match). The wildcard never covers its own base domain — that RFC 6125 semantic
+ * is enforced by `remote::service::host_matches_allowed_entry` at match time, not here; this
+ * function only mirrors the backend's *shape* validation so an entry accepted here is never
+ * silently dropped by the backend's own sanitize pass.
+ */
+export const isValidAllowedHost = (value: string) => {
+    const wildcardRemainder = value.startsWith('*.') ? value.slice(2) : null
+    if (wildcardRemainder !== null)
+        return wildcardRemainder.includes('.') && wildcardRemainder.length <= 253 && wildcardRemainder.split('.').every(isValidAllowedHostLabel)
+    return value.length > 0 && value.length <= 253 && value.split('.').every(isValidAllowedHostLabel)
+}
 
 export const RemoteAllowedHostsRow: FC<RemoteAllowedHostsRowProps> = ({ hosts, saving, onChange }) => {
     const { t } = useTranslation()

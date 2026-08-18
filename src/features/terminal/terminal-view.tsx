@@ -15,6 +15,13 @@ import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
 
 const OVERVIEW_RULER_WIDTH_PX = 14
 
+/**
+ * xterm's built-in web-links handler activates on any click, which collides with terminal
+ * text selection and cursor placement. TAIDE gates link activation to Cmd-click (mac) /
+ * Alt-click, matching the modifier convention editors use for "open reference".
+ */
+export const shouldActivateTerminalLink = (event: Pick<MouseEvent, 'metaKey' | 'altKey'>) => event.metaKey || event.altKey
+
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void
     jumpToPreviousCommand: () => void
@@ -37,6 +44,7 @@ export type TerminalViewProps = {
     onReady: (cols: number, rows: number) => void
     onWriteBacklogChange: (pendingBytes: number) => void
     onFocusChange: (isFocused: boolean) => void
+    onOpenLink: (uri: string) => void
     attachRef: RefObject<TerminalAttachHandle | null>
 }
 
@@ -54,6 +62,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
     onReady,
     onWriteBacklogChange,
     onFocusChange,
+    onOpenLink,
     attachRef,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -64,6 +73,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
     const onReadyRef = useRef(onReady)
     const onWriteBacklogChangeRef = useRef(onWriteBacklogChange)
     const onFocusChangeRef = useRef(onFocusChange)
+    const onOpenLinkRef = useRef(onOpenLink)
     const attachRefRef = useRef(attachRef)
     const initialFontSizeRef = useRef(fontSize)
     const initialFontFamilyRef = useRef(fontFamily)
@@ -79,6 +89,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
         onReadyRef.current = onReady
         onWriteBacklogChangeRef.current = onWriteBacklogChange
         onFocusChangeRef.current = onFocusChange
+        onOpenLinkRef.current = onOpenLink
         attachRefRef.current = attachRef
         commandBlockColorsRef.current = { success: commandSuccessColor, failure: commandFailureColor }
     })
@@ -134,6 +145,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
             cursorBlink: initialCursorBlinkRef.current,
             cursorStyle: initialCursorStyleRef.current,
             macOptionIsMeta: true,
+            altClickMovesCursor: false,
             minimumContrastRatio: 1,
             drawBoldTextInBrightColors: true,
             smoothScrollDuration: 0,
@@ -143,7 +155,10 @@ export const TerminalView: FC<TerminalViewProps> = ({
         const fit = new FitAddon()
         const search = new SearchAddon({ highlightLimit: 1000 })
         const unicode11 = new Unicode11Addon()
-        const webLinks = new WebLinksAddon()
+        const webLinks = new WebLinksAddon((event, uri) => {
+            if (!shouldActivateTerminalLink(event)) return
+            onOpenLinkRef.current(uri)
+        })
 
         term.loadAddon(fit)
         term.loadAddon(search)

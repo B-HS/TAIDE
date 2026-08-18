@@ -44,12 +44,25 @@ pub enum TabKind {
         cwd: Option<String>,
     },
     Settings,
+    /// `rev`/`parent_rev`/`before_path` are optional so a tab can additionally represent a
+    /// *commit* diff (`git_show_file(rev, path)` vs `git_show_file(parent_rev, before_path ??
+    /// path)`), reusing the same `TabKind::Diff` the working-tree/staged diff already uses instead
+    /// of a dedicated variant — see
+    /// `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.6. `#[serde(default)]` on all
+    /// three keeps a pre-existing `layout.json` (written before this field set existed)
+    /// deserializing unchanged, the same backward-compatibility `compare_with` already relies on.
     #[serde(rename_all = "camelCase")]
     Diff {
         path: String,
         staged: bool,
         #[serde(default)]
         compare_with: Option<String>,
+        #[serde(default)]
+        rev: Option<String>,
+        #[serde(default)]
+        parent_rev: Option<String>,
+        #[serde(default)]
+        before_path: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     ClaudeDiff {
@@ -212,5 +225,60 @@ impl From<&TabKind> for FocusKind {
             TabKind::SearchEditor { .. } => FocusKind::SearchEditor,
             TabKind::AppFile { .. } => FocusKind::AppFile,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 구버전_diff_tabkind_json은_새_필드가_없어도_역직렬화된다() {
+        let legacy_json = serde_json::json!({
+            "kind": "diff",
+            "path": "src/main.rs",
+            "staged": false,
+            "compareWith": null,
+        });
+
+        let kind: TabKind = serde_json::from_value(legacy_json).expect("구버전 Diff JSON 역직렬화 성공");
+
+        assert_eq!(
+            kind,
+            TabKind::Diff {
+                path: "src/main.rs".to_string(),
+                staged: false,
+                compare_with: None,
+                rev: None,
+                parent_rev: None,
+                before_path: None,
+            }
+        );
+    }
+
+    #[test]
+    fn 커밋_diff용_필드가_포함된_json도_역직렬화된다() {
+        let commit_diff_json = serde_json::json!({
+            "kind": "diff",
+            "path": "src/main.rs",
+            "staged": false,
+            "rev": "abc1234",
+            "parentRev": "def5678",
+            "beforePath": "src/old-main.rs",
+        });
+
+        let kind: TabKind = serde_json::from_value(commit_diff_json).expect("커밋 diff JSON 역직렬화 성공");
+
+        assert_eq!(
+            kind,
+            TabKind::Diff {
+                path: "src/main.rs".to_string(),
+                staged: false,
+                compare_with: None,
+                rev: Some("abc1234".to_string()),
+                parent_rev: Some("def5678".to_string()),
+                before_path: Some("src/old-main.rs".to_string()),
+            }
+        );
     }
 }

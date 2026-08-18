@@ -103,6 +103,28 @@
   해당 프로젝트 새 탭으로 열기 + line/col 로 커서 이동. modifier 없는 클릭은 무동작(터미널 관례).
 - hover 툴팁 DOM 은 `term.element` 내 `xterm-hover` 클래스(이벤트 관통 방지).
 
+### 6.1 URL 링크 열기 (손 QA 1차 수정, 2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.1. 배경: `WebLinksAddon` 의
+> 기본 핸들러는 `window.open()` 에 의존하는데, WKWebView(Tauri macOS)에서 이 호출이 `null` 을
+> 반환해 무동작이었다 — 클릭 자체는 (수식어 무관하게) 핸들러까지 도달했지만 그 뒤에서 조용히
+> 실패했다.
+
+- `WebLinksAddon` 을 **핸들러 주입형**으로 교체(`terminal-view.tsx`) — 기본 핸들러 대신
+  `(event, uri) => { if (!shouldActivateTerminalLink(event)) return; onOpenLink(uri) }`.
+  `shouldActivateTerminalLink` 는 `event.metaKey || event.altKey` 일 때만 참(⌘ 클릭 또는 ⌥ 클릭,
+  둘 중 하나로 겸용 — §6 의 파일 경로 링크가 cmd(ctrl)+click 하나만 받는 것과 다른 설계). 수식어
+  없는 클릭은 여전히 무동작.
+- Terminal 생성 옵션에 `altClickMovesCursor: false` 추가 — 기본값(`true`)을 그대로 두면 ⌥클릭이
+  "커서를 그 위치로 이동"과 "링크 열기" 두 동작으로 동시에 해석돼 충돌한다. ⌥클릭의 커서 점프
+  동작 자체를 제거하는 트레이드오프이며 사용자 승인을 거쳤다.
+- 열기 경로(`widgets/terminal-pane/terminal-link-opener.ts` `openTerminalLink`):
+  `window.open(uri, '_blank', 'noopener')` 를 먼저 시도하고, `null` 이 돌아오면(WKWebView)
+  `systemOpenExternalUrl` IPC(`system_open_external_url` — 새 URL은 화이트리스트는 `http(s)://`
+  접두만, `ipc-contract.md` 참조)로 폴백한다. 원격 미러 브라우저에서는 `window.open` 이 실제
+  새 탭으로 정상 동작하므로 셸/WKWebView 감지 없이도 두 환경 모두 자연스럽게 동작한다.
+  두 경로 모두 실패하면 `toast.error(t('terminal.openLinkFailed'))`.
+
 ## 7. 폰트 크기 (FR-G3)
 
 - `attachCustomKeyEventHandler` 로 cmd(ctrl) `+`/`-`/`0`(리셋) 처리 → `term.options.fontSize` 대입 +

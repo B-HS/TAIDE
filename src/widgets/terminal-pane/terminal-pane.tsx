@@ -20,6 +20,7 @@ export type TerminalPaneProps = {
     onResize: (cols: number, rows: number) => void
     onReady: (cols: number, rows: number) => void
     onSetPaused: (paused: boolean) => void
+    onOpenLink: (uri: string) => void
     attachData: (onData: (bytes: Uint8Array) => void) => () => void
 }
 
@@ -37,6 +38,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     onResize,
     onReady,
     onSetPaused,
+    onOpenLink,
     attachData,
 }) => {
     const attachRef = useRef<TerminalAttachHandle | null>(null)
@@ -45,6 +47,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const onResizeRef = useRef(onResize)
     const onReadyRef = useRef(onReady)
     const onSetPausedRef = useRef(onSetPaused)
+    const onOpenLinkRef = useRef(onOpenLink)
     const attachDataRef = useRef(attachData)
 
     const [isFocused, setIsFocused] = useState(false)
@@ -54,6 +57,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
         onResizeRef.current = onResize
         onReadyRef.current = onReady
         onSetPausedRef.current = onSetPaused
+        onOpenLinkRef.current = onOpenLink
         attachDataRef.current = attachData
     })
 
@@ -62,6 +66,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const handleResize = (cols: number, rows: number) => onResizeRef.current(cols, rows)
 
     const handleReady = (cols: number, rows: number) => onReadyRef.current(cols, rows)
+
+    const handleOpenLink = (uri: string) => onOpenLinkRef.current(uri)
 
     const handleWriteBacklogChange = (pendingBytes: number) => {
         const next = evaluateFlowControl(flowStateRef.current, pendingBytes)
@@ -98,6 +104,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
             onReady={handleReady}
             onWriteBacklogChange={handleWriteBacklogChange}
             onFocusChange={handleFocusChange}
+            onOpenLink={handleOpenLink}
             attachRef={attachRef}
         />
     )

@@ -32,6 +32,11 @@
 
 → **둘 다 확인**한다. 1번이면 테마 적용 흐름(`theme-system.md` §5)에 윈도우 배경색 갱신을 추가한다.
 
+**갱신(손 QA 1차 수정, 2026-08-18)**: 1번(`window.set_background_color()` 동적 갱신)은 아직
+**backlog 로 유지**한다 — vibrancy 와의 상호작용을 실기로 먼저 확인해야 해서, 이번 수정 범위에는
+포함하지 않았다(계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.2·§3). 2번은 별건인
+아래 §2 의 reveal 게이트 정합으로 처리됐다.
+
 ## 2. 기동 시 흰 화면 (4번)
 
 **증상**: "헤더는 색상 그대로인데 아래는 흰색으로 나왔다가 사이드바/본문이 렌더링된다."
@@ -49,6 +54,28 @@
    테마 값이 아니라 "첫 페인트용 바탕색"이기 때문.)
 
 → 두 가지를 함께 적용하고, **실제로 흰 깜빡임이 사라졌는지 눈으로 확인**한 뒤 완료 처리한다.
+
+### 2.1 reveal 게이트 vs CSS 게이트 불일치 (손 QA 1차 수정, 2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.2. 위 1번 원인의 실제 사례 —
+> "변수 주입 effect 가 끝난 뒤 reveal" 이 부분적으로만 구현돼 있었다.
+
+- **증상·원인**: 윈도우 표시(`useRevealWindow`, OS 레벨 `getCurrentWindow().show()`)는 **테마
+  쿼리의 `isFetched` 만** 대기했는데, body 자체의 시각적 노출은
+  `html[data-theme-ready][data-locale-ready] body`(`global.css`) 로 **테마+로케일 이중 게이트**를
+  걸고 있었다(로케일 게이트는 이후 커밋에서 추가됐고 reveal 쪽은 함께 갱신되지 않았다). 로케일
+  쿼리가 테마보다 늦게 도착하면 **창은 이미 떠 있는데 body 는 아직 숨김** 상태가 되어, 그 사이에는
+  `index.html`/`tauri.conf.json` 의 `#1e1e2e` 정적 배경만 노출됐다 — 콜드 스타트에서 "테마가 안
+  먹은 것처럼" 보이는 원인.
+- **수정**: `useRevealWindow` 를 호출하는 쪽(`theme-provider.tsx`)이 로케일 쿼리(`currentLocaleQueryOptions`,
+  같은 `QueryClient` 캐시라 추가 IPC 없음)의 `isFetched` 도 함께 보도록 확장 —
+  `useRevealWindow(isWindowReadyToReveal(themeFetched, localeFetched))`(신설 `isWindowReadyToReveal`,
+  `shared/hooks/use-reveal-window.ts`). CSS 게이트와 정확히 같은 두 신호를 보게 되어 창이 body 보다
+  먼저 뜨는 창이 사라진다. 두 `isFetched` 모두 **쿼리가 에러로 확정돼도 `true`** 로 뒤집히므로
+  (React Query 의미상) 실패한 쿼리를 영원히 기다리는 데드락은 없다.
+- **표면화 보강**: 테마 쿼리가 실패하면 이전에는 (도착 대기 자체가 없어) 아무 표시 없이 조용히
+  넘어갔다. `locale-provider.tsx` 의 실패 배너+재시도 패턴을 `theme-provider.tsx` 에도 이식해
+  `isError` 시 상단 배너(`t('theme.loadFailed')` + 재시도 버튼)를 띄운다.
 
 ## 3. footer (상태바)
 

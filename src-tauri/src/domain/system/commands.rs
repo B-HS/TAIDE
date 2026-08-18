@@ -226,6 +226,45 @@ pub async fn system_open_in_browser(state: State<'_, AppState>, path: String) ->
     tauri_plugin_opener::open_url(file_url(&resolved), None::<&str>).map_err(|error| AppError::Internal(error.to_string()))
 }
 
+/// Schemes `system_open_external_url` accepts, checked ASCII-case-insensitively against the
+/// (trimmed) start of the URL.
+const EXTERNAL_URL_ALLOWED_SCHEMES: &[&str] = &["http://", "https://"];
+
+/// Whitelists `http(s)://` for `tauri_plugin_opener::open_url` — the only caller is a clicked
+/// link inside the embedded terminal (xterm's `WebLinksAddon`), which only ever recognizes
+/// `http(s)://` text to begin with, so a scheme prefix check alone is enough to keep this from
+/// becoming a generic "open anything the OS shell understands" primitive (`file://`,
+/// `javascript:`, a custom app-registered scheme, etc. are all rejected). No `url` crate is
+/// pulled in for this — a prefix check is the whole job. Leading/trailing whitespace is trimmed
+/// first (a terminal selection commonly carries it); anything left after that — a control
+/// character or *interior* whitespace — is rejected, since a crafted OSC 8 hyperlink or a
+/// language-server-generated string routed here some other way could otherwise smuggle a
+/// shell-hostile or visually-spoofed value through to the OS opener.
+fn validate_external_url(url: &str) -> AppResult<String> {
+    let trimmed = url.trim();
+    let has_allowed_scheme = EXTERNAL_URL_ALLOWED_SCHEMES.iter().any(|scheme| {
+        trimmed
+            .get(..scheme.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+    });
+    if !has_allowed_scheme {
+        return Err(AppError::InvalidArgument(
+            "http:// 또는 https:// 로 시작하는 URL만 열 수 있습니다".to_string(),
+        ));
+    }
+    if trimmed.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(AppError::InvalidArgument("URL에 제어 문자나 공백을 포함할 수 없습니다".to_string()));
+    }
+    Ok(trimmed.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn system_open_external_url(url: String) -> AppResult<()> {
+    let validated = validate_external_url(&url)?;
+    tauri_plugin_opener::open_url(validated, None::<&str>).map_err(|error| AppError::Internal(error.to_string()))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn system_open_app_data_path(state: State<'_, AppState>, kind: AppDataPathKind) -> AppResult<()> {
@@ -237,4 +276,48 @@ pub async fn system_open_app_data_path(state: State<'_, AppState>, kind: AppData
     };
     std::fs::create_dir_all(&dir)?;
     tauri_plugin_opener::reveal_item_in_dir(dir).map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_와_https_스킴은_허용된다() {
+        assert!(validate_external_url("http://example.com").is_ok());
+        assert!(validate_external_url("https://example.com/path?query=1").is_ok());
+    }
+
+    #[test]
+    fn 대소문자가_섞인_https_스킴도_허용된다() {
+        assert!(validate_external_url("HTTPS://example.com").is_ok());
+        assert!(validate_external_url("HtTp://example.com").is_ok());
+    }
+
+    #[test]
+    fn file_스킴은_거부된다() {
+        assert!(validate_external_url("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn 제어_문자가_섞이면_거부된다() {
+        assert!(validate_external_url("http://example.com/\u{7}").is_err());
+    }
+
+    #[test]
+    fn 빈_문자열은_거부된다() {
+        assert!(validate_external_url("").is_err());
+    }
+
+    #[test]
+    fn url_중간의_공백은_거부되지만_전후_공백은_트림된다() {
+        assert!(
+            validate_external_url("http://example .com").is_err(),
+            "URL 중간 공백은 거부되어야 한다"
+        );
+        assert_eq!(
+            validate_external_url("  http://example.com  ").expect("전후 공백은 트림되어 통과해야 한다"),
+            "http://example.com"
+        );
+    }
 }

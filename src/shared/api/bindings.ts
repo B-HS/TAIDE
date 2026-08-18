@@ -131,9 +131,50 @@ export const commands = {
 	 *  doc on [`SessionEntry`] for why this can't be left to `broadcast_message`'s send-failure pruning
 	 *  alone. Root refcounting (`root`) then decides, independently, whether the whole session (process
 	 *  included) gets torn down — a still-live owner keeps receiving messages from the shared session
-	 *  even after some other owner's root is removed from it.
+	 *  even after some other owner's root is removed from it. **This owner-scoping is preserved
+	 *  unchanged** by the guard restructuring below: the "still has remaining roots" branch still
+	 *  returns early, under the guard, without ever reaching teardown.
+	 * 
+	 *  The guard (`AppState::begin_mutation`) is held only for the synchronous bookkeeping above and,
+	 *  on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.0.lock().remove`
+	 *  runs *before* the guard is dropped, specifically so a concurrent `lsp_spawn`'s
+	 *  `find_reusable_entry` or another `lsp_stop`/`lsp_send`'s `find_entry` can never observe this
+	 *  session while [`shutdown_entry`] is mid-flight. [`shutdown_entry`] itself then runs unguarded
+	 *  (see its own doc comment for why that's safe) — this is what stops LSP teardown from queuing
+	 *  every other mutating command (`layout_*`, `file_save`, `lsp_spawn`) behind it for the whole
+	 *  shutdown sequence, the file-open-blocks-on-LSP-teardown bug this restructuring fixes.
+	 * 
+	 *  Two overlapping full-teardown calls for the same `session_id` (double-invoked `lsp_stop`, e.g.
+	 *  from a React effect cleanup racing a manual close) are safe by construction: whichever call's
+	 *  guarded section runs first removes the entry from the store; the second call's own
+	 *  `find_entry` then fails fast with `NotFound` instead of running a second redundant
+	 *  `shutdown_entry` — strictly better than the previous behavior, where both calls could hold the
+	 *  entry live long enough to both reach `shutdown_entry` and both harmlessly re-send
+	 *  shutdown/exit/kill to the same (possibly already-dead) process. A concurrent `lsp_spawn` for the
+	 *  same project/server/owner racing this teardown *can* still lose to it (spawning a fresh session
+	 *  while the old one's process is still being killed in the background) — but that window is now
+	 *  bounded by however long the language server actually takes to exit (typically well under
+	 *  `LSP_SHUTDOWN_TIMEOUT_MS`, per [`wait_for_process_exit`]'s polling) rather than a blind 4-second
+	 *  hold, and the old process is guaranteed to be killed regardless once its `shutdown_entry` call
+	 *  completes.
 	 */
 	lspStop: (sessionId: string, root: string | null, owner: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root, owner })),
+	/**
+	 *  Guard-restructuring mirrors [`lsp_stop`]'s: the guard covers only the synchronous `find_entry`
+	 *  lookup, is dropped before the unguarded [`shutdown_entry`] await, then re-acquired for the
+	 *  respawn bookkeeping. Unlike `lsp_stop`'s full-teardown path, the entry is **not** unlinked from
+	 *  [`LspStore`] here — `session_id` is reused for the restarted process, so `find_entry` continues
+	 *  to resolve it throughout *this* call. That does leave a narrow unguarded window where a
+	 *  concurrent `lsp_stop` for this same `session_id` can also observe the entry (still in the
+	 *  store) and run its own full teardown — including unlinking it from `LspStore` — while this
+	 *  call's `shutdown_entry` is also in flight against the identical `Arc<SessionEntry>` (harmless:
+	 *  both converge on the same stopping/kill/`Stopped` end state). The respawn below re-checks the
+	 *  store for `session_id` before installing the freshly spawned process specifically to catch that
+	 *  case: if `lsp_stop` won the race and already removed the entry, spawning anyway would leak an
+	 *  unreachable process no `session_id` could ever `lsp_stop`/`lsp_send` again (the old code
+	 *  couldn't hit this — `begin_mutation`'s single guard spanned each call's *entire* body, so
+	 *  `lsp_stop` and `lsp_restart` could never interleave at all).
+	 */
 	lspRestart: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_restart", { sessionId })),
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),
 	lspDetectServers: () => typedError<LspServerDetection[], AppError>(__TAURI_INVOKE("lsp_detect_servers")),
@@ -219,6 +260,7 @@ export const commands = {
 	systemRevealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_reveal_path", { path })),
 	systemOpenInBrowser: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_in_browser", { path })),
 	systemOpenAppDataPath: (kind: AppDataPathKind) => typedError<null, AppError>(__TAURI_INVOKE("system_open_app_data_path", { kind })),
+	systemOpenExternalUrl: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_external_url", { url })),
 	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
 	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
 	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
@@ -1386,7 +1428,17 @@ export type Tab = {
 
 export type TabId = string;
 
-export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | { kind: "diff"; path: string; staged: boolean; compareWith?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" } | { kind: "untitled"; index: number } | 
+export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessionId: string; cwd?: string | null } | { kind: "settings" } | 
+/**
+ *  `rev`/`parent_rev`/`before_path` are optional so a tab can additionally represent a
+ *  *commit* diff (`git_show_file(rev, path)` vs `git_show_file(parent_rev, before_path ??
+ *  path)`), reusing the same `TabKind::Diff` the working-tree/staged diff already uses instead
+ *  of a dedicated variant — see
+ *  `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.6. `#[serde(default)]` on all
+ *  three keeps a pre-existing `layout.json` (written before this field set existed)
+ *  deserializing unchanged, the same backward-compatibility `compare_with` already relies on.
+ */
+{ kind: "diff"; path: string; staged: boolean; compareWith?: string | null; rev?: string | null; parentRev?: string | null; beforePath?: string | null } | { kind: "claudeDiff"; requestId: string; path: string } | { kind: "welcome" } | { kind: "untitled"; index: number } | 
 /**
  *  A persistent, editable search results surface (VS Code calls this a "Search Editor").
  *  Only the query is kept — results are cheap to re-run (`search::commands::search_run`)

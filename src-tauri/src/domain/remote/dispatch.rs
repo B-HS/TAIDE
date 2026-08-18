@@ -157,6 +157,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "system_reveal_path",
     "system_open_in_browser",
     "system_open_app_data_path",
+    "system_open_external_url",
     "ide_get_status",
     "ide_start",
     "ide_stop",
@@ -336,6 +337,21 @@ fn deny_remote_vsix_import(name: &str) -> Value {
 fn deny_remote_vsix_extract_themes(name: &str) -> Value {
     err(AppError::Forbidden(format!(
         "원격 세션에서는 vsix 테마를 추출할 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `system_open_external_url` with an explicit denial instead of dispatching to the real
+/// handler — that command opens a URL in the desktop's own OS-default browser
+/// (`tauri_plugin_opener::open_url`), which only makes sense on the machine actually running that
+/// browser. A remote browser session already has its own browser (the one it's connecting
+/// through) and has no way to see or use a window `open_url` pops up on the desktop's display, so
+/// honoring the request would only ever open an unwanted browser window on the desktop user's
+/// machine — the same rationale as [`deny_remote_window_open`], just for the OS browser instead of
+/// a new app window. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity
+/// test still passes; only the `match` arm in [`dispatch`] refuses to call through.
+fn deny_remote_open_external_url(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 호스트 브라우저를 열 수 없습니다: {name}"
     )))
 }
 
@@ -918,6 +934,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "system_reveal_path" => respond(system::system_reveal_path(app.state(), arg!(args, "path")).await),
         "system_open_in_browser" => respond(system::system_open_in_browser(app.state(), arg!(args, "path")).await),
         "system_open_app_data_path" => respond(system::system_open_app_data_path(app.state(), arg!(args, "kind")).await),
+        "system_open_external_url" => Err(deny_remote_open_external_url(name)),
 
         "ide_get_status" => respond(ide::ide_get_status(app.state()).await),
         "ide_start" => respond(ide::ide_start(app.clone(), app.state(), app.state()).await),
@@ -1097,6 +1114,12 @@ mod tests {
     #[test]
     fn 원격_세션은_보조_창을_열_수_없다() {
         let value = deny_remote_window_open("window_open_auxiliary");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+    }
+
+    #[test]
+    fn 원격_세션은_호스트_브라우저를_열_수_없다() {
+        let value = deny_remote_open_external_url("system_open_external_url");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 

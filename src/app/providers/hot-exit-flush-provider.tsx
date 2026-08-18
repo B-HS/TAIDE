@@ -4,6 +4,7 @@ import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { HOT_EXIT_FLUSH_SAFETY_MARGIN_MS } from '@shared/constants/mirror'
 import { flushMirrorsComplete } from '@entities/file/file.ipc'
 import { flushAllMirrors } from '@entities/editor/mirror-flush-registry'
+import { flushAllLspSessions } from '@widgets/editor-pane/lsp-session-flush-registry'
 
 /**
  * Client-side budget for how long to wait on `flushAllMirrors()` before reporting completion
@@ -31,10 +32,17 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * `HOT_EXIT_FLUSH_TIMEOUT_MS` force-close, which would also lose whatever *other* panes had already
  * finished flushing by then. A backend-side timeout still force-closes the window if this never
  * reports back at all (e.g. the IPC call to confirm itself fails), so a swallowed failure here
- * can't hang the app either way.
+ * can't hang the app either way. Also flushes every LSP session still sitting in its dispose grace
+ * period ({@link flushAllLspSessions}) — best-effort and unraced against the mirror budget, since
+ * `LspStore::kill_all` (Rust, `RunEvent::Exit`) unconditionally kills every language server process
+ * regardless of whether this handshake completes in time. Reached through
+ * `lsp-session-flush-registry` rather than `lsp-session-registry` directly so this otherwise
+ * monaco-free provider (and its `computeFlushBudgetMs` unit test) doesn't drag that module's real
+ * monaco worker imports into every module graph that touches this file.
  */
 export const HotExitFlushProvider: FC<PropsWithChildren> = ({ children }) => {
     useTauriEvent(events.appHotExitFlushRequested, ({ payload }) => {
+        flushAllLspSessions()
         const budgetMs = computeFlushBudgetMs(payload.timeoutMs)
         void Promise.race([flushAllMirrors(), sleep(budgetMs)]).finally(() => void flushMirrorsComplete().catch(() => undefined))
     })

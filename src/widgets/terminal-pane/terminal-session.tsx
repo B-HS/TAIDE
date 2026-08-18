@@ -1,12 +1,14 @@
 import type { FC } from 'react'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectId, TabId } from '@shared/api/bindings'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
 import { attachPty, detachPty, resizePty, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
+import { systemOpenExternalUrl } from '@entities/system/system.ipc'
 import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
@@ -18,6 +20,7 @@ import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/termina
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
+import { openTerminalLink } from '@widgets/terminal-pane/terminal-link-opener'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
 
@@ -39,6 +42,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const { data: liveSessions, isFetched: isSessionsFetched } = useQuery(terminalSessionsQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: persistTerminalSession } = useSetTerminalSession(projectId)
+    const { t } = useTranslation()
 
     const isPersistedAlive = (liveSessions ?? []).some((session) => session.id === persistedSessionId)
     const sessionId = spawnedSessionId ?? (isPersistedAlive ? persistedSessionId : null)
@@ -83,6 +87,13 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const handleSetPaused = (paused: boolean) => {
         if (!sessionId) return
         void setPtyPaused({ sessionId, paused }).catch(() => undefined)
+    }
+
+    const handleOpenLink = (uri: string) => {
+        void openTerminalLink(uri, {
+            windowOpen: (target) => window.open(target, '_blank', 'noopener'),
+            openExternalUrl: systemOpenExternalUrl,
+        }).catch(() => toast.error(t('terminal.openLinkFailed')))
     }
 
     const handleAttachData = (onData: (bytes: Uint8Array) => void) => {
@@ -143,6 +154,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
             onResize={handleResize}
             onReady={handleReady}
             onSetPaused={handleSetPaused}
+            onOpenLink={handleOpenLink}
             attachData={handleAttachData}
         />
     )

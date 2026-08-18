@@ -95,7 +95,10 @@ fn is_insecure_connection(host: Option<&str>, allowed_hosts: &[String], headers:
     if service::is_loopback_hostname(&hostname) {
         return true;
     }
-    if !allowed_hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(&hostname)) {
+    if !allowed_hosts
+        .iter()
+        .any(|allowed| service::host_matches_allowed_entry(&hostname, allowed))
+    {
         return true;
     }
     let forwarded_proto = headers
@@ -457,6 +460,14 @@ mod tests {
     #[test]
     fn host_헤더가_없으면_평문으로_판단한다() {
         assert!(is_insecure_connection(None, &[], &HeaderMap::new()));
+    }
+
+    #[test]
+    fn 와일드카드로_등록된_터널_호스트는_x_forwarded_proto가_https이면_보안_연결로_판단한다() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        let allowed = vec!["*.trycloudflare.com".to_string()];
+        assert!(!is_insecure_connection(Some("foo.trycloudflare.com:53211"), &allowed, &headers));
     }
 
     #[test]
