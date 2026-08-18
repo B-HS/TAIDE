@@ -256,11 +256,13 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
         .download
         .as_ref()
         .and_then(|download| download.bin_path_in_archive.as_deref());
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
     let resolved = service::resolve_spec_command(
         &spec,
         Some(std::path::Path::new(&root)),
         managed_dir.as_deref(),
         managed_relative_path,
+        &path_var,
     )
     .ok_or_else(|| AppError::NotFound(format!("language server executable not found: {}", spec.command.bin())))?;
 
@@ -717,7 +719,8 @@ pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> 
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_detect_servers(state: State<'_, AppState>) -> AppResult<Vec<LspServerDetection>> {
-    Ok(service::detect_servers(&state.paths.lsp_dir()))
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    Ok(service::detect_servers(&state.paths.lsp_dir(), &path_var))
 }
 
 #[tauri::command]

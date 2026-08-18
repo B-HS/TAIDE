@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use super::manifest;
@@ -30,9 +31,17 @@ fn project_local_dirs(root: &Path) -> Vec<PathBuf> {
     vec![root.join("node_modules").join(".bin"), root.join(".venv").join("bin")]
 }
 
+/// Production-facing convenience: reads the process's live `PATH` and delegates to
+/// [`find_in_path_within`]. The `PATH` read happens here, at the single production call site
+/// closest to the OS boundary, so the search logic itself never touches process-global state and
+/// can be exercised deterministically with an injected `PATH` value in tests.
 pub fn find_in_path(command: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
-    std::env::split_paths(&path_var).find_map(|dir| {
+    find_in_path_within(command, &path_var)
+}
+
+fn find_in_path_within(command: &str, path_var: &OsStr) -> Option<PathBuf> {
+    std::env::split_paths(path_var).find_map(|dir| {
         let candidate = executable_candidate(&dir, command);
         candidate.is_file().then_some(candidate)
     })
@@ -44,6 +53,7 @@ pub fn resolve_command(
     managed_dir: Option<&Path>,
     managed_relative_path: Option<&str>,
     is_managed: bool,
+    path_var: &OsStr,
 ) -> Option<PathBuf> {
     if !is_managed {
         if let Some(root) = root {
@@ -64,7 +74,7 @@ pub fn resolve_command(
         }
     }
 
-    find_in_path(command)
+    find_in_path_within(command, path_var)
 }
 
 fn requires_server_dir(spec: &LanguageServerSpec) -> bool {
@@ -111,6 +121,7 @@ pub fn resolve_spec_command(
     root: Option<&Path>,
     managed_dir: Option<&Path>,
     managed_relative_path: Option<&str>,
+    path_var: &OsStr,
 ) -> Option<PathBuf> {
     let is_managed = spec.command.is_managed();
 
@@ -119,10 +130,10 @@ pub fn resolve_spec_command(
         // app-managed server directory it templates via `{serverDir}` actually exists — an
         // unmanaged runtime on PATH with no installed archive can never be spawned correctly.
         managed_dir?;
-        return find_in_path(spec.command.bin());
+        return find_in_path_within(spec.command.bin(), path_var);
     }
 
-    if let Some(resolved) = resolve_command(spec.command.bin(), root, managed_dir, managed_relative_path, is_managed) {
+    if let Some(resolved) = resolve_command(spec.command.bin(), root, managed_dir, managed_relative_path, is_managed, path_var) {
         return Some(resolved);
     }
 
@@ -142,15 +153,20 @@ pub(super) fn toolchain_binary(tool: LspToolchainTool) -> &'static str {
     }
 }
 
-fn evaluate_sdk_probes(probes: &[LspSdkProbe]) -> bool {
+fn evaluate_sdk_probes(probes: &[LspSdkProbe], path_var: &OsStr) -> bool {
     probes.iter().any(|probe| match probe {
-        LspSdkProbe::PathCommand { command } => find_in_path(command).is_some(),
+        LspSdkProbe::PathCommand { command } => find_in_path_within(command, path_var).is_some(),
         LspSdkProbe::FixedPath { path } => Path::new(path).exists(),
-        LspSdkProbe::Xcrun { tool } => find_in_path("xcrun").is_some() && find_in_path(tool).is_some(),
+        LspSdkProbe::Xcrun { tool } => find_in_path_within("xcrun", path_var).is_some() && find_in_path_within(tool, path_var).is_some(),
     })
 }
 
-pub fn detect_servers(lsp_dir: &Path) -> Vec<LspServerDetection> {
+/// Detects the availability of every built-in language server spec. `path_var` is the `PATH`
+/// value to search — threaded in explicitly (rather than read from the process environment here)
+/// so tests can exercise `PATH`-dependent detection (managed-runtime fallback, toolchain/SDK
+/// probes) with a scoped value instead of mutating the process-global `PATH`, which would race
+/// with every other test in this binary that spawns a process or resolves a command.
+pub fn detect_servers(lsp_dir: &Path, path_var: &OsStr) -> Vec<LspServerDetection> {
     manifest::servers()
         .into_iter()
         .map(|spec| {
@@ -161,18 +177,18 @@ pub fn detect_servers(lsp_dir: &Path) -> Vec<LspServerDetection> {
                 .download
                 .as_ref()
                 .and_then(|download| download.bin_path_in_archive.as_deref());
-            let resolved = resolve_spec_command(&spec, None, managed_dir.as_deref(), managed_relative_path);
+            let resolved = resolve_spec_command(&spec, None, managed_dir.as_deref(), managed_relative_path, path_var);
 
             let toolchain_available = spec
                 .install
                 .toolchain
                 .as_ref()
-                .map(|toolchain| find_in_path(toolchain_binary(toolchain.tool)).is_some());
+                .map(|toolchain| find_in_path_within(toolchain_binary(toolchain.tool), path_var).is_some());
             let sdk_available = spec
                 .install
                 .sdk_detect
                 .as_ref()
-                .map(|sdk_detect| evaluate_sdk_probes(&sdk_detect.probes));
+                .map(|sdk_detect| evaluate_sdk_probes(&sdk_detect.probes, path_var));
             let toolchain_tool = spec
                 .install
                 .toolchain
@@ -302,6 +318,14 @@ mod tests {
 
     fn spec_by_id(id: &str) -> LanguageServerSpec {
         builtin_specs().into_iter().find(|spec| spec.id == id).unwrap()
+    }
+
+    /// The process's real, inherited `PATH` — for tests that call `PATH`-parameterized functions
+    /// but don't care what `PATH` actually resolves to. Reading it here (never mutating it) keeps
+    /// this test binary free of the process-global `PATH` races that `env::set_var("PATH", ...)`
+    /// used to cause against every other test spawning a process or resolving a command.
+    fn real_path_var() -> std::ffi::OsString {
+        std::env::var_os("PATH").unwrap_or_default()
     }
 
     #[test]
@@ -448,7 +472,7 @@ mod tests {
         let local_bin = bin_dir.join("taide-fake-vtsls");
         touch(&local_bin);
 
-        let resolved = resolve_command("taide-fake-vtsls", Some(&root), None, None, false);
+        let resolved = resolve_command("taide-fake-vtsls", Some(&root), None, None, false, &real_path_var());
         assert_eq!(resolved, Some(local_bin));
         std::fs::remove_dir_all(&root).ok();
     }
@@ -464,14 +488,14 @@ mod tests {
         let path_bin = path_dir.join("taide-fake-managed");
         touch(&path_bin);
 
-        let original_path = std::env::var_os("PATH");
-        std::env::set_var("PATH", &path_dir);
-
-        let resolved = resolve_command("taide-fake-managed", Some(&root), Some(&managed_dir), None, false);
-
-        if let Some(original) = original_path {
-            std::env::set_var("PATH", original);
-        }
+        let resolved = resolve_command(
+            "taide-fake-managed",
+            Some(&root),
+            Some(&managed_dir),
+            None,
+            false,
+            path_dir.as_os_str(),
+        );
 
         assert_eq!(resolved, Some(managed_bin));
         std::fs::remove_dir_all(&root).ok();
@@ -486,14 +510,7 @@ mod tests {
         let path_bin = path_dir.join("taide-fake-only-in-path");
         touch(&path_bin);
 
-        let original_path = std::env::var_os("PATH");
-        std::env::set_var("PATH", &path_dir);
-
-        let resolved = resolve_command("taide-fake-only-in-path", Some(&root), None, None, false);
-
-        if let Some(original) = original_path {
-            std::env::set_var("PATH", original);
-        }
+        let resolved = resolve_command("taide-fake-only-in-path", Some(&root), None, None, false, path_dir.as_os_str());
 
         assert_eq!(resolved, Some(path_bin));
         std::fs::remove_dir_all(&root).ok();
@@ -512,14 +529,7 @@ mod tests {
         let trusted_path_bin = path_dir.join("taide-fake-managed-only");
         touch(&trusted_path_bin);
 
-        let original_path = std::env::var_os("PATH");
-        std::env::set_var("PATH", &path_dir);
-
-        let resolved = resolve_command("taide-fake-managed-only", Some(&root), None, None, true);
-
-        if let Some(original) = original_path {
-            std::env::set_var("PATH", original);
-        }
+        let resolved = resolve_command("taide-fake-managed-only", Some(&root), None, None, true, path_dir.as_os_str());
 
         assert_eq!(resolved, Some(trusted_path_bin));
         std::fs::remove_dir_all(&root).ok();
@@ -538,7 +548,7 @@ mod tests {
     #[test]
     fn detect_servers는_매니페스트의_initialization_options을_그대로_전달한다() {
         let lsp_dir = make_temp_dir();
-        let detections = detect_servers(&lsp_dir);
+        let detections = detect_servers(&lsp_dir, &real_path_var());
 
         let rust_analyzer = detections.iter().find(|detection| detection.id == "rustAnalyzer").unwrap();
         assert_eq!(
@@ -558,7 +568,7 @@ mod tests {
     #[test]
     fn detect_servers는_매니페스트의_모든_서버_결과를_반환한다() {
         let lsp_dir = make_temp_dir();
-        let detections = detect_servers(&lsp_dir);
+        let detections = detect_servers(&lsp_dir, &real_path_var());
 
         assert_eq!(detections.len(), builtin_specs().len());
         let original_five = ["vtsls", "rustAnalyzer", "basedPyright", "ruff", "marksman"];
@@ -571,7 +581,7 @@ mod tests {
     #[test]
     fn detect_servers는_toolchain과_sdk_detect_전략도_보고한다() {
         let lsp_dir = make_temp_dir();
-        let detections = detect_servers(&lsp_dir);
+        let detections = detect_servers(&lsp_dir, &real_path_var());
 
         let gopls = detections.iter().find(|detection| detection.id == "gopls").unwrap();
         assert_eq!(gopls.install_strategy, LspInstallStrategy::Toolchain);
@@ -589,7 +599,7 @@ mod tests {
     #[test]
     fn detect_servers는_download_전략에_딸린_sdk_전제조건도_평가한다() {
         let lsp_dir = make_temp_dir();
-        let detections = detect_servers(&lsp_dir);
+        let detections = detect_servers(&lsp_dir, &real_path_var());
 
         let jdtls = detections.iter().find(|detection| detection.id == "jdtls").unwrap();
         assert_eq!(jdtls.install_strategy, LspInstallStrategy::Download);
@@ -602,7 +612,7 @@ mod tests {
     fn jdtls는_관리_디렉토리가_없으면_path_에_java_가_있어도_available_이_아니다() {
         let lsp_dir = make_temp_dir();
 
-        let detections = detect_servers(&lsp_dir);
+        let detections = detect_servers(&lsp_dir, &real_path_var());
         let jdtls = detections.iter().find(|detection| detection.id == "jdtls").unwrap();
 
         assert!(!jdtls.available, "managed 디렉토리 없이는 java 런처만으로 available 이 되면 안된다");
@@ -619,14 +629,8 @@ mod tests {
 
         let path_dir = make_temp_dir();
         touch(&path_dir.join("java"));
-        let original_path = std::env::var_os("PATH");
-        std::env::set_var("PATH", &path_dir);
 
-        let detections = detect_servers(&lsp_dir);
-
-        if let Some(original) = original_path {
-            std::env::set_var("PATH", original);
-        }
+        let detections = detect_servers(&lsp_dir, path_dir.as_os_str());
 
         let jdtls = detections.iter().find(|detection| detection.id == "jdtls").unwrap();
         assert!(jdtls.available);
@@ -642,7 +646,7 @@ mod tests {
         std::fs::create_dir_all(&version_dir).unwrap();
         touch(&version_dir.join("marksman"));
 
-        let detections = detect_servers(&lsp_dir);
+        let detections = detect_servers(&lsp_dir, &real_path_var());
         let marksman = detections.iter().find(|detection| detection.id == "marksman").unwrap();
 
         assert_eq!(marksman.installed_version, Some("2026.1.1".to_string()));
@@ -656,7 +660,14 @@ mod tests {
         let nested_bin = managed_dir.join("clangd_22.1.6").join("bin").join("clangd");
         touch(&nested_bin);
 
-        let resolved = resolve_command("clangd", None, Some(&managed_dir), Some("clangd_22.1.6/bin/clangd"), true);
+        let resolved = resolve_command(
+            "clangd",
+            None,
+            Some(&managed_dir),
+            Some("clangd_22.1.6/bin/clangd"),
+            true,
+            &real_path_var(),
+        );
 
         assert_eq!(resolved, Some(nested_bin));
         std::fs::remove_dir_all(&managed_dir).ok();
