@@ -575,6 +575,13 @@
               (935+6+17=958/958, 직전 938 대비 +20)/`vite build`(exit 0) 전부 그린
     - [ ] d-6. e2e 파일럿 실행 — 사용자 준비(앱 기동·REMOTE·비밀번호 export) 후 bun run e2e,
           결과 메인 분석(WebGL·포트 발견 실측). T0 와 독립 병행
+    - [ ] d-8. 감사 T1 정비 1차 배치(T1-E·T1-J·T1-B) — **착수**(2026-08-18 사용자: T1 저위험
+          묶음부터). T0 완료(main=eecb493) 위. **계약 정본:
+          `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md`**. T1-E 계약 검증 테스트
+          (이벤트/커맨드 파리티·Settings 필드·테마 토큰·sync 게이트)·T1-J 자원 회수(GitStore/
+          TreeStore/LSP kill/restart_count/asset scope 재등록 — T0 #15 롤백분 근본안)·T1-B
+          Settings 타입 union 좁히기(as 9지점 제거). 실행 R1→R2→R3 순차→F 병렬→D→E. 대형
+          3건(T1-H·T1-I/C13·T2-E)은 후반 — 착수 시 위험 재고지
     - [x] d-7. mtime flaky 근본 수정 완료(dev `d2204f7`) — **실은 프로덕션 데이터 무결성 버그**.
           진단(wf_1798253b-8ad, fable+high): serde_json 기본 파서가 f64 를 ~5.5% 확률로 1 ULP
           낮게 파싱(float_roundtrip 피처 부재) → 앱 재시작 후 미러 복원 시 디스크 무변경에도
