@@ -6,9 +6,11 @@ use tauri_specta::Event;
 use super::service;
 use super::types::{Project, ProjectRef};
 use crate::domain::file::types::FsChange;
+use crate::domain::git::commands::GitStore;
 use crate::domain::git::watch as git_watch;
 use crate::domain::layout::service as layout_service;
 use crate::domain::terminal::commands::TerminalStore;
+use crate::domain::tree::commands::TreeStore;
 use crate::error::AppResult;
 use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened};
 use crate::ids::ProjectId;
@@ -140,7 +142,9 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
 }
 
 /// Closes `project_id` and reaps every resource that only makes sense while the project is open.
-/// Two of those reaps are correctness-sensitive, not just cleanup:
+/// See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim and
+/// why (asset protocol scope is the one deliberate exception — deferred, see that section). Two of
+/// the reaps below are correctness-sensitive, not just cleanup:
 ///
 /// - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
 ///   2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`
@@ -152,9 +156,21 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
 /// - **Terminals**: `TerminalStore::kill_project` reaps every pty session scoped to this project.
 ///   Before this, nothing called `pty_kill` for a closing project's sessions — they kept running,
 ///   attached to nothing, until the whole app quit (`TerminalStore::kill_all`).
+///
+/// `GitStore`/`TreeStore` removal below is plain cache eviction (no correctness risk either way —
+/// `resolve_repo_root`/`ensure_entry` transparently rebuild a missing entry on next access) but
+/// still matters: without it, reopening the same folder resurrects a possibly-stale repo root or
+/// directory listing instead of resolving fresh, and the entry otherwise sits in memory for the
+/// rest of the app's lifetime regardless of whether the project ever reopens.
 #[tauri::command]
 #[specta::specta]
-pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
+pub async fn project_close(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    git_store: State<'_, GitStore>,
+    tree_store: State<'_, TreeStore>,
+    project_id: ProjectId,
+) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let mut session = state.session.read().clone();
     let mut projects = state.projects.read().clone();
@@ -177,6 +193,8 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
     state.watchers.write().remove(&project_id);
     state.git_watchers.write().remove(&project_id);
     app.state::<TerminalStore>().kill_project(&project_id);
+    git_store.remove(&project_id);
+    tree_store.remove(&project_id);
 
     crate::domain::ide::commands::refresh_lockfile(&app);
 

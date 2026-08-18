@@ -256,7 +256,7 @@ FSD 역방향 import(eslint `no-restricted-imports` 강제) · barrel `index.ts`
 
 | 계약 | 검증 장치 상태 |
 |---|---|
-| 이벤트 25종 등록 + 원격 팬아웃 24종 | 파리티 테스트 **없음**(커맨드 축에는 `RAW_CHANNEL_COMMANDS` 선례 존재) — R1#8 |
+| 이벤트 25종 등록 + 원격 팬아웃 23종(T0 #14 로 AgentExternalOpen 제외) | 파리티 테스트 **없음**(커맨드 축에는 `RAW_CHANNEL_COMMANDS` 선례 존재) — R1#8 |
 | 원격 dispatch 181 match arm | 테스트가 arm 을 읽지 않음, arm 누락이 무증상 통과 — R3#2 |
 | 원격 명시 거부 16종 | 테스트가 헬퍼 직접 호출 = **동어반복**, 라우팅 미검증 — R3#3 |
 | LSP capability 판정 | client 레지스트리 27개 + 어댑터 inline 25곳 **이중 관리** — F7#3 |
@@ -585,7 +585,7 @@ FSD 역방향 import(eslint `no-restricted-imports` 강제) · barrel `index.ts`
 **동일 근원**: `begin_mutation` 이 "앱 전역 단일 뮤텍스"라는 **단 하나의 입도**만 제공하므로, 개발자는 매번 "전부 막을 것인가 / 아무것도 안 막을 것인가" 를 택해야 합니다. 두 축은 같은 설계 공백의 양쪽 끝입니다. `infra/http.rs` 의 doc 주석과 `file/commands.rs:86-89` 주석이 이미 이 결합을 자인하고 있으나 완화책(타임아웃·락 면제)만 있습니다.
 
 **C12 (계약이 문서에만 있고 기계가 강제하지 않음)** — +5건 (5→10), **X1 이 정본 소유**
-- 이벤트 4목록(events.rs 25 / collect_events! 25 / fanout 24 / bindings 25) 파리티 테스트 **0건** — R1#8 의 정본이 X1#8 로 확정
+- 이벤트 4목록(events.rs 25 / collect_events! 25 / fanout 23 / bindings 25) 파리티 테스트 **0건** — R1#8 의 정본이 X1#8 로 확정
 - 커맨드 파리티 테스트가 **생성 산출물 `bindings.ts` 를 기준선으로 사용** → `collect_commands!` ↔ bindings 엣지가 무강제. "낡은 bindings = 낡은 dispatch" 로 통과(X1#9)
 - Settings 필드 집합 비교 테스트 없음(R5#3) / 테마 토큰 200개 비교 테스트 없음(R5#9)
 - sync 버전 게이트가 구조적으로 발동 불가 — `SETTINGS_SCHEMA_VERSION` 이 정책상 1 로 동결(X1#6)
@@ -794,7 +794,7 @@ X1 18건은 **수정 성격이 코드 / 테스트 / 문서로 갈라지므로** 
 
 | # | 항목 | 작업 |
 |---|---|---|
-| X1#8 | 이벤트 4목록 파리티 테스트 0건 | `events.rs` 25 / `collect_events!` 25 / `fanout_remote_events!` 24 / `bindings.ts` 25 의 집합 비교 테스트. **fanout 24(HotExitFlushRequested 제외)는 의도된 결정이므로 예외 목록을 테스트에 명시** — 현재는 주석으로만 남아 있음 |
+| X1#8 | 이벤트 4목록 파리티 테스트 0건 | `events.rs` 25 / `collect_events!` 25 / `fanout_remote_events!` 23 / `bindings.ts` 25 의 집합 비교 테스트. **fanout 23(HotExitFlushRequested·AgentExternalOpen 제외)는 의도된 결정이므로 예외 목록을 테스트에 명시** — 현재는 주석으로만 남아 있음 |
 | X1#9 | 커맨드 파리티가 생성물 기준 | 기준선을 `include_str!(bindings.ts)` 에서 `collect_commands!` 로 이동. 현재 세 출처가 모두 179 로 일치하나 강제 장치가 없음 |
 | X1#6 | sync 버전 게이트 무력 | `SETTINGS_SCHEMA_VERSION` 동결 정책을 유지하려면 게이트를 **필드 화이트리스트 기반 미지 필드 감지**로 바꾸거나, 게이트가 무력하다는 사실을 doc 주석과 정합시킴. 현재 테스트(`sync/service.rs:340·350`)는 상수 자기 자신과만 비교해 무력화를 못 잡음 |
 

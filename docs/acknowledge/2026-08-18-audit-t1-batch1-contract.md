@@ -9,8 +9,8 @@
 
 ### T1-E 계약 검증 테스트 (강제 장치 신설 — 코드 무변경 위주, 10건)
 문서·정의에만 있고 기계가 강제하지 않는 파리티를 테스트로 고정. **X-B 테스트 신설 3건 포함**.
-- **X1#8**: 이벤트 4목록 파리티 테스트(events.rs 25 / collect_events! 25 / fanout_remote_events! 24 /
-  bindings.ts 25 집합 비교). **fanout 24 는 HotExitFlushRequested·AgentExternalOpen(T0 #14) 의도적
+- **X1#8**: 이벤트 4목록 파리티 테스트(events.rs 25 / collect_events! 25 / fanout_remote_events! **23** /
+  bindings.ts 25 집합 비교). **fanout 23 은 HotExitFlushRequested·AgentExternalOpen(T0 #14) 의도적
   제외 — 예외 목록을 테스트에 명시**(현재 주석뿐).
 - **X1#9**: 커맨드 파리티 기준선을 생성물 bindings.ts → `collect_commands!` 로 이동(현재 셋 다 179
   일치하나 강제 없음. "낡은 bindings=낡은 dispatch" 통과 차단).
@@ -77,3 +77,32 @@ Rust `Settings` 의 `Option<String>` 열거형 필드가 프론트 `as` 9지점�
 - 4렌즈+적대적+메인 2차. 초점: 파리티 테스트가 인위적 드리프트를 실제로 잡는지(테스트의 테스트)·
   project_close 자원 회수 순서·재오픈 정합·asset 프로토콜 재등록(도입 시) 경합·Settings union 하위호환
   (구 settings.json 의 미지 값)·기본값 단일화가 기존 동작 무변경.
+
+---
+
+## 5. Phase E 검토 결함 수정 반영 (2026-08-18)
+
+> 검토 wf_b31b634b-24d(4렌즈 opus+xhigh) — 발견 10(major 4·minor 6) → 적대적 검증 major **1건
+> confirmed**·나머지 기각(1건은 실코드 반증·2건은 API 서버 에러로 미검증→메인 직접 재검증). 수정
+> confirmed 1 + minor 6 전건. 메인 2차: 실물 재검증 + kill 테스트 flaky 직접 수정 + verify·vite build.
+
+- **[major·confirmed] LSP kill() 이 재사용 PID 를 검증 없이 SIGKILL** — **T1-J R7#9(sysinfo PID kill)
+  수정이 도입한 회귀**. reap 된 stale 핸들의 PID 가 OS 에 재할당되면 앱 종료 kill_all 이 무관한
+  프로세스를 죽일 위험(데이터 유실). → `kill()` 에 `if self.exited { return; }` 가드(살아있는
+  프로세스만 kill, reap 된 stale PID 는 건드리지 않음). 회귀 테스트 동반.
+- **[미검증 2건 — 메인 직접 재검증]**: ① "LSP kill correctness" 는 위 confirmed 와 동일 결함(중복)
+  ② **"X1#9 파리티 경합"(신설 커맨드 파리티가 커밋 bindings.ts 를 병렬 손상) — 기각**: X1#9 테스트는
+  `temp_dir` 의 UUID 파일로 export(lib.rs "throwaway temp file, never touching committed bindings.ts"),
+  커밋 대상을 건드리는 건 기존 typescript_바인딩 테스트 하나뿐이라 경합 대상 아님. 실코드 확인.
+- **minor 6 수정(fixer)**: 원격 거부 라우팅을 `REMOTE_DENIED_COMMANDS` 테이블+`remote_denied_response()`
+  로 재구성(16 arm 통합 — 테스트가 실제 dispatch 라우팅 검증, 동어반복 해소)·SearchMatchRowData 를
+  `Omit<SearchMatch,'path'>` 유도·비전수 배열 2건 `as const`·`default_value_json` expect→unwrap_or
+  (프로덕션 panic 0 불변)·파리티 정규식 결합 가정 doc 명문화·커서 스타일 union bindings 재export.
+- **[메인 직접 수정] kill 동기 시그널 테스트 flaky** — `kill()` 직후 즉시 프로세스 상태를 확인해
+  커널 비동기 SIGKILL 반영과 경합(부하 시 산발 실패). "즉시성" 단언은 원래 버그(앱 종료 고아)를
+  유닛으로 잡지도 못하면서 flaky 만 유발 → **유한 폴링(2초·20ms)으로 "kill 이 종료시킨다" 검증**으로
+  완화. 5회 반복 소멸 확인.
+- **[메인 직접 정정] fanout "24종" → 23종**: T0 #14 로 AgentExternalOpen 제외하며 감사·계약 문서
+  갱신 누락(코드는 정합). 감사 보고서 3곳·이 계약 정정.
+- **asset scope 재등록(X1#7) T1-2차 이월 확정**: Tauri asset scope add-only + Range 요청 재구현이
+  보안 민감 표면이라 "무리한 강행 금지"로 보류. architecture.md §6.3·ipc-contract 정본화.

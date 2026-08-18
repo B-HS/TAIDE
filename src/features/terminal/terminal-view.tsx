@@ -2,6 +2,7 @@ import type { FC, RefObject } from 'react'
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import type { ITheme } from '@xterm/xterm'
+import type { TerminalCursorStyle } from '@shared/api/bindings'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon } from '@xterm/addon-search'
@@ -32,7 +33,7 @@ export type TerminalAttachHandle = {
     jumpToNextCommand: () => void
 }
 
-export type TerminalCursorStyle = 'bar' | 'block' | 'underline'
+export type { TerminalCursorStyle }
 
 export type TerminalViewProps = {
     fontSize: number

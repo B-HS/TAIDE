@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::domain::ai::types::AiProviderId;
 use crate::domain::remote::service as remote_service;
-use crate::domain::settings::types::{
-    Settings, DEFAULT_EDITOR_CURSOR_BLINKING, DEFAULT_EDITOR_CURSOR_STYLE, DEFAULT_EDITOR_RENDER_WHITESPACE, DEFAULT_TERMINAL_CURSOR_STYLE,
-};
+use crate::domain::settings::types::{EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings, TerminalCursorStyle};
 use crate::domain::theme::service as theme_service;
 use crate::error::{AppError, AppResult};
 use crate::infra::persist;
@@ -38,19 +37,19 @@ pub struct SettingsPatch {
     pub editor_tab_size: Option<u32>,
     pub editor_insert_spaces: Option<bool>,
     pub editor_detect_indentation: Option<bool>,
-    pub editor_render_whitespace: Option<String>,
+    pub editor_render_whitespace: Option<EditorRenderWhitespace>,
     pub editor_bracket_pair_colorization: Option<bool>,
     pub editor_font_ligatures: Option<bool>,
-    pub editor_cursor_style: Option<String>,
-    pub editor_cursor_blinking: Option<String>,
+    pub editor_cursor_style: Option<EditorCursorStyle>,
+    pub editor_cursor_blinking: Option<EditorCursorBlinking>,
     pub editor_scroll_beyond_last_line: Option<bool>,
     pub editor_sticky_scroll_enabled: Option<bool>,
     pub terminal_scrollback: Option<u32>,
-    pub terminal_cursor_style: Option<String>,
+    pub terminal_cursor_style: Option<TerminalCursorStyle>,
     pub terminal_cursor_blink: Option<bool>,
     pub enable_preview_tabs: Option<bool>,
     pub ai_auto_tab_enabled: Option<bool>,
-    pub ai_provider: Option<String>,
+    pub ai_provider: Option<AiProviderId>,
     pub ai_model: Option<String>,
     pub ai_omlx_base_url: Option<String>,
     pub remote_access_enabled: Option<bool>,
@@ -96,13 +95,70 @@ pub fn migrate_legacy_ai_provider_keys(object: &mut serde_json::Map<String, serd
     }
 }
 
-/// Applies [`migrate_legacy_ai_provider_keys`] to a raw JSON object before converting it into
-/// `Settings` — the shared core of both [`read_settings_file`] (loading `settings.json` from disk)
-/// and [`parse_settings_json`] (validating a hand-edited `AppFile` save), so a pre-rename or
-/// otherwise legacy-shaped payload is migrated identically through either entry point.
+/// Normalizes a present-but-out-of-range (or empty-string) value at `object[field_name]` back to
+/// `fallback` by attempting `T`'s own [`serde::Deserialize`] impl — the allowed-value check is
+/// derived from the real enum type (`EditorRenderWhitespace`/`EditorCursorStyle`/
+/// `EditorCursorBlinking`/`TerminalCursorStyle`/`Option<AiProviderId>`) rather than a
+/// hand-maintained `&[&str]` list, so a variant added to the enum never needs a second place kept
+/// in sync. Only touches a key that is *present* — an absent key is left for the containing
+/// struct's own `#[serde(default)]` to fill in, matching [`migrate_legacy_ai_provider_keys`]'s
+/// scope of "touch present-but-wrong values only". Used by [`sanitize_legacy_settings_values`].
+fn sanitize_legacy_enum_field<T: serde::de::DeserializeOwned>(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    field_name: &str,
+    fallback: serde_json::Value,
+) {
+    let Some(value) = object.get(field_name) else { return };
+    if serde_json::from_value::<T>(value.clone()).is_err() {
+        object.insert(field_name.to_string(), fallback);
+    }
+}
+
+/// Normalizes every bounded-enum `Settings`/`SettingsPatch` field a hand-edited `settings.json`, an
+/// `AppFile` "Settings" tab save, or a synced gist's nested `settings` object might still carry an
+/// out-of-range or pre-narrowing string value for: `editorRenderWhitespace`/`editorCursorStyle`/
+/// `editorCursorBlinking`/`terminalCursorStyle` fall back to the field's own default, and
+/// `aiProvider` (no meaningful default provider) falls back to `null` — the same fallback each had
+/// under the old `sanitize_enum`/`sanitize_optional_enum` runtime checks before these fields were
+/// `specta`-narrowed enums. Applied to the raw JSON object *before* typed deserialization — the same boundary
+/// [`migrate_legacy_ai_provider_keys`] uses and for the same reason: a `deserialize_with` on the
+/// typed field would make `Settings`' Serialize and Deserialize shapes diverge, splitting every TS
+/// consumer into `_Serialize`/`_Deserialize` variants (see `Settings::ai_provider`'s doc comment).
+/// See `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` T1-B. `pub` so
+/// `crate::domain::sync::service::parse_synced_payload` can apply the same normalization to a
+/// downloaded gist's nested `settings` object, mirroring how it already calls
+/// [`migrate_legacy_ai_provider_keys`] there.
+pub fn sanitize_legacy_settings_values(object: &mut serde_json::Map<String, serde_json::Value>) {
+    sanitize_legacy_enum_field::<EditorRenderWhitespace>(
+        object,
+        "editorRenderWhitespace",
+        default_value_json(EditorRenderWhitespace::default()),
+    );
+    sanitize_legacy_enum_field::<EditorCursorStyle>(object, "editorCursorStyle", default_value_json(EditorCursorStyle::default()));
+    sanitize_legacy_enum_field::<EditorCursorBlinking>(object, "editorCursorBlinking", default_value_json(EditorCursorBlinking::default()));
+    sanitize_legacy_enum_field::<TerminalCursorStyle>(object, "terminalCursorStyle", default_value_json(TerminalCursorStyle::default()));
+    sanitize_legacy_enum_field::<Option<AiProviderId>>(object, "aiProvider", serde_json::Value::Null);
+}
+
+/// `T` is always one of the fieldless unit-variant enums [`sanitize_legacy_settings_values`] passes
+/// (`EditorRenderWhitespace`/`EditorCursorStyle`/`EditorCursorBlinking`/`TerminalCursorStyle`), whose
+/// serialization cannot fail — but this is still a production code path (settings-file load, `AppFile`
+/// save, gist sync), so it resolves that impossibility with a harmless fallback rather than an
+/// `.expect()`/`.unwrap()` that would turn a future refactor's mistake into a panic instead of the
+/// ordinary `AppResult` error [`sanitize_legacy_enum_field`]'s caller already propagates.
+fn default_value_json<T: Serialize>(value: T) -> serde_json::Value {
+    serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
+}
+
+/// Applies [`migrate_legacy_ai_provider_keys`] and [`sanitize_legacy_settings_values`] to a raw
+/// JSON object before converting it into `Settings` — the shared core of both
+/// [`read_settings_file`] (loading `settings.json` from disk) and [`parse_settings_json`]
+/// (validating a hand-edited `AppFile` save), so a pre-rename or otherwise legacy-shaped payload is
+/// migrated identically through either entry point.
 fn settings_from_value(mut raw: serde_json::Value) -> AppResult<Settings> {
     if let Some(object) = raw.as_object_mut() {
         migrate_legacy_ai_provider_keys(object);
+        sanitize_legacy_settings_values(object);
     }
     Ok(serde_json::from_value(raw)?)
 }
@@ -166,11 +222,19 @@ const TERMINAL_SCROLLBACK_MIN: u32 = 100;
 const TERMINAL_SCROLLBACK_MAX: u32 = 100_000;
 const RESIZER_THICKNESS_MIN: u32 = 0;
 const RESIZER_THICKNESS_MAX: u32 = 8;
-const EDITOR_CURSOR_STYLES: &[&str] = &["line", "block", "underline"];
-const EDITOR_CURSOR_BLINKING_STYLES: &[&str] = &["blink", "smooth", "phase", "expand", "solid"];
-const EDITOR_RENDER_WHITESPACE_MODES: &[&str] = &["none", "boundary", "selection", "all"];
-const TERMINAL_CURSOR_STYLES: &[&str] = &["bar", "block", "underline"];
-const AI_PROVIDERS: &[&str] = &["ollamaCloud", "codex", "omlx"];
+/// Shared by `editor_font_size` and `terminal_font_size` — both faced the same three-way drift
+/// (Rust left them unclamped; the frontend had two different ranges of its own,
+/// `settings-view.tsx`'s local `MIN_FONT_SIZE`/`MAX_FONT_SIZE` at 8–32 and
+/// `shared/constants/code-font-size.ts`'s `MIN_CODE_FONT_SIZE`/`MAX_CODE_FONT_SIZE` at 6–48 — audit
+/// `docs/quality-assurance/2026-08-18-architecture-audit.md` R5#4). 6–48 was chosen as the single
+/// range because it's the one actually wired into a live control path
+/// (`widgets/window-chrome/status-bar-content.tsx`'s zoom stepper imports `code-font-size.ts`
+/// directly), while `settings-view.tsx`'s 8–32 pair is a local, unimported literal the slider alone
+/// used — Wave F reconciles the frontend side onto this same pair. Kept as one shared pair (not a
+/// separate `EDITOR_FONT_SIZE_MIN`/`TERMINAL_FONT_SIZE_MIN` pair with the same values) so the two
+/// settings can't drift apart the same way again.
+const FONT_SIZE_MIN: u32 = 6;
+const FONT_SIZE_MAX: u32 = 48;
 
 /// Mirrors the frontend's `SEARCH_HISTORY_LIMIT`
 /// (`src/entities/search/search-history.ts`). The frontend already caps
@@ -180,21 +244,6 @@ const AI_PROVIDERS: &[&str] = &["ollamaCloud", "codex", "omlx"];
 /// payload could otherwise store an unbounded array. Enforced here so every
 /// entry point is covered, the same defense-in-depth as [`sanitize_allowed_hosts`].
 const RECENT_SEARCHES_MAX: usize = 20;
-
-fn sanitize_enum(value: String, allowed: &[&str], fallback: &str) -> String {
-    if allowed.contains(&value.as_str()) {
-        value
-    } else {
-        fallback.to_string()
-    }
-}
-
-/// Unlike `sanitize_enum`, an out-of-list value here has no meaningful fallback string to fall
-/// back to (there is no default AI provider) — it is dropped back to `None`, the same "not
-/// configured" state as if it had never been set.
-fn sanitize_optional_enum(value: Option<String>, allowed: &[&str]) -> Option<String> {
-    value.filter(|v| allowed.contains(&v.as_str()))
-}
 
 fn sanitize_optional_url(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
@@ -272,8 +321,10 @@ fn sanitize_recent_searches(mut searches: Vec<String>) -> Vec<String> {
 /// the same `None` on the wire — `ai_omlx_base_url` was the one field that already worked around
 /// this with its own empty-string convention; this generalizes that convention to every other
 /// clearable string field (font family pickers' "System Default", the shell override picker's
-/// "Default shell", the AI provider/model pickers) instead of leaving them all with the same gap
-/// `font-picker.tsx`'s "System Default" selection hit. See
+/// "Default shell", the AI model picker) instead of leaving them all with the same gap
+/// `font-picker.tsx`'s "System Default" selection hit. `ai_provider` no longer goes through this —
+/// it's `Option<AiProviderId>` now (T1-B), an enum with no "empty" variant to carry a clear
+/// sentinel, so its merge is a plain `Option::or` (see [`apply_patch`]). See
 /// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §1 결정 7.
 fn merge_clearable_string(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
     match patch_value {
@@ -290,31 +341,20 @@ fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String
     }
 }
 
-/// 숫자 범위·문자열 union 필드를 clamp/허용목록으로 보정한다. `Settings` 가 만들어지는 모든 출구
-/// (`apply_patch` · 디스크 로드)에서 항상 거친다 — patch 든 손으로 편집한 settings.json 이든
-/// 검증되지 않은 값이 Monaco/xterm 런타임까지 그대로 흘러가는 것을 막는다.
+/// 숫자 범위 필드를 clamp 로 보정한다. `Settings` 가 만들어지는 모든 출구(`apply_patch` · 디스크
+/// 로드)에서 항상 거친다 — patch 든 손으로 편집한 settings.json 이든 검증되지 않은 값이 Monaco/xterm
+/// 런타임까지 그대로 흘러가는 것을 막는다. `editorRenderWhitespace`/`editorCursorStyle`/
+/// `editorCursorBlinking`/`terminalCursorStyle`/`aiProvider` 는 더 이상 여기서 허용목록을 검사하지
+/// 않는다 — specta 로 좁힌 실제 enum 타입이 유효하지 않은 값을 애초에 표현할 수 없게 됐고(런타임
+/// patch·프로그램적 구성 경로), 디스크/동기화처럼 타입 밖에서 오는 원시 JSON 값은
+/// [`sanitize_legacy_settings_values`]가 타입 파싱 이전에 정규화한다.
 pub fn sanitize(settings: Settings) -> Settings {
     Settings {
+        editor_font_size: settings.editor_font_size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX),
+        terminal_font_size: settings.terminal_font_size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX),
         editor_tab_size: settings.editor_tab_size.clamp(EDITOR_TAB_SIZE_MIN, EDITOR_TAB_SIZE_MAX),
         terminal_scrollback: settings.terminal_scrollback.clamp(TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX),
         resizer_thickness: settings.resizer_thickness.clamp(RESIZER_THICKNESS_MIN, RESIZER_THICKNESS_MAX),
-        editor_cursor_style: sanitize_enum(settings.editor_cursor_style, EDITOR_CURSOR_STYLES, DEFAULT_EDITOR_CURSOR_STYLE),
-        editor_cursor_blinking: sanitize_enum(
-            settings.editor_cursor_blinking,
-            EDITOR_CURSOR_BLINKING_STYLES,
-            DEFAULT_EDITOR_CURSOR_BLINKING,
-        ),
-        editor_render_whitespace: sanitize_enum(
-            settings.editor_render_whitespace,
-            EDITOR_RENDER_WHITESPACE_MODES,
-            DEFAULT_EDITOR_RENDER_WHITESPACE,
-        ),
-        terminal_cursor_style: sanitize_enum(
-            settings.terminal_cursor_style,
-            TERMINAL_CURSOR_STYLES,
-            DEFAULT_TERMINAL_CURSOR_STYLE,
-        ),
-        ai_provider: sanitize_optional_enum(settings.ai_provider, AI_PROVIDERS),
         ai_omlx_base_url: sanitize_optional_url(settings.ai_omlx_base_url),
         remote_allowed_hosts: sanitize_allowed_hosts(settings.remote_allowed_hosts),
         recent_searches: sanitize_recent_searches(settings.recent_searches),
@@ -350,35 +390,23 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         editor_tab_size: patch.editor_tab_size.unwrap_or(settings.editor_tab_size),
         editor_insert_spaces: patch.editor_insert_spaces.unwrap_or(settings.editor_insert_spaces),
         editor_detect_indentation: patch.editor_detect_indentation.unwrap_or(settings.editor_detect_indentation),
-        editor_render_whitespace: patch
-            .editor_render_whitespace
-            .clone()
-            .unwrap_or_else(|| settings.editor_render_whitespace.clone()),
+        editor_render_whitespace: patch.editor_render_whitespace.unwrap_or(settings.editor_render_whitespace),
         editor_bracket_pair_colorization: patch
             .editor_bracket_pair_colorization
             .unwrap_or(settings.editor_bracket_pair_colorization),
         editor_font_ligatures: patch.editor_font_ligatures.unwrap_or(settings.editor_font_ligatures),
-        editor_cursor_style: patch
-            .editor_cursor_style
-            .clone()
-            .unwrap_or_else(|| settings.editor_cursor_style.clone()),
-        editor_cursor_blinking: patch
-            .editor_cursor_blinking
-            .clone()
-            .unwrap_or_else(|| settings.editor_cursor_blinking.clone()),
+        editor_cursor_style: patch.editor_cursor_style.unwrap_or(settings.editor_cursor_style),
+        editor_cursor_blinking: patch.editor_cursor_blinking.unwrap_or(settings.editor_cursor_blinking),
         editor_scroll_beyond_last_line: patch
             .editor_scroll_beyond_last_line
             .unwrap_or(settings.editor_scroll_beyond_last_line),
         editor_sticky_scroll_enabled: patch.editor_sticky_scroll_enabled.unwrap_or(settings.editor_sticky_scroll_enabled),
         terminal_scrollback: patch.terminal_scrollback.unwrap_or(settings.terminal_scrollback),
-        terminal_cursor_style: patch
-            .terminal_cursor_style
-            .clone()
-            .unwrap_or_else(|| settings.terminal_cursor_style.clone()),
+        terminal_cursor_style: patch.terminal_cursor_style.unwrap_or(settings.terminal_cursor_style),
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
         enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
         ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
-        ai_provider: merge_clearable_string(patch.ai_provider.as_ref(), settings.ai_provider.as_ref()),
+        ai_provider: patch.ai_provider.or(settings.ai_provider),
         ai_model: merge_clearable_string(patch.ai_model.as_ref(), settings.ai_model.as_ref()),
         ai_omlx_base_url: merge_ai_omlx_base_url(patch.ai_omlx_base_url.as_ref(), settings.ai_omlx_base_url.as_ref()),
         sync_gist_id: settings.sync_gist_id.clone(),
@@ -526,14 +554,14 @@ mod tests {
             editor_tab_size: Some(2),
             editor_insert_spaces: Some(false),
             editor_detect_indentation: Some(false),
-            editor_render_whitespace: Some("all".to_string()),
+            editor_render_whitespace: Some(EditorRenderWhitespace::All),
             editor_bracket_pair_colorization: Some(false),
             editor_font_ligatures: Some(true),
-            editor_cursor_style: Some("block".to_string()),
-            editor_cursor_blinking: Some("smooth".to_string()),
+            editor_cursor_style: Some(EditorCursorStyle::Block),
+            editor_cursor_blinking: Some(EditorCursorBlinking::Smooth),
             editor_scroll_beyond_last_line: Some(false),
             terminal_scrollback: Some(5_000),
-            terminal_cursor_style: Some("underline".to_string()),
+            terminal_cursor_style: Some(TerminalCursorStyle::Underline),
             terminal_cursor_blink: Some(false),
             enable_preview_tabs: Some(false),
             ..SettingsPatch::default()
@@ -546,29 +574,36 @@ mod tests {
         assert_eq!(updated.editor_tab_size, 2);
         assert!(!updated.editor_insert_spaces);
         assert!(!updated.editor_detect_indentation);
-        assert_eq!(updated.editor_render_whitespace, "all");
+        assert_eq!(updated.editor_render_whitespace, EditorRenderWhitespace::All);
         assert!(!updated.editor_bracket_pair_colorization);
         assert!(updated.editor_font_ligatures);
-        assert_eq!(updated.editor_cursor_style, "block");
-        assert_eq!(updated.editor_cursor_blinking, "smooth");
+        assert_eq!(updated.editor_cursor_style, EditorCursorStyle::Block);
+        assert_eq!(updated.editor_cursor_blinking, EditorCursorBlinking::Smooth);
         assert!(!updated.editor_scroll_beyond_last_line);
         assert_eq!(updated.terminal_scrollback, 5_000);
-        assert_eq!(updated.terminal_cursor_style, "underline");
+        assert_eq!(updated.terminal_cursor_style, TerminalCursorStyle::Underline);
         assert!(!updated.terminal_cursor_blink);
         assert!(!updated.enable_preview_tabs);
     }
 
+    /// `editorCursorStyle`/`editorCursorBlinking`/`editorRenderWhitespace`/`terminalCursorStyle`
+    /// patch values are now `EditorCursorStyle`/`EditorCursorBlinking`/`EditorRenderWhitespace`/
+    /// `TerminalCursorStyle` (T1-B) — an out-of-range *string* for them can no longer be
+    /// constructed as a `SettingsPatch` at all (that's now a compile error, not a runtime value to
+    /// sanitize), so this test only covers the remaining un-typed numeric ranges. The JSON-level
+    /// equivalent for the four enum fields (a hand-edited `settings.json` carrying an invalid
+    /// string) is covered by
+    /// [`손으로_편집된_settings_파일의_잘못된_값은_로드시_보정되어_재저장된다`] below, which exercises
+    /// [`sanitize_legacy_settings_values`] instead.
     #[test]
-    fn 범위를_벗어난_숫자와_허용목록_밖의_문자열은_보정된다() {
+    fn 범위를_벗어난_숫자는_보정된다() {
         let settings = Settings::default();
         let patch = SettingsPatch {
             editor_tab_size: Some(100),
             terminal_scrollback: Some(1),
             resizer_thickness: Some(999),
-            editor_cursor_style: Some("invalid".to_string()),
-            editor_cursor_blinking: Some("invalid".to_string()),
-            editor_render_whitespace: Some("invalid".to_string()),
-            terminal_cursor_style: Some("invalid".to_string()),
+            editor_font_size: Some(999),
+            terminal_font_size: Some(0),
             ..SettingsPatch::default()
         };
 
@@ -577,10 +612,8 @@ mod tests {
         assert_eq!(updated.editor_tab_size, 8);
         assert_eq!(updated.terminal_scrollback, 100);
         assert_eq!(updated.resizer_thickness, 8);
-        assert_eq!(updated.editor_cursor_style, DEFAULT_EDITOR_CURSOR_STYLE);
-        assert_eq!(updated.editor_cursor_blinking, DEFAULT_EDITOR_CURSOR_BLINKING);
-        assert_eq!(updated.editor_render_whitespace, DEFAULT_EDITOR_RENDER_WHITESPACE);
-        assert_eq!(updated.terminal_cursor_style, DEFAULT_TERMINAL_CURSOR_STYLE);
+        assert_eq!(updated.editor_font_size, FONT_SIZE_MAX);
+        assert_eq!(updated.terminal_font_size, FONT_SIZE_MIN);
     }
 
     #[test]
@@ -588,7 +621,7 @@ mod tests {
         let settings = Settings::default();
         let patch = SettingsPatch {
             ai_auto_tab_enabled: Some(true),
-            ai_provider: Some("ollamaCloud".to_string()),
+            ai_provider: Some(AiProviderId::OllamaCloud),
             ai_model: Some("qwen2.5-coder".to_string()),
             ..SettingsPatch::default()
         };
@@ -596,21 +629,20 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert!(updated.ai_auto_tab_enabled);
-        assert_eq!(updated.ai_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(updated.ai_provider, Some(AiProviderId::OllamaCloud));
         assert_eq!(updated.ai_model, Some("qwen2.5-coder".to_string()));
     }
 
+    /// `aiProvider` is `Option<AiProviderId>` now (T1-B), so an out-of-range provider id can no
+    /// longer reach `apply_patch` as a typed `SettingsPatch` value at all — the equivalent
+    /// scenario is a *raw JSON* value from a hand-edited `settings.json`/older synced gist, which
+    /// [`sanitize_legacy_settings_values`] normalizes before typed parse.
     #[test]
-    fn 허용목록_밖의_ai_provider는_none으로_보정된다() {
-        let settings = Settings::default();
-        let patch = SettingsPatch {
-            ai_provider: Some("anthropic".to_string()),
-            ..SettingsPatch::default()
-        };
+    fn 허용목록_밖의_ai_provider는_raw_json_단계에서_null로_보정된다() {
+        let mut value: serde_json::Value = serde_json::json!({ "aiProvider": "anthropic" });
+        sanitize_legacy_settings_values(value.as_object_mut().expect("object"));
 
-        let updated = apply_patch(&settings, &patch);
-
-        assert_eq!(updated.ai_provider, None);
+        assert_eq!(value.get("aiProvider"), Some(&serde_json::Value::Null));
     }
 
     #[test]
@@ -621,7 +653,7 @@ mod tests {
 
         let patch: SettingsPatch = serde_json::from_value(value).expect("마이그레이션된 JSON이 SettingsPatch로 파싱되어야 함");
 
-        assert_eq!(patch.ai_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(patch.ai_provider, Some(AiProviderId::OllamaCloud));
         assert_eq!(patch.ai_model, Some("qwen2.5-coder".to_string()));
     }
 
@@ -633,7 +665,7 @@ mod tests {
 
         let patch: SettingsPatch = serde_json::from_value(value).expect("마이그레이션된 JSON이 SettingsPatch로 파싱되어야 함");
 
-        assert_eq!(patch.ai_provider, Some("omlx".to_string()));
+        assert_eq!(patch.ai_provider, Some(AiProviderId::Omlx));
     }
 
     #[test]
@@ -649,7 +681,7 @@ mod tests {
 
         let settings = load_settings(&paths);
 
-        assert_eq!(settings.ai_provider, Some("codex".to_string()));
+        assert_eq!(settings.ai_provider, Some(AiProviderId::Codex));
         assert_eq!(settings.ai_model, Some("gpt-5.6-sol".to_string()));
 
         std::fs::remove_dir_all(paths.data_dir).ok();
@@ -749,7 +781,6 @@ mod tests {
             editor_font_family: Some("Fira Code".to_string()),
             terminal_font_family: Some("Fira Code".to_string()),
             ui_font_family: Some("Fira Code".to_string()),
-            ai_provider: Some("codex".to_string()),
             ai_model: Some("gpt-5".to_string()),
             ..Settings::default()
         };
@@ -758,7 +789,6 @@ mod tests {
             editor_font_family: Some(String::new()),
             terminal_font_family: Some(String::new()),
             ui_font_family: Some(String::new()),
-            ai_provider: Some(String::new()),
             ai_model: Some(String::new()),
             ..SettingsPatch::default()
         };
@@ -769,8 +799,24 @@ mod tests {
         assert_eq!(updated.editor_font_family, None);
         assert_eq!(updated.terminal_font_family, None);
         assert_eq!(updated.ui_font_family, None);
-        assert_eq!(updated.ai_provider, None);
         assert_eq!(updated.ai_model, None);
+    }
+
+    /// `ai_provider` (`Option<AiProviderId>`, T1-B) has no "empty" variant to carry a clear
+    /// sentinel through, unlike the `Option<String>` fields the test above covers — an omitted
+    /// patch value keeps the existing provider (`Option::or`, see [`apply_patch`]), and there is no
+    /// way to explicitly clear it back to "unconfigured" via `SettingsPatch` (same gap R5#1
+    /// documents for other fields; unchanged by this narrowing).
+    #[test]
+    fn patch에_ai_provider가_없으면_기존_provider를_유지한다() {
+        let settings = Settings {
+            ai_provider: Some(AiProviderId::Codex),
+            ..Settings::default()
+        };
+
+        let updated = apply_patch(&settings, &SettingsPatch::default());
+
+        assert_eq!(updated.ai_provider, Some(AiProviderId::Codex));
     }
 
     #[test]
@@ -780,7 +826,7 @@ mod tests {
             editor_font_family: Some("Fira Code".to_string()),
             terminal_font_family: Some("Fira Code".to_string()),
             ui_font_family: Some("Fira Code".to_string()),
-            ai_provider: Some("codex".to_string()),
+            ai_provider: Some(AiProviderId::Codex),
             ai_model: Some("gpt-5".to_string()),
             ..Settings::default()
         };
@@ -1105,6 +1151,12 @@ mod tests {
         std::fs::remove_dir_all(paths.data_dir).ok();
     }
 
+    /// `T1-B` backward-compat regression: a `settings.json` written before
+    /// `editorRenderWhitespace`/`editorCursorStyle`/`editorCursorBlinking`/`terminalCursorStyle`/
+    /// `aiProvider` were narrowed to real enums (or simply hand-edited with a typo/out-of-range
+    /// value for any of them) must still load — normalized field-by-field back to defaults/`null`
+    /// by [`sanitize_legacy_settings_values`] before typed `Settings` parse — instead of the whole
+    /// file being treated as corrupt (backed up, every other field lost).
     #[test]
     fn 손으로_편집된_settings_파일의_잘못된_값은_로드시_보정되어_재저장된다() {
         let paths = AppPaths::new(temp_data_dir("hand-edited"));
@@ -1112,15 +1164,32 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).expect("create dir");
         std::fs::write(
             &path,
-            br#"{"version":1,"terminalCursorStyle":"banana","editorTabSize":0,"terminalScrollback":99999999}"#,
+            br#"{
+                "version": 1,
+                "terminalCursorStyle": "banana",
+                "editorCursorStyle": "vertical",
+                "editorCursorBlinking": "",
+                "editorRenderWhitespace": "trailing",
+                "aiProvider": "anthropic",
+                "editorTabSize": 0,
+                "terminalScrollback": 99999999,
+                "editorFontSize": 0,
+                "terminalFontSize": 999
+            }"#,
         )
         .expect("write settings file");
 
         let settings = load_settings(&paths);
 
-        assert_eq!(settings.terminal_cursor_style, DEFAULT_TERMINAL_CURSOR_STYLE);
+        assert_eq!(settings.terminal_cursor_style, TerminalCursorStyle::default());
+        assert_eq!(settings.editor_cursor_style, EditorCursorStyle::default());
+        assert_eq!(settings.editor_cursor_blinking, EditorCursorBlinking::default());
+        assert_eq!(settings.editor_render_whitespace, EditorRenderWhitespace::default());
+        assert_eq!(settings.ai_provider, None);
         assert_eq!(settings.editor_tab_size, EDITOR_TAB_SIZE_MIN);
         assert_eq!(settings.terminal_scrollback, TERMINAL_SCROLLBACK_MAX);
+        assert_eq!(settings.editor_font_size, FONT_SIZE_MIN);
+        assert_eq!(settings.terminal_font_size, FONT_SIZE_MAX);
 
         let reloaded = persist::read_json::<Settings>(&path).expect("reread").expect("some");
         assert_eq!(reloaded, settings);

@@ -103,19 +103,19 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         editor_tab_size: Some(settings.editor_tab_size),
         editor_insert_spaces: Some(settings.editor_insert_spaces),
         editor_detect_indentation: Some(settings.editor_detect_indentation),
-        editor_render_whitespace: Some(settings.editor_render_whitespace.clone()),
+        editor_render_whitespace: Some(settings.editor_render_whitespace),
         editor_bracket_pair_colorization: Some(settings.editor_bracket_pair_colorization),
         editor_font_ligatures: Some(settings.editor_font_ligatures),
-        editor_cursor_style: Some(settings.editor_cursor_style.clone()),
-        editor_cursor_blinking: Some(settings.editor_cursor_blinking.clone()),
+        editor_cursor_style: Some(settings.editor_cursor_style),
+        editor_cursor_blinking: Some(settings.editor_cursor_blinking),
         editor_scroll_beyond_last_line: Some(settings.editor_scroll_beyond_last_line),
         editor_sticky_scroll_enabled: Some(settings.editor_sticky_scroll_enabled),
         terminal_scrollback: Some(settings.terminal_scrollback),
-        terminal_cursor_style: Some(settings.terminal_cursor_style.clone()),
+        terminal_cursor_style: Some(settings.terminal_cursor_style),
         terminal_cursor_blink: Some(settings.terminal_cursor_blink),
         enable_preview_tabs: Some(settings.enable_preview_tabs),
         ai_auto_tab_enabled: Some(settings.ai_auto_tab_enabled),
-        ai_provider: settings.ai_provider.clone(),
+        ai_provider: settings.ai_provider,
         ai_model: settings.ai_model.clone(),
         ai_omlx_base_url: settings.ai_omlx_base_url.clone(),
         remote_access_enabled: Some(settings.remote_access_enabled),
@@ -219,12 +219,23 @@ pub fn apply_locale_entries(paths: &AppPaths, entries: &[SyncLocaleEntry]) {
     }
 }
 
-/// Rejects a downloaded payload whose `schemaVersion` is newer than this build understands.
-/// Every field on `SyncPayload`/`SettingsPatch` is optional (`#[serde(default)]`), so a payload
-/// written by a future TAIDE version would otherwise deserialize without error and get partially
-/// applied — silently dropping whatever new fields it doesn't recognize — instead of asking the
-/// user to update. Mirrors the version-gate `layout::service::load_layout` already applies to
-/// `LAYOUT_SCHEMA_VERSION`.
+/// Rejects a downloaded payload whose `schemaVersion` is explicitly *greater* than this build's
+/// `SETTINGS_SCHEMA_VERSION`. Mirrors the version-gate `layout::service::load_layout` already
+/// applies to `LAYOUT_SCHEMA_VERSION`.
+///
+/// `X1#6` — this comparison alone does **not** detect "a payload has fields this build doesn't
+/// recognize," despite the doc that motivated it (below) describing exactly that scenario:
+/// `SETTINGS_SCHEMA_VERSION` is policy-frozen at `1` (`ipc-contract.md` — new `Settings` fields are
+/// added without bumping it, since every field is `#[serde(default)]` and additive), so a payload
+/// from a newer TAIDE build carries the *same* `schemaVersion` this build has, passes this check
+/// unconditionally, and any field it added that this build doesn't know still gets silently dropped
+/// on deserialize rather than rejected. The gate only ever fires for a payload claiming a schema
+/// version number *higher* than `1` — which, under the current freeze policy, no build ever writes.
+/// See `스키마_버전이_같아도_알수없는_필드는_거부없이_조용히_버려진다` below, which pins this as
+/// current, intentional-until-changed behavior rather than a bug to silently patch here. A real
+/// unknown-field detector would need a field whitelist compared against the payload's raw JSON keys
+/// — a policy change (the codebase would start rejecting instead of silently dropping unrecognized
+/// settings), so it wants an explicit decision before being added, not just a gate tightening.
 pub fn ensure_supported_schema_version(schema_version: u32) -> AppResult<()> {
     if schema_version > SETTINGS_SCHEMA_VERSION {
         return Err(AppError::InvalidArgument(format!(
@@ -239,15 +250,20 @@ pub fn apply_payload_settings(current: &Settings, payload: &SyncPayload) -> Sett
 }
 
 /// Parses a downloaded gist body into a [`SyncPayload`], migrating any pre-rename
-/// `aiAutoTabProvider`/`aiAutoTabModel` keys in its nested `settings` object first — see
-/// [`settings_service::migrate_legacy_ai_provider_keys`]'s doc comment for why this is a raw-JSON
-/// migration rather than `#[serde(alias = ...)]`. `None` covers both an unparseable JSON body and
-/// a body that doesn't match [`SyncPayload`]'s shape — `sync_download` reports either the same way
-/// to the caller ("sync payload from the gist was malformed"), so the two aren't distinguished here.
+/// `aiAutoTabProvider`/`aiAutoTabModel` keys and normalizing any out-of-range bounded-enum value
+/// (`editorRenderWhitespace`/`editorCursorStyle`/`editorCursorBlinking`/`terminalCursorStyle`/
+/// `aiProvider` — e.g. from a gist written by a different TAIDE build) in its nested `settings`
+/// object first — see [`settings_service::migrate_legacy_ai_provider_keys`]'s and
+/// [`settings_service::sanitize_legacy_settings_values`]'s doc comments for why these are raw-JSON
+/// passes rather than `#[serde(alias = ...)]`/`deserialize_with`. `None` covers both an
+/// unparseable JSON body and a body that doesn't match [`SyncPayload`]'s shape — `sync_download`
+/// reports either the same way to the caller ("sync payload from the gist was malformed"), so the
+/// two aren't distinguished here.
 pub fn parse_synced_payload(content: &str) -> Option<SyncPayload> {
     let mut raw: serde_json::Value = serde_json::from_str(content).ok()?;
     if let Some(settings_object) = raw.get_mut("settings").and_then(|value| value.as_object_mut()) {
         settings_service::migrate_legacy_ai_provider_keys(settings_object);
+        settings_service::sanitize_legacy_settings_values(settings_object);
     }
     serde_json::from_value(raw).ok()
 }
@@ -255,6 +271,7 @@ pub fn parse_synced_payload(content: &str) -> Option<SyncPayload> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ai::types::AiProviderId;
 
     #[test]
     fn 유닉스_epoch는_1970_1_1로_변환된다() {
@@ -351,6 +368,36 @@ mod tests {
         assert!(matches!(result, Err(AppError::InvalidArgument(_))));
     }
 
+    /// `X1#6` — pins `ensure_supported_schema_version`'s actual reach (see that function's doc
+    /// comment): a gist payload with the *same* `schemaVersion` this build has, but a field this
+    /// build has never heard of, passes the gate unrejected and the unknown field is silently
+    /// dropped rather than causing any error. This documents that as current, deliberate-until-a
+    /// policy-decision behavior — not a gap this test is meant to close.
+    #[test]
+    fn 스키마_버전이_같아도_알수없는_필드는_거부없이_조용히_버려진다() {
+        let payload_from_a_newer_build = r#"{
+            "schemaVersion": 1,
+            "updatedAt": "2026-08-15T00:00:00Z",
+            "settings": {
+                "themeId": "taide-light",
+                "aBrandNewFieldThisBuildHasNeverHeardOf": "some-future-value"
+            }
+        }"#;
+
+        let payload: SyncPayload =
+            serde_json::from_str(payload_from_a_newer_build).expect("알 수 없는 필드가 있어도 파싱은 성공해야 함(serde default)");
+
+        assert!(
+            ensure_supported_schema_version(payload.schema_version).is_ok(),
+            "schemaVersion 이 같으므로 게이트를 통과해야 한다(현재 동작)"
+        );
+        assert_eq!(
+            payload.settings.theme_id,
+            Some("taide-light".to_string()),
+            "인식하는 필드는 정상 반영된다"
+        );
+    }
+
     /// Regresses the gist-inbound filter gap the contract calls out explicitly:
     /// `apply_payload_settings는_settings_update와_동일한_apply_patch를_재사용한다`
     /// below only ever exercises payloads built through [`assemble_payload`],
@@ -404,7 +451,7 @@ mod tests {
         let current = Settings::default();
         let applied = apply_payload_settings(&current, &payload);
 
-        assert_eq!(applied.ai_provider, Some("ollamaCloud".to_string()));
+        assert_eq!(applied.ai_provider, Some(AiProviderId::OllamaCloud));
         assert_eq!(applied.ai_model, Some("qwen2.5-coder".to_string()));
     }
 
@@ -420,7 +467,7 @@ mod tests {
         }"#;
         let payload = parse_synced_payload(json).expect("신 필드명 gist 페이로드가 파싱되어야 함");
 
-        assert_eq!(payload.settings.ai_provider, Some("codex".to_string()));
+        assert_eq!(payload.settings.ai_provider, Some(AiProviderId::Codex));
         assert_eq!(payload.settings.ai_model, Some("gpt-5.6-sol".to_string()));
     }
 

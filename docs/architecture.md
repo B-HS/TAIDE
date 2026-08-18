@@ -170,6 +170,54 @@ src/
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
 3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장
    (Drop 구현 + 명시적 shutdown 경로 이중화).
+
+   **§6.3 `project_close` 자원 회수 목록 (정본)** — `project::commands::project_close`
+   (`domain/project/commands.rs`)가 프로젝트 종료 시 명령형으로 회수해야 하는 전체 목록이다.
+   새 도메인이 프로젝트 수명에 묶인 상태를 추가하면 이 표에도 함께 추가한다 (T1-I 의
+   `ProjectCapability::attach/detach` 확장점이 구현되기 전까지는 이 명령형 목록이 유일한 계약이다).
+
+   | 자원 | 회수 방법 | 실패 시 |
+   |---|---|---|
+   | `dirty_layouts`/`layouts` | 남은 dirty 레이아웃 동기 flush 후 두 맵에서 제거 | 미저장 레이아웃 유실 |
+   | `watchers`/`git_watchers` | 맵에서 제거 (핸들 drop이 watcher 스레드 종료) | 닫힌 프로젝트 파일 변경을 계속 감시 |
+   | pty 세션 | `TerminalStore::kill_project` | 프로세스+fd+스레드가 앱 종료까지 잔존 |
+   | `GitStore` (projectId→repo_root 캐시) | `GitStore::remove` | 재오픈 시 옛 repo_root 캐시 부활 |
+   | `TreeStore` (트리 캐시) | `TreeStore::remove` | 재오픈 시 옛 디렉터리 목록 부활 + 메모리 잔존 |
+   | asset 프로토콜 스코프 | **의도적 보류** — 아래 참고 | 닫힌 프로젝트 트리를 webview가 계속 읽음 |
+
+   **asset 프로토콜 스코프 보류 사유**: Tauri의 `asset_protocol_scope()`(`scope::fs::Scope`)는
+   allow/forbid 두 목록 모두 **추가 전용**이다 — `forbid_directory`는 존재하지만 그 항목을 나중에
+   되돌릴 API가 없고(`forbid`가 `allow`보다 항상 우선), `allow_directory` 역시 제거 API가 없다.
+   따라서 `project_close`에서 단순히 `forbid_directory(root)`를 호출하면 **같은 폴더를 다시 열어도
+   영원히 asset 을 못 읽는** 새로운 회귀를 만든다 — 지금의 "닫아도 계속 읽힘"보다 나쁘다. 근본
+   수정은 `register_uri_scheme_protocol("asset", ...)`으로 asset 스킴 자체를 앱이 직접 재구현해
+   "현재 열린 프로젝트 root 집합"이라는 살아있는 상태로 `is_allowed`를 판정하는 것이며(Tauri는
+   같은 이름의 스킴이 이미 등록돼 있으면 내장 asset 핸들러를 건너뛰므로 `convertFileSrc`/CSP는
+   그대로 재사용 가능), Tauri 내장 핸들러(`tauri::protocol::asset::get_response`)가 지원하는
+   Range 요청(preview-pane 비디오/오디오 탐색에 필수)까지 재구현해야 해 위험도가 있다. 앱을 실행해
+   webview 재생/탐색 회귀를 검증할 수 없는 조건에서 이 표면(파일 읽기 경로)을 손으로 다시 구현하는
+   것은 무리한 강행으로 판단해 **T1 2차로 분리**했다 — `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md`
+   §1 T1-J 참고.
+
+   **`project_close`에 묶이지 않는 별개의 세션 수준 자원 회수** (같은 배치에서 함께 수정, 프로젝트
+   종료가 아니라 각 자원 자체의 생명주기에 걸림):
+   - `infra::lsp_proc::LspProcHandle::kill` — 기존에는 `AtomicBool` 플래그만 세우고 실제 kill은
+     `spawn`의 백그라운드 폴링 태스크(최대 50ms 지연)에 위임했다. 앱 종료(`RunEvent::Exit`)
+     핸들러가 이 함수를 동기 호출한 직후 `std::process::exit`로 프로세스가 즉시 종료되므로, 그
+     백그라운드 태스크가 스케줄될 기회조차 없이 언어 서버가 고아 프로세스로 남을 수 있었다. 이제
+     `kill()` 자신이 `sysinfo`로 PID를 동기적으로 kill한다 (`infra::pty::PtySession::kill`과 동일한
+     패턴).
+   - `domain::lsp::commands`의 `restart_count` — 크래시마다 증가만 하고 명시적 `lsp_restart`
+     외에는 리셋되지 않아, 여러 날에 걸친 세션에서 서로 무관한 크래시 3회가 누적되면 이후
+     영구적으로 자동 재시작이 멈췄다. 재시작된 프로세스가 `LSP_RESTART_HEALTHY_RESET_MS`(30초)
+     동안 교체 없이 살아있으면 `restart_count`를 0으로 리셋한다.
+   - `domain::lsp::commands::LspInstallStore` — `begin`/`finish` 쌍이 `.await` 정상 반환 경로에만
+     의존해, 설치 퓨처가 패닉하거나 태스크가 드롭되면 `server_id`가 영구히 "설치 중"으로 잠겼다.
+     `LspInstallGuard`(Drop)로 이중화했다 — 정상/실패/패닉/드롭 전부에서 슬롯이 해제된다.
+   - `infra::shell_integration`이 만드는 zsh/bash 임시 디렉터리 — 주입된 스크립트 자신의
+     `rm -rf` 한 줄에만 의존했고, 셸이 그 줄에 도달하지 못하면(크래시·조기 종료) OS 임시 디렉터리
+     아래 영구히 남았다. 이제 `PtySession`이 생성 시점의 경로를 들고 있다가 자신의 `Drop`에서
+     결정적으로 제거한다.
 4. **이벤트 페이로드는 소형 유지**: 대형 데이터(파일 내용, diff 본문)는 이벤트에 싣지 않고
    "변경됨" 신호만 보내 query 로 다시 읽게 한다. 스트림 데이터만 Channel 예외.
 5. 각 `features/*.md` 문서는 "수명주기" 절에서 이 규칙의 해당 기능 적용을 구체화한다.

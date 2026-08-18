@@ -393,6 +393,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   SyncDownloadResult`(`{ kind: 'applied', status } | { kind: 'conflict', remoteUpdatedAt }` — 로컬이
   더 최신이면 `force` 없이는 충돌로 보고, 다운로드 페이로드도 동일 4필드를 강제 제외한다)
 - event: `sync:state-changed(status: SyncStatus)`
+- `schemaVersion` 게이트(`sync::service::ensure_supported_schema_version`)는 페이로드의
+  `schemaVersion` 이 이 빌드의 `SETTINGS_SCHEMA_VERSION`(정책상 `1` 로 동결)보다 **클 때만** 거부한다.
+  같은 버전인데 이 빌드가 모르는 필드가 섞인 페이로드는 게이트를 통과하고, 그 필드는 `serde(default)`
+  에 의해 조용히 버려진다 — 미지 필드 감지 장치가 아니다(2026-08-18 T1-E, X1#6).
 
 ### 7.6 추가 (IDE 핵심 루프)
 
@@ -856,11 +860,18 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   reader/flusher 스레드와 일시정지 게이트를 정리하므로 중복 kill(예: `pty_kill` 로 먼저 죽은 세션을
   `kill_project` 가 다시 순회) 은 무해하다(`kill` 자체가 멱등 — 이미 종료된 프로세스에 대한 kill 은
   에러를 반환할 뿐 패닉하지 않고, 호출부가 `let _ =` 로 무시한다).
-- **project — `project_close` 부수효과 확장(#2·#15, IPC 시그니처 불변)**: 레이아웃이
+- **project — `project_close` 부수효과 확장(#2·R4#7, IPC 시그니처 불변)**: 레이아웃이
   `dirty_layouts` 에 남아 있으면(2초 주기 flusher 가 아직 못 따라잡은 상태) 제거 전에 동기
-  flush 한다(이전엔 이 경합에서 미저장 레이아웃이 경고 없이 버려졌다). `asset_protocol_scope()
-  .forbid_directory(root)` 를 호출해 닫힌 프로젝트 트리에 대한 webview 자산 접근 표면을 회수한다
-  (이전엔 프로젝트를 닫아도 그 루트가 계속 `asset://` 로 읽혔다).
+  flush 한다(이전엔 이 경합에서 미저장 레이아웃이 경고 없이 버려졌다). `GitStore`(projectId→repo_root
+  캐시)·`TreeStore`(트리 캐시)를 각각 `remove(project_id)` 로 회수한다(이전엔 프로젝트를 다시 열면
+  옛 repo_root/디렉터리 목록이 부활했고, 앱 수명 내내 메모리에 남았다). 전체 회수 목록의 정본은
+  `architecture.md` §6.3.
+  **asset 프로토콜 스코프는 회수하지 않는다(X1#7, T0 #15 롤백 후 T1 2차로 재이월)** — Tauri
+  `asset_protocol_scope()`(`scope::fs::Scope`)의 `forbid_directory` 는 되돌릴 수 없는 추가 전용
+  API 라, 순진하게 호출하면 같은 폴더를 다시 열어도 영원히 `asset://` 를 못 읽는 새 회귀가
+  생긴다. 근본 수정(자체 `register_uri_scheme_protocol("asset", ...)` 재구현 + 열린 프로젝트
+  root 집합 기반 동적 판정)은 위험도·범위 문제로 이 배치에서 보류했다 — 사유는 `architecture.md`
+  §6.3 참고. **현재도 닫힌 프로젝트 트리를 webview 가 계속 읽을 수 있다** (이 항목만 예외).
 
 ### raw 커맨드 (specta 밖)
 

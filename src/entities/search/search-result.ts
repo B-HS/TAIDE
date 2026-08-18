@@ -1,14 +1,6 @@
 import type { SearchMatch } from '@shared/api/bindings'
 
-export type SearchMatchRowData = {
-    line: number
-    column: number
-    preview: string
-    matchStart: number
-    matchEnd: number
-    before: string[]
-    after: string[]
-}
+export type SearchMatchRowData = Omit<SearchMatch, 'path'>
 
 export type SearchResultGroup = {
     path: string

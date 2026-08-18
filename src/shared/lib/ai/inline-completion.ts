@@ -33,7 +33,7 @@ export const resolveAiInlineCompletionConfig = (
     settings: Pick<Settings, 'aiProvider' | 'aiModel'> | undefined,
     tokenStatus: AiTokenStatus | undefined,
 ): AiInlineCompletionConfig | null => {
-    const provider = settings?.aiProvider as AiProviderId | undefined
+    const provider = settings?.aiProvider
     const model = settings?.aiModel
     if (!provider || !model) return null
     if (!(tokenStatus?.[provider] ?? false)) return null

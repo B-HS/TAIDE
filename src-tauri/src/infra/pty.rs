@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -53,6 +54,12 @@ pub struct PtySession {
     pause: Arc<PauseGate>,
     #[cfg_attr(not(windows), allow(dead_code))]
     shell_pid: Option<u32>,
+    /// The temp directory `build_command`'s `shell_integration::prepare` call created for this
+    /// session's OSC 133 injection (`None` for an unsupported/opted-out/fish shell — nothing was
+    /// ever created). Removed by this session's `Drop` impl rather than left to the injected
+    /// script's own best-effort `rm -rf` — see the `temp_dir` field doc on
+    /// `shell_integration::ShellIntegrationPlan` for why that alone isn't reliable.
+    shell_integration_temp_dir: Option<PathBuf>,
 }
 
 impl PtySession {
@@ -106,20 +113,25 @@ impl PtySession {
     }
 }
 
-/// Guarantees a `PtySession` never leaks its reader/flusher threads or its child process, no matter
-/// how it stops being reachable — an explicit `pty_kill`, `TerminalStore::kill_project`/`kill_all`
-/// dropping the map entry, or a panic unwinding through the store's lock. `pause.set_paused(false)`
-/// must run *before* `kill`: the reader thread parked in `wait_while_paused` only wakes on the
-/// pause condvar's `notify_all`, never on the child dying, so a session killed while paused
-/// (`pty_set_paused(true)` with no matching `false` before close) previously left both the reader
-/// thread and the flusher thread it gates (`draining` only flips once the reader thread's read loop
-/// exits) parked forever — two threads leaked per paused-then-killed session. Killing first would
-/// still leave the reader blocked on the condvar since the child's death doesn't touch the pause
-/// gate at all.
+/// Guarantees a `PtySession` never leaks its reader/flusher threads, its child process, or its
+/// shell-integration temp directory, no matter how it stops being reachable — an explicit
+/// `pty_kill`, `TerminalStore::kill_project`/`kill_all` dropping the map entry, or a panic unwinding
+/// through the store's lock. `pause.set_paused(false)` must run *before* `kill`: the reader thread
+/// parked in `wait_while_paused` only wakes on the pause condvar's `notify_all`, never on the child
+/// dying, so a session killed while paused (`pty_set_paused(true)` with no matching `false` before
+/// close) previously left both the reader thread and the flusher thread it gates (`draining` only
+/// flips once the reader thread's read loop exits) parked forever — two threads leaked per
+/// paused-then-killed session. Killing first would still leave the reader blocked on the condvar
+/// since the child's death doesn't touch the pause gate at all. The temp-dir removal runs
+/// unconditionally alongside the two, independent of whether the shell ever reached its injected
+/// script's own self-`rm -rf` line.
 impl Drop for PtySession {
     fn drop(&mut self) {
         self.pause.set_paused(false);
         let _ = self.killer.lock().kill();
+        if let Some(temp_dir) = &self.shell_integration_temp_dir {
+            std::fs::remove_dir_all(temp_dir).ok();
+        }
     }
 }
 
@@ -179,8 +191,11 @@ fn utf8_locale() -> String {
 /// failure into a `log::warn!` + no-injection fallback rather than surfacing
 /// it through this function's `CommandBuilder` return type. Every call to
 /// [`spawn`] therefore performs a filesystem write before the child process
-/// exists.
-fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
+/// exists. Also hands back that temp directory (`None` when no injection
+/// happened) so [`spawn`] can stash it on the resulting `PtySession` for
+/// deterministic Drop-time cleanup — see the `temp_dir` field doc on
+/// `shell_integration::ShellIntegrationPlan`.
+fn build_command(config: &PtySpawnConfig) -> (CommandBuilder, Option<PathBuf>) {
     let integration = shell_integration::prepare(config.shell.as_deref());
 
     let mut cmd = match integration.as_ref().and_then(|plan| plan.override_program.as_ref()) {
@@ -209,7 +224,7 @@ fn build_command(config: &PtySpawnConfig) -> CommandBuilder {
     for (key, value) in &config.extra_env {
         cmd.env(key, value);
     }
-    cmd
+    (cmd, integration.map(|plan| plan.temp_dir))
 }
 
 pub fn spawn<D, X>(config: PtySpawnConfig, on_data: D, on_exit: X) -> AppResult<PtySession>
@@ -227,7 +242,7 @@ where
         })
         .map_err(|error| AppError::Internal(error.to_string()))?;
 
-    let cmd = build_command(&config);
+    let (cmd, shell_integration_temp_dir) = build_command(&config);
 
     let PtyPair { slave, master } = pair;
     let mut child = slave.spawn_command(cmd).map_err(|error| AppError::Internal(error.to_string()))?;
@@ -280,6 +295,7 @@ where
         killer: Mutex::new(killer),
         pause,
         shell_pid,
+        shell_integration_temp_dir,
     })
 }
 
@@ -365,7 +381,7 @@ mod tests {
         let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
         std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, "1");
 
-        let cmd = build_command(&base_config(None));
+        let (cmd, temp_dir) = build_command(&base_config(None));
 
         match original {
             Some(value) => std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value),
@@ -373,6 +389,7 @@ mod tests {
         }
 
         assert!(cmd.is_default_prog(), "주입이 없으면 프로그램 선택을 바꾸지 않아야 한다");
+        assert!(temp_dir.is_none(), "주입이 없으면 임시 디렉터리도 생성되지 않아야 한다");
     }
 
     #[test]
@@ -380,7 +397,7 @@ mod tests {
         let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
         std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
 
-        let cmd = build_command(&base_config(Some("/bin/zsh")));
+        let (cmd, temp_dir) = build_command(&base_config(Some("/bin/zsh")));
 
         if let Some(value) = original {
             std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
@@ -389,6 +406,9 @@ mod tests {
         assert!(!cmd.is_default_prog());
         assert_eq!(cmd.get_argv(), &vec![std::ffi::OsString::from("/bin/zsh")]);
         assert!(cmd.get_env("ZDOTDIR").is_some());
+        let temp_dir = temp_dir.expect("zsh 주입은 임시 디렉터리를 만들어야 한다");
+        assert!(temp_dir.join(".zshrc").is_file());
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
@@ -396,7 +416,7 @@ mod tests {
         let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
         std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
 
-        let cmd = build_command(&base_config(Some("/bin/bash")));
+        let (cmd, temp_dir) = build_command(&base_config(Some("/bin/bash")));
 
         if let Some(value) = original {
             std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
@@ -405,6 +425,7 @@ mod tests {
         let argv = cmd.get_argv();
         assert_eq!(argv[0], std::ffi::OsString::from("/bin/bash"));
         assert_eq!(argv[1], std::ffi::OsString::from("--init-file"));
+        std::fs::remove_dir_all(temp_dir.expect("bash 주입은 임시 디렉터리를 만들어야 한다")).ok();
     }
 
     #[cfg(unix)]
@@ -432,6 +453,32 @@ mod tests {
         assert!(
             exited.load(AtomicOrdering::SeqCst),
             "reader 스레드가 paused 상태여도 drop 이 자식 프로세스를 종료시켜야 한다"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drop은_셸_통합_임시_디렉터리도_정리한다() {
+        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
+        std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
+
+        let session = spawn(base_config(Some("/bin/zsh")), |_bytes| {}, |_code| {}).expect("스폰 성공");
+
+        if let Some(value) = original {
+            std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
+        }
+
+        let temp_dir = session
+            .shell_integration_temp_dir
+            .clone()
+            .expect("zsh 주입 세션은 셸 통합 임시 디렉터리를 가지고 있어야 한다");
+        assert!(temp_dir.is_dir(), "세션이 살아있는 동안에는 임시 디렉터리가 존재해야 한다");
+
+        drop(session);
+
+        assert!(
+            !temp_dir.exists(),
+            "세션이 drop되면 셸 통합 임시 디렉터리도 삭제되어야 한다 — 주입된 스크립트가 self-rm 라인에 도달하지 못한 경우를 대비한 결정적 정리 경로다"
         );
     }
 }

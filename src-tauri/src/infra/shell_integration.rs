@@ -63,6 +63,14 @@ pub struct ShellIntegrationPlan {
     /// untouched and only layers `extra_env` on top.
     pub override_program: Option<(PathBuf, Vec<String>)>,
     pub extra_env: Vec<(String, String)>,
+    /// The temp directory this plan created on disk (`fresh_temp_dir`), so the pty spawn path
+    /// (`infra::pty::spawn`) can stash it on the resulting `PtySession` and remove it deterministically
+    /// on session teardown (`PtySession`'s `Drop`) instead of relying solely on the `rm -rf` line each
+    /// injected startup script self-executes. That self-cleanup only runs if the shell actually reaches
+    /// the bottom of the injected script — a shell that crashes, is killed, or errors out earlier in a
+    /// sourced dotfile never gets there, leaking this directory under the OS temp dir for the life of
+    /// the machine (not just the app).
+    pub temp_dir: PathBuf,
 }
 
 fn fresh_temp_dir() -> PathBuf {
@@ -180,6 +188,7 @@ fn prepare_zsh() -> AppResult<ShellIntegrationPlan> {
     Ok(ShellIntegrationPlan {
         override_program: None,
         extra_env,
+        temp_dir,
     })
 }
 
@@ -253,6 +262,7 @@ fn prepare_bash(shell_path: &Path, was_login: bool) -> AppResult<ShellIntegratio
             vec!["--init-file".to_string(), script_path.to_string_lossy().to_string()],
         )),
         extra_env: vec![(SHELL_INTEGRATION_ENV_VAR.to_string(), SHELL_INTEGRATION_ENV_VALUE.to_string())],
+        temp_dir,
     })
 }
 

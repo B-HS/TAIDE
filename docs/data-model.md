@@ -499,6 +499,82 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
 - **`LspSessionStatus` — 백그라운드 재시작 후에도 `crashed` 유지**(#24): 새 variant 는 없다(기존
   `"running" | "crashed" | ...` union 그대로). `docs/ipc-contract.md`(§3 "T0 감사 데이터·기능
   수정")·`features/lsp.md` §5 참조.
-- **레이아웃·터미널·프로젝트 — 타입 변경 없음**(#2·#15·#21): `project_close`(레이아웃 동기 flush·
-  `asset_protocol_scope` 회수)와 터미널 탭 닫기(pty 세션 회수)는 전부 기존 커맨드의 내부 부수효과
-  확장이다 — `ProjectLayout`·`TabKind::Terminal` 등 어떤 영속 타입도 필드가 늘거나 줄지 않았다.
+- **레이아웃·터미널·프로젝트 — 타입 변경 없음**(#2·#15·#21): `project_close`(레이아웃 동기 flush)와
+  터미널 탭 닫기(pty 세션 회수)는 전부 기존 커맨드의 내부 부수효과 확장이다 — `ProjectLayout`·
+  `TabKind::Terminal` 등 어떤 영속 타입도 필드가 늘거나 줄지 않았다. `asset_protocol_scope` 회수(#15)는
+  이후 add-only API 라는 근본 한계로 **롤백됐다** — 현재 상태·후속 계획은 §14 참조.
+
+## 14. T1 정비 1차 배치 — Settings 타입 좁히기·프로젝트 종료 자원 회수 (2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` §1(T1-B·T1-J). 감사 근거:
+> `docs/quality-assurance/2026-08-18-architecture-audit.md`(R5#3~#5·R5#9·R5#11·X1#7·X1#18·R4#7).
+> IPC 시그니처·이벤트 카탈로그 영향은 `docs/ipc-contract.md`, 자원 회수 전체 목록의 정본은
+> `docs/architecture.md` §6.3 — 이 절은 **영속 스키마·타입**에 한정한다.
+
+- **`Settings`/`SettingsPatch` 열거형 5필드를 `Option<String>` → specta union 으로 좁힘**(T1-B
+  핵심): `editorRenderWhitespace`(`"none" | "boundary" | "selection" | "all"`)·
+  `editorCursorStyle`(`"line" | "block" | "underline"`)·`editorCursorBlinking`(`"blink" | "smooth" |
+  "phase" | "expand" | "solid"`)·`terminalCursorStyle`(`"bar" | "block" | "underline"`) 4필드는 새
+  Rust enum(`domain::settings::types::Editor{RenderWhitespace,CursorStyle,CursorBlinking}`·
+  `TerminalCursorStyle`, 전부 `#[default]` variant 보유 — `Settings` 필드는 `#[serde(default)]`
+  라 optional). `aiProvider`(`AiProviderId | null`, 기본값 없음)는 새 enum 을 만들지 않고 `ai_*`
+  커맨드가 이미 쓰던 `domain::ai::types::AiProviderId`(`ollamaCloud | codex | omlx`)를 재사용한다.
+  프론트 소비처(에디터·터미널·설정 화면) 9곳의 `as EditorRenderWhitespace` 류 캐스트가 전부
+  제거됐다 — monaco/xterm 옵션 prop 타입과 값 집합이 완전히 동일해 매핑 함수 없이 구조적으로
+  호환된다.
+- **하위호환 — 디스크/동기화 페이로드의 out-of-range 값**: 타입이 문자열에서 enum 으로 좁혀지며
+  "허용 밖 문자열이면 기본값으로 보정"이라는 기존 런타임 검증(`sanitize_enum`/
+  `sanitize_optional_enum`)이 애초에 표현 불가능한 값을 막아 무의미해졌다. 대신
+  `settings::service::sanitize_legacy_settings_values` 가 **타입 파싱 이전** raw JSON 단계에서
+  이 5필드의 out-of-range/빈 문자열 값을 정규화한다(4개 열거형은 각자의 기본값, `aiProvider` 는
+  `null`) — `migrate_legacy_ai_provider_keys`(§7)와 같은 경계(`read_settings_file`·
+  `parse_settings_json`·`sync::service::parse_synced_payload`)에 나란히 적용돼, 이 narrowing
+  이전에 저장된 `settings.json`이나 다른 빌드가 쓴 동기화 gist 도 그대로 로드된다. 회귀 테스트:
+  `settings/service.rs`
+  `손으로_편집된_settings_파일의_잘못된_값은_로드시_보정되어_재저장된다`.
+- **`SettingsPatch.aiProvider` 의 병합 규약이 달라짐**: `Option<String>` 이던 시절엔 다른 5개
+  clearable 문자열 필드(§13 #22)와 같은 "생략=유지·`Some(\"\")`=해제" 3상태 규약 후보였지만,
+  `Option<AiProviderId>` enum 에는 "빈 문자열" 이 없다 — `apply_patch` 는 단순
+  `patch.ai_provider.or(existing)` 로 병합하고, 한 번 설정된 provider 를 patch 로 명시적으로
+  "설정 안 됨" 으로 되돌리는 경로는 여전히 없다(narrowing 이전과 동일한 갭, R5#1 문서화 그대로).
+- **폰트 크기 범위 통일**(R5#4): `editorFontSize`/`terminalFontSize` 는 Rust 가 그동안 보정을
+  전혀 하지 않았고 프론트는 `settings-view.tsx` 로컬 8–32 와 `shared/constants/code-font-size.ts`
+  6–48 두 범위가 따로 있었다. `settings::service::sanitize` 가 이제 둘 다 `FONT_SIZE_MIN=6`/
+  `FONT_SIZE_MAX=48`(zoom 스테퍼가 실제로 import 하던 쪽)로 clamp 하고, `settings-view.tsx` 는
+  로컬 8–32 상수를 지우고 같은 `code-font-size.ts` 상수를 가져다 쓴다 — 세 벌이 한 벌로 수렴.
+- **`agentStatusBadgeEnabled`/`ideAutoOpenDiff` 기본값 드리프트 제거**(R5#5): 두 필드 모두 Rust
+  `Default`(`default_true()`)는 `true` 인데 `settings-view.tsx` 의 `??` 폴백은 `false` 였다(설정을
+  한 번도 저장하지 않은 상태에서 Rust 기본값과 화면 표시가 반대였던 결함). 폴백을 `?? true` 로
+  정정해 Rust `Default` 를 유일한 정본으로 삼는다 — 디스크에 저장된 `Settings` 자체는 항상 명시
+  값을 갖고 있으므로(`#[serde(default)]`) 이 드리프트는 "아직 한 번도 저장 안 된 세션의 화면
+  표시"에만 영향이 있었다.
+- **`Settings` 필드 집합·테마 토큰 목록 파리티 테스트 신설**(R5#3·R5#9, 회귀 방지 — 새 필드/스키마
+  없음): `settings/types.rs`
+  `settings_필드_집합은_rust와_bindings_ts에서_일치한다` 가 `Settings::default()` 의 실제
+  직렬화 키 집합과 생성된 `bindings.ts` 의 `Settings` 타입 필드 집합을 비교하고, `theme/service.rs`
+  `테마_토큰_목록은_rust와_theme_tokens_ts에서_일치한다` 가 `COLOR_NAMESPACES`/`SYNTAX_TOKENS`/
+  `TERMINAL_TOKENS`(약 200개 시맨틱 키)를 `src/entities/theme/theme-tokens.ts` 와 비교한다. 둘 다
+  현재 상태에서 통과 — 미러 드리프트를 사후 감지하는 강제 장치가 이번에 처음 생겼다는 것이 변경의
+  본질이다.
+- **X1#18 — specta `_Serialize`/`_Deserialize` 분할 실제 인벤토리**: §9.1(위)이 이 분할을
+  `SnippetEntry`/`SnippetFile` 2종만 기록하고 "두 절반은 현재 동일"이라 단정했던 것을 실측으로
+  정정한다. 현재 `bindings.ts` 에서 실제로 쪼개지는 타입은 **7종**:
+  `ResolvedLocale`·`ResolvedTheme`·`SnippetEntry`·`SnippetFile`·`Theme`·`TokenColorRule`·
+  `TokenColorSettings`(전부 중첩된 `#[serde(untagged)]`/`Option<Vec<...>>` 필드가 원인으로 보임 —
+  §9.1 이 짚은 것과 같은 현상). 실측(`bindings.ts` 직독)으로 둘로 나뉜다 — **5종**(`ResolvedLocale`·
+  `SnippetEntry`·`SnippetFile`·`TokenColorRule`·`TokenColorSettings`)은 두 절반의 필드 구성이
+  완전히 동일하지만, **`Theme`·`ResolvedTheme` 2종은 감사가 짚은 것보다 넓다** — `_Serialize`
+  절반에서는 필수(`?` 없음), `_Deserialize` 절반에서는 옵셔널(`?`)인 필드가 `ResolvedTheme` 은
+  5개(`syntaxOverrides`·`warnings`·`author`·`license`·`source`), **`Theme` 은 8개**
+  (`extends`·`palette`·`colors`·`syntax`·`terminal`·`author`·`license`·`source` — 감사 X1#18 은
+  `ResolvedTheme` 만 지목했으나 같은 비대칭이 `Theme` 에도 그대로 있다)로 갈린다. 프론트가 이
+  타입들을 소비할 때(`theme_resolve`/`theme_get`/`theme_save` 등) 이 필드에 옵셔널 체이닝 없이
+  접근하면 유니온의 `_Serialize` 절반만 만족해 타입 에러가 나거나, 반대로 `_Deserialize` 절반을
+  가정하면 런타임엔 항상 채워져 있는 필드를 불필요하게 옵셔널 취급하게 된다 — 기능상 결함은
+  아니지만 `ipc-contract.md`(§7.10-W7 `Theme`/`ResolvedTheme` 언급 포함)의 단순화된 표기가 이
+  비대칭을 가려 왔다.
+- **`GitStore`/`TreeStore` 프로젝트 종료 회수**(T1-J, R4#7): 두 스토어 모두 영속 스키마가 아니라
+  런타임 캐시(`AppState` 밖의 별도 Tauri managed state)라 이 문서의 타입 표에는 애초에 없었다 —
+  `project_close` 가 `GitStore::remove`/`TreeStore::remove` 로 캐시 엔트리만 지운다(재오픈 시
+  다시 채워짐). 전체 회수 목록·asset 프로토콜 스코프가 회수되지 않는 이유는 `architecture.md`
+  §6.3 이 정본이다.

@@ -976,6 +976,10 @@ pub fn theme_exists(paths: &AppPaths, theme_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use regex::Regex;
+
     use super::*;
     use crate::domain::theme::types::TokenColorSettings;
 
@@ -1391,5 +1395,86 @@ mod tests {
                 theme.id
             );
         }
+    }
+
+    /// Extracts a `[...] as const` array literal's quoted string members, starting at `start_marker`
+    /// (typically an `export const NAME = [` declaration) — the flat-list half of the two token-shape
+    /// extractions [`ts_color_token_keys`] needs.
+    ///
+    /// The member pattern (`'([a-zA-Z0-9]+)'`) only matches single-segment alphanumeric token names —
+    /// a token renamed to include `.`/`-`/`_` (e.g. `variable.parameter`) would either not match at
+    /// all or match only part of itself, silently dropping (or truncating) it from the returned set
+    /// rather than erroring. Every current token name in `theme-tokens.ts` is a single alphanumeric
+    /// segment, so this holds today; [`ts_color_token_keys`]'s `token_pattern` below shares the exact
+    /// same constraint. See `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` §1 T1-E.
+    fn extract_flat_string_list(source: &str, start_marker: &str) -> BTreeSet<String> {
+        let start = source
+            .find(start_marker)
+            .unwrap_or_else(|| panic!("{start_marker} 를 찾을 수 없습니다"))
+            + start_marker.len();
+        let end = source[start..]
+            .find("] as const")
+            .unwrap_or_else(|| panic!("{start_marker} 의 끝(] as const)을 찾을 수 없습니다"));
+        let block = &source[start..start + end];
+        Regex::new(r"'([a-zA-Z0-9]+)'")
+            .expect("유효한 정규식")
+            .captures_iter(block)
+            .map(|capture| capture[1].to_string())
+            .collect()
+    }
+
+    /// Extracts `theme-tokens.ts`'s `COLOR_NAMESPACES` into the same flat `"namespace.token"` key
+    /// shape [`required_color_keys`] returns on the Rust side.
+    fn ts_color_token_keys(source: &str) -> BTreeSet<String> {
+        let start = source
+            .find("export const COLOR_NAMESPACES = [")
+            .expect("COLOR_NAMESPACES 시작을 찾을 수 없습니다")
+            + "export const COLOR_NAMESPACES = [".len();
+        let end = source[start..]
+            .find("] as const")
+            .expect("COLOR_NAMESPACES 끝(] as const)을 찾을 수 없습니다");
+        let block = &source[start..start + end];
+
+        let namespace_pattern = Regex::new(r"id:\s*'([a-zA-Z0-9]+)',\s*tokens:\s*\[([^\]]*)\]").expect("유효한 정규식");
+        let token_pattern = Regex::new(r"'([a-zA-Z0-9]+)'").expect("유효한 정규식");
+        let mut keys = BTreeSet::new();
+        for namespace_capture in namespace_pattern.captures_iter(block) {
+            let namespace = &namespace_capture[1];
+            for token_capture in token_pattern.captures_iter(&namespace_capture[2]) {
+                keys.insert(format!("{namespace}.{}", &token_capture[1]));
+            }
+        }
+        keys
+    }
+
+    /// `R5#9` — the ~200-token semantic key list (`COLOR_NAMESPACES`/`SYNTAX_TOKENS`/
+    /// `TERMINAL_TOKENS`) is hand-mirrored between this Rust module and
+    /// `src/entities/theme/theme-tokens.ts` with no generator and, until this test, no parity check —
+    /// a token added to one side silently stops being either enforced (`내장_다크_테마는_모든_시맨틱_토큰을_포함한다`
+    /// above) or exposed in the theme editor.
+    #[test]
+    fn 테마_토큰_목록은_rust와_theme_tokens_ts에서_일치한다() {
+        let ts_source = include_str!("../../../../src/entities/theme/theme-tokens.ts");
+
+        let rust_color_keys: BTreeSet<String> = required_color_keys().into_iter().collect();
+        let ts_color_keys = ts_color_token_keys(ts_source);
+        assert_eq!(
+            rust_color_keys, ts_color_keys,
+            "색상 토큰 목록이 Rust COLOR_NAMESPACES 와 TS COLOR_NAMESPACES 사이에서 다릅니다"
+        );
+
+        let rust_syntax_keys: BTreeSet<String> = required_syntax_keys().into_iter().map(str::to_string).collect();
+        let ts_syntax_keys = extract_flat_string_list(ts_source, "export const SYNTAX_TOKENS = [");
+        assert_eq!(
+            rust_syntax_keys, ts_syntax_keys,
+            "구문 강조 토큰 목록이 Rust SYNTAX_TOKENS 와 TS SYNTAX_TOKENS 사이에서 다릅니다"
+        );
+
+        let rust_terminal_keys: BTreeSet<String> = required_terminal_keys().into_iter().map(str::to_string).collect();
+        let ts_terminal_keys = extract_flat_string_list(ts_source, "export const TERMINAL_TOKENS = [");
+        assert_eq!(
+            rust_terminal_keys, ts_terminal_keys,
+            "터미널 ANSI 토큰 목록이 Rust TERMINAL_ANSI_TOKENS 와 TS TERMINAL_TOKENS 사이에서 다릅니다"
+        );
     }
 }

@@ -797,7 +797,16 @@
          정상 — 이것까지 막히면 과잉 회귀)
       3. 대기 중인 외부 열기 요청 조회(가능하면 로컬에서 `taide open --wait` 로 요청을 만든 뒤
          원격에서 그 큐가 보이지 않는지)
-      4. 프로젝트를 닫은 뒤 원격 세션이 그 트리의 파일에 여전히 `asset://` 로 접근할 수 없는가
+      4. ~~프로젝트를 닫은 뒤 원격 세션이 그 트리의 파일에 여전히 `asset://` 로 접근할 수 없는가~~ —
+         **T1 정비 1차(2026-08-18)에서 이 항목의 전제가 뒤집혔다.** T0 수정은 `project_close` 에
+         `asset_protocol_scope().forbid_directory(root)` 를 추가해 이 항목을 통과시키려 했으나,
+         Tauri 의 asset scope 가 add-only(되돌릴 수 없음) 라 같은 폴더를 재오픈해도 영원히
+         `asset://` 를 못 읽는 새 회귀를 만든다는 것이 드러나 **롤백됐다**(`X1#7`,
+         `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` T1-J). 근본 수정(자체
+         `register_uri_scheme_protocol` 재구현)은 T1 2차로 이월 — 상세·사유는
+         `docs/architecture.md` §6.3. **현재 상태(의도됨): 프로젝트를 닫아도 원격/로컬 세션 모두
+         그 트리를 `asset://` 로 계속 읽을 수 있다.** 이 개별 항목은 T1 2차에서 근본 수정 후에만
+         다시 체크 대상이 된다 — 그 전까지는 "실패"가 아니라 "미구현"으로 취급한다.
       5. LSP 서버 설치(설정의 언어서버 설치 버튼)
 - [ ] (LSP 백그라운드 재시작 — #24) 실행 중인 언어서버 프로세스를 터미널에서 직접 `kill -9` 로 죽여
       크래시를 인위로 유발한 뒤, 앱이 자동으로 재기동을 시도하고 나서 상태바/설정의 LSP 상태가
@@ -806,3 +815,57 @@
 - [ ] (보조 창 wait-marker — #11) `taide --wait` 로 파일을 하나 열어 대기시킨 뒤, 그 탭을 보조
       창으로 옮기고(우클릭 "Move to New Window" 등) 그 보조 창에서 탭을 닫으면 대기 중이던 CLI
       프로세스가 (앱 전체 종료를 기다리지 않고) 즉시 풀리는가
+
+## 감사 T1 정비 1차(T1-E·T1-J·T1-B) 재검 (2026-08-18, 계약: docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md)
+
+> 아키텍처 감사(`docs/quality-assurance/2026-08-18-architecture-audit.md` §6.2 T1 묶음) 저위험
+> 3묶음(T1-E 계약 검증 테스트·T1-J 프로젝트 종료 자원 회수·T1-B Settings 타입 좁히기)의 수정
+> 요지는 `docs/architecture.md` §6.3·`docs/data-model.md` §14·`docs/ipc-contract.md` 에 있다.
+> 코드 근거·자동 테스트(Rust 975/975 = lib 952+세션복원 6+CLI 17, 프론트 1195/1195, `cargo fmt
+> --check`·`cargo clippy -D warnings`·`bunx vite build` 전부 그린)는 이미 확인됐다 — T1-E 는 설계상
+> 전량 자동 테스트(파리티 비교)라 실기 항목이 없다. 아래는 자동 테스트로 커버되지 않는(실제 UI
+> 조작·프로세스 생존·재시작 등) T1-J·T1-B 항목에 한정한다.
+
+- [ ] (Settings 열거형 화면 조작 — T1-B) 설정 화면에서 "Editor: Render Whitespace"·"Editor: Cursor
+      Style"·"Editor: Cursor Blinking"·"Terminal: Cursor Style" 각 드롭다운의 모든 선택지를 하나씩
+      골라 에디터/터미널에 실제로 반영되는가(값이 `Option<String>` 에서 specta union 으로
+      좁혀지며 프론트 9곳의 `as` 캐스트가 제거됐다 — 타입은 `bun run typecheck` 로 확인했지만 런타임
+      드롭다운 선택 → monaco/xterm 반영 자체는 실기 확인 필요)
+- [ ] (레거시 settings.json 하위호환 — T1-B) 앱을 끈 뒤 `settings.json` 을 직접 열어
+      `terminalCursorStyle`/`editorCursorStyle`/`editorCursorBlinking`/`editorRenderWhitespace` 중
+      하나를 존재하지 않는 값(예: `"banana"`)으로, `aiProvider` 를 `"anthropic"` 같은 미지원
+      값으로 바꿔 저장한 뒤 앱을 다시 켰을 때 크래시·파손 알림 없이 해당 필드만 기본값(`aiProvider`
+      는 `null`)으로 조용히 보정되어 뜨는가(자동 테스트는 `settings::service` 유닛 테스트로 파싱
+      경로만 검증 — 실제 앱 부팅 왕복은 실기 확인)
+- [ ] (폰트 크기 범위 통일 — R5#4) 설정의 Editor/Terminal 폰트 크기 입력에 6 미만(예: 0)·48 초과
+      (예: 100) 값을 넣었을 때 각각 6·48 로 clamp 되는가. 이전에는 화면 슬라이더가 8–32 로 보였던
+      반면 실제 저장/줌 단축키 경로는 6–48 이 적용돼 있어 슬라이더 표시와 줌 단축키 결과가 서로
+      달랐다 — 이제는 설정 화면·줌 단축키·Rust 보정이 전부 6–48 하나로 통일됐는지 확인
+- [ ] (기본값 드리프트 제거 — R5#5) 한 번도 `settings.json` 을 만든 적 없는 새 프로필(또는
+      `settings.json` 삭제 후 재시작)에서 "Agent Status Badge"·"Auto-open Diff on IDE Request" 두
+      토글이 **켜진 채**로 보이는가(수정 전에는 Rust 기본값은 켜짐인데 화면 초기 표시는 꺼짐으로
+      나와 최초 실행 시 실제 동작과 화면이 반대였다)
+- [ ] (GitStore/TreeStore 재오픈 정합 — R4#7) 프로젝트를 여러 파일 트리 깊이로 펼쳐본 뒤(트리
+      캐시 채움) Git 패널에서 상태를 한 번 확인하고(repo root 캐시 채움) 프로젝트를 닫는다. 닫혀
+      있는 동안 그 폴더 밖에서(다른 터미널로) 파일을 추가/삭제하거나 `.git` 상태를 바꾼 뒤, 같은
+      프로젝트를 다시 열었을 때 파일 트리·Git 상태가 옛 캐시가 아니라 **새로 스캔한** 내용을
+      보여주는가
+- [ ] (LSP kill 동기화 — R7#9) 언어 서버가 붙은 파일을 연 채로 앱을 완전히 종료(⌘Q)한 직후
+      `ps aux | grep <language-server-binary>` 로 그 프로세스가 즉시 사라졌는가(수정 전에는
+      `kill_requested` 플래그만 세우고 최대 50ms 폴링 태스크에 실제 종료를 위임했는데, 앱 종료
+      직후 `std::process::exit` 이 그 태스크가 스케줄될 기회 자체를 없애 고아 프로세스가 남을 수
+      있었다)
+- [ ] (LSP restart_count 영구 잠금 해소 — R7#14) 언어 서버 프로세스를 터미널에서 `kill -9` 로 3회
+      죽이되(자동 재시작이 "Crashed" 로 뜨는 것을 매번 확인), **각 crash 사이 30초 이상 정상
+      가동**시킨 뒤 4번째로 다시 `kill -9` 했을 때도 자동 재시작이 여전히 시도되는가(수정 전에는
+      크래시가 서로 며칠씩 떨어져 있어도 누적 3회를 넘기면 이후 영구적으로 자동 재시작이 멈췄다 —
+      30초 미만 간격의 진짜 크래시 루프에서는 여전히 3회 후 멈춰야 정상이므로, 그 구분이 유지되는지
+      함께 확인)
+- [ ] (셸 통합 임시 디렉터리 정리 — R8#16) zsh 또는 bash 터미널 탭을 하나 연 뒤(OSC133 주입이
+      `$TMPDIR` 아래 임시 디렉터리를 만든다) 그 탭을 닫고, 방금 확인한 디렉터리가 즉시 삭제됐는가
+      (수정 전에는 주입된 스크립트 자신의 `rm -rf` 한 줄에만 의존해, 탭을 강제로 닫거나 셸이 그
+      줄에 도달하지 못하면 앱 재시작·재부팅과 무관하게 OS 임시 디렉터리 아래 영구히 남았다)
+- [ ] (asset 프로토콜 스코프 — X1#7, **의도적으로 미해결**) 위 T0 재검 섹션의 "원격 거부 5종" 항목
+      4번을 참고 — 이번 배치는 이 항목을 고의로 **건드리지 않았다**. 프로젝트를 닫아도 그 트리는
+      로컬·원격 세션 모두에서 여전히 `asset://` 로 읽힌다. T1 2차(자체 `register_uri_scheme_protocol`
+      재구현)까지는 실패가 아니라 기존 알려진 제약으로 취급한다

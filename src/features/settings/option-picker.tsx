@@ -1,24 +1,24 @@
-import type { FC, KeyboardEvent } from 'react'
+import type { KeyboardEvent } from 'react'
 import { useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { Button } from '@shared/ui/button'
 import { Command, CommandGroup, CommandItem, CommandList } from '@shared/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover'
 
-type OptionPickerOption = { id: string; label: string }
+type OptionPickerOption<T extends string> = { id: T; label: string }
 
-type OptionPickerProps = {
+type OptionPickerProps<T extends string> = {
     label: string
-    options: OptionPickerOption[]
-    value: string
-    onSelect: (id: string) => void
+    options: OptionPickerOption<T>[]
+    value: T
+    onSelect: (id: T) => void
 }
 
-export const OptionPicker: FC<OptionPickerProps> = ({ label, options, value, onSelect }) => {
+export const OptionPicker = <T extends string>({ label, options, value, onSelect }: OptionPickerProps<T>) => {
     const [open, setOpen] = useState(false)
 
     const activeOption = options.find((option) => option.id === value) ?? options[0]
-    const handleSelect = (id: string) => {
+    const handleSelect = (id: T) => {
         onSelect(id)
         setOpen(false)
     }

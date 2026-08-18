@@ -12,7 +12,9 @@ export const commands = {
 	projectOpen: (path: string) => typedError<ProjectOpenResult, AppError>(__TAURI_INVOKE("project_open", { path })),
 	/**
 	 *  Closes `project_id` and reaps every resource that only makes sense while the project is open.
-	 *  Two of those reaps are correctness-sensitive, not just cleanup:
+	 *  See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim and
+	 *  why (asset protocol scope is the one deliberate exception — deferred, see that section). Two of
+	 *  the reaps below are correctness-sensitive, not just cleanup:
 	 * 
 	 *  - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
 	 *    2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`
@@ -24,6 +26,12 @@ export const commands = {
 	 *  - **Terminals**: `TerminalStore::kill_project` reaps every pty session scoped to this project.
 	 *    Before this, nothing called `pty_kill` for a closing project's sessions — they kept running,
 	 *    attached to nothing, until the whole app quit (`TerminalStore::kill_all`).
+	 * 
+	 *  `GitStore`/`TreeStore` removal below is plain cache eviction (no correctness risk either way —
+	 *  `resolve_repo_root`/`ensure_entry` transparently rebuild a missing entry on next access) but
+	 *  still matters: without it, reopening the same folder resurrects a possibly-stale repo root or
+	 *  directory listing instead of resolving fresh, and the entry otherwise sits in memory for the
+	 *  rest of the app's lifetime regardless of whether the project ever reopens.
 	 */
 	projectClose: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_close", { projectId })),
 	projectActivate: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_activate", { projectId })),
@@ -643,6 +651,34 @@ export type DiffSides = {
 
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 
+/**
+ *  `Settings.editorCursorBlinking` / `SettingsPatch.editorCursorBlinking`'s value set — mirrors
+ *  `EditorCursorBlinkingStyle` (`src/features/editor/code-editor.tsx`), Monaco's `cursorBlinking`
+ *  option. See [`EditorRenderWhitespace`]'s doc comment for why this is a narrowed enum rather than
+ *  `String`.
+ */
+export type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
+
+/**
+ *  `Settings.editorCursorStyle` / `SettingsPatch.editorCursorStyle`'s value set — mirrors
+ *  `EditorCursorStyle` (`src/features/editor/code-editor.tsx`), Monaco's `cursorStyle` option. See
+ *  [`EditorRenderWhitespace`]'s doc comment for why this is a narrowed enum rather than `String`.
+ */
+export type EditorCursorStyle = "line" | "block" | "underline";
+
+/**
+ *  `Settings.editorRenderWhitespace` / `SettingsPatch.editorRenderWhitespace`'s value set — mirrors
+ *  `EditorRenderWhitespace` (`src/features/editor/code-editor.tsx`), the Monaco `renderWhitespace`
+ *  option's own literal union. Was a bare `Option<String>` (audit
+ *  `docs/quality-assurance/2026-08-18-architecture-audit.md` C6/T1-B), which forced 9 frontend `as`
+ *  casts and let a hand-edited `settings.json`/synced gist carry an arbitrary string. Narrowing to a
+ *  real enum makes specta emit the same `"none" | "boundary" | "selection" | "all"` union the
+ *  frontend already hand-declared, so those casts collapse to a plain type. A legacy/out-of-range
+ *  value is normalized back to the default *before* typed parse — see
+ *  [`crate::domain::settings::service::sanitize_legacy_settings_values`].
+ */
+export type EditorRenderWhitespace = "none" | "boundary" | "selection" | "all";
+
 export type ExternalOpenRequest = {
 	path: string,
 	waitMarker?: string | null,
@@ -1175,15 +1211,15 @@ export type Settings = {
 	editorTabSize?: number,
 	editorInsertSpaces?: boolean,
 	editorDetectIndentation?: boolean,
-	editorRenderWhitespace?: string,
+	editorRenderWhitespace?: EditorRenderWhitespace,
 	editorBracketPairColorization?: boolean,
 	editorFontLigatures?: boolean,
-	editorCursorStyle?: string,
-	editorCursorBlinking?: string,
+	editorCursorStyle?: EditorCursorStyle,
+	editorCursorBlinking?: EditorCursorBlinking,
 	editorScrollBeyondLastLine?: boolean,
 	editorStickyScrollEnabled?: boolean,
 	terminalScrollback?: number,
-	terminalCursorStyle?: string,
+	terminalCursorStyle?: TerminalCursorStyle,
 	terminalCursorBlink?: boolean,
 	enablePreviewTabs?: boolean,
 	aiAutoTabEnabled?: boolean,
@@ -1198,8 +1234,14 @@ export type Settings = {
 	 *  Deserialize shapes diverge, splitting every TS consumer of `Settings` (including ones
 	 *  unrelated to this field) into `_Serialize`/`_Deserialize`/union type variants. See
 	 *  `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-2/§3.1.
+	 * 
+	 *  `Option<AiProviderId>` (not a locally-declared enum) reuses the same type the `ai_*`
+	 *  commands already validate `provider` arguments against (`domain::ai::types::AiProviderId`),
+	 *  instead of `Option<String>` plus the hand-maintained `AI_PROVIDERS` allow-list `sanitize()`
+	 *  used to check it against — see [`EditorRenderWhitespace`]'s doc comment for why an
+	 *  out-of-range value is normalized before typed parse rather than accepted here as `None`.
 	 */
-	aiProvider?: string | null,
+	aiProvider?: AiProviderId | null,
 	/**  Renamed from `ai_auto_tab_model` — see [`Settings::ai_provider`]'s doc comment. */
 	aiModel?: string | null,
 	aiOmlxBaseUrl?: string | null,
@@ -1277,19 +1319,19 @@ export type SettingsPatch = {
 	editorTabSize: number | null,
 	editorInsertSpaces: boolean | null,
 	editorDetectIndentation: boolean | null,
-	editorRenderWhitespace: string | null,
+	editorRenderWhitespace: EditorRenderWhitespace | null,
 	editorBracketPairColorization: boolean | null,
 	editorFontLigatures: boolean | null,
-	editorCursorStyle: string | null,
-	editorCursorBlinking: string | null,
+	editorCursorStyle: EditorCursorStyle | null,
+	editorCursorBlinking: EditorCursorBlinking | null,
 	editorScrollBeyondLastLine: boolean | null,
 	editorStickyScrollEnabled: boolean | null,
 	terminalScrollback: number | null,
-	terminalCursorStyle: string | null,
+	terminalCursorStyle: TerminalCursorStyle | null,
 	terminalCursorBlink: boolean | null,
 	enablePreviewTabs: boolean | null,
 	aiAutoTabEnabled: boolean | null,
-	aiProvider: string | null,
+	aiProvider: AiProviderId | null,
 	aiModel: string | null,
 	aiOmlxBaseUrl: string | null,
 	remoteAccessEnabled: boolean | null,
@@ -1564,6 +1606,14 @@ export type Task = {
 };
 
 export type TaskSource = "npm" | "make" | "cargo";
+
+/**
+ *  `Settings.terminalCursorStyle` / `SettingsPatch.terminalCursorStyle`'s value set — mirrors
+ *  `TerminalCursorStyle` (`src/features/terminal/terminal-view.tsx`), xterm.js's `cursorStyle`
+ *  option. See [`EditorRenderWhitespace`]'s doc comment for why this is a narrowed enum rather than
+ *  `String`.
+ */
+export type TerminalCursorStyle = "bar" | "block" | "underline";
 
 export type TerminalCwdChanged = {
 	sessionId: string,

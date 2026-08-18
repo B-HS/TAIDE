@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::domain::ai::types::AiProviderId;
+
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_THEME_ID: &str = "taide-dark";
 pub const DEFAULT_EDITOR_FONT_SIZE: u32 = 13;
@@ -9,11 +11,66 @@ pub const DEFAULT_LANGUAGE: &str = "system";
 pub const DEFAULT_TOAST_POSITION: &str = "bottom-right";
 pub const DEFAULT_RESIZER_THICKNESS: u32 = 1;
 pub const DEFAULT_EDITOR_TAB_SIZE: u32 = 4;
-pub const DEFAULT_EDITOR_CURSOR_STYLE: &str = "line";
-pub const DEFAULT_EDITOR_CURSOR_BLINKING: &str = "blink";
-pub const DEFAULT_EDITOR_RENDER_WHITESPACE: &str = "selection";
 pub const DEFAULT_TERMINAL_SCROLLBACK: u32 = 10_000;
-pub const DEFAULT_TERMINAL_CURSOR_STYLE: &str = "bar";
+
+/// `Settings.editorRenderWhitespace` / `SettingsPatch.editorRenderWhitespace`'s value set — mirrors
+/// `EditorRenderWhitespace` (`src/features/editor/code-editor.tsx`), the Monaco `renderWhitespace`
+/// option's own literal union. Was a bare `Option<String>` (audit
+/// `docs/quality-assurance/2026-08-18-architecture-audit.md` C6/T1-B), which forced 9 frontend `as`
+/// casts and let a hand-edited `settings.json`/synced gist carry an arbitrary string. Narrowing to a
+/// real enum makes specta emit the same `"none" | "boundary" | "selection" | "all"` union the
+/// frontend already hand-declared, so those casts collapse to a plain type. A legacy/out-of-range
+/// value is normalized back to the default *before* typed parse — see
+/// [`crate::domain::settings::service::sanitize_legacy_settings_values`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorRenderWhitespace {
+    None,
+    Boundary,
+    #[default]
+    Selection,
+    All,
+}
+
+/// `Settings.editorCursorStyle` / `SettingsPatch.editorCursorStyle`'s value set — mirrors
+/// `EditorCursorStyle` (`src/features/editor/code-editor.tsx`), Monaco's `cursorStyle` option. See
+/// [`EditorRenderWhitespace`]'s doc comment for why this is a narrowed enum rather than `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorCursorStyle {
+    #[default]
+    Line,
+    Block,
+    Underline,
+}
+
+/// `Settings.editorCursorBlinking` / `SettingsPatch.editorCursorBlinking`'s value set — mirrors
+/// `EditorCursorBlinkingStyle` (`src/features/editor/code-editor.tsx`), Monaco's `cursorBlinking`
+/// option. See [`EditorRenderWhitespace`]'s doc comment for why this is a narrowed enum rather than
+/// `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorCursorBlinking {
+    #[default]
+    Blink,
+    Smooth,
+    Phase,
+    Expand,
+    Solid,
+}
+
+/// `Settings.terminalCursorStyle` / `SettingsPatch.terminalCursorStyle`'s value set — mirrors
+/// `TerminalCursorStyle` (`src/features/terminal/terminal-view.tsx`), xterm.js's `cursorStyle`
+/// option. See [`EditorRenderWhitespace`]'s doc comment for why this is a narrowed enum rather than
+/// `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalCursorStyle {
+    #[default]
+    Bar,
+    Block,
+    Underline,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -69,24 +126,24 @@ pub struct Settings {
     pub editor_insert_spaces: bool,
     #[serde(default = "default_true")]
     pub editor_detect_indentation: bool,
-    #[serde(default = "default_editor_render_whitespace")]
-    pub editor_render_whitespace: String,
+    #[serde(default)]
+    pub editor_render_whitespace: EditorRenderWhitespace,
     #[serde(default = "default_true")]
     pub editor_bracket_pair_colorization: bool,
     #[serde(default)]
     pub editor_font_ligatures: bool,
-    #[serde(default = "default_editor_cursor_style")]
-    pub editor_cursor_style: String,
-    #[serde(default = "default_editor_cursor_blinking")]
-    pub editor_cursor_blinking: String,
+    #[serde(default)]
+    pub editor_cursor_style: EditorCursorStyle,
+    #[serde(default)]
+    pub editor_cursor_blinking: EditorCursorBlinking,
     #[serde(default = "default_true")]
     pub editor_scroll_beyond_last_line: bool,
     #[serde(default = "default_true")]
     pub editor_sticky_scroll_enabled: bool,
     #[serde(default = "default_terminal_scrollback")]
     pub terminal_scrollback: u32,
-    #[serde(default = "default_terminal_cursor_style")]
-    pub terminal_cursor_style: String,
+    #[serde(default)]
+    pub terminal_cursor_style: TerminalCursorStyle,
     #[serde(default = "default_true")]
     pub terminal_cursor_blink: bool,
     #[serde(default = "default_true")]
@@ -103,8 +160,14 @@ pub struct Settings {
     /// Deserialize shapes diverge, splitting every TS consumer of `Settings` (including ones
     /// unrelated to this field) into `_Serialize`/`_Deserialize`/union type variants. See
     /// `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` §2-2/§3.1.
+    ///
+    /// `Option<AiProviderId>` (not a locally-declared enum) reuses the same type the `ai_*`
+    /// commands already validate `provider` arguments against (`domain::ai::types::AiProviderId`),
+    /// instead of `Option<String>` plus the hand-maintained `AI_PROVIDERS` allow-list `sanitize()`
+    /// used to check it against — see [`EditorRenderWhitespace`]'s doc comment for why an
+    /// out-of-range value is normalized before typed parse rather than accepted here as `None`.
     #[serde(default)]
-    pub ai_provider: Option<String>,
+    pub ai_provider: Option<AiProviderId>,
     /// Renamed from `ai_auto_tab_model` — see [`Settings::ai_provider`]'s doc comment.
     #[serde(default)]
     pub ai_model: Option<String>,
@@ -187,24 +250,8 @@ fn default_editor_tab_size() -> u32 {
     DEFAULT_EDITOR_TAB_SIZE
 }
 
-fn default_editor_render_whitespace() -> String {
-    DEFAULT_EDITOR_RENDER_WHITESPACE.to_string()
-}
-
-fn default_editor_cursor_style() -> String {
-    DEFAULT_EDITOR_CURSOR_STYLE.to_string()
-}
-
-fn default_editor_cursor_blinking() -> String {
-    DEFAULT_EDITOR_CURSOR_BLINKING.to_string()
-}
-
 fn default_terminal_scrollback() -> u32 {
     DEFAULT_TERMINAL_SCROLLBACK
-}
-
-fn default_terminal_cursor_style() -> String {
-    DEFAULT_TERMINAL_CURSOR_STYLE.to_string()
 }
 
 impl Default for Settings {
@@ -236,15 +283,15 @@ impl Default for Settings {
             editor_tab_size: default_editor_tab_size(),
             editor_insert_spaces: default_true(),
             editor_detect_indentation: default_true(),
-            editor_render_whitespace: default_editor_render_whitespace(),
+            editor_render_whitespace: EditorRenderWhitespace::default(),
             editor_bracket_pair_colorization: default_true(),
             editor_font_ligatures: false,
-            editor_cursor_style: default_editor_cursor_style(),
-            editor_cursor_blinking: default_editor_cursor_blinking(),
+            editor_cursor_style: EditorCursorStyle::default(),
+            editor_cursor_blinking: EditorCursorBlinking::default(),
             editor_scroll_beyond_last_line: default_true(),
             editor_sticky_scroll_enabled: default_true(),
             terminal_scrollback: default_terminal_scrollback(),
-            terminal_cursor_style: default_terminal_cursor_style(),
+            terminal_cursor_style: TerminalCursorStyle::default(),
             terminal_cursor_blink: default_true(),
             enable_preview_tabs: default_true(),
             ai_auto_tab_enabled: false,
@@ -267,5 +314,56 @@ impl Default for Settings {
             zen_fullscreen: false,
             zen_hide_status_bar: default_true(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use regex::Regex;
+
+    use super::*;
+
+    /// `R5#3` — the field set `Settings` actually serializes (read off `Default`'s real serde
+    /// output, so a future `#[serde(rename = ...)]` override is honored rather than guessed from
+    /// the Rust identifier) must match the field set the generated TS binding exposes. Every field
+    /// here is `#[serde(default)]`, so a field added to one side and forgotten on the other never
+    /// fails to deserialize — it just silently stops round-tripping. This test is the parity check
+    /// that gap has been missing.
+    ///
+    /// Only the TS side is text-sliced (the Rust side above is real serde output, not source
+    /// parsing): the block between `export type Settings = {` and its first following `};` — safe
+    /// only because `Settings` is a flat field bag with no nested `{ ... }` object-typed field to
+    /// contain an earlier `};` of its own. A future field whose TS type is an inline object literal
+    /// would truncate this slice at that nested closer, silently dropping every field declared after
+    /// it from `ts_fields` (`rust_fields` would then look like it grew fields the TS side lacks, not
+    /// the reverse). See `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` §1 T1-E.
+    #[test]
+    fn settings_필드_집합은_rust와_bindings_ts에서_일치한다() {
+        let serialized = serde_json::to_value(Settings::default()).expect("Settings 직렬화 성공");
+        let rust_fields: BTreeSet<String> = serialized
+            .as_object()
+            .expect("Settings 는 JSON 객체로 직렬화된다")
+            .keys()
+            .cloned()
+            .collect();
+
+        let bindings_source = include_str!("../../../../src/shared/api/bindings.ts");
+        let start = bindings_source
+            .find("export type Settings = {")
+            .expect("bindings.ts 에서 Settings 타입 시작을 찾을 수 없습니다")
+            + "export type Settings = {".len();
+        let end = bindings_source[start..]
+            .find("};")
+            .expect("bindings.ts 에서 Settings 타입 끝을 찾을 수 없습니다");
+        let block = &bindings_source[start..start + end];
+        let pattern = Regex::new(r"(?m)^\s*([a-zA-Z_][a-zA-Z0-9_]*)\??:\s").expect("유효한 정규식");
+        let ts_fields: BTreeSet<String> = pattern.captures_iter(block).map(|capture| capture[1].to_string()).collect();
+
+        assert_eq!(
+            rust_fields, ts_fields,
+            "Rust Settings 필드 집합과 bindings.ts 의 Settings 타입 필드 집합이 다릅니다"
+        );
     }
 }

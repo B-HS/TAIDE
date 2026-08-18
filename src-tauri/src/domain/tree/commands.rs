@@ -15,6 +15,15 @@ impl TreeStore {
     pub fn new() -> Self {
         Self(parking_lot::RwLock::new(HashMap::new()))
     }
+
+    /// Forgets `project_id`'s cached tree — every expanded/collapsed row and directory listing
+    /// scanned so far. Called by `project::commands::project_close` so reopening the same folder
+    /// starts from a fresh scan instead of resurrecting a stale directory listing that may no
+    /// longer match disk (files changed while the project was closed and unwatched), and so the
+    /// entry doesn't sit in this map for the rest of the app's lifetime.
+    pub fn remove(&self, project_id: &ProjectId) {
+        self.0.write().remove(project_id);
+    }
 }
 
 impl Default for TreeStore {
@@ -114,4 +123,35 @@ pub async fn tree_refresh(
     let page = service::full_page(tree);
     *tree_store.0.write() = trees;
     Ok(page)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove는_해당_프로젝트의_캐시된_트리만_지운다() {
+        let store = TreeStore::new();
+        let closing = ProjectId::new();
+        let staying = ProjectId::new();
+        store
+            .0
+            .write()
+            .insert(closing.clone(), service::new_tree_state(PathBuf::from("/tmp/closing-root")));
+        store
+            .0
+            .write()
+            .insert(staying.clone(), service::new_tree_state(PathBuf::from("/tmp/staying-root")));
+
+        store.remove(&closing);
+
+        assert!(
+            !store.0.read().contains_key(&closing),
+            "닫힌 프로젝트의 트리 캐시는 제거되어야 한다"
+        );
+        assert!(
+            store.0.read().contains_key(&staying),
+            "다른 프로젝트의 트리 캐시는 남아 있어야 한다"
+        );
+    }
 }

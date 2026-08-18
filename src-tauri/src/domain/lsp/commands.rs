@@ -27,6 +27,15 @@ const LSP_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 /// waiting (bounded by `LSP_SHUTDOWN_TIMEOUT_MS`) for a language server to exit during shutdown.
 const LSP_SHUTDOWN_POLL_INTERVAL_MS: u64 = 50;
 const LSP_RESTART_BACKOFF_BASE_MS: u64 = 500;
+/// How long a crash-triggered respawn must keep running, with no further crash, before
+/// [`handle_process_exit`] resets `restart_count` back to zero. Without this, `restart_count` only
+/// ever went up (the sole reset was `lsp_restart`'s explicit manual restart) — a language server
+/// that crashed 3 times over the course of a multi-day session, running healthily for hours between
+/// each crash, would hit `RESTART_BACKOFF_LIMIT` on its next unrelated crash and stop auto-restarting
+/// permanently, even though none of those crashes were part of an actual crash loop. 30 seconds of
+/// uninterrupted uptime is long enough to distinguish "recovered" from "still crash-looping" (the
+/// backoff between attempts is already well under this at every `restarts` value up to the limit).
+const LSP_RESTART_HEALTHY_RESET_MS: u64 = 30_000;
 
 struct SessionEntry {
     project_id: ProjectId,
@@ -139,6 +148,28 @@ impl LspInstallStore {
         if store.get(server_id).is_some_and(|existing| Arc::ptr_eq(existing, cancel)) {
             store.remove(server_id);
         }
+    }
+}
+
+/// Guarantees [`LspInstallStore::finish`] runs even when [`lsp_install`]'s awaited
+/// `run_download_install`/`run_toolchain_install` future never returns normally — a panic
+/// unwinding through it, or the command's own task being dropped mid-poll (app exit, or whatever
+/// cancels an in-flight Tauri IPC call) — rather than only on the two ordinary `Ok`/`Err` exits a
+/// plain post-`.await` call to `finish` would cover. Without this, `server_id` stays permanently
+/// wedged as "install in progress" in [`LspInstallStore`]: [`LspInstallStore::begin`] rejects every
+/// later `lsp_install` for it, and the cancel token that would have let [`lsp_install_cancel`] stop
+/// it is unreachable once the future that held it is gone. Mirrors `architecture.md` §6.3's
+/// "Drop 구현 + 명시적 shutdown 경로 이중화" — the explicit call this guard replaces was the single
+/// non-Drop layer; this restores the second one.
+struct LspInstallGuard<'a> {
+    store: &'a LspInstallStore,
+    server_id: &'a LspServerId,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for LspInstallGuard<'_> {
+    fn drop(&mut self) {
+        self.store.finish(self.server_id, &self.cancel);
     }
 }
 
@@ -349,7 +380,7 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
 
         match spawn_process(&restart_app, restart_session_id.clone(), spec, root) {
             Ok(proc) => {
-                *entry.proc.lock() = Some(proc);
+                *entry.proc.lock() = Some(proc.clone());
                 set_status(
                     &restart_app,
                     &restart_session_id,
@@ -357,6 +388,14 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
                     LspSessionStatus::Crashed,
                     Some("서버 프로세스는 재시작됐지만 초기화 핸드셰이크가 다시 이루어지지 않아 정상 동작하지 않습니다. 수동으로 재시작해주세요.".to_string()),
                 );
+
+                let healthy_reset_entry = entry.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(LSP_RESTART_HEALTHY_RESET_MS)).await;
+                    if confirms_healthy_restart(&healthy_reset_entry.proc, &proc) {
+                        healthy_reset_entry.restart_count.store(0, Ordering::SeqCst);
+                    }
+                });
             }
             Err(error) => {
                 set_status(
@@ -369,6 +408,18 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
             }
         }
     });
+}
+
+/// True only when `respawned` is both still alive and still the process installed on `entry_proc` —
+/// the condition [`handle_process_exit`]'s delayed health-check task requires before crediting a
+/// crash-triggered respawn with [`LSP_RESTART_HEALTHY_RESET_MS`] of uninterrupted uptime and zeroing
+/// `restart_count`. Either half failing means this exact respawn's health window doesn't count: a
+/// later crash may have already swapped in a *different* process (`entry_proc` no longer points at
+/// `respawned`), or `respawned` itself may have crashed again before the window elapsed (its own
+/// `is_exited` flip) — crediting either case would silently extend the crash-loop budget instead of
+/// only resetting it for a respawn that actually proved itself healthy.
+fn confirms_healthy_restart(entry_proc: &Mutex<Option<Arc<lsp_proc::LspProcHandle>>>, respawned: &Arc<lsp_proc::LspProcHandle>) -> bool {
+    !respawned.is_exited() && entry_proc.lock().as_ref().is_some_and(|current| Arc::ptr_eq(current, respawned))
 }
 
 /// Polls `proc.is_exited()` at [`LSP_SHUTDOWN_POLL_INTERVAL_MS`] intervals until the process has
@@ -951,18 +1002,20 @@ pub async fn lsp_install(
     let Some(cancel) = install_store.begin(&server_id) else {
         return Err(AppError::InvalidArgument(format!("{server_id} 설치가 이미 진행 중입니다")));
     };
+    let _guard = LspInstallGuard {
+        store: install_store.inner(),
+        server_id: &server_id,
+        cancel: cancel.clone(),
+    };
 
-    let result = match spec.install.strategy {
-        LspInstallStrategy::Download => run_download_install(&app, &state.paths, &spec, cancel.clone()).await,
-        LspInstallStrategy::Toolchain => run_toolchain_install(&app, &spec, cancel.clone()).await,
+    match spec.install.strategy {
+        LspInstallStrategy::Download => run_download_install(&app, &state.paths, &spec, cancel).await,
+        LspInstallStrategy::Toolchain => run_toolchain_install(&app, &spec, cancel).await,
         LspInstallStrategy::SdkDetect => Err(AppError::InvalidArgument(format!(
             "{} 는 SDK 감지 전용이라 자동 설치할 수 없습니다",
             spec.id
         ))),
-    };
-
-    install_store.finish(&server_id, &cancel);
-    result
+    }
 }
 
 #[tauri::command]
@@ -978,6 +1031,48 @@ pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, serve
 mod tests {
     use super::*;
     use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspRootStrategy};
+
+    #[test]
+    fn lspinstallguard는_설치_클로저가_패닉해도_슬롯을_해제한다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let cancel = store.begin(&server_id).expect("첫 install은 슬롯을 얻어야 한다");
+            let _guard = LspInstallGuard {
+                store: &store,
+                server_id: &server_id,
+                cancel,
+            };
+            panic!("설치 도중 패닉");
+        }));
+
+        assert!(panicked.is_err(), "패닉이 실제로 발생해야 이 테스트가 의미가 있다");
+        assert!(
+            store.begin(&server_id).is_some(),
+            "가드가 패닉 언와인딩 중에도 finish를 호출해 슬롯을 해제해야 한다 — 그러지 않으면 이 server_id는 영원히 \"설치 중\"으로 잠긴다"
+        );
+    }
+
+    #[test]
+    fn lspinstallguard는_정상_종료_시에도_슬롯을_해제한다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+
+        {
+            let cancel = store.begin(&server_id).expect("첫 install은 슬롯을 얻어야 한다");
+            let _guard = LspInstallGuard {
+                store: &store,
+                server_id: &server_id,
+                cancel,
+            };
+        }
+
+        assert!(
+            store.begin(&server_id).is_some(),
+            "정상적으로 스코프를 빠져나가도 슬롯은 해제되어야 한다"
+        );
+    }
 
     fn recording_channel(received: Arc<Mutex<Vec<String>>>) -> Channel<String> {
         Channel::new(move |body| {
@@ -1157,5 +1252,59 @@ mod tests {
         assert!(started.elapsed() >= tokio::time::Duration::from_millis(200));
 
         proc.kill();
+    }
+
+    fn sleeping_proc() -> Arc<lsp_proc::LspProcHandle> {
+        let config = lsp_proc::LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 5".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        Arc::new(lsp_proc::spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공"))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirms_healthy_restart는_같은_프로세스가_아직_살아있고_현재_슬롯에_설치되어_있으면_true를_반환한다() {
+        let proc = sleeping_proc();
+        let slot = Mutex::new(Some(proc.clone()));
+
+        assert!(confirms_healthy_restart(&slot, &proc));
+
+        proc.kill();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirms_healthy_restart는_슬롯이_다른_프로세스로_교체됐으면_false를_반환한다() {
+        let respawned = sleeping_proc();
+        let replaced_by_a_later_crash = sleeping_proc();
+        let slot = Mutex::new(Some(replaced_by_a_later_crash.clone()));
+
+        assert!(
+            !confirms_healthy_restart(&slot, &respawned),
+            "슬롯이 이미 다른(더 최근) respawn으로 교체됐다면 이 respawn의 건강 판정을 내리면 안 된다"
+        );
+
+        respawned.kill();
+        replaced_by_a_later_crash.kill();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirms_healthy_restart는_프로세스가_이미_종료됐으면_false를_반환한다() {
+        let proc = sleeping_proc();
+        let slot = Mutex::new(Some(proc.clone()));
+        proc.kill();
+
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        while !proc.is_exited() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+
+        assert!(
+            !confirms_healthy_restart(&slot, &proc),
+            "건강 판정 창이 끝나기 전에 다시 죽었다면 restart_count를 리셋하면 안 된다"
+        );
     }
 }

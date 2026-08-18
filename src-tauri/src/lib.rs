@@ -772,12 +772,149 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use regex::Regex;
+
     use super::*;
+
+    /// Slices `source` to the text strictly between the first `start_marker` and the first
+    /// `end_marker` that follows it — used to pull a single macro invocation's argument list (or a
+    /// generated binding's object literal) out of a whole source file for parity tests below.
+    fn extract_between<'a>(source: &'a str, start_marker: &str, end_marker: &str) -> &'a str {
+        let start = source
+            .find(start_marker)
+            .unwrap_or_else(|| panic!("시작 마커를 찾을 수 없습니다: {start_marker}"))
+            + start_marker.len();
+        let end = source[start..]
+            .find(end_marker)
+            .unwrap_or_else(|| panic!("종료 마커를 찾을 수 없습니다: {end_marker}"));
+        &source[start..start + end]
+    }
+
+    fn identifier_set(block: &str) -> BTreeSet<String> {
+        block
+            .split(',')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Reads `events.rs`'s own source and pairs every `Event`-derived struct's Rust type name with
+    /// the `event_name` string declared right above it via `#[tauri_specta(event_name = "...")]` —
+    /// the single point both the type-identifier-based comparisons (`collect_events!`,
+    /// `fanout_remote_events!`) and the wire-name-based comparison (`bindings.ts`) below derive from.
+    ///
+    /// Coupled to `events.rs`'s exact formatting: the pattern requires `#[tauri_specta(event_name =
+    /// "...")]` to be the attribute immediately preceding `pub struct Name` (only whitespace between
+    /// them — no intervening `#[derive(...)]`/`#[serde(...)]` line). Every struct in `events.rs`
+    /// currently declares `tauri_specta` last, right above `pub struct`, so this holds today; a
+    /// struct that reordered its attributes would silently vanish from this map (the parity tests
+    /// below would then fail loudly on a shrunk `declared` set, not pass with a wrong pairing) rather
+    /// than the regex adapting to it. See
+    /// `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` §1 T1-E.
+    fn event_name_by_type() -> BTreeMap<String, String> {
+        let pattern =
+            Regex::new(r#"#\[tauri_specta\(event_name = "([^"]+)"\)\]\s*pub struct ([A-Za-z][A-Za-z0-9]*)"#).expect("유효한 정규식");
+        pattern
+            .captures_iter(include_str!("events.rs"))
+            .map(|capture| (capture[2].to_string(), capture[1].to_string()))
+            .collect()
+    }
 
     #[test]
     fn typescript_바인딩을_생성한다() {
         specta_builder()
             .export(specta_typescript::Typescript::default(), BINDINGS_PATH)
             .expect("failed to export typescript bindings");
+    }
+
+    /// `X1#9` — pins the command-name parity baseline to what `collect_commands!` produces *right
+    /// now* (exported to a throwaway temp file, never touching the committed `bindings.ts`), instead
+    /// of trusting the checked-in `bindings.ts` to already be current. Without this, a `dispatch.rs`
+    /// change that forgets to regenerate bindings could pass by comparing two equally-stale sources.
+    #[test]
+    fn collect_commands_매크로_출력과_dispatch_테이블은_커맨드_이름_집합이_일치한다() {
+        let temp_path = std::env::temp_dir().join(format!("taide-bindings-baseline-{}.ts", uuid::Uuid::new_v4()));
+        specta_builder()
+            .export(specta_typescript::Typescript::default(), &temp_path)
+            .expect("failed to export typescript bindings for baseline parity test");
+        let generated = std::fs::read_to_string(&temp_path).expect("생성된 바인딩을 읽지 못했습니다");
+        let _ = std::fs::remove_file(&temp_path);
+
+        let pattern = Regex::new(r#"__TAURI_INVOKE\(\s*"([a-zA-Z0-9_]+)""#).expect("유효한 정규식");
+        let mut generated_names: BTreeSet<String> = pattern.captures_iter(&generated).map(|capture| capture[1].to_string()).collect();
+        generated_names.extend(RAW_CHANNEL_COMMANDS.iter().map(|name| name.to_string()));
+
+        let implemented_names: BTreeSet<String> = domain::remote::dispatch::IMPLEMENTED_JSON_COMMANDS
+            .iter()
+            .chain(RAW_CHANNEL_COMMANDS.iter())
+            .map(|name| name.to_string())
+            .collect();
+
+        assert_eq!(
+            generated_names, implemented_names,
+            "collect_commands! 매크로가 지금 이 순간 생성하는 바인딩과 dispatch 커맨드 테이블이 어긋났습니다 — 커밋된 bindings.ts 가 낡아 있어도 이 테스트는 잡습니다"
+        );
+    }
+
+    /// `X1#8` — the event types registered on the Tauri IPC layer (`collect_events!`, `lib.rs`) must
+    /// be exactly the `Event`-derived structs declared in `events.rs`. Catches a struct added to one
+    /// list and forgotten in the other.
+    #[test]
+    fn 이벤트_타입_목록은_events_rs와_collect_events_매크로에서_일치한다() {
+        let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
+        assert_eq!(declared.len(), 25, "events.rs 에 선언된 이벤트 구조체 수가 25종에서 벗어났습니다");
+
+        let collected = identifier_set(extract_between(include_str!("lib.rs"), "collect_events![", "]"));
+
+        assert_eq!(
+            declared, collected,
+            "events.rs 의 이벤트 구조체 집합과 lib.rs 의 collect_events! 인자 집합이 다릅니다"
+        );
+    }
+
+    /// `X1#8` — `fanout_remote_events!` (`lib.rs`) deliberately omits two events from the
+    /// remote-session broadcast: `HotExitFlushRequested`(데스크톱 창 종료 신호라 원격 세션에는
+    /// 무의미) and `AgentExternalOpen`(T0 #14 — 원격 세션이 대기 중인 외부 열기 요청을 실시간으로
+    /// 가로채면 안 된다. `domain/remote/dispatch.rs` 의 `deny_remote_agent_pending_external_opens`
+    /// doc comment 참조). This test names that exception list explicitly so any *other* divergence
+    /// from `collect_events!`'s set — the failure mode the exception list used to hide behind a
+    /// plain code comment — fails loudly instead.
+    #[test]
+    fn fanout_remote_events_매크로는_events_rs에서_의도된_예외를_제외한_집합과_일치한다() {
+        const INTENTIONALLY_EXCLUDED_FROM_REMOTE_FANOUT: &[&str] = &["HotExitFlushRequested", "AgentExternalOpen"];
+
+        let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
+        let fanned_out = identifier_set(extract_between(include_str!("lib.rs"), "fanout_remote_events!(", ")"));
+        let excluded: BTreeSet<String> = INTENTIONALLY_EXCLUDED_FROM_REMOTE_FANOUT
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        let expected: BTreeSet<String> = declared.difference(&excluded).cloned().collect();
+
+        assert_eq!(
+            fanned_out, expected,
+            "fanout_remote_events! 가 의도된 예외 목록 밖의 이벤트를 빠뜨렸거나, 예외로 처리해야 할 이벤트를 원격으로 방송하고 있습니다"
+        );
+    }
+
+    /// `X1#8` — the `event:name` wire strings the frontend subscribes to
+    /// (`src/shared/api/bindings.ts`'s generated `events` export) must be exactly the `event_name`s
+    /// declared on the Rust side.
+    #[test]
+    fn 이벤트_이름_문자열은_events_rs와_bindings_ts에서_일치한다() {
+        let declared: BTreeSet<String> = event_name_by_type().into_values().collect();
+
+        let bindings_source = include_str!("../../src/shared/api/bindings.ts");
+        let events_block = extract_between(bindings_source, "export const events = {", "};");
+        let pattern = Regex::new(r#"makeEvent<[A-Za-z0-9_]+>\("([a-zA-Z0-9:_-]+)"\)"#).expect("유효한 정규식");
+        let bound: BTreeSet<String> = pattern.captures_iter(events_block).map(|capture| capture[1].to_string()).collect();
+
+        assert_eq!(
+            declared, bound,
+            "events.rs 의 event_name 집합과 bindings.ts 의 events export 집합이 다릅니다"
+        );
     }
 }

@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace } from '@shared/api/bindings'
 import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
 import { attachAiInlineEditAction } from '@features/editor/ai-inline-edit'
@@ -10,9 +11,8 @@ import { getOrCreateModel, restoreViewState, saveViewState } from '@entities/edi
 
 const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiRequest }
 
-export type EditorCursorStyle = 'line' | 'block' | 'underline'
-export type EditorCursorBlinkingStyle = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid'
-export type EditorRenderWhitespace = 'none' | 'boundary' | 'selection' | 'all'
+export type { EditorCursorStyle, EditorRenderWhitespace }
+export type EditorCursorBlinkingStyle = EditorCursorBlinking
 
 export type CodeEditorProps = {
     path: string

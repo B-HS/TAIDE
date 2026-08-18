@@ -159,7 +159,7 @@ pub async fn ai_inline_edit(
         let (provider, model) = service::resolve_provider_and_model(
             request.provider,
             request.model.clone(),
-            settings.ai_provider.clone(),
+            settings.ai_provider,
             settings.ai_model.clone(),
         )?;
         (provider, model, settings.ai_omlx_base_url.clone())
@@ -206,7 +206,7 @@ pub async fn ai_commit_message(
         let (provider, model) = service::resolve_provider_and_model(
             request.provider,
             request.model.clone(),
-            settings.ai_provider.clone(),
+            settings.ai_provider,
             settings.ai_model.clone(),
         )?;
         (provider, model, settings.ai_omlx_base_url.clone())

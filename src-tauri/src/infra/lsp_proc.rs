@@ -39,8 +39,46 @@ impl LspProcHandle {
         Ok(())
     }
 
+    /// Kills the language server process **synchronously**, mirroring `infra::pty::PtySession::kill`
+    /// (`self.killer.lock().kill()`, no `.await`). Setting `kill_requested` alone used to be the
+    /// entire implementation — the actual OS-level kill only happened later, inside [`spawn`]'s
+    /// background wait-loop task, the next time its up-to-50ms poll noticed the flag. That
+    /// asynchronous handoff is fine for the normal `lsp_stop`/`lsp_restart` shutdown path (which
+    /// awaits `wait_for_process_exit` afterward), but at app exit `domain::lsp::commands::LspStore::
+    /// kill_all` calls this synchronously from the `RunEvent::Exit` handler and the process then
+    /// terminates via `std::process::exit` immediately after — which drops the tokio runtime without
+    /// running its pending tasks, so the wait-loop task backing this handle's kill might never get
+    /// scheduled at all, leaving the language server orphaned. Killing by PID here through `sysinfo`
+    /// (already a workspace dependency — see `domain::ide::lockfile::is_pid_alive` for the same
+    /// refresh-then-lookup idiom) closes that window: the OS-level kill happens on this call's own
+    /// stack, before `kill_all`'s caller ever returns. `kill_requested` is still set so the wait loop
+    /// (which usually *does* get to run, on the ordinary `lsp_stop`/`lsp_restart` paths) skips
+    /// redundantly calling `child.start_kill()` itself once it next polls.
+    ///
+    /// Guarded by [`is_exited`](Self::is_exited): once the wait loop has observed this process exit,
+    /// the OS has already reaped it and is free to hand this same numeric `pid` to an unrelated
+    /// process. A handle can reach this state long before `kill()` is ever called on it — e.g. a
+    /// crash-looped session `domain::lsp::commands::handle_process_exit` gives up on (leaving a
+    /// reaped, never-cleared `entry.proc`) then sits in `LspStore` for the rest of a long-running
+    /// session until app exit's `kill_all` sweeps every entry. Without this guard, that sweep would
+    /// blindly `sysinfo`-kill whatever process the OS had since reassigned that `pid` to — silent
+    /// collateral damage with no relation to this language server. A still-running process can never
+    /// have `exited == true` (only this handle's own wait loop, which requires `try_wait`/`wait` to
+    /// have first observed real process death, sets it), so live servers are still killed exactly as
+    /// before.
     pub fn kill(&self) {
         self.kill_requested.store(true, Ordering::SeqCst);
+
+        if self.exited.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let Some(pid) = self.pid else {
+            return;
+        };
+        if let Some(process) = refreshed_process_snapshot(pid).process(sysinfo::Pid::from_u32(pid)) {
+            process.kill();
+        }
     }
 
     /// PID of the spawned language server process, for system-usage attribution
@@ -55,6 +93,21 @@ impl LspProcHandle {
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::SeqCst)
     }
+}
+
+/// Refreshes a single process's `sysinfo` snapshot in isolation, so callers can look `pid` up on
+/// the returned `System` right afterward. Shared by [`LspProcHandle::kill`] (to find the process to
+/// kill) and this module's tests (to confirm it's actually gone) — mirrors
+/// `domain::ide::lockfile::is_pid_alive`'s refresh-then-lookup idiom, kept local here rather than
+/// imported since that function lives in a `domain` module `infra` must not depend on.
+fn refreshed_process_snapshot(pid: u32) -> sysinfo::System {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+        true,
+        sysinfo::ProcessRefreshKind::nothing(),
+    );
+    system
 }
 
 pub fn encode_message(payload: &str) -> Vec<u8> {
@@ -272,5 +325,91 @@ mod tests {
 
         assert!(!handle.is_exited(), "아직 실행 중인 프로세스는 종료로 감지되면 안 된다");
         handle.kill();
+    }
+
+    /// Proves `kill()` sends the OS-level kill on its own call stack rather than only flipping
+    /// `kill_requested` and relying on `spawn`'s background wait-loop task (up to 50ms polling) to
+    /// notice it later. There is no `.await` between `spawn` and the assertion below, so — on the
+    /// single-threaded test runtime `#[tokio::test]` defaults to — that background task has had zero
+    /// opportunity to run by the time `kill()` returns: nothing here has yielded to the scheduler.
+    /// Under the old "set a flag and hope the poll loop gets to it" implementation the process would
+    /// therefore still be observed `Run`/`Sleep`; under this fix it must already be signaled (at
+    /// minimum `Zombie`, pending this same background task's own `wait()` reaping it) purely from
+    /// `kill()`'s own synchronous `sysinfo` call.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kill은_os_시그널을_보내_프로세스를_종료시킨다() {
+        let config = LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 5".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let pid = handle.pid().expect("pid 확보");
+
+        handle.kill();
+
+        const KILL_OBSERVE_TIMEOUT_MS: u64 = 2_000;
+        const KILL_OBSERVE_POLL_MS: u64 = 20;
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(KILL_OBSERVE_TIMEOUT_MS);
+        let mut still_running = true;
+        while tokio::time::Instant::now() < deadline {
+            still_running = refreshed_process_snapshot(pid)
+                .process(sysinfo::Pid::from_u32(pid))
+                .is_some_and(|process| matches!(process.status(), sysinfo::ProcessStatus::Run | sysinfo::ProcessStatus::Sleep));
+            if !still_running {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(KILL_OBSERVE_POLL_MS)).await;
+        }
+
+        assert!(
+            !still_running,
+            "kill() 이 OS 시그널을 보내 프로세스를 종료시켜야 한다 (시그널을 안 보내면 sleep 5 가 이 관찰 창을 넘겨 살아남는다)"
+        );
+    }
+
+    /// Reproduces the PID-reuse hazard directly: a handle whose `exited` flag is already `true`
+    /// (as if the wait loop had long since reaped it — the state a crash-abandoned or already
+    /// shut-down session sits in indefinitely inside `LspStore`) must not touch the OS process
+    /// currently living at its stale `pid`, even though that PID number resolves to a real,
+    /// unrelated, still-running process (`victim` below stands in for whatever process the OS
+    /// reassigned the freed PID to). Constructs `LspProcHandle` directly (private-field struct
+    /// literal, valid because this `tests` module is a descendant of the defining module) instead
+    /// of going through [`spawn`], since the whole point is a handle whose `pid` and `exited` are
+    /// inconsistent with each other in exactly the way a real reap-then-reuse race produces.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 이미_종료로_표시된_핸들의_kill은_같은_pid를_점유한_무관한_프로세스를_건드리지_않는다() {
+        let mut victim = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 5")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("victim 프로세스 spawn 성공");
+        let victim_pid = victim.id().expect("victim pid 확보");
+        let victim_stdin = victim.stdin.take().expect("victim stdin 확보");
+
+        let stale_handle = LspProcHandle {
+            stdin: tokio::sync::Mutex::new(victim_stdin),
+            kill_requested: Arc::new(AtomicBool::new(false)),
+            exited: Arc::new(AtomicBool::new(true)),
+            pid: Some(victim_pid),
+        };
+
+        stale_handle.kill();
+
+        let victim_still_running = refreshed_process_snapshot(victim_pid)
+            .process(sysinfo::Pid::from_u32(victim_pid))
+            .is_some_and(|process| matches!(process.status(), sysinfo::ProcessStatus::Run | sysinfo::ProcessStatus::Sleep));
+        assert!(
+            victim_still_running,
+            "exited==true 인 핸들의 kill()은 재사용된 pid의 무관한 프로세스를 죽이면 안 된다"
+        );
+
+        let _ = victim.start_kill();
+        let _ = victim.wait().await;
     }
 }

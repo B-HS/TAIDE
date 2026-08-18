@@ -174,29 +174,24 @@ pub async fn complete(
     }
 }
 
-fn parse_provider_id(raw: &str) -> Option<AiProviderId> {
-    serde_json::from_value(serde_json::Value::String(raw.to_string())).ok()
-}
-
 /// Resolves the provider/model an `ai_inline_edit`/`ai_commit_message` request should run
 /// against: the request's own `provider`/`model` win when the caller supplied them, otherwise the
 /// app's configured `Settings.ai_provider`/`ai_model` (the same fields auto-tab reads) act as the
 /// default — so most call sites don't need to resolve "the configured AI provider" themselves,
 /// only override it for a one-off request. Errors when neither the request nor settings name a
-/// usable provider/model, rather than silently guessing one.
+/// usable provider/model, rather than silently guessing one. `default_provider` is
+/// `Option<AiProviderId>` (not `Option<String>`) since `Settings.ai_provider` was narrowed to that
+/// same enum (T1-B) — the string-parsing/"unknown AI provider" fallback this used to need is gone
+/// with it, since an invalid value can no longer reach here as a typed `Settings`.
 pub fn resolve_provider_and_model(
     request_provider: Option<AiProviderId>,
     request_model: Option<String>,
-    default_provider: Option<String>,
+    default_provider: Option<AiProviderId>,
     default_model: Option<String>,
 ) -> AppResult<(AiProviderId, String)> {
-    let provider = match request_provider {
-        Some(provider) => provider,
-        None => {
-            let raw = default_provider.ok_or_else(|| AppError::InvalidArgument("AI provider is not configured".to_string()))?;
-            parse_provider_id(&raw).ok_or_else(|| AppError::InvalidArgument(format!("unknown AI provider: {raw}")))?
-        }
-    };
+    let provider = request_provider
+        .or(default_provider)
+        .ok_or_else(|| AppError::InvalidArgument("AI provider is not configured".to_string()))?;
     let model = request_model
         .or(default_model)
         .ok_or_else(|| AppError::InvalidArgument("AI model is not configured".to_string()))?;
@@ -394,7 +389,7 @@ mod tests {
         let (provider, model) = resolve_provider_and_model(
             Some(AiProviderId::Codex),
             Some("gpt-5.6-sol".to_string()),
-            Some("ollamaCloud".to_string()),
+            Some(AiProviderId::OllamaCloud),
             Some("qwen2.5-coder".to_string()),
         )
         .unwrap();
@@ -406,7 +401,7 @@ mod tests {
     #[test]
     fn 요청에_provider_모델이_없으면_설정값으로_폴백한다() {
         let (provider, model) =
-            resolve_provider_and_model(None, None, Some("omlx".to_string()), Some("qwen2.5-coder".to_string())).unwrap();
+            resolve_provider_and_model(None, None, Some(AiProviderId::Omlx), Some("qwen2.5-coder".to_string())).unwrap();
 
         assert_eq!(provider, AiProviderId::Omlx);
         assert_eq!(model, "qwen2.5-coder");
@@ -421,12 +416,6 @@ mod tests {
     #[test]
     fn 모델이_요청과_설정_양쪽에_없으면_에러를_반환한다() {
         let result = resolve_provider_and_model(Some(AiProviderId::Codex), None, None, None);
-        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
-    }
-
-    #[test]
-    fn 설정의_provider_문자열이_알수없는_값이면_에러를_반환한다() {
-        let result = resolve_provider_and_model(None, Some("gpt-5.6-sol".to_string()), Some("anthropic".to_string()), None);
         assert!(matches!(result, Err(AppError::InvalidArgument(_))));
     }
 }

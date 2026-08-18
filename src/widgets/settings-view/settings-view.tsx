@@ -40,6 +40,7 @@ import { RemoteSection } from '@features/settings/remote-section'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
+import { DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
@@ -68,9 +69,6 @@ import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 const SETTINGS_SCROLL_OFFSET_PX = 32
 
-const MIN_FONT_SIZE = 8
-const MAX_FONT_SIZE = 32
-const DEFAULT_FONT_SIZE = 13
 const MIN_AUTO_SAVE_DELAY_MS = 0
 const MAX_AUTO_SAVE_DELAY_MS = 60_000
 const DEFAULT_AUTO_SAVE_DELAY_MS = 0
@@ -116,17 +114,17 @@ const TERMINAL_CURSOR_STYLE_OPTIONS = [
 /** Default for `Settings.aiProvider` — shared by auto-tab, Inline Edit, and AI commit messages (not auto-tab-only, despite the field's Wave G predecessor name). */
 const DEFAULT_AI_PROVIDER: AiProviderId = 'ollamaCloud'
 
-const AI_PROVIDER_OPTIONS: { id: AiProviderId; labelKey: string }[] = [
+const AI_PROVIDER_OPTIONS = [
     { id: 'ollamaCloud', labelKey: 'settings.aiProviderOllamaCloud' },
     { id: 'codex', labelKey: 'settings.aiProviderCodex' },
     { id: 'omlx', labelKey: 'settings.aiProviderOmlx' },
-]
+] as const
 
-const PROMPT_ROWS: { id: PromptTemplateId; labelKey: string }[] = [
+const PROMPT_ROWS = [
     { id: 'auto-tab-default', labelKey: 'prompts.autoTabTitle' },
     { id: 'inline-edit-default', labelKey: 'prompts.inlineEditTitle' },
     { id: 'commit-message-default', labelKey: 'prompts.commitMessageTitle' },
-]
+] as const
 
 type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
 
@@ -211,7 +209,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     const queryClient = useQueryClient()
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
 
-    const selectedAiProvider = (settings?.aiProvider ?? DEFAULT_AI_PROVIDER) as AiProviderId
+    const selectedAiProvider = settings?.aiProvider ?? DEFAULT_AI_PROVIDER
     const isSelectedAiProviderConfigured = aiTokenStatus?.[selectedAiProvider] ?? false
     const {
         data: aiModels = [],
@@ -458,7 +456,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                             <label className='flex items-center justify-between gap-3 text-xs'>
                                 <span className='text-app-foreground'>{t('settings.agentStatusBadge')}</span>
                                 <Switch
-                                    checked={settings.agentStatusBadgeEnabled ?? false}
+                                    checked={settings.agentStatusBadgeEnabled ?? true}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentStatusBadgeEnabled: checked })}
                                 />
                             </label>
@@ -485,7 +483,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                             <label className='flex items-center justify-between gap-3 text-xs'>
                                 <span className='text-app-foreground'>{t('settings.ideAutoOpenDiff')}</span>
                                 <Switch
-                                    checked={settings.ideAutoOpenDiff ?? false}
+                                    checked={settings.ideAutoOpenDiff ?? true}
                                     onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideAutoOpenDiff: checked })}
                                 />
                             </label>
@@ -524,9 +522,9 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                         <SettingsSection id={SETTINGS_SECTION_ID.EDITOR} title={t('settings.editor')}>
                             <NumericField
                                 label={t('settings.editorFontSize')}
-                                value={settings.editorFontSize ?? DEFAULT_FONT_SIZE}
-                                min={MIN_FONT_SIZE}
-                                max={MAX_FONT_SIZE}
+                                value={settings.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
+                                min={MIN_CODE_FONT_SIZE}
+                                max={MAX_CODE_FONT_SIZE}
                                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), editorFontSize: value })}
                             />
                             {isFontsPending ? (
@@ -732,9 +730,9 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                         <SettingsSection id={SETTINGS_SECTION_ID.TERMINAL} title={t('settings.terminal')}>
                             <NumericField
                                 label={t('settings.terminalFontSize')}
-                                value={settings.terminalFontSize ?? DEFAULT_FONT_SIZE}
-                                min={MIN_FONT_SIZE}
-                                max={MAX_FONT_SIZE}
+                                value={settings.terminalFontSize ?? DEFAULT_CODE_FONT_SIZE}
+                                min={MIN_CODE_FONT_SIZE}
+                                max={MAX_CODE_FONT_SIZE}
                                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), terminalFontSize: value })}
                             />
                             {isFontsPending ? (

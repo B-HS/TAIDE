@@ -520,6 +520,51 @@ fn deny_remote_lsp_install(name: &str) -> Value {
     )))
 }
 
+/// Every command name [`dispatch`] refuses unconditionally (the denial depends only on `name`, never
+/// on `args` or app state — `agent_hooks_install`'s scope-conditional denial via
+/// [`is_remote_denied_hook_install_scope`] is the one exception and stays a `match` arm of its own).
+/// [`dispatch`] consults this table *before* its command `match` even runs, so this table's contents
+/// — not a second, hand-written copy of the same name-to-handler mapping inside the `match` — are the
+/// actual routing decision a remote request goes through. [`remote_denied_response`] below is what
+/// both `dispatch` and this module's own tests call, so a test asserting "`remote_issue_link` is
+/// denied" is asserting exactly the function `dispatch` runs for that name, not a same-shaped
+/// stand-in that could silently drift from it — see `docs/acknowledge/2026-08-18-audit-t1-batch1-
+/// contract.md` §1 T1-E.
+type RemoteDeniedCommandEntry = (&'static str, fn(&str) -> Value);
+
+const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
+    ("layout_move_tab_to_window", deny_remote_move_tab_to_window),
+    ("file_flush_complete", deny_remote_flush_complete),
+    ("plugin_install", deny_remote_plugin_install),
+    ("plugin_uninstall", deny_remote_plugin_install),
+    ("agent_cli_install", deny_remote_agent_cli),
+    ("agent_cli_uninstall", deny_remote_agent_cli),
+    ("agent_pending_external_opens", deny_remote_agent_pending_external_opens),
+    ("lsp_install", deny_remote_lsp_install),
+    ("system_open_path", deny_remote_system_open),
+    ("system_reveal_path", deny_remote_system_open),
+    ("system_open_in_browser", deny_remote_system_open),
+    ("system_open_app_data_path", deny_remote_system_open),
+    ("system_open_external_url", deny_remote_open_external_url),
+    ("vsix_extract_themes", deny_remote_vsix_extract_themes),
+    ("vsix_import_plugin", deny_remote_vsix_import),
+    ("remote_issue_link", deny_remote_link_issue),
+    ("remote_set_password", deny_remote_password_change),
+    ("remote_clear_password", deny_remote_password_change),
+    ("window_open_auxiliary", deny_remote_window_open),
+    ("window_set_fullscreen", deny_remote_window_fullscreen),
+];
+
+/// Looks `name` up in [`REMOTE_DENIED_COMMANDS`], returning the denial [`dispatch`] must answer with
+/// for an unconditionally-denied remote command, or `None` when `name` isn't one (either a real
+/// handler exists for it, or it's unknown — `dispatch`'s own `match` decides which).
+fn remote_denied_response(name: &str) -> Option<Value> {
+    REMOTE_DENIED_COMMANDS
+        .iter()
+        .find(|(denied_name, _)| *denied_name == name)
+        .map(|(_, deny)| deny(name))
+}
+
 macro_rules! arg {
     ($args:expr, $key:literal) => {
         from_arg(&$args, $key)?
@@ -527,6 +572,10 @@ macro_rules! arg {
 }
 
 pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory: ChannelFactory) -> Result<String, Value> {
+    if let Some(denial) = remote_denied_response(name) {
+        return Err(denial);
+    }
+
     use domain::agent::commands as agent;
     use domain::ai::commands as ai;
     use domain::file::commands as file;
@@ -571,7 +620,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "project_get" => respond(project::project_get(app.state(), arg!(args, "projectId")).await),
         "project_get_active" => respond(project::project_get_active(app.state()).await),
         "project_open" => respond(project::project_open(app.clone(), app.state(), arg!(args, "path")).await),
-        "project_close" => respond(project::project_close(app.clone(), app.state(), arg!(args, "projectId")).await),
+        "project_close" => {
+            respond(project::project_close(app.clone(), app.state(), app.state(), app.state(), arg!(args, "projectId")).await)
+        }
         "project_activate" => respond(project::project_activate(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_reorder" => respond(project::project_reorder(app.clone(), app.state(), arg!(args, "ids")).await),
 
@@ -630,7 +681,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "layout_convert_untitled" => {
             respond(layout::layout_convert_untitled(app.clone(), app.state(), arg!(args, "tabId"), arg!(args, "path")).await)
         }
-        "layout_move_tab_to_window" => Err(deny_remote_move_tab_to_window(name)),
         "layout_set_shell_view" => {
             respond(layout::layout_set_shell_view(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
         }
@@ -657,8 +707,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "file_prune_untitled_mirrors" => {
             respond(file::file_prune_untitled_mirrors(app.state(), arg!(args, "projectId"), arg!(args, "keepTabIds")).await)
         }
-        "file_flush_complete" => Err(deny_remote_flush_complete(name)),
-
         "tree_rows" => respond(
             tree::tree_rows(
                 app.state(),
@@ -702,8 +750,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "plugin_read_grammar" => {
             respond(plugin::plugin_read_grammar(app.state(), app.state(), arg!(args, "pluginId"), arg!(args, "languageId")).await)
         }
-        "plugin_install" | "plugin_uninstall" => Err(deny_remote_plugin_install(name)),
-
         "agent_list" => respond(agent::agent_list(app.state(), app.state(), app.state(), app.state(), arg!(args, "projectId")).await),
         "agent_release_marker" => respond(agent::agent_release_marker(app.state(), app.state(), arg!(args, "marker")).await),
         "agent_cli_status" => respond(agent::agent_cli_status().await),
@@ -720,9 +766,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "agent_hooks_uninstall" => {
             respond(agent::agent_hooks_uninstall(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
         }
-        "agent_cli_install" | "agent_cli_uninstall" => Err(deny_remote_agent_cli(name)),
-        "agent_pending_external_opens" => Err(deny_remote_agent_pending_external_opens(name)),
-
         "lsp_spawn" => respond(
             lsp::lsp_spawn(
                 app.clone(),
@@ -749,7 +792,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "lsp_sessions" => respond(lsp::lsp_sessions(app.state(), arg!(args, "projectId")).await),
         "lsp_detect_servers" => respond(lsp::lsp_detect_servers(app.state()).await),
         "lsp_resolve_root" => respond(lsp::lsp_resolve_root(arg!(args, "serverId"), arg!(args, "filePath")).await),
-        "lsp_install" => Err(deny_remote_lsp_install(name)),
         "lsp_install_cancel" => respond(lsp::lsp_install_cancel(app.state(), arg!(args, "serverId")).await),
 
         "git_init" => respond(git::git_init(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
@@ -1041,12 +1083,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "system_usage_breakdown" => {
             respond(system::system_usage_breakdown(app.state(), app.state(), app.state(), app.state(), app.state()).await)
         }
-        "system_open_path" => Err(deny_remote_system_open(name)),
-        "system_reveal_path" => Err(deny_remote_system_open(name)),
-        "system_open_in_browser" => Err(deny_remote_system_open(name)),
-        "system_open_app_data_path" => Err(deny_remote_system_open(name)),
-        "system_open_external_url" => Err(deny_remote_open_external_url(name)),
-
         "ide_get_status" => respond(ide::ide_get_status(app.state()).await),
         "ide_start" => respond(ide::ide_start(app.clone(), app.state(), app.state()).await),
         "ide_stop" => respond(ide::ide_stop(app.clone(), app.state()).await),
@@ -1083,18 +1119,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state()).await),
         "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), arg!(args, "force")).await),
 
-        "vsix_extract_themes" => Err(deny_remote_vsix_extract_themes(name)),
-        "vsix_import_plugin" => Err(deny_remote_vsix_import(name)),
-
         "remote_status" => respond(remote::remote_status(app.state()).await),
         "remote_start" => respond(remote::remote_start(app.clone(), app.state()).await),
         "remote_stop" => respond(remote::remote_stop(app.clone(), app.state()).await),
-        "remote_issue_link" => Err(deny_remote_link_issue(name)),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),
-        "remote_set_password" | "remote_clear_password" => Err(deny_remote_password_change(name)),
-
-        "window_open_auxiliary" => Err(deny_remote_window_open(name)),
-        "window_set_fullscreen" => Err(deny_remote_window_fullscreen(name)),
 
         _ => Err(unknown_command(name)),
     }
@@ -1284,6 +1312,44 @@ mod tests {
     fn 원격_세션은_lsp_서버를_설치할_수_없다() {
         let value = deny_remote_lsp_install("lsp_install");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
+    }
+
+    /// `dispatch()` never runs its own `match` for these names — [`remote_denied_response`] answers
+    /// them first (see its call at the top of [`dispatch`]) — so calling it directly here exercises
+    /// exactly the routing decision a real remote request goes through, not a same-shaped mirror of
+    /// it. A regression that dropped a name from [`REMOTE_DENIED_COMMANDS`] (accidentally re-opening
+    /// that command to remote callers) fails this test with `None` where `Some(Forbidden)` is expected.
+    #[test]
+    fn dispatch_가_참조하는_거부_테이블의_모든_커맨드는_forbidden_을_반환한다() {
+        for (name, _) in REMOTE_DENIED_COMMANDS {
+            let denial = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부 응답을 반환해야 한다"));
+            assert_eq!(
+                denial["code"],
+                serde_json::json!("Forbidden"),
+                "{name} 의 거부 응답 코드가 Forbidden 이어야 한다"
+            );
+        }
+    }
+
+    /// A command with a real handler (never in [`REMOTE_DENIED_COMMANDS`]) must fall through
+    /// [`remote_denied_response`] untouched so `dispatch`'s `match` can route it normally.
+    #[test]
+    fn 거부_테이블에_없는_실핸들러_커맨드는_거부되지_않는다() {
+        assert_eq!(remote_denied_response("project_list"), None);
+    }
+
+    /// Every unconditionally-denied command must still be a recognized command name (listed in
+    /// [`IMPLEMENTED_JSON_COMMANDS`]) — otherwise `bindings와_dispatch_테이블은_커맨드_이름_집합이_
+    /// 일치한다` would already catch it, but this pins the two tables' relationship explicitly rather
+    /// than relying on that other test's failure message to explain why.
+    #[test]
+    fn 거부_테이블의_모든_커맨드는_구현된_커맨드_목록에도_있다() {
+        for (name, _) in REMOTE_DENIED_COMMANDS {
+            assert!(
+                IMPLEMENTED_JSON_COMMANDS.contains(name),
+                "{name} 이 거부 테이블에는 있지만 IMPLEMENTED_JSON_COMMANDS 에는 없다"
+            );
+        }
     }
 
     #[test]

@@ -23,6 +23,15 @@ impl GitStore {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Forgets `project_id`'s cached repo root, called by `project::commands::project_close` so a
+    /// project reopened at the same path resolves its repo root fresh instead of reusing a cache
+    /// entry keyed by a `ProjectId` that no session will ever look up again — see `resolve_repo_root`,
+    /// which otherwise happily serves that stale entry forever (the map is never pruned by size or
+    /// age, only by this explicit removal).
+    pub fn remove(&self, project_id: &ProjectId) {
+        self.0.lock().remove(project_id);
+    }
 }
 
 fn resolve_repo_root(state: &State<'_, AppState>, store: &State<'_, GitStore>, project_id: &ProjectId) -> AppResult<PathBuf> {
@@ -657,4 +666,23 @@ pub async fn git_checkout_remote_branch(
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove는_해당_프로젝트의_캐시된_repo_root만_지운다() {
+        let store = GitStore::new();
+        let closing = ProjectId::new();
+        let staying = ProjectId::new();
+        store.0.lock().insert(closing.clone(), PathBuf::from("/tmp/closing-repo"));
+        store.0.lock().insert(staying.clone(), PathBuf::from("/tmp/staying-repo"));
+
+        store.remove(&closing);
+
+        assert!(!store.0.lock().contains_key(&closing), "닫힌 프로젝트의 캐시는 제거되어야 한다");
+        assert!(store.0.lock().contains_key(&staying), "다른 프로젝트의 캐시는 남아 있어야 한다");
+    }
 }
