@@ -193,7 +193,12 @@
 - **기각 1건**: #18 폴링 이중화(teardown 당 최대 ~200ms 잔존) — 목표(4초 전역 락 해소)는
   달성됐고 Notify 전환은 lsp_proc 동시성 표면을 재개방하는 비용이 이득을 초과. 잔존 지연은
   체감 밖(문서 기록으로 갈음).
-- **보류 1건(사용자 확인 대기)**: #12 `system_open_in_browser`·`system_reveal_path`·
-  `system_open_app_data_path` 의 원격 dispatch 허용이 신설 deny 사유("원격이 호스트에 창을
-  열게 하지 않는다")와 비대칭 — 기존 동작 변경이라 임의 전환하지 않음. 전문 QA-W2(remote
-  게이트 전수)와 함께 결정.
+- **#12 해소(2026-08-18 사용자 승인 — "지금 거부 전환")**: `system_open_in_browser`·
+  `system_reveal_path`·`system_open_app_data_path` 3커맨드를 원격 명시 거부로 전환
+  (공용 `deny_remote_system_open` 헬퍼·파리티 유지·거부 테스트). 구현 판단으로
+  **`system_open_path` 도 동일 계열로 포함**(4종) — 거부 기준이 "경로 안전성"이 아니라
+  "결과 창의 원격 도달 불가능성"이라 4개 중 하나만 다르게 취급할 근거가 없음(보안 렌즈
+  검토가 정당 판정·system_* 전수 누락 0 확인). 이 확대는 승인 문언(3종) 밖의 판단 포함이므로
+  여기 명시 기록 — 되돌리려면 dispatch arm 1줄. W6 계약의 종전 반대 결정("차단은 과함")은
+  해당 문서에 폐기 표기 완료. 남는 원격 거부 총수 16종은 ipc-contract §원격 dispatch 정책이
+  정본.

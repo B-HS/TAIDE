@@ -62,7 +62,7 @@
 | 대상 | 정책 | 근거 |
 |------|------|------|
 | 네이티브 다이얼로그 open/save (app-shell·app-sidebar·untitled-pane·vsix 4곳) | shim 이 가로채 **null(취소) 반환** + 안내 토스트. 원격 파일 피커는 backlog | 호스트에 다이얼로그 띄우면 원격 요청이 **행(hang)**. 포워딩 불가. 호출부 4곳 모두 null=취소 처리 확인됨 |
-| `system_open_path`/`reveal`/`open_in_browser`/`open_app_data_path` | 호스트에서 실행(무해·비블로킹), 시그니처 무변경 | 원격 사용자가 결과를 못 보지만 hang 없음. 차단은 과함 |
+| `system_open_path`/`reveal`/`open_in_browser`/`open_app_data_path` | ~~호스트에서 실행(무해·비블로킹), 시그니처 무변경~~ **[폐기 2026-08-18]** 원격 명시 거부로 전환 — `system_open_external_url` 신설 시 거부 사유("원격이 호스트에 창을 열게 하지 않는다")와의 정책 일관성. 사용자 승인·근거는 `2026-08-18-hand-qa-fix-contract.md` §5 | ~~원격 사용자가 결과를 못 보지만 hang 없음. 차단은 과함~~ |
 | 창 API: `show()`(reveal)·`setTheme()`·`onFocusChanged`·`onDragDropEvent` | shim 로컬 no-op/대체(focus 는 브라우저 focus, drag-drop 은 원격 미전달) | 호스트 창 상태를 브라우저에 오인 전달 방지. `refetchOnWindowFocus:false` 라 실피해 낮음 |
 | clipboard 7곳 | 그대로(LAN 평문은 degrade, tunnel HTTPS 는 정상) | secure context 제약 — 문서화만 |
 | 이벤트 스코프 | 전 22종 무차별 팬아웃(모든 프로젝트 상태 노출) | 사용자 확정 "데스크톱과 상태 완전 공유". 세션별 필터 없음 |

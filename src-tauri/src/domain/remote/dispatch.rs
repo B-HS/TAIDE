@@ -355,6 +355,31 @@ fn deny_remote_open_external_url(name: &str) -> Value {
     )))
 }
 
+/// Answers `system_open_path`, `system_reveal_path`, `system_open_in_browser`, and
+/// `system_open_app_data_path` with an explicit denial instead of dispatching to the real handler —
+/// all four hand a path (or a fixed app-data directory) to `tauri_plugin_opener` to pop open in an
+/// OS-native app window on the *desktop's* own display: the default-app opener, the Finder/Explorer
+/// reveal, and the OS browser (via a `file://` URL) respectively. That only makes sense on the
+/// machine actually running that app — a remote session has no way to see or use a window the
+/// desktop pops up on its own screen, so honoring the request would only ever open an unwanted
+/// window on the desktop user's machine. This is the identical rationale
+/// [`deny_remote_open_external_url`] already applies to `system_open_external_url` (same family of
+/// commands, same `tauri_plugin_opener` sink), and the same allow-to-deny conversion precedent
+/// `deny_remote_vsix_extract_themes` set for Wave I. `system_open_path` was previously left
+/// dispatching to the real handler even though it shares this exact rationale and the same
+/// root-guard (`resolve_within_open_project`) as `system_reveal_path`/`system_open_in_browser`; it is
+/// folded into this denial for consistency rather than left as the one command in the family still
+/// popping an unreachable window on the desktop. The path/kind argument's *safety* was never the
+/// concern here (all four already root-guard it, or point at a fixed app-data directory) — it's the
+/// resulting window's *unreachability* from a remote session that makes every one of them useless to
+/// honor remotely. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test
+/// still passes; only the `match` arms in [`dispatch`] refuse to call through.
+fn deny_remote_system_open(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 데스크톱에서 파일/폴더를 열거나 표시할 수 없습니다: {name}"
+    )))
+}
+
 /// Strips `remote_password_only_login`, `remote_allowed_hosts`, and
 /// `shell_override` from a `settings_update` patch arriving through the
 /// remote dispatch table.
@@ -930,10 +955,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "system_usage_breakdown" => {
             respond(system::system_usage_breakdown(app.state(), app.state(), app.state(), app.state(), app.state()).await)
         }
-        "system_open_path" => respond(system::system_open_path(app.state(), arg!(args, "path")).await),
-        "system_reveal_path" => respond(system::system_reveal_path(app.state(), arg!(args, "path")).await),
-        "system_open_in_browser" => respond(system::system_open_in_browser(app.state(), arg!(args, "path")).await),
-        "system_open_app_data_path" => respond(system::system_open_app_data_path(app.state(), arg!(args, "kind")).await),
+        "system_open_path" => Err(deny_remote_system_open(name)),
+        "system_reveal_path" => Err(deny_remote_system_open(name)),
+        "system_open_in_browser" => Err(deny_remote_system_open(name)),
+        "system_open_app_data_path" => Err(deny_remote_system_open(name)),
         "system_open_external_url" => Err(deny_remote_open_external_url(name)),
 
         "ide_get_status" => respond(ide::ide_get_status(app.state()).await),
@@ -1121,6 +1146,19 @@ mod tests {
     fn 원격_세션은_호스트_브라우저를_열_수_없다() {
         let value = deny_remote_open_external_url("system_open_external_url");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
+    }
+
+    #[test]
+    fn 원격_세션은_데스크톱에서_파일이나_폴더를_열_수_없다() {
+        for name in [
+            "system_open_path",
+            "system_reveal_path",
+            "system_open_in_browser",
+            "system_open_app_data_path",
+        ] {
+            let value = deny_remote_system_open(name);
+            assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
+        }
     }
 
     #[test]

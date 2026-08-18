@@ -688,7 +688,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `remote_issue_link` 류 거부와 같은 근거. **`vsix_extract_themes` 도 이번에 허용→거부로 전환**했다
   — 이전에는 원격에서도 임의 로컬 파일 경로를 zip 으로 열어 읽을 수 있었다(§2 확정 사실 8, 제한적
   임의 파일 읽기 표면). `plugin_list`/`plugin_reload` 는 원격에서도 그대로 허용(읽기 전용). 전체
-  거부 목록(11종, 이 6종 + 이전부터 있던 4종 + `vsix_extract_themes` 전환분)은 §"원격 dispatch
+  거부 목록 전수는 §"원격 dispatch
   정책" 참조.
 - **채널 다중화(내부 구현, 새 IPC 표면 아님)**: `lsp_spawn`(reuse 경로)과 `pty_attach` 는 이제 세션당
   구독자 목록을 유지해 여러 창이 같은 LSP 세션/pty 세션을 동시에 구독할 수 있다 — 메시지/출력은 전
@@ -762,7 +762,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `plugin_read_grammar`·`remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·
   `sync_*`·`search_replace`(원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화
   없음)·`theme_save`/`theme_delete`·`snippet_save`/`snippet_delete`·`git_init`.
-- **명시 거부(12종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
+- **명시 거부(16종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
   `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해 그대로 남아 있다(코드는 커맨드별 `deny_remote_*`
   헬퍼):
 
@@ -775,6 +775,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) |
   | `vsix_extract_themes` | Wave I 에서 허용→거부로 전환 — 임의 로컬 파일 읽기 표면이었음 |
   | `system_open_external_url` | 원격 세션이 데스크톱 자신의 OS 기본 브라우저를 열게 할 수는 없음(손 QA 1차 수정, 아래 절 참조) |
+  | `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `system_open_external_url` 과 동일 계열·동일 사유로 허용→거부 전환(손 QA #12, 2026-08-18) — 넷 다 `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시)을 띄우는데, 원격 세션은 그 창을 보거나 쓸 방법이 없다. `system_open_path` 는 (`system_reveal_path`/`system_open_in_browser` 와 동일하게 `resolve_within_open_project` 로 프로젝트 루트에 가드되어 있었음에도) 애초에 이 3종과 함께 거부됐어야 할 대상이 이번에 뒤늦게 합류했다 — 경로 자체의 안전성이 아니라 "원격이 못 보는 창을 여는가"가 거부 기준이므로, 루트 가드 여부와 무관하게 넷 다 같은 결론이다 |
 
 - **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종)**:
   - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`
