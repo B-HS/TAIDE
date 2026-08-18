@@ -491,6 +491,20 @@
           `docs/quality-assurance/2026-08-18-e2e-harness.md`. **파일럿 실행 전제(사용자)**:
           bun run tauri dev 기동 + REMOTE 비밀번호(8자+) 설정 + password_only ON + 활성화 ON
           + TAIDE_E2E_PASSWORD export 후 bun run e2e
+    - [x] d-0c. 착수 확인 3차(2026-08-18, 3건 전부 추천안): ① #12+하네스 prod 병합 완료
+          (main=5f15a84) ② 파일럿 지금 실행(사용자 준비 진행) ③ 아키텍처 감사 지금 기동
+    - [x] d-4. 아키텍처·추상화 전수 감사 — **완료(보고서 정본화, 수정은 별도 승인 대기)**.
+          표준 16배치(wf_10697c92-2cc, opus+xhigh 읽기 전용) → 1차 종합(10배치) → 2차 종합
+          (wf_1141da0d-61d, R4~R8·X1 병합). **정본: `docs/quality-assurance/2026-08-18-
+          architecture-audit.md`**(+배치요약·원시발견 부록 2건). 발견 297건(고유 289·critical
+          19·major 146·minor 133)+압축제외 126=관측 423. 기계 강제 축(FSD·any·enum·function·
+          useCallback/useMemo)은 ~950파일 위반 0 — 발견 전부가 "문서에만 있고 기계 미강제"인
+          4축(도메인 경계·자원 수명·락 입도·계약 파리티). 16클러스터(C1~C16)·티어 T0 24항목
+          (보안 5·데이터 손상 4 포함)/T1 11묶음/T2 10묶음/X1 계약 별도 트랙. **메인 실물
+          재검증 9건 전건 확정**(watcher .git 필터·project_close 미회수·ime-debug 원문 수집·
+          auto-save 경로 이월·agent_cli_install/lsp_install 원격 허용·forbid_directory 0·
+          search_replace 가드부재·pty_kill 호출0). 확인 문항 12건은 보고서 §9
+    - [ ] d-5. 감사 T0 수정 착수 — 사용자 확인 대기(보고서 §9 결정 문항)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
