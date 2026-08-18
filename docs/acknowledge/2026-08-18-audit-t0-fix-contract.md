@@ -76,3 +76,26 @@
 - `bun run verify` 전체 + vite build. 파리티(신규 deny arm·SettingsPatch bindings)·locale en⊆required.
 - 4렌즈+적대적 검증+메인 2차 통과. 초점: deny arm 라우팅 실효(헬퍼 직접 호출 아닌 dispatch 경로)·search_replace/pty 락 축소 경합·SettingsPatch 빈문자열 규약 하위호환(구 settings.json)·경로 정규화 우회(`..`·심링크·유니코드)·watcher 필터 정정 후 이벤트 정합·pty Drop 이중 kill 무해성.
 - 실기 이월(qa6): watcher 이벤트 폭주·pty 탭닫기 회수·검색 한글 오프셋·설정 해제 반영·IDE 배지 Zen 무관 표시·원격 거부 5종.
+
+---
+
+## 6. Phase E 검토 결함 수정 반영 (2026-08-18)
+
+> 검토 wf_ae1ed818-690(4렌즈 opus+xhigh, 대상 T0 워킹트리 diff) — 발견 9(major 3·minor 6) →
+> 적대적 검증 major **3건 전건 confirmed·반증 0**(2건은 forbid_directory 동일 근원) → 수정 9
+> fixed·0 rejected. 메인 2차: 실물 재검증(#15 롤백·#18 절대경로·spawn_blocking) + verify·vite build.
+
+- **[major] #15 forbid_directory 가 되돌릴 수 없어 재오픈·중첩 프로젝트 asset(video/audio 미리보기)
+  접근 영구 차단** — Tauri 2.11.5 fs::Scope 는 add-only(forbidden 제거 API 부재)+forbid 가 allow
+  우선. 프로젝트 닫고 같은 경로 재오픈 시 allow_directory 재호출이 무효. 벤더 소스 확인. **→ #15
+  (forbid_directory) 롤백(#15 이전 동작 복귀).** **asset scope 회수(감사 X1#7 보안)는 T0 에서
+  미달성 — T1 이월**(register_uri_scheme_protocol 앱 레벨 재등록으로 근본 해결). 회귀 도입 금지가
+  미완성 보안 개선보다 우선. docs/bug 15행 취소선+T1 후속 기록.
+- **[major] #18 abs_path 소비처 마이그레이션 누락 — editor-pane isConflicted 가 repo-상대 row.path 를
+  절대 탭 path 와 비교해 영구 false** — 병합 충돌 데코·region resolver·스테이징 차단 가드 3종이
+  죽는 회귀. → isPathConflicted(row.absPath === path) 로 정정, conflict-status.ts 순수 추출+테스트 4건.
+- **minor 6 수정**: search_replace 블로킹 I/O 를 spawn_blocking 안으로(begin_mutation_blocking 신설·원격
+  경로 동기화)·service::replace 죽은 코드 제거(테스트 헬퍼 재조준)·commit-graph revert 충돌 파일 절대경로
+  (RevertOutcome.conflicted_abs_paths 신설)·wait-marker localStorage 재시작 누적 → sessionStorage 세션
+  경계(clearStaleWaitMarkersOnStartup)·terminal.md foregroundPid 오기술 정정. 부수: CommitFile.absPath
+  bindings 기존 드리프트 정정.

@@ -59,6 +59,13 @@ impl AppState {
         self.mutation_guard.lock().await
     }
 
+    /// Sync counterpart to [`Self::begin_mutation`] for callers already running on a blocking
+    /// thread (`tokio::task::spawn_blocking`) that cannot `.await`. Panics if called from within
+    /// an async execution context — see `tokio::sync::Mutex::blocking_lock`'s own panic contract.
+    pub fn begin_mutation_blocking(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.mutation_guard.blocking_lock()
+    }
+
     /// Starts the hot-exit close-intercept handshake, recording which window
     /// labels must each individually confirm their flush (via
     /// `complete_hot_exit_flush`) before the app actually exits — main plus
@@ -218,5 +225,26 @@ mod tests {
         assert!(state.force_complete_hot_exit_flush());
         assert!(!state.force_complete_hot_exit_flush(), "이미 Ready 다");
         assert!(!state.complete_hot_exit_flush("main"), "타임아웃으로 이미 완료되었다");
+    }
+
+    #[tokio::test]
+    async fn begin_mutation_blocking_은_비동기_begin_mutation_과_동일한_락을_공유한다() {
+        let state = std::sync::Arc::new(AppState::new(AppPaths::new(std::path::PathBuf::from("/tmp"))));
+
+        let async_guard = state.begin_mutation().await;
+
+        let blocking_state = state.clone();
+        let blocking_task = tokio::task::spawn_blocking(move || {
+            let _guard = blocking_state.begin_mutation_blocking();
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !blocking_task.is_finished(),
+            "async 쪽이 begin_mutation 의 guard 를 쥐고 있는 동안 begin_mutation_blocking 이 통과하면 안 된다 — 서로 다른 락이면 spawn_blocking 안의 파일별 replace 가 file_save 등 다른 뮤테이션과 직렬화되지 않는다"
+        );
+
+        drop(async_guard);
+        blocking_task.await.expect("blocking task panicked");
     }
 }

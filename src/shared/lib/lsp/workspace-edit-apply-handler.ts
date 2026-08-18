@@ -2,7 +2,7 @@ import type { ProjectId } from '@shared/api/bindings'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { WorkspaceEdit } from '@shared/lib/lsp/protocol'
-import { registerServerRequestHandler, type ServerRequestHandler } from '@shared/lib/lsp/server-request-handler-registry'
+import type { ServerRequestHandler } from '@shared/lib/lsp/server-request-handler-registry'
 import { applyWorkspaceEdit } from '@shared/lib/lsp/workspace-edit-applier'
 
 type ApplyWorkspaceEditParams = { label?: string; edit: WorkspaceEdit }
@@ -33,6 +33,14 @@ const APPLY_EDIT_FAILURE_REASON_FOR_SERVER = 'edit rejected'
  * cross-file edit landing on a background (open-but-unattached) model gets its hot-exit mirror
  * write scoped to *this* project rather than whichever project happens to be globally active when
  * the push arrives; see `workspace-edit-applier.ts`'s `mirrorBackgroundModelEdit` doc comment.
+ *
+ * There is deliberately no process-wide, unscoped fallback for this method — `client.ts`'s
+ * `handleServerRequest` falls back to `server-request-handler-registry.ts` only when no
+ * instance-level handler is registered, and a rootless fallback there would let any request that
+ * outran this registration touch files under *any* open project. `lsp-session-registry.ts`'s
+ * `createSession` therefore registers the handler this factory returns on `client` immediately
+ * after creating `client` — before `spawnLspSession` even starts the server process — so no
+ * inbound `workspace/applyEdit` can ever arrive before it is answered by this root-scoped handler.
  */
 export const createWorkspaceApplyEditHandler = (
     monaco: Monaco,
@@ -50,18 +58,3 @@ export const createWorkspaceApplyEditHandler = (
         return result.applied ? result : { applied: false, failureReason: APPLY_EDIT_FAILURE_REASON_FOR_SERVER }
     }
 }
-
-/**
- * Registers a process-wide fallback `workspace/applyEdit` handler (unscoped — no `allowedRoot`),
- * kept only for the rare case a request arrives outside any session's own registration window.
- * Every real LSP session registers its own root-scoped handler instead, via
- * `client.registerRequestHandler` in `lsp-session-registry.ts`'s `createSession`, which always
- * takes precedence over this one (`client.ts`'s `handleServerRequest` checks the instance-level
- * registry first). Must be called once at app bootstrap with the live `Monaco` instance.
- */
-export const registerWorkspaceApplyEditHandler = (monaco: Monaco) =>
-    registerServerRequestHandler('workspace/applyEdit', async (params) => {
-        if (!isApplyWorkspaceEditParams(params)) return { applied: false, failureReason: 'invalid ApplyWorkspaceEditParams' }
-        const result = await applyWorkspaceEdit(monaco, params.edit)
-        return result.applied ? result : { applied: false, failureReason: APPLY_EDIT_FAILURE_REASON_FOR_SERVER }
-    })

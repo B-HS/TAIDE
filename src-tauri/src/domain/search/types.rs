@@ -55,8 +55,14 @@ pub struct SearchReplaceResult {
 pub struct SearchMatch {
     pub path: String,
     pub line: u32,
+    /// 1-based, in UTF-16 code units — Monaco `Position.column`'s own convention, so the frontend
+    /// can hand this straight to `reveal-registry.ts` without converting. Computed from the UTF-8
+    /// byte offset `search::service::search_file` matches at via
+    /// `search::service::byte_offset_to_utf16_units`.
     pub column: u32,
     pub preview: String,
+    /// 0-based UTF-16 code unit offsets into `preview` — `preview` is consumed as a JS string via
+    /// `preview.slice(matchStart, matchEnd)`, which indexes by UTF-16 code unit, not UTF-8 byte.
     pub match_start: u32,
     pub match_end: u32,
     /// Up to `SearchQuery::context_lines` lines immediately before the match

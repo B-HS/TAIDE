@@ -504,14 +504,85 @@
           재검증 9건 전건 확정**(watcher .git 필터·project_close 미회수·ime-debug 원문 수집·
           auto-save 경로 이월·agent_cli_install/lsp_install 원격 허용·forbid_directory 0·
           search_replace 가드부재·pty_kill 호출0). 확인 문항 12건은 보고서 §9
-    - [ ] d-5. 감사 T0(즉시 수정) 24항목 — **착수**(2026-08-18 사용자 4문항 전부 추천안:
+    - [x] d-5. 감사 T0(즉시 수정) 24항목 — **완료**(2026-08-18 사용자 4문항 전부 추천안:
           T0 지금·세부 8건 추천안·대형 3건 T1 포함·e2e 파일럿 준비). **계약 정본:
           `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md`**. 실행: R1(Rust 보안 deny 5)
-          → R2(Rust 데이터·기능, 순차) → F 병렬 4 → D 통합 → E 검토(별도). 대형 3건
-          (T1-H 락 IO·T2-E AppError·C13 도메인경계)은 T1 편성 — T1-H 착수 시 동시성 위험
-          재고지 필요
+          → R2(Rust 데이터·기능, 순차) → F 병렬 4 → D 통합 → **E 검토 완료**(wf_ae1ed818-690,
+          4렌즈+적대적: major 3 confirmed → 수정. **#15 forbid_directory 롤백** — Tauri 2.11.5
+          asset scope add-only 라 재오픈 시 asset(video/audio 미리보기) 영구 차단 회귀. asset
+          scope 회수(감사 X1#7)는 T1 이월(register_uri_scheme_protocol). #18 isConflicted 절대경로
+          미이관(병합충돌 UI 회귀) 수정 + minor 6. 상세 계약 §6). 메인 재검증: 롤백·수정 실물
+          확정 + verify·vite build exit 0(flaky 소멸로 안정, 프론트 1195·Rust 959). 대형 3건
+          (T1-H 락 IO·T2-E AppError·C13 도메인경계)은 T1 편성 — T1-H 착수 시 동시성 위험 재고지
+        - [x] R1 — dispatch.rs 원격 보안 deny arm 5클러스터(#12~#16) 완료(별도 세션).
+        - [x] R2 — Rust 데이터·기능 단독 완료. §2.2(#17 search_replace 파일단위 mutation
+              guard 재획득·#19 write_atomic_preserving_mode 로 file_save/search_replace 원본
+              모드 보존·#20 pty_write 락을 writer_handle 조회까지로 축소), §2.3(#21 project_close
+              가 TerminalStore::kill_project 로 세션 일괄 kill + PtySession Drop 이 pause 해제
+              선행 후 kill·#22 SettingsPatch 빈문자열=해제 를 merge_clearable_string 으로
+              shellOverride/editorFontFamily/terminalFontFamily/uiFontFamily/aiProvider/aiModel
+              6필드로 일반화·#23 검색 column 을 UTF-16 코드유닛+1-based 로 보정(preview
+              matchStart/End 도 UTF-16 화)·#24 LSP 자동재시작 성공 시 Running 대신 Crashed 유지),
+              §2.4(#1 watcher 무시필터를 감시 루트 기준 상대경로로 좁힘(git 워처 자체가 `.git`
+              루트라 전량 무력이었던 결함도 함께 해소)·#2 project_close 동기 레이아웃 flush +
+              flusher filter_map 미스 warn·#7 delete_theme/load_theme 에 ensure_safe_component),
+              #18 Rust 측(git StatusRow/CommitFile 에 absPath/origAbsPath 동봉). cargo
+              fmt/clippy -D warnings/test --workspace(935) 전부 그린, bindings.ts 재생성 확인,
+              TS 소비 파형 1건(commit-detail-panel.test.ts 픽스처)만 최소 수정. dispatch.rs·
+              agent·lib.rs fanout·ipc-contract 는 R1 소유라 무수정(project_close 의
+              TerminalStore 는 `app.state::<TerminalStore>()` 로 우회 획득해 dispatch.rs 의
+              `project_close(app, state, projectId)` 3-arg 호출부를 건드리지 않음). 소비부
+              배선(#18 프론트·#22 프론트)은 Phase F4 이월
+        - [x] F1 — editor-pane 완료(#3·#4). auto-save/preview 타이머에 `pathRef` 발화시점 경로
+              일치 가드 추가(스테일 클로저가 B 탭 내용을 A 탭 경로에 쓰던 결함), 에디터 인스턴스
+              레지스트리 등록을 `handleEditorMount` 1회성에서 `[tabId, editor]` 의존 effect 로
+              이동(`key` 없는 pane 재사용 시 breadcrumbs/상태바가 낡은 탭의 인스턴스를 반환하던
+              결함). `editor-instance-registry.test.ts` 신규(6건, 이 모듈에 테스트가 전무했음).
+              `pane-node-view.tsx`/`editor-instance-registry.ts` 는 계약대로 무수정
+        - [x] F2 — `isWithinRoot`(`workspace-edit-applier.ts`) 경로 정규화(#5, `.`/`..` lexical
+              resolve + 구분자 통일 — monaco `Uri#fsPath` 가 `..` 를 resolve 하지 않는 점 +
+              Windows 백슬래시 하드코딩 접두 버그 동시 해소) + 세션 `applyEdit` 핸들러를
+              `spawnLspSession` 호출 이전(client 생성 직후)으로 등록 이동 + 무루트 전역 fallback
+              (`registerWorkspaceApplyEditHandler`) 제거(#6, `bootstrap-lsp.ts` 호출부도 제거)
+        - [x] F3 — `IdeSyncProvider` 신설(#9) — Claude Code IDE 프로토콜(diff/save/close-tab
+              요청·상태 sync·진단 push)을 `StatusBarContent`(Zen 에서 언마운트돼 프로토콜 전체가
+              멈추던 원인)에서 main 창 앱 루트(`app.tsx`, 보조창 트리는 제외)로 이관.
+              `agent-wait-marker-registry.ts` 를 모듈스코프 `Map` 에서 `localStorage` 백엔드로
+              교체(#11) — 창마다 별개 JS 렐름이라 보조 창으로 이동한 탭을 그 창에서 닫으면
+              main 창이 등록한 마커가 안 보이던 결함
+        - [x] F4 — git 경로 소비부 절대경로(#18 프론트, `git-panel.tsx` 의 파일 열기/경로 복사/
+              탐색기 표시 3곳을 `row.path`→`row.absPath` 로 전환, git 동작 자체(stage/unstage/
+              diff)는 상대경로 유지) + ime-debug 진단 플래그 게이트(#8, `setImeDebugEnabled`/
+              `isImeDebugEnabled` 기본 false — `recordImeDebug` early return + 복사 커맨드
+              `isEnabled` 게이트) + settings patch 프론트 반영(#22, 폰트 패밀리 피커·Shell
+              Override·AI Provider 전환의 "해제" 조작이 `null` 대신 `''` 를 patch 에 싣도록 정정
+              — 새 3상태 규약에서 `null` 은 "건드리지 않음"이라 이전 코드는 해제가 조용히
+              무시됐다)
+        - [x] Phase D 통합 — 접합부 검토(R1/R2/F1~F4 전체 diff 정독) + 문서 갱신 + 전체 검증.
+              **접합부 결함 1건 직접 수정**: 계약 §3 이 "탭 닫기 시 pty_kill" 배선을 명시했으나
+              R2 는 `project_close`(`TerminalStore::kill_project`)만 구현했고, 어느 F 트랙도
+              탭 닫기 쪽을 배선하지 않아 재검 시점까지 `pty_kill`/`killPty` 호출부가 0건으로
+              남아 있었다(#21 절반 누락) — `TerminalStore::kill_session` 신설 +
+              `layout::commands::close_tab_and_finish` 에 `TabKind::Terminal` 분기로 직접 배선.
+              그 외 접합부(SettingsPatch absPath/클리어 규약 소비 일치, IdeSyncProvider 마운트,
+              deny arm 이름·bindings 정합)는 전부 이미 정합 확인. 문서:
+              `docs/bug/2026-08-18-audit-t0-fixes.md` 신규(24항목 요지), `ipc-contract.md`
+              (§3 "T0 감사 데이터·기능 수정" 신설 절), `data-model.md` §13 신설,
+              `features/git.md`·`features/terminal.md`·`features/lsp.md` 갱신, qa6-checklist.md
+              "감사 T0 24항목 재검" 절 신설(9개 실기 확인 그룹). 검증: `bun run typecheck`/
+              `lint`(0 error·기존 경고 6건)/`format:check`/`test`(1189/1189, 직전 1169 대비
+              +20)/`cargo fmt --check`/`cargo clippy -D warnings`/`cargo test --workspace`
+              (935+6+17=958/958, 직전 938 대비 +20)/`vite build`(exit 0) 전부 그린
     - [ ] d-6. e2e 파일럿 실행 — 사용자 준비(앱 기동·REMOTE·비밀번호 export) 후 bun run e2e,
           결과 메인 분석(WebGL·포트 발견 실측). T0 와 독립 병행
+    - [x] d-7. mtime flaky 근본 수정 완료(dev `d2204f7`) — **실은 프로덕션 데이터 무결성 버그**.
+          진단(wf_1798253b-8ad, fable+high): serde_json 기본 파서가 f64 를 ~5.5% 확률로 1 ULP
+          낮게 파싱(float_roundtrip 피처 부재) → 앱 재시작 후 미러 복원 시 디스크 무변경에도
+          가짜 conflict 배지. **단독 200회 중 14회 실패로 병렬성 무관 입증**(세션 내내 "병렬
+          flaky·무관" 치부는 표본 착시). 메인 재검증: 실패 assert 688(conflict)·피처 미적용·
+          수정 후 30회 전건 통과 확인. 수정 Cargo.toml float_roundtrip 1줄(신규 크레이트 아님).
+          T0 와 무관 독립 버그라 별도 커밋. 상세 `docs/bug/2026-08-18-mirror-mtime-serde-json-
+          float-roundtrip.md`. **이후 verify 게이트 안정**
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

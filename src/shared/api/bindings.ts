@@ -10,6 +10,21 @@ export const commands = {
 	projectGet: (projectId: ProjectId) => typedError<Project, AppError>(__TAURI_INVOKE("project_get", { projectId })),
 	projectGetActive: () => typedError<string | null, AppError>(__TAURI_INVOKE("project_get_active")),
 	projectOpen: (path: string) => typedError<ProjectOpenResult, AppError>(__TAURI_INVOKE("project_open", { path })),
+	/**
+	 *  Closes `project_id` and reaps every resource that only makes sense while the project is open.
+	 *  Two of those reaps are correctness-sensitive, not just cleanup:
+	 * 
+	 *  - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
+	 *    2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`
+	 *    below drops the in-memory copy, and the periodic flusher's next pass over `dirty_layouts`
+	 *    would then find nothing left in `state.layouts` for this `project_id` and silently skip it
+	 *    (see that function's `filter_map`, which also `log::warn!`s on exactly this miss as a safety
+	 *    net for any other path that removes a layout without flushing first). Flushing synchronously
+	 *    here, before the removal, closes that window.
+	 *  - **Terminals**: `TerminalStore::kill_project` reaps every pty session scoped to this project.
+	 *    Before this, nothing called `pty_kill` for a closing project's sessions — they kept running,
+	 *    attached to nothing, until the whole app quit (`TerminalStore::kill_all`).
+	 */
 	projectClose: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_close", { projectId })),
 	projectActivate: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_activate", { projectId })),
 	projectReorder: (ids: ProjectId[]) => typedError<null, AppError>(__TAURI_INVOKE("project_reorder", { ids })),
@@ -90,6 +105,16 @@ export const commands = {
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
 	searchRun: (projectId: ProjectId, sessionId: string, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, sessionId, query, onMatch })),
 	searchCancel: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { sessionId })),
+	/**
+	 *  Reacquires `AppState::begin_mutation`'s single global lock **once per file** instead of holding
+	 *  it for the whole multi-file replace — a project-wide "replace all" can touch hundreds of files,
+	 *  and that one lock is shared by every other mutating command (`file_save`, `git_push`, layout
+	 *  writes, ...), so holding it for the entire walk-and-rewrite would starve all of them for as long
+	 *  as the replace runs. Reacquiring per file keeps each hold short while still serializing every
+	 *  actual write against the rest of the app's mutations. Both the target-file resolution (the tree
+	 *  walk) and each file's guarded read-modify-write run inside `spawn_blocking` — none of it runs on
+	 *  the async worker thread — since `service::replace_one_file` does synchronous filesystem I/O.
+	 */
 	searchReplace: (projectId: ProjectId, query: SearchQuery, replacement: string, paths: string[] | null) => typedError<SearchReplaceResult, AppError>(__TAURI_INVOKE("search_replace", { projectId, query, replacement, paths })),
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
@@ -223,6 +248,17 @@ export const commands = {
 	gitTagDelete: (projectId: ProjectId, name: string) => typedError<null, AppError>(__TAURI_INVOKE("git_tag_delete", { projectId, name })),
 	gitCheckoutRemoteBranch: (projectId: ProjectId, remoteRef: string) => typedError<null, AppError>(__TAURI_INVOKE("git_checkout_remote_branch", { projectId, remoteRef })),
 	ptyDefaultOptions: (projectId: ProjectId, cwd: string | null) => typedError<PtySpawnOptions, AppError>(__TAURI_INVOKE("pty_default_options", { projectId, cwd })),
+	/**
+	 *  Holds `TerminalStore`'s lock only long enough to clone out the session's writer handle
+	 *  (`PtySession::writer_handle` — an `Arc` around the same inner `Mutex<Box<dyn Write>>`
+	 *  `PtySession::write` locks, so this is not a second, independent write path), not for the write
+	 *  itself. The write blocks on the child's stdin pipe, which backs up (and this call blocks with
+	 *  it) whenever the child isn't reading its input — previously that blocked write held the *whole
+	 *  store's* lock, so every other terminal command (`pty_resize`, `pty_kill` for this very session,
+	 *  `pty_attach`/`pty_detach` for any other session, `terminal_sessions`) queued behind it until the
+	 *  child drained its input or was killed by some other means, which nothing could do while
+	 *  `pty_kill` itself was one of the commands stuck waiting on the same lock.
+	 */
 	ptyWrite: (sessionId: string, data: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_write", { sessionId, data })),
 	ptyResize: (sessionId: string, cols: number, rows: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_resize", { sessionId, cols, rows })),
 	ptyKill: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_kill", { sessionId })),
@@ -560,7 +596,14 @@ export type ClosedTab = {
 
 export type CommitFile = {
 	path: string,
+	/**
+	 *  Absolute counterpart to `path` — see `StatusRow::abs_path`'s doc comment for why a
+	 *  repo-relative path alone isn't safe for the file domain to open/save against.
+	 */
+	absPath: string,
 	origPath?: string | null,
+	/**  Absolute counterpart to `orig_path` — present exactly when `orig_path` is. */
+	origAbsPath?: string | null,
 	kind: GitChangeKind,
 };
 
@@ -1048,16 +1091,33 @@ export type RevertOutcome = {
 	/**
 	 *  Paths left with unresolved conflict markers, so the caller can route the user straight to
 	 *  them (e.g. open the first one) instead of leaving conflict resolution to be discovered via
-	 *  the next status refresh. Always empty when `conflicted` is `false`.
+	 *  the next status refresh. Always empty when `conflicted` is `false`. Repo-relative (`git2`
+	 *  index paths) — see `conflicted_abs_paths` for the file domain's absolute counterpart.
 	 */
 	conflictedPaths: string[],
+	/**
+	 *  Absolute counterpart to `conflicted_paths` (workdir root joined onto each entry, same
+	 *  order/length). The file domain's entry points only accept absolute paths — see
+	 *  `StatusRow::abs_path`'s doc comment for why a repo-relative path must not reach `file_open`.
+	 */
+	conflictedAbsPaths: string[],
 };
 
 export type SearchMatch = {
 	path: string,
 	line: number,
+	/**
+	 *  1-based, in UTF-16 code units — Monaco `Position.column`'s own convention, so the frontend
+	 *  can hand this straight to `reveal-registry.ts` without converting. Computed from the UTF-8
+	 *  byte offset `search::service::search_file` matches at via
+	 *  `search::service::byte_offset_to_utf16_units`.
+	 */
 	column: number,
 	preview: string,
+	/**
+	 *  0-based UTF-16 code unit offsets into `preview` — `preview` is consumed as a JS string via
+	 *  `preview.slice(matchStart, matchEnd)`, which indexes by UTF-16 code unit, not UTF-8 byte.
+	 */
 	matchStart: number,
 	matchEnd: number,
 	/**
@@ -1377,7 +1437,20 @@ export type StagedDiffText = {
 
 export type StatusRow = {
 	path: string,
+	/**
+	 *  Absolute filesystem path for `path`, computed by joining the repository's workdir root.
+	 *  `path` alone is repo-relative (as `git2`'s status API returns it), but the file domain's
+	 *  entry points (`file_open`/`file_save`/`root_guard::resolve_owning_project`) only accept
+	 *  absolute paths — a consumer that mistakenly treated a repo-relative `path` as one resolved
+	 *  against the *current* project's root, instead of joining it against *this row's* repo root,
+	 *  opened or saved the wrong file whenever those two roots differ (multi-root workspace, a
+	 *  worktree, or the git panel showing a background project). See
+	 *  `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §1 결정 8.
+	 */
+	absPath: string,
 	origPath?: string | null,
+	/**  Absolute counterpart to `orig_path` — present exactly when `orig_path` is. */
+	origAbsPath?: string | null,
 	staged?: GitChangeKind | null,
 	unstaged?: GitChangeKind | null,
 	isConflicted: boolean,

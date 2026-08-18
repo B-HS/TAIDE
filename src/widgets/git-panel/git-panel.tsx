@@ -206,7 +206,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                                     id: 'open-file',
                                     label: t('git.openFile'),
                                     icon: <File className='size-3' />,
-                                    onClick: () => onOpenFile(row.path),
+                                    onClick: () => onOpenFile(row.absPath),
                                 },
                             ]
                             return (
@@ -222,11 +222,11 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         />
                                     </ContextMenuTrigger>
                                     <ContextMenuContent>
-                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>{t('git.openFile')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenFile(row.absPath)}>{t('git.openFile')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>{t('git.openChanges')}</ContextMenuItem>
                                         <ContextMenuSeparator />
-                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onCopyPath(row.absPath)}>{t('explorer.copyPath')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.absPath)}>{t('explorer.reveal')}</ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
                             )
@@ -255,7 +255,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                                     id: 'open-file',
                                     label: t('git.openFile'),
                                     icon: <File className='size-3' />,
-                                    onClick: () => onOpenFile(row.path),
+                                    onClick: () => onOpenFile(row.absPath),
                                 },
                             ]
                             return (
@@ -271,12 +271,12 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         />
                                     </ContextMenuTrigger>
                                     <ContextMenuContent>
-                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>{t('git.openFile')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenFile(row.absPath)}>{t('git.openFile')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'staged')}>{t('git.openChanges')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onUnstage([row.path])}>{t('git.unstageChanges')}</ContextMenuItem>
                                         <ContextMenuSeparator />
-                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onCopyPath(row.absPath)}>{t('explorer.copyPath')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.absPath)}>{t('explorer.reveal')}</ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
                             )
@@ -306,7 +306,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                                     id: 'open-file',
                                     label: t('git.openFile'),
                                     icon: <File className='size-3' />,
-                                    onClick: () => onOpenFile(row.path),
+                                    onClick: () => onOpenFile(row.absPath),
                                 },
                             ]
                             return (
@@ -322,15 +322,15 @@ export const GitPanel: FC<GitPanelProps> = ({
                                         />
                                     </ContextMenuTrigger>
                                     <ContextMenuContent>
-                                        <ContextMenuItem onSelect={() => onOpenFile(row.path)}>{t('git.openFile')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onOpenFile(row.absPath)}>{t('git.openFile')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onOpenChanges(row.path, 'unstaged')}>{t('git.openChanges')}</ContextMenuItem>
                                         <ContextMenuItem onSelect={() => onStage([row.path])}>{t('git.stageChanges')}</ContextMenuItem>
                                         <ContextMenuItem variant='destructive' onSelect={() => setDiscardTargets([row.path])}>
                                             {t('git.discard')}
                                         </ContextMenuItem>
                                         <ContextMenuSeparator />
-                                        <ContextMenuItem onSelect={() => onCopyPath(row.path)}>{t('explorer.copyPath')}</ContextMenuItem>
-                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.path)}>{t('explorer.reveal')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onCopyPath(row.absPath)}>{t('explorer.copyPath')}</ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => onRevealInExplorer(row.absPath)}>{t('explorer.reveal')}</ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
                             )

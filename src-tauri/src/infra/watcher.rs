@@ -19,6 +19,7 @@ where
     F: Fn(FsChange) + Send + Sync + 'static,
 {
     let on_change: Arc<F> = Arc::new(on_change);
+    let watch_root = root.clone();
 
     let mut debouncer = new_debouncer(
         Duration::from_millis(WATCH_DEBOUNCE_MS),
@@ -34,7 +35,7 @@ where
                 }
             };
 
-            for change in group_relevant_changes(&events) {
+            for change in group_relevant_changes(&events, &watch_root) {
                 on_change(change);
             }
         },
@@ -48,7 +49,7 @@ where
     Ok(WatcherHandle { _debouncer: debouncer })
 }
 
-fn group_relevant_changes(events: &[DebouncedEvent]) -> Vec<FsChange> {
+fn group_relevant_changes(events: &[DebouncedEvent], root: &Path) -> Vec<FsChange> {
     let mut created = Vec::new();
     let mut modified = Vec::new();
     let mut removed = Vec::new();
@@ -60,7 +61,7 @@ fn group_relevant_changes(events: &[DebouncedEvent]) -> Vec<FsChange> {
         };
 
         for path in &event.paths {
-            if is_ignored_path(path) {
+            if is_ignored_path(path, root) {
                 continue;
             }
             let path_str = path.to_string_lossy().to_string();
@@ -99,8 +100,20 @@ fn map_event_kind(kind: &EventKind) -> Option<FsChangeKind> {
     }
 }
 
-fn is_ignored_path(path: &Path) -> bool {
-    path.components()
+/// Checks `IGNORED_DIR_NAMES` only against `path`'s components **below `root`** — the directory
+/// actually being watched — never the ancestor path leading up to it. Checking the full absolute
+/// path used to mean a project (or the `.git` directory `attach_git_watcher` watches on its own)
+/// nested under any ancestor happening to be named `target`/`dist`/`build`/`.git`/... (an extremely
+/// common layout — e.g. `~/dev/target/my-app`, or the git watcher's own root, which is literally
+/// named `.git`) silently dropped every single event the watcher ever produced, since every path
+/// under it necessarily contains that ancestor component too. Falls back to checking the full path
+/// only if `path` doesn't have `root` as a prefix at all (e.g. a symlinked watch root notify
+/// reports through its resolved form) — an abnormal case where the old, more conservative behavior
+/// is the safer default. See `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.4 (#1).
+fn is_ignored_path(path: &Path, root: &Path) -> bool {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .components()
         .any(|component| component.as_os_str().to_str().map(is_ignored_dir).unwrap_or(false))
 }
 
@@ -109,10 +122,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 무시_디렉토리_하위_경로는_필터링된다() {
-        assert!(is_ignored_path(Path::new("/repo/node_modules/pkg/index.js")));
-        assert!(is_ignored_path(Path::new("/repo/.git/HEAD")));
-        assert!(!is_ignored_path(Path::new("/repo/src/main.rs")));
+    fn 감시_루트_안의_무시_디렉토리_하위_경로는_필터링된다() {
+        let root = Path::new("/repo");
+        assert!(is_ignored_path(&root.join("node_modules/pkg/index.js"), root));
+        assert!(is_ignored_path(&root.join(".git/HEAD"), root));
+        assert!(!is_ignored_path(&root.join("src/main.rs"), root));
+    }
+
+    #[test]
+    fn 감시_루트_밖의_조상_경로에_무시_이름이_있어도_필터링되지_않는다() {
+        let root = Path::new("/Users/dev/target/my-project");
+        assert!(
+            !is_ignored_path(&root.join("src/main.rs"), root),
+            "루트 자체가 조상 경로에 'target' 을 포함해도 루트 하위 파일은 무시되면 안 된다"
+        );
+    }
+
+    #[test]
+    fn 감시_루트_자체가_git_디렉토리면_그_하위_파일은_무시되지_않는다() {
+        let git_root = Path::new("/repo/.git");
+        assert!(
+            !is_ignored_path(&git_root.join("HEAD"), git_root),
+            "git 워처는 루트 자체가 .git 이므로, 그 하위 파일이 전부 무시되면 워처가 완전히 무력화된다"
+        );
+    }
+
+    #[test]
+    fn 경로가_루트_밖이면_전체_경로_기준으로_보수적으로_필터링된다() {
+        let root = Path::new("/repo");
+        assert!(is_ignored_path(Path::new("/elsewhere/.git/HEAD"), root));
     }
 
     #[test]
@@ -144,6 +182,6 @@ mod tests {
             std::time::Instant::now(),
         );
 
-        assert!(group_relevant_changes(&[event]).is_empty());
+        assert!(group_relevant_changes(&[event], Path::new("/repo")).is_empty());
     }
 }

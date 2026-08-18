@@ -70,6 +70,7 @@ import { Button } from '@shared/ui/button'
 import { isLspAttachableTier, useLspSession } from '@widgets/editor-pane/use-lsp-session'
 import { peekLspSession, waitForLspSession } from '@widgets/editor-pane/lsp-session-registry'
 import { BreadcrumbsBar } from '@widgets/editor-pane/breadcrumbs-bar'
+import { isPathConflicted } from '@widgets/editor-pane/conflict-status'
 
 const BLAME_DEBOUNCE_MS = 300
 const MARKDOWN_PREVIEW_DEBOUNCE_MS = 200
@@ -134,6 +135,15 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const blameRequestSeqRef = useRef(0)
     const blameFooterTextRef = useRef<HTMLSpanElement>(null)
+    /**
+     * Mirrors the `path` prop — kept fresh by the `[path]` effect below rather than read directly,
+     * so a stale closure can tell "still the same path" apart from "armed for a path this instance
+     * has since moved on from". `EditorPane` has no `key` (see the mirror-cache doc comment
+     * further below), so switching tabs in the same pane reuses this instance and its in-flight
+     * timers rather than remounting them away; `handleChange`'s auto-save and markdown-preview
+     * timers check this at fire time against the `scheduledPath` they captured when armed.
+     */
+    const pathRef = useRef(path)
 
     const [syncedPath, setSyncedPath] = useState(path)
     const [syncedContent, setSyncedContent] = useState<string | null>(null)
@@ -187,7 +197,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
     const isMarkdown = file?.languageId === MARKDOWN_LANGUAGE_ID
-    const isConflicted = (gitStatus?.rows ?? []).some((row) => row.path === path && row.isConflicted)
+    const isConflicted = isPathConflicted(gitStatus?.rows ?? [], path)
 
     /**
      * Writes to the hot-exit mirror and keeps the `FILE.MIRRORS` query cache in lockstep, instead
@@ -285,18 +295,29 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
          * `formatDocument` action, or the Code Actions on Save applier below, both push edits
          * through the same `onDidChangeContent` → `onChange` → here path) doesn't re-arm a second
          * auto-save on top of the one already in flight.
+         *
+         * `scheduledPath` is captured here (this render's `path`, guaranteed current) and checked
+         * against `pathRef.current` when the timer fires, not before. Without it, switching this
+         * pane to a different tab before the delay elapses would still fire — this instance has no
+         * `key`, so the timer's own closure keeps pointing at the old path and old `draftRef`
+         * snapshot — and `handleSave` would write the *new* tab's since-typed content to disk under
+         * the *old* tab's path. Applied to the markdown-preview timer below for the same reason,
+         * though there the consequence is only a wrong preview render rather than a wrong write.
          */
+        const scheduledPath = path
         const autoSaveDelayMs = settings?.autoSaveDelayMs ?? 0
         clearTimeout(autoSaveTimeoutRef.current)
         if (autoSaveDelayMs > 0 && !savingRef.current) {
             autoSaveTimeoutRef.current = setTimeout(() => {
-                void handleSave('auto')
+                if (pathRef.current === scheduledPath) void handleSave('auto')
             }, autoSaveDelayMs)
         }
 
         if (!isMarkdown) return
         clearTimeout(previewTimeoutRef.current)
-        previewTimeoutRef.current = setTimeout(() => setPreviewSource(value), MARKDOWN_PREVIEW_DEBOUNCE_MS)
+        previewTimeoutRef.current = setTimeout(() => {
+            if (pathRef.current === scheduledPath) setPreviewSource(value)
+        }, MARKDOWN_PREVIEW_DEBOUNCE_MS)
     }
 
     /**
@@ -491,11 +512,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
-    const handleEditorMount = (nextEditor: monaco.editor.IStandaloneCodeEditor | null) => {
-        setEditor(nextEditor)
-        if (nextEditor) registerEditorInstance(tabId, nextEditor)
-        else unregisterEditorInstance(tabId)
-    }
+    const handleEditorMount = (nextEditor: monaco.editor.IStandaloneCodeEditor | null) => setEditor(nextEditor)
 
     /**
      * Applies one side's transform to `region` as a single undoable `executeEdits` op (replacing
@@ -570,8 +587,28 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         setRestoreNotice(mirror.conflict ? 'mirrorRestoredConflict' : 'mirrorRestored')
     })
 
+    /**
+     * Registers the mounted monaco instance under `tabId` for the shared editor-instance registry
+     * (breadcrumbs, the status bar, and `editor-area`'s own lookups all read it). Keyed by
+     * `[tabId, editor]` rather than done once inside `handleEditorMount` — `CodeEditor`'s own
+     * mount effect has an empty dependency array (it swaps buffers via `setModel`, never
+     * remounting monaco), and this pane has no `key` either, so `handleEditorMount` fires exactly
+     * once for the pane's whole lifetime while the same instance goes on to serve every tab the
+     * user switches to in this pane. Without this effect, the registry stayed pinned to whichever
+     * tab happened to be active at first mount; every later tab switch left it stale, and
+     * `getEditorInstance` for the now-active tab returned nothing (or a leftover instance for a
+     * tab that no longer owns it). Re-running on every `tabId` change re-keys the same live
+     * instance instead.
+     */
+    useEffect(() => {
+        if (!editor) return
+        registerEditorInstance(tabId, editor)
+        return () => unregisterEditorInstance(tabId)
+    }, [tabId, editor])
+
     useEffect(() => {
         draftRef.current = null
+        pathRef.current = path
     }, [path])
 
     /**

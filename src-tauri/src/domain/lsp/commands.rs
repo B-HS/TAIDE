@@ -277,6 +277,22 @@ fn broadcast_message(channels: &Mutex<HashMap<String, Channel<String>>>, message
     channels.lock().retain(|_, channel| channel.send(message.to_string()).is_ok());
 }
 
+/// Reacts to an unexpected language server process exit (`Some`/`None` exit code from a crash, not
+/// a `lsp_stop`-initiated shutdown, which sets `stopping` first and short-circuits above). Retries
+/// with backoff up to [`RESTART_BACKOFF_LIMIT`] times, then gives up and reports [`LspSessionStatus::Crashed`].
+///
+/// A successful respawn (`spawn_process` returning `Ok`) deliberately still reports
+/// [`LspSessionStatus::Crashed`], not `Running` — unlike [`lsp_spawn`]/[`lsp_restart`], which *do*
+/// report `Running` right after their own `spawn_process` call. The difference is who drives the LSP
+/// `initialize` handshake: `lsp_spawn`/`lsp_restart` are directly awaited by the frontend's own
+/// action, which sends `initialize` as the next step of that same client-side flow once the command
+/// resolves. This restart runs entirely in the background with no frontend caller waiting on it —
+/// the renderer's existing LSP client believes its old, already-initialized connection is still
+/// good and has no trigger to redo `initialize` against the fresh process, so declaring `Running`
+/// here would be a false report: requests sent to an unhandshaked server go nowhere. Reporting
+/// `Crashed` instead is the honest T0 mitigation; the real fix (a session-generation event the
+/// renderer watches to re-establish its client) is `T1-D` — see
+/// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3 (#24).
 fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
     let Some(store) = app.try_state::<LspStore>() else {
         return;
@@ -334,7 +350,13 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
         match spawn_process(&restart_app, restart_session_id.clone(), spec, root) {
             Ok(proc) => {
                 *entry.proc.lock() = Some(proc);
-                set_status(&restart_app, &restart_session_id, &entry, LspSessionStatus::Running, None);
+                set_status(
+                    &restart_app,
+                    &restart_session_id,
+                    &entry,
+                    LspSessionStatus::Crashed,
+                    Some("서버 프로세스는 재시작됐지만 초기화 핸드셰이크가 다시 이루어지지 않아 정상 동작하지 않습니다. 수동으로 재시작해주세요.".to_string()),
+                );
             }
             Err(error) => {
                 set_status(

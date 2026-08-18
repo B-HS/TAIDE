@@ -152,14 +152,29 @@
 
 ## 10. 수명주기 · 누수 방지
 
-- 탭 닫기: 포그라운드 자식 프로세스 실행 중이면 확인 다이얼로그 → Rust `pty_kill`
-  (killer 는 `clone_killer` 사본 — wait 스레드와 분리, Mutex+wait 데드락 금지 — 함정 20) →
-  ring buffer 해제. view 는 xterm `dispose`.
+- 탭 닫기: `layout_close_tab`/IDE 도구의 탭 닫기가 공유하는 `close_tab_and_finish` 가 닫힌 탭이
+  `TabKind::Terminal` 이면 그 `sessionId` 를 `TerminalStore::kill_session` 으로 즉시 회수한다
+  (T0 감사 #21, `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3 — **접합부 수정,
+  Phase D**: 사용자 결정 9 는 이 배선을 명시했으나 실구현 단계에서 어느 트랙도 실제 호출부를 연결하지
+  않아 `pty_kill`/`killPty` 호출부가 0건인 채 남아 있었다). **"포그라운드 자식 프로세스 실행 중이면
+  확인 다이얼로그"는 설계 의도로만 남아 있고 프론트에 실구현이 없다** — 현재는 무조건 즉시 kill 이다
+  (탭 닫기용 프론트 확인 다이얼로그가 미구현이라는 뜻이다 — `PtySession::foreground_pid`/
+  `TerminalStore::foreground_pids` 자체는 존재하며 시스템 사용량(`system/commands.rs`)·에이전트
+  감지 폴링(`lib.rs::poll_agents`, `agent/commands.rs`) 용도로 별도 쓰인다, 감사로 확인). ring
+  buffer 는
+  탭이 닫히며 그 view state 와 함께 사라진다(별도 해제 커맨드 없음). view 는 xterm `dispose`.
 - 프로세스 종료(exit) 감지: try_wait 폴링 또는 wait 스레드 → `terminal:exited` → 탭에
   "[process exited]" 표시 + 재시작 버튼.
 - view unmount(탭 전환): xterm dispose 하지 않고 DOM 분리 유지(활성 pane 내 다중 터미널 전환 시).
   프로젝트 전환으로 위젯 트리가 내려가면 xterm dispose — 재마운트 시 ring buffer 재생.
-- 앱 종료: 전 세션 kill(자식 프로세스 잔존 금지 — Drop + 명시 shutdown 이중화).
+- **프로젝트 닫기**: `project_close` 가 그 프로젝트 소유의 모든 pty 세션을
+  `TerminalStore::kill_project` 로 일괄 회수한다(T0 감사 #21 — 이전에는 프로젝트를 닫아도 세션이
+  앱 종료까지 계속 살아 있었다).
+- 앱 종료: 전 세션 kill(자식 프로세스 잔존 금지 — Drop + 명시 shutdown 이중화). `PtySession::drop`
+  이 kill 과 일시정지 게이트 해제(`pause.set_paused(false)`)를 함께 수행하므로(T0 감사 #21) 탭
+  닫기·프로젝트 닫기·앱 종료 중 어느 경로로 죽어도, 그리고 일시정지된 채로 죽어도 reader/flusher
+  스레드가 새지 않는다. `pty_kill` → `kill_project`/`kill_session` 순으로 중복 kill 이 겹쳐도
+  `kill()` 자체가 멱등해 무해하다.
 
 ## 11. 범위
 
@@ -228,7 +243,13 @@ incorrect lines or overwriting typed text"*.
 
 **P1**
 4. `pty_write`/`pty_resize`/`pty_set_paused` 를 전역 `begin_mutation` 락에서 **분리**.
-   현재 키 입력이 파일 저장·git 작업 뒤에 줄을 선다(`state.rs` mutation guard).
+   현재 키 입력이 파일 저장·git 작업 뒤에 줄을 선다(`state.rs` mutation guard). — 코드 확인 결과 세
+   커맨드 모두 애초에 `AppState::begin_mutation` 을 잡지 않는다(전역 락과는 무관). 실제 경합은
+   `TerminalStore` 자신의 내부 `Mutex<HashMap<...>>` 쪽이었다: `pty_write` 가 자식 프로세스 stdin 이
+   막혀 블로킹되는 동안 이 store 락을 붙들고 있어 다른 세션의 `pty_resize`/`pty_kill`·
+   `terminal_sessions` 전부가 줄을 섰다 — T0 감사 #20(`docs/acknowledge/
+   2026-08-18-audit-t0-fix-contract.md` §2.2)이 `pty_write` 를 "핸들 조회까지만 store 락, 실제
+   쓰기는 `PtySession` 이 소유한 `Arc<Mutex<Writer>>` 로" 분리해 해소했다.
 
 ### 12.5 수정 전 원인 판별 체크리스트
 

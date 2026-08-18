@@ -252,6 +252,21 @@ const createSession = async (
         onNotification: () => undefined,
     })
 
+    /**
+     * Registered on `client` immediately after it's created — *before* `spawnLspSession` even
+     * starts the server process, let alone before the `initialize` round-trip below resolves —
+     * so there is no window in which an inbound `workspace/applyEdit` could arrive unhandled by
+     * this session's own root-scoped handler. `client.ts`'s `handleServerRequest` checks this
+     * instance-level registry before the process-wide fallback registry
+     * (`server-request-handler-registry.ts`), and there is deliberately no fallback registered for
+     * this method there at all (see `workspace-edit-apply-handler.ts`'s `createWorkspaceApplyEditHandler`
+     * doc comment) — a request that outran this registration would otherwise let any session's
+     * server believe it could edit files under *any* open project, not just its own.
+     */
+    const applyEditDisposable = {
+        dispose: client.registerRequestHandler('workspace/applyEdit', createWorkspaceApplyEditHandler(monaco, root, client, projectId)),
+    }
+
     sessionId = await spawnLspSession({
         projectId,
         serverId,
@@ -272,15 +287,6 @@ const createSession = async (
 
     await client.initialize(buildInitializeParams(root, initializationOptions))
     const executeCommandsDisposable = registerSessionExecuteCommands(monaco, client, client.getCapabilities()?.executeCommandProvider?.commands)
-    /**
-     * Root-scoped per-session `workspace/applyEdit` handler (see `workspace-edit-apply-handler.ts`)
-     * — registered on this session's own `client` instance so it always wins over the unscoped
-     * process-wide fallback (`registerWorkspaceApplyEditHandler`, app bootstrap), and so this
-     * session's server can never be asked to believe it edited files under a different project.
-     */
-    const applyEditDisposable = {
-        dispose: client.registerRequestHandler('workspace/applyEdit', createWorkspaceApplyEditHandler(monaco, root, client, projectId)),
-    }
     /**
      * Session-scoped `workspace/semanticTokens/refresh` handler (contract §3.1, promised by the
      * `semanticTokens.refreshSupport` capability declared in `buildInitializeParams` above) — mirrors

@@ -103,7 +103,7 @@ pub fn open_file(path: &Path, plugins: &[LoadedPlugin]) -> AppResult<OpenedFile>
 }
 
 pub fn save_file(path: &Path, content: &str) -> AppResult<()> {
-    persist::write_atomic(path, content.as_bytes())
+    persist::write_atomic_preserving_mode(path, content.as_bytes())
 }
 
 pub fn create_entry(path: &Path, is_dir: bool) -> AppResult<()> {

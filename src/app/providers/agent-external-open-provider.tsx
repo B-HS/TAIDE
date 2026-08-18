@@ -8,7 +8,7 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { openTab } from '@entities/layout/layout.ipc'
 import { activateProject, listProjects, openProject } from '@entities/project/project.ipc'
-import { registerWaitMarker } from '@entities/agent/agent-wait-marker-registry'
+import { clearStaleWaitMarkersOnStartup, registerWaitMarker } from '@entities/agent/agent-wait-marker-registry'
 import { pendingExternalOpens, releaseWaitMarker } from '@entities/agent/agent.ipc'
 
 const PATH_SEPARATOR = '/'
@@ -73,6 +73,7 @@ export const AgentExternalOpenProvider: FC<PropsWithChildren> = ({ children }) =
     useTauriEvent(events.agentExternalOpen, () => void drainPendingExternalOpens(queryClient))
 
     useEffect(() => {
+        clearStaleWaitMarkersOnStartup()
         void drainPendingExternalOpens(queryClient)
     }, [queryClient])
 

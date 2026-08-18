@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import type { KeymapActionId } from '@shared/lib/keymap'
 import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { requestShowExplorerView, requestToggleExplorerSidebar } from '@shared/lib/explorer-panel-bridge'
-import { buildImeDebugReport } from '@shared/lib/ime-debug'
+import { buildImeDebugReport, isImeDebugEnabled } from '@shared/lib/ime-debug'
 import { i18next } from '@shared/i18n/i18n'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
@@ -261,6 +261,7 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
             await navigator.clipboard.writeText(buildImeDebugReport())
             toast.success(i18next.t('terminal.imeDebugCopied'))
         },
+        isEnabled: isImeDebugEnabled,
     },
     {
         id: 'tab.moveToNewWindow',

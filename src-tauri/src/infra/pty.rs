@@ -48,7 +48,7 @@ impl PauseGate {
 
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     pause: Arc<PauseGate>,
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -61,6 +61,14 @@ impl PtySession {
         writer.write_all(data)?;
         writer.flush()?;
         Ok(())
+    }
+
+    /// Hands out a clone of the same `Arc<Mutex<..>>` [`PtySession::write`] itself locks — not a
+    /// second, independent writer. Lets `terminal::commands::pty_write` release `TerminalStore`'s
+    /// lock before the (potentially blocking, if the child isn't draining its stdin) write, while
+    /// still writing through the one real writer every other path uses.
+    pub fn writer_handle(&self) -> Arc<Mutex<Box<dyn Write + Send>>> {
+        self.writer.clone()
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> AppResult<()> {
@@ -95,6 +103,23 @@ impl PtySession {
     #[cfg(not(any(unix, windows)))]
     pub fn foreground_pid(&self) -> Option<u32> {
         None
+    }
+}
+
+/// Guarantees a `PtySession` never leaks its reader/flusher threads or its child process, no matter
+/// how it stops being reachable — an explicit `pty_kill`, `TerminalStore::kill_project`/`kill_all`
+/// dropping the map entry, or a panic unwinding through the store's lock. `pause.set_paused(false)`
+/// must run *before* `kill`: the reader thread parked in `wait_while_paused` only wakes on the
+/// pause condvar's `notify_all`, never on the child dying, so a session killed while paused
+/// (`pty_set_paused(true)` with no matching `false` before close) previously left both the reader
+/// thread and the flusher thread it gates (`draining` only flips once the reader thread's read loop
+/// exits) parked forever — two threads leaked per paused-then-killed session. Killing first would
+/// still leave the reader blocked on the condvar since the child's death doesn't touch the pause
+/// gate at all.
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        self.pause.set_paused(false);
+        let _ = self.killer.lock().kill();
     }
 }
 
@@ -251,7 +276,7 @@ where
 
     Ok(PtySession {
         master,
-        writer: Mutex::new(writer),
+        writer: Arc::new(Mutex::new(writer)),
         killer: Mutex::new(killer),
         pause,
         shell_pid,
@@ -380,5 +405,33 @@ mod tests {
         let argv = cmd.get_argv();
         assert_eq!(argv[0], std::ffi::OsString::from("/bin/bash"));
         assert_eq!(argv[1], std::ffi::OsString::from("--init-file"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drop은_일시정지된_세션도_자식_프로세스를_종료시킨다() {
+        let config = base_config(Some("/bin/sh"));
+        let exited = Arc::new(AtomicBool::new(false));
+        let exited_for_exit = exited.clone();
+
+        let session = spawn(
+            config,
+            |_bytes| {},
+            move |_code| exited_for_exit.store(true, AtomicOrdering::SeqCst),
+        )
+        .expect("스폰 성공");
+
+        session.set_paused(true);
+        drop(session);
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !exited.load(AtomicOrdering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        assert!(
+            exited.load(AtomicOrdering::SeqCst),
+            "reader 스레드가 paused 상태여도 drop 이 자식 프로세스를 종료시켜야 한다"
+        );
     }
 }

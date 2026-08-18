@@ -64,6 +64,25 @@ pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> AppResult<()> {
     write_atomic_with_mode(path, bytes, PRIVATE_FILE_MODE)
 }
 
+/// Rewrites an existing file atomically while preserving whatever permission bits it already had —
+/// `write_atomic`'s create-new-temp-then-rename otherwise loses them, because the fresh temp file
+/// only ever gets the process umask's default mode. Without this, the first time the app rewrites a
+/// user's executable script (`chmod +x deploy.sh`) via `file_save` or a project-wide
+/// `search_replace`, the rewrite silently clears its execute bit. Falls back to `write_atomic`'s
+/// default-mode behavior when the target doesn't exist yet (nothing to preserve — a brand new file)
+/// or on non-Unix targets, where permission bits don't carry the same meaning.
+pub fn write_atomic_preserving_mode(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mode = metadata.permissions().mode() & 0o777;
+            return write_atomic_with_mode(path, bytes, mode);
+        }
+    }
+    write_atomic(path, bytes)
+}
+
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> AppResult<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     write_atomic(path, &bytes)
@@ -151,6 +170,37 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .count();
         assert_eq!(leftovers, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_preserving_mode_은_기존_실행_비트를_유지한다() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("taide-preserve-mode-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("deploy.sh");
+        std::fs::create_dir_all(&dir).expect("setup dir");
+        std::fs::write(&path, b"#!/bin/sh\necho old\n").expect("initial write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod +x");
+
+        write_atomic_preserving_mode(&path, b"#!/bin/sh\necho new\n").expect("rewrite");
+
+        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "재작성 후에도 실행 비트가 남아있어야 한다");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "#!/bin/sh\necho new\n");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_atomic_preserving_mode_은_새_파일이면_기본_모드로_기록한다() {
+        let dir = std::env::temp_dir().join(format!("taide-preserve-mode-new-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("fresh.txt");
+
+        let result = write_atomic_preserving_mode(&path, b"hello");
+
+        assert!(result.is_ok());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
         std::fs::remove_dir_all(&dir).ok();
     }
 

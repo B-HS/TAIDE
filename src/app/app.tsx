@@ -5,6 +5,7 @@ import { AgentExternalOpenProvider } from '@app/providers/agent-external-open-pr
 import { AppProviders } from '@app/providers/app-providers'
 import { EmmetProvider } from '@app/providers/emmet-provider'
 import { HotExitFlushProvider } from '@app/providers/hot-exit-flush-provider'
+import { IdeSyncProvider } from '@app/providers/ide-sync-provider'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
 import { LocaleProvider } from '@app/providers/locale-provider'
 import { ThemeProvider } from '@app/providers/theme-provider'
@@ -18,11 +19,16 @@ import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
 /**
  * Branches the whole provider tree on `getWindowContext()` (contract §3.1) — an auxiliary editor
  * window renders `AuxiliaryWindowShell` pinned to its own `(projectId, windowSlot)` instead of
- * `AppShell`, and skips four things the main-window tree mounts:
+ * `AppShell`, and skips five things the main-window tree mounts:
  *
  * - `AgentExternalOpenProvider`: its `openProject`/`activateProject` calls mutate the single global
  *   active-project session, which an auxiliary window must never do to itself (it stays pinned to
  *   its own project regardless of what the main window has active).
+ * - `IdeSyncProvider`: the backend broadcasts the Claude Code IDE protocol events it handles
+ *   (`ide:diff-requested`/`ide:save-requested`/`ide:close-tab-requested`) to every window via a
+ *   plain `.emit(app)`, so mounting it in both branches would race both windows to open/resolve the
+ *   same request twice; its diagnostics push also reads the global active-project session, same as
+ *   `AgentExternalOpenProvider` above.
  * - `CommandPalette` / `KeybindingsEditor` / `TaskRunnerDialog`: all three key off
  *   `activeProjectQueryOptions()` internally (that same global session), not this window's fixed
  *   project — rescoping them per-window is a `widgets/command-palette`/`widgets/keybindings-editor`/
@@ -60,16 +66,18 @@ export const App = () => {
             <IpcSyncProvider>
                 <HotExitFlushProvider>
                     <AgentExternalOpenProvider>
-                        <LocaleProvider>
-                            <ThemeProvider>
-                                <EmmetProvider>
-                                    <AppShell />
-                                    <CommandPalette />
-                                    <KeybindingsEditor />
-                                    <TaskRunnerDialog />
-                                </EmmetProvider>
-                            </ThemeProvider>
-                        </LocaleProvider>
+                        <IdeSyncProvider>
+                            <LocaleProvider>
+                                <ThemeProvider>
+                                    <EmmetProvider>
+                                        <AppShell />
+                                        <CommandPalette />
+                                        <KeybindingsEditor />
+                                        <TaskRunnerDialog />
+                                    </EmmetProvider>
+                                </ThemeProvider>
+                            </LocaleProvider>
+                        </IdeSyncProvider>
                     </AgentExternalOpenProvider>
                 </HotExitFlushProvider>
             </IpcSyncProvider>

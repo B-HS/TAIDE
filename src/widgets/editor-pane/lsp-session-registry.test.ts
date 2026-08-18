@@ -14,9 +14,12 @@ const FAKE_MONACO = { Uri: { file: (path: string) => ({ toString: () => `file://
 
 type CapturedSpawn = { onMessage: (raw: string) => void }
 
+type SentMessage = { id?: number | string; method?: string; result?: unknown; error?: unknown }
+
 const createFakeLspIpc = () => {
     const spawns: CapturedSpawn[] = []
     const stopCalls: { sessionId: string; root: string | undefined }[] = []
+    const sentMessages: SentMessage[] = []
     let nextSessionId = 0
 
     const spawnLspSession = (args: { onMessage: (raw: string) => void }) => {
@@ -30,10 +33,13 @@ const createFakeLspIpc = () => {
      * `createSession`'s `await client.initialize(...)` — and therefore `record.ready` — actually
      * fulfills, instead of every acquired record staying permanently pending/rejected the way a
      * real Tauri-less test environment would leave it. Mirrors the exact JSON-RPC response shape
-     * `isJsonRpcResponse` (`protocol.ts`) requires.
+     * `isJsonRpcResponse` (`protocol.ts`) requires. Every outgoing message is also logged to
+     * `sentMessages` (not just `initialize`) so a test can assert on the client's response to an
+     * inbound server→client request (e.g. `workspace/applyEdit`) without adding a second fake.
      */
     const sendLspMessage = ({ sessionId: _sessionId, message }: { sessionId: string; message: string }) => {
-        const parsed = JSON.parse(message) as { id?: number; method?: string }
+        const parsed = JSON.parse(message) as SentMessage
+        sentMessages.push(parsed)
         if (parsed.method === 'initialize' && parsed.id !== undefined) {
             const latestSpawn = spawns.at(-1)
             queueMicrotask(() => latestSpawn?.onMessage(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: { capabilities: {} } })))
@@ -48,7 +54,7 @@ const createFakeLspIpc = () => {
 
     const resolveLspRoot = () => Promise.resolve(null)
 
-    return { spawnLspSession, sendLspMessage, stopLspSession, resolveLspRoot, stopCalls }
+    return { spawnLspSession, sendLspMessage, stopLspSession, resolveLspRoot, spawns, stopCalls, sentMessages }
 }
 
 const fakeLspIpc = createFakeLspIpc()
@@ -216,5 +222,44 @@ describe('waitForLspSession — 유예 중 세션 이중 수신 방지', () => {
 
         expect(await waiter.promise).toBe(handle.record)
         expect(resolveCount).toBe(1)
+    })
+})
+
+describe('createSession — workspace/applyEdit 세션 핸들러 등록 시점 (T0 계약 #6)', () => {
+    test('initialize 왕복이 끝나기 전에 도착한 workspace/applyEdit 요청도 이 세션의 root 스코프 핸들러가 처리한다', async () => {
+        const { acquireLspSession } = await importRegistry()
+
+        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-early-apply-edit`, '/tmp/project-early')
+        /**
+         * `spawnLspSession` (the fake below) pushes onto `fakeLspIpc.spawns` synchronously, before
+         * returning its already-resolved promise — so by the time `acquireLspSession` returns
+         * control here (still before `createSession`'s `await spawnLspSession(...)` has actually
+         * suspended the caller), the spawn for this session is already captured. Firing an inbound
+         * `workspace/applyEdit` request through it *here* — before ever awaiting `handle.record.ready`
+         * — simulates a server response that outraces the `initialize` round-trip. Only the fix for
+         * contract #6 (registering the root-scoped handler on `client` before `spawnLspSession` is
+         * even called) makes this resolve as a handled edit instead of `-32601 MethodNotFound` —
+         * there is deliberately no rootless process-wide fallback left to catch it (see
+         * `workspace-edit-apply-handler.ts`).
+         */
+        const latestSpawn = fakeLspIpc.spawns.at(-1)
+        latestSpawn?.onMessage(
+            JSON.stringify({ jsonrpc: '2.0', id: 'early-apply-edit', method: 'workspace/applyEdit', params: { edit: { changes: {} } } }),
+        )
+
+        await handle.record.ready
+        /**
+         * The injected `workspace/applyEdit` request is handled on a promise chain
+         * (`client.ts`'s `void handleServerRequest(raw)`) independent of `record.ready`'s own
+         * `initialize` chain — awaiting `record.ready` alone doesn't guarantee that detached chain
+         * has reached `deps.send` yet. A macrotask flush drains every microtask queued by either
+         * chain first, matching this file's existing pattern for asserting on similarly detached
+         * fire-and-forget calls (e.g. `stopLspSession`'s `.catch()` above).
+         */
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        const response = fakeLspIpc.sentMessages.find((message) => message.id === 'early-apply-edit')
+        expect(response?.error).toBeUndefined()
+        expect(response?.result).toEqual({ applied: true })
     })
 })

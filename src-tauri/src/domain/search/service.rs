@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::infra::persist;
 use crate::infra::root_guard;
 
-use super::types::{SearchMatch, SearchQuery, SearchReplaceResult, SEARCH_MATCH_LIMIT};
+use super::types::{SearchMatch, SearchQuery, SEARCH_MATCH_LIMIT};
 
 const BINARY_SNIFF_BYTES: usize = 8_000;
 const PREVIEW_TRUNCATE_THRESHOLD_BYTES: usize = 200;
@@ -87,6 +87,17 @@ fn matches_for_line(line: &str, query: &SearchQuery, mode: &MatchMode<'_>) -> Ve
         MatchMode::Literal => find_matches_in_line(line, query),
         MatchMode::Regex(regex) => find_regex_matches_in_line(line, regex, query.whole_word),
     }
+}
+
+/// Converts a byte offset within `text` (as produced by `str::find`/`Regex::find_iter`, always
+/// char-boundary-aligned) to the number of UTF-16 code units that precede it — the unit Monaco's
+/// `column`/`Position` and JS `String.slice` both use. Rust's own string indices are UTF-8 byte
+/// offsets, so passing them straight through under-counts every match preceded by a multi-byte
+/// character: ASCII text is off by nothing, but anything after non-ASCII (Korean, emoji, ...) lands
+/// on the wrong column/highlight span in the editor. See
+/// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3 (#23).
+fn byte_offset_to_utf16_units(text: &str, byte_offset: usize) -> u32 {
+    text[..byte_offset].chars().map(char::len_utf16).sum::<usize>() as u32
 }
 
 fn char_boundary_at_or_before(s: &str, byte_index: usize) -> usize {
@@ -229,13 +240,16 @@ fn search_file(
             }
 
             let (preview, preview_start, preview_end) = build_preview(line, match_start, match_end);
+            let column = byte_offset_to_utf16_units(line, match_start as usize) + 1;
+            let preview_match_start = byte_offset_to_utf16_units(&preview, preview_start as usize);
+            let preview_match_end = byte_offset_to_utf16_units(&preview, preview_end as usize);
             on_match(SearchMatch {
                 path: path_string.clone(),
                 line: (line_index + 1) as u32,
-                column: match_start,
+                column,
                 preview,
-                match_start: preview_start,
-                match_end: preview_end,
+                match_start: preview_match_start,
+                match_end: preview_match_end,
                 before: context_before(&lines, line_index, context),
                 after: context_after(&lines, line_index, context),
             });
@@ -381,50 +395,46 @@ fn replace_in_file(path: &Path, query: &SearchQuery, mode: &MatchMode<'_>, repla
         return None;
     }
 
-    persist::write_atomic(path, output.as_bytes()).ok()?;
+    persist::write_atomic_preserving_mode(path, output.as_bytes()).ok()?;
     Some(file_matches)
 }
 
-pub fn replace(root: &Path, query: &SearchQuery, replacement: &str, paths: Option<&[PathBuf]>) -> AppResult<SearchReplaceResult> {
-    if query.text.is_empty() {
-        return Ok(SearchReplaceResult {
-            changed_files: 0,
-            replaced_matches: 0,
-        });
-    }
-
-    let compiled_regex = if query.regex { Some(compile_regex(query)?) } else { None };
-    let mode = match &compiled_regex {
-        Some(regex) => MatchMode::Regex(regex),
-        None => MatchMode::Literal,
-    };
-
-    let target_files = match paths {
+/// Resolves `search_replace`'s target file list without touching disk otherwise — `paths` (an
+/// explicit selection, e.g. "replace in these open tabs only") is validated against `root` the same
+/// way a full-project replace's tree walk already confines itself, so both call shapes share one
+/// root-escape guard.
+pub fn resolve_replace_targets(root: &Path, query: &SearchQuery, paths: Option<&[PathBuf]>) -> Vec<PathBuf> {
+    match paths {
         Some(explicit) => explicit
             .iter()
             .filter_map(|path| root_guard::ensure_within_root(root, path).ok())
-            .collect::<Vec<_>>(),
+            .collect(),
         None => collect_project_files(root, query),
-    };
-
-    let mut changed_files = 0u32;
-    let mut replaced_matches = 0u32;
-
-    for path in target_files {
-        if let Some(count) = replace_in_file(&path, query, &mode, replacement) {
-            changed_files += 1;
-            replaced_matches += count;
-        }
     }
+}
 
-    Ok(SearchReplaceResult {
-        changed_files,
-        replaced_matches,
-    })
+pub fn compile_optional_regex(query: &SearchQuery) -> AppResult<Option<Regex>> {
+    if query.regex {
+        compile_regex(query).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+/// Applies one replace pass to a single file — the unit `search_replace`'s command handler calls
+/// once per file so it can reacquire `AppState::begin_mutation`'s lock between files instead of
+/// holding it for a whole project-wide replace (see that command's doc comment).
+pub fn replace_one_file(path: &Path, query: &SearchQuery, compiled_regex: Option<&Regex>, replacement: &str) -> Option<u32> {
+    let mode = match compiled_regex {
+        Some(regex) => MatchMode::Regex(regex),
+        None => MatchMode::Literal,
+    };
+    replace_in_file(path, query, &mode, replacement)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::SearchReplaceResult;
     use super::*;
 
     fn query(text: &str) -> SearchQuery {
@@ -594,6 +604,43 @@ mod tests {
     }
 
     #[test]
+    fn ascii_매치의_컬럼은_1부터_시작하는_utf16_코드유닛이다() {
+        let fixture = build_fixture();
+        let mut results = Vec::new();
+        let cancelled = AtomicBool::new(false);
+
+        search(&fixture.root, &query("needle"), &cancelled, |item| results.push(item)).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].column, 15,
+            "'    println!(\"' 는 14바이트(=14 UTF-16 코드유닛)이므로 1-based 컬럼은 15여야 한다"
+        );
+    }
+
+    fn build_korean_fixture() -> Fixture {
+        let root = std::env::temp_dir().join(format!("taide-search-korean-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("korean.txt"), "한글 needle 뒤\n").unwrap();
+        Fixture { root }
+    }
+
+    #[test]
+    fn 한글_뒤_매치는_바이트가_아닌_utf16_코드유닛_기준으로_컬럼을_계산한다() {
+        let fixture = build_korean_fixture();
+        let mut results = Vec::new();
+        let cancelled = AtomicBool::new(false);
+
+        search(&fixture.root, &query("needle"), &cancelled, |item| results.push(item)).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].column, 4,
+            "'한글 '은 UTF-16 코드유닛 3개(한·글·공백)이므로 1-based 컬럼은 4여야 한다 (바이트 기준이면 8이 되어 어긋난다: 한/글 각 3바이트+공백 1바이트=7, +1=8)"
+        );
+    }
+
+    #[test]
     fn 파일_트리에서_정규식_검색이_동작한다() {
         let fixture = build_fixture();
         let mut q = query("n.+dle");
@@ -712,6 +759,29 @@ mod tests {
         let root = std::env::temp_dir().join(format!("taide-replace-{label}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    /// Mirrors `search_replace`'s command-layer orchestration (`resolve_replace_targets` once,
+    /// then `replace_one_file` per target) — the decomposition production actually calls, since
+    /// there is no longer a single `replace` entry point to test against.
+    fn replace(root: &Path, query: &SearchQuery, replacement: &str, paths: Option<&[PathBuf]>) -> AppResult<SearchReplaceResult> {
+        let compiled_regex = compile_optional_regex(query)?;
+        let target_files = resolve_replace_targets(root, query, paths);
+
+        let mut changed_files = 0u32;
+        let mut replaced_matches = 0u32;
+
+        for path in &target_files {
+            if let Some(count) = replace_one_file(path, query, compiled_regex.as_ref(), replacement) {
+                changed_files += 1;
+                replaced_matches += count;
+            }
+        }
+
+        Ok(SearchReplaceResult {
+            changed_files,
+            replaced_matches,
+        })
     }
 
     #[test]

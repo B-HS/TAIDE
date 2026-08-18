@@ -265,11 +265,28 @@ fn sanitize_recent_searches(mut searches: Vec<String>) -> Vec<String> {
     searches
 }
 
-fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
+/// Merges a patch value for a "clearable" `Option<String>` settings field: `None` leaves the field
+/// untouched (the patch omitted it), `Some("")` clears it back to `None`, and any other `Some(value)`
+/// replaces it. A plain `Option<String>` patch field can otherwise only express two states (touch /
+/// don't touch), which collapses "clear this back to the system default" and "leave it alone" into
+/// the same `None` on the wire — `ai_omlx_base_url` was the one field that already worked around
+/// this with its own empty-string convention; this generalizes that convention to every other
+/// clearable string field (font family pickers' "System Default", the shell override picker's
+/// "Default shell", the AI provider/model pickers) instead of leaving them all with the same gap
+/// `font-picker.tsx`'s "System Default" selection hit. See
+/// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §1 결정 7.
+fn merge_clearable_string(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
     match patch_value {
         None => existing.cloned(),
         Some(value) if value.is_empty() => None,
-        Some(value) => sanitize_optional_url(Some(value.clone())).or_else(|| existing.cloned()),
+        Some(value) => Some(value.clone()),
+    }
+}
+
+fn merge_ai_omlx_base_url(patch_value: Option<&String>, existing: Option<&String>) -> Option<String> {
+    match patch_value {
+        Some(value) if !value.is_empty() => sanitize_optional_url(Some(value.clone())).or_else(|| existing.cloned()),
+        _ => merge_clearable_string(patch_value, existing),
     }
 }
 
@@ -311,14 +328,14 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         theme_id: patch.theme_id.clone().unwrap_or_else(|| settings.theme_id.clone()),
         editor_font_size: patch.editor_font_size.unwrap_or(settings.editor_font_size),
         terminal_font_size: patch.terminal_font_size.unwrap_or(settings.terminal_font_size),
-        shell_override: patch.shell_override.clone().or_else(|| settings.shell_override.clone()),
+        shell_override: merge_clearable_string(patch.shell_override.as_ref(), settings.shell_override.as_ref()),
         follow_system_theme: patch.follow_system_theme.unwrap_or(settings.follow_system_theme),
         language: patch.language.clone().unwrap_or_else(|| settings.language.clone()),
         toast_position: patch.toast_position.clone().unwrap_or_else(|| settings.toast_position.clone()),
         resizer_thickness: patch.resizer_thickness.unwrap_or(settings.resizer_thickness),
-        editor_font_family: patch.editor_font_family.clone().or_else(|| settings.editor_font_family.clone()),
-        terminal_font_family: patch.terminal_font_family.clone().or_else(|| settings.terminal_font_family.clone()),
-        ui_font_family: patch.ui_font_family.clone().or_else(|| settings.ui_font_family.clone()),
+        editor_font_family: merge_clearable_string(patch.editor_font_family.as_ref(), settings.editor_font_family.as_ref()),
+        terminal_font_family: merge_clearable_string(patch.terminal_font_family.as_ref(), settings.terminal_font_family.as_ref()),
+        ui_font_family: merge_clearable_string(patch.ui_font_family.as_ref(), settings.ui_font_family.as_ref()),
         format_on_save: patch.format_on_save.unwrap_or(settings.format_on_save),
         auto_save_delay_ms: patch.auto_save_delay_ms.unwrap_or(settings.auto_save_delay_ms),
         keymap_overrides: patch.keymap_overrides.clone().or_else(|| settings.keymap_overrides.clone()),
@@ -361,8 +378,8 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
         enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
         ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
-        ai_provider: patch.ai_provider.clone().or_else(|| settings.ai_provider.clone()),
-        ai_model: patch.ai_model.clone().or_else(|| settings.ai_model.clone()),
+        ai_provider: merge_clearable_string(patch.ai_provider.as_ref(), settings.ai_provider.as_ref()),
+        ai_model: merge_clearable_string(patch.ai_model.as_ref(), settings.ai_model.as_ref()),
         ai_omlx_base_url: merge_ai_omlx_base_url(patch.ai_omlx_base_url.as_ref(), settings.ai_omlx_base_url.as_ref()),
         sync_gist_id: settings.sync_gist_id.clone(),
         sync_last_synced_at: settings.sync_last_synced_at.clone(),
@@ -723,6 +740,63 @@ mod tests {
         let updated = apply_patch(&settings, &patch);
 
         assert_eq!(updated.ai_omlx_base_url, Some("http://localhost:8000".to_string()));
+    }
+
+    #[test]
+    fn 빈_문자열_패치는_해제_가능한_옵션_문자열_필드를_모두_해제한다() {
+        let settings = Settings {
+            shell_override: Some("/bin/zsh".to_string()),
+            editor_font_family: Some("Fira Code".to_string()),
+            terminal_font_family: Some("Fira Code".to_string()),
+            ui_font_family: Some("Fira Code".to_string()),
+            ai_provider: Some("codex".to_string()),
+            ai_model: Some("gpt-5".to_string()),
+            ..Settings::default()
+        };
+        let patch = SettingsPatch {
+            shell_override: Some(String::new()),
+            editor_font_family: Some(String::new()),
+            terminal_font_family: Some(String::new()),
+            ui_font_family: Some(String::new()),
+            ai_provider: Some(String::new()),
+            ai_model: Some(String::new()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.shell_override, None);
+        assert_eq!(updated.editor_font_family, None);
+        assert_eq!(updated.terminal_font_family, None);
+        assert_eq!(updated.ui_font_family, None);
+        assert_eq!(updated.ai_provider, None);
+        assert_eq!(updated.ai_model, None);
+    }
+
+    #[test]
+    fn 패치를_생략한_옵션_문자열_필드는_구_클라이언트처럼_기존값을_그대로_보존한다() {
+        let settings = Settings {
+            shell_override: Some("/bin/zsh".to_string()),
+            editor_font_family: Some("Fira Code".to_string()),
+            terminal_font_family: Some("Fira Code".to_string()),
+            ui_font_family: Some("Fira Code".to_string()),
+            ai_provider: Some("codex".to_string()),
+            ai_model: Some("gpt-5".to_string()),
+            ..Settings::default()
+        };
+        let patch = SettingsPatch {
+            editor_font_size: Some(16),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.shell_override, settings.shell_override);
+        assert_eq!(updated.editor_font_family, settings.editor_font_family);
+        assert_eq!(updated.terminal_font_family, settings.terminal_font_family);
+        assert_eq!(updated.ui_font_family, settings.ui_font_family);
+        assert_eq!(updated.ai_provider, settings.ai_provider);
+        assert_eq!(updated.ai_model, settings.ai_model);
     }
 
     #[test]

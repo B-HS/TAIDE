@@ -998,6 +998,7 @@ fn build_patch_text(relative: &str, hunk: &SelectedHunk, sides: PatchFileSides) 
 
 pub fn commit_files(repo_path: &Path, rev: &str) -> AppResult<Vec<CommitFile>> {
     let repo = open_repo(repo_path)?;
+    let workdir = repo_workdir(&repo)?;
     let object = repo.revparse_single(rev).map_err(map_git_err)?;
     let commit = object.peel_to_commit().map_err(map_git_err)?;
     let tree = commit.tree().map_err(map_git_err)?;
@@ -1015,7 +1016,13 @@ pub fn commit_files(repo_path: &Path, rev: &str) -> AppResult<Vec<CommitFile>> {
         let path = new_path.clone().or_else(|| old_path.clone()).unwrap_or_default();
         let orig_path = old_path.filter(|orig| Some(orig) != new_path.as_ref());
 
-        out.push(CommitFile { path, orig_path, kind });
+        out.push(CommitFile {
+            abs_path: workdir.join(&path).to_string_lossy().into_owned(),
+            orig_abs_path: orig_path.as_ref().map(|orig| workdir.join(orig).to_string_lossy().into_owned()),
+            path,
+            orig_path,
+            kind,
+        });
     }
 
     Ok(out)
@@ -1130,9 +1137,16 @@ pub fn revert_commit(repo_path: &Path, rev: &str) -> AppResult<RevertOutcome> {
 
     let mut index = repo.index().map_err(map_git_err)?;
     if index.has_conflicts() {
+        let conflicted_paths = conflicted_index_paths(&index)?;
+        let workdir = repo_workdir(&repo)?;
+        let conflicted_abs_paths = conflicted_paths
+            .iter()
+            .map(|path| workdir.join(path).to_string_lossy().into_owned())
+            .collect();
         return Ok(RevertOutcome {
             conflicted: true,
-            conflicted_paths: conflicted_index_paths(&index)?,
+            conflicted_paths,
+            conflicted_abs_paths,
         });
     }
 
@@ -1154,6 +1168,7 @@ pub fn revert_commit(repo_path: &Path, rev: &str) -> AppResult<RevertOutcome> {
     Ok(RevertOutcome {
         conflicted: false,
         conflicted_paths: Vec::new(),
+        conflicted_abs_paths: Vec::new(),
     })
 }
 
@@ -1528,6 +1543,7 @@ fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
 }
 
 fn collect_status_rows(repo: &Repository) -> AppResult<Vec<StatusRow>> {
+    let workdir = repo_workdir(repo)?;
     let mut opts = git2::StatusOptions::new();
     opts.show(git2::StatusShow::IndexAndWorkdir)
         .include_untracked(true)
@@ -1557,6 +1573,8 @@ fn collect_status_rows(repo: &Repository) -> AppResult<Vec<StatusRow>> {
             .filter(|orig| orig != path);
 
         rows.push(StatusRow {
+            abs_path: workdir.join(path).to_string_lossy().into_owned(),
+            orig_abs_path: orig_path.as_ref().map(|orig| workdir.join(orig).to_string_lossy().into_owned()),
             path: path.to_string(),
             orig_path,
             staged: staged_change_kind(flags),
@@ -1846,6 +1864,19 @@ mod tests {
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0].unstaged, Some(GitChangeKind::Untracked));
         assert_eq!(result.rows[0].staged, None);
+    }
+
+    #[test]
+    fn status의_abs_path는_저장소_루트_기준_절대경로다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "hello");
+
+        let result = status(repo.path()).expect("status");
+
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0].path, "a.txt");
+        let expected_root = std::fs::canonicalize(repo.path()).unwrap_or_else(|_| repo.path().to_path_buf());
+        assert_eq!(PathBuf::from(&result.rows[0].abs_path), expected_root.join("a.txt"));
     }
 
     #[test]
@@ -2482,6 +2513,10 @@ mod tests {
         assert!(files.iter().all(|file| file.kind == GitChangeKind::Added));
         assert!(files.iter().any(|file| file.path == "a.txt"));
         assert!(files.iter().any(|file| file.path == "b.txt"));
+
+        let a = files.iter().find(|file| file.path == "a.txt").expect("a.txt in diff");
+        let expected_root = std::fs::canonicalize(repo.path()).unwrap_or_else(|_| repo.path().to_path_buf());
+        assert_eq!(PathBuf::from(&a.abs_path), expected_root.join("a.txt"));
     }
 
     #[test]
@@ -2799,6 +2834,11 @@ mod tests {
 
         assert!(outcome.conflicted);
         assert_eq!(outcome.conflicted_paths, vec!["a.txt".to_string()]);
+        let expected_root = std::fs::canonicalize(repo.path()).unwrap_or_else(|_| repo.path().to_path_buf());
+        assert_eq!(
+            outcome.conflicted_abs_paths,
+            vec![expected_root.join("a.txt").to_string_lossy().into_owned()]
+        );
         let result = status(repo.path()).expect("status");
         assert!(result.rows.iter().any(|row| row.is_conflicted));
     }

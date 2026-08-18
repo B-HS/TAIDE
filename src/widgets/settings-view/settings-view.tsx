@@ -536,7 +536,9 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                                     label={t('settings.editorFontFamily')}
                                     fonts={fonts}
                                     value={settings.editorFontFamily ?? null}
-                                    onSelect={(editorFontFamily) => updateSettings({ ...emptySettingsPatch(), editorFontFamily })}
+                                    onSelect={(editorFontFamily) =>
+                                        updateSettings({ ...emptySettingsPatch(), editorFontFamily: editorFontFamily ?? '' })
+                                    }
                                 />
                             )}
                             <label className='flex items-center justify-between gap-3 text-xs'>
@@ -742,14 +744,16 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                                     label={t('settings.terminalFontFamily')}
                                     fonts={fonts}
                                     value={settings.terminalFontFamily ?? null}
-                                    onSelect={(terminalFontFamily) => updateSettings({ ...emptySettingsPatch(), terminalFontFamily })}
+                                    onSelect={(terminalFontFamily) =>
+                                        updateSettings({ ...emptySettingsPatch(), terminalFontFamily: terminalFontFamily ?? '' })
+                                    }
                                 />
                             )}
                             <TextField
                                 label={t('settings.shell')}
                                 value={settings.shellOverride ?? ''}
                                 placeholder='/bin/zsh'
-                                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), shellOverride: value.trim() || null })}
+                                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), shellOverride: value.trim() })}
                             />
                             {isShellPending ? (
                                 <span className='text-app-sidebar-icon-default text-xs'>{t('settings.loading')}</span>
@@ -830,7 +834,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                                 label={t('settings.aiProviderLabel')}
                                 options={AI_PROVIDER_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
                                 value={selectedAiProvider}
-                                onSelect={(providerId) => updateSettings({ ...emptySettingsPatch(), aiProvider: providerId, aiModel: null })}
+                                onSelect={(providerId) => updateSettings({ ...emptySettingsPatch(), aiProvider: providerId, aiModel: '' })}
                             />
                             {isSelectedAiProviderConfigured && isAiModelsError && (
                                 <span className='text-status-error text-xs'>

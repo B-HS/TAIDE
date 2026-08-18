@@ -6,9 +6,15 @@
 
 ## 1. 상태 모델
 
-- Rust git 도메인이 `StatusRow { path, origPath, staged, unstaged, isConflicted }` 로 **정규화해서** 넘긴다
-  (비트플래그를 프론트로 넘기지 않음 — research 적용 가이드). 한 파일이 staged·unstaged 를 동시에 가질 수
-  있으므로 두 그룹에 각각 나타난다(VSCode 동일).
+- Rust git 도메인이 `StatusRow { path, absPath, origPath, origAbsPath, staged, unstaged, isConflicted }` 로
+  **정규화해서** 넘긴다(비트플래그를 프론트로 넘기지 않음 — research 적용 가이드). 한 파일이
+  staged·unstaged 를 동시에 가질 수 있으므로 두 그룹에 각각 나타난다(VSCode 동일). `path`/`origPath`
+  는 저장소-상대 경로(git 커맨드에 그대로 되돌려 쓴다 — stage/unstage/discard/diff), `absPath`/
+  `origAbsPath`(T0 감사 #18, `docs/data-model.md` §13)는 파일 도메인이 요구하는 절대경로다. 소비부
+  (`git-panel.tsx`)는 "파일 열기"·"경로 복사"·"탐색기에 표시" 에서만 `absPath` 를 쓰고, git 동작
+  (stage/unstage/discard/diff 탭 열기)에는 계속 `path` 를 쓴다 — repo-relative 경로를 현재 활성
+  프로젝트 루트 기준으로 잘못 재해석해 다른 파일을 열거나 덮어쓰는 사고(다중 프로젝트·워크트리)를
+  막기 위한 구분이다.
 - 상태 분류: Modified(M)·Added(A)·Deleted(D)·Renamed(R)·Untracked(U)·TypeChange(T)·Conflicted(!).
   Copied(C)는 statuses 로 검출 불가(research 확인) — 표시하지 않는다.
 - 상태 문자·색은 `git.*` 테마 토큰만 사용(하드코딩 금지).

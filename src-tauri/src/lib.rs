@@ -307,7 +307,13 @@ fn flush_dirty_layouts(state: &AppState) {
         let layouts = state.layouts.read();
         dirty
             .into_iter()
-            .filter_map(|project_id| layouts.get(&project_id).cloned().map(|layout| (project_id, layout)))
+            .filter_map(|project_id| match layouts.get(&project_id) {
+                Some(layout) => Some((project_id, layout.clone())),
+                None => {
+                    log::warn!("dirty_layouts 에 등록된 프로젝트의 레이아웃을 찾을 수 없어 저장을 건너뜁니다: {project_id}");
+                    None
+                }
+            })
             .collect()
     };
 
@@ -661,7 +667,6 @@ pub fn run() {
                 LspSessionStatusChanged,
                 LspInstallProgress,
                 AgentStateChanged,
-                AgentExternalOpen,
                 IdeStatusChanged,
                 IdeDiffRequested,
                 IdeSaveRequested,

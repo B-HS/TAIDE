@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::domain::theme::types::{ResolvedTheme, SyntaxStyle, Theme, ThemeSummary, ThemeType, TokenColorRule, THEME_SCHEMA_VERSION};
 use crate::error::{AppError, AppResult};
 use crate::infra::persist;
+use crate::infra::root_guard;
 use crate::paths::AppPaths;
 
 pub const BUILTIN_DARK_ID: &str = "taide-dark";
@@ -929,7 +930,17 @@ pub fn save_theme(paths: &AppPaths, theme: &Theme) -> AppResult<ThemeSummary> {
     Ok(summarize(theme, false))
 }
 
+/// `save_theme` above rejects a `theme.id` containing `/`, `\`, or `.` before it ever reaches a
+/// path join, but `delete_theme`/`load_theme` used to build `themes_dir().join(theme_id)` straight
+/// from their caller-supplied `theme_id` with no such check — a `theme_id` of `"../../../.ssh/id_rsa"`
+/// (or any other `..`-laden value) escaped `themes_dir()` entirely, turning `delete_theme` into an
+/// arbitrary-file-delete primitive reachable from the same remote surface `theme_delete`/`theme_get`
+/// expose. Reuses `root_guard::ensure_safe_component` (the same single-path-segment guard
+/// `file_mirror_untitled`/`file_clear_untitled_mirror` already apply to `tab_id`) rather than
+/// duplicating `save_theme`'s ad hoc check. See
+/// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.4 (#7).
 pub fn delete_theme(paths: &AppPaths, theme_id: &str) -> AppResult<()> {
+    root_guard::ensure_safe_component(theme_id)?;
     if builtin_by_id(theme_id).is_some() {
         return Err(AppError::InvalidArgument(format!("cannot delete builtin theme: {theme_id}")));
     }
@@ -946,6 +957,7 @@ pub fn load_theme(paths: &AppPaths, theme_id: &str) -> AppResult<ResolvedTheme> 
         return Ok(resolve_theme(&theme, None));
     }
 
+    root_guard::ensure_safe_component(theme_id)?;
     let path = paths.themes_dir().join(format!("{theme_id}.json"));
     let theme: Theme = persist::read_json(&path)?.ok_or_else(|| AppError::NotFound(format!("theme not found: {theme_id}")))?;
 
@@ -1241,6 +1253,28 @@ mod tests {
         theme.id = "dracula".to_string();
         assert!(save_theme(&paths, &theme).is_err());
         assert!(delete_theme(&paths, "dracula").is_err());
+    }
+
+    #[test]
+    fn delete_theme는_경로_구분자가_섞인_아이디로_저장소_밖_파일을_지울_수_없다() {
+        let dir = temp_data_dir("delete-traversal");
+        let paths = AppPaths::new(dir.clone());
+        std::fs::create_dir_all(paths.themes_dir()).unwrap();
+        let outside_file = dir.join("secret.json");
+        std::fs::write(&outside_file, "{}").unwrap();
+
+        let result = delete_theme(&paths, "../secret");
+
+        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+        assert!(outside_file.exists(), "저장소 밖 파일은 지워지면 안 된다");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_theme는_경로_구분자가_섞인_아이디를_거부한다() {
+        let paths = AppPaths::new(temp_data_dir("load-traversal"));
+        let result = load_theme(&paths, "../../etc/passwd");
+        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
     }
 
     #[test]

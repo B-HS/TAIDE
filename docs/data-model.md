@@ -382,17 +382,19 @@ struct Task { label: String, command: String, source: TaskSource, cwd: String }
 
 ```rust
 struct ConflictSides { base: Option<String>, ours: Option<String>, theirs: Option<String>, workdir: String }  // Wave C
-struct CommitFile    { path: String, orig_path: Option<String>, kind: GitChangeKind }                          // Wave C
+struct CommitFile    { path: String, abs_path: String, orig_path: Option<String>, orig_abs_path: Option<String>, kind: GitChangeKind }  // Wave C, abs_path/orig_abs_path 는 T0 감사 #18(§13)
 struct TagInfo        { name: String, target: String, message: Option<String>, annotated: bool }              // Wave C
 struct TagCreateOptions { message: Option<String>, annotated: bool }                                            // Wave C
-struct RevertOutcome  { conflicted: bool, conflicted_paths: Vec<String> }                                       // Wave C
+struct RevertOutcome  { conflicted: bool, conflicted_paths: Vec<String>, conflicted_abs_paths: Vec<String> }    // Wave C, conflicted_abs_paths 는 T0 감사 어드버서리얼 검증(§13)
 struct StagedDiffText { diff_text: String, truncated: bool, skipped_files: Vec<String>, used_fallback: bool }  // Wave G, used_fallback 은 Wave H
 ```
 
 - `ConflictSides` 는 index stage 1/2/3(ancestor/ours/theirs) blob + workdir 현재 내용을 함께 준다
   (`git_conflict_sides`). add/add 충돌처럼 base 가 없는 경우는 `None`.
 - `RevertOutcome.conflicted_paths` 는 revert 가 충돌로 끝났을 때 다음 상태 새로고침을 기다리지 않고
-  바로 첫 충돌 파일로 안내하기 위한 필드.
+  바로 첫 충돌 파일로 안내하기 위한 필드(repo-relative, `git2` 인덱스 경로 그대로). `conflicted_abs_paths`
+  는 그 절대경로 동봉본(workdir 루트 join) — `CommitFile`/`StatusRow` 의 `abs_path` 와 동일한 이유로,
+  파일 도메인 진입점(`file_open` 경유 `onOpenFile`)에 상대경로를 그대로 넘기면 안 되기 때문이다.
 - `StagedDiffText.used_fallback` 은 staged 델타가 0건이라 HEAD↔워킹트리(untracked 포함) 전체 diff 로
   대체됐다는 표시(Wave H, `2026-08-16-wave-h-keymap-contract.md` §3.4). AI 커밋 메시지 생성
   (`ai_commit_message`, §10.4) 의 유일한 소비처다.
@@ -406,6 +408,10 @@ struct SearchMatch {
     after: Vec<String>,
 }
 ```
+
+- `column`(1-based)·`match_start`/`match_end`(0-based, `preview` 안 오프셋)은 T0 감사 #23(§13)
+  이후 UTF-16 코드유닛 단위다(이전엔 Rust UTF-8 바이트 오프셋을 그대로 흘려보내 한글 등 비 ASCII
+  텍스트 뒤 매치의 좌표가 실제보다 커졌다).
 
 ### 10.4 AI 요청/응답 (Wave G — Inline Edit·AI 커밋 메시지, `AiInlineComplete*`(auto-tab)는 캠페인 이전부터 존재해 제외)
 
@@ -465,3 +471,34 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
 - **LSP 세션 dispose 유예**: `LSP_SESSION_DISPOSE_GRACE_MS` 유예·`lsp-session-flush-registry.ts`
   경유 확정 정리는 전부 **런타임 상태**(§1 표의 두 번째 층위, `sessionsByKey` — 프론트 메모리)다.
   영속 스키마에는 아무 영향이 없다.
+
+## 13. T0 감사 데이터·기능 수정 — 영속 스키마·타입 영향 (2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.2~§2.4. 이벤트/커맨드 전체
+> 카탈로그는 `docs/ipc-contract.md`(§3 "T0 감사 데이터·기능 수정") — 이 절은 §2/§3/§9/§10 의
+> 영속 스키마·타입이 실제로 어떻게 바뀌었는지에 한정한다.
+
+- **`SettingsPatch` — 클리어 가능 문자열 6필드에 3상태 규약 일반화**(#22, 사용자 결정 7): §7 이 이미
+  `aiProvider`/`aiModel` 리네임을 다뤘던 그 두 필드에 더해 `shellOverride`·`editorFontFamily`·
+  `terminalFontFamily`·`uiFontFamily` 까지 총 6필드가, `aiOmlxBaseUrl`(기능 확장 1차부터 있던
+  선례)과 같은 **"필드 생략=건드리지 않음, `Some(\"\")`=`None` 으로 해제, 그 외=설정"** 규약을
+  따른다. `Settings`/`SettingsPatch` 의 필드 타입 자체는 그대로 `Option<String>` 이라
+  `Option<Option<T>>` 로 인한 `bindings.ts` 타입 분기는 없다 — 온전히 `apply_patch` 의 병합
+  로직(`merge_clearable_string`) 쪽 의미 변경이다. 디스크(`settings.json`)에 저장되는
+  `Settings` 자체의 형태는 바뀌지 않는다(값이 있으면 `Some(value)`, 없으면 필드 자체가 `null` —
+  patch 의 "생략" 규약과 무관). 구 클라이언트(이 규약을 모르는)가 만든 `SettingsPatch` 는 클리어가
+  필요한 필드를 계속 `null` 로 보내 "건드리지 않음"으로 해석되므로 하위호환은 유지되지만, 그
+  클라이언트에서는 해당 필드를 시스템 기본값으로 되돌리는 조작 자체가 여전히 불가능하다(신 UI 로
+  전환해야 해소).
+- **`StatusRow`/`CommitFile` — 절대경로 필드 추가**(#18): `docs/features/git.md` §1,
+  `docs/ipc-contract.md`(§3 "T0 감사 데이터·기능 수정")·본 문서 §10.2 참조. 두 타입 모두 신규
+  필드만 추가된 순수 가산 변경이라 별도 마이그레이션은 없다(둘 다 비영속 IPC 응답 타입 — 디스크에
+  쓰이지 않는다).
+- **`SearchMatch` — 좌표 단위를 UTF-8 바이트에서 UTF-16 코드유닛으로 정정**(#23): 본 문서 §10.3
+  참조. `SearchMatch` 자체가 비영속(§10.3 표제)이라 스키마 영향은 없다 — 값의 **의미**만 바뀐다.
+- **`LspSessionStatus` — 백그라운드 재시작 후에도 `crashed` 유지**(#24): 새 variant 는 없다(기존
+  `"running" | "crashed" | ...` union 그대로). `docs/ipc-contract.md`(§3 "T0 감사 데이터·기능
+  수정")·`features/lsp.md` §5 참조.
+- **레이아웃·터미널·프로젝트 — 타입 변경 없음**(#2·#15·#21): `project_close`(레이아웃 동기 flush·
+  `asset_protocol_scope` 회수)와 터미널 탭 닫기(pty 세션 회수)는 전부 기존 커맨드의 내부 부수효과
+  확장이다 — `ProjectLayout`·`TabKind::Terminal` 등 어떤 영속 타입도 필드가 늘거나 줄지 않았다.

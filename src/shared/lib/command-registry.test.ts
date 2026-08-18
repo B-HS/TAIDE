@@ -15,6 +15,7 @@ import {
     registerCommands,
     unregisterCommand,
 } from '@shared/lib/command-registry'
+import { setImeDebugEnabled } from '@shared/lib/ime-debug'
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
@@ -193,6 +194,16 @@ describe('DEFAULT_COMMANDS', () => {
      * here and only the disabled branch is reachable from this test file. The enabled branch is
      * covered by `window-context.test.ts`'s `readWindowContext` tests instead.
      */
+    test('terminal.copyImeDebug 는 진단 플래그가 켜졌을 때만 실행 가능하다', () => {
+        const command = DEFAULT_COMMANDS.find((entry) => entry.id === 'terminal.copyImeDebug')
+        expect(command).toBeDefined()
+        expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(false)
+
+        setImeDebugEnabled(true)
+        expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(true)
+        setImeDebugEnabled(false)
+    })
+
     test('tab.moveToMainWindow 은 window-context 기반으로 활성 여부를 판단한다(테스트 환경엔 window 전역이 없어 비활성 경로만 검증)', () => {
         const command = DEFAULT_COMMANDS.find((entry) => entry.id === 'tab.moveToMainWindow')
         expect(command).toBeDefined()

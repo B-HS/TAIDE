@@ -440,6 +440,86 @@ fn strip_remote_gated_settings(
     next
 }
 
+/// Answers `agent_cli_install`/`agent_cli_uninstall` with an explicit denial instead of dispatching
+/// to the real handler. On macOS the real handlers either symlink `/usr/local/bin/taide` directly or
+/// — when that requires elevated permission — shell out to `osascript` and pop a native
+/// administrator-privilege prompt on the desktop's own display (`run_cli_osascript`). A remote
+/// browser session has no way to see or answer that prompt, and must never be able to trigger a
+/// privilege-escalation dialog on the desktop user's machine at all — the same "no local display to
+/// answer on" rationale [`deny_remote_system_open`] already applies to opener windows, just for an OS
+/// authorization dialog instead. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the
+/// bindings/dispatch parity test still passes; only the `match` arm in [`dispatch`] refuses to call
+/// through.
+fn deny_remote_agent_cli(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 CLI shell 명령을 설치/제거할 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `agent_hooks_install` with an explicit denial when [`is_remote_denied_hook_install_scope`]
+/// determines the target agent's hooks live outside any project root (`HookInstallScope::User`, i.e.
+/// codex/gemini's `~/.codex/hooks.json` / `~/.gemini/settings.json`). Those hooks inject a `command`
+/// handler (`domain::agent::service::build_command_hook_shell_command`) that TAIDE's own CLI executes
+/// on every hook event — a remote session installing that would be planting a persistent
+/// command-execution hook on the desktop user's home directory that survives the remote session
+/// itself, the same "backdoor that outlives the session" concern
+/// [`strip_remote_gated_settings_patch`] already documents for `shell_override`. Project-scope hooks
+/// (`claude` → `.claude/settings.local.json`, root-guarded by `project_root`) stay allowed remotely.
+/// Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still passes;
+/// only the `match` arm in [`dispatch`] refuses to call through for the User-scope branch.
+fn deny_remote_agent_hooks_user_scope(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 사용자 범위 에이전트 후킹을 설치할 수 없습니다: {name}"
+    )))
+}
+
+/// Reports whether a remote `agent_hooks_install` call for `agent_name` must be denied by
+/// [`deny_remote_agent_hooks_user_scope`] — true for `HookInstallScope::User` agents, false for
+/// `HookInstallScope::Project` agents and for an unrecognized `agent_name`. An unrecognized name is
+/// deliberately let through rather than denied here: the real handler re-derives the same scope via
+/// `domain::agent::service::hook_scope_for_agent` and returns the identical `InvalidArgument` error,
+/// so duplicating that validation here would only create a second source of truth for what counts as
+/// a known agent name.
+fn is_remote_denied_hook_install_scope(agent_name: &str) -> bool {
+    matches!(
+        domain::agent::service::hook_scope_for_agent(agent_name),
+        Ok(domain::agent::types::HookInstallScope::User)
+    )
+}
+
+/// Answers `agent_pending_external_opens` with an explicit denial instead of dispatching to the real
+/// handler. That command drains `AgentStore`'s single shared queue of CLI-triggered file-open
+/// requests (`taide open <path> --wait`) via `mem::take` — whichever session calls it first empties
+/// the queue for everyone, desktop included. Each request can carry a `waitMarker` that the external
+/// CLI process blocks on until some frontend releases it (`agent_release_marker`); the frontend
+/// registers that marker in a per-JS-realm `Map` (`agent-wait-marker-registry.ts`) keyed to whichever
+/// window/tab drained the request and is released when that tab closes. A remote browser session has
+/// its own separate realm, so a request it drains registers its release in a registry the desktop's
+/// own tab-close handling never observes — leaving the external CLI process blocked until the app
+/// exits (`cleanup_all_wait_markers` on shutdown) rather than until the relevant tab closes. Removing
+/// `AgentExternalOpen` from `fanout_remote_events!` (`lib.rs`) stops a remote session from being
+/// notified of *new* requests live; this arm closes the matching gap for requests it could otherwise
+/// still discover by polling. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch
+/// parity test still passes; only the `match` arm in [`dispatch`] refuses to call through.
+fn deny_remote_agent_pending_external_opens(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 보류 중인 외부 열기 요청을 조회할 수 없습니다: {name}"
+    )))
+}
+
+/// Answers `lsp_install` with an explicit denial instead of dispatching to the real handler — the
+/// same rationale already applied to `plugin_install`/`plugin_uninstall`/`vsix_import_plugin`
+/// ([`deny_remote_plugin_install`], [`deny_remote_vsix_import`]): the real handler downloads a
+/// language server archive (often hundreds of megabytes) onto the desktop's local disk and spawns an
+/// installer process there, an arbitrary-download-and-execute capability a remote session must not be
+/// handed. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still
+/// passes; only the `match` arm in [`dispatch`] refuses to call through.
+fn deny_remote_lsp_install(name: &str) -> Value {
+    err(AppError::Forbidden(format!(
+        "원격 세션에서는 LSP 서버를 설치할 수 없습니다: {name}"
+    )))
+}
+
 macro_rules! arg {
     ($args:expr, $key:literal) => {
         from_arg(&$args, $key)?
@@ -606,6 +686,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         ),
         "search_replace" => respond(
             search::search_replace(
+                app.clone(),
                 app.state(),
                 arg!(args, "projectId"),
                 arg!(args, "query"),
@@ -628,14 +709,19 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "agent_cli_status" => respond(agent::agent_cli_status().await),
         "agent_hooks_status" => respond(agent::agent_hooks_status(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await),
         "agent_hooks_install" => {
-            respond(agent::agent_hooks_install(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
+            let project_id = arg!(args, "projectId");
+            let agent_name: String = arg!(args, "agentName");
+            if is_remote_denied_hook_install_scope(&agent_name) {
+                Err(deny_remote_agent_hooks_user_scope(name))
+            } else {
+                respond(agent::agent_hooks_install(app.clone(), app.state(), project_id, agent_name).await)
+            }
         }
         "agent_hooks_uninstall" => {
             respond(agent::agent_hooks_uninstall(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
         }
-        "agent_cli_install" => respond(agent::agent_cli_install().await),
-        "agent_cli_uninstall" => respond(agent::agent_cli_uninstall().await),
-        "agent_pending_external_opens" => respond(agent::agent_pending_external_opens(app.state()).await),
+        "agent_cli_install" | "agent_cli_uninstall" => Err(deny_remote_agent_cli(name)),
+        "agent_pending_external_opens" => Err(deny_remote_agent_pending_external_opens(name)),
 
         "lsp_spawn" => respond(
             lsp::lsp_spawn(
@@ -663,7 +749,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "lsp_sessions" => respond(lsp::lsp_sessions(app.state(), arg!(args, "projectId")).await),
         "lsp_detect_servers" => respond(lsp::lsp_detect_servers(app.state()).await),
         "lsp_resolve_root" => respond(lsp::lsp_resolve_root(arg!(args, "serverId"), arg!(args, "filePath")).await),
-        "lsp_install" => respond(lsp::lsp_install(app.clone(), app.state(), app.state(), arg!(args, "serverId")).await),
+        "lsp_install" => Err(deny_remote_lsp_install(name)),
         "lsp_install_cancel" => respond(lsp::lsp_install_cancel(app.state(), arg!(args, "serverId")).await),
 
         "git_init" => respond(git::git_init(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
@@ -1159,6 +1245,45 @@ mod tests {
             let value = deny_remote_system_open(name);
             assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
         }
+    }
+
+    #[test]
+    fn 원격_세션은_cli_shell_명령_설치_제거를_할_수_없다() {
+        for name in ["agent_cli_install", "agent_cli_uninstall"] {
+            let value = deny_remote_agent_cli(name);
+            assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
+        }
+    }
+
+    #[test]
+    fn 원격_세션은_사용자_범위_에이전트_후킹_설치를_거부한다() {
+        assert!(is_remote_denied_hook_install_scope("codex"));
+        assert!(is_remote_denied_hook_install_scope("gemini"));
+    }
+
+    #[test]
+    fn 원격_세션은_프로젝트_범위_에이전트_후킹_설치는_허용한다() {
+        assert!(!is_remote_denied_hook_install_scope("claude"));
+    }
+
+    #[test]
+    fn 알수없는_에이전트명은_후킹_스코프_판정에서_거부되지_않는다() {
+        assert!(
+            !is_remote_denied_hook_install_scope("bash"),
+            "실핸들러가 동일한 InvalidArgument 를 재생성하므로 여기서 중복 검증하지 않는다"
+        );
+    }
+
+    #[test]
+    fn 원격_세션은_보류중인_외부_열기_요청을_조회할_수_없다() {
+        let value = deny_remote_agent_pending_external_opens("agent_pending_external_opens");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+    }
+
+    #[test]
+    fn 원격_세션은_lsp_서버를_설치할_수_없다() {
+        let value = deny_remote_lsp_install("lsp_install");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
     #[test]

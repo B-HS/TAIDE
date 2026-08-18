@@ -153,8 +153,10 @@
   `git_stage_lines(projectId, path, lineStart, lineEnd)` / `git_unstage_lines(projectId, path,
   lineStart, lineEnd)`(Wave C — hunk 가 아니라 선택 라인 단위로 patch 재합성), `git_resolve_conflict(
   projectId, path, content)`(Wave C — workdir 기록 + index stage 0 으로 충돌 자동 해소),
-  `git_revert_commit(projectId, rev) → RevertOutcome{ conflicted, conflictedPaths[] }`(Wave C — 충돌
-  시 conflicted 상태로 착지해 위 3-way 흐름과 연계), `git_tag_create(projectId, name, target, opts:
+  `git_revert_commit(projectId, rev) → RevertOutcome{ conflicted, conflictedPaths[], conflictedAbsPaths[] }`
+  (Wave C — 충돌 시 conflicted 상태로 착지해 위 3-way 흐름과 연계; `conflictedAbsPaths` 는 절대경로
+  동봉본으로, 호출부(`commit-graph.tsx`)가 파일 도메인이 절대경로를 요구하는 `onOpenFile` 에 넘긴다),
+  `git_tag_create(projectId, name, target, opts:
   TagCreateOptions{ message?, annotated? })` / `git_tag_delete(projectId, name)`(Wave C — annotated
   가 기본값, `message` 없으면 lightweight), `git_checkout_remote_branch(projectId, remoteRef)`(Wave C
   — 로컬 추적 브랜치 생성 + upstream 설정 + checkout, 동명 로컬 브랜치가 있으면 에러 없이 그냥
@@ -762,7 +764,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `plugin_read_grammar`·`remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·
   `sync_*`·`search_replace`(원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화
   없음)·`theme_save`/`theme_delete`·`snippet_save`/`snippet_delete`·`git_init`.
-- **명시 거부(16종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
+- **명시 거부(20종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
   `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해 그대로 남아 있다(코드는 커맨드별 `deny_remote_*`
   헬퍼):
 
@@ -776,7 +778,19 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `vsix_extract_themes` | Wave I 에서 허용→거부로 전환 — 임의 로컬 파일 읽기 표면이었음 |
   | `system_open_external_url` | 원격 세션이 데스크톱 자신의 OS 기본 브라우저를 열게 할 수는 없음(손 QA 1차 수정, 아래 절 참조) |
   | `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `system_open_external_url` 과 동일 계열·동일 사유로 허용→거부 전환(손 QA #12, 2026-08-18) — 넷 다 `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시)을 띄우는데, 원격 세션은 그 창을 보거나 쓸 방법이 없다. `system_open_path` 는 (`system_reveal_path`/`system_open_in_browser` 와 동일하게 `resolve_within_open_project` 로 프로젝트 루트에 가드되어 있었음에도) 애초에 이 3종과 함께 거부됐어야 할 대상이 이번에 뒤늦게 합류했다 — 경로 자체의 안전성이 아니라 "원격이 못 보는 창을 여는가"가 거부 기준이므로, 루트 가드 여부와 무관하게 넷 다 같은 결론이다 |
+  | `agent_cli_install` / `agent_cli_uninstall` | macOS 에서 관리자 권한 프롬프트(`osascript`)를 데스크톱 자신의 화면에 띄우거나 `/usr/local/bin` 에 직접 심링크를 건다 — 원격 세션이 보거나 답할 수 없는 권한 승격 창(T0 감사 #12, 2026-08-18) |
+  | `agent_pending_external_opens` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
+  | `lsp_install` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
 
+- **스코프 조건부 거부(1종)**: `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가
+  결정하는 스코프에 따라 분기한다 — `HookInstallScope::Project`(`claude`, 프로젝트 루트 하위
+  `.claude/settings.local.json` 에 `project_root` 로 루트 가드됨)는 원격에서도 그대로 허용,
+  `User` 스코프(`codex`/`gemini`, 홈 디렉터리의 `~/.codex/hooks.json` / `~/.gemini/settings.json` 에
+  루트 가드 밖 **command 훅**을 주입)는 `AppError::Forbidden` 으로 거부한다. User 스코프 훅은
+  TAIDE CLI 가 모든 훅 이벤트마다 실행하는 셸 커맨드를 심는 것과 같아, 원격 세션이 종료돼도 살아남는
+  백도어가 된다는 점에서 `settings_update` 가 스트립하는 `shellOverride` 와 같은 근거다(T0 감사 #13).
+  `agentName` 을 알 수 없으면(미지원 이름) 이 분기가 아니라 실핸들러의 `InvalidArgument` 로 위임되어
+  동일한 에러를 낸다.
 - **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종)**:
   - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`
     3필드를 `None` 으로 스트립한 뒤 위임(`remoteAccessEnabled` 는 자가 차단=자기 접근 상실이라
@@ -790,6 +804,63 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `IMPLEMENTED_JSON_COMMANDS` 목록 자체에는 없지만, `dispatch()`/`dispatch_raw()` 의 별도 `match`
   arm 으로 **원격에서도 그대로 허용**된다 — 목록에 없는 것이 원격 차단을 뜻하지 않는다(아래 "raw
   커맨드" 절 참조).
+
+### T0 감사 데이터·기능 수정 (2026-08-18)
+
+> 계약: `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.2~§2.4. 보안(§2.1) 5클러스터는
+> 위 "원격 dispatch 정책" 절에 이미 반영돼 있다. 이 절은 **IPC 표면(타입·필드·커맨드 시그니처)에
+> 영향을 준 항목만** 담는다 — 내부 구현만 바뀐 항목(watcher `.git` 필터, `search_replace`/`pty_write`
+> 락 범위, `write_atomic_preserving_mode`, `delete_theme`/`load_theme` 경로 가드)은 커맨드
+> 시그니처·반환 타입이 그대로라 여기 없다(상세는 `docs/bug/2026-08-18-audit-t0-fixes.md`).
+
+- **git — `StatusRow`/`CommitFile` 절대경로 동봉(#18)**: 두 타입 모두 `absPath: string` (+ `origPath`
+  가 있을 때만 나란히 채워지는 `origAbsPath: string | null`)이 새로 붙는다. `path`/`origPath` 는
+  그대로 저장소-상대 경로(git2 반환값 그대로, git 커맨드에 되돌려 넘길 때 계속 쓴다)이고, `absPath`
+  는 Rust 가 `repo.workdir()` 로 조인해 계산한 **파일 도메인(`file_open`/`file_save`) 이 요구하는
+  절대경로**다. 소비부(`git-panel.tsx`) 는 "파일 열기"/"경로 복사"/"탐색기에 표시" 3곳에서
+  `row.absPath` 로 전환됐다 — git 커맨드(`git_stage`/`git_unstage`/`onOpenChanges`(diff 탭) 등)에는
+  계속 상대 `row.path` 를 넘긴다(그 경로들은 항상 이 `StatusRow`/`CommitFile` 이 속한 저장소 기준으로
+  해석되므로 절대경로 변환이 필요 없다). `commit-detail-panel.tsx` 의 diff 탭 오픈(`TabKind::Diff`)도
+  `git_show_file(rev, path)` 에 상대경로를 그대로 쓴다 — 파일 도메인을 거치지 않기 때문이다.
+- **settings — `SettingsPatch` 클리어 가능 문자열 필드 일반화(#22, 사용자 결정 7)**: `shellOverride`·
+  `editorFontFamily`·`terminalFontFamily`·`uiFontFamily`·`aiProvider`·`aiModel` 6필드가 `aiOmlxBaseUrl`
+  이 먼저 쓰던 3상태 규약(빈 문자열=해제)을 그대로 따른다 — **필드 생략(`null`)=건드리지 않음,
+  `""`=명시적으로 `None` 으로 되돌림(폰트 "System Default"·AI Provider/Model 미선택 등), 비어있지
+  않은 문자열=그 값으로 설정**. `Option<Option<T>>` 은 배제하고 `Option<String>` 단일 레이어를
+  유지한다(구 클라이언트가 이 필드들을 생략하면 여전히 "건드리지 않음"으로 해석되어 하위호환). 프론트
+  피커(`settings-view.tsx` 의 폰트 패밀리 콤보박스·AI Provider 전환 시 `aiModel` 리셋)는 값이 없을 때
+  `null` 이 아니라 `''` 를 patch 에 실어 보내도록 함께 갱신됐다 — 이전에는 `shellOverride:
+  value.trim() || null` 처럼 빈 값을 `null` 로 보내던 자리가 있었는데, 새 규약에서 `null` 은
+  "건드리지 않음"이라 그 자리들은 전부 해제가 조용히 무시되는 회귀였다.
+- **tree/search — `SearchMatch` 좌표를 UTF-16 코드유닛 기준으로 정정(#23)**: `column`(1-based)·
+  `matchStart`/`matchEnd`(0-based, `preview` 문자열 안 오프셋) 세 필드 모두 값의 **단위**가 Rust
+  UTF-8 바이트에서 monaco `Position`/JS 문자열 slice 가 쓰는 UTF-16 코드유닛으로 바뀌었다(필드
+  이름·타입은 `u32` 그대로). ASCII 텍스트는 두 단위가 같아 값이 그대로였지만, 한글 등 비 ASCII
+  문자 뒤의 매치는 이전까지 실제보다 큰(바이트 기준) 좌표를 반환해 하이라이트/커서 이동이 밀렸다.
+- **lsp — 백그라운드 크래시 재시작 후 상태를 `Crashed` 로 보고(#24)**: `handle_process_exit` 의
+  자동 재시작(`RESTART_BACKOFF_LIMIT` 이내)이 프로세스 재기동에 성공해도 `lsp:session-status-changed`
+  는 이제 `status: "running"` 이 아니라 `status: "crashed"`(+ 안내 메시지)를 낸다 — 재기동된 프로세스는
+  `initialize` 핸드셰이크가 다시 이뤄진 적이 없어 실제로는 요청에 응답하지 못하는데, 이 배경 재시작은
+  프론트의 어떤 액션도 기다리고 있지 않아(`lsp_spawn`/`lsp_restart` 와 달리) 재핸드셰이크를 걸어줄
+  주체가 없다. `Running` 을 정직하지 못하게 보고하는 대신 `Crashed` 를 유지해 사용자가 수동
+  재시작(`lsp_restart`, 이 경로는 프론트가 그 다음 `initialize` 를 스스로 보낸다)을 트리거하게
+  한다. 근본 수정(세션 세대 이벤트로 프론트가 자동으로 재핸드셰이크)은 T1-D 로 이월.
+- **terminal — 탭/프로젝트 종료 시 pty 세션 회수(#21, 사용자 결정 9)**: 새 커맨드는 없다 — 기존
+  `project_close`/`layout_close_tab` 내부 동작이 바뀐다. `project_close` 는 그 프로젝트 소유의
+  모든 pty 세션을 `TerminalStore::kill_project` 로 일괄 kill 한다(이전에는 프로젝트를 닫아도
+  터미널이 앱 종료까지 계속 살아있었다). 터미널 탭을 닫으면(`layout_close_tab`, 실제로는 둘 다 거치는
+  공유 경로 `close_tab_and_finish`) `TabKind::Terminal.sessionId` 를 `TerminalStore::kill_session`
+  으로 개별 회수한다(**접합부 수정 — Phase D**: 계약 §3 은 이 절반을 "Rust: 탭 닫기 시 pty_kill"로
+  적어뒀으나 R1/R2/F 어느 구현에서도 실제 호출부가 배선되지 않아 `pty_kill`/`killPty` 호출부가 0건인
+  채로 남아 있었다 — `close_tab_and_finish` 에 직접 배선해 닫았다). 둘 다 `PtySession::drop` 이
+  reader/flusher 스레드와 일시정지 게이트를 정리하므로 중복 kill(예: `pty_kill` 로 먼저 죽은 세션을
+  `kill_project` 가 다시 순회) 은 무해하다(`kill` 자체가 멱등 — 이미 종료된 프로세스에 대한 kill 은
+  에러를 반환할 뿐 패닉하지 않고, 호출부가 `let _ =` 로 무시한다).
+- **project — `project_close` 부수효과 확장(#2·#15, IPC 시그니처 불변)**: 레이아웃이
+  `dirty_layouts` 에 남아 있으면(2초 주기 flusher 가 아직 못 따라잡은 상태) 제거 전에 동기
+  flush 한다(이전엔 이 경합에서 미저장 레이아웃이 경고 없이 버려졌다). `asset_protocol_scope()
+  .forbid_directory(root)` 를 호출해 닫힌 프로젝트 트리에 대한 webview 자산 접근 표면을 회수한다
+  (이전엔 프로젝트를 닫아도 그 루트가 계속 `asset://` 로 읽혔다).
 
 ### raw 커맨드 (specta 밖)
 

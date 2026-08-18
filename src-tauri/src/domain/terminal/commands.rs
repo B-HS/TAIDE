@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write as _;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -71,6 +72,38 @@ impl TerminalStore {
             .filter(|(_, entry)| &entry.project_id == project_id)
             .filter_map(|(session_id, entry)| entry.pty.foreground_pid().map(|pid| (session_id.clone(), pid)))
             .collect()
+    }
+
+    /// Kills and removes every pty session belonging to `project_id` — `kill_all`'s counterpart
+    /// scoped to a single project, called by `project_close` so closing a project reliably reaps its
+    /// terminals instead of leaving them running with no owning project open. Before this, nothing
+    /// called `pty_kill` for a closed project's sessions at all; they lingered until the whole app
+    /// quit (`TerminalStore::kill_all`).
+    pub fn kill_project(&self, project_id: &ProjectId) {
+        let mut sessions = self.0.lock();
+        let session_ids: Vec<String> = sessions
+            .iter()
+            .filter(|(_, entry)| &entry.project_id == project_id)
+            .map(|(session_id, _)| session_id.clone())
+            .collect();
+
+        for session_id in session_ids {
+            if let Some(entry) = sessions.remove(&session_id) {
+                let _ = entry.pty.kill();
+            }
+        }
+    }
+
+    /// Kills and removes a single pty session by id — `kill_project`'s counterpart for one session,
+    /// called when a terminal tab closes (`layout::commands::close_tab_and_finish`) so tab-close
+    /// reliably reaps the pty it owned instead of leaving it running until the owning project or the
+    /// whole app closes. A missing `session_id` is silently ignored, the same as `kill_project`
+    /// tolerates a project with no sessions: the tab may already be pointing at a session that was
+    /// reaped some other way (`pty_kill`, `project_close`) first.
+    pub fn kill_session(&self, session_id: &str) {
+        if let Some(entry) = self.0.lock().remove(session_id) {
+            let _ = entry.pty.kill();
+        }
     }
 }
 
@@ -195,12 +228,26 @@ pub async fn pty_spawn(
     Ok(session_id)
 }
 
+/// Holds `TerminalStore`'s lock only long enough to clone out the session's writer handle
+/// (`PtySession::writer_handle` — an `Arc` around the same inner `Mutex<Box<dyn Write>>`
+/// `PtySession::write` locks, so this is not a second, independent write path), not for the write
+/// itself. The write blocks on the child's stdin pipe, which backs up (and this call blocks with
+/// it) whenever the child isn't reading its input — previously that blocked write held the *whole
+/// store's* lock, so every other terminal command (`pty_resize`, `pty_kill` for this very session,
+/// `pty_attach`/`pty_detach` for any other session, `terminal_sessions`) queued behind it until the
+/// child drained its input or was killed by some other means, which nothing could do while
+/// `pty_kill` itself was one of the commands stuck waiting on the same lock.
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_write(store: State<'_, TerminalStore>, session_id: String, data: String) -> AppResult<()> {
-    let sessions = store.0.lock();
-    let entry = find_entry(&sessions, &session_id)?;
-    entry.pty.write(data.as_bytes())
+    let writer = {
+        let sessions = store.0.lock();
+        find_entry(&sessions, &session_id)?.pty.writer_handle()
+    };
+    let mut writer = writer.lock();
+    writer.write_all(data.as_bytes())?;
+    writer.flush()?;
+    Ok(())
 }
 
 #[tauri::command]

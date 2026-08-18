@@ -8,6 +8,7 @@ use super::types::{Project, ProjectRef};
 use crate::domain::file::types::FsChange;
 use crate::domain::git::watch as git_watch;
 use crate::domain::layout::service as layout_service;
+use crate::domain::terminal::commands::TerminalStore;
 use crate::error::AppResult;
 use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened};
 use crate::ids::ProjectId;
@@ -138,6 +139,19 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
     Ok(result)
 }
 
+/// Closes `project_id` and reaps every resource that only makes sense while the project is open.
+/// Two of those reaps are correctness-sensitive, not just cleanup:
+///
+/// - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
+///   2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`
+///   below drops the in-memory copy, and the periodic flusher's next pass over `dirty_layouts`
+///   would then find nothing left in `state.layouts` for this `project_id` and silently skip it
+///   (see that function's `filter_map`, which also `log::warn!`s on exactly this miss as a safety
+///   net for any other path that removes a layout without flushing first). Flushing synchronously
+///   here, before the removal, closes that window.
+/// - **Terminals**: `TerminalStore::kill_project` reaps every pty session scoped to this project.
+///   Before this, nothing called `pty_kill` for a closing project's sessions — they kept running,
+///   attached to nothing, until the whole app quit (`TerminalStore::kill_all`).
 #[tauri::command]
 #[specta::specta]
 pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
@@ -150,9 +164,19 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
     let active_project = session.active_project.clone();
     *state.session.write() = session;
     *state.projects.write() = projects;
+
+    if state.dirty_layouts.write().remove(&project_id) {
+        if let Some(layout) = state.layouts.read().get(&project_id).cloned() {
+            if let Err(error) = layout_service::save_layout(&state.paths, &project_id, &layout) {
+                log::warn!("프로젝트 종료 시 레이아웃 저장 실패 ({project_id}): {error}");
+            }
+        }
+    }
+
     state.layouts.write().remove(&project_id);
     state.watchers.write().remove(&project_id);
     state.git_watchers.write().remove(&project_id);
+    app.state::<TerminalStore>().kill_project(&project_id);
 
     crate::domain::ide::commands::refresh_lockfile(&app);
 

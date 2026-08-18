@@ -153,6 +153,16 @@
   상태와 무관하게 강제로 dispose 한다(해당 이벤트가 팬 언마운트보다 먼저 동기 도착하므로).
 - view reload: Rust 세션은 유지 — view 는 `lsp_sessions` 재조회 후 새 Channel 로 재연결
   (재연결 시 열린 문서 didOpen 재전송).
+- **예기치 못한 프로세스 종료(크래시) 시 자동 재시작**: `domain::lsp::commands::handle_process_exit`
+  가 `lsp_stop` 이 걸어둔 `stopping` 플래그가 없는 종료(=크래시)를 감지하면 `RESTART_BACKOFF_LIMIT`
+  회까지 백오프하며 재기동을 시도한다. **재기동에 성공해도 `lsp:session-status-changed` 는
+  `"crashed"` 를 유지하고 `"running"` 으로 보고하지 않는다**(T0 감사 #24,
+  `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3) — 이 재시작은 프론트의 어떤 액션도
+  기다리지 않는 백그라운드 경로라, `lsp_spawn`/`lsp_restart`(프론트가 그 다음으로 `initialize` 를
+  스스로 보내는 흐름)와 달리 새 프로세스에 `initialize` 핸드셰이크를 다시 걸어줄 주체가 없다.
+  `Running` 을 보고하면 view 의 기존 LSP client 는 실제로는 미초기화 상태인 서버에 요청을 계속
+  보내게 된다 — `Crashed` 를 정직하게 유지해 사용자가 수동 `lsp_restart`(재핸드셰이크 포함)로
+  복구하게 한다. 근본 수정(세션 세대 이벤트로 view 가 자동으로 재핸드셰이크)은 T1-D 로 이월.
 
 ## 6. 플러그인 확장 (FR-E3)
 

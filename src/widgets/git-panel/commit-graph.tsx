@@ -87,7 +87,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                         return
                     }
                     toast.warning(t('git.revertConflict'))
-                    if (outcome.conflictedPaths[0]) onOpenFile(outcome.conflictedPaths[0])
+                    if (outcome.conflictedAbsPaths[0]) onOpenFile(outcome.conflictedAbsPaths[0])
                 },
                 onError: (error) => toast.error(error.message),
             },

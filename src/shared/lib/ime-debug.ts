@@ -15,7 +15,22 @@ const MAX_RECORDED_TEXT_LENGTH = 40
 
 const entries: ImeDebugEntry[] = []
 
+let imeDebugEnabled = false
+
+/**
+ * Collection defaults to off: every keystroke's raw text used to be recorded unconditionally,
+ * holding user-typed terminal input in memory and exposing it verbatim through the
+ * clipboard-copy command. Callers opt in explicitly when they need the trace for debugging.
+ */
+export const setImeDebugEnabled = (enabled: boolean) => {
+    imeDebugEnabled = enabled
+    if (!enabled) entries.splice(0)
+}
+
+export const isImeDebugEnabled = () => imeDebugEnabled
+
 export const recordImeDebug = (entry: Omit<ImeDebugEntry, 'at'>) => {
+    if (!imeDebugEnabled) return
     entries.push({
         ...entry,
         at: performance.now(),

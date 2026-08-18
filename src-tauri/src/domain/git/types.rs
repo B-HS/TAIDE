@@ -20,8 +20,20 @@ pub enum GitChangeKind {
 #[serde(rename_all = "camelCase")]
 pub struct StatusRow {
     pub path: String,
+    /// Absolute filesystem path for `path`, computed by joining the repository's workdir root.
+    /// `path` alone is repo-relative (as `git2`'s status API returns it), but the file domain's
+    /// entry points (`file_open`/`file_save`/`root_guard::resolve_owning_project`) only accept
+    /// absolute paths — a consumer that mistakenly treated a repo-relative `path` as one resolved
+    /// against the *current* project's root, instead of joining it against *this row's* repo root,
+    /// opened or saved the wrong file whenever those two roots differ (multi-root workspace, a
+    /// worktree, or the git panel showing a background project). See
+    /// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §1 결정 8.
+    pub abs_path: String,
     #[serde(default)]
     pub orig_path: Option<String>,
+    /// Absolute counterpart to `orig_path` — present exactly when `orig_path` is.
+    #[serde(default)]
+    pub orig_abs_path: Option<String>,
     #[serde(default)]
     pub staged: Option<GitChangeKind>,
     #[serde(default)]
@@ -159,8 +171,14 @@ pub struct ConflictSides {
 #[serde(rename_all = "camelCase")]
 pub struct CommitFile {
     pub path: String,
+    /// Absolute counterpart to `path` — see `StatusRow::abs_path`'s doc comment for why a
+    /// repo-relative path alone isn't safe for the file domain to open/save against.
+    pub abs_path: String,
     #[serde(default)]
     pub orig_path: Option<String>,
+    /// Absolute counterpart to `orig_path` — present exactly when `orig_path` is.
+    #[serde(default)]
+    pub orig_abs_path: Option<String>,
     pub kind: GitChangeKind,
 }
 
@@ -189,6 +207,11 @@ pub struct RevertOutcome {
     pub conflicted: bool,
     /// Paths left with unresolved conflict markers, so the caller can route the user straight to
     /// them (e.g. open the first one) instead of leaving conflict resolution to be discovered via
-    /// the next status refresh. Always empty when `conflicted` is `false`.
+    /// the next status refresh. Always empty when `conflicted` is `false`. Repo-relative (`git2`
+    /// index paths) — see `conflicted_abs_paths` for the file domain's absolute counterpart.
     pub conflicted_paths: Vec<String>,
+    /// Absolute counterpart to `conflicted_paths` (workdir root joined onto each entry, same
+    /// order/length). The file domain's entry points only accept absolute paths — see
+    /// `StatusRow::abs_path`'s doc comment for why a repo-relative path must not reach `file_open`.
+    pub conflicted_abs_paths: Vec<String>,
 }

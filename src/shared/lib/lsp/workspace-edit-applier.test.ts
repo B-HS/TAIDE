@@ -522,6 +522,72 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
         expect(result.applied).toBe(false)
         expect(calls.some((c) => c.fn === 'renameEntry')).toBe(false)
     })
+
+    test('".." 세그먼트로 문자열 접두사만 흉내낸 경로는 정규화 후에도 root 밖으로 거부된다', async () => {
+        const { deps, calls } = createFakeDeps()
+        const monaco = createFakeMonaco()
+
+        const edit: WorkspaceEdit = {
+            changes: {
+                'file:///workspace/../outside/secret.ts': [
+                    { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'x' },
+                ],
+            },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: '/workspace' })
+
+        expect(result).toEqual({ applied: false, failureReason: 'edit rejected: outside workspace root' })
+        expect(calls).toEqual([])
+    })
+
+    test('root 하위로 되돌아오는 ".." 는 정규화 후 root 내부로 정확히 인식되어 허용된다', async () => {
+        const { deps, files } = createFakeDeps()
+        files.set('/workspace/sub/../a.ts', 'a')
+        const monaco = createFakeMonaco()
+
+        const edit: WorkspaceEdit = {
+            changes: {
+                'file:///workspace/sub/../a.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'A' }],
+            },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: '/workspace' })
+
+        expect(result).toEqual({ applied: true })
+        expect(files.get('/workspace/sub/../a.ts')).toBe('A')
+    })
+
+    test('Windows 스타일 backslash fsPath 도 같은 backslash root 하위면 허용된다 (구분자 불일치로 전량 거부되던 버그)', async () => {
+        const { deps, files } = createFakeDeps()
+        files.set('C:\\workspace\\a.ts', 'a')
+        const monaco = createFakeMonaco()
+
+        const edit: WorkspaceEdit = {
+            changes: {
+                'file://C:\\workspace\\a.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'A' }],
+            },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: 'C:\\workspace' })
+
+        expect(result).toEqual({ applied: true })
+        expect(files.get('C:\\workspace\\a.ts')).toBe('A')
+    })
+
+    test('Windows 스타일 경로도 ".." 로 root 를 벗어나면 정규화 후 거부된다', async () => {
+        const { deps, calls } = createFakeDeps()
+        const monaco = createFakeMonaco()
+
+        const edit: WorkspaceEdit = {
+            changes: {
+                'file://C:\\workspace\\..\\outside\\secret.ts': [
+                    { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'x' },
+                ],
+            },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: 'C:\\workspace' })
+
+        expect(result).toEqual({ applied: false, failureReason: 'edit rejected: outside workspace root' })
+        expect(calls).toEqual([])
+    })
 })
 
 describe('applyWorkspaceEdit — getDocumentVersion (stale 편집 거절)', () => {

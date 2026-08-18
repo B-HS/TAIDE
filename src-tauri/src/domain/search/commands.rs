@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use super::service;
 use super::types::{SearchMatch, SearchQuery, SearchReplaceResult};
@@ -92,9 +92,18 @@ pub async fn search_run(
     join_result
 }
 
+/// Reacquires `AppState::begin_mutation`'s single global lock **once per file** instead of holding
+/// it for the whole multi-file replace — a project-wide "replace all" can touch hundreds of files,
+/// and that one lock is shared by every other mutating command (`file_save`, `git_push`, layout
+/// writes, ...), so holding it for the entire walk-and-rewrite would starve all of them for as long
+/// as the replace runs. Reacquiring per file keeps each hold short while still serializing every
+/// actual write against the rest of the app's mutations. Both the target-file resolution (the tree
+/// walk) and each file's guarded read-modify-write run inside `spawn_blocking` — none of it runs on
+/// the async worker thread — since `service::replace_one_file` does synchronous filesystem I/O.
 #[tauri::command]
 #[specta::specta]
 pub async fn search_replace(
+    app: AppHandle,
     state: State<'_, AppState>,
     project_id: ProjectId,
     query: SearchQuery,
@@ -102,11 +111,53 @@ pub async fn search_replace(
     paths: Option<Vec<String>>,
 ) -> AppResult<SearchReplaceResult> {
     let root = project_root(&state, &project_id)?;
+
+    if query.text.is_empty() {
+        return Ok(SearchReplaceResult {
+            changed_files: 0,
+            replaced_matches: 0,
+        });
+    }
+
+    let compiled_regex = service::compile_optional_regex(&query)?;
     let target_paths = paths.map(|list| list.into_iter().map(PathBuf::from).collect::<Vec<_>>());
 
-    tokio::task::spawn_blocking(move || service::replace(&root, &query, &replacement, target_paths.as_deref()))
+    let target_files = {
+        let scan_root = root.clone();
+        let scan_query = query.clone();
+        tokio::task::spawn_blocking(move || service::resolve_replace_targets(&scan_root, &scan_query, target_paths.as_deref()))
+            .await
+            .map_err(|error| AppError::Internal(format!("replace scan task failed: {error}")))?
+    };
+
+    let mut changed_files = 0u32;
+    let mut replaced_matches = 0u32;
+
+    for path in &target_files {
+        let app = app.clone();
+        let path = path.clone();
+        let query = query.clone();
+        let replacement = replacement.clone();
+        let compiled_regex = compiled_regex.clone();
+
+        let count = tokio::task::spawn_blocking(move || {
+            let app_state = app.state::<AppState>();
+            let _guard = app_state.begin_mutation_blocking();
+            service::replace_one_file(&path, &query, compiled_regex.as_ref(), &replacement)
+        })
         .await
-        .map_err(|error| AppError::Internal(format!("replace task failed: {error}")))?
+        .map_err(|error| AppError::Internal(format!("replace task failed: {error}")))?;
+
+        if let Some(count) = count {
+            changed_files += 1;
+            replaced_matches += count;
+        }
+    }
+
+    Ok(SearchReplaceResult {
+        changed_files,
+        replaced_matches,
+    })
 }
 
 #[tauri::command]
