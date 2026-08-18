@@ -42,7 +42,7 @@ const VERDICT_SCHEMA = {
 }
 
 const COMMON = `TAIDE 레포(/Users/hyunseokbyun/TAIDE) 검토 에이전트(읽기 전용 — 코드·문서 수정 금지, 앱 실행 금지. bun test·cargo test 단발 실행은 허용).
-검토 대상: 손 QA 6건 수정의 워킹트리 변경 전체(git status --short 로 45파일 확인, git diff / git diff --stat 로 정독. 신규 파일은 untracked — 직접 Read).
+검토 대상: 커밋 b00c192("fix: 손 QA 1차 6건 수정")의 diff 전체 — git show --stat b00c192 로 46파일 확인 후 git show b00c192 로 정독(신규 파일 포함). 이후 수정 커밋이 그 위에 더 있다면 b00c192..HEAD 범위도 함께 본다.
 계약 정본: docs/acknowledge/2026-08-18-hand-qa-fix-contract.md (§1 확정 사실·§2 확정 설계·§3 기각·§4 완료 조건). 6건: ①터미널 링크(system_open_external_url+WebLinksAddon 핸들러) ②부트 테마(reveal 게이트+실패 배너+follow_system_theme 자동 해제) ③allowed hosts 와일드카드 ④LSP 블로킹(lsp_stop 가드 축소+조기 반환+프론트 dispose 유예 5s) ⑤peek 트위스티 CSS 1규칙 ⑥커밋 diff 에디터 탭 승격(TabKind::Diff rev 3필드).
 구현 부기(에이전트 자진 신고 — 진위 검증 대상): lsp_restart 에 스토어 재확인 가드 추가(재구성이 새로 연 stop/restart 경합 대응) / set_theme 위치를 service 로 / Phase D 가 flush 배선 누락을 발견해 lsp-session-flush-registry.ts 레지스트리 패턴으로 수정.
 발견은 실증 가능해야 한다: 파일:라인 인용 + 구체적 실패 시나리오(입력→잘못된 결과). 추측·스타일 취향은 제외. 이미 계약 §3 에서 기각된 대안 재론 금지.`
