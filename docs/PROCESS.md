@@ -22,10 +22,13 @@
 - [x] b. ~~실기 QA 일괄~~ **취소** (2026-08-14 사용자 지시) — "이미 구현된 건 간단하게 구동해봤다"
       가정(스모크 수준 치명 결함 없음)으로 대체. qa6-checklist 미체크 항목 전량은 전문 QA(d)로
       이월 — e2e·심층 검토로 검증. **실기 미검증 상태 자체는 유지됨**(KNOWN ISSUE 존속)
-- [ ] c. 잔여 기능 구현 — 갭 P0 잔여 9건 + Remote 하드닝 9 + Hot Exit 미세 3 + P1 10건.
+- [x] c. 잔여 기능 구현 — 갭 P0 잔여 9건 + Remote 하드닝 9 + Hot Exit 미세 3 + P1 10건.
       **웨이브 A→I 확정**(계약 §2-2): A LSP 인텔리전스 → B 하드닝 → C Git → D 탐색·검색 →
-      E 터미널·태스크 → F 에디터 표현 → G AI → H 키맵 엔진 → I 셸·워크스페이스
-    - [ ] c-A. Wave A — LSP 인텔리전스. 정찰 완료(wf_0d6ea4d6-7b4, 529 재시도 4차 만에 성공,
+      E 터미널·태스크 → F 에디터 표현 → G AI → H 키맵 엔진 → I 셸·워크스페이스.
+      **전량 완료(9/9, 2026-08-16)** — prod(main)=b4e7318 반영(2026-08-18 문서 커밋 포함
+      fast-forward). 상위 체크박스 미체크는 표기 누락이었음(2026-08-18 정정 — 하위 로그·계약·
+      HANDOFF 는 완료로 정합)
+    - [x] c-A. Wave A — LSP 인텔리전스. 정찰 완료(wf_0d6ea4d6-7b4, 529 재시도 4차 만에 성공,
           하중 주장 8건 메인 재검증) + 계약 확정(`2026-08-14-wave-a-lsp-intelligence-contract.md`,
           결정 4건 전부 추천안). **중대 발견**: 직전 세션 P0-0(LSP capabilities 확충)은 dead code
           적용이라 런타임 무효 / 서버→클라 요청 전면 폐기(configuration 무응답 기존 결함) /
@@ -41,7 +44,7 @@
           미선언 / targetSelectionRange 유실 / waitForLspSession 행(tier 게이트) / failureHandling
           선언 불일치(abort 로 정정) / 진단 사이드 맵 uri 정규화 / executeCommand 미대기.
           메인 2차: 수정 7건 실물 재확인 + verify 전체·vite build·bindings diff 검수 그린. 커밋
-    - [ ] c-B. Wave B — 하드닝 마감. 정찰 완료(wf_e628c338-e87, opus+high 2축)에서 "minor" 를
+    - [x] c-B. Wave B — 하드닝 마감. 정찰 완료(wf_e628c338-e87, opus+high 2축)에서 "minor" 를
           넘는 **신규 중대 4건** 발견·메인 재검증: gist 인바운드 shell_override 미필터(RCE급)·
           게이트 필드 미필터·저장 왕복 타이핑 소실·cross-file 편집 hot-exit 미러 구멍(Wave A 회귀).
           계약 확정(`2026-08-15-wave-b-hardening-contract.md`, 결정 3건 전부 추천안 — 범위=신규 4+잔여
@@ -52,7 +55,7 @@
           후속 구현·검토(wf_37dd3b24-7a4): 포트 완화(loopback 엄격·등록 호스트 포트 무관)·링크
           호스트 반영·편집 위젯 + minor 6 수정(L0-0 @-userinfo 방어심층·L0-1 remote_issue_link
           원격 거부). 메인 2차: format 정리·스팟 검증·verify 전체(678/664+6+17)·vite build 그린. 커밋
-    - [ ] c-C. Wave C — Git 확장(3-way 머지·줄 stage·커밋 상세·파일 히스토리·revert/tag·원격
+    - [x] c-C. Wave C — Git 확장(3-way 머지·줄 stage·커밋 상세·파일 히스토리·revert/tag·원격
           checkout·파일 blame 뷰). 정찰(wf_563a88b2-20f) 축1 Rust·축3 API 완료(git 커맨드 27종·
           git2+CLI 하이브리드 확인), 축2 프론트 UI 는 StructuredOutput 초과 실패 → resume 재실행 중.
           정찰 3축 완료(축2 resume 성공) → 계약 확정(`2026-08-15-wave-c-git-contract.md`, 결정 4건).
@@ -65,7 +68,7 @@
           메인 2차: verify 전체(729/690)·vite build 그린. 커밋
           - 후속 기록: 신규 파괴 커맨드 원격 dispatch 허용은 기존 27종 정책 유지(pty_spawn 동급·
             checkout safe)·문서화만. 계약 문언 갱신 필요분은 `2026-08-15-wave-c-review-fix-decisions.md`
-    - [ ] c-D. Wave D — 탐색·검색(팔레트 @/: 모드·Workspace Symbol ⌘T·Breadcrumbs·Search Editor·
+    - [x] c-D. Wave D — 탐색·검색(팔레트 @/: 모드·Workspace Symbol ⌘T·Breadcrumbs·Search Editor·
           검색 히스토리·gitignore 토글). 정찰(wf_33479e2a-2e3) 축1 검색·축2 breadcrumbs/LSP 완료,
           정찰 3축 완료(축0 resume 성공) → 계약 확정(`2026-08-15-wave-d-search-nav-contract.md`,
           결정 4건 전부 추천: 팔레트 VS Code 규약(@문서/#Workspace Symbol ⌘T/:줄)+monaco 병존·
@@ -111,7 +114,7 @@
       의 release_wait_marker 잔재(별도 문서 세션 필요)·ipc-contract snippet 절 _Serialize 분할 미반영.
     - **PROCESS.md 아카이브(2026-08-16)** — QA6 후속·기능 확장 1~3차(완료분)를
       `docs/history/2026-08-16-process-archive-qa6-feature-waves.md` 로 이관(589→471줄).
-    - [ ] c-E. Wave E — 터미널·태스크(OSC133 셸 통합·태스크 러너·Run Selected Text). 정찰
+    - [x] c-E. Wave E — 터미널·태스크(OSC133 셸 통합·태스크 러너·Run Selected Text). 정찰
           (wf_a5ff7069-171) 축0 터미널·축1 태스크 완료, 축2 OSC133 웹 리서치 2회 실패 → 기존
           `docs/research/xterm-pty.md §8`(셸 rc 주입 설계 완비) + xterm 6.0 API 실측으로 대체.
           계약 확정(`2026-08-15-wave-e-terminal-tasks-contract.md`, 결정 3건 추천: OSC133 자동 주입
@@ -124,7 +127,7 @@
           이스케이프·Makefile ::= 가드·OSC133 블록 인덱스/무한누적 상한·키맵 카테고리 수정.
           fish 4.0 미만·bash 3.2 PS0 미지원은 의도적 보류(계약 §4·§6 명시). 메인 2차: zsh 패스스루·
           posix_quote 수정 실물 확인, verify 전체(856/751+6+17) 그린. 커밋
-    - [ ] c-F. Wave F — 에디터 표현(Semantic Tokens·사용자 스니펫·Format on Type/Paste·Emmet).
+    - [x] c-F. Wave F — 에디터 표현(Semantic Tokens·사용자 스니펫·Format on Type/Paste·Emmet).
           착수 승인(2026-08-15, 3건 전부 추천안 — Wave E prod 병합 완료(`d525640` fast-forward)·
           다음=F·recent_searches 동기화 유지: `2026-08-15-wave-f-kickoff-decisions.md`).
           - [x] 정찰 완료 (wf_12eece29-284, opus+high 4축, 805k 토큰) — 하중 주장 메인 재검증 완료
@@ -148,7 +151,7 @@
                 토글 미반영(캐시 구독→refresh). 상세: 계약 §6. 보류 1건(emmet jsx/tsx/heex 트리거 —
                 문서화). 메인 2차: 수정 7건 실물 재검증 + verify 전체 exit 0(937/766+6+17) + vite
                 build exit 0. 커밋
-    - [ ] c-G. Wave G — AI(Inline Edit ⌘I·AI 커밋 메시지). Wave F prod 병합 완료(56712b0 fast-forward).
+    - [x] c-G. Wave G — AI(Inline Edit ⌘I·AI 커밋 메시지). Wave F prod 병합 완료(56712b0 fast-forward).
           - [x] 정찰 완료(wf_8904a89d-424, opus+high 4축) — 하중 7건 메인 재검증 전건 확정. **갭 문서
                 "git_diff 재사용·난이도 하" 전제 오류 판명**(통합 diff 커맨드 부재·provider chat 진입점
                 부재·⌘K=monaco chord 21건 1단계·프롬프트 오버라이드 무경고 파손·ViewZone 선례 0)
@@ -193,7 +196,7 @@
                 유지 — 사용자 재확인 여지, features/ai.md §9). 상세: 계약 §6. 메인 2차: 수정 6건
                 실물 재검증+반환 타입 1건 직접 수정+verify 전체 exit 0(972/817+6+17)+vite build 0.
                 플레이키 1건(dirty 미러 — Wave G 무관·단독 5회 통과) 기록. 커밋
-    - [ ] c-H. Wave H — 키맵 엔진(chord ⌘K ⌘S·when 컨텍스트·shift+기호 캡처 — 전면 개정).
+    - [x] c-H. Wave H — 키맵 엔진(chord ⌘K ⌘S·when 컨텍스트·shift+기호 캡처 — 전면 개정).
           - [x] 정찰 완료(wf_21fd174b-f0d, opus+high 4축) — 하중 전건 메인 재검증. **핵심 발견**:
                 shift+기호는 이미 code 경로 동작(갭 §7 stale)·window capture 가 monaco 선행(⌘K
                 점유 시 chord 21건 전멸)·**기존 회귀 4건**(APP_KEYMAP ⌘B/F/=/- 가 monaco chord 2단
@@ -252,7 +255,7 @@
                 스냅샷 가드·인스펙터 동결·⌘K ⌘S mods·when !terminalFocus·레거시 별칭·
                 deriveMonacoChordPrefixes 전건 소스 확인) + verify 전체 exit 0(프론트 1098·Rust
                 822+6+17) + vite build exit 0 메인 직접 실행. 계약 §7 검토 요약 보강. 커밋
-    - [ ] c-I. Wave I — 셸·워크스페이스(Zen/포커스·멀티 윈도우·설정 파일 탭 편집·플러그인 설치
+    - [x] c-I. Wave I — 셸·워크스페이스(Zen/포커스·멀티 윈도우·설정 파일 탭 편집·플러그인 설치
           UI·VSIX grammar — 최대 구조 변경, 캠페인 최종).
           - [x] 정찰 완료(wf_c2974bc4-295, opus+high 4축) — 하중 전건 메인 재검증. **멀티 윈도우
                 차단급 결함 4종 확정**(부창 닫기=앱 전체 종료·lsp_spawn 재사용 Channel 폐기·
@@ -473,6 +476,15 @@
                       작업은 이번 세션으로 종결, 검토·커밋은 별도 단계.
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
+    - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
+          (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
+          착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
+          실행. Wave I 멀티 윈도우 실기 최우선. c/c-A~c-I 상위 체크박스 표기 누락 동시 정정
+    - [ ] d-1. 정찰/설계 Workflow(opus+high) — qa6 275항목 실행 경로 분류(e2e 경로 A 가능/사람
+          실기 전용/코드 논증 대체)·기능 심층 QA 우선순위(위험도 기반, Wave I 최상)·아키텍처
+          전수 감사 인벤토리(프론트 FSD·entities·shared 승격 / Rust 도메인 경계·compose·타입
+          파생)·e2e 하네스(경로 A: remote 미러+Playwright webkit·node) 파일럿 설계 → 하중 주장
+          메인 재검증 → 추천안 패키지 확정
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
 - [x] f. PROCESS.md 아카이브 완료 — 문서화·Phase 0~7.10(W1~W7) 섹션 1,022줄을
       `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 이전 (1,171줄 → 151줄).
