@@ -80,18 +80,22 @@ async fn apply_integration_toggles(app: &tauri::AppHandle, current: &Settings, u
     }
 }
 
+/// Unlike `settings_update`, this also emits `ThemeChanged` — the narrower event
+/// `ipc-sync-provider.tsx` listens for to invalidate `THEME.ALL` and actually refetch the newly
+/// picked theme's colors, which a `SettingsChanged` alone (below, via `apply_and_broadcast`)
+/// doesn't trigger.
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_set_theme(app: tauri::AppHandle, state: tauri::State<'_, AppState>, theme_id: String) -> AppResult<Settings> {
     let _guard = state.begin_mutation().await;
     let current = state.settings.read().clone();
     let updated = service::set_theme(&state.paths, &current, &theme_id)?;
-    *state.settings.write() = updated.clone();
+    let broadcasted = apply_and_broadcast(&app, &state, updated).await?;
 
     let _ = ThemeChanged {
-        theme_id: updated.theme_id.clone(),
+        theme_id: broadcasted.theme_id.clone(),
     }
     .emit(&app);
 
-    Ok(updated)
+    Ok(broadcasted)
 }

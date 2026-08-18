@@ -136,8 +136,21 @@
 - 세션 소유는 Rust. 프로젝트 close(capability detach) 시: 공유 세션이면
   `didChangeWorkspaceFolders(removed)`, 마지막 폴더면 `shutdown`→`exit`→프로세스 종료 확인(타임아웃
   후 kill). reader task 는 CancellationToken 으로 중단.
-- view 클라이언트는 세션 Channel 콜백·Monaco provider disposable 을 모두 보관했다가
-  세션 종료/프로젝트 전환 시 dispose.
+- `lsp_stop`/`lsp_restart` 는 전역 뮤테이션 락(`AppState::begin_mutation`)을 동기 북키핑에만 쥐고,
+  종료 시퀀스(`shutdown`→(폴링 대기)→`exit`→(폴링 대기)→kill, 상한 `LSP_SHUTDOWN_TIMEOUT_MS`)는
+  가드를 놓은 뒤 실행한다 — 그렇지 않으면 종료 대기 동안 `layout_*`·`file_save`·`lsp_spawn` 등
+  거의 모든 뮤테이션 커맨드가 같은 락 뒤에 줄을 선다(`docs/bug/2026-08-18-lsp-stop-global-lock.md`).
+  `lsp_stop` 은 가드 안에서 `LspStore` 에서 엔트리를 먼저 제거해 비가드 구간의 재사용을 차단하고,
+  `lsp_restart` 는 `session_id` 를 재사용해야 해서 엔트리를 남기는 대신 `find_reusable_entry` 가
+  `stopping` 플래그를 확인해 재시작 중인 엔트리를 재사용 후보에서 제외한다.
+- **view 클라이언트의 세션 dispose 는 즉시가 아니라 유예된다**(`LSP_SESSION_DISPOSE_GRACE_MS`,
+  기본 5초 — `lsp-session-registry.ts`). `refCount` 가 0 이 되어도 곧바로 dispose 하지 않고
+  타이머를 걸어, 그 안에 같은 프로젝트/언어의 다른 파일로 세션을 재획득하면 타이머를 취소하고
+  기존 세션(Channel 콜백·Monaco provider disposable 포함)을 그대로 재사용한다 — 파일 탐색기
+  브라우징·⌘P 연속 열기처럼 짧은 간격의 파일 전환에서 재스폰·재인덱싱이 사라진다. 유예 중에도
+  프로젝트를 명시적으로 닫거나(`events.projectClosed`) 앱이 종료(`kill_all`·hot-exit)되면 유예를
+  기다리지 않고 즉시 dispose 한다 — 프로젝트 닫기 쪽은 그 프로젝트의 세션을 `refCount`/타이머
+  상태와 무관하게 강제로 dispose 한다(해당 이벤트가 팬 언마운트보다 먼저 동기 도착하므로).
 - view reload: Rust 세션은 유지 — view 는 `lsp_sessions` 재조회 후 새 Channel 로 재연결
   (재연결 시 열린 문서 didOpen 재전송).
 

@@ -505,8 +505,8 @@
               content-box 전제 파괴(오버라이드 1규칙으로 근본 해결) ⑥커밋 diff: Wave C 계약
               §3.2 원문이 원래 "파일 클릭→기존 diff 탭"(L0-2 가 범위 밖으로 미룬 TabKind::Diff
               rev 확장이 실행 수단 — 기각 재론 아님, 원계약 복귀)
-    - [ ] d-2. 손 QA 1차 발견 6건(2026-08-18 사용자 실기 보고) — 진단·재검증·계약 확정·수정 완료,
-          **Phase E(검토)·커밋만 잔여**. **수정 계약 정본: `docs/acknowledge/2026-08-18-hand-qa-fix-
+    - [x] d-2. 손 QA 1차 발견 6건(2026-08-18 사용자 실기 보고) — 진단·계약·수정·**Phase E 검토·
+          커밋 완료**. **수정 계약 정본: `docs/acknowledge/2026-08-18-hand-qa-fix-
           contract.md`** (사용자 승인: 전부 추천안 — 수식어 ⌘·⌥+altClickMovesCursor 해제·
           follow_system_theme 자동 해제·와일드카드 베이스 불포함·LSP Rust+프론트 병행). 실행:
           Phase R(Rust 단독)·F 병렬 4·D 통합 완료 → **E 검토(4렌즈+적대적+수정+메인 2차) → 커밋**.
@@ -514,15 +514,20 @@
           선제거·검증기·매칭 fn·TabKind·배선 전건 대조 일치, `bun run verify` 메인 직접 재실행
           exit 0(테스트 1127→1159 프론트·904→933 Rust). R 자진 하드닝 1건(lsp_restart 스토어
           재확인 — 가드 축소가 새로 연 stop/restart 경합 leak 차단)·D 접합부 결함 1건 발견·수정
-          (flushLspSessionDisposal 미배선 → lsp-session-flush-registry). **Phase E 검토 일시중지
-          (2026-08-18 사용자 지시 — 자리 이동)**: wf_0fefd373-dac 를 렌즈 4개 완료 0건 시점에
-          정지(캐시 손실 없음 — 처음부터 재실행 동등). 구현분은 사용자 지시로 검토 전 dev 커밋.
-          **재개 절차**: 검토 스크립트 보존본 `docs/utils/2026-08-18-hand-qa-fix-review.workflow.js`
-          를 Workflow({scriptPath}) 로 신규 실행(4렌즈 opus+xhigh → critical/major 적대적 검증
-          opus+high → confirmed+minor 수정 sonnet+xhigh) → 메인 2차(핵심 수정 실물 재검증 +
-          bun run verify + vite build) → 수정분 커밋. 주의: 검토 대상은 "직전 커밋의 손 QA 수정
-          diff"(git show 또는 커밋 범위 diff — 워킹트리가 클린해졌으므로 스크립트 내 "워킹트리
-          변경" 문구를 해당 커밋 해시 기준으로 치환해 실행)
+          (flushLspSessionDisposal 미배선 → lsp-session-flush-registry). 구현분은 사용자 지시로
+          검토 전 dev 선커밋(`b00c192` — verify 그린 상태). Phase E 는 자리 이동으로 일시중지
+          (wf_0fefd373-dac, 완료 0건 정지) 후 2026-08-18 재개(wf_9a7edac2-576, 보존 스크립트 —
+          검토 대상 b00c192 diff). **Phase E 완료**: 발견 22(major 3·minor 19) → 적대적 검증
+          major 3건 전건 confirmed·반증 0 → 수정 + 잔여 minor 후속(wf_33e76fae-275). major 3:
+          ①window.open noopener 항상 null(폴백 감지 사문화 — xterm 패턴으로 근본 수정)
+          ②원격 shim 라벨 'main' 충돌(owner 불변식 미성립 — 'remote' 정정, 가드 축소 안전
+          논거 복원) ③docs/utils .js 가 verify 를 깨는 자충(eslint ignores). minor 실질 11
+          수정(stopping 배제·projectClosed 강제 dispose·레지스트리 entities/lsp 이동·배너
+          공용화·set_theme apply_and_broadcast 경유·와일드카드 술어 단일 소유·URL 유니코드
+          위장/userinfo 거부·ctrl 수식어 등)·기각 1(#18 폴링 이중화 — 사유 기록)·보류 1
+          (#12 형제 system_* 원격 정책 — 사용자 확인 대기, QA-W2 연계). 상세 계약 §5.
+          메인 2차: 수정 전건 실물 재검증 + verify 전체·vite build 직접 재실행 exit 0
+          (프론트 1169·Rust 938)
         - [x] d-2-1. 터미널 링크 Option+클릭 시 외부 브라우저로 안 열림 — `system_open_external_url`
               신설(http/https 화이트리스트, 원격 거부) + `WebLinksAddon` 핸들러 주입(⌘/⌥ 겸용) +
               `window.open` 선시도→IPC 폴백 + `altClickMovesCursor: false`로 수정

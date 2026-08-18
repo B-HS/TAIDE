@@ -155,6 +155,16 @@ fn find_entry(store: &LspStore, session_id: &str) -> AppResult<Arc<SessionEntry>
         .ok_or_else(|| AppError::NotFound(format!("lsp session not found: {session_id}")))
 }
 
+/// Excludes any entry currently mid-shutdown (`stopping == true`) from reuse. `lsp_stop`'s
+/// full-teardown path unlinks the entry from [`LspStore`] before its unguarded
+/// [`shutdown_entry`] call, so it never reaches this scan in the first place — but
+/// `lsp_restart` deliberately leaves the entry linked (it reuses `session_id` for the
+/// respawned process, see its own doc comment) while its own unguarded `shutdown_entry` call
+/// is in flight. Without this check, a concurrent `lsp_spawn` for the same
+/// project/server/owner could hand that mid-restart entry out as "reusable", wire a fresh
+/// channel into it, and send `initialize` against whatever process happens to be installed on
+/// `entry.proc` at that instant — the dying pre-restart process, or nothing — instead of the
+/// freshly spawned one `lsp_restart` installs once it re-acquires the guard.
 fn find_reusable_entry(
     store: &LspStore,
     project_id: &ProjectId,
@@ -169,6 +179,7 @@ fn find_reusable_entry(
             &entry.project_id == project_id
                 && &entry.server_id == server_id
                 && entry.spec.shares_sessions
+                && !entry.stopping.load(Ordering::SeqCst)
                 && entry.channels.lock().contains_key(owner)
         })
         .map(|(id, entry)| (id.clone(), entry.clone()))
@@ -944,6 +955,7 @@ pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, serve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspRootStrategy};
 
     fn recording_channel(received: Arc<Mutex<Vec<String>>>) -> Channel<String> {
         Channel::new(move |body| {
@@ -958,6 +970,73 @@ mod tests {
 
     fn failing_channel() -> Channel<String> {
         Channel::new(|_| Err(tauri::Error::AssetNotFound("closed".to_string())))
+    }
+
+    fn test_session_entry(project_id: ProjectId, server_id: LspServerId, owner: &str, stopping: bool) -> Arc<SessionEntry> {
+        let mut channels = HashMap::new();
+        channels.insert(owner.to_string(), failing_channel());
+        Arc::new(SessionEntry {
+            project_id,
+            server_id: server_id.clone(),
+            root: "/tmp/project".to_string(),
+            spec: LanguageServerSpec {
+                id: server_id,
+                name: "Test Server".to_string(),
+                language_ids: vec!["rust".to_string()],
+                shares_sessions: true,
+                command: LspCommandSpec::Path {
+                    bin: "test-lsp".to_string(),
+                    args: vec![],
+                },
+                root_markers: vec![],
+                root_strategy: LspRootStrategy::NearestMarker,
+                initialization_options: None,
+                install: LspInstallSpec {
+                    strategy: LspInstallStrategy::Toolchain,
+                    hint: None,
+                    download: None,
+                    toolchain: None,
+                    sdk_detect: None,
+                },
+            },
+            proc: Mutex::new(None),
+            channels: Mutex::new(channels),
+            status: Mutex::new(LspSessionStatus::Running),
+            last_error: Mutex::new(None),
+            restart_count: AtomicU32::new(0),
+            stopping: Arc::new(AtomicBool::new(stopping)),
+            roots: Mutex::new(vec![("/tmp/project".to_string(), 1)]),
+        })
+    }
+
+    #[test]
+    fn find_reusable_entry는_종료_중인_세션을_재사용_후보에서_제외한다() {
+        let project_id = ProjectId::new();
+        let server_id = LspServerId::from("test-server");
+        let store = LspStore::new();
+        store.0.lock().insert(
+            "stopping-session".to_string(),
+            test_session_entry(project_id.clone(), server_id.clone(), "owner-a", true),
+        );
+
+        assert!(
+            find_reusable_entry(&store, &project_id, &server_id, "owner-a").is_none(),
+            "lsp_restart 의 비가드 shutdown 구간에서는 stopping 엔트리를 재사용 후보로 내주면 안 된다"
+        );
+    }
+
+    #[test]
+    fn find_reusable_entry는_종료_중이_아닌_세션은_그대로_재사용_후보로_반환한다() {
+        let project_id = ProjectId::new();
+        let server_id = LspServerId::from("test-server");
+        let store = LspStore::new();
+        store.0.lock().insert(
+            "active-session".to_string(),
+            test_session_entry(project_id.clone(), server_id.clone(), "owner-a", false),
+        );
+
+        let reused = find_reusable_entry(&store, &project_id, &server_id, "owner-a");
+        assert_eq!(reused.map(|(id, _)| id), Some("active-session".to_string()));
     }
 
     #[test]

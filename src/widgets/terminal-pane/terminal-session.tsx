@@ -20,7 +20,7 @@ import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/termina
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
-import { openTerminalLink } from '@widgets/terminal-pane/terminal-link-opener'
+import { openTerminalLink, openViaBrowserWindow } from '@widgets/terminal-pane/terminal-link-opener'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
 
@@ -91,7 +91,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
 
     const handleOpenLink = (uri: string) => {
         void openTerminalLink(uri, {
-            windowOpen: (target) => window.open(target, '_blank', 'noopener'),
+            windowOpen: (target) => openViaBrowserWindow(target, () => window.open()),
             openExternalUrl: systemOpenExternalUrl,
         }).catch(() => toast.error(t('terminal.openLinkFailed')))
     }

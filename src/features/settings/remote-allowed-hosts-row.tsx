@@ -27,7 +27,9 @@ const isValidAllowedHostLabel = (label: string) =>
  * single-label match). The wildcard never covers its own base domain — that RFC 6125 semantic
  * is enforced by `remote::service::host_matches_allowed_entry` at match time, not here; this
  * function only mirrors the backend's *shape* validation so an entry accepted here is never
- * silently dropped by the backend's own sanitize pass.
+ * silently dropped by the backend's own sanitize pass. The `'*.'` literal below mirrors the
+ * single-owner `remote::service::ALLOWED_HOST_WILDCARD_PREFIX` Rust constant — TS has no way to
+ * import a Rust `const`, so this stays a hand-kept literal instead.
  */
 export const isValidAllowedHost = (value: string) => {
     const wildcardRemainder = value.startsWith('*.') ? value.slice(2) : null

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::domain::remote::service as remote_service;
 use crate::domain::settings::types::{
     Settings, DEFAULT_EDITOR_CURSOR_BLINKING, DEFAULT_EDITOR_CURSOR_STYLE, DEFAULT_EDITOR_RENDER_WHITESPACE, DEFAULT_TERMINAL_CURSOR_STYLE,
 };
@@ -238,7 +239,7 @@ fn is_valid_dns_label(label: &str) -> bool {
 /// all, so both fall through to the non-wildcard branch and are rejected
 /// there too (`*` isn't a valid DNS label).
 fn is_valid_allowed_host(value: &str) -> bool {
-    match value.strip_prefix("*.") {
+    match value.strip_prefix(remote_service::ALLOWED_HOST_WILDCARD_PREFIX) {
         Some(remainder) => {
             remainder.contains('.') && remainder.len() <= DNS_HOSTNAME_MAX_LEN && remainder.split('.').all(is_valid_dns_label)
         }
@@ -388,19 +389,22 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
 /// from the picker while that flag was on would be silently ignored — `theme::commands::theme_get_current`
 /// keeps resolving the OS theme every time, so the picker's own selection never actually shows,
 /// with no indication in the UI that the pick was overridden (see
-/// `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.2).
+/// `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.2). Does **not** persist — unlike every
+/// other settings mutation in this module, the caller (`commands::settings_set_theme`) routes the
+/// returned value through `commands::apply_and_broadcast` for the save, so this second visible
+/// field flip reaches other windows/remote sessions/the `settings.json` `AppFile` tab the same way
+/// `settings_update` does, instead of only the narrower `ThemeChanged` event this command also
+/// emits for its own theme-CSS-application purpose.
 pub fn set_theme(paths: &AppPaths, settings: &Settings, theme_id: &str) -> AppResult<Settings> {
     if !theme_service::theme_exists(paths, theme_id) {
         return Err(AppError::NotFound(format!("theme not found: {theme_id}")));
     }
 
-    let updated = Settings {
+    Ok(Settings {
         theme_id: theme_id.to_string(),
         follow_system_theme: false,
         ..settings.clone()
-    };
-    save_settings(paths, &updated)?;
-    Ok(updated)
+    })
 }
 
 #[cfg(test)]

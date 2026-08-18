@@ -10,6 +10,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/lib/ime-input'
 import { recordImeDebug } from '@shared/lib/ime-debug'
+import { IS_MAC } from '@shared/constants/platform'
 import type { CommandBlockDecorationColors } from '@features/terminal/terminal-osc133'
 import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
 
@@ -18,9 +19,12 @@ const OVERVIEW_RULER_WIDTH_PX = 14
 /**
  * xterm's built-in web-links handler activates on any click, which collides with terminal
  * text selection and cursor placement. TAIDE gates link activation to Cmd-click (mac) /
- * Alt-click, matching the modifier convention editors use for "open reference".
+ * Ctrl-click (non-mac) / Alt-click, matching the modifier convention editors use for "open
+ * reference". `isMac` defaults to {@link IS_MAC} and exists as a parameter purely so tests can
+ * cover both platforms without touching `navigator` — production call sites never pass it.
  */
-export const shouldActivateTerminalLink = (event: Pick<MouseEvent, 'metaKey' | 'altKey'>) => event.metaKey || event.altKey
+export const shouldActivateTerminalLink = (event: Pick<MouseEvent, 'metaKey' | 'altKey' | 'ctrlKey'>, isMac: boolean = IS_MAC) =>
+    event.altKey || (isMac ? event.metaKey : event.ctrlKey)
 
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void

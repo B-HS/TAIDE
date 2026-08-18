@@ -39,10 +39,13 @@ Rust 와 프론트 양쪽을 함께 고쳤다(사용자 승인 완료 — 계약
 
 **Rust (`src-tauri/src/domain/lsp/commands.rs`, `src-tauri/src/infra/lsp_proc.rs`)**
 
-- `lsp_stop`/`lsp_restart` 를 재구성해 **가드는 동기 북키핑(refcount 갱신·`LspStore` 에서 엔트리
-  선제거)까지만** 쥐고, `shutdown_entry().await` 는 **가드를 놓은 뒤** 실행한다. 엔트리를 먼저
-  스토어에서 제거하므로, 가드가 없는 동안에도 다른 `lsp_spawn`/`lsp_stop`/`lsp_send` 가 이
-  세션을 다시 붙잡을 수 없다(`find_reusable_entry`/`find_entry` 가 못 찾는다).
+- `lsp_stop`/`lsp_restart` 를 재구성해 **가드는 동기 북키핑까지만** 쥐고, `shutdown_entry().await`
+  는 **가드를 놓은 뒤** 실행한다. `lsp_stop` 의 전체 종료 경로는 가드 안에서 `LspStore` 에서
+  엔트리를 먼저 제거하므로, 가드가 없는 동안에도 다른 `lsp_spawn`/`lsp_stop`/`lsp_send` 가 이
+  세션을 다시 붙잡을 수 없다(`find_reusable_entry`/`find_entry` 가 못 찾는다). `lsp_restart` 는
+  같은 `session_id` 를 재사용해야 해서 엔트리를 스토어에 남겨 두는데, 그 대신 `find_reusable_entry`
+  가 `stopping` 플래그를 확인해 재시작 중인 엔트리는 재사용 후보에서 제외한다(가드 재구성 직후
+  드러난 좁은 경합 — 메인 2차 검토에서 근본 수정, `find_reusable_entry` 의 doc comment 참고).
 - `shutdown_entry` 의 고정 sleep 을 **프로세스 종료 폴링**으로 교체했다. 신설
   `wait_for_process_exit`(50ms 간격, `LSP_SHUTDOWN_POLL_INTERVAL_MS`)가
   `LspProcHandle::is_exited()`(신설 — 프로세스 wait 루프가 실제 종료를 감지하면 세팅하는
@@ -61,14 +64,27 @@ Rust 와 프론트 양쪽을 함께 고쳤다(사용자 승인 완료 — 계약
   유예 시간 안에 `acquireLspSession` 이 다시 오면(같은 프로젝트+언어의 다른 파일로 전환) 타이머를
   취소하고 기존 세션을 그대로 재사용한다 — 파일 탐색기 브라우징·⌘P 연속 열기 같은 흔한 패턴에서
   세션 재스폰·재인덱싱이 사라진다.
-- **접합부 수정(Phase D)**: 유예 도입 직후엔 즉시-정리 함수(`flushLspSessionDisposal`)가 정의만
-  되고 어디서도 호출되지 않아, 프로젝트를 닫거나 앱이 종료돼도 유예 중인 세션이 그대로 5초를 마저
-  기다린 뒤에야 정리됐다(`project_close` 는 `LspStore` 를 건드리지 않으므로 프론트의 유예 타이머가
-  유일한 정리 경로였다). `ipc-sync-provider.tsx` 의 `events.projectClosed` 핸들러에
-  `flushLspSessionsForProject(projectId)`, `HotExitFlushProvider` 에 `flushAllLspSessions()`(신설
-  `lsp-session-flush-registry.ts` 경유 — `hot-exit-flush-provider.tsx` 가 monaco worker 를 import
-  하는 `lsp-session-registry.ts` 를 직접 참조하면 `bun test` 정적 임포트 그래프 해석이 깨진다)를
-  배선해 두 경로 모두 유예 중인 세션을 즉시 정리하도록 마감했다.
+- **접합부 수정(Phase D + 메인 2차)**: 유예 도입 직후엔 즉시-정리 함수(`flushLspSessionDisposal`)가
+  정의만 되고 어디서도 호출되지 않아, 프로젝트를 닫거나 앱이 종료돼도 유예 중인 세션이 그대로 5초를
+  마저 기다린 뒤에야 정리됐다(`project_close` 는 `LspStore` 를 건드리지 않으므로 프론트의 유예
+  타이머가 유일한 정리 경로였다). Phase D 가 `ipc-sync-provider.tsx` 의 `events.projectClosed`
+  핸들러에 `flushLspSessionsForProject(projectId)`, `HotExitFlushProvider` 에
+  `flushAllLspSessions()`(`lsp-session-flush-registry.ts` 경유 — 이 레지스트리 간접화가 필요한 이유는
+  아래 참고)를 배선했으나, `flushLspSessionsForProject` 는 그 시점엔 여전히
+  `flushLspSessionDisposal`(유예 타이머가 걸린 세션만 처리)에 위임하고 있었다.
+  `events.projectClosed` 는 Tauri IPC 콜백에서 **동기적으로** 도착해 React 가 그 프로젝트의 팬을
+  아직 언마운트하기 전이므로, 도착 시점의 세션은 전부 `refCount ≥ 1`(유예 타이머 없음) 상태 —
+  즉 이 배선은 실제 호출 시점에서 **항상 아무것도 하지 않는** 구조적 no-op 이었다. 메인 2차에서
+  `flushLspSessionsForProject` 를 refcount/유예 상태와 무관하게 해당 프로젝트의 세션을
+  `finalizeSessionDisposal` 로 즉시 강제 dispose 하도록 근본 수정(프로젝트가 닫히는 중이므로 그
+  세션을 다시 참조할 팬도 곧 사라짐 — 나중에 팬 cleanup 이 같은 record 에 대해 `releaseLspSession`
+  을 불러도 `finalizeSessionDisposal`/`disposeSession` 은 멱등이라 안전).
+- `ipc-sync-provider.tsx` 도 처음엔 `lsp-session-registry.ts` 를 **직접** import 해
+  `flushLspSessionsForProject` 를 가져왔는데, 이 모듈은 monaco worker 를 끌어들여 `bun test` 의
+  정적 임포트 그래프 해석 자체가 깨진다(`ipc-sync-provider.test.ts` 부재 상태에서는 드러나지
+  않았음). `lsp-session-flush-registry.ts` 에 `registerLspSessionProjectFlush`/
+  `flushLspSessionsForProject` 프록시를 추가해 `hot-exit-flush-provider.tsx` 와 동일한 간접
+  패턴으로 정리했다.
 
 ## 검토 초점(확인 완료)
 
@@ -82,10 +98,13 @@ Rust 와 프론트 양쪽을 함께 고쳤다(사용자 승인 완료 — 계약
 ## 대상 파일
 
 - `src-tauri/src/domain/lsp/commands.rs` — `lsp_stop`/`lsp_restart` 가드 재구성,
-  `wait_for_process_exit` 신설
+  `wait_for_process_exit` 신설, `find_reusable_entry` 의 `stopping` 배제(메인 2차)
 - `src-tauri/src/infra/lsp_proc.rs` — `LspProcHandle::is_exited()` 신설
 - `src/widgets/editor-pane/lsp-session-registry.ts` — dispose 유예, `flushLspSessionDisposal`/
-  `flushLspSessionsForProject`/`flushAllLspSessionDisposals` 신설
-- `src/widgets/editor-pane/lsp-session-flush-registry.ts` — 신설(hot-exit 경로 간접 참조용)
+  `flushLspSessionsForProject`/`flushAllLspSessionDisposals` 신설, `flushLspSessionsForProject` 강제
+  dispose 로 근본 수정(메인 2차)
+- `src/widgets/editor-pane/lsp-session-flush-registry.ts` — 신설(hot-exit 경로 간접 참조용),
+  `registerLspSessionProjectFlush`/`flushLspSessionsForProject` 프록시 추가(메인 2차 —
+  `ipc-sync-provider.tsx` 도 이 경유로 전환)
 - `src/app/providers/ipc-sync-provider.tsx`, `src/app/providers/hot-exit-flush-provider.tsx` —
   접합부 배선(Phase D)

@@ -154,7 +154,7 @@ describe('flushLspSessionsForProject / flushAllLspSessionDisposals — 프로젝
         await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
-    test('활성 세션(refCount>0)이 섞여 있어도 그대로 유지된다', async () => {
+    test('활성 세션(refCount>0, 언마운트 전)도 강제로 즉시 dispose 된다 — projectClosed 는 팬이 언마운트되기 전에 동기 도착한다', async () => {
         const { acquireLspSession, flushLspSessionsForProject, peekLspSession } = await importRegistry()
 
         const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-project-scope-active`, '/tmp/project-active')
@@ -162,8 +162,10 @@ describe('flushLspSessionsForProject / flushAllLspSessionDisposals — 프로젝
 
         flushLspSessionsForProject(PROJECT_ID)
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-project-scope-active` as typeof SERVER_ID)).toBe(handle.record)
-        expect(handle.record.refCount).toBe(1)
+        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-project-scope-active` as typeof SERVER_ID)).toBeNull()
+
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(fakeLspIpc.stopCalls.some((call) => call.root === '/tmp/project-active')).toBe(true)
     })
 
     test('모든 프로젝트의 유예 중인 세션을 한 번에 정리한다', async () => {

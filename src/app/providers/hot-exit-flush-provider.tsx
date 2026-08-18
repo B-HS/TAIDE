@@ -4,7 +4,7 @@ import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { HOT_EXIT_FLUSH_SAFETY_MARGIN_MS } from '@shared/constants/mirror'
 import { flushMirrorsComplete } from '@entities/file/file.ipc'
 import { flushAllMirrors } from '@entities/editor/mirror-flush-registry'
-import { flushAllLspSessions } from '@widgets/editor-pane/lsp-session-flush-registry'
+import { flushAllLspSessions } from '@entities/lsp/lsp-session-flush-registry'
 
 /**
  * Client-side budget for how long to wait on `flushAllMirrors()` before reporting completion

@@ -11,7 +11,18 @@ const FSD_LAYERS = [
 ]
 
 export default tseslint.config(
-    { ignores: ['dist/**', 'dist-*/**', 'target/**', 'src-tauri/target/**', 'src-tauri/gen/**', 'src/shared/ui/**', 'src/shared/api/bindings.ts'] },
+    {
+        ignores: [
+            'dist/**',
+            'dist-*/**',
+            'target/**',
+            'src-tauri/target/**',
+            'src-tauri/gen/**',
+            'src/shared/ui/**',
+            'src/shared/api/bindings.ts',
+            'docs/**',
+        ],
+    },
     js.configs.recommended,
     tseslint.configs.recommended,
     reactHooks.configs.flat['recommended-latest'],

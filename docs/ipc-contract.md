@@ -731,16 +731,23 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   가드 밖에서 대기) `shutdown_entry` 의 고정 2s+2s sleep 이 프로세스 종료 폴링(`wait_for_process_exit`,
   상한은 기존 `LSP_SHUTDOWN_TIMEOUT_MS`)으로 바뀌었을 뿐이다. 프론트 `lsp-session-registry.ts` 의
   `releaseLspSession` 도 refCount 0 즉시 dispose 대신 `LSP_SESSION_DISPOSE_GRACE_MS`(5초) 유예 후
-  dispose 하도록 바뀌었다(그 사이 재획득하면 타이머 취소 — 파일 전환 시 세션 재사용). 상세 원인은
-  `lsp.md` 참고. **접합부 수정(Phase D)**: 유예 도입 직후엔 `flushLspSessionDisposal`(유예를 건너
-  뛰고 즉시 dispose)이 정의만 되고 어디서도 호출되지 않아, 유예 중이던 세션이 `project_close`(Rust
-  가 `LspStore` 를 건드리지 않는다)나 hot-exit 이후에도 계속 5초를 마저 기다린 뒤에야 정리됐다.
-  `ipc-sync-provider.tsx` 의 `events.projectClosed` 핸들러에 `flushLspSessionsForProject(projectId)`
-  를, `HotExitFlushProvider` 에 `flushAllLspSessions()`(간접 참조 이유는 아래)를 배선해 두 경로 모두
-  유예 중인 세션을 즉시 정리하도록 마감했다 — 신설 `lsp-session-flush-registry.ts` 를 하나 더 둔
-  것은 `hot-exit-flush-provider.tsx` 가 `lsp-session-registry.ts`(실제 monaco worker 를 import 하는
-  모듈이라 `bun test` 정적 임포트 그래프 해석이 실패한다)를 직접 참조하지 않게 하기 위해서다 —
-  `lsp-session-registry.ts` 가 자기 모듈 로드 시 `flushAllLspSessionDisposals` 를 이 레지스트리에
+  dispose 하도록 바뀌었다(그 사이 재획득하면 타이머 취소 — 파일 전환 시 세션 재사용). 상세는
+  `lsp.md` §5·`docs/bug/2026-08-18-lsp-stop-global-lock.md` 참고. **접합부 수정(Phase D + 메인
+  2차)**: 유예 도입 직후엔 `flushLspSessionDisposal`(유예를 건너뛰고 즉시 dispose)이 정의만 되고
+  어디서도 호출되지 않아, 유예 중이던 세션이 `project_close`(Rust 가 `LspStore` 를 건드리지 않는다)
+  나 hot-exit 이후에도 계속 5초를 마저 기다린 뒤에야 정리됐다. Phase D 가 `ipc-sync-provider.tsx` 의
+  `events.projectClosed` 핸들러에 `flushLspSessionsForProject(projectId)` 를, `HotExitFlushProvider`
+  에 `flushAllLspSessions()`(간접 참조 이유는 아래)를 배선했지만, 그 시점의 `flushLspSessionsForProject`
+  는 여전히 유예 타이머가 걸린 세션에만 작용했다 — `events.projectClosed` 는 Tauri IPC 콜백에서
+  동기 도착해 React 가 그 프로젝트의 팬을 아직 언마운트하기 전이므로, 도착 시점의 세션은 전부
+  `refCount ≥ 1`(유예 타이머 없음)이라 이 배선은 실제로는 항상 아무것도 하지 않는 구조적 no-op
+  이었다. 메인 2차에서 `flushLspSessionsForProject` 를 refcount/유예 상태와 무관하게 해당
+  프로젝트의 세션을 강제로 즉시 dispose 하도록 근본 수정했다(프로젝트가 닫히는 중이므로 그 세션을
+  다시 참조할 팬도 곧 사라짐). 신설 `lsp-session-flush-registry.ts` 를 하나 더 둔 것은
+  `hot-exit-flush-provider.tsx`·`ipc-sync-provider.tsx` 가 `lsp-session-registry.ts`(실제 monaco
+  worker 를 import 하는 모듈이라 `bun test` 정적 임포트 그래프 해석이 실패한다)를 직접 참조하지
+  않게 하기 위해서다 — `lsp-session-registry.ts` 가 자기 모듈 로드 시 `flushAllLspSessionDisposals`
+  ·`flushLspSessionsForProject` 를 이 레지스트리에
   스스로 등록한다.
 
 ### 원격 dispatch 정책 (허용 · 거부 · 부분 스트립)

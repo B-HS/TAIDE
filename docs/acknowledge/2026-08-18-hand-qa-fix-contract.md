@@ -156,3 +156,44 @@
   reveal 게이트 데드락 부재(쿼리 에러 시에도 isFetched true)·커밋 diff 탭 preview 교체 흐름.
 - 실기 이월(qa6 추가): 터미널 ⌥/⌘ 클릭 실동작·⌥드래그 간섭·부트 테마 콜드 스타트 녹화·
   와일드카드 tunnel 실접속·파일 전환 무반응 소멸(4초 서명 소멸)·peek 정렬·커밋 diff 탭 UX.
+
+---
+
+## 5. Phase E 검토 결함 수정 반영 (2026-08-18)
+
+> 검토 wf_9a7edac2-576(4렌즈 opus+xhigh, 검토 대상 = 선커밋 b00c192 diff) — 발견 22건
+> (major 3·minor 19) → 적대적 검증(opus+high)에서 major **3건 전건 confirmed·반증 0** →
+> 수정(sonnet+xhigh) + 잔여 minor 후속(wf_33e76fae-275). 메인 2차: 수정 전건 실물 재검증 +
+> `bun run verify` 전체 + vite build 직접 재실행.
+
+- **[major] `window.open(uri, '_blank', 'noopener')` 는 성공해도 표준상 항상 null** — 폴백
+  감지가 사문화되어 원격 미러에서 링크가 정상 열렸는데도 매 클릭 실패 토스트(계약 §2.1 의
+  "window.open 선시도 감지" 전제 자체가 무효였음): 인자 없는 `window.open()` → opener 수동
+  차단 → `location.href` 대입(xterm addon-web-links 기본 핸들러와 동일 패턴 —
+  `openViaBrowserWindow` 신설)으로 근본 수정. 위양성 테스트(발생 불가능한 Window 주입) 교정.
+- **[major] 원격 shim 창 라벨이 `'main'`** — 데스크톱 main 창과 LSP owner 슬롯 충돌: 원격
+  lsp_spawn 이 데스크톱 세션을 재사용해 채널을 덮어쓰고(데스크톱 응답 영구 유실), 신설
+  flush 배선이 원격 발동으로 데스크톱 세션을 정리할 수 있는 경로. **가드 축소(§2.4)의 안전
+  논거였던 owner 스코핑 불변식이 미성립이었음.** `REMOTE_WINDOW_LABEL = 'remote'` 로 정정
+  (Rust doc 이 이미 전제하던 값) + `main`/`editor-*` 비충돌 회귀 테스트. 라벨 분기 소비처
+  0 은 메인이 grep 재확인.
+- **[major] `docs/utils/*.workflow.js` 가 eslint 대상** — 일시중지 보존본이 verify 를 깨는
+  자충: eslint ignores `docs/**` 추가(prettier/tsconfig 기존 취급과 정합).
+- **minor 실질 11건 수정**: `find_reusable_entry` 에 `!stopping` 배제(lsp_restart 비가드
+  구간의 종료 중 세션 재사용 차단 — 재사용 차단 불변식 완성)·`flushLspSessionsForProject`
+  가 refCount 무관 강제 dispose(projectClosed 시점 구조적 no-op 교정)·ipc-sync-provider 의
+  monaco 정적 import 를 레지스트리 프록시로(bun test 로드 가능 회귀 가드 동반)·레지스트리를
+  `entities/lsp/` 로 이동(mirror-flush-registry 선례 정합)·테마/로케일 실패 배너 공용
+  `StatusErrorBanner` + 세로 스택(동시 실패 겹침 해소)·`settings_set_theme` 이
+  `apply_and_broadcast` 경유(SettingsChanged 미발행 교정 — follow 해제가 전 창 전파)·
+  와일드카드 `"*."` 문법 단일 소유(`ALLOWED_HOST_WILDCARD_PREFIX`·`is_wildcard_entry`,
+  settings→remote 엣지 신규 승인)·URL 검증에 유니코드 시각 위장 문자(Cf) denylist + userinfo
+  `@` 거부·비 macOS ctrl 수식어(`shouldActivateTerminalLink(event, isMac)`)·lsp.md §5 유예·
+  가드 서술·terminal.md 문구 정정.
+- **기각 1건**: #18 폴링 이중화(teardown 당 최대 ~200ms 잔존) — 목표(4초 전역 락 해소)는
+  달성됐고 Notify 전환은 lsp_proc 동시성 표면을 재개방하는 비용이 이득을 초과. 잔존 지연은
+  체감 밖(문서 기록으로 갈음).
+- **보류 1건(사용자 확인 대기)**: #12 `system_open_in_browser`·`system_reveal_path`·
+  `system_open_app_data_path` 의 원격 dispatch 허용이 신설 deny 사유("원격이 호스트에 창을
+  열게 하지 않는다")와 비대칭 — 기존 동작 변경이라 임의 전환하지 않음. 전문 QA-W2(remote
+  게이트 전수)와 함께 결정.

@@ -4,7 +4,7 @@ import { events } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { refreshTreeDir } from '@entities/tree/tree.ipc'
-import { flushLspSessionsForProject } from '@widgets/editor-pane/lsp-session-registry'
+import { flushLspSessionsForProject } from '@entities/lsp/lsp-session-flush-registry'
 
 const PATH_SEPARATOR = '/'
 

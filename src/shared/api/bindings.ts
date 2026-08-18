@@ -253,6 +253,12 @@ export const commands = {
 	snippetDelete: (fileName: string) => typedError<null, AppError>(__TAURI_INVOKE("snippet_delete", { fileName })),
 	settingsGet: () => typedError<Settings, AppError>(__TAURI_INVOKE("settings_get")),
 	settingsUpdate: (patch: SettingsPatch) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_update", { patch })),
+	/**
+	 *  Unlike `settings_update`, this also emits `ThemeChanged` — the narrower event
+	 *  `ipc-sync-provider.tsx` listens for to invalidate `THEME.ALL` and actually refetch the newly
+	 *  picked theme's colors, which a `SettingsChanged` alone (below, via `apply_and_broadcast`)
+	 *  doesn't trigger.
+	 */
 	settingsSetTheme: (themeId: string) => typedError<Settings, AppError>(__TAURI_INVOKE("settings_set_theme", { themeId })),
 	systemUsageGet: () => typedError<SystemUsage, AppError>(__TAURI_INVOKE("system_usage_get")),
 	systemUsageBreakdown: () => typedError<SystemUsageProcess[], AppError>(__TAURI_INVOKE("system_usage_breakdown")),

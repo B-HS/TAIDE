@@ -112,9 +112,9 @@
 
 - `WebLinksAddon` 을 **핸들러 주입형**으로 교체(`terminal-view.tsx`) — 기본 핸들러 대신
   `(event, uri) => { if (!shouldActivateTerminalLink(event)) return; onOpenLink(uri) }`.
-  `shouldActivateTerminalLink` 는 `event.metaKey || event.altKey` 일 때만 참(⌘ 클릭 또는 ⌥ 클릭,
-  둘 중 하나로 겸용 — §6 의 파일 경로 링크가 cmd(ctrl)+click 하나만 받는 것과 다른 설계). 수식어
-  없는 클릭은 여전히 무동작.
+  `shouldActivateTerminalLink` 는 `event.altKey || (isMac ? event.metaKey : event.ctrlKey)` 일
+  때만 참 — **⌘(비 macOS 는 Ctrl) 또는 ⌥ + 클릭**, 둘 중 하나로 겸용(§6 의 파일 경로 링크가
+  cmd(ctrl)+click 하나만 받는 것과 다른 설계). 수식어 없는 클릭은 여전히 무동작.
 - Terminal 생성 옵션에 `altClickMovesCursor: false` 추가 — 기본값(`true`)을 그대로 두면 ⌥클릭이
   "커서를 그 위치로 이동"과 "링크 열기" 두 동작으로 동시에 해석돼 충돌한다. ⌥클릭의 커서 점프
   동작 자체를 제거하는 트레이드오프이며 사용자 승인을 거쳤다.

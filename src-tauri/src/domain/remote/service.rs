@@ -29,6 +29,17 @@ pub fn digest_hex(token: &str) -> String {
     digest_bytes(token).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Single-owner wildcard-prefix syntax for a `remote_allowed_hosts` entry (RFC 6125 single-label
+/// wildcard, matched by [`host_matches_allowed_entry`]) — `settings::service::is_valid_allowed_host`
+/// (sanitizing user input) and this module's own matcher/link-formatting callers all read the same
+/// constant instead of each hardcoding `"*."`.
+pub const ALLOWED_HOST_WILDCARD_PREFIX: &str = "*.";
+
+/// Whether `entry` uses the wildcard-prefix syntax owned by [`ALLOWED_HOST_WILDCARD_PREFIX`].
+pub fn is_wildcard_entry(entry: &str) -> bool {
+    entry.starts_with(ALLOWED_HOST_WILDCARD_PREFIX)
+}
+
 pub fn is_allowed_origin(origin: Option<&str>, host: Option<&str>) -> bool {
     let Some(origin) = origin else { return true };
     let Some(host) = host else { return false };
@@ -99,7 +110,7 @@ pub fn is_loopback_hostname(hostname: &str) -> bool {
 /// strings, which never matches either impostor. A bare `entry` (no `*.` prefix) still requires an
 /// exact, case-insensitive match, unchanged from before.
 pub fn host_matches_allowed_entry(hostname: &str, entry: &str) -> bool {
-    match entry.strip_prefix("*.") {
+    match entry.strip_prefix(ALLOWED_HOST_WILDCARD_PREFIX) {
         Some(suffix) => hostname
             .split_once('.')
             .is_some_and(|(label, rest)| !label.is_empty() && rest.eq_ignore_ascii_case(suffix)),
@@ -149,7 +160,7 @@ pub fn is_allowed_host(host: Option<&str>, allowed_hosts: &[String], bind_port: 
 ///
 /// [`remote_issue_link`]: super::commands::remote_issue_link
 pub fn format_issue_link_url(allowed_hosts: &[String], port: u32, token: &str) -> String {
-    match allowed_hosts.iter().find(|host| !host.starts_with("*.")) {
+    match allowed_hosts.iter().find(|host| !is_wildcard_entry(host)) {
         Some(host) => format!("https://{host}/?{REMOTE_LINK_TOKEN_QUERY_KEY}={token}"),
         None => format!("http://127.0.0.1:{port}/?{REMOTE_LINK_TOKEN_QUERY_KEY}={token}"),
     }

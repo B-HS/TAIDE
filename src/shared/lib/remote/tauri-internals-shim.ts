@@ -9,7 +9,16 @@ declare global {
     }
 }
 
-const REMOTE_WINDOW_LABEL = 'main'
+/**
+ * Window label the remote-mirror shim reports through `getCurrentWindow().label`. Must stay
+ * distinct from every real desktop window label (`main`, `editor-<n>` — see `tauri.conf.json`
+ * and `domain::window::commands::open_auxiliary_window`), because backend LSP session ownership
+ * (`domain::lsp::commands::SessionEntry.channels`, keyed by this label) treats two callers with
+ * the same label as the *same* window and lets one silently steal the other's message channel.
+ * Kept in sync with the label the Rust side already documents as fixed for remote clients
+ * (`domain/lsp/commands.rs` — "the remote client's fixed `\"remote\"` label").
+ */
+export const REMOTE_WINDOW_LABEL = 'remote'
 const FILE_ROUTE = '/__taide/file'
 
 type EventListener = { event: string; callbackId: number }

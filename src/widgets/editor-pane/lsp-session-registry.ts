@@ -29,7 +29,7 @@ import {
 } from '@shared/lib/lsp/command-relay'
 import { createWorkspaceApplyEditHandler } from '@shared/lib/lsp/workspace-edit-apply-handler'
 import { sendLspMessage, spawnLspSession, stopLspSession } from '@entities/lsp/lsp.ipc'
-import { registerLspSessionAllFlush } from '@widgets/editor-pane/lsp-session-flush-registry'
+import { registerLspSessionAllFlush, registerLspSessionProjectFlush } from '@entities/lsp/lsp-session-flush-registry'
 
 type Disposable = { dispose: () => void }
 
@@ -417,18 +417,27 @@ export const flushLspSessionDisposal = (key: string, record: SessionRecord) => {
 }
 
 /**
- * Flushes every session key-scoped to `projectId` still sitting in its grace period —
- * `project_close` (Rust) removes the project's layout/watchers but never touches `LspStore`, so
- * without this a closed project's language servers would otherwise linger for the full
- * {@link LSP_SESSION_DISPOSE_GRACE_MS} after their last editor pane unmounts, `lsp_stop`-ing
- * against a project the user already explicitly closed. A session that's still actively held
- * (`refCount > 0`, its owning pane not unmounted yet) is untouched — {@link flushLspSessionDisposal}
- * no-ops for those, same as calling it directly.
+ * Force-disposes every session key-scoped to `projectId`, regardless of `refCount` or grace-period
+ * state — `project_close` (Rust) removes the project's layout/watchers but never touches
+ * `LspStore`, so without this a closed project's language servers would otherwise linger for the
+ * full {@link LSP_SESSION_DISPOSE_GRACE_MS} after their last editor pane unmounts, `lsp_stop`-ing
+ * against a project the user already explicitly closed. This deliberately does **not** delegate to
+ * {@link flushLspSessionDisposal} (which only acts on a session already in its grace period,
+ * `disposeTimer !== null`): `events.projectClosed` is delivered synchronously from a Tauri IPC
+ * callback (`ipc-sync-provider.tsx`), not from a React commit, so it always runs *before* the
+ * closing project's own panes have unmounted and released their sessions — at that instant every
+ * one of them is still `refCount >= 1` with no `disposeTimer` set, which made a grace-gated flush a
+ * structural no-op at its only real call site. Forcing disposal here is safe specifically because
+ * the whole project is going away: every pane that could still reacquire this session is about to
+ * unmount too, so there is no later reacquisition worth waiting for. A pane's own cleanup
+ * (`releaseLspSession`) still runs afterward and is harmless against an already-disposed record —
+ * `finalizeSessionDisposal`/`disposeSession` are idempotent (monaco disposables and `stopLspSession`
+ * tolerate a second call).
  */
 export const flushLspSessionsForProject = (projectId: ProjectId) => {
     const prefix = `${projectId}::`
     for (const [key, record] of sessionsByKey) {
-        if (key.startsWith(prefix)) flushLspSessionDisposal(key, record)
+        if (key.startsWith(prefix)) finalizeSessionDisposal(key, record)
     }
 }
 
@@ -443,6 +452,7 @@ export const flushAllLspSessionDisposals = () => {
 }
 
 registerLspSessionAllFlush(flushAllLspSessionDisposals)
+registerLspSessionProjectFlush(flushLspSessionsForProject)
 
 /**
  * Notifies subscribers whenever LSP-backed monaco providers (formatting/rename/etc.) are newly
