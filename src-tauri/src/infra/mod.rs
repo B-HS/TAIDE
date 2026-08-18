@@ -1,3 +1,4 @@
+pub mod asset_protocol;
 pub mod crypto;
 pub mod http;
 pub mod language;
@@ -5,6 +6,7 @@ pub mod lsp_install;
 pub mod lsp_proc;
 pub mod persist;
 pub mod pty;
+pub mod range_file;
 pub mod root_guard;
 pub mod secret;
 pub mod shell_integration;

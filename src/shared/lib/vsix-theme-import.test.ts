@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { VsixThemeExtractionResult } from '@shared/api/bindings'
-import { buildVsixThemeCandidates } from '@features/theme/vsix-theme-import'
+import { buildVsixThemeCandidates } from '@shared/lib/vsix-theme-import'
 
 const MINIMAL_THEME_JSON = JSON.stringify({
     colors: { 'editor.background': '#1e1e1e', 'editor.foreground': '#d4d4d4', foreground: '#d4d4d4' },

@@ -162,6 +162,36 @@ src/
   QUERY_KEY 중앙 관리, 이벤트 수신 시 invalidate (ADR-0008).
 - view 전역 상태(zustand)는 순수 UI 상태(드래그 중 표시 등)가 실수요를 증명할 때만 도입한다(frontend.md §6).
 
+### 5.1 `widgets` ↔ `features` 배치 기준 (T1-F, fsd.md §2.1 데스크톱 특화)
+
+eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어의 **성격**은 검사하지 않는다 —
+그 결과 감사(C1)에서 explorer·problems·search·outline·settings·plugin·snippet·tab 8개 슬라이스가
+두 레이어에 걸쳐 있는 것이 드러났다. 이 프로젝트에서 두 레이어를 가르는 유일한 판정 기준은
+**query/mutation/IPC 소유 여부**다(fsd.md §2.1 의 "props 로만 받는가" 질문을 이 앱의 "Rust 상태 =
+서버 상태" 축으로 구체화한 것).
+
+- **`widgets` 로 판정**: 컴포넌트/훅 자신이 `useQuery`·`useMutation`·`useSuspenseQuery`(entities
+  query 훅 포함) 또는 `entities/*.ipc.ts` 의 invoke 래퍼를 **직접 호출**한다. 전역 키맵·전역
+  이벤트 브리지 구독처럼 IPC 를 감싸는 부수효과도 여기 포함된다.
+- **`features` 로 판정**: 위 어느 것도 호출하지 않고, 데이터·콜백을 전부 **props 로만** 받는다.
+  타입 import(`@entities/*/*.type.ts`, `@shared/api/bindings`)는 이 판정에 영향을 주지 않는다 —
+  entities 는 두 레이어 모두에서 항상 허용된다(§2 fsd.md 매트릭스).
+- **`shared` 로 강등**: React 에 의존하지 않는 순수 함수/로직이면서 소비처가 widgets 한 곳뿐이어도
+  `shared/lib` 이 맞다 — `features` 는 "컴포넌트" 레이어이므로 React 와 무관한 유틸을 두는 자리가
+  아니다.
+- **판정 결과 예시(2026-08-18 이동)**: `agent-hooks-project-row`/`-list`·`agent-cli-status-row`·
+  `use-zen-mode`(조회+변이+IPC 소유) → `widgets/settings-view`·`widgets/app-shell` 로 승격.
+  `tab-context-menu`·`sortable-tab`·`file-tree`·`problems-panel`·`search-panel`·`outline-panel`·
+  `plugin-list-body`·`vsix-import-grammars-section`·`snippet-entry-editor`·`snippet-file-list`
+  (props+콜백만) → `features/*` 로 강등. `vsix-theme-import`·`selection-line-range`(React 무관
+  순수 함수) → `shared/lib` 로 강등. `snippet-entry-editor` 는 `widgets/snippet-editor/
+  snippet-draft.ts`(드래프트 변환 타입·순수 함수, React 무관)를 import 하고 있어 그 파일까지
+  `shared/lib/snippet-draft.ts` 로 함께 강등해야 features→widgets 역참조 없이 이동이 성립했다
+  (Phase D 접합부 수정 — F 1차 실행 시 이 종속을 확인하지 못해 10개 강등 대상 중 이 한 파일만
+  누락돼 있었다).
+- 판정이 애매하면 **더 아래 레이어**를 고른다(fsd.md §2.1) — 승격은 실제 사용처가 생겼을 때 언제든
+  가능하지만, 강등은 소비처 전체를 다시 훑어야 한다.
+
 ## 6. 수명주기·누수 방지 규칙 (전 기능 공통)
 
 1. **구독은 생성자와 해제가 한 곳에**: `listen()` 은 반드시 unlisten 을 useEffect cleanup 에서 호출.
@@ -183,21 +213,63 @@ src/
    | pty 세션 | `TerminalStore::kill_project` | 프로세스+fd+스레드가 앱 종료까지 잔존 |
    | `GitStore` (projectId→repo_root 캐시) | `GitStore::remove` | 재오픈 시 옛 repo_root 캐시 부활 |
    | `TreeStore` (트리 캐시) | `TreeStore::remove` | 재오픈 시 옛 디렉터리 목록 부활 + 메모리 잔존 |
-   | asset 프로토콜 스코프 | **의도적 보류** — 아래 참고 | 닫힌 프로젝트 트리를 webview가 계속 읽음 |
+   | asset 프로토콜 접근 | **회수 불필요** — 아래 참고 (T1 2차, X1#7 근본 수정) | 해당 없음 |
 
-   **asset 프로토콜 스코프 보류 사유**: Tauri의 `asset_protocol_scope()`(`scope::fs::Scope`)는
-   allow/forbid 두 목록 모두 **추가 전용**이다 — `forbid_directory`는 존재하지만 그 항목을 나중에
-   되돌릴 API가 없고(`forbid`가 `allow`보다 항상 우선), `allow_directory` 역시 제거 API가 없다.
-   따라서 `project_close`에서 단순히 `forbid_directory(root)`를 호출하면 **같은 폴더를 다시 열어도
-   영원히 asset 을 못 읽는** 새로운 회귀를 만든다 — 지금의 "닫아도 계속 읽힘"보다 나쁘다. 근본
-   수정은 `register_uri_scheme_protocol("asset", ...)`으로 asset 스킴 자체를 앱이 직접 재구현해
-   "현재 열린 프로젝트 root 집합"이라는 살아있는 상태로 `is_allowed`를 판정하는 것이며(Tauri는
-   같은 이름의 스킴이 이미 등록돼 있으면 내장 asset 핸들러를 건너뛰므로 `convertFileSrc`/CSP는
-   그대로 재사용 가능), Tauri 내장 핸들러(`tauri::protocol::asset::get_response`)가 지원하는
-   Range 요청(preview-pane 비디오/오디오 탐색에 필수)까지 재구현해야 해 위험도가 있다. 앱을 실행해
-   webview 재생/탐색 회귀를 검증할 수 없는 조건에서 이 표면(파일 읽기 경로)을 손으로 다시 구현하는
-   것은 무리한 강행으로 판단해 **T1 2차로 분리**했다 — `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md`
-   §1 T1-J 참고.
+   **asset 프로토콜 재구현 완료 (T1 2차, X1#7)**: 1차 배치는 이 항목을 Tauri 내장
+   `asset_protocol_scope()`(`scope::fs::Scope`)의 allow/forbid 가 **둘 다 추가 전용**이라(되돌릴
+   API 없음, `forbid`가 `allow`보다 항상 우선) `project_close`에서 단순히 `forbid_directory(root)`를
+   호출하면 "같은 폴더를 다시 열어도 영원히 asset 을 못 읽는" 새 회귀를 만든다는 이유로 보류했다.
+   2차 배치는 근본 수정을 실행했다 — `infra::asset_protocol::respond`가
+   `register_uri_scheme_protocol("asset", ...)`(`lib.rs`, `Builder` 체인의 `.setup()` 이전)으로
+   asset 스킴 자체를 앱이 직접 재구현해 서빙한다. Tauri는 같은 이름("asset")의 스킴이 이미
+   등록돼 있으면 내장 핸들러를 건너뛴다(`tauri-2.11.5/src/manager/webview.rs`
+   `prepare_pending_webview`의 `if !registered_scheme_protocols.contains(&"asset".into())`로
+   직접 확인) — `convertFileSrc`(`@tauri-apps/api/core`)도 `tauri.conf.json`의
+   `asset:`/`http://asset.localhost` CSP 소스도 스킴 **이름**에만 의존하므로 **무변경**이다.
+   `is_allowed` 판정은 append-only 스코프 대신 `root_guard::resolve_owning_project`로 **현재 열린
+   프로젝트 집합**(`AppState::projects`)을 매 요청마다 조회한다 — `/__taide/file`(remote 라우트)이
+   이미 쓰는 같은 함수라 경로 봉쇄 보장이 두 서빙 경로에서 동일하다. 프로젝트가 닫히면
+   `AppState::projects`에서 즉시 제거되므로(§6.3 위 표의 기존 `project_close` 흐름), 별도의
+   "회수" 단계 없이 **다음 요청부터 자동으로 거부**된다 — 이것이 표에 "회수 불필요"로 적은 이유다.
+   `infra::asset_protocol::respond` 자신은 `AppState`를 직접 조회하지 않고 열린 프로젝트 맵을
+   파라미터로 받는다(`infra::root_guard`의 다른 함수들과 같은 모양) — `AppHandle`/`State` 조회는
+   `lib.rs`의 `register_uri_scheme_protocol("asset", ...)` 등록 클로저 한 곳에만 있고, 그 결과를
+   `respond`에 넘긴다. 덕분에 `infra::` 안에서 `crate::state`에 직접 의존하는 곳이 없고,
+   `respond`도 실제 `AppHandle` 없이 단위 테스트할 수 있다(감사 지적 반영, 2026-08-19).
+
+   `Range` 요청(비디오/오디오 탐색)은 Tauri 벤더 소스의 `tauri::protocol::asset::get_response`가
+   `pub(crate)`(애플리케이션 코드에서 접근 불가)라 알고리즘만 읽고 처음부터 재작성했다 — 단일
+   range·`RANGE_CHUNK_LIMIT`(1000KB) 상한, 확장자→MIME 매핑, 슬라이스 읽기는
+   `domain::remote::serving::file_range`와 동일 로직이 필요해 처음에는 두 파일에 그대로
+   중복시켰으나, 감사에서 그 중복 로직 자체에 버그(뒤집힌 `Range: bytes=500-100` 같은 요청을
+   거부하지 않아 길이 계산이 언더플로하는 결함)가 있는 것으로 드러나 **`infra::range_file`
+   공유 모듈로 추출했다**(2026-08-19) — `RANGE_CHUNK_LIMIT`·`RANGE_RESPONSE_CSP`·`extension_mime`·
+   `parse_range`(언더플로 수정 포함)·`read_slice`를 두 파일이 공통으로 import 한다(공유 방향은
+   `domain::remote::serving`(도메인)→`infra::range_file`(인프라)로, 기존에 이미 있던
+   `domain::remote::serving`→`infra::root_guard` 참조와 같은 방향). `extension_mime`에는 이
+   추출 과정에서 `m4v`(프론트 `preview-kind.ts`가 이미 video 로 분류하는 확장자) 매핑도 함께
+   추가했다 — 이전에는 두 서빙 경로 모두 `.m4v`를 `application/octet-stream`으로 응답해
+   `X-Content-Type-Options: nosniff`와 겹치면 재생이 막힐 수 있었다.
+
+   응답에는 `/__taide/file`과 동일하게 `Content-Security-Policy`(`default-src 'none';
+   script-src 'none'; style-src 'none'; sandbox`)·`X-Content-Type-Options: nosniff`·
+   `Cache-Control: no-store`를 부여한다(`no-store`도 감사 반영 — 닫은 프로젝트의 파일이
+   webview HTTP 캐시에 남아 핸들러를 거치지 않고 재생되는 경로를 막는다, `/__taide/file`과
+   동일한 방어). 내장 Tauri asset 핸들러가 모든 응답에 붙이는
+   `Access-Control-Allow-Origin`(요청 오리진)과 `Range` 응답의
+   `Access-Control-Expose-Headers: content-range`는 의도적으로 생략했다 — 이 핸들러의 현재 유일한
+   소비처(`preview-pane.tsx`의 `<video>`/`<audio src={convertFileSrc(...)}>`)는 같은 오리진
+   엘리먼트 `src`로만 로드되어 CORS 프리플라이트도, `fetch`/XHR로 응답 헤더를 읽는 경로도 타지
+   않는다. `UriSchemeContext`는 내장 핸들러의 `window_origin`에 해당하는 값을 노출하지 않아,
+   향후 `fetch()`로 `asset://`를 직접 호출하는 소비처가 생기면 그때 헤더 복원이 필요하다
+   (`infra::asset_protocol` 모듈 doc에 동일 내용 기록).
+
+   **KNOWN ISSUE(실기 미검증)**: 에이전트는 앱을 실행할 수 없어 이 핸들러를 실제 webview 로
+   검증하지 못했다 — `<video>`/`<audio>` 탐색(Range 응답)이 실제로 매끄러운지, WKWebView/WebView2가
+   커스텀 `register_uri_scheme_protocol` 핸들러를 내장 핸들러와 동일하게 라우팅하는지, CORS 헤더
+   생략이 실제로 무해한지는 코드 리딩과 단위 테스트(`infra::asset_protocol::tests`,
+   `infra::range_file::tests`)로만 확인했다. 실기 확인 항목은
+   `docs/quality-assurance/2026-08-11-qa6-checklist.md` "감사 T1 정비 2차 재검" 절 참고.
 
    **`project_close`에 묶이지 않는 별개의 세션 수준 자원 회수** (같은 배치에서 함께 수정, 프로젝트
    종료가 아니라 각 자원 자체의 생명주기에 걸림):
@@ -218,6 +290,13 @@ src/
      `rm -rf` 한 줄에만 의존했고, 셸이 그 줄에 도달하지 못하면(크래시·조기 종료) OS 임시 디렉터리
      아래 영구히 남았다. 이제 `PtySession`이 생성 시점의 경로를 들고 있다가 자신의 `Drop`에서
      결정적으로 제거한다.
+   - `infra::shell_integration`이 그 임시 디렉터리 안에 쓰는 `.zshenv`/`.zprofile`/`.zshrc`/
+     `init.bash`(T1 2차, R2#11) — 기존 `std::fs::write`는 프로세스의 기본 umask(보통 `022`)를
+     그대로 물려받아, 다른 로컬 사용자도 읽을 수 있는 공용 OS 임시 디렉터리 아래 파일이 세션이
+     살아있는 동안 그 umask 권한(보통 world-readable)으로 노출됐다. `infra::persist::
+     write_private_atomic`(소유자 전용 `0o600`, temp-then-rename 원자적 쓰기)로 교체했다 —
+     이 함수는 T0 배치에서 settings/secret 파일에 이미 쓰던 것을 재사용한 것이라 신규 유틸이
+     아니다.
 4. **이벤트 페이로드는 소형 유지**: 대형 데이터(파일 내용, diff 본문)는 이벤트에 싣지 않고
    "변경됨" 신호만 보내 query 로 다시 읽게 한다. 스트림 데이터만 Channel 예외.
 5. 각 `features/*.md` 문서는 "수명주기" 절에서 이 규칙의 해당 기능 적용을 구체화한다.

@@ -17,7 +17,7 @@ import { useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
-import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@widgets/explorer/file-tree'
+import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@features/explorer/file-tree'
 import { ExplorerPanel } from '@widgets/explorer/explorer-panel'
 import { FileHistoryPanel } from '@widgets/file-history/file-history-panel'
 

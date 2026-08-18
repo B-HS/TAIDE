@@ -17,6 +17,7 @@ use super::types::{
 use crate::error::{AppError, AppResult};
 use crate::events::{LspInstallProgress, LspSessionStatusChanged};
 use crate::ids::ProjectId;
+use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::lsp_install;
 use crate::infra::lsp_proc;
 use crate::paths::AppPaths;
@@ -766,7 +767,7 @@ async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &Language
 
     emit_install_progress(app, &spec.id, LspInstallPhase::Downloading, 0, None, None);
 
-    let client = reqwest::Client::new();
+    let client = outbound_http_client(HttpClientProfile::Download);
     let server_id = spec.id.clone();
     let progress_app = app.clone();
     let download_dest = lsp_install::temp_download_path(&paths.lsp_dir(), spec.id.as_str());

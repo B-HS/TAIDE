@@ -1,6 +1,10 @@
+use std::sync::OnceLock;
+
 use super::types::{LanguageServerSpec, LspInstallStrategy, LspManifest, LSP_MANIFEST_SOURCE};
 
 const REQUIRED_PLATFORM_KEY: &str = "darwin-arm64";
+
+static BUNDLED_SERVERS: OnceLock<Vec<LanguageServerSpec>> = OnceLock::new();
 
 pub fn parse_manifest(source: &str) -> Result<Vec<LanguageServerSpec>, String> {
     let manifest: LspManifest = serde_json::from_str(source).map_err(|error| format!("lsp manifest parse 실패: {error}"))?;
@@ -8,8 +12,30 @@ pub fn parse_manifest(source: &str) -> Result<Vec<LanguageServerSpec>, String> {
     Ok(manifest.servers)
 }
 
+/// Falls back to an empty server list (logged) instead of panicking when `source` fails to parse
+/// or validate. Split out from [`servers`] so the fallback itself is directly unit-testable
+/// against a deliberately invalid source, independent of the [`OnceLock`] cache.
+fn resolve_servers(source: &str) -> Vec<LanguageServerSpec> {
+    match parse_manifest(source) {
+        Ok(specs) => specs,
+        Err(error) => {
+            log::error!("번들된 lsp manifest 파싱에 실패했습니다. 빈 서버 목록으로 대체합니다: {error}");
+            Vec::new()
+        }
+    }
+}
+
+/// Parses [`LSP_MANIFEST_SOURCE`] once and caches the result — every earlier call re-parsed and
+/// re-validated the whole bundled JSON manifest from scratch, and this is called repeatedly from
+/// IPC-handler paths (`lsp_spawn`, `lsp_resolve_root`, `lsp_install`, `detect_servers`) rather than
+/// once at startup. Also removes the `expect("bundled lsp manifest must be valid")` this used to
+/// panic with on a parse/validation failure: `LSP_MANIFEST_SOURCE` is a compile-time constant (so
+/// that should never actually happen), but an IPC handler is the wrong place to bet a hard
+/// process-wide panic on that always holding — a future manifest edit that slips past the
+/// `parse_manifest` tests would otherwise crash every LSP-touching command instead of just leaving
+/// language servers unavailable (see [`resolve_servers`]).
 pub fn servers() -> Vec<LanguageServerSpec> {
-    parse_manifest(LSP_MANIFEST_SOURCE).expect("bundled lsp manifest must be valid")
+    BUNDLED_SERVERS.get_or_init(|| resolve_servers(LSP_MANIFEST_SOURCE)).clone()
 }
 
 pub fn find_spec(server_id: &str) -> Option<LanguageServerSpec> {
@@ -81,6 +107,25 @@ fn validate_install(spec: &LanguageServerSpec) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_servers는_잘못된_소스에서_패닉_대신_빈_목록을_반환한다() {
+        let specs = resolve_servers("not valid json");
+        assert!(specs.is_empty());
+    }
+
+    #[test]
+    fn resolve_servers는_유효한_소스를_정상_파싱한다() {
+        let specs = resolve_servers(LSP_MANIFEST_SOURCE);
+        assert!(!specs.is_empty());
+    }
+
+    #[test]
+    fn servers는_반복_호출해도_동일한_서버_아이디_목록을_캐시에서_반환한다() {
+        let first: Vec<_> = servers().into_iter().map(|spec| spec.id).collect();
+        let second: Vec<_> = servers().into_iter().map(|spec| spec.id).collect();
+        assert_eq!(first, second);
+    }
 
     #[test]
     fn 번들된_매니페스트는_유효하다() {

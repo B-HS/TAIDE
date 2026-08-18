@@ -865,7 +865,69 @@
       `$TMPDIR` 아래 임시 디렉터리를 만든다) 그 탭을 닫고, 방금 확인한 디렉터리가 즉시 삭제됐는가
       (수정 전에는 주입된 스크립트 자신의 `rm -rf` 한 줄에만 의존해, 탭을 강제로 닫거나 셸이 그
       줄에 도달하지 못하면 앱 재시작·재부팅과 무관하게 OS 임시 디렉터리 아래 영구히 남았다)
-- [ ] (asset 프로토콜 스코프 — X1#7, **의도적으로 미해결**) 위 T0 재검 섹션의 "원격 거부 5종" 항목
+- [x] (asset 프로토콜 스코프 — X1#7, **의도적으로 미해결**) 위 T0 재검 섹션의 "원격 거부 5종" 항목
       4번을 참고 — 이번 배치는 이 항목을 고의로 **건드리지 않았다**. 프로젝트를 닫아도 그 트리는
       로컬·원격 세션 모두에서 여전히 `asset://` 로 읽힌다. T1 2차(자체 `register_uri_scheme_protocol`
-      재구현)까지는 실패가 아니라 기존 알려진 제약으로 취급한다
+      재구현)까지는 실패가 아니라 기존 알려진 제약으로 취급한다. **T1 2차(2026-08-19)에서 근본
+      수정 완료** — 아래 "감사 T1 정비 2차 재검" 절 참고. 실기(webview) 확인은 아직 못했으므로
+      이 항목 자체는 아래 절의 해당 항목으로 이관해 다시 추적한다
+
+## 감사 T1 정비 2차(T1-G·asset scope·T1-F) 재검 (2026-08-19, 계약: docs/acknowledge/2026-08-18-audit-t1-batch2-contract.md)
+
+> 자동 테스트로 이미 확인된 것(코드 근거는 `docs/ipc-contract.md` "T1 정비 2차 배치" 절·
+> `docs/architecture.md` §5.1·§6.3): nonce/세션 쿠키 `Secure` 속성 문자열 구성, `/__taide/file`·
+> `asset://` 응답 헤더(CSP·nosniff) 문자열 구성, `resolve_owning_project` 결정성(중첩·동률
+> 시나리오), shell 임시 스크립트 파일 모드(0o600), 원격 파일 스트리밍 바이트 재구성,
+> `ai_inline_complete` 바이트 상한 거부, lsp manifest 캐시 일관성, http 클라이언트 프로필별 설정
+> 분리 — 전부 `cargo test --workspace`(983+6+17=1006/1006)로 그린. FSD 레이어 이동 후 순환·
+> 역참조는 eslint `no-restricted-imports` 0 error 로 기계 확인 완료(레이어 이동 자체는 실기 불필요).
+> 아래는 **실제 브라우저/webview 라운드트립·실제 네트워크 환경**이 있어야만 확인되는 항목에
+> 한정한다.
+
+- [ ] (nonce 쿠키 `Secure` 실효 — R3#4) `Settings` 의 `remote_allowed_hosts` 에 터널 호스트를
+      등록하고(예: ngrok/cloudflared 로 HTTPS 리버스 프록시를 태운 도메인) 그 호스트로 원격 로그인
+      페이지에 접속했을 때, 브라우저 개발자 도구(Application/Storage → Cookies)에서 로그인 시도
+      직후 발급되는 `타이드_로그인_nonce`(nonce) 쿠키에 **`Secure` 플래그가 세션 쿠키와 동일하게
+      붙어 있는가**(수정 전에는 세션 쿠키만 `Secure`, nonce 쿠키는 항상 미부여였다). 이어서
+      loopback(`http://localhost:<port>`)으로 직접 접속했을 때는 두 쿠키 모두 `Secure` 가
+      **없어야** 한다(있으면 HTTP 환경에서 쿠키 자체가 저장되지 않아 로그인이 깨진다)
+- [ ] (`/__taide/file` CSP·nosniff 실효 — R3#5) 원격 세션에서 SVG 파일 하나에
+      `<script>alert(1)</script>` 를 심어 프로젝트에 두고, 그 파일의 `/__taide/file/...` URL을
+      브라우저 새 탭에 직접 붙여넣어 열었을 때 스크립트가 실행되지 **않고** 콘솔에 CSP 위반 로그가
+      찍히는가. 같은 URL의 응답 헤더(Network 탭)에 `Content-Security-Policy: default-src 'none';
+      script-src 'none'; style-src 'none'; sandbox` 와 `X-Content-Type-Options: nosniff` 가
+      보이는가
+- [ ] (원격 대용량 파일 스트리밍 — R3#6) 원격 세션에서 `Range` 헤더 없이(예: 브라우저 주소창에
+      직접 붙여넣기, 또는 `curl`) 수백MB급 파일을 `/__taide/file/...` 로 요청했을 때 앱 메모리
+      사용량이 파일 크기만큼 튀지 않고 완만하게 유지되는가(Activity Monitor로 TAIDE 프로세스 관찰)
+- [ ] (asset:// 비디오/오디오 프리뷰 — X1#7, **KNOWN ISSUE, 최우선 확인**) 프로젝트에 mp4/mp3
+      파일을 두고 프리뷰 패널에서 열었을 때 (1) 재생이 이전과 동일하게 되는가 (2) 재생 바를
+      드래그해 임의 지점으로 탐색(seek)했을 때 그 지점부터 끊김 없이 재생되는가(`Range` 요청 경로)
+      (3) 그 프로젝트를 닫은 직후 같은 프리뷰 탭(또는 새로 연 같은 파일)이 즉시 접근 거부되는가
+      (4) 프로젝트를 다시 열면 다시 정상 재생되는가. 이 핸들러는 코드 리딩과 단위 테스트로만
+      검증됐고 실제 webview 는 한 번도 태우지 못했다 — WKWebView(macOS)가 커스텀
+      `register_uri_scheme_protocol` 핸들러를 내장 asset 핸들러와 동일하게 다루는지가 이 배치
+      전체에서 가장 불확실한 지점이다. (5) 이 핸들러는 내장 Tauri asset 핸들러가 붙이던
+      `Access-Control-Allow-Origin`/`Access-Control-Expose-Headers: content-range` 를 의도적으로
+      생략한다(같은 오리진 `<video>`/`<audio src>` 소비만 있어 CORS 프리플라이트·헤더 열람이
+      발생하지 않는다는 판단, `infra::asset_protocol` 모듈 doc 참고) — 재생 자체가 이 판단과
+      달리 깨지는지도 함께 확인한다
+- [ ] (이미지 프리뷰 회귀 없음 — X1#7 무관 확인) 이미지(png/jpg/svg/webp)·일반 파일 아이콘은
+      `asset://` 를 전혀 거치지 않는다 — `preview-pane.tsx` 에서 `fileRawQueryOptions`(IPC 원시
+      바이트 조회) 로 받아 `blob:` URL 로 렌더한다(`convertFileSrc`/`asset://` 호출부는
+      `<video>`/`<audio>` 두 곳뿐). 그럼에도 이번 배치와 무관하게 이미지 프리뷰가 여전히 정상
+      동작하는가만 회귀로 확인한다(asset 핸들러 재구현의 영향 범위 밖)
+- [ ] (asset:// 닫힌 프로젝트 즉시 차단 — X1#7, 회귀 없음 확인) 프로젝트 A 를 열어 비디오/오디오
+      프리뷰를 한 번 띄운 뒤 프로젝트 A 를 닫고, 방금 그 파일의 원래 경로를 아는 상태에서(같은
+      탭을 새로고침하거나 개발자 도구로 같은 `asset://` URL 을 직접 재요청) 즉시 거부되는가 —
+      기존에는(1차 배치까지) 프로젝트를 닫아도 이 표면이 계속 읽혔던 것과 대비되는 핵심 회귀
+      확인 지점
+- [ ] (http 클라이언트 싱글톤 체감 — R6#7·R2#6·R2#5) 파일을 열어 두고 몇 초간 연속으로 타이핑하며
+      AI 인라인 완성(auto-tab)이 매 keystroke 마다 즉시 반응하는가(수정 전에는 completion 요청마다
+      새 `reqwest::Client` 를 만들어 TLS 핸들셋을 반복했다 — 체감 지연이 있었다면 이제 없어야
+      한다). AI 인라인 완성과 GitHub 동기화(sync)를 동시에 여러 번 오가며 사용해도 한쪽이 다른
+      쪽의 커넥션 풀에 영향받아 응답이 섞이거나 지연되지 않는가
+- [ ] (LSP 서버 다운로드 — 회귀 없음 확인) 아직 설치하지 않은 언어 서버를 설정 화면에서 하나
+      설치해(수백MB급이면 더 좋음) 다운로드가 끝까지 완료되는가(http 클라이언트가 `Api` 프로필
+      전체-요청 60초 타임아웃에서 `Download` 프로필의 연결-전용 타임아웃으로 바뀌어, 느린
+      다운로드가 중간에 타임아웃으로 끊기지 않아야 한다)

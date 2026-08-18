@@ -8,7 +8,7 @@ use crate::domain::sync::service;
 use crate::domain::sync::types::{SyncDownloadResult, SyncStatus};
 use crate::error::{AppError, AppResult};
 use crate::events::SyncStateChanged;
-use crate::infra::http::create_outbound_http_client;
+use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::secret::{SecretAccount, SecretStore, SecretStoreState};
 use crate::state::AppState;
 
@@ -36,7 +36,7 @@ pub async fn sync_status(state: State<'_, AppState>, secret: State<'_, SecretSto
     let mut status = current_status_snapshot(&settings, connected);
 
     if let (true, Some(token), Some(gist_id)) = (connected, secret.get(SecretAccount::GithubSync)?, settings.sync_gist_id.clone()) {
-        let client = create_outbound_http_client();
+        let client = outbound_http_client(HttpClientProfile::Api);
         let gist_client = GistClient {
             client: &client,
             token: &token,
@@ -59,7 +59,7 @@ pub async fn sync_connect(state: State<'_, AppState>, secret: State<'_, SecretSt
         return Err(AppError::InvalidArgument("token must not be empty".to_string()));
     }
 
-    let client = create_outbound_http_client();
+    let client = outbound_http_client(HttpClientProfile::Api);
     GistClient {
         client: &client,
         token: &pat,
@@ -108,7 +108,7 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
     let payload = service::assemble_payload(&settings, themes, locales, service::now_utc_iso8601());
     let payload_json = serde_json::to_string_pretty(&payload)?;
 
-    let client = create_outbound_http_client();
+    let client = outbound_http_client(HttpClientProfile::Api);
     let gist_client = GistClient {
         client: &client,
         token: &token,
@@ -151,7 +151,7 @@ pub async fn sync_download(
         .clone()
         .ok_or_else(|| AppError::InvalidArgument("no sync gist is configured yet — upload once first".to_string()))?;
 
-    let client = create_outbound_http_client();
+    let client = outbound_http_client(HttpClientProfile::Api);
     let gist_client = GistClient {
         client: &client,
         token: &token,

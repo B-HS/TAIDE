@@ -577,6 +577,11 @@ pub fn run() {
                 .with_filter(|label| label != domain::window::types::AUXILIARY_WINDOW_STATE_KEY)
                 .build(),
         )
+        .register_uri_scheme_protocol("asset", |context, request| {
+            let state = context.app_handle().state::<AppState>();
+            let projects = state.projects.read();
+            infra::asset_protocol::respond(&projects, request)
+        })
         .on_menu_event(handle_menu_event)
         .invoke_handler(move |invoke| {
             if RAW_CHANNEL_COMMANDS.contains(&invoke.message.command()) {
@@ -604,7 +609,6 @@ pub fn run() {
                 .map(|project| (project.id.clone(), project.root.clone()))
                 .collect();
             for (project_id, root) in &restored {
-                domain::project::commands::allow_asset_access(app.handle(), root);
                 domain::project::commands::attach_watcher(app.handle(), &state, project_id, root);
                 domain::project::commands::attach_git_watcher(app.handle(), &state, project_id, root);
             }

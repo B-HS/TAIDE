@@ -576,5 +576,24 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
 - **`GitStore`/`TreeStore` 프로젝트 종료 회수**(T1-J, R4#7): 두 스토어 모두 영속 스키마가 아니라
   런타임 캐시(`AppState` 밖의 별도 Tauri managed state)라 이 문서의 타입 표에는 애초에 없었다 —
   `project_close` 가 `GitStore::remove`/`TreeStore::remove` 로 캐시 엔트리만 지운다(재오픈 시
-  다시 채워짐). 전체 회수 목록·asset 프로토콜 스코프가 회수되지 않는 이유는 `architecture.md`
-  §6.3 이 정본이다.
+  다시 채워짐). 전체 회수 목록의 정본은 `architecture.md` §6.3 — **asset 프로토콜 접근이
+  회수되지 않는다는 이 시점의 설명은 T1 2차(§15)에서 뒤집혔다**: 이제 매 요청마다 `AppState::
+  projects` 를 직접 조회해 판정하므로 별도 회수 단계 자체가 필요 없다.
+
+## 15. T1 정비 2차 배치 — 영속 스키마 영향 없음 확인 (2026-08-19)
+
+> 계약: `docs/acknowledge/2026-08-18-audit-t1-batch2-contract.md`(T1-G·asset scope 재등록·T1-F).
+> 감사 근거: `docs/quality-assurance/2026-08-18-architecture-audit.md`(C1·C10). **이 배치는
+> 영속 스키마(`settings.json`·`layout.json`·미러 등, §2 디스크 레이아웃)를 전혀 건드리지 않는다**
+> — 아래는 그 확인 근거를 남기는 절이다.
+
+- **T1-G(remote 보안 헤더·http 클라이언트·shell 임시 파일 권한·lsp manifest 캐시·`ai_inline_complete`
+  바이트 상한)**: 전부 응답 헤더·프로세스 내부 캐시·파일시스템 권한 비트·요청 크기 검증이다.
+  디스크에 쓰는 새 파일도, `Settings`/`Layout` 등 기존 영속 타입의 필드 변경도 없다. 상세는
+  `ipc-contract.md` "T1 정비 2차 배치" 절.
+- **asset scope 재등록(X1#7)**: 판정 기준을 append-only Tauri 스코프에서 `AppState::projects`
+  (이미 존재하는 런타임 상태, §1 "상태의 세 층위" 기준 **세션 스코프**)로 옮겼을 뿐, 새 저장
+  구조를 추가하지 않았다. 프로젝트 목록 자체(`Project { id, root, name, capabilities }`)의 영속
+  스키마(§3)는 무변경.
+- **T1-F(레이어 이동)**: 프론트 컴포넌트 파일 12개의 디렉터리 이동 + import 경로 갱신이다.
+  런타임 상태·영속 데이터와 무관.

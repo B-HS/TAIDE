@@ -12,7 +12,7 @@ import { layoutQueryOptions } from '@entities/layout/layout.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { waitForLspSession } from '@widgets/editor-pane/lsp-session-registry'
-import { OutlinePanel } from '@widgets/outline-panel/outline-panel'
+import { OutlinePanel } from '@features/outline/outline-panel'
 
 type OutlinePanelContainerProps = {
     projectId: ProjectId

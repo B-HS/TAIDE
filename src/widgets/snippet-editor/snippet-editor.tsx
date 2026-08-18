@@ -14,10 +14,10 @@ import {
     snippetMapToDrafts,
     updateSnippetEntryDraft,
     type SnippetEntryDraft,
-} from '@widgets/snippet-editor/snippet-draft'
+} from '@shared/lib/snippet-draft'
 import { NewSnippetFileDialog } from '@widgets/snippet-editor/new-snippet-file-dialog'
-import { SnippetEntryEditor } from '@widgets/snippet-editor/snippet-entry-editor'
-import { SnippetFileList } from '@widgets/snippet-editor/snippet-file-list'
+import { SnippetEntryEditor } from '@features/snippet/snippet-entry-editor'
+import { SnippetFileList } from '@features/snippet/snippet-file-list'
 import {
     AlertDialog,
     AlertDialogAction,

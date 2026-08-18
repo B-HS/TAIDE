@@ -67,3 +67,31 @@ eslint 가 방향만 검사하고 레이어 성격(query 보유)은 미검사 �
   ·심링크)·http 싱글톤 동시성·shell temp 권한·레이어 이동 후 순환/역참조 0·asset 재등록 시 CSP·convertFileSrc
   무변경(또는 재이월 판정 타당성).
 - asset scope 실기 미검증(도입 시) KNOWN ISSUE + qa6 항목. R3#6 분리 시 3차 이월 기록.
+
+---
+
+## 5. Phase E 검토 결함 수정 반영 (2026-08-18)
+
+> 검토 wf_1500d5f6-f8f(4렌즈 opus+xhigh, asset 프로토콜 보안 집중) — 발견 12(major 1·minor 11) →
+> 적대적 검증 major **1건 기각**(m4v nosniff 재생 회귀 — nosniff 는 script/style 만 게이트, 미디어
+> 요소는 Content-Type 무관하게 컨테이너 스니핑으로 디코드. 정확한 반증) → confirmed 0. minor 11
+> 판정(수정 9·기각 2). 메인 2차: 실물 재검증 + verify·vite build.
+
+- **[근본] asset_protocol ↔ serving.rs 중복 → `infra/range_file.rs` 공유 모듈**(2회 이상 룰 위반
+  해소): RANGE_CHUNK_LIMIT·RANGE_RESPONSE_CSP·extension_mime·parse_range·read_slice 를 양쪽이 import
+  (domain→infra 방향 정합). **한 곳 수정으로 아래 2건이 serving.rs(원격 도달)까지 자동 반영**.
+- **[minor→실질] parse_range end<start 언더플로 패닉** — 뒤집힌 Range 헤더가 `end - start + 1` u64
+  언더플로 → 릴리스 abort. **serving.rs 의 `/__taide/file` 은 원격 브라우저 도달 가능**이라 DoS 표면.
+  `requested_end < start` 거부(공유 모듈, 양쪽 수혜) + 416 회귀 테스트.
+- **[minor 수정 8]**: asset no-store 추가(닫힌 프로젝트 캐시 잔존 방어, serving 대칭)·m4v MIME
+  (video/mp4, 프론트 분류기 정합)·**asset_protocol AppState 디커플링**(respond 가 `&HashMap<ProjectId,
+  Project>` 파라미터 — infra 의 crate::state 직접 의존 제거·AppHandle 없이 단위 테스트 가능, 등록
+  클로저가 lib.rs 에서 주입)·resolve_owning_project 이중 canonicalize 제거·http.rs 인라인 주석→doc·
+  qa6 이미지 asset 항목 정정(이미지는 fileRawQueryOptions+blob, asset 은 video/audio 만)·CORS 생략
+  문서화(UriSchemeContext 가 window_origin 미노출 — 헤더 재현 불확실, 문서화 채택).
+- **[기각 2건 정당]**: asset 비-Range 전체 메모리 적재 — Tauri 내장 핸들러(vendored asset.rs)도 동일
+  `read_to_end` 미러링이고 asset:// 는 로컬 webview(CSP script-src 'self') 전용이라 원격 스트리밍
+  하드닝(R3#6, 인증 없는 네트워크 라우트)과 위협 모델 다름. 진짜 스트리밍은 async 프로토콜 전환
+  필요·앱 실기 미검증이라 근거 없는 변경 위험.
+- **KNOWN ISSUE 유지**: asset:// 실 webview 라운드트립(WKWebView video/audio Range 탐색·닫힌
+  프로젝트 즉시 차단·CORS 생략 무해성)은 코드/단위 테스트로만 검증 — qa6 최우선 실기 항목.

@@ -12,9 +12,12 @@ export const commands = {
 	projectOpen: (path: string) => typedError<ProjectOpenResult, AppError>(__TAURI_INVOKE("project_open", { path })),
 	/**
 	 *  Closes `project_id` and reaps every resource that only makes sense while the project is open.
-	 *  See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim and
-	 *  why (asset protocol scope is the one deliberate exception — deferred, see that section). Two of
-	 *  the reaps below are correctness-sensitive, not just cleanup:
+	 *  See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
+	 *  `asset://` read access needs no entry of its own in that list any more: `infra::asset_protocol`
+	 *  decides per-request from `state.projects`, and the `*state.projects.write() = projects;` above
+	 *  (via `service::close_project`, which removes `project_id`) already revokes it before this
+	 *  function's other reaps even run. Two of those other reaps are correctness-sensitive, not just
+	 *  cleanup:
 	 * 
 	 *  - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
 	 *    2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`

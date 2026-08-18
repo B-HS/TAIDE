@@ -39,7 +39,7 @@ import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
 import type { SplitDropData } from '@widgets/editor-area/pane-node-view'
 import { PaneNodeView } from '@widgets/editor-area/pane-node-view'
-import type { TabDragData } from '@widgets/editor-area/sortable-tab'
+import type { TabDragData } from '@features/tab/sortable-tab'
 import { subscribeLanguageAdapterRegistration } from '@widgets/editor-pane/lsp-session-registry'
 import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 

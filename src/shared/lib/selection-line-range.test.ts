@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveSelectedLineRange } from '@features/git/selection-line-range'
+import { resolveSelectedLineRange } from '@shared/lib/selection-line-range'
 
 describe('resolveSelectedLineRange', () => {
     test('일반적인 다중 라인 선택은 시작·끝 라인을 그대로 사용한다', () => {

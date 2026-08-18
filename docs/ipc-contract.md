@@ -905,3 +905,43 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `0o755` 로 고정(zip 안에 담긴 unix 모드 비트를 신뢰하지 않는다)한다. 기존 `infra::lsp_install::
   extract_zip`(신뢰된 자체 배포 아카이브 전용, zip-slip 만 방어)과는 별개 함수로 분리했다 — 사용자가
   임의로 고른 `.vsix`/`.zip` 은 신뢰 전제가 다르기 때문(`plugins.md` §6).
+
+### T1 정비 2차 배치 — remote 보안 헤더·asset 프로토콜 재구현 (2026-08-19)
+
+> 계약: `docs/acknowledge/2026-08-18-audit-t1-batch2-contract.md` §1(T1-G R3#4·R3#5·X1#7). 감사
+> 근거: `docs/quality-assurance/2026-08-18-architecture-audit.md`(C10). 전부 응답 헤더/서빙 로직
+> 내부 변경이라 IPC 커맨드 시그니처·이벤트 페이로드는 **무변화**다.
+
+- **remote 로그인 nonce 쿠키에 `Secure` 속성 추가(R3#4)**: 세션 쿠키(`build_session_cookie_header`)는
+  `is_insecure_connection`으로 계산한 `secure`를 이미 조건부로 받았는데, 로그인 nonce 쿠키
+  (`build_login_nonce_cookie_header`)만 이 파라미터가 없어 평문 loopback·터널 구분 없이 항상
+  `Secure` 미부여였다. 이제 `auth_middleware`가 같은 `is_insecure_connection` 판정값을 두 쿠키
+  모두에 전달한다 — loopback 평문 경로는 기존과 동일하게 `Secure` 를 생략한다(그 경로는 애초에
+  HTTPS 가 아니라 `Secure` 를 붙이면 브라우저가 쿠키 자체를 거부한다).
+- **`/__taide/file` 응답에 `Content-Security-Policy`·`X-Content-Type-Options: nosniff` 추가
+  (R3#5)**: 이 라우트는 프로젝트 파일 바이트를 동일 오리진(same-origin)으로 그대로 서빙한다 —
+  파일 중 SVG 가 `<script>` 를 품고 있으면 직접 네비게이션(또는 `<object>`/`<iframe>` 임베드)
+  시 그 스크립트가 앱 자신의 오리진에서 실행될 수 있었다. `FILE_RANGE_CSP`(`default-src 'none';
+  script-src 'none'; style-src 'none'; sandbox`)를 Range(206)·전체(200) 두 성공 응답 모두에
+  부여한다 — `raw.githubusercontent.com` 이 사용자 콘텐츠에 적용하는 것과 같은 처방이다.
+- **원격 파일 전체 서빙을 스트리밍으로 전환(R3#6, 위 R3#5 와 같은 파일에서 함께 처리)**: `Range`
+  요청은 원래도 `RANGE_CHUNK_LIMIT`(1000KB)로 캡돼 있었지만, `Range` 헤더 없는 전체 파일 요청은
+  `std::fs::read`로 파일 전체를 메모리에 올렸다 — 대형 프로젝트 파일(수 GB)을 `Range` 없이
+  요청하면 그 크기 그대로 메모리에 적재됐다. `stream_file_body`가 64KB 청크
+  (`FULL_FILE_STREAM_CHUNK_BYTES`) 단위로 `axum::body::Body::from_stream`을 통해 스트리밍한다 —
+  응답 헤더(`Content-Length`·`Accept-Ranges` 등)는 그대로다.
+- **asset:// 프로토콜을 자체 핸들러로 재구현(X1#7, T1-J 1차 이월분)**: `infra::asset_protocol::
+  respond`가 `register_uri_scheme_protocol("asset", ...)`으로 Tauri 내장 asset 핸들러를 대체한다.
+  경로 판정을 append-only 스코프에서 `root_guard::resolve_owning_project`(열린 프로젝트 집합
+  기반, `/__taide/file`과 동일 함수) 로 바꿔 프로젝트를 닫으면 **다음 요청부터 즉시** 그 트리에
+  대한 asset 읽기가 거부된다. `convertFileSrc`(`@tauri-apps/api/core`)·`tauri.conf.json`의
+  asset CSP 소스는 스킴 이름만 보므로 **무변경**이다. 응답에는 `/__taide/file`과 동일한 CSP·
+  `nosniff`를 부여한다. 상세 근거·KNOWN ISSUE(실기 미검증)는 `architecture.md` §6.3 "asset
+  프로토콜 재구현 완료" 절, 실기 확인 항목은 `docs/quality-assurance/2026-08-11-qa6-checklist.md`
+  "감사 T1 정비 2차 재검" 절.
+- **`resolve_owning_project`의 결정적 선택(R2#4)**: 열린 프로젝트가 중첩되거나(워크스페이스 루트 +
+  그 안에 별도로 연 하위 프로젝트) 동일한 루트를 가리키면, 이전에는 `HashMap` 순회 순서에 따라
+  둘 중 어느 쪽이 그 경로의 소유자로 뽑힐지가 실행마다 달라질 수 있었다(원격 `/__taide/file`·
+  로컬 `asset://` 둘 다 이 함수로 소유 프로젝트를 정한다). 이제 (1) 가장 긴 canonical root(가장
+  구체적인 프로젝트) 우선, (2) 완전히 동일한 루트면 `ProjectId` 사전순으로 결정적으로 고른다 —
+  IPC 응답 형태는 그대로고, "어느 프로젝트가 이겼는가"만 실행마다 안정된다.

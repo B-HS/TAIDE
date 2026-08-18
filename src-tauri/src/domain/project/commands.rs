@@ -17,12 +17,6 @@ use crate::ids::ProjectId;
 use crate::infra::watcher;
 use crate::state::AppState;
 
-pub fn allow_asset_access(app: &AppHandle, root: &str) {
-    if let Err(error) = app.asset_protocol_scope().allow_directory(root, true) {
-        log::warn!("asset scope 등록 실패 {root}: {error}");
-    }
-}
-
 pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
@@ -120,7 +114,6 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
     if !result.already_open {
         let layout = layout_service::load_layout(&state.paths, &result.project.id);
         state.layouts.write().insert(result.project.id.clone(), layout);
-        allow_asset_access(&app, &result.project.root);
         attach_watcher(&app, &state, &result.project.id, &result.project.root);
         attach_git_watcher(&app, &state, &result.project.id, &result.project.root);
 
@@ -142,9 +135,12 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
 }
 
 /// Closes `project_id` and reaps every resource that only makes sense while the project is open.
-/// See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim and
-/// why (asset protocol scope is the one deliberate exception — deferred, see that section). Two of
-/// the reaps below are correctness-sensitive, not just cleanup:
+/// See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
+/// `asset://` read access needs no entry of its own in that list any more: `infra::asset_protocol`
+/// decides per-request from `state.projects`, and the `*state.projects.write() = projects;` above
+/// (via `service::close_project`, which removes `project_id`) already revokes it before this
+/// function's other reaps even run. Two of those other reaps are correctness-sensitive, not just
+/// cleanup:
 ///
 /// - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
 ///   2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`

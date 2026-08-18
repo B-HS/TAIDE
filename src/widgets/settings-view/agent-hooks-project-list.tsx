@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { HookInstallScope, Project } from '@shared/api/bindings'
-import { AgentHooksProjectRow } from '@features/settings/agent-hooks-project-row'
+import { AgentHooksProjectRow } from '@widgets/settings-view/agent-hooks-project-row'
 import { AgentHooksToggle } from '@features/settings/agent-hooks-toggle'
 import {
     agentHooksStatusQueryOptions,

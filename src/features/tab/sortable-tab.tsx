@@ -3,8 +3,8 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { PaneId, Tab } from '@shared/api/bindings'
 import { TabItem } from '@features/tab/tab-item'
-import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
-import { TabContextMenu } from '@widgets/editor-area/tab-context-menu'
+import type { SplitEdge } from '@features/tab/tab-context-menu'
+import { TabContextMenu } from '@features/tab/tab-context-menu'
 
 const DRAGGING_OPACITY = 0.4
 

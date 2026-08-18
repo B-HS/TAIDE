@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::AppResult;
+use crate::infra::persist;
 use crate::infra::shell_quote::posix_quote;
 
 /// Marks a spawned shell as already carrying TAIDE's OSC 133 integration.
@@ -170,12 +171,18 @@ fn zsh_profile_script(temp_dir: &Path) -> String {
     zsh_passthrough_dotfile_script(temp_dir, ".zprofile")
 }
 
+/// Writes the injected scripts owner-only (`0o600`) via [`persist::write_private_atomic`] — the
+/// plain `std::fs::write` this replaced left each file briefly readable under the process's
+/// default umask (typically `022`, world-readable) between creation and any later `chmod`, and
+/// these live under the shared, world-listable OS temp directory where any other local user can
+/// otherwise read another user's shell startup scripts (env vars, sourced dotfile paths) for the
+/// short window the pty session is alive.
 fn prepare_zsh() -> AppResult<ShellIntegrationPlan> {
     let temp_dir = fresh_temp_dir();
     std::fs::create_dir_all(&temp_dir)?;
-    std::fs::write(temp_dir.join(".zshenv"), zsh_env_script(&temp_dir))?;
-    std::fs::write(temp_dir.join(".zprofile"), zsh_profile_script(&temp_dir))?;
-    std::fs::write(temp_dir.join(".zshrc"), zsh_integration_script(&temp_dir))?;
+    persist::write_private_atomic(&temp_dir.join(".zshenv"), zsh_env_script(&temp_dir).as_bytes())?;
+    persist::write_private_atomic(&temp_dir.join(".zprofile"), zsh_profile_script(&temp_dir).as_bytes())?;
+    persist::write_private_atomic(&temp_dir.join(".zshrc"), zsh_integration_script(&temp_dir).as_bytes())?;
 
     let mut extra_env = vec![
         ("ZDOTDIR".to_string(), temp_dir.to_string_lossy().to_string()),
@@ -250,11 +257,12 @@ fn bash_integration_script(temp_dir: &Path, was_login: bool) -> String {
         .replace("__TAIDE_TEMP_DIR__", &posix_quote(&temp_dir.to_string_lossy()))
 }
 
+/// Same owner-only-permission rationale as [`prepare_zsh`]'s doc comment.
 fn prepare_bash(shell_path: &Path, was_login: bool) -> AppResult<ShellIntegrationPlan> {
     let temp_dir = fresh_temp_dir();
     std::fs::create_dir_all(&temp_dir)?;
     let script_path = temp_dir.join("init.bash");
-    std::fs::write(&script_path, bash_integration_script(&temp_dir, was_login))?;
+    persist::write_private_atomic(&script_path, bash_integration_script(&temp_dir, was_login).as_bytes())?;
 
     Ok(ShellIntegrationPlan {
         override_program: Some((
@@ -402,6 +410,39 @@ mod tests {
         assert!(temp_dir.join(".zshrc").is_file(), ".zshrc가 생성되어야 한다");
 
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_zsh는_생성한_스크립트_세_개를_소유자_전용_0o600으로_기록한다() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let plan = prepare_zsh().expect("prepare_zsh는 성공해야 한다");
+        let temp_dir = plan
+            .extra_env
+            .iter()
+            .find(|(key, _)| key == "ZDOTDIR")
+            .map(|(_, value)| PathBuf::from(value))
+            .expect("ZDOTDIR이 extra_env에 있어야 한다");
+
+        for name in [".zshenv", ".zprofile", ".zshrc"] {
+            let mode = std::fs::metadata(temp_dir.join(name)).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "{name}는 0o600으로 기록되어야 한다");
+        }
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_bash는_생성한_init_스크립트를_소유자_전용_0o600으로_기록한다() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let plan = prepare_bash(Path::new("/bin/bash"), false).expect("prepare_bash는 성공해야 한다");
+        let mode = std::fs::metadata(plan.temp_dir.join("init.bash")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "init.bash는 0o600으로 기록되어야 한다");
+
+        std::fs::remove_dir_all(&plan.temp_dir).ok();
     }
 
     #[test]

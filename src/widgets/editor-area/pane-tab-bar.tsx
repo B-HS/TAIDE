@@ -36,8 +36,8 @@ import {
 } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
 import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
-import type { SplitEdge } from '@widgets/editor-area/tab-context-menu'
-import { SortableTab } from '@widgets/editor-area/sortable-tab'
+import type { SplitEdge } from '@features/tab/tab-context-menu'
+import { SortableTab } from '@features/tab/sortable-tab'
 import { TabBarAddMenu } from '@features/tab/tab-bar-add-menu'
 
 const TAB_ICON_SIZE_CLASS = 'size-3.5'

@@ -64,9 +64,10 @@ fn build_session_cookie_header(session_token: &str, secure: bool) -> String {
     format!("{REMOTE_SESSION_COOKIE_NAME}={session_token}; HttpOnly; SameSite=Strict; Path=/{secure_attr}")
 }
 
-fn build_login_nonce_cookie_header(nonce: &str) -> String {
+fn build_login_nonce_cookie_header(nonce: &str, secure: bool) -> String {
     let max_age_seconds = REMOTE_LOGIN_NONCE_TTL_MS / 1_000;
-    format!("{REMOTE_LOGIN_NONCE_COOKIE_NAME}={nonce}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age_seconds}")
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!("{REMOTE_LOGIN_NONCE_COOKIE_NAME}={nonce}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age_seconds}{secure_attr}")
 }
 
 fn clear_login_nonce_cookie_header() -> String {
@@ -79,16 +80,14 @@ fn append_cookie(response: &mut Response, cookie_header: &str) {
     }
 }
 
-/// Best-effort "is this connection plaintext" check, used both for the login
-/// page's insecure-connection notice and for whether the session cookie gets
-/// a `Secure` attribute. The server itself never terminates TLS (it only
-/// ever binds loopback plain HTTP — `commands.rs`), so a request whose `Host`
-/// resolves to a loopback alias is *always* reported insecure regardless of
-/// any header a misbehaving proxy might inject. Only a request targeting a
-/// hostname the user explicitly registered in `Settings::remote_allowed_hosts`
-/// (a tunnel/port-forward) consults `X-Forwarded-Proto` — and even then only
-/// the first comma-separated token, trimmed and case-folded, is compared
-/// against the literal `https`.
+/// Best-effort "is this connection plaintext" check, used for the login page's insecure-connection
+/// notice and for whether the session cookie and the login nonce cookie get a `Secure` attribute.
+/// The server itself never terminates TLS (it only ever binds loopback plain HTTP —
+/// `commands.rs`), so a request whose `Host` resolves to a loopback alias is *always* reported
+/// insecure regardless of any header a misbehaving proxy might inject. Only a request targeting a
+/// hostname the user explicitly registered in `Settings::remote_allowed_hosts` (a
+/// tunnel/port-forward) consults `X-Forwarded-Proto` — and even then only the first
+/// comma-separated token, trimmed and case-folded, is compared against the literal `https`.
 fn is_insecure_connection(host: Option<&str>, allowed_hosts: &[String], headers: &HeaderMap) -> bool {
     let Some(host) = host else { return true };
     let hostname = service::host_header_hostname(host);
@@ -179,8 +178,9 @@ async fn auth_middleware(State(app): State<AppHandle>, request: Request, next: N
             return response;
         }
 
+        let secure = !is_insecure_connection(host, &allowed_hosts, request.headers());
         let mut response = Redirect::to(REMOTE_LOGIN_PATH).into_response();
-        append_cookie(&mut response, &build_login_nonce_cookie_header(&nonce));
+        append_cookie(&mut response, &build_login_nonce_cookie_header(&nonce, secure));
         return response;
     }
 
@@ -479,6 +479,18 @@ mod tests {
     #[test]
     fn secure가_거짓이면_세션_쿠키에_secure_속성이_없다() {
         let header = build_session_cookie_header("token", false);
+        assert!(!header.contains("Secure"));
+    }
+
+    #[test]
+    fn secure가_참이면_로그인_nonce_쿠키에도_secure_속성이_붙는다() {
+        let header = build_login_nonce_cookie_header("nonce", true);
+        assert!(header.contains("; Secure"));
+    }
+
+    #[test]
+    fn secure가_거짓이면_로그인_nonce_쿠키에_secure_속성이_없다() {
+        let header = build_login_nonce_cookie_header("nonce", false);
         assert!(!header.contains("Secure"));
     }
 }

@@ -1,48 +1,25 @@
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use tauri::{AppHandle, Manager};
+use tokio::io::AsyncReadExt;
 
+use crate::infra::range_file::{extension_mime, parse_range, read_slice, RANGE_RESPONSE_CSP};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
 const BROWSER_CSP: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self' blob:; script-src 'self'; connect-src 'self' ws: wss:";
 const DEV_SERVER_URL: &str = "http://localhost:5173";
-const RANGE_CHUNK_LIMIT: u64 = 1000 * 1024;
+/// Chunk size for the full-file (non-`Range`) streaming fallback below — bounds
+/// [`stream_file_body`]'s per-read memory footprint independent of the served file's total size.
+const FULL_FILE_STREAM_CHUNK_BYTES: usize = 64 * 1024;
 const INDEX_DOCUMENT: &str = "index.html";
 
 fn no_store() -> HeaderValue {
     HeaderValue::from_static("no-store")
-}
-
-fn extension_mime(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("mp4") => "video/mp4",
-        Some("webm") => "video/webm",
-        Some("mov") => "video/quicktime",
-        Some("mkv") => "video/x-matroska",
-        Some("mp3") => "audio/mpeg",
-        Some("wav") => "audio/wav",
-        Some("ogg") => "audio/ogg",
-        Some("flac") => "audio/flac",
-        Some("m4a") => "audio/mp4",
-        Some("aac") => "audio/aac",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        _ => "application/octet-stream",
-    }
 }
 
 async fn proxy_dev(uri: &Uri) -> Response {
@@ -147,32 +124,6 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&decoded).into_owned()
 }
 
-fn parse_range(range_header: &str, total: u64) -> Option<(u64, u64)> {
-    let spec = range_header.strip_prefix("bytes=")?;
-    let (start_raw, end_raw) = spec.split_once('-')?;
-
-    let start = if start_raw.is_empty() { 0 } else { start_raw.parse::<u64>().ok()? };
-    if start >= total {
-        return None;
-    }
-
-    let requested_end = if end_raw.is_empty() {
-        total - 1
-    } else {
-        end_raw.parse::<u64>().ok()?
-    };
-    let capped_end = requested_end.min(total - 1).min(start + RANGE_CHUNK_LIMIT - 1);
-    Some((start, capped_end))
-}
-
-fn read_slice(path: &Path, start: u64, length: u64) -> std::io::Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path)?;
-    file.seek(SeekFrom::Start(start))?;
-    let mut buffer = vec![0u8; length as usize];
-    file.read_exact(&mut buffer)?;
-    Ok(buffer)
-}
-
 pub async fn file_range(State(app): State<AppHandle>, uri: Uri, headers: HeaderMap) -> Response {
     let Some(requested) = query_param(uri.query(), "path") else {
         return (StatusCode::BAD_REQUEST, "path 쿼리가 필요합니다").into_response();
@@ -217,11 +168,13 @@ pub async fn file_range(State(app): State<AppHandle>, uri: Uri, headers: HeaderM
             .header(header::CONTENT_LENGTH, length)
             .header(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"))
             .header(header::CACHE_CONTROL, no_store())
+            .header(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(RANGE_RESPONSE_CSP))
+            .header(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"))
             .body(Body::from(bytes))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     }
 
-    let Ok(bytes) = std::fs::read(&resolved) else {
+    let Ok(body) = stream_file_body(resolved).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
     Response::builder()
@@ -230,6 +183,87 @@ pub async fn file_range(State(app): State<AppHandle>, uri: Uri, headers: HeaderM
         .header(header::CONTENT_LENGTH, total)
         .header(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"))
         .header(header::CACHE_CONTROL, no_store())
-        .body(Body::from(bytes))
+        .header(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(RANGE_RESPONSE_CSP))
+        .header(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"))
+        .body(body)
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Streams `path`'s full contents as an axum [`Body`] in [`FULL_FILE_STREAM_CHUNK_BYTES`]-sized
+/// chunks instead of buffering the whole file into memory up front — the fallback [`file_range`]
+/// takes whenever a client requests without a `Range` header (browsers normally only omit `Range`
+/// for smaller assets, but nothing stops a client from fetching a multi-gigabyte project file this
+/// way). `Range` requests never had this problem: `parse_range` already caps a single request's
+/// read at `RANGE_CHUNK_LIMIT` via `read_slice`, above.
+async fn stream_file_body(path: PathBuf) -> std::io::Result<Body> {
+    use futures_util::stream;
+
+    let file = tokio::fs::File::open(&path).await?;
+    let chunks = stream::unfold((file, false), |(mut file, done)| async move {
+        if done {
+            return None;
+        }
+        let mut buffer = vec![0u8; FULL_FILE_STREAM_CHUNK_BYTES];
+        match file.read(&mut buffer).await {
+            Ok(0) => None,
+            Ok(read_bytes) => {
+                buffer.truncate(read_bytes);
+                Some((Ok::<_, std::io::Error>(Bytes::from(buffer)), (file, false)))
+            }
+            Err(error) => Some((Err(error), (file, true))),
+        }
+    });
+    Ok(Body::from_stream(chunks))
+}
+
+#[cfg(test)]
+mod tests {
+    use futures_util::StreamExt;
+
+    use super::*;
+
+    fn temp_file(name: &str, content: &[u8]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("taide-serving-test-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    async fn collect_body(body: Body) -> Vec<u8> {
+        let mut collected = Vec::new();
+        let mut stream = body.into_data_stream();
+        while let Some(chunk) = stream.next().await {
+            collected.extend_from_slice(&chunk.unwrap());
+        }
+        collected
+    }
+
+    #[tokio::test]
+    async fn 파일_스트리밍은_한_청크보다_작은_파일도_그대로_재구성한다() {
+        let content = b"hello, taide".to_vec();
+        let path = temp_file("small", &content);
+
+        let body = stream_file_body(path.clone()).await.unwrap();
+        assert_eq!(collect_body(body).await, content);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn 파일_스트리밍은_여러_청크에_걸친_파일도_바이트_그대로_재구성한다() {
+        let content: Vec<u8> = (0..(FULL_FILE_STREAM_CHUNK_BYTES * 3 + 123))
+            .map(|index| (index % 251) as u8)
+            .collect();
+        let path = temp_file("large", &content);
+
+        let body = stream_file_body(path.clone()).await.unwrap();
+        assert_eq!(collect_body(body).await, content);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn 파일_스트리밍은_존재하지_않는_경로에서_에러를_반환한다() {
+        let missing = std::env::temp_dir().join(format!("taide-serving-test-missing-{}", uuid::Uuid::new_v4()));
+        assert!(stream_file_body(missing).await.is_err());
+    }
 }

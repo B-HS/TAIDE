@@ -1,7 +1,7 @@
 import type { FC } from 'react'
 import { Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { SnippetEntryDraft } from '@widgets/snippet-editor/snippet-draft'
+import type { SnippetEntryDraft } from '@shared/lib/snippet-draft'
 import { IconButton } from '@shared/ui/icon-button'
 
 type SnippetEntryEditorProps = {

@@ -51,7 +51,7 @@ import {
 } from '@features/git/conflict-marker'
 import { ConflictCompareDialog } from '@features/git/conflict-compare-dialog'
 import { ConflictResolutionDialog } from '@features/git/conflict-resolution-dialog'
-import { resolveSelectedLineRange } from '@features/git/selection-line-range'
+import { resolveSelectedLineRange } from '@shared/lib/selection-line-range'
 import { HunkDiscardDialog } from '@features/git/hunk-discard-dialog'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'

@@ -9,8 +9,8 @@ import { replaceSearch } from '@entities/search/search.ipc'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { useOpenTab } from '@entities/layout/layout.query'
-import type { ReplaceAllInput } from '@widgets/search-panel/search-panel'
-import { SearchPanel } from '@widgets/search-panel/search-panel'
+import type { ReplaceAllInput } from '@features/search/search-panel'
+import { SearchPanel } from '@features/search/search-panel'
 
 type SearchPanelContainerProps = {
     projectId: ProjectId

@@ -8,8 +8,8 @@ import { requestReveal } from '@entities/editor/reveal-registry'
 import type { ProblemRowData } from '@features/problems/problem-row'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
 import { PROBLEM_SEVERITIES, toProblemSeverity } from '@features/problems/problem-severity'
-import type { ProblemGroup } from '@widgets/problems-panel/problems-panel'
-import { ProblemsPanel } from '@widgets/problems-panel/problems-panel'
+import type { ProblemGroup } from '@features/problems/problems-panel'
+import { ProblemsPanel } from '@features/problems/problems-panel'
 
 type ProblemsPanelContainerProps = {
     projectId: ProjectId

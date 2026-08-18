@@ -12,7 +12,7 @@ import {
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
 import { useUninstallPlugin } from '@entities/plugin/plugin.query'
-import type { PendingPluginUninstall } from '@widgets/plugin-manager/plugin-list-body'
+import type { PendingPluginUninstall } from '@features/plugin/plugin-list-body'
 
 type PluginUninstallDialogProps = {
     pending: PendingPluginUninstall | null

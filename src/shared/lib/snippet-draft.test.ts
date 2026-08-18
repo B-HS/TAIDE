@@ -13,7 +13,7 @@ import {
     snippetMapToDrafts,
     updateSnippetEntryDraft,
     type SnippetEntryDraft,
-} from '@widgets/snippet-editor/snippet-draft'
+} from '@shared/lib/snippet-draft'
 
 describe('isGlobalSnippetFileName / buildLanguageSnippetFileName / normalizeGlobalSnippetFileName', () => {
     test('.code-snippets 확장자만 전역 파일로 인식한다', () => {
