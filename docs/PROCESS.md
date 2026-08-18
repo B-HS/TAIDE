@@ -480,11 +480,47 @@
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
           실행. Wave I 멀티 윈도우 실기 최우선. c/c-A~c-I 상위 체크박스 표기 누락 동시 정정
-    - [ ] d-1. 정찰/설계 Workflow(opus+high) — qa6 275항목 실행 경로 분류(e2e 경로 A 가능/사람
-          실기 전용/코드 논증 대체)·기능 심층 QA 우선순위(위험도 기반, Wave I 최상)·아키텍처
-          전수 감사 인벤토리(프론트 FSD·entities·shared 승격 / Rust 도메인 경계·compose·타입
-          파생)·e2e 하네스(경로 A: remote 미러+Playwright webkit·node) 파일럿 설계 → 하중 주장
-          메인 재검증 → 추천안 패키지 확정
+    - [x] d-1. 정찰/설계 Workflow(opus+high) + 추천안 패키지 확정(2026-08-18 사용자 결정 4건
+          **전부 추천안**: 손 QA 수정 선행·e2e 의존성 승인(@playwright/test@1.62.1+webkit,
+          *.e2e.ts·node 러너)·감사 표준 16에이전트·QA-W0~W7 편성). **설계 정본:
+          `docs/acknowledge/2026-08-18-pro-qa-design.md`**(qa6 분류 a165/b51/c59·하네스 설계·
+          감사 배치·티어링 요지 수록 — 스크래치패드 원문 요지 반영 완료)
+        - [x] 정찰 완료(wf_7e69c774-358, opus+high 4축)·메인 재검증 16건 전건 일치 — qa6 분류
+              a165/b51/c59(=275 검산), Wave I 창 생명주기 11항목 e2e 불가(window_open_auxiliary
+              dispatch.rs:968 거부 확정), 원격 거부 arm 9종/11커맨드(리서치 "3종" stale 정정),
+              로그 포트 파싱 불안정(tauri-plugin-log KeepOne 40KB — lsof+프로브 폴백 필요),
+              monaco/xterm 전역 미노출·data-testid 0(오라클 FS/DOM/IPC 대체), WebglAddon 무보호
+              (terminal-view.tsx:156), @playwright/test@1.62.1 실조회, 감사 배치 표준16/절충10안,
+              심층 QA T0 6·T1 9·T2 16 티어링+QA-W0~W7 편성안. 원문은 세션 스크래치패드
+              (요지는 착수 계약에 반영 예정)
+        - [x] 손 QA 6건 진단 완료(wf_e1ff31e6-53b, fable+high 6축)·메인 재검증 전건 일치 —
+              ①터미널 링크: WebLinksAddon 기본 핸들러 window.open 이 WKWebView 에서 null(무동작
+              확정)+URL IPC 부재 ②부트 테마: reveal 게이트(테마만 대기)와 CSS 게이트(테마+로케일)
+              불일치가 최유력(use-reveal-window.ts vs global.css:302)+follow_system_theme 피커
+              무시 UX 결함 ③와일드카드: is_allowed_host 정확일치·sanitize 가 '*' 탈락·매처 중복
+              (server.rs:98)·링크 발급 first() 함정 4지점 확정 ④파일 열기 블로킹: **lsp_stop 이
+              전역 begin_mutation 락을 쥔 채 고정 2s+2s sleep**(lsp/commands.rs:484·338-355)+
+              use-lsp-session 이 path 변경마다 세션 파괴 — layout/file 전 커맨드 큐잉으로 증상
+              3종 전부 설명(확정) ⑤peek 겹침: tailwind preflight border-box 가 monaco twistie
+              content-box 전제 파괴(오버라이드 1규칙으로 근본 해결) ⑥커밋 diff: Wave C 계약
+              §3.2 원문이 원래 "파일 클릭→기존 diff 탭"(L0-2 가 범위 밖으로 미룬 TabKind::Diff
+              rev 확장이 실행 수단 — 기각 재론 아님, 원계약 복귀)
+    - [ ] d-2. 손 QA 1차 발견 6건(2026-08-18 사용자 실기 보고) — 진단·재검증·계약 확정 완료,
+          수정 착수. **수정 계약 정본: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md`**
+          (사용자 승인: 전부 추천안 — 수식어 ⌘·⌥+altClickMovesCursor 해제·follow_system_theme
+          자동 해제·와일드카드 베이스 불포함·LSP Rust+프론트 병행). 실행: Phase R(Rust 단독)
+          → F 병렬 4 → D 통합 → E 검토(4렌즈+적대적+수정+메인 2차) → 커밋
+        - [ ] d-2-1. 터미널 링크 Option+클릭 시 외부 브라우저로 안 열림
+        - [ ] d-2-2. 초기 기동 시 테마 색상 미추종 의심(콜드 스타트 — reload 플래시 수정과 별개
+              경로 여부 확인)
+        - [ ] d-2-3. remote allowed hosts 와일드카드 미지원 → 지원 추가(패턴 의미론·보안 영향
+              검토 동반)
+        - [ ] d-2-4. 파일 열기 후 로딩("코드베이스 읽기") 완료 전까지 단축키·힌트 무반응, 닫기
+              지연 — 원인 미상(LSP/인덱싱/프리로드 후보) 진단 필요
+        - [ ] d-2-5. Peek Definitions 우측 파일 트리에서 파일명과 chevron(캐럿) 겹침(스크린샷
+              확보) — monaco peek 트리 스타일 결함
+        - [ ] d-2-6. git 커밋 상세: 파일 클릭 시 diff 가 커밋 파일 목록 패널 안에 렌더됨 → 에디터
+              code view(디프 탭) 로 열리게 변경(Wave C L0-2 결정과의 관계 확인 동반)
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
 - [x] f. PROCESS.md 아카이브 완료 — 문서화·Phase 0~7.10(W1~W7) 섹션 1,022줄을
       `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 이전 (1,171줄 → 151줄).
