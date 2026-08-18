@@ -620,6 +620,15 @@
     - [x] d-11. 세션 핸드오프(/prepare-new, 2026-08-19) — HANDOFF 재작성(2026-08-16→2026-08-19
           스냅샷: 손 QA·#12·e2e 하네스·감사 T0/T1·flaky 3건). PROCESS·HANDOFF 정합. 재개 프롬프트
           출력. **주의: PATH flaky(d-10) 진행 중·워킹트리 미커밋** — 새 세션 첫 작업
+    - [x] d-0d. 착수 확인 4차(2026-08-19, 4건 전부 추천안): ① dev 선행분(T1-2차 `acadace`·문서·
+          flaky#3 `45adf9d`) prod 병합 완료(main=85ea29b, branch -f + push 분리 실행) ② 다음 배치
+          = 감사 T1 3차(T1-C·T1-D·T1-A 잔여) ③ tauri `test` feature 미도입 유지(REMOTE_DENIED_
+          COMMANDS 테이블로 라우팅 검증 기달성) ④ e2e 파일럿·QA-W1 실기는 사용자 준비 시점 별도
+    - [ ] d-12. 감사 T1 정비 3차 배치(T1-C 서버상태 14건·T1-D 레지스트리 17건·T1-A 잔여 3건) —
+          계약 `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md`. 착수 전 메인 실물 재확인
+          13건 전건 일치. 세부 결정 3건(R7#6 제거 확정·store 이관 목적지 external-store 브리지·
+          F6#5 범위 외) **전부 추천안 확정(2026-08-19)** → Phase R(Rust 단독)→F0(브리지
+          팩토리 선행)→F 병렬 3→D 통합→E 검토(4렌즈+적대적+메인 2차)→커밋(dev) 진행
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
