@@ -1,204 +1,206 @@
-# HANDOFF — 2026-08-16 세션 스냅샷 (잔여 기능 캠페인 A~I 완료·문서 부채 정리)
+# HANDOFF — 2026-08-19 세션 스냅샷 (전문 QA 착수·손 QA 수정·아키텍처 감사 T0/T1)
 
-> 최종 갱신: 2026-08-16 / dev HEAD: **`c79e853`** / prod(origin/main): **`40f85e1`**(캠페인 A~I 전량 반영, 문서 정리분만 dev 선행) / 워킹트리 클린
-> 이 문서는 세션 인수인계 **단일 진입점**이다. 새 세션은 이것부터 읽는다.
-> 직전 스냅샷(A~E 완료 시점)은 `git show d525640:docs/HANDOFF.md`.
+> 최종 갱신: 2026-08-19 / dev HEAD: **`45adf9d`** / prod(origin/main): **`682ca6a`**(T0·flaky#1·T1-1차까지 반영,
+> T1-2차 `acadace`·문서·flaky#3 는 dev 선행) / 워킹트리 클린(HANDOFF·PROCESS 문서만 미커밋).
+> **진행 중 작업 없음**. flaky 3건 전부 근절 완료(§3.3). 다음 세션은 §6 확인 → §8 TODO 착수.
+> 이 문서가 세션 인수인계 **단일 진입점**이다. 직전 스냅샷(캠페인 A~I 완료)은 `git show b4e7318:docs/HANDOFF.md`.
 
 ## 1. 프로젝트 한 줄 정의
 
 **TAIDE** — Tauri 2 + Rust 코어 + React 19 프론트로 만드는 **에이전트 친화 데스크톱 IDE**.
-모든 도메인 상태를 Rust 가 소유하고(ADR-0004), view 는 표시 전용이다. macOS(arm64) 우선.
+모든 도메인 상태를 Rust 가 소유하고(ADR-0004), view 는 표시 전용. macOS(arm64) 우선.
 
 ## 2. 현재 목표
 
 | 층위 | 내용 |
 |------|------|
 | 최종 목표 | `docs/PRD.md` FR-A~J → Phase 8 배포(서명·공증) |
-| 현재 마일스톤 | **잔여 기능 캠페인**(VS Code·Cursor 갭 P0+P1) — 웨이브 A→I **전량 완료(9/9)** |
-| 직전 작업 | 문서 부채 정리(ipc-contract·data-model·qa6 실코드 기준 갱신·PROCESS 아카이브, `c79e853`) 후 정지 |
+| 이전 마일스톤 | 잔여 기능 캠페인 A~I **전량 완료**(직전 세션, prod 반영) |
+| 현재 마일스톤 | **전문 QA(d)** — 손 QA 수정 완료 + e2e 하네스 구축 완료 + **아키텍처 전수 감사 T0·T1 정비 진행 중** |
+| 직전 작업 | 감사 T1 2차 배치(`acadace`) + PATH env flaky 근본 수정(`45adf9d`) 완료. 세션 핸드오프 준비 |
 
-캠페인 정본: `docs/acknowledge/2026-08-14-remaining-features-pro-qa-plan.md`
-(범위=P0 잔여+P1, 완벽 우선, 4렌즈 검토, 역할 상향, 웨이브 A→I 편성).
-전체 순서: **잔여 기능(A~I) 완료 → 문서 부채 정리 완료 → 전문 QA(e2e·아키텍처 감사) → Phase 8**.
-실기 QA 는 사용자 지시로 취소(스모크 가정) — 캠페인 전량 실기 미검증이 KNOWN ISSUE 로 존속.
+전문 QA 설계 정본: `docs/acknowledge/2026-08-18-pro-qa-design.md`(e2e 승인·감사 16배치·QA-W0~W7 편성).
+감사 정본: `docs/quality-assurance/2026-08-18-architecture-audit.md`(297발견·16클러스터·T0~T2 티어).
 
 ## 3. 완료 / 진행 중 / 미착수
 
-### 3.1 이번 세션 완료 — 캠페인 Wave F~I + 문서 정리 (커밋 12건: d525640..c79e853)
+### 3.1 이번 세션 완료 (커밋 18건: 0f9898f..1471261)
 
-각 웨이브 패턴: **정찰(opus+high 4축 Workflow) → 하중 주장 메인 재검증 → 계약(acknowledge/*.md,
-추천안 패키지 질문) → 구현(sonnet+xhigh, Rust 단독 소유 → 프론트 파일 소유 분리 병렬) → 4렌즈 검토
-(opus+xhigh) → 적대적 검증(opus+high) → 수정(sonnet+xhigh) → 메인 2차(verify 전체+vite build+실물
-재검증) → 커밋(dev) → 다음 웨이브 착수 시 직전 웨이브 prod 병합**. 검토가 매 웨이브 critical/RCE급
-결함을 실제로 잡음 — "완벽 우선"의 값어치가 매 웨이브 입증됨.
+각 대형 작업 패턴: **정찰/진단(opus·fable) → 하중 주장 메인 실물 재검증 → 계약(acknowledge) → 구현(sonnet+xhigh
+Workflow) → 4렌즈 검토(opus+xhigh)+적대적 검증(opus+high) → confirmed 수정 → 메인 2차(실물 재검증+verify+
+vite build) → 커밋(dev) → 다음 착수 시 직전 산출물 prod 병합**. 검토가 매번 실결함을 잡음(값어치 입증).
 
-| 웨이브 | 커밋 | 계약 정본 | 핵심 내용 | 검토가 잡은 critical/major(수정됨) |
-|--------|------|-----------|-----------|-----------------------------------|
-| **F** 에디터 표현 | `56712b0` | `2026-08-15-wave-f-editor-presentation-contract.md` | Semantic Tokens full+delta(재인코딩·미매핑 드롭·테마 rule 주입)·사용자 스니펫(Rust 도메인·completion provider·편집 UI)·Format on Type/Paste(어댑터 2종)·Emmet(emmet-monaco-es) | **[critical] semantic 테마 rule 의 bare scope append 가 monaco 트라이 last-wins 로 덮어써 번들 테마 11종 실색 변화**(→`taideSemantic.<token>` 네임스페이스)·스니펫 prefetch gcTime GC(→QueryObserver)·Windows 경로탈출·설정 토글 미반영 |
-| **G** AI | `2c93289` | `2026-08-16-wave-g-ai-contract.md` | Inline Edit ⌘I(ContentWidget·모델 무변경 프리뷰(삭제 데코+ViewZone)·수락 1회 executeEdits)·AI 커밋 메시지(git2 staged diff·Sparkles)·provider `instruct`·설정 리네임(ai_provider/ai_model) | **[major×5] instruct 가 auto-tab 256 토큰 캡 상속(→전용 4096+length 감지)·팔레트 precondition 무동작(→keybindingContext)·코드펜스 스트립 실패(→스캔 파서)·truncated/시크릿 미전달(→본문 안내+.env 제외)·제출 시 포커스 이탈** |
-| **H** 키맵 엔진 | `fcb5db9` | `2026-08-16-wave-h-keymap-contract.md`·`2026-08-16-monaco-contextkeyexpr-deep-import.md` | chord(⌘K ⌘S·전역 스토어·순수 dispatch·monaco 유예 창으로 기존 회귀 4건 상환)·when(ContextKeyExpr 딥임포트·pull 게터)·훅 반전·taide.* 카탈로그 편입·Sparkles unstaged 폴백 | **[critical→major×2] taide.* 편입 무동작(addAction 이 editorId:id 등록 →registerCommand 전역 등록)·팔레트 독립 리스너의 chord/유예 우회** + 인스펙터 modal 공허·⌘K S 계약 이탈 정정 |
-| **I** 셸·워크스페이스 | `40f85e1` | `2026-08-16-wave-i-shell-workspace-contract.md` | **멀티 윈도우 완전 구현**(창=탭 분리·domain/window·레이아웃 v1→v2 무손실 마이그레이션·layout_move_tab_to_window·창별 close·전 창 hot-exit 집계)·Zen(shell_view 영속·⌘K Z)·설정탭(AppFile·SettingsChanged 3경로 통합)·플러그인 설치 UI·VSIX grammar·monaco 동적 언어 | **[critical×3] 보조 창 layout 커맨드 전부 NotFound(→all_roots)·원격 app_file_write 가 shell_override RCE 게이트 우회(→strip 가드)·LSP 세션 재사용 창간 id 충돌+중복 initialize(→owner 스코프 창별 독립 세션)** + major 다수 |
+| 작업 | 커밋 | 계약/정본 | 핵심 |
+|------|------|-----------|------|
+| **문서 정리분 prod 병합** | (`0f9898f` 포함) | — | 직전 세션 문서 커밋 prod 반영 |
+| **손 QA 6건** | `b00c192`(수정)·`09e0e0f`(검토) | `2026-08-18-hand-qa-fix-contract.md` | 터미널 링크 외부열기·부트 테마 reveal 게이트·allowed hosts 와일드카드·**LSP 정지 전역 락 4초 해소**(파일 열기 무반응)·peek 트위스티 정렬·커밋 diff 에디터 탭 승격. 검토 major 3(window.open noopener 오탐·원격 라벨 'main'→'remote'·verify 자충) |
+| **#12 원격 거부 전환** | `4229020` | hand-qa 계약 §5 | system_open 계열 4커맨드(open_path·reveal_path·open_in_browser·open_app_data_path) 원격 dispatch 거부 |
+| **QA-W0 e2e 하네스** | `5f15a84` | `2026-08-18-e2e-harness.md` | Playwright webkit+node·파일럿 12스펙(`e2e/`)·검토 10건 반영(H1 게이트 스펙 하드스톱 등) |
+| **아키텍처 감사** | `4cfd158` | `2026-08-18-architecture-audit.md`(+부록 2) | 16배치 opus+xhigh 읽기전용 → 297발견(고유 289·critical 19)·16클러스터·T0 24/T1 11묶음/T2 10묶음/X1 계약 별도 |
+| **flaky#1 (실은 데이터 버그)** | `d2204f7` | `bug/2026-08-18-mirror-mtime-serde-json-float-roundtrip.md` | serde_json f64 유손실 파싱 → 미러 복원 시 가짜 conflict 배지. Cargo.toml `float_roundtrip` |
+| **감사 T0 24항목** | `eecb493` | `2026-08-18-audit-t0-fix-contract.md` | 보안 5(원격 게이팅)·데이터 손상 4·기능 무력화·자원 회수. 검토 major 3(#15 forbid_directory 롤백·#18 isConflicted 절대경로·flaky#2 kill 폴링) |
+| **T1 1차 배치** | `6917978` | `2026-08-18-audit-t1-batch1-contract.md` | T1-E 계약 파리티 테스트·T1-J 자원 회수·T1-B Settings union. 검토 major 1(LSP kill 재사용 PID SIGKILL — 내 R7#9 회귀) |
+| **T1 2차 배치** | `acadace` | `2026-08-18-audit-t1-batch2-contract.md` | T1-G 보안 하드닝 8·asset scope 재등록(register_uri_scheme_protocol)·T1-F 레이어 이동 20파일. 검토가 중복→`infra/range_file.rs` 공유 모듈로 근본 해소하며 parse_range 언더플로 패닉(serving.rs 원격 DoS)·m4v MIME 동시 수정 |
 
-**문서 부채 정리**: `c79e853` — ipc-contract 커버리지 72%→100%(178커맨드·25이벤트 전수, 누락 49·잔재 6·
-시그니처 4 정정)·data-model(설정 리네임·TabKind 9종·레이아웃 v2·영속/비영속 타입·SettingsChanged)·
-qa6(Wave B/C/D 섹션 신설+E~I 보강, 275항목)·PROCESS 아카이브(589→471줄).
+**flaky 3건 근절**(세션 내내 "무관 flaky"로 방치돼 온 것을 근본 진단): #1 serde_json(데이터 버그)·#2 kill
+테스트 커널 SIGKILL 레이스(유한 폴링)·#3 PATH env 병렬 경합(`45adf9d`). 전부 근절 — verify 게이트 완전 안정.
 
-**prod 병합**: 매 웨이브 착수 시 직전 웨이브를 `git branch -f main dev` 후 `git push origin main`(fast-forward)
-으로 병합. 현재 main=`40f85e1`(A~I 전량). **dev 의 `c79e853`(문서 정리)만 prod 미반영** — 다음 세션이
-전문 QA 착수 시 함께 병합 여부 판단(문서 전용이라 병합 안전).
+### 3.2 기준선 (2026-08-19 실측, T1-2차 시점)
 
-### 3.2 기준선 (2026-08-16 실측)
-
-- 프론트 테스트 **1127** / Rust **881 lib** + 6 통합(session_restore) + 17 taide-cli. IPC 커맨드 **178종**
-  (raw 3종 별도) + 이벤트 25종.
+- 프론트 테스트 **1195** / Rust **1010 lib** + 6 통합(session_restore) + 17 taide-cli. e2e 스펙 12(파일럿, 미실행).
 - `bun run verify` 전체(typecheck→lint→format→bun test→cargo fmt/clippy/test) + `bunx vite build` 그린.
-- 신규 승인 의존성(전 캠페인 누적): `ignore`(Wave D)·`emmet-monaco-es`@5.7.0(Wave F). **argon2·toml 미승인**.
+- 신규 승인 의존성(이번 세션): `@playwright/test`@1.62.1(devDep)+webkit(e2e). Rust 는 기존 crate 피처만
+  (serde_json `float_roundtrip`·futures-util unfold — 신규 crate 0). **argon2·toml 여전히 미승인.**
 
 ### 3.3 진행 중
 
-**없음.** 캠페인 A~I 커밋 완료·문서 부채 정리 완료·워킹트리 클린. 사용자 지시로 전문 QA 착수 전 정지.
+**없음.** flaky 3건 전부 근절 완료: #1 serde_json float_roundtrip(`d2204f7`, 데이터 버그)·#2 kill 테스트
+커널 SIGKILL 레이스(유한 폴링, `eecb493` 포함)·#3 PATH env 병렬 경합(`45adf9d`, `docs/bug/2026-08-19-
+lsp-detect-path-env-parallel-race.md`). #3 은 find_in_path 를 PATH 파라미터 주입형으로 리팩터해 전역 env
+조작 제거(테스트 set_var 0건). confirms_healthy_restart 는 비한정 `sh` 스폰이 오염 PATH 로 검색 실패한
+collateral damage 로 자연 해소. 병렬 6회 소멸 확증·verify 그린. **이후 verify 게이트 완전 안정.**
 
-### 3.4 미착수 — 캠페인 후속 (PROCESS.md d·e)
+### 3.4 미착수 — 감사 후속 (우선순위 §8)
 
-1. **전문 QA(d)**: 기능 전수 체크리스트(qa6-checklist 로 갱신 완료·275항목) → 기능별 심층 검토
-   (opus+xhigh, 심층 opus+max) + e2e + 아키텍처·추상화 전수 감사. e2e 경로 리서치 완료
-   (`docs/research/2026-08-14-e2e-path-research.md`: A=remote 미러+Playwright(webkit·node) 1차 축 /
-   B=embedded WebDriver 파일럿). **의존성 승인·감사 범위가 착수 전 결정 사항**(Playwright+webkit,
-   필요 시 tauri-plugin-wdio-webdriver).
-2. **Phase 8(e)**: 서명·공증 (미구성 — `tauri.conf.json` 에 macOS 서명 섹션 없음).
+1. **T1 3차 배치**: T1-C 서버상태(effect fetch·무효화 책임·캐시 store 전용, 14건)·T1-D 레지스트리 정리
+   (bridge 싱글톤·멀티윈도우 격리, **17건 최대 클러스터 C3**)·T1-A 잔여(monaco 키바인딩·키맵 브리지 프로바이더).
+2. **T1 후반(고위험)**: T1-H 전역 락 IO 분리(96 호출지점 동시성 위험)·T1-I 도메인 경계 재조립(C13 30엣지·
+   순환)·T1-K 원격 기본거부 전환. **착수 시 각각 동시성/순환 위험 재고지**(사용자 결정 — T1 포함이나 신중).
+3. **X 트랙**: X-A 계약 배선(살리기 3: cwd-changed·from_app·revision / 지우기: focus-kind-changed·중복 커맨드
+   5종 — 판정 승인됨, 구현 미착수). X-B 테스트(T1-E 로 일부 이관됨). X-C 문서 7건.
+4. **T2 백로그**(10묶음): 중복 제거·비대 파일 분해·shared/lib 재구조화·접근성·i18n·dead code 등.
+5. **T2-E AppError 코드화**(369지점, 한/영 혼재 UX) — **별도 캠페인 권장**(규모).
+6. **e2e 파일럿 실행**(d-6): 사용자 준비 필요(§7). **QA-W1 멀티윈도우 사람 실기**(감사 e2e 사각지대).
+7. **Phase 8**: 서명·공증(미구성).
 
 ### 3.5 알려진 미검증·미해결 (KNOWN ISSUE)
 
-- **캠페인 전량 실기 미검증** — 기계 검증(verify·vite build)만. 앱 실행은 사용자만(`bun run tauri dev`).
-  특히 **Wave I 멀티 윈도우는 실기 확증이 절실**(보조 창 열기/이동/닫기·같은 프로젝트 2창 LSP·같은
-  터미널 2창 시청·전 창 flush·Zen·설정탭 반영·플러그인 설치→하이라이팅). qa6-checklist 에 실기 항목 정리됨.
-- **Wave I 검토 deferred 4건**(계약 §6 기록, backlog 이월): ①보조 창 hot-exit flush 미핸드셰이크
-  (✕ 클릭 시 최대 500ms 미저장 편집 유실 — blur/언마운트가 대부분 커버, minor) ②restore_auxiliary_windows
-  가 전 프로젝트 보조 창 일괄 복원(정책 결정 필요) ③보조 창 팔레트 미마운트(tab.moveToMainWindow 팔레트
-  도달 불가 — 컨텍스트 메뉴로는 도달) ④보조 창 소유자 없는 chord 1단 삼킴(Wave H idempotent 불변식 충돌).
-- **문서 부산물 3건**(코드 정본, 문서만 뒤처짐 — 다음 문서 세션 대상): `app:ready` 죽은 이벤트 배선
-  (events.rs 에 타입·collect 등록되나 emit 호출 0)·`docs/features/agent-integration.md` 의
-  `release_wait_marker` 잔재(실제 커맨드는 `agent_release_marker`)·`docs/ipc-contract.md` snippet 절이
-  bindings 의 `_Serialize`/`_Deserialize` 유니온 분할 미반영(기능 영향 0).
-- **flaky 테스트 1건**(캠페인 무관·별도 트리아지): `domain::file::service::tests::dirty_미러는_저장하고_삭제할_수_있다`
-  가 mtime 기반 assertion 으로 cargo test 병렬 실행 시 ~1/15 실패. 단독/재실행은 항상 통과. base 커밋에서도
-  동일 재현(Wave 무관).
-- 직전 세션 잔여(d525640): W1~W7·QA6 후속·기능 확장 1~3차도 실기 미검증
-  (`docs/history/2026-08-16-process-archive-qa6-feature-waves.md` 로 아카이브).
+- **캠페인 A~I + 이번 세션 수정 전량 실기 미검증** — 기계 검증(verify·vite build)만. 앱 실행은 사용자만.
+  qa6-checklist 에 실기 항목 누적(손 QA 재검·감사 T0/T1 재검·Wave I 멀티윈도우 40항목 등).
+- **asset:// 실 webview 라운드트립 미검증**(T1-2차) — `infra/asset_protocol.rs` 의 재등록 핸들러(Range·CSP·
+  닫힌 프로젝트 즉시 차단·CORS 생략 무해성)는 코드/단위 테스트로만 검증. WKWebView video/audio Range 탐색은
+  **qa6 최우선 실기 항목**. CORS 헤더는 UriSchemeContext 가 window_origin 미노출이라 문서화만.
+- **감사 미수정 잔여**: T1 3차·후반·T2·X 트랙(§3.4) 전량이 감사가 확정했으나 미수정. 각 클러스터·티어는
+  `architecture-audit.md` §3~§7 이 정본.
+- **e2e 파일럿 실측 미완**(하네스 문서 §6): 터미널 WebGL(WKWebView WebGL2 부재 시 마운트 실패 위험)·포트
+  발견 신뢰성·Origin 자동 부착·monaco 모듈 재획득 — 앱 켜야 확정.
+- **Wave I deferred 4건**(직전 세션): 보조 창 hot-exit flush 미핸드셰이크·restore 정책·팔레트 미마운트·chord
+  1단 삼킴. 직전 계약 `2026-08-16-wave-i-shell-workspace-contract.md` §6.
 
-## 4. 의사결정 요약 (상세·기각 대안은 acknowledge 계약이 정본)
+## 4. 의사결정 요약 (상세·기각 대안은 acknowledge 정본)
 
-핵심 결정은 각 웨이브 계약(`docs/acknowledge/2026-08-1{5,6}-wave-*-contract.md`)의 §1(결정)·§4(기각)·
-§6/§7(검토 정정)에 있다. 이번 세션 웨이브별 채택/기각 요약:
+핵심 결정은 이번 세션 계약 5건에 있다. 요약:
 
-| 웨이브 | 채택 | 주요 기각 대안 |
-|--------|------|----------------|
-| F | 풀 패키지+emmet-monaco-es 승인·Semantic **delta 포함**·포매팅 둘 다·스니펫 Rust 저장소 | Semantic 기본 OFF·full only·ResolvedTheme 스키마 신설·서버 legend 직통과(워시아웃)·Emmet 자작 |
-| G | 공통 기반+**설정 리네임**(ai_provider/ai_model)·Inline Edit **⌘I**(모델 무변경 프리뷰·일괄 응답)·커밋 메시지 git2 native | ⌘K 기본키(chord 충돌)·스트리밍(provider 2종 신설)·diff 탭 프리뷰·모델 선반영·run_git·별도 trait·auto-tab 파일 확장 |
-| H | chord ⌘K 프리픽스+**monaco 유예 창**·when ContextKeyExpr 딥임포트·**마이그레이션 보수**(행동 변화 0)·Sparkles unstaged 폴백 | softDispatch·chords 배열 직렬화·마이그레이션 전략 2/3·when 오버라이드 노출·비US 역매핑·when 자체 파서 |
-| I | **멀티 윈도우 완전 구현**(사용자: "MVP 아니라 제대로 완벽하게")·창=탭 분리·차단급 4종 근본 수정·Zen 레이아웃 영속·AppFile·플러그인 설치 UI | MVP(창=프로젝트)·전면 보류·보조 창 탭 폐기(VS Code 동형)·가상 스킴·비활성 토글·extract_zip 재사용·마켓플레이스 |
-| 다음 방향 | **문서 부채 정리 먼저**(완료) → 전문 QA | 전문 QA 조기 착수·멀티윈도우 마감 우선 |
+| 영역 | 채택 | 주요 기각/롤백 |
+|------|------|----------------|
+| 전문 QA(d) | e2e 경로 A(remote 미러+Playwright webkit)·감사 표준 16배치·QA-W0~W7 편성 | e2e 보류·감사 축소 10배치·순수 playwright 라이브러리 |
+| 손 QA 터미널 링크 | ⌘·⌥ 겸용+window.open 선시도→IPC 폴백·altClickMovesCursor false | opener 플러그인 개방·url 크레이트 / noopener(항상 null 오탐 — 검토가 잡음) |
+| 손 QA 부트 테마 | reveal 게이트 테마+로케일 정합·follow_system_theme 자동 해제 | 창 OS 배경 동적 갱신(backlog) |
+| allowed hosts | RFC 6125 와일드카드(`*.` 선두 1레이블·베이스 불포함) | glob 크레이트·베이스 포함 |
+| 커밋 diff | TabKind::Diff rev 확장(원계약 §3.2 복귀) | 전용 TabKind::CommitDiff |
+| 감사 #12 | system_open 4종 원격 거부(system_open_path 포함) | 3종만 |
+| 감사 #15 asset scope | **T0 롤백**(forbid_directory add-only 재오픈 회귀) → **T1-2차 재등록**(register_uri_scheme_protocol+AppState 라이브 조회) | forbid_directory·재이월 유지 |
+| Settings 해제 | 빈 문자열=해제 일반화(Option<String> 6필드) | Option<Option<T>> |
+| flaky 3건 | 전부 **근본 수정**(데이터 버그·레이스·env 주입) | epsilon 우회·테스트 격리(HACK) |
+| T2-E AppError·T1-H 락 | **별도 캠페인/후반**(규모·동시성 위험) | T1 즉시 포함 |
 
-세션 레벨 불변 규칙(직전 세션 계승): 실기 QA 취소(스모크 가정)·효율보다 완벽·4렌즈 상설.
+## 5. 사용자 방향성 & 작업 규칙 (직전 세션 계승 + 이번 세션 확인)
 
-## 5. 사용자 방향성 & 작업 규칙
+### 5.1 운영 방식 (역할 5단)
 
-### 5.1 운영 방식 (역할 5단 — 캠페인 상향, 이번 세션 그대로 유지)
-
-- 오케스트레이팅·계약·2차 검토 = 메인(**직접 구현 금지**, 예외: 소규모 2차 수정 — 이번 세션엔
-  Wave F stripCodeFence 반환타입·Wave H PROCESS 아카이브 등 극소수). 구현 = **sonnet+xhigh** /
-  렌즈 검토 = **opus+xhigh**(4렌즈: 계약·정확성·보안·설계/추상화) / 적대적 검증 = **opus+high** /
-  정찰·리서치 = **opus+high**. (QA·버그 = fable+high 는 이번 세션 미사용)
-- 위임은 규모 무관 **Workflow 로만**. 백엔드 Rust 는 한 시점 한 에이전트(단독 소유). 프론트는 파일
-  소유권 분리 병렬. **에이전트 보고 불신** — 핵심 주장·검토 발견은 메인이 실물(소스·grep·bun/cargo 실행)
-  재검증. 정찰 하중 주장은 계약 전 메인이 실물 확인.
-- **확인 질문은 추천안 패키지로 묶어** "전부 추천안대로" 한마디로 답할 수 있게. 다음 웨이브 착수 질문에
-  **직전 웨이브 prod 병합 여부**를 항상 포함.
-- **반쪽 기능 금지** — 끝까지 배선. **검토·검증 단계 축소 금지**(효율보다 완벽).
+- 오케스트레이팅·계약·2차 검토 = 메인(**직접 구현 금지**, 예외: 소규모 2차 수정 — 이번 세션 flaky#2 kill
+  테스트 폴링·fanout 문서 정정 등). 구현 = **sonnet+xhigh** / 렌즈 검토 = **opus+xhigh**(4렌즈: 계약·정확성·
+  보안·설계추상화) / 적대적 검증 = **opus+high** / 정찰·리서치 = **opus+high** / 버그 진단 = **fable+high**.
+- 위임은 규모 무관 **Workflow 로만**. 백엔드 Rust 는 한 시점 한 에이전트(단독 소유, 순차 Phase). 프론트는
+  파일 소유권 분리 병렬. **에이전트 보고 불신** — 핵심 주장·검토 발견은 메인이 실물(소스·grep·bun/cargo 실행)
+  재검증. **적대적 검증 API 에러로 미검증된 건은 메인이 직접 재검증**(이번 세션 X1#9 경합 기각).
+- **확인 질문은 추천안 패키지로 묶어** "전부 추천안대로" 한마디로 답할 수 있게. 다음 착수 질문에 **직전 산출물
+  prod 병합 여부**를 항상 포함.
+- **반쪽 기능 금지** — 끝까지 배선. **검토·검증 단계 축소 금지**(효율보다 완벽). **flaky 를 "무관"으로 방치
+  금지** — 근본 진단(이번 세션 3건 전부 실결함으로 판명).
 
 ### 5.2 답변·코드 규칙
 
 - 한국어+존댓말·간결·이모지 금지. 검증 안 된 단언 금지. 보고만 하고 멈추지 말 것.
 - arrow fn만·반환 타입 명시 금지·**TS any/enum 금지**(단 **Rust enum 은 백엔드 관행 허용**)·주석 금지
-  (영어 JSDoc·러스트 doc comment 만 — 비자명 결정에 doc comment 필수)·매직넘버 금지·useCallback/useMemo
-  금지(useEffect 는 외부 동기화만)·삼항 2중첩 금지·named export·1파일 1컴포넌트·FSD 위→아래·barrel 금지·
-  서버 상태 TanStack Query(queryOptions 팩토리+QUERY_KEY 배열 키).
-- i18n locale/service.rs 4곳(required·en·ko·ja) 동기 + en⊆required 테스트. **IPC 시간 f64·정수 u32.**
-  Rust 후 **반드시 cargo fmt**. 신규 커맨드 배선 3곳(lib.rs collect_commands·domain/remote/dispatch.rs
-  IMPLEMENTED+match arm·bindings.ts 자동생성) + 파리티 테스트. dispatch match 는 `arg!(args,"camelCase")`.
-- 시크릿/비밀번호는 keyring 에만. 설정 gist 동기화는 화이트리스트·strip_remote_gated_settings 확인.
+  (영어 JSDoc·러스트 doc comment 만)·매직넘버 금지(상수화)·useCallback/useMemo 금지(useEffect 는 외부
+  동기화만)·삼항 2중첩 금지·named export·1파일 1컴포넌트·FSD 위→아래·barrel 금지·서버 상태 TanStack Query
+  (queryOptions 팩토리+QUERY_KEY 배열 키).
+- i18n locale/service.rs 4곳(required·en·ko·ja) 동기 + en⊆required. **IPC 시간 f64·정수 u32.** Rust 후
+  **반드시 cargo fmt**. 신규 커맨드 배선 3곳(lib.rs collect_commands·dispatch.rs IMPLEMENTED+match arm·
+  bindings.ts 자동생성) + 파리티. **시크릿/비밀번호는 keyring 에만.**
 
 ### 5.3 금지 사항
 
-- **에이전트 셸에서 앱 실행 금지**(`bun run tauri dev`·`tauri build` 는 사용자만).
-- HACK·검사기 끄기(#[allow]·@ts-ignore·eslint-disable) 금지. 우회 대신 근본 수정
-  (이번 세션 clippy too_many_arguments 도 구조체·타입 별칭으로 근본 해결).
+- **에이전트 셸에서 앱 실행 금지**(`bun run tauri dev`·`tauri build`·`cargo run` 은 사용자만).
+- HACK·검사기 끄기(#[allow]·@ts-ignore·eslint-disable) 금지. 우회 대신 근본 수정.
 - 승인 외 신규 패키지 금지. 승인 누적: reqwest·keyring·sha2·flate2·tar·zip·xz2·axum·@shikijs 4종·
-  monaco-editor-core(dev)·**ignore**·**emmet-monaco-es**. **argon2·toml 미승인**.
-- 각 계약의 기각 대안 재론 금지. 구현 완료분(A~I) 재구현 금지 — 검토·검증 완료.
-- git: main=prod, dev=개발, **dev 자동 커밋·푸시 ON**. main 직접 커밋·git add -A·force push·
-  Co-Authored-By·.env 금지. 종료 전 `bun run verify` 통과. **가드 훅이 `git branch -f main dev && push`
-  를 한 줄로 하면 force 로 오판**하니 `git branch -f main dev`(무출력)와 `git push origin main` 을
-  **분리 실행**(fast-forward). **재시도 대기 타이머는 60초 고정**(지수 백오프 금지).
+  monaco-editor-core(dev)·ignore·emmet-monaco-es·**@playwright/test(devDep)**. serde_json 은 float_roundtrip
+  피처 추가(신규 crate 아님). **argon2·toml 미승인.**
+- 각 계약의 기각 대안 재론 금지. 구현 완료분(캠페인 A~I·손 QA·T0·T1 1/2차) 재구현 금지 — 검토·검증 완료.
+- git: main=prod, dev=개발, **dev 자동 커밋·푸시 ON**. main 직접 커밋·git add -A·force push·Co-Authored-By·
+  .env 금지. 종료 전 `bun run verify` 통과. **prod 병합은 `git branch -f main dev`(무출력)와 `git push origin
+  main` 을 분리 실행**(가드 훅이 한 줄 실행을 force 로 오판). **재시도 대기 60초 고정**(지수 백오프 금지).
+- 무관한 변경 커밋 분리(flaky 수정은 배치와 별도 커밋). 선별 스테이징(트리 단위 `git add src-tauri/src src docs`
+  허용 — Cargo.toml 등 분리 필요분 확인 후).
 
 ## 6. 미해결 질문 / 사용자 확인 필요
 
-1. **문서 정리분(`c79e853`) prod 병합 여부** — 캠페인 A~I 는 병합됨(`40f85e1`), 문서 전용 커밋만 dev.
-2. **전문 QA 설계**(다음 착수 작업) — e2e 의존성 승인(Playwright+webkit / 필요 시 embedded WebDriver)·
-   감사 범위(기능 심층 QA 대상 우선순위·아키텍처 전수 감사 축)를 착수 시 추천안 패키지로 확정.
-3. **Wave I deferred 4건**(§3.5) 처리 — 전문 QA 로 실기 확인 후 backlog 승격/수정 결정.
-4. **문서 부산물 3건**(§3.5) — 별도 문서 정리 세션 또는 전문 QA 동반.
+1. **prod 병합** — T1-2차(`acadace`)+문서+flaky#3(`45adf9d`)를 함께 main 병합할지(prod=682ca6a 이후 dev 선행분).
+2. **다음 착수** — T1 3차 배치(T1-C·T1-D) vs T1 후반(T1-H·T1-I 위험) vs 정지. 사용자는 직전에 "T1 2차" 후
+   추가 지시 없이 세션 준비로 전환.
+3. **원격 라우팅 dispatch() 테스트의 tauri `test` feature**(dev 전용 1줄) 승인 여부 — fixer 가 테이블
+   재구성으로 우회했으나 완전한 mock 테스트를 원하면 필요(선택).
+4. **e2e 파일럿·QA-W1 실기** — 사용자 준비(§7) 후 실행.
 
 ## 7. 환경 & 전제
 
 | 항목 | 값 |
 |------|-----|
-| 플랫폼 | macOS(arm64), bun 1.3.x. cargo PATH 밖 — `export CARGO_HOME="$HOME/development/rust/cargo"; export RUSTUP_HOME="$HOME/development/rust/rustup"; export PATH="$CARGO_HOME/bin:$PATH"` (zsh 변수명 `path` 금지) |
-| 실행 | dev = `bun run tauri dev`(사용자만). 프로덕션 빌드 = `bun run tauri build`(`scripts/tauri.ts` 가 CLI 사이드카+bundle conf 자동 합성) |
-| 검증 | `bun run verify` = typecheck→lint→format→bun test→cargo fmt/clippy/test. bindings 재생성 = `cargo test`(`typescript_바인딩을_생성한다`). 파리티 = `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` |
-| 기준선(2026-08-16 실측) | 프론트 **1127 tests** / Rust **881 lib**(+6 통합 +17 CLI) / IPC **178 커맨드**+25 이벤트 |
-| 앱 데이터 | `~/Library/Application Support/dev.taide.app/` — buffers/·themes/·locales/·plugins/·lsp/·prompts/·snippets/(Wave F)·settings.json·session.json·projects/<id>/layout.json·.window-state.json |
-| 멀티 윈도우(Wave I) | 보조 창 라벨 `editor-<n>`(Rust 발급). capabilities/main.json windows=['main','editor-*'] 글로브. window_open_auxiliary 는 원격 거부. 레이아웃 v2(auxiliary_windows·shell_view) |
-| 스크래치패드(세션 소멸) | 정찰·검토 보고서 원문은 세션 스크래치패드에만 — **요지는 전부 계약·PROCESS·이 문서에 반영** |
+| 플랫폼 | macOS(arm64), bun 1.3.x. cargo PATH 밖 — `export CARGO_HOME="$HOME/development/rust/cargo"; export RUSTUP_HOME="$HOME/development/rust/rustup"; export PATH="$CARGO_HOME/bin:$PATH"`(zsh 변수명 `path` 금지) |
+| 실행 | dev = `bun run tauri dev`(사용자만). 프로덕션 = `bun run tauri build` |
+| 검증 | `bun run verify` = typecheck→lint→format→bun test→cargo fmt/clippy/test. bindings 재생성 = `cargo test`. **rust:test 는 `cargo test --workspace`(병렬)** — flaky 3건 근절로 병렬 안정 |
+| e2e 파일럿 준비(사용자) | ① `bun run tauri dev` ② 설정 REMOTE: 비밀번호(8자+)·"비밀번호만으로 접속 허용" ON·활성화 ON ③ `export TAIDE_E2E_PASSWORD='<비밀번호>'` ④ `bun run e2e`. 스펙11(원격 게이트) 실패 시 **실제 보안 회귀** — 수동 복구 절차 먼저(`quality-assurance/2026-08-18-e2e-harness.md`) |
+| 앱 데이터 | `~/Library/Application Support/dev.taide.app/` |
+| 스크래치패드 | 정찰·검토 원문은 세션 스크래치패드에만 — 요지는 계약·이 문서·PROCESS 에 반영. Workflow 스크립트는 세션 dir 하위 보존 |
 
 ## 8. 다음 세션 TODO (우선순위 순)
 
-1. **사용자 확인**(§6) — 문서 정리분 prod 병합·전문 QA 설계(의존성·범위). 확인 전 코드 수정 금지.
-2. **전문 QA(d) 착수** — qa6-checklist(`docs/quality-assurance/2026-08-11-qa6-checklist.md`, 275항목)를
-   마스터로. e2e 경로는 `docs/research/2026-08-14-e2e-path-research.md`. 기능별 심층 검토(opus+xhigh)+
-   아키텍처·추상화 전수 감사(FSD·entities 계층·Rust 도메인 경계·타입 파생). **Wave I 멀티 윈도우 실기
-   최우선**(정찰·검토가 차단급 다수 잡은 영역). 관련: `src-tauri/src/domain/{window,layout,lsp,terminal}/`·
-   `src/widgets/auxiliary-window-shell/`·`src/shared/lib/window-context.ts`.
-3. **Wave I deferred 4건**(§3.5) 실기 확인 후 처리 결정.
-4. **문서 부산물 3건**(§3.5) 정리 — app:ready·agent-integration.md·ipc-contract snippet 절.
-5. **Phase 8(e)** — 서명·공증(`tauri.conf.json` macOS 서명 섹션 신설).
+1. **prod 병합 확인**(§6) — dev 선행분(T1-2차·문서·flaky#3, `45adf9d`)을 main 병합. `git branch -f main dev` + `git push origin main` 분리 실행.
+2. **다음 배치 확인**(§6) — T1 3차(T1-C·T1-D) vs T1 후반(T1-H·T1-I 위험) vs 정지. 추천안 패키지로. 확인 전 코드 수정 금지.
+3. **감사 T1 3차 배치** — T1-C 서버상태·T1-D 레지스트리(C3 17건, 멀티윈도우 격리 최대 리스크). 계약 작성
+   → Workflow. 관련: `src/shared/lib/*-registry.ts`·`*-bridge.ts`(25개)·`src/entities/*.query.ts`.
+4. **감사 T1 후반**(고위험) — T1-H 락 IO(`src-tauri/src/state.rs` begin_mutation·96 호출지점)·T1-I 도메인
+   경계(`architecture.md:77` 30엣지·layout↔window 순환). **착수 시 위험 재고지.**
+5. **e2e 파일럿·QA-W1 실기** — 사용자 준비 후. `e2e/`·`src/widgets/auxiliary-window-shell/`.
+6. **X-A 배선·T2 백로그·T2-E AppError 별도 캠페인·Phase 8**.
 
 ## 9. 문서 지도
 
 | 문서 | 내용 |
 |------|------|
 | `docs/HANDOFF.md` | **이 문서** — 단일 진입점 |
-| `docs/PROCESS.md` | 시간순 체크리스트 — 캠페인 절 c-A~c-I 에 각 웨이브 상세(구현·검토·수정·검증). 완료분 4섹션은 `history/2026-08-16-process-archive-qa6-feature-waves.md` 로 아카이브 |
-| `docs/acknowledge/2026-08-14-remaining-features-pro-qa-plan.md` | **캠페인 정본** — 범위·순서·역할·품질 원칙 |
-| `docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md`(+`-wave-f-kickoff-decisions.md`) | Wave F 계약(§6 검토 정정 포함) |
-| `docs/acknowledge/2026-08-16-wave-g-ai-contract.md` | Wave G 계약(§6 검토 정정) |
-| `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md`(+`-monaco-contextkeyexpr-deep-import.md`) | Wave H 계약(§6 구현 정정·§7 검토)·ContextKeyExpr 딥임포트 사유 |
-| `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` | Wave I 계약(§6 검토 정정 — critical 3 클러스터·deferred 4건) |
-| `docs/acknowledge/2026-08-15-wave-{b,c,d,e}-*.md` | 직전 세션 Wave B~E 계약(A~E 상세) |
-| `docs/research/2026-08-13-vscode-cursor-gap.md` | **VS Code·Cursor 갭 분석**(P0/P1 — 웨이브 근거). Wave F/H/I 관련 §1·§2·§3·§7 종결 표기 |
-| `docs/research/2026-08-14-e2e-path-research.md` | e2e 실행 경로 리서치(전문 QA 재료) |
-| `docs/ipc-contract.md` | **IPC 커맨드 178종·이벤트 25종 전수**(2026-08-16 100% 정합 갱신)·원격 dispatch 정책 |
-| `docs/data-model.md` | 도메인 타입·설정 필드·레이아웃 v2 스키마·영속/비영속 타입(2026-08-16 갱신) |
-| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | **실기 QA 마스터 체크리스트**(Wave A~I 275항목·전문 QA·사용자 실기 공용) |
-| `docs/features/`(ai·keymap·layout-shell·tabs·plugins·git·editor·tasks·lsp·terminal 등) | 기능별 정본(각 웨이브 D 가 갱신) |
-| `docs/tech-stack.md`·`architecture.md`(=ARCHITECTURE.md)·`PRD.md`·`roadmap.md`·`theme-system.md`·`adr/` | 스택·아키텍처·요구·순서·테마·ADR 정본 |
-| `docs/backlog.md` | P0 대형·하드닝 잔여·후속 후보(Wave I deferred·Copy into New Window 등) |
+| `docs/PROCESS.md` | 시간순 체크리스트. 전문 QA 절 d-0~d-9(각 배치 구현·검토·수정 상세). 캠페인 완료분은 history 아카이브 |
+| `docs/acknowledge/2026-08-18-pro-qa-design.md` | **전문 QA 설계 정본** — e2e 승인·감사 16배치·QA-W0~W7·티어링 |
+| `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` | 손 QA 6건 계약(§5 Phase E 검토·#12 해소) |
+| `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` | 감사 T0 24항목 계약(§6 검토·#15 롤백) |
+| `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md` | T1 1차 계약(§5 검토·fanout 23·kill 회귀) |
+| `docs/acknowledge/2026-08-18-audit-t1-batch2-contract.md` | T1 2차 계약(§5 검토·range_file 공유·언더플로) |
+| `docs/quality-assurance/2026-08-18-architecture-audit.md` | **아키텍처 감사 정본** — 297발견·C1~C16·T0~T2·X1(+부록: batch-summaries·raw-R4-X1) |
+| `docs/quality-assurance/2026-08-18-e2e-harness.md` | e2e 하네스 사용법·격리 규약·시나리오·실측 항목 |
+| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | 실기 QA 마스터(캠페인 A~I + 손 QA 재검 + 감사 T0/T1 재검) |
+| `docs/bug/2026-08-18-*.md` | 손 QA(peek·lsp-stop-lock)·감사 T0(fixes·adversarial-fixes)·**mirror-mtime-serde-json**(flaky#1 데이터 버그) |
+| `docs/ipc-contract.md` | IPC 커맨드·이벤트·원격 dispatch 정책(원격 거부 20종·CSP/nosniff·nonce) |
+| `docs/data-model.md` | 도메인 타입·설정(Settings union·해제 규약)·레이아웃·git 절대경로 |
+| `docs/architecture.md`(=ARCHITECTURE.md 없음, 이 파일이 정본) | 전체 구조·§5 레이어 배치 기준(C1 판정)·§6.3 자원 회수·asset 프로토콜 |
+| `docs/features/`·`tech-stack.md`·`PRD.md`·`roadmap.md`·`theme-system.md`·`adr/`·`backlog.md` | 기능·스택·요구·순서·테마·ADR·백로그 |
+| `docs/research/2026-08-14-*.md` | e2e 경로·VS Code 갭(직전 세션) |
 
 ## 10. 복기 신뢰도
 
-- **높음**: 이번 세션 커밋 12건(d525640..c79e853)이 dev 에 고정, 계약 12건·PROCESS·이 문서가 웨이브마다
-  실시간 동기. §7 기준선 수치는 세션 말 실측(프론트 1127·Rust 881+6+17·커맨드 178). 검토 결함·수정은
-  각 계약 §6/§7 에 근거와 함께 기록.
-- **중간**: 각 웨이브 내부 구현 디테일(예: LSP owner 스코프 재사용의 initialize 캐시, 레이아웃 v2
-  마이그레이션 arm)은 문서보다 코드가 정본 — 재론 시 해당 파일 직접 확인.
-- **낮음**: 없음. 정찰·검토 보고서 원문(스크래치패드)은 세션 소멸로 접근 불가 — 요지는 계약·이 문서에 있음.
+- **높음**: 이번 세션 커밋 18건(0f9898f..1471261)이 dev 에 고정. 계약 5건·감사 보고서·bug 5건이 실시간 동기.
+  각 배치마다 메인 실물 재검증(§5.1) — 코드-문서 정합성 스팟 체크 통과(e2e 12스펙·T0 deny arm·range_file 실재).
+  기준선 수치 세션 말 실측(프론트 1195·Rust 1010).
+- **중간**: 감사 T1 3차 이후 미수정
+  잔여는 `architecture-audit.md` 가 정본(항목 재론 시 실코드 확인).
+- **낮음**: 없음. 정찰·검토 원문(스크래치패드)은 세션 소멸로 접근 불가 — 요지는 계약·이 문서에 반영.

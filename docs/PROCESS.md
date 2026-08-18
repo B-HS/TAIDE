@@ -609,6 +609,17 @@
           수정 후 30회 전건 통과 확인. 수정 Cargo.toml float_roundtrip 1줄(신규 크레이트 아님).
           T0 와 무관 독립 버그라 별도 커밋. 상세 `docs/bug/2026-08-18-mirror-mtime-serde-json-
           float-roundtrip.md`. **이후 verify 게이트 안정**
+    - [x] d-10. PATH env flaky 근본 수정 완료(dev `45adf9d`) — 세 번째 flaky. `lsp/service.rs`
+          find_in_path 가 전역 env PATH 읽고 테스트 4곳이 전역 set_var("PATH") 조작 → cargo test
+          병렬 경합(jdtls·confirms_healthy_restart 대표). 근본 수정: find_in_path_within(path_var)
+          신설·detect_servers 체인 파라미터화·프로덕션 2곳(spawn_process·lsp_detect_servers)이 env
+          읽어 전달·테스트 set_var 전부 삭제(0건). confirms_healthy_restart 는 비한정 sh 스폰이
+          오염 PATH 검색 실패한 collateral damage 로 자연 해소. 메인: 병렬 6회 소멸 확증·verify
+          그린. flaky 독립 별도 커밋. 상세 `docs/bug/2026-08-19-lsp-detect-path-env-parallel-race.md`.
+          **flaky 3건 전부 근절 — verify 게이트 완전 안정**
+    - [x] d-11. 세션 핸드오프(/prepare-new, 2026-08-19) — HANDOFF 재작성(2026-08-16→2026-08-19
+          스냅샷: 손 QA·#12·e2e 하네스·감사 T0/T1·flaky 3건). PROCESS·HANDOFF 정합. 재개 프롬프트
+          출력. **주의: PATH flaky(d-10) 진행 중·워킹트리 미커밋** — 새 세션 첫 작업
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
