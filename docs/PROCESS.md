@@ -575,7 +575,14 @@
               (935+6+17=958/958, 직전 938 대비 +20)/`vite build`(exit 0) 전부 그린
     - [ ] d-6. e2e 파일럿 실행 — 사용자 준비(앱 기동·REMOTE·비밀번호 export) 후 bun run e2e,
           결과 메인 분석(WebGL·포트 발견 실측). T0 와 독립 병행
-    - [ ] d-8. 감사 T1 정비 1차 배치(T1-E·T1-J·T1-B) — **착수**(2026-08-18 사용자: T1 저위험
+    - [x] d-8. 감사 T1 정비 1차 배치(T1-E·T1-J·T1-B) — **완료**(dev `6917978`). 구현
+          (wf_94e0eacb-c12, 6에이전트)+검토(wf_b31b634b-24d: major 1 confirmed — LSP kill 재사용
+          PID SIGKILL 회귀(내 T1-J R7#9 도입분, is_exited 가드로 수정)·minor 6 전건 수정). 메인:
+          kill 테스트 타이밍 flaky 직접 근본 수정(즉시성 단언→유한 폴링, 5회 소멸)·fanout 24→23
+          문서 정정·X1#9 경합 기각(temp 파일 확인). asset scope 재등록(X1#7)은 T1-2차 이월
+          (Tauri asset scope add-only+Range 재구현 보안 표면). verify·vite build exit 0
+          (Rust 975·프론트 1195). 원격 라우팅 dispatch() 테스트는 REMOTE_DENIED_COMMANDS 테이블
+          재구성으로 실라우팅 검증화(동어반복 해소). 사용자: T1 저위험
           묶음부터). T0 완료(main=eecb493) 위. **계약 정본:
           `docs/acknowledge/2026-08-18-audit-t1-batch1-contract.md`**. T1-E 계약 검증 테스트
           (이벤트/커맨드 파리티·Settings 필드·테마 토큰·sync 게이트)·T1-J 자원 회수(GitStore/
