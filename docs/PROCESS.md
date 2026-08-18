@@ -477,9 +477,20 @@
 - [ ] d. 전문 QA — 기능 전수 리스트업 → 체크리스트 신설 → 기능별 심층 검토(opus+xhigh,
       심층은 opus+max) + e2e + **아키텍처·추상화 전수 감사 축**(기존 코드 포함 — 계약 §3.1)
     - [x] d-0b. 착수 확인 2차(2026-08-18, 3건 전부 추천안): ① 손 QA 수정 산출물 prod 병합
-          완료(main=09e0e0f, branch -f + push 분리) ② #12 형제 system_* 3커맨드 지금 원격
-          거부 전환(wf_52b753ae-2e2 진행) ③ 다음 착수 = QA-W0 e2e 하네스 구축
-          (wf_cecf692f-248 진행 — 의존성 설치·e2e/ 구조·파일럿 12스펙, 실행은 사용자 준비 후)
+          완료(main=09e0e0f, branch -f + push 분리) ② #12 형제 system_* 원격 거부 전환 완료
+          (wf_52b753ae-2e2 — system_open_path 포함 4종, 보안 렌즈 전수 누락 0, dev 4229020)
+          ③ 다음 착수 = QA-W0 e2e 하네스 구축
+    - [ ] d-3. QA-W0 — e2e 하네스(경로 A) 부트스트랩. **구축·검토·수정 완료, 파일럿 실행만
+          잔여(사용자 준비 필요)**. 구축(wf_cecf692f-248): e2e/ 27파일·파일럿 12스펙·
+          @playwright/test@1.62.1+webkit(실측 294MB)·bun test 오염 0. 설계 정합 검토
+          (opus+high)가 10건 발견(H1 게이트 스펙 복구 불능 구조·M2 trace 세션 쿠키 유출면 등)
+          → 전건 처분·수정(wf_c5d77ae9-329): H1 필드별 시도+하드 스톱+수동 복구 절차,
+          M1 오라클 실질화, M2 outputDir 이동+gitignore 이중 방어, M3 진단 첨부, M4 픽스처
+          한정 커밋 허용 명문화, M5 활성 프로젝트 원복, L1 재로그인 1회, L2 pgrep 보강,
+          L3 한계 문서화, L4 셀렉터 강화, L5 자식 프로세스 env 위생. 사용 문서
+          `docs/quality-assurance/2026-08-18-e2e-harness.md`. **파일럿 실행 전제(사용자)**:
+          bun run tauri dev 기동 + REMOTE 비밀번호(8자+) 설정 + password_only ON + 활성화 ON
+          + TAIDE_E2E_PASSWORD export 후 bun run e2e
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

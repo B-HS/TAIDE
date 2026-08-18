@@ -15,3 +15,7 @@ src-tauri/binaries
 !.env.example
 
 .claude/settings.local.json
+
+e2e/.auth/
+e2e/.tmp/
+e2e/test-results/
