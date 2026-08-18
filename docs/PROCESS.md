@@ -589,8 +589,13 @@
           TreeStore/LSP kill/restart_count/asset scope 재등록 — T0 #15 롤백분 근본안)·T1-B
           Settings 타입 union 좁히기(as 9지점 제거). 실행 R1→R2→R3 순차→F 병렬→D→E. 대형
           3건(T1-H·T1-I/C13·T2-E)은 후반 — 착수 시 위험 재고지
-    - [ ] d-9. 감사 T1 정비 2차 배치(T1-G·asset scope·T1-F) — **착수**(2026-08-18 사용자: T1
-          2차 배치). 1차 완료(main=682ca6a) 위. **계약 정본:
+    - [x] d-9. 감사 T1 정비 2차 배치(T1-G·asset scope·T1-F) — **완료**(dev `acadace`). 구현
+          (wf_e8320bf1-46d)+검토(wf_1500d5f6-f8f: major 1 기각(nosniff 재생 반증)·minor 11 처리).
+          asset scope 재이월 대신 구현(register_uri_scheme_protocol+AppState 라이브 조회). 검토가
+          중복→infra/range_file 공유 모듈로 근본 해소하며 parse_range 언더플로 패닉(serving.rs
+          원격 경로 DoS 표면)·m4v MIME 동시 수정. asset:// 실 webview 는 KNOWN ISSUE(qa6). 메인:
+          핵심 전건 재검증·verify·vite build exit 0(Rust 1010·프론트 1195). 상세 계약 §5. (원래
+          계약 정본:
           `docs/acknowledge/2026-08-18-audit-t1-batch2-contract.md`**. T1-G 인프라·보안 하드닝
           (nonce Secure·/__taide/file CSP·nosniff·shell temp 권한·resolve_owning_project 결정성·
           http 싱글톤·manifest expect 제거·ai bytes 상한)·asset scope 재등록(X1#7 1차 이월 —
