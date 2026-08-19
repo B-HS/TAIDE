@@ -4,11 +4,12 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
-> **실측(2026-08-16)**: command **178종** — `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수
+> **실측(2026-08-19)**: command **180종** — `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수
 > (raw 3종 제외) = `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소
 > 수와 정확히 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제).
-> raw 채널 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **181종**. event 는 **25종**
-> (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수).
+> raw 채널 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **183종**. event 는 **25종**
+> (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이 183종을
+> `REMOTE_ALLOWED_COMMANDS`(163) ⊎ `REMOTE_DENIED_COMMANDS`(20) 로 완전 분할한다(§원격 dispatch 정책).
 
 ## 1. 공통 규칙
 
@@ -771,47 +772,72 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   ·`flushLspSessionsForProject` 를 이 레지스트리에
   스스로 등록한다.
 
-### 원격 dispatch 정책 (허용 · 거부 · 부분 스트립)
+### 원격 dispatch 정책 (기본 거부 · 명시 허용 목록 · 부분 스트립)
 
-> `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 는 180종 전부(raw 3종 제외, T1 3차에서
-> `lsp_confirm_reinitialize` 추가)를 담고, 파리티 테스트
-> (`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`)가 이 목록과 `bindings.ts` 의 커맨드
-> 이름 집합이 완전히 같음을 강제한다. **목록에 있다고 전부 원격에서 실제로 실행되는 것은 아니다** —
-> `dispatch()` 의 `match` arm 이 실제로 무엇을 하는지에 따라 아래 3갈래로 나뉜다.
+> **T1-K(2026-08-19, `docs/acknowledge/2026-08-19-audit-t1k-default-deny-contract.md`)**: 이 절의
+> 구조가 "기본 허용(목록에 없으면 통과)"에서 **"기본 거부(명시 등재 전까지 원격 불가)"** 로
+> 뒤집혔다. **정책(어떤 커맨드가 허용/거부인지)은 이 배치에서 전혀 바뀌지 않았다** — 바뀐 것은
+> 강제 메커니즘뿐이다: 이전에는 새 `match` arm 을 추가하기만 하면 그 커맨드가 자동으로 원격
+> 허용됐다(무증상 위험). 이제는 `src-tauri/src/domain/remote/dispatch.rs` 의
+> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 163종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 20종) **둘 중
+> 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를 실핸들러로 위임한다 — 등재를
+> 잊으면 `RemoteDenialPolicy::Unclassified` 로 즉시 거부되고, 완전 분할 파리티 테스트
+> (`허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다`)가 등재 누락 자체를
+> 컴파일 타임이 아니라 테스트 실패로 잡는다(두 테이블의 합집합이 전체 커맨드 집합과 정확히 같아야
+> 하고, 교집합은 0이어야 한다).
+>
+> 전체 커맨드 집합(183종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(180종, specta/JSON 경로 —
+> 파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 `bindings.ts` 와 강제
+> 일치시킨다) + `lib.rs` 의 `RAW_CHANNEL_COMMANDS`(3종 — `pty_spawn`/`pty_attach`/`file_read_raw`,
+> collect_commands! 등록은 되지만 specta 핸들러를 우회하는 raw 채널). `REMOTE_ALLOWED_COMMANDS` 는
+> 163종으로 `IMPLEMENTED_JSON_COMMANDS` 와 **집합이 다르다** — `pty_spawn`/`pty_attach` 는
+> `dispatch()` 의 `match` arm 이 실재하는데도 `IMPLEMENTED_JSON_COMMANDS` 에는 없다(그 목록은
+> specta/bindings 파리티만 추적하는 다른 축이라서다), 반대로 `file_read_raw` 는
+> `IMPLEMENTED_JSON_COMMANDS` 에 없지만 `dispatch_raw()` 의 `match` arm 으로 원격 실행된다 — 그래서
+> `REMOTE_ALLOWED_COMMANDS`/`REMOTE_DENIED_COMMANDS` 는 `dispatch()`/`dispatch_raw()` 양쪽이 **공유하는
+> 하나의 정책 테이블**로 두고, 두 함수 모두 자기 `match` 를 돌리기 전에 먼저 이 테이블들로 게이트한다.
+>
+> `dispatch()`/`dispatch_raw()` 진입 순서(3단): **① `REMOTE_DENIED_COMMANDS` 조회 — 매치하면 즉시
+> 거부(최우선)** → **② `REMOTE_ALLOWED_COMMANDS` 미등재 시 기본 거부**(`RemoteDenialPolicy::
+> Unclassified`) → **③ `enforce_remote_owner_label` 로 `owner` 강제 치환 후 `match` 위임**. 두
+> 함수의 `match` 자체의 `_` fallback 도 (①·②를 통과했다면 도달 불가능해야 하지만) 같은
+> `Unclassified` 거부로 정합시켜 방어선을 이중화했다.
 
-- **기본 허용(위 목록에서 언급되지 않은 나머지 전부)**: `match` arm 이 실제 핸들러로 그대로 위임한다.
-  예: `git_*` 전종·`file_*`(아래 예외 제외)·`ai_*` 8종·`plugin_list`/`plugin_reload`/
-  `plugin_read_grammar`·`remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·
-  `sync_*`·`search_replace`(원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화
-  없음)·`theme_save`/`theme_delete`·`snippet_save`/`snippet_delete`·`git_init`.
-- **명시 거부(20종)** — `match` arm 이 핸들러를 부르지 않고 즉시 `AppError::Forbidden` 을 반환한다.
-  `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해 그대로 남아 있다(코드는 커맨드별 `deny_remote_*`
-  헬퍼):
+- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 163종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
+  전종·`file_*`(아래 예외 제외)·`ai_*` 8종·`plugin_list`/`plugin_reload`/`plugin_read_grammar`·
+  `remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·`sync_*`·`search_replace`
+  (원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화 없음)·`theme_save`/
+  `theme_delete`·`snippet_save`/`snippet_delete`·`git_init`·`pty_spawn`/`pty_attach`/`file_read_raw`
+  (raw 채널 3종 — 아래 "raw 커맨드" 절 참조).
+- **명시 거부(`REMOTE_DENIED_COMMANDS`, 20종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
+  않고 즉시 `AppError::Forbidden` 을 반환한다. `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해
+  그대로 남아 있다. 각 항목은 `RemoteDenialPolicy` enum 값 하나로 분류되고(같은 분류를 공유하는
+  커맨드는 응답 메시지 문구도 공유한다 — 거부 여부·의미는 그대로, 문구만 변형별로 통합), 이전에는
+  커맨드별 `deny_remote_*` 자유문 함수 15개가 이 역할을 했다:
 
-  | 커맨드 | 거부 사유(요약) |
-  |--------|-----------------|
-  | `remote_set_password` / `remote_clear_password` | 원격 세션이 자기 접속 게이트를 바꾸지 못하게 |
-  | `remote_issue_link` | 이미 인증된 원격 세션이 스스로 새 온보딩 링크를 발급해 접근을 자가 확장하지 못하게(Wave B §6) |
-  | `file_flush_complete` | 데스크톱 자신의 `CloseRequested` 종료 시퀀스만 재개 가능(Hot Exit) |
-  | `window_open_auxiliary` / `window_set_fullscreen` / `layout_move_tab_to_window` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I) |
-  | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) |
-  | `vsix_extract_themes` | Wave I 에서 허용→거부로 전환 — 임의 로컬 파일 읽기 표면이었음 |
-  | `system_open_external_url` | 원격 세션이 데스크톱 자신의 OS 기본 브라우저를 열게 할 수는 없음(손 QA 1차 수정, 아래 절 참조) |
-  | `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `system_open_external_url` 과 동일 계열·동일 사유로 허용→거부 전환(손 QA #12, 2026-08-18) — 넷 다 `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시)을 띄우는데, 원격 세션은 그 창을 보거나 쓸 방법이 없다. `system_open_path` 는 (`system_reveal_path`/`system_open_in_browser` 와 동일하게 `resolve_within_open_project` 로 프로젝트 루트에 가드되어 있었음에도) 애초에 이 3종과 함께 거부됐어야 할 대상이 이번에 뒤늦게 합류했다 — 경로 자체의 안전성이 아니라 "원격이 못 보는 창을 여는가"가 거부 기준이므로, 루트 가드 여부와 무관하게 넷 다 같은 결론이다 |
-  | `agent_cli_install` / `agent_cli_uninstall` | macOS 에서 관리자 권한 프롬프트(`osascript`)를 데스크톱 자신의 화면에 띄우거나 `/usr/local/bin` 에 직접 심링크를 건다 — 원격 세션이 보거나 답할 수 없는 권한 승격 창(T0 감사 #12, 2026-08-18) |
-  | `agent_pending_external_opens` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
-  | `lsp_install` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
+  | 커맨드 | `RemoteDenialPolicy` | 거부 사유(요약) |
+  |--------|----------------------|-----------------|
+  | `remote_set_password` / `remote_clear_password` / `remote_issue_link` | `SelfAccessExpansion` | 원격 세션이 자기 접속 게이트를 바꾸거나(비밀번호) 새 온보딩 링크를 발급해 접근을 자가 확장하지 못하게(Wave B §6) |
+  | `file_flush_complete` | `DesktopExitControl` | 데스크톱 자신의 `CloseRequested` 종료 시퀀스만 재개 가능(Hot Exit) |
+  | `window_open_auxiliary` / `window_set_fullscreen` / `layout_move_tab_to_window` / `system_open_external_url` / `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `UnreachableDesktopWindow` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I·손 QA #12, 2026-08-18) — `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시/OS 기본 브라우저)을 띄우는 넷과, 네이티브 OS 창을 직접 열거나 제어하는 셋이 같은 결론이다 |
+  | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` / `vsix_extract_themes` | `LocalFilesystemEscape` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) — 읽기(`vsix_extract_themes`)·쓰기(나머지 셋) 모두 프로젝트 루트 가드 밖 |
+  | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | macOS 에서 관리자 권한 프롬프트(`osascript`)를 데스크톱 자신의 화면에 띄우거나 `/usr/local/bin` 에 직접 심링크를 건다 — 원격 세션이 보거나 답할 수 없는 권한 승격 창(T0 감사 #12, 2026-08-18) |
+  | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
+  | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
 
-- **스코프 조건부 거부(1종)**: `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가
-  결정하는 스코프에 따라 분기한다 — `HookInstallScope::Project`(`claude`, 프로젝트 루트 하위
+- **스코프 조건부 거부(`REMOTE_ALLOWED_COMMANDS` 소속, `match` arm 내부에서 분기, 1종)**:
+  `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가 결정하는 스코프에 따라
+  분기한다 — `HookInstallScope::Project`(`claude`, 프로젝트 루트 하위
   `.claude/settings.local.json` 에 `project_root` 로 루트 가드됨)는 원격에서도 그대로 허용,
   `User` 스코프(`codex`/`gemini`, 홈 디렉터리의 `~/.codex/hooks.json` / `~/.gemini/settings.json` 에
-  루트 가드 밖 **command 훅**을 주입)는 `AppError::Forbidden` 으로 거부한다. User 스코프 훅은
-  TAIDE CLI 가 모든 훅 이벤트마다 실행하는 셸 커맨드를 심는 것과 같아, 원격 세션이 종료돼도 살아남는
-  백도어가 된다는 점에서 `settings_update` 가 스트립하는 `shellOverride` 와 같은 근거다(T0 감사 #13).
-  `agentName` 을 알 수 없으면(미지원 이름) 이 분기가 아니라 실핸들러의 `InvalidArgument` 로 위임되어
-  동일한 에러를 낸다.
-- **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종)**:
+  루트 가드 밖 **command 훅**을 주입)는 `RemoteDenialPolicy::DesktopCliInterception` 으로 거부한다
+  (`REMOTE_DENIED_COMMANDS` 테이블에는 없다 — args 조건부 판정이라 커맨드 이름만으로 결정되는 그
+  테이블의 형태에 맞지 않는다). User 스코프 훅은 TAIDE CLI 가 모든 훅 이벤트마다 실행하는 셸
+  커맨드를 심는 것과 같아, 원격 세션이 종료돼도 살아남는 백도어가 된다는 점에서 `settings_update`
+  가 스트립하는 `shellOverride` 와 같은 근거다(T0 감사 #13). `agentName` 을 알 수 없으면(미지원
+  이름) 이 분기가 아니라 실핸들러의 `InvalidArgument` 로 위임되어 동일한 에러를 낸다.
+- **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종 — 둘 다 `REMOTE_ALLOWED_COMMANDS`
+  소속)**:
   - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`
     3필드를 `None` 으로 스트립한 뒤 위임(`remoteAccessEnabled` 는 자가 차단=자기 접근 상실이라
     스트립 대상에서 제외) — Wave B 하드닝에서 1필드(`remotePasswordOnlyLogin`)에 나머지 2필드가
@@ -821,9 +847,15 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
     유지"로 구현된다(`settings_update` 와 동급 게이트 — Wave I §3.3). `target.kind === 'prompt'`
     는 스트립 없이 그대로 위임한다.
 - **raw 채널 3종**(`pty_spawn`·`pty_attach`·`file_read_raw`)은 specta 파리티 대상이 아니라
-  `IMPLEMENTED_JSON_COMMANDS` 목록 자체에는 없지만, `dispatch()`/`dispatch_raw()` 의 별도 `match`
-  arm 으로 **원격에서도 그대로 허용**된다 — 목록에 없는 것이 원격 차단을 뜻하지 않는다(아래 "raw
-  커맨드" 절 참조).
+  `IMPLEMENTED_JSON_COMMANDS` 목록 자체에는 없지만, `REMOTE_ALLOWED_COMMANDS` 에는 셋 다 등재되어
+  `dispatch()`/`dispatch_raw()` 의 별도 `match` arm 으로 **원격에서도 그대로 허용**된다 —
+  `IMPLEMENTED_JSON_COMMANDS` 에 없는 것이 원격 차단을 뜻하지 않는다(아래 "raw 커맨드" 절 참조).
+- **신규 커맨드 등재 규칙**: `dispatch()`/`dispatch_raw()` 에 새 `match` arm 을 추가하는 것만으로는
+  원격 허용이 되지 않는다. `REMOTE_ALLOWED_COMMANDS`(허용) 또는 `REMOTE_DENIED_COMMANDS`(거부,
+  `RemoteDenialPolicy` 분류 하나를 골라)에 반드시 이름을 등재해야 하며, 등재를 잊으면 완전 분할
+  파리티 테스트가 실패한다 — 후속 정책 결정(예: `ide_publish_diagnostics`/`ide_notify_at_mention`
+  원격 거부 전환 여부, 키링 게이팅 비대칭 재검토)은 이 두 테이블 중 한쪽에서 다른 쪽으로 이름을
+  옮기는 것으로 끝난다(T1-K 의 구조 전환 목적).
 
 ### T0 감사 데이터·기능 수정 (2026-08-18)
 
@@ -958,7 +990,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 `bindings.ts` 에 생성되지 않는다. `invoke()` 로 직접 호출한다. 셋 다 `dispatch()`(`pty_spawn`·
 `pty_attach`) 또는 `dispatch_raw()`(`file_read_raw`)의 전용 `match` arm 으로 원격에서도 다뤄진다
 (§"원격 dispatch 정책" 참조) — `IMPLEMENTED_JSON_COMMANDS` 배열에 없는 것은 파리티 테스트 대상이
-아니기 때문일 뿐, 원격 미지원을 뜻하지 않는다.
+아니기 때문일 뿐, 원격 미지원을 뜻하지 않는다. `REMOTE_ALLOWED_COMMANDS`(`dispatch.rs`)에는 셋 다
+등재되어 있어 두 함수의 기본 거부 게이트를 통과한다 — `dispatch_raw()` 도 `dispatch()` 와 같은
+`REMOTE_ALLOWED_COMMANDS`/`REMOTE_DENIED_COMMANDS` 테이블로 게이트되므로(T1-K), 네 번째 raw
+커맨드가 추가되면 그것도 두 테이블 중 하나에 등재해야 원격에서 다뤄진다.
 
 | 커맨드 | 이유 |
 |--------|------|

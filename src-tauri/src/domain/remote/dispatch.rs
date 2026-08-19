@@ -225,160 +225,110 @@ fn make_channel<T>(args: &Value, key: &str, factory: &ChannelFactory) -> Result<
     Ok(Channel::new(factory(id)))
 }
 
-fn unknown_command(name: &str) -> Value {
-    err(AppError::InvalidArgument(format!("알 수 없는 커맨드: {name}")))
+/// Categorizes *why* [`dispatch`]/[`dispatch_raw`] refuse a command to every remote session. This
+/// replaces the previous per-command free-text `deny_remote_*` helper functions (one Korean message
+/// literal apiece, unchecked at compile time) with a closed, exhaustively-matched enum: every unconditional
+/// denial in [`REMOTE_DENIED_COMMANDS`] now carries exactly one variant instead of a function pointer, and
+/// [`RemoteDenialPolicy::message`] is the single place that derives the user-facing Korean text — commands
+/// that share a rationale now share one message wording instead of each hand-writing a near-duplicate
+/// string. [`RemoteDenialPolicy::Unclassified`] additionally backs the *default-deny* gate itself: see
+/// [`REMOTE_ALLOWED_COMMANDS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteDenialPolicy {
+    /// `remote_set_password`/`remote_clear_password` (a remote session must never flip its own access
+    /// gate) and `remote_issue_link` (with no password configured, a freshly issued link alone
+    /// establishes a new session — see `server.rs`'s `password_configured == false` branch — so letting
+    /// an already-authenticated remote session mint its own would let it self-provision access the
+    /// desktop user never saw or approved). See
+    /// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6.
+    SelfAccessExpansion,
+    /// Every command whose real handler would pop a window, dialog, or app on the *desktop's own*
+    /// display: `window_open_auxiliary`/`window_set_fullscreen`/`layout_move_tab_to_window` (native OS
+    /// windows with no remote-renderable counterpart — remote access only ever mirrors the main
+    /// window's layout), `system_open_external_url` (the desktop's OS-default browser via
+    /// `tauri_plugin_opener::open_url`), and `system_open_path`/`system_reveal_path`/
+    /// `system_open_in_browser`/`system_open_app_data_path` (same `tauri_plugin_opener` family — default
+    /// app opener, Finder/Explorer reveal, `file://` browser open). A remote browser session has no way
+    /// to see or use a window the desktop pops up on its own screen, so honoring any of these would only
+    /// ever open an unwanted, unreachable window on the desktop user's machine.
+    UnreachableDesktopWindow,
+    /// `plugin_install`/`plugin_uninstall`/`vsix_import_plugin` (an arbitrary local plugin-directory
+    /// path, read from or written to) and `vsix_extract_themes` (an arbitrary local `.vsix` path read,
+    /// with no root guard) — none of these are scoped to the currently open project root the way
+    /// `file_*`/`tree_*` already are, so a remote session must not be handed them.
+    LocalFilesystemEscape,
+    /// `lsp_install` — downloads a language-server archive (often hundreds of megabytes) onto the
+    /// desktop's local disk and spawns an installer process there, the same arbitrary
+    /// download-and-execute shape [`LocalFilesystemEscape`] denies for plugins, just with a spawned
+    /// process on top.
+    InstallOrProcessExecution,
+    /// `agent_cli_install`/`agent_cli_uninstall` (symlinks `/usr/local/bin/taide` directly, or — when
+    /// that needs elevation — shells out to `osascript` and pops a native administrator-privilege prompt
+    /// on the desktop's own display) and `agent_hooks_install` for a `HookInstallScope::User` agent
+    /// (codex/gemini's `~/.codex/hooks.json`/`~/.gemini/settings.json`, outside any project root guard —
+    /// injects a `command` hook TAIDE's own CLI executes on every hook event). Both plant or manage a
+    /// persistent CLI-executed backdoor that outlives the remote session itself; `HookInstallScope::
+    /// Project` agents (`claude`, root-guarded by `project_root`) stay allowed remotely and never reach
+    /// this variant.
+    DesktopCliInterception,
+    /// `file_flush_complete` — resumes the desktop app's own `CloseRequested` hot-exit flush
+    /// (`AppState::complete_hot_exit_flush` racing `AppHandle::exit`). A remote browser session has no OS
+    /// window to close and must never be able to race ahead of the desktop's own flush to end the
+    /// process early.
+    DesktopExitControl,
+    /// `agent_pending_external_opens` — drains `AgentStore`'s single session-agnostic queue of
+    /// CLI-triggered file-open requests (`taide open <path> --wait`) via `mem::take`; whichever session
+    /// calls first empties it for everyone, desktop included, and a remote session draining it leaves the
+    /// external CLI process blocked (its `waitMarker` release registers in a realm the desktop's own
+    /// tab-close handling never observes).
+    SharedSingletonStateRace,
+    /// The default-deny fallback: a command name that is not filed into either
+    /// [`REMOTE_ALLOWED_COMMANDS`] or [`REMOTE_DENIED_COMMANDS`]. Every command [`dispatch`]/
+    /// [`dispatch_raw`] can actually reach must be classified into exactly one of those two tables — see
+    /// the completeness test `허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다` — so
+    /// this variant answers both a genuinely unrecognized command name and, as a second line of defense,
+    /// the `match` arms' own unreachable-by-construction `_` fallback in [`dispatch`] and
+    /// [`dispatch_raw`].
+    Unclassified,
 }
 
-/// Answers `remote_set_password`/`remote_clear_password` with an explicit
-/// denial instead of dispatching to the real handler — a remote session must
-/// never be able to change its own access gate. Both names stay listed in
-/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test
-/// (`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`) still passes; only the
-/// `match` arm in [`dispatch`] refuses to call through.
-fn deny_remote_password_change(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 원격 접속 비밀번호를 변경할 수 없습니다: {name}"
-    )))
+impl RemoteDenialPolicy {
+    /// Derives the Korean, user-facing denial message for `name` under this policy. One message per
+    /// variant — commands sharing a variant share the exact wording.
+    fn message(self, name: &str) -> String {
+        match self {
+            RemoteDenialPolicy::SelfAccessExpansion => {
+                format!("원격 세션에서는 원격 접속 권한(비밀번호·접속 링크)을 스스로 변경하거나 확장할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::UnreachableDesktopWindow => {
+                format!("원격 세션에서는 데스크톱 자신의 화면에 표시되는 창이나 앱을 열거나 제어할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::LocalFilesystemEscape => {
+                format!("원격 세션에서는 데스크톱의 로컬 파일시스템에 임의 경로로 접근할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::InstallOrProcessExecution => {
+                format!("원격 세션에서는 설치 프로그램을 내려받거나 실행할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::DesktopCliInterception => {
+                format!("원격 세션에서는 데스크톱 CLI 연동(설치·훅)을 변경할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::DesktopExitControl => {
+                format!("원격 세션에서는 앱 종료를 제어할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::SharedSingletonStateRace => {
+                format!("원격 세션에서는 보류 중인 외부 열기 요청을 조회할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::Unclassified => {
+                format!("원격 세션에서는 아직 허용 목록에 등재되지 않은 명령을 실행할 수 없습니다: {name}")
+            }
+        }
+    }
 }
 
-/// Answers `remote_issue_link` with an explicit denial instead of dispatching
-/// to the real handler — issuing a link is a local-only capability. With no
-/// password configured, the returned link alone establishes a new session
-/// (see `server.rs`'s `password_configured == false` branch), so letting an
-/// already-authenticated remote session mint its own externally-reachable
-/// onboarding link would let it self-provision additional access the desktop
-/// user never saw or approved — see
-/// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6. Stays
-/// listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity
-/// test still passes; only the `match` arm in [`dispatch`] refuses to call
-/// through.
-fn deny_remote_link_issue(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 접속 링크를 발급할 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `file_flush_complete` with an explicit denial instead of
-/// dispatching to the real handler. That command resumes the desktop app's
-/// own `CloseRequested` exit sequence (`AppState::complete_hot_exit_flush`
-/// racing to `AppHandle::exit`) — a remote browser session has no OS window
-/// to close and must never be able to end the desktop process early by
-/// racing ahead of the desktop's own hot-exit flush. Stays listed in
-/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still
-/// passes; only the `match` arm in [`dispatch`] refuses to call through.
-fn deny_remote_flush_complete(name: &str) -> Value {
-    err(AppError::Forbidden(format!("원격 세션에서는 앱 종료를 제어할 수 없습니다: {name}")))
-}
-
-/// Answers `window_open_auxiliary` with an explicit denial instead of
-/// dispatching to the real handler. Auxiliary editor windows are native OS
-/// windows (`tauri::WebviewWindowBuilder`) on the desktop's own display — a
-/// remote browser session has no local display to place one on and no way
-/// to interact with it even if it appeared, so honoring the request would
-/// only ever pop up an orphaned, unreachable window on the desktop user's
-/// machine. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the
-/// bindings/dispatch parity test still passes; only the `match` arm in
-/// [`dispatch`] refuses to call through.
-fn deny_remote_window_open(name: &str) -> Value {
-    err(AppError::Forbidden(format!("원격 세션에서는 새 창을 열 수 없습니다: {name}")))
-}
-
-/// Answers `window_set_fullscreen` with an explicit denial. That command's real handler takes a
-/// `tauri::Window` extractor auto-injected by the *real* Tauri IPC invoke path per-call — there is
-/// no such window to inject for a request arriving through this manually-dispatched remote table
-/// (unlike every other entry here, which calls the real handler with explicit arguments), so this
-/// command literally cannot be dispatched this way even if it were desirable to. Stays listed in
-/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still passes.
-fn deny_remote_window_fullscreen(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 전체화면을 전환할 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `layout_move_tab_to_window` with an explicit denial — every destination
-/// (`TabWindowTarget::Main`/`Existing`/`NewAuxiliary`) ultimately concerns a native OS window a
-/// remote browser session has no way to correspondingly render (remote access mirrors the main
-/// window's layout only), and `NewAuxiliary` additionally opens a real desktop window the same way
-/// `window_open_auxiliary` does — already denied remotely for the identical reason. Stays listed in
-/// [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still passes.
-fn deny_remote_move_tab_to_window(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 탭을 다른 창으로 옮길 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `plugin_install`/`plugin_uninstall` with an explicit denial — both name an arbitrary
-/// filesystem path (or existing plugin directory) on the *desktop* machine; a remote session must
-/// never be able to read from or write into the desktop's local filesystem outside the already
-/// tightly root-guarded project/file commands. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the
-/// bindings/dispatch parity test still passes.
-fn deny_remote_plugin_install(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 플러그인을 설치/제거할 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `vsix_import_plugin` with the same denial as `plugin_install` — it's the same
-/// arbitrary-local-path plugin-write capability, just sourced from a real VS Code `.vsix` instead
-/// of a TAIDE-native bundle. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch
-/// parity test still passes.
-fn deny_remote_vsix_import(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 vsix로부터 플러그인을 가져올 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `vsix_extract_themes` with an explicit denial — previously dispatched to the real
-/// handler, which reads an arbitrary local `vsix_path` off the desktop's filesystem with no
-/// root-guard. That's fine for a *local* file-picker-sourced path (the same trust boundary every
-/// native "Open File" dialog already carries) but was never meant to double as a remote arbitrary
-/// local-file-read primitive. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch
-/// parity test still passes. See
-/// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.4.
-fn deny_remote_vsix_extract_themes(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 vsix 테마를 추출할 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `system_open_external_url` with an explicit denial instead of dispatching to the real
-/// handler — that command opens a URL in the desktop's own OS-default browser
-/// (`tauri_plugin_opener::open_url`), which only makes sense on the machine actually running that
-/// browser. A remote browser session already has its own browser (the one it's connecting
-/// through) and has no way to see or use a window `open_url` pops up on the desktop's display, so
-/// honoring the request would only ever open an unwanted browser window on the desktop user's
-/// machine — the same rationale as [`deny_remote_window_open`], just for the OS browser instead of
-/// a new app window. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity
-/// test still passes; only the `match` arm in [`dispatch`] refuses to call through.
-fn deny_remote_open_external_url(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 호스트 브라우저를 열 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `system_open_path`, `system_reveal_path`, `system_open_in_browser`, and
-/// `system_open_app_data_path` with an explicit denial instead of dispatching to the real handler —
-/// all four hand a path (or a fixed app-data directory) to `tauri_plugin_opener` to pop open in an
-/// OS-native app window on the *desktop's* own display: the default-app opener, the Finder/Explorer
-/// reveal, and the OS browser (via a `file://` URL) respectively. That only makes sense on the
-/// machine actually running that app — a remote session has no way to see or use a window the
-/// desktop pops up on its own screen, so honoring the request would only ever open an unwanted
-/// window on the desktop user's machine. This is the identical rationale
-/// [`deny_remote_open_external_url`] already applies to `system_open_external_url` (same family of
-/// commands, same `tauri_plugin_opener` sink), and the same allow-to-deny conversion precedent
-/// `deny_remote_vsix_extract_themes` set for Wave I. `system_open_path` was previously left
-/// dispatching to the real handler even though it shares this exact rationale and the same
-/// root-guard (`resolve_within_open_project`) as `system_reveal_path`/`system_open_in_browser`; it is
-/// folded into this denial for consistency rather than left as the one command in the family still
-/// popping an unreachable window on the desktop. The path/kind argument's *safety* was never the
-/// concern here (all four already root-guard it, or point at a fixed app-data directory) — it's the
-/// resulting window's *unreachability* from a remote session that makes every one of them useless to
-/// honor remotely. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test
-/// still passes; only the `match` arms in [`dispatch`] refuse to call through.
-fn deny_remote_system_open(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 데스크톱에서 파일/폴더를 열거나 표시할 수 없습니다: {name}"
-    )))
+/// Builds the `AppError::Forbidden` value [`dispatch`]/[`dispatch_raw`] answer a denied remote request
+/// with, for `name` denied under `policy`.
+fn denial_response(policy: RemoteDenialPolicy, name: &str) -> Value {
+    err(AppError::Forbidden(policy.message(name)))
 }
 
 /// Strips `remote_password_only_login`, `remote_allowed_hosts`, and
@@ -441,41 +391,8 @@ fn strip_remote_gated_settings(
     next
 }
 
-/// Answers `agent_cli_install`/`agent_cli_uninstall` with an explicit denial instead of dispatching
-/// to the real handler. On macOS the real handlers either symlink `/usr/local/bin/taide` directly or
-/// — when that requires elevated permission — shell out to `osascript` and pop a native
-/// administrator-privilege prompt on the desktop's own display (`run_cli_osascript`). A remote
-/// browser session has no way to see or answer that prompt, and must never be able to trigger a
-/// privilege-escalation dialog on the desktop user's machine at all — the same "no local display to
-/// answer on" rationale [`deny_remote_system_open`] already applies to opener windows, just for an OS
-/// authorization dialog instead. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the
-/// bindings/dispatch parity test still passes; only the `match` arm in [`dispatch`] refuses to call
-/// through.
-fn deny_remote_agent_cli(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 CLI shell 명령을 설치/제거할 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `agent_hooks_install` with an explicit denial when [`is_remote_denied_hook_install_scope`]
-/// determines the target agent's hooks live outside any project root (`HookInstallScope::User`, i.e.
-/// codex/gemini's `~/.codex/hooks.json` / `~/.gemini/settings.json`). Those hooks inject a `command`
-/// handler (`domain::agent::service::build_command_hook_shell_command`) that TAIDE's own CLI executes
-/// on every hook event — a remote session installing that would be planting a persistent
-/// command-execution hook on the desktop user's home directory that survives the remote session
-/// itself, the same "backdoor that outlives the session" concern
-/// [`strip_remote_gated_settings_patch`] already documents for `shell_override`. Project-scope hooks
-/// (`claude` → `.claude/settings.local.json`, root-guarded by `project_root`) stay allowed remotely.
-/// Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still passes;
-/// only the `match` arm in [`dispatch`] refuses to call through for the User-scope branch.
-fn deny_remote_agent_hooks_user_scope(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 사용자 범위 에이전트 후킹을 설치할 수 없습니다: {name}"
-    )))
-}
-
-/// Reports whether a remote `agent_hooks_install` call for `agent_name` must be denied by
-/// [`deny_remote_agent_hooks_user_scope`] — true for `HookInstallScope::User` agents, false for
+/// Reports whether a remote `agent_hooks_install` call for `agent_name` must be denied under
+/// [`RemoteDenialPolicy::DesktopCliInterception`] — true for `HookInstallScope::User` agents, false for
 /// `HookInstallScope::Project` agents and for an unrecognized `agent_name`. An unrecognized name is
 /// deliberately let through rather than denied here: the real handler re-derives the same scope via
 /// `domain::agent::service::hook_scope_for_agent` and returns the identical `InvalidArgument` error,
@@ -488,83 +405,234 @@ fn is_remote_denied_hook_install_scope(agent_name: &str) -> bool {
     )
 }
 
-/// Answers `agent_pending_external_opens` with an explicit denial instead of dispatching to the real
-/// handler. That command drains `AgentStore`'s single shared queue of CLI-triggered file-open
-/// requests (`taide open <path> --wait`) via `mem::take` — whichever session calls it first empties
-/// the queue for everyone, desktop included. Each request can carry a `waitMarker` that the external
-/// CLI process blocks on until some frontend releases it (`agent_release_marker`); the frontend
-/// registers that marker in a per-JS-realm `Map` (`agent-wait-marker-registry.ts`) keyed to whichever
-/// window/tab drained the request and is released when that tab closes. A remote browser session has
-/// its own separate realm, so a request it drains registers its release in a registry the desktop's
-/// own tab-close handling never observes — leaving the external CLI process blocked until the app
-/// exits (`cleanup_all_wait_markers` on shutdown) rather than until the relevant tab closes. Removing
-/// `AgentExternalOpen` from `fanout_remote_events!` (`lib.rs`) stops a remote session from being
-/// notified of *new* requests live; this arm closes the matching gap for requests it could otherwise
-/// still discover by polling. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch
-/// parity test still passes; only the `match` arm in [`dispatch`] refuses to call through.
-fn deny_remote_agent_pending_external_opens(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 보류 중인 외부 열기 요청을 조회할 수 없습니다: {name}"
-    )))
-}
-
-/// Answers `lsp_install` with an explicit denial instead of dispatching to the real handler — the
-/// same rationale already applied to `plugin_install`/`plugin_uninstall`/`vsix_import_plugin`
-/// ([`deny_remote_plugin_install`], [`deny_remote_vsix_import`]): the real handler downloads a
-/// language server archive (often hundreds of megabytes) onto the desktop's local disk and spawns an
-/// installer process there, an arbitrary-download-and-execute capability a remote session must not be
-/// handed. Stays listed in [`IMPLEMENTED_JSON_COMMANDS`] so the bindings/dispatch parity test still
-/// passes; only the `match` arm in [`dispatch`] refuses to call through.
-fn deny_remote_lsp_install(name: &str) -> Value {
-    err(AppError::Forbidden(format!(
-        "원격 세션에서는 LSP 서버를 설치할 수 없습니다: {name}"
-    )))
-}
-
 /// Every command name [`dispatch`] refuses unconditionally (the denial depends only on `name`, never
 /// on `args` or app state — `agent_hooks_install`'s scope-conditional denial via
-/// [`is_remote_denied_hook_install_scope`] is the one exception and stays a `match` arm of its own).
-/// [`dispatch`] consults this table *before* its command `match` even runs, so this table's contents
-/// — not a second, hand-written copy of the same name-to-handler mapping inside the `match` — are the
+/// [`is_remote_denied_hook_install_scope`] is the one exception and stays a `match` arm of its own, since
+/// it also needs to let the *allowed* scope through to the real handler rather than only ever denying).
+/// [`dispatch`] consults this table *before* its command `match` even runs, so this table's contents —
+/// not a second, hand-written copy of the same name-to-handler mapping inside the `match` — are the
 /// actual routing decision a remote request goes through. [`remote_denied_response`] below is what
 /// both `dispatch` and this module's own tests call, so a test asserting "`remote_issue_link` is
 /// denied" is asserting exactly the function `dispatch` runs for that name, not a same-shaped
 /// stand-in that could silently drift from it — see `docs/acknowledge/2026-08-18-audit-t1-batch1-
 /// contract.md` §1 T1-E.
-type RemoteDeniedCommandEntry = (&'static str, fn(&str) -> Value);
+type RemoteDeniedCommandEntry = (&'static str, RemoteDenialPolicy);
 
 const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
-    ("layout_move_tab_to_window", deny_remote_move_tab_to_window),
-    ("file_flush_complete", deny_remote_flush_complete),
-    ("plugin_install", deny_remote_plugin_install),
-    ("plugin_uninstall", deny_remote_plugin_install),
-    ("agent_cli_install", deny_remote_agent_cli),
-    ("agent_cli_uninstall", deny_remote_agent_cli),
-    ("agent_pending_external_opens", deny_remote_agent_pending_external_opens),
-    ("lsp_install", deny_remote_lsp_install),
-    ("system_open_path", deny_remote_system_open),
-    ("system_reveal_path", deny_remote_system_open),
-    ("system_open_in_browser", deny_remote_system_open),
-    ("system_open_app_data_path", deny_remote_system_open),
-    ("system_open_external_url", deny_remote_open_external_url),
-    ("vsix_extract_themes", deny_remote_vsix_extract_themes),
-    ("vsix_import_plugin", deny_remote_vsix_import),
-    ("remote_issue_link", deny_remote_link_issue),
-    ("remote_set_password", deny_remote_password_change),
-    ("remote_clear_password", deny_remote_password_change),
-    ("window_open_auxiliary", deny_remote_window_open),
-    ("window_set_fullscreen", deny_remote_window_fullscreen),
+    ("layout_move_tab_to_window", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("file_flush_complete", RemoteDenialPolicy::DesktopExitControl),
+    ("plugin_install", RemoteDenialPolicy::LocalFilesystemEscape),
+    ("plugin_uninstall", RemoteDenialPolicy::LocalFilesystemEscape),
+    ("agent_cli_install", RemoteDenialPolicy::DesktopCliInterception),
+    ("agent_cli_uninstall", RemoteDenialPolicy::DesktopCliInterception),
+    ("agent_pending_external_opens", RemoteDenialPolicy::SharedSingletonStateRace),
+    ("lsp_install", RemoteDenialPolicy::InstallOrProcessExecution),
+    ("system_open_path", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("system_reveal_path", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("system_open_in_browser", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("system_open_app_data_path", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("system_open_external_url", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("vsix_extract_themes", RemoteDenialPolicy::LocalFilesystemEscape),
+    ("vsix_import_plugin", RemoteDenialPolicy::LocalFilesystemEscape),
+    ("remote_issue_link", RemoteDenialPolicy::SelfAccessExpansion),
+    ("remote_set_password", RemoteDenialPolicy::SelfAccessExpansion),
+    ("remote_clear_password", RemoteDenialPolicy::SelfAccessExpansion),
+    ("window_open_auxiliary", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("window_set_fullscreen", RemoteDenialPolicy::UnreachableDesktopWindow),
 ];
 
 /// Looks `name` up in [`REMOTE_DENIED_COMMANDS`], returning the denial [`dispatch`] must answer with
-/// for an unconditionally-denied remote command, or `None` when `name` isn't one (either a real
-/// handler exists for it, or it's unknown — `dispatch`'s own `match` decides which).
+/// for an unconditionally-denied remote command, or `None` when `name` isn't one (either it's on
+/// [`REMOTE_ALLOWED_COMMANDS`] and a real handler exists for it, or it's unclassified — `dispatch`'s
+/// own default-deny gate decides which).
 fn remote_denied_response(name: &str) -> Option<Value> {
     REMOTE_DENIED_COMMANDS
         .iter()
         .find(|(denied_name, _)| *denied_name == name)
-        .map(|(_, deny)| deny(name))
+        .map(|(_, policy)| denial_response(*policy, name))
 }
+
+/// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
+/// session — audited directly off the `match` arms in both functions (163 entries = the 162 arms in
+/// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
+/// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
+/// newly-added command silently "allowed by subtraction" the moment it's dropped into
+/// [`IMPLEMENTED_JSON_COMMANDS`], the exact "new `match` arm = automatic remote allow" gap this table
+/// exists to close (`IMPLEMENTED_JSON_COMMANDS` also excludes `pty_spawn`/`pty_attach` — real-handler
+/// arms in [`dispatch`]'s own `match` — since it tracks specta/bindings parity, a different axis; see
+/// that constant's own doc comment).
+///
+/// [`dispatch`]/[`dispatch_raw`] both consult this table *before* their `match` even runs: a name absent
+/// from both this table and [`REMOTE_DENIED_COMMANDS`] is answered with
+/// [`RemoteDenialPolicy::Unclassified`] rather than falling through to `match`. See the completeness
+/// test `허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다`, which fails the moment a
+/// command is filed into neither table — the previous "silent = allowed" default is now "silent =
+/// denied, and untested silence doesn't compile clean".
+const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
+    "app_get_info",
+    "project_list",
+    "project_get",
+    "project_get_active",
+    "project_open",
+    "project_close",
+    "project_activate",
+    "project_reorder",
+    "layout_get",
+    "layout_open_tab",
+    "layout_close_tab",
+    "layout_activate_tab",
+    "layout_move_tab",
+    "layout_split",
+    "layout_resize",
+    "layout_focus_pane",
+    "layout_pin_tab",
+    "layout_set_preview",
+    "layout_reopen_closed",
+    "layout_set_view_state",
+    "layout_set_dirty",
+    "layout_set_terminal_session",
+    "layout_open_untitled",
+    "layout_convert_untitled",
+    "layout_set_shell_view",
+    "file_open",
+    "file_save",
+    "file_create",
+    "file_rename",
+    "file_delete",
+    "file_copy",
+    "file_mirror_dirty",
+    "file_list_mirrors",
+    "file_clear_mirror",
+    "file_prune_mirrors",
+    "file_mirror_untitled",
+    "file_list_untitled_mirrors",
+    "file_clear_untitled_mirror",
+    "file_prune_untitled_mirrors",
+    "tree_rows",
+    "tree_toggle",
+    "tree_reveal",
+    "tree_refresh",
+    "search_run",
+    "search_replace",
+    "search_cancel",
+    "plugin_list",
+    "plugin_reload",
+    "plugin_read_grammar",
+    "agent_list",
+    "agent_release_marker",
+    "agent_cli_status",
+    "agent_hooks_status",
+    "agent_hooks_install",
+    "agent_hooks_uninstall",
+    "lsp_spawn",
+    "lsp_send",
+    "lsp_stop",
+    "lsp_restart",
+    "lsp_confirm_reinitialize",
+    "lsp_sessions",
+    "lsp_detect_servers",
+    "lsp_resolve_root",
+    "lsp_install_cancel",
+    "git_init",
+    "git_status",
+    "git_diff_file",
+    "git_diff_staged_text",
+    "git_show_file",
+    "git_log",
+    "git_ahead_behind",
+    "git_remotes",
+    "git_gutter",
+    "git_blame_range",
+    "git_stage",
+    "git_unstage",
+    "git_discard",
+    "git_commit",
+    "git_push",
+    "git_pull",
+    "git_fetch",
+    "git_current_user",
+    "git_branches",
+    "git_branch_create",
+    "git_branch_checkout",
+    "git_branch_delete",
+    "git_stash_list",
+    "git_stash_push",
+    "git_stash_apply",
+    "git_stash_drop",
+    "git_discard_hunk",
+    "git_undo_last_commit",
+    "git_conflict_sides",
+    "git_resolve_conflict",
+    "git_stage_hunk",
+    "git_unstage_hunk",
+    "git_stage_lines",
+    "git_unstage_lines",
+    "git_commit_files",
+    "git_file_log",
+    "git_revert_commit",
+    "git_tags",
+    "git_tag_create",
+    "git_tag_delete",
+    "git_checkout_remote_branch",
+    "pty_write",
+    "pty_resize",
+    "pty_kill",
+    "pty_set_paused",
+    "pty_detach",
+    "terminal_sessions",
+    "shell_profiles",
+    "resolve_terminal_path",
+    "pty_default_options",
+    "detect_tasks",
+    "font_list",
+    "locale_list",
+    "locale_get",
+    "locale_get_current",
+    "theme_list",
+    "theme_get",
+    "theme_get_current",
+    "theme_save",
+    "theme_delete",
+    "snippet_list",
+    "snippet_save",
+    "snippet_delete",
+    "settings_get",
+    "settings_update",
+    "settings_set_theme",
+    "system_usage_get",
+    "system_usage_breakdown",
+    "ide_get_status",
+    "ide_start",
+    "ide_stop",
+    "ide_set_selection",
+    "ide_clear_selection",
+    "ide_publish_diagnostics",
+    "ide_resolve_diff",
+    "ide_resolve_save",
+    "ide_notify_at_mention",
+    "ai_token_status",
+    "ai_set_token",
+    "ai_clear_token",
+    "ai_list_models",
+    "ai_inline_complete",
+    "ai_inline_edit",
+    "ai_commit_message",
+    "ai_request_cancel",
+    "sync_status",
+    "sync_connect",
+    "sync_disconnect",
+    "sync_upload",
+    "sync_download",
+    "remote_status",
+    "remote_start",
+    "remote_stop",
+    "remote_revoke_sessions",
+    "app_file_read",
+    "app_file_write",
+    "pty_spawn",
+    "pty_attach",
+    "file_read_raw",
+];
 
 macro_rules! arg {
     ($args:expr, $key:literal) => {
@@ -616,9 +684,21 @@ fn enforce_remote_owner_label(mut args: Value) -> Value {
     args
 }
 
+/// Routes one JSON-args remote request to its real handler, gating every request through three steps in
+/// order before any handler runs: (1) [`REMOTE_DENIED_COMMANDS`] — an unconditional denial always wins
+/// first; (2) default-deny — `name` must also be listed in [`REMOTE_ALLOWED_COMMANDS`], or it is refused
+/// under [`RemoteDenialPolicy::Unclassified`] without ever reaching the `match` below; only then (3)
+/// [`enforce_remote_owner_label`] normalizes `args` before the `match` dispatches to a real handler. A new
+/// command's `match` arm alone no longer grants it remote reachability — it must also be filed into
+/// [`REMOTE_ALLOWED_COMMANDS`] (or [`REMOTE_DENIED_COMMANDS`]), the inversion of the previous "absent from
+/// both tables = silently allowed" default (T1-K, `docs/acknowledge/2026-08-19-audit-t1k-default-deny-
+/// contract.md`).
 pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory: ChannelFactory) -> Result<String, Value> {
     if let Some(denial) = remote_denied_response(name) {
         return Err(denial);
+    }
+    if !REMOTE_ALLOWED_COMMANDS.contains(&name) {
+        return Err(denial_response(RemoteDenialPolicy::Unclassified, name));
     }
     let args = enforce_remote_owner_label(args);
 
@@ -805,7 +885,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             let project_id = arg!(args, "projectId");
             let agent_name: String = arg!(args, "agentName");
             if is_remote_denied_hook_install_scope(&agent_name) {
-                Err(deny_remote_agent_hooks_user_scope(name))
+                Err(denial_response(RemoteDenialPolicy::DesktopCliInterception, name))
             } else {
                 respond(agent::agent_hooks_install(app.clone(), app.state(), project_id, agent_name).await)
             }
@@ -1174,7 +1254,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "remote_stop" => respond(remote::remote_stop(app.clone(), app.state()).await),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),
 
-        _ => Err(unknown_command(name)),
+        _ => Err(denial_response(RemoteDenialPolicy::Unclassified, name)),
     }
 }
 
@@ -1185,11 +1265,25 @@ fn response_bytes(response: Response) -> Result<Vec<u8>, Value> {
     }
 }
 
-/// Same client-controlled-`args` trust boundary as [`dispatch`] (see [`enforce_remote_owner_label`]'s
-/// doc comment) — `file_read_raw` (the only command routed here today, see `ws.rs::handle_request`)
-/// takes no `owner`, so this is currently a no-op, but every future raw-channel command's `args` gets
-/// the same normalization for free without anyone having to remember to add it.
+/// The raw-bytes-response counterpart to [`dispatch`], routing exactly the one command `ws.rs::
+/// handle_request` ever forwards here (`file_read_raw` — every other command, `pty_spawn`/`pty_attach`
+/// included, goes through [`dispatch`] instead, even though `lib.rs`'s `RAW_CHANNEL_COMMANDS` groups all
+/// three for a different reason, see [`REMOTE_ALLOWED_COMMANDS`]'s doc comment). Gated through the exact
+/// same two tables and order as [`dispatch`] (deny → default-deny-if-unlisted) before
+/// [`enforce_remote_owner_label`] and its own `match` — T1-K's "동일 원칙 적용" for this function turns out
+/// to mean *sharing* [`REMOTE_ALLOWED_COMMANDS`]/[`REMOTE_DENIED_COMMANDS`] with [`dispatch`], not growing
+/// a second, `RAW_CHANNEL_COMMANDS`-shaped table of its own — this function's `match` has exactly one real
+/// arm today, so a second table would only ever re-encode that arm's own existence. Same
+/// client-controlled-`args` trust boundary as [`dispatch`] (see [`enforce_remote_owner_label`]'s doc
+/// comment) — `file_read_raw` takes no `owner`, so the normalization below is currently a no-op, but every
+/// future raw-channel command's `args` gets it for free without anyone having to remember to add it.
 pub async fn dispatch_raw(app: &AppHandle, name: &str, args: Value) -> Result<Vec<u8>, Value> {
+    if let Some(denial) = remote_denied_response(name) {
+        return Err(denial);
+    }
+    if !REMOTE_ALLOWED_COMMANDS.contains(&name) {
+        return Err(denial_response(RemoteDenialPolicy::Unclassified, name));
+    }
     let args = enforce_remote_owner_label(args);
     match name {
         "file_read_raw" => {
@@ -1199,7 +1293,7 @@ pub async fn dispatch_raw(app: &AppHandle, name: &str, args: Value) -> Result<Ve
                 .map_err(err)?;
             response_bytes(response)
         }
-        _ => Err(unknown_command(name)),
+        _ => Err(denial_response(RemoteDenialPolicy::Unclassified, name)),
     }
 }
 
@@ -1238,10 +1332,13 @@ mod tests {
         assert_eq!(value, serde_json::json!({"code": "NotFound", "message": "prj-1"}));
     }
 
+    /// T1-K: a command name that is neither denied nor explicitly allowed must be refused — the default
+    /// flipped from "silently allowed" to "denied under `Unclassified`" (`does_not_exist` covers both a
+    /// genuine typo and a real command someone forgot to file into either table).
     #[test]
-    fn 알수없는_커맨드는_invalidargument로_보고된다() {
-        let value = unknown_command("does_not_exist");
-        assert_eq!(value["code"], serde_json::json!("InvalidArgument"));
+    fn 미분류_커맨드는_forbidden으로_기본_거부된다() {
+        let value = denial_response(RemoteDenialPolicy::Unclassified, "does_not_exist");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
     #[test]
@@ -1301,19 +1398,19 @@ mod tests {
 
     #[test]
     fn 원격_세션은_링크_발급을_할_수_없다() {
-        let value = deny_remote_link_issue("remote_issue_link");
+        let value = remote_denied_response("remote_issue_link").expect("거부되어야 한다");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
     #[test]
     fn 원격_세션은_보조_창을_열_수_없다() {
-        let value = deny_remote_window_open("window_open_auxiliary");
+        let value = remote_denied_response("window_open_auxiliary").expect("거부되어야 한다");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
     #[test]
     fn 원격_세션은_호스트_브라우저를_열_수_없다() {
-        let value = deny_remote_open_external_url("system_open_external_url");
+        let value = remote_denied_response("system_open_external_url").expect("거부되어야 한다");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
@@ -1325,7 +1422,7 @@ mod tests {
             "system_open_in_browser",
             "system_open_app_data_path",
         ] {
-            let value = deny_remote_system_open(name);
+            let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
             assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
         }
     }
@@ -1333,7 +1430,7 @@ mod tests {
     #[test]
     fn 원격_세션은_cli_shell_명령_설치_제거를_할_수_없다() {
         for name in ["agent_cli_install", "agent_cli_uninstall"] {
-            let value = deny_remote_agent_cli(name);
+            let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
             assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
         }
     }
@@ -1359,13 +1456,22 @@ mod tests {
 
     #[test]
     fn 원격_세션은_보류중인_외부_열기_요청을_조회할_수_없다() {
-        let value = deny_remote_agent_pending_external_opens("agent_pending_external_opens");
+        let value = remote_denied_response("agent_pending_external_opens").expect("거부되어야 한다");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
     #[test]
     fn 원격_세션은_lsp_서버를_설치할_수_없다() {
-        let value = deny_remote_lsp_install("lsp_install");
+        let value = remote_denied_response("lsp_install").expect("거부되어야 한다");
+        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+    }
+
+    /// `agent_hooks_install` for a User-scope agent is a scope-conditional denial (not in
+    /// [`REMOTE_DENIED_COMMANDS`] — see [`is_remote_denied_hook_install_scope`]), so it must be exercised
+    /// through [`denial_response`] directly rather than [`remote_denied_response`].
+    #[test]
+    fn 원격_세션은_사용자_범위_에이전트_후킹_설치_거부_응답이_forbidden이다() {
+        let value = denial_response(RemoteDenialPolicy::DesktopCliInterception, "agent_hooks_install");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 
@@ -1405,6 +1511,62 @@ mod tests {
                 "{name} 이 거부 테이블에는 있지만 IMPLEMENTED_JSON_COMMANDS 에는 없다"
             );
         }
+    }
+
+    /// T1-K's core enforcement mechanism (`docs/acknowledge/2026-08-19-audit-t1k-default-deny-
+    /// contract.md` §1.1): [`REMOTE_ALLOWED_COMMANDS`] and [`REMOTE_DENIED_COMMANDS`] must partition the
+    /// full remote-command universe exactly — no command in both (self-contradicting) and no command in
+    /// neither (the "new command, unclassified" gap the default-deny gate in [`dispatch`]/
+    /// [`dispatch_raw`] exists to close). The universe is [`IMPLEMENTED_JSON_COMMANDS`] plus
+    /// `crate::RAW_CHANNEL_COMMANDS` (`lib.rs`) — together exactly what `collect_commands!` registers,
+    /// pinned by `collect_commands_매크로_출력과_dispatch_테이블은_커맨드_이름_집합이_일치한다` in
+    /// `lib.rs`. Manually verified (T1-K self-check, not left in the tree): deleting one entry from
+    /// [`REMOTE_ALLOWED_COMMANDS`] makes this test fail on the union-mismatch assertion below — a new
+    /// command left unclassified in either table is caught here, not silently allowed.
+    #[test]
+    fn 허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다() {
+        let allowed: BTreeSet<&str> = REMOTE_ALLOWED_COMMANDS.iter().copied().collect();
+        let denied: BTreeSet<&str> = REMOTE_DENIED_COMMANDS.iter().map(|(name, _)| *name).collect();
+
+        assert_eq!(
+            REMOTE_ALLOWED_COMMANDS.len(),
+            allowed.len(),
+            "REMOTE_ALLOWED_COMMANDS 에 중복된 커맨드 이름이 있다"
+        );
+        assert_eq!(
+            REMOTE_DENIED_COMMANDS.len(),
+            denied.len(),
+            "REMOTE_DENIED_COMMANDS 에 중복된 커맨드 이름이 있다"
+        );
+
+        let intersection: Vec<&&str> = allowed.intersection(&denied).collect();
+        assert!(
+            intersection.is_empty(),
+            "허용과 거부 테이블에 동시에 등재된 커맨드: {intersection:?}"
+        );
+
+        let universe: BTreeSet<String> = IMPLEMENTED_JSON_COMMANDS
+            .iter()
+            .chain(crate::RAW_CHANNEL_COMMANDS.iter())
+            .map(|name| name.to_string())
+            .collect();
+        let union: BTreeSet<String> = allowed.iter().chain(denied.iter()).map(|name| name.to_string()).collect();
+
+        assert_eq!(
+            union, universe,
+            "REMOTE_ALLOWED_COMMANDS ⊎ REMOTE_DENIED_COMMANDS 가 전체 커맨드 집합과 다르다 — 새 커맨드를 \
+             어느 테이블에도 등재하지 않으면 이 assert 가 실패해야 한다"
+        );
+    }
+
+    /// A command absent from both tables must fall through [`remote_denied_response`] (`None`) *and*
+    /// fail the [`REMOTE_ALLOWED_COMMANDS`] membership check — together, exactly what routes `dispatch`/
+    /// `dispatch_raw` to their default-deny branch instead of ever reaching `match`.
+    #[test]
+    fn 어느_테이블에도_없는_커맨드는_거부_테이블에서_none이고_허용_테이블에도_없다() {
+        let name = "이것은_등재되지_않은_가상의_커맨드";
+        assert_eq!(remote_denied_response(name), None);
+        assert!(!REMOTE_ALLOWED_COMMANDS.contains(&name));
     }
 
     #[test]

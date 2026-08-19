@@ -124,6 +124,11 @@ trait ProjectCapability {
   `docs/research/tauri-v2.md`).
 - Rust 타입 → TS 타입 자동 생성(ADR-0011)으로 계약을 단일 출처화한다.
 - 명령 이름은 `snake_case` `{domain}_{action}`, 이벤트 이름은 `{domain}:{event-kebab}` 으로 통일한다.
+- **원격(웹) 접속에서는 이 IPC 경계가 그대로 노출되지 않는다** — `src-tauri/src/domain/remote/
+  dispatch.rs` 가 명시 허용 목록(`REMOTE_ALLOWED_COMMANDS`)·명시 거부 목록
+  (`REMOTE_DENIED_COMMANDS`) 둘 중 하나에 등재된 커맨드만 실핸들러로 위임하는 **기본 거부** 게이트다
+  (T1-K, 2026-08-19). 새 커맨드는 `match` arm 추가만으로 원격 도달 가능해지지 않고, 두 목록 중
+  하나에 이름을 등재해야 한다 — 상세 분류·전수 목록은 `docs/ipc-contract.md` §"원격 dispatch 정책".
 
 ## 5. View(React) 구조 — FSD
 
