@@ -1541,6 +1541,14 @@ fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
     Ok(relative.to_string_lossy().to_string())
 }
 
+/// Deliberately does **not** set `StatusOptions::update_index` (audit R4#11, C11 axis B): that
+/// flag makes a status *query* write `.git/index` back to disk — libgit2 persists refreshed stat
+/// info for racily-clean entries — from a command path that takes no mutation guard, racing every
+/// guarded command that writes the index (`stage`, `commit`, ...). Per the git2 doc the flag is
+/// purely a stat-cache optimization ("results in less work being done on subsequent calls");
+/// dropping it leaves the returned status byte-identical and only costs re-hashing entries whose
+/// stat info is stale in the index on each call — bounded by the number of such entries, and any
+/// index-writing git operation (a commit, a stage, terminal `git status`) refreshes them anyway.
 fn collect_status_rows(repo: &Repository) -> AppResult<Vec<StatusRow>> {
     let workdir = repo_workdir(repo)?;
     let mut opts = git2::StatusOptions::new();
@@ -1551,8 +1559,7 @@ fn collect_status_rows(repo: &Repository) -> AppResult<Vec<StatusRow>> {
         .include_unmodified(false)
         .exclude_submodules(true)
         .renames_head_to_index(true)
-        .renames_index_to_workdir(true)
-        .update_index(true);
+        .renames_index_to_workdir(true);
 
     let statuses = repo.statuses(Some(&mut opts)).map_err(map_git_err)?;
 
@@ -1876,6 +1883,24 @@ mod tests {
         assert_eq!(result.rows[0].path, "a.txt");
         let expected_root = std::fs::canonicalize(repo.path()).unwrap_or_else(|_| repo.path().to_path_buf());
         assert_eq!(PathBuf::from(&result.rows[0].abs_path), expected_root.join("a.txt"));
+    }
+
+    #[test]
+    fn status_조회는_인덱스_파일을_다시_쓰지_않는다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "one");
+        repo.commit_all("first");
+        repo.write_file("a.txt", "one");
+        let index_path = repo.path().join(".git").join("index");
+        let index_before = std::fs::read(&index_path).expect("index read");
+
+        let first = status(repo.path()).expect("status");
+        let index_after = std::fs::read(&index_path).expect("index read");
+        let second = status(repo.path()).expect("status");
+
+        assert!(first.rows.is_empty(), "동일 내용 재기록은 변경으로 보고되면 안 된다");
+        assert_eq!(index_before, index_after, "status 조회가 .git/index 를 기록하면 안 된다 (R4#11)");
+        assert_eq!(first.rows, second.rows, "stat 캐시 미갱신이 상태 판독 정확도를 바꾸면 안 된다");
     }
 
     #[test]

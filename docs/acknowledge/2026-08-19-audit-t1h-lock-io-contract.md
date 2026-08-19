@@ -92,3 +92,45 @@
   함께 명시(무단 반쪽 수정 0).
 - 실기 이월(qa6): 대형 repo push/pull 중 앱 반응성(프리즈 해소 체감)·pull 중 저장 경합·
   sync 중 설정 변경·폰트 목록 즉시 표시.
+
+---
+
+## 4. 구현 완료 기록 (2026-08-19, Phase E 검토 전)
+
+> 구현 wf_4d766dcb-e89(Rust 단독 sonnet+xhigh) 완료. 메인 2차: 스팟 전건 실물 일치(git_push/
+> fetch 무가드 spawn_blocking·git_pull begin_mutation_blocking 유지·tree_rows 되쓰기 제거·
+> update_index 제거 doc·font OnceLock·plugin stage/commit 분리·sync 3단계 doc) + verify·vite
+> build 메인 직접 재실행.
+
+- **R4#3 git 네트워크 — 실사 정정**: service::push/pull/fetch 는 git2 가 아니라 **git CLI
+  서브프로세스**(`run_git`). push·fetch 는 가드 제거+spawn_blocking(로컬 영향은 .git refs 만
+  — 워킹트리 무접촉, .git 무결성은 git 자체 락이 보호·터미널 git 병행과 동일 실사 근거 doc).
+  fetch 의 유일 인터리브(동시 pull 의 FETCH_HEAD 재기록)는 동등 계산 근거로 수용 기록.
+  **git_pull 부분 보류**: CLI `git pull` 이 fetch+config 의존 통합(merge/rebase)을 한
+  프로세스에 융합 — 분리 시 rebase 설정 repo 의미 변화. 계약 §1.1 분기대로 전체 락 유지,
+  spawn_blocking+begin_mutation_blocking 이관(§2.1 위반 중 async 워커 블로킹 반쪽만 해소 —
+  네트워크 단계 락 탈출은 보류). commit·stage 계열은 실사 후 무수정(§1.4 — 과잉 수정 금지).
+- **R5#7 sync**: upload = ①짧은 가드 스냅샷·payload 조립 → ②가드 밖 gist 왕복 → ③재획득 후
+  **현재 settings 재독** sync 필드만 overlay(라운드트립 중 landed 된 settings_update 를
+  롤백하지 않는 정합 규약 doc — sync 북키핑은 last-write·나머지는 라이브 소유). download =
+  fetch·parse·schema 가드 밖 / check-then-apply 가드 안 **라이브 기준 재평가**(fetch 중
+  disconnect·재지정 시 stale 적용 중단 — 기존 에러 변종·와이어 무변경).
+- **R7#10 plugin/vsix**: 가드 보유 중 128MB 해제 실측 확인 → stage(가드 밖 spawn_blocking,
+  advisory 중복 검사)/commit(가드 안 — **권위적** 중복 검사+atomic rename+실패 시 스테이징
+  정리) 분리. 기존 락의 실보호("중복 id 결정적 실패"·uninstall/reload 직렬화)는 commit+
+  reload 가 가드 안 잔류로 완전 보존. vsix 는 `stage_vsix_import` 분리 후 plugin 의
+  `commit_staged_install` 재사용(경계 화이트리스트 기존 엣지 재사용·신규 엣지 0).
+- **R8#11 font**: OnceLock 프로세스 수명 캐시·첫 스캔만 spawn_blocking·재시작 반영 doc.
+- **R4#1 tree_rows — 되쓰기 제거(근본)**: 히트는 read 락 무쓰기 서빙, 미스는 락 밖 빌드 후
+  `entry().or_insert` 국소 삽입(경합 시 기존 엔트리 승리). lost update·매 호출 전체 딥카피
+  동시 제거. begin_mutation 추가 방식 미채택. 뮤테이션 커맨드의 clone→되쓰기는 가드 하
+  직렬화라 범위 밖 무수정.
+- **R4#11 git_status**: `update_index(true)` 제거 — git2 0.21 doc 실사로 순수 성능 최적화
+  (반환 결과 불변) 확증. 영향(stat-stale 재해시 비용 유계·타 경로가 어차피 갱신) doc 기록.
+- **R8#13 실사**: 정본 복원 불가(감사 압축). 독립 실사로 후보 1건 식별 — **pty_spawn 이
+  가드 보유 중 스크립트 3파일 기록+openpty+fork/exec+스레드 3생성**. 보류(근거 3: ms 급
+  점유로 등급 상이·분리 시 신규 회수 경로가 pty 회수 부재(R8#1)·T1-J 와 충돌 여지·R8#13
+  확증 없음 — 추측 수정 금지).
+- **검증**: cargo fmt·clippy 0·test 1041+3+6+17 전량 그린(신규 11·이행 5·삭제 0). bindings
+  102줄 diff 전수 검사 — 비주석 변경 0(doc 전파만)·커맨드·시그니처·이벤트 무변경. tsc 통과.
+- **보류 목록(Phase E 재확인 대상)**: git_pull 네트워크 단계 락 탈출 / pty_spawn 락-IO 결합.

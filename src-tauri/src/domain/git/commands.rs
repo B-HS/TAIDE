@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
@@ -262,33 +262,72 @@ pub async fn git_commit(
     Ok(oid)
 }
 
+/// Runs `git push` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3, C11
+/// axis A). What the old guard actually covered was audited before removal: `service::push`
+/// shells out to `git push`, which reads local refs/objects and — on success — updates the
+/// remote-tracking ref inside `.git`; it never touches the working tree, so serializing it with
+/// the app's file mutations (`file_save`, replace, ...) protected nothing. Same-repo `.git`
+/// integrity against concurrent app git commands (commit/stage/pull) is enforced by git's own
+/// index/ref locks, exactly as when the user runs `git push` in a terminal beside the app, and
+/// command-level ordering (commit-then-push) is already sequenced by the frontend awaiting each
+/// command. The subprocess wait moved into `spawn_blocking` so the network round-trip no longer
+/// pins an async worker thread either (architecture.md §2.1's other half).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::push(&repo_root)?;
+    tauri::async_runtime::spawn_blocking(move || service::push(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     emit_refs_changed(&app, &project_id);
     Ok(())
 }
 
+/// Still runs the whole `git pull` under `AppState::begin_mutation`, but on a blocking thread via
+/// `begin_mutation_blocking` (the `search_replace` T0#17 pattern) so the subprocess wait no
+/// longer pins an async worker thread. The lock's real protection here is pull's merge/rebase
+/// phase rewriting working-tree files, which must stay serialized against `file_save` and every
+/// other app file mutation. Splitting the network fetch phase out of the guard (the axis-A goal,
+/// contract 2026-08-19 §1.1) was audited and deliberately **not** done: `service::pull` shells
+/// out to `git pull`, which fuses fetch and the config-dependent integration step (merge vs
+/// `pull.rebase` vs `branch.<name>.rebase`) inside one subprocess — replicating the split as
+/// `git fetch` outside the lock plus a hand-rolled second step would change pull semantics for
+/// rebase-configured repos, so the fetch stays under the lock and the separation is deferred
+/// (contract §1.0: hold over a half-correct split).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::pull(&repo_root)?;
+    let app_for_task = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_state = app_for_task.state::<AppState>();
+        let _guard = app_state.begin_mutation_blocking();
+        service::pull(&repo_root)
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))??;
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(())
 }
 
+/// Runs `git fetch` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3),
+/// with the same audit as [`git_push`]: `git fetch` updates remote-tracking refs and
+/// `FETCH_HEAD` inside `.git` and never touches the working tree, so app file mutations needed
+/// no serialization with it, and `.git` integrity against concurrent app git commands is git's
+/// own ref-lock job (the terminal-git precedent). The one interleaving the old lock did exclude
+/// — this fetch rewriting `FETCH_HEAD` between the fetch and merge phases *inside* a
+/// concurrently running [`git_pull`] — is accepted: both fetches target the same configured
+/// remote, so the for-merge `FETCH_HEAD` entries are computed from the same branch config and
+/// the pull still integrates a valid fetched upstream head, identical to running `git fetch` in
+/// a terminal during a pull, which git is built to tolerate.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::fetch(&repo_root)?;
+    tauri::async_runtime::spawn_blocking(move || service::fetch(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     emit_refs_changed(&app, &project_id);
     Ok(())
 }

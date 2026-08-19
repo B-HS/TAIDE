@@ -65,8 +65,8 @@ pub fn load_plugins(plugins_dir: &Path) -> Vec<LoadedPlugin> {
         return Vec::new();
     };
 
-    // Every install path (`install_from_directory`/`install_from_archive` here,
-    // `vsix::service::import_vsix_as_plugin`) stages under `plugins_dir/.tmp/<uuid>` before an
+    // Every install path (`stage_from_directory`/`stage_from_archive` here,
+    // `vsix::service::stage_vsix_import`) stages under `plugins_dir/.tmp/<uuid>` before an
     // atomic rename into its final `plugins_dir/<id>/` home, and only ever removes that `<uuid>`
     // child — the parent `.tmp` directory itself is left behind (empty, after a successful
     // install; possibly non-empty, after an install that failed mid-extraction). Without this
@@ -293,52 +293,76 @@ fn read_and_validate_manifest(dir: &Path) -> AppResult<PluginManifest> {
     Ok(manifest)
 }
 
-/// Installs a plugin already laid out as a directory (containing a top-level `taide-plugin.json`)
-/// by copying it into `plugins_dir/{id}/` — the local-import counterpart to
-/// [`install_from_archive`]. Refuses to overwrite an already-installed id (uninstall first) rather
-/// than silently replacing it. Returns the installed plugin's id.
-pub fn install_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<String> {
+/// Stages a plugin already laid out as a directory (containing a top-level `taide-plugin.json`)
+/// by copying it into a unique `plugins_dir/.tmp/` staging directory — the local-import
+/// counterpart to [`stage_from_archive`]. The recursive copy (the expensive I/O) runs here so the
+/// caller can keep it **outside** `AppState::begin_mutation` (audit R7#10, C11 axis A); the
+/// already-installed check here is only a fast-fail courtesy — [`commit_staged_install`] re-checks
+/// it authoritatively under the caller's guard. Returns the staging dir and the plugin id.
+pub fn stage_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<(PathBuf, String)> {
     let manifest = read_and_validate_manifest(source)?;
 
-    let final_dir = plugins_dir.join(&manifest.id);
-    if final_dir.exists() {
+    if plugins_dir.join(&manifest.id).exists() {
         return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {}", manifest.id)));
     }
 
     let temp_dir = plugins_dir.join(".tmp").join(format!("{}-{}", manifest.id, uuid::Uuid::new_v4()));
-    let result = copy_dir_recursive(source, &temp_dir).and_then(|()| lsp_install::atomic_install(&temp_dir, &final_dir));
-    if result.is_err() {
+    if let Err(error) = copy_dir_recursive(source, &temp_dir) {
         fs::remove_dir_all(&temp_dir).ok();
+        return Err(error);
     }
-    result.map(|()| manifest.id)
+    Ok((temp_dir, manifest.id))
 }
 
-/// Installs a plugin distributed as a zip archive (a TAIDE-native `.vsix`/zip bundle containing a
+/// Stages a plugin distributed as a zip archive (a TAIDE-native `.vsix`/zip bundle containing a
 /// top-level `taide-plugin.json`, distinct from a real VS Code extension `.vsix` — see
-/// `vsix::service::import_vsix_as_plugin` for that flow) by extracting it with
+/// `vsix::service::stage_vsix_import` for that flow) by extracting it with
 /// `infra::archive::extract_hardened_zip` (budget/entry-cap/permission-masking hardened, unlike
-/// `infra::lsp_install::extract_zip` — contract §3.4) into `plugins_dir/{id}/`. Refuses to
-/// overwrite an already-installed id.
-pub fn install_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<String> {
+/// `infra::lsp_install::extract_zip` — contract §3.4) into a unique `plugins_dir/.tmp/` staging
+/// directory. The up-to-128MB extraction runs here so the caller can keep it **outside**
+/// `AppState::begin_mutation` (audit R7#10); the already-installed check is a fast-fail courtesy,
+/// re-checked authoritatively by [`commit_staged_install`] under the caller's guard.
+pub fn stage_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<(PathBuf, String)> {
     let temp_extract_dir = plugins_dir.join(".tmp").join(format!("extract-{}", uuid::Uuid::new_v4()));
 
     let result = (|| -> AppResult<String> {
         crate::infra::archive::extract_hardened_zip(source, &temp_extract_dir)?;
         let manifest = read_and_validate_manifest(&temp_extract_dir)?;
 
-        let final_dir = plugins_dir.join(&manifest.id);
-        if final_dir.exists() {
+        if plugins_dir.join(&manifest.id).exists() {
             return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {}", manifest.id)));
         }
-
-        lsp_install::atomic_install(&temp_extract_dir, &final_dir)?;
         Ok(manifest.id)
     })();
 
-    if result.is_err() {
-        fs::remove_dir_all(&temp_extract_dir).ok();
+    match result {
+        Ok(plugin_id) => Ok((temp_extract_dir, plugin_id)),
+        Err(error) => {
+            fs::remove_dir_all(&temp_extract_dir).ok();
+            Err(error)
+        }
     }
-    result
+}
+
+/// Finalizes a staged install ([`stage_from_directory`] / [`stage_from_archive`] /
+/// `vsix::service::stage_vsix_import`) by renaming the staging directory into
+/// `plugins_dir/{plugin_id}`. This is the cheap half the caller runs **under**
+/// `AppState::begin_mutation`, which preserves the invariant the old single-function install held
+/// its full-span guard for: the already-installed check and the placement are atomic with respect
+/// to every other guarded plugin mutation (`plugin_uninstall`, `plugin_reload`, another install of
+/// the same id), so a duplicate id still deterministically fails with the same error instead of
+/// silently replacing a concurrent install. Cleans the staging directory up on every error path.
+pub fn commit_staged_install(plugins_dir: &Path, temp_dir: &Path, plugin_id: &str) -> AppResult<String> {
+    let final_dir = plugins_dir.join(plugin_id);
+    let result = if final_dir.exists() {
+        Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {plugin_id}")))
+    } else {
+        lsp_install::atomic_install(temp_dir, &final_dir)
+    };
+    if result.is_err() {
+        fs::remove_dir_all(temp_dir).ok();
+    }
+    result.map(|()| plugin_id.to_string())
 }
 
 /// Removes a plugin's directory outright — no built-in-plugin protection, since every entry in
@@ -835,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn install_from_directory는_디렉토리를_plugins_dir로_복사한다() {
+    fn stage_후_commit은_디렉토리를_plugins_dir로_복사한다() {
         let plugins_dir = temp_dir("install-dir-plugins");
         let source_name = format!("taide-plugin-install-src-{}", Uuid::new_v4());
         let source = std::env::temp_dir().join(&source_name);
@@ -844,17 +868,19 @@ mod tests {
             &format!(r#"{{"manifestVersion":1,"id":"{source_name}","name":"Src","version":"1.0.0","contributes":{{}}}}"#),
         );
 
-        let installed_id = install_from_directory(&plugins_dir, &source).expect("install");
+        let (temp_dir, plugin_id) = stage_from_directory(&plugins_dir, &source).expect("stage");
+        let installed_id = commit_staged_install(&plugins_dir, &temp_dir, &plugin_id).expect("commit");
 
         assert_eq!(installed_id, source_name);
         assert!(plugins_dir.join(&source_name).join(PLUGIN_MANIFEST_FILE).exists());
+        assert!(!temp_dir.exists(), "커밋 후 스테이징 디렉토리는 최종 위치로 이동되어야 한다");
 
         fs::remove_dir_all(&plugins_dir).ok();
         fs::remove_dir_all(&source).ok();
     }
 
     #[test]
-    fn install_from_directory는_이미_설치된_id를_거부한다() {
+    fn stage_from_directory는_이미_설치된_id를_거부한다() {
         let plugins_dir = temp_dir("install-dir-dup-plugins");
         let source_name = format!("taide-plugin-dup-{}", Uuid::new_v4());
         let source = std::env::temp_dir().join(&source_name);
@@ -864,7 +890,7 @@ mod tests {
         );
         fs::create_dir_all(plugins_dir.join(&source_name)).unwrap();
 
-        let result = install_from_directory(&plugins_dir, &source);
+        let result = stage_from_directory(&plugins_dir, &source);
 
         assert!(result.is_err());
 
@@ -873,12 +899,34 @@ mod tests {
     }
 
     #[test]
-    fn install_from_directory는_manifest가_없으면_거부한다() {
+    fn commit_staged_install은_락_구간의_최종_검사에서_중복_id를_거부하고_스테이징을_정리한다() {
+        let plugins_dir = temp_dir("install-dir-race-plugins");
+        let source_name = format!("taide-plugin-race-{}", Uuid::new_v4());
+        let source = std::env::temp_dir().join(&source_name);
+        write_manifest(
+            &source,
+            &format!(r#"{{"manifestVersion":1,"id":"{source_name}","name":"Src","version":"1.0.0","contributes":{{}}}}"#),
+        );
+
+        let (temp_dir, plugin_id) = stage_from_directory(&plugins_dir, &source).expect("stage");
+        fs::create_dir_all(plugins_dir.join(&source_name)).unwrap();
+
+        let result = commit_staged_install(&plugins_dir, &temp_dir, &plugin_id);
+
+        assert!(result.is_err(), "스테이징과 커밋 사이에 같은 id 가 설치되면 커밋이 거부해야 한다");
+        assert!(!temp_dir.exists(), "거부된 커밋은 스테이징 디렉토리를 정리해야 한다");
+
+        fs::remove_dir_all(&plugins_dir).ok();
+        fs::remove_dir_all(&source).ok();
+    }
+
+    #[test]
+    fn stage_from_directory는_manifest가_없으면_거부한다() {
         let plugins_dir = temp_dir("install-dir-nomanifest-plugins");
         let source = temp_dir("install-dir-nomanifest-src");
         fs::create_dir_all(&source).unwrap();
 
-        let result = install_from_directory(&plugins_dir, &source);
+        let result = stage_from_directory(&plugins_dir, &source);
 
         assert!(result.is_err());
 

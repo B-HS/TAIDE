@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 /// `VSIX_TOTAL_MAX_EXTRACTED_BYTES` (64MB, sized for a handful of small JSON theme files): a plugin
 /// bundle can legitimately contain several grammar files, icons, and a `taide-plugin.json`, but
 /// must still be bounded against a zip bomb (a small archive claiming to expand to gigabytes).
-/// `domain::vsix::service::import_vsix_as_plugin` reuses [`ARCHIVE_MAX_TOTAL_BYTES`] as its own
+/// `domain::vsix::service::stage_vsix_import` reuses [`ARCHIVE_MAX_TOTAL_BYTES`] as its own
 /// entry-by-entry read budget so both plugin-import flows share one cap.
 pub const ARCHIVE_MAX_ENTRIES: usize = 5_000;
 pub const ARCHIVE_MAX_TOTAL_BYTES: u64 = 128 * 1024 * 1024;

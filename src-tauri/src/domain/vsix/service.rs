@@ -16,7 +16,6 @@ use crate::domain::plugin::types::{
 };
 use crate::error::{AppError, AppResult};
 use crate::infra::archive::ARCHIVE_MAX_TOTAL_BYTES;
-use crate::infra::lsp_install;
 use crate::infra::persist;
 use crate::infra::root_guard;
 
@@ -71,7 +70,7 @@ struct PackageJsonLanguageContribution {
 
 /// VS Code's `contributes.grammars[]` entry. `language` is `Option` because a real `.vsix` can
 /// contribute an embedded/injection grammar with no top-level `language` id; those are skipped by
-/// [`import_vsix_as_plugin`] rather than guessed at.
+/// [`stage_vsix_import`] rather than guessed at.
 #[derive(Debug, Deserialize)]
 struct PackageJsonGrammarContribution {
     #[serde(default)]
@@ -377,18 +376,23 @@ fn read_zip_entry_string(archive: &mut zip::ZipArchive<File>, name: &str, budget
     String::from_utf8(bytes).map_err(|_| AppError::InvalidArgument(format!("vsix 항목이 UTF-8 이 아닙니다: {name}")))
 }
 
-/// Imports a real VS Code `.vsix`'s `contributes.languages`/`contributes.grammars` as a new TAIDE
+/// Stages a real VS Code `.vsix`'s `contributes.languages`/`contributes.grammars` as a new TAIDE
 /// plugin — joins VS Code's two separate contribution arrays (cross-referenced by language id) into
 /// TAIDE's unified `PluginLanguageContribution` shape, extracts each referenced grammar file into
-/// the new plugin's `grammars/` directory, synthesizes a `taide-plugin.json`, and installs it
-/// through the exact same validated write path `plugin::service::install_from_directory` already
-/// uses (contract §3.4/B1: "기존 검증·reload 재사용") — this is the vsix domain's first *write*
-/// operation, everything before it only ever read an archive. Returns the new plugin's id
-/// (`{publisher}-{name}`, sanitized to reject any path-traversal attempt a malicious `package.json`
-/// might smuggle in). A language with no matching grammar entry is still imported (extension
-/// recognition without syntax highlighting); a grammar entry with no `language` id, or referencing a
-/// path outside the vsix's `extension/` root, is skipped rather than failing the whole import.
-pub fn import_vsix_as_plugin(vsix_path: &Path, plugins_dir: &Path) -> AppResult<String> {
+/// the staged plugin's `grammars/` directory, and synthesizes a `taide-plugin.json` — all under a
+/// unique `plugins_dir/.tmp/` staging directory, the same staged shape
+/// `plugin::service::stage_from_archive` produces (contract §3.4/B1: "기존 검증·reload 재사용").
+/// The zip reading and grammar writes (the expensive I/O) run here so the caller can keep them
+/// **outside** `AppState::begin_mutation` (audit R7#10, C11 axis A); the already-installed check
+/// here is a fast-fail courtesy at the exact point the old one-shot import checked it —
+/// `plugin::service::commit_staged_install`, run by the command under the guard, re-checks it
+/// authoritatively and performs the atomic rename into `plugins_dir/{id}`. Returns the staging
+/// directory and the new plugin's id (`{publisher}-{name}`, sanitized to reject any
+/// path-traversal attempt a malicious `package.json` might smuggle in). A language with no
+/// matching grammar entry is still imported (extension recognition without syntax highlighting);
+/// a grammar entry with no `language` id, or referencing a path outside the vsix's `extension/`
+/// root, is skipped rather than failing the whole import.
+pub fn stage_vsix_import(vsix_path: &Path, plugins_dir: &Path) -> AppResult<(std::path::PathBuf, String)> {
     let file = File::open(vsix_path).map_err(|error| AppError::InvalidArgument(format!("vsix 파일을 열 수 없습니다: {error}")))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|error| AppError::InvalidArgument(format!("vsix 압축을 해제할 수 없습니다: {error}")))?;
@@ -425,7 +429,7 @@ pub fn import_vsix_as_plugin(vsix_path: &Path, plugins_dir: &Path) -> AppResult<
     let temp_dir = plugins_dir.join(".tmp").join(format!("vsix-import-{}", uuid::Uuid::new_v4()));
 
     // Every fallible step below runs inside this closure (mirroring
-    // `plugin::service::install_from_archive`'s pattern) so a single cleanup point at the bottom
+    // `plugin::service::stage_from_archive`'s pattern) so a single cleanup point at the bottom
     // covers every error exit — including the `?`-propagated ones (temp dir creation, grammar file
     // write) that previously left `temp_dir` behind on disk instead of being cleaned up like the
     // hand-checked error branches already were.
@@ -508,19 +512,20 @@ pub fn import_vsix_as_plugin(vsix_path: &Path, plugins_dir: &Path) -> AppResult<
         };
         persist::write_json(&temp_dir.join(PLUGIN_MANIFEST_FILE), &plugin_manifest)?;
 
-        let final_dir = plugins_dir.join(&plugin_id);
-        if final_dir.exists() {
+        if plugins_dir.join(&plugin_id).exists() {
             return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {plugin_id}")));
         }
-        lsp_install::atomic_install(&temp_dir, &final_dir)?;
 
         Ok(plugin_id)
     })();
 
-    if result.is_err() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+    match result {
+        Ok(plugin_id) => Ok((temp_dir, plugin_id)),
+        Err(error) => {
+            std::fs::remove_dir_all(&temp_dir).ok();
+            Err(error)
+        }
     }
-    result
 }
 
 #[cfg(test)]
@@ -877,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn grammar_language_id의_경로_탈출_시도는_건너뛰고_안전한_grammar만_설치한다() {
+    fn grammar_language_id의_경로_탈출_시도는_건너뛰고_안전한_grammar만_스테이징한다() {
         let plugins_dir = temp_plugins_dir("escape");
         let package_json = r#"{
             "name": "evil-ext",
@@ -897,20 +902,18 @@ mod tests {
             ("extension/syntaxes/safe.tmLanguage.json", grammar_json.as_bytes()),
         ]);
 
-        let plugin_id = import_vsix_as_plugin(&path, &plugins_dir).expect("경로 탈출을 시도한 grammar 만 제외하고 설치되어야 한다");
+        let (temp_dir, plugin_id) =
+            stage_vsix_import(&path, &plugins_dir).expect("경로 탈출을 시도한 grammar 만 제외하고 스테이징되어야 한다");
         assert_eq!(plugin_id, "attacker-evil-ext");
 
-        let grammars_dir = plugins_dir.join(&plugin_id).join("grammars");
-        let installed: std::collections::HashSet<String> = std::fs::read_dir(&grammars_dir)
+        let grammars_dir = temp_dir.join("grammars");
+        let staged: std::collections::HashSet<String> = std::fs::read_dir(&grammars_dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(
-            installed,
-            std::collections::HashSet::from(["customlang.tmLanguage.json".to_string()])
-        );
+        assert_eq!(staged, std::collections::HashSet::from(["customlang.tmLanguage.json".to_string()]));
 
-        let manifest_text = std::fs::read_to_string(plugins_dir.join(&plugin_id).join(PLUGIN_MANIFEST_FILE)).unwrap();
+        let manifest_text = std::fs::read_to_string(temp_dir.join(PLUGIN_MANIFEST_FILE)).unwrap();
         assert!(
             !manifest_text.contains("pwn"),
             "탈출을 시도한 language id 가 매니페스트에 남아서는 안 된다"
@@ -939,12 +942,16 @@ mod tests {
             ("extension/syntaxes/evil.tmLanguage.json", grammar_json.as_bytes()),
         ]);
 
-        let result = import_vsix_as_plugin(&path, &plugins_dir);
+        let result = stage_vsix_import(&path, &plugins_dir);
         assert!(result.is_err());
         assert!(
             !plugins_dir.join("attacker-all-evil").exists(),
             "탈출을 시도한 grammar 만으로는 플러그인이 설치되어서는 안 된다"
         );
+        let leftover_staging = std::fs::read_dir(plugins_dir.join(".tmp"))
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+        assert_eq!(leftover_staging, 0, "실패한 스테이징 디렉토리는 정리되어야 한다");
 
         std::fs::remove_file(&path).ok();
         std::fs::remove_dir_all(&plugins_dir).ok();

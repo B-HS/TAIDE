@@ -96,17 +96,37 @@ pub async fn sync_disconnect(
     Ok(status)
 }
 
+/// Runs in three phases so the GitHub round-trip (60s client timeout) no longer holds the
+/// app-wide mutation lock for its whole duration (audit R5#7, C11 axis A). What the old full-span
+/// guard actually protected, and how each protection is preserved:
+/// ① a short `begin_mutation` hold snapshots settings + theme/locale files — the same
+/// point-in-time payload consistency the full-span hold gave (no mutation can interleave between
+/// reading settings and reading the files it references); ② the gist create/update runs with the
+/// guard dropped — the freeze of every other mutation (file saves included) for the whole
+/// round-trip was cost, not protection; ③ the guard is re-acquired and the sync bookkeeping
+/// fields are overlaid onto a **fresh** read of the live settings, so a `settings_update` that
+/// landed during the round-trip is never rolled back to the phase-① snapshot.
+///
+/// Consistency regime (contract 2026-08-19 §1.1 — last-write, made explicit):
+/// `sync_gist_id`/`sync_last_synced_at` are owned by whichever sync command finishes last; every
+/// other field is owned by the live settings. The uploaded content is the phase-① snapshot — a
+/// change made mid-upload rides the next upload. Two uploads racing the first-ever gist creation
+/// can each create a gist; the later write-back wins and the other gist is orphaned on GitHub —
+/// previously excluded by the full-span lock at the cost above, accepted here as the last-write
+/// consequence of an operation the user triggered twice concurrently.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<SyncStatus> {
-    let _guard = state.begin_mutation().await;
     let token = load_token(secret.0.as_ref())?;
-    let settings = state.settings.read().clone();
 
-    let themes = service::collect_theme_entries(&state.paths);
-    let locales = service::collect_locale_entries(&state.paths);
-    let payload = service::assemble_payload(&settings, themes, locales, service::now_utc_iso8601());
-    let payload_json = serde_json::to_string_pretty(&payload)?;
+    let (settings_snapshot, payload_json) = {
+        let _guard = state.begin_mutation().await;
+        let settings = state.settings.read().clone();
+        let themes = service::collect_theme_entries(&state.paths);
+        let locales = service::collect_locale_entries(&state.paths);
+        let payload = service::assemble_payload(&settings, themes, locales, service::now_utc_iso8601());
+        (settings, serde_json::to_string_pretty(&payload)?)
+    };
 
     let client = outbound_http_client(HttpClientProfile::Api);
     let gist_client = GistClient {
@@ -114,7 +134,7 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
         token: &token,
     };
 
-    let (gist_id, remote_updated_at) = match settings.sync_gist_id.clone() {
+    let (gist_id, remote_updated_at) = match settings_snapshot.sync_gist_id.clone() {
         Some(id) => {
             let updated_at = gist_client.update_gist(&id, &payload_json).await?;
             (id, updated_at)
@@ -122,10 +142,11 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
         None => gist_client.create_gist(&payload_json).await?,
     };
 
+    let _guard = state.begin_mutation().await;
     let updated_settings = Settings {
         sync_gist_id: Some(gist_id),
         sync_last_synced_at: Some(remote_updated_at),
-        ..settings
+        ..state.settings.read().clone()
     };
     settings_service::save_settings(&state.paths, &updated_settings)?;
     *state.settings.write() = updated_settings.clone();
@@ -135,6 +156,18 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
     Ok(status)
 }
 
+/// Fetches the gist **outside** `AppState::begin_mutation` and takes the guard only for the local
+/// apply (audit R5#7, C11 axis A). What the old full-span guard actually protected, and how each
+/// protection is preserved: the fetch phase reads no app state beyond a `sync_gist_id` snapshot,
+/// so holding the lock across the round-trip protected nothing local; the check-then-apply phase
+/// (conflict decision → settings apply → theme/locale file writes) is where mutations must not
+/// interleave, and it runs entirely under the re-acquired guard, evaluated against the **live**
+/// settings rather than the pre-fetch snapshot. The old lock also made "the configured gist can't
+/// change while a download is in flight" true by construction — that is preserved by
+/// revalidation: if `sync_gist_id` was cleared (`sync_disconnect`) or repointed during the fetch,
+/// the apply aborts instead of resurrecting the stale target's content. The conflict check runs
+/// against the live `sync_last_synced_at` under the same guard, so a sync that completed during
+/// the fetch participates in the decision (contract 2026-08-19 §1.1's revalidation regime).
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_download(
@@ -143,10 +176,10 @@ pub async fn sync_download(
     secret: State<'_, SecretStoreState>,
     force: bool,
 ) -> AppResult<SyncDownloadResult> {
-    let _guard = state.begin_mutation().await;
     let token = load_token(secret.0.as_ref())?;
-    let settings = state.settings.read().clone();
-    let gist_id = settings
+    let gist_id = state
+        .settings
+        .read()
         .sync_gist_id
         .clone()
         .ok_or_else(|| AppError::InvalidArgument("no sync gist is configured yet — upload once first".to_string()))?;
@@ -158,15 +191,23 @@ pub async fn sync_download(
     };
     let (remote_updated_at, content) = gist_client.fetch_gist(&gist_id).await?;
 
-    if !force && service::is_remote_newer(&remote_updated_at, settings.sync_last_synced_at.as_deref()) {
-        return Ok(SyncDownloadResult::Conflict { remote_updated_at });
-    }
-
     let payload = service::parse_synced_payload(&content)
         .ok_or_else(|| AppError::Internal("sync payload from the gist was malformed".to_string()))?;
     service::ensure_supported_schema_version(payload.schema_version)?;
 
-    let applied = service::apply_payload_settings(&settings, &payload);
+    let _guard = state.begin_mutation().await;
+    let current = state.settings.read().clone();
+    if current.sync_gist_id.as_deref() != Some(gist_id.as_str()) {
+        return Err(AppError::InvalidArgument(
+            "the configured sync gist changed while downloading — retry the download".to_string(),
+        ));
+    }
+
+    if !force && service::is_remote_newer(&remote_updated_at, current.sync_last_synced_at.as_deref()) {
+        return Ok(SyncDownloadResult::Conflict { remote_updated_at });
+    }
+
+    let applied = service::apply_payload_settings(&current, &payload);
     let final_settings = Settings {
         sync_gist_id: Some(gist_id),
         sync_last_synced_at: Some(remote_updated_at),

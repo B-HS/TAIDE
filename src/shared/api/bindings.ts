@@ -115,6 +115,18 @@ export const commands = {
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
 	pluginReadGrammar: (pluginId: string, languageId: string) => typedError<string, AppError>(__TAURI_INVOKE("plugin_read_grammar", { pluginId, languageId })),
+	/**
+	 *  The heavy half — up-to-128MB archive extraction or a recursive directory copy into a unique
+	 *  `.tmp` staging dir — runs on a blocking thread **before** `AppState::begin_mutation` is taken
+	 *  (audit R7#10, C11 axis A: the old body held the guard for the whole install, freezing every
+	 *  other mutation for the extraction's duration). What the guard actually protected is preserved
+	 *  in the second half, which still runs under it: the authoritative already-installed check plus
+	 *  the atomic rename into `plugins_dir/{id}` (`service::commit_staged_install`) and the store
+	 *  reload stay serialized with `plugin_uninstall`/`plugin_reload`/other installs, so a duplicate
+	 *  id deterministically fails exactly as before and the store snapshot always reflects a settled
+	 *  plugins dir. Staging itself needs no serialization — every invocation writes only its own
+	 *  uuid-suffixed temp dir.
+	 */
 	pluginInstall: (sourcePath: string) => typedError<LoadedPlugin, AppError>(__TAURI_INVOKE("plugin_install", { sourcePath })),
 	/**
 	 *  No built-in-plugin protection — every entry in `plugins_dir` is a user-installed directory
@@ -260,8 +272,45 @@ export const commands = {
 	gitUnstage: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_unstage", { projectId, paths })),
 	gitDiscard: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_discard", { projectId, paths })),
 	gitCommit: (projectId: ProjectId, message: string, opts: CommitOptions) => typedError<string, AppError>(__TAURI_INVOKE("git_commit", { projectId, message, opts })),
+	/**
+	 *  Runs `git push` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3, C11
+	 *  axis A). What the old guard actually covered was audited before removal: `service::push`
+	 *  shells out to `git push`, which reads local refs/objects and — on success — updates the
+	 *  remote-tracking ref inside `.git`; it never touches the working tree, so serializing it with
+	 *  the app's file mutations (`file_save`, replace, ...) protected nothing. Same-repo `.git`
+	 *  integrity against concurrent app git commands (commit/stage/pull) is enforced by git's own
+	 *  index/ref locks, exactly as when the user runs `git push` in a terminal beside the app, and
+	 *  command-level ordering (commit-then-push) is already sequenced by the frontend awaiting each
+	 *  command. The subprocess wait moved into `spawn_blocking` so the network round-trip no longer
+	 *  pins an async worker thread either (architecture.md §2.1's other half).
+	 */
 	gitPush: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_push", { projectId })),
+	/**
+	 *  Still runs the whole `git pull` under `AppState::begin_mutation`, but on a blocking thread via
+	 *  `begin_mutation_blocking` (the `search_replace` T0#17 pattern) so the subprocess wait no
+	 *  longer pins an async worker thread. The lock's real protection here is pull's merge/rebase
+	 *  phase rewriting working-tree files, which must stay serialized against `file_save` and every
+	 *  other app file mutation. Splitting the network fetch phase out of the guard (the axis-A goal,
+	 *  contract 2026-08-19 §1.1) was audited and deliberately **not** done: `service::pull` shells
+	 *  out to `git pull`, which fuses fetch and the config-dependent integration step (merge vs
+	 *  `pull.rebase` vs `branch.<name>.rebase`) inside one subprocess — replicating the split as
+	 *  `git fetch` outside the lock plus a hand-rolled second step would change pull semantics for
+	 *  rebase-configured repos, so the fetch stays under the lock and the separation is deferred
+	 *  (contract §1.0: hold over a half-correct split).
+	 */
 	gitPull: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_pull", { projectId })),
+	/**
+	 *  Runs `git fetch` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3),
+	 *  with the same audit as [`git_push`]: `git fetch` updates remote-tracking refs and
+	 *  `FETCH_HEAD` inside `.git` and never touches the working tree, so app file mutations needed
+	 *  no serialization with it, and `.git` integrity against concurrent app git commands is git's
+	 *  own ref-lock job (the terminal-git precedent). The one interleaving the old lock did exclude
+	 *  — this fetch rewriting `FETCH_HEAD` between the fetch and merge phases *inside* a
+	 *  concurrently running [`git_pull`] — is accepted: both fetches target the same configured
+	 *  remote, so the for-merge `FETCH_HEAD` entries are computed from the same branch config and
+	 *  the pull still integrates a valid fetched upstream head, identical to running `git fetch` in
+	 *  a terminal during a pull, which git is built to tolerate.
+	 */
 	gitFetch: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_fetch", { projectId })),
 	gitUndoLastCommit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_undo_last_commit", { projectId })),
 	gitBranches: (projectId: ProjectId) => typedError<GitBranch[], AppError>(__TAURI_INVOKE("git_branches", { projectId })),
@@ -315,6 +364,11 @@ export const commands = {
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
 	detectTasks: (projectId: ProjectId) => typedError<Task[], AppError>(__TAURI_INVOKE("detect_tasks", { projectId })),
+	/**
+	 *  Never takes `AppState::begin_mutation` (it reads no app state); the one blocking cost left is
+	 *  the first call's system font scan, which runs on a blocking thread so it doesn't pin an async
+	 *  worker — every later call clones `service`'s process-lifetime cache (audit R8#11).
+	 */
 	fontList: () => typedError<FontFamily[], AppError>(__TAURI_INVOKE("font_list")),
 	localeList: () => typedError<LocaleSummary[], AppError>(__TAURI_INVOKE("locale_list")),
 	localeGet: (localeId: string) => typedError<ResolvedLocale_Serialize, AppError>(__TAURI_INVOKE("locale_get", { localeId })),
@@ -395,13 +449,53 @@ export const commands = {
 	syncStatus: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_status")),
 	syncConnect: (pat: string) => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_connect", { pat })),
 	syncDisconnect: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_disconnect")),
+	/**
+	 *  Runs in three phases so the GitHub round-trip (60s client timeout) no longer holds the
+	 *  app-wide mutation lock for its whole duration (audit R5#7, C11 axis A). What the old full-span
+	 *  guard actually protected, and how each protection is preserved:
+	 *  ① a short `begin_mutation` hold snapshots settings + theme/locale files — the same
+	 *  point-in-time payload consistency the full-span hold gave (no mutation can interleave between
+	 *  reading settings and reading the files it references); ② the gist create/update runs with the
+	 *  guard dropped — the freeze of every other mutation (file saves included) for the whole
+	 *  round-trip was cost, not protection; ③ the guard is re-acquired and the sync bookkeeping
+	 *  fields are overlaid onto a **fresh** read of the live settings, so a `settings_update` that
+	 *  landed during the round-trip is never rolled back to the phase-① snapshot.
+	 * 
+	 *  Consistency regime (contract 2026-08-19 §1.1 — last-write, made explicit):
+	 *  `sync_gist_id`/`sync_last_synced_at` are owned by whichever sync command finishes last; every
+	 *  other field is owned by the live settings. The uploaded content is the phase-① snapshot — a
+	 *  change made mid-upload rides the next upload. Two uploads racing the first-ever gist creation
+	 *  can each create a gist; the later write-back wins and the other gist is orphaned on GitHub —
+	 *  previously excluded by the full-span lock at the cost above, accepted here as the last-write
+	 *  consequence of an operation the user triggered twice concurrently.
+	 */
 	syncUpload: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_upload")),
+	/**
+	 *  Fetches the gist **outside** `AppState::begin_mutation` and takes the guard only for the local
+	 *  apply (audit R5#7, C11 axis A). What the old full-span guard actually protected, and how each
+	 *  protection is preserved: the fetch phase reads no app state beyond a `sync_gist_id` snapshot,
+	 *  so holding the lock across the round-trip protected nothing local; the check-then-apply phase
+	 *  (conflict decision → settings apply → theme/locale file writes) is where mutations must not
+	 *  interleave, and it runs entirely under the re-acquired guard, evaluated against the **live**
+	 *  settings rather than the pre-fetch snapshot. The old lock also made "the configured gist can't
+	 *  change while a download is in flight" true by construction — that is preserved by
+	 *  revalidation: if `sync_gist_id` was cleared (`sync_disconnect`) or repointed during the fetch,
+	 *  the apply aborts instead of resurrecting the stale target's content. The conflict check runs
+	 *  against the live `sync_last_synced_at` under the same guard, so a sync that completed during
+	 *  the fetch participates in the decision (contract 2026-08-19 §1.1's revalidation regime).
+	 */
 	syncDownload: (force: boolean) => typedError<SyncDownloadResult, AppError>(__TAURI_INVOKE("sync_download", { force })),
 	vsixExtractThemes: (vsixPath: string) => typedError<VsixThemeExtractionResult, AppError>(__TAURI_INVOKE("vsix_extract_themes", { vsixPath })),
 	/**
-	 *  Imports a real VS Code `.vsix`'s language/grammar contributions as a new TAIDE plugin
-	 *  (`service::import_vsix_as_plugin`), then reloads the plugin list the same way `plugin_install`
-	 *  does so the frontend gets the freshly-installed plugin's enabled/error state immediately.
+	 *  Imports a real VS Code `.vsix`'s language/grammar contributions as a new TAIDE plugin. The
+	 *  heavy half — reading the archive and writing the staged plugin into a unique `.tmp` dir
+	 *  (`service::stage_vsix_import`) — runs on a blocking thread **before**
+	 *  `AppState::begin_mutation` is taken (audit R7#10, C11 axis A: the old body held the guard for
+	 *  the whole import). What the guard actually protected is preserved in the second half, still
+	 *  under it: the authoritative already-installed check plus the atomic rename
+	 *  (`plugin_service::commit_staged_install`) and the plugin-list reload stay serialized with every
+	 *  other guarded plugin mutation, the same shape `plugin_install` uses, so the frontend gets the
+	 *  freshly-installed plugin's enabled/error state immediately.
 	 */
 	vsixImportPlugin: (vsixPath: string) => typedError<LoadedPlugin, AppError>(__TAURI_INVOKE("vsix_import_plugin", { vsixPath })),
 	remoteStatus: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_status")),
