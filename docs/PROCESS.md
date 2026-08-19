@@ -18,9 +18,9 @@
 |------|------|
 | T0 24항목 | **완료**(#15 는 T1-2차 재등록으로 해소) |
 | T1 11묶음 중 8 | **완료**: E·J·B(1차)·G·asset·F(2차)·C·D·A(3차)·editor-pane 이월(d-13) |
-| **T1-K 원격 기본거부** (6건) | **진행 중(d-14)** — C16 근본, 위험 중 |
+| **T1-K 원격 기본거부** (6건) | **완료(d-14)** — C16 근본 해소(기본 거부 기계 강제) |
 | **T1-H 락 IO 분리** (10건) | 미착수 — **위험 높음**(96 호출지점, 착수 시 재고지) |
-| **T1-I 도메인 경계 C13** (12건) | 미착수 — **위험 중~높음**(30엣지·순환 절단, 착수 시 재고지) |
+| **T1-I 도메인 경계 C13** (12건) | **진행 중(d-17)** — 결정 10-A·12-A 확정, 계약 `2026-08-19-audit-t1i-domain-boundary-contract.md` |
 | T2 백로그 10묶음 (~107건) | 미착수 — 중복 제거·비대 파일 분해(editor-pane 은 해소, settings-view 927·lib.rs·locale/service.rs 4081 등 잔여)·shared/lib 재구조화·접근성 8·dead code·매직넘버·로케일 외부화 |
 | T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
 | X-A 배선 8건 | **완료(d-15)** — 살리기 4·지우기(focus-kind·app:ready·중복 5종)·X1#2 소비 전량. 신규 이월 4건(viewState closed_tabs 복원 공백·useReplaceSearch invalidation 부재·REMOTE 폴링/push 중복·경로 predicate 한계)은 d-15 계약 §6 |
@@ -720,6 +720,15 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
     - [x] d-16. 세션 핸드오프(/prepare-new, 2026-08-19) — HANDOFF 전면 재작성(이번 세션 4배치+
           Phase 8 사전준비 스냅샷·dev 17커밋·기준선 실측 프론트 1375/Rust 1030). 미응답 결정
           패키지(X-A prod 병합·다음=T1-I 추천) HANDOFF §6 이관. 재개 프롬프트 출력
+    - [x] d-0h. 착수 확인 8차(2026-08-19, 새 세션 — 복원·실물 대조 후): 사용자 "전부 추천대로"
+          — ① X-A 청소+핸드오프 4커밋 prod 병합 완료(main=353d590, branch -f + push 분리) ②
+          다음 배치 = T1-I 도메인 경계 ③ 감사 §9 결정 10-A(코드를 architecture.md:77 규칙에)·
+          12-A(Project.capabilities attach/detach 실현) 확정 + 위험 재고지 승인
+    - [ ] d-17. 감사 T1-I 도메인 경계 재조립(C13, 12건) — **진행 중**. 계약
+          `docs/acknowledge/2026-08-19-audit-t1i-domain-boundary-contract.md`. 착수 전 실물
+          재확인 완료(엣지 전수 grep·ProjectCapability 스텁·내부 이벤트 버스 부재·open/close
+          순서 민감성). 실행: R1(확장점+project 이관)→R2(ide 정리)→R3(잔여 엣지+아키텍처
+          테스트+문서) 순차 단독 → E 검토(4렌즈+적대적) → 수정 → 메인 2차 → 커밋
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
