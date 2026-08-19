@@ -14,6 +14,44 @@ const parentDirOf = (path: string) => {
     return index <= 0 ? PATH_SEPARATOR : path.slice(0, index)
 }
 
+type RefreshTreeDirFn = (dir: string) => ReturnType<typeof refreshTreeDir>
+
+/**
+ * Refreshes every changed directory's tree cache entry and reconciles the `TREE.ROWS` query cache
+ * with the result. A single-directory batch (the common case — the debounced watcher groups paths
+ * by change kind, so most fs events resolve to exactly one parent dir) writes `refreshTreeDir`'s
+ * page straight into the cache: the same one round trip `refreshTreeDir` already made, instead of
+ * discarding it and paying for a second `TREE.ROWS` fetch on top (contract R4#13's "N+1"). A batch
+ * spanning multiple directories can't reuse that shortcut — `Promise.all`'s result array preserves
+ * *input* order, not completion order, so "the last resolved page" isn't well-defined, and Rust's
+ * `tree_refresh` snapshot from any one call only reflects invalidations that landed before that call
+ * took the per-project mutation guard. Every directory is still refreshed via `Promise.allSettled`
+ * (so each one's cache entry is invalidated and re-read from disk even if a sibling call fails), and
+ * the cache write comes from a plain `invalidateQueries` once all of them have settled —
+ * `tree_rows`/`getTreeRows` reads the tree store's *current* state without rescanning disk, so by
+ * then it already reflects every directory's invalidation. `invalidateQueries` is also the fallback
+ * whenever the lone `refreshTreeDir` call in the single-directory path itself fails, so a partial
+ * failure still ends in a correct, non-stale cache rather than a silently stale one.
+ */
+export const syncTreeRowsForChangedDirs = async (
+    dirs: string[],
+    deps: { refreshTreeDir: RefreshTreeDirFn; setTreeRows: (page: Awaited<ReturnType<RefreshTreeDirFn>>) => void; invalidateTreeRows: () => void },
+) => {
+    if (dirs.length === 0) return
+
+    if (dirs.length === 1) {
+        try {
+            deps.setTreeRows(await deps.refreshTreeDir(dirs[0]))
+        } catch {
+            deps.invalidateTreeRows()
+        }
+        return
+    }
+
+    await Promise.allSettled(dirs.map((dir) => deps.refreshTreeDir(dir)))
+    deps.invalidateTreeRows()
+}
+
 export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
 
@@ -70,18 +108,6 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.LOCALE.ALL })
     })
 
-    /**
-     * `refreshTreeDir` already returns the tree's up-to-date `TreeRowPage` after invalidating one
-     * directory (Rust's `tree_refresh` rebuilds the full page under the same per-project mutation
-     * guard every `tree_toggle`/`tree_reveal` call does) — writing that straight into the cache
-     * with `setQueryData` covers the common single-directory case with the same one round trip
-     * `refreshTreeDir` already made, instead of discarding it and paying for a second `TREE.ROWS`
-     * fetch on top (contract R4#13's "N+1"). The batch's last resolved page reflects every prior
-     * directory's invalidation too, since they all serialize through that same per-project guard.
-     * `invalidateQueries` is kept as the fallback for the (rare) case a directory refresh itself
-     * fails, so a partial failure still ends in a correct, non-stale cache rather than a silently
-     * stale one.
-     */
     useTauriEvent(events.fsChanged, ({ payload }) => {
         const { projectId, change } = payload
 
@@ -90,10 +116,11 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         }
 
         const dirs = [...new Set(change.paths.map(parentDirOf))]
-        void Promise.all(dirs.map((dir) => refreshTreeDir({ projectId, dir }))).then(
-            (pages) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId), pages[pages.length - 1]),
-            () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) }),
-        )
+        void syncTreeRowsForChangedDirs(dirs, {
+            refreshTreeDir: (dir) => refreshTreeDir({ projectId, dir }),
+            setTreeRows: (page) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId), page),
+            invalidateTreeRows: () => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) }),
+        })
     })
 
     return children

@@ -624,7 +624,7 @@
           flaky#3 `45adf9d`) prod 병합 완료(main=85ea29b, branch -f + push 분리 실행) ② 다음 배치
           = 감사 T1 3차(T1-C·T1-D·T1-A 잔여) ③ tauri `test` feature 미도입 유지(REMOTE_DENIED_
           COMMANDS 테이블로 라우팅 검증 기달성) ④ e2e 파일럿·QA-W1 실기는 사용자 준비 시점 별도
-    - [ ] d-12. 감사 T1 정비 3차 배치(T1-C 서버상태 14건·T1-D 레지스트리 17건·T1-A 잔여 3건) —
+    - [x] d-12. 감사 T1 정비 3차 배치(T1-C 서버상태 14건·T1-D 레지스트리 17건·T1-A 잔여 3건) —
           계약 `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md`. 착수 전 메인 실물 재확인
           13건 전건 일치. 세부 결정 3건(R7#6 제거 확정·store 이관 목적지 external-store 브리지·
           F6#5 범위 외) **전부 추천안 확정(2026-08-19)**.
@@ -632,9 +632,16 @@
           reinitialize)→F0(팩토리 2종+12종 마이그레이션)→F1(T1-C 13건)·F2(프로바이더 3+정리 4)·
           F3(LSP 5+shiki+재핸드셰이크, 중단 시도 1 산출물을 3차가 검증)→D(접합부 owner 6곳 봉합·
           문서). 메인 2차: 스팟 체크 전건 일치 + verify·vite build 직접 재실행 exit 0(프론트
-          1283·Rust 995). 구현분 dev 커밋. 잔여 이월: F3#4 절반(editor-pane 계열)·F7#5 폴백·
-          F1#17 재확인. 상세 계약 §3.5.
-          **다음: Phase E 검토(4렌즈 opus+xhigh+적대적 opus+high) → confirmed 수정 → 완료**
+          1283·Rust 995). 구현분 dev 커밋(`933a052`). 상세 계약 §3.5.
+          **Phase E 완료(wf_b8b5d39b-595 검토 + wf_00fcdcc2-f38 수정)**: 4렌즈 47발견 → 적대적
+          17건 confirmed 15·refuted 2 → 수정 3에이전트(critical: 원격 owner 위장 →
+          enforce_remote_owner_label 재귀 강제 치환 / fsChanged 재설계 / claude-diff 전 창 판정 /
+          LSP 6건: marker 회수·sessionsByKey 정리·root-aware API·SERVERS 제외 무효화·재핸드셰이크
+          타임아웃+재시도·diagnostics client 필수화 + 부수 minor 5). 메인 2차: 수정 5축 실물
+          재검증 + verify·vite build 재실행 exit 0(프론트 1304·Rust 1000·커맨드 180 파리티).
+          문서 정정(ipc-contract owner 신뢰 경계·180종·data-model roots 오기). 이월 잔여 8건은
+          계약 §5.1 정본(1순위: editor-pane 묶음 — F1#17 blame·F3#4 절반·F3#18 구독 2곳·
+          root-aware 소비처 5곳)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

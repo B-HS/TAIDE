@@ -6,10 +6,9 @@ import { toast } from 'sonner'
 import type { ProjectId, ProjectLayout, TabId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { findPaneTab } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { useCloseTab } from '@entities/layout/layout.query'
-import { resolveIdeDiff } from '@entities/ide/ide.ipc'
 import { useResolveIdeDiff } from '@entities/ide/ide.query'
 import { getPendingClaudeDiff, removePendingClaudeDiff, takePendingClaudeDiffIfUnresolved } from '@entities/ide/claude-diff-registry'
 import { Button } from '@shared/ui/button'
@@ -22,6 +21,18 @@ type ClaudeDiffPaneProps = {
     requestId: string
     path: string
 }
+
+/**
+ * Whether `tabId` is still open somewhere in the project — any pane, any window, active or not.
+ * Must search every window's tree (`collectAllPaneTabs`), not just the main one: a claudeDiff tab
+ * always opens in the main window (`ide-sync-provider.tsx`), but its tab-bar context menu can move
+ * it into an auxiliary window like any other tab (`layout_move_tab_to_window` doesn't filter by tab
+ * kind) — that move still unmounts this pane from the main window, and at that point the tab lives
+ * only under `layout.auxiliaryWindows[].root`, not `layout.root`. A single-tree check would read that
+ * as "closed" and fire an implicit reject for a tab the user never rejected.
+ */
+export const isTabStillOpenInLayout = (layout: ProjectLayout | undefined, tabId: TabId): boolean =>
+    !!layout && collectAllPaneTabs(layout).some((tab) => tab.id === tabId)
 
 export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requestId, path }) => {
     const { t } = useTranslation()
@@ -77,23 +88,23 @@ export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requ
      * user ever clicking Accept/Reject — e.g. closing the tab directly from the tab bar. This pane
      * only renders while its tab is the *active* tab of its pane (`pane-node-view.tsx`), so a plain
      * unmount effect can't tell "the user switched to another tab, this one is still open" apart
-     * from "the tab actually closed" — checking whether `tabId` is still anywhere in the project's
-     * current layout (any pane, active or not) via `findPaneTab` is what makes that distinction. The
-     * layout cache the tab-close mutation writes (`layout.query.ts`'s `useLayoutMutation`) is already
-     * updated by the time this pane actually unmounts as a result of it — the cache write is what
-     * triggers the re-render that removes this pane from the tree in the first place — so this stays
-     * correct even through React 18 `StrictMode`'s (`main.tsx`) synchronous mount→cleanup→remount
-     * replay: at that replay's cleanup, nothing has changed yet, so `findPaneTab` still finds the tab
-     * and this is a no-op, same as a real "switched to another tab, this one is still open" case.
+     * from "the tab actually closed" — `isTabStillOpenInLayout` (see its own doc for why it has to
+     * search every window's tree) is what makes that distinction. The layout cache the tab-close/move
+     * mutation writes (`layout.query.ts`'s `useLayoutMutation`) is already updated by the time this
+     * pane actually unmounts as a result of it — the cache write is what triggers the re-render that
+     * removes this pane from the tree in the first place — so this stays correct even through React
+     * 18 `StrictMode`'s (`main.tsx`) synchronous mount→cleanup→remount replay: at that replay's
+     * cleanup, nothing has changed yet, so the tab is still found and this is a no-op, same as a real
+     * "switched to another tab, this one is still open" case.
      */
     useEffect(() => {
         return () => {
             const layout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId))
-            if (layout && findPaneTab(layout.root, tabId)) return
+            if (isTabStillOpenInLayout(layout, tabId)) return
             if (!takePendingClaudeDiffIfUnresolved(requestId)) return
-            void resolveIdeDiff({ requestId, outcome: 'rejected', content: null }).catch(() => undefined)
+            void resolveDiff({ requestId, outcome: 'rejected', content: null }).catch(() => undefined)
         }
-    }, [requestId, tabId, projectId, queryClient])
+    }, [requestId, tabId, projectId, queryClient, resolveDiff])
 
     const handleAccept = async () => {
         if (isResolving) return

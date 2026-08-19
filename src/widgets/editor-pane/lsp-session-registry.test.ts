@@ -56,6 +56,18 @@ const createFakeLspIpc = () => {
     }
 
     /**
+     * Lets a test simulate a respawned process that never answers `initialize` (R7#1's bounded-retry
+     * timeout/backoff) — the next `count` outgoing `initialize` requests get logged to `sentMessages`
+     * as usual but never receive the auto-response `sendLspMessage` below would otherwise queue,
+     * leaving `client.initialize(...)` pending until `withTimeout` in `lsp-session-registry.ts` gives
+     * up on it. Consumed one at a time as `initialize` requests actually go out, not per call.
+     */
+    let suppressedInitializeResponses = 0
+    const suppressNextInitializeResponses = (count: number) => {
+        suppressedInitializeResponses = count
+    }
+
+    /**
      * Answers the outgoing `initialize` request synchronously (as a resolved LSP handshake) so
      * `createSession`'s `await client.initialize(...)` — and therefore `record.ready` — actually
      * fulfills, instead of every acquired record staying permanently pending/rejected the way a
@@ -71,8 +83,12 @@ const createFakeLspIpc = () => {
         const parsed = { ...(JSON.parse(message) as Omit<SentMessage, 'sessionId'>), sessionId }
         sentMessages.push(parsed)
         if (parsed.method === 'initialize' && parsed.id !== undefined) {
-            const spawn = spawns.findLast((entry) => entry.sessionId === sessionId)
-            queueMicrotask(() => spawn?.onMessage(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: { capabilities: {} } })))
+            if (suppressedInitializeResponses > 0) {
+                suppressedInitializeResponses -= 1
+            } else {
+                const spawn = spawns.findLast((entry) => entry.sessionId === sessionId)
+                queueMicrotask(() => spawn?.onMessage(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: { capabilities: {} } })))
+            }
         }
         return Promise.resolve()
     }
@@ -96,10 +112,25 @@ const createFakeLspIpc = () => {
         resolveLspRoot,
         confirmLspReinitialize,
         setSharesSessions,
+        suppressNextInitializeResponses,
         spawns,
         stopCalls,
         sentMessages,
         confirmReinitializeCalls,
+        /**
+         * Neither `lsp-session-registry.ts` nor this file's own tests use these four — they exist
+         * purely so this `mock.module('@entities/lsp/lsp.ipc', ...)` call covers the real module's
+         * entire export surface. `mock.module` is process-global and last-registration-wins, so
+         * whichever of this fake and `entities/lsp/lsp.query.test.ts`'s own (differently-shaped) fake
+         * happens to load last would otherwise silently replace the other for the whole test run —
+         * making both fakes a superset of the real module keeps either winning a safe no-op for the
+         * file that didn't.
+         */
+        restartLspSession: () => Promise.resolve(),
+        listLspSessions: () => Promise.resolve([]),
+        detectLspServers: () => Promise.resolve([]),
+        installLspServer: () => Promise.resolve(),
+        cancelLspInstall: () => Promise.resolve(),
     }
 }
 
@@ -113,6 +144,13 @@ const importRegistry = () => import('@widgets/editor-pane/lsp-session-registry')
 const PROJECT_ID = 'project-1' as Parameters<Awaited<ReturnType<typeof importRegistry>>['acquireLspSession']>[0]
 const SERVER_ID = 'server-1' as Parameters<Awaited<ReturnType<typeof importRegistry>>['acquireLspSession']>[1]
 const TEST_GRACE_MS = 20
+
+/**
+ * Comfortably longer than the worst-case reinitialize retry sequence a test drives with
+ * `{ timeoutMs: 20, maxAttempts: 3, retryDelayMs: 10 }`-shaped overrides (up to 3 * (20 + 10) = 90ms
+ * of real elapsed time) — used to flush every attempt/backoff/microtask hop before asserting.
+ */
+const REINIT_TEST_SETTLE_MS = 300
 
 describe('acquireLspSession / releaseLspSession — dispose 유예', () => {
     test('유예 기간 내 재획득하면 동일 record 를 반환하고 dispose 되지 않는다', async () => {
@@ -467,5 +505,208 @@ describe('handleLspSessionStatusChanged — 자동 재시작 재핸드셰이크 
     test('알려지지 않은 sessionId 는 조용히 무시한다', async () => {
         const { handleLspSessionStatusChanged } = await importRegistry()
         expect(() => handleLspSessionStatusChanged({ sessionId: 'never-acquired', status: 'crashed', lastError: null, generation: 1 })).not.toThrow()
+    })
+
+    test('재핸드셰이크 첫 시도가 무응답으로 타임아웃되면 재시도해 결국 성공한다 (무한 limbo 방지)', async () => {
+        const { acquireLspSession, handleLspSessionStatusChanged } = await importRegistry()
+        const serverId = `${SERVER_ID}-reinit-timeout-retry` as typeof SERVER_ID
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/reinit-timeout-retry-root')
+        const session = await handle.record.ready
+
+        fakeLspIpc.suppressNextInitializeResponses(1)
+        handleLspSessionStatusChanged(
+            { sessionId: session.sessionId, status: 'crashed', lastError: 'boom', generation: 1 },
+            { timeoutMs: 20, maxAttempts: 3, retryDelayMs: 10 },
+        )
+
+        await new Promise((resolve) => setTimeout(resolve, REINIT_TEST_SETTLE_MS))
+
+        const initializeCalls = fakeLspIpc.sentMessages.filter(
+            (message) => message.sessionId === session.sessionId && message.method === 'initialize',
+        )
+        expect(initializeCalls.length).toBeGreaterThanOrEqual(3)
+        expect(fakeLspIpc.confirmReinitializeCalls).toContainEqual({ sessionId: session.sessionId, generation: 1 })
+        expect(handle.record.group.isReinitializing).toBe(false)
+    })
+
+    test('모든 재시도가 실패하면 lsp_confirm_reinitialize 를 호출하지 않고 isReinitializing 을 해제한다 (무한 재시도 아님)', async () => {
+        const { acquireLspSession, handleLspSessionStatusChanged, acquireDocument } = await importRegistry()
+        const serverId = `${SERVER_ID}-reinit-exhausted` as typeof SERVER_ID
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/reinit-exhausted-root')
+        const session = await handle.record.ready
+
+        fakeLspIpc.suppressNextInitializeResponses(3)
+        handleLspSessionStatusChanged(
+            { sessionId: session.sessionId, status: 'crashed', lastError: 'boom', generation: 1 },
+            { timeoutMs: 10, maxAttempts: 3, retryDelayMs: 5 },
+        )
+
+        await new Promise((resolve) => setTimeout(resolve, REINIT_TEST_SETTLE_MS))
+
+        expect(fakeLspIpc.confirmReinitializeCalls.some((call) => call.sessionId === session.sessionId)).toBe(false)
+        expect(handle.record.group.isReinitializing).toBe(false)
+
+        const uri = 'file:///tmp/reinit-exhausted-root/new-file.ts'
+        acquireDocument(handle.record, session.client, uri, 'typescript', 'const a = 1')
+        const didOpenAfterExhaustion = fakeLspIpc.sentMessages.find(
+            (message) =>
+                message.sessionId === session.sessionId &&
+                message.method === 'textDocument/didOpen' &&
+                (message.params as { textDocument: { uri: string } }).textDocument.uri === uri,
+        )
+        expect(didOpenAfterExhaustion).toBeDefined()
+    })
+
+    test('재핸드셰이크 진행 중(isReinitializing) 새로 열린 문서는 acquireDocument 가 직접 didOpen 을 보내지 않고, 재핸드셰이크의 replay 가 대신 보낸다', async () => {
+        const { acquireLspSession, handleLspSessionStatusChanged, acquireDocument } = await importRegistry()
+        const serverId = `${SERVER_ID}-reinit-mid-open` as typeof SERVER_ID
+        const uri = 'file:///tmp/reinit-mid-open-root/mid.ts'
+        FAKE_MODELS.set(uri, { getLanguageId: () => 'typescript', getValue: () => 'const mid = 1' })
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/reinit-mid-open-root')
+        const session = await handle.record.ready
+
+        fakeLspIpc.suppressNextInitializeResponses(1)
+        handleLspSessionStatusChanged(
+            { sessionId: session.sessionId, status: 'crashed', lastError: 'boom', generation: 1 },
+            { timeoutMs: 20, maxAttempts: 3, retryDelayMs: 10 },
+        )
+        /** `reinitializeSession` starts with `await record.ready` (already-resolved, but still a real microtask hop) before setting `isReinitializing` — flush that hop before relying on the flag. */
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(handle.record.group.isReinitializing).toBe(true)
+        acquireDocument(handle.record, session.client, uri, 'typescript', 'const mid = 1')
+
+        const didOpenDuringGate = fakeLspIpc.sentMessages.find(
+            (message) =>
+                message.sessionId === session.sessionId &&
+                message.method === 'textDocument/didOpen' &&
+                (message.params as { textDocument: { uri: string } }).textDocument.uri === uri,
+        )
+        expect(didOpenDuringGate).toBeUndefined()
+
+        await new Promise((resolve) => setTimeout(resolve, REINIT_TEST_SETTLE_MS))
+
+        const didOpenCallsForUri = fakeLspIpc.sentMessages.filter(
+            (message) =>
+                message.sessionId === session.sessionId &&
+                message.method === 'textDocument/didOpen' &&
+                (message.params as { textDocument: { uri: string } }).textDocument.uri === uri,
+        )
+        expect(didOpenCallsForUri).toHaveLength(1)
+
+        FAKE_MODELS.delete(uri)
+    })
+})
+
+describe('finalizeSessionDisposal — spawn 진행 중 강제 정리 시 sessionsByKey 잔존 방지 (R7#7 회귀)', () => {
+    test('spawn resolve 전에 flushLspSessionsForProject 가 호출되면 키가 즉시 정리되어, resolve 이후 같은 root 재acquire 시 새 spawn 이 생긴다', async () => {
+        const { acquireLspSession, flushLspSessionsForProject, peekLspSession } = await importRegistry()
+        const serverId = `${SERVER_ID}-spawn-flush` as typeof SERVER_ID
+        const root = '/tmp/spawn-flush-root'
+
+        const first = acquireLspSession(PROJECT_ID, serverId, root)
+        flushLspSessionsForProject(PROJECT_ID)
+
+        expect(peekLspSession(PROJECT_ID, serverId)).toBeNull()
+
+        await first.record.ready.catch(() => undefined)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        const spawnCountBefore = fakeLspIpc.spawns.length
+        const second = acquireLspSession(PROJECT_ID, serverId, root)
+        await second.record.ready
+
+        expect(fakeLspIpc.spawns.length).toBe(spawnCountBefore + 1)
+        expect(second.record).not.toBe(first.record)
+    })
+})
+
+describe('peekLspSessionForRoot / waitForLspSessionForRoot — 다중 root 정확한 선택 (R7#7 회귀)', () => {
+    test('비공유 서버에서 root 별로 독립된 세션을 정확히 반환하며, root-agnostic peekLspSession 은 항상 가장 먼저 만들어진 root 만 반환한다', async () => {
+        const { acquireLspSession, peekLspSession, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-multi-root` as typeof SERVER_ID
+
+        const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/multi-root-a')
+        await first.record.ready
+        const second = acquireLspSession(PROJECT_ID, serverId, '/tmp/multi-root-b')
+        await second.record.ready
+
+        expect(first.record).not.toBe(second.record)
+        expect(peekLspSession(PROJECT_ID, serverId)).toBe(first.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, '/tmp/multi-root-a')).toBe(first.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, '/tmp/multi-root-b')).toBe(second.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, '/tmp/multi-root-c')).toBeNull()
+    })
+
+    test('대기 중인 root 가 직접 획득되면 그 record 로 resolve 된다', async () => {
+        const { acquireLspSession, waitForLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-wait-root-direct` as typeof SERVER_ID
+
+        const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, '/tmp/wait-root-direct')
+        const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/wait-root-direct')
+        await handle.record.ready
+
+        expect(await waiter.promise).toBe(handle.record)
+    })
+
+    test('알려진 한계: 같은 (projectId, serverId) 의 다른 root 획득도 대기자 큐를 깨워, 목표 root 가 아니면 null 로 resolve 된다', async () => {
+        const { acquireLspSession, waitForLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-wait-root-other` as typeof SERVER_ID
+
+        const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, '/tmp/wait-root-other-b')
+        const handleA = acquireLspSession(PROJECT_ID, serverId, '/tmp/wait-root-other-a')
+        await handleA.record.ready
+
+        expect(await waiter.promise).toBeNull()
+    })
+})
+
+describe('createSession — 합류 시 dispose 타이머 재무장 (correctness minor)', () => {
+    test('두 root 모두 spawn 완료 전에 이미 release 되어 있으면(합류 후 refCount 0) 합류된 그룹에 dispose 타이머가 재무장된다', async () => {
+        const { acquireLspSession, releaseLspSession, flushLspSessionDisposal, peekLspSession } = await importRegistry()
+        const serverId = `${SERVER_ID}-shared-rearm` as typeof SERVER_ID
+        fakeLspIpc.setSharesSessions(serverId)
+
+        const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-rearm-root-a')
+        await first.record.ready
+        releaseLspSession(first.key, first.record, TEST_GRACE_MS)
+
+        const second = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-rearm-root-b')
+        releaseLspSession(second.key, second.record, TEST_GRACE_MS)
+
+        await second.record.ready
+
+        expect(second.record.group).toBe(first.record.group)
+        expect(second.record.group.refCount).toBe(0)
+        expect(second.record.group.disposeTimer).not.toBeNull()
+
+        flushLspSessionDisposal(second.key, second.record)
+        expect(peekLspSession(PROJECT_ID, serverId)).toBeNull()
+
+        await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
+    })
+})
+
+describe('createSession — sibling.ready 대기 타임아웃 (correctness minor)', () => {
+    test('sibling 의 initialize 가 응답 없이 멈춰 있어도, sibling 대기 타임아웃 이후에는 자신의 spawn 을 진행한다', async () => {
+        const { acquireLspSession } = await importRegistry()
+        const serverId = `${SERVER_ID}-sibling-timeout` as typeof SERVER_ID
+
+        fakeLspIpc.suppressNextInitializeResponses(1)
+        const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/sibling-timeout-root-a')
+
+        const spawnCountBeforeSecond = fakeLspIpc.spawns.length
+        const second = acquireLspSession(PROJECT_ID, serverId, '/tmp/sibling-timeout-root-b', undefined, TEST_GRACE_MS)
+
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(fakeLspIpc.spawns.length).toBe(spawnCountBeforeSecond)
+
+        await second.record.ready
+        expect(fakeLspIpc.spawns.length).toBe(spawnCountBeforeSecond + 1)
+
+        void first.record.ready.catch(() => undefined)
     })
 })

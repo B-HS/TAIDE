@@ -141,3 +141,55 @@ T0 #9(IDE 프로바이더 승격)와 동일 패턴. 조건부 렌더 위젯의 �
   무효화가 THEME/LOCALE 실의존 필드를 놓치지 않는지.
 - 실기 이월(qa6): 보조 창 monaco 키바인딩 적용·Zen 에이전트 배지·멀티윈도우 검색 독립·LSP
   크래시 자동 복구 실동작.
+
+---
+
+## 5. Phase E 검토 결함 수정 반영 (2026-08-19)
+
+> 검토 wf_b8b5d39b-595(4렌즈 opus+xhigh, 대상 dev `933a052` diff) — 발견 47(critical 1·major 16·
+> minor 30) → 적대적 검증(opus+high, major 이상 17 전건) **confirmed 15·refuted 2** → 수정
+> wf_00fcdcc2-f38(3 에이전트 sonnet+xhigh). 메인 2차: 수정 5축 실물 재검증 + `bun run verify`·
+> `bunx vite build` 직접 재실행 전부 exit 0(프론트 1304·Rust 1000, 커맨드 180종 파리티 그린).
+
+- **[critical·보안] 원격 owner 위장** — 4렌즈 수렴: ws→dispatch 가 클라이언트 JSON 의 owner 를
+  그대로 신뢰해 `owner:"main"` 위장으로 IdeStore 게이트·search/AI 스코프 우회 가능(메인 실물
+  확정). → `enforce_remote_owner_label` 신설: `dispatch()`/`dispatch_raw()` 진입에서 args 트리의
+  모든 owner 키(중첩·배열 포함)를 REMOTE_OWNER_LABEL 로 재귀 강제 치환(얕은 치환은
+  ide_set_selection·lsp_spawn 의 중첩 owner 가 뚫림을 구현이 확인해 재귀 채택). 회귀 테스트 6.
+- **[major] fsChanged 재작성 결함**(R4#13 수정분의 재결함) — `pages[length-1]` 입력순 채택·무catch
+  조기 reject·빈 배열 no-op → `syncTreeRowsForChangedDirs` 재설계(단일 dir 은 결과 setQueryData 로
+  N+1 회피 유지, 다중 dir 은 allSettled 전건 완료 후 단일 invalidate — 완료 순서 추정 대신 구조적
+  안전, 빈 가드·의존성 주입 테스트 5종).
+- **[major] claude-diff 잔존 판정 메인 창 한정** — `collectAllPaneTabs` 기반 전 창 검사로 교체
+  (실재현 경로는 Move to Window 이동 — 검토 판정문이 교정).
+- **[major] LSP 6건**: dispose 시 marker owner 회수(진단 중복 누적 해소)·spawn 중 폐기 시
+  sessionsByKey 그룹 스캔 삭제·root-aware `peek/waitForLspSessionForRoot` 신설·상태 이벤트 무효화를
+  SERVERS 제외 predicate 로 축소(staleTime Infinity 탐지 캐시 보존)·재핸드셰이크에 타임아웃 15s+
+  재시도 3회+세대 staleness 중단(무한 limbo 해소)·`getStoredDiagnostics` client 필수화 —
+  editor-pane:402 `ready.client` 전달, 무-client 폴백·`ownersByServerId` 스캔·거짓 doc 제거(F7#5
+  실해소 — §3.5 의 "이월" 을 해소로 정정).
+- **부수 minor 수정**: `isReinitializing` 게이트(재핸드셰이크 replay 와 didOpen/didClose 경합 방어)·
+  합류 시 refCount 0 dispose 타이머 재무장·sibling ready 20s 타임아웃·claude-diff cleanup 의 raw
+  IPC → mutation 통일·use-monaco-markers doc 병합. **refuted 2 수정 금지 준수**(reinitialize 이중
+  가드·lsp_confirm_reinitialize 원격 위조 — 후자의 owner 스코프 minor 도 동일 근거로 기각).
+- **문서 정정(메인)**: ipc-contract — owner 강제 치환 신뢰 경계 명시(게이트 범위를 selection 슬롯
+  한정으로 축소 서술)·lsp_confirm_reinitialize 원격 허용 명시·커맨드 179→180. data-model —
+  `SessionEntry.roots` "신설" 오기 정정(기존 필드, 이번엔 렌더러 키 확장).
+- **§3.5 이월 기록 정정(검토 confirmed)**: F1#17 은 "재현 불가"가 아니라 **editor-pane.tsx 의
+  git blame 2종 effect fetch + conflict sides**(대형 파일 소유 회피가 실사유). F3#18(use-lsp-session·
+  use-global-keymap 의 쿼리 캐시 저수준 구독)도 이월 목록 누락 — 추가.
+
+### 5.1 이월 잔여 (다음 배치 후보 — editor-pane 묶음 권장)
+
+1. **editor-pane 계열**(대형 파일 단독 배치 권장): F1#17 blame 2종 effect→query·F3#4 절반
+   (GIT.PROJECT/FILE.CONTENT 직접 무효화)·F3#18 저수준 구독 2곳·root-aware API 소비처 5곳 전환
+   (notifyLspSessionsOfSave·runCodeActionsOnSave·outline-panel·breadcrumbs-bar·command-palette —
+   다중 루트에서 엉뚱한 세션 참조가 end-to-end 로는 미해소, API 만 준비됨).
+2. open-with-registry 생명주기 정리(LRU 상한은 임시 방어 — 검토 design 렌즈 지적 유지).
+3. ws.rs writer 태스크 무한 대기(무트래픽 세션 프루닝·클라이언트 카운트 지연 — Close 프레임 flush
+   보장과 얽혀 별도 async 수명 검토 필요).
+4. Rust 재핸드셰이크 실패-확인 커맨드(재시도 소진 후 last_error 문구 잔존 — 현 UI 미노출 확인).
+5. 조인 시 throwaway client 인바운드 유실 race(하네스가 동기 resolve 라 재현 불가 — 보류).
+6. `ide_publish_diagnostics`/`ide_notify_at_mention` 원격 게이트 여부(제품 결정 필요).
+7. `TREE_ROWS_UNBOUNDED_LIMIT` 센티널 → `Option<u32>`(Rust 시그니처 변경 동반).
+8. PROJECT_SCOPED_KEYS 가 경로 키(FILE.CONTENT/RAW)를 못 덮음(실피해 낮음 평가 — 재확인용 기록).

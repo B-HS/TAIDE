@@ -57,7 +57,7 @@ const publish = (client: ReturnType<typeof createFakeClient>, params: unknown) =
 
 describe('registerDiagnostics 원본 사이드 맵', () => {
     test('알려지지 않은 uri/서버는 빈 배열을 반환한다', () => {
-        expect(getStoredDiagnostics('ruff', 'file:///unknown.py')).toEqual([])
+        expect(getStoredDiagnostics('ruff', 'file:///unknown.py', createFakeClient())).toEqual([])
     })
 
     test('publishDiagnostics 원본(code·data·source)을 marker 변환과 별개로 보관한다', () => {
@@ -123,6 +123,42 @@ describe('registerDiagnostics 원본 사이드 맵', () => {
 
         disposable.dispose()
         expect(getStoredDiagnostics('ruff', 'file:///a.py', client)).toEqual([])
+    })
+
+    test('세션 dispose 시 자신이 쓴 monaco marker 도 회수해, 세션 재생성마다 진단이 누적되지 않는다', () => {
+        const { monaco, registerModel, getMarkerCalls } = createFakeMonaco()
+        registerModel('file:///a.rs')
+        const clientA = createFakeClient()
+        const disposableA = registerDiagnostics(monaco, clientA, 'rustAnalyzer')
+
+        publish(clientA, {
+            uri: 'file:///a.rs',
+            diagnostics: [
+                { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: 'first' },
+                { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } }, message: 'second' },
+            ],
+        })
+        disposableA.dispose()
+
+        const ownerA = diagnosticsOwnerForClient('rustAnalyzer', clientA)
+        const clearCallForA = getMarkerCalls().find((call) => call.owner === ownerA && Array.isArray(call.markers) && call.markers.length === 0)
+        expect(clearCallForA).toBeDefined()
+
+        const clientB = createFakeClient()
+        registerDiagnostics(monaco, clientB, 'rustAnalyzer')
+        publish(clientB, {
+            uri: 'file:///a.rs',
+            diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: 'from session B' }],
+        })
+
+        const ownerB = diagnosticsOwnerForClient('rustAnalyzer', clientB)
+        const latestMarkerCountByOwner = new Map<string, number>()
+        for (const call of getMarkerCalls()) {
+            if (call.owner !== ownerA && call.owner !== ownerB) continue
+            latestMarkerCountByOwner.set(call.owner, Array.isArray(call.markers) ? call.markers.length : 0)
+        }
+        const totalLiveMarkers = Array.from(latestMarkerCountByOwner.values()).reduce((total, count) => total + count, 0)
+        expect(totalLiveMarkers).toBe(1)
     })
 
     test('모델이 닫히면(dispose) 그 uri 의 보관된 원본을 정리한다', () => {

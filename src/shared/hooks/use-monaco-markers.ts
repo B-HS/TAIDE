@@ -20,9 +20,10 @@ const refreshSnapshot = () => {
  * app) outlived every consumer for the app's entire lifetime, even when nothing ever rendered
  * `useMonacoMarkers`. Ref-counted by `listeners.size`: the first subscriber arms the real monaco
  * listener and takes a fresh snapshot (covering markers set before this subscriber mounted), the
- * last one unsubscribing tears it down.
+ * last one unsubscribing tears it down. Exported (alongside {@link getMonacoMarkersSnapshot}) purely
+ * so tests can exercise this ref-counted subscribe/unsubscribe lifecycle directly, without rendering
+ * a component.
  */
-/** Exported (alongside {@link getMonacoMarkersSnapshot}) purely so tests can exercise the ref-counted subscribe/unsubscribe lifecycle directly, without rendering a component. */
 export const subscribeToMonacoMarkers = (listener: Listener) => {
     if (listeners.size === 0) {
         snapshot = monaco.editor.getModelMarkers({})

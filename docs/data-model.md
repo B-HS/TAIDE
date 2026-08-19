@@ -622,6 +622,7 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   얻는다 — 어느 쪽도 디스크에 쓰이지 않는 순수 런타임 신호다(자동 크래시 재시작 횟수 카운터, 세션
   자체와 함께 사라진다).
 - **LSP 세션의 워크스페이스 root 집합(R7#7)**: Rust `SessionEntry.roots: Vec<(String, u32)>` (root →
-  참조 카운트)가 새로 생겼지만 이 역시 `LspStore`(세션 맵) 안의 런타임 상태일 뿐, 프로젝트가 실제로
+  참조 카운트)는 배치 이전부터 있던 필드고, 이번 배치는 **렌더러 세션 키에 root 를 추가**해 이
+  기구를 실제로 쓰게 만들었다. 어느 쪽이든 `LspStore`(세션 맵) 안의 런타임 상태일 뿐, 프로젝트가 실제로
   여는 워크스페이스 root 자체는 기존과 같은 방식(프로젝트 열기 시점의 파일시스템 스캔)으로 결정되어
   어떤 영속 스키마에도 새로 등재되지 않는다.

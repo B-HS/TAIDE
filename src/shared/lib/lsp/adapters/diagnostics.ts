@@ -7,14 +7,14 @@ import { lspRangeToMonaco } from '@shared/lib/lsp/position'
 
 let nextDiagnosticsOwnerSequence = 0
 const ownerByClient = new WeakMap<LspClient, string>()
-const ownersByServerId = new Map<LspServerId, Set<string>>()
 
 /**
  * Stable per-*session* (not per-server) monaco marker owner / `rawDiagnosticsByOwnerUri` store key
  * — two independent sessions of the *same* server id (e.g. two rust-analyzer processes for two
  * disjoint Cargo workspaces under one project, R7#7) must never share an owner tag, or one
  * session's diagnostics teardown/republish would stomp the other's `setModelMarkers` state (F7#5).
- * Keyed by `client` identity, which is stable for the lifetime of one underlying LSP connection —
+ * Keyed by `client` identity (a `WeakMap`, so an owner is reclaimed automatically once nothing else
+ * references its client), which is stable for the lifetime of one underlying LSP connection —
  * including every root joined onto a `sharesSessions` server's single connection — rather than
  * `serverId` alone. Idempotent per client: the first caller (always `registerDiagnostics`, called
  * once per session via `ensureLanguageRegistered`'s `!state.diagnosticsDisposable` guard) mints the
@@ -26,9 +26,6 @@ export const diagnosticsOwnerForClient = (serverId: LspServerId, client: LspClie
     nextDiagnosticsOwnerSequence += 1
     const owner = `lsp-${serverId}-${nextDiagnosticsOwnerSequence}`
     ownerByClient.set(client, owner)
-    const owners = ownersByServerId.get(serverId) ?? new Set<string>()
-    owners.add(owner)
-    ownersByServerId.set(serverId, owners)
     return owner
 }
 
@@ -59,22 +56,12 @@ const toStoreKey = (owner: string, uri: string) => `${owner}::${uri}`
 
 /**
  * Returns the last `publishDiagnostics` batch this server sent for `uri`, in original LSP shape.
- * Pass `client` (the session whose diagnostics you want) whenever it's available — that scopes the
- * lookup to exactly that session's own store (F7#5). Without it, falls back to scanning every
- * owner ever minted for `serverId` and returning the first non-empty match: a best-effort shim for
- * callers that only have `serverId` in scope (no session-scoped fix is possible there without
- * threading a `client` through — see `docs/acknowledge` for the specific call site this covers),
- * which still finds the right diagnostics in the overwhelmingly common case of one session per
- * server per project.
+ * `client` (the session whose diagnostics you want) is required and scopes the lookup to exactly
+ * that session's own store (F7#5) — two independent sessions of the same `serverId` (R7#7) must
+ * never leak each other's diagnostics into a code-action request through this lookup.
  */
-export const getStoredDiagnostics = (serverId: LspServerId, uri: string, client?: LspClient): Diagnostic[] => {
-    if (client) return rawDiagnosticsByOwnerUri.get(toStoreKey(diagnosticsOwnerForClient(serverId, client), uri)) ?? []
-    for (const owner of ownersByServerId.get(serverId) ?? []) {
-        const stored = rawDiagnosticsByOwnerUri.get(toStoreKey(owner, uri))
-        if (stored && stored.length > 0) return stored
-    }
-    return []
-}
+export const getStoredDiagnostics = (serverId: LspServerId, uri: string, client: LspClient): Diagnostic[] =>
+    rawDiagnosticsByOwnerUri.get(toStoreKey(diagnosticsOwnerForClient(serverId, client), uri)) ?? []
 
 export const registerDiagnostics = (monaco: Monaco, client: LspClient, serverId: LspServerId) => {
     const owner = diagnosticsOwnerForClient(serverId, client)
@@ -115,10 +102,26 @@ export const registerDiagnostics = (monaco: Monaco, client: LspClient, serverId:
     })
 
     return {
+        /**
+         * Besides dropping this session's own raw-diagnostics entries, also clears every marker it
+         * ever wrote (`setModelMarkers(model, owner, [])`) on the models still alive for `ownedUris`
+         * — `owner` is minted fresh per session (`diagnosticsOwnerForClient`), so unlike the old
+         * shared-per-server owner (which the *next* session's first publish silently overwrote),
+         * nothing else will ever republish under this exact owner again. Without this, a session
+         * disposed by the everyday grace-period file-switch (`LSP_SESSION_DISPOSE_GRACE_MS`) leaves
+         * its markers on the model forever, and every subsequent session for the same file/server
+         * adds its own on top — diagnostics counts double every cycle. A model already torn down by
+         * the time `dispose` runs was already removed from `ownedUris` by `modelDisposalDisposable`
+         * above, so `getModel` returning nothing here is expected, not an error.
+         */
         dispose: () => {
             notificationDisposable.dispose()
             modelDisposalDisposable.dispose()
-            for (const uri of ownedUris) rawDiagnosticsByOwnerUri.delete(toStoreKey(owner, uri))
+            for (const uri of ownedUris) {
+                rawDiagnosticsByOwnerUri.delete(toStoreKey(owner, uri))
+                const model = monaco.editor.getModel(monaco.Uri.parse(uri))
+                if (model) monaco.editor.setModelMarkers(model, owner, [])
+            }
         },
     }
 }

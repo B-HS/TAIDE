@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody, IpcResponse, Response};
 use tauri::{AppHandle, Manager};
 
-use super::types::REMOTE_CHANNEL_PREFIX;
+use super::types::{REMOTE_CHANNEL_PREFIX, REMOTE_OWNER_LABEL};
 use crate::domain;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -572,10 +572,55 @@ macro_rules! arg {
     };
 }
 
+/// The trust boundary for every `"owner"` value a remote request can ever carry: `dispatch`/
+/// `dispatch_raw` are the only two entry points a request arriving over `ws.rs`'s WebSocket can reach
+/// (see `handle_request`), and every `args` value they receive is client-controlled JSON from an
+/// authenticated but otherwise adversarial remote session. A handful of commands key window-scoped
+/// state by a caller-supplied `owner` string — `IdeStore::is_desktop_owner` (selection no-ops for a
+/// remote `owner`), and the owner-keyed maps in `SearchStore`/`AiRequestStore`/`LspStore`'s
+/// `SessionEntry.channels` — precisely so a browser-side remote session can never be mistaken for the
+/// real desktop window (`main`/`editor-<n>`) it is scoped apart from. Every one of those gates only
+/// holds if a remote caller can never make its `owner` say anything other than [`REMOTE_OWNER_LABEL`];
+/// left to the client, `owner: "main"` impersonates the desktop window outright and walks straight
+/// through every gate above (R6#12).
+///
+/// Rather than adding that same check at each of today's handful of call sites — top-level
+/// (`arg!(args, "owner")`: `search_run`/`search_cancel`/`lsp_stop`/`ide_clear_selection`/
+/// `ai_request_cancel`) as well as nested one level inside a request/input struct
+/// (`IdeSelectionInput.owner` via `arg!(args, "input")`; `LspSpawnRequest.owner`,
+/// `AiInlineCompleteRequest.owner`/`AiInlineEditRequest.owner`/`AiCommitMessageRequest.owner` via
+/// `arg!(args, "request")`) — and relying on every *future* command that grows an `owner` field to
+/// remember it too, this walks the whole `args` tree exactly once, before any per-command handler runs,
+/// and force-overwrites every JSON object key literally named `"owner"` it finds, however deeply
+/// nested. A well-behaved remote client already sends [`REMOTE_OWNER_LABEL`] for `owner` (the
+/// remote-mirror shim's `getCurrentWindow().label` — `src/shared/lib/remote/tauri-internals-shim.ts`),
+/// so this is a no-op for it; only a spoofed `owner` is ever changed. See
+/// `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md`.
+fn enforce_remote_owner_label(mut args: Value) -> Value {
+    match &mut args {
+        Value::Object(fields) => {
+            if fields.contains_key("owner") {
+                fields.insert("owner".to_string(), Value::String(REMOTE_OWNER_LABEL.to_string()));
+            }
+            for field in fields.values_mut() {
+                *field = enforce_remote_owner_label(std::mem::take(field));
+            }
+        }
+        Value::Array(items) => {
+            for item in items.iter_mut() {
+                *item = enforce_remote_owner_label(std::mem::take(item));
+            }
+        }
+        _ => {}
+    }
+    args
+}
+
 pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory: ChannelFactory) -> Result<String, Value> {
     if let Some(denial) = remote_denied_response(name) {
         return Err(denial);
     }
+    let args = enforce_remote_owner_label(args);
 
     use domain::agent::commands as agent;
     use domain::ai::commands as ai;
@@ -1140,7 +1185,12 @@ fn response_bytes(response: Response) -> Result<Vec<u8>, Value> {
     }
 }
 
+/// Same client-controlled-`args` trust boundary as [`dispatch`] (see [`enforce_remote_owner_label`]'s
+/// doc comment) — `file_read_raw` (the only command routed here today, see `ws.rs::handle_request`)
+/// takes no `owner`, so this is currently a no-op, but every future raw-channel command's `args` gets
+/// the same normalization for free without anyone having to remember to add it.
 pub async fn dispatch_raw(app: &AppHandle, name: &str, args: Value) -> Result<Vec<u8>, Value> {
+    let args = enforce_remote_owner_label(args);
     match name {
         "file_read_raw" => {
             let path = from_arg::<String>(&args, "path")?;
@@ -1371,5 +1421,88 @@ mod tests {
             Some(false),
             "원격 접속 자가 차단은 기존 철학대로 허용되어야 한다"
         );
+    }
+
+    /// R6#12 위장 회귀: `search_cancel`/`ai_request_cancel`/`lsp_stop`/`ide_clear_selection` 은 모두
+    /// `arg!(args, "owner")` 로 최상위 `owner` 키를 그대로 읽는다. 원격 클라이언트가 `owner: "main"`
+    /// 을 보내 데스크톱 창 소유의 검색/AI 요청을 교차 취소하려 해도, `dispatch()` 진입 시 이 값이
+    /// [`REMOTE_OWNER_LABEL`] 로 강제되어야 한다.
+    #[test]
+    fn owner_키가_최상위에_있으면_원격_라벨로_강제된다() {
+        for spoofed in ["main", "editor-2", ""] {
+            let args = serde_json::json!({ "owner": spoofed, "sessionId": "search-panel-1" });
+
+            let sanitized = enforce_remote_owner_label(args);
+
+            assert_eq!(
+                sanitized["owner"],
+                serde_json::json!(REMOTE_OWNER_LABEL),
+                "위장된 owner({spoofed:?})가 강제 치환되지 않았다"
+            );
+            assert_eq!(
+                sanitized["sessionId"],
+                serde_json::json!("search-panel-1"),
+                "owner 외 필드는 그대로 유지되어야 한다"
+            );
+        }
+    }
+
+    /// R6#12 위장 회귀: `ide_set_selection` 은 `owner` 가 최상위가 아니라 `arg!(args, "input")` 로 받는
+    /// `IdeSelectionInput` 구조체 안에 중첩돼 있다(`lsp_spawn` 의 `request.owner` 도 동일 구조). 최상위
+    /// 키만 보는 얕은 치환으로는 이 경로가 막히지 않으므로, 중첩된 `owner` 도 강제되어야 한다.
+    #[test]
+    fn owner_키가_중첩된_객체_안에_있어도_원격_라벨로_강제된다() {
+        let args = serde_json::json!({
+            "input": {
+                "owner": "main",
+                "projectId": "prj-1",
+                "path": "src/main.ts",
+                "isEmpty": true,
+            }
+        });
+
+        let sanitized = enforce_remote_owner_label(args);
+
+        assert_eq!(sanitized["input"]["owner"], serde_json::json!(REMOTE_OWNER_LABEL));
+        assert_eq!(
+            sanitized["input"]["projectId"],
+            serde_json::json!("prj-1"),
+            "owner 외 중첩 필드는 그대로 유지되어야 한다"
+        );
+    }
+
+    #[test]
+    fn owner_키가_배열_안의_객체나_더_깊은_중첩에_있어도_원격_라벨로_강제된다() {
+        let args = serde_json::json!({
+            "batch": [
+                { "owner": "main", "id": 1 },
+                { "nested": { "owner": "editor-3" } },
+            ]
+        });
+
+        let sanitized = enforce_remote_owner_label(args);
+
+        assert_eq!(sanitized["batch"][0]["owner"], serde_json::json!(REMOTE_OWNER_LABEL));
+        assert_eq!(sanitized["batch"][1]["nested"]["owner"], serde_json::json!(REMOTE_OWNER_LABEL));
+    }
+
+    #[test]
+    fn owner_키가_없는_값은_그대로_유지된다() {
+        let args = serde_json::json!({ "projectId": "prj-1", "path": "src/main.ts" });
+
+        let sanitized = enforce_remote_owner_label(args.clone());
+
+        assert_eq!(sanitized, args, "owner 가 없는 페이로드는 손대지 않아야 한다");
+    }
+
+    /// 정당한 원격 shim(`tauri-internals-shim.ts`)은 이미 [`REMOTE_OWNER_LABEL`] 을 보내므로, 강제
+    /// 치환이 그 값을 바꿔서는 안 된다(동작 무변경).
+    #[test]
+    fn 이미_원격_라벨인_owner_는_그대로_유지된다() {
+        let args = serde_json::json!({ "input": { "owner": REMOTE_OWNER_LABEL } });
+
+        let sanitized = enforce_remote_owner_label(args);
+
+        assert_eq!(sanitized["input"]["owner"], serde_json::json!(REMOTE_OWNER_LABEL));
     }
 }

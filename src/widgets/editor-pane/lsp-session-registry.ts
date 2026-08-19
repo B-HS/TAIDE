@@ -83,7 +83,11 @@ type ResolvedSession = {
  * already-tracked root is a `sessionsByKey` cache hit that never reaches `createSession` again).
  * `lastObservedGeneration` mirrors `LspSessionStatusChanged.generation` (see that field's doc on
  * `domain::lsp::commands::SessionEntry`) so the module-level status listener only reacts to an
- * actual increase, never a duplicate/out-of-order delivery of an already-handled one.
+ * actual increase, never a duplicate/out-of-order delivery of an already-handled one. `isReinitializing`
+ * is `true` for the duration of {@link reinitializeSession}'s retry loop — `acquireDocument`/
+ * `releaseDocument` read it to avoid racing that loop's own `didOpen` replay with a document
+ * opened/closed by the user mid-replay (see their own doc comments for exactly what each does and
+ * does not still send while this is `true`).
  */
 type SessionGroup = {
     projectId: ProjectId
@@ -94,6 +98,7 @@ type SessionGroup = {
     roots: Set<string>
     state: ConnectionState
     lastObservedGeneration: number
+    isReinitializing: boolean
 }
 
 /**
@@ -131,6 +136,16 @@ const toWaiterKey = (projectId: ProjectId, serverId: LspServerId) => `${projectI
  * was created), and `Map` iteration is insertion-ordered, so the earliest surviving key is always
  * that original handle (or, if it since failed and was evicted, whichever later handle became the
  * new earliest one — self-healing, not stale).
+ *
+ * Correct for `acquireLspSession`'s own sibling-join lookup (any existing root is a valid join
+ * candidate there — the backend, not this pick, decides whether the connection is actually shared,
+ * see `createSession`'s doc). **Not** correct in general for a caller that has a specific document
+ * open and wants *that document's* session: since session keys include `root` (R7#7), a project with
+ * more than one root open under the same `(projectId, serverId)` — routine for a `shares_sessions:
+ * false` server like rustAnalyzer with two disjoint Cargo workspaces — can have several independent
+ * records here, and this always returns the oldest one regardless of which root actually has the
+ * caller's file open. {@link peekLspSession}/{@link waitForLspSession} inherit that same limitation;
+ * prefer {@link peekLspSessionForRoot}/{@link waitForLspSessionForRoot} whenever a root is available.
  */
 const findAnyRecordForServer = (projectId: ProjectId, serverId: LspServerId): SessionRecord | null => {
     const prefix = `${projectId}::${serverId}::`
@@ -160,6 +175,38 @@ const toWorkspaceFolderName = (root: string) => root.split('/').filter(Boolean).
  * nobody reacquires still gets reclaimed soon after the last tab referencing it actually closes.
  */
 export const LSP_SESSION_DISPOSE_GRACE_MS = 5000
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Races `promise` against a `ms`-long timer, rejecting with `message` if the timer wins — the only
+ * way to turn an LSP round-trip that never settles (`client.ts`'s `request` has no built-in timeout
+ * of its own) into a rejection callers here can actually catch and act on. Always clears its own
+ * timer on either outcome so a fast-settling `promise` doesn't leave a dangling `setTimeout` behind.
+ */
+const withTimeout = async <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), ms)
+    })
+    try {
+        return await Promise.race([promise, timeout])
+    } finally {
+        clearTimeout(timeoutId)
+    }
+}
+
+/**
+ * Bounds `createSession`'s `await sibling.ready` (see that call site's doc) so a sibling root whose
+ * own first `initialize` handshake genuinely never answers cannot indefinitely block every other root
+ * of the same `(projectId, serverId)` from ever attempting its own spawn — generous (well past any
+ * healthy server's typical handshake, rust-analyzer's initial workspace index included) since timing
+ * out here is not free: it forfeits join detection for *this* attempt, and the two roots' backend
+ * connections stay independent for `shares_sessions: true` servers that would otherwise have shared
+ * one (`should_reuse_session`, Rust, tolerates this — the docs on `record.group.roots` field cover
+ * why a missed join is a session-count regression, not a correctness one).
+ */
+const LSP_SIBLING_READY_TIMEOUT_MS = 20_000
 
 const CODE_ACTION_KIND_VALUE_SET = [
     '',
@@ -329,6 +376,11 @@ const buildInitializeParams = (roots: ReadonlySet<string>, initializationOptions
  * `record.group` at the already-live one instead — this, not a second `initialize()` call, is what
  * "joining" means on this side; see the `SessionRecord.ready` field doc for how that reassignment
  * makes every field two joined handles need to share (`refCount`/`roots`/`state`) actually shared.
+ *
+ * The `sibling.ready` wait is bounded by {@link LSP_SIBLING_READY_TIMEOUT_MS} (see its own doc for
+ * why unboundedly serializing every root behind `sibling`'s handshake is unsafe for a
+ * `shares_sessions: false` server with more than one root, and why timing out here — rather than
+ * waiting forever — is the safe direction to fail in).
  */
 const createSession = async (
     record: SessionRecord,
@@ -337,8 +389,9 @@ const createSession = async (
     serverId: LspServerId,
     root: string,
     initializationOptions?: LspInitializationOptionsValue | null,
+    siblingReadyTimeoutMs: number = LSP_SIBLING_READY_TIMEOUT_MS,
 ): Promise<ResolvedSession> => {
-    if (sibling) await sibling.ready.catch(() => undefined)
+    if (sibling) await withTimeout(sibling.ready, siblingReadyTimeoutMs, 'sibling lsp session ready wait timed out').catch(() => undefined)
 
     let sessionId: string | null = null
     const pendingOutgoingMessages: OutgoingMessage[] = []
@@ -398,6 +451,23 @@ const createSession = async (
         joined.group.refCount += record.group.refCount
         joined.group.roots.add(root)
         record.group = joined.group
+        /**
+         * `record.group.refCount` (this handle's own, still-private group, before the line above
+         * repoints it) can itself already be 0 — this handle's own `releaseLspSession` may have run
+         * while `spawnLspSession` above was still in flight, well before this join was ever
+         * discovered. In that case the combined `joined.group.refCount` above lands back at 0 too,
+         * but the timer clear a few lines up already cancelled whatever grace timer `joined.group`
+         * had running *without rearming one* — without this, a session joined while already fully
+         * idle on both sides would never get GC'd by the ordinary grace path again (only an explicit
+         * project-close/app-exit flush would ever reclaim it).
+         */
+        if (joined.group.refCount <= 0) {
+            const group = joined.group
+            group.disposeTimer = setTimeout(() => {
+                group.disposeTimer = null
+                finalizeSessionDisposal(record, group)
+            }, LSP_SESSION_DISPOSE_GRACE_MS)
+        }
         activeClient = (await joined.ready).client
         return joined.ready
     }
@@ -473,21 +543,34 @@ const disposeSession = async (record: SessionRecord, group: SessionGroup) => {
  * and the dispose) makes a *stale* call — one armed against `record`'s group before a later join
  * reassigned `record.group` elsewhere — a safe no-op: whatever group `record` now actually belongs
  * to has its own independent refcount/timer this call knows nothing about and must not touch.
+ *
+ * Scans `sessionsByKey` directly (matching every entry whose own `.group === group`) rather than
+ * recomputing each root's key from `group.roots` — `roots` is only populated once `createSession`'s
+ * `spawnLspSession` call resolves (see its own field doc), so a group disposed *while that spawn is
+ * still in flight* (a project closing/pane unmounting mid-spawn) had an empty `roots` here despite
+ * `acquireLspSession` having already inserted its `sessionsByKey` entry. Recomputing from `roots`
+ * silently left that entry behind forever in that window; scanning the map's actual contents finds
+ * it regardless of whether `roots` has caught up yet.
  */
 const finalizeSessionDisposal = (record: SessionRecord, group: SessionGroup) => {
     if (record.group !== group) return
-    for (const root of group.roots) {
-        const key = toSessionKey(group.projectId, group.serverId, root)
-        if (sessionsByKey.get(key)?.group === group) sessionsByKey.delete(key)
+    for (const [key, entry] of sessionsByKey) {
+        if (entry.group === group) sessionsByKey.delete(key)
     }
     void disposeSession(record, group)
 }
 
+/**
+ * `siblingReadyTimeoutMs` defaults to {@link LSP_SIBLING_READY_TIMEOUT_MS} and exists as a parameter
+ * purely so tests can shrink it (this file's established pattern — see {@link releaseLspSession}'s
+ * `graceMs` doc); production call sites never override it.
+ */
 export const acquireLspSession = (
     projectId: ProjectId,
     serverId: LspServerId,
     root: string,
     initializationOptions?: LspInitializationOptionsValue | null,
+    siblingReadyTimeoutMs: number = LSP_SIBLING_READY_TIMEOUT_MS,
 ) => {
     const key = toSessionKey(projectId, serverId, root)
     const existing = sessionsByKey.get(key)
@@ -510,6 +593,7 @@ export const acquireLspSession = (
         roots: new Set(),
         state: createConnectionState(),
         lastObservedGeneration: 0,
+        isReinitializing: false,
     }
 
     let resolveReady: (value: ResolvedSession) => void = () => {}
@@ -519,7 +603,7 @@ export const acquireLspSession = (
         rejectReady = reject
     })
     const record: SessionRecord = { group, ready }
-    createSession(record, sibling, projectId, serverId, root, initializationOptions).then(resolveReady, rejectReady)
+    createSession(record, sibling, projectId, serverId, root, initializationOptions, siblingReadyTimeoutMs).then(resolveReady, rejectReady)
 
     void ready.catch(() => {
         if (sessionsByKey.get(key) === record) sessionsByKey.delete(key)
@@ -529,7 +613,28 @@ export const acquireLspSession = (
     return { key, record }
 }
 
+/**
+ * Root-agnostic: returns *some* session for `(projectId, serverId)` — the oldest-inserted one
+ * ({@link findAnyRecordForServer}), not necessarily the one that has the caller's file open. Correct
+ * whenever `(projectId, serverId)` can only ever have one root's session at a time, and for callers
+ * that are deliberately root-agnostic (`listSessionRecordsForProject`'s workspace-wide sweep). Wrong
+ * whenever a project has more than one root open for a `shares_sessions: false` server (R7#7) and the
+ * caller actually needs the session serving a *specific* file — use {@link peekLspSessionForRoot}
+ * with that file's resolved root instead.
+ */
 export const peekLspSession = (projectId: ProjectId, serverId: LspServerId) => findAnyRecordForServer(projectId, serverId)
+
+/**
+ * Root-exact counterpart to {@link peekLspSession} — returns the session acquired for this precise
+ * `(projectId, serverId, root)` triple, or `null` if none has been acquired. Correct in the
+ * multi-root case {@link peekLspSession} is not: a `sharesSessions` server's join (R7#7) reassigns
+ * the joining root's own `SessionRecord.group` in place rather than replacing the `sessionsByKey`
+ * entry, so the record found here for a joined root already resolves to the *same* shared
+ * `ResolvedSession` its sibling roots do — this never returns a "wrong session" the way
+ * {@link peekLspSession} can when several independent (non-shared) roots coexist.
+ */
+export const peekLspSessionForRoot = (projectId: ProjectId, serverId: LspServerId, root: string): SessionRecord | null =>
+    sessionsByKey.get(toSessionKey(projectId, serverId, root)) ?? null
 
 /**
  * Every currently-acquired session for `projectId`, across every server/language — used by the
@@ -548,6 +653,12 @@ export const listSessionRecordsForProject = (projectId: ProjectId): SessionRecor
     return Array.from(seen)
 }
 
+/**
+ * Root-agnostic session waiter — same "some session for `(projectId, serverId)`, not necessarily the
+ * caller's root" caveat as {@link peekLspSession} (see its doc) applies once resolved, since a waiter
+ * registered before any session exists yet has no root to disambiguate by either. Prefer
+ * {@link waitForLspSessionForRoot} whenever the caller can resolve a root.
+ */
 export const waitForLspSession = (projectId: ProjectId, serverId: LspServerId) => {
     const waiterKey = toWaiterKey(projectId, serverId)
     const existing = findAnyRecordForServer(projectId, serverId)
@@ -556,6 +667,32 @@ export const waitForLspSession = (projectId: ProjectId, serverId: LspServerId) =
     let waiter: () => void = () => {}
     const promise = new Promise<SessionRecord | null>((resolve) => {
         waiter = () => resolve(findAnyRecordForServer(projectId, serverId))
+        const waiters = waitersByKey.get(waiterKey) ?? new Set()
+        waiters.add(waiter)
+        waitersByKey.set(waiterKey, waiters)
+    })
+    const cancel = () => waitersByKey.get(waiterKey)?.delete(waiter)
+    return { promise, cancel }
+}
+
+/**
+ * Root-exact counterpart to {@link waitForLspSession}, mirroring {@link peekLspSessionForRoot}'s
+ * exact-key lookup instead of {@link findAnyRecordForServer}'s oldest-match. Shares the underlying
+ * `(projectId, serverId)` waiter queue (session keys carry `root`, but nothing currently indexes
+ * waiters by root too) — a waiter registered here still wakes on *any* new session for this server,
+ * then re-checks the exact `(projectId, serverId, root)` key and resolves `null` if that specific
+ * root's session is not the one that just got created. A caller that must keep waiting past that
+ * still has the returned `cancel` to drop this attempt and register a fresh one.
+ */
+export const waitForLspSessionForRoot = (projectId: ProjectId, serverId: LspServerId, root: string) => {
+    const key = toSessionKey(projectId, serverId, root)
+    const waiterKey = toWaiterKey(projectId, serverId)
+    const existing = sessionsByKey.get(key)
+    if (existing) return { promise: Promise.resolve<SessionRecord | null>(existing), cancel: () => {} }
+
+    let waiter: () => void = () => {}
+    const promise = new Promise<SessionRecord | null>((resolve) => {
+        waiter = () => resolve(sessionsByKey.get(key) ?? null)
         const waiters = waitersByKey.get(waiterKey) ?? new Set()
         waiters.add(waiter)
         waitersByKey.set(waiterKey, waiters)
@@ -681,35 +818,82 @@ export const ensureLanguageRegistered = (
     for (const listener of languageAdapterListeners) listener()
 }
 
+/**
+ * While `record.group.isReinitializing` is `true` ({@link reinitializeSession} mid-retry-loop), a
+ * genuinely new document (`current === 0`) still gets counted here but does *not* get its own
+ * `didOpen` sent — `openDocuments` is exactly what that loop's own live-map iteration replays, so a
+ * document added mid-replay is naturally picked up by it (or, if added just after this attempt's
+ * iterator already passed it, by the next attempt's fresh iteration) without this call also sending
+ * its own `didOpen` and racing a double-send for the same document (F7#1 follow-up).
+ */
 export const acquireDocument = (record: SessionRecord, client: LspClient, uri: string, languageId: string, text: string) => {
     const openDocuments = record.group.state.openDocuments
     const current = openDocuments.get(uri) ?? 0
     openDocuments.set(uri, current + 1)
-    if (current === 0) client.didOpen({ uri, languageId, version: 0, text })
+    if (current === 0 && !record.group.isReinitializing) client.didOpen({ uri, languageId, version: 0, text })
 }
 
+/**
+ * Mirrors {@link acquireDocument}'s `isReinitializing` gate: closing the last reference to `uri`
+ * while a reinitialize retry loop is running does not send `didClose` — the respawned process may
+ * not have received this document's replayed `didOpen` yet (queued behind an in-progress or still
+ * up-coming attempt), and a `didClose` for a document a server was never told about is itself a
+ * protocol violation. Deleting `uri` from `openDocuments` here still removes it from what the
+ * (live-iterating) replay loop will send, so a document closed before its replay turn simply never
+ * gets opened on the new process either — no leaked reference in the common case. The one residual
+ * gap this does not close: a document whose `didOpen` the replay loop *already* sent earlier in the
+ * same attempt, then closed by the user before that attempt's loop as a whole finishes, leaves the
+ * new process believing it's still open (no compensating `didClose`) until the next real edit to
+ * that document's session state — accepted as a narrow, low-impact residual rather than adding a
+ * second deferred-close queue for a crash-recovery path already carrying real complexity.
+ */
 export const releaseDocument = (record: SessionRecord, client: LspClient, uri: string) => {
     const openDocuments = record.group.state.openDocuments
     const current = openDocuments.get(uri)
     if (!current) return
     if (current <= 1) {
         openDocuments.delete(uri)
-        client.didClose(uri)
+        if (!record.group.isReinitializing) client.didClose(uri)
         return
     }
     openDocuments.set(uri, current - 1)
 }
 
 /**
+ * How long a single re-handshake attempt (the `initialize` round-trip {@link reinitializeSession}
+ * sends over the respawned process's connection) may take before it's abandoned as failed.
+ * `client.ts`'s `request` has no timeout of its own — a respawned process that never answers
+ * `initialize` would otherwise leave the `await` below pending forever, so this bounds specifically
+ * the reinitialize handshake without changing every other LSP request's own (timeout-less) contract.
+ */
+const LSP_REINITIALIZE_TIMEOUT_MS = 15_000
+
+/**
+ * How many re-handshake attempts {@link reinitializeSession} makes for one `generation` before
+ * giving up on it — without this, a single transient failure (the respawned process not yet ready to
+ * accept connections, a dropped first request) left the session `Crashed` forever with no further
+ * trigger: nothing but a *second* crash-restart (an unrelated backend event) or a manual
+ * `lsp_restart` (which nothing in the UI currently calls) would ever attempt another `initialize`.
+ */
+const LSP_REINITIALIZE_MAX_ATTEMPTS = 3
+
+/** Backoff between {@link LSP_REINITIALIZE_MAX_ATTEMPTS} retries — long enough to let a just-spawned process finish booting before the next attempt. */
+const LSP_REINITIALIZE_RETRY_DELAY_MS = 2_000
+
+/**
  * R7#1 — re-handshakes a session whose backend process was silently replaced by
  * `handle_process_exit`'s automatic crash-restart (the `LspSessionStatusChanged.generation`
  * increase {@link handleLspSessionStatusChanged} detected). The `session_id` is unchanged (Rust
  * reuses it for the respawned process), so this reuses the *same* `LspClient`/monaco provider
- * registrations rather than tearing anything down:
+ * registrations rather than tearing anything down. Each of up to {@link LSP_REINITIALIZE_MAX_ATTEMPTS}
+ * attempts:
  *  1. `rejectPendingRequests` — any request still awaiting a response from the now-dead pre-crash
- *     process can never get one; leaving it pending would hang whatever awaited it forever.
- *  2. Re-run `initialize` over the same connection (LSP 3.17 requires exactly one `initialize` per
- *     connection; the respawned process has never seen one).
+ *     process (first attempt) or a previous attempt's own timed-out `initialize` (later attempts)
+ *     can never get one; leaving it pending would hang whatever awaited it forever.
+ *  2. Re-run `initialize` over the same connection (LSP 3.17 requires exactly one *answered*
+ *     `initialize` per connection; the respawned process has never seen one), bounded by
+ *     {@link withTimeout}/{@link LSP_REINITIALIZE_TIMEOUT_MS} so a process that never answers fails
+ *     this attempt instead of hanging the whole flow.
  *  3. Rebuild `executeCommandsDisposable` — the command list `registerSessionExecuteCommands`
  *     registered was a one-time snapshot of the *pre-crash* process's `executeCommandProvider`,
  *     which the respawned process may declare differently. Every other adapter reads
@@ -719,30 +903,67 @@ export const releaseDocument = (record: SessionRecord, client: LspClient, uri: s
  *  5. `lsp_confirm_reinitialize` — the only thing that flips `status` back to `Running` (guarded on
  *     the Rust side against a stale confirmation racing a second crash — see the `generation` field
  *     doc on `domain::lsp::commands::SessionEntry`).
- * Any failure along the way leaves `status` as `Crashed` (never calls step 5) rather than throwing
- * past this function — a later generation bump (a second auto-restart) or a manual `lsp_restart`
- * gets another attempt.
+ * Before each attempt (after the first), re-checks `group.lastObservedGeneration` against the
+ * `generation` this flow was started for — a newer crash while this loop was still retrying means a
+ * fresher `reinitializeSession` call already owns (or has already won) the handshake for the process
+ * currently running, and this stale loop must stop rather than race it with an out-of-date attempt.
+ * Exhausting every attempt (or losing the staleness race) leaves `status` as `Crashed` rather than
+ * throwing past this function — Rust's `last_error` has no failure-vs-still-retrying distinction to
+ * flip to here (that requires a backend-side confirm/report command this frontend-only fix cannot
+ * add), so a later generation bump (a second auto-restart) or a manual `lsp_restart` remains the only
+ * further recovery path.
+ *
+ * `group.isReinitializing` is `true` for the entire loop below (`finally`-reset on every exit path,
+ * including the staleness `return`) — see {@link acquireDocument}/{@link releaseDocument}'s own doc
+ * comments for what that gate does and does not still send while a document opens/closes mid-replay.
+ *
+ * `timeoutMs`/`maxAttempts`/`retryDelayMs` default to {@link LSP_REINITIALIZE_TIMEOUT_MS}/
+ * {@link LSP_REINITIALIZE_MAX_ATTEMPTS}/{@link LSP_REINITIALIZE_RETRY_DELAY_MS} and exist as
+ * parameters purely so tests can shrink them (this file's established pattern — see
+ * {@link releaseLspSession}'s `graceMs` doc); production call sites never override them.
  */
-const reinitializeSession = async (record: SessionRecord, group: SessionGroup, generation: number) => {
+const reinitializeSession = async (
+    record: SessionRecord,
+    group: SessionGroup,
+    generation: number,
+    timeoutMs: number = LSP_REINITIALIZE_TIMEOUT_MS,
+    maxAttempts: number = LSP_REINITIALIZE_MAX_ATTEMPTS,
+    retryDelayMs: number = LSP_REINITIALIZE_RETRY_DELAY_MS,
+) => {
     const session = await record.ready.catch(() => null)
     if (!session) return
+
+    group.isReinitializing = true
     try {
-        session.client.rejectPendingRequests(new Error('lsp session reinitializing after crash'))
-        await session.client.initialize(buildInitializeParams(group.roots, group.initializationOptions))
-        session.executeCommandsDisposable.dispose()
-        session.executeCommandsDisposable = registerSessionExecuteCommands(
-            monaco,
-            session.client,
-            session.client.getCapabilities()?.executeCommandProvider?.commands,
-        )
-        for (const uri of group.state.openDocuments.keys()) {
-            const model = monaco.editor.getModel(monaco.Uri.parse(uri))
-            if (!model) continue
-            session.client.didOpen({ uri, languageId: model.getLanguageId(), version: 0, text: model.getValue() })
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            if (group.lastObservedGeneration > generation) return
+            try {
+                session.client.rejectPendingRequests(new Error('lsp session reinitializing after crash'))
+                await withTimeout(
+                    session.client.initialize(buildInitializeParams(group.roots, group.initializationOptions)),
+                    timeoutMs,
+                    'lsp reinitialize handshake timed out',
+                )
+                session.executeCommandsDisposable.dispose()
+                session.executeCommandsDisposable = registerSessionExecuteCommands(
+                    monaco,
+                    session.client,
+                    session.client.getCapabilities()?.executeCommandProvider?.commands,
+                )
+                for (const uri of group.state.openDocuments.keys()) {
+                    const model = monaco.editor.getModel(monaco.Uri.parse(uri))
+                    if (!model) continue
+                    session.client.didOpen({ uri, languageId: model.getLanguageId(), version: 0, text: model.getValue() })
+                }
+                await confirmLspReinitialize(session.sessionId, generation)
+                return
+            } catch {
+                if (attempt === maxAttempts) return
+                await delay(retryDelayMs)
+            }
         }
-        await confirmLspReinitialize(session.sessionId, generation)
-    } catch {
-        return
+    } finally {
+        group.isReinitializing = false
     }
 }
 
@@ -755,15 +976,27 @@ const reinitializeSession = async (record: SessionRecord, group: SessionGroup, g
  * reinitialize flow: `starting`/`running`/`stopped` carry a generation for completeness (the field
  * doc on `LspSessionStatusChanged.generation` — Rust bumps it only on the crash-restart path, so in
  * practice those other statuses never carry an increase at all) but need no client-side reaction.
+ * `reinitializeTiming` forwards to {@link reinitializeSession}'s own test-only timing overrides —
+ * see its doc — and is likewise never passed by the real event listener below.
  */
-export const handleLspSessionStatusChanged = (payload: LspSessionStatusChanged) => {
+export const handleLspSessionStatusChanged = (
+    payload: LspSessionStatusChanged,
+    reinitializeTiming?: { timeoutMs?: number; maxAttempts?: number; retryDelayMs?: number },
+) => {
     const record = recordsBySessionId.get(payload.sessionId)
     if (!record) return
     const group = record.group
     if (payload.generation <= group.lastObservedGeneration) return
     group.lastObservedGeneration = payload.generation
     if (payload.status !== 'crashed') return
-    void reinitializeSession(record, group, payload.generation)
+    void reinitializeSession(
+        record,
+        group,
+        payload.generation,
+        reinitializeTiming?.timeoutMs,
+        reinitializeTiming?.maxAttempts,
+        reinitializeTiming?.retryDelayMs,
+    )
 }
 
 void events.lspSessionStatusChanged.listen(({ payload }) => handleLspSessionStatusChanged(payload)).catch(() => undefined)

@@ -399,7 +399,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                 if (!ready) continue
 
                 const supportsResolve = supportsCodeActionResolve(ready.client)
-                const diagnostics = getStoredDiagnostics(serverId, uri)
+                const diagnostics = getStoredDiagnostics(serverId, uri, ready.client)
                 for (const kind of kinds) {
                     const actions = await requestCodeActionsForKind(ready.client, uri, range, diagnostics, kind).catch(() => [])
                     for (const action of actions) await applyCodeActionOrCommand(monaco, ready.client, supportsResolve, action).catch(() => undefined)

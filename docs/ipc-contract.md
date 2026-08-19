@@ -773,7 +773,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 
 ### 원격 dispatch 정책 (허용 · 거부 · 부분 스트립)
 
-> `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 는 179종 전부(raw 3종 제외)를 담고, 파리티 테스트
+> `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 는 180종 전부(raw 3종 제외, T1 3차에서
+> `lsp_confirm_reinitialize` 추가)를 담고, 파리티 테스트
 > (`bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다`)가 이 목록과 `bindings.ts` 의 커맨드
 > 이름 집합이 완전히 같음을 강제한다. **목록에 있다고 전부 원격에서 실제로 실행되는 것은 아니다** —
 > `dispatch()` 의 `match` arm 이 실제로 무엇을 하는지에 따라 아래 3갈래로 나뉜다.
@@ -916,7 +917,12 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 >   `(owner: string)` 1-인자로 바뀐다. **동작 변경**: `owner` 가 원격 세션의 고정 라벨(`"remote"`)이면
 >   `ide_set_selection`/`ide_clear_selection` 은 스토어에 아무것도 쓰지 않고 `selection_changed` 도
 >   발행하지 않는 완전 no-op 이다 — 원격 브라우저의 선택영역이 데스크톱 로컬 IDE MCP 프로토콜
->   (`getCurrentSelection`/`getLatestSelection`)을 더 이상 덮어쓸 수 없다. 데스크톱 창끼리(main vs
+>   (`getCurrentSelection`/`getLatestSelection`)을 더 이상 덮어쓸 수 없다. 이 보증은 클라이언트가
+>   보낸 `owner` 값의 정직성에 의존하지 않는다 — 원격 `dispatch()`/`dispatch_raw()` 진입점이
+>   args 트리의 모든 `owner` 키(중첩 포함)를 `REMOTE_OWNER_LABEL`("remote") 로 강제 치환한다
+>   (`enforce_remote_owner_label`, Phase E 보안 검토 후 신설). 도메인별 `owner` 비교는 이 강제
+>   위의 defense-in-depth 다. 단 이 게이트의 범위는 selection 슬롯이며, `ide_publish_diagnostics`·
+>   `ide_notify_at_mention`(owner 개념 없는 프로젝트 스코프 브로드캐스트)은 게이트 밖이다. 데스크톱 창끼리(main vs
 >   보조 창)는 여전히 기존과 동일하게 전역 단일 슬롯을 공유한다(이 항목이 해소한 불변식은 "원격이
 >   데스크톱을 오염시키지 못한다"에 한정 — 데스크톱 멀티윈도우 간 선택영역 자체 격리는 범위 밖).
 >   프론트 `entities/ide/ide.ipc.ts` 의 `setIdeSelection`/`clearIdeSelection` 시그니처는 `owner`
@@ -938,6 +944,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 >   되돌아간다(넘긴 `generation` 이 세션의 *현재* 세대와 다르면 — 그 사이 2차 크래시가 세대를 더
 >   올렸다면 — 조용히 무시된다, `domain::lsp::commands::confirm_reinitialize`). T0 #24 가 "재핸드셰이크
 >   전까지 `Crashed` 유지"로 멈췄던 완화책을, 이 커맨드로 정직한 `Running` 복귀 경로까지 닫는다.
+>   원격 dispatch 에서는 **허용**이다(원격 미러도 자기 세션의 재핸드셰이크를 확인해야 하며, 세대
+>   불일치 무시가 오용을 방어 — Phase E 적대적 검증에서 위조 시나리오 반증 확정).
 >   프론트 소비는 `widgets/editor-pane/lsp-session-registry.ts` 의 `handleLspSessionStatusChanged`/
 >   `reinitializeSession` — 모듈 로드 시 `events.lspSessionStatusChanged.listen` 으로 상시 구독한다.
 >   `QUERY_KEY.LSP.SESSIONS` 폴링 캐시 쪽 무효화는 `entities/lsp/lsp.query.ts` 의
