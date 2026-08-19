@@ -821,7 +821,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `file_flush_complete` | `DesktopExitControl` | 데스크톱 자신의 `CloseRequested` 종료 시퀀스만 재개 가능(Hot Exit) |
   | `window_open_auxiliary` / `window_set_fullscreen` / `layout_move_tab_to_window` / `system_open_external_url` / `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `UnreachableDesktopWindow` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I·손 QA #12, 2026-08-18) — `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시/OS 기본 브라우저)을 띄우는 넷과, 네이티브 OS 창을 직접 열거나 제어하는 셋이 같은 결론이다 |
   | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` / `vsix_extract_themes` | `LocalFilesystemEscape` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) — 읽기(`vsix_extract_themes`)·쓰기(나머지 셋) 모두 프로젝트 루트 가드 밖 |
-  | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | macOS 에서 관리자 권한 프롬프트(`osascript`)를 데스크톱 자신의 화면에 띄우거나 `/usr/local/bin` 에 직접 심링크를 건다 — 원격 세션이 보거나 답할 수 없는 권한 승격 창(T0 감사 #12, 2026-08-18) |
+  | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | `/usr/local/bin` 심링크·`osascript` 로 데스크톱 CLI 진입점을 설치/관리한다 — 원격 세션 종료 후에도 남는 CLI 실행 백도어가 되며(권한 프롬프트 불가시성은 부수 사유), `agent_hooks_install` User 스코프와 동일 분류(T0 감사 #12·#13, 2026-08-18) |
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
   | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
 
@@ -836,6 +836,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   커맨드를 심는 것과 같아, 원격 세션이 종료돼도 살아남는 백도어가 된다는 점에서 `settings_update`
   가 스트립하는 `shellOverride` 와 같은 근거다(T0 감사 #13). `agentName` 을 알 수 없으면(미지원
   이름) 이 분기가 아니라 실핸들러의 `InvalidArgument` 로 위임되어 동일한 에러를 낸다.
+  짝 커맨드 `agent_hooks_uninstall` 은 **User 스코프 포함 원격 허용**이다(T1-K 검토에서 명시화 —
+  제거 방향은 TAIDE 가 심은 훅 엔트리의 삭제라 백도어 설치 표면이 아니며, 전환 전 정책과 동일).
+  install/uninstall 대칭화(둘 다 User 거부) 여부는 ide 브로드캐스트·키링 게이팅과 함께 후속 제품
+  결정으로 이월.
 - **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종 — 둘 다 `REMOTE_ALLOWED_COMMANDS`
   소속)**:
   - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`

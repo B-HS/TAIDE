@@ -33,7 +33,9 @@
 writer 무한 대기(무트래픽 프루닝 지연) 4. Rust 재핸드셰이크 실패-확인 커맨드 5. throwaway client
 race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_mention 원격 게이트(제품 결정
 — T1-K 범위 외 명시) 7. TREE_ROWS 센티널 → Option<u32> 8. PROJECT_SCOPED_KEYS 경로 키 미커버
-(실피해 낮음)
+(실피해 낮음) 9. agent_hooks_uninstall User 스코프 원격 허용의 install/uninstall 대칭화 여부
+(T1-K 검토 노출 — 6번과 함께 제품 결정) 10. 키링 게이팅 비대칭 R3#7(AI 토큰 3·GitHub PAT 원격
+변경 — 동일 결정 묶음)
 
 ### QA·배포 트랙
 
@@ -695,9 +697,13 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
     - [x] d-0f. 착수 확인 6차(2026-08-19): ① editor-pane 배치 산출물(500dbce·2f40d06) prod 병합
           완료(main=2f40d06) ② 다음 배치 = T1-K 원격 기본거부 ③ 잔여 작업 총괄 절 신설(이 문서
           상단 — 사용자 요청 "뭐가 얼마나 남았는지")
-    - [ ] d-14. 감사 T1-K 원격 게이팅 기본 거부 전환(C16 근본, 6건) — dispatch.rs 를 "명시 허용
-          목록+기본 거부"로 반전·거부 사유 분류 타입 승격·IMPLEMENTED=허용∪거부 완전 분할 파리티.
-          정책 무변경(현행 허용/거부 그대로 이전 — 구조 전환만). 계약 작성 → Workflow
+    - [x] d-14. 감사 T1-K 원격 게이팅 기본 거부 전환(C16 근본, 6건) — **완료**. 계약
+          `docs/acknowledge/2026-08-19-audit-t1k-default-deny-contract.md`(§4 기록). 구현
+          `4b76dda`: REMOTE_ALLOWED_COMMANDS 163·3단 게이트·RemoteDenialPolicy 8분류·완전 분할
+          파리티(인위 누락 실측). 정책 무변경 전수 대조(구현·검토 독립 각 1회 — 공집합). E 검토
+          (4렌즈 28발견→적대적 3: confirmed 2 minor 하향·refuted 1)→메인 직접 수정(arm↔ALLOWED
+          파리티 테스트 신설·doc 상한 단서·문서 통일·agent_hooks_uninstall 허용 명시)→verify·
+          vite 그린. 이제 신규 커맨드는 명시 등재 없인 원격 기본 거부(기계 강제)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

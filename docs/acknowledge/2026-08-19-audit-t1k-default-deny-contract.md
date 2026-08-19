@@ -58,3 +58,35 @@
   실제로 실패하는지 확인(테스트의 테스트). 원격 라우팅 동작 전수 무변경(허용 180−8 유지·거부
   8종 유지·응답 메시지 의미 보존).
 - 실기 이월(qa6): 원격 미러 주요 흐름(파일 열기·저장·검색·터미널·LSP) 회귀 무변화.
+
+---
+
+## 4. 구현·검토 완료 기록 (2026-08-19)
+
+> 구현 wf_301ba751-fe1(Rust 단독 sonnet+xhigh) → 검토 wf_837798fb-989(4렌즈 opus+xhigh, 발견
+> 28: major 3·minor 25) → 적대적(opus+high) **confirmed 2(전부 minor 하향 권고)·refuted 1** →
+> 메인 직접 수정(소규모 2차 예외). 메인 2차: 스팟 실물 확인 + verify·vite build exit 0.
+
+- **구현**: REMOTE_ALLOWED_COMMANDS 163 신설(match arm 실사)·3단 게이트(거부→미등재 기본 거부→
+  owner 강제)·deny 헬퍼 15개 → RemoteDenialPolicy 8분류(SelfAccessExpansion·UnreachableDesktop
+  Window·LocalFilesystemEscape·InstallOrProcessExecution·DesktopCliInterception·DesktopExit
+  Control·SharedSingletonStateRace·Unclassified)·완전 분할 파리티 테스트(허용⊎거부=전체 183).
+  **정책 무변경 전수 대조**: 구현·검토가 각각 독립 수행 — 구/신 허용·거부 집합 symmetric
+  difference 공집합. dispatch_raw 도 테이블 공유(전환 전엔 거부 조회조차 없던 경로의 강화).
+  bindings 무변경. 문서: ipc-contract 원격 정책 재작성·커맨드 수 180/183 정정(**X1#14 해소**)·
+  architecture 정합.
+- **검토 총평**: 우회 경로·정책 회귀 0(보안 렌즈 — ws→dispatch 유일 진입·HTTP 측 커맨드 경로
+  없음·대소문자 변형 fail-closed 전수 추적). refuted 1: window_set_fullscreen 과병합 주장(AppHandle
+  라벨 패턴으로 arm 작성 가능이 반증 근거).
+- **[confirmed→메인 수정] arm↔ALLOWED 파리티 미강제** — 분할 테스트는 이름 우주만 검증, 허용
+  이름의 실제 arm 존재는 수동 감사 의존. → `허용_테이블의_모든_커맨드는_실제_match_arm_을_가진다`
+  신설(자기 소스 include_str!+8칸 들여쓰기 정규식 — lib.rs 선례, 결합 가정 doc 명문화). 인위
+  누락(app_get_info) 실측: FAILED 확인 후 복원 그린(mv 의 mtime 보존이 cargo 캐시를 속이는 것까지
+  확인·touch 로 해소).
+- **minor 반영(메인)**: LocalFilesystemEscape·InstallOrProcessExecution doc 에 pty_spawn 능력
+  상한 단서(표면 축소이지 기밀성 경계 아님 — 기존 strip doc 근거 이관) / ipc-contract
+  DesktopCliInterception 사유를 enum doc(백도어 설치)과 통일 / **agent_hooks_uninstall User
+  스코프 원격 허용을 문서에 명시**(전환 전 정책 동일 — install/uninstall 대칭화 여부는 ide
+  브로드캐스트·키링 게이팅과 함께 후속 제품 결정으로 이월, PROCESS 잔여 총괄 9·10번 등재).
+- **미반영 기각**: 나머지 minor(163 평면 배열 그룹핑 등 개선 여지)는 실결함 아님 — 검토 원문
+  보존(스크래치패드 소멸 전 요지는 이 기록이 정본).

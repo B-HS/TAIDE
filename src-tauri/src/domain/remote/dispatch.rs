@@ -255,12 +255,18 @@ enum RemoteDenialPolicy {
     /// `plugin_install`/`plugin_uninstall`/`vsix_import_plugin` (an arbitrary local plugin-directory
     /// path, read from or written to) and `vsix_extract_themes` (an arbitrary local `.vsix` path read,
     /// with no root guard) — none of these are scoped to the currently open project root the way
-    /// `file_*`/`tree_*` already are, so a remote session must not be handed them.
+    /// `file_*`/`tree_*` already are, so a remote session must not be handed them. Note this is
+    /// surface reduction, not a confidentiality boundary: an authenticated remote session already
+    /// has terminal RCE via the allowed `pty_spawn` (see `strip_remote_gated_settings_patch`'s
+    /// doc), so what this variant forecloses is the *command surface* accepting arbitrary local
+    /// paths directly, not the session's ultimate capability ceiling.
     LocalFilesystemEscape,
     /// `lsp_install` — downloads a language-server archive (often hundreds of megabytes) onto the
     /// desktop's local disk and spawns an installer process there, the same arbitrary
     /// download-and-execute shape [`LocalFilesystemEscape`] denies for plugins, just with a spawned
-    /// process on top.
+    /// process on top. The same capability-ceiling caveat as [`LocalFilesystemEscape`] applies —
+    /// `pty_spawn` already grants an authenticated session a shell; this closes the dedicated
+    /// install surface, not process execution as such.
     InstallOrProcessExecution,
     /// `agent_cli_install`/`agent_cli_uninstall` (symlinks `/usr/local/bin/taide` directly, or — when
     /// that needs elevation — shells out to `osascript` and pops a native administrator-privilege prompt
@@ -1666,5 +1672,29 @@ mod tests {
         let sanitized = enforce_remote_owner_label(args);
 
         assert_eq!(sanitized["input"]["owner"], serde_json::json!(REMOTE_OWNER_LABEL));
+    }
+
+    /// The partition test above proves ALLOWED ⊎ DENIED covers every command *name*, but nothing
+    /// there proves each allowed name actually has a `match` arm — a typo'd or removed arm would
+    /// leave the name in [`REMOTE_ALLOWED_COMMANDS`] while requests fall through to the
+    /// `Unclassified` fallback with a misleading "not registered" message. Same source-scraping
+    /// approach as `lib.rs`'s `collect_commands!` parity test; the regex leans on the arms' fixed
+    /// 8-space indentation (table entries are 4-space, so they never match) — if the match blocks
+    /// are ever re-indented, this test fails loudly rather than silently matching nothing, because
+    /// an empty arm set can never equal the non-empty allowed set.
+    #[test]
+    fn 허용_테이블의_모든_커맨드는_실제_match_arm_을_가진다() {
+        let source = include_str!("dispatch.rs");
+        let pattern = Regex::new(r#"(?m)^        "([a-zA-Z0-9_]+)" => "#).expect("유효한 정규식");
+        let arm_names: BTreeSet<&str> = pattern
+            .captures_iter(source)
+            .map(|capture| capture.get(1).expect("캡처 그룹").as_str())
+            .collect();
+        let allowed: BTreeSet<&str> = REMOTE_ALLOWED_COMMANDS.iter().copied().collect();
+
+        assert_eq!(
+            arm_names, allowed,
+            "REMOTE_ALLOWED_COMMANDS 와 dispatch/dispatch_raw 의 실제 match arm 집합이 어긋났습니다 — 허용 목록과 arm 은 항상 함께 추가/삭제해야 합니다"
+        );
     }
 }
