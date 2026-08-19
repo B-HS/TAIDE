@@ -717,6 +717,9 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           vite 그린. X-A 트랙 완결(X1#2 포함). 운영 교훈: 공유 워킹트리 git stash 금지(2회 재발
           — 이후 Workflow 프롬프트 명시). 신규 이월 4건(viewState closed_tabs·useReplaceSearch
           invalidation·REMOTE 폴링 중복·predicate 한계)은 계약 §6
+    - [x] d-16. 세션 핸드오프(/prepare-new, 2026-08-19) — HANDOFF 전면 재작성(이번 세션 4배치+
+          Phase 8 사전준비 스냅샷·dev 17커밋·기준선 실측 프론트 1375/Rust 1030). 미응답 결정
+          패키지(X-A prod 병합·다음=T1-I 추천) HANDOFF §6 이관. 재개 프롬프트 출력
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
