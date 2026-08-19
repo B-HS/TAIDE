@@ -705,9 +705,10 @@
           절로 이월
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
     - [ ] e-0. GitHub Actions secrets 사전 등록(사용자) — 목록 정본
-          `docs/acknowledge/2026-08-19-phase8-signing-secrets.md`(2026-08-19 작성, Tauri v2 공식
-          문서 검증). 서명 4건(APPLE_CERTIFICATE·PASSWORD·SIGNING_IDENTITY·KEYCHAIN_PASSWORD) +
-          공증 방식 B 추천 3건(APPLE_API_ISSUER·API_KEY·API_KEY_CONTENT). updater 키 불필요
+          `docs/acknowledge/2026-08-19-phase8-signing-secrets.md`. **raw-viewer release.yml 선례로
+          5건 확정**(MACOS_CERTIFICATE_P12·MACOS_CERTIFICATE_PASSWORD·APPLE_ID·
+          APPLE_APP_SPECIFIC_PASSWORD·APPLE_TEAM_ID — 동일 이름·값 재사용). 서명 아이덴티티는
+          워크플로 자동 추출·키체인 pw 인라인이라 secret 불필요. updater 키 불필요
 - [x] f. PROCESS.md 아카이브 완료 — 문서화·Phase 0~7.10(W1~W7) 섹션 1,022줄을
       `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 이전 (1,171줄 → 151줄).
       직전 세션 4개 절(QA6 후속·기능 확장 1~3차)은 HANDOFF 참조라 유지
