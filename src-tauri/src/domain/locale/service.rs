@@ -867,6 +867,13 @@ pub fn required_message_keys() -> Vec<String> {
         .collect()
 }
 
+/// Panics when a bundled catalog fails to parse. The JSON is fixed at compile time by
+/// `include_str!`, so a parse failure is a programmer error, and the `builtin_*` signatures are
+/// infallible — an empty-map fallback would silently break the required-key contract enforced by
+/// [`MESSAGE_NAMESPACES`]. This is a deliberate departure from both bundled-data precedents:
+/// theme's `.ok()` skip (a missing optional theme degrades gracefully) and the lsp manifest's
+/// empty-list fallback (a degraded feature, not a broken contract). The panic is fixed by a
+/// `should_panic` test, and [`warm_builtin_catalogs`] moves its first contact to boot.
 fn parse_builtin_messages(locale_id: &str, source: &str) -> BTreeMap<String, String> {
     serde_json::from_str(source).unwrap_or_else(|error| panic!("bundled locale catalog '{locale_id}' is not valid JSON: {error}"))
 }
@@ -884,6 +891,18 @@ fn ko_messages() -> &'static BTreeMap<String, String> {
 fn ja_messages() -> &'static BTreeMap<String, String> {
     static MESSAGES: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     MESSAGES.get_or_init(|| parse_builtin_messages(BUILTIN_JA_ID, include_str!("../../../resources/locales/ja.json")))
+}
+
+/// Eagerly parses all three bundled catalogs during boot, before any window is created.
+/// [`parse_builtin_messages`] deliberately panics on a corrupt bundled catalog, but left lazy that
+/// panic would first fire inside an async Tauri command, where it kills only the spawned task: the
+/// invoke promise never settles, and the main window — revealed only after the locale query
+/// settles — stays invisible forever with no diagnostic. Calling this from `setup` turns the same
+/// programmer error into the loud boot-time process crash the contract intended.
+pub fn warm_builtin_catalogs() {
+    en_messages();
+    ko_messages();
+    ja_messages();
 }
 
 pub fn builtin_en() -> LocalePack {
@@ -1103,6 +1122,40 @@ mod tests {
                 .map(String::as_str),
             Some("{{name}} をアンインストールしますか？")
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "is not valid JSON")]
+    fn 손상된_내장_카탈로그는_패닉한다() {
+        parse_builtin_messages(BUILTIN_EN_ID, "{");
+    }
+
+    #[test]
+    fn 내장_카탈로그_원문에_중복_키가_없다() {
+        const CATALOG_ENTRY_LINE_PREFIX: &str = "    \"";
+        for (locale_id, source, parsed_len) in [
+            (
+                BUILTIN_EN_ID,
+                include_str!("../../../resources/locales/en.json"),
+                en_messages().len(),
+            ),
+            (
+                BUILTIN_KO_ID,
+                include_str!("../../../resources/locales/ko.json"),
+                ko_messages().len(),
+            ),
+            (
+                BUILTIN_JA_ID,
+                include_str!("../../../resources/locales/ja.json"),
+                ja_messages().len(),
+            ),
+        ] {
+            let raw_entry_count = source.lines().filter(|line| line.starts_with(CATALOG_ENTRY_LINE_PREFIX)).count();
+            assert_eq!(
+                raw_entry_count, parsed_len,
+                "bundled catalog '{locale_id}' raw entry count differs from parsed map size — a duplicate key was silently collapsed by serde (or the prettier one-entry-per-line format changed)"
+            );
+        }
     }
 
     #[test]

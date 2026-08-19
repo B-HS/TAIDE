@@ -714,6 +714,7 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            domain::locale::service::warm_builtin_catalogs();
             builder.mount_events(app);
             app.set_menu(build_app_menu(app.handle())?)?;
 

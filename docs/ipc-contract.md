@@ -354,6 +354,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - 메시지는 **flat dotted key**(`"common.cancel"`). 중첩 객체가 아니다 —
   사용자 언어팩이 키 단위로 부분 오버라이드하기 쉬운 구조를 택했다.
 - 사용자 팩은 `{app_data}/locales/*.json`. `extends` 로 내장(en/ko/ja)을 상속하고 바꾼 키만 담는다.
+- 내장 카탈로그 정본은 `src-tauri/resources/locales/{en,ko,ja}.json`(`include_str!`+OnceLock
+  1회 파싱 — T2-I 외부화). required key 계약(`MESSAGE_NAMESPACES`)은 `locale/service.rs` 코드에
+  남는다. 키·언어 추가 시 이 4곳(스키마+3 JSON)을 동기한다 — en=ko=ja·en⊆required 파리티
+  테스트가 기계 강제한다.
 
 ### font (7.5-D 신설)
 

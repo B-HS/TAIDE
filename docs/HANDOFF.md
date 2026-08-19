@@ -103,9 +103,10 @@
 - arrow fn만·반환 타입 명시 금지·TS any/enum 금지(Rust enum 관행 허용)·주석 금지(영어 JSDoc·러스트
   doc 만)·매직넘버 금지·useCallback/useMemo 금지·삼항 2중첩 금지·named export·1파일 1컴포넌트·FSD
   위→아래·barrel 금지·서버상태 TanStack Query(queryOptions+QUERY_KEY).
-- i18n locale/service.rs 4곳 동기+en⊆required. IPC 시간 f64·정수 u32. Rust 후 **반드시 cargo fmt**.
-  신규 커맨드 배선 3곳+파리티+**T1-K ALLOWED/DENIED 등재**(신규 — 미등재 시 원격 기본 거부·테스트
-  실패). 시크릿은 keyring 에만.
+- i18n: MESSAGE_NAMESPACES(locale/service.rs)+`resources/locales/{en,ko,ja}.json` 4곳 동기
+  +en⊆required(T2-I 외부화 — 카탈로그는 JSON, 스키마만 코드). IPC 시간 f64·정수 u32. Rust 후
+  **반드시 cargo fmt**. 신규 커맨드 배선 3곳+파리티+**T1-K ALLOWED/DENIED 등재**(신규 — 미등재 시
+  원격 기본 거부·테스트 실패). 시크릿은 keyring 에만.
 
 ### 5.3 금지 사항 (계승 + 이번 세션 추가)
 

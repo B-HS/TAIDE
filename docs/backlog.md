@@ -43,7 +43,7 @@
 | 항목 | 내용 | 보류 사유 |
 |------|------|-----------|
 | untitled 루트 밖 저장 UX | 저장 다이얼로그는 전 파일시스템을 여는데 루트 밖은 root_guard 가 거부(에러 토스트) | 프로젝트 밖 저장 허용 여부가 보안·UX 결정 사항 |
-| 테마 크레딧 UI | ResolvedTheme author/license/source 와 `settings.themeCredits` 등 i18n 6키가 미노출 | 노출 위치(ThemePicker 카드/프리뷰 헤더) 설계 결정 필요 |
+| 테마 크레딧 UI | ResolvedTheme author/license/source 와 `settings.themeCredits` 등 i18n 6키가 미노출 — `settings.themeCredits` 키는 T2-I 미참조 정리에서 카탈로그·MESSAGE_NAMESPACES 로부터 제거됨(구현 시 3언어+스키마 재추가 필요) | 노출 위치(ThemePicker 카드/프리뷰 헤더) 설계 결정 필요 |
 | Monaco syntax 토큰 19종 미전달 | 번들 테마가 에디터 구문색에서 VSCode 원본보다 단조 | QA 8 범위 밖 — 실기 확인 후 판단 |
 | 라이브 프리뷰 되돌림 의혹 | 검토가 high 로 보고했으나 수정자가 React Compiler 실컴파일로 오탐 판정(반환 객체 memo 확인) | 실기에서 재현되면 다른 원인(window focus refetch 등) 조사 |
 

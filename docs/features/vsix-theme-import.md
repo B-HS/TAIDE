@@ -146,10 +146,14 @@ JSON 은 통상 수십~수백 KB 라 여유 있게 잡았다). zip 메타데이�
   `VsixThemeImportDialog`(변환 → 미리보기 → 중복 이름 처리 → `theme_save` IPC 로 저장,
   `themes/` 디렉토리 재사용 — 임포트 테마는 사용자 로컬 파일이라 라이선스 번들 문제 없음).
   `src/widgets/settings-view/settings-view.tsx` 에 실배선됨.
-- i18n `settings.themeImport*` 키 전량을 `domain/locale/service.rs` 4곳(스키마+en/ko/ja)에
-  추가하고 위 두 컴포넌트가 전부 소비한다 — 버튼·다이얼로그 제목·성공/저장실패/중복 안내에
-  더해, 항목 단위 실패 사유(`themeImportThemeParseFailure`/`ThemeIncomplete`/
-  `ThemeContrastFailure`)를 파일 단위 실패(`themeImportFailure`)와 구분해 표시한다.
+- i18n `settings.themeImport*` 키는 `locale/service.rs` 의 `MESSAGE_NAMESPACES` +
+  `src-tauri/resources/locales/{en,ko,ja}.json` 4곳 동기로 관리한다(T2-I 외부화 반영). 실소비
+  키는 `src/widgets/plugin-manager/vsix-import-dialog.tsx` 의 6키 — 성공/저장실패/중복
+  (`themeImportSuccess`/`themeImportSaveFailure`/`themeImportDuplicate`)과 항목 단위 실패 사유
+  (`themeImportThemeParseFailure`/`themeImportThemeIncomplete`/`themeImportThemeContrastFailure`).
+  초기 웨이브의 `themeImportButton`/`themeImportDialogTitle`/`themeImportFailure` 는 임포트 UI 가
+  plugin-manager 다이얼로그로 옮겨가며 미소비가 되어 T2-I 미참조 정리에서 제거됐다(재도입 시
+  3언어+스키마 재추가 필요).
 
 다음 웨이브 몫 (범위 밖):
 
