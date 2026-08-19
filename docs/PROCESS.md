@@ -704,11 +704,18 @@
           `docs/quality-assurance/2026-08-11-qa6-checklist.md` "손 QA 1차 수정 재검(2026-08-18)"
           절로 이월
 - [ ] e. Phase 8 — 서명·공증 (d 통과 후)
-    - [ ] e-0. GitHub Actions secrets 사전 등록(사용자) — 목록 정본
+    - [x] e-0. GitHub Actions secrets 사전 등록 — **완료(2026-08-19 사용자 등록 확인)**. 목록 정본
           `docs/acknowledge/2026-08-19-phase8-signing-secrets.md`. **raw-viewer release.yml 선례로
           5건 확정**(MACOS_CERTIFICATE_P12·MACOS_CERTIFICATE_PASSWORD·APPLE_ID·
           APPLE_APP_SPECIFIC_PASSWORD·APPLE_TEAM_ID — 동일 이름·값 재사용). 서명 아이덴티티는
           워크플로 자동 추출·키체인 pw 인라인이라 secret 불필요. updater 키 불필요
+    - [x] e-1. 배포 사전준비 — **완료(2026-08-19)**. `.github/workflows/release.yml` 신설(148줄,
+          wf_f3033c87-2f6 이식 + 메인 2차 실물 검증: 트리거 tags v*+workflow_dispatch 만·브랜치
+          push 발화 없음·secret 참조 6개 정확·서명/공증 graceful skip·actionlint 재실행 PASS).
+          raw-viewer 패턴 + TAIDE 적응(updater 완전 제거·`bun run tauri build` 래퍼 단일 명령이
+          taide-cli 사이드카+tauri.bundle.conf.json 자동 적용·cargo test --release --workspace·
+          bun 1.3.14 핀·taide-dmg 아티팩트·draft 릴리스). **실행은 Phase 8 본착수 때**(태그
+          푸시 또는 수동) — 첫 실행 검증 항목(공증 로그·사이드카 서명 확인)은 그때 qa6 에 추가
 - [x] f. PROCESS.md 아카이브 완료 — 문서화·Phase 0~7.10(W1~W7) 섹션 1,022줄을
       `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 이전 (1,171줄 → 151줄).
       직전 세션 4개 절(QA6 후속·기능 확장 1~3차)은 HANDOFF 참조라 유지
