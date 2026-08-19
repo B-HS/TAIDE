@@ -704,6 +704,12 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           (4렌즈 28발견→적대적 3: confirmed 2 minor 하향·refuted 1)→메인 직접 수정(arm↔ALLOWED
           파리티 테스트 신설·doc 상한 단서·문서 통일·agent_hooks_uninstall 허용 명시)→verify·
           vite 그린. 이제 신규 커맨드는 명시 등재 없인 원격 기본 거부(기계 강제)
+    - [x] d-0g. 착수 확인 7차(2026-08-19): ① T1-K 산출물(4b76dda·19d77e6) prod 병합 완료
+          (main=19d77e6) ② 다음 배치 = 저위험 청소(X-A 배선 8건+§5.1 소규모 잔여 5건)
+    - [ ] d-15. X-A 배선+소규모 잔여 청소 배치 — 계약 `docs/acknowledge/2026-08-19-xa-wiring-
+          cleanup-contract.md`. 살리기 4(viewState·from_app·revision·cwd-changed)+지우기
+          (focus-kind-changed·중복 커맨드 5종)+X1#2 잔여 판정+§5.1 (2)(3)(4)(7)(8). Phase R(Rust)
+          →F 병렬 2→메인 통합→E 검토→커밋(dev)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
