@@ -22,13 +22,15 @@ pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId,
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 
-    match watcher::start_watch(std::path::PathBuf::from(root), move |change: FsChange| {
-        let change = resolve_from_app(&emit_handle.state::<AppState>().self_writes, change);
-        let _ = FsChanged {
-            project_id: emit_project.clone(),
-            change,
+    match watcher::start_watch(std::path::PathBuf::from(root), move |changes: Vec<FsChange>| {
+        let changes = resolve_from_app(&emit_handle.state::<AppState>().self_writes, changes);
+        for change in changes {
+            let _ = FsChanged {
+                project_id: emit_project.clone(),
+                change,
+            }
+            .emit(&emit_handle);
         }
-        .emit(&emit_handle);
     }) {
         Ok(handle) => {
             state.watchers.write().insert(project_id.clone(), handle);
@@ -46,15 +48,17 @@ pub fn attach_git_watcher(app: &AppHandle, state: &AppState, project_id: &Projec
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 
-    match watcher::start_watch(git_dir.clone(), move |change: FsChange| {
+    match watcher::start_watch(git_dir.clone(), move |changes: Vec<FsChange>| {
         let mut needs_status = false;
         let mut needs_refs = false;
 
-        for path in &change.paths {
-            match git_watch::classify_git_change(std::path::Path::new(path)) {
-                Some(git_watch::GitInvalidation::Status) => needs_status = true,
-                Some(git_watch::GitInvalidation::Refs) => needs_refs = true,
-                None => {}
+        for change in &changes {
+            for path in &change.paths {
+                match git_watch::classify_git_change(std::path::Path::new(path)) {
+                    Some(git_watch::GitInvalidation::Status) => needs_status = true,
+                    Some(git_watch::GitInvalidation::Refs) => needs_refs = true,
+                    None => {}
+                }
             }
         }
 

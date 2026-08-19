@@ -23,7 +23,7 @@
 | **T1-I 도메인 경계 C13** (12건) | 미착수 — **위험 중~높음**(30엣지·순환 절단, 착수 시 재고지) |
 | T2 백로그 10묶음 (~107건) | 미착수 — 중복 제거·비대 파일 분해(editor-pane 은 해소, settings-view 927·lib.rs·locale/service.rs 4081 등 잔여)·shared/lib 재구조화·접근성 8·dead code·매직넘버·로케일 외부화 |
 | T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
-| X-A 배선 8건 | 미착수(판정 기승인: 살리기 cwd-changed·from_app·revision·layout_set_view_state / 지우기 focus-kind-changed·중복 커맨드 5종). lsp:session-status-changed 소비는 T1 3차에서 선해소 |
+| X-A 배선 8건 | **완료(d-15)** — 살리기 4·지우기(focus-kind·app:ready·중복 5종)·X1#2 소비 전량. 신규 이월 4건(viewState closed_tabs 복원 공백·useReplaceSearch invalidation 부재·REMOTE 폴링/push 중복·경로 predicate 한계)은 d-15 계약 §6 |
 | X-C 문서 잔여 | 일부 해소(커맨드 수·data-model roots 는 정정됨) — X1#5(sync gist 스키마 절)·#15(디스크 레이아웃)·#16·#17·#18 잔여 |
 | 미배정 minor·압축 제외 | ~40건(감사 원문에만 존재 — 재론 시 실코드 확인) |
 
@@ -706,10 +706,17 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           vite 그린. 이제 신규 커맨드는 명시 등재 없인 원격 기본 거부(기계 강제)
     - [x] d-0g. 착수 확인 7차(2026-08-19): ① T1-K 산출물(4b76dda·19d77e6) prod 병합 완료
           (main=19d77e6) ② 다음 배치 = 저위험 청소(X-A 배선 8건+§5.1 소규모 잔여 5건)
-    - [ ] d-15. X-A 배선+소규모 잔여 청소 배치 — 계약 `docs/acknowledge/2026-08-19-xa-wiring-
-          cleanup-contract.md`. 살리기 4(viewState·from_app·revision·cwd-changed)+지우기
-          (focus-kind-changed·중복 커맨드 5종)+X1#2 잔여 판정+§5.1 (2)(3)(4)(7)(8). Phase R(Rust)
-          →F 병렬 2→메인 통합→E 검토→커밋(dev)
+    - [x] d-15. X-A 배선+소규모 잔여 청소 배치 — **완료**. 계약 `docs/acknowledge/2026-08-19-
+          xa-wiring-cleanup-contract.md`(§4 구현·§5 F2 정정·§6 검토 종합). 구현 `8328023`(53파일):
+          살리기 4(viewState·from_app·revision·cwd+터미널 파일 링크 실배선)+지우기(focus-kind·
+          app:ready·중복 커맨드 5종 — 커맨드 176+raw3·이벤트 23)+§5.1 (2)(3)(4)(7)(8)+메인 접합부
+          2(AppReady·remote:state-changed 소비). E 검토(4렌즈 45발견→적대적 16 **confirmed 16·
+          refuted 0** — 신설 배선 실결함 전량 적중)→수정 3에이전트(viewState useLayoutEffect
+          재설계·from_app temp sibling+배치 판정 실효화·guard_terminal_path 보안 가드·OSC7
+          종결자·kind 한정 스킵·prune 배선+비적대 실결함 1 추가)→메인 2차 스팟 7축 전건+verify·
+          vite 그린. X-A 트랙 완결(X1#2 포함). 운영 교훈: 공유 워킹트리 git stash 금지(2회 재발
+          — 이후 Workflow 프롬프트 명시). 신규 이월 4건(viewState closed_tabs·useReplaceSearch
+          invalidation·REMOTE 폴링 중복·predicate 한계)은 계약 §6
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

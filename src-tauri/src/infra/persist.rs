@@ -104,6 +104,33 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{}.tmp", uuid::Uuid::new_v4()))
 }
 
+/// Recognizes a path shaped exactly like one [`temp_sibling`] would have produced. The filesystem
+/// watcher (`infra::watcher::group_relevant_changes`) uses this to drop `write_atomic`'s
+/// create-then-rename intermediate file from `FsChange` groups before they ever reach
+/// `infra::self_write::resolve_from_app` — without it, that untracked temp path rides along in the
+/// same watcher-debounced group as the final path `SelfWriteTracker` actually marked, and the
+/// group's "every path must match" rule falls back to `from_app: false` for what was really the
+/// app's own write (X1#10, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §4's
+/// follow-up finding). Matches the precise `.{name}.{uuid}.tmp` shape — a leading dot, a trailing
+/// `.tmp`, and a valid UUID as the final dot-separated segment — rather than a loose
+/// `starts_with('.') && ends_with(".tmp")` check, so an unrelated user dotfile that happens to end
+/// in `.tmp` is never silently hidden from the watcher.
+pub fn is_temp_sibling(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let Some(without_tmp_suffix) = file_name.strip_suffix(".tmp") else {
+        return false;
+    };
+    let Some(without_leading_dot) = without_tmp_suffix.strip_prefix('.') else {
+        return false;
+    };
+
+    without_leading_dot
+        .rsplit_once('.')
+        .is_some_and(|(_, candidate_uuid)| uuid::Uuid::parse_str(candidate_uuid).is_ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +236,19 @@ mod tests {
         let path = std::env::temp_dir().join(format!("taide-missing-{}.json", uuid::Uuid::new_v4()));
         let loaded: Option<Sample> = read_json(&path).expect("read");
         assert_eq!(loaded, None);
+    }
+
+    #[test]
+    fn is_temp_sibling_은_temp_sibling이_만든_경로를_인식한다() {
+        assert!(is_temp_sibling(&temp_sibling(Path::new("/repo/src/main.rs"))));
+        assert!(is_temp_sibling(&temp_sibling(Path::new("/repo/Makefile"))));
+    }
+
+    #[test]
+    fn is_temp_sibling_은_uuid_형식이_아니면_tmp로_끝나도_인식하지_않는다() {
+        assert!(!is_temp_sibling(Path::new("/repo/.notes.tmp")));
+        assert!(!is_temp_sibling(Path::new("/repo/main.rs")));
+        assert!(!is_temp_sibling(Path::new("/repo/.main.rs.not-a-uuid.tmp")));
     }
 
     #[test]

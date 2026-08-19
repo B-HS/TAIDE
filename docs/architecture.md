@@ -326,7 +326,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    | 레지스트리/브리지 | 소유권 범위 | 수명 종료 시점 |
    |---|---|---|
    | `entities/editor/reveal-registry.ts` | pending reveal 요청(파일 오픈 대기) | 소비(`consumePendingReveal`) 또는 `REVEAL_PENDING_TTL_MS`(5s) 만료 — 탭/프로젝트 이벤트 구독 없음, TTL 단독 |
-   | `entities/editor/open-with-registry.ts` | 파일 경로별 "이 확장자를 어떤 뷰어로 열지" 오버라이드 | 명시적 해제 없음(경로는 탭/프로젝트에 1:1 로 안 묶여 재사용 가능) — `OPEN_WITH_OVERRIDE_MAX_ENTRIES`(200) LRU-by-write 상한 단독 |
+   | `entities/editor/open-with-registry.ts` | 파일 경로별 "이 확장자를 어떤 뷰어로 열지" 오버라이드 | 탭 닫기 시 다른 곳에 안 남아있으면 즉시 해제(`useCloseTab` → `setOpenWithOverride(path, null)`) + 프로젝트 종료 시 다른 프로젝트에 안 남은 경로만 일괄 해제(`ipc-sync-provider.tsx`의 `projectClosed` → `pruneOpenWithOverrides`) — 두 이벤트 모두 놓친 경로(경로는 탭/프로젝트에 1:1 로 안 묶여 재사용 가능)만 `OPEN_WITH_OVERRIDE_MAX_ENTRIES`(200) LRU-by-write 상한이 뒷받침 |
    | `entities/ide/claude-diff-registry.ts` | requestId 별 미해결 Claude diff 요청 | accept/reject(`removePendingClaudeDiff`) 또는 그 탭이 레이아웃에서 실제로 사라짐(`claude-diff-pane.tsx` unmount 시 `queryClient.getQueryData(LAYOUT.DETAIL)` 로 재확인 — `projectClosed` 의 `PROJECT_SCOPED_KEYS` 캐시 제거가 이 재확인을 간접적으로 성립시킨다) |
    | `shared/lib/terminal-write-bridge.ts` | 탭별 pty 쓰기 큐 + 핸들러 슬롯 | 정상 해제(`register`/`unregister`) 시 즉시 회수, 또는 `TERMINAL_WRITE_QUEUE_TTL_MS`(30s) 경과분을 다음 호출에서 기회적으로 스윕(`sweepStaleSlots`) — 탭 종료 이벤트 구독 없음, TTL 단독 |
    | `entities/lsp/lsp-session-flush-registry.ts` + `widgets/editor-pane/lsp-session-registry.ts` | 프로젝트/창/서버/root 별 LSP 세션(`sessionsByKey`) | 참조 카운트 0 도달 후 `LSP_SESSION_DISPOSE_GRACE_MS` 유예, 또는 `projectClosed` 이벤트(`ipc-sync-provider.tsx` → `flushLspSessionsForProject`)로 유예 없이 강제 회수, 또는 앱 종료(`HotExitFlushProvider` → `flushAllLspSessionDisposals`) |

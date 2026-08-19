@@ -1,11 +1,13 @@
 import type { FC, PropsWithChildren } from 'react'
 import { useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { Project, ProjectId } from '@shared/api/bindings'
+import type { FsChange, Project, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { refreshTreeDir } from '@entities/tree/tree.ipc'
+import { pruneOpenWithOverrides } from '@entities/editor/open-with-registry'
 import { flushLspSessionsForProject } from '@entities/lsp/lsp-session-flush-registry'
 import { useLspSessionsQueryInvalidationSync } from '@entities/lsp/lsp.query'
 
@@ -43,6 +45,38 @@ export const isQueryKeyUnderProjectRoot = (queryKey: readonly unknown[], project
  */
 export const isStaleLayoutRevision = (lastObservedRevision: number | undefined, incomingRevision: number) =>
     lastObservedRevision !== undefined && incomingRevision <= lastObservedRevision
+
+/**
+ * `change.fromApp` (contract X1#10) marks a watcher batch this app's own write caused, but only
+ * `modified` never changes what the tree looks like — a content-only save touches no entry's
+ * existence, name, or position. `created`/`renamed`/`removed` do, and two from_app-marked call sites
+ * mutate the tree without refreshing it themselves: `shared/lib/lsp/workspace-edit-applier.ts`'s
+ * `CreateFile`/`RenameFile`/`DeleteFile` WorkspaceEdit operations, and the remote dispatch's
+ * `file_create`/`file_rename`/`file_delete` arms (the desktop window has no local call site to
+ * refresh from for either). Narrowing the skip to `modified` keeps R4#13's N+1 savings for
+ * content-only self-writes while leaving every tree-shape-changing kind on the watcher-echo refresh
+ * this app relied on before from_app existed.
+ */
+export const isSelfEchoWithoutTreeImpact = (change: FsChange) => change.fromApp && change.kind === 'modified'
+
+/**
+ * The "reopen with" registry (contract §1.3(2)) is keyed by bare path, not scoped to any one
+ * project's query cache, so pruning it on `projectClosed` has to know which paths are still open in
+ * *other* projects before dropping every override that belonged only to the one that just closed.
+ * `layoutEntries` is `queryClient.getQueriesData<ProjectLayout>({ queryKey: QUERY_KEY.LAYOUT.ALL })`
+ * — every project's cached layout, main window and auxiliary windows both (`collectAllPaneTabs`) —
+ * filtered down to every other project's still-open file tabs. Taking the raw entries as a parameter
+ * rather than reading the query client directly keeps this pure and unit-testable, matching
+ * `isStaleLayoutRevision`/`isQueryKeyUnderProjectRoot` above.
+ */
+export const collectOpenFilePathsOutsideProject = (
+    layoutEntries: ReadonlyArray<readonly [readonly unknown[], ProjectLayout | undefined]>,
+    excludedProjectId: ProjectId,
+) =>
+    layoutEntries
+        .filter(([queryKey]) => queryKey[2] !== excludedProjectId)
+        .flatMap(([, layout]) => (layout ? collectAllPaneTabs(layout) : []))
+        .flatMap((tab) => (tab.kind.kind === 'file' ? [tab.kind.path] : []))
 
 type RefreshTreeDirFn = (dir: string) => ReturnType<typeof refreshTreeDir>
 
@@ -104,6 +138,10 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
          * predicate from.
          */
         const project = queryClient.getQueryData<Project>(QUERY_KEY.PROJECT.DETAIL(payload.projectId))
+
+        pruneOpenWithOverrides(
+            collectOpenFilePathsOutsideProject(queryClient.getQueriesData<ProjectLayout>({ queryKey: QUERY_KEY.LAYOUT.ALL }), payload.projectId),
+        )
 
         for (const scopedKey of PROJECT_SCOPED_KEYS) queryClient.removeQueries({ queryKey: scopedKey(payload.projectId) })
         if (project) queryClient.removeQueries({ predicate: (query) => isQueryKeyUnderProjectRoot(query.queryKey, project.root) })
@@ -167,12 +205,16 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
          * `change.fromApp` (contract X1#10) marks a watcher batch whose every path was just written
          * by this same app (`file_save`/`file_create`/`file_rename`/`file_delete`/`file_copy`/
          * `search_replace`'s echo, self-write TTL-marked in `infra::self_write`). The tree refresh
-         * below is skipped entirely for such a batch — every from_app-marked operation either never
-         * touches the tree (a content-only save) or already refreshes it directly at its own call
-         * site (`explorer-container.tsx`'s `refreshTreeDir` after create/rename/delete/copy/paste),
-         * so this handler's refresh would only repeat that same, more expensive directory-listing
-         * round trip a second time (R4#13's "N+1", completed at its root now that the echo is
-         * skippable instead of merely deduplicated).
+         * below is skipped only for the `modified` kind (see `isSelfEchoWithoutTreeImpact`) — a
+         * content-only self-write never changes what the tree looks like, so refreshing it would
+         * only repeat the same, more expensive directory-listing round trip a second time (R4#13's
+         * "N+1"). `created`/`renamed`/`removed` batches always refresh regardless of `fromApp`:
+         * some from_app-marked call sites for those kinds (`explorer-container.tsx`'s own
+         * create/rename/delete/copy/paste flows) already refresh the tree directly and would simply
+         * pay for a redundant refresh here, but `shared/lib/lsp/workspace-edit-applier.ts`'s
+         * WorkspaceEdit resource operations and the remote dispatch's `file_create`/`file_rename`/
+         * `file_delete` arms do not — they have no local call site to refresh from — so this handler
+         * is their only path back to a non-stale explorer tree.
          *
          * The `FILE.CONTENT` invalidation above is deliberately *not* gated the same way.
          * `useSaveFile`/`useRenameEntry`/`useCopyEntry`/`useDeleteEntry` do already invalidate it
@@ -184,7 +226,7 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
          * ownership, so the fix belongs there (give `useReplaceSearch` its own `onSuccess`, matching
          * its sibling mutations) rather than here.
          */
-        if (change.fromApp) return
+        if (isSelfEchoWithoutTreeImpact(change)) return
 
         const dirs = [...new Set(change.paths.map(parentDirOf))]
         void syncTreeRowsForChangedDirs(dirs, {

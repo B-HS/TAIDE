@@ -114,7 +114,12 @@
     `root_guard::project_root` 로 검증하고, `tabId` 를 파일명 컴포넌트로 쓰는 두 커맨드는 추가로
     `root_guard::ensure_safe_component` 로 경로 탈출 문자(`/`·`\`·`..`)를 거부한다(경로 조작 방지).
 - event: `fs:changed(paths[], kind, fromApp)` (watcher — debounce·배치·echo 플래그; 실제 필드명은
-  `origin` 이 아니라 `fromApp: boolean` — 정정),
+  `origin` 이 아니라 `fromApp: boolean` — 정정). `kind` 는 `FsChangeKind` = `'Created' | 'Modified' |
+  'Removed' | 'Renamed'` — 기존 타입 그대로 항상 실려 있었다(신설 아님). `fromApp: true` 인 그룹의
+  대부분은 `file_save`/`search_replace`(원자적 쓰기라 watcher 는 이를 `Created`/`Renamed`/
+  `Modified` 여러 그룹으로 관측한다)에서 나오므로, 트리 구조까지 바뀌는 연산(생성/이름변경/삭제)만
+  선택적으로 refresh 를 유지하고 싶은 소비자는 `fromApp` 단독이 아니라 `kind !== 'Modified'` 를
+  함께 봐 스킵 범위를 좁힐 수 있다 — 이 필드가 그 판단에 쓰라고 존재한다.
   `app:hot-exit-flush-requested(timeoutMs)` (Hot Exit — 종료 인터셉트)
 - **`fromApp` echo 마킹 완성(X-A 배치, 2026-08-19)**: T0 감사 시점까지 `fromApp` 은 watcher 가 항상
   `false` 로만 채우는 상수였다(X1#10). `AppState::self_writes`(`infra::self_write::
@@ -124,6 +129,16 @@
   `fromApp: true` 로 확정한다 — 묶음 안에 앱이 쓰지 않은 경로가 하나라도 섞이면 전체를 외부 변경으로
   보수적으로 처리한다(오마킹 방지가 마킹 누락보다 항상 우선). 마킹 누락(TTL 만료·경로 불일치)은
   기존과 동일한 `false` 로 안전하게 낙착된다.
+- **Phase E 후속 수정(2026-08-19)**: 최초 구현은 `file_save`/`search_replace` 경로에서 목표(자기
+  저장마다 트리 재조회 스킵)를 달성하지 못했다 — `write_atomic`(temp-sibling 생성 후 rename)의
+  임시 파일이 watcher 그룹에 그대로 섞여 마킹과 불일치했고, 하나의 저장이 만드는 여러 그룹
+  (Created/Modified/Renamed) 이 경로당 1회뿐인 마킹을 서로 나눠 가져 최대 한 그룹만 true 가 될 수
+  있었다. 두 가지로 수정했다: (1) `infra::persist::is_temp_sibling` 이 watcher 단계
+  (`infra::watcher::group_relevant_changes`)에서 `write_atomic` 의 temp-sibling 경로 자체를
+  그룹에서 제외하고, (2) `infra::self_write::resolve_from_app` 이 이제 **한 디바운스 배치 전체**
+  (`infra::watcher::start_watch` 의 콜백이 그룹 하나가 아니라 `Vec<FsChange>` 를 통째로 넘긴다)를
+  받아 같은 경로가 여러 그룹에 나타나도 마킹 판정을 한 번만 소비하고 모든 그룹에 동일하게
+  적용한다.
 
 ### tree / search (`explorer-sidebar.md`)
 
@@ -1165,11 +1180,24 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - **§1.3(4) LSP 재핸드셰이크 실패-확인 신설**: 신규 커맨드 `lsp_report_reinitialize_failure(sessionId,
   generation) → Result<null, AppError>` — `lsp_confirm_reinitialize`(성공 확인)의 실패 대응
   커맨드로, 렌더러가 재시도를 모두 소진했을 때 호출한다. 같은 세대 가드(`confirm_reinitialize`)를
-  공유하고, 통과하면 `status` 를 `Crashed` 로 확정하며 `last_error` 를 `handle_process_exit` 의
-  낙관적 "재시작됐습니다, 기다려주세요" 문구 대신 "재연결 실패, 수동으로 다시 시작해주세요" 로
-  갱신한다. `REMOTE_ALLOWED_COMMANDS`/T1-K 테이블에 등재 완료(원격에서도 허용 — 원격 미러도 자기
-  세션의 실패를 확정할 수 있어야 하고, 세대 불일치 무시가 위조/이월 재핸드셰이크 확인의 오용을
-  방어한다). 상세는 위 "T1 정비 3차 배치" 절의 `lsp_confirm_reinitialize` 기술과 나란히 읽는다.
+  공유하고, **추가로 세션의 현재 `status` 가 이미 `Crashed` 일 때만** 통과하면 `status` 를 `Crashed`
+  로 확정하며 `last_error` 를 `handle_process_exit` 의 낙관적 "재시작됐습니다, 기다려주세요" 문구
+  대신 "재연결 실패, 수동으로 다시 시작해주세요" 로 갱신한다(Phase E 검토 반영, 2026-08-19 — 최초
+  구현은 세대 가드만 있었다). `REMOTE_ALLOWED_COMMANDS`/T1-K 테이블에 등재 완료(원격에서도 허용 —
+  원격 미러도 자기 세션의 실패를 확정할 수 있어야 한다). **정정**: 세대 불일치 무시 가드는
+  **경합 방어(race guard)** 이지 위조 방어가 아니다 — `lsp_sessions` 가 현재 `generation` 을 그대로
+  응답에 실어 돌려주므로, 이 커맨드를 부를 수 있는 인증된 원격 피어는 언제나 일치하는 generation
+  을 얻을 수 있다(그 피어는 이미 `lsp_stop`/`lsp_restart`/`file_delete`/`git_discard` 를 갖고 있어
+  generation 매칭이 별도 권한 상승도 아니다 — T1-K 의 "원격=인증 동급 신뢰, 호출자 identity 는
+  인가 축이 아니다" 선례와 일관). `status == Crashed` 전제 없이 세대 가드만 있던 최초 구현은
+  비적대적 실결함이 있었다: `lsp_restart`(수동 재시작)는 `Running` 으로 전환하되 `generation` 을
+  올리지 않으므로, 크래시 시점에 시작된 옛 재시도 루프가 사용자의 수동 재시작 이후 뒤늦게 예산을
+  소진해 이 커맨드를 부르면 세대는 여전히 일치해 방금 복구된 정상 세션이 다시 `Crashed` 로
+  잘못 표시됐다 — 이번 `status == Crashed` 전제가 이 경로를 막는다. `lsp_confirm_reinitialize` 는
+  대칭으로 이 전제를 추가하지 않는다 — 그 커맨드의 목표 상태(`Running`)는 이미 건강한 세션에
+  적용해도 무해하므로 상태 전제가 필요 없고, 비대칭은 "누가 부를 수 있는가"가 아니라 "각 커맨드의
+  목표 상태가 무엇을 안전하게 덮어쓸 수 있는가"에서만 나온다. 상세는 위 "T1 정비 3차 배치" 절의
+  `lsp_confirm_reinitialize` 기술과 나란히 읽는다.
 - **§1.3(7) `tree_rows` limit 센티널 제거**: 위 "tree / search" 절 참조 — `u32` → `Option<u32>`.
 - **커맨드/이벤트 수 갱신**: command 180→**176**(중복 5종 제거 + 신규 1종), raw 포함
   183→**179**, event 25→**23**(2종 제거), `REMOTE_ALLOWED_COMMANDS` 163→**160**,

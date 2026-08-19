@@ -1,4 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import type { FsChange, ProjectLayout, Tab } from '@shared/api/bindings'
+
+const buildFileTab = (id: string, path: string): Tab => ({ id, kind: { kind: 'file', path }, title: id })
+
+const buildLeafLayout = (tabs: Tab[]): ProjectLayout => ({
+    version: 1,
+    root: { node: 'leaf', id: 'leaf', tabs, active: tabs[0]?.id ?? null },
+    focusedPane: 'leaf',
+})
 
 /**
  * `ipc-sync-provider.tsx` must reach LSP session disposal through `lsp-session-flush-registry.ts`
@@ -158,5 +167,70 @@ describe('isQueryKeyUnderProjectRoot', () => {
     test('path 위치가 문자열이 아니면 false 다', async () => {
         const { isQueryKeyUnderProjectRoot } = await import('@app/providers/ipc-sync-provider')
         expect(isQueryKeyUnderProjectRoot(['file', 'content', 42], '/repo')).toBe(false)
+    })
+})
+
+describe('isSelfEchoWithoutTreeImpact', () => {
+    const change = (overrides: Partial<FsChange>): FsChange => ({ kind: 'modified', paths: ['/repo/a.ts'], fromApp: true, ...overrides })
+
+    test('fromApp 이면서 kind 가 modified 면 트리 영향 없는 자기 에코다 (스킵 대상)', async () => {
+        const { isSelfEchoWithoutTreeImpact } = await import('@app/providers/ipc-sync-provider')
+        expect(isSelfEchoWithoutTreeImpact(change({ kind: 'modified', fromApp: true }))).toBe(true)
+    })
+
+    test.each(['created', 'renamed', 'removed'] as const)('fromApp 이어도 kind 가 %s 면 트리 구조가 바뀌므로 스킵하지 않는다', async (kind) => {
+        const { isSelfEchoWithoutTreeImpact } = await import('@app/providers/ipc-sync-provider')
+        expect(isSelfEchoWithoutTreeImpact(change({ kind, fromApp: true }))).toBe(false)
+    })
+
+    test('fromApp 이 false 면 kind 와 무관하게 스킵하지 않는다', async () => {
+        const { isSelfEchoWithoutTreeImpact } = await import('@app/providers/ipc-sync-provider')
+        expect(isSelfEchoWithoutTreeImpact(change({ kind: 'modified', fromApp: false }))).toBe(false)
+    })
+})
+
+describe('collectOpenFilePathsOutsideProject', () => {
+    test('닫힌 프로젝트 자신의 레이아웃 엔트리는 제외하고 다른 프로젝트의 열린 파일 경로만 모은다', async () => {
+        const { collectOpenFilePathsOutsideProject } = await import('@app/providers/ipc-sync-provider')
+        const entries: ReadonlyArray<readonly [readonly unknown[], ProjectLayout | undefined]> = [
+            [['layout', 'detail', 'closing-project'], buildLeafLayout([buildFileTab('a', '/closing/a.ts')])],
+            [['layout', 'detail', 'other-project'], buildLeafLayout([buildFileTab('b', '/other/b.ts')])],
+        ]
+
+        expect(collectOpenFilePathsOutsideProject(entries, 'closing-project')).toEqual(['/other/b.ts'])
+    })
+
+    test('보조 창(auxiliaryWindows)에 열린 파일 경로도 함께 모은다', async () => {
+        const { collectOpenFilePathsOutsideProject } = await import('@app/providers/ipc-sync-provider')
+        const layout: ProjectLayout = {
+            ...buildLeafLayout([buildFileTab('main', '/other/main.ts')]),
+            auxiliaryWindows: [
+                {
+                    slot: 1,
+                    focusedPane: 'aux-leaf',
+                    root: { node: 'leaf', id: 'aux-leaf', tabs: [buildFileTab('aux', '/other/aux.ts')], active: 'aux' },
+                },
+            ],
+        }
+        const entries: ReadonlyArray<readonly [readonly unknown[], ProjectLayout | undefined]> = [[['layout', 'detail', 'other-project'], layout]]
+
+        expect(collectOpenFilePathsOutsideProject(entries, 'closing-project')).toEqual(['/other/main.ts', '/other/aux.ts'])
+    })
+
+    test('파일이 아닌 탭 종류(터미널 등)는 제외한다', async () => {
+        const { collectOpenFilePathsOutsideProject } = await import('@app/providers/ipc-sync-provider')
+        const terminalTab: Tab = { id: 't', kind: { kind: 'terminal', sessionId: 's1' }, title: 'term' }
+        const entries: ReadonlyArray<readonly [readonly unknown[], ProjectLayout | undefined]> = [
+            [['layout', 'detail', 'other-project'], buildLeafLayout([terminalTab, buildFileTab('f', '/other/f.ts')])],
+        ]
+
+        expect(collectOpenFilePathsOutsideProject(entries, 'closing-project')).toEqual(['/other/f.ts'])
+    })
+
+    test('아직 데이터가 없는(undefined) 레이아웃 엔트리는 건너뛴다', async () => {
+        const { collectOpenFilePathsOutsideProject } = await import('@app/providers/ipc-sync-provider')
+        const entries: ReadonlyArray<readonly [readonly unknown[], ProjectLayout | undefined]> = [[['layout', 'detail', 'other-project'], undefined]]
+
+        expect(collectOpenFilePathsOutsideProject(entries, 'closing-project')).toEqual([])
     })
 })

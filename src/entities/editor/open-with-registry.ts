@@ -3,16 +3,16 @@ export type OpenWithOverride = 'editor' | 'preview'
 type Listener = () => void
 
 /**
- * Caps how many distinct file paths can hold a sticky "reopen with" override at once. Without a
- * bound this `Map` grows for the entire life of the window — every path a user ever right-clicked
- * "Reopen With Editor" on (`pane-tab-bar.tsx`, `explorer-container.tsx`) stays here even after its
- * tab, and the project it belonged to, closed; a path is not itself tied to any tab/pane/project
- * lifecycle event this registry can observe (the same path can be reopened, in a different pane or
- * a different project entirely, long after every tab that once held it is gone), so eviction is by
- * capacity rather than by a specific close event. `setOpenWithOverride` always re-inserts the
- * touched path last, so `Map` iteration order keeps the *least recently written* path first —
- * eviction on overflow drops that one, meaning only genuinely stale entries (paths nobody has
- * revisited in a while) are ever dropped, never the one the user is actively toggling.
+ * Caps how many distinct file paths can hold a sticky "reopen with" override at once, as a backstop
+ * behind the close-event pruning below (`setOpenWithOverride(path, null)` on tab close via
+ * `useCloseTab`, `pruneOpenWithOverrides` on project close via `IpcSyncProvider`'s `projectClosed`
+ * handler) — a path can still outlive every tab/project that ever held it (the same path can be
+ * reopened, in a different pane or a different project entirely, long after those close events
+ * fired), so this `Map` needs a capacity bound in addition to those event-driven hooks, not instead
+ * of them. `setOpenWithOverride` always re-inserts the touched path last, so `Map` iteration order
+ * keeps the *least recently written* path first — eviction on overflow drops that one, meaning only
+ * genuinely stale entries (paths nobody has revisited in a while) are ever dropped, never the one
+ * the user is actively toggling.
  */
 export const OPEN_WITH_OVERRIDE_MAX_ENTRIES = 200
 
@@ -43,9 +43,11 @@ export const getOpenWithOverride = (path: string): OpenWithOverride | null => ov
 /**
  * Drops every override whose path is not in `keepPaths` — the eager counterpart to
  * {@link OPEN_WITH_OVERRIDE_MAX_ENTRIES}'s capacity-based eviction, for a caller that actually knows
- * which paths are still relevant (e.g. every path still open across the whole app, or every path
- * that belonged to a project that just closed) rather than waiting for the LRU cap to eventually
- * reclaim a path nobody revisits. A no-op call (nothing pruned) does not notify subscribers.
+ * which paths are still relevant rather than waiting for the LRU cap to eventually reclaim a path
+ * nobody revisits. Called from `IpcSyncProvider`'s `projectClosed` handler with every path still open
+ * in every *other* cached project's layout (`collectOpenFilePathsOutsideProject`), so it prunes
+ * exactly the overrides that belonged only to the project that just closed. A no-op call (nothing
+ * pruned) does not notify subscribers.
  */
 export const pruneOpenWithOverrides = (keepPaths: readonly string[]) => {
     const keep = new Set(keepPaths)

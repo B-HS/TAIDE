@@ -999,3 +999,20 @@
 - [ ] 저장(⌘S)·자동저장·untitled 변환 후 git 패널·미러 상태 갱신(무효화 회수 후 동등성)
 - [ ] 에디터 열기 직후(go-to-definition·검색 결과) IDE 연동 시 커서 push 부작용 없음(effect
       순서 — Claude Code/JetBrains 연결 상태에서)
+
+## X-A 배선·청소 배치 재검 (2026-08-19, 계약: docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md)
+
+> 죽은 배선 살리기(viewState·from_app·revision·cwd)·중복 제거·소규모 잔여. 신설 배선은 실기로만
+> 확증 가능한 타이밍·OS 상호작용이 많다.
+
+- [ ] 탭 전환 후 복귀·앱 재시작 후 각 탭의 커서/스크롤 위치 복원(캐시 미스 전환·마지막 활성 탭
+      포함 — hot-exit flush 경로)
+- [ ] 파일 저장(⌘S·자동저장) 시 탐색기 트리 무점멸(from_app 스킵 실효 — temp sibling 포함),
+      단 LSP 리네임/원격 파일 조작 시에는 트리 정상 갱신
+- [ ] 터미널에서 cd 후 상대 경로 출력 cmd+click — cwd 기준 해석으로 올바른 파일 열림, 프로젝트
+      밖 경로는 열리지 않음(NotFound 계열)
+- [ ] 터미널 프로세스 종료 시 "[process exited]" 표시 + Restart 버튼 동작
+- [ ] ide/remote 토글이 설정 화면에서 정상(제거된 직접 커맨드 5종의 대체 경로 settings_update)
+- [ ] 원격 미러: 세션 만료 시 로그인 리다이렉트 무회귀(ws writer 종료 시퀀스 변경 후)·원격 상태
+      배지 즉시 반영(remote:state-changed push)
+- [ ] LSP 크래시 자동 복구 실패 시 상태바가 Crashed 로 정직 표시(무한 "재시작 중" 문구 소멸)

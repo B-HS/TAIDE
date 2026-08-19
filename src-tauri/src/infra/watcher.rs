@@ -9,14 +9,20 @@ use notify_debouncer_full::{new_debouncer, DebounceEventResult, DebouncedEvent, 
 use crate::constants::{is_ignored_dir, WATCH_DEBOUNCE_MS};
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
+use crate::infra::persist;
 
 pub struct WatcherHandle {
     _debouncer: Debouncer<notify::RecommendedWatcher, RecommendedCache>,
 }
 
+/// `on_change` receives every non-empty [`FsChangeKind`] group from **one** debounce tick together,
+/// never one group per call — `infra::self_write::resolve_from_app` depends on seeing a whole
+/// batch at once to resolve `from_app` consistently for a path that (thanks to how
+/// `write_atomic`'s create-then-rename surfaces to `notify`) can legitimately appear in more than
+/// one of those groups in the same tick.
 pub fn start_watch<F>(root: PathBuf, on_change: F) -> AppResult<WatcherHandle>
 where
-    F: Fn(FsChange) + Send + Sync + 'static,
+    F: Fn(Vec<FsChange>) + Send + Sync + 'static,
 {
     let on_change: Arc<F> = Arc::new(on_change);
     let watch_root = root.clone();
@@ -35,8 +41,9 @@ where
                 }
             };
 
-            for change in group_relevant_changes(&events, &watch_root) {
-                on_change(change);
+            let changes = group_relevant_changes(&events, &watch_root);
+            if !changes.is_empty() {
+                on_change(changes);
             }
         },
     )
@@ -61,7 +68,7 @@ fn group_relevant_changes(events: &[DebouncedEvent], root: &Path) -> Vec<FsChang
         };
 
         for path in &event.paths {
-            if is_ignored_path(path, root) {
+            if is_ignored_path(path, root) || persist::is_temp_sibling(path) {
                 continue;
             }
             let path_str = path.to_string_lossy().to_string();
@@ -172,6 +179,25 @@ mod tests {
             Some(FsChangeKind::Removed)
         );
         assert_eq!(map_event_kind(&EventKind::Access(notify::event::AccessKind::Any)), None);
+    }
+
+    #[test]
+    fn write_atomic가_남기는_임시_형제_경로는_그룹에서_제외된다() {
+        let root = Path::new("/repo");
+        let target = root.join("src/main.rs");
+        let temp = persist::temp_sibling(&target);
+
+        let event = DebouncedEvent::new(
+            notify::Event::new(EventKind::Create(notify::event::CreateKind::File))
+                .add_path(temp)
+                .add_path(target.clone()),
+            std::time::Instant::now(),
+        );
+
+        let changes = group_relevant_changes(&[event], root);
+
+        assert_eq!(changes.len(), 1, "임시 형제 경로를 제외하면 최종 경로 하나만 남아야 한다");
+        assert_eq!(changes[0].paths, vec![target.to_string_lossy().to_string()]);
     }
 
     #[test]

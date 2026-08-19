@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { flushAllMirrors, registerMirrorFlush, unregisterMirrorFlush } from '@entities/editor/mirror-flush-registry'
+import {
+    flushAllMirrors,
+    registerMirrorFlush,
+    registerViewStateFlush,
+    unregisterMirrorFlush,
+    unregisterViewStateFlush,
+} from '@entities/editor/mirror-flush-registry'
 
 describe('flushAllMirrors', () => {
     test('등록된 모든 탭의 flush 콜백을 호출한다', async () => {
@@ -58,5 +64,34 @@ describe('flushAllMirrors', () => {
 
         expect(resolved).toBe(true)
         unregisterMirrorFlush('tab-async')
+    })
+
+    test('같은 tabId 라도 mirror flush 와 viewState flush 는 서로 다른 슬롯이라 덮어쓰지 않는다 (X1#4 회귀)', async () => {
+        const calledKinds: string[] = []
+        registerMirrorFlush('tab-shared', () => {
+            calledKinds.push('mirror')
+        })
+        registerViewStateFlush('tab-shared', () => {
+            calledKinds.push('viewState')
+        })
+
+        await flushAllMirrors()
+
+        expect(calledKinds.sort()).toEqual(['mirror', 'viewState'])
+
+        unregisterMirrorFlush('tab-shared')
+        unregisterViewStateFlush('tab-shared')
+    })
+
+    test('viewState flush 는 등록 해제 후 더 이상 호출되지 않는다', async () => {
+        let calls = 0
+        registerViewStateFlush('tab-vs', () => {
+            calls += 1
+        })
+        unregisterViewStateFlush('tab-vs')
+
+        await flushAllMirrors()
+
+        expect(calls).toBe(0)
     })
 })

@@ -1184,7 +1184,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         }
         "terminal_sessions" => respond(terminal::terminal_sessions(app.state(), arg!(args, "projectId")).await),
         "shell_profiles" => respond(terminal::shell_profiles().await),
-        "resolve_terminal_path" => respond(terminal::resolve_terminal_path(arg!(args, "path"), arg!(args, "cwd")).await),
+        "resolve_terminal_path" => respond(terminal::resolve_terminal_path(app.state(), arg!(args, "path"), arg!(args, "cwd")).await),
         "pty_default_options" => respond(terminal::pty_default_options(app.state(), arg!(args, "projectId"), arg!(args, "cwd")).await),
 
         "detect_tasks" => respond(task::detect_tasks(app.state(), arg!(args, "projectId")).await),

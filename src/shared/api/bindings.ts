@@ -230,13 +230,30 @@ export const commands = {
 	 *  this, a session whose re-handshake never lands sits forever on `handle_process_exit`'s own
 	 *  optimistic "재시작됐습니다, 기다려주세요" `last_error` text — a status-bar poll of `lsp_sessions`/
 	 *  `LspSessionInfo` would keep reporting "waiting" indefinitely instead of the honest "failed, restart
-	 *  manually" this command lets it settle on. Applies the exact same generation guard as
-	 *  [`lsp_confirm_reinitialize`] — a failure report for a generation the session has since moved past
-	 *  (a second crash+auto-restart already superseded it) is silently ignored, the same race both
-	 *  commands exist to resolve honestly rather than clobber a newer in-flight attempt's status. Allowed
-	 *  remotely (T1-K): a remote mirror must be able to settle its own session's failed reinitialize just
-	 *  as the desktop can, and the generation-mismatch-is-ignored guard already defends against a stale or
-	 *  spoofed report reviving/clobbering a session it no longer describes.
+	 *  manually" this command lets it settle on.
+	 * 
+	 *  Applies the same generation guard as [`lsp_confirm_reinitialize`], plus one this command alone
+	 *  needs ([`should_apply_reinitialize_failure`]): it only applies when the session's *current* status
+	 *  is already [`LspSessionStatus::Crashed`]. `confirm_reinitialize`'s generation check by itself is a
+	 *  **race guard against a stale report**, not a forgery defense — `lsp_sessions` echoes the live
+	 *  `generation` back to any caller allowed to see it, so an authenticated remote peer can always
+	 *  supply one that matches (that peer already has `lsp_stop`/`lsp_restart`/`file_delete`/
+	 *  `git_discard` on this session anyway; matching a public counter isn't a privilege escalation,
+	 *  T1-K's "authenticated remote is the trust boundary, not caller identity" precedent). Without the
+	 *  added status check, a real (non-adversarial) race still mislabels a healthy session:
+	 *  `handle_process_exit` bumps `generation` and starts the renderer's retry loop; the user manually
+	 *  clicks "restart" (`lsp_restart`) before that loop gives up — `lsp_restart` moves the session to
+	 *  `Running` but, unlike `handle_process_exit`, does not bump `generation`; the *old* retry loop,
+	 *  unaware of the manual restart, eventually exhausts its budget and calls this command with the
+	 *  generation it originally observed, which still matches. Requiring `status == Crashed` at the
+	 *  moment this command actually applies closes exactly that path — a `Running` session (manually
+	 *  recovered or otherwise) is left alone.
+	 * 
+	 *  Allowed remotely (T1-K): a remote mirror must be able to settle its own session's failed
+	 *  reinitialize just as the desktop can, and mirrors the same trust boundary
+	 *  [`lsp_confirm_reinitialize`] already accepts (its `Running` target is inherently safe to apply to
+	 *  an already-healthy session, so it needs no analogous status precondition — the asymmetry is in
+	 *  what each command's target state can safely clobber, not in who may call either).
 	 */
 	lspReportReinitializeFailure: (sessionId: string, generation: number) => typedError<null, AppError>(__TAURI_INVOKE("lsp_report_reinitialize_failure", { sessionId, generation })),
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),

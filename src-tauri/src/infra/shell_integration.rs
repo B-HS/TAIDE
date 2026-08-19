@@ -341,8 +341,27 @@ const OSC7_PREFIX: &[u8] = b"\x1b]7;";
 const OSC_STRING_TERMINATOR: &[u8] = b"\x1b\\";
 const OSC_BEL: u8 = 0x07;
 
+/// The real OSC 7 spec's payload form (`file://host/path`, percent-encoded) — as opposed to the
+/// bare path this module's own hooks emit (see [`zsh_integration_script`]'s doc comment on why). A
+/// payload starting with this is never one of TAIDE's own reports, so [`extract_latest_cwd`] ignores
+/// it rather than mis-adopting a URL as a filesystem path.
+const OSC7_FILE_URI_SCHEME: &str = "file://";
+
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
+}
+
+/// Finds the terminator that ends the soonest in `rest` — the ST form `\e\\` or a bare BEL,
+/// whichever offset is smaller. Earlier code took ST whenever *any* ST existed anywhere later in
+/// `rest`, even past a BEL that actually closed this sequence; a BEL-terminated OSC 7 followed later
+/// in the same chunk by an unrelated ST-terminated sequence (routinely true here — TAIDE's own OSC
+/// 133 markers are ST-terminated) then had its payload extended all the way to that unrelated ST,
+/// swallowing the BEL and everything after it as garbage (see `extract_latest_cwd`'s doc comment).
+fn earliest_terminator(rest: &[u8]) -> Option<(usize, usize)> {
+    let st = find_subslice(rest, OSC_STRING_TERMINATOR).map(|offset| (offset, OSC_STRING_TERMINATOR.len()));
+    let bel = rest.iter().position(|&byte| byte == OSC_BEL).map(|offset| (offset, 1));
+
+    [st, bel].into_iter().flatten().min_by_key(|(offset, _)| *offset)
 }
 
 /// Scans one chunk of raw pty output for the cwd-report sequence [`zsh_integration_script`]'s
@@ -351,6 +370,14 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// carry several prompt renders' worth of output batched together (`OUTPUT_BATCH_MS`/
 /// `READ_BUFFER_BYTES`), and only the most recent reflects the shell's current directory (X1#1,
 /// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.1).
+///
+/// This module's own hooks are the intended source, but they aren't the only thing that can write
+/// `\e]7;` into a shell's raw output — a user's own prompt framework/rc can independently emit the
+/// real OSC 7 spec's form (`file://host/path`), and since it isn't gated by shell-integration
+/// dedup, "last one wins" would otherwise let it silently override TAIDE's own report every render.
+/// Payloads starting with [`OSC7_FILE_URI_SCHEME`] are skipped (not adopted as `latest`) rather than
+/// parsed as a URL, so a chunk carrying both keeps TAIDE's own bare-path report — the only form this
+/// parser's one consumer (`report_cwd_change`) understands as a filesystem path.
 ///
 /// A sequence split across two separate output chunks — the pty read loop batches on a byte/time
 /// threshold, not on escape-sequence boundaries — is simply not seen here rather than reassembled
@@ -365,16 +392,14 @@ pub fn extract_latest_cwd(bytes: &[u8]) -> Option<String> {
         let payload_start = search_from + prefix_offset + OSC7_PREFIX.len();
         let rest = &bytes[payload_start..];
 
-        let terminator = find_subslice(rest, OSC_STRING_TERMINATOR)
-            .map(|offset| (offset, OSC_STRING_TERMINATOR.len()))
-            .or_else(|| rest.iter().position(|&byte| byte == OSC_BEL).map(|offset| (offset, 1)));
-
-        let Some((payload_len, terminator_len)) = terminator else {
+        let Some((payload_len, terminator_len)) = earliest_terminator(rest) else {
             break;
         };
 
         if let Ok(path) = std::str::from_utf8(&rest[..payload_len]) {
-            latest = Some(path.to_string());
+            if !path.starts_with(OSC7_FILE_URI_SCHEME) {
+                latest = Some(path.to_string());
+            }
         }
         search_from = payload_start + payload_len + terminator_len;
     }
@@ -613,6 +638,36 @@ mod tests {
     #[test]
     fn extract_latest_cwd는_시퀀스가_없으면_none을_반환한다() {
         assert_eq!(extract_latest_cwd(b"$ ls\r\na.rs b.rs\r\n"), None);
+    }
+
+    #[test]
+    fn extract_latest_cwd는_bel_이_뒤쪽_st보다_먼저_오면_bel에서_끝낸다() {
+        let output = b"\x1b]7;/repo\x07\x1b]133;A\x1b\\";
+        assert_eq!(
+            extract_latest_cwd(output),
+            Some("/repo".to_string()),
+            "BEL 종결자가 더 앞에 있으면 뒤쪽의 무관한 ST 까지 삼키면 안 된다"
+        );
+    }
+
+    #[test]
+    fn extract_latest_cwd는_file_스킴_payload를_경로로_채택하지_않는다() {
+        let output = b"\x1b]7;file://host/repo\x07";
+        assert_eq!(
+            extract_latest_cwd(output),
+            None,
+            "file:// 형식은 이 파서의 대상이 아니므로 채택하면 안 된다"
+        );
+    }
+
+    #[test]
+    fn extract_latest_cwd는_file_스킴_payload_뒤에도_직전의_순수_경로_보고를_유지한다() {
+        let output = b"\x1b]7;/repo\x1b\\...\x1b]7;file://host/other\x07";
+        assert_eq!(
+            extract_latest_cwd(output),
+            Some("/repo".to_string()),
+            "사용자 rc 의 표준 OSC 7 이 TAIDE 자신의 보고를 덮어쓰면 안 된다"
+        );
     }
 
     #[test]

@@ -768,6 +768,15 @@ pub async fn lsp_confirm_reinitialize(app: AppHandle, store: State<'_, LspStore>
 const REINITIALIZE_FAILURE_MESSAGE: &str =
     "초기화 핸드셰이크 재시도를 모두 소진해 서버를 재연결하지 못했습니다. 수동으로 다시 시작해주세요.";
 
+/// The additional precondition [`lsp_report_reinitialize_failure`] applies on top of
+/// [`confirm_reinitialize`]'s generation match: the session's *current* status must already be
+/// [`LspSessionStatus::Crashed`]. See that command's doc comment for why a generation match alone
+/// isn't enough here — [`lsp_confirm_reinitialize`] shares the same generation guard but needs no
+/// analogous status precondition of its own.
+fn should_apply_reinitialize_failure(entry: &SessionEntry, generation: u32) -> bool {
+    confirm_reinitialize(entry, generation) && *entry.status.lock() == LspSessionStatus::Crashed
+}
+
 /// [`lsp_confirm_reinitialize`]'s failure counterpart (§1.3(4),
 /// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`) — called by the renderer once it has
 /// exhausted its own retry budget re-running `initialize` against a session whose
@@ -775,13 +784,30 @@ const REINITIALIZE_FAILURE_MESSAGE: &str =
 /// this, a session whose re-handshake never lands sits forever on `handle_process_exit`'s own
 /// optimistic "재시작됐습니다, 기다려주세요" `last_error` text — a status-bar poll of `lsp_sessions`/
 /// `LspSessionInfo` would keep reporting "waiting" indefinitely instead of the honest "failed, restart
-/// manually" this command lets it settle on. Applies the exact same generation guard as
-/// [`lsp_confirm_reinitialize`] — a failure report for a generation the session has since moved past
-/// (a second crash+auto-restart already superseded it) is silently ignored, the same race both
-/// commands exist to resolve honestly rather than clobber a newer in-flight attempt's status. Allowed
-/// remotely (T1-K): a remote mirror must be able to settle its own session's failed reinitialize just
-/// as the desktop can, and the generation-mismatch-is-ignored guard already defends against a stale or
-/// spoofed report reviving/clobbering a session it no longer describes.
+/// manually" this command lets it settle on.
+///
+/// Applies the same generation guard as [`lsp_confirm_reinitialize`], plus one this command alone
+/// needs ([`should_apply_reinitialize_failure`]): it only applies when the session's *current* status
+/// is already [`LspSessionStatus::Crashed`]. `confirm_reinitialize`'s generation check by itself is a
+/// **race guard against a stale report**, not a forgery defense — `lsp_sessions` echoes the live
+/// `generation` back to any caller allowed to see it, so an authenticated remote peer can always
+/// supply one that matches (that peer already has `lsp_stop`/`lsp_restart`/`file_delete`/
+/// `git_discard` on this session anyway; matching a public counter isn't a privilege escalation,
+/// T1-K's "authenticated remote is the trust boundary, not caller identity" precedent). Without the
+/// added status check, a real (non-adversarial) race still mislabels a healthy session:
+/// `handle_process_exit` bumps `generation` and starts the renderer's retry loop; the user manually
+/// clicks "restart" (`lsp_restart`) before that loop gives up — `lsp_restart` moves the session to
+/// `Running` but, unlike `handle_process_exit`, does not bump `generation`; the *old* retry loop,
+/// unaware of the manual restart, eventually exhausts its budget and calls this command with the
+/// generation it originally observed, which still matches. Requiring `status == Crashed` at the
+/// moment this command actually applies closes exactly that path — a `Running` session (manually
+/// recovered or otherwise) is left alone.
+///
+/// Allowed remotely (T1-K): a remote mirror must be able to settle its own session's failed
+/// reinitialize just as the desktop can, and mirrors the same trust boundary
+/// [`lsp_confirm_reinitialize`] already accepts (its `Running` target is inherently safe to apply to
+/// an already-healthy session, so it needs no analogous status precondition — the asymmetry is in
+/// what each command's target state can safely clobber, not in who may call either).
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_report_reinitialize_failure(
@@ -791,7 +817,7 @@ pub async fn lsp_report_reinitialize_failure(
     generation: u32,
 ) -> AppResult<()> {
     let entry = find_entry(&store, &session_id)?;
-    if confirm_reinitialize(&entry, generation) {
+    if should_apply_reinitialize_failure(&entry, generation) {
         set_status(
             &app,
             &session_id,
@@ -1273,6 +1299,46 @@ mod tests {
         assert!(
             !confirm_reinitialize(&entry, 0),
             "lsp_report_reinitialize_failure 경로도 구세대 실패 신고를 무시해야 한다"
+        );
+    }
+
+    /// 회귀: 수동 재시작(`lsp_restart`)이 `generation` 을 올리지 않고 `Running` 으로만 전환하는
+    /// 동안, 크래시 시점에 시작된 옛 재시도 루프가 뒤늦게 실패를 신고하면 세대는 여전히 일치한다
+    /// — 세대 가드만으로는 방금 복구된 정상 세션이 다시 `Crashed` 로 잘못 표시되는 것을 막지
+    /// 못한다. `status == Crashed` 전제가 정확히 이 경로를 막아야 한다.
+    #[test]
+    fn should_apply_reinitialize_failure는_세대가_일치해도_이미_running으로_회복된_세션에는_적용되지_않는다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        entry.generation.store(1, Ordering::SeqCst);
+        *entry.status.lock() = LspSessionStatus::Running;
+
+        assert!(
+            !should_apply_reinitialize_failure(&entry, 1),
+            "수동 재시작으로 이미 Running 인 세션을 뒤늦은 실패 신고가 다시 Crashed 로 덮으면 안 된다"
+        );
+    }
+
+    #[test]
+    fn should_apply_reinitialize_failure는_세대가_일치하고_아직_crashed인_세션에는_적용된다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        entry.generation.store(1, Ordering::SeqCst);
+        *entry.status.lock() = LspSessionStatus::Crashed;
+
+        assert!(
+            should_apply_reinitialize_failure(&entry, 1),
+            "재시도를 소진한 채 여전히 Crashed 인 세션에는 정상적으로 적용되어야 한다"
+        );
+    }
+
+    #[test]
+    fn should_apply_reinitialize_failure는_구세대_신고는_상태와_무관하게_무시한다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        entry.generation.store(2, Ordering::SeqCst);
+        *entry.status.lock() = LspSessionStatus::Crashed;
+
+        assert!(
+            !should_apply_reinitialize_failure(&entry, 1),
+            "세대가 이미 지나간 신고는 status 와 무관하게 무시되어야 한다"
         );
     }
 

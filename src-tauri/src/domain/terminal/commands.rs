@@ -12,11 +12,12 @@ use super::service;
 use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES, IDE_READY_POLL_INTERVAL_MS};
 use crate::domain::ide::commands::IdeStore;
 use crate::domain::ide::types::{IdeStatus, CLAUDE_CODE_SSE_PORT_ENV, IDE_READY_WAIT_MS};
+use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
 use crate::events::{TerminalCwdChanged, TerminalExited};
 use crate::ids::ProjectId;
 use crate::infra::pty;
-use crate::infra::root_guard::ensure_within_root;
+use crate::infra::root_guard::{self, ensure_within_root};
 use crate::infra::shell_integration;
 use crate::state::AppState;
 
@@ -388,10 +389,35 @@ pub async fn shell_profiles() -> AppResult<Vec<ShellProfile>> {
     Ok(service::list_shell_profiles())
 }
 
+/// Resolves a terminal-link `path`/`cwd` pair (both untrusted — `path` comes from regex-matched pty
+/// output text, `cwd` from an OSC 7 report the pty's child process controls) to an absolute path,
+/// but only ever returns one that falls inside an open project root. Every other command that
+/// resolves a caller-supplied path this way (`file_open`, `pty_default_options`) gates it behind
+/// `root_guard`; this one previously didn't, and `AppState` wasn't even in its signature to make
+/// that possible.
+///
+/// A path outside every open root and a path that plain doesn't exist both map to the same
+/// `AppError::NotFound` — deliberately not `AppError::Forbidden` for the escape case — so a caller
+/// (including an authenticated remote mirror, which this command stays allowed for) can't use the
+/// error variant to probe whether an arbitrary filesystem path exists outside the project. `cwd`
+/// itself is never separately validated: only the *joined-then-canonicalized result* actually
+/// matters (an absolute `path` ignores `cwd` entirely — `service::resolve_terminal_path` — so
+/// gating on `cwd` up front would wrongly reject valid absolute-path links whenever the session's
+/// live cwd has simply wandered outside the project, an everyday, non-malicious terminal action).
+fn guard_terminal_path(projects: &HashMap<ProjectId, Project>, path: &str, cwd: &str) -> AppResult<String> {
+    let resolved = service::resolve_terminal_path(path, cwd)?;
+
+    root_guard::resolve_owning_project(projects, std::path::Path::new(&resolved))
+        .map_err(|_| AppError::NotFound(format!("path not found: {path}")))?;
+
+    Ok(resolved)
+}
+
 #[tauri::command]
 #[specta::specta]
-pub async fn resolve_terminal_path(path: String, cwd: String) -> AppResult<String> {
-    service::resolve_terminal_path(&path, &cwd)
+pub async fn resolve_terminal_path(state: State<'_, AppState>, path: String, cwd: String) -> AppResult<String> {
+    let projects = state.projects.read().clone();
+    guard_terminal_path(&projects, &path, &cwd)
 }
 
 const DEFAULT_TERMINAL_COLS: u16 = 80;
@@ -426,6 +452,82 @@ pub async fn pty_default_options(state: State<'_, AppState>, project_id: Project
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    /// `resolve_terminal_path`'s `#[tauri::command]` wrapper needs a real `State<'_, AppState>`,
+    /// which (unlike the plain `HashMap` [`guard_terminal_path`] takes) has no public constructor
+    /// outside a running Tauri app — this codebase has no `tauri::test` mock-app harness anywhere
+    /// (same constraint `root_guard.rs`'s own tests work around). These tests call
+    /// `guard_terminal_path` directly instead — it's the actual guard logic the command runs, just
+    /// factored out from the `State` extraction so it's plainly testable.
+    fn single_project(id: &str, root: &Path) -> HashMap<ProjectId, Project> {
+        let mut projects = HashMap::new();
+        projects.insert(
+            ProjectId::from(id.to_string()),
+            Project {
+                id: ProjectId::from(id.to_string()),
+                root: root.to_string_lossy().to_string(),
+                name: "project".to_string(),
+                capabilities: Vec::new(),
+                root_missing: false,
+            },
+        );
+        projects
+    }
+
+    #[test]
+    fn guard_terminal_path는_프로젝트_루트_안의_경로를_통과시킨다() {
+        let dir = std::env::temp_dir().join(format!("taide-terminal-path-guard-inside-{}", uuid::Uuid::new_v4()));
+        let root = dir.join("project");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src").join("main.rs"), b"fn main() {}").unwrap();
+
+        let projects = single_project("project-1", &root);
+        let resolved = guard_terminal_path(&projects, "src/main.rs", &root.to_string_lossy());
+
+        assert!(resolved.is_ok(), "루트 안 경로는 통과해야 한다");
+        assert!(resolved
+            .unwrap()
+            .starts_with(&std::fs::canonicalize(&root).unwrap().to_string_lossy().to_string()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn guard_terminal_path는_루트_밖_경로를_notfound로_거부한다() {
+        let dir = std::env::temp_dir().join(format!("taide-terminal-path-guard-outside-{}", uuid::Uuid::new_v4()));
+        let root = dir.join("project");
+        let outside_dir = dir.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside_dir).unwrap();
+        std::fs::write(outside_dir.join("secret.txt"), b"secret").unwrap();
+
+        let projects = single_project("project-1", &root);
+        let error =
+            guard_terminal_path(&projects, "secret.txt", &outside_dir.to_string_lossy()).expect_err("루트 밖 경로는 거부되어야 한다");
+
+        assert!(
+            matches!(error, AppError::NotFound(_)),
+            "존재 여부 오라클을 막기 위해 Forbidden 이 아니라 NotFound 로 나와야 한다"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn guard_terminal_path는_존재하지_않는_경로도_notfound로_거부한다() {
+        let dir = std::env::temp_dir().join(format!("taide-terminal-path-guard-missing-{}", uuid::Uuid::new_v4()));
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let projects = single_project("project-1", &root);
+        let error =
+            guard_terminal_path(&projects, "does/not/exist.rs", &root.to_string_lossy()).expect_err("존재하지 않는 경로는 거부되어야 한다");
+
+        assert!(matches!(error, AppError::NotFound(_)));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     fn recording_channel(received: Arc<Mutex<Vec<Vec<u8>>>>) -> Channel<InvokeResponseBody> {
         Channel::new(move |body| {
