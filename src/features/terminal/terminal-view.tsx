@@ -18,6 +18,7 @@ import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
 import { createTerminalFileLinkProvider } from '@features/terminal/terminal-file-link'
 
 const OVERVIEW_RULER_WIDTH_PX = 14
+const SEARCH_HIGHLIGHT_LIMIT = 1000
 
 /**
  * xterm's built-in web-links handler activates on any click, which collides with terminal
@@ -164,7 +165,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
         })
 
         const fit = new FitAddon()
-        const search = new SearchAddon({ highlightLimit: 1000 })
+        const search = new SearchAddon({ highlightLimit: SEARCH_HIGHLIGHT_LIMIT })
         const unicode11 = new Unicode11Addon()
         const webLinks = new WebLinksAddon((event, uri) => {
             if (!shouldActivateTerminalLink(event)) return

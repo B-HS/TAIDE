@@ -37,7 +37,10 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ values }) => {
                     {t('themeEditor.previewTerminalTab')}
                 </div>
             </div>
-            <div className='bg-editor-background text-editor-foreground flex flex-col gap-0.5 px-3 py-3 font-mono'>
+            <div
+                role='group'
+                aria-label={t('themeEditor.previewSyntaxTitle')}
+                className='bg-editor-background text-editor-foreground flex flex-col gap-0.5 px-3 py-3 font-mono'>
                 <div>
                     <span style={syntaxStyle(syntax.keyword)}>const</span> <span style={syntaxStyle(syntax.variable)}>greeting</span> ={' '}
                     <span style={syntaxStyle(syntax.string)}>&apos;taide&apos;</span>
@@ -67,7 +70,7 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ values }) => {
                 <div className='flex items-center gap-1'>
                     <span className='h-3.5 w-1.5' style={{ backgroundColor: terminal.cursor }} />
                 </div>
-                <div className='grid grid-cols-8 gap-1'>
+                <div role='group' aria-label={t('themeEditor.previewAnsiTitle')} className='grid grid-cols-8 gap-1'>
                     {ansiTokens.map((token) => (
                         <Tooltip key={token}>
                             <TooltipTrigger asChild>

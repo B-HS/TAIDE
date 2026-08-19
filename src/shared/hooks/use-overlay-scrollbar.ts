@@ -1,7 +1,12 @@
 import type { RefObject } from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { SCROLLBAR_AUTO_HIDE_MS } from '@shared/constants/scrollbar'
-import { computeScrollOffsetForThumbDelta, computeScrollOffsetForTrackClick, computeScrollbarThumbMetrics } from '@shared/lib/scrollbar-metrics'
+import {
+    computeScrollOffsetForThumbDelta,
+    computeScrollOffsetForTrackClick,
+    computeScrollPercent,
+    computeScrollbarThumbMetrics,
+} from '@shared/lib/scrollbar-metrics'
 
 export type OverlayScrollbarOrientation = 'vertical' | 'horizontal'
 
@@ -20,12 +25,16 @@ type DragStart = { pointerOffset: number; scrollOffset: number }
 export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: UseOverlayScrollbarOptions): OverlayScrollbarHandles => {
     const trackRef = useRef<HTMLDivElement>(null)
     const thumbRef = useRef<HTMLDivElement>(null)
+    const generatedViewportId = useId()
 
     useEffect(() => {
         const viewport = viewportRef.current
         const track = trackRef.current
         const thumb = thumbRef.current
         if (!viewport || !track || !thumb) return
+
+        if (!viewport.id) viewport.id = generatedViewportId
+        track.setAttribute('aria-controls', viewport.id)
 
         const isVertical = orientation === 'vertical'
         let scheduledFrame = 0
@@ -42,14 +51,17 @@ export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: U
         })
 
         const measure = () => {
-            const metrics = computeScrollbarThumbMetrics(readGeometry())
+            const geometry = readGeometry()
+            const metrics = computeScrollbarThumbMetrics(geometry)
             track.dataset.scrollable = String(metrics.scrollable)
             if (!metrics.scrollable) {
                 thumb.style.height = ''
                 thumb.style.width = ''
                 thumb.style.transform = ''
+                track.setAttribute('aria-valuenow', '0')
                 return
             }
+            track.setAttribute('aria-valuenow', String(computeScrollPercent(geometry)))
             if (isVertical) {
                 thumb.style.height = `${metrics.thumbSize}px`
                 thumb.style.width = ''
@@ -182,7 +194,7 @@ export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: U
             if (scheduledFrame) cancelAnimationFrame(scheduledFrame)
             if (hideTimer) clearTimeout(hideTimer)
         }
-    }, [viewportRef, orientation])
+    }, [viewportRef, orientation, generatedViewportId])
 
     return { trackRef, thumbRef }
 }

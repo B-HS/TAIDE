@@ -17,6 +17,12 @@ use crate::state::AppState;
 const SPLIT_TOTAL_PERCENT: f32 = 100.0;
 const FIRST_WINDOW_SLOT: u32 = 1;
 
+/// Sentinel `index` for [`move_tab`] meaning "append at the end of the target pane's tabs" —
+/// `insert_tab`'s `index.unwrap_or(tabs.len()).min(tabs.len())` clamp turns any out-of-range index
+/// into the tab count, so `usize::MAX` always lands there regardless of how many tabs the target
+/// pane holds.
+const APPEND_AT_END: usize = usize::MAX;
+
 /// Identifies which of a `ProjectLayout`'s pane trees a pane/tab lives in — the main tree, or one
 /// auxiliary window's own tree (indexed into `ProjectLayout::auxiliary_windows`). Every pane/tab
 /// mutation locates this first so it can operate on (and, for focus bookkeeping, update) the right
@@ -622,7 +628,7 @@ pub fn split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, t
         locate_tree_of_pane(layout, target_pane).ok_or_else(|| AppError::NotFound(format!("pane not found: {target_pane}")))?;
 
     if edge == DropEdge::Center {
-        return move_tab(layout, tab_id, target_pane, usize::MAX);
+        return move_tab(layout, tab_id, target_pane, APPEND_AT_END);
     }
 
     let source_tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
@@ -742,7 +748,7 @@ pub fn next_window_slot(layout: &ProjectLayout) -> u32 {
 pub fn move_tab_to_main(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<()> {
     ensure_focused_pane_valid(layout);
     let target = layout.focused_pane.clone();
-    move_tab(layout, tab_id, &target, usize::MAX)
+    move_tab(layout, tab_id, &target, APPEND_AT_END)
 }
 
 /// `TabWindowTarget::Existing { slot }` — moves `tab_id` into an auxiliary window already recorded
@@ -766,7 +772,7 @@ pub fn move_tab_to_existing_window(layout: &mut ProjectLayout, tab_id: &TabId, s
                 .ok_or_else(|| AppError::Internal(format!("auxiliary window has no panes: slot {slot}")))?
         }
     };
-    move_tab(layout, tab_id, &target, usize::MAX)
+    move_tab(layout, tab_id, &target, APPEND_AT_END)
 }
 
 /// `TabWindowTarget::NewAuxiliary` — records a brand-new `slot` (already reserved by the caller via

@@ -14,12 +14,19 @@ type RemoteAllowedHostsRowProps = {
 const normalizeHost = (value: string) => value.trim().toLowerCase()
 
 /**
+ * RFC 1035 §3.1 label/name length limits, mirroring the backend's `DNS_LABEL_MAX_LEN` /
+ * `DNS_HOSTNAME_MAX_LEN` (`src-tauri/src/domain/settings/service.rs`).
+ */
+const DNS_LABEL_MAX_LEN = 63
+const DNS_HOSTNAME_MAX_LEN = 253
+
+/**
  * Matches the backend's `is_valid_dns_label` (`src-tauri/src/domain/settings/service.rs`) —
  * rejected characters (scheme separators, `@`, `/`, whitespace, `:` for a port) mirror exactly
  * so a host accepted here is never silently dropped by the backend's own sanitize pass.
  */
 const isValidAllowedHostLabel = (label: string) =>
-    label.length > 0 && label.length <= 63 && !label.startsWith('-') && !label.endsWith('-') && /^[a-z0-9-]+$/.test(label)
+    label.length > 0 && label.length <= DNS_LABEL_MAX_LEN && !label.startsWith('-') && !label.endsWith('-') && /^[a-z0-9-]+$/.test(label)
 
 /**
  * Matches the backend's `is_valid_allowed_host` (`src-tauri/src/domain/settings/service.rs`) —
@@ -34,8 +41,12 @@ const isValidAllowedHostLabel = (label: string) =>
 export const isValidAllowedHost = (value: string) => {
     const wildcardRemainder = value.startsWith('*.') ? value.slice(2) : null
     if (wildcardRemainder !== null)
-        return wildcardRemainder.includes('.') && wildcardRemainder.length <= 253 && wildcardRemainder.split('.').every(isValidAllowedHostLabel)
-    return value.length > 0 && value.length <= 253 && value.split('.').every(isValidAllowedHostLabel)
+        return (
+            wildcardRemainder.includes('.') &&
+            wildcardRemainder.length <= DNS_HOSTNAME_MAX_LEN &&
+            wildcardRemainder.split('.').every(isValidAllowedHostLabel)
+        )
+    return value.length > 0 && value.length <= DNS_HOSTNAME_MAX_LEN && value.split('.').every(isValidAllowedHostLabel)
 }
 
 export const RemoteAllowedHostsRow: FC<RemoteAllowedHostsRowProps> = ({ hosts, saving, onChange }) => {

@@ -26,10 +26,6 @@ struct AuxiliaryWindowRecord {
 pub struct WindowStore(Mutex<HashMap<String, AuxiliaryWindowRecord>>);
 
 impl WindowStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     fn register(&self, label: String, project_id: ProjectId, window_slot: u32) {
         self.0.lock().insert(label, AuxiliaryWindowRecord { project_id, window_slot });
     }

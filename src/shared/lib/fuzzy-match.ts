@@ -1,4 +1,4 @@
-const NO_MATCH_SCORE = -1
+const NOT_FOUND_INDEX = -1
 const CONSECUTIVE_MATCH_BONUS = 5
 const MATCH_BASE_SCORE = 1
 
@@ -16,13 +16,13 @@ export const fuzzyMatch = (query: string, target: string): FuzzyMatch | null => 
     const indices: number[] = []
     let score = 0
     let targetIndex = 0
-    let previousMatchedIndex = NO_MATCH_SCORE
+    let previousMatchedIndex = NOT_FOUND_INDEX
 
     for (const queryChar of normalizedQuery) {
         const foundIndex = normalizedTarget.indexOf(queryChar, targetIndex)
-        if (foundIndex === NO_MATCH_SCORE) return null
+        if (foundIndex === NOT_FOUND_INDEX) return null
 
-        const isConsecutive = previousMatchedIndex !== NO_MATCH_SCORE && foundIndex === previousMatchedIndex + 1
+        const isConsecutive = previousMatchedIndex !== NOT_FOUND_INDEX && foundIndex === previousMatchedIndex + 1
         score += isConsecutive ? MATCH_BASE_SCORE + CONSECUTIVE_MATCH_BONUS : MATCH_BASE_SCORE
 
         indices.push(foundIndex)

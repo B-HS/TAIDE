@@ -8,7 +8,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover'
 import { Switch } from '@shared/ui/switch'
 
-export const SYSTEM_FONT_FAMILY_VALUE = 'system-default'
+const SYSTEM_FONT_FAMILY_VALUE = 'system-default'
 
 type FontPickerProps = {
     label: string

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
 import { PROBLEM_SEVERITY_COLOR_CLASS, PROBLEM_SEVERITY_ICON } from '@features/problems/problem-severity'
 import { cn } from '@shared/lib/cn'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 
 export type ProblemRowData = {
     severity: ProblemSeverity
@@ -28,7 +29,7 @@ export const ProblemRow: FC<ProblemRowProps> = ({ problem, onClick }) => {
             role='button'
             tabIndex={0}
             onClick={onClick}
-            onKeyDown={(event) => event.key === 'Enter' && onClick()}
+            onKeyDown={createActivationKeyDownHandler(onClick)}
             style={{ paddingLeft: PROBLEM_ROW_INDENT_PX }}
             className='hover:bg-explorer-item-hover flex cursor-default items-start gap-2 py-0.5 pr-2 text-xs select-none'>
             <Icon

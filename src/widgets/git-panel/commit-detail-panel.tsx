@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { X } from 'lucide-react'
 import type { CommitFile, GitChangeKind, ProjectId } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitCommitFilesQueryOptions } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
@@ -90,6 +91,7 @@ export const CommitDetailPanel: FC<CommitDetailPanelProps> = ({ projectId, commi
                     role='button'
                     tabIndex={0}
                     onClick={() => handleOpenFileDiff(file)}
+                    onKeyDown={createActivationKeyDownHandler(() => handleOpenFileDiff(file))}
                     className='hover:bg-explorer-item-hover flex h-6 w-full cursor-default items-center gap-1.5 px-2 text-xs select-none'>
                     <span className='truncate'>{file.path}</span>
                     <span className={cn('ml-auto w-3 shrink-0 text-center font-semibold', STATUS_TEXT_CLASS[file.kind])}>

@@ -56,6 +56,7 @@ export const NewSnippetFileDialog: FC<NewSnippetFileDialogProps> = ({ open, exis
                             value={globalName}
                             onChange={(event) => setGlobalName(event.target.value)}
                             placeholder={t('snippetEditor.newFileGlobalNamePlaceholder')}
+                            aria-label={t('snippetEditor.newFileGlobalNamePlaceholder')}
                             className={INPUT_CLASS_NAME}
                         />
                     )}

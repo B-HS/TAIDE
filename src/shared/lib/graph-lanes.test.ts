@@ -10,7 +10,6 @@ describe('computeGraphLanes', () => {
         ])
 
         expect(nodes.map((node) => node.lane)).toEqual([0, 0, 0])
-        expect(nodes.map((node) => node.color)).toEqual([0, 0, 0])
     })
 
     test('분기가 생기면 새 브랜치 팁은 새 레인을 받는다', () => {
@@ -49,16 +48,14 @@ describe('computeGraphLanes', () => {
         expect(nodes[c1Index].passthroughLanes).toEqual([])
     })
 
-    test('12개를 초과하는 레인은 12색을 순환한다', () => {
+    test('레인 수가 12를 초과해도 레인 번호를 계속 부여한다', () => {
         const parentCount = 13
         const parents = Array.from({ length: parentCount }, (_, index) => `p${index}`)
         const nodes = computeGraphLanes([{ id: 'm', parents }, ...parents.map((id) => ({ id, parents: [] }))])
 
         const byId = Object.fromEntries(nodes.map((node) => [node.id, node]))
         expect(byId.p12.lane).toBe(12)
-        expect(byId.p12.color).toBe(0)
         expect(byId.p11.lane).toBe(11)
-        expect(byId.p11.color).toBe(11)
     })
 
     test('레인이 회수된 뒤에는 재사용된다', () => {

@@ -11,13 +11,10 @@ export type GraphEdge = {
 export type GraphNode = {
     id: string
     lane: number
-    color: number
     continuesFromAbove: boolean
     edges: GraphEdge[]
     passthroughLanes: number[]
 }
-
-const LANE_COLOR_COUNT = 12
 
 const findOpenLane = (openLanes: (string | null)[], id: string) => openLanes.indexOf(id)
 
@@ -63,7 +60,7 @@ const computeNode = (commit: GraphCommitInput, openLanes: (string | null)[]) => 
         return lanes
     }, [])
 
-    return { id: commit.id, lane, color: lane % LANE_COLOR_COUNT, continuesFromAbove, edges, passthroughLanes }
+    return { id: commit.id, lane, continuesFromAbove, edges, passthroughLanes }
 }
 
 export const computeGraphLanes = (commits: GraphCommitInput[]) => {

@@ -7,6 +7,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { RotateCcw, Tag, Tags } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@shared/lib/cn'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 import { computeGraphLanes } from '@shared/lib/graph-lanes'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { tagsTargetingCommit } from '@shared/lib/git-tags'
@@ -131,6 +132,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                                         role={onSelectCommit ? 'button' : undefined}
                                         tabIndex={onSelectCommit ? 0 : undefined}
                                         onClick={onSelectCommit ? () => onSelectCommit(commit.id) : undefined}
+                                        onKeyDown={onSelectCommit ? createActivationKeyDownHandler(() => onSelectCommit(commit.id)) : undefined}
                                         className={cn(
                                             'hover:bg-explorer-item-hover flex items-center gap-2 px-2 text-xs',
                                             onSelectCommit && 'cursor-default select-none',

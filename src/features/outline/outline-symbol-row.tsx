@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import type { languages } from 'monaco-editor'
 import { Box, Braces, Circle, Component, File, Hash, Package, Parentheses, SquareFunction, Variable } from 'lucide-react'
 import { monaco } from '@shared/lib/monaco/setup'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 
 const SYMBOL_KIND_ICON = {
     [monaco.languages.SymbolKind.File]: File,
@@ -40,7 +41,7 @@ export const OutlineSymbolRow: FC<OutlineSymbolRowProps> = ({ symbol, depth, onS
                 role='button'
                 tabIndex={0}
                 onClick={() => onSelect(symbol)}
-                onKeyDown={(event) => event.key === 'Enter' && onSelect(symbol)}
+                onKeyDown={createActivationKeyDownHandler(() => onSelect(symbol))}
                 style={{ paddingLeft: SYMBOL_ROW_BASE_INDENT_PX + depth * SYMBOL_ROW_DEPTH_INDENT_PX }}
                 className='hover:bg-explorer-item-hover flex cursor-default items-center gap-1.5 py-0.5 pr-2 text-xs select-none'>
                 <Icon className='text-app-sidebar-icon-default size-3.5 shrink-0' />

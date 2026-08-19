@@ -1,4 +1,4 @@
-import { SCROLLBAR_MIN_THUMB_PX, SCROLLBAR_SCROLL_EPSILON_PX } from '@shared/constants/scrollbar'
+import { SCROLLBAR_MIN_THUMB_PX, SCROLLBAR_SCROLL_EPSILON_PX, SCROLLBAR_SCROLL_PERCENT_MAX } from '@shared/constants/scrollbar'
 
 export type ScrollbarGeometry = {
     scrollOffset: number
@@ -24,6 +24,12 @@ export const computeScrollbarThumbMetrics = ({ scrollOffset, scrollSize, clientS
     const thumbOffset = maxThumbOffset > 0 ? (clampedScrollOffset / maxScrollOffset) * maxThumbOffset : 0
 
     return { scrollable: true, thumbSize, thumbOffset }
+}
+
+export const computeScrollPercent = ({ scrollOffset, scrollSize, clientSize }: Omit<ScrollbarGeometry, 'trackSize'>) => {
+    const maxScrollOffset = scrollSize - clientSize
+    if (maxScrollOffset <= 0) return 0
+    return Math.round((scrollOffset / maxScrollOffset) * SCROLLBAR_SCROLL_PERCENT_MAX)
 }
 
 export type ScrollOffsetForThumbDeltaInput = {

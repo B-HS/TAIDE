@@ -2,13 +2,11 @@ import type { CSSProperties, FC, KeyboardEvent } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { FileTreeNodeKind } from '@features/explorer/file-tree-row'
+import { ROW_ICON_SIZE_CLASS, ROW_INDENT_PX } from '@features/explorer/file-tree-row'
 import { cn } from '@shared/lib/cn'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { FolderTypeIcon } from '@shared/icons/folder-type-icon'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
-
-const ROW_INDENT_PX = 12
-const ROW_ICON_SIZE_CLASS = 'size-3.5'
 
 type FileTreeDraftRowItemProps = {
     depth: number

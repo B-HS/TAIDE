@@ -1,5 +1,6 @@
 import type { FC } from 'react'
 import type { SearchMatchRowData } from '@entities/search/search-result'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 
 export type { SearchMatchRowData }
 
@@ -27,7 +28,7 @@ export const SearchMatchRow: FC<SearchMatchRowProps> = ({ match, onClick }) => {
             role='button'
             tabIndex={0}
             onClick={onClick}
-            onKeyDown={(event) => event.key === 'Enter' && onClick()}
+            onKeyDown={createActivationKeyDownHandler(onClick)}
             style={{ paddingLeft: MATCH_ROW_INDENT_PX }}
             className='hover:bg-explorer-item-hover flex cursor-default flex-col py-0.5 pr-2 text-xs select-none'>
             {match.before.map((text, index) => (

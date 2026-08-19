@@ -15,8 +15,6 @@ type QueryKeyLeaf =
  * will not know to demand it.
  */
 const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
-    { path: 'APP.ALL', scopedByProject: false },
-    { path: 'APP.INFO', scopedByProject: false },
     { path: 'PROJECT.ALL', scopedByProject: false },
     { path: 'PROJECT.LIST', scopedByProject: false },
     { path: 'PROJECT.ACTIVE', scopedByProject: false },

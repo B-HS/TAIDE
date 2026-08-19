@@ -1,4 +1,4 @@
-export type OpenWithOverride = 'editor' | 'preview'
+export type OpenWithOverride = 'editor'
 
 type Listener = () => void
 

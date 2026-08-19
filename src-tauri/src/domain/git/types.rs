@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-pub const GRAPH_LANE_COLOR_COUNT: u32 = 12;
-pub const LOG_PAGE_SIZE: u32 = 100;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum GitChangeKind {

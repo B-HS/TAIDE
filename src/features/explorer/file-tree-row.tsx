@@ -18,8 +18,8 @@ export type FileTreeRow = {
     gitStatus: FileTreeGitStatus
 }
 
-const ROW_INDENT_PX = 12
-const ROW_ICON_SIZE_CLASS = 'size-3.5'
+export const ROW_INDENT_PX = 12
+export const ROW_ICON_SIZE_CLASS = 'size-3.5'
 const CHEVRON_SIZE_CLASS = 'size-3'
 
 const GIT_STATUS_TEXT_CLASS: Record<Exclude<FileTreeGitStatus, null>, string> = {

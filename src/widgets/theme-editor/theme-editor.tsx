@@ -125,6 +125,7 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
                         value={draft.name}
                         onChange={(event) => setDraft(renameThemeDraft(draft, event.currentTarget.value))}
                         placeholder={t('themeEditor.themeNamePlaceholder')}
+                        aria-label={t('themeEditor.themeNamePlaceholder')}
                         className='bg-panel-input-background border-panel-input-border text-app-foreground rounded-sm border px-2 py-1 text-sm font-medium'
                     />
                     <span className='text-app-sidebar-icon-default text-xs'>{t('themeEditor.changedCount', { count: changedCount })}</span>
@@ -147,6 +148,7 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
                         value={search}
                         onChange={(event) => setSearch(event.currentTarget.value)}
                         placeholder={t('themeEditor.searchTokensPlaceholder')}
+                        aria-label={t('themeEditor.searchTokensPlaceholder')}
                         className='bg-panel-input-background border-panel-input-border text-app-foreground mb-4 w-full rounded-sm border px-2 py-1 text-xs'
                     />
 

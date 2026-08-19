@@ -6,6 +6,7 @@ import { ArrowLeft, X } from 'lucide-react'
 import type { LogEntry, ProjectId } from '@shared/api/bindings'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { subscribeOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitFileLogQueryOptions } from '@entities/git/git.query'
 import { CommitFileDiff } from '@widgets/commit-file-diff/commit-file-diff'
@@ -93,6 +94,7 @@ export const FileHistoryPanel: FC<FileHistoryPanelProps> = ({ projectId }) => {
                                         role='button'
                                         tabIndex={0}
                                         onClick={() => setSelectedEntry(entry)}
+                                        onKeyDown={createActivationKeyDownHandler(() => setSelectedEntry(entry))}
                                         className='hover:bg-explorer-item-hover flex h-10 w-full cursor-default flex-col justify-center gap-0.5 px-2 text-xs select-none'>
                                         <span className='truncate'>{entry.summary}</span>
                                         <span className='text-app-sidebar-icon-default flex shrink-0 gap-1.5 text-[10px]'>

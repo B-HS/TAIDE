@@ -1,4 +1,4 @@
-import type { FC, FocusEvent, PointerEvent } from 'react'
+import type { FC, FocusEvent, KeyboardEvent, PointerEvent } from 'react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { hexToHsv, hsvToHex, isTransparentKeyword, isValidThemeColorValue, normalizeHexColor } from '@shared/lib/color'
@@ -12,6 +12,23 @@ const FULL_HUE_DEGREES = 360
 const DEFAULT_HUE = 0
 const DEFAULT_SATURATION = 1
 const DEFAULT_VALUE = 1
+const SV_VALUE_PERCENT_MAX = 100
+const SV_KEYBOARD_STEP = 0.05
+const HUE_KEYBOARD_STEP_DEGREES = 1
+
+const SV_SQUARE_ARROW_DELTA: Record<string, { ds: number; dv: number }> = {
+    ArrowRight: { ds: SV_KEYBOARD_STEP, dv: 0 },
+    ArrowLeft: { ds: -SV_KEYBOARD_STEP, dv: 0 },
+    ArrowUp: { ds: 0, dv: SV_KEYBOARD_STEP },
+    ArrowDown: { ds: 0, dv: -SV_KEYBOARD_STEP },
+}
+
+const HUE_ARROW_DELTA_DEGREES: Record<string, number> = {
+    ArrowRight: HUE_KEYBOARD_STEP_DEGREES,
+    ArrowUp: HUE_KEYBOARD_STEP_DEGREES,
+    ArrowLeft: -HUE_KEYBOARD_STEP_DEGREES,
+    ArrowDown: -HUE_KEYBOARD_STEP_DEGREES,
+}
 
 type ColorPickerProps = {
     value: string
@@ -67,6 +84,23 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
         updateFromHue(event)
     }
 
+    const handleSquareKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        const delta = SV_SQUARE_ARROW_DELTA[event.key]
+        if (!delta) return
+        event.preventDefault()
+        const nextSaturation = Math.min(1, Math.max(0, activeSaturation + delta.ds))
+        const nextValue = Math.min(1, Math.max(0, activeValue + delta.dv))
+        onChange(hsvToHex({ h: activeHue, s: nextSaturation, v: nextValue }))
+    }
+
+    const handleHueKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        const delta = HUE_ARROW_DELTA_DEGREES[event.key]
+        if (delta === undefined) return
+        event.preventDefault()
+        const nextHue = Math.min(FULL_HUE_DEGREES, Math.max(0, activeHue + delta))
+        onChange(hsvToHex({ h: nextHue, s: activeSaturation, v: activeValue }))
+    }
+
     const handleHexBlur = (event: FocusEvent<HTMLInputElement>) => {
         const raw = event.currentTarget.value.trim()
         if (isTransparentKeyword(raw)) {
@@ -107,8 +141,15 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
             <PopoverContent className='w-52 space-y-3'>
                 <div
                     ref={squareRef}
+                    role='slider'
+                    tabIndex={0}
+                    aria-label={t('themeEditor.saturationValueSliderLabel')}
+                    aria-valuemin={0}
+                    aria-valuemax={SV_VALUE_PERCENT_MAX}
+                    aria-valuenow={Math.round(activeValue * SV_VALUE_PERCENT_MAX)}
                     onPointerDown={handleSquarePointerDown}
                     onPointerMove={handleSquarePointerMove}
+                    onKeyDown={handleSquareKeyDown}
                     className='relative touch-none rounded-sm'
                     style={{
                         height: SV_SQUARE_SIZE_PX,
@@ -122,8 +163,16 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                 </div>
                 <div
                     ref={hueRef}
+                    role='slider'
+                    tabIndex={0}
+                    aria-label={t('themeEditor.hueSliderLabel')}
+                    aria-orientation='horizontal'
+                    aria-valuemin={0}
+                    aria-valuemax={FULL_HUE_DEGREES}
+                    aria-valuenow={Math.round(activeHue)}
                     onPointerDown={handleHuePointerDown}
                     onPointerMove={handleHuePointerMove}
+                    onKeyDown={handleHueKeyDown}
                     className='relative touch-none rounded-full'
                     style={{
                         height: HUE_SLIDER_HEIGHT_PX,

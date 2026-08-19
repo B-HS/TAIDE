@@ -4,10 +4,6 @@ const GIT_SCOPE_COMMIT_FILES = 'commit-files'
 const GIT_SCOPE_SHOW = 'show'
 
 export const QUERY_KEY = {
-    APP: {
-        ALL: ['app'] as const,
-        INFO: ['app', 'info'] as const,
-    },
     PROJECT: {
         ALL: ['project'] as const,
         LIST: ['project', 'list'] as const,

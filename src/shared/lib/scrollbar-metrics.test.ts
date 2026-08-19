@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { computeScrollOffsetForThumbDelta, computeScrollOffsetForTrackClick, computeScrollbarThumbMetrics } from '@shared/lib/scrollbar-metrics'
+import {
+    computeScrollOffsetForThumbDelta,
+    computeScrollOffsetForTrackClick,
+    computeScrollPercent,
+    computeScrollbarThumbMetrics,
+} from '@shared/lib/scrollbar-metrics'
 
 describe('computeScrollbarThumbMetrics', () => {
     test('콘텐츠가 뷰포트보다 작으면 스크롤 불가로 판정한다', () => {
@@ -81,6 +86,24 @@ describe('computeScrollOffsetForThumbDelta', () => {
             thumbSize: 100,
         })
         expect(next).toBe(10)
+    })
+})
+
+describe('computeScrollPercent', () => {
+    test('스크롤 여지가 없으면 0을 반환한다', () => {
+        expect(computeScrollPercent({ scrollOffset: 0, scrollSize: 200, clientSize: 200 })).toBe(0)
+    })
+
+    test('맨 위에서는 0을 반환한다', () => {
+        expect(computeScrollPercent({ scrollOffset: 0, scrollSize: 1000, clientSize: 500 })).toBe(0)
+    })
+
+    test('맨 아래에서는 100을 반환한다', () => {
+        expect(computeScrollPercent({ scrollOffset: 500, scrollSize: 1000, clientSize: 500 })).toBe(100)
+    })
+
+    test('중간 지점은 반올림된 백분율을 반환한다', () => {
+        expect(computeScrollPercent({ scrollOffset: 250, scrollSize: 1000, clientSize: 500 })).toBe(50)
     })
 })
 

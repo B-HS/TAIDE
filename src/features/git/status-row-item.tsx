@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from 'react'
 import { cn } from '@shared/lib/cn'
 import { ICON_BUTTON_CLASS } from '@shared/constants/ui-class'
+import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 import { IconButton } from '@shared/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
@@ -52,6 +53,7 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
             role='button'
             tabIndex={0}
             onClick={onClick}
+            onKeyDown={createActivationKeyDownHandler(onClick)}
             className={cn(
                 'group hover:bg-explorer-item-hover flex h-6 w-full cursor-default items-center gap-1.5 px-2 text-xs select-none',
                 selected && 'bg-explorer-item-selected',
