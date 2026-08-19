@@ -1,6 +1,15 @@
 use std::path::Path;
 
-const GIT_DIR_NAME: &str = ".git";
+use tauri::AppHandle;
+use tauri_specta::Event;
+
+use crate::domain::file::types::FsChange;
+use crate::events::{GitRefsChanged, GitStatusChanged};
+use crate::ids::ProjectId;
+use crate::infra::watcher;
+use crate::state::AppState;
+
+pub(super) const GIT_DIR_NAME: &str = ".git";
 const GIT_INDEX_FILE: &str = "index";
 const GIT_HEAD_FILE: &str = "HEAD";
 const GIT_REFS_DIR: &str = "refs";
@@ -23,6 +32,55 @@ pub fn classify_git_change(path: &Path) -> Option<GitInvalidation> {
         [GIT_HEAD_FILE] => Some(GitInvalidation::Refs),
         [GIT_REFS_DIR, ..] => Some(GitInvalidation::Refs),
         _ => None,
+    }
+}
+
+/// Starts the `.git`-directory watcher that classifies raw fs changes into status/refs
+/// invalidations and fans them out as [`GitStatusChanged`]/[`GitRefsChanged`], registering its
+/// handle in `state.git_watchers`. A root without a `.git` directory attaches nothing — the check
+/// lives here (not only in the capability gate) because the boot restore path in `lib.rs` also
+/// calls this directly for restored projects, against the live filesystem rather than a persisted
+/// capability list.
+pub fn attach_git_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
+    let git_dir = Path::new(root).join(GIT_DIR_NAME);
+    if !git_dir.is_dir() {
+        return;
+    }
+
+    let emit_handle = app.clone();
+    let emit_project = project_id.clone();
+
+    match watcher::start_watch(git_dir.clone(), move |changes: Vec<FsChange>| {
+        let mut needs_status = false;
+        let mut needs_refs = false;
+
+        for change in &changes {
+            for path in &change.paths {
+                match classify_git_change(Path::new(path)) {
+                    Some(GitInvalidation::Status) => needs_status = true,
+                    Some(GitInvalidation::Refs) => needs_refs = true,
+                    None => {}
+                }
+            }
+        }
+
+        if needs_status {
+            let _ = GitStatusChanged {
+                project_id: emit_project.clone(),
+            }
+            .emit(&emit_handle);
+        }
+        if needs_refs {
+            let _ = GitRefsChanged {
+                project_id: emit_project.clone(),
+            }
+            .emit(&emit_handle);
+        }
+    }) {
+        Ok(handle) => {
+            state.git_watchers.write().insert(project_id.clone(), handle);
+        }
+        Err(error) => log::warn!("git 감시를 시작하지 못했습니다 ({}): {error}", git_dir.display()),
     }
 }
 

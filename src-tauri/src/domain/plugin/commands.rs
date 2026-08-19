@@ -5,41 +5,13 @@ use tauri::State;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-use super::service;
+use super::service::{self, PluginStore};
 use super::types::LoadedPlugin;
-
-pub struct PluginStore(pub parking_lot::RwLock<Option<Vec<LoadedPlugin>>>);
-
-impl PluginStore {
-    pub fn new() -> Self {
-        Self(parking_lot::RwLock::new(None))
-    }
-}
-
-impl Default for PluginStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Returns the cached plugin list, loading (and caching) it first if nothing has been loaded yet —
-/// the shared "read-through cache" `plugin_list` already used before this was extracted, now also
-/// used by every `infra::language::language_id_for_path` caller that needs the current plugin
-/// overlay (contract §3.4/D1) without forcing every one of them to reimplement the same
-/// lock-check-load-cache sequence.
-pub fn ensure_loaded(store: &PluginStore, plugins_dir: &Path) -> Vec<LoadedPlugin> {
-    if let Some(cached) = store.0.read().clone() {
-        return cached;
-    }
-    let loaded = service::load_plugins(plugins_dir);
-    *store.0.write() = Some(loaded.clone());
-    loaded
-}
 
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_list(state: State<'_, AppState>, store: State<'_, PluginStore>) -> AppResult<Vec<LoadedPlugin>> {
-    Ok(ensure_loaded(&store, &state.paths.plugins_dir()))
+    Ok(service::ensure_loaded(&store, &state.paths.plugins_dir()))
 }
 
 #[tauri::command]
@@ -95,6 +67,6 @@ pub async fn plugin_read_grammar(
     plugin_id: String,
     language_id: String,
 ) -> AppResult<String> {
-    let loaded = ensure_loaded(&store, &state.paths.plugins_dir());
+    let loaded = service::ensure_loaded(&store, &state.paths.plugins_dir());
     service::read_grammar(&loaded, &plugin_id, &language_id)
 }

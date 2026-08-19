@@ -444,14 +444,33 @@ pub async fn remote_status(remote: State<'_, RemoteStore>) -> AppResult<RemoteSt
 /// Starts the local remote-access HTTP/WS server if it isn't already running — no longer a
 /// `#[tauri::command]` (X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2): the
 /// only reachable path to it was already `settings_update`'s `remoteAccessEnabled` toggle
-/// (`settings::commands::apply_integration_toggles`) and this module's own boot-time auto-start
-/// (`lib.rs`), so the separate `remote_start` IPC surface duplicated that without adding a distinct
-/// capability. Kept as a plain internal function since both of those call sites still need it.
+/// ([`apply_remote_access_toggle`], registered as a settings toggle observer) and this module's
+/// own boot-time auto-start (`lib.rs`), so the separate `remote_start` IPC surface duplicated that
+/// without adding a distinct capability. Kept as a plain internal function since both of those
+/// call sites still need it.
 pub async fn remote_start(app: AppHandle, remote: State<'_, RemoteStore>) -> AppResult<RemoteStatus> {
     if remote.is_running() {
         return Ok(remote.status());
     }
     bind_and_start(&app).await
+}
+
+/// Reconciles a flipped `remote_access_enabled` settings value against the live server — starts
+/// it when the toggle turns on, stops it when it turns off, no-op when the value didn't change.
+/// Registered into `settings::commands::SettingsToggleObservers` by `lib.rs`'s assembly so the
+/// settings domain never calls into this one directly (audit R5#6, T1-I §1.4).
+pub async fn apply_remote_access_toggle(app: &AppHandle, was_enabled: bool, enabled: bool) {
+    if was_enabled == enabled {
+        return;
+    }
+    let remote = app.state::<RemoteStore>();
+    if enabled {
+        if let Err(error) = remote_start(app.clone(), remote).await {
+            log::warn!("원격 접속 서버 시작 실패: {error}");
+        }
+    } else {
+        stop_server(app, &remote);
+    }
 }
 
 /// Issues a one-time link token and formats it into a URL the user shares

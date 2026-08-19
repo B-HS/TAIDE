@@ -36,7 +36,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   ├── constants.rs     무시 목록·파일 크기 4단계 임계값 (워처·트리·검색이 공유)
     │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈)
     │   │   ├── app/         앱 정보 (버전·플랫폼)
-    │   │   ├── project/     프로젝트 열기/닫기/목록, watcher 부착, capability 감지
+    │   │   ├── project/     프로젝트 열기/닫기/목록, capability 확장점(trait·레지스트리 — §3)
     │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리)
     │   │   ├── file/        파일 열기/저장/생성/이동/삭제, 크기 정책, dirty 미러
     │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
@@ -55,7 +55,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
     │       ├── watcher.rs   notify + debouncer (무시 목록 필터)
     │       └── persist.rs   원자적 쓰기 (temp → fsync → rename)
-    ├── tests/               도메인 경계를 넘는 통합 테스트 (session_restore.rs)
+    ├── tests/               도메인 경계를 넘는 통합 테스트 (session_restore.rs) +
+    │                        도메인 경계 아키텍처 테스트 (domain_boundaries.rs — 화이트리스트 기계 강제)
     └── capabilities/        Tauri 권한 정의 (최소 권한 — NFR-7)
 ```
 
@@ -73,8 +74,26 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 - 각 domain 모듈은 `commands.rs`(IPC 노출) / `service.rs`(로직) / `types.rs`(직렬화 타입)로 나눈다.
   command 는 얇게: 파라미터 검증 → service 호출 → 이벤트 발행. 로직은 service 에만 둔다.
 - domain 은 infra 를 trait 경유로 사용한다(테스트에서 인라인 구현으로 대체 — 백엔드 컨벤션의
-  ServiceDb 격리와 같은 취지).
-- 도메인 간 직접 호출은 금지하고, 필요하면 이벤트 버스(내부 broadcast channel) 또는 상위 조립부를 거친다.
+  ServiceDb 격리와 같은 취지). **infra → domain 은 타입을 포함해 전면 금지**다(계층 역방향 —
+  감사 R4#6). infra 가 도메인 데이터를 필요로 하면 infra 측에 경량 타입을 정의하고 도메인이
+  변환해 전달한다(`infra::language::LanguageOverlay` 선례). 기존 4건의 `types` 역참조만 사유와
+  함께 화이트리스트로 남아 있다(아래 기계 강제 참조 — 전부 향후 반전 후보).
+- **도메인 간 직접 호출은 금지한다. 판정 기준 (T1-I, 2026-08-19 명문화)**:
+  - 금지 — 도메인 간 함수 호출(`commands::`·`service::`·`hooks::` 등 실행 경로)과 타 도메인
+    Store 타입 직접 참조(`app.state::<XxxStore>()` 포함).
+  - 허용 — 직렬화 데이터 타입(`types.rs`) 참조(entities 성격)와 `project::capability` 확장점(§3)
+    구현.
+  - 필요한 도메인 간 연동은 **상위 조립부(lib.rs setup)가 배선한다**: 프로젝트 수명주기는
+    `ProjectCapabilities`(§3), 설정 토글 반응은 `settings::commands::SettingsToggleObservers`,
+    시스템 사용량 프로세스 라벨은 `system::commands::SystemUsageLabelProviders`, 터미널 spawn
+    추가 env 는 `terminal::commands::PtySpawnEnvProvider` — 전부 lib.rs 가 구현/클로저를 정적
+    등록하고 도메인은 등록된 것을 소비만 한다. (초안이 언급한 "이벤트 버스(내부 broadcast
+    channel)"는 실현되지 않았다 — `events.rs` 는 프론트행 IPC 이벤트 전용이다.)
+  - 불가피한 잔여 엣지는 **화이트리스트로 명시 승인**한다. `src-tauri/tests/domain_boundaries.rs`
+    의 소스 스캔 테스트가 화이트리스트 밖의 도메인 간 참조와 infra→domain 참조를 기계 강제로
+    거부한다(미등재 = 실패, 실재하지 않는 등재 = 실패 — T1-K "기본 거부"와 동형). 각 항목의
+    승인 사유는 그 파일의 화이트리스트 doc 에 있다. 유일한 파일 단위 예외는 원격 게이트웨이
+    `domain/remote/dispatch.rs`(전 도메인 커맨드의 dispatch 테이블이라는 존재 이유 — §4).
 
 ### 2.1 스레딩 모델
 
@@ -88,24 +107,27 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 
 프로젝트는 "폴더 + 부착된 capability 집합"이다. 미래 기능(remote-control 등)은 새 capability 로 부착한다.
 
-```rust
-struct Project {
-    id: ProjectId,          // 안정 식별자 (경로 해시 아님 — 이동 대비 UUID, data-model.md)
-    root: PathBuf,
-    name: String,
-    capabilities: CapabilitySet,
-}
+이 확장점은 **T1-I(2026-08-19)에서 실현됐다** — 정본은 `domain/project/capability.rs` 다. 실현
+시그니처는 초안(async + `Result` + `CapabilityCtx`)과 달리 **동기·무오류**다: 이관 대상이던
+`project_open`/`project_close` 의 수기 조립 호출이 전부 동기(또는 attach 내부 spawn)였고 실패를
+log-warn 으로 삼키는 형태였기 때문에, 실코드의 계약을 그대로 옮겼다.
 
-trait ProjectCapability {
-    fn kind(&self) -> CapabilityKind;              // Git, Lsp, Terminal, AgentWatch, RemoteControl...
-    async fn attach(&mut self, ctx: &CapabilityCtx) -> Result<()>;   // 자원 획득, 초기 스캔
-    async fn detach(&mut self) -> Result<()>;      // 자원 해제 — 반드시 대칭
+```rust
+trait ProjectCapability: Send + Sync {
+    fn detected_kind(&self, root: &Path) -> Option<CapabilityKind>;  // Project.capabilities 에 기록될 검출 결과 (없으면 None)
+    fn attach(&self, app: &AppHandle, state: &AppState, project: &Project);      // 자원 부착 (project_open)
+    fn detach(&self, app: &AppHandle, state: &AppState, project_id: &ProjectId); // 자원 회수 (project_close) — 반드시 대칭
 }
 ```
 
-- `CapabilityCtx` 는 프로젝트 루트, 이벤트 발행 핸들, 설정 접근을 제공한다.
+- 구현체는 각 도메인의 `capability.rs`(layout·file·git·terminal·tree·ide·agent)에 있고, 조립부
+  `lib.rs` 의 `project_capabilities()` 가 **정적으로 등록**한다(동적 플러그인 레지스트리가 아니다 —
+  과설계 금지, 계약 §1.1). `project_open`/`project_close` 는 등록 목록을 앞에서부터 순회 호출만
+  한다. **등록 순서가 곧 close 의 자원 회수 순서 계약**이며(§6.3), lib.rs 의 소스 스캔 테스트가
+  순서를 핀으로 고정한다.
 - 프로젝트 열기 = core(파일 접근·레이아웃) 초기화 + 감지된 capability 자동 부착
-  (예: `.git` 있으면 Git, 지원 언어 파일 있으면 해당 LSP lazy 부착).
+  (예: `.git` 있으면 Git). `detected_kind` 의 검출 결과와 `project::service::open_project` 가
+  기록하는 `Project.capabilities` 의 정합은 lib.rs 파리티 테스트가 기계 강제한다.
 - capability 는 각자 명령·이벤트 네임스페이스를 가진다(`git_*`, `lsp_*`, ...).
 - **remote-control(미래)**: `RemoteControl` capability 가 프로젝트별 로컬 서버를 열고 웹 패널을 서빙하는
   형태로 부착된다. 코어는 capability 등록 API 외에 어떤 전제도 갖지 않는다.
@@ -206,10 +228,11 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
 3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장
    (Drop 구현 + 명시적 shutdown 경로 이중화).
 
-   **§6.3 `project_close` 자원 회수 목록 (정본)** — `project::commands::project_close`
-   (`domain/project/commands.rs`)가 프로젝트 종료 시 명령형으로 회수해야 하는 전체 목록이다.
-   새 도메인이 프로젝트 수명에 묶인 상태를 추가하면 이 표에도 함께 추가한다 (T1-I 의
-   `ProjectCapability::attach/detach` 확장점이 구현되기 전까지는 이 명령형 목록이 유일한 계약이다).
+   **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
+   T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,
+   `project_close` 는 `ProjectCapabilities::detach_all` 순회만 한다(§3). 회수 **순서**는 lib.rs
+   `project_capabilities()` 의 등록 순서가 계약이다. 새 도메인이 프로젝트 수명에 묶인 상태를
+   추가하면 capability 구현 + lib.rs 등록 + 이 표 세 곳에 함께 추가한다.
 
    | 자원 | 회수 방법 | 실패 시 |
    |---|---|---|

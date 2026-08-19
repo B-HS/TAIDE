@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 
+/// Single-owner wildcard-prefix syntax for a `remote_allowed_hosts` entry (RFC 6125 single-label
+/// wildcard, matched by `service::host_matches_allowed_entry`) — `settings::service::
+/// is_valid_allowed_host` (sanitizing user input) and `service`'s matcher/link-formatting callers
+/// all read the same constant instead of each hardcoding `"*."`. Lives in `types` (not `service`)
+/// so the settings domain's reference stays a data-shape reference rather than a cross-domain
+/// `service::` path (T1-I §1.0).
+pub const ALLOWED_HOST_WILDCARD_PREFIX: &str = "*.";
+
 pub const REMOTE_SESSION_COOKIE_NAME: &str = "taide_remote_session";
 pub const REMOTE_LOGIN_NONCE_COOKIE_NAME: &str = "taide_remote_login_nonce";
 pub const REMOTE_LINK_TOKEN_QUERY_KEY: &str = "t";
@@ -71,7 +79,7 @@ pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;
 /// shim (`src/shared/lib/remote/tauri-internals-shim.ts::REMOTE_WINDOW_LABEL`), the same label
 /// `domain::lsp::commands::SessionEntry.channels` already keys reuse by. Domains that must keep a
 /// remote session's writes from being mistaken for a real desktop window's — e.g.
-/// `domain::ide::commands::IdeStore`'s selection state, which must reflect only the local desktop
+/// `domain::ide::store::IdeStore`'s selection state, which must reflect only the local desktop
 /// editor for the local IDE MCP protocol (`ide::server`) — compare their caller-supplied `owner`
 /// against this constant rather than duplicating the literal.
 ///

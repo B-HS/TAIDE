@@ -17,6 +17,7 @@ pub const CLAUDE_CODE_SSE_PORT_ENV: &str = "CLAUDE_CODE_SSE_PORT";
 pub const IDE_ACCEPT_RETRY_DELAY_MS: u64 = 100;
 pub const MCP_SUBPROTOCOL: &str = "mcp";
 pub const IDE_READY_WAIT_MS: u64 = 2_000;
+pub const IDE_READY_POLL_INTERVAL_MS: u64 = 50;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

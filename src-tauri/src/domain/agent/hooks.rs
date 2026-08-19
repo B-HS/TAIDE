@@ -49,6 +49,23 @@ pub fn stop_hooks_server(app: &AppHandle) {
     }
 }
 
+/// Reconciles a flipped `agent_hooks_enabled` settings value — installs hooks into every open
+/// project when the toggle turns on, uninstalls them and stops the hooks server when it turns
+/// off, no-op when the value didn't change. Registered into
+/// `settings::commands::SettingsToggleObservers` by `lib.rs`'s assembly so the settings domain
+/// never calls into this one directly (audit R5#6, T1-I §1.4).
+pub async fn apply_agent_hooks_toggle(app: &AppHandle, was_enabled: bool, enabled: bool) {
+    if was_enabled == enabled {
+        return;
+    }
+    if enabled {
+        reconcile_installed_hooks(app).await;
+    } else {
+        uninstall_hooks_from_open_projects(app).await;
+        stop_hooks_server(app);
+    }
+}
+
 pub async fn reconcile_installed_hooks(app: &AppHandle) {
     let is_enabled = app.state::<AppState>().settings.read().agent_hooks_enabled;
     if !is_enabled {

@@ -6,12 +6,13 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::constants::{LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES};
-use crate::domain::plugin::types::LoadedPlugin;
 use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
-use crate::infra::language;
+use crate::infra::language::{self, LanguageOverlay};
 use crate::infra::persist;
+use crate::infra::root_guard;
 use crate::paths::AppPaths;
+use crate::state::AppState;
 
 use super::types::{FileSizeTier, OpenedFile};
 
@@ -60,7 +61,7 @@ pub struct UntitledMirrorEntry {
     pub saved_at_ms: f64,
 }
 
-pub fn open_file(path: &Path, plugins: &[LoadedPlugin]) -> AppResult<OpenedFile> {
+pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay]) -> AppResult<OpenedFile> {
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(AppError::InvalidArgument(format!("파일이 아닙니다: {}", path.display())));
@@ -68,7 +69,7 @@ pub fn open_file(path: &Path, plugins: &[LoadedPlugin]) -> AppResult<OpenedFile>
 
     let byte_size = metadata.len();
     let modified_ms = modified_epoch_ms(&metadata)?;
-    let language_id = language::language_id_for_path(path, plugins);
+    let language_id = language::language_id_for_path(path, language_overlays);
     let path_string = path.to_string_lossy().to_string();
 
     if byte_size >= REFUSED_FILE_BYTES {
@@ -104,6 +105,23 @@ pub fn open_file(path: &Path, plugins: &[LoadedPlugin]) -> AppResult<OpenedFile>
 
 pub fn save_file(path: &Path, content: &str) -> AppResult<()> {
     persist::write_atomic_preserving_mode(path, content.as_bytes())
+}
+
+/// The complete guarded save sequence the `file_save` command exposes over IPC — root-guard
+/// resolution against the open projects, atomic mode-preserving write, self-write marking (so the
+/// watcher does not report the write back as an external change), and hot-exit mirror cleanup.
+/// Every save initiated outside the `file` domain (currently `ide_resolve_diff`'s accepted-diff
+/// persist) must go through this instead of composing [`save_file`]/[`clear_mirror`] by hand, so
+/// no caller can skip the root guard or the self-write mark (R6#2). A rejection surfaces as
+/// [`AppError::Forbidden`](crate::error::AppError) — `root_guard::resolve_owning_project`'s only
+/// error shape — which callers may treat as "the owning project is no longer open".
+pub fn save_file_within_open_projects(state: &AppState, path: &Path, content: &str) -> AppResult<()> {
+    let projects = state.projects.read().clone();
+    let (project_id, resolved) = root_guard::resolve_owning_project(&projects, path)?;
+
+    save_file(&resolved, content)?;
+    state.self_writes.mark(&resolved);
+    clear_mirror(&state.paths, &project_id, &resolved)
 }
 
 pub fn create_entry(path: &Path, is_dir: bool) -> AppResult<()> {
@@ -876,6 +894,54 @@ mod tests {
         let result = clear_mirror(&paths, &project_id, &PathBuf::from("/workspace/none.rs"));
 
         assert!(result.is_ok());
+
+        cleanup(&dir);
+    }
+
+    /// R6#2 회귀: 도메인 밖 호출자(`ide_resolve_diff`)가 공유하는 가드 저장 경로가 `file_save`
+    /// 커맨드와 동일하게 (1) 열린 프로젝트 루트 밖 경로를 `Forbidden` 으로 거부하고, (2) 루트 안
+    /// 경로는 저장 후 hot-exit 미러까지 정리하는지를 고정한다 — 이 함수를 우회해 `save_file` 을
+    /// 직접 조합하면 루트 가드·self-write 마크·미러 정리가 조용히 빠진다.
+    #[test]
+    fn save_file_within_open_projects는_루트_가드와_미러_정리를_함께_수행한다() {
+        let dir = temp_dir("guarded-save");
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("a.txt");
+        std::fs::write(&target, "old").unwrap();
+
+        let state = crate::state::AppState::new(AppPaths::new(dir.join("data")));
+        let project_id = ProjectId::new();
+        state.projects.write().insert(
+            project_id.clone(),
+            crate::domain::project::types::Project {
+                id: project_id.clone(),
+                root: root.to_string_lossy().into_owned(),
+                name: "project".to_string(),
+                capabilities: Vec::new(),
+                root_missing: false,
+            },
+        );
+
+        let outside = dir.join("outside.txt");
+        std::fs::write(&outside, "x").unwrap();
+        assert!(
+            matches!(save_file_within_open_projects(&state, &outside, "new"), Err(AppError::Forbidden(_))),
+            "열린 프로젝트 루트 밖 경로는 Forbidden 으로 거부되어야 한다"
+        );
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "x", "거부된 경로에는 쓰지 않아야 한다");
+
+        let resolved = std::fs::canonicalize(&target).unwrap();
+        mirror_dirty(&state.paths, &project_id, &resolved, &target.to_string_lossy(), "dirty").unwrap();
+        assert_eq!(list_mirrors(&state.paths, &project_id).unwrap().len(), 1);
+
+        save_file_within_open_projects(&state, &target, "new content").expect("루트 안 경로는 저장되어야 한다");
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new content");
+        assert!(
+            list_mirrors(&state.paths, &project_id).unwrap().is_empty(),
+            "저장 후 hot-exit 미러가 정리되어야 한다"
+        );
 
         cleanup(&dir);
     }

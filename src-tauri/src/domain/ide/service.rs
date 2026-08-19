@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use super::types::{IDE_PORT_RANGE_END, IDE_PORT_RANGE_START};
 use crate::domain::layout::types::{ProjectLayout, TabKind};
-use crate::domain::plugin::types::LoadedPlugin;
 use crate::domain::project::types::Project;
 use crate::error::AppResult;
 use crate::ids::ProjectId;
+use crate::infra::language::LanguageOverlay;
 use crate::infra::{language, root_guard};
 
 pub use crate::infra::crypto::constant_time_eq;
@@ -38,8 +38,8 @@ pub fn random_port() -> u32 {
 /// for the same extension always wins over this fallback.
 const MCP_ONLY_LANGUAGE_ID_BY_EXTENSION: &[(&str, &str)] = &[("cs", "csharp"), ("php", "php"), ("sql", "sql")];
 
-pub fn guess_language_id(path: &str, plugins: &[LoadedPlugin]) -> String {
-    let resolved = language::language_id_for_path(Path::new(path), plugins);
+pub fn guess_language_id(path: &str, language_overlays: &[LanguageOverlay]) -> String {
+    let resolved = language::language_id_for_path(Path::new(path), language_overlays);
     if resolved != "plaintext" {
         return resolved;
     }
@@ -91,7 +91,7 @@ fn file_label(path: &str) -> String {
 /// external MCP client's point of view, even though it renders in a different OS window.
 /// "Active" is scoped to the main tree's focused pane only: auxiliary windows don't have a
 /// project-wide notion of "the" active tab, so their tabs are always reported `is_active: false`.
-pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>, plugins: &[LoadedPlugin]) -> Vec<OpenEditorEntry> {
+pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>, language_overlays: &[LanguageOverlay]) -> Vec<OpenEditorEntry> {
     let mut entries = Vec::new();
 
     for layout in layouts.values() {
@@ -113,7 +113,7 @@ pub fn open_editors_snapshot(layouts: &HashMap<ProjectId, ProjectLayout>, plugin
                         path: path.clone(),
                         is_active: active_tab_id.as_ref() == Some(&tab.id),
                         label: file_label(path),
-                        language_id: guess_language_id(path, plugins),
+                        language_id: guess_language_id(path, language_overlays),
                         is_dirty: tab.dirty,
                     });
                 }

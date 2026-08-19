@@ -1,13 +1,18 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 
 use super::types::{
     AuxWindowLayout, ClosedTab, DropEdge, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind,
     CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
 };
 use crate::error::{AppError, AppResult};
+use crate::events::LayoutChanged;
 use crate::ids::{PaneId, ProjectId, TabId};
 use crate::infra::persist;
 use crate::paths::AppPaths;
+use crate::state::AppState;
 
 const SPLIT_TOTAL_PERCENT: f32 = 100.0;
 const FIRST_WINDOW_SLOT: u32 = 1;
@@ -25,7 +30,8 @@ enum PaneTreeRef {
 
 /// Every pane tree a project's layout owns — the main tree followed by each auxiliary window's own
 /// tree, in `auxiliary_windows` order. Callers that only care "does this project have the tab/pane
-/// anywhere" (project-level lookups in `layout::commands` and `ide::service`/`ide::server`) iterate
+/// anywhere" ([`locate_project_with_tab`]/[`locate_project_with_pane`] below and the
+/// `ide::service`/`ide::server` snapshots) iterate
 /// this instead of hardcoding `&layout.root`, so auxiliary-window content isn't invisible to them.
 pub fn all_roots(layout: &ProjectLayout) -> impl Iterator<Item = &PaneNode> {
     std::iter::once(&layout.root).chain(layout.auxiliary_windows.iter().map(|window| &window.root))
@@ -964,6 +970,120 @@ pub fn load_layout(paths: &AppPaths, project_id: &ProjectId) -> ProjectLayout {
         }
         _ => default_layout(),
     }
+}
+
+/// Resolves which project owns `tab_id`, searching every pane tree that project's layout owns —
+/// the main tree *and* every auxiliary window's tree ([`all_roots`]) — not just `layout.root`.
+/// A tab moved into an auxiliary window (`layout_move_tab_to_window`) no longer lives in the main
+/// tree at all, so scoping this to `layout.root` would make every layout command targeting it
+/// (close/activate/move/pin/set_dirty/move back to main, ...) fail with a spurious NotFound.
+pub fn locate_project_with_tab(layouts: &HashMap<ProjectId, ProjectLayout>, tab_id: &TabId) -> AppResult<ProjectId> {
+    layouts
+        .iter()
+        .find_map(|(project_id, layout)| {
+            all_roots(layout)
+                .any(|root| find_tab(root, tab_id).is_some())
+                .then(|| project_id.clone())
+        })
+        .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))
+}
+
+/// Same rationale as [`locate_project_with_tab`], for pane ids — a pane inside an auxiliary window's
+/// tree must resolve too (split/resize/focus_pane target panes there once a tab has moved there).
+pub fn locate_project_with_pane(layouts: &HashMap<ProjectId, ProjectLayout>, pane_id: &PaneId) -> AppResult<ProjectId> {
+    layouts
+        .iter()
+        .find_map(|(project_id, layout)| {
+            all_roots(layout)
+                .any(|root| contains_pane(root, pane_id))
+                .then(|| project_id.clone())
+        })
+        .ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))
+}
+
+pub fn get_layout_mut<'a>(layouts: &'a mut HashMap<ProjectId, ProjectLayout>, project_id: &ProjectId) -> AppResult<&'a mut ProjectLayout> {
+    layouts
+        .get_mut(project_id)
+        .ok_or_else(|| AppError::NotFound(format!("layout not found: {project_id}")))
+}
+
+pub fn finish_mutation(app: &AppHandle, state: &AppState, project_id: &ProjectId, layout: &mut ProjectLayout) -> ProjectLayout {
+    let snapshot = layout.clone();
+    state.dirty_layouts.write().insert(project_id.clone());
+
+    let _ = LayoutChanged {
+        project_id: project_id.clone(),
+        revision: snapshot.revision,
+    }
+    .emit(app);
+
+    snapshot
+}
+
+/// 탭을 열고 후처리(dirty 표시 + 레이아웃 갱신 이벤트 발신)까지 마친다. Tauri 커맨드
+/// (`layout_open_tab`)와 IDE 도메인의 `openFile` 도구 핸들러가 동일한 경로를 타도록 공유한다 —
+/// IDE 가 커맨드 표면을 제2 진입점으로 재사용하지 않게 하기 위한 service 레벨 진입점이다(R6#3).
+/// 레이아웃 read-clone-write 경합을 막기 위해 뮤테이션 가드는 이 함수가 직접 잡는다.
+pub async fn open_tab_and_finish(
+    app: &AppHandle,
+    state: &AppState,
+    project_id: ProjectId,
+    kind: TabKind,
+    title: String,
+    target: Option<PaneId>,
+    preview: bool,
+) -> AppResult<ProjectLayout> {
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let layout = get_layout_mut(&mut layouts, &project_id)?;
+
+    let preview = preview && state.settings.read().enable_preview_tabs;
+    let pane_id = target.unwrap_or_else(|| layout.focused_pane.clone());
+    let tab = Tab {
+        id: TabId::new(),
+        kind,
+        title,
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    };
+    open_tab(layout, &pane_id, tab, preview)?;
+
+    let updated = finish_mutation(app, state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
+/// 탭을 닫고 후처리(레이아웃 갱신 이벤트 발신 + IDE 도메인의 pending diff 해소 + 터미널 탭이면
+/// pty 세션 회수)까지 마친다. Tauri 커맨드(`layout_close_tab`)와 IDE 도메인의
+/// `close_tab`/`closeAllDiffTabs` 도구 핸들러가 동일한 경로를 타도록 공유한다 — ClaudeDiff 탭이
+/// 어떤 경로로 닫히든 pending 요청이 반드시 해소되고, 터미널 탭이 어떤 경로로 닫히든 그 pty 가
+/// 반드시 죽는다. 레이아웃 read-clone-write 경합을 막기 위해 뮤테이션 가드는 이 함수가 직접 잡는다.
+///
+/// The pty reap is the "탭 닫기 시 pty_kill" half of the T0 #21 fix (`docs/acknowledge/
+/// 2026-08-18-audit-t0-fix-contract.md` §2.3) — `project_close`'s `TerminalStore::kill_project`
+/// only reaps sessions when the *project* closes, and before this fix nothing called `pty_kill` when
+/// an individual terminal tab closed; the session lingered, attached to nothing, until the owning
+/// project or the whole app closed.
+pub async fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &TabId) -> AppResult<(ProjectId, ClosedTab, ProjectLayout)> {
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let project_id = locate_project_with_tab(&layouts, tab_id)?;
+    let layout = get_layout_mut(&mut layouts, &project_id)?;
+
+    let closed = close_tab(layout, tab_id)?;
+
+    let updated = finish_mutation(app, state, &project_id, layout);
+    *state.layouts.write() = layouts;
+
+    crate::domain::ide::store::reconcile_closed_tab(app, &closed.tab);
+    if let TabKind::Terminal { session_id, .. } = &closed.tab.kind {
+        app.state::<crate::domain::terminal::commands::TerminalStore>()
+            .kill_session(session_id);
+    }
+
+    Ok((project_id, closed, updated))
 }
 
 #[cfg(test)]
@@ -2077,5 +2197,51 @@ mod tests {
         );
         assert!(layout.shell_view.zen, "zen 값은 유지되어야 한다");
         assert!(layout.shell_view.sidebar_collapsed);
+    }
+
+    /// Regression coverage for the project-resolution locator helpers themselves — every layout
+    /// `#[tauri::command]` (`layout_close_tab`, `layout_activate_tab`, `layout_move_tab_to_window`
+    /// back to `Main`, ...) funnels through `locate_project_with_tab`/`locate_project_with_pane`
+    /// first, so a regression here would silently make every one of those commands return
+    /// `NotFound` for anything living in an auxiliary window — exactly the class of bug the pure
+    /// tree tests above (`move_tab_to_new_window`/`move_tab_to_main`) can't catch, since they call
+    /// tree functions directly and never exercise this `HashMap<ProjectId, ProjectLayout>`
+    /// project-resolution step at all.
+    #[test]
+    fn locate_project_with_tab_과_pane_은_보조_창_트리도_찾는다() {
+        let mut layout = default_layout();
+        let source_pane = layout.focused_pane.clone();
+
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        let tab_id = tabs[0].id.clone();
+
+        move_tab_to_new_window(&mut layout, &tab_id, 1).expect("move into new window");
+        let aux_pane_id = layout.auxiliary_windows[0].focused_pane.clone();
+
+        let mut layouts = HashMap::new();
+        let project_id = ProjectId::new();
+        layouts.insert(project_id.clone(), layout);
+
+        assert_eq!(
+            locate_project_with_tab(&layouts, &tab_id).expect("보조 창으로 옮긴 탭도 찾아야 한다"),
+            project_id,
+            "탭이 보조 창 트리에만 있어도 프로젝트를 찾아야 한다"
+        );
+        assert_eq!(
+            locate_project_with_pane(&layouts, &aux_pane_id).expect("보조 창의 pane 도 찾아야 한다"),
+            project_id,
+            "pane 이 보조 창 트리에만 있어도 프로젝트를 찾아야 한다"
+        );
+        assert_eq!(
+            locate_project_with_pane(&layouts, &source_pane).expect("main 트리의 pane 은 여전히 찾아야 한다"),
+            project_id
+        );
+
+        assert!(
+            locate_project_with_tab(&layouts, &TabId::new()).is_err(),
+            "존재하지 않는 탭은 NotFound 여야 한다"
+        );
     }
 }

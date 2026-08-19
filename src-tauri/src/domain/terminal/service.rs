@@ -3,10 +3,6 @@ use std::path::{Path, PathBuf};
 use super::types::ShellProfile;
 use crate::error::{AppError, AppResult};
 
-pub fn should_wait_for_ide_ready(ide_integration_enabled: bool, ide_running: bool) -> bool {
-    ide_integration_enabled && !ide_running
-}
-
 pub fn ring_buffer_append(buffer: &mut Vec<u8>, incoming: &[u8], capacity: usize) {
     buffer.extend_from_slice(incoming);
     if buffer.len() > capacity {
@@ -194,21 +190,5 @@ mod tests {
     fn 존재하지_않는_경로는_찾을_수_없음_에러다() {
         let result = resolve_terminal_path("does/not/exist.rs", "/tmp");
         assert!(matches!(result, Err(AppError::NotFound(_))));
-    }
-
-    #[test]
-    fn ide_연동_꺼져있으면_기동_여부와_무관하게_대기하지_않는다() {
-        assert!(!should_wait_for_ide_ready(false, false));
-        assert!(!should_wait_for_ide_ready(false, true));
-    }
-
-    #[test]
-    fn ide_연동_켜져있고_이미_기동됐으면_대기하지_않는다() {
-        assert!(!should_wait_for_ide_ready(true, true));
-    }
-
-    #[test]
-    fn ide_연동_켜져있고_아직_기동_전이면_대기한다() {
-        assert!(should_wait_for_ide_ready(true, false));
     }
 }

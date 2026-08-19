@@ -16,9 +16,9 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
-use crate::domain::ide::commands::IdeStore;
+use crate::domain::ide::store::IdeStore;
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
-use crate::domain::plugin::commands::PluginStore;
+use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::RemoteStore;
 use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
@@ -79,6 +79,130 @@ fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<
         .build()?;
 
     MenuBuilder::new(handle).items(&[&app_menu, &edit_menu, &window_menu]).build()
+}
+
+/// Statically assembles the [`domain::project::capability::ProjectCapability`] implementations
+/// that `project_open`/`project_close` walk. **This list's order is the correctness contract, not
+/// a style choice** — `ProjectCapabilities` walks it forward for both attach and detach, and the
+/// order below reproduces exactly the sequence `project/commands.rs` used to hand-code:
+///
+/// - attach: layout load → file watcher → git watcher → IDE lockfile refresh → agent hooks
+///   reconcile (spawned).
+/// - detach: dirty-layout flush + removal **first** (before anything else observes the project as
+///   gone — see `LayoutCapability::detach` for why the flush must precede the removal), then file
+///   and git watcher removal, then the terminal pty reap, then git/tree cache eviction, then the
+///   IDE lockfile refresh. `GitCacheCapability` is registered separately from
+///   `GitWatcherCapability` purely so this single forward walk keeps the cache eviction after the
+///   terminal reap, where the hand-coded sequence had it.
+///
+/// Pinned by the source-scan order test below (`T1-K` parity-test precedent).
+fn project_capabilities() -> domain::project::capability::ProjectCapabilities {
+    domain::project::capability::ProjectCapabilities::new(vec![
+        Box::new(domain::layout::capability::LayoutCapability),
+        Box::new(domain::file::capability::FileWatcherCapability),
+        Box::new(domain::git::capability::GitWatcherCapability),
+        Box::new(domain::terminal::capability::TerminalCapability),
+        Box::new(domain::git::capability::GitCacheCapability),
+        Box::new(domain::tree::capability::TreeCacheCapability),
+        Box::new(domain::ide::capability::IdeLockfileCapability),
+        Box::new(domain::agent::capability::AgentHooksCapability),
+    ])
+}
+
+/// Assembles the integration reactions `settings::commands::apply_and_broadcast` runs when a
+/// settings write flips a toggle — the assembly-owned wiring that replaced the settings domain's
+/// direct ide/agent/remote calls (audit R5#6, T1-I §1.4). Registration order is the execution
+/// order and reproduces the old hand-coded sequence: IDE server → agent hooks → remote access.
+fn settings_toggle_observers() -> domain::settings::commands::SettingsToggleObservers {
+    use domain::settings::commands::SettingsToggleFuture;
+
+    domain::settings::commands::SettingsToggleObservers::new(vec![
+        Box::new(|app, current, updated| -> SettingsToggleFuture<'_> {
+            Box::pin(domain::ide::commands::apply_ide_integration_toggle(
+                app,
+                current.ide_integration_enabled,
+                updated.ide_integration_enabled,
+            ))
+        }),
+        Box::new(|app, current, updated| -> SettingsToggleFuture<'_> {
+            Box::pin(domain::agent::hooks::apply_agent_hooks_toggle(
+                app,
+                current.agent_hooks_enabled,
+                updated.agent_hooks_enabled,
+            ))
+        }),
+        Box::new(|app, current, updated| -> SettingsToggleFuture<'_> {
+            Box::pin(domain::remote::commands::apply_remote_access_toggle(
+                app,
+                current.remote_access_enabled,
+                updated.remote_access_enabled,
+            ))
+        }),
+    ])
+}
+
+/// Assembles the pid → (kind, label) providers `system_usage_breakdown` consults, one closure per
+/// owning domain, so `domain::system` never reads the terminal/agent/LSP stores directly (audit
+/// R8#9, T1-I §1.4). Registration order is precedence: later providers overwrite earlier ones for
+/// the same pid, so an agent detected inside a terminal's foreground pid set labels as Agent and
+/// LSP labels apply last — the same final map the old hand-coded collection produced.
+fn system_usage_label_providers() -> domain::system::commands::SystemUsageLabelProviders {
+    use domain::system::types::SystemUsageProcessKind;
+
+    domain::system::commands::SystemUsageLabelProviders::new(vec![
+        Box::new(|app| {
+            let state = app.state::<AppState>();
+            let terminals = app.state::<TerminalStore>();
+            let projects = state.projects.read();
+            let mut labels = domain::system::commands::SystemUsageLabels::new();
+            for (project_id, project) in projects.iter() {
+                for (_, pid) in terminals.foreground_pids(project_id) {
+                    labels.insert(pid, (SystemUsageProcessKind::Terminal, project.name.clone()));
+                }
+            }
+            labels
+        }),
+        Box::new(|app| {
+            let state = app.state::<AppState>();
+            let agents = app.state::<AgentStore>();
+            let projects = state.projects.read();
+            let mut labels = domain::system::commands::SystemUsageLabels::new();
+            for (project_id, project) in projects.iter() {
+                for agent in agents.agents_for(project_id) {
+                    labels.insert(
+                        agent.pid,
+                        (SystemUsageProcessKind::Agent, format!("{} · {}", agent.name, project.name)),
+                    );
+                }
+            }
+            labels
+        }),
+        Box::new(|app| {
+            let server_pids = app.state::<LspStore>().server_pids();
+            let state = app.state::<AppState>();
+            let projects = state.projects.read();
+            let mut labels = domain::system::commands::SystemUsageLabels::new();
+            for (project_id, server_name, pid) in server_pids {
+                let label = projects
+                    .get(&project_id)
+                    .map(|project| format!("{server_name} · {}", project.name))
+                    .unwrap_or(server_name);
+                labels.insert(pid, (SystemUsageProcessKind::Lsp, label));
+            }
+            labels
+        }),
+    ])
+}
+
+/// Wires `pty_spawn`'s extra-env hook to the IDE integration: every new terminal inherits the
+/// Claude Code SSE port when the IDE server is (or comes) up — `ide::store::claude_terminal_env`
+/// owns the readiness wait, the terminal domain only injects the result (audit R8#10, T1-I §1.4).
+fn pty_spawn_env_provider() -> domain::terminal::commands::PtySpawnEnvProvider {
+    use domain::terminal::commands::PtySpawnEnvFuture;
+
+    domain::terminal::commands::PtySpawnEnvProvider::new(Box::new(|app| -> PtySpawnEnvFuture<'_> {
+        Box::pin(domain::ide::store::claude_terminal_env(app))
+    }))
 }
 
 fn specta_builder() -> Builder<tauri::Wry> {
@@ -604,11 +728,15 @@ pub fn run() {
                 .map(|project| (project.id.clone(), project.root.clone()))
                 .collect();
             for (project_id, root) in &restored {
-                domain::project::commands::attach_watcher(app.handle(), &state, project_id, root);
-                domain::project::commands::attach_git_watcher(app.handle(), &state, project_id, root);
+                domain::file::capability::attach_watcher(app.handle(), &state, project_id, root);
+                domain::git::watch::attach_git_watcher(app.handle(), &state, project_id, root);
             }
 
             app.manage(state);
+            app.manage(project_capabilities());
+            app.manage(settings_toggle_observers());
+            app.manage(system_usage_label_providers());
+            app.manage(pty_spawn_env_provider());
             app.manage(TreeStore::default());
             app.manage(TerminalStore::default());
             app.manage(GitStore::default());
@@ -895,6 +1023,68 @@ mod tests {
             fanned_out, expected,
             "fanout_remote_events! 가 의도된 예외 목록 밖의 이벤트를 빠뜨렸거나, 예외로 처리해야 할 이벤트를 원격으로 방송하고 있습니다"
         );
+    }
+
+    /// Pins [`project_capabilities`]'s registration order by scanning this file's own source —
+    /// that order is the attach/detach traversal order `project_open`/`project_close` run, and the
+    /// detach half is correctness-sensitive (see the function's doc). A reorder, addition, or
+    /// removal must consciously update this expected list.
+    #[test]
+    fn project_capabilities_등록_순서는_close_순서_계약과_일치한다() {
+        let registered: Vec<String> = extract_between(include_str!("lib.rs"), "ProjectCapabilities::new(vec![", "])")
+            .split(',')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+            .collect();
+
+        let expected = [
+            "Box::new(domain::layout::capability::LayoutCapability)",
+            "Box::new(domain::file::capability::FileWatcherCapability)",
+            "Box::new(domain::git::capability::GitWatcherCapability)",
+            "Box::new(domain::terminal::capability::TerminalCapability)",
+            "Box::new(domain::git::capability::GitCacheCapability)",
+            "Box::new(domain::tree::capability::TreeCacheCapability)",
+            "Box::new(domain::ide::capability::IdeLockfileCapability)",
+            "Box::new(domain::agent::capability::AgentHooksCapability)",
+        ];
+
+        assert_eq!(
+            registered, expected,
+            "project_capabilities 의 등록 순서가 계약과 다릅니다 — 이 순서는 project_close 의 자원 회수 순서 그 자체입니다"
+        );
+    }
+
+    /// `Project.capabilities` 정합 — the kinds `project::service::open_project` records on a fresh
+    /// project must be exactly what the registered capabilities detect for the same root, in the
+    /// same order. Guards the field against drifting from the registry it now feeds
+    /// (`GitWatcherCapability::attach` gates on it).
+    #[test]
+    fn 등록된_capability_detected_kinds는_open_project가_기록하는_capabilities와_일치한다() {
+        let registry = project_capabilities();
+
+        for git_repo in [true, false] {
+            let data_dir = std::env::temp_dir().join(format!("taide-cap-parity-{}", uuid::Uuid::new_v4()));
+            let workspace = data_dir.join("workspace");
+            std::fs::create_dir_all(&workspace).expect("create workspace");
+            if git_repo {
+                std::fs::create_dir_all(workspace.join(".git")).expect("create .git");
+            }
+
+            let paths = AppPaths::new(data_dir.clone());
+            let mut session = domain::project::types::SessionState::default();
+            let mut projects = std::collections::HashMap::new();
+            let opened = domain::project::service::open_project(&paths, &mut session, &mut projects, &workspace).expect("open project");
+
+            let canonical = std::fs::canonicalize(&workspace).expect("canonicalize workspace");
+            assert_eq!(
+                registry.detected_kinds(&canonical),
+                opened.project.capabilities,
+                "git_repo={git_repo}: 레지스트리 검출 결과와 서비스가 기록한 capabilities 가 다릅니다"
+            );
+
+            std::fs::remove_dir_all(&data_dir).ok();
+        }
     }
 
     /// `X1#8` — the `event:name` wire strings the frontend subscribes to

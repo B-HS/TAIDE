@@ -7,9 +7,15 @@ use std::time::{Duration, Instant};
 use parking_lot::{Condvar, Mutex};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtyPair, PtySize};
 
-use crate::domain::terminal::types::{OUTPUT_BATCH_MS, OUTPUT_FLUSH_TICK_MS, READ_BUFFER_BYTES};
 use crate::error::{AppError, AppResult};
 use crate::infra::shell_integration;
+
+/// Output-batching knobs for the reader thread below — owned here (their only consumer) rather
+/// than by `domain::terminal::types`, so this infra module carries no domain reference
+/// (layer direction, T1-I §1.3).
+const READ_BUFFER_BYTES: usize = 64 * 1024;
+const OUTPUT_BATCH_MS: u64 = 4;
+const OUTPUT_FLUSH_TICK_MS: u64 = 5;
 
 pub struct PtySpawnConfig {
     pub shell: Option<String>,

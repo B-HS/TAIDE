@@ -1,16 +1,40 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use tauri::Manager;
 use tauri_specta::Event;
 
-use super::service::{self, SettingsPatch};
-use super::types::Settings;
-use crate::domain::agent::hooks;
-use crate::domain::ide::commands as ide_commands;
-use crate::domain::ide::commands::IdeStore;
-use crate::domain::remote::commands as remote_commands;
-use crate::domain::remote::commands::RemoteStore;
+use super::service;
+use super::types::{Settings, SettingsPatch};
 use crate::error::AppResult;
 use crate::events::{SettingsChanged, ThemeChanged};
 use crate::state::AppState;
+
+pub type SettingsToggleFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+pub type SettingsToggleObserver =
+    Box<dyn for<'a> Fn(&'a tauri::AppHandle, &'a Settings, &'a Settings) -> SettingsToggleFuture<'a> + Send + Sync>;
+
+/// The integration reactions [`apply_and_broadcast`] runs between applying a new `Settings` value
+/// and emitting `SettingsChanged` — each observer compares the previous and next value and
+/// reconciles its own domain's resources (IDE server, agent hooks, remote-access server).
+/// `lib.rs`'s assembly registers the concrete observers (`settings_toggle_observers`) so this
+/// domain never calls into ide/agent/remote directly (audit R5#6, T1-I §1.4 — same assembly-owned
+/// wiring as `ProjectCapabilities`). Observers run **in registration order, awaited inline**,
+/// preserving the exact timing the old hand-coded `apply_integration_toggles` had: every reaction
+/// completes before `SettingsChanged` is emitted and before the settings command returns.
+pub struct SettingsToggleObservers(Vec<SettingsToggleObserver>);
+
+impl SettingsToggleObservers {
+    pub fn new(observers: Vec<SettingsToggleObserver>) -> Self {
+        Self(observers)
+    }
+
+    pub async fn apply(&self, app: &tauri::AppHandle, current: &Settings, updated: &Settings) {
+        for observer in &self.0 {
+            observer(app, current, updated).await;
+        }
+    }
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -31,7 +55,7 @@ pub async fn apply_and_broadcast(app: &tauri::AppHandle, state: &AppState, next:
     let updated = service::sanitize(next);
     service::save_settings(&state.paths, &updated)?;
     *state.settings.write() = updated.clone();
-    apply_integration_toggles(app, &current, &updated).await;
+    app.state::<SettingsToggleObservers>().apply(app, &current, &updated).await;
 
     let _ = SettingsChanged { settings: updated.clone() }.emit(app);
 
@@ -45,39 +69,6 @@ pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppS
     let current = state.settings.read().clone();
     let updated = service::apply_patch(&current, &patch);
     apply_and_broadcast(&app, &state, updated).await
-}
-
-async fn apply_integration_toggles(app: &tauri::AppHandle, current: &Settings, updated: &Settings) {
-    if current.ide_integration_enabled != updated.ide_integration_enabled {
-        let ide = app.state::<IdeStore>();
-        if updated.ide_integration_enabled {
-            if let Err(error) = ide_commands::ide_start(app.clone(), app.state::<AppState>(), ide).await {
-                log::warn!("IDE 연동 시작 실패: {error}");
-            }
-        } else {
-            ide_commands::stop_server(app, &ide);
-        }
-    }
-
-    if current.agent_hooks_enabled != updated.agent_hooks_enabled {
-        if updated.agent_hooks_enabled {
-            hooks::reconcile_installed_hooks(app).await;
-        } else {
-            hooks::uninstall_hooks_from_open_projects(app).await;
-            hooks::stop_hooks_server(app);
-        }
-    }
-
-    if current.remote_access_enabled != updated.remote_access_enabled {
-        let remote = app.state::<RemoteStore>();
-        if updated.remote_access_enabled {
-            if let Err(error) = remote_commands::remote_start(app.clone(), remote).await {
-                log::warn!("원격 접속 서버 시작 실패: {error}");
-            }
-        } else {
-            remote_commands::stop_server(app, &remote);
-        }
-    }
 }
 
 /// Unlike `settings_update`, this also emits `ThemeChanged` — the narrower event

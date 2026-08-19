@@ -367,7 +367,7 @@ fn denial_response(policy: RemoteDenialPolicy, name: &str) -> Value {
 /// disabling remote access only revokes its own future access, matching the
 /// existing self-service philosophy for that field (see
 /// `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §4).
-fn strip_remote_gated_settings_patch(mut patch: domain::settings::service::SettingsPatch) -> domain::settings::service::SettingsPatch {
+fn strip_remote_gated_settings_patch(mut patch: domain::settings::types::SettingsPatch) -> domain::settings::types::SettingsPatch {
     patch.remote_password_only_login = None;
     patch.remote_allowed_hosts = None;
     patch.shell_override = None;
@@ -746,9 +746,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "project_get" => respond(project::project_get(app.state(), arg!(args, "projectId")).await),
         "project_get_active" => respond(project::project_get_active(app.state()).await),
         "project_open" => respond(project::project_open(app.clone(), app.state(), arg!(args, "path")).await),
-        "project_close" => {
-            respond(project::project_close(app.clone(), app.state(), app.state(), app.state(), arg!(args, "projectId")).await)
-        }
+        "project_close" => respond(project::project_close(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_activate" => respond(project::project_activate(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_reorder" => respond(project::project_reorder(app.clone(), app.state(), arg!(args, "ids")).await),
 
@@ -1213,9 +1211,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "settings_set_theme" => respond(settings::settings_set_theme(app.clone(), app.state(), arg!(args, "themeId")).await),
 
         "system_usage_get" => respond(system::system_usage_get(app.state()).await),
-        "system_usage_breakdown" => {
-            respond(system::system_usage_breakdown(app.state(), app.state(), app.state(), app.state(), app.state()).await)
-        }
+        "system_usage_breakdown" => respond(system::system_usage_breakdown(app.clone(), app.state(), app.state()).await),
         "ide_get_status" => respond(ide::ide_get_status(app.state()).await),
         "ide_set_selection" => respond(ide::ide_set_selection(app.state(), arg!(args, "input")).await),
         "ide_clear_selection" => respond(ide::ide_clear_selection(app.state(), arg!(args, "owner")).await),
@@ -1349,7 +1345,7 @@ mod tests {
 
     #[test]
     fn 원격_settings_update_패치는_비밀번호_전용_로그인_필드가_제거된다() {
-        let patch = domain::settings::service::SettingsPatch {
+        let patch = domain::settings::types::SettingsPatch {
             remote_password_only_login: Some(true),
             editor_font_size: Some(18),
             ..Default::default()
@@ -1363,7 +1359,7 @@ mod tests {
 
     #[test]
     fn 원격_settings_update_패치는_허용_호스트_목록_필드가_제거된다() {
-        let patch = domain::settings::service::SettingsPatch {
+        let patch = domain::settings::types::SettingsPatch {
             remote_allowed_hosts: Some(vec!["attacker.example.com".to_string()]),
             editor_font_size: Some(18),
             ..Default::default()
@@ -1380,7 +1376,7 @@ mod tests {
 
     #[test]
     fn 원격_settings_update_패치는_shell_override_필드가_제거된다() {
-        let patch = domain::settings::service::SettingsPatch {
+        let patch = domain::settings::types::SettingsPatch {
             shell_override: Some("/tmp/evil.sh".to_string()),
             editor_font_size: Some(18),
             ..Default::default()
@@ -1564,7 +1560,7 @@ mod tests {
 
     #[test]
     fn 원격_접속_활성화_필드는_스트립되지_않는다() {
-        let patch = domain::settings::service::SettingsPatch {
+        let patch = domain::settings::types::SettingsPatch {
             remote_access_enabled: Some(false),
             ..Default::default()
         };

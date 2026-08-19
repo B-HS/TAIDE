@@ -13,17 +13,16 @@ use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use tokio_tungstenite::tungstenite::Message;
 
-use super::commands::{self, IdeSelectionSnapshot, IdeStore, PendingDiff, PendingSave};
 use super::service;
+use super::store::{IdeSelectionSnapshot, IdeStore, PendingDiff, PendingSave};
 use super::types::{
     IdeDiagnostic, IdeDiagnosticSeverity, IdeDiffOutcome, IDE_ACCEPT_RETRY_DELAY_MS, IDE_AUTH_HEADER_NAME, IDE_DIFF_TIMEOUT_MS,
     IDE_HANDSHAKE_TIMEOUT_MS, IDE_NAME, IDE_SAVE_TIMEOUT_MS, MCP_SUBPROTOCOL,
 };
-use crate::domain::layout::commands as layout_commands;
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
-use crate::domain::plugin::commands::{self as plugin_commands, PluginStore};
-use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested};
+use crate::domain::plugin::service::{self as plugin_service, PluginStore};
+use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged};
 use crate::ids::ProjectId;
 use crate::state::AppState;
 
@@ -268,9 +267,9 @@ async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, Too
         .unwrap_or(&path_string)
         .to_string();
 
-    layout_commands::layout_open_tab(
-        app.clone(),
-        state,
+    layout_service::open_tab_and_finish(
+        app,
+        &state,
         project_id,
         TabKind::File { path: path_string.clone() },
         title,
@@ -283,11 +282,11 @@ async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     if make_frontmost {
         Ok(text_content(format!("Opened file: {path_string}")))
     } else {
-        let plugins = plugin_commands::ensure_loaded(&app.state::<PluginStore>(), &app.state::<AppState>().paths.plugins_dir());
+        let plugins = plugin_service::ensure_loaded(&app.state::<PluginStore>(), &app.state::<AppState>().paths.plugins_dir());
         Ok(json_text_content(json!({
             "success": true,
             "filePath": path_string,
-            "languageId": service::guess_language_id(&path_string, &plugins),
+            "languageId": service::guess_language_id(&path_string, &plugin_service::language_overlays(&plugins)),
         })))
     }
 }
@@ -367,8 +366,8 @@ fn tool_get_latest_selection(app: &AppHandle) -> Value {
 fn tool_get_open_editors(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
     let layouts = state.layouts.read().clone();
-    let plugins = plugin_commands::ensure_loaded(&app.state::<PluginStore>(), &state.paths.plugins_dir());
-    let tabs: Vec<Value> = service::open_editors_snapshot(&layouts, &plugins)
+    let plugins = plugin_service::ensure_loaded(&app.state::<PluginStore>(), &state.paths.plugins_dir());
+    let tabs: Vec<Value> = service::open_editors_snapshot(&layouts, &plugin_service::language_overlays(&plugins))
         .into_iter()
         .map(|entry| {
             json!({
@@ -506,7 +505,7 @@ async fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     };
 
     if let Some(tab_id) = found {
-        if let Ok((_, closed_tab, _)) = layout_commands::close_tab_and_finish(app, &state, &tab_id).await {
+        if let Ok((_, closed_tab, _)) = layout_service::close_tab_and_finish(app, &state, &tab_id).await {
             let _ = IdeCloseTabRequested {
                 tab_name: tab_name.to_string(),
                 request_id: layout_service::claude_diff_request_id(&closed_tab.tab),
@@ -525,7 +524,7 @@ async fn tool_close_all_diff_tabs(app: &AppHandle) -> Value {
 
     for layout in layouts.values() {
         for tab_id in layout_service::all_roots(layout).flat_map(layout_service::collect_claude_diff_tab_ids) {
-            if let Ok((_, closed_tab, _)) = layout_commands::close_tab_and_finish(app, &state, &tab_id).await {
+            if let Ok((_, closed_tab, _)) = layout_service::close_tab_and_finish(app, &state, &tab_id).await {
                 closed += 1;
                 let _ = IdeCloseTabRequested {
                     tab_name: closed_tab.tab.title.clone(),
@@ -615,6 +614,14 @@ fn auth_callback(expected_token: String) -> impl FnOnce(&Request, Response) -> R
     }
 }
 
+fn emit_status_changed(app: &AppHandle, client_count: u32) {
+    let ide = app.state::<IdeStore>();
+    let mut status = ide.status();
+    status.client_count = client_count;
+    status.connected = client_count > 0;
+    let _ = IdeStatusChanged { status }.emit(app);
+}
+
 async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: String) {
     let handshake = tokio::time::timeout(
         std::time::Duration::from_millis(IDE_HANDSHAKE_TIMEOUT_MS),
@@ -666,7 +673,7 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
 
     let client_count = app.state::<IdeStore>().client_connected();
     log::info!("IDE 클라이언트 연결: count={client_count}");
-    commands::emit_status_changed(&app, client_count);
+    emit_status_changed(&app, client_count);
 
     let mut request_handles: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
 
@@ -699,7 +706,7 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
     forwarder_handle.abort();
     let client_count = app.state::<IdeStore>().client_disconnected();
     log::info!("IDE 클라이언트 연결 해제: count={client_count}");
-    commands::emit_status_changed(&app, client_count);
+    emit_status_changed(&app, client_count);
 }
 
 pub async fn accept_loop(app: AppHandle, listener: TcpListener, token: String) {

@@ -10,7 +10,7 @@ use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk,
     LogEntry, RevertOutcome, StagedDiffText, TagCreateOptions, TagInfo,
 };
-use crate::domain::plugin::commands::{self as plugin_commands, PluginStore};
+use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::error::{AppError, AppResult};
 use crate::events::{GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
@@ -24,7 +24,8 @@ impl GitStore {
         Self::default()
     }
 
-    /// Forgets `project_id`'s cached repo root, called by `project::commands::project_close` so a
+    /// Forgets `project_id`'s cached repo root, called by `GitCacheCapability::detach` during
+    /// `project_close` so a
     /// project reopened at the same path resolves its repo root fresh instead of reusing a cache
     /// entry keyed by a `ProjectId` that no session will ever look up again — see `resolve_repo_root`,
     /// which otherwise happily serves that stale entry forever (the map is never pruned by size or
@@ -101,8 +102,9 @@ pub async fn git_diff_file(
     mode: DiffMode,
 ) -> AppResult<DiffSides> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let loaded_plugins = plugin_commands::ensure_loaded(&plugins, &state.paths.plugins_dir());
-    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, &loaded_plugins))
+    let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
+    let language_overlays = plugin_service::language_overlays(&loaded_plugins);
+    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, &language_overlays))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
 }

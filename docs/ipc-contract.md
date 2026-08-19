@@ -389,8 +389,9 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   "rejected" | "tabClosed", content)`, `ide_resolve_save(requestId, saved)`,
   `ide_notify_at_mention(path, lineStart, lineEnd)`
   (**`ide_start()`/`ide_stop()` 는 X-A 배치(2026-08-19)에서 커맨드로는 제거됐다** — 유일한 도달 경로가
-  이미 `settings_update` 의 `ideIntegrationEnabled` 토글(`settings::commands::
-  apply_integration_toggles`)과 부팅 시 자동 시작(`lib.rs`)뿐이었다(X1#13,
+  이미 `settings_update` 의 `ideIntegrationEnabled` 토글(현 `SettingsToggleObservers` 배선 —
+  T1-I 에서 `apply_integration_toggles` 를 조립부 등록 관찰자로 재구조화, 도달 경로 동일)과 부팅
+  시 자동 시작(`lib.rs`)뿐이었다(X1#13,
   `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2). `ide_start` 는 내부 함수로
   남아 그 두 경로가 계속 호출하고, `ide_stop`(내부적으로 `stop_server` 를 부르는 얇은 래퍼였다)은
   통째로 삭제됐다 — 두 경로 모두 이미 `stop_server` 를 직접 부르고 있었다)
@@ -767,7 +768,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `ipc-sync-provider.tsx` 에서 이 이벤트로 `SETTINGS.CURRENT` 를 직접 `setQueryData` 한다(무효화가
   아니라 페이로드를 즉시 반영).
 - **plugin(추가)**: mutation `plugin_install(sourcePath)` → `LoadedPlugin`(디렉토리 또는
-  `.zip`/`.vsix` 아카이브 — 아카이브는 `vsix::service::extract_hardened_zip` 으로 추출, 이미 설치된
+  `.zip`/`.vsix` 아카이브 — 아카이브는 `infra::archive::extract_hardened_zip` 으로 추출, 이미 설치된
   id 면 거부), `plugin_uninstall(pluginId)` → `LoadedPlugin[]`(빌트인 보호 없음).
 - **vsix(추가)**: mutation `vsix_import_plugin(vsixPath)` → `LoadedPlugin` — VS Code 확장의
   `contributes.languages`/`contributes.grammars` 를 읽어 `taide-plugin.json` 을 합성한 뒤
@@ -1105,8 +1106,9 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   비교는 전부 `constant_time_eq` 경유(토큰·비밀번호 동일 경로). 자세한 흐름은 §3 "Remote 비밀번호"
   절, 커맨드별 허용/거부 전체 그림은 §3 "원격 dispatch 정책" 절 참조.
 - **zip 아카이브 하드닝(Wave I)**: `plugin_install`(아카이브 경로)·`vsix_import_plugin` 이 공유하는
-  `vsix::service::extract_hardened_zip` 은 엔트리 수 상한(`VSIX_ARCHIVE_MAX_ENTRIES` 5000)·누적
-  압축 해제 바이트 예산(`VSIX_ARCHIVE_MAX_TOTAL_BYTES` 128MB — zip bomb 방어)·경로는
+  `infra::archive::extract_hardened_zip`(T1-I 에서 plugin↔vsix 순환 절단을 위해 infra 하강)은
+  엔트리 수 상한(`ARCHIVE_MAX_ENTRIES` 5000)·누적
+  압축 해제 바이트 예산(`ARCHIVE_MAX_TOTAL_BYTES` 128MB — zip bomb 방어)·경로는
   `enclosed_name()`(zip-slip 방어, `../` 를 포함한 엔트리는 스킵)·파일 모드는 항상 `0o644`/디렉토리는
   `0o755` 로 고정(zip 안에 담긴 unix 모드 비트를 신뢰하지 않는다)한다. 기존 `infra::lsp_install::
   extract_zip`(신뢰된 자체 배포 아카이브 전용, zip-slip 만 방어)과는 별개 함수로 분리했다 — 사용자가
@@ -1166,7 +1168,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `finish_mutation` 경유 `revision` 증가·`fs:changed`/재시작 영속까지 전부 기존재).
 - **지우기 2건**: `project:focus-kind-changed` 이벤트·`FocusKind` 타입·`layout::service::focus_kind`
   전량 제거(§"project" 절), 중복 커맨드 5종(`ide_start`/`ide_stop`/`remote_start`/`remote_stop`/
-  `window_open_auxiliary`) 제거 — `settings_update` 의 통합 토글 부수효과(`apply_integration_toggles`)
+  `window_open_auxiliary`) 제거 — `settings_update` 의 통합 토글 부수효과(현 `SettingsToggleObservers`)
   가 이미 유일한 실제 도달 경로였음을 실코드로 확증한 뒤 제거했다(§"ide"·"remote"·"Wave I 계약
   확정 추가" 절). `app:ready` 도 함께 제거(발행 지점 0 확인, §"app" 절).
 - **§1.3(3) ws.rs writer 무한 대기 수정**: `domain::remote::ws::handle_socket` 이 연결 종료 후

@@ -15,26 +15,11 @@ export const commands = {
 	 *  See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
 	 *  `asset://` read access needs no entry of its own in that list any more: `infra::asset_protocol`
 	 *  decides per-request from `state.projects`, and the `*state.projects.write() = projects;` above
-	 *  (via `service::close_project`, which removes `project_id`) already revokes it before this
-	 *  function's other reaps even run. Two of those other reaps are correctness-sensitive, not just
-	 *  cleanup:
-	 * 
-	 *  - **Layout**: a layout marked dirty but not yet caught by `flush_dirty_layouts`'s periodic
-	 *    2-second timer would otherwise be discarded unsaved — the `state.layouts.write().remove`
-	 *    below drops the in-memory copy, and the periodic flusher's next pass over `dirty_layouts`
-	 *    would then find nothing left in `state.layouts` for this `project_id` and silently skip it
-	 *    (see that function's `filter_map`, which also `log::warn!`s on exactly this miss as a safety
-	 *    net for any other path that removes a layout without flushing first). Flushing synchronously
-	 *    here, before the removal, closes that window.
-	 *  - **Terminals**: `TerminalStore::kill_project` reaps every pty session scoped to this project.
-	 *    Before this, nothing called `pty_kill` for a closing project's sessions — they kept running,
-	 *    attached to nothing, until the whole app quit (`TerminalStore::kill_all`).
-	 * 
-	 *  `GitStore`/`TreeStore` removal below is plain cache eviction (no correctness risk either way —
-	 *  `resolve_repo_root`/`ensure_entry` transparently rebuild a missing entry on next access) but
-	 *  still matters: without it, reopening the same folder resurrects a possibly-stale repo root or
-	 *  directory listing instead of resolving fresh, and the entry otherwise sits in memory for the
-	 *  rest of the app's lifetime regardless of whether the project ever reopens.
+	 *  (via `service::close_project`, which removes `project_id`) already revokes it before any
+	 *  capability's detach even runs. The reaps themselves are owned by the registered
+	 *  [`ProjectCapabilities`], whose detach walk runs in registration order — an order that is part
+	 *  of the correctness contract (dirty-layout flush before removal, terminal reap during close);
+	 *  see `lib.rs`'s `project_capabilities` and each capability's `detach` doc.
 	 */
 	projectClose: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_close", { projectId })),
 	projectActivate: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_activate", { projectId })),
@@ -370,6 +355,17 @@ export const commands = {
 	/**  See [`ide_set_selection`]'s doc comment for why a remote `owner` is a no-op here too. */
 	ideClearSelection: (owner: string) => typedError<null, AppError>(__TAURI_INVOKE("ide_clear_selection", { owner })),
 	idePublishDiagnostics: (projectId: ProjectId, items: IdeDiagnostic[]) => typedError<null, AppError>(__TAURI_INVOKE("ide_publish_diagnostics", { projectId, items })),
+	/**
+	 *  A `Saved` outcome persists through [`file::service::save_file_within_open_projects`](
+	 *  crate::domain::file::service::save_file_within_open_projects) — the exact guarded sequence the
+	 *  `file_save` command runs (root-guard resolution, atomic write, self-write mark, mirror clear),
+	 *  under the same mutation guard, so this path can no longer bypass any of `file_save`'s
+	 *  validation or bookkeeping (R6#2). A `Forbidden` error from it is the root-guard rejection and
+	 *  is deliberately swallowed with a warning instead of failing the command: the diff target was
+	 *  inside a project root when `openDiff` registered it (`server::tool_open_diff` resolves it up
+	 *  front), so `Forbidden` here only means that project has since been closed — the MCP client
+	 *  still receives its `Saved` resolution, matching the pre-guard behavior for that race.
+	 */
 	ideResolveDiff: (requestId: string, outcome: IdeDiffOutcome, content: string | null) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_diff", { requestId, outcome, content })),
 	ideResolveSave: (requestId: string, saved: boolean) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_save", { requestId, saved })),
 	ideNotifyAtMention: (path: string, lineStart: number, lineEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("ide_notify_at_mention", { path, lineStart, lineEnd })),
@@ -1360,6 +1356,11 @@ export type SettingsChanged = {
 	settings: Settings,
 };
 
+/**
+ *  A partial `Settings` update — every field optional, merged over the current value by
+ *  `service::apply_patch` (`None` = leave unchanged). Also the shape a synced gist stores its
+ *  nested `settings` object as (`sync::types::SyncPayload`).
+ */
 export type SettingsPatch = {
 	themeId: string | null,
 	editorFontSize: number | null,
@@ -1425,7 +1426,7 @@ export type ShellProfile = {
 
 /**
  *  Partial update for [`ShellViewState`] — `None` fields are left at their current value, same
- *  merge convention as `settings::service::SettingsPatch`/`apply_patch`.
+ *  merge convention as `settings::types::SettingsPatch`/`settings::service::apply_patch`.
  */
 export type ShellViewPatch = {
 	zen: boolean | null,

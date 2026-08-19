@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::domain::locale::service as locale_service;
 use crate::domain::locale::types::LocalePack;
-use crate::domain::settings::service::{self as settings_service, SettingsPatch};
-use crate::domain::settings::types::{Settings, SETTINGS_SCHEMA_VERSION};
+use crate::domain::settings::service as settings_service;
+use crate::domain::settings::types::{Settings, SettingsPatch, SETTINGS_SCHEMA_VERSION};
 use crate::domain::sync::types::{SyncLocaleEntry, SyncPayload, SyncThemeEntry};
 use crate::domain::theme::service as theme_service;
 use crate::domain::theme::types::Theme;

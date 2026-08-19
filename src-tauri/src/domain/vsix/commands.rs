@@ -4,8 +4,8 @@ use tauri::State;
 
 use super::service;
 use super::types::VsixThemeExtractionResult;
-use crate::domain::plugin::commands::PluginStore;
 use crate::domain::plugin::service as plugin_service;
+use crate::domain::plugin::service::PluginStore;
 use crate::domain::plugin::types::LoadedPlugin;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;

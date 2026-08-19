@@ -17,7 +17,7 @@ impl TreeStore {
     }
 
     /// Forgets `project_id`'s cached tree — every expanded/collapsed row and directory listing
-    /// scanned so far. Called by `project::commands::project_close` so reopening the same folder
+    /// scanned so far. Called by `TreeCacheCapability::detach` during `project_close` so reopening the same folder
     /// starts from a fresh scan instead of resurrecting a stale directory listing that may no
     /// longer match disk (files changed while the project was closed and unwatched), and so the
     /// entry doesn't sit in this map for the rest of the app's lifetime.

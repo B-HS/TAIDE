@@ -1,71 +1,14 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
+use serde::Serialize;
 
 use crate::domain::ai::types::AiProviderId;
-use crate::domain::remote::service as remote_service;
-use crate::domain::settings::types::{EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings, TerminalCursorStyle};
+use crate::domain::remote::types::ALLOWED_HOST_WILDCARD_PREFIX;
+use crate::domain::settings::types::{
+    EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings, SettingsPatch, TerminalCursorStyle,
+};
 use crate::domain::theme::service as theme_service;
 use crate::error::{AppError, AppResult};
 use crate::infra::persist;
 use crate::paths::AppPaths;
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SettingsPatch {
-    pub theme_id: Option<String>,
-    pub editor_font_size: Option<u32>,
-    pub terminal_font_size: Option<u32>,
-    pub shell_override: Option<String>,
-    pub follow_system_theme: Option<bool>,
-    pub language: Option<String>,
-    pub toast_position: Option<String>,
-    pub resizer_thickness: Option<u32>,
-    pub editor_font_family: Option<String>,
-    pub terminal_font_family: Option<String>,
-    pub ui_font_family: Option<String>,
-    pub format_on_save: Option<bool>,
-    pub auto_save_delay_ms: Option<u32>,
-    pub keymap_overrides: Option<String>,
-    pub editor_minimap: Option<bool>,
-    pub show_system_usage: Option<bool>,
-    pub agent_status_badge_enabled: Option<bool>,
-    pub agent_hooks_enabled: Option<bool>,
-    pub ide_integration_enabled: Option<bool>,
-    pub ide_auto_open_diff: Option<bool>,
-    pub editor_word_wrap: Option<bool>,
-    pub editor_line_numbers: Option<bool>,
-    pub editor_tab_size: Option<u32>,
-    pub editor_insert_spaces: Option<bool>,
-    pub editor_detect_indentation: Option<bool>,
-    pub editor_render_whitespace: Option<EditorRenderWhitespace>,
-    pub editor_bracket_pair_colorization: Option<bool>,
-    pub editor_font_ligatures: Option<bool>,
-    pub editor_cursor_style: Option<EditorCursorStyle>,
-    pub editor_cursor_blinking: Option<EditorCursorBlinking>,
-    pub editor_scroll_beyond_last_line: Option<bool>,
-    pub editor_sticky_scroll_enabled: Option<bool>,
-    pub terminal_scrollback: Option<u32>,
-    pub terminal_cursor_style: Option<TerminalCursorStyle>,
-    pub terminal_cursor_blink: Option<bool>,
-    pub enable_preview_tabs: Option<bool>,
-    pub ai_auto_tab_enabled: Option<bool>,
-    pub ai_provider: Option<AiProviderId>,
-    pub ai_model: Option<String>,
-    pub ai_omlx_base_url: Option<String>,
-    pub remote_access_enabled: Option<bool>,
-    pub remote_password_only_login: Option<bool>,
-    pub remote_allowed_hosts: Option<Vec<String>>,
-    pub organize_imports_on_save: Option<bool>,
-    pub fix_all_on_save: Option<bool>,
-    pub editor_code_lens_enabled: Option<bool>,
-    pub editor_semantic_highlighting: Option<bool>,
-    pub editor_format_on_type: Option<bool>,
-    pub editor_format_on_paste: Option<bool>,
-    pub emmet_enabled: Option<bool>,
-    pub recent_searches: Option<Vec<String>>,
-    pub zen_fullscreen: Option<bool>,
-    pub zen_hide_status_bar: Option<bool>,
-}
 
 /// Legacy → current key renames applied by [`migrate_legacy_ai_provider_keys`] — see that
 /// function's doc comment for why this is a raw-JSON migration rather than `#[serde(alias)]`.
@@ -288,7 +231,7 @@ fn is_valid_dns_label(label: &str) -> bool {
 /// all, so both fall through to the non-wildcard branch and are rejected
 /// there too (`*` isn't a valid DNS label).
 fn is_valid_allowed_host(value: &str) -> bool {
-    match value.strip_prefix(remote_service::ALLOWED_HOST_WILDCARD_PREFIX) {
+    match value.strip_prefix(ALLOWED_HOST_WILDCARD_PREFIX) {
         Some(remainder) => {
             remainder.contains('.') && remainder.len() <= DNS_HOSTNAME_MAX_LEN && remainder.split('.').all(is_valid_dns_label)
         }

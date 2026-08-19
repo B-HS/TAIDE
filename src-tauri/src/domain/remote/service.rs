@@ -1,7 +1,7 @@
 use crate::infra::crypto::constant_time_eq;
 use sha2::{Digest, Sha256};
 
-use super::types::{REMOTE_LINK_TOKEN_QUERY_KEY, REMOTE_LOOPBACK_HOSTNAMES, REMOTE_PASSWORD_MIN_LEN};
+use super::types::{ALLOWED_HOST_WILDCARD_PREFIX, REMOTE_LINK_TOKEN_QUERY_KEY, REMOTE_LOOPBACK_HOSTNAMES, REMOTE_PASSWORD_MIN_LEN};
 
 fn generate_opaque_token() -> String {
     uuid::Uuid::new_v4().simple().to_string()
@@ -28,12 +28,6 @@ pub fn digest_bytes(token: &str) -> Vec<u8> {
 pub fn digest_hex(token: &str) -> String {
     digest_bytes(token).iter().map(|byte| format!("{byte:02x}")).collect()
 }
-
-/// Single-owner wildcard-prefix syntax for a `remote_allowed_hosts` entry (RFC 6125 single-label
-/// wildcard, matched by [`host_matches_allowed_entry`]) — `settings::service::is_valid_allowed_host`
-/// (sanitizing user input) and this module's own matcher/link-formatting callers all read the same
-/// constant instead of each hardcoding `"*."`.
-pub const ALLOWED_HOST_WILDCARD_PREFIX: &str = "*.";
 
 /// Whether `entry` uses the wildcard-prefix syntax owned by [`ALLOWED_HOST_WILDCARD_PREFIX`].
 pub fn is_wildcard_entry(entry: &str) -> bool {

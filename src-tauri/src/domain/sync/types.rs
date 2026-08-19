@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::domain::settings::service::SettingsPatch;
+use crate::domain::settings::types::SettingsPatch;
 
 pub const SYNC_GIST_FILENAME: &str = "taide-settings.json";
 pub const SYNC_GIST_DESCRIPTION: &str = "TAIDE sync payload — managed by TAIDE, do not edit manually";

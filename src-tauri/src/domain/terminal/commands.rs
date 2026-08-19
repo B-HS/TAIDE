@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::io::Write as _;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -9,9 +11,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
-use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES, IDE_READY_POLL_INTERVAL_MS};
-use crate::domain::ide::commands::IdeStore;
-use crate::domain::ide::types::{IdeStatus, CLAUDE_CODE_SSE_PORT_ENV, IDE_READY_WAIT_MS};
+use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
 use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
 use crate::events::{TerminalCwdChanged, TerminalExited};
@@ -97,7 +97,7 @@ impl TerminalStore {
     }
 
     /// Kills and removes a single pty session by id — `kill_project`'s counterpart for one session,
-    /// called when a terminal tab closes (`layout::commands::close_tab_and_finish`) so tab-close
+    /// called when a terminal tab closes (`layout::service::close_tab_and_finish`) so tab-close
     /// reliably reaps the pty it owned instead of leaving it running until the owning project or the
     /// whole app closes. A missing `session_id` is silently ignored, the same as `kill_project`
     /// tolerates a project with no sessions: the tab may already be pointing at a session that was
@@ -163,17 +163,24 @@ fn find_entry<'a>(store: &'a HashMap<String, SessionEntry>, session_id: &str) ->
         .ok_or_else(|| AppError::NotFound(format!("terminal session not found: {session_id}")))
 }
 
-async fn wait_for_ide_ready(state: &AppState, ide: &IdeStore) -> IdeStatus {
-    let ide_integration_enabled = state.settings.read().ide_integration_enabled;
-    let mut status = ide.status();
+pub type PtySpawnEnvFuture<'a> = Pin<Box<dyn Future<Output = Vec<(String, String)>> + Send + 'a>>;
 
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(IDE_READY_WAIT_MS);
-    while service::should_wait_for_ide_ready(ide_integration_enabled, status.running) && tokio::time::Instant::now() < deadline {
-        tokio::time::sleep(tokio::time::Duration::from_millis(IDE_READY_POLL_INTERVAL_MS)).await;
-        status = ide.status();
+/// The extra `(name, value)` environment entries [`pty_spawn`] injects into every new shell,
+/// contributed by whatever integration the assembly wires in. `lib.rs` registers the concrete
+/// provider (currently `ide::store::claude_terminal_env` — the Claude Code SSE port) so this
+/// domain never reads the IDE server's state directly (audit R8#10, T1-I §1.4). Awaited before
+/// the mutation guard is taken, exactly where the old inline IDE-ready wait ran — the provider
+/// may block the spawn briefly (bounded by its own deadline), never the whole app.
+pub struct PtySpawnEnvProvider(Box<dyn for<'a> Fn(&'a AppHandle) -> PtySpawnEnvFuture<'a> + Send + Sync>);
+
+impl PtySpawnEnvProvider {
+    pub fn new(provider: Box<dyn for<'a> Fn(&'a AppHandle) -> PtySpawnEnvFuture<'a> + Send + Sync>) -> Self {
+        Self(provider)
     }
 
-    status
+    pub async fn extra_env(&self, app: &AppHandle) -> Vec<(String, String)> {
+        (self.0)(app).await
+    }
 }
 
 /// `on_data` is accepted for IPC-contract stability (a Tauri `Channel` argument the frontend must
@@ -189,16 +196,11 @@ pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, TerminalStore>,
-    ide: State<'_, IdeStore>,
+    env_provider: State<'_, PtySpawnEnvProvider>,
     opts: PtySpawnOptions,
     on_data: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
-    let ide_status = wait_for_ide_ready(state.inner(), ide.inner()).await;
-    let extra_env = if ide_status.running {
-        vec![(CLAUDE_CODE_SSE_PORT_ENV.to_string(), ide_status.port.to_string())]
-    } else {
-        Vec::new()
-    };
+    let extra_env = env_provider.extra_env(&app).await;
 
     let _guard = state.begin_mutation().await;
     ensure_project_open(&state, &opts.project_id)?;

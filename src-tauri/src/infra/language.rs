@@ -1,6 +1,14 @@
 use std::path::Path;
 
-use crate::domain::plugin::types::LoadedPlugin;
+/// One enabled plugin's single `contributes.languages` entry, reduced to the two fields
+/// [`language_id_for_path`] actually consumes. Owned by `infra` so this module never references
+/// `domain::plugin`'s manifest types (the layer direction is domain → infra, never the reverse —
+/// audit R4#6, T1-I §1.3); `domain::plugin::service::language_overlays` converts the live
+/// `LoadedPlugin` snapshot into this shape, applying the enabled-plugin filter in the process.
+pub struct LanguageOverlay {
+    pub language_id: String,
+    pub extensions: Vec<String>,
+}
 
 /// Canonical extension → language id table, the single source every extension-based language
 /// detector (`file::service::open_file`, `git::service::diff_staged_text`,
@@ -76,33 +84,26 @@ fn strip_leading_dot(value: &str) -> &str {
     value.strip_prefix('.').unwrap_or(value)
 }
 
-/// Checks every enabled plugin's `contributes.languages` for an extension match, returning the
-/// first plugin-declared language id found (plugins are scanned in the same order
-/// `plugin::service::load_plugins` returns them — directory-sorted, so the match is deterministic).
-fn plugin_overlay(extension: &str, plugins: &[LoadedPlugin]) -> Option<String> {
-    plugins
+/// Checks every overlay entry for an extension match, returning the first declared language id
+/// found (`language_overlays` preserves the order `plugin::service::load_plugins` returns —
+/// directory-sorted, so the match is deterministic).
+fn plugin_overlay(extension: &str, overlays: &[LanguageOverlay]) -> Option<String> {
+    overlays
         .iter()
-        .filter(|plugin| plugin.enabled)
-        .flat_map(|plugin| &plugin.manifest.contributes.languages)
-        .find(|language| {
-            language
-                .extensions
-                .iter()
-                .any(|candidate| strip_leading_dot(candidate) == extension)
-        })
-        .map(|language| language.id.clone())
+        .find(|overlay| overlay.extensions.iter().any(|candidate| strip_leading_dot(candidate) == extension))
+        .map(|overlay| overlay.language_id.clone())
 }
 
 /// Resolves a file path's language id — an enabled plugin's `contributes.languages` overlay first,
-/// then the builtin [`LANGUAGE_ID_BY_EXTENSION`] table, falling back to `"plaintext"`. `plugins` is
-/// typically the current `PluginStore` snapshot; pass `&[]` where no plugin context is available
-/// (equivalent to builtin-only detection).
-pub fn language_id_for_path(path: &Path, plugins: &[LoadedPlugin]) -> String {
+/// then the builtin [`LANGUAGE_ID_BY_EXTENSION`] table, falling back to `"plaintext"`. `overlays`
+/// is typically `plugin::service::language_overlays` over the current `PluginStore` snapshot; pass
+/// `&[]` where no plugin context is available (equivalent to builtin-only detection).
+pub fn language_id_for_path(path: &Path, overlays: &[LanguageOverlay]) -> String {
     let Some(extension) = extension_of(path) else {
         return DEFAULT_LANGUAGE_ID.to_string();
     };
 
-    if let Some(overlaid) = plugin_overlay(&extension, plugins) {
+    if let Some(overlaid) = plugin_overlay(&extension, overlays) {
         return overlaid;
     }
 
@@ -116,30 +117,11 @@ pub fn language_id_for_path(path: &Path, plugins: &[LoadedPlugin]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::plugin::types::{PluginContributions, PluginLanguageContribution, PluginManifest};
 
-    fn plugin_with_language(extension_with_dot: &str, language_id: &str) -> LoadedPlugin {
-        LoadedPlugin {
-            manifest: PluginManifest {
-                manifest_version: 1,
-                id: "test-plugin".to_string(),
-                name: "Test Plugin".to_string(),
-                version: "1.0.0".to_string(),
-                contributes: PluginContributions {
-                    languages: vec![PluginLanguageContribution {
-                        id: language_id.to_string(),
-                        extensions: vec![extension_with_dot.to_string()],
-                        aliases: Vec::new(),
-                        grammar: None,
-                        embedded_languages: None,
-                    }],
-                    lsp: Vec::new(),
-                    themes: Vec::new(),
-                },
-            },
-            root: "/tmp/test-plugin".to_string(),
-            enabled: true,
-            error: None,
+    fn overlay_with_language(extension_with_dot: &str, language_id: &str) -> LanguageOverlay {
+        LanguageOverlay {
+            language_id: language_id.to_string(),
+            extensions: vec![extension_with_dot.to_string()],
         }
     }
 
@@ -159,21 +141,14 @@ mod tests {
     }
 
     #[test]
-    fn 활성화된_플러그인의_확장자_기여가_빌트인보다_우선한다() {
-        let plugin = plugin_with_language(".rs", "custom-rust");
-        assert_eq!(language_id_for_path(Path::new("a.rs"), &[plugin]), "custom-rust");
-    }
-
-    #[test]
-    fn 비활성화된_플러그인의_기여는_무시된다() {
-        let mut plugin = plugin_with_language(".proto", "protobuf");
-        plugin.enabled = false;
-        assert_eq!(language_id_for_path(Path::new("a.proto"), &[plugin]), "plaintext");
+    fn 플러그인_확장자_기여가_빌트인보다_우선한다() {
+        let overlay = overlay_with_language(".rs", "custom-rust");
+        assert_eq!(language_id_for_path(Path::new("a.rs"), &[overlay]), "custom-rust");
     }
 
     #[test]
     fn 플러그인이_새_확장자를_추가할_수_있다() {
-        let plugin = plugin_with_language(".proto", "protobuf");
-        assert_eq!(language_id_for_path(Path::new("a.proto"), &[plugin]), "protobuf");
+        let overlay = overlay_with_language(".proto", "protobuf");
+        assert_eq!(language_id_for_path(Path::new("a.proto"), &[overlay]), "protobuf");
     }
 }

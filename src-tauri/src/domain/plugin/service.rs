@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
+use crate::infra::language::LanguageOverlay;
 use crate::infra::lsp_install;
 use crate::infra::root_guard;
 
@@ -10,6 +11,54 @@ use super::types::{
     LoadedPlugin, PluginContributions, PluginErrorCode, PluginManifest, PLUGIN_GRAMMAR_MAX_BYTES, PLUGIN_MANIFEST_FILE,
     PLUGIN_MANIFEST_VERSION,
 };
+
+pub struct PluginStore(pub parking_lot::RwLock<Option<Vec<LoadedPlugin>>>);
+
+impl PluginStore {
+    pub fn new() -> Self {
+        Self(parking_lot::RwLock::new(None))
+    }
+}
+
+impl Default for PluginStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Returns the cached plugin list, loading (and caching) it first if nothing has been loaded yet —
+/// the shared "read-through cache" `plugin_list` already used before this was extracted, now also
+/// used by every `infra::language::language_id_for_path` caller that needs the current plugin
+/// overlay (contract §3.4/D1) without forcing every one of them to reimplement the same
+/// lock-check-load-cache sequence. Lives in `service` (not `commands`) so cross-domain callers
+/// (`file_open`, `git_diff`, `ide::server`'s MCP tools) reach the cache without re-entering the
+/// command surface (R6#3).
+pub fn ensure_loaded(store: &PluginStore, plugins_dir: &Path) -> Vec<LoadedPlugin> {
+    if let Some(cached) = store.0.read().clone() {
+        return cached;
+    }
+    let loaded = load_plugins(plugins_dir);
+    *store.0.write() = Some(loaded.clone());
+    loaded
+}
+
+/// Converts a `LoadedPlugin` snapshot into the infra-owned [`LanguageOverlay`] shape
+/// `infra::language::language_id_for_path` consumes — the domain-side half of the dependency
+/// inversion that keeps `infra::language` free of `domain::plugin` types (audit R4#6, T1-I §1.3).
+/// Applies the enabled-plugin filter here and preserves both the plugin order (`load_plugins`'s
+/// directory-sorted order) and each plugin's contribution order, so overlay precedence is
+/// identical to scanning the plugins directly.
+pub fn language_overlays(plugins: &[LoadedPlugin]) -> Vec<LanguageOverlay> {
+    plugins
+        .iter()
+        .filter(|plugin| plugin.enabled)
+        .flat_map(|plugin| &plugin.manifest.contributes.languages)
+        .map(|language| LanguageOverlay {
+            language_id: language.id.clone(),
+            extensions: language.extensions.clone(),
+        })
+        .collect()
+}
 
 pub fn load_plugins(plugins_dir: &Path) -> Vec<LoadedPlugin> {
     let Ok(entries) = fs::read_dir(plugins_dir) else {
@@ -267,14 +316,14 @@ pub fn install_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<St
 /// Installs a plugin distributed as a zip archive (a TAIDE-native `.vsix`/zip bundle containing a
 /// top-level `taide-plugin.json`, distinct from a real VS Code extension `.vsix` — see
 /// `vsix::service::import_vsix_as_plugin` for that flow) by extracting it with
-/// `vsix::service::extract_hardened_zip` (budget/entry-cap/permission-masking hardened, unlike
+/// `infra::archive::extract_hardened_zip` (budget/entry-cap/permission-masking hardened, unlike
 /// `infra::lsp_install::extract_zip` — contract §3.4) into `plugins_dir/{id}/`. Refuses to
 /// overwrite an already-installed id.
 pub fn install_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<String> {
     let temp_extract_dir = plugins_dir.join(".tmp").join(format!("extract-{}", uuid::Uuid::new_v4()));
 
     let result = (|| -> AppResult<String> {
-        crate::domain::vsix::service::extract_hardened_zip(source, &temp_extract_dir)?;
+        crate::infra::archive::extract_hardened_zip(source, &temp_extract_dir)?;
         let manifest = read_and_validate_manifest(&temp_extract_dir)?;
 
         let final_dir = plugins_dir.join(&manifest.id);
@@ -334,6 +383,43 @@ mod tests {
     fn write_manifest(dir: &Path, content: &str) {
         fs::create_dir_all(dir).unwrap();
         fs::write(dir.join(PLUGIN_MANIFEST_FILE), content).unwrap();
+    }
+
+    fn plugin_with_language(extension_with_dot: &str, language_id: &str, enabled: bool) -> LoadedPlugin {
+        LoadedPlugin {
+            manifest: PluginManifest {
+                manifest_version: 1,
+                id: "test-plugin".to_string(),
+                name: "Test Plugin".to_string(),
+                version: "1.0.0".to_string(),
+                contributes: PluginContributions {
+                    languages: vec![PluginLanguageContribution {
+                        id: language_id.to_string(),
+                        extensions: vec![extension_with_dot.to_string()],
+                        aliases: Vec::new(),
+                        grammar: None,
+                        embedded_languages: None,
+                    }],
+                    lsp: Vec::new(),
+                    themes: Vec::new(),
+                },
+            },
+            root: "/tmp/test-plugin".to_string(),
+            enabled,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn 활성화된_플러그인의_언어_기여만_overlay로_변환된다() {
+        let enabled = plugin_with_language(".proto", "protobuf", true);
+        let disabled = plugin_with_language(".pb", "protobuf-disabled", false);
+
+        let overlays = language_overlays(&[disabled, enabled]);
+
+        assert_eq!(overlays.len(), 1);
+        assert_eq!(overlays[0].language_id, "protobuf");
+        assert_eq!(overlays[0].extensions, vec![".proto".to_string()]);
     }
 
     #[test]

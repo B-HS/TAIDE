@@ -8,15 +8,38 @@ use tauri::State;
 
 use super::service::{self, file_url, normalize_cpu_percent, ProcessRecord};
 use super::types::{AppDataPathKind, SystemUsage, SystemUsageProcess, SystemUsageProcessKind};
-use crate::domain::agent::commands::AgentStore;
-use crate::domain::lsp::commands::LspStore;
-use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
 const FALLBACK_CPU_COUNT: usize = 1;
 const APP_PROCESS_LABEL: &str = "TAIDE";
+
+pub type SystemUsageLabels = HashMap<u32, (SystemUsageProcessKind, String)>;
+pub type SystemUsageLabelProvider = Box<dyn Fn(&tauri::AppHandle) -> SystemUsageLabels + Send + Sync>;
+
+/// The pid → (kind, label) providers [`system_usage_breakdown`] consults to label terminal, agent,
+/// and LSP child processes. `lib.rs`'s assembly registers one closure per owning domain
+/// (`system_usage_label_providers`) so this domain never reads another domain's store directly
+/// (audit R8#9, T1-I §1.4). Providers run in registration order and later entries overwrite
+/// earlier ones for the same pid — the registration order (terminal → agent → LSP) preserves the
+/// precedence the old hand-coded collection had: an agent process detected inside a terminal's
+/// foreground pid set labels as Agent, and LSP labels are applied last.
+pub struct SystemUsageLabelProviders(Vec<SystemUsageLabelProvider>);
+
+impl SystemUsageLabelProviders {
+    pub fn new(providers: Vec<SystemUsageLabelProvider>) -> Self {
+        Self(providers)
+    }
+
+    pub fn collect(&self, app: &tauri::AppHandle) -> SystemUsageLabels {
+        let mut labels = HashMap::new();
+        for provider in &self.0 {
+            labels.extend(provider(app));
+        }
+        labels
+    }
+}
 
 struct AppUsageInner {
     system: System,
@@ -133,51 +156,18 @@ fn refresh_all_process_records(inner: &Mutex<BreakdownUsageInner>) -> Vec<Proces
     records
 }
 
-fn collect_terminal_and_agent_labels(
-    state: &AppState,
-    terminals: &TerminalStore,
-    agents: &AgentStore,
-) -> HashMap<u32, (SystemUsageProcessKind, String)> {
-    let projects = state.projects.read();
-    let mut labels = HashMap::new();
-
-    for (project_id, project) in projects.iter() {
-        for (_, pid) in terminals.foreground_pids(project_id) {
-            labels.insert(pid, (SystemUsageProcessKind::Terminal, project.name.clone()));
-        }
-        for agent in agents.agents_for(project_id) {
-            labels.insert(
-                agent.pid,
-                (SystemUsageProcessKind::Agent, format!("{} · {}", agent.name, project.name)),
-            );
-        }
-    }
-
-    labels
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn system_usage_breakdown(
-    state: State<'_, AppState>,
+    app: tauri::AppHandle,
     store: State<'_, SystemUsageStore>,
-    terminals: State<'_, TerminalStore>,
-    lsp: State<'_, LspStore>,
-    agents: State<'_, AgentStore>,
+    providers: State<'_, SystemUsageLabelProviders>,
 ) -> AppResult<Vec<SystemUsageProcess>> {
     let root_pid = sysinfo::get_current_pid()
         .map_err(|error| AppError::Internal(error.to_string()))?
         .as_u32();
 
-    let mut domain_labels = collect_terminal_and_agent_labels(&state, &terminals, &agents);
-    let projects = state.projects.read().clone();
-    for (project_id, server_name, pid) in lsp.server_pids() {
-        let label = projects
-            .get(&project_id)
-            .map(|project| format!("{server_name} · {}", project.name))
-            .unwrap_or(server_name);
-        domain_labels.insert(pid, (SystemUsageProcessKind::Lsp, label));
-    }
+    let domain_labels = providers.collect(&app);
 
     let cpu_count = std::thread::available_parallelism()
         .map(|count| count.get())

@@ -5,7 +5,7 @@ use tauri::{AppHandle, State};
 use super::service;
 use super::service::{MirrorEntry, UntitledMirrorEntry};
 use super::types::OpenedFile;
-use crate::domain::plugin::commands::{self as plugin_commands, PluginStore};
+use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::error::AppResult;
 use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
@@ -17,20 +17,15 @@ pub async fn file_open(state: State<'_, AppState>, plugins: State<'_, PluginStor
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
 
-    let loaded_plugins = plugin_commands::ensure_loaded(&plugins, &state.paths.plugins_dir());
-    service::open_file(&resolved, &loaded_plugins)
+    let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
+    service::open_file(&resolved, &plugin_service::language_overlays(&loaded_plugins))
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_save(state: State<'_, AppState>, path: String, content: String) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let (project_id, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
-
-    service::save_file(&resolved, &content)?;
-    state.self_writes.mark(&resolved);
-    service::clear_mirror(&state.paths, &project_id, &resolved)
+    service::save_file_within_open_projects(&state, Path::new(&path), &content)
 }
 
 #[tauri::command]

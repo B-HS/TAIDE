@@ -7,9 +7,8 @@ use git2::Repository;
 use serde::Serialize;
 use specta::Type;
 
-use crate::domain::plugin::types::LoadedPlugin;
 use crate::error::{AppError, AppResult};
-use crate::infra::language;
+use crate::infra::language::{self, LanguageOverlay};
 
 use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitChangeKind, GitRemote, GitStashEntry,
@@ -226,7 +225,7 @@ pub fn show_file(repo_path: &Path, rev: &str, path: &str) -> AppResult<String> {
     Ok(String::from_utf8_lossy(blob.content()).into_owned())
 }
 
-pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode, plugins: &[LoadedPlugin]) -> AppResult<DiffSides> {
+pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode, language_overlays: &[LanguageOverlay]) -> AppResult<DiffSides> {
     let repo = open_repo(repo_path)?;
     let workdir = repo_workdir(&repo)?;
     let relative = to_repo_relative(&workdir, path)?;
@@ -247,7 +246,7 @@ pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode, plugins: &[Loaded
     Ok(DiffSides {
         original,
         modified,
-        language_id: language::language_id_for_path(Path::new(&relative), plugins),
+        language_id: language::language_id_for_path(Path::new(&relative), language_overlays),
     })
 }
 

@@ -151,7 +151,7 @@ pub struct ShellViewState {
 }
 
 /// Partial update for [`ShellViewState`] — `None` fields are left at their current value, same
-/// merge convention as `settings::service::SettingsPatch`/`apply_patch`.
+/// merge convention as `settings::types::SettingsPatch`/`settings::service::apply_patch`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellViewPatch {

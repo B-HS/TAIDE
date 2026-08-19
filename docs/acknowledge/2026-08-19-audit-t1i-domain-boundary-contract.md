@@ -118,3 +118,54 @@ architecture.md:77 "도메인 간 직접 호출 금지"의 판정 기준을 다�
   상태를 만드는지 — 기존 테스트 유지 + 필요 시 보강).
 - 실기 이월(qa6): 프로젝트 열기/닫기/재열기·멀티 프로젝트 전환·ide 서버 경유 탭 열기/닫기
   회귀 무변화.
+
+---
+
+## 4. 구현 완료 기록 (2026-08-19, Phase E 검토 전)
+
+> 구현 wf_e4ab6095-929(R1→R2→R3 순차 단독, 전원 sonnet+xhigh) 완료. 메인 2차: 스팟 체크
+> 전건 실물 일치(신규 4파일·project/commands 타 도메인 참조 0·ide server→commands 0·아키텍처
+> 테스트 3종+stale 검출·LanguageOverlay 반전·plugin→vsix 소거·ALLOWED 160⊎DENIED 19 무변경)
+> + `bun run verify`·`bunx vite build` 메인 직접 재실행(결과는 §4.5).
+
+- **R1(§1.1)**: `project/capability.rs` — `ProjectCapability` trait(동기·무오류 — 기존 수기
+  호출이 전부 log-warn 삼킴형인 실코드에서 도출, architecture.md §3 의 async/Result 선언과
+  다름은 문서 갱신으로 정합) + 정적 레지스트리. capability 구현 8종을 각 도메인 소유로
+  (layout·file watcher·git watcher/cache 분리 2종·terminal·tree·ide lockfile·agent hooks).
+  단일 리스트 전방 순회로 close 의 correctness-sensitive 순서 바이트 재현 + **등록 순서 핀
+  테스트**·detected_kinds↔service 파리티 테스트. `Project.capabilities` 는
+  `GitWatcherCapability::attach` 의 `contains(Git)` 게이트로 실소비. 부트 복원 경로는 순회
+  미적용(hooks 무조건 spawn 등 동작 변경 방지 — 기존 부분 부착 보존). project/commands.rs
+  **타 도메인 참조 0**. `project_close` 의 Store State 파라미터 제거(와이어 표면 아님).
+- **R2(§1.2)**: `ide/store.rs` 하강(commands 455→240줄)으로 commands↔server 순환 절단.
+  server 의 layout/plugin commands 호출 → service 경유(`layout/service.rs` 오케스트레이션 절
+  — `close_tab_and_finish` 순수 이동+`open_tab_and_finish` 신설, `plugin/service.rs` 로
+  Store+`ensure_loaded` 하강 — 부수 효과로 git·file→plugin::commands(R4#6)도 해소).
+  **R6#2 실사 정정**: root guard 는 기존재(`ensure_path_within_any_project`) — 실제 결손은
+  `begin_mutation` 가드 부재·`self_writes.mark` 부재(IDE 저장이 외부 변경 오인)·file_save
+  본문 복제. `file::service::save_file_within_open_projects` 신설(가드→저장→mark→미러 정리
+  공유 경로)로 셋 다 해소 + 회귀 테스트.
+- **R3(§1.3~1.5·문서)**: plugin↔vsix — 공유 `extract_hardened_zip` 을 `infra/archive.rs` 로
+  하강(한쪽 소유는 반대 엣지를 남김)해 vsix→plugin 단방향만 잔존. `infra/language.rs` —
+  `LanguageOverlay` 정의·`LoadedPlugin` 참조 제거(의존 반전, 소비부 6파일 변환 주입).
+  조립부 배선 3종(전부 R1 과 동형의 정적 등록 — listen_any 구독안은 토글 반응이 커맨드 반환
+  후로 밀리는 타이밍 변화라 기각): `SettingsToggleObservers`(R5#6 — 인라인 await 유지로
+  타이밍 동일)·`SystemUsageLabelProviders`(R8#9 — terminal→agent→lsp 등록 순 = pid 덮어쓰기
+  우선순위 보존)·`PtySpawnEnvProvider`(R8#10 — 대기 로직·상수를 ide 소유로 이관, 2초 폴링
+  구조는 유지·watch 채널화 이월). `SettingsPatch`→settings/types.rs 등 타입 자리 정정 2건.
+  **아키텍처 테스트 3종**(도메인 간 기본 거부+화이트리스트 24건 각 사유 doc / infra→domain
+  4건 / bare import 는 dispatch 게이트웨이 전용) + **stale 등재도 실패**(화이트리스트 부패
+  방지) + 인위 위반 실측(FAILED→원복→touch→그린). architecture.md §2 판정 기준·§3 실현
+  시그니처·§6.3 갱신.
+- **메인 처리**: ipc-contract.md 어긋난 문구 4곳 갱신(:393·:1169 SettingsToggleObservers·
+  :770·:1108 infra::archive). bindings 22+/21- 는 전부 rust doc→JSDoc 전사(invoke 이름·
+  파라미터·타입·커맨드 176+raw3·이벤트 23 무변경) — 사라진 수기 조립을 서술하는 거짓 doc
+  복원은 무의미하므로 **갱신 유지 승인**.
+- **이월·후속(보고)**: window↔layout 실행 경로 순환(탭↔OS창 이동이 두 소유자 가로지름 —
+  양방향 화이트리스트 등재, 절단은 대형이라 후속 배치 후보) / infra→domain types 4건·
+  sync/github→ai mask_provider_error 화이트리스트 유지(반전·하강 후속 후보) / terminal
+  spawn 2초 폴링 구조(소유만 ide 이관, watch 화 이월).
+- **Phase E 렌즈 초점(구현 자기 표기 포함)**: 설정 토글 타이밍 동일성(관찰자 인라인 await)·
+  usage 라벨 pid 우선순위·`claude_terminal_env` 락 문맥·`ide_resolve_diff` 의
+  begin_mutation+self_writes.mark 추가가 의도 승인 범위인지·open/close 순서 바이트 재현
+  전수 대조·화이트리스트 최소성.

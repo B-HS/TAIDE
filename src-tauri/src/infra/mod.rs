@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod asset_protocol;
 pub mod crypto;
 pub mod http;
