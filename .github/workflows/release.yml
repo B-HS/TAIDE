@@ -1,148 +1,148 @@
 name: Release
 
 on:
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+    push:
+        tags: ['v*']
+    workflow_dispatch:
 
 permissions:
-  contents: write
+    contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: macos-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
+    build:
+        runs-on: macos-latest
+        timeout-minutes: 90
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Verify tag matches app version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          APP_VERSION=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
-          if [ "v$APP_VERSION" != "$GITHUB_REF_NAME" ]; then
-            printf 'tag %s does not match tauri.conf.json version %s\n' "$GITHUB_REF_NAME" "$APP_VERSION" >&2
-            exit 1
-          fi
+            - name: Verify tag matches app version
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  APP_VERSION=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+                  if [ "v$APP_VERSION" != "$GITHUB_REF_NAME" ]; then
+                    printf 'tag %s does not match tauri.conf.json version %s\n' "$GITHUB_REF_NAME" "$APP_VERSION" >&2
+                    exit 1
+                  fi
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: 1.3.14
 
-      - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          shared-key: release
-          save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri
+                  shared-key: release
+                  save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
 
-      - name: Frontend tests
-        run: bun run test
+            - name: Frontend tests
+              run: bun run test
 
-      - name: Verify (tests, release profile shared with build)
-        working-directory: src-tauri
-        run: cargo test --release --workspace
+            - name: Verify (tests, release profile shared with build)
+              working-directory: src-tauri
+              run: cargo test --release --workspace
 
-      - name: Configure Apple code signing
-        env:
-          CERT_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          SIGNING_IDENTITY_OVERRIDE: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
-          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -n "$CERT_P12" ]; then
-            IDENTITY="$SIGNING_IDENTITY_OVERRIDE"
-            if [ -z "$IDENTITY" ]; then
-              PROBE_DIR="$(mktemp -d)"
-              printf '%s' "$CERT_P12" | base64 -d > "$PROBE_DIR/cert.p12"
-              KEYCHAIN="$PROBE_DIR/probe.keychain-db"
-              security create-keychain -p probe "$KEYCHAIN"
-              security unlock-keychain -p probe "$KEYCHAIN"
-              security import "$PROBE_DIR/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
-              IDENTITY="$(security find-identity -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)"
-              security delete-keychain "$KEYCHAIN"
-              rm -rf "$PROBE_DIR"
-            fi
-            if [ -z "$IDENTITY" ]; then
-              echo "failed to derive signing identity from MACOS_CERTIFICATE_P12" >&2
-              exit 1
-            fi
-            {
-              echo "APPLE_CERTIFICATE=$CERT_P12"
-              echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD"
-              echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
-            } >> "$GITHUB_ENV"
-            printf 'code signing: enabled (%s)\n' "$IDENTITY"
-          else
-            echo "code signing: skipped (MACOS_CERTIFICATE_P12 not set)"
-          fi
-          if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
-            {
-              echo "APPLE_ID=$NOTARY_APPLE_ID"
-              echo "APPLE_PASSWORD=$NOTARY_PASSWORD"
-              echo "APPLE_TEAM_ID=$NOTARY_TEAM_ID"
-            } >> "$GITHUB_ENV"
-            echo "notarization: enabled"
-          else
-            echo "notarization: skipped (APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID not all set)"
-          fi
+            - name: Configure Apple code signing
+              env:
+                  CERT_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+                  CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+                  SIGNING_IDENTITY_OVERRIDE: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+                  NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+                  NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+                  NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              run: |
+                  if [ -n "$CERT_P12" ]; then
+                    IDENTITY="$SIGNING_IDENTITY_OVERRIDE"
+                    if [ -z "$IDENTITY" ]; then
+                      PROBE_DIR="$(mktemp -d)"
+                      printf '%s' "$CERT_P12" | base64 -d > "$PROBE_DIR/cert.p12"
+                      KEYCHAIN="$PROBE_DIR/probe.keychain-db"
+                      security create-keychain -p probe "$KEYCHAIN"
+                      security unlock-keychain -p probe "$KEYCHAIN"
+                      security import "$PROBE_DIR/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
+                      IDENTITY="$(security find-identity -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)"
+                      security delete-keychain "$KEYCHAIN"
+                      rm -rf "$PROBE_DIR"
+                    fi
+                    if [ -z "$IDENTITY" ]; then
+                      echo "failed to derive signing identity from MACOS_CERTIFICATE_P12" >&2
+                      exit 1
+                    fi
+                    {
+                      echo "APPLE_CERTIFICATE=$CERT_P12"
+                      echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD"
+                      echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
+                    } >> "$GITHUB_ENV"
+                    printf 'code signing: enabled (%s)\n' "$IDENTITY"
+                  else
+                    echo "code signing: skipped (MACOS_CERTIFICATE_P12 not set)"
+                  fi
+                  if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
+                    {
+                      echo "APPLE_ID=$NOTARY_APPLE_ID"
+                      echo "APPLE_PASSWORD=$NOTARY_PASSWORD"
+                      echo "APPLE_TEAM_ID=$NOTARY_TEAM_ID"
+                    } >> "$GITHUB_ENV"
+                    echo "notarization: enabled"
+                  else
+                    echo "notarization: skipped (APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID not all set)"
+                  fi
 
-      - name: Build app bundle
-        run: bun run tauri build
+            - name: Build app bundle
+              run: bun run tauri build
 
-      - name: Verify bundle is self-contained
-        run: |
-          APP=$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -1)
-          if [ -z "$APP" ]; then
-            echo "no .app bundle found under src-tauri/target/release/bundle/macos" >&2
-            exit 1
-          fi
-          STATUS=0
-          while IFS= read -r BIN; do
-            if otool -L "$BIN" | grep -E '/opt/homebrew|/usr/local'; then
-              printf 'non-system dylib linkage in %s - bundle is not self-contained\n' "$BIN" >&2
-              STATUS=1
-            fi
-          done < <(find "$APP/Contents/MacOS" -type f -perm +111)
-          if [ "$STATUS" -eq 0 ]; then
-            echo "self-contained: no /opt/homebrew or /usr/local linkage"
-          fi
-          exit "$STATUS"
+            - name: Verify bundle is self-contained
+              run: |
+                  APP=$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -1)
+                  if [ -z "$APP" ]; then
+                    echo "no .app bundle found under src-tauri/target/release/bundle/macos" >&2
+                    exit 1
+                  fi
+                  STATUS=0
+                  while IFS= read -r BIN; do
+                    if otool -L "$BIN" | grep -E '/opt/homebrew|/usr/local'; then
+                      printf 'non-system dylib linkage in %s - bundle is not self-contained\n' "$BIN" >&2
+                      STATUS=1
+                    fi
+                  done < <(find "$APP/Contents/MacOS" -type f -perm +111)
+                  if [ "$STATUS" -eq 0 ]; then
+                    echo "self-contained: no /opt/homebrew or /usr/local linkage"
+                  fi
+                  exit "$STATUS"
 
-      - name: Collect artifacts
-        run: |
-          mkdir -p dist-release
-          cp src-tauri/target/release/bundle/dmg/*.dmg dist-release/
-          # GitHub는 릴리스 에셋 이름의 공백을 점으로 바꿔 서빙하므로, SHA256SUMS 가 실제 파일명과
-          # 어긋나지 않도록 업로드 전에 미리 리네임한다
-          for f in dist-release/*' '*; do
-            [ -e "$f" ] || continue
-            mv "$f" "${f// /.}"
-          done
-          shasum -a 256 dist-release/*.dmg > dist-release/SHA256SUMS.txt
-          cat dist-release/SHA256SUMS.txt
+            - name: Collect artifacts
+              run: |
+                  mkdir -p dist-release
+                  cp src-tauri/target/release/bundle/dmg/*.dmg dist-release/
+                  # GitHub는 릴리스 에셋 이름의 공백을 점으로 바꿔 서빙하므로, SHA256SUMS 가 실제 파일명과
+                  # 어긋나지 않도록 업로드 전에 미리 리네임한다
+                  for f in dist-release/*' '*; do
+                    [ -e "$f" ] || continue
+                    mv "$f" "${f// /.}"
+                  done
+                  shasum -a 256 dist-release/*.dmg > dist-release/SHA256SUMS.txt
+                  cat dist-release/SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: taide-dmg
-          path: dist-release/*
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: taide-dmg
+                  path: dist-release/*
 
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          draft: true
-          files: dist-release/*
-          body: |
-            TAIDE ${{ github.ref_name }} (macOS Apple Silicon)
+            - uses: softprops/action-gh-release@v2
+              if: startsWith(github.ref, 'refs/tags/')
+              with:
+                  draft: true
+                  files: dist-release/*
+                  body: |
+                      TAIDE ${{ github.ref_name }} (macOS Apple Silicon)
 
-            서명되지 않은 빌드의 경우 최초 실행 시 다음 명령으로 격리 속성을 해제해야 합니다:
-            `xattr -cr "/Applications/TAIDE.app"`
+                      서명되지 않은 빌드의 경우 최초 실행 시 다음 명령으로 격리 속성을 해제해야 합니다:
+                      `xattr -cr "/Applications/TAIDE.app"`
