@@ -777,14 +777,27 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           실재(감사 "dead" 주장과 어긋남 — 실사 판정 대상)·레인 색 12 는 3중 정의(TS 2+Rust
           git/types.rs:4)·폰트 범위 드리프트는 T1-B 기처리 정황. 기처리 4건(app:ready=X-A·
           Project.capabilities=T1-I·resolve_terminal_path=X-A·미참조 로케일 키=T2-I) 범위 제외
-    - [ ] d-21. T2-D/F/G 통합 저위험 청소 배치 — **진행 중**. 계약
-          `docs/acknowledge/2026-08-20-t2dfg-cleanup-contract.md`(X-A 선례 형식 — 항목별 실사
-          후 유효분만 수정·판정 근거 전수 기록). 범위: T2-D 접근성 8건(Enter/Space 헬퍼 추출·
-          키보드 전무 4종·구조 위반·ARIA 2종·label 4곳) / T2-F 실사 11항목(getLocale 제거·
-          레인 색·usize::MAX·NO_MATCH_SCORE·R4#16·T2-I 미판정 6키 연동 등) / T2-G 실사
-          6항목(DNS 63/253·highlightLimit·레인 색 정본화·기처리/무효 판정 3건). 순서: 구현
-          Workflow(sonnet+xhigh 단독) → 4렌즈(opus+xhigh 재구성: 실사충실성·접근성 규약·
-          정확성·계약) → 적대적(opus+high) → confirmed 수정 → 메인 2차 → 커밋 → prod 병합
+    - [x] d-21. T2-D/F/G 통합 저위험 청소 배치 — **커밋 완결·prod 병합 보류**(d-22 실기 사건
+          원인 확정까지). 계약 `docs/acknowledge/2026-08-20-t2dfg-cleanup-contract.md`(§4 구현·
+          §5 검토 반영). 커밋 3: `fd42d59`(docs 계약)+`0b190bc`(refactor 구현 42파일 +241/−90)
+          +`6e63067`(fix 검토 반영 14파일). 구현 wf_31e24384-ef3: 판정 fixed 21·already-handled
+          2·unidentifiable 1(overwrite 오도 네이밍 — 단서 부재). E 검토 wf_500791bc-ff2(4렌즈
+          24발견→적대적 major 5 **confirmed 5·refuted 0** — 이 중 2건은 배치 도입 실회귀:
+          status-row Space 차단·color-picker 포커스 대상 변경) → 수정 wf_5fa13d64-d88(활성화
+          target/repeat 가드·status-row 중첩 해소+group-focus-within·SV aria-valuetext·
+          onOpenAutoFocus 복원·aria-expanded·기록 정정 — DEFAULT_FONT_SIZE 는 invalid-claim
+          아닌 already-handled(T1-B) 재판정, 기각 8 사유 기록) → 메인 2차(스팟+verify·vite
+          직접 exit 0, bun 1384·bindings 무변경). 로케일 776→779키×3. 이월: 계약 §5.4(레인
+          토큰 열거 2곳 미보증·aria-controls 배선·APG keyup 이원화·terminal.ts 잔여 중복 등)
+    - [ ] d-22. **실기 사건 2건(2026-08-20 사용자 보고) — 진행 중**: ① 새 파일 열기 시 빈 창
+          (콘솔 실측: monaco `AbstractContextKeyService has been disposed` — <EditorArea> 커밋
+          단계 + ErrorBoundary 전무로 루트 언마운트. 로그 "web content process terminated" 는
+          tauri-runtime-wry 2.11.4 의 생성 시 로그 버그로 무관 판명) ② 초기 기동 ~5초(광역
+          진단 wf_14010876-849: dev 한정 monaco 1,331 모듈 eager 로드 2~4초 + setup() 동기
+          워처 전수 워크 — 4배치 무혐의·기존 코드 유래. 원문 스크래치패드
+          incident-broad-diagnosis.json). ① 의 정확한 던지는 지점은 표적 진단
+          wf_f99903ef-499(fable+high, 1차 API 500 → 재기동) 진행 중 — 확정 후 근본 수정+
+          ErrorBoundary 방어층 계약 제안 예정. **T2-D/F/G prod 병합은 원인 배치 확정까지 보류**
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
