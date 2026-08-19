@@ -1,14 +1,8 @@
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
+
 type Listener = () => void
 
-const openListeners = new Set<Listener>()
+const openTaskRunnerBridge = createFireAndForgetBridge<undefined>()
 
-export const requestOpenTaskRunner = () => {
-    for (const listener of openListeners) listener()
-}
-
-export const subscribeOpenTaskRunner = (listener: Listener) => {
-    openListeners.add(listener)
-    return () => {
-        openListeners.delete(listener)
-    }
-}
+export const requestOpenTaskRunner = () => openTaskRunnerBridge.publish(undefined)
+export const subscribeOpenTaskRunner = (listener: Listener) => openTaskRunnerBridge.subscribe(() => listener())

@@ -103,6 +103,34 @@ T0 #9(IDE 프로바이더 승격)와 동일 패턴. 조건부 렌더 위젯의 �
 | T1-H 락 IO·T1-I 도메인 경계(C13)·T1-K 원격 기본거부 | T1 후반 — 착수 시 위험 재고지(기결) |
 | X-A 배선·T2 전체·T2-E AppError | 후속 트랙(기결) |
 
+## 3.5 구현 완료 기록 (2026-08-19, Phase E 검토 전)
+
+> 구현 wf_0874ff31-fa1(R+F0+F1·F2·F3 병렬+D 통합, 전원 sonnet+xhigh) 완료. 메인 2차:
+> 스팟 체크 전건 실물 일치(ws sink BrokenPipe 전파·toSessionKey root·ai.ipc Omit owner 주입·
+> PROJECT_SCOPED_KEYS·lsp_confirm_reinitialize 배선 3곳·REMOTE_OWNER_LABEL) +
+> `bun run verify`·`bunx vite build` 메인 직접 재실행 전부 exit 0(프론트 1283·Rust 995).
+
+- **owner 스코프 계열**: AiRequestStore·SearchStore (owner,id) 복합키 / IdeStore 는 원격
+  no-op 게이트(비대칭 — 감사 요구 불변식이 "원격→데스크톱 오염 차단"에 한정. 데스크톱 창간
+  격리는 별도 후속). ipc 래퍼가 `Omit<Request,'owner'>`+`getCurrentWindow().label` 주입(lsp 선례).
+- **R7#1**: SessionEntry.generation + LspSessionStatusChanged.generation + **신규 커맨드
+  `lsp_confirm_reinitialize(sessionId, generation)`**(세대 일치 시만 Running 복귀 — 계약 원문에
+  없는 설계 판단, Phase E 재검 대상). 렌더러 reinitializeSession(재-initialize·재-didOpen) 소비.
+- **F0**: 팩토리 2종 + `subscriberModel: 'single-owner'` 축 추가(terminal-write 의 실코드
+  의미론이 감사 서술과 달라 실코드 기준 설계 — Phase E 설계 렌즈 대상). 12종 마이그레이션·
+  소비처 무수정·동작 동등성 테스트.
+- **Phase D 접합부 수정**: R 의 owner 필드를 프론트 6곳이 미소비(tsc 6에러) → ipc 래퍼 주입으로
+  봉합 / F4#4 잔여 2곳(agent-external-open·ide-sync provider) / useLspSessionsQueryInvalidation
+  Sync 마운트 / settings-view dual-write 정리 / ipc-contract·architecture·qa6 문서 갱신.
+- **미수정 잔여(보고만)**: F3#4 절반(editor-pane·untitled-pane 의 GIT.PROJECT/FILE.CONTENT 직접
+  무효화)·F7#5 폴백 client 미전달 — 전 에이전트가 소유 밖으로 회피한 대형 파일. **T1-C 커버리지
+  공백으로 다음 배치 이월.** F1#17 은 전수 grep 재현 불가(감사 번호 혼선 정황 — 감사 §C5 의
+  F1#17 라벨과 F1 원본 배치 자체 서술 모순). 후속 배치에서 원 감사 의도 재확인.
+- **행동 변화(사용자 실기 확인 필요, qa6 기록)**: 테마 프리뷰 격리로 토스트·터미널 배경이 편집
+  중 draft 를 실시간 반영하지 않게 됨(서버 캐시 오염 제거의 대가 — 의도 부합 여부 실기 판단).
+- **F3 경위**: 시도 1(중단)이 남긴 워킹트리 산출물을 시도 3 이 R 인터페이스 정본과 전건 대조
+  검증·정합 확인하는 형태로 완료 — Phase E 에서 LSP 계열 정밀 검토 밀도 상향.
+
 ## 4. 완료 조건
 
 - `bun run verify` 전체 + vite build. bindings 재생성 정합·en⊆required(신규 키 시 4곳)·레이어

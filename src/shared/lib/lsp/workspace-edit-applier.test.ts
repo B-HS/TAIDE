@@ -479,7 +479,21 @@ describe('applyWorkspaceEdit — refused tier 파일', () => {
     })
 })
 
-describe('applyWorkspaceEdit — allowedRoot', () => {
+describe('applyWorkspaceEdit — allowedRoots', () => {
+    test('여러 root 중 하나에라도 속하면 허용된다 (R7#7 세션 join으로 여러 root 를 가진 세션)', async () => {
+        const { deps, files } = createFakeDeps()
+        files.set('/workspace-b/b.ts', 'b')
+        const monaco = createFakeMonaco()
+
+        const edit: WorkspaceEdit = {
+            changes: { 'file:///workspace-b/b.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'B' }] },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['/workspace-a', '/workspace-b']) })
+
+        expect(result).toEqual({ applied: true })
+        expect(files.get('/workspace-b/b.ts')).toBe('B')
+    })
+
     test('허용된 root 밖의 경로를 대상으로 하면 적용 없이 실패를 반환한다', async () => {
         const { deps, calls } = createFakeDeps()
         const monaco = createFakeMonaco()
@@ -487,7 +501,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
         const edit: WorkspaceEdit = {
             changes: { 'file:///outside/secret.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'x' }] },
         }
-        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: '/workspace' })
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['/workspace']) })
 
         expect(result).toEqual({ applied: false, failureReason: 'edit rejected: outside workspace root' })
         expect(calls).toEqual([])
@@ -501,7 +515,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
         const edit: WorkspaceEdit = {
             changes: { 'file:///workspace/a.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'A' }] },
         }
-        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: '/workspace' })
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['/workspace']) })
 
         expect(result).toEqual({ applied: true })
         expect(files.get('/workspace/a.ts')).toBe('A')
@@ -516,7 +530,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
             monaco,
             { documentChanges: [{ kind: 'rename', oldUri: 'file:///workspace/old.ts', newUri: 'file:///outside/new.ts' }] },
             deps,
-            { allowedRoot: '/workspace' },
+            { allowedRoots: new Set(['/workspace']) },
         )
 
         expect(result.applied).toBe(false)
@@ -534,7 +548,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
                 ],
             },
         }
-        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: '/workspace' })
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['/workspace']) })
 
         expect(result).toEqual({ applied: false, failureReason: 'edit rejected: outside workspace root' })
         expect(calls).toEqual([])
@@ -550,7 +564,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
                 'file:///workspace/sub/../a.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'A' }],
             },
         }
-        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: '/workspace' })
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['/workspace']) })
 
         expect(result).toEqual({ applied: true })
         expect(files.get('/workspace/sub/../a.ts')).toBe('A')
@@ -566,7 +580,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
                 'file://C:\\workspace\\a.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'A' }],
             },
         }
-        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: 'C:\\workspace' })
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['C:\\workspace']) })
 
         expect(result).toEqual({ applied: true })
         expect(files.get('C:\\workspace\\a.ts')).toBe('A')
@@ -583,7 +597,7 @@ describe('applyWorkspaceEdit — allowedRoot', () => {
                 ],
             },
         }
-        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoot: 'C:\\workspace' })
+        const result = await applyWorkspaceEdit(monaco, edit, deps, { allowedRoots: new Set(['C:\\workspace']) })
 
         expect(result).toEqual({ applied: false, failureReason: 'edit rejected: outside workspace root' })
         expect(calls).toEqual([])

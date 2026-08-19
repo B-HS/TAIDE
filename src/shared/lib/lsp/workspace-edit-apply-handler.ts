@@ -21,18 +21,26 @@ const APPLY_EDIT_FAILURE_REASON_FOR_SERVER = 'edit rejected'
 
 /**
  * Builds the server→client `workspace/applyEdit` handler for one LSP session, scoped to that
- * session's own project root: every operation's target path(s) must resolve under `allowedRoot`
- * or the whole edit is rejected, and a `TextDocumentEdit` is rejected if its `version` no longer
- * matches what `client` has tracked for that document (stale-edit guard). Without the root scope,
- * any session (any language server, for any open project) could use this request to create,
- * rename, delete, or overwrite files belonging to a *different* open project — `resolve_owning_project`
- * on the Rust side only checks that a path falls under *some* open project, not this session's own.
+ * session's own project roots: every operation's target path(s) must resolve under one of
+ * `allowedRoots` or the whole edit is rejected, and a `TextDocumentEdit` is rejected if its
+ * `version` no longer matches what `client` has tracked for that document (stale-edit guard).
+ * Without the root scope, any session (any language server, for any open project) could use this
+ * request to create, rename, delete, or overwrite files belonging to a *different* open project —
+ * `resolve_owning_project` on the Rust side only checks that a path falls under *some* open
+ * project, not this session's own.
+ *
+ * `allowedRoots` is taken by reference (not copied) and read fresh on every request — for a
+ * `sharesSessions` server this is `lsp-session-registry.ts`'s live, mutable per-session root set,
+ * which grows as more workspace roots join the same underlying connection (R7#7) after this
+ * handler was registered; a snapshot taken at registration time would reject a legitimate edit
+ * under a root joined later.
  *
  * `projectId` — this session's own owning project, known by the caller (`lsp-session-registry.ts`
- * creates one session per `(projectId, serverId)` pair) — is threaded into `applyWorkspaceEdit` so a
- * cross-file edit landing on a background (open-but-unattached) model gets its hot-exit mirror
- * write scoped to *this* project rather than whichever project happens to be globally active when
- * the push arrives; see `workspace-edit-applier.ts`'s `mirrorBackgroundModelEdit` doc comment.
+ * creates one session per `(projectId, serverId)` pair, possibly spanning several roots) — is
+ * threaded into `applyWorkspaceEdit` so a cross-file edit landing on a background
+ * (open-but-unattached) model gets its hot-exit mirror write scoped to *this* project rather than
+ * whichever project happens to be globally active when the push arrives; see
+ * `workspace-edit-applier.ts`'s `mirrorBackgroundModelEdit` doc comment.
  *
  * There is deliberately no process-wide, unscoped fallback for this method — `client.ts`'s
  * `handleServerRequest` falls back to `server-request-handler-registry.ts` only when no
@@ -44,14 +52,14 @@ const APPLY_EDIT_FAILURE_REASON_FOR_SERVER = 'edit rejected'
  */
 export const createWorkspaceApplyEditHandler = (
     monaco: Monaco,
-    allowedRoot: string,
+    allowedRoots: ReadonlySet<string>,
     client: LspClient,
     projectId: ProjectId,
 ): ServerRequestHandler => {
     return async (params) => {
         if (!isApplyWorkspaceEditParams(params)) return { applied: false, failureReason: 'invalid ApplyWorkspaceEditParams' }
         const result = await applyWorkspaceEdit(monaco, params.edit, undefined, {
-            allowedRoot,
+            allowedRoots,
             getDocumentVersion: client.getDocumentVersion,
             projectId,
         })

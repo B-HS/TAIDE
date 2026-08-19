@@ -1,4 +1,5 @@
 import type { TabWindowTarget } from '@shared/api/bindings'
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
 
 export type TabCycleDirection = 'next' | 'prev'
 
@@ -12,17 +13,7 @@ export type EditorPaneCommand =
     | { type: 'run-in-terminal'; text: string; cwd: string | null }
     | { type: 'move-focused-tab-to-window'; target: TabWindowTarget }
 
-type EditorPaneCommandListener = (command: EditorPaneCommand) => void
+const editorPaneCommandBridge = createFireAndForgetBridge<EditorPaneCommand>()
 
-const listeners = new Set<EditorPaneCommandListener>()
-
-export const requestEditorPaneCommand = (command: EditorPaneCommand) => {
-    for (const listener of listeners) listener(command)
-}
-
-export const subscribeEditorPaneCommand = (listener: EditorPaneCommandListener) => {
-    listeners.add(listener)
-    return () => {
-        listeners.delete(listener)
-    }
-}
+export const requestEditorPaneCommand = editorPaneCommandBridge.publish
+export const subscribeEditorPaneCommand = editorPaneCommandBridge.subscribe

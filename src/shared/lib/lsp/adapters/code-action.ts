@@ -200,7 +200,7 @@ export const registerCodeAction = (monaco: Monaco, client: LspClient, serverId: 
         provideCodeActions: async (model, range, context, token) => {
             const uri = model.uri.toString()
             const lspRange = monacoRangeToLsp(range)
-            const diagnostics = getStoredDiagnostics(serverId, uri).filter((diagnostic) => rangesIntersect(diagnostic.range, lspRange))
+            const diagnostics = getStoredDiagnostics(serverId, uri, client).filter((diagnostic) => rangesIntersect(diagnostic.range, lspRange))
 
             let raw: LspCodeActionOrCommand[] | null
             try {

@@ -1,4 +1,4 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { FC, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
@@ -28,9 +28,7 @@ import {
 import { setKeymapCapturing } from '@shared/lib/keymap-capture'
 import { clearKeymapChordState } from '@shared/lib/keymap-chord-store'
 import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap-context'
-import { subscribeOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { isMonacoCommandId, resolveMonacoKeyCode } from '@shared/lib/monaco-keybinding'
-import { applyMonacoKeybindingOverrides } from '@shared/lib/monaco-keybinding-runtime'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { cn } from '@shared/lib/cn'
 import { KeybindingRow } from '@features/settings/keybinding-row'
@@ -44,8 +42,12 @@ type CaptureTarget = { kind: 'row'; rowId: string; pendingFirstStage: KeymapChor
 
 const KEYMAP_CONTEXT_INSPECTOR_POLL_MS = 500
 
-export const KeybindingsEditor = () => {
-    const [open, setOpen] = useState(false)
+type KeybindingsEditorProps = {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+}
+
+export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChange }) => {
     const [query, setQuery] = useState('')
     const [captureTarget, setCaptureTarget] = useState<CaptureTarget | null>(null)
     const [searchedKey, setSearchedKey] = useState<{ key: string; mods: KeymapModifier[] } | null>(null)
@@ -69,7 +71,7 @@ export const KeybindingsEditor = () => {
     }
 
     const handleOpenChange = (next: boolean) => {
-        setOpen(next)
+        onOpenChange(next)
         if (!next) resetSearchState()
     }
 
@@ -157,13 +159,11 @@ export const KeybindingsEditor = () => {
         setCaptureTarget({ kind: 'search-key' })
     }
 
-    useEffect(() => subscribeOpenKeybindingsEditor(() => setOpen(true)), [])
     useEffect(() => {
         setKeymapCapturing(isCapturing)
         if (isCapturing) clearKeymapChordState()
     }, [isCapturing])
     useEffect(() => () => setKeymapCapturing(false), [])
-    useEffect(() => applyMonacoKeybindingOverrides(parseKeymapOverrides(settings?.keymapOverrides ?? null)), [settings?.keymapOverrides])
     /**
      * Radix's `Dialog` traps focus inside its content while `open` — `document.activeElement` never
      * sits inside `.monaco-editor`/`.xterm` for as long as the dialog is up, so polling *while open*

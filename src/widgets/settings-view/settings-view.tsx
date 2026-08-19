@@ -1,17 +1,17 @@
 import type { FC } from 'react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { FileJson, FolderOpen, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { aiModelsQueryOptions, aiTokenStatusQueryOptions, useClearAiToken, useSetAiToken } from '@entities/ai/ai.query'
 import { fontListQueryOptions } from '@entities/font/font.query'
 import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
 import {
-    lspInstallProgressQueryOptions,
     lspServersQueryOptions,
     useCancelLspInstall,
     useInstallLspServer,
+    useLspInstallProgress,
     useLspInstallProgressSync,
 } from '@entities/lsp/lsp.query'
 import { projectListQueryOptions } from '@entities/project/project.query'
@@ -42,7 +42,6 @@ import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import { DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
-import { QUERY_KEY } from '@shared/constants/query-key'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
 import type { AiProviderId, AppDataPathKind, LspServerId, ProjectId, PromptTemplateId } from '@shared/api/bindings'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
@@ -183,7 +182,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [], isPending: isThemesPending } = useQuery(themeListQueryOptions())
     const { data: lspServers = [], isPending: isLspPending } = useQuery(lspServersQueryOptions())
-    const { data: lspInstallProgressByServerId = {} } = useQuery(lspInstallProgressQueryOptions())
+    const lspInstallProgressByServerId = useLspInstallProgress()
     const { data: shellProfiles = [], isPending: isShellPending } = useQuery(shellProfilesQueryOptions())
     const { data: locales = [], isPending: isLocalesPending } = useQuery(localeListQueryOptions())
     const { data: fonts = [], isPending: isFontsPending } = useQuery(fontListQueryOptions())
@@ -206,7 +205,6 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     const { mutate: setRemotePassword, isPending: isSettingRemotePassword } = useSetRemotePassword()
     const { mutate: clearRemotePassword, isPending: isClearingRemotePassword } = useClearRemotePassword()
     const { mutate: openTab } = useOpenTab(projectId)
-    const queryClient = useQueryClient()
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
 
     const selectedAiProvider = settings?.aiProvider ?? DEFAULT_AI_PROVIDER
@@ -283,10 +281,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
 
     const handleToggleRemote = (enabled: boolean) => {
         setIssuedRemoteUrl(null)
-        updateSettings(
-            { ...emptySettingsPatch(), remoteAccessEnabled: enabled },
-            { onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.REMOTE.STATUS }) },
-        )
+        updateSettings({ ...emptySettingsPatch(), remoteAccessEnabled: enabled })
     }
     const handleIssueRemoteLink = () =>
         issueRemoteLink(undefined, {

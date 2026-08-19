@@ -84,8 +84,16 @@ const isAlreadyExistsError = (error: unknown) => error instanceof IpcError && er
  * on locations the same server already returned for the file the user is looking at.
  */
 export type WorkspaceEditApplyOptions = {
-    /** When set, every operation's target path(s) must resolve under this root or the whole edit is rejected. */
-    allowedRoot?: string
+    /**
+     * When set, every operation's target path(s) must resolve under at least one of these roots or
+     * the whole edit is rejected. A set (not a single root) because one LSP session can now service
+     * several workspace roots at once (R7#7's `shares_sessions` multi-root join, mirroring the
+     * `roots` refcount `domain::lsp::commands::SessionEntry` tracks on the Rust side) — restricting
+     * to only the session's *original* root would reject a legitimate edit under a root joined
+     * later. `createWorkspaceApplyEditHandler` passes the session's live root set by reference, so a
+     * root joined after this handler was registered is picked up without re-registering it.
+     */
+    allowedRoots?: ReadonlySet<string>
     /** When set, a `TextDocumentEdit` whose `textDocument.version` doesn't match the client's tracked version for that uri is rejected instead of applied against stale offsets. */
     getDocumentVersion?: (uri: string) => number | undefined
     /**
@@ -111,7 +119,7 @@ const DRIVE_LETTER_PATTERN = /^([a-zA-Z]:)(\/.*)?$/
 /**
  * Lexically resolves `.`/`..` segments and unifies path separators to `/`, without touching the
  * filesystem — this module runs in the renderer, which has no fs access, only the IPC-provided
- * `allowedRoot` and monaco `Uri#fsPath` strings to compare (unlike the Rust side's
+ * `allowedRoots` and monaco `Uri#fsPath` strings to compare (unlike the Rust side's
  * `root_guard.rs::ensure_within_root`, which can afford `std::fs::canonicalize`). Fixes two bugs
  * the old `path === root || path.startsWith(`${root}/`)` string-prefix check had in `isWithinRoot`:
  *  - `monaco.Uri#fsPath` never resolves `..` (confirmed against `uriToFsPath` in monaco-editor-core's
@@ -150,9 +158,16 @@ const isWithinRoot = (path: string, root: string) => {
     return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`)
 }
 
-const assertPathsWithinRoot = (monaco: Monaco, allowedRoot: string | undefined, uris: readonly string[]): WorkspaceEditApplyResult | null => {
-    if (allowedRoot === undefined) return null
-    const outside = uris.some((uri) => !isWithinRoot(uriToPath(monaco, uri), allowedRoot))
+const assertPathsWithinRoot = (
+    monaco: Monaco,
+    allowedRoots: ReadonlySet<string> | undefined,
+    uris: readonly string[],
+): WorkspaceEditApplyResult | null => {
+    if (allowedRoots === undefined) return null
+    const outside = uris.some((uri) => {
+        const path = uriToPath(monaco, uri)
+        return !Array.from(allowedRoots).some((root) => isWithinRoot(path, root))
+    })
     return outside ? OUTSIDE_ROOT_FAILURE : null
 }
 
@@ -374,7 +389,7 @@ const applyDocumentChangeOperation = async (
     operation: DocumentChangeOperation,
     options: WorkspaceEditApplyOptions,
 ): Promise<WorkspaceEditApplyResult> => {
-    const rootFailure = assertPathsWithinRoot(monaco, options.allowedRoot, targetUrisOf(operation))
+    const rootFailure = assertPathsWithinRoot(monaco, options.allowedRoots, targetUrisOf(operation))
     if (rootFailure) return rootFailure
 
     if (isTextDocumentEdit(operation)) {
@@ -414,7 +429,7 @@ export const applyWorkspaceEdit = async (
     }
 
     for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
-        const rootFailure = assertPathsWithinRoot(monaco, options.allowedRoot, [uri])
+        const rootFailure = assertPathsWithinRoot(monaco, options.allowedRoots, [uri])
         if (rootFailure) return rootFailure
         const result = await applyTextEditsToUri(monaco, deps, uri, edits, options.projectId)
         if (!result.applied) return result

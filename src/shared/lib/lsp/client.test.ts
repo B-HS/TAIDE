@@ -466,3 +466,42 @@ describe('createLspClient — dispose', () => {
         await expect(pending).rejects.toBeInstanceOf(Error)
     })
 })
+
+describe('createLspClient — rejectPendingRequests (R7#1 재핸드셰이크 준비)', () => {
+    test('대기 중인 요청을 모두 지정한 사유로 reject 하고, 이후 같은 id 로 오는 응답은 무시한다', async () => {
+        const { sent, client } = createHarness()
+        const pending = client.request('a/method', {})
+
+        client.rejectPendingRequests(new Error('lsp session reinitializing after crash'))
+
+        await expect(pending).rejects.toThrow('lsp session reinitializing after crash')
+
+        const requestId = (sent[0] as JsonRpcRequest).id
+        expect(() => client.handleMessage(respond(requestId as number, { ok: true }))).not.toThrow()
+    })
+
+    test('요청 핸들러 등록·구독 상태는 유지한다 (dispose 와 달리 세션 정체성은 보존)', async () => {
+        const { client } = createHarness()
+        const disposeHandler = registerServerRequestHandler('test/rejectPendingRequests-keep-handler', async () => 'still-here')
+        const notificationDisposable = client.onDiagnostics(() => {})
+
+        client.rejectPendingRequests(new Error('reinitializing'))
+
+        client.handleMessage({ jsonrpc: '2.0', id: 'req-1', method: 'test/rejectPendingRequests-keep-handler' } as JsonRpcRequest)
+        await flushMicrotasks()
+
+        disposeHandler()
+        notificationDisposable.dispose()
+    })
+
+    test('새 요청은 재초기화 이후에도 정상적으로 매칭된다', async () => {
+        const { sent, client } = createHarness()
+        client.rejectPendingRequests(new Error('reinitializing'))
+
+        const pending = client.request<{ ok: boolean }>('b/method', {})
+        const requestId = (sent.at(-1) as JsonRpcRequest).id
+        client.handleMessage(respond(requestId as number, { ok: true }))
+
+        await expect(pending).resolves.toEqual({ ok: true })
+    })
+})

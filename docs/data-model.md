@@ -597,3 +597,31 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   스키마(§3)는 무변경.
 - **T1-F(레이어 이동)**: 프론트 컴포넌트 파일 12개의 디렉터리 이동 + import 경로 갱신이다.
   런타임 상태·영속 데이터와 무관.
+
+## 16. T1 정비 3차 배치 — 세션 스코프(§1) 타입에 `owner`/`generation` 필드 추가, 영속 스키마 무영향 (2026-08-19)
+
+> 계약: `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md`(T1-C·T1-D·T1-A 잔여). 감사 근거:
+> `docs/quality-assurance/2026-08-18-architecture-audit.md`(C3·C4·C5). **이 배치도 영속 스키마
+> (`settings.json`·`layout.json`·미러 등, §2)를 전혀 건드리지 않는다** — 변경 전부가 §1 "상태의 세
+> 층위" 기준 **세션 스코프**(프로세스 재시작 시 사라지는 런타임 상태)의 IPC 타입/필드다.
+
+- **§10.4 AI 요청 타입에 `owner: String` 추가(R6#20)**: `AiInlineEditRequest`/`AiCommitMessageRequest`
+  (그리고 §10.4 표에서 제외됐던 `AiInlineCompleteRequest`, auto-tab)에 각각 `owner: String` 필드가
+  붙는다 — Rust `AiRequestStore` 의 키가 `requestId` 단독에서 `(owner, requestId)` 복합으로 바뀌었기
+  때문이다. `AiInlineEditResponse`/`AiCommitMessageResponse`(응답 쪽)는 무변경. 세션 스코프
+  (`AiRequestStore` 는 진행 중 요청만 잠깐 들고 있는 인메모리 맵)라 §3 핵심 타입에는 등재하지 않는다.
+- **IDE 선택영역 타입(§10 인벤토리엔 없었음)에 `owner: String` 추가(R6#12)**: `IdeSelectionInput`
+  (`domain::ide::types`)에 `owner: String` 이 붙는다. `IdeStore.current_selection` 자체의 저장
+  형태(창별 슬롯이 아니라 여전히 전역 단일 슬롯)는 무변경 — `owner` 는 그 슬롯에 쓸지 말지를 가르는
+  게이트(원격 고정 라벨이면 no-op)로만 쓰인다. 상세는 `ipc-contract.md` "T1 정비 3차 배치" 절.
+- **검색 세션(§10.3 `SearchMatch` 의 상위 세션 개념, 영속 타입 아님)에 `owner` 스코프 추가(R7#8)**:
+  Rust `SearchStore` 의 키가 `sessionId` 단독에서 `(owner, sessionId)` 복합으로 바뀐다 — 새 영속/IPC
+  *타입* 필드 추가가 아니라 `search_run`/`search_cancel` 커맨드 인자에 `owner` 가 하나 늘어난 것.
+- **LSP 세션 상태 이벤트에 `generation: u32` 추가(R7#1)**: `LspSessionStatusChanged` 이벤트와
+  `lsp_sessions` 폴링 응답 타입(`LspSessionInfo`, §10 인벤토리엔 없었음) 모두 `generation: u32` 를
+  얻는다 — 어느 쪽도 디스크에 쓰이지 않는 순수 런타임 신호다(자동 크래시 재시작 횟수 카운터, 세션
+  자체와 함께 사라진다).
+- **LSP 세션의 워크스페이스 root 집합(R7#7)**: Rust `SessionEntry.roots: Vec<(String, u32)>` (root →
+  참조 카운트)가 새로 생겼지만 이 역시 `LspStore`(세션 맵) 안의 런타임 상태일 뿐, 프로젝트가 실제로
+  여는 워크스페이스 root 자체는 기존과 같은 방식(프로젝트 열기 시점의 파일시스템 스캔)으로 결정되어
+  어떤 영속 스키마에도 새로 등재되지 않는다.

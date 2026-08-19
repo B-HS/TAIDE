@@ -25,6 +25,15 @@ export const stopLspSession = (sessionId: string, root?: string) => unwrapResult
 
 export const restartLspSession = (sessionId: string) => unwrapResult(commands.lspRestart(sessionId))
 
+/**
+ * Confirms a renderer-side re-handshake completed for `generation` (R7#1) — flips `status` back to
+ * `Running` only if `generation` still matches the session's *current* generation on the Rust side
+ * (`domain::lsp::commands::confirm_reinitialize`); a stale confirmation racing a second crash is a
+ * silent no-op there. See the `generation` field doc on `domain::lsp::commands::SessionEntry` and
+ * `lsp-session-registry.ts`'s reinitialize flow for the full renderer-side sequence this closes.
+ */
+export const confirmLspReinitialize = (sessionId: string, generation: number) => unwrapResult(commands.lspConfirmReinitialize(sessionId, generation))
+
 export const listLspSessions = (projectId: ProjectId) => unwrapResult(commands.lspSessions(projectId))
 
 export const detectLspServers = () => unwrapResult(commands.lspDetectServers())

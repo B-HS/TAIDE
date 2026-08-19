@@ -1,14 +1,6 @@
-type OpenFileHistoryListener = (path: string) => void
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
 
-const listeners = new Set<OpenFileHistoryListener>()
+const openFileHistoryBridge = createFireAndForgetBridge<string>()
 
-export const requestOpenFileHistory = (path: string) => {
-    for (const listener of listeners) listener(path)
-}
-
-export const subscribeOpenFileHistory = (listener: OpenFileHistoryListener) => {
-    listeners.add(listener)
-    return () => {
-        listeners.delete(listener)
-    }
-}
+export const requestOpenFileHistory = openFileHistoryBridge.publish
+export const subscribeOpenFileHistory = openFileHistoryBridge.subscribe

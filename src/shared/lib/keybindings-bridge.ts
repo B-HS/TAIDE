@@ -1,14 +1,8 @@
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
+
 type Listener = () => void
 
-const openListeners = new Set<Listener>()
+const openKeybindingsEditorBridge = createFireAndForgetBridge<undefined>()
 
-export const requestOpenKeybindingsEditor = () => {
-    for (const listener of openListeners) listener()
-}
-
-export const subscribeOpenKeybindingsEditor = (listener: Listener) => {
-    openListeners.add(listener)
-    return () => {
-        openListeners.delete(listener)
-    }
-}
+export const requestOpenKeybindingsEditor = () => openKeybindingsEditorBridge.publish(undefined)
+export const subscribeOpenKeybindingsEditor = (listener: Listener) => openKeybindingsEditorBridge.subscribe(() => listener())

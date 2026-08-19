@@ -5,7 +5,6 @@ import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { LspRange } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoRangeToLsp } from '@shared/lib/lsp/position'
-import { subscribeCodeLensRefresh } from '@shared/lib/lsp/server-request-handler-registry'
 
 const NOOP_DISPOSABLE = { dispose: () => {} }
 
@@ -27,6 +26,31 @@ export const toMonacoCodeLens = (lens: LspCodeLens): languages.CodeLens => {
     }
     if (lens.data !== undefined) lensDataByInstance.set(monacoLens, lens.data)
     return monacoLens
+}
+
+const codeLensRefreshListenersByClient = new WeakMap<LspClient, Set<() => void>>()
+
+/**
+ * Fires every `registerCodeLens` registration sharing `client`'s debounced refresh — the
+ * `semantic-tokens.ts` `triggerSemanticTokensRefresh` precedent (F7#4), replacing the previous
+ * process-wide `workspace/codeLens/refresh` handler in `server-request-handler-registry.ts`: that
+ * handler fired *every* open session's listeners on a refresh push from any one server, so two
+ * unrelated projects' rust-analyzer/vtsls sessions each recomputed lenses whenever the other's
+ * server asked for a refresh. Meant to be called from the session-scoped
+ * `workspace/codeLens/refresh` handler `lsp-session-registry.ts`'s `createSession` registers once
+ * per LSP client via `client.registerRequestHandler` (the `workspace/applyEdit`/
+ * `workspace/semanticTokens/refresh` precedent), so a refresh push only recomputes the sessions
+ * that actually asked for it.
+ */
+export const triggerCodeLensRefresh = (client: LspClient) => {
+    codeLensRefreshListenersByClient.get(client)?.forEach((listener) => listener())
+}
+
+const subscribeCodeLensRefresh = (client: LspClient, listener: () => void) => {
+    const listeners = codeLensRefreshListenersByClient.get(client) ?? new Set()
+    listeners.add(listener)
+    codeLensRefreshListenersByClient.set(client, listeners)
+    return () => listeners.delete(listener)
 }
 
 /**
@@ -77,7 +101,7 @@ export const registerCodeLens = (monaco: Monaco, client: LspClient, languageId: 
             onDidChangeEmitter.fire(provider)
         }, CODE_LENS_REFRESH_DEBOUNCE_MS)
     }
-    const unsubscribeRefresh = subscribeCodeLensRefresh(scheduleRefresh)
+    const unsubscribeRefresh = subscribeCodeLensRefresh(client, scheduleRefresh)
 
     const registration = monaco.languages.registerCodeLensProvider(languageId, provider)
 

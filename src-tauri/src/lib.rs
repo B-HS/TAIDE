@@ -150,6 +150,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::lsp::commands::lsp_send,
             domain::lsp::commands::lsp_stop,
             domain::lsp::commands::lsp_restart,
+            domain::lsp::commands::lsp_confirm_reinitialize,
             domain::lsp::commands::lsp_sessions,
             domain::lsp::commands::lsp_detect_servers,
             domain::lsp::commands::lsp_resolve_root,

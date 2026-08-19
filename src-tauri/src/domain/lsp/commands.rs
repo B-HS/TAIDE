@@ -62,10 +62,35 @@ struct SessionEntry {
     /// — the gap Wave I's original `Vec`-based design left (`broadcast_message`'s send-failure
     /// pruning alone only catches a *closed* window, not one that simply released this session while
     /// staying open). See `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.2.
+    ///
+    /// **Invariant (R7#6, decided 2026-08-19): this map is structurally always exactly one entry.**
+    /// `find_reusable_entry`'s `channels.contains_key(owner)` gate means a session is only ever
+    /// offered for reuse to the *one* owner already present in it — no code path ever inserts a
+    /// *second, different* owner into an existing entry's `channels`. A brand-new owner for the same
+    /// project/server instead falls through to `lsp_spawn`'s fresh-entry path and gets its own new
+    /// `SessionEntry` (with its own single-owner `channels`), never joining this one. Multi-window
+    /// subscription to one shared JSON-RPC connection was considered and rejected for this reason
+    /// (see the paragraph above) — this map's shape is intentional, not a placeholder for a
+    /// multi-owner map that was never finished. `docs/ipc-contract.md`'s prose describing multi-window
+    /// subscription for LSP sessions is stale and is corrected separately (Phase D of the T1
+    /// registry-cleanup contract); this doc comment is the authority in the meantime. Do not change
+    /// `channels`' shape (e.g. to `Vec<Channel<String>>` for fan-out) without first re-deciding this
+    /// invariant — it would require redesigning the LSP client to multiplex one connection across
+    /// independent JS realms, which is out of scope for anything this map alone can fix.
     channels: Mutex<HashMap<String, Channel<String>>>,
     status: Mutex<LspSessionStatus>,
     last_error: Mutex<Option<String>>,
     restart_count: AtomicU32,
+    /// Bumped once per successful *automatic* crash-restart respawn (never by `lsp_spawn`'s or
+    /// `lsp_restart`'s own respawn — see [`handle_process_exit`]'s doc comment for why only the
+    /// silent, unattended path needs this signal). The renderer watches
+    /// `LspSessionStatusChanged.generation`: an increase paired with `status: Crashed` means the
+    /// process behind this `session_id` was silently replaced — the renderer must discard its old LSP
+    /// client state and re-run `initialize` over `lsp_send`, then call
+    /// [`lsp_confirm_reinitialize`] with the same generation to let `status` honestly flip back to
+    /// `Running` (R7#1 — the root fix superseding T0 #24's "stay `Crashed`, tell the user to restart
+    /// manually" mitigation).
+    generation: AtomicU32,
     stopping: Arc<AtomicBool>,
     roots: Mutex<Vec<(String, u32)>>,
 }
@@ -231,6 +256,7 @@ fn set_status(app: &AppHandle, session_id: &str, entry: &SessionEntry, status: L
         session_id: session_id.to_string(),
         status,
         last_error,
+        generation: entry.generation.load(Ordering::SeqCst),
     }
     .emit(app);
 }
@@ -323,10 +349,19 @@ fn broadcast_message(channels: &Mutex<HashMap<String, Channel<String>>>, message
 /// resolves. This restart runs entirely in the background with no frontend caller waiting on it —
 /// the renderer's existing LSP client believes its old, already-initialized connection is still
 /// good and has no trigger to redo `initialize` against the fresh process, so declaring `Running`
-/// here would be a false report: requests sent to an unhandshaked server go nowhere. Reporting
-/// `Crashed` instead is the honest T0 mitigation; the real fix (a session-generation event the
-/// renderer watches to re-establish its client) is `T1-D` — see
-/// `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3 (#24).
+/// here would be a false report: requests sent to an unhandshaked server go nowhere.
+///
+/// T0 #24's mitigation stopped here (report `Crashed` forever, tell the user to restart manually).
+/// R7#1's root fix (T1-D) closes the loop instead of just naming it: on a successful respawn,
+/// `entry.generation` is bumped *before* `set_status` emits `LspSessionStatusChanged`, so that event
+/// carries both the new `generation` and `status: Crashed` together. The renderer treats a `generation`
+/// increase as "this session's process was silently replaced" — it discards its old client state,
+/// re-runs `initialize` over `lsp_send` against the same `session_id`, and on success calls
+/// [`lsp_confirm_reinitialize`] with that same generation. Only that confirmation (matched against
+/// the *current* generation, so a stale confirmation racing a second crash is ignored — see its own
+/// doc comment) flips `status` to `Running`; nothing in this function ever reports `Running` directly,
+/// preserving the T0 #24 invariant that a silent respawn is never reported healthy before the
+/// renderer has actually re-handshaked.
 fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
     let Some(store) = app.try_state::<LspStore>() else {
         return;
@@ -384,12 +419,13 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
         match spawn_process(&restart_app, restart_session_id.clone(), spec, root) {
             Ok(proc) => {
                 *entry.proc.lock() = Some(proc.clone());
+                entry.generation.fetch_add(1, Ordering::SeqCst);
                 set_status(
                     &restart_app,
                     &restart_session_id,
                     &entry,
                     LspSessionStatus::Crashed,
-                    Some("서버 프로세스는 재시작됐지만 초기화 핸드셰이크가 다시 이루어지지 않아 정상 동작하지 않습니다. 수동으로 재시작해주세요.".to_string()),
+                    Some("서버 프로세스가 자동으로 재시작됐습니다. 초기화 핸드셰이크가 다시 완료될 때까지 기다려주세요.".to_string()),
                 );
 
                 let healthy_reset_entry = entry.clone();
@@ -542,6 +578,7 @@ pub async fn lsp_spawn(
         status: Mutex::new(LspSessionStatus::Starting),
         last_error: Mutex::new(None),
         restart_count: AtomicU32::new(0),
+        generation: AtomicU32::new(0),
         stopping: Arc::new(AtomicBool::new(false)),
         roots: Mutex::new(vec![(root.clone(), 1)]),
     });
@@ -698,6 +735,32 @@ pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: Stat
     Ok(())
 }
 
+/// True only when `generation` matches `entry`'s *current* generation — the guard
+/// [`lsp_confirm_reinitialize`] applies before honoring a renderer's "I finished re-handshaking"
+/// report. Without it, a confirmation for a generation that a second crash+auto-restart has since
+/// superseded would incorrectly report the newer, still-unhandshaked process as `Running` — the
+/// exact race [`handle_process_exit`]'s doc comment on the `generation` field warns about.
+fn confirm_reinitialize(entry: &SessionEntry, generation: u32) -> bool {
+    entry.generation.load(Ordering::SeqCst) == generation
+}
+
+/// Called by the renderer once it has finished re-running `initialize` against a session whose
+/// [`LspSessionStatusChanged`] event reported a bumped `generation` (see the `generation` field doc
+/// on [`SessionEntry`]) — the counterpart to [`handle_process_exit`]'s auto-restart path that closes
+/// the loop T0 #24 left open (`Crashed` reported forever after a silent respawn, requiring a manual
+/// restart). A confirmation for a generation the session has since moved past (see
+/// [`confirm_reinitialize`]) is silently ignored rather than flipping a still-unhandshaked process to
+/// `Running`.
+#[tauri::command]
+#[specta::specta]
+pub async fn lsp_confirm_reinitialize(app: AppHandle, store: State<'_, LspStore>, session_id: String, generation: u32) -> AppResult<()> {
+    let entry = find_entry(&store, &session_id)?;
+    if confirm_reinitialize(&entry, generation) {
+        set_status(&app, &session_id, &entry, LspSessionStatus::Running, None);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> AppResult<Vec<LspSessionInfo>> {
@@ -712,6 +775,7 @@ pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> 
             root: entry.root.clone(),
             status: *entry.status.lock(),
             last_error: entry.last_error.lock().clone(),
+            generation: entry.generation.load(Ordering::SeqCst),
         })
         .collect())
 }
@@ -1125,9 +1189,36 @@ mod tests {
             status: Mutex::new(LspSessionStatus::Running),
             last_error: Mutex::new(None),
             restart_count: AtomicU32::new(0),
+            generation: AtomicU32::new(0),
             stopping: Arc::new(AtomicBool::new(stopping)),
             roots: Mutex::new(vec![("/tmp/project".to_string(), 1)]),
         })
+    }
+
+    /// R7#1 회귀: 확인(confirm)이 실제로 반영해야 하는 세대와 일치할 때만 통과해야 한다 —
+    /// 그러지 않으면 느리게 도착한 재핸드셰이크 확인이, 그 사이 두 번째 크래시+자동재시작이
+    /// 이미 새 세대로 올린 (아직 재핸드셰이크되지 않은) 프로세스를 잘못 `Running`으로
+    /// 보고하게 된다.
+    #[test]
+    fn confirm_reinitialize는_현재_세대와_일치할_때만_true를_반환한다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        entry.generation.store(2, Ordering::SeqCst);
+
+        assert!(confirm_reinitialize(&entry, 2), "현재 세대와 일치하는 확인은 통과해야 한다");
+        assert!(
+            !confirm_reinitialize(&entry, 1),
+            "구세대 확인은 그 사이 새 크래시+재시작이 세대를 올렸을 수 있으므로 무시되어야 한다"
+        );
+        assert!(
+            !confirm_reinitialize(&entry, 3),
+            "아직 오지 않은 미래 세대의 확인도 무시되어야 한다"
+        );
+    }
+
+    #[test]
+    fn 새로_생성된_세션엔트리의_세대는_0에서_시작한다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        assert_eq!(entry.generation.load(Ordering::SeqCst), 0);
     }
 
     #[test]

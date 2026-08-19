@@ -224,9 +224,25 @@ export const createLspClient = (deps: LspClientDeps) => {
         notify('textDocument/didSave', { textDocument: { uri } })
     }
 
-    const dispose = () => {
-        pendingRequests.forEach((pendingRequest) => pendingRequest.reject(new Error('lsp client disposed')))
+    /**
+     * Rejects every request still awaiting a response and forgets them — for a session surviving a
+     * server crash + silent auto-restart (R7#1: `lsp-session-registry.ts`'s reinitialize flow),
+     * where the *client* (this object, its `instanceRequestHandlers`, its subscribers) is reused
+     * against the respawned process rather than discarded like a full {@link dispose}. Without this,
+     * a request sent to the now-dead pre-crash process (e.g. an in-flight hover/completion) would
+     * sit in `pendingRequests` forever — its response can never arrive, since nothing will ever
+     * answer with that request id again once `initialize` restarts the id sequence's meaning for a
+     * *new* process. Unlike `dispose`, this leaves `instanceRequestHandlers`/`diagnosticsListeners`/
+     * `documentVersions` untouched — those still describe the client's own ongoing session
+     * identity, not the specific in-flight requests a crash invalidated.
+     */
+    const rejectPendingRequests = (reason: Error) => {
+        pendingRequests.forEach((pendingRequest) => pendingRequest.reject(reason))
         pendingRequests.clear()
+    }
+
+    const dispose = () => {
+        rejectPendingRequests(new Error('lsp client disposed'))
         diagnosticsListeners.clear()
         documentVersions.clear()
         instanceRequestHandlers.clear()
@@ -240,6 +256,7 @@ export const createLspClient = (deps: LspClientDeps) => {
         getCapabilities,
         getDocumentVersion,
         registerRequestHandler,
+        rejectPendingRequests,
         supports,
         onDiagnostics,
         didOpen,

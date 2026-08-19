@@ -115,6 +115,13 @@ pub struct GitRefsChanged {
     pub project_id: ProjectId,
 }
 
+/// `generation` (R7#1) increases only when `crate::domain::lsp::commands::handle_process_exit`'s
+/// automatic crash-restart path successfully respawns the process — see the `generation` field doc
+/// on `domain::lsp::commands::SessionEntry` for the full semantics: a `status: Crashed` event whose
+/// `generation` is higher than the last one the renderer saw means "the process behind this
+/// `session_id` was silently replaced — discard your old LSP client state, re-run `initialize` over
+/// `lsp_send`, then call `domain::lsp::commands::lsp_confirm_reinitialize` with this same
+/// `generation`" (only that confirmation flips `status` back to `Running`).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "lsp:session-status-changed")]
@@ -122,6 +129,7 @@ pub struct LspSessionStatusChanged {
     pub session_id: String,
     pub status: crate::domain::lsp::types::LspSessionStatus,
     pub last_error: Option<String>,
+    pub generation: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]

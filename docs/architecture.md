@@ -300,6 +300,49 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
 4. **이벤트 페이로드는 소형 유지**: 대형 데이터(파일 내용, diff 본문)는 이벤트에 싣지 않고
    "변경됨" 신호만 보내 query 로 다시 읽게 한다. 스트림 데이터만 Channel 예외.
 5. 각 `features/*.md` 문서는 "수명주기" 절에서 이 규칙의 해당 기능 적용을 구체화한다.
+6. **프론트 모듈 스코프 싱글톤(레지스트리/브리지)은 소유권 범위·수명 종료 시점을 선언한다**
+   (감사 클러스터 C3/C4, `docs/quality-assurance/2026-08-18-architecture-audit.md` §C3·§C4 —
+   `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md` §1.2·§1.3 로 정비).
+
+   **§6.4 소유권 계약(정본)** — `shared/lib`·`entities/*` 에 두는 모듈 레벨 `Map`/`Set` 기반
+   레지스트리·브리지는 만들 때 아래 두 질문에 답해야 한다. 새 레지스트리를 추가할 때도 이 표에
+   함께 등록한다.
+
+   - **소유권 범위**: 이 레지스트리의 키(엔트리)는 무엇 하나에 묶이는가 — 탭? 프로젝트? 창(OS
+     라벨, `owner`)? 프로세스 전체(앱 수명)? 창별로 독립된 JS 모듈 상태(각 Tauri 창은 별도
+     webview·별도 모듈 인스턴스)라 "창 스코프"는 코드를 전혀 안 써도 자동으로 성립하지만, "탭
+     스코프"·"프로젝트 스코프"는 그 대상이 사라지는 시점을 레지스트리가 직접 알아채야 한다.
+   - **수명 종료 시점**: 그 스코프가 끝났다는 신호를 레지스트리가 어떻게 받는가 — 명시적 해제
+     호출(`unregister`/`release`, 보통 `useEffect` cleanup)만으로 충분한가, 아니면 그 신호가
+     누락될 수 있는 경로가 있어(탭이 accept/reject 없이 닫힘, 프로젝트가 닫힘, 앱이 재시작 없이
+     장시간 실행)와 함께 **TTL·용량 상한·`projectClosed`/`app/providers` 이벤트 구독** 중 최소
+     하나로 뒷받침해야 하는가.
+
+   | 레지스트리/브리지 | 소유권 범위 | 수명 종료 시점 |
+   |---|---|---|
+   | `entities/editor/reveal-registry.ts` | pending reveal 요청(파일 오픈 대기) | 소비(`consumePendingReveal`) 또는 `REVEAL_PENDING_TTL_MS`(5s) 만료 — 탭/프로젝트 이벤트 구독 없음, TTL 단독 |
+   | `entities/editor/open-with-registry.ts` | 파일 경로별 "이 확장자를 어떤 뷰어로 열지" 오버라이드 | 명시적 해제 없음(경로는 탭/프로젝트에 1:1 로 안 묶여 재사용 가능) — `OPEN_WITH_OVERRIDE_MAX_ENTRIES`(200) LRU-by-write 상한 단독 |
+   | `entities/ide/claude-diff-registry.ts` | requestId 별 미해결 Claude diff 요청 | accept/reject(`removePendingClaudeDiff`) 또는 그 탭이 레이아웃에서 실제로 사라짐(`claude-diff-pane.tsx` unmount 시 `queryClient.getQueryData(LAYOUT.DETAIL)` 로 재확인 — `projectClosed` 의 `PROJECT_SCOPED_KEYS` 캐시 제거가 이 재확인을 간접적으로 성립시킨다) |
+   | `shared/lib/terminal-write-bridge.ts` | 탭별 pty 쓰기 큐 + 핸들러 슬롯 | 정상 해제(`register`/`unregister`) 시 즉시 회수, 또는 `TERMINAL_WRITE_QUEUE_TTL_MS`(30s) 경과분을 다음 호출에서 기회적으로 스윕(`sweepStaleSlots`) — 탭 종료 이벤트 구독 없음, TTL 단독 |
+   | `entities/lsp/lsp-session-flush-registry.ts` + `widgets/editor-pane/lsp-session-registry.ts` | 프로젝트/창/서버/root 별 LSP 세션(`sessionsByKey`) | 참조 카운트 0 도달 후 `LSP_SESSION_DISPOSE_GRACE_MS` 유예, 또는 `projectClosed` 이벤트(`ipc-sync-provider.tsx` → `flushLspSessionsForProject`)로 유예 없이 강제 회수, 또는 앱 종료(`HotExitFlushProvider` → `flushAllLspSessionDisposals`) |
+   | `shared/lib/fire-and-forget-bridge.ts`·`shared/lib/external-store-bridge.ts` 로 만든 팩토리형 브리지 12+종 | 팩토리 자체는 무상태 — 소유권 범위는 **호출부가 정의**(대개 프로세스 전체, 창별 모듈 인스턴스로 자동 격리) | 팩토리는 구독자 0 정책(`emptyPolicy`)만 제공, TTL/용량은 호출부 책임(예: terminal-write-bridge 의 레이어) |
+   | `entities/agent/agent-wait-marker-registry.ts` | tabId 별 외부 오픈 대기 마커 | `useCloseTab` 해제 경로 + `clearStaleWaitMarkersOnStartup`(앱 부팅 시 잔존분 정리) |
+
+   **앱 수명 부수효과(이벤트 구독·전역 상태 동기화)는 조건부 렌더 위젯이 아니라 상시 마운트
+   프로바이더(`app/providers/*`)가 소유한다(C4)** — `AppSidebar`·`StatusBarContent`·
+   `KeybindingsEditor` 다이얼로그처럼 Zen 모드나 보조 창 분기에 따라 마운트/언마운트되는
+   위젯에 `useAgentStateSync()`류 훅을 직접 두면, 그 위젯이 숨겨지는 동안(Zen 모드) 또는 애초에
+   렌더되지 않는 창(보조 창)에서 부수효과 자체가 사라진다. 정답은 "표시"(조건부 위젯)와
+   "구독"(상시 프로바이더)의 소유자를 분리하는 것 — `app/app.tsx` 의 프로바이더 트리에 상시
+   마운트하고, 조건부 위젯은 그 프로바이더가 채운 캐시/스토어를 읽기만 한다.
+
+   | 부수효과 | 이전 소유(사라지던 조건) | 현재 소유(상시 프로바이더) |
+   |---|---|---|
+   | IDE(Claude Code) 프로토콜 3종 + 상태 동기화 + 진단 push | `StatusBarContent`(Zen + 상태바 숨김) | `app/providers/ide-sync-provider.tsx`(메인 창 전용 — 원격 IDE 프로토콜은 창마다 중복 처리하면 안 되므로 보조 창엔 미마운트, `app.tsx` 상단 doc 참조) |
+   | 에이전트 상태 push 동기화 | `AppSidebar`(Zen) | `app/providers/agent-state-sync-provider.tsx`(메인+보조 창 전부) |
+   | monaco 키바인딩 오버라이드 적용 | `KeybindingsEditor` 다이얼로그(보조 창 전체) | `app/providers/keybindings-runtime-provider.tsx`(메인+보조 창 전부 — 다이얼로그 자신도 이 프로바이더가 controlled 로 렌더) |
+   | 키맵 에디터 열기 브리지 구독 | 동상 | 동상(`keybindings-runtime-provider.tsx`) |
+   | `QUERY_KEY.LSP.SESSIONS` 무효화(`lsp:session-status-changed` 이벤트) | 없음(무효화 지점 0건) | `app/providers/ipc-sync-provider.tsx`(`useLspSessionsQueryInvalidationSync`, 메인+보조 창 전부) |
 
 ## 7. 플랫폼 분기 격리 (NFR-6)
 

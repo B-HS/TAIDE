@@ -5,11 +5,12 @@ import { toast } from 'sonner'
 import type { PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { getModel } from '@entities/editor/model-registry'
-import { saveFile } from '@entities/file/file.ipc'
+import { useSaveFile } from '@entities/file/file.query'
 import { removePendingClaudeDiff, setPendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import { publishIdeDiagnostics, resolveIdeDiff, resolveIdeSave } from '@entities/ide/ide.ipc'
 import { ideStatusQueryOptions, useIdeStatusSync } from '@entities/ide/ide.query'
-import { openTab, setTabDirty } from '@entities/layout/layout.ipc'
+import { setTabDirty } from '@entities/layout/layout.ipc'
+import { useOpenTabInProject } from '@entities/layout/layout.query'
 import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { getSettings } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
@@ -44,6 +45,8 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: ideStatus = null } = useQuery(ideStatusQueryOptions())
     const markers = useMonacoMarkers()
+    const { mutateAsync: openTabInProject } = useOpenTabInProject()
+    const { mutateAsync: saveFileMutation } = useSaveFile()
 
     useTauriEvent(events.ideDiffRequested, ({ payload }) => {
         setPendingClaudeDiff(payload.requestId, { oldPath: payload.oldPath, newContents: payload.newContents, tabName: payload.tabName })
@@ -56,14 +59,13 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
                 return
             }
 
-            const layout = await openTab({
+            await openTabInProject({
                 projectId: payload.projectId,
                 kind: { kind: 'claudeDiff', requestId: payload.requestId, path: payload.newPath },
                 title: payload.tabName,
                 target: null,
                 preview: false,
             })
-            queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(payload.projectId), layout)
         })().catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)))
     })
 
@@ -84,9 +86,8 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
             }
 
             try {
-                await saveFile({ path: payload.path, content: model.getValue() })
+                await saveFileMutation({ path: payload.path, content: model.getValue() })
                 await setTabDirty({ tabId: tab.id, dirty: false })
-                void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(payload.path) })
                 await resolveIdeSave({ requestId: payload.requestId, saved: true })
             } catch {
                 await resolveIdeSave({ requestId: payload.requestId, saved: false }).catch(() => undefined)

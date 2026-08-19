@@ -83,17 +83,20 @@ fn make_channel_factory(ws_out: UnboundedSender<WsOut>) -> ChannelFactory {
         Box::new(move |body: InvokeResponseBody| {
             let index = counter.fetch_add(1, Ordering::Relaxed);
             let _ = &guard;
-            match body {
+            let delivery = match body {
                 InvokeResponseBody::Json(text) => {
                     let message = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
                     let frame = serde_json::json!({ "t": "chan", "channelId": channel_id, "index": index, "message": message }).to_string();
-                    let _ = sink_out.send(WsOut::Text(frame));
+                    sink_out.send(WsOut::Text(frame))
                 }
-                InvokeResponseBody::Raw(bytes) => {
-                    let _ = sink_out.send(WsOut::Binary(channel_binary_frame(channel_id, index, &bytes)));
-                }
-            }
-            Ok(())
+                InvokeResponseBody::Raw(bytes) => sink_out.send(WsOut::Binary(channel_binary_frame(channel_id, index, &bytes))),
+            };
+            delivery.map_err(|_| {
+                tauri::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "원격 웹소켓 연결이 종료되어 채널로 전달할 수 없습니다",
+                ))
+            })
         })
     })
 }
@@ -245,5 +248,33 @@ mod tests {
         };
         assert_eq!(frame.code, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED);
         assert_eq!(frame.reason.as_str(), REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED);
+    }
+
+    /// R8#3≡R3#1 회귀: 웹소켓 쓰기 루프(수신자)가 사라진 뒤에도 채널 전송이
+    /// `Ok(())`로 위장되면 pty/lsp 도메인의 `retain(|_, ch| ch.send(...).is_ok())`
+    /// 프루닝 불변식이 깨져 끊어진 원격 채널이 스토어에 계속 남는다.
+    #[test]
+    fn 수신자가_사라진_채널은_송신_실패를_ok으로_위장하지_않는다() {
+        let (tx, rx) = mpsc::unbounded_channel::<WsOut>();
+        let sink = make_channel_factory(tx)("1".to_string());
+        drop(rx);
+
+        let result = sink(InvokeResponseBody::Json("{}".to_string()));
+
+        assert!(
+            result.is_err(),
+            "수신자가 사라지면 채널 전송은 Err 를 반환해 프루닝 대상임을 알려야 한다"
+        );
+    }
+
+    #[test]
+    fn 수신자가_살아있는_채널은_송신_성공을_ok으로_반환한다() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
+        let sink = make_channel_factory(tx)("1".to_string());
+
+        let result = sink(InvokeResponseBody::Json("{}".to_string()));
+
+        assert!(result.is_ok());
+        assert!(matches!(rx.try_recv(), Ok(WsOut::Text(_))));
     }
 }

@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
-import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
 import {
     gitBranchesQueryOptions,
     gitLogQueryOptions,
@@ -12,12 +11,14 @@ import {
     gitRemotesQueryOptions,
     gitStatusQueryOptions,
     useApplyGitStash,
+    useCancelCommitMessageGeneration,
     useCheckoutGitBranch,
     useCheckoutRemoteGitBranch,
     useCommitGit,
     useCreateGitBranch,
     useDiscardGitPaths,
     useDropGitStash,
+    useGenerateAiCommitMessage,
     useInitGitRepository,
     usePushGitStash,
     usePullGit,
@@ -25,7 +26,6 @@ import {
     useStageGitPaths,
     useUnstageGitPaths,
 } from '@entities/git/git.query'
-import { getGitDiffStagedText } from '@entities/git/git.ipc'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
 import { Button } from '@shared/ui/button'
@@ -72,6 +72,8 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const { mutate: applyStash, isPending: isStashApplying } = useApplyGitStash(projectId)
     const { mutate: dropStash, isPending: isStashDropping } = useDropGitStash(projectId)
     const { mutate: initRepository, isPending: isInitializing } = useInitGitRepository(projectId)
+    const { mutateAsync: generateCommitMessage } = useGenerateAiCommitMessage(projectId)
+    const { mutateAsync: cancelCommitMessageGeneration } = useCancelCommitMessageGeneration()
 
     const handleStashPush = () =>
         pushStash(
@@ -123,7 +125,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const handleGenerateCommitMessage = async () => {
         if (commitMessageRequestId) {
             latestCommitMessageRequestIdRef.current = null
-            await cancelAiRequest(commitMessageRequestId).catch(() => undefined)
+            await cancelCommitMessageGeneration(commitMessageRequestId).catch(() => undefined)
             setCommitMessageRequestId(null)
             return
         }
@@ -132,14 +134,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
         latestCommitMessageRequestIdRef.current = requestId
         setCommitMessageRequestId(requestId)
         try {
-            const diff = await getGitDiffStagedText(projectId)
-            const response = await generateAiCommitMessage({
-                requestId,
-                provider: null,
-                model: null,
-                diffText: diff.diffText,
-                recentCommits: buildRecentCommitsSummaryForAi(log),
-            })
+            const { diff, response } = await generateCommitMessage({ requestId, recentCommitsSummary: buildRecentCommitsSummaryForAi(log) })
             if (latestCommitMessageRequestIdRef.current !== requestId) return
             if (!response.text) return
 

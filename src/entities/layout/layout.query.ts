@@ -43,6 +43,22 @@ const useLayoutMutation = <TVariables>(projectId: ProjectId | null, mutationFn: 
 
 export const useOpenTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, openTab)
 
+/**
+ * `useOpenTab` binds `projectId` at hook-call time, so it can't correctly cache a tab opened for a
+ * *different* project than the one the calling widget was rendered for — the drag-and-drop-a-file
+ * flow needs exactly that (the drop target may resolve to a project other than the currently active
+ * one). This variant instead reads the target project from the mutation's own variables, matching
+ * what `openTab`'s IPC call already receives (contract F4#4 — no more hand-rolled raw
+ * `openTab()` + `setQueryData` in the widget).
+ */
+export const useOpenTabInProject = () => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: openTab,
+        onSuccess: (layout, variables) => queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(variables.projectId), layout),
+    })
+}
+
 export const useCloseTab = (projectId: ProjectId | null) => {
     const queryClient = useQueryClient()
     return useMutation({

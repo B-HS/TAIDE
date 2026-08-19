@@ -24,10 +24,17 @@ pub struct AiModelInfo {
     pub display_name: Option<String>,
 }
 
+/// `owner` (`getCurrentWindow().label` on the frontend — `main`/`editor-<n>`, or the remote client's
+/// fixed `domain::remote::types::REMOTE_OWNER_LABEL`) combines with `request_id` to key
+/// `AiRequestStore` (R6#20) — a caller-supplied `request_id` alone is shared global state, so two
+/// windows that happen to generate the same id (or a remote session replaying one) would otherwise
+/// collide: the second `begin()` would be rejected as "already in flight", or a `ai_request_cancel`
+/// from one window could cancel a same-id request actually in flight in another.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiInlineCompleteRequest {
     pub request_id: String,
+    pub owner: String,
     pub provider: AiProviderId,
     pub model: String,
     pub prefix: String,
@@ -115,6 +122,8 @@ pub struct AiCommitMessagePromptVars<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct AiInlineEditRequest {
     pub request_id: String,
+    /// See [`AiInlineCompleteRequest::owner`]'s doc comment.
+    pub owner: String,
     #[serde(default)]
     pub provider: Option<AiProviderId>,
     #[serde(default)]
@@ -138,6 +147,8 @@ pub struct AiInlineEditResponse {
 #[serde(rename_all = "camelCase")]
 pub struct AiCommitMessageRequest {
     pub request_id: String,
+    /// See [`AiInlineCompleteRequest::owner`]'s doc comment.
+    pub owner: String,
     #[serde(default)]
     pub provider: Option<AiProviderId>,
     #[serde(default)]

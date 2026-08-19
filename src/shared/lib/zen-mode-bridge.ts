@@ -1,14 +1,8 @@
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
+
 type Listener = () => void
 
-const toggleListeners = new Set<Listener>()
+const toggleZenModeBridge = createFireAndForgetBridge<undefined>()
 
-export const requestToggleZenMode = () => {
-    for (const listener of toggleListeners) listener()
-}
-
-export const subscribeToggleZenMode = (listener: Listener) => {
-    toggleListeners.add(listener)
-    return () => {
-        toggleListeners.delete(listener)
-    }
-}
+export const requestToggleZenMode = () => toggleZenModeBridge.publish(undefined)
+export const subscribeToggleZenMode = (listener: Listener) => toggleZenModeBridge.subscribe(() => listener())

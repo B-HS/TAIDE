@@ -1,6 +1,7 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { DiffMode, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
 import {
     applyGitStash,
     checkoutGitBranch,
@@ -15,7 +16,9 @@ import {
     dropGitStash,
     getGitBranches,
     getGitCommitFiles,
+    getGitDiffStagedText,
     getGitStashes,
+    getGitTags,
     pushGitStash,
     getGitCurrentUser,
     getGitDiffFile,
@@ -147,6 +150,14 @@ export const gitStashesQueryOptions = (projectId: ProjectId | null) =>
         retry: false,
     })
 
+export const gitTagsQueryOptions = (projectId: ProjectId | null) =>
+    queryOptions({
+        queryKey: QUERY_KEY.GIT.TAGS(projectId ?? ''),
+        queryFn: () => getGitTags(projectId ?? ''),
+        enabled: !!projectId,
+        retry: false,
+    })
+
 export const useCreateGitBranch = (projectId: ProjectId | null) => useGitMutation(projectId, createGitBranch)
 
 export const useCheckoutGitBranch = (projectId: ProjectId | null) => useGitMutation(projectId, checkoutGitBranch)
@@ -204,3 +215,27 @@ export const gitShowFileQueryOptions = (input: { projectId: ProjectId | null; re
         staleTime: Infinity,
         retry: false,
     })
+
+/**
+ * Fetches the staged diff and asks the AI provider for a commit message summarizing it, wrapped in
+ * `useMutation` instead of a widget hand-rolling the two raw IPC calls itself (contract F4#5). The
+ * cancel-vs-generate toggle, the superseded-request guard, and the toast feedback stay in the
+ * widget (`GitPanelContainer`) — that's UI-lifecycle orchestration query.md allows a widget to keep,
+ * not server state this hook could own on its behalf.
+ */
+export const useGenerateAiCommitMessage = (projectId: ProjectId | null) =>
+    useMutation({
+        mutationFn: async (input: { requestId: string; recentCommitsSummary: string }) => {
+            const diff = await getGitDiffStagedText(projectId ?? '')
+            const response = await generateAiCommitMessage({
+                requestId: input.requestId,
+                provider: null,
+                model: null,
+                diffText: diff.diffText,
+                recentCommits: input.recentCommitsSummary,
+            })
+            return { diff, response }
+        },
+    })
+
+export const useCancelCommitMessageGeneration = () => useMutation({ mutationFn: cancelAiRequest })

@@ -696,10 +696,25 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   임의 파일 읽기 표면). `plugin_list`/`plugin_reload` 는 원격에서도 그대로 허용(읽기 전용). 전체
   거부 목록 전수는 §"원격 dispatch
   정책" 참조.
-- **채널 다중화(내부 구현, 새 IPC 표면 아님)**: `lsp_spawn`(reuse 경로)과 `pty_attach` 는 이제 세션당
-  구독자 목록을 유지해 여러 창이 같은 LSP 세션/pty 세션을 동시에 구독할 수 있다 — 메시지/출력은 전
-  구독자에 브로드캐스트되고 `send` 가 실패한(창이 닫힌) 구독자는 다음 브로드캐스트에서 자동
-  제거된다. 커맨드 시그니처·응답 타입은 변경되지 않았다.
+- **채널 다중화(내부 구현, 새 IPC 표면 아님) — pty 는 다중 창 구독, LSP 는 창별 독립 세션(정정,
+  T1 3차 배치 R7#6)**: `pty_attach` 는 세션당 구독자 목록을 유지해 여러 창이 같은 pty 세션을 동시에
+  구독할 수 있다 — 출력은 전 구독자에 브로드캐스트되고 `send` 가 실패한(창이 닫힌) 구독자는 다음
+  브로드캐스트에서 자동 제거된다. **`lsp_spawn`(reuse 경로)은 이 문서의 이전 판이 서술한 것과 달리
+  다중 창 구독을 제공하지 않는다** — `find_reusable_entry` 가 세션을 재사용 후보로 내줄 조건에
+  `channels.contains_key(owner)`(호출자 자신이 이미 그 세션의 유일한 구독자일 것)를 포함하므로,
+  같은 프로젝트/서버라도 *다른* 창의 `lsp_spawn` 은 항상 그 창만의 새 `SessionEntry` 를 받는다 — 같은
+  창 안에서(재-spawn, 같은 창의 여러 탭)만 재사용된다. 서로 다른 두 창이 하나의 JSON-RPC 연결을
+  공유하면 각 창의 LSP 클라이언트가 독립된 JS 렐름이라 커넥션당 1회여야 하는 `initialize` 를 두 번
+  보내고(언어서버가 두 번째를 거부해 그 창의 클라이언트가 영구히 capability 없는 상태로 남는다)
+  요청 id 충돌로 다른 창의 대기 요청을 잘못 resolve 할 수 있어, 실현 대신 이 서술을 정정하는 쪽으로
+  결정했다(`docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md` §1.0 결정 1 — 창별 독립 세션
+  정본화). 대신 **하나의 창 안에서 여러 워크스페이스 루트가 한 세션을 공유**하는 것은 지원한다
+  (R7#7) — `lsp_spawn` 은 `spec.shares_sessions` 가 켜진 서버에 한해 같은 창이 이미 연 세션에 새
+  루트를 `roots`(루트별 참조 카운트) 로 추가하고 `workspace/didChangeWorkspaceFolders` 알림을 보낸다.
+  프론트(`lsp-session-registry.ts`)는 세션 캐시 키에 root 를 포함(`${projectId}::${serverId}::${root}`)
+  해 두면서도, 백엔드가 같은 `session_id` 를 반환하면(=합류 허용) 새로 만든 throwaway 클라이언트를
+  버리고 기존 세션 그룹에 합류시킨다. 커맨드 시그니처·응답 타입은 변경되지 않았다(진짜 IPC 표면
+  변경은 아래 "T1 정비 3차 배치" 절 참조).
 
 ### 손 QA 1차 발견 6건 수정 (2026-08-18)
 
@@ -872,6 +887,62 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   생긴다. 근본 수정(자체 `register_uri_scheme_protocol("asset", ...)` 재구현 + 열린 프로젝트
   root 집합 기반 동적 판정)은 위험도·범위 문제로 이 배치에서 보류했다 — 사유는 `architecture.md`
   §6.3 참고. **현재도 닫힌 프로젝트 트리를 webview 가 계속 읽을 수 있다** (이 항목만 예외).
+
+### T1 정비 3차 배치 — 멀티윈도우 owner 스코프·LSP 재핸드셰이크 (2026-08-19)
+
+> 계약: `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md` §1.2(T1-D 레지스트리 정리).
+> "채널 다중화" 절의 R7#6 문서 정정도 이 배치분이다(위 참조). 이 절은 **IPC 표면(커맨드
+> 시그니처·이벤트 필드)에 영향을 준 항목만** 담는다 — 브리지 팩토리 2종 신설(F6#2·F6#3)·정리 경로
+> 4건(reveal-registry TTL·open-with-registry LRU 상한·claude-diff-registry 미해결 탭 정리·
+> terminal-write-bridge 큐 상한/TTL)·shiki 재초기화 직렬화(F6#19)·LSP 렌더러 세션 스코프화
+> (codeLens/diagnostics/핸들러 해제 동일성 검사·useMonacoMarkers 구독 수명)는 내부 구현만 바뀌어
+> 커맨드 시그니처·응답 타입이 그대로라 여기 없다.
+>
+> 공통 배경: 지금까지 `owner`(`getCurrentWindow().label` — `main`/`editor-<n>`, 원격 클라이언트는
+> 고정 라벨 `"remote"`, Rust `domain::remote::types::REMOTE_OWNER_LABEL`)로 창을 스코프하는 것은
+> `lsp_spawn`/`lsp_stop` 뿐이었다(Wave I 선례). 이 배치는 같은 패턴을 AI 요청·IDE 선택영역·검색
+> 세션 3개 도메인에 확장해, 서로 다른 창이 같은 `requestId`/`sessionId` 를 우연히 재사용해도(특히
+> `useId()` 처럼 리액트 렐름 로컬 카운터로 만든 id) 서로의 요청을 취소·덮어쓰지 못하게 한다.
+>
+> - **ai — `AiRequestStore` 키 `requestId` 단독 → `(owner, requestId)` 복합(R6#20)**:
+>   `AiInlineCompleteRequest`/`AiInlineEditRequest`/`AiCommitMessageRequest` 3개 요청 타입 모두에
+>   `owner: string` 필드가 새로 붙는다(프론트 `entities/ai/ai.ipc.ts`/`ai-inline-edit.ipc.ts` 가
+>   호출자 대신 주입 — `completeAiInline`/`generateAiCommitMessage`/`requestAiInlineEdit` 의 프론트
+>   시그니처 자체는 `owner` 없이 그대로다). `ai_request_cancel` 도 `(owner: string, requestId:
+>   string)` 2-인자로 바뀐다(`cancelAiRequest(requestId)` 프론트 시그니처는 불변, 내부에서 `owner`
+>   를 채운다).
+> - **ide — `IdeStore.current_selection` 전역 단일 슬롯 → owner 인지(R6#12)**: `IdeSelectionInput`
+>   에 `owner: string` 필드가 새로 붙는다(`ide_set_selection`). `ide_clear_selection` 도 무인자에서
+>   `(owner: string)` 1-인자로 바뀐다. **동작 변경**: `owner` 가 원격 세션의 고정 라벨(`"remote"`)이면
+>   `ide_set_selection`/`ide_clear_selection` 은 스토어에 아무것도 쓰지 않고 `selection_changed` 도
+>   발행하지 않는 완전 no-op 이다 — 원격 브라우저의 선택영역이 데스크톱 로컬 IDE MCP 프로토콜
+>   (`getCurrentSelection`/`getLatestSelection`)을 더 이상 덮어쓸 수 없다. 데스크톱 창끼리(main vs
+>   보조 창)는 여전히 기존과 동일하게 전역 단일 슬롯을 공유한다(이 항목이 해소한 불변식은 "원격이
+>   데스크톱을 오염시키지 못한다"에 한정 — 데스크톱 멀티윈도우 간 선택영역 자체 격리는 범위 밖).
+>   프론트 `entities/ide/ide.ipc.ts` 의 `setIdeSelection`/`clearIdeSelection` 시그니처는 `owner`
+>   없이 그대로다(내부에서 `getCurrentWindow().label` 을 채운다).
+> - **search — `SearchStore` 키 `session_id` 단독 → `(owner, session_id)` 복합(R7#8)**: `search_run`
+>   이 `(projectId, owner: string, sessionId, query, onMatch)` 5-인자로, `search_cancel` 이
+>   `(owner: string, sessionId)` 2-인자로 바뀐다 — `lsp_stop` 의 owner 선례와 동일 근거. 검색 패널의
+>   `sessionId` 는 `useId()`(리액트 렐름 로컬) 라 두 창이 우연히 같은 값을 만들 수 있었고, 이전에는
+>   그 경우 한 창의 `searchCancel` 이 다른 창의 진행 중 검색을 잘라냈다. 프론트
+>   `entities/search/search.ipc.ts` 의 `runSearch`/`cancelSearch` 시그니처는 `owner` 없이 그대로다.
+> - **lsp — 자동 재시작 세션 세대(`generation`) 발행 + 재핸드셰이크 확인 커맨드 신설(R7#1, T0 #24
+>   근본 대체)**: `LspSessionStatusChanged` 이벤트와 `lsp_sessions` 폴링 응답(`LspSessionInfo`) 모두에
+>   `generation: number`(`u32`) 필드가 새로 붙는다 — `handle_process_exit` 의 백그라운드 자동
+>   재시작이 프로세스 재기동에 성공할 때만 1 증가한다(`lsp_spawn`/`lsp_restart` 처럼 프론트가 직접
+>   기다리는 재시작은 세대를 올리지 않는다). 신규 커맨드 **`lsp_confirm_reinitialize(sessionId:
+>   string, generation: number) → Result<null, AppError>`** — 렌더러가 세대 증가를 감지해 기존 LSP
+>   클라이언트 상태를 버리고 같은 `session_id` 로 `initialize` 를 재전송한 뒤, 응답을 받으면 그
+>   트리거였던 `generation` 값 그대로 이 커맨드를 호출해야만 `status` 가 `Crashed` 에서 `Running` 으로
+>   되돌아간다(넘긴 `generation` 이 세션의 *현재* 세대와 다르면 — 그 사이 2차 크래시가 세대를 더
+>   올렸다면 — 조용히 무시된다, `domain::lsp::commands::confirm_reinitialize`). T0 #24 가 "재핸드셰이크
+>   전까지 `Crashed` 유지"로 멈췄던 완화책을, 이 커맨드로 정직한 `Running` 복귀 경로까지 닫는다.
+>   프론트 소비는 `widgets/editor-pane/lsp-session-registry.ts` 의 `handleLspSessionStatusChanged`/
+>   `reinitializeSession` — 모듈 로드 시 `events.lspSessionStatusChanged.listen` 으로 상시 구독한다.
+>   `QUERY_KEY.LSP.SESSIONS` 폴링 캐시 쪽 무효화는 `entities/lsp/lsp.query.ts` 의
+>   `useLspSessionsQueryInvalidationSync`(`app/providers/ipc-sync-provider.tsx` 에 상시 마운트)가
+>   담당 — 이전에는 이 캐시에 무효화 호출부가 0건이었다.
 
 ### raw 커맨드 (specta 밖)
 

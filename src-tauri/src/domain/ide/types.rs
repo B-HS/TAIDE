@@ -58,9 +58,15 @@ pub enum IdeDiffOutcome {
     TabClosed,
 }
 
+/// `owner` (`getCurrentWindow().label` on the frontend — `main`/`editor-<n>`, or the remote client's
+/// fixed `domain::remote::types::REMOTE_OWNER_LABEL`) lets [`ide_set_selection`](super::commands::ide_set_selection)
+/// tell a real desktop window's selection apart from a remote session's — see the doc comment there
+/// for why a remote-sourced selection must never reach [`IdeStore`](super::commands::IdeStore)'s
+/// desktop-facing slots.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct IdeSelectionInput {
+    pub owner: String,
     pub project_id: ProjectId,
     pub path: String,
     pub text: String,

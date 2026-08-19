@@ -1,10 +1,11 @@
 import type { FC, PropsWithChildren } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { events } from '@shared/api/bindings'
-import { QUERY_KEY } from '@shared/constants/query-key'
+import { PROJECT_SCOPED_KEYS, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { refreshTreeDir } from '@entities/tree/tree.ipc'
 import { flushLspSessionsForProject } from '@entities/lsp/lsp-session-flush-registry'
+import { useLspSessionsQueryInvalidationSync } from '@entities/lsp/lsp.query'
 
 const PATH_SEPARATOR = '/'
 
@@ -16,6 +17,8 @@ const parentDirOf = (path: string) => {
 export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
 
+    useLspSessionsQueryInvalidationSync()
+
     useTauriEvent(events.projectListChanged, () => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.LIST })
     })
@@ -25,9 +28,7 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     })
 
     useTauriEvent(events.projectClosed, ({ payload }) => {
-        queryClient.removeQueries({ queryKey: QUERY_KEY.PROJECT.DETAIL(payload.projectId) })
-        queryClient.removeQueries({ queryKey: QUERY_KEY.LAYOUT.DETAIL(payload.projectId) })
-        queryClient.removeQueries({ queryKey: QUERY_KEY.TREE.ROWS(payload.projectId) })
+        for (const scopedKey of PROJECT_SCOPED_KEYS) queryClient.removeQueries({ queryKey: scopedKey(payload.projectId) })
         flushLspSessionsForProject(payload.projectId)
     })
 
@@ -69,6 +70,18 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.LOCALE.ALL })
     })
 
+    /**
+     * `refreshTreeDir` already returns the tree's up-to-date `TreeRowPage` after invalidating one
+     * directory (Rust's `tree_refresh` rebuilds the full page under the same per-project mutation
+     * guard every `tree_toggle`/`tree_reveal` call does) — writing that straight into the cache
+     * with `setQueryData` covers the common single-directory case with the same one round trip
+     * `refreshTreeDir` already made, instead of discarding it and paying for a second `TREE.ROWS`
+     * fetch on top (contract R4#13's "N+1"). The batch's last resolved page reflects every prior
+     * directory's invalidation too, since they all serialize through that same per-project guard.
+     * `invalidateQueries` is kept as the fallback for the (rare) case a directory refresh itself
+     * fails, so a partial failure still ends in a correct, non-stale cache rather than a silently
+     * stale one.
+     */
     useTauriEvent(events.fsChanged, ({ payload }) => {
         const { projectId, change } = payload
 
@@ -76,9 +89,10 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
         }
 
-        const dirs = new Set(change.paths.map(parentDirOf))
-        void Promise.all([...dirs].map((dir) => refreshTreeDir({ projectId, dir }).catch(() => undefined))).then(() =>
-            queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) }),
+        const dirs = [...new Set(change.paths.map(parentDirOf))]
+        void Promise.all(dirs.map((dir) => refreshTreeDir({ projectId, dir }))).then(
+            (pages) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId), pages[pages.length - 1]),
+            () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) }),
         )
     })
 

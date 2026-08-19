@@ -53,6 +53,16 @@ pub const REMOTE_CHANNEL_PREFIX: &str = "__CHANNEL__:";
 pub const REMOTE_BINARY_TAG_RESPONSE: u8 = 0x02;
 pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;
 
+/// Fixed window-label the remote (browser) client always reports as its caller-supplied `owner` on
+/// window-scoped IPC calls — `getCurrentWindow().label` returns this constant in the remote-mirror
+/// shim (`src/shared/lib/remote/tauri-internals-shim.ts::REMOTE_WINDOW_LABEL`), the same label
+/// `domain::lsp::commands::SessionEntry.channels` already keys reuse by. Domains that must keep a
+/// remote session's writes from being mistaken for a real desktop window's — e.g.
+/// `domain::ide::commands::IdeStore`'s selection state, which must reflect only the local desktop
+/// editor for the local IDE MCP protocol (`ide::server`) — compare their caller-supplied `owner`
+/// against this constant rather than duplicating the literal.
+pub const REMOTE_OWNER_LABEL: &str = "remote";
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatus {

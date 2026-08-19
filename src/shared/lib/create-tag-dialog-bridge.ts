@@ -1,26 +1,8 @@
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
+
 export type CreateTagRequest = { target: string }
 
-type Listener = (request: CreateTagRequest) => void
+const openCreateTagDialogBridge = createFireAndForgetBridge<CreateTagRequest>({ emptyPolicy: 'queue-latest' })
 
-let pendingRequest: CreateTagRequest | null = null
-const listeners = new Set<Listener>()
-
-export const requestOpenCreateTagDialog = (request: CreateTagRequest) => {
-    if (listeners.size === 0) {
-        pendingRequest = request
-        return
-    }
-    for (const listener of listeners) listener(request)
-}
-
-export const subscribeOpenCreateTagDialog = (listener: Listener) => {
-    listeners.add(listener)
-    if (pendingRequest) {
-        const request = pendingRequest
-        pendingRequest = null
-        listener(request)
-    }
-    return () => {
-        listeners.delete(listener)
-    }
-}
+export const requestOpenCreateTagDialog = openCreateTagDialogBridge.publish
+export const subscribeOpenCreateTagDialog = openCreateTagDialogBridge.subscribe

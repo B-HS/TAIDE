@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { DetectedAgent, ProjectId } from '@shared/api/bindings'
 import { projectListQueryOptions, useActivateProject, useOpenProject, useReorderProjects } from '@entities/project/project.query'
-import { projectAgentsQueryOptions, useAgentStateSync } from '@entities/agent/agent.query'
+import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { IconButton } from '@shared/ui/icon-button'
 import { SortableProjectIcon } from '@widgets/app-sidebar/sortable-project-icon'
@@ -57,8 +57,6 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
 
         reorderProjects(arrayMove(projects, from, to).map((project) => project.id))
     }
-
-    useAgentStateSync()
 
     return (
         <nav

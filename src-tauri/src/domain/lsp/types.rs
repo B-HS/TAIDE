@@ -267,6 +267,9 @@ pub struct LspSpawnRequest {
     pub owner: String,
 }
 
+/// `generation` mirrors `LspSessionStatusChanged.generation` (see the `generation` field doc on
+/// `domain::lsp::commands::SessionEntry`) — a poll-based fallback for a renderer that missed the
+/// event (reconnect, hidden tab) to detect an auto-restart it still needs to re-handshake.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LspSessionInfo {
@@ -277,6 +280,7 @@ pub struct LspSessionInfo {
     pub status: LspSessionStatus,
     #[serde(default)]
     pub last_error: Option<String>,
+    pub generation: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

@@ -1,7 +1,8 @@
-import type { LogEntry, ProjectId, TagInfo } from '@shared/api/bindings'
+import type { LogEntry, ProjectId } from '@shared/api/bindings'
 import type { FC } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { RotateCcw, Tag, Tags } from 'lucide-react'
 import { toast } from 'sonner'
@@ -21,8 +22,7 @@ import {
     ContextMenuTrigger,
 } from '@shared/ui/context-menu'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
-import { getGitTags } from '@entities/git/git.ipc'
-import { useCreateGitTag, useDeleteGitTag, useRevertGitCommit } from '@entities/git/git.query'
+import { gitTagsQueryOptions, useCreateGitTag, useDeleteGitTag, useRevertGitCommit } from '@entities/git/git.query'
 import { CreateTagDialog } from '@features/git/create-tag-dialog'
 
 export type GraphLogEntry = LogEntry
@@ -49,7 +49,6 @@ const laneColor = (lane: number) => `var(--taide-graph-lane${(lane % LANE_COLOR_
 export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selectedCommitId = null, onSelectCommit, onOpenFile }) => {
     const parentRef = useRef<HTMLDivElement>(null)
 
-    const [tags, setTags] = useState<TagInfo[]>([])
     const [tagDialogTarget, setTagDialogTarget] = useState<string | null>(null)
 
     const nodes = computeGraphLanes(commits)
@@ -66,6 +65,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
     })
 
     const { t } = useTranslation()
+    const { data: tags = [] } = useQuery(gitTagsQueryOptions(projectId))
     const { mutate: revertCommit } = useRevertGitCommit(projectId)
     const { mutate: createTag, isPending: isCreatingTag } = useCreateGitTag(projectId)
     const { mutate: deleteTag } = useDeleteGitTag(projectId)
@@ -112,24 +112,6 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
         if (!projectId) return
         deleteTag({ projectId, name }, { onSuccess: () => toast.success(t('git.tagDeleted')), onError: (error) => toast.error(error.message) })
     }
-
-    useEffect(() => {
-        if (!projectId) {
-            setTags([])
-            return
-        }
-        let cancelled = false
-        void getGitTags(projectId)
-            .then((result) => {
-                if (!cancelled) setTags(result)
-            })
-            .catch(() => {
-                if (!cancelled) setTags([])
-            })
-        return () => {
-            cancelled = true
-        }
-    }, [projectId, commits])
 
     useEffect(() => subscribeOpenCreateTagDialog(({ target }) => setTagDialogTarget(target)), [])
 

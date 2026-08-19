@@ -40,6 +40,7 @@ export const QUERY_KEY = {
         CURRENT_USER: (projectId: ProjectId) => ['git', projectId, 'current-user'] as const,
         BRANCHES: (projectId: ProjectId) => ['git', projectId, 'branches'] as const,
         STASHES: (projectId: ProjectId) => ['git', projectId, 'stashes'] as const,
+        TAGS: (projectId: ProjectId) => ['git', projectId, 'tags'] as const,
         COMMIT_FILES: (projectId: ProjectId, rev: string) => ['git', projectId, GIT_SCOPE_COMMIT_FILES, rev] as const,
         FILE_LOG: (projectId: ProjectId, path: string) => ['git', projectId, 'file-log', path] as const,
         SHOW: (projectId: ProjectId, rev: string, path: string) => ['git', projectId, GIT_SCOPE_SHOW, rev, path] as const,
@@ -56,12 +57,19 @@ export const QUERY_KEY = {
         ALL: ['lsp'] as const,
         SERVERS: ['lsp', 'servers'] as const,
         SESSIONS: (projectId: ProjectId) => ['lsp', 'sessions', projectId] as const,
-        INSTALL_PROGRESS: ['lsp', 'install-progress'] as const,
     },
     AGENT: {
         ALL: ['agent'] as const,
         PROJECT: (projectId: ProjectId) => ['agent', 'project', projectId] as const,
         CLI: ['agent', 'cli'] as const,
+        /**
+         * Prefix covering every `HOOKS(projectId, agentName)` entry for `projectId` regardless of
+         * `agentName` — TanStack Query's default partial key matching treats this shorter array as
+         * a prefix, so `removeQueries`/`invalidateQueries` against it sweeps all agents at once
+         * without enumerating `agentName` values. Exists only for that scope-wide purge (see
+         * `PROJECT_SCOPED_KEYS` below); queries themselves are always keyed by the full `HOOKS`.
+         */
+        HOOKS_PROJECT: (projectId: ProjectId) => ['agent', 'hooks', projectId] as const,
         HOOKS: (projectId: ProjectId, agentName: string) => ['agent', 'hooks', projectId, agentName] as const,
     },
     PLUGIN: {
@@ -126,3 +134,30 @@ export const QUERY_KEY = {
         STATUS: ['remote', 'status'] as const,
     },
 }
+
+/**
+ * Every `QUERY_KEY` factory that scopes its whole subtree to one project — the project's editor
+ * layout, git state, tree cache, mirrors, agent roster/hooks, terminal sessions, task list, and LSP
+ * sessions all stop being fetchable (or meaningful) the moment that project closes.
+ * `IpcSyncProvider`'s `projectClosed` handler (contract F1#4) walks this array with
+ * `removeQueries({ queryKey: scopedKey(projectId) })` instead of naming a handful by hand, so a new
+ * project-scoped domain only has to add its factory here to be purged. `query-key.test.ts` locks
+ * this list's exhaustiveness against a maintained manifest of every `QUERY_KEY` branch.
+ *
+ * Each entry is deliberately the *coarsest* factory for its domain (e.g. `GIT.PROJECT`, not
+ * `GIT.STATUS`) — TanStack Query's default partial key matching treats a shorter key array as a
+ * prefix, so removing at the coarse key already removes every finer-grained scope nested under it.
+ */
+export const PROJECT_SCOPED_KEYS: ReadonlyArray<(projectId: ProjectId) => readonly unknown[]> = [
+    QUERY_KEY.PROJECT.DETAIL,
+    QUERY_KEY.LAYOUT.DETAIL,
+    QUERY_KEY.TREE.ROWS,
+    QUERY_KEY.GIT.PROJECT,
+    QUERY_KEY.AGENT.PROJECT,
+    QUERY_KEY.AGENT.HOOKS_PROJECT,
+    QUERY_KEY.TERMINAL.SESSIONS,
+    QUERY_KEY.TASK.LIST,
+    QUERY_KEY.FILE.MIRRORS,
+    QUERY_KEY.FILE.UNTITLED_MIRRORS,
+    QUERY_KEY.LSP.SESSIONS,
+]

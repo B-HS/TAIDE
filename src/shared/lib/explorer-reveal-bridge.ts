@@ -1,14 +1,6 @@
-type RevealInExplorerListener = (path: string) => void
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
 
-const listeners = new Set<RevealInExplorerListener>()
+const revealInExplorerBridge = createFireAndForgetBridge<string>()
 
-export const requestRevealInExplorer = (path: string) => {
-    for (const listener of listeners) listener(path)
-}
-
-export const subscribeRevealInExplorer = (listener: RevealInExplorerListener) => {
-    listeners.add(listener)
-    return () => {
-        listeners.delete(listener)
-    }
-}
+export const requestRevealInExplorer = revealInExplorerBridge.publish
+export const subscribeRevealInExplorer = revealInExplorerBridge.subscribe

@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { DEFAULT_SEARCH_OPTIONS } from '@entities/search/search.type'
 import { useRecentSearches } from '@entities/search/search-history'
-import { replaceSearch } from '@entities/search/search.ipc'
+import { useReplaceSearch } from '@entities/search/search.query'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { useOpenTab } from '@entities/layout/layout.query'
@@ -40,11 +40,11 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
     const [regex, setRegex] = useState(DEFAULT_SEARCH_OPTIONS.regex)
     const [respectGitignore, setRespectGitignore] = useState(DEFAULT_SEARCH_OPTIONS.respectGitignore)
     const [excludeGlob, setExcludeGlob] = useState('')
-    const [isReplacing, setIsReplacing] = useState(false)
     const [seededNonce, setSeededNonce] = useState<number | null>(null)
 
     const recentSearches = useRecentSearches()
     const { mutate: openTab } = useOpenTab(projectId)
+    const { mutate: replaceAll, isPending: isReplacing } = useReplaceSearch()
     const sessionId = `search-panel-${useId()}`
     const { results, totalMatches, isSearching, run } = useSearchRun(projectId, sessionId)
 
@@ -70,21 +70,17 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
         run(buildQuery())
     }
 
-    const handleReplaceAll = (input: ReplaceAllInput) => {
-        setIsReplacing(true)
-        void replaceSearch({
-            projectId,
-            query: buildQuery(),
-            replacement: input.replacement,
-            paths: input.paths.length > 0 ? input.paths : null,
-        })
-            .then((result) => {
-                toast.success(t('search.replaceDone', { files: result.changedFiles, matches: result.replacedMatches }))
-                handleSubmit()
-            })
-            .catch((error: Error) => toast.error(error.message))
-            .finally(() => setIsReplacing(false))
-    }
+    const handleReplaceAll = (input: ReplaceAllInput) =>
+        replaceAll(
+            { projectId, query: buildQuery(), replacement: input.replacement, paths: input.paths.length > 0 ? input.paths : null },
+            {
+                onSuccess: (result) => {
+                    toast.success(t('search.replaceDone', { files: result.changedFiles, matches: result.replacedMatches }))
+                    handleSubmit()
+                },
+                onError: (error) => toast.error(error.message),
+            },
+        )
 
     const handleOpenMatch = (path: string, line: number, column: number) => {
         requestReveal(path, line, column)

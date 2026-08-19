@@ -80,6 +80,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "lsp_send",
     "lsp_stop",
     "lsp_restart",
+    "lsp_confirm_reinitialize",
     "lsp_sessions",
     "lsp_detect_servers",
     "lsp_resolve_root",
@@ -726,6 +727,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
+                arg!(args, "owner"),
                 arg!(args, "sessionId"),
                 arg!(args, "query"),
                 make_channel(&args, "onMatch", &channel_factory)?,
@@ -743,7 +745,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "search_cancel" => respond(search::search_cancel(app.state(), app.state(), arg!(args, "sessionId")).await),
+        "search_cancel" => respond(search::search_cancel(app.state(), app.state(), arg!(args, "owner"), arg!(args, "sessionId")).await),
 
         "plugin_list" => respond(plugin::plugin_list(app.state(), app.state()).await),
         "plugin_reload" => respond(plugin::plugin_reload(app.state(), app.state()).await),
@@ -789,6 +791,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             .await,
         ),
         "lsp_restart" => respond(lsp::lsp_restart(app.clone(), app.state(), app.state(), arg!(args, "sessionId")).await),
+        "lsp_confirm_reinitialize" => {
+            respond(lsp::lsp_confirm_reinitialize(app.clone(), app.state(), arg!(args, "sessionId"), arg!(args, "generation")).await)
+        }
         "lsp_sessions" => respond(lsp::lsp_sessions(app.state(), arg!(args, "projectId")).await),
         "lsp_detect_servers" => respond(lsp::lsp_detect_servers(app.state()).await),
         "lsp_resolve_root" => respond(lsp::lsp_resolve_root(arg!(args, "serverId"), arg!(args, "filePath")).await),
@@ -1087,7 +1092,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "ide_start" => respond(ide::ide_start(app.clone(), app.state(), app.state()).await),
         "ide_stop" => respond(ide::ide_stop(app.clone(), app.state()).await),
         "ide_set_selection" => respond(ide::ide_set_selection(app.state(), arg!(args, "input")).await),
-        "ide_clear_selection" => respond(ide::ide_clear_selection(app.state()).await),
+        "ide_clear_selection" => respond(ide::ide_clear_selection(app.state(), arg!(args, "owner")).await),
         "ide_publish_diagnostics" => respond(ide::ide_publish_diagnostics(app.state(), arg!(args, "projectId"), arg!(args, "items")).await),
         "ide_resolve_diff" => respond(
             ide::ide_resolve_diff(
@@ -1111,7 +1116,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "ai_inline_complete" => respond(ai::ai_inline_complete(app.state(), app.state(), app.state(), arg!(args, "request")).await),
         "ai_inline_edit" => respond(ai::ai_inline_edit(app.state(), app.state(), app.state(), arg!(args, "request")).await),
         "ai_commit_message" => respond(ai::ai_commit_message(app.state(), app.state(), app.state(), arg!(args, "request")).await),
-        "ai_request_cancel" => respond(ai::ai_request_cancel(app.state(), arg!(args, "requestId")).await),
+        "ai_request_cancel" => respond(ai::ai_request_cancel(app.state(), arg!(args, "owner"), arg!(args, "requestId")).await),
 
         "sync_status" => respond(sync::sync_status(app.state(), app.state()).await),
         "sync_connect" => respond(sync::sync_connect(app.state(), app.state(), arg!(args, "pat")).await),

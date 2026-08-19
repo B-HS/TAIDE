@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { EventCallback } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -8,8 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { Group, Panel, usePanelRef } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import { toast } from 'sonner'
-import { openTab as openTabRaw } from '@entities/layout/layout.ipc'
-import { useOpenTab, useSetShellView } from '@entities/layout/layout.query'
+import { useOpenTab, useOpenTabInProject, useSetShellView } from '@entities/layout/layout.query'
 import { activeProjectQueryOptions, projectListQueryOptions, useActivateProject, useOpenProject } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
@@ -18,7 +17,6 @@ import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { IS_MAC } from '@shared/constants/platform'
-import { QUERY_KEY } from '@shared/constants/query-key'
 import {
     requestShowExplorerView,
     requestToggleExplorerSidebar,
@@ -46,13 +44,13 @@ export const AppShell = () => {
     const [isProblemsOpen, setIsProblemsOpen] = useState(false)
 
     const { t } = useTranslation()
-    const queryClient = useQueryClient()
     const { data: projects = [], isPending } = useQuery(projectListQueryOptions())
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: openProject, mutateAsync: openProjectAsync } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
     const { mutate: openTab } = useOpenTab(activeProjectId)
+    const { mutateAsync: openTabInProject } = useOpenTabInProject()
     const { mutate: setShellView } = useSetShellView(activeProjectId)
     const { zen, sidebarCollapsed, hideStatusBar } = useZenMode(activeProjectId)
 
@@ -72,12 +70,10 @@ export const AppShell = () => {
 
     const openDroppedFile = async (targetProjectId: string, path: string) => {
         const name = path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1)
-        try {
-            const layout = await openTabRaw({ projectId: targetProjectId, kind: { kind: 'file', path }, title: name, target: null, preview: true })
-            queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(targetProjectId), layout)
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : String(error))
-        }
+        await openTabInProject(
+            { projectId: targetProjectId, kind: { kind: 'file', path }, title: name, target: null, preview: true },
+            { onError: (error) => toast.error(error.message) },
+        ).catch(() => undefined)
     }
 
     const handleDroppedPaths = async (paths: string[]) => {

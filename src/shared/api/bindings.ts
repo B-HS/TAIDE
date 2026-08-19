@@ -114,8 +114,8 @@ export const commands = {
 	treeToggle: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_toggle", { projectId, path })),
 	treeReveal: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_reveal", { projectId, path })),
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
-	searchRun: (projectId: ProjectId, sessionId: string, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, sessionId, query, onMatch })),
-	searchCancel: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { sessionId })),
+	searchRun: (projectId: ProjectId, owner: string, sessionId: string, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, owner, sessionId, query, onMatch })),
+	searchCancel: (owner: string, sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { owner, sessionId })),
 	/**
 	 *  Reacquires `AppState::begin_mutation`'s single global lock **once per file** instead of holding
 	 *  it for the whole multi-file replace — a project-wide "replace all" can touch hundreds of files,
@@ -212,6 +212,16 @@ export const commands = {
 	 *  `lsp_stop` and `lsp_restart` could never interleave at all).
 	 */
 	lspRestart: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_restart", { sessionId })),
+	/**
+	 *  Called by the renderer once it has finished re-running `initialize` against a session whose
+	 *  [`LspSessionStatusChanged`] event reported a bumped `generation` (see the `generation` field doc
+	 *  on [`SessionEntry`]) — the counterpart to [`handle_process_exit`]'s auto-restart path that closes
+	 *  the loop T0 #24 left open (`Crashed` reported forever after a silent respawn, requiring a manual
+	 *  restart). A confirmation for a generation the session has since moved past (see
+	 *  [`confirm_reinitialize`]) is silently ignored rather than flipping a still-unhandshaked process to
+	 *  `Running`.
+	 */
+	lspConfirmReinitialize: (sessionId: string, generation: number) => typedError<null, AppError>(__TAURI_INVOKE("lsp_confirm_reinitialize", { sessionId, generation })),
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),
 	lspDetectServers: () => typedError<LspServerDetection[], AppError>(__TAURI_INVOKE("lsp_detect_servers")),
 	lspResolveRoot: (serverId: LspServerId, filePath: string) => typedError<string | null, AppError>(__TAURI_INVOKE("lsp_resolve_root", { serverId, filePath })),
@@ -317,8 +327,16 @@ export const commands = {
 	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
 	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
 	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
+	/**
+	 *  A remote session's `owner` (`IdeSelectionInput.owner == REMOTE_OWNER_LABEL`) is a deliberate
+	 *  no-op: neither [`IdeStore::set_selection`] nor the `selection_changed` broadcast run, so a
+	 *  browser-side editor selection can never overwrite what the local desktop's IDE MCP protocol
+	 *  (`getCurrentSelection`/`getLatestSelection` in [`server`]) reports for the actual desktop editor
+	 *  (R6#12).
+	 */
 	ideSetSelection: (input: IdeSelectionInput) => typedError<null, AppError>(__TAURI_INVOKE("ide_set_selection", { input })),
-	ideClearSelection: () => typedError<null, AppError>(__TAURI_INVOKE("ide_clear_selection")),
+	/**  See [`ide_set_selection`]'s doc comment for why a remote `owner` is a no-op here too. */
+	ideClearSelection: (owner: string) => typedError<null, AppError>(__TAURI_INVOKE("ide_clear_selection", { owner })),
 	idePublishDiagnostics: (projectId: ProjectId, items: IdeDiagnostic[]) => typedError<null, AppError>(__TAURI_INVOKE("ide_publish_diagnostics", { projectId, items })),
 	ideResolveDiff: (requestId: string, outcome: IdeDiffOutcome, content: string | null) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_diff", { requestId, outcome, content })),
 	ideResolveSave: (requestId: string, saved: boolean) => typedError<null, AppError>(__TAURI_INVOKE("ide_resolve_save", { requestId, saved })),
@@ -340,7 +358,12 @@ export const commands = {
 	 *  comment for why.
 	 */
 	aiCommitMessage: (request: AiCommitMessageRequest) => typedError<AiCommitMessageResponse, AppError>(__TAURI_INVOKE("ai_commit_message", { request })),
-	aiRequestCancel: (requestId: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_request_cancel", { requestId })),
+	/**
+	 *  `owner` (see [`AiInlineCompleteRequest::owner`](crate::domain::ai::types::AiInlineCompleteRequest)'s
+	 *  doc comment) must match the `owner` the in-flight request itself was `begin()`ed with — otherwise
+	 *  this could cancel a same-`requestId` request actually in flight in a different window (R6#20).
+	 */
+	aiRequestCancel: (owner: string, requestId: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_request_cancel", { owner, requestId })),
 	syncStatus: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_status")),
 	syncConnect: (pat: string) => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_connect", { pat })),
 	syncDisconnect: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_disconnect")),
@@ -472,6 +495,8 @@ export type AheadBehind = {
 
 export type AiCommitMessageRequest = {
 	requestId: string,
+	/**  See [`AiInlineCompleteRequest::owner`]'s doc comment. */
+	owner: string,
 	provider?: AiProviderId | null,
 	model?: string | null,
 	diffText: string,
@@ -483,8 +508,17 @@ export type AiCommitMessageResponse = {
 	text: string | null,
 };
 
+/**
+ *  `owner` (`getCurrentWindow().label` on the frontend — `main`/`editor-<n>`, or the remote client's
+ *  fixed `domain::remote::types::REMOTE_OWNER_LABEL`) combines with `request_id` to key
+ *  `AiRequestStore` (R6#20) — a caller-supplied `request_id` alone is shared global state, so two
+ *  windows that happen to generate the same id (or a remote session replaying one) would otherwise
+ *  collide: the second `begin()` would be rejected as "already in flight", or a `ai_request_cancel`
+ *  from one window could cancel a same-id request actually in flight in another.
+ */
 export type AiInlineCompleteRequest = {
 	requestId: string,
+	owner: string,
 	provider: AiProviderId,
 	model: string,
 	prefix: string,
@@ -500,6 +534,8 @@ export type AiInlineCompleteResponse = {
 
 export type AiInlineEditRequest = {
 	requestId: string,
+	/**  See [`AiInlineCompleteRequest::owner`]'s doc comment. */
+	owner: string,
 	provider?: AiProviderId | null,
 	model?: string | null,
 	selection: string,
@@ -799,7 +835,15 @@ export type IdeSaveRequested = {
 	path: string,
 };
 
+/**
+ *  `owner` (`getCurrentWindow().label` on the frontend — `main`/`editor-<n>`, or the remote client's
+ *  fixed `domain::remote::types::REMOTE_OWNER_LABEL`) lets [`ide_set_selection`](super::commands::ide_set_selection)
+ *  tell a real desktop window's selection apart from a remote session's — see the doc comment there
+ *  for why a remote-sourced selection must never reach [`IdeStore`](super::commands::IdeStore)'s
+ *  desktop-facing slots.
+ */
 export type IdeSelectionInput = {
+	owner: string,
 	projectId: ProjectId,
 	path: string,
 	text: string,
@@ -888,6 +932,11 @@ export type LspServerDetection = {
 
 export type LspServerId = string;
 
+/**
+ *  `generation` mirrors `LspSessionStatusChanged.generation` (see the `generation` field doc on
+ *  `domain::lsp::commands::SessionEntry`) — a poll-based fallback for a renderer that missed the
+ *  event (reconnect, hidden tab) to detect an auto-restart it still needs to re-handshake.
+ */
 export type LspSessionInfo = {
 	sessionId: string,
 	projectId: ProjectId,
@@ -895,14 +944,25 @@ export type LspSessionInfo = {
 	root: string,
 	status: LspSessionStatus,
 	lastError?: string | null,
+	generation: number,
 };
 
 export type LspSessionStatus = "starting" | "running" | "crashed" | "stopped";
 
+/**
+ *  `generation` (R7#1) increases only when `crate::domain::lsp::commands::handle_process_exit`'s
+ *  automatic crash-restart path successfully respawns the process — see the `generation` field doc
+ *  on `domain::lsp::commands::SessionEntry` for the full semantics: a `status: Crashed` event whose
+ *  `generation` is higher than the last one the renderer saw means "the process behind this
+ *  `session_id` was silently replaced — discard your old LSP client state, re-run `initialize` over
+ *  `lsp_send`, then call `domain::lsp::commands::lsp_confirm_reinitialize` with this same
+ *  `generation`" (only that confirmation flips `status` back to `Running`).
+ */
 export type LspSessionStatusChanged = {
 	sessionId: string,
 	status: LspSessionStatus,
 	lastError: string | null,
+	generation: number,
 };
 
 /**

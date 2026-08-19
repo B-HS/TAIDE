@@ -15,10 +15,33 @@ type MonacoEditorSetTheme = typeof monaco.editor.setTheme
 type MonacoEditorCreate = typeof monaco.editor.create
 
 let highlighter: HighlighterCore | null = null
-let initPromise: Promise<void> | null = null
 let lastResolvedTheme: ResolvedTheme | null = null
 let originalSetTheme: MonacoEditorSetTheme | null = null
 let originalCreate: MonacoEditorCreate | null = null
+
+/**
+ * Serializes every `initShiki`/`reinitShiki` body behind one FIFO chain (F6#19) — without this, two
+ * concurrent calls (e.g. a plugin-reload-triggered `reinitShiki` racing an in-flight `initShiki`,
+ * or two rapid plugin reloads) could each run `captureOriginalMonacoEditorApi` →
+ * `createHighlighterCore` → `attachShikiTokensProvider`'s `restoreOriginalMonacoEditorApi` →
+ * `shikiToMonaco` interleaved: `shikiToMonaco` monkeypatches `monaco.editor.setTheme`/`create`, and
+ * two overlapping restore-then-repatch sequences can leave monaco's public API wrapped around a
+ * highlighter that call B's own `reinitShiki` has since disposed, or leave call A's finished
+ * highlighter's registration silently clobbered by call B's before call A ever disposed its own
+ * stale one. Every operation queued here runs to completion before the next one starts, so
+ * "restore original → repatch with the new highlighter → (reinit only) dispose the stale one" is
+ * always atomic relative to any other call.
+ */
+let operationQueue: Promise<void> = Promise.resolve()
+
+const runExclusive = (operation: () => Promise<void>): Promise<void> => {
+    const scheduled = operationQueue.then(operation, operation)
+    operationQueue = scheduled.then(
+        () => undefined,
+        () => undefined,
+    )
+    return scheduled
+}
 
 const captureOriginalMonacoEditorApi = () => {
     if (originalSetTheme && originalCreate) return
@@ -58,34 +81,44 @@ const sanitizePluginGrammarEmbeddedLangs = (grammar: LanguageRegistration, loade
     return { ...grammar, embeddedLangs: grammar.embeddedLangs.filter((name) => loadedLanguageNames.has(name)) }
 }
 
+const createConfiguredHighlighter = async (pluginGrammars: LanguageRegistration[]) => {
+    const taideGrammars = await loadAllTaideGrammars()
+    const loadedLanguageNames = new Set([...taideGrammars, ...pluginGrammars].map((grammar) => grammar.name))
+    const safePluginGrammars = pluginGrammars.map((grammar) => sanitizePluginGrammarEmbeddedLangs(grammar, loadedLanguageNames))
+    return createHighlighterCore({
+        themes: [lastResolvedTheme ? buildShikiTheme(lastResolvedTheme) : PLACEHOLDER_SHIKI_THEME],
+        langs: [...taideGrammars, ...safePluginGrammars],
+        engine: createJavaScriptRegexEngine(),
+    })
+}
+
+/**
+ * Builds a fresh highlighter and installs it as the shared `highlighter`, reapplying
+ * `lastResolvedTheme` through it. Failures (e.g. a malformed plugin grammar) are caught and
+ * logged rather than left as a rejected promise — `highlighter` stays `null` and the editor keeps
+ * using the pre-shiki fallback theme (`applyFallbackMonacoTheme`) until a retry.
+ */
+const buildAndInstallHighlighter = async (pluginGrammars: LanguageRegistration[]) => {
+    try {
+        captureOriginalMonacoEditorApi()
+        highlighter = await createConfiguredHighlighter(pluginGrammars)
+        if (lastResolvedTheme) await attachShikiTokensProvider(lastResolvedTheme)
+    } catch (error) {
+        console.error('[shiki] failed to initialize highlighter, keeping fallback monaco theming', error)
+        highlighter = null
+    }
+}
+
 /**
  * Loads all TAIDE + plugin grammars and creates the shared shiki highlighter. Idempotent — a
- * second call while the first is still in flight returns the same promise. Failures (e.g. a
- * malformed plugin grammar) are caught and logged rather than left as a permanently-rejected
- * `initPromise` — `highlighter` stays `null` and the editor keeps using the pre-shiki fallback
- * theme (`applyFallbackMonacoTheme`) until a retry (e.g. "reload plugins" → `reinitShiki`).
+ * highlighter is only ever built once: a call while one already exists resolves immediately, and a
+ * call while a build is still in flight (whether from an earlier `initShiki` or a `reinitShiki`)
+ * queues behind it (`runExclusive`, F6#19) and then finds `highlighter` already set, so it never
+ * redoes the (expensive) grammar-load/highlighter-create work.
  */
-export const initShiki = async (pluginGrammars: LanguageRegistration[]) => {
-    if (initPromise) return initPromise
-    initPromise = (async () => {
-        try {
-            captureOriginalMonacoEditorApi()
-            const taideGrammars = await loadAllTaideGrammars()
-            const loadedLanguageNames = new Set([...taideGrammars, ...pluginGrammars].map((grammar) => grammar.name))
-            const safePluginGrammars = pluginGrammars.map((grammar) => sanitizePluginGrammarEmbeddedLangs(grammar, loadedLanguageNames))
-            highlighter = await createHighlighterCore({
-                themes: [lastResolvedTheme ? buildShikiTheme(lastResolvedTheme) : PLACEHOLDER_SHIKI_THEME],
-                langs: [...taideGrammars, ...safePluginGrammars],
-                engine: createJavaScriptRegexEngine(),
-            })
-            if (lastResolvedTheme) await attachShikiTokensProvider(lastResolvedTheme)
-        } catch (error) {
-            console.error('[shiki] failed to initialize highlighter, keeping fallback monaco theming', error)
-            highlighter = null
-            initPromise = null
-        }
-    })()
-    return initPromise
+export const initShiki = (pluginGrammars: LanguageRegistration[]): Promise<void> => {
+    if (highlighter) return Promise.resolve()
+    return runExclusive(() => (highlighter ? Promise.resolve() : buildAndInstallHighlighter(pluginGrammars)))
 }
 
 /**
@@ -105,15 +138,17 @@ export const applyShikiTheme = async (resolved: ResolvedTheme) => {
 
 /**
  * Recreates the highlighter with a fresh grammar set (e.g. after plugins reload), reapplying
- * `lastResolvedTheme`. The stale highlighter is disposed only after the new one has fully taken
- * over (monaco's tokens provider and `setTheme`/`create` patches repointed to it) — disposing it
- * up front would leave those still bound to the old instance for the duration of the rebuild,
- * and any retokenize/theme-change during that window would call into a disposed highlighter.
+ * `lastResolvedTheme`. Queued behind `runExclusive` (F6#19) the same as `initShiki`, so this never
+ * runs concurrently with another `initShiki`/`reinitShiki` call — the stale highlighter is disposed
+ * only after the new one has fully taken over (monaco's tokens provider and `setTheme`/`create`
+ * patches repointed to it) — disposing it up front would leave those still bound to the old
+ * instance for the duration of the rebuild, and any retokenize/theme-change during that window
+ * would call into a disposed highlighter.
  */
-export const reinitShiki = async (pluginGrammars: LanguageRegistration[]) => {
-    const staleHighlighter = highlighter
-    highlighter = null
-    initPromise = null
-    await initShiki(pluginGrammars)
-    staleHighlighter?.dispose()
-}
+export const reinitShiki = (pluginGrammars: LanguageRegistration[]): Promise<void> =>
+    runExclusive(async () => {
+        const staleHighlighter = highlighter
+        highlighter = null
+        await buildAndInstallHighlighter(pluginGrammars)
+        staleHighlighter?.dispose()
+    })

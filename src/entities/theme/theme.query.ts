@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ResolvedTheme } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -5,6 +6,7 @@ import { deleteTheme, getCurrentTheme, getTheme, listThemes, saveTheme } from '@
 import { readSystemTheme } from '@shared/lib/system-appearance'
 import { diffThemeValues } from '@shared/lib/theme-draft'
 import type { ThemeDraft } from '@shared/lib/theme-draft'
+import { createExternalStoreBridge } from '@shared/lib/external-store-bridge'
 
 export const themeListQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.THEME.LIST, queryFn: listThemes })
 
@@ -41,13 +43,23 @@ const toResolvedThemeFromDraft = (draft: ThemeDraft, baseTokenColors: ResolvedTh
     warnings: [],
 })
 
+/**
+ * Holds the theme editor's live preview override outside the query cache (contract F1#11≡R5#10):
+ * a draft-in-progress is client-only UI state, not a server fact, so it must never overwrite
+ * `QUERY_KEY.THEME.CURRENT` — that key is reserved for what `theme_get_current` actually resolved.
+ * `ThemeProvider` reads this alongside {@link currentThemeQueryOptions} and prefers it when set.
+ */
+const themePreviewStore = createExternalStoreBridge<ResolvedTheme | null>(null)
+
+export const useThemePreviewValue = () => useSyncExternalStore(themePreviewStore.subscribe, themePreviewStore.getSnapshot)
+
 export const useThemePreview = () => {
     const queryClient = useQueryClient()
     return {
         setPreview: (draft: ThemeDraft) => {
             const baseTheme = queryClient.getQueryData<ResolvedTheme>(QUERY_KEY.THEME.DETAIL(draft.extendsId))
-            queryClient.setQueryData(QUERY_KEY.THEME.CURRENT, toResolvedThemeFromDraft(draft, baseTheme?.tokenColors))
+            themePreviewStore.setValue(toResolvedThemeFromDraft(draft, baseTheme?.tokenColors))
         },
-        clearPreview: () => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.CURRENT }),
+        clearPreview: () => themePreviewStore.setValue(null),
     }
 }

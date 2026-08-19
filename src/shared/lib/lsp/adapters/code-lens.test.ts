@@ -4,7 +4,13 @@ import { createLspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { ServerCapabilities } from '@shared/lib/lsp/protocol'
 import { isJsonRpcRequest } from '@shared/lib/lsp/protocol'
-import { CODE_LENS_REFRESH_DEBOUNCE_MS, registerCodeLens, toMonacoCodeLens, toMonacoCommand } from '@shared/lib/lsp/adapters/code-lens'
+import {
+    CODE_LENS_REFRESH_DEBOUNCE_MS,
+    registerCodeLens,
+    toMonacoCodeLens,
+    toMonacoCommand,
+    triggerCodeLensRefresh,
+} from '@shared/lib/lsp/adapters/code-lens'
 
 const createFakeToken = (isCancellationRequested: boolean): CancellationToken => ({
     isCancellationRequested,
@@ -181,7 +187,7 @@ describe('registerCodeLens', () => {
         expect(resolved).toBe(unresolvedLens)
     })
 
-    test('workspace/codeLens/refresh 수신 시 디바운스 후 onDidChange 를 발화한다', async () => {
+    test('triggerCodeLensRefresh(client) 호출 시 디바운스 후 onDidChange 를 발화한다', async () => {
         const client = await createTestLspClient({ codeLensProvider: {} }, () => [])
         const { monaco, getProvider } = createFakeMonaco()
         registerCodeLens(monaco, client, 'typescript')
@@ -189,7 +195,7 @@ describe('registerCodeLens', () => {
         let fired = false
         getProvider()?.onDidChange?.(() => (fired = true))
 
-        client.handleMessage({ jsonrpc: '2.0', id: 'server-1', method: 'workspace/codeLens/refresh' })
+        triggerCodeLensRefresh(client)
 
         expect(fired).toBe(false)
         await new Promise((resolve) => setTimeout(resolve, CODE_LENS_REFRESH_DEBOUNCE_MS + 50))
@@ -206,8 +212,28 @@ describe('registerCodeLens', () => {
         disposable.dispose()
         expect(getDisposeCallCount()).toBe(1)
 
-        client.handleMessage({ jsonrpc: '2.0', id: 'server-2', method: 'workspace/codeLens/refresh' })
+        triggerCodeLensRefresh(client)
         await new Promise((resolve) => setTimeout(resolve, CODE_LENS_REFRESH_DEBOUNCE_MS + 50))
         expect(fired).toBe(false)
+    })
+
+    test('triggerCodeLensRefresh 는 같은 client 로 등록된 registration 만 발화한다 (세션 간 전역 브로드캐스트 제거, F7#4)', async () => {
+        const clientA = await createTestLspClient({ codeLensProvider: {} }, () => [])
+        const clientB = await createTestLspClient({ codeLensProvider: {} }, () => [])
+        const { monaco: monacoA, getProvider: getProviderA } = createFakeMonaco()
+        const { monaco: monacoB, getProvider: getProviderB } = createFakeMonaco()
+        registerCodeLens(monacoA, clientA, 'typescript')
+        registerCodeLens(monacoB, clientB, 'typescript')
+
+        let firedA = false
+        let firedB = false
+        getProviderA()?.onDidChange?.(() => (firedA = true))
+        getProviderB()?.onDidChange?.(() => (firedB = true))
+
+        triggerCodeLensRefresh(clientA)
+        await new Promise((resolve) => setTimeout(resolve, CODE_LENS_REFRESH_DEBOUNCE_MS + 50))
+
+        expect(firedA).toBe(true)
+        expect(firedB).toBe(false)
     })
 })

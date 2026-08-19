@@ -6,12 +6,14 @@ import { events } from '@shared/api/bindings'
 import { i18next } from '@shared/i18n/i18n'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
-import { openTab } from '@entities/layout/layout.ipc'
+import { useOpenTabInProject } from '@entities/layout/layout.query'
 import { activateProject, listProjects, openProject } from '@entities/project/project.ipc'
 import { clearStaleWaitMarkersOnStartup, registerWaitMarker } from '@entities/agent/agent-wait-marker-registry'
 import { pendingExternalOpens, releaseWaitMarker } from '@entities/agent/agent.ipc'
 
 const PATH_SEPARATOR = '/'
+
+type OpenTabInProject = ReturnType<typeof useOpenTabInProject>['mutateAsync']
 
 const isPathWithinRoot = (path: string, root: string) => path === root || path.startsWith(`${root}${PATH_SEPARATOR}`)
 
@@ -24,13 +26,12 @@ const tryOpenAsProject = async (path: string) => {
     }
 }
 
-const openExternalFile = async (queryClient: QueryClient, projectId: string, path: string) => {
+const openExternalFile = (openTabInProject: OpenTabInProject, projectId: string, path: string) => {
     const name = path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1)
-    const layout = await openTab({ projectId, kind: { kind: 'file', path }, title: name, target: null, preview: true })
-    queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId), layout)
+    return openTabInProject({ projectId, kind: { kind: 'file', path }, title: name, target: null, preview: true })
 }
 
-const processExternalOpenRequest = async (queryClient: QueryClient, request: ExternalOpenRequest) => {
+const processExternalOpenRequest = async (queryClient: QueryClient, openTabInProject: OpenTabInProject, request: ExternalOpenRequest) => {
     if (await tryOpenAsProject(request.path)) {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
         if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
@@ -48,7 +49,7 @@ const processExternalOpenRequest = async (queryClient: QueryClient, request: Ext
     try {
         await activateProject(owningProject.id)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
-        await openExternalFile(queryClient, owningProject.id, request.path)
+        await openExternalFile(openTabInProject, owningProject.id, request.path)
         if (request.waitMarker) registerWaitMarker(request.path, request.waitMarker)
     } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error))
@@ -56,13 +57,14 @@ const processExternalOpenRequest = async (queryClient: QueryClient, request: Ext
     }
 }
 
-const drainPendingExternalOpens = (queryClient: QueryClient) =>
+const drainPendingExternalOpens = (queryClient: QueryClient, openTabInProject: OpenTabInProject) =>
     pendingExternalOpens().then((requests) => {
-        for (const request of requests) void processExternalOpenRequest(queryClient, request)
+        for (const request of requests) void processExternalOpenRequest(queryClient, openTabInProject, request)
     })
 
 export const AgentExternalOpenProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
+    const { mutateAsync: openTabInProject } = useOpenTabInProject()
 
     /**
      * The backend always queues the request in `AgentStore` before emitting this event (single
@@ -70,12 +72,12 @@ export const AgentExternalOpenProvider: FC<PropsWithChildren> = ({ children }) =
      * directly — acting on the payload too would leave the queued entry behind for the next
      * `pendingExternalOpens` drain (e.g. on Reload Window) to reprocess as a duplicate.
      */
-    useTauriEvent(events.agentExternalOpen, () => void drainPendingExternalOpens(queryClient))
+    useTauriEvent(events.agentExternalOpen, () => void drainPendingExternalOpens(queryClient, openTabInProject))
 
     useEffect(() => {
         clearStaleWaitMarkersOnStartup()
-        void drainPendingExternalOpens(queryClient)
-    }, [queryClient])
+        void drainPendingExternalOpens(queryClient, openTabInProject)
+    }, [queryClient, openTabInProject])
 
     return children
 }

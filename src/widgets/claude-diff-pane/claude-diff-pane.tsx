@@ -1,14 +1,17 @@
 import type { FC } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ProjectId, TabId } from '@shared/api/bindings'
+import type { ProjectId, ProjectLayout, TabId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
+import { QUERY_KEY } from '@shared/constants/query-key'
+import { findPaneTab } from '@shared/lib/pane-tree'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { useCloseTab } from '@entities/layout/layout.query'
+import { resolveIdeDiff } from '@entities/ide/ide.ipc'
 import { useResolveIdeDiff } from '@entities/ide/ide.query'
-import { getPendingClaudeDiff, removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
+import { getPendingClaudeDiff, removePendingClaudeDiff, takePendingClaudeDiffIfUnresolved } from '@entities/ide/claude-diff-registry'
 import { Button } from '@shared/ui/button'
 
 const FALLBACK_LANGUAGE_ID = 'plaintext'
@@ -29,6 +32,7 @@ export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requ
     const requestedContentsRef = useRef(getPendingClaudeDiff(requestId)?.newContents ?? '')
     const [isResolving, setIsResolving] = useState(false)
 
+    const queryClient = useQueryClient()
     const { data: file } = useQuery({ ...fileQueryOptions(path), retry: false })
     const { mutateAsync: resolveDiff } = useResolveIdeDiff()
     const { mutate: closeTab } = useCloseTab(projectId)
@@ -67,6 +71,29 @@ export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requ
         monaco.editor.setModelLanguage(originalModel, languageId)
         monaco.editor.setModelLanguage(modifiedModel, languageId)
     }, [originalContent, languageId])
+
+    /**
+     * Releases the backend's pending `ide:diff-requested` wait when this pane goes away without the
+     * user ever clicking Accept/Reject — e.g. closing the tab directly from the tab bar. This pane
+     * only renders while its tab is the *active* tab of its pane (`pane-node-view.tsx`), so a plain
+     * unmount effect can't tell "the user switched to another tab, this one is still open" apart
+     * from "the tab actually closed" — checking whether `tabId` is still anywhere in the project's
+     * current layout (any pane, active or not) via `findPaneTab` is what makes that distinction. The
+     * layout cache the tab-close mutation writes (`layout.query.ts`'s `useLayoutMutation`) is already
+     * updated by the time this pane actually unmounts as a result of it — the cache write is what
+     * triggers the re-render that removes this pane from the tree in the first place — so this stays
+     * correct even through React 18 `StrictMode`'s (`main.tsx`) synchronous mount→cleanup→remount
+     * replay: at that replay's cleanup, nothing has changed yet, so `findPaneTab` still finds the tab
+     * and this is a no-op, same as a real "switched to another tab, this one is still open" case.
+     */
+    useEffect(() => {
+        return () => {
+            const layout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId))
+            if (layout && findPaneTab(layout.root, tabId)) return
+            if (!takePendingClaudeDiffIfUnresolved(requestId)) return
+            void resolveIdeDiff({ requestId, outcome: 'rejected', content: null }).catch(() => undefined)
+        }
+    }, [requestId, tabId, projectId, queryClient])
 
     const handleAccept = async () => {
         if (isResolving) return

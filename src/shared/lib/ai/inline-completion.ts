@@ -19,7 +19,7 @@ export type AiInlineCompletionConfig = {
  * directly (fsd.md §2), mirroring how `shared/lib/lsp/adapters/*` take an injected `LspClient`.
  */
 export type AiInlineCompletionClient = {
-    complete: (request: AiInlineCompleteRequest) => Promise<AiInlineCompleteResponse>
+    complete: (request: Omit<AiInlineCompleteRequest, 'owner'>) => Promise<AiInlineCompleteResponse>
     cancel: (requestId: string) => Promise<unknown>
 }
 

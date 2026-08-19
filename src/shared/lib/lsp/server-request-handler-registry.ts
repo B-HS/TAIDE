@@ -8,9 +8,19 @@ const isConfigurationParams = (params: unknown): params is ConfigurationParams =
 
 const handlers = new Map<string, ServerRequestHandler>()
 
+/**
+ * The returned dispose function only removes `handler` itself, not "whatever is currently
+ * registered under `method`" — mirroring `client.ts`'s instance-scoped `registerRequestHandler`
+ * (F7#12). Without the identity check, a stale dispose closure from an *earlier* registration
+ * could race a *later* one for the same method (e.g. a reinitializing session re-registering a
+ * default handler while the previous session's own disposal is still in flight) and delete the
+ * new, still-wanted handler instead of a no-op.
+ */
 export const registerServerRequestHandler = (method: string, handler: ServerRequestHandler) => {
     handlers.set(method, handler)
-    return () => unregisterServerRequestHandler(method)
+    return () => {
+        if (handlers.get(method) === handler) unregisterServerRequestHandler(method)
+    }
 }
 
 export const unregisterServerRequestHandler = (method: string) => {
@@ -18,15 +28,6 @@ export const unregisterServerRequestHandler = (method: string) => {
 }
 
 export const getServerRequestHandler = (method: string) => handlers.get(method)
-
-type RefreshListener = () => void
-
-const codeLensRefreshListeners = new Set<RefreshListener>()
-
-export const subscribeCodeLensRefresh = (listener: RefreshListener) => {
-    codeLensRefreshListeners.add(listener)
-    return () => codeLensRefreshListeners.delete(listener)
-}
 
 registerServerRequestHandler('workspace/configuration', async (params) => {
     const items = isConfigurationParams(params) ? params.items : []
@@ -44,8 +45,3 @@ registerServerRequestHandler('client/registerCapability', async () => null)
 registerServerRequestHandler('client/unregisterCapability', async () => null)
 
 registerServerRequestHandler('window/workDoneProgress/create', async () => null)
-
-registerServerRequestHandler('workspace/codeLens/refresh', async () => {
-    codeLensRefreshListeners.forEach((listener) => listener())
-    return null
-})

@@ -11,6 +11,7 @@ use super::server;
 use super::service;
 use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeSelectionInput, IdeStatus, IDE_PORT_BIND_MAX_ATTEMPTS};
 use crate::domain::layout::types::{Tab, TabKind};
+use crate::domain::remote::types::REMOTE_OWNER_LABEL;
 use crate::error::{AppError, AppResult};
 use crate::events::IdeStatusChanged;
 use crate::ids::ProjectId;
@@ -216,6 +217,15 @@ impl IdeStore {
         self.inner.lock().current_selection = None;
     }
 
+    /// True when `owner` is not the remote session's fixed label — the gate
+    /// [`ide_set_selection`]/[`ide_clear_selection`] use before touching [`IdeStore`]'s selection
+    /// slots or broadcasting a `selection_changed` notification, so a remote browser session's
+    /// editor selection can never be mistaken for the local desktop editor's by
+    /// [`ide::server`](super::server)'s MCP `getCurrentSelection`/`getLatestSelection` tools (R6#12).
+    fn is_desktop_owner(owner: &str) -> bool {
+        owner != REMOTE_OWNER_LABEL
+    }
+
     pub fn current_selection(&self) -> Option<IdeSelectionSnapshot> {
         self.inner.lock().current_selection.clone()
     }
@@ -382,9 +392,18 @@ pub async fn ide_stop(app: AppHandle, ide: State<'_, IdeStore>) -> AppResult<()>
     Ok(())
 }
 
+/// A remote session's `owner` (`IdeSelectionInput.owner == REMOTE_OWNER_LABEL`) is a deliberate
+/// no-op: neither [`IdeStore::set_selection`] nor the `selection_changed` broadcast run, so a
+/// browser-side editor selection can never overwrite what the local desktop's IDE MCP protocol
+/// (`getCurrentSelection`/`getLatestSelection` in [`server`]) reports for the actual desktop editor
+/// (R6#12).
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_set_selection(ide: State<'_, IdeStore>, input: IdeSelectionInput) -> AppResult<()> {
+    if !IdeStore::is_desktop_owner(&input.owner) {
+        return Ok(());
+    }
+
     let selection = IdeSelectionSnapshot {
         project_id: input.project_id,
         path: input.path,
@@ -401,9 +420,13 @@ pub async fn ide_set_selection(ide: State<'_, IdeStore>, input: IdeSelectionInpu
     Ok(())
 }
 
+/// See [`ide_set_selection`]'s doc comment for why a remote `owner` is a no-op here too.
 #[tauri::command]
 #[specta::specta]
-pub async fn ide_clear_selection(ide: State<'_, IdeStore>) -> AppResult<()> {
+pub async fn ide_clear_selection(ide: State<'_, IdeStore>, owner: String) -> AppResult<()> {
+    if !IdeStore::is_desktop_owner(&owner) {
+        return Ok(());
+    }
     ide.clear_selection();
     Ok(())
 }
@@ -600,6 +623,17 @@ mod tests {
         store.clear_selection();
         assert!(store.current_selection().is_none());
         assert!(store.latest_selection().is_some());
+    }
+
+    /// R6#12 회귀: `ide_set_selection`/`ide_clear_selection` 은 `IdeStore::is_desktop_owner`
+    /// 로 원격 세션의 고정 owner(`REMOTE_OWNER_LABEL`)를 걸러낸 뒤에만 스토어에 쓴다 — 이
+    /// 판정이 뒤집히면 원격 세션의 선택영역이 데스크톱 IDE MCP 프로토콜(`getCurrentSelection`)
+    /// 이 보고하는 상태를 오염시킨다.
+    #[test]
+    fn is_desktop_owner는_원격_고정_라벨만_거부한다() {
+        assert!(!IdeStore::is_desktop_owner(REMOTE_OWNER_LABEL));
+        assert!(IdeStore::is_desktop_owner("main"));
+        assert!(IdeStore::is_desktop_owner("editor-2"));
     }
 
     #[test]

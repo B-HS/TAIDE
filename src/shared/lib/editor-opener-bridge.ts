@@ -1,21 +1,12 @@
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { createFireAndForgetBridge } from '@shared/lib/fire-and-forget-bridge'
 
 export type OpenFileFromEditorRequest = { path: string; line: number; column: number }
 
-type OpenFileFromEditorListener = (request: OpenFileFromEditorRequest) => void
+const openFileFromEditorBridge = createFireAndForgetBridge<OpenFileFromEditorRequest>()
 
-const listeners = new Set<OpenFileFromEditorListener>()
-
-export const requestOpenFileFromEditor = (request: OpenFileFromEditorRequest) => {
-    for (const listener of listeners) listener(request)
-}
-
-export const subscribeOpenFileFromEditor = (listener: OpenFileFromEditorListener) => {
-    listeners.add(listener)
-    return () => {
-        listeners.delete(listener)
-    }
-}
+export const requestOpenFileFromEditor = openFileFromEditorBridge.publish
+export const subscribeOpenFileFromEditor = openFileFromEditorBridge.subscribe
 
 type RegisterEditorOpener = Monaco['editor']['registerEditorOpener']
 type CodeEditorOpener = Parameters<RegisterEditorOpener>[0]
@@ -61,7 +52,7 @@ export const registerLspEditorOpener = (monaco: Monaco) =>
             }
 
             if (resource.scheme !== FILE_SCHEME) return false
-            if (listeners.size === 0) return false
+            if (!openFileFromEditorBridge.hasSubscribers()) return false
 
             const { line, column } = toLineColumn(selectionOrPosition)
             requestOpenFileFromEditor({ path: resource.fsPath, line, column })
