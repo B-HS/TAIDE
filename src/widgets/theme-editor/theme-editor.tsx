@@ -148,7 +148,7 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
                         value={search}
                         onChange={(event) => setSearch(event.currentTarget.value)}
                         placeholder={t('themeEditor.searchTokensPlaceholder')}
-                        aria-label={t('themeEditor.searchTokensPlaceholder')}
+                        aria-label={t('themeEditor.searchTokensAriaLabel')}
                         className='bg-panel-input-background border-panel-input-border text-app-foreground mb-4 w-full rounded-sm border px-2 py-1 text-xs'
                     />
 

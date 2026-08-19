@@ -1,5 +1,6 @@
 import type { FC, RefObject } from 'react'
 import { cn } from '@shared/lib/cn'
+import { SCROLLBAR_SCROLL_PERCENT_MAX } from '@shared/constants/scrollbar'
 import type { OverlayScrollbarOrientation } from '@shared/hooks/use-overlay-scrollbar'
 import { useOverlayScrollbar } from '@shared/hooks/use-overlay-scrollbar'
 
@@ -17,9 +18,10 @@ export const OverlayScrollbar: FC<OverlayScrollbarProps> = ({ viewportRef, orien
         <div
             ref={trackRef}
             role='scrollbar'
+            aria-hidden='true'
             aria-orientation={orientation}
             aria-valuemin={0}
-            aria-valuemax={100}
+            aria-valuemax={SCROLLBAR_SCROLL_PERCENT_MAX}
             data-slot='overlay-scrollbar-track'
             className={cn(
                 'pointer-events-none absolute z-10 opacity-0 transition-opacity duration-200 data-[scrollable=true]:pointer-events-auto data-[visible=true]:opacity-100',

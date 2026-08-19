@@ -49,7 +49,10 @@
 
 ### app (최상위 도메인 — 이전 판 `app_get_info` 누락)
 
-- query: `app_get_info() → AppInfo{ name, version, platform, arch }`(부팅 시 About/타이틀바용).
+- query: `app_get_info() → AppInfo{ name, version, platform, arch }`. 원래 용도는 부팅 시
+  About/타이틀바 표시였으나, **T2-D/F/G 배치(2026-08-20)가 유일한 프론트 소비 경로였던
+  `entities/app/{app.ipc,app.query,app.type}.ts` 를 dead code 로 제거**해 현재 프론트 소비처는
+  0 이다(백엔드 등록·원격 dispatch 표면만 유지). About/타이틀바 UI 자체가 코드베이스에 없다.
 - `app_file_read`/`app_file_write` 는 Wave I 신설(§"Wave I 계약 확정 추가" 절)이라 그쪽에서 다룬다.
 - **`app:ready(version)` 는 X-A 배치(2026-08-19)에서 제거됐다** — `.emit()` 호출 지점이 애초에 하나도
   없었고(정찰 확인) 프론트도 구독하지 않아, `events.rs`·`collect_events!`·`fanout_remote_events!` 에만
@@ -350,7 +353,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 
 ### locale (7.5-H 신설 — `acknowledge/2026-08-06-i18n-and-session-findings.md`)
 
-- query: `locale_list`, `locale_get(localeId)`, `locale_get_current(systemLanguage)`
+- query: `locale_list`, `locale_get(localeId)`, `locale_get_current(systemLanguage)`.
+  `locale_get` 은 **T2-D/F/G 배치(2026-08-20)가 유일한 프론트 소비처였던
+  `entities/locale/locale.ipc.ts` 의 `getLocale` 을 dead code 로 제거**해 현재 프론트 소비처가
+  0 이다(백엔드 등록만 유지 — `locale_list`/`locale_get_current` 는 계속 소비됨).
 - 메시지는 **flat dotted key**(`"common.cancel"`). 중첩 객체가 아니다 —
   사용자 언어팩이 키 단위로 부분 오버라이드하기 쉬운 구조를 택했다.
 - 사용자 팩은 `{app_data}/locales/*.json`. `extends` 로 내장(en/ko/ja)을 상속하고 바꾼 키만 담는다.

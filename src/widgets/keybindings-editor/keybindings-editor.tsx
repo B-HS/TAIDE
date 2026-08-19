@@ -211,7 +211,7 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
                             placeholder={t('settings.keymapSearchPlaceholder')}
-                            aria-label={t('settings.keymapSearchPlaceholder')}
+                            aria-label={t('settings.keymapSearchAriaLabel')}
                             className='bg-panel-input-background border-panel-input-border text-app-foreground min-w-0 flex-1 rounded-sm border px-2 py-1'
                         />
                     )}

@@ -50,30 +50,34 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
 
     const rowContent = (
         <div
-            role='button'
-            tabIndex={0}
-            onClick={onClick}
-            onKeyDown={createActivationKeyDownHandler(onClick)}
             className={cn(
                 'group hover:bg-explorer-item-hover flex h-6 w-full cursor-default items-center gap-1.5 px-2 text-xs select-none',
                 selected && 'bg-explorer-item-selected',
             )}>
-            <span className='truncate'>{fileName}</span>
-            {dirPath && <span className='text-app-sidebar-icon-default truncate opacity-70'>{dirPath}</span>}
+            <div
+                role='button'
+                tabIndex={0}
+                onClick={onClick}
+                onKeyDown={createActivationKeyDownHandler(onClick)}
+                className='flex min-w-0 flex-1 items-center gap-1.5'>
+                <span className='truncate'>{fileName}</span>
+                {dirPath && <span className='text-app-sidebar-icon-default truncate opacity-70'>{dirPath}</span>}
+            </div>
             <span className='ml-auto flex shrink-0 items-center gap-0.5'>
-                <span className={cn('flex w-3 items-center justify-center font-semibold group-hover:hidden', STATUS_TEXT_CLASS[kind])}>
+                <span
+                    className={cn(
+                        'flex w-3 items-center justify-center font-semibold group-hover:hidden group-focus-within:hidden',
+                        STATUS_TEXT_CLASS[kind],
+                    )}>
                     {STATUS_LETTER[kind]}
                 </span>
-                <span className='hidden items-center gap-0.5 group-hover:flex'>
+                <span className='hidden items-center gap-0.5 group-hover:flex group-focus-within:flex'>
                     {actions.map((action) => (
                         <IconButton
                             key={action.id}
                             label={action.label}
                             icon={action.icon}
-                            onClick={(event) => {
-                                event.stopPropagation()
-                                action.onClick()
-                            }}
+                            onClick={action.onClick}
                             side='bottom'
                             className={cn(ICON_BUTTON_CLASS, 'size-4')}
                         />

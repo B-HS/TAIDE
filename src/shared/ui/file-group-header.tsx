@@ -17,16 +17,15 @@ type FileGroupHeaderProps = {
 const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 export const FileGroupHeader: FC<FileGroupHeaderProps> = ({ path, count, expanded, onToggle, selected, onToggleSelect, selectAriaLabel }) => (
-    <div className='hover:bg-explorer-item-hover flex cursor-default items-center gap-1 py-0.5 pl-2 text-xs select-none'>
-        {onToggleSelect && (
-            <Checkbox checked={selected} aria-label={selectAriaLabel} onClick={(event) => event.stopPropagation()} onCheckedChange={onToggleSelect} />
-        )}
+    <div className={cn('hover:bg-explorer-item-hover flex cursor-default items-center text-xs select-none', onToggleSelect && 'pl-2')}>
+        {onToggleSelect && <Checkbox checked={selected} aria-label={selectAriaLabel} onCheckedChange={onToggleSelect} />}
         <div
             role='button'
             tabIndex={0}
+            aria-expanded={expanded}
             onClick={onToggle}
             onKeyDown={createActivationKeyDownHandler(onToggle)}
-            className='flex flex-1 items-center gap-1 pr-2'>
+            className={cn('flex flex-1 items-center gap-1 py-0.5 pr-2', onToggleSelect ? 'pl-1' : 'pl-2')}>
             <ChevronRight className={cn('size-3 shrink-0', expanded && 'rotate-90')} />
             <File className='size-3.5 shrink-0 opacity-80' />
             <span className='truncate font-medium'>{fileNameOf(path)}</span>

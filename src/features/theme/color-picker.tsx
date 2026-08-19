@@ -39,6 +39,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     const { t } = useTranslation()
     const squareRef = useRef<HTMLDivElement>(null)
     const hueRef = useRef<HTMLDivElement>(null)
+    const hexInputRef = useRef<HTMLInputElement>(null)
     const [hexError, setHexError] = useState(false)
 
     const isTransparent = isTransparentKeyword(value)
@@ -85,6 +86,11 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     }
 
     const handleSquareKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Home' || event.key === 'End') {
+            event.preventDefault()
+            onChange(hsvToHex({ h: activeHue, s: activeSaturation, v: event.key === 'Home' ? 0 : 1 }))
+            return
+        }
         const delta = SV_SQUARE_ARROW_DELTA[event.key]
         if (!delta) return
         event.preventDefault()
@@ -94,6 +100,11 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     }
 
     const handleHueKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Home' || event.key === 'End') {
+            event.preventDefault()
+            onChange(hsvToHex({ h: event.key === 'Home' ? 0 : FULL_HUE_DEGREES, s: activeSaturation, v: activeValue }))
+            return
+        }
         const delta = HUE_ARROW_DELTA_DEGREES[event.key]
         if (delta === undefined) return
         event.preventDefault()
@@ -138,15 +149,25 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                 </TooltipTrigger>
                 <TooltipContent side='bottom'>{t('themeEditor.pickColor')}</TooltipContent>
             </Tooltip>
-            <PopoverContent className='w-52 space-y-3'>
+            <PopoverContent
+                className='w-52 space-y-3'
+                onOpenAutoFocus={(event) => {
+                    event.preventDefault()
+                    hexInputRef.current?.select()
+                }}>
                 <div
                     ref={squareRef}
                     role='slider'
                     tabIndex={0}
                     aria-label={t('themeEditor.saturationValueSliderLabel')}
+                    aria-orientation='vertical'
                     aria-valuemin={0}
                     aria-valuemax={SV_VALUE_PERCENT_MAX}
                     aria-valuenow={Math.round(activeValue * SV_VALUE_PERCENT_MAX)}
+                    aria-valuetext={t('themeEditor.saturationValueValueText', {
+                        saturation: Math.round(activeSaturation * SV_VALUE_PERCENT_MAX),
+                        value: Math.round(activeValue * SV_VALUE_PERCENT_MAX),
+                    })}
                     onPointerDown={handleSquarePointerDown}
                     onPointerMove={handleSquarePointerMove}
                     onKeyDown={handleSquareKeyDown}
@@ -186,6 +207,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                 <label className='flex flex-col gap-1'>
                     <span className='text-app-sidebar-icon-default text-[11px]'>{t('themeEditor.colorValuePlaceholder')}</span>
                     <input
+                        ref={hexInputRef}
                         key={value}
                         type='text'
                         defaultValue={value}
