@@ -41,7 +41,9 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
     let mut session = state.session.read().clone();
     let mut projects = state.projects.read().clone();
 
-    let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path))?;
+    let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), |canonical| {
+        app.state::<ProjectCapabilities>().detected_kinds(canonical)
+    })?;
 
     *state.session.write() = session;
     *state.projects.write() = projects;

@@ -20,7 +20,7 @@
 | T1 11묶음 중 8 | **완료**: E·J·B(1차)·G·asset·F(2차)·C·D·A(3차)·editor-pane 이월(d-13) |
 | **T1-K 원격 기본거부** (6건) | **완료(d-14)** — C16 근본 해소(기본 거부 기계 강제) |
 | **T1-H 락 IO 분리** (10건) | 미착수 — **위험 높음**(96 호출지점, 착수 시 재고지) |
-| **T1-I 도메인 경계 C13** (12건) | **진행 중(d-17)** — 결정 10-A·12-A 확정, 계약 `2026-08-19-audit-t1i-domain-boundary-contract.md` |
+| **T1-I 도메인 경계 C13** (12건) | **완료(d-17)** — 결정 10-A·12-A 실행(capability 확장점·아키텍처 테스트 기계 강제). 이월: AppState 공유 필드 사각지대·layout↔ide·window↔layout 순환(계약 §5) |
 | T2 백로그 10묶음 (~107건) | 미착수 — 중복 제거·비대 파일 분해(editor-pane 은 해소, settings-view 927·lib.rs·locale/service.rs 4081 등 잔여)·shared/lib 재구조화·접근성 8·dead code·매직넘버·로케일 외부화 |
 | T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
 | X-A 배선 8건 | **완료(d-15)** — 살리기 4·지우기(focus-kind·app:ready·중복 5종)·X1#2 소비 전량. 신규 이월 4건(viewState closed_tabs 복원 공백·useReplaceSearch invalidation 부재·REMOTE 폴링/push 중복·경로 predicate 한계)은 d-15 계약 §6 |
@@ -724,11 +724,19 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           — ① X-A 청소+핸드오프 4커밋 prod 병합 완료(main=353d590, branch -f + push 분리) ②
           다음 배치 = T1-I 도메인 경계 ③ 감사 §9 결정 10-A(코드를 architecture.md:77 규칙에)·
           12-A(Project.capabilities attach/detach 실현) 확정 + 위험 재고지 승인
-    - [ ] d-17. 감사 T1-I 도메인 경계 재조립(C13, 12건) — **진행 중**. 계약
-          `docs/acknowledge/2026-08-19-audit-t1i-domain-boundary-contract.md`. 착수 전 실물
-          재확인 완료(엣지 전수 grep·ProjectCapability 스텁·내부 이벤트 버스 부재·open/close
-          순서 민감성). 실행: R1(확장점+project 이관)→R2(ide 정리)→R3(잔여 엣지+아키텍처
-          테스트+문서) 순차 단독 → E 검토(4렌즈+적대적) → 수정 → 메인 2차 → 커밋
+    - [x] d-17. 감사 T1-I 도메인 경계 재조립(C13, 12건) — **완료**. 계약
+          `docs/acknowledge/2026-08-19-audit-t1i-domain-boundary-contract.md`(§4 구현·§5 검토
+          반영). 결정 10-A·12-A 실행. 구현 `1852820`(wf_e4ab6095-929, R1→R2→R3 순차 단독
+          59파일): ProjectCapability 확장점 8종(open/close 순서 바이트 재현)·ide commands↔
+          server 순환 절단(store 하강)·제2 진입점 service 경유·R6#2 공유 저장 경로·plugin↔
+          vsix 단방향(infra/archive)·LanguageOverlay 반전·조립부 배선 3종·아키텍처 테스트
+          (화이트리스트 기계 강제)·표면 무변경(커맨드 176+raw3·이벤트 23·ALLOWED 160⊎DENIED
+          19). E 검토(wf_8a02c83f-46a 4렌즈 17발견→적대적 2: **confirmed 2·refuted 0** — C-1
+          경계 스캔 import 우회·D1 capabilities 명목 소비, 정확성 렌즈는 동작 동등성 결함 0)
+          → 수정 wf_5de1f040-63f 11항목(스캔 5형태 봉쇄+우회 4종 FAILED 실측·단일 출처화·
+          save_file private·redact.rs 하강·문서 4곳) → 메인 2차(스팟 5축+verify·vite 직접
+          재실행 exit 0, Rust 1061·프론트 1375). 이월: D8 AppState 공유 필드 사각지대·
+          layout↔ide·window↔layout 순환·D6 배선 4기구 통합(계약 §5 기각 목록). qa6 +1절
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

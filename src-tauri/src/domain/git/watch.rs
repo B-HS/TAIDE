@@ -35,18 +35,26 @@ pub fn classify_git_change(path: &Path) -> Option<GitInvalidation> {
     }
 }
 
-/// Starts the `.git`-directory watcher that classifies raw fs changes into status/refs
-/// invalidations and fans them out as [`GitStatusChanged`]/[`GitRefsChanged`], registering its
-/// handle in `state.git_watchers`. A root without a `.git` directory attaches nothing — the check
-/// lives here (not only in the capability gate) because the boot restore path in `lib.rs` also
-/// calls this directly for restored projects, against the live filesystem rather than a persisted
-/// capability list.
+/// Boot-restore entry point: probes the live filesystem for a `.git` directory and attaches
+/// nothing when it is absent, then delegates to [`register_git_watcher`]. The probe lives here —
+/// not in the shared registration body — because `lib.rs`'s restore loop runs before the
+/// capability registry is even managed and must not trust a persisted capability list; on the
+/// `project_open` path the same predicate is evaluated exactly once instead, by
+/// `GitWatcherCapability::detected_kind`, whose result gates `GitWatcherCapability::attach`.
 pub fn attach_git_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
-    let git_dir = Path::new(root).join(GIT_DIR_NAME);
-    if !git_dir.is_dir() {
+    if !Path::new(root).join(GIT_DIR_NAME).is_dir() {
         return;
     }
+    register_git_watcher(app, state, project_id, root);
+}
 
+/// Starts the `.git`-directory watcher that classifies raw fs changes into status/refs
+/// invalidations and fans them out as [`GitStatusChanged`]/[`GitRefsChanged`], registering its
+/// handle in `state.git_watchers`. Performs no repo check of its own — the caller owns that
+/// decision (`GitWatcherCapability::attach`'s `Project.capabilities` gate on the open path,
+/// [`attach_git_watcher`]'s filesystem probe on the boot restore path).
+pub(super) fn register_git_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
+    let git_dir = Path::new(root).join(GIT_DIR_NAME);
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 

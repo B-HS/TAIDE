@@ -133,8 +133,9 @@ architecture.md:77 "도메인 간 직접 호출 금지"의 판정 기준을 다�
   다름은 문서 갱신으로 정합) + 정적 레지스트리. capability 구현 8종을 각 도메인 소유로
   (layout·file watcher·git watcher/cache 분리 2종·terminal·tree·ide lockfile·agent hooks).
   단일 리스트 전방 순회로 close 의 correctness-sensitive 순서 바이트 재현 + **등록 순서 핀
-  테스트**·detected_kinds↔service 파리티 테스트. `Project.capabilities` 는
-  `GitWatcherCapability::attach` 의 `contains(Git)` 게이트로 실소비. 부트 복원 경로는 순회
+  테스트**·detected_kinds↔service 파리티 테스트(§5 에서 단일 출처화 동작 고정 테스트로 대체).
+  `Project.capabilities` 는 `GitWatcherCapability::attach` 의 `contains(Git)` 게이트로 실소비
+  (§5 D1 수정 후 성립 — 구현 시점 기록은 명목 소비였음이 검토로 확인됨). 부트 복원 경로는 순회
   미적용(hooks 무조건 spawn 등 동작 변경 방지 — 기존 부분 부착 보존). project/commands.rs
   **타 도메인 참조 0**. `project_close` 의 Store State 파라미터 제거(와이어 표면 아님).
 - **R2(§1.2)**: `ide/store.rs` 하강(commands 455→240줄)으로 commands↔server 순환 절단.
@@ -162,10 +163,48 @@ architecture.md:77 "도메인 간 직접 호출 금지"의 판정 기준을 다�
   파라미터·타입·커맨드 176+raw3·이벤트 23 무변경) — 사라진 수기 조립을 서술하는 거짓 doc
   복원은 무의미하므로 **갱신 유지 승인**.
 - **이월·후속(보고)**: window↔layout 실행 경로 순환(탭↔OS창 이동이 두 소유자 가로지름 —
-  양방향 화이트리스트 등재, 절단은 대형이라 후속 배치 후보) / infra→domain types 4건·
-  sync/github→ai mask_provider_error 화이트리스트 유지(반전·하강 후속 후보) / terminal
-  spawn 2초 폴링 구조(소유만 ide 이관, watch 화 이월).
+  양방향 화이트리스트 등재, 절단은 대형이라 후속 배치 후보) / infra→domain types 4건
+  화이트리스트 유지(반전 후속 후보 — mask_provider_error 는 §5 에서 infra 하강 완료) /
+  terminal spawn 2초 폴링 구조(소유만 ide 이관, watch 화 이월).
 - **Phase E 렌즈 초점(구현 자기 표기 포함)**: 설정 토글 타이밍 동일성(관찰자 인라인 await)·
   usage 라벨 pid 우선순위·`claude_terminal_env` 락 문맥·`ide_resolve_diff` 의
   begin_mutation+self_writes.mark 추가가 의도 승인 범위인지·open/close 순서 바이트 재현
   전수 대조·화이트리스트 최소성.
+
+---
+
+## 5. Phase E 검토 결함 수정 반영 (2026-08-19)
+
+> 검토 wf_8a02c83f-46a(4렌즈 opus+xhigh, 대상 dev `1852820` diff) — 발견 17(major 2·minor 15)
+> → 적대적 검증(opus+high, major 2 전건) **confirmed 2·refuted 0**(C-1 major 유지·D1 major→
+> minor 강등 — 런타임 결함 아님·과대 기술 판정) → 수정 wf_5de1f040-63f(Rust 단독 fixer
+> sonnet+xhigh, 11항목). 메인 2차: 스팟 5축 실물 재검증 + verify·vite build 직접 재실행.
+> 정확성 렌즈는 open/close 순서·잠금 바이트 재현·부트 복원 부분 부착·server service 전환·
+> 토글 타이밍·라벨 우선순위·락 문맥·재진입 데드락 전수 대조에서 **동작 동등성 결함 0** 확증.
+
+- **[confirmed major·C-1+SEC-2] 경계 스캔 import 우회 봉쇄** — 스캔 정규식이 모듈 import
+  (`use crate::domain::layout;`)·중괄호 그룹 2형·crate 레벨 그룹을 무음 통과시키던 것을
+  게이트웨이 외 전면 금지로 확장(검증 verdict 가 추가 지적한 domain 레벨 그룹 포함 5형태).
+  **인위 우회 4종 각각 FAILED 실측 후 원복**·as-별칭 포함 15케이스 정규식 단위 실측 오탐 0·
+  기존 코드 신규 패턴 매치 0(화이트리스트 완화 없음). 과대 서술 doc 정정(`super::super::`·
+  재export 잔존 명시).
+- **[confirmed major→minor·D1] `Project.capabilities` 단일 출처화** — `open_project` 에
+  `detect_capabilities` 주입(FnOnce), `project_open` 이 레지스트리 `detected_kinds` 를 주입해
+  프로덕션 소비 확보. `GitWatcherCapability::attach` 는 무검사 `register_git_watcher` 를 불러
+  `contains(Git)` 게이트가 open 경로의 유일 실판정이 됨. 부트 복원 전용 `attach_git_watcher`
+  는 자체 `.git` 검사 유지(lib.rs 호출부 무변경 — 두 경로 동작 보존). `GIT_DIR_NAME` 2중
+  정의 해소. 동작 고정 테스트 2종(git/비git 루트 기록값 명시·주입 결과 기록).
+- **minor 실질 수정 9**: C-2 `for_each_in_registration_order` 단일 순회 지점+
+  `RecordingCapability` 전방 순회 회귀 테스트(mock-app 부재 제약으로 공유 walker 고정 방식 —
+  사유 doc) / T1I-E1 intra-doc 링크 2건+bindings 전사 / SEC-1 원시 `save_file` private 화
+  (도메인 밖 호출자 0 실사 — 타입 시스템이 R6#2 재발 차단) / SEC-3 "동일 최종 맵" doc 을
+  실동작(provider 별 스냅샷·등록 순서 우선 결정화)으로 정정 / D5(2) `mask_provider_error`
+  클러스터 `infra/redact.rs` 하강(호출부 5파일·화이트리스트 엣지 제거)+D5(1)(3) 화이트리스트
+  doc 에 제거 가능 대안·유지 근거 명기 / C-4 layout↔ide 순환 표기 추가 / D9 신뢰 아카이브
+  추출기 3종 경고 doc / D10 `open_tab_and_finish` doc 영어화 / C-3 라이브 문서 4곳(ipc-
+  contract:128·agent-integration 3곳·plugins:130) 실물 경로 갱신.
+- **기각(수정 안 함·이월)**: D2(순회 리스트 3계약 인코딩 — 구조 재설계급) / D3(부트 복원
+  레지스트리 우회 — R1 의 의도 결정: 전체 순회 시 hooks spawn 등 동작 변경) / D4(trait DI
+  스타일) / D6(조립부 배선 4기구 형태 통합 — 재설계) / D7(ide 서버 수명주기 commands 잔존)
+  / D8(**AppState 공유 필드 경유 도메인 간 접근은 규칙·스캔의 사각지대** — 후속 배치 재판단
+  후보로 기록). refuted 0 이므로 수정 금지 대상 없음.

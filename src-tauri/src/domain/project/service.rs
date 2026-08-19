@@ -11,7 +11,6 @@ use crate::paths::AppPaths;
 
 use super::types::{CapabilityKind, Project, ProjectRef, SessionState};
 
-const GIT_DIR_NAME: &str = ".git";
 const BACKUP_SUFFIX: &str = ".bak";
 const PROJECTS_DIR_NAME: &str = "projects";
 
@@ -33,11 +32,18 @@ pub fn get_project(projects: &HashMap<ProjectId, Project>, project_id: &ProjectI
         .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))
 }
 
+/// Opens (or re-activates) the project at `root`. `detect_capabilities` is called once with the
+/// canonicalized root on a fresh open and its result is recorded verbatim as
+/// `Project.capabilities` — `project_open` injects the capability registry's `detected_kinds`, so
+/// the registry is the single source of that field and `GitWatcherCapability::attach`'s
+/// `contains(Git)` gate is the one place the git decision is made on the open path (no second
+/// filesystem probe here).
 pub fn open_project(
     paths: &AppPaths,
     session: &mut SessionState,
     projects: &mut HashMap<ProjectId, Project>,
     root: &Path,
+    detect_capabilities: impl FnOnce(&Path) -> Vec<CapabilityKind>,
 ) -> AppResult<ProjectOpenResult> {
     let canonical = std::fs::canonicalize(root)?;
     let metadata = std::fs::metadata(&canonical)?;
@@ -68,11 +74,7 @@ pub fn open_project(
         .map(|value| value.to_string_lossy().to_string())
         .unwrap_or_else(|| root_str.clone());
 
-    let mut capabilities = Vec::new();
-    if canonical.join(GIT_DIR_NAME).is_dir() {
-        capabilities.push(CapabilityKind::Git);
-    }
-    capabilities.push(CapabilityKind::Terminal);
+    let capabilities = detect_capabilities(&canonical);
 
     let project = Project {
         id: id.clone(),
@@ -277,6 +279,10 @@ mod tests {
         std::fs::remove_dir_all(&paths.data_dir).ok();
     }
 
+    fn detect_terminal_only(_root: &Path) -> Vec<CapabilityKind> {
+        vec![CapabilityKind::Terminal]
+    }
+
     #[test]
     fn 동일_root_재열기는_기존_프로젝트를_반환한다() {
         let paths = temp_paths();
@@ -286,10 +292,10 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let first = open_project(&paths, &mut session, &mut projects, &project_root).expect("open");
+        let first = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
         assert!(!first.already_open);
 
-        let second = open_project(&paths, &mut session, &mut projects, &project_root).expect("open again");
+        let second = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open again");
         assert!(second.already_open);
         assert_eq!(first.project.id, second.project.id);
         assert_eq!(projects.len(), 1);
@@ -318,7 +324,7 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root).expect("open");
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
         assert_eq!(opened.project.id, previous_id);
         assert!(!opened.already_open);
 
@@ -326,18 +332,20 @@ mod tests {
     }
 
     #[test]
-    fn git_디렉토리가_있으면_git_capability가_부착된다() {
+    fn capabilities는_주입된_검출_결과를_그대로_기록한다() {
         let paths = temp_paths();
         let project_root = paths.data_dir.join("repo");
-        std::fs::create_dir_all(project_root.join(GIT_DIR_NAME)).unwrap();
+        std::fs::create_dir_all(&project_root).unwrap();
 
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root).expect("open");
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, |_root| {
+            vec![CapabilityKind::Git, CapabilityKind::Terminal]
+        })
+        .expect("open");
 
-        assert!(opened.project.capabilities.contains(&CapabilityKind::Git));
-        assert!(opened.project.capabilities.contains(&CapabilityKind::Terminal));
+        assert_eq!(opened.project.capabilities, vec![CapabilityKind::Git, CapabilityKind::Terminal]);
 
         cleanup(&paths);
     }
@@ -437,7 +445,7 @@ mod tests {
 
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root).expect("open");
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
         session.active_project = Some(opened.project.id.clone());
 
         close_project(&paths, &mut session, &mut projects, &opened.project.id).expect("close");

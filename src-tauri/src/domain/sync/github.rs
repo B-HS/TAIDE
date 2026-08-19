@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::ai::providers::mask_provider_error;
 use crate::domain::sync::types::{SYNC_GIST_DESCRIPTION, SYNC_GIST_FILENAME};
 use crate::error::{AppError, AppResult};
+use crate::infra::redact::mask_provider_error;
 
 const GITHUB_API_BASE: &str = "https://api.github.com";
 const GITHUB_API_VERSION: &str = "2022-11-28";

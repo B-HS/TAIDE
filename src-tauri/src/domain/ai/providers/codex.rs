@@ -2,9 +2,10 @@ use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::{mask_provider_error, AiProviderClient};
+use crate::domain::ai::providers::AiProviderClient;
 use crate::domain::ai::types::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars};
 use crate::error::{AppError, AppResult};
+use crate::infra::redact::mask_provider_error;
 
 const CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
 const CODEX_CLIENT_VERSION: &str = "0.144.1";

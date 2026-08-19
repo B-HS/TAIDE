@@ -63,6 +63,9 @@ fn set_executable(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
+/// Checksum-verified first-party archives only — `tar::Archive::unpack` applies no entry-count or
+/// decompressed-size cap; user-supplied archives must go through
+/// `infra::archive::extract_hardened_zip` instead.
 pub fn extract_tar_gz(source_path: &Path, dest: &Path) -> AppResult<()> {
     let file = std::fs::File::open(source_path)?;
     let decoder = flate2::read::GzDecoder::new(file);
@@ -72,6 +75,9 @@ pub fn extract_tar_gz(source_path: &Path, dest: &Path) -> AppResult<()> {
         .map_err(|error| AppError::Internal(format!("tar.gz 해제 실패: {error}")))
 }
 
+/// Checksum-verified first-party archives only — `tar::Archive::unpack` applies no entry-count or
+/// decompressed-size cap; user-supplied archives must go through
+/// `infra::archive::extract_hardened_zip` instead.
 pub fn extract_tar_xz(source_path: &Path, dest: &Path) -> AppResult<()> {
     let file = std::fs::File::open(source_path)?;
     let decoder = xz2::read::XzDecoder::new(file);
@@ -81,6 +87,10 @@ pub fn extract_tar_xz(source_path: &Path, dest: &Path) -> AppResult<()> {
         .map_err(|error| AppError::Internal(format!("tar.xz 해제 실패: {error}")))
 }
 
+/// Checksum-verified first-party archives only (`lsp::commands::run_download_install` validates a
+/// SHA-256 before calling this): zip-slip is guarded via `enclosed_name`, but the archive's
+/// `unix_mode` is trusted verbatim and there is no entry-count or decompressed-size cap.
+/// User-supplied archives must go through `infra::archive::extract_hardened_zip` instead.
 pub fn extract_zip(source_path: &Path, dest: &Path) -> AppResult<()> {
     let file = std::fs::File::open(source_path)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| AppError::Internal(format!("zip 열기 실패: {error}")))?;

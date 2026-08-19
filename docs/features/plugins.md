@@ -127,10 +127,11 @@
   섹션(기존 후보 선택 로직 그대로)과 Grammars 섹션(위 tri-state)이 같은 다이얼로그 안에 나란히
   있다.
 
-### 6.3 zip 하드닝 — `vsix::service::extract_hardened_zip`
+### 6.3 zip 하드닝 — `infra::archive::extract_hardened_zip`
 
 - `plugin_install`(아카이브 경로)·`vsix_import_plugin` 이 공유하는 전용 추출 함수. 엔트리 수 상한
-  5000·누적 압축 해제 바이트 예산 128MB(zip bomb 방어)·`enclosed_name()` 기반 zip-slip 방어·파일/
+  5000(`ARCHIVE_MAX_ENTRIES`)·누적 압축 해제 바이트 예산 128MB(`ARCHIVE_MAX_TOTAL_BYTES` — zip
+  bomb 방어)·`enclosed_name()` 기반 zip-slip 방어·파일/
   디렉토리 모드를 `0o644`/`0o755` 로 고정(아카이브 안의 unix 모드 비트를 신뢰하지 않는다).
 - 기존 `infra::lsp_install::extract_zip` 은 **재사용하지 않았다** — 그건 신뢰된 자체 배포 아카이브
   전용(zip-slip 만 방어)이고, 사용자가 임의로 고른 `.vsix`/`.zip` 은 신뢰 전제가 다르다.

@@ -8,6 +8,7 @@ pub mod lsp_proc;
 pub mod persist;
 pub mod pty;
 pub mod range_file;
+pub mod redact;
 pub mod root_guard;
 pub mod secret;
 pub mod self_write;

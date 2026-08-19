@@ -22,9 +22,11 @@ pub type SystemUsageLabelProvider = Box<dyn Fn(&tauri::AppHandle) -> SystemUsage
 /// and LSP child processes. `lib.rs`'s assembly registers one closure per owning domain
 /// (`system_usage_label_providers`) so this domain never reads another domain's store directly
 /// (audit R8#9, T1-I §1.4). Providers run in registration order and later entries overwrite
-/// earlier ones for the same pid — the registration order (terminal → agent → LSP) preserves the
-/// precedence the old hand-coded collection had: an agent process detected inside a terminal's
-/// foreground pid set labels as Agent, and LSP labels are applied last.
+/// earlier ones for the same pid: with the registered terminal → agent → LSP order, an agent
+/// process detected inside a terminal's foreground pid set labels as Agent and LSP labels apply
+/// last. Each provider reads its own project snapshot, and registration order — not the old
+/// hand-coded collection's per-project `HashMap` iteration order — decides every pid collision;
+/// see the assembly doc (`lib.rs`) for why that determinization is intentional.
 pub struct SystemUsageLabelProviders(Vec<SystemUsageLabelProvider>);
 
 impl SystemUsageLabelProviders {

@@ -1,11 +1,12 @@
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::{mask_provider_error, AiProviderClient};
+use crate::domain::ai::providers::AiProviderClient;
 use crate::domain::ai::types::{
     AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars,
 };
 use crate::error::{AppError, AppResult};
+use crate::infra::redact::mask_provider_error;
 
 const OLLAMA_BASE: &str = "https://ollama.com/api";
 /// Output budget for the auto-tab ghost-text path (`complete_chat`) — a single-line/few-line

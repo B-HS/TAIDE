@@ -4,12 +4,13 @@ use crate::domain::ai::prompt;
 use crate::domain::ai::providers::codex::CodexProvider;
 use crate::domain::ai::providers::ollama::OllamaCloudProvider;
 use crate::domain::ai::providers::omlx::OmlxProvider;
-use crate::domain::ai::providers::{mask_provider_error, AiProviderClient};
+use crate::domain::ai::providers::AiProviderClient;
 use crate::domain::ai::types::{
     AiCommitMessagePromptTemplate, AiCommitMessagePromptVars, AiCommitMessageRequest, AiInlineCompleteRequest, AiInlineEditPromptTemplate,
     AiInlineEditPromptVars, AiInlineEditRequest, AiModelInfo, AiPromptTemplate, AiProviderId, AiTokenStatus,
 };
 use crate::error::{AppError, AppResult};
+use crate::infra::redact::mask_provider_error;
 use crate::infra::secret::{SecretAccount, SecretStore};
 
 const CODEX_WHOAMI_URL: &str = "https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami";

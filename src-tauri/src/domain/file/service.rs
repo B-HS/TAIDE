@@ -103,7 +103,11 @@ pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay]) -> AppResul
     })
 }
 
-pub fn save_file(path: &Path, content: &str) -> AppResult<()> {
+/// Private on purpose (R6#2): the raw, guard-free write must not be callable from outside this
+/// module — [`save_file_within_open_projects`] is the only path that reaches it, so the type
+/// system (not just the boundary whitelist, whose entries are module-granular) blocks any future
+/// caller from re-composing a save that skips the root guard or the self-write mark.
+fn save_file(path: &Path, content: &str) -> AppResult<()> {
     persist::write_atomic_preserving_mode(path, content.as_bytes())
 }
 
@@ -111,7 +115,7 @@ pub fn save_file(path: &Path, content: &str) -> AppResult<()> {
 /// resolution against the open projects, atomic mode-preserving write, self-write marking (so the
 /// watcher does not report the write back as an external change), and hot-exit mirror cleanup.
 /// Every save initiated outside the `file` domain (currently `ide_resolve_diff`'s accepted-diff
-/// persist) must go through this instead of composing [`save_file`]/[`clear_mirror`] by hand, so
+/// persist) must go through this instead of composing `save_file`/[`clear_mirror`] by hand, so
 /// no caller can skip the root guard or the self-write mark (R6#2). A rejection surfaces as
 /// [`AppError::Forbidden`](crate::error::AppError) — `root_guard::resolve_owning_project`'s only
 /// error shape — which callers may treat as "the owning project is no longer open".

@@ -145,7 +145,11 @@ fn settings_toggle_observers() -> domain::settings::commands::SettingsToggleObse
 /// owning domain, so `domain::system` never reads the terminal/agent/LSP stores directly (audit
 /// R8#9, T1-I §1.4). Registration order is precedence: later providers overwrite earlier ones for
 /// the same pid, so an agent detected inside a terminal's foreground pid set labels as Agent and
-/// LSP labels apply last — the same final map the old hand-coded collection produced.
+/// LSP labels apply last. Two deliberate differences from the old hand-coded collection: each
+/// provider takes its own `state.projects` read snapshot (a project opened or closed between
+/// providers can appear in one provider's map and not another's), and a cross-project pid
+/// collision now always resolves by registration order where the old per-project interleave left
+/// it to `HashMap` iteration order — a determinization, not a preserved artifact.
 fn system_usage_label_providers() -> domain::system::commands::SystemUsageLabelProviders {
     use domain::system::types::SystemUsageProcessKind;
 
@@ -1055,12 +1059,15 @@ mod tests {
         );
     }
 
-    /// `Project.capabilities` 정합 — the kinds `project::service::open_project` records on a fresh
-    /// project must be exactly what the registered capabilities detect for the same root, in the
-    /// same order. Guards the field against drifting from the registry it now feeds
-    /// (`GitWatcherCapability::attach` gates on it).
+    /// `Project.capabilities` 동작 고정 — the registry's `detected_kinds` is the field's single
+    /// source (`project_open` injects it into `project::service::open_project`, which records the
+    /// result verbatim), so this pins the exact values the real registry produces for a git and a
+    /// non-git root: the same `[Git?, Terminal]` the old hand-coded detection in `open_project`
+    /// recorded, proving the single-sourcing changed no serialized behavior.
     #[test]
-    fn 등록된_capability_detected_kinds는_open_project가_기록하는_capabilities와_일치한다() {
+    fn 등록된_capability_registry가_open_project의_capabilities를_결정한다() {
+        use domain::project::types::CapabilityKind;
+
         let registry = project_capabilities();
 
         for git_repo in [true, false] {
@@ -1074,13 +1081,19 @@ mod tests {
             let paths = AppPaths::new(data_dir.clone());
             let mut session = domain::project::types::SessionState::default();
             let mut projects = std::collections::HashMap::new();
-            let opened = domain::project::service::open_project(&paths, &mut session, &mut projects, &workspace).expect("open project");
+            let opened = domain::project::service::open_project(&paths, &mut session, &mut projects, &workspace, |root| {
+                registry.detected_kinds(root)
+            })
+            .expect("open project");
 
-            let canonical = std::fs::canonicalize(&workspace).expect("canonicalize workspace");
+            let expected = if git_repo {
+                vec![CapabilityKind::Git, CapabilityKind::Terminal]
+            } else {
+                vec![CapabilityKind::Terminal]
+            };
             assert_eq!(
-                registry.detected_kinds(&canonical),
-                opened.project.capabilities,
-                "git_repo={git_repo}: 레지스트리 검출 결과와 서비스가 기록한 capabilities 가 다릅니다"
+                opened.project.capabilities, expected,
+                "git_repo={git_repo}: 레지스트리가 기록한 capabilities 가 기존 수기 검출과 다릅니다"
             );
 
             std::fs::remove_dir_all(&data_dir).ok();

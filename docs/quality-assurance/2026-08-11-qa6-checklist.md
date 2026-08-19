@@ -1016,3 +1016,19 @@
 - [ ] 원격 미러: 세션 만료 시 로그인 리다이렉트 무회귀(ws writer 종료 시퀀스 변경 후)·원격 상태
       배지 즉시 반영(remote:state-changed push)
 - [ ] LSP 크래시 자동 복구 실패 시 상태바가 Crashed 로 정직 표시(무한 "재시작 중" 문구 소멸)
+
+## 감사 T1-I 도메인 경계 재조립 재검 (2026-08-19, 계약: docs/acknowledge/2026-08-19-audit-t1i-domain-boundary-contract.md)
+
+> 전량 리팩토링(표면 무변경)이라 기계 검증은 완료됐으나, open/close 조립이 capability 순회로
+> 바뀌었으므로 프로젝트 수명주기 실기 회귀 확인이 필요하다.
+
+- [ ] 프로젝트 열기→닫기→재열기: 레이아웃 복원·watcher(파일/GIT 상태 변화 감지)·터미널 세션
+      종료·재열기 시 stale 캐시 없음(트리·GIT 상태 신선)
+- [ ] 비 git 폴더 열기: git 패널 비활성·에러 없음(capabilities 게이트 실판정 경로)
+- [ ] 멀티 프로젝트 전환: 닫은 프로젝트의 pty 전부 종료·활성 프로젝트 이벤트 정상
+- [ ] 앱 재시작(부트 복원): 이전 프로젝트 복원 시 watcher 동작·agent hooks 중복 설치 없음
+      (부트 경로는 capability 순회 미적용 — 부분 부착 보존 확인)
+- [ ] IDE MCP 경유 openFile/openDiff/close_tab 실기 경로(server 의 service 전환 회귀)
+- [ ] IDE diff 수락 저장 후 탐색기 무점멸(신규 self-write 마킹 — from_app modified 스킵 결합)
+- [ ] 설정 토글(IDE 통합·에이전트 훅·REMOTE) 즉시 반응(SettingsToggleObservers 타이밍)
+- [ ] 사용량 패널 프로세스 라벨(터미널/에이전트/LSP) 표기 정상

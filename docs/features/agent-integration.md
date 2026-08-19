@@ -134,16 +134,17 @@ taide [--wait|-w] <file> [<file>...]
   탭만 모아 `getOpenEditors` 응답을 만든다. `is_active` 는 각 프로젝트 레이아웃의 focused pane 의
   active tab 기준으로 판정한다(여러 프로젝트가 열려 있어도 프로젝트별로 하나씩 active 가 나올 수
   있다).
-- **진단 None vs 빈 배열** (`commands.rs::IdeStore::diagnostics`): 진단이 한 번도 push 된 적
+- **진단 None vs 빈 배열** (`store.rs::IdeStore::diagnostics`): 진단이 한 번도 push 된 적
   없으면 `None`(= "아직 준비 안 됨")을 반환한다. 빈 배열(진단 0건)과 "아직 모름"을 구분해
   `getDiagnostics` 호출자의 거짓 음성(오탐 없음으로 오인)을 방지한다.
-- **탭 닫기 경로와의 정합** (`commands.rs::reconcile_closed_tab`): ClaudeDiff 탭이 (도구 호출
+- **탭 닫기 경로와의 정합** (`store.rs::reconcile_closed_tab`): ClaudeDiff 탭이 (도구 호출
   경로가 아니라) 일반 탭 닫기 경로로 닫혔을 때, 그 탭에 매인 pending `openDiff` 요청을
   `TabClosed` 로 해소한다. layout 도메인의 모든 탭 닫기 경로(Tauri 커맨드·IDE 도구 핸들러 공용
   `close_tab_and_finish`)에서 반드시 호출되어야 하는 불변조건이다 — 누락하면 `openDiff` 가
   무기한 대기 상태로 남는다.
 - **종료 시 즉시 중단** (`commands.rs::stop_server`): 앱 종료(`lib.rs`)·`settings_update` 의
-  `ideIntegrationEnabled` 토글-off(`settings::commands::apply_integration_toggles`) 공용 정리
+  `ideIntegrationEnabled` 토글-off(`ide::commands::apply_ide_integration_toggle` — `lib.rs` 가
+  `SettingsToggleObservers` 로 등록하는 관찰자) 공용 정리
   경로(과거엔 `ide_stop` 커맨드도 이 함수를 불렀으나, X-A 배치(2026-08-19)에서 두 경로만 남고
   중복 커맨드로 제거됐다 — `docs/ipc-contract.md` §"ide" 절). pending
   요청을 전부 해소하고 lockfile 을 지운 뒤 accept 루프와 커넥션 태스크를 즉시 종료(abort)한다.

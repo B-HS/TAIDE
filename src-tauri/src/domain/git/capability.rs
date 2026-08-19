@@ -14,6 +14,12 @@ use super::watch;
 /// one combined git capability) so a single forward walk of the registration list reproduces
 /// `project_close`'s historical reap order exactly — the repo-root cache eviction sits *after* the
 /// terminal reap in that order, while the watcher removal sits before it.
+///
+/// [`Self::detected_kind`] is the single source of the `Git` entry in `Project.capabilities`
+/// (`project_open` injects the registry's `detected_kinds` into `open_project`), and
+/// [`Self::attach`]'s `contains(Git)` gate is therefore the one git decision on the open path —
+/// `watch::register_git_watcher` performs no second filesystem probe. Only the boot restore path
+/// re-probes the live filesystem, via `watch::attach_git_watcher`.
 pub struct GitWatcherCapability;
 
 impl ProjectCapability for GitWatcherCapability {
@@ -25,7 +31,7 @@ impl ProjectCapability for GitWatcherCapability {
         if !project.capabilities.contains(&CapabilityKind::Git) {
             return;
         }
-        watch::attach_git_watcher(app, state, &project.id, &project.root);
+        watch::register_git_watcher(app, state, &project.id, &project.root);
     }
 
     fn detach(&self, _app: &AppHandle, state: &AppState, project_id: &ProjectId) {

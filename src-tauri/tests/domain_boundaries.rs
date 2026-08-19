@@ -15,7 +15,10 @@ use regex::Regex;
 ///
 /// Approval reasons, per entry (audit 2026-08-18 / contract T1-I §1.4):
 /// - `agent/commands.rs → terminal::commands` — agent detection is *defined over* the terminal
-///   foreground pid set (`TerminalStore::foreground_pids`); a read-only store query.
+///   foreground pid set (`TerminalStore::foreground_pids`); a read-only store query. An
+///   assembly-owned provider (the shape that removed `system → terminal/lsp/agent`) could remove
+///   this edge; kept this batch as a deliberate deferral because the pid set is agent detection's
+///   defining input rather than incidental wiring — revisit in the next wiring batch.
 /// - `app/commands.rs → settings::commands`·`settings::service` — the `AppFileTarget::Settings`
 ///   editor must funnel through `apply_and_broadcast`, the single settings reapply path every
 ///   settings writer shares (its doc comment names these callers).
@@ -24,26 +27,33 @@ use regex::Regex;
 ///   stay in lockstep with its `*_PROMPT_ID` constants.
 /// - `file/commands.rs`·`git/commands.rs`·`ide/server.rs → plugin::service` — `ensure_loaded` is
 ///   the read-through plugin snapshot cache + `language_overlays` conversion every language-aware
-///   domain needs; re-implementing the cache per domain would be worse than the edge.
+///   domain needs; re-implementing the cache per domain would be worse than the edge. An
+///   assembly-owned overlay provider (the `SystemUsageLabelProviders` shape) could remove all
+///   three edges at once; kept this batch as a deliberate deferral — the provider would relocate
+///   the shared cache rather than shrink it, and every edge is a read-only lookup — revisit in
+///   the next wiring batch.
 /// - `ide/commands.rs → file::service` — `save_file_within_open_projects` is the root-guarded
 ///   single save path `file_save` itself uses (R6#2's fix: share it, don't clone it).
 /// - `ide/server.rs`·`ide/service.rs → layout::service` — MCP tools (openFile/close_tab/
 ///   getOpenEditors) drive the tab lifecycle through the same layout orchestrators and pure
 ///   `PaneNode` helpers the layout commands use (R6#3's fix: service, not a second command entry).
+///   Together with `layout/service.rs → ide::store` below these edges form a known layout ↔ ide
+///   cycle (the tab lifecycle is co-owned) — deferred to a future batch, like window ↔ layout.
 /// - `layout/commands.rs → window::commands` + `window/service.rs → layout::service` — moving a
 ///   tab to another OS window spans both owners (layout owns tabs, window owns OS windows); the
 ///   two edges form a known cycle, reported for a future batch rather than half-fixed here.
 /// - `layout/service.rs → ide::store`·`terminal::commands` — closing a tab must resolve its
 ///   pending Claude-diff responder and reap its pty session; both are part of close-tab's
-///   correctness contract (moved verbatim from the old commands body in R2).
+///   correctness contract (moved verbatim from the old commands body in R2). The `ide::store`
+///   half is the other side of the known layout ↔ ide cycle noted at the ide entries above —
+///   deferred with it.
 /// - `remote/login_page.rs → locale::service` — the served login HTML renders the current UI
 ///   language's strings; locale is a data provider here.
 /// - `settings/service.rs → theme::service` — `set_theme` validates that the target theme exists
 ///   before persisting it.
-/// - `sync/* → settings::*`·`theme::service`·`locale::service`·`ai::providers` — sync is the
-///   aggregation domain (upload/download bundles settings+themes+locales; audit R5#14 judged the
-///   aggregation edges unavoidable); `ai::providers::mask_provider_error` is the shared
-///   secret-masking helper for GitHub API error bodies.
+/// - `sync/* → settings::*`·`theme::service`·`locale::service` — sync is the aggregation domain
+///   (upload/download bundles settings+themes+locales; audit R5#14 judged the aggregation edges
+///   unavoidable).
 /// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
 ///   reloads it; the deliberate single direction left after R7#4's cycle cut (plugin no longer
 ///   references vsix).
@@ -66,7 +76,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/settings/service.rs", "theme::service"),
     ("domain/sync/commands.rs", "settings::commands"),
     ("domain/sync/commands.rs", "settings::service"),
-    ("domain/sync/github.rs", "ai::providers"),
     ("domain/sync/service.rs", "locale::service"),
     ("domain/sync/service.rs", "settings::service"),
     ("domain/sync/service.rs", "theme::service"),
@@ -136,9 +145,11 @@ fn relative_source_path(file: &Path) -> String {
 /// Scans `domain/**/*.rs` for `crate::domain::<other>::<module>` references. Detection is
 /// source-text based (the same approach as `lib.rs`'s `collect_commands!` parity test and
 /// `dispatch.rs`'s match-arm scan): a reference spelled through a deep `super::super::…` chain or
-/// a re-export would evade the regex — the ban on bare `use crate::domain;` imports below closes
-/// the one evasion the codebase has actually used, and anything else is a conscious act the
-/// whitelist review would catch.
+/// a re-export would still evade this regex. The import-form ban below shrinks that surface by
+/// rejecting every `use` shape that lets later code spell a cross-domain path without the full
+/// `crate::domain::<domain>::<module>` text this scan matches (bare, domain-module, and
+/// brace-group imports), so an import-side evasion has to be written out by hand instead of
+/// falling out of an idiomatic import style.
 fn cross_domain_references() -> BTreeSet<(String, String)> {
     let pattern = Regex::new(r"crate::domain::([a-z_0-9]+)::([A-Za-z_][A-Za-z0-9_]*)").expect("유효한 정규식");
     let mut found = BTreeSet::new();
@@ -225,13 +236,22 @@ fn infra는_화이트리스트_밖의_domain_참조를_가질_수_없다() {
     );
 }
 
-/// A bare `use crate::domain;` (or `use crate::domain as …;`) import lets later code write
-/// `domain::x::y` paths the `crate::domain::` regex above never sees — the remote dispatch
-/// gateway is the only file that legitimately needs that form (it references all twenty domains'
-/// commands), so everywhere else it is rejected as an evasion vector rather than matched.
+/// Import forms that let later code reference another domain without ever spelling the full
+/// `crate::domain::<domain>::<module>` path the boundary regex above matches: a bare
+/// `use crate::domain;` (with or without `as`), a domain-module import
+/// (`use crate::domain::layout;`, idiomatic Rust, with or without `as`), and every shallow
+/// brace-group form (`use crate::{…}`, `use crate::domain::{…}`,
+/// `use crate::domain::layout::{…}`). A group nested deeper
+/// (`use crate::domain::layout::service::{…}`) already carries the `<domain>::<module>` text the
+/// scan matches, so it needs no ban. The remote dispatch gateway is the only file that
+/// legitimately needs the banned forms (it references every domain's commands); everywhere else a
+/// legitimate need is written as single-path `use crate::domain::x::y;` imports the scan can see.
 #[test]
-fn bare_domain_import는_remote_dispatch_게이트웨이에서만_허용된다() {
-    let pattern = Regex::new(r"(?m)^\s*use crate::domain(\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?;").expect("유효한 정규식");
+fn 경계_스캔이_못_보는_import_형태는_remote_dispatch_게이트웨이에서만_허용된다() {
+    let pattern = Regex::new(
+        r"(?m)^\s*use crate::(\{|domain\s*(as\s+[A-Za-z_][A-Za-z0-9_]*)?\s*;|domain::\{|domain::[a-z_0-9]+\s*(as\s+[A-Za-z_][A-Za-z0-9_]*)?\s*;|domain::[a-z_0-9]+::\{)",
+    )
+    .expect("유효한 정규식");
     let mut violations = Vec::new();
 
     for root in ["domain", "infra"] {
@@ -249,6 +269,6 @@ fn bare_domain_import는_remote_dispatch_게이트웨이에서만_허용된다()
 
     assert!(
         violations.is_empty(),
-        "bare `use crate::domain;` import 는 remote dispatch 게이트웨이 전용입니다 (도메인 경계 스캔 우회 방지):\n{violations:#?}"
+        "경계 스캔이 볼 수 없는 import 형태(bare `use crate::domain;`·`use crate::domain::x;`·중괄호 그룹)는 remote dispatch 게이트웨이 전용입니다 — `use crate::domain::x::y;` 단일 경로로 풀어 쓰십시오 (도메인 경계 스캔 우회 방지):\n{violations:#?}"
     );
 }

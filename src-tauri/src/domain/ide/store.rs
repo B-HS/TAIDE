@@ -211,7 +211,7 @@ impl IdeStore {
     }
 
     /// True when `owner` is not the remote session's fixed label — the gate
-    /// [`ide_set_selection`]/[`ide_clear_selection`](super::commands) use before touching
+    /// [`ide_set_selection`](super::commands::ide_set_selection)/[`ide_clear_selection`](super::commands) use before touching
     /// [`IdeStore`]'s selection slots or broadcasting a `selection_changed` notification, so a
     /// remote browser session's editor selection can never be mistaken for the local desktop
     /// editor's by [`ide::server`](super::server)'s MCP

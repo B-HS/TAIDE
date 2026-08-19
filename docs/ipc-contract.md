@@ -125,7 +125,7 @@
   `false` 로만 채우는 상수였다(X1#10). `AppState::self_writes`(`infra::self_write::
   SelfWriteTracker`)가 `file_save`/`file_create`/`file_rename`/`file_delete`/`file_copy`/
   `search_replace` 의 성공한 쓰기 경로마다 짧은 TTL(2초)로 마킹하고,
-  `project::commands::attach_watcher` 가 watcher 그룹의 모든 경로가 그 마킹과 일치할 때만
+  `domain::file::capability::attach_watcher` 가 watcher 그룹의 모든 경로가 그 마킹과 일치할 때만
   `fromApp: true` 로 확정한다 — 묶음 안에 앱이 쓰지 않은 경로가 하나라도 섞이면 전체를 외부 변경으로
   보수적으로 처리한다(오마킹 방지가 마킹 누락보다 항상 우선). 마킹 누락(TTL 만료·경로 불일치)은
   기존과 동일한 `false` 로 안전하게 낙착된다.

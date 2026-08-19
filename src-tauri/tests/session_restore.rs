@@ -1,11 +1,15 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use taide_lib::domain::layout::service as layout_service;
 use taide_lib::domain::layout::types::{DropEdge, PaneNode, TabKind};
 use taide_lib::domain::project::service as project_service;
-use taide_lib::domain::project::types::SessionState;
+use taide_lib::domain::project::types::{CapabilityKind, SessionState};
 use taide_lib::paths::AppPaths;
+
+fn detect_terminal_only(_root: &Path) -> Vec<CapabilityKind> {
+    vec![CapabilityKind::Terminal]
+}
 
 struct TempDir(PathBuf);
 
@@ -51,7 +55,8 @@ fn 재시작하면_프로젝트와_탭_스플릿_활성상태가_복원된다() 
 
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
-    let opened = project_service::open_project(&paths, &mut session, &mut projects, workspace.path()).expect("open project");
+    let opened =
+        project_service::open_project(&paths, &mut session, &mut projects, workspace.path(), detect_terminal_only).expect("open project");
     let project_id = opened.project.id.clone();
 
     let mut layout = layout_service::default_layout();
@@ -114,7 +119,7 @@ fn 루트가_사라진_프로젝트는_제거되지_않고_root_missing_으로_�
 
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
-    project_service::open_project(&paths, &mut session, &mut projects, &workspace_path).expect("open project");
+    project_service::open_project(&paths, &mut session, &mut projects, &workspace_path, detect_terminal_only).expect("open project");
 
     drop(workspace);
 
@@ -137,8 +142,10 @@ fn 활성_프로젝트를_닫으면_남은_프로젝트가_활성화된다() {
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
 
-    let first_opened = project_service::open_project(&paths, &mut session, &mut projects, first.path()).expect("open first");
-    let second_opened = project_service::open_project(&paths, &mut session, &mut projects, second.path()).expect("open second");
+    let first_opened =
+        project_service::open_project(&paths, &mut session, &mut projects, first.path(), detect_terminal_only).expect("open first");
+    let second_opened =
+        project_service::open_project(&paths, &mut session, &mut projects, second.path(), detect_terminal_only).expect("open second");
 
     assert_eq!(
         session.active_project,
@@ -181,7 +188,8 @@ fn 재시작_후_untitled_탭이_유지된다() {
 
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
-    let opened = project_service::open_project(&paths, &mut session, &mut projects, workspace.path()).expect("open project");
+    let opened =
+        project_service::open_project(&paths, &mut session, &mut projects, workspace.path(), detect_terminal_only).expect("open project");
     let project_id = opened.project.id.clone();
 
     let mut layout = layout_service::default_layout();

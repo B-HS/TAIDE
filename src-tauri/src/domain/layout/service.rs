@@ -1020,10 +1020,11 @@ pub fn finish_mutation(app: &AppHandle, state: &AppState, project_id: &ProjectId
     snapshot
 }
 
-/// 탭을 열고 후처리(dirty 표시 + 레이아웃 갱신 이벤트 발신)까지 마친다. Tauri 커맨드
-/// (`layout_open_tab`)와 IDE 도메인의 `openFile` 도구 핸들러가 동일한 경로를 타도록 공유한다 —
-/// IDE 가 커맨드 표면을 제2 진입점으로 재사용하지 않게 하기 위한 service 레벨 진입점이다(R6#3).
-/// 레이아웃 read-clone-write 경합을 막기 위해 뮤테이션 가드는 이 함수가 직접 잡는다.
+/// Opens a tab and completes the post-processing (dirty marking + layout-changed event emission).
+/// Shared so the Tauri command (`layout_open_tab`) and the IDE domain's `openFile` tool handler
+/// run the same path — the service-level entry point that keeps the IDE from reusing the command
+/// surface as a second entry point (R6#3). Takes the mutation guard itself to prevent layout
+/// read-clone-write races.
 pub async fn open_tab_and_finish(
     app: &AppHandle,
     state: &AppState,
