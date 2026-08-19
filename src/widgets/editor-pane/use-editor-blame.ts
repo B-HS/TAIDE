@@ -31,6 +31,7 @@ export const useEditorBlame = ({ projectId, path, editor, t }: UseEditorBlameInp
     const [debouncedBlameQuery, setDebouncedBlameQuery] = useState<DebouncedBlameLineQuery>(null)
     const [blameLine, setBlameLine] = useState<BlameLine | null>(null)
     const [blameOverlayEnabled, setBlameOverlayEnabled] = useState(false)
+    const [overlayLineCount, setOverlayLineCount] = useState<number | null>(null)
 
     const { data: currentUser } = useQuery(gitCurrentUserQueryOptions(projectId))
 
@@ -46,31 +47,45 @@ export const useEditorBlame = ({ projectId, path, editor, t }: UseEditorBlameInp
         return () => clearTimeout(timer)
     }, [editor, cursorLine, projectId, path])
 
-    const { data: blameLineResult, isError: isBlameLineError } = useQuery(
-        gitBlameLineQueryOptions(debouncedBlameQuery ?? { projectId: null, path: null, line: null }),
-    )
+    const {
+        data: blameLineResult,
+        isError: isBlameLineError,
+        isPlaceholderData: isBlameLinePlaceholder,
+    } = useQuery(gitBlameLineQueryOptions(debouncedBlameQuery ?? { projectId: null, path: null, line: null }))
 
     /**
      * Bridges the query's result into `blameLine` state instead of rendering `data` directly, so
      * `setBlameLine` stays externally callable the way it was before this hook owned a query —
      * `editor-pane.tsx`'s path-switch reset block calls it synchronously (render-time, before
      * `debouncedBlameQuery` has caught up to the new path) to blank the footer immediately rather than
-     * showing the previous file's blame line until the next debounced fetch resolves. While the query
-     * is merely loading (`blameLineResult === undefined` without being an error) this deliberately
-     * leaves `blameLine` untouched, reproducing the pre-query effect's behavior of leaving the
-     * last-resolved line visible until the next fetch settles rather than blanking it on every cursor
-     * move. Deferred to a microtask rather than called synchronously in the effect body (an effect
-     * body must not call `setState` synchronously — matches the same constraint
-     * `use-editor-git-gutter-and-conflicts.ts`'s conflict-region parse effect works around).
+     * showing the previous file's blame line until the next debounced fetch resolves.
+     *
+     * Re-runs on `path` in addition to the query result so a tab that leaves and returns to this same
+     * path inside {@link BLAME_DEBOUNCE_MS} — `debouncedBlameQuery` never advancing away from it, so
+     * `blameLineResult`'s reference never changes either — still un-blanks the footer the reset block
+     * just cleared, instead of leaving it empty until the cursor happens to move to a different line.
+     * Gated on two conditions before touching `blameLine` at all: `debouncedBlameQuery?.path === path`
+     * (the debounce hasn't caught up to a path switch yet — stay blank) and `!isBlameLinePlaceholder`
+     * (the query key just changed and `keepPreviousData` is still surfacing the *previous* path's
+     * line — `BlameLine` carries no path of its own to tell that apart from this path's real data, so
+     * showing it here would flash the old file's author/summary on the new one). While the query is
+     * merely loading for *this* path with nothing to placeholder from (`blameLineResult === undefined`
+     * without being an error) this deliberately leaves `blameLine` untouched, reproducing the
+     * pre-query effect's behavior of leaving the last-resolved line visible until the next fetch
+     * settles rather than blanking it on every cursor move. Deferred to a microtask rather than called
+     * synchronously in the effect body (an effect body must not call `setState` synchronously —
+     * matches the same constraint `use-editor-git-gutter-and-conflicts.ts`'s conflict-region parse
+     * effect works around).
      */
     useEffect(() => {
+        if (debouncedBlameQuery?.path !== path || isBlameLinePlaceholder) return
         if (isBlameLineError) {
             queueMicrotask(() => setBlameLine(null))
             return
         }
         if (blameLineResult === undefined) return
         queueMicrotask(() => setBlameLine(blameLineResult))
-    }, [blameLineResult, isBlameLineError])
+    }, [path, debouncedBlameQuery, isBlameLinePlaceholder, blameLineResult, isBlameLineError])
 
     useEffect(() => {
         const node = blameFooterTextRef.current
@@ -80,7 +95,24 @@ export const useEditorBlame = ({ projectId, path, editor, t }: UseEditorBlameInp
         node.textContent = !blameLine || (model && blameLine.line > model.getLineCount()) ? '' : formatBlameLine(blameLine, Date.now(), currentUser)
     }, [editor, blameLine, currentUser])
 
-    const overlayLineCount = editor && blameOverlayEnabled ? (editor.getModel()?.getLineCount() ?? null) : null
+    /**
+     * Tracks the model's line count in state instead of reading `editor.getModel()?.getLineCount()`
+     * directly during render — a render-time read of that mutable external value falls outside
+     * React's reactive graph (React Compiler memoizes off `editor`/`blameOverlayEnabled` alone, with
+     * no way to know the model's own line count can change independently of either), risking a stale
+     * memoized value surviving a render where nothing *else* this hook reads happened to change.
+     * Deps match the original pre-query effect's own re-fetch triggers (`editor`/`blameOverlayEnabled`
+     * only, not on every keystroke) — see {@link gitBlameOverlayQueryOptions}'s doc comment for why
+     * `lineCount` staying out of the query key needs this to only recompute on toggle, not on typing.
+     * Deferred to a microtask rather than called synchronously in the effect body (an effect body must
+     * not call `setState` synchronously — matches the same constraint the blame-line bridge effect
+     * above works around).
+     */
+    useEffect(() => {
+        const nextLineCount = editor && blameOverlayEnabled ? (editor.getModel()?.getLineCount() ?? null) : null
+        queueMicrotask(() => setOverlayLineCount(nextLineCount))
+    }, [editor, blameOverlayEnabled])
+
     const { data: blameOverlayLines } = useQuery(gitBlameOverlayQueryOptions({ projectId, path, lineCount: overlayLineCount }))
 
     useEffect(() => {

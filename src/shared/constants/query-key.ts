@@ -44,6 +44,9 @@ export const QUERY_KEY = {
         COMMIT_FILES: (projectId: ProjectId, rev: string) => ['git', projectId, GIT_SCOPE_COMMIT_FILES, rev] as const,
         FILE_LOG: (projectId: ProjectId, path: string) => ['git', projectId, 'file-log', path] as const,
         SHOW: (projectId: ProjectId, rev: string, path: string) => ['git', projectId, GIT_SCOPE_SHOW, rev, path] as const,
+        BLAME_LINE: (projectId: ProjectId, path: string, line: number) => ['git', projectId, 'blame-line', path, line] as const,
+        BLAME_OVERLAY: (projectId: ProjectId, path: string) => ['git', projectId, 'blame-overlay', path] as const,
+        CONFLICT_SIDES: (projectId: ProjectId, path: string) => ['git', projectId, 'conflict-sides', path] as const,
         /**
          * Scopes keyed by an immutable `rev` (commit SHA) rather than by live working-tree/index
          * state — their `staleTime: Infinity` queries (see `git.query.ts`) should survive an

@@ -645,10 +645,14 @@
     - [x] d-0e. 착수 확인 5차(2026-08-19, 2건 전부 추천안): ① T1 3차 산출물(계약·secrets·
           release.yml·구현 933a052·검토 수정 46d5504) prod 병합 완료(main=46d5504, 분리 실행)
           ② 다음 배치 = editor-pane 묶음(§5.1-1 + T2-B 분해)
-    - [ ] d-13. editor-pane 묶음 배치 — 계약 `docs/acknowledge/2026-08-19-editor-pane-batch-
-          contract.md`. Phase A(1087줄 관심사별 훅 분해, 동작 무변경)→B 병렬 2(F1#17 blame 쿼리화·
-          F3#4 무효화 회수·F3#18 저수준 구독 교체·root-aware 소비처 5곳 전환)→메인 통합 verify→
-          E 검토(4렌즈+적대적+메인 2차)→커밋(dev)
+    - [x] d-13. editor-pane 묶음 배치 — **완료**. 계약 `docs/acknowledge/2026-08-19-editor-pane-
+          batch-contract.md`(§4 구현·§5 검토 기록). Phase A(1087→369줄·훅 6개, 동작 무변경 —
+          검토가 라인 전수 대조로 충실성 확증)→B 병렬 2(blame·conflict 쿼리화(debounce 보존)·
+          무효화 entities 회수·저수준 구독 표준화·root-aware 5곳)→메인 2차(useSaveFile(projectId?)
+          로 F3#4 완결)→구현 커밋 `500dbce`→E 검토(4렌즈 38발견→적대적 12: confirmed 9·refuted 3)
+          →수정(compareRequested 고착·waiter 세션키 큐·3중복 shared 승격·키 중앙화·
+          settleAfterDiskWrite 캡슐화+minor 6)→메인 2차 스팟 7건+verify·vite 그린. T1 3차 §5.1-1
+          이월(F1#17·F3#4·F3#18·root-aware 5곳) 전량 해소. qa6 실기 절 7항목 신설
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

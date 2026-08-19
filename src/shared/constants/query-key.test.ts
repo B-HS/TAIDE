@@ -45,6 +45,9 @@ const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'GIT.FILE_LOG', scopedByProject: false },
     { path: 'GIT.SHOW', scopedByProject: false },
     { path: 'GIT.REV_IMMUTABLE_SCOPES', scopedByProject: false },
+    { path: 'GIT.BLAME_LINE', scopedByProject: false },
+    { path: 'GIT.BLAME_OVERLAY', scopedByProject: false },
+    { path: 'GIT.CONFLICT_SIDES', scopedByProject: false },
     { path: 'LSP.ALL', scopedByProject: false },
     { path: 'LSP.SERVERS', scopedByProject: false },
     { path: 'LSP.SESSIONS', scopedByProject: true, factory: QUERY_KEY.LSP.SESSIONS },
@@ -123,6 +126,16 @@ describe('PROJECT_SCOPED_KEYS', () => {
         const gitProjectKey = QUERY_KEY.GIT.PROJECT(SENTINEL_PROJECT_ID)
         const gitStatusKey = QUERY_KEY.GIT.STATUS(SENTINEL_PROJECT_ID)
         expect(gitStatusKey.slice(0, gitProjectKey.length)).toEqual([...gitProjectKey])
+    })
+
+    test('GIT.BLAME_LINE·BLAME_OVERLAY·CONFLICT_SIDES 도 GIT.PROJECT 를 접두사로 포함한다 — editor-pane 신설 스코프의 프로젝트 정리 커버리지', () => {
+        const gitProjectKey = QUERY_KEY.GIT.PROJECT(SENTINEL_PROJECT_ID)
+        const scopedKeys = [
+            QUERY_KEY.GIT.BLAME_LINE(SENTINEL_PROJECT_ID, 'a.ts', 1),
+            QUERY_KEY.GIT.BLAME_OVERLAY(SENTINEL_PROJECT_ID, 'a.ts'),
+            QUERY_KEY.GIT.CONFLICT_SIDES(SENTINEL_PROJECT_ID, 'a.ts'),
+        ]
+        for (const scopedKey of scopedKeys) expect(scopedKey.slice(0, gitProjectKey.length)).toEqual([...gitProjectKey])
     })
 
     test('AGENT.HOOKS_PROJECT 는 agentName 과 무관하게 AGENT.HOOKS 전체를 접두사로 포함한다', () => {

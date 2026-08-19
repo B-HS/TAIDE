@@ -982,3 +982,20 @@
 - [ ] (LSP 설치 진행률 표시 — F1#10, 회귀 없음 확인) 설정 화면에서 언어 서버를 하나 설치하며
       진행률 바(다운로드 %)가 이전과 동일하게 갱신되는가(내부적으로 쿼리 캐시 기반에서
       `external-store-bridge` 기반으로 전환됐을 뿐 UI 동작은 무변화가 기대치)
+
+## editor-pane 묶음 재검 (2026-08-19, 계약: docs/acknowledge/2026-08-19-editor-pane-batch-contract.md)
+
+> 분해(1087→369줄·훅 6개) + blame/conflict 쿼리화 + 무효화 회수 + root-aware 전환. 훅 렌더
+> 테스트가 불가한 환경(DOM/testing-library 부재)이라 디바운스·effect 순서는 실기로만 확증 가능.
+
+- [ ] 다중 루트 프로젝트에서 파일 저장 시 didSave 알림·code actions on save 가 그 파일이 속한
+      루트의 세션으로 감(확인: 다른 루트의 같은 서버 세션이 반응하지 않음)
+- [ ] 다중 루트에서 outline 패널·breadcrumbs·팔레트 '@' 심볼이 해당 문서 루트의 세션 결과를 표시
+- [ ] blame 푸터: 커서 이동 debounce 체감 무변화(정착 시 표시·빠른 이동 중 요청 폭주 없음),
+      탭 A→B→A 빠른 왕복 후 푸터 정상 복원
+- [ ] blame 오버레이: 토글 켬/끔 반복·파일 편집 후 재토글 시 전체 라인 커버(잘림 없음)
+- [ ] 충돌 파일 Compare: 실패(비충돌 파일 등) 후 재클릭 재시도 가능·다른 파일로 전환 시 자동
+      팝업/토스트 없음
+- [ ] 저장(⌘S)·자동저장·untitled 변환 후 git 패널·미러 상태 갱신(무효화 회수 후 동등성)
+- [ ] 에디터 열기 직후(go-to-definition·검색 결과) IDE 연동 시 커서 push 부작용 없음(effect
+      순서 — Claude Code/JetBrains 연결 상태에서)

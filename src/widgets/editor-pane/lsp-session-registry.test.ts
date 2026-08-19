@@ -154,21 +154,22 @@ const REINIT_TEST_SETTLE_MS = 300
 
 describe('acquireLspSession / releaseLspSession — dispose 유예', () => {
     test('유예 기간 내 재획득하면 동일 record 를 반환하고 dispose 되지 않는다', async () => {
-        const { acquireLspSession, releaseLspSession, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, peekLspSessionForRoot } = await importRegistry()
+        const root = '/tmp/project-a'
 
-        const first = acquireLspSession(PROJECT_ID, SERVER_ID, '/tmp/project-a')
+        const first = acquireLspSession(PROJECT_ID, SERVER_ID, root)
         await first.record.ready
 
         releaseLspSession(first.key, first.record, TEST_GRACE_MS)
-        expect(peekLspSession(PROJECT_ID, SERVER_ID)).toBe(first.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, SERVER_ID, root)).toBe(first.record)
 
-        const second = acquireLspSession(PROJECT_ID, SERVER_ID, '/tmp/project-a')
+        const second = acquireLspSession(PROJECT_ID, SERVER_ID, root)
         expect(second.record).toBe(first.record)
         expect(second.record.group.refCount).toBe(1)
         expect(second.record.group.disposeTimer).toBeNull()
 
         await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
-        expect(peekLspSession(PROJECT_ID, SERVER_ID)).toBe(first.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, SERVER_ID, root)).toBe(first.record)
         expect(fakeLspIpc.stopCalls).toHaveLength(0)
 
         releaseLspSession(second.key, second.record, TEST_GRACE_MS)
@@ -176,47 +177,53 @@ describe('acquireLspSession / releaseLspSession — dispose 유예', () => {
     })
 
     test('유예 기간이 지나면 세션이 dispose 되고 레지스트리에서 제거된다', async () => {
-        const { acquireLspSession, releaseLspSession, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-expiry` as typeof SERVER_ID
+        const root = '/tmp/project-b'
 
-        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-expiry`, '/tmp/project-b')
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
         await handle.record.ready
 
         releaseLspSession(handle.key, handle.record, TEST_GRACE_MS)
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-expiry` as typeof SERVER_ID)).toBe(handle.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBe(handle.record)
 
         await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-expiry` as typeof SERVER_ID)).toBeNull()
-        expect(fakeLspIpc.stopCalls.some((call) => call.root === '/tmp/project-b')).toBe(true)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBeNull()
+        expect(fakeLspIpc.stopCalls.some((call) => call.root === root)).toBe(true)
     })
 
     test('강제 정리(flushLspSessionDisposal)는 유예 타이머를 기다리지 않고 즉시 dispose 한다', async () => {
-        const { acquireLspSession, releaseLspSession, flushLspSessionDisposal, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, flushLspSessionDisposal, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-force` as typeof SERVER_ID
+        const root = '/tmp/project-c'
 
-        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-force`, '/tmp/project-c')
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
         await handle.record.ready
 
         releaseLspSession(handle.key, handle.record, TEST_GRACE_MS)
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-force` as typeof SERVER_ID)).toBe(handle.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBe(handle.record)
 
         flushLspSessionDisposal(handle.key, handle.record)
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-force` as typeof SERVER_ID)).toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBeNull()
         expect(handle.record.group.disposeTimer).toBeNull()
 
         await new Promise((resolve) => setTimeout(resolve, 0))
-        expect(fakeLspIpc.stopCalls.some((call) => call.root === '/tmp/project-c')).toBe(true)
+        expect(fakeLspIpc.stopCalls.some((call) => call.root === root)).toBe(true)
     })
 
     test('활성 refCount 상태(유예 진입 전)에서 flushLspSessionDisposal 을 호출해도 아무 일도 하지 않는다', async () => {
-        const { acquireLspSession, flushLspSessionDisposal, peekLspSession } = await importRegistry()
+        const { acquireLspSession, flushLspSessionDisposal, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-noop` as typeof SERVER_ID
+        const root = '/tmp/project-d'
 
-        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-noop`, '/tmp/project-d')
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
         await handle.record.ready
 
         flushLspSessionDisposal(handle.key, handle.record)
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-noop` as typeof SERVER_ID)).toBe(handle.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBe(handle.record)
         expect(handle.record.group.refCount).toBe(1)
     })
 })
@@ -225,87 +232,62 @@ describe('flushLspSessionsForProject / flushAllLspSessionDisposals — 프로젝
     const OTHER_PROJECT_ID = 'project-2' as typeof PROJECT_ID
 
     test('같은 프로젝트의 유예 중인 세션만 즉시 dispose 하고, 다른 프로젝트의 유예 세션은 건드리지 않는다', async () => {
-        const { acquireLspSession, releaseLspSession, flushLspSessionsForProject, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, flushLspSessionsForProject, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-project-scope` as typeof SERVER_ID
+        const ownRoot = '/tmp/project-own'
+        const otherRoot = '/tmp/project-other'
 
-        const own = acquireLspSession(PROJECT_ID, `${SERVER_ID}-project-scope`, '/tmp/project-own')
+        const own = acquireLspSession(PROJECT_ID, serverId, ownRoot)
         await own.record.ready
         releaseLspSession(own.key, own.record, TEST_GRACE_MS)
 
-        const other = acquireLspSession(OTHER_PROJECT_ID, `${SERVER_ID}-project-scope`, '/tmp/project-other')
+        const other = acquireLspSession(OTHER_PROJECT_ID, serverId, otherRoot)
         await other.record.ready
         releaseLspSession(other.key, other.record, TEST_GRACE_MS)
 
         flushLspSessionsForProject(PROJECT_ID)
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-project-scope` as typeof SERVER_ID)).toBeNull()
-        expect(peekLspSession(OTHER_PROJECT_ID, `${SERVER_ID}-project-scope` as typeof SERVER_ID)).toBe(other.record)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, ownRoot)).toBeNull()
+        expect(peekLspSessionForRoot(OTHER_PROJECT_ID, serverId, otherRoot)).toBe(other.record)
 
         flushLspSessionsForProject(OTHER_PROJECT_ID)
         await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
     test('활성 세션(refCount>0, 언마운트 전)도 강제로 즉시 dispose 된다 — projectClosed 는 팬이 언마운트되기 전에 동기 도착한다', async () => {
-        const { acquireLspSession, flushLspSessionsForProject, peekLspSession } = await importRegistry()
+        const { acquireLspSession, flushLspSessionsForProject, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-project-scope-active` as typeof SERVER_ID
+        const root = '/tmp/project-active'
 
-        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-project-scope-active`, '/tmp/project-active')
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
         await handle.record.ready
 
         flushLspSessionsForProject(PROJECT_ID)
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-project-scope-active` as typeof SERVER_ID)).toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBeNull()
 
         await new Promise((resolve) => setTimeout(resolve, 0))
-        expect(fakeLspIpc.stopCalls.some((call) => call.root === '/tmp/project-active')).toBe(true)
+        expect(fakeLspIpc.stopCalls.some((call) => call.root === root)).toBe(true)
     })
 
     test('모든 프로젝트의 유예 중인 세션을 한 번에 정리한다', async () => {
-        const { acquireLspSession, releaseLspSession, flushAllLspSessionDisposals, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, flushAllLspSessionDisposals, peekLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-flush-all` as typeof SERVER_ID
+        const ownRoot = '/tmp/project-flush-all-own'
+        const otherRoot = '/tmp/project-flush-all-other'
 
-        const own = acquireLspSession(PROJECT_ID, `${SERVER_ID}-flush-all`, '/tmp/project-flush-all-own')
+        const own = acquireLspSession(PROJECT_ID, serverId, ownRoot)
         await own.record.ready
         releaseLspSession(own.key, own.record, TEST_GRACE_MS)
 
-        const other = acquireLspSession(OTHER_PROJECT_ID, `${SERVER_ID}-flush-all`, '/tmp/project-flush-all-other')
+        const other = acquireLspSession(OTHER_PROJECT_ID, serverId, otherRoot)
         await other.record.ready
         releaseLspSession(other.key, other.record, TEST_GRACE_MS)
 
         flushAllLspSessionDisposals()
 
-        expect(peekLspSession(PROJECT_ID, `${SERVER_ID}-flush-all` as typeof SERVER_ID)).toBeNull()
-        expect(peekLspSession(OTHER_PROJECT_ID, `${SERVER_ID}-flush-all` as typeof SERVER_ID)).toBeNull()
-    })
-})
-
-describe('waitForLspSession — 유예 중 세션 이중 수신 방지', () => {
-    test('유예 중(refCount 0, 아직 dispose 전) 세션은 대기자로 등록되지 않고 즉시 그 record 로 resolve 된다', async () => {
-        const { acquireLspSession, releaseLspSession, waitForLspSession } = await importRegistry()
-
-        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-wait`, '/tmp/project-e')
-        await handle.record.ready
-        releaseLspSession(handle.key, handle.record, TEST_GRACE_MS)
-
-        const waiter = waitForLspSession(PROJECT_ID, `${SERVER_ID}-wait` as typeof SERVER_ID)
-        const resolved = await waiter.promise
-        expect(resolved).toBe(handle.record)
-
-        await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
-    })
-
-    test('세션이 아직 없을 때 등록된 대기자는 acquireLspSession 이 새로 만든 record 로 정확히 한 번만 resolve 된다', async () => {
-        const { acquireLspSession, waitForLspSession } = await importRegistry()
-
-        const waiter = waitForLspSession(PROJECT_ID, `${SERVER_ID}-fresh-wait` as typeof SERVER_ID)
-        let resolveCount = 0
-        void waiter.promise.then(() => {
-            resolveCount += 1
-        })
-
-        const handle = acquireLspSession(PROJECT_ID, `${SERVER_ID}-fresh-wait`, '/tmp/project-f')
-        await handle.record.ready
-        await Promise.resolve()
-
-        expect(await waiter.promise).toBe(handle.record)
-        expect(resolveCount).toBe(1)
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, ownRoot)).toBeNull()
+        expect(peekLspSessionForRoot(OTHER_PROJECT_ID, serverId, otherRoot)).toBeNull()
     })
 })
 
@@ -386,45 +368,49 @@ describe('acquireLspSession — 다중 root 세션 공유 (R7#7)', () => {
     })
 
     test('합류된 root 중 하나만 release 되어도(다른 root 가 아직 활성) 세션이 dispose 되지 않고, 마지막 root 까지 release 되면 참여한 모든 root 로 stopLspSession 을 호출한다', async () => {
-        const { acquireLspSession, releaseLspSession, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, peekLspSessionForRoot } = await importRegistry()
         const serverId = `${SERVER_ID}-shared-b` as typeof SERVER_ID
+        const rootA = '/tmp/shared-b-root-a'
+        const rootB = '/tmp/shared-b-root-b'
         fakeLspIpc.setSharesSessions(serverId)
 
-        const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-b-root-a')
+        const first = acquireLspSession(PROJECT_ID, serverId, rootA)
         const session = await first.record.ready
-        const second = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-b-root-b')
+        const second = acquireLspSession(PROJECT_ID, serverId, rootB)
         await second.record.ready
 
         releaseLspSession(first.key, first.record, TEST_GRACE_MS)
         await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
 
-        expect(peekLspSession(PROJECT_ID, serverId)).not.toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, rootA)).not.toBeNull()
         expect(fakeLspIpc.stopCalls.some((call) => call.sessionId === session.sessionId)).toBe(false)
 
         releaseLspSession(second.key, second.record, TEST_GRACE_MS)
         await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
 
-        expect(peekLspSession(PROJECT_ID, serverId)).toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, rootA)).toBeNull()
         const stoppedRoots = fakeLspIpc.stopCalls.filter((call) => call.sessionId === session.sessionId).map((call) => call.root)
-        expect(new Set(stoppedRoots)).toEqual(new Set(['/tmp/shared-b-root-a', '/tmp/shared-b-root-b']))
+        expect(new Set(stoppedRoots)).toEqual(new Set([rootA, rootB]))
     })
 
     test('합류된 세션도 프로젝트 강제 정리(flushLspSessionsForProject) 시 한 번만 dispose 된다', async () => {
-        const { acquireLspSession, flushLspSessionsForProject, peekLspSession } = await importRegistry()
+        const { acquireLspSession, flushLspSessionsForProject, peekLspSessionForRoot } = await importRegistry()
         const serverId = `${SERVER_ID}-shared-c` as typeof SERVER_ID
+        const rootA = '/tmp/shared-c-root-a'
+        const rootB = '/tmp/shared-c-root-b'
         fakeLspIpc.setSharesSessions(serverId)
 
-        const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-c-root-a')
+        const first = acquireLspSession(PROJECT_ID, serverId, rootA)
         const session = await first.record.ready
-        const second = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-c-root-b')
+        const second = acquireLspSession(PROJECT_ID, serverId, rootB)
         await second.record.ready
 
         flushLspSessionsForProject(PROJECT_ID)
         await new Promise((resolve) => setTimeout(resolve, 0))
 
-        expect(peekLspSession(PROJECT_ID, serverId)).toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, rootA)).toBeNull()
         const stoppedRoots = fakeLspIpc.stopCalls.filter((call) => call.sessionId === session.sessionId).map((call) => call.root)
-        expect(new Set(stoppedRoots)).toEqual(new Set(['/tmp/shared-c-root-a', '/tmp/shared-c-root-b']))
+        expect(new Set(stoppedRoots)).toEqual(new Set([rootA, rootB]))
     })
 })
 
@@ -603,14 +589,14 @@ describe('handleLspSessionStatusChanged — 자동 재시작 재핸드셰이크 
 
 describe('finalizeSessionDisposal — spawn 진행 중 강제 정리 시 sessionsByKey 잔존 방지 (R7#7 회귀)', () => {
     test('spawn resolve 전에 flushLspSessionsForProject 가 호출되면 키가 즉시 정리되어, resolve 이후 같은 root 재acquire 시 새 spawn 이 생긴다', async () => {
-        const { acquireLspSession, flushLspSessionsForProject, peekLspSession } = await importRegistry()
+        const { acquireLspSession, flushLspSessionsForProject, peekLspSessionForRoot } = await importRegistry()
         const serverId = `${SERVER_ID}-spawn-flush` as typeof SERVER_ID
         const root = '/tmp/spawn-flush-root'
 
         const first = acquireLspSession(PROJECT_ID, serverId, root)
         flushLspSessionsForProject(PROJECT_ID)
 
-        expect(peekLspSession(PROJECT_ID, serverId)).toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBeNull()
 
         await first.record.ready.catch(() => undefined)
         await new Promise((resolve) => setTimeout(resolve, 0))
@@ -625,8 +611,8 @@ describe('finalizeSessionDisposal — spawn 진행 중 강제 정리 시 session
 })
 
 describe('peekLspSessionForRoot / waitForLspSessionForRoot — 다중 root 정확한 선택 (R7#7 회귀)', () => {
-    test('비공유 서버에서 root 별로 독립된 세션을 정확히 반환하며, root-agnostic peekLspSession 은 항상 가장 먼저 만들어진 root 만 반환한다', async () => {
-        const { acquireLspSession, peekLspSession, peekLspSessionForRoot } = await importRegistry()
+    test('비공유 서버에서 root 별로 독립된 세션을 정확히 반환한다', async () => {
+        const { acquireLspSession, peekLspSessionForRoot } = await importRegistry()
         const serverId = `${SERVER_ID}-multi-root` as typeof SERVER_ID
 
         const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/multi-root-a')
@@ -635,46 +621,100 @@ describe('peekLspSessionForRoot / waitForLspSessionForRoot — 다중 root 정�
         await second.record.ready
 
         expect(first.record).not.toBe(second.record)
-        expect(peekLspSession(PROJECT_ID, serverId)).toBe(first.record)
         expect(peekLspSessionForRoot(PROJECT_ID, serverId, '/tmp/multi-root-a')).toBe(first.record)
         expect(peekLspSessionForRoot(PROJECT_ID, serverId, '/tmp/multi-root-b')).toBe(second.record)
         expect(peekLspSessionForRoot(PROJECT_ID, serverId, '/tmp/multi-root-c')).toBeNull()
     })
 
-    test('대기 중인 root 가 직접 획득되면 그 record 로 resolve 된다', async () => {
-        const { acquireLspSession, waitForLspSessionForRoot } = await importRegistry()
-        const serverId = `${SERVER_ID}-wait-root-direct` as typeof SERVER_ID
+    test('유예 중(refCount 0, 아직 dispose 전) 세션은 대기자로 등록되지 않고 즉시 그 record 로 resolve 된다', async () => {
+        const { acquireLspSession, releaseLspSession, waitForLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-wait-root-grace` as typeof SERVER_ID
+        const root = '/tmp/wait-root-grace'
 
-        const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, '/tmp/wait-root-direct')
-        const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/wait-root-direct')
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
         await handle.record.ready
+        releaseLspSession(handle.key, handle.record, TEST_GRACE_MS)
 
+        const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, root)
         expect(await waiter.promise).toBe(handle.record)
+
+        await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
     })
 
-    test('알려진 한계: 같은 (projectId, serverId) 의 다른 root 획득도 대기자 큐를 깨워, 목표 root 가 아니면 null 로 resolve 된다', async () => {
+    test('대기 중인 root 가 직접 획득되면 그 record 로 정확히 한 번만 resolve 된다', async () => {
+        const { acquireLspSession, waitForLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-wait-root-direct` as typeof SERVER_ID
+        const root = '/tmp/wait-root-direct'
+
+        const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, root)
+        let resolveCount = 0
+        void waiter.promise.then(() => {
+            resolveCount += 1
+        })
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
+        await handle.record.ready
+        await Promise.resolve()
+
+        expect(await waiter.promise).toBe(handle.record)
+        expect(resolveCount).toBe(1)
+    })
+
+    test('다른 root 가 먼저 획득되어도 대기자는 깨지 않고, 목표 root 가 나중에 획득되면 그 record 로 resolve 된다(다중 root 회귀)', async () => {
         const { acquireLspSession, waitForLspSessionForRoot } = await importRegistry()
         const serverId = `${SERVER_ID}-wait-root-other` as typeof SERVER_ID
 
         const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, '/tmp/wait-root-other-b')
+        let resolveCount = 0
+        void waiter.promise.then(() => {
+            resolveCount += 1
+        })
+
         const handleA = acquireLspSession(PROJECT_ID, serverId, '/tmp/wait-root-other-a')
         await handleA.record.ready
+        await Promise.resolve()
+        expect(resolveCount).toBe(0)
 
-        expect(await waiter.promise).toBeNull()
+        const handleB = acquireLspSession(PROJECT_ID, serverId, '/tmp/wait-root-other-b')
+        await handleB.record.ready
+
+        expect(await waiter.promise).toBe(handleB.record)
+        expect(resolveCount).toBe(1)
+    })
+
+    test('cancel 은 목표 root 의 대기자 큐에서만 제거하고, 취소 후 그 root 가 획득돼도 다시 깨지 않는다', async () => {
+        const { acquireLspSession, waitForLspSessionForRoot } = await importRegistry()
+        const serverId = `${SERVER_ID}-wait-root-cancel` as typeof SERVER_ID
+
+        const waiter = waitForLspSessionForRoot(PROJECT_ID, serverId, '/tmp/wait-root-cancel-target')
+        let resolveCount = 0
+        void waiter.promise.then(() => {
+            resolveCount += 1
+        })
+
+        waiter.cancel()
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/wait-root-cancel-target')
+        await handle.record.ready
+        await Promise.resolve()
+
+        expect(resolveCount).toBe(0)
     })
 })
 
 describe('createSession — 합류 시 dispose 타이머 재무장 (correctness minor)', () => {
     test('두 root 모두 spawn 완료 전에 이미 release 되어 있으면(합류 후 refCount 0) 합류된 그룹에 dispose 타이머가 재무장된다', async () => {
-        const { acquireLspSession, releaseLspSession, flushLspSessionDisposal, peekLspSession } = await importRegistry()
+        const { acquireLspSession, releaseLspSession, flushLspSessionDisposal, peekLspSessionForRoot } = await importRegistry()
         const serverId = `${SERVER_ID}-shared-rearm` as typeof SERVER_ID
+        const rootA = '/tmp/shared-rearm-root-a'
+        const rootB = '/tmp/shared-rearm-root-b'
         fakeLspIpc.setSharesSessions(serverId)
 
-        const first = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-rearm-root-a')
+        const first = acquireLspSession(PROJECT_ID, serverId, rootA)
         await first.record.ready
         releaseLspSession(first.key, first.record, TEST_GRACE_MS)
 
-        const second = acquireLspSession(PROJECT_ID, serverId, '/tmp/shared-rearm-root-b')
+        const second = acquireLspSession(PROJECT_ID, serverId, rootB)
         releaseLspSession(second.key, second.record, TEST_GRACE_MS)
 
         await second.record.ready
@@ -684,7 +724,7 @@ describe('createSession — 합류 시 dispose 타이머 재무장 (correctness 
         expect(second.record.group.disposeTimer).not.toBeNull()
 
         flushLspSessionDisposal(second.key, second.record)
-        expect(peekLspSession(PROJECT_ID, serverId)).toBeNull()
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, rootA)).toBeNull()
 
         await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
     })

@@ -119,23 +119,20 @@ export type SessionRecord = {
 
 const sessionsByKey = new Map<string, SessionRecord>()
 const recordsBySessionId = new Map<string, SessionRecord>()
-const waitersByKey = new Map<string, Set<() => void>>()
+const waitersBySessionKey = new Map<string, Set<() => void>>()
 const languageAdapterListeners = new Set<() => void>()
 
 const toSessionKey = (projectId: ProjectId, serverId: LspServerId, root: string) => `${projectId}::${serverId}::${root}`
-const toWaiterKey = (projectId: ProjectId, serverId: LspServerId) => `${projectId}::${serverId}`
 
 /**
  * The first (oldest-inserted) handle currently tracked for `(projectId, serverId)`, regardless of
- * which root it was acquired for — used both by the root-agnostic public API
- * ({@link peekLspSession}/{@link waitForLspSession}/{@link listSessionRecordsForProject}, none of
- * which know or care which specific root a caller's file resolved to) and internally by
- * `acquireLspSession` to find the *sibling* a new root should attempt to join. Always the true
- * fresh/canonical handle for its connection when one exists: the very first root ever acquired for
- * a `(projectId, serverId)` pair can never itself be "joining" anything (nothing existed yet when it
- * was created), and `Map` iteration is insertion-ordered, so the earliest surviving key is always
- * that original handle (or, if it since failed and was evicted, whichever later handle became the
- * new earliest one — self-healing, not stale).
+ * which root it was acquired for — used internally by `acquireLspSession` to find the *sibling* a
+ * new root should attempt to join. Always the true fresh/canonical handle for its connection when
+ * one exists: the very first root ever acquired for a `(projectId, serverId)` pair can never itself
+ * be "joining" anything (nothing existed yet when it was created), and `Map` iteration is
+ * insertion-ordered, so the earliest surviving key is always that original handle (or, if it since
+ * failed and was evicted, whichever later handle became the new earliest one — self-healing, not
+ * stale).
  *
  * Correct for `acquireLspSession`'s own sibling-join lookup (any existing root is a valid join
  * candidate there — the backend, not this pick, decides whether the connection is actually shared,
@@ -143,9 +140,8 @@ const toWaiterKey = (projectId: ProjectId, serverId: LspServerId) => `${projectI
  * open and wants *that document's* session: since session keys include `root` (R7#7), a project with
  * more than one root open under the same `(projectId, serverId)` — routine for a `shares_sessions:
  * false` server like rustAnalyzer with two disjoint Cargo workspaces — can have several independent
- * records here, and this always returns the oldest one regardless of which root actually has the
- * caller's file open. {@link peekLspSession}/{@link waitForLspSession} inherit that same limitation;
- * prefer {@link peekLspSessionForRoot}/{@link waitForLspSessionForRoot} whenever a root is available.
+ * records here, and this would return the oldest one regardless of which root actually has the
+ * caller's file open — use {@link peekLspSessionForRoot}/{@link waitForLspSessionForRoot} for that.
  */
 const findAnyRecordForServer = (projectId: ProjectId, serverId: LspServerId): SessionRecord | null => {
     const prefix = `${projectId}::${serverId}::`
@@ -155,10 +151,17 @@ const findAnyRecordForServer = (projectId: ProjectId, serverId: LspServerId): Se
     return null
 }
 
-const notifyWaiters = (waiterKey: string) => {
-    const waiters = waitersByKey.get(waiterKey)
+/**
+ * Wakes every {@link waitForLspSessionForRoot} waiter registered for this *exact*
+ * `(projectId, serverId, root)` session key, then drops the queue — a still-pending waiter for a
+ * *different* root is never touched, since it sits under its own root's key in this same map, not
+ * this one. That per-root indexing (rather than one shared `(projectId, serverId)` queue every root
+ * used to wake) is what makes a root B waiter immune to root A's `acquireLspSession` call.
+ */
+const notifySessionKeyWaiters = (key: string) => {
+    const waiters = waitersBySessionKey.get(key)
     if (!waiters) return
-    waitersByKey.delete(waiterKey)
+    waitersBySessionKey.delete(key)
     waiters.forEach((waiter) => waiter())
 }
 
@@ -609,29 +612,21 @@ export const acquireLspSession = (
         if (sessionsByKey.get(key) === record) sessionsByKey.delete(key)
     })
     sessionsByKey.set(key, record)
-    notifyWaiters(toWaiterKey(projectId, serverId))
+    notifySessionKeyWaiters(key)
     return { key, record }
 }
 
 /**
- * Root-agnostic: returns *some* session for `(projectId, serverId)` — the oldest-inserted one
- * ({@link findAnyRecordForServer}), not necessarily the one that has the caller's file open. Correct
- * whenever `(projectId, serverId)` can only ever have one root's session at a time, and for callers
- * that are deliberately root-agnostic (`listSessionRecordsForProject`'s workspace-wide sweep). Wrong
- * whenever a project has more than one root open for a `shares_sessions: false` server (R7#7) and the
- * caller actually needs the session serving a *specific* file — use {@link peekLspSessionForRoot}
- * with that file's resolved root instead.
- */
-export const peekLspSession = (projectId: ProjectId, serverId: LspServerId) => findAnyRecordForServer(projectId, serverId)
-
-/**
- * Root-exact counterpart to {@link peekLspSession} — returns the session acquired for this precise
- * `(projectId, serverId, root)` triple, or `null` if none has been acquired. Correct in the
- * multi-root case {@link peekLspSession} is not: a `sharesSessions` server's join (R7#7) reassigns
- * the joining root's own `SessionRecord.group` in place rather than replacing the `sessionsByKey`
- * entry, so the record found here for a joined root already resolves to the *same* shared
- * `ResolvedSession` its sibling roots do — this never returns a "wrong session" the way
- * {@link peekLspSession} can when several independent (non-shared) roots coexist.
+ * Returns the session acquired for this precise `(projectId, serverId, root)` triple, or `null` if
+ * none has been acquired — the only `peek*` export left in this module (its former root-agnostic
+ * counterpart, which returned *some* session for `(projectId, serverId)` without knowing which root
+ * the caller's file actually opened under, was removed once every consumer finished converting to
+ * this root-exact form — R7#7's whole point is that a project can have more than one root open under
+ * the same `(projectId, serverId)` for a `shares_sessions: false` server, so "some session" and "the
+ * caller's session" are not the same question). Correct for a `sharesSessions` join (R7#7) too: it
+ * reassigns the joining root's own `SessionRecord.group` in place rather than replacing the
+ * `sessionsByKey` entry, so the record found here for a joined root already resolves to the *same*
+ * shared `ResolvedSession` its sibling roots do.
  */
 export const peekLspSessionForRoot = (projectId: ProjectId, serverId: LspServerId, root: string): SessionRecord | null =>
     sessionsByKey.get(toSessionKey(projectId, serverId, root)) ?? null
@@ -639,10 +634,10 @@ export const peekLspSessionForRoot = (projectId: ProjectId, serverId: LspServerI
 /**
  * Every currently-acquired session for `projectId`, across every server/language — used by the
  * command palette's `⌘T` Workspace Symbol search (`command-palette.tsx`), which queries all of a
- * project's active sessions in parallel rather than one language's sessions like `waitForLspSession`
- * callers (outline, `@` mode) do. Deduplicated by `SessionRecord` reference: a `sharesSessions`
- * connection joined by several roots (R7#7) appears under several `sessionsByKey` keys, but it is
- * one live connection worth querying once, not once per joined root.
+ * project's active sessions in parallel rather than one language's sessions like
+ * {@link waitForLspSessionForRoot} callers (outline, `@` mode) do. Deduplicated by `SessionRecord`
+ * reference: a `sharesSessions` connection joined by several roots (R7#7) appears under several
+ * `sessionsByKey` keys, but it is one live connection worth querying once, not once per joined root.
  */
 export const listSessionRecordsForProject = (projectId: ProjectId): SessionRecord[] => {
     const prefix = `${projectId}::`
@@ -654,50 +649,33 @@ export const listSessionRecordsForProject = (projectId: ProjectId): SessionRecor
 }
 
 /**
- * Root-agnostic session waiter — same "some session for `(projectId, serverId)`, not necessarily the
- * caller's root" caveat as {@link peekLspSession} (see its doc) applies once resolved, since a waiter
- * registered before any session exists yet has no root to disambiguate by either. Prefer
- * {@link waitForLspSessionForRoot} whenever the caller can resolve a root.
- */
-export const waitForLspSession = (projectId: ProjectId, serverId: LspServerId) => {
-    const waiterKey = toWaiterKey(projectId, serverId)
-    const existing = findAnyRecordForServer(projectId, serverId)
-    if (existing) return { promise: Promise.resolve<SessionRecord | null>(existing), cancel: () => {} }
-
-    let waiter: () => void = () => {}
-    const promise = new Promise<SessionRecord | null>((resolve) => {
-        waiter = () => resolve(findAnyRecordForServer(projectId, serverId))
-        const waiters = waitersByKey.get(waiterKey) ?? new Set()
-        waiters.add(waiter)
-        waitersByKey.set(waiterKey, waiters)
-    })
-    const cancel = () => waitersByKey.get(waiterKey)?.delete(waiter)
-    return { promise, cancel }
-}
-
-/**
- * Root-exact counterpart to {@link waitForLspSession}, mirroring {@link peekLspSessionForRoot}'s
- * exact-key lookup instead of {@link findAnyRecordForServer}'s oldest-match. Shares the underlying
- * `(projectId, serverId)` waiter queue (session keys carry `root`, but nothing currently indexes
- * waiters by root too) — a waiter registered here still wakes on *any* new session for this server,
- * then re-checks the exact `(projectId, serverId, root)` key and resolves `null` if that specific
- * root's session is not the one that just got created. A caller that must keep waiting past that
- * still has the returned `cancel` to drop this attempt and register a fresh one.
+ * Waits for the session acquired for this precise `(projectId, serverId, root)` triple, resolving
+ * immediately if it already exists (mirroring {@link peekLspSessionForRoot}'s exact-key lookup) or
+ * registering into `waitersBySessionKey` under that exact session key otherwise. Indexed on the full
+ * triple — not a root-agnostic `(projectId, serverId)` queue — so a waiter registered here only ever
+ * wakes for {@link acquireLspSession} calls that acquire *this exact root's* session. In a
+ * multi-root project (R7#7) this matters: acquiring root A's session must not resolve (and thereby
+ * drop, unanswered) a waiter that is specifically waiting on root B — the root-agnostic queue this
+ * replaced woke every waiter for the server on *any* root's acquisition, which then re-checked its
+ * own exact key and resolved `null` if root B's session hadn't been acquired yet, silently
+ * abandoning the wait (`breadcrumbs-bar.tsx`/`outline-panel-container.tsx`/`command-palette.tsx`'s
+ * document-symbol loops and `use-editor-lsp-integration.ts`'s Code Actions on Save all treat that
+ * `null` as "no session for this server" and move on, never re-registering). The returned `cancel`
+ * still exists for the timeout/unmount paths that need to drop a still-pending wait.
  */
 export const waitForLspSessionForRoot = (projectId: ProjectId, serverId: LspServerId, root: string) => {
     const key = toSessionKey(projectId, serverId, root)
-    const waiterKey = toWaiterKey(projectId, serverId)
     const existing = sessionsByKey.get(key)
     if (existing) return { promise: Promise.resolve<SessionRecord | null>(existing), cancel: () => {} }
 
     let waiter: () => void = () => {}
     const promise = new Promise<SessionRecord | null>((resolve) => {
         waiter = () => resolve(sessionsByKey.get(key) ?? null)
-        const waiters = waitersByKey.get(waiterKey) ?? new Set()
+        const waiters = waitersBySessionKey.get(key) ?? new Set()
         waiters.add(waiter)
-        waitersByKey.set(waiterKey, waiters)
+        waitersBySessionKey.set(key, waiters)
     })
-    const cancel = () => waitersByKey.get(waiterKey)?.delete(waiter)
+    const cancel = () => waitersBySessionKey.get(key)?.delete(waiter)
     return { promise, cancel }
 }
 

@@ -1,9 +1,8 @@
-import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { useTranslation } from 'react-i18next'
-import type { ConflictSides, HunkKind, ProjectId, TabId } from '@shared/api/bindings'
+import type { ConflictSides, HunkKind, ProjectId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { resolveSelectedLineRange } from '@shared/lib/selection-line-range'
 import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
@@ -17,7 +16,6 @@ import {
     useStageGitLines,
 } from '@entities/git/git.query'
 import { OPEN_FILE_HISTORY_MONACO_ACTION_ID } from '@entities/git/git.constant'
-import type { useSetTabDirty } from '@entities/layout/layout.query'
 import {
     acceptBothChanges,
     acceptCurrentChange,
@@ -36,14 +34,9 @@ const GUTTER_CLASS_BY_HUNK_KIND: Record<HunkKind, string> = {
 type UseEditorGitGutterAndConflictsInput = {
     projectId: ProjectId
     path: string
-    tabId: TabId
     editor: monaco.editor.IStandaloneCodeEditor | null
     t: ReturnType<typeof useTranslation>['t']
-    saveEpochRef: RefObject<number>
-    mirrorTimeoutRef: RefObject<ReturnType<typeof setTimeout> | undefined>
-    pendingMirrorRef: RefObject<boolean>
-    setDirty: Dispatch<SetStateAction<boolean>>
-    setTabDirty: ReturnType<typeof useSetTabDirty>['mutate']
+    settleAfterDiskWrite: () => void
 }
 
 /**
@@ -53,18 +46,7 @@ type UseEditorGitGutterAndConflictsInput = {
  * conflicted file's gutter renders conflict-region markers instead of hunk bars, and a gutter
  * click opens the conflict dialog instead of the hunk-discard flow.
  */
-export const useEditorGitGutterAndConflicts = ({
-    projectId,
-    path,
-    tabId,
-    editor,
-    t,
-    saveEpochRef,
-    mirrorTimeoutRef,
-    pendingMirrorRef,
-    setDirty,
-    setTabDirty,
-}: UseEditorGitGutterAndConflictsInput) => {
+export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, settleAfterDiskWrite }: UseEditorGitGutterAndConflictsInput) => {
     const [pendingHunk, setPendingHunk] = useState<{ start: number; end: number } | null>(null)
     const [conflictRegions, setConflictRegions] = useState<ConflictRegion[]>([])
     const [pendingConflict, setPendingConflict] = useState<ConflictRegion | null>(null)
@@ -83,18 +65,31 @@ export const useEditorGitGutterAndConflicts = ({
      * Fetched on demand (`compareRequested`, armed by `handleCompareConflict` below) rather than
      * whenever the file happens to be conflicted — matches the pre-query imperative fetch this
      * replaces, which only ever ran in response to the compare dialog's own "Compare" button.
+     * `refetch` is what makes every click of "Compare" actually retry: `enabled: compareRequested`
+     * alone can't, because a click while already `compareRequested === true` (the dialog failed to
+     * open on the previous attempt, so it's still armed) is a no-op `setState` that never re-renders,
+     * let alone re-fetches — matching the pre-query `.then(setCompareSides).catch(toast.error)` this
+     * replaces, which re-ran unconditionally on every click regardless of the previous attempt's
+     * outcome.
      */
     const {
         data: compareSidesData,
         isError: isCompareSidesError,
         error: compareSidesErrorValue,
+        refetch: refetchCompareSides,
     } = useQuery({ ...gitConflictSidesQueryOptions({ projectId, path }), enabled: compareRequested })
     const compareSides = compareRequested ? (compareSidesData ?? null) : null
 
+    /**
+     * Gated on `compareRequested` (not just `isCompareSidesError`) so a stale error cached from a
+     * *previous* failed attempt — surfaced the instant this component mounts/re-renders for a path
+     * that already has one, `enabled` or not — doesn't toast without the user having done anything.
+     * Only an attempt actually armed by {@link handleCompareConflict} below reaches the user.
+     */
     useEffect(() => {
-        if (!isCompareSidesError) return
+        if (!compareRequested || !isCompareSidesError) return
         toast.error(compareSidesErrorValue instanceof Error ? compareSidesErrorValue.message : String(compareSidesErrorValue))
-    }, [isCompareSidesError, compareSidesErrorValue])
+    }, [compareRequested, isCompareSidesError, compareSidesErrorValue])
 
     /**
      * Applies one side's transform to `region` as a single undoable `executeEdits` op (replacing
@@ -123,11 +118,7 @@ export const useEditorGitGutterAndConflicts = ({
             { projectId, path, content: newContent },
             {
                 onSuccess: () => {
-                    saveEpochRef.current += 1
-                    clearTimeout(mirrorTimeoutRef.current)
-                    pendingMirrorRef.current = false
-                    setDirty(false)
-                    setTabDirty({ tabId, dirty: false })
+                    settleAfterDiskWrite()
                     toast.success(t('git.conflictResolved'))
                 },
                 onError: (mutationError) => toast.error(mutationError.message),
@@ -142,6 +133,7 @@ export const useEditorGitGutterAndConflicts = ({
     const handleCompareConflict = () => {
         setPendingConflict(null)
         setCompareRequested(true)
+        void refetchCompareSides()
     }
 
     /**

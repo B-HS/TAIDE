@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import type { languages } from 'monaco-editor'
 import { Braces, CornerDownLeft, File, Hash, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
-import type { LspServerId, ProjectId } from '@shared/api/bindings'
 import type { AppCommand, CommandContext, FlatPaletteSymbol, PaletteLineTarget, PaletteMode } from '@shared/lib/command-registry'
 import {
     flattenDocumentSymbols,
@@ -26,6 +25,7 @@ import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
+import { buildDocumentSymbolWaiters } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from '@shared/ui/command'
@@ -38,7 +38,6 @@ import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/la
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
-import type { SessionRecord } from '@widgets/editor-pane/lsp-session-registry'
 import { listSessionRecordsForProject, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 
@@ -54,52 +53,6 @@ const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
 
 type DocumentSymbolState = { path: string; symbols: languages.DocumentSymbol[] }
 type WorkspaceSymbolState = { query: string; results: NormalizedWorkspaceSymbol[] }
-
-export type DocumentSymbolSessionWaiter = { promise: Promise<SessionRecord | null>; cancel: () => void }
-
-type BuildDocumentSymbolWaitersInput = {
-    availableServerIds: LspServerId[]
-    path: string
-    projectId: ProjectId
-    fallbackRoot: string | undefined
-    isCancelled: () => boolean
-    resolveRoot: (input: { serverId: LspServerId; filePath: string }) => Promise<string | null>
-    waitForSession: (projectId: ProjectId, serverId: LspServerId, root: string) => DocumentSymbolSessionWaiter
-}
-
-/**
- * root-aware conversion (`docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` §1.2): resolves
- * each candidate server's actual LSP root for `path` (mirroring `use-lsp-session.ts`'s own
- * `resolveLspRoot(...) ?? projectRoot` acquire-time fallback exactly — a consumer that used a
- * different fallback could ask `waitForLspSessionForRoot` for a root key nothing was ever acquired
- * under) before waiting on a session, replacing the root-agnostic `waitForLspSession` that could
- * resolve to *any* root's session in a multi-root project (R7#7) — including one that never had
- * `path` open. Used only by `⌘O`/symbol-nav mode below, which has a concrete `activePath` to resolve
- * a root from — the `⌘T` Workspace Symbol search a few lines down stays root-agnostic
- * (`listSessionRecordsForProject`) on purpose: it has no single document path to resolve a root
- * against (it searches every root the project has open at once), so there is no "wrong root" to
- * pick. `resolveRoot`/`waitForSession`/`isCancelled` are injected rather than imported directly so
- * this decision (which roots to wait on, and in what order) is a plain, directly testable function
- * of its inputs — this component has no render-test harness to reach for (no DOM/testing-library
- * environment configured for `bun:test` in this project).
- */
-export const buildDocumentSymbolWaiters = async ({
-    availableServerIds,
-    path,
-    projectId,
-    fallbackRoot,
-    isCancelled,
-    resolveRoot,
-    waitForSession,
-}: BuildDocumentSymbolWaitersInput): Promise<DocumentSymbolSessionWaiter[]> => {
-    const resolvedRoots = await Promise.all(availableServerIds.map((serverId) => resolveRoot({ serverId, filePath: path }).catch(() => null)))
-    if (isCancelled()) return []
-
-    return availableServerIds.flatMap((serverId, index) => {
-        const root = resolvedRoots[index] ?? fallbackRoot
-        return root ? [waitForSession(projectId, serverId, root)] : []
-    })
-}
 
 export const CommandPalette = () => {
     const [open, setOpen] = useState(false)
@@ -292,6 +245,14 @@ export const CommandPalette = () => {
         handleOpenChange(false)
     }
 
+    /**
+     * `⌘O`/symbol-nav mode's document-symbol lookup — root-aware (`buildDocumentSymbolWaiters` +
+     * `waitForLspSessionForRoot`, contract `docs/acknowledge/2026-08-19-editor-pane-batch-contract.md`
+     * §1.2) because it has a concrete `activePath` to resolve a root from. Contrast the `⌘T`
+     * Workspace Symbol effect below, which stays root-agnostic (`listSessionRecordsForProject`) on
+     * purpose: it has no single document path to resolve a root against (it searches every root the
+     * project has open at once), so there is no "wrong root" to pick.
+     */
     useEffect(() => {
         if (mode !== 'symbol' || !open || !activeProjectId || !activePath || !activeFile || !lspServers) return
 

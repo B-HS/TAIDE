@@ -115,6 +115,11 @@ describe('gitBlameLineQueryOptions (contract F1#17)', () => {
         const result = await (options.queryFn as () => Promise<unknown>)()
         expect(result).toBeNull()
     })
+
+    test('쿼리키는 QUERY_KEY.GIT.BLAME_LINE 중앙 팩토리와 동일하다', async () => {
+        const { gitBlameLineQueryOptions } = await importGitQuery()
+        expect(QUERY_KEY.GIT.BLAME_LINE('p1', 'a.ts', 7)).toEqual(gitBlameLineQueryOptions({ projectId: 'p1', path: 'a.ts', line: 7 }).queryKey)
+    })
 })
 
 describe('gitBlameOverlayQueryOptions (contract F1#17)', () => {
@@ -130,6 +135,18 @@ describe('gitBlameOverlayQueryOptions (contract F1#17)', () => {
         const a = gitBlameOverlayQueryOptions({ projectId: 'p1', path: 'a.ts', lineCount: 10 }).queryKey
         const b = gitBlameOverlayQueryOptions({ projectId: 'p1', path: 'a.ts', lineCount: 999 }).queryKey
         expect(a).toEqual(b)
+    })
+
+    test('staleTime 이 0 이라 매 토글마다(enabled 재활성화 시) 재조회된다', async () => {
+        const { gitBlameOverlayQueryOptions } = await importGitQuery()
+        expect(gitBlameOverlayQueryOptions({ projectId: 'p1', path: 'a.ts', lineCount: 10 }).staleTime).toBe(0)
+    })
+
+    test('쿼리키는 QUERY_KEY.GIT.BLAME_OVERLAY 중앙 팩토리와 동일하다', async () => {
+        const { gitBlameOverlayQueryOptions } = await importGitQuery()
+        expect(QUERY_KEY.GIT.BLAME_OVERLAY('p1', 'a.ts')).toEqual(
+            gitBlameOverlayQueryOptions({ projectId: 'p1', path: 'a.ts', lineCount: 10 }).queryKey,
+        )
     })
 
     test('1 부터 lineCount 까지 전체 범위를 요청한다', async () => {
@@ -153,5 +170,12 @@ describe('gitConflictSidesQueryOptions (contract F1#17)', () => {
         const options = gitConflictSidesQueryOptions({ projectId: 'p1', path: 'conflicted.ts' })
         await (options.queryFn as () => Promise<unknown>)()
         expect(capturedGetGitConflictSidesCalls.at(-1)).toEqual({ projectId: 'p1', path: 'conflicted.ts' })
+    })
+
+    test('쿼리키는 QUERY_KEY.GIT.CONFLICT_SIDES 중앙 팩토리와 동일하다', async () => {
+        const { gitConflictSidesQueryOptions } = await importGitQuery()
+        expect(QUERY_KEY.GIT.CONFLICT_SIDES('p1', 'conflicted.ts')).toEqual(
+            gitConflictSidesQueryOptions({ projectId: 'p1', path: 'conflicted.ts' }).queryKey,
+        )
     })
 })

@@ -49,6 +49,8 @@ type AttachLspSessionInput = {
     queryClient: ReturnType<typeof useQueryClient>
 }
 
+const toSemanticHighlightingEnabled = (settings: Settings | undefined) => settings?.editorSemanticHighlighting ?? true
+
 /**
  * F3#18 (`docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` §1.2): replaces a raw
  * `queryClient.getQueryCache().subscribe(event => ...)` that watched *every* cache event and
@@ -61,18 +63,33 @@ type AttachLspSessionInput = {
  * `useQuery(settingsQueryOptions())` mount in the app are what keep the cache populated) — it only
  * watches whatever is already there, exactly like the raw cache read it replaces.
  *
+ * `select` only ever runs once the query has *some* cached `data` (TanStack Query skips it
+ * entirely while `data === undefined`), so a subscribe that starts before any
+ * `useQuery(settingsQueryOptions())` mount has populated the cache sees `result.data` go straight
+ * from `undefined` to the first real selected value the moment it does — a "change" this observer
+ * would otherwise report even when that first value matches the `?? true` default every caller
+ * already assumed. `lastValue` (mirroring the replaced code's own `lastSemanticHighlightingEnabled`
+ * local, seeded the same `?? true` way) absorbs exactly that transition: `result.data === undefined`
+ * is treated as "still the same as the assumed default", not a change, and only an actually
+ * different resolved value updates `lastValue` and fires `onChange`.
+ *
  * Split out as a plain, `QueryClient`-driven function (mirroring `entities/lsp/lsp.query.ts`'s
  * `invalidateLspSessionsQueryKeys`) so this de-duplication behavior is directly testable without
  * rendering `useLspSession` — this module has no hook-render test harness to reach for either.
  */
 export const observeSemanticHighlightingSetting = (queryClient: QueryClient, onChange: () => void) => {
+    let lastValue = toSemanticHighlightingEnabled(queryClient.getQueryData<Settings>(QUERY_KEY.SETTINGS.CURRENT))
     const observer = new QueryObserver(queryClient, {
         ...settingsQueryOptions(),
-        select: (settings) => settings.editorSemanticHighlighting ?? true,
+        select: toSemanticHighlightingEnabled,
         notifyOnChangeProps: ['data'],
         enabled: false,
     })
-    return observer.subscribe(onChange)
+    return observer.subscribe(({ data }) => {
+        if (data === undefined || data === lastValue) return
+        lastValue = data
+        onChange()
+    })
 }
 
 const attachLspSession = ({

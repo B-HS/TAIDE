@@ -281,6 +281,27 @@ export const useEditorFilePersistence = ({
         )
     }
 
+    /**
+     * The save-epoch bump + mirror-timer/pending-flag clear + dirty reset that every "the buffer
+     * now matches what's on disk" success path performs — `handleSave`'s own success handler (below)
+     * and `handleViewDisk` (right below this) both inline the same sequence because each has its own
+     * epoch-bump timing quirk (`handleSave` only bumps unconditionally but only settles the rest
+     * inside its `draftRef.current === finalContent` guard; `handleViewDisk` does both unconditionally
+     * but interleaves a few of its own statements in between) that folding into one shared call here
+     * would either duplicate or subtly change. `useEditorGitGutterAndConflicts`'s own disk-write
+     * success path (resolving a merge conflict) has no such quirk — it's the same five statements,
+     * unconditionally — so it gets this function instead of `saveEpochRef`/`mirrorTimeoutRef`/
+     * `pendingMirrorRef`/`setDirty`/`setTabDirty` themselves, narrowing what a hook outside this file
+     * can do to this hook's internal bookkeeping to "settle", not "mutate the refs directly".
+     */
+    const settleAfterDiskWrite = () => {
+        saveEpochRef.current += 1
+        clearTimeout(mirrorTimeoutRef.current)
+        pendingMirrorRef.current = false
+        setDirty(false)
+        setTabDirty({ tabId, dirty: false })
+    }
+
     const handleViewDisk = () => {
         if (!file) return
 
@@ -377,8 +398,6 @@ export const useEditorFilePersistence = ({
         handleSave,
         handleViewDisk,
         handleKeepMine,
-        saveEpochRef,
-        mirrorTimeoutRef,
-        pendingMirrorRef,
+        settleAfterDiskWrite,
     }
 }

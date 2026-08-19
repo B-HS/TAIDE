@@ -98,9 +98,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         handleSave,
         handleViewDisk,
         handleKeepMine,
-        saveEpochRef,
-        mirrorTimeoutRef,
-        pendingMirrorRef,
+        settleAfterDiskWrite,
     } = useEditorFilePersistence({
         projectId,
         path,
@@ -120,23 +118,6 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const { setCursorLine, blameFooterTextRef, setBlameLine, setBlameOverlayEnabled } = useEditorBlame({ projectId, path, editor, t })
 
-    if (path !== syncedPath) {
-        setSyncedPath(path)
-        setSyncedContent(null)
-        setPreviewSource(null)
-        setDirty(false)
-        setBlameLine(null)
-        setBlameOverlayEnabled(false)
-        setRestoreNotice('none')
-    } else if (file && syncedContent === null) {
-        setSyncedContent(file.content)
-    } else if (file && !dirty && syncedContent !== null && file.content !== syncedContent) {
-        setSyncedContent(file.content)
-        setPreviewSource(null)
-    }
-
-    const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
-
     const {
         pendingHunk,
         setPendingHunk,
@@ -149,20 +130,25 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         handleCompareConflict,
         compareSides,
         setCompareSides,
-    } = useEditorGitGutterAndConflicts({
-        projectId,
-        path,
-        tabId,
-        editor,
-        t,
-        saveEpochRef,
-        mirrorTimeoutRef,
-        pendingMirrorRef,
-        setDirty,
-        setTabDirty,
-    })
+    } = useEditorGitGutterAndConflicts({ projectId, path, editor, t, settleAfterDiskWrite })
 
-    useEditorIdeSelection({ projectId, path, editor })
+    if (path !== syncedPath) {
+        setSyncedPath(path)
+        setSyncedContent(null)
+        setPreviewSource(null)
+        setDirty(false)
+        setBlameLine(null)
+        setBlameOverlayEnabled(false)
+        setRestoreNotice('none')
+        setCompareSides(null)
+    } else if (file && syncedContent === null) {
+        setSyncedContent(file.content)
+    } else if (file && !dirty && syncedContent !== null && file.content !== syncedContent) {
+        setSyncedContent(file.content)
+        setPreviewSource(null)
+    }
+
+    const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
@@ -219,6 +205,18 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         if (!editor) return
         consumePendingReveal(path, editor)
     }, [editor, path])
+
+    /**
+     * Called here rather than up with the other hooks (its own natural position by convention —
+     * frontend.md §3.2 groups custom hooks together) so its selection-change subscription registers
+     * *after* the `consumePendingReveal` effect above — matching the pre-decomposition order, where a
+     * mount-time programmatic reveal (`editor.setPosition`, from a go-to-definition/search-result
+     * open) fires before this effect's `onDidChangeCursorSelection` subscription exists, so that
+     * reveal's cursor move was never itself pushed to the IDE as a "selection". Registering this
+     * subscription earlier would let that reveal's cursor move get caught and debounce-pushed as a
+     * user selection, a spurious IPC call the original never made.
+     */
+    useEditorIdeSelection({ projectId, path, editor })
 
     useEffect(() => {
         if (!editor) return

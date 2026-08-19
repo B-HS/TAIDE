@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { languages } from 'monaco-editor'
-import type { LspServerId, ProjectId, TabId } from '@shared/api/bindings'
+import type { ProjectId, TabId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
+import { buildDocumentSymbolWaiters } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import {
     buildSegmentPaths,
@@ -18,7 +19,6 @@ import {
     splitRelativePathSegments,
     type CursorPosition,
 } from '@widgets/editor-pane/breadcrumb-path'
-import type { SessionRecord } from '@widgets/editor-pane/lsp-session-registry'
 import { waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { fileQueryOptions } from '@entities/file/file.query'
@@ -45,48 +45,6 @@ type BreadcrumbsBarProps = {
     projectId: ProjectId
     tabId: TabId | null
     path: string | null
-}
-
-export type DocumentSymbolSessionWaiter = { promise: Promise<SessionRecord | null>; cancel: () => void }
-
-type BuildDocumentSymbolWaitersInput = {
-    availableServerIds: LspServerId[]
-    path: string
-    projectId: ProjectId
-    fallbackRoot: string | undefined
-    isCancelled: () => boolean
-    resolveRoot: (input: { serverId: LspServerId; filePath: string }) => Promise<string | null>
-    waitForSession: (projectId: ProjectId, serverId: LspServerId, root: string) => DocumentSymbolSessionWaiter
-}
-
-/**
- * root-aware conversion (`docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` §1.2): resolves
- * each candidate server's actual LSP root for `path` (mirroring `use-lsp-session.ts`'s own
- * `resolveLspRoot(...) ?? projectRoot` acquire-time fallback exactly — a consumer that used a
- * different fallback could ask `waitForLspSessionForRoot` for a root key nothing was ever acquired
- * under) before waiting on a session, replacing the root-agnostic `waitForLspSession` that could
- * resolve to *any* root's session in a multi-root project (R7#7) — including one that never had
- * `path` open. `resolveRoot`/`waitForSession`/`isCancelled` are injected rather than imported
- * directly so this decision (which roots to wait on, and in what order) is a plain, directly
- * testable function of its inputs — this component has no render-test harness to reach for
- * (no DOM/testing-library environment configured for `bun:test` in this project).
- */
-export const buildDocumentSymbolWaiters = async ({
-    availableServerIds,
-    path,
-    projectId,
-    fallbackRoot,
-    isCancelled,
-    resolveRoot,
-    waitForSession,
-}: BuildDocumentSymbolWaitersInput): Promise<DocumentSymbolSessionWaiter[]> => {
-    const resolvedRoots = await Promise.all(availableServerIds.map((serverId) => resolveRoot({ serverId, filePath: path }).catch(() => null)))
-    if (isCancelled()) return []
-
-    return availableServerIds.flatMap((serverId, index) => {
-        const root = resolvedRoots[index] ?? fallbackRoot
-        return root ? [waitForSession(projectId, serverId, root)] : []
-    })
 }
 
 export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path }) => {

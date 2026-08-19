@@ -89,3 +89,39 @@
 - **잔여·검토 초점**: buildDocumentSymbolWaiters 3파일 중복(소유 경계 회피 — 2회 이상 룰 위반,
   Phase E 통합 승격 후보) / 훅 렌더 테스트 불가(DOM 환경 부재 — 순수 로직만 커버, 실기 이월) /
   blame 쿼리화의 타이밍 의미론·분해 전이 오류가 검토 최우선.
+
+---
+
+## 5. Phase E 검토 결함 수정 반영 (2026-08-19)
+
+> 검토 wf_8fea2fb4-435(4렌즈: 분해충실성·수정정확성·계약·설계, opus+xhigh — 대상 dev `500dbce`
+> diff) — 발견 38(major 12·minor 26) → 적대적 검증(opus+high, major 전건) **confirmed 9·refuted 3**
+> → 수정 wf_5ead0fdc-b2c(FA·FB 병렬 sonnet+xhigh). 메인 2차: 스팟 7건 실물 재검증 + verify·vite
+> build 직접 재실행.
+
+- **분해 충실성 총평(검토)**: 원본 1087줄 비주석 라인 중 훅에 부재한 54건 전부가 Phase B 의도
+  변경분으로 설명·역방향 스캔 신규 로직 0·effect 의존성 배열 20개 전건 일치 — 분해 자체는 충실.
+- **[confirmed·3렌즈 수렴] compareRequested 고착** — Compare 실패 시 플래그 영구 true(재시도
+  불가·타 파일 자동 fetch/팝업·반복 토스트). → 클릭마다 `refetchCompareSides()` 명시 호출 + path
+  전환 리셋에 `setCompareSides(null)` + 에러 토스트 `compareRequested` 게이팅(캐시 에러 리마운트
+  토스트 차단 동시 해소).
+- **[confirmed] root-aware waiter 소진** — 다른 root 세션 획득이 waiter 를 null 로 소진, 재등록
+  없음. → 대기자를 (projectId, serverId, root) 정확 세션키 큐(`waitersBySessionKey`)로 이전 —
+  목표 root 획득까지 대기 유지. 다중 root 순차 spawn·cancel 회귀 테스트.
+- **[confirmed·2렌즈] buildDocumentSymbolWaiters 3중복** — `shared/lib/lsp/document-symbol-
+  session-waiters.ts` 로 승격(TSession 제네릭으로 widgets 역참조 제거 — FSD 안전 확인). 테스트
+  3벌→1벌, 컴포넌트 파일의 비컴포넌트 export(SFC 위반)도 해소.
+- **[confirmed] 쿼리 키 중앙화** — blame-line·blame-overlay·conflict-sides 를 QUERY_KEY.GIT
+  팩토리로. PROJECT_SCOPED_KEYS prefix 커버 테스트 동반.
+- **[confirmed] persistence ref 스레딩** — `settleAfterDiskWrite`(에폭 bump+타이머 해제+pending
+  해제+dirty 정리) 단일 함수로 캡슐화, ref 3종 반환면 제거.
+- **minor 실질 수정 6**: 탭 A→B→A blame 푸터 공백(deps+`isPlaceholderData` 가드 — refuted #10 이
+  지적한 placeholder 노출 위험 동시 방어)·오버레이 lineCount state 화(렌더 순수성)+staleTime 0
+  (토글마다 재조회 원본 의미론 복원)·IDE selection effect 등록 순서 원본 복원·
+  observeSemanticHighlightingSetting 빈 캐시 baseline(가짜 최초 refresh 차단)·root-agnostic
+  peek/waitForLspSession dead code 제거(소비처 0 grep 확증)·qa6 실기 이월 절 신설(메인 — 7항목).
+- **기각(수정 안 함)**: refuted 3(staleTime 설계 부재 주장·untitled 회계·blame state 재복사) +
+  blame-line 60초 캐시 minor — FA 가 백엔드 `blame_range`(디스크 기반 HEAD blame, 미저장 편집
+  무관·저장 시 GIT.PROJECT 즉시 무효화)를 독립 확인해 refuted 와 동일 결론 도달.
+- **사고 기록**: FA 가 작업 중 `git stash` 오실행 → 즉시 pop 복구. 메인 확증: qa6 추가분·FB
+  산출물 전량 생존(스팟 체크·전체 테스트 그린). 이후 해당 파일 무접촉.

@@ -44,24 +44,6 @@ import {
 } from '@entities/git/git.ipc'
 
 const LOG_PAGE_SIZE = 100
-const GIT_SCOPE_BLAME_LINE = 'blame-line'
-const GIT_SCOPE_BLAME_OVERLAY = 'blame-overlay'
-const GIT_SCOPE_CONFLICT_SIDES = 'conflict-sides'
-
-/**
- * These three scopes are widget-local additions (`editor-pane`'s blame footer/overlay, the conflict
- * compare dialog) built by extending {@link QUERY_KEY.GIT.PROJECT}'s own prefix rather than adding a
- * new top-level factory to `shared/constants/query-key.ts` — they stay swept by
- * `PROJECT_SCOPED_KEYS`' existing `GIT.PROJECT` entry (and by every git mutation's coarse
- * project-prefix invalidation below) without that file needing a change.
- */
-const gitBlameLineQueryKey = (projectId: ProjectId, path: string, line: number) =>
-    [...QUERY_KEY.GIT.PROJECT(projectId), GIT_SCOPE_BLAME_LINE, path, line] as const
-
-const gitBlameOverlayQueryKey = (projectId: ProjectId, path: string) => [...QUERY_KEY.GIT.PROJECT(projectId), GIT_SCOPE_BLAME_OVERLAY, path] as const
-
-const gitConflictSidesQueryKey = (projectId: ProjectId, path: string) =>
-    [...QUERY_KEY.GIT.PROJECT(projectId), GIT_SCOPE_CONFLICT_SIDES, path] as const
 
 /**
  * The cursor-line blame footer's data source (contract T1 3차 batch 4, F1#17) — `line` is expected to
@@ -73,7 +55,7 @@ const gitConflictSidesQueryKey = (projectId: ProjectId, path: string) =>
  */
 export const gitBlameLineQueryOptions = (input: { projectId: ProjectId | null; path: string | null; line: number | null }) =>
     queryOptions({
-        queryKey: gitBlameLineQueryKey(input.projectId ?? '', input.path ?? '', input.line ?? 0),
+        queryKey: QUERY_KEY.GIT.BLAME_LINE(input.projectId ?? '', input.path ?? '', input.line ?? 0),
         queryFn: () =>
             getGitBlameRange({ projectId: input.projectId ?? '', path: input.path ?? '', from: input.line ?? 0, to: input.line ?? 0 }).then(
                 (lines) => lines[0] ?? null,
@@ -87,15 +69,19 @@ export const gitBlameLineQueryOptions = (input: { projectId: ProjectId | null; p
  * The whole-file blame overlay's data source (`git.toggleBlame`). `lineCount` is deliberately not
  * part of the query key — the pre-query effect this replaces only recomputed `model.getLineCount()`
  * when *itself* re-ran (editor/enabled/project/path changing), never on every keystroke that changes
- * the model's line count, and keeping the key at `[...GIT.PROJECT, 'blame-overlay', path]` regardless
- * of `lineCount` preserves that: typing new lines while the overlay is showing doesn't trigger a
- * refetch, only toggling the overlay or switching files does.
+ * the model's line count, and keeping the key at `QUERY_KEY.GIT.BLAME_OVERLAY(projectId, path)`
+ * regardless of `lineCount` preserves that: typing new lines while the overlay is showing doesn't
+ * trigger a refetch, only toggling the overlay or switching files does. `staleTime: 0` is what makes
+ * "toggling" actually refetch though — without it, re-enabling within the global 60s default would
+ * silently reuse whatever `lineCount` was current the *first* time it was enabled, clipping the
+ * overlay to that older line count if the file has since grown.
  */
 export const gitBlameOverlayQueryOptions = (input: { projectId: ProjectId | null; path: string | null; lineCount: number | null }) =>
     queryOptions({
-        queryKey: gitBlameOverlayQueryKey(input.projectId ?? '', input.path ?? ''),
+        queryKey: QUERY_KEY.GIT.BLAME_OVERLAY(input.projectId ?? '', input.path ?? ''),
         queryFn: () => getGitBlameRange({ projectId: input.projectId ?? '', path: input.path ?? '', from: 1, to: input.lineCount ?? 1 }),
         enabled: !!input.projectId && !!input.path && input.lineCount !== null,
+        staleTime: 0,
         retry: false,
     })
 
@@ -106,7 +92,7 @@ export const gitBlameOverlayQueryOptions = (input: { projectId: ProjectId | null
  */
 export const gitConflictSidesQueryOptions = (input: { projectId: ProjectId | null; path: string | null }) =>
     queryOptions({
-        queryKey: gitConflictSidesQueryKey(input.projectId ?? '', input.path ?? ''),
+        queryKey: QUERY_KEY.GIT.CONFLICT_SIDES(input.projectId ?? '', input.path ?? ''),
         queryFn: () => getGitConflictSides({ projectId: input.projectId ?? '', path: input.path ?? '' }),
         enabled: !!input.projectId && !!input.path,
         retry: false,

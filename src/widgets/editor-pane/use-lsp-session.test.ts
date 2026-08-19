@@ -76,6 +76,35 @@ describe('observeSemanticHighlightingSetting — F3#18 저수준 캐시 구독 �
         expect(callCount).toBe(1)
     })
 
+    test('빈 캐시에서 구독을 시작해도, 처음 도착한 값이 기본값(true)과 같으면 콜백을 호출하지 않는다', async () => {
+        const { observeSemanticHighlightingSetting } = await importUseLspSession()
+        const queryClient = new QueryClient()
+
+        let callCount = 0
+        observeSemanticHighlightingSetting(queryClient, () => {
+            callCount += 1
+        })
+
+        queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, settingsWith({ editorSemanticHighlighting: true }))
+        expect(callCount).toBe(0)
+
+        queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, settingsWith({ editorSemanticHighlighting: false }))
+        expect(callCount).toBe(1)
+    })
+
+    test('빈 캐시에서 구독을 시작하고 처음 도착한 값이 기본값(true)과 다르면 콜백을 호출한다', async () => {
+        const { observeSemanticHighlightingSetting } = await importUseLspSession()
+        const queryClient = new QueryClient()
+
+        let callCount = 0
+        observeSemanticHighlightingSetting(queryClient, () => {
+            callCount += 1
+        })
+
+        queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, settingsWith({ editorSemanticHighlighting: false }))
+        expect(callCount).toBe(1)
+    })
+
     test('옵저버 자체는 fetch 하지 않는다(enabled:false) — 캐시가 비어 있어도 요청을 만들지 않는다', async () => {
         const { observeSemanticHighlightingSetting } = await importUseLspSession()
         const queryClient = new QueryClient()
