@@ -21,7 +21,7 @@
 | **T1-K 원격 기본거부** (6건) | **완료(d-14)** — C16 근본 해소(기본 거부 기계 강제) |
 | **T1-H 락 IO 분리** (10건) | **완료(d-18)** — 락-IO 결합 국소 해소(입도 무변경). 계약 `2026-08-19-audit-t1h-lock-io-contract.md`. 이월: git2 in-process 동기 IO 13건·repo 단위 재진입 직렬화·원격 동시 상한·pty_spawn·git_pull 네트워크 락 탈출(계약 §4·§5) |
 | **T1-I 도메인 경계 C13** (12건) | **완료(d-17)** — 결정 10-A·12-A 실행(capability 확장점·아키텍처 테스트 기계 강제). 이월: AppState 공유 필드 사각지대·layout↔ide·window↔layout 순환(계약 §5) |
-| T2 백로그 10묶음 (~107건) | 미착수 — 중복 제거·비대 파일 분해(editor-pane 은 해소, settings-view 927·lib.rs·locale/service.rs 4081 등 잔여)·shared/lib 재구조화·접근성 8·dead code·매직넘버·로케일 외부화 |
+| T2 백로그 10묶음 (~107건) | **T2-I 진행 중(d-19)** — 로케일 외부화(locale/service.rs 4081 해소, 계약 `2026-08-19-t2i-locale-externalization-contract.md`). 잔여: 중복 제거·비대 파일 분해(settings-view 927·lib.rs 등)·shared/lib 재구조화·접근성 8·dead code·매직넘버 |
 | T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
 | X-A 배선 8건 | **완료(d-15)** — 살리기 4·지우기(focus-kind·app:ready·중복 5종)·X1#2 소비 전량. 신규 이월 4건(viewState closed_tabs 복원 공백·useReplaceSearch invalidation 부재·REMOTE 폴링/push 중복·경로 predicate 한계)은 d-15 계약 §6 |
 | X-C 문서 잔여 | 일부 해소(커맨드 수·data-model roots 는 정정됨) — X1#5(sync gist 스키마 절)·#15(디스크 레이아웃)·#16·#17·#18 잔여 |
@@ -755,6 +755,14 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           이관·tree in-place·최초 gist 생성 가드 유지 등) → 메인 2차(스팟 4축+verify·vite
           직접 exit 0, Rust 1076·프론트 1375). qa6 +1절(9항목). 이월: git2 in-process 13건·
           재진입 직렬화·원격 동시 상한·pty_spawn
+    - [x] d-0j. 착수 확인 10차(2026-08-19, 상시 지시 적용): ① T1-H 산출물 3커밋 prod 병합
+          완료(main=e554c9f) — **감사 T1 트랙 11묶음 전체 완결** ② 다음 배치 = T2 첫 배치로
+          T2-I 로케일 외부화 선정(위험 최저·theme 패턴 재사용·최대 비대 파일 해소)
+    - [ ] d-19. T2-I 로케일 데이터 외부화 — **진행 중**. 계약
+          `docs/acknowledge/2026-08-19-t2i-locale-externalization-contract.md`. 착수 전 실물
+          확인 완료(en/ko/ja 리터럴 3벌 ~2,850줄·theme include_str! 선례·resources/ 실재).
+          실행: Rust 단독 구현(3언어 전수 파리티 자가 검증) → E 검토(이동충실성 렌즈) →
+          수정 → 메인 2차 → 커밋
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
