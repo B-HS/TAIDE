@@ -642,6 +642,13 @@
           문서 정정(ipc-contract owner 신뢰 경계·180종·data-model roots 오기). 이월 잔여 8건은
           계약 §5.1 정본(1순위: editor-pane 묶음 — F1#17 blame·F3#4 절반·F3#18 구독 2곳·
           root-aware 소비처 5곳)
+    - [x] d-0e. 착수 확인 5차(2026-08-19, 2건 전부 추천안): ① T1 3차 산출물(계약·secrets·
+          release.yml·구현 933a052·검토 수정 46d5504) prod 병합 완료(main=46d5504, 분리 실행)
+          ② 다음 배치 = editor-pane 묶음(§5.1-1 + T2-B 분해)
+    - [ ] d-13. editor-pane 묶음 배치 — 계약 `docs/acknowledge/2026-08-19-editor-pane-batch-
+          contract.md`. Phase A(1087줄 관심사별 훅 분해, 동작 무변경)→B 병렬 2(F1#17 blame 쿼리화·
+          F3#4 무효화 회수·F3#18 저수준 구독 교체·root-aware 소비처 5곳 전환)→메인 통합 verify→
+          E 검토(4렌즈+적대적+메인 2차)→커밋(dev)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
