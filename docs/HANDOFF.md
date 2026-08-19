@@ -1,10 +1,9 @@
-# HANDOFF — 2026-08-19 세션 스냅샷 (감사 T1 3차~T1-K·editor-pane·X-A 완결, Phase 8 사전준비)
+# HANDOFF — 2026-08-20 세션 스냅샷 (T1 트랙 완결·T2 개시: T1-I·T1-H·T2-I 3배치 완주)
 
-> 최종 갱신: 2026-08-19 / dev HEAD: **`6671c31`** / prod(origin/main): **`19d77e6`**(T1-K 까지 반영,
-> **X-A 청소 배치 3커밋(`f1ca1fb`·`8328023`·`6671c31`)은 dev 선행 — 병합 확인 대기**).
-> 워킹트리 클린. **진행 중 작업 없음**. 다음 세션은 §6 확인 → §8 TODO 착수.
-> 이 문서가 세션 인수인계 **단일 진입점**. 직전 스냅샷(손 QA·T0·T1 1/2차)은 `git show 85ea29b:docs/HANDOFF.md`.
-> **잔여 작업 총량의 정본은 `docs/PROCESS.md` 상단 "잔여 작업 총괄" 절**(사용자 요청으로 신설 — 이 문서와 중복 유지하지 않는다).
+> 최종 갱신: 2026-08-20 / dev HEAD = main = origin 양측 = **`15cd460`** (**전 브랜치 동기 —
+> 병합 대기분 없음**). 워킹트리 클린. **진행 중 작업 없음**(다음 배치 착수 직전 중단 — §6-1).
+> 이 문서가 세션 인수인계 **단일 진입점**. 직전 스냅샷은 `git show 353d590:docs/HANDOFF.md`.
+> **잔여 작업 총량의 정본은 `docs/PROCESS.md` 상단 "잔여 작업 총괄" 절**(중복 유지하지 않음).
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -16,164 +15,174 @@
 | 층위 | 내용 |
 |------|------|
 | 최종 목표 | `docs/PRD.md` FR-A~J(완료) → 전문 QA(d) 통과 → Phase 8 배포(서명·공증) |
-| 현재 마일스톤 | **전문 QA(d)** — 감사 정비: T0·T1 9묶음·editor-pane·T1-K·X-A **완결**. 잔여 = T1-I·T1-H(고위험 2묶음)·T2·실기 QA |
-| 직전 작업 | X-A 청소 배치(d-15) 완결(`6671c31`) + 결정 패키지(§6) 제시 직후 세션 종료 |
+| 현재 마일스톤 | **전문 QA(d)** — **감사 T1 트랙 11묶음 전체 완결**(이번 세션 T1-I·T1-H 로 마감) + T2 개시(T2-I 완료). 잔여 = T2 나머지 9묶음·T2-E/J 캠페인·실기 QA·Phase 8 |
+| 직전 작업 | T2-I 완결·prod 병합 직후, 다음 배치(추천 T2-D/F/G 통합 청소) 착수 직전 goal 해제·핸드오프 |
 
 ## 3. 완료 / 진행 중 / 미착수
 
-### 3.1 이번 세션 완료 (dev 커밋 17건: 3f3c767..6671c31)
+### 3.1 이번 세션 완료 (dev 커밋 9건: f0e49a4..15cd460 — 전부 main 병합 완료)
 
-각 배치 패턴(전 배치 공통): **착수 전 메인 실물 재확인 → 계약(acknowledge) → 구현 Workflow(sonnet+xhigh)
-→ 4렌즈 검토(opus+xhigh)+건별 적대적 검증(opus+high) → confirmed 수정 → 메인 2차(스팟 실물+verify·vite
-직접 재실행) → 커밋(dev)**. 이번 세션 4배치 모두 검토가 실결함을 적중(마지막 배치는 confirmed 16/16).
+전 배치 공통 패턴: **착수 전 메인 실물 재확인 → 계약(acknowledge) → 구현 Workflow(sonnet+
+xhigh) → 4렌즈 검토(opus+xhigh, 배치 특성별 재구성)+major 이상 건별 적대적 검증(opus+high) →
+confirmed 수정 Workflow → 메인 2차(스팟 실물+verify·vite 직접 재실행) → 커밋 → prod 병합**.
+이번 세션 3배치 모두 적대적 검증 **refuted 0**(T1-H 는 confirmed 8 전건 — sync disconnect
+되살림·blocking 풀 교착 등 실경합 적중. 검토 단계의 값어치 재재입증).
 
 | 작업 | 커밋 | 계약 정본 | 핵심 |
 |------|------|-----------|------|
-| **감사 T1 3차**(d-12) | `933a052`+`46d5504` | `2026-08-19-audit-t1-batch3-contract.md` | T1-C 서버상태 13·T1-D 레지스트리 17(owner/root 스코프·브리지 팩토리 2종·12종 마이그레이션·LSP 세대 이벤트+`lsp_confirm_reinitialize`)·T1-A 프로바이더 3. 검토 critical: **원격 owner 위장** → `enforce_remote_owner_label`(dispatch 진입 재귀 강제 치환) |
-| **Phase 8 사전준비**(e-0·e-1) | `55c9d89`·`b0cc457`·`2ccfff0`·`ae67d83` | `2026-08-19-phase8-signing-secrets.md` | secrets 5건(raw-viewer 선례 — MACOS_CERTIFICATE_P12/PASSWORD·APPLE_ID/APP_SPECIFIC_PASSWORD/TEAM_ID) **사용자 등록 완료**. `.github/workflows/release.yml` 이식(tags v*+수동만·서명 아이덴티티 자동 추출·graceful skip). 실값: Team ID `SN98P5V7J4`·인증서 키체인 실재 확인 |
-| **editor-pane 묶음**(d-13) | `500dbce`+`2f40d06` | `2026-08-19-editor-pane-batch-contract.md` | 1087→369줄 훅 6개 분해(동작 무변경 — 검토가 라인 전수 대조 확증) + blame/conflict 쿼리화·무효화 회수 완결(`useSaveFile(projectId?)`)·저수준 구독 2곳 표준화·root-aware 5곳. 검토 수정: Compare 고착·waiter 세션키 큐·3중복 shared 승격 |
-| **T1-K 기본 거부**(d-14) | `4b76dda`+`19d77e6` | `2026-08-19-audit-t1k-default-deny-contract.md` | dispatch 를 명시 허용(160)+거부(19, `RemoteDenialPolicy` 8분류)+기본 거부로 반전. 완전 분할·arm↔테이블 파리티 테스트(인위 누락 실측). **정책 무변경 전수 대조 2회 독립**(구현·검토). 신규 커맨드는 등재 없인 원격 기본 거부(기계 강제) — C16 근본 해소 |
-| **잔여 총괄 절**(d-0g) | `c5e96d2` | PROCESS 상단 | 감사 트랙별 처리 현황·이월·QA·배포 잔량 단일 뷰(사용자 요청) |
-| **X-A 청소**(d-15) | `8328023`+`6671c31` | `2026-08-19-xa-wiring-cleanup-contract.md` | 살리기 4(**viewState 저장/복원**·**from_app 에코**·revision 게이트·**터미널 cwd+파일 링크 실배선**)·지우기(focus-kind·app:ready·중복 커맨드 5종 → 커맨드 176+raw3·이벤트 23)·§5.1 잔여 5(ws writer 유한 대기·`lsp_report_reinitialize_failure`·tree_rows Option·terminal:exited 소비·open-with prune). 검토 **confirmed 16/16** → viewState useLayoutEffect 재설계·from_app temp sibling 실효화·`guard_terminal_path` 보안 가드·OSC7 종결자 수정 |
+| **T1-I 도메인 경계**(d-17) | `f0e49a4`+`1852820`+`9bad3df` | `2026-08-19-audit-t1i-domain-boundary-contract.md` | 결정 10-A·12-A 실행. `ProjectCapability` 확장점 8종(`domain/*/capability.rs`, open/close 수기 조립 이관·순서 바이트 재현), ide commands↔server 순환 절단(`ide/store.rs` 하강)·제2 진입점 service 경유(`layout/service.rs` 오케스트레이션 절), plugin↔vsix 단방향(`infra/archive.rs`), `infra/language.rs` `LanguageOverlay` 의존 반전, 조립부 배선 3종(SettingsToggleObservers·SystemUsageLabelProviders·PtySpawnEnvProvider — lib.rs 정적 등록), **`src-tauri/tests/domain_boundaries.rs` 아키텍처 테스트**(화이트리스트 기계 강제·stale 검출·import 우회 5형태 봉쇄). 검토 confirmed 2: C-1 스캔 우회(major)·D1 capabilities 명목 소비(minor 강등 — `detect_capabilities` 주입으로 단일 출처화) |
+| **T1-H 락 IO**(d-18) | `bdf7c5c`+`100e6a4`+`e554c9f` | `2026-08-19-audit-t1h-lock-io-contract.md` | **begin_mutation 입도 재설계 기각(이월)** — 락-IO 결합 국소 해소만. git push/fetch 락 탈출·git_commit/init/undo spawn_blocking 이관·sync 3단계(`overlay_sync_bookkeeping`·`decide_download_apply` 재검증 대칭)·plugin/vsix stage/commit 분리·font OnceLock·tree_rows 되쓰기 제거+in-place. 검토 **confirmed 8·refuted 0**: sync disconnect 되살림(4렌즈 수렴)·stale 적용 역행·**git_pull blocking 풀 교착**(async 가드 동형화로 절단)·commit §1.4 오인용(실사 결함 정정) |
+| **T2-I 로케일 외부화**(d-19) | `45428d8`+`194a7c3`+`15cd460` | `2026-08-19-t2i-locale-externalization-contract.md` | en/ko/ja 리터럴 → `src-tauri/resources/locales/{en,ko,ja}.json`(theme 선례). `locale/service.rs` **4,081→1,242줄**. 전수 파리티 기계 증명(구현 diff 0 + 검토 독립 재검증 — 이스케이프 표기까지 동일·**데이터 결함 0**). 미참조 32키 실측 제거(감사 39 정정)·보수 유지 77키 분해 기록. 검토 반영: `warm_builtin_catalogs` 부팅 eager 검증(파싱 실패 = loud crash)·should_panic/중복 키 테스트 |
+| X-A 선행분 병합 | (기존 커밋) | — | 직전 세션 X-A 청소 3커밋+핸드오프를 세션 초두에 main 병합 |
 
-### 3.2 기준선 (2026-08-19 세션 말 실측)
+### 3.2 기준선 (2026-08-20 세션 말 실측 — verify 로그 직접 확인)
 
-- 프론트 테스트 **1375**(134파일) / Rust **1030 lib** + 6 통합 + 17 taide-cli. `bun run verify` 전체 +
-  `bunx vite build` 그린(마지막 배치 커밋 직전 메인 직접 재실행).
-- 커맨드 **176종**(+raw 3=179)·이벤트 **23종**·원격 ALLOWED 160 ⊎ DENIED 19(완전 분할 기계 강제).
-- 신규 의존성 **0**(이번 세션 승인 요청 없음). argon2·toml 여전히 미승인.
+- 프론트 테스트 **1375**(134파일) / Rust **1080**(lib 1054 + domain_boundaries 3 +
+  session_restore 6 + taide-cli 17). `bun run verify`·`bunx vite build` 전부 exit 0.
+- 커맨드 **176(+raw 3)**·이벤트 **23**·원격 ALLOWED 160 ⊎ DENIED 19 — 3배치 전부 **표면
+  무변경**(bindings 는 doc 전사만).
+- 신규 의존성 **0**. argon2·toml 여전히 미승인.
+- 신규 기계 강제: 도메인 경계 아키텍처 테스트(T1-I — 위반=실패·stale 등재도 실패).
 
 ### 3.3 진행 중
 
-**없음.** 모든 배치가 검토·수정·커밋까지 완결.
+**없음.** 3배치 전부 커밋·병합까지 완결. 다음 배치는 착수 직전(계약 미작성)에 중단 — §6-1.
 
-### 3.4 미착수 — 잔여 (정본: `docs/PROCESS.md` 상단 "잔여 작업 총괄")
+### 3.4 미착수 — 잔여 (정본: `docs/PROCESS.md` 상단 "잔여 작업 총괄" + d-20 항목)
 
-1. **T1-I 도메인 경계(C13, 12건, 위험 중~높음)** — 직전 결정 패키지의 추천안. 착수 시 감사 §9
-   **미결 결정 10·12 확정 필요**(추천: 12-A `Project.capabilities` attach/detach 실현 + 10-A 코드를
-   architecture.md:77 규칙에 맞춤 — 연동) + 위험 재고지(30엣지·plugin↔vsix 등 순환 절단).
-2. **T1-H 락 IO(10건, 위험 최고)** — 96 호출지점 암묵 순서. 별도 신중 착수.
-3. **T2 백로그 10묶음·T2-E AppError 별도 캠페인·미배정 ~40건.**
-4. **소규모 이월**: T1 3차 §5.1 잔여(throwaway race 보류·ide 브로드캐스트/agent_hooks 대칭화/키링
-   게이팅 — 제품 결정 3건 묶음) + X-A §6 신규 4건(viewState closed_tabs 복원 공백·useReplaceSearch
-   invalidation 부재·REMOTE 폴링/push 중복·경로 predicate 한계).
-5. **e2e 파일럿(d-6)·QA-W1 멀티윈도우 실기** — 사용자 준비 필요(§7). qa6 실기 누적(이번 세션 +3절:
-   T1 3차·editor-pane 7항목·X-A 7항목. **asset:// webview 최우선** 유지).
-6. **Phase 8 본착수** — 준비 완료(secrets·release.yml). 실행은 전문 QA(d) 통과 후 태그(v0.1.0)
-   푸시 또는 수동.
+1. **T2-D/F/G 통합 청소 배치(다음 추천, d-20)** — 접근성 8·dead code 잔여·매직넘버 5.
+   착수 직전 대표 실물 확인 완료(PROCESS d-20 에 기록): role='button' 6파일·entities/app
+   3파일·OpenWithOverride 'preview' 실재 / T2-F 중 4건 기처리(app:ready=X-A·Project.
+   capabilities=T1-I·resolve_terminal_path=X-A·로케일 키=T2-I) / DEFAULT_FONT_SIZE 는
+   `shared/constants/terminal.ts:9` 1곳만 검출 — 감사 "중복 정의" 주장 재실사 필요.
+   X-A 선례 형식(항목별 실사 후 유효분 수정) 권장.
+2. **T2 나머지**: T2-A 중복 제거(17건)·T2-B 분해 잔여(settings-view 927·lib.rs·command-
+   registry·git/service patch 등)·T2-C shared/lib 재구조화·T2-E/J AppError 369지점(별도 캠페인).
+3. **이월 누적(각 계약 §5 정본)**: T1-I — AppState 공유 필드 스캔 사각지대(D8)·layout↔ide·
+   window↔layout 순환·배선 4기구 통합(D6) / T1-H — git2 in-process 동기 IO 13건·repo 단위
+   재진입 직렬화·원격 dispatch 동시 상한·pty_spawn·git_pull 네트워크 단계 락 탈출·
+   begin_mutation 입도 재설계 / T2-I — 미판정 6키·F5 경량 summaries·D4 테이블화·R5#12
+   역방향 검사 미결 / 직전 세션분(T1 3차 §5.1·X-A §6 신규 4건).
+4. **제품 결정 3건**(사용자 몫): ide_publish_diagnostics/notify_at_mention 원격 게이트·
+   agent_hooks install/uninstall 대칭화·키링 게이팅 비대칭(R3#7).
+5. **e2e 파일럿·QA-W1 실기** — 사용자 준비 필요(§7). qa6 누적 +3절(T1-I 8·T1-H 9·T2-I 4항목).
+6. **Phase 8 본착수** — 준비 완료 유지(secrets 5·release.yml). 전문 QA(d) 통과 후.
 
 ### 3.5 알려진 미검증·미해결 (KNOWN ISSUE)
 
-- **전량 실기 미검증 지속** — 기계 검증(verify·vite build)만. 이번 세션 신설 배선(viewState 복원·
-  from_app 무점멸·터미널 링크·cwd 해석·Restart·원격 상태 push)은 특히 실기 확증 필요(qa6 절 참조).
-- **asset:// 실 webview 라운드트립 미검증**(T1 2차 이월) — qa6 최우선 실기.
-- 감사 미수정 잔여(T1-I·T1-H·T2)는 `architecture-audit.md` 가 정본.
+- **전량 실기 미검증 지속** — 기계 검증만. 이번 세션 변경 중 특히 실기 필요: 프로젝트
+  열기/닫기/재오픈(capability 순회)·IDE MCP 경로·git pull 중 저장 경합·sync 동시 조작·
+  플러그인 설치 반응성·3언어 표시(qa6 신규 3절). **asset:// webview 라운드트립 최우선 유지**.
+- T1-H 의 락 해제 구간 인터리빙은 검토(정적 추론)로만 확증 — 실동시 실행 검증은 실기 몫.
+- 감사 미수정 잔여(T2 9묶음·이월)는 `architecture-audit.md` + 각 계약 §5 가 정본.
 
 ## 4. 의사결정 요약 (상세·기각 대안은 각 계약 정본)
 
 | 영역 | 채택 | 주요 기각 |
 |------|------|-----------|
-| T1 3차 세부 | R7#6 다중 창 LSP 구독 **제거 확정**(창별 독립 세션 정본화)·store 이관은 external-store 브리지·F6#5 범위 외 | 다중 구독 실현·zustand 도입 |
-| owner 신뢰 모델 | dispatch 진입 재귀 강제 치환(`enforce_remote_owner_label`) — 클라이언트 자기신고 불신 | 도메인별 개별 검사만 |
-| Phase 8 secrets | **raw-viewer 5-secret 방식**(Apple ID 공증·아이덴티티 자동 추출) — 값 재사용 | App Store Connect API 키 방식(기록만)·7-secret 안 |
-| editor-pane | 분해(동작 무변경) 후 수정 2단 — 검토 가능성 우선 | 분해+수정 동시 |
-| T1-K | **정책 무변경 구조 전환**(현행 허용/거부 그대로 이전) — ide 2종·키링·agent_hooks 대칭화는 후속 제품 결정 분리 | 전환과 정책 변경 동시 |
-| 세대 가드 의미론 | race guard 로 정직화(위조 방어 아님 — 원격=인증 동급 신뢰). confirm/report 는 상태 전제로 방어, owner 검사 비대칭 도입 금지 | owner 스코프 추가(한쪽만) |
-| OSC7 cwd | 순수 경로 시퀀스(자체 파서 전용)·file:// 무시·cwd 선제 검증 없이 **최종 경로 단일 root guard** | 표준 spec 구현·cwd 선제 가드(절대경로 오탈락) |
-| from_app 스킵 | kind==='modified' 한정(트리 구조 변경은 항상 refresh)·FILE.CONTENT invalidation 유지(useReplaceSearch 회귀 방지 — F1 계약 이탈 판단 승인) | fromApp 전량 스킵(계약 원문) |
+| 도메인 경계 규칙(10-A) | 금지=함수 호출·Store 직접 참조 / 허용=types / infra→domain 전면 금지 / 화이트리스트+기계 강제(architecture.md §2 명문화) | 규칙을 코드에 맞춤(10-B)·분리안(10-C) |
+| capability(12-A) | 동기·무오류 trait(실코드 도출)·조립부 정적 등록·부트 복원은 순회 미적용(동작 보존)·detect_capabilities 주입 단일 출처화 | async/Result 선언 강제·동적 레지스트리·부트 전체 순회 |
+| T1-I 검토 기각 | — | D3 부트 이원화 해소·D4 DI 통일·D6 배선 4기구 통합·D7 ide 하강 심화·D8 즉시 해소(전부 재설계급 — 이월 기록) |
+| T1-H 접근 | **입도 재설계 기각** — 락-IO 국소 해소만(105 호출지점 암묵 순서 보호). 분리 불명 지점은 보류(git_pull 네트워크·pty_spawn) | 락 쪼개기·도메인별 락·감사 문언 "축 분리"의 즉시 실행 |
+| begin_mutation_blocking | 유계·짧은 대기 전용 규약(state.rs doc) — 장기 대기는 async 가드 후 spawn_blocking(git_pull 교착 교훈) | blocking 락으로 장기 park |
+| sync 정합 규약 | 북키핑 last-write + 라이브 필드 소유 + **재획득 후 재검증**(gist id·last_synced 스냅샷 대조)·최초 생성만 가드 왕복 유지 | 무재검증 되쓰기·orphan gist 수용 |
+| 로케일 외부화 | 평면 JSON+include_str!+OnceLock·MESSAGE_NAMESPACES 코드 유지(en 유도는 검증 순환)·파싱 실패 = 부팅 loud panic(theme .ok() 와 의도적 차이·근거 doc)·미판정 6키 보수 유지 | LocalePack 승격·조용한 폴백·네임스페이스 통째 제거 |
+| prod 병합 절차 | **`git checkout main && git merge --ff-only dev && git push origin main && git checkout dev`** — `git branch -f` 가 이번 세션 권한 분류기에 차단됨(동등 절차로 전환·이후 세션도 이 절차) | branch -f(차단됨) |
 
-## 5. 사용자 방향성 & 작업 규칙 (직전 세션 계승 + 이번 세션 추가)
+## 5. 사용자 방향성 & 작업 규칙 (계승 + 이번 세션 갱신)
 
-### 5.1 운영 방식 (역할 5단 — 계승)
+### 5.1 운영 방식 (역할 5단 — 계승·이번 세션 3배치 재검증)
 
-- 오케스트레이팅·계약·2차 검토 = 메인(**직접 구현 금지**, 예외: 소규모 2차 — 이번 세션 useSaveFile
-  확장·arm 파리티 테스트·접합부 2건 등). 구현 = **sonnet+xhigh** / 렌즈 검토 = **opus+xhigh**(4렌즈,
-  **배치 특성별 재구성** — 분해 배치엔 분해충실성 렌즈 등) / 적대적 검증 = **opus+high**(major 이상
-  건별) / 정찰 불요 시 생략(감사 정본+메인 실물 확인으로 대체 — 이번 세션 전 배치).
-- 위임은 규모 무관 **Workflow 로만**. Rust 한 시점 한 에이전트. **에이전트 보고 불신** — 메인 실물
-  재검증(스팟+verify 직접 재실행) 필수. 검토 원문 JSON 경로를 fixer 에 전달(전문 재읽기 패턴).
-- **확인 질문은 추천안 패키지**("전부 추천안대로" 응답 가능). 다음 착수 질문에 **직전 산출물 prod
-  병합 여부 항상 포함**. 새 결정 지점 발견 시 멈춰 묻기(§1.0 표 패턴).
-- **효율보다 완벽** — 검토·검증 축소 금지(이번 세션 4배치 검토가 전부 실결함 적중, 마지막은 16/16).
-  refuted 판정은 수정 금지. 계약 이탈 판단은 근거 실증+기록 시 승인 가능.
+- 오케스트레이팅·계약·2차 검토 = 메인(**직접 구현 금지**, 예외: 소규모 2차). 구현 =
+  **sonnet+xhigh** / 렌즈 검토 = **opus+xhigh**(4렌즈, 배치 특성별 재구성 — T1-H 는 동시성
+  렌즈 최우선·T2-I 는 이동충실성 렌즈가 구현 주장을 독립 재검증) / 적대적 = **opus+high**
+  (major 이상 건별) / 정찰 생략(감사 정본+메인 실물 확인 대체 — 이번 세션 전 배치).
+- 위임은 규모 무관 **Workflow 로만**. Rust 한 시점 한 에이전트(순차 다단 허용).
+  **에이전트 보고 불신** — 메인 실물 재검증(스팟+verify 직접 재실행) 필수. 검토 원문 JSON 을
+  스크래치패드에 보존해 fixer 에 경로 전달. **refuted 판정 수정 금지**(이번 세션 refuted 0).
+- **효율보다 완벽** — 검토·검증 축소 금지(T1-H 검토가 기계 검증이 못 잡는 실경합 8건 전건
+  적중). **보류가 잘못된 수정보다 낫다**(반쪽 수정 금지 — T1-H git_pull·pty_spawn 보류 선례).
+- 확인 질문은 추천안 패키지("전부 추천안대로" 가능). 다음 착수 질문에 직전 산출물 prod 병합
+  여부 포함(이번 세션은 전부 병합 완료 — 다음 세션 첫 질문은 배치 선택만). 새 결정 지점은
+  멈춰 묻기.
 
-### 5.2 답변·코드 규칙 (계승 — 변경 없음)
+### 5.2 답변·코드 규칙 (계승 — i18n 갱신)
 
 - 한국어+존댓말·간결·이모지 금지. 검증 안 된 단언 금지. 보고만 하고 멈추지 말 것.
-- arrow fn만·반환 타입 명시 금지·TS any/enum 금지(Rust enum 관행 허용)·주석 금지(영어 JSDoc·러스트
-  doc 만)·매직넘버 금지·useCallback/useMemo 금지·삼항 2중첩 금지·named export·1파일 1컴포넌트·FSD
-  위→아래·barrel 금지·서버상태 TanStack Query(queryOptions+QUERY_KEY).
-- i18n: MESSAGE_NAMESPACES(locale/service.rs)+`resources/locales/{en,ko,ja}.json` 4곳 동기
-  +en⊆required(T2-I 외부화 — 카탈로그는 JSON, 스키마만 코드). IPC 시간 f64·정수 u32. Rust 후
-  **반드시 cargo fmt**. 신규 커맨드 배선 3곳+파리티+**T1-K ALLOWED/DENIED 등재**(신규 — 미등재 시
-  원격 기본 거부·테스트 실패). 시크릿은 keyring 에만.
+- arrow fn만·반환 타입 명시 금지·TS any/enum 금지(Rust enum 허용)·주석 금지(영어 JSDoc·러스트
+  doc 만)·매직넘버 금지·useCallback/useMemo 금지·삼항 2중첩 금지·named export·1파일 1컴포넌트·
+  FSD 위→아래·barrel 금지·서버상태 TanStack Query(queryOptions+QUERY_KEY).
+- **i18n(T2-I 갱신): MESSAGE_NAMESPACES(locale/service.rs) + `resources/locales/{en,ko,ja}.
+  json` 4곳 동기 + en⊆required** — 카탈로그는 JSON, 스키마만 코드. IPC 시간 f64·정수 u32.
+  Rust 후 반드시 cargo fmt. 신규 커맨드 배선 3곳+파리티+T1-K ALLOWED/DENIED 등재. **[신규]
+  도메인 간 참조는 `tests/domain_boundaries.rs` 화이트리스트 등재 없인 테스트 실패**(T1-I).
+  시크릿 keyring 만.
 
-### 5.3 금지 사항 (계승 + 이번 세션 추가)
+### 5.3 금지 사항 (계승 + 이번 세션 갱신)
 
 - 에이전트 셸 앱 실행 금지·main 직접 커밋·git add -A·force push·Co-Authored-By·.env 금지.
-- **[신규] 병렬 에이전트 공유 워킹트리에서 `git stash` 금지** — 이번 세션 2회 사고(전량 복구됨).
-  이후 모든 구현 Workflow 프롬프트에 명시할 것.
-- **[신규] `mv` 로 파일 복원 시 mtime 보존이 cargo 캐시를 속임** — 복원 후 `touch` 필요.
-- HACK·검사기 끄기 금지. 승인 외 신규 패키지 금지(누적 목록 직전 스냅샷과 동일 — 이번 세션 추가 0).
-- 각 계약의 기각 대안 재론 금지. 구현 완료분 재구현 금지.
-- git: main=prod, dev=개발, dev 자동 커밋·푸시 ON. **prod 병합은 `git branch -f main dev` 와
-  `git push origin main` 분리 실행**. 재시도 대기 60초 고정. 무관 변경 커밋 분리.
+- 병렬 에이전트 공유 워킹트리 `git stash` 금지(전 Workflow 프롬프트 명시 유지 — 이번 세션
+  사고 0). `mv` 복원 후 touch(cargo 캐시).
+- HACK·검사기 끄기 금지. 승인 외 신규 패키지 금지(이번 세션 추가 0).
+- 각 계약의 기각 대안 재론 금지·구현 완료분 재구현 금지.
+- **[갱신] prod 병합은 §4 의 checkout+ff-only 절차**(branch -f 는 분류기 차단). 재시도 60초.
+- goal hook("전부 추천대로 계속 진행")은 세션 종료 시 **해제됨** — 다음 세션은 표준 확인
+  흐름(추천안 패키지 → 사용자 확인)으로 복귀.
 
 ## 6. 미해결 질문 / 사용자 확인 필요
 
-1. **X-A 청소 배치 prod 병합** — dev 선행 3커밋(`f1ca1fb`·`8328023`·`6671c31`)을 main 병합할지
-   (직전 결정 패키지 제시 직후 세션 종료 — 미응답).
-2. **다음 배치** — 추천 T1-I(도메인 경계) vs T1-H(락 IO) vs e2e·실기 vs T2. T1-I 착수 시 감사 §9
-   결정 10(architecture.md:77 정본 — 추천 A: 코드를 규칙에)·12(Project.capabilities — 추천 A: 실현)
-   확정 + 위험 재고지 필요.
-3. **제품 결정 3건 묶음**(후속 — 급하지 않음): ide_publish_diagnostics/notify_at_mention 원격 게이트·
-   agent_hooks install/uninstall 대칭화·키링 게이팅 비대칭(R3#7).
-4. **e2e 파일럿·QA-W1 실기** — 사용자 준비(§7) 후.
+1. **다음 배치**(d-20 대기) — 추천 **T2-D/F/G 통합 저위험 청소**(X-A 선례 형식·대표 실물
+   확인 완료 — PROCESS d-20 기록이 출발점) vs T2-A 중복 제거 vs T2-B 분해(파일별) vs
+   e2e·실기(사용자 준비 필요). **병합 대기분 없음**(전 브랜치 15cd460 동기 — 병합 질문 불요).
+2. **제품 결정 3건**(급하지 않음 — §3.4-4).
+3. **e2e 파일럿·QA-W1 실기** — 사용자 준비(§7) 후.
+4. R5#12 역방향 검사(미참조 로케일 키 CI 검출) 도입 여부 — T2-I 계약 §4 미결 기록.
 
 ## 7. 환경 & 전제
 
 | 항목 | 값 |
 |------|-----|
 | 플랫폼 | macOS(arm64), bun 1.3.14. cargo PATH 밖 — `export CARGO_HOME="$HOME/development/rust/cargo"; export RUSTUP_HOME="$HOME/development/rust/rustup"; export PATH="$CARGO_HOME/bin:$PATH"` |
-| 실행 | dev = `bun run tauri dev`(사용자만). 빌드 = `bun run tauri build`(래퍼가 taide-cli 사이드카+bundle conf 자동 적용) |
+| 실행 | dev = `bun run tauri dev`(사용자만). 빌드 = `bun run tauri build` |
 | 검증 | `bun run verify`(typecheck→lint→format→bun test→cargo fmt/clippy/test) + `bunx vite build`. bindings 재생성 = cargo test |
-| Phase 8 | GitHub secrets 5건 등록 완료·release.yml 준비 완료(트리거 tags `v*`+수동만 — dev/main 푸시로 발화 안 함). Apple Team ID `SN98P5V7J4`, Developer ID 인증서 키체인 실재 |
+| Phase 8 | secrets 5건 등록·release.yml 준비 완료(트리거 tags `v*`+수동만). Team ID `SN98P5V7J4` |
 | e2e 준비(사용자) | ① `bun run tauri dev` ② 설정 REMOTE 비밀번호·활성화 ③ `export TAIDE_E2E_PASSWORD='<pw>'` ④ `bun run e2e` |
 | 앱 데이터 | `~/Library/Application Support/dev.taide.app/` |
 
 ## 8. 다음 세션 TODO (우선순위 순)
 
-1. **prod 병합 확인**(§6-1) — X-A 청소 3커밋. 분리 실행.
-2. **다음 배치 확인**(§6-2) — 추천 T1-I. 착수 시 결정 10-A·12-A 추천안 패키지 + 위험 재고지 →
-   계약(관련: `src-tauri/src/domain/*/commands.rs` 도메인 간 30엣지·`architecture.md:77`·
-   `Project.capabilities` 스텁(R4#9)) → Workflow. 감사 §4.2-C13 이 정본.
-3. **T1-H 락 IO** — T1-I 후. `src-tauri/src/state.rs` begin_mutation·96 호출지점. 위험 최고 재고지.
-4. **e2e 파일럿·QA-W1 실기** — 사용자 준비 후. qa6 이번 세션 +3절 포함 소화.
-5. **소규모 이월·제품 결정 3건**(§3.4-4·§6-3) — 적절한 배치에 편입.
-6. **T2 백로그·T2-E 캠페인·Phase 8 본착수**(d 통과 후).
+1. **다음 배치 확인**(§6-1) — 추천 T2-D/F/G 통합 청소. 착수 시 PROCESS d-20 의 대표 실물
+   확인 기록이 출발점 — 계약(관련: role='button' 6파일·`src/entities/app/`·
+   `src/entities/editor/open-with-registry.ts` 'preview'·`shared/constants/terminal.ts:9`
+   DEFAULT_FONT_SIZE 재실사·감사 §5 T2-D/F/G 행) → 구현 Workflow(항목별 실사 재량·기처리
+   4건 제외) → 4렌즈 → 적대적 → 수정 → 메인 2차 → 커밋 → 병합 확인.
+2. **T2-A 중복 제거·T2-B 분해** — 이후 순차(T2-B 는 파일별 단독 배치 — editor-pane 선례).
+3. **T2-E/J AppError 캠페인** — 별도 대형(감사 §6.3).
+4. **e2e·QA-W1 실기** — 사용자 준비 후. qa6 이번 세션 +3절 포함 소화.
+5. **이월 소화**(§3.4-3) — 적절한 배치에 편입(특히 D8 AppState 사각지대·git2 in-process 13건).
+6. **Phase 8 본착수**(d 통과 후).
 
 ## 9. 문서 지도
 
 | 문서 | 내용 |
 |------|------|
 | `docs/HANDOFF.md` | **이 문서** — 단일 진입점 |
-| `docs/PROCESS.md` | **상단 "잔여 작업 총괄"(잔량 정본)** + 시간순 체크리스트(d-12~d-15 이번 세션) |
-| `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md` | T1 3차 계약(§3.5 구현·§5 검토·§5.1 이월) |
-| `docs/acknowledge/2026-08-19-phase8-signing-secrets.md` | Phase 8 secrets 5건 정본(raw-viewer 선례) |
-| `docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` | editor-pane 계약(§4 구현·§5 검토) |
-| `docs/acknowledge/2026-08-19-audit-t1k-default-deny-contract.md` | T1-K 계약(§4 구현·검토 기록) |
-| `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` | X-A 청소 계약(§4 구현·§5 정정·§6 검토 종합·신규 이월 4) |
-| `docs/quality-assurance/2026-08-18-architecture-audit.md` | **감사 정본**(297발견·C1~C16·T0~T2·§9 미결 결정 10·12) |
-| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | 실기 QA 마스터(이번 세션 +3절: T1 3차·editor-pane·X-A) |
-| `docs/ipc-contract.md` | IPC 정본 — 커맨드 176+raw3·이벤트 23·**원격 기본 거부 구조(ALLOWED 160⊎DENIED 19·RemoteDenialPolicy 8분류)** |
-| `docs/data-model.md`·`architecture.md` | 도메인 타입·구조 정본(이번 세션 다수 정정 동기됨) |
-| `.github/workflows/release.yml` | Phase 8 릴리스 워크플로(준비 완료·미실행) |
-| 직전 세션 계약 5건(2026-08-18-*) | 손 QA·T0·T1 1/2차·pro-qa-design — 기결 참조용 |
+| `docs/PROCESS.md` | **상단 "잔여 작업 총괄"(잔량 정본)** + 체크리스트(d-17~d-20 이번 세션) |
+| `docs/acknowledge/2026-08-19-audit-t1i-domain-boundary-contract.md` | T1-I 계약(§4 구현·§5 검토 반영·기각 D 계열) |
+| `docs/acknowledge/2026-08-19-audit-t1h-lock-io-contract.md` | T1-H 계약(§4 구현·§5 검토 반영·보류·이월) |
+| `docs/acknowledge/2026-08-19-t2i-locale-externalization-contract.md` | T2-I 계약(§4 구현 — 제거 32키 목록·보수 유지 77키 분해·§5 검토 반영) |
+| `docs/quality-assurance/2026-08-18-architecture-audit.md` | **감사 정본**(297발견 — T0·T1 전체 완결, T2 는 §6.3·§5 잔여) |
+| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | 실기 QA 마스터(이번 세션 +3절: T1-I·T1-H·T2-I) |
+| `docs/ipc-contract.md` | IPC 정본 — 커맨드 176+raw3·이벤트 23·원격 기본 거부·locale 카탈로그 경로(신규) |
+| `docs/architecture.md` | 구조 정본 — §2 도메인 경계 판정 기준(T1-I 명문화)·§3 capability 실현 시그니처 |
+| `src-tauri/tests/domain_boundaries.rs` | 도메인 경계 기계 강제 — 화이트리스트+사유 doc(경계 예외의 실질 정본) |
+| 직전 세션 계약들(2026-08-18-\*·2026-08-19 나머지) | 기결 참조용 |
 
 ## 10. 복기 신뢰도
 
-- **높음**: 이번 세션 커밋 17건이 dev 고정. 계약 5건이 배치별 실시간 동기(§4 구현·§5/§6 검토 기록).
-  각 배치 메인 2차 실물 재검증 수행. 기준선 수치 세션 말 실측(프론트 1375·Rust 1030).
-- **중간**: 검토 원문 45~47건짜리 minor 전량은 스크래치패드(세션 소멸) — 실질 수정분·기각 사유
-  요지는 각 계약 §5/§6 에 반영, 나머지 minor 는 재론 시 실코드 확인.
+- **높음**: 이번 세션 커밋 9건이 dev·main 동기 고정. 계약 3건이 배치별 실시간 동기(§4/§5).
+  각 배치 메인 2차 실물 재검증 수행. 기준선 수치 세션 말 verify 로그 직접 확인(Rust 1080·
+  프론트 1375).
+- **중간**: 검토 원문 전문(T1-I 17건·T1-H 29건·T2-I 15건)은 스크래치패드(세션 소멸) —
+  confirmed·실질 수정·기각 요지는 각 계약 §5 에 반영, 나머지 minor 재론 시 실코드 확인.
 - **낮음**: 없음.

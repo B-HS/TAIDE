@@ -768,6 +768,15 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           — 7키 정정·32키 목록·77키 분해·문서 4곳) → 메인 2차(verify·vite 직접 exit 0,
           Rust 1080·프론트 1375). qa6 +1절. **T2-F 잔여: 미판정 6키**(agent.badgeAriaLabel·
           themeEditor.preview* 5키 — 계약 §4 분해 참조)·이월 F5(경량 summaries)·D4(테이블화)
+    - [ ] d-20. 다음 배치 확인 대기(2026-08-20 세션 종료 시점) — T2-I 산출물 prod 병합
+          완료(main=15cd460). 추천 = **T2-D(접근성 8)+T2-F(dead code 잔여)+T2-G(매직넘버 5)
+          통합 저위험 청소 배치**(X-A 선례 형식 — 항목별 실사 후 유효분 수정). 착수 직전
+          중단(goal 해제·핸드오프). 대표 실물 확인 완료: entities/app 3파일 실재·
+          OpenWithOverride 'preview' 실재·role='button' 6파일 검출·DEFAULT_FONT_SIZE 는
+          shared/constants/terminal.ts:9 1곳만 검출(감사 "중복 정의" 주장 재실사 필요)·
+          T2-F 중 app:ready(X-A)·Project.capabilities(T1-I)·resolve_terminal_path(X-A 소비자
+          생김)·미참조 로케일 키(T2-I) 는 기처리. 대안 = T2-A 중복 제거 / T2-B 분해(파일별)
+          / e2e·실기(사용자 준비 필요)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
