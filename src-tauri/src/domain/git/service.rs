@@ -1887,10 +1887,25 @@ mod tests {
 
     #[test]
     fn status_조회는_인덱스_파일을_다시_쓰지_않는다() {
+        const STAT_STALE_MTIME_SKEW_SECS: u64 = 2;
+
         let repo = TestRepo::new();
         repo.write_file("a.txt", "one");
         repo.commit_all("first");
+        let file_path = repo.path().join("a.txt");
+        let mtime_at_commit = std::fs::metadata(&file_path).expect("metadata").modified().expect("mtime");
         repo.write_file("a.txt", "one");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&file_path)
+            .expect("open")
+            .set_modified(mtime_at_commit + std::time::Duration::from_secs(STAT_STALE_MTIME_SKEW_SECS))
+            .expect("set mtime");
+        let rewritten_mtime = std::fs::metadata(&file_path).expect("metadata").modified().expect("mtime");
+        assert_ne!(
+            mtime_at_commit, rewritten_mtime,
+            "재기록된 파일의 mtime 이 인덱스가 기록한 시점과 달라야 stat-stale 전제가 성립한다 — 이 전제 없이는 update_index 를 복원해도 테스트가 공허하게 통과한다"
+        );
         let index_path = repo.path().join(".git").join("index");
         let index_before = std::fs::read(&index_path).expect("index read");
 

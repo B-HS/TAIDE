@@ -391,8 +391,11 @@ fn read_zip_entry_string(archive: &mut zip::ZipArchive<File>, name: &str, budget
 /// path-traversal attempt a malicious `package.json` might smuggle in). A language with no
 /// matching grammar entry is still imported (extension recognition without syntax highlighting);
 /// a grammar entry with no `language` id, or referencing a path outside the vsix's `extension/`
-/// root, is skipped rather than failing the whole import.
-pub fn stage_vsix_import(vsix_path: &Path, plugins_dir: &Path) -> AppResult<(std::path::PathBuf, String)> {
+/// root, is skipped rather than failing the whole import. Argument order and staging-dir
+/// ownership follow `plugin::service::stage_from_directory`'s contract: `(plugins_dir, source)`,
+/// and the caller must hand the staging dir to `commit_staged_install` or it leaks in
+/// `plugins_dir/.tmp`.
+pub fn stage_vsix_import(plugins_dir: &Path, vsix_path: &Path) -> AppResult<(std::path::PathBuf, String)> {
     let file = File::open(vsix_path).map_err(|error| AppError::InvalidArgument(format!("vsix 파일을 열 수 없습니다: {error}")))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|error| AppError::InvalidArgument(format!("vsix 압축을 해제할 수 없습니다: {error}")))?;
@@ -903,7 +906,7 @@ mod tests {
         ]);
 
         let (temp_dir, plugin_id) =
-            stage_vsix_import(&path, &plugins_dir).expect("경로 탈출을 시도한 grammar 만 제외하고 스테이징되어야 한다");
+            stage_vsix_import(&plugins_dir, &path).expect("경로 탈출을 시도한 grammar 만 제외하고 스테이징되어야 한다");
         assert_eq!(plugin_id, "attacker-evil-ext");
 
         let grammars_dir = temp_dir.join("grammars");
@@ -942,7 +945,7 @@ mod tests {
             ("extension/syntaxes/evil.tmLanguage.json", grammar_json.as_bytes()),
         ]);
 
-        let result = stage_vsix_import(&path, &plugins_dir);
+        let result = stage_vsix_import(&plugins_dir, &path);
         assert!(result.is_err());
         assert!(
             !plugins_dir.join("attacker-all-evil").exists(),

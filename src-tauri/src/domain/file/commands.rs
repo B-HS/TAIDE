@@ -90,7 +90,7 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
 /// to `file_save`'s own `clear_mirror` is guaranteed by the frontend's save-epoch guard
 /// (`editor-pane.tsx`'s `persistMirror`), not by lock ordering. The real cost of keeping the lock
 /// here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
-/// a long lock holder (e.g. `git_push`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
+/// a long lock holder (e.g. `git_pull`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
 /// unflushed mirror instead of writing it — the opposite of what hot exit exists for.
 #[tauri::command]
 #[specta::specta]

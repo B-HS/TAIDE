@@ -69,7 +69,7 @@ export const commands = {
 	 *  to `file_save`'s own `clear_mirror` is guaranteed by the frontend's save-epoch guard
 	 *  (`editor-pane.tsx`'s `persistMirror`), not by lock ordering. The real cost of keeping the lock
 	 *  here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
-	 *  a long lock holder (e.g. `git_push`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
+	 *  a long lock holder (e.g. `git_pull`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
 	 *  unflushed mirror instead of writing it — the opposite of what hot exit exists for.
 	 */
 	fileMirrorDirty: (projectId: ProjectId, path: string, content: string) => typedError<number | null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content })),
@@ -104,7 +104,7 @@ export const commands = {
 	/**
 	 *  Reacquires `AppState::begin_mutation`'s single global lock **once per file** instead of holding
 	 *  it for the whole multi-file replace — a project-wide "replace all" can touch hundreds of files,
-	 *  and that one lock is shared by every other mutating command (`file_save`, `git_push`, layout
+	 *  and that one lock is shared by every other mutating command (`file_save`, `git_pull`, layout
 	 *  writes, ...), so holding it for the entire walk-and-rewrite would starve all of them for as long
 	 *  as the replace runs. Reacquiring per file keeps each hold short while still serializing every
 	 *  actual write against the rest of the app's mutations. Both the target-file resolution (the tree
@@ -259,6 +259,13 @@ export const commands = {
 	lspInstall: (serverId: LspServerId) => typedError<null, AppError>(__TAURI_INVOKE("lsp_install", { serverId })),
 	lspInstallCancel: (serverId: LspServerId) => typedError<null, AppError>(__TAURI_INVOKE("lsp_install_cancel", { serverId })),
 	gitInit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_init", { projectId })),
+	/**
+	 *  Runs the status read on a blocking thread like every other git query command here: dropping
+	 *  `update_index` (audit R4#11) made stat-stale entries re-hash on **every** call until some
+	 *  index-writing operation refreshes them, and this event-driven path re-runs after each
+	 *  `GitStatusChanged`, so the synchronous libgit2 work must not pin an async worker thread
+	 *  (architecture.md §2.1, Phase E C11-GIT-2). Surface and return value are unchanged.
+	 */
 	gitStatus: (projectId: ProjectId) => typedError<GitStatus, AppError>(__TAURI_INVOKE("git_status", { projectId })),
 	gitDiffFile: (projectId: ProjectId, path: string, mode: DiffMode) => typedError<DiffSides, AppError>(__TAURI_INVOKE("git_diff_file", { projectId, path, mode })),
 	gitDiffStagedText: (projectId: ProjectId) => typedError<StagedDiffText, AppError>(__TAURI_INVOKE("git_diff_staged_text", { projectId })),
@@ -271,32 +278,50 @@ export const commands = {
 	gitStage: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_stage", { projectId, paths })),
 	gitUnstage: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_unstage", { projectId, paths })),
 	gitDiscard: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_discard", { projectId, paths })),
+	/**
+	 *  Holds `AppState::begin_mutation` across the whole commit — the staged-state read, the commit,
+	 *  and the resulting index/ref writes must stay serialized with every other guarded mutation
+	 *  exactly as before — but runs the `git` subprocesses (`add -A` when staging all, `commit`,
+	 *  `rev-parse`) on a blocking thread: `git add -A` stats the entire working tree, seconds on a
+	 *  large repo, which previously pinned an async worker for the duration (architecture.md §2.1,
+	 *  audit R4#3's commit clause, Phase E T1H-C-02). Same guard-held `spawn_blocking` shape as
+	 *  `git_revert_commit`/`git_stage_hunk` — lock semantics unchanged.
+	 */
 	gitCommit: (projectId: ProjectId, message: string, opts: CommitOptions) => typedError<string, AppError>(__TAURI_INVOKE("git_commit", { projectId, message, opts })),
 	/**
 	 *  Runs `git push` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3, C11
 	 *  axis A). What the old guard actually covered was audited before removal: `service::push`
 	 *  shells out to `git push`, which reads local refs/objects and — on success — updates the
-	 *  remote-tracking ref inside `.git`; it never touches the working tree, so serializing it with
-	 *  the app's file mutations (`file_save`, replace, ...) protected nothing. Same-repo `.git`
-	 *  integrity against concurrent app git commands (commit/stage/pull) is enforced by git's own
-	 *  index/ref locks, exactly as when the user runs `git push` in a terminal beside the app, and
-	 *  command-level ordering (commit-then-push) is already sequenced by the frontend awaiting each
-	 *  command. The subprocess wait moved into `spawn_blocking` so the network round-trip no longer
-	 *  pins an async worker thread either (architecture.md §2.1's other half).
+	 *  remote-tracking ref inside `.git`; git itself never touches the working tree, so serializing
+	 *  it with the app's file mutations (`file_save`, replace, ...) protected nothing. The one
+	 *  exception is repo-configured hook code: a `pre-push` hook (or `core.hooksPath` equivalent) can
+	 *  write arbitrary working-tree files, and those writes are no longer serialized against app
+	 *  mutations — deliberately accepted as the same guarantee level as running `git push` in a
+	 *  terminal beside the app, rather than freezing every mutation for a network round-trip on
+	 *  behalf of repo-owned scripts (Phase E T1H-C5). Same-repo `.git` integrity against concurrent
+	 *  app git commands (commit/stage/pull) is enforced by git's own index/ref locks, exactly as with
+	 *  terminal git, and command-level ordering (commit-then-push) is already sequenced by the
+	 *  frontend awaiting each command. The subprocess wait moved into `spawn_blocking` so the network
+	 *  round-trip no longer pins an async worker thread either (architecture.md §2.1's other half).
 	 */
 	gitPush: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_push", { projectId })),
 	/**
-	 *  Still runs the whole `git pull` under `AppState::begin_mutation`, but on a blocking thread via
-	 *  `begin_mutation_blocking` (the `search_replace` T0#17 pattern) so the subprocess wait no
-	 *  longer pins an async worker thread. The lock's real protection here is pull's merge/rebase
-	 *  phase rewriting working-tree files, which must stay serialized against `file_save` and every
-	 *  other app file mutation. Splitting the network fetch phase out of the guard (the axis-A goal,
-	 *  contract 2026-08-19 §1.1) was audited and deliberately **not** done: `service::pull` shells
-	 *  out to `git pull`, which fuses fetch and the config-dependent integration step (merge vs
-	 *  `pull.rebase` vs `branch.<name>.rebase`) inside one subprocess — replicating the split as
-	 *  `git fetch` outside the lock plus a hand-rolled second step would change pull semantics for
-	 *  rebase-configured repos, so the fetch stays under the lock and the separation is deferred
-	 *  (contract §1.0: hold over a half-correct split).
+	 *  Still runs the whole `git pull` under `AppState::begin_mutation` — acquired with the async
+	 *  `begin_mutation().await` and then **held while** the subprocess wait runs on a blocking thread
+	 *  (the same guard-held `spawn_blocking` shape as `git_revert_commit`/`git_stage_hunk`), so the
+	 *  wait no longer pins an async worker thread. The lock's real protection here is pull's
+	 *  merge/rebase phase rewriting working-tree files, which must stay serialized against
+	 *  `file_save` and every other app file mutation. Waiting for the lock **inside**
+	 *  `spawn_blocking` (via `begin_mutation_blocking`) is deliberately avoided: a pull parked on the
+	 *  lock would occupy a blocking-pool thread for its whole wait + network duration, and enough
+	 *  parked pulls plus one guard holder that itself needs a blocking thread (`git_revert_commit`,
+	 *  hunk staging, ...) deadlocks the pool (Phase E GIT-1). Splitting the network fetch phase out
+	 *  of the guard (the axis-A goal, contract 2026-08-19 §1.1) was audited and deliberately **not**
+	 *  done: `service::pull` shells out to `git pull`, which fuses fetch and the config-dependent
+	 *  integration step (merge vs `pull.rebase` vs `branch.<name>.rebase`) inside one subprocess —
+	 *  replicating the split as `git fetch` outside the lock plus a hand-rolled second step would
+	 *  change pull semantics for rebase-configured repos, so the fetch stays under the lock and the
+	 *  separation is deferred (contract §1.0: hold over a half-correct split).
 	 */
 	gitPull: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_pull", { projectId })),
 	/**
@@ -304,12 +329,15 @@ export const commands = {
 	 *  with the same audit as [`git_push`]: `git fetch` updates remote-tracking refs and
 	 *  `FETCH_HEAD` inside `.git` and never touches the working tree, so app file mutations needed
 	 *  no serialization with it, and `.git` integrity against concurrent app git commands is git's
-	 *  own ref-lock job (the terminal-git precedent). The one interleaving the old lock did exclude
-	 *  — this fetch rewriting `FETCH_HEAD` between the fetch and merge phases *inside* a
-	 *  concurrently running [`git_pull`] — is accepted: both fetches target the same configured
-	 *  remote, so the for-merge `FETCH_HEAD` entries are computed from the same branch config and
-	 *  the pull still integrates a valid fetched upstream head, identical to running `git fetch` in
-	 *  a terminal during a pull, which git is built to tolerate.
+	 *  own ref-lock job (the terminal-git precedent). What the old lock did exclude and this accepts
+	 *  (Phase E T1H-C6/C-09): a fetch overlapping a concurrently running [`git_pull`] on the same
+	 *  repo. Repository integrity is preserved either way — when both proceed, the for-merge
+	 *  `FETCH_HEAD` entries come from the same branch config against the same remote so the pull
+	 *  still integrates a valid upstream head; but git's `.git` locks (`FETCH_HEAD.lock`, per-ref
+	 *  locks) serialize by **failing** the loser, not by queueing it, so one side can surface a
+	 *  transient lock-contention error where the old serialization made that impossible. That
+	 *  retryable failure is the accepted cost — the same failure mode as running `git fetch` in a
+	 *  terminal during a pull.
 	 */
 	gitFetch: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_fetch", { projectId })),
 	gitUndoLastCommit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_undo_last_commit", { projectId })),
@@ -453,36 +481,44 @@ export const commands = {
 	 *  Runs in three phases so the GitHub round-trip (60s client timeout) no longer holds the
 	 *  app-wide mutation lock for its whole duration (audit R5#7, C11 axis A). What the old full-span
 	 *  guard actually protected, and how each protection is preserved:
-	 *  ① a short `begin_mutation` hold snapshots settings + theme/locale files — the same
-	 *  point-in-time payload consistency the full-span hold gave (no mutation can interleave between
-	 *  reading settings and reading the files it references); ② the gist create/update runs with the
-	 *  guard dropped — the freeze of every other mutation (file saves included) for the whole
-	 *  round-trip was cost, not protection; ③ the guard is re-acquired and the sync bookkeeping
-	 *  fields are overlaid onto a **fresh** read of the live settings, so a `settings_update` that
-	 *  landed during the round-trip is never rolled back to the phase-① snapshot.
+	 *  ① a `begin_mutation` hold reads the token and snapshots settings + theme/locale files — the
+	 *  same point-in-time payload consistency the full-span hold gave, and the same "a disconnect
+	 *  that already landed fails the upload before any network write" ordering (the token read sits
+	 *  under the guard exactly as it originally did); ② updating an **existing** gist runs with the
+	 *  guard dropped — freezing every other mutation (file saves included) for the round-trip was
+	 *  cost, not protection. The **first-ever gist creation keeps the phase-① guard across the
+	 *  round-trip** (Phase E F5): dropping it there would let two racing uploads each create a gist
+	 *  and strand one — holding possibly secret-bearing settings content — orphaned on GitHub with
+	 *  no UI able to delete it, so the once-per-account creation pays the old full-span cost and the
+	 *  race is excluded by construction; ③ the guard is (re-)held and [`overlay_sync_bookkeeping`]
+	 *  revalidates the live `sync_gist_id` against the phase-① snapshot before writing back — a
+	 *  `sync_disconnect` or gist repoint that landed during the round-trip wins and the write-back is
+	 *  skipped (Phase E SYNC-1), while a `settings_update` that landed mid-round-trip is never rolled
+	 *  back because every non-bookkeeping field comes from the live settings. The emitted `connected`
+	 *  is measured from the secret store under the same guard, never hardcoded.
 	 * 
-	 *  Consistency regime (contract 2026-08-19 §1.1 — last-write, made explicit):
-	 *  `sync_gist_id`/`sync_last_synced_at` are owned by whichever sync command finishes last; every
-	 *  other field is owned by the live settings. The uploaded content is the phase-① snapshot — a
-	 *  change made mid-upload rides the next upload. Two uploads racing the first-ever gist creation
-	 *  can each create a gist; the later write-back wins and the other gist is orphaned on GitHub —
-	 *  previously excluded by the full-span lock at the cost above, accepted here as the last-write
-	 *  consequence of an operation the user triggered twice concurrently.
+	 *  Consistency regime (contract 2026-08-19 §1.1): `sync_gist_id`/`sync_last_synced_at` are sync
+	 *  bookkeeping owned by the last still-valid sync write-back; every other field is owned by the
+	 *  live settings. The uploaded content is the phase-① snapshot — a change made mid-upload rides
+	 *  the next upload.
 	 */
 	syncUpload: () => typedError<SyncStatus, AppError>(__TAURI_INVOKE("sync_upload")),
 	/**
 	 *  Fetches the gist **outside** `AppState::begin_mutation` and takes the guard only for the local
 	 *  apply (audit R5#7, C11 axis A). What the old full-span guard actually protected, and how each
-	 *  protection is preserved: the fetch phase reads no app state beyond a `sync_gist_id` snapshot,
-	 *  so holding the lock across the round-trip protected nothing local; the check-then-apply phase
-	 *  (conflict decision → settings apply → theme/locale file writes) is where mutations must not
-	 *  interleave, and it runs entirely under the re-acquired guard, evaluated against the **live**
-	 *  settings rather than the pre-fetch snapshot. The old lock also made "the configured gist can't
-	 *  change while a download is in flight" true by construction — that is preserved by
-	 *  revalidation: if `sync_gist_id` was cleared (`sync_disconnect`) or repointed during the fetch,
-	 *  the apply aborts instead of resurrecting the stale target's content. The conflict check runs
-	 *  against the live `sync_last_synced_at` under the same guard, so a sync that completed during
-	 *  the fetch participates in the decision (contract 2026-08-19 §1.1's revalidation regime).
+	 *  protection is preserved: the fetch phase reads no app state beyond a snapshot of
+	 *  `sync_gist_id` + `sync_last_synced_at`, so holding the lock across the round-trip protected
+	 *  nothing local; the check-then-apply phase (retry/conflict decision → payload parse/schema gate
+	 *  → settings apply → theme/locale file writes) runs entirely under the re-acquired guard. The
+	 *  old lock also made two things true by construction, both preserved by
+	 *  [`decide_download_apply`]'s revalidation against the live settings: the configured gist can't
+	 *  change while a download is in flight (cleared by `sync_disconnect` or repointed → retry
+	 *  abort), and no other sync can complete while a download is in flight (live
+	 *  `sync_last_synced_at` moved off the pre-fetch snapshot → retry abort, so a stale fetched
+	 *  payload can never overwrite what a concurrent upload just pushed — Phase E SYNC-2). Both
+	 *  aborts reuse the pre-existing `AppError::InvalidArgument` retry shape (wire unchanged), and
+	 *  the decision runs before the parse/schema gates so the conflict-vs-error outcome for any given
+	 *  input matches the pre-split command (Phase E T1H-C3).
 	 */
 	syncDownload: (force: boolean) => typedError<SyncDownloadResult, AppError>(__TAURI_INVOKE("sync_download", { force })),
 	vsixExtractThemes: (vsixPath: string) => typedError<VsixThemeExtractionResult, AppError>(__TAURI_INVOKE("vsix_extract_themes", { vsixPath })),

@@ -41,6 +41,13 @@ fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<PathBuf> 
         .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))
 }
 
+/// Returns `project_id`'s tree entry, building and inserting a fresh root-loaded one when absent.
+/// Mutation commands call this under **both** `AppState::begin_mutation` and the store's write
+/// lock and then mutate the returned entry in place — the previous clone-the-map /
+/// write-the-whole-map-back shape let that write-back silently erase whatever the unguarded
+/// [`rows_page_from_store`] miss path had inserted (and resurrect entries `TreeStore::remove` had
+/// deleted) between the clone and the write-back (Phase E C11-TREE-1), so no full-map write-back
+/// remains anywhere in this file.
 fn ensure_entry<'a>(
     trees: &'a mut HashMap<ProjectId, TreeState>,
     state: &AppState,
@@ -62,12 +69,16 @@ fn ensure_entry<'a>(
 /// ran the read-only `rows_page` on the clone, and wrote the whole map back without any guard —
 /// so a `tree_toggle`/`tree_reveal`/`tree_refresh` that committed between the clone and the
 /// write-back was silently rolled back (lost update), and every scroll paid a full deep copy.
-/// The write-back existed only to persist `ensure_entry`'s first-load side effect, so this keeps
-/// exactly that: a hit serves the page under the store's read lock and writes nothing; a miss
-/// builds the fresh root-loaded `TreeState` outside every lock (the only disk I/O on this path)
-/// and inserts **only that entry** via `entry().or_insert` — if a guarded mutation created the
-/// entry meanwhile, the existing (newer) entry wins and the freshly built one is dropped, never
-/// the other way around.
+/// A hit serves the page under the store's read lock and writes nothing. A miss builds the fresh
+/// root-loaded `TreeState` outside every lock (the only disk I/O on this path), then under the
+/// store's write lock re-checks that the project is still open before inserting: the build ran
+/// unguarded, so a `project_close` that landed meanwhile must not have its `TreeStore::remove`
+/// undone by this insertion — a stale entry would otherwise be served to the reopened project,
+/// which reuses the same `ProjectId` (Phase E C11-TREE-2); the page is still served from the
+/// locally built tree, cache untouched. The insertion itself uses `entry().or_insert`, and since
+/// every mutation command now updates its entry in place under this same write lock (no full-map
+/// write-back exists anymore — Phase E C11-TREE-1), an entry that appeared concurrently wins over
+/// the freshly built one and an inserted entry can no longer be silently erased.
 fn rows_page_from_store(
     tree_store: &TreeStore,
     state: &AppState,
@@ -84,6 +95,9 @@ fn rows_page_from_store(
     service::ensure_root_loaded(&mut tree)?;
 
     let mut trees = tree_store.0.write();
+    if !state.projects.read().contains_key(project_id) {
+        return Ok(service::rows_page(&tree, offset, limit));
+    }
     let entry = trees.entry(project_id.clone()).or_insert(tree);
     Ok(service::rows_page(entry, offset, limit))
 }
@@ -109,12 +123,10 @@ pub async fn tree_toggle(
     path: String,
 ) -> AppResult<TreeRowPage> {
     let _guard = state.begin_mutation().await;
-    let mut trees = tree_store.0.read().clone();
+    let mut trees = tree_store.0.write();
     let tree = ensure_entry(&mut trees, &state, &project_id)?;
     service::toggle_expand(tree, Path::new(&path))?;
-    let page = service::full_page(tree);
-    *tree_store.0.write() = trees;
-    Ok(page)
+    Ok(service::full_page(tree))
 }
 
 #[tauri::command]
@@ -126,12 +138,10 @@ pub async fn tree_reveal(
     path: String,
 ) -> AppResult<TreeRowPage> {
     let _guard = state.begin_mutation().await;
-    let mut trees = tree_store.0.read().clone();
+    let mut trees = tree_store.0.write();
     let tree = ensure_entry(&mut trees, &state, &project_id)?;
     service::reveal(tree, Path::new(&path))?;
-    let page = service::full_page(tree);
-    *tree_store.0.write() = trees;
-    Ok(page)
+    Ok(service::full_page(tree))
 }
 
 #[tauri::command]
@@ -143,12 +153,10 @@ pub async fn tree_refresh(
     dir: String,
 ) -> AppResult<TreeRowPage> {
     let _guard = state.begin_mutation().await;
-    let mut trees = tree_store.0.read().clone();
+    let mut trees = tree_store.0.write();
     let tree = ensure_entry(&mut trees, &state, &project_id)?;
     service::invalidate(tree, Path::new(&dir))?;
-    let page = service::full_page(tree);
-    *tree_store.0.write() = trees;
-    Ok(page)
+    Ok(service::full_page(tree))
 }
 
 #[cfg(test)]
@@ -281,6 +289,10 @@ mod tests {
         assert!(
             !service::expanded_paths(entry_a).contains(&sub_a.to_string_lossy().to_string()),
             "짝수 번 토글의 최종 상태(collapsed)가 유실 없이 보존되어야 한다 — 조회 경로에 전체 되쓰기가 남아 있으면 실패할 수 있다"
+        );
+        assert!(
+            trees.contains_key(&b),
+            "조회 미스가 삽입한 B 엔트리가 뮤테이션에 의해 지워지면 안 된다 — 뮤테이션 경로에 전체 되쓰기가 남아 있으면 실패할 수 있다"
         );
         drop(trees);
 

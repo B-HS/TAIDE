@@ -65,6 +65,14 @@ impl AppState {
     /// Sync counterpart to [`Self::begin_mutation`] for callers already running on a blocking
     /// thread (`tokio::task::spawn_blocking`) that cannot `.await`. Panics if called from within
     /// an async execution context — see `tokio::sync::Mutex::blocking_lock`'s own panic contract.
+    ///
+    /// Reserved for **short, bounded lock waits** (the T0#17 `search_replace` per-file shape): the
+    /// caller occupies a blocking-pool thread for its entire wait, while guard **holders**
+    /// themselves dispatch work onto the same pool (`git_pull`, `git_revert_commit`, hunk
+    /// staging, ...) — so enough long-parked waiters exhaust the pool and deadlock against a
+    /// holder waiting for a free thread (Phase E GIT-1). A command whose lock wait can be long
+    /// must acquire the guard with `begin_mutation().await` on the async side first and only then
+    /// enter `spawn_blocking` with the guard held.
     pub fn begin_mutation_blocking(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_guard.blocking_lock()
     }

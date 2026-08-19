@@ -19,7 +19,7 @@
 | T0 24항목 | **완료**(#15 는 T1-2차 재등록으로 해소) |
 | T1 11묶음 중 8 | **완료**: E·J·B(1차)·G·asset·F(2차)·C·D·A(3차)·editor-pane 이월(d-13) |
 | **T1-K 원격 기본거부** (6건) | **완료(d-14)** — C16 근본 해소(기본 거부 기계 강제) |
-| **T1-H 락 IO 분리** (10건) | **진행 중(d-18)** — 기처리 3건(T0#17·T0#20·T1-I R6#2) 제외 실작업 6건+R8#13 실사. 계약 `2026-08-19-audit-t1h-lock-io-contract.md`(입도 재설계 기각·국소 분리 원칙) |
+| **T1-H 락 IO 분리** (10건) | **완료(d-18)** — 락-IO 결합 국소 해소(입도 무변경). 계약 `2026-08-19-audit-t1h-lock-io-contract.md`. 이월: git2 in-process 동기 IO 13건·repo 단위 재진입 직렬화·원격 동시 상한·pty_spawn·git_pull 네트워크 락 탈출(계약 §4·§5) |
 | **T1-I 도메인 경계 C13** (12건) | **완료(d-17)** — 결정 10-A·12-A 실행(capability 확장점·아키텍처 테스트 기계 강제). 이월: AppState 공유 필드 사각지대·layout↔ide·window↔layout 순환(계약 §5) |
 | T2 백로그 10묶음 (~107건) | 미착수 — 중복 제거·비대 파일 분해(editor-pane 은 해소, settings-view 927·lib.rs·locale/service.rs 4081 등 잔여)·shared/lib 재구조화·접근성 8·dead code·매직넘버·로케일 외부화 |
 | T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
@@ -741,13 +741,20 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           ① T1-I 산출물 3커밋 prod 병합 완료(main=9bad3df — branch -f 분류기 차단으로
           checkout+ff-only 동등 절차, push 분리) ② 다음 배치 = T1-H 락 IO(추천안 — 위험 최고
           재고지는 T1-I 완결 보고에 명시 완료)
-    - [ ] d-18. 감사 T1-H 전역 락 IO 분리(C11 양축) — **진행 중**. 계약
-          `docs/acknowledge/2026-08-19-audit-t1h-lock-io-contract.md`. 착수 전 실물 재확인
-          완료: 기처리 3건 확인(R7#3=T0#17·R8#2=T0#20·R6#2=T1-I)·tree_rows 무가드 되쓰기
-          잔존 실측(T0 권고 미반영이었음)·git 네트워크 락 보유 실측·font_list 락 무관(캐시
-          부재 건) 정정. 원칙: **begin_mutation 입도 재설계 기각(후속 이월)** — 락-IO 결합
-          국소 해소만. 실행: Rust 단독 구현 → E 검토(동시성 렌즈 최우선) → 수정 → 메인 2차
-          → 커밋
+    - [x] d-18. 감사 T1-H 전역 락 IO 분리(C11 양축) — **완료**. 계약
+          `docs/acknowledge/2026-08-19-audit-t1h-lock-io-contract.md`(§4 구현·§5 검토 반영).
+          착수 전 실물 재확인: 기처리 3건(R7#3=T0#17·R8#2=T0#20·R6#2=T1-I) 제외·tree_rows
+          무가드 되쓰기 잔존 실측·font_list 캐시 부재 건 정정. 원칙: **begin_mutation 입도
+          재설계 기각(후속 이월)** — 락-IO 결합 국소 해소만. 구현 `100e6a4`(wf_4d766dcb-e89,
+          13파일): git push/fetch 락 탈출·sync 3단계·plugin/vsix stage/commit 분리·font
+          캐시·tree_rows 되쓰기 제거·update_index 제거·보류 2(git_pull CLI 융합·pty_spawn).
+          E 검토(wf_6f7ce886-f9f 4렌즈 29발견→적대적 8 **confirmed 8·refuted 0** — sync
+          disconnect 되살림 4렌즈 수렴·stale 적용 역행·git_pull blocking 풀 교착·commit
+          §1.4 오인용) → 수정 wf_947a9c63-7b6 12파일(overlay_sync_bookkeeping·
+          decide_download_apply 재검증 대칭·git_pull async 가드 동형화·git_commit/init/undo
+          이관·tree in-place·최초 gist 생성 가드 유지 등) → 메인 2차(스팟 4축+verify·vite
+          직접 exit 0, Rust 1076·프론트 1375). qa6 +1절(9항목). 이월: git2 in-process 13건·
+          재진입 직렬화·원격 동시 상한·pty_spawn
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

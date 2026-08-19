@@ -27,6 +27,67 @@ fn load_token(secret: &dyn SecretStore) -> AppResult<String> {
         .ok_or_else(|| AppError::InvalidArgument("GitHub sync is not connected".to_string()))
 }
 
+/// Phase-③ write-back decision of [`sync_upload`]: overlays the sync bookkeeping fields onto the
+/// live settings only while the live `sync_gist_id` still matches the phase-① snapshot. A
+/// mismatch means a `sync_disconnect` (live went `None`) or a gist repoint landed while the
+/// round-trip ran with the guard dropped — the write-back is skipped (`None`) so the interleaved
+/// command's outcome survives instead of being resurrected by stale upload bookkeeping (Phase E
+/// SYNC-1). On a match, every non-bookkeeping field comes from the live settings, so a
+/// `settings_update` that landed mid-round-trip is never rolled back to the snapshot.
+fn overlay_sync_bookkeeping(
+    live_settings: &Settings,
+    snapshot_gist_id: Option<&str>,
+    gist_id: &str,
+    remote_updated_at: &str,
+) -> Option<Settings> {
+    if live_settings.sync_gist_id.as_deref() != snapshot_gist_id {
+        return None;
+    }
+    Some(Settings {
+        sync_gist_id: Some(gist_id.to_string()),
+        sync_last_synced_at: Some(remote_updated_at.to_string()),
+        ..live_settings.clone()
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum DownloadApplyDecision {
+    RetryGistChanged,
+    RetrySyncCompleted,
+    Conflict,
+    Apply,
+}
+
+/// Guard-side decision of [`sync_download`], evaluated against the **live** settings after the
+/// guard is re-acquired. The ordering preserves the pre-split command's semantics: the retry
+/// aborts and the conflict verdict are decided before the payload is parsed, so an input that is
+/// both conflicting and malformed still reports the conflict exactly as the old code did. The two
+/// retry aborts cover what the old full-span lock excluded by construction: the configured gist
+/// changing mid-fetch (`RetryGistChanged`), and another sync completing mid-fetch and moving
+/// `sync_last_synced_at` off the pre-fetch snapshot (`RetrySyncCompleted`, Phase E SYNC-2) —
+/// without the latter, a concurrent upload's newer bookkeeping would flip the conflict check to
+/// "not newer" and let the stale fetched payload silently overwrite the settings that upload had
+/// just pushed, while rolling `sync_last_synced_at` backwards.
+fn decide_download_apply(
+    live_gist_id: Option<&str>,
+    live_last_synced_at: Option<&str>,
+    fetched_gist_id: &str,
+    pre_fetch_last_synced_at: Option<&str>,
+    remote_updated_at: &str,
+    force: bool,
+) -> DownloadApplyDecision {
+    if live_gist_id != Some(fetched_gist_id) {
+        return DownloadApplyDecision::RetryGistChanged;
+    }
+    if live_last_synced_at != pre_fetch_last_synced_at {
+        return DownloadApplyDecision::RetrySyncCompleted;
+    }
+    if !force && service::is_remote_newer(remote_updated_at, live_last_synced_at) {
+        return DownloadApplyDecision::Conflict;
+    }
+    DownloadApplyDecision::Apply
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_status(state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<SyncStatus> {
@@ -99,34 +160,36 @@ pub async fn sync_disconnect(
 /// Runs in three phases so the GitHub round-trip (60s client timeout) no longer holds the
 /// app-wide mutation lock for its whole duration (audit R5#7, C11 axis A). What the old full-span
 /// guard actually protected, and how each protection is preserved:
-/// ① a short `begin_mutation` hold snapshots settings + theme/locale files — the same
-/// point-in-time payload consistency the full-span hold gave (no mutation can interleave between
-/// reading settings and reading the files it references); ② the gist create/update runs with the
-/// guard dropped — the freeze of every other mutation (file saves included) for the whole
-/// round-trip was cost, not protection; ③ the guard is re-acquired and the sync bookkeeping
-/// fields are overlaid onto a **fresh** read of the live settings, so a `settings_update` that
-/// landed during the round-trip is never rolled back to the phase-① snapshot.
+/// ① a `begin_mutation` hold reads the token and snapshots settings + theme/locale files — the
+/// same point-in-time payload consistency the full-span hold gave, and the same "a disconnect
+/// that already landed fails the upload before any network write" ordering (the token read sits
+/// under the guard exactly as it originally did); ② updating an **existing** gist runs with the
+/// guard dropped — freezing every other mutation (file saves included) for the round-trip was
+/// cost, not protection. The **first-ever gist creation keeps the phase-① guard across the
+/// round-trip** (Phase E F5): dropping it there would let two racing uploads each create a gist
+/// and strand one — holding possibly secret-bearing settings content — orphaned on GitHub with
+/// no UI able to delete it, so the once-per-account creation pays the old full-span cost and the
+/// race is excluded by construction; ③ the guard is (re-)held and [`overlay_sync_bookkeeping`]
+/// revalidates the live `sync_gist_id` against the phase-① snapshot before writing back — a
+/// `sync_disconnect` or gist repoint that landed during the round-trip wins and the write-back is
+/// skipped (Phase E SYNC-1), while a `settings_update` that landed mid-round-trip is never rolled
+/// back because every non-bookkeeping field comes from the live settings. The emitted `connected`
+/// is measured from the secret store under the same guard, never hardcoded.
 ///
-/// Consistency regime (contract 2026-08-19 §1.1 — last-write, made explicit):
-/// `sync_gist_id`/`sync_last_synced_at` are owned by whichever sync command finishes last; every
-/// other field is owned by the live settings. The uploaded content is the phase-① snapshot — a
-/// change made mid-upload rides the next upload. Two uploads racing the first-ever gist creation
-/// can each create a gist; the later write-back wins and the other gist is orphaned on GitHub —
-/// previously excluded by the full-span lock at the cost above, accepted here as the last-write
-/// consequence of an operation the user triggered twice concurrently.
+/// Consistency regime (contract 2026-08-19 §1.1): `sync_gist_id`/`sync_last_synced_at` are sync
+/// bookkeeping owned by the last still-valid sync write-back; every other field is owned by the
+/// live settings. The uploaded content is the phase-① snapshot — a change made mid-upload rides
+/// the next upload.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<SyncStatus> {
+    let guard = state.begin_mutation().await;
     let token = load_token(secret.0.as_ref())?;
-
-    let (settings_snapshot, payload_json) = {
-        let _guard = state.begin_mutation().await;
-        let settings = state.settings.read().clone();
-        let themes = service::collect_theme_entries(&state.paths);
-        let locales = service::collect_locale_entries(&state.paths);
-        let payload = service::assemble_payload(&settings, themes, locales, service::now_utc_iso8601());
-        (settings, serde_json::to_string_pretty(&payload)?)
-    };
+    let settings_snapshot = state.settings.read().clone();
+    let themes = service::collect_theme_entries(&state.paths);
+    let locales = service::collect_locale_entries(&state.paths);
+    let payload = service::assemble_payload(&settings_snapshot, themes, locales, service::now_utc_iso8601());
+    let payload_json = serde_json::to_string_pretty(&payload)?;
 
     let client = outbound_http_client(HttpClientProfile::Api);
     let gist_client = GistClient {
@@ -134,40 +197,47 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
         token: &token,
     };
 
-    let (gist_id, remote_updated_at) = match settings_snapshot.sync_gist_id.clone() {
+    let snapshot_gist_id = settings_snapshot.sync_gist_id.clone();
+    let (_guard, gist_id, remote_updated_at) = match snapshot_gist_id.clone() {
         Some(id) => {
+            drop(guard);
             let updated_at = gist_client.update_gist(&id, &payload_json).await?;
-            (id, updated_at)
+            (state.begin_mutation().await, id, updated_at)
         }
-        None => gist_client.create_gist(&payload_json).await?,
+        None => {
+            let (id, updated_at) = gist_client.create_gist(&payload_json).await?;
+            (guard, id, updated_at)
+        }
     };
 
-    let _guard = state.begin_mutation().await;
-    let updated_settings = Settings {
-        sync_gist_id: Some(gist_id),
-        sync_last_synced_at: Some(remote_updated_at),
-        ..state.settings.read().clone()
+    let connected = secret.0.as_ref().get(SecretAccount::GithubSync)?.is_some();
+    let live_settings = state.settings.read().clone();
+    let Some(updated_settings) = overlay_sync_bookkeeping(&live_settings, snapshot_gist_id.as_deref(), &gist_id, &remote_updated_at) else {
+        return Ok(current_status_snapshot(&live_settings, connected));
     };
     settings_service::save_settings(&state.paths, &updated_settings)?;
     *state.settings.write() = updated_settings.clone();
 
-    let status = current_status_snapshot(&updated_settings, true);
+    let status = current_status_snapshot(&updated_settings, connected);
     let _ = SyncStateChanged { status: status.clone() }.emit(&app);
     Ok(status)
 }
 
 /// Fetches the gist **outside** `AppState::begin_mutation` and takes the guard only for the local
 /// apply (audit R5#7, C11 axis A). What the old full-span guard actually protected, and how each
-/// protection is preserved: the fetch phase reads no app state beyond a `sync_gist_id` snapshot,
-/// so holding the lock across the round-trip protected nothing local; the check-then-apply phase
-/// (conflict decision → settings apply → theme/locale file writes) is where mutations must not
-/// interleave, and it runs entirely under the re-acquired guard, evaluated against the **live**
-/// settings rather than the pre-fetch snapshot. The old lock also made "the configured gist can't
-/// change while a download is in flight" true by construction — that is preserved by
-/// revalidation: if `sync_gist_id` was cleared (`sync_disconnect`) or repointed during the fetch,
-/// the apply aborts instead of resurrecting the stale target's content. The conflict check runs
-/// against the live `sync_last_synced_at` under the same guard, so a sync that completed during
-/// the fetch participates in the decision (contract 2026-08-19 §1.1's revalidation regime).
+/// protection is preserved: the fetch phase reads no app state beyond a snapshot of
+/// `sync_gist_id` + `sync_last_synced_at`, so holding the lock across the round-trip protected
+/// nothing local; the check-then-apply phase (retry/conflict decision → payload parse/schema gate
+/// → settings apply → theme/locale file writes) runs entirely under the re-acquired guard. The
+/// old lock also made two things true by construction, both preserved by
+/// [`decide_download_apply`]'s revalidation against the live settings: the configured gist can't
+/// change while a download is in flight (cleared by `sync_disconnect` or repointed → retry
+/// abort), and no other sync can complete while a download is in flight (live
+/// `sync_last_synced_at` moved off the pre-fetch snapshot → retry abort, so a stale fetched
+/// payload can never overwrite what a concurrent upload just pushed — Phase E SYNC-2). Both
+/// aborts reuse the pre-existing `AppError::InvalidArgument` retry shape (wire unchanged), and
+/// the decision runs before the parse/schema gates so the conflict-vs-error outcome for any given
+/// input matches the pre-split command (Phase E T1H-C3).
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_download(
@@ -177,12 +247,14 @@ pub async fn sync_download(
     force: bool,
 ) -> AppResult<SyncDownloadResult> {
     let token = load_token(secret.0.as_ref())?;
-    let gist_id = state
-        .settings
-        .read()
-        .sync_gist_id
-        .clone()
-        .ok_or_else(|| AppError::InvalidArgument("no sync gist is configured yet — upload once first".to_string()))?;
+    let (gist_id, pre_fetch_last_synced_at) = {
+        let settings = state.settings.read();
+        let gist_id = settings
+            .sync_gist_id
+            .clone()
+            .ok_or_else(|| AppError::InvalidArgument("no sync gist is configured yet — upload once first".to_string()))?;
+        (gist_id, settings.sync_last_synced_at.clone())
+    };
 
     let client = outbound_http_client(HttpClientProfile::Api);
     let gist_client = GistClient {
@@ -191,21 +263,33 @@ pub async fn sync_download(
     };
     let (remote_updated_at, content) = gist_client.fetch_gist(&gist_id).await?;
 
+    let _guard = state.begin_mutation().await;
+    let current = state.settings.read().clone();
+    match decide_download_apply(
+        current.sync_gist_id.as_deref(),
+        current.sync_last_synced_at.as_deref(),
+        &gist_id,
+        pre_fetch_last_synced_at.as_deref(),
+        &remote_updated_at,
+        force,
+    ) {
+        DownloadApplyDecision::RetryGistChanged => {
+            return Err(AppError::InvalidArgument(
+                "the configured sync gist changed while downloading — retry the download".to_string(),
+            ))
+        }
+        DownloadApplyDecision::RetrySyncCompleted => {
+            return Err(AppError::InvalidArgument(
+                "another sync completed while downloading — retry the download".to_string(),
+            ))
+        }
+        DownloadApplyDecision::Conflict => return Ok(SyncDownloadResult::Conflict { remote_updated_at }),
+        DownloadApplyDecision::Apply => {}
+    }
+
     let payload = service::parse_synced_payload(&content)
         .ok_or_else(|| AppError::Internal("sync payload from the gist was malformed".to_string()))?;
     service::ensure_supported_schema_version(payload.schema_version)?;
-
-    let _guard = state.begin_mutation().await;
-    let current = state.settings.read().clone();
-    if current.sync_gist_id.as_deref() != Some(gist_id.as_str()) {
-        return Err(AppError::InvalidArgument(
-            "the configured sync gist changed while downloading — retry the download".to_string(),
-        ));
-    }
-
-    if !force && service::is_remote_newer(&remote_updated_at, current.sync_last_synced_at.as_deref()) {
-        return Ok(SyncDownloadResult::Conflict { remote_updated_at });
-    }
 
     let applied = service::apply_payload_settings(&current, &payload);
     let final_settings = Settings {
@@ -256,5 +340,132 @@ mod tests {
         let store = InMemorySecretStore::default();
         let result = load_token(&store);
         assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+    }
+
+    fn settings_with_sync(gist_id: Option<&str>, last_synced_at: Option<&str>) -> Settings {
+        Settings {
+            sync_gist_id: gist_id.map(str::to_string),
+            sync_last_synced_at: last_synced_at.map(str::to_string),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn 업로드_되쓰기는_라운드트립_중_disconnect가_지운_gist를_되살리지_않는다() {
+        let live = settings_with_sync(None, None);
+        assert_eq!(
+            overlay_sync_bookkeeping(&live, Some("gist-1"), "gist-1", "2026-08-19T01:00:00Z"),
+            None,
+            "disconnect 가 라이브 gist id 를 지웠으면 되쓰기를 건너뛰어야 한다"
+        );
+    }
+
+    #[test]
+    fn 업로드_되쓰기는_라운드트립_중_재지정된_gist를_덮지_않는다() {
+        let live = settings_with_sync(Some("gist-2"), Some("2026-08-19T00:00:00Z"));
+        assert_eq!(
+            overlay_sync_bookkeeping(&live, Some("gist-1"), "gist-1", "2026-08-19T01:00:00Z"),
+            None,
+            "라이브 gist 가 다른 대상으로 바뀌었으면 되쓰기를 건너뛰어야 한다"
+        );
+    }
+
+    #[test]
+    fn 업로드_되쓰기는_신규_생성_경합으로_이미_기록된_gist를_덮지_않는다() {
+        let live = settings_with_sync(Some("gist-other"), Some("2026-08-19T00:30:00Z"));
+        assert_eq!(
+            overlay_sync_bookkeeping(&live, None, "gist-mine", "2026-08-19T01:00:00Z"),
+            None,
+            "스냅샷이 None 이었는데 라이브에 이미 gist 가 기록됐으면 되쓰기를 건너뛰어야 한다"
+        );
+    }
+
+    #[test]
+    fn 업로드_되쓰기는_스냅샷과_라이브가_일치하면_북키핑만_갱신하고_라이브_필드를_보존한다() {
+        let live = Settings {
+            editor_font_size: 19,
+            ..settings_with_sync(Some("gist-1"), Some("2026-08-19T00:00:00Z"))
+        };
+        let updated = overlay_sync_bookkeeping(&live, Some("gist-1"), "gist-1", "2026-08-19T01:00:00Z").expect("일치하면 되써야 한다");
+
+        assert_eq!(updated.sync_gist_id.as_deref(), Some("gist-1"));
+        assert_eq!(updated.sync_last_synced_at.as_deref(), Some("2026-08-19T01:00:00Z"));
+        assert_eq!(updated.editor_font_size, 19, "북키핑 외 필드는 라이브 값을 보존해야 한다");
+    }
+
+    #[test]
+    fn 다운로드는_라운드트립_중_gist가_바뀌면_재시도를_요구한다() {
+        assert_eq!(
+            decide_download_apply(
+                Some("gist-2"),
+                Some("2026-08-19T00:00:00Z"),
+                "gist-1",
+                Some("2026-08-19T00:00:00Z"),
+                "2026-08-19T00:00:00Z",
+                false,
+            ),
+            DownloadApplyDecision::RetryGistChanged
+        );
+    }
+
+    #[test]
+    fn 다운로드는_라운드트립_중_다른_sync가_완료되면_stale_적용_대신_재시도를_요구한다() {
+        assert_eq!(
+            decide_download_apply(
+                Some("gist-1"),
+                Some("2026-08-19T01:00:00Z"),
+                "gist-1",
+                Some("2026-08-19T00:00:00Z"),
+                "2026-08-19T00:00:00Z",
+                false,
+            ),
+            DownloadApplyDecision::RetrySyncCompleted,
+            "동시 업로드가 last_synced_at 을 전진시켰으면 fetch 시점 payload 는 stale 이다"
+        );
+    }
+
+    #[test]
+    fn 다운로드는_원격이_더_새로우면_충돌을_보고한다() {
+        assert_eq!(
+            decide_download_apply(
+                Some("gist-1"),
+                Some("2026-08-19T00:00:00Z"),
+                "gist-1",
+                Some("2026-08-19T00:00:00Z"),
+                "2026-08-19T02:00:00Z",
+                false,
+            ),
+            DownloadApplyDecision::Conflict
+        );
+    }
+
+    #[test]
+    fn 다운로드는_force면_충돌_검사를_건너뛰고_적용한다() {
+        assert_eq!(
+            decide_download_apply(
+                Some("gist-1"),
+                Some("2026-08-19T00:00:00Z"),
+                "gist-1",
+                Some("2026-08-19T00:00:00Z"),
+                "2026-08-19T02:00:00Z",
+                true,
+            ),
+            DownloadApplyDecision::Apply
+        );
+    }
+
+    #[test]
+    fn 다운로드는_스냅샷과_라이브가_일치하고_원격이_새롭지_않으면_적용한다() {
+        assert_eq!(
+            decide_download_apply(
+                Some("gist-1"),
+                Some("2026-08-19T02:00:00Z"),
+                "gist-1",
+                Some("2026-08-19T02:00:00Z"),
+                "2026-08-19T02:00:00Z",
+                false,
+            ),
+            DownloadApplyDecision::Apply
+        );
     }
 }

@@ -299,6 +299,11 @@ fn read_and_validate_manifest(dir: &Path) -> AppResult<PluginManifest> {
 /// caller can keep it **outside** `AppState::begin_mutation` (audit R7#10, C11 axis A); the
 /// already-installed check here is only a fast-fail courtesy — [`commit_staged_install`] re-checks
 /// it authoritatively under the caller's guard. Returns the staging dir and the plugin id.
+/// Every stage function takes `(plugins_dir, source)` in that order — `vsix::service::
+/// stage_vsix_import` included — because two bare `&Path`s compile fine swapped. The caller owns
+/// the returned staging dir until it hands it to [`commit_staged_install`], which removes it on
+/// every failure path; nothing else ever will (no `.tmp` reaper exists), so staging without
+/// committing leaks the staged bytes until `plugins_dir/.tmp` is cleared manually.
 pub fn stage_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<(PathBuf, String)> {
     let manifest = read_and_validate_manifest(source)?;
 
@@ -321,7 +326,9 @@ pub fn stage_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<(Pat
 /// `infra::lsp_install::extract_zip` — contract §3.4) into a unique `plugins_dir/.tmp/` staging
 /// directory. The up-to-128MB extraction runs here so the caller can keep it **outside**
 /// `AppState::begin_mutation` (audit R7#10); the already-installed check is a fast-fail courtesy,
-/// re-checked authoritatively by [`commit_staged_install`] under the caller's guard.
+/// re-checked authoritatively by [`commit_staged_install`] under the caller's guard. Argument
+/// order and staging-dir ownership follow [`stage_from_directory`]'s contract: `(plugins_dir,
+/// source)`, and the caller must hand the staging dir to commit or it leaks in `plugins_dir/.tmp`.
 pub fn stage_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<(PathBuf, String)> {
     let temp_extract_dir = plugins_dir.join(".tmp").join(format!("extract-{}", uuid::Uuid::new_v4()));
 
@@ -351,7 +358,10 @@ pub fn stage_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<(PathB
 /// its full-span guard for: the already-installed check and the placement are atomic with respect
 /// to every other guarded plugin mutation (`plugin_uninstall`, `plugin_reload`, another install of
 /// the same id), so a duplicate id still deterministically fails with the same error instead of
-/// silently replacing a concurrent install. Cleans the staging directory up on every error path.
+/// silently replacing a concurrent install. Cleans the staging directory up on every error path —
+/// this is the **only** place staged bytes are ever reclaimed (no `.tmp` reaper exists), so every
+/// stage call must reach this function exactly once with the `(plugins_dir, temp_dir, plugin_id)`
+/// triple its stage function returned.
 pub fn commit_staged_install(plugins_dir: &Path, temp_dir: &Path, plugin_id: &str) -> AppResult<String> {
     let final_dir = plugins_dir.join(plugin_id);
     let result = if final_dir.exists() {

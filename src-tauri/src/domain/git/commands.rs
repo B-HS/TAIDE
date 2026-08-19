@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_specta::Event;
 
 use super::service;
@@ -77,18 +77,27 @@ pub async fn git_init(app: AppHandle, state: State<'_, AppState>, store: State<'
         .map(|project| project.root.clone())
         .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
 
-    service::init(Path::new(&root))?;
+    tauri::async_runtime::spawn_blocking(move || service::init(Path::new(&root)))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     store.0.lock().remove(&project_id);
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(())
 }
 
+/// Runs the status read on a blocking thread like every other git query command here: dropping
+/// `update_index` (audit R4#11) made stat-stale entries re-hash on **every** call until some
+/// index-writing operation refreshes them, and this event-driven path re-runs after each
+/// `GitStatusChanged`, so the synchronous libgit2 work must not pin an async worker thread
+/// (architecture.md §2.1, Phase E C11-GIT-2). Surface and return value are unchanged.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_status(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<GitStatus> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::status(&repo_root)
+    tauri::async_runtime::spawn_blocking(move || service::status(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -244,6 +253,13 @@ pub async fn git_discard(
     Ok(())
 }
 
+/// Holds `AppState::begin_mutation` across the whole commit — the staged-state read, the commit,
+/// and the resulting index/ref writes must stay serialized with every other guarded mutation
+/// exactly as before — but runs the `git` subprocesses (`add -A` when staging all, `commit`,
+/// `rev-parse`) on a blocking thread: `git add -A` stats the entire working tree, seconds on a
+/// large repo, which previously pinned an async worker for the duration (architecture.md §2.1,
+/// audit R4#3's commit clause, Phase E T1H-C-02). Same guard-held `spawn_blocking` shape as
+/// `git_revert_commit`/`git_stage_hunk` — lock semantics unchanged.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_commit(
@@ -256,7 +272,9 @@ pub async fn git_commit(
 ) -> AppResult<String> {
     let _guard = state.begin_mutation().await;
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let oid = service::commit(&repo_root, &message, &opts)?;
+    let oid = tauri::async_runtime::spawn_blocking(move || service::commit(&repo_root, &message, &opts))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(oid)
@@ -265,13 +283,17 @@ pub async fn git_commit(
 /// Runs `git push` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3, C11
 /// axis A). What the old guard actually covered was audited before removal: `service::push`
 /// shells out to `git push`, which reads local refs/objects and — on success — updates the
-/// remote-tracking ref inside `.git`; it never touches the working tree, so serializing it with
-/// the app's file mutations (`file_save`, replace, ...) protected nothing. Same-repo `.git`
-/// integrity against concurrent app git commands (commit/stage/pull) is enforced by git's own
-/// index/ref locks, exactly as when the user runs `git push` in a terminal beside the app, and
-/// command-level ordering (commit-then-push) is already sequenced by the frontend awaiting each
-/// command. The subprocess wait moved into `spawn_blocking` so the network round-trip no longer
-/// pins an async worker thread either (architecture.md §2.1's other half).
+/// remote-tracking ref inside `.git`; git itself never touches the working tree, so serializing
+/// it with the app's file mutations (`file_save`, replace, ...) protected nothing. The one
+/// exception is repo-configured hook code: a `pre-push` hook (or `core.hooksPath` equivalent) can
+/// write arbitrary working-tree files, and those writes are no longer serialized against app
+/// mutations — deliberately accepted as the same guarantee level as running `git push` in a
+/// terminal beside the app, rather than freezing every mutation for a network round-trip on
+/// behalf of repo-owned scripts (Phase E T1H-C5). Same-repo `.git` integrity against concurrent
+/// app git commands (commit/stage/pull) is enforced by git's own index/ref locks, exactly as with
+/// terminal git, and command-level ordering (commit-then-push) is already sequenced by the
+/// frontend awaiting each command. The subprocess wait moved into `spawn_blocking` so the network
+/// round-trip no longer pins an async worker thread either (architecture.md §2.1's other half).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
@@ -283,29 +305,30 @@ pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'
     Ok(())
 }
 
-/// Still runs the whole `git pull` under `AppState::begin_mutation`, but on a blocking thread via
-/// `begin_mutation_blocking` (the `search_replace` T0#17 pattern) so the subprocess wait no
-/// longer pins an async worker thread. The lock's real protection here is pull's merge/rebase
-/// phase rewriting working-tree files, which must stay serialized against `file_save` and every
-/// other app file mutation. Splitting the network fetch phase out of the guard (the axis-A goal,
-/// contract 2026-08-19 §1.1) was audited and deliberately **not** done: `service::pull` shells
-/// out to `git pull`, which fuses fetch and the config-dependent integration step (merge vs
-/// `pull.rebase` vs `branch.<name>.rebase`) inside one subprocess — replicating the split as
-/// `git fetch` outside the lock plus a hand-rolled second step would change pull semantics for
-/// rebase-configured repos, so the fetch stays under the lock and the separation is deferred
-/// (contract §1.0: hold over a half-correct split).
+/// Still runs the whole `git pull` under `AppState::begin_mutation` — acquired with the async
+/// `begin_mutation().await` and then **held while** the subprocess wait runs on a blocking thread
+/// (the same guard-held `spawn_blocking` shape as `git_revert_commit`/`git_stage_hunk`), so the
+/// wait no longer pins an async worker thread. The lock's real protection here is pull's
+/// merge/rebase phase rewriting working-tree files, which must stay serialized against
+/// `file_save` and every other app file mutation. Waiting for the lock **inside**
+/// `spawn_blocking` (via `begin_mutation_blocking`) is deliberately avoided: a pull parked on the
+/// lock would occupy a blocking-pool thread for its whole wait + network duration, and enough
+/// parked pulls plus one guard holder that itself needs a blocking thread (`git_revert_commit`,
+/// hunk staging, ...) deadlocks the pool (Phase E GIT-1). Splitting the network fetch phase out
+/// of the guard (the axis-A goal, contract 2026-08-19 §1.1) was audited and deliberately **not**
+/// done: `service::pull` shells out to `git pull`, which fuses fetch and the config-dependent
+/// integration step (merge vs `pull.rebase` vs `branch.<name>.rebase`) inside one subprocess —
+/// replicating the split as `git fetch` outside the lock plus a hand-rolled second step would
+/// change pull semantics for rebase-configured repos, so the fetch stays under the lock and the
+/// separation is deferred (contract §1.0: hold over a half-correct split).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let app_for_task = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let app_state = app_for_task.state::<AppState>();
-        let _guard = app_state.begin_mutation_blocking();
-        service::pull(&repo_root)
-    })
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))??;
+    let _guard = state.begin_mutation().await;
+    tauri::async_runtime::spawn_blocking(move || service::pull(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(())
@@ -315,12 +338,15 @@ pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'
 /// with the same audit as [`git_push`]: `git fetch` updates remote-tracking refs and
 /// `FETCH_HEAD` inside `.git` and never touches the working tree, so app file mutations needed
 /// no serialization with it, and `.git` integrity against concurrent app git commands is git's
-/// own ref-lock job (the terminal-git precedent). The one interleaving the old lock did exclude
-/// — this fetch rewriting `FETCH_HEAD` between the fetch and merge phases *inside* a
-/// concurrently running [`git_pull`] — is accepted: both fetches target the same configured
-/// remote, so the for-merge `FETCH_HEAD` entries are computed from the same branch config and
-/// the pull still integrates a valid fetched upstream head, identical to running `git fetch` in
-/// a terminal during a pull, which git is built to tolerate.
+/// own ref-lock job (the terminal-git precedent). What the old lock did exclude and this accepts
+/// (Phase E T1H-C6/C-09): a fetch overlapping a concurrently running [`git_pull`] on the same
+/// repo. Repository integrity is preserved either way — when both proceed, the for-merge
+/// `FETCH_HEAD` entries come from the same branch config against the same remote so the pull
+/// still integrates a valid upstream head; but git's `.git` locks (`FETCH_HEAD.lock`, per-ref
+/// locks) serialize by **failing** the loser, not by queueing it, so one side can surface a
+/// transient lock-contention error where the old serialization made that impossible. That
+/// retryable failure is the accepted cost — the same failure mode as running `git fetch` in a
+/// terminal during a pull.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
@@ -481,7 +507,9 @@ pub async fn git_undo_last_commit(
 ) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::undo_last_commit(&repo_root)?;
+    tauri::async_runtime::spawn_blocking(move || service::undo_last_commit(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     emit_status_changed(&app, &project_id);
     emit_refs_changed(&app, &project_id);
     Ok(())

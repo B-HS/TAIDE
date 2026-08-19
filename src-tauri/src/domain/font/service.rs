@@ -11,8 +11,16 @@ use crate::domain::font::types::FontFamily;
 /// is the current UX requirement (no live font watching exists anywhere in the app).
 static FONT_FAMILIES: OnceLock<Vec<FontFamily>> = OnceLock::new();
 
+/// Test-only probe counting how many times the system font scan actually ran, so the cache test
+/// can pin "the public entry point never rescans" — `OnceLock` pointer identity alone is a
+/// tautology and would keep passing even if [`list_families`] stopped using the cache.
+#[cfg(test)]
+static SYSTEM_FONT_SCAN_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn cached_families() -> &'static Vec<FontFamily> {
     FONT_FAMILIES.get_or_init(|| {
+        #[cfg(test)]
+        SYSTEM_FONT_SCAN_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut database = Database::new();
         database.load_system_fonts();
         collect_families(&database)
@@ -50,9 +58,14 @@ mod tests {
 
     #[test]
     fn 폰트_목록은_프로세스_수명_캐시_한_벌을_공유한다() {
-        assert!(
-            std::ptr::eq(cached_families(), cached_families()),
-            "두 번 호출해도 같은 1회 스캔 결과를 가리켜야 한다"
+        let first = list_families();
+        let second = list_families();
+
+        assert_eq!(first, second, "공개 진입점은 항상 같은 스캔 결과를 반환해야 한다");
+        assert_eq!(
+            SYSTEM_FONT_SCAN_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "시스템 폰트 전수 스캔은 프로세스 수명 동안 1회만 실행되어야 한다 (R8#11)"
         );
     }
 

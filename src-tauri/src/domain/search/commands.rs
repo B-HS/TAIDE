@@ -109,7 +109,7 @@ pub async fn search_run(
 
 /// Reacquires `AppState::begin_mutation`'s single global lock **once per file** instead of holding
 /// it for the whole multi-file replace — a project-wide "replace all" can touch hundreds of files,
-/// and that one lock is shared by every other mutating command (`file_save`, `git_push`, layout
+/// and that one lock is shared by every other mutating command (`file_save`, `git_pull`, layout
 /// writes, ...), so holding it for the entire walk-and-rewrite would starve all of them for as long
 /// as the replace runs. Reacquiring per file keeps each hold short while still serializing every
 /// actual write against the rest of the app's mutations. Both the target-file resolution (the tree

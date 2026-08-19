@@ -30,7 +30,7 @@ pub async fn vsix_extract_themes(vsix_path: String) -> AppResult<VsixThemeExtrac
 pub async fn vsix_import_plugin(state: State<'_, AppState>, store: State<'_, PluginStore>, vsix_path: String) -> AppResult<LoadedPlugin> {
     let plugins_dir = state.paths.plugins_dir();
     let vsix_path = PathBuf::from(&vsix_path);
-    let (temp_dir, staged_plugin_id) = tauri::async_runtime::spawn_blocking(move || service::stage_vsix_import(&vsix_path, &plugins_dir))
+    let (temp_dir, staged_plugin_id) = tauri::async_runtime::spawn_blocking(move || service::stage_vsix_import(&plugins_dir, &vsix_path))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))??;
 
