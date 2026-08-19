@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { hashKey, useQuery, useQueryClient } from '@tanstack/react-query'
+import { QueryObserver, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import type { FileSizeTier, LspInitializationOptionsValue, LspServerId, ProjectId, Settings } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { triggerSemanticTokensRefresh } from '@shared/lib/lsp/adapters/semantic-tokens'
@@ -8,6 +9,7 @@ import { getModel } from '@entities/editor/model-registry'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { SessionRecord } from '@widgets/editor-pane/lsp-session-registry'
 import {
     acquireDocument,
@@ -47,7 +49,31 @@ type AttachLspSessionInput = {
     queryClient: ReturnType<typeof useQueryClient>
 }
 
-const SETTINGS_CURRENT_QUERY_HASH = hashKey(QUERY_KEY.SETTINGS.CURRENT)
+/**
+ * F3#18 (`docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` §1.2): replaces a raw
+ * `queryClient.getQueryCache().subscribe(event => ...)` that watched *every* cache event and
+ * filtered by comparing `event.query.queryHash` against `QUERY_KEY.SETTINGS.CURRENT`'s hash by
+ * hand. `QueryObserver` (the primitive `useQuery` itself is built on) scopes the subscription to
+ * this one query and its `select`, and `notifyOnChangeProps: ['data']` makes it notify only when
+ * the *selected* value actually changes — the same de-duplication the replaced code did manually
+ * with a `lastSemanticHighlightingEnabled` local. `enabled: false` means this observer never
+ * fetches on its own (`useLspSession`'s own `isSemanticHighlightingEnabled` getter and every other
+ * `useQuery(settingsQueryOptions())` mount in the app are what keep the cache populated) — it only
+ * watches whatever is already there, exactly like the raw cache read it replaces.
+ *
+ * Split out as a plain, `QueryClient`-driven function (mirroring `entities/lsp/lsp.query.ts`'s
+ * `invalidateLspSessionsQueryKeys`) so this de-duplication behavior is directly testable without
+ * rendering `useLspSession` — this module has no hook-render test harness to reach for either.
+ */
+export const observeSemanticHighlightingSetting = (queryClient: QueryClient, onChange: () => void) => {
+    const observer = new QueryObserver(queryClient, {
+        ...settingsQueryOptions(),
+        select: (settings) => settings.editorSemanticHighlighting ?? true,
+        notifyOnChangeProps: ['data'],
+        enabled: false,
+    })
+    return observer.subscribe(onChange)
+}
 
 const attachLspSession = ({
     projectId,
@@ -88,14 +114,9 @@ const attachLspSession = ({
                  * (the same emitter the session-scoped `workspace/semanticTokens/refresh` handler
                  * fires) keeps this a one-emitter design instead of adding a second refresh channel.
                  */
-                let lastSemanticHighlightingEnabled = isSemanticHighlightingEnabled()
-                unsubscribeSemanticHighlightingSetting = queryClient.getQueryCache().subscribe((event) => {
-                    if (event.type !== 'updated' || event.query.queryHash !== SETTINGS_CURRENT_QUERY_HASH) return
-                    const nextEnabled = isSemanticHighlightingEnabled()
-                    if (nextEnabled === lastSemanticHighlightingEnabled) return
-                    lastSemanticHighlightingEnabled = nextEnabled
-                    triggerSemanticTokensRefresh(session.client)
-                })
+                unsubscribeSemanticHighlightingSetting = observeSemanticHighlightingSetting(queryClient, () =>
+                    triggerSemanticTokensRefresh(session.client),
+                )
 
                 const model = getModel(path)
                 if (!model) return

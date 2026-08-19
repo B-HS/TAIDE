@@ -1,4 +1,4 @@
-import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { DiffMode, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
@@ -14,8 +14,10 @@ import {
     discardGitHunk,
     discardGitPaths,
     dropGitStash,
+    getGitBlameRange,
     getGitBranches,
     getGitCommitFiles,
+    getGitConflictSides,
     getGitDiffStagedText,
     getGitStashes,
     getGitTags,
@@ -42,6 +44,73 @@ import {
 } from '@entities/git/git.ipc'
 
 const LOG_PAGE_SIZE = 100
+const GIT_SCOPE_BLAME_LINE = 'blame-line'
+const GIT_SCOPE_BLAME_OVERLAY = 'blame-overlay'
+const GIT_SCOPE_CONFLICT_SIDES = 'conflict-sides'
+
+/**
+ * These three scopes are widget-local additions (`editor-pane`'s blame footer/overlay, the conflict
+ * compare dialog) built by extending {@link QUERY_KEY.GIT.PROJECT}'s own prefix rather than adding a
+ * new top-level factory to `shared/constants/query-key.ts` — they stay swept by
+ * `PROJECT_SCOPED_KEYS`' existing `GIT.PROJECT` entry (and by every git mutation's coarse
+ * project-prefix invalidation below) without that file needing a change.
+ */
+const gitBlameLineQueryKey = (projectId: ProjectId, path: string, line: number) =>
+    [...QUERY_KEY.GIT.PROJECT(projectId), GIT_SCOPE_BLAME_LINE, path, line] as const
+
+const gitBlameOverlayQueryKey = (projectId: ProjectId, path: string) => [...QUERY_KEY.GIT.PROJECT(projectId), GIT_SCOPE_BLAME_OVERLAY, path] as const
+
+const gitConflictSidesQueryKey = (projectId: ProjectId, path: string) =>
+    [...QUERY_KEY.GIT.PROJECT(projectId), GIT_SCOPE_CONFLICT_SIDES, path] as const
+
+/**
+ * The cursor-line blame footer's data source (contract T1 3차 batch 4, F1#17) — `line` is expected to
+ * already be debounced by the caller (`use-editor-blame.ts`), not the current, still-moving cursor
+ * position, so this factory itself does no debouncing. `placeholderData: keepPreviousData` keeps the
+ * previously resolved line's blame visible while a newly debounced line is in flight, matching the
+ * pre-query effect this replaces (which only ever overwrote the footer's text once a fetch resolved,
+ * never blanked it mid-flight).
+ */
+export const gitBlameLineQueryOptions = (input: { projectId: ProjectId | null; path: string | null; line: number | null }) =>
+    queryOptions({
+        queryKey: gitBlameLineQueryKey(input.projectId ?? '', input.path ?? '', input.line ?? 0),
+        queryFn: () =>
+            getGitBlameRange({ projectId: input.projectId ?? '', path: input.path ?? '', from: input.line ?? 0, to: input.line ?? 0 }).then(
+                (lines) => lines[0] ?? null,
+            ),
+        enabled: !!input.projectId && !!input.path && input.line !== null,
+        placeholderData: keepPreviousData,
+        retry: false,
+    })
+
+/**
+ * The whole-file blame overlay's data source (`git.toggleBlame`). `lineCount` is deliberately not
+ * part of the query key — the pre-query effect this replaces only recomputed `model.getLineCount()`
+ * when *itself* re-ran (editor/enabled/project/path changing), never on every keystroke that changes
+ * the model's line count, and keeping the key at `[...GIT.PROJECT, 'blame-overlay', path]` regardless
+ * of `lineCount` preserves that: typing new lines while the overlay is showing doesn't trigger a
+ * refetch, only toggling the overlay or switching files does.
+ */
+export const gitBlameOverlayQueryOptions = (input: { projectId: ProjectId | null; path: string | null; lineCount: number | null }) =>
+    queryOptions({
+        queryKey: gitBlameOverlayQueryKey(input.projectId ?? '', input.path ?? ''),
+        queryFn: () => getGitBlameRange({ projectId: input.projectId ?? '', path: input.path ?? '', from: 1, to: input.lineCount ?? 1 }),
+        enabled: !!input.projectId && !!input.path && input.lineCount !== null,
+        retry: false,
+    })
+
+/**
+ * The conflict-compare dialog's data source — fetched on demand (the "Compare" button in
+ * `ConflictResolutionDialog`), not reactively, so the caller gates `enabled` on a request flag rather
+ * than this factory fetching eagerly whenever a path happens to be conflicted.
+ */
+export const gitConflictSidesQueryOptions = (input: { projectId: ProjectId | null; path: string | null }) =>
+    queryOptions({
+        queryKey: gitConflictSidesQueryKey(input.projectId ?? '', input.path ?? ''),
+        queryFn: () => getGitConflictSides({ projectId: input.projectId ?? '', path: input.path ?? '' }),
+        enabled: !!input.projectId && !!input.path,
+        retry: false,
+    })
 
 export const gitStatusQueryOptions = (projectId: ProjectId | null) =>
     queryOptions({
@@ -172,7 +241,32 @@ export const useDropGitStash = (projectId: ProjectId | null) => useGitMutation(p
 
 export const useDiscardGitHunk = (projectId: ProjectId | null) => useGitMutation(projectId, discardGitHunk)
 
-export const useResolveGitConflict = (projectId: ProjectId | null) => useGitMutation(projectId, resolveGitConflict)
+/**
+ * Unlike every other mutation funneled through {@link useGitMutation}, resolving a conflict also
+ * rewrites the file's on-disk content directly — `git_resolve_conflict` writes `content` to `path` as
+ * part of resolving it — so on top of the coarse git-scope invalidation every mutation gets, this one
+ * also invalidates the `FILE` domain's cache for that exact file: `FILE.CONTENT` (so the file query
+ * `EditorPane` itself reads catches up to what's now on disk) and `FILE.MIRRORS` (the backend already
+ * discards any hot-exit mirror for `path` as part of the same write, so the stale cached entry must
+ * go too). This mirrors `entities/file/file.query.ts`'s `useRenameEntry`/`useCopyEntry`/
+ * `useDeleteEntry` doing the reverse cross-domain invalidation (a `FILE` mutation invalidating
+ * `GIT.PROJECT`) — this codebase already accepts one entity's mutation reaching into a sibling
+ * domain's query keys when its own side effect spans both (contract F3#4).
+ */
+export const useResolveGitConflict = (projectId: ProjectId | null) => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: resolveGitConflict,
+        onSuccess: (_, { path }) => {
+            void queryClient.invalidateQueries({
+                queryKey: QUERY_KEY.GIT.PROJECT(projectId ?? ''),
+                predicate: (query) => isGitQueryScopeMutable(query.queryKey),
+            })
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId ?? '') })
+        },
+    })
+}
 
 export const useStageGitHunk = (projectId: ProjectId | null) => useGitMutation(projectId, stageGitHunk)
 

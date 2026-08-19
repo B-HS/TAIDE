@@ -39,11 +39,23 @@ export const fileRawQueryOptions = (path: string | null) =>
         staleTime: Infinity,
     })
 
-export const useSaveFile = () => {
+/**
+ * Saving a file changes its git status and settles its hot-exit mirror, so callers that know the
+ * owning project pass `projectId` to have those scopes invalidated here (the entities layer owns
+ * invalidation — see `useRenameEntry` for the same pattern) instead of each widget re-invalidating
+ * by hand. Callers without a project context (`ide-sync-provider`) omit it and keep the
+ * path-scoped `FILE.CONTENT` refresh only.
+ */
+export const useSaveFile = (projectId?: ProjectId) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: saveFile,
-        onSuccess: (_, { path }) => queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) }),
+        onSuccess: (_, { path }) => {
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
+            if (!projectId) return
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
+        },
     })
 }
 

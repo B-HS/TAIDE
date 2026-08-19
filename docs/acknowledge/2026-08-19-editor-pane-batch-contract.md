@@ -63,3 +63,29 @@
   회귀 테스트. blame 쿼리화 회귀 테스트(커서 이동 debounce 의미론).
 - 실기 이월(qa6): 다중 루트 프로젝트에서 저장 시 didSave·outline·breadcrumbs 정상 세션 참조·
   blame 표시 지연 체감 무변화.
+
+---
+
+## 4. 구현 완료 기록 (2026-08-19, Phase E 검토 전)
+
+> 구현 wf_f51e26dd-845(A 분해→B 병렬 2, sonnet+xhigh) + 메인 소규모 2차. 메인 재검증: 스팟 체크
+> 6건 실물 일치 + `bun run verify`·`bunx vite build` 직접 실행 exit 0(프론트 1330·Rust 1000).
+
+- **Phase A**: editor-pane.tsx 1087→369줄, 훅 6개(markdown-preview·ide-selection·lsp-integration·
+  file-persistence·git-gutter-and-conflicts·blame — 실응집 경계 기준, 8개 기계 분할 대신 mirror↔save·
+  gutter↔conflict 불가분 확인해 병합). 동작 무변경: 의존성 배열 19개 원본 대조·git stash 대조·기존
+  테스트 무손실(1304). syncModelOrPickUpExternalEdit 는 순환 의존 회피로 컴포넌트 잔류(기록).
+- **B1**: blame 커서 라인(keepPreviousData·debounce 보존)·오버레이(lineCount 쿼리키 제외)·conflict
+  sides(compareRequested 온디맨드) queryOptions 3종 신설. applyConflictResolution 무효화 →
+  useResolveGitConflict 회수. root-aware 2곳(resolveLspSessionRootForSave — acquire 선례 재사용).
+- **B2**: use-lsp-session 저수준 구독 → QueryObserver(select·enabled:false — 자체 fetch 없음,
+  observeSemanticHighlightingSetting 분리로 실 QueryClient 테스트)·use-global-keymap →
+  useQuery(skipToken+select — entities 미참조로 FSD 유지). root-aware 3곳(breadcrumbs·outline·
+  팔레트 @). ⌘T Workspace Symbol 은 root-agnostic 유지(계약 예외 — 문서 경로 없음).
+- **메인 2차**: `useSaveFile(projectId?)` 확장(useRenameEntry 선례) — handleSave GIT.PROJECT+
+  FILE.MIRRORS 2곳·handleConvertSuccess GIT.PROJECT 1곳 entities 회수(F3#4 완결). 예외 유지 3곳
+  (persistMirror 2·handleViewDisk 1 — fire-and-forget 미러 IPC, 에폭/경합 소유가 위젯. query.md
+  위젯 오케스트레이션 예외로 판단 기록).
+- **잔여·검토 초점**: buildDocumentSymbolWaiters 3파일 중복(소유 경계 회피 — 2회 이상 룰 위반,
+  Phase E 통합 승격 후보) / 훅 렌더 테스트 불가(DOM 환경 부재 — 순수 로직만 커버, 실기 이월) /
+  blame 쿼리화의 타이밍 의미론·분해 전이 오류가 검토 최우선.

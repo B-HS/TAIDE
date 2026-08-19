@@ -1,5 +1,4 @@
-import { useSyncExternalStore } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { skipToken, useQuery } from '@tanstack/react-query'
 import type { Settings } from '@shared/api/bindings'
 import type { KeymapActionId } from '@shared/lib/keymap'
 import { APP_KEYMAP, MONACO_CHORD_PREFIX_KEY, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
@@ -20,21 +19,22 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 export type KeymapHandlers = Partial<Record<KeymapActionId, () => void>>
 
 /**
- * Reads keymap overrides straight off the TanStack Query cache by key (`useQueryClient` +
- * `useSyncExternalStore`) instead of importing `entities/settings/settings.query.ts` — `shared`
- * may not import `entities` (FSD). Every current `useGlobalKeymap` consumer widget already runs
- * `useQuery(settingsQueryOptions())` for its own purposes, so the cache is already populated by
- * the time this reads it; this hook never issues its own fetch, only reads whatever is cached.
- * Returns the raw JSON string (a primitive), not the parsed override array, so the
- * `useSyncExternalStore` snapshot stays referentially stable across cache writes unrelated to
- * `keymapOverrides` (the query cache subscription fires on *any* cache event, not just this key).
+ * Reads keymap overrides straight off the TanStack Query cache by key (`useQuery` with `select`,
+ * scoped to `QUERY_KEY.SETTINGS.CURRENT`) instead of importing `entities/settings/settings.query.ts`
+ * — `shared` may not import `entities` (FSD); only the query key (already in `shared`) is needed to
+ * address the same cache entry. `queryFn: skipToken` (F3#18,
+ * `docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` §1.2) keeps this a read-only observer
+ * that never issues its own fetch — every current `useGlobalKeymap` consumer widget already runs
+ * `useQuery(settingsQueryOptions())` for its own purposes, so the cache is already populated by the
+ * time this reads it. Replaces a `useSyncExternalStore` + `queryClient.getQueryCache().subscribe`
+ * pair that re-ran on *any* cache write anywhere in the app (settings included, but also every
+ * unrelated query) and relied on the raw JSON string staying referentially stable to avoid spurious
+ * re-renders — `select` here scopes the subscription to this one query and only re-renders when the
+ * selected `keymapOverrides` value itself changes.
  */
 const useKeymapOverridesJson = () => {
-    const queryClient = useQueryClient()
-    return useSyncExternalStore(
-        (onStoreChange) => queryClient.getQueryCache().subscribe(onStoreChange),
-        () => queryClient.getQueryData<Settings>(QUERY_KEY.SETTINGS.CURRENT)?.keymapOverrides ?? null,
-    )
+    const { data } = useQuery({ queryKey: QUERY_KEY.SETTINGS.CURRENT, queryFn: skipToken, select: (settings: Settings) => settings.keymapOverrides })
+    return data ?? null
 }
 
 /**

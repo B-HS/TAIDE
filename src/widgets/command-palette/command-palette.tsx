@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { languages } from 'monaco-editor'
 import { Braces, CornerDownLeft, File, Hash, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
+import type { LspServerId, ProjectId } from '@shared/api/bindings'
 import type { AppCommand, CommandContext, FlatPaletteSymbol, PaletteLineTarget, PaletteMode } from '@shared/lib/command-registry'
 import {
     flattenDocumentSymbols,
@@ -31,12 +32,14 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import { fileQueryOptions } from '@entities/file/file.query'
-import { activeProjectQueryOptions } from '@entities/project/project.query'
+import { activeProjectQueryOptions, projectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
+import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
-import { listSessionRecordsForProject, waitForLspSession } from '@widgets/editor-pane/lsp-session-registry'
+import type { SessionRecord } from '@widgets/editor-pane/lsp-session-registry'
+import { listSessionRecordsForProject, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 
 const FILE_RESULT_LIMIT = 200
@@ -51,6 +54,52 @@ const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
 
 type DocumentSymbolState = { path: string; symbols: languages.DocumentSymbol[] }
 type WorkspaceSymbolState = { query: string; results: NormalizedWorkspaceSymbol[] }
+
+export type DocumentSymbolSessionWaiter = { promise: Promise<SessionRecord | null>; cancel: () => void }
+
+type BuildDocumentSymbolWaitersInput = {
+    availableServerIds: LspServerId[]
+    path: string
+    projectId: ProjectId
+    fallbackRoot: string | undefined
+    isCancelled: () => boolean
+    resolveRoot: (input: { serverId: LspServerId; filePath: string }) => Promise<string | null>
+    waitForSession: (projectId: ProjectId, serverId: LspServerId, root: string) => DocumentSymbolSessionWaiter
+}
+
+/**
+ * root-aware conversion (`docs/acknowledge/2026-08-19-editor-pane-batch-contract.md` §1.2): resolves
+ * each candidate server's actual LSP root for `path` (mirroring `use-lsp-session.ts`'s own
+ * `resolveLspRoot(...) ?? projectRoot` acquire-time fallback exactly — a consumer that used a
+ * different fallback could ask `waitForLspSessionForRoot` for a root key nothing was ever acquired
+ * under) before waiting on a session, replacing the root-agnostic `waitForLspSession` that could
+ * resolve to *any* root's session in a multi-root project (R7#7) — including one that never had
+ * `path` open. Used only by `⌘O`/symbol-nav mode below, which has a concrete `activePath` to resolve
+ * a root from — the `⌘T` Workspace Symbol search a few lines down stays root-agnostic
+ * (`listSessionRecordsForProject`) on purpose: it has no single document path to resolve a root
+ * against (it searches every root the project has open at once), so there is no "wrong root" to
+ * pick. `resolveRoot`/`waitForSession`/`isCancelled` are injected rather than imported directly so
+ * this decision (which roots to wait on, and in what order) is a plain, directly testable function
+ * of its inputs — this component has no render-test harness to reach for (no DOM/testing-library
+ * environment configured for `bun:test` in this project).
+ */
+export const buildDocumentSymbolWaiters = async ({
+    availableServerIds,
+    path,
+    projectId,
+    fallbackRoot,
+    isCancelled,
+    resolveRoot,
+    waitForSession,
+}: BuildDocumentSymbolWaitersInput): Promise<DocumentSymbolSessionWaiter[]> => {
+    const resolvedRoots = await Promise.all(availableServerIds.map((serverId) => resolveRoot({ serverId, filePath: path }).catch(() => null)))
+    if (isCancelled()) return []
+
+    return availableServerIds.flatMap((serverId, index) => {
+        const root = resolvedRoots[index] ?? fallbackRoot
+        return root ? [waitForSession(projectId, serverId, root)] : []
+    })
+}
 
 export const CommandPalette = () => {
     const [open, setOpen] = useState(false)
@@ -72,6 +121,10 @@ export const CommandPalette = () => {
     const activePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
     const { data: activeFile } = useQuery({ ...fileQueryOptions(activePath), enabled: open && mode === 'symbol' && !!activePath })
     const { data: lspServers } = useQuery({ ...lspServersQueryOptions(), enabled: open && mode === 'symbol' })
+    const { data: activeProject } = useQuery({
+        ...projectQueryOptions(activeProjectId ?? ''),
+        enabled: open && mode === 'symbol' && !!activeProjectId,
+    })
     const { mutate: openTab } = useOpenTab(activeProjectId)
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
 
@@ -248,9 +301,20 @@ export const CommandPalette = () => {
             .map((server) => server.id)
 
         let cancelled = false
-        const waiters = availableServerIds.map((serverId) => waitForLspSession(activeProjectId, serverId))
+        let pendingCancels: (() => void)[] = []
 
         const load = async () => {
+            const waiters = await buildDocumentSymbolWaiters({
+                availableServerIds,
+                path: activePath,
+                projectId: activeProjectId,
+                fallbackRoot: activeProject?.root,
+                isCancelled: () => cancelled,
+                resolveRoot: resolveLspRoot,
+                waitForSession: waitForLspSessionForRoot,
+            })
+            pendingCancels = waiters.map((waiter) => waiter.cancel)
+
             for (const { promise } of waiters) {
                 const session = await promise
                 if (!session || cancelled) continue
@@ -271,9 +335,9 @@ export const CommandPalette = () => {
 
         return () => {
             cancelled = true
-            waiters.forEach(({ cancel }) => cancel())
+            pendingCancels.forEach((cancel) => cancel())
         }
-    }, [mode, open, activeProjectId, activePath, activeFile, lspServers])
+    }, [mode, open, activeProjectId, activePath, activeFile, lspServers, activeProject?.root])
 
     useEffect(() => {
         if (mode !== 'workspaceSymbol' || !open || !activeProjectId) return
