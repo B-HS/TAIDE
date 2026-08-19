@@ -36,6 +36,7 @@ import { MarkdownPreview } from '@features/editor/markdown-preview'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { Button } from '@shared/ui/button'
 import { systemOpenPath } from '@entities/system/system.ipc'
+import { canRenderCodeEditor } from '@widgets/editor-pane/code-editor-visibility'
 import { useEditorLspIntegration } from '@widgets/editor-pane/use-editor-lsp-integration'
 import { useEditorFilePersistence } from '@widgets/editor-pane/use-editor-file-persistence'
 import { useEditorGitGutterAndConflicts } from '@widgets/editor-pane/use-editor-git-gutter-and-conflicts'
@@ -243,6 +244,24 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         })
         return () => action.dispose()
     }, [editor, t])
+
+    /**
+     * Render-phase adjustment (same pattern as the `syncedPath` block above — React's
+     * documented "adjust state during render") that keeps `editor` state consistent with what
+     * this render actually outputs. When the branches below take one of the three early returns
+     * that don't render `CodeEditor` (loading placeholder, error, or a refused-tier file) while
+     * `editor` still references a live monaco instance, `CodeEditor`'s own unmount cleanup — which
+     * nulls this state via `onEditorMount(null)` — only runs in the passive phase, one commit too
+     * late. Left uncorrected, the `[tabId, editor]` registration effect above re-runs first (in
+     * the same commit) and re-registers that stale, about-to-be-disposed instance under the *new*
+     * `tabId`; `editor-area.tsx`'s action-id effect then calls `getSupportedActions()` on it and
+     * throws (`AbstractContextKeyService has been disposed`), crashing past any error boundary.
+     * Nulling `editor` here lands the correction in THIS commit instead: React re-renders with
+     * `editor === null` before committing, so the registration effect's cleanup only unregisters
+     * the old `tabId` and never re-registers the corpse under the new one. See
+     * docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md §1-2.
+     */
+    if (!canRenderCodeEditor(isPending, isError, file?.tier) && editor !== null) setEditor(null)
 
     if (isPending) return <div className='bg-editor-background h-full w-full' />
 
