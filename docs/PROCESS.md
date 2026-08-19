@@ -6,6 +6,45 @@
 > 과거 기록(문서화·Phase 0~7.10 W1~W7)은 `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 아카이브됨 (2026-08-14).
 > QA6 후속·기능 확장 1~3차(2026-08-12~14)는 `docs/history/2026-08-16-process-archive-qa6-feature-waves.md` 로 아카이브됨 (2026-08-16).
 
+## 잔여 작업 총괄 (2026-08-19 실측 — 다음 착수 판단의 단일 뷰)
+
+> 기능(PRD FR-A~J)은 캠페인 A~I 로 전량 구현 완료. 남은 것은 감사 잔여·QA 실기·Phase 8.
+> 상세 정본: 감사 = `quality-assurance/2026-08-18-architecture-audit.md`, T1 3차 이월 =
+> `acknowledge/2026-08-19-audit-t1-batch3-contract.md` §5.1, 실기 = qa6-checklist.
+
+### 감사 297발견 처리 현황
+
+| 트랙 | 상태 |
+|------|------|
+| T0 24항목 | **완료**(#15 는 T1-2차 재등록으로 해소) |
+| T1 11묶음 중 8 | **완료**: E·J·B(1차)·G·asset·F(2차)·C·D·A(3차)·editor-pane 이월(d-13) |
+| **T1-K 원격 기본거부** (6건) | **진행 중(d-14)** — C16 근본, 위험 중 |
+| **T1-H 락 IO 분리** (10건) | 미착수 — **위험 높음**(96 호출지점, 착수 시 재고지) |
+| **T1-I 도메인 경계 C13** (12건) | 미착수 — **위험 중~높음**(30엣지·순환 절단, 착수 시 재고지) |
+| T2 백로그 10묶음 (~107건) | 미착수 — 중복 제거·비대 파일 분해(editor-pane 은 해소, settings-view 927·lib.rs·locale/service.rs 4081 등 잔여)·shared/lib 재구조화·접근성 8·dead code·매직넘버·로케일 외부화 |
+| T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
+| X-A 배선 8건 | 미착수(판정 기승인: 살리기 cwd-changed·from_app·revision·layout_set_view_state / 지우기 focus-kind-changed·중복 커맨드 5종). lsp:session-status-changed 소비는 T1 3차에서 선해소 |
+| X-C 문서 잔여 | 일부 해소(커맨드 수·data-model roots 는 정정됨) — X1#5(sync gist 스키마 절)·#15(디스크 레이아웃)·#16·#17·#18 잔여 |
+| 미배정 minor·압축 제외 | ~40건(감사 원문에만 존재 — 재론 시 실코드 확인) |
+
+### T1 3차 §5.1 이월 잔여 (8건 중 6.5건)
+
+1. ~~editor-pane 묶음~~ **완료(d-13)** 2. open-with-registry 생명주기(LRU 는 임시) 3. ws.rs
+writer 무한 대기(무트래픽 프루닝 지연) 4. Rust 재핸드셰이크 실패-확인 커맨드 5. throwaway client
+race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_mention 원격 게이트(제품 결정
+— T1-K 범위 외 명시) 7. TREE_ROWS 센티널 → Option<u32> 8. PROJECT_SCOPED_KEYS 경로 키 미커버
+(실피해 낮음)
+
+### QA·배포 트랙
+
+- **e2e 파일럿 실행**(d-6): 하네스·12스펙 준비 완료 — **사용자 준비 필요**(앱 기동·REMOTE 설정·
+  TAIDE_E2E_PASSWORD·`bun run e2e`)
+- **실기 QA 누적**(qa6-checklist): 캠페인 A~I 재검 + 손 QA 재검 + T0/T1 1~3차 재검 + editor-pane
+  재검 7항목 + **asset:// webview 라운드트립(최우선)** + QA-W1 멀티윈도우 40항목(사람 실기 주축)
+- QA-W2~W7 웨이브(pro-qa-design §5)·Wave I deferred 4건 — 미착수
+- **Phase 8**: secrets 5건 등록 완료·release.yml 이식 완료(e-0·e-1) — 본착수(태그 릴리스 실행·
+  공증 실검증)는 전문 QA(d) 통과 후
+
 ## 진행 중: 실기 QA → 잔여 기능(P0+P1) → 전문 QA → Phase 8 (2026-08-14, 새 세션)
 
 > 계약: `docs/acknowledge/2026-08-14-remaining-features-pro-qa-plan.md` (범위·순서·역할 배정 정본)
@@ -653,6 +692,12 @@
           →수정(compareRequested 고착·waiter 세션키 큐·3중복 shared 승격·키 중앙화·
           settleAfterDiskWrite 캡슐화+minor 6)→메인 2차 스팟 7건+verify·vite 그린. T1 3차 §5.1-1
           이월(F1#17·F3#4·F3#18·root-aware 5곳) 전량 해소. qa6 실기 절 7항목 신설
+    - [x] d-0f. 착수 확인 6차(2026-08-19): ① editor-pane 배치 산출물(500dbce·2f40d06) prod 병합
+          완료(main=2f40d06) ② 다음 배치 = T1-K 원격 기본거부 ③ 잔여 작업 총괄 절 신설(이 문서
+          상단 — 사용자 요청 "뭐가 얼마나 남았는지")
+    - [ ] d-14. 감사 T1-K 원격 게이팅 기본 거부 전환(C16 근본, 6건) — dispatch.rs 를 "명시 허용
+          목록+기본 거부"로 반전·거부 사유 분류 타입 승격·IMPLEMENTED=허용∪거부 완전 분할 파리티.
+          정책 무변경(현행 허용/거부 그대로 이전 — 구조 전환만). 계약 작성 → Workflow
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
