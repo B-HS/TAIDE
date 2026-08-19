@@ -53,3 +53,26 @@
 - `bun run verify` + vite build 그린. bindings 무변경. locale/service.rs 대폭 축소(리터럴
   ~2,850줄 소거). 3언어 전수 파리티 검증 기록. 미참조 키 제거 목록·보수 유지 목록 기록.
 - 실기 이월(qa6): 3언어 전환 UI 표시 정상·커스텀 로케일 로드 무회귀.
+
+---
+
+## 4. 구현 완료 기록 (2026-08-20, Phase E 검토 전)
+
+> 구현 wf_0a11c367-f88(Rust 단독 sonnet+xhigh) 완료. 메인 2차: 스팟 실물 일치(1,242줄·3 JSON
+> 778키 등치·OnceLock+include_str!+panic 처리) + verify 메인 직접 재실행.
+
+- **외부화**: `resources/locales/{en,ko,ja}.json` 평면 키-값(카탈로그가 원래 flat key —
+  i18next keySeparator:false 정합). service.rs 는 함수 내부 OnceLock 1회 파싱, `builtin_*`
+  반환 의미 동일(clone). **4,081 → 1,242줄**(−2,888).
+- **파싱 실패 처리 — theme 선례와 의도적 차이(검토 대상 자기 표기)**: theme 은 `.ok()` 조용
+  스킵(Option 반환)이나 locale 의 builtin 시그니처는 infallible — 빈 맵 폴백은 required
+  계약을 조용히 깨므로 명확한 panic 채택·테스트 고정.
+- **전수 파리티 기계 증명**: 임시 스냅샷 테스트로 실행 결과 기반 3팩 직렬화 — 이동 전후
+  diff 0(810키×3언어 바이트 동일, 전각·백슬래시 왕복 포함) → 제거 후 "before−32키" 기대본과
+  dict 등치 PASS. 임시 파일 삭제 완료.
+- **미참조 키 실측(감사 39 → 실측 32 제거)**: 810→778키. 동적 키 조합 네임스페이스 4개
+  (keymap·problems·agent·themeEditor) 보수 전체 유지. Rust 측 직접 참조(remote/login_page.rs
+  의 remote.login* 5키) 확인·유지. 제거 32키 목록은 구현 보고 원문(§보고) 기준.
+- **MESSAGE_NAMESPACES 코드 유지** — required·en⊆required 파리티 기존 테스트 전량 무수정
+  그린. 신규 테스트 2(OnceLock 캐시 ptr_eq·언어별 대표 값+interpolation+전각 스팟).
+- **검증**: verify exit 0(cargo 1052+17+6+3·bun 1375)·vite build exit 0·bindings 무변경.
