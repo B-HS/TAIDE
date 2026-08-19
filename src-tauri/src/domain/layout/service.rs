@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::types::{
-    AuxWindowLayout, ClosedTab, DropEdge, FocusKind, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind,
+    AuxWindowLayout, ClosedTab, DropEdge, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind,
     CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
 };
 use crate::error::{AppError, AppResult};
@@ -845,14 +845,6 @@ pub fn apply_shell_view_patch(layout: &mut ProjectLayout, patch: &ShellViewPatch
     layout.revision += 1;
 }
 
-pub fn focus_kind(layout: &ProjectLayout) -> Option<FocusKind> {
-    let leaf = find_leaf(&layout.root, &layout.focused_pane)?;
-    let PaneNode::Leaf { tabs, active, .. } = leaf else { return None };
-    let active_id = active.as_ref()?;
-    let tab = tabs.iter().find(|tab| &tab.id == active_id)?;
-    Some(FocusKind::from(&tab.kind))
-}
-
 /// Tab kinds excluded from persisted storage. ClaudeDiff tabs are tied to a
 /// pending IDE request that only exists for the current session, so nothing
 /// else qualifies — Untitled tabs are hot-exit mirrored by `TabId` and are
@@ -1358,23 +1350,6 @@ mod tests {
     }
 
     #[test]
-    fn 포커스_종류는_활성_탭의_종류를_따른다() {
-        let mut layout = default_layout();
-        assert_eq!(focus_kind(&layout), Some(FocusKind::Welcome));
-
-        let PaneNode::Leaf { id: leaf_id, .. } = &layout.root else {
-            panic!("expected leaf")
-        };
-        let leaf_id = leaf_id.clone();
-        let tab = 파일_탭("a.rs");
-        let tab_id = tab.id.clone();
-        open_tab(&mut layout, &leaf_id, tab, false).expect("open");
-        activate_tab(&mut layout, &tab_id).expect("activate");
-
-        assert_eq!(focus_kind(&layout), Some(FocusKind::File));
-    }
-
-    #[test]
     fn 터미널_세션_설정은_탭의_세션_id_를_갱신한다() {
         let mut layout = default_layout();
         let PaneNode::Leaf { tabs, .. } = &layout.root else {
@@ -1821,16 +1796,6 @@ mod tests {
             tabs.iter().filter(|tab| matches!(tab.kind, TabKind::SearchEditor { .. })).count(),
             2
         );
-    }
-
-    #[test]
-    fn 검색_에디터_탭의_포커스_종류는_search_editor다() {
-        let mut layout = default_layout();
-        let leaf_id = layout.focused_pane.clone();
-        let tab_id = open_tab(&mut layout, &leaf_id, 검색_에디터_탭("needle"), false).expect("open search editor");
-        activate_tab(&mut layout, &tab_id).expect("activate");
-
-        assert_eq!(focus_kind(&layout), Some(FocusKind::SearchEditor));
     }
 
     fn temp_data_dir(name: &str) -> std::path::PathBuf {

@@ -1,1 +1,1 @@
-export type { AppInfo, AppError, AppReady } from '@shared/api/bindings'
+export type { AppInfo, AppError } from '@shared/api/bindings'

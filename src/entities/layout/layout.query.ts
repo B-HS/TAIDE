@@ -1,11 +1,12 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { findPaneTab } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, findPaneTab } from '@shared/lib/pane-tree'
 import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
 import { releaseWaitMarker } from '@entities/agent/agent.ipc'
 import { clearMirror } from '@entities/file/file.ipc'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
+import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import {
     activateTab,
     closeTab,
@@ -22,6 +23,7 @@ import {
     setShellView,
     setTabDirty,
     setTabPreview,
+    setTabViewState,
     setTerminalSession,
     splitPane,
 } from '@entities/layout/layout.ipc'
@@ -73,6 +75,8 @@ export const useCloseTab = (projectId: ProjectId | null) => {
                     void clearMirror({ projectId, path: closedKind.path }).catch(() => undefined)
                     void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
                 }
+                const stillOpenElsewhere = collectAllPaneTabs(layout).some((tab) => tab.kind.kind === 'file' && tab.kind.path === closedKind.path)
+                if (!stillOpenElsewhere) setOpenWithOverride(closedKind.path, null)
             }
             queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''), layout)
         },
@@ -106,3 +110,5 @@ export const useConvertUntitledTab = (projectId: ProjectId | null) => useLayoutM
 export const useMoveTabToWindow = (projectId: ProjectId | null) => useLayoutMutation(projectId, moveTabToWindow)
 
 export const useSetShellView = (projectId: ProjectId | null) => useLayoutMutation(projectId, setShellView)
+
+export const useSetTabViewState = (projectId: ProjectId | null) => useLayoutMutation(projectId, setTabViewState)

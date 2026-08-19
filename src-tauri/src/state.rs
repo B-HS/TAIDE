@@ -6,6 +6,7 @@ use crate::domain::layout::types::ProjectLayout;
 use crate::domain::project::types::{Project, SessionState};
 use crate::domain::settings::types::Settings;
 use crate::ids::ProjectId;
+use crate::infra::self_write::SelfWriteTracker;
 use crate::infra::watcher::WatcherHandle;
 use crate::paths::AppPaths;
 
@@ -35,6 +36,7 @@ pub struct AppState {
     pub dirty_layouts: RwLock<HashSet<ProjectId>>,
     pub watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
     pub git_watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
+    pub self_writes: SelfWriteTracker,
     mutation_guard: tokio::sync::Mutex<()>,
     hot_exit_flush: parking_lot::Mutex<HotExitFlushPhase>,
 }
@@ -50,6 +52,7 @@ impl AppState {
             dirty_layouts: RwLock::new(HashSet::new()),
             watchers: RwLock::new(HashMap::new()),
             git_watchers: RwLock::new(HashMap::new()),
+            self_writes: SelfWriteTracker::new(),
             mutation_guard: tokio::sync::Mutex::new(()),
             hot_exit_flush: parking_lot::Mutex::new(HotExitFlushPhase::Idle),
         }

@@ -67,8 +67,12 @@
 - mutation: `project_open(path)`, `project_close(projectId)`, `project_activate(projectId)`,
   `project_reorder(ids)`
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`,
-  `project:focus-kind-changed(projectId, kind)` (FR-A4 아이콘용 — layout 도메인이 발행),
   `agent:state-changed(projectId, agents[])` (`agent-integration.md`)
+  (`project:focus-kind-changed(projectId, kind)` 는 X-A 배치(2026-08-19)에서 제거됐다 — 소비자가
+  0 이었고, 레이아웃 변이마다 무조건 발행돼 트래픽만 2배였다. §2.2 의 focus 종류는 이미
+  `layout:changed` 가 무효화하는 `LAYOUT.DETAIL` 캐시(`ProjectLayout.focused_pane` + 활성 탭의
+  `kind`)에서 프론트가 그대로 유도할 수 있어, 이 파생값을 Rust 가 별도 이벤트로 다시 계산해
+  내보낼 필요가 없었다 — FR-A4 아이콘은 이 캐시 기반 유도로 구현하는 것이 정본이다)
 
 ## 5. 수명주기 · 누수 방지
 
@@ -160,8 +164,10 @@
 - `capabilities/main.json` 의 `windows` 는 `["main", "editor-*"]` 글로브다 — 보조 창도 core/plugin
   권한(이벤트 구독 포함)을 정상적으로 받는다. Wave I 이전에는 `["main"]` 만 매칭돼 보조 창이 열려도
   갱신 이벤트를 받지 못하는 "조회는 되는데 갱신이 안 오는" 반쪽짜리 창이 될 뻔했다(§2 확정 사실 4).
-- 앱 커스텀 커맨드(`window_open_auxiliary` 등)는 이 프로젝트가 app ACL manifest 를 두지 않아 창
-  라벨과 무관하게 항상 허용된다 — capability 글로브의 영향을 받는 것은 core/plugin 권한뿐이다.
+- 앱 커스텀 커맨드(`window_set_fullscreen`·`layout_move_tab_to_window` 등, 과거엔
+  `window_open_auxiliary` 도 — X-A 배치(2026-08-19)에서 중복 커맨드로 제거됨)는 이 프로젝트가 app
+  ACL manifest 를 두지 않아 창 라벨과 무관하게 항상 허용된다 — capability 글로브의 영향을 받는 것은
+  core/plugin 권한뿐이다.
 
 ### 7.6 알려진 제한
 

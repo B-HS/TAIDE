@@ -8,7 +8,7 @@ use super::service;
 use super::types::{ClosedTab, DropEdge, ProjectLayout, ShellViewPatch, Tab, TabKind, TabWindowTarget};
 use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
 use crate::error::{AppError, AppResult};
-use crate::events::{LayoutChanged, ProjectFocusKindChanged};
+use crate::events::LayoutChanged;
 use crate::ids::{PaneId, ProjectId, TabId};
 use crate::infra::root_guard;
 use crate::state::AppState;
@@ -57,14 +57,6 @@ fn finish_mutation(app: &AppHandle, state: &AppState, project_id: &ProjectId, la
         revision: snapshot.revision,
     }
     .emit(app);
-
-    if let Some(kind) = service::focus_kind(&snapshot) {
-        let _ = ProjectFocusKindChanged {
-            project_id: project_id.clone(),
-            kind,
-        }
-        .emit(app);
-    }
 
     snapshot
 }

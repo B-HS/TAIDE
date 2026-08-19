@@ -761,6 +761,48 @@ pub async fn lsp_confirm_reinitialize(app: AppHandle, store: State<'_, LspStore>
     Ok(())
 }
 
+/// The `last_error` text [`lsp_report_reinitialize_failure`] applies — an honest terminal outcome
+/// ("the auto-restart happened, but re-handshaking it never worked") in place of `handle_process_exit`'s
+/// optimistic in-progress wording ("초기화 핸드셰이크가 다시 완료될 때까지 기다려주세요"), which would
+/// otherwise sit unchanged forever once the renderer gives up retrying.
+const REINITIALIZE_FAILURE_MESSAGE: &str =
+    "초기화 핸드셰이크 재시도를 모두 소진해 서버를 재연결하지 못했습니다. 수동으로 다시 시작해주세요.";
+
+/// [`lsp_confirm_reinitialize`]'s failure counterpart (§1.3(4),
+/// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`) — called by the renderer once it has
+/// exhausted its own retry budget re-running `initialize` against a session whose
+/// [`LspSessionStatusChanged`] event reported a bumped `generation`, instead of ever succeeding. Without
+/// this, a session whose re-handshake never lands sits forever on `handle_process_exit`'s own
+/// optimistic "재시작됐습니다, 기다려주세요" `last_error` text — a status-bar poll of `lsp_sessions`/
+/// `LspSessionInfo` would keep reporting "waiting" indefinitely instead of the honest "failed, restart
+/// manually" this command lets it settle on. Applies the exact same generation guard as
+/// [`lsp_confirm_reinitialize`] — a failure report for a generation the session has since moved past
+/// (a second crash+auto-restart already superseded it) is silently ignored, the same race both
+/// commands exist to resolve honestly rather than clobber a newer in-flight attempt's status. Allowed
+/// remotely (T1-K): a remote mirror must be able to settle its own session's failed reinitialize just
+/// as the desktop can, and the generation-mismatch-is-ignored guard already defends against a stale or
+/// spoofed report reviving/clobbering a session it no longer describes.
+#[tauri::command]
+#[specta::specta]
+pub async fn lsp_report_reinitialize_failure(
+    app: AppHandle,
+    store: State<'_, LspStore>,
+    session_id: String,
+    generation: u32,
+) -> AppResult<()> {
+    let entry = find_entry(&store, &session_id)?;
+    if confirm_reinitialize(&entry, generation) {
+        set_status(
+            &app,
+            &session_id,
+            &entry,
+            LspSessionStatus::Crashed,
+            Some(REINITIALIZE_FAILURE_MESSAGE.to_string()),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> AppResult<Vec<LspSessionInfo>> {
@@ -1212,6 +1254,25 @@ mod tests {
         assert!(
             !confirm_reinitialize(&entry, 3),
             "아직 오지 않은 미래 세대의 확인도 무시되어야 한다"
+        );
+    }
+
+    /// §1.3(4) 회귀: 실패 확인(`lsp_report_reinitialize_failure`)도 성공 확인(`lsp_confirm_reinitialize`)과
+    /// 정확히 같은 세대 가드를 공유한다 — 가드 자체의 통과/거부 조건은 위 테스트가 이미 검증하므로,
+    /// 여기서는 두 커맨드가 그 가드에 동일하게 의존한다는 계약을 고정한다. 미래에 이 가드가
+    /// 커맨드별로 분리되면 이 테스트가 실패해 그 분리가 실패 확인 경로에도 반영됐는지 드러낸다.
+    #[test]
+    fn confirm_reinitialize_가드는_성공과_실패_확인_모두에_재사용된다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        entry.generation.store(1, Ordering::SeqCst);
+
+        assert!(
+            confirm_reinitialize(&entry, 1),
+            "lsp_confirm_reinitialize 경로가 의존하는 통과 조건"
+        );
+        assert!(
+            !confirm_reinitialize(&entry, 0),
+            "lsp_report_reinitialize_failure 경로도 구세대 실패 신고를 무시해야 한다"
         );
     }
 

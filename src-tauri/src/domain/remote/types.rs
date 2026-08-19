@@ -10,6 +10,19 @@ pub const REMOTE_BROADCAST_CHANNEL_CAPACITY: usize = 256;
 pub const REMOTE_SHUTDOWN_GRACE_MS: u64 = 2_000;
 pub const REMOTE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
 
+/// Upper bound `ws.rs::handle_socket` waits for its own writer task to drain and exit after the
+/// connection's main loop breaks, before aborting it outright. The writer task only exits once every
+/// clone of its `UnboundedSender<WsOut>` is dropped — besides `handle_socket`'s own `tx` (dropped
+/// right before this wait), a domain store (`LspStore`/`SearchStore`/`AiRequestStore`/pty subscribers)
+/// can still be holding a `ChannelSink` closure that captured its own clone via
+/// `make_channel_factory`, for a session this connection spawned that never gets pruned (nothing ever
+/// attempts a `send` to it again — a traffic-idle remote session's own channel). Without this bound,
+/// that leaked clone keeps the writer's `rx.recv().await` parked forever, which in turn keeps
+/// `handle_socket` from ever reaching `RemoteStore::client_disconnected()` — the client count and any
+/// pruning gated on this connection actually ending stay stuck (§1.3(3),
+/// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`).
+pub const REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS: u64 = 3_000;
+
 /// How long an established remote session cookie stays valid without the
 /// device reconnecting (7 days).
 pub const REMOTE_SESSION_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1_000;

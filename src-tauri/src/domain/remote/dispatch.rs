@@ -81,6 +81,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "lsp_stop",
     "lsp_restart",
     "lsp_confirm_reinitialize",
+    "lsp_report_reinitialize_failure",
     "lsp_sessions",
     "lsp_detect_servers",
     "lsp_resolve_root",
@@ -160,8 +161,6 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "system_open_app_data_path",
     "system_open_external_url",
     "ide_get_status",
-    "ide_start",
-    "ide_stop",
     "ide_set_selection",
     "ide_clear_selection",
     "ide_publish_diagnostics",
@@ -184,13 +183,10 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "vsix_extract_themes",
     "vsix_import_plugin",
     "remote_status",
-    "remote_start",
-    "remote_stop",
     "remote_issue_link",
     "remote_revoke_sessions",
     "remote_set_password",
     "remote_clear_password",
-    "window_open_auxiliary",
     "window_set_fullscreen",
     "app_file_read",
     "app_file_write",
@@ -243,9 +239,11 @@ enum RemoteDenialPolicy {
     /// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6.
     SelfAccessExpansion,
     /// Every command whose real handler would pop a window, dialog, or app on the *desktop's own*
-    /// display: `window_open_auxiliary`/`window_set_fullscreen`/`layout_move_tab_to_window` (native OS
-    /// windows with no remote-renderable counterpart — remote access only ever mirrors the main
-    /// window's layout), `system_open_external_url` (the desktop's OS-default browser via
+    /// display: `window_set_fullscreen`/`layout_move_tab_to_window` (native OS windows with no
+    /// remote-renderable counterpart — remote access only ever mirrors the main window's layout;
+    /// `window_open_auxiliary` used to be a third member of this group before it was removed as a
+    /// duplicate IPC surface over `layout_move_tab_to_window`'s own `newAuxiliary` path, X1#13),
+    /// `system_open_external_url` (the desktop's OS-default browser via
     /// `tauri_plugin_opener::open_url`), and `system_open_path`/`system_reveal_path`/
     /// `system_open_in_browser`/`system_open_app_data_path` (same `tauri_plugin_opener` family — default
     /// app opener, Finder/Explorer reveal, `file://` browser open). A remote browser session has no way
@@ -443,7 +441,6 @@ const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
     ("remote_issue_link", RemoteDenialPolicy::SelfAccessExpansion),
     ("remote_set_password", RemoteDenialPolicy::SelfAccessExpansion),
     ("remote_clear_password", RemoteDenialPolicy::SelfAccessExpansion),
-    ("window_open_auxiliary", RemoteDenialPolicy::UnreachableDesktopWindow),
     ("window_set_fullscreen", RemoteDenialPolicy::UnreachableDesktopWindow),
 ];
 
@@ -459,7 +456,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (163 entries = the 162 arms in
+/// session — audited directly off the `match` arms in both functions (159 entries = the 158 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -535,6 +532,7 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "lsp_stop",
     "lsp_restart",
     "lsp_confirm_reinitialize",
+    "lsp_report_reinitialize_failure",
     "lsp_sessions",
     "lsp_detect_servers",
     "lsp_resolve_root",
@@ -608,8 +606,6 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "system_usage_get",
     "system_usage_breakdown",
     "ide_get_status",
-    "ide_start",
-    "ide_stop",
     "ide_set_selection",
     "ide_clear_selection",
     "ide_publish_diagnostics",
@@ -630,8 +626,6 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "sync_upload",
     "sync_download",
     "remote_status",
-    "remote_start",
-    "remote_stop",
     "remote_revoke_sessions",
     "app_file_read",
     "app_file_write",
@@ -924,6 +918,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "lsp_restart" => respond(lsp::lsp_restart(app.clone(), app.state(), app.state(), arg!(args, "sessionId")).await),
         "lsp_confirm_reinitialize" => {
             respond(lsp::lsp_confirm_reinitialize(app.clone(), app.state(), arg!(args, "sessionId"), arg!(args, "generation")).await)
+        }
+        "lsp_report_reinitialize_failure" => {
+            respond(lsp::lsp_report_reinitialize_failure(app.clone(), app.state(), arg!(args, "sessionId"), arg!(args, "generation")).await)
         }
         "lsp_sessions" => respond(lsp::lsp_sessions(app.state(), arg!(args, "projectId")).await),
         "lsp_detect_servers" => respond(lsp::lsp_detect_servers(app.state()).await),
@@ -1220,8 +1217,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             respond(system::system_usage_breakdown(app.state(), app.state(), app.state(), app.state(), app.state()).await)
         }
         "ide_get_status" => respond(ide::ide_get_status(app.state()).await),
-        "ide_start" => respond(ide::ide_start(app.clone(), app.state(), app.state()).await),
-        "ide_stop" => respond(ide::ide_stop(app.clone(), app.state()).await),
         "ide_set_selection" => respond(ide::ide_set_selection(app.state(), arg!(args, "input")).await),
         "ide_clear_selection" => respond(ide::ide_clear_selection(app.state(), arg!(args, "owner")).await),
         "ide_publish_diagnostics" => respond(ide::ide_publish_diagnostics(app.state(), arg!(args, "projectId"), arg!(args, "items")).await),
@@ -1256,8 +1251,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), arg!(args, "force")).await),
 
         "remote_status" => respond(remote::remote_status(app.state()).await),
-        "remote_start" => respond(remote::remote_start(app.clone(), app.state()).await),
-        "remote_stop" => respond(remote::remote_stop(app.clone(), app.state()).await),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),
 
         _ => Err(denial_response(RemoteDenialPolicy::Unclassified, name)),
@@ -1405,12 +1398,6 @@ mod tests {
     #[test]
     fn 원격_세션은_링크_발급을_할_수_없다() {
         let value = remote_denied_response("remote_issue_link").expect("거부되어야 한다");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
-    }
-
-    #[test]
-    fn 원격_세션은_보조_창을_열_수_없다() {
-        let value = remote_denied_response("window_open_auxiliary").expect("거부되어야 한다");
         assert_eq!(value["code"], serde_json::json!("Forbidden"));
     }
 

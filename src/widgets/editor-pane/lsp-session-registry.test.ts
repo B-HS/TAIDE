@@ -33,6 +33,7 @@ const createFakeLspIpc = () => {
     const stopCalls: { sessionId: string; root: string | undefined }[] = []
     const sentMessages: SentMessage[] = []
     const confirmReinitializeCalls: { sessionId: string; generation: number }[] = []
+    const reportReinitializeFailureCalls: { sessionId: string; generation: number }[] = []
     let nextSessionId = 0
     const sharedServerIds = new Set<string>()
     const sessionIdByProjectServer = new Map<string, string>()
@@ -105,18 +106,25 @@ const createFakeLspIpc = () => {
         return Promise.resolve()
     }
 
+    const reportLspReinitializeFailure = (sessionId: string, generation: number) => {
+        reportReinitializeFailureCalls.push({ sessionId, generation })
+        return Promise.resolve()
+    }
+
     return {
         spawnLspSession,
         sendLspMessage,
         stopLspSession,
         resolveLspRoot,
         confirmLspReinitialize,
+        reportLspReinitializeFailure,
         setSharesSessions,
         suppressNextInitializeResponses,
         spawns,
         stopCalls,
         sentMessages,
         confirmReinitializeCalls,
+        reportReinitializeFailureCalls,
         /**
          * Neither `lsp-session-registry.ts` nor this file's own tests use these four — they exist
          * purely so this `mock.module('@entities/lsp/lsp.ipc', ...)` call covers the real module's
@@ -532,6 +540,7 @@ describe('handleLspSessionStatusChanged — 자동 재시작 재핸드셰이크 
         await new Promise((resolve) => setTimeout(resolve, REINIT_TEST_SETTLE_MS))
 
         expect(fakeLspIpc.confirmReinitializeCalls.some((call) => call.sessionId === session.sessionId)).toBe(false)
+        expect(fakeLspIpc.reportReinitializeFailureCalls).toContainEqual({ sessionId: session.sessionId, generation: 1 })
         expect(handle.record.group.isReinitializing).toBe(false)
 
         const uri = 'file:///tmp/reinit-exhausted-root/new-file.ts'

@@ -88,7 +88,8 @@
     를 넘으면 가장 오래된 블록의 마커를 강제 dispose 해 같은 정리 경로를 재사용한다.
 - **UX**: 거터 박스섀도 + `overviewRulerOptions` 스크롤바 데코(테마 success/failure 색상, exit
   code 0/비0), `⌘↑`/`⌘↓`(키맵 `terminal-jump-to-previous-command`/`-next-command`)로 이전/다음
-  명령 블록으로 스크롤. 블록 단위 복사·OSC7 cwd 추적 고도화는 여전히 2차(§11).
+  명령 블록으로 스크롤. 블록 단위 복사는 여전히 2차(§11) — OSC7 cwd 추적 기본 배선은
+  X-A 배치(2026-08-19)에서 완성됐다(§9), 남는 고도화(청크 경계에 걸친 시퀀스 재조립 등)만 2차.
 
 ## 5.1 태스크 러너 · Run Selected Text (Wave E, `tasks.md`)
 
@@ -147,8 +148,14 @@
   `pty_write(sessionId, data)`, `pty_resize(sessionId, cols, rows)`, `pty_kill(sessionId)`,
   `pty_set_paused(sessionId, paused)`, `pty_attach(sessionId, onData) `(재생+재구독)
 - query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`
-- event: `terminal:exited(sessionId, code)`, `terminal:cwd-changed(sessionId, cwd)`(OSC7 은 view 파싱
-  → mutation 으로 Rust 에 보고), `agent:state-changed`(`agent-integration.md`)
+- event: `terminal:exited(sessionId, code)`, `terminal:cwd-changed(sessionId, cwd)`(X-A 배치
+  (2026-08-19)에서 배선 완성 — 이 항목이 계획하던 "OSC7 은 view 파싱 → mutation 으로 Rust 에 보고"
+  방향은 실제 구현과 다르다: `events.rs` 가 애초에 `terminal:cwd-changed` 를 `Event` derive 로
+  선언해(Rust→view 단방향) mutation 대응 짝이 없었고, X-A 배치도 그 구조를 그대로 따라 **Rust 가
+  OSC7 을 직접 파싱해 발행**한다 — `infra::shell_integration` 의 zsh/bash 훅이 매 프롬프트마다
+  `\e]7;$PWD\e\\` 를 pty 출력에 실어 보내고, `extract_latest_cwd` 가 그 raw 바이트를 스캔해
+  `terminal::commands::pty_spawn` 의 `on_data` 콜백에서 이전 cwd 와 달라졌을 때만 이 이벤트를
+  발행한다), `agent:state-changed`(`agent-integration.md`)
 
 ## 10. 수명주기 · 누수 방지
 
@@ -180,7 +187,7 @@
 
 | 1차 | 2차 |
 |-----|-----|
-| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기·파일 링크(cmd+click)·검색·복사/붙여넣기·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)** | OSC7 cwd 추적 고도화·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
+| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기·파일 링크(cmd+click)·검색·복사/붙여넣기·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)**·**OSC7 cwd 추적 기본 배선(X-A, 2026-08-19)** | OSC7 cwd 추적 고도화(청크 경계 재조립 등)·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
 
 
 ## 12. Phase 7.5 재평가 결과 (2026-08-06) — **xterm 유지, 우리 코드가 원인**

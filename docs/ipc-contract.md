@@ -4,12 +4,17 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
-> **실측(2026-08-19)**: command **180종** — `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수
-> (raw 3종 제외) = `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소
-> 수와 정확히 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제).
-> raw 채널 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **183종**. event 는 **25종**
-> (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이 183종을
-> `REMOTE_ALLOWED_COMMANDS`(163) ⊎ `REMOTE_DENIED_COMMANDS`(20) 로 완전 분할한다(§원격 dispatch 정책).
+> **실측(2026-08-19, X-A 배선 배치 반영)**: command **176종** — `src/shared/api/bindings.ts` 의
+> `__TAURI_INVOKE("...")` 전수(raw 3종 제외) = `src-tauri/src/domain/remote/dispatch.rs` 의
+> `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히 일치(파리티 테스트
+> `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제). raw 채널 커맨드 3종(specta 밖,
+> 아래 "raw 커맨드" 절)까지 합치면 총 **179종**. event 는 **23종**(`src-tauri/src/events.rs` 의
+> `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이 179종을
+> `REMOTE_ALLOWED_COMMANDS`(160) ⊎ `REMOTE_DENIED_COMMANDS`(19) 로 완전 분할한다(§원격 dispatch 정책).
+> X-A 배치가 중복 커맨드 5종(`ide_start`/`ide_stop`/`remote_start`/`remote_stop`/
+> `window_open_auxiliary`)을 제거하고 신규 커맨드 1종(`lsp_report_reinitialize_failure`)을 더해
+> 180 → 176 이 됐다(§"X-A 배선 + 소규모 잔여 청소 배치" 절 참조). 이전 실측(180/183/25/163/20)은
+> 그 절 이전 상태다.
 
 ## 1. 공통 규칙
 
@@ -46,9 +51,10 @@
 
 - query: `app_get_info() → AppInfo{ name, version, platform, arch }`(부팅 시 About/타이틀바용).
 - `app_file_read`/`app_file_write` 는 Wave I 신설(§"Wave I 계약 확정 추가" 절)이라 그쪽에서 다룬다.
-- event: `app:ready(version)` — 타입·`collect_events!`·`fanout_remote_events!` 등록까지는 돼 있으나
-  **Rust 쪽에서 실제로 `.emit()` 호출하는 지점이 없고 프론트도 구독하지 않는다**(정찰 확인 — 죽은
-  이벤트 배선. 제거 여부는 이 문서 범위 밖이라 사실만 기록한다).
+- **`app:ready(version)` 는 X-A 배치(2026-08-19)에서 제거됐다** — `.emit()` 호출 지점이 애초에 하나도
+  없었고(정찰 확인) 프론트도 구독하지 않아, `events.rs`·`collect_events!`·`fanout_remote_events!` 에만
+  등록된 채 발행된 적 없는 죽은 이벤트였다(T2-F dead 후보 판정 확정 — X1#2,
+  `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2).
 
 ### project (`layout-shell.md`)
 
@@ -56,8 +62,11 @@
   (`project_get_active` 는 구현 중 추가 — 부팅 시 view 가 활성 프로젝트를 알 방법이 없었다.
   `project:activated` 이벤트는 전환 시점에만 오므로 초기 조회용 query 가 별도로 필요하다.)
 - mutation: `project_open(path)`, `project_close(id)`, `project_activate(id)`, `project_reorder(ids)`
-- event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`,
-  `project:focus-kind-changed`
+- event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`
+  (**`project:focus-kind-changed` 는 X-A 배치(2026-08-19)에서 제거됐다** — 소비자가 0 이면서
+  레이아웃 변이 18종마다 무조건 발행돼 이벤트 트래픽만 2배로 만들었다(X1#12,
+  `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2) — `FocusKind` 타입·
+  `layout::service::focus_kind` 도 함께 제거됐다)
 
 ### layout (`tabs.md`)
 
@@ -73,7 +82,15 @@
   `layout_convert_untitled(tabId, path)`(이 4종은 이전 판에 전혀 없던 기재 누락 — 정정),
   `layout_move_tab_to_window(tabId, target: TabWindowTarget)`,
   `layout_set_shell_view(projectId, patch: ShellViewPatch)`(둘 다 Wave I — 아래 절 참조)
-- event: `layout:changed(projectId, revision)`
+- event: `layout:changed(projectId, revision)` — **`revision` 발행 규약(X1#11 실사, X-A 배치)**:
+  프로젝트별 독립 카운터(전역이 아니다)로, `layout::types::ProjectLayout::revision`(`u32`, 새
+  레이아웃은 0)이 `layout::service::*` 의 레이아웃을 바꾸는 모든 함수(`open_tab`/`close_tab`/
+  `set_view_state`/... 전부, `layout_set_view_state` 포함)에서 정확히 1씩 증가한다.
+  `layout::commands::finish_mutation`(모든 레이아웃 커맨드의 공용 응답 경로)이 그 증가된 값을 그대로
+  실어 발행하므로 이벤트 페이로드는 항상 그 프로젝트의 최신 revision 이다. `revision` 은
+  `layout.json` 에 영속되어(`#[serde(default)]` 로 구버전 파일도 0부터 시작) 앱 재시작을 관통해
+  단조 증가한다 — 창(윈도우)이 마지막으로 관측한 revision 을 보관했다가 `revision <= lastSeen` 인
+  이벤트를 무시하면 멀티윈도우 stale 갱신 방지 게이트가 된다(프론트 게이트 구현은 F1 후속).
 
 ### file (`editor.md`)
 
@@ -96,15 +113,29 @@
     `file_prune_untitled_mirrors`)는 `projectId` 가 현재 열린 프로젝트인지
     `root_guard::project_root` 로 검증하고, `tabId` 를 파일명 컴포넌트로 쓰는 두 커맨드는 추가로
     `root_guard::ensure_safe_component` 로 경로 탈출 문자(`/`·`\`·`..`)를 거부한다(경로 조작 방지).
-- event: `fs:changed(paths[], kind, origin)` (watcher — debounce·배치·echo 플래그),
+- event: `fs:changed(paths[], kind, fromApp)` (watcher — debounce·배치·echo 플래그; 실제 필드명은
+  `origin` 이 아니라 `fromApp: boolean` — 정정),
   `app:hot-exit-flush-requested(timeoutMs)` (Hot Exit — 종료 인터셉트)
+- **`fromApp` echo 마킹 완성(X-A 배치, 2026-08-19)**: T0 감사 시점까지 `fromApp` 은 watcher 가 항상
+  `false` 로만 채우는 상수였다(X1#10). `AppState::self_writes`(`infra::self_write::
+  SelfWriteTracker`)가 `file_save`/`file_create`/`file_rename`/`file_delete`/`file_copy`/
+  `search_replace` 의 성공한 쓰기 경로마다 짧은 TTL(2초)로 마킹하고,
+  `project::commands::attach_watcher` 가 watcher 그룹의 모든 경로가 그 마킹과 일치할 때만
+  `fromApp: true` 로 확정한다 — 묶음 안에 앱이 쓰지 않은 경로가 하나라도 섞이면 전체를 외부 변경으로
+  보수적으로 처리한다(오마킹 방지가 마킹 누락보다 항상 우선). 마킹 누락(TTL 만료·경로 불일치)은
+  기존과 동일한 `false` 로 안전하게 낙착된다.
 
 ### tree / search (`explorer-sidebar.md`)
 
 > 이전 판의 `tree_expand`/`tree_collapse`/`tree_node`·`tree:changed` 이벤트·`search_start`/`searchId`
 > 는 전부 코드에 없는 이름이었다(정정).
 
-- query: `tree_rows(projectId, offset, limit) → TreeRowPage`
+- query: `tree_rows(projectId, offset, limit: number | null) → TreeRowPage` — `limit` 이 X-A 배치
+  (2026-08-19)에서 `u32` → `Option<u32>` 로 바뀌었다(§1.3(7)). `None`(TS 쪽 `null`/생략)은 "offset
+  이후 전량" 을 뜻한다 — 이전에는 프론트가 `TREE_ROWS_UNBOUNDED_LIMIT = 4_294_967_295`(`u32::MAX`)
+  라는 센티널 값을 보내 같은 의미를 흉내냈다. Rust 시그니처는 이번에 바뀌었지만 프론트가 여전히
+  그 센티널을 보내도 값 자체(`u32::MAX`)는 그대로 유효하므로 당장 깨지지는 않는다 — 센티널을 실제
+  `null` 로 바꾸는 소비 전환은 이 문서 범위 밖(F1 후속).
 - mutation: `tree_toggle(projectId, path)`, `tree_reveal(projectId, path)`,
   `tree_refresh(projectId, dir)` — 셋 다 갱신된 `TreeRowPage` 를 **반환값으로 직접** 돌려준다. 트리
   갱신을 알리는 별도 이벤트는 없다(옛 `tree:changed` 는 실재하지 않는다 — 정정).
@@ -134,7 +165,9 @@
   (Wave G — `ai.md` §4/§7 의 AI 커밋 메시지 생성 전용 소비처, unified diff 텍스트 + 32KiB 상한 +
   바이너리/lock 파일 제외; `usedFallback` 은 Wave H 신설 — staged 델타 0건이면 HEAD↔워킹트리(untracked
   포함) 전체 변경으로 폴백했다는 표시, 동일 제외·상한 규칙이 폴백 diff 에도 적용된다),
-  `git_show_file(projectId, rev, path)`, `git_log(projectId, skip, take)`, `git_ahead_behind(projectId)`,
+  `git_show_file(projectId, rev, path)`, `git_log(projectId, skip, take)`,
+  `git_ahead_behind(projectId)`(**예약** — UI 미구현, 프론트 호출자 0. X-A 배치에서 중복 커맨드
+  제거 검토 대상이었으나 대체 표면이 없어 유지가 확정됐다),
   `git_remotes(projectId)`, `git_stash_list(projectId)`, `git_branches(projectId)`,
   `git_current_user(projectId) → string | null`, `git_tags(projectId) → TagInfo[]`(Wave C),
   `git_conflict_sides(projectId, path) → ConflictSides{ base?, ours?, theirs?, workdir }`(Wave C —
@@ -144,8 +177,9 @@
   take) → LogEntry[]`(Wave C — 파일 단위 히스토리, `--follow` rename 추적은 범위 밖)
 - mutation: `git_init(projectId)`, `git_stage(projectId, paths)`, `git_unstage(projectId, paths)`,
   `git_discard(projectId, paths)`, `git_commit(projectId, message, opts: CommitOptions{ amend?,
-  stageAll? })`, `git_push(projectId)`, `git_pull(projectId)`, `git_fetch(projectId)`,
-  `git_undo_last_commit(projectId)`, `git_branch_create(projectId, name, checkout)`,
+  stageAll? })`, `git_push(projectId)`, `git_pull(projectId)`, `git_fetch(projectId)`(**예약** — UI
+  미구현, 프론트 호출자 0),
+  `git_undo_last_commit(projectId)`(**예약** — UI 미구현, 프론트 호출자 0), `git_branch_create(projectId, name, checkout)`,
   `git_branch_checkout(projectId, name)`, `git_branch_delete(projectId, name, force)`,
   `git_stash_push(projectId, message?)`, `git_stash_apply(projectId, index)`,
   `git_stash_drop(projectId, index)`, `git_discard_hunk(projectId, path, hunkStart, hunkEnd)`,
@@ -214,6 +248,20 @@
   `agent:state-changed(projectId, agents: DetectedAgent[])` — **`terminal_report_cwd` 라는 mutation
   은 코드에 없다**(정정: cwd 보고는 프론트→Rust mutation 이 아니라 Rust→view 이벤트
   `terminal:cwd-changed` 로 흐른다)
+- **`terminal:cwd-changed`/`resolve_terminal_path` 배선 완성(X-A 배치, 2026-08-19)**: 이 문서가
+  기술해온 흐름은 T0 감사 시점까지 타입·커맨드만 존재하고 실제로 배선되지 않은 죽은 표면이었다
+  (`resolve_terminal_path` 호출자 0, `TerminalCwdChanged` 발행 지점 0). `infra::shell_integration`
+  의 zsh `_taide_precmd`/bash `_taide_prompt` 훅이 기존 OSC 133 명령 경계 마커와 나란히
+  `\e]7;$PWD\e\\`(OSC 7 번호를 재사용하되 `file://host/path` 형식·퍼센트 인코딩 없이 순수 경로만 —
+  유일한 소비자가 이 모듈 자신의 파서라 실제 터미널 에뮬레이터 호환을 맞출 필요가 없다)를 매 프롬프트
+  렌더링마다 내보내고, `infra::shell_integration::extract_latest_cwd` 가 pty 원시 출력 청크에서 이를
+  스캔한다. `terminal::commands::pty_spawn` 의 `on_data` 콜백이 이 값을 `SessionEntry.cwd`(스폰 시점
+  cwd 로 초기화됨)와 비교해 실제로 바뀐 경우에만 `TerminalCwdChanged` 를 발행한다(precmd 는 `cd` 여부
+  와 무관하게 매 명령마다 실행되므로, 비교 없이 그대로 발행하면 명령마다 이벤트가 튄다). 청크 경계에서
+  잘린 시퀀스는 이번 청크에서 감지되지 않을 뿐(다음 프롬프트가 같은 cwd 를 다시 보고해 자연히
+  회복) — "최소 배선" 원칙에 따른 의도된 한계다. `resolve_terminal_path(path, cwd)` 커맨드 시그니처
+  자체는 무변경(항상 `cwd: String` 을 인자로 받는 순수 함수) — 프론트가 이 이벤트로 세션별 cwd 를
+  보관했다가 호출 시 넘기는 소비 배선은 이 문서 범위 밖(F2 후속).
 
 ### task (Wave E 추가 — `tasks.md`)
 
@@ -319,12 +367,18 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 ### ide — Claude Code IDE MCP 연동 (`agent-integration.md` §3, 신설 도메인 — 이전 판 전체 누락)
 
 - query: `ide_get_status() → IdeStatus{ running, port, connected, clientCount }`
-- mutation: `ide_start()` / `ide_stop()`(내장 MCP 서버 시작/중단), `ide_set_selection(input:
-  IdeSelectionInput{ projectId, path, text, startLine, startCharacter, endLine, endCharacter,
-  isEmpty })` / `ide_clear_selection()`, `ide_publish_diagnostics(projectId, items: IdeDiagnostic[])`
+- mutation: `ide_set_selection(input: IdeSelectionInput{ projectId, path, text, startLine,
+  startCharacter, endLine, endCharacter, isEmpty })` / `ide_clear_selection()`,
+  `ide_publish_diagnostics(projectId, items: IdeDiagnostic[])`
   (LSP 진단을 MCP `getDiagnostics` 도구로 노출), `ide_resolve_diff(requestId, outcome: "saved" |
   "rejected" | "tabClosed", content)`, `ide_resolve_save(requestId, saved)`,
   `ide_notify_at_mention(path, lineStart, lineEnd)`
+  (**`ide_start()`/`ide_stop()` 는 X-A 배치(2026-08-19)에서 커맨드로는 제거됐다** — 유일한 도달 경로가
+  이미 `settings_update` 의 `ideIntegrationEnabled` 토글(`settings::commands::
+  apply_integration_toggles`)과 부팅 시 자동 시작(`lib.rs`)뿐이었다(X1#13,
+  `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2). `ide_start` 는 내부 함수로
+  남아 그 두 경로가 계속 호출하고, `ide_stop`(내부적으로 `stop_server` 를 부르는 얇은 래퍼였다)은
+  통째로 삭제됐다 — 두 경로 모두 이미 `stop_server` 를 직접 부르고 있었다)
 - event: `ide:status-changed(status: IdeStatus)`, `ide:diff-requested(requestId, projectId, oldPath,
   newPath, newContents, tabName)`(Claude 의 `openDiff` 도구 호출 → TAIDE 가 diff 탭을 연다 —
   `TabKind::ClaudeDiff`, "7.7 계약 확정 추가" 절 참조), `ide:save-requested(requestId, projectId,
@@ -374,16 +428,24 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 
 ### remote (`remote-control.md`)
 
-> 커맨드 7종. 이전 판은 `remote_set_password`/`remote_clear_password` 2종만 개별 절에서 서술했고,
-> 나머지 5종(상태 조회·서버 시작/중단·링크 발급·세션 전체 폐기)은 도메인으로 묶여 문서화된 적이
-> 없었다.
+> 커맨드 5종(X-A 배치 이전엔 7종 — `remote_start`/`remote_stop` 제거, 아래 참조). 이전 판은
+> `remote_set_password`/`remote_clear_password` 2종만 개별 절에서 서술했고, 나머지(상태 조회·링크
+> 발급·세션 전체 폐기)는 도메인으로 묶여 문서화된 적이 없었다.
 
 - query: `remote_status() → RemoteStatus{ running, port, clientCount, passwordConfigured }`(5초 폴링)
-- mutation: `remote_start()` / `remote_stop()`(로컬 HTTP/WS 서버 시작·중단), `remote_issue_link() →
-  RemoteLinkInfo{ url }`(**원격에서 거부** — §"원격 dispatch 정책"), `remote_revoke_sessions()`
-  (모든 세션 즉시 무효화), `remote_set_password(password)` / `remote_clear_password()`(둘 다
-  **원격에서 거부** — "기능 확장 3차 계약 확정 추가 (Remote 비밀번호 — C1 Rust)" 절 참조)
-- event: `remote:state-changed(status: RemoteStatus)`
+- mutation: `remote_issue_link() → RemoteLinkInfo{ url }`(**원격에서 거부** — §"원격 dispatch 정책"),
+  `remote_revoke_sessions()`(모든 세션 즉시 무효화), `remote_set_password(password)` /
+  `remote_clear_password()`(둘 다 **원격에서 거부** — "기능 확장 3차 계약 확정 추가 (Remote 비밀번호
+  — C1 Rust)" 절 참조)
+  (**`remote_start()`/`remote_stop()` 는 X-A 배치(2026-08-19)에서 커맨드로는 제거됐다** — 유일한 도달
+  경로가 이미 `settings_update` 의 `remoteAccessEnabled` 토글과 부팅 시 자동 시작(`lib.rs`)뿐이었다
+  (X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2). `ide_start`/`ide_stop`
+  과 같은 패턴 — `remote_start` 는 내부 함수로 남고, 얇은 래퍼였던 `remote_stop` 은 삭제됐다)
+- event: `remote:state-changed(status: RemoteStatus)` — 발행은 되지만(`remote_start`/`stop_server`
+  가 부른다) X-A 시점까지 프론트 구독자가 0 이었다(X1#2 판정: `sync:state-changed` 와 같은 패턴으로
+  `ipc-sync-provider.tsx` 에 `queryClient.setQueryData(QUERY_KEY.REMOTE.STATUS, payload.status)` 한
+  줄을 추가하는 것이 자연스러워 — `REMOTE.STATUS` 는 이미 5초 폴링 쿼리로 존재한다 —
+  **소비 신설을 권장**하고 이벤트는 유지했다. 프론트 배선은 이 문서 범위 밖(F1 후속)).
 
 ### sync (설정 gist 동기화 — 신설 도메인, 이전 판 전체 누락. `data-model.md` §6 참조)
 
@@ -655,13 +717,20 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md`. 상세: `layout-shell.md`
 > §7, `window-chrome.md` §5, `tabs.md` §3.1/§4.4, `plugins.md` §6, `data-model.md` §8.
 
-- **window(신설)**: mutation `window_open_auxiliary(projectId, windowSlot) → AuxiliaryWindowInfo{
-  label, projectId, windowSlot }`(Rust 가 `editor-<n>` 라벨을 발급 — 호출부는 어떤 라벨이 나올지
-  모른다), `window_set_fullscreen(fullscreen)`(호출한 창 자체가 대상 — `window: tauri::Window` 가
-  Tauri 에 의해 자동 주입되므로 라벨 파라미터가 없다, `file_flush_complete` 와 동일 패턴).
+- **window(신설)**: mutation `window_set_fullscreen(fullscreen)`(호출한 창 자체가 대상 —
+  `window: tauri::Window` 가 Tauri 에 의해 자동 주입되므로 라벨 파라미터가 없다, `file_flush_complete`
+  와 동일 패턴). 당초 이 절엔 `window_open_auxiliary(projectId, windowSlot) → AuxiliaryWindowInfo{
+  label, projectId, windowSlot }`(Rust 가 `editor-<n>` 라벨을 발급)도 있었으나, **X-A 배치
+  (2026-08-19)에서 중복 커맨드로 제거됐다** — 코어 로직(`window::commands::open_auxiliary_window`)은
+  그대로 남아 아래 `layout_move_tab_to_window` 의 `newAuxiliary` 경로와 부팅 시 보조 창 복원
+  (`lib.rs`)이 내부적으로 계속 쓰지만, 그 둘과 표면이 완전히 겹치는 독립 IPC 커맨드로서는 더 이상
+  노출되지 않는다(X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2).
+  `AuxiliaryWindowInfo` 타입도 이제 어떤 커맨드 시그니처에서도 도달하지 않아 `bindings.ts` 에
+  생성되지 않는다(순수 Rust 내부 타입) — 프론트에서 이 타입·`windowOpenAuxiliary` 를 참조하던 곳은
+  X-A 이전에도 0 이었다.
 - **layout(추가)**: mutation `layout_move_tab_to_window(tabId, target: TabWindowTarget)` —
   `TabWindowTarget = {kind:'main'} | {kind:'newAuxiliary'} | {kind:'existing', slot}`, 대상 보조
-  창이 없으면(`newAuxiliary`) `window_open_auxiliary` 코어를 내부적으로 재사용해 새로 연다. 이동으로
+  창이 없으면(`newAuxiliary`) `open_auxiliary_window` 코어를 내부적으로 재사용해 새로 연다. 이동으로
   빈 보조 창은 서버에서 자동으로 닫힌다(`cleanup_emptied_auxiliary_windows`) — 단 탭을 그냥
   닫아서(이동이 아니라) 비게 된 보조 창은 이 경로를 타지 않으므로 자동으로 닫히지 않는다(프론트
   `auxiliary-window-shell.tsx` 가 자기 트리가 비면 스스로 `getCurrentWindow().close()` 하는 것으로
@@ -689,8 +758,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `contributes.languages`/`contributes.grammars` 를 읽어 `taide-plugin.json` 을 합성한 뒤
   `plugin_install` 과 동일한 검증·등록 경로로 착지시킨다(`plugins.md` §6). 기존
   `vsix_extract_themes` 는 그대로 있지만 **원격 dispatch 는 이번에 허용→거부로 전환**(아래 참조).
-- **원격 dispatch 명시 거부(신규 6종)**: `window_open_auxiliary`·`window_set_fullscreen`·
-  `layout_move_tab_to_window`·`plugin_install`·`plugin_uninstall`·`vsix_import_plugin` — 전부
+- **원격 dispatch 명시 거부(신규 6종, 당시 기준)**: `window_open_auxiliary`(X-A 배치(2026-08-19)에서
+  커맨드 자체가 제거되며 이 거부 목록에서도 함께 빠졌다 — 아래 "원격 dispatch 정책" 절이 정본)·
+  `window_set_fullscreen`·`layout_move_tab_to_window`·`plugin_install`·`plugin_uninstall`·
+  `vsix_import_plugin` — 전부
   "원격 세션은 로컬 디스플레이/파일시스템 다이얼로그가 없다"는 기존 `file_flush_complete`/
   `remote_issue_link` 류 거부와 같은 근거. **`vsix_extract_themes` 도 이번에 허용→거부로 전환**했다
   — 이전에는 원격에서도 임의 로컬 파일 경로를 zip 으로 열어 읽을 수 있었다(§2 확정 사실 8, 제한적
@@ -779,18 +850,18 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 뒤집혔다. **정책(어떤 커맨드가 허용/거부인지)은 이 배치에서 전혀 바뀌지 않았다** — 바뀐 것은
 > 강제 메커니즘뿐이다: 이전에는 새 `match` arm 을 추가하기만 하면 그 커맨드가 자동으로 원격
 > 허용됐다(무증상 위험). 이제는 `src-tauri/src/domain/remote/dispatch.rs` 의
-> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 163종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 20종) **둘 중
+> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 160종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 19종) **둘 중
 > 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를 실핸들러로 위임한다 — 등재를
 > 잊으면 `RemoteDenialPolicy::Unclassified` 로 즉시 거부되고, 완전 분할 파리티 테스트
 > (`허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다`)가 등재 누락 자체를
 > 컴파일 타임이 아니라 테스트 실패로 잡는다(두 테이블의 합집합이 전체 커맨드 집합과 정확히 같아야
 > 하고, 교집합은 0이어야 한다).
 >
-> 전체 커맨드 집합(183종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(180종, specta/JSON 경로 —
+> 전체 커맨드 집합(179종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(176종, specta/JSON 경로 —
 > 파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 `bindings.ts` 와 강제
 > 일치시킨다) + `lib.rs` 의 `RAW_CHANNEL_COMMANDS`(3종 — `pty_spawn`/`pty_attach`/`file_read_raw`,
 > collect_commands! 등록은 되지만 specta 핸들러를 우회하는 raw 채널). `REMOTE_ALLOWED_COMMANDS` 는
-> 163종으로 `IMPLEMENTED_JSON_COMMANDS` 와 **집합이 다르다** — `pty_spawn`/`pty_attach` 는
+> 160종으로 `IMPLEMENTED_JSON_COMMANDS` 와 **집합이 다르다** — `pty_spawn`/`pty_attach` 는
 > `dispatch()` 의 `match` arm 이 실재하는데도 `IMPLEMENTED_JSON_COMMANDS` 에는 없다(그 목록은
 > specta/bindings 파리티만 추적하는 다른 축이라서다), 반대로 `file_read_raw` 는
 > `IMPLEMENTED_JSON_COMMANDS` 에 없지만 `dispatch_raw()` 의 `match` arm 으로 원격 실행된다 — 그래서
@@ -803,13 +874,15 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 함수의 `match` 자체의 `_` fallback 도 (①·②를 통과했다면 도달 불가능해야 하지만) 같은
 > `Unclassified` 거부로 정합시켜 방어선을 이중화했다.
 
-- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 163종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
+- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 160종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
   전종·`file_*`(아래 예외 제외)·`ai_*` 8종·`plugin_list`/`plugin_reload`/`plugin_read_grammar`·
-  `remote_status`/`remote_start`/`remote_stop`/`remote_revoke_sessions`·`sync_*`·`search_replace`
+  `remote_status`/`remote_revoke_sessions`·`lsp_confirm_reinitialize`/
+  `lsp_report_reinitialize_failure`·`sync_*`·`search_replace`
   (원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화 없음)·`theme_save`/
   `theme_delete`·`snippet_save`/`snippet_delete`·`git_init`·`pty_spawn`/`pty_attach`/`file_read_raw`
-  (raw 채널 3종 — 아래 "raw 커맨드" 절 참조).
-- **명시 거부(`REMOTE_DENIED_COMMANDS`, 20종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
+  (raw 채널 3종 — 아래 "raw 커맨드" 절 참조). `remote_start`/`remote_stop` 은 X-A 배치(2026-08-19)에서
+  커맨드 자체가 제거돼 이 목록에서도 빠졌다(§"remote" 절 참조).
+- **명시 거부(`REMOTE_DENIED_COMMANDS`, 19종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
   않고 즉시 `AppError::Forbidden` 을 반환한다. `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해
   그대로 남아 있다. 각 항목은 `RemoteDenialPolicy` enum 값 하나로 분류되고(같은 분류를 공유하는
   커맨드는 응답 메시지 문구도 공유한다 — 거부 여부·의미는 그대로, 문구만 변형별로 통합), 이전에는
@@ -819,7 +892,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   |--------|----------------------|-----------------|
   | `remote_set_password` / `remote_clear_password` / `remote_issue_link` | `SelfAccessExpansion` | 원격 세션이 자기 접속 게이트를 바꾸거나(비밀번호) 새 온보딩 링크를 발급해 접근을 자가 확장하지 못하게(Wave B §6) |
   | `file_flush_complete` | `DesktopExitControl` | 데스크톱 자신의 `CloseRequested` 종료 시퀀스만 재개 가능(Hot Exit) |
-  | `window_open_auxiliary` / `window_set_fullscreen` / `layout_move_tab_to_window` / `system_open_external_url` / `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `UnreachableDesktopWindow` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I·손 QA #12, 2026-08-18) — `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시/OS 기본 브라우저)을 띄우는 넷과, 네이티브 OS 창을 직접 열거나 제어하는 셋이 같은 결론이다 |
+  | `window_set_fullscreen` / `layout_move_tab_to_window` / `system_open_external_url` / `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `UnreachableDesktopWindow` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I·손 QA #12, 2026-08-18) — `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시/OS 기본 브라우저)을 띄우는 넷과, 네이티브 OS 창을 직접 열거나 제어하는 셋이 같은 결론이다. `window_open_auxiliary` 는 이 분류의 일곱 번째 멤버였으나 X-A 배치(2026-08-19)에서 커맨드 자체가 제거됐다(§"X-A 배선 + 소규모 잔여 청소 배치" 절) |
   | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` / `vsix_extract_themes` | `LocalFilesystemEscape` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) — 읽기(`vsix_extract_themes`)·쓰기(나머지 셋) 모두 프로젝트 루트 가드 밖 |
   | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | `/usr/local/bin` 심링크·`osascript` 로 데스크톱 CLI 진입점을 설치/관리한다 — 원격 세션 종료 후에도 남는 CLI 실행 백도어가 되며(권한 프롬프트 불가시성은 부수 사유), `agent_hooks_install` User 스코프와 동일 분류(T0 감사 #12·#13, 2026-08-18) |
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
@@ -1063,3 +1136,48 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   로컬 `asset://` 둘 다 이 함수로 소유 프로젝트를 정한다). 이제 (1) 가장 긴 canonical root(가장
   구체적인 프로젝트) 우선, (2) 완전히 동일한 루트면 `ProjectId` 사전순으로 결정적으로 고른다 —
   IPC 응답 형태는 그대로고, "어느 프로젝트가 이겼는가"만 실행마다 안정된다.
+
+### X-A 배선 + 소규모 잔여 청소 배치 — Phase R (Rust) (2026-08-19)
+
+> 계약: `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.1/§1.2/§1.3(3)(4)(7), 판정
+> 근거는 감사 `2026-08-18-architecture-audit.md` §7 X-A + T1 3차 계약 §5.1. Rust 측 배선·제거만
+> 담당(Phase F 프론트 소비는 이 절 범위 밖). 이 절 앞의 각 도메인 절 본문도 이 배치에 맞춰 함께
+> 갱신했다 — 여기서는 변경분만 모아 요약한다.
+
+- **살리기 4건**: `fs:changed.fromApp` 마킹(§"file" 절), `terminal:cwd-changed`/
+  `resolve_terminal_path` 배선(§"terminal" 절), `layout:changed.revision` 발행 규약 문서화
+  (§"layout" 절) — 셋 다 위 해당 절에 상세 기술. `layout_set_view_state` 는 실사 결과 이미
+  정확히 구현돼 있어 Rust 무변경(저장 필드 `Tab::view_state`·서비스 `set_view_state`·
+  `finish_mutation` 경유 `revision` 증가·`fs:changed`/재시작 영속까지 전부 기존재).
+- **지우기 2건**: `project:focus-kind-changed` 이벤트·`FocusKind` 타입·`layout::service::focus_kind`
+  전량 제거(§"project" 절), 중복 커맨드 5종(`ide_start`/`ide_stop`/`remote_start`/`remote_stop`/
+  `window_open_auxiliary`) 제거 — `settings_update` 의 통합 토글 부수효과(`apply_integration_toggles`)
+  가 이미 유일한 실제 도달 경로였음을 실코드로 확증한 뒤 제거했다(§"ide"·"remote"·"Wave I 계약
+  확정 추가" 절). `app:ready` 도 함께 제거(발행 지점 0 확인, §"app" 절).
+- **§1.3(3) ws.rs writer 무한 대기 수정**: `domain::remote::ws::handle_socket` 이 연결 종료 후
+  writer 태스크를 무조건 `.await` 하던 것을, `REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS`(3초) 로 유한
+  대기 후 `abort()` 하도록 바꿨다 — 도메인 스토어(LSP/검색/AI/pty 세션)가 이 연결의 채널 싱크를
+  계속 쥐고 있으면(무트래픽 세션이라 아무도 그 싱크로 다시 `send` 하지 않아 프루닝될 기회가 없는
+  경우) writer 의 `rx.recv()` 가 영원히 끝나지 않아 `RemoteStore::client_disconnected()` 가 아예
+  호출되지 않는 버그였다(클라이언트 카운트·세션 프루닝 지연). 세션 만료 시의 `Close` 프레임
+  (`REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED`) 은 정상 케이스에서 타임아웃 내에 그대로 플러시된다 —
+  IPC 표면 변화 없음(내부 구현만 변경).
+- **§1.3(4) LSP 재핸드셰이크 실패-확인 신설**: 신규 커맨드 `lsp_report_reinitialize_failure(sessionId,
+  generation) → Result<null, AppError>` — `lsp_confirm_reinitialize`(성공 확인)의 실패 대응
+  커맨드로, 렌더러가 재시도를 모두 소진했을 때 호출한다. 같은 세대 가드(`confirm_reinitialize`)를
+  공유하고, 통과하면 `status` 를 `Crashed` 로 확정하며 `last_error` 를 `handle_process_exit` 의
+  낙관적 "재시작됐습니다, 기다려주세요" 문구 대신 "재연결 실패, 수동으로 다시 시작해주세요" 로
+  갱신한다. `REMOTE_ALLOWED_COMMANDS`/T1-K 테이블에 등재 완료(원격에서도 허용 — 원격 미러도 자기
+  세션의 실패를 확정할 수 있어야 하고, 세대 불일치 무시가 위조/이월 재핸드셰이크 확인의 오용을
+  방어한다). 상세는 위 "T1 정비 3차 배치" 절의 `lsp_confirm_reinitialize` 기술과 나란히 읽는다.
+- **§1.3(7) `tree_rows` limit 센티널 제거**: 위 "tree / search" 절 참조 — `u32` → `Option<u32>`.
+- **커맨드/이벤트 수 갱신**: command 180→**176**(중복 5종 제거 + 신규 1종), raw 포함
+  183→**179**, event 25→**23**(2종 제거), `REMOTE_ALLOWED_COMMANDS` 163→**160**,
+  `REMOTE_DENIED_COMMANDS` 20→**19**. 문서 최상단 실측 배너 갱신 완료.
+- **판정만 하고 배선하지 않은 2건(§1.2 X1#2 잔여)**: `remote:state-changed` 는 발행은 되지만(원격
+  서버 시작/중단 시) 프론트 소비가 0 이었다 — `sync:state-changed` 와 동일한 패턴(`ipc-sync-
+  provider.tsx` 에서 `REMOTE.STATUS` 쿼리를 `setQueryData`)으로 배선하는 것이 자연스럽다고 판정해
+  이벤트는 유지, 실제 프론트 배선은 범위 밖으로 이월(F1 후속, §"remote" 절에 기록). `terminal:exited`
+  는 페이로드(`sessionId`, `code`)가 소비에 충분함을 확인만 하고, 실제 소비(세션 정리 트리거 —
+  살아있는 것으로 취급되던 죽은 pty 엔트리 정리)는 F2 배선(`TerminalStore` 에서 해당 `session_id`
+  제거 — 기존 `pty_kill` 이 이미 idempotent 하므로 새 커맨드 불필요, §"terminal" 절 참조).

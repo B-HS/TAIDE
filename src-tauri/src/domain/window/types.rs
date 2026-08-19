@@ -20,7 +20,9 @@ pub const AUXILIARY_WINDOW_DEFAULT_HEIGHT: f64 = 700.0;
 pub const AUXILIARY_WINDOW_MIN_WIDTH: f64 = 640.0;
 pub const AUXILIARY_WINDOW_MIN_HEIGHT: f64 = 420.0;
 
-/// Result of `commands::window_open_auxiliary`. `label` is the Rust-assigned Tauri window label
+/// Result of `commands::open_auxiliary_window` (reached via `layout_move_tab_to_window`'s
+/// `newAuxiliary` path or boot-time restoration — the standalone `window_open_auxiliary` command was
+/// removed as a duplicate IPC surface, X1#13). `label` is the Rust-assigned Tauri window label
 /// (`editor-<n>`) the frontend needs to address this specific OS window (e.g. to correlate it
 /// against `getAllWebviewWindows()`); `project_id`/`window_slot` echo the request back so the
 /// caller doesn't have to thread its own copies through the async round-trip.

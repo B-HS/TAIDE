@@ -29,6 +29,7 @@ pub async fn file_save(state: State<'_, AppState>, path: String, content: String
     let (project_id, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
 
     service::save_file(&resolved, &content)?;
+    state.self_writes.mark(&resolved);
     service::clear_mirror(&state.paths, &project_id, &resolved)
 }
 
@@ -39,7 +40,9 @@ pub async fn file_create(state: State<'_, AppState>, path: String, is_dir: bool)
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
 
-    service::create_entry(&resolved, is_dir)
+    service::create_entry(&resolved, is_dir)?;
+    state.self_writes.mark(&resolved);
+    Ok(())
 }
 
 #[tauri::command]
@@ -50,7 +53,10 @@ pub async fn file_rename(state: State<'_, AppState>, from: String, to: String) -
     let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
     let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
 
-    service::rename_entry(&resolved_from, &resolved_to)
+    service::rename_entry(&resolved_from, &resolved_to)?;
+    state.self_writes.mark(&resolved_from);
+    state.self_writes.mark(&resolved_to);
+    Ok(())
 }
 
 #[tauri::command]
@@ -60,7 +66,9 @@ pub async fn file_delete(state: State<'_, AppState>, path: String) -> AppResult<
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
 
-    service::delete_entry(&resolved)
+    service::delete_entry(&resolved)?;
+    state.self_writes.mark(&resolved);
+    Ok(())
 }
 
 #[tauri::command]
@@ -71,7 +79,9 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
     let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
     let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
 
-    service::copy_entry(&resolved_from, &resolved_to)
+    service::copy_entry(&resolved_from, &resolved_to)?;
+    state.self_writes.mark(&resolved_to);
+    Ok(())
 }
 
 /// Not guarded by `AppState::begin_mutation` — this command only reads `state.projects` (an

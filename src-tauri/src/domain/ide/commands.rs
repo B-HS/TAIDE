@@ -373,8 +373,12 @@ pub async fn ide_get_status(ide: State<'_, IdeStore>) -> AppResult<IdeStatus> {
     Ok(ide.status())
 }
 
-#[tauri::command]
-#[specta::specta]
+/// Starts the embedded IDE MCP server if it isn't already running — no longer a `#[tauri::command]`
+/// (X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2): the only reachable path
+/// to it was already `settings_update`'s `ideIntegrationEnabled` toggle
+/// (`settings::commands::apply_integration_toggles`) and this module's own boot-time auto-start
+/// (`lib.rs`), so the separate `ide_start` IPC surface duplicated that without adding a distinct
+/// capability. Kept as a plain internal function since both of those call sites still need it.
 pub async fn ide_start(app: AppHandle, state: State<'_, AppState>, ide: State<'_, IdeStore>) -> AppResult<IdeStatus> {
     if ide.is_running() {
         return Ok(ide.status());
@@ -383,13 +387,6 @@ pub async fn ide_start(app: AppHandle, state: State<'_, AppState>, ide: State<'_
         return Err(AppError::InvalidArgument("IDE integration is disabled in settings".to_string()));
     }
     bind_and_start(&app).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn ide_stop(app: AppHandle, ide: State<'_, IdeStore>) -> AppResult<()> {
-    stop_server(&app, &ide);
-    Ok(())
 }
 
 /// A remote session's `owner` (`IdeSelectionInput.owner == REMOTE_OWNER_LABEL`) is a deliberate

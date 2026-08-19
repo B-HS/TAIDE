@@ -42,3 +42,6 @@ export const moveTabToWindow = (input: { tabId: TabId; target: TabWindowTarget }
 
 export const setShellView = (input: { projectId: ProjectId; patch: ShellViewPatch }) =>
     unwrapResult(commands.layoutSetShellView(input.projectId, input.patch))
+
+export const setTabViewState = (input: { tabId: TabId; viewState: string | null }) =>
+    unwrapResult(commands.layoutSetViewState(input.tabId, input.viewState))

@@ -13,7 +13,7 @@ use super::commands::RemoteStore;
 use super::dispatch::{self, ChannelFactory, ChannelSink};
 use super::types::{
     RemoteRequest, REMOTE_BINARY_TAG_CHANNEL, REMOTE_BINARY_TAG_RESPONSE, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED,
-    REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED,
+    REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED, REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS,
 };
 
 enum WsOut {
@@ -152,6 +152,13 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
 ///   `REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED`/`REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED`
 ///   so the frontend can tell this apart from an ordinary network drop and
 ///   redirect to the login page instead of silently retrying forever.
+///
+/// Once the main loop above breaks, the writer task's own shutdown is bounded by
+/// [`REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS`] rather than awaited unconditionally — see that
+/// constant's doc comment for why an unbounded wait can park [`RemoteStore::client_disconnected`]
+/// forever. A normal shutdown (including the session-expiry `Close` frame queued onto `tx` right
+/// before it's dropped) still flushes well within the timeout; only the leaked-sender case actually
+/// hits it.
 pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: String) {
     let remote = app.state::<RemoteStore>();
     remote.sweep_expired_sessions();
@@ -166,7 +173,7 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
 
-    let writer = tauri::async_runtime::spawn(async move {
+    let mut writer = tauri::async_runtime::spawn(async move {
         while let Some(out) = rx.recv().await {
             if sink.send(out.into_message()).await.is_err() {
                 break;
@@ -231,7 +238,13 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
     event_task.abort();
     drop(factory);
     drop(tx);
-    let _ = writer.await;
+    tokio::select! {
+        _ = &mut writer => {}
+        _ = tokio::time::sleep(std::time::Duration::from_millis(REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS)) => {
+            log::warn!("원격 웹소켓 writer 태스크가 제한 시간 내에 스스로 끝나지 않아 강제로 정리합니다 (도메인 스토어가 이 연결의 채널 송신자를 계속 쥐고 있을 수 있음)");
+            writer.abort();
+        }
+    }
     remote.client_disconnected();
 }
 
@@ -276,5 +289,33 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(matches!(rx.try_recv(), Ok(WsOut::Text(_))));
+    }
+
+    /// §1.3(3) 회귀: `make_channel_factory` 가 만든 싱크는 `ws_out`(`handle_socket` 의 `tx`) 의
+    /// clone 을 내부에 캡처한다 — 도메인 스토어(LSP/검색/AI/pty 세션 등)가 이 싱크를 계속 쥐고
+    /// 있으면, `handle_socket` 이 자신의 로컬 `tx` 를 명시적으로 drop 해도 writer 태스크의
+    /// `rx.recv()` 는 그 살아있는 clone 때문에 영원히 완료되지 않는다. 이 테스트는 그 메커니즘
+    /// 자체가 실재함을 최소 재현해, `handle_socket` 의 유한 대기(+강제 종료) 방어가 왜
+    /// 필요한지 고정한다.
+    #[tokio::test]
+    async fn 채널_싱크가_송신자를_쥐고_있으면_writer는_스스로_끝나지_않는다() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
+        let leaked_sink = make_channel_factory(tx.clone())("1".to_string());
+        drop(tx);
+
+        let mut writer = tauri::async_runtime::spawn(async move { while rx.recv().await.is_some() {} });
+
+        let finished = tokio::select! {
+            _ = &mut writer => true,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => false,
+        };
+
+        assert!(
+            !finished,
+            "도메인 스토어가 쥔 채널 싱크(tx clone 내장)가 살아있는 한 writer 는 스스로 끝나면 안 된다 — 버그 상황 재현"
+        );
+
+        drop(leaked_sink);
+        writer.abort();
     }
 }

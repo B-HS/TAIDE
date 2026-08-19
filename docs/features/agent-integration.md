@@ -142,7 +142,10 @@ taide [--wait|-w] <file> [<file>...]
   `TabClosed` 로 해소한다. layout 도메인의 모든 탭 닫기 경로(Tauri 커맨드·IDE 도구 핸들러 공용
   `close_tab_and_finish`)에서 반드시 호출되어야 하는 불변조건이다 — 누락하면 `openDiff` 가
   무기한 대기 상태로 남는다.
-- **종료 시 즉시 중단** (`commands.rs::stop_server`): 앱 종료·`ide_stop` 공용 정리 경로. pending
+- **종료 시 즉시 중단** (`commands.rs::stop_server`): 앱 종료(`lib.rs`)·`settings_update` 의
+  `ideIntegrationEnabled` 토글-off(`settings::commands::apply_integration_toggles`) 공용 정리
+  경로(과거엔 `ide_stop` 커맨드도 이 함수를 불렀으나, X-A 배치(2026-08-19)에서 두 경로만 남고
+  중복 커맨드로 제거됐다 — `docs/ipc-contract.md` §"ide" 절). pending
   요청을 전부 해소하고 lockfile 을 지운 뒤 accept 루프와 커넥션 태스크를 즉시 종료(abort)한다.
   `openDiff`/`saveDocument` 는 무기한 블로킹 커맨드이므로, 이 경로에서 pending 요청이 반드시
   해소되어야 좀비 대기가 남지 않는다.

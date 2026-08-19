@@ -110,7 +110,7 @@ export const commands = {
 	 *  completed (by every window confirming, or by the timeout fallback).
 	 */
 	fileFlushComplete: () => typedError<null, AppError>(__TAURI_INVOKE("file_flush_complete")),
-	treeRows: (projectId: ProjectId, offset: number, limit: number) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_rows", { projectId, offset, limit })),
+	treeRows: (projectId: ProjectId, offset: number, limit: number | null) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_rows", { projectId, offset, limit })),
 	treeToggle: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_toggle", { projectId, path })),
 	treeReveal: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_reveal", { projectId, path })),
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
@@ -222,6 +222,23 @@ export const commands = {
 	 *  `Running`.
 	 */
 	lspConfirmReinitialize: (sessionId: string, generation: number) => typedError<null, AppError>(__TAURI_INVOKE("lsp_confirm_reinitialize", { sessionId, generation })),
+	/**
+	 *  [`lsp_confirm_reinitialize`]'s failure counterpart (§1.3(4),
+	 *  `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`) — called by the renderer once it has
+	 *  exhausted its own retry budget re-running `initialize` against a session whose
+	 *  [`LspSessionStatusChanged`] event reported a bumped `generation`, instead of ever succeeding. Without
+	 *  this, a session whose re-handshake never lands sits forever on `handle_process_exit`'s own
+	 *  optimistic "재시작됐습니다, 기다려주세요" `last_error` text — a status-bar poll of `lsp_sessions`/
+	 *  `LspSessionInfo` would keep reporting "waiting" indefinitely instead of the honest "failed, restart
+	 *  manually" this command lets it settle on. Applies the exact same generation guard as
+	 *  [`lsp_confirm_reinitialize`] — a failure report for a generation the session has since moved past
+	 *  (a second crash+auto-restart already superseded it) is silently ignored, the same race both
+	 *  commands exist to resolve honestly rather than clobber a newer in-flight attempt's status. Allowed
+	 *  remotely (T1-K): a remote mirror must be able to settle its own session's failed reinitialize just
+	 *  as the desktop can, and the generation-mismatch-is-ignored guard already defends against a stale or
+	 *  spoofed report reviving/clobbering a session it no longer describes.
+	 */
+	lspReportReinitializeFailure: (sessionId: string, generation: number) => typedError<null, AppError>(__TAURI_INVOKE("lsp_report_reinitialize_failure", { sessionId, generation })),
 	lspSessions: (projectId: ProjectId) => typedError<LspSessionInfo[], AppError>(__TAURI_INVOKE("lsp_sessions", { projectId })),
 	lspDetectServers: () => typedError<LspServerDetection[], AppError>(__TAURI_INVOKE("lsp_detect_servers")),
 	lspResolveRoot: (serverId: LspServerId, filePath: string) => typedError<string | null, AppError>(__TAURI_INVOKE("lsp_resolve_root", { serverId, filePath })),
@@ -325,8 +342,6 @@ export const commands = {
 	systemOpenAppDataPath: (kind: AppDataPathKind) => typedError<null, AppError>(__TAURI_INVOKE("system_open_app_data_path", { kind })),
 	systemOpenExternalUrl: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("system_open_external_url", { url })),
 	ideGetStatus: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_get_status")),
-	ideStart: () => typedError<IdeStatus, AppError>(__TAURI_INVOKE("ide_start")),
-	ideStop: () => typedError<null, AppError>(__TAURI_INVOKE("ide_stop")),
 	/**
 	 *  A remote session's `owner` (`IdeSelectionInput.owner == REMOTE_OWNER_LABEL`) is a deliberate
 	 *  no-op: neither [`IdeStore::set_selection`] nor the `selection_changed` broadcast run, so a
@@ -377,8 +392,6 @@ export const commands = {
 	 */
 	vsixImportPlugin: (vsixPath: string) => typedError<LoadedPlugin, AppError>(__TAURI_INVOKE("vsix_import_plugin", { vsixPath })),
 	remoteStatus: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_status")),
-	remoteStart: () => typedError<RemoteStatus, AppError>(__TAURI_INVOKE("remote_start")),
-	remoteStop: () => typedError<null, AppError>(__TAURI_INVOKE("remote_stop")),
 	/**
 	 *  Issues a one-time link token and formats it into a URL the user shares
 	 *  with another device. When `Settings::remote_allowed_hosts` has at least
@@ -416,7 +429,6 @@ export const commands = {
 	 *  (backward-compatible legacy mode). Invalidates every existing session.
 	 */
 	remoteClearPassword: () => typedError<null, AppError>(__TAURI_INVOKE("remote_clear_password")),
-	windowOpenAuxiliary: (projectId: ProjectId, windowSlot: number) => typedError<AuxiliaryWindowInfo, AppError>(__TAURI_INVOKE("window_open_auxiliary", { projectId, windowSlot })),
 	/**
 	 *  Toggles Zen mode's optional fullscreen (`Settings::zen_fullscreen`) for the calling window —
 	 *  `window: tauri::Window` is Tauri-injected as whichever window's webview made this IPC call
@@ -446,7 +458,6 @@ export const events = {
 	agentExternalOpen: makeEvent<AgentExternalOpen>("agent:external-open"),
 	agentStateChanged: makeEvent<AgentStateChanged>("agent:state-changed"),
 	appHotExitFlushRequested: makeEvent<HotExitFlushRequested>("app:hot-exit-flush-requested"),
-	appReady: makeEvent<AppReady>("app:ready"),
 	fsChanged: makeEvent<FsChanged>("fs:changed"),
 	gitRefsChanged: makeEvent<GitRefsChanged>("git:refs-changed"),
 	gitStatusChanged: makeEvent<GitStatusChanged>("git:status-changed"),
@@ -459,7 +470,6 @@ export const events = {
 	lspSessionStatusChanged: makeEvent<LspSessionStatusChanged>("lsp:session-status-changed"),
 	projectActivated: makeEvent<ProjectActivated>("project:activated"),
 	projectClosed: makeEvent<ProjectClosed>("project:closed"),
-	projectFocusKindChanged: makeEvent<ProjectFocusKindChanged>("project:focus-kind-changed"),
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
 	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
@@ -582,10 +592,6 @@ export type AppInfo = {
 	arch: string,
 };
 
-export type AppReady = {
-	version: string,
-};
-
 /**
  *  One auxiliary editor window's own pane tree, keyed by `slot` — a project-scoped semantic id
  *  (allocated by `service::next_window_slot`) distinct from the OS-level Tauri window label
@@ -598,18 +604,6 @@ export type AuxWindowLayout = {
 	slot: number,
 	root: PaneNode,
 	focusedPane: PaneId,
-};
-
-/**
- *  Result of `commands::window_open_auxiliary`. `label` is the Rust-assigned Tauri window label
- *  (`editor-<n>`) the frontend needs to address this specific OS window (e.g. to correlate it
- *  against `getAllWebviewWindows()`); `project_id`/`window_slot` echo the request back so the
- *  caller doesn't have to thread its own copies through the async round-trip.
- */
-export type AuxiliaryWindowInfo = {
-	label: string,
-	projectId: ProjectId,
-	windowSlot: number,
 };
 
 export type BlameLine = {
@@ -724,8 +718,6 @@ export type ExternalOpenRequest = {
 };
 
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
-
-export type FocusKind = "file" | "terminal" | "settings" | "diff" | "claudeDiff" | "welcome" | "untitled" | "searchEditor" | "appFile";
 
 export type FontFamily = {
 	name: string,
@@ -1066,11 +1058,6 @@ export type ProjectAgents = {
 
 export type ProjectClosed = {
 	projectId: ProjectId,
-};
-
-export type ProjectFocusKindChanged = {
-	projectId: ProjectId,
-	kind: FocusKind,
 };
 
 export type ProjectId = string;

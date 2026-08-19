@@ -26,10 +26,10 @@ use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::domain::window::commands::WindowStore;
 use crate::events::{
-    AgentExternalOpen, AgentStateChanged, AppReady, FsChanged, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
-    IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
-    ProjectActivated, ProjectClosed, ProjectFocusKindChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged,
-    SyncStateChanged, TerminalCwdChanged, TerminalExited, ThemeChanged,
+    AgentExternalOpen, AgentStateChanged, FsChanged, GitRefsChanged, GitStatusChanged, HotExitFlushRequested, IdeCloseTabRequested,
+    IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated,
+    ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCwdChanged,
+    TerminalExited, ThemeChanged,
 };
 use crate::ids::ProjectId;
 use crate::infra::secret::SecretStoreState;
@@ -151,6 +151,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::lsp::commands::lsp_stop,
             domain::lsp::commands::lsp_restart,
             domain::lsp::commands::lsp_confirm_reinitialize,
+            domain::lsp::commands::lsp_report_reinitialize_failure,
             domain::lsp::commands::lsp_sessions,
             domain::lsp::commands::lsp_detect_servers,
             domain::lsp::commands::lsp_resolve_root,
@@ -230,8 +231,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::system::commands::system_open_app_data_path,
             domain::system::commands::system_open_external_url,
             domain::ide::commands::ide_get_status,
-            domain::ide::commands::ide_start,
-            domain::ide::commands::ide_stop,
             domain::ide::commands::ide_set_selection,
             domain::ide::commands::ide_clear_selection,
             domain::ide::commands::ide_publish_diagnostics,
@@ -254,24 +253,19 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::vsix::commands::vsix_extract_themes,
             domain::vsix::commands::vsix_import_plugin,
             domain::remote::commands::remote_status,
-            domain::remote::commands::remote_start,
-            domain::remote::commands::remote_stop,
             domain::remote::commands::remote_issue_link,
             domain::remote::commands::remote_revoke_sessions,
             domain::remote::commands::remote_set_password,
             domain::remote::commands::remote_clear_password,
-            domain::window::commands::window_open_auxiliary,
             domain::window::commands::window_set_fullscreen,
             domain::app::commands::app_file_read,
             domain::app::commands::app_file_write,
         ])
         .events(collect_events![
-            AppReady,
             ProjectOpened,
             ProjectClosed,
             ProjectActivated,
             ProjectListChanged,
-            ProjectFocusKindChanged,
             LayoutChanged,
             ThemeChanged,
             FsChanged,
@@ -656,12 +650,10 @@ pub fn run() {
                 };
             }
             fanout_remote_events!(
-                AppReady,
                 ProjectOpened,
                 ProjectClosed,
                 ProjectActivated,
                 ProjectListChanged,
-                ProjectFocusKindChanged,
                 LayoutChanged,
                 ThemeChanged,
                 FsChanged,
@@ -870,7 +862,7 @@ mod tests {
     #[test]
     fn 이벤트_타입_목록은_events_rs와_collect_events_매크로에서_일치한다() {
         let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
-        assert_eq!(declared.len(), 25, "events.rs 에 선언된 이벤트 구조체 수가 25종에서 벗어났습니다");
+        assert_eq!(declared.len(), 23, "events.rs 에 선언된 이벤트 구조체 수가 23종에서 벗어났습니다");
 
         let collected = identifier_set(extract_between(include_str!("lib.rs"), "collect_events![", "]"));
 

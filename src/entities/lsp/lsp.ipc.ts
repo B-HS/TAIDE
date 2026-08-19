@@ -34,6 +34,18 @@ export const restartLspSession = (sessionId: string) => unwrapResult(commands.ls
  */
 export const confirmLspReinitialize = (sessionId: string, generation: number) => unwrapResult(commands.lspConfirmReinitialize(sessionId, generation))
 
+/**
+ * {@link confirmLspReinitialize}'s failure counterpart (§1.3(4), `docs/acknowledge/
+ * 2026-08-19-xa-wiring-cleanup-contract.md`) — call once the renderer has exhausted its own retry
+ * budget re-running `initialize` against a session whose generation bumped, instead of ever
+ * succeeding. Applies the exact same generation guard as `confirmLspReinitialize` on the Rust side
+ * (`domain::lsp::commands::lsp_report_reinitialize_failure`): a failure report for a generation the
+ * session has since moved past (a second crash+auto-restart already superseded it) is silently
+ * ignored. See `lsp-session-registry.ts`'s `reinitializeSession` for the renderer-side call site.
+ */
+export const reportLspReinitializeFailure = (sessionId: string, generation: number) =>
+    unwrapResult(commands.lspReportReinitializeFailure(sessionId, generation))
+
 export const listLspSessions = (projectId: ProjectId) => unwrapResult(commands.lspSessions(projectId))
 
 export const detectLspServers = () => unwrapResult(commands.lspDetectServers())

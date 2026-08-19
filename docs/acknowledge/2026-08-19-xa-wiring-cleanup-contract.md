@@ -84,3 +84,40 @@
   신설 배선 회귀 테스트(from_app 에코·revision 게이트·viewState 왕복·cwd 해석).
 - 실기 이월(qa6): 탭 전환·재시작 후 커서/스크롤 복원·자기 저장 시 트리 무점멸·터미널 상대 경로
   링크·원격 세션 만료 시 리다이렉트 무회귀.
+
+---
+
+## 4. 구현 완료 기록 (2026-08-19, Phase E 검토 전)
+
+> 구현 wf_48420169-27f(R→F1·F2 병렬, sonnet+xhigh) + 메인 접합부 2건. 메인 2차: verify·vite
+> build 직접 재실행(결과는 §5 검토 후 기록과 함께).
+
+- **R(살리기)**: from_app — `infra/self_write.rs` SelfWriteTracker(TTL 2s·경로별 1회 소비) 신설,
+  파일 쓰기 6경로 마킹·watcher 그룹 전 경로 일치 시만 true(부분 일치는 보수적 false). cwd —
+  셸 통합 훅에 OSC7 순수 경로 시퀀스 추가(`extract_latest_cwd`, 유일 소비자 자체 파서라 percent-
+  encoding 생략 — 외부 터미널 미러링 시 재검토 조건 기록). viewState·revision 은 Rust 기구현
+  확인(무변경, 발행 규약 문서화만).
+- **R(지우기)**: focus-kind-changed 이벤트·FocusKind 타입·발행 전량 제거 + **app:ready 도 제거**
+  (발행 지점 0 확증 — T2-F 선반영). 중복 커맨드 5종 제거(settings_update 의
+  apply_integration_toggles 가 유일 실도달 경로임을 확증 후 — ide_start/remote_start 는 내부
+  함수로 존속·래퍼 3종 삭제). git 3종 유지+"예약" 표기. 커맨드 180→176(+raw 3=179)·이벤트
+  25→23·ALLOWED 163→160·DENIED 20→19, 전 파리티 그린.
+- **R(잔여)**: ws writer 유한 대기(3s 타임아웃 후 abort, Close 프레임 플러시 보존·leaked-sender
+  회귀 테스트) / 신규 `lsp_report_reinitialize_failure`(세대 가드 공유·Crashed 확정·T1-K 허용
+  등재) / tree_rows `Option<u32>`.
+- **F1**: viewState 배선 신규 `use-editor-view-state.ts` — 저장은 effect cleanup 한정(React
+  커밋 순서를 이용해 모델 스왑 전 저장·값 dedup 으로 IPC 절약), 복원은 인스턴스당 1회·
+  consumePendingReveal 이 항상 우선. revision 게이트(프로젝트별 lastSeen·`isStaleLayoutRevision`).
+  from_app 소비 — **계약 이탈 판단**: 트리 refresh 만 스킵하고 FILE.CONTENT invalidation 은
+  유지(search_replace 가 자체 onSuccess invalidation 이 없어 열린 탭 갱신의 유일 경로가 watcher
+  — 문자 그대로 스킵하면 회귀. 근거 실코드 확증, Phase E 재확인 대상). TREE_ROWS 센티널 제거·
+  경로 키 predicate(PROJECT_SCOPED_PATH_KEY_PREFIXES — root 를 스윕 전에 읽는 순서 처리).
+- **F2**: cwd 구독+터미널 파일 링크 실배선(미배선이던 findTerminalLinkMatches 를 ILinkProvider
+  로·resolveTerminalPath 첫 소비자·requestOpenFileFromEditor 재사용, 물리 행 단위 한정 —
+  최소 배선 명시). terminal:exited 소비(exited 표시+Restart+SESSIONS 무효화·session.running
+  첫 소비). open-with pruneOpenWithOverrides+useCloseTab 배선(다른 창 잔존 확인 후 정리).
+  재핸드셰이크 실패 보고 소비(재시도 소진 시 호출). lsp.ipc.ts 1함수 추가는 소유 경계 최소
+  이탈(패턴 정합 — 승인).
+- **메인 접합부 2건**: `app.type.ts` AppReady re-export 제거(app:ready 삭제 여파 — R 이 지목한
+  유일 tsc 에러). remote:state-changed 프론트 소비 배선(sync:state-changed 선례 미러 —
+  setQueryData(REMOTE.STATUS), X1#2 판정 완결).

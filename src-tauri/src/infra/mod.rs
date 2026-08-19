@@ -9,6 +9,7 @@ pub mod pty;
 pub mod range_file;
 pub mod root_guard;
 pub mod secret;
+pub mod self_write;
 pub mod shell_integration;
 pub mod shell_quote;
 pub mod watcher;

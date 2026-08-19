@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, State, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 
 use super::service;
 use super::types::{
@@ -67,14 +67,15 @@ impl WindowStore {
 /// of unstyled content. A window that never mounts that provider tree would stay invisible
 /// forever; Phase F's auxiliary-window bootstrap is expected to reuse it like every other window.
 ///
-/// Deliberately does **not** take `AppState::begin_mutation` itself — every caller (the
-/// `window_open_auxiliary` command below, boot-time restoration in `lib.rs`, and
-/// `layout::commands::layout_move_tab_to_window`) already holds it (or must acquire it) for the
-/// duration of the whole operation it's part of; a second `.await` on the same non-reentrant
-/// `tokio::sync::Mutex` here would deadlock. Boot-time restoration specifically relies on each
-/// caller serializing through that single guard — without it, two windows recreated concurrently
-/// could both read the same "existing labels" snapshot before either finishes `.build()` and coin
-/// the same `editor-<n>` label.
+/// Deliberately does **not** take `AppState::begin_mutation` itself — every caller (boot-time
+/// restoration in `lib.rs` and `layout::commands::layout_move_tab_to_window`'s `newAuxiliary` path —
+/// the standalone `window_open_auxiliary` command that used to be a third caller was removed as a
+/// duplicate IPC surface, X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2)
+/// already holds it (or must acquire it) for the duration of the whole operation it's part of; a
+/// second `.await` on the same non-reentrant `tokio::sync::Mutex` here would deadlock. Boot-time
+/// restoration specifically relies on each caller serializing through that single guard — without
+/// it, two windows recreated concurrently could both read the same "existing labels" snapshot before
+/// either finishes `.build()` and coin the same `editor-<n>` label.
 pub async fn open_auxiliary_window(
     app: &AppHandle,
     state: &AppState,
@@ -115,19 +116,6 @@ pub async fn open_auxiliary_window(
         project_id,
         window_slot,
     })
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn window_open_auxiliary(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    windows: State<'_, WindowStore>,
-    project_id: ProjectId,
-    window_slot: u32,
-) -> AppResult<AuxiliaryWindowInfo> {
-    let _guard = state.begin_mutation().await;
-    open_auxiliary_window(&app, &state, &windows, project_id, window_slot).await
 }
 
 /// Toggles Zen mode's optional fullscreen (`Settings::zen_fullscreen`) for the calling window —

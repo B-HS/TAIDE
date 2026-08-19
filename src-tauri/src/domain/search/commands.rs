@@ -158,7 +158,11 @@ pub async fn search_replace(
         let count = tokio::task::spawn_blocking(move || {
             let app_state = app.state::<AppState>();
             let _guard = app_state.begin_mutation_blocking();
-            service::replace_one_file(&path, &query, compiled_regex.as_ref(), &replacement)
+            let count = service::replace_one_file(&path, &query, compiled_regex.as_ref(), &replacement);
+            if count.is_some() {
+                app_state.self_writes.mark(&path);
+            }
+            count
         })
         .await
         .map_err(|error| AppError::Internal(format!("replace task failed: {error}")))?;

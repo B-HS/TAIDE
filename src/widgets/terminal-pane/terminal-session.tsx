@@ -1,24 +1,29 @@
 import type { FC } from 'react'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectId, TabId } from '@shared/api/bindings'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
-import { attachPty, detachPty, resizePty, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
+import { attachPty, detachPty, resizePty, resolveTerminalPath, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
 import { systemOpenExternalUrl } from '@entities/system/system.ipc'
 import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
-import { commands } from '@shared/api/bindings'
+import { commands, events } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { findPaneTab } from '@shared/lib/pane-tree'
 import { registerTerminalWriteHandler } from '@shared/lib/terminal-write-bridge'
+import { requestOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
+import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
+import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/terminal'
+import { QUERY_KEY } from '@shared/constants/query-key'
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
+import { Button } from '@shared/ui/button'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 import { openTerminalLink, openViaBrowserWindow } from '@widgets/terminal-pane/terminal-link-opener'
 
@@ -36,6 +41,8 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
 
     const [spawnedSessionId, setSpawnedSessionId] = useState<string | null>(null)
     const [failure, setFailure] = useState<string | null>(null)
+    const [cwd, setCwd] = useState<string | null>(null)
+    const [exited, setExited] = useState<{ code: number | null } | null>(null)
 
     const { data: theme } = useQuery(currentThemeQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
@@ -43,9 +50,11 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: persistTerminalSession } = useSetTerminalSession(projectId)
     const { t } = useTranslation()
+    const queryClient = useQueryClient()
 
-    const isPersistedAlive = (liveSessions ?? []).some((session) => session.id === persistedSessionId)
-    const sessionId = spawnedSessionId ?? (isPersistedAlive ? persistedSessionId : null)
+    const persistedSession = (liveSessions ?? []).find((session) => session.id === persistedSessionId)
+    const isPersistedAlive = persistedSession?.running ?? false
+    const sessionId = exited ? null : (spawnedSessionId ?? (isPersistedAlive ? persistedSessionId : null))
     const activeTabKind = layout ? findPaneTab(layout.root, tabId)?.kind : null
     const tabCwd = activeTabKind?.kind === 'terminal' ? (activeTabKind.cwd ?? null) : null
 
@@ -53,6 +62,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId, tabCwd))
         const created = await spawnPty({ ...defaults, cols, rows }, () => undefined)
         setSpawnedSessionId(created)
+        setCwd(defaults.cwd)
         persistTerminalSession({ tabId, sessionId: created })
         const latest = dimensionsRef.current
         if (latest.cols !== cols || latest.rows !== rows) await resizePty({ sessionId: created, cols: latest.cols, rows: latest.rows })
@@ -96,6 +106,26 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         }).catch(() => toast.error(t('terminal.openLinkFailed')))
     }
 
+    const handleOpenFileLink = (match: TerminalLinkMatch) => {
+        const effectiveCwd = cwd ?? persistedSession?.cwd ?? tabCwd
+        if (!effectiveCwd) return
+        void resolveTerminalPath({ path: match.path, cwd: effectiveCwd })
+            .then((resolvedPath) => requestOpenFileFromEditor({ path: resolvedPath, line: match.line ?? 1, column: match.column ?? 1 }))
+            .catch(() => toast.error(t('terminal.openLinkFailed')))
+    }
+
+    const handleRestart = () => {
+        setExited(null)
+        setSpawnedSessionId(null)
+        spawnStartedRef.current = true
+        const { cols, rows } = dimensionsRef.current
+        void spawnWithMeasuredSize(cols, rows).catch((error: Error) => {
+            spawnStartedRef.current = false
+            setFailure(error.message)
+            toast.error(error.message)
+        })
+    }
+
     const handleAttachData = (onData: (bytes: Uint8Array) => void) => {
         if (!sessionId) return () => undefined
         const activeSessionId = sessionId
@@ -133,8 +163,30 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         return registerTerminalWriteHandler(tabId, handleTerminalWriteRequest)
     }, [tabId, sessionId])
 
+    useTauriEvent(events.terminalCwdChanged, ({ payload }) => {
+        if (payload.sessionId !== sessionId) return
+        setCwd(payload.cwd)
+    })
+
+    useTauriEvent(events.terminalExited, ({ payload }) => {
+        if (payload.sessionId !== sessionId) return
+        setExited({ code: payload.code })
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.TERMINAL.SESSIONS(projectId) })
+    })
+
     if (failure) {
         return <div className='bg-terminal-background text-status-error flex h-full w-full items-center justify-center text-sm'>{failure}</div>
+    }
+
+    if (exited) {
+        return (
+            <div className='bg-terminal-background text-muted-foreground flex h-full w-full flex-col items-center justify-center gap-2 text-sm'>
+                <span>{exited.code === null ? t('terminal.processExited') : `${t('terminal.processExited')} (${exited.code})`}</span>
+                <Button size='sm' variant='outline' onClick={handleRestart}>
+                    {t('terminal.restart')}
+                </Button>
+            </div>
+        )
     }
 
     if (!theme || !isSessionsFetched) return <div className='bg-terminal-background h-full w-full' />
@@ -155,6 +207,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
             onReady={handleReady}
             onSetPaused={handleSetPaused}
             onOpenLink={handleOpenLink}
+            onOpenFileLink={handleOpenFileLink}
             attachData={handleAttachData}
         />
     )

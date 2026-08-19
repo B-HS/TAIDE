@@ -40,6 +40,24 @@ export const setOpenWithOverride = (path: string, override: OpenWithOverride | n
 
 export const getOpenWithOverride = (path: string): OpenWithOverride | null => overrideByPath.get(path) ?? null
 
+/**
+ * Drops every override whose path is not in `keepPaths` — the eager counterpart to
+ * {@link OPEN_WITH_OVERRIDE_MAX_ENTRIES}'s capacity-based eviction, for a caller that actually knows
+ * which paths are still relevant (e.g. every path still open across the whole app, or every path
+ * that belonged to a project that just closed) rather than waiting for the LRU cap to eventually
+ * reclaim a path nobody revisits. A no-op call (nothing pruned) does not notify subscribers.
+ */
+export const pruneOpenWithOverrides = (keepPaths: readonly string[]) => {
+    const keep = new Set(keepPaths)
+    let pruned = false
+    for (const path of overrideByPath.keys()) {
+        if (keep.has(path)) continue
+        overrideByPath.delete(path)
+        pruned = true
+    }
+    if (pruned) notify()
+}
+
 export const subscribeOpenWithOverride = (listener: Listener) => {
     listeners.add(listener)
     return () => {

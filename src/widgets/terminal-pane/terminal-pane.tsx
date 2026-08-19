@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { ITheme } from '@xterm/xterm'
+import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { TerminalView } from '@features/terminal/terminal-view'
 import type { TerminalAttachHandle, TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { INITIAL_FLOW_CONTROL_STATE, evaluateFlowControl, shouldTogglePause } from '@widgets/terminal-pane/terminal-flow-control'
@@ -21,6 +22,7 @@ export type TerminalPaneProps = {
     onReady: (cols: number, rows: number) => void
     onSetPaused: (paused: boolean) => void
     onOpenLink: (uri: string) => void
+    onOpenFileLink: (match: TerminalLinkMatch) => void
     attachData: (onData: (bytes: Uint8Array) => void) => () => void
 }
 
@@ -39,6 +41,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     onReady,
     onSetPaused,
     onOpenLink,
+    onOpenFileLink,
     attachData,
 }) => {
     const attachRef = useRef<TerminalAttachHandle | null>(null)
@@ -48,6 +51,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const onReadyRef = useRef(onReady)
     const onSetPausedRef = useRef(onSetPaused)
     const onOpenLinkRef = useRef(onOpenLink)
+    const onOpenFileLinkRef = useRef(onOpenFileLink)
     const attachDataRef = useRef(attachData)
 
     const [isFocused, setIsFocused] = useState(false)
@@ -58,6 +62,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
         onReadyRef.current = onReady
         onSetPausedRef.current = onSetPaused
         onOpenLinkRef.current = onOpenLink
+        onOpenFileLinkRef.current = onOpenFileLink
         attachDataRef.current = attachData
     })
 
@@ -68,6 +73,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const handleReady = (cols: number, rows: number) => onReadyRef.current(cols, rows)
 
     const handleOpenLink = (uri: string) => onOpenLinkRef.current(uri)
+
+    const handleOpenFileLink = (match: TerminalLinkMatch) => onOpenFileLinkRef.current(match)
 
     const handleWriteBacklogChange = (pendingBytes: number) => {
         const next = evaluateFlowControl(flowStateRef.current, pendingBytes)
@@ -105,6 +112,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
             onWriteBacklogChange={handleWriteBacklogChange}
             onFocusChange={handleFocusChange}
             onOpenLink={handleOpenLink}
+            onOpenFileLink={handleOpenFileLink}
             attachRef={attachRef}
         />
     )

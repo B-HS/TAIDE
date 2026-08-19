@@ -164,3 +164,18 @@ export const PROJECT_SCOPED_KEYS: ReadonlyArray<(projectId: ProjectId) => readon
     QUERY_KEY.FILE.UNTITLED_MIRRORS,
     QUERY_KEY.LSP.SESSIONS,
 ]
+
+/**
+ * `QUERY_KEY.FILE.CONTENT`/`FILE.RAW` are keyed by a bare file `path`, not a `ProjectId`, so they
+ * can't be swept by `PROJECT_SCOPED_KEYS`'s `(projectId) => key[]` shape — a closing project's open
+ * files otherwise stayed cached under their old path keys forever (contract §1.3(8)).
+ * `IpcSyncProvider`'s `projectClosed` handler instead sweeps them with a `predicate` matching any
+ * cached query whose key starts with one of these `[domain, scope]` prefixes *and* whose path falls
+ * under the closing project's root — see `isProjectRootPathQueryKey` there. `query-key.test.ts`
+ * locks this list's exhaustiveness against every path-keyed `QUERY_KEY` leaf the same way
+ * `QUERY_KEY_LEAF_CLASSIFICATION` locks `PROJECT_SCOPED_KEYS` above.
+ */
+export const PROJECT_SCOPED_PATH_KEY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
+    ['file', 'content'],
+    ['file', 'raw'],
+]

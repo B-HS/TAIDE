@@ -29,7 +29,7 @@ import {
     registerSessionExecuteCommands,
 } from '@shared/lib/lsp/command-relay'
 import { createWorkspaceApplyEditHandler } from '@shared/lib/lsp/workspace-edit-apply-handler'
-import { confirmLspReinitialize, sendLspMessage, spawnLspSession, stopLspSession } from '@entities/lsp/lsp.ipc'
+import { confirmLspReinitialize, reportLspReinitializeFailure, sendLspMessage, spawnLspSession, stopLspSession } from '@entities/lsp/lsp.ipc'
 import { registerLspSessionAllFlush, registerLspSessionProjectFlush } from '@entities/lsp/lsp-session-flush-registry'
 
 type Disposable = { dispose: () => void }
@@ -884,12 +884,15 @@ const LSP_REINITIALIZE_RETRY_DELAY_MS = 2_000
  * Before each attempt (after the first), re-checks `group.lastObservedGeneration` against the
  * `generation` this flow was started for — a newer crash while this loop was still retrying means a
  * fresher `reinitializeSession` call already owns (or has already won) the handshake for the process
- * currently running, and this stale loop must stop rather than race it with an out-of-date attempt.
- * Exhausting every attempt (or losing the staleness race) leaves `status` as `Crashed` rather than
- * throwing past this function — Rust's `last_error` has no failure-vs-still-retrying distinction to
- * flip to here (that requires a backend-side confirm/report command this frontend-only fix cannot
- * add), so a later generation bump (a second auto-restart) or a manual `lsp_restart` remains the only
- * further recovery path.
+ * currently running, and this stale loop must stop rather than race it with an out-of-date attempt
+ * (silently, without reporting failure — the fresher loop's own outcome is the one that should stand).
+ * Exhausting every attempt instead calls {@link reportLspReinitializeFailure} (§1.3(4), X-A wiring
+ * cleanup contract) before returning, so `status` settles on `Crashed` with an honest "retries
+ * exhausted, restart manually" `last_error` (`domain::lsp::commands::lsp_report_reinitialize_failure`
+ * on the Rust side, guarded by the exact same generation check `lsp_confirm_reinitialize` uses)
+ * instead of the auto-restart path's optimistic "재시작됐습니다, 기다려주세요" wording sitting there
+ * forever. A later generation bump (a second auto-restart) or a manual `lsp_restart` remain the only
+ * further recovery paths after that.
  *
  * `group.isReinitializing` is `true` for the entire loop below (`finally`-reset on every exit path,
  * including the staleness `return`) — see {@link acquireDocument}/{@link releaseDocument}'s own doc
@@ -936,7 +939,10 @@ const reinitializeSession = async (
                 await confirmLspReinitialize(session.sessionId, generation)
                 return
             } catch {
-                if (attempt === maxAttempts) return
+                if (attempt === maxAttempts) {
+                    await reportLspReinitializeFailure(session.sessionId, generation).catch(() => undefined)
+                    return
+                }
                 await delay(retryDelayMs)
             }
         }

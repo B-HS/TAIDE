@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
     OPEN_WITH_OVERRIDE_MAX_ENTRIES,
     getOpenWithOverride,
+    pruneOpenWithOverrides,
     setOpenWithOverride,
     subscribeOpenWithOverride,
 } from '@entities/editor/open-with-registry'
@@ -65,5 +66,46 @@ describe('OPEN_WITH_OVERRIDE_MAX_ENTRIES / 무한 증가 방지', () => {
 
         expect(getOpenWithOverride(paths[0])).toBe('editor')
         expect(getOpenWithOverride(paths[1])).toBeNull()
+    })
+})
+
+describe('pruneOpenWithOverrides — 탭/프로젝트 종료 시 정리 훅', () => {
+    test('keepPaths 에 없는 경로의 override 는 제거된다', () => {
+        setOpenWithOverride('/repo/prune/keep.png', 'editor')
+        setOpenWithOverride('/repo/prune/drop.png', 'editor')
+
+        pruneOpenWithOverrides(['/repo/prune/keep.png'])
+
+        expect(getOpenWithOverride('/repo/prune/keep.png')).toBe('editor')
+        expect(getOpenWithOverride('/repo/prune/drop.png')).toBeNull()
+    })
+
+    test('제거된 항목이 없으면 구독자에게 알리지 않는다', () => {
+        pruneOpenWithOverrides([])
+        setOpenWithOverride('/repo/prune/untouched.png', 'editor')
+        let calls = 0
+        const unsubscribe = subscribeOpenWithOverride(() => {
+            calls += 1
+        })
+
+        pruneOpenWithOverrides(['/repo/prune/untouched.png', '/repo/prune/never-set.png'])
+
+        unsubscribe()
+        expect(calls).toBe(0)
+        expect(getOpenWithOverride('/repo/prune/untouched.png')).toBe('editor')
+    })
+
+    test('제거된 항목이 있으면 구독자에게 알린다', () => {
+        setOpenWithOverride('/repo/prune/notify.png', 'editor')
+        let calls = 0
+        const unsubscribe = subscribeOpenWithOverride(() => {
+            calls += 1
+        })
+
+        pruneOpenWithOverrides([])
+
+        unsubscribe()
+        expect(calls).toBe(1)
+        expect(getOpenWithOverride('/repo/prune/notify.png')).toBeNull()
     })
 })

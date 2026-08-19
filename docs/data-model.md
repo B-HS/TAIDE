@@ -427,7 +427,13 @@ struct AiCommitMessageResponse { request_id: String, text: Option<String> }
 - `provider`/`model` 이 없으면 `Settings.ai_provider`/`ai_model`(§7)을 기본값으로 쓴다.
 - 프롬프트 렌더링에는 §9.2 의 `AiInlineEditPromptTemplate`/`AiCommitMessagePromptTemplate` 을 쓴다.
 
-### 10.5 `AuxiliaryWindowInfo` (Wave I) — `window_open_auxiliary` 의 반환값, §8 의 영속 `AuxWindowLayout` 과는 다른 타입
+### 10.5 `AuxiliaryWindowInfo` (Wave I) — `open_auxiliary_window` 의 반환값, §8 의 영속 `AuxWindowLayout` 과는 다른 타입
+
+> X-A 배치(2026-08-19)에서 이 타입을 직접 노출하던 `window_open_auxiliary` 커맨드가 중복으로
+> 제거됐다(`docs/ipc-contract.md` §"Wave I 계약 확정 추가"). 코어 함수 `open_auxiliary_window` 는
+> `layout_move_tab_to_window` 의 `newAuxiliary` 경로와 부팅 시 보조 창 복원에서 내부적으로 계속
+> 쓰이지만, 그 반환값을 커맨드 응답으로 그대로 넘기는 IPC 표면이 없어져 이 타입은 이제
+> `bindings.ts` 에 생성되지 않는 순수 Rust 내부 타입이다.
 
 ```rust
 struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: u32 }
@@ -626,3 +632,28 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   기구를 실제로 쓰게 만들었다. 어느 쪽이든 `LspStore`(세션 맵) 안의 런타임 상태일 뿐, 프로젝트가 실제로
   여는 워크스페이스 root 자체는 기존과 같은 방식(프로젝트 열기 시점의 파일시스템 스캔)으로 결정되어
   어떤 영속 스키마에도 새로 등재되지 않는다.
+
+## 17. X-A 배선 + 소규모 잔여 청소 배치 — 영속 스키마 무영향 (2026-08-19)
+
+> 계약: `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`. 전체 커맨드/이벤트 카탈로그는
+> `docs/ipc-contract.md`(§"X-A 배선 + 소규모 잔여 청소 배치" 절)가 정본이다. 이 배치도 §2 의 영속
+> 스키마(`settings.json`·`layout.json`·미러 등)를 전혀 건드리지 않는다 — 전부 세션 스코프 런타임
+> 상태 또는 커맨드 인자 형태 변경이다.
+
+- **`AppState::self_writes`(신설, `infra::self_write::SelfWriteTracker`)**: `HashMap<PathBuf, Instant>`
+  기반 인메모리 TTL 캐시 — 어떤 파일에도 영속되지 않고 앱 재시작 시 그냥 비어서 시작한다. `FsChange`
+  의 `from_app: bool` 필드 자체는 신설이 아니다(기존 타입 그대로) — 이전엔 이 필드가 항상 `false` 로
+  고정된 상수였고, 이번 배치가 실제 값을 채우기 시작했을 뿐이라 타입 모양은 무변화다.
+- **`TerminalCwdChanged{ sessionId, cwd }`**: 타입 모양 무변화(§10 인벤토리 기준) — 이전엔 발행 지점이
+  없어 죽은 타입이었고, 이번 배치가 실제로 값을 채워 발행하기 시작했다. `SessionEntry.cwd`(런타임,
+  세션과 함께 사라짐)가 그 값의 보관처다.
+- **`lsp_report_reinitialize_failure(sessionId, generation) → Result<null, AppError>`(신규 커맨드)**:
+  새 영속/세션 타입을 추가하지 않는다 — 응답이 성공하면 §16 에서 이미 기술한 기존
+  `LspSessionStatusChanged{ sessionId, status, lastError, generation }` 이벤트가 그대로 재사용되어
+  `status: Crashed`/새 `lastError` 문구로 재발행된다.
+- **`AuxiliaryWindowInfo`**: 이 타입을 직접 반환하던 `window_open_auxiliary` 커맨드가 중복으로
+  제거되며(§10.5) 이제 어떤 커맨드 응답에서도 도달하지 않는다 — 타입 정의 자체(Rust 쪽)는 남아
+  있지만 `bindings.ts` 에는 더 이상 생성되지 않는다. 영속 스키마(§8 `AuxWindowLayout`)와는 원래도
+  별개 타입이라 그쪽엔 영향이 없다.
+- **`tree_rows` 의 `limit: u32 → Option<u32>`**: 커맨드 인자 타입 변경(§1.3(7)) — 반환 타입
+  `TreeRowPage` 는 무변화. 영속 스키마 없음(트리 캐시는 `TreeStore` 인메모리).

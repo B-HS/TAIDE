@@ -2,16 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::domain::layout::types::FocusKind;
 use crate::domain::project::types::{Project, ProjectRef};
 use crate::domain::settings::types::Settings;
 use crate::ids::ProjectId;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
-#[tauri_specta(event_name = "app:ready")]
-pub struct AppReady {
-    pub version: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
@@ -39,14 +32,6 @@ pub struct ProjectActivated {
 #[tauri_specta(event_name = "project:list-changed")]
 pub struct ProjectListChanged {
     pub projects: Vec<ProjectRef>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-#[tauri_specta(event_name = "project:focus-kind-changed")]
-pub struct ProjectFocusKindChanged {
-    pub project_id: ProjectId,
-    pub kind: FocusKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]

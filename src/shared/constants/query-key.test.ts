@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PROJECT_SCOPED_KEYS, QUERY_KEY } from '@shared/constants/query-key'
+import { PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 
 const SENTINEL_PROJECT_ID = 'project-1'
 
@@ -24,6 +24,13 @@ const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'LAYOUT.ALL', scopedByProject: false },
     { path: 'LAYOUT.DETAIL', scopedByProject: true, factory: QUERY_KEY.LAYOUT.DETAIL },
     { path: 'FILE.ALL', scopedByProject: false },
+    /**
+     * Keyed by a bare file path, not a `ProjectId` — `scopedByProject: false` here only means "not
+     * covered by `PROJECT_SCOPED_KEYS`'s `(projectId) => key[]` shape". Both are still project-scoped
+     * in the sense that matters (must be swept when their project closes) via the separate
+     * `PROJECT_SCOPED_PATH_KEY_PREFIXES` mechanism — see the `PROJECT_SCOPED_PATH_KEY_PREFIXES`
+     * `describe` block below.
+     */
     { path: 'FILE.CONTENT', scopedByProject: false },
     { path: 'FILE.RAW', scopedByProject: false },
     { path: 'FILE.MIRRORS', scopedByProject: true, factory: QUERY_KEY.FILE.MIRRORS },
@@ -142,5 +149,32 @@ describe('PROJECT_SCOPED_KEYS', () => {
         const hooksProjectKey = QUERY_KEY.AGENT.HOOKS_PROJECT(SENTINEL_PROJECT_ID)
         const hooksKey = QUERY_KEY.AGENT.HOOKS(SENTINEL_PROJECT_ID, 'claude')
         expect(hooksKey.slice(0, hooksProjectKey.length)).toEqual([...hooksProjectKey])
+    })
+})
+
+/**
+ * Every `QUERY_KEY` leaf whose factory takes a bare `path`/`target` (never a `ProjectId`) as its
+ * sole argument, hand-classified as project-scoped-by-path (must appear in
+ * `PROJECT_SCOPED_PATH_KEY_PREFIXES`) or not. `APP_FILE.CONTENT` keys settings/app-level content by
+ * an `AppFileTarget` (e.g. `{ kind: 'settings' }`), never a project file path, so it's excluded —
+ * closing a project must not sweep the settings screen's own cache entry.
+ */
+const PATH_KEYED_LEAF_CLASSIFICATION: { path: string; prefix: readonly [string, string] | null }[] = [
+    { path: 'FILE.CONTENT', prefix: ['file', 'content'] },
+    { path: 'FILE.RAW', prefix: ['file', 'raw'] },
+    { path: 'APP_FILE.CONTENT', prefix: null },
+]
+
+describe('PROJECT_SCOPED_PATH_KEY_PREFIXES', () => {
+    const scopedPrefixes = PATH_KEYED_LEAF_CLASSIFICATION.map((leaf) => leaf.prefix).filter((prefix) => prefix !== null)
+
+    test('분류표가 project-scoped-by-path 로 표시한 리프 전수를 포함한다 — 과소 커버리지 방지', () => {
+        expect(PROJECT_SCOPED_PATH_KEY_PREFIXES).toHaveLength(scopedPrefixes.length)
+        for (const prefix of scopedPrefixes) expect(PROJECT_SCOPED_PATH_KEY_PREFIXES).toContainEqual(prefix)
+    })
+
+    test('각 prefix 는 해당 QUERY_KEY 팩토리가 실제로 만드는 키의 앞 두 요소와 일치한다', () => {
+        expect(QUERY_KEY.FILE.CONTENT('a.ts').slice(0, 2)).toEqual(['file', 'content'])
+        expect(QUERY_KEY.FILE.RAW('a.ts').slice(0, 2)).toEqual(['file', 'raw'])
     })
 })

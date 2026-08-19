@@ -14,6 +14,7 @@ use crate::domain::tree::commands::TreeStore;
 use crate::error::AppResult;
 use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened};
 use crate::ids::ProjectId;
+use crate::infra::self_write::resolve_from_app;
 use crate::infra::watcher;
 use crate::state::AppState;
 
@@ -22,6 +23,7 @@ pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId,
     let emit_project = project_id.clone();
 
     match watcher::start_watch(std::path::PathBuf::from(root), move |change: FsChange| {
+        let change = resolve_from_app(&emit_handle.state::<AppState>().self_writes, change);
         let _ = FsChanged {
             project_id: emit_project.clone(),
             change,

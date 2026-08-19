@@ -93,7 +93,7 @@ fi
 unset _taide_rc_dir
 
 autoload -Uz add-zsh-hook
-_taide_precmd()  { print -Pn "\e]133;D;$?\e\\"; print -Pn "\e]133;A\e\\" }
+_taide_precmd()  { print -Pn "\e]133;D;$?\e\\"; print -n "\e]7;$PWD\e\\"; print -Pn "\e]133;A\e\\" }
 _taide_preexec() { print -Pn "\e]133;C\e\\" }
 add-zsh-hook precmd  _taide_precmd
 add-zsh-hook preexec _taide_preexec
@@ -122,6 +122,16 @@ rm -rf __TAIDE_TEMP_DIR__ 2>/dev/null
 /// initialization" warning; it downgrades that to a cosmetic prompt
 /// repositioning instead of a scary warning (`POWERLEVEL9K_INSTANT_PROMPT=quiet`
 /// is p10k's own documented remedy for that warning).
+///
+/// `_taide_precmd` also emits a cwd-report sequence (`\e]7;$PWD\e\\`, the same OSC 7 numeric
+/// identifier real terminals use for "current directory changed") on every prompt render, alongside
+/// the OSC 133 command markers — [`crate::infra::shell_integration::extract_latest_cwd`] scans the
+/// pty's raw output for it. `print -n` (not `-P`) is deliberate: `-P` additionally performs zsh's
+/// own `%`-escape prompt expansion, which would corrupt a `$PWD` that happens to contain a literal
+/// `%`. Deliberately **not** the real spec's `file://host/path` form with percent-encoding (X1#1,
+/// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.1's "최소 배선" — the only consumer
+/// is this module's own parser, not a real terminal emulator, so the bare path is sufficient and a
+/// path can't itself contain the ESC/BEL bytes that terminate the sequence).
 fn zsh_integration_script(temp_dir: &Path) -> String {
     ZSH_SCRIPT_TEMPLATE
         .replace("__TAIDE_ORIG_ZDOTDIR__", ORIGINAL_ZDOTDIR_ENV_VAR)
@@ -233,6 +243,7 @@ const BASH_SCRIPT_TEMPLATE: &str = r#"__TAIDE_SOURCE_BLOCK__
 _taide_prompt() {
     local taide_status=$?
     printf '\e]133;D;%s\e\\' "$taide_status"
+    printf '\e]7;%s\e\\' "$PWD"
     printf '\e]133;A\e\\'
 }
 PROMPT_COMMAND="_taide_prompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
@@ -245,7 +256,9 @@ rm -rf __TAIDE_TEMP_DIR__ 2>/dev/null
 /// Builds the `--init-file` script. Like the zsh script, the user's real
 /// config is sourced *first* and the OSC 133 hooks/markers are layered on
 /// *after*, so a `.bashrc`/`.bash_profile` that reassigns `PS1` or
-/// `PROMPT_COMMAND` outright (very common) can't clobber ours.
+/// `PROMPT_COMMAND` outright (very common) can't clobber ours. `_taide_prompt` also emits the same
+/// `\e]7;$PWD\e\\` cwd-report sequence the zsh script does — see [`zsh_integration_script`]'s doc
+/// comment for why it's a bare path rather than the real `file://host/path` OSC 7 form.
 fn bash_integration_script(temp_dir: &Path, was_login: bool) -> String {
     let source_block = if was_login {
         BASH_LOGIN_SOURCE_BLOCK
@@ -322,6 +335,51 @@ pub fn prepare(shell_override: Option<&str>) -> Option<ShellIntegrationPlan> {
 #[cfg(target_os = "windows")]
 pub fn prepare(_shell_override: Option<&str>) -> Option<ShellIntegrationPlan> {
     None
+}
+
+const OSC7_PREFIX: &[u8] = b"\x1b]7;";
+const OSC_STRING_TERMINATOR: &[u8] = b"\x1b\\";
+const OSC_BEL: u8 = 0x07;
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|window| window == needle)
+}
+
+/// Scans one chunk of raw pty output for the cwd-report sequence [`zsh_integration_script`]'s
+/// `_taide_precmd`/[`bash_integration_script`]'s `_taide_prompt` inject (`\e]7;<path>`, terminated by
+/// either the ST form `\e\\` or a bare BEL) and returns the **last** complete one found — a chunk can
+/// carry several prompt renders' worth of output batched together (`OUTPUT_BATCH_MS`/
+/// `READ_BUFFER_BYTES`), and only the most recent reflects the shell's current directory (X1#1,
+/// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.1).
+///
+/// A sequence split across two separate output chunks — the pty read loop batches on a byte/time
+/// threshold, not on escape-sequence boundaries — is simply not seen here rather than reassembled
+/// across calls (deliberate "최소 배선", not an oversight): the next `precmd`/`PROMPT_COMMAND` render
+/// normally lands whole within one chunk and reports the same cwd again, so a missed detection
+/// self-heals on the very next prompt rather than ever reporting a stale cwd.
+pub fn extract_latest_cwd(bytes: &[u8]) -> Option<String> {
+    let mut latest = None;
+    let mut search_from = 0;
+
+    while let Some(prefix_offset) = find_subslice(&bytes[search_from..], OSC7_PREFIX) {
+        let payload_start = search_from + prefix_offset + OSC7_PREFIX.len();
+        let rest = &bytes[payload_start..];
+
+        let terminator = find_subslice(rest, OSC_STRING_TERMINATOR)
+            .map(|offset| (offset, OSC_STRING_TERMINATOR.len()))
+            .or_else(|| rest.iter().position(|&byte| byte == OSC_BEL).map(|offset| (offset, 1)));
+
+        let Some((payload_len, terminator_len)) = terminator else {
+            break;
+        };
+
+        if let Ok(path) = std::str::from_utf8(&rest[..payload_len]) {
+            latest = Some(path.to_string());
+        }
+        search_from = payload_start + payload_len + terminator_len;
+    }
+
+    latest
 }
 
 #[cfg(test)]
@@ -532,6 +590,39 @@ mod tests {
         let (program, args) = plan.override_program.expect("bash는 명시적 프로그램/인자가 필요하다");
         assert_eq!(program, PathBuf::from("/bin/bash"));
         assert_eq!(args[0], "--init-file");
+    }
+
+    #[test]
+    fn extract_latest_cwd는_st_종결자로_끝나는_시퀀스를_추출한다() {
+        let output = b"$ \x1b]7;/repo/src\x1b\\prompt> ";
+        assert_eq!(extract_latest_cwd(output), Some("/repo/src".to_string()));
+    }
+
+    #[test]
+    fn extract_latest_cwd는_bel_종결자로_끝나는_시퀀스도_추출한다() {
+        let output = b"\x1b]7;/repo/src\x07prompt> ";
+        assert_eq!(extract_latest_cwd(output), Some("/repo/src".to_string()));
+    }
+
+    #[test]
+    fn extract_latest_cwd는_한_청크에_여러_개면_마지막_것을_반환한다() {
+        let output = b"\x1b]7;/repo/src\x1b\\...\x1b]7;/repo/src/utils\x1b\\";
+        assert_eq!(extract_latest_cwd(output), Some("/repo/src/utils".to_string()));
+    }
+
+    #[test]
+    fn extract_latest_cwd는_시퀀스가_없으면_none을_반환한다() {
+        assert_eq!(extract_latest_cwd(b"$ ls\r\na.rs b.rs\r\n"), None);
+    }
+
+    #[test]
+    fn extract_latest_cwd는_종결자_없이_끊긴_시퀀스는_무시한다() {
+        let output = b"\x1b]7;/repo/sr";
+        assert_eq!(
+            extract_latest_cwd(output),
+            None,
+            "청크 경계에서 잘린 시퀀스는 이번 청크에서 감지되면 안 된다"
+        );
     }
 
     #[test]

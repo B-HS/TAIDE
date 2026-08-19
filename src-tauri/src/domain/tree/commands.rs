@@ -65,7 +65,7 @@ pub async fn tree_rows(
     tree_store: State<'_, TreeStore>,
     project_id: ProjectId,
     offset: u32,
-    limit: u32,
+    limit: Option<u32>,
 ) -> AppResult<TreeRowPage> {
     let mut trees = tree_store.0.read().clone();
     let tree = ensure_entry(&mut trees, &state, &project_id)?;

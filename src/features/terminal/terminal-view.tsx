@@ -12,8 +12,10 @@ import '@xterm/xterm/css/xterm.css'
 import { INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/lib/ime-input'
 import { recordImeDebug } from '@shared/lib/ime-debug'
 import { IS_MAC } from '@shared/constants/platform'
+import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import type { CommandBlockDecorationColors } from '@features/terminal/terminal-osc133'
 import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
+import { createTerminalFileLinkProvider } from '@features/terminal/terminal-file-link'
 
 const OVERVIEW_RULER_WIDTH_PX = 14
 
@@ -50,6 +52,7 @@ export type TerminalViewProps = {
     onWriteBacklogChange: (pendingBytes: number) => void
     onFocusChange: (isFocused: boolean) => void
     onOpenLink: (uri: string) => void
+    onOpenFileLink: (match: TerminalLinkMatch) => void
     attachRef: RefObject<TerminalAttachHandle | null>
 }
 
@@ -68,6 +71,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
     onWriteBacklogChange,
     onFocusChange,
     onOpenLink,
+    onOpenFileLink,
     attachRef,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -79,6 +83,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
     const onWriteBacklogChangeRef = useRef(onWriteBacklogChange)
     const onFocusChangeRef = useRef(onFocusChange)
     const onOpenLinkRef = useRef(onOpenLink)
+    const onOpenFileLinkRef = useRef(onOpenFileLink)
     const attachRefRef = useRef(attachRef)
     const initialFontSizeRef = useRef(fontSize)
     const initialFontFamilyRef = useRef(fontFamily)
@@ -95,6 +100,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
         onWriteBacklogChangeRef.current = onWriteBacklogChange
         onFocusChangeRef.current = onFocusChange
         onOpenLinkRef.current = onOpenLink
+        onOpenFileLinkRef.current = onOpenFileLink
         attachRefRef.current = attachRef
         commandBlockColorsRef.current = { success: commandSuccessColor, failure: commandFailureColor }
     })
@@ -164,11 +170,16 @@ export const TerminalView: FC<TerminalViewProps> = ({
             if (!shouldActivateTerminalLink(event)) return
             onOpenLinkRef.current(uri)
         })
+        const fileLinkProvider = createTerminalFileLinkProvider(term, (match, event) => {
+            if (!shouldActivateTerminalLink(event)) return
+            onOpenFileLinkRef.current(match)
+        })
 
         term.loadAddon(fit)
         term.loadAddon(search)
         term.loadAddon(unicode11)
         term.loadAddon(webLinks)
+        const fileLinkDisposable = term.registerLinkProvider(fileLinkProvider)
 
         term.open(container)
         term.unicode.activeVersion = '11'
@@ -287,6 +298,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
             search.dispose()
             unicode11.dispose()
             webLinks.dispose()
+            fileLinkDisposable.dispose()
             fit.dispose()
             term.dispose()
             termRef.current = null

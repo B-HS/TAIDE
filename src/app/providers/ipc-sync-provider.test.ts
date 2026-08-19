@@ -116,3 +116,47 @@ describe('syncTreeRowsForChangedDirs', () => {
         expect(invalidated).toBe(true)
     })
 })
+
+describe('isStaleLayoutRevision', () => {
+    test('아직 관측된 적 없으면(undefined) 무엇이 와도 stale 이 아니다', async () => {
+        const { isStaleLayoutRevision } = await import('@app/providers/ipc-sync-provider')
+        expect(isStaleLayoutRevision(undefined, 1)).toBe(false)
+        expect(isStaleLayoutRevision(undefined, 0)).toBe(false)
+    })
+
+    test('마지막 관측보다 큰 revision 은 stale 이 아니다', async () => {
+        const { isStaleLayoutRevision } = await import('@app/providers/ipc-sync-provider')
+        expect(isStaleLayoutRevision(5, 6)).toBe(false)
+    })
+
+    test('마지막 관측보다 낮거나 같은 revision 은 stale 이다 (중복·역전 이벤트 무시)', async () => {
+        const { isStaleLayoutRevision } = await import('@app/providers/ipc-sync-provider')
+        expect(isStaleLayoutRevision(5, 5)).toBe(true)
+        expect(isStaleLayoutRevision(5, 4)).toBe(true)
+    })
+})
+
+describe('isQueryKeyUnderProjectRoot', () => {
+    test('FILE.CONTENT/FILE.RAW 접두사이면서 프로젝트 root 이하 경로면 true 다', async () => {
+        const { isQueryKeyUnderProjectRoot } = await import('@app/providers/ipc-sync-provider')
+        expect(isQueryKeyUnderProjectRoot(['file', 'content', '/repo/src/a.ts'], '/repo')).toBe(true)
+        expect(isQueryKeyUnderProjectRoot(['file', 'raw', '/repo/README.md'], '/repo')).toBe(true)
+        expect(isQueryKeyUnderProjectRoot(['file', 'content', '/repo'], '/repo')).toBe(true)
+    })
+
+    test('접두사가 다르면(FILE.MIRRORS 등) false 다', async () => {
+        const { isQueryKeyUnderProjectRoot } = await import('@app/providers/ipc-sync-provider')
+        expect(isQueryKeyUnderProjectRoot(['file', 'mirrors', 'project-1'], '/repo')).toBe(false)
+        expect(isQueryKeyUnderProjectRoot(['tree', 'rows', 'project-1'], '/repo')).toBe(false)
+    })
+
+    test('root 를 문자열 접두사로만 공유하는 형제 디렉토리는 false 다 (/repo-other 는 /repo 의 하위가 아니다)', async () => {
+        const { isQueryKeyUnderProjectRoot } = await import('@app/providers/ipc-sync-provider')
+        expect(isQueryKeyUnderProjectRoot(['file', 'content', '/repo-other/a.ts'], '/repo')).toBe(false)
+    })
+
+    test('path 위치가 문자열이 아니면 false 다', async () => {
+        const { isQueryKeyUnderProjectRoot } = await import('@app/providers/ipc-sync-provider')
+        expect(isQueryKeyUnderProjectRoot(['file', 'content', 42], '/repo')).toBe(false)
+    })
+})

@@ -42,6 +42,7 @@ import { useEditorGitGutterAndConflicts } from '@widgets/editor-pane/use-editor-
 import { useEditorBlame } from '@widgets/editor-pane/use-editor-blame'
 import { useEditorMarkdownPreview } from '@widgets/editor-pane/use-editor-markdown-preview'
 import { useEditorIdeSelection } from '@widgets/editor-pane/use-editor-ide-selection'
+import { useEditorViewState } from '@widgets/editor-pane/use-editor-view-state'
 import { BreadcrumbsBar } from '@widgets/editor-pane/breadcrumbs-bar'
 
 const MARKDOWN_LANGUAGE_ID = 'markdown'
@@ -200,6 +201,17 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         if (!editor || syncedContent === null || dirty) return
         queueMicrotask(syncModelOrPickUpExternalEdit)
     }, [editor, syncedContent, dirty, path])
+
+    /**
+     * Called before `consumePendingReveal` below (not with the other custom hooks up top) so an
+     * explicit navigation into an already-open tab — the one case where both this hook's first-visit
+     * restore and a pending reveal could target the same commit — always wins: `useEditorViewState`
+     * only ever restores a `tabId` once per `EditorPane` instance, and a reveal only ever targets a
+     * tab that's already open (never a first-visit-with-no-persisted-viewState tab), so the two never
+     * really collide, but this ordering is what guarantees a reveal's `editor.setPosition` is always
+     * the *last* word on the cursor position for this commit regardless.
+     */
+    useEditorViewState({ projectId, tabId, editor })
 
     useEffect(() => {
         if (!editor) return

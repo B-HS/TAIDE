@@ -198,36 +198,6 @@ pub struct ClosedTab {
     pub index: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum FocusKind {
-    File,
-    Terminal,
-    Settings,
-    Diff,
-    ClaudeDiff,
-    Welcome,
-    Untitled,
-    SearchEditor,
-    AppFile,
-}
-
-impl From<&TabKind> for FocusKind {
-    fn from(value: &TabKind) -> Self {
-        match value {
-            TabKind::File { .. } => FocusKind::File,
-            TabKind::Terminal { .. } => FocusKind::Terminal,
-            TabKind::Settings => FocusKind::Settings,
-            TabKind::Diff { .. } => FocusKind::Diff,
-            TabKind::ClaudeDiff { .. } => FocusKind::ClaudeDiff,
-            TabKind::Welcome => FocusKind::Welcome,
-            TabKind::Untitled { .. } => FocusKind::Untitled,
-            TabKind::SearchEditor { .. } => FocusKind::SearchEditor,
-            TabKind::AppFile { .. } => FocusKind::AppFile,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

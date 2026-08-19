@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
@@ -13,10 +13,11 @@ use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROL
 use crate::domain::ide::commands::IdeStore;
 use crate::domain::ide::types::{IdeStatus, CLAUDE_CODE_SSE_PORT_ENV, IDE_READY_WAIT_MS};
 use crate::error::{AppError, AppResult};
-use crate::events::TerminalExited;
+use crate::events::{TerminalCwdChanged, TerminalExited};
 use crate::ids::ProjectId;
 use crate::infra::pty;
 use crate::infra::root_guard::ensure_within_root;
+use crate::infra::shell_integration;
 use crate::state::AppState;
 
 /// Subscriber list entries — a subscription id (`pty_attach`'s return value, consumed by
@@ -121,6 +122,33 @@ fn broadcast_output(subscribers: &Mutex<PtySubscribers>, bytes: &[u8]) {
         .retain(|(_, channel)| channel.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok());
 }
 
+/// Applies one pty output chunk's detected cwd-report (`infra::shell_integration::
+/// extract_latest_cwd`) to `session_id`'s [`SessionEntry::cwd`], emitting [`TerminalCwdChanged`] only
+/// when it actually differs from the last known value — `precmd`/`PROMPT_COMMAND` fire on every
+/// prompt render, not just after `cd`, so without this check the renderer would get one event per
+/// command instead of one per genuine directory change. A `session_id` not yet present in
+/// `TerminalStore` (the pty reader thread can start delivering output before `pty_spawn`'s own
+/// `store.0.lock().insert` below runs) is a silent no-op — the entry starts with its correct
+/// spawn-time cwd anyway, so nothing is lost, only a redundant early report skipped.
+fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
+    let store = app.state::<TerminalStore>();
+    let mut sessions = store.0.lock();
+    let Some(entry) = sessions.get_mut(session_id) else {
+        return;
+    };
+    if entry.cwd == cwd {
+        return;
+    }
+    entry.cwd = cwd.clone();
+    drop(sessions);
+
+    let _ = TerminalCwdChanged {
+        session_id: session_id.to_string(),
+        cwd,
+    }
+    .emit(app);
+}
+
 fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
     if state.projects.read().contains_key(project_id) {
         return Ok(());
@@ -188,6 +216,9 @@ pub async fn pty_spawn(
     let exit_session_id = session_id.clone();
     let exit_running = running.clone();
 
+    let cwd_app = app.clone();
+    let cwd_session_id = session_id.clone();
+
     let config = pty::PtySpawnConfig {
         shell: opts.shell.clone(),
         cwd: opts.cwd.clone(),
@@ -201,6 +232,9 @@ pub async fn pty_spawn(
         move |bytes| {
             service::ring_buffer_append(&mut ring_for_data.lock(), bytes, DEFAULT_SCROLLBACK_BYTES);
             broadcast_output(&subscribers_for_data, bytes);
+            if let Some(cwd) = shell_integration::extract_latest_cwd(bytes) {
+                report_cwd_change(&cwd_app, &cwd_session_id, cwd);
+            }
         },
         move |code| {
             exit_running.store(false, Ordering::SeqCst);

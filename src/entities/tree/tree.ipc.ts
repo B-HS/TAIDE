@@ -2,7 +2,7 @@ import { commands } from '@shared/api/bindings'
 import type { ProjectId } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
-export const getTreeRows = (input: { projectId: ProjectId; offset: number; limit: number }) =>
+export const getTreeRows = (input: { projectId: ProjectId; offset: number; limit: number | null }) =>
     unwrapResult(commands.treeRows(input.projectId, input.offset, input.limit))
 
 export const toggleTreeNode = (input: { projectId: ProjectId; path: string }) => unwrapResult(commands.treeToggle(input.projectId, input.path))

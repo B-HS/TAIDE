@@ -172,12 +172,19 @@ pub fn flatten(state: &TreeState) -> Vec<TreeRow> {
     rows
 }
 
-pub fn rows_page(state: &TreeState, offset: u32, limit: u32) -> TreeRowPage {
+/// `limit: None` returns every remaining row from `offset` onward — the caller-side "give me the
+/// whole tree" case (`docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.3(7)), which used
+/// to be spelled as a `u32::MAX` sentinel (`TREE_ROWS_UNBOUNDED_LIMIT` on the frontend) instead of a
+/// real "no limit" value.
+pub fn rows_page(state: &TreeState, offset: u32, limit: Option<u32>) -> TreeRowPage {
     let rows = flatten(state);
     let total = rows.len() as u32;
 
     let start = (offset as usize).min(rows.len());
-    let end = start.saturating_add(limit as usize).min(rows.len());
+    let end = match limit {
+        Some(limit) => start.saturating_add(limit as usize).min(rows.len()),
+        None => rows.len(),
+    };
 
     TreeRowPage {
         rows: rows[start..end].to_vec(),
@@ -294,16 +301,31 @@ mod tests {
         let mut state = new_tree_state(fixture.root.clone());
         ensure_root_loaded(&mut state).unwrap();
 
-        let page = rows_page(&state, 0, 2);
+        let page = rows_page(&state, 0, Some(2));
         assert_eq!(page.rows.len(), 2);
         assert_eq!(page.total, 3);
 
-        let overflow_page = rows_page(&state, 10, 5);
+        let overflow_page = rows_page(&state, 10, Some(5));
         assert!(overflow_page.rows.is_empty());
         assert_eq!(overflow_page.total, 3);
 
-        let clipped_page = rows_page(&state, 2, 10);
+        let clipped_page = rows_page(&state, 2, Some(10));
         assert_eq!(clipped_page.rows.len(), 1);
+    }
+
+    #[test]
+    fn rows_page_는_limit이_none이면_offset_이후_전체를_반환한다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        ensure_root_loaded(&mut state).unwrap();
+
+        let page = rows_page(&state, 0, None);
+        assert_eq!(page.rows.len(), 3);
+        assert_eq!(page.total, 3);
+
+        let offset_page = rows_page(&state, 1, None);
+        assert_eq!(offset_page.rows.len(), 2);
+        assert_eq!(offset_page.total, 3);
     }
 
     #[test]
