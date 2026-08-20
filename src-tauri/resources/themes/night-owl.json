@@ -135,7 +135,7 @@
         "button.primaryBackground": "#7e57c2cc",
         "button.primaryForeground": "#ffffffcc",
         "list.background": "#011627",
-        "list.hoverBackground": "#011627",
+        "list.hoverBackground": "#2A2D2E",
         "list.activeBackground": "#234d708c",
         "list.foreground": "#89a4bb"
     },

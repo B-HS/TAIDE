@@ -987,6 +987,20 @@ mod tests {
         std::env::temp_dir().join(format!("taide-theme-{name}-{}", uuid::Uuid::new_v4()))
     }
 
+    /// Normalizes a theme color string for defect-lint comparison: lowercases and pads a bare
+    /// 6-digit hex to 8 digits with a full-opacity `ff` alpha so `#04395E` and `#04395eff` compare
+    /// equal. An explicit non-`ff` alpha (e.g. `#47526640`) is preserved rather than stripped, so a
+    /// translucent overlay never normalizes down to the same string as its opaque RGB — alpha is a
+    /// real part of what makes two list-row backgrounds visually distinguishable, not noise to
+    /// discard before comparing (docs/acknowledge/2026-08-20-theme-list-colors-contract.md).
+    fn normalize_hex_color(value: &str) -> String {
+        let trimmed = value.trim().trim_start_matches('#').to_ascii_lowercase();
+        match trimmed.len() {
+            6 => format!("{trimmed}ff"),
+            _ => trimmed,
+        }
+    }
+
     #[test]
     fn 내장_테마_아이디로는_저장할_수_없다() {
         let dir = std::env::temp_dir().join(format!("taide-theme-save-{}", uuid::Uuid::new_v4()));
@@ -1248,6 +1262,47 @@ mod tests {
                 theme.id
             );
         }
+    }
+
+    /// Themes legitimately exempt from `번들_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다`,
+    /// with the reason each is a deliberate design choice rather than a reintroduction of
+    /// `docs/acknowledge/2026-08-20-theme-list-colors-contract.md`'s defect. Empty today — every
+    /// bundled theme satisfies the invariant on its own resolved colors after that contract's fix.
+    const LIST_ACTIVE_BACKGROUND_LINT_EXEMPTIONS: &[(&str, &str)] = &[];
+
+    #[test]
+    fn 번들_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다() {
+        let mut violations = Vec::new();
+
+        for theme in bundled_themes() {
+            if LIST_ACTIVE_BACKGROUND_LINT_EXEMPTIONS.iter().any(|(id, _)| *id == theme.id) {
+                continue;
+            }
+
+            let active_raw = theme.colors.get("list.activeBackground");
+            let panel = theme.colors.get("panel.background").map(|value| normalize_hex_color(value));
+            let hover = theme.colors.get("list.hoverBackground").map(|value| normalize_hex_color(value));
+            let active = active_raw.map(|value| normalize_hex_color(value));
+
+            if active == panel {
+                violations.push(format!(
+                    "'{}': list.activeBackground({active_raw:?}) == panel.background — the selected row would render invisible",
+                    theme.id
+                ));
+            }
+            if active == hover {
+                violations.push(format!(
+                    "'{}': list.activeBackground({active_raw:?}) == list.hoverBackground — the active selection can't be told apart from a mere hover",
+                    theme.id
+                ));
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "list color defects in bundled themes:\n{}",
+            violations.join("\n")
+        );
     }
 
     #[test]

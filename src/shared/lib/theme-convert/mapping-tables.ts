@@ -586,8 +586,34 @@ export const COLOR_MAPPING: ColorMappingEntry[] = [
     chain('button.primaryForeground', 'foreground', ['button.foreground']),
 
     chain('list.background', 'background', ['sideBar.background']),
-    chain('list.hoverBackground', 'background', ['list.hoverBackground']),
-    chain('list.activeBackground', 'background', ['list.activeSelectionBackground']),
+    /**
+     * `list.hoverBackground`/`list.activeBackground` used to be plain `chain()` entries, so an
+     * unusable source value (omitted, alpha 00, or identical to the row background) fell through
+     * to the generic same-family fallback (`editor.background` — see {@link FAMILY_FALLBACK_SOURCE_KEYS})
+     * instead of {@link VSCODE_LIST_HOVER_BACKGROUND_DEFAULT}/{@link VSCODE_LIST_ACTIVE_SELECTION_BACKGROUND_DEFAULT},
+     * landing on the same color as `list.background`/`panel.background` and rendering the row
+     * completely unselectable-looking — the exact bug `explorer.itemHover`/`explorer.itemSelected`
+     * already guard against with {@link isUsableListBackground} a few lines above. `derived()` now
+     * applies that same guard here. `list.activeBackground` additionally checks itself against the
+     * already-resolved `list.hoverBackground` (not just the row background): several themes
+     * (ayu, gruvbox, night-owl-light, one-dark-pro, vitesse) define `list.activeSelectionBackground`
+     * identical to their own `list.hoverBackground`, which is a legitimate one-color hover/selection
+     * design upstream but leaves TAIDE's focused-selection state visually indistinguishable from a
+     * transient mouse hover — VS Code convention expects the active selection to read as the
+     * stronger of the two. See `docs/acknowledge/2026-08-20-theme-list-colors-contract.md`.
+     */
+    derived('list.hoverBackground', 'background', (ctx) => {
+        const candidate = ctx.vscodeColors['list.hoverBackground']
+        const background = ctx.resolved['list.background']
+        return isUsableListBackground(candidate, background) ? candidate : VSCODE_LIST_HOVER_BACKGROUND_DEFAULT[ctx.type]
+    }),
+    derived('list.activeBackground', 'background', (ctx) => {
+        const candidate = ctx.vscodeColors['list.activeSelectionBackground']
+        const background = ctx.resolved['list.background']
+        const hover = ctx.resolved['list.hoverBackground']
+        const usable = isUsableListBackground(candidate, background) && isUsableListBackground(candidate, hover)
+        return usable ? candidate : VSCODE_LIST_ACTIVE_SELECTION_BACKGROUND_DEFAULT[ctx.type]
+    }),
     chain('list.foreground', 'foreground', ['sideBar.foreground', 'foreground']),
 ]
 

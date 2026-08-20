@@ -136,7 +136,7 @@
         "button.primaryForeground": "#7e4b01",
         "list.background": "#f8f9fa",
         "list.hoverBackground": "#6b7d8f24",
-        "list.activeBackground": "#6b7d8f24",
+        "list.activeBackground": "#ADD6FF",
         "list.foreground": "#828e9f"
     },
     "syntax": {
