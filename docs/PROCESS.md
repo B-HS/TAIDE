@@ -826,11 +826,20 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
     - [ ] d-25. 부팅 워처 attach 후절화(Rust) — **d-26 완료 후**(사용자 가시 UX 우선·Rust 는
           앱 재시작 수반이라 최후순). 진단 wf_14010876-849 rank 1: setup() 동기 전수 워크를
           창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
-    - [ ] d-26. ⌘P 퀵오픈 UX 정비 — 사용자 실기 보고 3건(방향키 선택·상대 경로 부제·매칭
-          하이라이트). 계약 `docs/acknowledge/2026-08-20-palette-ux-contract.md`(메인 실사:
-          ③ 데이터 기존재 — fuzzyMatch indices 미렌더 / ② toRelativePath 기존재·매칭 대상이
-          절대 경로 전체인 근원 동거 / ① 후보 서열 — 선택 스타일 대비 비가시(1순위) vs cmdk
-          미동작(2순위)). **d-24 검토 반영 완료 후 착수**(동일 트리 순차)
+    - [ ] d-26. ⌘P 퀵오픈 UX 정비 — 구현 커밋 `e8ab133`(선택 하이라이트 가시화·2단 렌더·
+          매칭 강조·상대경로 매칭). 원인 판정: 선택은 동작 중·표시 비가시(대비 1.40:1) —
+          사용자 실기로 "작동은 하나봐" 확증. **Phase E 검토 진행 중**(wf_7d708316-375).
+          계약 `2026-08-20-palette-ux-contract.md` §3
+    - [ ] d-26b. 번들 테마 list 색 결함 — 사용자 "여전히 안보임·색상코드 확인" 적중: 코드
+          정상(twMerge 병합 실측)·**테마 데이터 결함**(darcula 가 hover/active/panel 전부
+          #242424). 전 번들 스윕 12/36 결함(삼중 동일 2·active==panel 1·hover==panel 1·
+          active==hover 8). 계약 `2026-08-20-theme-list-colors-contract.md`. **구현 진행 중**
+          (wf_cb2bb385-62c — 업스트림 충실 값 정정+Rust 데이터 린트). include_str! 라 Rust
+          재빌드 = dev 앱 재시작 수반
+    - [ ] d-27. Welcome 페이지 확충 — 사용자 요청(파일/폴더 열기·최근 프로젝트 활성 전환·
+          꾸미기). 계약 `2026-08-20-welcome-page-contract.md`(실사: WelcomeScreen 기존재·
+          recentProjects=[] 하드코딩 배선 부재·last_opened_at 스키마 부재 → Rust 필드+신규
+          커맨드 project_list_recent(DENIED 추천) 표면 추가). **d-26/26b 완결 후 착수**
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
