@@ -789,15 +789,28 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           아닌 already-handled(T1-B) 재판정, 기각 8 사유 기록) → 메인 2차(스팟+verify·vite
           직접 exit 0, bun 1384·bindings 무변경). 로케일 776→779키×3. 이월: 계약 §5.4(레인
           토큰 열거 2곳 미보증·aria-controls 배선·APG keyup 이원화·terminal.ts 잔여 중복 등)
-    - [ ] d-22. **실기 사건 2건(2026-08-20 사용자 보고) — 진행 중**: ① 새 파일 열기 시 빈 창
-          (콘솔 실측: monaco `AbstractContextKeyService has been disposed` — <EditorArea> 커밋
-          단계 + ErrorBoundary 전무로 루트 언마운트. 로그 "web content process terminated" 는
-          tauri-runtime-wry 2.11.4 의 생성 시 로그 버그로 무관 판명) ② 초기 기동 ~5초(광역
-          진단 wf_14010876-849: dev 한정 monaco 1,331 모듈 eager 로드 2~4초 + setup() 동기
-          워처 전수 워크 — 4배치 무혐의·기존 코드 유래. 원문 스크래치패드
-          incident-broad-diagnosis.json). ① 의 정확한 던지는 지점은 표적 진단
-          wf_f99903ef-499(fable+high, 1차 API 500 → 재기동) 진행 중 — 확정 후 근본 수정+
-          ErrorBoundary 방어층 계약 제안 예정. **T2-D/F/G prod 병합은 원인 배치 확정까지 보류**
+    - [x] d-22. **실기 사건 ① 빈 창 크래시 — 수정 완결(커밋 4건·실기 확증 대기)**. 계약
+          `docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md`(§1 원인·§5 구현·§7 잔존
+          수정 — 전 과정 기록 정본). 원인 확정 사슬: eecb493(T0)의 [tabId, editor] 재등록
+          effect 가 캐시 미스 커밋에서 dispose 된 구 에디터를 새 tabId 로 registry 등록 +
+          git-gutter addAction 2 effect 가 시체의 _actions 를 무가드 재충전(monaco
+          standaloneCodeEditor addAction 무가드 — 재조정 wf_fd1c5cf8-472 confirmed·메인 소스
+          직독 검증) → getSupportedActions→isSupported→contextMatchesRules throw →
+          ErrorBoundary 전무로 루트 언마운트. 로그 "web content process terminated" 는
+          tauri-runtime-wry 2.11.4 생성 시 로그 버그(무관). 수정: `5822b85`(docs 계약)+
+          `0f7b07b`(fix 렌더 중 조정 — resolveEditorStateForRender)+`2c8f0e5`(fix 잔존 경로 —
+          프리뷰 분기 CodeEditor fiber 고정·사슬 고정 테스트)+`160871d`(fix 검토 반영 —
+          프리뷰 off overflow 클리핑 복원(검토 confirmed major)·defaultSize 정리·기록 정직성).
+          검토 2회전: 1차 17발견(major 1 refuted → 재조정으로 **전복** — addAction 재충전
+          고리)·2차 17발견(major 1 confirmed — overflow 클리핑). 진단·검토 원문 스크래치패드
+          7종 보존. **실기 확증(사용자) 대기**: 새 파일 연속 열기 + .md 프리뷰 on 상태 캐시 탭
+          전환 + hover 위젯 브레드크럼 위 표시. T2-D/F/G 는 원인 무관 확정으로 병합 완료
+          (main=4c4d6ce 시점)
+    - [ ] d-23. 실기 사건 ② 초기 기동 ~5초 — 진단 완료·수정 배치 결정 대기. 광역 진단
+          wf_14010876-849: dev 한정 monaco 1,331 모듈 eager 로드(2~4초) + setup() 동기 워처
+          전수 워크(복원 프로젝트 RESUME 15,320파일 — 기존 코드 유래·4배치 무혐의). reveal
+          게이트·T2-I warm·keyring·11111 프로브는 무혐의 판정. 결정 패키지(ErrorBoundary·부팅
+          수정 배치·registry 등록 소유권 — 계약 §6) 상신 후 진행
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
