@@ -811,11 +811,18 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           ErrorBoundary A안(영역 경계+전체 폴백) ② 부팅 워처 후절화 A안(별도 Rust 배치 —
           앱 재시작 수반이라 후순) ③ registry 소유권 A안(CodeEditor 생명주기 이관).
           편성: d-24 = ①+③ 통합(TS)·d-25 = ②(Rust)
-    - [ ] d-24. 크래시 클래스 봉인 + ErrorBoundary — **진행 중**. 계약
-          `docs/acknowledge/2026-08-20-crash-class-seal-contract.md`. registry 등록을
-          CodeEditor 생명주기로 이관(불변식 "registry ≡ live" 구조 강제·기존 방어 2종 유지)
-          + shared/ui ErrorBoundary(영역 단위: EditorArea·사이드바 등 실사 배치 + 루트 폴백·
-          로케일 경유·재시도 재마운트). 구현→4렌즈→적대적→수정→메인 2차→커밋→병합
+    - [x] d-24. 크래시 클래스 봉인 + ErrorBoundary + 1px 정렬 — **완결·병합**(main=2120e8f).
+          계약 `docs/acknowledge/2026-08-20-crash-class-seal-contract.md`(§3 구현·§4 검토 반영).
+          커밋: `1315366`(계약)+`950ade0`(feat 구현)+`2120e8f`(fix 검토 반영). registry 등록
+          CodeEditor 이관(+검토 반영: unregister-before-dispose 로 간극 자체 제거·리스너 격리)·
+          ErrorBoundary 6곳(+검토 반영: 부팅 크래시 폴백 가시성 onCaught·영역별
+          fallbackSizeClassName·falsy throw·포커스 이관·defaultValue)·사이드바(files)+git 패널
+          헤더 1px 정렬. E 검토 26발견(critical 1·major 2) 적대적 **confirmed 4·refuted 0**
+          전건 수정 + minor 실질 전량(eslint shared/ui ignore 축소 편입 포함). 특기: 구현이
+          react-dom 소스로 계약 전제(cleanup 역순) 오류를 정정 / **이중 워크플로 사고**(메인이
+          빈 산출 파일=사망 오판 → 재개 이중 기동, 두 에이전트 상호 감지·분담 병합으로 무사고
+          — 교훈: 완료 판정은 태스크 통지 기준, 산출 파일 존재로 판정 금지). 검증 bun 1408·
+          cargo 1080·bindings 무변경. 실기 이월: 영역 크래시 폴백·재시도(인위 재현)
     - [ ] d-25. 부팅 워처 attach 후절화(Rust) — **d-26 완료 후**(사용자 가시 UX 우선·Rust 는
           앱 재시작 수반이라 최후순). 진단 wf_14010876-849 rank 1: setup() 동기 전수 워크를
           창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
