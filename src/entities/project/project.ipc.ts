@@ -4,6 +4,8 @@ import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const listProjects = () => unwrapResult(commands.projectList())
 
+export const listRecentProjects = () => unwrapResult(commands.projectListRecent())
+
 export const getProject = (projectId: ProjectId) => unwrapResult(commands.projectGet(projectId))
 
 export const getActiveProjectId = () => unwrapResult(commands.projectGetActive())

@@ -4,17 +4,20 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
-> **실측(2026-08-19, X-A 배선 배치 반영)**: command **176종** — `src/shared/api/bindings.ts` 의
-> `__TAURI_INVOKE("...")` 전수(raw 3종 제외) = `src-tauri/src/domain/remote/dispatch.rs` 의
-> `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히 일치(파리티 테스트
-> `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제). raw 채널 커맨드 3종(specta 밖,
-> 아래 "raw 커맨드" 절)까지 합치면 총 **179종**. event 는 **23종**(`src-tauri/src/events.rs` 의
-> `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이 179종을
-> `REMOTE_ALLOWED_COMMANDS`(160) ⊎ `REMOTE_DENIED_COMMANDS`(19) 로 완전 분할한다(§원격 dispatch 정책).
-> X-A 배치가 중복 커맨드 5종(`ide_start`/`ide_stop`/`remote_start`/`remote_stop`/
-> `window_open_auxiliary`)을 제거하고 신규 커맨드 1종(`lsp_report_reinitialize_failure`)을 더해
-> 180 → 176 이 됐다(§"X-A 배선 + 소규모 잔여 청소 배치" 절 참조). 이전 실측(180/183/25/163/20)은
-> 그 절 이전 상태다.
+> **실측(2026-08-20, d-27 Welcome 확충 배치 반영)**: command **177종** —
+> `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수(raw 3종 제외) =
+> `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히
+> 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제). raw 채널
+> 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **180종**. event 는 **23종**
+> (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이
+> 180종을 `REMOTE_ALLOWED_COMMANDS`(160) ⊎ `REMOTE_DENIED_COMMANDS`(20) 로 완전 분할한다(§원격
+> dispatch 정책). d-27 배치가 신규 커맨드 1종(`project_list_recent` — 프로젝트 영속 기록 전수 조회,
+> Welcome 화면 "최근 프로젝트" 전용)을 더해 176 → **177** 이 됐다(허용/거부 분할은 신규 커맨드가
+> `REMOTE_DENIED_COMMANDS` 로만 등재돼 `REMOTE_ALLOWED_COMMANDS` 는 160종 그대로,
+> `REMOTE_DENIED_COMMANDS` 만 19 → **20** 이 됐다). X-A 배치가 중복 커맨드 5종(`ide_start`/
+> `ide_stop`/`remote_start`/`remote_stop`/`window_open_auxiliary`)을 제거하고 신규 커맨드 1종
+> (`lsp_report_reinitialize_failure`)을 더해 180 → 176 이 됐던 것이 d-27 이전 상태다(§"X-A 배선 +
+> 소규모 잔여 청소 배치" 절 참조). 그 이전 실측(180/183/25/163/20)은 더 앞선 상태다.
 
 ## 1. 공통 규칙
 
@@ -64,7 +67,18 @@
 - query: `project_list`, `project_get`, `project_get_active`
   (`project_get_active` 는 구현 중 추가 — 부팅 시 view 가 활성 프로젝트를 알 방법이 없었다.
   `project:activated` 이벤트는 전환 시점에만 오므로 초기 조회용 query 가 별도로 필요하다.)
+- query(신규, d-27): `project_list_recent() → Project[]` — 영속 프로젝트 기록 전수(현재 세션에
+  열려 있지 않은 프로젝트 포함)를 `last_opened_at` 내림차순으로 반환한다. `project_list`(현재
+  세션의 `ProjectRef[]`만)와 달리 디스크의 `projects/<id>/project.json` 전부를 훑고, 루트가 사라진
+  기록은 `rootMissing: true` 로 포함한다(제외하지 않는다). Welcome 화면 "최근 프로젝트" 목록
+  전용이며 **원격 dispatch 는 거부**(§"원격 dispatch 정책" 참조, `RemoteDenialPolicy::
+  LocalProjectHistoryExposure`) — `project_list`는 원격 허용인 것과 대조적으로, 닫혀 있어 원격
+  세션이 알 필요 없는 로컬 프로젝트 히스토리까지 노출하기 때문이다.
 - mutation: `project_open(path)`, `project_close(id)`, `project_activate(id)`, `project_reorder(ids)`
+  — `project_open`(재열기 포함)·`project_activate` 는 대상 `Project.last_opened_at`(밀리초
+  epoch, IPC 시간 규칙)을 갱신하고 `project.json` 에 영속화한다(d-27, `Project` 타입 자체가
+  `#[serde(default)]` 로 이 필드를 얻었으므로 IPC 시그니처는 무변경 — 반환 타입 `Project` 안의
+  필드 하나가 늘었을 뿐이다).
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`
   (**`project:focus-kind-changed` 는 X-A 배치(2026-08-19)에서 제거됐다** — 소비자가 0 이면서
   레이아웃 변이 18종마다 무조건 발행돼 이벤트 트래픽만 2배로 만들었다(X1#12,
@@ -876,14 +890,14 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 뒤집혔다. **정책(어떤 커맨드가 허용/거부인지)은 이 배치에서 전혀 바뀌지 않았다** — 바뀐 것은
 > 강제 메커니즘뿐이다: 이전에는 새 `match` arm 을 추가하기만 하면 그 커맨드가 자동으로 원격
 > 허용됐다(무증상 위험). 이제는 `src-tauri/src/domain/remote/dispatch.rs` 의
-> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 160종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 19종) **둘 중
+> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 160종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 20종) **둘 중
 > 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를 실핸들러로 위임한다 — 등재를
 > 잊으면 `RemoteDenialPolicy::Unclassified` 로 즉시 거부되고, 완전 분할 파리티 테스트
 > (`허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다`)가 등재 누락 자체를
 > 컴파일 타임이 아니라 테스트 실패로 잡는다(두 테이블의 합집합이 전체 커맨드 집합과 정확히 같아야
 > 하고, 교집합은 0이어야 한다).
 >
-> 전체 커맨드 집합(179종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(176종, specta/JSON 경로 —
+> 전체 커맨드 집합(180종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(177종, specta/JSON 경로 —
 > 파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 `bindings.ts` 와 강제
 > 일치시킨다) + `lib.rs` 의 `RAW_CHANNEL_COMMANDS`(3종 — `pty_spawn`/`pty_attach`/`file_read_raw`,
 > collect_commands! 등록은 되지만 specta 핸들러를 우회하는 raw 채널). `REMOTE_ALLOWED_COMMANDS` 는
@@ -908,7 +922,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `theme_delete`·`snippet_save`/`snippet_delete`·`git_init`·`pty_spawn`/`pty_attach`/`file_read_raw`
   (raw 채널 3종 — 아래 "raw 커맨드" 절 참조). `remote_start`/`remote_stop` 은 X-A 배치(2026-08-19)에서
   커맨드 자체가 제거돼 이 목록에서도 빠졌다(§"remote" 절 참조).
-- **명시 거부(`REMOTE_DENIED_COMMANDS`, 19종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
+- **명시 거부(`REMOTE_DENIED_COMMANDS`, 20종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
   않고 즉시 `AppError::Forbidden` 을 반환한다. `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해
   그대로 남아 있다. 각 항목은 `RemoteDenialPolicy` enum 값 하나로 분류되고(같은 분류를 공유하는
   커맨드는 응답 메시지 문구도 공유한다 — 거부 여부·의미는 그대로, 문구만 변형별로 통합), 이전에는
@@ -923,6 +937,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | `/usr/local/bin` 심링크·`osascript` 로 데스크톱 CLI 진입점을 설치/관리한다 — 원격 세션 종료 후에도 남는 CLI 실행 백도어가 되며(권한 프롬프트 불가시성은 부수 사유), `agent_hooks_install` User 스코프와 동일 분류(T0 감사 #12·#13, 2026-08-18) |
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
   | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
+  | `project_list_recent` | `LocalProjectHistoryExposure` | 현재 세션에 열려 있지 않은 프로젝트를 포함해 디스크의 영속 프로젝트 기록 전수를 반환한다 — Welcome 화면 "최근 프로젝트" 전용 로컬 조회이며, `project_list`(현재 열린 세션만 노출)보다 넓게 로컬 파일시스템 경로/이름을 드러내므로 원격 세션에는 불필요·부적절하다(d-27) |
 
 - **스코프 조건부 거부(`REMOTE_ALLOWED_COMMANDS` 소속, `match` arm 내부에서 분기, 1종)**:
   `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가 결정하는 스코프에 따라

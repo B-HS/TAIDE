@@ -472,6 +472,7 @@ mod tests {
                 name: "project".to_string(),
                 capabilities: Vec::new(),
                 root_missing: false,
+                last_opened_at: 0.0,
             },
         );
         projects

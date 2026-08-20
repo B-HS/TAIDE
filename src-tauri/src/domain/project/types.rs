@@ -23,7 +23,7 @@ pub struct ProjectRef {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: ProjectId,
@@ -33,6 +33,13 @@ pub struct Project {
     pub capabilities: Vec<CapabilityKind>,
     #[serde(default)]
     pub root_missing: bool,
+    /// Epoch milliseconds this project was last opened or activated (IPC time-field convention —
+    /// see `docs/ipc-contract.md`'s `f64` epoch-ms fields). `#[serde(default)]` reads a pre-d-27
+    /// project record (no such field on disk) as `0.0`, so it sorts last in
+    /// `service::list_recent_projects` rather than failing to parse — a decorative field earning
+    /// its default rather than a migration (contract §1.3).
+    #[serde(default)]
+    pub last_opened_at: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

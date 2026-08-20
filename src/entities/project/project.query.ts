@@ -7,11 +7,21 @@ import {
     getActiveProjectId,
     getProject,
     listProjects,
+    listRecentProjects,
     openProject,
     reorderProjects,
 } from '@entities/project/project.ipc'
 
 export const projectListQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.PROJECT.LIST, queryFn: listProjects })
+
+/**
+ * The Welcome screen's "recent projects" source — every persisted project record on this desktop
+ * (not only the currently-open ones `projectListQueryOptions` returns), most-recently-opened
+ * first. Covered by `QUERY_KEY.PROJECT.ALL`'s prefix, so `useOpenProject`/`useActivateProject`'s
+ * existing `invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })` already refreshes this list —
+ * no additional invalidation wiring needed.
+ */
+export const recentProjectsQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.PROJECT.RECENT, queryFn: listRecentProjects })
 
 export const activeProjectQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.PROJECT.ACTIVE, queryFn: getActiveProjectId })
 

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use specta::Type;
@@ -13,6 +14,17 @@ use super::types::{CapabilityKind, Project, ProjectRef, SessionState};
 
 const BACKUP_SUFFIX: &str = ".bak";
 const PROJECTS_DIR_NAME: &str = "projects";
+const MS_PER_SECOND: f64 = 1_000.0;
+
+/// Epoch milliseconds "now", for `Project.last_opened_at` (IPC time-field convention). Falls back
+/// to `0.0` on a clock error (pre-1970 system clock) rather than panicking — the same stance
+/// `domain::file::service::now_epoch_ms` takes for its own `saved_at_ms`/`modified_ms` fields.
+fn now_epoch_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64() * MS_PER_SECOND)
+        .unwrap_or(0.0)
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -58,8 +70,11 @@ pub fn open_project(
     let root_str = canonical.to_string_lossy().to_string();
 
     if let Some(existing) = projects.values().find(|project| project.root == root_str) {
-        let existing = existing.clone();
+        let mut existing = existing.clone();
+        existing.last_opened_at = now_epoch_ms();
+        projects.insert(existing.id.clone(), existing.clone());
         session.active_project = Some(existing.id.clone());
+        save_project(paths, &existing)?;
         save_session(paths, session)?;
         return Ok(ProjectOpenResult {
             project: existing,
@@ -82,6 +97,7 @@ pub fn open_project(
         name,
         capabilities,
         root_missing: false,
+        last_opened_at: now_epoch_ms(),
     };
 
     projects.insert(id, project.clone());
@@ -111,11 +127,24 @@ pub fn close_project(
     save_session(paths, session)
 }
 
-pub fn activate_project(paths: &AppPaths, session: &mut SessionState, project_id: &ProjectId) -> AppResult<()> {
+/// Activates `project_id` (must already be open in `session`) and, when its `Project` record is
+/// present in `projects`, stamps `last_opened_at` and persists it — mirrors `open_project`'s
+/// re-open branch so a mere pane-switch back to an already-open project also counts toward the
+/// Welcome screen's "recent" ordering (contract §1.1), not only a fresh `project_open` call.
+pub fn activate_project(
+    paths: &AppPaths,
+    session: &mut SessionState,
+    projects: &mut HashMap<ProjectId, Project>,
+    project_id: &ProjectId,
+) -> AppResult<()> {
     if !session.projects.iter().any(|reference| &reference.id == project_id) {
         return Err(AppError::NotFound(format!("project not open: {project_id}")));
     }
     session.active_project = Some(project_id.clone());
+    if let Some(project) = projects.get_mut(project_id) {
+        project.last_opened_at = now_epoch_ms();
+        save_project(paths, project)?;
+    }
     save_session(paths, session)
 }
 
@@ -213,6 +242,7 @@ pub fn restore_session(paths: &AppPaths) -> AppResult<(SessionState, Vec<Project
             name: reference.name.clone(),
             capabilities: Vec::new(),
             root_missing: false,
+            last_opened_at: 0.0,
         });
 
         project.root_missing = !Path::new(&project.root).is_dir();
@@ -235,20 +265,53 @@ fn upsert_project_ref(session: &mut SessionState, project: &Project) {
     }
 }
 
-fn find_existing_project_id(paths: &AppPaths, root: &str) -> AppResult<Option<ProjectId>> {
+/// Every project id with a persisted record under `paths.data_dir/projects/` — the full on-disk
+/// history, independent of which projects (if any) are currently open in `SessionState`. Shared by
+/// `find_existing_project_id` (id-reuse lookup by root) and `list_recent_projects` (the Welcome
+/// screen's full history listing), so both read the exact same directory-listing rule.
+fn iter_project_ids(paths: &AppPaths) -> AppResult<Vec<ProjectId>> {
     let projects_root = paths.data_dir.join(PROJECTS_DIR_NAME);
     let entries = match std::fs::read_dir(&projects_root) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
     };
 
+    let mut ids = Vec::new();
     for entry in entries {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        let id = ProjectId(entry.file_name().to_string_lossy().to_string());
+        ids.push(ProjectId(entry.file_name().to_string_lossy().to_string()));
+    }
+    Ok(ids)
+}
+
+/// Every persisted project record, most-recently-opened first (`Project.last_opened_at`
+/// descending) — the Welcome screen's "recent projects" source, distinct from `list_projects`
+/// (which only returns the *currently open* session's `ProjectRef`s). `root_missing` is
+/// recomputed against the live filesystem the same way `restore_session` does, so a project whose
+/// folder moved or was deleted since it was last opened still lists (disabled, per contract §1.2)
+/// instead of silently vanishing. A record that fails to parse (corrupted/backed-up) is skipped
+/// rather than failing the whole listing — best-effort, matching `restore_session`'s per-entry
+/// tolerance.
+pub fn list_recent_projects(paths: &AppPaths) -> AppResult<Vec<Project>> {
+    let mut projects = Vec::new();
+    for id in iter_project_ids(paths)? {
+        let (loaded, _warnings) = load_project(paths, &id)?;
+        if let Some(mut project) = loaded {
+            project.root_missing = !Path::new(&project.root).is_dir();
+            projects.push(project);
+        }
+    }
+
+    projects.sort_by(|a, b| b.last_opened_at.total_cmp(&a.last_opened_at));
+    Ok(projects)
+}
+
+fn find_existing_project_id(paths: &AppPaths, root: &str) -> AppResult<Option<ProjectId>> {
+    for id in iter_project_ids(paths)? {
         let (loaded, _warnings) = load_project(paths, &id)?;
         if let Some(project) = loaded {
             if project.root == root {
@@ -318,6 +381,7 @@ mod tests {
             name: "workspace".to_string(),
             capabilities: vec![CapabilityKind::Terminal],
             root_missing: false,
+            last_opened_at: 1_000.0,
         };
         save_project(&paths, &history).expect("seed history");
 
@@ -417,6 +481,7 @@ mod tests {
             name: "gone".to_string(),
             capabilities: Vec::new(),
             root_missing: false,
+            last_opened_at: 0.0,
         };
         save_project(&paths, &project).expect("save project");
 
@@ -461,10 +526,153 @@ mod tests {
     fn activate_project은_세션에_없는_id면_실패한다() {
         let paths = temp_paths();
         let mut session = SessionState::default();
+        let mut projects = HashMap::new();
 
-        let result = activate_project(&paths, &mut session, &ProjectId::new());
+        let result = activate_project(&paths, &mut session, &mut projects, &ProjectId::new());
 
         assert!(result.is_err());
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn open_project은_재열기_시에도_last_opened_at을_갱신한다() {
+        let paths = temp_paths();
+        let project_root = paths.data_dir.join("workspace");
+        std::fs::create_dir_all(&project_root).unwrap();
+
+        let mut session = SessionState::default();
+        let mut projects = HashMap::new();
+
+        let first = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        let second = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open again");
+
+        assert!(second.already_open);
+        assert!(
+            second.project.last_opened_at >= first.project.last_opened_at,
+            "재열기는 last_opened_at 을 뒤로 미루거나 최소한 유지해야 한다"
+        );
+        let persisted = projects.get(&second.project.id).expect("in-memory project");
+        assert_eq!(
+            persisted.last_opened_at, second.project.last_opened_at,
+            "재열기 결과가 in-memory 맵에도 반영돼야 한다"
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn activate_project은_last_opened_at을_갱신하고_영속화한다() {
+        let paths = temp_paths();
+        let project_root = paths.data_dir.join("workspace");
+        std::fs::create_dir_all(&project_root).unwrap();
+
+        let mut session = SessionState::default();
+        let mut projects = HashMap::new();
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+
+        let before = projects
+            .get(&opened.project.id)
+            .expect("open 직후 in-memory project")
+            .last_opened_at;
+        projects.get_mut(&opened.project.id).expect("mutate before activate").last_opened_at = 0.0;
+
+        activate_project(&paths, &mut session, &mut projects, &opened.project.id).expect("activate");
+
+        let after_memory = projects
+            .get(&opened.project.id)
+            .expect("activate 후 in-memory project")
+            .last_opened_at;
+        assert!(after_memory > 0.0, "activate 는 last_opened_at 을 다시 채워야 한다");
+        assert!(after_memory >= before, "activate 이후 시각이 최초 open 시각보다 과거일 수 없다");
+
+        let (persisted, _warnings) = load_project(&paths, &opened.project.id).expect("load persisted project");
+        assert_eq!(
+            persisted.expect("project.json 이 존재해야 한다").last_opened_at,
+            after_memory,
+            "activate 의 갱신은 디스크에도 저장돼야 한다"
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn list_recent_projects은_last_opened_at_내림차순으로_정렬한다() {
+        let paths = temp_paths();
+
+        let older = Project {
+            id: ProjectId("prj-older".to_string()),
+            root: "/older".to_string(),
+            name: "older".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 1_000.0,
+        };
+        let newer = Project {
+            id: ProjectId("prj-newer".to_string()),
+            root: "/newer".to_string(),
+            name: "newer".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 2_000.0,
+        };
+        save_project(&paths, &older).expect("seed older");
+        save_project(&paths, &newer).expect("seed newer");
+
+        let recent = list_recent_projects(&paths).expect("list recent");
+
+        let ids: Vec<_> = recent.iter().map(|project| project.id.as_str().to_string()).collect();
+        assert_eq!(ids, vec!["prj-newer", "prj-older"]);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn list_recent_projects은_세션에_없는_기록도_포함하고_root_missing을_표시한다() {
+        let paths = temp_paths();
+        let missing_root = paths.data_dir.join("gone-forever");
+
+        let closed = Project {
+            id: ProjectId::new(),
+            root: missing_root.to_string_lossy().to_string(),
+            name: "gone-forever".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 500.0,
+        };
+        save_project(&paths, &closed).expect("seed closed history");
+
+        let recent = list_recent_projects(&paths).expect("list recent");
+
+        assert_eq!(recent.len(), 1);
+        assert!(
+            recent[0].root_missing,
+            "세션에 없어도 디스크 기록이면 목록에 포함되고 root_missing 이 표시돼야 한다"
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn last_opened_at이_없는_구버전_project_json도_기본값으로_파싱된다() {
+        let paths = temp_paths();
+        std::fs::create_dir_all(paths.data_dir.join("projects").join("prj-legacy")).unwrap();
+        let legacy_json = serde_json::json!({
+            "id": "prj-legacy",
+            "root": "/legacy",
+            "name": "legacy",
+        });
+        std::fs::write(
+            paths.data_dir.join("projects").join("prj-legacy").join("project.json"),
+            serde_json::to_vec(&legacy_json).unwrap(),
+        )
+        .unwrap();
+
+        let (loaded, warnings) = load_project(&paths, &ProjectId("prj-legacy".to_string())).expect("load legacy project");
+
+        let project = loaded.expect("구버전 필드 누락도 파싱에 성공해야 한다");
+        assert_eq!(project.last_opened_at, 0.0);
+        assert!(warnings.is_empty());
 
         cleanup(&paths);
     }

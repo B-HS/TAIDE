@@ -214,6 +214,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             domain::app::commands::app_get_info,
             domain::project::commands::project_list,
+            domain::project::commands::project_list_recent,
             domain::project::commands::project_get,
             domain::project::commands::project_get_active,
             domain::project::commands::project_open,

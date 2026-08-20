@@ -7,6 +7,14 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	appGetInfo: () => typedError<AppInfo, AppError>(__TAURI_INVOKE("app_get_info")),
 	projectList: () => typedError<ProjectRef[], AppError>(__TAURI_INVOKE("project_list")),
+	/**
+	 *  Every persisted project record on this desktop, most-recently-opened first — unlike
+	 *  `project_list` (the currently-open session only), this walks the full on-disk history so the
+	 *  Welcome screen can offer projects the user closed earlier. Read-only (no `begin_mutation` guard
+	 *  needed, mirroring `project_get`), and deliberately **not** remote-reachable — see
+	 *  `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
+	 */
+	projectListRecent: () => typedError<Project[], AppError>(__TAURI_INVOKE("project_list_recent")),
 	projectGet: (projectId: ProjectId) => typedError<Project, AppError>(__TAURI_INVOKE("project_get", { projectId })),
 	projectGetActive: () => typedError<string | null, AppError>(__TAURI_INVOKE("project_get_active")),
 	projectOpen: (path: string) => typedError<ProjectOpenResult, AppError>(__TAURI_INVOKE("project_open", { path })),
@@ -1188,6 +1196,14 @@ export type Project = {
 	name: string,
 	capabilities?: CapabilityKind[],
 	rootMissing?: boolean,
+	/**
+	 *  Epoch milliseconds this project was last opened or activated (IPC time-field convention —
+	 *  see `docs/ipc-contract.md`'s `f64` epoch-ms fields). `#[serde(default)]` reads a pre-d-27
+	 *  project record (no such field on disk) as `0.0`, so it sorts last in
+	 *  `service::list_recent_projects` rather than failing to parse — a decorative field earning
+	 *  its default rather than a migration (contract §1.3).
+	 */
+	lastOpenedAt?: number | null,
 };
 
 export type ProjectActivated = {

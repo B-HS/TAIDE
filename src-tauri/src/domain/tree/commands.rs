@@ -182,6 +182,7 @@ mod tests {
                 name: "tree-test".to_string(),
                 capabilities: Vec::new(),
                 root_missing: false,
+                last_opened_at: 0.0,
             },
         );
         state

@@ -17,6 +17,7 @@ type QueryKeyLeaf =
 const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'PROJECT.ALL', scopedByProject: false },
     { path: 'PROJECT.LIST', scopedByProject: false },
+    { path: 'PROJECT.RECENT', scopedByProject: false },
     { path: 'PROJECT.ACTIVE', scopedByProject: false },
     { path: 'PROJECT.DETAIL', scopedByProject: true, factory: QUERY_KEY.PROJECT.DETAIL },
     { path: 'LAYOUT.ALL', scopedByProject: false },

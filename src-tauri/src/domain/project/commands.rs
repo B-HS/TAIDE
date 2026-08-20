@@ -22,6 +22,17 @@ pub async fn project_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectRe
     Ok(service::list_projects(&state.session.read()))
 }
 
+/// Every persisted project record on this desktop, most-recently-opened first — unlike
+/// `project_list` (the currently-open session only), this walks the full on-disk history so the
+/// Welcome screen can offer projects the user closed earlier. Read-only (no `begin_mutation` guard
+/// needed, mirroring `project_get`), and deliberately **not** remote-reachable — see
+/// `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
+    service::list_recent_projects(&state.paths)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn project_get(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Project> {
@@ -103,10 +114,12 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
 pub async fn project_activate(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let mut session = state.session.read().clone();
+    let mut projects = state.projects.read().clone();
 
-    service::activate_project(&state.paths, &mut session, &project_id)?;
+    service::activate_project(&state.paths, &mut session, &mut projects, &project_id)?;
 
     *state.session.write() = session;
+    *state.projects.write() = projects;
 
     let _ = ProjectActivated {
         project_id: Some(project_id),

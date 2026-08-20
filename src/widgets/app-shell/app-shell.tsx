@@ -1,6 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { open } from '@tauri-apps/plugin-dialog'
 import type { EventCallback } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { DragDropEvent } from '@tauri-apps/api/webview'
@@ -9,7 +8,7 @@ import { Group, Panel, usePanelRef } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import { useOpenTab, useOpenTabInProject, useSetShellView } from '@entities/layout/layout.query'
-import { activeProjectQueryOptions, projectListQueryOptions, useActivateProject, useOpenProject } from '@entities/project/project.query'
+import { activeProjectQueryOptions, projectListQueryOptions, useOpenProject } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useZenMode } from '@widgets/app-shell/use-zen-mode'
@@ -27,13 +26,13 @@ import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { ZenModeHint } from '@features/window/zen-mode-hint'
-import { WelcomeScreen } from '@features/welcome/welcome-screen'
 import { ErrorBoundary } from '@shared/ui/error-boundary'
 import { AppSidebar } from '@widgets/app-sidebar/app-sidebar'
 import { EditorArea } from '@widgets/editor-area/editor-area'
 import { ExplorerContainer } from '@widgets/explorer/explorer-container'
 import { StatusBarContent } from '@widgets/window-chrome/status-bar-content'
 import { TitleBarContent } from '@widgets/window-chrome/title-bar-content'
+import { WelcomeContainer } from '@widgets/welcome/welcome-container'
 
 const PATH_SEPARATOR = '/'
 
@@ -48,18 +47,11 @@ export const AppShell = () => {
     const { data: projects = [], isPending } = useQuery(projectListQueryOptions())
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
-    const { mutate: openProject, mutateAsync: openProjectAsync } = useOpenProject()
-    const { mutate: activateProject } = useActivateProject()
+    const { mutateAsync: openProjectAsync } = useOpenProject()
     const { mutate: openTab } = useOpenTab(activeProjectId)
     const { mutateAsync: openTabInProject } = useOpenTabInProject()
     const { mutate: setShellView } = useSetShellView(activeProjectId)
     const { zen, sidebarCollapsed, hideStatusBar } = useZenMode(activeProjectId)
-
-    const handleOpenProject = async () => {
-        const selected = await open({ directory: true, multiple: false })
-        if (typeof selected !== 'string') return
-        openProject(selected, { onError: (error) => toast.error(error.message) })
-    }
 
     const handleOpenSettings = () => {
         if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
@@ -184,7 +176,7 @@ export const AppShell = () => {
             )}
             {projects.length === 0 ? (
                 <div className='min-h-0 flex-1'>
-                    <WelcomeScreen recentProjects={[]} onOpenProject={() => void handleOpenProject()} onSelectRecent={(id) => activateProject(id)} />
+                    <WelcomeContainer projectId={null} />
                 </div>
             ) : (
                 <div className='flex min-h-0 flex-1'>

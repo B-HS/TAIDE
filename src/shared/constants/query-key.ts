@@ -7,6 +7,7 @@ export const QUERY_KEY = {
     PROJECT: {
         ALL: ['project'] as const,
         LIST: ['project', 'list'] as const,
+        RECENT: ['project', 'recent'] as const,
         ACTIVE: ['project', 'active'] as const,
         DETAIL: (projectId: ProjectId) => ['project', 'detail', projectId] as const,
     },

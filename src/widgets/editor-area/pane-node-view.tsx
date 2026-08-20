@@ -25,6 +25,7 @@ import { PreviewPane } from '@widgets/preview-pane/preview-pane'
 import { SearchEditorPane } from '@widgets/search-editor/search-editor-pane'
 import { SettingsView } from '@widgets/settings-view/settings-view'
 import { TerminalSession } from '@widgets/terminal-pane/terminal-session'
+import { WelcomeContainer } from '@widgets/welcome/welcome-container'
 
 const EQUAL_SPLIT_TOTAL_PERCENT = 100
 const MIN_PANEL_SIZE_PX = 120
@@ -122,6 +123,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     <TerminalSession key={activeTab.id} projectId={projectId} tabId={activeTab.id} sessionId={activeTab.kind.sessionId} />
                 )}
                 {activeTab?.kind.kind === 'settings' && <SettingsView projectId={projectId} />}
+                {activeTab?.kind.kind === 'welcome' && <WelcomeContainer key={activeTab.id} projectId={projectId} />}
                 {activeTab?.kind.kind === 'diff' && activeTab.kind.rev == null && (
                     <DiffPane
                         key={activeTab.id}
@@ -174,7 +176,8 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     activeTab.kind.kind !== 'claudeDiff' &&
                     activeTab.kind.kind !== 'untitled' &&
                     activeTab.kind.kind !== 'searchEditor' &&
-                    activeTab.kind.kind !== 'appFile' && (
+                    activeTab.kind.kind !== 'appFile' &&
+                    activeTab.kind.kind !== 'welcome' && (
                         <div className='flex h-full w-full items-center justify-center text-sm opacity-60'>{activeTab.title}</div>
                     )}
                 {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>}

@@ -16,6 +16,7 @@ pub type ChannelFactory = Arc<dyn Fn(String) -> ChannelSink + Send + Sync>;
 pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "app_get_info",
     "project_list",
+    "project_list_recent",
     "project_get",
     "project_get_active",
     "project_open",
@@ -286,6 +287,15 @@ enum RemoteDenialPolicy {
     /// external CLI process blocked (its `waitMarker` release registers in a realm the desktop's own
     /// tab-close handling never observes).
     SharedSingletonStateRace,
+    /// `project_list_recent` — reads every persisted project record on the desktop's local disk
+    /// (`AppPaths::project_file`, one per project ever opened here), not merely the projects
+    /// currently open in this session's `project_list`. It exists purely to power the local
+    /// Welcome screen's "recent projects" list (d-27, `docs/acknowledge/2026-08-20-welcome-page-
+    /// contract.md` §1.1) and has no remote use case: exposing it would let a remote session
+    /// enumerate local filesystem paths and names for every project ever opened on this desktop,
+    /// including ones never opened in the current remote session — a strictly broader disclosure
+    /// than `project_list` already grants remotely.
+    LocalProjectHistoryExposure,
     /// The default-deny fallback: a command name that is not filed into either
     /// [`REMOTE_ALLOWED_COMMANDS`] or [`REMOTE_DENIED_COMMANDS`]. Every command [`dispatch`]/
     /// [`dispatch_raw`] can actually reach must be classified into exactly one of those two tables — see
@@ -321,6 +331,9 @@ impl RemoteDenialPolicy {
             }
             RemoteDenialPolicy::SharedSingletonStateRace => {
                 format!("원격 세션에서는 보류 중인 외부 열기 요청을 조회할 수 없습니다: {name}")
+            }
+            RemoteDenialPolicy::LocalProjectHistoryExposure => {
+                format!("원격 세션에서는 로컬 웰컴 화면 전용인 전체 프로젝트 히스토리를 조회할 수 없습니다: {name}")
             }
             RemoteDenialPolicy::Unclassified => {
                 format!("원격 세션에서는 아직 허용 목록에 등재되지 않은 명령을 실행할 수 없습니다: {name}")
@@ -442,6 +455,7 @@ const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
     ("remote_set_password", RemoteDenialPolicy::SelfAccessExpansion),
     ("remote_clear_password", RemoteDenialPolicy::SelfAccessExpansion),
     ("window_set_fullscreen", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("project_list_recent", RemoteDenialPolicy::LocalProjectHistoryExposure),
 ];
 
 /// Looks `name` up in [`REMOTE_DENIED_COMMANDS`], returning the denial [`dispatch`] must answer with

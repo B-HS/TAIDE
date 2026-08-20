@@ -189,6 +189,7 @@ mod tests {
                 name: root.to_string(),
                 capabilities: Vec::new(),
                 root_missing,
+                last_opened_at: 0.0,
             },
         )
     }

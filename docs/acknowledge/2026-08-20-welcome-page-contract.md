@@ -57,4 +57,67 @@
 
 ## 3. 구현 완료 기록 (Phase E 검토 전)
 
-(작성 예정)
+### 3.1 Rust — 표면 델타
+
+- `Project`(`domain/project/types.rs`)에 `last_opened_at: f64`(`#[serde(default)]`, 밀리초 epoch)
+  추가. `Project`가 `f64` 필드를 얻으며 `derive(Eq)` 를 제거(`f64` 는 `PartialEq` 만 구현 —
+  `OpenedFile`/`MirrorEntry` 등 기존 f64 보유 타입과 동일 패턴)했고, `PartialEq` 는 유지했다.
+- 갱신 지점 2곳: `service::open_project`(재열기 분기 포함 — 기존엔 `session` 만 저장했으나 이제
+  `existing.last_opened_at` 갱신 후 `save_project` 도 호출)·`service::activate_project`(신규
+  `projects: &mut HashMap<ProjectId, Project>` 매개변수 추가 — 시그니처 변경, 해당 project 를
+  찾으면 갱신+저장, 없으면 스킵). `commands::project_activate` 도 `state.projects` 를
+  읽기/쓰기하도록 배선(기존엔 `session` 만 다뤘음).
+- 신규 커맨드 `project_list_recent() -> Vec<Project>`: `service::list_recent_projects` 가
+  `projects/` 디렉터리 전수(`find_existing_project_id` 와 스캔 로직을 `iter_project_ids` 로 공통화)
+  를 읽어 `root_missing` 재계산 후 `last_opened_at` 내림차순(`f64::total_cmp`) 정렬. 반환 타입은
+  기존 `Project` 재사용(신규 타입 없음).
+- 표면 추가 절차 전수: `lib.rs` `collect_commands!` 등록 → `dispatch.rs`
+  `IMPLEMENTED_JSON_COMMANDS` 등재 → **`REMOTE_DENIED_COMMANDS` 로 등재**(신규
+  `RemoteDenialPolicy::LocalProjectHistoryExposure` variant — `REMOTE_ALLOWED_COMMANDS` 에는
+  올리지 않았고 `dispatch()` 의 `match` arm 도 추가하지 않음, DENIED 는 match 도달 전 단락) →
+  `cargo test` 로 `bindings.ts` 재생성(신규 command 1개 + `Project.lastOpenedAt` 필드) →
+  `docs/ipc-contract.md` command 표(176→177, 원격 ALLOWED 160 그대로/DENIED 19→20) 갱신.
+  `tests/domain_boundaries.rs` 그린 확인(신규 도메인 간 참조 없음 — project 도메인 내 완결).
+- 테스트: 정렬(`list_recent_projects은_last_opened_at_내림차순으로_정렬한다`)·세션 밖 기록 포함+
+  rootMissing 표시·재열기/activate 갱신 지점 2건·구버전(필드 없는) `project.json` default 파싱
+  — 총 5개 신규 + 기존 `activate_project` 시그니처 변경에 따른 테스트 갱신.
+
+### 3.2 TS — Welcome UI 통일·확충
+
+- **적용 면 통일**: 신규 위젯 `widgets/welcome/welcome-container.tsx`(`WelcomeContainer`) 가
+  데이터(recent/open 프로젝트 목록)·뮤테이션(openProject/activateProject/openTab)을 전부 소유하고
+  순수 `features/welcome/welcome-screen.tsx`(`WelcomeScreen`)에 props 로 주입. `app-shell.tsx`
+  (프로젝트 0개 화면)와 `pane-node-view.tsx`(`TabKind.welcome` 탭 렌더러 — 이전엔 렌더러가 없어
+  탭 제목만 보이는 범용 폴백으로 떨어졌음, 이번에 명시 케이스 추가)가 같은 `WelcomeContainer` 를
+  `projectId` prop(0개 화면은 `null`, 탭 렌더러는 그 프로젝트의 id)만 다르게 써서 공유 —
+  app-shell 의 기존 `handleOpenProject`/`openProject`/`activateProject` 바인딩은 컨테이너로
+  이관되어 제거(중복 제거, minimal diff).
+- **파일 열기(신규)**: `projectId` 가 있을 때만 활성(`canOpenFile`), tauri dialog(`defaultPath`=
+  해당 프로젝트 root)로 선택 후 `layout_open_tab` 으로 `{kind:'file'}` 탭 오픈. 프로젝트 밖 경로
+  선택 시 root guard 는 기존 `file_open`(`root_guard::resolve_owning_project`) 경로가 그대로
+  적용(신규 특례 없음 — 계약 §1.2 그대로).
+- **최근 프로젝트 목록(배선 완성)**: `project_list_recent` 소비. 현재 열린 세션 목록(`project_list`)
+  과 대조해 열려 있으면 `project_activate`, 아니면 `project_open(root)`. `rootMissing` 은 버튼
+  `disabled`+사유 텍스트로 표시.
+- **단축키 안내 카드**: `APP_KEYMAP`(`shared/lib/keymap.ts`) 에서 6개 id(quick-open·
+  command-palette·search·toggle-terminal·toggle-sidebar·save) 를 골라 `formatKeymapShortcut` 로
+  렌더 — 라벨·단축키 문자열을 하드코딩하지 않음.
+- **버전 표기**: 실사 결과 `app_get_info` 프론트 소비처가 0(계약 §1.2 사전 실사와 일치) — 추가하지
+  않음(과설계 금지).
+- `QUERY_KEY.PROJECT.RECENT`(`['project','recent']`) 신설 — `PROJECT.ALL`(`['project']`) 접두사라
+  기존 `useOpenProject`/`useActivateProject` 의 `invalidateQueries({queryKey: PROJECT.ALL})` 가
+  그대로 커버(추가 무효화 배선 불요). `query-key.test.ts` 분류표에 `scopedByProject: false` 로 등재.
+- i18n 신규 키 4개(`app.openFile`·`app.openFileHint`·`app.recentProjectRootMissing`·
+  `app.keyboardShortcutsTitle`) — en/ko/ja 3언어 실번역 + `locale/service.rs` 의
+  `MESSAGE_NAMESPACES["app"]` 동기.
+
+### 3.3 검증
+
+- Rust: `cargo build --lib`·`cargo test --lib`(1060 passed)·`cargo test --test
+  domain_boundaries`(3 passed)·`cargo fmt`·`cargo clippy --workspace --all-targets -- -D
+  warnings`(0 경고).
+- TS: `bun run typecheck`·`bun run lint`(사전 존재 경고만, 신규 에러 0)·`bun run format:check`·
+  `bun test`(1424 passed)·`bunx vite build`(성공, 청크 크기 경고는 기존 monaco 번들 사유로 무관).
+- 통합: `bun run verify` 전체 파이프라인(typecheck→lint→format→test→rust:fmt→rust:lint→
+  rust:test) exit 0.
+- 미실행: tauri dev 실기 확인(원격 X-Ops 정책상 앱 실행 금지 — 사용자 실기 확증 필요, §2 "실행 Workflow" 절 참조).
