@@ -139,7 +139,7 @@ export const GitPanel: FC<GitPanelProps> = ({
 
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
-            <div className='border-app-border flex shrink-0 items-center gap-1.5 border-b px-2 py-1.5 text-xs'>
+            <div className='border-app-border flex h-8 shrink-0 items-center gap-1.5 border-b px-2 text-xs'>
                 <BranchSwitcher
                     branches={branches}
                     currentBranch={branch}

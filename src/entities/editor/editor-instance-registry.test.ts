@@ -59,6 +59,28 @@ describe('editor-instance-registry', () => {
         expect(calls).toBe(0)
     })
 
+    test('구독자 중 하나가 던져도 나머지 구독자는 통지받고, register/unregister 밖으로 예외가 전파되지 않는다', () => {
+        const notifiedTabIds: string[] = []
+        const originalConsoleError = console.error
+        console.error = () => undefined
+        const unsubscribeThrowing = subscribeEditorInstance('tab-f', () => {
+            throw new Error('subscriber bug')
+        })
+        const unsubscribeQuiet = subscribeEditorInstance('tab-f', () => notifiedTabIds.push('quiet'))
+
+        try {
+            expect(() => registerEditorInstance('tab-f', createFakeEditor())).not.toThrow()
+            expect(notifiedTabIds).toEqual(['quiet'])
+
+            expect(() => unregisterEditorInstance('tab-f')).not.toThrow()
+            expect(notifiedTabIds).toEqual(['quiet', 'quiet'])
+        } finally {
+            console.error = originalConsoleError
+            unsubscribeThrowing()
+            unsubscribeQuiet()
+        }
+    })
+
     test('같은 editor 를 다른 tabId 로 재등록하면 이전 tabId 는 비워지고 새 tabId 로 조회된다', () => {
         const editor = createFakeEditor()
         registerEditorInstance('tab-old', editor)

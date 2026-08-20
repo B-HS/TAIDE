@@ -88,13 +88,17 @@
 
 ## 3. 구현 완료 기록 (Phase E 검토 전)
 
-> 구현 Workflow(sonnet+xhigh 단독, TS 전용). §1.1 → §1.2 순차 완료. **재개 세션 메모**: §1.1
-> (registry 이관)은 직전 세션이 산출물을 남기고 사망 → 이번 세션이 재검증만 수행. §1.2 는
-> 이 문서의 §3.1·§3.2 를 기록한 세션과 이 세션이 동일 워킹트리에서 동시에 진행했다(작업
-> 중 `git status` 가 실시간으로 겹치는 파일 변경을 드러냄 — 별도 `claude` 프로세스가 cwd 를
-> 이 저장소에 두고 있었음). 두 세션이 §1.1 의 react-dom 소스 정정에 독립적으로 도달하는 등
-> 결론은 일치했으므로 §3.1·§3.2 본문은 그대로 두고, §3.3(1px 정렬)과 테스트 커버리지 갱신
-> (`error-boundary.test.tsx` 의 `componentDidCatch` 케이스 추가)만 이 세션이 병합했다.
+> 구현 Workflow(sonnet+xhigh 단독, TS 전용). §1.1 → §1.2 순차 완료. **재개 세션 메모(정정,
+> §4 참고)**: 애초 "직전 세션이 산출물을 남기고 사망 → 이번 세션이 재검증만 수행" 이라고
+> 기록했으나, Phase E 렌즈 3(병합 정합성) 재검증 결과 이는 사실이 아니었다 — 직전 세션은
+> 죽지 않고 §1.1 뿐 아니라 §1.2(ErrorBoundary 컴포넌트·배선 5곳·로케일 5키·service.rs)까지
+> 전부 완주해 정상 종료했다. 실제로는 두 세션이 같은 워킹트리에서 §1.1·§1.2 를 동시에
+> 진행했고(오케스트레이터가 선행 세션을 중단으로 오판해 재개 세션을 스폰한 것으로 추정 —
+> 재개 세션의 프롬프트 전제가 그대로 이 문서에 굳어졌다), §3.1·§3.2·§1.2 산출물은 선행
+> 세션이, §3.3(1px 정렬)과 테스트 커버리지 갱신(`error-boundary.test.tsx` 의
+> `componentDidCatch` 케이스 추가)은 재개 세션이 작성했다. 두 세션이 §1.1 의 react-dom
+> 소스 정정에 독립적으로 도달하는 등 결론 자체는 일치했으므로 §3.1·§3.2 본문 내용은 그대로
+> 둔다.
 
 ### 3.1 registry 등록 소유권 이관 — 구현
 
@@ -182,9 +186,13 @@
   `componentDidCatch`/`render` 메서드 축약, `handleRetry` 만 클래스 필드 화살표) +
   `withTranslation()` HOC — class 는 `useTranslation()` 을 쓸 수 없고, `i18next.t()` 직접
   호출은 로케일 변경 시 재렌더를 보장하지 못해 HOC 를 선택(react-i18next 공식 class 통합
-  경로). `ErrorBoundaryBase`(HOC 이전 raw class)도 함께 export — `shared/ui/button.tsx` 가
-  이미 한 파일에서 `Button`+`buttonVariants` 2개를 export 하는 선례를 따름(테스트 전용 목적,
-  아래 3.2 테스트 항목 참고).
+  경로). `ErrorBoundaryBase`(HOC 이전 raw class)도 함께 export(테스트 전용 목적, 아래 3.2
+  테스트 항목 참고) — **정정, §4 참고**: 근거로 든 `shared/ui/button.tsx` 의 `Button`+
+  `buttonVariants` 선례는 무효였다(`buttonVariants` 는 컴포넌트가 아니라 cva 팩토리라
+  fsd.md §3 의 constant/utils 예외에 해당하지, "한 파일 2컴포넌트" 의 선례가 아니다). 실제
+  근거는 렌더 하네스(RTL/jsdom) 부재로 `withTranslation()` HOC 를 테스트에서 마운트할 수
+  없어 raw class 를 테스트 전용으로 노출한다는 것뿐이며, `ErrorBoundaryBase` 의 소비처는
+  테스트 파일 1곳으로 한정된다.
   - props: `labelKey`(로케일 키, 사전 해석 문자열 아님)·`children`. 커스텀 폴백 prop 은
     추가하지 않음(과설계 금지 — 이번 배치의 5개 배치 지점 모두 라벨만 다르고 구조는 동일).
   - "다시 시도" = `state.error` 를 `null` 로 리셋. React 가 에러를 캐치한 시점에 이미 던진
@@ -212,7 +220,11 @@
 - **로케일 증감**: 신규 5키 — `errorBoundary.app`/`description`/`editorArea`/`sidebar`/
   `statusBar` (`errorBoundary.explorer` 는 만들지 않고 기존 `explorer.title` 재사용,
   `common.retry` 도 기존 키 재사용 — 버튼 라벨). en/ko/ja 3파일 + `MESSAGE_NAMESPACES` 4곳
-  동기(알파벳 정렬 위치 — `editorArea.*` 뒤, `explorer.*` 앞), 실번역(기계 대치 아님, 문체는
+  동기(알파벳 정렬 위치 — `editorArea.*` 뒤, `explorer.*` 앞) — **정정, §4 참고**:
+  `MESSAGE_NAMESPACES` 자체는 알파벳 정렬 배열이 아니라 도메인 그룹 순서다(JSON 3파일의
+  키 위치만 알파벳). `errorBoundary` 튜플은 `prompts` 뒤 배열 말미에 추가됐고, 이는 기존
+  append 관행과 일치해 코드 선택 자체는 옳다 — 이 문장의 "알파벳 정렬" 서술만 과대 진술.
+  실번역(기계 대치 아님, 문체는
   기존 `common.retry`/`explorer.title`/설명형 문장 톤에 맞춤). `cargo test` 파리티 3개
   (`내장_3종_로케일은_같은_키_집합을_가진다`·`en_메시지의_모든_키는_required_message_keys에_
   포함된다`·`내장_카탈로그_원문에_중복_키가_없다`) 전부 pass(§3.4 verify 로그).
@@ -239,12 +251,19 @@
   우측 = 탭바 `h-9`(36) + 브레드크럼 `h-8`(32) = 68px — 정렬. 헤더 내용물(`size-6` 아이콘
   버튼, 24px)은 `items-center` 로 31px 내용 박스(32 − border 1)에 정중앙(맨눈 실측 아님,
   contract §1.2b 의 계산을 그대로 대입 확인).
-- **다른 사이드바 뷰 실사**: `git-panel.tsx` 자체 헤더 행(`border-app-border ... border-b
-  px-2 py-1.5`)은 값(`py-1.5`)·내용(BranchSwitcher+ahead/behind 뱃지)이 모두 달라 "같은 행
-  구조"가 아님 — 7.5-C 레거시 계열이 아닌 git 뷰 고유 디자인이므로 손대지 않음.
-  `outline-panel.tsx`·`search-panel` 계열은 grep 결과 tab strip 바로 아래에 오는 자체 헤더
-  행 자체가 없음(`border-b` 매치 0건) — 적용 대상 없음. `explorer-panel.tsx` 의
-  `view === 'files'` 헤더가 유일한 수정 대상.
+- **다른 사이드바 뷰 실사(정정, §4 참고)**: 최초 기록은 `git-panel.tsx` 헤더가 값·내용이
+  달라 "같은 행 구조가 아니"고 `search-panel` 계열은 헤더 행이 아예 없다고 판단했으나,
+  Phase E 렌즈 3·적대적 재검증 결과 둘 다 부정확했다. `git-panel.tsx` 헤더(`border-b px-2
+  py-1.5`)는 값은 다르지만 좌측 합이 33px(내용 최대 20px + py-1.5 12px + border 1px)로,
+  좌측 스트립 전체 = `explorer-panel.tsx` 상단 탭리스트 `h-9`(36) + 33 = 69px — 우측
+  68px 보다 1px 낮아 사용자가 신고한 files 뷰와 동일한 어긋남이 있었다. `search-panel.tsx`
+  는 grep 범위를 `widgets/search-panel` 로만 잡아 놓쳤을 뿐, 실제로는 `features/search/
+  search-panel.tsx` 에 tab strip 바로 아래 첫 행(`border-b`)이 있다 — 다만 이 행은
+  `flex-col` 로 replace 토글 시 두 번째 입력 행이 늘어나는 가변 높이 컨테이너라 애초에
+  32px 고정 대상이 아니다("헤더 행 없음" 이 아니라 "가변 높이 입력 행이라 대상 아님" 이 맞는
+  서술). Phase E 조치로 `git-panel.tsx` 헤더도 `h-8 border-b px-2`(`py-1.5` 제거)로
+  맞춰 68px 로 정렬했다(§4). `outline-panel.tsx` 는 grep 결과 그대로 헤더 행이 없어 이
+  서술이 맞다.
 
 ### 3.4 검증
 
@@ -261,3 +280,142 @@
   없음).
 - `src/shared/api/bindings.ts` 무변경(`git diff` 0줄 확인 — TS 전용 배치, Rust 커맨드 표면
   무변경).
+
+## 4. Phase E 검토 반영
+
+> Phase E(4렌즈 opus+xhigh: lifecycle·boundary·merge-integrity·contract) 발견 26건 + 적대적
+> 재검증(major 이상 4건, 전부 confirmed) 반영. major·critical 은 전건, minor 는 실질 결함만
+> 수정하고 refuted/과대진술 정정은 문서만 고쳤다. 아래는 발견 id 기준 처리 결과다.
+
+### 4.1 critical/major — 전건 수정
+
+- **boundary-1 = contract-1(critical/major, confirmed)** — 루트 경계 폴백이 부팅 크래시에서
+  비가시. 검증에서 두 기전이 갈렸다: 메인 창의 `show()` 는 `tauri-plugin-window-state` 가
+  `on_window_ready` 에서 자동 수행하므로(2회차 이후 실행) 창 자체는 뜬다 — 남는 문제는
+  `body{visibility:hidden}` 게이트(global.css)가 `data-theme-ready`/`data-locale-ready` 둘
+  다 `<App/>` 내부(경계의 자식)에서만 세팅돼 크래시 시 영원히 안 붙는 것. 보조 창은 이
+  플러그인의 복원 대상에서 아예 제외돼(`with_filter`) `useRevealWindow` 가 유일한 노출
+  경로이므로 창 자체가 안 뜨는 문제가 그대로 남는다. **수정**: `ErrorBoundary` 에 옵셔널
+  `onCaught` prop 을 추가해 `componentDidCatch` 에서 호출하고, `main.tsx` 의 루트 경계에만
+  `document.documentElement.dataset.themeReady/localeReady` 를 세팅 + `getCurrentWindow().
+  show()` 를 수행하는 콜백을 연결했다(둘 다 idempotent — 이미 세팅된 값 재대입, 이미 보이는
+  창에 `show()` 재호출 모두 무해). `shared/ui` 는 Tauri API 를 직접 import 하지 않는다
+  (main.tsx 가 콜백을 주입). **다른 5개 경계에는 연결하지 않음** — `app-shell.tsx`·
+  `auxiliary-window-shell.tsx` 의 경계는 전부 `ThemeProvider`/`LocaleProvider` 가 이미
+  settle 된 뒤에만 마운트되는 자손이라, 그 경계가 크래시를 잡는 시점엔 두 플래그·창 노출이
+  이미 끝나 있다 — `onCaught` 를 연결해도 항상 무해한 재실행일 뿐이라 신호 대 잡음비만
+  낮추므로 뺐다(이 판단을 `error-boundary.tsx` JSDoc 에 기록).
+- **boundary-2 = merge-integrity-1(major, confirmed)** — 폴백의 `h-full w-full` 고정이
+  사이드바(가로 flex, 형제 `main.flex-1` 0px 붕괴)·상태바(세로 flex, 본문 0px 붕괴) 경계에서
+  살아남은 형제 영역을 화면에서 지운다. **수정**: `ErrorBoundary` 에 옵셔널
+  `fallbackSizeClassName` prop 을 추가(기본값 `h-full w-full` 유지, `cn()` 으로 병합)하고,
+  실측 기반으로 두 배치 지점에만 원래 슬롯 치수를 지정했다 — 사이드바 경계
+  `fallbackSizeClassName='h-full w-14 shrink-0'`(AppSidebar 실제 클래스와 동일),
+  상태바 경계 `fallbackSizeClassName='h-6 w-full shrink-0'`(StatusBar 실제 클래스와 동일,
+  `align-items: stretch` 로 폭은 원래도 auto 지만 명시). 나머지 4곳(루트·탐색기 Panel·
+  에디터 Panel·보조 창 main)은 원래도 100% 슬롯을 기대하는 자리라 기본값 유지 — Phase E
+  검증이 특정한 "5개 중 2개에서만 발생" 범위와 정확히 일치한다. 폴백 좁은 폭(56px)에서
+  라벨·설명·버튼 텍스트가 줄바꿈되는 시각적 열화는 남지만, 이는 "형제 영역 소실" 대신
+  "폴백 자신의 레이아웃 열화" 로 급이 낮아진 것이라 이번 배치의 "확인된 major 해소 목적의
+  최소 prop" 범위 안에서 수용한다 — 이 이상의 폴백 전용 컴팩트 레이아웃은 과설계로 보류.
+
+### 4.2 minor — 실질 결함 수정
+
+- **lifecycle-1(등록 해제 비무조건성)** — 근본 수정: `CodeEditor` 에 `registryTabIdRef` 를
+  추가해 현재 등록된 tabId 를 미러링하고, 생성 effect(cleanup 순회에서 이 컴포넌트의 첫
+  cleanup) 의 cleanup 최상단에서 `editor.dispose()` 등 어떤 dispose 계열 호출보다 먼저
+  `unregisterEditorInstance` 를 실행하도록 재배치했다. React 가 fiber 하나의 destroy 패스
+  전체를 단일 try/catch 로 묶는 한(react-dom@19.2.8 확인), 이 순서 재배치가 "선행 cleanup
+  throw 시 해제 스킵" 문제를 구조적으로 닫는 유일한 근본 해법이다(대안이던 "각 dispose 호출을
+  try/finally 로 감싼다" 는 N 개 호출부를 개별 방어해야 해 더 크고, 미래에 새 dispose 호출이
+  추가되면 다시 뚫린다). `[registryTabId]` 효과 자신의 cleanup 은 재키잉 케이스를 위해
+  `unregisterEditorInstance` 호출을 유지하되, 전체 언마운트에서는 이미 제거된 키를 다시
+  지우는 무해한 중복 호출이 된다. JSDoc 을 "무조건 봉인" 대신 실제 보장 범위(등록은
+  구조적으로 항상 live, 해제는 ref 기반 선행 배치로 무조건)로 정정.
+- **lifecycle-2(간극 무해 논증 근거 과대)** — lifecycle-1 수정으로 "dispose 후 unregister"
+  간극 자체가 사라져(이제 unregister 가 항상 dispose 보다 먼저 실행) 원래 논증이 의존하던
+  "다른 fiber 의 create 가 끼어들 수 없다"(StrictMode 이중 호출에서는 거짓인 명제) 를 유지할
+  필요가 없어졌다. JSDoc 에서 그 문장을 완전히 제거하고 새 순서(unregister-then-dispose)
+  자체를 근거로 서술했다.
+- **lifecycle-3(테스트가 불변식을 검증 못함)** — `createDisposableFakeEditor` 에 `isDisposed()`
+  를 추가(값이 `{}` 라 dispose 여부가 관측 불가능했던 문제 해소)하고, 해당 테스트를 unregister
+  직후·dispose 직전에 `getEditorInstance` 가 이미 `null` 이고 `isDisposed()` 가 아직
+  `false` 임을 단언하도록 재작성 — 새 구현의 "unregister 가 dispose 보다 먼저" 순서를
+  실제로 고정한다.
+- **lifecycle-4 = merge-integrity-4 = contract-7(헬퍼 JSDoc·자기 호출부 모순)** — "잔존 경로"
+  describe 의 두 corpse 재등록 호출을 `rerunChildOwnedRegistrationEffect` 대신
+  `unregisterEditorInstance`/`registerEditorInstance` 직접 호출로 되돌렸다(신규 헬퍼 도입
+  없이 최소 diff). 그 describe 상단 JSDoc 에 "왜 이 헬퍼를 안 쓰는지" 를 명시해 모순을 해소.
+- **boundary-3(falsy throw 시 경계 스킵)** — `ErrorBoundaryState` 를 `{ hasError: boolean;
+  error: unknown }` 로 분리(`error: Error | null` 대신). `getDerivedStateFromError`/
+  `componentDidCatch` 파라미터도 `unknown` 으로 넓혀 `throw 0`/`throw null` 도 정확히
+  캐치한다. 스택 노출은 `error instanceof Error && error.stack` 으로 좁힘. 회귀 테스트
+  2개 추가(falsy 값에서도 `hasError=true`/폴백 렌더 확인).
+- **boundary-5 = contract-2(pre-locale 원시 키 노출)** — theme-provider 의 기존
+  `defaultValue` 패턴을 그대로 적용: `description`/`common.retry` 에 영문 기본값을 인라인,
+  `labelKey` 는 호출부가 넘기는 옵셔널 `labelFallback` prop 으로 5개 배치 지점 전부에
+  영문 기본값을 채웠다(en.json 값과 동일 문구 — Application/Activity Bar/Sidebar Panel/
+  Editor/Status Bar).
+- **contract-3 = merge-integrity-7(라벨-영역 불일치)** — `errorBoundary.sidebar` 는 실제로
+  AppSidebar(액티비티 바)를 감싸므로 텍스트를 "Sidebar"→"Activity Bar" 계열로 정정(en/ko/ja,
+  키는 유지 — 배선 변경 없이 표시 문구만 실제 영역에 맞춤). `ExplorerContainer` 경계는
+  `explorer.title` 재사용을 그만두고 4뷰(files/search/git/outline) 를 포괄하는 신규 키
+  `errorBoundary.sidebarPanel`(Sidebar Panel/사이드바 패널/サイドバーパネル)을 추가해
+  라벨링했다. en/ko/ja 3파일 + `MESSAGE_NAMESPACES` 배열 동기, `cargo test` 파리티 재확인.
+- **contract-4(shared/ui ESLint ignore)** — `eslint.config.js` 의 `src/shared/ui/**` 전체
+  ignore 를 shadcn CLI 생성 파일(함수 선언 스타일이라 재생성 시 다시 위반하는 14개 파일)
+  명시 목록으로 좁혔다. 손으로 작성한 5개 파일(error-boundary 2개 포함)이 이제 lint 대상에
+  들어가며, 실행 결과 0 error(신규 위반 없음).
+- **merge-integrity-2(a)(git 뷰 1px 정렬)** — `git-panel.tsx` 헤더를
+  `border-b px-2 py-1.5` → `h-8 border-b px-2` 로 맞춰 좌우 68px 정렬(§3.3 정정 참고).
+- **boundary-4 = merge-integrity-3 = contract-5(JSDoc 이중 블록·낡은 파일명/메서드 목록)** —
+  두 블록을 하나로 병합해 실제 공개 export 인 `ErrorBoundary`(HOC) 위로 옮기고, 테스트
+  전용 노출 사유만 담은 짧은 블록을 `ErrorBoundaryBase` 위에 남겼다. 파일명을
+  `error-boundary.test.tsx` 로 정정하고 메서드 목록에 `componentDidCatch`/
+  `componentDidMount`/`componentDidUpdate` 를 반영.
+- **merge-integrity-6 = contract-6(이중 export 정당화 근거 오류)** — JSDoc·계약 §3.2 모두
+  `button.tsx` 선례 인용을 제거하고, 실제 근거(렌더 하네스 부재로 HOC 를 테스트에서 마운트
+  불가 → raw class 를 테스트 전용으로만 노출, 소비처 1곳 한정)로 교체했다. 1파일 1컴포넌트
+  이탈은 fsd.md §3 의 명시 예외가 아니므로 별도 "허용 예외" 로 이 문서에 기록해 둔다(§4.1
+  범위 밖의 관례 예외 아님 — 테스트 인프라 한계에 따른 국소 예외).
+- **boundary-7(폴백 포커스 미이관)** — `fallbackRef`(`createRef`) + `tabIndex={-1}` 을
+  폴백 컨테이너에 추가하고, `componentDidMount`/`componentDidUpdate` 에서 `hasError` 가
+  (마운트 시점부터, 또는 방금) `true` 가 됐을 때 `fallbackRef.current?.focus()` 를 호출한다.
+  `role='alert'` 는 원래도 콘텐츠와 함께 삽입되는 것이 WAI-ARIA 권장 패턴(신규 삽입 노드는
+  스크린리더가 자동 announce)이라 그대로 유지 — 실제 결함은 포커스 이관 부재였다. 렌더
+  하네스 부재로 `.focus()` 실호출은 테스트에서 검증 불가(호출이 throw 하지 않음만 확인).
+- **boundary-6(registry 동기 통지의 EditorArea 귀속)** — 재설계 없이 근본 수정 가능한
+  범위였다: `editor-instance-registry.ts` 의 `notifyTabListeners` 가 리스너 각각을
+  try/catch 로 감싸도록 변경(실패한 구독자는 `console.error` 후 계속) — 한 구독자(예:
+  status-bar 의 `attachToEditor` 버그)의 예외가 호출자(CodeEditor, EditorArea 경계 하위)로
+  전파돼 무관한 영역이 대신 폴백되는 문제를 근본에서 막는다. 회귀 테스트 1개 추가(구독자
+  하나가 던져도 나머지는 통지받고 register/unregister 밖으로 예외가 새지 않음을 확인).
+
+### 4.3 문서 정정만 (코드 결함 아님)
+
+- **merge-integrity-5** — §3 재개 세션 메모의 "직전 세션 사망" 을 실제 사실(동시 이중
+  세션·정상 완주)로 정정(위 §3 본문에 반영).
+- **contract-8** — §3.2 의 "`MESSAGE_NAMESPACES` 4곳 동기(알파벳 정렬 위치)" 서술 중
+  "알파벳 정렬" 부분을 "배열 자체는 도메인 그룹 순서, 튜플은 기존 관행대로 말미 추가" 로
+  정정(위 §3.2 본문에 반영). 코드·파리티 테스트는 애초부터 정상.
+- **merge-integrity-2(b)** — §3.3 의 "search-panel 헤더 행 없음" 서술을 "가변 높이 입력
+  행이라 32px 고정 대상이 아님" 으로 정정(위 §3.3 본문에 반영). 결론(미적용)은 유지.
+
+### 4.4 이월/불변
+
+- refuted 판정(전체 26건 중 major 이상 4건은 confirmed, 나머지 minor 중에서도 이번 검토가
+  뒤집은 항목은 없음 — merge-integrity-2/5/8 은 "결론은 맞고 근거 서술만 틀림" 이었다)은
+  전부 유지, 임의 재론 없음.
+- d-25 부팅 워처 후절화(Rust, 앱 재시작 수반) 는 이번 배치 범위 밖 그대로 이월.
+
+### 4.5 재검증
+
+- 수정 후 `bun run verify`(typecheck → lint → format:check → test → rust:fmt → rust:lint →
+  rust:test) exit 0. bun 쪽: typecheck clean, lint 0 error/6 warning(§3.4 와 동일한
+  이번 배치 무관 기존 경고), format:check clean, `bun test` **1408 pass/0 fail**(137
+  files — boundary-3/onCaught/componentDidMount·Update/registry 리스너 격리 관련 신규
+  테스트 6개 추가). cargo 쪽: fmt/clippy(`-D warnings`) clean, `cargo test --workspace`
+  **1080 pass/0 fail**(로케일 파리티 3종 포함, `sidebarPanel` 키 추가 후에도 그대로 pass).
+- `bunx vite build` exit 0(청크 크기 경고는 기존과 동일, 신규 경고 없음).
+- `src/shared/api/bindings.ts` 무변경(`git diff` 0줄) — 이번 반영도 TS(+로케일 JSON/Rust
+  상수 1곳) 전용, Tauri 커맨드 표면 무변경.

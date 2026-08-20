@@ -87,6 +87,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     const { t } = useTranslation()
     const containerRef = useRef<HTMLDivElement>(null)
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+    const registryTabIdRef = useRef<TabId | null>(null)
     const activePathRef = useRef<string | null>(null)
     const valueRef = useRef(value)
     const initialFontFamilyRef = useRef(fontFamily)
@@ -150,7 +151,23 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         })
         const cursorSubscription = editor.onDidChangeCursorPosition((event) => onCursorLineChangeRef.current(event.position.lineNumber))
 
+        /**
+         * Unregisters `registryTabIdRef.current` (see the `[registryTabId]` effect below) FIRST,
+         * before any of the dispose calls that follow — this is the fiber's first cleanup to run on
+         * a full unmount (verified: `commitHookEffectListUnmount` walks a fiber's effect list
+         * forward, so a cleanup declared earlier always runs before one declared later), and nothing
+         * runs ahead of it in this function that could throw and skip it. That makes the registry
+         * unregister unconditional even if `editor.dispose()`, the minimap-action cleanup, the
+         * `aiInlineEdit` cleanup, or the AI inline-completion provider release below all throw —
+         * React aborts a fiber's ENTIRE destroy pass (a single try/catch around the whole loop) on
+         * the first cleanup that throws, so anything relying on running "later" in this same fiber
+         * would otherwise be skipped (crash-class-seal-contract.md §4, lifecycle-1).
+         */
         return () => {
+            if (registryTabIdRef.current) {
+                unregisterEditorInstance(registryTabIdRef.current)
+                registryTabIdRef.current = null
+            }
             changeSubscription.dispose()
             cursorSubscription.dispose()
             editor.dispose()
@@ -269,7 +286,9 @@ export const CodeEditor: FC<CodeEditorProps> = ({
      * option-sync effect above) so that whenever this effect's own setup runs, `editorRef.current`
      * is not just non-null but fully configured for `registryTabId`'s tab — model attached, view
      * state restored, focused, every `addAction` already registered above — before any registry
-     * subscriber's synchronous `notifyTabListeners` callback can observe it.
+     * subscriber's synchronous `notifyTabListeners` callback can observe it. `registryTabIdRef`
+     * mirrors the currently-registered id so the creation effect's cleanup (below) can reach it —
+     * see that cleanup's own comment for why.
      *
      * `registryTabId` can only change while this same `CodeEditor` instance keeps running (the
      * creation effect's `[]` deps mean it is torn down only on full unmount), so a re-key here is
@@ -277,28 +296,34 @@ export const CodeEditor: FC<CodeEditorProps> = ({
      * register a disposed instance under a new key, because there is no "new key" to register
      * under once this component is gone: on full unmount this effect only runs its cleanup (no
      * following setup), same as every other effect torn down alongside it. That structurally
-     * rules out the corpse re-registration this registry used to be exposed to when the parent
-     * owned it (blank-window-hotfix-contract.md §1).
+     * rules out the corpse RE-REGISTRATION this registry used to be exposed to when the parent
+     * owned it (blank-window-hotfix-contract.md §1) — this is an invariant about SETUP, and holds
+     * unconditionally regardless of what any cleanup does.
      *
-     * On full unmount, this effect's cleanup and the creation effect's cleanup both run in the
-     * same destroy pass. Contrary to the common assumption that sibling effects clean up in
-     * reverse declaration order, React walks a fiber's own hook list FORWARD from its first
-     * effect for both the create and destroy passes (verified against the installed
-     * `react-dom@19.2.8` source — `commitHookEffectListMount` and `commitHookEffectListUnmount`
-     * share the same forward traversal), so `editor.dispose()` (the creation effect's cleanup,
-     * declared first) actually runs BEFORE `unregisterEditorInstance` here (declared last), not
-     * after. That ordering is harmless: `unregisterEditorInstance` deletes the registry entry
-     * before it notifies subscribers, and React never starts any OTHER fiber's passive-effect
-     * create pass until every fiber's destroy pass for the current commit has fully finished —
-     * so no registry consumer's `attachToEditor` can run in the gap between this component's own
-     * dispose and its own unregister, regardless of which of the two runs first.
+     * The *unregistration* side needed a second device (crash-class-seal-contract.md §4,
+     * lifecycle-1): React wraps a whole fiber's destroy pass in a SINGLE try/catch
+     * (`commitHookEffectListUnmount`, verified against the installed `react-dom@19.2.8` source) —
+     * if any effect declared before this one throws while cleaning up (`editor.dispose()`, the
+     * minimap-action/`aiInlineEdit` cleanups above, or the AI inline-completion provider release),
+     * the whole destroy loop aborts and this effect's own cleanup never runs, leaving a disposed
+     * instance registered. So the actual unregister call for a full unmount does not live here at
+     * all — it lives at the very top of the creation effect's cleanup (the fiber's FIRST cleanup,
+     * with nothing ahead of it that could throw and skip it), reading `registryTabIdRef.current`
+     * instead of the `registryTabId` closure. This effect's own cleanup below still calls
+     * `unregisterEditorInstance` for the ordinary re-keying case (component stays mounted,
+     * `registryTabId` just changes) — on a full unmount it becomes a harmless redundant no-op
+     * (`unregisterEditorInstance` deletes-then-notifies, both idempotent on an already-removed key).
      */
     useEffect(() => {
         if (!registryTabId) return
         const editor = editorRef.current
         if (!editor) return
+        registryTabIdRef.current = registryTabId
         registerEditorInstance(registryTabId, editor)
-        return () => unregisterEditorInstance(registryTabId)
+        return () => {
+            registryTabIdRef.current = null
+            unregisterEditorInstance(registryTabId)
+        }
     }, [registryTabId])
 
     return <div ref={containerRef} className='h-full w-full' />

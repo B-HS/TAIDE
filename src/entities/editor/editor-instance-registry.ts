@@ -6,8 +6,24 @@ type Listener = () => void
 const registry = new Map<TabId, monaco.editor.IStandaloneCodeEditor>()
 const listenersByTabId = new Map<TabId, Set<Listener>>()
 
+/**
+ * Calls each subscriber for `tabId` inside its own try/catch (crash-class-seal-contract.md §4,
+ * boundary-6): `registerEditorInstance`/`unregisterEditorInstance` are invoked synchronously from
+ * inside `CodeEditor`'s own React effect, so without this a throwing subscriber (e.g. a status-bar
+ * or breadcrumbs `attachToEditor` callback with its own bug) would propagate out through the
+ * registry call and get caught by whichever `ErrorBoundary` happens to wrap the CALLER — mislabeling
+ * an unrelated area's bug as an editor-area crash and leaving the actually-buggy subscriber
+ * mounted. Isolating each listener here keeps one subscriber's failure from taking down another
+ * region's boundary attribution.
+ */
 const notifyTabListeners = (tabId: TabId) => {
-    for (const listener of listenersByTabId.get(tabId) ?? []) listener()
+    for (const listener of listenersByTabId.get(tabId) ?? []) {
+        try {
+            listener()
+        } catch (error) {
+            console.error(error)
+        }
+    }
 }
 
 export const registerEditorInstance = (tabId: TabId, editor: monaco.editor.IStandaloneCodeEditor) => {

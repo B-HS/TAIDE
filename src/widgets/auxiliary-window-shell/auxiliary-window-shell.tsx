@@ -57,7 +57,7 @@ export const AuxiliaryWindowShell: FC<AuxiliaryWindowShellProps> = ({ projectId,
                 </div>
             )}
             <main className='flex min-h-0 min-w-0 flex-1'>
-                <ErrorBoundary labelKey='errorBoundary.editorArea'>
+                <ErrorBoundary labelKey='errorBoundary.editorArea' labelFallback='Editor'>
                     <EditorArea projectId={projectId} isProblemsOpen={false} onCloseProblems={noop} />
                 </ErrorBoundary>
             </main>

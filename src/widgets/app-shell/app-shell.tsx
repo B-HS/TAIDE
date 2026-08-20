@@ -189,7 +189,7 @@ export const AppShell = () => {
             ) : (
                 <div className='flex min-h-0 flex-1'>
                     {!zen && (
-                        <ErrorBoundary labelKey='errorBoundary.sidebar'>
+                        <ErrorBoundary labelKey='errorBoundary.sidebar' labelFallback='Activity Bar' fallbackSizeClassName='h-full w-14 shrink-0'>
                             <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />
                         </ErrorBoundary>
                     )}
@@ -208,7 +208,7 @@ export const AppShell = () => {
                                     maxSize='40%'
                                     collapsible
                                     collapsedSize={0}>
-                                    <ErrorBoundary labelKey='explorer.title'>
+                                    <ErrorBoundary labelKey='errorBoundary.sidebarPanel' labelFallback='Sidebar Panel'>
                                         <ExplorerContainer projectId={activeProjectId} />
                                     </ErrorBoundary>
                                 </Panel>
@@ -216,7 +216,7 @@ export const AppShell = () => {
                                     <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
                                 )}
                                 <Panel id='editor' minSize='30%'>
-                                    <ErrorBoundary labelKey='errorBoundary.editorArea'>
+                                    <ErrorBoundary labelKey='errorBoundary.editorArea' labelFallback='Editor'>
                                         <EditorArea
                                             projectId={activeProjectId}
                                             isProblemsOpen={isProblemsOpen}
@@ -232,7 +232,7 @@ export const AppShell = () => {
                 </div>
             )}
             {!(zen && hideStatusBar) && (
-                <ErrorBoundary labelKey='errorBoundary.statusBar'>
+                <ErrorBoundary labelKey='errorBoundary.statusBar' labelFallback='Status Bar' fallbackSizeClassName='h-6 w-full shrink-0'>
                     <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
                 </ErrorBoundary>
             )}
