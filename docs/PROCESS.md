@@ -841,10 +841,16 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           재취득 대조로 충실 정정 + **파이프라인 근본 수정**(mapping-tables list.* 무가드
           chain → explorer 와 동일 derived+isUsableListBackground — 향후 가져오기 방지) +
           Rust 데이터 린트(수정 전 13건 FAIL 실측→PASS·화이트리스트 0)
-    - [ ] d-27. Welcome 페이지 확충 — 사용자 요청(파일/폴더 열기·최근 프로젝트 활성 전환·
-          꾸미기). 계약 `2026-08-20-welcome-page-contract.md`(실사: WelcomeScreen 기존재·
-          recentProjects=[] 하드코딩 배선 부재·last_opened_at 스키마 부재 → Rust 필드+신규
-          커맨드 project_list_recent(DENIED 추천) 표면 추가). **d-26/26b 완결 후 착수**
+    - [x] d-27. Welcome 페이지 확충 — **완결·병합**(main=da25df5). 계약
+          `2026-08-20-welcome-page-contract.md`(§3 구현·§4 검토 반영). 커밋 `1524236`(계약 —
+          d-26b 와 공동)+`01f1871`(feat)+`da25df5`(fix 검토 반영). 표면: 커맨드 176→177
+          (project_list_recent — DENIED 20 등재·파리티)·Project.lastOpenedAt(serde default).
+          UI: WelcomeContainer 위젯(프로젝트 0 화면+welcome 탭 통일)·최근 목록(활성 전환·
+          rootMissing 표시·상한 8)·파일/폴더 열기(루트 검증·창 인지 target)·실효 키맵 단축키
+          카드. E 검토 30발견(major 6) 적대적 **confirmed 6·refuted 0** 전건 반영(실효 키맵
+          주입·레이아웃 상단 절단·보조 창 target·읽기 전용 조회 try_load_project_readonly·
+          infra/clock 공통화·shared/lib/path-root 승격·접근성 ul/li·원격 안내). 로케일
+          789→792. 검증 bun 1424·cargo 1061·domain_boundaries 그린
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
