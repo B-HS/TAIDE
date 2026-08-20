@@ -19,8 +19,9 @@ export const canRenderCodeEditor = (isPending: boolean, isError: boolean, tier: 
 /**
  * The `editor` state `EditorPane` should carry out of the CURRENT render, kept consistent with
  * whether that render actually outputs `<CodeEditor>`: the live instance when
- * {@link canRenderCodeEditor} is true, `null` otherwise (docs/acknowledge/2026-08-20-blank-window-
- * hotfix-contract.md §2). Only covers the three `canRenderCodeEditor`-false branches (loading,
+ * {@link canRenderCodeEditor} is true, `null` otherwise. See §2 of
+ * docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md. Only covers the three
+ * `canRenderCodeEditor`-false branches (loading,
  * error, refused tier) — a commit where `canRenderCodeEditor` stays true throughout but
  * `CodeEditor` still unmounts and remounts (a sibling JSX branch flipping element type, e.g. the
  * markdown-preview split) is outside what this function can see, and is instead closed

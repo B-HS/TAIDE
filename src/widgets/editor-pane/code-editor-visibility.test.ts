@@ -45,15 +45,18 @@ describe('resolveEditorStateForRender', () => {
     })
 })
 
+/**
+ * A registry-identity placeholder for the "stale, already-disposed" editor value the render-phase
+ * adjustment and registration effect route around. The test below only checks which `tabId` ends
+ * up holding a reference in `editor-instance-registry` — it never calls a method on the value
+ * itself — so unlike {@link createRechargeableFakeEditor} below, this does not need to model
+ * monaco's action-map bookkeeping (an earlier revision gave it a `getSupportedActions` that threw
+ * immediately on dispose, contradicting `createRechargeableFakeEditor`'s dispose-alone-is-harmless
+ * model below without ever actually being exercised by an assertion; removed).
+ */
 const createDisposableFakeEditor = () => {
-    const state = { disposed: false }
-    const editor = {
-        getSupportedActions: () => {
-            if (state.disposed) throw new Error('AbstractContextKeyService has been disposed')
-            return []
-        },
-    } as unknown as monaco.editor.IStandaloneCodeEditor
-    return { editor, dispose: () => (state.disposed = true) }
+    const editor = {} as unknown as monaco.editor.IStandaloneCodeEditor
+    return { editor, dispose: () => undefined }
 }
 
 /**
@@ -76,8 +79,10 @@ const rerunRegistrationEffect = (previousTabId: string, nextTabId: string, edito
  * the same function `editor-pane.tsx` calls — rather than re-deriving its ternary, so a bug in
  * the shared decision function itself (not just its call site) fails this test. It does not
  * exercise `editor-pane.tsx`'s own wiring (that the render-phase `if` actually calls `setEditor`
- * with this function's result) — that remains guarded by type-check and review only, same as the
- * rest of this component's render-phase logic (contract §5).
+ * with this function's result) — that wiring is guarded by review only, same as the rest of this
+ * component's render-phase logic (contract §5): deleting both the `if` and its
+ * `resolveEditorStateForRender` import leaves no unused symbol behind, so `tsc --noEmit` and
+ * eslint both stay clean against that regression.
  */
 describe('editor-pane.tsx 등록 effect 계약: canRenderCodeEditor 가 false 인 커밋에서 dispose 대상 인스턴스를 새 tabId 로 등록하지 않는다 (2026-08-20 빈 창 크래시)', () => {
     test('resolveEditorStateForRender 로 조정된 editor 상태를 등록 effect 에 넘기면, dispose 대상 인스턴스가 새 tabId 로 등록되지 않는다', () => {
@@ -157,19 +162,33 @@ const rerunGitGutterAddActionEffects = (editorForThisCommit: monaco.editor.IStan
  * re-registers the STALE `editor` state — already disposed by `CodeEditor`'s own passive
  * cleanup earlier in the same destroy pass — under the new tabId. This alone would be harmless
  * (dispose already cleared the corpse's action map, so `getSupportedActions()` returns `[]`), but
- * `useEditorGitGutterAndConflicts`'s two `addAction` effects re-run in the same commit's create
- * pass (their `path` dependency also changed) and refill that corpse's action map — their only
- * guard, `!editor`, does not know the instance is disposed. `editor-area.tsx`'s action-id effect
- * then calls `getSupportedActions()` on the now-repopulated corpse and throws.
+ * `useEditorGitGutterAndConflicts`'s two `addAction` effects — called earlier in `EditorPane`'s
+ * body than the `[tabId, editor]` registration effect, so queued earlier in this commit's passive
+ * effect list — refill that corpse's action map in this same commit's create pass, BEFORE the
+ * registration effect creates and re-registers the same, now-recharged corpse under the new
+ * tabId; their only guard, `!editor`, does not know the instance is disposed. From there the
+ * throw surfaces one of two ways depending on whether `editor-area.tsx`'s globally-focused tab
+ * also changed in this commit: if it didn't, `registerEditorInstance`'s synchronous
+ * `notifyTabListeners` call (still subscribed to this tab from a prior commit) invokes
+ * `editor-area.tsx`'s `attachToEditor` — and so `getSupportedActions()` — from inside this very
+ * registration effect; if it did, `editor-area.tsx`'s own `[focusedFileTabId]` effect instead
+ * tore its old subscription down in this commit's destroy pass and calls `attachToEditor()`
+ * directly when its own create pass runs, throwing there instead (the case the original crash's
+ * `<EditorArea>` stack attribution matches).
  *
  * This test cannot exercise `editor-pane.tsx`'s actual JSX (no RTL/monaco render harness in this
  * project — see contract §5) and so cannot fail against the pre-fix commit and pass against the
  * post-fix one; the structural fix (always rendering `<Group>`, closing the element-type flip
- * that produces this commit shape at all) is instead guarded by type-check and review. What this
- * locks down is the *mechanism*: that recreating this commit shape reliably reproduces the throw,
- * and that a disposed-guard on the registration effect alone (the one alternative contract §2
- * evaluates) would not have been sufficient, since a *different* effect family (git-gutter's
- * `addAction`s) — not the registration effect — is what refills the corpse.
+ * that produces this commit shape at all) is instead guarded by review only — deleting it leaves
+ * no unused symbol, so neither `tsc --noEmit` nor eslint catch its regression. What this locks
+ * down is the *mechanism*, against a hand-written mock rather than monaco itself: that recreating
+ * this commit shape reliably reproduces the throw. It does not evaluate the registration-effect
+ * disposed-guard contract §2 rejects — that guard would in fact have kept this corpse out of the
+ * registry too, closing this symptom just as well; contract §2's actual reason for rejecting it
+ * is that it only launders the registry's own bookkeeping and leaves the underlying invariant
+ * (registered instance ≡ live instance) unenforced for any consumer that reads `EditorPane`'s
+ * `editor` state directly instead of going through the registry (e.g.
+ * `use-editor-file-persistence.ts`'s `editor?.getAction(FORMAT_DOCUMENT_ACTION_ID)`).
  */
 describe('잔존 경로: 프리뷰 Group↔div 플립 커밋에서 dispose 된 corpse 가 git-gutter addAction 으로 재충전되어 throw 한다', () => {
     test('dispose 후 addAction 재충전 없이 getSupportedActions 를 호출하면 throw 하지 않는다 (dispose 만으로는 무해)', () => {
@@ -190,8 +209,8 @@ describe('잔존 경로: 프리뷰 Group↔div 플립 커밋에서 dispose 된 c
         registerEditorInstance('tab-old', corpse)
 
         dispose()
-        rerunRegistrationEffect('tab-old', 'tab-new', corpse)
         rerunGitGutterAddActionEffects(corpse)
+        rerunRegistrationEffect('tab-old', 'tab-new', corpse)
 
         const registeredCorpse = getEditorInstance('tab-new')
         expect(registeredCorpse).not.toBeNull()

@@ -1,4 +1,4 @@
-import type { FC } from 'react'
+import type { CSSProperties, FC } from 'react'
 import { useEffect, useEffectEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
@@ -358,18 +358,50 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * to/from a cached tab that changes `isMarkdown`) actually unmounted and remounted
      * `CodeEditor` — reproducing, in one commit, the exact registry corpse the render-phase
      * `editor` adjustment above exists to prevent, except `canRenderCodeEditor` stays true here
-     * so that adjustment never fires (contract §7). A `<Group>` with a single `<Panel>` and no
-     * `<PaneSeparator>` renormalizes to 100% regardless of `defaultSize` (`react-resizable-panels`
-     * only distributes `defaultSize` among panels sharing a group; with one panel there is
-     * nothing to share with — verified against the installed package source), so this renders
-     * identically to the previous bare-`<div>` layout whenever no preview is shown.
+     * so that adjustment never fires (contract §7). This invariant only holds while `CodeEditor`
+     * is never wrapped in another conditional render between here and `<Group>` — adding one
+     * would silently reopen the same crash class this section closes.
+     *
+     * The editor `<Panel>` carries no `defaultSize`. `react-resizable-panels`'s initial-layout
+     * pass (`We()` in the installed 4.12.2 dist) gives every panel that DOES declare a
+     * `defaultSize` exactly that value, then splits whatever remains evenly across the panels
+     * that don't. With the preview panel absent, the editor panel is the only panel in the group
+     * and the remainder is the full 100%; with the preview panel present (its own unchanged
+     * `defaultSize='50%'`), the remainder is the other 50% — both outcomes match this branch's
+     * pre-existing sizing exactly, without depending on `We()`'s output ever needing the
+     * separate sum-to-100 renormalization pass (`K()`) a declared `defaultSize='50%'` on a lone
+     * panel would have required. Same no-`defaultSize` pattern already used by `editor-area.tsx`'s
+     * outer `<Panel id='editor-panes'>`. It also fixes the one frame rendered before the group's
+     * own layout effect commits: with no `defaultSize`, that frame's inline style is
+     * `flexGrow: 1` (fills the row immediately) rather than a stale 50% `flexBasis`.
+     *
+     * `overflow` on `<Group>` and the editor `<Panel>` is forced back to `visible` whenever the
+     * preview panel is absent, restoring the exact overflow ancestry the previous bare-`<div>`
+     * layout had — nearest clipping ancestor `pane-node-view.tsx`'s `overflow-hidden`, one
+     * `BreadcrumbsBar` above the editor box. Left at their `react-resizable-panels` defaults,
+     * `<Group>`'s root div hard-codes `overflow: hidden` and `<Panel>`'s inner div hard-codes
+     * `overflow: auto` (verified against the installed 4.12.2 dist — both values sit ahead of the
+     * user-supplied `style` in the same object literal, so passing `style` here does override
+     * them, despite `GroupProps.style`'s doc comment claiming `overflow` "cannot be overridden" —
+     * that comment does not match this installed version's actual behavior). Left un-overridden,
+     * that clips monaco's hover/suggest/parameter-hint widgets (`allowEditorOverflow`, absolutely
+     * positioned inside `.monaco-editor`, routinely laid out above the editor's own top edge) at
+     * the editor box instead of the pane box — a regression, not an intended effect of this
+     * branch always being a `<Group>` now (contract §7.5 regression-1). When the preview panel IS
+     * present, `overflow` is left at its library default, unchanged from every prior revision of
+     * this branch — markdown-preview-on already used this same `<Group>`+`<Panel>` pair with no
+     * style override before this file was touched — since `MarkdownPreview` manages its own
+     * internal scrolling (`features/editor/markdown-preview.tsx`'s own `overflow-auto` div)
+     * independently of the ancestor `<Panel>`'s overflow.
      */
+    const showPreviewPanel = isMarkdown && showMarkdownPreview
+    const editorGroupOverflowFix: CSSProperties | undefined = showPreviewPanel ? undefined : { overflow: 'visible' }
     const editorAndPreviewPanels = (
-        <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1'>
-            <Panel id={`${tabId}-editor`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
+        <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1' style={editorGroupOverflowFix}>
+            <Panel id={`${tabId}-editor`} minSize='20%' className='min-h-0 min-w-0' style={editorGroupOverflowFix}>
                 {codeEditorWithBlameFooter}
             </Panel>
-            {isMarkdown && showMarkdownPreview && (
+            {showPreviewPanel && (
                 <>
                     <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
                     <Panel id={`${tabId}-preview`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>

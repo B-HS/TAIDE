@@ -13,8 +13,8 @@
 - **기전**: 새 파일 클릭(파일 쿼리 캐시 미스) 커밋에서 EditorPane(무-key)이 placeholder 를
   렌더하며 CodeEditor 를 삭제 — 이때 `editor` useState 는 구 인스턴스를 유지(`setEditor(null)`
   은 삭제된 CodeEditor 의 passive cleanup 에서 뒤늦게 발화). 같은 커밋의 passive 단계에서
-  구 에디터 `dispose()` 후, EditorPane 의 `[tabId, editor]` 재등록 effect(editor-pane.tsx:
-  171-175)가 **(새 tabId, dispose 된 구 에디터)** 로 재실행되어 registry 에 시체를 등록.
+  구 에디터 `dispose()` 후, EditorPane 의 `[tabId, editor]` 재등록 effect가
+  **(새 tabId, dispose 된 구 에디터)** 로 재실행되어 registry 에 시체를 등록.
   EditorArea 의 `[focusedFileTabId]` effect(editor-area.tsx:302-304)가 그 시체에
   `getSupportedActions()` 호출 → `InternalEditorAction.isSupported` → dispose 된
   ScopedContextKeyService 의 `contextMatchesRules`(monaco contextKeyService.js:245) throw.
@@ -49,7 +49,8 @@
 
 - **editor-pane.tsx 렌더 중 상태 조정**: CodeEditor 를 렌더하지 않는 분기(isPending·isError·
   refused 등 — 실제 JSX 분기 실사로 조건 확정)에서 `editor !== null` 이면 렌더 중
-  `setEditor(null)` 조정(동 파일 :136-150 의 기존 adjust-state-during-render 선례와 동형).
+  `setEditor(null)` 조정(동 파일의 `path !== syncedPath` 렌더 중 조정 블록과 동형인 기존
+  adjust-state-during-render 선례).
   효과: ① 재등록 effect 가 시체를 새 tabId 로 등록하지 않음(구 tabId cleanup 만 실행) ②
   EditorArea 는 null 을 보고 `setActiveEditorActionIds(null)` 안전 종료. viewState 저장은
   무손상(use-editor-view-state 의 layout cleanup 은 이전 렌더 클로저의 live 구 에디터로 같은
@@ -59,13 +60,19 @@
   새 tabId 로 dispose 된 인스턴스를 갖지 않는다"를 드러내는 테스트 — EditorPane 통합이
   무거우면(monaco) 등록 effect 의 상태 패턴을 재현하는 최소 하네스로. 수정 전 FAIL 실측 →
   수정 후 PASS. 불가 판정 시 사유 보고(공허 통과 테스트 금지).
-- **기각된 대안**(진단, Phase E design-4 정정 반영 — 2026-08-20): 등록 effect 의 disposed
-  검사. `isDisposed` 프로퍼티는 monaco 공개 API 에 없으나(정정: "내부 접근 없이는 검출
-  불가능"이라던 원 서술은 부정확 — `onDidDispose(listener)` 는 `IEditor` 가 노출하는 공개
-  이벤트다, `editor.api.d.ts`:2676), 검출이 가능하더라도 그 검사는 이 배치가 고친 세
-  early-return 분기의 증상만 막을 뿐 §1 의 근본 원인(dispose 재등록 자체·addAction 재충전
-  고리)은 남긴다. 이번 배치는 그 대신 구조적 대안(§7 — `CodeEditor` 의 fiber 위치 고정)을
-  채택했으므로, 등록 effect 가드 대안은 재평가하지 않는다.
+- **기각된 대안**(진단, Phase E design-4·contract-1 정정 반영 — 2026-08-20): 등록 effect 의
+  disposed 검사. `isDisposed` 프로퍼티는 monaco 공개 API 에 없으나(정정: "내부 접근 없이는
+  검출 불가능"이라던 원 서술은 부정확 — `onDidDispose(listener)` 는 `IEditor` 가 노출하는 공개
+  이벤트다, `editor.api.d.ts`:2676), 검출 자체는 가능하고 그 검사를 두면 §1·§7.1 이 낸 시체
+  모두 registry 에 등록되는 것을 실제로 막는다(**정정, contract-1**: "분기 증상만 막고 dispose
+  재등록 자체는 남긴다"던 원 기각 사유는 그 검사의 목적과 모순되어 성립하지 않았으므로 폐기).
+  그래도 채택하지 않는 진짜 이유는, 그 검사가 registry 를 경유하는 소비자의 위생만 고칠 뿐
+  "등록된 인스턴스 ≡ 현재 마운트된 살아있는 인스턴스" 라는 근본 불변식 자체는 강제하지 않기
+  때문이다 — registry 를 거치지 않고 `editor` state 를 직접 읽는 소비자(예:
+  use-editor-file-persistence.ts 의 `editor?.getAction(FORMAT_DOCUMENT_ACTION_ID)`)에는 여전히
+  시체가 노출될 수 있고, 그 틈을 마저 막으려면 `onDidDispose` 구독이라는 별도 부기 상태를
+  effect 에 더해야 한다. 이번 배치는 그 대신 구조적 대안(§7 — `CodeEditor` 의 fiber 위치 고정으로
+  시체가 생기는 커밋 자체를 없앰)을 채택했으므로, 등록 effect 가드 대안은 재평가하지 않는다.
 
 ## 3. 범위 외 (후속 결정·배치)
 
@@ -98,8 +105,8 @@
 
 - **수정**: `canRenderCodeEditor(isPending, isError, tier)` 순수 predicate 를
   `code-editor-visibility.ts` 로 추출(conflict-status.ts 선례 동형 — 렌더 조건과 테스트가
-  단일 출처 공유). editor-pane.tsx 의 3개 early-return(isPending :266·isError :268·
-  tier==='refused' :276 — JSX 실사로 미렌더 분기가 정확히 3개임을 확정, 마크다운 프리뷰 split
+  단일 출처 공유). editor-pane.tsx 의 3개 early-return(`isPending`·`isError`·
+  `tier === 'refused'` — JSX 실사로 미렌더 분기가 정확히 3개임을 확정, 마크다운 프리뷰 split
   포함 이후 경로는 전부 CodeEditor 렌더) 직전에 렌더 중 조정 1줄:
   `if (!canRenderCodeEditor(...) && editor !== null) setEditor(null)`(잔존 경로 수정 배치에서
   `resolveEditorStateForRender` 로 추출·치환 — §7). untitled-pane 은 동일 state 패턴이나
@@ -115,8 +122,11 @@
   `resolveEditorStateForRender`(신규 추출, editor-pane.tsx 가 실제로 호출하는 그 함수)를
   직접 호출하도록 재작성해, 결정 로직 자체는 프로덕션과 동일 함수를 공유하게 했다 — 다만
   editor-pane.tsx 의 배선(`if (resolvedEditor !== editor) setEditor(resolvedEditor)` 이 그
-  반환값을 실제로 쓰는지) 자체는 여전히 렌더 하네스 부재로 타입체크·리뷰 전담이다. **명시된
-  한계**: 배선 삭제 회귀는 이 테스트가 못 잡음.
+  반환값을 실제로 쓰는지) 자체는 여전히 렌더 하네스 부재로 **리뷰 전담**이다(**정정, Phase E
+  design-3**: "타입체크·리뷰 전담"이라던 원 서술은 부정확 — 그 조정 2줄과
+  `resolveEditorStateForRender` import 를 함께 지워도 남는 미사용 심볼이 없어 `tsc --noEmit`·
+  eslint 모두 clean 하다. 실제 보증은 리뷰뿐이다). **명시된 한계**: 배선 삭제 회귀는 이
+  테스트가 못 잡음.
 - **부작용 분석(구현 자기 검증)**: 조정은 1회성(재렌더 후 editor=null 로 조건 해소 — 무한루프
   없음) / viewState layout cleanup 은 이전 렌더 클로저의 live 에디터로 무손상(진단 H1 기각과
   일치) / 캐시 히트 탭 전환은 predicate true 유지로 무접촉(T0 setModel 스왑 의도 보존) /
@@ -130,6 +140,14 @@
    B안: 루트 1개만 / C안: 도입 보류
 2. 부팅 5초 수정 배치 — A안(추천): 워처 attach 후절화(창 표시 뒤 spawn) 배치 착수 /
    B안: release 빌드 실측 후 판단 / C안: 보류
+3. registry 등록 소유권을 `CodeEditor` 자신의 생명주기로 이관할지(Phase E closure-3=design-5) —
+   §7.1 의 fiber 위치 고정은 알려진 트리거 하나만 닫았을 뿐, "registry 에 등록된 인스턴스는
+   살아 있다"는 불변식 자체를 강제하는 장치는 여전히 없다 — A안(추천): 등록 effect 안에서
+   `editor.onDidDispose(() => unregisterEditorInstance(tabId))` 를 걸어(공개 API, §2 정정본이
+   인정) 값싸게 불변식을 강제 / B안: 등록·해제 자체를 `CodeEditor` 자신의 마운트 effect 로
+   이관해 부모의 `editor` state 를 거치지 않게 구조를 바꿈(더 큰 리팩터) / C안: 보류(§7.1 이
+   알려진 트리거를 이미 닫았으므로 당장은 현상 유지 — 단, §7.1 의 "`CodeEditor` 를 감싸는
+   조건부 렌더를 추가하지 않는다"는 불변식을 리뷰가 계속 지켜야 함)
 
 ---
 
@@ -159,23 +177,30 @@
   유무와 무관하게 항상 같은 위치·같은 타입이므로, React 재조정이 그 서브트리를 절대
   삭제하지 않는다 — `CodeEditor` 는 프리뷰 토글·markdown/non-markdown 탭 전환 어느
   쪽으로도 더 이상 언마운트되지 않는다(부수 효과로 monaco 재생성·viewState 왕복 비용도
-  사라진다).
+  사라진다). **불변식**: 이 구조가 성립하려면 `CodeEditor` 와 `<Group>` 사이에 새 조건부
+  렌더를 추가하지 않아야 한다 — 그런 분기가 새로 생기면 이 절이 닫은 크래시 클래스가 똑같이
+  재개방된다(Phase E closure-3=design-5, §6 결정 패키지 3번 참고. 자동 가드는 없음 — 리뷰가
+  이 불변식을 지킨다).
 - **동등성 실사(react-resizable-panels 4.12.2, `node_modules/react-resizable-panels/dist/
-  react-resizable-panels.js` 직접 확인)**: `<Panel>` 하나만 등록되고 `<PaneSeparator>` 가 없는
-  `<Group>` 은 `defaultSize` 값과 무관하게 100% 너비로 정규화된다 — 초기 레이아웃 계산
-  `We()`(:1340-1357)는 `defaultSize` 가 있는 패널의 값을 그대로 합산하지만(1개 패널·
-  `defaultSize='50%'` → 합계 50), 그 뒤 `K()`(:837-885)가 `if (!k(i, 100) && o.length > 0)`
-  분기(:849-855, `l = 100 / i * r`)로 합계가 100 이 아니면 100 이 되도록 **재정규화**한다 —
-  1개 패널·합계 50 → `100/50*50 = 100`. 이는 프리뷰가 열려 다른 패널이 함께 등록될 때만
-  `defaultSize='50%'` 가 실제 50% 로 유지되고, 프리뷰가 닫혀 패널이 하나뿐이면 자동으로
-  100% 가 됨을 뜻한다 — 기존 bare `<div>` 분기와 시각적으로 동일. 리사이즈 핸들도 동일하게
-  없다(`<PaneSeparator>` 미등록 → `registerSeparator` 호출 없음 → 드래그 히트 영역 없음).
-  `<Group>` 자체의 `className='min-h-0 min-w-0 flex-1'` 은 프리뷰 on 분기에서 이미 검증된
-  "flex-col 부모의 남는 세로 공간을 채우는" 방식이며(`flex-1` = flex-grow:1 로 정석적인 채움),
-  이전 bare `<div>` 분기가 쓰던 `h-full`(+`min-h-0`, flex-shrink 경유의 채움)과는 메커니즘만
-  다를 뿐 결과(remaining space 를 채움)는 동일하다 — 두 메커니즘 모두 이 프로젝트에 이미
-  나란히 존재해 왔으므로(프리뷰 on/off 각각), 이번 변경은 이미 검증된 한쪽 메커니즘으로
-  **통일**하는 것이다.
+  react-resizable-panels.js` 직접 확인, Phase E 잔존 검토 반영 — §7.5)**: 에디터 `<Panel>` 은
+  `defaultSize` 를 선언하지 않는다 — 초기 레이아웃 계산 `We()`(:1340-1357)는 `defaultSize` 가
+  **있는** 패널에는 그 값을 그대로 배정하고, `defaultSize` 가 **없는** 패널에는 "100 − 선언된
+  합" 을 나눈다. 프리뷰가 닫혀 에디터 패널이 그룹의 유일한 패널이면 선언된 합이 0 이므로
+  에디터 패널이 100% 를 그대로 받고, 프리뷰가 열리면(프리뷰 `<Panel>` 은 여전히
+  `defaultSize='50%'`) 선언된 합이 50 이므로 에디터 패널이 나머지 50% 를 받는다 — 두 경우 모두
+  기존 bare `<div>` 분기·기존 프리뷰-on `<Group>` 분기와 각각 시각적으로 동일하며, 합계가
+  이미 100 이므로 `K()`(:837-885)의 합계-100 재정규화 단계에 결과가 의존하지 않는다(같은
+  저장소 선례: editor-area.tsx 의 `<Panel id='editor-panes'>` 도 `defaultSize` 없음). 리사이즈
+  핸들도 프리뷰 닫힘 상태에선 동일하게 없다(`<PaneSeparator>` 미등록 → `registerSeparator`
+  호출 없음 → 드래그 히트 영역 없음). `<Group>` 자체의 `className='min-h-0 min-w-0 flex-1'`
+  은 프리뷰 on 분기에서 이미 검증된 "flex-col 부모의 남는 세로 공간을 채우는" 방식이며
+  (`flex-1` = flex-grow:1 로 정석적인 채움), 이전 bare `<div>` 분기가 쓰던 `h-full`(+`min-h-0`,
+  flex-shrink 경유의 채움)과는 메커니즘만 다를 뿐 결과(remaining space 를 채움)는 동일하다 —
+  두 메커니즘 모두 이 프로젝트에 이미 나란히 존재해 왔으므로(프리뷰 on/off 각각), 이번 변경은
+  이미 검증된 한쪽 메커니즘으로 **통일**하는 것이다. `overflow` 는 프리뷰가 닫혀 있을 때만
+  `<Group>`·에디터 `<Panel>` 양쪽에 `style={{ overflow: 'visible' }}` 로 되돌려 pane 경계
+  클리핑을 복원한다(Phase E regression-1, §7.5 참고) — 프리뷰가 열려 있을 때는 스타일
+  오버라이드 없이 라이브러리 기본값 그대로다.
 - **DOM 구조 변화**: 프리뷰가 꺼진 상태에서 `codeEditorWithBlameFooter` 를 감싸는 wrapper 가
   0 개(이전, bare `<div>` 가 곧 그 자식)에서 3 개(`<Group>` div·`<Panel>` outer div·`<Panel>`
   inner div)로 늘어난다. editor-pane.tsx·editor-area.tsx·features/editor 전역 grep 확인 —
@@ -186,20 +211,28 @@
 - **선택**: 컴포넌트 렌더(RTL) 를 이 저장소가 지원하지 않아(§5 와 동일 제약) editor-pane.tsx
   의 JSX 를 직접 구동하는 수정 전/후 FAIL/PASS 쌍은 불가능 — **사슬 고정(chain-lock) 테스트**로
   대체(code-editor-visibility.test.ts 확장). 실제 monaco 소스(`monaco-editor` 0.56.0,
-  `node_modules` 직접 확인)에 맞춘 동형 모의로 재충전 메커니즘 자체를 고정한다:
+  `node_modules` 직접 확인)에 맞춘 동형 모의로 재충전 메커니즘을 **문서화**한다(정정, Phase E
+  design-1·contract-2 — 아래 한계 참고):
   `standaloneCodeEditor.js`:98-149 `addAction`(disposed 가드 없음) · `codeEditorWidget.js`:
   296-304 `dispose`(`_actions.clear()` 가 `super.dispose()` 보다 먼저) · `codeEditorWidget.js`:
   772-776 `getSupportedActions`(`isSupported()` 로 filter) · `editorAction.js`:15-17
   `InternalEditorAction.isSupported` · `contextKeyService.js`:243-245 `contextMatchesRules`
   의 disposed throw.
 - **두 테스트**: ① dispose 만으로는 `getSupportedActions()` 가 `[]` 를 반환하고 throw 하지
-  않음을 확인(Phase E verify 패스의 `refuted` 근거가 실제로 성립함을 증명) → ② 같은 커밋에서
-  git-gutter 의 addAction 효과 2개가 재실행되면(가드 `!editor` 만) 시체가 재충전되어
+  않음을 확인(Phase E verify 패스의 `refuted` 판정이 이 모의 위에서 성립함을 확인) → ② 같은
+  커밋에서 git-gutter 의 addAction 효과 2개가 재실행되면(가드 `!editor` 만) 시체가 재충전되어
   `getSupportedActions()` 가 `AbstractContextKeyService has been disposed` 로 throw 함을
   확인(재조정이 전복한 실제 메커니즘). 두 테스트 모두 수정 전/후에 걸쳐 항상 같은 결과를
   내는 메커니즘 고정 테스트이며(editor-pane.tsx 를 참조하지 않음), 7.1 의 구조적 수정 자체에
-  대한 회귀 가드는 아니다 — 그 수정은 타입체크·리뷰·이 문서로 보증한다(§5 와 동일한 성격의
-  한계, 명시).
+  대한 회귀 가드는 아니다 — 그 수정은 리뷰로만 보증한다(**정정, Phase E design-3**: "타입체크·
+  리뷰"라던 원 서술은 부정확 — 7.1 의 구조 변경은 삭제해도 미사용 심볼을 남기지 않으므로
+  `tsc --noEmit`·eslint 어느 쪽도 잡지 못한다. §5 와 동일한 성격의 한계, 명시). **추가 한계**
+  (정정, Phase E design-1·contract-2): 이 두 테스트가 실제로 검증하는 대상은 같은 파일 안에
+  손으로 쓴 `createRechargeableFakeEditor` 모의뿐이다 — monaco 를 런타임으로 전혀 로드하지
+  않으므로, 위에 나열한 monaco 실물 사실이 이후 버전에서 바뀌어도(예: `addAction` 에 disposed
+  가드가 추가되거나 `dispose` 의 정리 순서가 바뀌어도) 이 테스트는 계속 통과한다 — "메커니즘을
+  증명"하는 것이 아니라 "동형 모의로 사슬을 문서화"하는 것이며, monaco 실물이 이 문서의 전제와
+  계속 일치하는지는 리뷰가 보증한다(§5 의 자기충족 시인과 같은 수위의 한계).
 - **결과**: `bun test src/widgets/editor-pane/code-editor-visibility.test.ts` = 11 pass / 0
   fail(기존 5 개 중 등록-effect 계약 테스트 1개는 `resolveEditorStateForRender` 직접 호출로
   갱신 · 신규 6개: `canRenderCodeEditor` tier-null 테스트 1개 + `resolveEditorStateForRender`
@@ -239,3 +272,76 @@
   src/features/editor/` = 120 pass / 0 fail.
 - 전체 `bun run verify`(typecheck→lint→format:check→test→rust:fmt→rust:lint→rust:test) +
   `bunx vite build` + Tauri bindings 무변경은 이 배치의 완료 보고에 실측 기록.
+
+### 7.5 잔존 경로 검토 2차 반영 (Phase E, 2026-08-20 — residual-fix-review-report.json)
+
+> §7 배치(커밋 `2c8f0e5`)에 대한 4렌즈+major 적대적 검토 17건(major 1 confirmed + minor 16,
+> refuted 0)의 반영. 아래 id 는 그 보고서의 id 이며, §7.3 이 참조하는 이전 회차(0f7b07b 검토)
+> id 와 이름이 겹치는 항목(design-1·design-2·contract-1·contract-2 등)이 있으나 서로 다른
+> 검토·다른 지적이다 — 혼동 방지를 위해 이 절 안에서는 항상 "2차" 로 지칭한다.
+
+- **regression-1(major, confirmed) — overflow 클리핑 경계 복원**: `<Group>`/에디터 `<Panel>`
+  에 프리뷰가 닫혀 있을 때만 `style={{ overflow: 'visible' }}` 를 적용해, 프리뷰 off 경로를
+  변경 전 bare `<div>` 와 overflow 의미까지 정확히 동일하게 복원했다(react-resizable-panels
+  4.12.2 dist 실물 확인 — `<Group>`·`<Panel>` 모두 하드코딩된 `overflow` 값 뒤에 사용자
+  `style` 을 스프레드하므로 오버라이드가 실제로 적용된다. `GroupProps.style` 의 "overflow 는
+  오버라이드 불가" 라는 타입 주석은 이 설치 버전의 실제 동작과 다르다). 프리뷰 on 경로는
+  건드리지 않았다 — 마크다운 프리뷰 분기는 이번 §7 배치 이전부터 항상 이 동일한
+  `<Group>`+`<Panel>` 쌍을 스타일 오버라이드 없이 써 왔으므로, 그쪽은 애초에 §7 배치가 만든
+  delta 가 아니었다. 즉 프리뷰 on/off 양쪽 모두 이 수정 이후 각각의 §7 이전 상태와 완전히
+  동일하다 — "무조건 visible" 대안(프리뷰 on 에도 overflow 확장)은 채택하지 않았다(§7.1 에
+  반영).
+- **closure-1=regression-2=design-4=contract-3(2차) — JSDoc 메커니즘 정정 + defaultSize 제거
+  채택**: `editorAndPreviewPanels` JSDoc 의 "단일 패널은 나눌 상대가 없어 100%" 서술을 실제
+  메커니즘(`We()` 의 no-defaultSize 패널 잔여 배분)으로 정정했다. 검토가 제시한 대안도 함께
+  채택 — 에디터 `<Panel>` 의 `defaultSize='50%'` 를 제거했다(§7.1 에 반영, 프리뷰 `<Panel>`
+  의 `defaultSize='50%'` 는 유지). `K()` 의 합계-100 재정규화 단계에 더 이상 의존하지 않고,
+  레이아웃 확정 전 첫 프레임의 인라인 스타일도 `flexBasis:'50%'` 대신 `flexGrow:1` 이 되어
+  전이 상태까지 정확해진다.
+- **regression-3(2차) — 프리뷰 재토글 시 분할 비율 복원(수용, 문서화)**: `<Group>` 이 더 이상
+  프리뷰 토글로 언마운트되지 않으므로(§7.1 의 핵심 목적) react-resizable-panels 의 그룹
+  인스턴스 수명 동안 유지되는 레이아웃 캐시(`mutableState.layouts`, 패널 id 조합별 키)도 함께
+  유지된다 — 직전 드래그 비율이 재토글 시 복원된다(이전: `<Group>` 자체가 매번 언마운트되어
+  항상 50/50 으로 리셋). 최초 오픈 기본값은 여전히 50/50(캐시 미스)이므로 "50% 기본" 주장은
+  유지된다. 매번 50/50 으로 되돌리려면 프리뷰 토글마다 `<Group>` 을 다시 언마운트해야 하는데,
+  그러면 §7.1 이 막으려는 `CodeEditor` 재마운트(와 그로 인한 크래시 잔존 경로)가 되살아난다 —
+  크래시 봉쇄가 이 UX 보존보다 우선하므로, 리셋 복원은 채택하지 않고 이 동작 변화(개선)를
+  그대로 수용해 여기 기록한다.
+- **closure-2(2차) — 사슬 고정 테스트 순서·throw 발화 지점 정정**: `code-editor-visibility.
+  test.ts` 의 두 번째 사슬 고정 테스트에서 `rerunGitGutterAddActionEffects` 호출을
+  `rerunRegistrationEffect` 보다 앞으로 옮겨, 프로덕션의 실제 effect 큐 순서(git-gutter·blame
+  의 `addAction` effect 가 `EditorPane` 본문에서 `[tabId, editor]` 등록 effect 보다 먼저
+  호출되므로 먼저 큐잉됨)와 맞췄다. JSDoc 의 "editor-area.tsx's action-id effect then calls
+  getSupportedActions()" 단정도 두 발화 경로(등록 effect 자신의 동기 `notifyTabListeners` 경유
+  vs `focusedFileTabId` 도 함께 바뀐 경우의 EditorArea 자신의 재실행 effect)로 정정했다.
+  메커니즘 자체(재충전 없으면 무해·재충전되면 throw)는 그대로 성립한다.
+- **design-1=contract-2(2차) — "증명"·"메커니즘 자체를 고정" 서술 하향**: 사슬 고정 두 테스트는
+  monaco 를 전혀 로드하지 않고 손으로 쓴 동형 모의만 검증한다 — §7.2 를 "동형 모의에 대한 사슬
+  고정(자기충족 한계)" 으로 정정해, monaco 실물 동작이 바뀌어도(예: `addAction` 에 disposed
+  가드 추가) 이 테스트는 계속 통과한다는 한계를 §5 의 자기충족 시인과 같은 수위로 명시했다.
+- **design-2=contract-1(2차) — 기각 대안 "불충분" 논거 정정**: §2 를 다시 썼다 — 등록 가드는
+  실제로 §1·§7.1 의 시체 등록 모두를 막지만(원 "분기 증상만" 서술 폐기), registry 밖 소비자에
+  불변식을 강제하지 못한다는 것이 진짜 기각 사유다. 테스트 JSDoc 의 같은 문장도 동일 논리로
+  교체했다.
+- **design-3(2차) — "타입체크·리뷰로 보증" 정정**: 조정 2줄과 그 import 를 지워도
+  `tsc --noEmit`·eslint 가 모두 clean 함을 확인 — §5·§7.2·테스트 JSDoc 세 곳 모두 "리뷰 전담
+  (타입체크는 이 배선을 보증하지 않음)" 으로 정정했다. 렌더 하네스 도입 여부는 §6 결정
+  패키지에 미등재 상태이며 이번 배치 범위 밖이다.
+- **contract-4(2차) — 상충하는 monaco 모형 통일**: `createDisposableFakeEditor` 의
+  `getSupportedActions`(dispose 후 즉시 throw 하던 구모형)가 이 테스트에서 실제로 호출된 적이
+  없음을 확인하고 제거 — 등록/해제 정체성만 모델링하도록 축소해, "dispose 만으로는 무해"라는
+  `createRechargeableFakeEditor` 의 모형과 더 이상 모순되지 않는다.
+- **contract-5(2차) — 낡은 라인 참조 → 심볼 서술**: §1·§2·§5 의 editor-pane.tsx 라인 번호
+  참조 3곳을 심볼 설명으로 치환(이번 배치의 JSX 변경으로도 다시 낙후하지 않도록).
+  `code-editor-visibility.ts` 의 JSDoc 도 문서 경로가 줄바꿈으로 끊기지 않게 정리했다.
+- **closure-3=design-5(2차) — 후속 결정 등재 + 불변식 문장 승격**: §6 결정 패키지에 "registry
+  등록 소유권 이관"(`onDidDispose` 부기 vs `CodeEditor` 자체 이관 vs 보류) 항목을 3번으로
+  추가했다. §7.1 에 "`CodeEditor` 를 감싸는 조건부 렌더를 추가하지 않는다" 를 명시적 불변식으로
+  승격했다 — 채택하지 않는 한 이 문장(과 리뷰)이 유일한 안전장치임을 인정한다.
+- **contract-6(2차, 기각 유지)**: `docs/PROCESS.md` d-22 갱신은 여전히 이 배치의 지정 범위
+  밖이다 — 메인 세션이 완료 보고 시점에 처리한다.
+
+### 7.6 검증 (2차 반영)
+
+- `bun run verify` + `bunx vite build` + Tauri bindings 무변경은 이 배치의 완료 보고에 실측
+  기록한다.
