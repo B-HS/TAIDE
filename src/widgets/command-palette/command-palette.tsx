@@ -1,3 +1,4 @@
+import type { FC } from 'react'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
@@ -19,7 +20,8 @@ import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
 import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
 import { formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
 import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap-chord-store'
-import { fuzzyFilter } from '@shared/lib/fuzzy-match'
+import { buildFuzzyHighlightSegments, fuzzyFilter } from '@shared/lib/fuzzy-match'
+import { toRelativePath } from '@shared/lib/relative-path'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
@@ -40,8 +42,37 @@ import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { listSessionRecordsForProject, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { splitFileMatchForDisplay } from '@widgets/command-palette/command-palette-file-match'
 
 const FILE_RESULT_LIMIT = 200
+
+/**
+ * `--accent` (`shared/styles/global.css`) resolves to the same swatch as list hover
+ * (`--taide-list-hover-background`), so the shadcn `CommandItem` base's
+ * `data-[selected=true]:bg-accent` renders a selected row almost indistinguishable from the
+ * palette's own panel background (contrast ratio ~1.4:1) — arrow-key selection was moving the
+ * `aria-selected`/`data-selected` state correctly but rendering it near-invisibly, read by users as
+ * "selection doesn't work" (`docs/acknowledge/2026-08-20-palette-ux-contract.md` §1.1). Scoped to
+ * this palette only (not `shared/ui/command.tsx`, which `font-picker`/`branch-switcher`/etc. also
+ * consume) and reuses the existing `--taide-list-active-background` token — the same shade already
+ * proven visible elsewhere as the sidebar's "active" state (`--taide-app-sidebar-item-active`) —
+ * instead of introducing a new one.
+ */
+const PALETTE_ITEM_SELECTED_CLASSNAME = 'data-[selected=true]:bg-list-active-background'
+
+const HighlightedText: FC<{ text: string; indices: number[] }> = ({ text, indices }) => (
+    <>
+        {buildFuzzyHighlightSegments(text, indices).map((segment, index) =>
+            segment.matched ? (
+                <mark key={index} className='bg-panel-match-highlight text-app-background rounded-xs'>
+                    {segment.text}
+                </mark>
+            ) : (
+                segment.text
+            ),
+        )}
+    </>
+)
 
 const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
     files: 'palette.filePlaceholder',
@@ -74,9 +105,10 @@ export const CommandPalette = () => {
     const activePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
     const { data: activeFile } = useQuery({ ...fileQueryOptions(activePath), enabled: open && mode === 'symbol' && !!activePath })
     const { data: lspServers } = useQuery({ ...lspServersQueryOptions(), enabled: open && mode === 'symbol' })
+    const needsActiveProjectRoot = mode === 'symbol' || mode === 'files'
     const { data: activeProject } = useQuery({
         ...projectQueryOptions(activeProjectId ?? ''),
-        enabled: open && mode === 'symbol' && !!activeProjectId,
+        enabled: open && needsActiveProjectRoot && !!activeProjectId,
     })
     const { mutate: openTab } = useOpenTab(activeProjectId)
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
@@ -177,8 +209,10 @@ export const CommandPalette = () => {
         void command.run(commandContext)
     })
 
+    const toProjectRelativePath = (path: string) => (activeProject ? toRelativePath(activeProject.root, path) : path)
+
     const fileRows = (treePage?.rows ?? []).filter((row) => row.kind === 'file')
-    const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => row.path).slice(0, FILE_RESULT_LIMIT)
+    const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => toProjectRelativePath(row.path)).slice(0, FILE_RESULT_LIMIT)
     const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) =>
         formatCategorizedLabel(t, command.categoryKey, command.titleKey, command.titleDefaultValue),
     )
@@ -339,13 +373,20 @@ export const CommandPalette = () => {
                         <CommandEmpty>{resolveEmptyStateMessage()}</CommandEmpty>
                         {mode === 'commands' && (
                             <CommandGroup heading={t('palette.commands')}>
-                                {filteredCommands.map(({ item }) => {
+                                {filteredCommands.map(({ item, match }) => {
                                     const keybindingRow = findKeybindingRowById(commandKeybindingRows, item.keymapId ?? item.id)
                                     const runnable = isCommandRunnable(item, commandContext)
+                                    const label = formatCategorizedLabel(t, item.categoryKey, item.titleKey, item.titleDefaultValue)
                                     return (
-                                        <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
+                                        <CommandItem
+                                            key={item.id}
+                                            className={PALETTE_ITEM_SELECTED_CLASSNAME}
+                                            disabled={!runnable}
+                                            onSelect={() => runCommand(item)}>
                                             <Terminal className='size-4' />
-                                            <span>{formatCategorizedLabel(t, item.categoryKey, item.titleKey, item.titleDefaultValue)}</span>
+                                            <span>
+                                                <HighlightedText text={label} indices={match.indices} />
+                                            </span>
                                             {keybindingRow?.key && <CommandShortcut>{formatKeymapShortcut(keybindingRow)}</CommandShortcut>}
                                             {!keybindingRow?.key && keybindingRow?.defaultBindingLabel && (
                                                 <CommandShortcut>{keybindingRow.defaultBindingLabel}</CommandShortcut>
@@ -357,22 +398,44 @@ export const CommandPalette = () => {
                         )}
                         {mode === 'files' && (
                             <CommandGroup heading={t('palette.files')}>
-                                {filteredFiles.map(({ item }) => (
-                                    <CommandItem key={item.path} onSelect={() => openFile(item.path)}>
-                                        <File className='size-4' />
-                                        <span className='truncate'>{item.path}</span>
-                                    </CommandItem>
-                                ))}
+                                {filteredFiles.map(({ item, match }) => {
+                                    const { fileName, dirPath, fileNameIndices, dirPathIndices } = splitFileMatchForDisplay(
+                                        toProjectRelativePath(item.path),
+                                        match.indices,
+                                    )
+                                    return (
+                                        <CommandItem
+                                            key={item.path}
+                                            value={item.path}
+                                            className={PALETTE_ITEM_SELECTED_CLASSNAME}
+                                            onSelect={() => openFile(item.path)}>
+                                            <File className='size-4' />
+                                            <span className='flex min-w-0 flex-col'>
+                                                <span className='truncate'>
+                                                    <HighlightedText text={fileName} indices={fileNameIndices} />
+                                                </span>
+                                                {dirPath !== null && (
+                                                    <span className='truncate text-xs text-muted-foreground'>
+                                                        <HighlightedText text={dirPath} indices={dirPathIndices} />
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </CommandItem>
+                                    )
+                                })}
                             </CommandGroup>
                         )}
                         {mode === 'symbol' && (
                             <CommandGroup heading={t('palette.symbols')}>
-                                {filteredDocumentSymbols.map(({ item }) => (
+                                {filteredDocumentSymbols.map(({ item, match }) => (
                                     <CommandItem
                                         key={`${item.containerLabel}/${item.name}/${item.selectionRange.startLineNumber}`}
+                                        className={PALETTE_ITEM_SELECTED_CLASSNAME}
                                         onSelect={() => selectDocumentSymbol(item)}>
                                         <Braces className='size-4' />
-                                        <span className='truncate'>{item.name}</span>
+                                        <span className='truncate'>
+                                            <HighlightedText text={item.name} indices={match.indices} />
+                                        </span>
                                         {item.containerLabel && <span className='truncate text-xs text-muted-foreground'>{item.containerLabel}</span>}
                                     </CommandItem>
                                 ))}
@@ -380,7 +443,7 @@ export const CommandPalette = () => {
                         )}
                         {mode === 'line' && lineTarget && activePath && (
                             <CommandGroup>
-                                <CommandItem onSelect={() => selectLineTarget(lineTarget)}>
+                                <CommandItem className={PALETTE_ITEM_SELECTED_CLASSNAME} onSelect={() => selectLineTarget(lineTarget)}>
                                     <CornerDownLeft className='size-4' />
                                     <span>{lineTarget.column > 1 ? `${lineTarget.line}:${lineTarget.column}` : `${lineTarget.line}`}</span>
                                 </CommandItem>
@@ -391,6 +454,7 @@ export const CommandPalette = () => {
                                 {workspaceSymbolResults.map((symbol, index) => (
                                     <CommandItem
                                         key={`${symbol.path}:${symbol.line}:${symbol.column}:${index}`}
+                                        className={PALETTE_ITEM_SELECTED_CLASSNAME}
                                         onSelect={() => selectWorkspaceSymbol(symbol)}>
                                         <Hash className='size-4' />
                                         <span className='truncate'>{symbol.name}</span>

@@ -43,3 +43,30 @@ export const fuzzyFilter = <T>(query: string, items: T[], getLabel: (item: T) =>
         })
         .filter((ranked): ranked is FuzzyRankedItem<T> => ranked !== null)
         .toSorted((a, b) => b.match.score - a.match.score)
+
+export type FuzzyHighlightSegment = { text: string; matched: boolean }
+
+/**
+ * Groups `text` into runs of consecutive matched/unmatched characters per `indices` ({@link
+ * FuzzyMatch.indices}), so a renderer can wrap each matched run in a single highlight element
+ * instead of one per character.
+ */
+export const buildFuzzyHighlightSegments = (text: string, indices: number[]): FuzzyHighlightSegment[] => {
+    if (!text) return []
+
+    const matchedIndexSet = new Set(indices)
+    const segments: FuzzyHighlightSegment[] = []
+    let segmentStart = 0
+    let segmentMatched = matchedIndexSet.has(0)
+
+    for (let index = 1; index < text.length; index += 1) {
+        const isMatched = matchedIndexSet.has(index)
+        if (isMatched === segmentMatched) continue
+        segments.push({ text: text.slice(segmentStart, index), matched: segmentMatched })
+        segmentStart = index
+        segmentMatched = isMatched
+    }
+    segments.push({ text: text.slice(segmentStart), matched: segmentMatched })
+
+    return segments
+}

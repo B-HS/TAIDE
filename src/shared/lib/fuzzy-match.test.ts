@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { fuzzyFilter, fuzzyMatch } from '@shared/lib/fuzzy-match'
+import { buildFuzzyHighlightSegments, fuzzyFilter, fuzzyMatch } from '@shared/lib/fuzzy-match'
 
 describe('fuzzyMatch', () => {
     test('빈 쿼리는 항상 매칭되고 점수 0 을 반환한다', () => {
@@ -65,5 +65,46 @@ describe('fuzzyFilter', () => {
     test('빈 쿼리는 전체 항목을 원래 순서로 반환한다', () => {
         const result = fuzzyFilter('', rows, (row) => row.path)
         expect(result.map((r) => r.item.path)).toEqual(rows.map((r) => r.path))
+    })
+})
+
+describe('buildFuzzyHighlightSegments', () => {
+    test('매칭 인덱스가 없으면 전체를 비매칭 세그먼트 하나로 반환한다', () => {
+        expect(buildFuzzyHighlightSegments('index.ts', [])).toEqual([{ text: 'index.ts', matched: false }])
+    })
+
+    test('빈 문자열은 빈 배열을 반환한다', () => {
+        expect(buildFuzzyHighlightSegments('', [0, 1])).toEqual([])
+    })
+
+    test('연속된 매칭 인덱스를 하나의 세그먼트로 묶는다', () => {
+        expect(buildFuzzyHighlightSegments('index.ts', [0, 1, 2])).toEqual([
+            { text: 'ind', matched: true },
+            { text: 'ex.ts', matched: false },
+        ])
+    })
+
+    test('흩어진 매칭 인덱스마다 별도 세그먼트를 만든다', () => {
+        const result = fuzzyMatch('pnv', 'pane-node-view.tsx')
+        expect(result).not.toBeNull()
+        expect(buildFuzzyHighlightSegments('pane-node-view.tsx', result!.indices)).toEqual([
+            { text: 'p', matched: true },
+            { text: 'a', matched: false },
+            { text: 'n', matched: true },
+            { text: 'e-node-', matched: false },
+            { text: 'v', matched: true },
+            { text: 'iew.tsx', matched: false },
+        ])
+    })
+
+    test('전체 문자가 매칭되면 세그먼트 하나로 반환한다', () => {
+        expect(buildFuzzyHighlightSegments('abc', [0, 1, 2])).toEqual([{ text: 'abc', matched: true }])
+    })
+
+    test('마지막 문자만 매칭되면 마지막 세그먼트만 매칭 표시한다', () => {
+        expect(buildFuzzyHighlightSegments('abc', [2])).toEqual([
+            { text: 'ab', matched: false },
+            { text: 'c', matched: true },
+        ])
     })
 })
