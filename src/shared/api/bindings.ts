@@ -10,8 +10,12 @@ export const commands = {
 	/**
 	 *  Every persisted project record on this desktop, most-recently-opened first — unlike
 	 *  `project_list` (the currently-open session only), this walks the full on-disk history so the
-	 *  Welcome screen can offer projects the user closed earlier. Read-only (no `begin_mutation` guard
-	 *  needed, mirroring `project_get`), and deliberately **not** remote-reachable — see
+	 *  Welcome screen can offer projects the user closed earlier. Read-only: it never writes to disk
+	 *  (a corrupted `project.json` is skipped, not backed up to `.bak` — see
+	 *  `service::try_load_project_readonly`), so no `begin_mutation` guard is needed. This is *not*
+	 *  the same shape as `project_get`'s read-only-ness — `project_get` never touches the filesystem
+	 *  at all (it reads `state.projects`, an in-memory map), while this command does a full disk scan
+	 *  through a dedicated read-only path. Deliberately **not** remote-reachable — see
 	 *  `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
 	 */
 	projectListRecent: () => typedError<Project[], AppError>(__TAURI_INVOKE("project_list_recent")),
@@ -1198,7 +1202,7 @@ export type Project = {
 	rootMissing?: boolean,
 	/**
 	 *  Epoch milliseconds this project was last opened or activated (IPC time-field convention —
-	 *  see `docs/ipc-contract.md`'s `f64` epoch-ms fields). `#[serde(default)]` reads a pre-d-27
+	 *  see `docs/data-model.md` §6's `f64` epoch-ms fields). `#[serde(default)]` reads a pre-d-27
 	 *  project record (no such field on disk) as `0.0`, so it sorts last in
 	 *  `service::list_recent_projects` rather than failing to parse — a decorative field earning
 	 *  its default rather than a migration (contract §1.3).

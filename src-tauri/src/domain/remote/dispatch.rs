@@ -294,7 +294,15 @@ enum RemoteDenialPolicy {
     /// contract.md` §1.1) and has no remote use case: exposing it would let a remote session
     /// enumerate local filesystem paths and names for every project ever opened on this desktop,
     /// including ones never opened in the current remote session — a strictly broader disclosure
-    /// than `project_list` already grants remotely.
+    /// than `project_list` already grants remotely. As with [`LocalFilesystemEscape`]/
+    /// [`InstallOrProcessExecution`], this is surface reduction, not a confidentiality boundary:
+    /// an authenticated remote session already has terminal RCE via the allowed `pty_spawn` and
+    /// could read every `project.json` on disk that way, so what this variant forecloses is the
+    /// *dedicated command surface* for that enumeration, not the session's ultimate capability
+    /// ceiling. The Welcome tab still mounts in a remote session (it's part of every project's
+    /// default layout) and calls this command on render, so its "recent projects" section is
+    /// expected to always render empty there — see `docs/ipc-contract.md`'s
+    /// `LocalProjectHistoryExposure` table row.
     LocalProjectHistoryExposure,
     /// The default-deny fallback: a command name that is not filed into either
     /// [`REMOTE_ALLOWED_COMMANDS`] or [`REMOTE_DENIED_COMMANDS`]. Every command [`dispatch`]/

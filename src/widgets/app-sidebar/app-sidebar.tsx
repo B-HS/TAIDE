@@ -3,12 +3,10 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { open } from '@tauri-apps/plugin-dialog'
 import { Plus, Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import type { DetectedAgent, ProjectId } from '@shared/api/bindings'
-import { projectListQueryOptions, useActivateProject, useOpenProject, useReorderProjects } from '@entities/project/project.query'
+import { projectListQueryOptions, useActivateProject, useOpenFolderDialog, useReorderProjects } from '@entities/project/project.query'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { IconButton } from '@shared/ui/icon-button'
@@ -27,9 +25,9 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
 
     const { data: projects = [] } = useQuery(projectListQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
-    const { mutate: openProject } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
     const { mutate: reorderProjects } = useReorderProjects()
+    const handleOpenProject = useOpenFolderDialog()
 
     const agentQueries = useQueries({
         queries: projects.map((project) => projectAgentsQueryOptions(project.id)),
@@ -40,12 +38,6 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
     const badgeEnabled = settings?.agentStatusBadgeEnabled ?? true
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
-
-    const handleOpenProject = async () => {
-        const selected = await open({ directory: true, multiple: false })
-        if (typeof selected !== 'string') return
-        openProject(selected, { onError: (error) => toast.error(error.message) })
-    }
 
     const handleDragEnd = ({ active, over }: DragEndEvent) => {
         setDraggingId(null)

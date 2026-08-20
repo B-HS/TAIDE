@@ -60,10 +60,15 @@
 
 - 동일 폴더 중복 열기는 금지 — 기존 프로젝트를 활성화한다.
 - 하위/상위 폴더 관계의 프로젝트는 각각 독립 프로젝트로 허용한다(watcher 중복 비용은 감수, 문서화).
+- **열기·활성화 모두 `Project.last_opened_at`(밀리초 epoch)을 갱신하고 `project.json` 에 영속한다**
+  (d-27) — 재열기 분기 포함 `project_open` 과 `project_activate` 둘 다. Welcome 화면의 "최근
+  프로젝트" 정렬 기준이며, `project_list_recent`(§4)가 이 값의 내림차순으로 반환한다.
 
 ## 4. IPC (상세: `docs/ipc-contract.md`)
 
-- query: `project_list`, `project_get(projectId)`
+- query: `project_list`, `project_get(projectId)`, `project_list_recent()`(d-27 — 디스크의 영속
+  프로젝트 기록 전수를 `last_opened_at` 내림차순으로 반환, Welcome 화면 "최근 프로젝트" 전용, 원격
+  dispatch 거부)
 - mutation: `project_open(path)`, `project_close(projectId)`, `project_activate(projectId)`,
   `project_reorder(ids)`
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`,

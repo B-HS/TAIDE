@@ -1,6 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -8,6 +8,7 @@ use specta::Type;
 use crate::constants::{LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES};
 use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
+use crate::infra::clock::{now_epoch_ms, MS_PER_SECOND};
 use crate::infra::language::{self, LanguageOverlay};
 use crate::infra::persist;
 use crate::infra::root_guard;
@@ -20,7 +21,6 @@ const BINARY_SNIFF_BYTES: usize = 8_000;
 const MIRROR_FILE_SUFFIX: &str = ".json";
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
-const MS_PER_SECOND: f64 = 1_000.0;
 const UNTITLED_MIRROR_DIR_NAME: &str = "untitled";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,13 +459,6 @@ fn modified_epoch_ms(metadata: &std::fs::Metadata) -> AppResult<f64> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Internal(format!("mtime 변환에 실패했습니다: {error}")))?;
     Ok(duration.as_secs_f64() * MS_PER_SECOND)
-}
-
-fn now_epoch_ms() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs_f64() * MS_PER_SECOND)
-        .unwrap_or(0.0)
 }
 
 pub fn read_raw(path: &Path) -> AppResult<Vec<u8>> {

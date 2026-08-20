@@ -121,3 +121,124 @@
 - 통합: `bun run verify` 전체 파이프라인(typecheck→lint→format→test→rust:fmt→rust:lint→
   rust:test) exit 0.
 - 미실행: tauri dev 실기 확인(원격 X-Ops 정책상 앱 실행 금지 — 사용자 실기 확증 필요, §2 "실행 Workflow" 절 참조).
+
+## 4. Phase E 검토 반영 (2026-08-20)
+
+> 검토: 4렌즈(표면·정확성·설계·계약) + major 적대적 재검증 30건 발견(critical/major 6건, 전건
+> confirmed·refuted 0). major 6건은 3개 실질 결함(키맵 오버라이드 미반영·레이아웃 상단 잘림·보조
+> 창 오배선)이 렌즈 간 중복 보고된 것이라 3건으로 묶어 수정했다. minor 20건 전부 실질 수정하거나
+> (문서·주석 정정 포함) 정책을 택해 반영했다 — 기각(수정하지 않음)한 발견은 없다.
+
+### 4.1 major(3건, 렌즈 간 6건 중복)
+
+- **`correctness-1` = `ui-design-1` = `contract-2` — 단축키 카드가 `APP_KEYMAP` 기본값만 표시**:
+  `WelcomeContainer` 가 `settingsQueryOptions()` 를 읽어
+  `applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))` 로
+  실효 키맵을 만들고, 하이라이트 6개 id 를 그 실효 키맵에서 골라 `shortcuts: KeymapEntry[]` prop
+  으로 주입한다(`command-palette` 선례와 동일 패턴). `WelcomeScreen` 은 `APP_KEYMAP` 을 더 이상
+  import 하지 않고 주입받은 `shortcuts` 만 포맷한다 — features 순수성 유지.
+  (`src/widgets/welcome/welcome-container.tsx`, `src/features/welcome/welcome-screen.tsx`)
+- **`ui-design-2` — `items-center` + `overflow-y-auto` 조합으로 상단이 스크롤 불가**: 바깥
+  컨테이너를 `flex justify-center overflow-y-auto`(교차축 정렬 제거)로, 안쪽 콘텐츠 열에
+  `my-auto` 를 적용했다 — 콘텐츠가 넘치지 않을 때는 기존처럼 중앙 정렬되고, 넘칠 때는 상단부터
+  스크롤로 도달 가능하다(검증자의 실브라우저 재현 대조군과 동일 패턴).
+  (`src/features/welcome/welcome-screen.tsx`)
+- **`ui-design-3` = `contract-1` — 파일 열기가 `target: null` 이라 보조 창에서 메인 창에 열림**:
+  `WelcomeContainer` 가 `layoutQueryOptions(projectId)` 를 구독하고(이미 `enabled: !!projectId`
+  라 0개 화면에서는 자동 스킵) `target: currentWindowFocusedPane(layout)` 을 넘긴다
+  (`search-editor-pane.tsx` 와 동일 패턴). (`src/widgets/welcome/welcome-container.tsx`)
+
+### 4.2 minor(20건) — 판정과 반영
+
+- **`surface-2` = `correctness-3` — 루트 밖 파일 선택 시 죽은 탭 생성**: `handleOpenFile` 에서
+  선택 경로를 `isWithinRoot(selected, scopedProject.root)` 로 검사해, 밖이면 탭을 만들지 않고
+  `toast.error(t('app.openFileOutsideRoot'))` 로 사유를 알린다(신규 로케일 키, en/ko/ja). 경로
+  유틸은 손으로 다시 짜지 않고 `shared/lib/lsp/workspace-edit-applier.ts` 의 `isWithinRoot`/
+  `normalizeFsPath` 를 `shared/lib/path-root.ts` 로 승격해 재사용했다(2곳째 사용처가 생겨
+  "2회 이상" 공통화 규칙 충족). (`src/shared/lib/path-root.ts`,
+  `src/shared/lib/lsp/workspace-edit-applier.ts`, `src/widgets/welcome/welcome-container.tsx`)
+- **`surface-1` = `correctness-2` = `contract-6` — "read-only" 주장이 부정확, 손상 기록을 가드
+  밖에서 rename**: `list_recent_projects` 전용 읽기 전용 로더 `try_load_project_readonly` 를
+  추가했다 — 파싱 실패·IO 오류 모두 그 레코드만 건너뛰고(`.bak` rename 없음, `?` 로 전체 실패시키지
+  않음) 목록은 계속된다. `project_list_recent` 커맨드 doc 주석을 사실대로 정정
+  ("`project_get` 과 동형"이 아니라 "전수 디스크 스캔이지만 전용 읽기 전용 경로")했다. 회귀
+  테스트(`list_recent_projects은_손상된_기록을_건너뛰고_bak으로_rename하지_않는다`) 추가.
+  (`src-tauri/src/domain/project/service.rs`, `src-tauri/src/domain/project/commands.rs`)
+- **`correctness-4` = `ui-design-8` = `contract-5` — `fileNameOf` 재구현·`now_epoch_ms` 복제·폴더
+  열기 핸들러 중복**: `welcome-container.tsx` 의 로컬 `fileNameOf` 재정의를 지우고
+  `@shared/lib/relative-path` 를 import 하도록 교체했다(저장소 전반의 다른 `fileNameOf` 복제 —
+  `editor-area.tsx`·`explorer-container.tsx`·`git-panel-container.tsx` 등 — 는 이번 배치 범위
+  밖의 기존 dead pattern 이라 손대지 않았다). `now_epoch_ms`/`MS_PER_SECOND` 는
+  `infra::clock`(신설)으로 승격해 `domain::project::service`·`domain::file::service` 양쪽이
+  같은 구현을 쓰게 정리했다. 폴더 열기 핸들러(`app-sidebar.tsx` 의 `handleOpenProject`,
+  `welcome-container.tsx` 의 `handleOpenFolder`)는 다이얼로그+뮤테이션+토스트 로직이 완전
+  동일해 "2회 이상" 규칙 대상으로 판단, `entities/project/project.query.ts` 의
+  `useOpenFolderDialog` 훅으로 공통화했다(entities 계층 — query.md 의 mutation 훅에 toast 피드백을
+  동봉하는 기존 관행과 동일 위치). (`src-tauri/src/infra/clock.rs`,
+  `src-tauri/src/domain/project/service.rs`, `src-tauri/src/domain/file/service.rs`,
+  `src/entities/project/project.query.ts`, `src/widgets/app-sidebar/app-sidebar.tsx`,
+  `src/widgets/welcome/welcome-container.tsx`)
+- **`ui-design-5` — `flex` 로 `truncate` 말줄임 회귀**: 경로 줄을 바깥 `flex items-center gap-1
+  min-w-0` + 안쪽 `<span className='truncate'>` 이중 구조로 되돌려 blockify 문제를 해소했다.
+  (`src/features/welcome/welcome-screen.tsx`)
+- **`ui-design-4` — 최근 목록 무제한 + 자기 자신 노출**: 표시 상한 상수
+  `RECENT_PROJECT_DISPLAY_LIMIT = 8` 을 도입하고, 현재 이 Welcome 화면이 속한 프로젝트 자신은
+  목록에서 **제외**했다(클릭해도 자기 재활성화뿐이라 무의미 — VS Code 의 "열려 있는 워크스페이스도
+  Recent 에 남기되 자기 자신 창은 노출 대상이 아님" 관례와 동일 결론, 다른 프로젝트가 이미 열려
+  있는 경우는 배지 없이 그대로 노출해 클릭 시 `project_activate` 로 전환되는 기존 계약 §1.2 동작을
+  유지했다 — 배지를 추가하는 대안은 정보 가치 대비 과설계로 판단해 채택하지 않았다).
+  (`src/widgets/welcome/welcome-container.tsx`)
+- **`ui-design-9` — 명시 선택 파일이 `preview: true`**: `preview: false` 로 변경(탐색기의 확정
+  열기와 동일 패턴). (`src/widgets/welcome/welcome-container.tsx`)
+- **`ui-design-6` = `correctness-6` — 바인딩이 없는 `⌘O` 라벨**: `APP_KEYMAP`/네이티브 메뉴 어디에도
+  대응 바인딩이 없고, 실제 바인딩을 신설하는 것은 계약 §1.2 범위(웰컴 화면 확충) 밖의 별도 기능
+  추가라고 판단해 **라벨을 제거**했다(택1 — 실바인딩 신설 대신 제거를 택함, 새로 추가된 단축키
+  카드가 "실효 키맵에서만 유도"를 표방하는 것과의 모순도 함께 해소된다).
+  (`src/features/welcome/welcome-screen.tsx`)
+- **`ui-design-7` — 목록 시맨틱·rootMissing 접근성**: 최근 목록을 `ul`/`li` 로 감쌌고,
+  `rootMissing` 항목은 `disabled` 대신 `aria-disabled` + 클릭 무시(포커스는 유지되어 AT 가 사유
+  텍스트에 도달 가능)로 바꿨다. 섹션 헤더(`recentItems`)는 `span` 대신 `h2` 로 올렸다
+  (`CardTitle` 자체는 `shared/ui/card` 전역 컴포넌트라 이번 배치 범위 밖으로 두었다).
+  (`src/features/welcome/welcome-screen.tsx`)
+- **`ui-design-10` — 프로젝트 0개 화면의 `WelcomeContainer` 만 `ErrorBoundary` 미적용**:
+  `errorBoundary.welcome` 라벨(신규, en/ko/ja 3언어 동기)로 감쌌다. `welcome` 탭 쪽은 이미
+  `errorBoundary.editorArea` 안에 있어 그대로 뒀다. (`src/widgets/app-shell/app-shell.tsx`)
+- **`ui-design-11` = `contract-9` — `canOpenFile` JSDoc 이 존재할 수 없는 상태를 설명**: "폴더를
+  연 뒤의 0개 화면" 절을 지우고 "0개 화면(`projectId` 는 항상 `null`)에서는 false, 이미 열린
+  프로젝트의 `welcome` 탭에서만 true" 로 정정했다. (`src/features/welcome/welcome-screen.tsx`)
+- **`surface-3` = `contract-8` — 원격 세션의 최근 목록 상시 Forbidden 이 무기록**: `recentProjects`
+  쿼리의 `isError` 를 `WelcomeScreen` 에 전달해 원격 세션에서 항상 실패할 때
+  `app.recentProjectsUnavailable` 안내 문구를 보여준다(신규 로케일 키, en/ko/ja). Rust
+  `RemoteDenialPolicy::LocalProjectHistoryExposure` 의 doc 주석에 형제 variant 들과 같은
+  capability-ceiling 단서(원격은 이미 `pty_spawn` 으로 같은 파일을 읽을 수 있어 이 거부는
+  표면 축소이지 기밀성 경계가 아님)를 보강했고, `docs/ipc-contract.md` 의 정책 표 행에 "welcome
+  탭은 원격에서도 마운트되며 이 커맨드는 매번 Forbidden — 최근 목록은 항상 빈 상태로 렌더되는
+  것이 의도된 열화" 를 1줄 명시했다. (`src-tauri/src/domain/remote/dispatch.rs`,
+  `docs/ipc-contract.md`, `src/widgets/welcome/welcome-container.tsx`,
+  `src/features/welcome/welcome-screen.tsx`)
+- **`surface-4` = `contract-3` — `layout-shell.md`·`data-model.md` 미갱신, `f64` 규칙 참조 오류**:
+  `layout-shell.md` §4 query 목록에 `project_list_recent` 를, §3 수명주기에 `last_opened_at`
+  갱신 한 줄을 추가했다. `data-model.md` §2 의 `project.json` 설명에 `lastOpenedAt` 을 반영하고,
+  §15~§17 의 배치별 영속 스키마 기록 관행을 이어 신규 §18 절을 추가했다. `types.rs`/`bindings.ts`
+  의 `f64` 규칙 참조를 `docs/ipc-contract.md`(f64 언급 0회)에서 실제 정본인
+  `docs/data-model.md` §6 으로 정정했다(`bindings.ts` 는 `cargo test` 로 재생성).
+  (`docs/features/layout-shell.md`, `docs/data-model.md`,
+  `src-tauri/src/domain/project/types.rs`, `src/shared/api/bindings.ts`)
+- **`contract-7` — `rootMissing` 항목에서 루트 경로가 사유로 대체돼 사라짐**: 부제 줄을 경로(항상
+  표시, `title` 속성으로 truncate 대비 툴팁) + `rootMissing` 일 때만 앞에 붙는 경고 배지(아이콘 +
+  사유 텍스트)로 재구성해 계약 §1.2 "이름 주 + 루트 경로 부제"를 경로 소실 없이 만족시켰다.
+  (`src/features/welcome/welcome-screen.tsx`)
+
+### 4.3 검증 (Phase E 반영 후 재실행)
+
+- Rust: `cargo build --lib`·`cargo test --lib`(1061 passed, +1 신규)·`cargo test --test
+  domain_boundaries`(3 passed)·`cargo fmt`(재포맷 1건 반영 후 `--check` 통과)·`cargo clippy
+  --workspace --all-targets -- -D warnings`(0 경고). `bindings.ts` 재생성 diff 는 doc 주석
+  정정 2건뿐(구조 변경 없음).
+- TS: `bun run typecheck`·`bun run lint`(사전 존재 경고 6건만, 신규 에러 0)·`bun run
+  format:check`·`bun test`(1424 passed, 회귀 없음)·`bunx vite build`(성공, 청크 크기 경고는
+  기존 monaco 번들 사유로 무관).
+- 통합: `bun run verify` exit 0.
+- 로케일: en/ko/ja 3언어에 `app.openFileOutsideRoot`·`app.recentProjectsUnavailable`·
+  `errorBoundary.welcome` 6키(2 namespace × 3언어) 신규 동기, `MESSAGE_NAMESPACES` 갱신,
+  `cargo test`(locale 파리티 테스트 포함) 로 키 집합 일치 확인.

@@ -176,7 +176,9 @@ export const AppShell = () => {
             )}
             {projects.length === 0 ? (
                 <div className='min-h-0 flex-1'>
-                    <WelcomeContainer projectId={null} />
+                    <ErrorBoundary labelKey='errorBoundary.welcome' labelFallback='Welcome'>
+                        <WelcomeContainer projectId={null} />
+                    </ErrorBoundary>
                 </div>
             ) : (
                 <div className='flex min-h-0 flex-1'>

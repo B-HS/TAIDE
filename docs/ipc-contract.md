@@ -937,7 +937,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | `/usr/local/bin` 심링크·`osascript` 로 데스크톱 CLI 진입점을 설치/관리한다 — 원격 세션 종료 후에도 남는 CLI 실행 백도어가 되며(권한 프롬프트 불가시성은 부수 사유), `agent_hooks_install` User 스코프와 동일 분류(T0 감사 #12·#13, 2026-08-18) |
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
   | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
-  | `project_list_recent` | `LocalProjectHistoryExposure` | 현재 세션에 열려 있지 않은 프로젝트를 포함해 디스크의 영속 프로젝트 기록 전수를 반환한다 — Welcome 화면 "최근 프로젝트" 전용 로컬 조회이며, `project_list`(현재 열린 세션만 노출)보다 넓게 로컬 파일시스템 경로/이름을 드러내므로 원격 세션에는 불필요·부적절하다(d-27) |
+  | `project_list_recent` | `LocalProjectHistoryExposure` | 현재 세션에 열려 있지 않은 프로젝트를 포함해 디스크의 영속 프로젝트 기록 전수를 반환한다 — Welcome 화면 "최근 프로젝트" 전용 로컬 조회이며, `project_list`(현재 열린 세션만 노출)보다 넓게 로컬 파일시스템 경로/이름을 드러내므로 원격 세션에는 불필요·부적절하다(d-27). **기대 동작**: `welcome` 탭은 모든 프로젝트의 기본 레이아웃에 포함되므로 원격 세션에서도 마운트되고, 이 커맨드는 매번 Forbidden 을 받는다 — "최근 프로젝트" 섹션은 원격에서 항상 빈 상태로 렌더되는 것이 의도된 열화다(`WelcomeContainer` 가 `isError` 시 `app.recentProjectsUnavailable` 안내 문구를 보여준다) |
 
 - **스코프 조건부 거부(`REMOTE_ALLOWED_COMMANDS` 소속, `match` arm 내부에서 분기, 1종)**:
   `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가 결정하는 스코프에 따라

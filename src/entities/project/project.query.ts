@@ -1,4 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
+import { open } from '@tauri-apps/plugin-dialog'
+import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import {
@@ -34,6 +36,23 @@ export const useOpenProject = () => {
         mutationFn: openProject,
         onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL }),
     })
+}
+
+/**
+ * Native "choose a folder, then open it as a project" flow — the sidebar's `+` button and the
+ * Welcome screen's "Open Folder" button both need exactly this sequence, so it's centralized here
+ * once a second call site appeared (common.md's "2 회 이상" rule) rather than each widget
+ * re-implementing the dialog + mutation + toast trio.
+ */
+export const useOpenFolderDialog = () => {
+    const { mutate: openProjectMutate } = useOpenProject()
+    return () => {
+        void (async () => {
+            const selected = await open({ directory: true, multiple: false })
+            if (typeof selected !== 'string') return
+            openProjectMutate(selected, { onError: (error) => toast.error(error.message) })
+        })()
+    }
 }
 
 export const useCloseProject = () => {

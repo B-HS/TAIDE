@@ -34,7 +34,7 @@ pub struct Project {
     #[serde(default)]
     pub root_missing: bool,
     /// Epoch milliseconds this project was last opened or activated (IPC time-field convention —
-    /// see `docs/ipc-contract.md`'s `f64` epoch-ms fields). `#[serde(default)]` reads a pre-d-27
+    /// see `docs/data-model.md` §6's `f64` epoch-ms fields). `#[serde(default)]` reads a pre-d-27
     /// project record (no such field on disk) as `0.0`, so it sorts last in
     /// `service::list_recent_projects` rather than failing to parse — a decorative field earning
     /// its default rather than a migration (contract §1.3).

@@ -24,8 +24,12 @@ pub async fn project_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectRe
 
 /// Every persisted project record on this desktop, most-recently-opened first — unlike
 /// `project_list` (the currently-open session only), this walks the full on-disk history so the
-/// Welcome screen can offer projects the user closed earlier. Read-only (no `begin_mutation` guard
-/// needed, mirroring `project_get`), and deliberately **not** remote-reachable — see
+/// Welcome screen can offer projects the user closed earlier. Read-only: it never writes to disk
+/// (a corrupted `project.json` is skipped, not backed up to `.bak` — see
+/// `service::try_load_project_readonly`), so no `begin_mutation` guard is needed. This is *not*
+/// the same shape as `project_get`'s read-only-ness — `project_get` never touches the filesystem
+/// at all (it reads `state.projects`, an in-memory map), while this command does a full disk scan
+/// through a dedicated read-only path. Deliberately **not** remote-reachable — see
 /// `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
 #[tauri::command]
 #[specta::specta]

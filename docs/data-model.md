@@ -49,7 +49,8 @@ TAIDE/
 ├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트, 윈도우 크기/위치
 ├── projects/
 │   └── {projectId}/
-│       ├── project.json     루트 경로, 이름, 부착 capability 설정 (프로젝트별 오버라이드 포함)
+│       ├── project.json     루트 경로, 이름, 부착 capability 설정 (프로젝트별 오버라이드 포함),
+│                            lastOpenedAt(밀리초 epoch, `#[serde(default)]` — d-27, §18)
 │       ├── layout.json      탭·스플릿 트리, 탭 순서, 활성 탭, 에디터별 viewState(커서·스크롤)
 │       └── buffers/         미저장(dirty) 버퍼 미러 — 파일 경로 해시별 스냅샷
 ├── themes/                  사용자 커스텀 테마 (*.json) — theme-system.md 스키마
@@ -657,3 +658,23 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   별개 타입이라 그쪽엔 영향이 없다.
 - **`tree_rows` 의 `limit: u32 → Option<u32>`**: 커맨드 인자 타입 변경(§1.3(7)) — 반환 타입
   `TreeRowPage` 는 무변화. 영속 스키마 없음(트리 캐시는 `TreeStore` 인메모리).
+
+## 18. d-27 Welcome 확충 배치 — `Project.last_opened_at` 필드 추가 (영속 스키마 영향, 2026-08-20)
+
+> 계약: `docs/acknowledge/2026-08-20-welcome-page-contract.md` §1.1. 커맨드/이벤트 카탈로그는
+> `docs/ipc-contract.md`(project 절·"원격 dispatch 정책" 절)가 정본이다. §15~§17 과 달리 **이
+> 배치는 §2 의 영속 스키마를 실제로 건드린다** — `projects/<id>/project.json` 에 필드가 하나
+> 늘었다.
+
+- **`Project`(`domain/project/types.rs`)에 `last_opened_at: f64` 추가** — 밀리초 epoch(§6 의 f64
+  epoch-ms 규칙), `#[serde(default)]` 로 기존(pre-d-27) `project.json` 은 이 필드 없이도 `0.0` 으로
+  파싱된다(무마이그레이션, §5). `project_open`(재열기 분기 포함)·`project_activate` 가 대상
+  프로젝트의 이 필드를 갱신하고 `save_project` 로 즉시 영속한다.
+- **`Project` 가 `derive(Eq)` 를 잃었다** — `f64` 는 `PartialEq` 만 구현하므로(`OpenedFile`/
+  `MirrorEntry` 등 기존 f64 보유 타입과 동일 패턴), `Project` 를 `HashMap`/`HashSet` 키로 쓰는
+  코드나 `Eq` 를 파생하며 `Project` 를 품는 타입이 있었다면 컴파일이 깨졌을 변경이지만 그런 지점은
+  없었다(`PartialEq` 는 유지).
+- **신규 조회 커맨드 `project_list_recent() → Vec<Project>`**: 새 영속 타입을 추가하지 않는다 —
+  `projects/` 디렉터리 전수를 읽어 기존 `Project` 를 그대로 반환할 뿐이다. 원격 dispatch 는 거부
+  (`RemoteDenialPolicy::LocalProjectHistoryExposure`, `docs/ipc-contract.md` 참조).
+- **§2 디스크 레이아웃**의 `project.json` 설명에 `lastOpenedAt` 을 반영했다(이 절 갱신에 맞춰).

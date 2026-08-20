@@ -15,6 +15,7 @@ import type {
     WorkspaceEdit,
 } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco } from '@shared/lib/lsp/position'
+import { isWithinRoot } from '@shared/lib/path-root'
 
 /** Mirrors LSP's `ApplyWorkspaceEditResult` wire shape so handlers can return this value as-is. */
 export type WorkspaceEditApplyResult = { applied: boolean; failureReason?: string }
@@ -111,52 +112,6 @@ export type WorkspaceEditApplyOptions = {
 }
 
 const OUTSIDE_ROOT_FAILURE: WorkspaceEditApplyResult = { applied: false, failureReason: 'edit rejected: outside workspace root' }
-
-const WINDOWS_SEPARATOR_PATTERN = /\\/g
-
-const DRIVE_LETTER_PATTERN = /^([a-zA-Z]:)(\/.*)?$/
-
-/**
- * Lexically resolves `.`/`..` segments and unifies path separators to `/`, without touching the
- * filesystem — this module runs in the renderer, which has no fs access, only the IPC-provided
- * `allowedRoots` and monaco `Uri#fsPath` strings to compare (unlike the Rust side's
- * `root_guard.rs::ensure_within_root`, which can afford `std::fs::canonicalize`). Fixes two bugs
- * the old `path === root || path.startsWith(`${root}/`)` string-prefix check had in `isWithinRoot`:
- *  - `monaco.Uri#fsPath` never resolves `..` (confirmed against `uriToFsPath` in monaco-editor-core's
- *    `uri.js` — it's a plain string transform of the parsed URI path), so a server-supplied
- *    `WorkspaceEdit` targeting `file:///workspace/../outside/secret.ts` sailed through: the literal
- *    string starts with `/workspace/` even though the path resolves outside `/workspace`.
- *  - The old check always joined with a hardcoded `/` (`` `${root}/` ``), but `fsPath` is
- *    backslash-separated on Windows — so `path` and `root` were both `C:\...`-style yet the check
- *    tested for `C:\...project/` (backslash root, forward-slash join), which no real Windows
- *    `fsPath` ever starts with, rejecting every in-root edit outside the exact root path itself.
- * Normalizing both sides through this function before comparing (`isWithinRoot`) fixes both at once.
- */
-const normalizeFsPath = (path: string) => {
-    const unified = path.replace(WINDOWS_SEPARATOR_PATTERN, '/')
-    const driveMatch = DRIVE_LETTER_PATTERN.exec(unified)
-    const anchor = driveMatch ? driveMatch[1] : unified.startsWith('/') ? '/' : ''
-    const rest = driveMatch ? (driveMatch[2] ?? '') : unified.slice(anchor.length)
-
-    const segments: string[] = []
-    for (const segment of rest.split('/')) {
-        if (segment === '' || segment === '.') continue
-        if (segment === '..') {
-            if (segments.length > 0) segments.pop()
-            continue
-        }
-        segments.push(segment)
-    }
-
-    if (anchor === '') return segments.join('/')
-    return anchor === '/' ? `/${segments.join('/')}` : `${anchor}/${segments.join('/')}`
-}
-
-const isWithinRoot = (path: string, root: string) => {
-    const normalizedPath = normalizeFsPath(path)
-    const normalizedRoot = normalizeFsPath(root)
-    return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`)
-}
 
 const assertPathsWithinRoot = (
     monaco: Monaco,

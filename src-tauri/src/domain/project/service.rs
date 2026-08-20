@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use specta::Type;
 
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
+use crate::infra::clock::now_epoch_ms;
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
@@ -14,17 +14,6 @@ use super::types::{CapabilityKind, Project, ProjectRef, SessionState};
 
 const BACKUP_SUFFIX: &str = ".bak";
 const PROJECTS_DIR_NAME: &str = "projects";
-const MS_PER_SECOND: f64 = 1_000.0;
-
-/// Epoch milliseconds "now", for `Project.last_opened_at` (IPC time-field convention). Falls back
-/// to `0.0` on a clock error (pre-1970 system clock) rather than panicking — the same stance
-/// `domain::file::service::now_epoch_ms` takes for its own `saved_at_ms`/`modified_ms` fields.
-fn now_epoch_ms() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs_f64() * MS_PER_SECOND)
-        .unwrap_or(0.0)
-}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -288,19 +277,31 @@ fn iter_project_ids(paths: &AppPaths) -> AppResult<Vec<ProjectId>> {
     Ok(ids)
 }
 
+/// Read-only counterpart to `load_project`, for callers that must never touch the filesystem —
+/// unlike `load_project` (used by `project_open`, which runs behind `begin_mutation` and may
+/// legitimately quarantine a corrupted `project.json` by renaming it to `.bak`), this never
+/// writes. A missing file, a read error (e.g. permission denied), or a parse failure are all
+/// treated the same way: the record is unavailable, so the caller skips it. Used by
+/// `list_recent_projects`, which runs with no mutation guard and must tolerate one damaged or
+/// unreadable record without failing the whole listing or racing `project_open`'s own backup
+/// rename of the same file.
+fn try_load_project_readonly(paths: &AppPaths, id: &ProjectId) -> Option<Project> {
+    let raw = std::fs::read(paths.project_file(id)).ok()?;
+    serde_json::from_slice::<Project>(&raw).ok()
+}
+
 /// Every persisted project record, most-recently-opened first (`Project.last_opened_at`
 /// descending) — the Welcome screen's "recent projects" source, distinct from `list_projects`
 /// (which only returns the *currently open* session's `ProjectRef`s). `root_missing` is
 /// recomputed against the live filesystem the same way `restore_session` does, so a project whose
 /// folder moved or was deleted since it was last opened still lists (disabled, per contract §1.2)
-/// instead of silently vanishing. A record that fails to parse (corrupted/backed-up) is skipped
-/// rather than failing the whole listing — best-effort, matching `restore_session`'s per-entry
-/// tolerance.
+/// instead of silently vanishing. A record that fails to read or parse is skipped rather than
+/// failing the whole listing (`try_load_project_readonly`'s per-entry tolerance) — and, unlike
+/// `load_project`, never backs it up to `.bak`, since this listing has no `begin_mutation` guard.
 pub fn list_recent_projects(paths: &AppPaths) -> AppResult<Vec<Project>> {
     let mut projects = Vec::new();
     for id in iter_project_ids(paths)? {
-        let (loaded, _warnings) = load_project(paths, &id)?;
-        if let Some(mut project) = loaded {
+        if let Some(mut project) = try_load_project_readonly(paths, &id) {
             project.root_missing = !Path::new(&project.root).is_dir();
             projects.push(project);
         }
@@ -648,6 +649,40 @@ mod tests {
         assert!(
             recent[0].root_missing,
             "세션에 없어도 디스크 기록이면 목록에 포함되고 root_missing 이 표시돼야 한다"
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn list_recent_projects은_손상된_기록을_건너뛰고_bak으로_rename하지_않는다() {
+        let paths = temp_paths();
+
+        let healthy = Project {
+            id: ProjectId("prj-healthy".to_string()),
+            root: "/healthy".to_string(),
+            name: "healthy".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 1_000.0,
+        };
+        save_project(&paths, &healthy).expect("seed healthy");
+
+        let corrupted_dir = paths.data_dir.join("projects").join("prj-corrupted");
+        std::fs::create_dir_all(&corrupted_dir).unwrap();
+        let corrupted_path = corrupted_dir.join("project.json");
+        std::fs::write(&corrupted_path, b"not json").unwrap();
+
+        let recent = list_recent_projects(&paths).expect("list recent");
+
+        assert_eq!(
+            recent.iter().map(|project| project.id.as_str()).collect::<Vec<_>>(),
+            vec!["prj-healthy"],
+            "손상된 기록은 건너뛰고 나머지는 목록에 남아야 한다"
+        );
+        assert!(
+            corrupted_path.exists(),
+            "읽기 전용 조회는 손상된 project.json 을 .bak 으로 rename 해서는 안 된다"
         );
 
         cleanup(&paths);

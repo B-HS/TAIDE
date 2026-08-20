@@ -23,9 +23,11 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "openFolderHint",
             "openFile",
             "openFileHint",
+            "openFileOutsideRoot",
             "openProjectFirst",
             "recentItems",
             "recentProjectRootMissing",
+            "recentProjectsUnavailable",
             "reloadWindow",
             "dropToOpen",
             "keyboardShortcutsTitle",
@@ -865,7 +867,15 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
     ("prompts", &["autoTabTitle", "inlineEditTitle", "commitMessageTitle", "editEntry"]),
     (
         "errorBoundary",
-        &["app", "description", "editorArea", "sidebar", "sidebarPanel", "statusBar"],
+        &[
+            "app",
+            "description",
+            "editorArea",
+            "sidebar",
+            "sidebarPanel",
+            "statusBar",
+            "welcome",
+        ],
     ),
 ];
 
