@@ -816,8 +816,14 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           CodeEditor 생명주기로 이관(불변식 "registry ≡ live" 구조 강제·기존 방어 2종 유지)
           + shared/ui ErrorBoundary(영역 단위: EditorArea·사이드바 등 실사 배치 + 루트 폴백·
           로케일 경유·재시도 재마운트). 구현→4렌즈→적대적→수정→메인 2차→커밋→병합
-    - [ ] d-25. 부팅 워처 attach 후절화(Rust) — d-24 완료 후. 진단 wf_14010876-849 rank 1:
-          setup() 동기 전수 워크를 창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
+    - [ ] d-25. 부팅 워처 attach 후절화(Rust) — **d-26 완료 후**(사용자 가시 UX 우선·Rust 는
+          앱 재시작 수반이라 최후순). 진단 wf_14010876-849 rank 1: setup() 동기 전수 워크를
+          창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
+    - [ ] d-26. ⌘P 퀵오픈 UX 정비 — 사용자 실기 보고 3건(방향키 선택·상대 경로 부제·매칭
+          하이라이트). 계약 `docs/acknowledge/2026-08-20-palette-ux-contract.md`(메인 실사:
+          ③ 데이터 기존재 — fuzzyMatch indices 미렌더 / ② toRelativePath 기존재·매칭 대상이
+          절대 경로 전체인 근원 동거 / ① 후보 서열 — 선택 스타일 대비 비가시(1순위) vs cmdk
+          미동작(2순위)). **d-24 검토 반영 완료 후 착수**(동일 트리 순차)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
