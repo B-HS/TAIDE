@@ -12,7 +12,7 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
-import { toRelativePath } from '@shared/lib/relative-path'
+import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
@@ -52,8 +52,7 @@ const ICON_AGENT_ACTIVITY_CLASS: Record<AgentActivity, string> = {
 }
 
 export const getTabIcon = (kind: TabKind, agent?: DetectedAgent): ReactNode => {
-    if (kind.kind === 'file')
-        return <FileTypeIcon fileName={kind.path.split('/').filter(Boolean).at(-1) ?? kind.path} className={TAB_ICON_SIZE_CLASS} />
+    if (kind.kind === 'file') return <FileTypeIcon fileName={fileNameOf(kind.path)} className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'terminal' && agent) return <Sparkles className={cn(TAB_ICON_SIZE_CLASS, ICON_AGENT_ACTIVITY_CLASS[agent.activity])} />
     if (kind.kind === 'terminal') return <Terminal className={TAB_ICON_SIZE_CLASS} />
     if (kind.kind === 'settings') return <Settings className={TAB_ICON_SIZE_CLASS} />
@@ -161,7 +160,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const renderTab = (tab: Tab) => {
         const filePath = tab.kind.kind === 'file' ? tab.kind.path : null
         const relativePath = filePath && project ? toRelativePath(project.root, filePath) : null
-        const fileName = filePath ? (filePath.split('/').filter(Boolean).at(-1) ?? filePath) : null
+        const fileName = filePath ? fileNameOf(filePath) : null
         const canReopenWith = fileName ? resolvePreviewKind(fileName) !== null : false
         const agent = tab.kind.kind === 'terminal' && tab.kind.sessionId ? agentBySessionId.get(tab.kind.sessionId) : undefined
         const agentTooltip = agent ? t('agent.sessionTooltip', { name: agent.name, status: t(`agent.status.${agent.activity}`) }) : undefined

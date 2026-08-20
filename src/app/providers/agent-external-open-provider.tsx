@@ -6,6 +6,7 @@ import { events } from '@shared/api/bindings'
 import { i18next } from '@shared/i18n/i18n'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { useOpenTabInProject } from '@entities/layout/layout.query'
 import { activateProject, listProjects, openProject } from '@entities/project/project.ipc'
 import { clearStaleWaitMarkersOnStartup, registerWaitMarker } from '@entities/agent/agent-wait-marker-registry'
@@ -27,8 +28,7 @@ const tryOpenAsProject = async (path: string) => {
 }
 
 const openExternalFile = (openTabInProject: OpenTabInProject, projectId: string, path: string) => {
-    const name = path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1)
-    return openTabInProject({ projectId, kind: { kind: 'file', path }, title: name, target: null, preview: true })
+    return openTabInProject({ projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true })
 }
 
 const processExternalOpenRequest = async (queryClient: QueryClient, openTabInProject: OpenTabInProject, request: ExternalOpenRequest) => {

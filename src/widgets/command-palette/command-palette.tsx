@@ -21,7 +21,7 @@ import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding 
 import { formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
 import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap-chord-store'
 import { buildFuzzyHighlightSegments, fuzzyFilter } from '@shared/lib/fuzzy-match'
-import { toRelativePath } from '@shared/lib/relative-path'
+import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
@@ -37,7 +37,8 @@ import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
-import { filterAvailableLspServers, lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
+import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { listSessionRecordsForProject, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { splitFileMatchForDisplay } from '@widgets/command-palette/command-palette-file-match'
@@ -241,9 +242,8 @@ export const CommandPalette = () => {
 
     const openFile = (path: string) => {
         if (!activeProjectId) return
-        const name = path.slice(path.lastIndexOf('/') + 1)
         openTab(
-            { projectId: activeProjectId, kind: { kind: 'file', path }, title: name, target: null, preview: true },
+            { projectId: activeProjectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
             { onError: (error) => toast.error(error.message) },
         )
         handleOpenChange(false)
@@ -263,10 +263,9 @@ export const CommandPalette = () => {
 
     const selectWorkspaceSymbol = (symbol: NormalizedWorkspaceSymbol) => {
         if (!activeProjectId) return
-        const name = symbol.path.slice(symbol.path.lastIndexOf('/') + 1)
         requestReveal(symbol.path, symbol.line, symbol.column)
         openTab(
-            { projectId: activeProjectId, kind: { kind: 'file', path: symbol.path }, title: name, target: null, preview: true },
+            { projectId: activeProjectId, kind: { kind: 'file', path: symbol.path }, title: fileNameOf(symbol.path), target: null, preview: true },
             { onError: (error) => toast.error(error.message) },
         )
         handleOpenChange(false)

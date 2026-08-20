@@ -12,6 +12,7 @@ import type { DropEdgeName } from '@features/split/split-drop-zones'
 import { SplitDropZones } from '@features/split/split-drop-zones'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { getOpenWithOverride, subscribeOpenWithOverride } from '@entities/editor/open-with-registry'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
@@ -29,7 +30,6 @@ import { WelcomeContainer } from '@widgets/welcome/welcome-container'
 
 const EQUAL_SPLIT_TOTAL_PERCENT = 100
 const MIN_PANEL_SIZE_PX = 120
-const PATH_SEPARATOR = '/'
 
 export type SplitDropData = { type: 'split'; paneId: PaneId; edge: DropEdge }
 
@@ -99,7 +99,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         )
     }
 
-    const activeFileName = activeFilePath ? activeFilePath.slice(activeFilePath.lastIndexOf(PATH_SEPARATOR) + 1) : null
+    const activeFileName = activeFilePath ? fileNameOf(activeFilePath) : null
     const activePreviewKind = openWithOverride === 'editor' ? null : activeFileName ? resolvePreviewKind(activeFileName) : null
     const dropRefByEdge: Record<DropEdgeName, (element: HTMLElement | null) => void> = {
         left: dropLeft.setNodeRef,

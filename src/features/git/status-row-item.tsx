@@ -2,6 +2,7 @@ import type { FC, ReactNode } from 'react'
 import { cn } from '@shared/lib/cn'
 import { ICON_BUTTON_CLASS } from '@shared/constants/ui-class'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { IconButton } from '@shared/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 
@@ -45,7 +46,7 @@ type StatusRowItemProps = {
 
 export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, selected, actions, onClick }) => {
     const lastSlashIndex = path.lastIndexOf('/')
-    const fileName = lastSlashIndex === -1 ? path : path.slice(lastSlashIndex + 1)
+    const fileName = fileNameOf(path)
     const dirPath = lastSlashIndex === -1 ? '' : path.slice(0, lastSlashIndex)
 
     const rowContent = (

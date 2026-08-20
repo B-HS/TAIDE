@@ -40,6 +40,12 @@ import { RemoteSection } from '@features/settings/remote-section'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
+import {
+    DEFAULT_EDITOR_CURSOR_BLINKING,
+    DEFAULT_EDITOR_CURSOR_STYLE,
+    DEFAULT_EDITOR_RENDER_WHITESPACE,
+    DEFAULT_EDITOR_TAB_SIZE,
+} from '@shared/constants/code-editor'
 import { DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
@@ -74,13 +80,9 @@ const DEFAULT_AUTO_SAVE_DELAY_MS = 0
 
 const MIN_TAB_SIZE = 1
 const MAX_TAB_SIZE = 8
-const DEFAULT_TAB_SIZE = 4
 const MIN_SCROLLBACK = 100
 const MAX_SCROLLBACK = 100_000
 const DEFAULT_SCROLLBACK = 10_000
-const DEFAULT_CURSOR_STYLE = 'line'
-const DEFAULT_CURSOR_BLINKING = 'blink'
-const DEFAULT_RENDER_WHITESPACE = 'selection'
 const DEFAULT_TERMINAL_CURSOR_STYLE = 'bar'
 
 const EDITOR_CURSOR_STYLE_OPTIONS = [
@@ -597,7 +599,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                             </label>
                             <NumericField
                                 label={t('settings.editorTabSize')}
-                                value={settings.editorTabSize ?? DEFAULT_TAB_SIZE}
+                                value={settings.editorTabSize ?? DEFAULT_EDITOR_TAB_SIZE}
                                 min={MIN_TAB_SIZE}
                                 max={MAX_TAB_SIZE}
                                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), editorTabSize: value })}
@@ -622,7 +624,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                             <OptionPicker
                                 label={t('settings.editorRenderWhitespace')}
                                 options={EDITOR_RENDER_WHITESPACE_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
-                                value={settings.editorRenderWhitespace ?? DEFAULT_RENDER_WHITESPACE}
+                                value={settings.editorRenderWhitespace ?? DEFAULT_EDITOR_RENDER_WHITESPACE}
                                 onSelect={(editorRenderWhitespace) => updateSettings({ ...emptySettingsPatch(), editorRenderWhitespace })}
                             />
                             <label className='flex items-center justify-between gap-3 text-xs'>
@@ -642,13 +644,13 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                             <OptionPicker
                                 label={t('settings.editorCursorStyle')}
                                 options={EDITOR_CURSOR_STYLE_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
-                                value={settings.editorCursorStyle ?? DEFAULT_CURSOR_STYLE}
+                                value={settings.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE}
                                 onSelect={(editorCursorStyle) => updateSettings({ ...emptySettingsPatch(), editorCursorStyle })}
                             />
                             <OptionPicker
                                 label={t('settings.editorCursorBlinking')}
                                 options={EDITOR_CURSOR_BLINKING_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
-                                value={settings.editorCursorBlinking ?? DEFAULT_CURSOR_BLINKING}
+                                value={settings.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING}
                                 onSelect={(editorCursorBlinking) => updateSettings({ ...emptySettingsPatch(), editorCursorBlinking })}
                             />
                             <label className='flex items-center justify-between gap-3 text-xs'>

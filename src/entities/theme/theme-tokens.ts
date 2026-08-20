@@ -150,7 +150,9 @@ export type SyntaxTokenId = (typeof SYNTAX_TOKENS)[number]
  * `domain/theme/service.rs`'s parity test (`테마_토큰_목록은_rust와_theme_tokens_ts에서_일치한다`)
  * statically regex-extracts `'...'` string literals straight out of this file's source text
  * between this marker and `] as const` — a spread expression has no quoted literals for it to
- * find, so it would silently stop enforcing the ANSI portion of this list instead of erroring.
+ * find, so replacing the ANSI portion with `...TERMINAL_ANSI_TOKENS` makes the parity test fail
+ * immediately (the extracted TS set drops to 4 entries, no longer matching Rust's 20). Deriving
+ * this list would require teaching that regex extractor to resolve the import first.
  */
 export const TERMINAL_TOKENS = [
     'black',

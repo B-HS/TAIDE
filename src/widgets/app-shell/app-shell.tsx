@@ -24,6 +24,7 @@ import {
 } from '@shared/lib/explorer-panel-bridge'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { ZenModeHint } from '@features/window/zen-mode-hint'
 import { ErrorBoundary } from '@shared/ui/error-boundary'
@@ -33,8 +34,6 @@ import { ExplorerContainer } from '@widgets/explorer/explorer-container'
 import { StatusBarContent } from '@widgets/window-chrome/status-bar-content'
 import { TitleBarContent } from '@widgets/window-chrome/title-bar-content'
 import { WelcomeContainer } from '@widgets/welcome/welcome-container'
-
-const PATH_SEPARATOR = '/'
 
 const dragDropEventSource = { listen: (handler: EventCallback<DragDropEvent>) => getCurrentWebview().onDragDropEvent(handler) }
 
@@ -62,9 +61,8 @@ export const AppShell = () => {
     }
 
     const openDroppedFile = async (targetProjectId: string, path: string) => {
-        const name = path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1)
         await openTabInProject(
-            { projectId: targetProjectId, kind: { kind: 'file', path }, title: name, target: null, preview: true },
+            { projectId: targetProjectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
             { onError: (error) => toast.error(error.message) },
         ).catch(() => undefined)
     }

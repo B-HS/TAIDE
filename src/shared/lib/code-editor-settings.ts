@@ -1,11 +1,12 @@
-import type { EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings } from '@shared/api/bindings'
+import type { Settings } from '@shared/api/bindings'
+import {
+    DEFAULT_EDITOR_CURSOR_BLINKING,
+    DEFAULT_EDITOR_CURSOR_STYLE,
+    DEFAULT_EDITOR_RENDER_WHITESPACE,
+    DEFAULT_EDITOR_TAB_SIZE,
+} from '@shared/constants/code-editor'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
-
-export const DEFAULT_EDITOR_TAB_SIZE = 4
-export const DEFAULT_EDITOR_RENDER_WHITESPACE: EditorRenderWhitespace = 'selection'
-export const DEFAULT_EDITOR_CURSOR_STYLE: EditorCursorStyle = 'line'
-export const DEFAULT_EDITOR_CURSOR_BLINKING: EditorCursorBlinking = 'blink'
 
 type CodeEditorSettingsSource = Pick<
     Settings,

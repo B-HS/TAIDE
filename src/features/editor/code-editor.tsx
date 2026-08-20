@@ -12,7 +12,6 @@ import { getOrCreateModel, restoreViewState, saveViewState } from '@entities/edi
 
 const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiRequest }
 
-export type { EditorCursorStyle, EditorRenderWhitespace }
 export type EditorCursorBlinkingStyle = EditorCursorBlinking
 
 export type CodeEditorProps = {

@@ -26,9 +26,9 @@ type BuildDocumentSymbolWaitersInput<TSession> = {
  * root's session in a multi-root project (R7#7) — including one that never had `path` open.
  * `resolveRoot`/`waitForSession`/`isCancelled` are injected rather than imported directly so this
  * decision (which roots to wait on, and in what order) is a plain, directly testable function of its
- * inputs — none of `breadcrumbs-bar.tsx`/`outline-panel-container.tsx`/`command-palette.tsx` (this
- * function's three callers) have a render-test harness to reach for (no DOM/testing-library
- * environment configured for `bun:test` in this project).
+ * inputs — this project has no DOM/testing-library environment configured for `bun:test`, and the
+ * only production caller is {@link loadDocumentSymbolsForPath} below (see its doc comment for who
+ * calls that).
  *
  * Generic over `TSession` — rather than importing `SessionRecord` from
  * `@widgets/editor-pane/lsp-session-registry` — so this stays in `shared` without a shared→widgets

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
 import { resolvePreviewKind, resolvePreviewMimeType } from '@shared/lib/preview-kind'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { useObjectUrl } from '@shared/hooks/use-object-url'
 import { fileRawQueryOptions } from '@entities/file/file.query'
 import { systemOpenPath } from '@entities/system/system.ipc'
@@ -16,7 +17,6 @@ import { SpreadsheetPreview } from '@features/preview/spreadsheet-preview'
 import { HwpPreview } from '@features/preview/hwp-preview'
 import { PresentationPreview } from '@features/preview/presentation-preview'
 
-const PATH_SEPARATOR = '/'
 const DEFAULT_BLOB_MIME_TYPE = 'application/octet-stream'
 
 export type PreviewPaneProps = {
@@ -24,7 +24,7 @@ export type PreviewPaneProps = {
 }
 
 export const PreviewPane: FC<PreviewPaneProps> = ({ path }) => {
-    const fileName = path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1)
+    const fileName = fileNameOf(path)
     const kind = resolvePreviewKind(fileName)
     const needsObjectUrl = kind === 'image' || kind === 'html'
     const needsBuffer = kind === 'pdf' || kind === 'spreadsheet' || kind === 'hwp' || kind === 'presentation'
