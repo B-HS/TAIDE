@@ -7,7 +7,7 @@ pub mod infra;
 pub mod paths;
 pub mod state;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use tauri::{Listener, Manager};
 use tauri_specta::Event as _;
@@ -573,6 +573,111 @@ fn restore_auxiliary_windows(app: &tauri::AppHandle) {
     }
 }
 
+/// The exact snapshot [`restore_project_watchers`] attaches from — every restored project whose
+/// root is still present on disk (`!root_missing`), paired with the root path its watcher needs.
+/// Kept as its own pure function (rather than inline in `setup()`) so this selection is
+/// unit-testable without a running `AppHandle` — see `restore_project_watchers`'s doc for why the
+/// attach itself can't be (this codebase has no `tauri::test` mock-app harness — the same
+/// constraint `domain::terminal::commands`'s own tests document and work around).
+fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, domain::project::types::Project>) -> Vec<(ProjectId, String)> {
+    projects
+        .values()
+        .filter(|project| !project.root_missing)
+        .map(|project| (project.id.clone(), project.root.clone()))
+        .collect()
+}
+
+/// Re-attaches the file watcher and (where the project is a git repo) the git watcher for every
+/// project [`projects_pending_watcher_restore`] selected, as a background task that starts only
+/// after `app.manage(state)` in `setup()` below — so the multi-second `notify-debouncer-full`
+/// `FileIdMap` walk each `attach_watcher`/`attach_git_watcher` call performs (the dominant
+/// boot-latency cause identified in
+/// `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`) never delays window creation the
+/// way the old fully-synchronous loop here did. `restore_state` and every `app.manage` call stay
+/// synchronous in `setup()` — the tree and editor need the projects/layouts they populate
+/// immediately — only the watcher attach itself moves here. `project_open`'s own synchronous
+/// attach (via `ProjectCapabilities::attach_all`) is unchanged; this function only covers boot
+/// restore.
+///
+/// Every fs change landing in the gap between window show and a project's own attach completing
+/// here has nowhere to go: no watcher is listening yet, and `notify` never replays history once
+/// one starts. `tree_rows` (`domain::tree::commands::rows_page_from_store`) tolerates this without
+/// help — its cache starts empty every boot (`TreeStore::default()`), so the very first read for
+/// any project always rescans disk directly regardless of watcher state, and only a *second*
+/// gap-window change landing after that first read stays unseen until some later event touches the
+/// same directory — the same bounded race `project_open`'s own synchronous attach already carries
+/// between "watcher starts" and the debouncer's first tick landing. `git_status` has no such
+/// self-healing re-read: `entities/git/git.query.ts`'s `GIT.PROJECT`-scoped cache only ever
+/// refreshes on a `GitStatusChanged`/`GitRefsChanged` event or the global 60s `staleTime`
+/// (`app/query-client.ts`), so a gap-window git change with no *further* change afterward would sit
+/// stale far longer than that. The `git_watchers.read().contains_key(...)` branch below closes
+/// exactly that gap with one synthetic refresh the instant this project's git watcher goes live —
+/// a no-op for the frontend when nothing actually changed, since `invalidateQueries` against a
+/// query nobody is displaying does nothing.
+///
+/// One `AppState::begin_mutation` guard per project, held across that project's own
+/// `spawn_blocking`-dispatched attach exactly as `git_commit` holds it across its own
+/// `spawn_blocking`-dispatched `git` subprocess call (`domain::git::commands::git_commit`, Phase E
+/// T1H-C-02): the `FileIdMap` walk itself runs off the async reactor thread inside
+/// `spawn_blocking`, while the guard still serializes this attach against a concurrent
+/// `project_open`/`project_close` — the same protection the old fully-synchronous boot loop got for
+/// free by running before `state` was even `app.manage`d. The `contains_key` check right after
+/// acquiring the guard catches a project closed between the snapshot the caller took and this loop
+/// actually reaching it; nothing else can shrink `state.projects` while the guard is held, so that
+/// one check is enough — no second check is needed once the blocking attach returns.
+///
+/// Projects attach strictly one after another rather than fanned out per-project like
+/// `restore_auxiliary_windows`: each project's watcher only ever touches that project's own
+/// `state.watchers`/`state.git_watchers` entry, so nothing depends on relative order across
+/// projects, and sequential keeps the guard's hold on any single `project_open`/`project_close`
+/// call bounded to one project's walk instead of the whole restored set.
+fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(ProjectId, String)>) {
+    let app_handle = app.clone();
+    let project_count = restored.len();
+
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+
+        for (project_id, root) in restored {
+            let state = app_handle.state::<AppState>();
+            let _guard = state.begin_mutation().await;
+            if !state.projects.read().contains_key(&project_id) {
+                continue;
+            }
+
+            let blocking_handle = app_handle.clone();
+            let blocking_project_id = project_id.clone();
+            let attach_result = tauri::async_runtime::spawn_blocking(move || {
+                let state = blocking_handle.state::<AppState>();
+                domain::file::capability::attach_watcher(&blocking_handle, &state, &blocking_project_id, &root);
+                domain::git::watch::attach_git_watcher(&blocking_handle, &state, &blocking_project_id, &root);
+            })
+            .await;
+
+            match attach_result {
+                Ok(()) => {
+                    if state.git_watchers.read().contains_key(&project_id) {
+                        let _ = GitStatusChanged {
+                            project_id: project_id.clone(),
+                        }
+                        .emit(&app_handle);
+                        let _ = GitRefsChanged {
+                            project_id: project_id.clone(),
+                        }
+                        .emit(&app_handle);
+                    }
+                }
+                Err(error) => log::warn!("복원 프로젝트 워처 attach 태스크가 실패했습니다 (projectId={project_id}): {error}"),
+            }
+        }
+
+        log::info!(
+            "복원 프로젝트 워처 attach 완료: projects={project_count}, elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
+    });
+}
+
 async fn poll_agents(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let terminals = app.state::<TerminalStore>();
@@ -715,6 +820,8 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            let setup_started = std::time::Instant::now();
+
             domain::locale::service::warm_builtin_catalogs();
             builder.mount_events(app);
             app.set_menu(build_app_menu(app.handle())?)?;
@@ -726,17 +833,7 @@ pub fn run() {
                 log::warn!("{warning}");
             }
 
-            let restored: Vec<_> = state
-                .projects
-                .read()
-                .values()
-                .filter(|project| !project.root_missing)
-                .map(|project| (project.id.clone(), project.root.clone()))
-                .collect();
-            for (project_id, root) in &restored {
-                domain::file::capability::attach_watcher(app.handle(), &state, project_id, root);
-                domain::git::watch::attach_git_watcher(app.handle(), &state, project_id, root);
-            }
+            let restored = projects_pending_watcher_restore(&state.projects.read());
 
             app.manage(state);
             app.manage(project_capabilities());
@@ -759,6 +856,7 @@ pub fn run() {
             app.manage(RemoteStore::default());
             app.manage(WindowStore::default());
             restore_auxiliary_windows(app.handle());
+            restore_project_watchers(app.handle(), restored);
             domain::remote::commands::refresh_password_configured_cache(app.handle());
 
             queue_cold_start_external_open(app.handle());
@@ -871,6 +969,8 @@ pub fn run() {
                     flush_dirty_layouts(&flush_handle.state::<AppState>());
                 }
             });
+
+            log::info!("setup 완료: elapsed_ms={}", setup_started.elapsed().as_millis());
 
             Ok(())
         })
@@ -1117,6 +1217,50 @@ mod tests {
         assert_eq!(
             declared, bound,
             "events.rs 의 event_name 집합과 bindings.ts 의 events export 집합이 다릅니다"
+        );
+    }
+
+    fn stub_project(id: &str, root: &str, root_missing: bool) -> domain::project::types::Project {
+        domain::project::types::Project {
+            id: ProjectId::from(id.to_string()),
+            root: root.to_string(),
+            name: id.to_string(),
+            capabilities: Vec::new(),
+            root_missing,
+            last_opened_at: 0.0,
+        }
+    }
+
+    /// Pins [`restore_project_watchers`]'s attach-target selection — the boundary the boot-watcher
+    /// defer contract (`docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`) actually lets
+    /// this codebase unit-test, since `attach_watcher`/`attach_git_watcher` themselves need a real
+    /// `AppHandle` this codebase has no mock-app harness for.
+    #[test]
+    fn 워처_재부착_대상은_루트가_존재하는_복원_프로젝트만_포함한다() {
+        let projects: HashMap<ProjectId, domain::project::types::Project> = [
+            stub_project("prj-present", "/repo/present", false),
+            stub_project("prj-missing", "/repo/missing", true),
+        ]
+        .into_iter()
+        .map(|project| (project.id.clone(), project))
+        .collect();
+
+        let pending = projects_pending_watcher_restore(&projects);
+
+        assert_eq!(
+            pending,
+            vec![(ProjectId::from("prj-present".to_string()), "/repo/present".to_string())],
+            "root_missing 프로젝트는 워처 재부착 대상에서 제외되어야 합니다"
+        );
+    }
+
+    #[test]
+    fn 복원된_프로젝트가_없으면_워처_재부착_대상도_비어있다() {
+        let projects: HashMap<ProjectId, domain::project::types::Project> = HashMap::new();
+
+        assert!(
+            projects_pending_watcher_restore(&projects).is_empty(),
+            "복원된 프로젝트가 없으면 재부착 대상도 없어야 합니다"
         );
     }
 }
