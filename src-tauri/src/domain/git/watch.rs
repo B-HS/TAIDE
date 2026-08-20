@@ -35,25 +35,42 @@ pub fn classify_git_change(path: &Path) -> Option<GitInvalidation> {
     }
 }
 
-/// Boot-restore entry point: probes the live filesystem for a `.git` directory and attaches
-/// nothing when it is absent, then delegates to [`register_git_watcher`]. The probe lives here —
-/// not in the shared registration body — because `lib.rs`'s restore loop runs before the
-/// capability registry is even managed and must not trust a persisted capability list; on the
-/// `project_open` path the same predicate is evaluated exactly once instead, by
-/// `GitWatcherCapability::detected_kind`, whose result gates `GitWatcherCapability::attach`.
-pub fn attach_git_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
+/// The one `AppState` write [`register_git_watcher`]/[`build_git_watcher_handle`] need. Split out
+/// so the boot restore path (`lib.rs::restore_project_watchers`) can build the handle (the
+/// expensive `FileIdMap` walk) with no `AppState` access at all and only reach for
+/// `AppState::begin_mutation` for this insert — see that function's doc for the full split.
+pub fn register_git_watcher_handle(state: &AppState, project_id: &ProjectId, handle: watcher::WatcherHandle) {
+    state.git_watchers.write().insert(project_id.clone(), handle);
+}
+
+/// Boot-restore entry point: probes the live filesystem for a `.git` directory and builds (but
+/// does not register — see [`register_git_watcher_handle`]) the watcher handle when present,
+/// returning `None` for a non-repo root or a failed watcher start (after logging the same warning
+/// `register_git_watcher` always has). The probe lives here — not in the shared registration body
+/// — because a project's `Project.capabilities` was persisted the last time it was open and can't
+/// be trusted across whatever happened to `root`'s `.git` directory while the app was closed (it
+/// may have been `git init`'d or deleted since); on the `project_open` path the equivalent check
+/// runs fresh every time instead, via `GitWatcherCapability::detected_kind`, whose result gates
+/// `GitWatcherCapability::attach`.
+pub fn build_git_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str) -> Option<watcher::WatcherHandle> {
     if !Path::new(root).join(GIT_DIR_NAME).is_dir() {
-        return;
+        return None;
     }
-    register_git_watcher(app, state, project_id, root);
+    build_watcher_handle_inner(app, project_id, root)
 }
 
 /// Starts the `.git`-directory watcher that classifies raw fs changes into status/refs
 /// invalidations and fans them out as [`GitStatusChanged`]/[`GitRefsChanged`], registering its
 /// handle in `state.git_watchers`. Performs no repo check of its own — the caller owns that
 /// decision (`GitWatcherCapability::attach`'s `Project.capabilities` gate on the open path,
-/// [`attach_git_watcher`]'s filesystem probe on the boot restore path).
+/// [`build_git_watcher_handle`]'s filesystem probe on the boot restore path).
 pub(super) fn register_git_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
+    if let Some(handle) = build_watcher_handle_inner(app, project_id, root) {
+        register_git_watcher_handle(state, project_id, handle);
+    }
+}
+
+fn build_watcher_handle_inner(app: &AppHandle, project_id: &ProjectId, root: &str) -> Option<watcher::WatcherHandle> {
     let git_dir = Path::new(root).join(GIT_DIR_NAME);
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
@@ -85,10 +102,11 @@ pub(super) fn register_git_watcher(app: &AppHandle, state: &AppState, project_id
             .emit(&emit_handle);
         }
     }) {
-        Ok(handle) => {
-            state.git_watchers.write().insert(project_id.clone(), handle);
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            log::warn!("git 감시를 시작하지 못했습니다 ({}): {error}", git_dir.display());
+            None
         }
-        Err(error) => log::warn!("git 감시를 시작하지 못했습니다 ({}): {error}", git_dir.display()),
     }
 }
 

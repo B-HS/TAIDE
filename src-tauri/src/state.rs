@@ -39,6 +39,7 @@ pub struct AppState {
     pub self_writes: SelfWriteTracker,
     mutation_guard: tokio::sync::Mutex<()>,
     hot_exit_flush: parking_lot::Mutex<HotExitFlushPhase>,
+    shutting_down: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -55,6 +56,7 @@ impl AppState {
             self_writes: SelfWriteTracker::new(),
             mutation_guard: tokio::sync::Mutex::new(()),
             hot_exit_flush: parking_lot::Mutex::new(HotExitFlushPhase::Idle),
+            shutting_down: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -75,6 +77,26 @@ impl AppState {
     /// enter `spawn_blocking` with the guard held.
     pub fn begin_mutation_blocking(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_guard.blocking_lock()
+    }
+
+    /// Marks the app as shutting down — set once from `lib.rs`'s `handle_close_requested` (the
+    /// first moment the main window's close is known to be underway, before the hot-exit flush
+    /// handshake even starts) and again, as a backstop for exit paths that skip that handler
+    /// entirely (Cmd+Q's `NSApplication terminate:` on macOS bypasses `CloseRequested`, going
+    /// straight to `RunEvent::Exit` — see `handle_menu_event`'s doc), from the `RunEvent::
+    /// ExitRequested`/`Exit` arm. `Relaxed` ordering is enough: every reader
+    /// ([`Self::is_shutting_down`]) only ever needs "has this been set at all", never a specific
+    /// happens-before relationship with some other write.
+    pub fn begin_shutdown(&self) {
+        self.shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Polled once per iteration by `lib.rs::restore_project_watchers`'s boot-restore loop so a
+    /// close/quit requested partway through a multi-project restore stops attaching the rest
+    /// immediately instead of running every remaining project's `FileIdMap` walk (and briefly
+    /// taking `begin_mutation` per project) while the app is already on its way out.
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Starts the hot-exit close-intercept handshake, recording which window
@@ -236,6 +258,17 @@ mod tests {
         assert!(state.force_complete_hot_exit_flush());
         assert!(!state.force_complete_hot_exit_flush(), "이미 Ready 다");
         assert!(!state.complete_hot_exit_flush("main"), "타임아웃으로 이미 완료되었다");
+    }
+
+    #[test]
+    fn 종료_플래그는_기본값이_false이고_begin_shutdown_이후_true다() {
+        let state = AppState::new(AppPaths::new(std::path::PathBuf::from("/tmp")));
+
+        assert!(!state.is_shutting_down());
+        state.begin_shutdown();
+        assert!(state.is_shutting_down());
+        state.begin_shutdown();
+        assert!(state.is_shutting_down(), "재호출해도 여전히 true 여야 한다");
     }
 
     #[tokio::test]

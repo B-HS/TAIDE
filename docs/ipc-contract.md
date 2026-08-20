@@ -137,6 +137,13 @@
   `Modified` 여러 그룹으로 관측한다)에서 나오므로, 트리 구조까지 바뀌는 연산(생성/이름변경/삭제)만
   선택적으로 refresh 를 유지하고 싶은 소비자는 `fromApp` 단독이 아니라 `kind !== 'Modified'` 를
   함께 봐 스킵 범위를 좁힐 수 있다 — 이 필드가 그 판단에 쓰라고 존재한다.
+- **부팅 워처 재부착 직후 합성 발신(d-25, `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`)**:
+  `lib.rs::restore_project_watchers` 가 복원 프로젝트의 파일 워처를 재부착한 직후, 그 프로젝트에
+  **열린 `File` 탭 경로가 있으면** `fs:changed(paths: <그 경로들>, kind: 'Modified', fromApp: false)`
+  를 실제 디스크 변경 여부와 무관하게 1회 합성 발신한다 — attach 지연 구간(창 표시~이 프로젝트
+  워처 attach 완료)에 외부에서 바뀌었을 수 있는 파일의 `FILE.CONTENT` 캐시(`staleTime: Infinity` +
+  `refetchOnWindowFocus: false`라 이 이벤트 없이는 무기한 정체)를 보정하기 위함. 신규 이벤트·필드
+  없음 — 기존 watcher 방출과 동일한 페이로드 형태를 재사용한다.
   `app:hot-exit-flush-requested(timeoutMs)` (Hot Exit — 종료 인터셉트)
 - **`fromApp` echo 마킹 완성(X-A 배치, 2026-08-19)**: T0 감사 시점까지 `fromApp` 은 watcher 가 항상
   `false` 로만 채우는 상수였다(X1#10). `AppState::self_writes`(`infra::self_write::
@@ -230,6 +237,15 @@
   checkout)
 - event: `git:status-changed`, `git:refs-changed` — **`git:operation-progress`/`git:operation-finished`
   이벤트는 코드에 존재하지 않는다**(이전 판의 기재 오류, 정정).
+- **부팅 워처 재부착 직후 합성 발신(d-25)**: `lib.rs::restore_project_watchers` 가 복원 프로젝트의
+  git 워처를 재부착한 직후, `git:status-changed` 를 실제 git 상태 변경 여부와 무관하게 1회 합성
+  발신한다(위 `fs:changed` 항목과 같은 attach 공백 보정 — 이번엔 `entities/git/git.query.ts` 의
+  `GIT.PROJECT` 캐시가 대상). `git:refs-changed` 는 함께 발신하지 않는다 — 프런트가 두 이벤트를
+  동일한 `QUERY_KEY.GIT.PROJECT(projectId)` 무효화로 매핑해 둘째 발신은 중복이었다. 이 무효화는
+  `isGitQueryScopeMutable` predicate 를 거치지 않는 광역 prefix 무효화라 rev-immutable 스코프
+  (`git_show_file`/커밋 diff 등, `staleTime: Infinity`)까지 함께 재조회되지만, `invalidateQueries`
+  는 그 순간 실제로 마운트되어 있는 쿼리에만 재요청을 일으키므로(비활성 프로젝트·닫힌 탭은
+  no-op) 비용은 활성 프로젝트가 화면에 띄우고 있는 쿼리로 한정된다.
 
 **`git_discard_hunk` 의 좌표 계약**: hunk 경계는 `git_gutter` 가 반환한 `GutterHunk { start, end }`
 를 그대로 넘긴다. Rust 쪽에서 두 함수가 **같은 diff 옵션과 같은 경계 계산 헬퍼**를 공유하므로

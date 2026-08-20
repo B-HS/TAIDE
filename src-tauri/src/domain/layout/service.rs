@@ -215,6 +215,27 @@ pub fn collect_leaves(node: &PaneNode) -> Vec<&PaneNode> {
     }
 }
 
+/// Every distinct `File` tab path currently open across `layout`'s main tree and its auxiliary
+/// windows — the same `all_roots` + `collect_leaves` walk `domain::ide::service::
+/// open_editors_snapshot` uses, without that function's IDE-specific fields (`is_active`/`label`/
+/// `language_id`). Used by `lib.rs::restore_project_watchers` to synthesize one `FsChanged`
+/// refresh for a project's already-open tabs right after its watcher goes live — see that
+/// function's doc (boot-watcher-defer contract §3.1's `FILE.CONTENT`/`FILE.RAW` gap).
+pub fn open_file_paths(layout: &ProjectLayout) -> Vec<String> {
+    let mut paths = HashSet::new();
+    for root in all_roots(layout) {
+        for node in collect_leaves(root) {
+            let PaneNode::Leaf { tabs, .. } = node else { continue };
+            for tab in tabs {
+                if let TabKind::File { path } = &tab.kind {
+                    paths.insert(path.clone());
+                }
+            }
+        }
+    }
+    paths.into_iter().collect()
+}
+
 /// title 이 일치하는 첫 탭을 찾는다(Claude Code 의 `close_tab(tab_name)` 처럼 안정적인 id 대신
 /// 표시 이름으로 탭을 지칭하는 외부 프로토콜을 위한 헬퍼).
 pub fn find_tab_by_title(node: &PaneNode, title: &str) -> Option<TabId> {
@@ -2249,6 +2270,37 @@ mod tests {
         assert!(
             locate_project_with_tab(&layouts, &TabId::new()).is_err(),
             "존재하지 않는 탭은 NotFound 여야 한다"
+        );
+    }
+
+    #[test]
+    fn open_file_paths는_메인과_보조창의_파일_탭_경로를_중복없이_수집한다() {
+        let mut layout = default_layout();
+        let main_pane = layout.focused_pane.clone();
+
+        open_tab(&mut layout, &main_pane, 파일_탭("a.rs"), false).expect("open a.rs in main");
+        let move_target = open_tab(&mut layout, &main_pane, 파일_탭("b.rs"), false).expect("open b.rs in main");
+
+        move_tab_to_new_window(&mut layout, &move_target, 1).expect("move b.rs into new window");
+        let aux_pane = layout.auxiliary_windows[0].focused_pane.clone();
+        open_tab(&mut layout, &aux_pane, 파일_탭("a.rs"), false).expect("open a.rs again in aux window");
+
+        let mut paths = open_file_paths(&layout);
+        paths.sort();
+
+        assert_eq!(
+            paths,
+            vec!["a.rs".to_string(), "b.rs".to_string()],
+            "메인·보조 창에 걸쳐 열린 파일 탭 경로가 중복 없이 모여야 한다"
+        );
+    }
+
+    #[test]
+    fn open_file_paths는_파일_탭이_없으면_비어있다() {
+        let layout = default_layout();
+        assert!(
+            open_file_paths(&layout).is_empty(),
+            "기본 레이아웃(웰컴·터미널 탭만)에는 파일 탭이 없어야 한다"
         );
     }
 }

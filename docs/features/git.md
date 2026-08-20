@@ -121,6 +121,8 @@
 - mutation: `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`, `git_commit(message, opts)`,
   `git_push`, `git_pull`, `git_fetch`, `git_stash_push/apply/pop/drop`, `git_undo_last_commit`
 - event: `git:status-changed`, `git:refs-changed`, `git:operation-progress`, `git:operation-finished`
+- **부팅 워처 재부착 직후 합성 `git:status-changed` 1회(d-25)**: 상세는 `ipc-contract.md` 의 같은
+  항목 참조 — attach 공백 구간 git 상태 정체 보정, 실제 변경 여부 무관.
 
 ## 7. 수명주기 · 성능
 

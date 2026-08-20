@@ -12,10 +12,25 @@ use crate::state::AppState;
 use super::types::FsChange;
 
 /// Starts the project-root file watcher that fans debounced fs changes out as [`FsChanged`]
-/// events, registering its handle in `state.watchers`. Also called directly by the boot restore
-/// path in `lib.rs`, which re-attaches watchers for restored projects without running the full
-/// capability attach (layout/ide/agent have their own dedicated boot paths).
+/// events, registering its handle in `state.watchers`. `project_open`'s
+/// `FileWatcherCapability::attach` is the only caller that still builds and registers in one
+/// call — it already runs its entire `ProjectCapabilities::attach_all` walk under one
+/// `AppState::begin_mutation` acquisition, so splitting internally here changes nothing about when
+/// that guard is held. The boot restore path (`lib.rs::restore_project_watchers`) calls
+/// [`build_watcher_handle`] and [`register_watcher_handle`] separately instead, so its own guard
+/// only has to cover the register half — see that function's doc.
 pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
+    if let Some(handle) = build_watcher_handle(app, project_id, root) {
+        register_watcher_handle(state, project_id, handle);
+    }
+}
+
+/// The expensive half of [`attach_watcher`] — the `notify-debouncer-full` `FileIdMap` walk
+/// `watcher::start_watch` performs — split out so it can run without touching `AppState` at all.
+/// Returns `None` (after logging the same warning `attach_watcher` always has on failure) when the
+/// watcher fails to start. [`register_watcher_handle`] is the only `AppState` write this handle
+/// still needs.
+pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str) -> Option<watcher::WatcherHandle> {
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 
@@ -29,11 +44,20 @@ pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId,
             .emit(&emit_handle);
         }
     }) {
-        Ok(handle) => {
-            state.watchers.write().insert(project_id.clone(), handle);
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            log::warn!("파일 감시를 시작하지 못했습니다 ({root}): {error}");
+            None
         }
-        Err(error) => log::warn!("파일 감시를 시작하지 못했습니다 ({root}): {error}"),
     }
+}
+
+/// Registers a handle [`build_watcher_handle`] already built — the one `AppState` write the boot
+/// restore split needs `AppState::begin_mutation` for (`lib.rs::restore_project_watchers`), held
+/// only across this call and its own `state.projects`/`state.watchers` re-checks, not across the
+/// handle's own walk.
+pub fn register_watcher_handle(state: &AppState, project_id: &ProjectId, handle: watcher::WatcherHandle) {
+    state.watchers.write().insert(project_id.clone(), handle);
 }
 
 pub struct FileWatcherCapability;

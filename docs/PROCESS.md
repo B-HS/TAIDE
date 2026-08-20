@@ -823,9 +823,22 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           빈 산출 파일=사망 오판 → 재개 이중 기동, 두 에이전트 상호 감지·분담 병합으로 무사고
           — 교훈: 완료 판정은 태스크 통지 기준, 산출 파일 존재로 판정 금지). 검증 bun 1408·
           cargo 1080·bindings 무변경. 실기 이월: 영역 크래시 폴백·재시도(인위 재현)
-    - [ ] d-25. 부팅 워처 attach 후절화(Rust) — **d-26 완료 후**(사용자 가시 UX 우선·Rust 는
-          앱 재시작 수반이라 최후순). 진단 wf_14010876-849 rank 1: setup() 동기 전수 워크를
-          창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
+    - [x] d-25. 부팅 워처 attach 후절화(Rust) — **구현+Phase E 검토 반영 완결(커밋 대기)**.
+          계약 `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`(§3 구현·§4 검토
+          반영). 진단 wf_14010876-849 rank 1: setup() 동기 전수 워크를 창 표시 뒤로(spawn).
+          Phase E 4렌즈+major 적대적 검토 발견 20(major 7) → **confirmed 6·refuted 1**
+          (concurrency-1 — 부팅 렌더 경로 전량 무가드라 "인터랙티브 창에서 멈춤" 결론 반증,
+          구코드(전면 불가) 대비 엄격 개선임을 확인). confirmed 전건 반영: 가드 범위를
+          워크 전체→등록 순간(마이크로초)으로 축소(build/register 분리, tree
+          `rows_page_from_store` 선례 동형 — 부수로 concurrency-4·7·design-3·5·contract-3
+          자연 해소)·활성 프로젝트 우선 attach 순서(순수 함수+테스트 고정)·git 합성 방송
+          `GitRefsChanged` 중복 제거(1건만)·`FILE.CONTENT` attach 공백을 기존 `fs:changed`
+          이벤트 재사용으로 보정(`FILE.RAW` 는 라이브 워처에서도 무효화 안 되는 선재 결함으로
+          판정, 별개 배치 대상으로 보고). minor 실질 전량(종료 취소 플래그·재열기 중복 attach
+          스킵·git/watch.rs·ipc-contract.md·features/git.md doc 정정·qa6 d-25 절 이월). 1차
+          세션 네트워크 중단 후 재개(상속 산출물 5파일 전량 검증 후 완결). 검증: cargo test
+          1068+3+6+17·`bun run verify`·`bunx vite build` 전부 exit 0, bindings 무변경.
+          **커밋·병합·실기 확증 대기**(에이전트 커밋/앱 실행 금지 지침)
     - [x] d-26. ⌘P 퀵오픈 UX 정비 — **완결·병합**(main=10d5592). 계약
           `2026-08-20-palette-ux-contract.md`(§3 구현·§4 검토 반영). 커밋 `3599c89`(계약)+
           `e8ab133`(feat)+`10d5592`(fix 검토 반영). 원인 판정: 선택은 동작·표시 비가시(사용자
