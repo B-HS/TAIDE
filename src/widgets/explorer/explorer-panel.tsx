@@ -137,7 +137,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
             </div>
 
             {view === 'files' && (
-                <div className='border-tab-bar-tab-border flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1'>
+                <div className='border-tab-bar-tab-border flex h-8 shrink-0 items-center justify-between gap-1 border-b px-2'>
                     <h2 className='text-app-foreground truncate text-xs font-medium tracking-wide uppercase'>
                         {project?.name ?? t('explorer.title')}
                     </h2>

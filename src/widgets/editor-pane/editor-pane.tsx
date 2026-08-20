@@ -21,7 +21,6 @@ import { fileQueryOptions } from '@entities/file/file.query'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
-import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
 import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
@@ -157,25 +156,6 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const handleEditorMount = (nextEditor: monaco.editor.IStandaloneCodeEditor | null) => setEditor(nextEditor)
 
     /**
-     * Registers the mounted monaco instance under `tabId` for the shared editor-instance registry
-     * (breadcrumbs, the status bar, and `editor-area`'s own lookups all read it). Keyed by
-     * `[tabId, editor]` rather than done once inside `handleEditorMount` — `CodeEditor`'s own
-     * mount effect has an empty dependency array (it swaps buffers via `setModel`, never
-     * remounting monaco), and this pane has no `key` either, so `handleEditorMount` fires exactly
-     * once for the pane's whole lifetime while the same instance goes on to serve every tab the
-     * user switches to in this pane. Without this effect, the registry stayed pinned to whichever
-     * tab happened to be active at first mount; every later tab switch left it stale, and
-     * `getEditorInstance` for the now-active tab returned nothing (or a leftover instance for a
-     * tab that no longer owns it). Re-running on every `tabId` change re-keys the same live
-     * instance instead.
-     */
-    useEffect(() => {
-        if (!editor) return
-        registerEditorInstance(tabId, editor)
-        return () => unregisterEditorInstance(tabId)
-    }, [tabId, editor])
-
-    /**
      * Before syncing this tab's model to the last-known disk content, checks whether an LSP
      * `WorkspaceEdit` landed on this model while it had no mounted editor watching it (a
      * background tab in another pane — see `model-dirty-tracker.ts`). If so, that edit is the
@@ -252,19 +232,25 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * that don't render `CodeEditor` (loading placeholder, error, or a refused-tier file) while
      * `editor` still references a live monaco instance, `CodeEditor`'s own unmount cleanup — which
      * nulls this state via `onEditorMount(null)` — only runs in the passive phase, one commit too
-     * late. Left uncorrected, the `[tabId, editor]` registration effect above re-runs first (in
-     * the same commit) and re-registers that already-disposed instance (`CodeEditor`'s own
-     * passive cleanup disposes it earlier in the same destroy pass) under the *new* `tabId`;
-     * `editor-area.tsx`'s action-id effect then calls `getSupportedActions()` on it, which throws
-     * (`AbstractContextKeyService has been disposed`) once anything with no disposed-guard —
-     * e.g. `useEditorGitGutterAndConflicts`'s `addAction` effects, whose only guard is `!editor`
-     * — re-populates its cleared action map in that same commit's create pass (contract §7). With
-     * no error boundary mounted above `EditorPane`, an uncaught passive-effect error here
-     * unmounts the whole React root (`createRootErrorUpdate`) rather than being contained.
-     * Nulling `editor` here lands the correction in THIS commit instead: React re-renders with
-     * `editor === null` before committing, so the registration effect's cleanup only unregisters
-     * the old `tabId` and never re-registers the corpse under the new one, and no later effect
-     * has a corpse left to re-populate.
+     * late. Left uncorrected, several OTHER hooks below that read `editor` state directly rather
+     * than through the shared registry (`useEditorGitGutterAndConflicts`, `useEditorBlame`,
+     * `useEditorFilePersistence`, `useEditorViewState`, `useEditorIdeSelection`, and the
+     * "run selected text in terminal" `addAction` effect further below) would still see that
+     * already-disposed instance (`CodeEditor`'s own passive cleanup disposes it earlier in the
+     * same destroy pass) for this one extra commit — e.g. `useEditorGitGutterAndConflicts`'s
+     * `addAction` effects, whose only guard is `!editor`, would call `.addAction()` on it
+     * (harmless by itself, contract §1), while `useEditorFilePersistence`'s
+     * `editor?.getAction(FORMAT_DOCUMENT_ACTION_ID)` could throw outright. With no error boundary
+     * mounted above `EditorPane`, an uncaught passive-effect error here unmounts the whole React
+     * root (`createRootErrorUpdate`) rather than being contained. Nulling `editor` here lands the
+     * correction in THIS commit instead, so every hook below that depends on `editor` re-renders
+     * with `null` before any of them can commit an effect against the corpse.
+     *
+     * `CodeEditor`'s own registration into `editor-instance-registry` (crash-class-seal-contract
+     * .md §1-1) no longer depends on this adjustment at all — it is keyed off `editorRef.current`
+     * inside `CodeEditor` itself, which can only ever be that instance's own live editor or
+     * absent, never a stale snapshot borrowed from this component's `editor` state. This
+     * adjustment's remaining job is exactly the `editor`-state-direct consumers named above.
      *
      * {@link resolveEditorStateForRender} only covers these three branches
      * (`canRenderCodeEditor` false) — it can't see a commit where `canRenderCodeEditor` stays
@@ -272,7 +258,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * flips element type (the markdown-preview split, previously `<Group>` vs a bare `<div>`).
      * That gap is closed structurally below, by always rendering the same `<Group>`+editor
      * `<Panel>` regardless of preview state. See
-     * docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md §1-2, §7.
+     * docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md §1-2, §7,
+     * docs/acknowledge/2026-08-20-crash-class-seal-contract.md §1-1.
      */
     const resolvedEditor = resolveEditorStateForRender(editor, isPending, isError, file?.tier)
     if (resolvedEditor !== editor) setEditor(resolvedEditor)
@@ -336,6 +323,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             onCursorLineChange={setCursorLine}
             onEditorMount={handleEditorMount}
             onMinimapToggle={handleMinimapToggle}
+            registryTabId={tabId}
         />
     )
 

@@ -1,12 +1,13 @@
 import type { FC } from 'react'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace } from '@shared/api/bindings'
+import type { EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, TabId } from '@shared/api/bindings'
 import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
 import { attachAiInlineEditAction } from '@features/editor/ai-inline-edit'
 import { monaco } from '@shared/lib/monaco/setup'
 import { cancelAiRequest, completeAiInline } from '@entities/ai/ai.ipc'
+import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
 import { getOrCreateModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
 const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiRequest }
@@ -44,6 +45,7 @@ export type CodeEditorProps = {
     onCursorLineChange: (line: number) => void
     onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor | null) => void
     onMinimapToggle: (enabled: boolean) => void
+    registryTabId?: TabId
 }
 
 const TOGGLE_MINIMAP_ACTION_ID = 'taide.toggleMinimap'
@@ -80,6 +82,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     onCursorLineChange,
     onEditorMount,
     onMinimapToggle,
+    registryTabId,
 }) => {
     const { t } = useTranslation()
     const containerRef = useRef<HTMLDivElement>(null)
@@ -251,6 +254,52 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         editor.focus()
         activePathRef.current = path
     }, [path, language])
+
+    /**
+     * Registers this instance's own live monaco editor under `registryTabId` in the shared
+     * `editor-instance-registry` (`breadcrumbs-bar.tsx`, `editor-area.tsx`, and
+     * `status-bar-content.tsx` all read it) — moved here from `EditorPane`'s former
+     * `[tabId, editor]` effect (crash-class-seal-contract.md §1-1) so the registered value can
+     * never be anything but THIS component's own `editorRef.current`, never a snapshot of a
+     * parent's `editor` state that could still reference a sibling instance already torn down in
+     * the same commit. `registryTabId` is optional — `untitled-pane.tsx` and
+     * `app-file-pane.tsx` simply never pass it, so this effect no-ops for them.
+     *
+     * Declared as the LAST effect in this component (after the creation effect and every
+     * option-sync effect above) so that whenever this effect's own setup runs, `editorRef.current`
+     * is not just non-null but fully configured for `registryTabId`'s tab — model attached, view
+     * state restored, focused, every `addAction` already registered above — before any registry
+     * subscriber's synchronous `notifyTabListeners` callback can observe it.
+     *
+     * `registryTabId` can only change while this same `CodeEditor` instance keeps running (the
+     * creation effect's `[]` deps mean it is torn down only on full unmount), so a re-key here is
+     * always cleanup(old id) then setup(new id) against the SAME live instance — it can never
+     * register a disposed instance under a new key, because there is no "new key" to register
+     * under once this component is gone: on full unmount this effect only runs its cleanup (no
+     * following setup), same as every other effect torn down alongside it. That structurally
+     * rules out the corpse re-registration this registry used to be exposed to when the parent
+     * owned it (blank-window-hotfix-contract.md §1).
+     *
+     * On full unmount, this effect's cleanup and the creation effect's cleanup both run in the
+     * same destroy pass. Contrary to the common assumption that sibling effects clean up in
+     * reverse declaration order, React walks a fiber's own hook list FORWARD from its first
+     * effect for both the create and destroy passes (verified against the installed
+     * `react-dom@19.2.8` source — `commitHookEffectListMount` and `commitHookEffectListUnmount`
+     * share the same forward traversal), so `editor.dispose()` (the creation effect's cleanup,
+     * declared first) actually runs BEFORE `unregisterEditorInstance` here (declared last), not
+     * after. That ordering is harmless: `unregisterEditorInstance` deletes the registry entry
+     * before it notifies subscribers, and React never starts any OTHER fiber's passive-effect
+     * create pass until every fiber's destroy pass for the current commit has fully finished —
+     * so no registry consumer's `attachToEditor` can run in the gap between this component's own
+     * dispose and its own unregister, regardless of which of the two runs first.
+     */
+    useEffect(() => {
+        if (!registryTabId) return
+        const editor = editorRef.current
+        if (!editor) return
+        registerEditorInstance(registryTabId, editor)
+        return () => unregisterEditorInstance(registryTabId)
+    }, [registryTabId])
 
     return <div ref={containerRef} className='h-full w-full' />
 }

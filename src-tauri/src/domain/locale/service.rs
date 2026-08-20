@@ -859,6 +859,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
     ),
     ("zen", &["hint", "hintExit"]),
     ("prompts", &["autoTabTitle", "inlineEditTitle", "commitMessageTitle", "editEntry"]),
+    ("errorBoundary", &["app", "description", "editorArea", "sidebar", "statusBar"]),
 ];
 
 pub fn required_message_keys() -> Vec<String> {

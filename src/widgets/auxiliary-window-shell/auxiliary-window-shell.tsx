@@ -6,6 +6,7 @@ import type { ProjectId } from '@shared/api/bindings'
 import { layoutQueryOptions } from '@entities/layout/layout.query'
 import { IS_MAC } from '@shared/constants/platform'
 import { isPaneTreeEmpty, resolveWindowPaneTree } from '@shared/lib/pane-tree'
+import { ErrorBoundary } from '@shared/ui/error-boundary'
 import { EditorArea } from '@widgets/editor-area/editor-area'
 import { AuxiliaryTitleBarContent } from '@widgets/auxiliary-window-shell/auxiliary-title-bar-content'
 
@@ -56,7 +57,9 @@ export const AuxiliaryWindowShell: FC<AuxiliaryWindowShellProps> = ({ projectId,
                 </div>
             )}
             <main className='flex min-h-0 min-w-0 flex-1'>
-                <EditorArea projectId={projectId} isProblemsOpen={false} onCloseProblems={noop} />
+                <ErrorBoundary labelKey='errorBoundary.editorArea'>
+                    <EditorArea projectId={projectId} isProblemsOpen={false} onCloseProblems={noop} />
+                </ErrorBoundary>
             </main>
         </div>
     )

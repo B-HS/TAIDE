@@ -47,12 +47,13 @@ describe('resolveEditorStateForRender', () => {
 
 /**
  * A registry-identity placeholder for the "stale, already-disposed" editor value the render-phase
- * adjustment and registration effect route around. The test below only checks which `tabId` ends
- * up holding a reference in `editor-instance-registry` — it never calls a method on the value
- * itself — so unlike {@link createRechargeableFakeEditor} below, this does not need to model
- * monaco's action-map bookkeeping (an earlier revision gave it a `getSupportedActions` that threw
- * immediately on dispose, contradicting `createRechargeableFakeEditor`'s dispose-alone-is-harmless
- * model below without ever actually being exercised by an assertion; removed).
+ * adjustment and `CodeEditor`'s own registration effect route around. The tests below only check
+ * which `tabId` ends up holding a reference in `editor-instance-registry` — they never call a
+ * method on the value itself — so unlike {@link createRechargeableFakeEditor} below, this does not
+ * need to model monaco's action-map bookkeeping (an earlier revision gave it a
+ * `getSupportedActions` that threw immediately on dispose, contradicting
+ * `createRechargeableFakeEditor`'s dispose-alone-is-harmless model below without ever actually
+ * being exercised by an assertion; removed).
  */
 const createDisposableFakeEditor = () => {
     const editor = {} as unknown as monaco.editor.IStandaloneCodeEditor
@@ -60,43 +61,80 @@ const createDisposableFakeEditor = () => {
 }
 
 /**
- * Simulates one `EditorPane` commit's `[tabId, editor]` registration effect re-run
- * (editor-pane.tsx's `useEffect(() => { ... registerEditorInstance(tabId, editor) ... },
- * [tabId, editor])`) — React tears down the previous commit's effect (unregistering the OLD
- * tabId) before running the new one (registering the NEW tabId with whatever `editor` value this
- * commit rendered). Uses the real `registerEditorInstance`/`unregisterEditorInstance` (not test
- * doubles), so this exercises the actual registry module the crash reaches through.
+ * Simulates `CodeEditor`'s own `[registryTabId]` effect (code-editor.tsx, contract
+ * crash-class-seal-contract.md §1-1) re-keying the SAME live instance to a new `tabId` while the
+ * component stays mounted — the effect's cleanup unregisters the OLD `registryTabId` before its
+ * setup registers under the NEW one, exactly as a single hook's own cleanup-then-setup is always
+ * sequenced by React on a dependency change. `editor` here is always the caller's own live
+ * instance — unlike the pre-move `EditorPane`-owned `[tabId, editor]` effect this replaces, there
+ * is no parent `editor` state snapshot that could still reference a foreign, already-disposed
+ * instance. Uses the real `registerEditorInstance`/`unregisterEditorInstance` (not test doubles),
+ * so this exercises the actual registry module.
  */
-const rerunRegistrationEffect = (previousTabId: string, nextTabId: string, editorForThisCommit: monaco.editor.IStandaloneCodeEditor | null) => {
+const rerunChildOwnedRegistrationEffect = (previousTabId: string, nextTabId: string, editor: monaco.editor.IStandaloneCodeEditor) => {
     unregisterEditorInstance(previousTabId)
-    if (editorForThisCommit) registerEditorInstance(nextTabId, editorForThisCommit)
+    registerEditorInstance(nextTabId, editor)
 }
 
 /**
- * Locks down the registry-level contract the 2026-08-20 blank-window hotfix (contract §1-2)
- * depends on: a `canRenderCodeEditor`-false commit must never leave a dispose-bound instance
- * registered under the tab it just switched to. Calls the real `resolveEditorStateForRender` —
- * the same function `editor-pane.tsx` calls — rather than re-deriving its ternary, so a bug in
- * the shared decision function itself (not just its call site) fails this test. It does not
- * exercise `editor-pane.tsx`'s own wiring (that the render-phase `if` actually calls `setEditor`
- * with this function's result) — that wiring is guarded by review only, same as the rest of this
- * component's render-phase logic (contract §5): deleting both the `if` and its
- * `resolveEditorStateForRender` import leaves no unused symbol behind, so `tsc --noEmit` and
- * eslint both stay clean against that regression.
+ * Simulates the same effect's cleanup running alone with no following setup — the shape a full
+ * `CodeEditor` unmount takes. There is no "new tabId" to register under because the component
+ * that owned this effect is gone; on full unmount `registryTabId`'s effect only tears itself down
+ * (contract crash-class-seal-contract.md §1-1's "on full unmount this effect only runs its
+ * cleanup").
  */
-describe('editor-pane.tsx 등록 effect 계약: canRenderCodeEditor 가 false 인 커밋에서 dispose 대상 인스턴스를 새 tabId 로 등록하지 않는다 (2026-08-20 빈 창 크래시)', () => {
-    test('resolveEditorStateForRender 로 조정된 editor 상태를 등록 effect 에 넘기면, dispose 대상 인스턴스가 새 tabId 로 등록되지 않는다', () => {
-        const { editor: staleLiveEditorFromOldTab, dispose: disposeStaleEditor } = createDisposableFakeEditor()
-        registerEditorInstance('tab-old', staleLiveEditorFromOldTab)
+const unmountChildOwnedRegistrationEffect = (tabId: string) => unregisterEditorInstance(tabId)
 
-        const isCacheMissForNewTab = true
-        disposeStaleEditor()
-        const editorAfterRenderPhaseAdjustment = resolveEditorStateForRender(staleLiveEditorFromOldTab, isCacheMissForNewTab, false, undefined)
+/**
+ * Locks down the registry-level contract crash-class-seal-contract.md §1-1 moved onto
+ * `CodeEditor` itself: because registration is now keyed off `CodeEditor`'s own
+ * `editorRef.current` rather than a parent's `editor` state snapshot, there is no code path left
+ * that can register a disposed instance under a new `tabId` at all — re-keying only ever moves a
+ * still-live instance, and a full unmount only ever unregisters. This supersedes the pre-move
+ * version of this contract, which instead had to prove that `resolveEditorStateForRender`'s
+ * render-phase adjustment kept a since-removed `EditorPane`-owned registration effect from
+ * re-registering a corpse; that effect and its dependency on `resolveEditorStateForRender` no
+ * longer exist (`resolveEditorStateForRender` still runs in `editor-pane.tsx`, but only to protect
+ * the OTHER hooks — `useEditorGitGutterAndConflicts`, `useEditorBlame`,
+ * `useEditorFilePersistence`, `useEditorViewState`, `useEditorIdeSelection` — that still read
+ * `editor` state directly instead of through this registry).
+ */
+describe('CodeEditor 등록 effect 계약(자식 소유 모델, crash-class-seal-contract.md §1-1): registry 항목은 항상 CodeEditor 자신의 live 인스턴스이거나 비어 있다', () => {
+    test('tabId 재키잉은 같은 live 인스턴스를 새 tabId 로 옮길 뿐, dispose 된 인스턴스를 등록하지 않는다', () => {
+        const { editor: liveEditor } = createDisposableFakeEditor()
+        registerEditorInstance('tab-old', liveEditor)
 
-        rerunRegistrationEffect('tab-old', 'tab-new', editorAfterRenderPhaseAdjustment)
+        rerunChildOwnedRegistrationEffect('tab-old', 'tab-new', liveEditor)
 
-        expect(getEditorInstance('tab-new')).toBeNull()
         expect(getEditorInstance('tab-old')).toBeNull()
+        expect(getEditorInstance('tab-new')).toBe(liveEditor)
+
+        unregisterEditorInstance('tab-new')
+    })
+
+    test('CodeEditor 전체 언마운트 시퀀스(dispose 후 등록 effect cleanup)에서 registry 가 dispose 된 인스턴스를 갖는 순간이 없다', () => {
+        const { editor: liveEditor, dispose } = createDisposableFakeEditor()
+        registerEditorInstance('tab-a', liveEditor)
+
+        dispose()
+        unmountChildOwnedRegistrationEffect('tab-a')
+
+        expect(getEditorInstance('tab-a')).toBeNull()
+    })
+
+    test('tabId 전환 이후 언마운트까지 이어지는 시퀀스에서도 registry 가 dispose 된 인스턴스를 갖는 순간이 없다', () => {
+        const { editor: liveEditor, dispose } = createDisposableFakeEditor()
+        registerEditorInstance('tab-a', liveEditor)
+
+        rerunChildOwnedRegistrationEffect('tab-a', 'tab-b', liveEditor)
+        expect(getEditorInstance('tab-a')).toBeNull()
+        expect(getEditorInstance('tab-b')).toBe(liveEditor)
+
+        dispose()
+        unmountChildOwnedRegistrationEffect('tab-b')
+
+        expect(getEditorInstance('tab-a')).toBeNull()
+        expect(getEditorInstance('tab-b')).toBeNull()
     })
 })
 
@@ -153,50 +191,47 @@ const rerunGitGutterAddActionEffects = (editorForThisCommit: monaco.editor.IStan
 }
 
 /**
- * Reproduces the residual crash path the 2026-08-20 hotfix (`resolveEditorStateForRender`) does
- * not cover: a commit where `canRenderCodeEditor` stays true throughout (file already loaded, tier
- * fine) but `CodeEditor` still unmounts and remounts because a sibling JSX branch flips element
- * type — the markdown-preview split (`<Group>`) against a bare `<div>`, before `editor-pane.tsx`
- * was restructured to always render `<Group>` (contract §7). Since `resolveEditorStateForRender`
- * never fires in that commit (its `canRenderCodeEditor` input is true), the registration effect
- * re-registers the STALE `editor` state — already disposed by `CodeEditor`'s own passive
- * cleanup earlier in the same destroy pass — under the new tabId. This alone would be harmless
- * (dispose already cleared the corpse's action map, so `getSupportedActions()` returns `[]`), but
- * `useEditorGitGutterAndConflicts`'s two `addAction` effects — called earlier in `EditorPane`'s
- * body than the `[tabId, editor]` registration effect, so queued earlier in this commit's passive
- * effect list — refill that corpse's action map in this same commit's create pass, BEFORE the
- * registration effect creates and re-registers the same, now-recharged corpse under the new
- * tabId; their only guard, `!editor`, does not know the instance is disposed. From there the
- * throw surfaces one of two ways depending on whether `editor-area.tsx`'s globally-focused tab
- * also changed in this commit: if it didn't, `registerEditorInstance`'s synchronous
- * `notifyTabListeners` call (still subscribed to this tab from a prior commit) invokes
- * `editor-area.tsx`'s `attachToEditor` — and so `getSupportedActions()` — from inside this very
- * registration effect; if it did, `editor-area.tsx`'s own `[focusedFileTabId]` effect instead
- * tore its old subscription down in this commit's destroy pass and calls `attachToEditor()`
- * directly when its own create pass runs, throwing there instead (the case the original crash's
- * `<EditorArea>` stack attribution matches).
+ * Documents a crash path that predates the 2026-08-20 hotfix restructure and is now closed by TWO
+ * independent later changes, neither of which this file's mechanism-level mock can exercise
+ * directly (see the "cannot exercise" paragraph below) — kept as mechanism documentation, not as a
+ * still-reachable regression test:
  *
- * This test cannot exercise `editor-pane.tsx`'s actual JSX (no RTL/monaco render harness in this
- * project — see contract §5) and so cannot fail against the pre-fix commit and pass against the
- * post-fix one; the structural fix (always rendering `<Group>`, closing the element-type flip
- * that produces this commit shape at all) is instead guarded by review only — deleting it leaves
- * no unused symbol, so neither `tsc --noEmit` nor eslint catch its regression. What this locks
- * down is the *mechanism*, against a hand-written mock rather than monaco itself: that recreating
- * this commit shape reliably reproduces the throw. It does not evaluate the registration-effect
- * disposed-guard contract §2 rejects — that guard would in fact have kept this corpse out of the
- * registry too, closing this symptom just as well; contract §2's actual reason for rejecting it
- * is that it only launders the registry's own bookkeeping and leaves the underlying invariant
- * (registered instance ≡ live instance) unenforced for any consumer that reads `EditorPane`'s
- * `editor` state directly instead of going through the registry (e.g.
- * `use-editor-file-persistence.ts`'s `editor?.getAction(FORMAT_DOCUMENT_ACTION_ID)`).
+ * 1. blank-window-hotfix-contract.md §7.1 (`editor-pane.tsx`): the commit shape this path needs —
+ *    `canRenderCodeEditor` staying true throughout while `CodeEditor` still unmounts and remounts
+ *    because a sibling JSX branch flips element type (the markdown-preview split, `<Group>` vs a
+ *    bare `<div>`) — no longer occurs at all; `editor-pane.tsx` now always renders the same
+ *    `<Group>`+editor `<Panel>` regardless of preview state.
+ * 2. crash-class-seal-contract.md §1-1 (`code-editor.tsx`): even if that commit shape recurred via
+ *    a future regression, registration no longer has a code path that could re-register a stale
+ *    instance under a new `tabId` — `EditorPane`'s old `[tabId, editor]` registration effect (the
+ *    one this mock's `rerunChildOwnedRegistrationEffect` originally stood in for) no longer
+ *    exists; registration is now `CodeEditor`'s own effect, keyed off its own `editorRef.current`,
+ *    which can only ever be that same instance's live editor or nothing.
+ *
+ * What these two tests still document accurately is monaco's OWN dispose/recharge mechanism
+ * (verified against the installed `monaco-editor` source, JSDoc above `createRechargeableFakeEditor`):
+ * `addAction` has no disposed guard, `dispose()` clears `_actions` before disposing the
+ * context-key service, and an `addAction` call after dispose silently refills the action map with
+ * an entry that captures the disposed service — so a later `getSupportedActions()` throws. That
+ * mechanism is still real and still matters: `useEditorGitGutterAndConflicts`'s two `addAction`
+ * effects (modeled by {@link rerunGitGutterAddActionEffects}) read `EditorPane`'s `editor` state
+ * DIRECTLY, not through the registry, so they are the reason `resolveEditorStateForRender`'s
+ * render-phase adjustment in `editor-pane.tsx` still exists and is still required — it is what
+ * keeps `editor` state itself from ever holding a disposed instance for git-gutter (or blame, or
+ * file-persistence) to recharge in the first place, now that the registry can no longer be the
+ * thing that turns a recharge into a thrown, root-unmounting error.
+ *
+ * These tests cannot exercise `editor-pane.tsx`'s actual JSX (no RTL/monaco render harness in this
+ * project — see contract §5) and so cannot fail against a pre-fix commit and pass against a
+ * post-fix one; both structural fixes above are guarded by review only.
  */
-describe('잔존 경로: 프리뷰 Group↔div 플립 커밋에서 dispose 된 corpse 가 git-gutter addAction 으로 재충전되어 throw 한다', () => {
+describe('잔존 경로(역사적 기록, 지금은 §7.1 + crash-class-seal-contract §1-1 로 이중 봉인): dispose 된 corpse 가 git-gutter addAction 으로 재충전되면 getSupportedActions 가 throw 하는 monaco 자체의 메커니즘', () => {
     test('dispose 후 addAction 재충전 없이 getSupportedActions 를 호출하면 throw 하지 않는다 (dispose 만으로는 무해)', () => {
         const { editor: corpse, dispose } = createRechargeableFakeEditor()
         registerEditorInstance('tab-old-quiet', corpse)
 
         dispose()
-        rerunRegistrationEffect('tab-old-quiet', 'tab-new-quiet', corpse)
+        rerunChildOwnedRegistrationEffect('tab-old-quiet', 'tab-new-quiet', corpse)
 
         expect(() => getEditorInstance('tab-new-quiet')?.getSupportedActions()).not.toThrow()
         expect(getEditorInstance('tab-new-quiet')?.getSupportedActions()).toEqual([])
@@ -210,7 +245,7 @@ describe('잔존 경로: 프리뷰 Group↔div 플립 커밋에서 dispose 된 c
 
         dispose()
         rerunGitGutterAddActionEffects(corpse)
-        rerunRegistrationEffect('tab-old', 'tab-new', corpse)
+        rerunChildOwnedRegistrationEffect('tab-old', 'tab-new', corpse)
 
         const registeredCorpse = getEditorInstance('tab-new')
         expect(registeredCorpse).not.toBeNull()

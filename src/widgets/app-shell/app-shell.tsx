@@ -28,6 +28,7 @@ import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { ZenModeHint } from '@features/window/zen-mode-hint'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
+import { ErrorBoundary } from '@shared/ui/error-boundary'
 import { AppSidebar } from '@widgets/app-sidebar/app-sidebar'
 import { EditorArea } from '@widgets/editor-area/editor-area'
 import { ExplorerContainer } from '@widgets/explorer/explorer-container'
@@ -187,7 +188,11 @@ export const AppShell = () => {
                 </div>
             ) : (
                 <div className='flex min-h-0 flex-1'>
-                    {!zen && <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />}
+                    {!zen && (
+                        <ErrorBoundary labelKey='errorBoundary.sidebar'>
+                            <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />
+                        </ErrorBoundary>
+                    )}
                     <main className='flex min-w-0 flex-1'>
                         {activeProjectId ? (
                             <Group
@@ -203,17 +208,21 @@ export const AppShell = () => {
                                     maxSize='40%'
                                     collapsible
                                     collapsedSize={0}>
-                                    <ExplorerContainer projectId={activeProjectId} />
+                                    <ErrorBoundary labelKey='explorer.title'>
+                                        <ExplorerContainer projectId={activeProjectId} />
+                                    </ErrorBoundary>
                                 </Panel>
                                 {!zen && (
                                     <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
                                 )}
                                 <Panel id='editor' minSize='30%'>
-                                    <EditorArea
-                                        projectId={activeProjectId}
-                                        isProblemsOpen={isProblemsOpen}
-                                        onCloseProblems={() => setIsProblemsOpen(false)}
-                                    />
+                                    <ErrorBoundary labelKey='errorBoundary.editorArea'>
+                                        <EditorArea
+                                            projectId={activeProjectId}
+                                            isProblemsOpen={isProblemsOpen}
+                                            onCloseProblems={() => setIsProblemsOpen(false)}
+                                        />
+                                    </ErrorBoundary>
                                 </Panel>
                             </Group>
                         ) : (
@@ -223,7 +232,9 @@ export const AppShell = () => {
                 </div>
             )}
             {!(zen && hideStatusBar) && (
-                <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
+                <ErrorBoundary labelKey='errorBoundary.statusBar'>
+                    <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
+                </ErrorBoundary>
             )}
         </div>
     )
