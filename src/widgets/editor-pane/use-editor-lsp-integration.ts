@@ -11,6 +11,7 @@ import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { isLspAttachableTier, useLspSession } from '@widgets/editor-pane/use-lsp-session'
 import { peekLspSessionForRoot, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
+import { canRenderCodeEditor } from '@widgets/editor-pane/code-editor-visibility'
 
 /** LSP `CodeActionKind`s the two on-save booleans (`settings.fixAllOnSave`/`organizeImportsOnSave`) map to. */
 const CODE_ACTION_KIND_FIX_ALL = 'source.fixAll'
@@ -194,7 +195,7 @@ export const useEditorLspIntegration = ({
         path,
         languageId,
         tier,
-        enabled: !isPending && !isError && tier !== 'refused',
+        enabled: canRenderCodeEditor(isPending, isError, tier),
     })
 
     return { notifyLspSessionsOfSave, runCodeActionsOnSave }

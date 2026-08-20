@@ -36,7 +36,7 @@ import { MarkdownPreview } from '@features/editor/markdown-preview'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { Button } from '@shared/ui/button'
 import { systemOpenPath } from '@entities/system/system.ipc'
-import { canRenderCodeEditor } from '@widgets/editor-pane/code-editor-visibility'
+import { resolveEditorStateForRender } from '@widgets/editor-pane/code-editor-visibility'
 import { useEditorLspIntegration } from '@widgets/editor-pane/use-editor-lsp-integration'
 import { useEditorFilePersistence } from '@widgets/editor-pane/use-editor-file-persistence'
 import { useEditorGitGutterAndConflicts } from '@widgets/editor-pane/use-editor-git-gutter-and-conflicts'
@@ -253,15 +253,29 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * `editor` still references a live monaco instance, `CodeEditor`'s own unmount cleanup — which
      * nulls this state via `onEditorMount(null)` — only runs in the passive phase, one commit too
      * late. Left uncorrected, the `[tabId, editor]` registration effect above re-runs first (in
-     * the same commit) and re-registers that stale, about-to-be-disposed instance under the *new*
-     * `tabId`; `editor-area.tsx`'s action-id effect then calls `getSupportedActions()` on it and
-     * throws (`AbstractContextKeyService has been disposed`), crashing past any error boundary.
+     * the same commit) and re-registers that already-disposed instance (`CodeEditor`'s own
+     * passive cleanup disposes it earlier in the same destroy pass) under the *new* `tabId`;
+     * `editor-area.tsx`'s action-id effect then calls `getSupportedActions()` on it, which throws
+     * (`AbstractContextKeyService has been disposed`) once anything with no disposed-guard —
+     * e.g. `useEditorGitGutterAndConflicts`'s `addAction` effects, whose only guard is `!editor`
+     * — re-populates its cleared action map in that same commit's create pass (contract §7). With
+     * no error boundary mounted above `EditorPane`, an uncaught passive-effect error here
+     * unmounts the whole React root (`createRootErrorUpdate`) rather than being contained.
      * Nulling `editor` here lands the correction in THIS commit instead: React re-renders with
      * `editor === null` before committing, so the registration effect's cleanup only unregisters
-     * the old `tabId` and never re-registers the corpse under the new one. See
-     * docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md §1-2.
+     * the old `tabId` and never re-registers the corpse under the new one, and no later effect
+     * has a corpse left to re-populate.
+     *
+     * {@link resolveEditorStateForRender} only covers these three branches
+     * (`canRenderCodeEditor` false) — it can't see a commit where `canRenderCodeEditor` stays
+     * true throughout but `CodeEditor` still unmounts and remounts because a sibling JSX branch
+     * flips element type (the markdown-preview split, previously `<Group>` vs a bare `<div>`).
+     * That gap is closed structurally below, by always rendering the same `<Group>`+editor
+     * `<Panel>` regardless of preview state. See
+     * docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md §1-2, §7.
      */
-    if (!canRenderCodeEditor(isPending, isError, file?.tier) && editor !== null) setEditor(null)
+    const resolvedEditor = resolveEditorStateForRender(editor, isPending, isError, file?.tier)
+    if (resolvedEditor !== editor) setEditor(resolvedEditor)
 
     if (isPending) return <div className='bg-editor-background h-full w-full' />
 
@@ -334,6 +348,38 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const bannerVariant: ConflictBannerVariant | 'none' = conflict ? 'changedOnDisk' : restoreNotice
 
+    /**
+     * Always the same `<Group>`+editor `<Panel>` regardless of `showMarkdownPreview` — only the
+     * preview `<PaneSeparator>`+`<Panel>` are conditional — so `CodeEditor`'s position in the
+     * fiber tree never changes shape when preview toggles or a markdown/non-markdown tab switch
+     * flips `isMarkdown`. Previously this ternary put `<Group>` (preview on) against a bare
+     * `codeEditorWithBlameFooter` `<div>` (preview off) in the same JSX slot; React treats a
+     * changed element type at one slot as delete-then-mount, so toggling preview (or switching
+     * to/from a cached tab that changes `isMarkdown`) actually unmounted and remounted
+     * `CodeEditor` — reproducing, in one commit, the exact registry corpse the render-phase
+     * `editor` adjustment above exists to prevent, except `canRenderCodeEditor` stays true here
+     * so that adjustment never fires (contract §7). A `<Group>` with a single `<Panel>` and no
+     * `<PaneSeparator>` renormalizes to 100% regardless of `defaultSize` (`react-resizable-panels`
+     * only distributes `defaultSize` among panels sharing a group; with one panel there is
+     * nothing to share with — verified against the installed package source), so this renders
+     * identically to the previous bare-`<div>` layout whenever no preview is shown.
+     */
+    const editorAndPreviewPanels = (
+        <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1'>
+            <Panel id={`${tabId}-editor`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
+                {codeEditorWithBlameFooter}
+            </Panel>
+            {isMarkdown && showMarkdownPreview && (
+                <>
+                    <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
+                    <Panel id={`${tabId}-preview`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
+                        <MarkdownPreview html={renderMarkdownToSafeHtml(previewSource ?? syncedContent ?? file.content)} />
+                    </Panel>
+                </>
+            )}
+        </Group>
+    )
+
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
             <HunkDiscardDialog
@@ -380,19 +426,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                     </Tooltip>
                 </div>
             )}
-            {isMarkdown && showMarkdownPreview ? (
-                <Group orientation='horizontal' className='min-h-0 min-w-0 flex-1'>
-                    <Panel id={`${tabId}-editor`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
-                        {codeEditorWithBlameFooter}
-                    </Panel>
-                    <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
-                    <Panel id={`${tabId}-preview`} defaultSize='50%' minSize='20%' className='min-h-0 min-w-0'>
-                        <MarkdownPreview html={renderMarkdownToSafeHtml(previewSource ?? syncedContent ?? file.content)} />
-                    </Panel>
-                </Group>
-            ) : (
-                codeEditorWithBlameFooter
-            )}
+            {editorAndPreviewPanels}
         </div>
     )
 }
