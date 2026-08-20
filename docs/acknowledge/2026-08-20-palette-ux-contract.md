@@ -115,6 +115,15 @@
   `className='data-[selected=true]:bg-list-active-background'` 를 개별 적용(twMerge 가 같은
   `data-[selected=true]:bg-*` 그룹 내에서 나중 값으로 병합)해 팔레트 전용으로 범위를 좁혔다.
 
+  > **§4 정정(Phase E 검토 반영)**: 위 수치(1.40→1.92:1, "6.6배")는 `global.css` `:root`
+  > 폴백값 — 즉 builtin `taide-dark` 테마 한 종에만 해당한다("6.6배"는 팔레트 배경 대비
+  > 상대휘도 배수이고, `--accent` 대비로는 1.94배). 번들 테마 36종은 각자의 테마 JSON 이
+  > 런타임에 이 토큰을 덮어쓰므로 실제 개선폭은 테마마다 다르며, 착수 시점(커밋 e8ab133)의
+  > `list.activeBackground` 매핑은 가드 없는 `chain()`이라 일부 테마에서 팔레트 배경과
+  > 동일값(1.00:1, 미개선)이 되는 문제가 있었다 — 이는 이 배치가 아니라 이후
+  > `docs/acknowledge/2026-08-20-theme-list-colors-contract.md`(d-26b)에서
+  > `derived()` + `isUsableListBackground` 가드로 해소됐다. §4 참고.
+
 ### 3.3 ② 파일 결과 2단 렌더 — 경로 실사
 
 - `treePage.rows`(`entities/tree/tree.query.ts` → `TreeRow.path`, `shared/api/bindings.ts:1910`)
@@ -159,6 +168,10 @@
 - **이월(범위 외)**: `workspaceSymbol` 모드는 `fuzzyFilter` 를 거치지 않고
   `workspaceSymbolSearch.search()`(LSP 기반, indices 없음)로 결과를 얻으므로 이번 배치에서는
   하이라이트 미적용 — 인덱스 확보 자체가 별도 설계가 필요해 범위 외로 이월.
+- **이월(범위 외, §1.4 명시분 — 기록 누락분 추가)**: fuzzy 가중치(파일명 세그먼트 우선·연속
+  매칭 이외 보정) 재설계는 범위 외로 §1.4 가 이미 정했으나 구현 기록에 반영이 빠져 있었다 —
+  매칭 대상만 절대경로→프로젝트 상대경로로 교체했고 `fuzzyMatch`/`fuzzyFilter` 의 점수 산식
+  자체는 무변경.
 
 ### 3.5 검증
 
@@ -167,3 +180,161 @@
   bindings 관련 파일 무변경 확인.
 - 신규 순수 함수 테스트: `shared/lib/fuzzy-match.test.ts`(`buildFuzzyHighlightSegments`),
   `widgets/command-palette/command-palette-file-match.test.ts`(`splitFileMatchForDisplay`).
+
+---
+
+## 4. Phase E 검토 반영 (2026-08-20)
+
+커밋 `e8ab133` 기준 4렌즈 검토(발견 17건) 중 독립 재검증으로 살아남은 5건(확정 4·경미 강등 1,
+기각 0)을 반영했다. 검토 시점 이후 별도 배치(d-26b, 커밋 `67fdeef`)가 번들 테마 12개의
+`list.hoverBackground`/`list.activeBackground` 결함을 이미 정정하고 `mapping-tables.ts` 에
+`derived()` + `isUsableListBackground` 가드를 추가해 두었다 — 이번 반영은 그 위에서
+번들 테마 36종 실값을 다시 스윕해 판단했다(`src-tauri/resources/themes/*.json`, WCAG 상대휘도
+대비비, 알파는 배경 위 합성).
+
+### 4.1 correctness-1 / design-1 (major, confirmed) — 선택 하이라이트 토큰 강건화
+
+d-26b 이후 스윕 결과, `list.activeBackground`(현재 채택 토큰)는 이미 `explorer.itemSelected`
+(검토가 제안한 대안)보다 우수했다 — `list.activeBackground` 는 `list.background` **및**
+`list.hoverBackground` 양쪽에 가드가 걸려 있는 반면(§ mapping-tables.ts:610-616),
+`explorer.itemSelected` 는 `explorer.background` 하나만 가드된다(:471-475). 실측(팔레트 배경
+`panel.background` 대비, 36종):
+
+| 토큰 | <1.5:1 | <1.2:1 |
+|---|---|---|
+| `list.activeBackground`(현행 유지) | 22/36 | 6/36 |
+| `explorer.itemSelected`(검토 제안 대안) | 25/36 | 13/36 |
+
+→ **판정: `bg-list-active-background` 유지, `bg-explorer-item-selected` 로 교체하지 않는다.**
+
+배경 토큰 하나로는 여전히 6개 테마가 1.2:1 미만이므로, 검토 제안 (2)의 2차 단서를 추가했다.
+`app.focusBorder`(검토 예시 토큰)를 먼저 스윕했으나 36종 중 15개가 팔레트 배경 대비 1.5:1
+미만(24개가 3.0:1 미만)으로 전 테마 선명성 기준에 미달 — 대안으로 `app.accent`(전 36종
+0개가 1.5:1 미만, 최저 1.73:1)를 채택했다.
+
+| 토큰 | <1.5:1 | <3.0:1 |
+|---|---|---|
+| `app.focusBorder`(검토 예시, 기각) | 15/36 | 24/36 |
+| `app.accent`(채택) | 0/36 | 12/36 |
+
+`shared/ui/command.tsx` 의 `CommandItem` 기본 클래스에
+`data-[selected=true]:bg-list-active-background data-[selected=true]:ring-1
+data-[selected=true]:ring-inset data-[selected=true]:ring-app-accent` 를 적용했다(design-2 처리와
+결합 — §4.2). 링은 `bg-popover` 소비처(폰트/언어/옵션 피커) 기준으로도 재검증했다: 36종 중
+`popover.background` 가 `panel.background` 와 다른 13종에서도 `app.accent` 링은 최저
+vscode-abyss 1.33:1 을 제외하면 전부 1.5:1 이상.
+
+### 4.2 design-2 (major→minor, confirmed/downgrade) — CommandItem 레벨 승격
+
+검토는 "선택 비가시 결함이 7개 cmdk 소비처 전부에 있다"는 사실은 맞지만(재검증으로 확인),
+당시(착수 시점) 제안한 수정 층(`list.activeBackground` 를 `CommandItem` 기본에 승격)은 그
+시점 기준으로는 12개 번들 테마에서 무효했을 것이라 검토 자체가 severity 를 `minor` 로
+강등했다. d-26b 로 그 전제가 바뀌었으므로(§4.1 표) 이번에 실제로 승격했다:
+
+- `shared/ui/command.tsx` 의 `CommandItem` 이 `data-[selected=true]:bg-list-active-background`
+  + `data-[selected=true]:ring-1 ring-inset ring-app-accent` 를 기본 제공 — `grep -rl
+  CommandItem src` 로 확인된 7개 소비처(`command-palette`·`branch-switcher`·`branch-group`·
+  `task-runner-dialog`·`font-picker`·`language-picker`·`option-picker`) 전부에 일괄 적용된다.
+  `--accent` 토큰 자체(다른 컴포넌트도 공유)는 손대지 않았다.
+- `command-palette.tsx` 의 팔레트 한정 `PALETTE_ITEM_SELECTED_CLASSNAME` 상수와 5개
+  `CommandItem` 호출부의 개별 `className` 적용을 제거했다(design-4 도 함께 해소 — 반복 자체가
+  없어짐).
+- **eslint ignore 목록 정합(지시 판단·기록)**: `command.tsx` 는 `eslint.config.js` 의 shadcn
+  생성물 무시 목록에 남아 있다. 같은 목록의 `dialog.tsx` 도 이미 프로젝트 자체 `Dialog` 조합으로
+  가볍게 손질된 채 무시 목록에 있고, `command.tsx` 자체도 원래부터 `CommandDialog` 가
+  `@shared/ui/dialog` 의 프로젝트 컴포넌트를 쓰도록 이미 손질돼 있었다 — "shadcn 스캐폴드 +
+  가벼운 프로젝트 손질" 은 이 저장소가 이미 채택한 패턴이며, `npx shadcn add command` 재생성 시
+  이번 토큰 교체도 함께 재적용해야 하는 유지보수 모델은 동일하다. **결정: 무시 목록 유지,
+  `eslint.config.js` 무변경.**
+
+### 4.3 correctness-2 / design-3 (major, confirmed) — 매칭 하이라이트 전경 전환
+
+`HighlightedText`(`command-palette.tsx`)의 `<mark>` 를 배경 채움(`bg-panel-match-highlight
+text-app-background`)에서 전경 강조(`bg-transparent text-panel-match-highlight font-semibold`)로
+전환했다 — 브라우저 기본 `<mark>` 배경(노란 하이라이트)을 `bg-transparent` 로 명시 해제하고,
+글자색만 테마 토큰으로 바꾼 뒤 굵기로 시각적 무게를 더했다.
+
+36종 재스윕(전경색을 실제 행 배경 `panel.background` 위에 합성해 대비 계산) 결과 AA(4.5:1)
+미달이 여전히 8종(`ayu-light`·`everforest-light`·`github-dark`·`github-light`·
+`rose-pine-dawn`·`solarized-light`·`vscode-abyss`·`vscode-quiet-light`) 남는다 — 수치 자체는
+이전 배경-채움 방식과 거의 동일(대비비는 두 색 사이의 상대휘도 비율이라 어느 쪽을 전경/배경으로
+두는지에 무관하게 값이 같다). 다만 `github-dark`/`github-light` 를 제외한 6종은 이번 전환으로
+근본 실패 모드(글자가 자기 배경 패치 속으로 사라져 파일명 중간이 "빈칸"처럼 보이는 현상)가
+사라진다 — 전경-only 렌더는 저대비 상황에서도 글리프 윤곽이 anti-aliasing 으로 남아 배경 채움
+방식보다 판독 저하가 덜하고, `font-semibold` 가 색과 무관한 2차 단서를 더한다.
+
+**잔존 결함(범위 외, 이월)**: `github-dark`(`panel.matchHighlight: #ffd33d22`, 알파 13%)·
+`github-light`(`#ffdf5d66`, 알파 40%) 는 이 토큰이 `list.highlightForeground`(불투명 전경) 가
+아니라 `editor.findMatchHighlightBackground`(반투명 오버레이 전용 값)로 폴백되는 경우라
+전경/배경 어느 용법으로 써도 배경에 흡수돼 낮은 대비가 유지된다. 근본 해결은
+`theme-convert/mapping-tables.ts` 의 `panel.matchHighlight` 체인에 알파 배제 또는
+`contrast.ts` 의 `CONTRAST_PAIRS` 편입이 필요해 이 배치(팔레트 컴포넌트 국소 수정) 범위 밖 —
+차기 배치로 이월한다. `features/search/search-match-row.tsx` 의 동일 토큰 조합(`ContextLine`)도
+같은 문제를 갖고 있으나 **이번 배치는 지시 범위상 `command-palette.tsx` 만 수정**했다 — 별건
+이월.
+
+### 4.4 correctness-4·5 / regression-1 (minor, 실행 재현 후 근본 수정) — fuzzy-match 인덱스 보존
+
+`shared/lib/fuzzy-match.ts` 의 `fuzzyMatch` 를 인덱스-보존 알고리즘으로 재작성했다:
+
+- 이전: `target.toLowerCase()` 로 문자열 전체를 한 번에 소문자화한 뒤 `indexOf` 로 검색 —
+  (a) 서로게이트 쌍(이모지 등 astral 문자)이 매칭되면 상위 서로게이트 코드유닛 1개만
+  `indices` 에 담겨 하이라이트 시 문자가 반으로 쪼개짐. (b) 소문자화 시 길이가 늘어나는 문자
+  (예: 튀르키예어 `İ` → `i` + combining dot, 2코드유닛)가 타깃에 있으면 그 뒤 모든 인덱스가
+  밀려 엉뚱한 문자가 강조됨.
+- 이후: `Array.from`-등가 순회(`for...of`)로 타깃을 코드포인트 단위 배열로 분해하고 각 원소의
+  **원본 코드유닛 시작 인덱스**를 함께 기록, 코드포인트 단위로 개별 `toLowerCase()` 비교. 매칭된
+  코드포인트가 서로게이트 쌍이면 두 코드유닛 인덱스를 모두 `indices` 에 push(계약: "매칭된
+  코드유닛 전부"). 소문자화로 길이가 늘어나는 문자는 단일 코드포인트 문자열과 문자열 동등
+  비교라 애초에 매칭되지 않아(다음 문자로 자연 진행) 이후 인덱스가 밀리지 않는다.
+- `fuzzy-match.test.ts` 에 실행 재현 케이스 고정: 서로게이트 쌍(🚀) 매칭 시 `indices` 2개
+  코드유닛 모두 포함 + `buildFuzzyHighlightSegments` 로 세그먼트 분리해도 문자가 쪼개지지
+  않음, `İstanbul.ts` 에서 `t` 매칭이 올바른 원본 인덱스(2)를 가리킴.
+
+### 4.5 correctness-6 / regression-2 / design-5 (minor) — activeProject 로딩 게이팅
+
+`toProjectRelativePath` 의 절대경로 폴백 자체는 유지하되(파일 열기 등 다른 소비처에 영향 없이
+그대로 두는 것이 안전), **파일 결과 렌더/필터를 `activeProject` 확보 전까지 보류**하는 쪽을
+택했다(검토가 제시한 두 옵션 중 "로딩 표시" — 렌더 보류보다 기존 관행과의 정합이 크다:
+`symbol` 모드가 이미 `documentSymbolsLoaded` 미충족 시 `t('common.loading')` 을 보여주는
+패턴을 그대로 따른다). `fileProjectRootLoaded = !activeProjectId || !!activeProject` 로
+`fileRows`/`filteredFiles` 를 게이팅하고, `resolveEmptyStateMessage` 에 `files` 모드 로딩 분기를
+추가했다. 이제 `activeProject` 미해결 구간에는 파일 결과 자체가 비어 있고(빈 상태 메시지 =
+"로딩 중"), 해결 후에만 프로젝트 상대경로 기준으로 매칭·렌더된다 — 절대경로가 매칭 대상이나
+부제로 노출되는 경로가 완전히 없어진다.
+
+### 4.6 contract-2 (minor) — 테스트 파일 한국어 주석 제거
+
+`command-palette-file-match.test.ts` 의 `//` 주석 3건을 제거하고 설명을 각 `test()` 설명
+문자열에 흡수했다(comments.md — 코드 주석 금지, 테스트명으로 표현).
+
+### 4.7 contract-1 (minor) — 기능 정본 문서 갱신
+
+`docs/features/command-palette.md` 를 실코드 기준으로 갱신했다: 파일 모드 2단 렌더(파일명 +
+프로젝트 상대 디렉토리), fuzzy 매칭 대상이 프로젝트 상대 경로라는 사실, 매칭 하이라이트 적용
+범위(files·commands·symbol / workspaceSymbol 은 이월 제외)를 반영했다.
+
+### 4.8 correctness-3 / contract-4 (minor) — §3.2 전제 정정
+
+§3.2 에 정정 인용문을 추가했다(위 §3.2 참고): 인용 수치(1.40→1.92:1, "6.6배")는 `global.css`
+`:root` 폴백값 = builtin `taide-dark` 한 종 기준이며, 번들 테마 36종은 런타임에 각자의 값으로
+덮어써진다는 전제를 명시했다. 착수 시점 `list.activeBackground` 가드 부재 지적은 d-26b 로
+해소됐음을 교차 참조했다.
+
+### 4.9 contract-3 (minor) — 이월 기록 보완
+
+§3.4 에 §1.4 가 이미 명시했던 "fuzzy 가중치 재설계는 범위 외" 이월 기록이 실제 구현 기록에는
+빠져 있던 것을 추가했다(위 §3.4 참고).
+
+### 4.10 검증
+
+- `bun run verify`(typecheck → eslint → prettier check → bun test → cargo fmt → cargo clippy
+  -D warnings → cargo test) exit 0.
+- `bunx vite build` exit 0.
+- `git diff --stat -- src/shared/api/bindings.ts` 무변경(빈 diff) 확인.
+- 변경 파일: `src/widgets/command-palette/command-palette.tsx`,
+  `src/shared/ui/command.tsx`, `src/shared/lib/fuzzy-match.ts`,
+  `src/shared/lib/fuzzy-match.test.ts`,
+  `src/widgets/command-palette/command-palette-file-match.test.ts`,
+  `docs/features/command-palette.md`, 이 계약 문서. `mapping-tables.ts`·`contrast.ts`·
+  `search-match-row.tsx` 는 지시 범위 밖으로 무변경(§4.3 이월 참고).

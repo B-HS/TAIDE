@@ -42,6 +42,29 @@ describe('fuzzyMatch', () => {
         expect(scatteredChars).not.toBeNull()
         expect(fullWord!.score).toBeGreaterThan(scatteredChars!.score)
     })
+
+    test('서로게이트 쌍(이모지)에 매칭되면 두 코드유닛 인덱스가 모두 담긴다', () => {
+        const result = fuzzyMatch('🚀', 'src/🚀rocket.ts')
+        expect(result).not.toBeNull()
+        expect(result?.indices).toEqual([4, 5])
+    })
+
+    test('서로게이트 쌍 매칭 인덱스로 세그먼트를 나누면 문자가 쪼개지지 않는다', () => {
+        const result = fuzzyMatch('🚀', 'src/🚀rocket.ts')
+        expect(result).not.toBeNull()
+        expect(buildFuzzyHighlightSegments('src/🚀rocket.ts', result!.indices)).toEqual([
+            { text: 'src/', matched: false },
+            { text: '🚀', matched: true },
+            { text: 'rocket.ts', matched: false },
+        ])
+    })
+
+    test('소문자화 시 길이가 늘어나는 문자(İ) 뒤의 인덱스가 밀리지 않는다', () => {
+        const result = fuzzyMatch('t', 'İstanbul.ts')
+        expect(result).not.toBeNull()
+        expect(result?.indices).toEqual([2])
+        expect('İstanbul.ts'[2]).toBe('t')
+    })
 })
 
 describe('fuzzyFilter', () => {

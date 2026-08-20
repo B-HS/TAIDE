@@ -46,25 +46,11 @@ import { splitFileMatchForDisplay } from '@widgets/command-palette/command-palet
 
 const FILE_RESULT_LIMIT = 200
 
-/**
- * `--accent` (`shared/styles/global.css`) resolves to the same swatch as list hover
- * (`--taide-list-hover-background`), so the shadcn `CommandItem` base's
- * `data-[selected=true]:bg-accent` renders a selected row almost indistinguishable from the
- * palette's own panel background (contrast ratio ~1.4:1) — arrow-key selection was moving the
- * `aria-selected`/`data-selected` state correctly but rendering it near-invisibly, read by users as
- * "selection doesn't work" (`docs/acknowledge/2026-08-20-palette-ux-contract.md` §1.1). Scoped to
- * this palette only (not `shared/ui/command.tsx`, which `font-picker`/`branch-switcher`/etc. also
- * consume) and reuses the existing `--taide-list-active-background` token — the same shade already
- * proven visible elsewhere as the sidebar's "active" state (`--taide-app-sidebar-item-active`) —
- * instead of introducing a new one.
- */
-const PALETTE_ITEM_SELECTED_CLASSNAME = 'data-[selected=true]:bg-list-active-background'
-
 const HighlightedText: FC<{ text: string; indices: number[] }> = ({ text, indices }) => (
     <>
         {buildFuzzyHighlightSegments(text, indices).map((segment, index) =>
             segment.matched ? (
-                <mark key={index} className='bg-panel-match-highlight text-app-background rounded-xs'>
+                <mark key={index} className='bg-transparent text-panel-match-highlight font-semibold'>
                     {segment.text}
                 </mark>
             ) : (
@@ -211,7 +197,15 @@ export const CommandPalette = () => {
 
     const toProjectRelativePath = (path: string) => (activeProject ? toRelativePath(activeProject.root, path) : path)
 
-    const fileRows = (treePage?.rows ?? []).filter((row) => row.kind === 'file')
+    /**
+     * `activeProject` (needed to relativize paths — `docs/acknowledge/2026-08-20-palette-ux-contract.md`
+     * §1.4) can still be loading on the first open of a session where nothing else has warmed
+     * `QUERY_KEY.PROJECT.DETAIL` yet. Gating file rows on it (rather than falling back to
+     * `toProjectRelativePath`'s absolute-path passthrough) keeps the fuzzy match target and the
+     * displayed subtitle from briefly reverting to the absolute path this feature exists to hide.
+     */
+    const fileProjectRootLoaded = !activeProjectId || !!activeProject
+    const fileRows = fileProjectRootLoaded ? (treePage?.rows ?? []).filter((row) => row.kind === 'file') : []
     const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => toProjectRelativePath(row.path)).slice(0, FILE_RESULT_LIMIT)
     const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) =>
         formatCategorizedLabel(t, command.categoryKey, command.titleKey, command.titleDefaultValue),
@@ -232,6 +226,7 @@ export const CommandPalette = () => {
             if (mode === 'symbol' && !documentSymbolsLoaded) return t('common.loading')
             return t('palette.noResults')
         }
+        if (mode === 'files' && activeProjectId && !fileProjectRootLoaded) return t('common.loading')
         if (mode === 'workspaceSymbol') {
             if (!activeProjectId) return t('app.openProjectFirst')
             if (searchTerm.trim() && !workspaceSymbolsLoaded) return t('common.loading')
@@ -378,11 +373,7 @@ export const CommandPalette = () => {
                                     const runnable = isCommandRunnable(item, commandContext)
                                     const label = formatCategorizedLabel(t, item.categoryKey, item.titleKey, item.titleDefaultValue)
                                     return (
-                                        <CommandItem
-                                            key={item.id}
-                                            className={PALETTE_ITEM_SELECTED_CLASSNAME}
-                                            disabled={!runnable}
-                                            onSelect={() => runCommand(item)}>
+                                        <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
                                             <Terminal className='size-4' />
                                             <span>
                                                 <HighlightedText text={label} indices={match.indices} />
@@ -404,11 +395,7 @@ export const CommandPalette = () => {
                                         match.indices,
                                     )
                                     return (
-                                        <CommandItem
-                                            key={item.path}
-                                            value={item.path}
-                                            className={PALETTE_ITEM_SELECTED_CLASSNAME}
-                                            onSelect={() => openFile(item.path)}>
+                                        <CommandItem key={item.path} value={item.path} onSelect={() => openFile(item.path)}>
                                             <File className='size-4' />
                                             <span className='flex min-w-0 flex-col'>
                                                 <span className='truncate'>
@@ -430,7 +417,6 @@ export const CommandPalette = () => {
                                 {filteredDocumentSymbols.map(({ item, match }) => (
                                     <CommandItem
                                         key={`${item.containerLabel}/${item.name}/${item.selectionRange.startLineNumber}`}
-                                        className={PALETTE_ITEM_SELECTED_CLASSNAME}
                                         onSelect={() => selectDocumentSymbol(item)}>
                                         <Braces className='size-4' />
                                         <span className='truncate'>
@@ -443,7 +429,7 @@ export const CommandPalette = () => {
                         )}
                         {mode === 'line' && lineTarget && activePath && (
                             <CommandGroup>
-                                <CommandItem className={PALETTE_ITEM_SELECTED_CLASSNAME} onSelect={() => selectLineTarget(lineTarget)}>
+                                <CommandItem onSelect={() => selectLineTarget(lineTarget)}>
                                     <CornerDownLeft className='size-4' />
                                     <span>{lineTarget.column > 1 ? `${lineTarget.line}:${lineTarget.column}` : `${lineTarget.line}`}</span>
                                 </CommandItem>
@@ -454,7 +440,6 @@ export const CommandPalette = () => {
                                 {workspaceSymbolResults.map((symbol, index) => (
                                     <CommandItem
                                         key={`${symbol.path}:${symbol.line}:${symbol.column}:${index}`}
-                                        className={PALETTE_ITEM_SELECTED_CLASSNAME}
                                         onSelect={() => selectWorkspaceSymbol(symbol)}>
                                         <Hash className='size-4' />
                                         <span className='truncate'>{symbol.name}</span>

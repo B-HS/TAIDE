@@ -20,15 +20,13 @@ describe('splitFileMatchForDisplay', () => {
         expect(result.dirPathIndices).toEqual([])
     })
 
-    test('디렉토리 부분의 매칭 인덱스는 dirPathIndices 에 그대로 담긴다', () => {
-        // 'src/x.ts' 에서 인덱스 0(s) 은 dirPath('src') 안에 있다
+    test("디렉토리 부분의 매칭 인덱스는 dirPathIndices 에 그대로 담긴다 — 'src/x.ts' 인덱스 0(s)은 dirPath('src') 안에 있다", () => {
         const result = splitFileMatchForDisplay('src/x.ts', [0])
         expect(result.dirPathIndices).toEqual([0])
         expect(result.fileNameIndices).toEqual([])
     })
 
-    test('파일명 부분의 매칭 인덱스는 구분자 길이만큼 당겨진다', () => {
-        // 'src/x.ts' 에서 인덱스 4(x) 는 fileName('x.ts') 의 0번째 문자다
+    test("파일명 부분의 매칭 인덱스는 구분자 길이만큼 당겨진다 — 'src/x.ts' 인덱스 4(x)는 fileName('x.ts') 의 0번째로 당겨진다", () => {
         const result = splitFileMatchForDisplay('src/x.ts', [4])
         expect(result.fileNameIndices).toEqual([0])
         expect(result.dirPathIndices).toEqual([])
@@ -40,8 +38,7 @@ describe('splitFileMatchForDisplay', () => {
         expect(result.dirPathIndices).toEqual([])
     })
 
-    test('디렉토리·파일명 양쪽에 걸친 매칭 인덱스를 각각 올바르게 분리한다', () => {
-        // 'widgets/pane-node-view.tsx' — 구분자(/)는 인덱스 7, 인덱스 0/9/17 은 각각 dirPath·fileName 양쪽에 걸쳐 있다
+    test("디렉토리·파일명 양쪽에 걸친 매칭 인덱스를 각각 올바르게 분리한다 — 'widgets/pane-node-view.tsx' 구분자(/)는 인덱스 7, 인덱스 0/9/17 은 각각 dirPath·fileName 양쪽에 걸쳐 있다", () => {
         const result = splitFileMatchForDisplay('widgets/pane-node-view.tsx', [0, 9, 17])
         expect(result.dirPath).toBe('widgets')
         expect(result.fileName).toBe('pane-node-view.tsx')

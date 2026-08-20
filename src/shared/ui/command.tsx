@@ -92,12 +92,24 @@ function CommandSeparator({ className, ...props }: React.ComponentProps<typeof C
     return <CommandPrimitive.Separator data-slot='command-separator' className={cn('-mx-1 h-px bg-border', className)} {...props} />
 }
 
+/**
+ * Selected-row styling deliberately diverges from the shadcn default (`bg-accent`, which resolves to
+ * the same swatch as list hover and renders near-invisibly in several bundled themes —
+ * `docs/acknowledge/2026-08-20-palette-ux-contract.md` §1.1). `bg-list-active-background` is the
+ * guarded token (`shared/lib/theme-convert/mapping-tables.ts`'s `derived()` + `isUsableListBackground`
+ * pattern, `docs/acknowledge/2026-08-20-theme-list-colors-contract.md`) so it can never collapse onto
+ * the row background, and `ring-app-accent` adds a second, non-background-dependent cue — swept across
+ * all 36 bundled themes at >=1.5:1 against `panel.background`, versus `app.focusBorder` which drops
+ * below that in 15/36 (`docs/acknowledge/2026-08-20-palette-ux-contract.md` §4). Both tokens apply here
+ * (not per call site) because every consumer of `CommandItem` (7 files, all `grep -rl CommandItem src`)
+ * shares the same defect surface.
+ */
 function CommandItem({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Item>) {
     return (
         <CommandPrimitive.Item
             data-slot='command-item'
             className={cn(
-                "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+                "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-list-active-background data-[selected=true]:text-accent-foreground data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-app-accent [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
                 className,
             )}
             {...props}
