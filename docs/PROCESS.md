@@ -864,6 +864,9 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           주입·레이아웃 상단 절단·보조 창 target·읽기 전용 조회 try_load_project_readonly·
           infra/clock 공통화·shared/lib/path-root 승격·접근성 ul/li·원격 안내). 로케일
           789→792. 검증 bun 1424·cargo 1061·domain_boundaries 그린
+    - [ ] d-28. T2-A 중복 제거 — **진행 중**. 계약
+          `docs/acknowledge/2026-08-20-t2a-dedup-contract.md`(감사 18항목 전수 실사·X-A 형식·
+          대형 재설계급은 T2-B 경계 판단 후 이월). goal "추천안대로 계속" 하 HANDOFF §8-2 순번
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
