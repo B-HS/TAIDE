@@ -1,11 +1,10 @@
 import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { SelectionRange } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 export const flattenSelectionRangeChain = (selectionRange: SelectionRange | undefined | null) => {
     const chain: SelectionRange[] = []

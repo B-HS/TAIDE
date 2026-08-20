@@ -1,11 +1,10 @@
 import type { CancellationToken, languages } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { SemanticTokens, SemanticTokensDelta, SemanticTokensEdit, SemanticTokensLegend } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled, SEMANTIC_TOKEN_MODIFIERS } from '@shared/lib/lsp/protocol'
 import { lookupSemanticTokenTypeMapping, SYNTAX_TOKENS, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/mapping-tables'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 /** LSP encodes each semantic token as a 5-number tuple: `[deltaLine, deltaStart, length, tokenType, tokenModifiers]`. */
 const SEMANTIC_TOKEN_TUPLE_SIZE = 5

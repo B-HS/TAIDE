@@ -9,7 +9,7 @@ import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
 import { resolveEntryParentDir, validateEntryName } from '@shared/lib/entry-name'
 import { buildUniqueEntryName } from '@shared/lib/unique-entry-name'
 import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
-import { toRelativePath } from '@shared/lib/relative-path'
+import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
@@ -80,8 +80,6 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     const { mutate: splitPane } = useSplitPane(projectId)
 
     const rows = (page?.rows ?? []).map(toFileTreeRow)
-
-    const fileNameOf = (path: string) => path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1)
 
     const notifyError = (error: unknown) => toast.error(error instanceof Error ? error.message : String(error))
 

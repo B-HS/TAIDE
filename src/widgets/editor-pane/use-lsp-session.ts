@@ -7,7 +7,7 @@ import { triggerSemanticTokensRefresh } from '@shared/lib/lsp/adapters/semantic-
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { getModel } from '@entities/editor/model-registry'
 import { projectQueryOptions } from '@entities/project/project.query'
-import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { filterAvailableLspServers, lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { SessionRecord } from '@widgets/editor-pane/lsp-session-registry'
@@ -182,21 +182,19 @@ export const useLspSession = ({ projectId, path, languageId, tier, enabled }: Us
         const projectRoot = project.root
         const isCodeLensEnabled = () => queryClient.getQueryData<Settings>(QUERY_KEY.SETTINGS.CURRENT)?.editorCodeLensEnabled ?? true
         const isSemanticHighlightingEnabled = () => queryClient.getQueryData<Settings>(QUERY_KEY.SETTINGS.CURRENT)?.editorSemanticHighlighting ?? true
-        const cleanups = servers
-            .filter((server) => server.languageIds.includes(languageId) && server.available)
-            .map((server) =>
-                attachLspSession({
-                    projectId,
-                    serverId: server.id,
-                    projectRoot,
-                    path,
-                    languageId,
-                    initializationOptions: server.initializationOptions,
-                    isCodeLensEnabled,
-                    isSemanticHighlightingEnabled,
-                    queryClient,
-                }),
-            )
+        const cleanups = filterAvailableLspServers(servers, languageId).map((server) =>
+            attachLspSession({
+                projectId,
+                serverId: server.id,
+                projectRoot,
+                path,
+                languageId,
+                initializationOptions: server.initializationOptions,
+                isCodeLensEnabled,
+                isSemanticHighlightingEnabled,
+                queryClient,
+            }),
+        )
 
         return () => {
             cleanups.forEach((cleanup) => cleanup())

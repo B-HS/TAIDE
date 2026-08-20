@@ -1,11 +1,10 @@
 import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { TextEdit } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp, monacoRangeToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 const toMonacoTextEdits = (edits: TextEdit[]) => edits.map((edit) => ({ range: lspRangeToMonaco(edit.range), text: edit.newText }))
 

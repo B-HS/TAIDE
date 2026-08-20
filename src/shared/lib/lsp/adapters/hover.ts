@@ -1,11 +1,10 @@
 import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { Hover } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled, markupContentToString } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 const toContentsValue = (contents: Hover['contents']) => {
     if (Array.isArray(contents)) return contents.map((part) => markupContentToString(part) ?? '').join('\n\n')

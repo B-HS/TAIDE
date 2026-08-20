@@ -1,3 +1,4 @@
+import { extractFileExtension } from '@shared/lib/file-extension'
 import type { TaideLanguageId } from '@shared/lib/shiki/lang-map'
 
 /**
@@ -59,8 +60,7 @@ const DEFAULT_LANGUAGE_ID = 'plaintext'
 
 export const getLanguageIdFromPath = (path: string) => {
     const fileName = path.split('/').filter(Boolean).at(-1) ?? path
-    const dotIndex = fileName.lastIndexOf('.')
-    if (dotIndex <= 0) return DEFAULT_LANGUAGE_ID
-    const extension = fileName.slice(dotIndex + 1).toLowerCase()
+    const extension = extractFileExtension(fileName)
+    if (!extension) return DEFAULT_LANGUAGE_ID
     return LANGUAGE_ID_BY_EXTENSION[extension] ?? DEFAULT_LANGUAGE_ID
 }

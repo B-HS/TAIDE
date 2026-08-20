@@ -10,6 +10,7 @@ import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitCommitFilesQueryOptions } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { ResourceGroupHeader } from '@features/git/resource-group-header'
+import { fileNameOf } from '@shared/lib/relative-path'
 import type { GraphLogEntry } from '@widgets/git-panel/commit-graph'
 import { IconButton } from '@shared/ui/icon-button'
 
@@ -38,8 +39,6 @@ const STATUS_TEXT_CLASS: Record<GitChangeKind, string> = {
     typeChange: 'text-git-modified',
     conflicted: 'text-git-conflicted',
 }
-
-const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 const beforePathOf = (file: CommitFile) => (file.kind === 'renamed' ? (file.origPath ?? file.path) : file.path)
 

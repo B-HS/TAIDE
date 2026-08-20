@@ -7,9 +7,7 @@ import type { languages } from 'monaco-editor'
 import type { ProjectId, TabId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
-import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
-import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
-import { buildDocumentSymbolWaiters } from '@shared/lib/lsp/document-symbol-session-waiters'
+import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import {
     buildSegmentPaths,
@@ -24,7 +22,7 @@ import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/edi
 import { fileQueryOptions } from '@entities/file/file.query'
 import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
-import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { filterAvailableLspServers, lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { treeRowsQueryOptions, useRevealTreeNode } from '@entities/tree/tree.query'
@@ -166,48 +164,19 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
     useEffect(() => {
         if (!path || !languageId || !servers) return
 
-        const availableServerIds = servers.filter((server) => server.languageIds.includes(languageId) && server.available).map((server) => server.id)
+        const availableServerIds = filterAvailableLspServers(servers, languageId).map((server) => server.id)
         if (availableServerIds.length === 0) return
 
-        let cancelled = false
-        let pendingCancels: (() => void)[] = []
-
-        const load = async () => {
-            const waiters = await buildDocumentSymbolWaiters({
-                availableServerIds,
-                path,
-                projectId,
-                fallbackRoot: project?.root,
-                isCancelled: () => cancelled,
-                resolveRoot: resolveLspRoot,
-                waitForSession: waitForLspSessionForRoot,
-            })
-            pendingCancels = waiters.map((waiter) => waiter.cancel)
-
-            for (const { promise } of waiters) {
-                const session = await promise
-                if (!session || cancelled) continue
-
-                const ready = await session.ready.catch(() => null)
-                if (!ready || cancelled) continue
-                if (!ready.client.supports((capabilities) => isCapabilityEnabled(capabilities.documentSymbolProvider))) continue
-
-                const uri = monaco.Uri.file(path).toString()
-                const result = await requestDocumentSymbols(monaco, ready.client, uri).catch(() => [])
-                if (!cancelled) {
-                    setSymbolsForPath({ path, symbols: result })
-                    return
-                }
-            }
-            if (!cancelled) setSymbolsForPath({ path, symbols: [] })
-        }
-
-        void load()
-
-        return () => {
-            cancelled = true
-            pendingCancels.forEach((cancel) => cancel())
-        }
+        return loadDocumentSymbolsForPath({
+            monaco,
+            availableServerIds,
+            path,
+            projectId,
+            fallbackRoot: project?.root,
+            resolveRoot: resolveLspRoot,
+            waitForSession: waitForLspSessionForRoot,
+            onLoaded: (symbols) => setSymbolsForPath({ path, symbols }),
+        })
     }, [path, languageId, servers, projectId, project?.root])
 
     return (

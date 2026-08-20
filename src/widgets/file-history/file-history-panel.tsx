@@ -7,6 +7,7 @@ import type { LogEntry, ProjectId } from '@shared/api/bindings'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { subscribeOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitFileLogQueryOptions } from '@entities/git/git.query'
 import { CommitFileDiff } from '@widgets/commit-file-diff/commit-file-diff'
@@ -17,8 +18,6 @@ import { ScrollContainer } from '@shared/scroll/scroll-container'
 type FileHistoryPanelProps = {
     projectId: ProjectId
 }
-
-const fileNameOf = (path: string) => path.split('/').filter(Boolean).at(-1) ?? path
 
 export const FileHistoryPanel: FC<FileHistoryPanelProps> = ({ projectId }) => {
     const { t } = useTranslation()

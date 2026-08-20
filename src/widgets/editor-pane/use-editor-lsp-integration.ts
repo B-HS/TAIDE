@@ -7,7 +7,7 @@ import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { getStoredDiagnostics } from '@shared/lib/lsp/adapters/diagnostics'
 import { applyCodeActionOrCommand, requestCodeActionsForKind, supportsCodeActionResolve } from '@shared/lib/lsp/adapters/code-action'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
-import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { filterAvailableLspServers, lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { isLspAttachableTier, useLspSession } from '@widgets/editor-pane/use-lsp-session'
 import { peekLspSessionForRoot, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
@@ -89,9 +89,7 @@ export const useEditorLspIntegration = ({
      * wait on a session that will never be created.
      */
     const matchingLspServerIds = (forLanguageId: string, forTier: FileSizeTier | null) =>
-        isLspAttachableTier(forTier)
-            ? (lspServers ?? []).filter((server) => server.languageIds.includes(forLanguageId) && server.available).map((server) => server.id)
-            : []
+        isLspAttachableTier(forTier) ? filterAvailableLspServers(lspServers ?? [], forLanguageId).map((server) => server.id) : []
 
     const resolveRootForServer = (serverId: LspServerId) =>
         resolveLspSessionRootForSave({ serverId, path, projectRoot: project?.root ?? null, resolveRoot: resolveLspRoot })

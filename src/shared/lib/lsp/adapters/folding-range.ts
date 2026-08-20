@@ -1,9 +1,8 @@
 import type { CancellationToken, languages } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 export const FOLDING_RANGE_CLIENT_LIMIT = 5000
 

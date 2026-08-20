@@ -6,8 +6,7 @@ import { toast } from 'sonner'
 import type { AppFileTarget, ProjectId, TabId } from '@shared/api/bindings'
 import type { monaco } from '@shared/lib/monaco/setup'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
-import { buildMonospaceFontStack } from '@shared/lib/font-stack'
-import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
+import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { resolveAppFileModelPath } from '@entities/app-file/app-file-model-path'
 import { appFileQueryOptions, useWriteAppFile } from '@entities/app-file/app-file.query'
@@ -15,14 +14,9 @@ import { applyExternalContent } from '@entities/editor/model-registry'
 import { useSetTabDirty } from '@entities/layout/layout.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
-import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
 import { CodeEditor } from '@features/editor/code-editor'
 
 const APP_FILE_LANGUAGE_ID = 'json'
-const DEFAULT_EDITOR_TAB_SIZE = 4
-const DEFAULT_EDITOR_RENDER_WHITESPACE: EditorRenderWhitespace = 'selection'
-const DEFAULT_EDITOR_CURSOR_STYLE: EditorCursorStyle = 'line'
-const DEFAULT_EDITOR_CURSOR_BLINKING: EditorCursorBlinkingStyle = 'blink'
 
 type AppFilePaneProps = {
     projectId: ProjectId
@@ -143,24 +137,9 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
             value={content}
             readOnly={false}
             largeFile={false}
-            fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
-            fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
-            minimap={settings?.editorMinimap ?? true}
-            wordWrap={settings?.editorWordWrap ?? false}
-            lineNumbers={settings?.editorLineNumbers ?? true}
-            tabSize={settings?.editorTabSize ?? DEFAULT_EDITOR_TAB_SIZE}
-            insertSpaces={settings?.editorInsertSpaces ?? true}
-            detectIndentation={settings?.editorDetectIndentation ?? true}
-            renderWhitespace={settings?.editorRenderWhitespace ?? DEFAULT_EDITOR_RENDER_WHITESPACE}
-            bracketPairColorization={settings?.editorBracketPairColorization ?? true}
-            fontLigatures={settings?.editorFontLigatures ?? false}
-            cursorStyle={settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE}
-            cursorBlinking={settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING}
-            scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
-            stickyScroll={settings?.editorStickyScrollEnabled ?? true}
+            {...resolveCodeEditorSettingsProps(settings)}
             formatOnType={false}
             formatOnPaste={false}
-            aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
             aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}
             onSave={() => void handleSave()}

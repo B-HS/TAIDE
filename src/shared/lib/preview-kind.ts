@@ -1,3 +1,5 @@
+import { extractFileExtension } from '@shared/lib/file-extension'
+
 export type PreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'html' | 'spreadsheet' | 'presentation' | 'hwp'
 
 const PREVIEW_KIND_BY_EXTENSION: Record<string, PreviewKind> = {
@@ -42,13 +44,8 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 
 const DEFAULT_IMAGE_MIME_TYPE = 'application/octet-stream'
 
-const extractExtension = (fileName: string) => {
-    const dotIndex = fileName.lastIndexOf('.')
-    return dotIndex <= 0 ? null : fileName.slice(dotIndex + 1).toLowerCase()
-}
-
 export const resolvePreviewKind = (fileName: string): PreviewKind | null => {
-    const extension = extractExtension(fileName)
+    const extension = extractFileExtension(fileName)
     return extension ? (PREVIEW_KIND_BY_EXTENSION[extension] ?? null) : null
 }
 
@@ -57,6 +54,6 @@ export const resolvePreviewMimeType = (fileName: string): string | null => {
     if (kind === 'html') return 'text/html'
     if (kind !== 'image') return null
 
-    const extension = extractExtension(fileName) ?? ''
+    const extension = extractFileExtension(fileName) ?? ''
     return IMAGE_MIME_BY_EXTENSION[extension] ?? DEFAULT_IMAGE_MIME_TYPE
 }

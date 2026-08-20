@@ -1,24 +1,6 @@
 import type { ITheme } from '@xterm/xterm'
 import type { ResolvedTheme } from '@shared/api/bindings'
-
-const ANSI_KEYS = [
-    'black',
-    'red',
-    'green',
-    'yellow',
-    'blue',
-    'magenta',
-    'cyan',
-    'white',
-    'brightBlack',
-    'brightRed',
-    'brightGreen',
-    'brightYellow',
-    'brightBlue',
-    'brightMagenta',
-    'brightCyan',
-    'brightWhite',
-] as const
+import { TERMINAL_ANSI_TOKENS } from '@shared/lib/theme-convert/types'
 
 export const toXtermTheme = (theme: ResolvedTheme) => {
     const terminal = theme.terminal
@@ -29,7 +11,7 @@ export const toXtermTheme = (theme: ResolvedTheme) => {
         selectionBackground: terminal.selection,
     }
 
-    for (const key of ANSI_KEYS) {
+    for (const key of TERMINAL_ANSI_TOKENS) {
         const value = terminal[key]
         if (value) result[key] = value
     }

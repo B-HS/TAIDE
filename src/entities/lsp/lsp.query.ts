@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { LspInstallProgress, LspServerId, ProjectId } from '@shared/api/bindings'
+import type { LspInstallProgress, LspServerDetection, LspServerId, ProjectId } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
@@ -9,6 +9,15 @@ import { createExternalStoreBridge } from '@shared/lib/external-store-bridge'
 import { cancelLspInstall, detectLspServers, installLspServer, listLspSessions } from '@entities/lsp/lsp.ipc'
 
 export const lspServersQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.LSP.SERVERS, queryFn: detectLspServers, staleTime: Infinity })
+
+/**
+ * The attach-eligibility predicate every LSP server picker applies — language match plus
+ * `available` — kept in one place so `use-lsp-session.ts`'s own attach gate and every "which
+ * server(s) should I ask" call site (Code Actions on Save, breadcrumbs/outline/command-palette
+ * document-symbol lookups) can't drift out of lockstep with each other.
+ */
+export const filterAvailableLspServers = <T extends Pick<LspServerDetection, 'languageIds' | 'available'>>(servers: T[], languageId: string) =>
+    servers.filter((server) => server.languageIds.includes(languageId) && server.available)
 
 export const lspSessionsQueryOptions = (projectId: ProjectId | null) =>
     queryOptions({

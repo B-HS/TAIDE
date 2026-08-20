@@ -1,16 +1,10 @@
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { Location } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { preloadPeekModels } from '@shared/lib/lsp/peek-model-preload'
-import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
-
-const targetPathOf = (monaco: Monaco, location: Location) => {
-    const uri = monaco.Uri.parse(location.uri)
-    return uri.scheme === 'file' ? uri.fsPath : null
-}
+import { lspLocationTargetPath, lspLocationToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
 
 export const registerReferences = (monaco: Monaco, client: LspClient, languageId: string) => {
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.referencesProvider))) return NOOP_DISPOSABLE
@@ -24,11 +18,11 @@ export const registerReferences = (monaco: Monaco, client: LspClient, languageId
             })
             if (token.isCancellationRequested || !result) return []
 
-            const targetPaths = result.map((location) => targetPathOf(monaco, location)).filter((path): path is string => path !== null)
+            const targetPaths = result.map((location) => lspLocationTargetPath(monaco, location)).filter((path): path is string => path !== null)
             await preloadPeekModels(monaco, targetPaths)
             if (token.isCancellationRequested) return []
 
-            return result.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: lspRangeToMonaco(location.range) }))
+            return result.map((location) => lspLocationToMonaco(monaco, location))
         },
     })
 }

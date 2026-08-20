@@ -85,7 +85,7 @@ pub fn ensure_safe_component(value: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
+pub(crate) fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
     if let Ok(canonical) = std::fs::canonicalize(path) {
         return Ok(canonical);
     }

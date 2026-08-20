@@ -1,11 +1,10 @@
 import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { DocumentHighlight, DocumentHighlightKind } from '@shared/lib/lsp/protocol'
 import { DOCUMENT_HIGHLIGHT_KIND, isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 const MONACO_HIGHLIGHT_KIND_BY_LSP_KIND: Record<DocumentHighlightKind, number> = {
     [DOCUMENT_HIGHLIGHT_KIND.TEXT]: 0,

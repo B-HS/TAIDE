@@ -1,11 +1,10 @@
 import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { InlayHint } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled, markupContentToString } from '@shared/lib/lsp/protocol'
 import { lspPositionToMonaco, monacoRangeToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 const INLAY_HINT_KIND_NAMES = ['Type', 'Parameter'] as const
 

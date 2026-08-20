@@ -31,6 +31,7 @@ import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pa
 import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { monaco } from '@shared/lib/monaco/setup'
 import { collectAllPaneTabs, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
 import { requestTerminalWrite } from '@shared/lib/terminal-write-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
@@ -44,8 +45,6 @@ import { subscribeLanguageAdapterRegistration } from '@widgets/editor-pane/lsp-s
 import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
-
-const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 type OverDropData = SplitDropData | TabContainerDropData
 

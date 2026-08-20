@@ -1,11 +1,10 @@
 import type { CancellationToken } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { SignatureHelp } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled, markupContentToString } from '@shared/lib/lsp/protocol'
 import { monacoPositionToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 export const registerSignatureHelp = (monaco: Monaco, client: LspClient, languageId: string) => {
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.signatureHelpProvider))) return NOOP_DISPOSABLE

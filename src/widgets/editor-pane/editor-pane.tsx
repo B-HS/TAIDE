@@ -8,12 +8,11 @@ import { toast } from 'sonner'
 import type { ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import type { monaco } from '@shared/lib/monaco/setup'
-import { buildMonospaceFontStack } from '@shared/lib/font-stack'
+import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings'
 import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
 import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
 import { consumeExternallyDirtyModel } from '@shared/lib/lsp/model-dirty-tracker'
-import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
@@ -23,7 +22,6 @@ import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/sett
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { consumePendingReveal } from '@entities/editor/reveal-registry'
-import type { EditorCursorBlinkingStyle, EditorCursorStyle, EditorRenderWhitespace } from '@features/editor/code-editor'
 import { CodeEditor } from '@features/editor/code-editor'
 import { BlameFooterBar } from '@features/editor/blame-footer-bar'
 import type { ConflictBannerVariant } from '@features/editor/conflict-banner'
@@ -48,11 +46,6 @@ import { BreadcrumbsBar } from '@widgets/editor-pane/breadcrumbs-bar'
 const MARKDOWN_LANGUAGE_ID = 'markdown'
 const TOGGLE_PREVIEW_BUTTON_CLASS =
     'text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover hover:text-app-foreground flex size-6 items-center justify-center rounded-sm'
-
-const DEFAULT_EDITOR_TAB_SIZE = 4
-const DEFAULT_EDITOR_RENDER_WHITESPACE: EditorRenderWhitespace = 'selection'
-const DEFAULT_EDITOR_CURSOR_STYLE: EditorCursorStyle = 'line'
-const DEFAULT_EDITOR_CURSOR_BLINKING: EditorCursorBlinkingStyle = 'blink'
 
 type EditorPaneProps = {
     projectId: ProjectId
@@ -299,24 +292,9 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             value={file.content}
             readOnly={file.readOnly}
             largeFile={file.tier === 'large' || file.tier === 'readOnly'}
-            fontFamily={buildMonospaceFontStack(settings?.editorFontFamily ?? null)}
-            fontSize={settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE}
-            minimap={settings?.editorMinimap ?? true}
-            wordWrap={settings?.editorWordWrap ?? false}
-            lineNumbers={settings?.editorLineNumbers ?? true}
-            tabSize={settings?.editorTabSize ?? DEFAULT_EDITOR_TAB_SIZE}
-            insertSpaces={settings?.editorInsertSpaces ?? true}
-            detectIndentation={settings?.editorDetectIndentation ?? true}
-            renderWhitespace={settings?.editorRenderWhitespace ?? DEFAULT_EDITOR_RENDER_WHITESPACE}
-            bracketPairColorization={settings?.editorBracketPairColorization ?? true}
-            fontLigatures={settings?.editorFontLigatures ?? false}
-            cursorStyle={settings?.editorCursorStyle ?? DEFAULT_EDITOR_CURSOR_STYLE}
-            cursorBlinking={settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING}
-            scrollBeyondLastLine={settings?.editorScrollBeyondLastLine ?? true}
-            stickyScroll={settings?.editorStickyScrollEnabled ?? true}
+            {...resolveCodeEditorSettingsProps(settings)}
             formatOnType={settings?.editorFormatOnType ?? false}
             formatOnPaste={settings?.editorFormatOnPaste ?? false}
-            aiAutoTabEnabled={settings?.aiAutoTabEnabled ?? false}
             aiCompletionConfig={aiCompletionConfig}
             onChange={handleChange}
             onSave={handleSave}

@@ -132,23 +132,65 @@ fn omlx_provider(secret: &dyn SecretStore, base_url: Option<String>) -> AppResul
     })
 }
 
+/// The three provider clients [`AiProviderClient`] can't be `dyn`-dispatched over (its methods
+/// return `impl Future`, which is not object-safe), so every call site that needs "the concrete
+/// client for this `AiProviderId`" resolved credentials via its own copy of this exact match
+/// (R6#13) — [`resolve_provider`] now does that once, and this enum's own [`AiProviderClient`]
+/// impl below fans a call out to whichever variant it holds.
+enum ResolvedAiProvider {
+    OllamaCloud(OllamaCloudProvider),
+    Codex(CodexProvider),
+    Omlx(OmlxProvider),
+}
+
+fn resolve_provider(secret: &dyn SecretStore, provider: AiProviderId, omlx_base_url: Option<String>) -> AppResult<ResolvedAiProvider> {
+    match provider {
+        AiProviderId::OllamaCloud => Ok(ResolvedAiProvider::OllamaCloud(OllamaCloudProvider {
+            api_key: load_ollama_api_key(secret)?,
+        })),
+        AiProviderId::Codex => Ok(ResolvedAiProvider::Codex(codex_provider(load_codex_credential(secret)?))),
+        AiProviderId::Omlx => Ok(ResolvedAiProvider::Omlx(omlx_provider(secret, omlx_base_url)?)),
+    }
+}
+
+impl AiProviderClient for ResolvedAiProvider {
+    async fn list_models(&self, client: &reqwest::Client) -> AppResult<Vec<AiModelInfo>> {
+        match self {
+            ResolvedAiProvider::OllamaCloud(provider) => provider.list_models(client).await,
+            ResolvedAiProvider::Codex(provider) => provider.list_models(client).await,
+            ResolvedAiProvider::Omlx(provider) => provider.list_models(client).await,
+        }
+    }
+
+    async fn complete(
+        &self,
+        client: &reqwest::Client,
+        request: &AiInlineCompleteRequest,
+        template: &AiPromptTemplate,
+    ) -> AppResult<Option<String>> {
+        match self {
+            ResolvedAiProvider::OllamaCloud(provider) => provider.complete(client, request, template).await,
+            ResolvedAiProvider::Codex(provider) => provider.complete(client, request, template).await,
+            ResolvedAiProvider::Omlx(provider) => provider.complete(client, request, template).await,
+        }
+    }
+
+    async fn instruct(&self, client: &reqwest::Client, model: &str, system: &str, user: &str) -> AppResult<Option<String>> {
+        match self {
+            ResolvedAiProvider::OllamaCloud(provider) => provider.instruct(client, model, system, user).await,
+            ResolvedAiProvider::Codex(provider) => provider.instruct(client, model, system, user).await,
+            ResolvedAiProvider::Omlx(provider) => provider.instruct(client, model, system, user).await,
+        }
+    }
+}
+
 pub async fn list_models(
     secret: &dyn SecretStore,
     client: &reqwest::Client,
     provider: AiProviderId,
     omlx_base_url: Option<String>,
 ) -> AppResult<Vec<AiModelInfo>> {
-    match provider {
-        AiProviderId::OllamaCloud => {
-            OllamaCloudProvider {
-                api_key: load_ollama_api_key(secret)?,
-            }
-            .list_models(client)
-            .await
-        }
-        AiProviderId::Codex => codex_provider(load_codex_credential(secret)?).list_models(client).await,
-        AiProviderId::Omlx => omlx_provider(secret, omlx_base_url)?.list_models(client).await,
-    }
+    resolve_provider(secret, provider, omlx_base_url)?.list_models(client).await
 }
 
 pub async fn complete(
@@ -158,21 +200,9 @@ pub async fn complete(
     template: &AiPromptTemplate,
     omlx_base_url: Option<String>,
 ) -> AppResult<Option<String>> {
-    match request.provider {
-        AiProviderId::OllamaCloud => {
-            OllamaCloudProvider {
-                api_key: load_ollama_api_key(secret)?,
-            }
-            .complete(client, request, template)
-            .await
-        }
-        AiProviderId::Codex => {
-            codex_provider(load_codex_credential(secret)?)
-                .complete(client, request, template)
-                .await
-        }
-        AiProviderId::Omlx => omlx_provider(secret, omlx_base_url)?.complete(client, request, template).await,
-    }
+    resolve_provider(secret, request.provider, omlx_base_url)?
+        .complete(client, request, template)
+        .await
 }
 
 /// Resolves the provider/model an `ai_inline_edit`/`ai_commit_message` request should run
@@ -208,21 +238,9 @@ async fn instruct(
     user: &str,
     omlx_base_url: Option<String>,
 ) -> AppResult<Option<String>> {
-    match provider {
-        AiProviderId::OllamaCloud => {
-            OllamaCloudProvider {
-                api_key: load_ollama_api_key(secret)?,
-            }
-            .instruct(client, model, system, user)
-            .await
-        }
-        AiProviderId::Codex => {
-            codex_provider(load_codex_credential(secret)?)
-                .instruct(client, model, system, user)
-                .await
-        }
-        AiProviderId::Omlx => omlx_provider(secret, omlx_base_url)?.instruct(client, model, system, user).await,
-    }
+    resolve_provider(secret, provider, omlx_base_url)?
+        .instruct(client, model, system, user)
+        .await
 }
 
 pub async fn inline_edit(

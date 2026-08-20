@@ -28,6 +28,7 @@ import {
 } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { Button } from '@shared/ui/button'
 import { buildRecentCommitsSummaryForAi, sanitizeAiCommitMessageResponse } from '@widgets/git-panel/ai-commit-message'
 import { GitPanel } from '@widgets/git-panel/git-panel'
@@ -35,8 +36,6 @@ import { GitPanel } from '@widgets/git-panel/git-panel'
 type GitPanelContainerProps = {
     projectId: ProjectId
 }
-
-const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => {
     /**

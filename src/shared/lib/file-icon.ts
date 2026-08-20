@@ -1,3 +1,5 @@
+import { extractFileExtension } from '@shared/lib/file-extension'
+
 export type FileIconName =
     | 'file'
     | 'file-code'
@@ -100,12 +102,6 @@ const SPECIAL_FOLDER_NAME_ICON: Record<string, FileIconSpec> = {
     '.github': { icon: 'git-fork', colorClass: COLOR.info },
 }
 
-const extractExtension = (fileNameLower: string) => {
-    const dotIndex = fileNameLower.lastIndexOf('.')
-    if (dotIndex <= 0) return null
-    return fileNameLower.slice(dotIndex + 1)
-}
-
 export const resolveFileIcon = (fileName: string): FileIconSpec => {
     const nameLower = fileName.toLowerCase()
 
@@ -116,7 +112,7 @@ export const resolveFileIcon = (fileName: string): FileIconSpec => {
     if (nameLower.startsWith('license') || nameLower.startsWith('licence')) return LICENSE_ICON
     if (nameLower.startsWith('.env')) return ENV_ICON
 
-    const extension = extractExtension(nameLower)
+    const extension = extractFileExtension(nameLower)
     if (!extension) return DEFAULT_FILE_ICON
 
     return EXTENSION_ICON[extension] ?? DEFAULT_FILE_ICON

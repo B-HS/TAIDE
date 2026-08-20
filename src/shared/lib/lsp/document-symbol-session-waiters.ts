@@ -1,4 +1,9 @@
+import type { languages } from 'monaco-editor'
 import type { LspServerId, ProjectId } from '@shared/api/bindings'
+import type { LspClient } from '@shared/lib/lsp/client'
+import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
+import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 
 export type DocumentSymbolSessionWaiter<TSession> = { promise: Promise<TSession | null>; cancel: () => void }
 
@@ -47,4 +52,72 @@ export const buildDocumentSymbolWaiters = async <TSession>({
         const root = resolvedRoots[index] ?? fallbackRoot
         return root ? [waitForSession(projectId, serverId, root)] : []
     })
+}
+
+type LoadDocumentSymbolsInput<TSession extends { ready: Promise<{ client: LspClient }> }> = Omit<
+    BuildDocumentSymbolWaitersInput<TSession>,
+    'isCancelled'
+> & {
+    monaco: Monaco
+    onLoaded: (symbols: languages.DocumentSymbol[]) => void
+}
+
+/**
+ * Combines {@link buildDocumentSymbolWaiters} with the "take the first server that comes up and
+ * advertises `documentSymbolProvider`, report its `textDocument/documentSymbol` result (or `[]`
+ * once every waiter is exhausted)" loop — the effect body shared verbatim by
+ * `breadcrumbs-bar.tsx`/`outline-panel-container.tsx`/`command-palette.tsx` (this function's three
+ * callers, same root-aware rationale as {@link buildDocumentSymbolWaiters}'s doc comment). Returns a
+ * cleanup function so a caller's `useEffect` can `return loadDocumentSymbolsForPath({ ... })`
+ * directly — cancelling in-flight session waits when a newer path/effect run supersedes this one.
+ */
+export const loadDocumentSymbolsForPath = <TSession extends { ready: Promise<{ client: LspClient }> }>({
+    monaco,
+    availableServerIds,
+    path,
+    projectId,
+    fallbackRoot,
+    resolveRoot,
+    waitForSession,
+    onLoaded,
+}: LoadDocumentSymbolsInput<TSession>): (() => void) => {
+    let cancelled = false
+    let pendingCancels: (() => void)[] = []
+
+    const load = async () => {
+        const waiters = await buildDocumentSymbolWaiters({
+            availableServerIds,
+            path,
+            projectId,
+            fallbackRoot,
+            isCancelled: () => cancelled,
+            resolveRoot,
+            waitForSession,
+        })
+        pendingCancels = waiters.map((waiter) => waiter.cancel)
+
+        for (const { promise } of waiters) {
+            const session = await promise
+            if (!session || cancelled) continue
+
+            const ready = await session.ready.catch(() => null)
+            if (!ready || cancelled) continue
+            if (!ready.client.supports((capabilities) => isCapabilityEnabled(capabilities.documentSymbolProvider))) continue
+
+            const uri = monaco.Uri.file(path).toString()
+            const result = await requestDocumentSymbols(monaco, ready.client, uri).catch(() => [])
+            if (!cancelled) {
+                onLoaded(result)
+                return
+            }
+        }
+        if (!cancelled) onLoaded([])
+    }
+
+    void load()
+
+    return () => {
+        cancelled = true
+        pendingCancels.forEach((cancel) => cancel())
+    }
 }

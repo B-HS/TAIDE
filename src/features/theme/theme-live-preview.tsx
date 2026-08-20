@@ -1,12 +1,10 @@
 import type { CSSProperties, FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SyntaxStyle } from '@shared/api/bindings'
-import { TERMINAL_TOKENS } from '@entities/theme/theme-tokens'
 import type { ThemeValues } from '@shared/lib/theme-draft'
+import { TERMINAL_ANSI_TOKENS } from '@shared/lib/theme-convert/types'
 import { toCssVariables } from '@shared/lib/theme-variables'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
-
-const TERMINAL_ANSI_TOKEN_COUNT = 16
 
 type ThemeLivePreviewProps = {
     values: ThemeValues
@@ -22,7 +20,7 @@ export const ThemeLivePreview: FC<ThemeLivePreviewProps> = ({ values }) => {
     const { t } = useTranslation()
     const { colors, syntax, terminal } = values
     const vars = toCssVariables(colors) as CSSProperties
-    const ansiTokens = TERMINAL_TOKENS.slice(0, TERMINAL_ANSI_TOKEN_COUNT)
+    const ansiTokens = TERMINAL_ANSI_TOKENS
 
     return (
         <div style={vars} className='border-app-border flex flex-col overflow-hidden rounded-md border text-xs'>

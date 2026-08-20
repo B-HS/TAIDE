@@ -8,13 +8,12 @@ import { getStoredDiagnostics } from '@shared/lib/lsp/adapters/diagnostics'
 import { i18next } from '@shared/i18n/i18n'
 import { kindMatchesAny } from '@shared/lib/lsp/kind'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { Diagnostic, LspRange, ServerCapabilities, WorkspaceEdit } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import type { WorkspaceEditApplyResult } from '@shared/lib/lsp/workspace-edit-applier'
 import { applyWorkspaceEdit } from '@shared/lib/lsp/workspace-edit-applier'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 /** An LSP `CodeAction` (the richer half of `textDocument/codeAction`'s `(Command | CodeAction)[]` response). */
 export type LspCodeAction = {

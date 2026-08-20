@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import type { ProblemRowData } from '@features/problems/problem-row'
@@ -15,8 +16,6 @@ type ProblemsPanelContainerProps = {
     projectId: ProjectId
     onClose: () => void
 }
-
-const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 const emptySeverityRecord = <T,>(value: T): Record<ProblemSeverity, T> =>
     Object.fromEntries(PROBLEM_SEVERITIES.map((severity) => [severity, value])) as Record<ProblemSeverity, T>

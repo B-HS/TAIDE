@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { ChevronRight, File } from 'lucide-react'
 import { cn } from '@shared/lib/cn'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { Checkbox } from '@shared/ui/checkbox'
 
 type FileGroupHeaderProps = {
@@ -13,8 +14,6 @@ type FileGroupHeaderProps = {
     onToggleSelect?: () => void
     selectAriaLabel?: string
 }
-
-const fileNameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 export const FileGroupHeader: FC<FileGroupHeaderProps> = ({ path, count, expanded, onToggle, selected, onToggleSelect, selectAriaLabel }) => (
     <div className={cn('hover:bg-explorer-item-hover flex cursor-default items-center text-xs select-none', onToggleSelect && 'pl-2')}>

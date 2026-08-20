@@ -247,8 +247,8 @@ pub fn read_grammar(plugins: &[LoadedPlugin], plugin_id: &str, language_id: &str
 
 pub fn resolve_contribution_path(plugin_root: &Path, relative: &str) -> AppResult<PathBuf> {
     let candidate = plugin_root.join(relative);
-    let canonical_root = canonicalize_lenient(plugin_root)?;
-    let canonical_candidate = canonicalize_lenient(&candidate)?;
+    let canonical_root = root_guard::canonicalize_lenient(plugin_root)?;
+    let canonical_candidate = root_guard::canonicalize_lenient(&candidate)?;
 
     if canonical_candidate.starts_with(&canonical_root) {
         Ok(canonical_candidate)
@@ -384,21 +384,6 @@ pub fn uninstall(plugins_dir: &Path, plugin_id: &str) -> AppResult<()> {
         return Err(AppError::NotFound(format!("plugin not found: {plugin_id}")));
     }
     fs::remove_dir_all(&dir).map_err(AppError::from)
-}
-
-fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
-    if let Ok(canonical) = fs::canonicalize(path) {
-        return Ok(canonical);
-    }
-
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| AppError::InvalidArgument(format!("유효하지 않은 경로입니다: {}", path.display())))?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| AppError::InvalidArgument(format!("유효하지 않은 경로입니다: {}", path.display())))?;
-
-    Ok(canonicalize_lenient(parent)?.join(file_name))
 }
 
 #[cfg(test)]

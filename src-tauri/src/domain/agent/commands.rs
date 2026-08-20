@@ -580,11 +580,11 @@ pub async fn agent_hooks_install(
     agent_name: String,
 ) -> AppResult<AgentHooksStatus> {
     let scope = service::hook_scope_for_agent(&agent_name)?;
+    if !state.settings.read().agent_hooks_enabled {
+        return Err(AppError::InvalidArgument("agent hooks are disabled in settings".to_string()));
+    }
     match scope {
         HookInstallScope::Project => {
-            if !state.settings.read().agent_hooks_enabled {
-                return Err(AppError::InvalidArgument("agent hooks are disabled in settings".to_string()));
-            }
             let root = project_root(&state, &project_id)?;
             let server = hooks::ensure_hooks_server_started(&app).await?;
             let hook_url = hooks::build_hook_url(&server, &agent_name);
@@ -598,9 +598,6 @@ pub async fn agent_hooks_install(
             })
         }
         HookInstallScope::User => {
-            if !state.settings.read().agent_hooks_enabled {
-                return Err(AppError::InvalidArgument("agent hooks are disabled in settings".to_string()));
-            }
             if !resolve_cli_install_status().installed {
                 return Err(AppError::InvalidArgument("taide CLI is not installed yet".to_string()));
             }

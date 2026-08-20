@@ -2,11 +2,10 @@ import type { CancellationToken, languages } from 'monaco-editor'
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { LspCommand } from '@shared/lib/lsp/command-relay'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { LspRange } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoRangeToLsp } from '@shared/lib/lsp/position'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 export const CODE_LENS_REFRESH_DEBOUNCE_MS = 300
 

@@ -23,11 +23,9 @@ import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap-chord-store'
 import { buildFuzzyHighlightSegments, fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
-import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
-import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
-import { buildDocumentSymbolWaiters } from '@shared/lib/lsp/document-symbol-session-waiters'
+import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from '@shared/ui/command'
@@ -39,7 +37,7 @@ import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
-import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
+import { filterAvailableLspServers, lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { listSessionRecordsForProject, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { splitFileMatchForDisplay } from '@widgets/command-palette/command-palette-file-match'
@@ -275,7 +273,7 @@ export const CommandPalette = () => {
     }
 
     /**
-     * `⌘O`/symbol-nav mode's document-symbol lookup — root-aware (`buildDocumentSymbolWaiters` +
+     * `⌘O`/symbol-nav mode's document-symbol lookup — root-aware (`loadDocumentSymbolsForPath` +
      * `waitForLspSessionForRoot`, contract `docs/acknowledge/2026-08-19-editor-pane-batch-contract.md`
      * §1.2) because it has a concrete `activePath` to resolve a root from. Contrast the `⌘T`
      * Workspace Symbol effect below, which stays root-agnostic (`listSessionRecordsForProject`) on
@@ -286,47 +284,18 @@ export const CommandPalette = () => {
         if (mode !== 'symbol' || !open || !activeProjectId || !activePath || !activeFile || !lspServers) return
 
         const languageId = activeFile.languageId
-        const availableServerIds = lspServers
-            .filter((server) => server.languageIds.includes(languageId) && server.available)
-            .map((server) => server.id)
+        const availableServerIds = filterAvailableLspServers(lspServers, languageId).map((server) => server.id)
 
-        let cancelled = false
-        let pendingCancels: (() => void)[] = []
-
-        const load = async () => {
-            const waiters = await buildDocumentSymbolWaiters({
-                availableServerIds,
-                path: activePath,
-                projectId: activeProjectId,
-                fallbackRoot: activeProject?.root,
-                isCancelled: () => cancelled,
-                resolveRoot: resolveLspRoot,
-                waitForSession: waitForLspSessionForRoot,
-            })
-            pendingCancels = waiters.map((waiter) => waiter.cancel)
-
-            for (const { promise } of waiters) {
-                const session = await promise
-                if (!session || cancelled) continue
-                const ready = await session.ready.catch(() => null)
-                if (!ready || cancelled) continue
-                if (!ready.client.supports((capabilities) => isCapabilityEnabled(capabilities.documentSymbolProvider))) continue
-                const uri = monaco.Uri.file(activePath).toString()
-                const result = await requestDocumentSymbols(monaco, ready.client, uri).catch(() => [])
-                if (!cancelled) {
-                    setDocumentSymbolState({ path: activePath, symbols: result })
-                    return
-                }
-            }
-            if (!cancelled) setDocumentSymbolState({ path: activePath, symbols: [] })
-        }
-
-        void load()
-
-        return () => {
-            cancelled = true
-            pendingCancels.forEach((cancel) => cancel())
-        }
+        return loadDocumentSymbolsForPath({
+            monaco,
+            availableServerIds,
+            path: activePath,
+            projectId: activeProjectId,
+            fallbackRoot: activeProject?.root,
+            resolveRoot: resolveLspRoot,
+            waitForSession: waitForLspSessionForRoot,
+            onLoaded: (symbols) => setDocumentSymbolState({ path: activePath, symbols }),
+        })
     }, [mode, open, activeProjectId, activePath, activeFile, lspServers, activeProject?.root])
 
     useEffect(() => {

@@ -272,12 +272,7 @@ pub fn classify_activity(previous: AgentActivity, ms_since_active: Option<u64>) 
     }
 }
 
-pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
+pub use crate::infra::crypto::constant_time_eq;
 
 fn is_cwd_within_root(cwd: &str, root: &str) -> bool {
     let cwd = cwd.trim_end_matches('/');
@@ -468,18 +463,30 @@ pub fn inject_taide_command_hook_entries(root: serde_json::Value, events: &[&str
     )
 }
 
-pub fn has_hook_entries_for_url(root: &serde_json::Value, hook_url: &str) -> bool {
+/// Shared by [`has_hook_entries_for_url`] (the HTTP hook family — always checks the fixed
+/// [`MANAGED_HOOK_EVENTS`], which is never empty) and [`has_command_hook_entries_for_command`]
+/// (the shell-command family — checks a caller-supplied `events` slice, which *can* be empty for
+/// an unmanaged agent, hence the explicit guard here rather than relying on `[].iter().all(..)`
+/// vacuously returning `true`). Both need the identical "every one of `events` has a TAIDE-managed
+/// entry whose handler matches" walk, differing only in which hook field (`url`/`command`) the
+/// per-entry predicate inspects.
+fn has_managed_entries_matching(root: &serde_json::Value, events: &[&str], matches_handler: impl Fn(&serde_json::Value) -> bool) -> bool {
+    if events.is_empty() {
+        return false;
+    }
     let Some(hooks_obj) = root.get("hooks").and_then(|value| value.as_object()) else {
         return false;
     };
-    MANAGED_HOOK_EVENTS.iter().all(|event| {
-        hooks_obj.get(*event).and_then(|value| value.as_array()).is_some_and(|entries| {
-            entries
-                .iter()
-                .filter(|entry| is_taide_managed_entry(entry))
-                .any(|entry| entry_has_url(entry, hook_url))
-        })
+    events.iter().all(|event| {
+        hooks_obj
+            .get(*event)
+            .and_then(|value| value.as_array())
+            .is_some_and(|entries| entries.iter().filter(|entry| is_taide_managed_entry(entry)).any(&matches_handler))
     })
+}
+
+pub fn has_hook_entries_for_url(root: &serde_json::Value, hook_url: &str) -> bool {
+    has_managed_entries_matching(root, MANAGED_HOOK_EVENTS, |entry| entry_has_url(entry, hook_url))
 }
 
 fn entry_has_url(entry: &serde_json::Value, hook_url: &str) -> bool {
@@ -491,18 +498,7 @@ fn entry_has_url(entry: &serde_json::Value, hook_url: &str) -> bool {
 }
 
 pub fn has_command_hook_entries_for_command(root: &serde_json::Value, events: &[&str], command: &str) -> bool {
-    let Some(hooks_obj) = root.get("hooks").and_then(|value| value.as_object()) else {
-        return false;
-    };
-    !events.is_empty()
-        && events.iter().all(|event| {
-            hooks_obj.get(*event).and_then(|value| value.as_array()).is_some_and(|entries| {
-                entries
-                    .iter()
-                    .filter(|entry| is_taide_managed_entry(entry))
-                    .any(|entry| entry_has_command(entry, command))
-            })
-        })
+    has_managed_entries_matching(root, events, |entry| entry_has_command(entry, command))
 }
 
 fn entry_has_command(entry: &serde_json::Value, command: &str) -> bool {

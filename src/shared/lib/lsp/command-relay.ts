@@ -1,11 +1,10 @@
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { Location, LocationLink, LspPosition } from '@shared/lib/lsp/protocol'
-import { lspPositionToMonaco, lspRangeToMonaco } from '@shared/lib/lsp/position'
+import { lspLocationToMonaco, lspPositionToMonaco } from '@shared/lib/lsp/position'
 
 type Disposable = { dispose: () => void }
-
-const NOOP_DISPOSABLE: Disposable = { dispose: () => {} }
 
 /** A command reference as it appears on an LSP `CodeAction`/`CodeLens` (`Command`). */
 export type LspCommand = { title: string; command: string; arguments?: unknown[] }
@@ -110,23 +109,6 @@ const isLspLocationOrLocationLink = (value: unknown): value is Location | Locati
     (typeof (value as Location).uri === 'string' || typeof (value as LocationLink).targetUri === 'string')
 
 /**
- * A `LocationLink`'s `targetRange` spans the whole declaration (doc comments, attributes and all);
- * `targetSelectionRange` is the precise identifier span meant to receive the cursor/highlight
- * (LSP 3.17 `LocationLink`). Both are preserved here — dropping `targetSelectionRange` (as this
- * used to) makes monaco fall back to `range` (=`targetRange`) for both, landing the cursor on the
- * declaration's doc comment instead of the symbol itself.
- */
-const toMonacoLocationArg = (monaco: Monaco, item: Location | LocationLink) =>
-    'targetUri' in item
-        ? {
-              uri: monaco.Uri.parse(item.targetUri),
-              range: lspRangeToMonaco(item.targetRange),
-              targetSelectionRange: lspRangeToMonaco(item.targetSelectionRange),
-              ...(item.originSelectionRange ? { originSelectionRange: lspRangeToMonaco(item.originSelectionRange) } : {}),
-          }
-        : { uri: monaco.Uri.parse(item.uri), range: lspRangeToMonaco(item.range) }
-
-/**
  * Builds the `editor.action.showReferences` / `rust-analyzer.showReferences` handler: opens
  * monaco's built-in peek widget over `locations`, anchored at `position` in `uri`. `multiple:
  * 'peek'` + `openInPeek: true` on `editor.action.goToLocations` reproduces exactly what monaco's
@@ -138,7 +120,7 @@ export const createShowReferencesHandler =
     (monaco: Monaco, execute: MonacoCommandExecutor = executeMonacoCommand) =>
     (_accessor: unknown, uri: unknown, position: unknown, locations: unknown) => {
         if (typeof uri !== 'string' || !isLspPosition(position) || !Array.isArray(locations)) return undefined
-        const monacoLocations = locations.filter(isLspLocationOrLocationLink).map((location) => toMonacoLocationArg(monaco, location))
+        const monacoLocations = locations.filter(isLspLocationOrLocationLink).map((location) => lspLocationToMonaco(monaco, location))
         return execute(
             MONACO_GO_TO_LOCATIONS_COMMAND_ID,
             monaco.Uri.parse(uri),
@@ -155,7 +137,7 @@ export const createGotoLocationHandler =
     (monaco: Monaco, execute: MonacoCommandExecutor = executeMonacoCommand) =>
     (_accessor: unknown, location: unknown) => {
         if (!isLspLocationOrLocationLink(location)) return undefined
-        const target = toMonacoLocationArg(monaco, location)
+        const target = lspLocationToMonaco(monaco, location)
         const focusRange = 'targetSelectionRange' in target ? target.targetSelectionRange : target.range
         const position = { lineNumber: focusRange.startLineNumber, column: focusRange.startColumn }
         return execute(MONACO_GO_TO_LOCATIONS_COMMAND_ID, target.uri, position, [target], 'goto')

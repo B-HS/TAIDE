@@ -1,12 +1,11 @@
 import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
+import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { LspRange, PrepareRenameResult, WorkspaceEdit } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco, monacoPositionToLsp } from '@shared/lib/lsp/position'
 import { applyWorkspaceEdit } from '@shared/lib/lsp/workspace-edit-applier'
 import { i18next } from '@shared/i18n/i18n'
-
-const NOOP_DISPOSABLE = { dispose: () => {} }
 
 export const registerRename = (monaco: Monaco, client: LspClient, languageId: string) => {
     if (!client.supports((capabilities) => isCapabilityEnabled(capabilities.renameProvider))) return NOOP_DISPOSABLE
