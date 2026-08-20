@@ -1055,3 +1055,28 @@
 - [ ] interpolation 키({{name}} 계열 — 에이전트 배지·다이얼로그) 치환 정상
 - [ ] 커스텀 로케일 팩 로드/저장 무회귀(save_locale/load_locale 경로)
 - [ ] 앱 부팅 정상(warm_builtin_catalogs eager 검증 경로 — 번들 정상이므로 무증상이 정상)
+
+## T2-D/F/G 통합 청소 재검 (2026-08-20, 계약: docs/acknowledge/2026-08-20-t2dfg-cleanup-contract.md)
+
+> 접근성 변경은 기계 검증 불가 축 — 키보드·스크린리더 실기가 핵심.
+
+- [ ] role=button 8지점 키보드 활성화 — Tab 이동 후 Enter·Space 로 각각 활성화(git status 행·파일 히스토리·커밋 상세·커밋 그래프·문제 행·검색 매치 행·아웃라인 심볼 행·파일 그룹 헤더). Space 시 페이지 스크롤 안 됨
+- [ ] git status 행 hover 액션 아이콘 — 마우스 없이 Tab 으로 도달 가능(group-focus-within)·아이콘 Enter/Space 가 행 활성화와 이중 발화하지 않음
+- [ ] 파일 그룹 헤더(검색 결과) — 체크박스와 헤더 토글이 독립 동작·클릭 영역 위화감 없음
+- [ ] color-picker(테마 에디터) — 팝오버 열면 hex 입력 포커스+전체 선택(기존 동작)·SV/Hue 화살표·Home/End 키보드 조작·VoiceOver 로 슬라이더 값 낭독
+- [ ] 테마 에디터·키바인딩 에디터·스니펫 다이얼로그 입력 — VoiceOver 라벨 낭독
+- [ ] 테마 라이브 프리뷰 — ANSI 팔레트·구문 샘플 그룹 라벨 낭독(previewAnsiTitle·previewSyntaxTitle 소비 성립분)
+- [ ] 3언어 전환 후 신규 키(채도/명도 슬라이더 라벨·검색 aria-label) 표시 정상
+- [ ] 원격 허용 호스트 검증(DNS 63/253 상수화)·터미널 검색 하이라이트(SEARCH_HIGHLIGHT_LIMIT) 무회귀 스모크
+
+## 실기 크래시 수정 재검 (2026-08-20, 계약: docs/acknowledge/2026-08-20-blank-window-hotfix-contract.md)
+
+> 사용자 100% 재현이던 결함 — 실기 확증이 최종 판정. 커밋 4건(0f7b07b·2c8f0e5·160871d 계열).
+
+- [ ] 새 파일 연속 열기(캐시 미스) — 빈 창 미재발(원 재현 경로)
+- [ ] 대형(refused tier)·읽기 실패 파일 열기 — 빈 창 미재발(early-return 분기)
+- [ ] .md 파일 프리뷰 켠 상태에서 같은 pane 의 캐시된 비-md 탭으로 전환(잔존 경로) — 빈 창 미재발
+- [ ] 프리뷰 토글 on/off 반복 — 에디터 상태(커서·스크롤) 유지·monaco 재생성 없음 체감(토글 즉시성)
+- [ ] 프리뷰 분할 드래그 후 토글 재개방 — 직전 비율 복원(의도된 동작 변화 — 계약 §7.5)
+- [ ] 프리뷰 꺼진 일반 편집에서 hover/suggest 위젯 — 브레드크럼 위로 표시 가능(overflow 클리핑 복원)·스크롤바 유령 등장 없음
+- [ ] 에디터 뷰스테이트(커서·스크롤) 저장/복원 — 탭 전환·재시작 후 유지(조정이 저장 경로 무손상인지)
