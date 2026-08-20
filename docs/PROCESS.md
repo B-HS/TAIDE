@@ -826,16 +826,21 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
     - [ ] d-25. 부팅 워처 attach 후절화(Rust) — **d-26 완료 후**(사용자 가시 UX 우선·Rust 는
           앱 재시작 수반이라 최후순). 진단 wf_14010876-849 rank 1: setup() 동기 전수 워크를
           창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
-    - [ ] d-26. ⌘P 퀵오픈 UX 정비 — 구현 커밋 `e8ab133`(선택 하이라이트 가시화·2단 렌더·
-          매칭 강조·상대경로 매칭). 원인 판정: 선택은 동작 중·표시 비가시(대비 1.40:1) —
-          사용자 실기로 "작동은 하나봐" 확증. **Phase E 검토 진행 중**(wf_7d708316-375).
-          계약 `2026-08-20-palette-ux-contract.md` §3
-    - [ ] d-26b. 번들 테마 list 색 결함 — 사용자 "여전히 안보임·색상코드 확인" 적중: 코드
-          정상(twMerge 병합 실측)·**테마 데이터 결함**(darcula 가 hover/active/panel 전부
-          #242424). 전 번들 스윕 12/36 결함(삼중 동일 2·active==panel 1·hover==panel 1·
-          active==hover 8). 계약 `2026-08-20-theme-list-colors-contract.md`. **구현 진행 중**
-          (wf_cb2bb385-62c — 업스트림 충실 값 정정+Rust 데이터 린트). include_str! 라 Rust
-          재빌드 = dev 앱 재시작 수반
+    - [x] d-26. ⌘P 퀵오픈 UX 정비 — **완결·병합**(main=10d5592). 계약
+          `2026-08-20-palette-ux-contract.md`(§3 구현·§4 검토 반영). 커밋 `3599c89`(계약)+
+          `e8ab133`(feat)+`10d5592`(fix 검토 반영). 원인 판정: 선택은 동작·표시 비가시(사용자
+          "작동은 하나봐" 실기 확증). E 검토 17발견(major 5) 적대적 **confirmed 4 keep+1
+          minor 강등·refuted 0** 전건 반영: 선택 단서 shared CommandItem 승격(bg 유지 판정+
+          ring-app-accent 병행 — 36테마 실측 스윕, cmdk 소비처 7곳 일괄)·mark 전경 강조 전환·
+          fuzzyMatch 유니코드 인덱스 보존 재작성(🚀·İ 재현 테스트)·로딩 게이트·기능 문서 갱신.
+          이월: search-match-row 동일 mark 결함·github 계열 알파 소스 토큰(AA 미달 8종 —
+          mapping-tables/contrast 범위)·workspaceSymbol 하이라이트·fuzzy 가중치
+    - [x] d-26b. 번들 테마 list 색 결함 — **완결·병합**. 계약
+          `2026-08-20-theme-list-colors-contract.md`(§3). 커밋 `67fdeef`. 사용자 "색상코드
+          확인" 적중 — 12/36 테마 데이터 결함(darcula 등 hover/active/panel 동일). 업스트림
+          재취득 대조로 충실 정정 + **파이프라인 근본 수정**(mapping-tables list.* 무가드
+          chain → explorer 와 동일 derived+isUsableListBackground — 향후 가져오기 방지) +
+          Rust 데이터 린트(수정 전 13건 FAIL 실측→PASS·화이트리스트 0)
     - [ ] d-27. Welcome 페이지 확충 — 사용자 요청(파일/폴더 열기·최근 프로젝트 활성 전환·
           꾸미기). 계약 `2026-08-20-welcome-page-contract.md`(실사: WelcomeScreen 기존재·
           recentProjects=[] 하드코딩 배선 부재·last_opened_at 스키마 부재 → Rust 필드+신규
