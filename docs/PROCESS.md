@@ -806,11 +806,18 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           7종 보존. **실기 확증(사용자) 대기**: 새 파일 연속 열기 + .md 프리뷰 on 상태 캐시 탭
           전환 + hover 위젯 브레드크럼 위 표시. T2-D/F/G 는 원인 무관 확정으로 병합 완료
           (main=4c4d6ce 시점)
-    - [ ] d-23. 실기 사건 ② 초기 기동 ~5초 — 진단 완료·수정 배치 결정 대기. 광역 진단
-          wf_14010876-849: dev 한정 monaco 1,331 모듈 eager 로드(2~4초) + setup() 동기 워처
-          전수 워크(복원 프로젝트 RESUME 15,320파일 — 기존 코드 유래·4배치 무혐의). reveal
-          게이트·T2-I warm·keyring·11111 프로브는 무혐의 판정. 결정 패키지(ErrorBoundary·부팅
-          수정 배치·registry 등록 소유권 — 계약 §6) 상신 후 진행
+    - [x] d-23. 착수 확인 12차(2026-08-20, 사용자 "다 추천안으로 해봐 실기는 괜찮아"):
+          **크래시 수정 실기 확증 완료**(빈 창 미재발) + 결정 3건 전부 추천안 — ①
+          ErrorBoundary A안(영역 경계+전체 폴백) ② 부팅 워처 후절화 A안(별도 Rust 배치 —
+          앱 재시작 수반이라 후순) ③ registry 소유권 A안(CodeEditor 생명주기 이관).
+          편성: d-24 = ①+③ 통합(TS)·d-25 = ②(Rust)
+    - [ ] d-24. 크래시 클래스 봉인 + ErrorBoundary — **진행 중**. 계약
+          `docs/acknowledge/2026-08-20-crash-class-seal-contract.md`. registry 등록을
+          CodeEditor 생명주기로 이관(불변식 "registry ≡ live" 구조 강제·기존 방어 2종 유지)
+          + shared/ui ErrorBoundary(영역 단위: EditorArea·사이드바 등 실사 배치 + 루트 폴백·
+          로케일 경유·재시도 재마운트). 구현→4렌즈→적대적→수정→메인 2차→커밋→병합
+    - [ ] d-25. 부팅 워처 attach 후절화(Rust) — d-24 완료 후. 진단 wf_14010876-849 rank 1:
+          setup() 동기 전수 워크를 창 표시 뒤로. 착수 시 tauri dev 재빌드·앱 재시작 고지
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
