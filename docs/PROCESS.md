@@ -864,9 +864,18 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           주입·레이아웃 상단 절단·보조 창 target·읽기 전용 조회 try_load_project_readonly·
           infra/clock 공통화·shared/lib/path-root 승격·접근성 ul/li·원격 안내). 로케일
           789→792. 검증 bun 1424·cargo 1061·domain_boundaries 그린
-    - [ ] d-28. T2-A 중복 제거 — **진행 중**. 계약
-          `docs/acknowledge/2026-08-20-t2a-dedup-contract.md`(감사 18항목 전수 실사·X-A 형식·
-          대형 재설계급은 T2-B 경계 판단 후 이월). goal "추천안대로 계속" 하 HANDOFF §8-2 순번
+    - [x] d-28. T2-A 중복 제거 — **완결·병합**(main=77fd46d). 계약
+          `2026-08-20-t2a-dedup-contract.md`(§3 판정표·§4 검토 반영). 커밋 `b42242b`(계약)+
+          `f5378a4`+`5fdf2de`(구현 — 스테이징 누락으로 비원자 분리, §4.1 기록)+`77fd46d`(fix
+          검토 반영). 18(+1)항목: 13 fixed·4 deferred(layout 골격·ollama↔omlx·AI 응답 타입
+          (bindings 표면)·codex 절단(행동 변경) — T2-B/제품 판단 이월). E 검토 19발견(major 4)
+          **confirmed 4·refuted 0** 전건 반영(인라인 사본 8곳 완결·LSP 술어 F3#7 판정 행 신설·
+          entities/lsp.constant 이동·상수 shared/constants/code-editor 정본화·ANSI 근거 사실화·
+          테스트 보강). 검증 bun 1435·cargo 1094·bindings 무변경. 신설 공통 모듈 6
+    - [ ] d-29. T2-B 분해 1호 — settings-view(927줄) 섹션 위젯 분해. **진행 중**(editor-pane
+          선례 — 파일별 단독 배치). 잔여 T2-B 큐: lib.rs 이관·command-registry 4분할·
+          mapping-tables·lsp-session-registry·git-panel·command-palette·explorer-container +
+          d-28 이월(layout 커맨드 골격·ollama↔omlx 파이프라인)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →
