@@ -872,8 +872,15 @@ race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_me
           **confirmed 4·refuted 0** 전건 반영(인라인 사본 8곳 완결·LSP 술어 F3#7 판정 행 신설·
           entities/lsp.constant 이동·상수 shared/constants/code-editor 정본화·ANSI 근거 사실화·
           테스트 보강). 검증 bun 1435·cargo 1094·bindings 무변경. 신설 공통 모듈 6
-    - [ ] d-29. T2-B 분해 1호 — settings-view(927줄) 섹션 위젯 분해. **진행 중**(editor-pane
-          선례 — 파일별 단독 배치). 잔여 T2-B 큐: lib.rs 이관·command-registry 4분할·
+    - [x] d-29. T2-B 1호 settings-view 분해 — **완결·병합**(main=9ca4e38). 계약
+          `2026-08-21-t2b-settings-view-contract.md`(§3·§4). 커밋 `6604f15`(계약)+`dad3a52`
+          (refactor 926→201줄·섹션 12분할)+`9ca4e38`(fix 검토 반영). E 검토 19발견(major 6)
+          **confirmed 6·refuted 0** — 구현 전제 오류 적중(전체화면 스왑 게이트가 섹션
+          언마운트 → 상태·구독·뮤테이션 콜백 수명 단축) → 스왑 생존 관심사 전량 컨테이너
+          환원(TanStack 소스 실사 근거)·Sync 배선 일관화·ThemeEditorState ComponentProps
+          유도·useOpenAppFileTab 헬퍼. 프로세스 결함(구현 §3 기록 누락 2회 연속) docs/feedback
+          승격. 이월: Switch 행 프리미티브·i18n 키 이중화·스왑 왕복 재요청(기록)
+    - [ ] d-30. T2-B 2호 — command-registry 4분할. **진행 중**. 잔여 T2-B 큐: lib.rs 이관·
           mapping-tables·lsp-session-registry·git-panel·command-palette·explorer-container +
           d-28 이월(layout 커맨드 골격·ollama↔omlx 파이프라인)
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
