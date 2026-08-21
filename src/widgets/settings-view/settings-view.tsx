@@ -1,16 +1,18 @@
-import type { FC } from 'react'
+import type { ComponentProps, FC } from 'react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { FileJson } from 'lucide-react'
 import { toast } from 'sonner'
-import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
+import { useLspInstallProgressSync } from '@entities/lsp/lsp.query'
+import { useOpenAppFileTab } from '@entities/layout/layout.query'
+import { useIssueRemoteLink } from '@entities/remote/remote.query'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemOpenAppDataPath } from '@entities/system/system.ipc'
+import { useConnectSync, useDisconnectSync, useDownloadSync, useUploadSync } from '@entities/sync/sync.query'
 import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { SettingsAiSection } from '@widgets/settings-view/settings-ai-section'
 import { SettingsAppearanceSection } from '@widgets/settings-view/settings-appearance-section'
-import type { ThemeEditorState } from '@widgets/settings-view/settings-appearance-section'
 import { SettingsEditorSection } from '@widgets/settings-view/settings-editor-section'
 import { SettingsInterfaceSection } from '@widgets/settings-view/settings-interface-section'
 import { SettingsKeymapSection } from '@widgets/settings-view/settings-keymap-section'
@@ -24,11 +26,18 @@ import { SettingsTerminalSection } from '@widgets/settings-view/settings-termina
 import { SettingsToc } from '@features/settings/settings-toc'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import type { AppDataPathKind, ProjectId } from '@shared/api/bindings'
-import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { SnippetEditor } from '@widgets/snippet-editor/snippet-editor'
 import { Button } from '@shared/ui/button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
+
+export type ThemeEditorState = Pick<ComponentProps<typeof ThemeEditor>, 'mode' | 'sourceThemeId'>
+
+/**
+ * Pure — no closure over container state, so it lives at module scope instead of being
+ * recreated (and re-threaded through props) on every SettingsView render.
+ */
+const handleOpenAppDataFolder = (kind: AppDataPathKind) => void systemOpenAppDataPath(kind).catch((error: Error) => toast.error(error.message))
 
 const SETTINGS_SCROLL_OFFSET_PX = 32
 
@@ -81,26 +90,24 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     const [activeSectionId, setActiveSectionId] = useState<string>(SETTINGS_TOC_ITEMS[0].id)
     const [themeEditorState, setThemeEditorState] = useState<ThemeEditorState | null>(null)
     const [isSnippetEditorOpen, setIsSnippetEditorOpen] = useState(false)
+    const [issuedRemoteUrl, setIssuedRemoteUrl] = useState<string | null>(null)
+    const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false)
 
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [] } = useQuery(themeListQueryOptions())
     const { mutate: updateSettings, isPending: isUpdatingSettings } = useUpdateSettings()
-    const { mutate: openTab } = useOpenTab(projectId)
-    const { data: layout } = useQuery(layoutQueryOptions(projectId))
+    const { mutate: issueRemoteLink, isPending: isIssuingRemoteLink } = useIssueRemoteLink()
+    const { mutate: connectSync, isPending: isConnectingSync } = useConnectSync()
+    const { mutate: disconnectSync, isPending: isDisconnectingSync } = useDisconnectSync()
+    const { mutate: uploadSync, isPending: isUploadingSync } = useUploadSync()
+    const { mutate: downloadSync, isPending: isDownloadingSync } = useDownloadSync()
+    const openAppFileTab = useOpenAppFileTab(projectId)
 
     const { t } = useTranslation()
 
-    const handleOpenSettingsFile = () =>
-        openTab(
-            {
-                projectId,
-                kind: { kind: 'appFile', target: { kind: 'settings' } },
-                title: SETTINGS_JSON_TAB_TITLE,
-                target: currentWindowFocusedPane(layout),
-                preview: false,
-            },
-            { onError: (error) => toast.error(error.message) },
-        )
+    useLspInstallProgressSync()
+
+    const handleOpenSettingsFile = () => openAppFileTab({ kind: 'settings' }, SETTINGS_JSON_TAB_TITLE)
 
     const handleTocSelect = (id: string) => {
         setActiveSectionId(id)
@@ -112,8 +119,6 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     }
 
     if (isSettingsPending || !settings) return <div className='bg-app-background h-full w-full' />
-
-    const handleOpenAppDataFolder = (kind: AppDataPathKind) => void systemOpenAppDataPath(kind).catch((error: Error) => toast.error(error.message))
 
     if (themeEditorState)
         return (
@@ -183,13 +188,30 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
 
                         <SettingsPluginsSection id={SETTINGS_SECTION_ID.PLUGINS} />
 
-                        <SettingsSyncSection id={SETTINGS_SECTION_ID.SYNC} />
+                        <SettingsSyncSection
+                            id={SETTINGS_SECTION_ID.SYNC}
+                            settings={settings}
+                            isSyncConflictOpen={isSyncConflictOpen}
+                            onSyncConflictOpenChange={setIsSyncConflictOpen}
+                            connectSync={connectSync}
+                            isConnectingSync={isConnectingSync}
+                            disconnectSync={disconnectSync}
+                            isDisconnectingSync={isDisconnectingSync}
+                            uploadSync={uploadSync}
+                            isUploadingSync={isUploadingSync}
+                            downloadSync={downloadSync}
+                            isDownloadingSync={isDownloadingSync}
+                        />
 
                         <SettingsRemoteSection
                             id={SETTINGS_SECTION_ID.REMOTE}
                             settings={settings}
                             updateSettings={updateSettings}
                             isUpdatingSettings={isUpdatingSettings}
+                            issuedUrl={issuedRemoteUrl}
+                            onIssuedUrlChange={setIssuedRemoteUrl}
+                            issueRemoteLink={issueRemoteLink}
+                            isIssuingRemoteLink={isIssuingRemoteLink}
                         />
 
                         <div aria-hidden className='h-[50vh] shrink-0' />

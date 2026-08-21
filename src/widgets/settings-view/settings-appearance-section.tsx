@@ -11,10 +11,9 @@ import { CustomThemeList } from '@features/theme/custom-theme-list'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ThemePicker } from '@features/settings/theme-picker'
 import type { AppDataPathKind, Settings } from '@shared/api/bindings'
+import type { ThemeEditorState } from '@widgets/settings-view/settings-view'
 import { Button } from '@shared/ui/button'
 import { Switch } from '@shared/ui/switch'
-
-export type ThemeEditorState = { mode: 'create' | 'edit'; sourceThemeId: string }
 
 type SettingsAppearanceSectionProps = {
     id: string

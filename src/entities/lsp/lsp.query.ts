@@ -23,13 +23,21 @@ export const lspSessionsQueryOptions = (projectId: ProjectId | null) =>
  * the query cache (a `queryFn` that never actually fetched anything, fed entirely by `setQueryData`)
  * was a category error. `useLspInstallProgress` is the correctly-layered replacement
  * (`external-store-bridge.ts`, the same primitive `shared/lib` factory F1#11's theme-preview
- * eviction also uses). `widgets/settings-view/settings-view.tsx` reads it directly — no query cache
- * involved.
+ * eviction also uses). `widgets/settings-view/settings-lsp-section.tsx` reads it directly — no
+ * query cache involved.
  */
 const lspInstallProgressStore = createExternalStoreBridge<Record<string, LspInstallProgress>>({})
 
 export const useLspInstallProgress = () => useSyncExternalStore(lspInstallProgressStore.subscribe, lspInstallProgressStore.getSnapshot)
 
+/**
+ * T2-B Phase E (`docs/acknowledge/2026-08-21-t2b-settings-view-contract.md` §4): called from
+ * `settings-view.tsx` (the container), not from `settings-lsp-section.tsx` — the container is the
+ * one component in the settings screen that stays mounted across the ThemeEditor/SnippetEditor
+ * full-screen swap (`themeEditorState`/`isSnippetEditorOpen` early returns), so subscribing there
+ * keeps this Tauri listener alive for the swap's duration instead of dropping install-progress
+ * events whenever the LSP section itself is unmounted.
+ */
 export const useLspInstallProgressSync = () => {
     useTauriEvent(events.lspInstallProgress, ({ payload }) => {
         lspInstallProgressStore.setValue({ ...lspInstallProgressStore.getSnapshot(), [payload.serverId]: payload })

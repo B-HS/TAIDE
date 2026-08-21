@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { aiModelsQueryOptions, aiTokenStatusQueryOptions, useClearAiToken, useSetAiToken } from '@entities/ai/ai.query'
-import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
+import { useOpenAppFileTab } from '@entities/layout/layout.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import type { useUpdateSettings } from '@entities/settings/settings.query'
 import { AiAutoTabToggle } from '@features/settings/ai-auto-tab-toggle'
@@ -13,7 +13,6 @@ import { AiProviderTokenRow } from '@features/settings/ai-provider-token-row'
 import { OptionPicker } from '@features/settings/option-picker'
 import { SettingsSection } from '@features/settings/settings-section'
 import type { AiProviderId, ProjectId, PromptTemplateId, Settings } from '@shared/api/bindings'
-import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { IconButton } from '@shared/ui/icon-button'
 
 /** Default for `Settings.aiProvider` — shared by auto-tab, Inline Edit, and AI commit messages (not auto-tab-only, despite the field's Wave G predecessor name). */
@@ -42,8 +41,7 @@ export const SettingsAiSection: FC<SettingsAiSectionProps> = ({ id, projectId, s
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { mutate: setAiToken, isPending: isSettingAiToken, variables: settingAiTokenVariables } = useSetAiToken()
     const { mutate: clearAiToken } = useClearAiToken()
-    const { mutate: openTab } = useOpenTab(projectId)
-    const { data: layout } = useQuery(layoutQueryOptions(projectId))
+    const openAppFileTab = useOpenAppFileTab(projectId)
 
     const selectedAiProvider = settings.aiProvider ?? DEFAULT_AI_PROVIDER
     const isSelectedAiProviderConfigured = aiTokenStatus?.[selectedAiProvider] ?? false
@@ -60,17 +58,7 @@ export const SettingsAiSection: FC<SettingsAiSectionProps> = ({ id, projectId, s
     const handleClearAiToken = (provider: AiProviderId) => clearAiToken(provider)
     const handleOmlxBaseUrlCommit = (value: string) => updateSettings({ ...emptySettingsPatch(), aiOmlxBaseUrl: value.trim() })
 
-    const handleOpenPromptFile = (promptId: PromptTemplateId, labelKey: string) =>
-        openTab(
-            {
-                projectId,
-                kind: { kind: 'appFile', target: { kind: 'prompt', id: promptId } },
-                title: t(labelKey),
-                target: currentWindowFocusedPane(layout),
-                preview: false,
-            },
-            { onError: (error) => toast.error(error.message) },
-        )
+    const handleOpenPromptFile = (promptId: PromptTemplateId, labelKey: string) => openAppFileTab({ kind: 'prompt', id: promptId }, t(labelKey))
 
     return (
         <SettingsSection id={id} title={t('settings.aiSectionTitle')}>

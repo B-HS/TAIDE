@@ -1,27 +1,44 @@
 import type { FC } from 'react'
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { settingsQueryOptions } from '@entities/settings/settings.query'
-import { syncStatusQueryOptions, useConnectSync, useDisconnectSync, useDownloadSync, useUploadSync } from '@entities/sync/sync.query'
+import { useQuery } from '@tanstack/react-query'
+import { syncStatusQueryOptions } from '@entities/sync/sync.query'
+import type { useConnectSync, useDisconnectSync, useDownloadSync, useUploadSync } from '@entities/sync/sync.query'
 import { SettingsSection } from '@features/settings/settings-section'
 import { SyncConflictDialog } from '@features/settings/sync-conflict-dialog'
 import { SyncSection } from '@features/settings/sync-section'
+import type { Settings } from '@shared/api/bindings'
 
 type SettingsSyncSectionProps = {
     id: string
+    settings: Settings
+    isSyncConflictOpen: boolean
+    onSyncConflictOpenChange: (open: boolean) => void
+    connectSync: ReturnType<typeof useConnectSync>['mutate']
+    isConnectingSync: boolean
+    disconnectSync: ReturnType<typeof useDisconnectSync>['mutate']
+    isDisconnectingSync: boolean
+    uploadSync: ReturnType<typeof useUploadSync>['mutate']
+    isUploadingSync: boolean
+    downloadSync: ReturnType<typeof useDownloadSync>['mutate']
+    isDownloadingSync: boolean
 }
 
-export const SettingsSyncSection: FC<SettingsSyncSectionProps> = ({ id }) => {
-    const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false)
-
-    const { data: settings } = useQuery(settingsQueryOptions())
+export const SettingsSyncSection: FC<SettingsSyncSectionProps> = ({
+    id,
+    settings,
+    isSyncConflictOpen,
+    onSyncConflictOpenChange,
+    connectSync,
+    isConnectingSync,
+    disconnectSync,
+    isDisconnectingSync,
+    uploadSync,
+    isUploadingSync,
+    downloadSync,
+    isDownloadingSync,
+}) => {
     const { data: syncStatus } = useQuery(syncStatusQueryOptions())
-    const { mutate: connectSync, isPending: isConnectingSync } = useConnectSync()
-    const { mutate: disconnectSync, isPending: isDisconnectingSync } = useDisconnectSync()
-    const { mutate: uploadSync, isPending: isUploadingSync } = useUploadSync()
-    const { mutate: downloadSync, isPending: isDownloadingSync } = useDownloadSync()
 
     const { t } = useTranslation()
 
@@ -38,15 +55,15 @@ export const SettingsSyncSection: FC<SettingsSyncSectionProps> = ({ id }) => {
         })
     const handleDownloadSync = () =>
         downloadSync(false, {
-            onSuccess: (result) => (result.kind === 'conflict' ? setIsSyncConflictOpen(true) : toast.success(t('settings.syncDownloadSuccess'))),
+            onSuccess: (result) => (result.kind === 'conflict' ? onSyncConflictOpenChange(true) : toast.success(t('settings.syncDownloadSuccess'))),
             onError: () => toast.error(t('settings.syncDownloadFailed')),
         })
     const handleSyncConflictKeepLocal = () => {
-        setIsSyncConflictOpen(false)
+        onSyncConflictOpenChange(false)
         handleUploadSync()
     }
     const handleSyncConflictPullRemote = () => {
-        setIsSyncConflictOpen(false)
+        onSyncConflictOpenChange(false)
         downloadSync(true, {
             onSuccess: () => toast.success(t('settings.syncDownloadSuccess')),
             onError: () => toast.error(t('settings.syncDownloadFailed')),
@@ -58,7 +75,7 @@ export const SettingsSyncSection: FC<SettingsSyncSectionProps> = ({ id }) => {
             <SettingsSection id={id} title={t('settings.syncSectionTitle')}>
                 <SyncSection
                     status={syncStatus}
-                    gistId={settings?.syncGistId ?? null}
+                    gistId={settings.syncGistId ?? null}
                     connecting={isConnectingSync}
                     disconnecting={isDisconnectingSync}
                     uploading={isUploadingSync}
@@ -72,7 +89,7 @@ export const SettingsSyncSection: FC<SettingsSyncSectionProps> = ({ id }) => {
 
             <SyncConflictDialog
                 open={isSyncConflictOpen}
-                onCancel={() => setIsSyncConflictOpen(false)}
+                onCancel={() => onSyncConflictOpenChange(false)}
                 onKeepLocal={handleSyncConflictKeepLocal}
                 onPullRemote={handleSyncConflictPullRemote}
             />

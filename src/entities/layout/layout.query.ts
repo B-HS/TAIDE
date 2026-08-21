@@ -1,7 +1,8 @@
-import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { ProjectId, ProjectLayout } from '@shared/api/bindings'
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import type { AppFileTarget, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { collectAllPaneTabs, findPaneTab } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, currentWindowFocusedPane, findPaneTab } from '@shared/lib/pane-tree'
 import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
 import { releaseWaitMarker } from '@entities/agent/agent.ipc'
 import { clearMirror } from '@entities/file/file.ipc'
@@ -44,6 +45,23 @@ const useLayoutMutation = <TVariables>(projectId: ProjectId | null, mutationFn: 
 }
 
 export const useOpenTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, openTab)
+
+/**
+ * Shared by every "open settings.json / a prompt template as a tab" call site
+ * (`settings-view.tsx`'s header button, `settings-ai-section.tsx`'s prompt rows) so the
+ * open-in-the-focused-pane-of-this-window + error-toast wiring exists in one place instead of
+ * being copy-pasted per call site.
+ */
+export const useOpenAppFileTab = (projectId: ProjectId) => {
+    const { mutate: openTab } = useOpenTab(projectId)
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
+
+    return (appFileTarget: AppFileTarget, title: string) =>
+        openTab(
+            { projectId, kind: { kind: 'appFile', target: appFileTarget }, title, target: currentWindowFocusedPane(layout), preview: false },
+            { onError: (error) => toast.error(error.message) },
+        )
+}
 
 /**
  * `useOpenTab` binds `projectId` at hook-call time, so it can't correctly cache a tab opened for a

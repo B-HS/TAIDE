@@ -145,7 +145,8 @@ JSON 은 통상 수십~수백 KB 라 여유 있게 잡았다). zip 메타데이�
 - 임포트 UI: `VsixThemeImportButton`(파일 dialog → `vsix_extract_themes` 호출) →
   `VsixThemeImportDialog`(변환 → 미리보기 → 중복 이름 처리 → `theme_save` IPC 로 저장,
   `themes/` 디렉토리 재사용 — 임포트 테마는 사용자 로컬 파일이라 라이선스 번들 문제 없음).
-  `src/widgets/settings-view/settings-view.tsx` 에 실배선됨.
+  `src/widgets/plugin-manager/plugin-manager.tsx` 에 실배선되고(설정 화면의 PLUGINS 섹션 —
+  `src/widgets/settings-view/settings-plugins-section.tsx` 가 이 위젯을 그대로 임베드).
 - i18n `settings.themeImport*` 키는 `locale/service.rs` 의 `MESSAGE_NAMESPACES` +
   `src-tauri/resources/locales/{en,ko,ja}.json` 4곳 동기로 관리한다(T2-I 외부화 반영). 실소비
   키는 `src/widgets/plugin-manager/vsix-import-dialog.tsx` 의 6키 — 성공/저장실패/중복

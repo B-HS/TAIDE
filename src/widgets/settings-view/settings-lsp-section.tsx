@@ -2,13 +2,7 @@ import type { FC } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import {
-    lspServersQueryOptions,
-    useCancelLspInstall,
-    useInstallLspServer,
-    useLspInstallProgress,
-    useLspInstallProgressSync,
-} from '@entities/lsp/lsp.query'
+import { lspServersQueryOptions, useCancelLspInstall, useInstallLspServer, useLspInstallProgress } from '@entities/lsp/lsp.query'
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { SettingsSection } from '@features/settings/settings-section'
 import type { LspServerId } from '@shared/api/bindings'
@@ -24,8 +18,6 @@ export const SettingsLspSection: FC<SettingsLspSectionProps> = ({ id }) => {
     const { mutate: cancelLspInstall } = useCancelLspInstall()
 
     const { t } = useTranslation()
-
-    useLspInstallProgressSync()
 
     const handleInstallLspServer = (serverId: LspServerId) => installLspServer(serverId, { onError: (error: Error) => toast.error(error.message) })
     const handleCancelLspInstall = (serverId: LspServerId) => cancelLspInstall(serverId, { onError: (error: Error) => toast.error(error.message) })

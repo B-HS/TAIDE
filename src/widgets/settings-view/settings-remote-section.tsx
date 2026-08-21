@@ -1,17 +1,11 @@
 import type { FC } from 'react'
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import type { useUpdateSettings } from '@entities/settings/settings.query'
-import {
-    remoteStatusQueryOptions,
-    useClearRemotePassword,
-    useIssueRemoteLink,
-    useRevokeRemoteSessions,
-    useSetRemotePassword,
-} from '@entities/remote/remote.query'
+import { remoteStatusQueryOptions, useClearRemotePassword, useRevokeRemoteSessions, useSetRemotePassword } from '@entities/remote/remote.query'
+import type { useIssueRemoteLink } from '@entities/remote/remote.query'
 import { RemoteSection } from '@features/settings/remote-section'
 import { SettingsSection } from '@features/settings/settings-section'
 import type { Settings } from '@shared/api/bindings'
@@ -21,13 +15,23 @@ type SettingsRemoteSectionProps = {
     settings: Settings
     updateSettings: ReturnType<typeof useUpdateSettings>['mutate']
     isUpdatingSettings: boolean
+    issuedUrl: string | null
+    onIssuedUrlChange: (url: string | null) => void
+    issueRemoteLink: ReturnType<typeof useIssueRemoteLink>['mutate']
+    isIssuingRemoteLink: boolean
 }
 
-export const SettingsRemoteSection: FC<SettingsRemoteSectionProps> = ({ id, settings, updateSettings, isUpdatingSettings }) => {
-    const [issuedRemoteUrl, setIssuedRemoteUrl] = useState<string | null>(null)
-
+export const SettingsRemoteSection: FC<SettingsRemoteSectionProps> = ({
+    id,
+    settings,
+    updateSettings,
+    isUpdatingSettings,
+    issuedUrl,
+    onIssuedUrlChange,
+    issueRemoteLink,
+    isIssuingRemoteLink,
+}) => {
     const { data: remoteStatus } = useQuery(remoteStatusQueryOptions())
-    const { mutate: issueRemoteLink, isPending: isIssuingRemoteLink } = useIssueRemoteLink()
     const { mutate: revokeRemoteSessions, isPending: isRevokingRemoteSessions } = useRevokeRemoteSessions()
     const { mutate: setRemotePassword, isPending: isSettingRemotePassword } = useSetRemotePassword()
     const { mutate: clearRemotePassword, isPending: isClearingRemotePassword } = useClearRemotePassword()
@@ -35,13 +39,13 @@ export const SettingsRemoteSection: FC<SettingsRemoteSectionProps> = ({ id, sett
     const { t } = useTranslation()
 
     const handleToggleRemote = (enabled: boolean) => {
-        setIssuedRemoteUrl(null)
+        onIssuedUrlChange(null)
         updateSettings({ ...emptySettingsPatch(), remoteAccessEnabled: enabled })
     }
     const handleIssueRemoteLink = () =>
         issueRemoteLink(undefined, {
             onSuccess: (info) => {
-                setIssuedRemoteUrl(info.url)
+                onIssuedUrlChange(info.url)
                 void navigator.clipboard.writeText(info.url).then(
                     () => toast.success(t('remote.linkCopied')),
                     () => undefined,
@@ -61,7 +65,7 @@ export const SettingsRemoteSection: FC<SettingsRemoteSectionProps> = ({ id, sett
             <RemoteSection
                 status={remoteStatus}
                 enabled={settings.remoteAccessEnabled ?? false}
-                issuedUrl={issuedRemoteUrl}
+                issuedUrl={issuedUrl}
                 issuing={isIssuingRemoteLink}
                 revoking={isRevokingRemoteSessions}
                 passwordSaving={isSettingRemotePassword || isClearingRemotePassword}
