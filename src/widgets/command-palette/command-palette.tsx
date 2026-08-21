@@ -5,16 +5,10 @@ import { useQuery } from '@tanstack/react-query'
 import type { languages } from 'monaco-editor'
 import { Braces, CornerDownLeft, File, Hash, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
-import type { AppCommand, CommandContext, FlatPaletteSymbol, PaletteLineTarget, PaletteMode } from '@shared/lib/command-registry'
-import {
-    flattenDocumentSymbols,
-    formatCategorizedLabel,
-    getRegisteredCommand,
-    isCommandRunnable,
-    listRegisteredCommands,
-    parseLineModeTarget,
-    parsePaletteQuery,
-} from '@shared/lib/command-registry'
+import type { FlatPaletteSymbol, PaletteLineTarget, PaletteMode } from '@shared/lib/command-palette-query'
+import { flattenDocumentSymbols, parseLineModeTarget, parsePaletteQuery } from '@shared/lib/command-palette-query'
+import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
+import { formatCategorizedLabel, getRegisteredCommand, isCommandRunnable, listRegisteredCommands } from '@shared/lib/command-registry'
 import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
 import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'

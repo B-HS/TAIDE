@@ -1,4 +1,4 @@
-import { KEYMAP_CATEGORY } from '@shared/lib/command-registry'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
 
 /**
  * Static catalog of monaco-editor 0.56 built-in actions TAIDE exposes as commands/keybinding rows.

@@ -1,8 +1,8 @@
 import { IS_MAC } from '@shared/constants/platform'
 import type { AppCommand } from '@shared/lib/command-registry'
-import { KEYMAP_CATEGORY } from '@shared/lib/command-registry'
 import type { KeymapActionId, KeymapChordStage, KeymapEvent, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap'
 import { APP_KEYMAP, findKeymapConflict, keymapEntryToEvent, matchesKeymapEntry } from '@shared/lib/keymap'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
 import { MONACO_ACTIONS } from '@shared/lib/monaco-actions'
 import { isMonacoCommandId, toMonacoActionId } from '@shared/lib/monaco-keybinding'
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
-import { KEYMAP_CATEGORY, isCommandRunnable } from '@shared/lib/command-registry'
+import { isCommandRunnable } from '@shared/lib/command-registry'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
 import { GIT_COMMANDS } from '@entities/git/git.commands'
 
 const dummyContext: CommandContext = {

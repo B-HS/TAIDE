@@ -1,4 +1,5 @@
-import { DEFAULT_COMMANDS, registerCommands } from '@shared/lib/command-registry'
+import { DEFAULT_COMMANDS } from '@shared/lib/command-catalog'
+import { registerCommands } from '@shared/lib/command-registry'
 import { MONACO_ACTION_COMMANDS, registerTaideCustomActionCommands } from '@shared/lib/monaco-action-commands'
 import { AGENT_CLI_COMMANDS } from '@entities/agent/agent.commands'
 import { AI_COMMANDS } from '@entities/ai/ai.commands'

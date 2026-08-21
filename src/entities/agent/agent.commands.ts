@@ -1,8 +1,8 @@
 import { toast } from 'sonner'
 import type { AppCommand } from '@shared/lib/command-registry'
-import { KEYMAP_CATEGORY } from '@shared/lib/command-registry'
 import { IS_MAC } from '@shared/constants/platform'
 import { i18next } from '@shared/i18n/i18n'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
 import { installCliCommand, uninstallCliCommand } from '@entities/agent/agent.ipc'
 
 const runCliInstall = async () => {
