@@ -47,7 +47,7 @@
 - 프론트 bun test **1435** / Rust **1094**(lib 1068+boundaries 3+restore 6+cli 17).
   verify·vite build 전 배치 exit 0. 커맨드 **177**(+raw3)·이벤트 23·ALLOWED 160 ⊎ DENIED
   **20**·로케일 **792키×3**. 신규 의존성 0 유지.
-- 병합 상태: main=9ca4e38(d-29까지) / dev=d-30 구현+docs 선행(검토 완료 후 병합 예정).
+- 병합 상태: **main=dev 동기**(d-30 포함 전량 병합 완료 — 2026-08-21).
 
 ## 진행 중: 실기 QA → 잔여 기능(P0+P1) → 전문 QA → Phase 8 (2026-08-14, 새 세션)
 
@@ -882,9 +882,15 @@
           환원(TanStack 소스 실사 근거)·Sync 배선 일관화·ThemeEditorState ComponentProps
           유도·useOpenAppFileTab 헬퍼. 프로세스 결함(구현 §3 기록 누락 2회 연속) docs/feedback
           승격. 이월: Switch 행 프리미티브·i18n 키 이중화·스왑 왕복 재요청(기록)
-    - [ ] d-30. T2-B 2호 — command-registry 4분할. **진행 중**. 잔여 T2-B 큐: lib.rs 이관·
-          mapping-tables·lsp-session-registry·git-panel·command-palette·explorer-container +
-          d-28 이월(layout 커맨드 골격·ollama↔omlx 파이프라인)
+    - [x] d-30. T2-B 3호 command-registry 4분할 — **완결·병합**. 계약
+          `2026-08-21-t2b-command-registry-contract.md`(§3·§4). 커밋 `802f96c`(계약)+`a71415d`
+          (refactor 302→관심사 4파일: 레지스트리 51·팔레트 파서 57·카탈로그 174·카테고리 21·
+          소비처 갱신 12+무변경 5·테스트 3분할). E 검토(재기동 — 1차 네트워크 사망) **major 0·
+          minor 7**(전부 문서 수치·stale 포인터 — 메인 소규모 2차로 직접 반영·적대적 불요).
+          동등성은 본문 264줄 멀티셋 완전 일치로 기계 확정. 후속 기록: formatCategorizedLabel
+          표시 계층 분리·팔레트 파서 미참조 export 5건('>' 하드코딩 소생 구조)
+    - [ ] d-31~d-35. 통합 배치 5묶음 — **대기**(사용자 지시 2026-08-21 "d30 까지만 해두고" —
+          착수는 사용자 확인 후). 정본 `2026-08-21-batch-consolidation-decision.md` §2
     - [x] d-0. 착수 확인(2026-08-18) — 사용자 결정 2건 전부 추천안: ① dev 선행 문서 커밋 2건
           (c79e853·b4e7318) prod 병합 완료(main=b4e7318, branch -f + push 분리 실행) ② 전문 QA(d)
           착수. 착수 순서: 정찰/설계 Workflow → 추천안 패키지 질문(e2e 의존성 승인·감사 범위) →

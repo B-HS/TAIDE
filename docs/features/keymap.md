@@ -187,7 +187,7 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
 **표본 엔트리**: `open-keybindings-editor` = `⌘K` → `⌘K ⌘S`(2단도 `mod` 필요 — 계약 §3.1 문언
 "VS Code 관성" 그대로. 표시는 `formatKeymapShortcut` 이 "⌘K ⌘S" 로 렌더링한다, monaco
 `defaultBindingLabel` 관례와 동일한 공백 join). 핸들러는 `requestOpenKeybindingsEditor()`
-(`keybindings-bridge.ts`) — 키바인딩 에디터를 연다. `command-registry.ts` 의 `keybindings.open`
+(`keybindings-bridge.ts`) — 키바인딩 에디터를 연다. `command-catalog.ts`(d-30 분할 이전 command-registry.ts) 의 `keybindings.open`
 커맨드에도 `keymapId: 'open-keybindings-editor'` 가 붙어 있어(Phase D 접합) 팔레트·카탈로그에
 **행이 하나로 통일**된다(붙지 않았다면 "바인딩 있는 keymap 전용 행"과 "바인딩 없는 커맨드 행"
 2개로 쪼개져 보였을 것). 이 리네임으로 예전 `keybindings.open` actionId 로 저장된 오버라이드가
