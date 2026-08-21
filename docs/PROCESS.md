@@ -6,46 +6,48 @@
 > 과거 기록(문서화·Phase 0~7.10 W1~W7)은 `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 아카이브됨 (2026-08-14).
 > QA6 후속·기능 확장 1~3차(2026-08-12~14)는 `docs/history/2026-08-16-process-archive-qa6-feature-waves.md` 로 아카이브됨 (2026-08-16).
 
-## 잔여 작업 총괄 (2026-08-19 실측 — 다음 착수 판단의 단일 뷰)
+## 잔여 작업 총괄 (2026-08-21 현행화 — 다음 착수 판단의 단일 뷰)
 
-> 기능(PRD FR-A~J)은 캠페인 A~I 로 전량 구현 완료. 남은 것은 감사 잔여·QA 실기·Phase 8.
-> 상세 정본: 감사 = `quality-assurance/2026-08-18-architecture-audit.md`, T1 3차 이월 =
-> `acknowledge/2026-08-19-audit-t1-batch3-contract.md` §5.1, 실기 = qa6-checklist.
+> 기능(PRD FR-A~J) 전량 구현 완료. 감사 T0·T1 전 트랙 + T2 중 I·D/F/G·A·B(일부) 완결.
+> 08-20~21 세션에서 실기 사건 대응(크래시 근본 수정·실기 확증 완료)·ErrorBoundary·팔레트/
+> 테마/Welcome/부팅 UX 배치 완결. **운영 방식 변경: d-31 부터 5묶음 통합 배치**
+> (`acknowledge/2026-08-21-batch-consolidation-decision.md` 정본).
 
-### 감사 297발견 처리 현황
+### 감사 297발견 처리 현황 (2026-08-21)
 
 | 트랙 | 상태 |
 |------|------|
-| T0 24항목 | **완료**(#15 는 T1-2차 재등록으로 해소) |
-| T1 11묶음 중 8 | **완료**: E·J·B(1차)·G·asset·F(2차)·C·D·A(3차)·editor-pane 이월(d-13) |
-| **T1-K 원격 기본거부** (6건) | **완료(d-14)** — C16 근본 해소(기본 거부 기계 강제) |
-| **T1-H 락 IO 분리** (10건) | **완료(d-18)** — 락-IO 결합 국소 해소(입도 무변경). 계약 `2026-08-19-audit-t1h-lock-io-contract.md`. 이월: git2 in-process 동기 IO 13건·repo 단위 재진입 직렬화·원격 동시 상한·pty_spawn·git_pull 네트워크 락 탈출(계약 §4·§5) |
-| **T1-I 도메인 경계 C13** (12건) | **완료(d-17)** — 결정 10-A·12-A 실행(capability 확장점·아키텍처 테스트 기계 강제). 이월: AppState 공유 필드 사각지대·layout↔ide·window↔layout 순환(계약 §5) |
-| T2 백로그 10묶음 (~107건) | **T2-I 완료(d-19)** — 로케일 외부화(4081→1242·미참조 32키 제거). 잔여: 중복 제거·비대 파일 분해(settings-view 927·lib.rs 등)·shared/lib 재구조화·접근성 8·dead code·매직넘버 |
-| T2-E AppError 369지점 | 미착수 — **별도 캠페인**(T2-J 병합, 한/영 혼재 UX) |
-| X-A 배선 8건 | **완료(d-15)** — 살리기 4·지우기(focus-kind·app:ready·중복 5종)·X1#2 소비 전량. 신규 이월 4건(viewState closed_tabs 복원 공백·useReplaceSearch invalidation 부재·REMOTE 폴링/push 중복·경로 predicate 한계)은 d-15 계약 §6 |
-| X-C 문서 잔여 | 일부 해소(커맨드 수·data-model roots 는 정정됨) — X1#5(sync gist 스키마 절)·#15(디스크 레이아웃)·#16·#17·#18 잔여 |
-| 미배정 minor·압축 제외 | ~40건(감사 원문에만 존재 — 재론 시 실코드 확인) |
+| T0 24항목 · T1 11묶음 | **완료**(T1 은 08-20 이전 세션들에서 전체 완결) |
+| T2-I 로케일 외부화 | **완료(d-19)** |
+| T2-D/F/G 접근성·dead code·매직넘버 | **완료(d-21)** — confirmed 5 전건 반영 |
+| T2-A 중복 제거 | **완료(d-28)** — 13 fixed·4 deferred(d-31/32·제품 판단으로 이월) |
+| T2-B 분해 | **진행 중** — editor-pane(d-13)·settings-view(d-29)·command-registry(d-30, 검토 재기동 중) 완료. 잔여는 d-31(TS 일괄)·d-32(Rust 일괄)로 통합 |
+| T2-C shared/lib 재구조화 | 미착수 → **d-33 묶음** |
+| T2-E/J AppError 369지점 | 미착수 → **d-34 캠페인**(워크플로 1회 다단) |
+| 비감사 완결 | d-22 크래시 근본 수정(실기 확증)·d-24 registry 봉인+ErrorBoundary 6곳·d-26/26b 팔레트+번들 테마 12종 데이터·d-27 Welcome 확충(커맨드 177·DENIED 20)·d-25 부팅 워처 후절화 |
 
-### T1 3차 §5.1 이월 잔여 (8건 중 6.5건)
+### 통합 배치 큐 (d-31~d-35 — 상세 정본: batch-consolidation-decision.md §2)
 
-1. ~~editor-pane 묶음~~ **완료(d-13)** 2. open-with-registry 생명주기(LRU 는 임시) 3. ws.rs
-writer 무한 대기(무트래픽 프루닝 지연) 4. Rust 재핸드셰이크 실패-확인 커맨드 5. throwaway client
-race(하네스 재현 불가 — 보류) 6. ide_publish_diagnostics/notify_at_mention 원격 게이트(제품 결정
-— T1-K 범위 외 명시) 7. TREE_ROWS 센티널 → Option<u32> 8. PROJECT_SCOPED_KEYS 경로 키 미커버
-(실피해 낮음) 9. agent_hooks_uninstall User 스코프 원격 허용의 install/uninstall 대칭화 여부
-(T1-K 검토 노출 — 6번과 함께 제품 결정) 10. 키링 게이팅 비대칭 R3#7(AI 토큰 3·GitHub PAT 원격
-변경 — 동일 결정 묶음)
+1. **d-31 T2-B TS 일괄**: mapping-tables·lsp-session-registry·git-panel·explorer-container·command-palette(실사) + d-26 이월(알파 matchHighlight·search-match-row 저대비)
+2. **d-32 Rust 구조 일괄**: lib.rs 도메인 이관 + layout 커맨드 골격(위험 중상 — 동시성 렌즈 최우선)
+3. **d-33 재구조화+이월 소형 일괄**: T2-C + FILE.RAW 무효화·Switch 프리미티브·workspaceSymbol 하이라이트·T1 3차 이월 소형분
+4. **d-34 AppError 캠페인**: T2-E/J taxonomy(설계→Rust→TS 다단)
+5. **d-35 Rust 하드닝 이월 일괄**: git2 in-process 13건·재진입 직렬화·동시 상한·pty_spawn·NoCache
 
-### QA·배포 트랙
+### 자율 종점 이후 (사용자 개입 필요)
 
-- **e2e 파일럿 실행**(d-6): 하네스·12스펙 준비 완료 — **사용자 준비 필요**(앱 기동·REMOTE 설정·
-  TAIDE_E2E_PASSWORD·`bun run e2e`)
-- **실기 QA 누적**(qa6-checklist): 캠페인 A~I 재검 + 손 QA 재검 + T0/T1 1~3차 재검 + editor-pane
-  재검 7항목 + **asset:// webview 라운드트립(최우선)** + QA-W1 멀티윈도우 40항목(사람 실기 주축)
-- QA-W2~W7 웨이브(pro-qa-design §5)·Wave I deferred 4건 — 미착수
-- **Phase 8**: secrets 5건 등록 완료·release.yml 이식 완료(e-0·e-1) — 본착수(태그 릴리스 실행·
-  공증 실검증)는 전문 QA(d) 통과 후
+- 제품 결정 3건(원격 게이트·hooks 대칭화·키링 게이팅) + AI 응답 타입 통합(bindings 승인)·
+  codex 절단/ollama↔omlx(행동 변경·재설계 판단)
+- e2e 파일럿·QA-W1 실기(사용자 준비) — qa6 에 08-20~21 신설 절 다수(크래시 확증·접근성·
+  Welcome·부팅·d-25 워처 6항목 등)
+- Phase 8 배포(전문 QA 통과 후 — secrets·release.yml 준비 완료 유지)
+
+### 기준선 (2026-08-21 실측)
+
+- 프론트 bun test **1435** / Rust **1094**(lib 1068+boundaries 3+restore 6+cli 17).
+  verify·vite build 전 배치 exit 0. 커맨드 **177**(+raw3)·이벤트 23·ALLOWED 160 ⊎ DENIED
+  **20**·로케일 **792키×3**. 신규 의존성 0 유지.
+- 병합 상태: main=9ca4e38(d-29까지) / dev=d-30 구현+docs 선행(검토 완료 후 병합 예정).
 
 ## 진행 중: 실기 QA → 잔여 기능(P0+P1) → 전문 QA → Phase 8 (2026-08-14, 새 세션)
 
