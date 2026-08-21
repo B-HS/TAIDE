@@ -79,8 +79,11 @@ d-25 "체감 그대로" 주장·d-24 1차의 correctness-1(이후 재조정으�
 
 ## 5. 미해결 / 사용자 확인 필요
 
-1. **d-31 통합 배치 착수 여부** — 사용자 "d30 까지만" 지시로 보류 중. 재개 시 정본
-   `2026-08-21-batch-consolidation-decision.md` §2 의 5묶음 순서(d-31 T2-B TS 일괄부터).
+1. **[다음 세션 TODO 1순위] d-31 통합 배치 착수 여부 확인** — 사용자 "d30 까지만" 지시로
+   보류 중. 재개 승인 시: 계약 작성(정본 `2026-08-21-batch-consolidation-decision.md` §2 의
+   d-31 T2-B TS 일괄 — mapping-tables·lsp-session-registry·git-panel·explorer-container·
+   command-palette 실사 + d-26 이월 알파 토큰/search-match-row) → 통합 파이프라인(구현→렌즈
+   영역 배분 검토→적대적→수정→2차→커밋→병합) 순.
 2. **제품 결정 묶음**(자율 종점 이후): 원격 게이트 3건·AI 응답 타입 통합(bindings 표면 승인)·
    codex 절단/ollama↔omlx(행동 변경·재설계 판단).
 3. e2e 파일럿·QA-W1 실기 — 사용자 준비 필요(§7).
@@ -94,6 +97,8 @@ d-25 "체감 그대로" 주장·d-24 1차의 correctness-1(이후 재조정으�
 | e2e 준비(사용자) | ① tauri dev ② REMOTE 비밀번호·활성화 ③ `export TAIDE_E2E_PASSWORD` ④ `bun run e2e` |
 | Phase 8 | secrets 5·release.yml 준비 완료(태그 `v*`+수동). Team ID `SN98P5V7J4` |
 | 앱 데이터 | `~/Library/Application Support/dev.taide.app/` |
+| 사용자 실기 환경(암묵) | 활성 테마 **darcula**·복원 프로젝트 RESUME(15,320파일)·`bun run tauri dev` 상시 실행 가정. 앱 로그(`~/Library/Logs/dev.taide.app/TAIDE.log`)의 타임스탬프는 **UTC**(KST−9h)·40KB KeepOne 회전. 로그의 "web content process terminated" 는 tauri-runtime-wry 2.11.4 의 **생성 시 오출력 버그**(크래시 증거 아님 — d-22 광역 진단 확정) |
+| 장애 재시도 | API 500/ENOTFOUND 로 에이전트 사망 빈발(이번 세션 3회) — 부분 산출물 실사 후 이어받기 프롬프트로 재기동이 정착 패턴 |
 
 ## 7. 문서 지도
 
