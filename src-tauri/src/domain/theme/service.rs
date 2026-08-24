@@ -987,18 +987,37 @@ mod tests {
         std::env::temp_dir().join(format!("taide-theme-{name}-{}", uuid::Uuid::new_v4()))
     }
 
-    /// Normalizes a theme color string for defect-lint comparison: lowercases and pads a bare
-    /// 6-digit hex to 8 digits with a full-opacity `ff` alpha so `#04395E` and `#04395eff` compare
-    /// equal. An explicit non-`ff` alpha (e.g. `#47526640`) is preserved rather than stripped, so a
-    /// translucent overlay never normalizes down to the same string as its opaque RGB — alpha is a
-    /// real part of what makes two list-row backgrounds visually distinguishable, not noise to
-    /// discard before comparing (docs/acknowledge/2026-08-20-theme-list-colors-contract.md).
+    /// Normalizes a theme color string for defect-lint comparison: lowercases and expands it to an
+    /// 8-digit `rrggbbaa` hex so equivalent shorthand and alpha-bearing forms compare equal —
+    /// `#04395E`, `#04395eff`, and (were a bundled theme ever to use it) `#049e` all normalize to
+    /// the same string. A bare 3-digit shorthand (`#abc`, no alpha channel) and a bare 6-digit hex
+    /// are both treated as fully opaque and padded with `ff`; a 4-digit shorthand (`#abcf`) carries
+    /// its own alpha nibble, which is duplicated like the color nibbles rather than overwritten, so
+    /// a translucent 4-digit value never normalizes down to an opaque one. An explicit non-`ff`
+    /// alpha (e.g. `#47526640`) is preserved rather than stripped, so a translucent overlay never
+    /// normalizes down to the same string as its opaque RGB — alpha is a real part of what makes two
+    /// list-row backgrounds visually distinguishable, not noise to discard before comparing
+    /// (docs/acknowledge/2026-08-20-theme-list-colors-contract.md).
     fn normalize_hex_color(value: &str) -> String {
         let trimmed = value.trim().trim_start_matches('#').to_ascii_lowercase();
+        let expand_shorthand = |shorthand: &str| -> String { shorthand.chars().flat_map(|nibble| [nibble, nibble]).collect() };
         match trimmed.len() {
+            3 => format!("{}ff", expand_shorthand(&trimmed)),
+            4 => expand_shorthand(&trimmed),
             6 => format!("{trimmed}ff"),
             _ => trimmed,
         }
+    }
+
+    #[test]
+    fn normalize_hex_color는_3자리_축약_hex_를_불투명_8자리로_확장한다() {
+        assert_eq!(normalize_hex_color("#fc0"), "ffcc00ff");
+    }
+
+    #[test]
+    fn normalize_hex_color는_4자리_축약_hex_의_알파_니블을_보존해_확장한다() {
+        assert_eq!(normalize_hex_color("#fc0f"), "ffcc00ff");
+        assert_eq!(normalize_hex_color("#fc08"), "ffcc0088");
     }
 
     #[test]
@@ -1301,6 +1320,31 @@ mod tests {
         assert!(
             violations.is_empty(),
             "list color defects in bundled themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn 번들_테마는_panel_매치_하이라이트가_불투명하다() {
+        let mut violations = Vec::new();
+
+        for theme in bundled_themes() {
+            let Some(match_highlight_raw) = theme.colors.get("panel.matchHighlight") else {
+                continue;
+            };
+            let normalized = normalize_hex_color(match_highlight_raw);
+
+            if !normalized.ends_with("ff") {
+                violations.push(format!(
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) is translucent — this token renders as foreground text (search/palette match emphasis), so a translucent value gets absorbed by whatever sits behind it instead of composing a legible color",
+                    theme.id
+                ));
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "panel.matchHighlight defects in bundled themes:\n{}",
             violations.join("\n")
         );
     }

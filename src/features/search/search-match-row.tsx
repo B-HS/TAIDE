@@ -38,7 +38,7 @@ export const SearchMatchRow: FC<SearchMatchRowProps> = ({ match, onClick }) => {
                 <span className='text-app-sidebar-icon-default w-6 shrink-0 text-right tabular-nums'>{match.line}</span>
                 <span className='truncate'>
                     {beforeText}
-                    <mark className='bg-panel-match-highlight text-app-background rounded-xs'>{highlighted}</mark>
+                    <mark className='bg-transparent text-panel-match-highlight font-semibold'>{highlighted}</mark>
                     {afterText}
                 </span>
             </div>

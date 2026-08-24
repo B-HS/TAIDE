@@ -6,6 +6,9 @@ const RGB_CHANNEL_MAX = 255
 const HUE_DEGREES = 360
 const HUE_SEGMENT = 60
 const PERCENT_MAX = 100
+export const HEX_ALPHA_LENGTH = 9
+export const ALPHA_CHANNEL_MAX = 255
+const OPAQUE_HEX_LENGTH = 7
 
 export type Rgb = { r: number; g: number; b: number }
 export type Hsv = { h: number; s: number; v: number }
@@ -41,6 +44,25 @@ const toHexChannel = (channel: number) =>
         .padStart(2, '0')
 
 export const rgbToHex = ({ r, g, b }: Rgb) => `#${toHexChannel(r)}${toHexChannel(g)}${toHexChannel(b)}`
+
+/**
+ * Composites a possibly-translucent 8-digit hex color (`#rrggbbaa`) over an opaque background —
+ * WCAG relative luminance assumes an opaque color, so measuring a translucent value directly would
+ * score a color nothing on screen actually renders. Any other hex form (3- or 6-digit, already
+ * opaque) passes through unchanged — an identity operation for colors that carry no alpha channel.
+ */
+export const compositeOverBackground = (foregroundHex: string, backgroundHex: string) => {
+    if (foregroundHex.length !== HEX_ALPHA_LENGTH) return foregroundHex
+    const foregroundRgb = hexToRgb(foregroundHex.slice(0, OPAQUE_HEX_LENGTH))
+    const backgroundRgb = hexToRgb(backgroundHex)
+    if (!foregroundRgb || !backgroundRgb) return foregroundHex.slice(0, OPAQUE_HEX_LENGTH)
+    const alpha = Number.parseInt(foregroundHex.slice(OPAQUE_HEX_LENGTH, HEX_ALPHA_LENGTH), HEX_RADIX) / ALPHA_CHANNEL_MAX
+    return rgbToHex({
+        r: foregroundRgb.r * alpha + backgroundRgb.r * (1 - alpha),
+        g: foregroundRgb.g * alpha + backgroundRgb.g * (1 - alpha),
+        b: foregroundRgb.b * alpha + backgroundRgb.b * (1 - alpha),
+    })
+}
 
 export const rgbToHsv = ({ r, g, b }: Rgb): Hsv => {
     const rNorm = r / RGB_CHANNEL_MAX

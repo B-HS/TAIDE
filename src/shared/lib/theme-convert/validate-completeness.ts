@@ -1,4 +1,5 @@
-import { COLOR_NAMESPACES, SYNTAX_TOKENS, TERMINAL_MIRRORED_TOKENS } from '@shared/lib/theme-convert/mapping-tables'
+import { TERMINAL_MIRRORED_TOKENS } from '@shared/lib/theme-convert/ansi-palette'
+import { COLOR_NAMESPACES, SYNTAX_TOKENS } from '@shared/lib/theme-convert/ui-token-vocabulary'
 import type { SyntaxStyle } from '@shared/lib/theme-convert/types'
 import { TERMINAL_ANSI_TOKENS } from '@shared/lib/theme-convert/types'
 

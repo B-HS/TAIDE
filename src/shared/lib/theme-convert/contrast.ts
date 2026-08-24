@@ -1,4 +1,4 @@
-import { hexToRgb } from '@shared/lib/color'
+import { compositeOverBackground, hexToRgb } from '@shared/lib/color'
 
 const RGB_CHANNEL_MAX = 255
 const SRGB_LINEAR_THRESHOLD = 0.03928
@@ -38,11 +38,15 @@ export const contrastRatio = (hexA: string, hexB: string): number | null => {
     return (lighter + CONTRAST_RATIO_OFFSET) / (darker + CONTRAST_RATIO_OFFSET)
 }
 
+const foregroundContrastRatio = (foregroundHex: string, backgroundHex: string) =>
+    contrastRatio(compositeOverBackground(foregroundHex, backgroundHex), backgroundHex)
+
 const CONTRAST_PAIRS: readonly { label: string; foregroundKey: string; backgroundKey: string }[] = [
     { label: 'app', foregroundKey: 'app.foreground', backgroundKey: 'app.background' },
     { label: 'editor', foregroundKey: 'editor.foreground', backgroundKey: 'editor.background' },
     { label: 'panel', foregroundKey: 'panel.sectionHeader', backgroundKey: 'panel.background' },
     { label: 'tooltip', foregroundKey: 'app.foreground', backgroundKey: 'tooltip.background' },
+    { label: 'matchHighlight', foregroundKey: 'panel.matchHighlight', backgroundKey: 'panel.background' },
 ]
 
 const CONTRAST_REPAIR_BACKGROUND_CANDIDATES: Record<string, string[]> = {
@@ -52,6 +56,7 @@ const CONTRAST_REPAIR_BACKGROUND_CANDIDATES: Record<string, string[]> = {
 const CONTRAST_REPAIR_FOREGROUND_CANDIDATES: Record<string, string[]> = {
     'app.foreground': ['editor.foreground'],
     'panel.sectionHeader': ['editor.foreground'],
+    'panel.matchHighlight': ['editor.foreground', 'foreground'],
 }
 
 export const repairContrastPairs = (colors: Record<string, string>, vscodeColors: Record<string, string>) => {
@@ -61,13 +66,13 @@ export const repairContrastPairs = (colors: Record<string, string>, vscodeColors
     for (const pair of CONTRAST_PAIRS) {
         const foreground = repairedColors[pair.foregroundKey]
         const background = repairedColors[pair.backgroundKey]
-        const ratio = contrastRatio(foreground, background)
+        const ratio = foregroundContrastRatio(foreground, background)
         if (ratio !== null && ratio >= MIN_CONTRAST_RATIO) continue
 
         const backgroundCandidates = CONTRAST_REPAIR_BACKGROUND_CANDIDATES[pair.backgroundKey] ?? []
         const repairedBackground = backgroundCandidates
             .map((key) => vscodeColors[key])
-            .find((value) => value && (contrastRatio(foreground, value) ?? 0) >= MIN_CONTRAST_RATIO)
+            .find((value) => value && (foregroundContrastRatio(foreground, value) ?? 0) >= MIN_CONTRAST_RATIO)
         if (repairedBackground) {
             repairedColors = { ...repairedColors, [pair.backgroundKey]: repairedBackground }
             repairs.push(`${pair.backgroundKey}: ${background} -> ${repairedBackground} (${pair.label} 대비 확보)`)
@@ -77,7 +82,7 @@ export const repairContrastPairs = (colors: Record<string, string>, vscodeColors
         const foregroundCandidates = CONTRAST_REPAIR_FOREGROUND_CANDIDATES[pair.foregroundKey] ?? []
         const repairedForeground = foregroundCandidates
             .map((key) => vscodeColors[key])
-            .find((value) => value && (contrastRatio(value, background) ?? 0) >= MIN_CONTRAST_RATIO)
+            .find((value) => value && (foregroundContrastRatio(value, background) ?? 0) >= MIN_CONTRAST_RATIO)
         if (!repairedForeground) continue
 
         repairedColors = { ...repairedColors, [pair.foregroundKey]: repairedForeground }
@@ -97,7 +102,7 @@ export const validateOutputColors = (colors: Record<string, string>) => {
     for (const pair of CONTRAST_PAIRS) {
         const foreground = colors[pair.foregroundKey]
         const background = colors[pair.backgroundKey]
-        const ratio = contrastRatio(foreground, background)
+        const ratio = foregroundContrastRatio(foreground, background)
         if (ratio === null || ratio < MIN_CONTRAST_RATIO) {
             errors.push(
                 `${pair.label} 대비 부족: ${pair.foregroundKey}(${foreground}) vs ${pair.backgroundKey}(${background}) = ${ratio?.toFixed(2) ?? 'N/A'} (최소 ${MIN_CONTRAST_RATIO})`,

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { ResolvedTheme, SyntaxStyle } from '@shared/api/bindings'
 import { buildShikiTheme, fallbackFromSyntax } from '@shared/lib/shiki/build-shiki-theme'
-import { SEMANTIC_TOKEN_TYPE_MAP, SYNTAX_SCOPE_CANDIDATES, SYNTAX_TOKENS, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/mapping-tables'
+import { SEMANTIC_TOKEN_TYPE_MAP, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/semantic-token-map'
+import { SYNTAX_SCOPE_CANDIDATES, SYNTAX_TOKENS } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
 const buildSyntax = (overrides: Partial<Record<(typeof SYNTAX_TOKENS)[number], SyntaxStyle>> = {}): ResolvedTheme['syntax'] =>
     Object.fromEntries(SYNTAX_TOKENS.map((token) => [token, overrides[token] ?? { fg: '#ffffff' }]))

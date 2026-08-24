@@ -135,4 +135,48 @@ describe('convertVscodeTheme', () => {
 
         expect(result.tokenColors.map((rule) => rule.scope)).toEqual([['comment'], ['keyword']])
     })
+
+    test('list.highlightForeground 와 editor.findMatchHighlightBackground 가 모두 없으면 panel.matchHighlight 는 safe-default 상태색으로 폴백한다', () => {
+        const result = convertVscodeTheme([MINIMAL_DARK_SOURCE], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#569CD6')
+        expect(result.outputColorErrors).toEqual([])
+    })
+
+    test('editor.findMatchHighlightBackground 가 반투명(github-dark 실사례 #ffd33d22)이면 그 값을 쓰지 않고 safe-default 로 폴백한다', () => {
+        const source = { colors: { ...MINIMAL_DARK_SOURCE.colors, 'editor.findMatchHighlightBackground': '#ffd33d22' } }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#569CD6')
+        expect(result.colors['panel.matchHighlight']).not.toBe('#ffd33d22')
+        expect(result.outputColorErrors).toEqual([])
+    })
+
+    test('editor.findMatchHighlightBackground 가 반투명(github-light 실사례 #ffdf5d66)이어도 그 값을 쓰지 않고 safe-default 로 폴백한다', () => {
+        const lightSource = {
+            colors: {
+                'editor.background': '#ffffff',
+                'editor.foreground': '#1e1e1e',
+                foreground: '#1e1e1e',
+                'editor.findMatchHighlightBackground': '#ffdf5d66',
+            },
+        }
+
+        const result = convertVscodeTheme([lightSource], 'light')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#0066BF')
+        expect(result.colors['panel.matchHighlight']).not.toBe('#ffdf5d66')
+        expect(result.outputColorErrors).toEqual([])
+    })
+
+    test('list.highlightForeground 가 불투명이면 editor.findMatchHighlightBackground 보다 우선해 그대로 사용한다', () => {
+        const source = {
+            colors: { ...MINIMAL_DARK_SOURCE.colors, 'list.highlightForeground': '#ffffff', 'editor.findMatchHighlightBackground': '#ffd33d22' },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#ffffff')
+    })
 })

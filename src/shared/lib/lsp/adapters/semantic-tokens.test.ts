@@ -4,7 +4,7 @@ import { createLspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import type { SemanticTokensLegend, ServerCapabilities } from '@shared/lib/lsp/protocol'
 import { isJsonRpcRequest } from '@shared/lib/lsp/protocol'
-import { toSemanticTokenLegendScope } from '@shared/lib/theme-convert/mapping-tables'
+import { toSemanticTokenLegendScope } from '@shared/lib/theme-convert/semantic-token-map'
 import {
     applySemanticTokensDeltaEdits,
     buildSemanticTokensLegendMapping,

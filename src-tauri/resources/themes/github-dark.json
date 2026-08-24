@@ -46,7 +46,7 @@
         "panel.sectionHeader": "#e1e4e8",
         "panel.inputBackground": "#2f363d",
         "panel.inputBorder": "#1b1f23",
-        "panel.matchHighlight": "#ffd33d22",
+        "panel.matchHighlight": "#ffd33d",
         "editor.background": "#24292e",
         "editor.foreground": "#e1e4e8",
         "editor.lineHighlight": "#2b3036",

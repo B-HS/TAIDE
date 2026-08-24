@@ -1,6 +1,7 @@
 import type { ResolvedTheme, SyntaxStyle, ThemeType, TokenColorRule } from '@shared/api/bindings'
 import { buildThemeColors, TAIDE_MONACO_THEME_NAME, toMonacoFontStyle, toThemeColor } from '@shared/lib/monaco/theme'
-import { SEMANTIC_TOKEN_TYPE_MAP, SYNTAX_SCOPE_CANDIDATES, SYNTAX_TOKENS, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/mapping-tables'
+import { SEMANTIC_TOKEN_TYPE_MAP, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/semantic-token-map'
+import { SYNTAX_SCOPE_CANDIDATES, SYNTAX_TOKENS } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
 export type ShikiTokenColorSettings = {
     foreground?: string

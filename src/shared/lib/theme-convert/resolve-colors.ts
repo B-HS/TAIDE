@@ -1,9 +1,5 @@
-import {
-    COLOR_MAPPING,
-    FAMILY_FALLBACK_SOURCE_KEYS,
-    SAFE_DEFAULT_COLORS,
-    VSCODE_DEFAULT_ANSI_PALETTE,
-} from '@shared/lib/theme-convert/mapping-tables'
+import { VSCODE_DEFAULT_ANSI_PALETTE } from '@shared/lib/theme-convert/ansi-palette'
+import { COLOR_MAPPING, FAMILY_FALLBACK_SOURCE_KEYS, SAFE_DEFAULT_COLORS } from '@shared/lib/theme-convert/mapping-tables'
 import type { AnsiLookup, ColorCategory, ColorMappingEntry, ResolveContext, ThemeTypeArg } from '@shared/lib/theme-convert/types'
 import { TERMINAL_ANSI_TOKENS } from '@shared/lib/theme-convert/types'
 

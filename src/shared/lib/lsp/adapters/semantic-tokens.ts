@@ -4,7 +4,8 @@ import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import { NOOP_DISPOSABLE } from '@shared/lib/lsp/noop-disposable'
 import type { SemanticTokens, SemanticTokensDelta, SemanticTokensEdit, SemanticTokensLegend } from '@shared/lib/lsp/protocol'
 import { isCapabilityEnabled, SEMANTIC_TOKEN_MODIFIERS } from '@shared/lib/lsp/protocol'
-import { lookupSemanticTokenTypeMapping, SYNTAX_TOKENS, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/mapping-tables'
+import { lookupSemanticTokenTypeMapping, toSemanticTokenLegendScope } from '@shared/lib/theme-convert/semantic-token-map'
+import { SYNTAX_TOKENS } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
 /** LSP encodes each semantic token as a 5-number tuple: `[deltaLine, deltaStart, length, tokenType, tokenModifiers]`. */
 const SEMANTIC_TOKEN_TUPLE_SIZE = 5
@@ -151,7 +152,7 @@ const refreshListenersByClient = new WeakMap<LspClient, Set<() => void>>()
  * Fires every `registerSemanticTokens` registration sharing `client`'s `onDidChange` emitter.
  * Meant to be called from the session-scoped `workspace/semanticTokens/refresh` handler Phase D
  * registers once per LSP client via `client.registerRequestHandler` (the `workspace/applyEdit`
- * precedent — see `lsp-session-registry.ts`'s `buildInitializeParams` doc comment), so a refresh
+ * precedent — see `initialize-params.ts`'s `buildInitializeParams` doc comment), so a refresh
  * push only recomputes the sessions that actually asked for it (no cross-session storm). One
  * client can back several registrations at once when it serves multiple language ids from a single
  * process (e.g. vtsls across javascript/typescript/jsx/tsx).

@@ -1,5 +1,6 @@
-import { hexToRgb } from '@shared/lib/color'
-import type { AnsiLookup, ColorCategory, ColorMappingEntry, ResolveContext, ThemeTypeArg } from '@shared/lib/theme-convert/types'
+import { ALPHA_CHANNEL_MAX, HEX_ALPHA_LENGTH, hexToRgb } from '@shared/lib/color'
+import { GRAPH_LANE_ANSI_ORDER } from '@shared/lib/theme-convert/ansi-palette'
+import type { ColorCategory, ColorMappingEntry, ResolveContext, ThemeTypeArg } from '@shared/lib/theme-convert/types'
 
 const SELF_REF_PREFIX = '@'
 
@@ -68,369 +69,14 @@ export const VSCODE_LIST_INACTIVE_SELECTION_BACKGROUND_DEFAULT: Record<ThemeType
     light: '#E4E6F1',
 }
 
-export const COLOR_NAMESPACES: readonly { id: string; tokens: readonly string[] }[] = [
-    { id: 'app', tokens: ['background', 'foreground', 'border', 'focusBorder', 'shadow', 'accent'] },
-    {
-        id: 'appSidebar',
-        tokens: [
-            'background',
-            'itemHover',
-            'itemActive',
-            'iconDefault',
-            'iconAgentRunning',
-            'iconAgentWorking',
-            'iconAgentAwaiting',
-            'iconAgentIdle',
-            'iconAgentUnknown',
-            'badge',
-        ],
-    },
-    {
-        id: 'tabBar',
-        tokens: [
-            'background',
-            'tabActiveBackground',
-            'tabInactiveBackground',
-            'tabActiveForeground',
-            'tabInactiveForeground',
-            'tabBorder',
-            'tabActiveIndicator',
-            'dirtyDot',
-            'previewForeground',
-            'dropTarget',
-        ],
-    },
-    {
-        id: 'explorer',
-        tokens: [
-            'background',
-            'itemHover',
-            'itemSelected',
-            'itemFocused',
-            'indentGuide',
-            'folderIcon',
-            'gitModified',
-            'gitAdded',
-            'gitDeleted',
-            'gitUntracked',
-            'gitIgnored',
-        ],
-    },
-    { id: 'panel', tokens: ['background', 'sectionHeader', 'inputBackground', 'inputBorder', 'matchHighlight'] },
-    {
-        id: 'editor',
-        tokens: [
-            'background',
-            'foreground',
-            'lineHighlight',
-            'cursor',
-            'selection',
-            'inactiveSelection',
-            'lineNumber',
-            'lineNumberActive',
-            'indentGuide',
-            'whitespace',
-            'bracketMatch',
-            'findMatch',
-            'findMatchHighlight',
-            'hoverBackground',
-            'widgetBackground',
-            'widgetBorder',
-        ],
-    },
-    { id: 'editorGutter', tokens: ['addedBackground', 'modifiedBackground', 'deletedBackground'] },
-    { id: 'editorBlame', tokens: ['foreground', 'background'] },
-    { id: 'diff', tokens: ['insertedBackground', 'insertedLineBackground', 'removedBackground', 'removedLineBackground', 'border'] },
-    { id: 'terminal', tokens: ['background', 'foreground', 'cursor', 'selection', 'commandBlockBorder', 'linkForeground'] },
-    { id: 'git', tokens: ['added', 'modified', 'deleted', 'renamed', 'untracked', 'conflicted', 'staged'] },
-    {
-        id: 'graph',
-        tokens: [
-            'lane1',
-            'lane2',
-            'lane3',
-            'lane4',
-            'lane5',
-            'lane6',
-            'lane7',
-            'lane8',
-            'lane9',
-            'lane10',
-            'lane11',
-            'lane12',
-            'refBranch',
-            'refTag',
-            'refHead',
-        ],
-    },
-    { id: 'statusIndicator', tokens: ['info', 'warning', 'error', 'success'] },
-    { id: 'menu', tokens: ['background', 'border', 'itemHover', 'separator'] },
-    { id: 'popover', tokens: ['background', 'border', 'itemHover', 'separator'] },
-    { id: 'tooltip', tokens: ['background', 'border', 'itemHover', 'separator'] },
-    { id: 'modal', tokens: ['background', 'border', 'itemHover', 'separator'] },
-    { id: 'scrollbar', tokens: ['thumb', 'thumbHover', 'track'] },
-    { id: 'input', tokens: ['background', 'foreground', 'border', 'placeholder', 'focusBorder'] },
-    { id: 'button', tokens: ['background', 'foreground', 'hoverBackground', 'primaryBackground', 'primaryForeground'] },
-    { id: 'list', tokens: ['background', 'hoverBackground', 'activeBackground', 'foreground'] },
-]
-
-export const SYNTAX_TOKENS = [
-    'keyword',
-    'storage',
-    'operator',
-    'string',
-    'number',
-    'regexp',
-    'comment',
-    'docComment',
-    'function',
-    'method',
-    'variable',
-    'parameter',
-    'property',
-    'type',
-    'class',
-    'interface',
-    'enum',
-    'constant',
-    'namespace',
-    'decorator',
-    'tag',
-    'attribute',
-    'punctuation',
-    'invalid',
-    'link',
-    'markdownHeading',
-    'markdownEmphasis',
-    'markdownStrong',
-    'markdownCode',
-    'markdownQuote',
-    'markdownListMarker',
-] as const
-
-export const SYNTAX_SCOPE_CANDIDATES: Record<(typeof SYNTAX_TOKENS)[number], string[]> = {
-    keyword: ['keyword.control', 'keyword'],
-    storage: ['storage.type', 'storage.modifier', 'storage'],
-    operator: ['keyword.operator', 'punctuation.separator'],
-    string: ['string.quoted', 'string'],
-    number: ['constant.numeric'],
-    regexp: ['string.regexp'],
-    comment: ['comment.line', 'comment'],
-    docComment: ['comment.block.documentation', 'comment'],
-    function: ['entity.name.function', 'support.function'],
-    method: ['entity.name.function.member', 'meta.function-call', 'entity.name.function'],
-    variable: ['variable.other.readwrite', 'variable.other', 'variable'],
-    parameter: ['variable.parameter'],
-    property: ['variable.other.property', 'support.type.property-name', 'meta.object-literal.key'],
-    type: ['support.type', 'entity.name.type'],
-    class: ['entity.name.type.class', 'entity.name.class', 'support.class', 'entity.name.type'],
-    interface: ['entity.name.type.interface', 'entity.name.type'],
-    enum: ['entity.name.type.enum', 'entity.name.type'],
-    constant: ['constant.language', 'variable.other.constant', 'constant'],
-    namespace: ['entity.name.namespace', 'entity.name.type.module'],
-    decorator: ['meta.decorator', 'entity.name.function.decorator', 'punctuation.decorator'],
-    tag: ['entity.name.tag'],
-    attribute: ['entity.other.attribute-name'],
-    punctuation: ['punctuation.definition', 'punctuation'],
-    invalid: ['invalid.illegal', 'invalid'],
-    link: ['markup.underline.link', 'string.other.link'],
-    markdownHeading: ['markup.heading'],
-    markdownEmphasis: ['markup.italic'],
-    markdownStrong: ['markup.bold'],
-    markdownCode: ['markup.inline.raw', 'markup.raw'],
-    markdownQuote: ['markup.quote'],
-    markdownListMarker: ['punctuation.definition.list', 'markup.list'],
-}
-
-/**
- * Maps every semantic token *type* string a supported LSP server's `legend.tokenTypes` can name
- * to one of TAIDE's 31 `SYNTAX_TOKENS`. Three vocabularies are merged into one flat lookup: LSP
- * 3.17's standard 23 types (`protocol.ts`'s `SEMANTIC_TOKEN_TYPES`), rust-analyzer's non-standard
- * `SupportedType` extensions (source-verified against `crates/rust-analyzer/src/lsp/semantic_tokens.rs`),
- * and clangd's non-standard `toSemanticTokenType` extensions (source-verified against
- * `clang-tools-extra/clangd/SemanticHighlighting.cpp`) — vtsls stays within the standard 23. A type
- * absent from this map is dropped by the adapter (`adapters/semantic-tokens.ts`, via
- * {@link lookupSemanticTokenTypeMapping}) rather than guessed at — silently losing a semantic color
- * is safe, painting the wrong one is not
- * (`docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md` §2-1's washout finding).
- *
- * Non-obvious picks: `struct`→class (no dedicated struct token), `typeParameter`/`builtinType`/
- * `typeAlias`/`union`/`generic`/`concept`→type, `enumMember`/`boolean`/`constParameter`/`const`/
- * `static`→constant (immutable, language-level values), `event`→property (LSP's own definition: "a
- * property or member that acts as an event"), `modifier`/`selfKeyword`/`selfTypeKeyword`/`label`→
- * keyword, `lifetime`→storage (a `storage.modifier`-shaped annotation, not a type),
- * `macro`/`macroBang`/`procMacro`→function (rust's own TextMate grammar already scopes macro
- * invocations as `entity.name.function.macro`), `formatSpecifier`/`escapeSequence`→regexp (both are
- * string-interior sub-highlights, same family as `string.regexp`), `invalidEscapeSequence`→invalid
- * (an error indicator, not a regular string-interior highlight), the `punctuation` sub-kinds
- * (brace/bracket/parenthesis/comma/colon/semicolon/dot/angle) plus the bare `punctuation` type
- * itself→punctuation, `attribute`/`attributeBracket`/`builtinAttribute`/`derive`/`deriveHelper`→
- * decorator, `character`→string, the operator sub-kinds (arithmetic/bitwise/comparison/logical/
- * negation)→operator, `toolModule`→namespace. `unresolvedReference` (rust-analyzer) and `unknown`
- * (clangd's own explicitly-"nonstandard" catch-all) are intentionally absent — dropped, not colored
- * as an error/guessed at (that is `diagnosticProvider`'s job for the former; the latter has no
- * confident target by clangd's own definition).
- */
-export const SEMANTIC_TOKEN_TYPE_MAP: Record<string, (typeof SYNTAX_TOKENS)[number]> = {
-    namespace: 'namespace',
-    type: 'type',
-    class: 'class',
-    enum: 'enum',
-    interface: 'interface',
-    struct: 'class',
-    typeParameter: 'type',
-    parameter: 'parameter',
-    variable: 'variable',
-    property: 'property',
-    enumMember: 'constant',
-    event: 'property',
-    function: 'function',
-    method: 'method',
-    macro: 'function',
-    keyword: 'keyword',
-    modifier: 'keyword',
-    comment: 'comment',
-    string: 'string',
-    number: 'number',
-    regexp: 'regexp',
-    operator: 'operator',
-    decorator: 'decorator',
-
-    builtinType: 'type',
-    typeAlias: 'type',
-    union: 'type',
-    generic: 'type',
-    concept: 'type',
-    selfKeyword: 'keyword',
-    selfTypeKeyword: 'keyword',
-    label: 'keyword',
-    lifetime: 'storage',
-    formatSpecifier: 'regexp',
-    escapeSequence: 'regexp',
-    invalidEscapeSequence: 'invalid',
-    brace: 'punctuation',
-    bracket: 'punctuation',
-    parenthesis: 'punctuation',
-    comma: 'punctuation',
-    colon: 'punctuation',
-    semicolon: 'punctuation',
-    dot: 'punctuation',
-    angle: 'punctuation',
-    punctuation: 'punctuation',
-    attribute: 'decorator',
-    attributeBracket: 'decorator',
-    builtinAttribute: 'decorator',
-    derive: 'decorator',
-    deriveHelper: 'decorator',
-    boolean: 'constant',
-    constParameter: 'constant',
-    const: 'constant',
-    static: 'constant',
-    character: 'string',
-    arithmetic: 'operator',
-    bitwise: 'operator',
-    comparison: 'operator',
-    logical: 'operator',
-    negation: 'operator',
-    macroBang: 'function',
-    procMacro: 'function',
-    toolModule: 'namespace',
-}
-
-/**
- * Namespace `buildSemanticTokenThemeRules` (`build-shiki-theme.ts`) and `buildSemanticTokensLegendMapping`
- * (`adapters/semantic-tokens.ts`) share for every theme rule scope / monaco-facing legend token type
- * name they emit for a `SEMANTIC_TOKEN_TYPE_MAP` target — so neither ever exact-matches a real
- * TextMate scope. A bare `SYNTAX_TOKENS` name (e.g. `'variable'`) *is* a real TextMate scope many
- * bundled themes' own `tokenColors` already use verbatim; inserting a theme rule under that exact
- * scope string collides with — and, per monaco's token-theme trie (`resolveParsedTokenThemeRules`
- * sorts rules by token string then array index, and `ThemeTrieElement.insert`'s exact-match case
- * calls `acceptOverwrite`, so the later-index rule for an identical token string always wins) —
- * silently overwrites the theme's own rule for it, corrupting regular syntax colors alongside
- * semantic ones. No TextMate grammar emits a scope under this namespace, so a rule scoped here can
- * never collide with one.
- */
-export const SEMANTIC_TOKEN_LEGEND_SCOPE_PREFIX = 'taideSemantic'
-
-export const toSemanticTokenLegendScope = (token: (typeof SYNTAX_TOKENS)[number]) => `${SEMANTIC_TOKEN_LEGEND_SCOPE_PREFIX}.${token}`
-
-/**
- * Looks up `typeName` in {@link SEMANTIC_TOKEN_TYPE_MAP} without walking the prototype chain — a
- * plain object literal inherits from `Object.prototype`, so an unguarded `SEMANTIC_TOKEN_TYPE_MAP[typeName]`
- * returns `constructor`/`toString`/`valueOf`/etc. instead of `undefined` for a server legend that
- * happens to declare a type with one of those names, which downstream would turn into an
- * out-of-range semantic token type index instead of the intended "drop" behavior.
- */
-export const lookupSemanticTokenTypeMapping = (typeName: string): (typeof SYNTAX_TOKENS)[number] | undefined =>
-    Object.hasOwn(SEMANTIC_TOKEN_TYPE_MAP, typeName) ? SEMANTIC_TOKEN_TYPE_MAP[typeName] : undefined
-
-export const TERMINAL_MIRRORED_TOKENS = {
-    background: 'terminal.background',
-    foreground: 'terminal.foreground',
-    cursor: 'terminal.cursor',
-    selection: 'terminal.selection',
-} as const
-
-export const VSCODE_DEFAULT_ANSI_PALETTE: Record<ThemeTypeArg, AnsiLookup> = {
-    dark: {
-        black: '#000000',
-        red: '#cd3131',
-        green: '#0dbc79',
-        yellow: '#e5e510',
-        blue: '#2472c8',
-        magenta: '#bc3fbc',
-        cyan: '#11a8cd',
-        white: '#e5e5e5',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#23d18b',
-        brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
-        brightCyan: '#29b8db',
-        brightWhite: '#e5e5e5',
-    },
-    light: {
-        black: '#000000',
-        red: '#cd3131',
-        green: '#107c10',
-        yellow: '#949800',
-        blue: '#0451a5',
-        magenta: '#bc05bc',
-        cyan: '#0598bc',
-        white: '#555555',
-        brightBlack: '#666666',
-        brightRed: '#cd3131',
-        brightGreen: '#14ce14',
-        brightYellow: '#b5ba00',
-        brightBlue: '#0451a5',
-        brightMagenta: '#bc05bc',
-        brightCyan: '#0598bc',
-        brightWhite: '#a5a5a5',
-    },
-}
-
-export const GRAPH_LANE_ANSI_ORDER = [
-    'blue',
-    'green',
-    'yellow',
-    'magenta',
-    'cyan',
-    'red',
-    'brightBlue',
-    'brightGreen',
-    'brightYellow',
-    'brightMagenta',
-    'brightCyan',
-    'brightRed',
-] as const
-
 const chain = (taideKey: string, category: ColorCategory, candidates: string[]): ColorMappingEntry => ({ taideKey, category, candidates })
 const derived = (taideKey: string, category: ColorCategory, derive: (ctx: ResolveContext) => string | undefined): ColorMappingEntry => ({
     taideKey,
     category,
     derive,
 })
+
+const MATCH_HIGHLIGHT_FOREGROUND_CANDIDATES = ['list.highlightForeground', 'editor.findMatchHighlightBackground']
 
 export const COLOR_MAPPING: ColorMappingEntry[] = [
     chain('app.background', 'background', ['editor.background']),
@@ -492,7 +138,25 @@ export const COLOR_MAPPING: ColorMappingEntry[] = [
     chain('panel.sectionHeader', 'foreground', ['sideBarSectionHeader.foreground', 'sideBarTitle.foreground']),
     chain('panel.inputBackground', 'background', ['input.background']),
     chain('panel.inputBorder', 'border', ['input.border', 'panelInput.border', 'dropdown.border']),
-    chain('panel.matchHighlight', 'status', ['list.highlightForeground', 'editor.findMatchHighlightBackground']),
+    /**
+     * `panel.matchHighlight` is a foreground token — the palette's and search's matched-character
+     * text color, not an overlay background. Its two upstream VS Code candidates are
+     * `list.highlightForeground` (an opaque text color when a theme defines it) and
+     * `editor.findMatchHighlightBackground` (VS Code's own translucent *overlay* fill, meant to sit
+     * as a semi-transparent layer over already-rendered text — never a text color on its own). Many
+     * themes omit `list.highlightForeground`, so a plain `chain()` here silently fell through to the
+     * overlay value and painted near-invisible text (`github-dark` `#ffd33d22` = 13% opaque,
+     * `github-light` `#ffdf5d66` = 40% — `docs/acknowledge/2026-08-20-palette-ux-contract.md` §4.3).
+     * {@link isOpaqueForegroundCandidate} rejects any candidate carrying meaningful alpha instead of
+     * compositing it (compositing would still hand back a dim-but-"valid" color); once every
+     * candidate is rejected this returns `undefined`, which `resolveColorEntry` (`resolve-colors.ts`)
+     * routes through the `status` category's fallback chain — empty for `status`
+     * ({@link FAMILY_FALLBACK_SOURCE_KEYS}) — straight to {@link SAFE_DEFAULT_COLORS}'s opaque
+     * per-theme-type value, the same path already used when every candidate is simply absent.
+     */
+    derived('panel.matchHighlight', 'status', (ctx) =>
+        MATCH_HIGHLIGHT_FOREGROUND_CANDIDATES.map((candidate) => ctx.vscodeColors[candidate]).find(isOpaqueForegroundCandidate),
+    ),
 
     chain('editor.background', 'background', ['editor.background']),
     chain('editor.foreground', 'foreground', ['editor.foreground']),
@@ -617,9 +281,6 @@ export const COLOR_MAPPING: ColorMappingEntry[] = [
     chain('list.foreground', 'foreground', ['sideBar.foreground', 'foreground']),
 ]
 
-const HEX_ALPHA_LENGTH = 9
-const ALPHA_CHANNEL_MAX = 255
-
 /**
  * A `list.*Background` candidate (hover/activeSelection/inactiveSelection) is unusable when it is fully
  * transparent (alpha 00) or shares the exact same RGB as the row background — both render as "no state at
@@ -635,4 +296,28 @@ export const isUsableListBackground = (candidateHex: string | undefined, backgro
     const backgroundRgb = hexToRgb(backgroundHex)
     if (!candidateRgb || !backgroundRgb) return true
     return candidateRgb.r !== backgroundRgb.r || candidateRgb.g !== backgroundRgb.g || candidateRgb.b !== backgroundRgb.b
+}
+
+const SHORT_HEX_ALPHA_LENGTH = 5
+const SHORT_ALPHA_CHANNEL_MAX = 15
+
+/**
+ * A foreground color candidate (as opposed to {@link isUsableListBackground}'s row-background
+ * concern) is usable only when it is fully opaque — a translucent value is meant to sit as an
+ * overlay atop already-rendered content, not to paint text directly. Carries "meaningful" alpha
+ * when it is the 8-digit hex form (`#rrggbbaa`) and its alpha channel reads below `ff`, or the
+ * 4-digit shorthand form (`#rgba`) and its alpha nibble reads below `f`; anything else (undefined,
+ * a 3/6-digit hex, or an alpha channel/nibble that rounds up to fully opaque) is opaque and usable
+ * as-is. Callers in this module always pass values already normalized by
+ * `expandVscodeHex` (`jsonc.ts`, applied during `merge.ts`), which expands 3/4-digit shorthand to
+ * 6/8-digit before this runs — the 4-digit branch here exists so the predicate itself stays correct
+ * for any caller, normalized or not, rather than silently trusting that upstream step. Used by
+ * `panel.matchHighlight` above to reject VS Code's translucent `editor.findMatchHighlightBackground`
+ * overlay color instead of painting it (or a composited dim version of it) directly as text.
+ */
+export const isOpaqueForegroundCandidate = (candidateHex: string | undefined): candidateHex is string => {
+    if (!candidateHex) return false
+    if (candidateHex.length === SHORT_HEX_ALPHA_LENGTH) return Number.parseInt(candidateHex.slice(-1), 16) === SHORT_ALPHA_CHANNEL_MAX
+    if (candidateHex.length !== HEX_ALPHA_LENGTH) return true
+    return Number.parseInt(candidateHex.slice(7, HEX_ALPHA_LENGTH), 16) === ALPHA_CHANNEL_MAX
 }

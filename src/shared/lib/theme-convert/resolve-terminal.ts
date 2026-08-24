@@ -1,4 +1,4 @@
-import { TERMINAL_MIRRORED_TOKENS } from '@shared/lib/theme-convert/mapping-tables'
+import { TERMINAL_MIRRORED_TOKENS } from '@shared/lib/theme-convert/ansi-palette'
 import type { AnsiLookup } from '@shared/lib/theme-convert/types'
 
 export const resolveTerminal = (resolvedColors: Record<string, string>, ansi: AnsiLookup) => {

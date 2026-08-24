@@ -4,7 +4,7 @@ import { createJavaScriptRegexEngine } from '@shikijs/engine-javascript'
 import type { ResolvedTheme } from '@shared/api/bindings'
 import { buildShikiTheme } from '@shared/lib/shiki/build-shiki-theme'
 import { loadTaideGrammar, type TaideLanguageId } from '@shared/lib/shiki/lang-map'
-import { SYNTAX_TOKENS } from '@shared/lib/theme-convert/mapping-tables'
+import { SYNTAX_TOKENS } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
 const SMOKE_LANGUAGE_IDS = ['typescript', 'typescriptreact', 'rust'] as const satisfies readonly TaideLanguageId[]
 
