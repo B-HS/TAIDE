@@ -111,7 +111,7 @@
 
 ## 8. Semantic Tokens (Wave F — `docs/acknowledge/2026-08-15-wave-f-editor-presentation-contract.md`)
 
-- **capability 선언**(`lsp-session-registry.ts` `buildInitializeParams`):
+- **capability 선언**(`shared/lib/lsp/initialize-params.ts` `buildInitializeParams`):
   `textDocument.semanticTokens { requests: { full: { delta: true } }, tokenTypes: 표준 23종,
   tokenModifiers: 표준 10종, formats: ['relative'], augmentsSyntaxTokens: true }` +
   `workspace.semanticTokens.refreshSupport: true`. range 는 1차 제외(뷰포트 스코프 요청 미요청).
@@ -120,10 +120,10 @@
 - **어댑터(`shared/lib/lsp/adapters/semantic-tokens.ts`) — 재인코딩 전략**: monaco standalone 은
   `semanticHighlighting.enabled: true` 를 켜도 서버 legend 문자열을 직접 이해하지 못하고, 매칭
   실패 토큰은 기본 전경색(shiki 색 위)으로 **전면 덮어써버린다**(워시아웃) — 따라서 어댑터가 서버
-  legend 를 `mapping-tables.ts` 의 `SEMANTIC_TOKEN_TYPE_MAP` 으로 TAIDE 토큰명(`SYNTAX_TOKENS`
+  legend 를 `semantic-token-map.ts` 의 `SEMANTIC_TOKEN_TYPE_MAP` 으로 TAIDE 토큰명(`SYNTAX_TOKENS`
   31종)에 재매핑하고, **자체 monaco legend**(매핑된 토큰명 집합만)를 노출한다. 매핑되지 않는
   서버 토큰 타입은 스트림에서 **드롭**(shiki 색 보존) — modifier 는 표준 10종 이름으로 통과.
-  legend 의 각 타입명은 `toSemanticTokenLegendScope`(`mapping-tables.ts`)로 `taideSemantic.<token>`
+  legend 의 각 타입명은 `toSemanticTokenLegendScope`(`semantic-token-map.ts`)로 `taideSemantic.<token>`
   네임스페이스를 씌워 노출한다 — bare `SYNTAX_TOKENS` 이름(예: `'variable'`)은 다수 번들 테마의
   실제 TextMate scope 이기도 해서, 이 이름 그대로 semantic rule 을 추가하면 monaco 의 토큰 테마
   트라이(동일 token 문자열은 나중 index 가 이긴다)가 테마 자신의 rule 을 덮어써 **일반 구문

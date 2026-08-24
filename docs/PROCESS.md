@@ -21,14 +21,14 @@
 | T2-I 로케일 외부화 | **완료(d-19)** |
 | T2-D/F/G 접근성·dead code·매직넘버 | **완료(d-21)** — confirmed 5 전건 반영 |
 | T2-A 중복 제거 | **완료(d-28)** — 13 fixed·4 deferred(d-31/32·제품 판단으로 이월) |
-| T2-B 분해 | **진행 중** — editor-pane(d-13)·settings-view(d-29)·command-registry(d-30, 검토 재기동 중) 완료. 잔여는 d-31(TS 일괄)·d-32(Rust 일괄)로 통합 |
+| T2-B 분해 | **TS 측 완료** — editor-pane(d-13)·settings-view(d-29)·command-registry(d-30)·**d-31 TS 일괄(mapping-tables·lsp-session-registry·git-panel·command-palette·explorer + d-26 이월 저대비, 2026-08-24)** 완료. 잔여는 d-32(Rust 일괄)뿐 |
 | T2-C shared/lib 재구조화 | 미착수 → **d-33 묶음** |
 | T2-E/J AppError 369지점 | 미착수 → **d-34 캠페인**(워크플로 1회 다단) |
 | 비감사 완결 | d-22 크래시 근본 수정(실기 확증)·d-24 registry 봉인+ErrorBoundary 6곳·d-26/26b 팔레트+번들 테마 12종 데이터·d-27 Welcome 확충(커맨드 177·DENIED 20)·d-25 부팅 워처 후절화 |
 
 ### 통합 배치 큐 (d-31~d-35 — 상세 정본: batch-consolidation-decision.md §2)
 
-1. **d-31 T2-B TS 일괄**: mapping-tables·lsp-session-registry·git-panel·explorer-container·command-palette(실사) + d-26 이월(알파 matchHighlight·search-match-row 저대비)
+1. ~~**d-31 T2-B TS 일괄**~~ **완료(2026-08-24)** — 계약 `2026-08-24-d31-t2b-ts-batch-contract.md`(§5 이월: ΔE 구별성 가드·builtin_light·예외 2종 재검토·경로 유틸 3중복 → d-33 병합)
 2. **d-32 Rust 구조 일괄**: lib.rs 도메인 이관 + layout 커맨드 골격(위험 중상 — 동시성 렌즈 최우선)
 3. **d-33 재구조화+이월 소형 일괄**: T2-C + FILE.RAW 무효화·Switch 프리미티브·workspaceSymbol 하이라이트·T1 3차 이월 소형분
 4. **d-34 AppError 캠페인**: T2-E/J taxonomy(설계→Rust→TS 다단)
@@ -44,10 +44,22 @@
 
 ### 기준선 (2026-08-21 실측)
 
-- 프론트 bun test **1435** / Rust **1094**(lib 1068+boundaries 3+restore 6+cli 17).
-  verify·vite build 전 배치 exit 0. 커맨드 **177**(+raw3)·이벤트 23·ALLOWED 160 ⊎ DENIED
-  **20**·로케일 **792키×3**. 신규 의존성 0 유지.
-- 병합 상태: **main=dev 동기**(d-30 포함 전량 병합 완료 — 2026-08-21).
+- 프론트 bun test **1447** / Rust **1097**(lib 1071+boundaries 3+restore 6+cli 17) —
+  d-31 신규 테스트 순증(2026-08-24). verify·vite build 전 배치 exit 0. 커맨드 **177**(+raw3)·
+  이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
+- 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
+
+## 진행 중: d-31 통합 배치 — T2-B TS 일괄 + d-26 이월 저대비 (2026-08-24)
+
+> 계약: `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md`. 사용자 승인 "d-31 만" —
+> 완료 후 멈추고 d-32 착수 여부 재확인. 결정 4건 = 계약 §1.1.
+
+- [x] 0. 실사 — 5파일+이월 2건 유효 확정, 오배치 정정(import 위반 0·주석 문언뿐), github 2종 알파 실측 (계약 §0)
+- [x] 1. 계약 확정 — 결정 4건(LSP 이동+소분할 / matchHighlight 병행 / git-panel 행 그룹만 / 팔레트 모드 분리)
+- [x] 2. 구현 Workflow — wf_20fc8ee3-93d 5에이전트 전원 완료·§3 기록 계약 통합(3-A~3-E)
+- [x] 3. 메인 실물 재검증(가드·JSON 1줄 diff·팔레트 배선·부수효과 잔류·선재 테스트 결함 실증) + verify exit 0(bun 1443·Rust 1095) + vite build exit 0 + bindings 무변경
+- [x] 4. 검토 4렌즈 major 4·minor 19 → 적대적(L2-1 만 confirmed·3건 downgraded) → 수정 3병렬(A안+폴백: ayu/solarized 정정·everforest/rose-pine 예외 등재·재발 방지 테스트 신설·composite 승격·구조 minor 전건) — 수정 wf 는 세션 재시작으로 종료 기록 유실됐으나 저널 실사로 3/3 완주 확인
+- [x] 5. 메인 2차(verify 1447/1097·vite·bindings 무변경·단독 실행 mock 2건 pass 실측) → 커밋 3분리(00fb1e6 refactor 구조·a65c46c fix 저대비·docs) → prod 병합 → HANDOFF/PROCESS 현행화 — **d-31 완결. 다음 = d-32 착수 여부 사용자 확인 대기**
 
 ## 진행 중: 실기 QA → 잔여 기능(P0+P1) → 전문 QA → Phase 8 (2026-08-14, 새 세션)
 

@@ -1,8 +1,29 @@
-# HANDOFF — 2026-08-21 세션 스냅샷 (실기 사건 대응 + UX/구조 9배치 완주·통합 운영 전환)
+# HANDOFF — 2026-08-24 세션 스냅샷 (d-31 통합 배치 1호 완주 — T2-B TS 일괄 + matchHighlight 근본 수정)
 
-> 최종 갱신: 2026-08-21 / **main=dev 동기(d-30 포함 전량 병합 완료)**. 워킹트리 클린.
-> d-30 검토 = major 0·minor 7(문서 정정 — 반영 완료). **다음 = d-31 통합 배치, 사용자 지시
-> ("d30 까지만 해두고")로 착수 보류 — 재개는 사용자 확인 후.**
+> 최종 갱신: 2026-08-24 / **d-31 완결·prod 병합**. 워킹트리 클린.
+> d-31 = 통합 배치 1호(계약 `2026-08-24-d31-t2b-ts-batch-contract.md` — §0 실사·§1 결정 4건·
+> §3 구현 5기록·§4 검토 반영·§5 이월이 실질 정본). 검토 major 4 → 적대적에서 **L2-1 만
+> confirmed**(A안+폴백 처분), 3건 downgraded(문서 종결·이월). **다음 = d-32 Rust 구조 일괄,
+> 사용자 지시("d-31 만 승인")로 착수 보류 — 재개는 사용자 확인 후.**
+> 직전 스냅샷(08-20~21 10배치)은 `git show c06a40e:docs/HANDOFF.md`.
+
+## 0. 이번 세션(08-24) 요약 — d-31
+
+- **구조 5축**: mapping-tables 638→318+3파일(ui-token-vocabulary·semantic-token-map·
+  ansi-palette) / lsp-session-registry 986줄 → `entities/lsp/`(git mv)+`shared/lib/lsp/
+  initialize-params.ts` / command-palette 420→311+9파일(모드 그룹 5 전부 features 통일·
+  file-match shared 승격) / git-panel 396→290(`features/git/git-change-group.tsx` 3중 복제
+  통합·props 33 무변경) / explorer 349→239(훅 2+explorer-path).
+- **저대비 근본 수정(f)**: matchHighlight derived 가드(반투명 배제)·CONTRAST_PAIRS 편입(알파
+  합성 `shared/lib/color.ts` `compositeOverBackground` 로 승격)·번들 정정 4종(github 2 업스트림
+  스케일 정정 + 게이트(3) 미달 ayu-light `#7e4b01`/solarized-light `#584c27`)·명시 예외 2종
+  (everforest-light·rose-pine-dawn — 업스트림 후보 부재, `bundled-theme-contrast.test.ts`
+  예외 목록)·Rust 린트(반투명 금지+normalize 3/4자리)·search-match-row 전경 통일.
+- **검토가 적중한 것**: 게이트 3 vs AA 4.5 혼동(L2-1 confirmed — 번들 4종이 자기 파이프라인
+  검증 위반)·재변환 비재현(L2-0 — theme-system.md 예외 절로 종결)·선재 mock 누락 2건(단독
+  실행 fail — 동반 수정)·중첩 삼항·미참조 export 등 minor 전건 반영.
+- 커밋 3: `00fb1e6`(refactor 구조)·`a65c46c`(fix 저대비)·docs 1건. 수정 wf 는 세션 재시작으로
+  종료 기록 유실 → **저널 실사로 3/3 완주 확인**(이어받기 불요 — 교훈 ④ 적용 사례).
 > 이 문서가 세션 인수인계 단일 진입점. 직전 스냅샷은 `git show 282b4e1:docs/HANDOFF.md`.
 > 잔여 총량 정본은 `docs/PROCESS.md` 상단 "잔여 작업 총괄"(2026-08-21 현행화).
 
@@ -38,9 +59,11 @@ d-25 "체감 그대로" 주장·d-24 1차의 correctness-1(이후 재조정으�
 | d-29 T2-B settings-view | 926→201줄·섹션 12분할. 검토가 **스왑 게이트 언마운트 전제 오류** 적중(상태·구독·뮤테이션 콜백 수명) → 스왑 생존 관심사 컨테이너 환원 | `2026-08-21-t2b-settings-view-contract.md` |
 | d-30 T2-B command-registry | 302→관심사 4파일(51+57+174+21)·소비처 갱신 12+무변경 5·테스트 3분할. 검토 major 0·minor 7(문서 정정 반영) | `2026-08-21-t2b-command-registry-contract.md` |
 
-### 3.1 기준선 (2026-08-21 실측)
+### 3.1 기준선 (2026-08-24 실측 — d-31 반영)
 
-- bun test **1435** / Rust **1094**(1068+3+6+17). verify·vite build 전 배치 exit 0.
+- bun test **1447** / Rust **1097**(1071+3+6+17). verify·vite build 전 배치 exit 0.
+  (08-21 기준선 1435/1094 에서 d-31 신규 테스트만큼 순증 — contrast 4·convert 4·
+  mapping-tables 가드·bundled-theme-contrast·color·Rust 린트 1+normalize 2)
 - 커맨드 **177**(+raw3)·이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**·의존성 추가 0.
 - ErrorBoundary 6곳 신설(루트+영역 5)·shared 공통 모듈 다수 신설(activation-key·path-root·
   file-extension·code-editor-settings·noop-disposable·infra/clock·command-palette-query·
@@ -79,11 +102,16 @@ d-25 "체감 그대로" 주장·d-24 1차의 correctness-1(이후 재조정으�
 
 ## 5. 미해결 / 사용자 확인 필요
 
-1. **[다음 세션 TODO 1순위] d-31 통합 배치 착수 여부 확인** — 사용자 "d30 까지만" 지시로
-   보류 중. 재개 승인 시: 계약 작성(정본 `2026-08-21-batch-consolidation-decision.md` §2 의
-   d-31 T2-B TS 일괄 — mapping-tables·lsp-session-registry·git-panel·explorer-container·
-   command-palette 실사 + d-26 이월 알파 토큰/search-match-row) → 통합 파이프라인(구현→렌즈
-   영역 배분 검토→적대적→수정→2차→커밋→병합) 순.
+1. **[다음 세션 TODO 1순위] d-32 Rust 구조 일괄 착수 여부 확인** — 사용자 "d-31 만 승인"
+   지시로 보류 중. 재개 승인 시: `2026-08-21-batch-consolidation-decision.md` §2 의 d-32
+   (lib.rs 도메인 이관 + layout 커맨드 18중복 골격 — 위험 중상·동시성 렌즈 최우선) 계약 작성
+   → 통합 파이프라인(구현→렌즈 영역 배분 검토→적대적→수정→2차→커밋→병합). d-31 완료로 §2
+   큐 잔여 = d-32~d-35.
+1-b. **d-31 이월(계약 §5 — d-33 몫 병합)**: matchHighlight vs 본문 전경 구별성 가드(ΔE 기준
+   설계 — WCAG 대비비 금지·번들 3종 monokai/night-owl-light/palenight 동일색 데이터) /
+   builtin_light matchHighlight 2.15 정정 여부+대비 린트 신설 정책(사용자 결정 필요) /
+   everforest-light·rose-pine-dawn 예외 재검토 / parentDirOf·PATH_SEPARATOR 3중복 shared
+   승격. 팔레트·검색 매칭 색 변화(github 2종·ayu/solarized 정정분) 실기 확인은 미확증 상태.
 2. **제품 결정 묶음**(자율 종점 이후): 원격 게이트 3건·AI 응답 타입 통합(bindings 표면 승인)·
    codex 절단/ollama↔omlx(행동 변경·재설계 판단).
 3. e2e 파일럿·QA-W1 실기 — 사용자 준비 필요(§7).

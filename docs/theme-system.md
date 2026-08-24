@@ -336,6 +336,21 @@ bun run scripts/convert-vscode-theme.ts \
 - `syntax.fg` 는 Monaco 룰이 6자리 hex 만 허용하므로, VS Code 의 8자리(`#rrggbbaa`)/
   4자리(`#rgba`) 알파 값은 `editor.background` 위에 합성해 6자리로 낮춘다. `colors`/
   `terminal` 은 8자리 알파를 그대로 허용한다.
+- `panel.matchHighlight`(팔레트·검색 매치 강조의 **전경**색, 오버레이 배경이 아니다)는
+  `chain()` 이 아니라 `derived()` 로 계산한다 — `list.highlightForeground` →
+  `editor.findMatchHighlightBackground` 순으로 후보를 검사하되, `isOpaqueForegroundCandidate`
+  (`mapping-tables.ts`) 가 **의미 있는 알파(불투명 미만)를 가진 후보를 배제**한다.
+  `editor.findMatchHighlightBackground` 는 VS Code 자신도 반투명 오버레이 전용으로 설계한
+  값이라, 그대로 전경 텍스트색으로 쓰면 배경 위에서 흡수돼 거의 안 보인다(§8.2.3 참고). 두
+  후보가 모두 배제되면 이 토큰의 `status` 카테고리 공용 안전값(`SAFE_DEFAULT_COLORS`)으로
+  떨어진다 — 관련 없는 값을 새로 만드는 게 아니라 원래도 후보가 전혀 없을 때 쓰는 경로다.
+- 출력 대비는 `contrast.ts` 의 `CONTRAST_PAIRS`(`app`/`editor`/`panel`/`tooltip`/
+  `matchHighlight` 5쌍, `MIN_CONTRAST_RATIO = 3`)로 검사한다. 전경이 8자리 hex(알파 포함)면
+  대비를 재기 전에 **배경 위에 합성**해 실제로 화면에 렌더되는 색으로 낮춘 뒤 잰다
+  (`compositeOverBackground`, `shared/lib/color.ts`) — 합성 없이 재면 화면에 존재하지 않는
+  색의 대비를 재는 셈이 된다. 6자리(비알파) 전경에는 합성이 항등이라 결과가 그대로다. 미달
+  쌍은 `repairContrastPairs` 가 배경/전경 후보 사슬로 수리를 시도하고(§9.3), 수리 후에도
+  미달이면 VSIX 임포트가 거부된다.
 - 출력이 133 colors + 31 syntax + 20 terminal 을 **전량** 채우지 못하면 스크립트가
   누락 토큰 목록을 출력하고 `exit 1` 한다 — 번들 테마는 항상 `extends` 없는 완전한
   base 여야 한다(§2, §6). ANSI 16색 자체는 8.2.1 폴백이 항상 채우므로 이 실패 경로에
@@ -442,6 +457,45 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 도입해 VS Code 원본값(`#0060C0`+흰색)을 그대로 재현하는 방안은 `explorer.*` 전체
 스키마·5곳 동기(§ "테마 토큰은 5곳 동기") 변경이 필요해 범위를 넘어선다고 판단해
 보류했다 — 필요해지면 별도 작업으로 진행한다.
+
+### 8.2.3 재변환 비재현 예외 — `panel.matchHighlight` 손수정 4종
+
+대상: `github-dark`·`github-light`·`ayu-light`·`solarized-light` 4종의
+`panel.matchHighlight`. 이 4개는 §8.2.2 가 "재변환해도 이 보정은 그대로 재적용된다"고
+못박은 일반 원칙의 **예외**다 — 번들 36종 중 이 4종만, 변환기를 다시 돌려도 지금 커밋된
+값이 재현되지 않는다(d-31 `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A).
+
+**재변환 시 나오는 값과 이유가 테마 그룹마다 다르다:**
+
+- `github-dark`/`github-light`: 업스트림 classic 팔레트(`primer/github-vscode-theme`)가
+  `list.highlightForeground` 를 정의하지 않고, 남는 유일한 후보
+  `editor.findMatchHighlightBackground` 는 반투명(`#ffd33d22`/`#ffdf5d66`)이라 앞 절의
+  f-1 가드(`isOpaqueForegroundCandidate`)가 배제한다. 두 후보가 모두 사라지면 `status`
+  카테고리 공용 안전값(`SAFE_DEFAULT_COLORS.status`)으로 떨어져 `#569CD6`(dark)/
+  `#0066BF`(light)가 나온다.
+- `ayu-light`/`solarized-light`: `list.highlightForeground` 자체가 이미 불투명해 f-1
+  가드를 그대로 통과하므로, 재변환은 업스트림 원본값(`#f29718`/`#B58900`)을 **그대로**
+  재현한다 — 이 값이 바로 `panel.background` 대비 2.16:1/2.62:1 로 파이프라인 대비 게이트
+  (`MIN_CONTRAST_RATIO = 3`)에 미달했던 원래 결함값이다.
+
+**그럼에도 손수정값을 유지하는 근거** — 어느 쪽도 값을 새로 발명하지 않고, 각 업스트림
+팔레트 **안에서** 대비가 더 나은 값으로 재선정했다(github-light `#735c0f` 선정과 동일한
+"같은 스케일 내 인덱스/변형 이동" 논리):
+
+| 테마 | 손수정값 | 대비비 | 재변환 시 나오는 값 | 그 값의 대비비 | 근거 |
+|---|---|---|---|---|---|
+| github-dark | `#ffd33d` | 10.91 | `#569CD6`(safe-default) | 5.31 | classic `colors.json` 의 yellow 스케일에서 원 반투명값과 같은 인덱스를 불투명화 |
+| github-light | `#735c0f` | 6.04 | `#0066BF`(safe-default) | 5.40 | 같은 yellow 스케일 10개 인덱스 중 유일하게 AA(4.5) 통과하는 index9 |
+| ayu-light | `#7e4b01` | 6.88 | `#f29718`(원본 그대로) | 2.16 | 같은 업스트림 `vscode-ayu` 테마의 `button.foreground`(accent 의 어두운 "on" 변형 — 같은 색상 계열, `scheme.common.accent.on`) |
+| solarized-light | `#584c27` | 6.92 | `#B58900`(원본 그대로) | 2.62 | 같은 업스트림 `theme-solarized-light` 의 `activityBar.foreground`(같은 gold/olive 색상 계열의 어두운 변형) |
+
+**운영 지시**: 이 4개 테마를 재변환하면 `panel.matchHighlight` 1개 토큰의 diff 가 항상
+non-zero 다 — 이는 예상된 것이므로 **산출물을 채택하지 말고 위 표의 손수정값을 다시
+적용**한다. 그 외 토큰(colors/syntax/terminal 나머지 전부)의 diff 는 §8.2.2 게이트대로
+원인(원본 갱신 여부)을 규명한다.
+
+상호 참조: `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A(f-1 가드·f-3
+정정 근거)·§3-E(번들 36종 재스윕 표).
 
 ### 8.3 Rust 등록
 

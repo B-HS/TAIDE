@@ -1112,7 +1112,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 >   전까지 `Crashed` 유지"로 멈췄던 완화책을, 이 커맨드로 정직한 `Running` 복귀 경로까지 닫는다.
 >   원격 dispatch 에서는 **허용**이다(원격 미러도 자기 세션의 재핸드셰이크를 확인해야 하며, 세대
 >   불일치 무시가 오용을 방어 — Phase E 적대적 검증에서 위조 시나리오 반증 확정).
->   프론트 소비는 `widgets/editor-pane/lsp-session-registry.ts` 의 `handleLspSessionStatusChanged`/
+>   프론트 소비는 `entities/lsp/lsp-session-registry.ts` 의 `handleLspSessionStatusChanged`/
 >   `reinitializeSession` — 모듈 로드 시 `events.lspSessionStatusChanged.listen` 으로 상시 구독한다.
 >   `QUERY_KEY.LSP.SESSIONS` 폴링 캐시 쪽 무효화는 `entities/lsp/lsp.query.ts` 의
 >   `useLspSessionsQueryInvalidationSync`(`app/providers/ipc-sync-provider.tsx` 에 상시 마운트)가

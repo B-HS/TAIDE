@@ -54,7 +54,7 @@
   파일은 제외 — `editor.md` §3). `handleMessage` 는 응답·알림뿐 아니라 **서버→클라 요청**도
   라우팅한다(`isJsonRpcRequest` 분기 → `server-request-handler-registry.ts` 조회 → 결과/에러를
   JSON-RPC 로 응답, 미등록 메서드는 `-32601 MethodNotFound`).
-- `shared/lib/lsp/lsp-session-registry.ts`(정확히는 `widgets/editor-pane/`) 의
+- `shared/lib/lsp/initialize-params.ts` 의
   `buildInitializeParams` 가 initialize SSOT — LSP 3.17 고정, codeAction/codeLens/foldingRange/
   implementation/typeDefinition/declaration/workspace.applyEdit·executeCommand·workspaceEdit
   (documentChanges+resourceOperations)·codeLens.refreshSupport 를 전 선언. 매니페스트의
