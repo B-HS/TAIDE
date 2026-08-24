@@ -26,6 +26,7 @@ mock.module('@entities/lsp/lsp.ipc', () => ({
     resolveLspRoot: () => Promise.resolve(null),
     installLspServer: () => Promise.resolve(),
     cancelLspInstall: () => Promise.resolve(),
+    reportLspReinitializeFailure: () => Promise.resolve(),
 }))
 
 mock.module('@entities/project/project.ipc', () => ({
@@ -36,6 +37,7 @@ mock.module('@entities/project/project.ipc', () => ({
     closeProject: () => Promise.resolve(undefined),
     activateProject: () => Promise.resolve(undefined),
     reorderProjects: () => Promise.resolve(undefined),
+    listRecentProjects: () => Promise.resolve([]),
 }))
 
 const importUseEditorLspIntegration = () => import('@widgets/editor-pane/use-editor-lsp-integration')

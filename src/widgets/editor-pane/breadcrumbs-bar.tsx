@@ -17,7 +17,7 @@ import {
     splitRelativePathSegments,
     type CursorPosition,
 } from '@widgets/editor-pane/breadcrumb-path'
-import { waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
+import { waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'

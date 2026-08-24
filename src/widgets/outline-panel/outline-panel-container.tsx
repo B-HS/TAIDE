@@ -13,7 +13,7 @@ import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
-import { waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
+import { waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { OutlinePanel } from '@features/outline/outline-panel'
 
 type OutlinePanelContainerProps = {

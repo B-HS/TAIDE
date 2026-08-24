@@ -11,7 +11,7 @@ import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { isLspAttachableTier, useLspSession } from '@widgets/editor-pane/use-lsp-session'
-import { peekLspSessionForRoot, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
+import { peekLspSessionForRoot, waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { canRenderCodeEditor } from '@widgets/editor-pane/code-editor-visibility'
 
 /** LSP `CodeActionKind`s the two on-save booleans (`settings.fixAllOnSave`/`organizeImportsOnSave`) map to. */

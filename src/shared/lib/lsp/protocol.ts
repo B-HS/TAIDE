@@ -205,7 +205,7 @@ export const SYMBOL_KIND = {
 } as const
 export type SymbolKind = (typeof SYMBOL_KIND)[keyof typeof SYMBOL_KIND]
 
-/** Full LSP `SymbolKind` enum range, declared as the `symbolKind.valueSet` client capability for both `textDocument/documentSymbol` and `workspace/symbol` (`lsp-session-registry.ts`'s `buildInitializeParams`) so a server never has to guess which kinds this client understands. */
+/** Full LSP `SymbolKind` enum range, declared as the `symbolKind.valueSet` client capability for both `textDocument/documentSymbol` and `workspace/symbol` (`initialize-params.ts`'s `buildInitializeParams`) so a server never has to guess which kinds this client understands. */
 export const SYMBOL_KIND_VALUE_SET: SymbolKind[] = Object.values(SYMBOL_KIND)
 
 export const DOCUMENT_HIGHLIGHT_KIND = { TEXT: 1, READ: 2, WRITE: 3 } as const

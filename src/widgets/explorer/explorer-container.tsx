@@ -4,10 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { PaneId, PaneNode, ProjectId, TreeRow } from '@shared/api/bindings'
-import type { FileTreeNodeKind, FileTreeRow } from '@features/explorer/file-tree-row'
+import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
-import { resolveEntryParentDir, validateEntryName } from '@shared/lib/entry-name'
-import { buildUniqueEntryName } from '@shared/lib/unique-entry-name'
 import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
@@ -17,17 +15,16 @@ import { useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
-import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@features/explorer/file-tree'
+import type { FileTreeContextMenuHandlers } from '@features/explorer/file-tree'
+import { parentDirOf } from '@widgets/explorer/explorer-path'
+import { useExplorerClipboard } from '@widgets/explorer/use-explorer-clipboard'
+import { useExplorerEntryCrud } from '@widgets/explorer/use-explorer-entry-crud'
 import { ExplorerPanel } from '@widgets/explorer/explorer-panel'
 import { FileHistoryPanel } from '@widgets/file-history/file-history-panel'
 
 type ExplorerContainerProps = {
     projectId: ProjectId
 }
-
-type ClipboardEntry = { mode: 'cut' | 'copy'; path: string }
-
-const PATH_SEPARATOR = '/'
 
 const toFileTreeRow = (row: TreeRow): FileTreeRow => ({
     id: row.path,
@@ -38,13 +35,6 @@ const toFileTreeRow = (row: TreeRow): FileTreeRow => ({
     expanded: row.expanded,
     gitStatus: null,
 })
-
-const parentDirOf = (path: string) => {
-    const index = path.lastIndexOf(PATH_SEPARATOR)
-    return index <= 0 ? PATH_SEPARATOR : path.slice(0, index)
-}
-
-const joinPath = (dir: string, name: string) => `${dir.endsWith(PATH_SEPARATOR) ? dir.slice(0, -1) : dir}${PATH_SEPARATOR}${name}`
 
 const findLeafPane = (node: PaneNode, paneId: PaneId): PaneNode | null => {
     if (node.node === 'leaf') return node.id === paneId ? node : null
@@ -58,12 +48,6 @@ const findLeafPane = (node: PaneNode, paneId: PaneId): PaneNode | null => {
 export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => {
     const { t } = useTranslation()
     const [selectedRow, setSelectedRow] = useState<FileTreeRow | null>(null)
-    const [draft, setDraft] = useState<FileTreeDraft | null>(null)
-    const [draftError, setDraftError] = useState<string | null>(null)
-    const [renameTarget, setRenameTarget] = useState<FileTreeRenameTarget | null>(null)
-    const [renameError, setRenameError] = useState<string | null>(null)
-    const [deleteTarget, setDeleteTarget] = useState<FileTreeRow | null>(null)
-    const [clipboard, setClipboard] = useState<ClipboardEntry | null>(null)
     const [selectPathRequest, setSelectPathRequest] = useState<string | null>(null)
     const [compareSourcePath, setCompareSourcePath] = useState<string | null>(null)
 
@@ -96,133 +80,35 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     const openSearchMatch = (path: string) =>
         openTab({ projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true }, { onError: notifyError })
 
-    const startDraft = async (kind: FileTreeNodeKind) => {
-        const targetDir = targetDirFor(selectedRow)
-        if (!targetDir) return
-        const targetRow = rows.find((row) => row.path === targetDir)
-        if (targetRow && !targetRow.expanded) await toggleNodeAsync({ projectId, path: targetDir })
-        setDraft({ kind, parentDir: targetDir })
-        setDraftError(null)
-    }
+    const crud = useExplorerEntryCrud({
+        projectId,
+        rows,
+        selectedRow,
+        targetDirFor,
+        openFileTab,
+        notifyError,
+        setSelectPathRequest,
+        toggleNodeAsync,
+        createEntry,
+        refreshTreeDir,
+        revealTreeNode,
+        renameEntryAsync,
+        deleteEntryAsync,
+        t,
+    })
 
-    const cancelDraft = () => {
-        setDraft(null)
-        setDraftError(null)
-    }
-
-    const commitDraft = async (name: string) => {
-        if (!draft) return
-        const trimmedName = name.trim()
-        if (!trimmedName) {
-            cancelDraft()
-            return
-        }
-
-        const targetDir = resolveEntryParentDir(draft.parentDir, trimmedName)
-        const siblingNames = rows.filter((row) => parentDirOf(row.path) === targetDir).map((row) => row.name)
-        const errorKey = validateEntryName(trimmedName, siblingNames)
-        if (errorKey) {
-            setDraftError(t(errorKey, { name: trimmedName }))
-            return
-        }
-
-        const path = joinPath(draft.parentDir, trimmedName)
-        try {
-            await createEntry({ path, isDir: draft.kind === 'directory' })
-            await refreshTreeDir({ projectId, dir: draft.parentDir })
-            await revealTreeNode({ projectId, path })
-            if (draft.kind === 'file') {
-                openFileTab({ id: path, path, name: fileNameOf(path), depth: 0, kind: 'file', expanded: false, gitStatus: null }, false)
-            }
-            setDraft(null)
-            setDraftError(null)
-            setSelectPathRequest(path)
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            setDraftError(message)
-            toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitDraft(trimmedName) } })
-        }
-    }
-
-    const startRename = (row: FileTreeRow) => {
-        setRenameTarget({ path: row.path, name: row.name })
-        setRenameError(null)
-    }
-
-    const cancelRename = () => {
-        setRenameTarget(null)
-        setRenameError(null)
-    }
-
-    const commitRename = async (name: string) => {
-        if (!renameTarget) return
-        const trimmedName = name.trim()
-        if (!trimmedName || trimmedName === renameTarget.name) {
-            cancelRename()
-            return
-        }
-
-        const parentDir = parentDirOf(renameTarget.path)
-        const targetDir = resolveEntryParentDir(parentDir, trimmedName)
-        const siblingNames = rows.filter((row) => parentDirOf(row.path) === targetDir && row.path !== renameTarget.path).map((row) => row.name)
-        const errorKey = validateEntryName(trimmedName, siblingNames)
-        if (errorKey) {
-            setRenameError(t(errorKey, { name: trimmedName }))
-            return
-        }
-
-        const destination = joinPath(parentDir, trimmedName)
-        try {
-            await renameEntryAsync({ from: renameTarget.path, to: destination })
-            await refreshTreeDir({ projectId, dir: parentDir })
-            await revealTreeNode({ projectId, path: destination })
-            setRenameTarget(null)
-            setRenameError(null)
-            setSelectPathRequest(destination)
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            setRenameError(message)
-            toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitRename(trimmedName) } })
-        }
-    }
-
-    const confirmDelete = async () => {
-        if (!deleteTarget) return
-        const parentDir = parentDirOf(deleteTarget.path)
-        try {
-            await deleteEntryAsync(deleteTarget.path)
-            await refreshTreeDir({ projectId, dir: parentDir })
-            setDeleteTarget(null)
-        } catch (error) {
-            notifyError(error)
-        }
-    }
-
-    const pasteClipboard = async (row: FileTreeRow | null) => {
-        if (!clipboard) return
-        const targetDir = targetDirFor(row)
-        if (!targetDir) return
-
-        const entryName = fileNameOf(clipboard.path)
-        const siblingNames = rows.filter((candidate) => parentDirOf(candidate.path) === targetDir).map((candidate) => candidate.name)
-        const uniqueName = buildUniqueEntryName(entryName, siblingNames, t('explorer.pasteConflictSuffix'))
-        const destination = joinPath(targetDir, uniqueName)
-
-        try {
-            if (clipboard.mode === 'copy') {
-                await copyEntryAsync({ from: clipboard.path, to: destination })
-            } else {
-                await renameEntryAsync({ from: clipboard.path, to: destination })
-                await refreshTreeDir({ projectId, dir: parentDirOf(clipboard.path) })
-                setClipboard(null)
-            }
-            await refreshTreeDir({ projectId, dir: targetDir })
-            await revealTreeNode({ projectId, path: destination })
-            setSelectPathRequest(destination)
-        } catch (error) {
-            notifyError(error)
-        }
-    }
+    const { clipboard, setClipboard, pasteClipboard } = useExplorerClipboard({
+        projectId,
+        rows,
+        targetDirFor,
+        notifyError,
+        setSelectPathRequest,
+        copyEntryAsync,
+        renameEntryAsync,
+        refreshTreeDir,
+        revealTreeNode,
+        t,
+    })
 
     const openToTheSide = async (row: FileTreeRow) => {
         if (row.kind !== 'file') return
@@ -289,8 +175,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         onPaste: (row) => void pasteClipboard(row),
         onCopyPath: (row) => void navigator.clipboard.writeText(row.path),
         onCopyRelativePath: (row) => project && void navigator.clipboard.writeText(toRelativePath(project.root, row.path)),
-        onStartRename: startRename,
-        onRequestDelete: setDeleteTarget,
+        onStartRename: crud.startRename,
+        onRequestDelete: crud.setDeleteTarget,
         onClearSelection: () => setSelectedRow(null),
     }
 
@@ -314,10 +200,10 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
             <ExplorerPanel
                 projectId={projectId}
                 rows={rows}
-                draft={draft}
-                draftError={draftError}
-                renameTarget={renameTarget}
-                renameError={renameError}
+                draft={crud.draft}
+                draftError={crud.draftError}
+                renameTarget={crud.renameTarget}
+                renameError={crud.renameError}
                 selectPathRequest={selectPathRequest}
                 canPaste={clipboard !== null}
                 contextMenuHandlers={contextMenuHandlers}
@@ -326,14 +212,14 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                 onOpenPinned={(row) => openFileTab(row, false)}
                 onSelectionChange={setSelectedRow}
                 onOpenSearchMatch={openSearchMatch}
-                onNewFile={() => void startDraft('file')}
-                onNewFolder={() => void startDraft('directory')}
+                onNewFile={() => void crud.startDraft('file')}
+                onNewFolder={() => void crud.startDraft('directory')}
                 onRefresh={() => void refreshVisibleTree()}
                 onCollapseAll={() => void collapseAllExpanded()}
-                onDraftCommit={(name) => void commitDraft(name)}
-                onDraftCancel={cancelDraft}
-                onRenameCommit={(name) => void commitRename(name)}
-                onRenameCancel={cancelRename}
+                onDraftCommit={(name) => void crud.commitDraft(name)}
+                onDraftCancel={crud.cancelDraft}
+                onRenameCommit={(name) => void crud.commitRename(name)}
+                onRenameCancel={crud.cancelRename}
                 onSelectPathRequestHandled={() => setSelectPathRequest(null)}
                 onRevealInExplorerRequest={(path) => {
                     void (async () => {
@@ -342,7 +228,11 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                     })()
                 }}
             />
-            <EntryDeleteDialog entryName={deleteTarget?.name ?? null} onCancel={() => setDeleteTarget(null)} onConfirm={() => void confirmDelete()} />
+            <EntryDeleteDialog
+                entryName={crud.deleteTarget?.name ?? null}
+                onCancel={() => crud.setDeleteTarget(null)}
+                onConfirm={() => void crud.confirmDelete()}
+            />
             <FileHistoryPanel projectId={projectId} />
         </>
     )

@@ -31,7 +31,7 @@ type BuildDocumentSymbolWaitersInput<TSession> = {
  * calls that).
  *
  * Generic over `TSession` — rather than importing `SessionRecord` from
- * `@widgets/editor-pane/lsp-session-registry` — so this stays in `shared` without a shared→widgets
+ * `@entities/lsp/lsp-session-registry` — so this stays in `shared` without a shared→entities
  * reference (fsd.md §2). Every real caller instantiates it implicitly: passing
  * `waitForLspSessionForRoot` (whose return type carries `SessionRecord`) as `waitForSession` lets
  * TypeScript infer `TSession = SessionRecord` at the call site.
@@ -66,10 +66,11 @@ type LoadDocumentSymbolsInput<TSession extends { ready: Promise<{ client: LspCli
  * Combines {@link buildDocumentSymbolWaiters} with the "take the first server that comes up and
  * advertises `documentSymbolProvider`, report its `textDocument/documentSymbol` result (or `[]`
  * once every waiter is exhausted)" loop — the effect body shared verbatim by
- * `breadcrumbs-bar.tsx`/`outline-panel-container.tsx`/`command-palette.tsx` (this function's three
- * callers, same root-aware rationale as {@link buildDocumentSymbolWaiters}'s doc comment). Returns a
- * cleanup function so a caller's `useEffect` can `return loadDocumentSymbolsForPath({ ... })`
- * directly — cancelling in-flight session waits when a newer path/effect run supersedes this one.
+ * `breadcrumbs-bar.tsx`/`outline-panel-container.tsx`/`use-document-symbol-loader.ts` (this
+ * function's three callers, same root-aware rationale as {@link buildDocumentSymbolWaiters}'s doc
+ * comment). Returns a cleanup function so a caller's `useEffect` can `return
+ * loadDocumentSymbolsForPath({ ... })` directly — cancelling in-flight session waits when a newer
+ * path/effect run supersedes this one.
  */
 export const loadDocumentSymbolsForPath = <TSession extends { ready: Promise<{ client: LspClient }> }>({
     monaco,

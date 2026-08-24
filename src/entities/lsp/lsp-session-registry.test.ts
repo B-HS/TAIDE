@@ -147,7 +147,7 @@ const fakeLspIpc = createFakeLspIpc()
 mock.module('@shared/lib/monaco/setup', () => ({ monaco: FAKE_MONACO }))
 mock.module('@entities/lsp/lsp.ipc', () => fakeLspIpc)
 
-const importRegistry = () => import('@widgets/editor-pane/lsp-session-registry')
+const importRegistry = () => import('@entities/lsp/lsp-session-registry')
 
 const PROJECT_ID = 'project-1' as Parameters<Awaited<ReturnType<typeof importRegistry>>['acquireLspSession']>[0]
 const SERVER_ID = 'server-1' as Parameters<Awaited<ReturnType<typeof importRegistry>>['acquireLspSession']>[1]

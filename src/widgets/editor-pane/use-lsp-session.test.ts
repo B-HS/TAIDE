@@ -25,6 +25,7 @@ mock.module('@entities/lsp/lsp.ipc', () => ({
     resolveLspRoot: () => Promise.resolve(null),
     installLspServer: () => Promise.resolve(),
     cancelLspInstall: () => Promise.resolve(),
+    reportLspReinitializeFailure: () => Promise.resolve(),
 }))
 
 const importUseLspSession = () => import('@widgets/editor-pane/use-lsp-session')

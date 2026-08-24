@@ -1,57 +1,50 @@
-import type { FC } from 'react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import type { languages } from 'monaco-editor'
-import { Braces, CornerDownLeft, File, Hash, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import type { FlatPaletteSymbol, PaletteLineTarget, PaletteMode } from '@shared/lib/command-palette-query'
-import { flattenDocumentSymbols, parseLineModeTarget, parsePaletteQuery } from '@shared/lib/command-palette-query'
+import {
+    WORKSPACE_SYMBOL_MODE_PREFIX,
+    buildCommandModeQuery,
+    flattenDocumentSymbols,
+    parseLineModeTarget,
+    parsePaletteQuery,
+} from '@shared/lib/command-palette-query'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
 import { formatCategorizedLabel, getRegisteredCommand, isCommandRunnable, listRegisteredCommands } from '@shared/lib/command-registry'
 import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
-import { buildKeybindingRows, findKeybindingRowById, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
-import { formatKeymapShortcut, parseKeymapOverrides } from '@shared/lib/keymap'
+import { buildKeybindingRows, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
+import { parseKeymapOverrides } from '@shared/lib/keymap'
 import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap-chord-store'
-import { buildFuzzyHighlightSegments, fuzzyFilter } from '@shared/lib/fuzzy-match'
+import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
-import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from '@shared/ui/command'
+import { Command, CommandEmpty, CommandInput, CommandList } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
+import { CommandPaletteCommandsGroup } from '@features/command-palette/command-palette-commands-group'
+import { CommandPaletteFilesGroup } from '@features/command-palette/command-palette-files-group'
+import { CommandPaletteLineGroup } from '@features/command-palette/command-palette-line-group'
+import { CommandPaletteSymbolGroup } from '@features/command-palette/command-palette-symbol-group'
+import { CommandPaletteWorkspaceSymbolGroup } from '@features/command-palette/command-palette-workspace-symbol-group'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { activeProjectQueryOptions, projectQueryOptions } from '@entities/project/project.query'
 import { treeRowsQueryOptions } from '@entities/tree/tree.query'
 import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
-import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
-import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
-import { listSessionRecordsForProject, waitForLspSessionForRoot } from '@widgets/editor-pane/lsp-session-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
-import { splitFileMatchForDisplay } from '@widgets/command-palette/command-palette-file-match'
+import type { DocumentSymbolState } from '@widgets/command-palette/use-document-symbol-loader'
+import { useDocumentSymbolLoader } from '@widgets/command-palette/use-document-symbol-loader'
+import type { WorkspaceSymbolState } from '@widgets/command-palette/use-workspace-symbol-search'
+import { useWorkspaceSymbolSearch } from '@widgets/command-palette/use-workspace-symbol-search'
 
 const FILE_RESULT_LIMIT = 200
-
-const HighlightedText: FC<{ text: string; indices: number[] }> = ({ text, indices }) => (
-    <>
-        {buildFuzzyHighlightSegments(text, indices).map((segment, index) =>
-            segment.matched ? (
-                <mark key={index} className='bg-transparent text-panel-match-highlight font-semibold'>
-                    {segment.text}
-                </mark>
-            ) : (
-                segment.text
-            ),
-        )}
-    </>
-)
 
 const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
     files: 'palette.filePlaceholder',
@@ -60,9 +53,6 @@ const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
     line: 'palette.linePlaceholder',
     workspaceSymbol: 'palette.workspaceSymbolPlaceholder',
 }
-
-type DocumentSymbolState = { path: string; symbols: languages.DocumentSymbol[] }
-type WorkspaceSymbolState = { query: string; results: NormalizedWorkspaceSymbol[] }
 
 export const CommandPalette = () => {
     const [open, setOpen] = useState(false)
@@ -140,11 +130,11 @@ export const CommandPalette = () => {
             setOpen(true)
         },
         'command-palette': () => {
-            setQuery('>')
+            setQuery(buildCommandModeQuery())
             setOpen(true)
         },
         'workspace-symbol': () => {
-            setQuery('#')
+            setQuery(WORKSPACE_SYMBOL_MODE_PREFIX)
             setOpen(true)
         },
         'new-terminal': openTerminalTab,
@@ -265,58 +255,25 @@ export const CommandPalette = () => {
         handleOpenChange(false)
     }
 
-    /**
-     * `⌘O`/symbol-nav mode's document-symbol lookup — root-aware (`loadDocumentSymbolsForPath` +
-     * `waitForLspSessionForRoot`, contract `docs/acknowledge/2026-08-19-editor-pane-batch-contract.md`
-     * §1.2) because it has a concrete `activePath` to resolve a root from. Contrast the `⌘T`
-     * Workspace Symbol effect below, which stays root-agnostic (`listSessionRecordsForProject`) on
-     * purpose: it has no single document path to resolve a root against (it searches every root the
-     * project has open at once), so there is no "wrong root" to pick.
-     */
-    useEffect(() => {
-        if (mode !== 'symbol' || !open || !activeProjectId || !activePath || !activeFile || !lspServers) return
+    useDocumentSymbolLoader({
+        mode,
+        open,
+        activeProjectId,
+        activePath,
+        activeFile,
+        lspServers,
+        activeProjectRoot: activeProject?.root,
+        onLoaded: setDocumentSymbolState,
+    })
 
-        const languageId = activeFile.languageId
-        const availableServerIds = filterAvailableLspServers(lspServers, languageId).map((server) => server.id)
-
-        return loadDocumentSymbolsForPath({
-            monaco,
-            availableServerIds,
-            path: activePath,
-            projectId: activeProjectId,
-            fallbackRoot: activeProject?.root,
-            resolveRoot: resolveLspRoot,
-            waitForSession: waitForLspSessionForRoot,
-            onLoaded: (symbols) => setDocumentSymbolState({ path: activePath, symbols }),
-        })
-    }, [mode, open, activeProjectId, activePath, activeFile, lspServers, activeProject?.root])
-
-    useEffect(() => {
-        if (mode !== 'workspaceSymbol' || !open || !activeProjectId) return
-
-        const trimmedQuery = searchTerm.trim()
-        let cancelled = false
-
-        const load = async () => {
-            if (!trimmedQuery) {
-                setWorkspaceSymbolState({ query: searchTerm, results: [] })
-                return
-            }
-            const sessionRecords = listSessionRecordsForProject(activeProjectId)
-            const readySessions = await Promise.all(sessionRecords.map((record) => record.ready.catch(() => null)))
-            if (cancelled) return
-            const clients = readySessions.filter((session) => session !== null).map((session) => session.client)
-            const results = await workspaceSymbolSearch.search(clients, trimmedQuery)
-            if (!cancelled) setWorkspaceSymbolState({ query: searchTerm, results })
-        }
-
-        void load()
-
-        return () => {
-            cancelled = true
-            workspaceSymbolSearch.cancel()
-        }
-    }, [mode, open, activeProjectId, searchTerm, workspaceSymbolSearch])
+    useWorkspaceSymbolSearch({
+        mode,
+        open,
+        activeProjectId,
+        searchTerm,
+        workspaceSymbolSearch,
+        onResult: setWorkspaceSymbolState,
+    })
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -329,88 +286,22 @@ export const CommandPalette = () => {
                     <CommandList>
                         <CommandEmpty>{resolveEmptyStateMessage()}</CommandEmpty>
                         {mode === 'commands' && (
-                            <CommandGroup heading={t('palette.commands')}>
-                                {filteredCommands.map(({ item, match }) => {
-                                    const keybindingRow = findKeybindingRowById(commandKeybindingRows, item.keymapId ?? item.id)
-                                    const runnable = isCommandRunnable(item, commandContext)
-                                    const label = formatCategorizedLabel(t, item.categoryKey, item.titleKey, item.titleDefaultValue)
-                                    return (
-                                        <CommandItem key={item.id} disabled={!runnable} onSelect={() => runCommand(item)}>
-                                            <Terminal className='size-4' />
-                                            <span>
-                                                <HighlightedText text={label} indices={match.indices} />
-                                            </span>
-                                            {keybindingRow?.key && <CommandShortcut>{formatKeymapShortcut(keybindingRow)}</CommandShortcut>}
-                                            {!keybindingRow?.key && keybindingRow?.defaultBindingLabel && (
-                                                <CommandShortcut>{keybindingRow.defaultBindingLabel}</CommandShortcut>
-                                            )}
-                                        </CommandItem>
-                                    )
-                                })}
-                            </CommandGroup>
+                            <CommandPaletteCommandsGroup
+                                commands={filteredCommands}
+                                keybindingRows={commandKeybindingRows}
+                                commandContext={commandContext}
+                                onRunCommand={runCommand}
+                            />
                         )}
                         {mode === 'files' && (
-                            <CommandGroup heading={t('palette.files')}>
-                                {filteredFiles.map(({ item, match }) => {
-                                    const { fileName, dirPath, fileNameIndices, dirPathIndices } = splitFileMatchForDisplay(
-                                        toProjectRelativePath(item.path),
-                                        match.indices,
-                                    )
-                                    return (
-                                        <CommandItem key={item.path} value={item.path} onSelect={() => openFile(item.path)}>
-                                            <File className='size-4' />
-                                            <span className='flex min-w-0 flex-col'>
-                                                <span className='truncate'>
-                                                    <HighlightedText text={fileName} indices={fileNameIndices} />
-                                                </span>
-                                                {dirPath !== null && (
-                                                    <span className='truncate text-xs text-muted-foreground'>
-                                                        <HighlightedText text={dirPath} indices={dirPathIndices} />
-                                                    </span>
-                                                )}
-                                            </span>
-                                        </CommandItem>
-                                    )
-                                })}
-                            </CommandGroup>
+                            <CommandPaletteFilesGroup files={filteredFiles} toProjectRelativePath={toProjectRelativePath} onOpenFile={openFile} />
                         )}
-                        {mode === 'symbol' && (
-                            <CommandGroup heading={t('palette.symbols')}>
-                                {filteredDocumentSymbols.map(({ item, match }) => (
-                                    <CommandItem
-                                        key={`${item.containerLabel}/${item.name}/${item.selectionRange.startLineNumber}`}
-                                        onSelect={() => selectDocumentSymbol(item)}>
-                                        <Braces className='size-4' />
-                                        <span className='truncate'>
-                                            <HighlightedText text={item.name} indices={match.indices} />
-                                        </span>
-                                        {item.containerLabel && <span className='truncate text-xs text-muted-foreground'>{item.containerLabel}</span>}
-                                    </CommandItem>
-                                ))}
-                            </CommandGroup>
-                        )}
-                        {mode === 'line' && lineTarget && activePath && (
-                            <CommandGroup>
-                                <CommandItem onSelect={() => selectLineTarget(lineTarget)}>
-                                    <CornerDownLeft className='size-4' />
-                                    <span>{lineTarget.column > 1 ? `${lineTarget.line}:${lineTarget.column}` : `${lineTarget.line}`}</span>
-                                </CommandItem>
-                            </CommandGroup>
+                        {mode === 'symbol' && <CommandPaletteSymbolGroup symbols={filteredDocumentSymbols} onSelectSymbol={selectDocumentSymbol} />}
+                        {mode === 'line' && (
+                            <CommandPaletteLineGroup lineTarget={lineTarget} activePath={activePath} onSelectLine={selectLineTarget} />
                         )}
                         {mode === 'workspaceSymbol' && (
-                            <CommandGroup heading={t('palette.workspaceSymbols')}>
-                                {workspaceSymbolResults.map((symbol, index) => (
-                                    <CommandItem
-                                        key={`${symbol.path}:${symbol.line}:${symbol.column}:${index}`}
-                                        onSelect={() => selectWorkspaceSymbol(symbol)}>
-                                        <Hash className='size-4' />
-                                        <span className='truncate'>{symbol.name}</span>
-                                        {symbol.containerName && (
-                                            <span className='truncate text-xs text-muted-foreground'>{symbol.containerName}</span>
-                                        )}
-                                    </CommandItem>
-                                ))}
-                            </CommandGroup>
+                            <CommandPaletteWorkspaceSymbolGroup symbols={workspaceSymbolResults} onSelectSymbol={selectWorkspaceSymbol} />
                         )}
                     </CommandList>
                 </Command>

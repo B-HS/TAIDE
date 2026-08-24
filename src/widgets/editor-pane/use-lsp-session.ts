@@ -11,14 +11,8 @@ import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
-import type { SessionRecord } from '@widgets/editor-pane/lsp-session-registry'
-import {
-    acquireDocument,
-    acquireLspSession,
-    ensureLanguageRegistered,
-    releaseDocument,
-    releaseLspSession,
-} from '@widgets/editor-pane/lsp-session-registry'
+import type { SessionRecord } from '@entities/lsp/lsp-session-registry'
+import { acquireDocument, acquireLspSession, ensureLanguageRegistered, releaseDocument, releaseLspSession } from '@entities/lsp/lsp-session-registry'
 
 type UseLspSessionInput = {
     projectId: ProjectId

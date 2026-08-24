@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { splitFileMatchForDisplay } from '@widgets/command-palette/command-palette-file-match'
+import { splitFileMatchForDisplay } from '@shared/lib/command-palette-file-match'
 
 describe('splitFileMatchForDisplay', () => {
     test('디렉토리가 있으면 파일명과 상위 경로로 나눈다', () => {

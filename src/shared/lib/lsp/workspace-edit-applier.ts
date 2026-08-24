@@ -197,8 +197,8 @@ export const applyTextEditsToContent = (content: string, edits: readonly TextEdi
  * `createWorkspaceApplyEditHandler` is registered per LSP session against that session's own project
  * — supplies it explicitly via `WorkspaceEditApplyOptions.projectId` (threaded down from
  * `lsp-session-registry.ts`, where a session's owning project *is* known; this module itself cannot
- * reach into `widgets/editor-pane/lsp-session-registry.ts` directly since `shared` cannot import
- * `widgets`). Without an explicit `projectId` (the interactive rename/code-action adapters, and the
+ * reach into `entities/lsp/lsp-session-registry.ts` directly since `shared` cannot import
+ * `entities`). Without an explicit `projectId` (the interactive rename/code-action adapters, and the
  * process-wide fallback handler registered with no session context at all), falling back to
  * `getActiveProjectId` is exact, not a guess, for those callers: `app-shell.tsx` mounts exactly one
  * `EditorArea` at a time, keyed off that same active project, and interactive edits only ever act on
