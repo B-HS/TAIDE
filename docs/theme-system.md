@@ -461,14 +461,18 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 스키마·5곳 동기(§ "테마 토큰은 5곳 동기") 변경이 필요해 범위를 넘어선다고 판단해
 보류했다 — 필요해지면 별도 작업으로 진행한다.
 
-### 8.2.3 재변환 비재현 예외 — `panel.matchHighlight` 손수정 7종
+### 8.2.3 재변환 비재현 예외 — `panel.matchHighlight` 손수정 8종
 
 대상: `github-dark`·`github-light`·`ayu-light`·`solarized-light`·`monokai`·`palenight`·
-`night-owl-light` 7종의 `panel.matchHighlight`. 이 7개는 §8.2.2 가 "재변환해도 이 보정은
-그대로 재적용된다"고 못박은 일반 원칙의 **예외**다 — 번들 36종 중 이 7종만, 변환기를
-다시 돌려도 지금 커밋된 값이 재현되지 않는다(앞 4종은 d-31
-`docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A, 뒤 3종은 d-33
-`docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md` "임무 C").
+`night-owl-light`·`vscode-quiet-light` 8종의 `panel.matchHighlight`. 이 8개는 §8.2.2 가
+"재변환해도 이 보정은 그대로 재적용된다"고 못박은 일반 원칙의 **예외**다 — 번들 36종 중 이
+8종만, 변환기를 다시 돌려도 지금 커밋된 값이 재현되지 않는다(앞 4종은 d-31
+`docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A, 다음 3종은 d-33
+`docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md` "임무 C", `vscode-quiet-light`
+는 d-40 `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §3-B — 아래 8.2.4 의
+선택 행 손수정(`list.foreground`/`list.activeBackground`)과 같은 배치에서 나왔지만, 대상 토큰이
+`panel.matchHighlight` 자신이고 근거 논리도 이 표의 앞 7종과 같은 부류(같은 업스트림 파일의
+`tokenColors` 재사용)라 여기 합류시켰다).
 
 **재변환 시 나오는 값과 이유가 두 가지 서로 다른 가드에서 갈린다:**
 
@@ -482,6 +486,10 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
   불투명 가드를 그대로 통과하므로, 재변환은 업스트림 원본값(`#f29718`/`#B58900`)을
   **그대로** 재현한다 — 이 값이 바로 `panel.background` 대비 2.16:1/2.62:1 로 파이프라인
   대비 게이트(`MIN_CONTRAST_RATIO = 3`)에 미달했던 원래 결함값이다.
+- `vscode-quiet-light`: 위 두 항목과 같은 이유로 재변환은 업스트림 원본값(`#9769dc`)을 그대로
+  재현하지만, 이 값은 `panel.background` 축(3.49:1)은 **이미 통과**한다 — 실패하는 것은
+  d-40(§8.2.4)이 추가한 `list.activeBackground` 축(2.59:1)뿐이다. 즉 §8.2.2 의 일반 대비
+  게이트만 보면 결함이 아니지만, 선택 행 축까지 포함하면 재변환 시 결함값으로 되돌아간다.
 - `monokai`/`palenight`/`night-owl-light`: `list.highlightForeground` 가 불투명하게
   정의돼 있지만(monokai `#f8f8f2`, palenight `#ffffff`, night-owl-light `#403f53`) 그
   값이 `app.foreground`(본문 전경)와 **픽셀 단위로 동일**하다 — 검색·팔레트 매치 강조가
@@ -506,6 +514,7 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 | monokai | `#E6DB74` | 11.63 | `#569CD6`(safe-default) | 5.62 | 업스트림 `microsoft/vscode` `theme-monokai` 의 `tokenColors`(string/regexp/link 등) 에서 반복 사용되는 노랑 — `app.foreground`(`#f8f8f2`)와 ΔE 50.65 로 뚜렷이 구별 |
 | palenight | `#ffcb6b` | 9.10 | `#569CD6`(safe-default) | 4.63 | 업스트림 `whizkydee/vscode-palenight-theme` 의 `tokenColors`(variable/type/attribute 등) 에서 반복 사용되는 금색 — `app.foreground`(`#ffffff`)와 ΔE 56.85 로 뚜렷이 구별 |
 | night-owl-light | `#aa0982` | 6.00 | `#0066BF`(safe-default) | 5.04 | 업스트림 `sdras/night-owl-vscode-theme` 의 `tokenColors`(number) 에서 사용되는 마젠타 — `app.foreground`(`#403f53`)와 ΔE 62.74 로 뚜렷이 구별 |
+| vscode-quiet-light | `#7A3E9D` | 6.25 | `#9769dc`(원본 그대로) | 3.49 | `panel.background` 축은 원본값도 통과(3.49)하지만, d-40 이 추가한 `list.activeBackground` 축(§8.2.4)에는 2.59 로 미달 — 같은 업스트림 `microsoft/vscode` `theme-quietlight` 의 `tokenColors`(보라 계열) 재사용, `list.activeBackground` 대비도 4.63 로 함께 개선 |
 
 뒤 3종은 safe-default(`#569CD6`/`#0066BF`)도 이미 AA 를 통과하므로(4.63~5.62), 손수정의
 목적이 대비 확보가 아니라 **테마 정체성 보존**(외지 파랑 대신 그 테마 고유의 accent 색을
@@ -531,7 +540,7 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 재변환하면 이 수리 경로를 그대로 거친다(전자는 상태색 후보가 전부 탈락해 2패스 고지로,
 후자는 `textLink.foreground` 의 accent 로 낙착).
 
-**운영 지시**: 이 7개 테마를 재변환하면 `panel.matchHighlight` 1개 토큰의 diff 가 항상
+**운영 지시**: 이 8개 테마를 재변환하면 `panel.matchHighlight` 1개 토큰의 diff 가 항상
 non-zero 다 — 이는 예상된 것이므로 **산출물을 채택하지 말고 위 표의 손수정값을 다시
 적용**한다. 그 외 토큰(colors/syntax/terminal 나머지 전부)의 diff 는 §8.2.2 게이트대로
 원인(원본 갱신 여부)을 규명한다. (뒤 3종은 실제로 colors/syntax/terminal 나머지 전량이
@@ -540,6 +549,47 @@ diff 0 임을 오늘 시점 업스트림 재취득으로 직접 확인했다 —
 상호 참조: `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A(f-1 가드·f-3
 정정 근거)·§3-E(번들 36종 재스윕 표) · `docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md`
 "임무 C"(구별성 가드·번들 3종 정정·vs-전경 축 재스윕).
+
+### 8.2.4 재변환 비재현 예외 — 선택 행 표면(`list.foreground`/`list.activeBackground`/`explorer.itemSelected`) 손수정
+
+d-40(`docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-a)이 선택 행 배경
+(`list.activeBackground`) 대비 게이트를 `panel.matchHighlight`/`list.foreground` 두 축에 추가하면서,
+§8.2.3 과 같은 성격의 재변환 비재현 손수정이 두 토큰에도 생겼다. 손수정 방식은 §8.2.3 과 동일
+(d-31 §3-A 방식 — 값을 새로 발명하지 않고 업스트림 팔레트 **안에서** 재선정, 재변환이 아님).
+아래 표는 이 배치(d-40 §3-B) 손수정 12종 + 이후 검토에서 재정정된 3종(비고 열 참고)의 현재
+상태다 — "재변환 시 나오는 값"은 두 경우 모두 파이프라인(`mapping-tables.ts`)이 바뀐 적이 없어
+d-40 이전부터 지금까지 동일하다(손수정은 항상 커밋된 JSON 만 바꾼다).
+
+| 테마 | 토큰 | 손수정값(현재) | 재변환 시 나오는 값 | 그 값의 `list.activeBackground` 대비비 | 근거 | 비고 |
+|---|---|---|---|---|---|---|
+| nord | `list.foreground` | — (해당 없음) | `#d8dee9` | 5.46(현재 `list.activeBackground` `#4c566a` 기준) | 검토 재정정으로 커밋값을 파이프라인 자연값(`#d8dee9`)으로 되돌려, 더 이상 손수정이 아니다 — 아래 §8.2.4 부기 참고 | **레지스트리 이탈**(재정정) |
+| nord | `list.activeBackground` | `#4c566a`(nord3, Polar Night) | `#88c0d0`(nord8, frost 액센트) | matchHl 1.00 / listFg 1.48 | 새 배경 기준으로는 `list.foreground`(5.46)·`panel.matchHighlight`(3.69) 두 축을 동시에 통과시키고 `list.hoverBackground`/`list.background` 와도 ΔE 8.8/15.5 로 구별되는 값으로 재선정(업스트림 `list.inactiveSelectionBackground`) | **신규**(검토 재정정) |
+| nord | `explorer.itemSelected` | `#4c566a` | `#88c0d0` | (해당 없음 — 이 축은 게이트 대상 아님) | `list.activeBackground` 와 분리되면 한 테마 안에 "선택" 색이 두 개가 되는 것을 막기 위해 동기화 | **신규**(검토 재정정) |
+| vscode-monokai-dimmed | `list.activeBackground` | `#4e4e4e`(업스트림 `list.inactiveSelectionBackground`/`explorer.itemFocused`) | `#707070`(d-40 이전 원본) | matchHl 1.82 / listFg 2.94 | d-40 원안(`#404040`, `tabBar.tabInactiveBackground`)이 `list.hoverBackground`(`#444444`)와 ΔE 1.8 로 JND 미달이라 재선정 — matchHl 3.05·listFg 4.93·ΔE(hover) 4.3·ΔE(listBg) 17.5 전부 통과 | **재정정**(검토, d-40 값 대체) |
+| vscode-abyss | `list.activeBackground` | `#000c18`(= `app.background`) | `#08286b`(d-40 이전 원본) | matchHl 2.18 / listFg 3.90 | 검토에서 재선정을 시도했으나 이 팔레트 안에 matchHl·listFg·ΔE(hover)·ΔE(listBg) 4 조건을 동시에 만족하는 값이 `#000c18` 외에 없음을 확인 — d-40 원안 유지 | 유지(검토 재확인) |
+| vscode-tomorrow-night-blue | `list.activeBackground` | `#003f8e`(업스트림 `editor.selectionBackground`) | `#ffffff60`(반투명, d-40 이전 원본) | matchHl 1.44 / listFg 1.00 | d-40 §3-B — 같은 업스트림 파일의 다른 "선택" 개념 재사용 | 유지 |
+| vscode-solarized-dark | `list.activeBackground` | `#274642`(업스트림 `editor.selectionBackground`) | `#005A6F`(d-40 이전 원본) | matchHl 3.36 / listFg 2.47 | d-40 §3-B | 유지 |
+| everforest-light | `list.foreground` | `#5c6a72`(업스트림 `list.activeSelectionForeground`) | `#939f91`(d-40 이전 원본) | 2.12 | d-40 §3-B | 유지 |
+| palenight | `list.foreground` | `#ffffff`(업스트림 `list.activeSelectionForeground`) | `#6C739A`(d-40 이전 원본) | 1.13 | d-40 §3-B | 유지 |
+| rose-pine | `list.foreground` | `#e0def4`(업스트림 `list.activeSelectionForeground`) | `#908caa`(d-40 이전 원본) | 1.60 | d-40 §3-B | 유지 |
+| ayu-dark | `list.foreground` | `#bfbdb6`(업스트림 `list.activeSelectionForeground`) | `#5a6378`(d-40 이전 원본) | 1.99 | d-40 §3-B | 유지 |
+| ayu-light | `list.foreground` | `#5c6166`(업스트림 `list.activeSelectionForeground`) | `#828e9f`(d-40 이전 원본) | 2.19 | d-40 §3-B | 유지 |
+| everforest-dark | `list.foreground` | `#d3c6aa`(업스트림 `list.activeSelectionForeground`) | `#859289`(d-40 이전 원본) | 2.47 | d-40 §3-B | 유지 |
+| solarized-light | `list.foreground` | `#6C6C6C`(업스트림 `list.activeSelectionForeground`) | `#657B83`(d-40 이전 원본) | 2.75 | d-40 §3-B | 유지 |
+
+**nord `list.foreground` 가 레지스트리를 이탈한 이유**: d-40 원안은 업스트림 `list.activeSelectionForeground`
+(선택 행 전용, `#2e3440`)를 TAIDE 의 선택/비선택 공용 `list.foreground` 에 그대로 이식했다 —
+`global.css` 의 `--accent-foreground: var(--taide-list-foreground)` 가 이 토큰을
+`list.hoverBackground`(`--accent`) 위에도 그리므로(드롭다운/컨텍스트 메뉴·ghost 버튼 hover·focus
+전체), 선택 행 1곳을 고치려다 훨씬 넓게 쓰이는 hover/메뉴 표면을 대비 7.45→1.24 로 무너뜨렸다
+(검토 findings d40-listfg-multisurface-regression/d40-l2-01/D40-L3-01). 검토에서 `list.foreground`
+는 파이프라인 자연값(`#d8dee9`)으로 되돌리고, 선택 행 축 자체는 `list.activeBackground` 를
+nord3(`#4c566a`)로 재선정해 해소했다 — 두 축을 모두 만족하는 배경이 존재했으므로(위 표), 예외
+등재도, `list.foreground` 손수정도 필요하지 않다.
+
+**운영 지시**: 위 표에서 "재변환 시 나오는 값"이 "손수정값(현재)"과 다른 행(전부, `nord`
+`list.foreground` 제외)은 재변환해도 그대로 채택하지 말고 표의 손수정값을 다시 적용한다. 그 외
+132개 토큰의 diff 는 §8.2.2 게이트대로 원인을 규명한다.
 
 ### 8.3 Rust 등록
 

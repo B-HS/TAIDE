@@ -524,9 +524,12 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - query: `sync_status() → SyncStatus{ connected, hasGist, lastSyncedAt, remoteNewer }`
 - mutation: `sync_connect(pat)`(GitHub PAT 로 연결), `sync_disconnect()`, `sync_upload()`(현재 설정을
   gist 로 업로드 — `strip_non_syncable` 로 `remoteAccessEnabled`·`remotePasswordOnlyLogin`·
-  `shellOverride`·`remoteAllowedHosts` 를 제외하고 업로드, Wave B §3.1), `sync_download(force) →
+  `shellOverride`·`remoteAllowedHosts`·`aiOmlxBaseUrl` 를 제외하고 업로드, Wave B §3.1·d-41 —
+  업로드 제외 근거: secret gist 는 비공개가 아니라는 리크 모델을 앱 자신이
+  `settings.syncSecretGistWarning` 으로 인정하고, `sanitize_optional_url`(settings/service.rs)은
+  http/https 스킴만 검증할 뿐 호스트를 제한하지 않는다), `sync_download(force) →
   SyncDownloadResult`(`{ kind: 'applied', status } | { kind: 'conflict', remoteUpdatedAt }` — 로컬이
-  더 최신이면 `force` 없이는 충돌로 보고, 다운로드 페이로드도 동일 4필드를 강제 제외한다)
+  더 최신이면 `force` 없이는 충돌로 보고, 다운로드 페이로드도 동일 5필드를 강제 제외한다)
 - event: `sync:state-changed(status: SyncStatus)`
 - `schemaVersion` 게이트(`sync::service::ensure_supported_schema_version`)는 페이로드의
   `schemaVersion` 이 이 빌드의 `SETTINGS_SCHEMA_VERSION`(정책상 `1` 로 동결)보다 **클 때만** 거부한다.
@@ -690,7 +693,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   대상이 `remotePasswordOnlyLogin` 1필드에서 `remoteAllowedHosts`·`shellOverride` 를 더한 **3필드**
   로 늘었다 — gist 인바운드(§sync)의 `shellOverride` 미필터가 RCE 급 결함으로 확인되면서
   (`docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §2·§3.1), `settings_update` 원격 경로도
-  같은 필드를 동일 원칙으로 스트립하도록 맞췄다. 자세한 허용/거부/스트립 전체 그림은
+  같은 필드를 동일 원칙으로 스트립하도록 맞췄다. **d-41(2026-08-25)에서 재확장**: 저장된 OMLX 키의
+  전송 대상을 정하는 `aiOmlxBaseUrl` 이 더해져 **4필드**가 됐다. 자세한 허용/거부/스트립 전체 그림은
   §"원격 dispatch 정책" 참조.
 - 인증 흐름 재배치(`auth_middleware`, 예외 0개였던 종전 구조에 최초로 예외 추가):
   1. Origin/Host 검사(그대로, Origin 헤더 부재는 허용 — 브라우저 GET 내비게이션 대응).
@@ -965,9 +969,11 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > `LocalFilesystemEscape`/`InstallOrProcessExecution` 과 같은 근거로, 인증된 원격 세션은 허용된
 > `pty_spawn` 으로 이미 셸을 쥐고 있어 `settings.json` 을 직접 고쳐 동등한 지속성을 확보할 수 있다.
 > 닫힌 것은 키링 항목의 write/delete 이며, 저장된 키의 전송 대상을 정하는 `ai_omlx_base_url` 은
-> 여전히 허용 경로(`settings_update`·`sync_download`)로 변경 가능하다 — 이 필드를
-> `strip_remote_gated_settings_patch`/`strip_remote_gated_settings` 스트립 목록에 편입할지는
-> 사용자 결정 이월이다(코드 변경 없음).
+> **d-41(2026-08-25, `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`)** 로 원격
+> 게이트 스트립에 편입됐다 — `strip_remote_gated_settings_patch`/`strip_remote_gated_settings`
+> (`settings_update`·`app_file_write`)뿐 아니라, 같은 축의 우회 경로였던 `sync_download`
+> (`sync/service.rs`의 `strip_non_syncable` — dispatch 스트립 두 함수를 전혀 거치지 않고 곧장
+> 호출된다)까지 3경로 모두에서 제거된다.
 
 - **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 156종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
   전종·`file_*`(아래 예외 제외)·`ai_*` 6종(`ai_set_token`/`ai_clear_token` 제외 — d-38, 아래 표
@@ -995,7 +1001,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
   | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
   | `project_list_recent` | `LocalProjectHistoryExposure` | 현재 세션에 열려 있지 않은 프로젝트를 포함해 디스크의 영속 프로젝트 기록 전수를 반환한다 — Welcome 화면 "최근 프로젝트" 전용 로컬 조회이며, `project_list`(현재 열린 세션만 노출)보다 넓게 로컬 파일시스템 경로/이름을 드러내므로 원격 세션에는 불필요·부적절하다(d-27). **기대 동작**: `welcome` 탭은 모든 프로젝트의 기본 레이아웃에 포함되므로 원격 세션에서도 마운트되고, 이 커맨드는 매번 Forbidden 을 받는다 — "최근 프로젝트" 섹션은 원격에서 항상 빈 상태로 렌더되는 것이 의도된 열화다(`WelcomeContainer` 가 `isError` 시 `app.recentProjectsUnavailable` 안내 문구를 보여준다) |
-  | `ai_set_token` / `ai_clear_token` / `sync_connect` / `sync_disconnect` | `CredentialStoreTampering` | 키링에 쓰거나 지우는 자격증명(AI 프로바이더 토큰 3종·GitHub 동기화 PAT)은 세션이 끝난 뒤에도 남는다 — 원격 세션이 자기 토큰으로 바꿔치면 이후 데스크톱이 내보내는 `ai_inline_complete`/`ai_inline_edit`/`ai_commit_message`·`sync_upload`/`sync_download` 트래픽이 공격자 계정으로 흐르고, 지우면 지속적인 서비스 거부가 된다 — `agent_hooks_install` User 스코프가 거부되는 것과 같은 "세션을 넘어 남는 백도어" 근거다(d-38, 감사 R3#7: 키링 5계정 중 `RemoteAccess` 만 원격 거부였다). 값을 절대 반환하지 않는 상태 조회 `ai_token_status`/`sync_status`(연결 여부만 반환)는 그대로 허용 유지. 닫힌 것은 키링 항목의 write/delete 이며, 저장된 키의 전송 대상을 정하는 `ai_omlx_base_url` 은 여전히 허용 경로(`settings_update`·`sync_download`)로 변경 가능 — 스트립 편입 여부는 이월 결정(위 "d-38" 절 참조) |
+  | `ai_set_token` / `ai_clear_token` / `sync_connect` / `sync_disconnect` | `CredentialStoreTampering` | 키링에 쓰거나 지우는 자격증명(AI 프로바이더 토큰 3종·GitHub 동기화 PAT)은 세션이 끝난 뒤에도 남는다 — 원격 세션이 자기 토큰으로 바꿔치면 이후 데스크톱이 내보내는 `ai_inline_complete`/`ai_inline_edit`/`ai_commit_message`·`sync_upload`/`sync_download` 트래픽이 공격자 계정으로 흐르고, 지우면 지속적인 서비스 거부가 된다 — `agent_hooks_install` User 스코프가 거부되는 것과 같은 "세션을 넘어 남는 백도어" 근거다(d-38, 감사 R3#7: 키링 5계정 중 `RemoteAccess` 만 원격 거부였다). 값을 절대 반환하지 않는 상태 조회 `ai_token_status`/`sync_status`(연결 여부만 반환)는 그대로 허용 유지. 닫힌 것은 키링 항목의 write/delete 이며, 저장된 키의 전송 대상을 정하는 `ai_omlx_base_url` 은 d-41(2026-08-25)로 원격 게이트 스트립(`strip_remote_gated_settings_patch`/`strip_remote_gated_settings`)과 gist 왕복 스트립(`sync/service.rs`의 `strip_non_syncable`) 양쪽에 편입돼 세 경로(`settings_update`·`app_file_write`·`sync_download`) 모두에서 변경 불가로 닫혔다(위 "d-38" 절 참조) |
 
 - **스코프 조건부 거부(`REMOTE_ALLOWED_COMMANDS` 소속, `match` arm 내부에서 분기, 1종)**:
   `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가 결정하는 스코프에 따라
@@ -1014,11 +1020,12 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   User 거부로 전환)하지 않는다(위 "d-38" 절 참조).
 - **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종 — 둘 다 `REMOTE_ALLOWED_COMMANDS`
   소속)**:
-  - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`
-    3필드를 `None` 으로 스트립한 뒤 위임(`remoteAccessEnabled` 는 자가 차단=자기 접근 상실이라
-    스트립 대상에서 제외) — Wave B 하드닝에서 1필드(`remotePasswordOnlyLogin`)에 나머지 2필드가
-    추가됐다.
-  - `app_file_write`(`target.kind === 'settings'` 일 때만): 파싱된 전체 `Settings` 에서 같은 3필드를
+  - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`·
+    `aiOmlxBaseUrl` 4필드를 `None` 으로 스트립한 뒤 위임(`remoteAccessEnabled` 는 자가 차단=자기
+    접근 상실이라 스트립 대상에서 제외) — Wave B 하드닝에서 1필드(`remotePasswordOnlyLogin`)에
+    나머지 2필드가 추가됐고, d-41 에서 `aiOmlxBaseUrl` 이 더해져 4필드가 됐다(근거는 위
+    "d-41(2026-08-25, `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`)" 단락 참조).
+  - `app_file_write`(`target.kind === 'settings'` 일 때만): 파싱된 전체 `Settings` 에서 같은 4필드를
     현재(적용 전) 값으로 되돌려쓴다 — patch 가 아니라 파일 전체 대치라 "지운다"가 아니라 "현재값
     유지"로 구현된다(`settings_update` 와 동급 게이트 — Wave I §3.3). `target.kind === 'prompt'`
     는 스트립 없이 그대로 위임한다.

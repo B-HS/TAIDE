@@ -28,7 +28,9 @@ TAIDE/
 │                            editorFormatOnPaste(기본 false)·emmetEnabled(기본 true) — Wave F,
 │                            `features/editor.md` §8/§9/§11.
 │                            aiAutoTabEnabled(기본 false)·aiProvider·aiModel·aiOmlxBaseUrl — Wave G,
-│                            `features/ai.md` §1, 필드 리네임은 §7.
+│                            `features/ai.md` §1, 필드 리네임은 §7. aiOmlxBaseUrl(sync 업로드·원격
+│                            dispatch 대상에서 제외 — d-41,
+│                            `acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`).
 │                            remoteAllowedHosts(기본 []) — Wave B,
 │                            `acknowledge/2026-08-15-wave-b-hardening-contract.md`(원격 세션 허용
 │                            호스트명 화이트리스트, sync 업로드·원격 dispatch 대상에서 제외).

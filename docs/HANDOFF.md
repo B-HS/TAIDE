@@ -26,11 +26,18 @@
    `describeIpcError`·`settings.aiTokenClearFailed` 신설 — 로케일 **918키×3**). §6 이월
    (omlx base_url)은 **스트립 편입 확정 → d-41**.
 
-- **잔여 큐**: d-41(omlx base_url 스트립 — 소형 Rust, 먼저) → d-40(선택 행 대비 정공법 —
-  TS·Rust 게이트+위반 5~8종 데이터 정정, d-36 §5 수치표 정본·알파 합성 필수) → d-39(e2e
-  파일럿 실행 — 하네스 기구축, 사용자 준비 대기) → Phase 8. QoS 캠페인은 사용자 기각 확정.
-- 기준선 갱신: Rust **1090**+3+6+17(테마 33·AI 100·dispatch 33 — lib 실측 2026-08-25)·bun
-  1481·로케일 918키×3·bindings 델타 = d-34 순증+d-37 3소멸/1신설.
+- **d-41 완료(2026-08-25)**: omlx base_url 원격 스트립 — dispatch 2함수+실우회
+  (`sync_download`→`strip_non_syncable`) 3경로 봉쇄·e2e 게이트 미러 4필드 확장. 계약
+  `2026-08-25-d41-omlx-baseurl-strip-contract.md` §0~§4.
+- **d-40 완료(2026-08-25)**: 선택 행 대비 정공법 — TS 게이트 2쌍(수리-전용·임포트 거부 구조
+  불가)+Rust 린트·번들 14테마 정정(nord 전경 원복+배경 nord3 — 예외 불필요, 메인 발견)·
+  taide-light `#6611d4`·수리 가드 강화·동일색/불투명 린트. major 2 는 다렌즈 수렴+메인 실행
+  재현으로 확정(적대적 생략). 계약 `2026-08-25-d40-selection-row-contrast-contract.md` §0~§5
+  (이월: explorer.itemSelected 잔여 4종·abyss ΔE·선택 행 전용 전경 토큰 스키마 검토).
+- **잔여 큐**: d-39(e2e 파일럿 실행 — 하네스 기구축, 사용자 준비 대기) → Phase 8. QoS 캠페인
+  사용자 기각 확정.
+- 기준선(2026-08-25 최종 실측): Rust **1125** 전체(theme 39·AI 100·dispatch 35)·bun **1490**·
+  로케일 918키×3·verify+vite exit 0.
 
 ## 1. 프로젝트 한 줄 정의
 

@@ -78,13 +78,18 @@
       준비 선행: ① `bun run tauri dev` ② REMOTE 비밀번호 8자+·password_only ON·활성화 ON
       ③ `export TAIDE_E2E_PASSWORD` ④ `bun run e2e`) → 결과 기반 스펙 확장·qa6 실기 확증.
       완료 = Phase 8 진입 조건
-- [ ] d-40 선택 행 표면 대비 정공법(2026-08-25 사용자 확정 — "전면 게이트+데이터 정정"):
-      `list.activeBackground` 전경 대비 게이트 신설(매치 전경·일반 전경 양축, TS CONTRAST_PAIRS
-      +Rust 동시)+위반 5~8종 업스트림 스케일 내 데이터 정정(nord 동일색 포함). 정본 = d-36 계약
-      §5(정정 수치표·알파 합성 필수·palenight 1.13 최악). 독립 배치 규모 — d-41 후 착수
-- [ ] d-41 omlx base_url 원격 스트립(2026-08-25 사용자 확정 — "스트립 편입"): `ai_omlx_base_url`
-      을 `strip_remote_gated_settings_patch`/`strip_remote_gated_settings` 에 편입(shell_override
-      선례)+sync_download 경로 확인+테스트. 정본 = d-38 계약 §6. 소형 Rust — 먼저 착수
+- [x] d-40 선택 행 표면 대비 정공법 — **완료(2026-08-25)**: TS 게이트 2쌍(수리-전용·임포트
+      거부 구조 불가 보장)+Rust 린트 2쌍·번들 14테마 업스트림 대조 정정(nord 는 전경 원복+배경
+      nord3 로 예외 없이 완전 해소 — 메인 발견)·taide-light `#6611d4`·수리 가드 강화(블로킹
+      판정 불훼손+회귀 테스트)·동일색/불투명 린트 신설·예외 2종(everforest-light·rose-pine-dawn).
+      검토 3렌즈 major 2(다렌즈 수렴+메인 실행 재현 — 적대적 생략)·수정 11건 전건(abyss 재선정은
+      팔레트 전수 탐색 후 근거 보류). 최종 verify+vite exit 0(bun 1490·Rust 1125). 계약
+      `2026-08-25-d40-selection-row-contrast-contract.md` §0~§5 정본
+- [x] d-41 omlx base_url 원격 스트립 — **완료(2026-08-25)**: dispatch 스트립 2함수 편입 +
+      실우회 발견·봉쇄(`sync_download`→`strip_non_syncable` — wave-b §4 의도 보류 지점, 양방향
+      대칭 편입)+테스트 5·Rust 1119 그린. 검토 1렌즈 major 2(문서 정합 — 기계 확정·적대적
+      생략)·수정 5건(문서 4필드 정합·e2e 게이트 미러 4필드 확장) 전건 반영. 계약
+      `2026-08-25-d41-omlx-baseurl-strip-contract.md` §0~§4 정본
 
 ## 완료: d-32~35 산출물 커밋 5분할 + main ff 병합 (2026-08-25 사용자 승인)
 
