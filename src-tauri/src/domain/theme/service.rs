@@ -488,7 +488,7 @@ fn light_colors() -> BTreeMap<String, String> {
         ("panel.sectionHeader", "#6c6f85"),
         ("panel.inputBackground", "#eff1f5"),
         ("panel.inputBorder", "#ccd0da"),
-        ("panel.matchHighlight", "#df8e1d"),
+        ("panel.matchHighlight", "#8839ef"),
         ("editor.background", "#eff1f5"),
         ("editor.foreground", "#4c4f69"),
         ("editor.lineHighlight", "#ccd0da"),
@@ -988,6 +988,20 @@ mod tests {
         std::env::temp_dir().join(format!("taide-theme-{name}-{}", uuid::Uuid::new_v4()))
     }
 
+    /// The full theme catalog surfaced to users: every bundled JSON theme (`bundled_themes()`,
+    /// 36 today) plus the two Rust-literal builtin themes (`builtin_dark()`/`builtin_light()`),
+    /// which `bundled_themes()` alone omits. Production code (`list_themes`, `builtin_by_id`)
+    /// already assembles builtin + bundled + user themes itself; this test-only helper exists so
+    /// the data-quality lints below share one 38-theme iteration source instead of each hand-rolling
+    /// its own `bundled_themes().chain(...)`. See
+    /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b — before this helper,
+    /// all five lints below iterated `bundled_themes()` only, so a defect exclusive to
+    /// `builtin_dark`/`builtin_light` (as `taide-light`'s `panel.matchHighlight` was, per that
+    /// contract's §0) could ship uncaught by any of them.
+    fn theme_catalog() -> Vec<Theme> {
+        bundled_themes().into_iter().chain([builtin_dark(), builtin_light()]).collect()
+    }
+
     /// Normalizes a theme color string for defect-lint comparison: lowercases and expands it to an
     /// 8-digit `rrggbbaa` hex so equivalent shorthand and alpha-bearing forms compare equal —
     /// `#04395E`, `#04395eff`, and (were a bundled theme ever to use it) `#049e` all normalize to
@@ -1225,12 +1239,12 @@ mod tests {
     }
 
     #[test]
-    fn 번들_테마는_모두_파싱되고_이름이_비어있지_않다() {
-        let themes = bundled_themes();
-        assert_eq!(themes.len(), BUNDLED_THEME_SOURCES.len());
-        for theme in &themes {
-            assert!(!theme.name.trim().is_empty(), "bundled theme missing name: {}", theme.id);
-            assert!(theme.extends.is_none(), "bundled theme must not use extends: {}", theme.id);
+    fn 카탈로그_테마는_모두_파싱되고_이름이_비어있지_않다() {
+        let bundled = bundled_themes();
+        assert_eq!(bundled.len(), BUNDLED_THEME_SOURCES.len());
+        for theme in theme_catalog() {
+            assert!(!theme.name.trim().is_empty(), "catalog theme missing name: {}", theme.id);
+            assert!(theme.extends.is_none(), "catalog theme must not use extends: {}", theme.id);
         }
     }
 
@@ -1273,28 +1287,30 @@ mod tests {
     }
 
     #[test]
-    fn 번들_테마는_app_전경색과_배경색이_서로_다르다() {
-        for theme in bundled_themes() {
+    fn 카탈로그_테마는_app_전경색과_배경색이_서로_다르다() {
+        for theme in theme_catalog() {
             assert_ne!(
                 theme.colors.get("app.foreground"),
                 theme.colors.get("app.background"),
-                "bundled theme '{}' has app.foreground identical to app.background",
+                "catalog theme '{}' has app.foreground identical to app.background",
                 theme.id
             );
         }
     }
 
-    /// Themes legitimately exempt from `번들_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다`,
+    /// Themes legitimately exempt from `카탈로그_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다`,
     /// with the reason each is a deliberate design choice rather than a reintroduction of
     /// `docs/acknowledge/2026-08-20-theme-list-colors-contract.md`'s defect. Empty today — every
-    /// bundled theme satisfies the invariant on its own resolved colors after that contract's fix.
+    /// catalog theme (bundled JSON + the two builtin Rust literals, per
+    /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b) satisfies the
+    /// invariant on its own resolved colors after that contract's fix.
     const LIST_ACTIVE_BACKGROUND_LINT_EXEMPTIONS: &[(&str, &str)] = &[];
 
     #[test]
-    fn 번들_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다() {
+    fn 카탈로그_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다() {
         let mut violations = Vec::new();
 
-        for theme in bundled_themes() {
+        for theme in theme_catalog() {
             if LIST_ACTIVE_BACKGROUND_LINT_EXEMPTIONS.iter().any(|(id, _)| *id == theme.id) {
                 continue;
             }
@@ -1320,16 +1336,16 @@ mod tests {
 
         assert!(
             violations.is_empty(),
-            "list color defects in bundled themes:\n{}",
+            "list color defects in catalog themes:\n{}",
             violations.join("\n")
         );
     }
 
     #[test]
-    fn 번들_테마는_panel_매치_하이라이트가_불투명하다() {
+    fn 카탈로그_테마는_panel_매치_하이라이트가_불투명하다() {
         let mut violations = Vec::new();
 
-        for theme in bundled_themes() {
+        for theme in theme_catalog() {
             let Some(match_highlight_raw) = theme.colors.get("panel.matchHighlight") else {
                 continue;
             };
@@ -1345,7 +1361,7 @@ mod tests {
 
         assert!(
             violations.is_empty(),
-            "panel.matchHighlight defects in bundled themes:\n{}",
+            "panel.matchHighlight defects in catalog themes:\n{}",
             violations.join("\n")
         );
     }
@@ -1357,18 +1373,21 @@ mod tests {
     /// `isDistinctFromBodyForeground`) already runs a full CIE76 `deltaE76` check with a 2.3
     /// just-noticeable-difference threshold on every *derived* candidate before a bundled JSON is
     /// ever written, so this Rust lint deliberately does not re-implement CIE76: across the current
-    /// 36-theme catalog the identical-color defect always manifests as exact hex equality (ΔE 0.0),
-    /// and the next-lowest real distinctness value is 5.39 (`one-monokai`) — comfortably above the
-    /// 2.3 threshold — so a hex-equality check and a ΔE<2.3 check agree on every bundled theme today.
-    /// This test's job is narrower and cheaper than the TS gate's: catch a bundled theme JSON that
-    /// re-enters the exact-duplicate state (e.g. hand-edited or hardcoded outside the TS pipeline,
-    /// such as a future `builtin_dark`/`builtin_light`-style Rust literal), not to arbitrate
-    /// borderline perceptual closeness — that precision work stays on the TS side.
+    /// 38-theme catalog (36 bundled + 2 builtin, since
+    /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b widened this lint's
+    /// iteration source from `bundled_themes()` to `theme_catalog()`) the identical-color defect
+    /// always manifests as exact hex equality (ΔE 0.0), and the next-lowest real distinctness value
+    /// is 5.39 (`one-monokai`) — comfortably above the 2.3 threshold — so a hex-equality check and a
+    /// ΔE<2.3 check agree on every catalog theme today. This test's job is narrower and cheaper than
+    /// the TS gate's: catch a catalog theme (bundled JSON or a `builtin_dark`/`builtin_light` Rust
+    /// literal) that re-enters the exact-duplicate state (e.g. hand-edited or hardcoded outside the
+    /// TS pipeline), not to arbitrate borderline perceptual closeness — that precision work stays on
+    /// the TS side.
     #[test]
-    fn 번들_테마는_panel_매치_하이라이트가_app_전경색과_동일하지_않다() {
+    fn 카탈로그_테마는_panel_매치_하이라이트가_app_전경색과_동일하지_않다() {
         let mut violations = Vec::new();
 
-        for theme in bundled_themes() {
+        for theme in theme_catalog() {
             let Some(match_highlight_raw) = theme.colors.get("panel.matchHighlight") else {
                 continue;
             };
@@ -1386,9 +1405,178 @@ mod tests {
 
         assert!(
             violations.is_empty(),
-            "panel.matchHighlight/app.foreground identical-color defects in bundled themes:\n{}",
+            "panel.matchHighlight/app.foreground identical-color defects in catalog themes:\n{}",
             violations.join("\n")
         );
+    }
+
+    /// Matches TS `MIN_CONTRAST_RATIO` (`src/shared/lib/theme-convert/contrast.ts`) exactly — same
+    /// value (3.0), same WCAG basis: the 3:1 non-text contrast minimum (WCAG 2.x Success Criterion
+    /// 1.4.11) for UI components and graphical objects, which `panel.matchHighlight` — a foreground
+    /// emphasis token layered over `panel.background`, not paragraph body text — falls under.
+    const MATCH_HIGHLIGHT_MIN_CONTRAST: f64 = 3.0;
+
+    const RGB_CHANNEL_MAX: f64 = 255.0;
+    const SRGB_LINEAR_THRESHOLD: f64 = 0.03928;
+    const SRGB_LINEAR_DIVISOR: f64 = 12.92;
+    const SRGB_GAMMA_OFFSET: f64 = 0.055;
+    const SRGB_GAMMA_DIVISOR: f64 = 1.055;
+    const SRGB_GAMMA_EXPONENT: f64 = 2.4;
+    const LUMINANCE_WEIGHT_R: f64 = 0.2126;
+    const LUMINANCE_WEIGHT_G: f64 = 0.7152;
+    const LUMINANCE_WEIGHT_B: f64 = 0.0722;
+    const CONTRAST_RATIO_OFFSET: f64 = 0.05;
+
+    /// Parses the RGB channels out of a theme color string, built on `normalize_hex_color` above
+    /// (which already handles 3/4/6/8-digit shorthand and lowercasing) and reading only its first
+    /// 6 hex digits — an alpha suffix, if present, is ignored. This mirrors TS `hexToRgb`
+    /// (`shared/lib/color.ts`) called directly (as `contrast.ts`'s local `relativeLuminance` does),
+    /// not `compositeOverBackground`'s alpha-composited path: this lint deliberately does not port
+    /// alpha compositing. `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above is a separate,
+    /// independent `#[test]` — cargo gives no ordering guarantee between it and this gate, so its
+    /// rejection of a translucent `panel.matchHighlight` cannot be relied on to run "before" this
+    /// one; it catches translucent values on its own, not as a precondition this gate depends on.
+    /// The omission is justified empirically instead: across the current 38-theme catalog (36
+    /// bundled JSON files plus the two builtin Rust literals), every `panel.background` and
+    /// `panel.matchHighlight` is a plain 6-digit opaque hex today, so alpha compositing would be an
+    /// identity operation on every input this function actually receives.
+    fn hex_to_rgb(value: &str) -> Option<(f64, f64, f64)> {
+        let normalized = normalize_hex_color(value);
+        if normalized.len() != 8 || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        let r = u8::from_str_radix(&normalized[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&normalized[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&normalized[4..6], 16).ok()?;
+        Some((f64::from(r), f64::from(g), f64::from(b)))
+    }
+
+    /// Ports TS `srgbChannelToLinear` (`contrast.ts`) — the sRGB electro-optical transfer function
+    /// (IEC 61966-2-1) that WCAG's relative-luminance formula requires before applying the R/G/B
+    /// weights.
+    fn srgb_channel_to_linear(channel: f64) -> f64 {
+        let normalized = channel / RGB_CHANNEL_MAX;
+        if normalized <= SRGB_LINEAR_THRESHOLD {
+            normalized / SRGB_LINEAR_DIVISOR
+        } else {
+            ((normalized + SRGB_GAMMA_OFFSET) / SRGB_GAMMA_DIVISOR).powf(SRGB_GAMMA_EXPONENT)
+        }
+    }
+
+    /// Ports TS `relativeLuminance` (`contrast.ts`) — WCAG 2.x relative luminance of an sRGB color.
+    fn relative_luminance(hex: &str) -> Option<f64> {
+        let (r, g, b) = hex_to_rgb(hex)?;
+        Some(
+            LUMINANCE_WEIGHT_R * srgb_channel_to_linear(r)
+                + LUMINANCE_WEIGHT_G * srgb_channel_to_linear(g)
+                + LUMINANCE_WEIGHT_B * srgb_channel_to_linear(b),
+        )
+    }
+
+    /// Ports TS `contrastRatio` (`contrast.ts`) — the WCAG 2.x contrast-ratio formula between two
+    /// colors' relative luminances.
+    fn contrast_ratio(hex_a: &str, hex_b: &str) -> Option<f64> {
+        let luminance_a = relative_luminance(hex_a)?;
+        let luminance_b = relative_luminance(hex_b)?;
+        let lighter = luminance_a.max(luminance_b);
+        let darker = luminance_a.min(luminance_b);
+        Some((lighter + CONTRAST_RATIO_OFFSET) / (darker + CONTRAST_RATIO_OFFSET))
+    }
+
+    /// Catalog themes whose `panel.matchHighlight` cannot clear `MATCH_HIGHLIGHT_MIN_CONTRAST`
+    /// against `panel.background` without abandoning the theme's own accent hue — mirrors TS
+    /// `MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS`
+    /// (`src/shared/lib/theme-convert/bundled-theme-contrast.test.ts`) with the identical two
+    /// entries and reasoning: in both cases the upstream source defines its accent (VS Code's
+    /// `list.highlightForeground`) as exactly one shade, with no darker same-hue variant to
+    /// substitute — unlike `github-dark`/`github-light`, whose upstream ships a full lightness scale
+    /// for the accent color, letting a darker same-hue value be hand-picked from that scale instead,
+    /// so no exemption was needed for those two (see `docs/theme-system.md` §8.2.3's table of 7
+    /// hand-fixed `panel.matchHighlight` themes). Falling back to a generic `editor.foreground`
+    /// candidate is deliberately not applied to bundled data either, since it would replace the
+    /// accent with a neutral gray and erase the theme's identity. See
+    /// `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A for the per-theme upstream
+    /// palette investigation this pair of entries is based on.
+    const MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS: &[(&str, &str)] = &[
+        (
+            "everforest-light",
+            "upstream foreground palette (sainnhe/everforest-vscode src/palette/light/foreground.ts) has one shade per named accent — 'green' (#8da101, the source of list.highlightForeground) has no darker variant, only the lighter 'dimGreen' (#a4bb4a)",
+        ),
+        (
+            "rose-pine-dawn",
+            "upstream Rose Pine Dawn palette defines exactly one shade per named color — 'rose' (#d7827e, the source of list.highlightForeground) has no darker variant; the nearest hue, 'love' (#b4637a), is a distinct accent already used for errors, not a shade of rose",
+        ),
+    ];
+
+    /// WCAG contrast gate (3) for `panel.matchHighlight` vs `panel.background`, ported from TS
+    /// `validateOutputColors`'s `matchHighlight` pair (`contrast.ts`'s `CONTRAST_PAIRS`) — see
+    /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-c. Runs over the full
+    /// 38-theme catalog (36 bundled + 2 builtin, via `theme_catalog()`), closing the structural gap
+    /// the opacity-only `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above leaves: an opaque
+    /// 6-digit hex can still be arbitrarily low-contrast, which is exactly how `taide-light`'s
+    /// `panel.matchHighlight` (`#df8e1d`, 2.15 against `panel.background` `#e6e9ef`) shipped
+    /// unnoticed — `bundled_themes()`-only lints never covered the two builtin Rust literals, and
+    /// the opacity lint only checks the alpha channel, not the ratio itself.
+    #[test]
+    fn 카탈로그_테마는_panel_매치_하이라이트가_패널_배경과_최소_대비를_가진다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            if MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS.iter().any(|(id, _)| *id == theme.id) {
+                continue;
+            }
+            let Some(match_highlight_raw) = theme.colors.get("panel.matchHighlight") else {
+                continue;
+            };
+            let Some(panel_background_raw) = theme.colors.get("panel.background") else {
+                continue;
+            };
+
+            match contrast_ratio(match_highlight_raw, panel_background_raw) {
+                Some(ratio) if ratio >= MATCH_HIGHLIGHT_MIN_CONTRAST => {}
+                Some(ratio) => violations.push(format!(
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) vs panel.background({panel_background_raw:?}) = {ratio:.2} (최소 {MATCH_HIGHLIGHT_MIN_CONTRAST})",
+                    theme.id
+                )),
+                None => violations.push(format!(
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) 또는 panel.background({panel_background_raw:?}) hex 파싱 실패",
+                    theme.id
+                )),
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "panel.matchHighlight contrast defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn 매치_하이라이트_대비_예외_등재분은_실제로_최소_대비에_미달한다() {
+        let catalog = theme_catalog();
+
+        for (exempt_id, _reason) in MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS {
+            let theme = catalog
+                .iter()
+                .find(|theme| theme.id == *exempt_id)
+                .unwrap_or_else(|| panic!("exempted theme '{exempt_id}' not found in catalog"));
+            let match_highlight_raw = theme
+                .colors
+                .get("panel.matchHighlight")
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no panel.matchHighlight"));
+            let panel_background_raw = theme
+                .colors
+                .get("panel.background")
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no panel.background"));
+            let ratio = contrast_ratio(match_highlight_raw, panel_background_raw)
+                .unwrap_or_else(|| panic!("'{exempt_id}' panel.matchHighlight/panel.background hex 파싱 실패"));
+
+            assert!(
+                ratio < MATCH_HIGHLIGHT_MIN_CONTRAST,
+                "'{exempt_id}' is listed in MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS but its contrast {ratio:.2} already meets MATCH_HIGHLIGHT_MIN_CONTRAST — remove the exemption",
+            );
+        }
     }
 
     #[test]
