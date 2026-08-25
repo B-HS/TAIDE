@@ -22,18 +22,19 @@ import { requestReveal } from '@entities/editor/reveal-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
-import { setActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
+import { setActiveEditorActionIds } from '@shared/lib/bridge/active-editor-actions-bridge'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
-import { subscribeOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
-import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/editor-pane-command-bridge'
-import { subscribeEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
+import { subscribeOpenFileFromEditor } from '@shared/lib/bridge/editor-opener-bridge'
+import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/bridge/editor-pane-command-bridge'
+import { subscribeEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
 import { collectAllPaneTabs, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { fileNameOf } from '@shared/lib/relative-path'
-import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
-import { requestTerminalWrite } from '@shared/lib/terminal-write-bridge'
+import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
+import { requestTerminalWrite } from '@shared/lib/bridge/terminal-write-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
@@ -108,7 +109,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (!paneTree) return
         const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf?.active) return
-        moveTabToWindow({ tabId: leaf.active, target }, { onError: (error) => toast.error(error.message) })
+        moveTabToWindow({ tabId: leaf.active, target }, { onError: (error) => toast.error(describeIpcError(error)) })
     }
 
     const openFind = () => {
@@ -179,7 +180,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         }
         openTab(
             { projectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: paneTree.focusedPane, preview: false },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 
@@ -212,7 +213,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
                     const nextActiveTabId = nextPaneTree ? findPaneLeaf(nextPaneTree.root, nextPaneTree.focusedPane)?.active : null
                     if (nextActiveTabId) requestTerminalWrite(nextActiveTabId, payload)
                 },
-                onError: (error) => toast.error(error.message),
+                onError: (error) => toast.error(describeIpcError(error)),
             },
         )
     }
@@ -265,7 +266,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
                 target: paneTree?.focusedPane ?? null,
                 preview: true,
             },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     })
 

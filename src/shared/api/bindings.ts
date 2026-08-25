@@ -287,8 +287,25 @@ export const commands = {
 	gitRemotes: (projectId: ProjectId) => typedError<GitRemote[], AppError>(__TAURI_INVOKE("git_remotes", { projectId })),
 	gitGutter: (projectId: ProjectId, path: string) => typedError<GutterHunk[], AppError>(__TAURI_INVOKE("git_gutter", { projectId, path })),
 	gitBlameRange: (projectId: ProjectId, path: string, from: number, to: number) => typedError<BlameLine[], AppError>(__TAURI_INVOKE("git_blame_range", { projectId, path, from, to })),
+	/**
+	 *  Holds `AppState::begin_mutation` across the index write — staging must stay serialized with
+	 *  every other guarded mutation exactly as before — but runs the in-process libgit2 work
+	 *  (`index.add_path`/`remove_path` + `index.write`) on a blocking thread: those are synchronous
+	 *  libgit2 calls that previously pinned an async worker for the duration (architecture.md §2.1,
+	 *  contract 2026-08-25 §1-a). Same guard-held `spawn_blocking` shape as `git_commit`/
+	 *  `git_stage_hunk` — lock semantics unchanged, only thread-pool occupancy moved.
+	 */
 	gitStage: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_stage", { projectId, paths })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.reset_default` is synchronous
+	 *  libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitUnstage: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_unstage", { projectId, paths })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `service::discard` mixes synchronous
+	 *  libgit2 checkout with a filesystem trash call for untracked paths, both blocking work
+	 *  (contract 2026-08-25 §1-a).
+	 */
 	gitDiscard: (projectId: ProjectId, paths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("git_discard", { projectId, paths })),
 	/**
 	 *  Holds `AppState::begin_mutation` across the whole commit — the staged-state read, the commit,
@@ -315,6 +332,12 @@ export const commands = {
 	 *  terminal git, and command-level ordering (commit-then-push) is already sequenced by the
 	 *  frontend awaiting each command. The subprocess wait moved into `spawn_blocking` so the network
 	 *  round-trip no longer pins an async worker thread either (architecture.md §2.1's other half).
+	 * 
+	 *  Additionally holds [`GitStore::push_fetch_lock`] across the whole subprocess wait, so a second
+	 *  `git_push`/`git_fetch` for the *same* repo queues behind this one instead of racing it straight
+	 *  into git's own ref-lock contention (contract 2026-08-25 §1-b — see that method's doc for why
+	 *  this introduces no new lock-ordering hazard with `begin_mutation`, and for the unbounded-wait
+	 *  cost this accepts when the underlying `run_git` subprocess stalls).
 	 */
 	gitPush: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_push", { projectId })),
 	/**
@@ -350,20 +373,60 @@ export const commands = {
 	 *  transient lock-contention error where the old serialization made that impossible. That
 	 *  retryable failure is the accepted cost — the same failure mode as running `git fetch` in a
 	 *  terminal during a pull.
+	 * 
+	 *  Additionally holds [`GitStore::push_fetch_lock`] across the whole subprocess wait — the same
+	 *  addition [`git_push`] documents (contract 2026-08-25 §1-b; see that method's doc for the
+	 *  unbounded-wait cost this accepts when the underlying `run_git` subprocess stalls). This is what
+	 *  actually removes the "transient lock-contention error" for a same-repo push-vs-fetch or
+	 *  fetch-vs-fetch overlap — a pairing the paragraph above does not cover: both now queue on this
+	 *  lock instead of racing into git's own `.git` lock files. The one overlap this lock deliberately
+	 *  still lets race (unchanged from before this addition) is fetch-vs-`git_pull`, since `git_pull`
+	 *  never takes this lock — see this paragraph's own doc above and [`GitStore::push_fetch_lock`]'s.
 	 */
 	gitFetch: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_fetch", { projectId })),
 	gitUndoLastCommit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_undo_last_commit", { projectId })),
 	gitBranches: (projectId: ProjectId) => typedError<GitBranch[], AppError>(__TAURI_INVOKE("git_branches", { projectId })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — branch creation (+ optional
+	 *  checkout) is synchronous libgit2 work (contract 2026-08-25 §1-a). `checkout` is `Copy`, so
+	 *  moving it into the closure leaves the outer binding usable for the post-await branch below.
+	 */
 	gitBranchCreate: (projectId: ProjectId, name: string, checkout: boolean) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_create", { projectId, name, checkout })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.checkout_tree` is synchronous
+	 *  libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitBranchCheckout: (projectId: ProjectId, name: string) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_checkout", { projectId, name })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — the merge-ancestry check
+	 *  (`repo.graph_descendant_of`) plus `branch.delete()` are synchronous libgit2 work (contract
+	 *  2026-08-25 §1-a).
+	 */
 	gitBranchDelete: (projectId: ProjectId, name: string, force: boolean) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_delete", { projectId, name, force })),
 	gitStashList: (projectId: ProjectId) => typedError<GitStashEntry[], AppError>(__TAURI_INVOKE("git_stash_list", { projectId })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_save` is synchronous
+	 *  libgit2 work (contract 2026-08-25 §1-a). `message` is moved whole into the closure and
+	 *  `.as_deref()`'d there, since the borrow it produces can't outlive the move.
+	 */
 	gitStashPush: (projectId: ProjectId, message: string | null) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_push", { projectId, message })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_apply` (+ its safe
+	 *  checkout) is synchronous libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitStashApply: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_apply", { projectId, index })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_drop` is synchronous
+	 *  libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitStashDrop: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_drop", { projectId, index })),
 	gitDiscardHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_discard_hunk", { projectId, path, hunkStart, hunkEnd })),
 	gitCurrentUser: (projectId: ProjectId) => typedError<string | null, AppError>(__TAURI_INVOKE("git_current_user", { projectId })),
 	gitConflictSides: (projectId: ProjectId, path: string) => typedError<ConflictSides, AppError>(__TAURI_INVOKE("git_conflict_sides", { projectId, path })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — the working-tree write plus
+	 *  `index.add_path`/`index.write` are synchronous IO/libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitResolveConflict: (projectId: ProjectId, path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("git_resolve_conflict", { projectId, path, content })),
 	gitStageHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stage_hunk", { projectId, path, hunkStart, hunkEnd })),
 	gitUnstageHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_unstage_hunk", { projectId, path, hunkStart, hunkEnd })),
@@ -373,8 +436,21 @@ export const commands = {
 	gitFileLog: (projectId: ProjectId, path: string, skip: number, take: number) => typedError<LogEntry[], AppError>(__TAURI_INVOKE("git_file_log", { projectId, path, skip, take })),
 	gitRevertCommit: (projectId: ProjectId, rev: string) => typedError<RevertOutcome, AppError>(__TAURI_INVOKE("git_revert_commit", { projectId, rev })),
 	gitTags: (projectId: ProjectId) => typedError<TagInfo[], AppError>(__TAURI_INVOKE("git_tags", { projectId })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.tag`/`repo.tag_lightweight`
+	 *  are synchronous libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitTagCreate: (projectId: ProjectId, name: string, target: string, opts: TagCreateOptions) => typedError<null, AppError>(__TAURI_INVOKE("git_tag_create", { projectId, name, target, opts })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.tag_delete` is synchronous
+	 *  libgit2 work (contract 2026-08-25 §1-a).
+	 */
 	gitTagDelete: (projectId: ProjectId, name: string) => typedError<null, AppError>(__TAURI_INVOKE("git_tag_delete", { projectId, name })),
+	/**
+	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — creating the local tracking branch
+	 *  (when needed) plus `repo.checkout_tree` are synchronous libgit2 work (contract 2026-08-25
+	 *  §1-a).
+	 */
 	gitCheckoutRemoteBranch: (projectId: ProjectId, remoteRef: string) => typedError<null, AppError>(__TAURI_INVOKE("git_checkout_remote_branch", { projectId, remoteRef })),
 	ptyDefaultOptions: (projectId: ProjectId, cwd: string | null) => typedError<PtySpawnOptions, AppError>(__TAURI_INVOKE("pty_default_options", { projectId, cwd })),
 	/**
@@ -731,7 +807,9 @@ export type AiTokenStatus = {
 
 export type AppDataPathKind = "plugins" | "themes" | "locales" | "snippets";
 
-export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Forbidden"; message: string } | { code: "Internal"; message: string };
+export type AppError = { code: "Io"; message: string } | { code: "NotFound"; message: string } | { code: "InvalidArgument"; message: string } | { code: "Forbidden"; message: string } | { code: "Internal"; message: string } | { code: "Localized"; message: LocalizedError };
+
+export type AppErrorKind = "Io" | "NotFound" | "InvalidArgument" | "Forbidden" | "Internal";
 
 /**
  *  Which app-owned config file an `AppFile` tab (or `app_file_read`/`app_file_write`) addresses.
@@ -1028,6 +1106,19 @@ export type LocaleSummary = {
 	id: string,
 	name: string,
 	builtin: boolean,
+};
+
+/**
+ *  A user-facing error whose text lives in the locale catalog instead of the binary.
+ *  `kind` keeps the pre-taxonomy `AppError` variant so `IpcError.code` consumers keep branching
+ *  on the same five values; `fallback` is what the frontend shows when `key` is absent from the
+ *  active catalog.
+ */
+export type LocalizedError = {
+	kind: AppErrorKind,
+	key: string,
+	args: { [key in string]: string },
+	fallback: string,
 };
 
 export type LogEntry = {

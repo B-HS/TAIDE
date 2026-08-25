@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use specta::Type;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
 use crate::infra::clock::now_epoch_ms;
 use crate::infra::persist;
@@ -49,10 +49,12 @@ pub fn open_project(
     let canonical = std::fs::canonicalize(root)?;
     let metadata = std::fs::metadata(&canonical)?;
     if !metadata.is_dir() {
-        return Err(AppError::InvalidArgument(format!(
-            "경로가 디렉토리가 아닙니다: {}",
-            canonical.display()
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.project.pathNotDirectory",
+            format!("path is not a directory: {}", canonical.display()),
+        )
+        .with_arg("path", canonical.display()));
     }
     std::fs::read_dir(&canonical)?;
 

@@ -1,10 +1,11 @@
 import { toast } from 'sonner'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
-import { requestOpenCreateTagDialog } from '@shared/lib/create-tag-dialog-bridge'
-import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
-import { requestShowExplorerView } from '@shared/lib/explorer-panel-bridge'
+import { requestOpenCreateTagDialog } from '@shared/lib/bridge/create-tag-dialog-bridge'
+import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
+import { requestShowExplorerView } from '@shared/lib/bridge/explorer-panel-bridge'
 import { i18next } from '@shared/i18n/i18n'
-import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
 import { OPEN_FILE_HISTORY_MONACO_ACTION_ID, TOGGLE_BLAME_MONACO_ACTION_ID } from '@entities/git/git.constant'
 import { revertGitCommit } from '@entities/git/git.ipc'
 
@@ -16,7 +17,7 @@ const runRevertHead = async (context: CommandContext) => {
         const outcome = await revertGitCommit({ projectId: context.activeProjectId, rev: HEAD_REV })
         toast[outcome.conflicted ? 'warning' : 'success'](i18next.t(outcome.conflicted ? 'git.revertConflict' : 'git.revertSuccess'))
     } catch (error) {
-        toast.error(error instanceof Error ? error.message : i18next.t('git.revert'))
+        toast.error(describeIpcError(error))
     }
 }
 

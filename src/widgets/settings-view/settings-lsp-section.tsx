@@ -6,6 +6,8 @@ import { lspServersQueryOptions, useCancelLspInstall, useInstallLspServer, useLs
 import { LspServerStatusList } from '@features/settings/lsp-server-status-list'
 import { SettingsSection } from '@features/settings/settings-section'
 import type { LspServerId } from '@shared/api/bindings'
+import { ERROR_KEY } from '@shared/constants/error-key'
+import { describeIpcError, isIpcErrorKey } from '@shared/lib/ipc-error-message'
 
 type SettingsLspSectionProps = {
     id: string
@@ -19,8 +21,14 @@ export const SettingsLspSection: FC<SettingsLspSectionProps> = ({ id }) => {
 
     const { t } = useTranslation()
 
-    const handleInstallLspServer = (serverId: LspServerId) => installLspServer(serverId, { onError: (error: Error) => toast.error(error.message) })
-    const handleCancelLspInstall = (serverId: LspServerId) => cancelLspInstall(serverId, { onError: (error: Error) => toast.error(error.message) })
+    const handleInstallLspServer = (serverId: LspServerId) =>
+        installLspServer(serverId, {
+            onError: (error) => {
+                if (isIpcErrorKey(error, ERROR_KEY.LSP_INSTALL_CANCELLED)) return
+                toast.error(describeIpcError(error))
+            },
+        })
+    const handleCancelLspInstall = (serverId: LspServerId) => cancelLspInstall(serverId, { onError: (error) => toast.error(describeIpcError(error)) })
 
     return (
         <SettingsSection id={id} title={t('settings.lspStatus')} description={t('settings.lspDescription')}>

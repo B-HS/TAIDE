@@ -5,6 +5,7 @@ import { groupSearchMatches } from '@entities/search/search-result'
 import type { SearchResultGroup } from '@entities/search/search-result'
 import { useAddRecentSearch } from '@entities/search/search-history'
 import { cancelSearch, runSearch } from '@entities/search/search.ipc'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 
 type RunSearchOptions = {
     recordHistory: boolean
@@ -58,8 +59,8 @@ export const useSearchRun = (projectId: ProjectId, sessionId: string) => {
             .then((total) => {
                 if (generationRef.current === generation) setTotalMatches(total)
             })
-            .catch((error: Error) => {
-                if (generationRef.current === generation) toast.error(error.message)
+            .catch((error: unknown) => {
+                if (generationRef.current === generation) toast.error(describeIpcError(error))
             })
             .finally(() => {
                 if (generationRef.current === generation) setIsSearching(false)

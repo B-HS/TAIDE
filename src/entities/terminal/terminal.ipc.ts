@@ -1,7 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { commands } from '@shared/api/bindings'
 import type { ProjectId, PtySpawnOptions } from '@shared/api/bindings'
-import { unwrapResult } from '@shared/api/unwrap-result'
+import { IpcError, isAppError, unwrapResult } from '@shared/api/unwrap-result'
 
 const SPAWN_COMMAND = 'pty_spawn'
 const ATTACH_COMMAND = 'pty_attach'
@@ -12,11 +12,27 @@ const createByteChannel = (onData: (bytes: Uint8Array) => void) => {
     return channel
 }
 
+/**
+ * `spawnPty`/`attachPty` carry a `Channel` argument for the byte stream, so they call raw `invoke`
+ * instead of the generated `commands.*` (which `unwrapResult` expects an `IpcResult` envelope
+ * from). A rejection here is still the backend's bare `AppError`, though — normalize it into an
+ * `IpcError` the same way `unwrapResult` does, so `describeIpcError`/`useIpcErrorMessage` resolve
+ * it through the locale catalog instead of falling through to `String(error)`.
+ */
+const invokeRaw = async <T>(command: string, args: Record<string, unknown>) => {
+    try {
+        return await invoke<T>(command, args)
+    } catch (error) {
+        if (isAppError(error)) throw new IpcError(error)
+        throw error instanceof Error ? error : new Error(String(error))
+    }
+}
+
 export const spawnPty = (options: PtySpawnOptions, onData: (bytes: Uint8Array) => void) =>
-    invoke<string>(SPAWN_COMMAND, { opts: options, onData: createByteChannel(onData) })
+    invokeRaw<string>(SPAWN_COMMAND, { opts: options, onData: createByteChannel(onData) })
 
 export const attachPty = (sessionId: string, onData: (bytes: Uint8Array) => void) =>
-    invoke<number>(ATTACH_COMMAND, { sessionId, onData: createByteChannel(onData) })
+    invokeRaw<number>(ATTACH_COMMAND, { sessionId, onData: createByteChannel(onData) })
 
 export const detachPty = (sessionId: string, subscriptionId: number) => unwrapResult(commands.ptyDetach(sessionId, subscriptionId))
 

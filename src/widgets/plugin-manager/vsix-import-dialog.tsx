@@ -5,6 +5,8 @@ import { TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import type { VsixThemeExtractionResult } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
 import { generateUniqueThemeId } from '@shared/lib/theme-draft'
 import { useSaveTheme } from '@entities/theme/theme.query'
 import { useImportVsixPlugin } from '@entities/vsix/vsix.query'
@@ -59,6 +61,7 @@ export const VsixImportDialog: FC<VsixImportDialogProps> = ({ open, onOpenChange
     const { t } = useTranslation()
     const { mutateAsync: saveTheme } = useSaveTheme()
     const { mutate: importVsixPlugin, isPending: isImportingGrammars, isSuccess: grammarsImported, error: grammarImportError } = useImportVsixPlugin()
+    const grammarImportErrorMessage = useIpcErrorMessage(grammarImportError)
 
     const selectedCandidates = candidates.filter((candidate) => selectedKeys.has(candidate.key) && candidate.theme)
     const collidingCandidates = selectedCandidates.filter((candidate) => candidate.idCollides)
@@ -85,7 +88,7 @@ export const VsixImportDialog: FC<VsixImportDialogProps> = ({ open, onOpenChange
             }
             toast.success(t('settings.themeImportSuccess', { count: selectedCandidates.length, extension: result.extension.displayName }))
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : t('settings.themeImportSaveFailure'))
+            toast.error(describeIpcError(error))
         } finally {
             setIsSavingThemes(false)
         }
@@ -176,7 +179,7 @@ export const VsixImportDialog: FC<VsixImportDialogProps> = ({ open, onOpenChange
                         <h3 className='text-app-sidebar-icon-default text-xs font-medium'>{t('settings.pluginImportVsixGrammarsSection')}</h3>
                         <VsixImportGrammarsSection
                             imported={grammarsImported}
-                            errorMessage={grammarImportError instanceof Error ? grammarImportError.message : null}
+                            errorMessage={grammarImportError ? grammarImportErrorMessage : null}
                             importing={isImportingGrammars}
                             onImport={handleImportGrammarsClick}
                         />

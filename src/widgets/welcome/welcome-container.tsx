@@ -4,8 +4,9 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { Project, ProjectId } from '@shared/api/bindings'
-import type { KeymapActionId, KeymapEntry } from '@shared/lib/keymap'
-import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
+import type { KeymapActionId, KeymapEntry } from '@shared/lib/keymap/keymap'
+import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap/keymap'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { isWithinRoot } from '@shared/lib/path-root'
 import { fileNameOf } from '@shared/lib/relative-path'
@@ -78,17 +79,17 @@ export const WelcomeContainer: FC<WelcomeContainerProps> = ({ projectId }) => {
                 target: currentWindowFocusedPane(layout),
                 preview: false,
             },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 
     const handleSelectRecent = (project: Project) => {
         const isAlreadyOpen = openProjects.some((openProjectEntry) => openProjectEntry.id === project.id)
         if (isAlreadyOpen) {
-            activateProject(project.id, { onError: (error) => toast.error(error.message) })
+            activateProject(project.id, { onError: (error) => toast.error(describeIpcError(error)) })
             return
         }
-        openProject(project.root, { onError: (error) => toast.error(error.message) })
+        openProject(project.root, { onError: (error) => toast.error(describeIpcError(error)) })
     }
 
     return (

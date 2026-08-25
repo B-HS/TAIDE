@@ -15,10 +15,12 @@ import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 import { findPaneTab } from '@shared/lib/pane-tree'
-import { registerTerminalWriteHandler } from '@shared/lib/terminal-write-bridge'
-import { requestOpenFileFromEditor } from '@shared/lib/editor-opener-bridge'
+import { registerTerminalWriteHandler } from '@shared/lib/bridge/terminal-write-bridge'
+import { requestOpenFileFromEditor } from '@shared/lib/bridge/editor-opener-bridge'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
 import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/terminal'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
@@ -40,7 +42,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const dimensionsRef = useRef({ cols: 0, rows: 0 })
 
     const [spawnedSessionId, setSpawnedSessionId] = useState<string | null>(null)
-    const [failure, setFailure] = useState<string | null>(null)
+    const [failure, setFailure] = useState<unknown>(null)
     const [cwd, setCwd] = useState<string | null>(null)
     const [exited, setExited] = useState<{ code: number | null } | null>(null)
 
@@ -51,6 +53,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const { mutate: persistTerminalSession } = useSetTerminalSession(projectId)
     const { t } = useTranslation()
     const queryClient = useQueryClient()
+    const failureMessage = useIpcErrorMessage(failure)
 
     const persistedSession = (liveSessions ?? []).find((session) => session.id === persistedSessionId)
     const isPersistedAlive = persistedSession?.running ?? false
@@ -76,10 +79,10 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         }
         if (spawnStartedRef.current) return
         spawnStartedRef.current = true
-        void spawnWithMeasuredSize(cols, rows).catch((error: Error) => {
+        void spawnWithMeasuredSize(cols, rows).catch((error: unknown) => {
             spawnStartedRef.current = false
-            setFailure(error.message)
-            toast.error(error.message)
+            setFailure(error)
+            toast.error(describeIpcError(error))
         })
     }
 
@@ -119,10 +122,10 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         setSpawnedSessionId(null)
         spawnStartedRef.current = true
         const { cols, rows } = dimensionsRef.current
-        void spawnWithMeasuredSize(cols, rows).catch((error: Error) => {
+        void spawnWithMeasuredSize(cols, rows).catch((error: unknown) => {
             spawnStartedRef.current = false
-            setFailure(error.message)
-            toast.error(error.message)
+            setFailure(error)
+            toast.error(describeIpcError(error))
         })
     }
 
@@ -175,7 +178,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     })
 
     if (failure) {
-        return <div className='bg-terminal-background text-status-error flex h-full w-full items-center justify-center text-sm'>{failure}</div>
+        return <div className='bg-terminal-background text-status-error flex h-full w-full items-center justify-center text-sm'>{failureMessage}</div>
     }
 
     if (exited) {

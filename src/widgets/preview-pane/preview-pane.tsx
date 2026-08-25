@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { resolvePreviewKind, resolvePreviewMimeType } from '@shared/lib/preview-kind'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { useObjectUrl } from '@shared/hooks/use-object-url'
@@ -34,7 +35,7 @@ export const PreviewPane: FC<PreviewPaneProps> = ({ path }) => {
     const { data, isPending, isError } = useQuery({ ...fileRawQueryOptions(path), enabled: needsRawBytes })
     const objectUrl = useObjectUrl(needsObjectUrl ? data : undefined, mimeType)
 
-    const handleOpenExternal = () => void systemOpenPath(path).catch((error: Error) => toast.error(error.message))
+    const handleOpenExternal = () => void systemOpenPath(path).catch((error: Error) => toast.error(describeIpcError(error)))
 
     if (kind === 'video') return <VideoPreview src={convertFileSrc(path)} />
     if (kind === 'audio') return <AudioPreview src={convertFileSrc(path)} fileName={fileName} />

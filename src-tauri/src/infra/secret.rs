@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 
 pub const SECRET_SERVICE: &str = "dev.taide.app";
 
@@ -35,22 +35,39 @@ pub struct KeyringSecretStore;
 
 impl KeyringSecretStore {
     fn entry(account: SecretAccount) -> AppResult<keyring::Entry> {
-        keyring::Entry::new(SECRET_SERVICE, account.as_str()).map_err(|error| AppError::Internal(format!("keyring 접근 실패: {error}")))
+        keyring::Entry::new(SECRET_SERVICE, account.as_str()).map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.secret.accessFailed",
+                format!("failed to access keyring: {error}"),
+            )
+            .with_arg("detail", &error)
+        })
     }
 }
 
 impl SecretStore for KeyringSecretStore {
     fn set(&self, account: SecretAccount, value: &str) -> AppResult<()> {
-        Self::entry(account)?
-            .set_password(value)
-            .map_err(|error| AppError::Internal(format!("keyring 저장 실패: {error}")))
+        Self::entry(account)?.set_password(value).map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.secret.storeFailed",
+                format!("failed to store to keyring: {error}"),
+            )
+            .with_arg("detail", &error)
+        })
     }
 
     fn get(&self, account: SecretAccount) -> AppResult<Option<String>> {
         match Self::entry(account)?.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(AppError::Internal(format!("keyring 조회 실패: {error}"))),
+            Err(error) => Err(AppError::localized(
+                AppErrorKind::Internal,
+                "error.secret.readFailed",
+                format!("failed to read from keyring: {error}"),
+            )
+            .with_arg("detail", &error)),
         }
     }
 
@@ -58,7 +75,12 @@ impl SecretStore for KeyringSecretStore {
         match Self::entry(account)?.delete_credential() {
             Ok(()) => Ok(()),
             Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(AppError::Internal(format!("keyring 삭제 실패: {error}"))),
+            Err(error) => Err(AppError::localized(
+                AppErrorKind::Internal,
+                "error.secret.deleteFailed",
+                format!("failed to delete from keyring: {error}"),
+            )
+            .with_arg("detail", &error)),
         }
     }
 }

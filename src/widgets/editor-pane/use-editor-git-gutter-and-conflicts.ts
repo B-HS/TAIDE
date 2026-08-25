@@ -3,9 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { useTranslation } from 'react-i18next'
 import type { ConflictSides, HunkKind, ProjectId } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
 import { resolveSelectedLineRange } from '@shared/lib/selection-line-range'
-import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
+import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
 import {
     gitConflictSidesQueryOptions,
     gitGutterQueryOptions,
@@ -88,7 +89,7 @@ export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, set
      */
     useEffect(() => {
         if (!compareRequested || !isCompareSidesError) return
-        toast.error(compareSidesErrorValue instanceof Error ? compareSidesErrorValue.message : String(compareSidesErrorValue))
+        toast.error(describeIpcError(compareSidesErrorValue))
     }, [compareRequested, isCompareSidesError, compareSidesErrorValue])
 
     /**
@@ -121,7 +122,7 @@ export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, set
                     settleAfterDiskWrite()
                     toast.success(t('git.conflictResolved'))
                 },
-                onError: (mutationError) => toast.error(mutationError.message),
+                onError: (mutationError) => toast.error(describeIpcError(mutationError)),
             },
         )
     }
@@ -150,7 +151,7 @@ export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, set
         if (!pendingHunk) return
         discardHunk(
             { projectId, path, hunkStart: pendingHunk.start, hunkEnd: pendingHunk.end },
-            { onError: (mutationError) => toast.error(mutationError.message) },
+            { onError: (mutationError) => toast.error(describeIpcError(mutationError)) },
         )
         setPendingHunk(null)
     }
@@ -249,7 +250,7 @@ export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, set
             if (isConflicted) return
             const selection = targetEditor.getSelection()
             if (!selection) return
-            const onError = (mutationError: Error) => toast.error(mutationError.message)
+            const onError = (mutationError: Error) => toast.error(describeIpcError(mutationError))
 
             if (!selection.isEmpty()) {
                 const { start, end } = resolveSelectedLineRange(selection)

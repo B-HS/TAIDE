@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { HookInstallScope, Project } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { AgentHooksProjectRow } from '@widgets/settings-view/agent-hooks-project-row'
 import { AgentHooksToggle } from '@features/settings/agent-hooks-toggle'
 import {
@@ -62,7 +63,7 @@ const AgentHooksUserLevelRow: FC<AgentHooksUserLevelRowProps> = ({ agentName, la
 
     const handleCheckedChange = (checked: boolean) => {
         const variables = { projectId: USER_LEVEL_AGENT_HOOKS_UNUSED_PROJECT_ID, agentName }
-        const onError = (error: Error) => toast.error(error.message)
+        const onError = (error: Error) => toast.error(describeIpcError(error))
         if (checked) installHooks(variables, { onError })
         else uninstallHooks(variables, { onError })
     }

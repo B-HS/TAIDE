@@ -14,7 +14,7 @@ use super::types::{
     LanguageServerSpec, LspInstallPhase, LspInstallStrategy, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus,
     LspSpawnRequest, RESTART_BACKOFF_LIMIT,
 };
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::{LspInstallProgress, LspSessionStatusChanged};
 use crate::ids::ProjectId;
 use crate::infra::http::{outbound_http_client, HttpClientProfile};
@@ -294,10 +294,15 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
 
     let args = resolved_args(&spec, &root, managed_dir.as_deref());
     if args.iter().any(|arg| arg.contains('{') && arg.contains('}')) {
-        return Err(AppError::Internal(format!(
-            "{} 실행 인자에 치환되지 않은 템플릿이 남아 있습니다 (관리 디렉토리 미설치 가능성)",
-            spec.id
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.unresolvedArgTemplate",
+            format!(
+                "{}: unresolved template left in launch args (managed directory may not be installed)",
+                spec.id
+            ),
+        )
+        .with_arg("serverId", &spec.id));
     }
 
     let config = lsp_proc::LspProcConfig {
@@ -882,23 +887,33 @@ fn emit_install_progress(
 }
 
 async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &LanguageServerSpec, cancel: Arc<AtomicBool>) -> AppResult<()> {
-    let download = spec
-        .install
-        .download
-        .as_ref()
-        .ok_or_else(|| AppError::InvalidArgument(format!("{} 의 다운로드 정보가 아직 설정되지 않았습니다", spec.id)))?;
+    let download = spec.install.download.as_ref().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.downloadInfoMissing",
+            format!("{}: download info is not configured yet", spec.id),
+        )
+        .with_arg("serverId", &spec.id)
+    })?;
 
     let platform = lsp_install::platform_key();
-    let url = download
-        .urls
-        .get(&platform)
-        .ok_or_else(|| AppError::InvalidArgument(format!("{} 는 현재 플랫폼({platform})을 지원하지 않습니다", spec.id)))?;
-    let expected_sha256 = download
-        .sha256
-        .get(&platform)
-        .cloned()
-        .flatten()
-        .ok_or_else(|| AppError::InvalidArgument(format!("{} 의 체크섬이 아직 게시되지 않아 설치할 수 없습니다", spec.id)))?;
+    let url = download.urls.get(&platform).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.platformUnsupported",
+            format!("{}: the current platform ({platform}) is not supported", spec.id),
+        )
+        .with_arg("serverId", &spec.id)
+        .with_arg("platform", &platform)
+    })?;
+    let expected_sha256 = download.sha256.get(&platform).cloned().flatten().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.checksumUnpublished",
+            format!("{}: cannot install because no checksum has been published yet", spec.id),
+        )
+        .with_arg("serverId", &spec.id)
+    })?;
 
     emit_install_progress(app, &spec.id, LspInstallPhase::Downloading, 0, None, None);
 
@@ -944,7 +959,12 @@ async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &Language
             None,
             Some("체크섬이 일치하지 않습니다".to_string()),
         );
-        return Err(AppError::Internal(format!("{} 다운로드의 체크섬이 일치하지 않습니다", spec.id)));
+        return Err(AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.checksumMismatch",
+            format!("{}: the downloaded file's checksum does not match", spec.id),
+        )
+        .with_arg("serverId", &spec.id));
     }
 
     emit_install_progress(
@@ -976,7 +996,14 @@ async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &Language
         }
     })
     .await
-    .map_err(|join_error| AppError::Internal(format!("압축 해제 작업 실패: {join_error}")))
+    .map_err(|join_error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.extractTaskFailed",
+            format!("extraction task failed: {join_error}"),
+        )
+        .with_arg("detail", &join_error)
+    })
     .and_then(|result| result);
 
     std::fs::remove_file(&downloaded.path).ok();
@@ -1035,15 +1062,23 @@ fn capture_output_tail(reader: impl tokio::io::AsyncRead + Unpin + Send + 'stati
 }
 
 async fn run_toolchain_install(app: &AppHandle, spec: &LanguageServerSpec, cancel: Arc<AtomicBool>) -> AppResult<()> {
-    let toolchain = spec
-        .install
-        .toolchain
-        .as_ref()
-        .ok_or_else(|| AppError::InvalidArgument(format!("{} 의 툴체인 설치 정보가 아직 설정되지 않았습니다", spec.id)))?;
+    let toolchain = spec.install.toolchain.as_ref().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.toolchainInfoMissing",
+            format!("{}: toolchain install info is not configured yet", spec.id),
+        )
+        .with_arg("serverId", &spec.id)
+    })?;
 
     let binary = service::toolchain_binary(toolchain.tool);
     if service::find_in_path(binary).is_none() {
-        return Err(AppError::NotFound(format!("{binary} 툴체인을 찾을 수 없습니다")));
+        return Err(AppError::localized(
+            AppErrorKind::NotFound,
+            "error.lsp.toolchainNotFound",
+            format!("could not find the {binary} toolchain"),
+        )
+        .with_arg("binary", binary));
     }
 
     emit_install_progress(
@@ -1062,9 +1097,15 @@ async fn run_toolchain_install(app: &AppHandle, spec: &LanguageServerSpec, cance
     #[cfg(unix)]
     command.process_group(0);
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| AppError::Internal(format!("{binary} 실행 실패: {error}")))?;
+    let mut child = command.spawn().map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.toolchainRunFailed",
+            format!("{binary} failed to run: {error}"),
+        )
+        .with_arg("binary", binary)
+        .with_arg("detail", &error)
+    })?;
     let child_pid = child.id();
 
     let stdout_tail = child.stdout.take().map(capture_output_tail);
@@ -1086,7 +1127,11 @@ async fn run_toolchain_install(app: &AppHandle, spec: &LanguageServerSpec, cance
                 None,
                 Some("설치가 취소되었습니다".to_string()),
             );
-            return Err(AppError::Internal("설치가 취소되었습니다".to_string()));
+            return Err(AppError::localized(
+                AppErrorKind::Internal,
+                "error.lsp.installCancelled",
+                "Installation was cancelled",
+            ));
         }
 
         match child.try_wait() {
@@ -1136,7 +1181,12 @@ pub async fn lsp_install(
         .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
 
     let Some(cancel) = install_store.begin(&server_id) else {
-        return Err(AppError::InvalidArgument(format!("{server_id} 설치가 이미 진행 중입니다")));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.installAlreadyRunning",
+            format!("{server_id}: an install is already in progress"),
+        )
+        .with_arg("serverId", &server_id));
     };
     let _guard = LspInstallGuard {
         store: install_store.inner(),
@@ -1147,10 +1197,12 @@ pub async fn lsp_install(
     match spec.install.strategy {
         LspInstallStrategy::Download => run_download_install(&app, &state.paths, &spec, cancel).await,
         LspInstallStrategy::Toolchain => run_toolchain_install(&app, &spec, cancel).await,
-        LspInstallStrategy::SdkDetect => Err(AppError::InvalidArgument(format!(
-            "{} 는 SDK 감지 전용이라 자동 설치할 수 없습니다",
-            spec.id
-        ))),
+        LspInstallStrategy::SdkDetect => Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.sdkDetectOnly",
+            format!("{}: SDK-detect-only servers cannot be installed automatically", spec.id),
+        )
+        .with_arg("serverId", &spec.id)),
     }
 }
 

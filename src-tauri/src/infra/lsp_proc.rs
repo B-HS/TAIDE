@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 
 const HEADER_BODY_SEPARATOR: &[u8] = b"\r\n\r\n";
 const CONTENT_LENGTH_HEADER: &str = "content-length";
@@ -163,19 +163,31 @@ where
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| AppError::Internal(format!("언어 서버를 시작하지 못했습니다 ({}): {error}", config.command)))?;
+    let mut child = command.spawn().map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.serverSpawnFailed",
+            format!("failed to start language server ({}): {error}", config.command),
+        )
+        .with_arg("command", &config.command)
+        .with_arg("detail", &error)
+    })?;
     let pid = child.id();
 
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::Internal("언어 서버 stdin을 열지 못했습니다".to_string()))?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| AppError::Internal("언어 서버 stdout을 열지 못했습니다".to_string()))?;
+    let stdin = child.stdin.take().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.stdinUnavailable",
+            "could not open the language server's stdin",
+        )
+    })?;
+    let mut stdout = child.stdout.take().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.stdoutUnavailable",
+            "could not open the language server's stdout",
+        )
+    })?;
 
     tokio::spawn(async move {
         let mut buffer = Vec::new();

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 
 /// Entry-count and cumulative-decompressed-size caps for [`extract_hardened_zip`] — deliberately a
 /// separate, more generous budget than the vsix theme-extraction path's
@@ -38,9 +38,13 @@ fn copy_entry_with_budget(mut entry: impl Read, out_path: &Path, remaining_budge
         if read == 0 {
             break;
         }
-        *remaining_budget = remaining_budget
-            .checked_sub(read as u64)
-            .ok_or_else(|| AppError::InvalidArgument("아카이브 압축 해제 용량 상한을 초과했습니다".to_string()))?;
+        *remaining_budget = remaining_budget.checked_sub(read as u64).ok_or_else(|| {
+            AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.archive.extractSizeLimitExceeded",
+                "the archive extraction size limit was exceeded",
+            )
+        })?;
         out_file.write_all(&buffer[..read])?;
     }
     Ok(())
@@ -62,23 +66,44 @@ fn copy_entry_with_budget(mut entry: impl Read, out_path: &Path, remaining_budge
 /// already validates a SHA-256 before extraction), unsafe for an arbitrary user-supplied plugin
 /// archive with no such provenance check.
 pub fn extract_hardened_zip(source_path: &Path, dest: &Path) -> AppResult<()> {
-    let file = File::open(source_path).map_err(|error| AppError::InvalidArgument(format!("아카이브를 열 수 없습니다: {error}")))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|error| AppError::InvalidArgument(format!("zip 압축을 해제할 수 없습니다: {error}")))?;
+    let file = File::open(source_path).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.archive.openFailed",
+            format!("could not open archive: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.archive.unzipFailed",
+            format!("could not unzip archive: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
     if archive.len() > ARCHIVE_MAX_ENTRIES {
-        return Err(AppError::InvalidArgument(format!(
-            "아카이브 항목이 너무 많습니다 ({}개, 최대 {ARCHIVE_MAX_ENTRIES}개)",
-            archive.len()
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.archive.tooManyEntries",
+            format!("archive has too many entries ({}, max {ARCHIVE_MAX_ENTRIES})", archive.len()),
+        )
+        .with_arg("count", archive.len())
+        .with_arg("max", ARCHIVE_MAX_ENTRIES));
     }
 
     let mut remaining_budget = ARCHIVE_MAX_TOTAL_BYTES;
 
     for index in 0..archive.len() {
-        let entry = archive
-            .by_index(index)
-            .map_err(|error| AppError::Internal(format!("zip 항목 읽기 실패: {error}")))?;
+        let entry = archive.by_index(index).map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.archive.entryReadFailed",
+                format!("failed to read zip entry: {error}"),
+            )
+            .with_arg("detail", &error)
+        })?;
         let Some(relative_path) = entry.enclosed_name() else { continue };
         let out_path = dest.join(relative_path);
 

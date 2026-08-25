@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 
 const PROGRESS_EMIT_MIN_INTERVAL_MS: u128 = 100;
 const PROGRESS_EMIT_MIN_BYTES: u64 = 256 * 1024;
@@ -70,9 +70,14 @@ pub fn extract_tar_gz(source_path: &Path, dest: &Path) -> AppResult<()> {
     let file = std::fs::File::open(source_path)?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(dest)
-        .map_err(|error| AppError::Internal(format!("tar.gz 해제 실패: {error}")))
+    archive.unpack(dest).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.archive.tarGzExtractFailed",
+            format!("failed to extract tar.gz: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 /// Checksum-verified first-party archives only — `tar::Archive::unpack` applies no entry-count or
@@ -82,9 +87,14 @@ pub fn extract_tar_xz(source_path: &Path, dest: &Path) -> AppResult<()> {
     let file = std::fs::File::open(source_path)?;
     let decoder = xz2::read::XzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(dest)
-        .map_err(|error| AppError::Internal(format!("tar.xz 해제 실패: {error}")))
+    archive.unpack(dest).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.archive.tarXzExtractFailed",
+            format!("failed to extract tar.xz: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 /// Checksum-verified first-party archives only (`lsp::commands::run_download_install` validates a
@@ -93,12 +103,24 @@ pub fn extract_tar_xz(source_path: &Path, dest: &Path) -> AppResult<()> {
 /// User-supplied archives must go through `infra::archive::extract_hardened_zip` instead.
 pub fn extract_zip(source_path: &Path, dest: &Path) -> AppResult<()> {
     let file = std::fs::File::open(source_path)?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|error| AppError::Internal(format!("zip 열기 실패: {error}")))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.archive.zipOpenFailed",
+            format!("failed to open zip: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
     for index in 0..archive.len() {
-        let mut entry = archive
-            .by_index(index)
-            .map_err(|error| AppError::Internal(format!("zip 항목 읽기 실패: {error}")))?;
+        let mut entry = archive.by_index(index).map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.archive.entryReadFailed",
+                format!("failed to read zip entry: {error}"),
+            )
+            .with_arg("detail", &error)
+        })?;
         let Some(relative_path) = entry.enclosed_name() else {
             continue;
         };
@@ -138,7 +160,14 @@ pub fn write_gz_binary_from_file(source_path: &Path, dest: &Path, bin_name: Opti
     let file = std::fs::File::open(source_path)?;
     let mut decoder = flate2::read::GzDecoder::new(file);
     let mut out_file = std::fs::File::create(&out_path)?;
-    std::io::copy(&mut decoder, &mut out_file).map_err(|error| AppError::Internal(format!("gz 압축 해제 실패: {error}")))?;
+    std::io::copy(&mut decoder, &mut out_file).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.archive.gzExtractFailed",
+            format!("failed to extract gz: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
     set_executable(&out_path)
 }
 
@@ -217,13 +246,21 @@ pub async fn download_to_file<F: FnMut(DownloadProgress)>(
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| AppError::Internal(format!("다운로드 요청 실패: {error}")))?;
+    let response = client.get(url).send().await.map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.downloadRequestFailed",
+            format!("download request failed: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
     if !response.status().is_success() {
-        return Err(AppError::Internal(format!("다운로드 실패: HTTP {}", response.status())));
+        return Err(AppError::localized(
+            AppErrorKind::Internal,
+            "error.lsp.downloadHttpStatus",
+            format!("download failed: HTTP {}", response.status()),
+        )
+        .with_arg("status", response.status()));
     }
 
     let total_bytes = response.content_length();
@@ -242,10 +279,21 @@ pub async fn download_to_file<F: FnMut(DownloadProgress)>(
         if cancel.load(Ordering::SeqCst) {
             drop(file);
             std::fs::remove_file(dest_path).ok();
-            return Err(AppError::Internal("설치가 취소되었습니다".to_string()));
+            return Err(AppError::localized(
+                AppErrorKind::Internal,
+                "error.lsp.installCancelled",
+                "Installation was cancelled",
+            ));
         }
 
-        let chunk = chunk.map_err(|error| AppError::Internal(format!("다운로드 스트림 오류: {error}")))?;
+        let chunk = chunk.map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.lsp.downloadStreamFailed",
+                format!("download stream error: {error}"),
+            )
+            .with_arg("detail", &error)
+        })?;
         hasher.update(&chunk);
         if let Err(error) = file.write_all(&chunk).await {
             drop(file);

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { languages } from 'monaco-editor'
 import type { ProjectId, TabId } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
@@ -116,7 +117,7 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
                 target: currentWindowFocusedPane(layout),
                 preview: true,
             },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 

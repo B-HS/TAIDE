@@ -11,6 +11,7 @@ import { fileQueryOptions } from '@entities/file/file.query'
 import { useCloseTab } from '@entities/layout/layout.query'
 import { useResolveIdeDiff } from '@entities/ide/ide.query'
 import { getPendingClaudeDiff, removePendingClaudeDiff, takePendingClaudeDiffIfUnresolved } from '@entities/ide/claude-diff-registry'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { Button } from '@shared/ui/button'
 
 const FALLBACK_LANGUAGE_ID = 'plaintext'
@@ -116,7 +117,7 @@ export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requ
             toast.success(t('ide.diffAccepted'))
             closeTab(tabId)
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : String(error))
+            toast.error(describeIpcError(error))
         } finally {
             setIsResolving(false)
         }
@@ -131,7 +132,7 @@ export const ClaudeDiffPane: FC<ClaudeDiffPaneProps> = ({ projectId, tabId, requ
             toast.info(t('ide.diffRejected'))
             closeTab(tabId)
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : String(error))
+            toast.error(describeIpcError(error))
         } finally {
             setIsResolving(false)
         }

@@ -9,10 +9,12 @@ import type { ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import type { monaco } from '@shared/lib/monaco/setup'
 import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings'
-import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
+import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
 import { consumeExternallyDirtyModel } from '@shared/lib/lsp/model-dirty-tracker'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
@@ -60,6 +62,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
 
     const { t } = useTranslation()
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
+    const openErrorMessage = useIpcErrorMessage(error)
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
@@ -260,11 +263,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     if (isPending) return <div className='bg-editor-background h-full w-full' />
 
     if (isError) {
-        return (
-            <div className='bg-editor-background text-status-error flex h-full w-full items-center justify-center text-sm'>
-                {error instanceof Error ? error.message : t('editor.openFailed')}
-            </div>
-        )
+        return <div className='bg-editor-background text-status-error flex h-full w-full items-center justify-center text-sm'>{openErrorMessage}</div>
     }
 
     if (file.tier === 'refused') {
@@ -276,7 +275,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                     type='button'
                     variant='outline'
                     size='xs'
-                    onClick={() => void systemOpenPath(path).catch((error: Error) => toast.error(error.message))}>
+                    onClick={() => void systemOpenPath(path).catch((error: Error) => toast.error(describeIpcError(error)))}>
                     {t('editor.openExternally')}
                 </Button>
             </div>

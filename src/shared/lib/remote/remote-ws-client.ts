@@ -1,3 +1,5 @@
+import type { AppError } from '@shared/api/bindings'
+import { ERROR_KEY } from '@shared/constants/error-key'
 import { isRecord, numberOf, parseJson, stringOf } from '@shared/lib/remote/remote-json'
 
 const RESPONSE_TAG = 0x02
@@ -47,7 +49,10 @@ export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void)
 
     const rejectAll = () => {
         for (const resolver of pending.values()) {
-            resolver.reject({ code: 'RemoteDisconnected', message: '원격 연결이 끊어졌습니다' })
+            resolver.reject({
+                code: 'Localized',
+                message: { kind: 'Internal', key: ERROR_KEY.REMOTE_DISCONNECTED, args: {}, fallback: 'The remote connection was lost' },
+            } satisfies AppError)
         }
         pending.clear()
     }

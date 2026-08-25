@@ -2,6 +2,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { toast } from 'sonner'
 import type { AppFileTarget, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { collectAllPaneTabs, currentWindowFocusedPane, findPaneTab } from '@shared/lib/pane-tree'
 import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
 import { releaseWaitMarker } from '@entities/agent/agent.ipc'
@@ -59,7 +60,7 @@ export const useOpenAppFileTab = (projectId: ProjectId) => {
     return (appFileTarget: AppFileTarget, title: string) =>
         openTab(
             { projectId, kind: { kind: 'appFile', target: appFileTarget }, title, target: currentWindowFocusedPane(layout), preview: false },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
 }
 

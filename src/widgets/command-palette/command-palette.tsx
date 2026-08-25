@@ -12,12 +12,13 @@ import {
 } from '@shared/lib/command-palette-query'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
 import { formatCategorizedLabel, getRegisteredCommand, isCommandRunnable, listRegisteredCommands } from '@shared/lib/command-registry'
-import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/active-editor-actions-bridge'
+import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/bridge/active-editor-actions-bridge'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
-import { buildKeybindingRows, findRunnableCommandBinding } from '@shared/lib/keybinding-catalog'
-import { parseKeymapOverrides } from '@shared/lib/keymap'
-import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap-chord-store'
+import { buildKeybindingRows, findRunnableCommandBinding } from '@shared/lib/keymap/keybinding-catalog'
+import { parseKeymapOverrides } from '@shared/lib/keymap/keymap'
+import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap/keymap-chord-store'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
@@ -93,7 +94,7 @@ export const CommandPalette = () => {
         if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
         openTab(
             { projectId: activeProjectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: null, preview: false },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 
@@ -101,7 +102,7 @@ export const CommandPalette = () => {
         if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
         openTab(
             { projectId: activeProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 
@@ -115,13 +116,13 @@ export const CommandPalette = () => {
                 target: null,
                 preview: false,
             },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 
     const reopenClosedTab = () => {
         if (!activeProjectId) return
-        reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(error.message) })
+        reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(describeIpcError(error)) })
     }
 
     useGlobalKeymap({
@@ -228,7 +229,7 @@ export const CommandPalette = () => {
         if (!activeProjectId) return
         openTab(
             { projectId: activeProjectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
         handleOpenChange(false)
     }
@@ -250,7 +251,7 @@ export const CommandPalette = () => {
         requestReveal(symbol.path, symbol.line, symbol.column)
         openTab(
             { projectId: activeProjectId, kind: { kind: 'file', path: symbol.path }, title: fileNameOf(symbol.path), target: null, preview: true },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
         handleOpenChange(false)
     }
@@ -301,7 +302,11 @@ export const CommandPalette = () => {
                             <CommandPaletteLineGroup lineTarget={lineTarget} activePath={activePath} onSelectLine={selectLineTarget} />
                         )}
                         {mode === 'workspaceSymbol' && (
-                            <CommandPaletteWorkspaceSymbolGroup symbols={workspaceSymbolResults} onSelectSymbol={selectWorkspaceSymbol} />
+                            <CommandPaletteWorkspaceSymbolGroup
+                                symbols={workspaceSymbolResults}
+                                searchTerm={searchTerm}
+                                onSelectSymbol={selectWorkspaceSymbol}
+                            />
                         )}
                     </CommandList>
                 </Command>

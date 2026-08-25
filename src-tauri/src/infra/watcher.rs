@@ -8,9 +8,15 @@ use notify_debouncer_full::{new_debouncer, DebounceEventResult, DebouncedEvent, 
 
 use crate::constants::{is_ignored_dir, WATCH_DEBOUNCE_MS};
 use crate::domain::file::types::{FsChange, FsChangeKind};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::persist;
 
+/// Uses `notify-debouncer-full`'s platform-default `RecommendedCache` (macOS: `FileIdMap`, not
+/// `NoCache`) deliberately — switching to `NoCache` was considered and rejected (d-35 §4-e,
+/// `docs/acknowledge/2026-08-25-d35-rust-hardening-contract.md`): macOS FSEvents provides no
+/// pairing cookie between a rename's old and new sides, so without `FileIdMap`'s inode-based
+/// matching, an unmatched rename half gets misreported as a `Modified` on a path that no longer
+/// exists.
 pub struct WatcherHandle {
     _debouncer: Debouncer<notify::RecommendedWatcher, RecommendedCache>,
 }
@@ -47,11 +53,23 @@ where
             }
         },
     )
-    .map_err(|error| AppError::Internal(format!("파일 감시자를 시작하지 못했습니다: {error}")))?;
+    .map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.watcher.startFailed",
+            format!("failed to start the file watcher: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
-    debouncer
-        .watch(&root, RecursiveMode::Recursive)
-        .map_err(|error| AppError::Internal(format!("파일 감시 등록에 실패했습니다: {error}")))?;
+    debouncer.watch(&root, RecursiveMode::Recursive).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.watcher.registerFailed",
+            format!("failed to register the file watch: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
     Ok(WatcherHandle { _debouncer: debouncer })
 }

@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::AiProviderClient;
+use crate::domain::ai::providers::{provider_http_error, provider_transport_error, AiProviderClient};
 use crate::domain::ai::types::{
     AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars,
 };
@@ -9,6 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::infra::redact::mask_provider_error;
 
 const OLLAMA_BASE: &str = "https://ollama.com/api";
+const OLLAMA_PROVIDER_NAME: &str = "ollama";
 /// Output budget for the auto-tab ghost-text path (`complete_chat`) — a single-line/few-line
 /// suggestion never needs more, and this value must not change without re-validating auto-tab
 /// latency (contract §3.1 "auto-tab 회귀 0").
@@ -104,21 +105,18 @@ impl AiProviderClient for OllamaCloudProvider {
             .header("authorization", self.auth_header())
             .send()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OLLAMA_PROVIDER_NAME, &error))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "ollama tags request failed ({status}): {}",
-                mask_provider_error(&body)
-            )));
+            return Err(provider_http_error(OLLAMA_PROVIDER_NAME, status, &body));
         }
 
         let parsed: OllamaTagsResponse = res
             .json()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OLLAMA_PROVIDER_NAME, &error))?;
         Ok(parsed
             .models
             .into_iter()
@@ -221,21 +219,18 @@ impl OllamaCloudProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OLLAMA_PROVIDER_NAME, &error))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let text = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "ollama chat request failed ({status}): {}",
-                mask_provider_error(&text)
-            )));
+            return Err(provider_http_error(OLLAMA_PROVIDER_NAME, status, &text));
         }
 
         let parsed: OllamaChatResponse = res
             .json()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OLLAMA_PROVIDER_NAME, &error))?;
         extract_chat_text(parsed, fail_on_truncation)
     }
 }

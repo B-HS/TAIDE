@@ -5,7 +5,7 @@ use ignore::WalkBuilder;
 use regex::{Regex, RegexBuilder};
 
 use crate::constants;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::persist;
 use crate::infra::root_guard;
 
@@ -66,7 +66,14 @@ fn compile_regex(query: &SearchQuery) -> AppResult<Regex> {
     RegexBuilder::new(&query.text)
         .case_insensitive(!query.case_sensitive)
         .build()
-        .map_err(|error| AppError::InvalidArgument(format!("잘못된 정규식입니다: {error}")))
+        .map_err(|error| {
+            AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.search.invalidRegex",
+                format!("invalid regular expression: {error}"),
+            )
+            .with_arg("detail", &error)
+        })
 }
 
 fn find_regex_matches_in_line(line: &str, regex: &Regex, whole_word: bool) -> Vec<(u32, u32)> {
@@ -560,7 +567,7 @@ mod tests {
         q.regex = true;
         let cancelled = AtomicBool::new(false);
         let result = search(Path::new("."), &q, &cancelled, |_| {});
-        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+        assert_eq!(result.unwrap_err().kind(), AppErrorKind::InvalidArgument);
     }
 
     #[test]

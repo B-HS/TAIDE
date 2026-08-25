@@ -6,6 +6,7 @@ import { X } from 'lucide-react'
 import type { CommitFile, GitChangeKind, ProjectId } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitCommitFilesQueryOptions } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
@@ -64,7 +65,7 @@ export const CommitDetailPanel: FC<CommitDetailPanelProps> = ({ projectId, commi
     const { mutate: openTab } = useOpenTab(projectId)
 
     const handleOpenFileDiff = (file: CommitFile) =>
-        openTab(buildCommitFileDiffOpenTabInput(projectId, commit, file), { onError: (error) => toast.error(error.message) })
+        openTab(buildCommitFileDiffOpenTabInput(projectId, commit, file), { onError: (error) => toast.error(describeIpcError(error)) })
 
     return (
         <div className='border-app-border bg-panel-background mt-1 border-t pt-1'>

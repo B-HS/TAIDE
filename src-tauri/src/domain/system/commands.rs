@@ -8,7 +8,7 @@ use tauri::State;
 
 use super::service::{self, file_url, normalize_cpu_percent, ProcessRecord};
 use super::types::{AppDataPathKind, SystemUsage, SystemUsageProcess, SystemUsageProcessKind};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
@@ -261,21 +261,29 @@ fn validate_external_url(url: &str) -> AppResult<String> {
         })
         .map(|scheme| scheme.len());
     let Some(scheme_len) = matched_scheme_len else {
-        return Err(AppError::InvalidArgument(
-            "http:// 또는 https:// 로 시작하는 URL만 열 수 있습니다".to_string(),
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.system.urlSchemeNotAllowed",
+            "only URLs starting with http:// or https:// can be opened",
         ));
     };
     if trimmed
         .chars()
         .any(|c| c.is_control() || c.is_whitespace() || UNICODE_SPOOFING_CONTROL_CHARS.contains(&c))
     {
-        return Err(AppError::InvalidArgument("URL에 제어 문자나 공백을 포함할 수 없습니다".to_string()));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.system.urlHasControlChars",
+            "the URL cannot contain control characters or whitespace",
+        ));
     }
     let authority = &trimmed[scheme_len..];
     let authority_end = authority.find(['/', '?', '#']).unwrap_or(authority.len());
     if authority[..authority_end].contains('@') {
-        return Err(AppError::InvalidArgument(
-            "URL 호스트 앞에 사용자 정보(@)를 포함할 수 없습니다".to_string(),
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.system.urlHasUserInfo",
+            "the URL cannot contain user info (@) before the host",
         ));
     }
     Ok(trimmed.to_string())

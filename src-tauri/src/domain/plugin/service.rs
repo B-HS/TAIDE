@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::language::LanguageOverlay;
 use crate::infra::lsp_install;
 use crate::infra::root_guard;
@@ -253,7 +253,12 @@ pub fn resolve_contribution_path(plugin_root: &Path, relative: &str) -> AppResul
     if canonical_candidate.starts_with(&canonical_root) {
         Ok(canonical_candidate)
     } else {
-        Err(AppError::InvalidArgument(format!("경로가 플러그인 루트 밖에 있습니다: {relative}")))
+        Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.plugin.pathOutsideRoot",
+            format!("path is outside the plugin root: {relative}"),
+        )
+        .with_arg("path", relative))
     }
 }
 
@@ -279,15 +284,30 @@ fn copy_dir_recursive(source: &Path, dest: &Path) -> AppResult<()> {
 
 fn read_and_validate_manifest(dir: &Path) -> AppResult<PluginManifest> {
     let manifest_path = dir.join(PLUGIN_MANIFEST_FILE);
-    let manifest_content = fs::read_to_string(&manifest_path)
-        .map_err(|_| AppError::InvalidArgument(format!("{PLUGIN_MANIFEST_FILE}을(를) 찾을 수 없습니다")))?;
-    let manifest: PluginManifest = serde_json::from_str(&manifest_content)
-        .map_err(|error| AppError::InvalidArgument(format!("{PLUGIN_MANIFEST_FILE} 파싱 실패: {error}")))?;
+    let manifest_content = fs::read_to_string(&manifest_path).map_err(|_| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.plugin.manifestNotFound",
+            format!("could not find {PLUGIN_MANIFEST_FILE}"),
+        )
+        .with_arg("file", PLUGIN_MANIFEST_FILE)
+    })?;
+    let manifest: PluginManifest = serde_json::from_str(&manifest_content).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.plugin.manifestParseFailed",
+            format!("failed to parse {PLUGIN_MANIFEST_FILE}: {error}"),
+        )
+        .with_arg("file", PLUGIN_MANIFEST_FILE)
+        .with_arg("detail", &error)
+    })?;
     if manifest.manifest_version != PLUGIN_MANIFEST_VERSION {
-        return Err(AppError::InvalidArgument(format!(
-            "지원하지 않는 manifestVersion 입니다: {}",
-            manifest.manifest_version
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.plugin.manifestVersionUnsupported",
+            format!("unsupported manifestVersion: {}", manifest.manifest_version),
+        )
+        .with_arg("version", manifest.manifest_version));
     }
     root_guard::ensure_safe_component(&manifest.id)?;
     Ok(manifest)
@@ -308,7 +328,12 @@ pub fn stage_from_directory(plugins_dir: &Path, source: &Path) -> AppResult<(Pat
     let manifest = read_and_validate_manifest(source)?;
 
     if plugins_dir.join(&manifest.id).exists() {
-        return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {}", manifest.id)));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.plugin.alreadyInstalled",
+            format!("plugin is already installed: {}", manifest.id),
+        )
+        .with_arg("pluginId", &manifest.id));
     }
 
     let temp_dir = plugins_dir.join(".tmp").join(format!("{}-{}", manifest.id, uuid::Uuid::new_v4()));
@@ -337,7 +362,12 @@ pub fn stage_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<(PathB
         let manifest = read_and_validate_manifest(&temp_extract_dir)?;
 
         if plugins_dir.join(&manifest.id).exists() {
-            return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {}", manifest.id)));
+            return Err(AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.plugin.alreadyInstalled",
+                format!("plugin is already installed: {}", manifest.id),
+            )
+            .with_arg("pluginId", &manifest.id));
         }
         Ok(manifest.id)
     })();
@@ -365,7 +395,12 @@ pub fn stage_from_archive(plugins_dir: &Path, source: &Path) -> AppResult<(PathB
 pub fn commit_staged_install(plugins_dir: &Path, temp_dir: &Path, plugin_id: &str) -> AppResult<String> {
     let final_dir = plugins_dir.join(plugin_id);
     let result = if final_dir.exists() {
-        Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {plugin_id}")))
+        Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.plugin.alreadyInstalled",
+            format!("plugin is already installed: {plugin_id}"),
+        )
+        .with_arg("pluginId", plugin_id))
     } else {
         lsp_install::atomic_install(temp_dir, &final_dir)
     };

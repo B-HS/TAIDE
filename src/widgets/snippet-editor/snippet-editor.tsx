@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useDeleteSnippet, useSaveSnippet, useSnippetList } from '@entities/snippet/snippet.query'
 import { IpcError } from '@shared/api/unwrap-result'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { isGlobalSnippetFileName } from '@shared/lib/snippet-file'
 import {
     appendSnippetEntryDraft,
@@ -98,7 +99,7 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
                 setDeleteFileOpen(false)
                 setSelectedFileName(null)
             },
-            onError: (error) => toast.error(error.message),
+            onError: (error) => toast.error(describeIpcError(error)),
         })
     }
 

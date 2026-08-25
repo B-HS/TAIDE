@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
@@ -50,7 +51,7 @@ export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projec
         requestReveal(path, line, column)
         openTab(
             { projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 

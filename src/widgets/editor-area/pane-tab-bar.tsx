@@ -10,11 +10,12 @@ import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKi
 import { cn } from '@shared/lib/cn'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
-import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
-import { requestRevealInExplorer } from '@shared/lib/explorer-reveal-bridge'
+import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
+import { requestRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
@@ -98,7 +99,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const unpinnedTabs = tabs.filter((tab) => !tab.pinned)
     const agentBySessionId = new Map((projectAgents?.agents ?? []).map((agent) => [agent.sessionId, agent] as const))
 
-    const notifyError = (error: Error) => toast.error(error.message)
+    const notifyError = (error: Error) => toast.error(describeIpcError(error))
 
     /**
      * "Move into New Window"/"Move back to Main Window"/"Move to Window N" (contract §3.2) all

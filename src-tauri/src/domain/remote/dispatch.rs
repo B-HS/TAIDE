@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use super::types::{REMOTE_CHANNEL_PREFIX, REMOTE_OWNER_LABEL};
 use crate::domain;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::state::AppState;
 
 pub type ChannelSink = Box<dyn Fn(InvokeResponseBody) -> tauri::Result<()> + Send + Sync>;
@@ -214,10 +214,14 @@ fn from_arg<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T, Value> {
 }
 
 fn make_channel<T>(args: &Value, key: &str, factory: &ChannelFactory) -> Result<Channel<T>, Value> {
-    let raw = args
-        .get(key)
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| err(AppError::InvalidArgument(format!("{key}: 채널 인자가 필요합니다"))))?;
+    let raw = args.get(key).and_then(|value| value.as_str()).ok_or_else(|| {
+        err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.remote.channelArgRequired",
+            format!("{key}: a channel argument is required"),
+        )
+        .with_arg("arg", key))
+    })?;
     let id = raw.strip_prefix(REMOTE_CHANNEL_PREFIX).unwrap_or(raw).to_string();
     Ok(Channel::new(factory(id)))
 }
@@ -226,9 +230,10 @@ fn make_channel<T>(args: &Value, key: &str, factory: &ChannelFactory) -> Result<
 /// replaces the previous per-command free-text `deny_remote_*` helper functions (one Korean message
 /// literal apiece, unchecked at compile time) with a closed, exhaustively-matched enum: every unconditional
 /// denial in [`REMOTE_DENIED_COMMANDS`] now carries exactly one variant instead of a function pointer, and
-/// [`RemoteDenialPolicy::message`] is the single place that derives the user-facing Korean text — commands
-/// that share a rationale now share one message wording instead of each hand-writing a near-duplicate
-/// string. [`RemoteDenialPolicy::Unclassified`] additionally backs the *default-deny* gate itself: see
+/// [`RemoteDenialPolicy::denial_error`] is the single place that derives the user-facing `AppError` — one
+/// `error.remote.denied<Variant>` locale key per variant, taking `command` as its only arg — so commands
+/// that share a rationale now share one locale key instead of each hand-writing a near-duplicate string.
+/// [`RemoteDenialPolicy::Unclassified`] additionally backs the *default-deny* gate itself: see
 /// [`REMOTE_ALLOWED_COMMANDS`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteDenialPolicy {
@@ -315,45 +320,55 @@ enum RemoteDenialPolicy {
 }
 
 impl RemoteDenialPolicy {
-    /// Derives the Korean, user-facing denial message for `name` under this policy. One message per
-    /// variant — commands sharing a variant share the exact wording.
-    fn message(self, name: &str) -> String {
-        match self {
-            RemoteDenialPolicy::SelfAccessExpansion => {
-                format!("원격 세션에서는 원격 접속 권한(비밀번호·접속 링크)을 스스로 변경하거나 확장할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::UnreachableDesktopWindow => {
-                format!("원격 세션에서는 데스크톱 자신의 화면에 표시되는 창이나 앱을 열거나 제어할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::LocalFilesystemEscape => {
-                format!("원격 세션에서는 데스크톱의 로컬 파일시스템에 임의 경로로 접근할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::InstallOrProcessExecution => {
-                format!("원격 세션에서는 설치 프로그램을 내려받거나 실행할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::DesktopCliInterception => {
-                format!("원격 세션에서는 데스크톱 CLI 연동(설치·훅)을 변경할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::DesktopExitControl => {
-                format!("원격 세션에서는 앱 종료를 제어할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::SharedSingletonStateRace => {
-                format!("원격 세션에서는 보류 중인 외부 열기 요청을 조회할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::LocalProjectHistoryExposure => {
-                format!("원격 세션에서는 로컬 웰컴 화면 전용인 전체 프로젝트 히스토리를 조회할 수 없습니다: {name}")
-            }
-            RemoteDenialPolicy::Unclassified => {
-                format!("원격 세션에서는 아직 허용 목록에 등재되지 않은 명령을 실행할 수 없습니다: {name}")
-            }
-        }
+    /// Derives the localized, user-facing denial error for `name` under this policy. One locale key
+    /// per variant — commands sharing a variant share the exact wording.
+    fn denial_error(self, name: &str) -> AppError {
+        let (key, fallback): (&str, String) = match self {
+            RemoteDenialPolicy::SelfAccessExpansion => (
+                "error.remote.deniedSelfAccessExpansion",
+                format!("a remote session cannot change or extend its own remote-access permissions (password, access link): {name}"),
+            ),
+            RemoteDenialPolicy::UnreachableDesktopWindow => (
+                "error.remote.deniedUnreachableDesktopWindow",
+                format!("a remote session cannot open or control a window or app shown on the desktop's own display: {name}"),
+            ),
+            RemoteDenialPolicy::LocalFilesystemEscape => (
+                "error.remote.deniedLocalFilesystemEscape",
+                format!("a remote session cannot access an arbitrary path on the desktop's local filesystem: {name}"),
+            ),
+            RemoteDenialPolicy::InstallOrProcessExecution => (
+                "error.remote.deniedInstallOrProcessExecution",
+                format!("a remote session cannot download or run an installer: {name}"),
+            ),
+            RemoteDenialPolicy::DesktopCliInterception => (
+                "error.remote.deniedDesktopCliInterception",
+                format!("a remote session cannot change desktop CLI integration (install, hooks): {name}"),
+            ),
+            RemoteDenialPolicy::DesktopExitControl => (
+                "error.remote.deniedDesktopExitControl",
+                format!("a remote session cannot control app exit: {name}"),
+            ),
+            RemoteDenialPolicy::SharedSingletonStateRace => (
+                "error.remote.deniedSharedSingletonStateRace",
+                format!("a remote session cannot query pending external-open requests: {name}"),
+            ),
+            RemoteDenialPolicy::LocalProjectHistoryExposure => (
+                "error.remote.deniedLocalProjectHistoryExposure",
+                format!("a remote session cannot query the full project history, which is local-welcome-screen-only: {name}"),
+            ),
+            RemoteDenialPolicy::Unclassified => (
+                "error.remote.deniedUnclassified",
+                format!("a remote session cannot run a command that is not yet on the allow list: {name}"),
+            ),
+        };
+        AppError::localized(AppErrorKind::Forbidden, key, fallback).with_arg("command", name)
     }
 }
 
-/// Builds the `AppError::Forbidden` value [`dispatch`]/[`dispatch_raw`] answer a denied remote request
-/// with, for `name` denied under `policy`.
+/// Builds the `AppError::Forbidden`/`AppError::Localized` value [`dispatch`]/[`dispatch_raw`] answer a
+/// denied remote request with, for `name` denied under `policy`.
 fn denial_response(policy: RemoteDenialPolicy, name: &str) -> Value {
-    err(AppError::Forbidden(policy.message(name)))
+    err(policy.denial_error(name))
 }
 
 /// Strips `remote_password_only_login`, `remote_allowed_hosts`, and
@@ -1321,6 +1336,7 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+    use crate::error::AppErrorKind;
 
     fn invoke_command_names() -> BTreeSet<String> {
         let source = include_str!("../../../../src/shared/api/bindings.ts");
@@ -1338,6 +1354,22 @@ mod tests {
             .collect()
     }
 
+    /// `RemoteDenialPolicy::denial_error` now answers with a `Localized` error (d-34 ⓑ), so a denial's
+    /// wire-level `code` is `"Localized"` and the pre-taxonomy `Forbidden` kind moved to
+    /// `message.kind` — this asserts that shape instead of the old flat `code == "Forbidden"`.
+    fn assert_forbidden_denial(value: &Value, name: &str) {
+        assert_eq!(
+            value["code"],
+            serde_json::json!("Localized"),
+            "{name} 의 거부 응답 code 가 Localized 여야 한다"
+        );
+        assert_eq!(
+            value["message"]["kind"],
+            serde_json::json!("Forbidden"),
+            "{name} 의 거부 응답이 Forbidden 이어야 한다"
+        );
+    }
+
     #[test]
     fn bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다() {
         assert_eq!(invoke_command_names(), implemented_command_names());
@@ -1349,13 +1381,36 @@ mod tests {
         assert_eq!(value, serde_json::json!({"code": "NotFound", "message": "prj-1"}));
     }
 
+    /// d-34 T2-J — the `Localized` variant's `message` is an object (not a string), unlike the
+    /// pre-taxonomy five. `err()`'s `serde_json::to_value` handles this with no special-casing, but
+    /// this pins the actual wire shape so a future change to `LocalizedError`'s fields is caught here
+    /// rather than only downstream in the frontend. See
+    /// `docs/acknowledge/2026-08-24-d34-apperror-campaign-contract.md` §3.4.
+    #[test]
+    fn localized_에러는_message가_객체로_직렬화된다() {
+        let error = AppError::localized(AppErrorKind::NotFound, "error.git.noChanges", "src/a.rs: no changes").with_arg("path", "src/a.rs");
+        let value = err(error);
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "code": "Localized",
+                "message": {
+                    "kind": "NotFound",
+                    "key": "error.git.noChanges",
+                    "args": {"path": "src/a.rs"},
+                    "fallback": "src/a.rs: no changes",
+                },
+            })
+        );
+    }
+
     /// T1-K: a command name that is neither denied nor explicitly allowed must be refused — the default
     /// flipped from "silently allowed" to "denied under `Unclassified`" (`does_not_exist` covers both a
     /// genuine typo and a real command someone forgot to file into either table).
     #[test]
     fn 미분류_커맨드는_forbidden으로_기본_거부된다() {
         let value = denial_response(RemoteDenialPolicy::Unclassified, "does_not_exist");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+        assert_forbidden_denial(&value, "does_not_exist");
     }
 
     #[test]
@@ -1416,13 +1471,13 @@ mod tests {
     #[test]
     fn 원격_세션은_링크_발급을_할_수_없다() {
         let value = remote_denied_response("remote_issue_link").expect("거부되어야 한다");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+        assert_forbidden_denial(&value, "remote_issue_link");
     }
 
     #[test]
     fn 원격_세션은_호스트_브라우저를_열_수_없다() {
         let value = remote_denied_response("system_open_external_url").expect("거부되어야 한다");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+        assert_forbidden_denial(&value, "system_open_external_url");
     }
 
     #[test]
@@ -1434,7 +1489,7 @@ mod tests {
             "system_open_app_data_path",
         ] {
             let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
-            assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
+            assert_forbidden_denial(&value, name);
         }
     }
 
@@ -1442,7 +1497,7 @@ mod tests {
     fn 원격_세션은_cli_shell_명령_설치_제거를_할_수_없다() {
         for name in ["agent_cli_install", "agent_cli_uninstall"] {
             let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
-            assert_eq!(value["code"], serde_json::json!("Forbidden"), "{name} 은 거부되어야 한다");
+            assert_forbidden_denial(&value, name);
         }
     }
 
@@ -1468,13 +1523,13 @@ mod tests {
     #[test]
     fn 원격_세션은_보류중인_외부_열기_요청을_조회할_수_없다() {
         let value = remote_denied_response("agent_pending_external_opens").expect("거부되어야 한다");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+        assert_forbidden_denial(&value, "agent_pending_external_opens");
     }
 
     #[test]
     fn 원격_세션은_lsp_서버를_설치할_수_없다() {
         let value = remote_denied_response("lsp_install").expect("거부되어야 한다");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+        assert_forbidden_denial(&value, "lsp_install");
     }
 
     /// `agent_hooks_install` for a User-scope agent is a scope-conditional denial (not in
@@ -1483,7 +1538,7 @@ mod tests {
     #[test]
     fn 원격_세션은_사용자_범위_에이전트_후킹_설치_거부_응답이_forbidden이다() {
         let value = denial_response(RemoteDenialPolicy::DesktopCliInterception, "agent_hooks_install");
-        assert_eq!(value["code"], serde_json::json!("Forbidden"));
+        assert_forbidden_denial(&value, "agent_hooks_install");
     }
 
     /// `dispatch()` never runs its own `match` for these names — [`remote_denied_response`] answers
@@ -1495,11 +1550,7 @@ mod tests {
     fn dispatch_가_참조하는_거부_테이블의_모든_커맨드는_forbidden_을_반환한다() {
         for (name, _) in REMOTE_DENIED_COMMANDS {
             let denial = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부 응답을 반환해야 한다"));
-            assert_eq!(
-                denial["code"],
-                serde_json::json!("Forbidden"),
-                "{name} 의 거부 응답 코드가 Forbidden 이어야 한다"
-            );
+            assert_forbidden_denial(&denial, name);
         }
     }
 

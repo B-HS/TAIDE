@@ -19,6 +19,7 @@ import {
     SEARCH_EDITOR_MAX_CONTEXT_LINES,
     SEARCH_EDITOR_MIN_CONTEXT_LINES,
 } from '@widgets/search-editor/search-editor-context-lines'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
@@ -75,7 +76,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
         requestReveal(path, line, column)
         openTab(
             { projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: currentWindowFocusedPane(layout), preview: true },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 

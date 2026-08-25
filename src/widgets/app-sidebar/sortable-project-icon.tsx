@@ -5,6 +5,7 @@ import { Folder } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, ProjectRef } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ProjectIconButton } from '@features/project/project-icon-button'
@@ -73,7 +74,7 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
             <ContextMenuContent>
                 <ContextMenuItem onSelect={() => closeProject(project.id)}>{t('project.close')}</ContextMenuItem>
                 <ContextMenuSeparator />
-                <ContextMenuItem onSelect={() => void systemOpenPath(project.root).catch((error: Error) => toast.error(error.message))}>
+                <ContextMenuItem onSelect={() => void systemOpenPath(project.root).catch((error: Error) => toast.error(describeIpcError(error)))}>
                     {t('project.openInFileManager')}
                 </ContextMenuItem>
                 <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(project.root)}>{t('project.copyPath')}</ContextMenuItem>

@@ -6,6 +6,7 @@ import { FolderOpen, Import, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import type { VsixThemeExtractionResult } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { Button } from '@shared/ui/button'
 import { pluginListQueryOptions, useReloadPlugins } from '@entities/plugin/plugin.query'
 import { useExtractVsixThemes } from '@entities/vsix/vsix.query'
@@ -32,8 +33,8 @@ export const PluginManager = () => {
     const { mutate: reloadPlugins, isPending: isReloading } = useReloadPlugins()
     const { mutateAsync: extractVsixThemes, isPending: isImportingVsix } = useExtractVsixThemes()
 
-    const handleOpenFolder = () => void systemOpenAppDataPath('plugins').catch((error: Error) => toast.error(error.message))
-    const handleReload = () => reloadPlugins(undefined, { onError: (error: Error) => toast.error(error.message) })
+    const handleOpenFolder = () => void systemOpenAppDataPath('plugins').catch((error: Error) => toast.error(describeIpcError(error)))
+    const handleReload = () => reloadPlugins(undefined, { onError: (error: Error) => toast.error(describeIpcError(error)) })
 
     const handleImportVsixClick = async () => {
         const selected = await open({ multiple: false, filters: VSIX_IMPORT_DIALOG_FILTER, title: t('settings.pluginImportVsixDialogTitle') })
@@ -42,7 +43,7 @@ export const PluginManager = () => {
             const result = await extractVsixThemes(selected)
             setVsixImportState({ vsixPath: selected, result })
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : t('settings.pluginImportVsixFailed'))
+            toast.error(describeIpcError(error))
         }
     }
 

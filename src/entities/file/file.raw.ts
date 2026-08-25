@@ -1,15 +1,19 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppError } from '@shared/api/bindings'
-
-const isAppError = (value: unknown): value is AppError => typeof value === 'object' && value !== null && 'code' in value && 'message' in value
+import type { AppError, AppErrorKind } from '@shared/api/bindings'
+import { isAppError, normalizeAppError } from '@shared/api/unwrap-result'
 
 export class RawFileReadError extends Error {
-    readonly code: AppError['code']
+    readonly code: AppErrorKind
+    readonly localeKey: string | undefined
+    readonly localeArgs: Record<string, string> | undefined
 
     constructor(error: AppError) {
-        super(error.message)
+        const normalized = normalizeAppError(error)
+        super(normalized.message)
         this.name = 'RawFileReadError'
-        this.code = error.code
+        this.code = normalized.code
+        this.localeKey = normalized.localeKey
+        this.localeArgs = normalized.localeArgs
     }
 }
 

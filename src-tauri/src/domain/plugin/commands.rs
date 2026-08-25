@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use tauri::State;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::state::AppState;
 
 use super::service::{self, PluginStore};
@@ -53,10 +53,13 @@ pub async fn plugin_install(state: State<'_, AppState>, store: State<'_, PluginS
 
     let loaded = service::load_plugins(&state.paths.plugins_dir());
     *store.0.write() = Some(loaded.clone());
-    loaded
-        .into_iter()
-        .find(|plugin| plugin.manifest.id == plugin_id)
-        .ok_or_else(|| AppError::Internal("설치한 플러그인을 다시 불러오지 못했습니다".to_string()))
+    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.plugin.reloadAfterInstallFailed",
+            "failed to reload the installed plugin",
+        )
+    })
 }
 
 /// No built-in-plugin protection — every entry in `plugins_dir` is a user-installed directory

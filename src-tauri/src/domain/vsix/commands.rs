@@ -7,7 +7,7 @@ use super::types::VsixThemeExtractionResult;
 use crate::domain::plugin::service as plugin_service;
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::plugin::types::LoadedPlugin;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -39,8 +39,11 @@ pub async fn vsix_import_plugin(state: State<'_, AppState>, store: State<'_, Plu
 
     let loaded = plugin_service::load_plugins(&state.paths.plugins_dir());
     *store.0.write() = Some(loaded.clone());
-    loaded
-        .into_iter()
-        .find(|plugin| plugin.manifest.id == plugin_id)
-        .ok_or_else(|| AppError::Internal("가져온 플러그인을 다시 불러오지 못했습니다".to_string()))
+    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.vsix.reloadAfterImportFailed",
+            "failed to reload the imported plugin",
+        )
+    })
 }

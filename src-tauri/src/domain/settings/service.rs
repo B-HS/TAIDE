@@ -6,7 +6,7 @@ use crate::domain::settings::types::{
     EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings, SettingsPatch, TerminalCursorStyle,
 };
 use crate::domain::theme::service as theme_service;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
@@ -123,9 +123,22 @@ fn read_settings_file(path: &std::path::Path) -> AppResult<Option<Settings>> {
 /// reject, not the load-time "fall back to defaults and back up the corrupt file" behavior
 /// [`load_settings`] uses for a `settings.json` the app itself can no longer make sense of.
 pub fn parse_settings_json(content: &str) -> AppResult<Settings> {
-    let raw: serde_json::Value = serde_json::from_str(content)
-        .map_err(|error| AppError::InvalidArgument(format!("settings.json이 유효한 JSON이 아닙니다: {error}")))?;
-    settings_from_value(raw).map_err(|error| AppError::InvalidArgument(format!("settings.json 스키마가 올바르지 않습니다: {error}")))
+    let raw: serde_json::Value = serde_json::from_str(content).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.settings.jsonInvalid",
+            format!("settings.json is not valid JSON: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
+    settings_from_value(raw).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.settings.schemaInvalid",
+            format!("settings.json does not match the expected schema: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 pub fn load_settings(paths: &AppPaths) -> Settings {

@@ -2,10 +2,12 @@ use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::AiProviderClient;
+use crate::domain::ai::providers::{provider_http_error, provider_transport_error, AiProviderClient};
 use crate::domain::ai::types::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars};
 use crate::error::{AppError, AppResult};
 use crate::infra::redact::mask_provider_error;
+
+const CODEX_PROVIDER_NAME: &str = "codex";
 
 const CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
 const CODEX_CLIENT_VERSION: &str = "0.144.1";
@@ -210,21 +212,18 @@ impl AiProviderClient for CodexProvider {
             .apply_auth_headers(client.get(url))
             .send()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(CODEX_PROVIDER_NAME, &error))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "codex models request failed ({status}): {}",
-                mask_provider_error(&body)
-            )));
+            return Err(provider_http_error(CODEX_PROVIDER_NAME, status, &body));
         }
 
         let parsed: CodexModelsResponse = res
             .json()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(CODEX_PROVIDER_NAME, &error))?;
         if parsed.models.is_empty() {
             return Ok(codex_fallback_models());
         }
@@ -283,15 +282,12 @@ impl CodexProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(CODEX_PROVIDER_NAME, &error))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "codex completion request failed ({status}): {}",
-                mask_provider_error(&body)
-            )));
+            return Err(provider_http_error(CODEX_PROVIDER_NAME, status, &body));
         }
 
         read_codex_completion(res.bytes_stream()).await

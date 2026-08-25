@@ -10,6 +10,7 @@ import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completio
 import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings'
 import { HOT_EXIT_MIRROR_DEBOUNCE_MS } from '@shared/constants/mirror'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { clearUntitledMirror, mirrorUntitled } from '@entities/file/file.ipc'
 import { untitledMirrorsQueryOptions, useSaveFile } from '@entities/file/file.query'
@@ -124,8 +125,11 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
             { path: selected, content: draftRef.current },
             {
                 onSuccess: () =>
-                    convertUntitled({ tabId, path: selected }, { onSuccess: handleConvertSuccess, onError: (error) => toast.error(error.message) }),
-                onError: (error) => toast.error(error.message),
+                    convertUntitled(
+                        { tabId, path: selected },
+                        { onSuccess: handleConvertSuccess, onError: (error) => toast.error(describeIpcError(error)) },
+                    ),
+                onError: (error) => toast.error(describeIpcError(error)),
             },
         )
     }

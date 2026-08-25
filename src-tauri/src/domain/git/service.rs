@@ -7,7 +7,7 @@ use git2::Repository;
 use serde::Serialize;
 use specta::Type;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::language::{self, LanguageOverlay};
 
 use super::types::{
@@ -55,10 +55,21 @@ pub fn init(root: &Path) -> AppResult<()> {
 }
 
 pub fn discover(root: &Path) -> AppResult<PathBuf> {
-    let repo = Repository::discover(root).map_err(|error| AppError::NotFound(format!(".git 저장소를 찾을 수 없습니다: {error}")))?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| AppError::InvalidArgument("bare 저장소는 지원하지 않습니다".to_string()))?;
+    let repo = Repository::discover(root).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::NotFound,
+            "error.git.repositoryNotFound",
+            format!("could not find a .git repository: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
+    let workdir = repo.workdir().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.bareUnsupported",
+            "bare repositories are not supported",
+        )
+    })?;
     Ok(workdir.to_path_buf())
 }
 
@@ -127,15 +138,27 @@ fn trash_untracked_files(workdir: &Path, relatives: &[String]) -> AppResult<()> 
     let absolute_paths: Vec<PathBuf> = relatives.iter().map(|relative| workdir.join(relative)).collect();
     let mut context = TrashContext::default();
     context.set_delete_method(DeleteMethod::NsFileManager);
-    context
-        .delete_all(&absolute_paths)
-        .map_err(|error| AppError::Internal(format!("휴지통으로 이동하지 못했습니다: {error}")))
+    context.delete_all(&absolute_paths).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.file.trashFailed",
+            format!("failed to move to trash: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
 fn trash_untracked_files(workdir: &Path, relatives: &[String]) -> AppResult<()> {
     let absolute_paths: Vec<PathBuf> = relatives.iter().map(|relative| workdir.join(relative)).collect();
-    trash::delete_all(&absolute_paths).map_err(|error| AppError::Internal(format!("휴지통으로 이동하지 못했습니다: {error}")))
+    trash::delete_all(&absolute_paths).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.file.trashFailed",
+            format!("failed to move to trash: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 pub fn discard(repo_path: &Path, paths: &[String]) -> AppResult<()> {
@@ -517,9 +540,9 @@ pub fn discard_hunk(repo_path: &Path, path: &str, hunk_start: u32, hunk_end: u32
         .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))
         .map_err(map_git_err)?;
 
-    let patch = git2::Patch::from_diff(&diff, 0)
-        .map_err(map_git_err)?
-        .ok_or_else(|| AppError::NotFound(format!("{relative}: 변경 사항이 없습니다")))?;
+    let patch = git2::Patch::from_diff(&diff, 0).map_err(map_git_err)?.ok_or_else(|| {
+        AppError::localized(AppErrorKind::NotFound, "error.git.noChanges", format!("{relative}: no changes")).with_arg("path", &relative)
+    })?;
 
     let mut target: Option<(u32, u32, u32, u32)> = None;
     for hunk_index in 0..patch.num_hunks() {
@@ -531,8 +554,16 @@ pub fn discard_hunk(repo_path: &Path, path: &str, hunk_start: u32, hunk_end: u32
         }
     }
 
-    let (old_start, old_lines, new_start, new_lines) =
-        target.ok_or_else(|| AppError::InvalidArgument(format!("{relative}: 지정한 hunk({hunk_start}-{hunk_end})를 찾을 수 없습니다")))?;
+    let (old_start, old_lines, new_start, new_lines) = target.ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.hunkNotFound",
+            format!("{relative}: could not find hunk ({hunk_start}-{hunk_end})"),
+        )
+        .with_arg("path", &relative)
+        .with_arg("hunkStart", hunk_start)
+        .with_arg("hunkEnd", hunk_end)
+    })?;
 
     let old_content = read_head_blob(&repo, &relative).unwrap_or_default();
     let new_content = std::fs::read_to_string(workdir.join(&relative))?;
@@ -554,7 +585,12 @@ pub fn discard_hunk(repo_path: &Path, path: &str, hunk_start: u32, hunk_end: u32
     let old_range_end = old_range_start + old_lines as usize;
 
     if new_range_end > new_lines_vec.len() || old_range_end > old_lines_vec.len() {
-        return Err(AppError::Internal(format!("{relative}: hunk 범위가 파일 길이를 벗어났습니다")));
+        return Err(AppError::localized(
+            AppErrorKind::Internal,
+            "error.git.hunkRangeOutOfFile",
+            format!("{relative}: hunk range is out of the file's bounds"),
+        )
+        .with_arg("path", &relative));
     }
 
     let mut rebuilt = String::new();
@@ -576,9 +612,15 @@ pub fn conflict_sides(repo_path: &Path, path: &str) -> AppResult<ConflictSides> 
     let relative = to_repo_relative(&workdir, path)?;
 
     let index = repo.index().map_err(map_git_err)?;
-    let conflict = index
-        .conflict_get(Path::new(&relative))
-        .map_err(|error| AppError::NotFound(format!("{relative}: 충돌 정보를 찾을 수 없습니다: {error}")))?;
+    let conflict = index.conflict_get(Path::new(&relative)).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::NotFound,
+            "error.git.conflictInfoNotFound",
+            format!("{relative}: could not find conflict info: {error}"),
+        )
+        .with_arg("path", &relative)
+        .with_arg("detail", &error)
+    })?;
 
     let workdir_content = std::fs::read_to_string(workdir.join(&relative)).unwrap_or_default();
 
@@ -696,9 +738,9 @@ fn apply_patch_text(repo: &Repository, patch_text: &[u8]) -> AppResult<()> {
 /// see [`build_partial_patch`] for the shared matching/anchoring machinery
 /// this reuses by simply selecting every line in the hunk.
 fn build_whole_hunk_patch(diff: &git2::Diff, relative: &str, hunk_start: u32, hunk_end: u32, match_old_side: bool) -> AppResult<Vec<u8>> {
-    let patch = git2::Patch::from_diff(diff, 0)
-        .map_err(map_git_err)?
-        .ok_or_else(|| AppError::NotFound(format!("{relative}: 변경 사항이 없습니다")))?;
+    let patch = git2::Patch::from_diff(diff, 0).map_err(map_git_err)?.ok_or_else(|| {
+        AppError::localized(AppErrorKind::NotFound, "error.git.noChanges", format!("{relative}: no changes")).with_arg("path", relative)
+    })?;
     let sides = patch_file_sides(&patch);
 
     for hunk_index in 0..patch.num_hunks() {
@@ -717,15 +759,21 @@ fn build_whole_hunk_patch(diff: &git2::Diff, relative: &str, hunk_start: u32, hu
             new_start: hunk.new_start(),
             match_old_side,
         };
-        let selected = select_hunk_lines(&patch, hunk_index, line_count, anchor, 0..=u32::MAX)?
-            .ok_or_else(|| AppError::NotFound(format!("{relative}: 변경 사항이 없습니다")))?;
+        let selected = select_hunk_lines(&patch, hunk_index, line_count, anchor, 0..=u32::MAX)?.ok_or_else(|| {
+            AppError::localized(AppErrorKind::NotFound, "error.git.noChanges", format!("{relative}: no changes")).with_arg("path", relative)
+        })?;
 
         return Ok(build_patch_text(relative, &selected, sides));
     }
 
-    Err(AppError::InvalidArgument(format!(
-        "{relative}: 지정한 hunk({hunk_start}-{hunk_end})를 찾을 수 없습니다"
-    )))
+    Err(AppError::localized(
+        AppErrorKind::InvalidArgument,
+        "error.git.hunkNotFound",
+        format!("{relative}: could not find hunk ({hunk_start}-{hunk_end})"),
+    )
+    .with_arg("path", relative)
+    .with_arg("hunkStart", hunk_start)
+    .with_arg("hunkEnd", hunk_end))
 }
 
 /// Builds a minimal single-hunk unified-diff patch for `relative`, keeping
@@ -739,9 +787,9 @@ fn build_whole_hunk_patch(diff: &git2::Diff, relative: &str, hunk_start: u32, hu
 /// transform — so the reconstructed patch only touches the lines the caller
 /// asked for.
 fn build_partial_patch(diff: &git2::Diff, relative: &str, line_range: RangeInclusive<u32>, match_old_side: bool) -> AppResult<Vec<u8>> {
-    let patch = git2::Patch::from_diff(diff, 0)
-        .map_err(map_git_err)?
-        .ok_or_else(|| AppError::NotFound(format!("{relative}: 변경 사항이 없습니다")))?;
+    let patch = git2::Patch::from_diff(diff, 0).map_err(map_git_err)?.ok_or_else(|| {
+        AppError::localized(AppErrorKind::NotFound, "error.git.noChanges", format!("{relative}: no changes")).with_arg("path", relative)
+    })?;
     let sides = patch_file_sides(&patch);
 
     for hunk_index in 0..patch.num_hunks() {
@@ -756,11 +804,18 @@ fn build_partial_patch(diff: &git2::Diff, relative: &str, line_range: RangeInclu
         }
 
         if hunk_overlaps_another(&patch, hunk_index, match_old_side, &line_range)? {
-            return Err(AppError::InvalidArgument(format!(
-                "{relative}: 지정한 범위({}-{})가 여러 hunk에 걸쳐 있습니다",
-                line_range.start(),
-                line_range.end()
-            )));
+            return Err(AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.git.rangeSpansMultipleHunks",
+                format!(
+                    "{relative}: the requested range ({}-{}) spans multiple hunks",
+                    line_range.start(),
+                    line_range.end()
+                ),
+            )
+            .with_arg("path", relative)
+            .with_arg("start", line_range.start())
+            .with_arg("end", line_range.end()));
         }
 
         let anchor = HunkAnchor {
@@ -769,21 +824,35 @@ fn build_partial_patch(diff: &git2::Diff, relative: &str, line_range: RangeInclu
             match_old_side,
         };
         let selected = select_hunk_lines(&patch, hunk_index, line_count, anchor, line_range.clone())?.ok_or_else(|| {
-            AppError::InvalidArgument(format!(
-                "{relative}: 지정한 범위({}-{})에 변경된 라인이 없습니다",
-                line_range.start(),
-                line_range.end()
-            ))
+            AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.git.rangeHasNoChangedLines",
+                format!(
+                    "{relative}: the requested range ({}-{}) has no changed lines",
+                    line_range.start(),
+                    line_range.end()
+                ),
+            )
+            .with_arg("path", relative)
+            .with_arg("start", line_range.start())
+            .with_arg("end", line_range.end())
         })?;
 
         return Ok(build_patch_text(relative, &selected, sides));
     }
 
-    Err(AppError::InvalidArgument(format!(
-        "{relative}: 지정한 범위({}-{})를 포함하는 hunk를 찾을 수 없습니다",
-        line_range.start(),
-        line_range.end()
-    )))
+    Err(AppError::localized(
+        AppErrorKind::InvalidArgument,
+        "error.git.rangeHunkNotFound",
+        format!(
+            "{relative}: could not find a hunk containing the requested range ({}-{})",
+            line_range.start(),
+            line_range.end()
+        ),
+    )
+    .with_arg("path", relative)
+    .with_arg("start", line_range.start())
+    .with_arg("end", line_range.end()))
 }
 
 /// Whether any hunk *after* `current_index` also overlaps `line_range` — hunks come out of
@@ -890,8 +959,10 @@ fn select_hunk_lines(
                 old_cursor += 1;
             }
             _ => {
-                return Err(AppError::InvalidArgument(
-                    "파일 끝에 개행이 없는 hunk는 라인 단위 스테이지를 지원하지 않습니다".to_string(),
+                return Err(AppError::localized(
+                    AppErrorKind::InvalidArgument,
+                    "error.git.noNewlineAtEofLineStageUnsupported",
+                    "line-level staging is not supported for a hunk with no trailing newline",
                 ));
             }
         }
@@ -1262,9 +1333,15 @@ pub fn tag_delete(repo_path: &Path, name: &str) -> AppResult<()> {
 /// of that name is checked out as-is rather than treated as an error.
 pub fn checkout_remote_branch(repo_path: &Path, remote_ref: &str) -> AppResult<()> {
     let repo = open_repo(repo_path)?;
-    let remote_branch = repo
-        .find_branch(remote_ref, git2::BranchType::Remote)
-        .map_err(|error| AppError::NotFound(format!("{remote_ref}: 원격 브랜치를 찾을 수 없습니다: {error}")))?;
+    let remote_branch = repo.find_branch(remote_ref, git2::BranchType::Remote).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::NotFound,
+            "error.git.remoteBranchNotFound",
+            format!("{remote_ref}: could not find remote branch: {error}"),
+        )
+        .with_arg("remoteRef", remote_ref)
+        .with_arg("detail", &error)
+    })?;
 
     let local_name = local_branch_name_for(&repo, remote_ref)?;
 
@@ -1286,10 +1363,14 @@ fn local_branch_name_for(repo: &Repository, remote_ref: &str) -> AppResult<Strin
         }
     }
 
-    remote_ref
-        .split_once('/')
-        .map(|(_, rest)| rest.to_string())
-        .ok_or_else(|| AppError::InvalidArgument(format!("{remote_ref}: 원격 브랜치 이름 형식이 아닙니다")))
+    remote_ref.split_once('/').map(|(_, rest)| rest.to_string()).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.remoteRefMalformed",
+            format!("{remote_ref}: not a valid remote branch reference"),
+        )
+        .with_arg("remoteRef", remote_ref)
+    })
 }
 
 pub fn blame_range(repo_path: &Path, path: &str, from: u32, to: u32) -> AppResult<Vec<BlameLine>> {
@@ -1413,7 +1494,11 @@ pub fn branch_delete(repo_path: &Path, name: &str, force: bool) -> AppResult<()>
     let mut branch = repo.find_branch(name, git2::BranchType::Local).map_err(map_git_err)?;
 
     if branch.is_head() {
-        return Err(AppError::InvalidArgument("현재 체크아웃된 브랜치는 삭제할 수 없습니다".to_string()));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.cannotDeleteCheckedOutBranch",
+            "cannot delete the currently checked-out branch",
+        ));
     }
 
     if !force {
@@ -1421,16 +1506,22 @@ pub fn branch_delete(repo_path: &Path, name: &str, force: bool) -> AppResult<()>
             .head()
             .map_err(map_git_err)?
             .target()
-            .ok_or_else(|| AppError::Internal("HEAD 를 확인할 수 없습니다".to_string()))?;
-        let branch_oid = branch
-            .get()
-            .target()
-            .ok_or_else(|| AppError::Internal("브랜치 대상을 확인할 수 없습니다".to_string()))?;
+            .ok_or_else(|| AppError::localized(AppErrorKind::Internal, "error.git.headUnresolvable", "could not resolve HEAD"))?;
+        let branch_oid = branch.get().target().ok_or_else(|| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.git.branchTargetUnresolvable",
+                "could not resolve branch target",
+            )
+        })?;
         let is_merged = head_oid == branch_oid || repo.graph_descendant_of(head_oid, branch_oid).unwrap_or(false);
         if !is_merged {
-            return Err(AppError::InvalidArgument(format!(
-                "'{name}' 브랜치는 병합되지 않았습니다. 강제 삭제하려면 force 를 사용하세요"
-            )));
+            return Err(AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.git.branchNotMerged",
+                format!("branch '{name}' is not merged; use force to delete it anyway"),
+            )
+            .with_arg("name", name));
         }
     }
 
@@ -1475,7 +1566,12 @@ pub fn stash_apply(repo_path: &Path, index: u32) -> AppResult<()> {
 
     repo.stash_apply(index as usize, Some(&mut apply_opts)).map_err(|error| {
         if error.code() == git2::ErrorCode::Conflict {
-            AppError::InvalidArgument(format!("스태시를 적용하는 중 충돌이 발생했습니다: {error}"))
+            AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.git.stashApplyConflict",
+                format!("applying the stash conflicted: {error}"),
+            )
+            .with_arg("detail", &error)
         } else {
             map_git_err(error)
         }
@@ -1494,7 +1590,12 @@ fn checkout_ref(repo: &Repository, refname: &str) -> AppResult<()> {
     checkout.safe();
     repo.checkout_tree(&object, Some(&mut checkout)).map_err(|error| {
         if error.code() == git2::ErrorCode::Conflict {
-            AppError::InvalidArgument(format!("커밋되지 않은 변경 사항과 충돌하여 체크아웃할 수 없습니다: {error}"))
+            AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.git.checkoutConflict",
+                format!("cannot check out: conflicts with uncommitted changes: {error}"),
+            )
+            .with_arg("detail", &error)
         } else {
             map_git_err(error)
         }
@@ -1510,13 +1611,24 @@ fn checkout_ref(repo: &Repository, refname: &str) -> AppResult<()> {
 }
 
 fn open_repo(repo_path: &Path) -> AppResult<Repository> {
-    Repository::open(repo_path).map_err(|error| AppError::NotFound(format!("git 저장소를 열 수 없습니다: {error}")))
+    Repository::open(repo_path).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::NotFound,
+            "error.git.repositoryOpenFailed",
+            format!("could not open git repository: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 fn repo_workdir(repo: &Repository) -> AppResult<PathBuf> {
-    repo.workdir()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| AppError::InvalidArgument("bare 저장소는 지원하지 않습니다".to_string()))
+    repo.workdir().map(Path::to_path_buf).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.bareUnsupported",
+            "bare repositories are not supported",
+        )
+    })
 }
 
 fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
@@ -1527,7 +1639,14 @@ fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
     } else {
         candidate
             .strip_prefix(repo_root)
-            .map_err(|_| AppError::InvalidArgument(format!("경로가 저장소 밖에 있습니다: {raw}")))?
+            .map_err(|_| {
+                AppError::localized(
+                    AppErrorKind::InvalidArgument,
+                    "error.git.pathOutsideRepository",
+                    format!("path is outside the repository: {raw}"),
+                )
+                .with_arg("path", raw)
+            })?
             .to_path_buf()
     };
 
@@ -1535,7 +1654,12 @@ fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
         .components()
         .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
     {
-        return Err(AppError::InvalidArgument(format!("경로가 저장소 밖에 있습니다: {raw}")));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.pathOutsideRepository",
+            format!("path is outside the repository: {raw}"),
+        )
+        .with_arg("path", raw));
     }
 
     Ok(relative.to_string_lossy().to_string())
@@ -1707,8 +1831,10 @@ fn ensure_clean_index(repo: &Repository) -> AppResult<()> {
     let head_tree = head_tree_of(repo);
     let diff = repo.diff_tree_to_index(head_tree.as_ref(), None, None).map_err(map_git_err)?;
     if diff.deltas().len() > 0 {
-        return Err(AppError::InvalidArgument(
-            "인덱스에 스테이지된 변경 사항이 있어 실행할 수 없습니다. 먼저 커밋하거나 스테이지를 해제하세요.".to_string(),
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.indexNotClean",
+            "cannot run: the index has staged changes. Commit or unstage them first.",
         ));
     }
     Ok(())
@@ -1728,8 +1854,41 @@ fn read_head_blob(repo: &Repository, relative: &str) -> Option<String> {
     Some(String::from_utf8_lossy(blob.content()).into_owned())
 }
 
+/// Classifies a `git2::Error` into a locale key without ever producing `NotFound`/`InvalidArgument`
+/// — those two kinds are the only ones TS consumers branch on (`commit-file-diff.tsx`,
+/// `workspace-edit-applier.ts`), and a git2 `ErrorCode::NotFound` (e.g. a bad `revparse_single`
+/// rev) promoted to that kind would make those screens silently swallow the error instead of
+/// showing it. See `docs/acknowledge/2026-08-24-d34-apperror-campaign-contract.md` §3.1 축1.
 fn map_git_err(error: git2::Error) -> AppError {
-    AppError::Internal(error.to_string())
+    let detail = error.message().to_string();
+    let (kind, key, fallback) = match error.code() {
+        git2::ErrorCode::NotFound => (AppErrorKind::Internal, "error.git.objectNotFound", "git object not found"),
+        git2::ErrorCode::Exists => (AppErrorKind::Internal, "error.git.alreadyExists", "git object already exists"),
+        git2::ErrorCode::Conflict | git2::ErrorCode::MergeConflict => {
+            (AppErrorKind::Internal, "error.git.conflict", "git operation conflicted")
+        }
+        git2::ErrorCode::Auth | git2::ErrorCode::Certificate => {
+            (AppErrorKind::Forbidden, "error.git.authFailed", "git authentication failed")
+        }
+        git2::ErrorCode::Locked => (AppErrorKind::Internal, "error.git.locked", "git reference is locked"),
+        git2::ErrorCode::UnbornBranch => (
+            AppErrorKind::Internal,
+            "error.git.unbornBranch",
+            "the current branch has no commits yet",
+        ),
+        git2::ErrorCode::Uncommitted => (
+            AppErrorKind::Internal,
+            "error.git.uncommittedChanges",
+            "uncommitted changes are blocking this operation",
+        ),
+        _ => match error.class() {
+            git2::ErrorClass::Net | git2::ErrorClass::Http | git2::ErrorClass::Ssh => {
+                (AppErrorKind::Internal, "error.git.network", "git network operation failed")
+            }
+            _ => (AppErrorKind::Internal, "error.git.operationFailed", "git operation failed"),
+        },
+    };
+    AppError::localized(kind, key, format!("{fallback}: {detail}")).with_arg("detail", &detail)
 }
 
 fn run_git(repo_path: &Path, args: &[&str]) -> AppResult<String> {
@@ -1737,12 +1896,25 @@ fn run_git(repo_path: &Path, args: &[&str]) -> AppResult<String> {
         .current_dir(repo_path)
         .args(args)
         .output()
-        .map_err(|error| AppError::Internal(format!("git 실행에 실패했습니다: {error}")))?;
+        .map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.git.spawnFailed",
+                format!("failed to run git: {error}"),
+            )
+            .with_arg("detail", &error)
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let command = args.join(" ");
-        return Err(AppError::Internal(format!("git {command} 실패: {stderr}")));
+        return Err(AppError::localized(
+            AppErrorKind::Internal,
+            "error.git.commandFailed",
+            format!("git {command} failed: {stderr}"),
+        )
+        .with_arg("command", &command)
+        .with_arg("detail", &stderr));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())

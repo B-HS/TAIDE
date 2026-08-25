@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { open } from '@tauri-apps/plugin-dialog'
 import { Import } from 'lucide-react'
 import { toast } from 'sonner'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { Button } from '@shared/ui/button'
 import { useInstallPlugin } from '@entities/plugin/plugin.query'
 
@@ -32,7 +33,7 @@ export const PluginInstallButton = () => {
 
         installPlugin(selected, {
             onSuccess: () => toast.success(t('settings.pluginInstallSuccess')),
-            onError: (error) => toast.error(error.message || t('settings.pluginInstallFailed')),
+            onError: (error) => toast.error(describeIpcError(error) || t('settings.pluginInstallFailed')),
         })
     }
 

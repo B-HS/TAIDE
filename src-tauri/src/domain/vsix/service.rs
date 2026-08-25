@@ -14,7 +14,7 @@ use super::types::{
 use crate::domain::plugin::types::{
     PluginContributions, PluginLanguageContribution, PluginManifest, PLUGIN_MANIFEST_FILE, PLUGIN_MANIFEST_VERSION,
 };
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::archive::ARCHIVE_MAX_TOTAL_BYTES;
 use crate::infra::persist;
 use crate::infra::root_guard;
@@ -89,7 +89,11 @@ impl ExtractionBudget {
 
     fn consume(&mut self, bytes: u64) -> AppResult<()> {
         if bytes > self.remaining {
-            return Err(AppError::InvalidArgument("vsix 테마 추출 용량 상한을 초과했습니다".to_string()));
+            return Err(AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.vsix.themeExtractLimitExceeded",
+                "the vsix theme extraction size limit was exceeded",
+            ));
         }
         self.remaining -= bytes;
         Ok(())
@@ -97,14 +101,33 @@ impl ExtractionBudget {
 }
 
 pub fn extract_themes(vsix_path: &Path) -> AppResult<VsixThemeExtractionResult> {
-    let file = File::open(vsix_path).map_err(|error| AppError::InvalidArgument(format!("vsix 파일을 열 수 없습니다: {error}")))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|error| AppError::InvalidArgument(format!("vsix 압축을 해제할 수 없습니다: {error}")))?;
+    let file = File::open(vsix_path).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.openFailed",
+            format!("could not open vsix file: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.unzipFailed",
+            format!("could not unzip vsix file: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
     let mut budget = ExtractionBudget::new(VSIX_TOTAL_MAX_EXTRACTED_BYTES);
     let manifest_text = read_zip_entry_string(&mut archive, VSIX_MANIFEST_ENTRY, &mut budget)?;
-    let manifest: PackageJsonManifest = serde_json::from_str(&manifest_text)
-        .map_err(|error| AppError::InvalidArgument(format!("extension/package.json 파싱 실패: {error}")))?;
+    let manifest: PackageJsonManifest = serde_json::from_str(&manifest_text).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.packageJsonParseFailed",
+            format!("failed to parse extension/package.json: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
     let nls_table = read_nls_table(&mut archive, &mut budget);
 
     let extension = extension_info_from_manifest(&manifest, &nls_table);
@@ -343,7 +366,12 @@ fn normalize_zip_path(base_dir: &str, relative: &str) -> AppResult<String> {
             "" | "." => continue,
             ".." => {
                 if segments.pop().is_none() {
-                    return Err(AppError::InvalidArgument(format!("vsix 경로가 확장 루트를 벗어납니다: {relative}")));
+                    return Err(AppError::localized(
+                        AppErrorKind::InvalidArgument,
+                        "error.vsix.entryPathEscape",
+                        format!("vsix path escapes the extension root: {relative}"),
+                    )
+                    .with_arg("path", relative));
                 }
             }
             other => segments.push(other.to_string()),
@@ -351,29 +379,57 @@ fn normalize_zip_path(base_dir: &str, relative: &str) -> AppResult<String> {
     }
 
     if segments.first().map(String::as_str) != Some(VSIX_EXTENSION_ROOT) {
-        return Err(AppError::InvalidArgument(format!("vsix 경로가 확장 루트를 벗어납니다: {relative}")));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.entryPathEscape",
+            format!("vsix path escapes the extension root: {relative}"),
+        )
+        .with_arg("path", relative));
     }
 
     Ok(segments.join("/"))
 }
 
 fn read_zip_entry_string(archive: &mut zip::ZipArchive<File>, name: &str, budget: &mut ExtractionBudget) -> AppResult<String> {
-    let entry = archive
-        .by_name(name)
-        .map_err(|error| AppError::NotFound(format!("vsix 항목을 찾을 수 없습니다 ({name}): {error}")))?;
+    let entry = archive.by_name(name).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::NotFound,
+            "error.vsix.entryNotFound",
+            format!("could not find vsix entry ({name}): {error}"),
+        )
+        .with_arg("name", name)
+        .with_arg("detail", &error)
+    })?;
 
     let mut bytes = Vec::new();
-    entry
-        .take(VSIX_ENTRY_MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| AppError::Internal(format!("vsix 항목 읽기 실패 ({name}): {error}")))?;
+    entry.take(VSIX_ENTRY_MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.vsix.entryReadFailed",
+            format!("failed to read vsix entry ({name}): {error}"),
+        )
+        .with_arg("name", name)
+        .with_arg("detail", &error)
+    })?;
 
     if bytes.len() as u64 > VSIX_ENTRY_MAX_BYTES {
-        return Err(AppError::InvalidArgument(format!("vsix 항목이 너무 큽니다 ({name})")));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.entryTooLarge",
+            format!("vsix entry is too large ({name})"),
+        )
+        .with_arg("name", name));
     }
     budget.consume(bytes.len() as u64)?;
 
-    String::from_utf8(bytes).map_err(|_| AppError::InvalidArgument(format!("vsix 항목이 UTF-8 이 아닙니다: {name}")))
+    String::from_utf8(bytes).map_err(|_| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.entryNotUtf8",
+            format!("vsix entry is not UTF-8: {name}"),
+        )
+        .with_arg("name", name)
+    })
 }
 
 /// Stages a real VS Code `.vsix`'s `contributes.languages`/`contributes.grammars` as a new TAIDE
@@ -396,30 +452,57 @@ fn read_zip_entry_string(archive: &mut zip::ZipArchive<File>, name: &str, budget
 /// and the caller must hand the staging dir to `commit_staged_install` or it leaks in
 /// `plugins_dir/.tmp`.
 pub fn stage_vsix_import(plugins_dir: &Path, vsix_path: &Path) -> AppResult<(std::path::PathBuf, String)> {
-    let file = File::open(vsix_path).map_err(|error| AppError::InvalidArgument(format!("vsix 파일을 열 수 없습니다: {error}")))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|error| AppError::InvalidArgument(format!("vsix 압축을 해제할 수 없습니다: {error}")))?;
+    let file = File::open(vsix_path).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.openFailed",
+            format!("could not open vsix file: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.unzipFailed",
+            format!("could not unzip vsix file: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
     let mut budget = ExtractionBudget::new(ARCHIVE_MAX_TOTAL_BYTES);
     let manifest_text = read_zip_entry_string(&mut archive, VSIX_MANIFEST_ENTRY, &mut budget)?;
-    let manifest: PackageJsonManifest = serde_json::from_str(&manifest_text)
-        .map_err(|error| AppError::InvalidArgument(format!("extension/package.json 파싱 실패: {error}")))?;
+    let manifest: PackageJsonManifest = serde_json::from_str(&manifest_text).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.packageJsonParseFailed",
+            format!("failed to parse extension/package.json: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
-    let publisher = manifest
-        .publisher
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| AppError::InvalidArgument("vsix package.json에 publisher가 없습니다".to_string()))?;
-    let name = manifest
-        .name
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| AppError::InvalidArgument("vsix package.json에 name이 없습니다".to_string()))?;
+    let publisher = manifest.publisher.filter(|value| !value.trim().is_empty()).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.publisherMissing",
+            "vsix package.json is missing a publisher",
+        )
+    })?;
+    let name = manifest.name.filter(|value| !value.trim().is_empty()).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.nameMissing",
+            "vsix package.json is missing a name",
+        )
+    })?;
     let plugin_id = format!("{publisher}-{name}");
     root_guard::ensure_safe_component(&plugin_id)?;
 
     let contributes = manifest.contributes.unwrap_or_default();
     if contributes.languages.is_empty() && contributes.grammars.is_empty() {
-        return Err(AppError::InvalidArgument(
-            "vsix에 가져올 languages/grammars 기여가 없습니다".to_string(),
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.vsix.noLanguageContributions",
+            "the vsix has no languages/grammars contributions to import",
         ));
     }
 
@@ -497,8 +580,10 @@ pub fn stage_vsix_import(plugins_dir: &Path, vsix_path: &Path) -> AppResult<(std
         }
 
         if plugin_languages.is_empty() {
-            return Err(AppError::InvalidArgument(
-                "가져올 수 있는 언어 기여가 없습니다 (모든 grammar 항목을 읽지 못했습니다)".to_string(),
+            return Err(AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.vsix.noImportableLanguages",
+                "no importable language contributions (every grammar entry failed to read)",
             ));
         }
 
@@ -516,7 +601,12 @@ pub fn stage_vsix_import(plugins_dir: &Path, vsix_path: &Path) -> AppResult<(std
         persist::write_json(&temp_dir.join(PLUGIN_MANIFEST_FILE), &plugin_manifest)?;
 
         if plugins_dir.join(&plugin_id).exists() {
-            return Err(AppError::InvalidArgument(format!("이미 설치된 플러그인입니다: {plugin_id}")));
+            return Err(AppError::localized(
+                AppErrorKind::InvalidArgument,
+                "error.plugin.alreadyInstalled",
+                format!("plugin is already installed: {plugin_id}"),
+            )
+            .with_arg("pluginId", &plugin_id));
         }
 
         Ok(plugin_id)

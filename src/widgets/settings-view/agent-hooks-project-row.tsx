@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -33,7 +34,7 @@ export const AgentHooksProjectRow: FC<AgentHooksProjectRowProps> = ({ projectId,
     const { t } = useTranslation()
 
     const handleConfirmInstall = () => {
-        installHooks({ projectId, agentName }, { onError: (error) => toast.error(error.message) })
+        installHooks({ projectId, agentName }, { onError: (error) => toast.error(describeIpcError(error)) })
         setIsConsentOpen(false)
     }
 
@@ -51,7 +52,7 @@ export const AgentHooksProjectRow: FC<AgentHooksProjectRowProps> = ({ projectId,
                         variant='outline'
                         size='xs'
                         disabled={isUninstalling}
-                        onClick={() => uninstallHooks({ projectId, agentName }, { onError: (error) => toast.error(error.message) })}>
+                        onClick={() => uninstallHooks({ projectId, agentName }, { onError: (error) => toast.error(describeIpcError(error)) })}>
                         {t('agent.hooksUninstall')}
                     </Button>
                 </div>

@@ -28,6 +28,7 @@ import {
 } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { Button } from '@shared/ui/button'
 import { buildRecentCommitsSummaryForAi, sanitizeAiCommitMessageResponse } from '@widgets/git-panel/ai-commit-message'
@@ -77,32 +78,35 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const handleStashPush = () =>
         pushStash(
             { projectId, message: null },
-            { onSuccess: () => toast.success(t('git.stashPushed')), onError: (error) => toast.error(error.message) },
+            { onSuccess: () => toast.success(t('git.stashPushed')), onError: (error) => toast.error(describeIpcError(error)) },
         )
 
-    const handleStashApply = (index: number) => applyStash({ projectId, index }, { onError: (error) => toast.error(error.message) })
+    const handleStashApply = (index: number) => applyStash({ projectId, index }, { onError: (error) => toast.error(describeIpcError(error)) })
 
-    const handleStashDrop = (index: number) => dropStash({ projectId, index }, { onError: (error) => toast.error(error.message) })
+    const handleStashDrop = (index: number) => dropStash({ projectId, index }, { onError: (error) => toast.error(describeIpcError(error)) })
 
     const handleCheckoutBranch = (name: string) =>
         checkoutBranch(
             { projectId, name },
-            { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(error.message) },
+            { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(describeIpcError(error)) },
         )
 
     const handleCheckoutRemoteBranch = (remoteRef: string) =>
         checkoutRemoteBranch(
             { projectId, remoteRef },
-            { onSuccess: () => toast.success(t('git.branchSwitched', { name: remoteRef })), onError: (error) => toast.error(error.message) },
+            {
+                onSuccess: () => toast.success(t('git.branchSwitched', { name: remoteRef })),
+                onError: (error) => toast.error(describeIpcError(error)),
+            },
         )
 
     const handleCreateBranch = (name: string) =>
         createBranch(
             { projectId, name, checkout: true },
-            { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(error.message) },
+            { onSuccess: () => toast.success(t('git.branchSwitched', { name })), onError: (error) => toast.error(describeIpcError(error)) },
         )
 
-    const notifyError = (error: Error) => toast.error(error.message)
+    const notifyError = (error: Error) => toast.error(describeIpcError(error))
 
     const handleInitRepository = () =>
         initRepository(projectId, { onSuccess: () => toast.success(t('git.initSuccess')), onError: () => toast.error(t('git.initFailed')) })
@@ -152,7 +156,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             toast.success(t('git.commitMessageGenerated'), { description: notices.length > 0 ? notices.join(' · ') : undefined })
         } catch (error) {
             if (latestCommitMessageRequestIdRef.current === requestId) {
-                toast.error(t('git.generateCommitMessageFailed'), { description: error instanceof Error ? error.message : undefined })
+                toast.error(t('git.generateCommitMessageFailed'), { description: describeIpcError(error) })
             }
         } finally {
             if (latestCommitMessageRequestIdRef.current === requestId) setCommitMessageRequestId(null)

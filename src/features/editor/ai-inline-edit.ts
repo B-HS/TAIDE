@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next'
 import { toast } from 'sonner'
 import { monaco } from '@shared/lib/monaco/setup'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { stripCodeFence } from '@shared/lib/inline-edit-fence'
 import type { AiInlineEditPreviewState } from '@shared/lib/inline-edit-preview-state'
 import { AI_INLINE_EDIT_PREVIEW_IDLE_STATE, advanceAiInlineEditPreview } from '@shared/lib/inline-edit-preview-state'
@@ -268,7 +269,7 @@ const createInlineEditSession = (editorInstance: monaco.editor.IStandaloneCodeEd
             .catch((error: unknown) => {
                 if (disposed) return
                 previewState = advanceAiInlineEditPreview(previewState, { type: 'rejectResponse' })
-                toast.error(t('ai.inlineEditFailed'), { description: error instanceof Error ? error.message : undefined })
+                toast.error(t('ai.inlineEditFailed'), { description: describeIpcError(error) })
                 endSession()
             })
     }

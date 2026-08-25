@@ -8,7 +8,7 @@ use super::server;
 use super::service;
 use super::store::{IdeSelectionSnapshot, IdeStore};
 use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeSelectionInput, IdeStatus, IDE_PORT_BIND_MAX_ATTEMPTS};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::IdeStatusChanged;
 use crate::ids::ProjectId;
 use crate::state::AppState;
@@ -121,10 +121,13 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
         }
     }
 
-    Err(AppError::Internal(format!(
-        "IDE 서버 포트를 찾지 못했습니다: {}",
-        last_error.map(|error| error.to_string()).unwrap_or_default()
-    )))
+    let detail = last_error.map(|error| error.to_string()).unwrap_or_default();
+    Err(AppError::localized(
+        AppErrorKind::Internal,
+        "error.ide.serverPortUnavailable",
+        format!("could not find an IDE server port: {detail}"),
+    )
+    .with_arg("detail", &detail))
 }
 
 #[tauri::command]

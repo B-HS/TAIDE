@@ -12,6 +12,7 @@ import {
     AlertDialogTitle,
 } from '@shared/ui/alert-dialog'
 import { useUninstallPlugin } from '@entities/plugin/plugin.query'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { PendingPluginUninstall } from '@features/plugin/plugin-list-body'
 
 type PluginUninstallDialogProps = {
@@ -30,7 +31,7 @@ export const PluginUninstallDialog: FC<PluginUninstallDialogProps> = ({ pending,
                 toast.success(t('settings.pluginUninstallSuccess'))
                 onOpenChange(false)
             },
-            onError: (error) => toast.error(error.message || t('settings.pluginUninstallFailed')),
+            onError: (error) => toast.error(describeIpcError(error) || t('settings.pluginUninstallFailed')),
         })
     }
 

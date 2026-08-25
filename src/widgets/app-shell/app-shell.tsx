@@ -21,9 +21,10 @@ import {
     requestToggleExplorerSidebar,
     subscribeShowExplorerView,
     subscribeToggleExplorerSidebar,
-} from '@shared/lib/explorer-panel-bridge'
-import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
-import { subscribeOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+} from '@shared/lib/bridge/explorer-panel-bridge'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { requestOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
+import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { ZenModeHint } from '@features/window/zen-mode-hint'
@@ -56,14 +57,14 @@ export const AppShell = () => {
         if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
         openTab(
             { projectId: activeProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 
     const openDroppedFile = async (targetProjectId: string, path: string) => {
         await openTabInProject(
             { projectId: targetProjectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         ).catch(() => undefined)
     }
 

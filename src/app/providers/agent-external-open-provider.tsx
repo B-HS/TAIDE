@@ -6,6 +6,7 @@ import { events } from '@shared/api/bindings'
 import { i18next } from '@shared/i18n/i18n'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { useOpenTabInProject } from '@entities/layout/layout.query'
 import { activateProject, listProjects, openProject } from '@entities/project/project.ipc'
@@ -52,7 +53,7 @@ const processExternalOpenRequest = async (queryClient: QueryClient, openTabInPro
         await openExternalFile(openTabInProject, owningProject.id, request.path)
         if (request.waitMarker) registerWaitMarker(request.path, request.waitMarker)
     } catch (error) {
-        toast.error(error instanceof Error ? error.message : String(error))
+        toast.error(describeIpcError(error))
         if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
     }
 }

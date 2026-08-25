@@ -6,9 +6,10 @@ import { toast } from 'sonner'
 import type { PaneId, PaneNode, ProjectId, TreeRow } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
-import { requestOpenFileHistory } from '@shared/lib/file-history-panel-bridge'
+import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
-import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
 import { useOpenTab, useSplitPane } from '@entities/layout/layout.query'
@@ -65,7 +66,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
 
     const rows = (page?.rows ?? []).map(toFileTreeRow)
 
-    const notifyError = (error: unknown) => toast.error(error instanceof Error ? error.message : String(error))
+    const notifyError = (error: unknown) => toast.error(describeIpcError(error))
 
     const targetDirFor = (row: FileTreeRow | null) => {
         if (row) return row.kind === 'directory' ? row.path : parentDirOf(row.path)

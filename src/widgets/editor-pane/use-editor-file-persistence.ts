@@ -6,6 +6,7 @@ import type { MirrorEntry, OpenedFile, ProjectId, TabId } from '@shared/api/bind
 import type { monaco } from '@shared/lib/monaco/setup'
 import { HOT_EXIT_MIRROR_DEBOUNCE_MS } from '@shared/constants/mirror'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileMirrorsQueryOptions, useSaveFile } from '@entities/file/file.query'
 import { clearMirror, mirrorDirty } from '@entities/file/file.ipc'
 import type { useSetTabDirty } from '@entities/layout/layout.query'
@@ -275,7 +276,7 @@ export const useEditorFilePersistence = ({
                 },
                 onError: (saveError) => {
                     savingRef.current = false
-                    toast.error(saveError.message)
+                    toast.error(describeIpcError(saveError))
                 },
             },
         )

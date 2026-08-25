@@ -25,6 +25,7 @@ import {
     toThemeValues,
     type ThemeDraft,
 } from '@shared/lib/theme-draft'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ColorTokenRow } from '@features/theme/color-token-row'
 import { SyntaxTokenRow } from '@features/theme/syntax-token-row'
@@ -96,11 +97,11 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
 
     const handleSave = () => {
         if (!draft) return
-        saveThemeMutate(buildThemeFromDraft(draft), { onSuccess: onClose, onError: (error) => toast.error(error.message) })
+        saveThemeMutate(buildThemeFromDraft(draft), { onSuccess: onClose, onError: (error) => toast.error(describeIpcError(error)) })
     }
 
     const handleDelete = () => {
-        deleteThemeMutate(sourceThemeId, { onSuccess: onClose, onError: (error) => toast.error(error.message) })
+        deleteThemeMutate(sourceThemeId, { onSuccess: onClose, onError: (error) => toast.error(describeIpcError(error)) })
     }
 
     useEffect(() => {

@@ -4,7 +4,7 @@ use super::types::{AppFileTarget, AppInfo, PromptTemplateId};
 use crate::domain::ai::prompt as ai_prompt;
 use crate::domain::ai::types::{AiCommitMessagePromptTemplate, AiInlineEditPromptTemplate, AiPromptTemplate};
 use crate::domain::settings::types::Settings;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
@@ -65,7 +65,14 @@ fn validate_prompt_json(id: PromptTemplateId, content: &str) -> AppResult<()> {
         PromptTemplateId::InlineEditDefault => serde_json::from_str::<AiInlineEditPromptTemplate>(content).map(|_| ()),
         PromptTemplateId::CommitMessageDefault => serde_json::from_str::<AiCommitMessagePromptTemplate>(content).map(|_| ()),
     };
-    result.map_err(|error| AppError::InvalidArgument(format!("프롬프트 템플릿 JSON이 올바르지 않습니다: {error}")))
+    result.map_err(|error| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.app.promptTemplateInvalidJson",
+            format!("prompt template JSON is invalid: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 /// Writes a `Prompt` target's override file after validating it parses as that prompt's shape —

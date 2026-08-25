@@ -9,6 +9,7 @@ import { useReplaceSearch } from '@entities/search/search.query'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { useOpenTab } from '@entities/layout/layout.query'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { ReplaceAllInput } from '@features/search/search-panel'
 import { SearchPanel } from '@features/search/search-panel'
 
@@ -78,7 +79,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
                     toast.success(t('search.replaceDone', { files: result.changedFiles, matches: result.replacedMatches }))
                     handleSubmit()
                 },
-                onError: (error) => toast.error(error.message),
+                onError: (error) => toast.error(describeIpcError(error)),
             },
         )
 
@@ -97,7 +98,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
                 target: null,
                 preview: false,
             },
-            { onError: (error) => toast.error(error.message) },
+            { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
 

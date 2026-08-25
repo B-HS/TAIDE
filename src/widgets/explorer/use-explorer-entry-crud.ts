@@ -7,6 +7,7 @@ import type { useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@e
 import type { FileTreeNodeKind, FileTreeRow } from '@features/explorer/file-tree-row'
 import type { FileTreeDraft, FileTreeRenameTarget } from '@features/explorer/file-tree'
 import { resolveEntryParentDir, validateEntryName } from '@shared/lib/entry-name'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { joinPath, parentDirOf } from '@widgets/explorer/explorer-path'
 
@@ -91,7 +92,7 @@ export const useExplorerEntryCrud = ({
             setDraftError(null)
             setSelectPathRequest(path)
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
+            const message = describeIpcError(error)
             setDraftError(message)
             toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitDraft(trimmedName) } })
         }
@@ -133,7 +134,7 @@ export const useExplorerEntryCrud = ({
             setRenameError(null)
             setSelectPathRequest(destination)
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
+            const message = describeIpcError(error)
             setRenameError(message)
             toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitRename(trimmedName) } })
         }

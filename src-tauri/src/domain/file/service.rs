@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::constants::{LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::{ProjectId, TabId};
 use crate::infra::clock::{now_epoch_ms, MS_PER_SECOND};
 use crate::infra::language::{self, LanguageOverlay};
@@ -64,7 +64,12 @@ pub struct UntitledMirrorEntry {
 pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay]) -> AppResult<OpenedFile> {
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
-        return Err(AppError::InvalidArgument(format!("파일이 아닙니다: {}", path.display())));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.file.notAFile",
+            format!("not a file: {}", path.display()),
+        )
+        .with_arg("path", path.display()));
     }
 
     let byte_size = metadata.len();
@@ -158,23 +163,37 @@ pub fn delete_entry(path: &Path) -> AppResult<()> {
 
     let mut context = TrashContext::default();
     context.set_delete_method(DeleteMethod::NsFileManager);
-    context
-        .delete_all([path])
-        .map_err(|error| AppError::Internal(format!("휴지통으로 이동하지 못했습니다: {error}")))
+    context.delete_all([path]).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.file.trashFailed",
+            format!("failed to move to trash: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn delete_entry(path: &Path) -> AppResult<()> {
-    trash::delete(path).map_err(|error| AppError::Internal(format!("휴지통으로 이동하지 못했습니다: {error}")))
+    trash::delete(path).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.file.trashFailed",
+            format!("failed to move to trash: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
 }
 
 pub fn copy_entry(from: &Path, to: &Path) -> AppResult<()> {
     let metadata = std::fs::metadata(from)?;
     if to == from || to.starts_with(from) {
-        return Err(AppError::InvalidArgument(format!(
-            "자기 자신 또는 하위 경로로는 복사할 수 없습니다: {}",
-            to.display()
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.file.copyIntoSelf",
+            format!("cannot copy into itself or a subpath: {}", to.display()),
+        )
+        .with_arg("target", to.display()));
     }
     if metadata.is_dir() {
         copy_dir_recursive(from, to)
@@ -452,22 +471,34 @@ fn saturate_u32(value: u64) -> u32 {
 }
 
 fn modified_epoch_ms(metadata: &std::fs::Metadata) -> AppResult<f64> {
-    let modified = metadata
-        .modified()
-        .map_err(|error| AppError::Internal(format!("mtime을 읽을 수 없습니다: {error}")))?;
-    let duration = modified
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| AppError::Internal(format!("mtime 변환에 실패했습니다: {error}")))?;
+    let modified = metadata.modified().map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.file.mtimeReadFailed",
+            format!("failed to read mtime: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
+    let duration = modified.duration_since(UNIX_EPOCH).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.file.mtimeConvertFailed",
+            format!("failed to convert mtime: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
     Ok(duration.as_secs_f64() * MS_PER_SECOND)
 }
 
 pub fn read_raw(path: &Path) -> AppResult<Vec<u8>> {
     let metadata = std::fs::metadata(path)?;
     if metadata.len() > crate::constants::READ_ONLY_FILE_BYTES {
-        return Err(AppError::InvalidArgument(format!(
-            "파일이 너무 커서 미리보기를 만들 수 없습니다: {}",
-            path.display()
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.file.previewTooLarge",
+            format!("file is too large to preview: {}", path.display()),
+        )
+        .with_arg("path", path.display()));
     }
     Ok(std::fs::read(path)?)
 }
@@ -924,7 +955,7 @@ mod tests {
         let outside = dir.join("outside.txt");
         std::fs::write(&outside, "x").unwrap();
         assert!(
-            matches!(save_file_within_open_projects(&state, &outside, "new"), Err(AppError::Forbidden(_))),
+            save_file_within_open_projects(&state, &outside, "new").is_err_and(|error| error.kind() == AppErrorKind::Forbidden),
             "열린 프로젝트 루트 밖 경로는 Forbidden 으로 거부되어야 한다"
         );
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "x", "거부된 경로에는 쓰지 않아야 한다");

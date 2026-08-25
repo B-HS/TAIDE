@@ -25,6 +25,7 @@ import { SettingsSyncSection } from '@widgets/settings-view/settings-sync-sectio
 import { SettingsTerminalSection } from '@widgets/settings-view/settings-terminal-section'
 import { SettingsToc } from '@features/settings/settings-toc'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { AppDataPathKind, ProjectId } from '@shared/api/bindings'
 import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
 import { SnippetEditor } from '@widgets/snippet-editor/snippet-editor'
@@ -37,7 +38,8 @@ export type ThemeEditorState = Pick<ComponentProps<typeof ThemeEditor>, 'mode' |
  * Pure — no closure over container state, so it lives at module scope instead of being
  * recreated (and re-threaded through props) on every SettingsView render.
  */
-const handleOpenAppDataFolder = (kind: AppDataPathKind) => void systemOpenAppDataPath(kind).catch((error: Error) => toast.error(error.message))
+const handleOpenAppDataFolder = (kind: AppDataPathKind) =>
+    void systemOpenAppDataPath(kind).catch((error: Error) => toast.error(describeIpcError(error)))
 
 const SETTINGS_SCROLL_OFFSET_PX = 32
 

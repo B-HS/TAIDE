@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import {
     activateProject,
     closeProject,
@@ -50,7 +51,7 @@ export const useOpenFolderDialog = () => {
         void (async () => {
             const selected = await open({ directory: true, multiple: false })
             if (typeof selected !== 'string') return
-            openProjectMutate(selected, { onError: (error) => toast.error(error.message) })
+            openProjectMutate(selected, { onError: (error) => toast.error(describeIpcError(error)) })
         })()
     }
 }

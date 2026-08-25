@@ -7,6 +7,7 @@ import type { AppFileTarget, ProjectId, TabId } from '@shared/api/bindings'
 import type { monaco } from '@shared/lib/monaco/setup'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { resolveAppFileModelPath } from '@entities/app-file/app-file-model-path'
 import { appFileQueryOptions, useWriteAppFile } from '@entities/app-file/app-file.query'
@@ -74,10 +75,10 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
     /**
      * `Settings` failures always surface the fixed `settingsJsonInvalid` message — `app_file_write`'s
      * only failure mode for that target is `parse_settings_json` rejecting malformed JSON before
-     * `sanitize` ever runs (sanitize itself cannot fail). `Prompt` has no dedicated locale copy, so
-     * its `AppError.message` (already a human-readable Korean sentence from `validate_prompt_json`)
-     * is surfaced directly, matching the existing raw-message fallback elsewhere in this codebase
-     * (e.g. `plugin-manager.tsx`'s VSIX import catch block).
+     * `sanitize` ever runs (sanitize itself cannot fail). `Prompt` has no dedicated locale copy here,
+     * so it falls through to {@link describeIpcError}, which resolves `validate_prompt_json`'s own
+     * `error.app.promptTemplateInvalidJson` catalog key (matching the existing helper-mediated
+     * fallback elsewhere in this codebase — e.g. `plugin-manager.tsx`'s VSIX import catch block).
      */
     const handleSave = async () => {
         const value = draftRef.current
@@ -92,7 +93,7 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
                 toast.error(t('settings.settingsJsonInvalid'))
                 return
             }
-            toast.error(error instanceof Error ? error.message : t('settings.settingsJsonInvalid'))
+            toast.error(describeIpcError(error))
         }
     }
 

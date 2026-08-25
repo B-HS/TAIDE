@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::domain::project::types::Project;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
 
 pub fn project_root(projects: &HashMap<ProjectId, Project>, project_id: &ProjectId) -> AppResult<PathBuf> {
@@ -46,8 +46,14 @@ pub fn resolve_owning_project(projects: &HashMap<ProjectId, Project>, path: &Pat
     // malformed/duplicate argument (e.g. `file/service.rs`'s "already exists"), and callers that
     // probe path existence via `file_open` (`workspace-edit-applier.ts`'s `pathExists`) rely on the
     // two being distinguishable by error code.
-    best.map(|(project_id, resolved, _)| (project_id, resolved))
-        .ok_or_else(|| AppError::Forbidden(format!("열린 프로젝트 루트 밖의 경로입니다: {}", path.display())))
+    best.map(|(project_id, resolved, _)| (project_id, resolved)).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::Forbidden,
+            "error.path.outsideOpenProjects",
+            format!("path is outside every open project's root: {}", path.display()),
+        )
+        .with_arg("path", path.display())
+    })
 }
 
 pub fn ensure_within_root(root: &Path, path: &Path) -> AppResult<PathBuf> {
@@ -66,10 +72,12 @@ fn canonicalize_root_and_resolve(root: &Path, path: &Path) -> AppResult<(PathBuf
     if resolved.starts_with(&canonical_root) {
         Ok((canonical_root, resolved))
     } else {
-        Err(AppError::Forbidden(format!(
-            "경로가 프로젝트 루트 밖에 있습니다: {}",
-            path.display()
-        )))
+        Err(AppError::localized(
+            AppErrorKind::Forbidden,
+            "error.path.outsideProjectRoot",
+            format!("path is outside the project root: {}", path.display()),
+        )
+        .with_arg("path", path.display()))
     }
 }
 
@@ -80,7 +88,12 @@ fn canonicalize_root_and_resolve(root: &Path, path: &Path) -> AppResult<(PathBuf
 pub fn ensure_safe_component(value: &str) -> AppResult<()> {
     let is_traversal = value.is_empty() || value == "." || value == ".." || value.contains('/') || value.contains('\\');
     if is_traversal {
-        return Err(AppError::InvalidArgument(format!("유효하지 않은 식별자입니다: {value}")));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.path.invalidIdentifier",
+            format!("invalid identifier: {value}"),
+        )
+        .with_arg("value", value));
     }
     Ok(())
 }
@@ -90,12 +103,22 @@ pub(crate) fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
         return Ok(canonical);
     }
 
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| AppError::InvalidArgument(format!("유효하지 않은 경로입니다: {}", path.display())))?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| AppError::InvalidArgument(format!("유효하지 않은 경로입니다: {}", path.display())))?;
+    let file_name = path.file_name().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.path.invalid",
+            format!("invalid path: {}", path.display()),
+        )
+        .with_arg("path", path.display())
+    })?;
+    let parent = path.parent().ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.path.invalid",
+            format!("invalid path: {}", path.display()),
+        )
+        .with_arg("path", path.display())
+    })?;
 
     Ok(canonicalize_lenient(parent)?.join(file_name))
 }
@@ -137,7 +160,7 @@ mod tests {
         let outside = dir.join("outside").join("secret.txt");
 
         let error = ensure_within_root(&root, &outside).expect_err("root 밖 경로는 실패해야 한다");
-        assert!(matches!(error, AppError::Forbidden(_)));
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
 
         let mut projects = HashMap::new();
         projects.insert(
@@ -152,7 +175,7 @@ mod tests {
             },
         );
         let error = resolve_owning_project(&projects, &outside).expect_err("어떤 프로젝트 루트에도 속하지 않아야 한다");
-        assert!(matches!(error, AppError::Forbidden(_)));
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
 
         cleanup(&dir);
     }

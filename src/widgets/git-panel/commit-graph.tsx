@@ -11,8 +11,9 @@ import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 import { computeGraphLanes } from '@shared/lib/graph-lanes'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { tagsTargetingCommit } from '@shared/lib/git-tags'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
-import { subscribeOpenCreateTagDialog } from '@shared/lib/create-tag-dialog-bridge'
+import { subscribeOpenCreateTagDialog } from '@shared/lib/bridge/create-tag-dialog-bridge'
 import {
     ContextMenu,
     ContextMenuContent,
@@ -90,7 +91,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                     toast.warning(t('git.revertConflict'))
                     if (outcome.conflictedAbsPaths[0]) onOpenFile(outcome.conflictedAbsPaths[0])
                 },
-                onError: (error) => toast.error(error.message),
+                onError: (error) => toast.error(describeIpcError(error)),
             },
         )
     }
@@ -104,14 +105,17 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                     toast.success(t('git.tagCreated'))
                     setTagDialogTarget(null)
                 },
-                onError: (error) => toast.error(error.message),
+                onError: (error) => toast.error(describeIpcError(error)),
             },
         )
     }
 
     const handleDeleteTag = (name: string) => {
         if (!projectId) return
-        deleteTag({ projectId, name }, { onSuccess: () => toast.success(t('git.tagDeleted')), onError: (error) => toast.error(error.message) })
+        deleteTag(
+            { projectId, name },
+            { onSuccess: () => toast.success(t('git.tagDeleted')), onError: (error) => toast.error(describeIpcError(error)) },
+        )
     }
 
     useEffect(() => subscribeOpenCreateTagDialog(({ target }) => setTagDialogTarget(target)), [])

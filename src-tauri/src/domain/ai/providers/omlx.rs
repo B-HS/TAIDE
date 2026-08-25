@@ -1,12 +1,13 @@
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::AiProviderClient;
+use crate::domain::ai::providers::{provider_http_error, provider_transport_error, AiProviderClient};
 use crate::domain::ai::types::{
     AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars,
 };
 use crate::error::{AppError, AppResult};
-use crate::infra::redact::mask_provider_error;
+
+const OMLX_PROVIDER_NAME: &str = "omlx";
 
 /// Output budget for the auto-tab ghost-text path (`complete_chat`) — see
 /// `OLLAMA_NUM_PREDICT`'s doc comment in `providers/ollama.rs` (same reasoning applies here).
@@ -199,21 +200,18 @@ impl AiProviderClient for OmlxProvider {
             .apply_auth(client.get(format!("{}/v1/models", self.base_url)))
             .send()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OMLX_PROVIDER_NAME, &error))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "omlx models request failed ({status}): {}",
-                mask_provider_error(&body)
-            )));
+            return Err(provider_http_error(OMLX_PROVIDER_NAME, status, &body));
         }
 
         let parsed: OmlxModelsResponse = res
             .json()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OMLX_PROVIDER_NAME, &error))?;
         Ok(parsed
             .data
             .into_iter()
@@ -322,21 +320,18 @@ impl OmlxProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OMLX_PROVIDER_NAME, &error))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let text = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "omlx chat request failed ({status}): {}",
-                mask_provider_error(&text)
-            )));
+            return Err(provider_http_error(OMLX_PROVIDER_NAME, status, &text));
         }
 
         let parsed: OmlxChatResponse = res
             .json()
             .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            .map_err(|error| provider_transport_error(OMLX_PROVIDER_NAME, &error))?;
         extract_chat_text(parsed, fail_on_truncation)
     }
 }

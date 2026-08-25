@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
 import { gitDiffFileQueryOptions, gitStatusQueryOptions, useStageGitHunk, useUnstageGitHunk } from '@entities/git/git.query'
 import { fileQueryOptions } from '@entities/file/file.query'
@@ -105,7 +106,10 @@ export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWi
             const hunk = hunkRanges.find((candidate) => line >= candidate.start && line <= candidate.end)
             if (!hunk) return
             const mutate = staged ? unstageHunk : stageHunk
-            mutate({ projectId, path, hunkStart: hunk.start, hunkEnd: hunk.end }, { onError: (mutationError) => toast.error(mutationError.message) })
+            mutate(
+                { projectId, path, hunkStart: hunk.start, hunkEnd: hunk.end },
+                { onError: (mutationError) => toast.error(describeIpcError(mutationError)) },
+            )
         })
         return () => subscription.dispose()
     }, [diffEditor, hunkRanges, isStageable, staged, projectId, path, stageHunk, unstageHunk])

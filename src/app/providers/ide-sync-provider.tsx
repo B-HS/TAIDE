@@ -17,6 +17,7 @@ import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { toProblemSeverity } from '@features/problems/problem-severity'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { QUERY_KEY } from '@shared/constants/query-key'
 
@@ -66,7 +67,7 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
                 target: null,
                 preview: false,
             })
-        })().catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)))
+        })().catch((error: unknown) => toast.error(describeIpcError(error)))
     })
 
     useTauriEvent(events.ideSaveRequested, ({ payload }) => {
