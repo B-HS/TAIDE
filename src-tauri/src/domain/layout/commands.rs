@@ -42,19 +42,53 @@ pub async fn layout_close_tab(app: AppHandle, state: State<'_, AppState>, tab_id
     Ok(updated)
 }
 
+/// Where a layout-mutation command finds the `ProjectLayout` it's about to mutate — the three
+/// lookup shapes the 13 skeleton-identical commands below used inline before being unified into
+/// [`run_layout_mutation`]: resolve the owning project from a tab id, from a pane id, or (when the
+/// caller already names the project directly) skip lookup entirely.
+enum LayoutLocate {
+    WithTab(TabId),
+    WithPane(PaneId),
+    Direct(ProjectId),
+}
+
+/// Runs the read-clone-locate-mutate-writeback skeleton shared by 13 layout commands, preserving the
+/// exact lock semantics each had before unification: the single `begin_mutation` guard acquisition
+/// below is this function's only `.await`, and it spans `layouts.read().clone()` all the way through
+/// the `finish_mutation` + `layouts.write()` writeback, so no other mutator can interleave a write
+/// into that window. `mutate` is required to stay synchronous by contract — to avoid growing this
+/// function's await-point count and to keep the shared `FnOnce(&mut ProjectLayout) -> AppResult<()>`
+/// signature every caller passes — not because an `.await` inside it would itself be unsound: the
+/// guard is a `tokio::sync::MutexGuard` that is routinely held across `.await` points elsewhere in
+/// this file (e.g. `layout_move_tab_to_window` below, which awaits `open_auxiliary_window` while
+/// still holding it).
+async fn run_layout_mutation<F>(app: &AppHandle, state: &State<'_, AppState>, locate: LayoutLocate, mutate: F) -> AppResult<ProjectLayout>
+where
+    F: FnOnce(&mut ProjectLayout) -> AppResult<()>,
+{
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let project_id = match locate {
+        LayoutLocate::WithTab(tab_id) => service::locate_project_with_tab(&layouts, &tab_id)?,
+        LayoutLocate::WithPane(pane_id) => service::locate_project_with_pane(&layouts, &pane_id)?,
+        LayoutLocate::Direct(project_id) => project_id,
+    };
+    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
+
+    mutate(layout)?;
+
+    let updated = service::finish_mutation(app, state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_activate_tab(app: AppHandle, state: State<'_, AppState>, tab_id: TabId) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::activate_tab(layout, &tab_id)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::activate_tab(layout, &tab_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -66,16 +100,10 @@ pub async fn layout_move_tab(
     pane_id: PaneId,
     index: u32,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::move_tab(layout, &tab_id, &pane_id, index as usize)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::move_tab(layout, &tab_id, &pane_id, index as usize)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -87,90 +115,56 @@ pub async fn layout_split(
     edge: DropEdge,
     tab_id: TabId,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_pane(&layouts, &pane_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::split(layout, &pane_id, edge, &tab_id)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithPane(pane_id.clone()), move |layout| {
+        service::split(layout, &pane_id, edge, &tab_id)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_resize(app: AppHandle, state: State<'_, AppState>, pane_id: PaneId, sizes: Vec<f32>) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_pane(&layouts, &pane_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::resize(layout, &pane_id, sizes)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithPane(pane_id.clone()), move |layout| {
+        service::resize(layout, &pane_id, sizes)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_focus_pane(app: AppHandle, state: State<'_, AppState>, pane_id: PaneId) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_pane(&layouts, &pane_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::focus_pane(layout, &pane_id)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithPane(pane_id.clone()), move |layout| {
+        service::focus_pane(layout, &pane_id)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_pin_tab(app: AppHandle, state: State<'_, AppState>, tab_id: TabId, pinned: bool) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::pin_tab(layout, &tab_id, pinned)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::pin_tab(layout, &tab_id, pinned)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_set_preview(app: AppHandle, state: State<'_, AppState>, tab_id: TabId, preview: bool) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::set_preview(layout, &tab_id, preview)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::set_preview(layout, &tab_id, preview)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_reopen_closed(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::reopen_closed(layout);
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::Direct(project_id), move |layout| {
+        service::reopen_closed(layout);
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -181,31 +175,19 @@ pub async fn layout_set_view_state(
     tab_id: TabId,
     view_state: Option<String>,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::set_view_state(layout, &tab_id, view_state)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::set_view_state(layout, &tab_id, view_state)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_set_dirty(app: AppHandle, state: State<'_, AppState>, tab_id: TabId, dirty: bool) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::set_dirty(layout, &tab_id, dirty)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::set_dirty(layout, &tab_id, dirty)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -216,16 +198,10 @@ pub async fn layout_set_terminal_session(
     tab_id: TabId,
     session_id: String,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::set_terminal_session(layout, &tab_id, session_id)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::WithTab(tab_id.clone()), move |layout| {
+        service::set_terminal_session(layout, &tab_id, session_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -236,26 +212,22 @@ pub async fn layout_open_untitled(
     project_id: ProjectId,
     target: Option<PaneId>,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    let pane_id = target.unwrap_or_else(|| layout.focused_pane.clone());
-    let index = service::next_untitled_index(layout);
-    let tab = Tab {
-        id: TabId::new(),
-        kind: TabKind::Untitled { index },
-        title: format!("Untitled-{index}"),
-        pinned: false,
-        preview: false,
-        dirty: false,
-        view_state: None,
-    };
-    service::open_tab(layout, &pane_id, tab, false)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::Direct(project_id), move |layout| {
+        let pane_id = target.unwrap_or_else(|| layout.focused_pane.clone());
+        let index = service::next_untitled_index(layout);
+        let tab = Tab {
+            id: TabId::new(),
+            kind: TabKind::Untitled { index },
+            title: format!("Untitled-{index}"),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        };
+        service::open_tab(layout, &pane_id, tab, false)?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -358,13 +330,9 @@ pub async fn layout_set_shell_view(
     project_id: ProjectId,
     patch: ShellViewPatch,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    service::apply_shell_view_patch(layout, &patch);
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+    run_layout_mutation(&app, &state, LayoutLocate::Direct(project_id), move |layout| {
+        service::apply_shell_view_patch(layout, &patch);
+        Ok(())
+    })
+    .await
 }

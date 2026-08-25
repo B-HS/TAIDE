@@ -218,7 +218,7 @@ pub fn collect_leaves(node: &PaneNode) -> Vec<&PaneNode> {
 /// Every distinct `File` tab path currently open across `layout`'s main tree and its auxiliary
 /// windows — the same `all_roots` + `collect_leaves` walk `domain::ide::service::
 /// open_editors_snapshot` uses, without that function's IDE-specific fields (`is_active`/`label`/
-/// `language_id`). Used by `lib.rs::restore_project_watchers` to synthesize one `FsChanged`
+/// `language_id`). Used by `domain::project::commands::restore_project_watchers` to synthesize one `FsChanged`
 /// refresh for a project's already-open tabs right after its watcher goes live — see that
 /// function's doc (boot-watcher-defer contract §3.1's `FILE.CONTENT`/`FILE.RAW` gap).
 pub fn open_file_paths(layout: &ProjectLayout) -> Vec<String> {
@@ -944,6 +944,35 @@ pub fn strip_volatile_tabs(layout: &ProjectLayout) -> ProjectLayout {
 pub fn save_layout(paths: &AppPaths, project_id: &ProjectId, layout: &ProjectLayout) -> AppResult<()> {
     let persisted = strip_volatile_tabs(layout);
     persist::write_json(&paths.layout_file(project_id), &persisted)
+}
+
+pub(crate) const LAYOUT_FLUSH_INTERVAL_MS: u64 = 2_000;
+
+pub(crate) fn flush_dirty_layouts(state: &AppState) {
+    let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
+    if dirty.is_empty() {
+        return;
+    }
+
+    let snapshots: Vec<_> = {
+        let layouts = state.layouts.read();
+        dirty
+            .into_iter()
+            .filter_map(|project_id| match layouts.get(&project_id) {
+                Some(layout) => Some((project_id, layout.clone())),
+                None => {
+                    log::warn!("dirty_layouts 에 등록된 프로젝트의 레이아웃을 찾을 수 없어 저장을 건너뜁니다: {project_id}");
+                    None
+                }
+            })
+            .collect()
+    };
+
+    for (project_id, layout) in snapshots {
+        if let Err(error) = save_layout(&state.paths, &project_id, &layout) {
+            log::warn!("레이아웃 저장 실패 ({project_id}): {error}");
+        }
+    }
 }
 
 /// v1 → v2: adds the auxiliary-window axis and per-project shell chrome state. Both are purely

@@ -7,20 +7,17 @@ pub mod infra;
 pub mod paths;
 pub mod state;
 
-use std::collections::{HashMap, HashSet};
-
 use tauri::{Listener, Manager};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::ai::commands::AiRequestStore;
-use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::store::IdeStore;
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::service::PluginStore;
-use crate::domain::remote::commands::RemoteStore;
+use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
@@ -32,55 +29,11 @@ use crate::events::{
     ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCwdChanged,
     TerminalExited, ThemeChanged,
 };
-use crate::ids::ProjectId;
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
 const BINDINGS_PATH: &str = "../src/shared/api/bindings.ts";
-
-/// A custom (non-predefined) menu item id for the app menu's Quit entry —
-/// see [`handle_menu_event`] for why this can't be `PredefinedMenuItem::quit`.
-const MENU_ID_QUIT: &str = "taide-quit";
-
-fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-
-    let quit_item = MenuItemBuilder::with_id(MENU_ID_QUIT, "Quit")
-        .accelerator("CmdOrCtrl+Q")
-        .build(handle)?;
-
-    let app_menu = SubmenuBuilder::new(handle, "TAIDE")
-        .item(&PredefinedMenuItem::about(handle, None, None)?)
-        .separator()
-        .item(&PredefinedMenuItem::services(handle, None)?)
-        .separator()
-        .item(&PredefinedMenuItem::hide(handle, None)?)
-        .item(&PredefinedMenuItem::hide_others(handle, None)?)
-        .item(&PredefinedMenuItem::show_all(handle, None)?)
-        .separator()
-        .item(&quit_item)
-        .build()?;
-
-    let edit_menu = SubmenuBuilder::new(handle, "Edit")
-        .item(&PredefinedMenuItem::undo(handle, None)?)
-        .item(&PredefinedMenuItem::redo(handle, None)?)
-        .separator()
-        .item(&PredefinedMenuItem::cut(handle, None)?)
-        .item(&PredefinedMenuItem::copy(handle, None)?)
-        .item(&PredefinedMenuItem::paste(handle, None)?)
-        .item(&PredefinedMenuItem::select_all(handle, None)?)
-        .build()?;
-
-    let window_menu = SubmenuBuilder::new(handle, "Window")
-        .item(&PredefinedMenuItem::minimize(handle, None)?)
-        .item(&PredefinedMenuItem::maximize(handle, None)?)
-        .separator()
-        .item(&PredefinedMenuItem::fullscreen(handle, None)?)
-        .build()?;
-
-    MenuBuilder::new(handle).items(&[&app_menu, &edit_menu, &window_menu]).build()
-}
 
 /// Statically assembles the [`domain::project::capability::ProjectCapability`] implementations
 /// that `project_open`/`project_close` walk. **This list's order is the correctness contract, not
@@ -418,450 +371,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         ])
 }
 
-const LAYOUT_FLUSH_INTERVAL_MS: u64 = 2_000;
-
 pub(crate) const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "file_read_raw"];
-
-fn flush_dirty_layouts(state: &AppState) {
-    let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
-    if dirty.is_empty() {
-        return;
-    }
-
-    let snapshots: Vec<_> = {
-        let layouts = state.layouts.read();
-        dirty
-            .into_iter()
-            .filter_map(|project_id| match layouts.get(&project_id) {
-                Some(layout) => Some((project_id, layout.clone())),
-                None => {
-                    log::warn!("dirty_layouts 에 등록된 프로젝트의 레이아웃을 찾을 수 없어 저장을 건너뜁니다: {project_id}");
-                    None
-                }
-            })
-            .collect()
-    };
-
-    for (project_id, layout) in snapshots {
-        if let Err(error) = domain::layout::service::save_layout(&state.paths, &project_id, &layout) {
-            log::warn!("레이아웃 저장 실패 ({project_id}): {error}");
-        }
-    }
-}
-
-/// Handles `CloseRequested` for an auxiliary editor window (`editor-<n>`).
-/// Before Wave I every window funneled into the same hot-exit flush/exit
-/// sequence `handle_close_requested` runs for the main window below, so
-/// closing a second window silently terminated the whole app
-/// (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.1).
-/// The close is intentionally left un-prevented here so the OS's default
-/// close proceeds and only this one window goes away. Both registry cleanups
-/// are idempotent with the `Destroyed` handler below, which runs this same
-/// cleanup again as a backstop for closes that don't go through
-/// `CloseRequested` at all (e.g. a crash).
-fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>) {
-    if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
-        window.app_handle().exit(0);
-    }
-
-    if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
-        domain::window::service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
-    }
-}
-
-/// Intercepts the window close request to give every open window a chance to
-/// flush its own dirty editor models to the hot-exit mirror before the app
-/// actually exits. Only the main window runs this path — see
-/// [`handle_auxiliary_close_requested`] for `editor-*` windows, which close
-/// immediately instead. Always defers the main window's close
-/// (`prevent_close`) and lets either every expected window's own
-/// `file_flush_complete` call or the timeout fallback below perform the real
-/// `AppHandle::exit`, so the window is never destroyed by the OS's default
-/// close path. `AppState::begin_hot_exit_flush` guards re-entrant close
-/// attempts (e.g. mashing Cmd+Q) from emitting the flush event twice.
-fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
-    if domain::window::service::is_auxiliary_label(window.label()) {
-        handle_auxiliary_close_requested(window);
-        return;
-    }
-
-    api.prevent_close();
-
-    let state = window.state::<AppState>();
-    state.begin_shutdown();
-    // `windows()` needs the `unstable` Tauri feature this project doesn't enable;
-    // `webview_windows()` is the stable equivalent and every window here is a webview window.
-    let expected_windows: HashSet<String> = window.webview_windows().into_keys().collect();
-    if !state.begin_hot_exit_flush(expected_windows) {
-        return;
-    }
-
-    // `Event::emit` broadcasts to every window/webview app-wide regardless of which handle it's
-    // called through, so every currently-open auxiliary window already receives this alongside
-    // the main window — no separate per-window fanout loop is needed here.
-    let _ = HotExitFlushRequested {
-        timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
-    }
-    .emit(window);
-
-    let app_handle = window.app_handle().clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS)).await;
-        if app_handle.state::<AppState>().force_complete_hot_exit_flush() {
-            log::warn!("hot exit flush timed out; exiting without every window's confirmation");
-            app_handle.exit(0);
-        }
-    });
-}
-
-/// Routes the app menu's Quit item through the same `WindowEvent::CloseRequested`
-/// flush handshake as clicking the window's close button, instead of the native
-/// `NSApplication terminate:` binding `PredefinedMenuItem::quit` uses on macOS.
-/// `terminate:` runs straight to `applicationWillTerminate` and `RunEvent::Exit`
-/// with no `CloseRequested` (or preventable `ExitRequested`) event in between —
-/// tao's macOS app delegate has no `applicationShouldTerminate:` hook to catch it
-/// — so Cmd+Q would otherwise skip `handle_close_requested` entirely and drop
-/// any hot-exit mirror writes still pending in the last debounce window.
-fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
-    if event.id() != MENU_ID_QUIT {
-        return;
-    }
-    if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
-        let _ = window.close();
-    }
-}
-
-/// Recreates every `AuxWindowLayout` recorded across every restored (non-`root_missing`) project as
-/// a real OS window — the boot-time half of "보조 창 레이아웃 영속·재시작 시 복원(창 재생성)"
-/// (contract §3.2). Spawns one task per window rather than awaiting them serially so restoration
-/// doesn't block the rest of `setup()`; each task still takes `AppState::begin_mutation` for the
-/// duration of its own `window::commands::open_auxiliary_window` call, so concurrent restorations
-/// serialize through that single guard instead of racing to coin the same `editor-<n>` label (see
-/// that function's doc comment).
-fn restore_auxiliary_windows(app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    let project_ids: Vec<ProjectId> = state
-        .projects
-        .read()
-        .iter()
-        .filter(|(_, project)| !project.root_missing)
-        .map(|(project_id, _)| project_id.clone())
-        .collect();
-
-    let layouts = state.layouts.read();
-    let restorations: Vec<(ProjectId, u32)> = project_ids
-        .into_iter()
-        .filter_map(|project_id| {
-            layouts
-                .get(&project_id)
-                .map(|layout| (project_id, layout.auxiliary_windows.clone()))
-        })
-        .flat_map(|(project_id, windows)| windows.into_iter().map(move |window| (project_id.clone(), window.slot)))
-        .collect();
-    drop(layouts);
-
-    for (project_id, window_slot) in restorations {
-        let app_handle = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let state = app_handle.state::<AppState>();
-            let _guard = state.begin_mutation().await;
-            let windows = app_handle.state::<WindowStore>();
-            if let Err(error) =
-                domain::window::commands::open_auxiliary_window(&app_handle, &state, &windows, project_id.clone(), window_slot).await
-            {
-                log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
-            }
-        });
-    }
-}
-
-/// The exact snapshot [`restore_project_watchers`] attaches from — every restored project whose
-/// root is still present on disk (`!root_missing`), paired with the root path its watcher needs,
-/// **ordered** so `session.active_project` (the project the user was actually looking at) attaches
-/// first, then the rest in `session.projects`' own order (the same order `project_list`/the
-/// project switcher shows — `domain::project::service::list_projects` walks `session.projects` and
-/// looks each entry up in `projects`). A project `projects` has that `session.projects` somehow
-/// doesn't list (bookkeeping drift, not a state this codebase's own writers produce) is still
-/// appended at the end rather than silently dropped from the restore set. Ordering matters because
-/// [`restore_project_watchers`] attaches strictly sequentially: without it,
-/// `HashMap<ProjectId, Project>`'s unspecified iteration order could just as easily attach the
-/// active project *last*, stretching the fs/git event gap the user actually notices to the sum of
-/// every other restored project's walk instead of bounding it to its own alone.
-///
-/// Kept as its own pure function (rather than inline in `setup()`) so this selection — including
-/// the ordering — is unit-testable without a running `AppHandle`; see `restore_project_watchers`'s
-/// doc for why the attach itself can't be (this codebase has no `tauri::test` mock-app harness —
-/// the same constraint `domain::terminal::commands`'s own tests document and work around).
-fn projects_pending_watcher_restore(
-    projects: &HashMap<ProjectId, domain::project::types::Project>,
-    session: &domain::project::types::SessionState,
-) -> Vec<(ProjectId, String)> {
-    let mut ordered_ids: Vec<ProjectId> = session.active_project.iter().cloned().collect();
-    ordered_ids.extend(
-        session
-            .projects
-            .iter()
-            .map(|project_ref| project_ref.id.clone())
-            .filter(|id| Some(id) != session.active_project.as_ref()),
-    );
-
-    let mut seen: HashSet<ProjectId> = ordered_ids.iter().cloned().collect();
-    for project_id in projects.keys() {
-        if seen.insert(project_id.clone()) {
-            ordered_ids.push(project_id.clone());
-        }
-    }
-
-    ordered_ids
-        .into_iter()
-        .filter_map(|project_id| {
-            let project = projects.get(&project_id)?;
-            (!project.root_missing).then(|| (project.id.clone(), project.root.clone()))
-        })
-        .collect()
-}
-
-/// Re-attaches the file watcher and (where the project is a git repo) the git watcher for every
-/// project [`projects_pending_watcher_restore`] selected, as a background task that starts only
-/// after `app.manage(state)` in `setup()` below — so the multi-second `notify-debouncer-full`
-/// `FileIdMap` walk each attach performs (the dominant boot-latency cause identified in
-/// `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`) never delays window creation the
-/// way the old fully-synchronous loop here did. `restore_state` and every `app.manage` call stay
-/// synchronous in `setup()` — the tree and editor need the projects/layouts they populate
-/// immediately — only the watcher attach itself moves here. `project_open`'s own synchronous
-/// attach (via `ProjectCapabilities::attach_all`) is unchanged; this function only covers boot
-/// restore.
-///
-/// **Build outside the guard, register inside it.** Each iteration's `spawn_blocking` call — where
-/// the `FileIdMap` walk actually happens — runs with no `AppState::begin_mutation` held at all:
-/// `domain::file::capability::build_watcher_handle`/`domain::git::watch::build_git_watcher_handle`
-/// only build a `WatcherHandle`, touching no `AppState` field, the same "build outside every lock,
-/// re-validate and insert inside the store's own lock" split
-/// `domain::tree::commands::rows_page_from_store` already established for a miss's own disk walk
-/// (Phase E C11-TREE-2). The guard is acquired only *after* the build returns, held across a
-/// `state.projects`/`state.watchers` re-check plus the two handle inserts, and dropped before this
-/// iteration's synthetic event emits below — microseconds, not the walk's 0.5–3s. The re-check is
-/// what keeps this correct without holding the guard across the walk: `state.projects` only shrinks
-/// via `project_close`, which (like `project_open`) runs its entire body under one `begin_mutation`
-/// acquisition, so a close landing anywhere during this iteration's unguarded build is fully visible
-/// the instant this loop re-acquires the guard afterward — there is no window where `contains_key`
-/// could observe a stale "still open". Dropping the handles just built (which stops those
-/// `Debouncer`s) when the project closed meanwhile, or when `state.watchers` already has an entry
-/// for it (see below), is the only correctness work the guard still has to do.
-///
-/// **Skip a project `project_open` already reattached.** The snapshot
-/// [`projects_pending_watcher_restore`] took can include a project the user closed and reopened
-/// before this loop reached it — `project_open` reuses the same `ProjectId` for the same root
-/// (`domain::project::service::find_existing_project_id`), and its own synchronous attach already
-/// ran. `FileWatcherCapability::attach` always attaches the file watcher unconditionally on that
-/// path, so `state.watchers.read().contains_key(&project_id)` being true is a reliable "already
-/// reattached, skip" signal — checked once before spawning the walk at all (the common case, so the
-/// walk is never even started) and once more right before registering under the guard (the race
-/// window between the two: `project_open` landing *during* this iteration's unguarded build).
-/// Either hit drops this iteration's freshly built handles instead of overwriting `project_open`'s
-/// live ones, and skips the synthetic emits below too — that project's caches are already live.
-///
-/// **Boot-gap correction for the caches that don't self-heal.** Two frontend caches only ever
-/// refresh on an event, never on a timer or focus, so a change landing in the gap between window
-/// show and a project's own attach here has nowhere to go otherwise (no watcher is listening yet,
-/// and `notify` never replays history once one starts):
-/// - `git_status`/`git_refs`: `entities/git/git.query.ts`'s `GIT.PROJECT`-scoped cache only
-///   refreshes on `GitStatusChanged`/`GitRefsChanged` or the global 60s `staleTime`
-///   (`app/query-client.ts`), so a gap-window git change with no *further* change afterward would
-///   sit stale for up to a minute — or indefinitely, for a query nothing is actively refetching.
-/// - `FILE.CONTENT`/`FILE.RAW`: `entities/file/file.query.ts`'s per-path queries are `staleTime:
-///   Infinity` with the global `refetchOnWindowFocus: false` (`app/query-client.ts`), so a file
-///   already open in a tab before this project's watcher attaches has *no* time- or focus-based
-///   path back to fresh content — only `events.fsChanged` (`app/providers/ipc-sync-provider.tsx`)
-///   ever invalidates it. Left uncorrected this is worse than the git gap: it never expires on its
-///   own, and `file_save` has no mtime/baseline check, so saving from the stale tab would silently
-///   overwrite whatever changed on disk during the gap.
-///
-///   `tree_rows` needs no such correction: `domain::tree::commands::rows_page_from_store`'s cache
-///   starts empty every boot (`TreeStore::default()`), so the very first read for any project
-///   always rescans disk directly regardless of watcher state. What's left uncorrected there is a
-///   narrower window than it might look — a *second* directory change landing after that first
-///   read but before this project's own attach below completes, which stays unseen until some later
-///   event touches the same directory. That window is genuinely wider here than on `project_open`
-///   (which attaches synchronously before returning, so the frontend's first `tree_rows` call for
-///   that project is always already past a live watcher — there is no "first read ~ attach" gap on
-///   that path to compare against): sequential attach across a multi-project restore bounds this
-///   project's window by *its own position in the queue* (its own walk plus every walk ahead of
-///   it), not by a single walk alone. No watcher event can narrow that further than a rescan already
-///   does, so it stays an accepted residual — see `docs/quality-assurance/2026-08-11-qa6-checklist.md`'s
-///   d-25 section for the hand-QA carryover this and the two corrections below still need.
-///
-/// Both corrections reuse an existing event end to end — no new command, event, or query key.
-/// `GitStatusChanged` alone (not paired with `GitRefsChanged`; the frontend maps both to the exact
-/// same `QUERY_KEY.GIT.PROJECT(projectId)` invalidation, so emitting both is pure duplication) once
-/// this project's git watcher attaches, and `FsChanged { kind: Modified, from_app: false, paths:
-/// <this project's currently open File tab paths> }` (`domain::layout::service::open_file_paths`)
-/// once its file watcher attaches and it actually has any open file tabs. Gating the git emit on a
-/// `.git/index`/`.git/HEAD` mtime comparison (attach-taken snapshot vs. post-attach) to skip it
-/// entirely when nothing changed was considered and rejected: it would add IO on every boot,
-/// including the common case where nothing changed, and still couldn't detect a change made through
-/// a tool that doesn't preserve mtimes — while the cost it would save is already small,
-/// `invalidateQueries` against a query nobody is displaying is a no-op, so these emits only ever do
-/// real work for the active project's actually-displayed git/file queries, once, at boot.
-///
-/// A close/quit requested mid-restore (`AppState::is_shutting_down`) stops the loop before starting
-/// the next project's walk — see `AppState::begin_shutdown`'s doc for where that flag is set —
-/// instead of continuing to attach every remaining project (each briefly taking `begin_mutation`)
-/// while the app is already tearing down.
-fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(ProjectId, String)>) {
-    let app_handle = app.clone();
-    let started = std::time::Instant::now();
-    let project_count = restored.len();
-
-    tauri::async_runtime::spawn(async move {
-        let mut attached = 0usize;
-
-        for (project_id, root) in restored {
-            let state = app_handle.state::<AppState>();
-            if state.is_shutting_down() {
-                break;
-            }
-            if state.watchers.read().contains_key(&project_id) {
-                continue;
-            }
-
-            let build_handle = app_handle.clone();
-            let build_project_id = project_id.clone();
-            let build_root = root.clone();
-            let build_result = tauri::async_runtime::spawn_blocking(move || {
-                let file_handle = domain::file::capability::build_watcher_handle(&build_handle, &build_project_id, &build_root);
-                let git_handle = domain::git::watch::build_git_watcher_handle(&build_handle, &build_project_id, &build_root);
-                (file_handle, git_handle)
-            })
-            .await;
-
-            let (file_handle, git_handle) = match build_result {
-                Ok(handles) => handles,
-                Err(error) => {
-                    log::warn!("복원 프로젝트 워처 attach 태스크가 실패했습니다 (projectId={project_id}): {error}");
-                    continue;
-                }
-            };
-
-            let state = app_handle.state::<AppState>();
-            let _guard = state.begin_mutation().await;
-            if !state.projects.read().contains_key(&project_id) || state.watchers.read().contains_key(&project_id) {
-                continue;
-            }
-
-            let file_attached = file_handle.is_some();
-            let git_attached = git_handle.is_some();
-            if let Some(handle) = file_handle {
-                domain::file::capability::register_watcher_handle(&state, &project_id, handle);
-            }
-            if let Some(handle) = git_handle {
-                domain::git::watch::register_git_watcher_handle(&state, &project_id, handle);
-            }
-            drop(_guard);
-            attached += 1;
-
-            if file_attached {
-                let open_paths = state
-                    .layouts
-                    .read()
-                    .get(&project_id)
-                    .map(domain::layout::service::open_file_paths)
-                    .unwrap_or_default();
-                if !open_paths.is_empty() {
-                    let _ = FsChanged {
-                        project_id: project_id.clone(),
-                        change: FsChange {
-                            kind: FsChangeKind::Modified,
-                            paths: open_paths,
-                            from_app: false,
-                        },
-                    }
-                    .emit(&app_handle);
-                }
-            }
-
-            if git_attached {
-                let _ = GitStatusChanged {
-                    project_id: project_id.clone(),
-                }
-                .emit(&app_handle);
-            }
-        }
-
-        log::info!(
-            "복원 프로젝트 워처 attach 완료: projects={project_count}, attached={attached}, elapsed_ms={}",
-            started.elapsed().as_millis()
-        );
-    });
-}
-
-async fn poll_agents(app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    let terminals = app.state::<TerminalStore>();
-    let agents = app.state::<AgentStore>();
-    let agent_hooks = app.state::<AgentHooksStore>();
-
-    let project_ids: Vec<_> = state.projects.read().keys().cloned().collect();
-    let mut valid_session_ids = std::collections::HashSet::new();
-
-    for project_id in project_ids {
-        let pids = terminals.foreground_pids(&project_id);
-        let Ok(probes) = domain::agent::commands::detect_agents_for_pids_blocking(pids).await else {
-            continue;
-        };
-        let detected = domain::agent::commands::build_detected_agents(&agents, &agent_hooks, &project_id, probes);
-        valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
-
-        if let Some(changed) = agents.diff(&project_id, &detected) {
-            let _ = AgentStateChanged {
-                project_id: project_id.clone(),
-                agents: changed,
-            }
-            .emit(app);
-        }
-    }
-
-    agents.prune_activity(&valid_session_ids);
-}
-
-fn restore_state(state: &AppState) -> Vec<String> {
-    let mut warnings = Vec::new();
-
-    match domain::project::service::restore_session(&state.paths) {
-        Ok((session, projects, session_warnings)) => {
-            let mut layouts = state.layouts.write();
-            for project in &projects {
-                layouts.insert(project.id.clone(), domain::layout::service::load_layout(&state.paths, &project.id));
-            }
-            drop(layouts);
-
-            *state.session.write() = session;
-            *state.projects.write() = projects.into_iter().map(|project| (project.id.clone(), project)).collect();
-            warnings.extend(session_warnings);
-        }
-        Err(error) => warnings.push(format!("세션 복원 실패: {error}")),
-    }
-
-    *state.settings.write() = domain::settings::service::load_settings(&state.paths);
-
-    warnings
-}
-
-/// Handles a cold-start `taide <file>` invocation. `tauri-plugin-single-instance` only forwards
-/// argv to a *second* launch's callback, so a cold start that spawns the app fresh never reaches
-/// it; this queues the request into `AgentStore` instead so the frontend can drain it on boot.
-fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
-    let argv: Vec<String> = std::env::args().collect();
-    let Some(request) = domain::agent::service::parse_cli_payload(&argv) else {
-        return;
-    };
-
-    let agent_store = app_handle.state::<AgentStore>();
-    if let Some(marker) = request.wait_marker.clone() {
-        agent_store.register_wait_marker(marker);
-    }
-    agent_store.push_pending_external_open(request);
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -928,7 +438,7 @@ pub fn run() {
             let projects = state.projects.read();
             infra::asset_protocol::respond(&projects, request)
         })
-        .on_menu_event(handle_menu_event)
+        .on_menu_event(domain::window::commands::handle_menu_event)
         .invoke_handler(move |invoke| {
             if RAW_CHANNEL_COMMANDS.contains(&invoke.message.command()) {
                 raw_channel_handler(invoke)
@@ -941,16 +451,16 @@ pub fn run() {
 
             domain::locale::service::warm_builtin_catalogs();
             builder.mount_events(app);
-            app.set_menu(build_app_menu(app.handle())?)?;
+            app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
 
             let data_dir = app.path().app_data_dir().expect("app data dir unavailable");
             let state = AppState::new(AppPaths::new(data_dir));
 
-            for warning in restore_state(&state) {
+            for warning in domain::project::commands::restore_state(&state) {
                 log::warn!("{warning}");
             }
 
-            let restored = projects_pending_watcher_restore(&state.projects.read(), &state.session.read());
+            let restored = domain::project::commands::projects_pending_watcher_restore(&state.projects.read(), &state.session.read());
 
             app.manage(state);
             app.manage(project_capabilities());
@@ -971,12 +481,13 @@ pub fn run() {
             app.manage(AiRequestStore::default());
             app.manage(SecretStoreState::default());
             app.manage(RemoteStore::default());
+            app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowStore::default());
-            restore_auxiliary_windows(app.handle());
-            restore_project_watchers(app.handle(), restored);
+            domain::window::commands::restore_auxiliary_windows(app.handle());
+            domain::project::commands::restore_project_watchers(app.handle(), restored);
             domain::remote::commands::refresh_password_configured_cache(app.handle());
 
-            queue_cold_start_external_open(app.handle());
+            domain::agent::commands::queue_cold_start_external_open(app.handle());
 
             macro_rules! fanout_remote_events {
                 ($($event:ty),+ $(,)?) => {
@@ -1074,16 +585,16 @@ pub fn run() {
                 let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval));
                 loop {
                     ticker.tick().await;
-                    poll_agents(&agent_handle).await;
+                    domain::agent::commands::poll_agents(&agent_handle).await;
                 }
             });
 
             let flush_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(std::time::Duration::from_millis(LAYOUT_FLUSH_INTERVAL_MS));
+                let mut ticker = tokio::time::interval(std::time::Duration::from_millis(domain::layout::service::LAYOUT_FLUSH_INTERVAL_MS));
                 loop {
                     ticker.tick().await;
-                    flush_dirty_layouts(&flush_handle.state::<AppState>());
+                    domain::layout::service::flush_dirty_layouts(&flush_handle.state::<AppState>());
                 }
             });
 
@@ -1093,7 +604,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
-                flush_dirty_layouts(&window.state::<AppState>());
+                domain::layout::service::flush_dirty_layouts(&window.state::<AppState>());
                 if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
                     window.app_handle().exit(0);
                 }
@@ -1101,7 +612,7 @@ pub fn run() {
                     domain::window::service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
                 }
             }
-            tauri::WindowEvent::CloseRequested { api, .. } => handle_close_requested(window, api),
+            tauri::WindowEvent::CloseRequested { api, .. } => domain::window::commands::handle_close_requested(window, api),
             _ => {}
         })
         .build(tauri::generate_context!())
@@ -1109,7 +620,7 @@ pub fn run() {
         .run(|app_handle, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app_handle.state::<AppState>().begin_shutdown();
-                flush_dirty_layouts(&app_handle.state::<AppState>());
+                domain::layout::service::flush_dirty_layouts(&app_handle.state::<AppState>());
                 app_handle.state::<TerminalStore>().kill_all();
                 app_handle.state::<LspStore>().kill_all();
                 domain::agent::commands::cleanup_all_wait_markers(&app_handle.state::<AgentStore>());
@@ -1335,119 +846,6 @@ mod tests {
         assert_eq!(
             declared, bound,
             "events.rs 의 event_name 집합과 bindings.ts 의 events export 집합이 다릅니다"
-        );
-    }
-
-    fn stub_project(id: &str, root: &str, root_missing: bool) -> domain::project::types::Project {
-        domain::project::types::Project {
-            id: ProjectId::from(id.to_string()),
-            root: root.to_string(),
-            name: id.to_string(),
-            capabilities: Vec::new(),
-            root_missing,
-            last_opened_at: 0.0,
-        }
-    }
-
-    fn stub_session(active_project: Option<&str>, ordered_ids: &[&str]) -> domain::project::types::SessionState {
-        domain::project::types::SessionState {
-            version: domain::project::types::SESSION_SCHEMA_VERSION,
-            projects: ordered_ids
-                .iter()
-                .map(|id| domain::project::types::ProjectRef {
-                    id: ProjectId::from((*id).to_string()),
-                    root: String::new(),
-                    name: (*id).to_string(),
-                })
-                .collect(),
-            active_project: active_project.map(|id| ProjectId::from(id.to_string())),
-        }
-    }
-
-    /// Pins [`restore_project_watchers`]'s attach-target selection — the boundary the boot-watcher
-    /// defer contract (`docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`) actually lets
-    /// this codebase unit-test, since `build_watcher_handle`/`build_git_watcher_handle` themselves
-    /// need a real `AppHandle` this codebase has no mock-app harness for.
-    #[test]
-    fn 워처_재부착_대상은_루트가_존재하는_복원_프로젝트만_포함한다() {
-        let projects: HashMap<ProjectId, domain::project::types::Project> = [
-            stub_project("prj-present", "/repo/present", false),
-            stub_project("prj-missing", "/repo/missing", true),
-        ]
-        .into_iter()
-        .map(|project| (project.id.clone(), project))
-        .collect();
-        let session = stub_session(None, &["prj-present", "prj-missing"]);
-
-        let pending = projects_pending_watcher_restore(&projects, &session);
-
-        assert_eq!(
-            pending,
-            vec![(ProjectId::from("prj-present".to_string()), "/repo/present".to_string())],
-            "root_missing 프로젝트는 워처 재부착 대상에서 제외되어야 합니다"
-        );
-    }
-
-    #[test]
-    fn 복원된_프로젝트가_없으면_워처_재부착_대상도_비어있다() {
-        let projects: HashMap<ProjectId, domain::project::types::Project> = HashMap::new();
-        let session = stub_session(None, &[]);
-
-        assert!(
-            projects_pending_watcher_restore(&projects, &session).is_empty(),
-            "복원된 프로젝트가 없으면 재부착 대상도 없어야 합니다"
-        );
-    }
-
-    /// design-2/concurrency-2 — sequential attach 라 순서가 곧 각 프로젝트의 이벤트 공백 상한이다.
-    /// 활성 프로젝트가 `session.projects` 순서상 어디에 있든 항상 첫 원소로 나와야, 그 공백이
-    /// "이 프로젝트 자신의 워크" 하나로 유계되고 다른 프로젝트들의 워크 합으로 늘어나지 않는다.
-    #[test]
-    fn 활성_프로젝트가_session_순서와_무관하게_항상_첫_원소다() {
-        let projects: HashMap<ProjectId, domain::project::types::Project> = [
-            stub_project("prj-a", "/repo/a", false),
-            stub_project("prj-b", "/repo/b", false),
-            stub_project("prj-c", "/repo/c", false),
-        ]
-        .into_iter()
-        .map(|project| (project.id.clone(), project))
-        .collect();
-        let session = stub_session(Some("prj-b"), &["prj-c", "prj-a", "prj-b"]);
-
-        let pending = projects_pending_watcher_restore(&projects, &session);
-
-        assert_eq!(
-            pending,
-            vec![
-                (ProjectId::from("prj-b".to_string()), "/repo/b".to_string()),
-                (ProjectId::from("prj-c".to_string()), "/repo/c".to_string()),
-                (ProjectId::from("prj-a".to_string()), "/repo/a".to_string()),
-            ],
-            "활성 프로젝트가 선두, 나머지는 session.projects 순서를 그대로 유지해야 합니다"
-        );
-    }
-
-    #[test]
-    fn session_projects에_없는_프로젝트도_재부착_대상에서_누락되지_않는다() {
-        let projects: HashMap<ProjectId, domain::project::types::Project> = [
-            stub_project("prj-tracked", "/repo/tracked", false),
-            stub_project("prj-drift", "/repo/drift", false),
-        ]
-        .into_iter()
-        .map(|project| (project.id.clone(), project))
-        .collect();
-        let session = stub_session(None, &["prj-tracked"]);
-
-        let pending = projects_pending_watcher_restore(&projects, &session);
-
-        assert_eq!(
-            pending.len(),
-            2,
-            "session.projects 가 놓친 프로젝트도 재부착 대상에 포함되어야 합니다"
-        );
-        assert!(
-            pending.iter().any(|(id, _)| id == &ProjectId::from("prj-drift".to_string())),
-            "session 기록에서 누락된 프로젝트도 워처 재부착 대상에 포함되어야 합니다"
         );
     }
 }

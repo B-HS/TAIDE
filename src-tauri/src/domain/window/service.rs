@@ -49,9 +49,12 @@ pub fn normalize_window_state_label(label: &str) -> &str {
 /// (contract §3.1/§3.2), unlike VS Code discarding an auxiliary window's content when it closes.
 ///
 /// Spawns the actual mutation as an async task guarded by `AppState::begin_mutation` — this is
-/// called from a synchronous `tauri::WindowEvent` handler (`lib.rs`), which can't `.await` the async
-/// mutation guard itself, but every `layout::commands` mutation (close/activate/move/pin/...) reads
-/// `state.layouts`, clones it, mutates the clone, and writes it back *without* holding the read lock
+/// called from two synchronous `tauri::WindowEvent` handlers that can't `.await` the async mutation
+/// guard themselves: `lib.rs`'s `on_window_event` `Destroyed` arm directly, and
+/// `domain::window::commands::handle_auxiliary_close_requested` (reached from that same closure's
+/// `CloseRequested` arm via `handle_close_requested`). But every `layout::commands` mutation
+/// (close/activate/move/pin/...) reads `state.layouts`, clones it, mutates the clone, and writes it
+/// back *without* holding the read lock
 /// across that gap — so a synchronous read-modify-write straight into `state.layouts` here could
 /// still race a concurrent command's write and silently lose either mutation. Routing through the
 /// same `begin_mutation` guard and the same clone→mutate→write-back shape those commands use closes

@@ -47,6 +47,16 @@ use regex::Regex;
 ///   correctness contract (moved verbatim from the old commands body in R2). The `ide::store`
 ///   half is the other side of the known layout ↔ ide cycle noted at the ide entries above —
 ///   deferred with it.
+/// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
+///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
+///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
+///   helpers, called from `setup()`, d-32 R1) re-attaches every domain's per-project watcher and
+///   reloads every domain's persisted state before the first window shows; the assembly (`lib.rs`
+///   `setup()`) still owns the boot call order, only the step bodies live here. An assembly-owned
+///   deferred-attach provider (a build/register split on the capability registry) could remove
+///   the `file::capability`/`git::watch` halves; the `layout::service`/`settings::service` halves
+///   are boot state loads and are not capability-shaped. Deferred — d-35 §4-f upheld the deferral
+///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
 /// - `remote/login_page.rs → locale::service` — the served login HTML renders the current UI
 ///   language's strings; locale is a data provider here.
 /// - `settings/service.rs → theme::service` — `set_theme` validates that the target theme exists
@@ -72,6 +82,10 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/layout/commands.rs", "window::commands"),
     ("domain/layout/service.rs", "ide::store"),
     ("domain/layout/service.rs", "terminal::commands"),
+    ("domain/project/commands.rs", "file::capability"),
+    ("domain/project/commands.rs", "git::watch"),
+    ("domain/project/commands.rs", "layout::service"),
+    ("domain/project/commands.rs", "settings::service"),
     ("domain/remote/login_page.rs", "locale::service"),
     ("domain/settings/service.rs", "theme::service"),
     ("domain/sync/commands.rs", "settings::commands"),

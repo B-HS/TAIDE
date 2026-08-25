@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use parking_lot::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_specta::Event;
 
 use super::hooks;
 use super::service;
@@ -12,6 +13,7 @@ use super::types::{
 };
 use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
+use crate::events::AgentStateChanged;
 use crate::ids::ProjectId;
 use crate::state::AppState;
 
@@ -647,6 +649,51 @@ pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: Proje
         scope,
         installed: false,
     })
+}
+
+pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let terminals = app.state::<TerminalStore>();
+    let agents = app.state::<AgentStore>();
+    let agent_hooks = app.state::<AgentHooksStore>();
+
+    let project_ids: Vec<_> = state.projects.read().keys().cloned().collect();
+    let mut valid_session_ids = std::collections::HashSet::new();
+
+    for project_id in project_ids {
+        let pids = terminals.foreground_pids(&project_id);
+        let Ok(probes) = detect_agents_for_pids_blocking(pids).await else {
+            continue;
+        };
+        let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
+        valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
+
+        if let Some(changed) = agents.diff(&project_id, &detected) {
+            let _ = AgentStateChanged {
+                project_id: project_id.clone(),
+                agents: changed,
+            }
+            .emit(app);
+        }
+    }
+
+    agents.prune_activity(&valid_session_ids);
+}
+
+/// Handles a cold-start `taide <file>` invocation. `tauri-plugin-single-instance` only forwards
+/// argv to a *second* launch's callback, so a cold start that spawns the app fresh never reaches
+/// it; this queues the request into `AgentStore` instead so the frontend can drain it on boot.
+pub(crate) fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
+    let argv: Vec<String> = std::env::args().collect();
+    let Some(request) = service::parse_cli_payload(&argv) else {
+        return;
+    };
+
+    let agent_store = app_handle.state::<AgentStore>();
+    if let Some(marker) = request.wait_marker.clone() {
+        agent_store.register_wait_marker(marker);
+    }
+    agent_store.push_pending_external_open(request);
 }
 
 #[cfg(test)]

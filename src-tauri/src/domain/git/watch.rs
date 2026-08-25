@@ -36,7 +36,7 @@ pub fn classify_git_change(path: &Path) -> Option<GitInvalidation> {
 }
 
 /// The one `AppState` write [`register_git_watcher`]/[`build_git_watcher_handle`] need. Split out
-/// so the boot restore path (`lib.rs::restore_project_watchers`) can build the handle (the
+/// so the boot restore path (`domain::project::commands::restore_project_watchers`) can build the handle (the
 /// expensive `FileIdMap` walk) with no `AppState` access at all and only reach for
 /// `AppState::begin_mutation` for this insert — see that function's doc for the full split.
 pub fn register_git_watcher_handle(state: &AppState, project_id: &ProjectId, handle: watcher::WatcherHandle) {

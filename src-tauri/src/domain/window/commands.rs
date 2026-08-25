@@ -1,15 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri_specta::Event;
 
 use super::service;
 use super::types::{
     AuxiliaryWindowInfo, AUXILIARY_WINDOW_DEFAULT_HEIGHT, AUXILIARY_WINDOW_DEFAULT_WIDTH, AUXILIARY_WINDOW_MIN_HEIGHT,
     AUXILIARY_WINDOW_MIN_WIDTH,
 };
-use crate::error::{AppError, AppResult};
+use crate::constants;
+use crate::error::{AppError, AppErrorKind, AppResult};
+use crate::events::HotExitFlushRequested;
 use crate::ids::ProjectId;
 use crate::state::AppState;
 
@@ -64,7 +67,8 @@ impl WindowStore {
 /// forever; Phase F's auxiliary-window bootstrap is expected to reuse it like every other window.
 ///
 /// Deliberately does **not** take `AppState::begin_mutation` itself — every caller (boot-time
-/// restoration in `lib.rs` and `layout::commands::layout_move_tab_to_window`'s `newAuxiliary` path —
+/// restoration in [`restore_auxiliary_windows`] below and
+/// `layout::commands::layout_move_tab_to_window`'s `newAuxiliary` path —
 /// the standalone `window_open_auxiliary` command that used to be a third caller was removed as a
 /// duplicate IPC surface, X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2)
 /// already holds it (or must acquire it) for the duration of the whole operation it's part of; a
@@ -103,7 +107,14 @@ pub async fn open_auxiliary_window(
         .title_bar_style(TitleBarStyle::Overlay)
         .hidden_title(true)
         .build()
-        .map_err(|error| AppError::Internal(format!("보조 창을 여는 데 실패했습니다: {error}")))?;
+        .map_err(|error| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.window.auxiliaryOpenFailed",
+                format!("failed to open the auxiliary window: {error}"),
+            )
+            .with_arg("detail", &error)
+        })?;
 
     windows.register(label.clone(), project_id.clone(), window_slot);
 
@@ -125,7 +136,179 @@ pub async fn open_auxiliary_window(
 #[tauri::command]
 #[specta::specta]
 pub async fn window_set_fullscreen(window: tauri::Window<tauri::Wry>, fullscreen: bool) -> AppResult<()> {
-    window
-        .set_fullscreen(fullscreen)
-        .map_err(|error| AppError::Internal(format!("전체화면 전환에 실패했습니다: {error}")))
+    window.set_fullscreen(fullscreen).map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.window.fullscreenToggleFailed",
+            format!("failed to toggle fullscreen: {error}"),
+        )
+        .with_arg("detail", &error)
+    })
+}
+
+/// A custom (non-predefined) menu item id for the app menu's Quit entry —
+/// see [`handle_menu_event`] for why this can't be `PredefinedMenuItem::quit`.
+const MENU_ID_QUIT: &str = "taide-quit";
+
+pub(crate) fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+
+    let quit_item = MenuItemBuilder::with_id(MENU_ID_QUIT, "Quit")
+        .accelerator("CmdOrCtrl+Q")
+        .build(handle)?;
+
+    let app_menu = SubmenuBuilder::new(handle, "TAIDE")
+        .item(&PredefinedMenuItem::about(handle, None, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::services(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::hide(handle, None)?)
+        .item(&PredefinedMenuItem::hide_others(handle, None)?)
+        .item(&PredefinedMenuItem::show_all(handle, None)?)
+        .separator()
+        .item(&quit_item)
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(handle, "Edit")
+        .item(&PredefinedMenuItem::undo(handle, None)?)
+        .item(&PredefinedMenuItem::redo(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(handle, None)?)
+        .item(&PredefinedMenuItem::copy(handle, None)?)
+        .item(&PredefinedMenuItem::paste(handle, None)?)
+        .item(&PredefinedMenuItem::select_all(handle, None)?)
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(handle, "Window")
+        .item(&PredefinedMenuItem::minimize(handle, None)?)
+        .item(&PredefinedMenuItem::maximize(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::fullscreen(handle, None)?)
+        .build()?;
+
+    MenuBuilder::new(handle).items(&[&app_menu, &edit_menu, &window_menu]).build()
+}
+
+/// Handles `CloseRequested` for an auxiliary editor window (`editor-<n>`).
+/// Before Wave I every window funneled into the same hot-exit flush/exit
+/// sequence `handle_close_requested` runs for the main window below, so
+/// closing a second window silently terminated the whole app
+/// (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.1).
+/// The close is intentionally left un-prevented here so the OS's default
+/// close proceeds and only this one window goes away. Both registry cleanups
+/// are idempotent with `lib.rs`'s `WindowEvent::Destroyed` handler, which runs
+/// this same cleanup again as a backstop for closes that don't go through
+/// `CloseRequested` at all (e.g. a crash).
+fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>) {
+    if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
+        window.app_handle().exit(0);
+    }
+
+    if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
+        service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
+    }
+}
+
+/// Intercepts the window close request to give every open window a chance to
+/// flush its own dirty editor models to the hot-exit mirror before the app
+/// actually exits. Only the main window runs this path — see
+/// [`handle_auxiliary_close_requested`] for `editor-*` windows, which close
+/// immediately instead. Always defers the main window's close
+/// (`prevent_close`) and lets either every expected window's own
+/// `file_flush_complete` call or the timeout fallback below perform the real
+/// `AppHandle::exit`, so the window is never destroyed by the OS's default
+/// close path. `AppState::begin_hot_exit_flush` guards re-entrant close
+/// attempts (e.g. mashing Cmd+Q) from emitting the flush event twice.
+pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
+    if service::is_auxiliary_label(window.label()) {
+        handle_auxiliary_close_requested(window);
+        return;
+    }
+
+    api.prevent_close();
+
+    let state = window.state::<AppState>();
+    state.begin_shutdown();
+    // `windows()` needs the `unstable` Tauri feature this project doesn't enable;
+    // `webview_windows()` is the stable equivalent and every window here is a webview window.
+    let expected_windows: HashSet<String> = window.webview_windows().into_keys().collect();
+    if !state.begin_hot_exit_flush(expected_windows) {
+        return;
+    }
+
+    // `Event::emit` broadcasts to every window/webview app-wide regardless of which handle it's
+    // called through, so every currently-open auxiliary window already receives this alongside
+    // the main window — no separate per-window fanout loop is needed here.
+    let _ = HotExitFlushRequested {
+        timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
+    }
+    .emit(window);
+
+    let app_handle = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS)).await;
+        if app_handle.state::<AppState>().force_complete_hot_exit_flush() {
+            log::warn!("hot exit flush timed out; exiting without every window's confirmation");
+            app_handle.exit(0);
+        }
+    });
+}
+
+/// Routes the app menu's Quit item through the same `WindowEvent::CloseRequested`
+/// flush handshake as clicking the window's close button, instead of the native
+/// `NSApplication terminate:` binding `PredefinedMenuItem::quit` uses on macOS.
+/// `terminate:` runs straight to `applicationWillTerminate` and `RunEvent::Exit`
+/// with no `CloseRequested` (or preventable `ExitRequested`) event in between —
+/// tao's macOS app delegate has no `applicationShouldTerminate:` hook to catch it
+/// — so Cmd+Q would otherwise skip `handle_close_requested` entirely and drop
+/// any hot-exit mirror writes still pending in the last debounce window.
+pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
+    if event.id() != MENU_ID_QUIT {
+        return;
+    }
+    if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+}
+
+/// Recreates every `AuxWindowLayout` recorded across every restored (non-`root_missing`) project as
+/// a real OS window — the boot-time half of "보조 창 레이아웃 영속·재시작 시 복원(창 재생성)"
+/// (contract §3.2). Spawns one task per window rather than awaiting them serially so restoration
+/// doesn't block the rest of `setup()`; each task still takes `AppState::begin_mutation` for the
+/// duration of its own `window::commands::open_auxiliary_window` call, so concurrent restorations
+/// serialize through that single guard instead of racing to coin the same `editor-<n>` label (see
+/// that function's doc comment).
+pub(crate) fn restore_auxiliary_windows(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let project_ids: Vec<ProjectId> = state
+        .projects
+        .read()
+        .iter()
+        .filter(|(_, project)| !project.root_missing)
+        .map(|(project_id, _)| project_id.clone())
+        .collect();
+
+    let layouts = state.layouts.read();
+    let restorations: Vec<(ProjectId, u32)> = project_ids
+        .into_iter()
+        .filter_map(|project_id| {
+            layouts
+                .get(&project_id)
+                .map(|layout| (project_id, layout.auxiliary_windows.clone()))
+        })
+        .flat_map(|(project_id, windows)| windows.into_iter().map(move |window| (project_id.clone(), window.slot)))
+        .collect();
+    drop(layouts);
+
+    for (project_id, window_slot) in restorations {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app_handle.state::<AppState>();
+            let _guard = state.begin_mutation().await;
+            let windows = app_handle.state::<WindowStore>();
+            if let Err(error) = open_auxiliary_window(&app_handle, &state, &windows, project_id.clone(), window_slot).await {
+                log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
+            }
+        });
+    }
 }

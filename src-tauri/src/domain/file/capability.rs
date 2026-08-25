@@ -16,7 +16,7 @@ use super::types::FsChange;
 /// `FileWatcherCapability::attach` is the only caller that still builds and registers in one
 /// call — it already runs its entire `ProjectCapabilities::attach_all` walk under one
 /// `AppState::begin_mutation` acquisition, so splitting internally here changes nothing about when
-/// that guard is held. The boot restore path (`lib.rs::restore_project_watchers`) calls
+/// that guard is held. The boot restore path (`domain::project::commands::restore_project_watchers`) calls
 /// [`build_watcher_handle`] and [`register_watcher_handle`] separately instead, so its own guard
 /// only has to cover the register half — see that function's doc.
 pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
@@ -53,7 +53,7 @@ pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str)
 }
 
 /// Registers a handle [`build_watcher_handle`] already built — the one `AppState` write the boot
-/// restore split needs `AppState::begin_mutation` for (`lib.rs::restore_project_watchers`), held
+/// restore split needs `AppState::begin_mutation` for (`domain::project::commands::restore_project_watchers`), held
 /// only across this call and its own `state.projects`/`state.watchers` re-checks, not across the
 /// handle's own walk.
 pub fn register_watcher_handle(state: &AppState, project_id: &ProjectId, handle: watcher::WatcherHandle) {
