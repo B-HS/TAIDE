@@ -49,6 +49,43 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: 후속 배치 큐 d-36~d-39 (2026-08-25 사용자 결정 — 정본 `acknowledge/2026-08-25-post-batch-user-decisions.md`)
+
+> 순서: d-36 → d-37 → d-38 → d-39(완료 시 Phase 8 진입). Rust 한 시점 한 에이전트·배치별
+> 계약→구현 wf→검토→수정→메인 2차 파이프라인 유지. QoS 캠페인은 사용자 기각(착수 금지).
+
+- [x] d-36 테마 전수검사 — **완료(2026-08-25)**: taide-light matchHighlight `#8839ef`(mauve)
+      정정·린트 5종 38종 확장·대비 게이트(3) 신설(예외 2 승계)·FAIL 재현 확증. 검토 3렌즈
+      major 1 → 적대적 **downgraded**(§4 — nord 선택 행 결함은 선재·하위 증상, §5 이월:
+      선택 행 전경 대비 가드 부재 — 사용자 결정 갈래 3). 수정 5건 반영. 메인 2차 Rust 전량
+      그린(1082+3+6+17·fmt·clippy·bindings 실토큰 0). 계약
+      `2026-08-25-d36-theme-catalog-audit-contract.md` §0~§5 정본
+- [x] d-37 AI 묶음 — **완료(2026-08-25)**: `AiTextResponse` 통합(bindings 3소멸·1신설·와이어
+      불변)·codex `Incomplete` 분리+`fail_on_truncation` 전파(auto-tab 관용/instruct 에러 —
+      3 provider 의미 일치)·`post_json_and_parse` 부분 통합(#12 나머지 근거 보류). 검토 3렌즈
+      major 1(IPC 정본 문서 stale — 메인 기계 확정·적대적 생략)·수정 6건 전건. 메인 2차
+      verify+vite exit 0(AI 100·dispatch 31 포함 전량). 계약
+      `2026-08-25-d37-ai-batch-contract.md` §0~§4 정본
+- [x] d-38 원격 정책 — **완료(2026-08-25)**: 키링 변경 4커맨드(`ai_set_token`·`ai_clear_token`·
+      `sync_connect`·`sync_disconnect`) 원격 거부(`CredentialStoreTampering` 신설·로케일 3언어·
+      조회 2종 허용 유지)+정책 3건 명문화(허용 156/거부 24). 검토 2렌즈 major 1(ai.md 정반대
+      서술 — 기계 확정·적대적 생략)·수정 6건(무피드백 실패 상환: 4곳 `describeIpcError` 교체·
+      `settings.aiTokenClearFailed` 신설 — 918키×3). 이월 1건 신규(계약 §6:
+      `ai_omlx_base_url` 스트립 편입 — 사용자 결정). 메인 2차 verify+vite exit 0. 계약
+      `2026-08-25-d38-remote-policy-contract.md` §0~§6 정본
+- [ ] d-39 e2e 파일럿+전문 QA — **하네스는 기구축·검토 완료(d-3, e2e/ 12스펙·Playwright
+      1.62.1+webkit 설치됨 — 신규 구축 불요 확인 2026-08-25)**. 잔여 = 파일럿 실행(사용자
+      준비 선행: ① `bun run tauri dev` ② REMOTE 비밀번호 8자+·password_only ON·활성화 ON
+      ③ `export TAIDE_E2E_PASSWORD` ④ `bun run e2e`) → 결과 기반 스펙 확장·qa6 실기 확증.
+      완료 = Phase 8 진입 조건
+- [ ] d-40 선택 행 표면 대비 정공법(2026-08-25 사용자 확정 — "전면 게이트+데이터 정정"):
+      `list.activeBackground` 전경 대비 게이트 신설(매치 전경·일반 전경 양축, TS CONTRAST_PAIRS
+      +Rust 동시)+위반 5~8종 업스트림 스케일 내 데이터 정정(nord 동일색 포함). 정본 = d-36 계약
+      §5(정정 수치표·알파 합성 필수·palenight 1.13 최악). 독립 배치 규모 — d-41 후 착수
+- [ ] d-41 omlx base_url 원격 스트립(2026-08-25 사용자 확정 — "스트립 편입"): `ai_omlx_base_url`
+      을 `strip_remote_gated_settings_patch`/`strip_remote_gated_settings` 에 편입(shell_override
+      선례)+sync_download 경로 확인+테스트. 정본 = d-38 계약 §6. 소형 Rust — 먼저 착수
+
 ## 완료: d-32~35 산출물 커밋 5분할 + main ff 병합 (2026-08-25 사용자 승인)
 
 > 승인: 5분할(HANDOFF §6-1 원안 — ① refactor d-32 ② refactor+fix d-33 ③ feat d-34 ④ perf d-35

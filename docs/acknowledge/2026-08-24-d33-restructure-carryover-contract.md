@@ -385,6 +385,7 @@ undefined`)를 그대로 따르므로 무수정.
 **판단 근거**: TS 파이프라인(`mapping-tables.ts`의 `isDistinctFromBodyForeground`)이 이미 derive 단계에서 CIE76 ΔE<2.3 정밀 검사를 수행한다. 계약 §3-C 재스윕 표 기준 36종 실측 분포를 보면 동일색 결함은 항상 ΔE=0.0(hex 완전 동일)이고 그다음으로 낮은 값은 5.39(one-monokai, 배치 미대상)라, hex 동일성 검사와 ΔE<2.3 검사가 현재 카탈로그 전량에서 판정이 일치한다. 따라서 Rust에 CIE76 전체를 이식하는 비용을 들이지 않고, TS = 정밀 1차 게이트(derive 단계 차단), Rust = "완전 동일색 데이터가 TS 파이프라인을 거치지 않고 재유입"하는 것을 막는 저비용 2차 게이트로 역할을 분담하는 것으로 결론지었다.
 
 **구현**: `src-tauri/src/domain/theme/service.rs`의 `mod tests`에 `번들_테마는_panel_매치_하이라이트가_app_전경색과_동일하지_않다` 테스트 추가. `bundled_themes()`(36개 JSON 소스만 순회 — `builtin_dark()`/`builtin_light()`는 이 함수에 애초에 포함되지 않으므로 자동으로 범위 외, 지시대로 순회 대상에서 제외됨)를 순회하며 `panel.matchHighlight`와 `app.foreground`를 `normalize_hex_color`로 정규화 비교, 동일하면 위반으로 모아 한 번에 assert(기존 `list.activeBackground`/`panel.matchHighlight 불투명` 린트와 동일 관행). 역할 분담 근거를 영어 doc 주석(이 파일의 기존 `///` rationale 관행 준수)으로 명시.
+> [d-36 각주 2026-08-25] 이 절의 테스트명은 d-36 에서 `카탈로그_테마는_...` 로 개명되고 순회 범위가 38종(번들 36+빌트인 2)으로 확장됨 — 정본은 `2026-08-25-d36-theme-catalog-audit-contract.md` §3.2.
 
 **FAIL 재현(d-20 §3-E/d-31 선례 방식 — git stash/commit 미사용, 작업트리 파일만 일시 조작)**:
 1. monokai.json·palenight.json·night-owl-light.json 3개(작업트리 = TS 임무 C 정정본)를 스크래치패드로 백업.

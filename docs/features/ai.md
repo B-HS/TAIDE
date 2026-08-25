@@ -235,8 +235,10 @@
 
 - 신규 커맨드 3종(`ai_inline_edit`·`ai_commit_message`·`git_diff_staged_text`)과 리네임된
   `ai_request_cancel` 은 전부 원격 dispatch 허용 목록(`domain/remote/dispatch.rs`)에 등록돼
-  있다 — 기존 `ai_set_token` 포함 AI 6종·git 조회 커맨드 전반과 동일한 정책(거부 arm 없음). 원격
-  세션에서도 Inline Edit·AI 커밋 메시지·자동완성을 그대로 쓸 수 있다.
+  있다 — 다만 `ai_set_token`/`ai_clear_token` 은 **d-38(2026-08-25)** 에서
+  `RemoteDenialPolicy::CredentialStoreTampering` 거부로 전환됐다(근거는 `ipc-contract.md`
+  §"원격 dispatch 정책" 참조). 원격 세션에서도 Inline Edit·커밋 메시지·자동완성은 그대로 쓸 수 있고,
+  토큰 저장/삭제만 막힌다.
 
 ## 9. 범위 밖 (보류·기각 — 계약 §4)
 

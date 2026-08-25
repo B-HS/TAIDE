@@ -419,10 +419,9 @@ struct SearchMatch {
 ```rust
 struct AiInlineEditRequest  { request_id, provider: Option<AiProviderId>, model: Option<String>,
                                selection, instruction, language, file_path, prefix, suffix: String }
-struct AiInlineEditResponse { request_id: String, text: Option<String> }
 struct AiCommitMessageRequest  { request_id, provider: Option<AiProviderId>, model: Option<String>,
                                   diff_text, recent_commits: String }
-struct AiCommitMessageResponse { request_id: String, text: Option<String> }
+struct AiTextResponse { request_id: String, text: Option<String> }  // d-37 — 세 커맨드(auto-tab 포함) 공용
 ```
 
 - `provider`/`model` 이 없으면 `Settings.ai_provider`/`ai_model`(§7)을 기본값으로 쓴다.
@@ -615,7 +614,9 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
 - **§10.4 AI 요청 타입에 `owner: String` 추가(R6#20)**: `AiInlineEditRequest`/`AiCommitMessageRequest`
   (그리고 §10.4 표에서 제외됐던 `AiInlineCompleteRequest`, auto-tab)에 각각 `owner: String` 필드가
   붙는다 — Rust `AiRequestStore` 의 키가 `requestId` 단독에서 `(owner, requestId)` 복합으로 바뀌었기
-  때문이다. `AiInlineEditResponse`/`AiCommitMessageResponse`(응답 쪽)는 무변경. 세션 스코프
+  때문이다. `AiInlineEditResponse`/`AiCommitMessageResponse`(응답 쪽, 2026-08-19 시점)는 무변경 —
+  이후 d-37(2026-08-25)로 이 둘과 `AiInlineCompleteResponse`가 `AiTextResponse` 하나로 통합됐다
+  (§10.4). 세션 스코프
   (`AiRequestStore` 는 진행 중 요청만 잠깐 들고 있는 인메모리 맵)라 §3 핵심 타입에는 등재하지 않는다.
 - **IDE 선택영역 타입(§10 인벤토리엔 없었음)에 `owner: String` 추가(R6#12)**: `IdeSelectionInput`
   (`domain::ide::types`)에 `owner: String` 이 붙는다. `IdeStore.current_selection` 자체의 저장

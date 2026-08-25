@@ -7,6 +7,31 @@
 > 명기했다(중간 커밋의 단독 컴파일 비보장 — 최종 트리 = verify 그린).
 > 이 문서가 세션 인수인계 단일 진입점. 직전 스냅샷은 `git show ac1cd27:docs/HANDOFF.md`.
 
+## 0. 증보 — 같은 날 후속 배치 d-36~d-38 완주 (2026-08-25)
+
+> 커밋 5분할·푸시 이후 같은 세션에서 사용자 결정(정본
+> `acknowledge/2026-08-25-post-batch-user-decisions.md`)에 따라 후속 배치 3건을 완주하고
+> 4분할 커밋+병합+푸시. 각 계약 §0~끝이 정본. 파이프라인(계약→구현 wf→검토→적대적/기계
+> 확정→수정→메인 2차 verify)은 전 배치 유지 — d-36 적대적 downgraded 1(재론 금지)·d-37/38
+> major 는 기계 확정으로 적대적 생략(d-34 선례).
+
+1. **d-36 테마 전수검사**(`2026-08-25-d36-theme-catalog-audit-contract.md`): taide-light
+   matchHighlight `#8839ef`(mauve)·린트 5종 38종 확장·대비 게이트(3) 신설. §5 이월(선택 행
+   표면 대비)은 2차 객관식에서 **정공법 확정 → d-40**.
+2. **d-37 AI 묶음**(`2026-08-25-d37-ai-batch-contract.md`): `AiTextResponse` 통합(bindings
+   3소멸·1신설·와이어 불변)·codex `Incomplete` 분리+`fail_on_truncation` 전파·
+   `post_json_and_parse` 부분 통합(#12 잔여 근거 보류).
+3. **d-38 원격 정책**(`2026-08-25-d38-remote-policy-contract.md`): 키링 변경 4커맨드 거부
+   (`CredentialStoreTampering`·허용 156/거부 24)·정책 3건 명문화·무피드백 실패 상환(4곳
+   `describeIpcError`·`settings.aiTokenClearFailed` 신설 — 로케일 **918키×3**). §6 이월
+   (omlx base_url)은 **스트립 편입 확정 → d-41**.
+
+- **잔여 큐**: d-41(omlx base_url 스트립 — 소형 Rust, 먼저) → d-40(선택 행 대비 정공법 —
+  TS·Rust 게이트+위반 5~8종 데이터 정정, d-36 §5 수치표 정본·알파 합성 필수) → d-39(e2e
+  파일럿 실행 — 하네스 기구축, 사용자 준비 대기) → Phase 8. QoS 캠페인은 사용자 기각 확정.
+- 기준선 갱신: Rust **1090**+3+6+17(테마 33·AI 100·dispatch 33 — lib 실측 2026-08-25)·bun
+  1481·로케일 918키×3·bindings 델타 = d-34 순증+d-37 3소멸/1신설.
+
 ## 1. 프로젝트 한 줄 정의
 
 **TAIDE** — Tauri 2 + Rust 코어 + React 19 의 에이전트 친화 데스크톱 IDE. 상태는 Rust 소유

@@ -101,6 +101,8 @@
 - `번들_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다`: 번들 전 테마를 순회해
   `list.activeBackground != panel.background` && `!= list.hoverBackground` 를 정규화 비교로
   강제. 위반은 모아서 한 번에 assert(테마 하나 실패 시 나머지를 가리지 않음).
+
+> [d-36 각주 2026-08-25] 위 테스트명은 d-36 에서 `카탈로그_테마는_...` 로 개명되고 순회 범위가 38종(번들 36+빌트인 2)으로 확장됨 — 정본은 `2026-08-25-d36-theme-catalog-audit-contract.md` §3.2.
 - `LIST_ACTIVE_BACKGROUND_LINT_EXEMPTIONS`: 화이트리스트 상수. **현재 비어 있음** — 정정 후
   36개 번들 테마 전량이 예외 없이 통과.
 

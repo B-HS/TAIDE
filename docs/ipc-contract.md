@@ -10,14 +10,18 @@
 > 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제). raw 채널
 > 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **180종**. event 는 **23종**
 > (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이
-> 180종을 `REMOTE_ALLOWED_COMMANDS`(160) ⊎ `REMOTE_DENIED_COMMANDS`(20) 로 완전 분할한다(§원격
-> dispatch 정책). d-27 배치가 신규 커맨드 1종(`project_list_recent` — 프로젝트 영속 기록 전수 조회,
-> Welcome 화면 "최근 프로젝트" 전용)을 더해 176 → **177** 이 됐다(허용/거부 분할은 신규 커맨드가
-> `REMOTE_DENIED_COMMANDS` 로만 등재돼 `REMOTE_ALLOWED_COMMANDS` 는 160종 그대로,
-> `REMOTE_DENIED_COMMANDS` 만 19 → **20** 이 됐다). X-A 배치가 중복 커맨드 5종(`ide_start`/
-> `ide_stop`/`remote_start`/`remote_stop`/`window_open_auxiliary`)을 제거하고 신규 커맨드 1종
-> (`lsp_report_reinitialize_failure`)을 더해 180 → 176 이 됐던 것이 d-27 이전 상태다(§"X-A 배선 +
-> 소규모 잔여 청소 배치" 절 참조). 그 이전 실측(180/183/25/163/20)은 더 앞선 상태다.
+> 180종을 `REMOTE_ALLOWED_COMMANDS`(156) ⊎ `REMOTE_DENIED_COMMANDS`(24) 로 완전 분할한다(§원격
+> dispatch 정책). **d-38(2026-08-25)** 이 커맨드 총수는 그대로 두고 분할만 옮겼다 — 키링 자격증명을
+> 바꾸거나 지우는 4종(`ai_set_token`/`ai_clear_token`/`sync_connect`/`sync_disconnect`)을 허용에서
+> 거부로 이동해 `REMOTE_ALLOWED_COMMANDS` 160 → **156**, `REMOTE_DENIED_COMMANDS` 20 → **24**
+> 가 됐다(상세는 §원격 dispatch 정책의 "d-38" 절). d-27 배치가 신규 커맨드 1종(`project_list_recent`
+> — 프로젝트 영속 기록 전수 조회, Welcome 화면 "최근 프로젝트" 전용)을 더해 176 → **177** 이
+> 됐다(허용/거부 분할은 신규 커맨드가 `REMOTE_DENIED_COMMANDS` 로만 등재돼 `REMOTE_ALLOWED_COMMANDS`
+> 는 160종 그대로, `REMOTE_DENIED_COMMANDS` 만 19 → **20** 이 됐다) — d-38 이전 상태다. X-A 배치가
+> 중복 커맨드 5종(`ide_start`/`ide_stop`/`remote_start`/`remote_stop`/`window_open_auxiliary`)을
+> 제거하고 신규 커맨드 1종(`lsp_report_reinitialize_failure`)을 더해 180 → 176 이 됐던 것이 d-27
+> 이전 상태다(§"X-A 배선 + 소규모 잔여 청소 배치" 절 참조). 그 이전 실측(180/183/25/163/20)은 더
+> 앞선 상태다.
 
 ## 1. 공통 규칙
 
@@ -280,17 +284,19 @@
   `ai_list_models(provider)` → `AiModelInfo[]`
 - mutation: `ai_set_token(provider, token)`, `ai_clear_token(provider)`
 - mutation(취소 가능, `requestId` 기반 — 셋이 `AiRequestStore` 하나를 공유):
-  `ai_inline_complete(request: AiInlineCompleteRequest)` → `AiInlineCompleteResponse{requestId, text}`
-  (auto-tab, FIM-우선/chat-폴백) · **`ai_inline_edit(request: AiInlineEditRequest)`**(신규) →
-  `AiInlineEditResponse{requestId, text}` · **`ai_commit_message(request: AiCommitMessageRequest)`**
-  (신규) → `AiCommitMessageResponse{requestId, text}` · **`ai_request_cancel(requestId)`**
-  (`ai_inline_cancel` 에서 리네임 — auto-tab 전용이던 취소가 세 커맨드 공용으로 일반화됐다)
+  `ai_inline_complete(request: AiInlineCompleteRequest)`(auto-tab, FIM-우선/chat-폴백) ·
+  **`ai_inline_edit(request: AiInlineEditRequest)`**(신규) · **`ai_commit_message(request:
+  AiCommitMessageRequest)`**(신규) · **`ai_request_cancel(requestId)`**(`ai_inline_cancel` 에서
+  리네임 — auto-tab 전용이던 취소가 세 커맨드 공용으로 일반화됐다). 세 커맨드 모두 `AiTextResponse
+  {requestId, text}` 하나를 공유해 응답한다(d-37 — 이전에는 이름만 다른 `AiInlineCompleteResponse`/
+  `AiInlineEditResponse`/`AiCommitMessageResponse` 3타입이었다).
 - `AiInlineEditRequest{requestId, provider?, model?, selection, instruction, language, filePath,
   prefix, suffix}` / `AiCommitMessageRequest{requestId, provider?, model?, diffText, recentCommits}`
   — `provider`/`model` 을 생략하면 `Settings.aiProvider`/`aiModel` 로 폴백한다(`ai.md` §1). 텍스트
   응답은 둘 다 실패가 아니라 `text: null`(빈 응답/취소)로 표현될 수 있다. (`AiInlineCompleteRequest`
   는 `provider`/`model` 이 필수다 — 폴백 대상이 아니다.)
-- 원격 dispatch: ai 8종 전부 허용(§"원격 dispatch 정책" 참조) — `ai.md` §8.
+- 원격 dispatch: `ai_set_token`/`ai_clear_token` 을 제외한 6종 허용, 이 둘은 **d-38(2026-08-25)에서
+  거부로 전환**(`RemoteDenialPolicy::CredentialStoreTampering`) — §"원격 dispatch 정책" 참조.
 
 ### terminal (`terminal.md`)
 
@@ -916,7 +922,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 뒤집혔다. **정책(어떤 커맨드가 허용/거부인지)은 이 배치에서 전혀 바뀌지 않았다** — 바뀐 것은
 > 강제 메커니즘뿐이다: 이전에는 새 `match` arm 을 추가하기만 하면 그 커맨드가 자동으로 원격
 > 허용됐다(무증상 위험). 이제는 `src-tauri/src/domain/remote/dispatch.rs` 의
-> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 160종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 20종) **둘 중
+> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 156종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 24종) **둘 중
 > 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를 실핸들러로 위임한다 — 등재를
 > 잊으면 `RemoteDenialPolicy::Unclassified` 로 즉시 거부되고, 완전 분할 파리티 테스트
 > (`허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다`)가 등재 누락 자체를
@@ -927,7 +933,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 `bindings.ts` 와 강제
 > 일치시킨다) + `lib.rs` 의 `RAW_CHANNEL_COMMANDS`(3종 — `pty_spawn`/`pty_attach`/`file_read_raw`,
 > collect_commands! 등록은 되지만 specta 핸들러를 우회하는 raw 채널). `REMOTE_ALLOWED_COMMANDS` 는
-> 160종으로 `IMPLEMENTED_JSON_COMMANDS` 와 **집합이 다르다** — `pty_spawn`/`pty_attach` 는
+> 156종으로 `IMPLEMENTED_JSON_COMMANDS` 와 **집합이 다르다** — `pty_spawn`/`pty_attach` 는
 > `dispatch()` 의 `match` arm 이 실재하는데도 `IMPLEMENTED_JSON_COMMANDS` 에는 없다(그 목록은
 > specta/bindings 파리티만 추적하는 다른 축이라서다), 반대로 `file_read_raw` 는
 > `IMPLEMENTED_JSON_COMMANDS` 에 없지만 `dispatch_raw()` 의 `match` arm 으로 원격 실행된다 — 그래서
@@ -939,16 +945,41 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > Unclassified`) → **③ `enforce_remote_owner_label` 로 `owner` 강제 치환 후 `match` 위임**. 두
 > 함수의 `match` 자체의 `_` fallback 도 (①·②를 통과했다면 도달 불가능해야 하지만) 같은
 > `Unclassified` 거부로 정합시켜 방어선을 이중화했다.
+>
+> **d-38(2026-08-25, `docs/acknowledge/2026-08-25-d38-remote-policy-contract.md`)**: 남아 있던 미결
+> 정책 3건을 확정했다(사용자 결정 정본: `docs/acknowledge/2026-08-25-post-batch-user-decisions.md`
+> §3). ① `ide_publish_diagnostics`/`ide_notify_at_mention` 원격 허용 — **검토 완료, 의도된 허용으로
+> 확정**(현행 유지, 코드 변경 없음). ② `agent_hooks_install`/`agent_hooks_uninstall` 의 User 스코프
+> 비대칭(install 은 거부, uninstall 은 허용) — **의도된 설계로 확정**(제거는 TAIDE 가 심은 훅을
+> 지우는 방향이라 위험을 늘리지 않는다는 논리, 대칭화하지 않는다 — 아래 "스코프 조건부 거부" 항목
+> 참조). ③ **키링 자격증명 변경을 원격 거부로 전환**(코드 변경, 이번 배치) — 키링 5계정
+> (`infra::secret::SecretAccount`) 중 원격에서 바꾸거나 지울 수 있던 나머지 4계정을 막았다:
+> `ai_set_token`/`ai_clear_token`(`AiOllamaCloud`/`AiCodex`/`AiOmlx`, `provider` 인자로 계정을
+> 선택)과 `sync_connect`/`sync_disconnect`(`GithubSync` — gist 동기화 PAT)를
+> `REMOTE_ALLOWED_COMMANDS` → `REMOTE_DENIED_COMMANDS` 로 옮기고, 신설
+> `RemoteDenialPolicy::CredentialStoreTampering` 으로 분류했다(다섯 번째 계정 `RemoteAccess` 는 이미
+> `SelfAccessExpansion` 으로 거부돼 있었다 — 감사 R3#7 이 지적한 "키링 5계정 중 원격 거부 1계정뿐"
+> 갭이 이번 전환으로 해소돼 5계정 전부 원격 거부가 됐다). 값을 절대 반환하지 않는 상태 조회(`ai_token_status`/`sync_status`
+> — 연결 여부만 반환)는 손대지 않고 허용에 남겼다. 이로써 `REMOTE_ALLOWED_COMMANDS` 160 → **156**,
+> `REMOTE_DENIED_COMMANDS` 20 → **24**(총 180종은 그대로). 이것은 표면 축소이지 기밀 경계가 아니다 —
+> `LocalFilesystemEscape`/`InstallOrProcessExecution` 과 같은 근거로, 인증된 원격 세션은 허용된
+> `pty_spawn` 으로 이미 셸을 쥐고 있어 `settings.json` 을 직접 고쳐 동등한 지속성을 확보할 수 있다.
+> 닫힌 것은 키링 항목의 write/delete 이며, 저장된 키의 전송 대상을 정하는 `ai_omlx_base_url` 은
+> 여전히 허용 경로(`settings_update`·`sync_download`)로 변경 가능하다 — 이 필드를
+> `strip_remote_gated_settings_patch`/`strip_remote_gated_settings` 스트립 목록에 편입할지는
+> 사용자 결정 이월이다(코드 변경 없음).
 
-- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 160종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
-  전종·`file_*`(아래 예외 제외)·`ai_*` 8종·`plugin_list`/`plugin_reload`/`plugin_read_grammar`·
+- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 156종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
+  전종·`file_*`(아래 예외 제외)·`ai_*` 6종(`ai_set_token`/`ai_clear_token` 제외 — d-38, 아래 표
+  참조)·`plugin_list`/`plugin_reload`/`plugin_read_grammar`·
   `remote_status`/`remote_revoke_sessions`·`lsp_confirm_reinitialize`/
-  `lsp_report_reinitialize_failure`·`sync_*`·`search_replace`
+  `lsp_report_reinitialize_failure`·`sync_*`(3종 — `sync_status`/`sync_upload`/`sync_download`,
+  `sync_connect`/`sync_disconnect` 제외 — d-38)·`search_replace`
   (원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화 없음)·`theme_save`/
   `theme_delete`·`snippet_save`/`snippet_delete`·`git_init`·`pty_spawn`/`pty_attach`/`file_read_raw`
   (raw 채널 3종 — 아래 "raw 커맨드" 절 참조). `remote_start`/`remote_stop` 은 X-A 배치(2026-08-19)에서
   커맨드 자체가 제거돼 이 목록에서도 빠졌다(§"remote" 절 참조).
-- **명시 거부(`REMOTE_DENIED_COMMANDS`, 20종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
+- **명시 거부(`REMOTE_DENIED_COMMANDS`, 24종)** — `dispatch()`/`dispatch_raw()` 가 실핸들러를 부르지
   않고 즉시 `AppError::Forbidden` 을 반환한다. `IMPLEMENTED_JSON_COMMANDS` 에는 파리티 유지를 위해
   그대로 남아 있다. 각 항목은 `RemoteDenialPolicy` enum 값 하나로 분류되고(같은 분류를 공유하는
   커맨드는 응답 메시지 문구도 공유한다 — 거부 여부·의미는 그대로, 문구만 변형별로 통합), 이전에는
@@ -964,6 +995,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
   | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
   | `project_list_recent` | `LocalProjectHistoryExposure` | 현재 세션에 열려 있지 않은 프로젝트를 포함해 디스크의 영속 프로젝트 기록 전수를 반환한다 — Welcome 화면 "최근 프로젝트" 전용 로컬 조회이며, `project_list`(현재 열린 세션만 노출)보다 넓게 로컬 파일시스템 경로/이름을 드러내므로 원격 세션에는 불필요·부적절하다(d-27). **기대 동작**: `welcome` 탭은 모든 프로젝트의 기본 레이아웃에 포함되므로 원격 세션에서도 마운트되고, 이 커맨드는 매번 Forbidden 을 받는다 — "최근 프로젝트" 섹션은 원격에서 항상 빈 상태로 렌더되는 것이 의도된 열화다(`WelcomeContainer` 가 `isError` 시 `app.recentProjectsUnavailable` 안내 문구를 보여준다) |
+  | `ai_set_token` / `ai_clear_token` / `sync_connect` / `sync_disconnect` | `CredentialStoreTampering` | 키링에 쓰거나 지우는 자격증명(AI 프로바이더 토큰 3종·GitHub 동기화 PAT)은 세션이 끝난 뒤에도 남는다 — 원격 세션이 자기 토큰으로 바꿔치면 이후 데스크톱이 내보내는 `ai_inline_complete`/`ai_inline_edit`/`ai_commit_message`·`sync_upload`/`sync_download` 트래픽이 공격자 계정으로 흐르고, 지우면 지속적인 서비스 거부가 된다 — `agent_hooks_install` User 스코프가 거부되는 것과 같은 "세션을 넘어 남는 백도어" 근거다(d-38, 감사 R3#7: 키링 5계정 중 `RemoteAccess` 만 원격 거부였다). 값을 절대 반환하지 않는 상태 조회 `ai_token_status`/`sync_status`(연결 여부만 반환)는 그대로 허용 유지. 닫힌 것은 키링 항목의 write/delete 이며, 저장된 키의 전송 대상을 정하는 `ai_omlx_base_url` 은 여전히 허용 경로(`settings_update`·`sync_download`)로 변경 가능 — 스트립 편입 여부는 이월 결정(위 "d-38" 절 참조) |
 
 - **스코프 조건부 거부(`REMOTE_ALLOWED_COMMANDS` 소속, `match` arm 내부에서 분기, 1종)**:
   `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가 결정하는 스코프에 따라
@@ -978,8 +1010,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   이름) 이 분기가 아니라 실핸들러의 `InvalidArgument` 로 위임되어 동일한 에러를 낸다.
   짝 커맨드 `agent_hooks_uninstall` 은 **User 스코프 포함 원격 허용**이다(T1-K 검토에서 명시화 —
   제거 방향은 TAIDE 가 심은 훅 엔트리의 삭제라 백도어 설치 표면이 아니며, 전환 전 정책과 동일).
-  install/uninstall 대칭화(둘 다 User 거부) 여부는 ide 브로드캐스트·키링 게이팅과 함께 후속 제품
-  결정으로 이월.
+  install/uninstall 비대칭화는 **d-38(2026-08-25)에서 유지로 확정**됐다 — 대칭화(uninstall 도
+  User 거부로 전환)하지 않는다(위 "d-38" 절 참조).
 - **부분 스트립(핸들러는 호출하되 민감 필드를 지운 뒤 위임, 2종 — 둘 다 `REMOTE_ALLOWED_COMMANDS`
   소속)**:
   - `settings_update`: patch 에서 `remotePasswordOnlyLogin`·`remoteAllowedHosts`·`shellOverride`
@@ -997,9 +1029,10 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - **신규 커맨드 등재 규칙**: `dispatch()`/`dispatch_raw()` 에 새 `match` arm 을 추가하는 것만으로는
   원격 허용이 되지 않는다. `REMOTE_ALLOWED_COMMANDS`(허용) 또는 `REMOTE_DENIED_COMMANDS`(거부,
   `RemoteDenialPolicy` 분류 하나를 골라)에 반드시 이름을 등재해야 하며, 등재를 잊으면 완전 분할
-  파리티 테스트가 실패한다 — 후속 정책 결정(예: `ide_publish_diagnostics`/`ide_notify_at_mention`
-  원격 거부 전환 여부, 키링 게이팅 비대칭 재검토)은 이 두 테이블 중 한쪽에서 다른 쪽으로 이름을
-  옮기는 것으로 끝난다(T1-K 의 구조 전환 목적).
+  파리티 테스트가 실패한다 — 후속 정책 결정은 이 두 테이블 중 한쪽에서 다른 쪽으로 이름을 옮기는
+  것으로 끝난다(T1-K 의 구조 전환 목적. 실례: d-38 의 키링 자격증명 4종 이동 — 위 "d-38" 절 참조).
+  d-38 로 남은 미결 정책(ide 진단·훅 비대칭·키링 게이팅)이 모두 확정돼, 이 표의 각 행은 더 이상
+  "재검토 예정"이 아니라 결정 완료 상태다.
 
 ### T0 감사 데이터·기능 수정 (2026-08-18)
 
