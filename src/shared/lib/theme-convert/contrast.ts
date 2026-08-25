@@ -1,4 +1,5 @@
 import { compositeOverBackground, hexToRgb } from '@shared/lib/color'
+import { isDistinctFromBodyForeground, isOpaqueForegroundCandidate } from '@shared/lib/theme-convert/mapping-tables'
 
 const RGB_CHANNEL_MAX = 255
 const SRGB_LINEAR_THRESHOLD = 0.03928
@@ -56,8 +57,23 @@ const CONTRAST_REPAIR_BACKGROUND_CANDIDATES: Record<string, string[]> = {
 const CONTRAST_REPAIR_FOREGROUND_CANDIDATES: Record<string, string[]> = {
     'app.foreground': ['editor.foreground'],
     'panel.sectionHeader': ['editor.foreground'],
-    'panel.matchHighlight': ['editor.foreground', 'foreground'],
+    'panel.matchHighlight': [
+        'textLink.foreground',
+        'button.background',
+        'focusBorder',
+        'activityBarBadge.background',
+        'badge.background',
+        'tab.activeBorderTop',
+        'editor.foreground',
+        'foreground',
+    ],
 }
+
+const MATCH_HIGHLIGHT_FOREGROUND_KEY = 'panel.matchHighlight'
+const MATCH_HIGHLIGHT_REPAIR_FALLBACK_NOTICE = ', 본문 전경과 동일색 — 구별 가능한 후보 없음'
+
+const meetsMinContrast = (foregroundHex: string, backgroundHex: string) =>
+    (foregroundContrastRatio(foregroundHex, backgroundHex) ?? 0) >= MIN_CONTRAST_RATIO
 
 export const repairContrastPairs = (colors: Record<string, string>, vscodeColors: Record<string, string>) => {
     const repairs: string[] = []
@@ -70,23 +86,31 @@ export const repairContrastPairs = (colors: Record<string, string>, vscodeColors
         if (ratio !== null && ratio >= MIN_CONTRAST_RATIO) continue
 
         const backgroundCandidates = CONTRAST_REPAIR_BACKGROUND_CANDIDATES[pair.backgroundKey] ?? []
-        const repairedBackground = backgroundCandidates
-            .map((key) => vscodeColors[key])
-            .find((value) => value && (foregroundContrastRatio(foreground, value) ?? 0) >= MIN_CONTRAST_RATIO)
+        const repairedBackground = backgroundCandidates.map((key) => vscodeColors[key]).find((value) => value && meetsMinContrast(foreground, value))
         if (repairedBackground) {
             repairedColors = { ...repairedColors, [pair.backgroundKey]: repairedBackground }
             repairs.push(`${pair.backgroundKey}: ${background} -> ${repairedBackground} (${pair.label} 대비 확보)`)
             continue
         }
 
-        const foregroundCandidates = CONTRAST_REPAIR_FOREGROUND_CANDIDATES[pair.foregroundKey] ?? []
-        const repairedForeground = foregroundCandidates
-            .map((key) => vscodeColors[key])
-            .find((value) => value && (foregroundContrastRatio(value, background) ?? 0) >= MIN_CONTRAST_RATIO)
+        const foregroundCandidateValues = (CONTRAST_REPAIR_FOREGROUND_CANDIDATES[pair.foregroundKey] ?? []).map((key) => vscodeColors[key])
+        const isMatchHighlight = pair.foregroundKey === MATCH_HIGHLIGHT_FOREGROUND_KEY
+        const distinctForeground = isMatchHighlight
+            ? foregroundCandidateValues.find(
+                  (value) =>
+                      isOpaqueForegroundCandidate(value) &&
+                      meetsMinContrast(value, background) &&
+                      isDistinctFromBodyForeground(value, repairedColors['app.foreground']),
+              )
+            : undefined
+        const repairedForeground = distinctForeground ?? foregroundCandidateValues.find((value) => value && meetsMinContrast(value, background))
         if (!repairedForeground) continue
 
         repairedColors = { ...repairedColors, [pair.foregroundKey]: repairedForeground }
-        repairs.push(`${pair.foregroundKey}: ${foreground} -> ${repairedForeground} (${pair.label} 대비 확보)`)
+        const usedDistinctnessFallback = isMatchHighlight && !distinctForeground
+        repairs.push(
+            `${pair.foregroundKey}: ${foreground} -> ${repairedForeground} (${pair.label} 대비 확보${usedDistinctnessFallback ? MATCH_HIGHLIGHT_REPAIR_FALLBACK_NOTICE : ''})`,
+        )
     }
 
     return { colors: repairedColors, repairs }

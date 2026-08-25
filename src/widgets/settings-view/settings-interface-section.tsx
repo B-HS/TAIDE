@@ -9,11 +9,11 @@ import { AgentHooksProjectList } from '@widgets/settings-view/agent-hooks-projec
 import { AgentHooksToggle } from '@features/settings/agent-hooks-toggle'
 import { NumericField } from '@features/settings/numeric-field'
 import { SettingsSection } from '@features/settings/settings-section'
+import { SwitchField } from '@features/settings/switch-field'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
 import type { Settings } from '@shared/api/bindings'
-import { Switch } from '@shared/ui/switch'
 
 type SettingsInterfaceSectionProps = {
     id: string
@@ -43,27 +43,21 @@ export const SettingsInterfaceSection: FC<SettingsInterfaceSectionProps> = ({ id
                 max={MAX_RESIZER_THICKNESS}
                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), resizerThickness: value })}
             />
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.showSystemUsage')}</span>
-                <Switch
-                    checked={settings.showSystemUsage ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), showSystemUsage: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorMinimap')}</span>
-                <Switch
-                    checked={settings.editorMinimap ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorMinimap: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.agentStatusBadge')}</span>
-                <Switch
-                    checked={settings.agentStatusBadgeEnabled ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentStatusBadgeEnabled: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.showSystemUsage')}
+                checked={settings.showSystemUsage ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), showSystemUsage: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorMinimap')}
+                checked={settings.editorMinimap ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorMinimap: checked })}
+            />
+            <SwitchField
+                label={t('settings.agentStatusBadge')}
+                checked={settings.agentStatusBadgeEnabled ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), agentStatusBadgeEnabled: checked })}
+            />
             <AgentCliStatusRow />
             <div className='flex flex-col gap-2'>
                 <AgentHooksToggle
@@ -74,53 +68,35 @@ export const SettingsInterfaceSection: FC<SettingsInterfaceSectionProps> = ({ id
                 />
                 {(settings.agentHooksEnabled ?? false) && <AgentHooksProjectList projects={projects} />}
             </div>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.ideIntegration')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.ideIntegrationHint')}</span>
-                </span>
-                <Switch
-                    checked={settings.ideIntegrationEnabled ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideIntegrationEnabled: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.ideAutoOpenDiff')}</span>
-                <Switch
-                    checked={settings.ideAutoOpenDiff ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideAutoOpenDiff: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.enablePreviewTabs')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.enablePreviewTabsHint')}</span>
-                </span>
-                <Switch
-                    checked={settings.enablePreviewTabs ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), enablePreviewTabs: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.zenFullscreen')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.zenFullscreenDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.zenFullscreen ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenFullscreen: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.zenHideStatusBar')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.zenHideStatusBarDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.zenHideStatusBar ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenHideStatusBar: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.ideIntegration')}
+                description={t('settings.ideIntegrationHint')}
+                checked={settings.ideIntegrationEnabled ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideIntegrationEnabled: checked })}
+            />
+            <SwitchField
+                label={t('settings.ideAutoOpenDiff')}
+                checked={settings.ideAutoOpenDiff ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), ideAutoOpenDiff: checked })}
+            />
+            <SwitchField
+                label={t('settings.enablePreviewTabs')}
+                description={t('settings.enablePreviewTabsHint')}
+                checked={settings.enablePreviewTabs ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), enablePreviewTabs: checked })}
+            />
+            <SwitchField
+                label={t('settings.zenFullscreen')}
+                description={t('settings.zenFullscreenDescription')}
+                checked={settings.zenFullscreen ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenFullscreen: checked })}
+            />
+            <SwitchField
+                label={t('settings.zenHideStatusBar')}
+                description={t('settings.zenHideStatusBarDescription')}
+                checked={settings.zenHideStatusBar ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenHideStatusBar: checked })}
+            />
         </SettingsSection>
     )
 }

@@ -5,7 +5,7 @@ import { layoutQueryOptions, useSetShellView } from '@entities/layout/layout.que
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { setWindowFullscreen } from '@entities/window/window.ipc'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
-import { subscribeToggleZenMode } from '@shared/lib/zen-mode-bridge'
+import { subscribeToggleZenMode } from '@shared/lib/bridge/zen-mode-bridge'
 
 export type ZenModeState = {
     zen: boolean

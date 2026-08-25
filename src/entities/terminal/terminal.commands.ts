@@ -1,6 +1,6 @@
 import type { AppCommand } from '@shared/lib/command-registry'
-import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
-import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
+import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
 
 export const TERMINAL_COMMANDS: AppCommand[] = [
     {

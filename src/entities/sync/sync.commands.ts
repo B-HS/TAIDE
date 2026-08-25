@@ -1,7 +1,7 @@
 import { toast } from 'sonner'
 import type { AppCommand } from '@shared/lib/command-registry'
 import { i18next } from '@shared/i18n/i18n'
-import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
 import { downloadSync, uploadSync } from '@entities/sync/sync.ipc'
 
 const runSyncUpload = async () => {

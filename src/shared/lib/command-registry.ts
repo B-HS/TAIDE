@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next'
-import type { KeymapActionId } from '@shared/lib/keymap'
+import type { KeymapActionId } from '@shared/lib/keymap/keymap'
 
 export type CommandContext = {
     activeProjectId: string | null

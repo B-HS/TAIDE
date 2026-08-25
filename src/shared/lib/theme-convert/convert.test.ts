@@ -179,4 +179,108 @@ describe('convertVscodeTheme', () => {
 
         expect(result.colors['panel.matchHighlight']).toBe('#ffffff')
     })
+
+    test('list.highlightForeground 가 불투명이어도 app.foreground(본문 전경)과 지각적으로 동일(ΔE 0)하면 그 값을 쓰지 않고 safe-default 로 폴백한다(monokai 실사례 #f8f8f2, dark)', () => {
+        const source = {
+            colors: { 'editor.background': '#272822', 'editor.foreground': '#f8f8f2', foreground: '#f8f8f2', 'list.highlightForeground': '#f8f8f2' },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#569CD6')
+        expect(result.colors['panel.matchHighlight']).not.toBe('#f8f8f2')
+        expect(result.outputColorErrors).toEqual([])
+    })
+
+    test('list.highlightForeground 가 app.foreground 와 지각적으로 동일하면 light 타입에서도 같은 방식으로 safe-default 로 폴백한다', () => {
+        const source = {
+            colors: { 'editor.background': '#ffffff', 'editor.foreground': '#1e1e1e', foreground: '#1e1e1e', 'list.highlightForeground': '#1e1e1e' },
+        }
+
+        const result = convertVscodeTheme([source], 'light')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#0066BF')
+        expect(result.colors['panel.matchHighlight']).not.toBe('#1e1e1e')
+    })
+
+    test('list.highlightForeground 가 app.foreground 와 다르지만 지각적으로 가까운(ΔE 5.4, one-monokai 실사례) 경우는 배제하지 않고 그대로 사용한다', () => {
+        const source = {
+            colors: { ...MINIMAL_DARK_SOURCE.colors, foreground: '#D4D4D4', 'editor.foreground': '#D4D4D4', 'list.highlightForeground': '#C5C5C5' },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#C5C5C5')
+    })
+
+    test('구별성 가드가 배제한 후보를 대비 수리가 다시 본문 전경으로 되돌리는 재유입 시나리오에서, 상태색 후보가 전혀 없으면 여전히 본문 전경과 동일값으로 떨어지되 repairs 에 2패스 고지를 남긴다', () => {
+        const source = {
+            colors: {
+                foreground: '#D8DEE9',
+                'editor.foreground': '#D8DEE9',
+                'editor.background': '#2E3440',
+                'sideBar.background': '#5A5A5A',
+                'list.highlightForeground': '#D8DEE9',
+            },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#D8DEE9')
+        expect(result.outputColorErrors).toEqual([])
+        expect(result.repairs.some((repair) => repair.startsWith('panel.matchHighlight') && repair.includes('구별 가능한 후보 없음'))).toBe(true)
+    })
+
+    test('같은 재유입 시나리오에서 상태색 후보(textLink.foreground)가 있으면 본문 전경 대신 그 색을 채택해 ΔE ≥ 2.3 구별성을 유지한다', () => {
+        const source = {
+            colors: {
+                foreground: '#D8DEE9',
+                'editor.foreground': '#D8DEE9',
+                'editor.background': '#2E3440',
+                'sideBar.background': '#5A5A5A',
+                'list.highlightForeground': '#D8DEE9',
+                'textLink.foreground': '#88C0D0',
+            },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#88C0D0')
+        expect(result.outputColorErrors).toEqual([])
+        expect(result.repairs.some((repair) => repair.includes('구별 가능한 후보 없음'))).toBe(false)
+    })
+
+    test('everforest-light 프록시(list.highlightForeground 만 저대비 accent, 상태색 후보 없음)를 재변환해도 여전히 outputColorErrors 가 비어 임포트를 막지 않는다', () => {
+        const source = {
+            colors: {
+                'editor.background': '#fdf6e3',
+                'editor.foreground': '#5c6a72',
+                foreground: '#5c6a72',
+                'sideBar.background': '#fdf6e3',
+                'list.highlightForeground': '#8da101',
+            },
+        }
+
+        const result = convertVscodeTheme([source], 'light')
+
+        expect(result.outputColorErrors).toEqual([])
+    })
+
+    test('rose-pine-dawn 프록시(list.highlightForeground 는 저대비지만 textLink.foreground 에 구별 가능한 accent 존재)를 재변환해도 outputColorErrors 가 비어 임포트를 막지 않는다', () => {
+        const source = {
+            colors: {
+                'editor.background': '#faf4ed',
+                'editor.foreground': '#575279',
+                foreground: '#575279',
+                'sideBar.background': '#faf4ed',
+                'list.highlightForeground': '#d7827e',
+                'textLink.foreground': '#907aa9',
+            },
+        }
+
+        const result = convertVscodeTheme([source], 'light')
+
+        expect(result.colors['panel.matchHighlight']).toBe('#907aa9')
+        expect(result.outputColorErrors).toEqual([])
+    })
 })

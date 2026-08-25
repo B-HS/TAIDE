@@ -1,9 +1,9 @@
 import type { FC, PropsWithChildren } from 'react'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { parseKeymapOverrides } from '@shared/lib/keymap'
-import { subscribeOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
-import { applyMonacoKeybindingOverrides } from '@shared/lib/monaco-keybinding-runtime'
+import { parseKeymapOverrides } from '@shared/lib/keymap/keymap'
+import { subscribeOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
+import { applyMonacoKeybindingOverrides } from '@shared/lib/monaco/monaco-keybinding-runtime'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { KeybindingsEditor } from '@widgets/keybindings-editor/keybindings-editor'
 

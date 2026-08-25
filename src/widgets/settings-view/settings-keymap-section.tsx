@@ -1,7 +1,7 @@
 import type { FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SettingsSection } from '@features/settings/settings-section'
-import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
+import { requestOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
 import { Button } from '@shared/ui/button'
 
 type SettingsKeymapSectionProps = {

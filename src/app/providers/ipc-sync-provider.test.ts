@@ -126,6 +126,16 @@ describe('syncTreeRowsForChangedDirs', () => {
     })
 })
 
+describe('filePathQueryKeysToInvalidate', () => {
+    test('경로 하나에 대해 FILE.CONTENT 와 FILE.RAW 쿼리키를 모두 반환한다', async () => {
+        const { filePathQueryKeysToInvalidate } = await import('@app/providers/ipc-sync-provider')
+        expect(filePathQueryKeysToInvalidate('/repo/a.png')).toEqual([
+            ['file', 'content', '/repo/a.png'],
+            ['file', 'raw', '/repo/a.png'],
+        ])
+    })
+})
+
 describe('isStaleLayoutRevision', () => {
     test('아직 관측된 적 없으면(undefined) 무엇이 와도 stale 이 아니다', async () => {
         const { isStaleLayoutRevision } = await import('@app/providers/ipc-sync-provider')

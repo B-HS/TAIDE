@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
 
 /**
- * `keybindings-runtime-provider.tsx` reaches `@shared/lib/monaco-keybinding-runtime`, which imports
+ * `keybindings-runtime-provider.tsx` reaches `@shared/lib/monaco/monaco-keybinding-runtime`, which imports
  * `@shared/lib/monaco/setup` — real monaco-editor worker bundles (`?worker` imports) that only
  * Vite's dev/build pipeline can resolve, and that `bun test` cannot load at all. Stubbing
  * `@shared/lib/monaco/setup`, then reaching the module under test through a *dynamic* `import()`

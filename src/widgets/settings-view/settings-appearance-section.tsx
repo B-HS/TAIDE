@@ -9,11 +9,11 @@ import { themeListQueryOptions } from '@entities/theme/theme.query'
 import { BUILTIN_THEME_ID } from '@entities/theme/theme-tokens'
 import { CustomThemeList } from '@features/theme/custom-theme-list'
 import { SettingsSection } from '@features/settings/settings-section'
+import { SwitchField } from '@features/settings/switch-field'
 import { ThemePicker } from '@features/settings/theme-picker'
 import type { AppDataPathKind, Settings } from '@shared/api/bindings'
 import type { ThemeEditorState } from '@widgets/settings-view/settings-view'
 import { Button } from '@shared/ui/button'
-import { Switch } from '@shared/ui/switch'
 
 type SettingsAppearanceSectionProps = {
     id: string
@@ -47,13 +47,11 @@ export const SettingsAppearanceSection: FC<SettingsAppearanceSectionProps> = ({
                     onDuplicate={(sourceThemeId) => onOpenThemeEditor({ mode: 'create', sourceThemeId })}
                 />
             )}
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.followSystemTheme')}</span>
-                <Switch
-                    checked={settings.followSystemTheme ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), followSystemTheme: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.followSystemTheme')}
+                checked={settings.followSystemTheme ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), followSystemTheme: checked })}
+            />
 
             <div className='flex flex-col gap-2 pt-2'>
                 <div className='flex items-center justify-between gap-3'>

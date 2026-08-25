@@ -1,4 +1,4 @@
-import { ALPHA_CHANNEL_MAX, HEX_ALPHA_LENGTH, hexToRgb } from '@shared/lib/color'
+import { ALPHA_CHANNEL_MAX, deltaE76, HEX_ALPHA_LENGTH, hexToRgb } from '@shared/lib/color'
 import { GRAPH_LANE_ANSI_ORDER } from '@shared/lib/theme-convert/ansi-palette'
 import type { ColorCategory, ColorMappingEntry, ResolveContext, ThemeTypeArg } from '@shared/lib/theme-convert/types'
 
@@ -78,6 +78,42 @@ const derived = (taideKey: string, category: ColorCategory, derive: (ctx: Resolv
 
 const MATCH_HIGHLIGHT_FOREGROUND_CANDIDATES = ['list.highlightForeground', 'editor.findMatchHighlightBackground']
 
+/**
+ * Minimum CIE76 ΔE*ab (see {@link deltaE76}) a `panel.matchHighlight` foreground candidate must
+ * clear against the resolved `app.foreground` body text color to count as visually distinct.
+ * Empirically, a full sweep of the 36 bundled themes' `panel.matchHighlight` vs `app.foreground`
+ * pairs clusters into exact duplicates (ΔE 0.0 — monokai/night-owl-light/palenight, all fixed as
+ * bundled data per `docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md` §"임무 C")
+ * and then jumps straight to 5.4+ (one-monokai) / 7.2+ (vscode-kimbie-dark) / 13.8+ (the remaining
+ * 31) with nothing in between. `2.3` sits inside that empty (0, 5.4) gap and is also the commonly
+ * cited CIE76 "just noticeable difference" threshold in color-difference literature — any value in
+ * the gap would exclude the same set for today's catalog, but this one is independently grounded
+ * rather than picked to fit.
+ */
+const MATCH_HIGHLIGHT_MIN_DISTINCT_DELTA_E = 2.3
+
+/**
+ * A `panel.matchHighlight` foreground candidate is usable only when it also reads as a distinct
+ * color from the resolved body text (`app.foreground`) it will sit next to — {@link isOpaqueForegroundCandidate}
+ * above only guards against translucency, not against a candidate that happens to equal the body
+ * foreground outright. Three bundled upstream themes set `list.highlightForeground` (or its
+ * fallback) to exactly `app.foreground`'s value, which leaves the match-highlighted glyphs in
+ * search/palette results with zero color cue — `font-semibold` alone carries the emphasis. WCAG
+ * contrast ratio cannot detect this failure mode (a saturated color can sit at ~1:1 contrast
+ * against a same-luminance gray while still being obviously a different color), so this uses
+ * perceptual distance instead (see {@link MATCH_HIGHLIGHT_MIN_DISTINCT_DELTA_E}).
+ *
+ * Fails open (returns `true`, i.e. "usable") when {@link deltaE76} cannot parse either hex —
+ * this predicate's job is to reject a candidate for being too close to the body foreground, and an
+ * unparseable input means that comparison simply cannot be made, not that the candidate is close.
+ * Rejecting on `null` would let a measurement failure masquerade as a distinctness failure and
+ * discard an otherwise-legitimate candidate for a reason unrelated to its actual color.
+ */
+export const isDistinctFromBodyForeground = (candidateHex: string, bodyForegroundHex: string) => {
+    const distance = deltaE76(candidateHex, bodyForegroundHex)
+    return distance === null || distance >= MATCH_HIGHLIGHT_MIN_DISTINCT_DELTA_E
+}
+
 export const COLOR_MAPPING: ColorMappingEntry[] = [
     chain('app.background', 'background', ['editor.background']),
     chain('app.foreground', 'foreground', ['foreground']),
@@ -148,14 +184,22 @@ export const COLOR_MAPPING: ColorMappingEntry[] = [
      * overlay value and painted near-invisible text (`github-dark` `#ffd33d22` = 13% opaque,
      * `github-light` `#ffdf5d66` = 40% — `docs/acknowledge/2026-08-20-palette-ux-contract.md` §4.3).
      * {@link isOpaqueForegroundCandidate} rejects any candidate carrying meaningful alpha instead of
-     * compositing it (compositing would still hand back a dim-but-"valid" color); once every
-     * candidate is rejected this returns `undefined`, which `resolveColorEntry` (`resolve-colors.ts`)
-     * routes through the `status` category's fallback chain — empty for `status`
-     * ({@link FAMILY_FALLBACK_SOURCE_KEYS}) — straight to {@link SAFE_DEFAULT_COLORS}'s opaque
-     * per-theme-type value, the same path already used when every candidate is simply absent.
+     * compositing it (compositing would still hand back a dim-but-"valid" color).
+     * {@link isDistinctFromBodyForeground} then rejects an opaque candidate that nonetheless reads as
+     * the same color as the resolved `app.foreground` (three bundled upstream themes do this — see
+     * that function's doc). `ctx.resolved['app.foreground']` is safe to read here: `app.foreground`
+     * is entry #2 in this array (resolved immediately after `app.background`), long before this
+     * entry runs, and `resolveColors` always assigns every processed key a concrete string (falling
+     * back to {@link SAFE_DEFAULT_COLORS} itself if needed) — so it is never `undefined` at this
+     * point. Once every candidate is rejected this returns `undefined`, which `resolveColorEntry`
+     * (`resolve-colors.ts`) routes through the `status` category's fallback chain — empty for
+     * `status` ({@link FAMILY_FALLBACK_SOURCE_KEYS}) — straight to {@link SAFE_DEFAULT_COLORS}'s
+     * opaque per-theme-type value, the same path already used when every candidate is simply absent.
      */
     derived('panel.matchHighlight', 'status', (ctx) =>
-        MATCH_HIGHLIGHT_FOREGROUND_CANDIDATES.map((candidate) => ctx.vscodeColors[candidate]).find(isOpaqueForegroundCandidate),
+        MATCH_HIGHLIGHT_FOREGROUND_CANDIDATES.map((candidate) => ctx.vscodeColors[candidate])
+            .filter(isOpaqueForegroundCandidate)
+            .find((candidate) => isDistinctFromBodyForeground(candidate, ctx.resolved['app.foreground'])),
     ),
 
     chain('editor.background', 'background', ['editor.background']),

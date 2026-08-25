@@ -8,6 +8,7 @@ import { FontPicker } from '@features/settings/font-picker'
 import { NumericField } from '@features/settings/numeric-field'
 import { OptionPicker } from '@features/settings/option-picker'
 import { SettingsSection } from '@features/settings/settings-section'
+import { SwitchField } from '@features/settings/switch-field'
 import {
     DEFAULT_EDITOR_CURSOR_BLINKING,
     DEFAULT_EDITOR_CURSOR_STYLE,
@@ -16,7 +17,6 @@ import {
 } from '@shared/constants/code-editor'
 import { DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import type { Settings } from '@shared/api/bindings'
-import { Switch } from '@shared/ui/switch'
 
 const MIN_AUTO_SAVE_DELAY_MS = 0
 const MAX_AUTO_SAVE_DELAY_MS = 60_000
@@ -76,43 +76,29 @@ export const SettingsEditorSection: FC<SettingsEditorSectionProps> = ({ id, sett
                     onSelect={(editorFontFamily) => updateSettings({ ...emptySettingsPatch(), editorFontFamily: editorFontFamily ?? '' })}
                 />
             )}
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.formatOnSave')}</span>
-                <Switch
-                    checked={settings.formatOnSave ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), formatOnSave: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.organizeImportsOnSave')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.organizeImportsOnSaveDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.organizeImportsOnSave ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), organizeImportsOnSave: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.fixAllOnSave')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.fixAllOnSaveDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.fixAllOnSave ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), fixAllOnSave: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.editorCodeLens')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.editorCodeLensDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.editorCodeLensEnabled ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorCodeLensEnabled: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.formatOnSave')}
+                checked={settings.formatOnSave ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), formatOnSave: checked })}
+            />
+            <SwitchField
+                label={t('settings.organizeImportsOnSave')}
+                description={t('settings.organizeImportsOnSaveDescription')}
+                checked={settings.organizeImportsOnSave ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), organizeImportsOnSave: checked })}
+            />
+            <SwitchField
+                label={t('settings.fixAllOnSave')}
+                description={t('settings.fixAllOnSaveDescription')}
+                checked={settings.fixAllOnSave ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), fixAllOnSave: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorCodeLens')}
+                description={t('settings.editorCodeLensDescription')}
+                checked={settings.editorCodeLensEnabled ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorCodeLensEnabled: checked })}
+            />
             <div className='flex flex-col gap-1'>
                 <NumericField
                     label={t('settings.autoSaveDelayMs')}
@@ -123,20 +109,16 @@ export const SettingsEditorSection: FC<SettingsEditorSectionProps> = ({ id, sett
                 />
                 <span className='text-app-sidebar-icon-default text-xs'>{t('settings.autoSaveDelayHint')}</span>
             </div>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorWordWrap')}</span>
-                <Switch
-                    checked={settings.editorWordWrap ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorWordWrap: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorLineNumbers')}</span>
-                <Switch
-                    checked={settings.editorLineNumbers ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorLineNumbers: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.editorWordWrap')}
+                checked={settings.editorWordWrap ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorWordWrap: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorLineNumbers')}
+                checked={settings.editorLineNumbers ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorLineNumbers: checked })}
+            />
             <NumericField
                 label={t('settings.editorTabSize')}
                 value={settings.editorTabSize ?? DEFAULT_EDITOR_TAB_SIZE}
@@ -144,43 +126,33 @@ export const SettingsEditorSection: FC<SettingsEditorSectionProps> = ({ id, sett
                 max={MAX_TAB_SIZE}
                 onCommit={(value) => updateSettings({ ...emptySettingsPatch(), editorTabSize: value })}
             />
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorInsertSpaces')}</span>
-                <Switch
-                    checked={settings.editorInsertSpaces ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorInsertSpaces: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.editorDetectIndentation')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.editorDetectIndentationHint')}</span>
-                </span>
-                <Switch
-                    checked={settings.editorDetectIndentation ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorDetectIndentation: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.editorInsertSpaces')}
+                checked={settings.editorInsertSpaces ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorInsertSpaces: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorDetectIndentation')}
+                description={t('settings.editorDetectIndentationHint')}
+                checked={settings.editorDetectIndentation ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorDetectIndentation: checked })}
+            />
             <OptionPicker
                 label={t('settings.editorRenderWhitespace')}
                 options={EDITOR_RENDER_WHITESPACE_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
                 value={settings.editorRenderWhitespace ?? DEFAULT_EDITOR_RENDER_WHITESPACE}
                 onSelect={(editorRenderWhitespace) => updateSettings({ ...emptySettingsPatch(), editorRenderWhitespace })}
             />
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorBracketPairColorization')}</span>
-                <Switch
-                    checked={settings.editorBracketPairColorization ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorBracketPairColorization: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorFontLigatures')}</span>
-                <Switch
-                    checked={settings.editorFontLigatures ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFontLigatures: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.editorBracketPairColorization')}
+                checked={settings.editorBracketPairColorization ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorBracketPairColorization: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorFontLigatures')}
+                checked={settings.editorFontLigatures ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFontLigatures: checked })}
+            />
             <OptionPicker
                 label={t('settings.editorCursorStyle')}
                 options={EDITOR_CURSOR_STYLE_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}
@@ -193,63 +165,41 @@ export const SettingsEditorSection: FC<SettingsEditorSectionProps> = ({ id, sett
                 value={settings.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING}
                 onSelect={(editorCursorBlinking) => updateSettings({ ...emptySettingsPatch(), editorCursorBlinking })}
             />
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.editorScrollBeyondLastLine')}</span>
-                <Switch
-                    checked={settings.editorScrollBeyondLastLine ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorScrollBeyondLastLine: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.editorStickyScroll')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.editorStickyScrollDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.editorStickyScrollEnabled ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorStickyScrollEnabled: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.editorSemanticHighlighting')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.editorSemanticHighlightingDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.editorSemanticHighlighting ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorSemanticHighlighting: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.editorFormatOnType')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.editorFormatOnTypeDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.editorFormatOnType ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFormatOnType: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.editorFormatOnPaste')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.editorFormatOnPasteDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.editorFormatOnPaste ?? false}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFormatOnPaste: checked })}
-                />
-            </label>
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='flex flex-col gap-0.5'>
-                    <span className='text-app-foreground'>{t('settings.emmetEnabled')}</span>
-                    <span className='text-app-sidebar-icon-default'>{t('settings.emmetEnabledDescription')}</span>
-                </span>
-                <Switch
-                    checked={settings.emmetEnabled ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), emmetEnabled: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.editorScrollBeyondLastLine')}
+                checked={settings.editorScrollBeyondLastLine ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorScrollBeyondLastLine: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorStickyScroll')}
+                description={t('settings.editorStickyScrollDescription')}
+                checked={settings.editorStickyScrollEnabled ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorStickyScrollEnabled: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorSemanticHighlighting')}
+                description={t('settings.editorSemanticHighlightingDescription')}
+                checked={settings.editorSemanticHighlighting ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorSemanticHighlighting: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorFormatOnType')}
+                description={t('settings.editorFormatOnTypeDescription')}
+                checked={settings.editorFormatOnType ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFormatOnType: checked })}
+            />
+            <SwitchField
+                label={t('settings.editorFormatOnPaste')}
+                description={t('settings.editorFormatOnPasteDescription')}
+                checked={settings.editorFormatOnPaste ?? false}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), editorFormatOnPaste: checked })}
+            />
+            <SwitchField
+                label={t('settings.emmetEnabled')}
+                description={t('settings.emmetEnabledDescription')}
+                checked={settings.emmetEnabled ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), emmetEnabled: checked })}
+            />
         </SettingsSection>
     )
 }

@@ -5,7 +5,7 @@ import type { LspInstallProgress, LspServerId, ProjectId } from '@shared/api/bin
 import { events } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
-import { createExternalStoreBridge } from '@shared/lib/external-store-bridge'
+import { createExternalStoreBridge } from '@shared/lib/bridge/external-store-bridge'
 import { cancelLspInstall, detectLspServers, installLspServer, listLspSessions } from '@entities/lsp/lsp.ipc'
 
 export const lspServersQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.LSP.SERVERS, queryFn: detectLspServers, staleTime: Infinity })

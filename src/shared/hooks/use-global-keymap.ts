@@ -1,7 +1,7 @@
 import { skipToken, useQuery } from '@tanstack/react-query'
 import type { Settings } from '@shared/api/bindings'
-import type { KeymapActionId } from '@shared/lib/keymap'
-import { APP_KEYMAP, MONACO_CHORD_PREFIX_KEY, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap'
+import type { KeymapActionId } from '@shared/lib/keymap/keymap'
+import { APP_KEYMAP, MONACO_CHORD_PREFIX_KEY, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap/keymap'
 import {
     armKeymapMonacoDeferral,
     consumeKeymapMonacoDeferral,
@@ -9,10 +9,10 @@ import {
     getKeymapChordDispatchSnapshot,
     notifyKeymapChordNoMatch,
     resolveKeymapChordPending,
-} from '@shared/lib/keymap-chord-store'
-import { decideKeymapDispatch } from '@shared/lib/keymap-dispatch'
+} from '@shared/lib/keymap/keymap-chord-store'
+import { decideKeymapDispatch } from '@shared/lib/keymap/keymap-dispatch'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
-import { deriveMonacoChordPrefixes } from '@shared/lib/monaco-keybinding'
+import { deriveMonacoChordPrefixes } from '@shared/lib/monaco/monaco-keybinding'
 import { IS_MAC } from '@shared/constants/platform'
 import { QUERY_KEY } from '@shared/constants/query-key'
 

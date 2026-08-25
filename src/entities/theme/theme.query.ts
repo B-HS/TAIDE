@@ -6,7 +6,7 @@ import { deleteTheme, getCurrentTheme, getTheme, listThemes, saveTheme } from '@
 import { readSystemTheme } from '@shared/lib/system-appearance'
 import { diffThemeValues } from '@shared/lib/theme-draft'
 import type { ThemeDraft } from '@shared/lib/theme-draft'
-import { createExternalStoreBridge } from '@shared/lib/external-store-bridge'
+import { createExternalStoreBridge } from '@shared/lib/bridge/external-store-bridge'
 
 export const themeListQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.THEME.LIST, queryFn: listThemes })
 

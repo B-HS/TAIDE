@@ -19,6 +19,15 @@ const parentDirOf = (path: string) => {
 }
 
 /**
+ * A changed file `path` is cached under two independent bare-path keys — `FILE.CONTENT`
+ * (`file.query.ts`'s `fileQueryOptions`, open editor tabs) and `FILE.RAW` (`fileRawQueryOptions`,
+ * `preview-pane.tsx`'s binary/image/PDF preview) — both `staleTime: Infinity` and so both silently
+ * stale forever unless invalidated explicitly. `FILE.RAW` has no `onSuccess` invalidation anywhere
+ * in `entities/file/file.query.ts` (contract §1-b), so this watcher echo is its only refresh path.
+ */
+export const filePathQueryKeysToInvalidate = (path: string) => [QUERY_KEY.FILE.CONTENT(path), QUERY_KEY.FILE.RAW(path)] as const
+
+/**
  * Matches a cached query's key against `PROJECT_SCOPED_PATH_KEY_PREFIXES` — `[domain, scope,
  * path, ...]` where `path` falls under `projectRoot` (the path itself, or a real descendant, never
  * an unrelated sibling directory that merely shares the prefix as a string — `/root-other` must not
@@ -198,7 +207,7 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         const { projectId, change } = payload
 
         for (const path of change.paths) {
-            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
+            for (const queryKey of filePathQueryKeysToInvalidate(path)) void queryClient.invalidateQueries({ queryKey })
         }
 
         /**
@@ -216,15 +225,17 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
          * `file_delete` arms do not — they have no local call site to refresh from — so this handler
          * is their only path back to a non-stale explorer tree.
          *
-         * The `FILE.CONTENT` invalidation above is deliberately *not* gated the same way.
-         * `useSaveFile`/`useRenameEntry`/`useCopyEntry`/`useDeleteEntry` do already invalidate it
-         * directly `onSuccess` (so skipping it for those specific operations would be equally safe),
-         * but `entities/search`'s `useReplaceSearch` (a project-wide find-and-replace) has no
-         * `onSuccess` invalidation of its own — this watcher echo is the *only* path that refreshes
-         * an already-open tab's content after a replace touches its file. Gating this on `fromApp`
-         * too would leave that tab silently stale. `entities/search` is outside this contract's
-         * ownership, so the fix belongs there (give `useReplaceSearch` its own `onSuccess`, matching
-         * its sibling mutations) rather than here.
+         * The `FILE.CONTENT`/`FILE.RAW` invalidations above are deliberately *not* gated the same
+         * way. `useSaveFile`/`useRenameEntry`/`useCopyEntry`/`useDeleteEntry` do already invalidate
+         * `FILE.CONTENT` directly `onSuccess` (so skipping it here for those specific operations
+         * would be equally safe), but `entities/search`'s `useReplaceSearch` (a project-wide
+         * find-and-replace) has no `onSuccess` invalidation of its own — this watcher echo is the
+         * *only* path that refreshes an already-open tab's content after a replace touches its file.
+         * `FILE.RAW` (`preview-pane.tsx`'s binary/image/PDF preview cache) has no `onSuccess`
+         * invalidation anywhere at all — this watcher echo is its *only* refresh path, full stop.
+         * Gating either on `fromApp` would leave that tab/preview silently stale. `entities/search`
+         * is outside this contract's ownership, so the `FILE.CONTENT` gap belongs there (give
+         * `useReplaceSearch` its own `onSuccess`, matching its sibling mutations) rather than here.
          */
         if (isSelfEchoWithoutTreeImpact(change)) return
 

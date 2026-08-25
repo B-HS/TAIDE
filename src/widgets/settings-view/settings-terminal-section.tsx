@@ -10,10 +10,10 @@ import { NumericField } from '@features/settings/numeric-field'
 import { OptionPicker } from '@features/settings/option-picker'
 import { SettingsSection } from '@features/settings/settings-section'
 import { ShellProfileList } from '@features/settings/shell-profile-list'
+import { SwitchField } from '@features/settings/switch-field'
 import { TextField } from '@features/settings/text-field'
 import { DEFAULT_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, MIN_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
 import type { Settings } from '@shared/api/bindings'
-import { Switch } from '@shared/ui/switch'
 
 const MIN_SCROLLBACK = 100
 const MAX_SCROLLBACK = 100_000
@@ -85,13 +85,11 @@ export const SettingsTerminalSection: FC<SettingsTerminalSectionProps> = ({ id, 
                 value={settings.terminalCursorStyle ?? DEFAULT_TERMINAL_CURSOR_STYLE}
                 onSelect={(terminalCursorStyle) => updateSettings({ ...emptySettingsPatch(), terminalCursorStyle })}
             />
-            <label className='flex items-center justify-between gap-3 text-xs'>
-                <span className='text-app-foreground'>{t('settings.terminalCursorBlink')}</span>
-                <Switch
-                    checked={settings.terminalCursorBlink ?? true}
-                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), terminalCursorBlink: checked })}
-                />
-            </label>
+            <SwitchField
+                label={t('settings.terminalCursorBlink')}
+                checked={settings.terminalCursorBlink ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), terminalCursorBlink: checked })}
+            />
         </SettingsSection>
     )
 }

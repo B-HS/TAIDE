@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useSyncExternalStore } from 'react'
-import { getKeymapCapturingSnapshot, subscribeKeymapCapturing } from '@shared/lib/keymap-capture'
-import { clearKeymapChordState, consumeKeymapMonacoDeferral, getKeymapChordStoreSnapshot } from '@shared/lib/keymap-chord-store'
-import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap-context'
+import { getKeymapCapturingSnapshot, subscribeKeymapCapturing } from '@shared/lib/keymap/keymap-capture'
+import { clearKeymapChordState, consumeKeymapMonacoDeferral, getKeymapChordStoreSnapshot } from '@shared/lib/keymap/keymap-chord-store'
+import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap/keymap-context'
 
 /**
  * Also owns the window-`blur` listener that clears chord/monaco-deferral state

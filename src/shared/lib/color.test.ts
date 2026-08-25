@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { hexToHsv, hexToRgb, hsvToHex, isValidThemeColorValue, normalizeHexColor, rgbToHex, rgbToHsv } from '@shared/lib/color'
+import { deltaE76, hexToHsv, hexToRgb, hsvToHex, isValidThemeColorValue, normalizeHexColor, rgbToHex, rgbToHsv } from '@shared/lib/color'
 
 describe('isValidThemeColorValue', () => {
     test('3자리 hex 를 허용한다', () => {
@@ -70,5 +70,30 @@ describe('rgbToHsv / hsvToHex 원점 왕복', () => {
 
     test('검정은 채도·명도 모두 0이다', () => {
         expect(rgbToHsv({ r: 0, g: 0, b: 0 })).toEqual({ h: 0, s: 0, v: 0 })
+    })
+})
+
+describe('deltaE76', () => {
+    test('동일한 색은 거리가 0이다', () => {
+        expect(deltaE76('#569cd6', '#569cd6')).toBe(0)
+    })
+
+    test('검정과 흰색의 거리는 CIE L* 축만으로 정확히 100이다', () => {
+        expect(deltaE76('#000000', '#ffffff')).toBeCloseTo(100, 2)
+    })
+
+    test('WCAG 대비비로는 저대비(github-dark 실사례, ~1.03:1)인 노랑-회색 쌍도 색상 자체는 뚜렷이 다르게(ΔE 약 77.7) 측정한다', () => {
+        expect(deltaE76('#ffd33d', '#d1d5da')).toBeCloseTo(77.73, 1)
+    })
+
+    test('36개 번들 테마 실측 분포의 대표값과 일치한다 — 동일색 0, one-monokai 5.4, vscode-kimbie-dark 7.2 근방, night-owl 13.8 근방', () => {
+        expect(deltaE76('#f8f8f2', '#f8f8f2')).toBe(0)
+        expect(deltaE76('#C5C5C5', '#D4D4D4')).toBeCloseTo(5.4, 0)
+        expect(deltaE76('#e3b583', '#d3af86')).toBeCloseTo(7.2, 0)
+        expect(deltaE76('#ffffff', '#d6deeb')).toBeCloseTo(13.8, 0)
+    })
+
+    test('유효하지 않은 hex 는 null 을 반환한다', () => {
+        expect(deltaE76('nope', '#ffffff')).toBeNull()
     })
 })

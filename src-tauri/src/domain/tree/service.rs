@@ -174,8 +174,9 @@ pub fn flatten(state: &TreeState) -> Vec<TreeRow> {
 
 /// `limit: None` returns every remaining row from `offset` onward — the caller-side "give me the
 /// whole tree" case (`docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.3(7)), which used
-/// to be spelled as a `u32::MAX` sentinel (`TREE_ROWS_UNBOUNDED_LIMIT` on the frontend) instead of a
-/// real "no limit" value.
+/// to be spelled as a `u32::MAX` sentinel instead of a real "no limit" value. The frontend now sends
+/// this as `limit: null` directly (`tree.query.ts`'s `treeRowsQueryOptions`) — the old sentinel
+/// constant no longer exists on either side.
 pub fn rows_page(state: &TreeState, offset: u32, limit: Option<u32>) -> TreeRowPage {
     let rows = flatten(state);
     let total = rows.len() as u32;

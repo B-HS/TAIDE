@@ -1,14 +1,14 @@
 import { toast } from 'sonner'
 import type { AppCommand } from '@shared/lib/command-registry'
-import { requestEditorPaneCommand } from '@shared/lib/editor-pane-command-bridge'
-import { requestShowExplorerView, requestToggleExplorerSidebar } from '@shared/lib/explorer-panel-bridge'
+import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
+import { requestShowExplorerView, requestToggleExplorerSidebar } from '@shared/lib/bridge/explorer-panel-bridge'
 import { buildImeDebugReport, isImeDebugEnabled } from '@shared/lib/ime-debug'
 import { i18next } from '@shared/i18n/i18n'
-import { requestOpenKeybindingsEditor } from '@shared/lib/keybindings-bridge'
-import { KEYMAP_CATEGORY } from '@shared/lib/keymap-category'
-import { requestOpenSearchPanel } from '@shared/lib/search-panel-bridge'
+import { requestOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
+import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
+import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
-import { requestToggleZenMode } from '@shared/lib/zen-mode-bridge'
+import { requestToggleZenMode } from '@shared/lib/bridge/zen-mode-bridge'
 
 const notImplementedRun = () => {}
 

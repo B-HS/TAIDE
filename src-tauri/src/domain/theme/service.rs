@@ -982,6 +982,7 @@ mod tests {
 
     use super::*;
     use crate::domain::theme::types::TokenColorSettings;
+    use crate::error::AppErrorKind;
 
     fn temp_data_dir(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("taide-theme-{name}-{}", uuid::Uuid::new_v4()))
@@ -1349,6 +1350,47 @@ mod tests {
         );
     }
 
+    /// Low-cost second gate against the exact defect fixed by
+    /// `docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md` §3-C (three bundled
+    /// themes shipped `panel.matchHighlight` hex-identical to `app.foreground`, so search/palette
+    /// match emphasis rendered as invisible body text). The TS pipeline (`mapping-tables.ts`'s
+    /// `isDistinctFromBodyForeground`) already runs a full CIE76 `deltaE76` check with a 2.3
+    /// just-noticeable-difference threshold on every *derived* candidate before a bundled JSON is
+    /// ever written, so this Rust lint deliberately does not re-implement CIE76: across the current
+    /// 36-theme catalog the identical-color defect always manifests as exact hex equality (ΔE 0.0),
+    /// and the next-lowest real distinctness value is 5.39 (`one-monokai`) — comfortably above the
+    /// 2.3 threshold — so a hex-equality check and a ΔE<2.3 check agree on every bundled theme today.
+    /// This test's job is narrower and cheaper than the TS gate's: catch a bundled theme JSON that
+    /// re-enters the exact-duplicate state (e.g. hand-edited or hardcoded outside the TS pipeline,
+    /// such as a future `builtin_dark`/`builtin_light`-style Rust literal), not to arbitrate
+    /// borderline perceptual closeness — that precision work stays on the TS side.
+    #[test]
+    fn 번들_테마는_panel_매치_하이라이트가_app_전경색과_동일하지_않다() {
+        let mut violations = Vec::new();
+
+        for theme in bundled_themes() {
+            let Some(match_highlight_raw) = theme.colors.get("panel.matchHighlight") else {
+                continue;
+            };
+            let Some(foreground_raw) = theme.colors.get("app.foreground") else {
+                continue;
+            };
+
+            if normalize_hex_color(match_highlight_raw) == normalize_hex_color(foreground_raw) {
+                violations.push(format!(
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) == app.foreground({foreground_raw:?}) — search/palette match emphasis would render indistinguishable from ordinary body text",
+                    theme.id
+                ));
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "panel.matchHighlight/app.foreground identical-color defects in bundled themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
     #[test]
     fn 번들_테마_아이디로는_저장하거나_삭제할_수_없다() {
         let paths = AppPaths::new(temp_data_dir("bundled-guard"));
@@ -1368,7 +1410,7 @@ mod tests {
 
         let result = delete_theme(&paths, "../secret");
 
-        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+        assert_eq!(result.unwrap_err().kind(), AppErrorKind::InvalidArgument);
         assert!(outside_file.exists(), "저장소 밖 파일은 지워지면 안 된다");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1377,7 +1419,7 @@ mod tests {
     fn load_theme는_경로_구분자가_섞인_아이디를_거부한다() {
         let paths = AppPaths::new(temp_data_dir("load-traversal"));
         let result = load_theme(&paths, "../../etc/passwd");
-        assert!(matches!(result, Err(AppError::InvalidArgument(_))));
+        assert_eq!(result.unwrap_err().kind(), AppErrorKind::InvalidArgument);
     }
 
     #[test]

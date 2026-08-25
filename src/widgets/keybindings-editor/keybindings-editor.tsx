@@ -15,8 +15,8 @@ import {
     mergeKeybindingOverride,
     removeKeybindingOverride,
     sortKeybindingRows,
-} from '@shared/lib/keybinding-catalog'
-import type { KeymapChordStage, KeymapModifier } from '@shared/lib/keymap'
+} from '@shared/lib/keymap/keybinding-catalog'
+import type { KeymapChordStage, KeymapModifier } from '@shared/lib/keymap/keymap'
 import {
     MODIFIER_ONLY_KEYS,
     captureModsFromEvent,
@@ -24,11 +24,11 @@ import {
     normalizeKeymapEventKey,
     parseKeymapOverrides,
     serializeKeymapOverrides,
-} from '@shared/lib/keymap'
-import { setKeymapCapturing } from '@shared/lib/keymap-capture'
-import { clearKeymapChordState } from '@shared/lib/keymap-chord-store'
-import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap-context'
-import { isMonacoCommandId, resolveMonacoKeyCode } from '@shared/lib/monaco-keybinding'
+} from '@shared/lib/keymap/keymap'
+import { setKeymapCapturing } from '@shared/lib/keymap/keymap-capture'
+import { clearKeymapChordState } from '@shared/lib/keymap/keymap-chord-store'
+import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap/keymap-context'
+import { isMonacoCommandId, resolveMonacoKeyCode } from '@shared/lib/monaco/monaco-keybinding'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { cn } from '@shared/lib/cn'
 import { KeybindingRow } from '@features/settings/keybinding-row'
