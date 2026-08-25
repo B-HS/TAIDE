@@ -488,7 +488,7 @@ fn light_colors() -> BTreeMap<String, String> {
         ("panel.sectionHeader", "#6c6f85"),
         ("panel.inputBackground", "#eff1f5"),
         ("panel.inputBorder", "#ccd0da"),
-        ("panel.matchHighlight", "#8839ef"),
+        ("panel.matchHighlight", "#6611d4"),
         ("editor.background", "#eff1f5"),
         ("editor.foreground", "#4c4f69"),
         ("editor.lineHighlight", "#ccd0da"),
@@ -1412,9 +1412,14 @@ mod tests {
 
     /// Matches TS `MIN_CONTRAST_RATIO` (`src/shared/lib/theme-convert/contrast.ts`) exactly — same
     /// value (3.0), same WCAG basis: the 3:1 non-text contrast minimum (WCAG 2.x Success Criterion
-    /// 1.4.11) for UI components and graphical objects, which `panel.matchHighlight` — a foreground
-    /// emphasis token layered over `panel.background`, not paragraph body text — falls under.
-    const MATCH_HIGHLIGHT_MIN_CONTRAST: f64 = 3.0;
+    /// 1.4.11) for UI components and graphical objects. Originally named `MATCH_HIGHLIGHT_MIN_CONTRAST`
+    /// when it guarded a single pair (`panel.matchHighlight` vs `panel.background`,
+    /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-c); renamed here to match
+    /// TS's already-generic name because `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md`
+    /// §1-c reuses this same threshold for two more pairs below (`panel.matchHighlight`/`list.foreground`
+    /// each vs `list.activeBackground`) — all three guard a foreground token layered over a UI surface,
+    /// not paragraph body text.
+    const MIN_CONTRAST_RATIO: f64 = 3.0;
 
     const RGB_CHANNEL_MAX: f64 = 255.0;
     const SRGB_LINEAR_THRESHOLD: f64 = 0.03928;
@@ -1429,17 +1434,30 @@ mod tests {
 
     /// Parses the RGB channels out of a theme color string, built on `normalize_hex_color` above
     /// (which already handles 3/4/6/8-digit shorthand and lowercasing) and reading only its first
-    /// 6 hex digits — an alpha suffix, if present, is ignored. This mirrors TS `hexToRgb`
-    /// (`shared/lib/color.ts`) called directly (as `contrast.ts`'s local `relativeLuminance` does),
-    /// not `compositeOverBackground`'s alpha-composited path: this lint deliberately does not port
-    /// alpha compositing. `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above is a separate,
-    /// independent `#[test]` — cargo gives no ordering guarantee between it and this gate, so its
-    /// rejection of a translucent `panel.matchHighlight` cannot be relied on to run "before" this
-    /// one; it catches translucent values on its own, not as a precondition this gate depends on.
-    /// The omission is justified empirically instead: across the current 38-theme catalog (36
-    /// bundled JSON files plus the two builtin Rust literals), every `panel.background` and
-    /// `panel.matchHighlight` is a plain 6-digit opaque hex today, so alpha compositing would be an
-    /// identity operation on every input this function actually receives.
+    /// 6 hex digits — an alpha suffix, if present, is ignored, for both the foreground and the
+    /// background argument every caller below passes. This mirrors TS `hexToRgb` (`shared/lib/color.ts`)
+    /// called directly on the background half of a pair (as `contrast.ts`'s `foregroundContrastRatio`
+    /// does via `relativeLuminance`), not `compositeOverBackground`'s alpha-composited path — TS itself
+    /// never composites a *background* argument, only a translucent *foreground* one, so raw-RGB
+    /// background reads have always been the shared, intentional behavior on both sides, not a Rust
+    /// shortcut (`docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §3-C's
+    /// `rose-pine-dawn` exemption documents this same raw-RGB reading of an alpha-carrying background
+    /// on the TS side, for the same `hexToRgb` reason).
+    ///
+    /// Not compositing the *foreground* argument (`panel.matchHighlight` or `list.foreground`, per
+    /// caller) is justified empirically, same as before: across the current 38-theme catalog (36
+    /// bundled JSON files plus the two builtin Rust literals), every `panel.matchHighlight` and
+    /// `list.foreground` value is a plain 6-digit opaque hex today (verified by direct scan when
+    /// `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-c added the two
+    /// `list.activeBackground` pairs below), so `compositeOverBackground` would be an identity
+    /// operation on every foreground this function actually receives — unlike `list.activeBackground`
+    /// itself, which *does* carry real alpha in five catalog themes (`everforest-dark`,
+    /// `everforest-light`, `night-owl`, `rose-pine-dawn`, `rose-pine`) and is read at raw RGB by
+    /// design, per the paragraph above. `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above is a
+    /// separate, independent `#[test]` guarding the same foreground-opacity fact for one of these two
+    /// keys — cargo gives no ordering guarantee between it and the gates below, so its rejection of a
+    /// translucent `panel.matchHighlight` cannot be relied on to run "before" them; it catches
+    /// translucent values on its own, not as a precondition this function depends on.
     fn hex_to_rgb(value: &str) -> Option<(f64, f64, f64)> {
         let normalized = normalize_hex_color(value);
         if normalized.len() != 8 || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -1483,7 +1501,7 @@ mod tests {
         Some((lighter + CONTRAST_RATIO_OFFSET) / (darker + CONTRAST_RATIO_OFFSET))
     }
 
-    /// Catalog themes whose `panel.matchHighlight` cannot clear `MATCH_HIGHLIGHT_MIN_CONTRAST`
+    /// Catalog themes whose `panel.matchHighlight` cannot clear `MIN_CONTRAST_RATIO`
     /// against `panel.background` without abandoning the theme's own accent hue — mirrors TS
     /// `MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS`
     /// (`src/shared/lib/theme-convert/bundled-theme-contrast.test.ts`) with the identical two
@@ -1533,9 +1551,9 @@ mod tests {
             };
 
             match contrast_ratio(match_highlight_raw, panel_background_raw) {
-                Some(ratio) if ratio >= MATCH_HIGHLIGHT_MIN_CONTRAST => {}
+                Some(ratio) if ratio >= MIN_CONTRAST_RATIO => {}
                 Some(ratio) => violations.push(format!(
-                    "'{}': panel.matchHighlight({match_highlight_raw:?}) vs panel.background({panel_background_raw:?}) = {ratio:.2} (최소 {MATCH_HIGHLIGHT_MIN_CONTRAST})",
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) vs panel.background({panel_background_raw:?}) = {ratio:.2} (최소 {MIN_CONTRAST_RATIO})",
                     theme.id
                 )),
                 None => violations.push(format!(
@@ -1573,10 +1591,256 @@ mod tests {
                 .unwrap_or_else(|| panic!("'{exempt_id}' panel.matchHighlight/panel.background hex 파싱 실패"));
 
             assert!(
-                ratio < MATCH_HIGHLIGHT_MIN_CONTRAST,
-                "'{exempt_id}' is listed in MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS but its contrast {ratio:.2} already meets MATCH_HIGHLIGHT_MIN_CONTRAST — remove the exemption",
+                ratio < MIN_CONTRAST_RATIO,
+                "'{exempt_id}' is listed in MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS but its contrast {ratio:.2} already meets MIN_CONTRAST_RATIO — remove the exemption",
             );
         }
+    }
+
+    /// Selection-row axes (`docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md`
+    /// §0/§1-c): `panel.matchHighlight`/`list.foreground` against `list.activeBackground`, the row
+    /// surface a *selected* palette/list entry actually paints (`docs/theme-system.md` §8.2, d-36 §4's
+    /// render-path confirmation) — distinct from the `panel.background` axis the two lints above guard,
+    /// which only governs the *unselected* row. Mirrors TS `SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS`
+    /// (`src/shared/lib/theme-convert/bundled-theme-contrast.test.ts`) — reason strings below are copied
+    /// verbatim from there. Both entries already carry a `panel.matchHighlight` exemption above for the
+    /// pre-existing `panel.background` axis; the reasons here are the same underlying upstream palette
+    /// shortfall, re-verified against the different background.
+    ///
+    /// `nord` is deliberately not listed here (post-d40 review): the exemption's original premise held
+    /// `list.activeBackground` fixed at the theme's bright 'frost' accent (`#88c0d0`) — but that same
+    /// accent is also `panel.matchHighlight`/`app.accent`/`explorer.itemSelected`, so it was never
+    /// actually immovable. Moving `list.activeBackground` to nord3 (`#4c566a`, the theme's own
+    /// `list.inactiveSelectionBackground`) clears both selection-row axes at once without an exemption
+    /// — see `src-tauri/resources/themes/nord.json`.
+    const SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS: &[(&str, &str)] = &[
+        (
+            "everforest-light",
+            "same root cause as this theme's pre-existing panel.background exemption above — upstream sainnhe/everforest-vscode's foreground palette has exactly one shade for 'green' (#8da101, the source of list.highlightForeground/panel.matchHighlight), no darker variant to substitute. list.activeBackground (#e6e2cc, a ~50%-alpha overlay the gate reads at its raw opaque RGB) is darker than panel.background (raw #e6e2cc, L 0.756 vs #fdf6e3, L 0.923), so the same single-shade green loses contrast rather than gaining it.",
+        ),
+        (
+            "rose-pine-dawn",
+            "upstream rose-pine/vscode defines list.activeSelectionBackground as a near-transparent overlay (#6e6a8614, ~8% alpha) — TAIDE's contrast gate measures an alpha-carrying background at its raw RGB (#6e6a86), which reads far darker than the overlay's actual on-screen appearance over the light base. Combined with this theme's pre-existing panel.background shortfall (rose, #d7827e, has no darker upstream variant — see the exemption above), no candidate clears 3:1 against the gate's raw-RGB reading of list.activeBackground either.",
+        ),
+    ];
+
+    /// WCAG contrast gate (3) for `panel.matchHighlight` vs `list.activeBackground` — the selected-row
+    /// counterpart to `카탈로그_테마는_panel_매치_하이라이트가_패널_배경과_최소_대비를_가진다` above, closing the
+    /// gap `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §0 identified: a theme
+    /// can pass the `panel.background` axis (the unselected row) while still rendering illegible search/
+    /// palette match emphasis the moment that same row is selected (`nord`'s `1.00` being the extreme
+    /// case — see the exemption above). Runs over the full 38-theme catalog via `theme_catalog()`, same
+    /// as every other lint in this module.
+    #[test]
+    fn 카탈로그_테마는_panel_매치_하이라이트가_선택_행_배경과_최소_대비를_가진다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            if SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS.iter().any(|(id, _)| *id == theme.id) {
+                continue;
+            }
+            let Some(match_highlight_raw) = theme.colors.get("panel.matchHighlight") else {
+                continue;
+            };
+            let Some(active_background_raw) = theme.colors.get("list.activeBackground") else {
+                continue;
+            };
+
+            match contrast_ratio(match_highlight_raw, active_background_raw) {
+                Some(ratio) if ratio >= MIN_CONTRAST_RATIO => {}
+                Some(ratio) => violations.push(format!(
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) vs list.activeBackground({active_background_raw:?}) = {ratio:.2} (최소 {MIN_CONTRAST_RATIO})",
+                    theme.id
+                )),
+                None => violations.push(format!(
+                    "'{}': panel.matchHighlight({match_highlight_raw:?}) 또는 list.activeBackground({active_background_raw:?}) hex 파싱 실패",
+                    theme.id
+                )),
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "selection-row panel.matchHighlight contrast defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn 선택_행_매치_하이라이트_대비_예외_등재분은_실제로_최소_대비에_미달한다() {
+        let catalog = theme_catalog();
+
+        for (exempt_id, _reason) in SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS {
+            let theme = catalog
+                .iter()
+                .find(|theme| theme.id == *exempt_id)
+                .unwrap_or_else(|| panic!("exempted theme '{exempt_id}' not found in catalog"));
+            let match_highlight_raw = theme
+                .colors
+                .get("panel.matchHighlight")
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no panel.matchHighlight"));
+            let active_background_raw = theme
+                .colors
+                .get("list.activeBackground")
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no list.activeBackground"));
+            let ratio = contrast_ratio(match_highlight_raw, active_background_raw)
+                .unwrap_or_else(|| panic!("'{exempt_id}' panel.matchHighlight/list.activeBackground hex 파싱 실패"));
+
+            assert!(
+                ratio < MIN_CONTRAST_RATIO,
+                "'{exempt_id}' is listed in SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS but its contrast {ratio:.2} already meets MIN_CONTRAST_RATIO — remove the exemption",
+            );
+        }
+    }
+
+    /// `list.foreground` against `list.activeBackground` — the row's non-matched text, same render-path
+    /// as `SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS` above but for ordinary row text instead of
+    /// search/palette match glyphs. Mirrors TS `SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS`
+    /// (`bundled-theme-contrast.test.ts`) with the identical single entry and reasoning.
+    const SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS: &[(&str, &str)] = &[(
+        "rose-pine-dawn",
+        "same gate-vs-render mismatch as this theme's selectionMatchHighlight exemption above: even upstream's own dedicated list.activeSelectionForeground (#575279, already reused elsewhere in this file as app.foreground) falls short of 3:1 against the gate's raw-RGB reading of the near-transparent list.activeBackground (#6e6a86) — the shortfall is in how a translucent background is measured, not in the foreground choice.",
+    )];
+
+    /// WCAG contrast gate (3) for `list.foreground` vs `list.activeBackground` — the general (non-match)
+    /// text counterpart to `카탈로그_테마는_panel_매치_하이라이트가_선택_행_배경과_최소_대비를_가진다` above. See
+    /// `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-c.
+    #[test]
+    fn 카탈로그_테마는_list_전경색이_선택_행_배경과_최소_대비를_가진다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            if SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS.iter().any(|(id, _)| *id == theme.id) {
+                continue;
+            }
+            let Some(list_foreground_raw) = theme.colors.get("list.foreground") else {
+                continue;
+            };
+            let Some(active_background_raw) = theme.colors.get("list.activeBackground") else {
+                continue;
+            };
+
+            match contrast_ratio(list_foreground_raw, active_background_raw) {
+                Some(ratio) if ratio >= MIN_CONTRAST_RATIO => {}
+                Some(ratio) => violations.push(format!(
+                    "'{}': list.foreground({list_foreground_raw:?}) vs list.activeBackground({active_background_raw:?}) = {ratio:.2} (최소 {MIN_CONTRAST_RATIO})",
+                    theme.id
+                )),
+                None => violations.push(format!(
+                    "'{}': list.foreground({list_foreground_raw:?}) 또는 list.activeBackground({active_background_raw:?}) hex 파싱 실패",
+                    theme.id
+                )),
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "selection-row list.foreground contrast defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn 선택_행_전경색_대비_예외_등재분은_실제로_최소_대비에_미달한다() {
+        let catalog = theme_catalog();
+
+        for (exempt_id, _reason) in SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS {
+            let theme = catalog
+                .iter()
+                .find(|theme| theme.id == *exempt_id)
+                .unwrap_or_else(|| panic!("exempted theme '{exempt_id}' not found in catalog"));
+            let list_foreground_raw = theme
+                .colors
+                .get("list.foreground")
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no list.foreground"));
+            let active_background_raw = theme
+                .colors
+                .get("list.activeBackground")
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no list.activeBackground"));
+            let ratio = contrast_ratio(list_foreground_raw, active_background_raw)
+                .unwrap_or_else(|| panic!("'{exempt_id}' list.foreground/list.activeBackground hex 파싱 실패"));
+
+            assert!(
+                ratio < MIN_CONTRAST_RATIO,
+                "'{exempt_id}' is listed in SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS but its contrast {ratio:.2} already meets MIN_CONTRAST_RATIO — remove the exemption",
+            );
+        }
+    }
+
+    /// Identical-color lint for `list.foreground` (post-d40 review findings
+    /// d40-listfg-multisurface-regression/d40-l2-01/D40-L3-01) — same shape as
+    /// `카탈로그_테마는_list_활성_배경이_패널_배경_및_hover_배경과_구분된다` above, but for the row's *text*
+    /// color rather than its selection-highlight fill. `list.foreground` is not selection-only: it is
+    /// also the plain row color over `list.background`, and (via `global.css`'s
+    /// `--accent-foreground: var(--taide-list-foreground)` on `--accent: var(--taide-list-hover-background)`)
+    /// the hover/focus text color for every `hover:text-accent-foreground`/`focus:text-accent-foreground`
+    /// consumer (dropdown/context menus, ghost/outline buttons). No exemptions — a catalog theme with
+    /// either collapse renders unreadable text on a surface most users hit far more often than the
+    /// selected row itself.
+    #[test]
+    fn 카탈로그_테마는_list_전경색이_list_배경_및_hover_배경과_동일하지_않다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            let list_foreground_raw = theme.colors.get("list.foreground");
+            let list_background_raw = theme.colors.get("list.background");
+            let list_hover_background_raw = theme.colors.get("list.hoverBackground");
+
+            let list_foreground = list_foreground_raw.map(|value| normalize_hex_color(value));
+            let list_background = list_background_raw.map(|value| normalize_hex_color(value));
+            let list_hover_background = list_hover_background_raw.map(|value| normalize_hex_color(value));
+
+            if list_foreground == list_background {
+                violations.push(format!(
+                    "'{}': list.foreground({list_foreground_raw:?}) == list.background({list_background_raw:?}) — the unselected row's text would be invisible",
+                    theme.id
+                ));
+            }
+            if list_foreground == list_hover_background {
+                violations.push(format!(
+                    "'{}': list.foreground({list_foreground_raw:?}) == list.hoverBackground({list_hover_background_raw:?}) — hovering a row (or a --accent menu/button) would make its text disappear",
+                    theme.id
+                ));
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "list.foreground identical-color defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    /// Opacity lint for `list.foreground` — same shape as
+    /// `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above, guarding the other half of the
+    /// foreground-opacity fact `hex_to_rgb`'s doc comment relies on (post-d40 review finding
+    /// d40-listfg-opacity-ungated): both `panel.matchHighlight` and `list.foreground` must stay
+    /// 6-digit opaque hex for `contrast_ratio`'s un-composited foreground read to match TS's
+    /// `foregroundContrastRatio` (which *would* composite an alpha-carrying foreground). Before this
+    /// lint, only one of the two keys the doc comment cites was actually enforced.
+    #[test]
+    fn 카탈로그_테마는_list_전경색이_불투명하다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            let Some(list_foreground_raw) = theme.colors.get("list.foreground") else {
+                continue;
+            };
+            let normalized = normalize_hex_color(list_foreground_raw);
+
+            if !normalized.ends_with("ff") {
+                violations.push(format!(
+                    "'{}': list.foreground({list_foreground_raw:?}) is translucent — this token renders as foreground text (row/palette label), so a translucent value gets absorbed by whatever sits behind it instead of composing a legible color",
+                    theme.id
+                ));
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "list.foreground opacity defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
     }
 
     #[test]

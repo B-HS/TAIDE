@@ -33,7 +33,7 @@
         "tabBar.dropTarget": "#88c0d099",
         "explorer.background": "#2e3440",
         "explorer.itemHover": "#3b4252",
-        "explorer.itemSelected": "#88c0d0",
+        "explorer.itemSelected": "#4c566a",
         "explorer.itemFocused": "#88c0d099",
         "explorer.indentGuide": "#616e88",
         "explorer.folderIcon": "#d8dee9",
@@ -136,7 +136,7 @@
         "button.primaryForeground": "#2e3440",
         "list.background": "#2e3440",
         "list.hoverBackground": "#3b4252",
-        "list.activeBackground": "#88c0d0",
+        "list.activeBackground": "#4c566a",
         "list.foreground": "#d8dee9"
     },
     "syntax": {

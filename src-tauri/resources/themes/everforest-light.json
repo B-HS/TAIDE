@@ -137,7 +137,7 @@
         "list.background": "#fdf6e3",
         "list.hoverBackground": "#fdf6e300",
         "list.activeBackground": "#e6e2cc80",
-        "list.foreground": "#939f91"
+        "list.foreground": "#5c6a72"
     },
     "syntax": {
         "keyword": {
