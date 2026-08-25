@@ -8,6 +8,7 @@ import { SettingsSection } from '@features/settings/settings-section'
 import { SyncConflictDialog } from '@features/settings/sync-conflict-dialog'
 import { SyncSection } from '@features/settings/sync-section'
 import type { Settings } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 
 type SettingsSyncSectionProps = {
     id: string
@@ -42,11 +43,12 @@ export const SettingsSyncSection: FC<SettingsSyncSectionProps> = ({
 
     const { t } = useTranslation()
 
-    const handleConnectSync = (pat: string) => connectSync(pat, { onError: () => toast.error(t('settings.syncConnectFailed')) })
+    const handleConnectSync = (pat: string) =>
+        connectSync(pat, { onError: (error) => toast.error(describeIpcError(error) || t('settings.syncConnectFailed')) })
     const handleDisconnectSync = () =>
         disconnectSync(undefined, {
             onSuccess: () => toast.success(t('settings.syncDisconnected')),
-            onError: () => toast.error(t('settings.syncDisconnectFailed')),
+            onError: (error) => toast.error(describeIpcError(error) || t('settings.syncDisconnectFailed')),
         })
     const handleUploadSync = () =>
         uploadSync(undefined, {

@@ -13,6 +13,7 @@ import { AiProviderTokenRow } from '@features/settings/ai-provider-token-row'
 import { OptionPicker } from '@features/settings/option-picker'
 import { SettingsSection } from '@features/settings/settings-section'
 import type { AiProviderId, ProjectId, PromptTemplateId, Settings } from '@shared/api/bindings'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { IconButton } from '@shared/ui/icon-button'
 
 /** Default for `Settings.aiProvider` — shared by auto-tab, Inline Edit, and AI commit messages (not auto-tab-only, despite the field's Wave G predecessor name). */
@@ -54,8 +55,9 @@ export const SettingsAiSection: FC<SettingsAiSectionProps> = ({ id, projectId, s
     const { t } = useTranslation()
 
     const handleSaveAiToken = (provider: AiProviderId, token: string) =>
-        setAiToken({ provider, token }, { onError: () => toast.error(t('settings.aiTokenSaveFailed')) })
-    const handleClearAiToken = (provider: AiProviderId) => clearAiToken(provider)
+        setAiToken({ provider, token }, { onError: (error) => toast.error(describeIpcError(error) || t('settings.aiTokenSaveFailed')) })
+    const handleClearAiToken = (provider: AiProviderId) =>
+        clearAiToken(provider, { onError: (error) => toast.error(describeIpcError(error) || t('settings.aiTokenClearFailed')) })
     const handleOmlxBaseUrlCommit = (value: string) => updateSettings({ ...emptySettingsPatch(), aiOmlxBaseUrl: value.trim() })
 
     const handleOpenPromptFile = (promptId: PromptTemplateId, labelKey: string) => openAppFileTab({ kind: 'prompt', id: promptId }, t(labelKey))

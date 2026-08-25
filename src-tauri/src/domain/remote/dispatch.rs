@@ -309,6 +309,28 @@ enum RemoteDenialPolicy {
     /// expected to always render empty there — see `docs/ipc-contract.md`'s
     /// `LocalProjectHistoryExposure` table row.
     LocalProjectHistoryExposure,
+    /// `ai_set_token`/`ai_clear_token` (writes or deletes whichever of the `AiOllamaCloud`/`AiCodex`/
+    /// `AiOmlx` keyring entries the caller-supplied `provider` selects) and `sync_connect`/
+    /// `sync_disconnect` (writes or deletes the `GithubSync` keyring entry — the gist-sync PAT).
+    /// Together these cover 4 of the 5 `SecretAccount` variants (`infra::secret`); the fifth,
+    /// `RemoteAccess` — the remote-access password itself — is already denied under
+    /// [`SelfAccessExpansion`] via `remote_set_password`/`remote_clear_password`. A stored credential
+    /// outlives the remote session that wrote it, the same "backdoor that survives the session" shape
+    /// [`DesktopCliInterception`] denies for CLI hooks, aimed at a keyring entry instead of a hooks
+    /// file: a remote session that sets its own AI provider token redirects every future
+    /// desktop-issued `ai_inline_complete`/`ai_inline_edit`/`ai_commit_message` call — each one
+    /// carrying the user's own code or diff as context — through an attacker-chosen account for as
+    /// long as nobody notices and clears it by hand; setting its own GitHub PAT does the same for
+    /// every future `sync_upload`/`sync_download`, redirecting the user's settings/theme/locale gist
+    /// traffic to an attacker-controlled GitHub account; clearing either instead is a simpler
+    /// persistent denial of service. The read-only status queries `ai_token_status`/`sync_status`
+    /// (presence/connectedness only, never the token value) are unaffected and stay on
+    /// [`REMOTE_ALLOWED_COMMANDS`]. See `docs/acknowledge/2026-08-25-d38-remote-policy-contract.md`.
+    /// The same capability-ceiling caveat as [`LocalFilesystemEscape`]/[`InstallOrProcessExecution`]
+    /// applies: this is surface reduction, not a confidentiality boundary — `pty_spawn` already grants
+    /// an authenticated remote session a shell, from which it could edit `settings.json` directly for
+    /// equivalent persistence.
+    CredentialStoreTampering,
     /// The default-deny fallback: a command name that is not filed into either
     /// [`REMOTE_ALLOWED_COMMANDS`] or [`REMOTE_DENIED_COMMANDS`]. Every command [`dispatch`]/
     /// [`dispatch_raw`] can actually reach must be classified into exactly one of those two tables — see
@@ -355,6 +377,10 @@ impl RemoteDenialPolicy {
             RemoteDenialPolicy::LocalProjectHistoryExposure => (
                 "error.remote.deniedLocalProjectHistoryExposure",
                 format!("a remote session cannot query the full project history, which is local-welcome-screen-only: {name}"),
+            ),
+            RemoteDenialPolicy::CredentialStoreTampering => (
+                "error.remote.deniedCredentialStoreTampering",
+                format!("a remote session cannot change a stored credential (AI provider token, GitHub personal access token): {name}"),
             ),
             RemoteDenialPolicy::Unclassified => (
                 "error.remote.deniedUnclassified",
@@ -479,6 +505,10 @@ const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
     ("remote_clear_password", RemoteDenialPolicy::SelfAccessExpansion),
     ("window_set_fullscreen", RemoteDenialPolicy::UnreachableDesktopWindow),
     ("project_list_recent", RemoteDenialPolicy::LocalProjectHistoryExposure),
+    ("ai_set_token", RemoteDenialPolicy::CredentialStoreTampering),
+    ("ai_clear_token", RemoteDenialPolicy::CredentialStoreTampering),
+    ("sync_connect", RemoteDenialPolicy::CredentialStoreTampering),
+    ("sync_disconnect", RemoteDenialPolicy::CredentialStoreTampering),
 ];
 
 /// Looks `name` up in [`REMOTE_DENIED_COMMANDS`], returning the denial [`dispatch`] must answer with
@@ -493,7 +523,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (159 entries = the 158 arms in
+/// session — audited directly off the `match` arms in both functions (156 entries = the 155 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -650,16 +680,12 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "ide_resolve_save",
     "ide_notify_at_mention",
     "ai_token_status",
-    "ai_set_token",
-    "ai_clear_token",
     "ai_list_models",
     "ai_inline_complete",
     "ai_inline_edit",
     "ai_commit_message",
     "ai_request_cancel",
     "sync_status",
-    "sync_connect",
-    "sync_disconnect",
     "sync_upload",
     "sync_download",
     "remote_status",
@@ -1269,8 +1295,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         }
 
         "ai_token_status" => respond(ai::ai_token_status(app.state(), app.state()).await),
-        "ai_set_token" => respond(ai::ai_set_token(app.state(), arg!(args, "provider"), arg!(args, "token")).await),
-        "ai_clear_token" => respond(ai::ai_clear_token(app.state(), arg!(args, "provider")).await),
         "ai_list_models" => respond(ai::ai_list_models(app.state(), app.state(), arg!(args, "provider")).await),
         "ai_inline_complete" => respond(ai::ai_inline_complete(app.state(), app.state(), app.state(), arg!(args, "request")).await),
         "ai_inline_edit" => respond(ai::ai_inline_edit(app.state(), app.state(), app.state(), arg!(args, "request")).await),
@@ -1278,8 +1302,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "ai_request_cancel" => respond(ai::ai_request_cancel(app.state(), arg!(args, "owner"), arg!(args, "requestId")).await),
 
         "sync_status" => respond(sync::sync_status(app.state(), app.state()).await),
-        "sync_connect" => respond(sync::sync_connect(app.state(), app.state(), arg!(args, "pat")).await),
-        "sync_disconnect" => respond(sync::sync_disconnect(app.clone(), app.state(), app.state()).await),
         "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state()).await),
         "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), arg!(args, "force")).await),
 
@@ -1402,6 +1424,19 @@ mod tests {
                 },
             })
         );
+    }
+
+    /// `ai_inline_complete`/`ai_inline_edit`/`ai_commit_message` 모두 `respond(Ok(AiTextResponse
+    /// { .. }))` 로 이 dispatch 경로를 지난다(§1275-1277) — `respond`→`json_ok`→`serde_json::to_string`
+    /// 이 그대로 와이어 문자열이 되므로, 세 커맨드가 공유하는 응답 타입의 직렬화 형태를 `State` 주입
+    /// 없이 여기서 직접 고정한다. d-37 — `docs/acknowledge/2026-08-25-d37-ai-batch-contract.md` §3.1.
+    #[test]
+    fn ai_텍스트_응답은_respond_를_통해_request_id와_text로_직렬화된다() {
+        let value = respond(Ok(crate::domain::ai::types::AiTextResponse {
+            request_id: "req-1".to_string(),
+            text: Some("fn main() {}".to_string()),
+        }));
+        assert_eq!(value, Ok(r#"{"requestId":"req-1","text":"fn main() {}"}"#.to_string()));
     }
 
     /// T1-K: a command name that is neither denied nor explicitly allowed must be refused — the default
@@ -1530,6 +1565,46 @@ mod tests {
     fn 원격_세션은_lsp_서버를_설치할_수_없다() {
         let value = remote_denied_response("lsp_install").expect("거부되어야 한다");
         assert_forbidden_denial(&value, "lsp_install");
+    }
+
+    /// d-38 — `docs/acknowledge/2026-08-25-d38-remote-policy-contract.md` §1. 키링 5계정
+    /// (`SecretAccount`) 중 `RemoteAccess` 를 뺀 나머지 4계정(`AiOllamaCloud`/`AiCodex`/`AiOmlx`
+    /// 는 `ai_set_token`/`ai_clear_token` 이 `provider` 로 선택, `GithubSync` 는
+    /// `sync_connect`/`sync_disconnect` 가 직접)을 원격에서 바꾸거나 지울 수 있던 표면을 전부
+    /// 거부로 전환한다 — 값이 세션 종료 후에도 살아남는 자격증명이라 `agent_hooks_install` 의
+    /// User 스코프와 같은 "지속 백도어" 위험이다.
+    #[test]
+    fn 원격_세션은_ai_토큰과_github_pat를_변경하거나_지울_수_없다() {
+        for name in ["ai_set_token", "ai_clear_token", "sync_connect", "sync_disconnect"] {
+            let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
+            assert_forbidden_denial(&value, name);
+            assert_eq!(
+                value["message"]["key"],
+                serde_json::json!("error.remote.deniedCredentialStoreTampering"),
+                "{name} 은 CredentialStoreTampering 로케일 키를 써야 한다"
+            );
+            assert_eq!(
+                value["message"]["args"]["command"],
+                serde_json::json!(name),
+                "{name} 의 거부 응답 args.command 가 커맨드 이름과 일치해야 한다"
+            );
+        }
+    }
+
+    /// 존재 여부(연결 여부)만 반환하고 토큰 값 자체는 절대 내보내지 않는 상태 조회는 위 거부
+    /// 전환의 대상이 아니다 — 계약 §1 "상태 조회는 허용 유지".
+    #[test]
+    fn 원격_세션은_ai_및_github_동기화_상태_조회는_그대로_할_수_있다() {
+        assert_eq!(remote_denied_response("ai_token_status"), None);
+        assert_eq!(remote_denied_response("sync_status"), None);
+        assert!(
+            REMOTE_ALLOWED_COMMANDS.contains(&"ai_token_status"),
+            "ai_token_status 는 허용 테이블에 남아 있어야 한다"
+        );
+        assert!(
+            REMOTE_ALLOWED_COMMANDS.contains(&"sync_status"),
+            "sync_status 는 허용 테이블에 남아 있어야 한다"
+        );
     }
 
     /// `agent_hooks_install` for a User-scope agent is a scope-conditional denial (not in
