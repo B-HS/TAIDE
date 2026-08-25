@@ -70,17 +70,30 @@ impl AppState {
     ///
     /// Reserved for **short, bounded lock waits** (the T0#17 `search_replace` per-file shape): the
     /// caller occupies a blocking-pool thread for its entire wait, while guard **holders**
-    /// themselves dispatch work onto the same pool (`git_pull`, `git_revert_commit`, hunk
-    /// staging, ...) — so enough long-parked waiters exhaust the pool and deadlock against a
-    /// holder waiting for a free thread (Phase E GIT-1). A command whose lock wait can be long
-    /// must acquire the guard with `begin_mutation().await` on the async side first and only then
-    /// enter `spawn_blocking` with the guard held.
+    /// themselves dispatch work onto the same pool — as of contract 2026-08-25 §1-a/§1-d that's no
+    /// longer a handful of commands but effectively every guard-holding git mutation in
+    /// `domain::git::commands` (stage/unstage/discard, commit, push/pull, branch
+    /// create/checkout/delete, stash push/apply/drop, hunk/line stage/discard, undo-last-commit,
+    /// resolve-conflict, revert-commit, tag create/delete, checkout-remote-branch — ~20 commands)
+    /// plus `domain::terminal::commands::pty_spawn` — so enough long-parked waiters exhaust the
+    /// pool and deadlock against a holder waiting for a free thread (Phase E GIT-1). A command
+    /// whose lock wait can be long must acquire the guard with `begin_mutation().await` on the
+    /// async side first and only then enter `spawn_blocking` with the guard held.
+    ///
+    /// This method's own **waiter** side stayed narrow through that same batch — its sole caller
+    /// remains `domain::search::commands::search_replace` (no re-entry was introduced by the
+    /// holder-side growth above) — but the safety margin that keeps that one waiter from
+    /// deadlocking against the ~20 holders now leans on a fact outside this file: `search_replace`
+    /// is remote-exposed, and [`crate::domain::remote::types::REMOTE_DISPATCH_MAX_CONCURRENT`]
+    /// caps how many of it a remote client can have in flight at once at 128 — well under the
+    /// blocking pool's default 512 threads. See that constant's doc for the other half of this
+    /// margin; the two docs must be re-checked together if either side changes.
     pub fn begin_mutation_blocking(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_guard.blocking_lock()
     }
 
-    /// Marks the app as shutting down — set once from `lib.rs`'s `handle_close_requested` (the
-    /// first moment the main window's close is known to be underway, before the hot-exit flush
+    /// Marks the app as shutting down — set once from `domain::window::commands::handle_close_requested`
+    /// (the first moment the main window's close is known to be underway, before the hot-exit flush
     /// handshake even starts) and again, as a backstop for exit paths that skip that handler
     /// entirely (Cmd+Q's `NSApplication terminate:` on macOS bypasses `CloseRequested`, going
     /// straight to `RunEvent::Exit` — see `handle_menu_event`'s doc), from the `RunEvent::
@@ -91,7 +104,7 @@ impl AppState {
         self.shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// Polled once per iteration by `lib.rs::restore_project_watchers`'s boot-restore loop so a
+    /// Polled once per iteration by `domain::project::commands::restore_project_watchers`'s boot-restore loop so a
     /// close/quit requested partway through a multi-project restore stops attaching the rest
     /// immediately instead of running every remaining project's `FileIdMap` walk (and briefly
     /// taking `begin_mutation` per project) while the app is already on its way out.

@@ -9,10 +9,11 @@ use tokio::sync::{broadcast, watch};
 use super::server;
 use super::service;
 use super::types::{
-    RemoteLinkInfo, RemoteStatus, REMOTE_BROADCAST_CHANNEL_CAPACITY, REMOTE_LOGIN_LOCKOUT_BASE_MS, REMOTE_LOGIN_LOCKOUT_MAX_MS,
-    REMOTE_LOGIN_MAX_ATTEMPTS, REMOTE_LOGIN_NONCE_TTL_MS, REMOTE_PASSWORD_MIN_LEN, REMOTE_SESSION_TTL_MS, REMOTE_SHUTDOWN_GRACE_MS,
+    RemoteLinkInfo, RemoteStatus, REMOTE_BROADCAST_CHANNEL_CAPACITY, REMOTE_DISPATCH_MAX_CONCURRENT, REMOTE_LOGIN_LOCKOUT_BASE_MS,
+    REMOTE_LOGIN_LOCKOUT_MAX_MS, REMOTE_LOGIN_MAX_ATTEMPTS, REMOTE_LOGIN_NONCE_TTL_MS, REMOTE_PASSWORD_MIN_LEN, REMOTE_SESSION_TTL_MS,
+    REMOTE_SHUTDOWN_GRACE_MS,
 };
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::RemoteStateChanged;
 use crate::infra::crypto::constant_time_eq;
 use crate::infra::secret::{SecretAccount, SecretStoreState};
@@ -374,6 +375,45 @@ impl RemoteStore {
     }
 }
 
+/// Bounds concurrently in-flight remote-dispatch requests to
+/// [`REMOTE_DISPATCH_MAX_CONCURRENT`] (contract 2026-08-25 §1-c) — see that constant's doc for the
+/// blocking-pool-sharing rationale behind the specific number. A single process-wide instance,
+/// managed as Tauri state exactly like [`RemoteStore`]; every remote WebSocket connection's request
+/// loop (`ws.rs::handle_socket`) draws from the same semaphore, since the resource being protected
+/// (the tokio blocking-thread pool) is itself process-wide, not per-connection.
+pub struct RemoteDispatchLimiter {
+    semaphore: tokio::sync::Semaphore,
+}
+
+impl Default for RemoteDispatchLimiter {
+    fn default() -> Self {
+        Self {
+            semaphore: tokio::sync::Semaphore::new(REMOTE_DISPATCH_MAX_CONCURRENT),
+        }
+    }
+}
+
+impl RemoteDispatchLimiter {
+    /// Waits for a free slot and returns a permit that releases it back to the pool on drop —
+    /// `ws.rs::handle_socket` holds the returned guard for the duration of one dispatched request
+    /// (contract §1-c: excess requests wait, they are never rejected). Returns `None` only if the
+    /// semaphore were ever explicitly closed, which nothing in this codebase does (no `close()` call
+    /// anywhere) — the semaphore lives for the whole process, so this path is not currently
+    /// reachable.
+    ///
+    /// If it ever were reached, the caller (`ws.rs::handle_socket`'s spawned per-request task) drops
+    /// the request with **no response frame sent at all** — it just `return`s — rather than sending
+    /// an error response for that `seq`. That is not "failing the request" in the sense a client can
+    /// observe: the client-side promise for that `seq` stays pending until the socket itself closes,
+    /// at which point `remote-ws-client.ts`'s `rejectAll` clears it. The gap (a caller can't tell
+    /// "still queued" from "silently dropped" while the connection stays open) is accepted only
+    /// because the path is unreachable today; wiring an actual error response through this `None`
+    /// branch is deferred follow-up work, not implemented here.
+    pub async fn acquire(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        self.semaphore.acquire().await.ok()
+    }
+}
+
 async fn bind_and_start(app: &AppHandle) -> AppResult<RemoteStatus> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0u16)).await.map_err(AppError::from)?;
     let port = listener.local_addr().map_err(AppError::from)?.port() as u32;
@@ -486,7 +526,11 @@ pub async fn apply_remote_access_toggle(app: &AppHandle, was_enabled: bool, enab
 #[specta::specta]
 pub async fn remote_issue_link(app: AppHandle, remote: State<'_, RemoteStore>) -> AppResult<RemoteLinkInfo> {
     if !remote.is_running() {
-        return Err(AppError::InvalidArgument("원격 접속 서버가 실행 중이 아닙니다".to_string()));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.remote.serverNotRunning",
+            "the remote-access server is not running",
+        ));
     }
     let token = remote.issue_link_token();
     let allowed_hosts = app.state::<AppState>().settings.read().remote_allowed_hosts.clone();
@@ -521,9 +565,12 @@ pub async fn remote_revoke_sessions(remote: State<'_, RemoteStore>) -> AppResult
 #[specta::specta]
 pub async fn remote_set_password(remote: State<'_, RemoteStore>, secret: State<'_, SecretStoreState>, password: String) -> AppResult<()> {
     let Some(trimmed) = service::validate_and_trim_password(&password) else {
-        return Err(AppError::InvalidArgument(format!(
-            "비밀번호는 최소 {REMOTE_PASSWORD_MIN_LEN}자 이상이어야 합니다"
-        )));
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.remote.passwordTooShort",
+            format!("password must be at least {REMOTE_PASSWORD_MIN_LEN} characters"),
+        )
+        .with_arg("min", REMOTE_PASSWORD_MIN_LEN));
     };
     secret.0.set(SecretAccount::RemoteAccess, &service::hash_password(trimmed))?;
     remote.set_password_configured(true);
@@ -544,6 +591,8 @@ pub async fn remote_clear_password(remote: State<'_, RemoteStore>, secret: State
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     fn dummy_handle() -> tauri::async_runtime::JoinHandle<()> {
@@ -866,5 +915,44 @@ mod tests {
         assert_eq!(store.client_disconnected(), 1);
         assert_eq!(store.client_disconnected(), 0);
         assert_eq!(store.client_disconnected(), 0);
+    }
+
+    /// §1-c 의 핵심 계약: 상한을 넘는 요청은 거부되지 않고 **대기**한다 — permit 을 전부 소진한
+    /// 상태에서 하나를 반환하면 대기 중이던 호출이 그제서야 진행되는지를 확인한다.
+    #[tokio::test]
+    async fn 상한을_넘는_요청은_거부되지_않고_permit_반환을_대기한다() {
+        let limiter = Arc::new(RemoteDispatchLimiter {
+            semaphore: tokio::sync::Semaphore::new(1),
+        });
+
+        let first_permit = limiter.acquire().await.expect("permit 이 존재해야 한다");
+
+        let waiter_limiter = limiter.clone();
+        let waiter = tokio::spawn(async move {
+            let _permit = waiter_limiter.acquire().await.expect("permit 이 존재해야 한다");
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !waiter.is_finished(),
+            "permit 이 모두 소진된 동안에는 대기해야 하고, 거부되어 즉시 끝나면 안 된다"
+        );
+
+        drop(first_permit);
+        waiter.await.expect("대기 중이던 태스크가 패닉했다");
+    }
+
+    #[tokio::test]
+    async fn 서로_다른_permit은_동시에_진행된다() {
+        let limiter = RemoteDispatchLimiter::default();
+
+        let first = limiter.acquire().await;
+        let second = tokio::time::timeout(std::time::Duration::from_millis(50), limiter.acquire()).await;
+
+        assert!(first.is_some());
+        assert!(
+            matches!(second, Ok(Some(_))),
+            "기본 상한({REMOTE_DISPATCH_MAX_CONCURRENT}) 미만으로 동시 요청 시 대기 없이 즉시 permit 을 받아야 한다"
+        );
     }
 }

@@ -29,6 +29,13 @@ pub const REMOTE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
 /// `handle_socket` from ever reaching `RemoteStore::client_disconnected()` — the client count and any
 /// pruning gated on this connection actually ending stay stuck (§1.3(3),
 /// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`).
+///
+/// A second, unrelated way to hit this same timeout was added by [`crate::domain::remote::commands::
+/// RemoteDispatchLimiter`] (contract 2026-08-25 §1-c): `ws.rs::handle_socket` clones `tx` into each
+/// spawned per-request task *before* that task waits on the limiter's permit, so a request still
+/// queued for a permit when the connection closes keeps its own `tx` clone alive for as long as it
+/// stays queued. Under a saturated dispatch limiter, an otherwise-ordinary disconnect can ride this
+/// timeout too — this is no longer exclusively the traffic-idle leaked-sender case above.
 pub const REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS: u64 = 3_000;
 
 /// How long an established remote session cookie stays valid without the
@@ -69,6 +76,47 @@ pub const REMOTE_LOOPBACK_HOSTNAMES: &[&str] = &["127.0.0.1", "localhost", "::1"
 /// page instead of silently retrying — see `ws.rs::handle_socket`.
 pub const REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED: u16 = 4001;
 pub const REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED: &str = "session_expired";
+
+/// Upper bound on concurrently in-flight remote-dispatch requests (`ws.rs::handle_socket`'s
+/// per-message `tauri::async_runtime::spawn`), enforced by [`crate::domain::remote::commands::
+/// RemoteDispatchLimiter`] (contract 2026-08-25 §1-c). Before this cap, that spawn was unbounded:
+/// a client sending requests faster than they complete (a retry storm, a runaway frontend loop, or
+/// simply several remote tabs open at once) could drive concurrent in-flight tasks arbitrarily
+/// high, and `docs/acknowledge/2026-08-19-audit-t1h-lock-io-contract.md` §5's `git_pull` deadlock
+/// finding established that 512 concurrent calls are analytically reachable that way — derived from
+/// tokio's default `max_blocking_threads` (see below), not measured in a live stress run.
+///
+/// This app never overrides Tauri's default async runtime (`tauri::async_runtime::default_runtime`
+/// builds it via plain `tokio::runtime::Runtime::new()` — no `Builder::max_blocking_threads` call
+/// anywhere in this codebase), and tokio's own documented default for `Builder::max_blocking_threads`
+/// is 512. That blocking-thread pool is a single process-wide resource shared by *every*
+/// `spawn_blocking` call regardless of origin — a desktop-invoked command through Tauri's own IPC
+/// and a remote-invoked one through this dispatch table draw from the exact same 512 slots. 128 is
+/// simply a quarter of that one number; the T1-H citation above is not an independent confirmation
+/// of it — T1-H's 512 is itself derived from the same tokio default, not a second, separate
+/// measurement.
+///
+/// This cap keeps concurrent remote-dispatch tasks well under that shared ceiling, intended to leave
+/// headroom for the desktop window's own concurrent blocking work (terminal PTYs, LSP installs, git
+/// operations, ...) that can be in flight at the same time. That headroom is not a hard reservation,
+/// though: nothing in this codebase bounds how many blocking threads the desktop side can occupy at
+/// once (every desktop-originated `spawn_blocking` call is itself uncapped), so a large enough
+/// desktop-side burst can still exhaust the pool regardless of what the remote side is doing — this
+/// cap only bounds the remote side's own contribution. In ordinary use it's generous enough for
+/// legitimate remote traffic: a single UI interaction (opening a project, switching a tab) fans out
+/// to at most a handful of concurrent commands, so even several simultaneously connected remote
+/// sessions stay far below this number. A request that arrives once the cap is saturated **waits**
+/// for a permit rather than being rejected — no behavior change for the caller, only bounded queuing
+/// instead of unbounded concurrency (contract §1-c: "초과 시 대기 — 거부 금지").
+///
+/// This cap is also the only thing keeping [`crate::state::AppState::begin_mutation_blocking`]'s
+/// GIT-1 deadlock class (Phase E) unreachable through the remote path: its sole remaining caller,
+/// `search_replace`, is remote-exposed, so the number of `begin_mutation_blocking` parks a remote
+/// client can create at once is bounded by how many concurrent `search_replace` calls it can have
+/// in flight — which this semaphore caps at 128, well under the 512-thread pool. Raising this
+/// constant toward 512 (or removing it) would need re-evaluating that margin alongside
+/// `begin_mutation_blocking`'s guard-holder count — see that method's doc.
+pub const REMOTE_DISPATCH_MAX_CONCURRENT: usize = 128;
 
 pub const REMOTE_CHANNEL_PREFIX: &str = "__CHANNEL__:";
 pub const REMOTE_BINARY_TAG_RESPONSE: u8 = 0x02;

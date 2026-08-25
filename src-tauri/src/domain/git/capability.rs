@@ -39,11 +39,16 @@ impl ProjectCapability for GitWatcherCapability {
     }
 }
 
-/// Evicts the closing project's cached repo root ([`GitStore`]). Plain cache eviction — no
-/// correctness risk either way, since `resolve_repo_root` transparently rebuilds a missing entry
-/// on next access — but still matters: without it, reopening the same folder resurrects a
-/// possibly-stale repo root instead of resolving fresh, and the entry otherwise sits in memory for
-/// the rest of the app's lifetime regardless of whether the project ever reopens.
+/// Evicts the closing project's cached repo root ([`GitStore`]). `resolve_repo_root` transparently
+/// rebuilds a missing `repo_roots` entry on next access, so on that axis alone eviction carries no
+/// correctness risk — but `GitStore::remove` does more than that single-map eviction: it also
+/// conditionally evicts the repo's `push_fetch_lock` entry (contract 2026-08-25 §1-b), and that half
+/// *is* correctness-sensitive — an unconditional removal there would defeat same-repo push/fetch
+/// serialization for a project reopened mid-push/fetch at the same root (see `GitStore::remove`'s
+/// own doc for the `Arc::strong_count` guard that avoids exactly that). Skipping this call
+/// altogether would also resurrect a possibly-stale repo root on reopen instead of resolving fresh,
+/// and leave the entry sitting in memory for the rest of the app's lifetime regardless of whether
+/// the project ever reopens.
 pub struct GitCacheCapability;
 
 impl ProjectCapability for GitCacheCapability {

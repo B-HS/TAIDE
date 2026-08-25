@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-use super::commands::RemoteStore;
+use super::commands::{RemoteDispatchLimiter, RemoteStore};
 use super::dispatch::{self, ChannelFactory, ChannelSink};
 use super::types::{
     RemoteRequest, REMOTE_BINARY_TAG_CHANNEL, REMOTE_BINARY_TAG_RESPONSE, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED,
@@ -157,8 +157,40 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
 /// [`REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS`] rather than awaited unconditionally — see that
 /// constant's doc comment for why an unbounded wait can park [`RemoteStore::client_disconnected`]
 /// forever. A normal shutdown (including the session-expiry `Close` frame queued onto `tx` right
-/// before it's dropped) still flushes well within the timeout; only the leaked-sender case actually
-/// hits it.
+/// before it's dropped) still flushes well within the timeout in the common case — but see that
+/// constant's doc for a second path (a permit-queued request's own `tx` clone, under a saturated
+/// dispatch limiter) that can also ride the full timeout, not just the traffic-idle leaked-sender
+/// case it was originally written for.
+///
+/// Each inbound `Message::Text` spawns its own `handle_request` task, and that task is where it
+/// waits for a [`RemoteDispatchLimiter`] permit (contract 2026-08-25 §1-c) — not here, before the
+/// spawn. Gating the spawn itself instead would block this function's own `tokio::select!` loop
+/// from ever reaching its next `stream.next()` poll while every permit is checked out, which would
+/// also stall the two session-invalidation arms documented above — a saturated dispatch limiter
+/// must never delay noticing a bulk revocation or this socket's own TTL expiry.
+///
+/// That permit wait has costs this design accepts rather than works around (2026-08-25 d-35 review
+/// findings C1/C2/C4, all downgraded to minor on adversarial re-verification — see that review for
+/// the full analysis):
+///
+/// - The semaphore does not distinguish request kinds. When it saturates, every remote command —
+///   including the cancel-class ones (`*_cancel`, `pty_kill`, `remote_revoke_sessions`) that could
+///   otherwise relieve the saturation — waits in the same queue behind it. Recovery from a
+///   saturated queue therefore has to come from the desktop side instead: stopping the remote
+///   server or revoking sessions there does not go through this semaphore at all.
+/// - A request already queued for a permit is not cancelled when either session-invalidation arm
+///   above fires; it executes as soon as a permit frees up even if the session that sent it was
+///   revoked or expired in the meantime. This is not new exposure: the set of requests that end up
+///   executing after invalidation is the same set the pre-limiter code would have executed (the
+///   read loop above `break`s on invalidation, so no *further* frames get read either way) — what
+///   changed is only how long that already-fixed set takes to drain. `dispatch` itself has never
+///   re-validated the session after the WebSocket upgrade; reflecting revocation into an
+///   already-queued request is deferred follow-up work, not a regression this change introduced.
+/// - [`RemoteDispatchLimiter::acquire`] returning `None` — a path nothing in this codebase
+///   currently reaches, see that method's doc — makes the spawned task below `return` with no
+///   response frame sent for that request's `seq` at all, rather than an error response. The
+///   client-side promise for that `seq` stays pending until the socket itself closes, at which
+///   point `remote-ws-client.ts`'s `rejectAll` clears it.
 pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: String) {
     let remote = app.state::<RemoteStore>();
     remote.sweep_expired_sessions();
@@ -214,6 +246,11 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
                         let request_factory = factory.clone();
                         let request_out = tx.clone();
                         tauri::async_runtime::spawn(async move {
+                            let limiter = request_app.state::<RemoteDispatchLimiter>();
+                            let Some(_permit) = limiter.acquire().await else {
+                                log::warn!("원격 dispatch 세마포어를 획득하지 못해 요청을 처리하지 못했습니다");
+                                return;
+                            };
                             handle_request(&request_app, request, request_factory, &request_out).await;
                         });
                     }

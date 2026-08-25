@@ -190,6 +190,21 @@ impl PtySpawnEnvProvider {
 /// pty's ring buffer has something to replay. Seeding `subscribers` with this channel too used to
 /// mean every session broadcast every output chunk twice from the moment it was created — once to
 /// this inert sink, once to the real attach — for the session's entire lifetime.
+///
+/// The pty spawn itself runs guard-held on a blocking thread (contract 2026-08-25 §1-d, same shape
+/// as the git2 in-process migrations in `domain::git::commands`): `pty::spawn` writes the
+/// shell-integration script(s) to a temp dir, opens the pty, and forks/execs the child, all
+/// synchronous blocking work that previously ran directly on this async worker thread while
+/// `_guard` was held. T1-H (2026-08-19 §4) deferred this exact move on three grounds, all since
+/// resolved: (1) severity-tier framing only, not a correctness blocker; (2) "no reap path for an
+/// orphaned pty" (R8#1) — closed by T1-J, and independently by `PtySession`'s `Drop` impl, which
+/// the doc on that impl states "guarantees a `PtySession` never leaks its ... child process ... no
+/// matter how it stops being reachable"; the one path this migration adds — the outer future
+/// getting dropped while awaiting the join handle below, before `store.0.lock().insert` runs — is
+/// exactly the "unreachable any other way" case that guarantee already covers, so a spawn that
+/// never reaches `TerminalStore` still self-kills on drop; (3) T1-J landed (PROCESS.md d-8), so no
+/// in-flight conflict remains. The closures were already required to be `Send + 'static` by
+/// `pty::spawn`'s own bounds, so wrapping the whole call needs no new bounds.
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_spawn(
@@ -230,24 +245,28 @@ pub async fn pty_spawn(
         extra_env,
     };
 
-    let handle = pty::spawn(
-        config,
-        move |bytes| {
-            service::ring_buffer_append(&mut ring_for_data.lock(), bytes, DEFAULT_SCROLLBACK_BYTES);
-            broadcast_output(&subscribers_for_data, bytes);
-            if let Some(cwd) = shell_integration::extract_latest_cwd(bytes) {
-                report_cwd_change(&cwd_app, &cwd_session_id, cwd);
-            }
-        },
-        move |code| {
-            exit_running.store(false, Ordering::SeqCst);
-            let _ = TerminalExited {
-                session_id: exit_session_id,
-                code,
-            }
-            .emit(&exit_app);
-        },
-    )?;
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        pty::spawn(
+            config,
+            move |bytes| {
+                service::ring_buffer_append(&mut ring_for_data.lock(), bytes, DEFAULT_SCROLLBACK_BYTES);
+                broadcast_output(&subscribers_for_data, bytes);
+                if let Some(cwd) = shell_integration::extract_latest_cwd(bytes) {
+                    report_cwd_change(&cwd_app, &cwd_session_id, cwd);
+                }
+            },
+            move |code| {
+                exit_running.store(false, Ordering::SeqCst);
+                let _ = TerminalExited {
+                    session_id: exit_session_id,
+                    code,
+                }
+                .emit(&exit_app);
+            },
+        )
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))??;
 
     let entry = SessionEntry {
         pty: handle,
