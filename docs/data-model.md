@@ -257,7 +257,7 @@ emit·이중 `exit()` 를 가드한다.
     감지해 OS 창을 스스로 닫는 것으로 대칭을 완성한다(재시작 시 빈 슬롯은 저장 단계에서 제외되어
     복원되지 않는다).
   - 재시작 시 열려 있던(활성 프로젝트 여부와 무관하게, 세션에 남아있는 모든 프로젝트의) 보조 창을
-    Rust 가 전부 재생성한다(`lib.rs::restore_auxiliary_windows`).
+    Rust 가 전부 재생성한다(`domain::window::commands::restore_auxiliary_windows`).
 - **`ShellViewState`** — main 창 전용 표시 상태(보조 창은 사이드바·상태바가 원래 없는 에디터 전용
   크롬이라 이 값의 영향을 받지 않는다).
 

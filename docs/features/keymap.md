@@ -13,9 +13,9 @@
 >
 > 계약: `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md`.
 > ContextKeyExpr 딥임포트 선례: `docs/acknowledge/2026-08-16-monaco-contextkeyexpr-deep-import.md`.
-> 핵심 파일: `shared/lib/keymap.ts`(엔트리·매칭·직렬화) · `shared/lib/keymap-dispatch.ts`(순수
-> 상태머신) · `shared/lib/keymap-chord-store.ts`(전역 chord/monaco유예 스토어) ·
-> `shared/lib/keymap-context.ts` + `shared/lib/keymap-when.ts`(when 평가) ·
+> 핵심 파일: `shared/lib/keymap/keymap.ts`(엔트리·매칭·직렬화) · `shared/lib/keymap/keymap-dispatch.ts`(순수
+> 상태머신) · `shared/lib/keymap/keymap-chord-store.ts`(전역 chord/monaco유예 스토어) ·
+> `shared/lib/keymap/keymap-context.ts` + `shared/lib/keymap/keymap-when.ts`(when 평가) ·
 > `shared/hooks/use-global-keymap.ts`(소비처 훅, 부작용 지점).
 
 ## 1. 엔트리 모델
@@ -201,7 +201,7 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
 
 ## 6. when 컨텍스트
 
-- **평가기 = monaco `ContextKeyExpr` 딥임포트**(`shared/lib/keymap-when.ts`,
+- **평가기 = monaco `ContextKeyExpr` 딥임포트**(`shared/lib/keymap/keymap-when.ts`,
   `monaco-editor/platform/contextkey/common/contextkey`). bun:test(DOM 없음) 환경에서도 top-level
   정적 import 로 정상 로드됨을 실측 확인(`keymap-when.test.ts`) — 동적 import 대신 정적 import 를
   택한 이유는 `docs/acknowledge/2026-08-16-monaco-contextkeyexpr-deep-import.md` 참조(when 평가가

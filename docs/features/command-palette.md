@@ -1,7 +1,7 @@
 # 기능 — 커맨드 팔레트 · 퀵오픈
 
 > Phase 7.5 에서 확장(사용자 지적 10번). 기존 `⌘⇧P`/`⌘P` 구현을 **확장 가능한 레지스트리**로 바꾼다.
-> 키 선언 정본은 `shared/lib/keymap.ts`, 키 계층 규칙은 `editor.md` §6.
+> 키 선언 정본은 `shared/lib/keymap/keymap.ts`, 키 계층 규칙은 `editor.md` §6.
 
 ## 1. 모드 (VSCode/Cursor 동일)
 

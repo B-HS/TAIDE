@@ -496,7 +496,11 @@ test result: FAILED. 0 passed; 1 failed
 - `git diff -- src-tauri/resources/themes/github-dark.json src-tauri/resources/themes/github-light.json` — 각 파일 정확히 1줄만 변경.
 - typecheck/prettier: 해당 없음(Rust 전용 임무, TS 미수정).
 
-## 5. 이월 (d-33 몫)
+## 5. 이월 (d-33 몫) — **상태: d-33 에서 기술분 완결(2026-08-24)** — §5.1 ①②③은 d-33 계약 §3-C(구별성 가드·번들 3종 정정·vs-전경 ΔE 재스윕)로 구현·기록 완료. 사용자 결정 이월분(builtin_light·대비 린트 정책)만 존속.
+> **[추가 이월 — d-33 적대적 판정(2026-08-25) 기록]** 번들 재변환 정책: 번들 JSON 은
+> bc27352 시점 산출물이고 matchHighlight 수리쌍(a65c46c)·구별성 가드(d-33)가 그 뒤에
+> 추가되어, 동일 업스트림 재임포트 결과가 번들 값과 달라질 수 있다(예: everforest-light
+> #8da101→수리 경유). 번들 재생성 여부·예외의 파이프라인 차원 표현은 **사용자 결정 사항**.
 
 검토 반영 회전(L2-2·L2-3 downgraded)에서 major 에는 못 미치지만 코드 변경이 필요한 것으로
 판정된 항목을 다음 통합 배치로 넘긴다. 이번 회전에서는 데이터·문서만 정정했고 아래 3건은

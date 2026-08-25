@@ -25,8 +25,10 @@
   - 다중 프로젝트 순차/병렬은 기존 순서 의미 실사 후 결정(순서 의존 없으면 순차 유지가 안전).
 - **계측(경량)**: setup 구간·attach 태스크 완료에 기존 로깅 수위로 elapsed 1줄씩(진단
   discriminator — 재발 검증용. TRACE 홍수 금지·info 1~2줄).
-- 범위 외: NoCache 전환(rename 경로 의미 변화 — 후속 검토)·dev 모드 monaco lazy 경계·
-  reveal 게이트 재설계·워처 ignore 정책 변경.
+- 범위 외: NoCache 전환(rename 경로 의미 변화 — 후속 검토 → d-35 §4-e 에서 기각(macOS FSEvents
+  가 rename 페어링 cookie 를 제공하지 않아 FileIdMap 없이는 큐 재귀속 오보고가 실제로 발생함을
+  vendored 소스로 확증 — `docs/acknowledge/2026-08-25-d35-rust-hardening-contract.md` §4-e))·
+  dev 모드 monaco lazy 경계·reveal 게이트 재설계·워처 ignore 정책 변경.
 
 ## 2. 실행·검증
 

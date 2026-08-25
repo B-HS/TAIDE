@@ -129,6 +129,11 @@
 - git capability attach 시: discover(`.git` 탐색) → 초기 status → watcher 필터 등록.
   detach 시 대칭 해제. bare repo(workdir 없음)면 SCM 뷰 비활성.
 - blame·log·대형 diff 는 `spawn_blocking` + 경로로 새 `Repository::open` (ADR-0006 스레드 모델).
+  d-35 부터 stage/unstage/discard/commit/branch/stash/hunk/tag/checkout-remote 등 git2 인프로세스
+  뮤테이션 13종도 동일하게 guard 보유 채 `spawn_blocking` (async 워커 스레드 비점유).
+- push/fetch 는 repo 경로를 키로 한 `tokio::sync::Mutex` 로 동일 repo 요청끼리만 직렬화 대기(경합
+  대신 큐잉 — d-35 §1-b). `git_pull` 은 이 락을 잡지 않는다(전체 `begin_mutation` 유지 불변) —
+  같은 repo 의 fetch-vs-pull 경합은 이전처럼 git 자체 락 실패로 남는다.
 - status 옵션 고정: `recurse_untracked_dirs(false)`, `include_ignored(false)`,
   `exclude_submodules(true)`(서브모듈은 2차), `renames_*(true)`, `update_index(true)`.
 - 대형 리포: Rust 가 `HashMap<Path, StatusRow>` 캐시를 갖고 **변경분만** 이벤트로 emit

@@ -101,7 +101,7 @@
   `capabilities.experimental` 에 이 선언이 필수다. 다인자 커맨드 실행에는 공개 monaco.d.ts API 가 없어
   `ICommandService` 를 딥 임포트한다 — 근거는
   `docs/acknowledge/2026-08-14-monaco-command-service-deep-import.md`.
-- **cross-file 오프너**(`shared/lib/editor-opener-bridge.ts`): `monaco.editor.registerEditorOpener`
+- **cross-file 오프너**(`shared/lib/bridge/editor-opener-bridge.ts`): `monaco.editor.registerEditorOpener`
   를 부트스트랩에서 1회 등록. 같은 모델 이동은 monaco 기본 처리에 위임(false 반환), untitled 는
   이미 열린 에디터로 직접 reveal, file scheme 은 `requestOpenFileFromEditor` 로 pub/sub emit —
   `widgets/editor-area/editor-area.tsx` 가 구독해 `requestReveal` + `openTab(preview)` 실행. 이

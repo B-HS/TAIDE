@@ -97,7 +97,7 @@
 | 앱 전역 | `⌘P` 파일 퀵오픈, `⌘W` 탭 닫기, `⌘B` 사이드바, `⌘⇧F` 검색, `⌃Tab` 탭 전환, `⌘\` 분할, `⌘⇧E/G` 뷰 전환, `⌃\`` 터미널 | window keydown 캡처 단계 핸들러(단일 keymap 모듈) + 필요 시 Tauri 메뉴 accelerator. 에디터 내 충돌 키는 `{ keybinding, command: null }` 로 monaco 기본 해제 |
 
 - 전체 키 목록 정본: `docs/research/vscode-behaviors.md` §8 표. 앱 전역 키맵은
-  `shared/lib/keymap.ts` 한 곳에서 선언한다(설정 오버라이드 대비 데이터 구조로).
+  `shared/lib/keymap/keymap.ts` 한 곳에서 선언한다(설정 오버라이드 대비 데이터 구조로).
 - WebView 기본 동작(`⌘P` 인쇄 등) preventDefault 필수(vscode-behaviors 함정 절).
 
 ## 7. 테마 연동

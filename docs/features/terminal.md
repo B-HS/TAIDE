@@ -167,7 +167,7 @@
   확인 다이얼로그"는 설계 의도로만 남아 있고 프론트에 실구현이 없다** — 현재는 무조건 즉시 kill 이다
   (탭 닫기용 프론트 확인 다이얼로그가 미구현이라는 뜻이다 — `PtySession::foreground_pid`/
   `TerminalStore::foreground_pids` 자체는 존재하며 시스템 사용량(`system/commands.rs`)·에이전트
-  감지 폴링(`lib.rs::poll_agents`, `agent/commands.rs`) 용도로 별도 쓰인다, 감사로 확인). ring
+  감지 폴링(`domain::agent::commands::poll_agents`) 용도로 별도 쓰인다, 감사로 확인). ring
   buffer 는
   탭이 닫히며 그 view state 와 함께 사라진다(별도 해제 커맨드 없음). view 는 xterm `dispose`.
 - 프로세스 종료(exit) 감지: try_wait 폴링 또는 wait 스레드 → `terminal:exited` → 탭에

@@ -89,6 +89,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     추가 env 는 `terminal::commands::PtySpawnEnvProvider` — 전부 lib.rs 가 구현/클로저를 정적
     등록하고 도메인은 등록된 것을 소비만 한다. (초안이 언급한 "이벤트 버스(내부 broadcast
     channel)"는 실현되지 않았다 — `events.rs` 는 프론트행 IPC 이벤트 전용이다.)
+    부팅 1회성 복원처럼 확장점 4종 어디에도 맞지 않는 연동은, **조립부가 호출 순서를 계속
+    소유하는 조건**에서 스텝 본문을 도메인이 보유하고 그 교차 참조를 화이트리스트로 기록한다
+    (d-32 — `project::commands` 부팅 복원 3함수의 4엣지가 이 경로의 선례).
   - 불가피한 잔여 엣지는 **화이트리스트로 명시 승인**한다. `src-tauri/tests/domain_boundaries.rs`
     의 소스 스캔 테스트가 화이트리스트 밖의 도메인 간 참조와 infra→domain 참조를 기계 강제로
     거부한다(미등재 = 실패, 실재하지 않는 등재 = 실패 — T1-K "기본 거부"와 동형). 각 항목의
@@ -102,6 +105,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 - 장수 태스크(pty reader, LSP stdio pump, watcher)는 tokio task 로 상주하며,
   소유 도메인의 세션 구조체가 JoinHandle/CancellationToken 을 보유해 종료를 보장한다.
 - AppState 접근은 짧은 잠금 원칙: 잠금 안에서 IO 금지.
+- `spawn_blocking` 스레드풀(tokio 기본 상한 512)은 **프로세스 전역**이며 데스크톱 IPC 커맨드와
+  원격 dispatch 커맨드가 같은 풀을 공유한다 — 원격 쪽은 `RemoteDispatchLimiter`(128, d-35)로
+  자기 몫만 상한을 두지만 데스크톱 쪽 `spawn_blocking` 호출에는 별도 상한이 없다.
 
 ## 3. 프로젝트 추상화 (핵심 확장 포인트)
 
@@ -351,9 +357,9 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    | `entities/editor/reveal-registry.ts` | pending reveal 요청(파일 오픈 대기) | 소비(`consumePendingReveal`) 또는 `REVEAL_PENDING_TTL_MS`(5s) 만료 — 탭/프로젝트 이벤트 구독 없음, TTL 단독 |
    | `entities/editor/open-with-registry.ts` | 파일 경로별 "이 확장자를 어떤 뷰어로 열지" 오버라이드 | 탭 닫기 시 다른 곳에 안 남아있으면 즉시 해제(`useCloseTab` → `setOpenWithOverride(path, null)`) + 프로젝트 종료 시 다른 프로젝트에 안 남은 경로만 일괄 해제(`ipc-sync-provider.tsx`의 `projectClosed` → `pruneOpenWithOverrides`) — 두 이벤트 모두 놓친 경로(경로는 탭/프로젝트에 1:1 로 안 묶여 재사용 가능)만 `OPEN_WITH_OVERRIDE_MAX_ENTRIES`(200) LRU-by-write 상한이 뒷받침 |
    | `entities/ide/claude-diff-registry.ts` | requestId 별 미해결 Claude diff 요청 | accept/reject(`removePendingClaudeDiff`) 또는 그 탭이 레이아웃에서 실제로 사라짐(`claude-diff-pane.tsx` unmount 시 `queryClient.getQueryData(LAYOUT.DETAIL)` 로 재확인 — `projectClosed` 의 `PROJECT_SCOPED_KEYS` 캐시 제거가 이 재확인을 간접적으로 성립시킨다) |
-   | `shared/lib/terminal-write-bridge.ts` | 탭별 pty 쓰기 큐 + 핸들러 슬롯 | 정상 해제(`register`/`unregister`) 시 즉시 회수, 또는 `TERMINAL_WRITE_QUEUE_TTL_MS`(30s) 경과분을 다음 호출에서 기회적으로 스윕(`sweepStaleSlots`) — 탭 종료 이벤트 구독 없음, TTL 단독 |
+   | `shared/lib/bridge/terminal-write-bridge.ts` | 탭별 pty 쓰기 큐 + 핸들러 슬롯 | 정상 해제(`register`/`unregister`) 시 즉시 회수, 또는 `TERMINAL_WRITE_QUEUE_TTL_MS`(30s) 경과분을 다음 호출에서 기회적으로 스윕(`sweepStaleSlots`) — 탭 종료 이벤트 구독 없음, TTL 단독 |
    | `entities/lsp/lsp-session-flush-registry.ts` + `entities/lsp/lsp-session-registry.ts` | 프로젝트/창/서버/root 별 LSP 세션(`sessionsByKey`) | 참조 카운트 0 도달 후 `LSP_SESSION_DISPOSE_GRACE_MS` 유예, 또는 `projectClosed` 이벤트(`ipc-sync-provider.tsx` → `flushLspSessionsForProject`)로 유예 없이 강제 회수, 또는 앱 종료(`HotExitFlushProvider` → `flushAllLspSessionDisposals`) |
-   | `shared/lib/fire-and-forget-bridge.ts`·`shared/lib/external-store-bridge.ts` 로 만든 팩토리형 브리지 12+종 | 팩토리 자체는 무상태 — 소유권 범위는 **호출부가 정의**(대개 프로세스 전체, 창별 모듈 인스턴스로 자동 격리) | 팩토리는 구독자 0 정책(`emptyPolicy`)만 제공, TTL/용량은 호출부 책임(예: terminal-write-bridge 의 레이어) |
+   | `shared/lib/bridge/fire-and-forget-bridge.ts`·`shared/lib/bridge/external-store-bridge.ts` 로 만든 팩토리형 브리지 12+종 | 팩토리 자체는 무상태 — 소유권 범위는 **호출부가 정의**(대개 프로세스 전체, 창별 모듈 인스턴스로 자동 격리) | 팩토리는 구독자 0 정책(`emptyPolicy`)만 제공, TTL/용량은 호출부 책임(예: terminal-write-bridge 의 레이어) |
    | `entities/agent/agent-wait-marker-registry.ts` | tabId 별 외부 오픈 대기 마커 | `useCloseTab` 해제 경로 + `clearStaleWaitMarkersOnStartup`(앱 부팅 시 잔존분 정리) |
 
    **앱 수명 부수효과(이벤트 구독·전역 상태 동기화)는 조건부 렌더 위젯이 아니라 상시 마운트

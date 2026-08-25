@@ -77,6 +77,12 @@ sleep 방지 assertion 을 잡는다는 사실과 배터리 영향을 사용자�
 > `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §3.2 — 이 문서(§6 이 "Phase
 > 7.5 에서는 구현하지 않는다"고 적은 부분 포함)는 착수 전 리서치 스냅샷이라 더 이상 현재 상태를
 > 반영하지 않는다.
+>
+> **갱신 (2026-08-25, d-35)**: 원격 커맨드 dispatch(웹소켓 요청마다 스폰되는 태스크)는 동시 실행
+> 상한 128건(`RemoteDispatchLimiter`, 프로세스 전역 세마포어)을 갖는다 — tokio 기본 blocking 풀
+> 512스레드를 데스크톱과 공유하는 것을 근거로 한 상한이며, 초과분은 거부되지 않고 permit 이
+> 빌 때까지 대기한다(취소 계열 커맨드도 같은 큐를 공유 — 상세는
+> `src-tauri/src/domain/remote/types.rs`의 `REMOTE_DISPATCH_MAX_CONCURRENT` doc).
 
 ## 5. 후속 조사 필요 (미확인 8건)
 

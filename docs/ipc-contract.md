@@ -35,8 +35,18 @@
 
 - 이벤트 payload 에는 가능하면 `revision`(단조 증가)을 실어 늦게 도착한 이벤트로 인한 stale 갱신을
   차단한다(revision gate — performance research §3).
-- 에러: 전 command 는 `Result<T, AppError>` — `AppError { code, message, details? }`
-  (thiserror + Serialize + specta Type, 코드는 `error.rs` 중앙화). 프론트는 코드 기반 분기 + 토스트.
+- 에러: 전 command 는 `Result<T, AppError>` — `AppError` 는 `{code, message}` 형태의 6변종
+  adjacently-tagged enum(`Io`·`NotFound`·`InvalidArgument`·`Forbidden`·`Internal` 은 `message: string`,
+  `Localized` 는 `message: LocalizedError { kind, key, args, fallback }` — 로케일 카탈로그의
+  `error.<domain>.<slug>` 키로 번역되는 사용자 노출 에러. `kind` 는 앞의 5변종과 같은 값 집합의
+  `AppErrorKind` 라 `code` 기반 분기는 그대로 유지된다)
+  (thiserror + Serialize + specta Type, 코드는 `error.rs` 중앙화). 프론트 경계(`shared/api/unwrap-result.ts`
+  의 `IpcError`, `entities/file/file.raw.ts` 의 `RawFileReadError`)는 `Localized` 를 `code`(항상
+  `AppErrorKind` 5종 중 하나 — `Localized` 자체는 `code` 로 노출되지 않는다)·`message`(fallback)·
+  `localeKey`·`localeArgs` 로 정규화한다. 표시는 `shared/lib/ipc-error-message.ts` 의
+  `describeIpcError`(일회성 — toast)/`useIpcErrorMessage`(지속 렌더 — 언어 전환에 반응)가 전담: `localeKey`
+  가 활성 카탈로그에 존재하면 `t(localeKey, localeArgs)`, 아니면 `message` 폴백. 이관 경과·매핑 표는
+  `docs/acknowledge/2026-08-24-d34-apperror-campaign-contract.md` 참고.
 - view 구독은 `useTauriEvent`(취소 플래그 내장 — StrictMode 이중 마운트 안전) 훅만 사용.
   Channel 은 소비 위젯이 소유하고 unmount 시 대응 detach command 호출.
 
@@ -138,7 +148,7 @@
   선택적으로 refresh 를 유지하고 싶은 소비자는 `fromApp` 단독이 아니라 `kind !== 'Modified'` 를
   함께 봐 스킵 범위를 좁힐 수 있다 — 이 필드가 그 판단에 쓰라고 존재한다.
 - **부팅 워처 재부착 직후 합성 발신(d-25, `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`)**:
-  `lib.rs::restore_project_watchers` 가 복원 프로젝트의 파일 워처를 재부착한 직후, 그 프로젝트에
+  `domain::project::commands::restore_project_watchers` 가 복원 프로젝트의 파일 워처를 재부착한 직후, 그 프로젝트에
   **열린 `File` 탭 경로가 있으면** `fs:changed(paths: <그 경로들>, kind: 'Modified', fromApp: false)`
   를 실제 디스크 변경 여부와 무관하게 1회 합성 발신한다 — attach 지연 구간(창 표시~이 프로젝트
   워처 attach 완료)에 외부에서 바뀌었을 수 있는 파일의 `FILE.CONTENT` 캐시(`staleTime: Infinity` +
@@ -237,7 +247,7 @@
   checkout)
 - event: `git:status-changed`, `git:refs-changed` — **`git:operation-progress`/`git:operation-finished`
   이벤트는 코드에 존재하지 않는다**(이전 판의 기재 오류, 정정).
-- **부팅 워처 재부착 직후 합성 발신(d-25)**: `lib.rs::restore_project_watchers` 가 복원 프로젝트의
+- **부팅 워처 재부착 직후 합성 발신(d-25)**: `domain::project::commands::restore_project_watchers` 가 복원 프로젝트의
   git 워처를 재부착한 직후, `git:status-changed` 를 실제 git 상태 변경 여부와 무관하게 1회 합성
   발신한다(위 `fs:changed` 항목과 같은 attach 공백 보정 — 이번엔 `entities/git/git.query.ts` 의
   `GIT.PROJECT` 캐시가 대상). `git:refs-changed` 는 함께 발신하지 않는다 — 프런트가 두 이벤트를

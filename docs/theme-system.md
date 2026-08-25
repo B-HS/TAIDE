@@ -339,7 +339,10 @@ bun run scripts/convert-vscode-theme.ts \
 - `panel.matchHighlight`(팔레트·검색 매치 강조의 **전경**색, 오버레이 배경이 아니다)는
   `chain()` 이 아니라 `derived()` 로 계산한다 — `list.highlightForeground` →
   `editor.findMatchHighlightBackground` 순으로 후보를 검사하되, `isOpaqueForegroundCandidate`
-  (`mapping-tables.ts`) 가 **의미 있는 알파(불투명 미만)를 가진 후보를 배제**한다.
+  (`mapping-tables.ts`) 가 **의미 있는 알파(불투명 미만)를 가진 후보를 배제**한다. 불투명
+  가드를 통과한 후보도 `isDistinctFromBodyForeground`(`mapping-tables.ts`)가 해석된
+  `app.foreground` 와 CIE76 ΔE < 2.3(거의 동일한 색)이면 추가로 배제한다 — WCAG 대비만으로는
+  명도가 같고 색상만 다른 두 색을 구별하지 못하기 때문이다(구별성 가드, §8.2.3 참고).
   `editor.findMatchHighlightBackground` 는 VS Code 자신도 반투명 오버레이 전용으로 설계한
   값이라, 그대로 전경 텍스트색으로 쓰면 배경 위에서 흡수돼 거의 안 보인다(§8.2.3 참고). 두
   후보가 모두 배제되면 이 토큰의 `status` 카테고리 공용 안전값(`SAFE_DEFAULT_COLORS`)으로
@@ -458,29 +461,41 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 스키마·5곳 동기(§ "테마 토큰은 5곳 동기") 변경이 필요해 범위를 넘어선다고 판단해
 보류했다 — 필요해지면 별도 작업으로 진행한다.
 
-### 8.2.3 재변환 비재현 예외 — `panel.matchHighlight` 손수정 4종
+### 8.2.3 재변환 비재현 예외 — `panel.matchHighlight` 손수정 7종
 
-대상: `github-dark`·`github-light`·`ayu-light`·`solarized-light` 4종의
-`panel.matchHighlight`. 이 4개는 §8.2.2 가 "재변환해도 이 보정은 그대로 재적용된다"고
-못박은 일반 원칙의 **예외**다 — 번들 36종 중 이 4종만, 변환기를 다시 돌려도 지금 커밋된
-값이 재현되지 않는다(d-31 `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A).
+대상: `github-dark`·`github-light`·`ayu-light`·`solarized-light`·`monokai`·`palenight`·
+`night-owl-light` 7종의 `panel.matchHighlight`. 이 7개는 §8.2.2 가 "재변환해도 이 보정은
+그대로 재적용된다"고 못박은 일반 원칙의 **예외**다 — 번들 36종 중 이 7종만, 변환기를
+다시 돌려도 지금 커밋된 값이 재현되지 않는다(앞 4종은 d-31
+`docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A, 뒤 3종은 d-33
+`docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md` "임무 C").
 
-**재변환 시 나오는 값과 이유가 테마 그룹마다 다르다:**
+**재변환 시 나오는 값과 이유가 두 가지 서로 다른 가드에서 갈린다:**
 
 - `github-dark`/`github-light`: 업스트림 classic 팔레트(`primer/github-vscode-theme`)가
   `list.highlightForeground` 를 정의하지 않고, 남는 유일한 후보
-  `editor.findMatchHighlightBackground` 는 반투명(`#ffd33d22`/`#ffdf5d66`)이라 앞 절의
-  f-1 가드(`isOpaqueForegroundCandidate`)가 배제한다. 두 후보가 모두 사라지면 `status`
-  카테고리 공용 안전값(`SAFE_DEFAULT_COLORS.status`)으로 떨어져 `#569CD6`(dark)/
+  `editor.findMatchHighlightBackground` 는 반투명(`#ffd33d22`/`#ffdf5d66`)이라
+  `isOpaqueForegroundCandidate`(불투명 가드, d-31)가 배제한다. 두 후보가 모두 사라지면
+  `status` 카테고리 공용 안전값(`SAFE_DEFAULT_COLORS.status`)으로 떨어져 `#569CD6`(dark)/
   `#0066BF`(light)가 나온다.
-- `ayu-light`/`solarized-light`: `list.highlightForeground` 자체가 이미 불투명해 f-1
-  가드를 그대로 통과하므로, 재변환은 업스트림 원본값(`#f29718`/`#B58900`)을 **그대로**
-  재현한다 — 이 값이 바로 `panel.background` 대비 2.16:1/2.62:1 로 파이프라인 대비 게이트
-  (`MIN_CONTRAST_RATIO = 3`)에 미달했던 원래 결함값이다.
+- `ayu-light`/`solarized-light`: `list.highlightForeground` 자체가 이미 불투명해
+  불투명 가드를 그대로 통과하므로, 재변환은 업스트림 원본값(`#f29718`/`#B58900`)을
+  **그대로** 재현한다 — 이 값이 바로 `panel.background` 대비 2.16:1/2.62:1 로 파이프라인
+  대비 게이트(`MIN_CONTRAST_RATIO = 3`)에 미달했던 원래 결함값이다.
+- `monokai`/`palenight`/`night-owl-light`: `list.highlightForeground` 가 불투명하게
+  정의돼 있지만(monokai `#f8f8f2`, palenight `#ffffff`, night-owl-light `#403f53`) 그
+  값이 `app.foreground`(본문 전경)와 **픽셀 단위로 동일**하다 — 검색·팔레트 매치 강조가
+  `font-semibold` 하나로만 남는 결함(d-33 "임무 C", CIE76 ΔE 0.0). 이를 막는
+  `isDistinctFromBodyForeground`(구별성 가드, d-33 — `mapping-tables.ts`)가 세 값을 모두
+  배제한다. 다음 후보인 `editor.findMatchHighlightBackground` 도 palenight·night-owl-light
+  는 반투명(`#7e57c233`/`#93a1a16c`)이라 불투명 가드가, monokai 는 애초에 upstream 이 이
+  토큰 자체를 정의하지 않아 후보가 사라져, 셋 다 결국 `status` 안전값으로 떨어진다 —
+  monokai·palenight 는 dark(`#569CD6`), night-owl-light 는 light(`#0066BF`).
 
 **그럼에도 손수정값을 유지하는 근거** — 어느 쪽도 값을 새로 발명하지 않고, 각 업스트림
-팔레트 **안에서** 대비가 더 나은 값으로 재선정했다(github-light `#735c0f` 선정과 동일한
-"같은 스케일 내 인덱스/변형 이동" 논리):
+팔레트 **안에서** 재선정했다(github-light `#735c0f` 선정과 동일한 "같은 스케일 내
+인덱스/변형 이동" 논리 — 뒤 3종은 UI 색이 아니라 같은 테마의 `tokenColors` 구문 강조색
+중 하나를 재사용했다):
 
 | 테마 | 손수정값 | 대비비 | 재변환 시 나오는 값 | 그 값의 대비비 | 근거 |
 |---|---|---|---|---|---|
@@ -488,14 +503,43 @@ VS Code 는 테마가 `terminal.ansi*` 를 정의하지 않아도 터미널을 �
 | github-light | `#735c0f` | 6.04 | `#0066BF`(safe-default) | 5.40 | 같은 yellow 스케일 10개 인덱스 중 유일하게 AA(4.5) 통과하는 index9 |
 | ayu-light | `#7e4b01` | 6.88 | `#f29718`(원본 그대로) | 2.16 | 같은 업스트림 `vscode-ayu` 테마의 `button.foreground`(accent 의 어두운 "on" 변형 — 같은 색상 계열, `scheme.common.accent.on`) |
 | solarized-light | `#584c27` | 6.92 | `#B58900`(원본 그대로) | 2.62 | 같은 업스트림 `theme-solarized-light` 의 `activityBar.foreground`(같은 gold/olive 색상 계열의 어두운 변형) |
+| monokai | `#E6DB74` | 11.63 | `#569CD6`(safe-default) | 5.62 | 업스트림 `microsoft/vscode` `theme-monokai` 의 `tokenColors`(string/regexp/link 등) 에서 반복 사용되는 노랑 — `app.foreground`(`#f8f8f2`)와 ΔE 50.65 로 뚜렷이 구별 |
+| palenight | `#ffcb6b` | 9.10 | `#569CD6`(safe-default) | 4.63 | 업스트림 `whizkydee/vscode-palenight-theme` 의 `tokenColors`(variable/type/attribute 등) 에서 반복 사용되는 금색 — `app.foreground`(`#ffffff`)와 ΔE 56.85 로 뚜렷이 구별 |
+| night-owl-light | `#aa0982` | 6.00 | `#0066BF`(safe-default) | 5.04 | 업스트림 `sdras/night-owl-vscode-theme` 의 `tokenColors`(number) 에서 사용되는 마젠타 — `app.foreground`(`#403f53`)와 ΔE 62.74 로 뚜렷이 구별 |
 
-**운영 지시**: 이 4개 테마를 재변환하면 `panel.matchHighlight` 1개 토큰의 diff 가 항상
+뒤 3종은 safe-default(`#569CD6`/`#0066BF`)도 이미 AA 를 통과하므로(4.63~5.62), 손수정의
+목적이 대비 확보가 아니라 **테마 정체성 보존**(외지 파랑 대신 그 테마 고유의 accent 색을
+유지)이라는 점이 앞 4종(대비 미달 해소가 목적)과 다르다 — 그럼에도 대비는 손수정값 쪽이
+더 크다(11.63/9.10/6.00 vs 5.62/4.63/5.04).
+
+**대비 수리(`repairContrastPairs`, `contrast.ts`) 단계도 구별성 가드를 반영한다.** `panel.matchHighlight`
+의 초기 후보가 배경 대비 3:1(`MIN_CONTRAST_RATIO`)에 미달해 수리가 발동하면(위 §8.2 마지막
+불릿의 `repairContrastPairs`), 전경 후보 사슬은 이제 상태색 우선(`textLink.foreground` →
+`button.background` → `focusBorder` → `activityBarBadge.background` → `badge.background` →
+`tab.activeBorderTop`, `app.accent`/`appSidebar.badge`/`tabBar.tabActiveIndicator` 가 쓰는 것과
+같은 사슬)이다 — 이 중 불투명·대비 3:1·`app.foreground` 와의 ΔE ≥ 2.3 을 모두 만족하는 첫
+값을 채택한다(1패스). 1패스에서 아무 후보도 세 조건을 모두 만족하지 못하면(예: 업스트림이
+상태색 자체를 정의하지 않았거나, 정의된 상태색도 본문 전경과 구별되지 않는 테마) 과거와 같은
+`editor.foreground`/`foreground` 사슬로 폴백한다(2패스, 대비만 검사). 2패스로 떨어져 결과가
+본문 전경과 동일해지는 경우에도 임포트를 **차단하지 않고** `repairs` 문구에 "본문 전경과
+동일색 — 구별 가능한 후보 없음" 고지를 남긴다 — `panel.matchHighlight` 는 장식적 강조 토큰
+하나이므로, 이 토큰 때문에 나머지 132개 토큰이 멀쩡한 테마 전체의 임포트를 막기보다는 사용자에게
+알리는 쪽을 택했다. safe-default(`#569CD6`/`#0066BF`) 자체가 배경 대비 3:1 에 미달해 수리가
+발동하는 경우는 번들 36종 어디서도 일어나지 않는다(safe-default 대비 최저 4.23) — 하지만
+`bundled-theme-contrast.test.ts` 가 대비 게이트 예외로 등재한 `everforest-light`/
+`rose-pine-dawn`처럼 원본 accent(`list.highlightForeground`)가 직접 3:1 미달인 테마를 오늘
+재변환하면 이 수리 경로를 그대로 거친다(전자는 상태색 후보가 전부 탈락해 2패스 고지로,
+후자는 `textLink.foreground` 의 accent 로 낙착).
+
+**운영 지시**: 이 7개 테마를 재변환하면 `panel.matchHighlight` 1개 토큰의 diff 가 항상
 non-zero 다 — 이는 예상된 것이므로 **산출물을 채택하지 말고 위 표의 손수정값을 다시
 적용**한다. 그 외 토큰(colors/syntax/terminal 나머지 전부)의 diff 는 §8.2.2 게이트대로
-원인(원본 갱신 여부)을 규명한다.
+원인(원본 갱신 여부)을 규명한다. (뒤 3종은 실제로 colors/syntax/terminal 나머지 전량이
+diff 0 임을 오늘 시점 업스트림 재취득으로 직접 확인했다 — d-33 계약 참고.)
 
 상호 참조: `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md` §3-A(f-1 가드·f-3
-정정 근거)·§3-E(번들 36종 재스윕 표).
+정정 근거)·§3-E(번들 36종 재스윕 표) · `docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md`
+"임무 C"(구별성 가드·번들 3종 정정·vs-전경 축 재스윕).
 
 ### 8.3 Rust 등록
 

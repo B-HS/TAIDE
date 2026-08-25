@@ -41,7 +41,7 @@ Run Task 와 Run Selected Text 가 공유하는 단일 전달 로직(`editor-are
 
 1. 포커스된 pane 에 터미널 탭이 있으면 그 탭을 활성화하고 재사용한다.
 2. 없으면 새 터미널 탭을 연다(`cwd` 전달).
-3. 텍스트에 개행을 붙여 `terminal-write-bridge`(`shared/lib/terminal-write-bridge.ts`) 로 쓴다.
+3. 텍스트에 개행을 붙여 `terminal-write-bridge`(`shared/lib/bridge/terminal-write-bridge.ts`) 로 쓴다.
    `pty_write` 를 직접 부르지 않는 이유: 방금 연 탭은 `TerminalSession` 이 비동기로 크기 측정 후
    spawn 하므로, pty 준비 전에 온 쓰기 요청을 탭별 큐에 쌓아 두었다가 세션이
    `registerTerminalWriteHandler` 로 핸들러를 등록하는 순간 순서대로 흘려보낸다(레이스 방지).
