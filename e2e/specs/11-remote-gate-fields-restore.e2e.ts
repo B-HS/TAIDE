@@ -8,6 +8,7 @@ type GatedSettings = {
     shellOverride?: string | null
     remotePasswordOnlyLogin?: boolean
     remoteAllowedHosts?: string[]
+    aiOmlxBaseUrl?: string | null
     editorFontSize?: number
 }
 
@@ -15,28 +16,33 @@ type RemoteGatedSettingsKey = (typeof REMOTE_GATED_SETTINGS_KEYS)[number]
 
 const GATE_ATTEMPT_SHELL_OVERRIDE = '/bin/taide-e2e-attempted-shell-override'
 const GATE_ATTEMPT_REMOTE_ALLOWED_HOSTS = ['evil-e2e-attempt.invalid:9999']
+const GATE_ATTEMPT_AI_OMLX_BASE_URL = 'http://taide-e2e-attempted.invalid:9999'
 
 /**
  * One attempted value per gated field, ordered to match {@link REMOTE_GATED_SETTINGS_KEYS} — least
  * harmful first. `shellOverride` targets a path that does not exist on disk, so even an unstripped
  * write only makes the next terminal spawn fail to find a shell rather than run an attacker binary.
+ * `aiOmlxBaseUrl` targets an `.invalid` TLD host for the same reason — even unstripped, no request
+ * ever leaves the machine successfully.
  */
 const GATE_ATTEMPT_VALUE_BUILDERS: { [K in RemoteGatedSettingsKey]: (baseline: GatedSettings) => GatedSettings[K] } = {
     shellOverride: () => GATE_ATTEMPT_SHELL_OVERRIDE,
     remotePasswordOnlyLogin: (baseline) => !baseline.remotePasswordOnlyLogin,
     remoteAllowedHosts: () => [...GATE_ATTEMPT_REMOTE_ALLOWED_HOSTS],
+    aiOmlxBaseUrl: () => GATE_ATTEMPT_AI_OMLX_BASE_URL,
 }
 
 const REMOTE_GATE_UI_LOCATION: Record<RemoteGatedSettingsKey, string> = {
     shellOverride: 'Settings 탭 → Terminal 섹션 → Shell 필드',
     remotePasswordOnlyLogin: 'Settings 탭 → Remote 섹션 → "비밀번호만으로 접속 허용" 토글',
     remoteAllowedHosts: 'Settings 탭 → Remote 섹션 → 허용된 호스트 목록',
+    aiOmlxBaseUrl: 'Settings 탭 → AI 섹션 → oMLX 행의 "기본 URL" 필드',
 }
 
 /**
  * Builds the hard-stop failure message for a confirmed gate regression. `global-teardown.ts`'s
  * restore write cannot fix this field — it goes through the exact same remote `settings_update`
- * dispatch (`strip_remote_gated_settings_patch`, `dispatch.rs`) that unconditionally nulls all three
+ * dispatch (`strip_remote_gated_settings_patch`, `dispatch.rs`) that unconditionally nulls all four
  * gated fields out of *every* patch it forwards, restore attempts included. Recovery is manual only.
  */
 const buildManualRecoveryMessage = (key: RemoteGatedSettingsKey, originalValue: unknown, regressedValue: unknown) =>

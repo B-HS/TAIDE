@@ -19,7 +19,7 @@ export const PORT_DISCOVERY = {
     MAX_PORT: 65535,
 } as const
 
-export const REMOTE_GATED_SETTINGS_KEYS = ['shellOverride', 'remotePasswordOnlyLogin', 'remoteAllowedHosts'] as const
+export const REMOTE_GATED_SETTINGS_KEYS = ['shellOverride', 'remotePasswordOnlyLogin', 'remoteAllowedHosts', 'aiOmlxBaseUrl'] as const
 
 export const DEFAULT_TEST_LOCALE = 'en'
 

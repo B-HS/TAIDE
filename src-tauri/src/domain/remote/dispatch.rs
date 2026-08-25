@@ -397,8 +397,8 @@ fn denial_response(policy: RemoteDenialPolicy, name: &str) -> Value {
     err(policy.denial_error(name))
 }
 
-/// Strips `remote_password_only_login`, `remote_allowed_hosts`, and
-/// `shell_override` from a `settings_update` patch arriving through the
+/// Strips `remote_password_only_login`, `remote_allowed_hosts`, `shell_override`, and
+/// `ai_omlx_base_url` from a `settings_update` patch arriving through the
 /// remote dispatch table.
 ///
 /// The first two guard self-expansion: a remote session must never be able
@@ -421,6 +421,20 @@ fn denial_response(policy: RemoteDenialPolicy, name: &str) -> Value {
 /// same field as "[RCE급]" for the identical reason (`sync/service.rs`'s
 /// `strip_non_syncable`); this is the live-session analogue of that filter.
 ///
+/// `ai_omlx_base_url` guards the same persistence shape, aimed at a stored
+/// credential instead of a shell: `providers/omlx.rs`'s `apply_auth` sends the
+/// keyring-stored OMLX API key as an `Authorization: Bearer` header to
+/// whatever host this field names, read fresh on every request. Left
+/// unfiltered, a remote session could repoint it at an attacker-controlled
+/// host through `settings_update`, after which every desktop-issued OMLX
+/// call — Bearer key included — flows there until the desktop user notices
+/// and edits it back by hand, again outliving the session that planted it.
+/// `ai_set_token`/`ai_clear_token` are already denied outright under
+/// [`RemoteDenialPolicy::CredentialStoreTampering`]; this closes the one
+/// remaining lever that redirects the *stored* key without ever writing to
+/// the keyring itself. See
+/// `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`.
+///
 /// `dispatch()` is exclusively the remote request path (desktop calls invoke
 /// `settings_update` directly as a Tauri command, bypassing this table
 /// entirely — see `ws.rs`), so every patch reaching this arm is remote by
@@ -433,19 +447,21 @@ fn strip_remote_gated_settings_patch(mut patch: domain::settings::types::Setting
     patch.remote_password_only_login = None;
     patch.remote_allowed_hosts = None;
     patch.shell_override = None;
+    patch.ai_omlx_base_url = None;
     patch
 }
 
 /// Same guarantee as [`strip_remote_gated_settings_patch`], for the `Settings`-target
 /// `app_file_write` arm — that command applies a *whole* `settings.json` body (parsed from
 /// arbitrary remote-supplied JSON), not a `settings_update` patch, so it can't reuse the
-/// patch-shaped strip above. Rather than clearing the three gated fields, this forces them back to
+/// patch-shaped strip above. Rather than clearing the four gated fields, this forces them back to
 /// `current`'s live values: `Settings` has no `Option` wrapper for `remote_password_only_login`/
-/// `remote_allowed_hosts` (only `shell_override` does), so "clear" isn't representable — "leave
-/// unchanged" is the equivalent operation. Without this, a remote session could plant a persistent
-/// `shell_override` (a backdoor that outlives the session — see the doc comment above) or
-/// self-expand its own access gate purely by calling `app_file_write` instead of `settings_update`,
-/// silently defeating the strip those two entry points are supposed to share equally
+/// `remote_allowed_hosts` (`shell_override`/`ai_omlx_base_url` do), so "clear" isn't representable
+/// for the first two — "leave unchanged" is applied uniformly to all four instead. Without this, a
+/// remote session could plant a persistent `shell_override` or `ai_omlx_base_url` (backdoors that
+/// outlive the session — see the doc comment above) or self-expand its own access gate purely by
+/// calling `app_file_write` instead of `settings_update`, silently defeating the strip those two
+/// entry points are supposed to share equally
 /// (contract §3.3: "app_file_* 는 settings_update 와 동급으로 허용").
 fn strip_remote_gated_settings(
     mut next: domain::settings::types::Settings,
@@ -454,6 +470,7 @@ fn strip_remote_gated_settings(
     next.remote_password_only_login = current.remote_password_only_login;
     next.remote_allowed_hosts = current.remote_allowed_hosts.clone();
     next.shell_override = current.shell_override.clone();
+    next.ai_omlx_base_url = current.ai_omlx_base_url.clone();
     next
 }
 
@@ -1501,6 +1518,45 @@ mod tests {
             "원격 세션이 자신의 종료 이후에도 살아남는 셸 백도어를 심으면 안 된다"
         );
         assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+    }
+
+    #[test]
+    fn 원격_settings_update_패치는_omlx_base_url_필드가_제거된다() {
+        let patch = domain::settings::types::SettingsPatch {
+            ai_omlx_base_url: Some("http://attacker.example.com".to_string()),
+            editor_font_size: Some(18),
+            ..Default::default()
+        };
+
+        let stripped = strip_remote_gated_settings_patch(patch);
+
+        assert_eq!(
+            stripped.ai_omlx_base_url, None,
+            "원격 세션이 저장된 OMLX API 키의 전송 대상 호스트를 바꿔치면 안 된다"
+        );
+        assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+    }
+
+    #[test]
+    fn 원격_app_file_write는_omlx_base_url_필드를_현재값으로_되돌린다() {
+        let current = domain::settings::types::Settings {
+            ai_omlx_base_url: Some("http://localhost:8000".to_string()),
+            ..domain::settings::types::Settings::default()
+        };
+        let next = domain::settings::types::Settings {
+            ai_omlx_base_url: Some("http://attacker.example.com".to_string()),
+            editor_font_size: 18,
+            ..domain::settings::types::Settings::default()
+        };
+
+        let sanitized = strip_remote_gated_settings(next, &current);
+
+        assert_eq!(
+            sanitized.ai_omlx_base_url,
+            Some("http://localhost:8000".to_string()),
+            "app_file_write 로 들어온 전체 settings.json 이어도 OMLX base_url 은 현재값으로 되돌아가야 한다"
+        );
+        assert_eq!(sanitized.editor_font_size, 18, "게이트 필드 외에는 그대로 통과해야 한다");
     }
 
     #[test]

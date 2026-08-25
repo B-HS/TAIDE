@@ -55,16 +55,27 @@ pub fn is_remote_newer(remote_updated_at: &str, last_synced_at: Option<&str>) ->
 
 /// Fields on [`SettingsPatch`] that must never cross the sync gist boundary in
 /// either direction. Uploads exclude these so a leaked/shared gist can't leak
-/// the local shell override or gate state; downloads exclude the same fields
-/// so a hand-edited or attacker-controlled gist can't remotely flip
-/// `remoteAccessEnabled`/`remotePasswordOnlyLogin` (bypassing the link-gate),
-/// grow `remoteAllowedHosts` (self-expanding the Host allowlist), or override
-/// `shellOverride` (arbitrary executable spawned the next time a terminal
-/// opens). [`settings_to_sync_patch`] (upload) and [`apply_payload_settings`]
-/// (download) both funnel through this single function so the two directions
-/// can never drift apart — see `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md`
-/// §3.1. This is distinct from `remote::dispatch::strip_remote_gated_settings_patch`,
-/// which guards the live remote-session `settings_update` path, not the gist
+/// the local shell override, OMLX base URL, or gate state; downloads exclude
+/// the same fields so a hand-edited or attacker-controlled gist can't
+/// remotely flip `remoteAccessEnabled`/`remotePasswordOnlyLogin` (bypassing
+/// the link-gate), grow `remoteAllowedHosts` (self-expanding the Host
+/// allowlist), override `shellOverride` (arbitrary executable spawned the
+/// next time a terminal opens), or repoint `aiOmlxBaseUrl` (the
+/// keyring-stored OMLX API key's `Authorization: Bearer` header then flows to
+/// whatever host the gist named on the next request — the same
+/// "outlives the session that planted it" shape as `shellOverride`). The
+/// latter closes the `sync_download` route neither
+/// `remote::dispatch::strip_remote_gated_settings_patch` nor
+/// `remote::dispatch::strip_remote_gated_settings` ever covers, since
+/// `sync_download` calls straight into this module instead of going through
+/// either of those — see `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`
+/// (the wave-b contract below originally held `aiOmlxBaseUrl` back out of this
+/// filter pending that decision). [`settings_to_sync_patch`] (upload) and
+/// [`apply_payload_settings`] (download) both funnel through this single
+/// function so the two directions can never drift apart — see
+/// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §3.1/§4. This is
+/// distinct from `remote::dispatch::strip_remote_gated_settings_patch`, which
+/// guards the live remote-session `settings_update` path, not the gist
 /// round-trip.
 fn strip_non_syncable(patch: &SettingsPatch) -> SettingsPatch {
     SettingsPatch {
@@ -72,6 +83,7 @@ fn strip_non_syncable(patch: &SettingsPatch) -> SettingsPatch {
         remote_access_enabled: None,
         remote_password_only_login: None,
         remote_allowed_hosts: None,
+        ai_omlx_base_url: None,
         ..patch.clone()
     }
 }
@@ -401,14 +413,16 @@ mod tests {
     /// Regresses the gist-inbound filter gap the contract calls out explicitly:
     /// `apply_payload_settings는_settings_update와_동일한_apply_patch를_재사용한다`
     /// below only ever exercises payloads built through [`assemble_payload`],
-    /// which already excludes `shellOverride`/the remote gate fields at the
-    /// source — it can never reach the code path a hand-edited or
+    /// which already excludes `shellOverride`/the remote gate fields/`aiOmlxBaseUrl`
+    /// at the source — it can never reach the code path a hand-edited or
     /// attacker-controlled gist takes. This test deserializes a raw JSON
     /// string (as `sync_download` does with the gist body) so the filter is
     /// exercised on the actual untrusted-input boundary, not just on payloads
-    /// this build already knows how to produce safely.
+    /// this build already knows how to produce safely. `aiOmlxBaseUrl` was
+    /// added to the assertion set by d-41 — see `strip_non_syncable`'s doc
+    /// comment for why a gist-sourced value must not reach `apply_patch` here.
     #[test]
-    fn 손으로_만든_gist_페이로드의_shell_override와_원격_게이트_필드는_적용되지_않는다() {
+    fn 손으로_만든_gist_페이로드의_shell_override_원격_게이트_omlx_base_url_필드는_적용되지_않는다() {
         let malicious_json = r#"{
             "schemaVersion": 1,
             "updatedAt": "2026-08-15T00:00:00Z",
@@ -416,7 +430,8 @@ mod tests {
                 "shellOverride": "/tmp/evil.sh",
                 "remoteAccessEnabled": true,
                 "remotePasswordOnlyLogin": true,
-                "remoteAllowedHosts": ["attacker.example.com"]
+                "remoteAllowedHosts": ["attacker.example.com"],
+                "aiOmlxBaseUrl": "http://attacker.example.com"
             }
         }"#;
         let payload: SyncPayload = serde_json::from_str(malicious_json).expect("손으로 작성한 페이로드가 파싱되어야 함");
@@ -428,6 +443,10 @@ mod tests {
         assert_eq!(applied.remote_access_enabled, current.remote_access_enabled);
         assert_eq!(applied.remote_password_only_login, current.remote_password_only_login);
         assert_eq!(applied.remote_allowed_hosts, current.remote_allowed_hosts);
+        assert_eq!(
+            applied.ai_omlx_base_url, current.ai_omlx_base_url,
+            "gist 로 유입된 OMLX base_url 은 apply_patch 에 도달하면 안 된다(d-41)"
+        );
     }
 
     /// A gist uploaded before the `ai_auto_tab_provider`/`ai_auto_tab_model` → `ai_provider`/
@@ -499,11 +518,29 @@ mod tests {
     }
 
     #[test]
-    fn settings_to_sync_patch는_원격_게이트와_허용_호스트를_제외한다() {
+    fn strip_non_syncable은_omlx_base_url_필드를_제거한다() {
+        let patch = SettingsPatch {
+            editor_font_size: Some(18),
+            ai_omlx_base_url: Some("http://attacker.example.com".to_string()),
+            ..SettingsPatch::default()
+        };
+
+        let stripped = strip_non_syncable(&patch);
+
+        assert_eq!(stripped.editor_font_size, Some(18), "게이트 필드 외에는 그대로 통과해야 한다");
+        assert_eq!(
+            stripped.ai_omlx_base_url, None,
+            "gist 왕복이 저장된 OMLX API 키의 전송 대상 호스트를 바꿔치거나 노출하면 안 된다(d-41)"
+        );
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_원격_게이트와_허용_호스트와_omlx_base_url을_제외한다() {
         let settings = Settings {
             remote_access_enabled: true,
             remote_password_only_login: true,
             remote_allowed_hosts: vec!["tunnel.example.com".to_string()],
+            ai_omlx_base_url: Some("http://localhost:8000".to_string()),
             ..Settings::default()
         };
 
@@ -512,6 +549,10 @@ mod tests {
         assert_eq!(patch.remote_access_enabled, None);
         assert_eq!(patch.remote_password_only_login, None);
         assert_eq!(patch.remote_allowed_hosts, None);
+        assert_eq!(
+            patch.ai_omlx_base_url, None,
+            "리크되거나 공유된 gist 가 OMLX API 키의 전송 대상 호스트를 노출하면 안 된다(d-41)"
+        );
     }
 
     #[test]
