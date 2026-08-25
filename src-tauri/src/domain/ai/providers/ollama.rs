@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::{provider_http_error, provider_transport_error, AiProviderClient};
+use crate::domain::ai::providers::{post_json_and_parse, provider_http_error, provider_transport_error, AiProviderClient};
 use crate::domain::ai::types::{
     AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars,
 };
@@ -212,25 +212,10 @@ impl OllamaCloudProvider {
         fail_on_truncation: bool,
     ) -> AppResult<Option<String>> {
         let body = build_chat_body(model, system, user, num_predict);
-
-        let res = client
+        let request = client
             .post(format!("{OLLAMA_BASE}/chat"))
-            .header("authorization", self.auth_header())
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| provider_transport_error(OLLAMA_PROVIDER_NAME, &error))?;
-
-        if !res.status().is_success() {
-            let status = res.status();
-            let text = res.text().await.unwrap_or_default();
-            return Err(provider_http_error(OLLAMA_PROVIDER_NAME, status, &text));
-        }
-
-        let parsed: OllamaChatResponse = res
-            .json()
-            .await
-            .map_err(|error| provider_transport_error(OLLAMA_PROVIDER_NAME, &error))?;
+            .header("authorization", self.auth_header());
+        let parsed: OllamaChatResponse = post_json_and_parse(OLLAMA_PROVIDER_NAME, request, &body).await?;
         extract_chat_text(parsed, fail_on_truncation)
     }
 }

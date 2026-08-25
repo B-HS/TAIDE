@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use crate::domain::ai::prompt;
-use crate::domain::ai::providers::{provider_http_error, provider_transport_error, AiProviderClient};
+use crate::domain::ai::providers::{post_json_and_parse, provider_http_error, provider_transport_error, AiProviderClient};
 use crate::domain::ai::types::{
     AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars,
 };
@@ -314,24 +314,8 @@ impl OmlxProvider {
         fail_on_truncation: bool,
     ) -> AppResult<Option<String>> {
         let body = build_chat_body(model, system, user, max_tokens);
-
-        let res = self
-            .apply_auth(client.post(format!("{}/v1/chat/completions", self.base_url)))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| provider_transport_error(OMLX_PROVIDER_NAME, &error))?;
-
-        if !res.status().is_success() {
-            let status = res.status();
-            let text = res.text().await.unwrap_or_default();
-            return Err(provider_http_error(OMLX_PROVIDER_NAME, status, &text));
-        }
-
-        let parsed: OmlxChatResponse = res
-            .json()
-            .await
-            .map_err(|error| provider_transport_error(OMLX_PROVIDER_NAME, &error))?;
+        let request = self.apply_auth(client.post(format!("{}/v1/chat/completions", self.base_url)));
+        let parsed: OmlxChatResponse = post_json_and_parse(OMLX_PROVIDER_NAME, request, &body).await?;
         extract_chat_text(parsed, fail_on_truncation)
     }
 }

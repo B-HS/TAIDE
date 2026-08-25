@@ -543,19 +543,19 @@ export const commands = {
 	aiSetToken: (provider: AiProviderId, token: string) => typedError<null, AppError>(__TAURI_INVOKE("ai_set_token", { provider, token })),
 	aiClearToken: (provider: AiProviderId) => typedError<null, AppError>(__TAURI_INVOKE("ai_clear_token", { provider })),
 	aiListModels: (provider: AiProviderId) => typedError<AiModelInfo[], AppError>(__TAURI_INVOKE("ai_list_models", { provider })),
-	aiInlineComplete: (request: AiInlineCompleteRequest) => typedError<AiInlineCompleteResponse, AppError>(__TAURI_INVOKE("ai_inline_complete", { request })),
+	aiInlineComplete: (request: AiInlineCompleteRequest) => typedError<AiTextResponse, AppError>(__TAURI_INVOKE("ai_inline_complete", { request })),
 	/**
 	 *  `provider`/`model` are resolved before `request_store.begin()` — resolving after would leave a
 	 *  `begin()`ed entry stranded with no matching `finish()` on a resolution failure (see
 	 *  [`AiRequestStore::begin`]'s doc comment on why a stray entry blocks `requestId` reuse and leaks
 	 *  its cancel sender).
 	 */
-	aiInlineEdit: (request: AiInlineEditRequest) => typedError<AiInlineEditResponse, AppError>(__TAURI_INVOKE("ai_inline_edit", { request })),
+	aiInlineEdit: (request: AiInlineEditRequest) => typedError<AiTextResponse, AppError>(__TAURI_INVOKE("ai_inline_edit", { request })),
 	/**
 	 *  `provider`/`model` are resolved before `request_store.begin()` — see [`ai_inline_edit`]'s doc
 	 *  comment for why.
 	 */
-	aiCommitMessage: (request: AiCommitMessageRequest) => typedError<AiCommitMessageResponse, AppError>(__TAURI_INVOKE("ai_commit_message", { request })),
+	aiCommitMessage: (request: AiCommitMessageRequest) => typedError<AiTextResponse, AppError>(__TAURI_INVOKE("ai_commit_message", { request })),
 	/**
 	 *  `owner` (see [`AiInlineCompleteRequest::owner`](crate::domain::ai::types::AiInlineCompleteRequest)'s
 	 *  doc comment) must match the `owner` the in-flight request itself was `begin()`ed with — otherwise
@@ -744,11 +744,6 @@ export type AiCommitMessageRequest = {
 	recentCommits: string,
 };
 
-export type AiCommitMessageResponse = {
-	requestId: string,
-	text: string | null,
-};
-
 /**
  *  `owner` (`getCurrentWindow().label` on the frontend — `main`/`editor-<n>`, or the remote client's
  *  fixed `domain::remote::types::REMOTE_OWNER_LABEL`) combines with `request_id` to key
@@ -768,11 +763,6 @@ export type AiInlineCompleteRequest = {
 	filePath: string,
 };
 
-export type AiInlineCompleteResponse = {
-	requestId: string,
-	text: string | null,
-};
-
 export type AiInlineEditRequest = {
 	requestId: string,
 	/**  See [`AiInlineCompleteRequest::owner`]'s doc comment. */
@@ -787,17 +777,30 @@ export type AiInlineEditRequest = {
 	suffix: string,
 };
 
-export type AiInlineEditResponse = {
-	requestId: string,
-	text: string | null,
-};
-
 export type AiModelInfo = {
 	modelId: string,
 	displayName: string | null,
 };
 
 export type AiProviderId = "ollamaCloud" | "codex" | "omlx";
+
+/**
+ *  Shared response shape for every AI text-generation command — auto-tab inline completion
+ *  (`ai_inline_complete`), Inline Edit (`ai_inline_edit`), and AI commit messages
+ *  (`ai_commit_message`) all resolve to the same `{requestId, text}` pair (the request that was
+ *  answered, and the generated text — `null` when nothing was produced: the request was
+ *  cancelled, or the provider returned no usable text (each provider normalizes an empty/
+ *  whitespace-only response to `None`, e.g. `providers::ollama::extract_chat_text`)). Replaces
+ *  three structurally identical structs (`AiInlineCompleteResponse`/`AiInlineEditResponse`/
+ *  `AiCommitMessageResponse`) that only differed by name — see
+ *  `docs/acknowledge/2026-08-25-d37-ai-batch-contract.md` §3 for why a single type here is safe
+ *  (the wire shape was already identical, so this only changes the TS type name, not any runtime
+ *  behavior).
+ */
+export type AiTextResponse = {
+	requestId: string,
+	text: string | null,
+};
 
 export type AiTokenStatus = {
 	ollamaCloud: boolean,

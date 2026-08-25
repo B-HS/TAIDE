@@ -101,3 +101,33 @@ pub(crate) fn provider_transport_error(provider: &str, error: &reqwest::Error) -
     .with_arg("provider", provider)
     .with_arg("detail", &detail)
 }
+
+/// The HTTP mechanics genuinely shared by Ollama Cloud's and oMLX's `send_chat_request` (auto-tab
+/// chat-fallback + [`AiProviderClient::instruct`]): send `body` as the request's JSON payload,
+/// classify a non-2xx response via [`provider_http_error`]/[`provider_transport_error`], then
+/// decode the JSON body into the caller's own response DTO. Deliberately stops here — it does
+/// *not* try to also unify request-body construction or response-text extraction, because those
+/// two providers' JSON shapes genuinely differ (`options.num_predict` vs flat `max_tokens` on the
+/// way in, `done_reason` vs `choices[].finish_reason` on the way out); forcing them into one
+/// shape would be exactly the "억지 통합" the T2-A/d-37 investigations warned against. See
+/// `docs/acknowledge/2026-08-25-d37-ai-batch-contract.md` §3 for the full judgment (what was and
+/// wasn't abstracted, and why).
+pub(crate) async fn post_json_and_parse<T: serde::de::DeserializeOwned>(
+    provider: &str,
+    request: reqwest::RequestBuilder,
+    body: &serde_json::Value,
+) -> AppResult<T> {
+    let res = request
+        .json(body)
+        .send()
+        .await
+        .map_err(|error| provider_transport_error(provider, &error))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(provider_http_error(provider, status, &text));
+    }
+
+    res.json().await.map_err(|error| provider_transport_error(provider, &error))
+}

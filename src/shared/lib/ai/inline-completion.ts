@@ -1,4 +1,4 @@
-import type { AiInlineCompleteRequest, AiInlineCompleteResponse, AiProviderId, AiTokenStatus, Settings } from '@shared/api/bindings'
+import type { AiInlineCompleteRequest, AiProviderId, AiTextResponse, AiTokenStatus, Settings } from '@shared/api/bindings'
 import type { monaco } from '@shared/lib/monaco/setup'
 
 export const AUTO_TAB_DEBOUNCE_MS = 300
@@ -19,7 +19,7 @@ export type AiInlineCompletionConfig = {
  * directly (fsd.md §2), mirroring how `shared/lib/lsp/adapters/*` take an injected `LspClient`.
  */
 export type AiInlineCompletionClient = {
-    complete: (request: Omit<AiInlineCompleteRequest, 'owner'>) => Promise<AiInlineCompleteResponse>
+    complete: (request: Omit<AiInlineCompleteRequest, 'owner'>) => Promise<AiTextResponse>
     cancel: (requestId: string) => Promise<unknown>
 }
 

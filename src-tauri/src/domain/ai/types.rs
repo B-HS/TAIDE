@@ -43,9 +43,20 @@ pub struct AiInlineCompleteRequest {
     pub file_path: String,
 }
 
+/// Shared response shape for every AI text-generation command — auto-tab inline completion
+/// (`ai_inline_complete`), Inline Edit (`ai_inline_edit`), and AI commit messages
+/// (`ai_commit_message`) all resolve to the same `{requestId, text}` pair (the request that was
+/// answered, and the generated text — `null` when nothing was produced: the request was
+/// cancelled, or the provider returned no usable text (each provider normalizes an empty/
+/// whitespace-only response to `None`, e.g. `providers::ollama::extract_chat_text`)). Replaces
+/// three structurally identical structs (`AiInlineCompleteResponse`/`AiInlineEditResponse`/
+/// `AiCommitMessageResponse`) that only differed by name — see
+/// `docs/acknowledge/2026-08-25-d37-ai-batch-contract.md` §3 for why a single type here is safe
+/// (the wire shape was already identical, so this only changes the TS type name, not any runtime
+/// behavior).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct AiInlineCompleteResponse {
+pub struct AiTextResponse {
     pub request_id: String,
     pub text: Option<String>,
 }
@@ -138,13 +149,6 @@ pub struct AiInlineEditRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct AiInlineEditResponse {
-    pub request_id: String,
-    pub text: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct AiCommitMessageRequest {
     pub request_id: String,
     /// See [`AiInlineCompleteRequest::owner`]'s doc comment.
@@ -155,13 +159,6 @@ pub struct AiCommitMessageRequest {
     pub model: Option<String>,
     pub diff_text: String,
     pub recent_commits: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AiCommitMessageResponse {
-    pub request_id: String,
-    pub text: Option<String>,
 }
 
 #[cfg(test)]
@@ -185,6 +182,27 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&status).unwrap(),
             r#"{"ollamaCloud":true,"codex":false,"omlx":true}"#
+        );
+    }
+
+    #[test]
+    fn ai_텍스트_응답은_request_id와_text를_카멜케이스로_직렬화한다() {
+        let response = AiTextResponse {
+            request_id: "req-1".to_string(),
+            text: Some("fn main() {}".to_string()),
+        };
+        assert_eq!(
+            serde_json::to_string(&response).unwrap(),
+            r#"{"requestId":"req-1","text":"fn main() {}"}"#
+        );
+
+        let cancelled_or_empty = AiTextResponse {
+            request_id: "req-1".to_string(),
+            text: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&cancelled_or_empty).unwrap(),
+            r#"{"requestId":"req-1","text":null}"#
         );
     }
 }

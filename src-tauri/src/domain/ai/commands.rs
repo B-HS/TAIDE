@@ -7,8 +7,7 @@ use tokio::sync::oneshot;
 use crate::domain::ai::prompt;
 use crate::domain::ai::service;
 use crate::domain::ai::types::{
-    AiCommitMessageRequest, AiCommitMessageResponse, AiInlineCompleteRequest, AiInlineCompleteResponse, AiInlineEditRequest,
-    AiInlineEditResponse, AiModelInfo, AiProviderId, AiTokenStatus,
+    AiCommitMessageRequest, AiInlineCompleteRequest, AiInlineEditRequest, AiModelInfo, AiProviderId, AiTextResponse, AiTokenStatus,
 };
 use crate::error::{AppError, AppResult};
 use crate::infra::http::{outbound_http_client, HttpClientProfile};
@@ -124,7 +123,7 @@ pub async fn ai_inline_complete(
     request_store: State<'_, AiRequestStore>,
     secret: State<'_, SecretStoreState>,
     request: AiInlineCompleteRequest,
-) -> AppResult<AiInlineCompleteResponse> {
+) -> AppResult<AiTextResponse> {
     ensure_within_byte_limit("prefix", &request.prefix, AI_INLINE_COMPLETE_PREFIX_MAX_BYTES)?;
     ensure_within_byte_limit("suffix", &request.suffix, AI_INLINE_COMPLETE_SUFFIX_MAX_BYTES)?;
 
@@ -146,7 +145,7 @@ pub async fn ai_inline_complete(
 
     request_store.finish(&request.owner, &request.request_id);
 
-    Ok(AiInlineCompleteResponse {
+    Ok(AiTextResponse {
         request_id: request.request_id,
         text: text?,
     })
@@ -163,7 +162,7 @@ pub async fn ai_inline_edit(
     request_store: State<'_, AiRequestStore>,
     secret: State<'_, SecretStoreState>,
     request: AiInlineEditRequest,
-) -> AppResult<AiInlineEditResponse> {
+) -> AppResult<AiTextResponse> {
     ensure_within_byte_limit("selection", &request.selection, AI_INLINE_EDIT_SELECTION_MAX_BYTES)?;
     ensure_within_byte_limit("instruction", &request.instruction, AI_INLINE_EDIT_INSTRUCTION_MAX_BYTES)?;
 
@@ -195,7 +194,7 @@ pub async fn ai_inline_edit(
 
     request_store.finish(&request.owner, &request.request_id);
 
-    Ok(AiInlineEditResponse {
+    Ok(AiTextResponse {
         request_id: request.request_id,
         text: text?,
     })
@@ -210,7 +209,7 @@ pub async fn ai_commit_message(
     request_store: State<'_, AiRequestStore>,
     secret: State<'_, SecretStoreState>,
     request: AiCommitMessageRequest,
-) -> AppResult<AiCommitMessageResponse> {
+) -> AppResult<AiTextResponse> {
     ensure_within_byte_limit("diffText", &request.diff_text, AI_COMMIT_MESSAGE_DIFF_MAX_BYTES)?;
     ensure_within_byte_limit("recentCommits", &request.recent_commits, AI_COMMIT_MESSAGE_RECENT_COMMITS_MAX_BYTES)?;
 
@@ -242,7 +241,7 @@ pub async fn ai_commit_message(
 
     request_store.finish(&request.owner, &request.request_id);
 
-    Ok(AiCommitMessageResponse {
+    Ok(AiTextResponse {
         request_id: request.request_id,
         text: text?,
     })
