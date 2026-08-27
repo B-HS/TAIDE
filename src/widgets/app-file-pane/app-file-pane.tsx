@@ -131,6 +131,15 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
         )
     }
 
+    /**
+     * `registryTabId={tabId}` registers this pane's monaco instance into
+     * `entities/editor/editor-instance-registry` under the tab's own id — without it,
+     * `getEditorInstance(tabId)` (which `editor-area.tsx`'s `⌘S`/monaco-action dispatch calls
+     * exclusively; `CodeEditor`'s `taide.saveFile` action carries no keybinding of its own) can
+     * never find this editor, so `⌘S` silently no-ops on an `AppFile` tab no matter how the active
+     * tab's kind is filtered. See `focused-editor-tab.ts`'s `SAVE_ROUTABLE_TAB_KINDS` doc — the two
+     * fixes are paired (contract `2026-08-25-d42-e2e-defects-contract.md` §3, item a).
+     */
     return (
         <CodeEditor
             path={modelPath}
@@ -147,6 +156,7 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
             onCursorLineChange={() => undefined}
             onEditorMount={handleEditorMount}
             onMinimapToggle={handleMinimapToggle}
+            registryTabId={tabId}
         />
     )
 }

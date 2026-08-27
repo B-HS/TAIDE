@@ -63,6 +63,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "search_run",
     "search_replace",
     "search_cancel",
+    "search_list_files",
     "plugin_list",
     "plugin_reload",
     "plugin_read_grammar",
@@ -540,7 +541,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (156 entries = the 155 arms in
+/// session — audited directly off the `match` arms in both functions (157 entries = the 156 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -602,6 +603,7 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "search_run",
     "search_replace",
     "search_cancel",
+    "search_list_files",
     "plugin_list",
     "plugin_reload",
     "plugin_read_grammar",
@@ -949,6 +951,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             .await,
         ),
         "search_cancel" => respond(search::search_cancel(app.state(), app.state(), arg!(args, "owner"), arg!(args, "sessionId")).await),
+        "search_list_files" => respond(search::search_list_files(app.state(), arg!(args, "projectId")).await),
 
         "plugin_list" => respond(plugin::plugin_list(app.state(), app.state()).await),
         "plugin_reload" => respond(plugin::plugin_reload(app.state(), app.state()).await),

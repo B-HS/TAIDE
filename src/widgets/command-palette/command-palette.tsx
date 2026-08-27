@@ -35,7 +35,7 @@ import { CommandPaletteSymbolGroup } from '@features/command-palette/command-pal
 import { CommandPaletteWorkspaceSymbolGroup } from '@features/command-palette/command-palette-workspace-symbol-group'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { activeProjectQueryOptions, projectQueryOptions } from '@entities/project/project.query'
-import { treeRowsQueryOptions } from '@entities/tree/tree.query'
+import { projectFilesQueryOptions } from '@entities/search/search.query'
 import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
@@ -68,7 +68,10 @@ export const CommandPalette = () => {
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mode, searchTerm } = parsePaletteQuery(query)
-    const { data: treePage } = useQuery({ ...treeRowsQueryOptions(activeProjectId), enabled: open && mode === 'files' && !!activeProjectId })
+    const { data: projectFiles, isPending: isProjectFilesPending } = useQuery({
+        ...projectFilesQueryOptions(activeProjectId),
+        enabled: open && mode === 'files' && !!activeProjectId,
+    })
     const isSymbolNavMode = mode === 'symbol' || mode === 'line'
     const { data: layout } = useQuery({ ...layoutQueryOptions(activeProjectId), enabled: open && isSymbolNavMode && !!activeProjectId })
     const activeTab = layout ? findActiveTab(layout.root, layout.focusedPane) : null
@@ -189,8 +192,8 @@ export const CommandPalette = () => {
      * displayed subtitle from briefly reverting to the absolute path this feature exists to hide.
      */
     const fileProjectRootLoaded = !activeProjectId || !!activeProject
-    const fileRows = fileProjectRootLoaded ? (treePage?.rows ?? []).filter((row) => row.kind === 'file') : []
-    const filteredFiles = fuzzyFilter(searchTerm, fileRows, (row) => toProjectRelativePath(row.path)).slice(0, FILE_RESULT_LIMIT)
+    const filePaths = fileProjectRootLoaded ? (projectFiles ?? []) : []
+    const filteredFiles = fuzzyFilter(searchTerm, filePaths, toProjectRelativePath).slice(0, FILE_RESULT_LIMIT)
     const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) =>
         formatCategorizedLabel(t, command.categoryKey, command.titleKey, command.titleDefaultValue),
     )
@@ -210,7 +213,7 @@ export const CommandPalette = () => {
             if (mode === 'symbol' && !documentSymbolsLoaded) return t('common.loading')
             return t('palette.noResults')
         }
-        if (mode === 'files' && activeProjectId && !fileProjectRootLoaded) return t('common.loading')
+        if (mode === 'files' && activeProjectId && (!fileProjectRootLoaded || isProjectFilesPending)) return t('common.loading')
         if (mode === 'workspaceSymbol') {
             if (!activeProjectId) return t('app.openProjectFirst')
             if (searchTerm.trim() && !workspaceSymbolsLoaded) return t('common.loading')

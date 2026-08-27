@@ -51,6 +51,18 @@ pub async fn project_get_active(state: State<'_, AppState>) -> AppResult<Option<
     Ok(state.session.read().active_project.clone())
 }
 
+/// `service::open_project` sets `session.active_project = Some(project.id)` on **every** path
+/// (a fresh open, id-reuse from history, and the `already_open` re-open of a project already in
+/// this session) — this command must fan that activation out to every window exactly like
+/// [`project_activate`] does, or a caller other than the FE's own `useOpenProject`/
+/// `useOpenFolderDialog` mutation (whose `onSuccess` invalidates `QUERY_KEY.PROJECT.ALL` itself,
+/// masking the gap for that one call site) sees `QUERY_KEY.PROJECT.ACTIVE` go stale: the remote
+/// dispatch path (`domain::remote::dispatch`) calls this exact function, and any future direct
+/// caller would hit the same gap. Emitted unconditionally (not only inside the `!already_open`
+/// branch below, which gates the *first-open-only* `ProjectOpened`/`ProjectListChanged`/capability
+/// attach) because activation itself is unconditional. See
+/// `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` §3 (item c) for the fanout-gap
+/// diagnosis this closes.
 #[tauri::command]
 #[specta::specta]
 pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<service::ProjectOpenResult> {
@@ -74,6 +86,11 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
         .emit(&app);
         emit_list_changed(&app, &state);
     }
+
+    let _ = ProjectActivated {
+        project_id: Some(result.project.id.clone()),
+    }
+    .emit(&app);
 
     Ok(result)
 }

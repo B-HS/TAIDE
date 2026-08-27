@@ -357,6 +357,27 @@ fn collect_project_files(root: &Path, query: &SearchQuery) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Every file under `root` — the command palette's file quick-open index
+/// (`docs/features/command-palette.md` §3: "트리 lazy 로딩에 의존하면 안 된다"; contract
+/// `2026-08-25-d42-e2e-defects-contract.md` §3, item d). Reuses [`build_walk`] instead of a new
+/// walker, so quick-open agrees with `search`/`search_replace` on exactly which directories never
+/// appear (`constants::IGNORED_DIR_NAMES` — `.git`, `node_modules`, ...) rather than
+/// re-implementing that list a second time.
+///
+/// Always called with `respect_gitignore: false` — unlike `search`/`collect_project_files`, there
+/// is no per-call `SearchQuery` toggle to honor here, and this index must stay a superset of
+/// `domain::tree`'s own listing (`tree::service` prunes only `IGNORED_DIR_NAMES`, never
+/// `.gitignore`): a file the Explorer sidebar shows must always be quick-open-able too, so a
+/// gitignored-but-tracked file (e.g. a generated file someone deliberately `git add -f`'d) doesn't
+/// vanish from quick-open while still sitting in the tree.
+pub fn list_project_files(root: &Path) -> Vec<PathBuf> {
+    build_walk(root, false)
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false))
+        .map(|entry| entry.into_path())
+        .collect()
+}
+
 fn strip_line_terminator(chunk: &str) -> &str {
     chunk.strip_suffix("\r\n").or_else(|| chunk.strip_suffix('\n')).unwrap_or(chunk)
 }
@@ -760,6 +781,55 @@ mod tests {
 
         assert_eq!(total, 1);
         assert!(results[0].path.ends_with("main.rs"));
+    }
+
+    /// Reproduces the d-42 quick-open gap (contract §3, item d) at the layer that actually owns the
+    /// bug: before this function existed, the palette's only file source was `tree_rows`, whose
+    /// `TreeStore` only ever holds entries for directories a caller already `tree_toggle`'d open —
+    /// `src/main.rs` here stands in for a file sitting in a folder the sidebar tree has never been
+    /// expanded into, which `tree_rows` alone can never surface no matter how the palette filters
+    /// it. A full walk finds it unconditionally.
+    #[test]
+    fn 트리에서_한_번도_확장되지_않은_하위_폴더의_파일도_찾는다() {
+        let fixture = build_fixture();
+
+        let files = list_project_files(&fixture.root);
+
+        assert!(files.iter().any(|path| path.ends_with("src/main.rs")), "found: {files:?}");
+    }
+
+    #[test]
+    fn ignored_dir_names_디렉토리는_gitignore_설정과_무관하게_항상_제외된다() {
+        let fixture = build_fixture();
+
+        let files = list_project_files(&fixture.root);
+
+        assert!(!files
+            .iter()
+            .any(|path| path.components().any(|component| component.as_os_str() == "node_modules")));
+    }
+
+    #[test]
+    fn 바이너리_파일도_목록에_포함된다_검색과_달리_내용을_읽지_않는다() {
+        let fixture = build_fixture();
+
+        let files = list_project_files(&fixture.root);
+
+        assert!(files.iter().any(|path| path.ends_with("binary.bin")));
+    }
+
+    /// `respect_gitignore: false` is deliberate (see `list_project_files`'s doc comment) — a file
+    /// still visible in the Explorer tree (which never applies `.gitignore`) must stay
+    /// quick-open-able, unlike a `search`/`search_replace` call with its default `respect_gitignore:
+    /// true`.
+    #[test]
+    fn gitignore된_파일도_트리와_동일하게_포함한다() {
+        let fixture = build_gitignore_fixture();
+
+        let files = list_project_files(&fixture.root);
+
+        assert!(files.iter().any(|path| path.ends_with("ignored-by-git/skip.rs")));
+        assert!(files.iter().any(|path| path.ends_with("kept.rs")));
     }
 
     fn replace_temp_root(label: &str) -> PathBuf {

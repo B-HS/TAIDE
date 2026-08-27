@@ -189,6 +189,27 @@ pub async fn search_cancel(state: State<'_, AppState>, store: State<'_, SearchSt
     Ok(())
 }
 
+/// Every file path under `project_id`'s root — backs the command palette's file quick-open, which
+/// must find a file regardless of whether the Explorer tree has ever been expanded into its parent
+/// folder (`docs/features/command-palette.md` §3; contract
+/// `2026-08-25-d42-e2e-defects-contract.md` §3, item d). Returns absolute paths (matching
+/// `TreeRow.path`'s convention, which this replaces as the palette's file-mode data source) rather
+/// than project-relative ones — `command-palette.tsx`'s `toProjectRelativePath`/`openFile(path)`
+/// both already expect that shape. Runs the walk in `spawn_blocking` like `search_run`/
+/// `search_replace`'s own scans, since [`service::list_project_files`] is synchronous filesystem
+/// I/O and must not block the async runtime.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_list_files(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<String>> {
+    let root = project_root(&state, &project_id)?;
+
+    let paths = tokio::task::spawn_blocking(move || service::list_project_files(&root))
+        .await
+        .map_err(|error| AppError::Internal(format!("list project files task failed: {error}")))?;
+
+    Ok(paths.into_iter().map(|path| path.to_string_lossy().into_owned()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

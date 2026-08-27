@@ -5,6 +5,7 @@ import type { FsChange, Project, ProjectId, ProjectLayout } from '@shared/api/bi
 import { events } from '@shared/api/bindings'
 import { PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { refreshTreeDir } from '@entities/tree/tree.ipc'
 import { pruneOpenWithOverrides } from '@entities/editor/open-with-registry'
@@ -41,19 +42,6 @@ export const isQueryKeyUnderProjectRoot = (queryKey: readonly unknown[], project
     if (!PROJECT_SCOPED_PATH_KEY_PREFIXES.some(([d, s]) => d === domain && s === scope)) return false
     return path === projectRoot || path.startsWith(`${projectRoot}${PATH_SEPARATOR}`)
 }
-
-/**
- * `layout:changed`'s `revision` is a per-project monotonic counter (contract X1#11) — a window that
- * has already observed revision `N` must ignore any later delivery of a revision `<= N`. Without
- * this, two mutations completing close together each schedule their own `invalidateQueries` →
- * `getLayout` refetch, and nothing but delivery order guarantees the *newer* revision's refetch is
- * the one that lands last in the query cache; a duplicated or out-of-order event replays a fetch
- * for a revision this window has already moved past, and TanStack Query has no way to know that
- * fetch is for stale data. Gating on the event's own revision before ever starting that refetch
- * removes the redundant/out-of-order trigger at the source instead.
- */
-export const isStaleLayoutRevision = (lastObservedRevision: number | undefined, incomingRevision: number) =>
-    lastObservedRevision !== undefined && incomingRevision <= lastObservedRevision
 
 /**
  * `change.fromApp` (contract X1#10) marks a watcher batch this app's own write caused, but only
@@ -209,6 +197,22 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         for (const path of change.paths) {
             for (const queryKey of filePathQueryKeysToInvalidate(path)) void queryClient.invalidateQueries({ queryKey })
         }
+
+        /**
+         * The palette's `SEARCH.PROJECT_FILES` quick-open index (contract §3, item d) is a flat
+         * project-wide walk, not a per-directory page — unlike `TREE.ROWS` below, there is no
+         * cheaper "just this directory" refresh to reuse, so a full re-walk on every `modified`
+         * (content-only, never changes which files exist) would be pure waste on a large project
+         * being actively edited/watched. `created`/`renamed`/`removed` are the only kinds that can
+         * change the file set quick-open searches, so only those invalidate it.
+         *
+         * Placed above the `isSelfEchoWithoutTreeImpact` early-return below on purpose: that gate
+         * decides only whether the (separate) Explorer tree needs refreshing, and this index has its
+         * own, independent staleness rule — `kind` alone, with no `fromApp` check at all. Sitting
+         * below the return would make this invalidation look conditioned on the tree gate when it
+         * structurally isn't, even though the two rules currently agree on every `modified` change.
+         */
+        if (change.kind !== 'modified') void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) })
 
         /**
          * `change.fromApp` (contract X1#10) marks a watcher batch whose every path was just written

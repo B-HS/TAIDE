@@ -398,6 +398,32 @@ mod tests {
         cleanup(&paths);
     }
 
+    /// Locks in the precondition `commands::project_open`'s `ProjectActivated` emit relies on
+    /// (`docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` §3, item c): `open_project` sets
+    /// `session.active_project` on *every* path, not only a first-time open, so the command must
+    /// fan that activation out unconditionally rather than only inside its `!already_open` branch.
+    #[test]
+    fn open_project은_already_open_여부와_무관하게_session_active_project를_대상_프로젝트로_설정한다() {
+        let paths = temp_paths();
+        let project_root = paths.data_dir.join("workspace");
+        std::fs::create_dir_all(&project_root).unwrap();
+
+        let mut session = SessionState::default();
+        let mut projects = HashMap::new();
+
+        let first = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        assert!(!first.already_open);
+        assert_eq!(session.active_project, Some(first.project.id.clone()));
+
+        session.active_project = None;
+
+        let second = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("re-open");
+        assert!(second.already_open);
+        assert_eq!(session.active_project, Some(second.project.id));
+
+        cleanup(&paths);
+    }
+
     #[test]
     fn capabilities는_주입된_검출_결과를_그대로_기록한다() {
         let paths = temp_paths();

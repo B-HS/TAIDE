@@ -21,6 +21,20 @@ export const commands = {
 	projectListRecent: () => typedError<Project[], AppError>(__TAURI_INVOKE("project_list_recent")),
 	projectGet: (projectId: ProjectId) => typedError<Project, AppError>(__TAURI_INVOKE("project_get", { projectId })),
 	projectGetActive: () => typedError<string | null, AppError>(__TAURI_INVOKE("project_get_active")),
+	/**
+	 *  `service::open_project` sets `session.active_project = Some(project.id)` on **every** path
+	 *  (a fresh open, id-reuse from history, and the `already_open` re-open of a project already in
+	 *  this session) — this command must fan that activation out to every window exactly like
+	 *  [`project_activate`] does, or a caller other than the FE's own `useOpenProject`/
+	 *  `useOpenFolderDialog` mutation (whose `onSuccess` invalidates `QUERY_KEY.PROJECT.ALL` itself,
+	 *  masking the gap for that one call site) sees `QUERY_KEY.PROJECT.ACTIVE` go stale: the remote
+	 *  dispatch path (`domain::remote::dispatch`) calls this exact function, and any future direct
+	 *  caller would hit the same gap. Emitted unconditionally (not only inside the `!already_open`
+	 *  branch below, which gates the *first-open-only* `ProjectOpened`/`ProjectListChanged`/capability
+	 *  attach) because activation itself is unconditional. See
+	 *  `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` §3 (item c) for the fanout-gap
+	 *  diagnosis this closes.
+	 */
 	projectOpen: (path: string) => typedError<ProjectOpenResult, AppError>(__TAURI_INVOKE("project_open", { path })),
 	/**
 	 *  Closes `project_id` and reaps every resource that only makes sense while the project is open.
@@ -124,6 +138,18 @@ export const commands = {
 	 *  the async worker thread — since `service::replace_one_file` does synchronous filesystem I/O.
 	 */
 	searchReplace: (projectId: ProjectId, query: SearchQuery, replacement: string, paths: string[] | null) => typedError<SearchReplaceResult, AppError>(__TAURI_INVOKE("search_replace", { projectId, query, replacement, paths })),
+	/**
+	 *  Every file path under `project_id`'s root — backs the command palette's file quick-open, which
+	 *  must find a file regardless of whether the Explorer tree has ever been expanded into its parent
+	 *  folder (`docs/features/command-palette.md` §3; contract
+	 *  `2026-08-25-d42-e2e-defects-contract.md` §3, item d). Returns absolute paths (matching
+	 *  `TreeRow.path`'s convention, which this replaces as the palette's file-mode data source) rather
+	 *  than project-relative ones — `command-palette.tsx`'s `toProjectRelativePath`/`openFile(path)`
+	 *  both already expect that shape. Runs the walk in `spawn_blocking` like `search_run`/
+	 *  `search_replace`'s own scans, since [`service::list_project_files`] is synchronous filesystem
+	 *  I/O and must not block the async runtime.
+	 */
+	searchListFiles: (projectId: ProjectId) => typedError<string[], AppError>(__TAURI_INVOKE("search_list_files", { projectId })),
 	pluginList: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_list")),
 	pluginReload: () => typedError<LoadedPlugin[], AppError>(__TAURI_INVOKE("plugin_reload")),
 	pluginReadGrammar: (pluginId: string, languageId: string) => typedError<string, AppError>(__TAURI_INVOKE("plugin_read_grammar", { pluginId, languageId })),

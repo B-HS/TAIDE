@@ -41,6 +41,7 @@ import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
 import type { SplitDropData } from '@widgets/editor-area/pane-node-view'
 import { PaneNodeView } from '@widgets/editor-area/pane-node-view'
+import { resolveSaveRoutableTabId } from '@widgets/editor-area/focused-editor-tab'
 import type { TabDragData } from '@features/tab/sortable-tab'
 import { subscribeLanguageAdapterRegistration } from '@entities/lsp/lsp-session-registry'
 import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
@@ -147,21 +148,19 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         activateTab(leaf.tabs[nextIndex].id)
     }
 
-    const getFocusedFileTabId = () => {
+    const getFocusedSaveRoutableTabId = () => {
         if (!paneTree) return null
-        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
-        const activeTab = leaf?.tabs.find((tab) => tab.id === leaf.active)
-        return activeTab?.kind.kind === 'file' ? activeTab.id : null
+        return resolveSaveRoutableTabId(findPaneLeaf(paneTree.root, paneTree.focusedPane))
     }
 
-    const getFocusedFileEditor = () => {
-        const tabId = getFocusedFileTabId()
+    const getFocusedSaveRoutableEditor = () => {
+        const tabId = getFocusedSaveRoutableTabId()
         return tabId ? getEditorInstance(tabId) : null
     }
 
-    const saveActiveTab = () => getFocusedFileEditor()?.getAction('taide.saveFile')?.run()
+    const saveActiveTab = () => getFocusedSaveRoutableEditor()?.getAction('taide.saveFile')?.run()
 
-    const runMonacoAction = (actionId: string) => getFocusedFileEditor()?.trigger('taide.command', actionId, undefined)
+    const runMonacoAction = (actionId: string) => getFocusedSaveRoutableEditor()?.trigger('taide.command', actionId, undefined)
 
     const toggleTerminal = () => {
         if (!paneTree) return
@@ -219,7 +218,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     }
 
     const runSelectedTextInTerminal = () => {
-        const editor = getFocusedFileEditor()
+        const editor = getFocusedSaveRoutableEditor()
         if (!editor) return
         const text = resolveSelectedTextOrCurrentLine(editor)
         if (text !== null) runInTerminal(text, null)
@@ -272,10 +271,10 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
 
     useEffect(() => subscribeOpenFileFromEditor(handleOpenFileFromEditor), [])
 
-    const focusedFileTabId = getFocusedFileTabId()
+    const focusedSaveRoutableTabId = getFocusedSaveRoutableTabId()
 
     useEffect(() => {
-        if (!focusedFileTabId) {
+        if (!focusedSaveRoutableTabId) {
             setActiveEditorActionIds(null)
             return
         }
@@ -283,7 +282,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         let modelSubscription: { dispose: () => void } | null = null
 
         const updateActionIds = () => {
-            const activeEditor = getEditorInstance(focusedFileTabId)
+            const activeEditor = getEditorInstance(focusedSaveRoutableTabId)
             if (!activeEditor) {
                 setActiveEditorActionIds(null)
                 return
@@ -307,13 +306,13 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
 
         const attachToEditor = () => {
             modelSubscription?.dispose()
-            const activeEditor = getEditorInstance(focusedFileTabId)
+            const activeEditor = getEditorInstance(focusedSaveRoutableTabId)
             modelSubscription = activeEditor?.onDidChangeModel(updateActionIds) ?? null
             updateActionIds()
         }
 
         attachToEditor()
-        const editorSubscription = subscribeEditorInstance(focusedFileTabId, attachToEditor)
+        const editorSubscription = subscribeEditorInstance(focusedSaveRoutableTabId, attachToEditor)
         const languageAdapterSubscription = subscribeLanguageAdapterRegistration(updateActionIds)
 
         return () => {
@@ -321,7 +320,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
             languageAdapterSubscription()
             modelSubscription?.dispose()
         }
-    }, [focusedFileTabId])
+    }, [focusedSaveRoutableTabId])
 
     useEffect(() => () => setActiveEditorActionIds(null), [])
 

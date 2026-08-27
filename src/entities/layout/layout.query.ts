@@ -1,8 +1,10 @@
+import type { QueryClient } from '@tanstack/react-query'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { AppFileTarget, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs, currentWindowFocusedPane, findPaneTab } from '@shared/lib/pane-tree'
 import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
 import { releaseWaitMarker } from '@entities/agent/agent.ipc'
@@ -37,11 +39,36 @@ export const layoutQueryOptions = (projectId: ProjectId | null) =>
         enabled: !!projectId,
     })
 
+/**
+ * Writes `layout` into the `LAYOUT.DETAIL` cache unless a fresher revision is already sitting
+ * there — every layout mutation's `onSuccess` funnels through this instead of a raw `setQueryData`
+ * (contract `2026-08-25-d42-e2e-defects-contract.md` §3, item b). Two mutations fired close
+ * together — e.g. a keystroke's `setTabDirty({dirty:true})` racing a subsequent `⌘S`'s
+ * `setTabDirty({dirty:false})` — resolve as two independent IPC round trips with no guarantee the
+ * later call's *response* also arrives later: `AppState::begin_mutation`'s single app-wide async
+ * mutex serializes the Rust-side writes themselves, but which of two concurrently in-flight
+ * `invoke()` calls a still-queued frontend task settles first is not bound to invocation order. A
+ * raw `setQueryData(key, layout)` in that handler would then let the stale `dirty:true` response
+ * land *after* the fresh `dirty:false` one and silently overwrite it — and since `layoutQueryOptions`
+ * has no periodic refetch (`staleTime`/`refetchOnWindowFocus` both conservative) and no further
+ * `layout:changed` event necessarily follows, that stale dot then sits in the tab bar indefinitely
+ * (the pilot's real-keyboard repro against `index.ts`/`README.md`, 10s+ before the run was
+ * abandoned). Comparing against `ProjectLayout.revision` — the same monotonic counter
+ * `ipc-sync-provider.tsx`'s `layout:changed` handler already guards with `isStaleLayoutRevision` —
+ * closes the gap at its source instead of masking it with a delay or a forced refetch.
+ */
+export const applyFreshLayout = (queryClient: QueryClient, projectId: ProjectId | null, layout: ProjectLayout) => {
+    const key = QUERY_KEY.LAYOUT.DETAIL(projectId ?? '')
+    const current = queryClient.getQueryData<ProjectLayout>(key)
+    if (isStaleLayoutRevision(current?.revision, layout.revision ?? 0)) return
+    queryClient.setQueryData(key, layout)
+}
+
 const useLayoutMutation = <TVariables>(projectId: ProjectId | null, mutationFn: (variables: TVariables) => Promise<ProjectLayout>) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn,
-        onSuccess: (layout) => queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''), layout),
+        onSuccess: (layout) => applyFreshLayout(queryClient, projectId, layout),
     })
 }
 
@@ -76,7 +103,7 @@ export const useOpenTabInProject = () => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: openTab,
-        onSuccess: (layout, variables) => queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(variables.projectId), layout),
+        onSuccess: (layout, variables) => applyFreshLayout(queryClient, variables.projectId, layout),
     })
 }
 
@@ -97,7 +124,7 @@ export const useCloseTab = (projectId: ProjectId | null) => {
                 const stillOpenElsewhere = collectAllPaneTabs(layout).some((tab) => tab.kind.kind === 'file' && tab.kind.path === closedKind.path)
                 if (!stillOpenElsewhere) setOpenWithOverride(closedKind.path, null)
             }
-            queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''), layout)
+            applyFreshLayout(queryClient, projectId, layout)
         },
     })
 }

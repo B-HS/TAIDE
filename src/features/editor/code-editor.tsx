@@ -278,8 +278,9 @@ export const CodeEditor: FC<CodeEditorProps> = ({
      * `[tabId, editor]` effect (crash-class-seal-contract.md §1-1) so the registered value can
      * never be anything but THIS component's own `editorRef.current`, never a snapshot of a
      * parent's `editor` state that could still reference a sibling instance already torn down in
-     * the same commit. `registryTabId` is optional — `untitled-pane.tsx` and
-     * `app-file-pane.tsx` simply never pass it, so this effect no-ops for them.
+     * the same commit. `registryTabId` is optional — `untitled-pane.tsx` still never passes it, so
+     * this effect no-ops there. `app-file-pane.tsx` now does pass it, so `⌘S` can reach its editor
+     * instance (contract `2026-08-25-d42-e2e-defects-contract.md` §3, item a).
      *
      * Declared as the LAST effect in this component (after the creation effect and every
      * option-sync effect above) so that whenever this effect's own setup runs, `editorRef.current`

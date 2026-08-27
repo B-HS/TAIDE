@@ -215,6 +215,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::search::commands::search_run,
             domain::search::commands::search_cancel,
             domain::search::commands::search_replace,
+            domain::search::commands::search_list_files,
             domain::plugin::commands::plugin_list,
             domain::plugin::commands::plugin_reload,
             domain::plugin::commands::plugin_read_grammar,

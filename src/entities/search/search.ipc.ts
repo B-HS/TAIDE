@@ -22,3 +22,13 @@ export const cancelSearch = (sessionId: string) => unwrapResult(commands.searchC
 
 export const replaceSearch = (input: { projectId: ProjectId; query: SearchQuery; replacement: string; paths: string[] | null }) =>
     unwrapResult(commands.searchReplace(input.projectId, input.query, input.replacement, input.paths))
+
+/**
+ * Every file path under `projectId`'s root, as absolute paths — the command palette's file
+ * quick-open index (contract `2026-08-25-d42-e2e-defects-contract.md` §3, item d). Unlike
+ * `entities/tree/tree.ipc.ts`'s `getTreeRows` (only ever holds entries for a directory some caller
+ * already `tree_toggle`'d open), this walks the whole project every call — see
+ * `search_list_files`'s own doc comment for why quick-open needs that instead of depending on the
+ * Explorer tree's lazy loading.
+ */
+export const listProjectFiles = (projectId: ProjectId) => unwrapResult(commands.searchListFiles(projectId))

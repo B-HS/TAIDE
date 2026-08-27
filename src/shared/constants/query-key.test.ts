@@ -36,6 +36,8 @@ const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'FILE.UNTITLED_MIRRORS', scopedByProject: true, factory: QUERY_KEY.FILE.UNTITLED_MIRRORS },
     { path: 'TREE.ALL', scopedByProject: false },
     { path: 'TREE.ROWS', scopedByProject: true, factory: QUERY_KEY.TREE.ROWS },
+    { path: 'SEARCH.ALL', scopedByProject: false },
+    { path: 'SEARCH.PROJECT_FILES', scopedByProject: true, factory: QUERY_KEY.SEARCH.PROJECT_FILES },
     { path: 'GIT.ALL', scopedByProject: false },
     { path: 'GIT.PROJECT', scopedByProject: true, factory: QUERY_KEY.GIT.PROJECT },
     { path: 'GIT.STATUS', scopedByProject: false },

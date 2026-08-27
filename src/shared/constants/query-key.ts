@@ -26,6 +26,10 @@ export const QUERY_KEY = {
         ALL: ['tree'] as const,
         ROWS: (projectId: ProjectId) => ['tree', 'rows', projectId] as const,
     },
+    SEARCH: {
+        ALL: ['search'] as const,
+        PROJECT_FILES: (projectId: ProjectId) => ['search', 'project-files', projectId] as const,
+    },
     GIT: {
         ALL: ['git'] as const,
         PROJECT: (projectId: ProjectId) => ['git', projectId] as const,
@@ -152,6 +156,7 @@ export const PROJECT_SCOPED_KEYS: ReadonlyArray<(projectId: ProjectId) => readon
     QUERY_KEY.PROJECT.DETAIL,
     QUERY_KEY.LAYOUT.DETAIL,
     QUERY_KEY.TREE.ROWS,
+    QUERY_KEY.SEARCH.PROJECT_FILES,
     QUERY_KEY.GIT.PROJECT,
     QUERY_KEY.AGENT.PROJECT,
     QUERY_KEY.AGENT.HOOKS_PROJECT,
