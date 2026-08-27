@@ -4,14 +4,19 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
-> **실측(2026-08-20, d-27 Welcome 확충 배치 반영)**: command **177종** —
+> **실측(2026-08-25, d-42 §3 item d — `search_list_files` 신규 반영)**: command **178종** —
 > `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수(raw 3종 제외) =
 > `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히
 > 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제). raw 채널
-> 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **180종**. event 는 **23종**
+> 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **181종**. event 는 **23종**
 > (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이
-> 180종을 `REMOTE_ALLOWED_COMMANDS`(156) ⊎ `REMOTE_DENIED_COMMANDS`(24) 로 완전 분할한다(§원격
-> dispatch 정책). **d-38(2026-08-25)** 이 커맨드 총수는 그대로 두고 분할만 옮겼다 — 키링 자격증명을
+> 181종을 `REMOTE_ALLOWED_COMMANDS`(157) ⊎ `REMOTE_DENIED_COMMANDS`(24) 로 완전 분할한다(§원격
+> dispatch 정책) — 신규 `search_list_files` 는 형제 커맨드(`search_run`/`search_replace`/
+> `search_cancel`, 전부 허용)와 동일하게 허용 테이블에 등재했다(팔레트 퀵오픈이 이미 `tree_rows`
+> 로 원격에서도 파일 목록을 조회할 수 있었으므로 민감도 축이 다르지 않다). 아래는 d-42 이전
+> (177/180/156/24) 실측 기록이다.
+>
+> **d-27(2026-08-20) 반영 실측**: command **177종**. **d-38(2026-08-25)** 이 커맨드 총수는 그대로 두고 분할만 옮겼다 — 키링 자격증명을
 > 바꾸거나 지우는 4종(`ai_set_token`/`ai_clear_token`/`sync_connect`/`sync_disconnect`)을 허용에서
 > 거부로 이동해 `REMOTE_ALLOWED_COMMANDS` 160 → **156**, `REMOTE_DENIED_COMMANDS` 20 → **24**
 > 가 됐다(상세는 §원격 dispatch 정책의 "d-38" 절). d-27 배치가 신규 커맨드 1종(`project_list_recent`
@@ -203,6 +208,18 @@
 - Wave D: `TabKind::SearchEditor { query }`(신규 tab variant, "Search Editor") — 결과 목록은 저장하지
   않고 쿼리만 레이아웃에 영속화한다. 복원 시 같은 `search_run` 으로 재검색한다(대량 `SearchMatch[]`
   를 레이아웃 JSON 에 싣지 않기 위함).
+- query: `search_list_files(projectId) → string[]`(d-42, 2026-08-25 신규) — 프로젝트 root 이하 전체
+  파일의 **절대 경로**를 반환한다(`TreeRow.path` 와 동일 규약). 팔레트 파일 퀵오픈 전용 인덱스 —
+  `tree_rows`(트리에 이미 로드된 항목만)와 달리 `domain::search::service::build_walk`(`search_run`과
+  동일 워커)로 프로젝트 전체를 매번 새로 순회해, 트리에서 한 번도 확장되지 않은 폴더의 파일도 찾는다
+  (`command-palette.md` §3 요구사항 — `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` §3
+  item d). `respect_gitignore` 인자가 없다 — 항상 `false` 로 순회한다(`IGNORED_DIR_NAMES`만 제외),
+  트리가 보여주는 파일과 퀵오픈이 찾는 파일의 집합을 항상 일치시키기 위함(`search_run`/
+  `search_replace` 는 쿼리별 `respect_gitignore` 토글이 있어 다르다). 결과에 **상한이 없다** —
+  `search_run` 의 `SEARCH_MATCH_LIMIT`·`tree_rows` 의 페이지네이션과 달리 의도적 결정이다:
+  퀵오픈 인덱스는 상한을 두는 순간 상한 밖 파일이 검색 불가가 되어(자르면 정합성 파괴) 결함
+  d 를 다른 형태로 재도입한다. 절단 없는 전체 목록이 규약이며, 매칭·표시 상한은 FE
+  (`FILE_RESULT_LIMIT`)가 담당한다(d-42 검토 L2-3 판정 — 계약 §4).
 
 ### git (`git.md`)
 
@@ -926,18 +943,20 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 뒤집혔다. **정책(어떤 커맨드가 허용/거부인지)은 이 배치에서 전혀 바뀌지 않았다** — 바뀐 것은
 > 강제 메커니즘뿐이다: 이전에는 새 `match` arm 을 추가하기만 하면 그 커맨드가 자동으로 원격
 > 허용됐다(무증상 위험). 이제는 `src-tauri/src/domain/remote/dispatch.rs` 의
-> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 156종) 또는 `REMOTE_DENIED_COMMANDS`(명시 거부, 24종) **둘 중
-> 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를 실핸들러로 위임한다 — 등재를
+> `REMOTE_ALLOWED_COMMANDS`(명시 허용, 157종 — d-42 이전 156종) 또는 `REMOTE_DENIED_COMMANDS`(명시
+> 거부, 24종) **둘 중 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를
+> 실핸들러로 위임한다 — 등재를
 > 잊으면 `RemoteDenialPolicy::Unclassified` 로 즉시 거부되고, 완전 분할 파리티 테스트
 > (`허용_테이블과_거부_테이블은_전체_커맨드를_교집합_없이_정확히_분할한다`)가 등재 누락 자체를
 > 컴파일 타임이 아니라 테스트 실패로 잡는다(두 테이블의 합집합이 전체 커맨드 집합과 정확히 같아야
 > 하고, 교집합은 0이어야 한다).
 >
-> 전체 커맨드 집합(180종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(177종, specta/JSON 경로 —
-> 파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 `bindings.ts` 와 강제
-> 일치시킨다) + `lib.rs` 의 `RAW_CHANNEL_COMMANDS`(3종 — `pty_spawn`/`pty_attach`/`file_read_raw`,
-> collect_commands! 등록은 되지만 specta 핸들러를 우회하는 raw 채널). `REMOTE_ALLOWED_COMMANDS` 는
-> 156종으로 `IMPLEMENTED_JSON_COMMANDS` 와 **집합이 다르다** — `pty_spawn`/`pty_attach` 는
+> 전체 커맨드 집합(181종, d-42 이전 180종) = `dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS`(178종, d-42
+> 이전 177종, specta/JSON 경로 — 파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_
+> 일치한다` 가 `bindings.ts` 와 강제 일치시킨다) + `lib.rs` 의 `RAW_CHANNEL_COMMANDS`(3종 —
+> `pty_spawn`/`pty_attach`/`file_read_raw`, collect_commands! 등록은 되지만 specta 핸들러를 우회하는
+> raw 채널). `REMOTE_ALLOWED_COMMANDS` 는 157종(d-42 이전 156종)으로 `IMPLEMENTED_JSON_COMMANDS` 와
+> **집합이 다르다** — `pty_spawn`/`pty_attach` 는
 > `dispatch()` 의 `match` arm 이 실재하는데도 `IMPLEMENTED_JSON_COMMANDS` 에는 없다(그 목록은
 > specta/bindings 파리티만 추적하는 다른 축이라서다), 반대로 `file_read_raw` 는
 > `IMPLEMENTED_JSON_COMMANDS` 에 없지만 `dispatch_raw()` 의 `match` arm 으로 원격 실행된다 — 그래서
@@ -974,14 +993,21 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > (`settings_update`·`app_file_write`)뿐 아니라, 같은 축의 우회 경로였던 `sync_download`
 > (`sync/service.rs`의 `strip_non_syncable` — dispatch 스트립 두 함수를 전혀 거치지 않고 곧장
 > 호출된다)까지 3경로 모두에서 제거된다.
+>
+> **d-42(2026-08-25, `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md`)**: 신규 커맨드
+> `search_list_files(projectId) → string[]`(§3 item d — 팔레트 파일 퀵오픈이 `tree_rows` 의 지연
+> 로딩에 의존하던 결함 수정) 을 `IMPLEMENTED_JSON_COMMANDS`·`REMOTE_ALLOWED_COMMANDS` 양쪽에 등재
+> (형제 `search_*` 3종과 동일 취급). `IMPLEMENTED_JSON_COMMANDS` 177 → **178**,
+> `REMOTE_ALLOWED_COMMANDS` 156 → **157**(`REMOTE_DENIED_COMMANDS` 24 는 그대로, 총 180 → **181**).
 
-- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 156종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
+- **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 157종 — d-42 이전 156종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
   전종·`file_*`(아래 예외 제외)·`ai_*` 6종(`ai_set_token`/`ai_clear_token` 제외 — d-38, 아래 표
   참조)·`plugin_list`/`plugin_reload`/`plugin_read_grammar`·
   `remote_status`/`remote_revoke_sessions`·`lsp_confirm_reinitialize`/
   `lsp_report_reinitialize_failure`·`sync_*`(3종 — `sync_status`/`sync_upload`/`sync_download`,
   `sync_connect`/`sync_disconnect` 제외 — d-38)·`search_replace`
-  (원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화 없음)·`theme_save`/
+  (원격 세션도 파일을 직접 고쳐 쓸 수 있다 — 기존 설계상 허용, 별도 강화 없음)·`search_list_files`
+  (d-42 신규 — 원격 세션은 이미 `tree_rows` 로 파일 목록을 볼 수 있어 민감도 축이 다르지 않다)·`theme_save`/
   `theme_delete`·`snippet_save`/`snippet_delete`·`git_init`·`pty_spawn`/`pty_attach`/`file_read_raw`
   (raw 채널 3종 — 아래 "raw 커맨드" 절 참조). `remote_start`/`remote_stop` 은 X-A 배치(2026-08-19)에서
   커맨드 자체가 제거돼 이 목록에서도 빠졌다(§"remote" 절 참조).

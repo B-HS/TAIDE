@@ -73,11 +73,24 @@
       `settings.aiTokenClearFailed` 신설 — 918키×3). 이월 1건 신규(계약 §6:
       `ai_omlx_base_url` 스트립 편입 — 사용자 결정). 메인 2차 verify+vite exit 0. 계약
       `2026-08-25-d38-remote-policy-contract.md` §0~§6 정본
-- [ ] d-39 e2e 파일럿+전문 QA — **하네스는 기구축·검토 완료(d-3, e2e/ 12스펙·Playwright
-      1.62.1+webkit 설치됨 — 신규 구축 불요 확인 2026-08-25)**. 잔여 = 파일럿 실행(사용자
-      준비 선행: ① `bun run tauri dev` ② REMOTE 비밀번호 8자+·password_only ON·활성화 ON
-      ③ `export TAIDE_E2E_PASSWORD` ④ `bun run e2e`) → 결과 기반 스펙 확장·qa6 실기 확증.
-      완료 = Phase 8 진입 조건
+- [ ] d-39 e2e 파일럿+전문 QA — **1차 실행 완료(2026-08-25, 실앱)**: 기동 결함(픽스처 패턴)
+      메인 직접 수정 → 스펙 결함 8건 수리(단언 약화 없음) → 6스펙 7테스트 통과 / 보류 6
+      (앱 결함 차단 3: 01·10·11 / 환경 불안정 3: 05·07·09). **앱 결함 후보 5건 발견** — 정본
+      `docs/quality-assurance/2026-08-25-d39-e2e-pilot-run.md`. 잔여 = d-42(결함 수정) 후
+      앱 재시작·보류 스펙 재실행·qa6 실기 확증. 완료 = Phase 8 진입 조건
+- [x] d-42 e2e 발견 앱 결함 수정 — **완결(2026-08-27, ⑤ 사용자 실기만 잔여)**: 재개 승인 =
+      /goal "사용자 실기·배포만 남기고 완주". 재개 실사 ①~④·⑥ 전부 수행 — ① 구현 기록 보완
+      (에이전트 로그 wf_7decbb38 실사+diff 전량 정독, 계약 §3.1)·⑥ c=코드 수정 채택 확인
+      (project_open 무조건 방출+전제 테스트) → ② 검토 2렌즈(opus+xhigh, wf_561c16f9) **major 0**
+      /minor 8/info 5 — 적대적 생략(다렌즈 수렴+메인 실물 재검증), 판정 표 = 계약 §4.2, 수정
+      9건(F1~F9, wf_526f8bd3 sonnet+xhigh — untitled dead-path 서술 정정·팔레트 콜드 로딩
+      게이트·쿼리 팩토리 null 내장·SaveRoutable 개명·무효화 게이트 위 이동·e2e 잉여 activate
+      제거·스펙 13 신설·KEY_CHORD.PASTE)+기록 3(L1-03 성능 이월·L1-07·L1-08)+무상한 규약
+      문서화(L2-3)+별건 후보 C6(untitled ⌘S — 파일럿 §4-C6) → ③ verify 전 사슬 exit 0
+      (bun 1499/0·cargo workspace 1104+3+6+17·fmt·clippy)+vite build·메인 2차 재실행 그린 →
+      ④ bindings 재생성 바이트 동일(+26/-0, `search_list_files` 1커맨드 순증)·dispatch 3등재·
+      178=178 파리티·원격 허용 근거(tree_rows) 실물 확인. **잔여 ⑤ = 사용자 앱 재시작 후
+      e2e 재실행(보류 6스펙+신규 13)** — 계약 §3~§5 정본
 - [x] d-40 선택 행 표면 대비 정공법 — **완료(2026-08-25)**: TS 게이트 2쌍(수리-전용·임포트
       거부 구조 불가 보장)+Rust 린트 2쌍·번들 14테마 업스트림 대조 정정(nord 는 전경 원복+배경
       nord3 로 예외 없이 완전 해소 — 메인 발견)·taide-light `#6611d4`·수리 가드 강화(블로킹

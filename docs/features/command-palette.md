@@ -64,10 +64,14 @@ type Command = {
 - fuzzy 매칭은 기존 `shared/lib/fuzzy-match.ts` 순수 함수를 그대로 쓴다(테스트 있음).
 - 정렬: 점수 내림차순 → **최근 사용(MRU)** → 알파벳.
   MRU 는 view 로컬이 아니라 `settings` 에 저장해 재시작 후에도 유지한다.
-- 파일 퀵오픈은 `tree_rows` 결과를 쓰되, **트리에 아직 로드되지 않은 폴더의 파일도 찾아야 한다.**
-  → 퀵오픈 전용으로 Rust 에 **전체 파일 경로 인덱스**를 두거나(무시목록 공유),
-  `search` 도메인의 파일 순회를 재사용한다. 트리의 lazy 로딩에 의존하면 안 된다.
-- 파일 퀵오픈의 fuzzy 매칭 대상은 `tree_rows` 의 **절대 경로가 아니라 활성 프로젝트 기준 상대
+- 파일 퀵오픈은 **트리에 아직 로드되지 않은 폴더의 파일도 찾아야 한다** — `tree_rows`(사이드바와
+  동일한 지연 로딩 트리)에 의존하면 안 된다. 전용 커맨드 `search_list_files(projectId) →
+  string[]`(d-42, `search` 도메인의 `build_walk` 파일 순회 재사용 — 신규 크레이트 없이 기존
+  `ignore` 크레이트 인프라를 그대로 씀)가 프로젝트 root 이하 전체 파일을 매 호출마다 새로 순회해
+  반환하고, `entities/search/search.query.ts` 의 `projectFilesQueryOptions` 가 이를 감싼다. (과거
+  구현은 `tree_rows` 를 직접 필터해 이 요구사항을 위반했었다 — `docs/acknowledge/
+  2026-08-25-d42-e2e-defects-contract.md` §3 item d 로 근본 수정)
+- 파일 퀵오픈의 fuzzy 매칭 대상은 `search_list_files` 의 **절대 경로가 아니라 활성 프로젝트 기준 상대
   경로**다(`toProjectRelativePath`). 활성 프로젝트 root 가 아직 로딩 중이면 매칭·렌더 자체를
   보류한다(빈 상태에 로딩 표시) — 절대 경로가 매칭 대상으로 잠깐이라도 노출되지 않는다.
 
