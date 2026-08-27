@@ -18,7 +18,7 @@ test('워크스페이스 심볼(#)로 다른 파일의 심볼을 선택하면 �
 
     await expect(page.getByRole('tab', { name: /other\.ts/ })).toBeVisible()
 
-    const otherFilePath = path.join(fixtureProject.rootDir, 'src/other.ts')
+    const otherFilePath = path.join(fixtureProject.rootDir, 'other.ts')
     await expect(async () => {
         const layout = await invokeIpc(page, 'layout_get', { projectId: fixtureProject.projectId })
         expect(JSON.stringify(layout)).toContain(otherFilePath)

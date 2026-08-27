@@ -45,8 +45,6 @@ test('터미널에 명령을 입력하면 셸이 실행되고 OSC133 데코레�
         })
     }
 
-    const overviewRulerDecoration = page.locator('.xterm-decoration-overview-ruler').first()
-    await expect
-        .soft(overviewRulerDecoration.or(page.locator('.xterm-decoration').first()))
-        .toBeVisible({ timeout: TERMINAL_DECORATION_SOFT_CHECK_TIMEOUT_MS })
+    const anyDecoration = page.locator('.xterm-decoration-overview-ruler').or(page.locator('.xterm-decoration')).first()
+    await expect.soft(anyDecoration).toBeVisible({ timeout: TERMINAL_DECORATION_SOFT_CHECK_TIMEOUT_MS })
 })

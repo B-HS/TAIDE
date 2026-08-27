@@ -23,8 +23,22 @@ export const REMOTE_GATED_SETTINGS_KEYS = ['shellOverride', 'remotePasswordOnlyL
 
 export const DEFAULT_TEST_LOCALE = 'en'
 
-export const LSP_SYMBOL_TIMEOUT_MS = 15_000
+/**
+ * Workspace symbol search (`#`) needs the LSP to finish indexing the whole fixture project, not
+ * just the one open file document symbols (`@`) need — pilot run observed this taking noticeably
+ * longer than the original 15s under this session's load (many fixture projects opened/closed in
+ * quick succession churn the LSP process pool), so this is doubled rather than tuned tighter.
+ */
+export const LSP_SYMBOL_TIMEOUT_MS = 30_000
 export const SEARCH_SETTLE_TIMEOUT_MS = 10_000
+/**
+ * Git status only refreshes after `WATCH_DEBOUNCE_MS`(300ms, `constants.rs`)'s fs-watcher echo
+ * reaches the frontend (`fsChanged` → `GIT.PROJECT` invalidation, `ipc-sync-provider.tsx`) — an
+ * external `appendFile` (not routed through the app's own save path) has no faster signal. 300ms
+ * is generous on an idle system, but the default 5s `toBeVisible()` timeout was observed to be too
+ * tight under this session's load (many fixture-project churns queuing watcher/LSP work).
+ */
+export const GIT_STATUS_SETTLE_TIMEOUT_MS = 15_000
 export const TERMINAL_DECORATION_SOFT_CHECK_TIMEOUT_MS = 5_000
 
 /** Mirrors `src/shared/constants/code-font-size.ts`'s `DEFAULT_CODE_FONT_SIZE` — used only as a fallback when `settings_get` omits `editorFontSize`. */
@@ -34,6 +48,7 @@ export const FONT_SIZE_SENTINEL_DELTA = 1
 export const KEY_CHORD = {
     SAVE: 'Meta+S',
     SELECT_ALL: 'Meta+A',
+    PASTE: 'Meta+V',
     QUICK_OPEN: 'Meta+P',
     COMMAND_PALETTE: 'Meta+Shift+P',
     WORKSPACE_SYMBOL: 'Meta+T',

@@ -16,9 +16,17 @@ test('저장한 내용이 디스크와 file_open 재조회 모두에 반영된�
     await editor.click()
     await page.keyboard.press('Meta+End')
     await page.keyboard.press('Enter')
-    await page.keyboard.insertText(SAVE_MARKER_LINE)
+    /**
+     * `page.keyboard.type()`, not `insertText()` — under this codebase's WebKit target,
+     * `insertText()` reproduces the already-documented Monaco/WKWebView composition-event bug
+     * (`docs/bug/2026-08-06-wkwebview-ime-composition.md`), corrupting plain ASCII text (verified:
+     * stray spaces appear around ordinary punctuation like `=`/`-`). `type()` dispatches real
+     * per-key events instead, which this single-line insertion (no newlines, so no auto-indent
+     * compounding) types correctly.
+     */
+    await page.keyboard.type(SAVE_MARKER_LINE)
 
-    const filePath = path.join(fixtureProject.rootDir, 'src/index.ts')
+    const filePath = path.join(fixtureProject.rootDir, 'index.ts')
     const tab = page.getByRole('tab', { name: /index\.ts/ })
     await expect(tab.locator('.bg-tab-bar-dirty-dot')).toBeVisible()
 

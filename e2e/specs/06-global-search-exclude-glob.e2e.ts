@@ -30,8 +30,15 @@ test('전역 검색 결과 클릭으로 파일이 열리고, excludeGlob 적용 
         expect(JSON.stringify(layout)).toContain(fixtureProject.rootDir)
     }).toPass()
 
+    /**
+     * `'other.ts'`, not `'**\/other.ts'` — the fixture project's files sit directly at its root
+     * (`fixture-project.ts`), and the backend's `glob_match` (`domain/search/service.rs`) is a plain
+     * `*`-only wildcard matcher with no path-segment awareness: `**` is just two literal `*`s, so
+     * `**\/other.ts` requires a `/` to appear somewhere before `other.ts` in the match text and can
+     * never match a root-level relative path that has no `/` in it at all.
+     */
     const excludeInput = page.getByPlaceholder(/Files to exclude/)
-    await excludeInput.fill('**/other.ts')
+    await excludeInput.fill('other.ts')
     await queryInput.click()
     await queryInput.press('Enter')
 

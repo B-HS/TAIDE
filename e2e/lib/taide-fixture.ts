@@ -45,10 +45,16 @@ const ensureLoggedIn = async (page: Page, taideBaseUrl: string) => {
  * parameter is named `provideFixtureValue` here rather than Playwright's conventional `use`
  * purely to dodge `eslint-plugin-react-hooks`'s name-based heuristic, which otherwise misreads a
  * function literally called `use(...)` as the unrelated React 19 `use()` hook.
+ *
+ * Playwright validates at runtime that the first parameter is written as an object destructuring
+ * pattern (it parses the function source) — a plain identifier aborts the whole run with "First
+ * argument must use the object destructuring pattern". A fixture with no real dependencies must
+ * therefore still destructure something (`{ browserName }` here); an empty `{}` would trip
+ * eslint's `no-empty-pattern` instead.
  */
 export const test = base.extend<TaideFixtures>({
-    taideBaseUrl: async (noDependencies, provideFixtureValue) => {
-        void noDependencies
+    taideBaseUrl: async ({ browserName }, provideFixtureValue) => {
+        void browserName
         const runtimeInfo = await readRuntimeInfo()
         if (!runtimeInfo) throw new Error(NO_RUNTIME_INFO_MESSAGE)
         await provideFixtureValue(runtimeInfo.baseURL)

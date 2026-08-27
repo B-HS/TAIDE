@@ -1,5 +1,6 @@
 import { FALLBACK_EDITOR_FONT_SIZE, FONT_SIZE_SENTINEL_DELTA, KEY_CHORD, REMOTE_GATED_SETTINGS_KEYS } from '../lib/constants'
 import { invokeIpc } from '../lib/ipc'
+import { replaceEditorContentViaPaste } from '../lib/monaco-clipboard'
 import { runPaletteCommand } from '../lib/palette'
 import { MACOS_APP_SETTINGS_PATH } from '../lib/paths'
 import { expect, test } from '../lib/taide-fixture'
@@ -85,9 +86,7 @@ test('원격 세션에서 settings.json 을 통해 원격 게이트 필드를 �
         const sentinelFontSize = (baseline.editorFontSize ?? FALLBACK_EDITOR_FONT_SIZE) + FONT_SIZE_SENTINEL_DELTA * (index + 1)
         const attemptPatch = { ...baseline, [key]: attemptValue, editorFontSize: sentinelFontSize }
 
-        await editor.click()
-        await page.keyboard.press(KEY_CHORD.SELECT_ALL)
-        await page.keyboard.insertText(JSON.stringify(attemptPatch, null, 4))
+        await replaceEditorContentViaPaste(page, editor, JSON.stringify(attemptPatch, null, 4))
         await page.keyboard.press(KEY_CHORD.SAVE)
 
         await expect(async () => {

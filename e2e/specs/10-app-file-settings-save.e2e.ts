@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { FALLBACK_EDITOR_FONT_SIZE, FONT_SIZE_SENTINEL_DELTA, KEY_CHORD } from '../lib/constants'
 import { invokeIpc } from '../lib/ipc'
+import { replaceEditorContentViaPaste } from '../lib/monaco-clipboard'
 import { runPaletteCommand } from '../lib/palette'
 import { MACOS_APP_SETTINGS_PATH } from '../lib/paths'
 import { expect, test } from '../lib/taide-fixture'
@@ -18,9 +19,7 @@ test('settings.json AppFile 를 저장하면 settings_get·디스크에 반영�
     const sentinelFontSize = (baseline.editorFontSize ?? FALLBACK_EDITOR_FONT_SIZE) + FONT_SIZE_SENTINEL_DELTA
     const validPatch = { ...baseline, editorFontSize: sentinelFontSize }
 
-    await editor.click()
-    await page.keyboard.press(KEY_CHORD.SELECT_ALL)
-    await page.keyboard.insertText(JSON.stringify(validPatch, null, 4))
+    await replaceEditorContentViaPaste(page, editor, JSON.stringify(validPatch, null, 4))
     await page.keyboard.press(KEY_CHORD.SAVE)
 
     await expect(async () => {
@@ -33,8 +32,7 @@ test('settings.json AppFile 를 저장하면 settings_get·디스크에 반영�
         expect(onDisk.editorFontSize).toBe(sentinelFontSize)
     }).toPass()
 
-    await page.keyboard.press(KEY_CHORD.SELECT_ALL)
-    await page.keyboard.insertText('{ this is not valid json')
+    await replaceEditorContentViaPaste(page, editor, '{ this is not valid json')
     await page.keyboard.press(KEY_CHORD.SAVE)
 
     await expect(page.getByText(INVALID_JSON_TOAST_TEXT)).toBeVisible()
