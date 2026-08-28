@@ -110,6 +110,25 @@
       검증: typecheck·eslint·prettier·bun **1504/0**·vite build 그린(Rust 무접촉 —
       workspace 그린 유효). 계약: `2026-08-27-d43-...md`·`2026-08-27-d44-...md` 정본.
       **e2e 완주 판정 — 잔여 = qa6 실기(사용자) → Phase 8**. 2차분은 사용자 승인 후 4분할 커밋·푸시 완료(`841bef8`·`46b12b8`·`3f56e46`·`985e17c`)
+- [x] d-45 테마 프리뷰 드래그 홍수 — qa6 실기 결함 1호(2026-08-28, 사용자 재현): 컬러 피커
+      드래그 중 앱 전체 간헐 무반응·회복 반복. 근본 원인 메인 실증 완료 — 드래그 move 당
+      `applyWindowAppearance`→`window.setTheme` IPC 가 tao 의 무단락 `NSApp.setAppearance`
+      전역 재적용을 연발(메인 스레드 포화, tao 0.35.3 소스 실물)+웹 측은 원격 대조 계측으로
+      무죄(240무브 max 47ms). 수정 3층(외관 IPC type-변화 가드·프리뷰 rAF 코얼레스·shiki
+      leading+trailing 디바운스) 구현·검토 1렌즈(major 0·전건 수용 반영)·검증(bun 1514/0·
+      spec 09·원격 재계측 그린) 완료 — 실기는 v2 와 함께 최종 확인(아래). 계약
+      `2026-08-28-d45-theme-preview-flood-contract.md` §0~§3 정본
+- [x] d-45 v2 — **완료(2026-08-28)**: 사용자 실기 "많이 줄었으나 잔여 프리징"+결정(실시간
+      프리뷰 불필요 → 놓을 때 적용). ColorPicker 드래그를 로컬 HSV 추적으로 전환, onChange 는
+      pointerup 1회(cancel/lostcapture 는 폐기) — 드래그 중 전역 파이프라인 0회. 순수 전이
+      함수 3종 분리+테스트 6건. bun 1520/0. 계약 §4. **실기 확인 통과(2026-08-28, 사용자:
+      프리징 완전 소멸) — 커밋 `9e4a822`(fix)로 종결**
+- [x] d-46 C/C++ 테마 번들 편입 — **완료(2026-08-28)**: 사용자 지시. 설치 확장
+      ms-vscode.cpptools-themes-2.0.0 신형 페어를 정본 변환기로 변환(수리 0건·게이트 전량
+      그린) — `visual-studio-cpp-dark/light` 등록(번들 36→38, 이름은 확장 라벨 페어 "Dark/Light (Visual Studio - C/C++)"). TS/Rust 게이트 자동 포섭 통과·
+      cargo workspace 1130·clippy·fmt·bindings 무변경. 과거 감사 수치(15/36·ΔE 등)는 재감사
+      전 유지(코드 4곳·docs 5곳 보고). 계약 `2026-08-28-d46-cpp-bundled-themes-contract.md`.
+      검토 렌즈 major 1(라이선스 등재 누락 — 등재+패리티 테스트 신설)·minor 4·info 1 전건 반영(계약 §4). **실기 확인 통과(2026-08-28, 사용자: 재시작 후 테마 목록 2종 표시) — 커밋 `f3d92ce`(feat)로 종결**
 - [x] d-40 선택 행 표면 대비 정공법 — **완료(2026-08-25)**: TS 게이트 2쌍(수리-전용·임포트
       거부 구조 불가 보장)+Rust 린트 2쌍·번들 14테마 업스트림 대조 정정(nord 는 전경 원복+배경
       nord3 로 예외 없이 완전 해소 — 메인 발견)·taide-light `#6611d4`·수리 가드 강화(블로킹

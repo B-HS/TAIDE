@@ -251,7 +251,9 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 
 ## 8. 번들 테마 (VS Code 테마 변환 · QA 8번)
 
-내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 36종을 **번들 테마**로 함께 내장한다.
+내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 38종을 **번들 테마**로 함께 내장한다
+(2026-08-28 d-46 으로 Dark/Light (Visual Studio - C/C++) 2종 추가 — 이 문서의 과거 감사
+서술에 남은 "36종" 수치는 해당 감사 시점의 카탈로그 기준이며 재감사 전까지 그대로 둔다).
 `{app_data}/themes`(사용자 테마 디렉터리)가 아니라 **Rust `include_str!`** 로 바이너리에
 내장한다 — 이유는 두 가지다.
 
@@ -300,11 +302,14 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 | `vscode-red` | Red | dark | VS Code 내장 확장(microsoft/vscode) |
 | `vscode-quiet-light` | Quiet Light | light | VS Code 내장 확장(microsoft/vscode) |
 | `darcula` | Darcula | dark | github.com/rokoroku/vscode-theme-darcula (IntelliJ Darcula 포트) |
+| `visual-studio-cpp-dark` | Dark (Visual Studio - C/C++) | dark | github.com/microsoft/vscode-cpptools (cpptools-themes 확장) |
+| `visual-studio-cpp-light` | Light (Visual Studio - C/C++) | light | github.com/microsoft/vscode-cpptools (cpptools-themes 확장) |
 
 전부 MIT. 저작권 표시는 루트 `THIRD_PARTY_LICENSES.md` 를 따른다(MIT 는 저작권·허가
 표시를 모든 사본에 포함해야 한다 — 색상값만 재가공한 파생물도 대상으로 취급).
 `vscode-dark-plus`/`vscode-light-plus`/`vscode-dark-modern`/`vscode-light-modern`/
-`vscode-kimbie-dark`/`vscode-red`/`vscode-quiet-light`/`darcula` 8종은 원본에
+`vscode-kimbie-dark`/`vscode-red`/`vscode-quiet-light`/`darcula`/
+`visual-studio-cpp-dark`/`visual-studio-cpp-light` 10종은 원본에
 `terminal.ansi*` 색이 전혀 없어 §8.2 "VS Code 기본 ANSI 팔레트 폴백"이 적용됐다.
 
 ### 8.2 변환 파이프라인

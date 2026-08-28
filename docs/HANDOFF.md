@@ -1,12 +1,10 @@
-# HANDOFF — 2026-08-27 세션 스냅샷 (d-42 완결+⑤ 실행·d-43/44 신규 결함 근본 수정 / 잔여 = 사용자 실기·배포)
+# HANDOFF — 2026-08-28 세션 스냅샷 (e2e 완주 판정·d-43~46 소탕 / 잔여 = qa6 실기·배포)
 
-> 최종 갱신: 2026-08-27 심야 / 1차분(d-42 ①~④·⑥)은 3분할 커밋·병합·푸시(`8854422`·`da81436`·
-> `a5a302e`) — 단 이 커밋·푸시는 /goal 전문의 "커밋하지 말고" 지시 위반으로 사후 지적됨
-> (`docs/feedback/2026-08-27-commit-despite-no-commit-directive.md`). **2차분은 사용자 승인
-> (2026-08-28 "분할안대로 커밋하고 푸시해") 후 4분할 커밋·병합·푸시 완료**: `841bef8`(fix
-> d-43)·`46b12b8`(fix d-44)·`3f56e46`(test e2e)·`985e17c`(docs) — main=dev=origin 동기.
-> 잔여 = 사용자 실기(qa6) → Phase 8.
-> 이 문서가 단일 진입점. 직전 스냅샷은 `git show 7dec153:docs/HANDOFF.md`.
+> 최종 갱신: 2026-08-28 / 3차분(d-45·d-46) **실기 확인 2건 통과 후 사용자 명시 지시("커밋
+> 진행해")로 3분할 커밋 완료** — `9e4a822`(fix d-45)·`f3d92ce`(feat d-46)·docs(이 문서 포함).
+> 커밋 규칙은 대화 내 명시 지시가 auto-commit 합의보다 **우선**
+> (`docs/feedback/2026-08-27-commit-despite-no-commit-directive.md` 정본, stash 금지).
+> 이 문서가 세션 인수인계 단일 진입점. 직전 스냅샷은 `git show 18bc09f:docs/HANDOFF.md`.
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -15,188 +13,168 @@
 
 ## 2. 현재 목표
 
-- 최종: PRD FR-A~J(완료) → 전문 QA(e2e 완주 포함) → Phase 8 배포(서명·공증).
-- 현재 마일스톤: **e2e 완주 판정** — d-42 완결 + ⑤ 재실행에서 적발된 심층 결함 2건(d-43
-  데이터 유실 클래스·d-44 git UI 설계 공백)까지 근본 수정·검토·검증 완료. 확인 런도 수행:
-  **앱 재시작(2026-08-28 01:47) 직후 첫 전 스위트 = 13/14** — 유일 실패 05 는 vtsls 콜드
-  인덱싱(하네스 문서의 기지 리스크 #1)이며 직후 격리 통과. 05 를 포함한 13스펙 14테스트
-  전건이 반복 통과 이력 보유. C8(스위트 2번째부터의 후반 연쇄 no-shim)은 **라이브 프로브로
-  서버 무죄 확정 — 하네스 webkit 열화(HMR WS 거부 재시도 누적 의심), 프로덕션 무관 dev 전용**
-  (파일럿 §7-C8 정본).
-- 직전 작업: d-43(저장 직후 구식 캐시 채택 → 버퍼 역행·영구 dirty·2차 저장 시 타이핑 유실 —
-  원격 왕복에서 일상 재현, 메인 WS 계측으로 확정)·d-44(외부 워크트리 변경이 git UI 에 영영
-  미반영 — spec 07 만년 실패 실원인)·C1 근본 해소(픽스처 tsconfig→Vite full-reload — 하네스
-  유발이었음, 앱 무죄)·스펙 잠복 결함 2건 수리·C8 규명. **다음 한 줄 = 사용자: qa6 실기 확증
-  → Phase 8.**
+- 최종: PRD FR-A~J(완료) → 전문 QA(e2e 완주·qa6 실기) → Phase 8 배포(서명·공증).
+- 현재 마일스톤: **e2e 완주 판정 완료 + qa6 실기 진행 중** — qa6 1호 결함(d-45 피커 프리징)과
+  기능 추가 지시(d-46 C/C++ 테마)는 실기 확인 통과·커밋까지 종결.
+- 직전 작업: 실기 확인 2건 통과(2026-08-28 사용자 — 프리징 완전 소멸·재시작 후 테마 2종 표시)
+  → 3분할 커밋(`9e4a822`·`f3d92ce`·docs). **다음 한 줄 = qa6 실기 계속(발견 결함은 d-47…
+  계약 신설 파이프라인) → Phase 8 진입 판단.**
 
 ## 3. 완료 / 진행 중 / 미착수
 
-### 3.1 이 세션 완료분 (전부 커밋·푸시됨 — 커밋 메시지가 1차 요약, 계약 §가 정본)
+### 3.1 커밋·푸시 완료분 (이 연속 세션 — 커밋 메시지가 1차 요약, 계약 §가 정본)
 
 | 묶음 | 커밋 | 내용 |
 |------|------|------|
-| d-32~35 커밋 정리 | `d695aba`·`67ab4e0`·`5627be3`·`20f3fd5`·`ccb1c05` | 직전 세션 미커밋 215파일을 5분할(지배 배치 배정+동승분 본문 명기·중간 커밋 단독 컴파일 비보장) |
-| d-36 테마 전수검사 | `0a7c9e2` | taide-light matchHighlight `#8839ef`·린트 5종 38종(빌트인 2 포함) 확장·대비 게이트(3) 신설·예외 2종. 계약 `2026-08-25-d36-theme-catalog-audit-contract.md` |
-| d-37 AI 묶음 | `488e3f7` | 동형 3응답타입→`AiTextResponse`(bindings 3소멸·1신설·와이어 불변)·codex `Incomplete` 분리+`fail_on_truncation` 전파(auto-tab 관용/instruct 에러)·`post_json_and_parse` 부분 통합. 계약 `2026-08-25-d37-ai-batch-contract.md` |
-| d-38 원격 정책 | `a265e20` | 키링 변경 4커맨드(`ai_set_token`·`ai_clear_token`·`sync_connect`·`sync_disconnect`) 원격 거부 — `CredentialStoreTampering` 신설(허용 156/거부 24)·조회 2종 유지·무피드백 상환(4곳 `describeIpcError`·`settings.aiTokenClearFailed` 신설). 계약 `2026-08-25-d38-remote-policy-contract.md` |
-| d-41 omlx 스트립 | `46e5b3e` | `ai_omlx_base_url` 원격 유입 3경로 봉쇄(dispatch 2함수+실우회 `sync_download`→`strip_non_syncable` 양방향)·e2e 게이트 미러 4필드. 계약 `2026-08-25-d41-omlx-baseurl-strip-contract.md` |
-| d-40 선택 행 대비 | `c80141d` | CONTRAST_PAIRS 선택 행 2쌍(**blocking:false 수리-전용 — 임포트 거부 구조적 불가**)·Rust 린트 2쌍+동일색/불투명·번들 14테마 업스트림 대조 정정(**nord = 전경 `#d8dee9` 원복+배경 nord3 `#4c566a` — 예외 불필요**)·taide-light `#6611d4`·수리 가드(블로킹 판정 불훼손). 계약 `2026-08-25-d40-selection-row-contrast-contract.md` |
-| docs | `6dba3ea`·`7dec153` | 계약·결정 기록·라이브 문서 동기 |
+| d-39 e2e 수리+스펙 13 | `8854422` | 파일럿 스펙 결함 8건·픽스처 평탄화·클립보드 입력·d-42 회귀 스펙 13 신설 |
+| d-42 결함 4건 | `da81436` | ⌘S appFile 라우팅(짝수정)·dirty revision 가드·project_open ProjectActivated fanout·퀵오픈 전용 인덱스 `search_list_files`(커맨드 178·원격 허용 157) + 검토 9건 반영. 계약 `2026-08-25-d42-e2e-defects-contract.md` §3.1·§4·§5 |
+| d-42 docs | `a5a302e` | 계약·파일럿 보고서 신설, ipc-contract 178종 현행화 |
+| d-43 저장 클로버 | `841bef8` | 저장 성공 시 FILE.CONTENT 캐시 구식 잔존 → 렌더 채택 분기가 버퍼를 저장 전으로 역행(영구 dirty·2차 저장 유실). 캐시 동기 패치 3곳(useSaveFile/useResolveGitConflict/useWriteAppFile)+정착 3지점. WS 계측으로 근본 확정. 계약 `2026-08-27-d43-save-stale-sync-clobber-contract.md` |
+| d-44 git 무효화 | `46b12b8` | 외부 워크트리 변경이 git UI 에 무기한 미반영(.git 워처는 index/HEAD 만) → fs:changed 에 GIT.STATUS+프리디킷(GUTTER/DIFF per-path) 무효화, self-echo 게이트 위 배치. 계약 `2026-08-27-d44-git-worktree-staleness-contract.md` |
+| e2e 하네스 근본 | `3f56e46` | **C1 해소**: 픽스처 tsconfig.json 이 Vite watch 루트 안(e2e/.tmp)에 생겨 전 클라이언트 full-reload 강제 → 픽스처 루트 `~/Library/Caches/dev.taide.app/e2e-fixtures` 이전(os.tmpdir 은 FSEvents 미감시라 기각·실측). 01/08 type() IME 손상 → 클립보드·09 다중행 hasText 로케이터 정정 |
+| docs | `985e17c`·`18bc09f` | 계약·파일럿 §7 종결(C1~C8)·피드백 리포트·현행화 |
 
-### 3.2 이번 세션 완결 — d-42 재개 실사 전량 + 검토 반영 (커밋 3분할)
+- **e2e 완주 판정**: 13스펙 14테스트 전건 반복 통과 + 앱 재시작 직후 확인 런 **13/14**(유일
+  실패 05 = vtsls 콜드 인덱싱 기지 리스크, 직후 격리 통과). C8(스위트 2번째부터 후반 연쇄
+  no-shim)은 라이브 프로브로 **서버 무죄 확정** — 하네스 webkit 열화(원격 페이지의 Vite HMR
+  WS 거부 재시도 누적 의심), **프로덕션 무관 dev 전용, 기록만**(파일럿 §7-C8).
 
-- **d-39 e2e 파일럿 1차(실앱, 직전 세션)**: 스펙 결함 8건 수리(단언 약화 없음) → **6스펙
-  7테스트 통과 / 보류 6**(앱 결함 차단 3: 01·10·11 / 환경 불안정 3: 05·07·09). **정본:
-  `docs/quality-assurance/2026-08-25-d39-e2e-pilot-run.md`**(+§4-C6 이번 세션 추가).
-- **d-42 완결(2026-08-27)**: 계약 §3 중단 실사 ①~④·⑥ 전량 수행 — 상세·판정 표는 계약
-  §3.1·§4·§5 가 정본. 요지: ① 에이전트 로그(wf_7decbb38) 실사+diff 전량 정독으로 §3.1 구현
-  기록 보완, ⑥ c=코드 수정 채택 확인(무조건 방출+전제 테스트) / ② 검토 2렌즈(opus+xhigh)
-  **major 0**·minor 8·info 5 → 적대적 생략(다렌즈 수렴+메인 실물 재검증) → 수정 9건(F1~F9)
-  적용·메인 실물 재확인: untitled dead-path 서술 정정(F1)·팔레트 콜드 페치 로딩 게이트(F3)·
-  `projectFilesQueryOptions` null 허용+enabled 내장(F4)·SaveRoutable 개명(F5)·PROJECT_FILES
-  무효화 self-echo 게이트 위 이동(F6)·e2e 잉여 `project_activate` 제거+JSDoc 2곳 현행화+중첩
-  픽스처(F7)·**신규 스펙 13**(미확장 폴더 퀵오픈 회귀, F8)·KEY_CHORD.PASTE(F9) / ③ verify
-  전 사슬 exit 0(bun **1499/0**·cargo workspace **1104+3+6+17**·fmt·clippy)+`vite build`+메인
-  2차 재실행 그린 / ④ bindings 재생성 바이트 동일(`search_list_files` 1커맨드 순증)·dispatch
-  3등재·178=178 파리티·원격 허용 근거 실물 확인. 기록만: L1-03(팔레트 전량 fuzzy 성능 —
-  이월)·L1-07(refetch 잔여 창 — 자가 치유)·L1-08(레지스트리 등록 부수효과 — 의도된 확장)·
-  L2-3(무상한=의도 규약 — ipc-contract 명시)·**C6**(untitled ⌘S 무동작 — 별건 후보).
+### 3.2 3차분 커밋 완료 — d-45·d-46 (실기 확인 통과 후 3분할, 2026-08-28)
 
-### 3.2b 이번 세션 2차분 — ⑤ 실행과 심층 결함 소탕 (승인 후 4분할 커밋 `841bef8`~`985e17c`)
+- 커밋(명시 지시 수령): ① `9e4a822` fix(d-45, 11파일) ② `f3d92ce` feat(d-46, 5파일)
+  ③ docs(계약 2·PROCESS·theme-system·이 문서, 5파일). 실기 확인 2건 통과가 선행.
 
-- **⑤ e2e 재실행 수행**(비밀번호는 사용자가 세션에 공급): 초회 4/10 → 원인 소탕 반복 →
-  **13스펙 14테스트 전건 통과 이력**(격리·배치). 정본: 파일럿 보고서 §7.
-- **C1 근본 확정·해소(하네스 유발)**: 픽스처의 `tsconfig.json` 이 Vite watch 루트 안(e2e/.tmp)
-  에 생겨 전 클라이언트 full-reload 강제 → 픽스처 루트를 `~/Library/Caches/dev.taide.app/
-  e2e-fixtures` 로 이전(`e2e/lib/paths.ts` — os.tmpdir 은 FSEvents 미감시라 배제, 실측).
-- **d-43**(계약 `2026-08-27-d43-save-stale-sync-clobber-contract.md`): 저장 성공 시 FILE.CONTENT
-  캐시가 구식으로 남아 렌더 채택 분기가 버퍼를 저장 전으로 역행(영구 dirty·2차 저장 유실).
-  캐시 동기 패치(useSaveFile/useResolveGitConflict/useWriteAppFile)+정착 3지점. 렌즈 major 가
-  메인 계측 결론과 독립 수렴(v2). 프로브·spec 01 반복 그린.
-- **d-44**(계약 `2026-08-27-d44-git-worktree-staleness-contract.md`): `.git` 워처는 index/HEAD
-  만 보고 fs:changed 는 git 키를 무효화하지 않아 외부 워크트리 변경이 git UI 에 무기한 미반영.
-  fs:changed → GIT.STATUS+프리디킷(GUTTER/DIFF per-path) 무효화, 검토 major(치환 에코 배제
-  과대) 반영해 게이트 위 재배치·헬퍼 추출·테스트. spec 07(만년 실패) 반복 그린.
-- **스펙 잠복 결함 2건 수리**: 09(다중행 innerText 를 hasText 에 — 영원 0매치)·01/08(type()
-  IME 손상 간헐 재발 → 클립보드 붙여넣기).
-- 검증: typecheck·eslint 0err·prettier·bun **1504/0**·vite build 그린. Rust 무접촉.
+- **d-45 테마 프리뷰 홍수**(계약 `2026-08-28-d45-theme-preview-flood-contract.md` §0~§4, qa6
+  실기 1호): 피커 드래그 중 앱 전체 간헐 무반응. 근본 = 드래그 move 당 `applyWindowAppearance`
+  →`window.setTheme` IPC 가 tao 0.35.3 의 **무단락 `NSApplication.setAppearance` 전역 재적용**
+  을 연발(메인 스레드 포화 — tao 소스 실물+원격 대조 계측으로 확정, 웹 측 무죄).
+  - v1 3층: 외관 IPC type-변화 가드(`theme-provider.tsx` ref+focus 리셋+실패 롤백,
+    `window-appearance.ts` 프로미스 반환) / 프리뷰 rAF 코얼레스(`theme.query.ts` 모듈 싱글턴
+    `themePreviewCoalescer`, `shared/lib/frame-coalescer.ts`+test) / shiki leading+trailing
+    디바운스(`shiki-monaco.ts` 150ms·runExclusive 편입, `shared/lib/leading-trailing-debouncer.ts`+test).
+    렌즈(major 0·minor 5·info 5) 전건 반영.
+  - v2(사용자 결정: "실시간 프리뷰 불필요 — 놓을 때 적용"): `color-picker.tsx` 드래그-로컬
+    HSV(`color-picker-drag.ts` 순수 전이 3종+test 6), onChange 는 **pointerup 1회**(cancel/
+    lostcapture/팝오버 닫힘은 폐기·비주버튼 차단). 드래그 중 전역 파이프라인 0회.
+- **d-46 C/C++ 테마 번들**(계약 `2026-08-28-d46-cpp-bundled-themes-contract.md` §0~§4, 사용자
+  지시): 설치 확장 `ms-vscode.cpptools-themes-2.0.0` 신형 페어를 정본 변환기
+  (`scripts/convert-vscode-theme.ts`)로 변환 — `src-tauri/resources/themes/visual-studio-cpp-
+  {dark,light}.json`(이름 = 확장 라벨 페어 **"Dark/Light (Visual Studio - C/C++)"** — light
+  원본 name 과 다르나 업스트림 실존 라벨·대칭, 계약 §4 근거)·`service.rs` BUNDLED_THEME_SOURCES
+  등록(번들 36→38·카탈로그 40). **수리 0건 — 전 게이트 원값 통과**. 렌즈 major 1(THIRD_PARTY_
+  LICENSES.md 등재 누락) → 등재 + 패리티 테스트 신설(`bundled-theme-licenses.test.ts`).
+- 검증(모두 메인 재확인): typecheck·eslint 0err·prettier·bun **1521/0**·cargo 테마 스위트
+  45/0(전체 workspace 는 d-46 fixer 가 1130/0 실측)·vite build 그린.
 
-### 3.3 미착수 (이월 — 정본 위치)
+### 3.3 잔여 (사용자 실기·이월)
 
-- **사용자 실기**: qa6 실기 확증 → Phase 8. (e2e 확인 런·커밋·푸시는 완료 — 헤더 참조.)
-- d-42 §5 이월: L1-03 팔레트 전량 fuzzy 성능·C6 untitled ⌘S. d-43 이월: r6(외부
-  `ide_save_requested` 경로 로컬 dirty 비동기화). d-44 이월: F4 상시 비용 후속 후보.
-  C8(스위트 후반 부트스트랩 연쇄 — 파일럿 §7, 재관측 시 계약 신설).
-- d-40 §5 이월: `list.foreground` 저대비(비동일) 게이트 확장 여부·`explorer.itemSelected`
-  분리 잔존 4종(abyss·monokai-dimmed·solarized-dark·tomorrow-night-blue)·`list.activeBackground`
-  동일 린트의 ΔE(2.3) 강화·선택 행 전용 전경 토큰(`list.activeSelectionForeground` 대응)
-  스키마 신설 검토(major A 의 근본 원인).
+- **즉시**: qa6 실기 계속(발견 결함은 d-47… 로 계약 신설 파이프라인) → Phase 8 진입 판단.
+  (실기 확인 2건은 2026-08-28 통과 — 프리징 완전 소멸·테마 2종 표시.)
+- 이월(사용자 결정 대기): d-40 §5 4건(저대비 게이트 확장·itemSelected 4종·ΔE 강화·선택행 전경
+  토큰 스키마) / d-42 §5 2건(L1-03 팔레트 전량 fuzzy 성능 — 실기 체감 시만·C6 untitled ⌘S
+  dead path — 파일럿 §4-C6) / d-43 r6(외부 `ide_save_requested` 경로 로컬 dirty 비동기화) /
+  d-44 F4(fs 배치당 git_status 1회 상시 비용 — 부담 확인 시 스킵/디바운스 후보) / C8 후속
+  (원격 프록시 HMR WS 포워딩 or 테스트당 브라우저 재기동 — dev 전용·Phase 8 비차단) /
+  src 4곳 "36 bundled" 감사 수치(command.tsx·color.ts·contrast.ts·mapping-tables.ts — 신규
+  2테마 포함 재감사 후에만 갱신, 임의 치환 금지) / d-45 F-06(프리뷰 직후 전환 시 CSS/토큰
+  최대 150ms 분리 — 기록만).
 - 기존 이월 유지: LspInstallProgress 한국어·placeholder↔with_arg 파리티 자동화·FILE.RAW 캐시
-  스캔 predicate·화이트리스트 함수 입도·fuzzy 가중치(정본은 `ccb1c05` 시점 HANDOFF §3.3 —
-  `git show ccb1c05:docs/HANDOFF.md`).
+  스캔 predicate·화이트리스트 함수 입도·fuzzy 가중치(`git show ccb1c05:docs/HANDOFF.md` §3.3).
 
 ## 4. 의사결정 요약 (이 세션 — 상세·기각 사유는 각 계약 §)
 
-- **사용자 확정(객관식 2라운드+수시)**: 5분할 커밋+병합(+푸시는 후속 지시) / 테마 "알아서
-  정정+38종 전수검사"(d-36) / AI 타입 통합·codex 잘림 수정 승인(d-37) / 원격 3건 — 진단·알림
-  주입 **허용 유지**·훅 install/uninstall 비대칭 **유지**·키링 변경 **전부 거부**(d-38) /
-  **QoS 캠페인 기각**("필요없어" — 착수 금지) / e2e A안+Playwright 승인(하네스 기구축 확인) /
-  선택 행 대비 **정공법**(d-40) / omlx base_url **스트립 편입**(d-41) / d-36~38 4분할·
-  d-40/41 별도 커밋+병합+푸시 / **"한 거까지만 하고 멈춰"**(d-42 중단·정리 지시) /
-  **2026-08-27 /goal "사용자 실제 테스트랑 배포만 남을때까지 완주"**(d-42 재개 승인+커밋·푸시
-  포함 자율 완주 — auto-commit/push 레포 합의(git config) 기존재 확인).
-- **적대적/기계 확정 판정(재론 금지)**: d-36 major(선택 행 게이트 짝) **downgraded** →
-  사용자 정공법 채택으로 d-40 화 / d-37·d-38·d-41 major = 전부 라이브 문서 정합 결함 —
-  grep 기계 재현으로 확정·적대적 생략(d-34 선례) / d-40 major 2(nord 다표면 파괴·어드바이저리
-  클로버) = 다렌즈 수렴+**메인 실행 재현**으로 확정·적대적 생략.
-- **기각·철회(같은 실수 반복 금지)**: A축 nord 예외 등재 — **메인이 nord3 해 실측 발견으로
-  철회**(배경 불변 가정이 오류였음) / A축 taide-light 후보(#6d28d9·#6a3aad) — B축이 hue·sat
-  보존 `#6611d4` 도출·메인 수용(계약 §1-b 제3경로 예외 승인 기록) / abyss 선택행 재선정 —
-  팔레트 44색 전수 탐색 후 **보류 확정**(4조건 동시 만족값이 현행뿐) / d-42 후보 e(재탐색
-  폭주) — 수정 금지·기록만.
+- **사용자 확정**: /goal "사용자 실제 테스트랑 배포만 남을때까지 완주 + **커밋하지 말고 계속**"
+  (요약된 goal 만 보고 1차 3커밋·푸시한 것은 위반으로 지적 → 교정 리포트) → 이후 **명시 승인**
+  으로 1·2차분 커밋·푸시 완료 → 현재 3차분(d-45·46)은 다시 지시 대기 / d-45 v2 "실시간 프리뷰
+  불필요, 놓을 때 적용" / d-46 "설치된 VS Code 의 C/C++ 테마 완벽 편입".
+- **기각·판정(재론 금지)**: C1 원인 — os.tmpdir 픽스처(FSEvents 미감시 실측)·realpath 단독
+  (불충분 실측) 기각, ~/Library/Caches 채택 / d-44 — GIT.PROJECT 전폭 무효화(과대)·per-path
+  루프(O(paths×cache))·DIFF_PATH 팩토리(신규 표면) 기각 → STATUS+프리디킷 1패스·게이트 위
+  배치(치환 에코 무보완이 근거) / d-45 — useRef 지연초기화(React Compiler 렌더-중 ref 금지)·
+  훅 인스턴스 코얼레서(스토어 수명 불일치) 기각 / 스펙 07·09 실패를 단언 약화로 풀지 않고
+  앱 수정(d-44)·로케이터 정정으로 해소 / C8·L1-03·C6 수정 보류(각 근거 기록) / 1차 커밋 3건
+  히스토리 정리 없음(force push 금지 — 사용자가 후속 커밋 지시로 사실상 유지 확정).
+- **적대적 생략 선례 지속**: d-42(다렌즈 수렴+메인 실물)·d-43(렌즈 major 가 메인 계측과 독립
+  수렴)·d-44(grep 3건 기계 재현+파일 내 선례 명문)·d-46(grep 기계 확정) — 전부 근거 기록.
 
 ## 5. 사용자 방향성 & 작업 규칙
 
-- 역할 5단: 구현 sonnet+xhigh / 렌즈 검토 opus+xhigh(배치 특성별 1~3렌즈 — 소형은 축소 근거
-  기록) / 적대적 opus+high(major 건별 — **다렌즈 수렴+실행 재현+메인 직접 확인이면 생략 가능**,
-  이 세션 4회 실증) / 메인=오케스트레이팅·계약·2차 검증(직접 구현 금지 — 문서 정정·실행이
-  막힌 인터랙티브 소수정만 예외, d-39 픽스처 2줄 선례). 위임은 Workflow 로만·Rust 한 시점 한
+- 역할 5단: 구현 sonnet+xhigh / 렌즈 검토 opus+xhigh(소형은 1렌즈+축소 근거 기록) / 적대적
+  opus+high(major 건별 — 다렌즈 수렴·실행 재현·기계 재현+메인 직접 확인이면 생략 가능) /
+  메인=오케스트레이팅·계약·2차 검증(직접 구현 금지 — 문서 정정·실행이 막힌 인터랙티브
+  소수정(디버깅 계측 포함, 계측은 반드시 원복)만 예외). 위임은 Workflow 로만·Rust 한 시점 한
   에이전트(TS 병렬 허용). 에이전트 보고 불신 — 메인 실물 재검증+verify 직접. 원문 JSON 은
   태스크 출력 파일 보존·fixer 에 경로 전달. refuted/downgraded/기각 재론 금지.
-- **커밋·푸시**: 요청·승인 시에만(자동 합의 있어도 대화 내 명시 지시가 우선 —
-  `docs/feedback/2026-08-27-commit-despite-no-commit-directive.md`). 현재 승인분은 전량 커밋·
-  푸시 완료, 워킹트리는 HANDOFF 현행화 잔여분 외 클린.
-- 효율보다 완벽·보류가 잘못된 수정보다 낫다(이 세션 실증: abyss 보류·d-40 major 가 A축
-  과잉 수정을 적발). 검토 축소 금지 — 모든 배치에서 검토가 실결함 적중.
-- 커뮤니케이션: 한국어+존댓말·간결·표 선호("어렵게 처말하지 말고 table 로")·결정은 번호
-  객관식·이모지 금지·검증 안 된 단언 금지·보고만 하고 멈추지 말 것(단 명시적 멈춤 지시는
-  최우선).
-- 코드: arrow fn·반환타입 미명시·any/enum 금지·주석 금지(영어 JSDoc·Rust `///` 만)·매직넘버
-  금지·named export·1파일 1컴포넌트·FSD 위→아래·barrel 금지·타입 원본 유도.
-- i18n: 로케일 3파일+`MESSAGE_NAMESPACES` 동기(파리티 테스트 강제)·3언어 실번역·ko 완결
-  문장·정착 용어 우선(예: "프로바이더" — d-38 L2-02 선례)·placeholder↔with_arg 수동 대조
-  (`quality-assurance/2026-08-25-locale-arg-parity-checklist.md`). cargo 후 `cargo fmt`.
-- e2e: 단언 약화 금지(스펙을 앱 결함에 맞춰 통과시키지 않음 — 앱 결함은 분리 보고)·앱
-  실행/재시작은 사용자만(`bun run e2e` 자체는 에이전트 가능)·teardown 복원 설계 훼손 금지.
+- **커밋·푸시**: 대화 내 명시 지시가 auto-commit 합의보다 **무조건 우선**(교정 리포트 정본).
+  goal/요약 지시의 커밋 포함 여부가 불명확하면 커밋 보류하고 나머지를 계속 달린다(멈추지
+  않는 것과 커밋하지 않는 것은 양립). 분할 커밋 시 한 커밋분씩 선별 스테이징·확인.
+- 효율보다 완벽·보류가 잘못된 수정보다 낫다. 검토 축소 금지 — 이 세션도 렌즈가 매 배치 실결함
+  적중(d-43 major·d-44 major·d-46 major). 버그는 재현·계측 먼저(WS 몽키패치·프레임 갭·이벤트
+  프레임 계측 선례), 추측 수정 금지.
+- 커뮤니케이션: 한국어+존댓말·간결·표 선호·결정은 번호 객관식(모아서 한 번에)·이모지 금지·
+  검증 안 된 단언 금지·보고만 하고 멈추지 말 것(단 명시적 멈춤 지시 최우선).
+- 코드: arrow fn·반환타입 미명시·any/enum/as 금지·주석 금지(영어 JSDoc·Rust `///` 만)·매직넘버
+  금지·named export·1파일 1컴포넌트·FSD 위→아래·barrel 금지·타입 원본 유도·React Compiler
+  전제(useCallback/useMemo 금지·렌더-중 ref 접근 금지 → useState(()=>) 지연 초기화 관용).
+- i18n: 로케일 3파일+`MESSAGE_NAMESPACES` 동기·3언어 실번역·ko 완결 문장·정착 용어 우선.
+  cargo 후 `cargo fmt`. 테마: 번들 추가 시 정본 변환기+게이트+**THIRD_PARTY_LICENSES.md 등재**
+  (패리티 테스트가 강제)+theme-system §8.1 표.
+- e2e: 단언 약화 금지(앱 결함은 분리 보고·앱 수정으로 해소)·앱 실행/재시작은 사용자만
+  (`bun run e2e` 는 에이전트 가능)·teardown 복원 설계 훼손 금지·픽스처는 Vite 루트 밖+FSEvents
+  감시 가능 위치(`paths.ts` JSDoc 정본)·`TAIDE_E2E_PASSWORD` 는 셸 프로필 export 권장.
 - cargo PATH: `export CARGO_HOME="$HOME/development/rust/cargo"; export RUSTUP_HOME="$HOME/development/rust/rustup"; export PATH="$CARGO_HOME/bin:$PATH"`
 
 ## 6. 미해결 질문 / 사용자 확인 필요
 
-1. **qa6 실기 확증**(테마 색 변화 항목 포함) → Phase 8 진입 판단. (e2e 확인 런은 수행 완료 —
-   §2. 재실행하고 싶으면 스위트 사이에 하네스 webkit 이 매번 새로 뜨므로 연달아 돌려도 되나,
-   05 는 앱 재시작 직후 첫 런에서 vtsls 콜드로 실패할 수 있음 — 기지 리스크.)
-2. ~~2차분 커밋~~ — 승인받아 4분할 커밋·푸시 완료(헤더 참조). 1차분 3건도 유지로 사실상
-   확정(사용자가 후속 커밋·푸시를 지시함 — 교정 리포트는 기록으로 유지).
-3. 이월 결정 대기: d-40 §5 4건·d-42 §5 2건·d-43 r6·d-44 F4·C8.
+1. ~~실기 확인 2건~~ — **통과**(2026-08-28: 프리징 완전 소멸·테마 2종 표시).
+2. ~~미커밋 커밋 여부·분할~~ — 명시 지시로 3분할 커밋 완료(`9e4a822`·`f3d92ce`·docs).
+3. qa6 실기 계속 → Phase 8 진입 판단.
+4. 이월 처리 여부: §3.3 목록.
 
 ## 7. 환경 & 전제
 
 | 항목 | 값 |
 |------|-----|
-| 플랫폼 | macOS(arm64)·bun 1.3.14. cargo PATH 는 §5 |
-| git | HEAD=`985e17c`(main=dev·origin 동기 — 1차분 3커밋+2차분 4커밋 전량 반영). 워킹트리 클린(이 HANDOFF 현행화 1건만 미커밋) |
-| 기준선(2026-08-27 심야 메인 실측) | bun **1504**/0·cargo workspace **1104+3+6+17**/0(2차분 Rust 무접촉이라 유효)·typecheck/e2e tsc/eslint 0err/prettier 클린·vite build OK·로케일 **918키×3**·커맨드 **178**(json)+3(raw)=181·원격 허용 157/거부 24 |
-| 실행·검증 | dev=`bun run tauri dev`(**사용자만**) / `bun run verify`+`bunx vite build` / bindings 재생성=cargo test / e2e=`TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e`(앱 기동+REMOTE 활성 전제 — 비밀번호는 사용자가 앱에 설정한 값, 문서에 비기록) |
-| e2e 상태 | 하네스 유효 확인(수리 완료)·원격 서버는 앱 부팅 시 자동 기동(포트는 하네스가 로그에서 발견)·마지막 실행 시 사용자 앱 설정: REMOTE 활성+password_only ON |
-| 사용자 실기 환경(암묵) | 활성 테마 darcula·로그 `~/Library/Logs/dev.taide.app/TAIDE.log`(UTC·40KB 회전)·wry "web content process terminated" 는 오출력 버그·e2e 중 Vite HMR 재연결 폭주 관측(원인 미확정) |
+| 플랫폼 | macOS(arm64)·bun 1.3.14·tao 0.35.3/wry 0.55.1·React 19(Compiler)·TanStack Query v5. cargo PATH 는 §5 |
+| git | 3차분 3분할 커밋(`9e4a822`·`f3d92ce`·docs) 후 main=dev·origin 동기·워킹트리 클린 — stash 금지 |
+| 기준선(2026-08-28 메인 실측) | bun **1521**/0·cargo workspace **1130**/0(테마 스위트 45)·typecheck/e2e tsc/eslint 0err/prettier/vite build 클린·로케일 **918키×3**·커맨드 **178**(json)+3(raw)=181·원격 허용 157/거부 24·번들 테마 **38**(카탈로그 40) |
+| 실행·검증 | dev=`bun run tauri dev`(**사용자만**) / `bun run verify`+`bunx vite build` / bindings=cargo test / e2e=`TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e`(비밀번호는 사용자 공급 — 셸 프로필 export 권장, 로그인 무재시도·5회 실패 60초 잠금) |
+| e2e 상태 | 완주 판정(§3.1). 픽스처=`~/Library/Caches/dev.taide.app/e2e-fixtures`(Vite 루트 밖+FSEvents 가능 — `e2e/lib/paths.ts` JSDoc 정본). 포트는 하네스가 로그 `원격 접속 서버 기동: port=` 에서 발견. 앱 재시작 직후 첫 런은 05 가 vtsls 콜드로 실패 가능(기지). 스위트 2번째부터 C8 가능(자가 회복·dev 전용) |
+| 사용자 실기 환경 | 활성 테마 monokai-dimmed 관측(darcula 에서 변경됨)·formatOnSave true·fixAll/organizeImports false·REMOTE 활성+password_only ON·로그 `~/Library/Logs/dev.taide.app/TAIDE.log`(UTC·40KB 회전) |
 | Phase 8 | secrets 5·release.yml 준비 완료(태그 `v*`+수동). Team ID `SN98P5V7J4` |
-| 장애 재시도 | 세션 재시작·중단 시 `subagents/workflows/wf_*/journal.jsonl`·`agent-*.jsonl` 실사 이어받기(이 세션 d-42 중단이 실례 — 계약 §3 ①) |
+| 장애 재시도 | `subagents/workflows/wf_*/journal.jsonl` 실사 이어받기. 검토/수정 원문 = `/private/tmp/claude-501/.../tasks/*.output`(세션 소멸 가능 — 요지는 계약 §) |
 
 ## 8. 다음 세션 TODO (우선순위)
 
-1. **qa6 실기 확증**(사용자 실기 — 테마 색 변화 항목 포함) → Phase 8 진입 판단.
-2. (선택) 이월 결정: §6-3 목록(+C8 후속 후보 — 원격 프록시 HMR WS 포워딩 or 테스트당 브라우저
-   재기동, dev 전용이라 Phase 8 비차단).
+1. qa6 실기 확증 계속(마스터: `docs/quality-assurance/2026-08-11-qa6-checklist.md`) — 발견
+   결함은 계약 신설(d-47~) 후 구현 wf→렌즈→메인 2차 파이프라인.
+2. Phase 8 진입 판단(§6-3) / (선택) 이월 결정(§3.3).
 
 ## 9. 문서 지도
 
 | 문서 | 내용 |
 |------|------|
 | `docs/HANDOFF.md` | **이 문서** — 단일 진입점 |
-| `docs/PROCESS.md` | 큐 체크리스트(d-36~41 완결·d-39 중간·d-42 중단 상태 표기) |
-| `docs/acknowledge/2026-08-25-post-batch-user-decisions.md` | 이 세션 사용자 결정 일괄(§1~§5) |
-| `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` | d-36 정본(§4 적대적 downgraded·§5 이월→d-40) |
-| `docs/acknowledge/2026-08-25-d37-ai-batch-contract.md` | d-37 정본(§3 구현·§4 검토) |
-| `docs/acknowledge/2026-08-25-d38-remote-policy-contract.md` | d-38 정본(§3 실사표·§5 검토·§6 이월→d-41) |
-| `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` | d-40 정본(§3 A/B축·§4 major 처분·§5 이월) |
-| `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md` | d-41 정본(§3 3경로 실사·§4 검토) |
-| `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` | d-42 정본 — §3.1 구현 기록·**§4 검토 판정 표·§5 이월** |
-| `docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-contract.md` | d-43 정본 — §0/§0.1 근본(계측 확정)·§1/§1.1 수정 v1+v2·§3 검토/검증 |
-| `docs/acknowledge/2026-08-27-d44-git-worktree-staleness-contract.md` | d-44 정본 — §0 근본·§1/§1.1 수정(검토 major 반영 재배치)·§3 기록 |
-| `docs/quality-assurance/2026-08-25-d39-e2e-pilot-run.md` | e2e 파일럿 결과·앱 결함 후보 8건(C6~C8 포함)·**§7 재실행 종결 기록** |
-| `docs/feedback/2026-08-27-commit-despite-no-commit-directive.md` | 커밋 지시 위반 교정 리포트(언제 적용하나 포함) |
-| `docs/quality-assurance/2026-08-18-e2e-harness.md` | e2e 하네스 사용법(4필드 게이트 현행화됨) |
-| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | 실기 QA 마스터 |
-| `docs/theme-system.md` | §8.2 게이트·§8.2.3/§8.2.4 손수정 재변환 비재현 표 |
-| `docs/ipc-contract.md` | IPC 정본(허용 156/거부 24·스트립 4필드·AiTextResponse) |
-| 직전 스냅샷 | `git show ccb1c05:docs/HANDOFF.md`(d-31~35 상세·과거 이월 전체) |
+| `docs/PROCESS.md` | 큐 체크리스트(d-36~46 상태 — d-45·46 완료·실기 잔여 표기) |
+| `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` | d-42 정본(§3.1 구현·§4 판정 표·§5 이월) |
+| `docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-contract.md` | d-43 정본(§0/§0.1 계측 근본·§1/§1.1 v1+v2·§3) |
+| `docs/acknowledge/2026-08-27-d44-git-worktree-staleness-contract.md` | d-44 정본(§0 근본·§1.1 재배치·§3) |
+| `docs/acknowledge/2026-08-28-d45-theme-preview-flood-contract.md` | d-45 정본(§0 tao 실증·§1 3층·§3 렌즈·§4 v2 릴리스 커밋) |
+| `docs/acknowledge/2026-08-28-d46-cpp-bundled-themes-contract.md` | d-46 정본(§0 소스·§3 수리 0·§4 라이선스 major·이름 결정) |
+| `docs/quality-assurance/2026-08-25-d39-e2e-pilot-run.md` | e2e 파일럿+**§7 재실행 종결**(C1 해소·C2~C5 종결·C6 untitled·C8 webkit) |
+| `docs/quality-assurance/2026-08-18-e2e-harness.md` | e2e 하네스 사용법 |
+| `docs/quality-assurance/2026-08-11-qa6-checklist.md` | 실기 QA 마스터(진행 중) |
+| `docs/feedback/2026-08-27-commit-despite-no-commit-directive.md` | 커밋 지시 우선순위 교정 리포트(언제 적용하나 포함) |
+| `docs/theme-system.md` | 테마 정본 — §8.1 번들 38종 표·§8.2 게이트·ANSI 폴백 10종 |
+| `docs/ipc-contract.md` | IPC 정본(178/181종·허용 157/거부 24) |
+| `THIRD_PARTY_LICENSES.md` | 번들 테마 라이선스(패리티 테스트가 강제) |
+| `docs/architecture.md`·`roadmap.md`·`tech-stack.md` | 구조·순서·버전 정본 |
+| 직전 스냅샷 | `git show 985e17c:docs/HANDOFF.md`(d-42 완결 시점)·`git show 7dec153:docs/HANDOFF.md`(d-42 중단 시점) |
 
 ## 10. 복기 신뢰도
 
-- **높음**: 배치별 계약이 실시간 동기(구현·검토·판정·수정)·검증 수치 전부 메인 실측(2026-08-27
-  재실행 포함)·커밋 이력 git 고정·d-42 구현 기록은 에이전트 원문 로그 실사+diff 정독으로 보완
-  완료(계약 §3.1).
-- **중간**: 검토·수정 원문 전문은 태스크 출력 파일(`/private/tmp/claude-501/.../tasks/
-  wx4u78t15.output`·`wnr26pgj2.output`, 세션 소멸 가능 — 판정 요지는 계약 §4 가 정본)·스펙
-  13 과 d-42 실동작은 ⑤ 전까지 정적 확신만(실행 미검증).
+- **높음**: 계약 6건(d-42~46)이 구현·검토·판정·검증과 실시간 동기·수치 전부 메인 실측·커밋
+  이력 git 고정·이 스냅샷 작성 시점에 워킹트리 20파일 실측 대조.
+- **중간**: 검토·수정 원문 전문은 태스크 출력 파일(세션 소멸 가능 — 판정 요지는 각 계약 §
+  정본). d-45 v2 실기는 2026-08-28 사용자 확인으로 통과(프리징 완전 소멸).
 - **낮음**: 없음.
