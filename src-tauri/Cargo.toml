@@ -1,6 +1,6 @@
 [package]
 name = "taide"
-version = "0.1.0"
+version = "0.1.1"
 description = "TAIDE — agent-native IDE"
 authors = ["Hyunseok Byun"]
 edition = "2021"
@@ -18,6 +18,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-window-state = "2"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", rev = "c4c45d503ea115a839aae718d02f79e7c7f0f673" }
 
 git2 = { version = "0.21", default-features = false, features = ["ssh", "https", "vendored-libgit2", "vendored-openssl"] }
 log = "0.4"

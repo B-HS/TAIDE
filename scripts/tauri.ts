@@ -2,6 +2,7 @@ import { join } from 'node:path'
 
 const REPO_ROOT = join(import.meta.dir, '..')
 const BUNDLE_CONFIG_PATH = join('src-tauri', 'tauri.bundle.conf.json')
+const DEV_CONFIG_PATH = join('src-tauri', 'tauri.dev.conf.json')
 const BUILD_SUBCOMMANDS = new Set(['build', 'bundle'])
 
 const run = (command: string[]) => Bun.spawnSync({ cmd: command, cwd: REPO_ROOT, stdout: 'inherit', stderr: 'inherit' })
@@ -10,6 +11,14 @@ const exitWith = (result: ReturnType<typeof run>) => process.exit(result.success
 
 const args = process.argv.slice(2)
 const isBuild = BUILD_SUBCOMMANDS.has(args[0])
+
+/**
+ * `tauri dev` alone carries the `dev.taide.app.dev` identifier overlay (contract d-49) so the dev
+ * instance's `app_data_dir`/log dir/keyring service/window-state cache never collides with an
+ * installed release build's (identifier `dev.taide.app`, `tauri.conf.json`) — every other
+ * subcommand (`info`, `icon`, …) runs unmodified.
+ */
+if (args[0] === 'dev') exitWith(run(['tauri', ...args, '--config', DEV_CONFIG_PATH]))
 
 if (!isBuild) exitWith(run(['tauri', ...args]))
 

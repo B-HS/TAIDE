@@ -1,3 +1,4 @@
+import '@shared/lib/error-log-forwarding-install'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { getCurrentWindow } from '@tauri-apps/api/window'

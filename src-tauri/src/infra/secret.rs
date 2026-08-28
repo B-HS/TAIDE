@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use crate::error::{AppError, AppErrorKind, AppResult};
 
-pub const SECRET_SERVICE: &str = "dev.taide.app";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecretAccount {
     AiOllamaCloud,
@@ -31,11 +29,17 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, account: SecretAccount) -> AppResult<()>;
 }
 
-pub struct KeyringSecretStore;
+pub struct KeyringSecretStore {
+    service: String,
+}
 
 impl KeyringSecretStore {
-    fn entry(account: SecretAccount) -> AppResult<keyring::Entry> {
-        keyring::Entry::new(SECRET_SERVICE, account.as_str()).map_err(|error| {
+    pub fn new(service: String) -> Self {
+        Self { service }
+    }
+
+    fn entry(&self, account: SecretAccount) -> AppResult<keyring::Entry> {
+        keyring::Entry::new(&self.service, account.as_str()).map_err(|error| {
             AppError::localized(
                 AppErrorKind::Internal,
                 "error.secret.accessFailed",
@@ -48,7 +52,7 @@ impl KeyringSecretStore {
 
 impl SecretStore for KeyringSecretStore {
     fn set(&self, account: SecretAccount, value: &str) -> AppResult<()> {
-        Self::entry(account)?.set_password(value).map_err(|error| {
+        self.entry(account)?.set_password(value).map_err(|error| {
             AppError::localized(
                 AppErrorKind::Internal,
                 "error.secret.storeFailed",
@@ -59,7 +63,7 @@ impl SecretStore for KeyringSecretStore {
     }
 
     fn get(&self, account: SecretAccount) -> AppResult<Option<String>> {
-        match Self::entry(account)?.get_password() {
+        match self.entry(account)?.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(error) => Err(AppError::localized(
@@ -72,7 +76,7 @@ impl SecretStore for KeyringSecretStore {
     }
 
     fn delete(&self, account: SecretAccount) -> AppResult<()> {
-        match Self::entry(account)?.delete_credential() {
+        match self.entry(account)?.delete_credential() {
             Ok(()) => Ok(()),
             Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(AppError::localized(
@@ -87,9 +91,9 @@ impl SecretStore for KeyringSecretStore {
 
 pub struct SecretStoreState(pub Arc<dyn SecretStore>);
 
-impl Default for SecretStoreState {
-    fn default() -> Self {
-        Self(Arc::new(KeyringSecretStore))
+impl SecretStoreState {
+    pub fn new(service: String) -> Self {
+        Self(Arc::new(KeyringSecretStore::new(service)))
     }
 }
 

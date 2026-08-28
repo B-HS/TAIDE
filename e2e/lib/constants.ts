@@ -14,6 +14,7 @@ export const HTTP_STATUS = {
 export const PORT_DISCOVERY = {
     LOG_PORT_PATTERN: /원격 접속 서버 기동: port=(\d+)/g,
     PROCESS_NAME_PATTERN: 'taide',
+    APP_BUNDLE_EXECUTABLE_PATH_MARKER: '.app/Contents/MacOS/',
     PROBE_TIMEOUT_MS: 1500,
     MIN_PORT: 1,
     MAX_PORT: 65535,

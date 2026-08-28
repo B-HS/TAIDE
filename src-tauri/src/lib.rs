@@ -377,6 +377,9 @@ pub(crate) const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "f
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(not(windows))]
+    let path_env_fix_error = fix_path_env::fix().err();
+
     let builder = specta_builder();
 
     #[cfg(debug_assertions)]
@@ -451,6 +454,11 @@ pub fn run() {
         .setup(move |app| {
             let setup_started = std::time::Instant::now();
 
+            #[cfg(not(windows))]
+            if let Some(error) = &path_env_fix_error {
+                log::warn!("PATH 환경변수 보정 실패: {error}");
+            }
+
             domain::locale::service::warm_builtin_catalogs();
             builder.mount_events(app);
             app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
@@ -481,7 +489,7 @@ pub fn run() {
             app.manage(SystemUsageStore::default());
             app.manage(IdeStore::default());
             app.manage(AiRequestStore::default());
-            app.manage(SecretStoreState::default());
+            app.manage(SecretStoreState::new(app.config().identifier.clone()));
             app.manage(RemoteStore::default());
             app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowStore::default());

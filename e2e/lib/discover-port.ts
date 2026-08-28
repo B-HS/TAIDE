@@ -35,18 +35,35 @@ const runPgrep = async (args: string[]) => {
         .filter(Boolean)
 }
 
+const isBundledAppExecutable = async (pid: string) => {
+    const result = await execFileAsync('ps', ['-p', pid, '-o', 'comm='], { env: buildChildProcessEnv() }).catch((error: unknown) => {
+        void error
+        return null
+    })
+    return result !== null && result.stdout.includes(PORT_DISCOVERY.APP_BUNDLE_EXECUTABLE_PATH_MARKER)
+}
+
 /**
  * Matches candidate pids two ways and unions the results: by process name (`-i`, cheap and precise
  * for the `taide` dev binary) and by full command line (`-i -f`, needed to catch a bundled
  * `TAIDE.app` whose process name/argv[0] may not literally be `taide` but whose executable path
- * under `TAIDE.app/Contents/MacOS/` does contain it).
+ * under `TAIDE.app/Contents/MacOS/` does contain it) — then drops every pid whose own executable
+ * path (`ps -o comm=`) resolves inside a `.app/Contents/MacOS/` bundle. d-49 gave the installed
+ * build and a `bun run tauri dev` instance separate identifiers/data dirs so both can run at once,
+ * but this harness drives the dev instance only (`e2e-harness.md` §0 — "하네스는 앱을 절대 기동하지
+ * 않는다"); an installed build with REMOTE enabled would otherwise probe-confirm (stage 3 of
+ * {@link discoverPort}) just as successfully as dev and get attached to instead. The dev binary
+ * launched by `bun run tauri dev` never runs from inside a `.app` bundle, so this exclusion never
+ * drops a legitimate dev candidate.
  */
 const findCandidatePids = async () => {
     const [byProcessName, byCommandLine] = await Promise.all([
         runPgrep(['-i', PORT_DISCOVERY.PROCESS_NAME_PATTERN]),
         runPgrep(['-i', '-f', PORT_DISCOVERY.PROCESS_NAME_PATTERN]),
     ])
-    return [...new Set([...byProcessName, ...byCommandLine])]
+    const unionPids = [...new Set([...byProcessName, ...byCommandLine])]
+    const isBundled = await Promise.all(unionPids.map(isBundledAppExecutable))
+    return unionPids.filter((_, index) => !isBundled[index])
 }
 
 const LOOPBACK_LISTEN_PATTERN = /127\.0\.0\.1:(\d+)\s*\(LISTEN\)/g
@@ -100,9 +117,11 @@ const NOT_READY_GUIDANCE =
  * Three-stage discovery, run in order until one candidate is confirmed by an HTTP probe:
  * 1. The last `원격 접속 서버 기동: port=<N>` line in the app's log file (subject to log rotation,
  *    so treated only as a priority candidate, not a final answer).
- * 2. Every loopback TCP LISTEN port owned by a `taide`-named process (`pgrep` + `lsof`), since the
- *    app also runs other loopback servers (agent hooks, IDE bridge) that must not be confused with
- *    remote-control.
+ * 2. Every loopback TCP LISTEN port owned by a `taide`-named process (`pgrep` + `lsof`), excluding
+ *    any process running from inside a `.app/Contents/MacOS/` bundle (see
+ *    {@link findCandidatePids}) — the app also runs other loopback servers (agent hooks, IDE
+ *    bridge), and now potentially an installed build alongside dev (d-49), that must not be
+ *    confused with the dev instance's remote-control.
  * 3. A `GET /__taide/login` probe against each candidate — only a 200 response containing the
  *    login form confirms the port. Never trusts stage 1/2 without this confirmation.
  *
