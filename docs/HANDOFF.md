@@ -147,8 +147,8 @@
 | git | 3차분 3분할 커밋(`9e4a822`·`f3d92ce`·docs) 후 main=dev·origin 동기·워킹트리 클린 — stash 금지 |
 | 기준선(2026-08-28 메인 실측) | bun **1521**/0·cargo workspace **1130**/0(테마 스위트 45)·typecheck/e2e tsc/eslint 0err/prettier/vite build 클린·로케일 **918키×3**·커맨드 **178**(json)+3(raw)=181·원격 허용 157/거부 24·번들 테마 **38**(카탈로그 40) |
 | 실행·검증 | dev=`bun run tauri dev`(**사용자만**) / `bun run verify`+`bunx vite build` / bindings=cargo test / e2e=`TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e`(비밀번호는 사용자 공급 — 셸 프로필 export 권장, 로그인 무재시도·5회 실패 60초 잠금) |
-| e2e 상태 | 완주 판정(§3.1). 픽스처=`~/Library/Caches/dev.taide.app/e2e-fixtures`(Vite 루트 밖+FSEvents 가능 — `e2e/lib/paths.ts` JSDoc 정본). 포트는 하네스가 로그 `원격 접속 서버 기동: port=` 에서 발견. 앱 재시작 직후 첫 런은 05 가 vtsls 콜드로 실패 가능(기지). 스위트 2번째부터 C8 가능(자가 회복·dev 전용) |
-| 사용자 실기 환경 | 활성 테마 monokai-dimmed 관측(darcula 에서 변경됨)·formatOnSave true·fixAll/organizeImports false·REMOTE 활성+password_only ON·로그 `~/Library/Logs/dev.taide.app/TAIDE.log`(UTC·40KB 회전) |
+| e2e 상태 | 완주 판정(§3.1). 픽스처=`~/Library/Caches/dev.taide.app.dev/e2e-fixtures`(d-49 dev 분리 반영 — Vite 루트 밖+FSEvents 가능, `e2e/lib/paths.ts` JSDoc 정본). 포트는 하네스가 dev 로그 `원격 접속 서버 기동: port=` 에서 발견. 앱 재시작 직후 첫 런은 05 가 vtsls 콜드로 실패 가능(기지). 스위트 2번째부터 C8 가능(자가 회복·dev 전용) |
+| 사용자 실기 환경 | 활성 테마 monokai-dimmed 관측(darcula 에서 변경됨)·formatOnSave true·fixAll/organizeImports false·REMOTE 활성+password_only ON·로그(d-49 분리 후): dev=`~/Library/Logs/dev.taide.app.dev/TAIDE.log`·설치본=`~/Library/Logs/dev.taide.app/TAIDE.log`(UTC·40KB 회전) |
 | Phase 8 | secrets 5·release.yml 준비 완료(태그 `v*`+수동). Team ID `SN98P5V7J4` |
 | 장애 재시도 | `subagents/workflows/wf_*/journal.jsonl` 실사 이어받기. 검토/수정 원문 = `/private/tmp/claude-501/.../tasks/*.output`(세션 소멸 가능 — 요지는 계약 §) |
 

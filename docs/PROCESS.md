@@ -176,6 +176,26 @@
     - [x] **4차 런(33160035704) 완주(2026-08-28)** — 서명·공증 enabled·자립성 통과·
           `TAIDE_0.1.0_aarch64.dmg`+`SHA256SUMS.txt` draft Release 생성. **Phase 8 릴리스
           파이프라인 실증 완료** — 잔여 = draft 검토·공개(사용자)·실기 설치 확인
+- [ ] 설치본 실기 결함 3건(2026-08-28, 사용자 — draft 공개 보류 사유). **결정(전부 추천안)**:
+      d-47 fix-path-env 크레이트(rev 핀) / d-48 에러 로그 포워딩 계측+로컬 build 재현 /
+      d-49 dev identifier 분리(dev.taide.app.dev) / CI 병렬 job 분리 / 수정 후 v0.1.1(draft
+      v0.1.0 폐기). 계약 3건 신설(`2026-08-28-d47…`·`d48…`·`d49…-contract.md`), 구현
+      wf_7e4547c6(Rust·TS·CI 3 fixer 병렬) → 렌즈 wf_ad9ea564(opus+xhigh: major 2 —
+      F1 로거 미설치 시점 warn 유실·F2 keyring 미분리 / minor 6 / info 6 / verifiedOk 21) →
+      수용 반영 wf_bf67d2be(F1~F4·F7·F8·F12·F13 코드 반영, F5·F6·F9~F11·F14 는 메인
+      문서·계약 기록) → **메인 2차 검증 그린**(verify 전 사다리·vite build·bun 1532/0 —
+      keyring identifier 파생 주입·에러 포워딩 1행 승격·e2e 설치본 pid 제외·버전 0.1.1
+      3파일+CI 가드 확장 실물 확인). 로컬 tauri build 산출 → 사용자 재설치 대기:
+    - [ ] d-47 LSP 감지 실패 — **원인 확정(코드 실물)**: 감지가 `std::env::var_os("PATH")`
+          프로세스 PATH 만 봄 → Finder 실행 GUI 앱은 launchd 최소 PATH 라 ~/.cargo/bin 등
+          불가시. dev(터미널·풀 PATH)만 정상이던 이유. 수정 = 부팅 시 로그인 셸 PATH 해석·병합
+          (방식 사용자 결정 대기)
+    - [ ] d-48 에디터 색상 전무 — 원인 미확정(후보 압축): initShiki 는 plugins 로드→플러그인
+          문법 조립 후 단일 경로, 실패는 console.error 뿐(프론트 에러의 파일 로그 포워딩
+          부재 — 로그 0 에러와 정합). 문법 청크는 dist 실존. 확정 수단 = 원격 페이지 콘솔
+          프로브(비밀번호 필요) 또는 프론트 에러 로그 포워딩 계측(진단 경로 사용자 결정 대기)
+    - [ ] d-49 dev·설치본 데이터 공유 — 원인 = 동일 identifier(dev.taide.app)로 동일
+          app_data_dir(tauri 표준 동작). 분리 여부·방식 사용자 결정 대기
 - [ ] docs 전면 정합·고도화(2026-08-28, 사용자 지시 — "코드와 완벽 동기+고도화+배포·디버깅·
       에이전트 운용 신설+세션 노하우 총정리"):
     - [x] a. 실태 조사 — md 150개·34.3k 줄 인벤토리, 수치 재실측(커맨드 178·로케일 918×3·

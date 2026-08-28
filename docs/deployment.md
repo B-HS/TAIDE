@@ -23,24 +23,24 @@
 ## 3. 릴리스 절차 (사람이 하는 일)
 
 1. 버전 결정 — 숫자 4 미포함 확인(§2).
-2. `src-tauri/tauri.conf.json` 의 `version` 을 새 버전으로 갱신·커밋 (CI 가드가 태그와의
-   일치를 강제하므로 태그보다 먼저).
+2. **`src-tauri/tauri.conf.json` 과 `src-tauri/Cargo.toml` 의 `version` 을 동시 갱신**·커밋
+   (CI 가드가 태그와 두 파일 모두의 일치를 강제 — 앱 자가 보고 버전 드리프트 방지) +
+   `package.json` version 도 동기.
 3. 검증 사다리 통과 확인 — `bun run verify` + `bunx vite build`.
 4. 태그 생성·푸시: `git tag v<version> && git push origin v<version>`.
-5. Actions 에서 Release 런 완주 확인(최대 90분 타임아웃) → draft Release 검토 후 수동 공개.
+5. Actions 에서 Release 런 완주 확인(job 별 타임아웃: 테스트 20/45분·build 75분·release 15분)
+   → draft Release 검토 후 수동 공개.
 
-## 4. CI 파이프라인 (release.yml 실측 순서)
+## 4. CI 파이프라인 (release.yml — 4-job 병렬, 2026-08-28 재편)
 
-| 단계 | 내용 | 실패 조건 |
-|------|------|-----------|
-| 태그 가드 | 숫자 4 포함 여부(§2) → `tauri.conf.json` version 과 태그 일치 | 4 포함·버전 불일치 |
-| 테스트 | `bun install --frozen-lockfile` → `bun run test` → `cargo test --release --workspace` | 테스트 실패 |
-| 서명 구성 | .p12 를 임시 키체인에 import, `security find-identity` 로 아이덴티티 자동 추출 | 인증서 결함 |
-| 공증 구성 | `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` 3종이 모두 있으면 활성, 아니면 명시적 스킵 로그 | (스킵 허용) |
-| 빌드 | `bun run tauri build` — 아이콘·리소스(테마 38종·로케일 3종) 임베드 포함 | 빌드 실패 |
-| 자립성 검증 | `.app` 내 전 실행 파일을 `otool -L` 로 검사 — `/opt/homebrew`·`/usr/local` 링크 발견 시 실패 | 비자립 dylib |
-| 산출물 수집 | dmg 를 `dist-release/` 로 복사, **파일명 공백→점 리네임**(GitHub 에셋 서빙 규칙과 SHA256SUMS 정합), `SHA256SUMS.txt` 생성 | - |
-| 업로드 | actions artifact(`taide-dmg`) + 태그 푸시일 때만 **draft** GitHub Release 생성 | - |
+| job | 내용 | 비고 |
+|-----|------|------|
+| `test-frontend` (동시) | `bun install --frozen-lockfile` → `bun run test` | e2e 는 매처 밖이라 미포함 |
+| `test-rust` (동시) | `cargo test --workspace` — **debug 프로필**(릴리스 프로필 검증은 build job 의 `tauri build` 컴파일 게이트가 담당. 최적화 민감 코드를 넣게 되면 `--release` job 복원 검토) | 자체 rust-cache(shared-key: tests) |
+| `build` (동시) | 태그 가드 2종(숫자 4 금지 → `tauri.conf.json`+`Cargo.toml` 버전 일치) → 서명 구성(.p12 임시 키체인·아이덴티티 자동 추출) → 공증 구성(3종 secrets 전부 있으면 활성·아니면 명시 스킵) → `bun run tauri build` → 자립성 검증(`otool -L` — homebrew//usr/local 링크 발견 시 실패) → dmg 수집·공백→점 리네임·`SHA256SUMS.txt` → artifact(`taide-dmg`) 업로드 | rust-cache(shared-key: release) |
+| `release` (needs: 위 3) | 태그 푸시일 때만 — artifact 다운로드 → **draft** GitHub Release 생성 | 테스트 실패 시 draft 미생성 |
+
+- wall-clock ≈ max(build, 테스트) — 이전 단일 job 직렬 대비 테스트 시간만큼 단축.
 
 ## 5. Secrets (이름만 — 값은 어디에도 기록하지 않는다)
 

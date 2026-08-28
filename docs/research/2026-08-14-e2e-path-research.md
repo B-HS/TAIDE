@@ -29,6 +29,7 @@ macOS 에서 TAIDE e2e 는 **두 경로가 성립**하고, 상호 보완 관계�
 
 - 서버는 `127.0.0.1` 포트 0(랜덤) 바인딩, 기동 포트는 `log::info!("원격 접속 서버 기동: port={port}")`
   로 파일 로그에 남음 — 하네스는 `~/Library/Logs/dev.taide.app/TAIDE.log` 에서 포트를 읽는다
+  (2026-08-28 d-49 이후 현재 경로는 `dev.taide.app.dev` — 당시 기록 보존, 현행은 `e2e/lib/paths.ts` 정본)
   (`remote/commands.rs` bind_and_start).
 - `remote_access_enabled=true` 면 부팅 시 자동 기동(`lib.rs` setup). 링크 토큰 발급(`remote_issue_link`)은
   IPC 전용·1회용·슬롯 1개라 자동화에 부적합.

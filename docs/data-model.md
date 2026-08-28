@@ -63,8 +63,11 @@ TAIDE/
 └── lsp/                     다운로드된 LSP 서버 바이너리 (`lsp/<serverId>/<version>/` — paths.rs lsp_dir 계열)
 ```
 
-> 앱 로그는 이 트리(app_data_dir) 밖의 **`~/Library/Logs/dev.taide.app/TAIDE.log`** 에 쓰인다 —
+> 앱 로그는 이 트리(app_data_dir) 밖의 `~/Library/Logs/{identifier}/TAIDE.log` 에 쓰인다 —
 > tauri-plugin-log 기본 타겟(Stdout + LogDir)이며 `app_log_dir` 은 macOS 에서 `~/Library/Logs/{identifier}` 다.
+> `identifier` 는 dev(`bun run tauri dev`)와 설치본(prod)이 서로 다르다(계약 d-49) — dev 는
+> `dev.taide.app.dev`, 설치본은 `dev.taide.app`. `app_data_dir` 를 포함한 이 절 전체(위 트리)도
+> 마찬가지로 identifier 별로 갈라진다.
 
 ## 3. 핵심 타입 (Rust 정본 — TS 는 자동 생성, ADR-0011)
 
