@@ -173,6 +173,9 @@
           `libssl/libcrypto`(git2 ssh/https)·`liblzma`(xz2) 동적 링크. 수정 = git2
           `vendored-openssl`·xz2 `static` → 로컬 release 재빌드 otool **외부 링크 0** 확증·
           debug 워크스페이스 1130/0 → 태그 4차 재발행
+    - [x] **4차 런(33160035704) 완주(2026-08-28)** — 서명·공증 enabled·자립성 통과·
+          `TAIDE_0.1.0_aarch64.dmg`+`SHA256SUMS.txt` draft Release 생성. **Phase 8 릴리스
+          파이프라인 실증 완료** — 잔여 = draft 검토·공개(사용자)·실기 설치 확인
 - [ ] docs 전면 정합·고도화(2026-08-28, 사용자 지시 — "코드와 완벽 동기+고도화+배포·디버깅·
       에이전트 운용 신설+세션 노하우 총정리"):
     - [x] a. 실태 조사 — md 150개·34.3k 줄 인벤토리, 수치 재실측(커맨드 178·로케일 918×3·
