@@ -261,6 +261,20 @@ export const useEditorFilePersistence = ({
                  * mirror-flush effect — either way the still-unsaved edit reaches the mirror, never
                  * gets silently marked clean, and is never clobbered by the `FILE.CONTENT` refetch
                  * this mutation's `onSuccess` triggers.
+                 *
+                 * `setSyncedContent(finalContent)` below restores this hook's `syncedContent`
+                 * invariant ("last known disk content") the instant the save is known to have landed,
+                 * instead of leaving it holding the pre-save content until a separate `FILE.CONTENT`
+                 * refetch (armed by `file.modifiedMs` changing) happens to land. `editor-pane.tsx`'s
+                 * `[editor, syncedContent, dirty, path]` effect re-applies `syncedContent` via
+                 * `applyExternalContent` on every dirty→false transition it observes; without this
+                 * line, a refetch that loses the race (a slow/remote round trip) leaves that effect
+                 * firing against the still-stale pre-save `syncedContent`, clobbering the
+                 * just-typed-and-saved buffer back to its pre-save contents and re-marking it dirty
+                 * with no path back to clean (docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-
+                 * contract.md §0). Restoring the invariant here makes that effect's re-apply a
+                 * same-content no-op instead, closing the race window entirely rather than trying to
+                 * win it.
                  */
                 onSuccess: () => {
                     savingRef.current = false
@@ -268,6 +282,7 @@ export const useEditorFilePersistence = ({
                     if (draftRef.current === finalContent) {
                         clearTimeout(mirrorTimeoutRef.current)
                         pendingMirrorRef.current = false
+                        setSyncedContent(finalContent)
                         setDirty(false)
                         setTabDirty({ tabId, dirty: false })
                         setRestoreNotice('none')
@@ -283,22 +298,36 @@ export const useEditorFilePersistence = ({
     }
 
     /**
-     * The save-epoch bump + mirror-timer/pending-flag clear + dirty reset that every "the buffer
-     * now matches what's on disk" success path performs — `handleSave`'s own success handler (below)
-     * and `handleViewDisk` (right below this) both inline the same sequence because each has its own
-     * epoch-bump timing quirk (`handleSave` only bumps unconditionally but only settles the rest
-     * inside its `draftRef.current === finalContent` guard; `handleViewDisk` does both unconditionally
-     * but interleaves a few of its own statements in between) that folding into one shared call here
-     * would either duplicate or subtly change. `useEditorGitGutterAndConflicts`'s own disk-write
-     * success path (resolving a merge conflict) has no such quirk — it's the same five statements,
-     * unconditionally — so it gets this function instead of `saveEpochRef`/`mirrorTimeoutRef`/
-     * `pendingMirrorRef`/`setDirty`/`setTabDirty` themselves, narrowing what a hook outside this file
-     * can do to this hook's internal bookkeeping to "settle", not "mutate the refs directly".
+     * The save-epoch bump + mirror-timer/pending-flag clear + synced-content/dirty reset that every
+     * "the buffer now matches what's on disk" success path performs — `handleSave`'s own success
+     * handler (above) and `handleViewDisk` (right below this) both inline the same sequence because
+     * each has its own epoch-bump timing quirk (`handleSave` only bumps unconditionally but only
+     * settles the rest inside its `draftRef.current === finalContent` guard; `handleViewDisk` does
+     * both unconditionally but interleaves a few of its own statements in between) that folding into
+     * one shared call here would either duplicate or subtly change. `useEditorGitGutterAndConflicts`'s
+     * own disk-write success path (resolving a merge conflict) has no such quirk — it's the same six
+     * statements, unconditionally — so it gets this function instead of `saveEpochRef`/
+     * `mirrorTimeoutRef`/`pendingMirrorRef`/`setSyncedContent`/`setDirty`/`setTabDirty` themselves,
+     * narrowing what a hook outside this file can do to this hook's internal bookkeeping to "settle",
+     * not "mutate the refs directly".
+     *
+     * `content` is the exact text this write just committed to disk — the caller must pass whatever it
+     * actually wrote (`useEditorGitGutterAndConflicts`'s conflict resolution already holds it as
+     * `newContent`, the buffer text it both `executeEdits`-applied and sent to
+     * `git_resolve_conflict`). Forwarding it into `setSyncedContent` restores this hook's
+     * `syncedContent` invariant ("last known disk content") in the same tick as the dirty reset, so
+     * `editor-pane.tsx`'s `[editor, syncedContent, dirty, path]` effect — which re-applies
+     * `syncedContent` via `applyExternalContent` on every dirty→false transition — finds nothing stale
+     * to re-apply. Before this parameter existed, that effect could instead fire against a
+     * still-pre-write `syncedContent` (a race against the `FILE.CONTENT` refetch this write also
+     * triggers) and clobber the freshly resolved buffer back to its pre-write contents, permanently
+     * re-marking it dirty (docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-contract.md §0).
      */
-    const settleAfterDiskWrite = () => {
+    const settleAfterDiskWrite = (content: string) => {
         saveEpochRef.current += 1
         clearTimeout(mirrorTimeoutRef.current)
         pendingMirrorRef.current = false
+        setSyncedContent(content)
         setDirty(false)
         setTabDirty({ tabId, dirty: false })
     }

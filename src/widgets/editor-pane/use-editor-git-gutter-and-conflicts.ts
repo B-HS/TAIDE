@@ -37,7 +37,7 @@ type UseEditorGitGutterAndConflictsInput = {
     path: string
     editor: monaco.editor.IStandaloneCodeEditor | null
     t: ReturnType<typeof useTranslation>['t']
-    settleAfterDiskWrite: () => void
+    settleAfterDiskWrite: (content: string) => void
 }
 
 /**
@@ -119,7 +119,7 @@ export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, set
             { projectId, path, content: newContent },
             {
                 onSuccess: () => {
-                    settleAfterDiskWrite()
+                    settleAfterDiskWrite(newContent)
                     toast.success(t('git.conflictResolved'))
                 },
                 onError: (mutationError) => toast.error(describeIpcError(mutationError)),

@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { DiffMode, ProjectId } from '@shared/api/bindings'
+import type { DiffMode, OpenedFile, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
 import {
@@ -243,7 +243,15 @@ export const useResolveGitConflict = (projectId: ProjectId | null) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: resolveGitConflict,
-        onSuccess: (_, { path }) => {
+        /**
+         * Same disk-write cache patch as `useSaveFile` (`entities/file/file.query.ts` — see its
+         * doc comment for the stale-adoption clobber this closes,
+         * `2026-08-27-d43-save-stale-sync-clobber-contract.md` §0): this mutation wrote `content`
+         * to `path`, so `FILE.CONTENT` must say so before any dirty→false settle re-render can
+         * re-adopt the pre-write cache entry.
+         */
+        onSuccess: (_, { path, content }) => {
+            queryClient.setQueryData<OpenedFile>(QUERY_KEY.FILE.CONTENT(path), (existing) => (existing ? { ...existing, content } : existing))
             void queryClient.invalidateQueries({
                 queryKey: QUERY_KEY.GIT.PROJECT(projectId ?? ''),
                 predicate: (query) => isGitQueryScopeMutable(query.queryKey),

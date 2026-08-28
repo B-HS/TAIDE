@@ -79,6 +79,18 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
      * so it falls through to {@link describeIpcError}, which resolves `validate_prompt_json`'s own
      * `error.app.promptTemplateInvalidJson` catalog key (matching the existing helper-mediated
      * fallback elsewhere in this codebase — e.g. `plugin-manager.tsx`'s VSIX import catch block).
+     *
+     * `setSyncedContent(value)` keeps this component's `syncedContent` invariant ("last known disk
+     * content") settled in the same commit as `setDirty(false)`, mirroring `useWriteAppFile`'s own
+     * synchronous `APP_FILE.CONTENT` cache patch (`entities/app-file/app-file.query.ts`) — the two
+     * together make the render-body adoption branch above a same-content no-op during the window
+     * before the confirming refetch lands, so the dirty→false sync effect cannot re-apply a
+     * pre-save snapshot over the just-saved buffer (docs/acknowledge/2026-08-27-d43-save-stale-
+     * sync-clobber-contract.md §0 — same class as `EditorPane`'s `handleSave` fix, found via that
+     * contract's full-repo `setDirty(false)` audit). One caveat, per this file's own top JSDoc: for
+     * a `settings` target the backend sanitizes before persisting, so `value` is provisional — the
+     * on-disk text can differ, and the refetch that follows is what re-syncs the buffer to what was
+     * actually persisted, exactly as it did before this fix.
      */
     const handleSave = async () => {
         const value = draftRef.current
@@ -86,6 +98,7 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
         try {
             await writeAppFile({ target, content: value })
             if (draftRef.current !== value) return
+            setSyncedContent(value)
             setDirty(false)
             setTabDirty({ tabId, dirty: false })
         } catch (error) {
