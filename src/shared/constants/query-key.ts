@@ -3,6 +3,16 @@ import type { AiProviderId, AppFileTarget, DiffMode, ProjectId } from '@shared/a
 const GIT_SCOPE_COMMIT_FILES = 'commit-files'
 const GIT_SCOPE_SHOW = 'show'
 
+/**
+ * Exported (unlike {@link GIT_SCOPE_COMMIT_FILES}/{@link GIT_SCOPE_SHOW} above, which only this
+ * file's own factories need) because `ipc-sync-provider.tsx`'s `fs:changed` handler has to recognize
+ * these same two scopes from the *other* side — matching a cached query's key without re-typing the
+ * `'gutter'`/`'diff'` string literals there (contract
+ * docs/acknowledge/2026-08-27-d44-git-worktree-staleness-contract.md §1).
+ */
+export const GIT_SCOPE_GUTTER = 'gutter'
+export const GIT_SCOPE_DIFF = 'diff'
+
 export const QUERY_KEY = {
     PROJECT: {
         ALL: ['project'] as const,
@@ -36,8 +46,8 @@ export const QUERY_KEY = {
         STATUS: (projectId: ProjectId) => ['git', projectId, 'status'] as const,
         LOG: (projectId: ProjectId) => ['git', projectId, 'log'] as const,
         REMOTES: (projectId: ProjectId) => ['git', projectId, 'remotes'] as const,
-        DIFF: (projectId: ProjectId, path: string, mode: DiffMode) => ['git', projectId, 'diff', path, mode] as const,
-        GUTTER: (projectId: ProjectId, path: string) => ['git', projectId, 'gutter', path] as const,
+        DIFF: (projectId: ProjectId, path: string, mode: DiffMode) => ['git', projectId, GIT_SCOPE_DIFF, path, mode] as const,
+        GUTTER: (projectId: ProjectId, path: string) => ['git', projectId, GIT_SCOPE_GUTTER, path] as const,
         CURRENT_USER: (projectId: ProjectId) => ['git', projectId, 'current-user'] as const,
         BRANCHES: (projectId: ProjectId) => ['git', projectId, 'branches'] as const,
         STASHES: (projectId: ProjectId) => ['git', projectId, 'stashes'] as const,

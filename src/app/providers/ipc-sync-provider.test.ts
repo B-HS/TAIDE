@@ -136,6 +136,35 @@ describe('filePathQueryKeysToInvalidate', () => {
     })
 })
 
+describe('isGitWorktreeQueryForChangedPaths', () => {
+    test('GUTTER 스코프이고 path 가 changedPaths 에 있으면 true 다', async () => {
+        const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'gutter', '/repo/a.ts'], new Set(['/repo/a.ts']))).toBe(true)
+    })
+
+    test('DIFF 스코프이고 path 가 changedPaths 에 있으면 mode 축과 무관하게 true 다', async () => {
+        const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'diff', '/repo/a.ts', 'workdirVsIndex'], new Set(['/repo/a.ts']))).toBe(true)
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'diff', '/repo/a.ts', 'indexVsHead'], new Set(['/repo/a.ts']))).toBe(true)
+    })
+
+    test('path 가 changedPaths 에 없으면 false 다', async () => {
+        const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'gutter', '/repo/other.ts'], new Set(['/repo/a.ts']))).toBe(false)
+    })
+
+    test('GUTTER/DIFF 가 아닌 스코프(status·log 등)는 path 매치 여부와 무관하게 false 다', async () => {
+        const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'status'], new Set(['/repo/a.ts']))).toBe(false)
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'log'], new Set())).toBe(false)
+    })
+
+    test('타 프로젝트 키도 스코프·path 만 맞으면 true 다 — projectId 축 배제는 GIT.PROJECT 접두사와의 predicate AND 결합이 담당하므로 이 헬퍼 자체는 검사하지 않는다', async () => {
+        const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isGitWorktreeQueryForChangedPaths(['git', 'other-project', 'gutter', '/repo/a.ts'], new Set(['/repo/a.ts']))).toBe(true)
+    })
+})
+
 describe('isQueryKeyUnderProjectRoot', () => {
     test('FILE.CONTENT/FILE.RAW 접두사이면서 프로젝트 root 이하 경로면 true 다', async () => {
         const { isQueryKeyUnderProjectRoot } = await import('@app/providers/ipc-sync-provider')

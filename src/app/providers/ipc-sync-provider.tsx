@@ -3,7 +3,7 @@ import { useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { FsChange, Project, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
-import { PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
+import { GIT_SCOPE_DIFF, GIT_SCOPE_GUTTER, PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs } from '@shared/lib/pane-tree'
@@ -27,6 +27,30 @@ const parentDirOf = (path: string) => {
  * in `entities/file/file.query.ts` (contract §1-b), so this watcher echo is its only refresh path.
  */
 export const filePathQueryKeysToInvalidate = (path: string) => [QUERY_KEY.FILE.CONTENT(path), QUERY_KEY.FILE.RAW(path)] as const
+
+/**
+ * Whether a cached `GIT.*` query is one of the two path-scoped, worktree-derived leaves
+ * (`GUTTER`/`DIFF`) *and* keyed by a path in `changedPaths`. This is the `predicate` half of the
+ * `fs:changed` handler's `invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId), predicate
+ * })` call below — `queryKey` and `predicate` combine with AND (TanStack Query's `matchQuery`, same
+ * combination `isGitQueryScopeMutable` in `git.query.ts` uses), so the `GIT.PROJECT(projectId)` half
+ * already keeps a *different* project's identically-shaped `['git', otherProjectId, 'gutter', path]`
+ * key out of the match. This helper itself checks scope and path only — it deliberately does not
+ * re-check `projectId`, and returns `true` for a key under any project as long as scope/path match
+ * (see the "타 프로젝트 키" case in `ipc-sync-provider.test.ts`).
+ *
+ * `DIFF` matches on scope alone, without checking `mode` (`workdirVsIndex`/`indexVsHead`) —
+ * sweeping `indexVsHead` too is a deliberate, small over-invalidation: it never actually changes from
+ * a worktree edit (it compares two `.git`-internal states), so this is intentionally broader than the
+ * worktree axis it stands in for, accepted to avoid enumerating the `DiffMode` union here by hand.
+ * The real cost is one extra `git_diff_file` refetch, and only when a staged-diff tab happens to be
+ * open for that exact path.
+ */
+export const isGitWorktreeQueryForChangedPaths = (queryKey: readonly unknown[], changedPaths: ReadonlySet<string>) => {
+    const [, , scope, path] = queryKey
+    if (scope !== GIT_SCOPE_GUTTER && scope !== GIT_SCOPE_DIFF) return false
+    return typeof path === 'string' && changedPaths.has(path)
+}
 
 /**
  * Matches a cached query's key against `PROJECT_SCOPED_PATH_KEY_PREFIXES` — `[domain, scope,
@@ -197,6 +221,46 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         for (const path of change.paths) {
             for (const queryKey of filePathQueryKeysToInvalidate(path)) void queryClient.invalidateQueries({ queryKey })
         }
+
+        /**
+         * The `.git`-directory watcher (`src-tauri/src/domain/git/watch.rs`'s `classify_git_change`)
+         * only ever emits `git:status-changed`/`git:refs-changed` for writes under `index`/`HEAD`/
+         * `refs` — it has no visibility into the worktree itself, so a change made by an external
+         * editor or CLI (never touching `.git`) reaches neither of those events and the git panel,
+         * status summary, and open-file gutters/diffs go stale forever (contract
+         * docs/acknowledge/2026-08-27-d44-git-worktree-staleness-contract.md §0). This `fs:changed`
+         * watcher echo is the only signal that ever sees such a change, so it stands in for the
+         * missing worktree-axis git event here.
+         *
+         * Placed above the `isSelfEchoWithoutTreeImpact` early-return below — the same layer as the
+         * `FILE.CONTENT`/`FILE.RAW` invalidation just above — for the same reason those are:
+         * `entities/search`'s `useReplaceSearch` (a project-wide find-and-replace) has no `onSuccess`
+         * invalidation of its own, so this watcher echo is the *only* path that ever refreshes
+         * `GIT.*` after a replace touches a tracked file, exactly as it is the only refresh path for
+         * `FILE.CONTENT`/`FILE.RAW`. Gating this block on `isSelfEchoWithoutTreeImpact` would leave
+         * the git panel/gutters/diffs silently stale after every in-app replace, and — since that
+         * gate fires identically in every window a project is open in — after every in-app save from
+         * a *different* window too. The one case this placement is genuinely redundant for is
+         * `useSaveFile`'s own `onSuccess` (`entities/file/file.query.ts`), which already invalidates
+         * `GIT.PROJECT` for the saving window's own `fromApp`+`modified` echo: that one window pays
+         * one extra `WATCH_DEBOUNCE_MS` (300ms)-later refetch on top of its immediate one. That
+         * duplicate refetch is accepted as the price of covering `useReplaceSearch` and every other
+         * open window without giving `entities/search` a bespoke `onSuccess` of its own
+         * (`entities/search` is outside this contract's ownership).
+         *
+         * `STATUS` is invalidated unconditionally — it has no path axis to narrow by. `GUTTER`/`DIFF`
+         * are narrowed to exactly this batch's paths via `isGitWorktreeQueryForChangedPaths`, ANDed
+         * with the coarse `GIT.PROJECT` prefix (TanStack Query's `matchQuery` — same combination
+         * `isGitQueryScopeMutable` in `git.query.ts` uses): the prefix is never invalidated bare, so
+         * `LOG`/`BRANCHES`/`REMOTES`/`STASHES`/`TAGS`/etc. never match and stay untouched — they're
+         * already the `.git` watcher's own axis (contract §1, over-invalidation guard).
+         */
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.STATUS(projectId) })
+        const changedPaths = new Set(change.paths)
+        void queryClient.invalidateQueries({
+            queryKey: QUERY_KEY.GIT.PROJECT(projectId),
+            predicate: (query) => isGitWorktreeQueryForChangedPaths(query.queryKey, changedPaths),
+        })
 
         /**
          * The palette's `SEARCH.PROJECT_FILES` quick-open index (contract §3, item d) is a flat
