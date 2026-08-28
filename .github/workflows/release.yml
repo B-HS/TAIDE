@@ -73,6 +73,8 @@ jobs:
                   NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
               run: |
                   if [ -n "$CERT_P12" ]; then
+                    # tolerate wrapped/pasted base64 (newlines, CR, spaces) — decode expects one clean line
+                    CERT_P12="$(printf '%s' "$CERT_P12" | tr -d ' \t\r\n')"
                     IDENTITY="$SIGNING_IDENTITY_OVERRIDE"
                     if [ -z "$IDENTITY" ]; then
                       PROBE_DIR="$(mktemp -d)"
