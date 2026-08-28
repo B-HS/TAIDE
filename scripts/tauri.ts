@@ -13,9 +13,10 @@ const args = process.argv.slice(2)
 const isBuild = BUILD_SUBCOMMANDS.has(args[0])
 
 /**
- * `tauri dev` alone carries the `dev.taide.app.dev` identifier overlay (contract d-49) so the dev
+ * `tauri dev` alone carries the `net.gumyo.taide.dev` identifier overlay (contract d-49, renamed
+ * from `dev.taide.app.dev` under contract 2026-08-29-bundle-identifier-rename) so the dev
  * instance's `app_data_dir`/log dir/keyring service/window-state cache never collides with an
- * installed release build's (identifier `dev.taide.app`, `tauri.conf.json`) — every other
+ * installed release build's (identifier `net.gumyo.taide`, `tauri.conf.json`) — every other
  * subcommand (`info`, `icon`, …) runs unmodified.
  */
 if (args[0] === 'dev') exitWith(run(['tauri', ...args, '--config', DEV_CONFIG_PATH]))
