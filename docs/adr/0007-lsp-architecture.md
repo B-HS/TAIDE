@@ -45,3 +45,8 @@
 - **진단은 한 경로만 소비**: pull 지원 서버(rust-analyzer·basedpyright·TS7)는 pull 로 통일하고
   push 를 끄거나 무시. push 전용(vtsls·marksman)은 push 소비.
 - LSP 메시지 스트림은 Channel(ADR-0008 §3). didOpen/didChange 는 incremental sync.
+
+## 구현 노트 (2026-08-28 현행화)
+
+- `vscode-languageserver-protocol` 타입 의존도 도입하지 않았다 — JSON-RPC/LSP 타입은
+  `src/shared/lib/lsp/protocol.ts` 에 자체 정의(필요 표면만). Monaco 어댑터는 20종으로 확장됐다.

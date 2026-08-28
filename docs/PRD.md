@@ -28,8 +28,10 @@ Electron 의 무게 없이, 데이터는 Rust 코어가 소유하고 view 는 �
 - VSCode 확장(extension) 생태계 호환 — TAIDE 자체 플러그인 체계만 설계
 - 원격 개발(SSH remote), 협업 편집, 디버거(DAP) — 추후 검토
 - 5개 언어 외 LSP 내장 — 플러그인으로 확장
-- 앱 자체의 AI 기능 내장(채팅 패널 등) — 터미널 에이전트 연동이 우선, 자체 AI 는 추후
-- remote-control 실제 구현 — 이번에는 부착 가능한 추상화(확장 포인트)까지만 설계
+- ~~앱 자체의 AI 기능 내장 — 자체 AI 는 추후~~ → **이후 구현됨**(Wave G — 자동완성·Inline
+  Edit·커밋 메시지, provider 3종. 정본: `features/ai.md`. 채팅 패널은 여전히 비목표)
+- ~~remote-control 실제 구현 — 추상화까지만 설계~~ → **이후 구현됨**(W6~ — `domain/remote`
+  WS 서버·인증·정책. 정본: `features/remote-control.md`·d-38 계약)
 
 ## 3. 참조 제품
 
@@ -61,6 +63,10 @@ Electron 의 무게 없이, 데이터는 Rust 코어가 소유하고 view 는 �
    임의로 새 UX 를 발명하지 않는다.
 
 ## 6. 기능 요구사항 (FR)
+
+> FR A~J 는 기획 시점 분류이고 **전항 구현 완료**됐다. 이후 추가 구현된 대형 기능(AI 3종·IDE
+> MCP 서버·remote-control·작업 러너·멀티 윈도우·Zen 모드·VSIX 임포트·스니펫 등)은 FR 로 소급
+> 등재하지 않았다 — 각 `features/*.md` 와 `docs/acknowledge/` 계약이 정본이다.
 
 상세 스펙은 각 `docs/features/*.md` 가 정본이다. 여기서는 요구사항 전량을 번호로 고정한다.
 

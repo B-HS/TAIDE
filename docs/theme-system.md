@@ -648,7 +648,7 @@ nord3(`#4c566a`)로 재선정해 해소했다 — 두 축을 모두 만족하는
   온다(현재 테마의 직속 부모, 그 다음 조부모 순 — `vsix-theme-import.md` §6). `convertVscodeTheme` 이
   기대하는 병합 순서(base 가 먼저, 가장 구체적인 것이 마지막에 와서 덮어쓴다)와 반대라
   프론트에서 `[...includeChain].reverse()` 로 뒤집은 뒤 테마 본문(`rawJson`)을 마지막에
-  붙여 병합한다(`src/features/theme/vsix-theme-import.ts` `buildRawChain`).
+  붙여 병합한다(`src/shared/lib/vsix-theme-import.ts` `buildRawChain`).
 - `uiTheme`(`vs`/`vs-dark`/`hc-black`/`hc-light`) → TAIDE `ThemeType` 매핑은 `vs`/`hc-light`
   는 `light`, `vs-dark`/`hc-black` 은 `dark` 다(고대비 변형도 dark/light 두 갈래로 접는다 —
   TAIDE 는 별도 고대비 테마 타입이 없다).

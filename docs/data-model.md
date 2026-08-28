@@ -59,8 +59,12 @@ TAIDE/
 ├── snippets/                사용자 스니펫 (`<languageId>.json` + `*.code-snippets`, VS Code 호환
 │                            포맷) — Wave F, `features/editor.md` §10
 ├── plugins/                 설치된 플러그인 (features/plugins.md)
-└── logs/                    앱 로그 (회전)
+├── locales/                 사용자 언어팩 (*.json — domain/locale·sync 가 읽기/쓰기, paths.rs locales_dir)
+└── lsp/                     다운로드된 LSP 서버 바이너리 (`lsp/<serverId>/<version>/` — paths.rs lsp_dir 계열)
 ```
+
+> 앱 로그는 이 트리(app_data_dir) 밖의 **`~/Library/Logs/dev.taide.app/TAIDE.log`** 에 쓰인다 —
+> tauri-plugin-log 기본 타겟(Stdout + LogDir)이며 `app_log_dir` 은 macOS 에서 `~/Library/Logs/{identifier}` 다.
 
 ## 3. 핵심 타입 (Rust 정본 — TS 는 자동 생성, ADR-0011)
 
@@ -419,9 +423,9 @@ struct SearchMatch {
 ### 10.4 AI 요청/응답 (Wave G — Inline Edit·AI 커밋 메시지, `AiInlineComplete*`(auto-tab)는 캠페인 이전부터 존재해 제외)
 
 ```rust
-struct AiInlineEditRequest  { request_id, provider: Option<AiProviderId>, model: Option<String>,
+struct AiInlineEditRequest  { request_id, owner: String, provider: Option<AiProviderId>, model: Option<String>,
                                selection, instruction, language, file_path, prefix, suffix: String }
-struct AiCommitMessageRequest  { request_id, provider: Option<AiProviderId>, model: Option<String>,
+struct AiCommitMessageRequest  { request_id, owner: String, provider: Option<AiProviderId>, model: Option<String>,
                                   diff_text, recent_commits: String }
 struct AiTextResponse { request_id: String, text: Option<String> }  // d-37 — 세 커맨드(auto-tab 포함) 공용
 ```

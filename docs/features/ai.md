@@ -213,7 +213,8 @@
   libgit2 의 암묵적 빈 트리로 처리(Wave C 선례 재사용).
 - 32KiB(`STAGED_DIFF_TEXT_MAX_BYTES`) 상한 초과 시 UTF-8 문자 경계 안전하게 절삭하고
   `truncated: true`. 바이너리 델타·lock 파일(`bun.lock`·`Cargo.lock`·`package-lock.json`·
-  `pnpm-lock.yaml`·`yarn.lock`)·시크릿류 파일(`.env`·`.env.*`·`*.pem`·`*.key`·`*.p12`·`*.pfx`·
+  `pnpm-lock.yaml`·`yarn.lock`)·시크릿류 파일(`.env`·`.env.*`·`.netrc`·`.npmrc`·`*.pem`·`*.key`·
+  `*.p12`·`*.pfx`·`*.jks`·`*.keystore`·`*.ppk`·`*.der`·`*.crt`·
   `id_rsa`/`id_dsa`/`id_ecdsa`/`id_ed25519`)은 본문에서 완전히 제외하고 경로만 `skippedFiles` 에
   나열한다 — lock 파일은 AI 요약에 의미 있는 정보를 주지 않으면서 토큰만 소모하고, 시크릿류 파일은
   실수로 staged 됐을 때 외부 provider 로 평문 전송되면 안 되기 때문(security.md §1).
@@ -250,4 +251,4 @@
 | 모델 선반영(스트리밍 직접 편집) | 기각 — dirty·LSP·미러·undo 부작용 사슬. §3 의 모델 무변경 프리뷰 채택 |
 | hunk 단위 부분 수락 | 보류 — Inline Edit 은 선택 영역=1 hunk 로 고정. 다중 위치 편집은 재설계 필요 |
 | 커밋 메시지 컨텍스트에 최근 커밋 full body | 기각(1차) — summary 20건으로 시작, 품질 미달 시 후속 |
-| staged 0건일 때 unstaged 로 폴백해 diff 생성 | 보류 — 계약 §3.3 이 "staged 0건이면 버튼 비활성"을 명시. `handleCommit` 은 staged 0건이면 전체를 스테이지하고 커밋하므로(git.md) 두 흐름 사이에 UX 비대칭이 남지만, 계약 문언을 바꾸려면 사용자 재확인이 필요해 이번 Wave 에서는 그대로 둔다 |
+| staged 0건일 때 unstaged 로 폴백해 diff 생성 | ~~보류~~ → **Wave H 에서 구현 완료** — 버튼은 staged·unstaged 둘 다 없을 때만 비활성이고, `git_diff_staged_text` 는 staged 델타 0건이면 HEAD↔워킹트리 diff 로 자동 폴백한다(`usedFallback` — §4·§7이 정본) |

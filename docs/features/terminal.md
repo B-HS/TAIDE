@@ -24,7 +24,7 @@
   Rust reader 는 pause 플래그(Condvar) 로 read 루프 정지 → pty 커널 버퍼가 자식을 자연 블록.
 - UTF-8 은 어디서도 미리 문자열화하지 않고 bytes 그대로 `term.write(Uint8Array)`
   (청크 경계 멀티바이트 — xterm 이 처리).
-- 상수(`HIGH_WATER` 등)는 `shared/lib/constants/terminal.ts` (research 값 채택).
+- 상수(`HIGH_WATER` 등)는 `shared/constants/terminal.ts` (research 값 채택).
 
 ## 3. 스크롤백 · 복원
 
@@ -144,10 +144,13 @@
 
 ## 9. IPC
 
-- mutation: `pty_spawn(opts, onData: Channel, onExit: Channel) → sessionId`,
-  `pty_write(sessionId, data)`, `pty_resize(sessionId, cols, rows)`, `pty_kill(sessionId)`,
-  `pty_set_paused(sessionId, paused)`, `pty_attach(sessionId, onData) `(재생+재구독)
-- query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`
+- mutation: `pty_spawn(opts, onData: Channel) → sessionId`(종료 통지는 `terminal:exited` 이벤트로만
+  — onExit Channel 은 없다), `pty_write(sessionId, data)`, `pty_resize(sessionId, cols, rows)`,
+  `pty_kill(sessionId)`, `pty_set_paused(sessionId, paused)`,
+  `pty_attach(sessionId, onData) → subscriptionId`(재생+재구독 — 다중 구독자/멀티윈도우 지원),
+  `pty_detach(sessionId, subscriptionId)`(Wave I)
+- query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`,
+  `pty_default_options`
 - event: `terminal:exited(sessionId, code)`, `terminal:cwd-changed(sessionId, cwd)`(X-A 배치
   (2026-08-19)에서 배선 완성 — 이 항목이 계획하던 "OSC7 은 view 파싱 → mutation 으로 Rust 에 보고"
   방향은 실제 구현과 다르다: `events.rs` 가 애초에 `terminal:cwd-changed` 를 `Event` derive 로

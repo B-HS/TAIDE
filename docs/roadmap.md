@@ -3,88 +3,93 @@
 > 구현 순서의 정본. 각 항목의 상세 스펙은 `docs/features/*.md`, 검증 항목은
 > `docs/quality-assurance/`. 구현 세션에서는 이 체크리스트를 `docs/PROCESS.md` 로 복사·세분화해
 > 진행 상태를 기록한다. 각 Phase 는 "동작하는 상태"로 끝난다(수직 슬라이스).
+>
+> **상태(2026-08-28 현행화): Phase 0~7.6 완료**(e2e 13스펙 완주 판정·qa6 실기 진행 중) —
+> 미체크는 Phase 8 잔여 항목뿐이다. Phase 7.7~7.10 과 이후의 잔여 기능 캠페인(Wave A~I)·
+> 아키텍처 감사(T0~T2)·결함 계약(d-31~)은 이 문서에 소급 등재하지 않았다 — 시간순 정본은
+> `docs/PROCESS.md`(+`docs/history/`)와 `docs/acknowledge/` 계약들이다.
 
 ## Phase 0 — 스캐폴딩
 
-- [ ] Tauri 2 + Vite 8 + React 19 프로젝트 생성 (bun, `tech-stack.md` 버전 고정)
-- [ ] React Compiler 설정 + 적용 검증 (DevTools `Memo` 배지 / 산출물 `compiler-runtime` grep — research 함정)
-- [ ] Tailwind 4.3 + shadcn init (`shared/ui`, components.json aliases — FSD)
-- [ ] FSD 디렉토리 골격 (`app/widgets/features/entities/shared`) + path alias
-- [ ] Rust 골격 (`state.rs`/`error.rs`/`events.rs`/`domain/`/`infra/` — `architecture.md` §2)
-- [ ] tauri-specta 배선 + `bindings.ts` 생성 파이프라인 (ADR-0011 확정 시)
-- [ ] `useTauriEvent` 훅, QueryClient 기본값(networkMode 등 — ADR-0008), 에러 토스트(sonner)
-- [ ] 검증 스크립트: `typecheck`·`test`·`lint`(eslint react-hooks) + `cargo clippy`
-- [ ] capabilities 최소 구성 + CSP 계획 (Monaco 요구 반영 — `ipc-contract.md` §4)
+- [x] Tauri 2 + Vite 8 + React 19 프로젝트 생성 (bun, `tech-stack.md` 버전 고정)
+- [x] React Compiler 설정 + 적용 검증 (DevTools `Memo` 배지 / 산출물 `compiler-runtime` grep — research 함정)
+- [x] Tailwind 4.3 + shadcn init (`shared/ui`, components.json aliases — FSD)
+- [x] FSD 디렉토리 골격 (`app/widgets/features/entities/shared`) + path alias
+- [x] Rust 골격 (`state.rs`/`error.rs`/`events.rs`/`domain/`/`infra/` — `architecture.md` §2)
+- [x] tauri-specta 배선 + `bindings.ts` 생성 파이프라인 (ADR-0011 확정 시)
+- [x] `useTauriEvent` 훅, QueryClient 기본값(networkMode 등 — ADR-0008), 에러 토스트(sonner)
+- [x] 검증 스크립트: `typecheck`·`test`·`lint`(eslint react-hooks) + `cargo clippy`
+- [x] capabilities 최소 구성 + CSP 계획 (Monaco 요구 반영 — `ipc-contract.md` §4)
 
 ## Phase 1 — 셸: 프로젝트·레이아웃·탭·테마·영속화
 
-- [ ] persist 인프라 (원자적 쓰기 + version 마이그레이션 — ADR-0009, `data-model.md`)
-- [ ] project 도메인 (open/close/activate/reorder + 세션 복원) — `layout-shell.md`
-- [ ] 앱 사이드바 (프로젝트 아이콘·상태 아이콘·context menu·DND 정렬)
-- [ ] layout 도메인 (PaneNode 트리 + 전 mutation + revision 이벤트) — `tabs.md`
-- [ ] 탭 바 UI (preview/pin/dirty·context menu·키보드) + react-resizable-panels 스플릿
-- [ ] 탭 DND (재정렬 + 5분할 드롭 존 스플릿) — dnd-kit
-- [ ] 테마 시스템 (스키마·내장 dark/light·CSS 변수 주입·`@theme inline` 매핑·FOUC 방지) — `theme-system.md`
-- [ ] window-state 플러그인 + 빈 상태(웰컴) 화면
-- [ ] 복원 E2E: 재시작 시 프로젝트·탭·스플릿·활성 상태 복원 (성공 기준 3)
+- [x] persist 인프라 (원자적 쓰기 + version 마이그레이션 — ADR-0009, `data-model.md`)
+- [x] project 도메인 (open/close/activate/reorder + 세션 복원) — `layout-shell.md`
+- [x] 앱 사이드바 (프로젝트 아이콘·상태 아이콘·context menu·DND 정렬)
+- [x] layout 도메인 (PaneNode 트리 + 전 mutation + revision 이벤트) — `tabs.md`
+- [x] 탭 바 UI (preview/pin/dirty·context menu·키보드) + react-resizable-panels 스플릿
+- [x] 탭 DND (재정렬 + 5분할 드롭 존 스플릿) — dnd-kit
+- [x] 테마 시스템 (스키마·내장 dark/light·CSS 변수 주입·`@theme inline` 매핑·FOUC 방지) — `theme-system.md`
+- [x] window-state 플러그인 + 빈 상태(웰컴) 화면
+- [x] 복원 E2E: 재시작 시 프로젝트·탭·스플릿·활성 상태 복원 (성공 기준 3)
 
 ## Phase 2 — 에디터·파일
 
-- [ ] file 도메인 (open/save/create/rename/delete + 크기 정책 판정 + dirty 미러) — `editor.md` §3
-- [ ] watcher (notify + debouncer, 무시 목록, echo 플래그, 배치 emit)
-- [ ] Monaco 셋업 (0.56 경로·worker 배선·CSP) + 모델 레지스트리 + viewState 복원
-- [ ] 파일 트리 (트리 구조 결정안 적용, lazy load, git 상태색, context menu, typeahead) — `explorer-sidebar.md`
-- [ ] 키바인딩 3계층 (Monaco 보강 + 앱 전역 keymap 모듈 + WebView 기본 동작 차단)
-- [ ] Monaco 테마 파생 (defineTheme hex 변환) + 내장 TS worker (tsconfig 주입)
-- [ ] 대형 파일 4단계 정책 (2/20/50MB — 상수 Rust·TS 동기)
-- [ ] 외부 변경·충돌 처리 (리로드/충돌 배너)
+- [x] file 도메인 (open/save/create/rename/delete + 크기 정책 판정 + dirty 미러) — `editor.md` §3
+- [x] watcher (notify + debouncer, 무시 목록, echo 플래그, 배치 emit)
+- [x] Monaco 셋업 (0.56 경로·worker 배선·CSP) + 모델 레지스트리 + viewState 복원
+- [x] 파일 트리 (트리 구조 결정안 적용, lazy load, git 상태색, context menu, typeahead) — `explorer-sidebar.md`
+- [x] 키바인딩 3계층 (Monaco 보강 + 앱 전역 keymap 모듈 + WebView 기본 동작 차단)
+- [x] Monaco 테마 파생 (defineTheme hex 변환) + 내장 TS worker (tsconfig 주입)
+- [x] 대형 파일 4단계 정책 (2/20/50MB — 상수 Rust·TS 동기)
+- [x] 외부 변경·충돌 처리 (리로드/충돌 배너)
 
 ## Phase 3 — 터미널
 
-- [ ] pty 인프라 (spawn/write/resize/kill, Raw Channel + 4ms 배칭) — `terminal.md`
-- [ ] xterm 위젯 (addon 셋·WebGL contextLoss·ResizeObserver·fit)
-- [ ] flow control (watermark + pause) + ring buffer 복원(`pty_attach`)
-- [ ] 기본 셸·셸 프로필 열거 + 프로젝트 기본 터미널 탭
-- [ ] 폰트 크기 단축키 + 설정 연동
-- [ ] 파일 경로 LinkProvider + cmd+click → 탭 열기 (`resolve_terminal_path`)
-- [ ] 터미널 검색·복사/붙여넣기·테마(ANSI) 연동
-- [ ] 탭 닫기 확인·exit 표시·앱 종료 시 전 세션 정리
+- [x] pty 인프라 (spawn/write/resize/kill, Raw Channel + 4ms 배칭) — `terminal.md`
+- [x] xterm 위젯 (addon 셋·WebGL contextLoss·ResizeObserver·fit)
+- [x] flow control (watermark + pause) + ring buffer 복원(`pty_attach`)
+- [x] 기본 셸·셸 프로필 열거 + 프로젝트 기본 터미널 탭
+- [x] 폰트 크기 단축키 + 설정 연동
+- [x] 파일 경로 LinkProvider + cmd+click → 탭 열기 (`resolve_terminal_path`)
+- [x] 터미널 검색·복사/붙여넣기·테마(ANSI) 연동
+- [x] 탭 닫기 확인·exit 표시·앱 종료 시 전 세션 정리
 
 ## Phase 4 — Git
 
-- [ ] git capability (discover·status 정규화·watcher 연동 캐시) — `git.md`
-- [ ] SCM 패널 (그룹·상태 문자·hover 액션·context menu·discard 휴지통)
-- [ ] stage/unstage/discard (git2 — `force()`·`Index::write()` 함정 체크)
-- [ ] commit/push/pull (git CLI 하이브리드 — ADR-0006, 에러 UI)
-- [ ] diff 뷰 (Monaco DiffEditor, side-by-side/inline 토글, preview 탭 재사용)
-- [ ] 에디터 gutter (hunk → decorations) + 인라인 blame (injected text + GitLens 포맷)
-- [ ] 커밋 그래프 (revwalk 페이지네이션 + 프론트 레인 배치 + 12색 + ref 라벨)
-- [ ] remote·ahead/behind·Sync 헤더
+- [x] git capability (discover·status 정규화·watcher 연동 캐시) — `git.md`
+- [x] SCM 패널 (그룹·상태 문자·hover 액션·context menu·discard 휴지통)
+- [x] stage/unstage/discard (git2 — `force()`·`Index::write()` 함정 체크)
+- [x] commit/push/pull (git CLI 하이브리드 — ADR-0006, 에러 UI)
+- [x] diff 뷰 (Monaco DiffEditor, side-by-side/inline 토글, preview 탭 재사용)
+- [x] 에디터 gutter (hunk → decorations) + 인라인 blame (injected text + GitLens 포맷)
+- [x] 커밋 그래프 (revwalk 페이지네이션 + 프론트 레인 배치 + 12색 + ref 라벨)
+- [x] remote·ahead/behind·Sync 헤더
 
 ## Phase 5 — LSP
 
-- [ ] lsp 도메인 (spawn/프레이밍/supervisor/Channel) — `lsp.md`
-- [ ] 서버 감지 (로컬 우선 하이브리드 + 설치 안내 UI)
-- [ ] 클라이언트 (ADR-0007 결정 3 확정안) — 어댑터: 진단→completion→hover→definition→references→rename→formatting→signatureHelp→inlayHints→documentSymbol 순
-- [ ] vtsls (didChangeConfiguration 설정) + 내장 TS worker 핸드오프
-- [ ] rust-analyzer (initializationOptions·cargo metadata 루트·rust-src 감지)
-- [ ] basedpyright + ruff (venv 감지·이중 세션) / marksman (루트 마커 안내)
-- [ ] positionEncoding·pull/push 진단 정책·세션 상태 UI
+- [x] lsp 도메인 (spawn/프레이밍/supervisor/Channel) — `lsp.md`
+- [x] 서버 감지 (로컬 우선 하이브리드 + 설치 안내 UI)
+- [x] 클라이언트 (ADR-0007 결정 3 확정안) — 어댑터: 진단→completion→hover→definition→references→rename→formatting→signatureHelp→inlayHints→documentSymbol 순
+- [x] vtsls (didChangeConfiguration 설정) + 내장 TS worker 핸드오프
+- [x] rust-analyzer (initializationOptions·cargo metadata 루트·rust-src 감지)
+- [x] basedpyright + ruff (venv 감지·이중 세션) / marksman (루트 마커 안내)
+- [x] positionEncoding·pull/push 진단 정책·세션 상태 UI
 
 ## Phase 6 — 에이전트 연동
 
-- [ ] `taide` CLI + `--wait` 마커 방식 + single-instance 파일 열기 — `agent-integration.md`
-- [ ] 탭 닫힘 → 마커 해제 + 안전망 (실패 즉시 삭제·종료 시 정리·힌트 UI)
-- [ ] 에이전트 감지 (process_group_leader / sysinfo) → 사이드바·탭 아이콘
-- [ ] CLI 설치 UX + EDITOR 설정 안내
-- [ ] Claude Code ctrl+g 실기기 왕복 검증 (성공 기준 4 — tsc 로 못 잡음, 수동 QA)
+- [x] `taide` CLI + `--wait` 마커 방식 + single-instance 파일 열기 — `agent-integration.md`
+- [x] 탭 닫힘 → 마커 해제 + 안전망 (실패 즉시 삭제·종료 시 정리·힌트 UI)
+- [x] 에이전트 감지 (process_group_leader / sysinfo) → 사이드바·탭 아이콘
+- [x] CLI 설치 UX + EDITOR 설정 안내
+- [x] Claude Code ctrl+g 실기기 왕복 검증 (성공 기준 4 — tsc 로 못 잡음, 수동 QA)
 
 ## Phase 7 — 검색·설정·플러그인
 
-- [ ] 전역 검색 (스트리밍·취소·결과 트리) — `explorer-sidebar.md` §3
-- [ ] 설정 UI (테마·셸·키맵 오버라이드·LSP 상태·에이전트 목록)
-- [ ] 플러그인 로더 (매니페스트 검증·LSP 기여·동의 UI) — `plugins.md`
-- [ ] 커맨드 팔레트 (`⌘⇧P`) + 파일 퀵오픈 (`⌘P`)
+- [x] 전역 검색 (스트리밍·취소·결과 트리) — `explorer-sidebar.md` §3
+- [x] 설정 UI (테마·셸·키맵 오버라이드·LSP 상태·에이전트 목록)
+- [x] 플러그인 로더 (매니페스트 검증·LSP 기여·동의 UI) — `plugins.md`
+- [x] 커맨드 팔레트 (`⌘⇧P`) + 파일 퀵오픈 (`⌘P`)
 
 ## Phase 7.5 — 실사용 피드백 반영 (Phase 8 전 필수)
 
@@ -144,7 +149,8 @@
 - [x] 설정 화면 재구성 — TOC + `max-w` 제거 + Card + 자체 Switch (13번)
 - [x] toast 위치 9분할 설정 (11번) — sonner 6종 + 중간 행 3종 CSS 보정. Toaster 테마 추종도 함께 수정
 - [x] 리사이저 두께 설정 + 히트영역 분리 (12번) — 히트 8px 고정 / 시각 두께는 설정값
-- [ ] 탭 열기 규칙 — `⌘+클릭` 분할, Move/Copy into New Window (7번). 멀티 윈도우 미지원이라 보류
+- [x] 탭 열기 규칙 — Move into New Window 는 Wave I 멀티 윈도우로 구현 완료
+      (`layout_move_tab_to_window`·탭 메뉴 §tabs.md 3.1). 잔여: Copy into New Window(backlog — 탭 공유 동기화 범위 밖)
 
 #### 7.5-C 미구현 (백엔드/기능 부재 — 가짜 UI 만들지 않음)
 
@@ -167,7 +173,8 @@
 - [x] pty `LANG`/`LC_CTYPE` 누락 수정 (Finder 실행 시 non-UTF-8 방지)
 - [ ] 테마 내보내기/가져오기 — `@tauri-apps/plugin-fs` 미설치라 보류
 - [ ] 파일 타입 전용 색 토큰(`fileIcon.*`) — 현재 8색 토큰 재사용 중. 테마 스키마 확장 필요
-- [ ] footer 커서 위치 표시 — 에디터가 값을 올려주는 구조 필요
+- [x] footer 커서 위치 표시 — 구현 완료(`status-bar-content.tsx` 가 Monaco 커서 이벤트 구독 →
+      `status-bar.tsx` `editor.cursorPosition` 렌더)
 
 ### 7.5-E 미리보기
 
@@ -220,11 +227,14 @@
 
 ## Phase 8 — 배포·확장 (2차) — **게이트: Phase 0~7.5 가 로컬에서 전부 테스트·확인 완료된 후에만 진행 (사용자 합의)**
 
-- [ ] macOS 서명·공증, 업데이터 / Windows·Linux 빌드 검증 (NFR-6)
-- [ ] IDE MCP 서버 (Claude Code 자동 연결 — agent-integration §3)
+- [x] macOS 서명·공증 CI — release.yml 파이프라인 구현(`docs/deployment.md` 정본, secrets 5종·
+      태그 4 금지 가드. 2026-08-28 v0.1.0 1차 실행 — 서명 스텝 시크릿 이슈로 재시도 대기)
+- [ ] 업데이터 / Windows·Linux 빌드 검증 (NFR-6 잔여)
+- [x] IDE MCP 서버 — `domain/ide` 구현 완료 (Claude Code 자동 연결 — agent-integration §3·§7.4)
 - [ ] OSC 133 명령 블록 UX, hooks/statusline 브리지
-- [ ] git 2차 (브랜치 UI·커밋 상세·stash UI·충돌 해결)
-- [ ] remote-control capability (프로젝트 추상화 위에 — 별도 기획)
+- [x] git 2차 — 브랜치 UI(7.6-A)·커밋 상세(`commit-file-diff`/`file-history`)·stash UI(7.6-B)·
+      충돌 해석(`git_conflict_sides`/`resolve_conflict`) 완료 / 잔여: 3-way 머지 에디터(backlog)
+- [x] remote-control — `domain/remote` 실장 완료 (W6 계약·d-38 정책 — "별도 기획" 단계 종료)
 
 ## 상시 (전 Phase 공통)
 

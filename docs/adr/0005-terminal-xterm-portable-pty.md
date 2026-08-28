@@ -26,3 +26,8 @@
 - Rust↔view 사이 고속 출력 스트림의 전송 방식(이벤트 vs Channel)과 flow control 이 성능 핵심이 된다
   → `docs/research/xterm-pty.md` 확정안을 `features/terminal.md` 에 반영.
 - OSC 133 셸 통합(명령 블록 인식) 등 warp 류 기능은 셸 rc 주입이 필요한 선택 기능으로 분리한다.
+
+## 구현 노트 (2026-08-28 현행화)
+
+- addon 실설치: fit·search·web-links·webgl·**unicode11** (`@xterm/addon-serialize` 는 미도입 —
+  링버퍼 재생(`pty_attach`)이 직렬화 요구를 대체).

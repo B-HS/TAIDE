@@ -43,3 +43,9 @@ VSCode 수준 Git 기능(status/diff/blame/log/stage/commit/push)이 필요하�
 - CLI 출력은 exit code + stderr 를 구조화해 에러 UI 로 전달한다(파싱 최소화).
 - git2 쪽 필수 함정(`force()`, `Index::write()`, `Result` 문자열 접근자, foreach 콜백 형태)은
   `docs/research/git2.md` 함정 절을 구현 체크리스트로 사용한다.
+
+## 구현 노트 (2026-08-28 현행화)
+
+- `trait GitBackend` / `infra/repo.rs` 한 겹 추상화는 **만들지 않았다** — git2 호출은
+  `domain/git/service.rs` 의 자유 함수들이 직접 수행한다(테스트는 실제 임시 리포로 커버).
+  gix 전환 필요가 실제로 생기면 그때 경계를 세운다(조기 추상화 회피 — 2회 이상 규칙).

@@ -13,8 +13,8 @@
   있을 때만 재검사).
 - 폴링 주기: unix 1s(값싼 syscall), Windows 2s. 상태 변화 시에만 `agent:state-changed(projectId,
   sessionId, agent)` 이벤트 → 앱 사이드바 아이콘/배지(`layout-shell.md` §2.2)·터미널 탭 아이콘 갱신.
-- 보조 신호: TAIDE 가 pty 에 심는 env 로 자기 터미널 여부 식별, `CLAUDECODE=1`(공식) 존재 시
-  Claude Code 하위 셸로 판정.
+- 초안의 보조 신호(pty 자기 식별 env·`CLAUDECODE=1` 검사)는 도입하지 않았다 — 실구현 감지는
+  `domain/agent/service.rs::detect_agent_name` 의 프로세스명(comm)/cmdline 매칭 단독이다.
 
 ## 2. 외부 에디터 왕복 — `taide` CLI (FR-H2)
 
@@ -28,9 +28,10 @@ Claude Code ctrl+g(2.0.10+)는 **$EDITOR/$VISUAL 로 지정된 에디터를 임�
 ```
 taide [--wait|-w] <file> [<file>...]
 1) --wait 면 tmpdir/taide-wait-<uuid> 마커 파일 생성
-2) 로컬 IPC(유닉스 소켓/네임드 파이프)로 실행 중 앱 탐지
-   - 있으면: {absPath, waitMarker} 전달 (자식 spawn 안 함)
-   - 없으면: 앱을 detach spawn + argv 로 동일 payload (single-instance 플러그인이 첫 인스턴스로 중계)
+2) 앱을 **항상 detach spawn** + argv 로 {absPath, waitMarker} payload — 이미 실행 중이면
+   tauri-plugin-single-instance 가 두 번째 인스턴스의 argv 를 가로채 기존 창으로 중계한다.
+   (초안의 "로컬 IPC 로 실행 중 앱 탐지 후 spawn 생략" 최적화는 도입하지 않았다 — 매 호출마다
+   앱 바이너리를 한 번 더 spawn 하는 비용을 single-instance 중계의 단순성과 맞바꾼 트레이드오프)
 3) 마커 파일 삭제까지 300ms 폴링 블록 → exit 0
 ```
 
@@ -51,7 +52,7 @@ taide [--wait|-w] <file> [<file>...]
 ### 2.2 Tauri 측
 
 - `tauri-plugin-single-instance`(2.4.x): 두 번째 인스턴스 argv 수신 → 파일 열기 이벤트.
-- 탭 닫힘 → `release_wait_marker(marker)` command 가 마커 삭제.
+- 탭 닫힘 → `agent_release_marker(marker)` command 가 마커 삭제.
 
 ## 3. IDE MCP 서버 (확장 기능 — Claude Code 를 1급 시민으로)
 
@@ -60,13 +61,14 @@ taide [--wait|-w] <file> [<file>...]
 **TAIDE 가 이 서버를 구현하면 내장 터미널에서 `claude` 실행만으로** diff 뷰어·선택 영역 컨텍스트·
 진단 공유가 활성화된다.
 
-- Rust `ide_mcp` 모듈: 127.0.0.1 바인드(포트 10000~65535), CSPRNG hex 토큰, lock 파일 수명주기
+- Rust `domain::ide` 모듈: 127.0.0.1 바인드(포트 10000~65535), CSPRNG hex 토큰, lock 파일 수명주기
   (시작 시 stale lock pid 청소, 종료 시 삭제), JSON-RPC 2.0.
 - 도구 구현(비공식 프로토콜 — 실측 검증 필수): `openFile`, `openDiff`(TAIDE diff 탭, 블로킹),
   `getCurrentSelection`, `getOpenEditors`, `getWorkspaceFolders`, `getDiagnostics`(LSP 마커),
   `checkDocumentDirty`, `saveDocument`, `close_tab`. 알림: `selection_changed`, `at_mentioned`.
-- pty 자식 env 에 `ENABLE_IDE_INTEGRATION=true`, `CLAUDE_CODE_SSE_PORT=<port>` 주입(커뮤니티 스펙 —
-  검증 후 적용).
+- pty 자식 env 주입은 IDE 서버가 running 일 때 **`CLAUDE_CODE_SSE_PORT=<port>` 단독**이다
+  (`domain/ide/store.rs::claude_terminal_env` → `PtySpawnEnvProvider`). 초안의
+  `ENABLE_IDE_INTEGRATION=true` 는 검증 결과 불요로 도입하지 않았다.
 - 프로토콜이 비공식이므로 **실측 스모크 테스트를 CI/체크리스트에 포함**(버전 업 파손 감지).
 
 ## 4. hooks / statusline 브리지 (후순위)
@@ -120,9 +122,9 @@ taide [--wait|-w] <file> [<file>...]
 
 ### 7.4 IDE MCP 서버 (`domain/ide`)
 
-- **토큰 비교** (`service.rs::constant_time_eq`): 인증 토큰 검증에 타이밍 사이드채널을 남기지
-  않기 위한 상수시간 비교. `domain::agent::service::constant_time_eq` 와 로직이 동일하지만,
-  도메인 경계를 넘어 재사용하지 않고 각 도메인에 독립적으로 둔다.
+- **토큰 비교** (`constant_time_eq`): 인증 토큰 검증에 타이밍 사이드채널을 남기지 않기 위한
+  상수시간 비교. 단일 구현이 `infra/crypto.rs` 에 있고 `domain::ide`·`domain::agent` 가 각각
+  `pub use crate::infra::crypto::constant_time_eq` 로 재사용한다(중복 구현 아님).
 - **토큰 생성** (`service.rs::generate_auth_token`): CLI 와 동일한 형식(32자 소문자 hex, OS
   CSPRNG 기반)의 인증 토큰을 만든다. 신규 `rand` 의존성을 들이지 않고, 이미 동일 용도(hooks.rs)로
   쓰이는 uuid v4 를 재사용한다(`docs/acknowledge/2026-08-07-qa-batch-decisions.md` §3 신규 의존성

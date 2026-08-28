@@ -40,14 +40,14 @@ macOS/Windows/Linux 에서 동일하게 보이게 한다(acknowledge §3.1).
 | 그룹 | 항목 | 비고 |
 |------|------|------|
 | 닫기 | Close · Close Others · Close to the Right · **Close Saved** · Close All | pinned 탭은 제외. Close Saved 는 dirty 아닌 탭만 |
-| 복사 | Copy Path · Copy Relative Path · Copy Remote File URL · Copy Remote File URL From… | Remote URL 은 git remote 기준 |
-| 열기 | Reopen Editor With… · Open Changes · Open on Remote (Web) · File History | Reopen With 는 preview 종류 전환(`preview.md`) |
-| 에이전트 | Add File to Agent Thread | `agent-integration.md` — 활성 에이전트 있을 때만 |
-| 탐색 | Reveal in Finder · Reveal in Explorer View | Finder 는 `opener`, Explorer 는 `tree_reveal` |
-| 고정 | Keep Open · Pin | Keep Open = preview → 고정 승격 |
-| 분할 | Split Up · Split Down · Split Left · Split Right · Split in Group | `layout_split` |
-| 창 | Move into New Window · Move back to Main Window(보조 창에서만) · Move to Window N(다른 열린 보조 창마다) | Wave I 로 완전 구현(§4.4). **Copy into New Window 는 미구현**(backlog) — 동일 탭을 두 창이 공유하는 동기화 설계가 이번 범위 밖 |
-| 참조 | Find File References | LSP `references` |
+| 고정 | Pin/Unpin · Keep Open | Keep Open 은 preview 탭에서만 — 고정 승격 |
+| 복사 | Copy Path · Copy Relative Path | - |
+| 탐색·열기 | Reveal in Finder · Reveal in Explorer View · Open Changes · File History · Reopen Editor With… | Reopen With 는 editor/preview 전환(`preview.md`) |
+| 분할 | Split → Up · Down · Left · Right | `layout_split` |
+| 창 | Move into New Window · Move back to Main Window(보조 창에서만) · Move to Window N(다른 열린 보조 창마다) | Wave I 로 완전 구현(§4.4). **Copy into New Window 는 미구현**(backlog) — 동일 탭을 두 창이 공유하는 동기화 설계가 범위 밖 |
+
+> 초안에 있던 Copy Remote File URL(From…)·Open on Remote (Web)·Add File to Agent Thread·
+> Find File References·Split in Group 은 **구현하지 않았다** — 필요가 생기면 backlog 로.
 
 - 조건에 맞지 않는 항목(git 없음·에이전트 없음·File 탭 아님)은 **숨긴다**(비활성 대신).
 - `when` 판정은 커맨드 레지스트리(`command-palette.md` §2)와 같은 컨텍스트를 공유한다.

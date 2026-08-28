@@ -61,12 +61,12 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
 
 ## 5. Phase 7.5 확장 — 파일 아이콘 (사용자 지적 6번)
 
-`material-extensions/vscode-material-icon-theme` 를 **참조**해 확장자·파일명 → 아이콘 매핑을 만든다.
+실구현은 SVG vendoring 없이 **`lucide-react` 아이콘 컴포넌트로 매핑**한다(라이선스 표기 불요) —
+매핑 로직은 `shared/lib/file-icon.ts`, 아이콘 컴포넌트 레지스트리는
+`shared/icons/file-icon-registry.ts` 2파일 구성. 아이콘 세트를 끄는(단색화) 설정은 도입하지
+않았다. (초안의 material-icon-theme vendoring 안은 폐기.)
 
-- 그 저장소는 **MIT** 이며 SVG 아이콘 세트 + 매핑 정의를 담고 있다.
-  라이선스·저작자 표기를 지키고, **필요한 아이콘만 vendored** 로 가져온다(전량 번들 금지 — 용량).
-- 매핑은 **데이터로 분리**한다(`shared/lib/file-icons.ts`): 확장자 맵 + 파일명 맵(예: `package.json`,
-  `Cargo.toml`, `Dockerfile`) + 폴더명 맵(`src`, `test`, `.github`) + 폴백.
-  **매칭 우선순위(파일명 > 확장자 > 폴백)를 순수 함수로 만들고 테스트**한다.
-- 색은 아이콘 SVG 원본 색을 쓰되, **ignored/삭제 상태의 흐림 처리는 테마 토큰**(`explorer.git*`)으로.
-- 아이콘 세트를 끄는 설정(단색 아이콘)도 둔다 — 취향 문제라 강제하지 않는다.
+- 매핑은 **데이터로 분리**돼 있다: 확장자 맵 + 파일명 맵(예: `package.json`, `Cargo.toml`,
+  `Dockerfile`) + 폴더명 맵 + 폴백. **매칭 우선순위(파일명 > 확장자 > 폴백)는 순수 함수 +
+  테스트**(`shared/lib/file-icon.ts`).
+- ignored/삭제 상태의 흐림 처리는 테마 토큰(`explorer.git*`)으로.

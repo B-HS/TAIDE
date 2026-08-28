@@ -17,14 +17,14 @@
 | ~~Zen / 포커스 모드~~ | 사이드바·탭바·상태바 숨김 토글 | **구현 완료 확인**(2026-08-16 Wave I — `layout_set_shell_view`+`ShellViewState`+⌘K Z chord+Esc 복귀+전체화면/상태바 설정 2종. `docs/features/window-chrome.md` §6). 항목 종결 |
 | **Copy into New Window** | 같은 탭을 두 OS 창이 동시에 열어 상태를 공유 | 멀티 윈도우(위 항목)에서 분리된 잔여 항목. `Tab` 자체를 두 트리가 참조하는 동기화 설계가 필요해 Wave I 범위에서 제외됐다 |
 | ~~스니펫~~ | 사용자 정의 코드 조각 + Monaco completion 기여 | **구현 완료 확인**(2026-08-15 Wave F — `entities/snippet`·`widgets/snippet-editor`·`docs/features/editor.md` §10). 항목 종결 |
-| **작업 러너 패널** | `package.json` scripts / `Cargo.toml` / Makefile 감지 후 실행 | 터미널 세션 재사용. pty 도메인 위에 얹으면 된다 |
+| ~~작업 러너 패널~~ | `package.json` scripts / `Cargo.toml` / Makefile 감지 후 실행 | **구현 완료 확인(2026-08-28 감사)** — `domain/task` + `widgets/task-runner` |
 | **git 충돌 해결 UI** | 3-way merge 뷰 | Monaco DiffEditor 는 있으나 3-way 는 별개. `git.md` 2차 범위 |
 | ~~임의 두 파일 비교~~ | 파일 선택 → diff 탭 | **구현 완료 확인**(2026-08-13 갭 분석 — `src/widgets/explorer/explorer-container.tsx:254`). 항목 종결 |
 | **북마크 / 북마크 패널** | 줄 단위 북마크 + 목록 | 영속화 위치(project.json vs 별도 파일) 결정 필요 |
-| **에디터 설정 확장** | word wrap · minimap 토글 · 들여쓰기 가이드 · 줄 번호 스타일 | 현재 `code-editor.tsx` 에 **하드코딩**돼 있다. settings 필드 추가 + 설정 UI |
+| **에디터 설정 확장** | ~~word wrap · minimap 토글 · 줄 번호~~ · 들여쓰기 가이드 | word wrap·minimap·줄 번호는 **구현 완료 확인(2026-08-28 감사)** — settings 필드(`editor_minimap`·`editor_word_wrap` 등)+설정 UI. 잔여는 들여쓰기 가이드 토글뿐 |
 | **접근성** | 키보드만으로 전체 조작, 포커스 트랩, 스크린리더 라벨 | Radix 가 상당 부분 제공. 전수 점검이 필요한 성격 |
 | **pptx LibreOffice 폴백** | 외부 `soffice` 감지 후 PDF 변환 | **제외 확정**(2026-08-06). 재검토 시에만 되살린다 |
-| **remote-control** | 웹에서 프로젝트 화면 미러링 | **보류 확정**. 잠자기 중 동작이 OS 정책상 불가 — 범위 재합의가 선행돼야 한다. `docs/research/remote-control.md` |
+| ~~remote-control~~ | 웹에서 프로젝트 접근 | ~~보류 확정~~ → **W6(2026-08-12)부터 범위 재합의 후 구현 완료** — `domain/remote` WS 서버·비밀번호 인증·허용/거부 정책(d-38). 정본: `features/remote-control.md` |
 
 ## Phase 7.7 검토에서 보류된 후속 후보 (2026-08-07)
 

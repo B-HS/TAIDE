@@ -4,7 +4,7 @@
 
 ## 1. 타이틀바 (헤더)
 
-현재 `tauri.conf.json` 이 `titleBarStyle: "Transparent"` + `hiddenTitle: true` 라
+현재 `tauri.conf.json` 이 `titleBarStyle: "Overlay"` + `hiddenTitle: true` 라
 좌측에 신호등 버튼만 있고 나머지가 비어 있다.
 
 ### 1.1 구성
@@ -94,7 +94,9 @@
 - `−` / 현재 크기 / `+` / 클릭 시 기본값 리셋.
 - 값은 `settings` 도메인의 `editor_font_size` · `terminal_font_size` 에 저장 → 전 에디터·터미널에 즉시 반영.
 - 터미널은 크기 변경 후 **반드시 `fit.fit()`** 을 호출한다(`terminal.md` §7 함정 16).
-- 하한은 `MIN_FONT_SIZE`(6). 상한도 둔다(예: 48) — 매직넘버 금지, 상수로.
+- 하한·상한은 `shared/constants/code-font-size.ts` 의 `MIN_CODE_FONT_SIZE`(6)·
+  `MAX_CODE_FONT_SIZE`(48) — 매직넘버 금지, 상수로. (`shared/constants/terminal.ts` 의
+  `MIN_FONT_SIZE` 는 터미널용 별개 상수다.)
 
 ## 4. 수명주기
 

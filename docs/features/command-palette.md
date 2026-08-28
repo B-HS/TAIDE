@@ -12,8 +12,8 @@
 | (없음) | 파일 퀵오픈 | `⌘P` 로 진입. 프로젝트 파일 fuzzy 검색 |
 | `>` | 커맨드 실행 | `⌘⇧P` 로 진입. 등록된 커맨드 fuzzy 검색 |
 | `:` | 줄 이동 | `:120` → 현재 파일 120 줄 |
-| `@` | 심볼 이동 (2차) | LSP `documentSymbol` |
-| `#` | 워크스페이스 심볼 (2차) | LSP `workspaceSymbol` |
+| `@` | 심볼 이동 (구현 완료) | LSP `documentSymbol` — `CommandPaletteSymbolGroup` |
+| `#` | 워크스페이스 심볼 (구현 완료) | LSP `workspaceSymbol` — `CommandPaletteWorkspaceSymbolGroup` |
 
 - 모드 전환은 **입력값을 지우지 않고** 접두어만 붙였다 뗄 수 있어야 한다.
 - `⌘P` 로 열면 빈 문자열, `⌘⇧P` 로 열면 `>` 가 미리 채워진 상태로 연다.
@@ -25,12 +25,15 @@
 커맨드를 팔레트 컴포넌트에 하드코딩하지 않는다. `shared/lib/command-registry.ts` 에
 **등록 기반**으로 둔다.
 
+실제 타입명은 `AppCommand` 이고 제목·카테고리는 i18n 키다(`titleKey`/`categoryKey` +
+`titleDefaultValue`), 키바인딩 참조는 `keymapId`, 조건부 노출은 `isEnabled` 다. 아래는 개념 예시:
+
 ```ts
 type Command = {
-    id: string                     // 'workbench.action.reloadWindow'
-    title: string                  // '창 다시 불러오기'
-    category?: string              // '보기' — 팔레트에서 그룹 표시
-    keybinding?: string            // keymap.ts 의 id 참조 (중복 선언 금지)
+    id: string                     // 'window.reload' (§2.1 의 <영역>.<동작> 체계)
+    title: string                  // 실구현은 titleKey (i18n)
+    category?: string              // 실구현은 categoryKey (i18n)
+    keybinding?: string            // 실구현은 keymapId — keymap.ts 의 id 참조 (중복 선언 금지)
     when?: (ctx: CommandContext) => boolean   // 활성 프로젝트 유무 등
     run: (ctx: CommandContext) => void | Promise<void>
 }
@@ -41,23 +44,20 @@ type Command = {
 - 등록 지점은 앱 조립부(`app/`) — 각 도메인이 자기 커맨드를 등록해 올린다.
   플러그인(`plugins.md`)이 나중에 커맨드를 기여할 자리도 여기다.
 
-### 2.1 1차 내장 커맨드 (최소 집합)
+### 2.1 내장 커맨드 (실등록 23종 — `shared/lib/command-catalog.ts` `DEFAULT_COMMANDS` 정본)
 
-| id | 제목 |
-|----|------|
-| `workbench.action.reloadWindow` | 창 다시 불러오기 |
-| `workbench.action.restartApp` | 앱 재시작 |
-| `workbench.action.openSettings` | 설정 열기 |
-| `workbench.action.openThemeEditor` | 테마 편집기 열기 |
-| `workbench.action.toggleSidebar` | 사이드바 토글 |
-| `workbench.action.toggleTerminal` | 터미널 토글 |
-| `workbench.action.splitEditor{Up,Down,Left,Right}` | 에디터 분할 |
-| `workbench.action.closeTab` / `closeOthers` / `closeAll` | 탭 닫기 계열 |
-| `workbench.action.reopenClosedTab` | 닫은 탭 다시 열기 |
-| `project.open` / `project.close` | 프로젝트 열기·닫기 |
-| `git.commit` / `git.push` / `git.pull` / `git.sync` | git 동작 |
-| `lsp.restartServer` | LSP 서버 재시작 |
-| `plugin.reload` | 플러그인 다시 읽기 |
+id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode 식 id 는 채택하지 않았다).
+
+| 영역 | id |
+|------|-----|
+| 창·뷰 | `window.reload`, `view.toggleSidebar`, `view.toggleTerminal`, `view.explorer`, `view.git`, `view.toggleZenMode` |
+| 탭 | `tab.close`, `tab.reopenClosed`, `tab.cycleNext` / `tab.cyclePrev`, `tab.moveToNewWindow` / `tab.moveToMainWindow` |
+| 에디터 | `editor.save`, `editor.find`, `editor.split` |
+| 검색·파일 | `file.quickOpen`, `search.find`, `search.replace` |
+| 설정·기타 | `settings.open`, `keybindings.open`, `app.openSettingsFile`, `terminal.new`, `terminal.copyImeDebug` |
+
+- git 동작(commit/push/pull)·LSP 재시작·플러그인 리로드·프로젝트 열기/닫기는 팔레트 커맨드로
+  등록하지 않았다 — 각각 git 패널·설정 LSP 섹션·플러그인 매니저·사이드바 UI 로 노출된다.
 
 ## 3. 매칭·정렬
 

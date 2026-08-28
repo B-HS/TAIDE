@@ -32,7 +32,9 @@
 - 열기: Rust `file_open(path)` → 내용 + 감지 언어 id + 파일 크기. 대형 파일 판정은 Rust 가 선행:
   **2MB 또는 50,000줄 초과 시 "대형 파일 모드"** — research §9 의 축소 옵션 프리셋 적용
   (minimap·folding·bracketColorization off, `largeFileOptimizations: true` 유지) + LSP didOpen 미전송.
-  20MB 초과는 열람 전용(편집 비활성) + 안내 배너.
+  20MB 초과는 열람 전용(편집 비활성) + 안내 배너. **50MB 초과(`REFUSED_FILE_BYTES`)는 내용을
+  읽지 않고 refused 상태를 반환**하며, 바이너리 판정(`is_binary`)도 크기와 무관하게 즉시
+  refused 다(`domain/file/service.rs`).
 - 저장: `⌘S` → 모델 내용 `file_save(path, content)`. 저장 완료 시 dirty 해제·버퍼 미러 삭제.
   포맷-온-세이브는 설정 옵션(LSP formatting 연동, 기본 off — 1차).
 - **hot-exit 미러(파일 탭)**: 모델 변경 debounce `HOT_EXIT_MIRROR_DEBOUNCE_MS`(500ms,
@@ -80,10 +82,16 @@
   `HS, 4 days ago • fix: ...`. 본인 커밋은 author 를 `You` 로 치환. 미커밋 라인은
   `You, now - Uncommitted changes` (research vscode-behaviors §7).
   - 작은 토큰 파서: `?`(optional)·`|50`(truncate)·패딩 3종만 지원(동 문서 적용 가이드 6).
-- 렌더: **injected text(`after`)** 방식(research monaco §5(a)) — 커서 라인 끝에 이탤릭 흐린 텍스트.
-  `content` 는 반드시 한 줄(개행 제거 — 함정 8). `editorBlame.*` 토큰.
-- 데이터: `onDidChangeCursorPosition` debounce 300ms → `git_blame_range(path, line, line)`.
-  Rust 쪽 `(path, HEAD oid)` 캐시 + `blame_buffer` 로 미저장 편집 반영(`docs/research/git2.md` §4).
+- 렌더(실구현은 두 갈래 — `use-editor-blame.ts`):
+  - **커서 라인 blame = 하단 footer bar** — `blame-footer-bar.tsx` 의 textContent 를 직접 갱신
+    (injected text 아님 — 리렌더 없이 텍스트만 교체).
+  - **파일 전체 blame 오버레이(토글)** — `TOGGLE_BLAME_MONACO_ACTION_ID` 로 켜면
+    `createDecorationsCollection` + injected text(`after`) 로 각 라인 끝에 렌더. `content` 는
+    반드시 한 줄(개행 제거 — 함정 8). `editorBlame.*` 토큰.
+- 데이터: `onDidChangeCursorPosition` debounce → `git_blame_range(path, from, to)`.
+  Rust `blame_range` 는 매 호출 `repo.blame_file()` 직접 실행(캐시 없음)이며 **디스크 저장분
+  기준**이다 — 미저장 버퍼 편집은 반영되지 않는다(초안의 `(path, HEAD oid)` 캐시·`blame_buffer`
+  는 도입하지 않았다).
 - hover(2차): blame 텍스트 위 hover 시 커밋 상세(메시지 전문·author·SHA·날짜).
 
 ## 6. 키바인딩 (FR-D4)

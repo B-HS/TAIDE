@@ -6,8 +6,11 @@
 
 ## 1. 대상과 렌더 방식
 
-`TabKind::Preview { path, kind }` 를 신설한다. `file_open` 이 텍스트로 판정하지 못한 파일
-(현재 `FileSizeTier::Refused` 로 떨어지는 바이너리 포함)은 확장자로 preview 종류를 정한다.
+별도 `TabKind::Preview` 는 신설하지 않았다 — **기존 `TabKind::File` 탭을 그대로 쓰고, 프론트가
+확장자로 렌더러를 고른다**: `pane-node-view.tsx` 가 `resolvePreviewKind(fileName)`
+(`shared/lib/preview-kind.ts`)이 non-null 이면 Monaco 대신 `PreviewPane` 을 렌더하고, 사용자는
+`openWithOverride`(`entities/editor/open-with-registry`, 탭 메뉴 "Reopen Editor With…")로
+editor/preview 를 수동 전환한다. 판정은 `file_open` 의 크기 티어와 무관하게 확장자 기반이다.
 
 | 종류 | 확장자 | 렌더 |
 |------|--------|------|

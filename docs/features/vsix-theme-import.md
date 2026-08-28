@@ -18,8 +18,8 @@
   의 순수 로직을 `src/shared/lib/theme-convert/` 로 옮겨 CLI 스크립트와 임포트 플로우가 공유한다
   (2회 이상 사용 규칙 충족, §9).
 - 저장은 기존 `theme_save` IPC(`themes/` 디렉토리)를 재사용한다 — 임포트 테마는 사용자 로컬
-  파일이라 라이선스 번들 문제가 없다. 중복 이름 처리·관리 UI(`VsixThemeImportButton`/
-  `VsixThemeImportDialog`)도 이 웨이브에 포함된다(§9).
+  파일이라 라이선스 번들 문제가 없다. 중복 이름 처리·관리 UI(현행 컴포넌트명은 Wave I 통합
+  이후 `PluginInstallButton`/`VsixImportDialog` — §9)도 이 웨이브에 포함된다.
 
 ## 2. VSIX 포맷과 Rust 의 책임
 
@@ -142,15 +142,16 @@ JSON 은 통상 수십~수백 KB 라 여유 있게 잡았다). zip 메타데이�
 
 - `scripts/convert-vscode-theme.ts` 의 순수 변환 로직을 `src/shared/lib/theme-convert/` 로
   옮겨 CLI 스크립트와 임포트 플로우가 공유한다(2회 이상 사용 규칙 충족).
-- 임포트 UI: `VsixThemeImportButton`(파일 dialog → `vsix_extract_themes` 호출) →
-  `VsixThemeImportDialog`(변환 → 미리보기 → 중복 이름 처리 → `theme_save` IPC 로 저장,
+- 임포트 UI(Wave I 에서 테마·grammar 임포트 단일 다이얼로그로 통합 — 현행 컴포넌트명):
+  `PluginInstallButton`(`plugin-install-button.tsx`, 파일 dialog → `vsix_extract_themes` 호출) →
+  `VsixImportDialog`(`vsix-import-dialog.tsx`, 변환 → 미리보기 → 중복 이름 처리 → `theme_save` IPC 로 저장,
   `themes/` 디렉토리 재사용 — 임포트 테마는 사용자 로컬 파일이라 라이선스 번들 문제 없음).
   `src/widgets/plugin-manager/plugin-manager.tsx` 에 실배선되고(설정 화면의 PLUGINS 섹션 —
   `src/widgets/settings-view/settings-plugins-section.tsx` 가 이 위젯을 그대로 임베드).
 - i18n `settings.themeImport*` 키는 `locale/service.rs` 의 `MESSAGE_NAMESPACES` +
   `src-tauri/resources/locales/{en,ko,ja}.json` 4곳 동기로 관리한다(T2-I 외부화 반영). 실소비
-  키는 `src/widgets/plugin-manager/vsix-import-dialog.tsx` 의 6키 — 성공/저장실패/중복
-  (`themeImportSuccess`/`themeImportSaveFailure`/`themeImportDuplicate`)과 항목 단위 실패 사유
+  키는 `src/widgets/plugin-manager/vsix-import-dialog.tsx` 의 5키 — 성공/중복
+  (`themeImportSuccess`/`themeImportDuplicate`)과 항목 단위 실패 사유
   (`themeImportThemeParseFailure`/`themeImportThemeIncomplete`/`themeImportThemeContrastFailure`).
   초기 웨이브의 `themeImportButton`/`themeImportDialogTitle`/`themeImportFailure` 는 임포트 UI 가
   plugin-manager 다이얼로그로 옮겨가며 미소비가 되어 T2-I 미참조 정리에서 제거됐다(재도입 시
@@ -168,5 +169,5 @@ JSON 은 통상 수십~수백 KB 라 여유 있게 잡았다). zip 메타데이�
 `convertVscodeTheme` 의 반환에 `tokenColors`(TAIDE `Theme` 스키마 §2.1 형태)가 추가됐다.
 `readVscodeTheme` 이 `fontStyle` 원문 필드를 함께 보존하므로, VSIX 로 임포트한 테마는 변환
 시점에 버려지던 원본 TextMate 룰(및 underline 등 bold/italic 으로 표현 못 하던 fontStyle)이
-그대로 저장된다. `buildTheme`(`src/features/theme/vsix-theme-import.ts`)이 이 필드를 `theme_save`
+그대로 저장된다. `buildTheme`(`src/shared/lib/vsix-theme-import.ts` 내부 함수)이 이 필드를 `theme_save`
 페이로드에 실어 전달한다. 상세 스키마·오버레이 합성 규칙은 `docs/theme-system.md` §2.1·§4.2.2.

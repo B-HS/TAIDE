@@ -19,8 +19,9 @@
   Copied(C)는 statuses 로 검출 불가(research 확인) — 표시하지 않는다.
 - 상태 문자·색은 `git.*` 테마 토큰만 사용(하드코딩 금지).
 - 갱신 경로: watcher 가 `.git/index` 변경 → status invalidate, `.git/HEAD`·`refs/**` 변경 →
-  log·branch·ahead/behind invalidate, `.git/objects/**` 는 무시. 워킹트리 변경은 200~300ms debounce 후
-  변경 경로 pathspec 부분 갱신 + 주기적 전체 보정(rename 정확도, research 함정 절).
+  log·branch·ahead/behind invalidate, `.git/objects/**` 는 무시. 워킹트리(외부) 변경은
+  `fs:changed` 배치가 GIT.STATUS + 열린 경로의 GUTTER/DIFF 쿼리를 무효화한다(d-44 계약).
+  pathspec 부분 갱신·주기적 전체 보정은 도입하지 않았다 — status 는 매 조회 전체 스캔이다(§7).
 
 ## 2. SCM 패널 (탐색 사이드바의 Git 뷰)
 
@@ -68,7 +69,8 @@
   전부 사용자 환경 그대로). stage/unstage/discard 는 git2.
   - CLI 실패 시 stderr 를 요약해 에러 토스트 + 상세 보기(원문). push 인증 실패는
     "ssh-agent/credential helper 확인" 안내를 함께.
-  - 진행 표시: 장시간 작업(push/pull)은 헤더에 스피너 + 완료/실패 이벤트.
+  - 진행 표시: push/pull 은 mutation 의 `isPending` 으로 헤더 스피너를 그린다(별도 진행/완료
+    이벤트는 없다 — §6).
 - 커밋/푸시 후: status·log·ahead/behind invalidate 이벤트 발행.
 
 ## 4. Diff 뷰 (FR-F3)
@@ -116,11 +118,13 @@
 
 - query: `git_status`, `git_diff_file(path, mode)`, `git_diff_staged_text(projectId)`(Wave G,
   staged 0건 시 워킹트리 폴백은 Wave H — 상세는 `ai.md` §7),
-  `git_show_file(rev, path)`, `git_log(skip, take)`, `git_refs`, `git_ahead_behind`, `git_remotes`,
+  `git_show_file(rev, path)`, `git_log(skip, take)`, `git_ahead_behind`, `git_remotes`,
   `git_gutter(path)`, `git_blame_range(path, from, to)`, `git_stash_list`
 - mutation: `git_stage(paths)`, `git_unstage(paths)`, `git_discard(paths)`, `git_commit(message, opts)`,
-  `git_push`, `git_pull`, `git_fetch`, `git_stash_push/apply/pop/drop`, `git_undo_last_commit`
-- event: `git:status-changed`, `git:refs-changed`, `git:operation-progress`, `git:operation-finished`
+  `git_push`, `git_pull`, `git_fetch`, `git_stash_push/apply/drop`, `git_undo_last_commit`
+- 위 목록은 대표 발췌다 — 브랜치/태그/훙크·라인 스테이징/충돌 해석/리버트/파일 로그 등 **전체
+  커맨드 표면은 `ipc-contract.md` 가 전수 정본**이다.
+- event: `git:status-changed`, `git:refs-changed` — 이 2종이 전부다(진행/완료 이벤트 없음, §3)
 - **부팅 워처 재부착 직후 합성 `git:status-changed` 1회(d-25)**: 상세는 `ipc-contract.md` 의 같은
   항목 참조 — attach 공백 구간 git 상태 정체 보정, 실제 변경 여부 무관.
 
@@ -135,9 +139,12 @@
   대신 큐잉 — d-35 §1-b). `git_pull` 은 이 락을 잡지 않는다(전체 `begin_mutation` 유지 불변) —
   같은 repo 의 fetch-vs-pull 경합은 이전처럼 git 자체 락 실패로 남는다.
 - status 옵션 고정: `recurse_untracked_dirs(false)`, `include_ignored(false)`,
-  `exclude_submodules(true)`(서브모듈은 2차), `renames_*(true)`, `update_index(true)`.
-- 대형 리포: Rust 가 `HashMap<Path, StatusRow>` 캐시를 갖고 **변경분만** 이벤트로 emit
-  (전체 배열 반복 직렬화 금지 — research 성능 절).
+  `exclude_submodules(true)`(서브모듈은 2차), `renames_*(true)`. **`update_index` 는 의도적으로
+  켜지 않는다**(감사 R4#11 — guard 없는 status 조회 경로가 인덱스를 쓰면 가드된 뮤테이션과 경합.
+  `collect_status_rows` doc comment 정본).
+- 대형 리포: 증분 캐시 없이 `git_status` 가 매 호출 전체 스캔으로 `Vec<StatusRow>` 를 반환하고,
+  `GitStatusChanged` 이벤트는 project_id 만 담아 프론트가 status 쿼리를 통째로 무효화한다.
+  (초안의 `HashMap<Path, StatusRow>` 증분 emit 은 도입하지 않았다 — 필요가 실측되면 재론)
 
 ## 8. 범위 (1차/2차)
 

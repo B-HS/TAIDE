@@ -39,11 +39,18 @@
 
 ## 2. IPC
 
-- mutation: `lsp_spawn(spec, folders) → sessionId`, `lsp_send(sessionId, message)`,
-  `lsp_stop(sessionId)`, `lsp_restart(sessionId)`
-- query: `lsp_sessions(projectId)` (상태·서버 버전·감지 경로)
-- Channel: 세션당 1개 — 서버→클라 JSON-RPC 메시지 스트림
-- event: `lsp:session-status-changed` (starting/running/crashed/stopped — UI 상태 표시용)
+- mutation: `lsp_spawn(request: { project_id, server_id, root, owner }, on_message: Channel) → sessionId`,
+  `lsp_send(sessionId, message)`, `lsp_stop(sessionId)`, `lsp_restart(sessionId)`,
+  `lsp_confirm_reinitialize` / `lsp_report_reinitialize_failure`(자동 재핸드셰이크 확정 — §5),
+  `lsp_install(serverId)` / `lsp_install_cancel(serverId)`(서버 다운로드·설치)
+- query: `lsp_sessions(projectId)` (상태·서버 버전·감지 경로), `lsp_detect_servers`,
+  `lsp_resolve_root`
+- Channel: 세션당 1개 — 서버→클라 JSON-RPC 메시지 스트림. 세션은 owner(창 라벨) 단위로도
+  스코프된다(멀티윈도우 격리).
+- event: `lsp:session-status-changed` (starting/running/crashed/stopped — UI 상태 표시용),
+  `lsp:install-progress` (설치 진행 — 설정 화면 LSP 섹션이 소비)
+- 서버 자동 감지·설치 파이프라인: `lsp_detect_servers` → 설정 UI(`settings-lsp-section.tsx`)에서
+  설치 → `infra/lsp_install.rs` 가 다운로드·해제 → `{data_dir}/lsp/<serverId>/<version>/` 에 보관.
 
 ## 3. view — 클라이언트 (Wave A 로 갱신 — `docs/acknowledge/2026-08-14-wave-a-lsp-intelligence-contract.md`)
 
@@ -162,7 +169,10 @@
   스스로 보내는 흐름)와 달리 새 프로세스에 `initialize` 핸드셰이크를 다시 걸어줄 주체가 없다.
   `Running` 을 보고하면 view 의 기존 LSP client 는 실제로는 미초기화 상태인 서버에 요청을 계속
   보내게 된다 — `Crashed` 를 정직하게 유지해 사용자가 수동 `lsp_restart`(재핸드셰이크 포함)로
-  복구하게 한다. 근본 수정(세션 세대 이벤트로 view 가 자동으로 재핸드셰이크)은 T1-D 로 이월.
+  복구하게 한다. **근본 수정(T1-D)은 이후 구현 완료** — 세션 세대(generation) 증가를 프론트
+  `lsp-session-registry.ts` 가 감지해 자동으로 `initialize` 를 재실행하고
+  `lsp_confirm_reinitialize` 로 확정한다(실패 시 `lsp_report_reinitialize_failure`).
+  테스트: `lsp-session-registry.test.ts`.
 
 ## 6. 플러그인 확장 (FR-E3)
 

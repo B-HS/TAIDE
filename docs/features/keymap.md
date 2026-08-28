@@ -20,7 +20,7 @@
 
 ## 1. 엔트리 모델
 
-`APP_KEYMAP: KeymapEntry[]`(22건 — 기존 21건 + Wave H 신설 chord 표본 1건)의 각 엔트리:
+`APP_KEYMAP: KeymapEntry[]`(23건 — Wave H chord 표본 + Wave I `toggle-zen-mode` 2번째 chord 포함)의 각 엔트리:
 
 ```ts
 type KeymapEntry = {

@@ -55,6 +55,12 @@
 | sysinfo | 0.39 | Windows 프로세스 트리(에이전트 감지) |
 | uuid | 1.x | ProjectId·마커 파일 |
 | tauri-specta + specta + specta-typescript | **=2.0.0-rc.25 / =2.0.0-rc.25 / 0.0.12** (확정 — ADR-0011) | Rust→TS 타입 생성. **`cargo add` 기본은 v1(1.0.2)이 설치되므로 버전 명시 필수** |
+| axum + tokio-tungstenite + futures-util | 0.8 / 0.30 / 0.3 | 원격 접속 서버 (domain/remote — WS·HTTP) |
+| reqwest | 0.12 (`rustls-tls,json,stream`) | AI provider HTTP·LSP 서버 다운로드 |
+| keyring | 3 (`apple-native` 등) | OS 키체인 시크릿 저장 (AI 토큰·원격 비밀번호) |
+| sha2 / flate2 / tar / zip / xz2 | 0.10 / 1 / 0.4 / 2 / 0.1 | 아카이브 해제·체크섬 (LSP 설치·VSIX) |
+| fontdb | 0.24 | 시스템 폰트 열거 (domain/font) |
+| regex / trash / ignore | 1 / 5 / 0.4 | 검색·휴지통 삭제·ignore 규칙 |
 
 미사용 결정: tauri-plugin-fs·shell·store (view 직접 접근 불필요 — 커스텀 command 경유, ipc-contract §4·ADR-0009), deep-link(2차 — EDITOR 경로에는 부적합), updater(배포 단계에서 도입).
 

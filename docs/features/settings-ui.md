@@ -17,11 +17,17 @@ OS 마다 생김새가 다르다.
 - 좌측 TOC 는 **스크롤에 따라 현재 섹션이 하이라이트**되고, 클릭 시 해당 섹션으로 스크롤.
 - 우측 컨텐츠는 **`max-w` 를 걸지 않는다.** 대신 카드 그리드가 폭에 따라 열 수를 늘린다
   (좁으면 1열, 넓으면 2~3열). 한눈에 많이 보이는 것이 목적.
-- 섹션: 일반 / 모양(테마·폰트) / 에디터 / 터미널 / Git / LSP / 플러그인 / 키보드 / 알림 / 고급
+- 섹션(실제 12종 — `settings-view.tsx` `SETTINGS_SECTION_ID` 정본): Appearance / Language /
+  Interface / Editor / Snippets / Terminal / Keymap / LSP / AI / Plugins / Sync / Remote
 
 ### 1.2 컴포넌트 규칙 (전 OS 일관 — acknowledge §3.1)
 
-**native 폼 위젯을 직접 쓰지 않는다.** 전부 `shared/ui` 의 자체 컴포넌트로 만든다.
+**native 폼 위젯을 직접 쓰지 않는다.** 자체 컴포넌트로 만든다 — 실제 배치는 `shared/ui` 가
+아니라 대부분 `features/settings/`(`text-field`·`font-picker`·`numeric-field`·`option-picker`·
+`switch-field`·`keybinding-row`)와 `features/theme/`(`color-picker`)에 있고, `shared/ui` 에는
+`switch` 등 shadcn 계열 primitive 만 둔다. (아래 표의 개념 이름 ↔ 실제 파일명 대응:
+NumberInput→`numeric-field.tsx`, Select→`option-picker.tsx`, KeybindingInput→`keybindings-editor`
+내장 캡처 UI.)
 
 | 용도 | 컴포넌트 |
 |------|----------|

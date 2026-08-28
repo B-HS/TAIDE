@@ -143,7 +143,35 @@
       `v0.1.0` 푸시로 release.yml 트리거. 선행 = **태그 숫자 4 절대 금지 규칙 신설(사용자
       지시)** — release.yml "Verify tag contains no digit 4" 가드(버전 일치 가드보다 선행) +
       `docs/acknowledge/2026-08-28-release-tag-no-digit-4.md` 정본(버전 자체도 4 포함 스킵).
-      잔여 = CI 완주 확인(테스트→서명·공증→빌드→산출물)
+      잔여 = CI 완주 확인(테스트→서명·공증→빌드→산출물).
+      **1차 런 실패(2026-08-28)**: 가드·테스트 전부 통과 후 "Configure Apple code signing" 의
+      `base64 -d` 가 `MACOS_CERTIFICATE_P12` 디코드 실패 — 등록값 비정상(개행/CR/래핑) 추정.
+      워크플로에 공백·개행 제거 내성 패치(미커밋). 재시도 방식은 사용자 결정 대기
+      (시크릿 재등록 후 rerun / 패치 커밋 후 태그 재발행)
+- [ ] docs 전면 정합·고도화(2026-08-28, 사용자 지시 — "코드와 완벽 동기+고도화+배포·디버깅·
+      에이전트 운용 신설+세션 노하우 총정리"):
+    - [x] a. 실태 조사 — md 150개·34.3k 줄 인벤토리, 수치 재실측(커맨드 178·로케일 918×3·
+          원격 허용 157·테마 38·bun 1521/0)
+    - [x] b. 정합 감사(wf_82dd41b0 8에이전트 병렬, 168만 토큰·628 툴콜) — **발견 52건**
+          (major 26·minor 20·info 6) + missingTopics 19. ipc-contract.md 는 발견 0(완전 정합).
+          원문: 태스크 출력 `wl449dp96.output`(요지는 이 체크리스트·수정 diff 가 정본)
+    - [x] c. 불일치 수정 — 부하 큰 클레임 20건 메인 일괄 재검증(전건 일치 확인) 후 **52건 전건
+          반영**: architecture(domain 24·infra 19·어댑터 20)·data-model(로그 실경로·locales/lsp
+          디렉토리)·features 12파일(blame 실구조·titleBarStyle Overlay·팔레트 23커맨드 체계·탭
+          메뉴 실항목·lucide 아이콘·git update_index 정정·stash 3종·이벤트 2종·lsp 설치 파이프
+          라인·pty 시그니처·설정 12섹션·preview TabKind::File 재사용·CLI 항상-spawn·시크릿 제외
+          확장)·roadmap(Phase 0~7 완료 체크·Phase 8 현행화)·PRD 비목표 2건·backlog 3건·
+          tech-stack crate 표·e2e-harness(13스펙·픽스처 리포 밖·클립보드)·ADR 3건 구현 노트 코다
+    - [x] d. 신설 — `deployment.md`(release.yml 실측 파이프라인·태그 4 금지·secrets 이름)·
+          `debugging.md`(로그·HMR 함정·실증 계측 4기법·결함 클래스)·`agent-operations.md`
+          (역할 5단·계약 파이프라인·보고 불신·커밋 규칙)·`docs/README.md`(문서 지도·정본/
+          시점기록 분류)
+    - [x] e. 고도화 — 세션 노하우는 debugging.md(계측 4기법·결함 클래스)·agent-operations.md
+          (파이프라인·불신 원칙)에 집약, 구식 서술은 c 에서 일괄 정리. 미채택 잔여(보고만):
+          settings 신규 6섹션 상세 서술·AI/remote/sync ADR 소급 신설(features 문서가 정본이라
+          보류)·roadmap 7.7~7.10 소급 등재(PROCESS/계약이 정본 — 포인터 노트로 대체)
+    - [x] f. 검증(bun 1521/0·typecheck 그린)·HANDOFF/PROCESS 현행화 완료 — 산출물 33파일
+          (신설 4·수정 28·release.yml 패치 1) 미커밋, 커밋 지시 대기
 - [x] d-40 선택 행 표면 대비 정공법 — **완료(2026-08-25)**: TS 게이트 2쌍(수리-전용·임포트
       거부 구조 불가 보장)+Rust 린트 2쌍·번들 14테마 업스트림 대조 정정(nord 는 전경 원복+배경
       nord3 로 예외 없이 완전 해소 — 메인 발견)·taide-light `#6611d4`·수리 가드 강화(블로킹

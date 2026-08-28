@@ -34,27 +34,44 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   ├── ids.rs           ProjectId / PaneId / TabId (newtype, serde transparent)
     │   ├── paths.rs         앱 데이터 디렉토리 경로 규칙 (data-model.md §2)
     │   ├── constants.rs     무시 목록·파일 크기 4단계 임계값 (워처·트리·검색이 공유)
-    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈)
-    │   │   ├── app/         앱 정보 (버전·플랫폼)
-    │   │   ├── project/     프로젝트 열기/닫기/목록, capability 확장점(trait·레지스트리 — §3)
-    │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리)
-    │   │   ├── file/        파일 열기/저장/생성/이동/삭제, 크기 정책, dirty 미러
-    │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
-    │   │   ├── terminal/    pty 세션, 링버퍼, 셸 프로필, 터미널 경로 해석
-    │   │   ├── git/         status/diff/blame/log/stage/commit/push + watch.rs(무효화 분류)
-    │   │   ├── lsp/         LSP 세션 관리, 서버 감지, 루트 탐지
-    │   │   ├── search/      프로젝트 전역 텍스트 검색 (자체 병렬 스캔 + regex)
+    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈, 총 24개 — 전부 tauri 무결합)
     │   │   ├── agent/       에이전트 감지, wait 마커, CLI 설치 상태
-    │   │   ├── theme/       테마 로드/해석/내장 테마 + 사용자 테마 저장·삭제 (7.5-D)
-    │   │   ├── locale/      번역 메시지 로드/병합 + 사용자 언어팩 (7.5-H)
+    │   │   ├── ai/          AI 기능 — 자동완성·Inline Edit·커밋 메시지 (provider 3종: Codex·Ollama Cloud·OMLX)
+    │   │   ├── app/         앱 정보 (버전·플랫폼)
+    │   │   ├── file/        파일 열기/저장/생성/이동/삭제, 크기 정책, dirty 미러
     │   │   ├── font/        시스템 폰트 열거 (fontdb) (7.5-D)
+    │   │   ├── git/         status/diff/blame/log/stage/commit/push + watch.rs(무효화 분류)
+    │   │   ├── ide/         IDE MCP 서버 (Claude Code 연동 — agent-integration.md §3·§7.4)
+    │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리), 멀티 윈도우 탭 이동
+    │   │   ├── locale/      번역 메시지 로드/병합 + 사용자 언어팩 (7.5-H)
+    │   │   ├── lsp/         LSP 세션 관리, 서버 감지·설치, 루트 탐지
+    │   │   ├── plugin/      플러그인 매니페스트 로드·검증
+    │   │   ├── project/     프로젝트 열기/닫기/목록, capability 확장점(trait·레지스트리 — §3)
+    │   │   ├── remote/      원격 접속 서버 (axum WS·비밀번호 인증·허용/거부 정책·이벤트 팬아웃)
+    │   │   ├── search/      프로젝트 전역 텍스트 검색 (자체 병렬 스캔 + regex)
     │   │   ├── settings/    앱 설정
-    │   │   └── plugin/      플러그인 매니페스트 로드·검증
-    │   └── infra/           외부 자원 어댑터
+    │   │   ├── snippet/     스니펫 저장·열거
+    │   │   ├── sync/        GitHub 연동 (설정·테마·언어팩 동기화)
+    │   │   ├── system/      시스템 사용량 (CPU·메모리)
+    │   │   ├── task/        작업 러너 (package.json scripts·Makefile·Cargo.toml 감지)
+    │   │   ├── terminal/    pty 세션, 링버퍼, 셸 프로필, 터미널 경로 해석
+    │   │   ├── theme/       테마 로드/해석/번들 38종 + 사용자 테마 저장·삭제 (theme-system.md)
+    │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
+    │   │   ├── vsix/        VSIX 추출 (테마·grammar 임포트)
+    │   │   └── window/      보조 윈도우 수명주기
+    │   └── infra/           외부 자원 어댑터 (19파일)
     │       ├── pty.rs       portable-pty 래퍼 (배칭·flow control·링버퍼)
     │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
+    │       ├── lsp_install.rs  LSP 서버 다운로드·설치
     │       ├── watcher.rs   notify + debouncer (무시 목록 필터)
-    │       └── persist.rs   원자적 쓰기 (temp → fsync → rename)
+    │       ├── persist.rs   원자적 쓰기 (temp → fsync → rename)
+    │       ├── archive.rs   tar/zip/xz 해제 (LSP 설치·VSIX)
+    │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (유일한 tauri 결합 infra)
+    │       ├── crypto.rs    constant_time_eq 등 (ide·agent 가 재사용)
+    │       ├── secret.rs    OS keyring (SecretStore trait)
+    │       ├── http.rs      reqwest 래퍼
+    │       ├── clock.rs / language.rs / range_file.rs / redact.rs / root_guard.rs /
+    │       │   self_write.rs / shell_integration.rs / shell_quote.rs  (보조 유틸)
     ├── tests/               도메인 경계를 넘는 통합 테스트 (session_restore.rs) +
     │                        도메인 경계 아키텍처 테스트 (domain_boundaries.rs — 화이트리스트 기계 강제)
     └── capabilities/        Tauri 권한 정의 (최소 권한 — NFR-7)
@@ -64,12 +81,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 > - `infra/repo.rs`(git2 래퍼)는 만들지 않았다 — git2 호출이 `domain/git/service.rs` 안에 있다.
 > - `infra/proc.rs` 대신 용도별로 `infra/pty.rs` 와 `infra/lsp_proc.rs` 로 나뉘었다.
 > - `src/cli/` 가 아니라 **별도 크레이트 `crates/taide-cli`** 다 (워크스페이스 구성).
-> - 초안에 없던 도메인 5개가 추가됐다: `app`, `tree`, `agent`, 그리고 Phase 7.5 에서 `locale`·`font`.
->   `locale` 은 **테마와 완전히 같은 구조**다(내장 정의 + 사용자 파일 열거 + `extends` 부분 병합).
->   같은 문제를 두 번 푸는 대신 검증된 구조를 재사용했다.
-> - 도메인별 저장소(`TreeStore`·`TerminalStore`·`GitStore`·`LspStore`·`SearchStore`·`PluginStore`·
->   `AgentStore`)는 `state.rs` 가 아니라 각 도메인 `commands.rs` 에 정의하고 `app.manage()` 로 등록한다.
->   (병렬 구현 시 `state.rs` 충돌을 피하려는 선택 — 결과적으로 도메인 응집도가 높아졌다)
+> - 초안에 없던 도메인이 순차 추가되어 24개가 됐다: `app`·`tree`·`agent`(초기), Phase 7.5 의
+>   `locale`·`font`, 이후 웨이브에서 `ai`·`ide`·`remote`·`snippet`·`sync`·`system`·`task`·`vsix`·
+>   `window`. `locale` 은 **테마와 완전히 같은 구조**다(내장 정의 + 사용자 파일 열거 + `extends`
+>   부분 병합) — 같은 문제를 두 번 푸는 대신 검증된 구조를 재사용했다.
+> - 도메인별 저장소(`TreeStore`·`TerminalStore`·`GitStore`·`LspStore`·`SearchStore`·`AgentStore`)는
+>   `state.rs` 가 아니라 각 도메인 `commands.rs` 에 정의하고 `app.manage()` 로 등록한다.
+>   (병렬 구현 시 `state.rs` 충돌을 피하려는 선택 — 결과적으로 도메인 응집도가 높아졌다.
+>   예외: `PluginStore` 는 `domain/plugin/service.rs` 에 있다)
 
 - 각 domain 모듈은 `commands.rs`(IPC 노출) / `service.rs`(로직) / `types.rs`(직렬화 타입)로 나눈다.
   command 는 얇게: 파라미터 검증 → service 호출 → 이벤트 발행. 로직은 service 에만 둔다.
@@ -166,7 +185,7 @@ trait ProjectCapability: Send + Sync {
 ```
 src/
 ├── app/                     진입점, 프로바이더(QueryClient, 테마), 전역 레이아웃 조립
-├── widgets/                 IPC 를 소비하는 조립 블록 (비즈니스 로직 O)
+├── widgets/                 IPC 를 소비하는 조립 블록 (비즈니스 로직 O — 아래는 대표 예시, 전체 28슬라이스)
 │   ├── app-shell/           최상위 셸 조립 (사이드바 | 탐색 | 에디터 영역)
 │   ├── app-sidebar/         프로젝트 목록·아이콘 상태·세로 DND
 │   ├── editor-area/         pane 트리 렌더 + 탭 바 + 단일 DndContext (탭 DND·5분할 드롭)
@@ -177,7 +196,10 @@ src/
 │   ├── git-panel/           changes·graph·commit UI
 │   ├── diff-pane/           diff 탭 (Monaco DiffEditor)
 │   ├── settings-view/       설정 화면
-│   └── command-palette/     ⌘⇧P / ⌘P
+│   ├── command-palette/     ⌘⇧P / ⌘P
+│   └── ...                  (그 외: plugin-manager·task-runner·theme-editor·keybindings-editor·
+│                             preview-pane·problems-panel·outline-panel·search-editor·file-history·
+│                             commit-file-diff·claude-diff-pane·snippet-editor·window-chrome 등)
 ├── features/                순수 표시 컴포넌트 (props+콜백만 — 비즈니스 로직 X)
 ├── entities/                IPC 데이터 계층 (도메인별)
 │   └── {domain}/
@@ -187,7 +209,7 @@ src/
 └── shared/                  ui(shadcn vendored)·hooks·constants·lib·api(생성 bindings)
     ├── api/bindings.ts      **tauri-specta 생성물** (커밋 대상, 직접 수정 금지)
     ├── lib/monaco/          monaco setup(worker 배선)·테마 파생 — **monaco 접근은 반드시 이 경유**
-    ├── lib/lsp/             자체 경량 LSP 클라이언트 + Monaco 어댑터 10종 (ADR-0007)
+    ├── lib/lsp/             자체 경량 LSP 클라이언트 + Monaco 어댑터 20종 (ADR-0007)
     └── constants/           query-key(중앙 관리)·platform·terminal
 ```
 
