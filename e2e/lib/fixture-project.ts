@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import type { Page } from '@playwright/test'
 import { buildChildProcessEnv } from './child-process-env'
 import { invokeIpc } from './ipc'
-import { E2E_TMP_DIR } from './paths'
+import { E2E_FIXTURE_PROJECTS_DIR } from './paths'
 
 const execFileAsync = promisify(execFile)
 
@@ -69,7 +69,7 @@ type ProjectOpenResult = {
 }
 
 /**
- * Creates a throwaway git repository under `e2e/.tmp/<runId>/`, seeded with a small, deterministic
+ * Creates a throwaway git repository under `E2E_FIXTURE_PROJECTS_DIR/<runId>/` (OS temp dir — outside the Vite watch root, see `paths.ts`), seeded with a small, deterministic
  * fixture module pair, then opens it as a TAIDE project over IPC. Every spec gets its own fresh
  * instance — this is what lets fixture-project teardown (`closeFixtureProject`) stand in for the
  * "close only the tabs/state a test created" isolation rule without per-tab bookkeeping: nothing
@@ -98,7 +98,7 @@ export const createFixtureProject = async (page: Page) => {
     const previousActiveProjectId = await invokeIpc<string | null>(page, 'project_get_active')
 
     const runId = randomUUID()
-    const rootDir = path.join(E2E_TMP_DIR, runId)
+    const rootDir = path.join(E2E_FIXTURE_PROJECTS_DIR, runId)
     await mkdir(rootDir, { recursive: true })
 
     for (const [relativePath, content] of Object.entries(FIXTURE_FILES)) {

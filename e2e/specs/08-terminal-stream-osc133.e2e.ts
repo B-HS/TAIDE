@@ -31,7 +31,16 @@ test('터미널에 명령을 입력하면 셸이 실행되고 OSC133 데코레�
 
     await terminal.click()
     const markerPath = path.join(fixtureProject.rootDir, MARKER_FILE_NAME)
-    await page.keyboard.type(`echo ${MARKER_CONTENT} > ${JSON.stringify(markerPath)}`)
+    /**
+     * Clipboard paste, not `page.keyboard.type()` — the same WKWebView composition-event corruption
+     * spec 01 documents (`docs/bug/2026-08-06-wkwebview-ime-composition.md`) hits this command line
+     * too (reproduced 2026-08-27, deterministic under load): stray spaces appear around the many
+     * `-` characters in the UUID fixture path and the marker text, so the quoted redirect target no
+     * longer matches `markerPath` and the poll below never sees the file. A paste delivers the
+     * command to xterm byte-for-byte in one clipboard event.
+     */
+    await page.evaluate((command) => navigator.clipboard.writeText(command), `echo ${MARKER_CONTENT} > ${JSON.stringify(markerPath)}`)
+    await page.keyboard.press(KEY_CHORD.PASTE)
     await page.keyboard.press('Enter')
 
     try {

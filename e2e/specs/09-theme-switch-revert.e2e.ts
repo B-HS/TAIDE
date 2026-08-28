@@ -32,7 +32,16 @@ test('테마를 전환하면 CSS 변수와 settings.themeId 가 반영되고, �
 
     const activeButton = page.locator('button[aria-pressed="true"]').first()
     await expect(activeButton).toBeVisible()
-    const originalThemeName = await activeButton.innerText()
+    /**
+     * First line only: a theme button's `innerText` is multiline ("<name>\n<Dark|Light badge>"),
+     * but Playwright's `filter({ hasText })` matches against `textContent`, where those two spans
+     * concatenate with no separator ("Monokai DimmedDark") — a multiline needle can never match
+     * it, so the revert locator below would resolve to zero elements forever (reproduced on the
+     * first end-to-end clean run of this spec, 2026-08-27). The name line alone is unique enough:
+     * even when the original theme is one of the two builtins, the aria-pressed filter picks the
+     * right button.
+     */
+    const originalThemeName = (await activeButton.innerText()).split('\n')[0]
     const backgroundBefore = await readEditorBackgroundVar(page)
 
     const themeIdBefore = (await invokeIpc<{ themeId?: string }>(page, 'settings_get')).themeId
