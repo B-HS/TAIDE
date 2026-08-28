@@ -73,6 +73,14 @@ const BUNDLED_THEME_SOURCES: &[(&str, &str)] = &[
         include_str!("../../../resources/themes/vscode-quiet-light.json"),
     ),
     ("darcula", include_str!("../../../resources/themes/darcula.json")),
+    (
+        "visual-studio-cpp-dark",
+        include_str!("../../../resources/themes/visual-studio-cpp-dark.json"),
+    ),
+    (
+        "visual-studio-cpp-light",
+        include_str!("../../../resources/themes/visual-studio-cpp-light.json"),
+    ),
 ];
 
 const COLOR_NAMESPACES: &[(&str, &[&str])] = &[
@@ -989,10 +997,10 @@ mod tests {
     }
 
     /// The full theme catalog surfaced to users: every bundled JSON theme (`bundled_themes()`,
-    /// 36 today) plus the two Rust-literal builtin themes (`builtin_dark()`/`builtin_light()`),
+    /// 38 today) plus the two Rust-literal builtin themes (`builtin_dark()`/`builtin_light()`),
     /// which `bundled_themes()` alone omits. Production code (`list_themes`, `builtin_by_id`)
     /// already assembles builtin + bundled + user themes itself; this test-only helper exists so
-    /// the data-quality lints below share one 38-theme iteration source instead of each hand-rolling
+    /// the data-quality lints below share one 40-theme iteration source instead of each hand-rolling
     /// its own `bundled_themes().chain(...)`. See
     /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b — before this helper,
     /// all five lints below iterated `bundled_themes()` only, so a defect exclusive to
@@ -1373,7 +1381,7 @@ mod tests {
     /// `isDistinctFromBodyForeground`) already runs a full CIE76 `deltaE76` check with a 2.3
     /// just-noticeable-difference threshold on every *derived* candidate before a bundled JSON is
     /// ever written, so this Rust lint deliberately does not re-implement CIE76: across the current
-    /// 38-theme catalog (36 bundled + 2 builtin, since
+    /// 40-theme catalog (38 bundled + 2 builtin, since
     /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b widened this lint's
     /// iteration source from `bundled_themes()` to `theme_catalog()`) the identical-color defect
     /// always manifests as exact hex equality (ΔE 0.0), and the next-lowest real distinctness value
@@ -1445,7 +1453,7 @@ mod tests {
     /// on the TS side, for the same `hexToRgb` reason).
     ///
     /// Not compositing the *foreground* argument (`panel.matchHighlight` or `list.foreground`, per
-    /// caller) is justified empirically, same as before: across the current 38-theme catalog (36
+    /// caller) is justified empirically, same as before: across the current 40-theme catalog (38
     /// bundled JSON files plus the two builtin Rust literals), every `panel.matchHighlight` and
     /// `list.foreground` value is a plain 6-digit opaque hex today (verified by direct scan when
     /// `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-c added the two
@@ -1529,7 +1537,7 @@ mod tests {
     /// WCAG contrast gate (3) for `panel.matchHighlight` vs `panel.background`, ported from TS
     /// `validateOutputColors`'s `matchHighlight` pair (`contrast.ts`'s `CONTRAST_PAIRS`) — see
     /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-c. Runs over the full
-    /// 38-theme catalog (36 bundled + 2 builtin, via `theme_catalog()`), closing the structural gap
+    /// 40-theme catalog (38 bundled + 2 builtin, via `theme_catalog()`), closing the structural gap
     /// the opacity-only `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above leaves: an opaque
     /// 6-digit hex can still be arbitrarily low-contrast, which is exactly how `taide-light`'s
     /// `panel.matchHighlight` (`#df8e1d`, 2.15 against `panel.background` `#e6e9ef`) shipped
@@ -1629,7 +1637,7 @@ mod tests {
     /// gap `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §0 identified: a theme
     /// can pass the `panel.background` axis (the unselected row) while still rendering illegible search/
     /// palette match emphasis the moment that same row is selected (`nord`'s `1.00` being the extreme
-    /// case — see the exemption above). Runs over the full 38-theme catalog via `theme_catalog()`, same
+    /// case — see the exemption above). Runs over the full 40-theme catalog via `theme_catalog()`, same
     /// as every other lint in this module.
     #[test]
     fn 카탈로그_테마는_panel_매치_하이라이트가_선택_행_배경과_최소_대비를_가진다() {

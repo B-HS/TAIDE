@@ -183,6 +183,15 @@ values, which are re-expressed under TAIDE's own token names.
 
 ---
 
+## Visual Studio 2019 (C++) Dark / Light
+
+- Bundled as: `visual-studio-cpp-dark`, `visual-studio-cpp-light`
+- Source: https://github.com/microsoft/vscode-cpptools
+- License: MIT
+- Copyright (c) Microsoft Corporation
+- Note: source themes declare no `terminal.ansi*` colors; filled with VS
+  Code's official default dark/light ANSI palettes (see `docs/theme-system.md` §8.2).
+
 ## Full MIT License Text
 
 The MIT License (MIT) applies to all themes listed above (copyright holders
