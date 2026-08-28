@@ -75,6 +75,11 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
   2회 컴파일하는데, 모바일용 `crate-type`(staticlib·cdylib)의 비해시 산출물이 충돌 —
   데스크톱에 불요한 crate-type 제거로 해소(모바일 빌드 재개 시 `[lib] crate-type` 복원 필요).
   `BINDINGS_PATH` dead_code 는 사용처와 동일한 `#[cfg(any(debug_assertions, test))]` 게이트로 해소.
+- **"no .app bundle found" (자립성 검증 스텝)**: 루트 워크스페이스라 cargo 산출물은
+  `<repo>/target/` 이다 — `src-tauri/target/...` 을 보던 초기 경로 결함으로 v0.1.0 2차 런이
+  실패했다(2026-08-28 수정: 검증·수집 경로와 rust-cache workspaces 를 루트 기준으로 정정,
+  구식 `src-tauri/Cargo.lock` 중복 락 제거). 이 런에서 **서명·공증 포함 빌드 자체는 통과** —
+  시크릿·빌드 경로는 검증 완료 상태다.
 - 태그 재시도: 실패한 태그 런의 재실행(rerun)은 **태그 시점의 워크플로**로 돈다 — 워크플로
   수정을 반영하려면 태그를 새 커밋으로 다시 발행해야 한다(미발행 draft 상태라면 태그
   삭제·재푸시 가능 — 사용자 승인 필수).

@@ -49,7 +49,7 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
               with:
-                  workspaces: src-tauri
+                  workspaces: '.'
                   shared-key: release
                   save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
@@ -116,9 +116,9 @@ jobs:
 
             - name: Verify bundle is self-contained
               run: |
-                  APP=$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -1)
+                  APP=$(find target/release/bundle/macos -maxdepth 1 -name '*.app' | head -1)
                   if [ -z "$APP" ]; then
-                    echo "no .app bundle found under src-tauri/target/release/bundle/macos" >&2
+                    echo "no .app bundle found under target/release/bundle/macos (workspace-root target)" >&2
                     exit 1
                   fi
                   STATUS=0
@@ -136,7 +136,7 @@ jobs:
             - name: Collect artifacts
               run: |
                   mkdir -p dist-release
-                  cp src-tauri/target/release/bundle/dmg/*.dmg dist-release/
+                  cp target/release/bundle/dmg/*.dmg dist-release/
                   # GitHub는 릴리스 에셋 이름의 공백을 점으로 바꿔 서빙하므로, SHA256SUMS 가 실제 파일명과
                   # 어긋나지 않도록 업로드 전에 미리 리네임한다
                   for f in dist-release/*' '*; do
