@@ -33,6 +33,7 @@ use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
+#[cfg(any(debug_assertions, test))]
 const BINDINGS_PATH: &str = "../src/shared/api/bindings.ts";
 
 /// Statically assembles the [`domain::project::capability::ProjectCapability`] implementations
