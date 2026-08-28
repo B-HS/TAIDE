@@ -188,17 +188,24 @@ jobs:
         runs-on: macos-latest
         timeout-minutes: 15
         steps:
+            - uses: actions/checkout@v4
+
             - uses: actions/download-artifact@v4
               with:
                   name: taide-dmg
                   path: dist-release
 
+            # Release notes are mandatory: docs/release-notes/<tag>.md is the release body.
+            - name: Verify release notes exist
+              run: |
+                  NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+                  if [ ! -f "$NOTES" ]; then
+                    printf 'missing release notes: %s — write them before tagging (docs/deployment.md §3)\n' "$NOTES" >&2
+                    exit 1
+                  fi
+
             - uses: softprops/action-gh-release@v2
               with:
                   draft: true
                   files: dist-release/*
-                  body: |
-                      TAIDE ${{ github.ref_name }} (macOS Apple Silicon)
-
-                      서명되지 않은 빌드의 경우 최초 실행 시 다음 명령으로 격리 속성을 해제해야 합니다:
-                      `xattr -cr "/Applications/TAIDE.app"`
+                  body_path: docs/release-notes/${{ github.ref_name }}.md
