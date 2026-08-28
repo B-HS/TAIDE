@@ -169,6 +169,10 @@
           `<repo>/target/`(로컬 실물+1차 런 collision 경로로 이중 확증). 수정: 검증·수집 경로
           정정 + rust-cache workspaces 루트화 + 구식 `src-tauri/Cargo.lock`(5539줄 vs 루트
           6592줄) 제거 → 태그 3차 재발행
+    - [x] 3차 런(33158589219): 경로 수정 유효 — 자립성 게이트가 실결함 적발: Homebrew
+          `libssl/libcrypto`(git2 ssh/https)·`liblzma`(xz2) 동적 링크. 수정 = git2
+          `vendored-openssl`·xz2 `static` → 로컬 release 재빌드 otool **외부 링크 0** 확증·
+          debug 워크스페이스 1130/0 → 태그 4차 재발행
 - [ ] docs 전면 정합·고도화(2026-08-28, 사용자 지시 — "코드와 완벽 동기+고도화+배포·디버깅·
       에이전트 운용 신설+세션 노하우 총정리"):
     - [x] a. 실태 조사 — md 150개·34.3k 줄 인벤토리, 수치 재실측(커맨드 178·로케일 918×3·

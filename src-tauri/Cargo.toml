@@ -19,7 +19,7 @@ tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-window-state = "2"
 
-git2 = { version = "0.21", default-features = false, features = ["ssh", "https", "vendored-libgit2"] }
+git2 = { version = "0.21", default-features = false, features = ["ssh", "https", "vendored-libgit2", "vendored-openssl"] }
 log = "0.4"
 notify = "8.2"
 notify-debouncer-full = "0.7"
@@ -41,7 +41,7 @@ sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-xz2 = "0.1"
+xz2 = { version = "0.1", features = ["static"] }
 
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "0.0.12"

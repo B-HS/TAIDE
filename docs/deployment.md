@@ -80,6 +80,11 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
   실패했다(2026-08-28 수정: 검증·수집 경로와 rust-cache workspaces 를 루트 기준으로 정정,
   구식 `src-tauri/Cargo.lock` 중복 락 제거). 이 런에서 **서명·공증 포함 빌드 자체는 통과** —
   시크릿·빌드 경로는 검증 완료 상태다.
+- **"non-system dylib linkage" (자립성 검증 스텝)**: 바이너리가 Homebrew dylib 를 동적
+  링크한 경우다 — v0.1.0 3차 런이 `libssl/libcrypto`(git2 ssh/https 의 libssh2 계열)와
+  `liblzma`(xz2)로 실패했다. 수정: git2 `vendored-openssl`·xz2 `static`(2026-08-28, 로컬
+  otool 로 외부 링크 0 확증). **새 네이티브 의존을 추가할 때는 vendored/static 여부를 반드시
+  확인**하라 — 이 게이트가 최종 방어선이다.
 - 태그 재시도: 실패한 태그 런의 재실행(rerun)은 **태그 시점의 워크플로**로 돈다 — 워크플로
   수정을 반영하려면 태그를 새 커밋으로 다시 발행해야 한다(미발행 draft 상태라면 태그
   삭제·재푸시 가능 — 사용자 승인 필수).

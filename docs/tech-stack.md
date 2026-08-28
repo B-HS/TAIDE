@@ -47,7 +47,7 @@
 | tauri-plugin-single-instance | "2" | CLI/중복 실행 (agent-integration) |
 | tauri-plugin-opener | "2" | Finder 열기·외부 링크 |
 | portable-pty | 0.9 | 터미널 pty (ADR-0005) |
-| git2 | 0.21 (`features = ["ssh","https","vendored-libgit2"]`, Linux 배포 + `vendored-openssl`) | Git 읽기·stage (ADR-0006 — **feature 미지정 시 push 인증 런타임 실패**) |
+| git2 | 0.21 (`features = ["ssh","https","vendored-libgit2","vendored-openssl"]` — **전 플랫폼 vendored**: v0.1.0 3차 런에서 Homebrew libssl 동적 링크가 자립성 게이트에 적발돼 정적화) | Git 읽기·stage (ADR-0006 — **feature 미지정 시 push 인증 런타임 실패**) |
 | notify + notify-debouncer-full | 8.2 / 0.7 (stable 짝) | 파일 와처 (9.x/0.8.x 는 rc — 미사용) |
 | tokio | 1.x (`fs,io-util,process,sync`) | async 런타임 |
 | serde / serde_json / thiserror | 1 / 1 / 2 | 직렬화·에러 |
@@ -58,7 +58,7 @@
 | axum + tokio-tungstenite + futures-util | 0.8 / 0.30 / 0.3 | 원격 접속 서버 (domain/remote — WS·HTTP) |
 | reqwest | 0.12 (`rustls-tls,json,stream`) | AI provider HTTP·LSP 서버 다운로드 |
 | keyring | 3 (`apple-native` 등) | OS 키체인 시크릿 저장 (AI 토큰·원격 비밀번호) |
-| sha2 / flate2 / tar / zip / xz2 | 0.10 / 1 / 0.4 / 2 / 0.1 | 아카이브 해제·체크섬 (LSP 설치·VSIX) |
+| sha2 / flate2 / tar / zip / xz2 | 0.10 / 1 / 0.4 / 2 / 0.1(`static` — Homebrew liblzma 동적 링크 차단) | 아카이브 해제·체크섬 (LSP 설치·VSIX) |
 | fontdb | 0.24 | 시스템 폰트 열거 (domain/font) |
 | regex / trash / ignore | 1 / 5 / 0.4 | 검색·휴지통 삭제·ignore 규칙 |
 
