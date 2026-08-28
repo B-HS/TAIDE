@@ -185,7 +185,16 @@
       수용 반영 wf_bf67d2be(F1~F4·F7·F8·F12·F13 코드 반영, F5·F6·F9~F11·F14 는 메인
       문서·계약 기록) → **메인 2차 검증 그린**(verify 전 사다리·vite build·bun 1532/0 —
       keyring identifier 파생 주입·에러 포워딩 1행 승격·e2e 설치본 pid 제외·버전 0.1.1
-      3파일+CI 가드 확장 실물 확인). 로컬 tauri build 산출 → 사용자 재설치 대기:
+      3파일+CI 가드 확장 실물 확인). 사용자 결정 "배포후확인"(로컬 설치 생략) → 3분할 커밋
+      (`7fc8a23` fix·`ffeb198` ci·`06f2f05` docs)·병합·푸시 → v0.1.0 폐기(draft·태그) →
+      **`v0.1.1` 완주**(4-job 병렬 첫 실전 — wall-clock 약 10분). v0.1.1 실기: **d-47 해소
+      확인**, d-48 증상 확장(색상 전무+호버 겹침) → 메인 원격 프로브(브라우저 동일 번들 =
+      정상 → CSP 논스의 unsafe-inline 무효화 확정, 계약 §4) → `dangerousDisableAssetCspModification
+      ["style-src"]` 1라인 수정 → 로컬 빌드 재설치 **실기 통과(2026-08-29) — 3건 전부 종결**.
+      이어서 사용자 결정 2건: ① identifier `net.gumyo.taide`(.dev) 개명(wf_0bb0f027 —
+      전수 grep 분류·검증 그린·데이터 2.1M 이관, acknowledge 2026-08-29 정본) ② 릴리스 노트
+      의무화(`docs/release-notes/v<tag>.md` = Release 본문, 부재 시 release job 실패 게이트 +
+      v0.1.2 노트 작성). v0.1.2 로컬 빌드·이관 검증 대기 → 커밋·태그:
     - [ ] d-47 LSP 감지 실패 — **원인 확정(코드 실물)**: 감지가 `std::env::var_os("PATH")`
           프로세스 PATH 만 봄 → Finder 실행 GUI 앱은 launchd 최소 PATH 라 ~/.cargo/bin 등
           불가시. dev(터미널·풀 PATH)만 정상이던 이유. 수정 = 부팅 시 로그인 셸 PATH 해석·병합

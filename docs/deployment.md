@@ -26,9 +26,12 @@
 2. **`src-tauri/tauri.conf.json` 과 `src-tauri/Cargo.toml` 의 `version` 을 동시 갱신**·커밋
    (CI 가드가 태그와 두 파일 모두의 일치를 강제 — 앱 자가 보고 버전 드리프트 방지) +
    `package.json` version 도 동기.
-3. 검증 사다리 통과 확인 — `bun run verify` + `bunx vite build`.
-4. 태그 생성·푸시: `git tag v<version> && git push origin v<version>`.
-5. Actions 에서 Release 런 완주 확인(job 별 타임아웃: 테스트 20/45분·build 75분·release 15분)
+3. **릴리스 노트 작성 — `docs/release-notes/v<version>.md`** (CI release job 이 이 파일을
+   Release 본문으로 사용하며, **없으면 릴리스가 실패**한다. 하이라이트·수정 사항·설치 안내 구성
+   — v0.1.2 파일이 표본).
+4. 검증 사다리 통과 확인 — `bun run verify` + `bunx vite build`.
+5. 태그 생성·푸시: `git tag v<version> && git push origin v<version>`.
+6. Actions 에서 Release 런 완주 확인(job 별 타임아웃: 테스트 20/45분·build 75분·release 15분)
    → draft Release 검토 후 수동 공개.
 
 ## 4. CI 파이프라인 (release.yml — 4-job 병렬, 2026-08-28 재편)
@@ -93,4 +96,5 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
 
 | 태그 | 일자 | 비고 |
 |------|------|------|
-| `v0.1.0` | 2026-08-28 | **완주(4차 런 `33160035704`)** — 서명·공증 enabled·자립성 통과·`TAIDE_0.1.0_aarch64.dmg`+SHA256SUMS draft Release 생성(공개는 수동). 실패 이력: 1차 시크릿 base64 → 2차 번들 경로 → 3차 Homebrew dylib(§7 트러블슈팅 3건의 출처). Prompt Spark 아이콘·번들 테마 38·커맨드 181 시점 |
+| `v0.1.1` | 2026-08-28 | **완주(런 `33166793025`) — 4-job 병렬 CI 첫 실전**: test-frontend 24s·test-rust 6m41s·build 9m59s·release 13s(wall-clock 약 10분, 이전 단일 job 16m54s 대비 단축). d-47(GUI PATH)·d-48 계측(에러 로그 포워딩)·d-49(dev 분리) 반영본. draft 생성 — 실기 확인(d-47·d-48) 후 공개 |
+| `v0.1.0` | 2026-08-28 | ~~폐기~~(draft·태그 삭제 — 설치 실기에서 d-47~49 발견). 4차 런에서 파이프라인 자체는 완주. 실패 이력: 1차 시크릿 base64 → 2차 번들 경로 → 3차 Homebrew dylib(§7 트러블슈팅 3건의 출처) |

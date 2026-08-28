@@ -7,11 +7,12 @@
 
 > dev(`bun run tauri dev`)와 설치본(prod)은 identifier 가 갈라진다(계약 d-49) — 로그·
 > `app_data_dir`·keyring·window-state 가 서로 다른 디렉토리에 쓰인다. 이 문서의 실행·계측 절차는
-> 전부 dev 기준이다.
+> 전부 dev 기준이다. (구 `dev.taide.app`/`dev.taide.app.dev` — 2026-08-29 `net.gumyo.taide`/
+> `net.gumyo.taide.dev` 로 개명)
 
-| 항목 | dev (`dev.taide.app.dev`) | 설치본/prod (`dev.taide.app`) |
-|------|---------------------------|-------------------------------|
-| 경로 | `~/Library/Logs/dev.taide.app.dev/TAIDE.log` | `~/Library/Logs/dev.taide.app/TAIDE.log` |
+| 항목 | dev (`net.gumyo.taide.dev`) | 설치본/prod (`net.gumyo.taide`) |
+|------|------------------------------|----------------------------------|
+| 경로 | `~/Library/Logs/net.gumyo.taide.dev/TAIDE.log` | `~/Library/Logs/net.gumyo.taide/TAIDE.log` |
 | 특성 | UTC 타임스탬프 · 40KB 회전(tauri-plugin-log) | 동일 |
 | 활용 예 | 원격 접속 서버 포트 발견(`원격 접속 서버 기동: port=` 라인 — e2e 하네스도 이 라인을 파싱), 부팅 시퀀스·에러 추적, 프론트 에러(d-48 — `console.error`/`console.warn`·`window` `error`/`unhandledrejection` 포워딩) | 좌동 — devtools 가 없는 릴리스 빌드에서 이 로그가 유일한 진단 창구 |
 
@@ -51,7 +52,7 @@
 - 실행: `TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e` (비밀번호는 셸 프로필 export 권장.
   로그인 무재시도·5회 실패 시 60초 잠금). 앱은 사전에 떠 있어야 하며 포트는 하네스가
   로그(§1)에서 자동 발견한다. 사용법 정본: `docs/quality-assurance/2026-08-18-e2e-harness.md`.
-- **픽스처 루트는 `~/Library/Caches/dev.taide.app.dev/e2e-fixtures`** — Vite watch 루트 밖이면서
+- **픽스처 루트는 `~/Library/Caches/net.gumyo.taide.dev/e2e-fixtures`** — Vite watch 루트 밖이면서
   FSEvents 감시가 되는 위치여야 한다. `os.tmpdir()`(`/var/folders`)은 macOS FSEvents 미감시로
   기각(실측), 리포 안은 Vite full-reload 유발로 기각. 정본 JSDoc: `e2e/lib/paths.ts`.
 - 기지 리스크: 앱 재시작 직후 첫 런은 spec 05 가 vtsls 콜드 인덱싱으로 실패할 수 있다(직후

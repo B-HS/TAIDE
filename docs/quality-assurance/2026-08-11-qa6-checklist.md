@@ -39,7 +39,7 @@
 
 ## W3 — AI Provider·auto-tab·GitHub 동기화
 - [ ] 설정 AI 섹션: Ollama Cloud API key 저장(재시작 후 유지 — keychain), Codex access token 저장(whoami 검증)
-- [ ] settings.json 파일에 토큰이 없는지 직접 확인 (`~/Library/Application Support/dev.taide.app.dev/settings.json`)
+- [ ] settings.json 파일에 토큰이 없는지 직접 확인 (`~/Library/Application Support/net.gumyo.taide.dev/settings.json` — 구 `dev.taide.app.dev`, 2026-08-29 개명)
 - [ ] auto-tab: 에디터 타이핑 시 ghost text 표시 → Tab 수락, 빠른 타이핑 시 요청 폭주 없음
 - [ ] Codex provider 로 모델 목록·완성 실동작 (Business 토큰)
 - [ ] GitHub 동기화: PAT 연결 → 업로드 → gist 생성 확인 → 설정 변경 후 다운로드 복원, 충돌 2택
@@ -506,7 +506,7 @@
       전송되지 않는가(skippedFiles 에 파일명만 나열)
 - [ ] (자동완성 회귀) 설정 필드 리네임(`aiAutoTabProvider`→`aiProvider` 등) 이후에도 기존 auto-tab
       ghost text 제안이 그대로 동작하는가(W3 체크리스트 재확인)
-- [ ] (프롬프트 오버라이드) `~/Library/Application Support/dev.taide.app.dev/prompts/inline-edit-default.json`
+- [ ] (프롬프트 오버라이드) `~/Library/Application Support/net.gumyo.taide.dev/prompts/inline-edit-default.json`
       또는 `commit-message-default.json` 을 직접 작성해 두면(스키마: `{version, system, user}`)
       재시작 후 그 프롬프트로 요청이 나가는가(네트워크 탭/프록시로 직접 확인은 어려우므로, 시스템
       프롬프트에 눈에 띄는 문구를 넣어 응답 스타일이 바뀌는지로 간접 확인해도 됨)
