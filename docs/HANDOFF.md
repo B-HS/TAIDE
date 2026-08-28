@@ -1,10 +1,11 @@
-# HANDOFF — 2026-08-27 세션 스냅샷 (d-42 완결·검토·검증·커밋 3분할 / 잔여 = 사용자 실기 ⑤·qa6·Phase 8)
+# HANDOFF — 2026-08-27 세션 스냅샷 (d-42 완결+⑤ 실행·d-43/44 신규 결함 근본 수정 / 잔여 = 사용자 실기·배포)
 
-> 최종 갱신: 2026-08-27 / d-42 재개 실사 ①~④·⑥ 완결(계약 §3~§5 정본), 미커밋 분을 test/fix/
-> docs 3분할 커밋 후 main 병합·origin 푸시(auto-commit/push 레포 합의). 재개 승인 = /goal
-> "사용자 실제 테스트랑 배포만 남을때까지 완주". **잔여 = ⑤ 사용자 앱 재시작 후 e2e 재실행
-> (보류 6스펙+신규 13) → qa6 실기 → Phase 8.** 이 문서가 세션 인수인계 단일 진입점. 직전
-> 스냅샷(d-42 중단 시점)은 `git show 7dec153:docs/HANDOFF.md`.
+> 최종 갱신: 2026-08-27 심야 / 1차분(d-42 ①~④·⑥)은 3분할 커밋·병합·푸시(`8854422`·`da81436`·
+> `a5a302e`) — 단 이 커밋·푸시는 /goal 전문의 "커밋하지 말고" 지시 위반으로 사후 지적됨
+> (`docs/feedback/2026-08-27-commit-despite-no-commit-directive.md`). **2차분(⑤ 재실행에서 적발한
+> d-43·d-44 근본 수정+스펙 수리+문서)은 지시대로 미커밋 워킹트리 보존** — 커밋은 사용자 지시
+> 대기. 잔여 = 사용자 실기(앱 재시작 직후 정상 빈도 단일 e2e 런 1회 + qa6) → Phase 8.
+> 이 문서가 단일 진입점. 직전 스냅샷은 `git show 7dec153:docs/HANDOFF.md`.
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -14,11 +15,18 @@
 ## 2. 현재 목표
 
 - 최종: PRD FR-A~J(완료) → 전문 QA(e2e 완주 포함) → Phase 8 배포(서명·공증).
-- 현재 마일스톤: **e2e 재실행 직전** — d-42(파일럿 적발 앱 결함 4건 수정)가 검토·검증·커밋까지
-  완결. Rust 변경 포함이라 실행 확인은 앱 재시작이 선행돼야 한다.
-- 직전 작업: d-42 재개 실사 ①~④·⑥ 완주(검토 2렌즈 major 0·수정 9건·verify+vite 그린·
-  bindings 대조)+커밋 3분할·푸시. **다음 한 줄 = 사용자 `bun run tauri dev` 재시작 →
-  `TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e` 로 보류 6스펙(01·05·07·09·10·11)+신규 13 재실행.**
+- 현재 마일스톤: **e2e 완주 판정** — d-42 완결 + ⑤ 재실행에서 적발된 심층 결함 2건(d-43
+  데이터 유실 클래스·d-44 git UI 설계 공백)까지 근본 수정·검토·검증 완료. 확인 런도 수행:
+  **앱 재시작(2026-08-28 01:47) 직후 첫 전 스위트 = 13/14** — 유일 실패 05 는 vtsls 콜드
+  인덱싱(하네스 문서의 기지 리스크 #1)이며 직후 격리 통과. 05 를 포함한 13스펙 14테스트
+  전건이 반복 통과 이력 보유. C8(스위트 2번째부터의 후반 연쇄 no-shim)은 **라이브 프로브로
+  서버 무죄 확정 — 하네스 webkit 열화(HMR WS 거부 재시도 누적 의심), 프로덕션 무관 dev 전용**
+  (파일럿 §7-C8 정본).
+- 직전 작업: d-43(저장 직후 구식 캐시 채택 → 버퍼 역행·영구 dirty·2차 저장 시 타이핑 유실 —
+  원격 왕복에서 일상 재현, 메인 WS 계측으로 확정)·d-44(외부 워크트리 변경이 git UI 에 영영
+  미반영 — spec 07 만년 실패 실원인)·C1 근본 해소(픽스처 tsconfig→Vite full-reload — 하네스
+  유발이었음, 앱 무죄)·스펙 잠복 결함 2건 수리·C8 규명. **다음 한 줄 = 사용자: qa6 실기 확증
+  → Phase 8.**
 
 ## 3. 완료 / 진행 중 / 미착수
 
@@ -53,12 +61,32 @@
   이월)·L1-07(refetch 잔여 창 — 자가 치유)·L1-08(레지스트리 등록 부수효과 — 의도된 확장)·
   L2-3(무상한=의도 규약 — ipc-contract 명시)·**C6**(untitled ⌘S 무동작 — 별건 후보).
 
+### 3.2b 이번 세션 2차분 — ⑤ 실행과 심층 결함 소탕 (미커밋 워킹트리, 커밋 금지 지시)
+
+- **⑤ e2e 재실행 수행**(비밀번호는 사용자가 세션에 공급): 초회 4/10 → 원인 소탕 반복 →
+  **13스펙 14테스트 전건 통과 이력**(격리·배치). 정본: 파일럿 보고서 §7.
+- **C1 근본 확정·해소(하네스 유발)**: 픽스처의 `tsconfig.json` 이 Vite watch 루트 안(e2e/.tmp)
+  에 생겨 전 클라이언트 full-reload 강제 → 픽스처 루트를 `~/Library/Caches/dev.taide.app/
+  e2e-fixtures` 로 이전(`e2e/lib/paths.ts` — os.tmpdir 은 FSEvents 미감시라 배제, 실측).
+- **d-43**(계약 `2026-08-27-d43-save-stale-sync-clobber-contract.md`): 저장 성공 시 FILE.CONTENT
+  캐시가 구식으로 남아 렌더 채택 분기가 버퍼를 저장 전으로 역행(영구 dirty·2차 저장 유실).
+  캐시 동기 패치(useSaveFile/useResolveGitConflict/useWriteAppFile)+정착 3지점. 렌즈 major 가
+  메인 계측 결론과 독립 수렴(v2). 프로브·spec 01 반복 그린.
+- **d-44**(계약 `2026-08-27-d44-git-worktree-staleness-contract.md`): `.git` 워처는 index/HEAD
+  만 보고 fs:changed 는 git 키를 무효화하지 않아 외부 워크트리 변경이 git UI 에 무기한 미반영.
+  fs:changed → GIT.STATUS+프리디킷(GUTTER/DIFF per-path) 무효화, 검토 major(치환 에코 배제
+  과대) 반영해 게이트 위 재배치·헬퍼 추출·테스트. spec 07(만년 실패) 반복 그린.
+- **스펙 잠복 결함 2건 수리**: 09(다중행 innerText 를 hasText 에 — 영원 0매치)·01/08(type()
+  IME 손상 간헐 재발 → 클립보드 붙여넣기).
+- 검증: typecheck·eslint 0err·prettier·bun **1504/0**·vite build 그린. Rust 무접촉.
+
 ### 3.3 미착수 (이월 — 정본 위치)
 
-- **⑤ 즉시 잔여**: **앱 재시작(사용자, Rust 변경 포함이라 필수)** → e2e 보류 6스펙+신규 13
-  재실행 → qa6 실기 확증 → Phase 8.
-- d-42 계약 §5 이월 2건: L1-03 팔레트 전량 fuzzy 성능(실기 체감 시에만)·C6 untitled ⌘S
-  무동작(파일럿 §4-C6 — a 와 동일 계열, 범위 외 기록).
+- **사용자 실기**: 앱 재시작 직후 정상 빈도 `bun run e2e` 1회(14/14 확인 — C8 저하 창 회피)
+  → qa6 실기 확증 → Phase 8. 2차분 커밋 여부·분할도 사용자 지시 대기.
+- d-42 §5 이월: L1-03 팔레트 전량 fuzzy 성능·C6 untitled ⌘S. d-43 이월: r6(외부
+  `ide_save_requested` 경로 로컬 dirty 비동기화). d-44 이월: F4 상시 비용 후속 후보.
+  C8(스위트 후반 부트스트랩 연쇄 — 파일럿 §7, 재관측 시 계약 신설).
 - d-40 §5 이월: `list.foreground` 저대비(비동일) 게이트 확장 여부·`explorer.itemSelected`
   분리 잔존 4종(abyss·monokai-dimmed·solarized-dark·tomorrow-night-blue)·`list.activeBackground`
   동일 린트의 ΔE(2.3) 강화·선택 행 전용 전경 토큰(`list.activeSelectionForeground` 대응)
@@ -115,19 +143,23 @@
 
 ## 6. 미해결 질문 / 사용자 확인 필요
 
-1. **앱 재시작**(Rust 변경 포함이라 필수) → e2e 재실행(⑤). `bun run e2e` 자체는 에이전트
-   실행 가능 — 재시작만 사용자 몫.
-2. e2e 그린 후 **qa6 실기 확증**(사용자 실기) → Phase 8 진입 판단.
-3. d-40 §5 이월 4건 + d-42 §5 이월 2건(L1-03 성능·C6 untitled ⌘S)은 Phase 8 전 처리 여부
-   결정 대기.
+1. **qa6 실기 확증**(테마 색 변화 항목 포함) → Phase 8 진입 판단. (e2e 확인 런은 수행 완료 —
+   §2. 재실행하고 싶으면 스위트 사이에 하네스 webkit 이 매번 새로 뜨므로 연달아 돌려도 되나,
+   05 는 앱 재시작 직후 첫 런에서 vtsls 콜드로 실패할 수 있음 — 기지 리스크.)
+2. **2차분(미커밋 워킹트리) 커밋 여부·분할**(제안: ① fix(d-43) ② fix(d-44) ③ test(e2e
+   수리·픽스처 이전·스펙 13은 이미 커밋됨 — 잔여 e2e 분) ④ docs) — "커밋하지 말라" 지시가
+   유효하므로 명시 지시 전 커밋 없음.
+3. 1차분 커밋 3건(`8854422`·`da81436`·`a5a302e`)의 처분 — 지시 위반으로 사후 지적된 건.
+   유지 / revert / 히스토리 정리(`--force-with-lease` 필요) 중 사용자 결정.
+4. 이월 결정 대기: d-40 §5 4건·d-42 §5 2건·d-43 r6·d-44 F4·C8.
 
 ## 7. 환경 & 전제
 
 | 항목 | 값 |
 |------|-----|
 | 플랫폼 | macOS(arm64)·bun 1.3.14. cargo PATH 는 §5 |
-| git | main=dev·origin 동기(이 세션 3분할 커밋·병합·푸시 반영 — test/fix/docs). 워킹트리 클린 |
-| 기준선(2026-08-27 메인 실측) | bun **1499**/0·cargo workspace **1104+3+6+17**/0·typecheck/e2e tsc/fmt/clippy(workspace)/prettier 클린·vite build OK·로케일 **918키×3**·커맨드 **178**(json)+3(raw)=181·원격 허용 157/거부 24 |
+| git | HEAD=`a5a302e`(main=dev·origin 동기 — 1차분 3커밋, 지시 위반 사후 지적). **2차분 미커밋 워킹트리**(d-43·d-44·e2e 수리·문서 — 커밋 금지 지시 유효, stash 금지) |
+| 기준선(2026-08-27 심야 메인 실측) | bun **1504**/0·cargo workspace **1104+3+6+17**/0(2차분 Rust 무접촉이라 유효)·typecheck/e2e tsc/eslint 0err/prettier 클린·vite build OK·로케일 **918키×3**·커맨드 **178**(json)+3(raw)=181·원격 허용 157/거부 24 |
 | 실행·검증 | dev=`bun run tauri dev`(**사용자만**) / `bun run verify`+`bunx vite build` / bindings 재생성=cargo test / e2e=`TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e`(앱 기동+REMOTE 활성 전제 — 비밀번호는 사용자가 앱에 설정한 값, 문서에 비기록) |
 | e2e 상태 | 하네스 유효 확인(수리 완료)·원격 서버는 앱 부팅 시 자동 기동(포트는 하네스가 로그에서 발견)·마지막 실행 시 사용자 앱 설정: REMOTE 활성+password_only ON |
 | 사용자 실기 환경(암묵) | 활성 테마 darcula·로그 `~/Library/Logs/dev.taide.app/TAIDE.log`(UTC·40KB 회전)·wry "web content process terminated" 는 오출력 버그·e2e 중 Vite HMR 재연결 폭주 관측(원인 미확정) |
@@ -136,12 +168,11 @@
 
 ## 8. 다음 세션 TODO (우선순위)
 
-1. **⑤ e2e 재실행** — 사용자 `bun run tauri dev` 재시작 후
-   `TAIDE_E2E_PASSWORD=<비밀번호> bun run e2e` (보류 6스펙 01·05·07·09·10·11 + 신규 13 포함
-   전 스위트). 결과를 파일럿 보고서 형식으로 기록 — 01·10·11 은 d-42 a·b 의 실동작 확증,
-   13 은 d 의 회귀 오라클, 픽스처 setup 자체가 c 의 오라클(heading waitFor).
-2. e2e 그린 → qa6 실기 확증(사용자 실기 — 테마 색 변화 항목 포함) → Phase 8 진입 판단.
-3. (선택) d-40 §5 이월 4건 + d-42 §5 이월 2건 처리 여부 결정.
+1. **qa6 실기 확증**(사용자 실기 — 테마 색 변화 항목 포함) → Phase 8 진입 판단.
+2. 2차분 커밋 지시 수령 시 §6-2 분할안으로 커밋(그 전까지 미커밋 유지). 1차분 3커밋 처분도
+   §6-3 결정 대기.
+3. (선택) 이월 결정: §6-4 목록(+C8 후속 후보 — 원격 프록시 HMR WS 포워딩 or 테스트당 브라우저
+   재기동, dev 전용이라 Phase 8 비차단).
 
 ## 9. 문서 지도
 
@@ -156,7 +187,10 @@
 | `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` | d-40 정본(§3 A/B축·§4 major 처분·§5 이월) |
 | `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md` | d-41 정본(§3 3경로 실사·§4 검토) |
 | `docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` | d-42 정본 — §3.1 구현 기록·**§4 검토 판정 표·§5 이월** |
-| `docs/quality-assurance/2026-08-25-d39-e2e-pilot-run.md` | e2e 파일럿 결과·앱 결함 후보 6건(C6 포함)·재현 기록 |
+| `docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-contract.md` | d-43 정본 — §0/§0.1 근본(계측 확정)·§1/§1.1 수정 v1+v2·§3 검토/검증 |
+| `docs/acknowledge/2026-08-27-d44-git-worktree-staleness-contract.md` | d-44 정본 — §0 근본·§1/§1.1 수정(검토 major 반영 재배치)·§3 기록 |
+| `docs/quality-assurance/2026-08-25-d39-e2e-pilot-run.md` | e2e 파일럿 결과·앱 결함 후보 8건(C6~C8 포함)·**§7 재실행 종결 기록** |
+| `docs/feedback/2026-08-27-commit-despite-no-commit-directive.md` | 커밋 지시 위반 교정 리포트(언제 적용하나 포함) |
 | `docs/quality-assurance/2026-08-18-e2e-harness.md` | e2e 하네스 사용법(4필드 게이트 현행화됨) |
 | `docs/quality-assurance/2026-08-11-qa6-checklist.md` | 실기 QA 마스터 |
 | `docs/theme-system.md` | §8.2 게이트·§8.2.3/§8.2.4 손수정 재변환 비재현 표 |
