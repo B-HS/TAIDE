@@ -194,7 +194,9 @@
       이어서 사용자 결정 2건: ① identifier `net.gumyo.taide`(.dev) 개명(wf_0bb0f027 —
       전수 grep 분류·검증 그린·데이터 2.1M 이관, acknowledge 2026-08-29 정본) ② 릴리스 노트
       의무화(`docs/release-notes/v<tag>.md` = Release 본문, 부재 시 release job 실패 게이트 +
-      v0.1.2 노트 작성). v0.1.2 로컬 빌드·이관 검증 대기 → 커밋·태그:
+      v0.1.2 노트 작성). 커밋 4분할(`5bdbf7c` fix·`d8fd5b6` feat·`f0d6782` ci·`5e67d85`
+      docs)·v0.1.1 폐기 → **`v0.1.2` 완주(런 33190360486, 9m35s — 릴리스 노트 본문 실림).
+      설치본 결함 3건 전 종결. 잔여 = draft 공개(사용자)·qa6 계속**:
     - [ ] d-47 LSP 감지 실패 — **원인 확정(코드 실물)**: 감지가 `std::env::var_os("PATH")`
           프로세스 PATH 만 봄 → Finder 실행 GUI 앱은 launchd 최소 PATH 라 ~/.cargo/bin 등
           불가시. dev(터미널·풀 PATH)만 정상이던 이유. 수정 = 부팅 시 로그인 셸 PATH 해석·병합
