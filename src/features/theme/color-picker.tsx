@@ -1,6 +1,8 @@
 import type { FC, FocusEvent, KeyboardEvent, PointerEvent } from 'react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { Hsv } from '@shared/lib/color'
+import { commitDragHsv, nextDragHsvFromHuePointer, nextDragHsvFromSquarePointer } from '@features/theme/color-picker-drag'
 import { hexToHsv, hsvToHex, isTransparentKeyword, isValidThemeColorValue, normalizeHexColor } from '@shared/lib/color'
 import { cn } from '@shared/lib/cn'
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover'
@@ -35,18 +37,34 @@ type ColorPickerProps = {
     onChange: (value: string) => void
 }
 
+/**
+ * Contract `docs/acknowledge/2026-08-28-d45-theme-preview-flood-contract.md` §4: a pointer drag
+ * across the SV square or hue slider must feed the global theme-preview pipeline
+ * (`onChange` → `setDraft` → `useThemePreview.setPreview` → full re-interpretation, root CSS
+ * variables, shiki re-tokenization) **zero times** while the pointer is down — that flood, not the
+ * per-move work itself, was the source of the native window's residual freeze even after §1-3's
+ * IPC-gate/coalescing/debounce layer. `dragHsv` tracks the pointer live (thumb position, SV
+ * background, and the ARIA value text) entirely inside this component; `onChange` fires exactly
+ * once, on pointerup (or an up-without-move click) — see {@link commitDragHsv}. Keyboard stepping
+ * and hex blur remain immediate commits: both are low-frequency discrete events, not the drag flood
+ * this contract targets.
+ */
 export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     const { t } = useTranslation()
     const squareRef = useRef<HTMLDivElement>(null)
     const hueRef = useRef<HTMLDivElement>(null)
     const hexInputRef = useRef<HTMLInputElement>(null)
     const [hexError, setHexError] = useState(false)
+    const [dragHsv, setDragHsv] = useState<Hsv | null>(null)
 
     const isTransparent = isTransparentKeyword(value)
     const hsv = !isTransparent ? hexToHsv(value) : null
-    const activeHue = hsv?.h ?? DEFAULT_HUE
-    const activeSaturation = hsv?.s ?? DEFAULT_SATURATION
-    const activeValue = hsv?.v ?? DEFAULT_VALUE
+    const committedHue = hsv?.h ?? DEFAULT_HUE
+    const committedSaturation = hsv?.s ?? DEFAULT_SATURATION
+    const committedValue = hsv?.v ?? DEFAULT_VALUE
+    const activeHue = dragHsv?.h ?? committedHue
+    const activeSaturation = dragHsv?.s ?? committedSaturation
+    const activeValue = dragHsv?.v ?? committedValue
     const hueSwatchHex = hsvToHex({ h: activeHue, s: 1, v: 1 })
 
     const updateFromSquare = (event: { clientX: number; clientY: number }) => {
@@ -54,7 +72,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
         if (!rect) return
         const s = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
         const v = Math.min(1, Math.max(0, 1 - (event.clientY - rect.top) / rect.height))
-        onChange(hsvToHex({ h: activeHue, s, v }))
+        setDragHsv((prev) => nextDragHsvFromSquarePointer(prev, activeHue, s, v))
     }
 
     const updateFromHue = (event: { clientX: number }) => {
@@ -62,10 +80,11 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
         if (!rect) return
         const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
         const h = ratio * FULL_HUE_DEGREES
-        onChange(hsvToHex({ h, s: activeSaturation, v: activeValue }))
+        setDragHsv((prev) => nextDragHsvFromHuePointer(prev, activeSaturation, activeValue, h))
     }
 
     const handleSquarePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) return
         event.currentTarget.setPointerCapture(event.pointerId)
         updateFromSquare(event)
     }
@@ -76,6 +95,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     }
 
     const handleHuePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) return
         event.currentTarget.setPointerCapture(event.pointerId)
         updateFromHue(event)
     }
@@ -83,6 +103,19 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     const handleHuePointerMove = (event: PointerEvent<HTMLDivElement>) => {
         if (event.buttons !== 1) return
         updateFromHue(event)
+    }
+
+    const commitDrag = () => {
+        const hex = commitDragHsv(dragHsv)
+        if (hex) onChange(hex)
+        setDragHsv(null)
+    }
+
+    const discardDrag = () => setDragHsv(null)
+
+    /** A forced close (e.g. Escape) unmounts the capturing slider before pointerup/lostpointercapture can reach it — discard `dragHsv` here as the third trigger alongside {@link discardDrag}. */
+    const handlePopoverOpenChange = (open: boolean) => {
+        if (!open) setDragHsv(null)
     }
 
     const handleSquareKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -129,7 +162,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
     }
 
     return (
-        <Popover>
+        <Popover onOpenChange={handlePopoverOpenChange}>
             <Tooltip>
                 <TooltipTrigger asChild>
                     <PopoverTrigger asChild>
@@ -170,6 +203,9 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                     })}
                     onPointerDown={handleSquarePointerDown}
                     onPointerMove={handleSquarePointerMove}
+                    onPointerUp={commitDrag}
+                    onPointerCancel={discardDrag}
+                    onLostPointerCapture={discardDrag}
                     onKeyDown={handleSquareKeyDown}
                     className='relative touch-none rounded-sm'
                     style={{
@@ -193,6 +229,9 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                     aria-valuenow={Math.round(activeHue)}
                     onPointerDown={handleHuePointerDown}
                     onPointerMove={handleHuePointerMove}
+                    onPointerUp={commitDrag}
+                    onPointerCancel={discardDrag}
+                    onLostPointerCapture={discardDrag}
                     onKeyDown={handleHueKeyDown}
                     className='relative touch-none rounded-full'
                     style={{

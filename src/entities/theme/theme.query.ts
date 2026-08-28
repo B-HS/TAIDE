@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { QueryClient } from '@tanstack/react-query'
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ResolvedTheme } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -7,6 +8,7 @@ import { readSystemTheme } from '@shared/lib/system-appearance'
 import { diffThemeValues } from '@shared/lib/theme-draft'
 import type { ThemeDraft } from '@shared/lib/theme-draft'
 import { createExternalStoreBridge } from '@shared/lib/bridge/external-store-bridge'
+import { createFrameCoalescer } from '@shared/lib/frame-coalescer'
 
 export const themeListQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.THEME.LIST, queryFn: listThemes })
 
@@ -53,13 +55,48 @@ const themePreviewStore = createExternalStoreBridge<ResolvedTheme | null>(null)
 
 export const useThemePreviewValue = () => useSyncExternalStore(themePreviewStore.subscribe, themePreviewStore.getSnapshot)
 
+type ThemePreviewPushPayload = { draft: ThemeDraft; queryClient: QueryClient }
+
+/**
+ * Coalesces `setPreview` calls to at most one full re-resolve + store publish per animation frame,
+ * keeping only the most recently pushed draft — a color-picker drag calls `setPreview` once per
+ * `pointermove`, and each call re-runs `toResolvedThemeFromDraft` (a full theme object rebuild) and
+ * publishes to {@link themePreviewStore}, which fans out to every subscriber (`ThemeProvider`'s CSS
+ * variable + shiki + window-appearance re-apply). Applying every intermediate draft floods the main
+ * thread the same way the per-move native window-appearance IPC did before it was gated (contract
+ * d-45 §0, §1#2).
+ *
+ * Lives at module scope, next to {@link themePreviewStore}, instead of per-`useThemePreview()`-call
+ * (contract d-45 F-04): the store this guards is already a module singleton, so a coalescer scoped to
+ * one caller cannot protect a second caller's still-pending frame — that second caller's own
+ * `clearPreview` would only cancel its own coalescer, leaving the first caller's already-pushed frame
+ * free to flush a stale draft back into the shared store after the second caller believed it had
+ * cleared it (the exact flood-reversal shape contract d-45 §1's review question 2 asks about, just one
+ * hook instance removed). Matching this coalescer's lifetime to the store's — both live for the whole
+ * process — closes that gap no matter how many components call `useThemePreview()`. `queryClient`
+ * travels inside each pushed payload rather than being captured once at creation, since module scope
+ * has no hook to read it from.
+ */
+const themePreviewCoalescer = createFrameCoalescer<ThemePreviewPushPayload>(({ draft, queryClient }) => {
+    const baseTheme = queryClient.getQueryData<ResolvedTheme>(QUERY_KEY.THEME.DETAIL(draft.extendsId))
+    themePreviewStore.setValue(toResolvedThemeFromDraft(draft, baseTheme?.tokenColors))
+})
+
+/**
+ * Thin per-call wrapper around the module-singleton {@link themePreviewCoalescer} and
+ * {@link themePreviewStore} — it holds no state of its own, only `useQueryClient()` to fill in each
+ * push's payload. `clearPreview` cancels any not-yet-flushed draft before clearing the store, so a
+ * pending frame from a drag that just ended can never re-publish a stale preview after the editor
+ * closed (contract d-45 §1 review question 2).
+ */
 export const useThemePreview = () => {
     const queryClient = useQueryClient()
+
     return {
-        setPreview: (draft: ThemeDraft) => {
-            const baseTheme = queryClient.getQueryData<ResolvedTheme>(QUERY_KEY.THEME.DETAIL(draft.extendsId))
-            themePreviewStore.setValue(toResolvedThemeFromDraft(draft, baseTheme?.tokenColors))
+        setPreview: (draft: ThemeDraft) => themePreviewCoalescer.push({ draft, queryClient }),
+        clearPreview: () => {
+            themePreviewCoalescer.cancel()
+            themePreviewStore.setValue(null)
         },
-        clearPreview: () => themePreviewStore.setValue(null),
     }
 }
