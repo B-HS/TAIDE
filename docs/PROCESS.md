@@ -129,6 +129,16 @@
       cargo workspace 1130·clippy·fmt·bindings 무변경. 과거 감사 수치(15/36·ΔE 등)는 재감사
       전 유지(코드 4곳·docs 5곳 보고). 계약 `2026-08-28-d46-cpp-bundled-themes-contract.md`.
       검토 렌즈 major 1(라이선스 등재 누락 — 등재+패리티 테스트 신설)·minor 4·info 1 전건 반영(계약 §4). **실기 확인 통과(2026-08-28, 사용자: 재시작 후 테마 목록 2종 표시) — 커밋 `f3d92ce`(feat)로 종결**
+- [x] 앱 아이콘 제작 — **적용 완료(2026-08-28, 커밋 대기)**: 시안 4종 중 사용자 확정 =
+      **B "Prompt Spark"**(프롬프트 셰브론+블록 커서+AI 스파크, 다크 스쿼클). 정본
+      `src-tauri/icons/icon.svg` → Playwright(webkit) 1024 PNG 렌더(알파 보존) →
+      `bun run tauri icon` 전 세트 50파일 재생성(icns/ico/png/Square*/android/ios,
+      tauri.conf 무수정). 검증: 1024 hasAlpha·icns/ico file 판정·128px 실물 판독성·bun 그린.
+      결정 기록 `docs/acknowledge/2026-08-28-app-icon-prompt-spark.md`. 후속: dev 재시작에도
+      구 아이콘 잔존 → 근본 = 아이콘이 cargo rerun 추적 밖(프록 매크로 fs::read 미추적 +
+      tauri-build 목록 부재, 소스 실물 확정) → `build.rs` 에 `rerun-if-changed=icons` 1줄
+      (acknowledge 문서 § 기록). **실기 확인 통과(2026-08-28, 사용자: dev 재시작 후 도크
+      아이콘 반영) — 종결**
 - [x] d-40 선택 행 표면 대비 정공법 — **완료(2026-08-25)**: TS 게이트 2쌍(수리-전용·임포트
       거부 구조 불가 보장)+Rust 린트 2쌍·번들 14테마 업스트림 대조 정정(nord 는 전경 원복+배경
       nord3 로 예외 없이 완전 해소 — 메인 발견)·taide-light `#6611d4`·수리 가드 강화(블로킹
