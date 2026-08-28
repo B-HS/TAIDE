@@ -19,6 +19,19 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            # ABSOLUTE RULE: release tags must NEVER contain the digit 4 (owner directive, 2026-08-28).
+            # Version numbers containing 4 are skipped entirely (e.g. 0.3.x -> 0.5.0).
+            # See docs/acknowledge/2026-08-28-release-tag-no-digit-4.md
+            - name: Verify tag contains no digit 4
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  case "$GITHUB_REF_NAME" in
+                    *4*)
+                      printf 'tag %s contains the forbidden digit 4 — release tags must never include 4 (see docs/acknowledge/2026-08-28-release-tag-no-digit-4.md)\n' "$GITHUB_REF_NAME" >&2
+                      exit 1
+                      ;;
+                  esac
+
             - name: Verify tag matches app version
               if: startsWith(github.ref, 'refs/tags/')
               run: |
