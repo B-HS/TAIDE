@@ -148,6 +148,22 @@
       `base64 -d` 가 `MACOS_CERTIFICATE_P12` 디코드 실패 — 등록값 비정상(개행/CR/래핑) 추정.
       워크플로에 공백·개행 제거 내성 패치(미커밋). 재시도 방식은 사용자 결정 대기
       (시크릿 재등록 후 rerun / 패치 커밋 후 태그 재발행)
+    - [x] CI 경고 2건 근본 수정(2026-08-28, 사용자 지시 — 미커밋): ① output filename collision
+          — panic="abort"×테스트 unwind 의 lib 2회 컴파일에서 모바일용 crate-type(staticlib·
+          cdylib) 비해시 산출물 충돌 → 데스크톱 불요 crate-type 제거(`src-tauri/Cargo.toml`,
+          모바일 재개 시 복원) ② `BINDINGS_PATH` dead_code — 사용처 동일 cfg 게이트. 검증:
+          cargo fmt·debug 워크스페이스 1130/0·release `--no-run` 재빌드 경고 0(전부 메인 실측)
+    - [x] 시크릿 로컬 검증 스크립트 신설(미커밋): `scripts/verify-signing-cert.sh` — 엄격 형식
+          검사(문자셋·4배수·라운드트립, 로컬 base64 관대함 우회)+CI 동일 임시 키체인 임포트+
+          아이덴티티 추출+한 줄 base64 클립보드 생성. 합성 codeSigning 인증서로 5시나리오
+          기능 검증 완료(정상/래핑/혼입/잘림/오류값). 사용자 실행 대기
+    - [x] 공증 자격 검증 스크립트 신설(미커밋): `scripts/verify-notary-credentials.sh` —
+          `xcrun notarytool history` 실인증(제출 없음)으로 APPLE_ID/앱 암호/TEAM_ID 3종 일괄
+          판정+형식 사전 경고+Apple 원문 오류 표면화. 더미 자격 실패 경로 기능 검증 완료(401
+          정상 표면화). **사용자 실기 통과(2026-08-28): 인증서·공증 자격 스크립트 모두 [통과],
+          secrets 신규 등록 완료** — 참고: 공증 스크립트 1차본의 `@env:` 문법이 notarytool
+          미지원으로 오탐 401 을 내던 결함을 수정한 뒤의 통과(직접 전달+트림+길이 진단).
+          → 태그 재발행으로 릴리스 재시도(사용자 지시)
 - [ ] docs 전면 정합·고도화(2026-08-28, 사용자 지시 — "코드와 완벽 동기+고도화+배포·디버깅·
       에이전트 운용 신설+세션 노하우 총정리"):
     - [x] a. 실태 조사 — md 150개·34.3k 줄 인벤토리, 수치 재실측(커맨드 178·로케일 918×3·

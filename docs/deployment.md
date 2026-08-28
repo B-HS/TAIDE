@@ -60,10 +60,21 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
 ## 7. 트러블슈팅
 
 - **"Configure Apple code signing" 에서 `base64: error decoding base64 input stream`**:
-  `MACOS_CERTIFICATE_P12` 등록값이 한 줄 base64 가 아닌 경우다(웹 UI 붙여넣기 중 개행·CR·76자
-  래핑 혼입). 2026-08-28 v0.1.0 1차 런이 이걸로 실패했다. 워크플로가 디코드 전 공백·개행을
-  제거하도록 내성 패치됐지만, 값 자체가 잘못됐으면 `openssl base64 -A -in cert.p12 | pbcopy` 로
-  재등록해야 한다(등록 절차 정본: `acknowledge/2026-08-19-phase8-signing-secrets.md`).
+  `MACOS_CERTIFICATE_P12` 등록값이 유효한 base64 가 아닌 경우다 — 2026-08-28 v0.1.0 1차 런이
+  이걸로 실패했다. 붙여넣기 중 base64 밖 문자(따옴표·헤더 줄)·잘림·개행 혼입이 후보다.
+  **로컬 선검증: `bash scripts/verify-signing-cert.sh <cert.p12 | base64.txt>`** — CI 와 동일한
+  임시 키체인 임포트까지 재현하고, .p12 원본을 주면 secret 용 한 줄 base64 를 클립보드에
+  만들어 준다(비밀번호는 `CERT_PASSWORD` 환경변수 또는 프롬프트). 워크플로는 디코드 전
+  공백·개행 제거 내성이 있다. 등록 절차 정본: `acknowledge/2026-08-19-phase8-signing-secrets.md`.
+- **공증 자격 3종(APPLE_ID·APPLE_APP_SPECIFIC_PASSWORD·APPLE_TEAM_ID) 선검증**:
+  `bash scripts/verify-notary-credentials.sh` — `xcrun notarytool history` 로 Apple 공증 서버에
+  실제 인증(제출 없음)해 3종을 한 번에 판정한다. 값은 프롬프트 또는 동명 환경변수로 입력,
+  실패 시 Apple 원문 오류(401 등)와 원인 후보를 출력한다.
+- **`cargo test --release` 의 output filename collision / dead_code 경고**(v0.1.0 1차 런 관측):
+  근본 = `[profile.release] panic="abort"` 와 테스트 하네스(unwind 필수)가 lib 를 한 그래프에서
+  2회 컴파일하는데, 모바일용 `crate-type`(staticlib·cdylib)의 비해시 산출물이 충돌 —
+  데스크톱에 불요한 crate-type 제거로 해소(모바일 빌드 재개 시 `[lib] crate-type` 복원 필요).
+  `BINDINGS_PATH` dead_code 는 사용처와 동일한 `#[cfg(any(debug_assertions, test))]` 게이트로 해소.
 - 태그 재시도: 실패한 태그 런의 재실행(rerun)은 **태그 시점의 워크플로**로 돈다 — 워크플로
   수정을 반영하려면 태그를 새 커밋으로 다시 발행해야 한다(미발행 draft 상태라면 태그
   삭제·재푸시 가능 — 사용자 승인 필수).
