@@ -201,6 +201,15 @@ const FONT_SIZE_MAX: u32 = 48;
 /// entry point is covered, the same defense-in-depth as [`sanitize_allowed_hosts`].
 const RECENT_SEARCHES_MAX: usize = 20;
 
+/// `editor_rulers` bounds, mirrored by the frontend's `src/shared/lib/editor-rulers.ts` so the
+/// settings screen's comma-separated input never offers a value [`sanitize_editor_rulers`] would
+/// silently drop. Column `0` is meaningless to Monaco (a ruler at the left edge) and an unbounded
+/// column or count makes it draw guides no viewport can show, so both are clamped away rather than
+/// handed to the renderer.
+const EDITOR_RULER_COLUMN_MIN: u32 = 1;
+const EDITOR_RULER_COLUMN_MAX: u32 = 1_000;
+const EDITOR_RULERS_MAX: usize = 16;
+
 fn sanitize_optional_url(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let authority = v.strip_prefix("http://").or_else(|| v.strip_prefix("https://"))?;
@@ -270,6 +279,24 @@ fn sanitize_recent_searches(mut searches: Vec<String>) -> Vec<String> {
     searches
 }
 
+/// Normalizes `editor_rulers` into the canonical form the settings screen renders back: columns
+/// outside [`EDITOR_RULER_COLUMN_MIN`]..=[`EDITOR_RULER_COLUMN_MAX`] dropped, duplicates removed,
+/// ascending, at most [`EDITOR_RULERS_MAX`] entries. Applied inside [`sanitize`] so every entry
+/// point (patch, hand-edited `settings.json`, synced gist) is covered — the same defense-in-depth
+/// as [`sanitize_allowed_hosts`]. Sorting is what makes the round-trip stable: the frontend prints
+/// the stored list straight back into its comma-separated field, so an unsorted store would
+/// rewrite the user's text on every unrelated settings change.
+fn sanitize_editor_rulers(rulers: Vec<u32>) -> Vec<u32> {
+    let mut columns: Vec<u32> = rulers
+        .into_iter()
+        .filter(|column| (EDITOR_RULER_COLUMN_MIN..=EDITOR_RULER_COLUMN_MAX).contains(column))
+        .collect();
+    columns.sort_unstable();
+    columns.dedup();
+    columns.truncate(EDITOR_RULERS_MAX);
+    columns
+}
+
 /// Merges a patch value for a "clearable" `Option<String>` settings field: `None` leaves the field
 /// untouched (the patch omitted it), `Some("")` clears it back to `None`, and any other `Some(value)`
 /// replaces it. A plain `Option<String>` patch field can otherwise only express two states (touch /
@@ -314,6 +341,7 @@ pub fn sanitize(settings: Settings) -> Settings {
         ai_omlx_base_url: sanitize_optional_url(settings.ai_omlx_base_url),
         remote_allowed_hosts: sanitize_allowed_hosts(settings.remote_allowed_hosts),
         recent_searches: sanitize_recent_searches(settings.recent_searches),
+        editor_rulers: sanitize_editor_rulers(settings.editor_rulers),
         ..settings
     }
 }
@@ -357,6 +385,17 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
             .editor_scroll_beyond_last_line
             .unwrap_or(settings.editor_scroll_beyond_last_line),
         editor_sticky_scroll_enabled: patch.editor_sticky_scroll_enabled.unwrap_or(settings.editor_sticky_scroll_enabled),
+        editor_bracket_pair_guides: patch.editor_bracket_pair_guides.unwrap_or(settings.editor_bracket_pair_guides),
+        editor_smooth_scrolling: patch.editor_smooth_scrolling.unwrap_or(settings.editor_smooth_scrolling),
+        editor_cursor_smooth_caret_animation: patch
+            .editor_cursor_smooth_caret_animation
+            .unwrap_or(settings.editor_cursor_smooth_caret_animation),
+        editor_suggest_preview: patch.editor_suggest_preview.unwrap_or(settings.editor_suggest_preview),
+        editor_rulers: patch.editor_rulers.clone().unwrap_or_else(|| settings.editor_rulers.clone()),
+        editor_diff_hide_unchanged_regions: patch
+            .editor_diff_hide_unchanged_regions
+            .unwrap_or(settings.editor_diff_hide_unchanged_regions),
+        editor_diff_show_moves: patch.editor_diff_show_moves.unwrap_or(settings.editor_diff_show_moves),
         terminal_scrollback: patch.terminal_scrollback.unwrap_or(settings.terminal_scrollback),
         terminal_cursor_style: patch.terminal_cursor_style.unwrap_or(settings.terminal_cursor_style),
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
@@ -375,6 +414,11 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
             .unwrap_or_else(|| settings.remote_allowed_hosts.clone()),
         organize_imports_on_save: patch.organize_imports_on_save.unwrap_or(settings.organize_imports_on_save),
         fix_all_on_save: patch.fix_all_on_save.unwrap_or(settings.fix_all_on_save),
+        trim_trailing_whitespace_on_save: patch
+            .trim_trailing_whitespace_on_save
+            .unwrap_or(settings.trim_trailing_whitespace_on_save),
+        insert_final_newline_on_save: patch.insert_final_newline_on_save.unwrap_or(settings.insert_final_newline_on_save),
+        editor_config_enabled: patch.editor_config_enabled.unwrap_or(settings.editor_config_enabled),
         editor_code_lens_enabled: patch.editor_code_lens_enabled.unwrap_or(settings.editor_code_lens_enabled),
         editor_semantic_highlighting: patch.editor_semantic_highlighting.unwrap_or(settings.editor_semantic_highlighting),
         editor_format_on_type: patch.editor_format_on_type.unwrap_or(settings.editor_format_on_type),
@@ -1007,6 +1051,63 @@ mod tests {
     }
 
     #[test]
+    fn on_save_정리_설정의_기본값은_둘_다_꺼짐이다() {
+        let settings = Settings::default();
+
+        assert!(!settings.trim_trailing_whitespace_on_save);
+        assert!(!settings.insert_final_newline_on_save);
+    }
+
+    #[test]
+    fn patch로_on_save_정리_설정을_변경한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            trim_trailing_whitespace_on_save: Some(true),
+            insert_final_newline_on_save: Some(true),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.trim_trailing_whitespace_on_save);
+        assert!(updated.insert_final_newline_on_save);
+    }
+
+    #[test]
+    fn on_save_정리_설정을_생략한_patch는_기존값을_보존한다() {
+        let settings = Settings {
+            trim_trailing_whitespace_on_save: true,
+            insert_final_newline_on_save: true,
+            ..Settings::default()
+        };
+
+        let updated = apply_patch(&settings, &SettingsPatch::default());
+
+        assert!(updated.trim_trailing_whitespace_on_save);
+        assert!(updated.insert_final_newline_on_save);
+    }
+
+    #[test]
+    fn editorconfig_설정의_기본값은_꺼짐이다() {
+        assert!(!Settings::default().editor_config_enabled);
+    }
+
+    #[test]
+    fn patch로_editorconfig_설정을_변경하고_생략하면_기존값을_보존한다() {
+        let enabled = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                editor_config_enabled: Some(true),
+                ..SettingsPatch::default()
+            },
+        );
+        assert!(enabled.editor_config_enabled);
+
+        let preserved = apply_patch(&enabled, &SettingsPatch::default());
+        assert!(preserved.editor_config_enabled);
+    }
+
+    #[test]
     fn patch로_semantic_하이라이팅_포매팅_emmet_설정을_변경한다() {
         let settings = Settings::default();
         assert!(settings.editor_semantic_highlighting);
@@ -1028,6 +1129,78 @@ mod tests {
         assert!(updated.editor_format_on_type);
         assert!(updated.editor_format_on_paste);
         assert!(!updated.emmet_enabled);
+    }
+
+    #[test]
+    fn 신설_에디터_표시_옵션의_기본값은_전부_vscode_파리티다() {
+        let settings = Settings::default();
+
+        assert!(!settings.editor_bracket_pair_guides);
+        assert!(!settings.editor_smooth_scrolling);
+        assert!(!settings.editor_cursor_smooth_caret_animation);
+        assert!(!settings.editor_suggest_preview);
+        assert!(settings.editor_rulers.is_empty());
+        assert!(!settings.editor_diff_hide_unchanged_regions);
+        assert!(!settings.editor_diff_show_moves);
+    }
+
+    #[test]
+    fn patch로_가이드선_스크롤_캐럿_자동완성_미리보기_diff_옵션을_변경한다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            editor_bracket_pair_guides: Some(true),
+            editor_smooth_scrolling: Some(true),
+            editor_cursor_smooth_caret_animation: Some(true),
+            editor_suggest_preview: Some(true),
+            editor_diff_hide_unchanged_regions: Some(true),
+            editor_diff_show_moves: Some(true),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert!(updated.editor_bracket_pair_guides);
+        assert!(updated.editor_smooth_scrolling);
+        assert!(updated.editor_cursor_smooth_caret_animation);
+        assert!(updated.editor_suggest_preview);
+        assert!(updated.editor_diff_hide_unchanged_regions);
+        assert!(updated.editor_diff_show_moves);
+    }
+
+    #[test]
+    fn editor_rulers는_정렬_중복제거되고_범위_밖_열은_버려진다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            editor_rulers: Some(vec![120, 80, 80, 0, EDITOR_RULER_COLUMN_MAX + 1]),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.editor_rulers, vec![80, 120]);
+    }
+
+    #[test]
+    fn editor_rulers는_최대_개수를_넘기면_잘린다() {
+        let settings = Settings::default();
+        let patch = SettingsPatch {
+            editor_rulers: Some((1..=(EDITOR_RULERS_MAX as u32 + 5)).collect()),
+            ..SettingsPatch::default()
+        };
+
+        let updated = apply_patch(&settings, &patch);
+
+        assert_eq!(updated.editor_rulers.len(), EDITOR_RULERS_MAX);
+        assert_eq!(updated.editor_rulers.first(), Some(&1));
+    }
+
+    #[test]
+    fn 손으로_편집한_settings_파일의_editor_rulers도_로드_시_정규화된다() {
+        let raw = serde_json::json!({ "version": Settings::default().version, "editorRulers": [120, 0, 80, 80] });
+
+        let parsed = sanitize(settings_from_value(raw).expect("정규화 대상 settings 는 파싱된다"));
+
+        assert_eq!(parsed.editor_rulers, vec![80, 120]);
     }
 
     #[test]

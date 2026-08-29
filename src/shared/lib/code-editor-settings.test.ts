@@ -3,7 +3,7 @@ import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 
 describe('resolveCodeEditorSettingsProps', () => {
-    test('settings 가 없으면 16개 prop 전부 기본값으로 채운다', () => {
+    test('settings 가 없으면 21개 prop 전부 기본값으로 채운다', () => {
         const props = resolveCodeEditorSettingsProps(undefined)
         expect(props.fontFamily).toBe(buildMonospaceFontStack(null))
         expect(props.fontSize).toBe(13)
@@ -20,10 +20,15 @@ describe('resolveCodeEditorSettingsProps', () => {
         expect(props.cursorBlinking).toBe('blink')
         expect(props.scrollBeyondLastLine).toBe(true)
         expect(props.stickyScroll).toBe(true)
+        expect(props.bracketPairGuides).toBe(false)
+        expect(props.smoothScrolling).toBe(false)
+        expect(props.cursorSmoothCaretAnimation).toBe(false)
+        expect(props.suggestPreview).toBe(false)
+        expect(props.rulers).toEqual([])
         expect(props.aiAutoTabEnabled).toBe(false)
     })
 
-    test('settings 값이 있으면 16개 prop 전부 그 값을 그대로 사용한다', () => {
+    test('settings 값이 있으면 21개 prop 전부 그 값을 그대로 사용한다', () => {
         const props = resolveCodeEditorSettingsProps({
             editorFontFamily: 'Fira Code',
             editorFontSize: 16,
@@ -40,6 +45,11 @@ describe('resolveCodeEditorSettingsProps', () => {
             editorCursorBlinking: 'smooth',
             editorScrollBeyondLastLine: false,
             editorStickyScrollEnabled: true,
+            editorBracketPairGuides: true,
+            editorSmoothScrolling: true,
+            editorCursorSmoothCaretAnimation: true,
+            editorSuggestPreview: true,
+            editorRulers: [80, 120],
             aiAutoTabEnabled: true,
         })
         expect(props.fontFamily).toBe(buildMonospaceFontStack('Fira Code'))
@@ -57,6 +67,11 @@ describe('resolveCodeEditorSettingsProps', () => {
         expect(props.cursorBlinking).toBe('smooth')
         expect(props.scrollBeyondLastLine).toBe(false)
         expect(props.stickyScroll).toBe(true)
+        expect(props.bracketPairGuides).toBe(true)
+        expect(props.smoothScrolling).toBe(true)
+        expect(props.cursorSmoothCaretAnimation).toBe(true)
+        expect(props.suggestPreview).toBe(true)
+        expect(props.rulers).toEqual([80, 120])
         expect(props.aiAutoTabEnabled).toBe(true)
     })
 

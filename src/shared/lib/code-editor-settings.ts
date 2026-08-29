@@ -6,6 +6,7 @@ import {
     DEFAULT_EDITOR_TAB_SIZE,
 } from '@shared/constants/code-editor'
 import { DEFAULT_CODE_FONT_SIZE } from '@shared/constants/code-font-size'
+import { NO_EDITOR_RULERS } from '@shared/lib/editor-rulers'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
 
 type CodeEditorSettingsSource = Pick<
@@ -25,6 +26,11 @@ type CodeEditorSettingsSource = Pick<
     | 'editorCursorBlinking'
     | 'editorScrollBeyondLastLine'
     | 'editorStickyScrollEnabled'
+    | 'editorBracketPairGuides'
+    | 'editorSmoothScrolling'
+    | 'editorCursorSmoothCaretAnimation'
+    | 'editorSuggestPreview'
+    | 'editorRulers'
     | 'aiAutoTabEnabled'
 >
 
@@ -50,5 +56,10 @@ export const resolveCodeEditorSettingsProps = (settings: CodeEditorSettingsSourc
     cursorBlinking: settings?.editorCursorBlinking ?? DEFAULT_EDITOR_CURSOR_BLINKING,
     scrollBeyondLastLine: settings?.editorScrollBeyondLastLine ?? true,
     stickyScroll: settings?.editorStickyScrollEnabled ?? true,
+    bracketPairGuides: settings?.editorBracketPairGuides ?? false,
+    smoothScrolling: settings?.editorSmoothScrolling ?? false,
+    cursorSmoothCaretAnimation: settings?.editorCursorSmoothCaretAnimation ?? false,
+    suggestPreview: settings?.editorSuggestPreview ?? false,
+    rulers: settings?.editorRulers ?? NO_EDITOR_RULERS,
     aiAutoTabEnabled: settings?.aiAutoTabEnabled ?? false,
 })

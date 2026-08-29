@@ -15,6 +15,15 @@ export type MonacoActionEntry = {
 }
 
 /**
+ * The two built-in cleanup actions the save pipeline reuses (`shared/lib/monaco/on-save-cleanup.ts`)
+ * so the on-save settings and these manually invokable keymap rows stay one implementation — monaco's
+ * own commands, which already track the selection through their edit and therefore keep the caret
+ * where the user left it.
+ */
+export const TRIM_TRAILING_WHITESPACE_ACTION_ID = 'editor.action.trimTrailingWhitespace'
+export const INSERT_FINAL_NEW_LINE_ACTION_ID = 'editor.action.insertFinalNewLine'
+
+/**
  * TAIDE's own `editor.addAction`-registered actions (not monaco built-ins) — `code-editor.tsx`
  * (`taide.saveFile`, `taide.toggleMinimap`), `ai-inline-edit.ts` (`taide.aiInlineEdit`), and
  * `editor-pane.tsx` (`taide.gitStageSelection`, `taide.toggleBlame`, `taide.openFileHistory`,
@@ -312,7 +321,7 @@ export const MONACO_ACTIONS: MonacoActionEntry[] = [
         defaultBindingLabel: '⌥⌘↓',
     },
     {
-        actionId: 'editor.action.insertFinalNewLine',
+        actionId: INSERT_FINAL_NEW_LINE_ACTION_ID,
         categoryKey: KEYMAP_CATEGORY.EDITOR_LINES,
         defaultLabel: 'Insert Final New Line',
         defaultBindingLabel: null,
@@ -681,7 +690,7 @@ export const MONACO_ACTIONS: MonacoActionEntry[] = [
         defaultBindingLabel: '⌃Space',
     },
     {
-        actionId: 'editor.action.trimTrailingWhitespace',
+        actionId: TRIM_TRAILING_WHITESPACE_ACTION_ID,
         categoryKey: KEYMAP_CATEGORY.EDITOR_LINES,
         defaultLabel: 'Trim Trailing Whitespace',
         defaultBindingLabel: '⌘K ⌘X',

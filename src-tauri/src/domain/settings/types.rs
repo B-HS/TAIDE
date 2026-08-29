@@ -140,6 +140,41 @@ pub struct Settings {
     pub editor_scroll_beyond_last_line: bool,
     #[serde(default = "default_true")]
     pub editor_sticky_scroll_enabled: bool,
+    /// Monaco `guides.bracketPairs` — the vertical guide lines drawn through a bracket pair's body,
+    /// a separate option from `editor_bracket_pair_colorization` (which only tints the brackets
+    /// themselves). Defaults to `false`, matching VS Code's own `editor.guides.bracketPairs`.
+    #[serde(default)]
+    pub editor_bracket_pair_guides: bool,
+    /// Monaco `smoothScrolling` — animates scroll position changes. VS Code parity default `false`.
+    #[serde(default)]
+    pub editor_smooth_scrolling: bool,
+    /// Monaco `cursorSmoothCaretAnimation`, narrowed to a toggle: `false` maps to `"off"` and
+    /// `true` to `"on"` at the frontend option boundary (`src/shared/lib/code-editor-settings.ts`).
+    /// Monaco's third value (`"explicit"`, animate only on explicit cursor moves) is deliberately
+    /// not exposed — a tri-state picker for one animation is more surface than the setting is
+    /// worth. VS Code parity default `false` (= `"off"`).
+    #[serde(default)]
+    pub editor_cursor_smooth_caret_animation: bool,
+    /// Monaco `suggest.preview` — renders the focused completion inline as ghost text ahead of the
+    /// cursor. VS Code parity default `false`.
+    #[serde(default)]
+    pub editor_suggest_preview: bool,
+    /// Monaco `rulers` — vertical guide columns. Normalized by `service::sanitize_editor_rulers`
+    /// on every entry point (patch, hand-edited `settings.json`, synced gist): out-of-range columns
+    /// dropped, duplicates removed, ascending, capped in count. Empty by default, matching VS
+    /// Code's `editor.rulers`.
+    #[serde(default)]
+    pub editor_rulers: Vec<u32>,
+    /// Monaco diff editor `hideUnchangedRegions.enabled` — collapses runs of unchanged lines.
+    /// Lives in `Settings` rather than per-diff-surface state so every diff (SCM diff pane, commit
+    /// diff, conflict compare) renders identically. VS Code parity default `false`.
+    #[serde(default)]
+    pub editor_diff_hide_unchanged_regions: bool,
+    /// Monaco diff editor `experimental.showMoves` — detects a block moved rather than
+    /// deleted+added and draws it as a move. See [`Settings::editor_diff_hide_unchanged_regions`]
+    /// for why it lives here. VS Code parity default `false`.
+    #[serde(default)]
+    pub editor_diff_show_moves: bool,
     #[serde(default = "default_terminal_scrollback")]
     pub terminal_scrollback: u32,
     #[serde(default)]
@@ -187,6 +222,30 @@ pub struct Settings {
     pub organize_imports_on_save: bool,
     #[serde(default)]
     pub fix_all_on_save: bool,
+    /// Strips trailing whitespace from every line right before the buffer is written to disk.
+    /// Applied *after* `format_on_save` so the formatter's own output is cleaned too, and shared by
+    /// every save trigger (⌘S, auto-save) — see `docs/features/editor.md` §16. VS Code parity
+    /// default `false` (`files.trimTrailingWhitespace`).
+    #[serde(default)]
+    pub trim_trailing_whitespace_on_save: bool,
+    /// Appends a final newline when the buffer's last line is not already empty, right before the
+    /// write. Ordered after [`Settings::trim_trailing_whitespace_on_save`] so a whitespace-only last
+    /// line is trimmed away first rather than counted as content to append a newline behind. VS Code
+    /// parity default `false` (`files.insertFinalNewline`).
+    #[serde(default)]
+    pub insert_final_newline_on_save: bool,
+    /// Honor a file's `.editorconfig` chain when opening it: the resolved indent properties take
+    /// precedence over `editor_detect_indentation`'s guess and over
+    /// [`Settings::editor_tab_size`]/[`Settings::editor_insert_spaces`], and its
+    /// `trim_trailing_whitespace`/`insert_final_newline` override
+    /// [`Settings::trim_trailing_whitespace_on_save`]/[`Settings::insert_final_newline_on_save`]
+    /// for that file. Defaults to `false` — VS Code has no built-in EditorConfig support either
+    /// (it ships as an extension), so off is the parity default, and it also means the chain walk
+    /// costs nothing per file open until it is asked for
+    /// (`domain::file::service::open_file`). Resolution happens at open time only; see
+    /// `docs/features/editor.md` §17.
+    #[serde(default)]
+    pub editor_config_enabled: bool,
     #[serde(default = "default_true")]
     pub editor_code_lens_enabled: bool,
     #[serde(default = "default_true")]
@@ -256,6 +315,13 @@ pub struct SettingsPatch {
     pub editor_cursor_blinking: Option<EditorCursorBlinking>,
     pub editor_scroll_beyond_last_line: Option<bool>,
     pub editor_sticky_scroll_enabled: Option<bool>,
+    pub editor_bracket_pair_guides: Option<bool>,
+    pub editor_smooth_scrolling: Option<bool>,
+    pub editor_cursor_smooth_caret_animation: Option<bool>,
+    pub editor_suggest_preview: Option<bool>,
+    pub editor_rulers: Option<Vec<u32>>,
+    pub editor_diff_hide_unchanged_regions: Option<bool>,
+    pub editor_diff_show_moves: Option<bool>,
     pub terminal_scrollback: Option<u32>,
     pub terminal_cursor_style: Option<TerminalCursorStyle>,
     pub terminal_cursor_blink: Option<bool>,
@@ -269,6 +335,9 @@ pub struct SettingsPatch {
     pub remote_allowed_hosts: Option<Vec<String>>,
     pub organize_imports_on_save: Option<bool>,
     pub fix_all_on_save: Option<bool>,
+    pub trim_trailing_whitespace_on_save: Option<bool>,
+    pub insert_final_newline_on_save: Option<bool>,
+    pub editor_config_enabled: Option<bool>,
     pub editor_code_lens_enabled: Option<bool>,
     pub editor_semantic_highlighting: Option<bool>,
     pub editor_format_on_type: Option<bool>,
@@ -351,6 +420,13 @@ impl Default for Settings {
             editor_cursor_blinking: EditorCursorBlinking::default(),
             editor_scroll_beyond_last_line: default_true(),
             editor_sticky_scroll_enabled: default_true(),
+            editor_bracket_pair_guides: false,
+            editor_smooth_scrolling: false,
+            editor_cursor_smooth_caret_animation: false,
+            editor_suggest_preview: false,
+            editor_rulers: Vec::new(),
+            editor_diff_hide_unchanged_regions: false,
+            editor_diff_show_moves: false,
             terminal_scrollback: default_terminal_scrollback(),
             terminal_cursor_style: TerminalCursorStyle::default(),
             terminal_cursor_blink: default_true(),
@@ -366,6 +442,9 @@ impl Default for Settings {
             remote_allowed_hosts: Vec::new(),
             organize_imports_on_save: false,
             fix_all_on_save: false,
+            trim_trailing_whitespace_on_save: false,
+            insert_final_newline_on_save: false,
+            editor_config_enabled: false,
             editor_code_lens_enabled: default_true(),
             editor_semantic_highlighting: default_true(),
             editor_format_on_type: false,

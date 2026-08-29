@@ -122,6 +122,13 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         editor_cursor_blinking: Some(settings.editor_cursor_blinking),
         editor_scroll_beyond_last_line: Some(settings.editor_scroll_beyond_last_line),
         editor_sticky_scroll_enabled: Some(settings.editor_sticky_scroll_enabled),
+        editor_bracket_pair_guides: Some(settings.editor_bracket_pair_guides),
+        editor_smooth_scrolling: Some(settings.editor_smooth_scrolling),
+        editor_cursor_smooth_caret_animation: Some(settings.editor_cursor_smooth_caret_animation),
+        editor_suggest_preview: Some(settings.editor_suggest_preview),
+        editor_rulers: Some(settings.editor_rulers.clone()),
+        editor_diff_hide_unchanged_regions: Some(settings.editor_diff_hide_unchanged_regions),
+        editor_diff_show_moves: Some(settings.editor_diff_show_moves),
         terminal_scrollback: Some(settings.terminal_scrollback),
         terminal_cursor_style: Some(settings.terminal_cursor_style),
         terminal_cursor_blink: Some(settings.terminal_cursor_blink),
@@ -135,6 +142,9 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         remote_allowed_hosts: Some(settings.remote_allowed_hosts.clone()),
         organize_imports_on_save: Some(settings.organize_imports_on_save),
         fix_all_on_save: Some(settings.fix_all_on_save),
+        trim_trailing_whitespace_on_save: Some(settings.trim_trailing_whitespace_on_save),
+        insert_final_newline_on_save: Some(settings.insert_final_newline_on_save),
+        editor_config_enabled: Some(settings.editor_config_enabled),
         editor_code_lens_enabled: Some(settings.editor_code_lens_enabled),
         editor_semantic_highlighting: Some(settings.editor_semantic_highlighting),
         editor_format_on_type: Some(settings.editor_format_on_type),
@@ -348,6 +358,56 @@ mod tests {
         let patch = settings_to_sync_patch(&settings);
 
         assert_eq!(patch.recent_searches, Some(vec!["needle".to_string(), "haystack".to_string()]));
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_신설_에디터_표시_옵션을_포함한다() {
+        let settings = Settings {
+            editor_bracket_pair_guides: true,
+            editor_smooth_scrolling: true,
+            editor_cursor_smooth_caret_animation: true,
+            editor_suggest_preview: true,
+            editor_rulers: vec![80, 120],
+            editor_diff_hide_unchanged_regions: true,
+            editor_diff_show_moves: true,
+            ..Settings::default()
+        };
+
+        let patch = settings_to_sync_patch(&settings);
+
+        assert_eq!(patch.editor_bracket_pair_guides, Some(true));
+        assert_eq!(patch.editor_smooth_scrolling, Some(true));
+        assert_eq!(patch.editor_cursor_smooth_caret_animation, Some(true));
+        assert_eq!(patch.editor_suggest_preview, Some(true));
+        assert_eq!(patch.editor_rulers, Some(vec![80, 120]));
+        assert_eq!(patch.editor_diff_hide_unchanged_regions, Some(true));
+        assert_eq!(patch.editor_diff_show_moves, Some(true));
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_on_save_정리_옵션을_포함한다() {
+        let settings = Settings {
+            trim_trailing_whitespace_on_save: true,
+            insert_final_newline_on_save: true,
+            ..Settings::default()
+        };
+
+        let patch = settings_to_sync_patch(&settings);
+
+        assert_eq!(patch.trim_trailing_whitespace_on_save, Some(true));
+        assert_eq!(patch.insert_final_newline_on_save, Some(true));
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_editorconfig_옵션을_포함한다() {
+        let settings = Settings {
+            editor_config_enabled: true,
+            ..Settings::default()
+        };
+
+        let patch = settings_to_sync_patch(&settings);
+
+        assert_eq!(patch.editor_config_enabled, Some(true));
     }
 
     #[test]
