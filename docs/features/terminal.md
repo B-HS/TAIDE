@@ -190,6 +190,11 @@
 - 복사/붙여넣기: 선택 시 자동 복사 옵션, `⌘V`. OSC52 지원(clipboard addon).
 - 진행률: progress addon(OSC 9;4) → 탭·앱 사이드바 뱃지에 반영 가능(2차).
 - 이미지(Sixel/IIP)·리거처는 옵션(기본 off, `storageLimit` 제한).
+- Shift+Enter → LF(`\n`) 변환(2026-08-29): xterm.js 는 kitty keyboard protocol 미지원이라
+  Shift+Enter 를 CR 로만 보낼 수 있어, Claude Code 등 TUI 의 "줄바꿈 삽입"이 불가했다.
+  `terminal-view.tsx` 의 커스텀 키 핸들러가 조합 키 없는 Shift+Enter keydown 만 LF(=Ctrl+J)로
+  변환한다. 일반 셸에선 CR/LF 모두 accept-line 이라 동작 보존. 결정 정본
+  `acknowledge/2026-08-29-terminal-shift-enter-decision.md`.
 
 ## 9. IPC
 

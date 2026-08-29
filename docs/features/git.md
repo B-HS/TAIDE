@@ -43,6 +43,9 @@
 
 - 표시: 파일명 + 흐린 디렉토리 경로 + 상태 문자(우측). Renamed 는 `old → new` 툴팁.
 - 클릭 = **Open Changes**: 해당 파일의 diff 를 preview 탭으로 연다(§4).
+- **키보드 (2026-08-29 구현)**: 행은 `role='button'` + Enter/Space 활성화(기존), ↑↓ 로 그룹을
+  가로질러 행 간 로빙 포커스 이동(`widgets/git-panel/change-row-navigation.ts` — 파일트리와 같은
+  진입 규칙: 밖에서 ↓=첫 행·↑=마지막 행, 끝에서 비순환). 포커스 행은 `focus-within` 배경으로 표시.
 - hover 액션 아이콘: Changes 그룹 `+`(stage)·`↺`(discard)·Open File,
   Staged 그룹 `−`(unstage)·Open File.
 - context menu(FR-F4):

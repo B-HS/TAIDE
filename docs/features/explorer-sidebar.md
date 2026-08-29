@@ -27,6 +27,12 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
   기록되고 layout 영속화에 포함(재시작 복원).
 - 렌더: 고정 행높이 22px, `getItemKey` = 안정 노드 id, overscan 12. 행 = 들여쓰기 + 폴더/파일
   아이콘 + 이름 + git 상태색(`explorer.git*` 토큰 — M/A/D/U/ignored 흐림).
+- **git 상태 데코레이션 (2026-08-29 구현)**: `gitStatusQueryOptions` 의 `StatusRow[]` 를
+  `widgets/explorer/file-tree-git-status.ts` 가 절대경로→상태 맵으로 유도해 행에 주입. 파일은
+  이름 색 + 우측 문자 뱃지(M/A/D/R/U/!), 디렉토리는 자식 최우선 상태의 색 + 점 뱃지(루트 제외
+  조상 전파, VS Code 파리티). 우선순위 conflicted > added > untracked > renamed > modified >
+  deleted (근거는 모듈 JSDoc). 갱신은 `git:status-changed` → `GIT.STATUS` 무효화로 자동.
+  ignored 흐림은 미구현(별도 ignore 판정 IPC 필요 — backlog).
 - 클릭 = preview 탭으로 열기, 더블클릭 = 고정 탭(FR-C4, `tabs.md` §3).
 - 키보드: ↑↓ 이동, ←→ 접기/펼치기, Enter 열기, 타이핑 시 이름 점프(typeahead).
 - context menu: 새 파일/폴더, 이름 변경(인라인 입력), 삭제(휴지통 이동 + 확인), 복사/붙여넣기,

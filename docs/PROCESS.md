@@ -49,6 +49,48 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 완료: 터미널 Shift+Enter 지원 (2026-08-29 — 워킹트리 유지, 커밋 지시 대기)
+
+> 사용자 보고: 내장 터미널에서 Claude Code 실행 시 Shift+Enter 줄바꿈이 안 됨 + 네이티브 터미널
+> 임베드 가능 여부 질문. 결정 정본 `acknowledge/2026-08-29-terminal-shift-enter-decision.md`.
+
+- [x] a. 조사 — Claude Code 키 처리(공식 문서: Ctrl+J=LF 는 터미널 불문 줄바꿈)·xterm.js 6.0
+      kitty protocol/modifyOtherKeys 미지원 실측·기존 재평가 문서(terminal-reevaluation) 확인
+- [x] b. 사용자 결정 — LF 매핑 채택·kitty 구현 제외·외부 터미널 커맨드 제외·임베드 불가 답변
+- [x] c. 구현 — `terminal-view.tsx` `shouldTranslateShiftEnterToLineFeed` +
+      `attachCustomKeyEventHandler`(keydown 한정·IME/조합 키 제외·`preventDefault`)
+- [x] d. 테스트 — `terminal-view.test.ts` 판정 함수 6케이스 추가
+- [x] e. 검증 — typecheck·lint·format:check·bun test 그린 (Rust 무변경)
+
+## 완료: 파일트리 git 데코레이션 + SCM 키보드 내비 + Ctrl+G 답변 (2026-08-29 — 워킹트리 유지)
+
+> 사용자 추가 요청 3건 + 중간 추가 1건. 단축키 총평은
+> `feedback/2026-08-29-keyboard-shortcut-care.md` 로 기록.
+
+- [x] a. 파일트리 git 상태 표시(VS Code 파리티) — `widgets/explorer/file-tree-git-status.ts`
+      신설(절대경로→상태 맵·조상 전파·우선순위 병합, 테스트 9), `file-tree-row.tsx` 색+문자
+      뱃지(M/A/D/R/U/!)·디렉토리 점 뱃지, `explorer-container.tsx` `GIT.STATUS` 쿼리 주입,
+      `global.css` untracked 토큰 배선. ignored 흐림은 미구현(ignore 판정 IPC 필요 — backlog
+      등재는 아래 c). 문서 `features/explorer-sidebar.md` §2.2
+- [x] b. git changes 목록 키보드 — ↑↓ 로빙 포커스(`widgets/git-panel/change-row-navigation.ts`
+      + 테스트 4)·`status-row-item.tsx` `data-git-change-row`+`focus-within` 하이라이트.
+      Enter/Space 활성화는 기존 핸들러가 포커스 도달 후 동작. 문서 `features/git.md` §2
+- [x] c. backlog — 파일트리 ignored 흐림(ignore 판정 IPC) 등재
+- [x] d. Ctrl+G 답변 — Claude Code `chat:externalEditor`($EDITOR=vim 실행, editor mode 와 무관).
+      TAIDE 는 터미널 포커스 키를 PTY 로 통과시키는 정상 동작 — 코드 변경 없음
+- [x] e. 검증 — typecheck·lint(0 에러)·format·bun test 1807/0 (Rust 무변경)
+
+## 진행 중: v0.1.5 릴리스 (2026-08-29 사용자 지시 "커밋 푸시 release")
+
+> 절차 정본 `docs/deployment.md` §3. 숫자 4 금지 규칙으로 0.1.4 건너뜀.
+
+- [x] a. 버전 동기 — package.json·tauri.conf.json·src-tauri/Cargo.toml 0.1.5 (+Cargo.lock)
+- [x] b. 릴리스 노트 — `docs/release-notes/v0.1.5.md`
+- [ ] c. 검증 — `bun run verify` + `bunx vite build`
+- [ ] d. 커밋 5분할(feat 3·docs·chore(release)) → dev 푸시 → main ff 병합·푸시
+- [ ] e. 태그 `v0.1.5` 푸시 → Release 런 완주 확인 → 완주 기록 docs 커밋
+- [ ] f. 잔여(사용자): draft Release 검토 후 수동 공개
+
 ## 진행 중: 전수조사(Fable) 후속 배치 d-50~d-53 (2026-08-29)
 
 > 발견 정본 `docs/quality-assurance/2026-08-29-full-audit.md`. 사용자 지시: 종합보고 후 결정
