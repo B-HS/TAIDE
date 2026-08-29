@@ -31,7 +31,7 @@ jobs:
 
     test-rust:
         runs-on: macos-latest
-        timeout-minutes: 45
+        timeout-minutes: 30
         steps:
             - uses: actions/checkout@v4
 
@@ -41,6 +41,8 @@ jobs:
               with:
                   workspaces: '.'
                   shared-key: tests
+                  # tag-ref caches are never restorable by later tags — warming happens on main (cache-warm.yml)
+                  save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
             - name: Rust tests
               working-directory: src-tauri
@@ -48,7 +50,7 @@ jobs:
 
     build:
         runs-on: macos-latest
-        timeout-minutes: 75
+        timeout-minutes: 40
         steps:
             - uses: actions/checkout@v4
 
@@ -76,6 +78,16 @@ jobs:
                   CARGO_VERSION=$(awk -F'"' '/^\[package\]/{f=1} f && /^version/{print $2; exit}' src-tauri/Cargo.toml)
                   if [ "v$CARGO_VERSION" != "$GITHUB_REF_NAME" ]; then
                     printf 'tag %s does not match src-tauri/Cargo.toml version %s\n' "$GITHUB_REF_NAME" "$CARGO_VERSION" >&2
+                    exit 1
+                  fi
+
+            # early duplicate of the release-job gate: fail before the ~10 min build, not after
+            - name: Verify release notes exist
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+                  if [ ! -f "$NOTES" ]; then
+                    printf 'missing release notes: %s — write them before tagging (docs/deployment.md §3)\n' "$NOTES" >&2
                     exit 1
                   fi
 
