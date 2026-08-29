@@ -19,6 +19,7 @@ import { createTerminalFileLinkProvider } from '@features/terminal/terminal-file
 
 const OVERVIEW_RULER_WIDTH_PX = 14
 const SEARCH_HIGHLIGHT_LIMIT = 1000
+const SHIFT_ENTER_LINE_FEED = '\n'
 
 /**
  * xterm's built-in web-links handler activates on any click, which collides with terminal
@@ -29,6 +30,20 @@ const SEARCH_HIGHLIGHT_LIMIT = 1000
  */
 export const shouldActivateTerminalLink = (event: Pick<MouseEvent, 'metaKey' | 'altKey' | 'ctrlKey'>, isMac: boolean = IS_MAC) =>
     event.altKey || (isMac ? event.metaKey : event.ctrlKey)
+
+/**
+ * xterm.js encodes Shift+Enter identically to Enter (a bare CR) because it speaks neither the
+ * kitty keyboard protocol nor xterm's modifyOtherKeys, so TUIs that give Shift+Enter its own
+ * meaning — Claude Code inserts a newline instead of submitting — can never see it. TAIDE
+ * translates the combo to LF, the byte Ctrl+J produces, which Claude Code documents as the
+ * universal "insert newline" key; plain shells bind CR and LF to the same accept-line, so the
+ * mapping is behavior-preserving at a prompt. Only a plain shift-modified Enter keydown outside
+ * IME composition qualifies — anything else stays on xterm's own keyboard pipeline. Decision:
+ * `docs/acknowledge/2026-08-29-terminal-shift-enter-decision.md`.
+ */
+export const shouldTranslateShiftEnterToLineFeed = (
+    event: Pick<KeyboardEvent, 'type' | 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing'>,
+) => event.type === 'keydown' && event.key === 'Enter' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing
 
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void
@@ -196,6 +211,12 @@ export const TerminalView: FC<TerminalViewProps> = ({
 
         term.open(container)
         term.unicode.activeVersion = '11'
+        term.attachCustomKeyEventHandler((event) => {
+            if (!shouldTranslateShiftEnterToLineFeed(event)) return true
+            event.preventDefault()
+            onDataRef.current(SHIFT_ENTER_LINE_FEED)
+            return false
+        })
 
         let webgl: WebglAddon | null = null
         const loadWebgl = () => {
