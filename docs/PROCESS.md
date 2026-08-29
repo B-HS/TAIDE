@@ -80,16 +80,20 @@
       TAIDE 는 터미널 포커스 키를 PTY 로 통과시키는 정상 동작 — 코드 변경 없음
 - [x] e. 검증 — typecheck·lint(0 에러)·format·bun test 1807/0 (Rust 무변경)
 
-## 진행 중: v0.1.5 릴리스 (2026-08-29 사용자 지시 "커밋 푸시 release")
+## 완료: v0.1.5 릴리스 (2026-08-29 사용자 지시 "커밋 푸시 release" — 완주)
 
 > 절차 정본 `docs/deployment.md` §3. 숫자 4 금지 규칙으로 0.1.4 건너뜀.
 
 - [x] a. 버전 동기 — package.json·tauri.conf.json·src-tauri/Cargo.toml 0.1.5 (+Cargo.lock)
 - [x] b. 릴리스 노트 — `docs/release-notes/v0.1.5.md`
-- [ ] c. 검증 — `bun run verify` + `bunx vite build`
-- [ ] d. 커밋 5분할(feat 3·docs·chore(release)) → dev 푸시 → main ff 병합·푸시
-- [ ] e. 태그 `v0.1.5` 푸시 → Release 런 완주 확인 → 완주 기록 docs 커밋
-- [ ] f. 잔여(사용자): draft Release 검토 후 수동 공개
+- [x] c. 검증 — `bun run verify` + `bunx vite build` exit 0
+- [x] d. 커밋 5분할(`745d671` feat(terminal)·`0c60cb7` feat(explorer)·`4faff32` feat(git)·
+      `8443acb` docs·`d412626` chore(release)) → dev 푸시 → main ff 병합·푸시(main=dev 동기)
+- [x] e. 태그 `v0.1.5` 푸시 → **Release 런 `33248319213` 완주(전 job success, wall 약 9m13s —
+      워밍 캐시 첫 적용, build 8m55s)**. draft Release 생성(TAIDE_0.1.5_aarch64.dmg
+      14,891,912B + SHA256SUMS.txt)
+- [ ] f. 잔여(사용자): draft Release 검토 후 수동 공개, 신규 기능 3종 실기 확인(파일트리
+      색/뱃지·터미널 Shift+Enter·git 패널 ↑↓+Enter/Space)
 
 ## 진행 중: 전수조사(Fable) 후속 배치 d-50~d-53 (2026-08-29)
 
