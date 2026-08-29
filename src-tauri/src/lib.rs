@@ -193,6 +193,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::layout::commands::layout_open_untitled,
             domain::layout::commands::layout_convert_untitled,
             domain::layout::commands::layout_move_tab_to_window,
+            domain::layout::commands::layout_apply_path_change,
             domain::layout::commands::layout_set_shell_view,
             domain::file::commands::file_open,
             domain::file::commands::file_save,

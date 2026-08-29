@@ -55,6 +55,13 @@ type ExplorerPanelProps = {
     onRevealInExplorerRequest: (path: string) => void
 }
 
+/**
+ * The sidebar's view switcher. Nothing above this remounts when the active project changes, so the
+ * search view is keyed by `projectId` and the pending search request is dropped with it: without
+ * that, switching projects left the previous project's query, results and folder scope on screen,
+ * and clicking one of those stale matches asked the *new* project's layout to open a path that does
+ * not belong to it (audit §4-B B9).
+ */
 export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     projectId,
     rows,
@@ -85,8 +92,14 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     const [view, setView] = useState<ExplorerView>('files')
     const [searchRequest, setSearchRequest] = useState<SearchPanelRequest | null>(null)
     const [openNonce, setOpenNonce] = useState(0)
+    const [scopedProjectId, setScopedProjectId] = useState(projectId)
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
+
+    if (scopedProjectId !== projectId) {
+        setScopedProjectId(projectId)
+        setSearchRequest(null)
+    }
 
     useEffect(
         () =>
@@ -171,6 +184,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                 )}
                 {view === 'search' && (
                     <SearchPanelContainer
+                        key={projectId}
                         projectId={projectId}
                         onOpenMatch={onOpenSearchMatch}
                         includeGlob={searchRequest?.includeGlob ?? null}

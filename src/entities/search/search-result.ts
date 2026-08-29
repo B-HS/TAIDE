@@ -1,11 +1,42 @@
-import type { SearchMatch } from '@shared/api/bindings'
+import type { SearchFileMatches, SearchLineMatch } from '@shared/api/bindings'
 
-export type SearchMatchRowData = Omit<SearchMatch, 'path'>
+export type SearchMatchRowData = SearchLineMatch
 
 export type SearchResultGroup = {
     path: string
     matches: SearchMatchRowData[]
 }
+
+/**
+ * Running state of one search run's grouping, so each arriving batch costs only its own size.
+ *
+ * The previous shape re-grouped the entire accumulated match list from scratch on every single
+ * arriving match — O(n²) over a run, up to 10,000 full rebuilds (audit §1-3). Here `indexByPath`
+ * lets [`appendSearchFileMatches`] find the group a batch belongs to in O(1), and untouched group
+ * objects keep their identity across appends so React skips re-rendering their rows.
+ *
+ * Deliberately mutable: it is per-run scratch state owned by a single ref, never React state.
+ */
+export type SearchResultAccumulator = {
+    groups: SearchResultGroup[]
+    indexByPath: Map<string, number>
+    totalMatches: number
+}
+
+export const createSearchResultAccumulator = (): SearchResultAccumulator => ({ groups: [], indexByPath: new Map(), totalMatches: 0 })
+
+/**
+ * Rebuilds an accumulator around groups that were already produced by an earlier run, so a surface
+ * restored from memory (a Search Editor tab returning to the foreground — audit §4-B B8) can keep
+ * appending to its existing groups instead of starting a second, parallel result list. `groups` is
+ * adopted as-is: the caller's array is the one the accumulator will copy from on the next append,
+ * never mutated in place.
+ */
+export const restoreSearchResultAccumulator = (groups: SearchResultGroup[], totalMatches: number): SearchResultAccumulator => ({
+    groups,
+    indexByPath: new Map(groups.map((group, index) => [group.path, index])),
+    totalMatches,
+})
 
 /**
  * Trims each match's `before`/`after` context lines so a source line already
@@ -35,20 +66,36 @@ const dedupeAdjacentContext = (matches: SearchMatchRowData[]) => {
     })
 }
 
-export const groupSearchMatches = (matches: SearchMatch[]) => {
-    const byPath = new Map<string, SearchResultGroup>()
-    for (const match of matches) {
-        const group = byPath.get(match.path) ?? { path: match.path, matches: [] }
-        group.matches.push({
-            line: match.line,
-            column: match.column,
-            preview: match.preview,
-            matchStart: match.matchStart,
-            matchEnd: match.matchEnd,
-            before: match.before,
-            after: match.after,
-        })
-        byPath.set(match.path, group)
+/**
+ * Folds one flush's worth of backend batches into `accumulator` and returns the new group list.
+ *
+ * The backend sends one batch per file (`SearchFileMatches`), so the common path is a plain
+ * append of an already-ordered group. A path arriving twice is still merged and re-deduplicated
+ * rather than appended as a second group — `dedupeAdjacentContext` is idempotent, so re-running it
+ * over an already-trimmed group plus the new matches is safe.
+ *
+ * The returned array is a fresh identity (so React re-renders the list) while every group object
+ * that did not change keeps its own identity (so the rows inside it do not).
+ */
+export const appendSearchFileMatches = (accumulator: SearchResultAccumulator, batches: SearchFileMatches[]) => {
+    if (batches.length === 0) return accumulator.groups
+
+    const next = [...accumulator.groups]
+
+    for (const batch of batches) {
+        accumulator.totalMatches += batch.matches.length
+        const existingIndex = accumulator.indexByPath.get(batch.path)
+        const existing = existingIndex === undefined ? undefined : next[existingIndex]
+
+        if (existingIndex === undefined || !existing) {
+            accumulator.indexByPath.set(batch.path, next.length)
+            next.push({ path: batch.path, matches: dedupeAdjacentContext(batch.matches) })
+            continue
+        }
+
+        next[existingIndex] = { path: existing.path, matches: dedupeAdjacentContext([...existing.matches, ...batch.matches]) }
     }
-    return [...byPath.values()].map((group) => ({ ...group, matches: dedupeAdjacentContext(group.matches) }))
+
+    accumulator.groups = next
+    return next
 }

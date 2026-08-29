@@ -9,6 +9,8 @@ import type { ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import type { monaco } from '@shared/lib/monaco/setup'
 import { resolveCodeEditorSettingsProps } from '@shared/lib/code-editor-settings'
+import { resolveDiffViewSettingsProps } from '@shared/lib/diff-view-settings'
+import { resolveEditorConfigIndentProps } from '@shared/lib/editorconfig'
 import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
@@ -36,6 +38,7 @@ import { PaneSeparator } from '@features/split/pane-separator'
 import { Button } from '@shared/ui/button'
 import { systemOpenPath } from '@entities/system/system.ipc'
 import { resolveEditorStateForRender } from '@widgets/editor-pane/code-editor-visibility'
+import { hasChangedOnDiskConflict, syncModelFromDisk } from '@widgets/editor-pane/editor-draft-sync'
 import { useEditorLspIntegration } from '@widgets/editor-pane/use-editor-lsp-integration'
 import { useEditorFilePersistence } from '@widgets/editor-pane/use-editor-file-persistence'
 import { useEditorGitGutterAndConflicts } from '@widgets/editor-pane/use-editor-git-gutter-and-conflicts'
@@ -86,9 +89,10 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     })
 
     const {
-        draftRef,
         dirty,
+        isDraftDirty,
         setDirty,
+        adoptUnobservedModelEdit,
         restoreNotice,
         setRestoreNotice,
         handleChange,
@@ -103,6 +107,8 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         file,
         autoSaveDelayMs: settings?.autoSaveDelayMs,
         formatOnSave: settings?.formatOnSave,
+        trimTrailingWhitespaceOnSave: settings?.trimTrailingWhitespaceOnSave,
+        insertFinalNewlineOnSave: settings?.insertFinalNewlineOnSave,
         isMarkdown,
         editor,
         setSyncedContent,
@@ -111,6 +117,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         runCodeActionsOnSave,
         previewTimeoutRef,
         setPreviewSource,
+        t,
     })
 
     const { setCursorLine, blameFooterTextRef, setBlameLine, setBlameOverlayEnabled } = useEditorBlame({ projectId, path, editor, t })
@@ -145,7 +152,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         setPreviewSource(null)
     }
 
-    const conflict = dirty && syncedContent !== null && !!file && file.content !== syncedContent
+    const conflict = hasChangedOnDiskConflict({ isDirty: dirty, syncedContent, diskContent: file?.content ?? null })
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
@@ -160,18 +167,23 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * disk" apart from "diverged via an edit this component never observed". Deferred to a
      * microtask (matching `applyMirrorRestore` in the persistence hook) since it calls `setState`,
      * which an effect body must not do synchronously.
+     *
+     * Dirtiness is read through `isDraftDirty()` rather than the `dirty` state this render closed
+     * over: the mirror restore that this microtask races is queued in the SAME commit and turns the
+     * pane dirty without any re-render in between, so a snapshot read here is stale by construction
+     * and destroys the recovered buffer. See {@link syncModelFromDisk}.
      */
     const syncModelOrPickUpExternalEdit = useEffectEvent(() => {
-        if (!editor || syncedContent === null || dirty) return
-        if (consumeExternallyDirtyModel(path)) {
-            const model = editor.getModel()
-            if (!model) return
-            draftRef.current = model.getValue()
-            setDirty(true)
-            setTabDirty({ tabId, dirty: true })
-            return
-        }
-        applyExternalContent(path, syncedContent, editor)
+        if (!editor || syncedContent === null) return
+        syncModelFromDisk({
+            isDraftDirty,
+            hasUnobservedModelEdit: () => consumeExternallyDirtyModel(path),
+            adoptUnobservedModelEdit: () => {
+                const model = editor.getModel()
+                if (model) adoptUnobservedModelEdit(() => model.getValue())
+            },
+            applyDiskContent: () => applyExternalContent(path, syncedContent, editor),
+        })
     })
 
     useEffect(() => {
@@ -292,6 +304,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             readOnly={file.readOnly}
             largeFile={file.tier === 'large' || file.tier === 'readOnly'}
             {...resolveCodeEditorSettingsProps(settings)}
+            {...resolveEditorConfigIndentProps(file.editorConfig)}
             formatOnType={settings?.editorFormatOnType ?? false}
             formatOnPaste={settings?.editorFormatOnPaste ?? false}
             aiCompletionConfig={aiCompletionConfig}
@@ -393,10 +406,17 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
                 onAcceptBoth={handleAcceptBothChanges}
                 onCompare={handleCompareConflict}
             />
-            <ConflictCompareDialog sides={compareSides} languageId={file.languageId} onOpenChange={(open) => !open && setCompareSides(null)} />
+            <ConflictCompareDialog
+                sides={compareSides}
+                languageId={file.languageId}
+                diffViewSettings={resolveDiffViewSettingsProps(settings)}
+                onOpenChange={(open) => !open && setCompareSides(null)}
+            />
             <BreadcrumbsBar projectId={projectId} tabId={tabId} path={path} />
             {file.readOnly && (
-                <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>{t('editor.readOnlyLargeFile')}</div>
+                <div className='bg-status-warning/15 text-status-warning shrink-0 px-3 py-1 text-xs'>
+                    {t(file.encodingLossy ? 'editor.readOnlyLossyEncoding' : 'editor.readOnlyLargeFile')}
+                </div>
             )}
             {bannerVariant !== 'none' && (
                 <ConflictBanner

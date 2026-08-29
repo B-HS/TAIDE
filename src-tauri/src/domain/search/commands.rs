@@ -7,8 +7,8 @@ use parking_lot::Mutex;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
-use super::service;
-use super::types::{SearchMatch, SearchQuery, SearchReplaceResult};
+use super::service::{self, ReplaceOutcome};
+use super::types::{ReplaceSkippedFile, SearchFileMatches, SearchQuery, SearchReplaceResult, REPLACE_SKIP_REPORT_LIMIT};
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
 use crate::state::AppState;
@@ -82,7 +82,7 @@ pub async fn search_run(
     owner: String,
     session_id: String,
     query: SearchQuery,
-    on_match: Channel<SearchMatch>,
+    on_match: Channel<SearchFileMatches>,
 ) -> AppResult<u32> {
     let root = project_root(&state, &project_id)?;
 
@@ -94,8 +94,8 @@ pub async fn search_run(
     let join_result = tokio::task::spawn_blocking({
         let cancelled = cancelled.clone();
         move || {
-            service::search(&root, &query, &cancelled, move |item| {
-                let _ = on_match.send(item);
+            service::search(&root, &query, &cancelled, move |batch| {
+                let _ = on_match.send(batch);
             })
         }
     })
@@ -115,6 +115,12 @@ pub async fn search_run(
 /// actual write against the rest of the app's mutations. Both the target-file resolution (the tree
 /// walk) and each file's guarded read-modify-write run inside `spawn_blocking` — none of it runs on
 /// the async worker thread — since `service::replace_one_file` does synchronous filesystem I/O.
+///
+/// Files the pass could not rewrite (oversized, binary, non-UTF-8, unreadable, write failure) are
+/// reported back in `skipped`/`skipped_count` rather than dropped silently: a replace that changed
+/// nothing because every target was refused used to be indistinguishable from one whose query
+/// simply had no matches (audit §4-B C10). Files that were read fine and had no match are not
+/// skips and are not counted.
 #[tauri::command]
 #[specta::specta]
 pub async fn search_replace(
@@ -131,10 +137,12 @@ pub async fn search_replace(
         return Ok(SearchReplaceResult {
             changed_files: 0,
             replaced_matches: 0,
+            skipped: Vec::new(),
+            skipped_count: 0,
         });
     }
 
-    let compiled_regex = service::compile_optional_regex(&query)?;
+    let compiled = service::compile_query(&query)?;
     let target_paths = paths.map(|list| list.into_iter().map(PathBuf::from).collect::<Vec<_>>());
 
     let target_files = {
@@ -147,35 +155,50 @@ pub async fn search_replace(
 
     let mut changed_files = 0u32;
     let mut replaced_matches = 0u32;
+    let mut skipped: Vec<ReplaceSkippedFile> = Vec::new();
+    let mut skipped_count = 0u32;
 
     for path in &target_files {
         let app = app.clone();
-        let path = path.clone();
-        let query = query.clone();
+        let target = path.clone();
         let replacement = replacement.clone();
-        let compiled_regex = compiled_regex.clone();
+        let compiled = compiled.clone();
 
-        let count = tokio::task::spawn_blocking(move || {
+        let outcome = tokio::task::spawn_blocking(move || {
             let app_state = app.state::<AppState>();
             let _guard = app_state.begin_mutation_blocking();
-            let count = service::replace_one_file(&path, &query, compiled_regex.as_ref(), &replacement);
-            if count.is_some() {
-                app_state.self_writes.mark(&path);
+            let outcome = service::replace_one_file(&target, &compiled, &replacement);
+            if matches!(outcome, ReplaceOutcome::Replaced(_)) {
+                app_state.self_writes.mark(&target);
             }
-            count
+            outcome
         })
         .await
         .map_err(|error| AppError::Internal(format!("replace task failed: {error}")))?;
 
-        if let Some(count) = count {
-            changed_files += 1;
-            replaced_matches += count;
+        match outcome {
+            ReplaceOutcome::Replaced(count) => {
+                changed_files += 1;
+                replaced_matches += count;
+            }
+            ReplaceOutcome::NoMatch => {}
+            ReplaceOutcome::Skipped(reason) => {
+                skipped_count += 1;
+                if skipped.len() < REPLACE_SKIP_REPORT_LIMIT {
+                    skipped.push(ReplaceSkippedFile {
+                        path: path.to_string_lossy().to_string(),
+                        reason,
+                    });
+                }
+            }
         }
     }
 
     Ok(SearchReplaceResult {
         changed_files,
         replaced_matches,
+        skipped,
+        skipped_count,
     })
 }
 

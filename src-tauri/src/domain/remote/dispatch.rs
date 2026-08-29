@@ -40,6 +40,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "layout_open_untitled",
     "layout_convert_untitled",
     "layout_move_tab_to_window",
+    "layout_apply_path_change",
     "layout_set_shell_view",
     "file_open",
     "file_save",
@@ -541,7 +542,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (157 entries = the 156 arms in
+/// session — audited directly off the `match` arms in both functions (158 entries = the 157 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -581,6 +582,7 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "layout_set_terminal_session",
     "layout_open_untitled",
     "layout_convert_untitled",
+    "layout_apply_path_change",
     "layout_set_shell_view",
     "file_open",
     "file_save",
@@ -887,19 +889,29 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "layout_convert_untitled" => {
             respond(layout::layout_convert_untitled(app.clone(), app.state(), arg!(args, "tabId"), arg!(args, "path")).await)
         }
+        "layout_apply_path_change" => {
+            respond(layout::layout_apply_path_change(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "change")).await)
+        }
         "layout_set_shell_view" => {
             respond(layout::layout_set_shell_view(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
         }
 
         "file_open" => respond(file::file_open(app.state(), app.state(), arg!(args, "path")).await),
-        "file_save" => respond(file::file_save(app.state(), arg!(args, "path"), arg!(args, "content")).await),
+        "file_save" => respond(file::file_save(app.clone(), app.state(), arg!(args, "path"), arg!(args, "content")).await),
         "file_create" => respond(file::file_create(app.state(), arg!(args, "path"), arg!(args, "isDir")).await),
         "file_rename" => respond(file::file_rename(app.state(), arg!(args, "from"), arg!(args, "to")).await),
         "file_delete" => respond(file::file_delete(app.state(), arg!(args, "path")).await),
         "file_copy" => respond(file::file_copy(app.state(), arg!(args, "from"), arg!(args, "to")).await),
-        "file_mirror_dirty" => {
-            respond(file::file_mirror_dirty(app.state(), arg!(args, "projectId"), arg!(args, "path"), arg!(args, "content")).await)
-        }
+        "file_mirror_dirty" => respond(
+            file::file_mirror_dirty(
+                app.clone(),
+                app.state(),
+                arg!(args, "projectId"),
+                arg!(args, "path"),
+                arg!(args, "content"),
+            )
+            .await,
+        ),
         "file_list_mirrors" => respond(file::file_list_mirrors(app.state(), arg!(args, "projectId")).await),
         "file_clear_mirror" => respond(file::file_clear_mirror(app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
         "file_prune_mirrors" => respond(file::file_prune_mirrors(app.state(), arg!(args, "projectId"), arg!(args, "keepPaths")).await),
@@ -1018,6 +1030,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                 arg!(args, "projectId"),
                 arg!(args, "path"),
                 arg!(args, "mode"),
+                arg!(args, "beforePath"),
             )
             .await,
         ),

@@ -22,4 +22,13 @@ describe('buildUniqueEntryName', () => {
     test('점으로 시작하는 이름은 전체를 base 로 취급한다', () => {
         expect(buildUniqueEntryName('.env', ['.env'], 'copy')).toBe('.env copy')
     })
+
+    test('디렉토리 이름의 점은 확장자로 분해하지 않는다', () => {
+        expect(buildUniqueEntryName('v1.2', ['v1.2'], 'copy', 'directory')).toBe('v1.2 copy')
+        expect(buildUniqueEntryName('v1.2', ['v1.2', 'v1.2 copy'], 'copy', 'directory')).toBe('v1.2 copy 2')
+    })
+
+    test('kind 를 생략하면 파일로 취급해 기존 동작을 유지한다', () => {
+        expect(buildUniqueEntryName('v1.2', ['v1.2'], 'copy')).toBe('v1 copy.2')
+    })
 })

@@ -8,6 +8,10 @@ use crate::error::{AppError, AppResult};
 
 const PRIVATE_FILE_MODE: u32 = 0o600;
 
+/// Any failure after the temp file exists (a full disk mid-`write_all`, a rename onto a path that
+/// is a directory, …) deletes it again — [`write_atomic_with_mode`] already did this, and without
+/// the same cleanup here every failed mirror/settings/layout write left a `.name.uuid.tmp` orphan
+/// next to the target that nothing ever reaps (audit §4-A-12).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> AppResult<()> {
     let parent = path
         .parent()
@@ -15,13 +19,18 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> AppResult<()> {
     std::fs::create_dir_all(parent)?;
 
     let temp_path = temp_sibling(path);
-    let mut file = std::fs::File::create(&temp_path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
+    let result = (|| -> AppResult<()> {
+        let mut file = std::fs::File::create(&temp_path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp_path, path).map_err(AppError::from)
+    })();
 
-    std::fs::rename(&temp_path, path)?;
-    Ok(())
+    if result.is_err() {
+        std::fs::remove_file(&temp_path).ok();
+    }
+    result
 }
 
 pub fn write_atomic_with_mode(path: &Path, bytes: &[u8], mode: u32) -> AppResult<()> {
@@ -249,6 +258,24 @@ mod tests {
         assert!(!is_temp_sibling(Path::new("/repo/.notes.tmp")));
         assert!(!is_temp_sibling(Path::new("/repo/main.rs")));
         assert!(!is_temp_sibling(Path::new("/repo/.main.rs.not-a-uuid.tmp")));
+    }
+
+    #[test]
+    fn write_atomic_은_실패시_임시파일을_남기지_않는다() {
+        let dir = std::env::temp_dir().join(format!("taide-atomic-fail-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("target");
+        std::fs::create_dir_all(&path).expect("setup dir");
+
+        let result = write_atomic(&path, b"{}");
+
+        assert!(result.is_err());
+        let leftovers = std::fs::read_dir(&dir)
+            .expect("read dir")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

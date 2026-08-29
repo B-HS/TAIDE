@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from 'react'
+import { Suspense, useEffect, useEffectEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { EventCallback } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -23,7 +23,6 @@ import {
     subscribeToggleExplorerSidebar,
 } from '@shared/lib/bridge/explorer-panel-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
-import { requestOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
@@ -34,7 +33,7 @@ import { EditorArea } from '@widgets/editor-area/editor-area'
 import { ExplorerContainer } from '@widgets/explorer/explorer-container'
 import { StatusBarContent } from '@widgets/window-chrome/status-bar-content'
 import { TitleBarContent } from '@widgets/window-chrome/title-bar-content'
-import { WelcomeContainer } from '@widgets/welcome/welcome-container'
+import { WelcomeContainerLazy } from '@widgets/welcome/welcome-container-lazy'
 
 const dragDropEventSource = { listen: (handler: EventCallback<DragDropEvent>) => getCurrentWebview().onDragDropEvent(handler) }
 
@@ -121,7 +120,6 @@ export const AppShell = () => {
         'toggle-sidebar': () => requestToggleExplorerSidebar(),
         explorer: () => requestShowExplorerView('files'),
         git: () => requestShowExplorerView('git'),
-        'open-keybindings-editor': () => requestOpenKeybindingsEditor(),
     })
 
     useTauriEvent(dragDropEventSource, handleDragDropEvent)
@@ -176,7 +174,9 @@ export const AppShell = () => {
             {projects.length === 0 ? (
                 <div className='min-h-0 flex-1'>
                     <ErrorBoundary labelKey='errorBoundary.welcome' labelFallback='Welcome'>
-                        <WelcomeContainer projectId={null} />
+                        <Suspense fallback={<div className='bg-app-background h-full w-full' />}>
+                            <WelcomeContainerLazy projectId={null} />
+                        </Suspense>
                     </ErrorBoundary>
                 </div>
             ) : (

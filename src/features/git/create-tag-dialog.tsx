@@ -14,10 +14,25 @@ type CreateTagDialogProps = {
 
 const INPUT_CLASS_NAME = 'bg-panel-input-background border-panel-input-border text-app-foreground rounded-sm border px-2 py-1 text-sm outline-none'
 
+/**
+ * The dialog stays mounted across opens (only `open` toggles), so both inputs kept whatever the
+ * previous open left behind — a cancelled tag name reappeared on the *next* commit's dialog, one
+ * confirm away from tagging the wrong commit with it (audit §4-B C5). Resetting on the closed→open
+ * transition during render clears them before the reopened dialog ever paints.
+ */
 export const CreateTagDialog: FC<CreateTagDialogProps> = ({ open, targetLabel, isPending, onOpenChange, onConfirm }) => {
     const { t } = useTranslation()
     const [name, setName] = useState('')
     const [message, setMessage] = useState('')
+    const [wasOpen, setWasOpen] = useState(open)
+
+    if (wasOpen !== open) {
+        setWasOpen(open)
+        if (open) {
+            setName('')
+            setMessage('')
+        }
+    }
 
     const trimmedName = name.trim()
 

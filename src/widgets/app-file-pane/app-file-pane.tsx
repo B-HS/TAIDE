@@ -64,8 +64,8 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
     if (content !== undefined && syncedContent === null) setSyncedContent(content)
     else if (content !== undefined && !dirty && syncedContent !== null && content !== syncedContent) setSyncedContent(content)
 
-    const handleChange = (value: string) => {
-        draftRef.current = value
+    const handleChange = (readContent: () => string) => {
+        draftRef.current = readContent()
         if (!dirty) {
             setDirty(true)
             setTabDirty({ tabId, dirty: true })

@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useSyncExternalStore } from 'react'
+import { lazy, Suspense, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useDroppable } from '@dnd-kit/core'
@@ -7,6 +7,7 @@ import { Group, Panel } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import type { DropEdge, PaneId, PaneNode, ProjectId } from '@shared/api/bindings'
 import { useResizePane } from '@entities/layout/layout.query'
+import { schedulePaneResizeCommit } from '@entities/layout/pane-resize-commit'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { DropEdgeName } from '@features/split/split-drop-zones'
 import { SplitDropZones } from '@features/split/split-drop-zones'
@@ -24,12 +25,19 @@ import { EditorPane } from '@widgets/editor-pane/editor-pane'
 import { UntitledPane } from '@widgets/editor-pane/untitled-pane'
 import { PreviewPane } from '@widgets/preview-pane/preview-pane'
 import { SearchEditorPane } from '@widgets/search-editor/search-editor-pane'
-import { SettingsView } from '@widgets/settings-view/settings-view'
 import { TerminalSession } from '@widgets/terminal-pane/terminal-session'
-import { WelcomeContainer } from '@widgets/welcome/welcome-container'
+import { WelcomeContainerLazy } from '@widgets/welcome/welcome-container-lazy'
 
 const EQUAL_SPLIT_TOTAL_PERCENT = 100
 const MIN_PANEL_SIZE_PX = 120
+
+/**
+ * The settings screen drags in the theme editor, the plugin manager and the snippet editor behind
+ * it, none of which a session that never opens Settings has any use for (audit §1-1). Split here
+ * rather than inside `settings-view.tsx` so the whole subtree — sections included — leaves the boot
+ * payload; the two editors it can swap to are split again one level down.
+ */
+const SettingsView = lazy(async () => ({ default: (await import('@widgets/settings-view/settings-view')).SettingsView }))
 
 export type SplitDropData = { type: 'split'; paneId: PaneId; edge: DropEdge }
 
@@ -60,7 +68,8 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         const children = node.children
         const handleLayoutChanged = (layout: Layout, meta: LayoutChangedMeta) => {
             if (!meta.isUserInteraction) return
-            resizePane({ paneId: node.id, sizes: children.map((child) => layout[child.id] ?? EQUAL_SPLIT_TOTAL_PERCENT / children.length) })
+            const sizes = children.map((child) => layout[child.id] ?? EQUAL_SPLIT_TOTAL_PERCENT / children.length)
+            schedulePaneResizeCommit(`${projectId}:${node.id}`, () => resizePane({ paneId: node.id, sizes }))
         }
 
         const items = children.flatMap((child, index) => [
@@ -120,10 +129,24 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                 )}
                 {activeTab?.kind.kind === 'file' && activePreviewKind !== null && <PreviewPane key={activeTab.id} path={activeTab.kind.path} />}
                 {activeTab?.kind.kind === 'terminal' && (
-                    <TerminalSession key={activeTab.id} projectId={projectId} tabId={activeTab.id} sessionId={activeTab.kind.sessionId} />
+                    <TerminalSession
+                        key={activeTab.id}
+                        projectId={projectId}
+                        tabId={activeTab.id}
+                        sessionId={activeTab.kind.sessionId}
+                        autoFocus={node.id === focusedPaneId}
+                    />
                 )}
-                {activeTab?.kind.kind === 'settings' && <SettingsView projectId={projectId} />}
-                {activeTab?.kind.kind === 'welcome' && <WelcomeContainer key={activeTab.id} projectId={projectId} />}
+                {activeTab?.kind.kind === 'settings' && (
+                    <Suspense fallback={<div className='bg-app-background h-full w-full' />}>
+                        <SettingsView projectId={projectId} />
+                    </Suspense>
+                )}
+                {activeTab?.kind.kind === 'welcome' && (
+                    <Suspense key={activeTab.id} fallback={<div className='bg-editor-background h-full w-full' />}>
+                        <WelcomeContainerLazy projectId={projectId} />
+                    </Suspense>
+                )}
                 {activeTab?.kind.kind === 'diff' && activeTab.kind.rev == null && (
                     <DiffPane
                         key={activeTab.id}
@@ -131,6 +154,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                         path={activeTab.kind.path}
                         staged={activeTab.kind.staged}
                         compareWith={activeTab.kind.compareWith ?? null}
+                        beforePath={activeTab.kind.beforePath ?? null}
                     />
                 )}
                 {activeTab?.kind.kind === 'diff' && activeTab.kind.rev != null && (

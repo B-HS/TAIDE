@@ -6,6 +6,7 @@ import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { setWindowFullscreen } from '@entities/window/window.ipc'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { subscribeToggleZenMode } from '@shared/lib/bridge/zen-mode-bridge'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 
 export type ZenModeState = {
     zen: boolean
@@ -54,9 +55,14 @@ export const useZenMode = (projectId: ProjectId | null): ZenModeState => {
      * `preventDefault()` — `event.defaultPrevented` is the signal that something else already
      * claimed this keystroke, in which case Zen mode does not also exit. Only attached while `zen`
      * is actually true, so it costs nothing the rest of the time.
+     *
+     * The IME guard is separate from `defaultPrevented`: the Escape that cancels an in-flight
+     * composition (in any focused input — the commit box, a search field, monaco) is consumed by
+     * the input method itself, which leaves no `preventDefault` behind for this listener to read,
+     * so without it a Korean typo correction would drop the user out of Zen mode.
      */
     const handleEscape = useEffectEvent((event: KeyboardEvent) => {
-        if (event.key !== 'Escape' || event.defaultPrevented || !projectId) return
+        if (isImeCompositionKeydown(event) || event.key !== 'Escape' || event.defaultPrevented || !projectId) return
         setShellView({ projectId, patch: { zen: false, sidebarCollapsed: null } })
     })
 

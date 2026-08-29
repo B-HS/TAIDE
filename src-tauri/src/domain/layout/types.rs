@@ -76,7 +76,7 @@ pub enum TabKind {
     },
     /// A persistent, editable search results surface (VS Code calls this a "Search Editor").
     /// Only the query is kept — results are cheap to re-run (`search::commands::search_run`)
-    /// and streaming a potentially large `SearchMatch` list through hot-exit/session-restore
+    /// and streaming a potentially large `SearchFileMatches` list through hot-exit/session-restore
     /// JSON would bloat the layout file for no benefit, so the tab restores to the query and
     /// re-searches rather than replaying stale results. See
     /// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
@@ -196,6 +196,47 @@ pub struct ClosedTab {
     pub tab: Tab,
     pub pane_id: PaneId,
     pub index: u32,
+}
+
+/// What a completed `file_rename`/`file_delete` means for the tabs that address the changed path —
+/// the input of `layout_apply_path_change`. `from`/`to`/`path` are the very strings the frontend
+/// handed the file command, matched against `TabKind::File`'s stored path by path components
+/// (`service::retargeted_path`), never canonicalized again here: after the rename `from` no longer
+/// exists on disk, so there is nothing left to canonicalize it against. Both variants address a
+/// whole subtree when they name a directory. See
+/// `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §3 S8.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TabPathChange {
+    #[serde(rename_all = "camelCase")]
+    Renamed { from: String, to: String },
+    #[serde(rename_all = "camelCase")]
+    Deleted { path: String },
+}
+
+/// One distinct open file path a [`TabPathChange::Renamed`] moved. Reported back so the frontend can
+/// carry that path's own per-path state (monaco model, hot-exit mirror, `FILE.CONTENT` cache,
+/// "reopen with" override) to the new path instead of leaving it stranded under a path that no
+/// longer exists. `dirty` is true when any moved tab for `from` had unsaved edits — the frontend
+/// needs that to decide whether a draft has to be re-mirrored under `to` before the pane, which
+/// resets to clean on a path switch, syncs the model back to the new path's disk content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TabPathMove {
+    pub from: String,
+    pub to: String,
+    pub dirty: bool,
+}
+
+/// `layout_apply_path_change`'s response: the post-change layout (same value every other layout
+/// mutation returns, so the frontend's `applyFreshLayout` revision gate still applies) plus what
+/// the change did to file tabs — `moved` for a rename, `closed_paths` for a delete.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TabPathChangeResult {
+    pub layout: ProjectLayout,
+    pub moved: Vec<TabPathMove>,
+    pub closed_paths: Vec<String>,
 }
 
 #[cfg(test)]

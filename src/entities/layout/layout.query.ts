@@ -5,12 +5,9 @@ import type { AppFileTarget, ProjectId, ProjectLayout } from '@shared/api/bindin
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
-import { collectAllPaneTabs, currentWindowFocusedPane, findPaneTab } from '@shared/lib/pane-tree'
-import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
-import { releaseWaitMarker } from '@entities/agent/agent.ipc'
-import { clearMirror } from '@entities/file/file.ipc'
+import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
-import { setOpenWithOverride } from '@entities/editor/open-with-registry'
+import { releaseClosedFileTabPath } from '@entities/layout/tab-path-change'
 import {
     activateTab,
     closeTab,
@@ -107,23 +104,20 @@ export const useOpenTabInProject = () => {
     })
 }
 
+/**
+ * The closed tab is looked up across *every* tree the project owns, not just the main one: a tab
+ * moved into an auxiliary window lives under `auxiliaryWindows[].root`, and a main-tree-only lookup
+ * would read its close as "not a file tab" and skip the whole per-path release below.
+ */
 export const useCloseTab = (projectId: ProjectId | null) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: closeTab,
         onSuccess: (layout, tabId) => {
             const previous = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''))
-            const closedKind = previous ? findPaneTab(previous.root, tabId)?.kind : null
+            const closedKind = previous ? (collectAllPaneTabs(previous).find((tab) => tab.id === tabId)?.kind ?? null) : null
             if (closedKind?.kind === 'claudeDiff') removePendingClaudeDiff(closedKind.requestId)
-            if (closedKind?.kind === 'file') {
-                for (const marker of takeWaitMarkers(closedKind.path)) void releaseWaitMarker(marker)
-                if (projectId) {
-                    void clearMirror({ projectId, path: closedKind.path }).catch(() => undefined)
-                    void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
-                }
-                const stillOpenElsewhere = collectAllPaneTabs(layout).some((tab) => tab.kind.kind === 'file' && tab.kind.path === closedKind.path)
-                if (!stillOpenElsewhere) setOpenWithOverride(closedKind.path, null)
-            }
+            if (closedKind?.kind === 'file') releaseClosedFileTabPath({ queryClient, projectId, path: closedKind.path, layout })
             applyFreshLayout(queryClient, projectId, layout)
         },
     })

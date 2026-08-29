@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use super::manifest;
@@ -6,6 +7,9 @@ use super::types::{LanguageServerSpec, LspRootStrategy, LspSdkProbe, LspServerDe
 use crate::infra::lsp_install;
 
 const SERVER_DIR_TEMPLATE: &str = "{serverDir}";
+const FILE_URI_SCHEME: &str = "file://";
+/// Length of a rooted Windows drive prefix (`"/c:"`), the shape [`lowercase_drive_letter`] rewrites.
+const DRIVE_PREFIX_LEN: usize = 3;
 
 const JS_TS_MARKERS: &[&str] = &["package.json", "tsconfig.json"];
 const DENO_MARKERS: &[&str] = &["deno.json", "deno.jsonc", "deno.lock"];
@@ -283,6 +287,58 @@ pub fn should_reuse_session(spec: &LanguageServerSpec, existing_roots: &[String]
         return false;
     }
     !existing_roots.is_empty()
+}
+
+/// Percent-encodes one path into the URI path form, RFC 3986 style: every byte outside `unreserved`
+/// (`ALPHA` / `DIGIT` / `-` / `.` / `_` / `~`) becomes `%XX` over its UTF-8 bytes in uppercase hex,
+/// while `/` stays the segment separator. Deliberately stricter than RFC 3986's `pchar` — which would
+/// leave `!$&'()*+,;=:@` bare — because monaco's encoder escapes exactly those as well, and matching
+/// it byte for byte is the entire point of [`workspace_folder_uri`]; a percent-encoded sub-delimiter
+/// still denotes the same resource.
+fn encode_uri_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
+            encoded.push(byte as char);
+            continue;
+        }
+        let _ = write!(encoded, "%{byte:02X}");
+    }
+    encoded
+}
+
+/// Lowercases a Windows drive letter (`/C:/x` → `/c:/x`), which monaco's `URI` does unconditionally
+/// when formatting — on every platform, not only Windows — so the two sides agree on a drive-rooted
+/// path's spelling.
+fn lowercase_drive_letter(path: String) -> String {
+    let bytes = path.as_bytes();
+    let has_uppercase_drive = bytes.len() >= DRIVE_PREFIX_LEN && bytes[0] == b'/' && bytes[2] == b':' && bytes[1].is_ascii_uppercase();
+    if !has_uppercase_drive {
+        return path;
+    }
+    format!("/{}{}", bytes[1].to_ascii_lowercase() as char, &path[2..])
+}
+
+/// Builds the `file://` URI of a workspace root **exactly as `monaco.Uri.file(root).toString()` does
+/// on the frontend**, which is what `shared/lib/lsp/initialize-params.ts` puts into `initialize`'s
+/// `rootUri` and `workspaceFolders`.
+///
+/// `domain::lsp::commands` announces the same roots again over `workspace/didChangeWorkspaceFolders`,
+/// and a language server keys its folder set by that URI string. A root spelled `file:///a b/x` in one
+/// message and `file:///a%20b/x` in the other — which is what the raw `format!("file://{root}")` this
+/// replaces produced (§4-A-7) — reads as two unrelated folders: an added root gets indexed a second
+/// time and a removed one is never dropped. Any root containing a space or a non-ASCII character (so:
+/// every Korean path) hits it.
+///
+/// Mirrors monaco's two path fixups besides the encoding (`monaco-editor/esm/vs/base/common/uri.js`,
+/// `URI.file` + `_asFormatted`): a relative path is rooted with a leading `/`, and a Windows drive
+/// letter is lowercased. Backslash-to-slash normalization is likewise Windows-only there, so it is
+/// `cfg!(windows)`-gated here — on POSIX a backslash is an ordinary filename byte and monaco
+/// percent-encodes it rather than treating it as a separator.
+pub fn workspace_folder_uri(root: &str) -> String {
+    let slashed = if cfg!(windows) { root.replace('\\', "/") } else { root.to_string() };
+    let rooted = if slashed.starts_with('/') { slashed } else { format!("/{slashed}") };
+    format!("{FILE_URI_SCHEME}{}", encode_uri_path(&lowercase_drive_letter(rooted)))
 }
 
 pub fn find_root(spec: &LanguageServerSpec, file_path: &Path) -> Option<PathBuf> {
@@ -671,5 +727,78 @@ mod tests {
 
         assert_eq!(resolved, Some(nested_bin));
         std::fs::remove_dir_all(&managed_dir).ok();
+    }
+
+    /// Test-only inverse of [`encode_uri_path`], so the round-trip cases below prove the encoding is
+    /// reversible (no byte dropped, no double-escape) rather than only matching a literal.
+    fn decode_file_uri(uri: &str) -> String {
+        const PERCENT_ESCAPE_LEN: usize = 3;
+        const HEX_RADIX: u32 = 16;
+
+        let path = uri.strip_prefix(FILE_URI_SCHEME).expect("file 스킴이어야 한다");
+        let bytes = path.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] == b'%' {
+                let hex = std::str::from_utf8(&bytes[index + 1..index + PERCENT_ESCAPE_LEN]).expect("이스케이프는 ascii 여야 한다");
+                decoded.push(u8::from_str_radix(hex, HEX_RADIX).expect("16진수여야 한다"));
+                index += PERCENT_ESCAPE_LEN;
+            } else {
+                decoded.push(bytes[index]);
+                index += 1;
+            }
+        }
+        String::from_utf8(decoded).expect("utf8 로 되돌아와야 한다")
+    }
+
+    /// The literals here are the actual output of `monaco.Uri.file(...).toString()` for the same
+    /// inputs (monaco-editor 0.x `esm/vs/base/common/uri.js`), which is what the frontend sends in
+    /// `initialize` — pinning them is what keeps `workspace/didChangeWorkspaceFolders` naming the
+    /// same folder the handshake did (§4-A-7).
+    #[test]
+    fn 공백과_한글이_있는_루트는_프론트와_같은_퍼센트_인코딩_uri가_된다() {
+        assert_eq!(workspace_folder_uri("/workspace/my project"), "file:///workspace/my%20project");
+        assert_eq!(
+            workspace_folder_uri("/Users/한글/프로젝트 경로"),
+            "file:///Users/%ED%95%9C%EA%B8%80/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EA%B2%BD%EB%A1%9C"
+        );
+    }
+
+    #[test]
+    fn 인코딩한_루트는_원래_경로로_되돌아온다() {
+        for root in [
+            "/workspace/project",
+            "/workspace/my project",
+            "/Users/한글/프로젝트 경로",
+            "/tmp/a+b&c,d;e=f",
+            "/tmp/100% sure",
+            "/tmp/[bracket]@at:colon",
+        ] {
+            assert_eq!(decode_file_uri(&workspace_folder_uri(root)), root, "{root} 왕복 실패");
+        }
+    }
+
+    #[test]
+    fn 예약되지_않은_문자와_경로_구분자는_그대로_둔다() {
+        assert_eq!(workspace_folder_uri("/tmp/tilde~dash-dot._x"), "file:///tmp/tilde~dash-dot._x");
+    }
+
+    /// monaco escapes sub-delimiters and `:`/`@`/`[`/`]` too, so this encoder must as well — leaving
+    /// them bare (which plain RFC 3986 `pchar` would allow) is exactly the mismatch this fixes.
+    #[test]
+    fn 하위_구분자와_예약_문자도_프론트처럼_인코딩한다() {
+        assert_eq!(workspace_folder_uri("/tmp/a+b&c,d;e=f"), "file:///tmp/a%2Bb%26c%2Cd%3Be%3Df");
+        assert_eq!(
+            workspace_folder_uri("/tmp/[bracket]@at:colon"),
+            "file:///tmp/%5Bbracket%5D%40at%3Acolon"
+        );
+        assert_eq!(workspace_folder_uri("/tmp/100% sure"), "file:///tmp/100%25%20sure");
+    }
+
+    #[test]
+    fn 드라이브_문자는_소문자로_맞추고_상대_경로는_루트를_붙인다() {
+        assert_eq!(workspace_folder_uri("/C:/Users/a b"), "file:///c%3A/Users/a%20b");
+        assert_eq!(workspace_folder_uri("workspace/project"), "file:///workspace/project");
     }
 }

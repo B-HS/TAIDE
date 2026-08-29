@@ -68,6 +68,12 @@ const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'PLUGIN.LIST', scopedByProject: false },
     { path: 'TERMINAL.ALL', scopedByProject: false },
     { path: 'TERMINAL.PROFILES', scopedByProject: false },
+    /**
+     * A cross-project prefix, not a query key of its own — `PROJECT_SCOPED_KEYS` covers the same
+     * subtree through `TERMINAL.SESSIONS` below, and a `(projectId) => key[]` entry is what that
+     * list's shape requires.
+     */
+    { path: 'TERMINAL.SESSIONS_ALL', scopedByProject: false },
     { path: 'TERMINAL.SESSIONS', scopedByProject: true, factory: QUERY_KEY.TERMINAL.SESSIONS },
     { path: 'TASK.ALL', scopedByProject: false },
     { path: 'TASK.LIST', scopedByProject: true, factory: QUERY_KEY.TASK.LIST },
@@ -144,6 +150,11 @@ describe('PROJECT_SCOPED_KEYS', () => {
             QUERY_KEY.GIT.CONFLICT_SIDES(SENTINEL_PROJECT_ID, 'a.ts'),
         ]
         for (const scopedKey of scopedKeys) expect(scopedKey.slice(0, gitProjectKey.length)).toEqual([...gitProjectKey])
+    })
+
+    test('TERMINAL.SESSIONS_ALL 은 projectId 와 무관하게 TERMINAL.SESSIONS 전체를 접두사로 포함한다', () => {
+        const sessionsKey = QUERY_KEY.TERMINAL.SESSIONS(SENTINEL_PROJECT_ID)
+        expect(sessionsKey.slice(0, QUERY_KEY.TERMINAL.SESSIONS_ALL.length)).toEqual([...QUERY_KEY.TERMINAL.SESSIONS_ALL])
     })
 
     test('AGENT.HOOKS_PROJECT 는 agentName 과 무관하게 AGENT.HOOKS 전체를 접두사로 포함한다', () => {

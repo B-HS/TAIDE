@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -204,6 +204,34 @@ pub fn agents_changed(previous: &[DetectedAgent], current: &[DetectedAgent]) -> 
     current_sorted.sort_by(|a, b| a.session_id.cmp(&b.session_id));
 
     previous_sorted != current_sorted
+}
+
+/// One row of the unix probe's `ps -o pid=,state=,comm=,args=` output.
+#[derive(Debug, Clone)]
+pub struct ProcessInfo {
+    pub comm: String,
+    pub state: Option<char>,
+    pub cmdline: String,
+}
+
+/// Splits a whole `ps -o pid=,state=,comm=,args=` listing into one [`ProcessInfo`] per pid. The pid
+/// column exists only so a **single** `ps` call can serve every pty session at once (one fork per
+/// poll tick instead of one per session); rows for pids that have already exited are simply absent,
+/// which is why the caller looks its pids up in the returned map rather than zipping by position.
+/// Unparsable rows — including the error line `ps` prints for a pid it rejects outright — are
+/// skipped rather than aborting the batch.
+pub fn parse_ps_process_infos(stdout: &str) -> HashMap<u32, ProcessInfo> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let pid = parts.next()?.parse::<u32>().ok()?;
+            let state = parts.next().and_then(|token| token.chars().next());
+            let comm = parts.next()?.to_string();
+            let cmdline = parts.collect::<Vec<_>>().join(" ");
+            Some((pid, ProcessInfo { comm, state, cmdline }))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -748,6 +776,38 @@ mod tests {
     fn 파일이_없으면_none을_반환한다() {
         let argv = vec!["/usr/local/bin/taide".to_string()];
         assert!(parse_cli_payload(&argv).is_none());
+    }
+
+    #[test]
+    fn ps_배치_출력은_pid별로_분해된다() {
+        let stdout = "    1 Ss   /sbin/launchd  /sbin/launchd\n 4242 R+   /usr/bin/node  /usr/bin/node /opt/bin/claude --resume\n";
+
+        let infos = parse_ps_process_infos(stdout);
+
+        assert_eq!(infos.len(), 2);
+        let agent = infos.get(&4242).unwrap();
+        assert_eq!(agent.comm, "/usr/bin/node");
+        assert_eq!(agent.state, Some('R'));
+        assert_eq!(agent.cmdline, "/usr/bin/node /opt/bin/claude --resume");
+        assert_eq!(detect_agent_name(&agent.comm, &agent.cmdline), Some(AGENT_NAME_CLAUDE));
+    }
+
+    #[test]
+    fn 해석할_수_없는_행이_섞여도_나머지_pid는_남는다() {
+        let infos = parse_ps_process_infos("ps: process id too large: 999999\n 4242 S    /bin/zsh  /bin/zsh -l\n");
+
+        assert_eq!(infos.len(), 1, "행 하나가 깨져도 배치 전체를 버리면 안 된다");
+        assert_eq!(infos.get(&4242).unwrap().comm, "/bin/zsh");
+    }
+
+    #[test]
+    fn 이미_종료된_pid는_결과에_없다() {
+        let infos = parse_ps_process_infos(" 4242 S    /bin/zsh  /bin/zsh -l\n");
+
+        assert!(
+            !infos.contains_key(&4243),
+            "ps 는 죽은 pid 를 아예 출력하지 않으므로 맵 조회로 가려낸다"
+        );
     }
 
     fn snapshot(pid: u32, parent_pid: Option<u32>, name: &str, cmdline: &str) -> ProcessSnapshot {

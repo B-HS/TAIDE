@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { addRecentSearchTerm, SEARCH_HISTORY_LIMIT } from '@entities/search/search-history'
+import {
+    addRecentSearchTerm,
+    createRecentSearchQueue,
+    enqueueRecentSearch,
+    SEARCH_HISTORY_LIMIT,
+    settleRecentSearch,
+} from '@entities/search/search-history'
 
 describe('addRecentSearchTerm', () => {
     test('새 검색어를 맨 앞에 추가한다', () => {
@@ -32,5 +38,41 @@ describe('addRecentSearchTerm', () => {
         expect(result.length).toBe(SEARCH_HISTORY_LIMIT)
         expect(result[0]).toBe('new-term')
         expect(result).not.toContain(`term-${SEARCH_HISTORY_LIMIT - 1}`)
+    })
+})
+
+describe('enqueueRecentSearch', () => {
+    test('설정 저장이 끝나기 전에 다음 검색어를 넣어도 앞선 검색어가 유실되지 않는다', () => {
+        const queue = createRecentSearchQueue()
+        const settled: string[] = []
+
+        expect(enqueueRecentSearch(queue, settled, 'foo')).toEqual(['foo'])
+        expect(enqueueRecentSearch(queue, settled, 'bar')).toEqual(['bar', 'foo'])
+    })
+
+    test('저장이 모두 끝나면 서버가 돌려준 값을 다시 기준으로 삼는다', () => {
+        const queue = createRecentSearchQueue()
+
+        enqueueRecentSearch(queue, [], 'foo')
+        settleRecentSearch(queue)
+
+        expect(enqueueRecentSearch(queue, ['foo', 'external'], 'bar')).toEqual(['bar', 'foo', 'external'])
+    })
+
+    test('저장이 여러 건 남아 있으면 마지막 하나가 끝날 때까지 기준을 유지한다', () => {
+        const queue = createRecentSearchQueue()
+
+        enqueueRecentSearch(queue, [], 'foo')
+        enqueueRecentSearch(queue, [], 'bar')
+        settleRecentSearch(queue)
+
+        expect(enqueueRecentSearch(queue, [], 'baz')).toEqual(['baz', 'bar', 'foo'])
+    })
+
+    test('이미 맨 앞인 검색어는 저장을 예약하지 않는다', () => {
+        const queue = createRecentSearchQueue()
+
+        expect(enqueueRecentSearch(queue, ['foo'], 'foo')).toBeNull()
+        expect(queue.inFlight).toBe(0)
     })
 })

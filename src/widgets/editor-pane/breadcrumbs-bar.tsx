@@ -20,6 +20,7 @@ import {
 } from '@widgets/editor-pane/breadcrumb-path'
 import { waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
+import { subscribeModelContentChange } from '@entities/editor/model-registry'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
@@ -178,6 +179,7 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
             resolveRoot: resolveLspRoot,
             waitForSession: waitForLspSessionForRoot,
             onLoaded: (symbols) => setSymbolsForPath({ path, symbols }),
+            subscribeContentChange: (onContentChanged) => subscribeModelContentChange(path, onContentChanged),
         })
     }, [path, languageId, servers, projectId, project?.root])
 

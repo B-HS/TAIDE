@@ -477,6 +477,32 @@ describe('applyWorkspaceEdit — refused tier 파일', () => {
         expect(openFileCalls).toEqual(['/huge.ts'])
         expect(saveFileCalls).toEqual([])
     })
+
+    test('읽기 전용(비 UTF-8 lossy) 파일은 U+FFFD 로 치환된 본문을 디스크에 쓰지 않는다', async () => {
+        const saveFileCalls: { path: string; content: string }[] = []
+        const deps: WorkspaceEditApplierDeps = {
+            openFile: (async () =>
+                ({ content: 'caf�', tier: 'normal', readOnly: true, encodingLossy: true }) as never) as WorkspaceEditApplierDeps['openFile'],
+            saveFile: (async (input: { path: string; content: string }) => {
+                saveFileCalls.push(input)
+                return null
+            }) as WorkspaceEditApplierDeps['saveFile'],
+            createEntry: (async () => null) as WorkspaceEditApplierDeps['createEntry'],
+            renameEntry: (async () => null) as WorkspaceEditApplierDeps['renameEntry'],
+            deleteEntry: (async () => null) as WorkspaceEditApplierDeps['deleteEntry'],
+            getActiveProjectId: (async () => FAKE_ACTIVE_PROJECT_ID) as WorkspaceEditApplierDeps['getActiveProjectId'],
+            mirrorDirtyExternally: (async () => null) as WorkspaceEditApplierDeps['mirrorDirtyExternally'],
+        }
+        const monaco = createFakeMonaco()
+
+        const edit: WorkspaceEdit = {
+            changes: { 'file:///euckr.c': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'x' }] },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps)
+
+        expect(result.applied).toBe(false)
+        expect(saveFileCalls).toEqual([])
+    })
 })
 
 describe('applyWorkspaceEdit — allowedRoots', () => {

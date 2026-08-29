@@ -296,6 +296,23 @@ mod tests {
     }
 
     #[test]
+    fn 접미_범위_요청은_파일의_마지막_바이트들을_반환한다() {
+        let dir = std::env::temp_dir().join(format!("taide-asset-protocol-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("clip.mp4");
+        std::fs::write(&file_path, b"0123456789").unwrap();
+
+        let projects = open_project(&dir);
+        let response = respond(&projects, asset_request(&file_path, Some("bytes=-3")));
+
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.body(), b"789", "mp4 의 moov atom 탐색이 의존하는 꼬리 범위다");
+        assert_eq!(response.headers().get(header::CONTENT_RANGE).unwrap(), "bytes 7-9/10");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn 뒤집힌_범위_요청은_패닉_없이_416을_반환한다() {
         let dir = std::env::temp_dir().join(format!("taide-asset-protocol-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();

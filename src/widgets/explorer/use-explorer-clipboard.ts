@@ -4,11 +4,9 @@ import type { ProjectId } from '@shared/api/bindings'
 import type { useCopyEntry, useRenameEntry } from '@entities/file/file.query'
 import type { useRefreshTreeDir, useRevealTreeNode } from '@entities/tree/tree.query'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
-import { buildUniqueEntryName } from '@shared/lib/unique-entry-name'
-import { fileNameOf } from '@shared/lib/relative-path'
+import type { ExplorerClipboardEntry } from '@widgets/explorer/paste-plan'
+import { isSamePlaceCutPaste, pasteWithUniqueEntryName } from '@widgets/explorer/paste-plan'
 import { joinPath, parentDirOf } from '@widgets/explorer/explorer-path'
-
-type ClipboardEntry = { mode: 'cut' | 'copy'; path: string }
 
 type UseExplorerClipboardInput = {
     projectId: ProjectId
@@ -35,23 +33,36 @@ export const useExplorerClipboard = ({
     revealTreeNode,
     t,
 }: UseExplorerClipboardInput) => {
-    const [clipboard, setClipboard] = useState<ClipboardEntry | null>(null)
+    const [clipboard, setClipboard] = useState<ExplorerClipboardEntry | null>(null)
 
     const pasteClipboard = async (row: FileTreeRow | null) => {
         if (!clipboard) return
         const targetDir = targetDirFor(row)
         if (!targetDir) return
+        if (isSamePlaceCutPaste(clipboard, targetDir)) {
+            setClipboard(null)
+            return
+        }
 
-        const entryName = fileNameOf(clipboard.path)
         const siblingNames = rows.filter((candidate) => parentDirOf(candidate.path) === targetDir).map((candidate) => candidate.name)
-        const uniqueName = buildUniqueEntryName(entryName, siblingNames, t('explorer.pasteConflictSuffix'))
-        const destination = joinPath(targetDir, uniqueName)
 
         try {
-            if (clipboard.mode === 'copy') {
-                await copyEntryAsync({ from: clipboard.path, to: destination })
-            } else {
-                await renameEntryAsync({ from: clipboard.path, to: destination })
+            const destinationName = await pasteWithUniqueEntryName({
+                clipboard,
+                siblingNames,
+                conflictSuffix: t('explorer.pasteConflictSuffix'),
+                run: async (candidateName) => {
+                    const candidatePath = joinPath(targetDir, candidateName)
+                    if (clipboard.mode === 'copy') {
+                        await copyEntryAsync({ from: clipboard.path, to: candidatePath })
+                        return
+                    }
+                    await renameEntryAsync({ from: clipboard.path, to: candidatePath })
+                },
+            })
+
+            const destination = joinPath(targetDir, destinationName)
+            if (clipboard.mode === 'cut') {
                 await refreshTreeDir({ projectId, dir: parentDirOf(clipboard.path) })
                 setClipboard(null)
             }

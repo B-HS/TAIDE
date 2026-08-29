@@ -57,25 +57,40 @@ pub fn extension_mime(path: &Path) -> &'static str {
 /// un-rejected and underflowed the `end - start + 1` length computation downstream, which either
 /// panics (debug `overflow-checks`) or wraps to a near-`u64::MAX` value that then fails the
 /// destination `Vec` allocation (release).
+///
+/// A `bytes=-N` spec is a **suffix** range per RFC 7233 §2.1 — the *last* `N` bytes, not the first
+/// `N + 1` — and is the shape a media element uses to find an mp4 whose `moov` atom sits at the end
+/// of the file, so misreading it as `bytes=0-N` (the previous behavior) handed back the file's head
+/// and left seeking broken. `N` larger than `total` means the whole representation; `N == 0` is
+/// unsatisfiable, the one suffix spec the RFC singles out as an error.
 pub fn parse_range(range_header: &str, total: u64) -> Option<(u64, u64)> {
+    if total == 0 {
+        return None;
+    }
+    let last = total - 1;
+
     let spec = range_header.strip_prefix("bytes=")?;
     let (start_raw, end_raw) = spec.split_once('-')?;
 
-    let start = if start_raw.is_empty() { 0 } else { start_raw.parse::<u64>().ok()? };
-    if start >= total {
-        return None;
-    }
-
-    let requested_end = if end_raw.is_empty() {
-        total - 1
+    let (start, requested_end) = if start_raw.is_empty() {
+        let suffix_length = end_raw.parse::<u64>().ok()?;
+        if suffix_length == 0 {
+            return None;
+        }
+        (total.saturating_sub(suffix_length), last)
     } else {
-        end_raw.parse::<u64>().ok()?
+        let start = start_raw.parse::<u64>().ok()?;
+        if start >= total {
+            return None;
+        }
+        let requested_end = if end_raw.is_empty() { last } else { end_raw.parse::<u64>().ok()? };
+        if requested_end < start {
+            return None;
+        }
+        (start, requested_end)
     };
-    if requested_end < start {
-        return None;
-    }
-    let capped_end = requested_end.min(total - 1).min(start + RANGE_CHUNK_LIMIT - 1);
-    Some((start, capped_end))
+
+    Some((start, requested_end.min(last).min(start + RANGE_CHUNK_LIMIT - 1)))
 }
 
 pub fn read_slice(path: &Path, start: u64, length: u64) -> std::io::Result<Vec<u8>> {
@@ -112,6 +127,30 @@ mod tests {
     fn 끝점이_시작점보다_앞선_뒤집힌_범위는_길이_언더플로_없이_거부된다() {
         assert_eq!(parse_range("bytes=500-100", 1000), None);
         assert_eq!(parse_range("bytes=999-0", 1000), None);
+    }
+
+    #[test]
+    fn 접미_범위는_파일의_마지막_n_바이트를_가리킨다() {
+        assert_eq!(parse_range("bytes=-500", 1000), Some((500, 999)));
+        assert_eq!(parse_range("bytes=-1", 1000), Some((999, 999)));
+    }
+
+    #[test]
+    fn 접미_길이가_파일보다_크면_파일_전체를_가리킨다() {
+        assert_eq!(parse_range("bytes=-5000", 1000), Some((0, 999)));
+    }
+
+    #[test]
+    fn 접미_길이가_0이면_만족할_수_없는_범위다() {
+        assert_eq!(parse_range("bytes=-0", 1000), None);
+    }
+
+    #[test]
+    fn 접미_범위도_한_청크_상한을_넘지_않는다() {
+        let total = RANGE_CHUNK_LIMIT * 3;
+        let (start, end) = parse_range(&format!("bytes=-{}", RANGE_CHUNK_LIMIT * 2), total).unwrap();
+        assert_eq!(start, total - RANGE_CHUNK_LIMIT * 2);
+        assert_eq!(end - start + 1, RANGE_CHUNK_LIMIT);
     }
 
     #[test]

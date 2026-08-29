@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::State;
 
-use super::service::{self, TreeState};
+use super::service::{self, DirectoryListings, TreeState};
 use super::types::TreeRowPage;
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -52,11 +52,12 @@ fn ensure_entry<'a>(
     trees: &'a mut HashMap<ProjectId, TreeState>,
     state: &AppState,
     project_id: &ProjectId,
+    listings: &mut DirectoryListings,
 ) -> AppResult<&'a mut TreeState> {
     if !trees.contains_key(project_id) {
         let root = project_root(state, project_id)?;
         let mut tree = service::new_tree_state(root);
-        service::ensure_root_loaded(&mut tree)?;
+        service::ensure_root_loaded(&mut tree, listings)?;
         trees.insert(project_id.clone(), tree);
     }
 
@@ -85,6 +86,7 @@ fn rows_page_from_store(
     project_id: &ProjectId,
     offset: u32,
     limit: Option<u32>,
+    listings: &mut DirectoryListings,
 ) -> AppResult<TreeRowPage> {
     if let Some(tree) = tree_store.0.read().get(project_id) {
         return Ok(service::rows_page(tree, offset, limit));
@@ -92,7 +94,7 @@ fn rows_page_from_store(
 
     let root = project_root(state, project_id)?;
     let mut tree = service::new_tree_state(root);
-    service::ensure_root_loaded(&mut tree)?;
+    service::ensure_root_loaded(&mut tree, listings)?;
 
     let mut trees = tree_store.0.write();
     if !state.projects.read().contains_key(project_id) {
@@ -100,6 +102,39 @@ fn rows_page_from_store(
     }
     let entry = trees.entry(project_id.clone()).or_insert(tree);
     Ok(service::rows_page(entry, offset, limit))
+}
+
+/// Plans the directories a call is about to need against the store's *current* snapshot, holding
+/// only the read lock and never carrying it into the prefetch below. The plan is a hint, never a
+/// correctness input: whatever it misses, the locked half still reads inline. A project with no
+/// entry yet plans against a fresh empty tree — exactly the shape [`ensure_entry`] will build.
+fn plan_reads(
+    tree_store: &TreeStore,
+    state: &AppState,
+    project_id: &ProjectId,
+    plan: impl FnOnce(&TreeState) -> Vec<PathBuf>,
+) -> AppResult<Vec<PathBuf>> {
+    if let Some(tree) = tree_store.0.read().get(project_id) {
+        return Ok(plan(tree));
+    }
+
+    let root = project_root(state, project_id)?;
+    Ok(plan(&service::new_tree_state(root)))
+}
+
+/// Reads the planned directories on the blocking pool, **before** the caller takes
+/// `AppState::begin_mutation` and the store's write lock, so the locked half only inserts what is
+/// already in memory (§2 H-4). `read_children` is a synchronous `read_dir` plus one more per
+/// subdirectory for `has_children`, so a cold listing used to hold the app-wide mutation guard —
+/// and an async worker thread — for the whole scan, queuing every file and git mutation behind it.
+async fn prefetch_listings(dirs: Vec<PathBuf>) -> AppResult<DirectoryListings> {
+    if dirs.is_empty() {
+        return Ok(DirectoryListings::default());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || service::read_directories(dirs))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 #[tauri::command]
@@ -111,7 +146,10 @@ pub async fn tree_rows(
     offset: u32,
     limit: Option<u32>,
 ) -> AppResult<TreeRowPage> {
-    rows_page_from_store(&tree_store, &state, &project_id, offset, limit)
+    let dirs = plan_reads(&tree_store, &state, &project_id, service::plan_root_read)?;
+    let mut listings = prefetch_listings(dirs).await?;
+
+    rows_page_from_store(&tree_store, &state, &project_id, offset, limit, &mut listings)
 }
 
 #[tauri::command]
@@ -122,10 +160,15 @@ pub async fn tree_toggle(
     project_id: ProjectId,
     path: String,
 ) -> AppResult<TreeRowPage> {
+    let dirs = plan_reads(&tree_store, &state, &project_id, |tree| {
+        service::plan_toggle_reads(tree, Path::new(&path))
+    })?;
+    let mut listings = prefetch_listings(dirs).await?;
+
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
-    let tree = ensure_entry(&mut trees, &state, &project_id)?;
-    service::toggle_expand(tree, Path::new(&path))?;
+    let tree = ensure_entry(&mut trees, &state, &project_id, &mut listings)?;
+    service::toggle_expand(tree, Path::new(&path), &mut listings)?;
     Ok(service::full_page(tree))
 }
 
@@ -137,10 +180,15 @@ pub async fn tree_reveal(
     project_id: ProjectId,
     path: String,
 ) -> AppResult<TreeRowPage> {
+    let dirs = plan_reads(&tree_store, &state, &project_id, |tree| {
+        service::plan_reveal_reads(tree, Path::new(&path))
+    })?;
+    let mut listings = prefetch_listings(dirs).await?;
+
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
-    let tree = ensure_entry(&mut trees, &state, &project_id)?;
-    service::reveal(tree, Path::new(&path))?;
+    let tree = ensure_entry(&mut trees, &state, &project_id, &mut listings)?;
+    service::reveal(tree, Path::new(&path), &mut listings)?;
     Ok(service::full_page(tree))
 }
 
@@ -152,10 +200,15 @@ pub async fn tree_refresh(
     project_id: ProjectId,
     dir: String,
 ) -> AppResult<TreeRowPage> {
+    let dirs = plan_reads(&tree_store, &state, &project_id, |tree| {
+        service::plan_refresh_reads(tree, Path::new(&dir))
+    })?;
+    let mut listings = prefetch_listings(dirs).await?;
+
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
-    let tree = ensure_entry(&mut trees, &state, &project_id)?;
-    service::invalidate(tree, Path::new(&dir))?;
+    let tree = ensure_entry(&mut trees, &state, &project_id, &mut listings)?;
+    service::invalidate(tree, Path::new(&dir), &mut listings)?;
     Ok(service::full_page(tree))
 }
 
@@ -202,12 +255,12 @@ mod tests {
         let store = TreeStore::new();
         {
             let mut tree_a = service::new_tree_state(root_a.clone());
-            service::ensure_root_loaded(&mut tree_a).unwrap();
-            service::expand(&mut tree_a, &sub_a).unwrap();
+            service::ensure_root_loaded(&mut tree_a, &mut DirectoryListings::default()).unwrap();
+            service::expand(&mut tree_a, &sub_a, &mut DirectoryListings::default()).unwrap();
             store.0.write().insert(a.clone(), tree_a);
         }
 
-        let page = rows_page_from_store(&store, &state, &b, 0, None).expect("rows");
+        let page = rows_page_from_store(&store, &state, &b, 0, None, &mut DirectoryListings::default()).expect("rows");
 
         assert_eq!(page.total, 1, "B 루트의 파일 1개가 보여야 한다");
         let trees = store.0.read();
@@ -235,12 +288,12 @@ mod tests {
         let store = TreeStore::new();
         {
             let mut tree = service::new_tree_state(root.clone());
-            service::ensure_root_loaded(&mut tree).unwrap();
-            service::expand(&mut tree, &sub).unwrap();
+            service::ensure_root_loaded(&mut tree, &mut DirectoryListings::default()).unwrap();
+            service::expand(&mut tree, &sub, &mut DirectoryListings::default()).unwrap();
             store.0.write().insert(project_id.clone(), tree);
         }
 
-        let page = rows_page_from_store(&store, &state, &project_id, 0, None).expect("rows");
+        let page = rows_page_from_store(&store, &state, &project_id, 0, None, &mut DirectoryListings::default()).expect("rows");
 
         assert_eq!(page.total, 2, "확장된 sub 아래의 child 까지 평탄화되어야 한다");
         assert_eq!(page.rows[1].depth, 1, "히트 경로는 사전 확장 상태를 그대로 반영해야 한다");
@@ -263,7 +316,7 @@ mod tests {
         let store = TreeStore::new();
         {
             let mut tree_a = service::new_tree_state(root_a.clone());
-            service::ensure_root_loaded(&mut tree_a).unwrap();
+            service::ensure_root_loaded(&mut tree_a, &mut DirectoryListings::default()).unwrap();
             store.0.write().insert(a.clone(), tree_a);
         }
 
@@ -272,13 +325,13 @@ mod tests {
                 for _ in 0..TOGGLE_ITERATIONS {
                     let mut trees = store.0.write();
                     let entry = trees.get_mut(&a).expect("A 엔트리는 유지되어야 한다");
-                    service::toggle_expand(entry, &sub_a).expect("toggle");
+                    service::toggle_expand(entry, &sub_a, &mut DirectoryListings::default()).expect("toggle");
                 }
             });
             let reader = scope.spawn(|| {
                 for _ in 0..TOGGLE_ITERATIONS {
                     store.remove(&b);
-                    rows_page_from_store(&store, &state, &b, 0, None).expect("rows");
+                    rows_page_from_store(&store, &state, &b, 0, None, &mut DirectoryListings::default()).expect("rows");
                 }
             });
             mutator.join().unwrap();

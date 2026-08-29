@@ -198,34 +198,30 @@ fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<String> {
 }
 
 #[cfg(unix)]
-struct ProcessInfo {
-    comm: String,
-    state: Option<char>,
-    cmdline: String,
-}
-
+const PS_OUTPUT_FORMAT: &str = "pid=,state=,comm=,args=";
 #[cfg(unix)]
-fn resolve_process_info(pid: u32) -> Option<ProcessInfo> {
-    let output = std::process::Command::new("ps")
-        .args(["-o", "comm=,state=,args=", "-p", &pid.to_string()])
+const PS_PID_SEPARATOR: &str = ",";
+
+/// Probes every pty session's foreground pid with **one** `ps` fork, not one per pid: this runs on
+/// the `AGENT_POLL_INTERVAL_MS` tick for every open project, so the per-pid form spent a process
+/// spawn per session per tick forever. `ps` prints nothing for a pid that has already exited (and
+/// exits non-zero only when *none* of them resolved), so the exit status is deliberately not
+/// consulted — a batch where some pids died still carries the survivors on stdout.
+#[cfg(unix)]
+fn resolve_process_infos(pids: &[u32]) -> HashMap<u32, service::ProcessInfo> {
+    if pids.is_empty() {
+        return HashMap::new();
+    }
+
+    let joined = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(PS_PID_SEPARATOR);
+    let Ok(output) = std::process::Command::new("ps")
+        .args(["-o", PS_OUTPUT_FORMAT, "-p", &joined])
         .output()
-        .ok()?;
+    else {
+        return HashMap::new();
+    };
 
-    if !output.status.success() {
-        return None;
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let mut parts = trimmed.split_whitespace();
-    let comm = parts.next()?.to_string();
-    let state = parts.next().and_then(|token| token.chars().next());
-    let cmdline = parts.collect::<Vec<_>>().join(" ");
-    Some(ProcessInfo { comm, state, cmdline })
+    service::parse_ps_process_infos(&String::from_utf8_lossy(&output.stdout))
 }
 
 #[cfg(windows)]
@@ -257,9 +253,16 @@ fn windows_activity_state(status: sysinfo::ProcessStatus) -> char {
 
 #[cfg(unix)]
 pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::DetectedAgentProbe> {
+    if pids.is_empty() {
+        return Vec::new();
+    }
+
+    let unique: Vec<u32> = pids.iter().map(|(_, pid)| *pid).collect::<HashSet<_>>().into_iter().collect();
+    let infos = resolve_process_infos(&unique);
+
     pids.into_iter()
         .filter_map(|(session_id, pid)| {
-            let info = resolve_process_info(pid)?;
+            let info = infos.get(&pid)?;
             let name = service::detect_agent_name(&info.comm, &info.cmdline)?;
             Some(service::DetectedAgentProbe {
                 session_id,
@@ -296,7 +299,14 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
         .collect()
 }
 
+/// Returns immediately for a project with no pty sessions instead of paying a blocking-pool
+/// dispatch for a probe that can only come back empty — the common case for every project whose
+/// terminal panel was never opened, on every poll tick.
 pub async fn detect_agents_for_pids_blocking(pids: Vec<(String, u32)>) -> AppResult<Vec<service::DetectedAgentProbe>> {
+    if pids.is_empty() {
+        return Ok(Vec::new());
+    }
+
     tauri::async_runtime::spawn_blocking(move || detect_agents_for_pids(pids))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))
@@ -707,6 +717,23 @@ mod tests {
             .join(format!("taide-agent-hooks-file-safety-{name}-{}", Uuid::new_v4()))
             .to_string_lossy()
             .to_string()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 프로세스_조회는_한_번의_ps_호출로_살아있는_pid를_해석한다() {
+        let own = std::process::id();
+
+        let infos = resolve_process_infos(&[own, own]);
+
+        let info = infos.get(&own).expect("테스트 프로세스 자신의 pid 는 항상 살아 있다");
+        assert!(!info.comm.is_empty());
+        assert!(info.state.is_some());
+    }
+
+    #[test]
+    fn pty_세션이_없으면_프로세스를_조회하지_않는다() {
+        assert!(detect_agents_for_pids(Vec::new()).is_empty());
     }
 
     #[test]

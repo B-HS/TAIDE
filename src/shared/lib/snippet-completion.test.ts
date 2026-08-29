@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { SnippetFile } from '@shared/api/bindings'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
-import { collectSnippetCompletionCandidates, registerSnippetCompletions } from '@shared/lib/snippet-completion'
+import {
+    collectSnippetCompletionCandidates,
+    registerSnippetCompletions,
+    registerSnippetCompletionsForLanguages,
+} from '@shared/lib/snippet-completion'
 import { TAIDE_LANGUAGE_IDS } from '@shared/lib/shiki/lang-map'
 
 const languageFile = (fileName: string, snippets: SnippetFile['snippets']): SnippetFile => ({ fileName, snippets })
@@ -132,5 +136,52 @@ describe('registerSnippetCompletions', () => {
         const disposable = registerSnippetCompletions(monaco, { getSnippetFiles: () => [] })
         disposable.dispose()
         expect(getDisposeCallCount()).toBe(TAIDE_LANGUAGE_IDS.length)
+    })
+})
+
+describe('registerSnippetCompletionsForLanguages — 플러그인 언어 스니펫 provider (audit §4-B D6)', () => {
+    test('설치 이후 등록된 플러그인 언어에도 provider 를 붙인다(재현: 플러그인 언어에는 스니펫 완성 전무)', () => {
+        const { monaco, providersByLanguageId } = createFakeMonaco()
+        const disposable = registerSnippetCompletions(monaco, {
+            getSnippetFiles: () => [languageFile('mylang.json', { Hello: { prefix: 'hi', body: 'hello' } })],
+        })
+        expect(providersByLanguageId.has('mylang')).toBe(false)
+
+        registerSnippetCompletionsForLanguages(['mylang'])
+
+        expect(providersByLanguageId.has('mylang')).toBe(true)
+        disposable.dispose()
+    })
+
+    test('같은 언어를 다시 등록해도 provider 를 중복 생성하지 않는다', () => {
+        const { monaco } = createFakeMonaco()
+        let registerCallCount = 0
+        const countingMonaco = {
+            ...monaco,
+            languages: {
+                ...monaco.languages,
+                registerCompletionItemProvider: (...args: Parameters<Monaco['languages']['registerCompletionItemProvider']>) => {
+                    if (args[0] === 'mylang') registerCallCount += 1
+                    return monaco.languages.registerCompletionItemProvider(...args)
+                },
+            },
+        } as unknown as Monaco
+
+        const disposable = registerSnippetCompletions(countingMonaco, { getSnippetFiles: () => [] })
+        registerSnippetCompletionsForLanguages(['mylang'])
+        registerSnippetCompletionsForLanguages(['mylang'])
+
+        expect(registerCallCount).toBe(1)
+        disposable.dispose()
+    })
+
+    test('설치 전에 요청된 플러그인 언어도 이후 설치에서 함께 등록된다(부트스트랩 순서 무관)', () => {
+        registerSnippetCompletionsForLanguages(['early-lang'])
+        const { monaco, providersByLanguageId } = createFakeMonaco()
+
+        const disposable = registerSnippetCompletions(monaco, { getSnippetFiles: () => [] })
+
+        expect(providersByLanguageId.has('early-lang')).toBe(true)
+        disposable.dispose()
     })
 })

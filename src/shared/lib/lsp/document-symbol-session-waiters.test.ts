@@ -189,3 +189,161 @@ describe('loadDocumentSymbolsForPath — waiter 순회+요청+cleanup 캡슐화(
         expect(loaded).toEqual([])
     })
 })
+
+type ScheduledRefresh = { callback: () => void; delayMs: number }
+
+const createFakeScheduler = () => {
+    const scheduled = new Map<number, ScheduledRefresh>()
+    let nextHandle = 0
+    return {
+        scheduler: {
+            schedule: (callback: () => void, delayMs: number) => {
+                nextHandle += 1
+                scheduled.set(nextHandle, { callback, delayMs })
+                return nextHandle
+            },
+            cancel: (timerId: number) => scheduled.delete(timerId),
+        },
+        pendingCount: () => scheduled.size,
+        lastDelayMs: () => [...scheduled.values()].at(-1)?.delayMs ?? null,
+        flush: () => {
+            const pending = [...scheduled.values()]
+            scheduled.clear()
+            pending.forEach((entry) => entry.callback())
+        },
+    }
+}
+
+const symbolNamed = (name: string) => ({
+    name,
+    kind: 12,
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } },
+    selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } },
+})
+
+describe('loadDocumentSymbolsForPath — 편집 후 심볼 재요청 (audit §4-B B12)', () => {
+    test('구독한 콘텐츠 변경이 디바운스 후 documentSymbol 을 다시 요청한다(재현: 편집해도 영영 옛 심볼)', async () => {
+        const symbolNames = ['before', 'after']
+        let requestCount = 0
+        const client = await createTestLspClient({ documentSymbolProvider: true }, (method) => {
+            if (method !== 'textDocument/documentSymbol') return null
+            const name = symbolNames[Math.min(requestCount, symbolNames.length - 1)]
+            requestCount += 1
+            return [symbolNamed(name)]
+        })
+        const loaded: string[][] = []
+        const { scheduler, pendingCount, lastDelayMs, flush } = createFakeScheduler()
+        const contentChangeListeners: (() => void)[] = []
+
+        loadDocumentSymbolsForPath<FakeSession>({
+            monaco: fakeMonaco,
+            availableServerIds: [SERVER_A],
+            path: '/repo/index.ts',
+            projectId: PROJECT_ID,
+            fallbackRoot: '/repo',
+            resolveRoot: () => Promise.resolve('/repo'),
+            waitForSession: () => sessionWaiterFor(client),
+            onLoaded: (symbols) => loaded.push(symbols.map((symbol) => symbol.name)),
+            subscribeContentChange: (onContentChanged) => {
+                contentChangeListeners.push(onContentChanged)
+                return () => contentChangeListeners.splice(contentChangeListeners.indexOf(onContentChanged), 1)
+            },
+            refreshDelayMs: 400,
+            scheduler,
+        })
+
+        await flushMicrotasks()
+        await flushMicrotasks()
+        expect(loaded).toEqual([['before']])
+
+        contentChangeListeners.forEach((notify) => notify())
+        expect(pendingCount()).toBe(1)
+        expect(lastDelayMs()).toBe(400)
+
+        flush()
+        await flushMicrotasks()
+        await flushMicrotasks()
+        expect(loaded).toEqual([['before'], ['after']])
+    })
+
+    test('연속 변경은 하나의 재요청으로 합쳐진다(타이머 재무장)', async () => {
+        let requestCount = 0
+        const client = await createTestLspClient({ documentSymbolProvider: true }, (method) => {
+            if (method !== 'textDocument/documentSymbol') return null
+            requestCount += 1
+            return [symbolNamed(`run-${requestCount}`)]
+        })
+        const { scheduler, pendingCount, flush } = createFakeScheduler()
+        const contentChangeListeners: (() => void)[] = []
+
+        loadDocumentSymbolsForPath<FakeSession>({
+            monaco: fakeMonaco,
+            availableServerIds: [SERVER_A],
+            path: '/repo/index.ts',
+            projectId: PROJECT_ID,
+            fallbackRoot: '/repo',
+            resolveRoot: () => Promise.resolve('/repo'),
+            waitForSession: () => sessionWaiterFor(client),
+            onLoaded: () => {},
+            subscribeContentChange: (onContentChanged) => {
+                contentChangeListeners.push(onContentChanged)
+                return () => {}
+            },
+            scheduler,
+        })
+
+        await flushMicrotasks()
+        await flushMicrotasks()
+        expect(requestCount).toBe(1)
+
+        contentChangeListeners.forEach((notify) => notify())
+        contentChangeListeners.forEach((notify) => notify())
+        contentChangeListeners.forEach((notify) => notify())
+        expect(pendingCount()).toBe(1)
+
+        flush()
+        await flushMicrotasks()
+        await flushMicrotasks()
+        expect(requestCount).toBe(2)
+    })
+
+    test('cleanup 은 콘텐츠 구독을 해제하고 대기 중인 재요청 타이머를 취소한다', async () => {
+        const client = await createTestLspClient({ documentSymbolProvider: true }, () => [symbolNamed('only')])
+        const loaded: string[][] = []
+        const { scheduler, pendingCount, flush } = createFakeScheduler()
+        let unsubscribeCallCount = 0
+        const contentChangeListeners: (() => void)[] = []
+
+        const cleanup = loadDocumentSymbolsForPath<FakeSession>({
+            monaco: fakeMonaco,
+            availableServerIds: [SERVER_A],
+            path: '/repo/index.ts',
+            projectId: PROJECT_ID,
+            fallbackRoot: '/repo',
+            resolveRoot: () => Promise.resolve('/repo'),
+            waitForSession: () => sessionWaiterFor(client),
+            onLoaded: (symbols) => loaded.push(symbols.map((symbol) => symbol.name)),
+            subscribeContentChange: (onContentChanged) => {
+                contentChangeListeners.push(onContentChanged)
+                return () => {
+                    unsubscribeCallCount += 1
+                }
+            },
+            scheduler,
+        })
+
+        await flushMicrotasks()
+        await flushMicrotasks()
+        contentChangeListeners.forEach((notify) => notify())
+        expect(pendingCount()).toBe(1)
+
+        cleanup()
+        expect(unsubscribeCallCount).toBe(1)
+        expect(pendingCount()).toBe(0)
+
+        flush()
+        await flushMicrotasks()
+        await flushMicrotasks()
+        expect(loaded).toEqual([['only']])
+    })
+})

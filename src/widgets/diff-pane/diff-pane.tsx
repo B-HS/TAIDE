@@ -5,11 +5,14 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { resolveDiffViewSettingsProps } from '@shared/lib/diff-view-settings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { gitDiffFileQueryOptions, gitStatusQueryOptions, useStageGitHunk, useUnstageGitHunk } from '@entities/git/git.query'
 import { fileQueryOptions } from '@entities/file/file.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { DiffView } from '@features/git/diff-view'
 import { toHunkRange, type HunkRange } from '@widgets/diff-pane/diff-hunk-range'
+import { isDiffHunkStageable } from '@widgets/diff-pane/diff-stageability'
 
 const RENDER_SIDE_BY_SIDE_TOGGLE_CODE = 'Backslash'
 
@@ -18,9 +21,10 @@ type DiffPaneProps = {
     path: string
     staged: boolean
     compareWith: string | null
+    beforePath: string | null
 }
 
-export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWith }) => {
+export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWith, beforePath }) => {
     const [renderSideBySide, setRenderSideBySide] = useState(true)
     const [diffEditor, setDiffEditor] = useState<monaco.editor.IStandaloneDiffEditor | null>(null)
     const [hunkRanges, setHunkRanges] = useState<HunkRange[]>([])
@@ -31,7 +35,10 @@ export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWi
         data: gitData,
         isPending: isGitPending,
         isError: isGitError,
-    } = useQuery({ ...gitDiffFileQueryOptions({ projectId, path, mode: staged ? 'indexVsHead' : 'workdirVsIndex' }), enabled: compareWith === null })
+    } = useQuery({
+        ...gitDiffFileQueryOptions({ projectId, path, mode: staged ? 'indexVsHead' : 'workdirVsIndex', beforePath }),
+        enabled: compareWith === null,
+    })
     const { data: originalFile, isPending: isOriginalPending, isError: isOriginalError } = useQuery(fileQueryOptions(compareWith))
     const {
         data: modifiedFile,
@@ -39,6 +46,7 @@ export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWi
         isError: isModifiedError,
     } = useQuery({ ...fileQueryOptions(path), enabled: compareWith !== null })
     const { data: gitStatus } = useQuery({ ...gitStatusQueryOptions(projectId), enabled: compareWith === null })
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: stageHunk } = useStageGitHunk(projectId)
     const { mutate: unstageHunk } = useUnstageGitHunk(projectId)
 
@@ -48,13 +56,7 @@ export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWi
         compareWith !== null && originalFile && modifiedFile
             ? { original: originalFile.content, modified: modifiedFile.content, languageId: modifiedFile.languageId }
             : gitData
-    /**
-     * Gutter hunk stage/unstage only makes sense against a real git diff (workdirVsIndex or
-     * indexVsHead) of a conflict-free file — a manual file-vs-file compare has no git-stage
-     * concept, and an unresolved conflict's raw marker text has no meaningful hunk-level stage
-     * action (see the inline conflict decorator in `editor-pane.tsx` for that flow instead).
-     */
-    const isStageable = compareWith === null && !(gitStatus?.rows ?? []).some((row) => row.path === path && row.isConflicted)
+    const isStageable = isDiffHunkStageable({ path, compareWith, rows: gitStatus?.rows ?? [] })
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -130,6 +132,7 @@ export const DiffPane: FC<DiffPaneProps> = ({ projectId, path, staged, compareWi
             modified={diffContent.modified}
             languageId={diffContent.languageId}
             renderSideBySide={renderSideBySide}
+            {...resolveDiffViewSettingsProps(settings)}
             onDiffEditorMount={setDiffEditor}
         />
     )

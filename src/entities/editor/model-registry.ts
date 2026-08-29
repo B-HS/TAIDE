@@ -64,6 +64,112 @@ export const disposeModel = (path: string) => {
     entry.model.dispose()
 }
 
+/**
+ * Moves the model registered for `from` over to `to` after a rename, keeping the buffer (unsaved
+ * edits included), the language and the saved view state, and re-pointing every editor currently
+ * displaying it at the new model *before* the old one is disposed.
+ *
+ * A model cannot follow a rename in place: `ITextModel.uri` is immutable, and the uri is what the
+ * LSP adapters, the diagnostics markers and the peek/definition surfaces all address a document by —
+ * leaving it at the old path would keep sending edits and requests for a file that no longer exists.
+ * So the move is create-new + dispose-old, which costs this document's **undo history** (monaco has
+ * no uri-move API that preserves it) — the same trade `useCloseTab`'s dispose makes, recorded in
+ * contract §3 S8.
+ *
+ * The editor re-point is what makes the dispose safe *and* seamless. Monaco already self-heals
+ * (`CodeEditorWidget` subscribes to `model.onWillDispose` and detaches to a null model), but that
+ * would blank the pane until React re-rendered it onto the new path; swapping the model here instead
+ * keeps the same text on screen, and restoring each editor's own view state keeps its cursor and
+ * scroll position across the rename.
+ *
+ * A stale model already sitting at the destination uri (a tab for a path that was deleted and whose
+ * model outlived it, or a peek preload) is disposed first — `monaco.editor.createModel` throws on a
+ * duplicate uri, which would otherwise turn a rename into a hard failure.
+ */
+export const retargetModel = (from: string, to: string) => {
+    const fromKey = toKey(from)
+    const entry = registry.get(fromKey)
+    if (!entry) return
+
+    registry.delete(fromKey)
+    if (entry.model.isDisposed()) return
+
+    const targetUri = toUri(to)
+    const targetKey = targetUri.toString()
+    const staleTarget = registry.get(targetKey)?.model ?? monaco.editor.getModel(targetUri)
+    registry.delete(targetKey)
+    cancelPeekModelDispose(to)
+
+    const displacedEditors = monaco.editor
+        .getEditors()
+        .filter((editor) => editor.getModel() === entry.model || (!!staleTarget && editor.getModel() === staleTarget))
+        .map((editor) => ({ editor, viewState: editor.saveViewState() }))
+
+    if (staleTarget && !staleTarget.isDisposed()) staleTarget.dispose()
+
+    const model = monaco.editor.createModel(entry.model.getValue(), entry.model.getLanguageId(), targetUri)
+    registry.set(targetKey, { model, viewState: entry.viewState })
+
+    for (const { editor, viewState } of displacedEditors) {
+        editor.setModel(model)
+        if (viewState) editor.restoreViewState(viewState)
+    }
+    entry.model.dispose()
+}
+
+/**
+ * Re-applies `languageId` to the model registered for `path` when it no longer matches — the tail of
+ * a rename that changed the extension (`notes.txt` → `notes.ts`). {@link retargetModel} carries the
+ * old language over because only the backend's re-read of the new path knows the new one, and
+ * {@link getOrCreateModel} never re-languages a model it merely hands back, so without this the
+ * moved buffer would keep the old grammar until the tab was closed and reopened.
+ */
+export const applyModelLanguage = (path: string, languageId: string) => {
+    const entry = registry.get(toKey(path))
+    if (!entry || entry.model.isDisposed() || entry.model.getLanguageId() === languageId) return
+
+    monaco.editor.setModelLanguage(entry.model, languageId)
+}
+
+/**
+ * Calls `listener` whenever the buffer at `path` changes, for as long as the returned unsubscribe
+ * has not been called — including across a model that does not exist yet at subscribe time, or one
+ * disposed and recreated under the same uri ({@link retargetModel}, a tab closed and reopened, a
+ * peek preload promoted to a real tab). Consumers that must re-derive something from the buffer's
+ * *content* (the document symbol re-request behind the outline/breadcrumb surfaces, audit §4-B B12)
+ * cannot use `getModel(path)?.onDidChangeContent` directly for exactly that reason: the model they
+ * would find at effect time is not necessarily the one the pane ends up editing, and a subscription
+ * to a disposed model is silently dead.
+ *
+ * Reads through `monaco.editor.getModel`/`onDidCreateModel` rather than this registry's own map so
+ * an orphan model (`peek-model-preload.ts` creates real models at the real file uri) is observed
+ * too — the registry only learns about those when a tab adopts one.
+ */
+export const subscribeModelContentChange = (path: string, listener: () => void) => {
+    const uri = toUri(path)
+    const key = uri.toString()
+    let contentSubscription: { dispose: () => void } | null = null
+
+    const attach = (model: monaco.editor.ITextModel) => {
+        contentSubscription?.dispose()
+        contentSubscription = model.onDidChangeContent(() => listener())
+    }
+
+    const existingModel = monaco.editor.getModel(uri)
+    if (existingModel) attach(existingModel)
+
+    const createSubscription = monaco.editor.onDidCreateModel((model) => {
+        if (model.uri.toString() !== key) return
+        attach(model)
+    })
+
+    return () => {
+        createSubscription.dispose()
+        contentSubscription?.dispose()
+        contentSubscription = null
+    }
+}
+
 export const saveViewState = (path: string, editor: monaco.editor.ICodeEditor) => {
     const entry = registry.get(toKey(path))
     if (!entry) return
@@ -78,11 +184,31 @@ export const restoreViewState = (path: string, editor: monaco.editor.ICodeEditor
     editor.restoreViewState(entry.viewState)
 }
 
+/**
+ * Models currently being rewritten by {@link applyExternalContent}. `ITextModel.setValue` notifies
+ * `onDidChangeModelContent` synchronously, so without this the pane's own "the model now matches
+ * disk / the restored mirror" write comes back through `CodeEditor`'s change subscription
+ * indistinguishable from a keystroke: the tab flips dirty with content identical to what it just
+ * adopted, and the hot-exit mirror debounce that transition arms then persists that same content as
+ * "unsaved recovery data". Every caller of `applyExternalContent` already sets whatever draft/dirty
+ * state its own write implies (`use-editor-file-persistence.ts`'s mirror restore marks dirty,
+ * `handleViewDisk` marks clean), so the echoed change event carries no information — only damage.
+ */
+const modelsApplyingExternalContent = new WeakSet<monaco.editor.ITextModel>()
+
+/** Whether `model`'s in-flight content change originates from {@link applyExternalContent} rather than from an edit. */
+export const isApplyingExternalContentTo = (model: monaco.editor.ITextModel) => modelsApplyingExternalContent.has(model)
+
 export const applyExternalContent = (path: string, content: string, editor: monaco.editor.ICodeEditor | null) => {
     const entry = registry.get(toKey(path))
     if (!entry || entry.model.getValue() === content) return
 
     const viewState = editor?.saveViewState() ?? null
-    entry.model.setValue(content)
+    modelsApplyingExternalContent.add(entry.model)
+    try {
+        entry.model.setValue(content)
+    } finally {
+        modelsApplyingExternalContent.delete(entry.model)
+    }
     if (editor && viewState) editor.restoreViewState(viewState)
 }

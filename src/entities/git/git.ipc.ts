@@ -11,8 +11,8 @@ export const getGitLog = (input: { projectId: ProjectId; skip: number; take: num
 
 export const getGitRemotes = (projectId: ProjectId) => unwrapResult(commands.gitRemotes(projectId))
 
-export const getGitDiffFile = (input: { projectId: ProjectId; path: string; mode: DiffMode }) =>
-    unwrapResult(commands.gitDiffFile(input.projectId, input.path, input.mode))
+export const getGitDiffFile = (input: { projectId: ProjectId; path: string; mode: DiffMode; beforePath?: string | null }) =>
+    unwrapResult(commands.gitDiffFile(input.projectId, input.path, input.mode, input.beforePath ?? null))
 
 export const getGitGutter = (input: { projectId: ProjectId; path: string }) => unwrapResult(commands.gitGutter(input.projectId, input.path))
 

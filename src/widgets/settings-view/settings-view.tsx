@@ -1,5 +1,5 @@
 import type { ComponentProps, FC } from 'react'
-import { useRef, useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { FileJson } from 'lucide-react'
@@ -27,10 +27,20 @@ import { SettingsToc } from '@features/settings/settings-toc'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { AppDataPathKind, ProjectId } from '@shared/api/bindings'
-import { ThemeEditor } from '@widgets/theme-editor/theme-editor'
-import { SnippetEditor } from '@widgets/snippet-editor/snippet-editor'
 import { Button } from '@shared/ui/button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
+
+/**
+ * Both editors take over the whole settings surface behind an early return, so neither is on screen
+ * when the settings screen first renders — and the theme editor in particular drags in the vsix
+ * import path and the full token-color editing UI (audit §1-1). Splitting them one level below
+ * `pane-node-view.tsx`'s own `SettingsView` split keeps opening Settings from paying for editors
+ * most sessions never open.
+ */
+const ThemeEditor = lazy(async () => ({ default: (await import('@widgets/theme-editor/theme-editor')).ThemeEditor }))
+const SnippetEditor = lazy(async () => ({ default: (await import('@widgets/snippet-editor/snippet-editor')).SnippetEditor }))
+
+const SETTINGS_EDITOR_SUSPENSE_FALLBACK = <div className='bg-app-background h-full w-full' />
 
 export type ThemeEditorState = Pick<ComponentProps<typeof ThemeEditor>, 'mode' | 'sourceThemeId'>
 
@@ -124,15 +134,22 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
 
     if (themeEditorState)
         return (
-            <ThemeEditor
-                sourceThemeId={themeEditorState.sourceThemeId}
-                mode={themeEditorState.mode}
-                themes={themes}
-                onClose={() => setThemeEditorState(null)}
-            />
+            <Suspense fallback={SETTINGS_EDITOR_SUSPENSE_FALLBACK}>
+                <ThemeEditor
+                    sourceThemeId={themeEditorState.sourceThemeId}
+                    mode={themeEditorState.mode}
+                    themes={themes}
+                    onClose={() => setThemeEditorState(null)}
+                />
+            </Suspense>
         )
 
-    if (isSnippetEditorOpen) return <SnippetEditor onClose={() => setIsSnippetEditorOpen(false)} />
+    if (isSnippetEditorOpen)
+        return (
+            <Suspense fallback={SETTINGS_EDITOR_SUSPENSE_FALLBACK}>
+                <SnippetEditor onClose={() => setIsSnippetEditorOpen(false)} />
+            </Suspense>
+        )
 
     return (
         <ScrollContainer viewportRef={scrollContainerRef} className='bg-app-background text-app-foreground h-full w-full'>

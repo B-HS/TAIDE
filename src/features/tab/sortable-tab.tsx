@@ -108,6 +108,7 @@ export const SortableTab: FC<SortableTabProps> = ({
                     agentTooltip={agentTooltip}
                     onActivate={onActivate}
                     onClose={onClose}
+                    onTogglePin={onTogglePin}
                 />
             </div>
         </TabContextMenu>

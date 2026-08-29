@@ -1,6 +1,5 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -125,8 +124,8 @@ impl PtySession {
 /// through the store's lock. `pause.set_paused(false)` must run *before* `kill`: the reader thread
 /// parked in `wait_while_paused` only wakes on the pause condvar's `notify_all`, never on the child
 /// dying, so a session killed while paused (`pty_set_paused(true)` with no matching `false` before
-/// close) previously left both the reader thread and the flusher thread it gates (`draining` only
-/// flips once the reader thread's read loop exits) parked forever — two threads leaked per
+/// close) previously left both the reader thread and the flusher thread it gates (only the reader
+/// thread's read loop exiting calls [`FlushSignal::stop`]) parked forever — two threads leaked per
 /// paused-then-killed session. Killing first would still leave the reader blocked on the condvar
 /// since the child's death doesn't touch the pause gate at all. The temp-dir removal runs
 /// unconditionally alongside the two, independent of whether the shell ever reached its injected
@@ -143,6 +142,80 @@ impl Drop for PtySession {
 
 fn should_flush(batch_len: usize, elapsed: Duration) -> bool {
     batch_len >= READ_BUFFER_BYTES || elapsed >= Duration::from_millis(OUTPUT_BATCH_MS)
+}
+
+#[derive(Default)]
+struct FlushState {
+    pending: bool,
+    stopped: bool,
+}
+
+/// Wakes the flusher thread only when the reader thread has actually left bytes sitting in the
+/// batch, instead of the unconditional `sleep(OUTPUT_FLUSH_TICK_MS)` loop this replaces. That loop
+/// woke, took the batch lock and called a no-op `flush` 200 times a second **per session** for the
+/// entire life of every terminal — including the overwhelmingly common case of an idle shell with
+/// nothing to flush (§2 L-2). Now an idle session parks on the condvar and costs nothing; a session
+/// producing output pays one wakeup per burst, which is what the timer was ever for.
+struct FlushSignal {
+    state: Mutex<FlushState>,
+    condvar: Condvar,
+}
+
+impl FlushSignal {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(FlushState::default()),
+            condvar: Condvar::new(),
+        }
+    }
+
+    /// Records whether the batch currently holds bytes the reader thread did *not* flush itself,
+    /// waking the flusher when it does. Called after every read, so a push that already flushed
+    /// (batch full, or `OUTPUT_BATCH_MS` elapsed) clears the flag instead of scheduling a wakeup
+    /// that would find nothing to do.
+    fn set_pending(&self, pending: bool) {
+        let mut state = self.state.lock();
+        if state.pending == pending {
+            return;
+        }
+        state.pending = pending;
+        if pending {
+            self.condvar.notify_one();
+        }
+    }
+
+    /// Marks the reader thread finished so the flusher's next wait returns `false` and its loop
+    /// ends. The reader thread flushes the final batch itself, so nothing is left behind here.
+    fn stop(&self) {
+        self.state.lock().stopped = true;
+        self.condvar.notify_all();
+    }
+
+    /// Blocks until the batch has bytes waiting, consuming the flag; returns `false` once the
+    /// reader thread has stopped, which is the flusher loop's only exit.
+    fn wait_for_pending(&self) -> bool {
+        let mut state = self.state.lock();
+        while !state.pending && !state.stopped {
+            self.condvar.wait(&mut state);
+        }
+        if state.stopped {
+            return false;
+        }
+        state.pending = false;
+        true
+    }
+}
+
+/// Flushes bytes the reader thread batched but could not send itself — the last, small chunk of a
+/// burst, which `should_flush` holds back and which would otherwise sit in memory until the *next*
+/// read (the trailing escape sequence that left autocomplete ghosts on screen — `terminal.md`
+/// §12.2-A). Waits `OUTPUT_FLUSH_TICK_MS` after being woken so a burst still coalesces into one
+/// send rather than one per read.
+fn run_flusher<D: Fn(&[u8])>(signal: &FlushSignal, batch: &Mutex<OutputBatch<D>>) {
+    while signal.wait_for_pending() {
+        std::thread::sleep(Duration::from_millis(OUTPUT_FLUSH_TICK_MS));
+        batch.lock().flush();
+    }
 }
 
 struct OutputBatch<D> {
@@ -174,6 +247,12 @@ impl<D: Fn(&[u8])> OutputBatch<D> {
         (self.on_data)(&self.buf);
         self.buf.clear();
         self.last_flush = Instant::now();
+    }
+
+    /// Whether [`OutputBatch::push`] left bytes behind — what the reader thread reports to
+    /// [`FlushSignal::set_pending`] so the flusher thread is woken only when there is work.
+    fn has_pending(&self) -> bool {
+        !self.buf.is_empty()
     }
 }
 
@@ -264,15 +343,10 @@ where
 
     let batch = Arc::new(Mutex::new(OutputBatch::new(on_data)));
     let flusher_batch = batch.clone();
-    let draining = Arc::new(AtomicBool::new(true));
-    let flusher_draining = draining.clone();
+    let flush_signal = Arc::new(FlushSignal::new());
+    let flusher_signal = flush_signal.clone();
 
-    std::thread::spawn(move || {
-        while flusher_draining.load(AtomicOrdering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(OUTPUT_FLUSH_TICK_MS));
-            flusher_batch.lock().flush();
-        }
-    });
+    std::thread::spawn(move || run_flusher(&flusher_signal, &flusher_batch));
 
     std::thread::spawn(move || {
         let mut buf = [0u8; READ_BUFFER_BYTES];
@@ -282,11 +356,15 @@ where
 
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
-                Ok(n) => batch.lock().push(&buf[..n]),
+                Ok(n) => {
+                    let mut batch = batch.lock();
+                    batch.push(&buf[..n]);
+                    flush_signal.set_pending(batch.has_pending());
+                }
             }
         }
 
-        draining.store(false, AtomicOrdering::SeqCst);
+        flush_signal.stop();
         batch.lock().flush();
     });
 
@@ -308,6 +386,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
     #[test]
     fn 배치_크기가_임계값을_넘으면_플러시한다() {
@@ -370,6 +449,81 @@ mod tests {
         batch.push(b"b");
         batch.flush();
         assert_eq!(sent.lock().as_slice(), [b"a".to_vec(), b"b".to_vec()]);
+    }
+
+    const SIGNAL_PROBE_MS: u64 = 60;
+    const SIGNAL_WAKE_TIMEOUT_MS: u64 = 3_000;
+
+    /// §2 L-2 의 요점 자체를 고정한다: 보낼 것이 없으면 플러셔는 **깨어나지 않는다**. 5ms 틱
+    /// 루프였을 때는 유휴 세션도 초당 200회 깨어나 빈 배치에 락을 걸었다.
+    #[test]
+    fn 대기중인_데이터가_없으면_플러셔는_깨어나지_않는다() {
+        let signal = Arc::new(FlushSignal::new());
+        let (woke_tx, woke_rx) = std::sync::mpsc::channel();
+        let waiter = signal.clone();
+        std::thread::spawn(move || woke_tx.send(waiter.wait_for_pending()).ok());
+
+        assert!(
+            woke_rx.recv_timeout(Duration::from_millis(SIGNAL_PROBE_MS)).is_err(),
+            "보낼 데이터가 없으면 대기에서 깨어나면 안 된다"
+        );
+
+        signal.set_pending(true);
+        assert_eq!(
+            woke_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS)).ok(),
+            Some(true),
+            "데이터가 생기면 즉시 깨어나야 한다"
+        );
+    }
+
+    #[test]
+    fn 대기는_pending_플래그를_소비한다() {
+        let signal = FlushSignal::new();
+        signal.set_pending(true);
+        assert!(signal.wait_for_pending());
+
+        signal.stop();
+        assert!(!signal.wait_for_pending(), "소비된 뒤에는 stop 으로만 대기가 끝나야 한다");
+    }
+
+    #[test]
+    fn reader_가_끝나면_플러셔_루프도_끝난다() {
+        let (batch, _sent) = collecting_batch();
+        let batch = Arc::new(Mutex::new(batch));
+        let signal = Arc::new(FlushSignal::new());
+        let flusher_signal = signal.clone();
+        let flusher_batch = batch.clone();
+        let flusher = std::thread::spawn(move || run_flusher(&flusher_signal, &flusher_batch));
+
+        signal.stop();
+        flusher.join().expect("stop 이후 플러셔 스레드는 종료되어야 한다");
+    }
+
+    /// 배치에 갇힌 소량 청크(버스트 마지막 조각)를 플러셔가 실제로 내보내는지 — condvar 전환
+    /// 이후에도 `terminal.md` §12.2-A 가 요구한 타이머 flush 의 역할이 유지되는지 확인한다.
+    #[test]
+    fn 배치에_남은_청크는_플러셔가_내보낸다() {
+        let (mut batch, sent) = collecting_batch();
+        batch.buf.extend_from_slice(b"trailing");
+        assert!(batch.has_pending());
+
+        let batch = Arc::new(Mutex::new(batch));
+        let signal = Arc::new(FlushSignal::new());
+        let flusher_signal = signal.clone();
+        let flusher_batch = batch.clone();
+        let flusher = std::thread::spawn(move || run_flusher(&flusher_signal, &flusher_batch));
+
+        signal.set_pending(true);
+
+        let deadline = Instant::now() + Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS);
+        while sent.lock().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(OUTPUT_FLUSH_TICK_MS));
+        }
+
+        signal.stop();
+        flusher.join().expect("플러셔 스레드 종료");
+
+        assert_eq!(sent.lock().as_slice(), [b"trailing".to_vec()]);
     }
 
     fn base_config(shell: Option<&str>) -> PtySpawnConfig {

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { FileTreeNodeKind } from '@features/explorer/file-tree-row'
 import { ROW_ICON_SIZE_CLASS, ROW_INDENT_PX } from '@features/explorer/file-tree-row'
 import { cn } from '@shared/lib/cn'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { FolderTypeIcon } from '@shared/icons/folder-type-icon'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
@@ -24,6 +25,7 @@ export const FileTreeDraftRowItem: FC<FileTreeDraftRowItemProps> = ({ depth, kin
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         event.stopPropagation()
+        if (isImeCompositionKeydown(event)) return
         if (event.key === 'Enter') {
             event.preventDefault()
             onCommit(name)

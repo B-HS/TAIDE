@@ -43,6 +43,39 @@ const STAGED_DIFF_SECRET_FILE_NAME_PREFIXES: &[&str] = &[".env"];
 /// Basename extensions that conventionally hold secrets (private keys, certificates, keystores).
 const STAGED_DIFF_SECRET_FILE_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "jks", "keystore", "ppk", "der", "crt"];
 
+/// Upper bound on the blob [`show_file`] will hand back. Deliberately the file domain's own
+/// refuse-to-open tier, so "what the editor refuses to read from disk" and "what git will hand the
+/// editor out of history" stay the same boundary — a commit-diff or file-history view must not become a
+/// second door into a file `file_open` already refuses.
+const SHOW_FILE_MAX_BYTES: u64 = crate::constants::REFUSED_FILE_BYTES;
+
+/// How long a single `git` subprocess may run in [`run_git`] before it is killed. Generous on purpose:
+/// the commands that reach here include `push`/`pull`/`fetch` against a slow remote and `commit` with
+/// `add -A` over a large working tree, all of which can legitimately take minutes, and killing a `pull`
+/// mid-integration is itself disruptive. The bound exists for the unbounded case the audit found (§2
+/// M-7): a subprocess parked forever on an unreachable remote or a blocked credential prompt, which
+/// previously pinned a blocking-pool thread — and, for `pull`, `AppState::begin_mutation`; for
+/// `push`/`fetch`, [`super::commands::GitStore::push_fetch_lock`] — for the rest of the app's lifetime.
+const GIT_COMMAND_TIMEOUT_SECS: u64 = 300;
+
+/// How often [`run_command_with_timeout`] re-checks a still-running subprocess. Small enough that the
+/// kill path is prompt and large enough that a normal short `git` call costs at most one extra sleep.
+const GIT_COMMAND_POLL_INTERVAL_MS: u64 = 20;
+
+/// How long [`run_command_with_timeout`] waits for the pipe readers to report end-of-file *after* the
+/// subprocess has already exited. Short because by then only whatever is still sitting in the pipe
+/// buffer remains — the reader threads have been draining concurrently for the command's whole run.
+///
+/// It exists because the exit-status deadline above does not cover this step: `git` can leave a
+/// grandchild holding the write end of its stdout/stderr (an `ssh` ControlMaster/ControlPersist, a
+/// background credential helper), and that keeps `read_to_end` from ever seeing EOF. Waiting for the
+/// readers unconditionally there — the shape this function shipped with — turned a *successful*
+/// `git push`/`pull` into the very indefinite hang the timeout exists to prevent, still holding
+/// `AppState::begin_mutation` (for `pull`) or [`super::commands::GitStore::push_fetch_lock`]
+/// (`push`/`fetch`). Timing out here just costs the tail of the output, which is exactly the trade the
+/// kill path already makes by abandoning its readers.
+const GIT_PIPE_DRAIN_TIMEOUT_SECS: u64 = 5;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AheadBehind {
@@ -94,6 +127,16 @@ pub fn ahead_behind(repo_path: &Path) -> AppResult<AheadBehind> {
     Ok(ahead_behind_of(&repo))
 }
 
+/// Stages each path, taking the directory branch for an untracked-directory row. [`collect_status_rows`]
+/// sets `recurse_untracked_dirs(false)`, so an untracked directory arrives as one `nested/` row rather
+/// than one row per contained file — and `index.add_path` rejects a directory outright (libgit2 1.9.6's
+/// `git_index_add_bypath` → "it is a directory"; the trailing-slash spelling fails even earlier, at path
+/// validation). That made every such row permanently unstageable, and poisoned any multi-select it was
+/// part of, since one failure aborts the whole loop before `index.write` (§4-A-6). `add_all` is the same
+/// call `git add nested/` makes: it walks the directory and adds each contained file, skipping ignored
+/// ones exactly as `IndexAddOption::DEFAULT` does elsewhere — so the row keeps meaning what the UI shows
+/// it to mean ("stage everything under here"). Files and deletions take the unchanged
+/// `add_path`/`remove_path` branches.
 pub fn stage(repo_path: &Path, paths: &[String]) -> AppResult<()> {
     let repo = open_repo(repo_path)?;
     let workdir = repo_workdir(&repo)?;
@@ -102,7 +145,12 @@ pub fn stage(repo_path: &Path, paths: &[String]) -> AppResult<()> {
     for raw in paths {
         let relative = to_repo_relative(&workdir, raw)?;
         let relative_path = Path::new(&relative);
-        if workdir.join(relative_path).exists() {
+        let absolute = workdir.join(relative_path);
+        if absolute.is_dir() {
+            index
+                .add_all([without_trailing_separator(&relative)], git2::IndexAddOption::DEFAULT, None)
+                .map_err(map_git_err)?;
+        } else if absolute.exists() {
             index.add_path(relative_path).map_err(map_git_err)?;
         } else {
             index.remove_path(relative_path).map_err(map_git_err)?;
@@ -110,6 +158,16 @@ pub fn stage(repo_path: &Path, paths: &[String]) -> AppResult<()> {
     }
 
     index.write().map_err(map_git_err)
+}
+
+/// Drops the trailing separator an untracked-directory status row carries (`nested/` → `nested`),
+/// which both libgit2's pathspec matcher and repo-relative path comparison want in the plain form.
+/// `Components::as_path` trims it without hand-rolling a separator literal, and — because `Path`
+/// equality compares components rather than raw bytes — comparing two of these also absorbs the
+/// asymmetry [`to_repo_relative`] leaves behind: a relative input keeps the caller's trailing slash
+/// while an absolute one loses it to `strip_prefix`'s own component normalization (§4-A-10).
+fn without_trailing_separator(relative: &str) -> &Path {
+    Path::new(relative).components().as_path()
 }
 
 pub fn unstage(repo_path: &Path, paths: &[String]) -> AppResult<()> {
@@ -171,8 +229,9 @@ pub fn discard(repo_path: &Path, paths: &[String]) -> AppResult<()> {
 
     let rows = collect_status_rows(&repo)?;
     let (untracked, tracked): (Vec<String>, Vec<String>) = relatives.into_iter().partition(|relative| {
-        rows.iter()
-            .any(|row| &row.path == relative && row.unstaged == Some(GitChangeKind::Untracked))
+        rows.iter().any(|row| {
+            without_trailing_separator(&row.path) == without_trailing_separator(relative) && row.unstaged == Some(GitChangeKind::Untracked)
+        })
     });
 
     if !untracked.is_empty() {
@@ -232,7 +291,19 @@ pub fn current_user(repo_path: &Path) -> AppResult<Option<String>> {
     }
 }
 
+/// Rejects an over-limit blob from its object header instead of materializing it. `Odb::read_header`
+/// reads only the header, so an over-limit blob is never decompressed into memory — where the previous
+/// unbounded `find_blob` + `String::from_utf8_lossy` pair allocated the whole thing twice (once
+/// decompressed, once as the lossy `String`) before anything could refuse it, for a value that then had
+/// to be JSON-serialized across IPC as well (§2 M-1).
 pub fn show_file(repo_path: &Path, rev: &str, path: &str) -> AppResult<String> {
+    show_file_limited(repo_path, rev, path, SHOW_FILE_MAX_BYTES)
+}
+
+/// [`show_file`] with the size bound as a parameter, so tests can exercise the refusal against a
+/// few-byte blob instead of materializing a [`SHOW_FILE_MAX_BYTES`]-sized one just to watch it be
+/// rejected.
+fn show_file_limited(repo_path: &Path, rev: &str, path: &str, max_bytes: u64) -> AppResult<String> {
     let repo = open_repo(repo_path)?;
     let workdir = repo_workdir(&repo)?;
     let relative = to_repo_relative(&workdir, path)?;
@@ -243,24 +314,52 @@ pub fn show_file(repo_path: &Path, rev: &str, path: &str) -> AppResult<String> {
     let entry = tree
         .get_path(Path::new(&relative))
         .map_err(|error| AppError::NotFound(format!("{relative}: {error}")))?;
+
+    let odb = repo.odb().map_err(map_git_err)?;
+    let (size, _) = odb.read_header(entry.id()).map_err(map_git_err)?;
+    if size as u64 > max_bytes {
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.git.blobTooLarge",
+            format!("{relative}: blob is too large to show ({size} bytes)"),
+        )
+        .with_arg("path", &relative));
+    }
+
     let blob = repo.find_blob(entry.id()).map_err(map_git_err)?;
 
     Ok(String::from_utf8_lossy(blob.content()).into_owned())
 }
 
-pub fn diff_file(repo_path: &Path, path: &str, mode: DiffMode, language_overlays: &[LanguageOverlay]) -> AppResult<DiffSides> {
+/// `before_path` names the row's pre-change path and drives the **original** (left) side only; the
+/// modified (right) side is always `path`. A rename has different paths on the two sides — a staged
+/// rename's HEAD entry lives at the old path, an unstaged one's index entry does — and reading both
+/// sides at the new path made HEAD/index come back empty, rendering every renamed file as a whole-file
+/// addition instead of its actual edit (§4-B B11). `None` keeps the pre-existing behaviour of using
+/// `path` for both sides, which is correct for every non-rename row.
+pub fn diff_file(
+    repo_path: &Path,
+    path: &str,
+    mode: DiffMode,
+    before_path: Option<&str>,
+    language_overlays: &[LanguageOverlay],
+) -> AppResult<DiffSides> {
     let repo = open_repo(repo_path)?;
     let workdir = repo_workdir(&repo)?;
     let relative = to_repo_relative(&workdir, path)?;
+    let before_relative = match before_path {
+        Some(raw) => to_repo_relative(&workdir, raw)?,
+        None => relative.clone(),
+    };
 
     let (original, modified) = match mode {
         DiffMode::WorkdirVsIndex => {
-            let original = read_index_blob(&repo, &relative).unwrap_or_default();
+            let original = read_index_blob(&repo, &before_relative).unwrap_or_default();
             let modified = std::fs::read_to_string(workdir.join(&relative)).unwrap_or_default();
             (original, modified)
         }
         DiffMode::IndexVsHead => {
-            let original = read_head_blob(&repo, &relative).unwrap_or_default();
+            let original = read_head_blob(&repo, &before_relative).unwrap_or_default();
             let modified = read_index_blob(&repo, &relative).unwrap_or_default();
             (original, modified)
         }
@@ -1891,12 +1990,85 @@ fn map_git_err(error: git2::Error) -> AppError {
     AppError::localized(kind, key, format!("{fallback}: {detail}")).with_arg("detail", &detail)
 }
 
+/// Runs `command` to completion, killing it once it outlives `timeout` and reporting that as
+/// `Ok(None)`. Replaces `Command::output()`, which waits forever: the stdout/stderr pipes are drained by
+/// their own threads (a `git push`/`pull` writes more progress output than a pipe buffer holds, so a
+/// caller that only polls the exit status would deadlock the child against a full pipe), and the exit
+/// status is polled meanwhile. Stdin is null and both outputs are piped — byte-for-byte the
+/// configuration `output()` applies — so a killed subprocess is the only observable difference.
+///
+/// On the kill path the reader threads are deliberately **not** joined: `kill` reaches the `git` process
+/// only, and a grandchild it left holding the write end (an `ssh`, a credential helper) would keep the
+/// read blocked, turning the timeout into the very hang it exists to prevent. The detached threads end on
+/// their own when the last writer closes, and their buffers are dropped unread — nothing on this path
+/// wants the output.
+fn run_command_with_timeout(
+    command: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    let stdout = child.stdout.take().map(read_pipe_on_thread);
+    let stderr = child.stderr.take().map(read_pipe_on_thread);
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(GIT_COMMAND_POLL_INTERVAL_MS));
+    };
+
+    let Some(status) = status else {
+        child.kill()?;
+        child.wait()?;
+        return Ok(None);
+    };
+
+    let drain_deadline = std::time::Instant::now() + std::time::Duration::from_secs(GIT_PIPE_DRAIN_TIMEOUT_SECS);
+    let collect = |reader: Option<std::sync::mpsc::Receiver<Vec<u8>>>| {
+        reader
+            .and_then(|receiver| {
+                receiver
+                    .recv_timeout(drain_deadline.saturating_duration_since(std::time::Instant::now()))
+                    .ok()
+            })
+            .unwrap_or_default()
+    };
+    Ok(Some(std::process::Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
+    }))
+}
+
+/// Drains one child pipe to end-of-file on its own thread, handing the bytes back over a channel. A
+/// read error yields whatever was read so far rather than propagating — the caller's contract is the
+/// subprocess's exit status, and a truncated stderr is still better diagnostics than none.
+///
+/// A channel rather than a `JoinHandle` because the collecting side must be able to *give up*: see
+/// [`GIT_PIPE_DRAIN_TIMEOUT_SECS`]. A `JoinHandle` can only be waited on forever.
+fn read_pipe_on_thread(mut pipe: impl std::io::Read + Send + 'static) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = pipe.read_to_end(&mut buffer);
+        let _ = sender.send(buffer);
+    });
+    receiver
+}
+
 fn run_git(repo_path: &Path, args: &[&str]) -> AppResult<String> {
-    let output = std::process::Command::new("git")
-        .current_dir(repo_path)
-        .args(args)
-        .output()
-        .map_err(|error| {
+    let timeout = std::time::Duration::from_secs(GIT_COMMAND_TIMEOUT_SECS);
+    let output =
+        run_command_with_timeout(std::process::Command::new("git").current_dir(repo_path).args(args), timeout).map_err(|error| {
             AppError::localized(
                 AppErrorKind::Internal,
                 "error.git.spawnFailed",
@@ -1904,6 +2076,18 @@ fn run_git(repo_path: &Path, args: &[&str]) -> AppResult<String> {
             )
             .with_arg("detail", &error)
         })?;
+
+    let Some(output) = output else {
+        let command = args.join(" ");
+        let seconds = GIT_COMMAND_TIMEOUT_SECS;
+        return Err(AppError::localized(
+            AppErrorKind::Internal,
+            "error.git.commandTimedOut",
+            format!("git {command} did not finish within {seconds}s and was stopped"),
+        )
+        .with_arg("command", &command)
+        .with_arg("seconds", seconds));
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -2102,6 +2286,47 @@ mod tests {
         assert_eq!(result.rows[0].unstaged, None);
     }
 
+    /// §4-A-6 재현: `collect_status_rows` 의 `recurse_untracked_dirs(false)` 는 미추적 디렉토리를
+    /// `nested/` **단일 행**으로 접어 내려보내는데, 그 행을 그대로 stage 하면 `index.add_path` 가
+    /// 디렉토리에 `GIT_EDIRECTORY` 로 실패했다 — UI 가 보여준 행이 상시 stage 불가였다는 뜻이다.
+    #[test]
+    fn 미추적_디렉토리_행을_stage하면_하위_파일이_인덱스에_들어간다() {
+        let repo = TestRepo::new();
+        repo.write_file("nested/a.txt", "hello");
+        repo.write_file("nested/deep/b.txt", "world");
+
+        let rows = status(repo.path()).expect("status").rows;
+        assert_eq!(rows.len(), 1, "미추적 디렉토리는 단일 행으로 접혀야 이 재현이 성립한다");
+        assert_eq!(rows[0].path, "nested/");
+
+        stage(repo.path(), &[rows[0].path.clone()]).expect("stage");
+
+        let staged: Vec<String> = status(repo.path())
+            .expect("status")
+            .rows
+            .iter()
+            .filter(|row| row.staged == Some(GitChangeKind::Added))
+            .map(|row| row.path.clone())
+            .collect();
+        assert_eq!(staged, vec!["nested/a.txt".to_string(), "nested/deep/b.txt".to_string()]);
+    }
+
+    /// 같은 §4-A-6 을 절대경로 축으로 재현한다 — 프론트는 `StatusRow::abs_path` 를 넘기는 경로도
+    /// 있고, 그쪽은 `to_repo_relative` 의 `strip_prefix` 가 트레일링 슬래시를 지워 `nested` 로
+    /// 도착한다. 슬래시 유무와 무관하게 디렉토리면 `add_all` 로 가야 한다.
+    #[test]
+    fn 미추적_디렉토리_행은_절대경로로_stage해도_하위_파일이_인덱스에_들어간다() {
+        let repo = TestRepo::new();
+        repo.write_file("nested/a.txt", "hello");
+
+        let rows = status(repo.path()).expect("status").rows;
+        stage(repo.path(), &[rows[0].abs_path.clone()]).expect("stage");
+
+        let result = status(repo.path()).expect("status");
+        assert_eq!(result.rows[0].path, "nested/a.txt");
+        assert_eq!(result.rows[0].staged, Some(GitChangeKind::Added));
+    }
+
     #[test]
     fn 커밋_후에는_상태가_비어있다() {
         let repo = TestRepo::new();
@@ -2172,6 +2397,130 @@ mod tests {
 
         assert_eq!(std::fs::read_to_string(repo.path().join("tracked.txt")).unwrap(), "hello");
         assert!(!repo.path().join("untracked.txt").exists());
+    }
+
+    /// §4-A-10 재현: 상태 행의 `path` 는 `nested/`(트레일링 슬래시)인데 절대경로로 도착한 같은
+    /// 행은 `to_repo_relative` 의 `strip_prefix` 가 슬래시를 지워 `nested` 가 된다 — 문자열 비교로
+    /// untracked 판정을 하면 어긋나 tracked 로 분류되고, `checkout_index` 는 미추적 디렉토리에
+    /// 아무 일도 하지 않아 조용한 no-op 가 됐다.
+    #[test]
+    fn 미추적_디렉토리_행은_절대경로로_discard해도_워킹트리에서_사라진다() {
+        let repo = TestRepo::new();
+        repo.write_file("nested/a.txt", "hello");
+
+        let rows = status(repo.path()).expect("status").rows;
+        assert_eq!(rows[0].path, "nested/");
+
+        discard(repo.path(), &[rows[0].abs_path.clone()]).expect("discard");
+
+        assert!(!repo.path().join("nested").exists());
+    }
+
+    /// §2 M-1: 상한을 넘는 블롭은 `Odb::read_header` 가 읽은 헤더만으로 거절되어야 하고, 상한과
+    /// 같은 크기는 그대로 통과해야 한다(경계 포함).
+    #[test]
+    fn show_file은_상한을_넘는_블롭을_거부하고_상한_이하는_돌려준다() {
+        let repo = TestRepo::new();
+        repo.write_file("blob.txt", "0123456789");
+        repo.commit_all("init");
+
+        let error = show_file_limited(repo.path(), "HEAD", "blob.txt", 9).expect_err("상한 초과 블롭은 거부되어야 한다");
+        assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+
+        let content = show_file_limited(repo.path(), "HEAD", "blob.txt", 10).expect("상한과 같은 크기는 통과해야 한다");
+        assert_eq!(content, "0123456789");
+    }
+
+    /// §4-B B11 재현: 스테이지된 개명은 HEAD 쪽 blob 이 **원경로**에 있는데 양쪽을 새 경로로 읽어
+    /// 원본이 비어버렸다 — 편집이 아니라 파일 전체 추가로 보였다.
+    #[test]
+    fn 스테이지된_개명의_diff는_원경로를_주면_head_blob을_원본으로_쓴다() {
+        let repo = TestRepo::new();
+        repo.write_file("old.txt", "line1\nline2\nline3\nline4\n");
+        repo.commit_all("init");
+        std::fs::rename(repo.path().join("old.txt"), repo.path().join("new.txt")).unwrap();
+        repo.write_file("new.txt", "line1\nline2\nline3\nline4 changed\n");
+        stage(repo.path(), &["old.txt".to_string(), "new.txt".to_string()]).expect("stage");
+
+        let without_before = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, None, &[]).expect("diff");
+        assert_eq!(
+            without_before.original, "",
+            "원경로를 주지 않으면 HEAD 측이 비어 파일 전체 추가로 보인다 — 이것이 B11 의 증상이다"
+        );
+
+        let with_before = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, Some("old.txt"), &[]).expect("diff");
+        assert_eq!(with_before.original, "line1\nline2\nline3\nline4\n");
+        assert_eq!(with_before.modified, "line1\nline2\nline3\nline4 changed\n");
+    }
+
+    /// 개명이 아직 스테이지되지 않은 축 — 인덱스 항목이 원경로에 남아 있으므로 워킹트리 비교도
+    /// 같은 `before_path` 축을 그대로 쓴다.
+    #[test]
+    fn 스테이지되지_않은_개명의_diff는_원경로의_인덱스_blob을_원본으로_쓴다() {
+        let repo = TestRepo::new();
+        repo.write_file("old.txt", "line1\nline2\nline3\nline4\n");
+        repo.commit_all("init");
+        std::fs::rename(repo.path().join("old.txt"), repo.path().join("new.txt")).unwrap();
+        repo.write_file("new.txt", "line1\nline2\nline3\nline4 changed\n");
+
+        let sides = diff_file(repo.path(), "new.txt", DiffMode::WorkdirVsIndex, Some("old.txt"), &[]).expect("diff");
+
+        assert_eq!(sides.original, "line1\nline2\nline3\nline4\n");
+        assert_eq!(sides.modified, "line1\nline2\nline3\nline4 changed\n");
+    }
+
+    /// §2 M-7: 상한을 넘긴 서브프로세스는 죽고 `None` 으로 보고되어야 한다 — 이전에는
+    /// `Command::output()` 이 끝날 때까지 무한정 기다렸다.
+    #[cfg(unix)]
+    #[test]
+    fn 상한을_넘긴_서브프로세스는_강제_종료되고_none을_돌려준다() {
+        const SLEEP_SECONDS: u64 = 30;
+        const TIMEOUT_MS: u64 = 200;
+
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg(format!("sleep {SLEEP_SECONDS}"));
+        let started = std::time::Instant::now();
+
+        let result = run_command_with_timeout(&mut command, std::time::Duration::from_millis(TIMEOUT_MS)).expect("spawn");
+
+        assert!(result.is_none(), "상한을 넘긴 프로세스는 출력 대신 None 으로 보고되어야 한다");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(SLEEP_SECONDS),
+            "타임아웃 경로가 자식의 자연 종료를 기다리면 안 된다"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 상한_안에_끝난_서브프로세스는_stdout과_stderr를_그대로_돌려준다() {
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg("printf hello; printf oops >&2");
+
+        let output = run_command_with_timeout(&mut command, std::time::Duration::from_secs(10))
+            .expect("spawn")
+            .expect("상한 안에 끝난 프로세스는 출력이 있어야 한다");
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "hello");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "oops");
+    }
+
+    /// 파이프 버퍼(보통 64KiB)보다 큰 출력을 내는 자식 — 종료 상태만 폴링하고 파이프를 비우지
+    /// 않으면 자식이 가득 찬 파이프에 막혀 교착한다. `git push`/`pull` 의 진행 출력이 정확히 이
+    /// 모양이라, 리더 스레드 없이 폴링만 하는 구현은 여기서 죽는다.
+    #[cfg(unix)]
+    #[test]
+    fn 파이프_버퍼보다_큰_출력도_교착_없이_수집된다() {
+        const OUTPUT_BYTES: usize = 512 * 1024;
+
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg(format!("head -c {OUTPUT_BYTES} /dev/zero | tr '\\0' 'x'"));
+
+        let output = run_command_with_timeout(&mut command, std::time::Duration::from_secs(30))
+            .expect("spawn")
+            .expect("상한 안에 끝난 프로세스는 출력이 있어야 한다");
+
+        assert_eq!(output.stdout.len(), OUTPUT_BYTES);
     }
 
     #[test]
@@ -2495,7 +2844,7 @@ mod tests {
 
         stage_hunk(repo.path(), "a.txt", first_start, first_end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nline4\nline5\n");
 
         let result = status(repo.path()).expect("status");
@@ -2519,12 +2868,12 @@ mod tests {
         stage_hunk(repo.path(), "a.txt", first_start, first_end).expect("stage first");
         stage_hunk(repo.path(), "a.txt", second_start, second_end).expect("stage second");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nCHANGED4\nline5\n");
 
         unstage_hunk(repo.path(), "a.txt", second_start, second_end).expect("unstage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nline4\nline5\n");
     }
 
@@ -2552,7 +2901,7 @@ mod tests {
 
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline3\n");
     }
 
@@ -2566,12 +2915,12 @@ mod tests {
         let hunks = gutter(repo.path(), "a.txt").expect("gutter");
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline3\n");
 
         unstage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("unstage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline2\nline3\n");
     }
 
@@ -2587,12 +2936,12 @@ mod tests {
 
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEW\nline2\n");
 
         unstage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("unstage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline2\n");
     }
 
@@ -2609,7 +2958,7 @@ mod tests {
 
         stage_hunk(repo.path(), "new.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "hello\nworld\n");
 
         let result = status(repo.path()).expect("status");
@@ -2633,7 +2982,7 @@ mod tests {
 
         stage_lines(repo.path(), "new.txt", 1, 1).expect("stage_lines");
 
-        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "new.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "hello\n");
 
         let workdir = std::fs::read_to_string(repo.path().join("new.txt")).unwrap();
@@ -2655,7 +3004,7 @@ mod tests {
 
         stage_lines(repo.path(), "a.txt", 2, 2).expect("stage_lines");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEWA\nline2\n");
 
         let workdir = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
@@ -2672,12 +3021,12 @@ mod tests {
         let hunks = gutter(repo.path(), "a.txt").expect("gutter");
         stage_hunk(repo.path(), "a.txt", hunks[0].start, hunks[0].end).expect("stage_hunk");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEWA\nNEWB\nline2\n");
 
         unstage_lines(repo.path(), "a.txt", 3, 3).expect("unstage_lines");
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nNEWA\nline2\n");
     }
 
@@ -2707,7 +3056,7 @@ mod tests {
 
         assert!(result.is_err());
 
-        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, &[]).expect("diff_file");
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nline2\nline3\nline4\nline5\n");
     }
 
@@ -3067,7 +3416,7 @@ mod tests {
         let result = revert_commit(repo.path(), &second);
 
         assert!(result.is_err());
-        let staged = diff_file(repo.path(), "b.txt", DiffMode::IndexVsHead, &[]).expect("diff_file b.txt");
+        let staged = diff_file(repo.path(), "b.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file b.txt");
         assert_eq!(staged.modified, "unrelated staged work\n");
         let entries = log(repo.path(), 0, 10).expect("log");
         assert_eq!(entries.len(), 2);

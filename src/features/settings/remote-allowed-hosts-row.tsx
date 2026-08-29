@@ -2,6 +2,7 @@ import type { FC, KeyboardEvent } from 'react'
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import { Button } from '@shared/ui/button'
 import { IconButton } from '@shared/ui/icon-button'
 
@@ -65,7 +66,7 @@ export const RemoteAllowedHostsRow: FC<RemoteAllowedHostsRowProps> = ({ hosts, s
     }
     const handleRemove = (host: string) => onChange(hosts.filter((existing) => existing !== host))
     const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.key !== 'Enter') return
+        if (isImeCompositionKeydown(event) || event.key !== 'Enter') return
         event.preventDefault()
         handleAdd()
     }

@@ -76,12 +76,77 @@ export const commands = {
 	 *  now-pointless OS window it just opened.
 	 */
 	layoutMoveTabToWindow: (tabId: TabId, target: TabWindowTarget) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_move_tab_to_window", { tabId, target })),
+	/**
+	 *  Makes open tabs follow a path change the file domain has already committed to disk — a rename
+	 *  repoints every `TabKind::File` tab under the old path (a directory rename moves the whole
+	 *  subtree), a delete closes them. Audit §4-B A3: nothing used to update a tab's stored path, so a
+	 *  renamed file's tab kept pointing at a path that no longer exists (`⌘S` then recreated the old
+	 *  directory through `write_atomic`'s `create_dir_all` and forked the file), and reopening the file
+	 *  under its new name produced a second tab for the same document.
+	 * 
+	 *  Called by the frontend *after* `file_rename`/`file_delete` succeeds rather than from inside those
+	 *  commands: the file domain owns paths on disk, not the tab bar, and wiring it here would make
+	 *  `domain::file` depend on `domain::layout` (the same domain-coupling boundary
+	 *  `docs/architecture.md` §2 keeps between `file` and `tree`, where the watcher event — not the file
+	 *  command — drives the tree's own cleanup).
+	 * 
+	 *  Reports what changed (`moved`/`closed_paths`) so the frontend can move the per-path state only it
+	 *  owns — monaco model, hot-exit mirror, `FILE.CONTENT` cache, "reopen with" override. When no *open*
+	 *  tab addressed the changed path there is nothing to report, and no revision bump or
+	 *  `layout:changed` event is produced: nothing on screen moved, so making every window refetch the
+	 *  layout would be pure waste.
+	 * 
+	 *  A rename with nothing to report can still have changed the layout, though — the closed-tab stack
+	 *  follows a rename silently so "Reopen Closed Tab" cannot resurrect a path that no longer exists —
+	 *  which is why the store write-back is gated on `TabPathChangeOutcome::layout_changed` rather than
+	 *  on there being something to report. Skipping it there (the original shape of this early return)
+	 *  discarded that rewrite along with the whole working clone.
+	 * 
+	 *  `from`/`to`/`path` are checked against the project's own root before anything is matched. They are
+	 *  *not* canonicalized (the rename is already done, so `from` no longer exists on disk — see contract
+	 *  §3 S8), but they must still be inside the project: `Deleted { path: "/" }` is "at or under" every
+	 *  absolute path, which would close every file tab in the project and let the frontend's
+	 *  `releaseClosedFileTabPath` discard each one's hot-exit mirror — i.e. every unsaved draft.
+	 */
+	layoutApplyPathChange: (projectId: ProjectId, change: TabPathChange) => typedError<TabPathChangeResult, AppError>(__TAURI_INVOKE("layout_apply_path_change", { projectId, change })),
 	layoutSetShellView: (projectId: ProjectId, patch: ShellViewPatch) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_shell_view", { projectId, patch })),
+	/**
+	 *  The read itself (up to `REFUSED_FILE_BYTES` of bytes, plus the UTF-8 decode and line count over
+	 *  them) runs on a blocking thread instead of pinning an async worker for its duration
+	 *  (architecture.md §2.1, audit §2 H-3). Holds no mutation guard — unchanged, this command only
+	 *  ever reads. The root-guard resolution, the plugin overlay lookup and the settings read stay on
+	 *  the async side so nothing borrowed from `State` has to cross into the blocking closure; the
+	 *  `.editorconfig` chain walk the flag enables is filesystem work and rides inside the same
+	 *  blocking call as the read (`service::open_file`).
+	 */
 	fileOpen: (path: string) => typedError<OpenedFile, AppError>(__TAURI_INVOKE("file_open", { path })),
+	/**
+	 *  Guard-held `spawn_blocking`, the same shape `git_stage` uses: `AppState::begin_mutation` is
+	 *  acquired on the async side (so a long lock wait never occupies a blocking-pool thread — see
+	 *  `AppState::begin_mutation_blocking`'s doc) and held across the write, while the write itself —
+	 *  atomic temp file, `write_all`, `sync_all`, rename — moves off the async worker it used to pin
+	 *  for the whole fsync (architecture.md §2.1, audit §2 H-3). `AppState` is re-borrowed from the
+	 *  `AppHandle` inside the closure because a `State<'_, _>` borrow cannot cross into a `'static`
+	 *  task; the guarded composite `save_file_within_open_projects` stays the single save path (R6#2).
+	 */
 	fileSave: (path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_save", { path, content })),
 	fileCreate: (path: string, isDir: boolean) => typedError<null, AppError>(__TAURI_INVOKE("file_create", { path, isDir })),
+	/**
+	 *  The destination the rename actually uses is the *requested* spelling re-attached to the
+	 *  root-guard-validated canonical parent, not `resolved_to` itself — canonicalization answers with
+	 *  the on-disk spelling on a case-insensitive filesystem, which turned every case-only rename
+	 *  (`readme.md` → `README.md`) into a silent no-op (audit §4-A-1). See
+	 *  [`service::destination_with_requested_name`]; the containment the root guard established is
+	 *  unaffected, since only the final component changes and it cannot be a traversal segment.
+	 */
 	fileRename: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_rename", { from, to })),
 	fileDelete: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_delete", { path })),
+	/**
+	 *  Guard-held `spawn_blocking` (same shape as [`file_save`]): a directory paste walks and copies an
+	 *  arbitrarily deep subtree, which has no business running on an async worker (audit §2 H-3). Only
+	 *  the copy moves — the guard, the root-guard resolution and the self-write mark keep their
+	 *  existing order on the async side.
+	 */
 	fileCopy: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_copy", { from, to })),
 	/**
 	 *  Not guarded by `AppState::begin_mutation` — this command only reads `state.projects` (an
@@ -97,6 +162,11 @@ export const commands = {
 	 *  here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
 	 *  a long lock holder (e.g. `git_pull`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
 	 *  unflushed mirror instead of writing it — the opposite of what hot exit exists for.
+	 * 
+	 *  The mirror write itself (a `write_atomic` with its own `sync_all`) runs in `spawn_blocking`
+	 *  (audit §2 H-3) — it fires on a 500ms typing debounce, so it is the most frequent fsync in the
+	 *  file domain and the least appropriate one to leave on an async worker. `AppState` is re-borrowed
+	 *  from the `AppHandle` inside the closure for the same reason as [`file_save`].
 	 */
 	fileMirrorDirty: (projectId: ProjectId, path: string, content: string) => typedError<number | null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content })),
 	fileListMirrors: (projectId: ProjectId) => typedError<MirrorEntry[], AppError>(__TAURI_INVOKE("file_list_mirrors", { projectId })),
@@ -125,7 +195,7 @@ export const commands = {
 	treeToggle: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_toggle", { projectId, path })),
 	treeReveal: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_reveal", { projectId, path })),
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
-	searchRun: (projectId: ProjectId, owner: string, sessionId: string, query: SearchQuery, onMatch: Channel<SearchMatch>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, owner, sessionId, query, onMatch })),
+	searchRun: (projectId: ProjectId, owner: string, sessionId: string, query: SearchQuery, onMatch: Channel<SearchFileMatches>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, owner, sessionId, query, onMatch })),
 	searchCancel: (owner: string, sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("search_cancel", { owner, sessionId })),
 	/**
 	 *  Reacquires `AppState::begin_mutation`'s single global lock **once per file** instead of holding
@@ -136,6 +206,12 @@ export const commands = {
 	 *  actual write against the rest of the app's mutations. Both the target-file resolution (the tree
 	 *  walk) and each file's guarded read-modify-write run inside `spawn_blocking` — none of it runs on
 	 *  the async worker thread — since `service::replace_one_file` does synchronous filesystem I/O.
+	 * 
+	 *  Files the pass could not rewrite (oversized, binary, non-UTF-8, unreadable, write failure) are
+	 *  reported back in `skipped`/`skipped_count` rather than dropped silently: a replace that changed
+	 *  nothing because every target was refused used to be indistinguishable from one whose query
+	 *  simply had no matches (audit §4-B C10). Files that were read fine and had no match are not
+	 *  skips and are not counted.
 	 */
 	searchReplace: (projectId: ProjectId, query: SearchQuery, replacement: string, paths: string[] | null) => typedError<SearchReplaceResult, AppError>(__TAURI_INVOKE("search_replace", { projectId, query, replacement, paths })),
 	/**
@@ -305,12 +381,36 @@ export const commands = {
 	 *  (architecture.md §2.1, Phase E C11-GIT-2). Surface and return value are unchanged.
 	 */
 	gitStatus: (projectId: ProjectId) => typedError<GitStatus, AppError>(__TAURI_INVOKE("git_status", { projectId })),
-	gitDiffFile: (projectId: ProjectId, path: string, mode: DiffMode) => typedError<DiffSides, AppError>(__TAURI_INVOKE("git_diff_file", { projectId, path, mode })),
+	/**
+	 *  `before_path` is the row's pre-change path and feeds the **original (left) side only** — the
+	 *  modified side is always `path`. Pass it for a renamed row (the HEAD entry of a staged rename, and
+	 *  the index entry of an unstaged one, both live at the old path); reading both sides at the new path
+	 *  left the original empty and drew the whole file as an addition instead of its actual edit (audit
+	 *  §4-B B11). `null` keeps both sides on `path`, which is what every non-rename row wants.
+	 */
+	gitDiffFile: (projectId: ProjectId, path: string, mode: DiffMode, beforePath: string | null) => typedError<DiffSides, AppError>(__TAURI_INVOKE("git_diff_file", { projectId, path, mode, beforePath })),
 	gitDiffStagedText: (projectId: ProjectId) => typedError<StagedDiffText, AppError>(__TAURI_INVOKE("git_diff_staged_text", { projectId })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`] — reading a tree entry and its blob out of
+	 *  the object database is synchronous libgit2 IO (§2 M-1).
+	 */
 	gitShowFile: (projectId: ProjectId, rev: string, path: string) => typedError<string, AppError>(__TAURI_INVOKE("git_show_file", { projectId, rev, path })),
 	gitLog: (projectId: ProjectId, skip: number, take: number) => typedError<LogEntry[], AppError>(__TAURI_INVOKE("git_log", { projectId, skip, take })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`] — the two `graph_ahead_behind` revwalks are
+	 *  synchronous libgit2 work (§2 M-1).
+	 */
 	gitAheadBehind: (projectId: ProjectId) => typedError<AheadBehind, AppError>(__TAURI_INVOKE("git_ahead_behind", { projectId })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`] — opening the repository reads `.git/config`
+	 *  off disk (§2 M-1).
+	 */
 	gitRemotes: (projectId: ProjectId) => typedError<GitRemote[], AppError>(__TAURI_INVOKE("git_remotes", { projectId })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`], and the one that mattered most: this is the
+	 *  editor's gutter hot path — re-run on every `fs:changed` for the open file — and it diffs HEAD against
+	 *  the working tree, reading the file off disk each time (§2 M-1).
+	 */
 	gitGutter: (projectId: ProjectId, path: string) => typedError<GutterHunk[], AppError>(__TAURI_INVOKE("git_gutter", { projectId, path })),
 	gitBlameRange: (projectId: ProjectId, path: string, from: number, to: number) => typedError<BlameLine[], AppError>(__TAURI_INVOKE("git_blame_range", { projectId, path, from, to })),
 	/**
@@ -362,7 +462,7 @@ export const commands = {
 	 *  Additionally holds [`GitStore::push_fetch_lock`] across the whole subprocess wait, so a second
 	 *  `git_push`/`git_fetch` for the *same* repo queues behind this one instead of racing it straight
 	 *  into git's own ref-lock contention (contract 2026-08-25 §1-b — see that method's doc for why
-	 *  this introduces no new lock-ordering hazard with `begin_mutation`, and for the unbounded-wait
+	 *  this introduces no new lock-ordering hazard with `begin_mutation`, and for the queueing
 	 *  cost this accepts when the underlying `run_git` subprocess stalls).
 	 */
 	gitPush: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_push", { projectId })),
@@ -401,8 +501,8 @@ export const commands = {
 	 *  terminal during a pull.
 	 * 
 	 *  Additionally holds [`GitStore::push_fetch_lock`] across the whole subprocess wait — the same
-	 *  addition [`git_push`] documents (contract 2026-08-25 §1-b; see that method's doc for the
-	 *  unbounded-wait cost this accepts when the underlying `run_git` subprocess stalls). This is what
+	 *  addition [`git_push`] documents (contract 2026-08-25 §1-b; see that method's doc for the queueing
+	 *  cost this accepts when the underlying `run_git` subprocess stalls). This is what
 	 *  actually removes the "transient lock-contention error" for a same-repo push-vs-fetch or
 	 *  fetch-vs-fetch overlap — a pairing the paragraph above does not cover: both now queue on this
 	 *  lock instead of racing into git's own `.git` lock files. The one overlap this lock deliberately
@@ -411,6 +511,10 @@ export const commands = {
 	 */
 	gitFetch: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_fetch", { projectId })),
 	gitUndoLastCommit: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("git_undo_last_commit", { projectId })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`] — enumerating branches walks the loose refs
+	 *  and packed-refs file, and each entry's upstream lookup reads config (§2 M-1).
+	 */
 	gitBranches: (projectId: ProjectId) => typedError<GitBranch[], AppError>(__TAURI_INVOKE("git_branches", { projectId })),
 	/**
 	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — branch creation (+ optional
@@ -429,6 +533,10 @@ export const commands = {
 	 *  2026-08-25 §1-a).
 	 */
 	gitBranchDelete: (projectId: ProjectId, name: string, force: boolean) => typedError<null, AppError>(__TAURI_INVOKE("git_branch_delete", { projectId, name, force })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`] — `repo.stash_foreach` walks the stash reflog
+	 *  on disk (§2 M-1).
+	 */
 	gitStashList: (projectId: ProjectId) => typedError<GitStashEntry[], AppError>(__TAURI_INVOKE("git_stash_list", { projectId })),
 	/**
 	 *  Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_save` is synchronous
@@ -447,6 +555,10 @@ export const commands = {
 	 */
 	gitStashDrop: (projectId: ProjectId, index: number) => typedError<null, AppError>(__TAURI_INVOKE("git_stash_drop", { projectId, index })),
 	gitDiscardHunk: (projectId: ProjectId, path: string, hunkStart: number, hunkEnd: number) => typedError<null, AppError>(__TAURI_INVOKE("git_discard_hunk", { projectId, path, hunkStart, hunkEnd })),
+	/**
+	 *  Same query-side `spawn_blocking` shape as [`git_status`] — `repo.signature()` resolves the identity
+	 *  through the repository/global/system config files on disk (§2 M-1).
+	 */
 	gitCurrentUser: (projectId: ProjectId) => typedError<string | null, AppError>(__TAURI_INVOKE("git_current_user", { projectId })),
 	gitConflictSides: (projectId: ProjectId, path: string) => typedError<ConflictSides, AppError>(__TAURI_INVOKE("git_conflict_sides", { projectId, path })),
 	/**
@@ -489,6 +601,13 @@ export const commands = {
 	 *  `pty_attach`/`pty_detach` for any other session, `terminal_sessions`) queued behind it until the
 	 *  child drained its input or was killed by some other means, which nothing could do while
 	 *  `pty_kill` itself was one of the commands stuck waiting on the same lock.
+	 * 
+	 *  That same blocking write also has to leave the async runtime's worker pool, for the same reason
+	 *  the git and file domains moved theirs off it (§2 M-6): a child that has stopped reading its
+	 *  stdin (a full pipe, a stopped process) pins the worker thread for as long as it takes to drain,
+	 *  and enough of those starve every other command the runtime has to poll. The writer handle is
+	 *  cloned out first so the blocking closure owns an `Arc` and needs no `State` (which isn't
+	 *  `'static`), leaving the command's signature — and therefore the IPC surface — unchanged.
 	 */
 	ptyWrite: (sessionId: string, data: string) => typedError<null, AppError>(__TAURI_INVOKE("pty_write", { sessionId, data })),
 	ptyResize: (sessionId: string, cols: number, rows: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_resize", { sessionId, cols, rows })),
@@ -946,6 +1065,33 @@ export type DiffSides = {
 
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 
+/**  `.editorconfig`'s `indent_style`, the only two values it defines. */
+export type EditorConfigIndentStyle = "tab" | "space";
+
+/**
+ *  The core `.editorconfig` properties resolved for one file, as they came out of the config chain —
+ *  `None` means "no `.editorconfig` in this file's ancestry declared it", which is also what every
+ *  field holds when the `editor_config_enabled` setting is off or the file is
+ *  [`FileSizeTier::Refused`].
+ * 
+ *  Deliberately the *raw* properties rather than an editor-ready shape: the frontend owns the
+ *  mapping onto monaco's `tabSize`/`insertSpaces` (`src/shared/lib/editorconfig.ts`), since only it
+ *  knows what the user's own settings are to fall back to for a property the config left alone. The
+ *  one interpretation applied here is `indent_size = tab`, which is a property-level alias for
+ *  `tab_width` and has nothing to do with editor settings
+ *  (`domain::file::editorconfig::interpret`).
+ * 
+ *  `charset`/`end_of_line` are not carried — see this module's `editorconfig` sibling and the d-53
+ *  contract §5.
+ */
+export type EditorConfigOptions = {
+	indentStyle: EditorConfigIndentStyle | null,
+	indentSize: number | null,
+	tabWidth: number | null,
+	insertFinalNewline: boolean | null,
+	trimTrailingWhitespace: boolean | null,
+};
+
 /**
  *  `Settings.editorCursorBlinking` / `SettingsPatch.editorCursorBlinking`'s value set — mirrors
  *  `EditorCursorBlinkingStyle` (`src/features/editor/code-editor.tsx`), Monaco's `cursorBlinking`
@@ -1268,7 +1414,25 @@ export type OpenedFile = {
 	lineCount: number,
 	tier: FileSizeTier,
 	readOnly: boolean,
+	/**
+	 *  `content` came back from a lossy UTF-8 decode — the file holds bytes that are not valid
+	 *  UTF-8 (EUC-KR, Latin-1, …) and every one of them is now a U+FFFD replacement character that
+	 *  cannot be turned back into the original byte. Independent of [`FileSizeTier`], which only
+	 *  grades size: such a file is forced `read_only` at any tier so the lossy text can never be
+	 *  written back over the original (`domain::file::service::decode_utf8_lossy`), and the flag is
+	 *  what lets the editor say *why* it is read-only instead of blaming the file's size.
+	 */
+	encodingLossy: boolean,
 	modifiedMs: number | null,
+	/**
+	 *  The `.editorconfig` properties in force for this file, resolved at open time by
+	 *  [`crate::domain::file::editorconfig::resolve_for_file`]. Rides on the open response rather
+	 *  than a command of its own so the editor has them in the same render that first shows the
+	 *  content — a second round trip would mount the model with the wrong indentation and correct
+	 *  it a tick later. Empty (every field `None`) when the `editor_config_enabled` setting is off,
+	 *  which is its default.
+	 */
+	editorConfig: EditorConfigOptions,
 };
 
 export type PaneId = string;
@@ -1407,6 +1571,36 @@ export type RemoteStatus = {
 	passwordConfigured: boolean,
 };
 
+/**
+ *  Why one file `search_replace` was asked to rewrite came back unchanged even though it was in
+ *  the resolved target set. Before this existed the whole class was a silent `None` return, so a
+ *  replace that touched nothing (unreadable file, non-UTF-8 encoding, oversized file) reported the
+ *  same "0 files changed" as a replace whose query simply had no matches — audit §4-B C10.
+ *  A file that was read fine and just had no match is *not* a skip and never appears here.
+ */
+export type ReplaceSkipReason = 
+/**
+ *  At or above `constants::REFUSED_FILE_BYTES` — the same ceiling `domain::file` refuses to
+ *  open a file at, so replace never buffers a file the editor itself would not load.
+ */
+"tooLarge" | 
+/**  A NUL byte inside the first `BINARY_SNIFF_BYTES` — rewriting it would corrupt it. */
+"binary" | 
+/**
+ *  Not valid UTF-8. Replace (unlike search) requires strict UTF-8, since a lossy decode would
+ *  write `U+FFFD` back over the original bytes.
+ */
+"notUtf8" | 
+/**  `metadata`/`open`/`read` failed — permissions, a file deleted mid-walk, an I/O error. */
+"unreadable" | 
+/**  Matches were found and rewritten in memory, but the atomic write back to disk failed. */
+"writeFailed";
+
+export type ReplaceSkippedFile = {
+	path: string,
+	reason: ReplaceSkipReason,
+};
+
 export type ResolvedLocale = ResolvedLocale_Serialize | ResolvedLocale_Deserialize;
 
 export type ResolvedLocale_Deserialize = {
@@ -1472,8 +1666,27 @@ export type RevertOutcome = {
 	conflictedAbsPaths: string[],
 };
 
-export type SearchMatch = {
+/**
+ *  Every match `search_run` found in one file — the unit its `onMatch` channel actually carries.
+ *  One channel message per *file*, not per match (audit §2 M-9): a 10,000-match run used to cost
+ *  10,000 IPC messages, each re-serializing the same `path`, and made the frontend re-group the
+ *  whole accumulated list on every one of them (§1-3).
+ * 
+ *  `matches` is always in ascending source order (line, then column) — the order the file was
+ *  scanned in — so the frontend's context-line de-duplication can rely on it. The order the
+ *  *files* themselves arrive in is deliberately unspecified: the walk is parallel
+ *  (`search::service::search`), so file arrival order varies run to run.
+ */
+export type SearchFileMatches = {
 	path: string,
+	matches: SearchLineMatch[],
+};
+
+/**
+ *  One match inside a file. Carries no `path`: matches reach the frontend grouped per file inside
+ *  [`SearchFileMatches`], so the path is sent once per file instead of once per match.
+ */
+export type SearchLineMatch = {
 	line: number,
 	/**
 	 *  1-based, in UTF-16 code units — Monaco `Position.column`'s own convention, so the frontend
@@ -1515,6 +1728,13 @@ export type SearchQuery = {
 export type SearchReplaceResult = {
 	changedFiles: number,
 	replacedMatches: number,
+	/**  The first [`REPLACE_SKIP_REPORT_LIMIT`] skipped files, in target-walk order. */
+	skipped: ReplaceSkippedFile[],
+	/**
+	 *  Every skipped file, including the ones past the listing cap — `skipped.len()` when nothing
+	 *  was truncated.
+	 */
+	skippedCount: number,
 };
 
 export type Settings = {
@@ -1551,6 +1771,46 @@ export type Settings = {
 	editorCursorBlinking?: EditorCursorBlinking,
 	editorScrollBeyondLastLine?: boolean,
 	editorStickyScrollEnabled?: boolean,
+	/**
+	 *  Monaco `guides.bracketPairs` — the vertical guide lines drawn through a bracket pair's body,
+	 *  a separate option from `editor_bracket_pair_colorization` (which only tints the brackets
+	 *  themselves). Defaults to `false`, matching VS Code's own `editor.guides.bracketPairs`.
+	 */
+	editorBracketPairGuides?: boolean,
+	/**  Monaco `smoothScrolling` — animates scroll position changes. VS Code parity default `false`. */
+	editorSmoothScrolling?: boolean,
+	/**
+	 *  Monaco `cursorSmoothCaretAnimation`, narrowed to a toggle: `false` maps to `"off"` and
+	 *  `true` to `"on"` at the frontend option boundary (`src/shared/lib/code-editor-settings.ts`).
+	 *  Monaco's third value (`"explicit"`, animate only on explicit cursor moves) is deliberately
+	 *  not exposed — a tri-state picker for one animation is more surface than the setting is
+	 *  worth. VS Code parity default `false` (= `"off"`).
+	 */
+	editorCursorSmoothCaretAnimation?: boolean,
+	/**
+	 *  Monaco `suggest.preview` — renders the focused completion inline as ghost text ahead of the
+	 *  cursor. VS Code parity default `false`.
+	 */
+	editorSuggestPreview?: boolean,
+	/**
+	 *  Monaco `rulers` — vertical guide columns. Normalized by `service::sanitize_editor_rulers`
+	 *  on every entry point (patch, hand-edited `settings.json`, synced gist): out-of-range columns
+	 *  dropped, duplicates removed, ascending, capped in count. Empty by default, matching VS
+	 *  Code's `editor.rulers`.
+	 */
+	editorRulers?: number[],
+	/**
+	 *  Monaco diff editor `hideUnchangedRegions.enabled` — collapses runs of unchanged lines.
+	 *  Lives in `Settings` rather than per-diff-surface state so every diff (SCM diff pane, commit
+	 *  diff, conflict compare) renders identically. VS Code parity default `false`.
+	 */
+	editorDiffHideUnchangedRegions?: boolean,
+	/**
+	 *  Monaco diff editor `experimental.showMoves` — detects a block moved rather than
+	 *  deleted+added and draws it as a move. See [`Settings::editor_diff_hide_unchanged_regions`]
+	 *  for why it lives here. VS Code parity default `false`.
+	 */
+	editorDiffShowMoves?: boolean,
 	terminalScrollback?: number,
 	terminalCursorStyle?: TerminalCursorStyle,
 	terminalCursorBlink?: boolean,
@@ -1585,6 +1845,33 @@ export type Settings = {
 	remoteAllowedHosts?: string[],
 	organizeImportsOnSave?: boolean,
 	fixAllOnSave?: boolean,
+	/**
+	 *  Strips trailing whitespace from every line right before the buffer is written to disk.
+	 *  Applied *after* `format_on_save` so the formatter's own output is cleaned too, and shared by
+	 *  every save trigger (⌘S, auto-save) — see `docs/features/editor.md` §16. VS Code parity
+	 *  default `false` (`files.trimTrailingWhitespace`).
+	 */
+	trimTrailingWhitespaceOnSave?: boolean,
+	/**
+	 *  Appends a final newline when the buffer's last line is not already empty, right before the
+	 *  write. Ordered after [`Settings::trim_trailing_whitespace_on_save`] so a whitespace-only last
+	 *  line is trimmed away first rather than counted as content to append a newline behind. VS Code
+	 *  parity default `false` (`files.insertFinalNewline`).
+	 */
+	insertFinalNewlineOnSave?: boolean,
+	/**
+	 *  Honor a file's `.editorconfig` chain when opening it: the resolved indent properties take
+	 *  precedence over `editor_detect_indentation`'s guess and over
+	 *  [`Settings::editor_tab_size`]/[`Settings::editor_insert_spaces`], and its
+	 *  `trim_trailing_whitespace`/`insert_final_newline` override
+	 *  [`Settings::trim_trailing_whitespace_on_save`]/[`Settings::insert_final_newline_on_save`]
+	 *  for that file. Defaults to `false` — VS Code has no built-in EditorConfig support either
+	 *  (it ships as an extension), so off is the parity default, and it also means the chain walk
+	 *  costs nothing per file open until it is asked for
+	 *  (`domain::file::service::open_file`). Resolution happens at open time only; see
+	 *  `docs/features/editor.md` §17.
+	 */
+	editorConfigEnabled?: boolean,
 	editorCodeLensEnabled?: boolean,
 	editorSemanticHighlighting?: boolean,
 	editorFormatOnType?: boolean,
@@ -1664,6 +1951,13 @@ export type SettingsPatch = {
 	editorCursorBlinking: EditorCursorBlinking | null,
 	editorScrollBeyondLastLine: boolean | null,
 	editorStickyScrollEnabled: boolean | null,
+	editorBracketPairGuides: boolean | null,
+	editorSmoothScrolling: boolean | null,
+	editorCursorSmoothCaretAnimation: boolean | null,
+	editorSuggestPreview: boolean | null,
+	editorRulers: number[] | null,
+	editorDiffHideUnchangedRegions: boolean | null,
+	editorDiffShowMoves: boolean | null,
 	terminalScrollback: number | null,
 	terminalCursorStyle: TerminalCursorStyle | null,
 	terminalCursorBlink: boolean | null,
@@ -1677,6 +1971,9 @@ export type SettingsPatch = {
 	remoteAllowedHosts: string[] | null,
 	organizeImportsOnSave: boolean | null,
 	fixAllOnSave: boolean | null,
+	trimTrailingWhitespaceOnSave: boolean | null,
+	insertFinalNewlineOnSave: boolean | null,
+	editorConfigEnabled: boolean | null,
 	editorCodeLensEnabled: boolean | null,
 	editorSemanticHighlighting: boolean | null,
 	editorFormatOnType: boolean | null,
@@ -1901,7 +2198,7 @@ export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessi
 /**
  *  A persistent, editable search results surface (VS Code calls this a "Search Editor").
  *  Only the query is kept — results are cheap to re-run (`search::commands::search_run`)
- *  and streaming a potentially large `SearchMatch` list through hot-exit/session-restore
+ *  and streaming a potentially large `SearchFileMatches` list through hot-exit/session-restore
  *  JSON would bloat the layout file for no benefit, so the tab restores to the query and
  *  re-searches rather than replaying stale results. See
  *  `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
@@ -1915,6 +2212,42 @@ export type TabKind = { kind: "file"; path: string } | { kind: "terminal"; sessi
  *  `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.3.
  */
 { kind: "appFile"; target: AppFileTarget };
+
+/**
+ *  What a completed `file_rename`/`file_delete` means for the tabs that address the changed path —
+ *  the input of `layout_apply_path_change`. `from`/`to`/`path` are the very strings the frontend
+ *  handed the file command, matched against `TabKind::File`'s stored path by path components
+ *  (`service::retargeted_path`), never canonicalized again here: after the rename `from` no longer
+ *  exists on disk, so there is nothing left to canonicalize it against. Both variants address a
+ *  whole subtree when they name a directory. See
+ *  `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §3 S8.
+ */
+export type TabPathChange = { kind: "renamed"; from: string; to: string } | { kind: "deleted"; path: string };
+
+/**
+ *  `layout_apply_path_change`'s response: the post-change layout (same value every other layout
+ *  mutation returns, so the frontend's `applyFreshLayout` revision gate still applies) plus what
+ *  the change did to file tabs — `moved` for a rename, `closed_paths` for a delete.
+ */
+export type TabPathChangeResult = {
+	layout: ProjectLayout,
+	moved: TabPathMove[],
+	closedPaths: string[],
+};
+
+/**
+ *  One distinct open file path a [`TabPathChange::Renamed`] moved. Reported back so the frontend can
+ *  carry that path's own per-path state (monaco model, hot-exit mirror, `FILE.CONTENT` cache,
+ *  "reopen with" override) to the new path instead of leaving it stranded under a path that no
+ *  longer exists. `dirty` is true when any moved tab for `from` had unsaved edits — the frontend
+ *  needs that to decide whether a draft has to be re-mirrored under `to` before the pane, which
+ *  resets to clean on a path switch, syncs the model back to the new path's disk content.
+ */
+export type TabPathMove = {
+	from: string,
+	to: string,
+	dirty: boolean,
+};
 
 /**
  *  Destination for `layout_move_tab_to_window`. `Existing` addresses an auxiliary window already

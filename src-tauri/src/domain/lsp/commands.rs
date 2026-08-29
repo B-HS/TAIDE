@@ -95,9 +95,13 @@ struct SessionEntry {
     roots: Mutex<Vec<(String, u32)>>,
 }
 
+/// `uri` must be spelled exactly the way the frontend spells the same root in `initialize`
+/// (`monaco.Uri.file(root).toString()`) — see [`service::workspace_folder_uri`] for why a raw
+/// `file://{root}` made a space- or Korean-containing root look like a different folder to the
+/// server than the one the handshake announced.
 fn workspace_folder_json(root: &str) -> serde_json::Value {
     serde_json::json!({
-        "uri": format!("file://{root}"),
+        "uri": service::workspace_folder_uri(root),
         "name": std::path::Path::new(root).file_name().and_then(|name| name.to_str()).unwrap_or("workspace"),
     })
 }
@@ -1260,6 +1264,20 @@ mod tests {
             store.begin(&server_id).is_some(),
             "정상적으로 스코프를 빠져나가도 슬롯은 해제되어야 한다"
         );
+    }
+
+    /// §4-A-7 regression at the notification level: the roots this sends must carry the same URI
+    /// spelling `initialize` used, or the server treats the added root as a folder it has never seen
+    /// and the removed one as a folder it does not have.
+    #[test]
+    fn 워크스페이스_폴더_알림의_uri는_퍼센트_인코딩된다() {
+        let notification = workspace_folders_notification(&["/workspace/my project".to_string()], &["/tmp/한글 루트".to_string()]);
+        let parsed: serde_json::Value = serde_json::from_str(&notification).expect("알림은 JSON 이어야 한다");
+        let event = &parsed["params"]["event"];
+
+        assert_eq!(event["added"][0]["uri"], "file:///workspace/my%20project");
+        assert_eq!(event["added"][0]["name"], "my project");
+        assert_eq!(event["removed"][0]["uri"], "file:///tmp/%ED%95%9C%EA%B8%80%20%EB%A3%A8%ED%8A%B8");
     }
 
     fn recording_channel(received: Arc<Mutex<Vec<String>>>) -> Channel<String> {

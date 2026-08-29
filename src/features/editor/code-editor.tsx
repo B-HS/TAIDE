@@ -6,9 +6,10 @@ import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared
 import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
 import { attachAiInlineEditAction } from '@features/editor/ai-inline-edit'
 import { monaco } from '@shared/lib/monaco/setup'
+import { resolveEditorConfigModelIndent } from '@shared/lib/editorconfig'
 import { cancelAiRequest, completeAiInline } from '@entities/ai/ai.ipc'
 import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
-import { getOrCreateModel, restoreViewState, saveViewState } from '@entities/editor/model-registry'
+import { getOrCreateModel, isApplyingExternalContentTo, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
 const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiRequest }
 
@@ -28,6 +29,17 @@ export type CodeEditorProps = {
     tabSize: number
     insertSpaces: boolean
     detectIndentation: boolean
+    /**
+     * This file's `.editorconfig` indent override, `null` for each axis it does not specify (and for
+     * every host that has no file behind it — `untitled-pane`, `app-file-pane`). Deliberately
+     * separate from `tabSize`/`insertSpaces` above rather than folded into them: those three are
+     * monaco's *global* editor options (`IGlobalEditorOptions`), shared by every editor and model in
+     * the app, so a per-file value pushed through them would be the last-mounted pane's value for
+     * every open model. The override is applied to this editor's own model instead — see the
+     * `[editorConfigTabSize, editorConfigInsertSpaces]` effect.
+     */
+    editorConfigTabSize?: number | null
+    editorConfigInsertSpaces?: boolean | null
     renderWhitespace: EditorRenderWhitespace
     bracketPairColorization: boolean
     fontLigatures: boolean
@@ -35,11 +47,24 @@ export type CodeEditorProps = {
     cursorBlinking: EditorCursorBlinkingStyle
     scrollBeyondLastLine: boolean
     stickyScroll: boolean
+    bracketPairGuides: boolean
+    smoothScrolling: boolean
+    cursorSmoothCaretAnimation: boolean
+    suggestPreview: boolean
+    rulers: readonly number[]
     formatOnType: boolean
     formatOnPaste: boolean
     aiAutoTabEnabled: boolean
     aiCompletionConfig: AiInlineCompletionConfig | null
-    onChange: (value: string) => void
+    /**
+     * Handed a lazy reader for the model's text rather than the text itself: every host debounces
+     * what it does with a keystroke (hot-exit mirror, auto-save, markdown preview), so materializing
+     * the whole document as a string on each `onDidChangeModelContent` builds a full copy of the file
+     * per character typed only for it to be discarded before the debounce fires. Hosts that genuinely
+     * need the text now call the reader immediately; the ones that don't hold onto it and read at
+     * their own fire time, which also gets them the freshest text rather than the keystroke's.
+     */
+    onChange: (readContent: () => string) => void
     onSave: () => void
     onCursorLineChange: (line: number) => void
     onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor | null) => void
@@ -65,6 +90,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     tabSize,
     insertSpaces,
     detectIndentation,
+    editorConfigTabSize = null,
+    editorConfigInsertSpaces = null,
     renderWhitespace,
     bracketPairColorization,
     fontLigatures,
@@ -72,6 +99,11 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     cursorBlinking,
     scrollBeyondLastLine,
     stickyScroll,
+    bracketPairGuides,
+    smoothScrolling,
+    cursorSmoothCaretAnimation,
+    suggestPreview,
+    rulers,
     formatOnType,
     formatOnPaste,
     aiAutoTabEnabled,
@@ -146,7 +178,8 @@ export const CodeEditor: FC<CodeEditorProps> = ({
 
         const changeSubscription = editor.onDidChangeModelContent(() => {
             const model = editor.getModel()
-            if (model) onChangeRef.current(model.getValue())
+            if (!model || isApplyingExternalContentTo(model)) return
+            onChangeRef.current(() => model.getValue())
         })
         const cursorSubscription = editor.onDidChangeCursorPosition((event) => onCursorLineChangeRef.current(event.position.lineNumber))
 
@@ -219,6 +252,11 @@ export const CodeEditor: FC<CodeEditorProps> = ({
             cursorStyle,
             cursorBlinking,
             scrollBeyondLastLine,
+            guides: { bracketPairs: bracketPairGuides },
+            smoothScrolling,
+            cursorSmoothCaretAnimation: cursorSmoothCaretAnimation ? 'on' : 'off',
+            suggest: { preview: suggestPreview },
+            rulers: [...rulers],
             formatOnType,
             formatOnPaste,
         })
@@ -233,6 +271,11 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         cursorStyle,
         cursorBlinking,
         scrollBeyondLastLine,
+        bracketPairGuides,
+        smoothScrolling,
+        cursorSmoothCaretAnimation,
+        suggestPreview,
+        rulers,
         formatOnType,
         formatOnPaste,
     ])
@@ -270,6 +313,41 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         editor.focus()
         activePathRef.current = path
     }, [path, language])
+
+    /**
+     * Applies this file's `.editorconfig` indentation to the *model* — the only place a per-file
+     * value can live, since `tabSize`/`insertSpaces`/`detectIndentation` are global editor options
+     * that monaco funnels into one shared configuration service (`updateConfigurationService` in
+     * `standaloneCodeEditor.js`) and from there into every model at once.
+     *
+     * Declared after the model-attach effect above so `getModel()` is already this `path`'s model,
+     * and before the registry effect below so a registry subscriber never observes the editor
+     * mid-configuration. No-ops entirely when the file has no `.editorconfig` override, which is
+     * what keeps the settings/`detectIndentation` path byte-for-byte unchanged for every other file.
+     *
+     * The dependency list carries more than it reads on purpose. Whenever one of the *global*
+     * options this component pushes changes value, monaco's `ModelService._updateModelOptions`
+     * re-derives model options for every live model from that global configuration — which would
+     * silently drop this override. Its own early-out ("same indent opts") covers every other option
+     * change, so the ones that can actually reach the model are exactly the four listed here beyond
+     * `path`/`language`: the indent triple, and `bracketPairColorization` (with `largeFile`, which
+     * is folded into the value pushed for it) since bracket colorization is itself a model creation
+     * option. Re-running this effect in the same commit re-asserts the override right after that
+     * happens — the option effect above is declared earlier, so it always runs first. A future
+     * global option that maps to a model creation option has to be added here too (contract §5).
+     *
+     * What this cannot see is a *sibling* editor writing one of those globals: `bracketPairColorization`
+     * is pushed as `bracketPairColorization && !largeFile`, and `largeFile` is per-pane, so another
+     * pane opening or closing a large file flips the shared value and makes `ModelService` re-derive
+     * every model — including this one — while none of this pane's own props changed. Known limit,
+     * recorded in contract §5 rather than papered over with an `onDidChangeOptions` self-heal, which
+     * would fight the keymap's manual `indentUsingSpaces`/`indentUsingTabs`/`detectIndentation`.
+     */
+    useEffect(() => {
+        const modelIndent = resolveEditorConfigModelIndent({ editorConfigTabSize, editorConfigInsertSpaces })
+        if (!modelIndent) return
+        editorRef.current?.getModel()?.updateOptions(modelIndent)
+    }, [path, language, tabSize, insertSpaces, detectIndentation, bracketPairColorization, largeFile, editorConfigTabSize, editorConfigInsertSpaces])
 
     /**
      * Registers this instance's own live monaco editor under `registryTabId` in the shared

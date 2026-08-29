@@ -1,13 +1,54 @@
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use super::types::ShellProfile;
 use crate::error::{AppError, AppResult};
 
-pub fn ring_buffer_append(buffer: &mut Vec<u8>, incoming: &[u8], capacity: usize) {
-    buffer.extend_from_slice(incoming);
-    if buffer.len() > capacity {
-        let overflow = buffer.len() - capacity;
-        buffer.drain(0..overflow);
+/// A pty session's recent output, capped at `capacity` bytes with the oldest bytes evicted first —
+/// what `pty_attach` replays so a subscriber joining late still sees the session's scrollback.
+///
+/// Backed by a `VecDeque` rather than the `Vec` + `drain(0..overflow)` this used to be: once the
+/// buffer sat at its `DEFAULT_SCROLLBACK_BYTES` (2MB) cap, dropping the overflow shifted every
+/// retained byte down, so a busy session paid a ~2MB `memmove` for *each* 64KB read the pty
+/// delivered (§2 M-5). A `VecDeque` drops the same bytes by advancing its head, making the cost
+/// proportional to the incoming chunk instead of to the retained scrollback.
+pub struct ScrollbackRing {
+    buffer: VecDeque<u8>,
+    capacity: usize,
+}
+
+impl ScrollbackRing {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buffer: VecDeque::new(),
+            capacity,
+        }
+    }
+
+    /// Appends `incoming`, evicting whatever no longer fits. A chunk at least as large as the whole
+    /// capacity is truncated to its tail *before* being stored rather than appended and then
+    /// evicted, so the buffer never transiently grows past its cap.
+    pub fn append(&mut self, incoming: &[u8]) {
+        if incoming.len() >= self.capacity {
+            self.buffer.clear();
+            self.buffer.extend(&incoming[incoming.len() - self.capacity..]);
+            return;
+        }
+
+        self.buffer.extend(incoming);
+        let overflow = self.buffer.len().saturating_sub(self.capacity);
+        if overflow > 0 {
+            self.buffer.drain(..overflow);
+        }
+    }
+
+    /// The retained bytes in order, as the ring's two halves — a replay must send both, front
+    /// first. The second half is empty until the buffer wraps, so an attach before the cap is
+    /// reached still replays as a single chunk. Splitting there is safe for the consumer: xterm's
+    /// parser preserves its state across `write` boundaries, exactly as it already must for the
+    /// reader thread's own output batching.
+    pub fn as_slices(&self) -> (&[u8], &[u8]) {
+        self.buffer.as_slices()
     }
 }
 
@@ -140,18 +181,45 @@ pub fn resolve_terminal_path(raw: &str, cwd: &str) -> AppResult<String> {
 mod tests {
     use super::*;
 
+    fn replayed(ring: &ScrollbackRing) -> Vec<u8> {
+        let (front, back) = ring.as_slices();
+        [front, back].concat()
+    }
+
     #[test]
     fn 용량을_초과하면_앞부분을_잘라낸다() {
-        let mut buffer = vec![1u8, 2, 3, 4, 5];
-        ring_buffer_append(&mut buffer, &[6, 7], 5);
-        assert_eq!(buffer, vec![3, 4, 5, 6, 7]);
+        let mut ring = ScrollbackRing::new(5);
+        ring.append(&[1, 2, 3, 4, 5]);
+        ring.append(&[6, 7]);
+        assert_eq!(replayed(&ring), vec![3, 4, 5, 6, 7]);
     }
 
     #[test]
     fn 용량_이내면_전부_보존한다() {
-        let mut buffer = vec![1u8, 2];
-        ring_buffer_append(&mut buffer, &[3, 4], 10);
-        assert_eq!(buffer, vec![1, 2, 3, 4]);
+        let mut ring = ScrollbackRing::new(10);
+        ring.append(&[1, 2]);
+        ring.append(&[3, 4]);
+        assert_eq!(replayed(&ring), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn 용량보다_큰_청크는_꼬리만_남긴다() {
+        let mut ring = ScrollbackRing::new(3);
+        ring.append(&[9, 9]);
+        ring.append(&[1, 2, 3, 4, 5]);
+        assert_eq!(replayed(&ring), vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn 되감긴_링도_두_조각을_이어_붙이면_순서가_보존된다() {
+        const CAPACITY: usize = 64;
+        let mut ring = ScrollbackRing::new(CAPACITY);
+        for round in 0..16u8 {
+            ring.append(&[round; 13]);
+        }
+
+        let written: Vec<u8> = (0..16u8).flat_map(|round| vec![round; 13]).collect();
+        assert_eq!(replayed(&ring), written[written.len() - CAPACITY..]);
     }
 
     #[test]

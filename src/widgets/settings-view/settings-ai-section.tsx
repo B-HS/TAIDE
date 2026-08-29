@@ -107,6 +107,7 @@ export const SettingsAiSection: FC<SettingsAiSectionProps> = ({ id, projectId, s
                     label={t('settings.aiModelLabel')}
                     options={aiModels.map((model) => ({ id: model.modelId, label: model.displayName ?? model.modelId }))}
                     value={settings.aiModel ?? ''}
+                    placeholder={t('settings.aiModelSelectPlaceholder')}
                     onSelect={(modelId) => updateSettings({ ...emptySettingsPatch(), aiProvider: selectedAiProvider, aiModel: modelId })}
                 />
             )}

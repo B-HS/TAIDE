@@ -43,17 +43,60 @@ pub struct SearchQuery {
     pub respect_gitignore: bool,
 }
 
+/// How many individual skipped files `search_replace` names in its result before it stops
+/// listing them (the running `skipped_count` keeps counting past this point). A project-wide
+/// replace can legitimately walk past thousands of files it must refuse — every binary asset,
+/// every file above `constants::REFUSED_FILE_BYTES` — and shipping all of them back would turn a
+/// "3 files skipped" notice into a multi-megabyte payload. The cap only bounds the *listing*, so
+/// the frontend can still say "N skipped" truthfully and show the first few paths.
+pub const REPLACE_SKIP_REPORT_LIMIT: usize = 50;
+
+/// Why one file `search_replace` was asked to rewrite came back unchanged even though it was in
+/// the resolved target set. Before this existed the whole class was a silent `None` return, so a
+/// replace that touched nothing (unreadable file, non-UTF-8 encoding, oversized file) reported the
+/// same "0 files changed" as a replace whose query simply had no matches — audit §4-B C10.
+/// A file that was read fine and just had no match is *not* a skip and never appears here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReplaceSkipReason {
+    /// At or above `constants::REFUSED_FILE_BYTES` — the same ceiling `domain::file` refuses to
+    /// open a file at, so replace never buffers a file the editor itself would not load.
+    TooLarge,
+    /// A NUL byte inside the first `BINARY_SNIFF_BYTES` — rewriting it would corrupt it.
+    Binary,
+    /// Not valid UTF-8. Replace (unlike search) requires strict UTF-8, since a lossy decode would
+    /// write `U+FFFD` back over the original bytes.
+    NotUtf8,
+    /// `metadata`/`open`/`read` failed — permissions, a file deleted mid-walk, an I/O error.
+    Unreadable,
+    /// Matches were found and rewritten in memory, but the atomic write back to disk failed.
+    WriteFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceSkippedFile {
+    pub path: String,
+    pub reason: ReplaceSkipReason,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchReplaceResult {
     pub changed_files: u32,
     pub replaced_matches: u32,
+    /// The first [`REPLACE_SKIP_REPORT_LIMIT`] skipped files, in target-walk order.
+    pub skipped: Vec<ReplaceSkippedFile>,
+    /// Every skipped file, including the ones past the listing cap — `skipped.len()` when nothing
+    /// was truncated.
+    pub skipped_count: u32,
 }
 
+/// One match inside a file. Carries no `path`: matches reach the frontend grouped per file inside
+/// [`SearchFileMatches`], so the path is sent once per file instead of once per match.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchMatch {
-    pub path: String,
+pub struct SearchLineMatch {
     pub line: u32,
     /// 1-based, in UTF-16 code units — Monaco `Position.column`'s own convention, so the frontend
     /// can hand this straight to `reveal-registry.ts` without converting. Computed from the UTF-8
@@ -71,4 +114,20 @@ pub struct SearchMatch {
     /// Up to `SearchQuery::context_lines` lines immediately after the match
     /// line, in file order. Empty when `context_lines` is `0`.
     pub after: Vec<String>,
+}
+
+/// Every match `search_run` found in one file — the unit its `onMatch` channel actually carries.
+/// One channel message per *file*, not per match (audit §2 M-9): a 10,000-match run used to cost
+/// 10,000 IPC messages, each re-serializing the same `path`, and made the frontend re-group the
+/// whole accumulated list on every one of them (§1-3).
+///
+/// `matches` is always in ascending source order (line, then column) — the order the file was
+/// scanned in — so the frontend's context-line de-duplication can rely on it. The order the
+/// *files* themselves arrive in is deliberately unspecified: the walk is parallel
+/// (`search::service::search`), so file arrival order varies run to run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFileMatches {
+    pub path: String,
+    pub matches: Vec<SearchLineMatch>,
 }

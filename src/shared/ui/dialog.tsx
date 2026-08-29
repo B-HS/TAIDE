@@ -6,6 +6,7 @@ import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@shared/lib/cn'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import { Button } from '@shared/ui/button'
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -37,10 +38,20 @@ function DialogOverlay({ className, ...props }: React.ComponentProps<typeof Dial
     )
 }
 
+/**
+ * `onEscapeKeyDown` wraps (rather than replaces) the caller's own handler to drop the Escape that
+ * merely cancels an in-flight IME composition: radix's `useEscapeKeydown` has no composition guard
+ * of its own, so without this, correcting a half-typed Korean/Japanese word inside any dialog input
+ * (the command palette's query, the tag dialog's name, the keybindings search) dismisses the whole
+ * dialog and discards what was typed. `preventDefault()` is radix's documented way to veto the
+ * dismissal, and returning early keeps the caller's handler from acting on a keystroke the input
+ * method already consumed.
+ */
 function DialogContent({
     className,
     children,
     showCloseButton = true,
+    onEscapeKeyDown,
     ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
     showCloseButton?: boolean
@@ -52,6 +63,13 @@ function DialogContent({
             <DialogOverlay />
             <DialogPrimitive.Content
                 data-slot='dialog-content'
+                onEscapeKeyDown={(event) => {
+                    if (isImeCompositionKeydown(event)) {
+                        event.preventDefault()
+                        return
+                    }
+                    onEscapeKeyDown?.(event)
+                }}
                 className={cn(
                     'fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border border-modal-border bg-modal-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg',
                     className,

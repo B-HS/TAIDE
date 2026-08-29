@@ -2,6 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core'
 import { commands } from '@shared/api/bindings'
 import type { ProjectId, PtySpawnOptions } from '@shared/api/bindings'
 import { IpcError, isAppError, unwrapResult } from '@shared/api/unwrap-result'
+import { enqueueSessionWrite } from '@entities/terminal/session-write-order'
 
 const SPAWN_COMMAND = 'pty_spawn'
 const ATTACH_COMMAND = 'pty_attach'
@@ -36,7 +37,9 @@ export const attachPty = (sessionId: string, onData: (bytes: Uint8Array) => void
 
 export const detachPty = (sessionId: string, subscriptionId: number) => unwrapResult(commands.ptyDetach(sessionId, subscriptionId))
 
-export const writePty = (input: { sessionId: string; data: string }) => unwrapResult(commands.ptyWrite(input.sessionId, input.data))
+/** Serialized per session ({@link enqueueSessionWrite}) — the backend no longer preserves call order across concurrent `pty_write` invocations. */
+export const writePty = (input: { sessionId: string; data: string }) =>
+    enqueueSessionWrite(input.sessionId, () => unwrapResult(commands.ptyWrite(input.sessionId, input.data)))
 
 export const resizePty = (input: { sessionId: string; cols: number; rows: number }) =>
     unwrapResult(commands.ptyResize(input.sessionId, input.cols, input.rows))

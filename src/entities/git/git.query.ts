@@ -122,10 +122,11 @@ export const gitRemotesQueryOptions = (projectId: ProjectId | null) =>
         retry: false,
     })
 
-export const gitDiffFileQueryOptions = (input: { projectId: ProjectId | null; path: string | null; mode: DiffMode }) =>
+export const gitDiffFileQueryOptions = (input: { projectId: ProjectId | null; path: string | null; mode: DiffMode; beforePath?: string | null }) =>
     queryOptions({
-        queryKey: QUERY_KEY.GIT.DIFF(input.projectId ?? '', input.path ?? '', input.mode),
-        queryFn: () => getGitDiffFile({ projectId: input.projectId ?? '', path: input.path ?? '', mode: input.mode }),
+        queryKey: QUERY_KEY.GIT.DIFF(input.projectId ?? '', input.path ?? '', input.mode, input.beforePath ?? null),
+        queryFn: () =>
+            getGitDiffFile({ projectId: input.projectId ?? '', path: input.path ?? '', mode: input.mode, beforePath: input.beforePath ?? null }),
         enabled: !!input.projectId && !!input.path,
         retry: false,
     })

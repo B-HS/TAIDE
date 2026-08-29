@@ -18,14 +18,23 @@ type TabItemProps = {
     agentTooltip?: string
     onActivate: () => void
     onClose: () => void
+    onTogglePin: () => void
 }
 
-export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, preview, agentTooltip, onActivate, onClose }) => {
+/**
+ * A pinned tab is protected from every closing gesture this component owns (`docs/features/tabs.md`
+ * §3): the trailing icon button unpins instead of closing — its label already said "unpin" while it
+ * ran `onClose`, so one click on what looked like the unpin affordance discarded the tab — and a
+ * middle click is ignored outright. ⌘W's matching guard lives in `editor-area.tsx`, which owns that
+ * keymap handler.
+ */
+export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, preview, agentTooltip, onActivate, onClose, onTogglePin }) => {
     const { t } = useTranslation()
 
     const handleAuxClick = (event: MouseEvent) => {
         if (event.button !== MIDDLE_MOUSE_BUTTON) return
         event.preventDefault()
+        if (pinned) return
         onClose()
     }
 
@@ -60,12 +69,16 @@ export const TabItem: FC<TabItemProps> = ({ title, icon, active, dirty, pinned, 
                 icon={
                     <>
                         {dirty && <span className='bg-tab-bar-dirty-dot size-2 rounded-full group-hover:hidden' />}
-                        {pinned && !dirty && <Pin className='size-3' />}
-                        <X className={cn('size-3', (dirty || pinned) && 'hidden group-hover:block')} />
+                        {pinned ? (
+                            <Pin className={cn('size-3', dirty && 'hidden group-hover:block')} />
+                        ) : (
+                            <X className={cn('size-3', dirty && 'hidden group-hover:block')} />
+                        )}
                     </>
                 }
                 onClick={(event) => {
                     event.stopPropagation()
+                    if (pinned) return onTogglePin()
                     onClose()
                 }}
                 side='bottom'

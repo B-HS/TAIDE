@@ -1,5 +1,5 @@
 import { commands } from '@shared/api/bindings'
-import type { DropEdge, PaneId, ProjectId, ShellViewPatch, TabId, TabKind, TabWindowTarget } from '@shared/api/bindings'
+import type { DropEdge, PaneId, ProjectId, ShellViewPatch, TabId, TabKind, TabPathChange, TabWindowTarget } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const getLayout = (projectId: ProjectId) => unwrapResult(commands.layoutGet(projectId))
@@ -45,3 +45,6 @@ export const setShellView = (input: { projectId: ProjectId; patch: ShellViewPatc
 
 export const setTabViewState = (input: { tabId: TabId; viewState: string | null }) =>
     unwrapResult(commands.layoutSetViewState(input.tabId, input.viewState))
+
+export const applyTabPathChange = (input: { projectId: ProjectId; change: TabPathChange }) =>
+    unwrapResult(commands.layoutApplyPathChange(input.projectId, input.change))

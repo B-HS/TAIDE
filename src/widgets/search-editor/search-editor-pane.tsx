@@ -6,6 +6,10 @@ import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectId, SearchQuery, TabId } from '@shared/api/bindings'
 import { DEFAULT_SEARCH_OPTIONS } from '@entities/search/search.type'
+import type { SearchEditorFormState } from '@entities/search/search-editor-memory'
+import { readSearchEditorMemory, writeSearchEditorMemory } from '@entities/search/search-editor-memory'
+import type { SearchRunSnapshot } from '@entities/search/search-run-state'
+import { resolveSearchResultsView } from '@entities/search/search-run-state'
 import { useRecentSearches } from '@entities/search/search-history'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
@@ -19,6 +23,8 @@ import {
     SEARCH_EDITOR_MAX_CONTEXT_LINES,
     SEARCH_EDITOR_MIN_CONTEXT_LINES,
 } from '@widgets/search-editor/search-editor-context-lines'
+import { SEARCH_MATCH_LIMIT } from '@shared/constants/search'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { fileNameOf } from '@shared/lib/relative-path'
@@ -30,28 +36,44 @@ type SearchEditorPaneProps = {
     query: SearchQuery
 }
 
+/**
+ * A Search Editor tab's pane. Only the *active* tab of a pane is mounted, so opening a match —
+ * which targets this very pane — unmounts this component; `entities/search/search-editor-memory.ts`
+ * is what carries the inputs and the result list across that gap, and is also what stops the
+ * mount-time auto-run from firing a second time and overwriting restored results with the tab's
+ * original query (audit §4-B B8).
+ */
 export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, query }) => {
-    const { t } = useTranslation()
     const queryInputRef = useRef<HTMLInputElement>(null)
     const initialQueryRef = useRef(query)
     const didAutoRunRef = useRef(false)
+    const latestRef = useRef<{ form: SearchEditorFormState; readSnapshot: () => SearchRunSnapshot } | null>(null)
 
-    const [queryText, setQueryText] = useState(query.text)
-    const [caseSensitive, setCaseSensitive] = useState(query.caseSensitive ?? DEFAULT_SEARCH_OPTIONS.caseSensitive)
-    const [wholeWord, setWholeWord] = useState(query.wholeWord ?? DEFAULT_SEARCH_OPTIONS.wholeWord)
-    const [regex, setRegex] = useState(query.regex ?? DEFAULT_SEARCH_OPTIONS.regex)
-    const [respectGitignore, setRespectGitignore] = useState(query.respectGitignore ?? DEFAULT_SEARCH_OPTIONS.respectGitignore)
-    const [excludeGlob, setExcludeGlob] = useState(query.excludeGlob ?? DEFAULT_SEARCH_OPTIONS.excludeGlob ?? '')
-    const [contextLines, setContextLines] = useState(clampContextLines(query.contextLines ?? DEFAULT_SEARCH_OPTIONS.contextLines))
+    const [restored] = useState(() => readSearchEditorMemory(tabId, projectId))
+    const restoredForm = restored?.form ?? null
 
+    const [queryText, setQueryText] = useState(restoredForm?.queryText ?? query.text)
+    const [caseSensitive, setCaseSensitive] = useState(restoredForm?.caseSensitive ?? query.caseSensitive ?? DEFAULT_SEARCH_OPTIONS.caseSensitive)
+    const [wholeWord, setWholeWord] = useState(restoredForm?.wholeWord ?? query.wholeWord ?? DEFAULT_SEARCH_OPTIONS.wholeWord)
+    const [regex, setRegex] = useState(restoredForm?.regex ?? query.regex ?? DEFAULT_SEARCH_OPTIONS.regex)
+    const [respectGitignore, setRespectGitignore] = useState(
+        restoredForm?.respectGitignore ?? query.respectGitignore ?? DEFAULT_SEARCH_OPTIONS.respectGitignore,
+    )
+    const [excludeGlob, setExcludeGlob] = useState(restoredForm?.excludeGlob ?? query.excludeGlob ?? DEFAULT_SEARCH_OPTIONS.excludeGlob ?? '')
+    const [contextLines, setContextLines] = useState(
+        clampContextLines(restoredForm?.contextLines ?? query.contextLines ?? DEFAULT_SEARCH_OPTIONS.contextLines),
+    )
+
+    const { t } = useTranslation()
     const recentSearches = useRecentSearches()
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: openTab } = useOpenTab(projectId)
-    const { results, totalMatches, isSearching, run } = useSearchRun(projectId, tabId)
+    const { results, totalMatches, status, isTruncated, run, readSnapshot } = useSearchRun(projectId, tabId, restored?.run)
 
-    const hasQuery = queryText.trim().length > 0
     const hasResults = results.length > 0
+    const view = resolveSearchResultsView({ status, hasResults })
     const includeGlob = query.includeGlob ?? null
+    const form: SearchEditorFormState = { queryText, caseSensitive, wholeWord, regex, respectGitignore, excludeGlob, contextLines }
 
     const handleSubmit = () => {
         if (!queryText.trim()) return
@@ -68,7 +90,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.key !== 'Enter') return
+        if (isImeCompositionKeydown(event) || event.key !== 'Enter') return
         handleSubmit()
     }
 
@@ -81,16 +103,29 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
     }
 
     useEffect(() => {
-        if (didAutoRunRef.current) return
+        latestRef.current = { form, readSnapshot }
+    })
+
+    useEffect(() => {
+        if (didAutoRunRef.current || restored) return
         const initialQuery = initialQueryRef.current
         if (!initialQuery.text.trim()) return
         didAutoRunRef.current = true
         run(initialQuery, { recordHistory: false })
-    }, [run])
+    }, [restored, run])
 
     useEffect(() => {
         queryInputRef.current?.focus()
     }, [])
+
+    useEffect(
+        () => () => {
+            const latest = latestRef.current
+            if (!latest) return
+            writeSearchEditorMemory(tabId, { projectId, form: latest.form, run: latest.readSnapshot() })
+        },
+        [projectId, tabId],
+    )
 
     return (
         <div className='bg-editor-background flex h-full min-h-0 w-full flex-col'>
@@ -130,33 +165,44 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
                         />
                     </label>
                 </div>
-                {isSearching && (
+                {status === 'running' && (
                     <div className='text-app-sidebar-icon-default flex items-center gap-1.5 text-xs'>
                         <Loader2 className='size-3 animate-spin' />
                         {t('search.searching')}
                     </div>
                 )}
-                {!isSearching && hasQuery && (
+                {status === 'completed' && (
                     <div className='text-app-sidebar-icon-default text-xs'>
                         {totalMatches > 0 ? t('search.matchCount', { count: totalMatches, files: results.length }) : t('searchEditor.noResults')}
                     </div>
                 )}
+                {status === 'completed' && isTruncated && (
+                    <div className='text-panel-match-highlight text-xs'>{t('search.truncated', { limit: SEARCH_MATCH_LIMIT })}</div>
+                )}
             </div>
 
-            <ScrollContainer className='min-h-0 flex-1'>
-                {!hasQuery && (
-                    <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
-                        <Search className='size-5 opacity-60' />
-                        {t('search.pressEnterHint')}
-                    </div>
-                )}
-                {hasQuery && !isSearching && !hasResults && (
-                    <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
-                        {t('searchEditor.noResults')}
-                    </div>
-                )}
-                {hasResults && <SearchResultsList results={results} onOpenMatch={handleOpenMatch} />}
-            </ScrollContainer>
+            {view === 'results' ? (
+                <SearchResultsList className='flex-1' results={results} onOpenMatch={handleOpenMatch} />
+            ) : (
+                <ScrollContainer className='min-h-0 flex-1'>
+                    {view === 'hint' && (
+                        <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
+                            <Search className='size-5 opacity-60' />
+                            {t('search.pressEnterHint')}
+                        </div>
+                    )}
+                    {view === 'empty' && (
+                        <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
+                            {t('searchEditor.noResults')}
+                        </div>
+                    )}
+                    {view === 'failed' && (
+                        <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
+                            {t('search.failed')}
+                        </div>
+                    )}
+                </ScrollContainer>
+            )}
         </div>
     )
 }

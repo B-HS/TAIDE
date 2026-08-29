@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { useTranslation } from 'react-i18next'
 import type { ProjectId } from '@shared/api/bindings'
@@ -44,6 +44,17 @@ export const useExplorerEntryCrud = ({
     deleteEntryAsync,
     t,
 }: UseExplorerEntryCrudInput) => {
+    /**
+     * The inline row stays mounted (and focused) for the whole `create`/`rename` round trip, so a
+     * second Enter — a double tap, or an IME commit followed by Enter — re-enters the same commit
+     * with the same name while the first one is still in flight. The second call then races the
+     * first to the same destination and loses, surfacing a bogus "already exists" error over a
+     * create that actually succeeded. Refs, not state: the guard has to be readable and writable
+     * synchronously within one keydown, before any re-render.
+     */
+    const draftCommitInFlightRef = useRef(false)
+    const renameCommitInFlightRef = useRef(false)
+
     const [draft, setDraft] = useState<FileTreeDraft | null>(null)
     const [draftError, setDraftError] = useState<string | null>(null)
     const [renameTarget, setRenameTarget] = useState<FileTreeRenameTarget | null>(null)
@@ -80,6 +91,9 @@ export const useExplorerEntryCrud = ({
             return
         }
 
+        if (draftCommitInFlightRef.current) return
+        draftCommitInFlightRef.current = true
+
         const path = joinPath(draft.parentDir, trimmedName)
         try {
             await createEntry({ path, isDir: draft.kind === 'directory' })
@@ -95,6 +109,8 @@ export const useExplorerEntryCrud = ({
             const message = describeIpcError(error)
             setDraftError(message)
             toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitDraft(trimmedName) } })
+        } finally {
+            draftCommitInFlightRef.current = false
         }
     }
 
@@ -125,6 +141,9 @@ export const useExplorerEntryCrud = ({
             return
         }
 
+        if (renameCommitInFlightRef.current) return
+        renameCommitInFlightRef.current = true
+
         const destination = joinPath(parentDir, trimmedName)
         try {
             await renameEntryAsync({ from: renameTarget.path, to: destination })
@@ -137,6 +156,8 @@ export const useExplorerEntryCrud = ({
             const message = describeIpcError(error)
             setRenameError(message)
             toast.error(message, { action: { label: t('common.retry'), onClick: () => void commitRename(trimmedName) } })
+        } finally {
+            renameCommitInFlightRef.current = false
         }
     }
 

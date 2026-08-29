@@ -3,9 +3,9 @@ use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
 use super::service;
-use super::types::{DropEdge, ProjectLayout, ShellViewPatch, Tab, TabKind, TabWindowTarget};
+use super::types::{DropEdge, ProjectLayout, ShellViewPatch, Tab, TabKind, TabPathChange, TabPathChangeResult, TabWindowTarget};
 use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::{PaneId, ProjectId, TabId};
 use crate::infra::root_guard;
 use crate::state::AppState;
@@ -322,6 +322,102 @@ pub async fn layout_move_tab_to_window(
     Ok(updated)
 }
 
+/// Rejects a [`TabPathChange`] naming anything outside `root`, by path components — the same
+/// containment rule `service::retargeted_path`/`is_same_or_under` match tabs with, so a path this
+/// accepts is exactly a path the matcher can act on.
+///
+/// Deliberately a string containment check rather than `root_guard::ensure_within_root`: the file
+/// command this follows has already completed, so `from` (and a deleted `path`) is gone from disk
+/// and cannot be canonicalized against anything. The project root itself is canonical (recorded that
+/// way when the project is opened — `domain::project::service`), and tab paths are built by walking
+/// it, so both sides of this comparison come from the same canonical prefix.
+fn ensure_change_within_root(root: &Path, change: &TabPathChange) -> AppResult<()> {
+    let paths: &[&String] = match change {
+        TabPathChange::Renamed { from, to } => &[from, to],
+        TabPathChange::Deleted { path } => &[path],
+    };
+    for path in paths {
+        if !Path::new(path.as_str()).starts_with(root) {
+            return Err(AppError::localized(
+                AppErrorKind::Forbidden,
+                "error.path.outsideProjectRoot",
+                format!("path is outside the project root: {path}"),
+            )
+            .with_arg("path", path.as_str()));
+        }
+    }
+    Ok(())
+}
+
+/// Makes open tabs follow a path change the file domain has already committed to disk — a rename
+/// repoints every `TabKind::File` tab under the old path (a directory rename moves the whole
+/// subtree), a delete closes them. Audit §4-B A3: nothing used to update a tab's stored path, so a
+/// renamed file's tab kept pointing at a path that no longer exists (`⌘S` then recreated the old
+/// directory through `write_atomic`'s `create_dir_all` and forked the file), and reopening the file
+/// under its new name produced a second tab for the same document.
+///
+/// Called by the frontend *after* `file_rename`/`file_delete` succeeds rather than from inside those
+/// commands: the file domain owns paths on disk, not the tab bar, and wiring it here would make
+/// `domain::file` depend on `domain::layout` (the same domain-coupling boundary
+/// `docs/architecture.md` §2 keeps between `file` and `tree`, where the watcher event — not the file
+/// command — drives the tree's own cleanup).
+///
+/// Reports what changed (`moved`/`closed_paths`) so the frontend can move the per-path state only it
+/// owns — monaco model, hot-exit mirror, `FILE.CONTENT` cache, "reopen with" override. When no *open*
+/// tab addressed the changed path there is nothing to report, and no revision bump or
+/// `layout:changed` event is produced: nothing on screen moved, so making every window refetch the
+/// layout would be pure waste.
+///
+/// A rename with nothing to report can still have changed the layout, though — the closed-tab stack
+/// follows a rename silently so "Reopen Closed Tab" cannot resurrect a path that no longer exists —
+/// which is why the store write-back is gated on `TabPathChangeOutcome::layout_changed` rather than
+/// on there being something to report. Skipping it there (the original shape of this early return)
+/// discarded that rewrite along with the whole working clone.
+///
+/// `from`/`to`/`path` are checked against the project's own root before anything is matched. They are
+/// *not* canonicalized (the rename is already done, so `from` no longer exists on disk — see contract
+/// §3 S8), but they must still be inside the project: `Deleted { path: "/" }` is "at or under" every
+/// absolute path, which would close every file tab in the project and let the frontend's
+/// `releaseClosedFileTabPath` discard each one's hot-exit mirror — i.e. every unsaved draft.
+#[tauri::command]
+#[specta::specta]
+pub async fn layout_apply_path_change(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: ProjectId,
+    change: TabPathChange,
+) -> AppResult<TabPathChangeResult> {
+    let projects = state.projects.read().clone();
+    let root = root_guard::project_root(&projects, &project_id)?;
+    ensure_change_within_root(&root, &change)?;
+
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
+
+    let outcome = service::apply_tab_path_change(layout, &change);
+    if outcome.is_empty() {
+        let snapshot = layout.clone();
+        if outcome.layout_changed {
+            state.dirty_layouts.write().insert(project_id.clone());
+            *state.layouts.write() = layouts;
+        }
+        return Ok(TabPathChangeResult {
+            layout: snapshot,
+            moved: outcome.moved,
+            closed_paths: outcome.closed_paths,
+        });
+    }
+
+    let updated = service::finish_mutation(&app, &state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(TabPathChangeResult {
+        layout: updated,
+        moved: outcome.moved,
+        closed_paths: outcome.closed_paths,
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn layout_set_shell_view(
@@ -335,4 +431,50 @@ pub async fn layout_set_shell_view(
         Ok(())
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn 개명(from: &str, to: &str) -> TabPathChange {
+        TabPathChange::Renamed {
+            from: from.to_string(),
+            to: to.to_string(),
+        }
+    }
+
+    #[test]
+    fn 프로젝트_루트_안의_경로_변경은_통과한다() {
+        let root = Path::new("/repo");
+
+        assert!(ensure_change_within_root(root, &개명("/repo/a.txt", "/repo/b.txt")).is_ok());
+        assert!(ensure_change_within_root(
+            root,
+            &TabPathChange::Deleted {
+                path: "/repo/src/nested".to_string()
+            }
+        )
+        .is_ok());
+        assert!(
+            ensure_change_within_root(root, &개명("/repo", "/repo")).is_ok(),
+            "루트 자신은 루트 하위다"
+        );
+    }
+
+    #[test]
+    fn 루트_밖_경로와_슬래시는_거절된다() {
+        let root = Path::new("/repo");
+
+        assert!(
+            ensure_change_within_root(root, &TabPathChange::Deleted { path: "/".to_string() }).is_err(),
+            "'/' 는 모든 절대 경로의 조상이라 프로젝트의 모든 파일 탭을 닫고 미저장 미러를 지운다"
+        );
+        assert!(ensure_change_within_root(root, &개명("/repo/a.txt", "/elsewhere/b.txt")).is_err());
+        assert!(ensure_change_within_root(root, &개명("/elsewhere/a.txt", "/repo/b.txt")).is_err());
+        assert!(
+            ensure_change_within_root(root, &개명("/repo-old/a.txt", "/repo-old/b.txt")).is_err(),
+            "성분 단위 비교라 이름이 접두사인 형제 디렉토리는 루트 안이 아니다"
+        );
+    }
 }

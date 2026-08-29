@@ -11,6 +11,7 @@ import type { KeymapChordStoreState } from '@shared/lib/keymap/keymap-chord-stor
 import type { KeymapContextGetters } from '@shared/lib/keymap/keymap-context'
 import { DEFAULT_KEYMAP_CONTEXT_GETTERS, getKeymapContextValue } from '@shared/lib/keymap/keymap-context'
 import { evaluateKeymapWhen } from '@shared/lib/keymap/keymap-when'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 
 /**
  * Pure "what should happen for this keydown" decision, kept free of DOM/store side effects so the
@@ -33,18 +34,45 @@ const isModifierOnlyKey = (key: string) => MODIFIER_ONLY_KEYS.includes(key)
 
 /**
  * `true` for a keydown that never counts as "the next real keydown" for chord stage-2 resolution
- * or the monaco-deferral window — a bare modifier press ({@link isModifierOnlyKey}), an OS
- * key-repeat while a key is held (`event.repeat`), or an IME composition step (`event.isComposing`,
- * Korean/Japanese/etc. input). None of these represent a user "typing a key" the wait should
- * consume: a repeat would otherwise resolve the wait against the *same* physical keypress that
- * armed it, and a composition keydown would otherwise eat the first character of composed text.
+ * or the monaco-deferral window — a bare modifier press ({@link isModifierOnlyKey}) or an OS
+ * key-repeat while a key is held (`event.repeat`). Neither represents a user "typing a key" the
+ * wait should consume: a repeat would otherwise resolve the wait against the *same* physical
+ * keypress that armed it. IME composition steps are excluded one level up instead — see the
+ * {@link isImeCompositionKeydown} branch in {@link decideKeymapDispatch}, which additionally keeps
+ * them out of plain single-stage dispatch.
  */
-const isIgnorableKeydown = (event: KeymapEvent) => isModifierOnlyKey(event.key) || event.repeat === true || event.isComposing === true
+const isIgnorableKeydown = (event: KeymapEvent) => isModifierOnlyKey(event.key) || event.repeat === true
+
+/**
+ * `true` when this keydown is an IME composition step the keymap must stand down for. Narrower than
+ * {@link isImeCompositionKeydown} by one condition: a keydown carrying Cmd or Ctrl is dispatched
+ * normally even while the IME reports it as composing.
+ *
+ * Everything audit §4-B B13 covers is modifier-less — a chord's second stage, the search box's
+ * Enter, the explorer draft row's Enter/Escape — and that is also the only shape the guard's
+ * rationale fits: a composing syllable must not run a bare single-key binding. Cmd/Ctrl combos are
+ * not text the input method is assembling; an input method does not consume them, and the user
+ * pressing ⌘S mid-composition means exactly ⌘S. Since the composition signal this app can actually
+ * read is the legacy `keyCode === 229` (WKWebView never fires composition events at all —
+ * `shared/lib/ime-composition.ts`), a runtime that stamped 229 onto modifier combos too would
+ * otherwise silently kill *every* app shortcut for the duration of a composition, with no way to
+ * tell that apart from a broken keymap. Option/Alt is deliberately not exempted: macOS composes
+ * dead keys through it.
+ */
+const isImeCompositionKeydownWithoutCommandModifier = (event: KeymapEvent) => isImeCompositionKeydown(event) && !event.metaKey && !event.ctrlKey
 
 /**
  * Decides the single next state transition for one keydown, given the current chord-store
  * snapshot. Branch order (mirrors Wave H contract §3.1, "실행 구조"):
  *
+ * 0. A modifier-less IME composition step ({@link isImeCompositionKeydownWithoutCommandModifier}) is
+ *    not the user pressing that key at all — the physical key under a composing keystroke is still
+ *    readable through `event.code` (`normalizeKeymapEventKey` falls back to it whenever `event.key`
+ *    isn't a clean single character, which `Process` is not), so without this branch every syllable
+ *    typed into any input would run whatever action a modifier-less binding holds, and would consume
+ *    a pending chord or monaco-deferral wait mid-composition. Reported as `ignore-modifier-only` so
+ *    both listeners (`use-global-keymap.ts` and, through `decideCommandBindingRun`, the
+ *    command-binding one) stand down without touching the chord store.
  * 1. Monaco-deferral armed → this keydown is monaco's, not ours (except an ignorable keydown —
  *    see {@link isIgnorableKeydown} — which never counts as "the next keydown" for either this or
  *    chord stage-2 resolution).
@@ -67,6 +95,8 @@ export const decideKeymapDispatch = (
     getters: KeymapContextGetters = DEFAULT_KEYMAP_CONTEXT_GETTERS,
     monacoChordPrefixes: KeymapChordStage[] = [MONACO_CHORD_PREFIX_KEY],
 ): KeymapDispatchAction => {
+    if (isImeCompositionKeydownWithoutCommandModifier(event)) return { type: 'ignore-modifier-only' }
+
     if (chordState.monacoDeferral) {
         if (isIgnorableKeydown(event)) return { type: 'ignore-modifier-only' }
         return { type: 'defer-to-monaco' }

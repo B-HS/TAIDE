@@ -1,7 +1,7 @@
 import { Channel } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { commands } from '@shared/api/bindings'
-import type { ProjectId, SearchMatch, SearchQuery } from '@shared/api/bindings'
+import type { ProjectId, SearchFileMatches, SearchQuery } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 /**
@@ -11,10 +11,19 @@ import { unwrapResult } from '@shared/api/unwrap-result'
  * unique *within* one window's own React realm: a second window can independently mint the exact
  * same id, which — before the backend's `(owner, session_id)` composite key (R7#8) — let one
  * window's `searchCancel` truncate a different window's in-flight search.
+ *
+ * The channel carries one message per *file* (`SearchFileMatches`), not per match: matches inside
+ * a file arrive in ascending source order, but the order files arrive in is unspecified because
+ * the backend walk is parallel.
  */
-export const runSearch = (input: { projectId: ProjectId; sessionId: string; query: SearchQuery; onMatch: (match: SearchMatch) => void }) => {
-    const channel = new Channel<SearchMatch>()
-    channel.onmessage = (match) => input.onMatch(match)
+export const runSearch = (input: {
+    projectId: ProjectId
+    sessionId: string
+    query: SearchQuery
+    onFileMatches: (batch: SearchFileMatches) => void
+}) => {
+    const channel = new Channel<SearchFileMatches>()
+    channel.onmessage = (batch) => input.onFileMatches(batch)
     return unwrapResult(commands.searchRun(input.projectId, getCurrentWindow().label, input.sessionId, input.query, channel))
 }
 

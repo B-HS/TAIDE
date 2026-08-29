@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { FsChange, ProjectLayout, Tab } from '@shared/api/bindings'
+import { QUERY_KEY } from '@shared/constants/query-key'
 
 const buildFileTab = (id: string, path: string): Tab => ({ id, kind: { kind: 'file', path }, title: id })
 
@@ -126,13 +127,51 @@ describe('syncTreeRowsForChangedDirs', () => {
     })
 })
 
-describe('filePathQueryKeysToInvalidate', () => {
-    test('경로 하나에 대해 FILE.CONTENT 와 FILE.RAW 쿼리키를 모두 반환한다', async () => {
-        const { filePathQueryKeysToInvalidate } = await import('@app/providers/ipc-sync-provider')
-        expect(filePathQueryKeysToInvalidate('/repo/a.png')).toEqual([
-            ['file', 'content', '/repo/a.png'],
-            ['file', 'raw', '/repo/a.png'],
-        ])
+describe('isFilePathQueryForChangedPaths', () => {
+    test('FILE.CONTENT·FILE.RAW 둘 다 changedPaths 에 든 경로면 true 다 — 경로당 2회 무효화를 predicate 1회로 대체한다', async () => {
+        const { isFilePathQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        const changedPaths = new Set(['/repo/a.png'])
+        expect(isFilePathQueryForChangedPaths(QUERY_KEY.FILE.CONTENT('/repo/a.png'), changedPaths)).toBe(true)
+        expect(isFilePathQueryForChangedPaths(QUERY_KEY.FILE.RAW('/repo/a.png'), changedPaths)).toBe(true)
+    })
+
+    test('배치에 없는 경로는 false 다', async () => {
+        const { isFilePathQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isFilePathQueryForChangedPaths(QUERY_KEY.FILE.CONTENT('/repo/other.ts'), new Set(['/repo/a.png']))).toBe(false)
+    })
+
+    test('같은 FILE.ALL 접두사 아래 있어도 projectId 로 키잉된 MIRRORS·UNTITLED_MIRRORS 는 false 다 (핫엑시트 미러 보호)', async () => {
+        const { isFilePathQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        const changedPaths = new Set(['project-1'])
+        expect(isFilePathQueryForChangedPaths(QUERY_KEY.FILE.MIRRORS('project-1'), changedPaths)).toBe(false)
+        expect(isFilePathQueryForChangedPaths(QUERY_KEY.FILE.UNTITLED_MIRRORS('project-1'), changedPaths)).toBe(false)
+    })
+
+    test('path 위치가 문자열이 아니면 false 다', async () => {
+        const { isFilePathQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isFilePathQueryForChangedPaths(['file', 'content', 42], new Set(['/repo/a.png']))).toBe(false)
+    })
+})
+
+describe('isLayoutEchoAlreadyInCache', () => {
+    test('캐시 revision 이 이벤트 revision 과 같으면 자기 에코라 리페치하지 않는다', async () => {
+        const { isLayoutEchoAlreadyInCache } = await import('@app/providers/ipc-sync-provider')
+        expect(isLayoutEchoAlreadyInCache(7, 7)).toBe(true)
+    })
+
+    test('캐시가 더 앞서 있어도(응답이 이벤트를 추월) 리페치하지 않는다', async () => {
+        const { isLayoutEchoAlreadyInCache } = await import('@app/providers/ipc-sync-provider')
+        expect(isLayoutEchoAlreadyInCache(8, 7)).toBe(true)
+    })
+
+    test('캐시가 뒤처져 있으면(타 창 변경·응답 미착) 리페치한다', async () => {
+        const { isLayoutEchoAlreadyInCache } = await import('@app/providers/ipc-sync-provider')
+        expect(isLayoutEchoAlreadyInCache(6, 7)).toBe(false)
+    })
+
+    test('캐시가 비어 있으면 리페치한다', async () => {
+        const { isLayoutEchoAlreadyInCache } = await import('@app/providers/ipc-sync-provider')
+        expect(isLayoutEchoAlreadyInCache(undefined, 7)).toBe(false)
     })
 })
 
@@ -142,10 +181,21 @@ describe('isGitWorktreeQueryForChangedPaths', () => {
         expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'gutter', '/repo/a.ts'], new Set(['/repo/a.ts']))).toBe(true)
     })
 
-    test('DIFF 스코프이고 path 가 changedPaths 에 있으면 mode 축과 무관하게 true 다', async () => {
+    test('DIFF 스코프이고 path 가 changedPaths 에 있으면 mode·beforePath 축과 무관하게 true 다', async () => {
         const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
-        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'diff', '/repo/a.ts', 'workdirVsIndex'], new Set(['/repo/a.ts']))).toBe(true)
-        expect(isGitWorktreeQueryForChangedPaths(['git', 'project-1', 'diff', '/repo/a.ts', 'indexVsHead'], new Set(['/repo/a.ts']))).toBe(true)
+        expect(isGitWorktreeQueryForChangedPaths(QUERY_KEY.GIT.DIFF('project-1', '/repo/a.ts', 'workdirVsIndex'), new Set(['/repo/a.ts']))).toBe(true)
+        expect(isGitWorktreeQueryForChangedPaths(QUERY_KEY.GIT.DIFF('project-1', '/repo/a.ts', 'indexVsHead'), new Set(['/repo/a.ts']))).toBe(true)
+        expect(
+            isGitWorktreeQueryForChangedPaths(
+                QUERY_KEY.GIT.DIFF('project-1', '/repo/new.ts', 'indexVsHead', '/repo/old.ts'),
+                new Set(['/repo/new.ts']),
+            ),
+        ).toBe(true)
+    })
+
+    test('상대경로로 키잉된 DIFF 는 절대경로 changedPaths 와 만나지 못한다 — diff 탭 경로를 절대경로로 일원화해야 하는 이유다', async () => {
+        const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')
+        expect(isGitWorktreeQueryForChangedPaths(QUERY_KEY.GIT.DIFF('project-1', 'a.ts', 'workdirVsIndex'), new Set(['/repo/a.ts']))).toBe(false)
     })
 
     test('path 가 changedPaths 에 없으면 false 다', async () => {

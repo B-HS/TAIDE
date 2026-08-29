@@ -34,16 +34,20 @@ pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str)
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 
-    match watcher::start_watch(std::path::PathBuf::from(root), move |changes: Vec<FsChange>| {
-        let changes = resolve_from_app(&emit_handle.state::<AppState>().self_writes, changes);
-        for change in changes {
-            let _ = FsChanged {
-                project_id: emit_project.clone(),
-                change,
+    match watcher::start_watch(
+        std::path::PathBuf::from(root),
+        watcher::WatchScope::Project,
+        move |changes: Vec<FsChange>| {
+            let changes = resolve_from_app(&emit_handle.state::<AppState>().self_writes, changes);
+            for change in changes {
+                let _ = FsChanged {
+                    project_id: emit_project.clone(),
+                    change,
+                }
+                .emit(&emit_handle);
             }
-            .emit(&emit_handle);
-        }
-    }) {
+        },
+    ) {
         Ok(handle) => Some(handle),
         Err(error) => {
             log::warn!("파일 감시를 시작하지 못했습니다 ({root}): {error}");

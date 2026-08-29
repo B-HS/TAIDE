@@ -78,6 +78,32 @@ export const removeSnippetEntryDraft = (drafts: SnippetEntryDraft[], id: string)
 export const isSnippetEntryDraftValid = (draft: SnippetEntryDraft) =>
     draft.name.trim().length > 0 && draft.prefix.trim().length > 0 && draft.body.trim().length > 0
 
+const isSnippetEntryDraftBlank = (draft: SnippetEntryDraft) =>
+    [draft.name, draft.prefix, draft.body, draft.description, draft.scope].every((field) => field.trim().length === 0)
+
+/**
+ * Whether any draft carries typed content but is missing one of the three fields
+ * {@link draftsToSnippetContent} requires. That serializer *drops* such entries, so saving reported
+ * success while the half-filled snippet vanished — the editor still showed its row until the file
+ * was reselected, at which point the typing was simply gone (audit §4-B D6). A completely blank row
+ * (added with "+" and never filled in) is excluded on purpose: it carries nothing to lose, so
+ * blocking the save on it would only make an abandoned row impossible to save around.
+ */
+export const findIncompleteSnippetEntryDrafts = (drafts: SnippetEntryDraft[]) =>
+    drafts.filter((draft) => !isSnippetEntryDraftBlank(draft) && !isSnippetEntryDraftValid(draft))
+
+const serializeSnippetDraftFields = (drafts: SnippetEntryDraft[]) =>
+    JSON.stringify(drafts.map(({ name, prefix, body, description, scope }) => [name, prefix, body, description, scope]))
+
+/**
+ * Whether the editor's drafts still match the saved file. Compares the drafts *as edited* — not
+ * {@link draftsToSnippetContent} output — so a half-filled entry (which that serializer drops) still
+ * counts as an unsaved change; the editor discarded exactly those on a file switch or on leaving,
+ * with no prompt (audit §4-B D6). Draft ids are excluded because they are regenerated on every load.
+ */
+export const hasUnsavedSnippetDraftChanges = (drafts: SnippetEntryDraft[], savedSnippets: SnippetFile['snippets']) =>
+    serializeSnippetDraftFields(drafts) !== serializeSnippetDraftFields(snippetMapToDrafts(savedSnippets))
+
 /**
  * Whether two or more otherwise-valid drafts (per {@link isSnippetEntryDraftValid}) share the same
  * trimmed `name` — the key `draftsToSnippetContent` below serializes them under. `Object.fromEntries`

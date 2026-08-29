@@ -75,7 +75,7 @@ fn build_watcher_handle_inner(app: &AppHandle, project_id: &ProjectId, root: &st
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 
-    match watcher::start_watch(git_dir.clone(), move |changes: Vec<FsChange>| {
+    match watcher::start_watch(git_dir.clone(), watcher::WatchScope::GitDir, move |changes: Vec<FsChange>| {
         let mut needs_status = false;
         let mut needs_refs = false;
 

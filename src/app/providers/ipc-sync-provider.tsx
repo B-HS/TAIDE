@@ -1,14 +1,16 @@
 import type { FC, PropsWithChildren } from 'react'
 import { useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { FsChange, Project, ProjectId, ProjectLayout } from '@shared/api/bindings'
+import type { FsChange, Project, ProjectId, ProjectLayout, TerminalSession } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { GIT_SCOPE_DIFF, GIT_SCOPE_GUTTER, PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs } from '@shared/lib/pane-tree'
+import { isGitQueryScopeMutable } from '@entities/git/git.query'
 import { refreshTreeDir } from '@entities/tree/tree.ipc'
 import { pruneOpenWithOverrides } from '@entities/editor/open-with-registry'
+import { markTerminalSessionExited } from '@entities/terminal/terminal-session-cache'
 import { flushLspSessionsForProject } from '@entities/lsp/lsp-session-flush-registry'
 import { useLspSessionsQueryInvalidationSync } from '@entities/lsp/lsp.query'
 
@@ -19,14 +21,33 @@ const parentDirOf = (path: string) => {
     return index <= 0 ? PATH_SEPARATOR : path.slice(0, index)
 }
 
+const FILE_SCOPE_CONTENT = QUERY_KEY.FILE.CONTENT('')[1]
+const FILE_SCOPE_RAW = QUERY_KEY.FILE.RAW('')[1]
+
 /**
- * A changed file `path` is cached under two independent bare-path keys — `FILE.CONTENT`
+ * Whether a cached `FILE.*` query is one of the two bare-path-keyed leaves — `FILE.CONTENT`
  * (`file.query.ts`'s `fileQueryOptions`, open editor tabs) and `FILE.RAW` (`fileRawQueryOptions`,
- * `preview-pane.tsx`'s binary/image/PDF preview) — both `staleTime: Infinity` and so both silently
- * stale forever unless invalidated explicitly. `FILE.RAW` has no `onSuccess` invalidation anywhere
- * in `entities/file/file.query.ts` (contract §1-b), so this watcher echo is its only refresh path.
+ * `preview-pane.tsx`'s binary/image/PDF preview) — keyed by a path in `changedPaths`. Both are
+ * `staleTime: Infinity` and so both stay silently stale forever unless invalidated explicitly;
+ * `FILE.RAW` has no `onSuccess` invalidation anywhere in `entities/file/file.query.ts` (contract
+ * §1-b), so this watcher echo is its only refresh path.
+ *
+ * This is the `predicate` half of one `invalidateQueries({ queryKey: QUERY_KEY.FILE.ALL, predicate
+ * })` call, replacing the previous `paths.length × 2` separate `invalidateQueries` calls (audit
+ * §1-13). Each of those walked the *entire* query cache on its own, so a large watcher batch — a
+ * branch switch, an `npm install`, a project-wide replace — cost thousands of full cache scans plus
+ * a notify pass each; the predicate form pays exactly one. The scopes are read off the key factories
+ * rather than re-typed as string literals so a rename of either leaf is a type error here.
+ *
+ * `FILE.MIRRORS`/`UNTITLED_MIRRORS` sit under the same `FILE.ALL` prefix but are keyed by
+ * `ProjectId`, not by a path, so the scope check excludes them — hot-exit mirrors must never be
+ * dropped by a watcher echo.
  */
-export const filePathQueryKeysToInvalidate = (path: string) => [QUERY_KEY.FILE.CONTENT(path), QUERY_KEY.FILE.RAW(path)] as const
+export const isFilePathQueryForChangedPaths = (queryKey: readonly unknown[], changedPaths: ReadonlySet<string>) => {
+    const [, scope, path] = queryKey
+    if (scope !== FILE_SCOPE_CONTENT && scope !== FILE_SCOPE_RAW) return false
+    return typeof path === 'string' && changedPaths.has(path)
+}
 
 /**
  * Whether a cached `GIT.*` query is one of the two path-scoped, worktree-derived leaves
@@ -51,6 +72,26 @@ export const isGitWorktreeQueryForChangedPaths = (queryKey: readonly unknown[], 
     if (scope !== GIT_SCOPE_GUTTER && scope !== GIT_SCOPE_DIFF) return false
     return typeof path === 'string' && changedPaths.has(path)
 }
+
+/**
+ * Whether a `layout:changed` event is this window's own echo of a layout mutation whose response has
+ * already been written into the cache (`applyFreshLayout`), and so needs no refetch at all.
+ *
+ * Every layout-mutating command emits this event, and every one of them also returns the new
+ * `ProjectLayout` to its caller — so in the window that issued the mutation the event is pure echo.
+ * `lastLayoutRevisionByProjectRef` alone cannot see that: it only remembers revisions delivered *as
+ * events*, so a mutation's own echo always looked new and cost a full `get_layout` round trip on top
+ * of the response already in hand (audit §1-5). Pane resize is the visible case — a drag ends with
+ * one `layout_resize_pane` and paid two IPC calls for it — but the same duplicate refetch fired on
+ * every tab open/close/activate/move/pin and every dirty-flag toggle.
+ *
+ * Comparing against the *cached* revision keeps every genuinely external change refetching: another
+ * window's mutation (or this window's, if its response has not landed yet) leaves the cache behind
+ * the event's revision, which fails this check and invalidates as before. `undefined` — nothing
+ * cached yet — also invalidates, since there is no evidence the event has been accounted for.
+ */
+export const isLayoutEchoAlreadyInCache = (cachedRevision: number | undefined, eventRevision: number) =>
+    cachedRevision !== undefined && cachedRevision >= eventRevision
 
 /**
  * Matches a cached query's key against `PROJECT_SCOPED_PATH_KEY_PREFIXES` — `[domain, scope,
@@ -180,6 +221,9 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         if (isStaleLayoutRevision(lastRevision, payload.revision)) return
 
         lastLayoutRevisionByProjectRef.current.set(payload.projectId, payload.revision)
+        const cachedLayout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(payload.projectId))
+        if (isLayoutEchoAlreadyInCache(cachedLayout?.revision, payload.revision)) return
+
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.LAYOUT.DETAIL(payload.projectId) })
     })
 
@@ -187,12 +231,28 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })
     })
 
+    /**
+     * Both `.git`-watcher events sweep the project's git subtree, but never the rev-immutable scopes
+     * (`QUERY_KEY.GIT.REV_IMMUTABLE_SCOPES` — commit file lists and commit blob diffs, keyed by an
+     * immutable SHA). `entities/git/git.query.ts`'s mutations already scope their own coarse
+     * `GIT.PROJECT` invalidation with `isGitQueryScopeMutable`, but the event echo of those same
+     * mutations did not, so the guarantee collapsed the moment the watcher echo landed a beat later:
+     * every open commit-detail / file-history panel refetched its `staleTime: Infinity` blob on every
+     * stage, unstage, stash and commit (audit §1-8). Same `queryKey` + `predicate` AND combination
+     * the mutations use, so the project scoping is unchanged.
+     */
     useTauriEvent(events.gitStatusChanged, ({ payload }) => {
-        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(payload.projectId) })
+        void queryClient.invalidateQueries({
+            queryKey: QUERY_KEY.GIT.PROJECT(payload.projectId),
+            predicate: (query) => isGitQueryScopeMutable(query.queryKey),
+        })
     })
 
     useTauriEvent(events.gitRefsChanged, ({ payload }) => {
-        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(payload.projectId) })
+        void queryClient.invalidateQueries({
+            queryKey: QUERY_KEY.GIT.PROJECT(payload.projectId),
+            predicate: (query) => isGitQueryScopeMutable(query.queryKey),
+        })
     })
 
     useTauriEvent(events.settingsChanged, ({ payload }) => {
@@ -206,6 +266,28 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.APP_FILE.CONTENT({ kind: 'settings' }) })
     })
 
+    /**
+     * A pty that exits has to be marked dead in every cached terminal roster, not just in the pane
+     * that happens to be showing it. `pane-node-view.tsx` renders only each pane's *active* tab, so
+     * a terminal tab sitting in the background has no mounted component at all — an exit while it is
+     * hidden used to be heard by nobody, `terminal_sessions` (`staleTime: Infinity`) kept reporting
+     * `running: true`, and returning to that tab attached to a dead session: a terminal that took
+     * input, echoed nothing, and never offered the "[process exited]" restart button (audit §4-B
+     * B14). Handled here rather than in `terminal-session.tsx` because this provider is mounted in
+     * every window regardless of which tabs are open.
+     *
+     * The roster is edited in place instead of invalidated: a refetch is asynchronous, and a tab
+     * remounting inside that window would read the still-stale `running: true` and attach to the
+     * dead session anyway — the very race being closed. `markTerminalSessionExited` returns
+     * `undefined` (no write) for rosters that don't hold this session, so the other projects'
+     * entries `SESSIONS_ALL` sweeps over are left untouched.
+     */
+    useTauriEvent(events.terminalExited, ({ payload }) => {
+        queryClient.setQueriesData<TerminalSession[]>({ queryKey: QUERY_KEY.TERMINAL.SESSIONS_ALL }, (sessions) =>
+            markTerminalSessionExited(sessions, payload.sessionId),
+        )
+    })
+
     useTauriEvent(events.remoteStateChanged, ({ payload }) => queryClient.setQueryData(QUERY_KEY.REMOTE.STATUS, payload.status))
 
     useTauriEvent(events.syncStateChanged, ({ payload }) => {
@@ -217,10 +299,12 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
 
     useTauriEvent(events.fsChanged, ({ payload }) => {
         const { projectId, change } = payload
+        const changedPaths = new Set(change.paths)
 
-        for (const path of change.paths) {
-            for (const queryKey of filePathQueryKeysToInvalidate(path)) void queryClient.invalidateQueries({ queryKey })
-        }
+        void queryClient.invalidateQueries({
+            queryKey: QUERY_KEY.FILE.ALL,
+            predicate: (query) => isFilePathQueryForChangedPaths(query.queryKey, changedPaths),
+        })
 
         /**
          * The `.git`-directory watcher (`src-tauri/src/domain/git/watch.rs`'s `classify_git_change`)
@@ -256,7 +340,6 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
          * already the `.git` watcher's own axis (contract §1, over-invalidation guard).
          */
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.STATUS(projectId) })
-        const changedPaths = new Set(change.paths)
         void queryClient.invalidateQueries({
             queryKey: QUERY_KEY.GIT.PROJECT(projectId),
             predicate: (query) => isGitWorktreeQueryForChangedPaths(query.queryKey, changedPaths),

@@ -5,7 +5,10 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ThemeSummary, ThemeType } from '@shared/api/bindings'
 import { themeQueryOptions, useDeleteTheme, useSaveTheme, useThemePreview } from '@entities/theme/theme.query'
-import { BUILTIN_THEME_ID, COLOR_NAMESPACES, SYNTAX_TOKENS, TERMINAL_TOKENS, colorTokenKey } from '@entities/theme/theme-tokens'
+import { emptySettingsPatch } from '@entities/settings/settings.ipc'
+import { settingsQueryOptions, useSetThemeId, useUpdateSettings } from '@entities/settings/settings.query'
+import { builtinThemeIdForType, resolveThemeIdAfterDelete } from '@entities/theme/theme-selection'
+import { COLOR_NAMESPACES, SYNTAX_TOKENS, TERMINAL_TOKENS, colorTokenKey } from '@entities/theme/theme-tokens'
 import {
     buildThemeFromDraft,
     countChangedTokens,
@@ -16,9 +19,11 @@ import {
     isTerminalTokenChanged,
     isThemeDraftValid,
     renameThemeDraft,
+    resolveThemeDraftMetadata,
     resetColorToken,
     resetSyntaxToken,
     resetTerminalToken,
+    serializeThemeDraftEdits,
     setColorToken,
     setSyntaxToken,
     setTerminalToken,
@@ -50,58 +55,104 @@ type ThemeEditorProps = {
     onClose: () => void
 }
 
-const builtinIdForType = (type: ThemeType) => (type === 'dark' ? BUILTIN_THEME_ID.DARK : BUILTIN_THEME_ID.LIGHT)
-
 const resolveBaseThemeId = (sourceThemeId: string, themes: ThemeSummary[], type: ThemeType) =>
-    themes.find((theme) => theme.id === sourceThemeId)?.builtin ? sourceThemeId : builtinIdForType(type)
+    themes.find((theme) => theme.id === sourceThemeId)?.builtin ? sourceThemeId : builtinThemeIdForType(type)
 
 export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes, onClose }) => {
     const { t } = useTranslation()
 
     const [draft, setDraft] = useState<ThemeDraft | null>(null)
+    const [loadedDraftSignature, setLoadedDraftSignature] = useState<string | null>(null)
     const [syncedSourceId, setSyncedSourceId] = useState(sourceThemeId)
     const [search, setSearch] = useState('')
     const [deleteOpen, setDeleteOpen] = useState(false)
+    const [discardOpen, setDiscardOpen] = useState(false)
 
+    const { data: settings } = useQuery(settingsQueryOptions())
     const { data: sourceResolved } = useQuery(themeQueryOptions(sourceThemeId))
     const baseThemeId = sourceResolved ? resolveBaseThemeId(sourceThemeId, themes, sourceResolved.type) : null
     const { data: baseResolved } = useQuery({ ...themeQueryOptions(baseThemeId ?? ''), enabled: Boolean(baseThemeId) })
     const { mutate: saveThemeMutate, isPending: isSaving } = useSaveTheme()
     const { mutate: deleteThemeMutate, isPending: isDeleting } = useDeleteTheme()
+    const { mutate: setThemeIdMutate, isPending: isSwitchingTheme } = useSetThemeId()
+    const { mutate: updateSettingsMutate, isPending: isUpdatingSettings } = useUpdateSettings()
     const { setPreview, clearPreview } = useThemePreview()
 
     if (sourceThemeId !== syncedSourceId) {
         setSyncedSourceId(sourceThemeId)
         setDraft(null)
+        setLoadedDraftSignature(null)
     } else if (!draft && sourceResolved && baseResolved && baseThemeId) {
-        setDraft(
-            createThemeDraft({
-                id:
-                    mode === 'create'
-                        ? generateUniqueThemeId(
-                              sourceResolved.name,
-                              themes.map((theme) => theme.id),
-                          )
-                        : sourceThemeId,
-                name: mode === 'create' ? t('themeEditor.duplicateNameTemplate', { name: sourceResolved.name }) : sourceResolved.name,
-                themeType: sourceResolved.type,
-                extendsId: baseThemeId,
-                base: toThemeValues(baseResolved),
-                initial: toThemeValues(sourceResolved),
-            }),
-        )
+        const loadedDraft = createThemeDraft({
+            id:
+                mode === 'create'
+                    ? generateUniqueThemeId(
+                          sourceResolved.name,
+                          themes.map((theme) => theme.id),
+                      )
+                    : sourceThemeId,
+            name: mode === 'create' ? t('themeEditor.duplicateNameTemplate', { name: sourceResolved.name }) : sourceResolved.name,
+            themeType: sourceResolved.type,
+            extendsId: baseThemeId,
+            base: toThemeValues(baseResolved),
+            initial: toThemeValues(sourceResolved),
+            metadata: resolveThemeDraftMetadata(sourceResolved, baseResolved),
+        })
+        setDraft(loadedDraft)
+        setLoadedDraftSignature(serializeThemeDraftEdits(loadedDraft))
     }
 
     const normalizedQuery = search.trim().toLowerCase()
     const matchesQuery = (label: string) => normalizedQuery.length === 0 || label.toLowerCase().includes(normalizedQuery)
+
+    /**
+     * Warns only once the draft diverges from what was loaded, in both modes. A `create` draft has
+     * never been written anywhere, but a *duplicate nobody edited* is byte-for-byte the theme it was
+     * duplicated from — discarding it costs nothing, so treating "opened Duplicate and changed my
+     * mind" as unsaved work put a confirmation dialog in front of every cancelled duplicate. See
+     * `serializeThemeDraftEdits` for why the live preview makes this loss invisible.
+     */
+    const hasUnsavedChanges = Boolean(draft) && loadedDraftSignature !== (draft ? serializeThemeDraftEdits(draft) : null)
+
+    const requestClose = () => {
+        if (hasUnsavedChanges) {
+            setDiscardOpen(true)
+            return
+        }
+        onClose()
+    }
 
     const handleSave = () => {
         if (!draft) return
         saveThemeMutate(buildThemeFromDraft(draft), { onSuccess: onClose, onError: (error) => toast.error(describeIpcError(error)) })
     }
 
+    /**
+     * Points `settings.themeId` at the same-type builtin *before* deleting, whenever it is the theme
+     * being deleted — see `resolveThemeIdAfterDelete` for why a dangling id leaves the app with no
+     * theme at all (audit §4-B B5). The delete is chained on that write's success so a failure never
+     * strands the setting on a theme file that is about to disappear.
+     *
+     * `settings_set_theme` is the right command for an active theme (it also emits `ThemeChanged`,
+     * which is what makes other windows re-resolve), but it turns `followSystemTheme` off as a
+     * deliberate side effect of an explicit pick. With that flag on, the stored id is not what is
+     * being displayed and this write is pure bookkeeping — repairing it must not silently take the
+     * user off system-follow — so the patch command is used instead.
+     */
     const handleDelete = () => {
-        deleteThemeMutate(sourceThemeId, { onSuccess: onClose, onError: (error) => toast.error(describeIpcError(error)) })
+        const deleteTheme = () => deleteThemeMutate(sourceThemeId, { onSuccess: onClose, onError: (error) => toast.error(describeIpcError(error)) })
+        const fallbackThemeId = draft
+            ? resolveThemeIdAfterDelete({ deletedThemeId: sourceThemeId, deletedThemeType: draft.themeType, activeThemeId: settings?.themeId })
+            : null
+        if (!fallbackThemeId) {
+            deleteTheme()
+            return
+        }
+        if (settings?.followSystemTheme) {
+            updateSettingsMutate({ ...emptySettingsPatch(), themeId: fallbackThemeId }, { onSuccess: deleteTheme })
+            return
+        }
+        setThemeIdMutate(fallbackThemeId, { onSuccess: deleteTheme })
     }
 
     useEffect(() => {
@@ -119,7 +170,7 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
         <div className='bg-app-background text-app-foreground flex h-full w-full flex-col overflow-hidden'>
             <div className='border-app-border flex items-center justify-between gap-4 border-b px-6 py-4'>
                 <div className='flex items-center gap-3'>
-                    <Button variant='ghost' size='sm' onClick={onClose}>
+                    <Button variant='ghost' size='sm' onClick={requestClose}>
                         {t('themeEditor.backToSettings')}
                     </Button>
                     <input
@@ -133,7 +184,11 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
                 </div>
                 <div className='flex items-center gap-2'>
                     {mode === 'edit' && (
-                        <Button variant='outline' size='sm' onClick={() => setDeleteOpen(true)} disabled={isDeleting}>
+                        <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setDeleteOpen(true)}
+                            disabled={isDeleting || isSwitchingTheme || isUpdatingSettings}>
                             {t('themeEditor.deleteTheme')}
                         </Button>
                     )}
@@ -216,6 +271,21 @@ export const ThemeEditor: FC<ThemeEditorProps> = ({ sourceThemeId, mode, themes,
                     <ThemeLivePreview values={draft.current} />
                 </ScrollContainer>
             </div>
+
+            <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+                <AlertDialogContent size='sm'>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{t('common.unsavedChangesTitle')}</AlertDialogTitle>
+                        <AlertDialogDescription>{t('common.unsavedChangesDescription')}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction variant='destructive' onClick={onClose}>
+                            {t('common.discardChanges')}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                 <AlertDialogContent>

@@ -3,11 +3,15 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, FileSearch2, Loader2, ReplaceAll, Search, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { SearchResultGroup } from '@entities/search/search-result'
+import type { SearchRunStatus } from '@entities/search/search-run-state'
+import { resolveSearchResultsView } from '@entities/search/search-run-state'
+import { SEARCH_MATCH_LIMIT } from '@shared/constants/search'
 import { SearchExcludeGlobInput } from '@features/search/search-exclude-glob-input'
 import { SearchHistoryDropdown } from '@features/search/search-history-dropdown'
 import { SearchOptionToggles } from '@features/search/search-option-toggles'
 import { SearchResultsList } from '@features/search/search-results-list'
 import { cn } from '@shared/lib/cn'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import { toggleInSet } from '@shared/lib/set'
 import {
     AlertDialog,
@@ -43,12 +47,18 @@ type SearchPanelProps = {
     history: string[]
     onSelectHistory: (term: string) => void
     onSubmit: () => void
-    isSearching: boolean
+    status: SearchRunStatus
     totalMatches: number
+    isTruncated: boolean
     results: SearchResultGroup[]
     onOpenMatch: (path: string, line: number, column: number) => void
     onReplaceAll: (input: ReplaceAllInput) => void
     isReplacing: boolean
+    /**
+     * Whether the inputs still describe the query the displayed results came from. Replace All
+     * rewrites files it was never shown, so it stays disabled while they disagree — audit §4-B A5.
+     */
+    queryMatchesResults: boolean
     scopePath: string | null
     onClearScope: () => void
     openReplace: boolean
@@ -72,12 +82,14 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     history,
     onSelectHistory,
     onSubmit,
-    isSearching,
+    status,
     totalMatches,
+    isTruncated,
     results,
     onOpenMatch,
     onReplaceAll,
     isReplacing,
+    queryMatchesResults,
     scopePath,
     onClearScope,
     openReplace,
@@ -97,14 +109,14 @@ export const SearchPanel: FC<SearchPanelProps> = ({
         if (openReplace) setReplaceOpen(true)
     }
 
-    const hasQuery = query.trim().length > 0
     const hasResults = results.length > 0
+    const view = resolveSearchResultsView({ status, hasResults })
     const selectedGroups = results.filter((group) => !excludedPaths.has(group.path))
     const selectedMatchCount = selectedGroups.reduce((sum, group) => sum + group.matches.length, 0)
-    const canReplaceAll = replaceOpen && selectedGroups.length > 0 && !isReplacing
+    const canReplaceAll = replaceOpen && selectedGroups.length > 0 && !isReplacing && queryMatchesResults
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.key !== 'Enter') return
+        if (isImeCompositionKeydown(event) || event.key !== 'Enter') return
         onSubmit()
     }
 
@@ -172,6 +184,9 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                                 />
                             </div>
                         )}
+                        {replaceOpen && hasResults && !queryMatchesResults && (
+                            <div className='text-app-sidebar-icon-default text-xs'>{t('search.replaceStaleHint')}</div>
+                        )}
                         <SearchExcludeGlobInput value={excludeGlob} onChange={onExcludeGlobChange} />
                     </div>
                     <IconButton
@@ -195,43 +210,53 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                         />
                     </div>
                 )}
-                {isSearching && (
+                {status === 'running' && (
                     <div className='text-app-sidebar-icon-default flex items-center gap-1.5 text-xs'>
                         <Loader2 className='size-3 animate-spin' />
                         {t('search.searching')}
                     </div>
                 )}
-                {!isSearching && hasQuery && (
+                {status === 'completed' && (
                     <div className='text-app-sidebar-icon-default text-xs'>
                         {totalMatches > 0 ? t('search.matchCount', { count: totalMatches, files: results.length }) : t('search.noMatches')}
                     </div>
                 )}
+                {status === 'completed' && isTruncated && (
+                    <div className='text-panel-match-highlight text-xs'>{t('search.truncated', { limit: SEARCH_MATCH_LIMIT })}</div>
+                )}
             </div>
 
-            <ScrollContainer className='min-h-0 flex-1'>
-                {!hasQuery && (
-                    <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
-                        <Search className='size-5 opacity-60' />
-                        {t('search.pressEnterHint')}
-                    </div>
-                )}
-                {hasQuery && !isSearching && !hasResults && (
-                    <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
-                        {t('search.noResults')}
-                    </div>
-                )}
-                {hasResults && (
-                    <SearchResultsList
-                        results={results}
-                        onOpenMatch={onOpenMatch}
-                        selection={
-                            replaceOpen
-                                ? { excludedPaths, onToggleSelect: (path) => setExcludedPaths((current) => toggleInSet(current, path)) }
-                                : undefined
-                        }
-                    />
-                )}
-            </ScrollContainer>
+            {view === 'results' ? (
+                <SearchResultsList
+                    className='flex-1'
+                    results={results}
+                    onOpenMatch={onOpenMatch}
+                    selection={
+                        replaceOpen
+                            ? { excludedPaths, onToggleSelect: (path) => setExcludedPaths((current) => toggleInSet(current, path)) }
+                            : undefined
+                    }
+                />
+            ) : (
+                <ScrollContainer className='min-h-0 flex-1'>
+                    {view === 'hint' && (
+                        <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
+                            <Search className='size-5 opacity-60' />
+                            {t('search.pressEnterHint')}
+                        </div>
+                    )}
+                    {view === 'empty' && (
+                        <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
+                            {t('search.noResults')}
+                        </div>
+                    )}
+                    {view === 'failed' && (
+                        <div className='text-app-sidebar-icon-default flex h-full w-full items-center justify-center px-4 text-center text-xs'>
+                            {t('search.failed')}
+                        </div>
+                    )}
+                </ScrollContainer>
+            )}
 
             <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                 <AlertDialogContent size='sm'>

@@ -57,8 +57,13 @@ export const SettingsRemoteSection: FC<SettingsRemoteSectionProps> = ({
     const handleSaveRemotePassword = (password: string) => setRemotePassword(password)
     const handleClearRemotePassword = () => clearRemotePassword()
     const handleTogglePasswordOnlyLogin = (checked: boolean) => updateSettings({ ...emptySettingsPatch(), remotePasswordOnlyLogin: checked })
-    const handleChangeRemoteAllowedHosts = (remoteAllowedHosts: string[]) =>
-        updateSettings({ ...emptySettingsPatch(), remoteAllowedHosts }, { onError: () => toast.error(t('remote.allowedHostsSaveFailed')) })
+    /**
+     * No per-call `onError` here: `useUpdateSettings` now reports every settings-write failure with
+     * the backend's own reason (audit §4-B B15), and TanStack v5 runs both the hook's and the call's
+     * `onError`, which would show two toasts for the same failure. `remote.allowedHostsSaveFailed`
+     * stays in the catalog as the coarser wording that generic path replaced.
+     */
+    const handleChangeRemoteAllowedHosts = (remoteAllowedHosts: string[]) => updateSettings({ ...emptySettingsPatch(), remoteAllowedHosts })
 
     return (
         <SettingsSection id={id} title={t('remote.title')} description={t('remote.description')}>

@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -11,12 +11,21 @@ import {
     parsePaletteQuery,
 } from '@shared/lib/command-palette-query'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
-import { formatCategorizedLabel, getRegisteredCommand, isCommandRunnable, listRegisteredCommands } from '@shared/lib/command-registry'
+import {
+    formatCategorizedLabel,
+    getRegisteredCommand,
+    isCommandRunnable,
+    listRegisteredCommands,
+    subscribeRegisteredCommands,
+} from '@shared/lib/command-registry'
 import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/bridge/active-editor-actions-bridge'
 import { useKeydownCapture } from '@shared/hooks/use-keydown-capture'
-import { buildKeybindingRows, findRunnableCommandBinding } from '@shared/lib/keymap/keybinding-catalog'
-import { parseKeymapOverrides } from '@shared/lib/keymap/keymap'
+import { buildKeybindingRows } from '@shared/lib/keymap/keybinding-catalog'
+import { decideCommandBindingRun } from '@shared/lib/keymap/command-binding-dispatch'
+import { APP_KEYMAP, MONACO_CHORD_PREFIX_KEY, applyKeymapOverrides, parseKeymapOverrides } from '@shared/lib/keymap/keymap'
 import { getKeymapChordDispatchSnapshot } from '@shared/lib/keymap/keymap-chord-store'
+import { deriveMonacoChordPrefixes } from '@shared/lib/monaco/monaco-keybinding'
+import { IS_MAC } from '@shared/constants/platform'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
@@ -56,6 +65,22 @@ const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
 }
 
 export const CommandPalette = () => {
+    /**
+     * Whether this close was caused by the palette *acting* (running a command, opening a file,
+     * revealing a symbol) rather than by Escape/outside-click. Radix restores focus to whatever was
+     * focused before the dialog opened once the close animation ends, which lands *after* the
+     * action already moved focus somewhere on purpose (`code-editor.tsx` focuses the editor when a
+     * model is attached, a terminal tab focuses its xterm) — so a palette-opened file would end up
+     * with the caret back in the previously focused surface. Only that inverted case suppresses the
+     * restore; an Escape close still hands focus back where it came from.
+     *
+     * Disarmed on every *open* as well as in `onCloseAutoFocus`: reopening the palette (⌘P again)
+     * before the previous close animation finishes means Radix never fires that close-autofocus, so
+     * a flag left standing from the action-close would suppress the focus restore of the *next*
+     * Escape/outside-click close — the exact focus-drops-to-body state this flag exists to avoid.
+     */
+    const closedByActionRef = useRef(false)
+
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
     const [documentSymbolState, setDocumentSymbolState] = useState<DocumentSymbolState | null>(null)
@@ -63,6 +88,13 @@ export const CommandPalette = () => {
     const [workspaceSymbolSearch] = useState(() => createWorkspaceSymbolSearch(monaco))
 
     const activeEditorActionIds = useSyncExternalStore(subscribeActiveEditorActionIds, getActiveEditorActionIdsSnapshot)
+    /**
+     * Read as a snapshot rather than re-listed per render: the registry only changes at bootstrap,
+     * so this reference is stable for the app's lifetime and every catalog-wide derivation below
+     * (`buildKeybindingRows`, the commands `fuzzyFilter`) memoizes instead of re-running on every
+     * keystroke — the palette stays mounted and re-renders on each one (audit §1-14).
+     */
+    const registeredCommands = useSyncExternalStore(subscribeRegisteredCommands, listRegisteredCommands)
 
     const { t } = useTranslation()
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
@@ -90,7 +122,24 @@ export const CommandPalette = () => {
 
     const handleOpenChange = (next: boolean) => {
         setOpen(next)
+        if (next) closedByActionRef.current = false
         if (!next) setQuery('')
+    }
+
+    /**
+     * Every keyboard entry point into the palette goes through here so {@link closedByActionRef} is
+     * disarmed on the way in — see its doc comment for the reopen-before-the-close-animation case
+     * `onCloseAutoFocus` alone cannot cover.
+     */
+    const openPalette = (nextQuery: string) => {
+        closedByActionRef.current = false
+        setQuery(nextQuery)
+        setOpen(true)
+    }
+
+    const closeAfterAction = () => {
+        closedByActionRef.current = true
+        handleOpenChange(false)
     }
 
     const openTerminalTab = () => {
@@ -129,18 +178,9 @@ export const CommandPalette = () => {
     }
 
     useGlobalKeymap({
-        'quick-open': () => {
-            setQuery('')
-            setOpen(true)
-        },
-        'command-palette': () => {
-            setQuery(buildCommandModeQuery())
-            setOpen(true)
-        },
-        'workspace-symbol': () => {
-            setQuery(WORKSPACE_SYMBOL_MODE_PREFIX)
-            setOpen(true)
-        },
+        'quick-open': () => openPalette(''),
+        'command-palette': () => openPalette(buildCommandModeQuery()),
+        'workspace-symbol': () => openPalette(WORKSPACE_SYMBOL_MODE_PREFIX),
         'new-terminal': openTerminalTab,
         'reopen-closed-tab': reopenClosedTab,
     })
@@ -155,7 +195,7 @@ export const CommandPalette = () => {
         switchToFileSearchMode: () => setQuery(''),
     }
 
-    const commandKeybindingRows = buildKeybindingRows(listRegisteredCommands(), keymapOverrides)
+    const commandKeybindingRows = buildKeybindingRows(registeredCommands, keymapOverrides)
 
     /**
      * A second, independent `window` keydown-capture listener alongside `useGlobalKeymap`'s own
@@ -165,15 +205,18 @@ export const CommandPalette = () => {
      * target, `useGlobalKeymap`'s `preventDefault`/`stopPropagation` never reaches it (`stopPropagation`
      * only stops propagation to other DOM nodes, not sibling listeners on the same node — see
      * `docs/features/keymap.md` §3) — so it must independently defer to the chord/monaco-deferral
-     * state machine itself. Without this check, a `runsViaCommand` row rebound to a key that
-     * collides with a chord's 2nd stage or a monaco-deferred keydown would fire *underneath* that
-     * state machine: the "2단은 무조건 삼킨다" mis-input guard and the monaco chord yield window
-     * would both leak past this listener (Wave H contract §3.1).
+     * state machine *and* to `APP_KEYMAP`'s own matching, which is what `decideCommandBindingRun`
+     * shares between the two listeners (see its doc comment for the double-dispatch it closes).
      */
     useKeydownCapture((event) => {
-        const chordState = getKeymapChordDispatchSnapshot(event)
-        if (chordState.pending || chordState.monacoDeferral) return
-        const row = findRunnableCommandBinding(commandKeybindingRows, event)
+        const row = decideCommandBindingRun({
+            rows: commandKeybindingRows,
+            entries: applyKeymapOverrides(APP_KEYMAP, keymapOverrides),
+            event,
+            chordState: getKeymapChordDispatchSnapshot(event),
+            isMac: IS_MAC,
+            monacoChordPrefixes: [MONACO_CHORD_PREFIX_KEY, ...deriveMonacoChordPrefixes(keymapOverrides)],
+        })
         if (!row?.commandId) return
         const command = getRegisteredCommand(row.commandId)
         if (!command || !isCommandRunnable(command, commandContext)) return
@@ -192,20 +235,28 @@ export const CommandPalette = () => {
      * displayed subtitle from briefly reverting to the absolute path this feature exists to hide.
      */
     const fileProjectRootLoaded = !activeProjectId || !!activeProject
-    const filePaths = fileProjectRootLoaded ? (projectFiles ?? []) : []
-    const filteredFiles = fuzzyFilter(searchTerm, filePaths, toProjectRelativePath).slice(0, FILE_RESULT_LIMIT)
-    const filteredCommands = fuzzyFilter(searchTerm, listRegisteredCommands(), (command) =>
-        formatCategorizedLabel(t, command.categoryKey, command.titleKey, command.titleDefaultValue),
-    )
-
     const documentSymbolsLoaded = documentSymbolState?.path === activePath
-    const flatDocumentSymbols = documentSymbolsLoaded ? flattenDocumentSymbols(documentSymbolState.symbols) : []
-    const filteredDocumentSymbols = fuzzyFilter(searchTerm, flatDocumentSymbols, (symbol) => symbol.name)
-
     const workspaceSymbolsLoaded = workspaceSymbolState?.query === searchTerm
-    const workspaceSymbolResults = workspaceSymbolsLoaded ? workspaceSymbolState.results : []
 
-    const lineTarget = parseLineModeTarget(searchTerm)
+    /**
+     * Every list below is gated on the mode that actually renders it. Only one group is ever on
+     * screen, but all of them used to be computed on every render — a full-project fuzzy scan
+     * (`filteredFiles`, thousands of paths), a whole-catalog fuzzy scan with a `t()` label format per
+     * command (`filteredCommands`), and a symbol tree flatten — including while the dialog was closed
+     * (audit §1-14).
+     */
+    const filePaths = mode === 'files' && fileProjectRootLoaded ? (projectFiles ?? []) : []
+    const filteredFiles = fuzzyFilter(searchTerm, filePaths, toProjectRelativePath).slice(0, FILE_RESULT_LIMIT)
+    const filteredCommands =
+        mode === 'commands'
+            ? fuzzyFilter(searchTerm, registeredCommands, (command) =>
+                  formatCategorizedLabel(t, command.categoryKey, command.titleKey, command.titleDefaultValue),
+              )
+            : []
+    const flatDocumentSymbols = mode === 'symbol' && documentSymbolsLoaded ? flattenDocumentSymbols(documentSymbolState.symbols) : []
+    const filteredDocumentSymbols = fuzzyFilter(searchTerm, flatDocumentSymbols, (symbol) => symbol.name)
+    const workspaceSymbolResults = mode === 'workspaceSymbol' && workspaceSymbolsLoaded ? workspaceSymbolState.results : []
+    const lineTarget = mode === 'line' ? parseLineModeTarget(searchTerm) : null
 
     const resolveEmptyStateMessage = () => {
         if (mode === 'symbol' || mode === 'line') {
@@ -225,7 +276,7 @@ export const CommandPalette = () => {
     const runCommand = (command: AppCommand) => {
         if (!isCommandRunnable(command, commandContext)) return
         void command.run(commandContext)
-        if (command.id !== 'file.quickOpen') handleOpenChange(false)
+        if (command.id !== 'file.quickOpen') closeAfterAction()
     }
 
     const openFile = (path: string) => {
@@ -234,19 +285,19 @@ export const CommandPalette = () => {
             { projectId: activeProjectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
             { onError: (error) => toast.error(describeIpcError(error)) },
         )
-        handleOpenChange(false)
+        closeAfterAction()
     }
 
     const selectDocumentSymbol = (symbol: FlatPaletteSymbol) => {
         if (!activePath) return
         requestReveal(activePath, symbol.selectionRange.startLineNumber, symbol.selectionRange.startColumn)
-        handleOpenChange(false)
+        closeAfterAction()
     }
 
     const selectLineTarget = (target: PaletteLineTarget) => {
         if (!activePath) return
         requestReveal(activePath, target.line, target.column)
-        handleOpenChange(false)
+        closeAfterAction()
     }
 
     const selectWorkspaceSymbol = (symbol: NormalizedWorkspaceSymbol) => {
@@ -256,7 +307,7 @@ export const CommandPalette = () => {
             { projectId: activeProjectId, kind: { kind: 'file', path: symbol.path }, title: fileNameOf(symbol.path), target: null, preview: true },
             { onError: (error) => toast.error(describeIpcError(error)) },
         )
-        handleOpenChange(false)
+        closeAfterAction()
     }
 
     useDocumentSymbolLoader({
@@ -284,7 +335,13 @@ export const CommandPalette = () => {
             <DialogHeader className='sr-only'>
                 <DialogTitle>{t('palette.title')}</DialogTitle>
             </DialogHeader>
-            <DialogContent className='overflow-hidden p-0' showCloseButton={false}>
+            <DialogContent
+                className='overflow-hidden p-0'
+                showCloseButton={false}
+                onCloseAutoFocus={(event) => {
+                    if (closedByActionRef.current) event.preventDefault()
+                    closedByActionRef.current = false
+                }}>
                 <Command shouldFilter={false} className='bg-panel-background text-app-foreground'>
                     <CommandInput value={query} onValueChange={setQuery} placeholder={t(PALETTE_PLACEHOLDER_KEY[mode])} />
                     <CommandList>

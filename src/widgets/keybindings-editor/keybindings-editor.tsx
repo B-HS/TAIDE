@@ -100,7 +100,6 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
 
     const handleChangeBinding = (rowId: string, key: string, mods: KeymapModifier[], chord?: KeymapChordStage) => {
         if (mods.length === 0) return
-        if (chord && chord.mods.length === 0) return
         if (!isKeyBindable(rowId, key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         if (chord && !isKeyBindable(rowId, chord.key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         const currentRow = findKeybindingRowById(rows, rowId)
@@ -149,12 +148,19 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
         if (isKeySearchMode) setSearchedKey(null)
     }
 
+    /**
+     * Entering key-search mode swaps the text input out for the capture button, so a text filter
+     * typed beforehand would keep narrowing the list from a field the user can no longer see or
+     * clear — "search by key" then looks like it found nothing for keys that are plainly bound.
+     * Clearing it on entry makes the visible controls the whole filter state.
+     */
     const toggleKeySearchMode = () => {
         if (isKeySearchMode) {
             setCaptureTarget(null)
             setSearchedKey(null)
             return
         }
+        setQuery('')
         setSearchedKey(null)
         setCaptureTarget({ kind: 'search-key' })
     }

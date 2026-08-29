@@ -4,8 +4,25 @@ import type { LspClient } from '@shared/lib/lsp/client'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import { requestDocumentSymbols } from '@shared/lib/lsp/adapters/document-symbol'
 import { isCapabilityEnabled } from '@shared/lib/lsp/protocol'
+import type { LeadingTrailingDebouncerScheduler } from '@shared/lib/leading-trailing-debouncer'
 
 export type DocumentSymbolSessionWaiter<TSession> = { promise: Promise<TSession | null>; cancel: () => void }
+
+/**
+ * Trailing-only debounce window between a buffer edit and the `textDocument/documentSymbol`
+ * re-request it triggers (audit §4-B B12). Trailing-only, not leading+trailing like
+ * `shiki-monaco.ts`'s theme re-apply: the first keystroke of a burst is exactly when the symbol tree
+ * is least worth asking for (the edit is mid-word, and the answer is superseded by the next
+ * keystroke), so a leading edge would only add one guaranteed-stale round trip per burst. Long
+ * enough to collapse continuous typing into a single request, short enough that the outline/
+ * breadcrumb catch up before the user looks away from the edit.
+ */
+export const DOCUMENT_SYMBOL_REFRESH_DEBOUNCE_MS = 400
+
+const timeoutScheduler: LeadingTrailingDebouncerScheduler<ReturnType<typeof setTimeout>> = {
+    schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+    cancel: (timerId) => clearTimeout(timerId),
+}
 
 type BuildDocumentSymbolWaitersInput<TSession> = {
     availableServerIds: LspServerId[]
@@ -60,6 +77,9 @@ type LoadDocumentSymbolsInput<TSession extends { ready: Promise<{ client: LspCli
 > & {
     monaco: Monaco
     onLoaded: (symbols: languages.DocumentSymbol[]) => void
+    subscribeContentChange?: (onContentChanged: () => void) => () => void
+    refreshDelayMs?: number
+    scheduler?: LeadingTrailingDebouncerScheduler
 }
 
 /**
@@ -71,6 +91,16 @@ type LoadDocumentSymbolsInput<TSession extends { ready: Promise<{ client: LspCli
  * comment). Returns a cleanup function so a caller's `useEffect` can `return
  * loadDocumentSymbolsForPath({ ... })` directly — cancelling in-flight session waits when a newer
  * path/effect run supersedes this one.
+ *
+ * `subscribeContentChange` (optional) makes the result *stay* current: a document symbol tree is a
+ * snapshot of the buffer at request time, and the outline/breadcrumb effects re-run only on
+ * path/language/server changes, so without it a single keystroke left both surfaces describing a
+ * file that no longer exists — permanently, for as long as the tab stayed open (audit §4-B B12).
+ * Edits are coalesced through {@link DOCUMENT_SYMBOL_REFRESH_DEBOUNCE_MS} and each re-request
+ * supersedes the previous one (generation counter + waiter cancel), so a burst of typing costs one
+ * `textDocument/documentSymbol` round trip, not one per change. Safe to re-request this way because
+ * `use-lsp-session.ts` sends `textDocument/didChange` synchronously from the same
+ * `onDidChangeContent` event — by the time this fires, the server already has the new text.
  */
 export const loadDocumentSymbolsForPath = <TSession extends { ready: Promise<{ client: LspClient }> }>({
     monaco,
@@ -81,44 +111,82 @@ export const loadDocumentSymbolsForPath = <TSession extends { ready: Promise<{ c
     resolveRoot,
     waitForSession,
     onLoaded,
+    subscribeContentChange,
+    refreshDelayMs = DOCUMENT_SYMBOL_REFRESH_DEBOUNCE_MS,
+    scheduler = timeoutScheduler,
 }: LoadDocumentSymbolsInput<TSession>): (() => void) => {
-    let cancelled = false
+    let disposed = false
+    let generation = 0
     let pendingCancels: (() => void)[] = []
+    let refreshTimerId: unknown = null
 
-    const load = async () => {
+    const cancelPendingWaiters = () => {
+        pendingCancels.forEach((cancel) => cancel())
+        pendingCancels = []
+    }
+
+    const load = async (runGeneration: number) => {
+        const isStale = () => disposed || runGeneration !== generation
         const waiters = await buildDocumentSymbolWaiters({
             availableServerIds,
             path,
             projectId,
             fallbackRoot,
-            isCancelled: () => cancelled,
+            isCancelled: isStale,
             resolveRoot,
             waitForSession,
         })
+        if (isStale()) {
+            waiters.forEach((waiter) => waiter.cancel())
+            return
+        }
         pendingCancels = waiters.map((waiter) => waiter.cancel)
 
         for (const { promise } of waiters) {
             const session = await promise
-            if (!session || cancelled) continue
+            if (!session || isStale()) continue
 
             const ready = await session.ready.catch(() => null)
-            if (!ready || cancelled) continue
+            if (!ready || isStale()) continue
             if (!ready.client.supports((capabilities) => isCapabilityEnabled(capabilities.documentSymbolProvider))) continue
 
             const uri = monaco.Uri.file(path).toString()
             const result = await requestDocumentSymbols(monaco, ready.client, uri).catch(() => [])
-            if (!cancelled) {
+            if (!isStale()) {
                 onLoaded(result)
                 return
             }
         }
-        if (!cancelled) onLoaded([])
+        if (!isStale()) onLoaded([])
     }
 
-    void load()
+    const startLoad = () => {
+        cancelPendingWaiters()
+        generation += 1
+        void load(generation)
+    }
+
+    const clearRefreshTimer = () => {
+        if (refreshTimerId === null) return
+        scheduler.cancel(refreshTimerId)
+        refreshTimerId = null
+    }
+
+    startLoad()
+
+    const unsubscribeContentChange = subscribeContentChange?.(() => {
+        if (disposed) return
+        clearRefreshTimer()
+        refreshTimerId = scheduler.schedule(() => {
+            refreshTimerId = null
+            if (!disposed) startLoad()
+        }, refreshDelayMs)
+    })
 
     return () => {
-        cancelled = true
-        pendingCancels.forEach((cancel) => cancel())
+        disposed = true
+        clearRefreshTimer()
+        unsubscribeContentChange?.()
+        cancelPendingWaiters()
     }
 }

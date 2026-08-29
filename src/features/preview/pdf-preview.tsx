@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import { ChevronLeft, ChevronRight, FileWarning, Loader2, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { pdfjs } from '@shared/lib/pdf/setup'
+import { getPdfjsWithWorker } from '@shared/lib/pdf/setup'
 import { Button } from '@shared/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
@@ -40,7 +40,7 @@ export const PdfPreview: FC<PdfPreviewProps> = ({ data, onOpenExternally }) => {
 
     useEffect(() => {
         let cancelled = false
-        const loadingTask = pdfjs.getDocument({ data: data.slice(0) })
+        const loadingTask = getPdfjsWithWorker().getDocument({ data: data.slice(0) })
 
         const load = async () => {
             try {

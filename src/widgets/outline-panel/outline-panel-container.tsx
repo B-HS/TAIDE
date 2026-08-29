@@ -13,6 +13,7 @@ import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
+import { subscribeModelContentChange } from '@entities/editor/model-registry'
 import { waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { OutlinePanel } from '@features/outline/outline-panel'
 
@@ -51,6 +52,7 @@ export const OutlinePanelContainer: FC<OutlinePanelContainerProps> = ({ projectI
             resolveRoot: resolveLspRoot,
             waitForSession: waitForLspSessionForRoot,
             onLoaded: (symbols) => setSymbolsForPath({ path: activePath, symbols }),
+            subscribeContentChange: (onContentChanged) => subscribeModelContentChange(activePath, onContentChanged),
         })
     }, [activePath, languageId, servers, projectId, project?.root])
 

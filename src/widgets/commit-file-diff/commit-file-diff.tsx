@@ -4,7 +4,9 @@ import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
 import { IpcError } from '@shared/api/unwrap-result'
 import { getLanguageIdFromPath } from '@shared/lib/language-from-path'
+import { resolveDiffViewSettingsProps } from '@shared/lib/diff-view-settings'
 import { gitShowFileQueryOptions } from '@entities/git/git.query'
+import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { DiffView } from '@features/git/diff-view'
 
 type CommitFileDiffProps = {
@@ -26,6 +28,7 @@ export const CommitFileDiff: FC<CommitFileDiffProps> = ({ projectId, rev, parent
         enabled: parentRev !== null,
     })
     const modifiedQuery = useQuery(gitShowFileQueryOptions({ projectId, rev, path }))
+    const { data: settings } = useQuery(settingsQueryOptions())
 
     const originalFailed = originalQuery.isError && !isNotFoundError(originalQuery.error)
     const modifiedFailed = modifiedQuery.isError && !isNotFoundError(modifiedQuery.error)
@@ -44,5 +47,13 @@ export const CommitFileDiff: FC<CommitFileDiffProps> = ({ projectId, rev, parent
     const original = parentRev === null || originalQuery.isError ? '' : (originalQuery.data ?? '')
     const modified = modifiedQuery.isError ? '' : (modifiedQuery.data ?? '')
 
-    return <DiffView original={original} modified={modified} languageId={getLanguageIdFromPath(path)} renderSideBySide={renderSideBySide} />
+    return (
+        <DiffView
+            original={original}
+            modified={modified}
+            languageId={getLanguageIdFromPath(path)}
+            renderSideBySide={renderSideBySide}
+            {...resolveDiffViewSettingsProps(settings)}
+        />
+    )
 }

@@ -5,7 +5,9 @@ import {
     buildLanguageSnippetFileName,
     createEmptySnippetEntryDraft,
     draftsToSnippetContent,
+    findIncompleteSnippetEntryDrafts,
     hasDuplicateSnippetEntryNames,
+    hasUnsavedSnippetDraftChanges,
     isSafeSnippetFileName,
     isSnippetEntryDraftValid,
     normalizeGlobalSnippetFileName,
@@ -146,5 +148,49 @@ describe('hasDuplicateSnippetEntryNames', () => {
 
     test('이름이 서로 다르면 false 를 반환한다', () => {
         expect(hasDuplicateSnippetEntryNames([baseDraft, { ...baseDraft, id: '2', name: 'While' }])).toBe(false)
+    })
+})
+
+describe('findIncompleteSnippetEntryDrafts — 미완성 스니펫 무음 폐기 (audit §4-B D6)', () => {
+    const filled: SnippetEntryDraft = { id: '1', name: 'For', prefix: 'for', body: 'for (;;) {}', description: '', scope: '' }
+
+    test('일부만 채운 draft 를 잡아낸다(재현: 저장은 성공 토스트, 그 스니펫은 사라짐)', () => {
+        const halfFilled = { ...filled, id: '2', name: 'Half', prefix: '', body: 'console.log()' }
+        expect(draftsToSnippetContent([filled, halfFilled])).not.toContain('Half')
+        expect(findIncompleteSnippetEntryDrafts([filled, halfFilled]).map((draft) => draft.id)).toEqual(['2'])
+    })
+
+    test('완전히 비어 있는 행은 잃을 것이 없으므로 제외한다', () => {
+        expect(findIncompleteSnippetEntryDrafts([filled, createEmptySnippetEntryDraft()])).toEqual([])
+    })
+
+    test('description·scope 만 채운 행도 미완성으로 본다', () => {
+        const onlyDescription = { ...createEmptySnippetEntryDraft(), description: '설명만 적어둠' }
+        expect(findIncompleteSnippetEntryDrafts([onlyDescription])).toHaveLength(1)
+    })
+})
+
+describe('hasUnsavedSnippetDraftChanges — 드래프트 무경고 소실 (audit §4-B D6)', () => {
+    const saved = { For: { prefix: 'for', body: 'for (;;) {}' } }
+
+    test('저장된 내용을 그대로 읽어온 draft 는 변경 없음이다', () => {
+        expect(hasUnsavedSnippetDraftChanges(snippetMapToDrafts(saved), saved)).toBe(false)
+    })
+
+    test('필드를 고치면 변경으로 본다', () => {
+        const drafts = snippetMapToDrafts(saved)
+        const edited = updateSnippetEntryDraft(drafts, drafts[0].id, { body: 'x' })
+        expect(hasUnsavedSnippetDraftChanges(edited, saved)).toBe(true)
+    })
+
+    test('직렬화되지 않는 미완성 행도 변경으로 본다(파일 전환 시 조용히 사라지던 입력)', () => {
+        const drafts = snippetMapToDrafts(saved)
+        const withHalfFilled = [...drafts, { ...createEmptySnippetEntryDraft(), prefix: 'wh' }]
+        expect(draftsToSnippetContent(withHalfFilled)).toBe(draftsToSnippetContent(drafts))
+        expect(hasUnsavedSnippetDraftChanges(withHalfFilled, saved)).toBe(true)
+    })
+
+    test('완전히 빈 행을 추가한 것만으로도 변경으로 본다', () => {
+        expect(hasUnsavedSnippetDraftChanges(appendSnippetEntryDraft(snippetMapToDrafts(saved)), saved)).toBe(true)
     })
 })

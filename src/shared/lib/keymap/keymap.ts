@@ -55,8 +55,10 @@ export type KeymapEvent = {
     altKey: boolean
     /** OS key-repeat while a key is held — never counts as a fresh "next keydown" for chord/deferral consumption (see `keymap-dispatch.ts`). */
     repeat?: boolean
-    /** IME composition in progress (`event.isComposing`, e.g. Korean/Japanese input) — never counts as a fresh "next keydown" either, so composing a character doesn't get eaten by a pending chord/deferral wait. */
+    /** IME composition in progress (`event.isComposing`, e.g. Korean/Japanese input) — never counts as a fresh "next keydown" either, so composing a character doesn't get eaten by a pending chord/deferral wait. Always `false` in this app's WKWebView, hence `keyCode` below. */
     isComposing?: boolean
+    /** Legacy `KeyboardEvent.keyCode`, carried solely so `isImeCompositionKeydown` can see the IME's 229 — the only composition signal WKWebView leaves intact (`shared/lib/ime-composition.ts`). Never used for key matching, which goes through `key`/`code`. */
+    keyCode?: number
 }
 
 export const APP_KEYMAP: KeymapEntry[] = [
@@ -268,10 +270,29 @@ export const parseKeymapOverrides = (json: string | null): KeymapOverrideEntry[]
 
 export const serializeKeymapOverrides = (overrides: KeymapOverrideEntry[]) => JSON.stringify(overrides)
 
+/**
+ * A `when` that sits on a *chord* entry exists to keep that chord's **default first stage** from
+ * shadowing another surface's own binding — both of `APP_KEYMAP`'s chord entries carry
+ * `!terminalFocus` purely because their first stage is ⌘K, which the terminal owns. Rebinding such
+ * an entry to a different first stage (a plain single key, or a chord under another prefix) removes
+ * the shadowing the gate was written for, but the inherited gate stayed and silently swallowed the
+ * new binding wherever the old prefix used to yield — e.g. a ⌘K ⌘S rebound to ⌘J did nothing at
+ * all while a terminal had focus. A `when` on a chord-less entry is semantic scoping instead
+ * (`terminalFocus` on the terminal jump commands: the action only means anything there), so it
+ * survives every rebind untouched.
+ */
+const resolveOverriddenKeymapWhen = (entry: KeymapEntry, override: KeymapOverrideEntry) => {
+    if (!entry.chord) return entry.when
+    const isSameFirstStage = entry.key.toLowerCase() === override.key.toLowerCase() && areKeymapModsEqual(entry.mods, override.mods)
+    return isSameFirstStage ? entry.when : undefined
+}
+
 export const applyKeymapOverrides = (baseEntries: KeymapEntry[], overrides: KeymapOverrideEntry[]): KeymapEntry[] =>
     baseEntries.map((entry) => {
         const override = overrides.find((item) => item.actionId === entry.id)
-        return override ? { ...entry, key: override.key, mods: override.mods, chord: override.chord } : entry
+        return override
+            ? { ...entry, key: override.key, mods: override.mods, chord: override.chord, when: resolveOverriddenKeymapWhen(entry, override) }
+            : entry
     })
 
 export const keymapEntryToEvent = (entry: Pick<KeymapEntry, 'key' | 'mods'>, isMac: boolean = IS_MAC): KeymapEvent => ({
@@ -300,19 +321,30 @@ const areKeymapModsEqual = (a: KeymapModifier[], b: KeymapModifier[]) => a.lengt
 const hasDisjointKeymapChordStages = (a: KeymapChordStage | undefined, b: KeymapChordStage | undefined) =>
     a !== undefined && b !== undefined && (a.key.toLowerCase() !== b.key.toLowerCase() || !areKeymapModsEqual(a.mods, b.mods))
 
+/**
+ * `resolveBinding` lets a caller compare against a binding the entry doesn't literally carry — the
+ * keybindings catalog uses it so a monaco row, whose own `key` stays empty until the user overrides
+ * it, is still matched on the built-in default monaco actually answers to
+ * (`keybinding-catalog.ts`'s `resolveKeybindingRowBinding`). The default reads the entry itself,
+ * which is what every other caller wants.
+ */
 export const findKeymapConflict = <T extends { id: string; key: string; mods: KeymapModifier[]; when?: string; chord?: KeymapChordStage }>(
     entries: T[],
     candidate: Pick<KeymapEntry, 'key' | 'mods' | 'when' | 'chord'>,
     excludeId: string,
     isMac: boolean = IS_MAC,
-) =>
-    entries.find(
-        (entry) =>
-            entry.id !== excludeId &&
-            !hasDisjointKeymapWhenScopes(entry.when, candidate.when) &&
-            !hasDisjointKeymapChordStages(entry.chord, candidate.chord) &&
-            matchesKeymapEntry(entry, keymapEntryToEvent(candidate, isMac), isMac),
-    ) ?? null
+    resolveBinding: (entry: T) => Pick<KeymapEntry, 'key' | 'mods' | 'chord'> = (entry) => entry,
+) => {
+    const candidateEvent = keymapEntryToEvent(candidate, isMac)
+    return (
+        entries.find((entry) => {
+            if (entry.id === excludeId) return false
+            if (hasDisjointKeymapWhenScopes(entry.when, candidate.when)) return false
+            const binding = resolveBinding(entry)
+            return !hasDisjointKeymapChordStages(binding.chord, candidate.chord) && matchesKeymapEntry(binding, candidateEvent, isMac)
+        }) ?? null
+    )
+}
 
 const MAC_MODIFIER_ORDER: KeymapModifier[] = ['ctrl', 'alt', 'shift', 'mod']
 const NON_MAC_MODIFIER_ORDER: KeymapModifier[] = ['mod', 'ctrl', 'alt', 'shift']

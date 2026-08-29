@@ -9,6 +9,8 @@ import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 
 export type TerminalPaneProps = {
     sessionId: string | null
+    /** Whether this terminal's pane is the focused one — see `TerminalViewProps.autoFocus`. */
+    autoFocus: boolean
     fontSize: number
     fontFamily: string
     theme: ITheme
@@ -28,6 +30,7 @@ export type TerminalPaneProps = {
 
 export const TerminalPane: FC<TerminalPaneProps> = ({
     sessionId,
+    autoFocus,
     fontSize,
     fontFamily,
     theme,
@@ -89,15 +92,36 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
         'terminal-jump-to-next-command': isFocused ? () => attachRef.current?.jumpToNextCommand() : undefined,
     })
 
+    /**
+     * `pty_set_paused` gates the reader thread for the *whole session*, and nothing in the backend
+     * clears it on detach — so a pause this view raised (its write backlog crossed `HIGH_WATER`
+     * during a burst) outlives the view that raised it. Switching tabs mid-burst unmounts this pane
+     * with the pty still paused, freezing the child process — and the next mount starts from
+     * `INITIAL_FLOW_CONTROL_STATE`, which believes it is *not* paused and therefore never sends a
+     * resume, so the session stays frozen for good (audit §4-B D5, confirmed against
+     * `domain::terminal::commands::pty_detach`, which touches only the subscriber list).
+     *
+     * Both ends of that gap are closed here: the cleanup resumes a pty this view left paused, so a
+     * backgrounded terminal keeps making progress, and the attach resynchronizes unconditionally,
+     * which also covers pauses no cleanup ever ran for (a reloaded webview, a window closed
+     * mid-burst). Resuming an already-running pty is a no-op, so the redundant call costs one IPC
+     * per attach and nothing else.
+     */
     useEffect(() => {
         if (!sessionId) return
         flowStateRef.current = INITIAL_FLOW_CONTROL_STATE
+        onSetPausedRef.current(false)
         const unsubscribe = attachDataRef.current((bytes) => attachRef.current?.write(bytes))
-        return unsubscribe
+        return () => {
+            unsubscribe()
+            if (flowStateRef.current.paused) onSetPausedRef.current(false)
+            flowStateRef.current = INITIAL_FLOW_CONTROL_STATE
+        }
     }, [sessionId])
 
     return (
         <TerminalView
+            autoFocus={autoFocus}
             fontSize={fontSize}
             fontFamily={fontFamily}
             theme={theme}

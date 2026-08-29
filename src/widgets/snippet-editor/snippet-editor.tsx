@@ -10,7 +10,9 @@ import { isGlobalSnippetFileName } from '@shared/lib/snippet-file'
 import {
     appendSnippetEntryDraft,
     draftsToSnippetContent,
+    findIncompleteSnippetEntryDrafts,
     hasDuplicateSnippetEntryNames,
+    hasUnsavedSnippetDraftChanges,
     removeSnippetEntryDraft,
     snippetMapToDrafts,
     updateSnippetEntryDraft,
@@ -34,6 +36,9 @@ import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 type SnippetEditorProps = { onClose: () => void }
 
+/** Where the editor was heading when unsaved drafts stopped it — replayed once the user confirms the discard. */
+type PendingDiscardTarget = { kind: 'selectFile'; fileName: string } | { kind: 'close' }
+
 export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
     const { t } = useTranslation()
 
@@ -43,6 +48,7 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
     const [newFileDialogOpen, setNewFileDialogOpen] = useState(false)
     const [deleteFileOpen, setDeleteFileOpen] = useState(false)
     const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null)
+    const [pendingDiscardTarget, setPendingDiscardTarget] = useState<PendingDiscardTarget | null>(null)
 
     const { data: files = [] } = useSnippetList()
     const { mutate: saveSnippetMutate, isPending: isSaving } = useSaveSnippet()
@@ -59,6 +65,40 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
 
     const showScope = selectedFileName !== null && isGlobalSnippetFileName(selectedFileName)
     const pendingDeleteEntryName = draftEntries?.find((draft) => draft.id === deleteEntryId)?.name ?? ''
+    const hasUnsavedChanges = Boolean(selectedFile && draftEntries && hasUnsavedSnippetDraftChanges(draftEntries, selectedFile.snippets))
+
+    /**
+     * Selecting another file resets `draftEntries` (the render-time sync above) and leaving unmounts
+     * the whole editor — both threw away unsaved snippet edits with no prompt at all (audit §4-B D6).
+     * The navigation is parked here instead of performed, and replayed by
+     * {@link handleConfirmDiscardChanges} only if the user confirms.
+     */
+    const requestSelectFile = (fileName: string) => {
+        if (fileName === selectedFileName) return
+        if (hasUnsavedChanges) {
+            setPendingDiscardTarget({ kind: 'selectFile', fileName })
+            return
+        }
+        setSelectedFileName(fileName)
+    }
+
+    const requestClose = () => {
+        if (hasUnsavedChanges) {
+            setPendingDiscardTarget({ kind: 'close' })
+            return
+        }
+        onClose()
+    }
+
+    const handleConfirmDiscardChanges = () => {
+        if (!pendingDiscardTarget) return
+        setPendingDiscardTarget(null)
+        if (pendingDiscardTarget.kind === 'close') {
+            onClose()
+            return
+        }
+        setSelectedFileName(pendingDiscardTarget.fileName)
+    }
 
     /**
      * `handleCreateFile`'s `content` is always the literal `'{}'`, so an `InvalidArgument` there can
@@ -77,11 +117,16 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
 
     const handleCreateFile = (fileName: string) => {
         setNewFileDialogOpen(false)
-        saveSnippetMutate({ fileName, content: '{}' }, { onSuccess: () => setSelectedFileName(fileName), onError: handleCreateFileError })
+        saveSnippetMutate({ fileName, content: '{}' }, { onSuccess: () => requestSelectFile(fileName), onError: handleCreateFileError })
     }
 
     const handleSave = () => {
         if (!selectedFileName || !draftEntries) return
+        const incompleteDrafts = findIncompleteSnippetEntryDrafts(draftEntries)
+        if (incompleteDrafts.length > 0) {
+            toast.error(t('snippetEditor.incompleteEntryError', { count: incompleteDrafts.length }))
+            return
+        }
         if (hasDuplicateSnippetEntryNames(draftEntries)) {
             toast.error(t('snippetEditor.duplicateNameError'))
             return
@@ -112,7 +157,7 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
         <div className='bg-app-background text-app-foreground flex h-full w-full flex-col overflow-hidden'>
             <div className='border-app-border flex items-center justify-between gap-4 border-b px-6 py-4'>
                 <div className='flex items-center gap-3'>
-                    <Button variant='ghost' size='sm' onClick={onClose}>
+                    <Button variant='ghost' size='sm' onClick={requestClose}>
                         {t('snippetEditor.backToSettings')}
                     </Button>
                     {selectedFileName && <span className='text-app-foreground text-sm font-medium'>{selectedFileName}</span>}
@@ -138,7 +183,7 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
                             {t('snippetEditor.newFileButton')}
                         </Button>
                     </div>
-                    <SnippetFileList files={files} selectedFileName={selectedFileName} onSelect={setSelectedFileName} />
+                    <SnippetFileList files={files} selectedFileName={selectedFileName} onSelect={requestSelectFile} />
                 </ScrollContainer>
 
                 <ScrollContainer className='min-w-0 flex-1' viewportClassName='px-6 py-4'>
@@ -190,6 +235,21 @@ export const SnippetEditor: FC<SnippetEditorProps> = ({ onClose }) => {
                         <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                         <AlertDialogAction variant='destructive' onClick={handleDeleteFile}>
                             {t('snippetEditor.deleteFileButton')}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={pendingDiscardTarget !== null} onOpenChange={(open) => !open && setPendingDiscardTarget(null)}>
+                <AlertDialogContent size='sm'>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{t('common.unsavedChangesTitle')}</AlertDialogTitle>
+                        <AlertDialogDescription>{t('common.unsavedChangesDescription')}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction variant='destructive' onClick={handleConfirmDiscardChanges}>
+                            {t('common.discardChanges')}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

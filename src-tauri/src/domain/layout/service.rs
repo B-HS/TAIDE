@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use super::types::{
-    AuxWindowLayout, ClosedTab, DropEdge, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind,
-    CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
+    AuxWindowLayout, ClosedTab, DropEdge, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind, TabPathChange,
+    TabPathMove, CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
 };
 use crate::error::{AppError, AppResult};
 use crate::events::LayoutChanged;
@@ -571,6 +572,182 @@ pub fn reopen_closed(layout: &mut ProjectLayout) -> Option<TabId> {
     set_tree_focused_pane(layout, target_tree, target_pane);
     layout.revision += 1;
     Some(tab_id)
+}
+
+/// What [`apply_tab_path_change`] did — the same two lists `TabPathChangeResult` carries to the
+/// frontend, without the layout snapshot the command adds around them, plus whether the layout was
+/// mutated at all.
+///
+/// `layout_changed` is deliberately *not* the same question as [`Self::is_empty`]. The closed-tab
+/// stack follows a rename silently — it has no `TabPathMove` to report, because the frontend owns no
+/// per-path state for a tab nobody has open — so a rename that matched only closed tabs produces two
+/// empty lists and a changed layout. Collapsing the two questions is what made
+/// `layout_apply_path_change` throw that rewrite away on its "nothing to report" early return,
+/// leaving "Reopen Closed Tab" pointing at a path that no longer exists (contract §3 S8's own
+/// requirement).
+#[derive(Debug)]
+pub struct TabPathChangeOutcome {
+    pub moved: Vec<TabPathMove>,
+    pub closed_paths: Vec<String>,
+    pub layout_changed: bool,
+}
+
+impl TabPathChangeOutcome {
+    /// Whether there is nothing for the *frontend* to act on — no per-path state to migrate and no
+    /// closed path to release. Says nothing about whether the layout itself changed
+    /// (`layout_changed`).
+    pub fn is_empty(&self) -> bool {
+        self.moved.is_empty() && self.closed_paths.is_empty()
+    }
+}
+
+/// `path` rewritten so a `from` prefix becomes `to`, or `None` when `path` is neither `from` itself
+/// nor anything under it.
+///
+/// Matched by path *components* (`Path::strip_prefix`), never by string prefix: renaming `src` must
+/// not drag a sibling `src-old` along with it, which a `starts_with(from)` test would (the same
+/// component-wise rule `tree::service`'s descendant pruning settled on for the identical reason).
+fn retargeted_path(path: &str, from: &str, to: &str) -> Option<String> {
+    let relative = Path::new(path).strip_prefix(Path::new(from)).ok()?;
+    if relative.as_os_str().is_empty() {
+        return Some(to.to_string());
+    }
+    Some(Path::new(to).join(relative).to_string_lossy().into_owned())
+}
+
+/// Whether `path` is `ancestor` itself or lives under it — the same component-wise rule
+/// [`retargeted_path`] matches with.
+fn is_same_or_under(path: &str, ancestor: &str) -> bool {
+    Path::new(path).strip_prefix(Path::new(ancestor)).is_ok()
+}
+
+/// The tab title a file tab carries for `path` — its file name, matching what every frontend
+/// producer of a `TabKind::File` tab passes as `title` (`fileNameOf(path)`). Falls back to the whole
+/// path for a path with no final component, which a real project file never has.
+fn file_tab_title(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
+}
+
+fn visit_tabs_mut<F: FnMut(&mut Tab)>(node: &mut PaneNode, visit: &mut F) {
+    match node {
+        PaneNode::Leaf { tabs, .. } => {
+            for tab in tabs.iter_mut() {
+                visit(tab);
+            }
+        }
+        PaneNode::Split { children, .. } => {
+            for child in children.iter_mut() {
+                visit_tabs_mut(child, visit);
+            }
+        }
+    }
+}
+
+/// Every *open* tab of every tree the project owns — the main tree plus each auxiliary window's —
+/// as `&mut`. The mutable counterpart of [`all_roots`] + [`collect_leaves`]; the closed-tab stack is
+/// deliberately not part of it, so callers decide separately whether the undo stack is in scope.
+fn visit_open_tabs_mut<F: FnMut(&mut Tab)>(layout: &mut ProjectLayout, visit: &mut F) {
+    visit_tabs_mut(&mut layout.root, visit);
+    for window in layout.auxiliary_windows.iter_mut() {
+        visit_tabs_mut(&mut window.root, visit);
+    }
+}
+
+/// Repoints every open `TabKind::File` tab under `from` at `to` (title included), and does the same
+/// silently for the closed-tab stack so "Reopen Closed Tab" doesn't resurrect a path that no longer
+/// exists. Returns one [`TabPathMove`] per distinct moved path — a file open in two panes reports
+/// once, with `dirty` true if *either* tab held unsaved edits.
+fn retarget_file_tabs(layout: &mut ProjectLayout, from: &str, to: &str) -> TabPathChangeOutcome {
+    let mut moved: Vec<TabPathMove> = Vec::new();
+
+    visit_open_tabs_mut(layout, &mut |tab| {
+        let TabKind::File { path } = &tab.kind else { return };
+        let Some(next) = retargeted_path(path, from, to) else { return };
+
+        let previous = path.clone();
+        tab.kind = TabKind::File { path: next.clone() };
+        tab.title = file_tab_title(&next);
+
+        match moved.iter_mut().find(|entry| entry.from == previous) {
+            Some(entry) => entry.dirty = entry.dirty || tab.dirty,
+            None => moved.push(TabPathMove {
+                from: previous,
+                to: next,
+                dirty: tab.dirty,
+            }),
+        }
+    });
+
+    let mut closed_tabs_retargeted = false;
+    for closed in layout.closed_tabs.iter_mut() {
+        let TabKind::File { path } = &closed.tab.kind else { continue };
+        let Some(next) = retargeted_path(path, from, to) else { continue };
+        closed.tab.kind = TabKind::File { path: next.clone() };
+        closed.tab.title = file_tab_title(&next);
+        closed_tabs_retargeted = true;
+    }
+
+    if !moved.is_empty() {
+        layout.revision += 1;
+    }
+    let layout_changed = !moved.is_empty() || closed_tabs_retargeted;
+    TabPathChangeOutcome {
+        moved,
+        closed_paths: Vec::new(),
+        layout_changed,
+    }
+}
+
+/// Closes every open `TabKind::File` tab whose path is `path` or lives under it, returning each
+/// distinct closed path so the frontend can release that path's own per-path state. Each close goes
+/// through [`close_tab`], so the closed-tab stack, active-tab handoff and pane normalization behave
+/// exactly as if the user had closed those tabs by hand.
+fn close_file_tabs_under(layout: &mut ProjectLayout, path: &str) -> TabPathChangeOutcome {
+    let targets: Vec<(TabId, String)> = all_roots(layout)
+        .flat_map(collect_leaves)
+        .filter_map(|leaf| match leaf {
+            PaneNode::Leaf { tabs, .. } => Some(tabs),
+            PaneNode::Split { .. } => None,
+        })
+        .flatten()
+        .filter_map(|tab| match &tab.kind {
+            TabKind::File { path: tab_path } if is_same_or_under(tab_path, path) => Some((tab.id.clone(), tab_path.clone())),
+            _ => None,
+        })
+        .collect();
+
+    let mut closed_paths: Vec<String> = Vec::new();
+    for (tab_id, tab_path) in targets {
+        if close_tab(layout, &tab_id).is_err() {
+            continue;
+        }
+        if !closed_paths.contains(&tab_path) {
+            closed_paths.push(tab_path);
+        }
+    }
+
+    let layout_changed = !closed_paths.is_empty();
+    TabPathChangeOutcome {
+        moved: Vec::new(),
+        closed_paths,
+        layout_changed,
+    }
+}
+
+/// Makes the tab bar follow a path change the file domain already performed on disk — the layout
+/// half of audit §4-B A3 ("rename/delete 후 열린 탭 미추종"). Only `TabKind::File` tabs take part:
+/// their identity *is* the path (their title is that path's file name at every producer), whereas
+/// `Diff`/`ClaudeDiff` tabs are derived comparison views whose labels and paired revisions a rename
+/// does not transfer. Renaming retargets, deleting closes — see the contract §3 S8 for both
+/// decisions.
+pub fn apply_tab_path_change(layout: &mut ProjectLayout, change: &TabPathChange) -> TabPathChangeOutcome {
+    match change {
+        TabPathChange::Renamed { from, to } => retarget_file_tabs(layout, from, to),
+        TabPathChange::Deleted { path } => close_file_tabs_under(layout, path),
+    }
 }
 
 pub fn activate_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<()> {
@@ -2331,5 +2508,204 @@ mod tests {
             open_file_paths(&layout).is_empty(),
             "기본 레이아웃(웰컴·터미널 탭만)에는 파일 탭이 없어야 한다"
         );
+    }
+
+    fn 개명(from: &str, to: &str) -> TabPathChange {
+        TabPathChange::Renamed {
+            from: from.to_string(),
+            to: to.to_string(),
+        }
+    }
+
+    fn 탭_경로들(layout: &ProjectLayout) -> Vec<String> {
+        all_roots(layout)
+            .flat_map(collect_leaves)
+            .filter_map(|leaf| match leaf {
+                PaneNode::Leaf { tabs, .. } => Some(tabs),
+                PaneNode::Split { .. } => None,
+            })
+            .flatten()
+            .filter_map(|tab| match &tab.kind {
+                TabKind::File { path } => Some(path.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn 파일_개명은_열린_탭의_경로와_제목을_따라간다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &pane, 파일_탭("/repo/src/old.rs"), false).expect("open");
+
+        let outcome = apply_tab_path_change(&mut layout, &개명("/repo/src/old.rs", "/repo/src/new.rs"));
+
+        let tab = find_tab_mut_in_layout(&mut layout, &tab_id).expect("tab exists");
+        assert_eq!(
+            tab.kind,
+            TabKind::File {
+                path: "/repo/src/new.rs".to_string()
+            }
+        );
+        assert_eq!(tab.title, "new.rs", "탭 제목도 새 파일 이름을 따라야 한다");
+        assert_eq!(
+            outcome.moved,
+            vec![TabPathMove {
+                from: "/repo/src/old.rs".to_string(),
+                to: "/repo/src/new.rs".to_string(),
+                dirty: false,
+            }]
+        );
+        assert!(outcome.closed_paths.is_empty());
+    }
+
+    #[test]
+    fn 폴더_개명은_하위_열린_탭_전체의_경로를_치환한다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        open_tab(&mut layout, &pane, 파일_탭("/repo/src/a.rs"), false).expect("open a");
+        let moved_out = open_tab(&mut layout, &pane, 파일_탭("/repo/src/nested/b.rs"), false).expect("open b");
+        open_tab(&mut layout, &pane, 파일_탭("/repo/other/c.rs"), false).expect("open c");
+        move_tab_to_new_window(&mut layout, &moved_out, 1).expect("move b into new window");
+
+        let outcome = apply_tab_path_change(&mut layout, &개명("/repo/src", "/repo/lib"));
+
+        let mut paths = 탭_경로들(&layout);
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                "/repo/lib/a.rs".to_string(),
+                "/repo/lib/nested/b.rs".to_string(),
+                "/repo/other/c.rs".to_string(),
+            ],
+            "보조 창의 하위 탭까지 prefix 가 치환되고, 무관한 탭은 그대로여야 한다"
+        );
+        assert_eq!(outcome.moved.len(), 2);
+    }
+
+    #[test]
+    fn 이름이_접두사인_형제는_개명_대상이_아니다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        open_tab(&mut layout, &pane, 파일_탭("/repo/src-old/a.rs"), false).expect("open sibling");
+
+        let outcome = apply_tab_path_change(&mut layout, &개명("/repo/src", "/repo/lib"));
+
+        assert_eq!(탭_경로들(&layout), vec!["/repo/src-old/a.rs".to_string()]);
+        assert!(outcome.is_empty(), "문자열 접두사만 겹치는 형제는 움직이면 안 된다");
+    }
+
+    #[test]
+    fn 같은_파일이_두_페인에_열려_있으면_한_번만_보고하고_dirty_를_합친다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        let clean_tab = open_tab(&mut layout, &pane, 파일_탭("/repo/a.rs"), false).expect("open clean");
+        let mut dirty_tab = 파일_탭("/repo/a.rs");
+        dirty_tab.dirty = true;
+        let dirty_tab_id = dirty_tab.id.clone();
+        move_tab_to_new_window(&mut layout, &clean_tab, 1).expect("move clean tab into new window");
+        open_tab(&mut layout, &pane, dirty_tab, false).expect("open dirty");
+
+        let outcome = apply_tab_path_change(&mut layout, &개명("/repo/a.rs", "/repo/b.rs"));
+
+        assert_eq!(
+            outcome.moved,
+            vec![TabPathMove {
+                from: "/repo/a.rs".to_string(),
+                to: "/repo/b.rs".to_string(),
+                dirty: true,
+            }],
+            "경로 하나당 한 건만 보고하되 dirty 는 어느 한쪽이라도 참이면 참이어야 한다"
+        );
+        assert!(find_tab_mut_in_layout(&mut layout, &dirty_tab_id).is_some());
+        assert_eq!(탭_경로들(&layout).len(), 2, "두 탭 모두 새 경로로 이동해야 한다");
+    }
+
+    #[test]
+    fn 개명은_닫은_탭_스택의_경로도_따라간다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &pane, 파일_탭("/repo/src/old.rs"), false).expect("open");
+        close_tab(&mut layout, &tab_id).expect("close");
+
+        apply_tab_path_change(&mut layout, &개명("/repo/src", "/repo/lib"));
+
+        let closed = layout.closed_tabs.last().expect("closed tab exists");
+        assert_eq!(
+            closed.tab.kind,
+            TabKind::File {
+                path: "/repo/lib/old.rs".to_string()
+            }
+        );
+        assert_eq!(closed.tab.title, "old.rs");
+    }
+
+    #[test]
+    fn 삭제는_해당_경로와_하위_파일_탭만_닫는다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        open_tab(&mut layout, &pane, 파일_탭("/repo/src/a.rs"), false).expect("open a");
+        open_tab(&mut layout, &pane, 파일_탭("/repo/src/nested/b.rs"), false).expect("open b");
+        open_tab(&mut layout, &pane, 파일_탭("/repo/src-old/c.rs"), false).expect("open c");
+        open_tab(&mut layout, &pane, 검색_에디터_탭("keep"), false).expect("open search editor");
+
+        let outcome = apply_tab_path_change(
+            &mut layout,
+            &TabPathChange::Deleted {
+                path: "/repo/src".to_string(),
+            },
+        );
+
+        assert_eq!(탭_경로들(&layout), vec!["/repo/src-old/c.rs".to_string()]);
+        let mut closed = outcome.closed_paths.clone();
+        closed.sort();
+        assert_eq!(closed, vec!["/repo/src/a.rs".to_string(), "/repo/src/nested/b.rs".to_string()]);
+        assert!(outcome.moved.is_empty());
+    }
+
+    #[test]
+    fn 대상_탭이_없으면_revision_을_올리지_않는다() {
+        let mut layout = default_layout();
+        let before = layout.revision;
+
+        let renamed = apply_tab_path_change(&mut layout, &개명("/repo/gone.rs", "/repo/other.rs"));
+        let deleted = apply_tab_path_change(
+            &mut layout,
+            &TabPathChange::Deleted {
+                path: "/repo/gone.rs".to_string(),
+            },
+        );
+
+        assert!(renamed.is_empty() && deleted.is_empty());
+        assert!(
+            !renamed.layout_changed && !deleted.layout_changed,
+            "매칭된 것이 하나도 없으면 레이아웃 자체가 바뀌지 않았다"
+        );
+        assert_eq!(layout.revision, before, "아무 탭도 바뀌지 않으면 revision 은 그대로여야 한다");
+    }
+
+    #[test]
+    fn 열린_탭이_없어도_닫은_탭_스택의_경로는_따라가고_레이아웃_변경으로_보고된다() {
+        let mut layout = default_layout();
+        let pane = layout.focused_pane.clone();
+        let tab_id = open_tab(&mut layout, &pane, 파일_탭("/repo/a.txt"), false).expect("open");
+        close_tab(&mut layout, &tab_id).expect("close");
+        let before = layout.revision;
+
+        let outcome = apply_tab_path_change(&mut layout, &개명("/repo/a.txt", "/repo/b.txt"));
+
+        assert!(outcome.is_empty(), "열린 탭이 없으므로 프론트가 이관할 상태는 없다");
+        assert!(
+            outcome.layout_changed,
+            "닫은 탭 스택이 새 경로로 바뀌었으므로 이 레이아웃은 저장돼야 한다 (커맨드의 조기 반환이 버리면 안 된다)"
+        );
+        assert_eq!(
+            layout.closed_tabs.last().expect("closed tab exists").tab.kind,
+            TabKind::File {
+                path: "/repo/b.txt".to_string()
+            }
+        );
+        assert_eq!(layout.revision, before, "화면에 보이는 것은 없으므로 revision 은 그대로다");
     }
 }

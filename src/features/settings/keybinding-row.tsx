@@ -55,7 +55,13 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
          * never be Enter at all.
          */
         if (pendingChordFirstStage && event.key === 'Enter' && mods.length === 0) return onConfirmSingleStage()
-        if (mods.length === 0) return toast.warning(t('settings.keymapModifierRequired'))
+        /**
+         * Only a *first* stage must carry a modifier (an unmodified single key would swallow plain
+         * typing). A chord's second stage is already scoped by its prefix, so a bare key is valid
+         * there — `APP_KEYMAP` ships one itself (⌘K Z, `toggle-zen-mode`), which this capture UI
+         * could not reproduce while the modifier requirement applied to both stages.
+         */
+        if (!pendingChordFirstStage && mods.length === 0) return toast.warning(t('settings.keymapModifierRequired'))
         onCaptureStage(normalizeKeymapEventKey(event), mods)
     }
 

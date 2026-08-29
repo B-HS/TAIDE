@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { DEFAULT_SEARCH_OPTIONS } from '@entities/search/search.type'
+import { isSameSearchQuery } from '@entities/search/search-query'
+import { buildReplaceSkipReport, REPLACE_SKIP_REASON_MESSAGE_KEY } from '@entities/search/replace-skip-report'
 import { useRecentSearches } from '@entities/search/search-history'
 import { useReplaceSearch } from '@entities/search/search.query'
 import { useSearchRun } from '@entities/search/use-search-run'
@@ -47,7 +49,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
     const { mutate: openTab } = useOpenTab(projectId)
     const { mutate: replaceAll, isPending: isReplacing } = useReplaceSearch()
     const sessionId = `search-panel-${useId()}`
-    const { results, totalMatches, isSearching, run } = useSearchRun(projectId, sessionId)
+    const { results, totalMatches, status, ranQuery, isTruncated, run } = useSearchRun(projectId, sessionId)
 
     const scopePath = includeGlob ? includeGlob.replace(SCOPE_GLOB_SUFFIX, '') : null
 
@@ -66,22 +68,49 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
         respectGitignore,
     })
 
+    const queryMatchesResults = ranQuery !== null && isSameSearchQuery(buildQuery(), ranQuery)
+
     const handleSubmit = () => {
         if (!query.trim()) return
         run(buildQuery())
     }
 
-    const handleReplaceAll = (input: ReplaceAllInput) =>
+    /**
+     * Replaces with the query the displayed results were produced by, never with whatever the
+     * inputs hold at click time — editing the term or flipping a toggle after searching used to
+     * rewrite matches the user had never been shown, irreversibly (audit §4-B A5). The button is
+     * disabled while the two disagree, and the re-run afterwards uses that same snapshot so the
+     * refreshed list still corresponds to what was replaced.
+     */
+    const handleReplaceAll = (input: ReplaceAllInput) => {
+        if (!ranQuery) return
+        const replacedQuery = ranQuery
+
         replaceAll(
-            { projectId, query: buildQuery(), replacement: input.replacement, paths: input.paths.length > 0 ? input.paths : null },
+            { projectId, query: replacedQuery, replacement: input.replacement, paths: input.paths.length > 0 ? input.paths : null },
             {
                 onSuccess: (result) => {
                     toast.success(t('search.replaceDone', { files: result.changedFiles, matches: result.replacedMatches }))
-                    handleSubmit()
+                    const report = buildReplaceSkipReport(result, (file) => `${file.path} — ${t(REPLACE_SKIP_REASON_MESSAGE_KEY[file.reason])}`)
+                    if (report)
+                        toast.warning(t('search.replaceSkipped', { count: report.total }), {
+                            description: (
+                                <div className='flex flex-col gap-0.5'>
+                                    {report.lines.map((line) => (
+                                        <span key={line} className='truncate'>
+                                            {line}
+                                        </span>
+                                    ))}
+                                    {report.remaining > 0 && <span>{t('search.replaceSkippedMore', { count: report.remaining })}</span>}
+                                </div>
+                            ),
+                        })
+                    run(replacedQuery, { recordHistory: false })
                 },
                 onError: (error) => toast.error(describeIpcError(error)),
             },
         )
+    }
 
     const handleOpenMatch = (path: string, line: number, column: number) => {
         requestReveal(path, line, column)
@@ -119,12 +148,14 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
             history={recentSearches}
             onSelectHistory={setQuery}
             onSubmit={handleSubmit}
-            isSearching={isSearching}
+            status={status}
             totalMatches={totalMatches}
+            isTruncated={isTruncated}
             results={results}
             onOpenMatch={handleOpenMatch}
             onReplaceAll={handleReplaceAll}
             isReplacing={isReplacing}
+            queryMatchesResults={queryMatchesResults}
             scopePath={scopePath}
             onClearScope={onClearScope}
             openReplace={openReplace}

@@ -1,19 +1,19 @@
 import type { FC } from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { CircleCheck, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ProblemRowData } from '@features/problems/problem-row'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { ProblemRow } from '@features/problems/problem-row'
+import type { ProblemGroup } from '@features/problems/problem-list-rows'
+import { buildProblemListRows, PROBLEM_LIST_ROW_HEIGHT_PX } from '@features/problems/problem-list-rows'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
 import { ProblemSeverityFilter } from '@features/problems/problem-severity-filter'
+import { toggleInSet } from '@shared/lib/set'
 import { FileGroupHeader } from '@shared/ui/file-group-header'
 import { IconButton } from '@shared/ui/icon-button'
-import { ScrollContainer } from '@shared/scroll/scroll-container'
+import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 
-export type ProblemGroup = {
-    path: string
-    problems: ProblemRowData[]
-}
+const PROBLEM_LIST_OVERSCAN = 12
 
 type ProblemsPanelProps = {
     groups: ProblemGroup[]
@@ -25,16 +25,12 @@ type ProblemsPanelProps = {
     onClose: () => void
 }
 
-const toggleInSet = (set: Set<string>, value: string) => {
-    const next = new Set(set)
-    if (next.has(value)) {
-        next.delete(value)
-    } else {
-        next.add(value)
-    }
-    return next
-}
-
+/**
+ * Owns its own scroll viewport rather than nesting a `ScrollContainer`: the virtualizer needs the
+ * scrolling element to measure against, and only the rows inside that window are mounted (the same
+ * shape `search-results-list.tsx` uses). The empty state keeps the plain centered layout — there is
+ * nothing to virtualize there.
+ */
 export const ProblemsPanel: FC<ProblemsPanelProps> = ({
     groups,
     hasAnyProblem,
@@ -44,10 +40,21 @@ export const ProblemsPanel: FC<ProblemsPanelProps> = ({
     onOpenProblem,
     onClose,
 }) => {
-    const { t } = useTranslation()
+    const viewportRef = useRef<HTMLDivElement>(null)
+
     const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
 
-    const hasVisibleGroups = groups.length > 0
+    const rows = buildProblemListRows(groups, collapsedPaths)
+
+    const rowVirtualizer = useVirtualizer({
+        count: rows.length,
+        getScrollElement: () => viewportRef.current,
+        estimateSize: () => PROBLEM_LIST_ROW_HEIGHT_PX,
+        overscan: PROBLEM_LIST_OVERSCAN,
+        getItemKey: (index) => rows[index].id,
+    })
+
+    const { t } = useTranslation()
 
     return (
         <div className='bg-panel-background flex h-full min-h-0 w-full flex-col'>
@@ -65,36 +72,51 @@ export const ProblemsPanel: FC<ProblemsPanelProps> = ({
                 />
             </div>
 
-            <ScrollContainer className='min-h-0 flex-1'>
-                {!hasVisibleGroups && (
-                    <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
-                        <CircleCheck className='size-5 opacity-60' />
-                        {t(hasAnyProblem ? 'problems.emptyFiltered' : 'problems.empty')}
+            {rows.length === 0 ? (
+                <div className='text-app-sidebar-icon-default flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
+                    <CircleCheck className='size-5 opacity-60' />
+                    {t(hasAnyProblem ? 'problems.emptyFiltered' : 'problems.empty')}
+                </div>
+            ) : (
+                <div className='relative min-h-0 flex-1'>
+                    <div ref={viewportRef} className='scrollbar-hidden h-full w-full overflow-x-hidden overflow-y-auto'>
+                        <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                                const row = rows[virtualRow.index]
+
+                                return (
+                                    <div
+                                        key={virtualRow.key}
+                                        data-index={virtualRow.index}
+                                        ref={rowVirtualizer.measureElement}
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            transform: `translateY(${virtualRow.start}px)`,
+                                        }}>
+                                        {row.kind === 'group' ? (
+                                            <FileGroupHeader
+                                                path={row.path}
+                                                count={row.problemCount}
+                                                expanded={!row.collapsed}
+                                                onToggle={() => setCollapsedPaths((current) => toggleInSet(current, row.path))}
+                                            />
+                                        ) : (
+                                            <ProblemRow
+                                                problem={row.problem}
+                                                onClick={() => onOpenProblem(row.path, row.problem.line, row.problem.column)}
+                                            />
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
                     </div>
-                )}
-                {hasVisibleGroups &&
-                    groups.map((group) => {
-                        const collapsed = collapsedPaths.has(group.path)
-                        return (
-                            <div key={group.path}>
-                                <FileGroupHeader
-                                    path={group.path}
-                                    count={group.problems.length}
-                                    expanded={!collapsed}
-                                    onToggle={() => setCollapsedPaths((current) => toggleInSet(current, group.path))}
-                                />
-                                {!collapsed &&
-                                    group.problems.map((problem) => (
-                                        <ProblemRow
-                                            key={`${group.path}:${problem.line}:${problem.column}:${problem.message}`}
-                                            problem={problem}
-                                            onClick={() => onOpenProblem(group.path, problem.line, problem.column)}
-                                        />
-                                    ))}
-                            </div>
-                        )
-                    })}
-            </ScrollContainer>
+                    <OverlayScrollbar viewportRef={viewportRef} orientation='vertical' />
+                </div>
+            )}
         </div>
     )
 }

@@ -46,7 +46,15 @@ export const QUERY_KEY = {
         STATUS: (projectId: ProjectId) => ['git', projectId, 'status'] as const,
         LOG: (projectId: ProjectId) => ['git', projectId, 'log'] as const,
         REMOTES: (projectId: ProjectId) => ['git', projectId, 'remotes'] as const,
-        DIFF: (projectId: ProjectId, path: string, mode: DiffMode) => ['git', projectId, GIT_SCOPE_DIFF, path, mode] as const,
+        /**
+         * `beforePath` (a rename's original left-hand path) is appended *after* `mode` so the
+         * `fs:changed` handler's path lookup at index 3 keeps working unchanged — see
+         * `isGitWorktreeQueryForChangedPaths` in `ipc-sync-provider.tsx`. It belongs in the key at
+         * all because the same `(path, mode)` yields a different diff depending on whether an
+         * original path was supplied.
+         */
+        DIFF: (projectId: ProjectId, path: string, mode: DiffMode, beforePath: string | null = null) =>
+            ['git', projectId, GIT_SCOPE_DIFF, path, mode, beforePath] as const,
         GUTTER: (projectId: ProjectId, path: string) => ['git', projectId, GIT_SCOPE_GUTTER, path] as const,
         CURRENT_USER: (projectId: ProjectId) => ['git', projectId, 'current-user'] as const,
         BRANCHES: (projectId: ProjectId) => ['git', projectId, 'branches'] as const,
@@ -93,6 +101,15 @@ export const QUERY_KEY = {
     TERMINAL: {
         ALL: ['terminal'] as const,
         PROFILES: ['terminal', 'profiles'] as const,
+        /**
+         * Prefix covering every project's `SESSIONS(projectId)` roster at once — the same
+         * partial-key-matching trick `AGENT.HOOKS_PROJECT` uses one branch above. Exists for the
+         * `terminal:exited` handler in `ipc-sync-provider.tsx`, whose payload carries only a
+         * `sessionId`: pty session ids are globally unique but say nothing about which project's
+         * roster holds them, so the dead session has to be marked wherever it is cached. Queries
+         * themselves are always keyed by the full `SESSIONS`.
+         */
+        SESSIONS_ALL: ['terminal', 'sessions'] as const,
         SESSIONS: (projectId: string) => ['terminal', 'sessions', projectId] as const,
     },
     TASK: {

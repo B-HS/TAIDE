@@ -36,6 +36,25 @@ export const TAIDE_LANGUAGE_IDS = [
 
 export type TaideLanguageId = (typeof TAIDE_LANGUAGE_IDS)[number]
 
+const TAIDE_LANGUAGE_ID_SET: ReadonlySet<string> = new Set(TAIDE_LANGUAGE_IDS)
+
+export const isTaideLanguageId = (languageId: string): languageId is TaideLanguageId => TAIDE_LANGUAGE_ID_SET.has(languageId)
+
+/**
+ * The grammars loaded into the highlighter at boot; every other entry of {@link TAIDE_LANGUAGE_IDS}
+ * is fetched on demand the first time a model of that language exists (see `shiki-monaco.ts`'s
+ * `ensureShikiLanguage`). Loading all 31 up front cost 2266kB across 30 built grammar chunks —
+ * `cpp` alone is 778kB — fetched and parsed on the main thread during startup for languages most
+ * sessions never open (audit §1-7). These three total 64kB.
+ *
+ * The three kept here are the ones the app itself opens without any user action, so deferring them
+ * would only trade a boot cost for a guaranteed re-tokenize a moment later: `settings.json` and
+ * `keybindings.json` open as app-file tabs (`json`/`jsonc`), and markdown is what the welcome and
+ * preview surfaces render. Anything the user opens — including restored session tabs — arrives
+ * through the on-demand path.
+ */
+export const TAIDE_CORE_LANGUAGE_IDS = ['json', 'jsonc', 'markdown'] as const satisfies readonly TaideLanguageId[]
+
 type GrammarLoader = () => Promise<LanguageRegistration[]>
 
 const renameMainGrammar = (registrations: LanguageRegistration[], name: string): LanguageRegistration[] => {
@@ -79,7 +98,13 @@ const GRAMMAR_LOADERS: Record<TaideLanguageId, GrammarLoader> = {
 
 export const loadTaideGrammar = (id: TaideLanguageId) => GRAMMAR_LOADERS[id]()
 
-export const loadAllTaideGrammars = async (): Promise<LanguageRegistration[]> => {
-    const grammarLists = await Promise.all(TAIDE_LANGUAGE_IDS.map(loadTaideGrammar))
+/**
+ * Each loader's array is self-contained — shiki ships every grammar a language embeds alongside it,
+ * so a per-language load never leaves an `embeddedLangs` name unresolved (which would make
+ * `Registry.loadLanguages` throw). That is what lets the highlighter be built from an arbitrary
+ * subset of {@link TAIDE_LANGUAGE_IDS} and grown one language at a time later.
+ */
+export const loadTaideGrammars = async (ids: readonly TaideLanguageId[]): Promise<LanguageRegistration[]> => {
+    const grammarLists = await Promise.all(ids.map(loadTaideGrammar))
     return grammarLists.flat()
 }

@@ -15,7 +15,8 @@ use crate::infra::root_guard;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
-use super::types::{FileSizeTier, OpenedFile};
+use super::editorconfig;
+use super::types::{EditorConfigOptions, FileSizeTier, OpenedFile};
 
 const BINARY_SNIFF_BYTES: usize = 8_000;
 const MIRROR_FILE_SUFFIX: &str = ".json";
@@ -61,7 +62,12 @@ pub struct UntitledMirrorEntry {
     pub saved_at_ms: f64,
 }
 
-pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay]) -> AppResult<OpenedFile> {
+/// `editor_config_enabled` is the user's `Settings::editor_config_enabled` toggle, threaded in
+/// rather than read here so this stays a pure filesystem function. When it is off (the default) the
+/// `.editorconfig` chain is not walked at all, so a project that has no use for it pays nothing per
+/// open. A [`FileSizeTier::Refused`] file never carries the properties either — it has no editable
+/// buffer for them to apply to.
+pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay], editor_config_enabled: bool) -> AppResult<OpenedFile> {
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(AppError::localized(
@@ -85,7 +91,7 @@ pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay]) -> AppResul
         return Ok(refused_file(path_string, language_id, byte_size, modified_ms));
     }
 
-    let content = String::from_utf8_lossy(&std::fs::read(path)?).into_owned();
+    let (content, encoding_lossy) = decode_utf8_lossy(std::fs::read(path)?);
     let line_count = content.lines().count();
 
     let tier = if byte_size >= READ_ONLY_FILE_BYTES {
@@ -103,9 +109,35 @@ pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay]) -> AppResul
         byte_size: saturate_u32(byte_size),
         line_count: saturate_u32(line_count as u64),
         tier,
-        read_only: tier == FileSizeTier::ReadOnly,
+        read_only: tier == FileSizeTier::ReadOnly || encoding_lossy,
+        encoding_lossy,
         modified_ms,
+        editor_config: if editor_config_enabled {
+            editorconfig::resolve_for_file(path)
+        } else {
+            EditorConfigOptions::default()
+        },
     })
+}
+
+/// Decodes file bytes as UTF-8, reporting whether anything was **lost** doing so — every byte
+/// sequence that is not valid UTF-8 becomes U+FFFD and can never be turned back into the original
+/// bytes. A file opened this way (EUC-KR, Latin-1, UTF-16 without a NUL in its first
+/// [`BINARY_SNIFF_BYTES`], …) must therefore never be written back: `file_save` only carries a
+/// `String`, so saving would replace the undecodable bytes with the replacement character
+/// permanently. The `true` flag rides out on [`OpenedFile::encoding_lossy`] and forces
+/// `read_only`, which is what actually blocks the save (the editor never produces a draft for a
+/// read-only file). Round-tripping such a file — decoding with its real encoding and re-encoding on
+/// save — is deliberately out of scope here (`docs/quality-assurance/2026-08-29-full-audit.md`
+/// §4-A-3, backlog §7); the point of this function is only that the loss stops being *silent*.
+///
+/// The lossless path costs nothing extra: `String::from_utf8` validates the `Vec` in place and
+/// hands back the same allocation, and only the already-broken path pays for the lossy re-decode.
+fn decode_utf8_lossy(bytes: Vec<u8>) -> (String, bool) {
+    match String::from_utf8(bytes) {
+        Ok(text) => (text, false),
+        Err(error) => (String::from_utf8_lossy(error.as_bytes()).into_owned(), true),
+    }
 }
 
 /// Private on purpose (R6#2): the raw, guard-free write must not be callable from outside this
@@ -149,7 +181,46 @@ pub fn create_entry(path: &Path, is_dir: bool) -> AppResult<()> {
     Ok(())
 }
 
+/// Re-attaches the caller's requested file name to an already-resolved destination directory.
+///
+/// `root_guard::resolve_owning_project` canonicalizes both sides of a rename, and canonicalization
+/// on a case-insensitive filesystem (macOS APFS/HFS+, Windows) answers with the name **as it is
+/// spelled on disk** — so `readme.md` → `README.md` reaches [`rename_entry`] as `from == to` and
+/// `std::fs::rename` silently does nothing. Keeping the canonical *parent* (the part the root guard
+/// actually validated) while restoring the requested *file name* is what makes a case-only rename
+/// expressible at all; on a case-sensitive filesystem the two are identical anyway, since a
+/// not-yet-existing destination is already joined verbatim by `root_guard::canonicalize_lenient`.
+/// Falls back to the resolved path when the request has no file name to re-attach (`..`, a bare
+/// root), which [`rename_entry`]'s own guards then reject on their merits.
+pub fn destination_with_requested_name(resolved_to: &Path, requested_to: &Path) -> PathBuf {
+    match (resolved_to.parent(), requested_to.file_name()) {
+        (Some(parent), Some(file_name)) => parent.join(file_name),
+        _ => resolved_to.to_path_buf(),
+    }
+}
+
+/// Renames `from` to `to`, refusing to clobber whatever already sits at `to`.
+///
+/// The single exception is a **case-only rename** — `to` resolving to `from` itself on a
+/// case-insensitive filesystem. That is not a destination collision but the one filesystem
+/// operation that cannot be expressed as a plain `rename` there: the kernel sees source and target
+/// as the same entry and no-ops. It goes through a uniquely-named temporary sibling instead, whose
+/// shape `persist::is_temp_sibling` already teaches the watcher to drop from `FsChange` groups, so
+/// the two halves surface to the frontend as the single rename the user asked for. A failure
+/// between the two halves puts the entry back under its original name rather than leaving it parked
+/// at the temporary one.
 pub fn rename_entry(from: &Path, to: &Path) -> AppResult<()> {
+    if from == to {
+        return Ok(());
+    }
+
+    if to.symlink_metadata().is_ok() {
+        if !is_same_entry(from, to) {
+            return Err(destination_exists_error(to));
+        }
+        return rename_through_temp_sibling(from, to);
+    }
+
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -185,6 +256,14 @@ pub fn delete_entry(path: &Path) -> AppResult<()> {
     })
 }
 
+/// Copies `from` to `to`, refusing an existing destination for the same reason [`rename_entry`]
+/// does: `std::fs::copy` overwrites a file outright and [`copy_dir_recursive`] merges into an
+/// existing directory, so a paste whose target name collides used to destroy the target's content
+/// with no prompt. The frontend's own collision check only ever sees the tree rows it has actually
+/// materialized, so a collapsed folder's children are invisible to it — this guard is the one that
+/// holds for them (`docs/quality-assurance/2026-08-29-full-audit.md` §4-A-2 · §4-B A2). Unlike
+/// [`rename_entry`] there is no same-entry exception: on a case-insensitive filesystem a
+/// case-variant destination *is* the source, which the copy-into-self guard below already rejects.
 pub fn copy_entry(from: &Path, to: &Path) -> AppResult<()> {
     let metadata = std::fs::metadata(from)?;
     if to == from || to.starts_with(from) {
@@ -194,6 +273,9 @@ pub fn copy_entry(from: &Path, to: &Path) -> AppResult<()> {
             format!("cannot copy into itself or a subpath: {}", to.display()),
         )
         .with_arg("target", to.display()));
+    }
+    if to.symlink_metadata().is_ok() {
+        return Err(destination_exists_error(to));
     }
     if metadata.is_dir() {
         copy_dir_recursive(from, to)
@@ -397,6 +479,37 @@ pub fn list_untitled_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppRes
     Ok(mirrors)
 }
 
+/// Whether both paths name the same filesystem entry. Compared through `canonicalize`, which
+/// resolves case-insensitive spellings and symlinks to one identity — the only cross-platform way
+/// to tell "the destination is really the source under another spelling" (the case-only rename)
+/// from "the destination is a different file that would be clobbered". A path that cannot be
+/// canonicalized is never the same entry.
+fn is_same_entry(left: &Path, right: &Path) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn rename_through_temp_sibling(from: &Path, to: &Path) -> AppResult<()> {
+    let temp_path = persist::temp_sibling(to);
+    std::fs::rename(from, &temp_path)?;
+    if let Err(error) = std::fs::rename(&temp_path, to) {
+        std::fs::rename(&temp_path, from).ok();
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn destination_exists_error(to: &Path) -> AppError {
+    AppError::localized(
+        AppErrorKind::InvalidArgument,
+        "error.file.destinationExists",
+        format!("destination already exists: {}", to.display()),
+    )
+    .with_arg("path", to.display())
+}
+
 fn copy_dir_recursive(from: &Path, to: &Path) -> AppResult<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
@@ -462,7 +575,9 @@ fn refused_file(path: String, language_id: String, byte_size: u64, modified_ms: 
         line_count: 0,
         tier: FileSizeTier::Refused,
         read_only: true,
+        encoding_lossy: false,
         modified_ms,
+        editor_config: EditorConfigOptions::default(),
     }
 }
 
@@ -543,6 +658,180 @@ mod tests {
         cleanup(&dir);
     }
 
+    fn entry_names(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .expect("read dir")
+            .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Reproduces `file_rename`'s whole path, not just [`rename_entry`]: the command canonicalizes
+    /// both sides first, and on a case-insensitive filesystem that is what collapses the requested
+    /// `README.md` into the on-disk `readme.md`, so the rename used to be handed `from == to` and
+    /// silently did nothing (audit §4-A-1). Handing `resolved_to` straight to [`rename_entry`] —
+    /// the pre-fix composition — leaves the file under its old spelling and fails the assertions
+    /// below. On a case-sensitive filesystem the destination simply does not exist, the plain
+    /// rename branch runs, and the same assertions hold.
+    #[test]
+    fn 대소문자만_다른_개명은_정규화로_경로가_같아져도_요청한_표기로_반영된다() {
+        let dir = temp_dir("rename-case-only");
+        std::fs::create_dir_all(&dir).unwrap();
+        let lower = dir.join("readme.md");
+        let requested = dir.join("README.md");
+        std::fs::write(&lower, "hello").unwrap();
+
+        let resolved_from = std::fs::canonicalize(&lower).expect("canonicalize from");
+        let resolved_to = root_guard::canonicalize_lenient(&requested).expect("canonicalize to");
+        let destination = destination_with_requested_name(&resolved_to, &requested);
+
+        rename_entry(&resolved_from, &destination).expect("rename");
+
+        let names = entry_names(&dir);
+        assert!(names.contains(&"README.md".to_string()), "요청한 표기로 개명되어야 한다: {names:?}");
+        assert!(
+            !names.contains(&"readme.md".to_string()),
+            "옛 표기가 남아 있으면 안 된다: {names:?}"
+        );
+        assert_eq!(names.len(), 1, "임시 이름이 남아 있으면 안 된다: {names:?}");
+        assert_eq!(std::fs::read_to_string(&requested).unwrap(), "hello");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn destination_with_requested_name은_정규화된_부모에_요청한_이름을_붙인다() {
+        let resolved = Path::new("/canonical/project/readme.md");
+
+        assert_eq!(
+            destination_with_requested_name(resolved, Path::new("/symlinked/project/README.md")),
+            PathBuf::from("/canonical/project/README.md")
+        );
+        assert_eq!(
+            destination_with_requested_name(resolved, Path::new("/")),
+            PathBuf::from("/canonical/project/readme.md"),
+            "붙일 파일명이 없으면 해석된 경로를 그대로 쓴다"
+        );
+    }
+
+    #[test]
+    fn 개명_목적지에_다른_파일이_있으면_덮어쓰지_않고_거부한다() {
+        let dir = temp_dir("rename-destination-exists");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("a.txt");
+        let occupied = dir.join("b.txt");
+        std::fs::write(&source, "source").unwrap();
+        std::fs::write(&occupied, "must survive").unwrap();
+
+        let error = rename_entry(&source, &occupied).expect_err("목적지가 이미 있으면 실패해야 한다");
+
+        assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+        assert_eq!(std::fs::read_to_string(&occupied).unwrap(), "must survive");
+        assert!(source.exists(), "원본은 그대로 남아야 한다");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 복사_목적지에_이미_항목이_있으면_거부한다() {
+        let dir = temp_dir("copy-destination-exists");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("a.txt");
+        let occupied = dir.join("b.txt");
+        std::fs::write(&source, "source").unwrap();
+        std::fs::write(&occupied, "must survive").unwrap();
+
+        let error = copy_entry(&source, &occupied).expect_err("목적지가 이미 있으면 실패해야 한다");
+
+        assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+        assert_eq!(std::fs::read_to_string(&occupied).unwrap(), "must survive");
+
+        let source_dir = dir.join("pkg");
+        let occupied_dir = dir.join("pkg-copy");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::create_dir_all(&occupied_dir).unwrap();
+        std::fs::write(occupied_dir.join("keep.txt"), "keep").unwrap();
+
+        assert!(
+            copy_entry(&source_dir, &occupied_dir).is_err(),
+            "기존 폴더에 병합하지 않고 거부해야 한다"
+        );
+        assert_eq!(std::fs::read_to_string(occupied_dir.join("keep.txt")).unwrap(), "keep");
+
+        cleanup(&dir);
+    }
+
+    /// EUC-KR bytes for "한글" — no NUL byte, so the binary sniff lets them through to the decoder.
+    const EUC_KR_SAMPLE: [u8; 4] = [0xC7, 0xD1, 0xB1, 0xDB];
+
+    #[test]
+    fn 비_utf8_파일은_손실_표식과_함께_열람_전용으로_열린다() {
+        let dir = temp_dir("lossy-encoding");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("legacy.txt");
+        std::fs::write(&file, EUC_KR_SAMPLE).unwrap();
+
+        let opened = open_file(&file, &[], false).expect("open");
+
+        assert!(opened.encoding_lossy, "손실 디코딩은 표식으로 드러나야 한다");
+        assert!(opened.read_only, "손실 디코딩된 파일은 저장할 수 없어야 한다");
+        assert_eq!(opened.tier, FileSizeTier::Normal, "표식은 크기 티어와 독립이다");
+        assert!(opened.content.contains('\u{fffd}'));
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn editorconfig가_꺼져_있으면_체인을_읽지_않는다() {
+        let dir = temp_dir("editorconfig-off");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".editorconfig"), "root = true\n[*]\nindent_size = 2\n").unwrap();
+        let file = dir.join("main.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+
+        let opened = open_file(&file, &[], false).expect("open");
+
+        assert_eq!(opened.editor_config, EditorConfigOptions::default());
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn editorconfig가_켜져_있으면_해석_결과가_열기_응답에_실린다() {
+        let dir = temp_dir("editorconfig-on");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(".editorconfig"),
+            "root = true\n[*]\nindent_style = space\nindent_size = 2\ninsert_final_newline = true\n",
+        )
+        .unwrap();
+        let file = dir.join("main.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+
+        let opened = open_file(&file, &[], true).expect("open");
+
+        assert_eq!(opened.editor_config.indent_size, Some(2));
+        assert_eq!(opened.editor_config.insert_final_newline, Some(true));
+        assert_eq!(opened.editor_config.trim_trailing_whitespace, None);
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn utf8_파일에는_손실_표식이_붙지_않는다() {
+        let dir = temp_dir("lossless-encoding");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("utf8.txt");
+        std::fs::write(&file, "한글 hello\n").unwrap();
+
+        let opened = open_file(&file, &[], false).expect("open");
+
+        assert!(!opened.encoding_lossy);
+        assert!(!opened.read_only);
+        assert_eq!(opened.content, "한글 hello\n");
+
+        cleanup(&dir);
+    }
+
     #[test]
     fn 작은_파일은_normal_티어다() {
         let dir = temp_dir("normal");
@@ -550,7 +839,7 @@ mod tests {
         let file = dir.join("main.rs");
         std::fs::write(&file, "fn main() {}\n").unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Normal);
         assert!(!opened.read_only);
@@ -568,7 +857,7 @@ mod tests {
         let content = "a".repeat((LARGE_FILE_BYTES) as usize);
         std::fs::write(&file, &content).unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Large);
         assert!(!opened.read_only);
@@ -584,7 +873,7 @@ mod tests {
         let content = "x\n".repeat(LARGE_FILE_LINES + 1);
         std::fs::write(&file, &content).unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Large);
 
@@ -599,7 +888,7 @@ mod tests {
         let content = "a".repeat((READ_ONLY_FILE_BYTES) as usize);
         std::fs::write(&file, &content).unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::ReadOnly);
         assert!(opened.read_only);
@@ -615,7 +904,7 @@ mod tests {
         let handle = std::fs::File::create(&file).unwrap();
         handle.set_len(REFUSED_FILE_BYTES).unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Refused);
         assert!(opened.read_only);
@@ -631,7 +920,7 @@ mod tests {
         let file = dir.join("binary.dat");
         std::fs::write(&file, [0x00u8, 0x01, 0x02, 0x03]).unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.tier, FileSizeTier::Refused);
         assert!(opened.content.is_empty());
@@ -649,7 +938,7 @@ mod tests {
         let file = dir.join("a.ts");
         std::fs::write(&file, "export const x = 1").unwrap();
 
-        let opened = open_file(&file, &[]).expect("open");
+        let opened = open_file(&file, &[], false).expect("open");
 
         assert_eq!(opened.language_id, "typescript");
 

@@ -99,10 +99,16 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
      */
     const zen = windowContext.kind === 'main' && (layout?.shellView?.zen ?? false)
 
+    /** A pinned tab survives ⌘W with a warning instead of closing (`docs/features/tabs.md` §3) — the tab bar's own close affordances guard themselves in `tab-item.tsx`. */
     const closeFocusedTab = () => {
         if (!paneTree) return
         const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf?.active) return
+        const activeTab = leaf.tabs.find((tab) => tab.id === leaf.active)
+        if (activeTab?.pinned) {
+            toast.warning(t('tab.pinnedCloseBlocked', { title: activeTab.title }))
+            return
+        }
         closeTab(leaf.active)
     }
 
@@ -113,8 +119,16 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         moveTabToWindow({ tabId: leaf.active, target }, { onError: (error) => toast.error(describeIpcError(error)) })
     }
 
+    /**
+     * `hasWidgetFocus`, not `hasTextFocus`: the latter is true only while the editor's own
+     * `textarea.inputarea` holds focus, so pressing ⌘F *again* while the Find widget's input is
+     * focused (the natural "search the next thing" reflex) read as "no editor focused" and opened
+     * the global search panel instead of re-triggering monaco's find — leaving the editor's find
+     * widget behind. Widget focus covers the editor container including its overlay widgets (find,
+     * rename, ...), which is exactly the surface ⌘F belongs to.
+     */
     const openFind = () => {
-        const focusedEditor = monaco.editor.getEditors().find((instance) => instance.hasTextFocus())
+        const focusedEditor = monaco.editor.getEditors().find((instance) => instance.hasWidgetFocus())
         if (focusedEditor) {
             focusedEditor.getAction('actions.find')?.run()
             return
@@ -463,6 +477,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
                             preview={dragTab.preview}
                             onActivate={() => {}}
                             onClose={() => {}}
+                            onTogglePin={() => {}}
                         />
                     </div>
                 )}

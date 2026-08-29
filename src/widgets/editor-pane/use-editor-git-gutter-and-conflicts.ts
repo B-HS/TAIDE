@@ -26,6 +26,8 @@ import {
 } from '@features/git/conflict-marker'
 import { isPathConflicted } from '@widgets/editor-pane/conflict-status'
 
+const CONFLICT_REPARSE_DEBOUNCE_MS = 150
+
 const GUTTER_CLASS_BY_HUNK_KIND: Record<HunkKind, string> = {
     added: 'taide-gutter-added',
     modified: 'taide-gutter-modified',
@@ -165,15 +167,38 @@ export const useEditorGitGutterAndConflicts = ({ projectId, path, editor, t, set
      * the stale array is simply never read. The initial parse is deferred to a microtask rather
      * than called synchronously in the effect body (an effect body must not call `setState`
      * synchronously — matches the same constraint `applyMirrorRestore`'s caller works around above).
+     *
+     * The re-parse is debounced because it is the only remaining per-keystroke consumer that
+     * materializes the whole document (`model.getValue()`) and then scans all of it: typing inside a
+     * conflicted file rebuilt a full copy of the buffer and re-scanned every line on each character.
+     * `CONFLICT_REPARSE_DEBOUNCE_MS` is well under a perceptible delay for decorations, and the
+     * resolution path does not depend on this subscription at all — `applyConflictResolution` reads
+     * the model itself for the text it sends to `git_resolve_conflict`.
+     *
+     * The debounced callback re-checks `model.isDisposed()` because the model it captured can be
+     * torn down before this effect's cleanup runs: a rename disposes the old model synchronously
+     * (`entities/editor/model-registry.ts`'s `retargetModel`) while the `path` dependency only
+     * changes once the new layout has made its way back through the query cache, and monaco throws
+     * on `getValue()` of a disposed model.
      */
     useEffect(() => {
         if (!editor || !isConflicted) return
         const model = editor.getModel()
         if (!model) return
-        const parseAndSetConflictRegions = () => setConflictRegions(parseConflictMarkers(model.getValue()))
+        const parseAndSetConflictRegions = () => {
+            if (model.isDisposed()) return
+            setConflictRegions(parseConflictMarkers(model.getValue()))
+        }
+        let reparseTimeout: ReturnType<typeof setTimeout> | undefined
         queueMicrotask(parseAndSetConflictRegions)
-        const subscription = editor.onDidChangeModelContent(parseAndSetConflictRegions)
-        return () => subscription.dispose()
+        const subscription = editor.onDidChangeModelContent(() => {
+            clearTimeout(reparseTimeout)
+            reparseTimeout = setTimeout(parseAndSetConflictRegions, CONFLICT_REPARSE_DEBOUNCE_MS)
+        })
+        return () => {
+            clearTimeout(reparseTimeout)
+            subscription.dispose()
+        }
     }, [editor, path, isConflicted])
 
     useEffect(() => {

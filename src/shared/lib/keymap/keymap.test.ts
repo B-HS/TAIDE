@@ -317,6 +317,26 @@ describe('applyKeymapOverrides', () => {
         const result = applyKeymapOverrides(baseWithChord, [{ actionId: 'save', key: 'x', mods: ['mod'] }])
         expect(result[0]?.chord).toBeUndefined()
     })
+
+    test('chord 엔트리를 다른 1단 키로 재바인딩하면 1단 보호용 when 을 승계하지 않는다', () => {
+        const result = applyKeymapOverrides(APP_KEYMAP, [{ actionId: 'open-keybindings-editor', key: 'j', mods: ['mod'] }])
+        const entry = result.find((item) => item.id === 'open-keybindings-editor')
+        expect(entry?.when).toBeUndefined()
+    })
+
+    test('chord 엔트리의 1단을 유지한 채 2단만 바꾸면 when 을 그대로 유지한다', () => {
+        const result = applyKeymapOverrides(APP_KEYMAP, [
+            { actionId: 'open-keybindings-editor', key: 'k', mods: ['mod'], chord: { key: 'm', mods: ['mod'] } },
+        ])
+        const entry = result.find((item) => item.id === 'open-keybindings-editor')
+        expect(entry?.when).toBe('!terminalFocus')
+    })
+
+    test('chord 가 없는 엔트리의 의미적 when 은 재바인딩해도 유지된다', () => {
+        const result = applyKeymapOverrides(APP_KEYMAP, [{ actionId: 'terminal-jump-to-previous-command', key: 'j', mods: ['mod', 'alt'] }])
+        const entry = result.find((item) => item.id === 'terminal-jump-to-previous-command')
+        expect(entry?.when).toBe('terminalFocus')
+    })
 })
 
 describe('findKeymapConflict', () => {

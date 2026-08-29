@@ -270,6 +270,16 @@ const applyTextEditsToUri = async (
 
         const file = await deps.openFile(path)
         if (file.tier === 'refused') return { applied: false, failureReason: `cannot edit refused file (too large or binary): ${path}` }
+        /**
+         * `readOnly` covers both the size tiers monaco refuses keystrokes for and — the reason this
+         * check exists at all — a file whose bytes are not valid UTF-8 (`encodingLossy`): its
+         * `content` came back with every such byte replaced by U+FFFD, so writing it back would burn
+         * those replacements into the file permanently (audit §4-A-3). The editor's own save path
+         * refuses the same file (`use-editor-file-persistence.ts`'s `handleSave`), but a
+         * `WorkspaceEdit` reaches disk through here without ever passing an editor — a project-wide
+         * rename touching an EUC-KR/Latin-1 source would otherwise destroy it silently.
+         */
+        if (file.readOnly) return { applied: false, failureReason: `cannot edit read-only file (oversized, or not valid UTF-8): ${path}` }
 
         const nextContent = applyTextEditsToContent(file.content, edits)
         await deps.saveFile({ path, content: nextContent })

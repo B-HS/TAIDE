@@ -16,12 +16,13 @@ import {
 } from '@shared/ui/alert-dialog'
 import { IconButton } from '@shared/ui/icon-button'
 import { CommitBox } from '@features/git/commit-box'
+import type { GitDiffTarget } from '@features/git/git-change-group'
 import { GitChangeGroup } from '@features/git/git-change-group'
 import { ResourceGroupHeader } from '@features/git/resource-group-header'
 import { StashList } from '@features/git/stash-list'
-import type { GitStatusChangeKind } from '@features/git/status-row-item'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { CommitDetailPanel } from '@widgets/git-panel/commit-detail-panel'
+import { isStagedRow, isUnstagedRow, resolveCommitGate } from '@widgets/git-panel/commit-gate'
 import { CommitGraph, type GraphLogEntry } from '@widgets/git-panel/commit-graph'
 
 export type { GitStatusChangeKind } from '@features/git/status-row-item'
@@ -48,7 +49,7 @@ export type GitPanelProps = {
     onUnstage: (paths: string[]) => void
     onDiscard: (paths: string[]) => void
     onOpenFile: (path: string) => void
-    onOpenChanges: (path: string, group: 'staged' | 'unstaged') => void
+    onOpenChanges: (target: GitDiffTarget, group: 'staged' | 'unstaged') => void
     onCopyPath: (path: string) => void
     onRevealInExplorer: (path: string) => void
     onSync: () => void
@@ -65,10 +66,6 @@ export type GitPanelProps = {
     onCreateBranch: (name: string) => void
     graphCommits: GraphLogEntry[]
 }
-
-const isStagedRow = (row: GitStatusRow): row is GitStatusRow & { staged: GitStatusChangeKind } => !row.isConflicted && row.staged !== null
-
-const isUnstagedRow = (row: GitStatusRow): row is GitStatusRow & { unstaged: GitStatusChangeKind } => !row.isConflicted && row.unstaged !== null
 
 export const GitPanel: FC<GitPanelProps> = ({
     projectId,
@@ -112,10 +109,12 @@ export const GitPanel: FC<GitPanelProps> = ({
     const mergeRows = rows.filter((row) => row.isConflicted)
     const stagedRows = rows.filter(isStagedRow)
     const unstagedRows = rows.filter(isUnstagedRow)
+    const commitGate = resolveCommitGate(rows)
     const selectedCommit = selectedCommitId ? (graphCommits.find((commit) => commit.id === selectedCommitId) ?? null) : null
 
     const requestCommit = () => {
-        if (stagedRows.length === 0 && unstagedRows.length > 0) {
+        if (commitGate === 'blockedByConflicts') return
+        if (commitGate === 'confirmStageAll') {
             setConfirmStageAllOpen(true)
             return
         }
@@ -181,6 +180,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                 onGenerateCommitMessage={onGenerateCommitMessage}
                 isGeneratingCommitMessage={isGeneratingCommitMessage}
                 canGenerateCommitMessage={stagedRows.length > 0 || unstagedRows.length > 0 || mergeRows.length > 0}
+                blockedReason={commitGate === 'blockedByConflicts' ? t('git.commitBlockedByConflicts') : null}
             />
 
             <ScrollContainer className='min-h-0 flex-1'>

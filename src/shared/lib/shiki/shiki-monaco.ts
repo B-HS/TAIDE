@@ -5,7 +5,10 @@ import type { ResolvedTheme } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
 import { buildMonacoThemeData, TAIDE_MONACO_THEME_NAME } from '@shared/lib/monaco/theme'
 import { buildShikiTheme } from '@shared/lib/shiki/build-shiki-theme'
-import { loadAllTaideGrammars } from '@shared/lib/shiki/lang-map'
+import type { TaideLanguageId } from '@shared/lib/shiki/lang-map'
+import { isTaideLanguageId, loadTaideGrammar, loadTaideGrammars, TAIDE_CORE_LANGUAGE_IDS } from '@shared/lib/shiki/lang-map'
+import { swapTokensProviderRegistrations } from '@shared/lib/shiki/tokens-provider-registry'
+import type { TokensProviderHost, TokensProviderRegistration } from '@shared/lib/shiki/tokens-provider-registry'
 import { createLeadingTrailingDebouncer } from '@shared/lib/leading-trailing-debouncer'
 
 const PLACEHOLDER_SHIKI_THEME: ThemeRegistrationAny = { name: TAIDE_MONACO_THEME_NAME, type: 'dark', colors: {}, tokenColors: [] }
@@ -30,6 +33,16 @@ let highlighter: HighlighterCore | null = null
 let lastResolvedTheme: ResolvedTheme | null = null
 let originalSetTheme: MonacoEditorSetTheme | null = null
 let originalCreate: MonacoEditorCreate | null = null
+let tokensProviderRegistrations: TokensProviderRegistration[] = []
+
+/**
+ * Every TAIDE grammar the highlighter should currently hold — the boot core plus every language
+ * demanded since (see {@link ensureShikiLanguage}). {@link reinitShiki} rebuilds from this set, so a
+ * plugin reload never drops the grammars already demanded by open files back to the core three.
+ */
+const requestedLanguageIds = new Set<TaideLanguageId>(TAIDE_CORE_LANGUAGE_IDS)
+
+let isModelLanguageObserverInstalled = false
 
 /**
  * Serializes every `initShiki`/`reinitShiki` body — and, since contract d-45 §1's review of
@@ -77,9 +90,26 @@ const applyFallbackMonacoTheme = (resolved: ResolvedTheme) => {
 
 const attachShikiTokensProvider = async (resolved: ResolvedTheme) => {
     if (!highlighter) return
+    const attachedHighlighter = highlighter
     await highlighter.loadTheme(buildShikiTheme(resolved))
     restoreOriginalMonacoEditorApi()
-    shikiToMonaco(highlighter, monaco as ShikiMonacoNamespace)
+    tokensProviderRegistrations = swapTokensProviderRegistrations({
+        host: monaco.languages as TokensProviderHost,
+        previous: tokensProviderRegistrations,
+        attach: () => shikiToMonaco(attachedHighlighter, monaco as ShikiMonacoNamespace),
+    })
+}
+
+/**
+ * Deregisters every tokens provider currently bound to the shared highlighter, leaving monaco's own
+ * plain tokenization in place. Used when a rebuild fails: {@link buildAndInstallHighlighter} swallows
+ * the failure and leaves `highlighter` null, but {@link reinitShiki} still disposes the stale
+ * instance those providers close over — without this, *every* language (not just the ones a removed
+ * plugin contributed) would tokenize through a disposed highlighter (audit §4-B D6).
+ */
+const disposeTokensProviderRegistrations = () => {
+    tokensProviderRegistrations.forEach((registration) => registration.dispose())
+    tokensProviderRegistrations = []
 }
 
 /**
@@ -96,8 +126,23 @@ const sanitizePluginGrammarEmbeddedLangs = (grammar: LanguageRegistration, loade
     return { ...grammar, embeddedLangs: grammar.embeddedLangs.filter((name) => loadedLanguageNames.has(name)) }
 }
 
+/**
+ * Pulls every TAIDE language a plugin grammar declares in `embeddedLangs` into
+ * {@link requestedLanguageIds} before the build. {@link sanitizePluginGrammarEmbeddedLangs} drops
+ * embedded names the highlighter is not loading, so without this a plugin grammar that embeds, say,
+ * `javascript` would silently lose that embedding whenever `javascript` had not been demanded yet —
+ * a regression the old load-everything build could not have.
+ */
+const rememberTaideLanguagesEmbeddedByPluginGrammars = (pluginGrammars: LanguageRegistration[]) => {
+    for (const grammar of pluginGrammars) {
+        for (const name of grammar.embeddedLangs ?? []) {
+            if (isTaideLanguageId(name)) requestedLanguageIds.add(name)
+        }
+    }
+}
+
 const createConfiguredHighlighter = async (pluginGrammars: LanguageRegistration[]) => {
-    const taideGrammars = await loadAllTaideGrammars()
+    const taideGrammars = await loadTaideGrammars([...requestedLanguageIds])
     const loadedLanguageNames = new Set([...taideGrammars, ...pluginGrammars].map((grammar) => grammar.name))
     const safePluginGrammars = pluginGrammars.map((grammar) => sanitizePluginGrammarEmbeddedLangs(grammar, loadedLanguageNames))
     return createHighlighterCore({
@@ -115,6 +160,7 @@ const createConfiguredHighlighter = async (pluginGrammars: LanguageRegistration[
  */
 const buildAndInstallHighlighter = async (pluginGrammars: LanguageRegistration[]) => {
     try {
+        rememberTaideLanguagesEmbeddedByPluginGrammars(pluginGrammars)
         captureOriginalMonacoEditorApi()
         highlighter = await createConfiguredHighlighter(pluginGrammars)
         if (lastResolvedTheme) await attachShikiTokensProvider(lastResolvedTheme)
@@ -125,13 +171,61 @@ const buildAndInstallHighlighter = async (pluginGrammars: LanguageRegistration[]
 }
 
 /**
- * Loads all TAIDE + plugin grammars and creates the shared shiki highlighter. Idempotent — a
- * highlighter is only ever built once: a call while one already exists resolves immediately, and a
- * call while a build is still in flight (whether from an earlier `initShiki` or a `reinitShiki`)
- * queues behind it (`runExclusive`, F6#19) and then finds `highlighter` already set, so it never
- * redoes the (expensive) grammar-load/highlighter-create work.
+ * Loads `languageId`'s grammar into the live highlighter and re-registers monaco's tokens providers
+ * so the language starts tokenizing through shiki. Non-TAIDE ids (`plaintext`, monaco built-ins,
+ * plugin-contributed languages — the latter already come in through the highlighter's plugin grammar
+ * set) and ids already requested are no-ops, so this is cheap to call per model.
+ *
+ * Queued behind `runExclusive` for the same reason every other highlighter operation is: it mutates
+ * the shared highlighter and repatches `monaco.editor.setTheme`/`create` through
+ * {@link attachShikiTokensProvider}, which must never interleave with an `initShiki`/`reinitShiki`
+ * rebuild. When no highlighter exists yet the id is still recorded, and the in-flight (or next)
+ * build picks it up from {@link requestedLanguageIds} — which is also why the queued body re-checks
+ * `getLoadedLanguages()`: a build that started after the id was recorded has already loaded it, and
+ * repeating the load plus a full tokens-provider repatch would be pure waste.
+ */
+export const ensureShikiLanguage = (languageId: string): Promise<void> => {
+    if (!isTaideLanguageId(languageId) || requestedLanguageIds.has(languageId)) return Promise.resolve()
+    requestedLanguageIds.add(languageId)
+
+    return runExclusive(async () => {
+        if (!highlighter || highlighter.getLoadedLanguages().includes(languageId)) return
+        await highlighter.loadLanguage(...(await loadTaideGrammar(languageId)))
+        if (lastResolvedTheme) await attachShikiTokensProvider(lastResolvedTheme)
+    })
+}
+
+/**
+ * Watches monaco's model service so every document — an editor tab, a diff side, a peek preview —
+ * demands its own grammar exactly once, without every model-creating call site having to remember
+ * to ask. Subscribing through `onDidCreateModel` (plus a sweep of the models that already exist,
+ * since boot's `initShiki` resolves after session restore has opened tabs) rather than hooking
+ * `model-registry.ts` is what makes that coverage complete; `onDidChangeLanguage` covers the
+ * `setModelLanguage` retarget a plugin install performs on already-open files.
+ */
+const observeModelLanguages = () => {
+    if (isModelLanguageObserverInstalled) return
+    isModelLanguageObserverInstalled = true
+
+    const watchModel = (model: monaco.editor.ITextModel) => {
+        void ensureShikiLanguage(model.getLanguageId())
+        model.onDidChangeLanguage(() => void ensureShikiLanguage(model.getLanguageId()))
+    }
+
+    monaco.editor.getModels().forEach(watchModel)
+    monaco.editor.onDidCreateModel(watchModel)
+}
+
+/**
+ * Loads the core TAIDE grammars ({@link TAIDE_CORE_LANGUAGE_IDS}) plus every plugin grammar and
+ * creates the shared shiki highlighter, then arms {@link observeModelLanguages} so the remaining
+ * languages load on demand. Idempotent — a highlighter is only ever built once: a call while one
+ * already exists resolves immediately, and a call while a build is still in flight (whether from an
+ * earlier `initShiki` or a `reinitShiki`) queues behind it (`runExclusive`, F6#19) and then finds
+ * `highlighter` already set, so it never redoes the (expensive) grammar-load/highlighter-create work.
  */
 export const initShiki = (pluginGrammars: LanguageRegistration[]): Promise<void> => {
+    observeModelLanguages()
     if (highlighter) return Promise.resolve()
     return runExclusive(() => (highlighter ? Promise.resolve() : buildAndInstallHighlighter(pluginGrammars)))
 }
@@ -210,5 +304,6 @@ export const reinitShiki = (pluginGrammars: LanguageRegistration[]): Promise<voi
         const staleHighlighter = highlighter
         highlighter = null
         await buildAndInstallHighlighter(pluginGrammars)
+        if (!highlighter) disposeTokensProviderRegistrations()
         staleHighlighter?.dispose()
     })

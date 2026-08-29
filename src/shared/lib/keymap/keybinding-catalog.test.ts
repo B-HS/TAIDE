@@ -102,6 +102,30 @@ describe('findConflictingRow', () => {
         const reloadRow = rows.find((row) => row.id === 'window.reload')!
         expect(findConflictingRow(rows, reloadRow, true)?.id).toBe('open-keybindings-editor')
     })
+
+    test('monaco 기본 바인딩(⌃Space)과 같은 키로 재바인딩하면 그 monaco 행을 충돌로 본다', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'window.reload', key: 'space', mods: ['ctrl'] }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const reloadRow = rows.find((row) => row.id === 'window.reload')!
+        expect(findConflictingRow(rows, reloadRow, true)?.id).toBe('monaco.editor.action.triggerSuggest')
+    })
+
+    test('사용자가 해제(unbind)한 monaco 행은 기본 바인딩을 잃으므로 충돌로 보지 않는다', () => {
+        const overrides: KeymapOverrideEntry[] = [
+            { actionId: 'window.reload', key: 'space', mods: ['ctrl'] },
+            buildUnbindOverride('monaco.editor.action.triggerSuggest'),
+        ]
+        const rows = buildKeybindingRows(commands, overrides)
+        const reloadRow = rows.find((row) => row.id === 'window.reload')!
+        expect(findConflictingRow(rows, reloadRow, true)).toBeNull()
+    })
+
+    test('monaco 행 자신도 기본 바인딩 기준으로 충돌 상대를 찾는다', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'window.reload', key: 'space', mods: ['ctrl'] }]
+        const rows = buildKeybindingRows(commands, overrides)
+        const suggestRow = rows.find((row) => row.id === 'monaco.editor.action.triggerSuggest')!
+        expect(findConflictingRow(rows, suggestRow, true)?.id).toBe('window.reload')
+    })
 })
 
 describe('filterKeybindingRowsByCapturedKey', () => {

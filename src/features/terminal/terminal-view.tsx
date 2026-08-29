@@ -39,6 +39,16 @@ export type TerminalAttachHandle = {
 export type { TerminalCursorStyle }
 
 export type TerminalViewProps = {
+    /**
+     * Moves keyboard focus into the terminal as soon as it is created. Activating a terminal tab
+     * mounts this view (`pane-node-view.tsx` renders only each pane's active tab), and without this
+     * the freshly shown terminal had no focus at all — keystrokes went to whatever was focused
+     * before, and the user had to click the black rectangle first (audit §4-B C14). Matches what
+     * `code-editor.tsx` already does when it attaches a model. Passed as `false` for a pane that is
+     * not the focused one, so restoring a session with terminals in several panes doesn't have them
+     * race the focused pane's editor for focus.
+     */
+    autoFocus: boolean
     fontSize: number
     fontFamily: string
     theme: ITheme
@@ -58,6 +68,7 @@ export type TerminalViewProps = {
 }
 
 export const TerminalView: FC<TerminalViewProps> = ({
+    autoFocus,
     fontSize,
     fontFamily,
     theme,
@@ -93,6 +104,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
     const initialCursorStyleRef = useRef(cursorStyle)
     const initialCursorBlinkRef = useRef(cursorBlink)
     const commandBlockColorsRef = useRef<CommandBlockDecorationColors>({ success: commandSuccessColor, failure: commandFailureColor })
+    const initialAutoFocusRef = useRef(autoFocus)
 
     useEffect(() => {
         onDataRef.current = onData
@@ -198,6 +210,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
         loadWebgl()
 
         fit.fit()
+        if (initialAutoFocusRef.current) term.focus()
 
         const pendingRef = { current: 0 }
         const reportBacklog = () => onWriteBacklogChangeRef.current(pendingRef.current)

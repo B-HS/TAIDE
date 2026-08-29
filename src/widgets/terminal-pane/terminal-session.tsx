@@ -3,11 +3,12 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { ProjectId, TabId } from '@shared/api/bindings'
+import type { ProjectId, TabId, TerminalSession as TerminalSessionInfo } from '@shared/api/bindings'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
-import { attachPty, detachPty, resizePty, resolveTerminalPath, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
+import { isTerminalSessionAlive, removeTerminalSession, upsertTerminalSession } from '@entities/terminal/terminal-session-cache'
+import { attachPty, detachPty, killPty, resizePty, resolveTerminalPath, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
 import { systemOpenExternalUrl } from '@entities/system/system.ipc'
 import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands, events } from '@shared/api/bindings'
@@ -21,12 +22,13 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
-import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK } from '@shared/constants/terminal'
+import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK, DEFAULT_SHELL_LABEL } from '@shared/constants/terminal'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { Button } from '@shared/ui/button'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
+import { appendPendingTerminalInput } from '@widgets/terminal-pane/pending-terminal-input'
 import { openTerminalLink, openViaBrowserWindow } from '@widgets/terminal-pane/terminal-link-opener'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
@@ -35,11 +37,15 @@ type TerminalSessionProps = {
     projectId: ProjectId
     tabId: TabId
     sessionId: string
+    /** Whether this terminal's pane is the focused one — see `TerminalViewProps.autoFocus`. */
+    autoFocus: boolean
 }
 
-export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, sessionId: persistedSessionId }) => {
+export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, sessionId: persistedSessionId, autoFocus }) => {
     const spawnStartedRef = useRef(false)
     const dimensionsRef = useRef({ cols: 0, rows: 0 })
+    const isMountedRef = useRef(true)
+    const pendingInputRef = useRef('')
 
     const [spawnedSessionId, setSpawnedSessionId] = useState<string | null>(null)
     const [failure, setFailure] = useState<unknown>(null)
@@ -50,25 +56,85 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: liveSessions, isFetched: isSessionsFetched } = useQuery(terminalSessionsQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
-    const { mutate: persistTerminalSession } = useSetTerminalSession(projectId)
+    const { mutateAsync: persistTerminalSession } = useSetTerminalSession(projectId)
     const { t } = useTranslation()
     const queryClient = useQueryClient()
     const failureMessage = useIpcErrorMessage(failure)
 
     const persistedSession = (liveSessions ?? []).find((session) => session.id === persistedSessionId)
-    const isPersistedAlive = persistedSession?.running ?? false
-    const sessionId = exited ? null : (spawnedSessionId ?? (isPersistedAlive ? persistedSessionId : null))
+    const sessionId = exited ? null : (spawnedSessionId ?? (isTerminalSessionAlive(liveSessions, persistedSessionId) ? persistedSessionId : null))
     const activeTabKind = layout ? findPaneTab(layout.root, tabId)?.kind : null
     const tabCwd = activeTabKind?.kind === 'terminal' ? (activeTabKind.cwd ?? null) : null
+
+    const flushPendingInput = (created: string) => {
+        const pending = pendingInputRef.current
+        pendingInputRef.current = ''
+        if (!pending) return
+        void writePty({ sessionId: created, data: pending }).catch(() => undefined)
+    }
+
+    /**
+     * Records the spawned session on its tab and reports whether anything still owns it.
+     *
+     * `layout_set_terminal_session` fails with `NotFound` when the tab no longer exists, which is
+     * exactly how a tab closed *while its first spawn was still in flight* announces itself: the
+     * spawn holds the app-wide mutation guard, so the close command cannot even run until the pty is
+     * already alive, and it then kills the `sessionId` recorded on the tab — which is still empty.
+     * The shell would survive with nothing referencing it, invisible until app exit (audit §4-B
+     * C14). Distinguishing that from an ordinary tab *switch* (which unmounts this component just
+     * the same, and must keep its session for the next visit) is what the persist result is read
+     * for: a switched-away tab still exists, so its persist succeeds. A persist that fails while
+     * this component is still mounted leaves a working terminal on screen and is left alone, as
+     * before.
+     */
+    const settleSpawnedSession = async (created: string) => {
+        try {
+            await persistTerminalSession({ tabId, sessionId: created })
+            return true
+        } catch {
+            if (isMountedRef.current) return true
+            await killPty(created).catch(() => undefined)
+            queryClient.setQueryData<TerminalSessionInfo[]>(QUERY_KEY.TERMINAL.SESSIONS(projectId), (sessions) =>
+                removeTerminalSession(sessions, created),
+            )
+            return false
+        }
+    }
 
     const spawnWithMeasuredSize = async (cols: number, rows: number) => {
         const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId, tabCwd))
         const created = await spawnPty({ ...defaults, cols, rows }, () => undefined)
         setSpawnedSessionId(created)
         setCwd(defaults.cwd)
-        persistTerminalSession({ tabId, sessionId: created })
+        /**
+         * `terminalSessionsQueryOptions` is `staleTime: Infinity`, so this write — not a refetch — is
+         * what makes the session this tab just spawned visible to its own next mount. Without it the
+         * roster still predated the spawn, `isTerminalSessionAlive` read the persisted id as dead,
+         * and every return to this tab spawned another shell while orphaning the previous one (audit
+         * §4-B A6, `docs/features/terminal.md` §3.1).
+         */
+        queryClient.setQueryData<TerminalSessionInfo[]>(QUERY_KEY.TERMINAL.SESSIONS(projectId), (sessions) =>
+            upsertTerminalSession(sessions, {
+                id: created,
+                projectId,
+                cwd: defaults.cwd,
+                shell: defaults.shell ?? DEFAULT_SHELL_LABEL,
+                running: true,
+            }),
+        )
+
+        if (!(await settleSpawnedSession(created))) return
+
         const latest = dimensionsRef.current
         if (latest.cols !== cols || latest.rows !== rows) await resizePty({ sessionId: created, cols: latest.cols, rows: latest.rows })
+        flushPendingInput(created)
+    }
+
+    const handleSpawnFailure = (error: unknown) => {
+        spawnStartedRef.current = false
+        pendingInputRef.current = ''
+        setFailure(error)
+        toast.error(describeIpcError(error))
     }
 
     const handleReady = (cols: number, rows: number) => {
@@ -79,11 +145,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         }
         if (spawnStartedRef.current) return
         spawnStartedRef.current = true
-        void spawnWithMeasuredSize(cols, rows).catch((error: unknown) => {
-            spawnStartedRef.current = false
-            setFailure(error)
-            toast.error(describeIpcError(error))
-        })
+        void spawnWithMeasuredSize(cols, rows).catch(handleSpawnFailure)
     }
 
     const handleResize = (cols: number, rows: number) => {
@@ -92,8 +154,17 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         void resizePty({ sessionId, cols, rows }).catch(() => undefined)
     }
 
+    /**
+     * Input typed before the first spawn resolves is buffered instead of dropped (audit §4-B C14) —
+     * a terminal tab measures itself, spawns, and only then has a session to write to, and anything
+     * typed in that window used to vanish with no echo of any kind. Buffering is gated on a spawn
+     * actually being in flight: with no session and no spawn there is nothing that will ever flush.
+     */
     const handleWrite = (data: string) => {
-        if (!sessionId) return
+        if (!sessionId) {
+            if (spawnStartedRef.current) pendingInputRef.current = appendPendingTerminalInput(pendingInputRef.current, data)
+            return
+        }
         void writePty({ sessionId, data }).catch(() => undefined)
     }
 
@@ -122,11 +193,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         setSpawnedSessionId(null)
         spawnStartedRef.current = true
         const { cols, rows } = dimensionsRef.current
-        void spawnWithMeasuredSize(cols, rows).catch((error: unknown) => {
-            spawnStartedRef.current = false
-            setFailure(error)
-            toast.error(describeIpcError(error))
-        })
+        void spawnWithMeasuredSize(cols, rows).catch(handleSpawnFailure)
     }
 
     const handleAttachData = (onData: (bytes: Uint8Array) => void) => {
@@ -166,15 +233,33 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
         return registerTerminalWriteHandler(tabId, handleTerminalWriteRequest)
     }, [tabId, sessionId])
 
+    /**
+     * Tracks whether this pane is still on screen when an in-flight spawn finally resolves — the one
+     * thing `settleSpawnedSession` cannot learn from the IPC layer alone. Re-armed on mount rather
+     * than only cleared on unmount because `StrictMode`'s mount→cleanup→remount replay reuses this
+     * same ref (`main.tsx`).
+     */
+    useEffect(() => {
+        isMountedRef.current = true
+        return () => {
+            isMountedRef.current = false
+        }
+    }, [])
+
     useTauriEvent(events.terminalCwdChanged, ({ payload }) => {
         if (payload.sessionId !== sessionId) return
         setCwd(payload.cwd)
     })
 
+    /**
+     * Only this pane's own "[process exited]" screen is decided here. Marking the dead session in the
+     * `TERMINAL.SESSIONS` roster is `ipc-sync-provider.tsx`'s job (audit §4-B B14): a session whose
+     * tab is in the background has no mounted component to hear its exit, so that bookkeeping cannot
+     * live behind this self-session guard.
+     */
     useTauriEvent(events.terminalExited, ({ payload }) => {
         if (payload.sessionId !== sessionId) return
         setExited({ code: payload.code })
-        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.TERMINAL.SESSIONS(projectId) })
     })
 
     if (failure) {
@@ -197,6 +282,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     return (
         <TerminalPane
             sessionId={sessionId}
+            autoFocus={autoFocus}
             fontSize={settings?.terminalFontSize ?? DEFAULT_FONT_SIZE}
             fontFamily={buildMonospaceFontStack(settings?.terminalFontFamily ?? null)}
             theme={toXtermTheme(theme)}

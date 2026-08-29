@@ -69,15 +69,29 @@ export const collectSnippetCompletionCandidates = (files: readonly SnippetFile[]
                 ),
         )
 
+type SnippetCompletionInstallation = {
+    monaco: Monaco
+    deps: SnippetCompletionDeps
+    disposablesByLanguageId: Map<string, { dispose: () => void }>
+}
+
 /**
- * Registers one `languages.CompletionItemProvider` per `TAIDE_LANGUAGE_IDS` entry — never a single
- * `'*'` selector, which VS Code/monaco scores into a low-priority suggestion group that a language
- * with an LSP attached permanently outranks (contract §3.3, re-verified against monaco's
- * `suggest.js`). Meant to be called once at app bootstrap; the returned disposable tears down all
- * of them together.
+ * The single {@link registerSnippetCompletions} installation, plus every plugin-contributed language
+ * id requested so far. Module state (rather than a handle threaded through callers) because the two
+ * halves are wired in different layers and in an order neither controls: `app/bootstrap-snippets.ts`
+ * installs at import time, while plugin languages only become known once `PLUGIN.LIST` resolves —
+ * and `shared` cannot reach either of them. Requested ids are kept, not drained, so an installation
+ * created after them still covers them.
  */
-export const registerSnippetCompletions = (monaco: Monaco, deps: SnippetCompletionDeps) => {
-    const disposables = TAIDE_LANGUAGE_IDS.map((languageId) =>
+let installation: SnippetCompletionInstallation | null = null
+const pluginLanguageIds = new Set<string>()
+
+const registerSnippetCompletionsForLanguage = (languageId: string) => {
+    if (!installation || installation.disposablesByLanguageId.has(languageId)) return
+    const { monaco, deps, disposablesByLanguageId } = installation
+
+    disposablesByLanguageId.set(
+        languageId,
         monaco.languages.registerCompletionItemProvider(languageId, {
             provideCompletionItems: (model, position) => {
                 const word = model.getWordUntilPosition(position)
@@ -95,6 +109,42 @@ export const registerSnippetCompletions = (monaco: Monaco, deps: SnippetCompleti
             },
         }),
     )
+}
 
-    return { dispose: () => disposables.forEach((disposable) => disposable.dispose()) }
+/**
+ * Registers one `languages.CompletionItemProvider` per `TAIDE_LANGUAGE_IDS` entry (plus every
+ * plugin language {@link registerSnippetCompletionsForLanguages} has been told about) — never a
+ * single `'*'` selector, which VS Code/monaco scores into a low-priority suggestion group that a
+ * language with an LSP attached permanently outranks (contract §3.3, re-verified against monaco's
+ * `suggest.js`). Meant to be called once at app bootstrap; the returned disposable tears down all
+ * of them together.
+ */
+export const registerSnippetCompletions = (monaco: Monaco, deps: SnippetCompletionDeps) => {
+    installation = { monaco, deps, disposablesByLanguageId: new Map() }
+    const registered = installation.disposablesByLanguageId
+    ;[...TAIDE_LANGUAGE_IDS, ...pluginLanguageIds].forEach(registerSnippetCompletionsForLanguage)
+
+    return {
+        dispose: () => {
+            registered.forEach((disposable) => disposable.dispose())
+            registered.clear()
+            if (installation?.disposablesByLanguageId === registered) installation = null
+        },
+    }
+}
+
+/**
+ * Extends snippet completions to plugin-contributed language ids. Providers are registered per exact
+ * language id (see {@link registerSnippetCompletions}), and the bootstrap set is the static
+ * `TAIDE_LANGUAGE_IDS` list, so a language a plugin adds had no provider at all: neither its own
+ * `<languageId>.json` snippet file nor a global `.code-snippets` entry scoped to it could ever fire
+ * (audit §4-B D6). Called from `registerPluginLanguages` so both of that function's callers (the
+ * boot-time plugin list and every later install/uninstall/reload) are covered by construction.
+ * Idempotent per id, and safe to call before the bootstrap installation exists.
+ */
+export const registerSnippetCompletionsForLanguages = (languageIds: readonly string[]) => {
+    languageIds.forEach((languageId) => {
+        pluginLanguageIds.add(languageId)
+        registerSnippetCompletionsForLanguage(languageId)
+    })
 }

@@ -41,13 +41,19 @@ const STATUS_TEXT_CLASS: Record<GitChangeKind, string> = {
     conflicted: 'text-git-conflicted',
 }
 
-const beforePathOf = (file: CommitFile) => (file.kind === 'renamed' ? (file.origPath ?? file.path) : file.path)
+const beforePathOf = (file: CommitFile) => (file.kind === 'renamed' ? (file.origAbsPath ?? file.absPath) : file.absPath)
 
+/**
+ * Absolute paths, like every other `TabKind::Diff` producer — a repo-relative `path` made the same
+ * commit file a different tab (and a different `GIT.SHOW` cache entry) than the file-history panel's
+ * absolute one for the identical `(rev, file)` pair (audit §4-B B10). `git_show_file` resolves
+ * either representation through `to_repo_relative`, so the switch is invisible to the backend.
+ */
 export const buildCommitFileDiffOpenTabInput = (projectId: ProjectId, commit: GraphLogEntry, file: CommitFile) => ({
     projectId,
     kind: {
         kind: 'diff' as const,
-        path: file.path,
+        path: file.absPath,
         staged: false,
         rev: commit.id,
         parentRev: commit.parents[0] ?? null,

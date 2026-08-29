@@ -86,7 +86,8 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
         return true
     }
 
-    const handleChange = (value: string) => {
+    const handleChange = (readContent: () => string) => {
+        const value = readContent()
         draftRef.current = value
         setUntitledContent(projectId, tabId, value)
         if (!dirty) {

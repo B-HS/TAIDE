@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { monaco } from '@shared/lib/monaco/setup'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { stripCodeFence } from '@shared/lib/inline-edit-fence'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import type { AiInlineEditPreviewState } from '@shared/lib/inline-edit-preview-state'
 import { AI_INLINE_EDIT_PREVIEW_IDLE_STATE, advanceAiInlineEditPreview } from '@shared/lib/inline-edit-preview-state'
 import { AI_INLINE_EDIT_MONACO_ACTION_ID } from '@entities/ai/ai.constant'
@@ -299,7 +300,7 @@ const createInlineEditSession = (editorInstance: monaco.editor.IStandaloneCodeEd
     const modelChangeSubscription = editorInstance.onDidChangeModelContent(invalidate)
 
     container.addEventListener('keydown', (event) => {
-        if (event.isComposing) return
+        if (isImeCompositionKeydown(event)) return
         if (event.key === 'Escape') {
             event.preventDefault()
             escape()

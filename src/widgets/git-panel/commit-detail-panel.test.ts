@@ -11,18 +11,18 @@ describe('buildCommitFileDiffOpenTabInput', () => {
 
         expect(input.kind).toEqual({
             kind: 'diff',
-            path: 'src/a.ts',
+            path: '/repo/src/a.ts',
             staged: false,
             rev: '0123456789abcdef',
             parentRev: 'fedcba9876543210',
-            beforePath: 'src/a.ts',
+            beforePath: '/repo/src/a.ts',
         })
         expect(input.title).toBe('a.ts @ 0123456')
         expect(input.target).toBeNull()
         expect(input.preview).toBe(true)
     })
 
-    test('이름 변경 파일은 beforePath 가 origPath 를 사용한다', () => {
+    test('이름 변경 파일은 beforePath 가 origAbsPath 를 사용한다', () => {
         const file: CommitFile = {
             path: 'src/new-name.ts',
             absPath: '/repo/src/new-name.ts',
@@ -32,7 +32,8 @@ describe('buildCommitFileDiffOpenTabInput', () => {
         }
         const input = buildCommitFileDiffOpenTabInput('p1', commit('0123456789abcdef', ['fedcba9876543210']), file)
 
-        expect(input.kind.beforePath).toBe('src/old-name.ts')
+        expect(input.kind.path).toBe('/repo/src/new-name.ts')
+        expect(input.kind.beforePath).toBe('/repo/src/old-name.ts')
         expect(input.title).toBe('new-name.ts @ 0123456')
     })
 

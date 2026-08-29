@@ -75,7 +75,8 @@ impl AppState {
     /// `domain::git::commands` (stage/unstage/discard, commit, push/pull, branch
     /// create/checkout/delete, stash push/apply/drop, hunk/line stage/discard, undo-last-commit,
     /// resolve-conflict, revert-commit, tag create/delete, checkout-remote-branch — ~20 commands)
-    /// plus `domain::terminal::commands::pty_spawn` — so enough long-parked waiters exhaust the
+    /// plus `domain::terminal::commands::pty_spawn` and, since the d-50 S2 batch,
+    /// `domain::file::commands::file_save`/`file_copy` — so enough long-parked waiters exhaust the
     /// pool and deadlock against a holder waiting for a free thread (Phase E GIT-1). A command
     /// whose lock wait can be long must acquire the guard with `begin_mutation().await` on the
     /// async side first and only then enter `spawn_blocking` with the guard held.
@@ -88,6 +89,20 @@ impl AppState {
     /// caps how many of it a remote client can have in flight at once at 128 — well under the
     /// blocking pool's default 512 threads. See that constant's doc for the other half of this
     /// margin; the two docs must be re-checked together if either side changes.
+    ///
+    /// That margin is a thread count, so it is also spent by blocking work that never touches this
+    /// guard at all, and the same batch added several such occupants of the one pool: every `file`
+    /// read/write command (`file_open`/`file_save`/`file_copy`/`file_mirror_dirty`), the seven git
+    /// queries M-1 moved off the async workers, the tree prefetch — and, unlike all of those,
+    /// `domain::terminal::commands::pty_write`, whose blocking write has **no upper bound**: it
+    /// parks on the child's stdin pipe for as long as the child refuses to read, holding both a pool
+    /// thread and the session's writer mutex, and every further write to that session parks behind
+    /// it on its own pool thread. `file_save`/`file_copy` are the ones that make a shortage
+    /// self-sustaining rather than merely slow, since they wait for a free pool thread *while
+    /// holding this guard*. Nothing here is close to 512 in practice (a stuck terminal contributes
+    /// one thread per queued write, and the frontend now serializes those per session —
+    /// `entities/terminal/session-write-order.ts`), but the margin is no longer "one waiter vs. the
+    /// pool" and must be re-checked whenever an unbounded blocking call is added.
     pub fn begin_mutation_blocking(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_guard.blocking_lock()
     }

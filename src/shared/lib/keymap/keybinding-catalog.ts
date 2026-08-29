@@ -4,6 +4,7 @@ import type { KeymapActionId, KeymapChordStage, KeymapEvent, KeymapModifier, Key
 import { APP_KEYMAP, findKeymapConflict, keymapEntryToEvent, matchesKeymapEntry } from '@shared/lib/keymap/keymap'
 import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
 import { MONACO_ACTIONS } from '@shared/lib/monaco/monaco-actions'
+import { parseMonacoDefaultBindingLabel } from '@shared/lib/monaco/monaco-binding-label'
 import { isMonacoCommandId, toMonacoActionId } from '@shared/lib/monaco/monaco-keybinding'
 
 export type KeybindingRowSource = 'app' | 'monaco'
@@ -86,8 +87,22 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
  */
 export const isKeybindingRowUnassigned = (row: KeybindingRow) => !row.key && (row.isOverridden || !row.defaultBindingLabel)
 
-export const findConflictingRow = (rows: KeybindingRow[], row: KeybindingRow, isMac: boolean = IS_MAC) =>
-    row.key ? findKeymapConflict(rows, row, row.id, isMac) : null
+/**
+ * The binding a row actually answers to. A monaco row carries `key: ''` until the user rebinds it
+ * — its live binding is monaco's own built-in, which the catalog only knows as the display label
+ * — so conflict detection used to treat all ~200 of them as unbound and stayed silent while a user
+ * rebound an app action straight onto ⌘D, ⌘/, F12, ... The parsed label restores them to the
+ * comparison. An explicit override wins (that is the row's real binding now), and an unbind
+ * (`isOverridden` with an empty key) genuinely means "nothing", so neither consults the label.
+ */
+export const resolveKeybindingRowBinding = (row: KeybindingRow) =>
+    row.key || row.isOverridden ? row : (parseMonacoDefaultBindingLabel(row.defaultBindingLabel) ?? row)
+
+export const findConflictingRow = (rows: KeybindingRow[], row: KeybindingRow, isMac: boolean = IS_MAC) => {
+    const candidate = resolveKeybindingRowBinding(row)
+    if (!candidate.key) return null
+    return findKeymapConflict(rows, { key: candidate.key, mods: candidate.mods, chord: candidate.chord }, row.id, isMac, resolveKeybindingRowBinding)
+}
 
 export const filterKeybindingRowsByCapturedKey = (rows: KeybindingRow[], key: string, mods: KeymapModifier[], isMac: boolean = IS_MAC) =>
     rows.filter((row) => row.key && matchesKeymapEntry(row, keymapEntryToEvent({ key, mods }, isMac), isMac))

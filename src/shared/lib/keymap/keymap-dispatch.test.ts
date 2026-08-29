@@ -3,6 +3,7 @@ import type { KeymapEntry, KeymapEvent } from '@shared/lib/keymap/keymap'
 import type { KeymapChordStoreState } from '@shared/lib/keymap/keymap-chord-store'
 import type { KeymapContextGetters } from '@shared/lib/keymap/keymap-context'
 import { decideKeymapDispatch } from '@shared/lib/keymap/keymap-dispatch'
+import { IME_COMPOSITION_KEY_CODE } from '@shared/lib/ime-composition'
 
 const noContext: KeymapContextGetters = {}
 const editorFocused: KeymapContextGetters = { editorTextFocus: () => true }
@@ -233,5 +234,51 @@ describe('decideKeymapDispatch — monacoChordPrefixes 로 ⌘K 이외의 monaco
             { key: 'j', mods: ['mod'] },
         ])
         expect(action).toEqual({ type: 'observe-monaco-chord-prefix' })
+    })
+})
+
+describe('decideKeymapDispatch — WKWebView IME 조합(keyCode 229, isComposing false) 가드', () => {
+    const composingKeyEvent = (overrides: Partial<KeymapEvent> = {}) =>
+        keyEvent({ key: 'Process', code: 'KeyS', isComposing: false, keyCode: IME_COMPOSITION_KEY_CODE, ...overrides })
+
+    const bareKeyEntry: KeymapEntry = { id: 'save', key: 's', mods: [], descriptionKey: 'keymap.save' }
+
+    test('수식키 없는 단일 키 바인딩이 조합 중 keydown 으로 발동하지 않는다', () => {
+        expect(decideKeymapDispatch(composingKeyEvent(), [bareKeyEntry], idleChordState, true, noContext)).toEqual({ type: 'ignore-modifier-only' })
+    })
+
+    test('같은 키의 조합 아닌 keydown 은 그대로 발동한다(가드가 정상 입력을 막지 않는다)', () => {
+        const action = decideKeymapDispatch(keyEvent({ key: 's', code: 'KeyS' }), [bareKeyEntry], idleChordState, true, noContext)
+        expect(action).toEqual({ type: 'dispatch', entryId: 'save' })
+    })
+
+    test('chord 대기 중 조합 keydown 은 2단으로 소비되지 않는다', () => {
+        const pendingState: KeymapChordStoreState = {
+            pending: { entryIds: ['save'], prefix: { key: 'k', mods: ['mod'] }, at: Date.now() },
+            monacoDeferral: false,
+        }
+        expect(decideKeymapDispatch(composingKeyEvent(), [chordEntry], pendingState, true, noContext)).toEqual({ type: 'ignore-modifier-only' })
+    })
+
+    test('monaco 유예 무장 중 조합 keydown 은 유예를 소비하지 않는다', () => {
+        const armedState: KeymapChordStoreState = { pending: null, monacoDeferral: true }
+        expect(decideKeymapDispatch(composingKeyEvent(), [singleEntry], armedState, true, editorFocused)).toEqual({ type: 'ignore-modifier-only' })
+    })
+
+    test('수식키 없는 조합 keydown 은 chord 1단 프리픽스로도 진입하지 않는다', () => {
+        const bareChordEntry: KeymapEntry = { id: 'save', key: 'k', mods: [], chord: { key: 's', mods: [] }, descriptionKey: 'keymap.save' }
+        const action = decideKeymapDispatch(composingKeyEvent({ code: 'KeyK' }), [bareChordEntry], idleChordState, true, noContext)
+        expect(action).toEqual({ type: 'ignore-modifier-only' })
+    })
+
+    test('Cmd·Ctrl 조합 keydown 은 229 가 실려 있어도 가드에 걸리지 않는다', () => {
+        const action = decideKeymapDispatch(composingKeyEvent({ code: 'KeyK', metaKey: true }), [chordEntry], idleChordState, true, noContext)
+        expect(action).toEqual({ type: 'enter-chord', entryIds: ['save'], prefix: { key: 'k', mods: ['mod'] } })
+
+        const closeTabEntry: KeymapEntry = { id: 'close-tab', key: 's', mods: ['mod'], descriptionKey: 'keymap.closeTab' }
+        expect(decideKeymapDispatch(composingKeyEvent({ metaKey: true }), [closeTabEntry], idleChordState, true, noContext)).toEqual({
+            type: 'dispatch',
+            entryId: 'close-tab',
+        })
     })
 })

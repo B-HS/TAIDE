@@ -26,12 +26,15 @@ import {
     useStageGitPaths,
     useUnstageGitPaths,
 } from '@entities/git/git.query'
+import { readCommitMessageDraft, writeCommitMessageDraft } from '@entities/git/commit-message-memory'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
+import type { GitDiffTarget } from '@features/git/git-change-group'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { Button } from '@shared/ui/button'
 import { buildRecentCommitsSummaryForAi, sanitizeAiCommitMessageResponse } from '@widgets/git-panel/ai-commit-message'
+import { resolveCommitGate } from '@widgets/git-panel/commit-gate'
 import { GitPanel } from '@widgets/git-panel/git-panel'
 
 type GitPanelContainerProps = {
@@ -47,8 +50,26 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
      */
     const latestCommitMessageRequestIdRef = useRef<string | null>(null)
 
-    const [commitMessage, setCommitMessage] = useState('')
+    const [commitMessage, setCommitMessage] = useState(() => readCommitMessageDraft(projectId))
     const [commitMessageRequestId, setCommitMessageRequestId] = useState<string | null>(null)
+    const [scopedProjectId, setScopedProjectId] = useState(projectId)
+
+    /**
+     * Nothing above the sidebar remounts when the active project changes, so the message state has
+     * to be re-read for the newly active project during render — otherwise the previous project's
+     * unsent message stays in the box and can be committed into the wrong repository (audit §4-B
+     * C6). The outgoing project's message needs no saving here: `applyCommitMessage` writes it
+     * through on every keystroke.
+     */
+    if (scopedProjectId !== projectId) {
+        setScopedProjectId(projectId)
+        setCommitMessage(readCommitMessageDraft(projectId))
+    }
+
+    const applyCommitMessage = (message: string) => {
+        setCommitMessage(message)
+        writeCommitMessageDraft(projectId, message)
+    }
 
     const { t } = useTranslation()
 
@@ -111,11 +132,17 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const handleInitRepository = () =>
         initRepository(projectId, { onSuccess: () => toast.success(t('git.initSuccess')), onError: () => toast.error(t('git.initFailed')) })
 
+    /**
+     * `stageAll` is what makes the conflict gate matter here as well as in `GitPanel`: with an
+     * unresolved merge and nothing else staged, committing would stage every conflicted file —
+     * markers and all — as the merge resolution (audit §4-B A4).
+     */
     const handleCommit = () => {
-        const hasStaged = (status?.rows ?? []).some((row) => row.staged !== null)
+        const gate = resolveCommitGate(status?.rows ?? [])
+        if (gate === 'blockedByConflicts') return
         commit(
-            { projectId, message: commitMessage, options: { amend: false, stageAll: !hasStaged } },
-            { onSuccess: () => setCommitMessage(''), onError: notifyError },
+            { projectId, message: commitMessage, options: { amend: false, stageAll: gate === 'confirmStageAll' } },
+            { onSuccess: () => applyCommitMessage(''), onError: notifyError },
         )
     }
 
@@ -147,7 +174,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
                 return
             }
 
-            setCommitMessage(sanitized)
+            applyCommitMessage(sanitized)
             const notices = [
                 diff.usedFallback ? t('git.commitMessageUsedUnstaged') : null,
                 diff.truncated ? t('git.commitMessageDiffTruncated') : null,
@@ -168,9 +195,15 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const openFileTab = (path: string) =>
         openTab({ projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true }, { onError: notifyError })
 
-    const openDiffTab = (path: string, group: 'staged' | 'unstaged') =>
+    const openDiffTab = (target: GitDiffTarget, group: 'staged' | 'unstaged') =>
         openTab(
-            { projectId, kind: { kind: 'diff', path, staged: group === 'staged' }, title: `${fileNameOf(path)} (diff)`, target: null, preview: true },
+            {
+                projectId,
+                kind: { kind: 'diff', path: target.path, staged: group === 'staged', beforePath: target.beforePath },
+                title: `${fileNameOf(target.path)} (diff)`,
+                target: null,
+                preview: true,
+            },
             { onError: notifyError },
         )
 
@@ -195,7 +228,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             remote={remotes[0] ?? null}
             rows={status?.rows ?? []}
             commitMessage={commitMessage}
-            onCommitMessageChange={setCommitMessage}
+            onCommitMessageChange={applyCommitMessage}
             onCommit={handleCommit}
             isCommitting={isCommitting}
             onGenerateCommitMessage={() => void handleGenerateCommitMessage()}

@@ -93,20 +93,22 @@ impl GitStore {
     /// out of this contract's scope and would need its own risk analysis against that unchanged
     /// guarantee).
     ///
-    /// This lock's hold time is entirely at the mercy of the `run_git` subprocess it wraps:
-    /// `run_git` has no timeout and no kill path (`std::process::Command::output()`, awaited to
-    /// completion), so a push/fetch stalled on an unreachable remote or a blocked credential prompt
-    /// holds this lock — and queues every later `git_push`/`git_fetch` for the same repo behind it
-    /// — for as long as that subprocess stays alive, which can be the rest of the app's lifetime.
-    /// This is not a defect this lock introduces; it's the pre-existing unbounded `run_git` wait
-    /// (unchanged by this contract) now reaching same-repo callers instead of staying scoped to just
-    /// the one call that triggered it. The trade is deliberate: before this lock, N concurrent
-    /// stalled calls on the same repo each pinned their own blocking-pool thread indefinitely; now
-    /// at most one does, and the rest wait on this async mutex instead — a bounded resource
-    /// (blocking-pool exhaustion) is traded for an unbounded one (same-repo push/fetch latency).
-    /// Giving `run_git` a timeout/kill path is tracked as separate follow-up work, not part of this
-    /// contract (see `docs/quality-assurance/2026-08-11-qa6-checklist.md`'s d-35 section for the
-    /// same-repo-stall scenario this leaves for realistic-conditions QA).
+    /// This lock's hold time is bounded only by the `run_git` subprocess it wraps: a push/fetch
+    /// stalled on an unreachable remote or a blocked credential prompt holds this lock — and queues
+    /// every later `git_push`/`git_fetch` for the same repo behind it — until that subprocess ends.
+    /// This is not a defect this lock introduces; it is the underlying `run_git` wait now reaching
+    /// same-repo callers instead of staying scoped to just the one call that triggered it. The trade
+    /// is deliberate: before this lock, N concurrent stalled calls on the same repo each pinned their
+    /// own blocking-pool thread; now at most one does, and the rest wait on this async mutex instead.
+    ///
+    /// That wait is no longer unbounded, which is the one thing this paragraph used to say it was:
+    /// the d-50 S3 batch gave `run_git` a deadline and a kill path
+    /// (`service::GIT_COMMAND_TIMEOUT_SECS`, plus `GIT_PIPE_DRAIN_TIMEOUT_SECS` for the post-exit
+    /// pipe drain), so the worst case here is that bound per subprocess rather than the rest of the
+    /// app's lifetime. It is a *per subprocess* bound, though — a command that runs several
+    /// (`commit` runs three) multiplies it — and 300s is still long enough that
+    /// `docs/quality-assurance/2026-08-11-qa6-checklist.md`'s d-35 same-repo-stall scenario stays
+    /// worth exercising under realistic conditions.
     pub fn push_fetch_lock(&self, repo_root: &Path) -> Arc<tokio::sync::Mutex<()>> {
         self.push_fetch_locks
             .lock()
@@ -181,6 +183,11 @@ pub async fn git_status(state: State<'_, AppState>, store: State<'_, GitStore>, 
         .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// `before_path` is the row's pre-change path and feeds the **original (left) side only** — the
+/// modified side is always `path`. Pass it for a renamed row (the HEAD entry of a staged rename, and
+/// the index entry of an unstaged one, both live at the old path); reading both sides at the new path
+/// left the original empty and drew the whole file as an addition instead of its actual edit (audit
+/// §4-B B11). `null` keeps both sides on `path`, which is what every non-rename row wants.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_diff_file(
@@ -190,11 +197,12 @@ pub async fn git_diff_file(
     project_id: ProjectId,
     path: String,
     mode: DiffMode,
+    before_path: Option<String>,
 ) -> AppResult<DiffSides> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
     let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
     let language_overlays = plugin_service::language_overlays(&loaded_plugins);
-    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, &language_overlays))
+    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, before_path.as_deref(), &language_overlays))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
 }
@@ -212,6 +220,8 @@ pub async fn git_diff_staged_text(
         .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`] — reading a tree entry and its blob out of
+/// the object database is synchronous libgit2 IO (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_show_file(
@@ -222,7 +232,9 @@ pub async fn git_show_file(
     path: String,
 ) -> AppResult<String> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::show_file(&repo_root, &rev, &path)
+    tauri::async_runtime::spawn_blocking(move || service::show_file(&repo_root, &rev, &path))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -240,6 +252,8 @@ pub async fn git_log(
         .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`] — the two `graph_ahead_behind` revwalks are
+/// synchronous libgit2 work (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_ahead_behind(
@@ -248,16 +262,25 @@ pub async fn git_ahead_behind(
     project_id: ProjectId,
 ) -> AppResult<service::AheadBehind> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::ahead_behind(&repo_root)
+    tauri::async_runtime::spawn_blocking(move || service::ahead_behind(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`] — opening the repository reads `.git/config`
+/// off disk (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_remotes(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitRemote>> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::remotes(&repo_root)
+    tauri::async_runtime::spawn_blocking(move || service::remotes(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`], and the one that mattered most: this is the
+/// editor's gutter hot path — re-run on every `fs:changed` for the open file — and it diffs HEAD against
+/// the working tree, reading the file off disk each time (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_gutter(
@@ -267,7 +290,9 @@ pub async fn git_gutter(
     path: String,
 ) -> AppResult<Vec<GutterHunk>> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::gutter(&repo_root, &path)
+    tauri::async_runtime::spawn_blocking(move || service::gutter(&repo_root, &path))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -396,7 +421,7 @@ pub async fn git_commit(
 /// Additionally holds [`GitStore::push_fetch_lock`] across the whole subprocess wait, so a second
 /// `git_push`/`git_fetch` for the *same* repo queues behind this one instead of racing it straight
 /// into git's own ref-lock contention (contract 2026-08-25 §1-b — see that method's doc for why
-/// this introduces no new lock-ordering hazard with `begin_mutation`, and for the unbounded-wait
+/// this introduces no new lock-ordering hazard with `begin_mutation`, and for the queueing
 /// cost this accepts when the underlying `run_git` subprocess stalls).
 #[tauri::command]
 #[specta::specta]
@@ -455,8 +480,8 @@ pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'
 /// terminal during a pull.
 ///
 /// Additionally holds [`GitStore::push_fetch_lock`] across the whole subprocess wait — the same
-/// addition [`git_push`] documents (contract 2026-08-25 §1-b; see that method's doc for the
-/// unbounded-wait cost this accepts when the underlying `run_git` subprocess stalls). This is what
+/// addition [`git_push`] documents (contract 2026-08-25 §1-b; see that method's doc for the queueing
+/// cost this accepts when the underlying `run_git` subprocess stalls). This is what
 /// actually removes the "transient lock-contention error" for a same-repo push-vs-fetch or
 /// fetch-vs-fetch overlap — a pairing the paragraph above does not cover: both now queue on this
 /// lock instead of racing into git's own `.git` lock files. The one overlap this lock deliberately
@@ -475,18 +500,26 @@ pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<
     Ok(())
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`] — `repo.signature()` resolves the identity
+/// through the repository/global/system config files on disk (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_current_user(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Option<String>> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::current_user(&repo_root)
+    tauri::async_runtime::spawn_blocking(move || service::current_user(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`] — enumerating branches walks the loose refs
+/// and packed-refs file, and each entry's upstream lookup reads config (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_branches(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitBranch>> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::branches(&repo_root)
+    tauri::async_runtime::spawn_blocking(move || service::branches(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — branch creation (+ optional
@@ -557,6 +590,8 @@ pub async fn git_branch_delete(
     Ok(())
 }
 
+/// Same query-side `spawn_blocking` shape as [`git_status`] — `repo.stash_foreach` walks the stash reflog
+/// on disk (§2 M-1).
 #[tauri::command]
 #[specta::specta]
 pub async fn git_stash_list(
@@ -565,7 +600,9 @@ pub async fn git_stash_list(
     project_id: ProjectId,
 ) -> AppResult<Vec<GitStashEntry>> {
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    service::stash_list(&repo_root)
+    tauri::async_runtime::spawn_blocking(move || service::stash_list(&repo_root))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_save` is synchronous

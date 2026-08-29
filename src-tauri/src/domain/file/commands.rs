@@ -1,31 +1,54 @@
 use std::path::Path;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use super::service;
 use super::service::{MirrorEntry, UntitledMirrorEntry};
 use super::types::OpenedFile;
 use crate::domain::plugin::service::{self as plugin_service, PluginStore};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
+/// The read itself (up to `REFUSED_FILE_BYTES` of bytes, plus the UTF-8 decode and line count over
+/// them) runs on a blocking thread instead of pinning an async worker for its duration
+/// (architecture.md §2.1, audit §2 H-3). Holds no mutation guard — unchanged, this command only
+/// ever reads. The root-guard resolution, the plugin overlay lookup and the settings read stay on
+/// the async side so nothing borrowed from `State` has to cross into the blocking closure; the
+/// `.editorconfig` chain walk the flag enables is filesystem work and rides inside the same
+/// blocking call as the read (`service::open_file`).
 #[tauri::command]
 #[specta::specta]
 pub async fn file_open(state: State<'_, AppState>, plugins: State<'_, PluginStore>, path: String) -> AppResult<OpenedFile> {
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
+    let editor_config_enabled = state.settings.read().editor_config_enabled;
 
     let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
-    service::open_file(&resolved, &plugin_service::language_overlays(&loaded_plugins))
+    let language_overlays = plugin_service::language_overlays(&loaded_plugins);
+    tauri::async_runtime::spawn_blocking(move || service::open_file(&resolved, &language_overlays, editor_config_enabled))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
+/// Guard-held `spawn_blocking`, the same shape `git_stage` uses: `AppState::begin_mutation` is
+/// acquired on the async side (so a long lock wait never occupies a blocking-pool thread — see
+/// `AppState::begin_mutation_blocking`'s doc) and held across the write, while the write itself —
+/// atomic temp file, `write_all`, `sync_all`, rename — moves off the async worker it used to pin
+/// for the whole fsync (architecture.md §2.1, audit §2 H-3). `AppState` is re-borrowed from the
+/// `AppHandle` inside the closure because a `State<'_, _>` borrow cannot cross into a `'static`
+/// task; the guarded composite `save_file_within_open_projects` stays the single save path (R6#2).
 #[tauri::command]
 #[specta::specta]
-pub async fn file_save(state: State<'_, AppState>, path: String, content: String) -> AppResult<()> {
+pub async fn file_save(app: AppHandle, state: State<'_, AppState>, path: String, content: String) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
-    service::save_file_within_open_projects(&state, Path::new(&path), &content)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        service::save_file_within_open_projects(&state, Path::new(&path), &content)
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -40,6 +63,12 @@ pub async fn file_create(state: State<'_, AppState>, path: String, is_dir: bool)
     Ok(())
 }
 
+/// The destination the rename actually uses is the *requested* spelling re-attached to the
+/// root-guard-validated canonical parent, not `resolved_to` itself — canonicalization answers with
+/// the on-disk spelling on a case-insensitive filesystem, which turned every case-only rename
+/// (`readme.md` → `README.md`) into a silent no-op (audit §4-A-1). See
+/// [`service::destination_with_requested_name`]; the containment the root guard established is
+/// unaffected, since only the final component changes and it cannot be a traversal segment.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_rename(state: State<'_, AppState>, from: String, to: String) -> AppResult<()> {
@@ -47,10 +76,11 @@ pub async fn file_rename(state: State<'_, AppState>, from: String, to: String) -
     let projects = state.projects.read().clone();
     let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
     let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
+    let destination = service::destination_with_requested_name(&resolved_to, Path::new(&to));
 
-    service::rename_entry(&resolved_from, &resolved_to)?;
+    service::rename_entry(&resolved_from, &destination)?;
     state.self_writes.mark(&resolved_from);
-    state.self_writes.mark(&resolved_to);
+    state.self_writes.mark(&destination);
     Ok(())
 }
 
@@ -66,6 +96,10 @@ pub async fn file_delete(state: State<'_, AppState>, path: String) -> AppResult<
     Ok(())
 }
 
+/// Guard-held `spawn_blocking` (same shape as [`file_save`]): a directory paste walks and copies an
+/// arbitrarily deep subtree, which has no business running on an async worker (audit §2 H-3). Only
+/// the copy moves — the guard, the root-guard resolution and the self-write mark keep their
+/// existing order on the async side.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> AppResult<()> {
@@ -74,7 +108,10 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
     let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
     let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
 
-    service::copy_entry(&resolved_from, &resolved_to)?;
+    let copy_to = resolved_to.clone();
+    tauri::async_runtime::spawn_blocking(move || service::copy_entry(&resolved_from, &copy_to))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
     state.self_writes.mark(&resolved_to);
     Ok(())
 }
@@ -92,14 +129,30 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
 /// here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
 /// a long lock holder (e.g. `git_pull`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
 /// unflushed mirror instead of writing it — the opposite of what hot exit exists for.
+///
+/// The mirror write itself (a `write_atomic` with its own `sync_all`) runs in `spawn_blocking`
+/// (audit §2 H-3) — it fires on a 500ms typing debounce, so it is the most frequent fsync in the
+/// file domain and the least appropriate one to leave on an async worker. `AppState` is re-borrowed
+/// from the `AppHandle` inside the closure for the same reason as [`file_save`].
 #[tauri::command]
 #[specta::specta]
-pub async fn file_mirror_dirty(state: State<'_, AppState>, project_id: ProjectId, path: String, content: String) -> AppResult<Option<f64>> {
+pub async fn file_mirror_dirty(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: ProjectId,
+    path: String,
+    content: String,
+) -> AppResult<Option<f64>> {
     let projects = state.projects.read().clone();
     let root = root_guard::project_root(&projects, &project_id)?;
     let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
 
-    service::mirror_dirty(&state.paths, &project_id, &resolved, &path, &content)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        service::mirror_dirty(&state.paths, &project_id, &resolved, &path, &content)
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]

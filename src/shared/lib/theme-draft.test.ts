@@ -9,6 +9,7 @@ import {
     isSyntaxTokenChanged,
     isThemeDraftValid,
     resetColorToken,
+    resolveThemeDraftMetadata,
     setColorToken,
     setSyntaxToken,
     slugifyThemeId,
@@ -138,5 +139,51 @@ describe('isThemeDraftValid', () => {
     test('모두 유효하면 참이다', () => {
         const draft = createThemeDraft({ id: 'ocean', name: 'Ocean', themeType: 'dark', extendsId: 'taide-dark', base: baseValues })
         expect(isThemeDraftValid(draft)).toBe(true)
+    })
+})
+
+const importedThemeTokenColors = [{ scope: ['keyword.control'], settings: { foreground: '#ff0000', fontStyle: 'bold' } }]
+
+describe('resolveThemeDraftMetadata / buildThemeFromDraft — vsix 임포트 메타데이터 보존 (audit §4-B B6)', () => {
+    test('base 에 없는 tokenColors·author·source 는 저장 왕복에서 보존된다(재현: 무변경 저장만으로 영구 소실)', () => {
+        const metadata = resolveThemeDraftMetadata(
+            { tokenColors: importedThemeTokenColors, author: 'publisher', license: null, source: 'Some Theme 1.2.3' },
+            { tokenColors: null },
+        )
+        const draft = createThemeDraft({
+            id: 'imported',
+            name: 'Imported',
+            themeType: 'dark',
+            extendsId: 'taide-dark',
+            base: baseValues,
+            metadata,
+        })
+        const theme = buildThemeFromDraft(draft)
+
+        expect(theme.tokenColors).toEqual(importedThemeTokenColors)
+        expect(theme.author).toBe('publisher')
+        expect(theme.source).toBe('Some Theme 1.2.3')
+    })
+
+    test('base 와 동일한 tokenColors 는 싣지 않는다(번들 테마 복제는 extends 로 계속 상속)', () => {
+        const metadata = resolveThemeDraftMetadata(
+            { tokenColors: importedThemeTokenColors, author: null, license: null, source: null },
+            { tokenColors: importedThemeTokenColors },
+        )
+        expect(metadata.tokenColors).toBeNull()
+        expect(
+            buildThemeFromDraft(createThemeDraft({ id: 'copy', name: 'Copy', themeType: 'dark', extendsId: 'bundled', base: baseValues, metadata }))
+                .tokenColors,
+        ).toBeNull()
+    })
+
+    test('메타데이터를 주지 않은 드래프트는 전부 null 로 저장된다(기존 커스텀 테마 동작 불변)', () => {
+        const theme = buildThemeFromDraft(
+            createThemeDraft({ id: 'plain', name: 'Plain', themeType: 'dark', extendsId: 'taide-dark', base: baseValues }),
+        )
+        expect(theme.tokenColors).toBeNull()
+        expect(theme.author).toBeNull()
+        expect(theme.license).toBeNull()
+        expect(theme.source).toBeNull()
     })
 })

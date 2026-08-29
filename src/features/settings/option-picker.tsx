@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from 'react'
 import { useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
+import { cn } from '@shared/lib/cn'
 import { Button } from '@shared/ui/button'
 import { Command, CommandGroup, CommandItem, CommandList } from '@shared/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover'
@@ -11,13 +12,22 @@ type OptionPickerProps<T extends string> = {
     label: string
     options: OptionPickerOption<T>[]
     value: T
+    placeholder?: string
     onSelect: (id: T) => void
 }
 
-export const OptionPicker = <T extends string>({ label, options, value, onSelect }: OptionPickerProps<T>) => {
+/**
+ * A `value` matching no option renders `placeholder` (muted), never the first option's label. The
+ * old `?? options[0]` fallback made "nothing is selected" look identical to "the first entry is
+ * selected": switching the AI provider clears `settings.aiModel`, so the model picker advertised a
+ * model that had never been chosen and that nothing downstream would actually use (audit §4-B C12).
+ * Callers whose `value` always matches (the settings enums, which read through their own defaults)
+ * are unaffected and pass no placeholder.
+ */
+export const OptionPicker = <T extends string>({ label, options, value, placeholder, onSelect }: OptionPickerProps<T>) => {
     const [open, setOpen] = useState(false)
 
-    const activeOption = options.find((option) => option.id === value) ?? options[0]
+    const activeOption = options.find((option) => option.id === value)
     const handleSelect = (id: T) => {
         onSelect(id)
         setOpen(false)
@@ -42,7 +52,9 @@ export const OptionPicker = <T extends string>({ label, options, value, onSelect
                         aria-label={label}
                         className='w-32 shrink-0 justify-between font-normal'
                         onKeyDown={handleTriggerKeyDown}>
-                        <span className='truncate text-xs'>{activeOption?.label ?? ''}</span>
+                        <span className={cn('truncate text-xs', !activeOption && 'text-app-sidebar-icon-default')}>
+                            {activeOption?.label ?? placeholder ?? ''}
+                        </span>
                         <ChevronDown className='text-app-sidebar-icon-default size-4 shrink-0' />
                     </Button>
                 </PopoverTrigger>

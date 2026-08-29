@@ -2,7 +2,7 @@ import type { FC, PropsWithChildren } from 'react'
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
+import type { OpenedFile, PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { getModel } from '@entities/editor/model-registry'
 import { useSaveFile } from '@entities/file/file.query'
@@ -86,8 +86,32 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
                 return
             }
 
+            /**
+             * A read-only file is never written back from here either (the editor's own save path
+             * refuses it in `use-editor-file-persistence.ts`'s `handleSave`). It can still be dirty
+             * without ever having been typed into — a hot-exit mirror restore or a background
+             * `WorkspaceEdit` both install a draft without going through the editor — and for a file
+             * forced read-only by `encodingLossy` writing that draft back would burn its U+FFFD
+             * replacements into the original bytes permanently (audit §4-A-3).
+             */
+            if (queryClient.getQueryData<OpenedFile>(QUERY_KEY.FILE.CONTENT(payload.path))?.readOnly) {
+                await resolveIdeSave({ requestId: payload.requestId, saved: false }).catch(() => undefined)
+                return
+            }
+
             try {
+                /**
+                 * `useSaveFile` runs without a `projectId` here (this provider has no single project
+                 * context — the request carries its own), so its own `onSuccess` cannot invalidate the
+                 * project-scoped caches this write invalidates. `FILE.MIRRORS` is the one that matters:
+                 * Rust's `file_save` discards the hot-exit mirror for `path`, but the cached mirror list
+                 * is `staleTime: Infinity`, so without this the pre-save entry stays in the cache and is
+                 * "restored" over an already-clean file the next time a pane mounts on that path. The
+                 * *mounted* panes settle through `file-save-settle-registry` (published by `useSaveFile`
+                 * itself) — this covers the tabs that had no pane rendered at save time.
+                 */
                 await saveFileMutation({ path: payload.path, content: model.getValue() })
+                void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(payload.projectId) })
                 await setTabDirty({ tabId: tab.id, dirty: false })
                 await resolveIdeSave({ requestId: payload.requestId, saved: true })
             } catch {

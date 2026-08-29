@@ -33,6 +33,14 @@ export const useDeleteTheme = () => {
     })
 }
 
+/**
+ * `draft.metadata.tokenColors` wins over the base theme's: a draft only carries its own rules when
+ * they actually differ from what `extends` would resolve to (`resolveThemeDraftMetadata`), and for
+ * an imported `.vsix` theme those rules *are* its highlighting — previewing it through the builtin
+ * base's rules (which are always absent) made the whole window fall back to the coarse
+ * syntax-derived rules the moment the editor opened, so the preview showed a theme the user had not
+ * asked for and Save could not reproduce (audit §4-B B6).
+ */
 const toResolvedThemeFromDraft = (draft: ThemeDraft, baseTokenColors: ResolvedTheme['tokenColors']): ResolvedTheme => ({
     id: draft.id,
     name: draft.name,
@@ -40,9 +48,12 @@ const toResolvedThemeFromDraft = (draft: ThemeDraft, baseTokenColors: ResolvedTh
     colors: draft.current.colors,
     syntax: draft.current.syntax,
     terminal: draft.current.terminal,
-    tokenColors: baseTokenColors,
+    tokenColors: draft.metadata.tokenColors ?? baseTokenColors,
     syntaxOverrides: Object.keys(diffThemeValues(draft.base, draft.current).syntax),
     warnings: [],
+    author: draft.metadata.author,
+    license: draft.metadata.license,
+    source: draft.metadata.source,
 })
 
 /**
