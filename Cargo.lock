@@ -4334,7 +4334,7 @@ dependencies = [
 
 [[package]]
 name = "taide"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "axum",
  "fix-path-env",
