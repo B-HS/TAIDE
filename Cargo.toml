@@ -3,8 +3,8 @@ resolver = "2"
 members = ["src-tauri", "crates/taide-cli"]
 
 [profile.release]
-lto = true
+lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = true
-opt-level = "s"
+opt-level = 3
