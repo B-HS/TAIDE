@@ -67,3 +67,24 @@ NumberInput→`numeric-field.tsx`, Select→`option-picker.tsx`, KeybindingInput
 - 설정 화면은 `TabKind::Settings` 탭으로 열린다(별도 OS 창 아님).
 - 설정 변경은 `settings_update` → `settings` 쿼리 갱신 → 소비자(에디터·터미널·toast)가 반응.
   **각 소비자가 설정을 폴링하지 않는다.**
+
+## 5. 저장 실패·미선택 표시 (d-51 F6 · 감사 §4-B B15·C12)
+
+- **저장 실패는 무조건 toast 로 알린다.** 실패 보고는 호출부가 아니라
+  `entities/settings/settings.query.ts` 의 두 뮤테이션(`useUpdateSettings`·`useSetThemeId`)이
+  공통 `onError` 로 한다 — 컨트롤이 캐시된 `Settings` 를 그대로 렌더하므로, 실패하면 값이 원래대로
+  되돌아갈 뿐 아무 설명이 없었다. 문구는 `settings.saveFailed` + `describeIpcError(error)` 설명줄.
+  호출부에서 같은 실패를 또 toast 하지 않는다(v5 는 훅·호출 양쪽 `onError` 를 모두 실행한다).
+- **숫자 필드는 blur 시 실제 저장값으로 되돌려 쓴다**(`numeric-field.tsx` +
+  `shared/lib/numeric-field-commit.ts`). 입력은 비제어라 blur 시점의 텍스트는 사용자가 남긴 그대로다
+  — 범위를 넘긴 값을 clamp 해 보내면서 화면은 그대로 두면 "쓰여 있는 값 ≠ 적용된 값" 이 남고, 저장이
+  실패한 경우에도 입력한 숫자가 저장된 것처럼 보인다. clamp 결과가 저장값과 같으면 IPC 를 보내지 않는다.
+- **텍스트 필드도 정규화가 있는 항목이면 blur 시 되돌려 쓴다**(`text-field.tsx` 의 `normalize` prop,
+  현재 사용처는 `editorRulers` — `shared/lib/editor-rulers.ts` 의 `normalizeEditorRulersText`).
+  `TextField` 는 `key={value}` 로 저장값이 바뀔 때만 리마운트하는데, 정규화 결과가 기존 저장값과
+  같으면(`[80]` 에 `80, 2000` 을 쓰거나 빈 목록에 `abc` 를 쓰는 경우) 값이 안 바뀌어 리마운트도 없다
+  — 되돌려 쓰지 않으면 버려진 텍스트가 화면에 남는다. `normalize` 를 넘기지 않은 필드
+  (`shellOverride`·`aiOmlxBaseUrl`)는 타이핑한 문자열이 곧 저장값이라 동작이 그대로다.
+- **선택되지 않은 값은 placeholder 로 보인다**(`option-picker.tsx` 의 `placeholder`). 매칭되는
+  옵션이 없을 때 첫 옵션을 대신 표시하던 폴백을 없앴다 — AI 프로바이더를 바꾸면 `aiModel` 이 비는데
+  모델 피커가 첫 모델을 선택된 것처럼 광고했다.

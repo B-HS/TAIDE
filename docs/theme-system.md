@@ -59,9 +59,15 @@
   파일·사용자 테마와 하위호환(없으면 `None`, 파일에 `null` 이 새로 찍히지 않는다).
 - **extends 상속 규칙**: 자식이 `tokenColors` 를 **명시하지 않으면(`None`)** base 의 것을 그대로
   상속한다. 자식이 `tokenColors` 를 **명시하면(`Some`)** base 것을 **전체 교체**한다(배열이라 키
-  단위 병합이 불가능 — colors/syntax/terminal 의 키 단위 or_insert 와 다르다). 테마 에디터는 diff 만
-  저장하므로(§7.3) 사용자 테마는 사실상 항상 `None` 이고, 결과적으로 번들 원본의 TextMate 충실도가
-  자동 유지된다.
+  단위 병합이 불가능 — colors/syntax/terminal 의 키 단위 or_insert 와 다르다).
+- **테마 에디터의 저장 규칙**(d-51 F6 정정 · 감사 §4-B B6): 에디터는 색 토큰만 diff 로 저장하지만,
+  `tokenColors` 와 attribution(`author`/`license`/`source`)은 **드래프트가 그대로 실어 나른다**
+  (`ThemeDraftMetadata`). 단 `tokenColors` 는 **base 가 상속시켜 줄 값과 다를 때만** 파일에 쓴다
+  (`resolveThemeDraftMetadata`) — 번들 테마를 복제한 사용자 테마는 여전히 `None` 이라 원본의 TextMate
+  충실도가 자동 유지되고, base(내장 dark/light)에 `tokenColors` 가 없는 **vsix 임포트 테마**는 자기
+  규칙을 파일에 남긴다. 이 구분이 없던 동안에는 임포트 테마를 **아무것도 바꾸지 않고 한 번 저장하기만
+  해도** 구문 강조가 `syntax` 31토큰 폴백으로 영구히 납작해졌다(편집 중 라이브 프리뷰도 같은 이유로
+  실제 테마와 달랐다).
 - `syntax` 절과의 관계: `tokenColors` 가 있으면 **그것이 구문 강조의 원본 진실**이고, `syntax` 31
   토큰은 그 위에 얹는 **오버레이**(사용자가 앱 UI 에서 편집한 토큰만 추가 반영)다. 상세 합성 규칙은
   §4.2.
@@ -123,6 +129,18 @@ CSP(`script-src 'self'`)는 변경하지 않는다(정적 검증 완료 — `doc
 `heex`→`html`(폴백, §4.2.1), 나머지는 동일명. `plaintext` 는 shiki 대상에서 제외(monaco 내장 유지).
 highlighter 에는 TAIDE id 를 lang name 으로 재명명해 등록한다(`setTokensProvider` 가 TAIDE id 기준
 이어야 하므로).
+
+**grammar 온디맨드 로드** (d-51 F7 · 감사 §1-7): highlighter 를 만들 때 싣는 TAIDE grammar 는
+`TAIDE_CORE_LANGUAGE_IDS`(`json`·`jsonc`·`markdown` — 앱이 사용자 동작 없이 스스로 여는
+`settings.json`/`keybindings.json`·마크다운 표면) 뿐이다. 나머지는 **그 언어의 모델이 처음 생길 때**
+`ensureShikiLanguage(languageId)` 가 `highlighter.loadLanguage` 로 실어 넣고 tokens provider 를
+재부착한다. 요구 시점은 `monaco.editor.onDidCreateModel`+`onDidChangeLanguage` 구독(부팅 시 이미 만들어진
+모델은 `getModels()` 로 일괄 훑음)이라 에디터 탭·diff 한쪽·peek 미리보기 등 모델을 만드는 모든 경로가
+자동으로 포함된다. 이전에는 31종 전량(빌드 청크 30개 합계 2266kB, `cpp` 단독 778kB)을 부팅 때 받아
+파싱했다 — 대부분의 세션이 열지 않는 언어들이다. 코어 3종 합계는 64kB 다(실측, d-51 F7). 지금까지 요구된 언어 집합은 모듈 상태로 남아
+`reinitShiki`(플러그인 재구성)가 그 집합으로 다시 만든다. 플러그인 grammar 의 `embeddedLangs` 가
+가리키는 TAIDE 언어도 재생성 전에 같은 집합에 합류한다(`sanitizePluginGrammarEmbeddedLangs` 가
+미로드 언어를 떨어뜨리므로).
 
 **단일 테마명**: shiki 에는 항상 `taide` 테마 하나만 로드한다(라이트/다크 전환 시 `loadTheme` 로
 같은 이름을 교체 — `@shikijs/core` 의 `Map.set` 동작으로 교체가 성립). 테마 전환 시 절차:
@@ -242,6 +260,20 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
   **바꾼 토큰만** 저장한다(전체 나열 강제 금지 — §2).
 - 내보내기/가져오기(JSON 파일)와 복제(내장 테마 → 사용자 테마) 제공.
 - 저장 즉시 watcher 가 감지해 핫리로드(§5)되므로 별도 새로고침이 필요 없어야 한다.
+
+**삭제·이탈 규약** (d-51 F6 · 감사 §4-B B5·D6)
+
+- **활성 테마를 삭제하면 먼저 같은 타입의 내장 테마로 `settings.themeId` 를 옮기고 나서 지운다**
+  (`entities/theme/theme-selection.ts` 의 `resolveThemeIdAfterDelete`). `theme_delete` 는 설정을
+  건드리지 않으므로, 그냥 지우면 `theme_get_current` 가 `NotFound` 로 실패하고 `ThemeProvider` 가
+  **아무 테마도 적용하지 못한다** — CSS 변수도 shiki 테마도 없어 다음 실행은 오류 배너 + 하이라이트
+  전무 상태로 뜬다. `followSystemTheme` 이 켜져 있으면 표시 중인 테마가 아니므로
+  `settings_set_theme`(그 플래그를 끄는 명시적 선택 커맨드) 대신 `settings_update` 패치로 id 만 고친다.
+- **저장하지 않은 편집을 들고 나가면 확인 다이얼로그**를 띄운다(`common.unsavedChangesTitle`).
+  라이브 프리뷰 때문에 화면은 이미 편집 결과를 보여주고 있어, 그냥 닫으면 "적용된 것처럼 보이는"
+  변경이 조용히 사라진다. 판정 기준은 **로드 직후 서명과 지금 서명의 차이**이며 `create`(복제) 모드도
+  같다 — 아무도 편집하지 않은 복제본은 원본과 바이트 단위로 같아 버려도 잃는 것이 없다(초기 구현은
+  create 를 항상 "미저장" 으로 봐서 복제를 열었다 닫기만 해도 매번 확인이 떴다).
 
 ### 7.4 윈도우 배경색도 테마를 따라야 한다 (사용자 지적 17번)
 

@@ -23,6 +23,14 @@ editor/preview 를 수동 전환한다. 판정은 `file_open` 의 크기 티어�
 | Presentation | pptx | §3 — **가장 취약한 항목** |
 | Hwp | hwp hwpx | `@rhwp/core` → SVG |
 
+- **PDF·스프레드시트·프레젠테이션·HWP 뷰어는 `React.lazy` 청크**다(d-51 F7 · 감사 §1-1).
+  `pdfjs-dist`·`xlsx`·`@rhwp/core` 는 앱에서 가장 무거운 잎 의존성이라 부팅 번들에서 분리했고,
+  해당 확장자의 파일을 실제로 열 때 받아온다(Suspense fallback 은 바이트 대기 화면과 동일한 빈 면).
+  이미지·비디오·오디오·HTML 은 네이티브 요소 래퍼라 그대로 eager 다.
+- **pdf.js worker 는 첫 `PdfPreview` 렌더에서 스폰**한다(d-51 F7 · 감사 §1-2). 예전에는
+  `shared/lib/pdf/setup.ts` 모듈 평가 시점에 `new PdfWorker()` 가 돌아 PDF 를 한 번도 열지 않는
+  세션도 워커 스레드를 띄웠다. 지금은 `getPdfjsWithWorker()` 가 최초 호출에서 포트를 만들어
+  `GlobalWorkerOptions.workerPort` 에 꽂고, 이후 호출은 같은 포트를 재사용한다.
 - 미지원 확장자는 **"미리보기를 지원하지 않습니다 + 외부 앱에서 열기"** 화면
   (`opener` 플러그인의 `openPath`). 억지로 텍스트로 열지 않는다.
 - preview 탭도 `tabs.md` §3 의 preview/pin 규칙을 그대로 따른다(단일 클릭 = preview 탭).

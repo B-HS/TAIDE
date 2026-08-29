@@ -22,6 +22,11 @@
   log·branch·ahead/behind invalidate, `.git/objects/**` 는 무시. 워킹트리(외부) 변경은
   `fs:changed` 배치가 GIT.STATUS + 열린 경로의 GUTTER/DIFF 쿼리를 무효화한다(d-44 계약).
   pathspec 부분 갱신·주기적 전체 보정은 도입하지 않았다 — status 는 매 조회 전체 스캔이다(§7).
+- `git:status-changed`·`git:refs-changed` 두 이벤트의 무효화도 뮤테이션과 **같은
+  `isGitQueryScopeMutable` predicate** 로 좁힌다(d-51 F7 · 감사 §1-8). 그러지 않으면 뮤테이션이
+  지켜 둔 `QUERY_KEY.GIT.REV_IMMUTABLE_SCOPES`(commit-files·show — 불변 SHA 키, `staleTime:
+  Infinity`) 보장이 그 뮤테이션의 이벤트 에코에서 무너져, 커밋 상세·파일 히스토리 패널이 스테이지·
+  스태시·커밋마다 블롭을 다시 받았다.
 
 ## 2. SCM 패널 (탐색 사이드바의 Git 뷰)
 
@@ -54,7 +59,17 @@
 - 커밋: 메시지 입력 후 `⌘Enter`(macOS)/`Ctrl+Enter` 또는 Commit 버튼.
   - **커밋 대상 규칙(사용자 확정, 2026-08-06)**: staged 가 있으면 그것만 커밋. 없으면
     "변경 전체를 스테이지하고 커밋할까요?" 확인 다이얼로그 후 진행(현행 VSCode 실동작과 동일).
+  - **미해결 충돌이 하나라도 있으면 커밋을 차단**한다(버튼 비활성 + `git.commitBlockedByConflicts`
+    안내, d-51 F3 / 감사 §4-B A4). 충돌 행은 Staged/Changes 어느 그룹에도 속하지 않아 위의
+    "staged 0건" 판정이 stage-all 경로로 흘렀고, 그 경로가 충돌 마커째 스테이지·커밋했다.
+    판정 단일 출처는 `widgets/git-panel/commit-gate.ts` 의 `resolveCommitGate` — 패널(버튼·
+    ⌘Enter)과 컨테이너(`stageAll` 결정)가 같은 함수를 쓴다. git 자체도 unmerged path 가 있으면
+    커밋을 거부하므로 동작이 도구와 일치한다.
   - 빈 메시지면 커밋 버튼 비활성. user.name/email 미설정이면(`repo.signature()` 실패) 안내 배너.
+  - 입력 중인 커밋 메시지는 **projectId 별로 기억**한다(`entities/git/commit-message-memory.ts`).
+    사이드바 뷰를 파일/검색으로 바꾸면 `GitPanelContainer` 가 언마운트되지만 메시지는 남고,
+    프로젝트를 바꾸면 그 프로젝트의 메시지로 갈아끼운다(감사 §4-B C6 — 뷰 전환 소실과 프로젝트
+    교차 잔존을 한 축에서 해소). 커밋 성공 시 해당 항목을 지운다.
 - 커밋 입력란 우상단 Sparkles 버튼으로 AI 가 diff 로부터 커밋 메시지를 생성한다(Wave G,
   §6 의 `git_diff_staged_text` 를 소비) — 흐름·프롬프트·취소는 `ai.md` §4 가 정본. staged 변경이
   없어도 unstaged 변경(충돌 중인 파일 포함)이 있으면 버튼이 활성화된다(Wave H — 워킹트리 diff 로
@@ -85,7 +100,33 @@
 - 원본(old side) 내용은 Rust 가 blob 을 추출해 제공(`git_show_file(rev, path)`), 새 쪽은 파일/버퍼.
 - diff 탭은 `TabKind::Diff{ path, mode }` — 같은 파일 diff 재클릭 시 기존 탭 재사용(preview 규칙).
   커밋 상세 diff 는 같은 variant 를 `rev`/`parentRev`/`beforePath` 로 확장해 재사용한다(§9).
-- 툴바: inline 토글, Collapse Unchanged Regions(2차), 파일로 이동 버튼.
+- **`TabKind::Diff.path` 는 언제나 절대경로다**(d-51 F3 / 감사 §4-B B10). 탭 재사용은 `kind` 전체
+  동등성으로 판정하므로, SCM 패널만 저장소 상대경로를 쓰던 동안 탭바 "Open Changes" 와 같은 파일이
+  서로 다른 탭이 됐고, `fs:changed`(절대경로)가 그 탭의 `GIT.DIFF` 캐시를 무효화하지 못했으며,
+  `DiffPane` 의 충돌 판정도 행과 만나지 못했다. 커밋 상세 diff 도 같은 이유로 `absPath`/
+  `origAbsPath` 를 쓴다 — 파일 히스토리 패널이 이미 절대경로로 `GIT.SHOW` 를 키잉하고 있었다.
+  `DiffPane` 의 충돌 판정(`widgets/diff-pane/diff-stageability.ts`)은 절대·상대 두 표기를 모두
+  받아, 통일 이전에 영속된 레이아웃의 diff 탭도 인식한다.
+- 워킹트리·staged diff 도 `beforePath`(개명 원경로)를 `git_diff_file` 에 전달한다 — 탭 kind →
+  `DiffPane` → `gitDiffFileQueryOptions` → `QUERY_KEY.GIT.DIFF`(끝에 덧붙여 `fs:changed` 의
+  path 인덱스 3 을 보존) 축이 이어져 있다. 다만 **상태 행(`StatusRow`)에는 아직 원경로 소스가
+  없다** — 감사 §2 M-2(양방향 rename) 전까지 `origPath`/`origAbsPath` 는 구조적으로 항상 `null`
+  이라, 이 축이 실제로 값을 나르는 것은 커밋 diff 쪽뿐이다(d-50 S3 §5 발견).
+- diff 에디터는 `ignoreTrimWhitespace: false` 로 만든다 — monaco 기본값(`true`)은 앞뒤 공백만 다른
+  줄을 같다고 보아 (a) 공백만 바뀐 변경을 아예 안 그리고 (b) 변경 구간 중간의 공백 전용 줄에서
+  hunk 를 둘로 쪼갠다. `git_stage_hunk`/`git_unstage_hunk` 는 넘어온 `(start, end)` 를 libgit2 의
+  hunk 경계와 **정확일치**로 찾으므로, 쪼개진 범위는 백엔드에 존재하지 않아 거터 스테이지가
+  `error.git.hunkNotFound` 로 실패했다(감사 §4-B D8).
+- 툴바: inline 토글, 파일로 이동 버튼.
+- **diff 표시 설정 2종**(d-53 U1 · 감사 §5): `editorDiffHideUnchangedRegions`(monaco
+  `hideUnchangedRegions.enabled` — 변경 없는 영역 접기) · `editorDiffShowMoves`(monaco
+  `experimental.showMoves` — 이동한 블록을 삭제+추가가 아니라 이동으로 표시). 둘 다 기본 **false**
+  (VS Code 파리티)이고 설정 화면 Editor 섹션에 있다. **`DiffView` 를 쓰는 모든 표면에 같은 값이
+  걸린다** — `DiffPane`(SCM), `CommitFileDiff`(커밋 상세), `ConflictCompareDialog`(충돌 비교).
+  앞의 둘은 각자 `settingsQueryOptions()` 를 읽고, `features` 레이어라 쿼리를 읽지 않는 충돌
+  다이얼로그는 `EditorPane` 이 `shared/lib/diff-view-settings.ts` 의
+  `resolveDiffViewSettingsProps(settings)` 결과를 prop 으로 내려준다. 툴바의 Collapse Unchanged
+  Regions 버튼(2차)은 이 설정과 별개로 남아 있다.
 - **`git_diff_staged_text(projectId)`**(Wave G, git2 native — `diff_tree_to_index` + `Diff::print`):
   파일별 `DiffSides` 가 아니라 staged 전체를 **하나의 unified diff 텍스트**로 반환한다. 에디터 diff
   뷰가 아니라 AI 커밋 메시지 생성(`ai.md` §4·§7)의 유일한 소비처 — 32KiB 상한(초과 시 UTF-8 경계

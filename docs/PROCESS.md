@@ -49,6 +49,43 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: 전수조사(Fable) 후속 배치 d-50~d-53 (2026-08-29)
+
+> 발견 정본 `docs/quality-assurance/2026-08-29-full-audit.md`. 사용자 지시: 종합보고 후 결정
+> 필요 항목 외 전건 workflow(opus+xhigh) 즉시 구현. 산출물은 커밋 지시 전까지 워킹트리 유지.
+
+- [x] 조사 6축 — **전체 완료(2026-08-29)**: 프론트 성능 14·Rust 성능 19·CI 8·Rust 버그 12·
+      TS 버그 확증 29+유력 8그룹·UI/UX 격차+차별화 6. 보고서 §1~§7 정본
+- [x] d-50+d-51 통합 구현 wf — **완료(2026-08-29, wf_fd0b43f5 — 21 에이전트/에러 0)**: Rust
+      직렬 S1a~S8 ∥ FE 직렬 F1~F8 → 렌즈 3(발견 27·major 4) → 수정(major 4 전건 확증 반영 +
+      minor 12·기각 2 사유·이월 4) → wf 검증 전 사다리 그린. **메인 2차**: `bun run verify`
+      직접 재실행 exit 0(bun 1751/0·cargo 1209/0·clippy·fmt·format 전건), 핵심 수정 6종 실물
+      스팟 확인(rename/copy 목적지 가드·untracked add_all·워처 조상 성분 한정·lossy 표식
+      read_only·A1 복원/sync 순서·검색 build_parallel). 구현·검토 기록은 계약 2건 §3~§5 정본
+      (160파일 +8399/-1427)
+- [x] 사용자 결정 4건 회신(2026-08-29) — ① thin LTO+opt-level 3 ② 캐시 워밍 paths 필터
+      ③ 러너 macOS 유지 ④ UX 5건+on-save 정리+EditorConfig. 정본
+      `acknowledge/2026-08-29-audit-followup-user-decisions.md`
+- [x] d-52 CI 반영 — Cargo.toml 프로필 전환·cache-warm.yml 신설(actionlint PASS)·release.yml
+      test-rust save-if+릴리스 노트 조기 게이트+timeout 40/30m. 잔여: dmg 크기 전후 실측
+      (구현 wf 완료 후 로컬 릴리스 빌드, 기준선 v0.1.2 에셋). 기지: release.yml SC2035 info
+      (기존 Collect artifacts 스텝 — 범위 밖 보고만)
+- [x] d-53 UX(5건+on-save trim/final-newline+EditorConfig) — **완료(2026-08-29, wf_99cd157a —
+      6 에이전트/에러 0)**: 설정 10종 순증(U1 옵션 7·U2 on-save 2·U3 editorConfigEnabled, 전부
+      VS Code 파리티 기본 off)+bindings·로케일 3언어·설정 UI·문서 동반. 렌즈 발견 9(major 0) →
+      수정 5(글롭 매처 백트래킹 메모이즈 봉쇄·동기 예외 저장 취소·rulers write-back 등)·문서정정
+      4·기각 0. wf 검증 그린(bun 1788/0·cargo 1241/0). **메인 2차**: `bun run verify` 직접
+      재실행 exit 0, 표면 실물 스팟 확인(settings 필드·editorconfig.rs·on-save-cleanup·
+      diff-view-settings·editor-rulers). 계약 §3~§5 정본
+- [x] dmg 크기 실측(2026-08-29) — 로컬 릴리스 빌드 성공(프로필 변경 후 첫 풀 컴파일, cargo
+      release 2m28s 로컬). dmg 15,019,605 bytes vs v0.1.2 13,644,641 (+1.37MB ≈ +10.1%).
+      단, 코드 순증(+8.4k 줄·기능 3배치) 합산치라 순수 프로필 효과는 그 이하 — 크기가 문제 되면
+      "thin LTO 만(opt-level s 복귀)" 대안 가능(acknowledge 결정 문서에 병기)
+- [ ] 잔여(사용자): 커밋 분할 지시 대기(제안 5분할 — HANDOFF/최종 보고 참조)·qa6 실기 계속
+      (신규 수정 실기 확인 포인트: 미러 복원/스플릿 저장 정착·rename 계열·검색 병렬+치환 스냅샷·
+      터미널 재부착·pinned 탭·IME 가드·d-53 설정 10종)·draft 릴리스 공개
+- [x] 백로그 이관 — 보고서 §7 전량 docs/backlog.md "전수조사(2026-08-29)" 절 등재
+
 ## 진행 중: 후속 배치 큐 d-36~d-39 (2026-08-25 사용자 결정 — 정본 `acknowledge/2026-08-25-post-batch-user-decisions.md`)
 
 > 순서: d-36 → d-37 → d-38 → d-39(완료 시 Phase 8 진입). Rust 한 시점 한 에이전트·배치별

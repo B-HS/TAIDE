@@ -110,8 +110,37 @@ IME 계측(링버퍼 + 팔레트 복사)으로 사용자 실기 로그를 확보
 계측(링버퍼·팔레트 커맨드)은 재발 검증용으로 유지한다. 로그의 inputType 에 `:self-send`/`:already-sent`,
 data 행에 `forward`/`drop` 이 표기되어 판정 경로를 바로 확인할 수 있다.
 
+## 2026-08-29 후속 — 터미널 밖의 2차 피해 (isComposing 가드 전면 사망)
+
+위 실측표의 `KeyboardEvent.isComposing = false` 는 xterm 만의 문제가 아니었다. **앱 전체에서
+`event.isComposing` 으로 쓴 조합 가드가 전부 죽어 있었다**(전수조사 §4-B B13). 같은 표의
+`keyCode = 229` 는 Safari 와 동일하게 살아 있으므로, 공통 가드
+`isImeCompositionKeydown`(`src/shared/lib/ime-composition.ts`)을 `isComposing || keyCode === 229`
+로 정의해 한 곳에서 판정한다(cmdk 가 자기 `Command` 루트에 쓰는 것과 같은 식).
+
+적용 지점 — `keymap-dispatch.ts`(단일 키 매칭·chord 1단/2단·monaco 유예 전부),
+`ai-inline-edit.ts`(기존 `isComposing` 가드 교체), 검색 패널·Search Editor 의 Enter 실행,
+탐색기 draft row 의 Enter 확정·Escape 취소, 커밋 박스 ⌘Enter, 원격 허용 호스트 Enter 추가,
+Zen 모드 Escape 이탈, `DialogContent`·`PopoverContent` 의 Escape 닫힘(radix 는 자체 조합 가드가
+없다 — `@radix-ui/react-use-escape-keydown` 은 `event.key === 'Escape'` 만 본다).
+
+검증 방법: 조합 중(예: `ㅎ`→`호`→`화`) 확정용 Enter 로 검색이 실행되거나 파일 생성이 확정되지
+않고, 조합 취소 Escape 로 팔레트·다이얼로그가 닫히지 않으면 정상. 확정 뒤에 다시 누른 Enter/Escape
+는 정상 동작해야 한다(가드가 조합 상태에서만 걸린다).
+
+**범위 정정 (2026-08-29 검토)** — 키맵 디스패치(`decideKeymapDispatch`)의 가드는 **수식키 없는
+keydown 에만** 적용한다(`isImeCompositionKeydownWithoutCommandModifier`). 입력기는 Cmd/Ctrl 조합
+keydown 을 소비하지 않으므로 조합 중이라도 ⌘S·⌘W·⌘P 는 그대로 실행돼야 하고, 반대로 229 를 수식
+조합에도 실어 보내는 환경이 있다면 예외가 없을 때 조합 중 **모든 앱 단축키가 무음으로 죽는다**.
+Option/Alt 는 예외가 아니다(macOS 는 Option 으로 dead key 를 조합한다). 위 목록의 나머지 적용
+지점(Enter/Escape 축)은 수식키가 없으므로 판정이 그대로다.
+
+추가 검증 항목: 조합 중(확정 전)에 **⌘S** 를 눌러 저장이 실행되는지 — 실행되면 정상.
+
 ## 후속
 
 - Tauri/wry/tao 상위 버전에서 수정되면 이 어댑터를 걷어낸다. 걷어낼 때는
   `resolveImeInput` 배선만 제거하면 되도록 격리해 두었다.
+  `isImeCompositionKeydown` 은 그때도 남긴다 — `isComposing` 이 되살아나도 그 판정을 먼저 보고,
+  `keyCode` 는 폴백으로 물러날 뿐이다.
 - 검증 방법: 터미널에 "환" 입력 → 화면에 `환` 이 한 글자로 표시되면 정상.

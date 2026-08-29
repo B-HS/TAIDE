@@ -56,11 +56,29 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
 
 ## 6. 로컬 빌드·미서명 배포
 
-- 로컬 프로덕션 빌드: `bun run tauri build` → `src-tauri/target/release/bundle/{macos,dmg}/`.
-- 미서명 빌드를 배포받은 경우 최초 실행 전 격리 해제가 필요하다:
-  `xattr -cr "/Applications/TAIDE.app"` (Release 본문에 자동 포함되는 안내와 동일).
+- 로컬 프로덕션 빌드: `bun run tauri build` → **루트** `target/release/bundle/{macos,dmg}/`
+  (워크스페이스라 src-tauri 하위가 아님 — §8 "no .app bundle found" 참조).
+- 로컬 빌드 .app 을 기존 설치본 위에 덮어쓸 때 `cp` 가 `Operation not permitted` 로 막히면
+  macOS 앱 관리 보호(TCC)다 — dmg 를 열어 Finder 드래그("대치")가 정공.
+- 미서명 빌드를 배포받은 경우 최초 실행 전 격리 해제: `xattr -cr "/Applications/TAIDE.app"`
+  (로컬에서 직접 빌드한 .app 은 격리 속성이 없어 불필요).
 
-## 7. 트러블슈팅
+## 7. 도메인 `taide.gumyo.net` — 원격 접속 공개 서빙 준비물 (2026-08-28 문답 정본)
+
+앱 도메인이 `taide.gumyo.net` 으로 확정(identifier `net.gumyo.taide` 개명의 근거 —
+`acknowledge/2026-08-29-bundle-identifier-rename.md`). 이 도메인으로 원격 접속을 서빙하려면:
+
+1. 앱 설정 → Remote → **허용 호스트에 `taide.gumyo.net` 등재** — 미등재 Host 는 서버가 전
+   요청 거부(DNS 리바인딩 방어, `remote/server.rs`). `*.` 접두 와일드카드 지원.
+2. **HTTPS 종단 리버스 프록시**(Caddy/nginx/Cloudflare Tunnel 등) + `X-Forwarded-Proto: https`
+   전달 + **WebSocket 업그레이드** 지원 — 허용 호스트라도 이 헤더가 없으면 평문 취급.
+3. DNS 를 해당 머신(고정 IP/터널)으로, TLS 인증서는 프록시가 담당(앱 서버는 127.0.0.1 평문).
+
+- GitHub 동기화(sync)는 **도메인과 무관** — Gist + `gist` 스코프 PAT 방식(OAuth 콜백 없음).
+  할 일은 설정 Sync 섹션에 PAT 연결뿐.
+- 기록: 원격 페이지 자체는 CSP 헤더 미부착(d-48 계약 §4 후속 후보 — 비밀번호 게이트 뒤라 기록만).
+
+## 8. 트러블슈팅
 
 - **"Configure Apple code signing" 에서 `base64: error decoding base64 input stream`**:
   `MACOS_CERTIFICATE_P12` 등록값이 유효한 base64 가 아닌 경우다 — 2026-08-28 v0.1.0 1차 런이
@@ -92,10 +110,10 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
   수정을 반영하려면 태그를 새 커밋으로 다시 발행해야 한다(미발행 draft 상태라면 태그
   삭제·재푸시 가능 — 사용자 승인 필수).
 
-## 8. 릴리스 이력
+## 9. 릴리스 이력
 
 | 태그 | 일자 | 비고 |
 |------|------|------|
 | `v0.1.2` | 2026-08-29 | **완주(런 `33190360486`, wall-clock 9m35s)** — d-48 근본 수정(CSP style-src)·identifier `net.gumyo.taide` 개명·릴리스 노트 체계 첫 적용. 설치 실기 3건(d-47~49) 전부 종결된 첫 공개 후보. draft 생성 — 사용자 공개 대기 |
 | `v0.1.1` | 2026-08-28 | ~~폐기~~(draft·태그 삭제 — d-48 잔존·identifier 개명 반영 위해). 4-job 병렬 CI 첫 실전(run `33166793025`, 약 10분 — 단일 job 16m54s 대비 단축). d-47 해소는 이 빌드에서 확인 |
-| `v0.1.0` | 2026-08-28 | ~~폐기~~(draft·태그 삭제 — 설치 실기에서 d-47~49 발견). 4차 런에서 파이프라인 자체는 완주. 실패 이력: 1차 시크릿 base64 → 2차 번들 경로 → 3차 Homebrew dylib(§7 트러블슈팅 3건의 출처) |
+| `v0.1.0` | 2026-08-28 | ~~폐기~~(draft·태그 삭제 — 설치 실기에서 d-47~49 발견). 4차 런에서 파이프라인 자체는 완주. 실패 이력: 1차 시크릿 base64 → 2차 번들 경로 → 3차 Homebrew dylib(§8 트러블슈팅 3건의 출처) |

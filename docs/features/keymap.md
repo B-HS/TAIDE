@@ -42,6 +42,12 @@ type KeymapEntry = {
 - `KeymapOverrideEntry`(사용자 재바인딩 저장 포맷)도 동일한 선택 `chord?` 필드를 가진다.
   **재바인딩은 완전한 재선언**이다 — `applyKeymapOverrides` 가 오버라이드에 `chord` 가 없으면 base
   엔트리의 `chord` 를 무조건 제거한다("이전 chord 유지"가 아니라 "단일 키로 확정"으로 해석).
+- **chord 엔트리의 `when` 은 1단 보호용이라 1단이 바뀌면 승계되지 않는다**(d-51 F4).
+  `APP_KEYMAP` 의 chord 2건이 가진 `!terminalFocus` 는 오로지 1단이 ⌘K 이기 때문에 붙어 있다(§5) —
+  ⌘K ⌘S 를 ⌘J 같은 다른 1단으로 재바인딩하면 그 근거가 사라지는데도 게이트만 남아 터미널 포커스
+  중에는 새 바인딩이 조용히 죽어 있었다. `applyKeymapOverrides` 는 **base 엔트리에 `chord` 가 있고
+  오버라이드의 1단(key+mods)이 base 와 다를 때만** `when` 을 떨어뜨린다. `chord` 가 없는 엔트리의
+  `when`(터미널 jump 2건의 `terminalFocus` — 의미적 스코프)은 어떤 재바인딩에도 그대로 유지된다.
 
 ## 2. 디스패치 상태머신 (`decideKeymapDispatch`)
 
@@ -132,7 +138,16 @@ keydown capture 리스너를 하나 더 등록한다 — `runsViaCommand` 커맨
 keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDeferral` 을 스스로 확인하지 않으면
 2단 무조건 삼킴과 monaco 유예 창을 전부 우회해버린다 — 사용자가 `runsViaCommand` 행을 chord/유예
 창과 충돌하는 키로 재바인딩하면 재현된다. `getKeymapChordDispatchSnapshot(event)` 로 같은 메모이즈
-스냅샷을 읽어 `pending`/`monacoDeferral` 중 하나라도 참이면 즉시 return 한다. 또한
+스냅샷을 읽어 `pending`/`monacoDeferral` 중 하나라도 참이면 즉시 return 한다.
+
+**d-51 F4 — 같은 이유로 `APP_KEYMAP` 매칭 자체도 두 리스너가 공유한다.** 위 두 상태만 확인하는
+것으로는 부족했다: `runsViaCommand` 행을 **이미 `APP_KEYMAP` 이 쓰는 키**(예: ⌘B)로 재바인딩하면
+한 번의 키 입력에 `useGlobalKeymap` 의 `toggle-sidebar` 와 이 리스너의 커맨드가 **둘 다** 발동했다
+(키바인딩 에디터는 저장 시 경고만 하고 막지는 않는다 — 경고가 재바인딩 자체를 금지해선 안 되므로
+이 정책은 유지). 이제 `decideCommandBindingRun`(`shared/lib/keymap/command-binding-dispatch.ts`)이
+같은 `decideKeymapDispatch` 를 한 번 더 돌려(순수 함수라 두 번 평가해도 부작용 0) `none` 이 아니면
+커맨드 쪽이 물러난다 — 한 키의 승자는 항상 `APP_KEYMAP` 이다. `when` 이 불충족이라 `APP_KEYMAP` 이
+그 keydown 을 놓치는 경우에는 커맨드가 그대로 가져간다. 또한
 `findRunnableCommandBinding`(`keybinding-catalog.ts`)은 `row.chord` 가 있는 행을 매칭 대상에서
 제외한다 — 이 경로는 2단 상태머신에 참여하지 않으므로, chord 로 재바인딩된 행이 1단 keydown 만으로
 즉시 발동(표시는 두 단계인데 동작은 한 단계)하는 것을 막기 위해서다.
@@ -162,10 +177,22 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
   사라진다. `pending`(앱 자체 chord 대기)은 이 focusin 리스너로 건드리지 않는다 — 앱 chord 는 에디터
   포커스에 스코프되지 않으므로(예: ⌘K 대기 중 팔레트를 여는 것 자체가 포커스 이동이다) 취소하면 안
   된다.
-- **수식어 단독·키 자동반복(`event.repeat`)·IME 조합 중(`event.isComposing`) keydown 은 유예·2단
-  소비에서 제외**된다(`isIgnorableKeydown`, `keymap-dispatch.ts`) — Cmd 키를 누르고 있는 것,
-  ⌘K 를 길게 눌러 생기는 반복 keydown, 한글/일본어 등 조합 중인 keydown 모두 "다음 keydown" 으로
-  카운트되지 않는다.
+- **수식어 단독·키 자동반복(`event.repeat`) keydown 은 유예·2단 소비에서 제외**된다
+  (`isIgnorableKeydown`, `keymap-dispatch.ts`) — Cmd 키를 누르고 있는 것, ⌘K 를 길게 눌러 생기는
+  반복 keydown 은 "다음 keydown" 으로 카운트되지 않는다.
+- **IME 조합 중의 수식키 없는 keydown 은 `decideKeymapDispatch` 진입부에서 전부 차단**된다
+  (`isImeCompositionKeydownWithoutCommandModifier` = `isImeCompositionKeydown`(
+  `shared/lib/ime-composition.ts` — 판정은 `event.isComposing` 이 아니라 `keyCode === 229`) 이면서
+  Cmd·Ctrl 이 눌리지 않은 경우). **Cmd/Ctrl 조합은 예외**다 — 입력기가 소비하지 않는 키이고, 조합 중에
+  ⌘S 를 누른 사용자의 의도는 정확히 저장이다(예외가 없으면 229 를 수식 조합에도 싣는 환경에서 조합 중
+  모든 앱 단축키가 무음으로 죽는다). Option/Alt 는 예외가 아니다 — macOS 는 Option 으로 dead key 를
+  조합한다. 유예·2단 소비뿐 아니라 **단일 키 매칭·chord 1단 진입까지** 포함한다:
+  `normalizeKeymapEventKey` 가 `event.key`(조합 중에는 `Process`)를 못 읽으면 `event.code` 로
+  폴백하므로, 가드가 없으면 한글 한 글자를 칠 때마다 그 물리 키에 걸린 수식어 없는 바인딩이 발동한다.
+  `event.isComposing` 이 아니라 `keyCode` 를 보는 이유는 이 앱의 WKWebView 가 조합 이벤트를 아예
+  발생시키지 않아 `isComposing` 이 영구히 `false` 이기 때문이다
+  (`docs/bug/2026-08-06-wkwebview-ime-composition.md` 실측). 같은 판정을 `decideCommandBindingRun`
+  이 재사용하므로 커맨드 바인딩 리스너도 함께 물러난다.
 - `MONACO_CHORD_PREFIX_KEY`(⌘K/Ctrl+K)는 앱이 정의한 chord 유무와 **독립적으로** 항상 추적한다 —
   앱이 자기 chord 를 하나도 안 가지고 있어도 monaco 의 21개 기본 chord 를 보호해야 하기 때문이다.
   사용자가 `monaco.*` 행을 **다른** 프리픽스의 chord 로 재바인딩하면(예: ⌘J ⌘S) 그 1단도
@@ -186,8 +213,12 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
 
 **표본 엔트리**: `open-keybindings-editor` = `⌘K` → `⌘K ⌘S`(2단도 `mod` 필요 — 계약 §3.1 문언
 "VS Code 관성" 그대로. 표시는 `formatKeymapShortcut` 이 "⌘K ⌘S" 로 렌더링한다, monaco
-`defaultBindingLabel` 관례와 동일한 공백 join). 핸들러는 `requestOpenKeybindingsEditor()`
-(`keybindings-bridge.ts`) — 키바인딩 에디터를 연다. `command-catalog.ts`(d-30 분할 이전 command-registry.ts) 의 `keybindings.open`
+`defaultBindingLabel` 관례와 동일한 공백 join). 핸들러는 **`KeybindingsRuntimeProvider`(app 레이어)가
+직접 등록**해 자기 창의 다이얼로그를 연다 — d-51 F4 이전에는 `AppShell` 이 등록했는데, 보조 창은
+`AppShell` 을 마운트하지 않으므로 거기서는 chord 가 해소되고 `preventDefault` 까지 된 뒤 **핸들러가
+없어 아무 일도 일어나지 않았다**(키만 삼켜짐). 프로바이더는 두 창 모두에 마운트되므로 창마다 정확히
+하나의 소유자가 생긴다. 키 입력 없이 이 다이얼로그에 닿는 나머지 두 경로(팔레트 커맨드·설정 화면
+버튼)는 여전히 `requestOpenKeybindingsEditor()`(`keybindings-bridge.ts`)로 같은 프로바이더에 도달한다. `command-catalog.ts`(d-30 분할 이전 command-registry.ts) 의 `keybindings.open`
 커맨드에도 `keymapId: 'open-keybindings-editor'` 가 붙어 있어(Phase D 접합) 팔레트·카탈로그에
 **행이 하나로 통일**된다(붙지 않았다면 "바인딩 있는 keymap 전용 행"과 "바인딩 없는 커맨드 행"
 2개로 쪼개져 보였을 것). 이 리네임으로 예전 `keybindings.open` actionId 로 저장된 오버라이드가
@@ -253,6 +284,16 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
   **항상 먼저** 매칭되므로(단계 5 보다 우선), 같은 1단을 쓰는 비-chord 단일 키 엔트리는 영구히
   가려진다(진짜 충돌).
 
+**d-51 F4 — monaco 기본 바인딩도 판정에 들어온다.** `monaco.*` 행은 사용자가 재바인딩하기 전까지
+`key: ''` 라, 카탈로그의 ~200개 monaco 행 전부가 "미할당" 으로 취급돼 ⌘D·⌘/·F12 같은 monaco 기본
+키 위로 앱 액션을 재바인딩해도 아무 경고가 없었다. `parseMonacoDefaultBindingLabel`
+(`shared/lib/monaco/monaco-binding-label.ts`)이 표시용 라벨(`'⌘K ⌘C'`·`'⇧F10'`·`'⌘⌫'`)을
+`{ key, mods, chord }` 로 되읽고, `keybinding-catalog.ts::resolveKeybindingRowBinding` 이 그것을
+"그 행이 실제로 응답하는 바인딩" 으로 돌려준다(`findKeymapConflict` 의 새 `resolveBinding` 인자로
+주입). 사용자 오버라이드가 있으면 그쪽이 이기고, 해제(unbind)된 행은 라벨을 보지 않는다. 라벨은
+mac 표기지만 `⌘` → `mod` 매핑이 monaco 자신의 `KeyMod.CtrlCmd` 와 같아 비-mac 에서도 성립한다.
+파싱은 라벨 단위로 캐시돼 카탈로그 전체 대조가 추가 할당 없이 돈다.
+
 이 chord-aware 판정은 Phase D 에서 추가했다 — 원래 `findKeymapConflict` 는 chord 를 전혀 몰라서,
 같은 프리픽스를 쓰는 두 chord(예: 미래에 ⌘K ⌘X 를 새로 추가)를 항상 오탐 충돌로 잘못 표시했다.
 `keybinding-catalog.ts::findConflictingRow` 는 `KeybindingRow` 가 이미 `chord` 필드를 나르고 있어
@@ -269,6 +310,13 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
   (`settings.keymapChordCapturePrompt`, `{{shortcut}}` 보간) + 즉시 확정 버튼
   (`settings.keymapChordConfirmSingle`, Enter 로도 확정) 노출. 2타째로 chord 확정, Escape 로 취소,
   블러 시 정리.
+- **수식어 요구는 1단에만 적용된다**(d-51 F4). 2단은 프리픽스로 이미 스코프되므로 무수식 키도
+  유효하다 — `APP_KEYMAP` 자신이 그런 chord 를 하나 갖고 있는데(⌘K Z, `toggle-zen-mode`) 캡처 UI 는
+  그것을 재현할 수 없었다(행 쪽 `settings.keymapModifierRequired` 경고 + 에디터 쪽 저장 거부로
+  이중 차단). 무수식 Enter 는 여전히 "단일 키로 확정" 이므로 2단이 될 수 없다(수식어를 얹은 Enter 는
+  가능).
+- **키로 검색 모드에 들어가면 텍스트 필터를 비운다**(d-51 F4) — 그 모드에서는 텍스트 입력 칸이
+  캡처 버튼으로 교체돼, 남아 있는 필터가 보이지도 지워지지도 않는 채로 목록을 계속 좁혔다.
 - monaco 재바인딩 불가 키 가드(`isKeyBindable`)는 1단·2단 **양쪽 모두**에 동일하게 적용한다.
 - **컨텍스트 인스펙터**: `settings.keymapInspectorTitle` 아래 현재 활성 컨텍스트 키 배지
   (`settings.keymapInspectorEmpty` — 없을 때) — `DEFAULT_KEYMAP_CONTEXT_GETTERS` 를 500ms

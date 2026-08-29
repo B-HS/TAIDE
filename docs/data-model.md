@@ -44,7 +44,18 @@ TAIDE/
 │                            recentSearches(기본 [], 상한 20·중복 제거는 프론트 담당·서버는 순수
 │                            passthrough) — Wave D,
 │                            `acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
-│                            zenFullscreen(기본 false)·zenHideStatusBar(기본 true) — Wave I, §8)
+│                            zenFullscreen(기본 false)·zenHideStatusBar(기본 true) — Wave I, §8.
+│                            editorBracketPairGuides·editorSmoothScrolling·
+│                            editorCursorSmoothCaretAnimation·editorSuggestPreview(전부 기본
+│                            false)·editorRulers(기본 [] — 1~1000 범위·중복 제거·오름차순·16개
+│                            상한으로 정규화)·editorDiffHideUnchangedRegions·editorDiffShowMoves
+│                            (기본 false) — d-53 U1, `features/editor.md` §15·`features/git.md` §4.
+│                            trimTrailingWhitespaceOnSave·insertFinalNewlineOnSave(전부 기본
+│                            false — 저장 파이프라인 공통 정리, 포맷 이후 적용) — d-53 U2,
+│                            `features/editor.md` §16.
+│                            editorConfigEnabled(기본 false — 파일 열기 시 그 파일의 .editorconfig
+│                            체인을 해석해 들여쓰기·on-save 정리를 개인 설정보다 우선 적용) —
+│                            d-53 U3, `features/editor.md` §17)
 ├── prompts/                 사용자 AI 프롬프트 오버라이드(`<id>.json`, `auto-tab-default`·
 │                            `inline-edit-default`·`commit-message-default`) — Wave G,
 │                            `features/ai.md` §5

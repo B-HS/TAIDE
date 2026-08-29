@@ -10,8 +10,16 @@
   세션 키 = (서버 id × 폴더 집합) — vtsls·basedpyright·marksman 은 프로젝트 추가 시
   `workspace/didChangeWorkspaceFolders` 로 기존 세션에 폴더를 붙이고,
   rust-analyzer(TS7 옵션 포함)는 워크스페이스 루트당 새 세션(ADR-0007).
+- **폴더 URI 표기**(d-50 S5, 감사 §4-A-7): `workspace/didChangeWorkspaceFolders` 의 `uri` 는
+  프론트가 `initialize` 에서 쓰는 `monaco.Uri.file(root).toString()` 과 **바이트 단위로 같은 표기**
+  여야 한다(`domain::lsp::service::workspace_folder_uri`). 서버는 폴더 집합을 URI 문자열로 식별하므로
+  한쪽만 퍼센트 인코딩하면 공백·한글 루트가 서로 다른 폴더로 취급돼 추가는 중복 인덱싱되고 제거는
+  먹히지 않는다.
 - **프레이밍**: `Content-Length` 헤더 파싱/작성은 Rust 만 담당. view 와는 파싱된 JSON 객체를
   Channel(세션당 1개)로 주고받는다. `Content-Type` 헤더는 필수 파싱하지 않음(research 함정).
+  `Content-Length` 가 없는 헤더 블록(서버가 stdout 에 흘린 패닉·로그 등 비프로토콜 잡음)은 **그 블록만
+  버리고 다음 프레임을 계속 찾는다**(d-50 S5, 감사 §4-A-11 — 이전에는 버퍼 앞에 남아 세션이 영구
+  무응답이 됐다).
 - **supervisor**: 프로세스 비정상 종료 시 백오프 재기동(연속 3회 실패 시 중지 + UI 알림).
   vtsls OOM 대비 `typescript.tsserver.maxTsServerMemory` 설정 노출.
 - **루트 탐지**:
@@ -137,6 +145,15 @@
 - 파일 열기 → 해당 언어 세션 lazy 기동(프로젝트 capability attach 시점이 아니라 첫 didOpen 시점).
 - 파일 rename: marksman 은 didRename 미지원 → didClose(구)+didOpen(신) 전송(research 함정).
 - 상태 표시: 상태바(또는 탭 영역)에 서버 상태·인덱싱 진행 표시. 크래시 시 재시작 버튼.
+- **documentSymbol 소비처는 편집에 따라 재요청한다**(d-51 F6 · 감사 §4-B B12).
+  `loadDocumentSymbolsForPath`(`shared/lib/lsp/document-symbol-session-waiters.ts`)에
+  `subscribeContentChange` 를 넘기면 모델 콘텐츠 변경을
+  `DOCUMENT_SYMBOL_REFRESH_DEBOUNCE_MS`(400ms, trailing-only)로 합쳐 한 번만 다시 요청한다 —
+  심볼 트리는 요청 시점 버퍼의 스냅샷이고 아웃라인/브레드크럼 이펙트는 경로·언어·서버가 바뀔 때만
+  다시 도므로, 한 글자만 고쳐도 두 화면이 **탭이 열려 있는 내내** 옛 구조를 가리켰다. 구독은
+  `entities/editor/model-registry.ts` 의 `subscribeModelContentChange`(모델 생성 전·재생성까지 추종)
+  로 만든다. `use-lsp-session.ts` 가 같은 이벤트에서 `didChange` 를 동기 전송하므로 재요청 시점의
+  서버는 이미 새 텍스트를 갖고 있다. 팔레트의 심볼 로더는 열릴 때 1회 조회라 대상이 아니다.
 
 ## 5. 수명주기 · 누수 방지
 

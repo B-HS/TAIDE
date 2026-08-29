@@ -22,6 +22,12 @@
 - **flow control**: view 는 `term.write(bytes, callback)` 미완료 바이트를 집계 —
   HIGH_WATER(512KB) 초과 시 `pty_set_paused(true)`, LOW_WATER(64KB) 미만 시 재개.
   Rust reader 는 pause 플래그(Condvar) 로 read 루프 정지 → pty 커널 버퍼가 자식을 자연 블록.
+- **pause 는 세션 단위이고 detach 로 풀리지 않는다**(`pty_detach` 는 구독자 목록만 건드린다).
+  그래서 view 는 (d-51 F5, 2026-08-29) ① attach 이펙트 cleanup 에서 자기가 올린 pause 를 내리고
+  ② attach 시 무조건 `pty_set_paused(false)` 로 재동기한다. ①이 없으면 버스트 도중 탭을 바꾼
+  터미널의 자식 프로세스가 백그라운드에서 멈추고, ②가 없으면 재마운트한 view 가
+  `INITIAL_FLOW_CONTROL_STATE`(paused=false)에서 출발해 재개를 영영 보내지 않는다(감사 §4-B D5 —
+  webview reload·창 종료처럼 cleanup 이 돌지 않은 경로까지 ②가 덮는다).
 - UTF-8 은 어디서도 미리 문자열화하지 않고 bytes 그대로 `term.write(Uint8Array)`
   (청크 경계 멀티바이트 — xterm 이 처리).
 - 상수(`HIGH_WATER` 등)는 `shared/constants/terminal.ts` (research 값 채택).
@@ -31,10 +37,46 @@
 - **Rust 가 세션별 출력 ring buffer(기본 2MB)를 보관**한다. view (재)마운트 시
   `pty_attach(sessionId)` 가 ring buffer 를 재생(replay)한 뒤 라이브 스트림을 잇는다 —
   view reload·탭 전환 복원의 근거(NFR-3).
+- **d-50 S4(2026-08-29)**: 링버퍼가 `VecDeque` 기반이 되어(§2 M-5) 리플레이는 링의 두 조각을
+  앞→뒤 순서로 최대 2청크에 나눠 보낸다(되감기기 전에는 1청크). 리플레이와 구독자 등록은 하나의
+  락 아래 원자적이라 그 경계에서 청크가 중복되거나 유실되지 않는다 — 계약은
+  `docs/ipc-contract.md` "d-50 S4" 절.
 - xterm `scrollback: 10_000`. 앱 재시작 시 스크롤백은 복원하지 않는다(`data-model.md` §1) —
   터미널 탭은 같은 cwd·셸로 새 세션 + "이전 세션" 안내.
 - 백그라운드(비활성) 터미널 탭: xterm 인스턴스는 유지하되 WebGL addon 은 dispose(활성화 시 재로드)
   — GPU/rAF 낭비 방지(research §12).
+
+### 3.1 세션 로스터 캐시 (d-51 F5, 2026-08-29)
+
+재부착 판정의 실제 근거는 `terminal_sessions(projectId)` 쿼리(`TERMINAL.SESSIONS`)다 —
+탭이 들고 있는 `sessionId` 가 **아직 살아 있는지**를 이 목록으로 확인해 attach / 새 스폰을 가른다
+(`isTerminalSessionAlive`). 이 쿼리는 `staleTime: Infinity` 라 스스로 다시 받아오지 않으므로,
+로스터를 바꾸는 사건은 전부 캐시에 직접 써야 한다(`entities/terminal/terminal-session-cache.ts`).
+
+- **스폰 성공** → `upsertTerminalSession` 으로 방금 만든 세션을 목록에 넣는다. 이 쓰기가 없으면
+  로스터가 스폰 이전 상태로 남아, 탭을 떠났다 돌아올 때마다 "지속된 세션이 죽었다"고 읽고 **새 셸을
+  또 스폰**하며 앞의 셸을 고아로 만든다(감사 §4-B A6 — 이 절이 규정한 복원 설계 위반).
+  `shell` 필드는 `pty_spawn` 의 `unwrap_or_else(|| "default")` 를 `DEFAULT_SHELL_LABEL` 로 미러한다
+  (specta 표면이 아니라 값 미러가 유일한 수단).
+- **`terminal:exited`** → `ipc-sync-provider` 가 **전역으로** 받아 `markTerminalSessionExited` 로
+  `running:false` 를 찍는다. 배경 탭의 세션은 마운트된 컴포넌트가 없어 자기 세션 가드 안에서는 아무도
+  듣지 못했고, 그 결과 죽은 세션에 attach 해 입력만 먹는 터미널이 됐다(감사 §4-B B14). 무효화가 아니라
+  즉시 쓰기인 이유는 리페치가 도착하기 전에 재마운트가 캐시를 읽고 attach 해버리기 때문이다.
+- **탭이 닫히며 고아가 될 세션** → `removeTerminalSession` + `pty_kill`(§10).
+
+### 3.2 탭 활성 직후의 입력·포커스 (d-51 F5, 2026-08-29)
+
+터미널 탭을 활성화하면 view 가 새로 마운트되고, 크기를 잰 뒤(`onReady`)에야 스폰이 시작된다.
+그 사이의 두 구멍을 닫는다(감사 §4-B C14).
+
+- **스폰 완료 전 타이핑**: `sessionId` 가 없다고 버리지 않고 `pendingInputRef` 에 모았다가 스폰 직후
+  한 번에 `pty_write` 한다(`appendPendingTerminalInput`, 상한 4096자·앞에서부터 버림 —
+  `terminal-write-bridge` 큐 정책과 동일). 스폰이 진행 중일 때만 모은다(플러시할 주체가 없으면
+  버린다). 스폰 실패 시 버퍼를 비운다.
+- **포커스**: view 생성 직후 `term.focus()`. 단 **포커스된 pane 의 탭일 때만**(`autoFocus` prop =
+  `node.id === focusedPaneId`) — 분할된 레이아웃을 복원할 때 배경 pane 의 터미널이 포커스된 pane 의
+  에디터와 포커스를 다투지 않게 한다. 에디터(`code-editor.tsx` 의 모델 부착 시 `editor.focus()`)와
+  같은 관례다.
 
 ## 4. 셸 (FR-G1)
 
@@ -103,6 +145,13 @@
 - cmd(ctrl)+click → Rust `resolve_terminal_path(path, cwd)` (OSC7 cwd 기준 존재 검증) →
   해당 프로젝트 새 탭으로 열기 + line/col 로 커서 이동. modifier 없는 클릭은 무동작(터미널 관례).
 - hover 툴팁 DOM 은 `term.element` 내 `xterm-hover` 클래스(이벤트 관통 방지).
+- **좌표는 문자열 인덱스가 아니라 셀 열이다**(d-51 F5, 2026-08-29). 매치 문자 자체는 전부 단일폭
+  ASCII 지만 **그 앞에 오는 것**(CJK 로그 접두·이모지 상태 표시)은 아니어서, 와이드 글리프 하나마다
+  링크 range 가 한 칸씩 밀렸다(감사 §4-B C13 — 밑줄·클릭 판정이 실제 경로와 어긋남).
+  `readTerminalRowColumns` 가 행을 셀 단위로 훑어 문자열(코드유닛)→열 매핑을 만들고 range 를 그
+  매핑으로 잡는다. xterm 공개 API 로는 대체 불가다 — 내부 `BufferLine.translateToString` 은
+  `outColumns` 아웃파라미터를 받지만 공개 `BufferLineApiView` 가 인자 3개까지만 전달하고 4번째를
+  버린다(그대로 넘기면 조용히 빈 배열이 온다).
 
 ### 6.1 URL 링크 열기 (손 QA 1차 수정, 2026-08-18)
 
@@ -149,6 +198,11 @@
   `pty_kill(sessionId)`, `pty_set_paused(sessionId, paused)`,
   `pty_attach(sessionId, onData) → subscriptionId`(재생+재구독 — 다중 구독자/멀티윈도우 지원),
   `pty_detach(sessionId, subscriptionId)`(Wave I)
+- **`pty_write` 는 호출 순서를 스스로 보장하지 않는다**(d-50 S4 에서 블로킹 풀로 이관된 뒤로 — 같은
+  틱에 발사된 두 호출은 독립 블로킹 태스크로 writer 뮤텍스를 경쟁한다). 같은 세션의 순서는
+  **프론트가** `entities/terminal/session-write-order.ts` 의 세션별 프라미스 체인으로 보장하며,
+  `writePty` 가 그것을 통과한다. 대기 큐 flush(`terminal-write-bridge.ts`)처럼 한 틱에 N개를 연속
+  발사하는 경로가 실제로 있으므로 필요한 계약이다.
 - query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`,
   `pty_default_options`
 - event: `terminal:exited(sessionId, code)`, `terminal:cwd-changed(sessionId, cwd)`(X-A 배치
@@ -173,8 +227,15 @@
   감지 폴링(`domain::agent::commands::poll_agents`) 용도로 별도 쓰인다, 감사로 확인). ring
   buffer 는
   탭이 닫히며 그 view state 와 함께 사라진다(별도 해제 커맨드 없음). view 는 xterm `dispose`.
+- **스폰 도중 탭 닫기**(d-51 F5, 2026-08-29): 위의 회수는 탭에 **기록된** `sessionId` 만 죽인다.
+  첫 스폰이 진행 중인 탭은 그 값이 아직 비어 있고, `pty_spawn` 이 전역 mutation guard 를 쥐고 있어
+  `layout_close_tab` 은 pty 가 살아난 **뒤에야** 실행되므로, 닫기가 이긴 경우 셸이 아무 참조도 없이
+  앱 종료까지 살아남았다(감사 §4-B C14). view 는 스폰 완료 후 `layout_set_terminal_session` 의
+  성공 여부로 이를 가른다 — 탭이 사라졌으면 `NotFound` 가 오고, 그때만 `pty_kill` + 로스터에서 제거.
+  단순 탭 전환은 탭이 그대로 있어 기록에 성공하므로 세션이 보존된다(둘 다 unmount 라 프론트 상태만
+  으로는 구분할 수 없다).
 - 프로세스 종료(exit) 감지: try_wait 폴링 또는 wait 스레드 → `terminal:exited` → 탭에
-  "[process exited]" 표시 + 재시작 버튼.
+  "[process exited]" 표시 + 재시작 버튼. 로스터 갱신은 §3.1(전역 처리).
 - view unmount(탭 전환): xterm dispose 하지 않고 DOM 분리 유지(활성 pane 내 다중 터미널 전환 시).
   프로젝트 전환으로 위젯 트리가 내려가면 xterm dispose — 재마운트 시 ring buffer 재생.
 - **프로젝트 닫기**: `project_close` 가 그 프로젝트 소유의 모든 pty 세션을
@@ -235,6 +296,9 @@ incorrect lines or overwriting typed text"*.
 서로 다른 폭에서 생성된 바이트를 한 폭으로 재생하고, ring buffer 를 **바이트 단위로 절단**해
 이스케이프 시퀀스 중간이 잘린다. 추가로 `pty_attach` 가 `ring_buffer` 와 `subscriber` 를
 **별개 잠금**으로 잡아 스냅샷~교체 사이 청크가 유실되는 레이스가 있다.
+→ **레이스는 d-50 S4(2026-08-29)에서 해소**됐다(감사 §4-A-5). 스크롤백과 구독자 목록이 하나의
+`SessionOutput` 락으로 합쳐져 리플레이~등록이 원자적이다. 폭 차이·바이트 단위 절단은 그대로 남는
+한계다(위 3번 항목의 replay 경로 자체를 없애는 안).
 
 ### 12.3 반증된 가설 (조사해서 아니라고 확인)
 
@@ -248,6 +312,8 @@ incorrect lines or overwriting typed text"*.
 
 **P0 (잔상 해결)**
 1. reader 에 **타이머 flush** 도입 — 별도 flusher 스레드 5ms 틱. (A)
+   → 현재는 상시 틱이 아니라 **condvar 대기**(배치에 남은 바이트가 있을 때만 깨워 5ms 뒤 flush)다.
+   지연 규약은 그대로이고 유휴 세션의 초당 200회 wakeup 만 사라졌다(d-50 S4, 감사 §2 L-2).
 2. **실측 cols/rows 로 spawn** + 셸 준비 후 재-resize 안전망. (B)
 3. 탭 전환 시 unmount 대신 **숨김 유지**로 replay 경로 자체를 제거. (C)
 

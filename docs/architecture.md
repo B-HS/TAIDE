@@ -300,7 +300,8 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    중복시켰으나, 감사에서 그 중복 로직 자체에 버그(뒤집힌 `Range: bytes=500-100` 같은 요청을
    거부하지 않아 길이 계산이 언더플로하는 결함)가 있는 것으로 드러나 **`infra::range_file`
    공유 모듈로 추출했다**(2026-08-19) — `RANGE_CHUNK_LIMIT`·`RANGE_RESPONSE_CSP`·`extension_mime`·
-   `parse_range`(언더플로 수정 포함)·`read_slice`를 두 파일이 공통으로 import 한다(공유 방향은
+   `parse_range`(언더플로 수정 + `bytes=-N` 접미 범위를 RFC 7233 §2.1 대로 파일의 **마지막** N
+   바이트로 읽는 수정 포함 — d-50 S6, 2026-08-29)·`read_slice`를 두 파일이 공통으로 import 한다(공유 방향은
    `domain::remote::serving`(도메인)→`infra::range_file`(인프라)로, 기존에 이미 있던
    `domain::remote::serving`→`infra::root_guard` 참조와 같은 방향). `extension_mime`에는 이
    추출 과정에서 `m4v`(프론트 `preview-kind.ts`가 이미 video 로 분류하는 확장자) 매핑도 함께

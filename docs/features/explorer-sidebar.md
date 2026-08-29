@@ -38,9 +38,40 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
 
 - watcher(notify 8.2 + notify-debouncer-full 0.7, 300ms debounce)가 **변경 디렉토리의 자식만**
   재조회 — 루트 재스캔 금지. 무시 목록(`.git`, `node_modules`, `target`, `dist`, `.next` 등)은
-  워처·트리·검색이 **동일 규칙 공유**(`shared` 상수 + Rust 상수 동기).
+  워처·트리·검색이 **동일 규칙 공유**(`shared` 상수 + Rust 상수 동기). 다만 목록이 가리키는 것은
+  **디렉토리 이름**이므로 적용 지점이 셋 다 다르다 — 트리는 항목이 디렉토리일 때만 감추고, 워처는
+  경로의 **조상 성분에만** 적용한다(마지막 성분 제외 — d-50 S6, `ipc-contract.md`). 그래서 루트에
+  `build` 라는 이름의 파일이 있으면 트리에도 보이고 그 변경 이벤트도 도착한다.
 - Linux inotify watch 한도 초과는 조용히 실패 — 에러를 UI 배너로 노출(research 함정).
 - 이벤트는 경로 배열 1건으로 묶어 emit(파일당 1 emit 금지).
+- **폴더 삭제·개명은 그 하위의 펼침 상태·캐시까지 정리된다**(d-50 S7). `tree_refresh` 가 갱신한
+  목록에 없는 자식 디렉토리는 경로 접두사로 하위 전체를 버리고, 남아 있지만 자식이 없어진 자식
+  디렉토리는 캐시된 목록만 버린다(펼침 표시는 유지 — 빈 폴더도 펼칠 수 있다). 그전에는 지운 폴더의
+  자식 목록과 펼침 표시가 그대로 남아, 같은 이름으로 폴더를 다시 만들면 그 폴더가 **펼쳐진 채 옛
+  자식들로 채워져** 보였다(감사 §4-B C2).
+- **트리의 `read_dir` 은 전역 mutation guard 를 잡기 전에 블로킹 풀에서 선수행**한다(d-50 S7 §2 H-4).
+  잠금 안에서는 미리 읽은 목록을 꽂기만 하므로, 차가운 폴더 스캔이 파일·git 뮤테이션 전체를 뒤에
+  줄 세우지 않는다. 미리 읽지 못한 디렉토리(읽기 실패·계획 이후 상태 변화)는 잠금 안에서 예전처럼
+  그 자리에서 읽어 같은 결과·같은 오류를 낸다.
+
+### 2.4 붙여넣기·인라인 편집 확정 (d-51 F4)
+
+- **잘라내기 → 같은 폴더 붙여넣기는 no-op** 이다(클립보드만 비운다). 그전에는 자기 자신이 형제
+  이름에 포함돼 "이름 복사본" 으로 제자리 개명됐다. 판정은 `widgets/explorer/paste-plan.ts` 의
+  `isSamePlaceCutPaste`.
+- **충돌 접미는 항목 종류를 안다** — 폴더 `v1.2` 는 `v1.2 복사본`(확장자 분해 없음), 파일 `a.ts` 는
+  `a 복사본.ts`. `buildUniqueEntryName(…, kind)` 의 4번째 인자이며 기본값은 기존 동작(파일)이다.
+- **접힌 폴더의 숨은 충돌은 백엔드가 잡고 프런트가 재시도한다.** 트리는 lazy 라 형제 이름 목록이
+  화면에 보이는 행뿐이므로 로컬 유일 이름이 디스크에서 충돌할 수 있다. d-50 S2 가 세운 목적지 가드가
+  `error.file.destinationExists` 로 거절하면 그 이름을 taken 에 접고 다음 후보로 재시도한다(최대
+  `PASTE_DESTINATION_ATTEMPT_LIMIT` 8회, 그 외 오류는 재시도 없이 그대로 토스트).
+- **인라인 생성·개명은 in-flight 가드**를 가진다(`use-explorer-entry-crud.ts` 의 ref 2개) — 입력 행이
+  왕복 동안 계속 떠 있어 Enter 를 두 번 치면 같은 이름으로 두 번째 생성이 날아가 "이미 존재" 오류
+  토스트가 뜨던 경로를 닫는다.
+- **개명·삭제는 열린 탭까지 따라간다**(d-50 S8) — 개명은 `entities/file/file.query.ts` 의
+  `useRenameEntry` 가, 삭제는 `useDeleteEntry` 가 `layout_apply_path_change` 를 이어 부른다. 위젯이
+  아니라 이 mutation 에 붙였기 때문에 인라인 개명뿐 아니라 **잘라내기 → 붙여넣기(이동)** 도 같은
+  추종을 받는다. 상세 규약은 `tabs.md` §7.1.
 
 ## 3. 검색 (FR-C5)
 
@@ -51,6 +82,43 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
 - 스트리밍: 결과는 Channel 로 점진 수신(대형 리포에서 첫 결과 즉시 표시), 새 검색 시작 시
   이전 검색 태스크 취소(CancellationToken).
 - 치환(replace)은 2차.
+
+### 3.1 구현 확정 (d-51 F2)
+
+- **결과 리스트는 가상화**돼 있다(`features/search/search-results-list.tsx`). 그룹 헤더 + 매치 행을
+  `buildSearchResultRows` 로 한 줄 목록으로 평탄화하고 `@tanstack/react-virtual` 로 창 안의 행만
+  마운트한다 — 컨텍스트 줄 때문에 행 높이가 가변이라 `estimateSearchResultRowHeight` + 실측
+  (`measureElement`)을 함께 쓴다. 리스트가 자체 스크롤 뷰포트를 소유하므로 호출부는 결과가 있을
+  때 `ScrollContainer` 로 감싸지 않는다. 행 key 는 인덱스가 아니라 경로 기준이다(백엔드 병렬 워크
+  라 파일 도착 순서가 비결정 — d-50 S1a).
+- **실행 상태**는 `SearchRunStatus`(`idle`·`running`·`completed`·`failed`) 4종이다. 미실행·실패를
+  "0건"으로 표기하던 문제를 없애고, 본문은 `resolveSearchResultsView` 하나로 갈린다.
+- **결과 잘림**: 총계가 `SEARCH_MATCH_LIMIT`(10,000, `shared/constants/search.ts` — Rust
+  `domain::search::types::SEARCH_MATCH_LIMIT` 미러)에 도달하면 `search.truncated` 안내를 띄운다.
+- **Replace All 은 결과의 출처 쿼리(`ranQuery`)로만 치환**한다. 검색 후 입력·토글을 바꾸면 버튼이
+  비활성되고 `search.replaceStaleHint` 가 뜬다 — 화면에 없던 매치를 되돌릴 수 없게 치환하던 경로를
+  차단한다. 치환 후 재검색도 같은 스냅샷으로 돈다.
+- **치환 스킵 보고**: `SearchReplaceResult.skipped`/`skippedCount`(d-50 S1a)를 경고 토스트로 사유별
+  나열한다(`entities/search/replace-skip-report.ts`, 최대 5건 + "외 N개").
+- **제외 글롭은 단순 `*` 매처**다(`domain/search/service.rs::glob_match`) — 프로젝트 상대 경로
+  전체와 대조하고 `*` 는 `/` 도 넘는다. `**/`·중괄호·쉼표 목록은 지원하지 않으므로 placeholder
+  예시도 `*.test.ts` 형태다.
+- **projectId 스코프**: 검색 뷰는 `key={projectId}` 로 마운트된다. 프로젝트를 바꾸면 쿼리·결과·
+  폴더 범위가 함께 초기화돼 이전 프로젝트의 경로를 새 프로젝트 레이아웃에 여는 교차 오염이 없다.
+- **취소 정책**: 새 검색은 명시 `search_cancel` 을 앞세우지 않는다 — `search_run` 의 `begin_search`
+  가 같은 `(owner, sessionId)` 의 직전 토큰을 이미 취소하고, 앞세운 fire-and-forget 취소는 순서가
+  뒤집히면 **새 실행**을 취소해 결과 0건·무에러가 됐다. 대신 **언마운트 시**에는 취소한다.
+
+### 3.2 검색 에디터 탭
+
+- 검색 에디터 탭(`widgets/search-editor/search-editor-pane.tsx`)은 pane 의 **활성 탭일 때만**
+  마운트되므로, 매치를 클릭해 같은 pane 에 파일을 열면 그대로 언마운트된다.
+- `entities/search/search-editor-memory.ts` 가 **탭 id 키**로 입력값(쿼리·토글·제외 글롭·컨텍스트
+  줄 수)과 결과 스냅샷을 들고 있다가 복귀 시 복원한다. 복원된 탭은 마운트 자동 실행을 하지 않는다
+  (원래 쿼리로 재실행해 결과를 덮어쓰던 동작 제거). 항목은 `SEARCH_EDITOR_MEMORY_LIMIT`(16) LRU 로
+  제한되고, 저장된 projectId 가 다르면 폐기된다.
+- 편집된 쿼리·토글을 탭 레코드(`TabKind::SearchEditor.query`)에 영속화하는 것은 백엔드 표면 변경
+  이라 이 배치 범위 밖이다 — 앱 재시작 시에는 탭이 열릴 때의 원래 쿼리로 돌아온다.
 
 ## 4. 수명주기
 

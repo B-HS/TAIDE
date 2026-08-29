@@ -4,6 +4,10 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
+> **실측(2026-08-29, d-50 S8 — `layout_apply_path_change` 신규 반영)**: command **179종**
+> (raw 3종 포함 **182종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(158) ⊎ `REMOTE_DENIED_COMMANDS`(24).
+> 아래는 그 직전(d-42) 실측 기록이다.
+>
 > **실측(2026-08-25, d-42 §3 item d — `search_list_files` 신규 반영)**: command **178종** —
 > `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수(raw 3종 제외) =
 > `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히
@@ -117,7 +121,9 @@
   `layout_set_terminal_session(tabId, sessionId)`, `layout_open_untitled(projectId, target)`,
   `layout_convert_untitled(tabId, path)`(이 4종은 이전 판에 전혀 없던 기재 누락 — 정정),
   `layout_move_tab_to_window(tabId, target: TabWindowTarget)`,
-  `layout_set_shell_view(projectId, patch: ShellViewPatch)`(둘 다 Wave I — 아래 절 참조)
+  `layout_set_shell_view(projectId, patch: ShellViewPatch)`(둘 다 Wave I — 아래 절 참조),
+  `layout_apply_path_change(projectId, change: TabPathChange) → TabPathChangeResult`
+  (d-50 S8 신설 — 아래 절 참조)
 - event: `layout:changed(projectId, revision)` — **`revision` 발행 규약(X1#11 실사, X-A 배치)**:
   프로젝트별 독립 카운터(전역이 아니다)로, `layout::types::ProjectLayout::revision`(`u32`, 새
   레이아웃은 0)이 `layout::service::*` 의 레이아웃을 바꾸는 모든 함수(`open_tab`/`close_tab`/
@@ -127,6 +133,12 @@
   `layout.json` 에 영속되어(`#[serde(default)]` 로 구버전 파일도 0부터 시작) 앱 재시작을 관통해
   단조 증가한다 — 창(윈도우)이 마지막으로 관측한 revision 을 보관했다가 `revision <= lastSeen` 인
   이벤트를 무시하면 멀티윈도우 stale 갱신 방지 게이트가 된다(프론트 게이트 구현은 F1 후속).
+  **클라이언트 규약(d-51 F7 · 감사 §1-5)**: 위 "마지막 관측 revision" 게이트를 통과한 이벤트라도,
+  `QUERY_KEY.LAYOUT.DETAIL` 캐시의 revision 이 이미 그 이상이면 리페치하지 않는다
+  (`isLayoutEchoAlreadyInCache`). 모든 레이아웃 뮤테이션은 새 `ProjectLayout` 을 **응답으로도**
+  돌려주고 `applyFreshLayout` 이 그것을 캐시에 쓰므로, 뮤테이션을 일으킨 창에서 이 이벤트는 순수
+  에코이며 `layout_get` 왕복을 한 번 더 할 이유가 없다. 캐시가 이벤트보다 뒤처져 있으면(타 창의
+  변경, 또는 아직 도착하지 않은 자기 응답) 종전대로 무효화한다.
 
 ### file (`editor.md`)
 
@@ -134,6 +146,23 @@
   뷰어 모드/대형, raw 커맨드 — 아래 절)
 - mutation: `file_save(path, content)`, `file_create(path, isDir)`, `file_rename(from, to)`,
   `file_delete(path)`(휴지통), `file_copy(from, to)`
+- **d-50 S2 계약 추가(2026-08-29)** — 커맨드 이름·인자·개수는 모두 불변이라 dispatch 테이블·원격
+  정책 분류·커맨드 수 변동은 없다. 바뀐 것은 응답 타입 1필드와 두 mutation 의 거절 조건이다.
+  - `OpenedFile` 에 **`encodingLossy: boolean` 순증**(bindings 재생성). 파일 바이트가 UTF-8 이
+    아니어서 `String::from_utf8_lossy` 가 U+FFFD 로 손실 디코딩한 경우 `true` 이고, 이때 크기
+    티어(`tier`)와 무관하게 **`readOnly` 가 강제**된다 — 손실된 텍스트를 그대로 되쓰면 원본 바이트가
+    영구 파손되기 때문이다(감사 §4-A-3). 프론트는 이 필드로 열람 전용 배너 문구를 크기 사유
+    (`editor.readOnlyLargeFile`)와 인코딩 사유(`editor.readOnlyLossyEncoding`)로 가른다. 인코딩
+    왕복(원 인코딩으로 디코딩·재인코딩) 지원은 백로그.
+  - `file_rename`·`file_copy` 는 **목적지에 이미 항목이 있으면 거절**한다 —
+    `error.file.destinationExists`(`InvalidArgument`). 이전에는 rename 이 목적지를 조용히
+    덮어쓰고 copy 는 파일 덮어쓰기·디렉토리 병합을 했다(감사 §4-A-2 · §4-B A2). LSP
+    `WorkspaceEdit` 의 `RenameFile.options.overwrite = true` 도 이제 거절된다(§5 이월 참조).
+  - 유일한 예외는 **대소문자만 다른 개명**이다. 루트 가드 정규화가 대소문자 무시 파일시스템에서
+    디스크 실표기를 돌려주므로 `readme.md → README.md` 가 `from == to` 로 도착해 조용히 no-op
+    이던 것을(감사 §4-A-1) 요청 표기를 되붙여 수행한다. 같은 항목이면 임시 이름
+    (`persist::temp_sibling` 형태 — 워처가 이미 그룹에서 걸러낸다)을 경유한 2단 rename 이라,
+    프론트에는 요청한 개명 하나로 보인다.
 - Hot Exit(기능 확장 3차 — §"기능 확장 3차" 참조): mutation `file_mirror_dirty(projectId, path,
   content) → number | null`(반환값은 Rust 가 쓰기 시점에 직접 stat 한 디스크 mtime baseline — 원래
   시그니처는 프론트가 `diskModifiedMs` 인자로 baseline 을 넘겼으나 Wave B 하드닝의 미러 부활 수정에서
@@ -197,14 +226,39 @@
 - mutation: `tree_toggle(projectId, path)`, `tree_reveal(projectId, path)`,
   `tree_refresh(projectId, dir)` — 셋 다 갱신된 `TreeRowPage` 를 **반환값으로 직접** 돌려준다. 트리
   갱신을 알리는 별도 이벤트는 없다(옛 `tree:changed` 는 실재하지 않는다 — 정정).
-- mutation(C): `search_run(projectId, sessionId, query: SearchQuery, onMatch: Channel<SearchMatch>) →
-  number`(정정: 이전 판이 말한 Rust 발급 `searchId` 는 없다 — `sessionId` 는 **호출자(프론트)가
-  검색 표면마다 하나씩 발급**해 넘기고, 반환값은 매치 총수다. 같은 `sessionId` 의 새 실행은 이전
-  실행을 자동 취소한다 — `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4),
-  `search_cancel(sessionId)`
+  - **디스크 읽기 시점**(d-50 S7, 2026-08-29): 세 커맨드 모두 필요한 디렉토리를 `begin_mutation`
+    guard 를 잡기 **전에** 블로킹 풀에서 읽고, 잠금 안에서는 그 결과를 꽂기만 한다(§2 H-4).
+    따라서 반환 페이지는 "guard 를 잡은 시점"이 아니라 "그 직전 읽은 시점"의 디스크를 반영한다 —
+    같은 디렉토리에 대한 두 갱신이 겹치면 나중에 도착한 호출이 더 오래된 목록을 쓸 수 있다.
+    자기 교정은 기존과 같다: 뒤따르는 `fs:changed` 가 다시 `tree_refresh` 를 부른다.
+    응답 형태(전체 트리 재직렬화)는 이번 배치에서 **불변** — 재설계는 백로그.
+  - **`tree_refresh` 는 사라진 하위의 상태를 함께 버린다**(d-50 S7): 갱신된 목록에 없는 자식
+    디렉토리 아래의 펼침 상태·캐시를 경로 접두사(컴포넌트 단위 — `src-old` 는 `src` 의 하위가
+    아니다)로 정리하고, 자식이 없어진 자식 디렉토리는 캐시된 목록만 버린다. 삭제한 폴더와 같은
+    이름으로 다시 만들 때 옛 자식이 되살아나던 것(감사 §4-B C2)의 근본 정리다.
+- mutation(C): `search_run(projectId, owner, sessionId, query: SearchQuery,
+  onMatch: Channel<SearchFileMatches>) → number`(정정: 이전 판이 말한 Rust 발급 `searchId` 는 없다 —
+  `sessionId` 는 **호출자(프론트)가 검색 표면마다 하나씩 발급**해 넘기고, 반환값은 매치 총수다.
+  같은 `(owner, sessionId)` 의 새 실행은 이전 실행을 자동 취소한다 —
+  `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4), `search_cancel(owner, sessionId)`
+  - **채널 페이로드는 파일 단위 배치**(d-50 S1a, 2026-08-29): 이전에는 매치 1건 = 채널 메시지 1건
+    (`SearchMatch { path, line, ... }`)이라 1만 매치가 1만 메시지 + 1만 번의 `path` 재직렬화였다.
+    지금은 파일 1개 = 메시지 1건인 `SearchFileMatches { path, matches: SearchLineMatch[] }` 이며,
+    `SearchLineMatch` 는 옛 `SearchMatch` 에서 `path` 만 뺀 형태다(나머지 필드·단위 규약 동일).
+  - **순서 계약**: 한 파일 안의 `matches` 는 항상 소스 오름차순(프론트의 컨텍스트 줄 중복 제거가
+    이 전제에 의존한다). **파일 간 도착 순서는 비결정**이다 — 스캔이 `ignore` 크레이트의
+    `build_parallel()` 병렬 워크이기 때문이며, 안정 정렬이 필요한 소비처는 스스로 정렬해야 한다
+    (프론트는 VS Code 와 같이 "찾는 대로 표시"라 정렬하지 않는다).
+  - **크기 상한**: `constants::REFUSED_FILE_BYTES`(50MB) 이상인 파일은 스캔하지 않는다 — `file_open`
+    이 열기를 거절하는 것과 같은 경계라 "열 수 있는 파일 = 검색되는 파일"이 유지된다. 바이너리
+    판별은 앞 8KB 만 먼저 읽어 수행하고, 통과한 파일만 전량을 읽는다.
 - mutation: `search_replace(projectId, query: SearchQuery, replacement, paths?) →
-  SearchReplaceResult { changedFiles, replacedMatches }`(이전 판은 `projectId` 인자가 빠져 있었다 —
-  정정)
+  SearchReplaceResult { changedFiles, replacedMatches, skipped: ReplaceSkippedFile[],
+  skippedCount }`(이전 판은 `projectId` 인자가 빠져 있었다 — 정정). `skipped`/`skippedCount` 는
+  d-50 S1a 신설(감사 §4-B C10) — 치환하지 못한 파일을 사유(`ReplaceSkipReason`:
+  `tooLarge`·`binary`·`notUtf8`·`unreadable`·`writeFailed`)와 함께 돌려준다. `skipped` 목록은
+  `REPLACE_SKIP_REPORT_LIMIT`(50)개까지만 싣고 `skippedCount` 가 전체 수다. **매치가 없었을 뿐인
+  파일은 스킵이 아니며 세지 않는다.**
 - Wave D: `TabKind::SearchEditor { query }`(신규 tab variant, "Search Editor") — 결과 목록은 저장하지
   않고 쿼리만 레이아웃에 영속화한다. 복원 시 같은 `search_run` 으로 재검색한다(대량 `SearchMatch[]`
   를 레이아웃 JSON 에 싣지 않기 위함).
@@ -230,7 +284,12 @@
 > 이벤트가 담당하고, 실제 목록은 `git_branches`/`git_tags`/`git_stash_list` 를 각각 호출해 받는다).
 
 - query: `git_status(projectId)`, `git_gutter(projectId, path)`,
-  `git_blame_range(projectId, path, from, to)`, `git_diff_file(projectId, path, mode: DiffMode)`,
+  `git_blame_range(projectId, path, from, to)`,
+  `git_diff_file(projectId, path, mode: DiffMode, beforePath?)`(d-50 S3 — `beforePath` 는 **원본(왼쪽)
+  측만** 결정하고 오른쪽은 항상 `path` 다. 개명은 두 축의 경로가 다르므로 — 스테이지된 개명은 HEAD
+  항목이 옛 경로에, 스테이지되지 않은 개명은 인덱스 항목이 옛 경로에 있다 — 양쪽을 새 경로로 읽으면
+  왼쪽이 비어 파일 전체 추가로 보인다(감사 §4-B B11). `null` 이면 양쪽 모두 `path` 를 쓰는 기존
+  동작이며, 개명이 아닌 모든 행에 대해 그것이 정답이다),
   `git_diff_staged_text(projectId) → StagedDiffText{ diffText, truncated, skippedFiles, usedFallback }`
   (Wave G — `ai.md` §4/§7 의 AI 커밋 메시지 생성 전용 소비처, unified diff 텍스트 + 32KiB 상한 +
   바이너리/lock 파일 제외; `usedFallback` 은 Wave H 신설 — staged 델타 0건이면 HEAD↔워킹트리(untracked
@@ -325,6 +384,15 @@
   로 취급한다)
 - query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`,
   `pty_default_options(projectId, cwd?)`(7.7 후속 — 아래 절 참조)
+- **pause 는 구독과 독립인 세션 상태다(클라이언트 규약, d-51 F5 — 표면 변경 없음)**:
+  `pty_set_paused` 는 세션의 reader 스레드를 세우고 `pty_detach` 는 그것을 풀지 않는다(구독자 목록만
+  건드린다). 따라서 **구독을 끊는 쪽이 자기가 올린 pause 를 내려야 하고, attach 하는 쪽은
+  `pty_set_paused(false)` 로 재동기해야 한다** — 그러지 않으면 detach 시점의 pause 가 남아 자식
+  프로세스가 영구히 멈춘다(감사 §4-B D5). 데스크톱 view 는 attach 이펙트의 cleanup·설정 양쪽에서 이를
+  수행한다(`terminal-pane.tsx`).
+- **`terminal_sessions` 로스터는 프론트가 직접 갱신한다(d-51 F5)**: 쿼리가 `staleTime: Infinity` 라
+  스폰(추가)·`terminal:exited`(running=false)·고아 kill(제거)을 캐시에 즉시 써야 재부착 판정이
+  사실과 맞는다 — 상세는 `docs/features/terminal.md` §3.1.
 - event: `terminal:exited(sessionId, ...)`, `terminal:cwd-changed(sessionId, cwd)`,
   `agent:state-changed(projectId, agents: DetectedAgent[])` — **`terminal_report_cwd` 라는 mutation
   은 코드에 없다**(정정: cwd 보고는 프론트→Rust mutation 이 아니라 Rust→view 이벤트
@@ -548,6 +616,11 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   SyncDownloadResult`(`{ kind: 'applied', status } | { kind: 'conflict', remoteUpdatedAt }` — 로컬이
   더 최신이면 `force` 없이는 충돌로 보고, 다운로드 페이로드도 동일 5필드를 강제 제외한다)
 - event: `sync:state-changed(status: SyncStatus)`
+- **클라이언트 규약**(d-51 F6 · 감사 §4-B D7): `conflict` 를 받고 사용자가 "원격 가져오기" 를 고르면
+  이어지는 `sync_download(true)` 도 **결과를 반드시 보고**한다(성공 toast / 실패 toast). 이 재시도는
+  `force` 여도 실패할 수 있고(`RetryGistChanged`·`RetrySyncCompleted` — 둘 다 "다시 시도" 를 요구하는
+  오류다), 응답을 버리면 설정이 교체됐는지 아닌지를 알 방법이 사라진다. 팔레트 커맨드
+  (`entities/sync/sync.commands.ts`)와 설정 화면(`settings-sync-section.tsx`) 둘 다 이 규약을 따른다.
 - `schemaVersion` 게이트(`sync::service::ensure_supported_schema_version`)는 페이로드의
   `schemaVersion` 이 이 빌드의 `SETTINGS_SCHEMA_VERSION`(정책상 `1` 로 동결)보다 **클 때만** 거부한다.
   같은 버전인데 이 빌드가 모르는 필드가 섞인 페이로드는 게이트를 통과하고, 그 필드는 `serde(default)`
@@ -1328,3 +1401,300 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   는 페이로드(`sessionId`, `code`)가 소비에 충분함을 확인만 하고, 실제 소비(세션 정리 트리거 —
   살아있는 것으로 취급되던 죽은 pty 엔트리 정리)는 F2 배선(`TerminalStore` 에서 해당 `session_id`
   제거 — 기존 `pty_kill` 이 이미 idempotent 하므로 새 커맨드 불필요, §"terminal" 절 참조).
+
+### d-50 S1a — 검색 파이프라인 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §1 S1a.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §2 H-1·H-2·M-4·M-9 · §4-A-8 · §4-B C10.
+> 상세 규약은 위 "tree / search" 절에 반영했다. 이 절은 **표면 변경분만** 요약한다.
+
+- **`SearchMatch` → `SearchLineMatch` + `SearchFileMatches`**: `search_run` 의 `onMatch` 채널
+  페이로드가 매치 1건에서 파일 1건(`{ path, matches: SearchLineMatch[] }`)으로 바뀌었다.
+  `SearchLineMatch` 는 옛 `SearchMatch` 에서 `path` 를 제거한 형태이며 `line`·`column`·`preview`·
+  `matchStart`·`matchEnd`·`before`·`after` 필드와 그 단위 규약(UTF-16 코드유닛 — T0 #23)은 그대로다.
+  커맨드 이름·인자·반환 타입(`number`)은 불변이므로 커맨드 수·dispatch 테이블·원격 정책 분류는
+  변동 없다(`search_run` 은 계속 `REMOTE_ALLOWED_COMMANDS`).
+- **`SearchReplaceResult` 필드 2개 순증**: `skipped: ReplaceSkippedFile[]`(경로+사유) ·
+  `skippedCount: number`. 신규 타입 `ReplaceSkippedFile` · `ReplaceSkipReason`(union:
+  `tooLarge`·`binary`·`notUtf8`·`unreadable`·`writeFailed`). 기존 두 필드는 그대로라 구 소비부는
+  타입상 그대로 컴파일된다(표시는 d-51 F2 담당).
+- **커맨드·이벤트 수 불변**: 신규/삭제 커맨드 0, 신규/삭제 이벤트 0. 변경은 타입 표면뿐이며
+  `bindings.ts` 를 재생성(`cargo test --lib typescript_바인딩을_생성한다`)해 반영했다.
+- **프론트 접점**(d-51 F2 를 위한 명시): `entities/search/search-result.ts` 의 `SearchResultGroup`
+  (`{ path, matches }`)과 `SearchMatchRowData` 는 **이름·형태 모두 그대로**다(`SearchMatchRowData`
+  가 `Omit<SearchMatch,'path'>` 대신 `SearchLineMatch` 별칭이 됐을 뿐). `useSearchRun` 의 반환
+  (`{ results, totalMatches, isSearching, run }`)도 이 스테이지 시점에는 불변이라
+  `search-panel*`·`search-editor-pane` 은 수정되지 않았다. **(이후 d-51 F2 가 같은 반환을
+  `{ results, totalMatches, status, ranQuery, isTruncated, run, readSnapshot }` 로 확장하고 그
+  위젯들을 함께 고쳤다 — 현행 형태는 `docs/features/explorer-sidebar.md` §3.1 과
+  `src/entities/search/use-search-run.ts` 를 본다.)** 바뀐 것은 ① `groupSearchMatches(matches)` 가
+  `appendSearchFileMatches(accumulator, batches)` + `createSearchResultAccumulator()` 로 대체됨
+  ② `runSearch` 의 콜백 이름이 `onMatch` → `onFileMatches`(인자도 배치) 로 바뀜 — 두 곳 모두
+  `entities/search` 내부 소비뿐이다.
+
+### d-50 S3 — git 도메인 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §1 S3.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §2 M-1·M-7 · §4-A-6 · §4-A-10 · §4-B B11.
+
+- **`git_diff_file` 에 `beforePath?: string | null` 인자 순증** — 위 "git" 절의 query 항목 참조.
+  커맨드 이름·개수·반환 타입은 불변이라 dispatch 테이블은 인자 1줄(`arg!(args, "beforePath")`)만
+  늘었고, 원격 정책 분류(`REMOTE_ALLOWED_COMMANDS`)와 커맨드 수 41종은 그대로다. **프론트 배선은
+  d-51 F3** — 이번 스테이지는 `entities/git/git.ipc.ts` 의 `getGitDiffFile` 이 선택 인자
+  `beforePath` 를 받아 그대로 넘기는 데까지만 배선했고(미지정 시 `null` = 기존 동작),
+  `gitDiffFileQueryOptions`/`QUERY_KEY.GIT.DIFF` 는 손대지 않았다. F3 는 **쿼리 키에도
+  `beforePath` 를 포함**해야 한다 — 같은 새 경로에 대해 원경로 유무로 결과가 달라지므로 키가
+  같으면 캐시가 섞인다.
+- **`git_show_file` 블롭 크기 상한** — `constants::REFUSED_FILE_BYTES`(50MB)를 넘는 블롭은
+  `error.git.blobTooLarge`(`InvalidArgument`, arg: `path`)로 거절한다. 크기는 `Odb::read_header` 가
+  읽는 오브젝트 헤더에서 오므로 초과 블롭은 **압축 해제조차 되지 않는다**. `file_open` 이 열기를
+  거절하는 것과 같은 경계라 "에디터가 열 수 있는 파일 = 히스토리에서 꺼내올 수 있는 파일"이
+  유지된다(커밋 diff·파일 히스토리 탭이 파일 도메인의 상한을 우회하는 뒷문이 되지 않도록).
+- **`run_git` 타임아웃** — `git` 서브프로세스가 `GIT_COMMAND_TIMEOUT_SECS`(300초)를 넘기면 kill 하고
+  `error.git.commandTimedOut`(`Internal`, args: `command`·`seconds`)을 돌려준다. `push`/`pull`/
+  `fetch` 를 포함해 `run_git` 을 쓰는 전 경로 공통이다. `git_pull` 의 전체 mutation guard 유지와
+  `git_push`/`git_fetch` 의 `push_fetch_lock` 은 **기존 보류 결정 그대로 불변**이며, 이 타임아웃은
+  그 락들의 보유 시간이 앱 수명만큼 무한해지던 경로만 끊는다.
+- **조회 7종 `spawn_blocking` 이관** — `git_show_file`·`git_ahead_behind`·`git_remotes`·`git_gutter`·
+  `git_current_user`·`git_branches`·`git_stash_list`. 기존 `git_status` 와 같은 모양이고 시그니처·
+  반환값·락 의미는 전부 불변이라 **IPC 표면 변화가 아니다**(architecture.md §2.1 준수 복구).
+- **로케일 키 2종 순증**: `error.git.blobTooLarge` · `error.git.commandTimedOut` — ko/en/ja 3언어
+  + `MESSAGE_NAMESPACES` 등재 완료(파리티 테스트 통과).
+
+### d-50 S4 — terminal 도메인 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §1 S4.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §2 M-5·M-6·L-2 · §4-A-5.
+
+- **커맨드·타입·이벤트 표면 전부 불변**: 신규/삭제 커맨드 0, 인자·반환 타입 변경 0, 신규 타입 0.
+  dispatch 테이블·원격 정책 분류·커맨드 수 변동 없음. `bindings.ts` 재생성분은 `pty_write` 의
+  doc 주석 1건뿐이다.
+- **`pty_attach` 리플레이의 원자성(신규 계약 — §4-A-5)**: 스크롤백 리플레이와 구독자 등록이 이제
+  **하나의 락 아래 한 임계구역**이다. 따라서 구독자가 받는 바이트열은 항상 `리플레이(= attach
+  시점까지 누적분) ++ 이후 브로드캐스트 전량`이고, 그 경계에서 **중복도 유실도 없다**. 이전에는
+  링버퍼 락과 구독자 락이 분리돼 스냅샷~등록 사이에 도착한 청크가 누구에게도 전달되지 않거나
+  (다른 인터리빙에서는) 두 번 전달됐다.
+- **리플레이는 최대 2개의 raw 청크로 온다(신규 계약)**: 스크롤백이 `VecDeque` 기반 원형 버퍼로
+  바뀌면서(§2 M-5) 리플레이는 링의 두 조각을 앞→뒤 순서로 보낸다. 버퍼가 되감기기 전(스크롤백이
+  2MB 상한에 닿기 전)에는 두 번째 조각이 비어 있어 기존처럼 1청크다. **순서는 보장**되며, 소비부
+  (xterm)는 이미 reader 배칭 때문에 write 경계를 넘는 파서 상태를 보존하므로(`terminal.md` §12.3)
+  경계에서 이스케이프 시퀀스가 잘려도 해석이 깨지지 않는다.
+- **`pty_write` 가 `spawn_blocking` 으로 이관**(§2 M-6) — 자식 stdin 이 막혔을 때 async 워커
+  스레드를 붙들지 않는다. 커맨드 시그니처는 그대로이고 `TerminalStore` 락 보유 범위(핸들 조회까지)
+  도 그대로다.
+- **쓰기 순서 규약(검토 반영 — 2026-08-29)**: `pty_write` 는 **호출 순서를 스스로 보장하지 않는다.**
+  첫 poll 이 writer 핸들만 복제하고 블로킹 풀로 디스패치하므로, 같은 틱에 발사된 두 호출은 서로
+  독립적인 블로킹 태스크가 되어 writer 뮤텍스를 경쟁한다(순서는 스케줄러가 정한다). 실제로 그 형태가
+  존재한다 — `shared/lib/bridge/terminal-write-bridge.ts` 가 스폰 전 대기 큐를 한 틱에 연속 발사한다.
+  따라서 **"같은 세션의 쓰기는 호출 순서대로 자식 stdin 에 도달한다"는 프론트가 보장한다**:
+  `entities/terminal/session-write-order.ts` 의 세션별 프라미스 체인을 `writePty` 가 통과한다.
+  다른 클라이언트(원격 dispatch 포함)가 `pty_write` 를 직접 호출한다면 같은 직렬화를 스스로 해야 한다.
+- **flusher 스레드가 condvar 대기로 전환**(§2 L-2) — 유휴 세션의 5ms 상시 wakeup(세션당 초당 200회)
+  제거. 관측 가능한 출력 지연 규약(`OUTPUT_BATCH_MS` 4ms 배치 + 마지막 조각 `OUTPUT_FLUSH_TICK_MS`
+  5ms 후 flush)은 불변이다.
+
+### d-50 S5 — lsp 도메인 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §1 S5.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §2 L-3 · §4-A-7·§4-A-11.
+
+- **커맨드·타입·이벤트 표면 전부 불변**: 신규/삭제 커맨드 0, 인자·반환 타입 변경 0, 신규 타입 0.
+  `bindings.ts` 재생성 불요(specta 가 보는 시그니처 무변동), dispatch 테이블·원격 정책 분류·커맨드
+  수·로케일 키 변동 없음.
+- **워크스페이스 폴더 URI 표기(신규 계약 — §4-A-7)**: Rust 가
+  `workspace/didChangeWorkspaceFolders` 로 보내는 폴더 `uri` 는 프론트가 `initialize` 의
+  `rootUri`/`workspaceFolders` 에 쓰는 `monaco.Uri.file(root).toString()` 과 **바이트 단위로 동일**
+  하다(`domain::lsp::service::workspace_folder_uri`). 인코딩 규칙은 RFC 3986 퍼센트 인코딩 —
+  `unreserved`(`ALPHA`·`DIGIT`·`-`·`.`·`_`·`~`)와 경로 구분자 `/` 만 원문 유지, 나머지 바이트는
+  UTF-8 대문자 16진 `%XX`. monaco 가 하위 구분자(`!$&'()*+,;=`)와 `:@[]` 까지 escape 하므로
+  `pchar` 를 그대로 두는 표준 최소 인코딩보다 좁게 잡는다(양쪽 표기 일치가 목적).
+  `initialize` 를 만드는 쪽은 `src/shared/lib/lsp/initialize-params.ts` 로 **변경 없음** — 이 계약을
+  깨지 않으려면 두 곳 중 한쪽만 바꾸지 말 것.
+- **비프로토콜 잡음의 처리(신규 계약 — §4-A-11)**: 서버 stdout 에 `Content-Length` 없는 헤더 블록이
+  섞여 오면 그 블록만 버리고 다음 프레임을 계속 찾는다. `lsp_spawn` 의 `onMessage` 스트림에서
+  관측되는 변화는 "잡음이 흘러들지 않는다"가 아니라 **잡음 뒤의 메시지가 계속 도착한다**는 것이다
+  (이전에는 그 시점부터 세션이 영구 무응답이 됐다). 바디가 UTF-8 이 아닌 프레임도 같은 규칙으로
+  건너뛴다.
+- **자식 프로세스 대기가 `try_wait` 폴링에서 `wait`+`Notify` 로 전환**(§2 L-3) — 관측 가능한
+  수명주기 계약(`lsp:session-status-changed`, `LspProcHandle::is_exited` 기반 종료 대기)은 불변이고,
+  유휴 서버당 50ms 폴링만 사라진다. 수신 버퍼도 메시지마다 `drain` 하지 않고 소비 커서로 상환한다.
+
+### d-50 S6 — infra 소형 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §1 S6.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §2 M-3 · §4-A-4·§4-A-9.
+
+- **커맨드·타입·이벤트 표면 전부 불변**: 신규/삭제 커맨드 0, 인자·반환 타입 변경 0, 신규 타입 0.
+  `bindings.ts` 재생성 불요, dispatch 테이블·원격 정책 분류·커맨드 수·로케일 키 변동 없음.
+- **`fs:changed` 의 무시 규칙(계약 정정 — §4-A-4)**: 무시 목록(`IGNORED_DIR_NAMES`)은 경로의
+  **조상 디렉토리 성분에만** 적용된다. 마지막 성분(이벤트의 대상 항목 자신)은 판정에서 제외되므로,
+  루트의 `build`·`dist` 같은 **이름을 가진 파일**의 변경도 이제 이벤트로 도착한다(트리는 무시 이름을
+  디렉토리일 때만 감추므로 그 파일은 원래 화면에 보였고, 변경만 영원히 반영되지 않았다). 부수 효과로
+  무시 디렉토리 **자신**의 생성/삭제 이벤트 1건은 통과한다 — 그 하위 경로는 종전대로 전부 걸러진다.
+- **git 워처는 무시 목록을 적용하지 않는다(신규 계약 — §4-A-4)**: `.git` 을 루트로 도는 워처
+  (`domain::git::watch`)는 `WatchScope::GitDir` 로 시작해 이름 필터를 아예 쓰지 않는다.
+  `refs/heads/**` 는 **브랜치 이름**이라 `build/login`·`dist` 같은 평범한 브랜치의 ref 이벤트가
+  통째로 드롭됐고, 그만큼 `git:refs-changed` 가 발행되지 않았다. 잡음 차단은 종전대로 하류의
+  `classify_git_change`(`index`·`HEAD`·`refs/**` 만 통과, `objects/**` 제외)가 담당한다.
+- **HTTP `Range` 접미 범위(계약 정정 — §4-A-9)**: `/__taide/file`(원격)과 `asset://`(로컬) 두 서빙
+  경로 모두 `bytes=-N` 을 RFC 7233 §2.1 대로 **파일의 마지막 N 바이트**로 해석한다(이전에는 앞에서
+  N+1 바이트를 돌려줬다 — mp4 의 `moov` atom 이 끝에 있는 파일에서 탐색이 실패하는 형태).
+  `N` 이 파일 크기보다 크면 전체, `N == 0` 은 만족 불가(`416`). `RANGE_CHUNK_LIMIT`(1000KB) 상한은
+  접미 범위에도 그대로 걸리므로 응답이 요청보다 짧을 수 있고, 그 사실은 `Content-Range` 가 말한다.
+- **에이전트 폴링(§2 M-3)** — `agent_list`/`agent:state-changed` 의 결과 계약은 불변이고, unix 프로브가
+  pid 당 `ps` 를 fork 하던 것을 **폴링 틱당 1회**(`ps -p pid1,pid2,...`)로 합쳤다. pty 세션이 0 인
+  프로젝트는 블로킹 풀 디스패치 없이 빈 결과로 조기 반환한다.
+
+### d-50 S8 — layout 탭 경로 추종 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d50-audit-rust-batch-contract.md` §1 S8.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §4-B A3 · §1-6.
+
+- **신규 커맨드 1종** `layout_apply_path_change(projectId, change: TabPathChange) →
+  TabPathChangeResult`. 커맨드 총수 178 → **179**, `REMOTE_ALLOWED_COMMANDS` 157 → **158**
+  (`REMOTE_DENIED_COMMANDS` 24 불변) — 형제 레이아웃 커맨드와 동일하게 허용이다. 원격 세션이 이미
+  `file_rename`/`file_delete` 와 `layout_close_tab` 을 쓸 수 있고, 이 커맨드는 그 둘의 조합보다 넓은
+  권한을 주지 않는다(자기 프로젝트 레이아웃의 파일 탭 경로만 바꾼다).
+- **신규 타입 3종**: `TabPathChange`(태그 union — `{kind:'renamed', from, to}` /
+  `{kind:'deleted', path}`), `TabPathMove{from, to, dirty}`, `TabPathChangeResult{layout, moved,
+  closedPaths}`. 기존 타입 변경 0, 이벤트 변경 0.
+- **호출 규약**: 프론트가 `file_rename`/`file_delete` **성공 이후에** 부른다(`entities/file/
+  file.query.ts` 의 `useRenameEntry`/`useDeleteEntry` 의 `onSuccess`). 파일 커맨드 안에서 부르지
+  않는 이유는 도메인 결합 — `domain::file` 이 `domain::layout` 을 알게 되기 때문이며, 트리 캐시
+  정리를 워처 이벤트에 맡긴 것(S7)과 같은 경계다.
+- **경로 매칭**: `from`/`path` 는 프론트가 파일 커맨드에 넘긴 문자열 그대로이며, 백엔드는 다시
+  canonicalize 하지 않는다(개명 후 `from` 은 디스크에 없다). 비교는 **경로 성분 단위**
+  (`Path::strip_prefix`)라 `src` 개명이 형제 `src-old` 를 끌고 가지 않는다. 디렉토리를 지목하면
+  하위 전체가 대상이다.
+- **루트 가드(검토 반영 — 2026-08-29)**: `from`/`to`/`path` 는 **그 프로젝트 루트 하위**여야 한다
+  (성분 단위 `starts_with`, canonicalize 없음 — 프로젝트 루트는 열 때 이미 canonical 이고 탭 경로는
+  그 루트를 걸어 만든 것이라 접두사가 같다). 위반은 `Forbidden`
+  (`error.path.outsideProjectRoot`). 없으면 `deleted{path:"/"}` 가 모든 절대 경로의 조상이 되어
+  프로젝트의 파일 탭 전부를 닫고, 프론트의 `releaseClosedFileTabPath` 가 그 경로들의 핫엑시트
+  미러(= 미저장 초안)를 전부 지운다 — 원격 허용 커맨드이므로 실호출 경로가 있다.
+- **대상 탭 종류**: `TabKind::File` 만. `Diff`/`ClaudeDiff` 는 비교 뷰라 제목·짝(rev/beforePath/
+  compareWith)이 개명으로 이전되지 않으므로 손대지 않는다(잔여는 계약 §5 기록).
+- **효과**: `renamed` 는 열린 파일 탭의 `path` 와 `title`(새 파일명)을 치환하고 `closedTabs` 스택의
+  같은 탭도 함께 옮긴다(재열기가 없는 경로를 열지 않도록). `deleted` 는 해당 파일 탭들을
+  `close_tab` 으로 닫는다 — 닫힌 탭 스택·활성 탭 인계·페인 정규화는 손으로 닫은 것과 동일하다.
+- **revision·이벤트**: 실제로 바뀐 **열린** 탭이 있을 때만 `revision` 이 증가하고 `layout:changed`
+  가 발행된다. 보고할 것이 없으면 응답은 빈 `moved`/`closedPaths` 다.
+  **단(검토 반영 — 2026-08-29), 보고할 것이 없어도 닫은 탭 스택만 새 경로로 바뀐 경우에는 그 레이아웃을
+  스토어에 기록하고 `dirty_layouts` 로 표시한다**(revision·이벤트는 여전히 없다 — 화면에 보이는 것이
+  바뀌지 않았으므로). 이전 형태는 "보고할 것 없음"과 "레이아웃 무변경"을 같은 조건으로 묶어 조기
+  반환해서, 열린 탭이 하나도 없을 때의 닫은 탭 스택 치환을 통째로 버렸다(⇧⌘T 가 사라진 경로를 열었다).
+- **`moved[].dirty`**: 그 경로의 탭 중 하나라도 미저장이면 참. 프론트가 핫엑시트 미러를 새 경로로
+  옮길지 판단하는 유일한 입력이다(`EditorPane` 은 경로가 바뀌면 자신의 dirty 를 초기화하므로,
+  미러로 넘기지 않으면 새 경로의 디스크 내용이 편집 중 버퍼를 덮는다).
+
+### d-53 U1 — 에디터 표시 옵션 5건 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d53-ux-batch-contract.md` §1 U1.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §5 저비용 즉효 ①~⑤.
+
+- **커맨드·이벤트 표면 불변**: 신규/삭제 커맨드 0, dispatch 테이블·원격 정책 분류·커맨드 수 변동
+  없음. `Settings`/`SettingsPatch` 에 **필드 7종 순증**이라 `bindings.ts` 는 재생성했다.
+- **신규 settings 필드(전부 VS Code 파리티 기본 off/빈 값)**:
+  `editorBracketPairGuides: boolean`(기본 false — monaco `guides.bracketPairs`,
+  `editorBracketPairColorization` 과 별개 옵션) · `editorSmoothScrolling: boolean`(기본 false) ·
+  `editorCursorSmoothCaretAnimation: boolean`(기본 false — monaco 의 3값
+  `'off'|'explicit'|'on'` 중 `'explicit'` 은 노출하지 않고 토글로 좁혀 `'on'`/`'off'` 로 매핑) ·
+  `editorSuggestPreview: boolean`(기본 false — monaco `suggest.preview`) ·
+  `editorRulers: number[]`(기본 `[]` — monaco `rulers`) ·
+  `editorDiffHideUnchangedRegions: boolean`(기본 false — diff 에디터
+  `hideUnchangedRegions.enabled`) · `editorDiffShowMoves: boolean`(기본 false — diff 에디터
+  `experimental.showMoves`). 7종 모두 `SettingsPatch`·`emptySettingsPatch()`·sync 업로드 동반이며
+  원격 dispatch 제외 대상이 아니다(`strip_non_syncable` 무변동).
+- **`editorRulers` 정규화 규약**: `sanitize()` 안의 `sanitize_editor_rulers` 가 `Settings` 가
+  만들어지는 모든 출구(patch · 손으로 편집한 `settings.json` · 동기화 gist)에서 **1~1000 밖의 열을
+  버리고, 중복을 제거하고, 오름차순 정렬하고, 16개로 자른다.** 정렬까지 하는 이유는 설정 화면이
+  저장된 목록을 콤마 문자열로 그대로 되돌려 그리기 때문 — 정렬하지 않으면 무관한 설정 변경마다
+  사용자가 쓴 순서가 흔들린다. 프론트의 `src/shared/lib/editor-rulers.ts`
+  (`parseEditorRulers`)가 같은 규칙을 거울로 두어, 입력칸이 백엔드가 버릴 값을 받아들이지 않는다.
+- **diff 옵션의 적용 범위(신규 계약)**: 두 diff 필드는 `DiffView` 를 쓰는 **모든** 표면에 같은 값이
+  걸린다 — SCM diff 패널(`widgets/diff-pane`), 커밋 상세 diff(`widgets/commit-file-diff`), 충돌
+  비교 다이얼로그(`features/git/conflict-compare-dialog`). 앞의 둘은 각자
+  `settingsQueryOptions()` 를 읽고, `features` 레이어인 충돌 다이얼로그는 쿼리를 직접 읽지 않으므로
+  `EditorPane` 이 `resolveDiffViewSettingsProps(settings)` 결과를 prop 으로 내려준다.
+
+### d-53 U2 — on-save 정리 2건 (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d53-ux-batch-contract.md` §1 U2.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §5 중간 규모(trim/final-newline on-save).
+
+- **커맨드·이벤트 표면 불변**: 신규/삭제 커맨드 0, dispatch 테이블·원격 정책 분류·커맨드 수 변동
+  없음. `Settings`/`SettingsPatch` 에 **필드 2종 순증**이라 `bindings.ts` 는 재생성했다.
+- **신규 settings 필드(둘 다 VS Code 파리티 기본 false)**:
+  `trimTrailingWhitespaceOnSave: boolean`(`files.trimTrailingWhitespace` 대응) ·
+  `insertFinalNewlineOnSave: boolean`(`files.insertFinalNewline` 대응). 둘 다
+  `SettingsPatch`·`emptySettingsPatch()`·sync 업로드 동반이며 원격 dispatch 제외 대상이 아니다
+  (`strip_non_syncable` 무변동). 정규화(`sanitize`)는 없다 — 순수 bool 이다.
+- **적용은 전적으로 프론트 저장 파이프라인**이다. `file_save` 의 시그니처·시맨틱은 그대로이고, Rust
+  는 이 두 값을 읽지 않는다(저장 커맨드가 받은 문자열을 그대로 쓴다). 정리는 디스크로 보내기 전
+  monaco 모델 위에서 끝난다 — 백엔드가 파일 내용을 임의로 가공하지 않는다는 기존 계약을 유지하기
+  위한 배치다.
+- **파이프라인 순서(신규 계약)**: `widgets/editor-pane/use-editor-file-persistence.ts` 의
+  `handleSave` 한 곳에서 **Code Actions on Save(명시 저장만) → format-on-save → 후행 공백 제거 →
+  마지막 줄바꿈 → `file_save`** 순으로 돈다. ⌘S·자동 저장·format-on-save 가 모두 이 함수를 지나므로
+  트리거별 분기가 없다. 포맷 뒤인 이유는 포맷 결과의 후행 공백까지 정리하기 위해서, 공백 제거가
+  줄바꿈보다 앞인 이유는 공백만 있는 마지막 줄을 먼저 비워야 그 뒤에 줄바꿈이 덧붙지 않기 때문이다.
+- **자동 저장의 커서 줄 예외**: 자동 저장일 때만 trim 액션에 `{ reason: 'auto-save' }` 를 넘겨
+  커서가 있는 줄의 후행 공백을 남긴다(VS Code save participant 의 `isAutoSaved` 와 같은 규약).
+  명시적 ⌘S 는 인자 없이 돌아 커서 줄까지 정리한다.
+- **정리 구현은 monaco 내장 액션 재사용**: `editor.action.trimTrailingWhitespace` ·
+  `editor.action.insertFinalNewLine` — 키맵 카탈로그(`shared/lib/monaco/monaco-actions.ts`)가 이미
+  수동 실행 행으로 노출하던 그 액션이고, 액션 id 는 그 파일이 단일 출처다
+  (`shared/lib/monaco/on-save-cleanup.ts` 가 import). 두 액션은 `executeCommands` 로 편집하며
+  커맨드가 선택을 추적하므로 커서·멀티커서가 보존된다.
+
+### d-53 U3 — EditorConfig (2026-08-29)
+
+> 계약: `docs/acknowledge/2026-08-29-d53-ux-batch-contract.md` §1 U3.
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §5 중간 규모(EditorConfig).
+
+- **커맨드·이벤트 표면 불변**: 신규/삭제 커맨드 0, dispatch 테이블·원격 정책 분류·커맨드 수 변동
+  없음. 바뀐 것은 `OpenedFile` 응답 1필드와 `Settings`/`SettingsPatch` 1필드라 `bindings.ts` 는
+  재생성했다.
+- **`OpenedFile` 에 `editorConfig: EditorConfigOptions` 순증**(신규 타입 2종 —
+  `EditorConfigOptions` = `indentStyle`(`'tab' | 'space' | null`)·`indentSize`·`tabWidth`
+  (`number | null`)·`insertFinalNewline`·`trimTrailingWhitespace`(`boolean | null`),
+  `EditorConfigIndentStyle`). **별도 커맨드를 두지 않은 이유**: 파일 열기와 같은 왕복에 실려야
+  에디터가 내용을 처음 그리는 렌더에서 이미 들여쓰기를 알고 있다. 쿼리를 하나 더 두면 모델이 틀린
+  들여쓰기로 붙었다가 한 틱 뒤에 교정되는 깜빡임이 생긴다. `editor_config_enabled` 가 꺼져 있거나
+  (기본값) 파일이 `refused` 티어면 전 필드가 `null` 이다.
+- **신규 settings 필드 `editorConfigEnabled: boolean`(기본 false)**. VS Code 도 EditorConfig 를
+  코어에 갖지 않고 확장으로 제공하므로 off 가 파리티 기본값이고, 꺼져 있으면 `file_open` 이 체인
+  자체를 걷지 않아 비용이 0이다. `SettingsPatch`·`emptySettingsPatch()`·sync 업로드 동반이며
+  원격 dispatch 제외 대상이 아니다(`strip_non_syncable` 무변동). 정규화(`sanitize`)는 없다 —
+  순수 bool 이다.
+- **해석 규약(신규 계약)** — `domain::file::editorconfig`:
+  - 파일이 있는 디렉토리에서 위로 올라가며 `.editorconfig` 를 읽고, `root = true` 를 만나면
+    멈춘다(없으면 파일시스템 루트까지). **프로젝트 루트를 넘어 올라간다** — 그것이 EditorConfig 의
+    정의이며, 읽는 것은 `.editorconfig` 라는 이름의 파일뿐이고 상한(조상 64단·파일당 64KB)이 있다.
+  - 적용은 **바깥 파일부터** 이므로 가까운 파일이 이긴다. 한 파일 안에서는 **위에서 아래로** 적용해
+    뒤에 오는 매칭 섹션이 이긴다. 값이 `unset` 이면 그 프로퍼티를 지운다.
+  - 코어 5키만 남긴다(`indent_style`·`indent_size`·`tab_width`·`insert_final_newline`·
+    `trim_trailing_whitespace`). `charset`·`end_of_line` 은 계약 §5 이월.
+  - `indent_size = tab` 은 Rust 에서 `tab_width` 로 해석한다(선언이 없으면 `null`). `indent_size`/
+    `tab_width` 는 1~64 밖이면 버린다 — 모나코 모델 옵션으로 직행하는 값이라 상한을 둔다.
+  - 글롭은 **자체 최소 매처**다(신규 크레이트 0). `*`(구분자 제외)·`**`·`?`·`[abc]`/`[!abc]`/
+    `[a-z]`·`{a,b}`(콤마 없는 `{word}` 는 리터럴)·`{n1..n2}`·`\` 이스케이프를 지원한다. 구분자가
+    없는 패턴은 `**/` 를 앞에 붙여 임의 깊이에 매칭하고, 있는 패턴은 그 `.editorconfig` 디렉토리
+    기준으로 고정한다(선행 `/` 1개 제거). `**/` 는 **디렉토리 0개도 매칭**한다.
+- **적용은 프론트**다. `file_save` 의 시그니처·시맨틱은 그대로이고 Rust 는 이 값들을 읽어 파일을
+  가공하지 않는다.
+  - **들여쓰기**: `shared/lib/editorconfig.ts` 의 `resolveEditorConfigIndentProps` 가
+    `editorConfigTabSize`/`editorConfigInsertSpaces` 두 prop 을 만들고, `CodeEditor` 가 이를
+    **모델**(`ITextModel.updateOptions`)에 건다. `tabSize`/`insertSpaces`/`detectIndentation` 은
+    monaco 의 **전역** 에디터 옵션(`IGlobalEditorOptions`)이라 그 경로로 파일별 값을 보내면 마지막에
+    마운트된 페인의 값이 모든 모델에 걸린다 — 그래서 전역 경로에는 기존대로 설정값만 흐르고,
+    editorconfig 오버라이드는 모델에만 얹는다. 오버라이드가 없으면 모델을 아예 건드리지 않으므로
+    `detectIndentation` 추정 경로는 그대로다.
+  - **on-save 정리(U2)**: 같은 파일의 `resolveOnSaveCleanupFlags` 가
+    `trim_trailing_whitespace`/`insert_final_newline` 을 전역
+    `trimTrailingWhitespaceOnSave`/`insertFinalNewlineOnSave` 보다 우선 적용한다. editorconfig 의
+    명시적 `false` 가 전역 `true` 를 이긴다(`??` 폴백).
+- **반영 시점은 파일 열기**다. `.editorconfig` 를 편집해도 이미 열린 탭에는 반영되지 않는다 —
+  계약 §5 이월. 오버라이드를 **지우는** 방향(섹션 삭제·설정 off)은 탭을 다시 열어도 반영되지
+  않는다(모델이 앱 세션 내내 캐시되고, 오버라이드가 없으면 모델을 건드리지 않는다) — `features/editor.md`
+  §17 · 계약 §5.

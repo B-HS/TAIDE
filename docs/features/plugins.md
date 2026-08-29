@@ -146,10 +146,35 @@
   등록된 id 는 건너뛰어 중복/재등록 없음).
 - 이어서 grammar 를 shiki 하이라이터에 반영하기 위해 **전체 재생성**(`reinitShiki`/`initShiki`,
   증분 아님 — 플러그인 설치는 드문 이벤트라 증분 로드는 이번 범위에서 기각했다, H2 backlog).
+  재생성이 싣는 TAIDE grammar 는 "지금까지 요구된 언어" 집합이다(d-51 F7 — `docs/theme-system.md`
+  §4.2 grammar 온디맨드 로드). 플러그인 grammar 의 `embeddedLangs` 가 가리키는 TAIDE 언어는 재생성
+  전에 그 집합에 합류하므로, 온디맨드 전환이 플러그인 문법의 임베딩을 떨어뜨리지 않는다.
 - 이 두 단계는 `plugin_install`·`plugin_uninstall`·`plugin_reload`·`vsix_import_plugin` 4개
   뮤테이션의 성공 콜백과 앱 부팅(`theme-provider.tsx`) 양쪽에서 공유된다(`entities/plugin/
   plugin.query.ts` 의 `applyPluginList`/`refetchAndApplyPluginList`) — 어느 경로로 플러그인 목록이
   바뀌어도 monaco 언어 등록과 shiki 하이라이팅이 항상 최신 목록과 정합한다.
+
+**재생성 시 옛 tokens provider 정리** (d-51 F6 · 감사 §4-B D6)
+
+- `shikiToMonaco` 는 하이라이터가 로드한 언어마다 `monaco.languages.setTokensProvider` 를 부르고
+  **그 disposable 을 돌려주지 않는다.** 그래서 문법이 줄어드는 재생성(=그 언어를 기여하던 플러그인
+  제거)에서는 사라진 언어의 provider 가 **곧 dispose 될 하이라이터를 붙든 채** 남았다. monaco 는 언어
+  등록을 해제할 수 없어 그 파일은 계속 그 언어 id 로 열리고, 매 줄 토큰화가
+  `ShikiError: Shiki instance has been disposed` 로 터졌다.
+- `shared/lib/shiki/tokens-provider-registry.ts` 의 `swapTokensProviderRegistrations` 가
+  `shikiToMonaco` 호출 동안 등록을 가로채 모아 두고, **새 등록이 끝난 뒤** 직전 등록 묶음을 dispose
+  한다. monaco 의 `TokenizationRegistry` dispose 는 동일성 검사를 하므로 재등록된 언어는 새 provider
+  를 유지하고 사라진 언어만 실제로 해제돼 monaco 기본(plain) 토큰화로 떨어진다. 재생성 자체가
+  실패해 하이라이터가 없는 경우에도 같은 정리를 수행한다.
+
+**플러그인 언어의 스니펫 완성** (d-51 F6 · 감사 §4-B D6)
+
+- 스니펫 완성 provider 는 `'*'` 가 아니라 **언어 id 별로** 등록된다(`snippet-completion.ts` — 그
+  근거는 `settings-ui`/스니펫 문서 참조). 부팅 시 등록 대상이 `TAIDE_LANGUAGE_IDS` 고정 목록뿐이라
+  플러그인 언어에는 provider 자체가 없었고, `<languageId>.json` 스니펫 파일도 전역 `.code-snippets`
+  의 `scope` 지정도 그 언어에서는 전혀 뜨지 않았다.
+- `registerPluginLanguages` 가 새로 등록한 언어 id 를 `registerSnippetCompletionsForLanguages` 로
+  넘겨 같은 provider 를 붙인다(중복 등록 없음, 부트스트랩 순서와 무관).
 
 ### 6.5 확장자 → 언어 테이블 통합 (D1)
 

@@ -84,3 +84,58 @@
 | 프로젝트 스코프 원격 세션 | 프로젝트별 비밀번호로 들어온 세션은 그 프로젝트만 미러(진짜 격리) | 커맨드 90+곳·이벤트 22종 필터링 재설계 = 게이트의 10배 규모 + "상태 완전 공유" 확정 계약 번복. 사용자 결정(2026-08-14)으로 전역 비밀번호 1개만 채택, 스코프는 별도 안건 |
 | Remote 하드닝 잔여 | 개별 세션 TTL 만료의 라이브 WS 단절(현재는 전체 revoke 만 즉시 단절), Host 허용목록(DNS rebinding 방어), 비밀번호 최소 길이·trim 정합, 잠금의 전역 카운터 DoS 완화, stale nonce 실패 집계 제외, X-Forwarded-Proto 검증, gist 인바운드 patch 의 게이트 필드 필터 | 검토 웨이브 미검증 오버플로(minor 등급) — 2요소+백오프+fail-closed 로 핵심 방벽은 확보된 상태. 상세: docs/PROCESS.md 기능 확장 3차 절 |
 | Hot Exit 미세 항목 | 저장 직후 디바운스 발화로 미러 부활 가능성(락 직렬화로 실발생 미확인), 미러 쓰기의 begin_mutation 락 빈도(500ms·대용량), HotExitFlushRequested.timeoutMs payload 프론트 미사용 | 실기 QA 에서 증상 관찰 후 판단 — 코드상 가능성만 확인된 항목들 |
+
+## 전수조사(2026-08-29 Fable)에서 이관된 후속 후보
+
+> 발견 정본: `docs/quality-assurance/2026-08-29-full-audit.md` §7. d-50/d-51 즉시 수정분과
+> d-52(CI)·d-53(UX 5건+on-save+EditorConfig) 채택분을 제외한 잔여. 소형 이월은 각 배치 계약 §5 참조.
+
+### Rust 성능·설계
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| git status 캐시·rename 방향 축소 (M-2) | 결과 캐시+워처 무효화 재계산, 양방향 rename 감지 축소, guarded index refresh | 캐시 설계·동작 변경 판단 수반 — 대량 dirty 실측 후 |
+| git_log refs 캐시·커서 재개 (L-1) | 페이지마다 refs 전체 재구축 + O(skip) revwalk → GitRefsChanged 무효화 캐시·커서 | 태그 수천 규모에서만 체감 — 실수요 확인 후 |
+| 워처 선택적 IdCache (M-10) | IGNORED_DIR_NAMES 하위를 FileIdMap 워크에서 제외하는 커스텀 IdCache | d-35 NoCache 기각 사유(rename 오분류) 보존 필요 — 난이도 L |
+| 트리 mutation 응답 재설계 (H-4 후반) | full_page 전체 반환 → revision+영향 구간 축소 | IPC 계약 변경 — FE 동시 개정 필요 |
+| ide:diff-requested pull 전환 (L-4) | 파일 전문 이벤트 운반 → request_id 신호+query pull | MCP 흐름 동시 수정 |
+| search_list_files FsChanged 캐시 | 팔레트 열 때마다 전체 re-walk → 무효화 기반 캐시 | d-42 무상한 계약은 불변 — 캐시만 |
+| 비 UTF-8 인코딩 왕복 지원 | d-50 은 lossy 읽기 전용 차단까지 — 인코딩 감지·보존 열기/저장은 별도 | 기능 신설 규모 |
+
+### UX 중형·대형
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| 로컬 히스토리 / 타임라인 | git 커밋 사이 저장 스냅샷 안전망 — AI 대량 수정 IDE 라 가치 특대 | 저장 훅+스냅샷 저장소+패널 설계 |
+| DocumentColor 색 데코레이터 | LSP colorProvider 어댑터 + monaco colorDecorators | 어댑터 20종 중 유일 누락 축 — 소형이나 d-53 범위 밖 |
+| Linked Editing (태그 쌍 동시 개명) | vtsls linkedEditingRange + linkedEditing 옵션 | 어댑터 1개 — d-53 범위 밖 |
+| 탭 tear-off 드래그 | 탭을 창 밖으로 드래그 → 신규 OS 창 (커맨드는 기존) | dnd-kit 드롭 좌표 제스처 설계 |
+| vim 모드 | monaco-vim 도입 + 상태바 모드 표시 | 신규 의존성 — 사용자 합의 선행 |
+| Multibuffer (Zed 시그니처) | 여러 파일 발췌를 하나의 편집 가능 뷰로 | monaco 무대응 — 자체 설계 최상 난이도 |
+| Call Hierarchy | 호출 계층 트리 UI + LSP 어댑터 | monaco 미내장 — outline 급 자체 UI |
+
+### 차별화 (AI IDE 정체성 — 사용자 선별 대기)
+
+| 항목 | 내용 |
+|------|------|
+| 병렬 에이전트 워크트리 오케스트레이션 | git worktree 생성→프로젝트 자동 열기→터미널별 Claude 병렬→배지 관찰→diff 비교 머지 (기존 도메인 조립형) |
+| AI diff 리뷰 | diff 뷰에 "이 변경 설명·리뷰" — instruct provider 재사용 |
+| Problems → Inline Edit 파이프 | 진단 우클릭 → ⌘I 에 진단 메시지 프리필 |
+| AI 편집 체크포인트 | 에이전트/Inline Edit 대량 수정 전후 자동 스냅샷+원클릭 롤백 (로컬 히스토리의 AI 특화) |
+| MCP 서버 매니저 | 프로젝트 .mcp.json 등록·상태·로그 GUI |
+| PROCESS.md 워크플로 패널 | docs/PROCESS.md 체크리스트를 사이드바 진행률·토글로 |
+
+### 기지 유지
+
+| 항목 | 상태 |
+|------|------|
+| 팔레트 files fuzzy 전량 스캔 (L1-03) | d-42 §5 이월 — 실측 후 판단 결정 유지 |
+
+### d-50/d-51 구현 검토(2026-08-29)에서 분리된 후속 후보
+
+| 항목 | 내용 |
+|------|------|
+| 검색 결과·Problems 목록 키보드 도달성 | perf-4·perf-12 가상화로 뷰포트 밖 행이 DOM 에 없어 Tab 순회가 첫 화면 분량에서 끊긴다. `features/explorer/file-tree.tsx` 의 컨테이너 로빙 포커스(`role='tree'` + 화살표 이동 + `scrollToIndex`)를 `search-results-list`·`problems-panel` 에도 적용한다. 두 목록의 행은 이미 `role='button' tabIndex={0}` 이라 개별 tabstop 을 로빙으로 바꾸는 작업이 함께 필요하다. |
+| 키바인딩 충돌 판정의 위임 쌍 제외 | D3(monaco 기본 바인딩 인지) 도입 후, 앱 `find` 와 `monaco.actions.find` 가 같은 ⌘F 를 광고한다는 이유로 **아무 재바인딩도 하지 않은 기본 설치 상태**에서 충돌 1쌍이 상시 표시된다. 사실 관계로는 참이지만 사용자가 만든 실제 충돌과 구분되지 않아 경고 신뢰도를 낮춘다. 위임 관계(앱 액션이 에디터 포커스 시 monaco 액션으로 넘기는 쌍)를 카탈로그 데이터로 표기해 판정에서 빼고 "기본 상태 경고 0" 을 목표로 한다. |
+| 삭제로 닫힌 탭의 닫은 탭 스택 정리 | `close_file_tabs_under` 는 삭제로 닫는 탭도 `close_tab` 을 그대로 태워 닫은 탭 스택에 적재한다(개명 축은 스택을 새 경로로 옮기는 것과 비대칭). ⇧⌘T 가 이미 지워진 파일을 열어 오류 탭이 된다. 스택에서 빼는 것이 옳은지(재열기 대상이 아님) 아니면 재열기 시점에 존재 검사를 하는지 결정이 필요하다. |
+| 개명 시 다른 창의 라이브 버퍼 이관 | 창마다 모델 레지스트리·쿼리 캐시가 별개라, 보조 창에서만 편집 중이던 파일을 다른 창에서 개명하면 그 창의 화면 버퍼는 새 경로의 디스크 내용으로 리셋된다(초안 자체는 개명 전 미러 재조회로 새 경로 미러에 보존 → 재시작 복구는 가능). 창 간 이관 브로드캐스트 채널 설계가 필요하다. |

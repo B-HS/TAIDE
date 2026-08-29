@@ -9,6 +9,9 @@
 - macOS/Linux: pty master 의 **`process_group_leader()`**(portable-pty 내장, tcgetpgrp) →
   pid 의 프로세스명 해석. `comm` 이 `node` 인 경우(런타임 위 실행) `cmdline` 전체 검사
   (Linux comm 15자 잘림 주의). 감지 대상: `claude`, `codex`, `gemini` (+설정으로 추가 가능한 목록).
+  해석은 **폴링 틱당 `ps` 1회**다 — `ps -o pid=,state=,comm=,args= -p <pid1,pid2,...>` 로 그 프로젝트의
+  전체 pid 를 한 번에 조회하고 pid 로 맵 조회한다(d-50 S6 §2 M-3 — 이전에는 pid 당 fork). 죽은 pid 는
+  `ps` 출력에 아예 없으므로 조회 실패로 걸러지고, pty 세션이 0 인 프로젝트는 프로세스 조회 자체를 건너뛴다.
 - Windows: `sysinfo` 로 셸 pid 의 후손 프로세스 트리 탐색(스냅샷 비용 — 1~2초 폴링 + pty 출력
   있을 때만 재검사).
 - 폴링 주기: unix 1s(값싼 syscall), Windows 2s. 상태 변화 시에만 `agent:state-changed(projectId,
