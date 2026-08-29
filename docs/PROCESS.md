@@ -81,9 +81,16 @@
       release 2m28s 로컬). dmg 15,019,605 bytes vs v0.1.2 13,644,641 (+1.37MB ≈ +10.1%).
       단, 코드 순증(+8.4k 줄·기능 3배치) 합산치라 순수 프로필 효과는 그 이하 — 크기가 문제 되면
       "thin LTO 만(opt-level s 복귀)" 대안 가능(acknowledge 결정 문서에 병기)
-- [ ] 잔여(사용자): 커밋 분할 지시 대기(제안 5분할 — HANDOFF/최종 보고 참조)·qa6 실기 계속
-      (신규 수정 실기 확인 포인트: 미러 복원/스플릿 저장 정착·rename 계열·검색 병렬+치환 스냅샷·
-      터미널 재부착·pinned 탭·IME 가드·d-53 설정 10종)·draft 릴리스 공개
+- [x] 커밋·푸시·릴리스(2026-08-29 사용자 지시) — 6분할 커밋(`a3cecb3` fix·`f25783b` feat·
+      `9575a33` build·`03fa573` ci·`aa3f488` docs·`181dacb` chore(release)) → dev 푸시·main
+      ff 병합·푸시 → 태그 `v0.1.3` → **Release 런 33231960782 완주(전 job success, wall
+      약 10m32s — 프로필 변경 직후 콜드+opt3 라 워밍 효과는 다음 릴리스부터)**. draft Release
+      생성(TAIDE_0.1.3_aarch64.dmg 14,891,293B). Cache Warm 첫 런은 warm-tests 성공,
+      warm-release 가 bun install 플레이크(xlsx tarball — 동일 시각 Release 런 동일 스텝은
+      성공)로 실패 → failed job 재실행
+- [ ] 잔여(사용자): draft v0.1.3 공개·qa6 실기 계속(신규 수정 실기 확인 포인트: 미러 복원/
+      스플릿 저장 정착·rename 계열·검색 병렬+치환 스냅샷·터미널 재부착·pinned 탭·IME 가드·
+      d-53 설정 10종)·백로그 차별화 6건 선별
 - [x] 백로그 이관 — 보고서 §7 전량 docs/backlog.md "전수조사(2026-08-29)" 절 등재
 
 ## 진행 중: 후속 배치 큐 d-36~d-39 (2026-08-25 사용자 결정 — 정본 `acknowledge/2026-08-25-post-batch-user-decisions.md`)
