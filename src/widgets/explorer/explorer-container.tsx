@@ -14,9 +14,11 @@ import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
 import { useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
+import { gitStatusQueryOptions } from '@entities/git/git.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
 import type { FileTreeContextMenuHandlers } from '@features/explorer/file-tree'
+import { buildFileTreeGitStatusByPath } from '@widgets/explorer/file-tree-git-status'
 import { parentDirOf } from '@widgets/explorer/explorer-path'
 import { useExplorerClipboard } from '@widgets/explorer/use-explorer-clipboard'
 import { useExplorerEntryCrud } from '@widgets/explorer/use-explorer-entry-crud'
@@ -27,14 +29,14 @@ type ExplorerContainerProps = {
     projectId: ProjectId
 }
 
-const toFileTreeRow = (row: TreeRow): FileTreeRow => ({
+const toFileTreeRow = (row: TreeRow, gitStatus: FileTreeRow['gitStatus']): FileTreeRow => ({
     id: row.path,
     path: row.path,
     name: row.name,
     depth: row.depth,
     kind: row.kind === 'directory' ? 'directory' : 'file',
     expanded: row.expanded,
-    gitStatus: null,
+    gitStatus,
 })
 
 const findLeafPane = (node: PaneNode, paneId: PaneId): PaneNode | null => {
@@ -54,6 +56,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
 
     const { data: page } = useQuery(treeRowsQueryOptions(projectId))
     const { data: project } = useQuery(projectQueryOptions(projectId))
+    const { data: gitStatus } = useQuery(gitStatusQueryOptions(projectId))
     const { mutate: toggleNode, mutateAsync: toggleNodeAsync } = useToggleTreeNode(projectId)
     const { mutateAsync: refreshTreeDir } = useRefreshTreeDir(projectId)
     const { mutateAsync: revealTreeNode } = useRevealTreeNode(projectId)
@@ -64,7 +67,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     const { mutate: openTab, mutateAsync: openTabAsync } = useOpenTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
 
-    const rows = (page?.rows ?? []).map(toFileTreeRow)
+    const gitStatusByPath = buildFileTreeGitStatusByPath(gitStatus?.rows ?? [], project?.root ?? null)
+    const rows = (page?.rows ?? []).map((row) => toFileTreeRow(row, gitStatusByPath.get(row.path) ?? null))
 
     const notifyError = (error: unknown) => toast.error(describeIpcError(error))
 

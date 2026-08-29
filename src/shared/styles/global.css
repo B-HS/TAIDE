@@ -37,6 +37,7 @@
     --taide-explorer-item-focused: #45475a;
     --taide-explorer-indent-guide: #313244;
     --taide-explorer-git-ignored: #6c7086;
+    --taide-explorer-git-untracked: #94e2d5;
 
     --taide-panel-background: #181825;
     --taide-panel-section-header: #a6adc8;
@@ -183,6 +184,7 @@
     --color-explorer-item-focused: var(--taide-explorer-item-focused);
     --color-explorer-indent-guide: var(--taide-explorer-indent-guide);
     --color-explorer-git-ignored: var(--taide-explorer-git-ignored);
+    --color-explorer-git-untracked: var(--taide-explorer-git-untracked);
 
     --color-panel-background: var(--taide-panel-background);
     --color-panel-section-header: var(--taide-panel-section-header);

@@ -6,7 +6,7 @@ import { FolderTypeIcon } from '@shared/icons/folder-type-icon'
 
 export type FileTreeNodeKind = 'file' | 'directory'
 
-export type FileTreeGitStatus = 'added' | 'modified' | 'deleted' | 'conflicted' | 'ignored' | null
+export type FileTreeGitStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflicted' | 'ignored' | null
 
 export type FileTreeRow = {
     id: string
@@ -26,8 +26,19 @@ const GIT_STATUS_TEXT_CLASS: Record<Exclude<FileTreeGitStatus, null>, string> = 
     added: 'text-git-added',
     modified: 'text-git-modified',
     deleted: 'text-git-deleted',
+    renamed: 'text-git-renamed',
+    untracked: 'text-explorer-git-untracked',
     conflicted: 'text-git-conflicted',
     ignored: 'text-explorer-git-ignored',
+}
+
+const GIT_STATUS_BADGE: Record<Exclude<FileTreeGitStatus, null | 'ignored'>, string> = {
+    added: 'A',
+    modified: 'M',
+    deleted: 'D',
+    renamed: 'R',
+    untracked: 'U',
+    conflicted: '!',
 }
 
 type FileTreeRowItemProps = {
@@ -63,5 +74,10 @@ export const FileTreeRowItem: FC<FileTreeRowItemProps> = ({ row, selected, focus
             )}
         </span>
         <span className='truncate'>{row.name}</span>
+        {row.gitStatus && row.gitStatus !== 'ignored' && (
+            <span aria-label={row.gitStatus} className='ml-auto flex shrink-0 items-center pl-1'>
+                {row.kind === 'directory' ? <span className='size-1.5 rounded-full bg-current' /> : GIT_STATUS_BADGE[row.gitStatus]}
+            </span>
+        )}
     </div>
 )
