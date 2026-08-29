@@ -52,15 +52,16 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
     const rowContent = (
         <div
             className={cn(
-                'group hover:bg-explorer-item-hover flex h-6 w-full cursor-default items-center gap-1.5 px-2 text-xs select-none',
+                'group hover:bg-explorer-item-hover focus-within:bg-explorer-item-focused flex h-6 w-full cursor-default items-center gap-1.5 px-2 text-xs select-none',
                 selected && 'bg-explorer-item-selected',
             )}>
             <div
                 role='button'
                 tabIndex={0}
+                data-git-change-row
                 onClick={onClick}
                 onKeyDown={createActivationKeyDownHandler(onClick)}
-                className='flex min-w-0 flex-1 items-center gap-1.5'>
+                className='flex min-w-0 flex-1 items-center gap-1.5 outline-none'>
                 <span className='truncate'>{fileName}</span>
                 {dirPath && <span className='text-app-sidebar-icon-default truncate opacity-70'>{dirPath}</span>}
             </div>

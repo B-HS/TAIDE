@@ -1,6 +1,6 @@
 import type { GitBranch as GitBranchInfo, GitRemote, GitStashEntry, ProjectId, StatusRow } from '@shared/api/bindings'
-import type { FC } from 'react'
-import { useState } from 'react'
+import type { FC, KeyboardEvent } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Archive, ArrowDown, ArrowUp, Loader2, RefreshCw } from 'lucide-react'
 import { BranchSwitcher } from '@features/git/branch-switcher'
@@ -21,6 +21,7 @@ import { GitChangeGroup } from '@features/git/git-change-group'
 import { ResourceGroupHeader } from '@features/git/resource-group-header'
 import { StashList } from '@features/git/stash-list'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
+import { resolveNextChangeRowIndex } from '@widgets/git-panel/change-row-navigation'
 import { CommitDetailPanel } from '@widgets/git-panel/commit-detail-panel'
 import { isStagedRow, isUnstagedRow, resolveCommitGate } from '@widgets/git-panel/commit-gate'
 import { CommitGraph, type GraphLogEntry } from '@widgets/git-panel/commit-graph'
@@ -102,6 +103,8 @@ export const GitPanel: FC<GitPanelProps> = ({
     onCreateBranch,
     graphCommits,
 }) => {
+    const changesListRef = useRef<HTMLDivElement>(null)
+
     const [discardTargets, setDiscardTargets] = useState<string[] | null>(null)
     const [confirmStageAllOpen, setConfirmStageAllOpen] = useState(false)
     const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null)
@@ -131,6 +134,16 @@ export const GitPanel: FC<GitPanelProps> = ({
         if (!discardTargets) return
         onDiscard(discardTargets)
         setDiscardTargets(null)
+    }
+
+    const handleChangesKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+        const rowElements = [...(changesListRef.current?.querySelectorAll<HTMLElement>('[data-git-change-row]') ?? [])]
+        const activeRow = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('[data-git-change-row]') : null
+        const nextIndex = resolveNextChangeRowIndex(event.key, activeRow ? rowElements.indexOf(activeRow) : -1, rowElements.length)
+        if (nextIndex < 0) return
+        event.preventDefault()
+        rowElements[nextIndex].focus()
     }
 
     const { t } = useTranslation()
@@ -196,41 +209,43 @@ export const GitPanel: FC<GitPanelProps> = ({
                         <StashList stashes={stashes} disabled={isStashing} onApply={onStashApply} onDrop={onStashDrop} />
                     </div>
                 )}
-                {mergeRows.length > 0 && (
-                    <GitChangeGroup
-                        variant='merge'
-                        rows={mergeRows}
-                        onOpenFile={onOpenFile}
-                        onOpenChanges={onOpenChanges}
-                        onCopyPath={onCopyPath}
-                        onRevealInExplorer={onRevealInExplorer}
-                    />
-                )}
+                <div ref={changesListRef} role='group' aria-label={t('git.title')} onKeyDown={handleChangesKeyDown}>
+                    {mergeRows.length > 0 && (
+                        <GitChangeGroup
+                            variant='merge'
+                            rows={mergeRows}
+                            onOpenFile={onOpenFile}
+                            onOpenChanges={onOpenChanges}
+                            onCopyPath={onCopyPath}
+                            onRevealInExplorer={onRevealInExplorer}
+                        />
+                    )}
 
-                {stagedRows.length > 0 && (
-                    <GitChangeGroup
-                        variant='staged'
-                        rows={stagedRows}
-                        onUnstage={onUnstage}
-                        onOpenFile={onOpenFile}
-                        onOpenChanges={onOpenChanges}
-                        onCopyPath={onCopyPath}
-                        onRevealInExplorer={onRevealInExplorer}
-                    />
-                )}
+                    {stagedRows.length > 0 && (
+                        <GitChangeGroup
+                            variant='staged'
+                            rows={stagedRows}
+                            onUnstage={onUnstage}
+                            onOpenFile={onOpenFile}
+                            onOpenChanges={onOpenChanges}
+                            onCopyPath={onCopyPath}
+                            onRevealInExplorer={onRevealInExplorer}
+                        />
+                    )}
 
-                {unstagedRows.length > 0 && (
-                    <GitChangeGroup
-                        variant='unstaged'
-                        rows={unstagedRows}
-                        onStage={onStage}
-                        onDiscardRequest={setDiscardTargets}
-                        onOpenFile={onOpenFile}
-                        onOpenChanges={onOpenChanges}
-                        onCopyPath={onCopyPath}
-                        onRevealInExplorer={onRevealInExplorer}
-                    />
-                )}
+                    {unstagedRows.length > 0 && (
+                        <GitChangeGroup
+                            variant='unstaged'
+                            rows={unstagedRows}
+                            onStage={onStage}
+                            onDiscardRequest={setDiscardTargets}
+                            onOpenFile={onOpenFile}
+                            onOpenChanges={onOpenChanges}
+                            onCopyPath={onCopyPath}
+                            onRevealInExplorer={onRevealInExplorer}
+                        />
+                    )}
+                </div>
 
                 {graphCommits.length > 0 && (
                     <div className='border-app-border mt-2 border-t pt-2'>
