@@ -5,6 +5,7 @@
 
 > 과거 기록(문서화·Phase 0~7.10 W1~W7)은 `docs/history/2026-08-14-process-archive-docs-to-w7.md` 로 아카이브됨 (2026-08-14).
 > QA6 후속·기능 확장 1~3차(2026-08-12~14)는 `docs/history/2026-08-16-process-archive-qa6-feature-waves.md` 로 아카이브됨 (2026-08-16).
+> d-31~d-35 완결 절 3건(2026-08-24~25)은 `docs/history/2026-08-30-process-archive-d31-d35-completion.md` 로 아카이브됨 (2026-08-30).
 
 ## 잔여 작업 총괄 (2026-08-21 현행화 — 다음 착수 판단의 단일 뷰)
 
@@ -48,6 +49,43 @@
   d-31 신규 테스트 순증(2026-08-24). verify·vite build 전 배치 exit 0. 커맨드 **177**(+raw3)·
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
+
+## 진행 중: v0.1.6 릴리스 + docs 정합 일괄 (2026-08-30 사용자 지시)
+
+> 절차 정본 `docs/deployment.md` §3.
+
+- [x] a. docs 정합 — 낡은 참조 전수 grep(구 함수명·부모 EDITOR 규칙 잔재 0건 확인)·
+      `bug/2026-08-30-palette-select-all-on-open.md` 신설·PROCESS 아카이브(d-31~35 완결 절 →
+      history)·HANDOFF 는 릴리스 완주 후 현행화(HEAD·런 번호 확정 필요)
+- [x] b. 버전 동기 0.1.6(3파일+Cargo.lock)·릴리스 노트 v0.1.6.md
+- [ ] c. 검증 — `bun run verify` + `bunx vite build`
+- [ ] d. 커밋 분할(feat agent·fix palette·test git·docs·chore release) → dev 푸시 → main ff
+- [ ] e. 태그 `v0.1.6` → Release 런 완주 → 완주 기록(HANDOFF 현행화 포함) 커밋·푸시
+- [ ] f. 잔여(사용자): draft 공개(v0.1.3·v0.1.5·v0.1.6)·"빈 폴더" 재현 정보
+
+## 완료: 사용성 3건 — Ctrl+G TAIDE 연결·팔레트 캐럿·git 빈 폴더 (2026-08-29~30, wf opus·max)
+
+> 사용자 지시: 조사 후 구현은 workflow + opus max. 산출물은 커밋 지시 전까지 워킹트리 유지.
+
+- [x] a. 조사 — ① Ctrl+G 왕복 인프라 전부 기구현(taide CLI --wait·마커·single-instance·
+      `cli.installShellCommand`), 공백은 PTY `EDITOR` 자동 주입 + 연결 커맨드 ② 팔레트 ">"
+      전체선택: 원인은 Radix FocusScope 의 `select()`(+WKWebView 전체선택 복원 — wf 가 소스로
+      확정, 초기 "WKWebView 단독" 추정은 정정) ③ 빈 폴더: **초기 진단(libgit2 가 빈 디렉토리
+      방출) 은 wf 구현 에이전트가 반증** — libgit2 1.9.6 은 recurse(false)에서도 내용을 검사해
+      빈/ignored-only 디렉토리를 상태에서 제외한다(소스+실측 2회). git CLI 와 이미 일치하므로
+      수정 없음, 회귀 테스트 4건으로 계약 고정. 사용자 증상의 실체는 재현 정보 필요(미결)
+- [x] b. 구현 wf(opus·max, wf_a068d4a0 — 7 에이전트/에러 0) — A: EDITOR 주입+`cli.connect
+      ExternalEditor` 커맨드+로케일 3언어(963키), 검토 major 1(EDITOR 값 셸 인용 — Claude Code
+      는 셸 파싱 없이 공백 split spawn, 인용 시 ENOENT. claude 2.1.251 바이너리 실물로 확증)
+      → 수정 완료(인용 제거·공백 경로 주입 생략). B: 팔레트 캐럿(`text-input-caret.ts`+테스트 5,
+      onOpenAutoFocus 대체+재열림 이펙트), major 0. C: 무수정+회귀 테스트 4
+- [x] c. 메인 2차 검증 — `bun run verify` 전체 exit 0(bun 1817/0·Rust 전체·clippy·fmt·prettier),
+      스팟 확인(lib.rs provider 조합·EDITOR 빌더 인용 제거·커맨드·로케일 ko 문구)
+- [x] d. docs 반영 — agent-integration §2.3(wf)·command-palette §5(메인)·JSDoc ⌘⇧O 오기 정정
+- [x] e-① VISUAL 주입 — **B안 채택(2026-08-30)**: EDITOR 와 같은 값으로 VISUAL 도 주입, 부모
+      env 존중 규칙 폐지(셸 rc 만 우선). `build_editor_env_entries` 로 개편·테스트 3건 정비.
+      정본 `acknowledge/2026-08-30-usability-batch-decisions.md`
+- [ ] e-② 미결(사용자): 목격한 "빈 폴더" 의 실체 확인(재현 폴더 내용) — 확보 시 재추적
 
 ## 완료: 터미널 Shift+Enter 지원 (2026-08-29 — 워킹트리 유지, 커밋 지시 대기)
 
@@ -333,48 +371,6 @@
       대칭 편입)+테스트 5·Rust 1119 그린. 검토 1렌즈 major 2(문서 정합 — 기계 확정·적대적
       생략)·수정 5건(문서 4필드 정합·e2e 게이트 미러 4필드 확장) 전건 반영. 계약
       `2026-08-25-d41-omlx-baseurl-strip-contract.md` §0~§4 정본
-
-## 완료: d-32~35 산출물 커밋 5분할 + main ff 병합 (2026-08-25 사용자 승인)
-
-> 승인: 5분할(HANDOFF §6-1 원안 — ① refactor d-32 ② refactor+fix d-33 ③ feat d-34 ④ perf d-35
-> ⑤ docs) + main ff-only 병합까지, 푸시 제외. 워킹트리는 4개 배치의 누적 상태라 복수 배치가
-> 건드린 파일은 **지배 배치(그 파일의 본질 변경을 만든 배치)** 커밋에 배정하고 타 배치 동승분을
-> 커밋 본문에 명기한다(파일 단위 스테이징 한계 — 중간 커밋의 단독 컴파일은 보장하지 않음,
-> 최종 트리 = verify 그린 실측 상태).
-
-- [x] a. 배치별 파일 배분표 산출 — 각 계약 filesChanged 실사 + diff 마커 스캔으로 215파일 전수 분류
-- [x] b. 커밋 ① refactor(d-32 Rust 구조) `d695aba` — 11파일(lib.rs -632·project +368·layout 공통화)
-- [x] c. 커밋 ② refactor+fix(d-33 재구조화·FILE.RAW·테마 이월) `67ab4e0` — 93파일(rename 48 전건 인식)
-- [x] d. 커밋 ③ feat(d-34 AppError taxonomy) `5627be3` — 82파일(로케일 3·bindings 포함)
-- [x] e. 커밋 ④ perf(d-35 Rust 하드닝) `20f3fd5` — 7파일
-- [x] f. 커밋 ⑤ docs(계약 4건 신설+문서 현행화) — 이 커밋. git status 클린 확인
-- [x] g. 커밋 후 검증 — `bun run verify` exit 0 + `bunx vite build` exit 0 재확인(커밋 ④ 시점 트리 실측)
-- [x] h. main ff-only 병합(커밋 ⑤ 직후 실행) — HANDOFF/PROCESS 현행화 완료
-
-## 완료: d-32~d-35 연속 자율 진행 (2026-08-24 지시 → 2026-08-25 완주 — **전량 미커밋 워킹트리 보존**)
-
-> 지시: "나머지 작업들을 commit/push 하지 말고 쭉 이어서 마지막까지" — **커밋·푸시 금지**
-> (워킹트리 누적), d-32→d-33→d-34→d-35 순차 완주. 각 배치의 계약→구현→검토→적대적→수정→
-> 2차(verify) 파이프라인은 유지. 계약 결정 지점은 추천안 자체 채택 후 기록, bindings 표면·
-> 행동 변경 등 사용자 결정 필수 항목만 이월. 자율 종점 = d-35 완료(이후 제품 결정 묶음은
-> 사용자 개입 필요 — batch-consolidation-decision.md §3).
-
-- [x] d-32 Rust 구조 일괄 — 구현(lib.rs 1453→850·layout 골격 13개 공통화 370→334)·검토 3렌즈(동시성 전부 통과·major L3-1 적대적 downgraded)·수정 전건·cargo 그린·bindings diff 0. 계약 §3·§4 완결
-- [x] d-33 T2-C 재구조화 + 이월 소형 일괄 — TS 3축(48파일 재편·FILE.RAW·SwitchField 26·wsSymbol·ΔE 가드+3종 정정)+Rust 조각(구별성 린트·tree doc) 구현, 검토 3렌즈(major 1 → 적대적 downgraded·처분 ② 2패스 수리)·수정 8건 전건(bun 1463). 계약 §3·§4 완결 — 메인 2차 verify 는 d-34 와 묶어 실행
-- [x] d-34 AppError 캠페인 — 설계(확정안 A)·구현 3단(R1 인프라+T2-J·R2 119+9건·T 소비처 78건)·검토 3렌즈(major 2 기계 확정 — 적대적 생략 d-30 선례)·수정 13건 전건·메인 2차 그린(bun 1481·Rust 1099·로케일 916키×3·bindings +16/-1). 계약 §3~§5 완결
-- [x] d-35 Rust 하드닝 이월 일괄 — R1(git2 in-process 13건+pty_spawn 보류 해제 이관)·R2(repo 경로 키 push/fetch 직렬화·dispatch 상한 128·NoCache 기각·capability 이월 유지)·검토 3렌즈(동시성 major 3 → 적대적 전건 downgraded — 처분: doc 수용비용 명시+"원격 dispatch QoS" 캠페인 이월)·수정 doc 12항목·최종 verify 그린(bun 1481·Rust 1106·신규 테스트 7·vite 0·bindings 실토큰 d-34 순증만). 계약 §3~§5 완결
-
-## 완료: d-31 통합 배치 — T2-B TS 일괄 + d-26 이월 저대비 (2026-08-24)
-
-> 계약: `docs/acknowledge/2026-08-24-d31-t2b-ts-batch-contract.md`. 사용자 승인 "d-31 만" —
-> 완료 후 멈추고 d-32 착수 여부 재확인. 결정 4건 = 계약 §1.1.
-
-- [x] 0. 실사 — 5파일+이월 2건 유효 확정, 오배치 정정(import 위반 0·주석 문언뿐), github 2종 알파 실측 (계약 §0)
-- [x] 1. 계약 확정 — 결정 4건(LSP 이동+소분할 / matchHighlight 병행 / git-panel 행 그룹만 / 팔레트 모드 분리)
-- [x] 2. 구현 Workflow — wf_20fc8ee3-93d 5에이전트 전원 완료·§3 기록 계약 통합(3-A~3-E)
-- [x] 3. 메인 실물 재검증(가드·JSON 1줄 diff·팔레트 배선·부수효과 잔류·선재 테스트 결함 실증) + verify exit 0(bun 1443·Rust 1095) + vite build exit 0 + bindings 무변경
-- [x] 4. 검토 4렌즈 major 4·minor 19 → 적대적(L2-1 만 confirmed·3건 downgraded) → 수정 3병렬(A안+폴백: ayu/solarized 정정·everforest/rose-pine 예외 등재·재발 방지 테스트 신설·composite 승격·구조 minor 전건) — 수정 wf 는 세션 재시작으로 종료 기록 유실됐으나 저널 실사로 3/3 완주 확인
-- [x] 5. 메인 2차(verify 1447/1097·vite·bindings 무변경·단독 실행 mock 2건 pass 실측) → 커밋 3분리(00fb1e6 refactor 구조·a65c46c fix 저대비·docs) → prod 병합 → HANDOFF/PROCESS 현행화 — **d-31 완결. 다음 = d-32 착수 여부 사용자 확인 대기**
 
 ## 진행 중: 실기 QA → 잔여 기능(P0+P1) → 전문 QA → Phase 8 (2026-08-14, 새 세션)
 

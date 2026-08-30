@@ -57,6 +57,44 @@ taide [--wait|-w] <file> [<file>...]
 - `tauri-plugin-single-instance`(2.4.x): 두 번째 인스턴스 argv 수신 → 파일 열기 이벤트.
 - 탭 닫힘 → `agent_release_marker(marker)` command 가 마커 삭제.
 
+### 2.3 내장 터미널 `EDITOR`/`VISUAL` 자동 주입
+
+내장 터미널에서 실행한 Claude Code 의 ctrl+g 가 별도 설정 없이 TAIDE 로 열리도록,
+PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 지점은 `pty_spawn` 의 extra-env 훅
+(`terminal::commands::PtySpawnEnvProvider`) 하나뿐이며, `lib.rs::pty_spawn_env_provider` 가
+`ide::store::claude_terminal_env`(SSE 포트)와 `agent::commands::editor_terminal_env`(EDITOR·VISUAL)를
+이어 붙인다 — `infra/pty.rs` 의 `build_command` 는 이 목록을 그대로 적용할 뿐 아무것도 하드코딩하지 않는다.
+
+- **값**: `<taide CLI 절대경로> --wait` — **인용하지 않는다.** 소비자인 Claude Code 는 이 값을
+  셸로 파싱하지 않고 공백으로 split 한 뒤 첫 토큰을 그대로 실행 파일로 spawn 하므로
+  (`spawnSync(argv0, [...rest, tmpfile])`, shell 옵션 없음 — claude 2.1.251 바이너리 확인),
+  따옴표를 붙이면 `'/usr/local/bin/taide'` 라는 이름의 파일을 찾다가 ENOENT 로 실패한다.
+  조립은 순수 함수 `agent::service::build_editor_env_entries(cli_path)` 가 담당한다.
+- **`VISUAL` 도 같은 값으로 주입한다** (사용자 결정 2026-08-30,
+  `acknowledge/2026-08-30-usability-batch-decisions.md`): Claude Code 는 `$VISUAL` 을 `$EDITOR`
+  보다 먼저 보므로, EDITOR 만 주입하면 `VISUAL` 을 export 해 둔 사용자에게 ctrl+g 가 계속 vim 으로
+  열린다. 부모 프로세스 환경의 기존 값은 의도적으로 덮는다 — 최종 우선권은 아래 "셸 rc" 항목대로
+  사용자 rc 에 있다.
+- **경로 우선순위**: `/usr/local/bin/taide` 심링크가 유효하고(dangling 아님) 그 타깃이 우리 CLI
+  사이드카(`taide-cli`)이면 그 경로, 아니면 실행 중 앱 번들의 CLI 사이드카
+  (`.../Contents/MacOS/taide-cli`) 절대경로. 둘 다 없으면(사이드카 없는 dev 빌드)
+  **주입을 생략**한다 — 스폰을 실패시키지 않는다. 소유권 판정은 `agent_cli_uninstall` 과 같은
+  `service::is_cli_symlink_owned` 이다 — TAIDE 가 설치하지 않은 동명 바이너리를 EDITOR 로 삼지 않는다.
+- **공백이 든 경로는 생략**: 소비자가 공백으로 split 하므로 어떤 인용으로도 표현할 수 없다.
+  공백 없는 `/usr/local/bin/taide` 심링크가 우선이므로 정상 설치 경로에서는 발생하지 않는다.
+- **셸 rc 가 이긴다**: `.zshrc` 등의 `export EDITOR=...`/`export VISUAL=...` 은 스폰 **이후**
+  실행되므로 주입값을 덮어쓴다. 이는 의도된 동작이다 — 사용자가 rc 에 명시한 에디터가 항상 우선한다.
+  (부모 프로세스 환경의 값은 rc 와 달리 존중하지 않는다 — 위 `VISUAL` 항목의 결정.)
+- **외부 터미널**은 이 주입을 받지 않는다. 직접 `export EDITOR="taide --wait"` 를 설정해야 한다
+  (`CliInstallStatus.editorEnvHint` 가 이 문자열을 그대로 노출한다).
+- **팔레트 커맨드** `cli.connectExternalEditor`("Claude Code Ctrl+G 를 TAIDE 로 연결", macOS 한정):
+  `agent_cli_status` 로 확인해 미설치·dangling 이면 `agent_cli_install` 을 실행하고, 그 반환 상태가
+  실제로 설치됨(dangling 아님)일 때만 "새로 여는 터미널부터 Ctrl+G 가 TAIDE 로 열립니다"
+  (`settings.cliExternalEditorConnected`) 를 안내한다. 관리자 프롬프트를 취소하면 설치는 조용한
+  no-op(Ok) 이라 상태가 그대로 돌아오므로, 이 경우 `settings.cliInstallFailed` 를 띄운다.
+  설치 성공 후 `QUERY_KEY.AGENT.CLI` 캐시는 갱신하지 않는다(기존 `cli.installShellCommand` 와 동일) —
+  설정 화면이 열려 있으면 상태 행이 재조회 전까지 낡은 값을 보인다.
+
 ## 3. IDE MCP 서버 (확장 기능 — Claude Code 를 1급 시민으로)
 
 공식 확인 사실(research §5.1): Claude Code CLI 는 `~/.claude/ide/<port>.lock`(0600/0700) 을 읽고

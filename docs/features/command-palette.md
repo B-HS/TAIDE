@@ -97,3 +97,8 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
   `useKeydownCapture` — Wave H 계약 근거는 해당 콜백의 JSDoc 참고). 전역 키맵에 엔트리가 없는
   커맨드 바인딩은 이 리스너가 유일한 디스패치 경로라 의도된 구조다.
 - 닫힐 때 입력값·선택 인덱스를 초기화한다(다음에 열 때 잔상 금지).
+- **열릴 때 포커스·캐럿 계약 (2026-08-30)**: 입력에 포커스하고 캐럿을 값 끝에 둔다(선택 없음).
+  Radix `FocusScope` 가 첫 포커스에 `select()` 를 걸고 WKWebView 도 프로그램적 포커스에 전체선택을
+  복원해, ">" 프리픽스가 선택된 채 열려 첫 타이핑이 프리픽스를 지우던 문제의 수정. 경로 2개 —
+  `DialogContent.onOpenAutoFocus`(preventDefault + `focusTextInputCaretAtEnd`)와 닫힘 애니메이션
+  중 재열림용 `[open]` 이펙트(`shared/lib/text-input-caret.ts`, 테스트 5건).
