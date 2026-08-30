@@ -1772,6 +1772,17 @@ fn to_repo_relative(repo_root: &Path, raw: &str) -> AppResult<String> {
 /// dropping it leaves the returned status byte-identical and only costs re-hashing entries whose
 /// stat info is stale in the index on each call — bounded by the number of such entries, and any
 /// index-writing git operation (a commit, a stage, terminal `git status`) refreshes them anyway.
+///
+/// `recurse_untracked_dirs(false)` folds an untracked directory into one `nested/` row, which
+/// [`stage`] and [`discard`] both depend on — but it does *not* mean libgit2 reports the directory
+/// unexamined. `git_status_list_new` never sets `GIT_DIFF_ENABLE_FAST_UNTRACKED_DIRS`, so
+/// `diff_generate.c`'s "still have to look into untracked directories to match core git" branch
+/// runs: libgit2 walks the directory anyway, re-labels it `GIT_DELTA_IGNORED` when it finds
+/// nothing or only ignored entries, and `include_ignored(false)` then drops the delta entirely.
+/// Empty directories, trees of empty directories, and ignored-only directories therefore produce
+/// no row here — matching `git status --porcelain` — without any filtering of our own. The tests
+/// named `빈_디렉토리는_status에_나타나지_않는다` and friends pin that dependency behavior, since a
+/// libgit2 bump or an added option flag could flip it.
 fn collect_status_rows(repo: &Repository) -> AppResult<Vec<StatusRow>> {
     let workdir = repo_workdir(repo)?;
     let mut opts = git2::StatusOptions::new();
@@ -2132,6 +2143,12 @@ mod tests {
             std::fs::write(full, content).unwrap();
         }
 
+        /// Creates a directory with no file in it — the shape [`TestRepo::write_file`] can never
+        /// produce, and the one `git status` deliberately says nothing about.
+        fn create_dir(&self, relative: &str) {
+            std::fs::create_dir_all(self.dir.join(relative)).unwrap();
+        }
+
         fn commit_all(&self, message: &str) -> String {
             let repo = Repository::open(&self.dir).unwrap();
             let mut index = repo.index().unwrap();
@@ -2325,6 +2342,56 @@ mod tests {
         let result = status(repo.path()).expect("status");
         assert_eq!(result.rows[0].path, "nested/a.txt");
         assert_eq!(result.rows[0].staged, Some(GitChangeKind::Added));
+    }
+
+    /// `git status --porcelain` 은 빈 디렉토리를 출력하지 않는다. 아래 네 건은 우리 코드의 분기가
+    /// 아니라 [`collect_status_rows`] 가 기대는 **libgit2 동작**(그 doc comment 의
+    /// `GIT_DIFF_ENABLE_FAST_UNTRACKED_DIRS` 항목)을 고정한다 — `recurse_untracked_dirs(false)`
+    /// 는 "행을 접는다"는 뜻일 뿐 "안을 안 본다"는 뜻이 아니며, 이 전제가 libgit2 버전업이나 옵션
+    /// 추가로 뒤집히면 빈 폴더가 곧장 untracked 행으로 새어 나온다.
+    #[test]
+    fn 빈_디렉토리는_status에_나타나지_않는다() {
+        let repo = TestRepo::new();
+        repo.create_dir("empty");
+
+        let result = status(repo.path()).expect("status");
+
+        assert!(result.rows.is_empty(), "빈 디렉토리는 git CLI 처럼 행이 없어야 한다");
+    }
+
+    #[test]
+    fn 빈_디렉토리만_중첩된_트리도_status에_나타나지_않는다() {
+        let repo = TestRepo::new();
+        repo.create_dir("a/b/c");
+
+        let result = status(repo.path()).expect("status");
+
+        assert!(result.rows.is_empty(), "하위가 전부 빈 디렉토리면 최상위 행도 남으면 안 된다");
+    }
+
+    #[test]
+    fn ignored_파일만_담긴_디렉토리는_status에_나타나지_않는다() {
+        let repo = TestRepo::new();
+        repo.write_file(".gitignore", "*.log\n");
+        repo.write_file("logs/a.log", "noise");
+
+        let paths: Vec<String> = status(repo.path()).expect("status").rows.into_iter().map(|row| row.path).collect();
+
+        assert_eq!(paths, vec![".gitignore".to_string()]);
+    }
+
+    #[test]
+    fn 파일이_있는_미추적_디렉토리는_빈_디렉토리와_섞여도_단일_행으로_남는다() {
+        let repo = TestRepo::new();
+        repo.create_dir("empty");
+        repo.write_file("real/f.txt", "hello");
+        repo.write_file("real/deep/g.txt", "world");
+
+        let rows = status(repo.path()).expect("status").rows;
+
+        assert_eq!(rows.len(), 1, "내용이 있는 디렉토리는 접힌 단일 행을 유지해야 한다");
+        assert_eq!(rows[0].path, "real/");
+        assert_eq!(rows[0].unstaged, Some(GitChangeKind::Untracked));
     }
 
     #[test]
