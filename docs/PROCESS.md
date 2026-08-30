@@ -50,7 +50,7 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
-## 진행 중: v0.1.6 릴리스 + docs 정합 일괄 (2026-08-30 사용자 지시)
+## 완료: v0.1.6 릴리스 + docs 정합 일괄 (2026-08-30 — 완주)
 
 > 절차 정본 `docs/deployment.md` §3.
 
@@ -58,10 +58,14 @@
       `bug/2026-08-30-palette-select-all-on-open.md` 신설·PROCESS 아카이브(d-31~35 완결 절 →
       history)·HANDOFF 는 릴리스 완주 후 현행화(HEAD·런 번호 확정 필요)
 - [x] b. 버전 동기 0.1.6(3파일+Cargo.lock)·릴리스 노트 v0.1.6.md
-- [ ] c. 검증 — `bun run verify` + `bunx vite build`
-- [ ] d. 커밋 분할(feat agent·fix palette·test git·docs·chore release) → dev 푸시 → main ff
-- [ ] e. 태그 `v0.1.6` → Release 런 완주 → 완주 기록(HANDOFF 현행화 포함) 커밋·푸시
-- [ ] f. 잔여(사용자): draft 공개(v0.1.3·v0.1.5·v0.1.6)·"빈 폴더" 재현 정보
+- [x] c. 검증 — `bun run verify` + `bunx vite build` 전체 exit 0(bun 1817/0·cargo 1248/0)
+- [x] d. 커밋 5분할(`6240b33` feat(agent)·`d8cab87` fix(palette)·`8f0f0f5` test(git)·
+      `f0a6c75` docs·`7880ba1` chore(release)) → dev 푸시 → main ff 병합·푸시(main=dev 동기)
+- [x] e. 태그 `v0.1.6` → **Release 런 `33286185781` 완주(전 job success, wall 약 6m49s —
+      역대 최단, build 6m29s 워밍 캐시 실증)**. draft 생성(TAIDE_0.1.6_aarch64.dmg
+      14,904,107B + SHA256SUMS.txt) → 완주 기록·HANDOFF 현행화 커밋
+- [ ] f. 잔여(사용자): draft 공개(v0.1.3·v0.1.5·v0.1.6 세 건 누적)·"빈 폴더" 재현 정보·
+      신규 표면 5종 실기 확인(HANDOFF §3.3 ②)
 
 ## 완료: 사용성 3건 — Ctrl+G TAIDE 연결·팔레트 캐럿·git 빈 폴더 (2026-08-29~30, wf opus·max)
 
