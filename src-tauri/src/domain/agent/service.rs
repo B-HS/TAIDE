@@ -18,6 +18,13 @@ const LINUX_COMM_MAX_LEN: usize = 15;
 const NODE_RUNTIME_NAMES: &[&str] = &["node", "bun", "deno"];
 const EDITOR_ENV_HINT: &str = "export EDITOR=\"taide --wait\"";
 const CLI_WAIT_MARKER_FLAG: &str = "--wait-marker";
+const CLI_WAIT_FLAG: &str = "--wait";
+
+/// Name of the environment variable Claude Code's ctrl+g falls back to when `VISUAL` is unset.
+pub const EDITOR_ENV_NAME: &str = "EDITOR";
+
+/// Name of the environment variable Claude Code's ctrl+g resolves first, before `EDITOR`.
+pub const VISUAL_ENV_NAME: &str = "VISUAL";
 
 /// Filename of the bundled CLI sidecar binary (also the symlink ownership marker).
 pub const CLI_SIDECAR_BIN_NAME: &str = "taide-cli";
@@ -96,6 +103,34 @@ pub fn build_cli_install_status(target_path: &str, installed: bool, resolved_pat
         target_path: target_path.to_string(),
         editor_env_hint: EDITOR_ENV_HINT.to_string(),
     }
+}
+
+/// The `EDITOR`/`VISUAL` entries a newly spawned terminal should inherit so Claude Code's ctrl+g
+/// (which resolves `$VISUAL` before `$EDITOR`, opens `<editor> <tmpfile>` and treats the editor's
+/// exit as the completion signal) round-trips through the running TAIDE: the `taide` CLI's
+/// absolute path, unquoted, followed by `--wait`, assigned to both names.
+///
+/// Both variables carry the same value because Claude Code prefers `VISUAL` — injecting only
+/// `EDITOR` left ctrl+g on vim for anyone whose environment already exported a `VISUAL`.
+/// Parent-process values are deliberately overridden (user decision 2026-08-30,
+/// `docs/acknowledge/2026-08-30-usability-batch-decisions.md`); a shell rc that exports its own
+/// `EDITOR`/`VISUAL` still wins, since rc files run after the spawn — see
+/// `docs/features/agent-integration.md` §2.3.
+///
+/// The value is **not** shell syntax — Claude Code splits it on spaces and spawns the first token
+/// directly (`spawnSync(argv0, [...rest, tmpfile])`, no shell), so a quoted path would be looked
+/// up verbatim (quotes included) and fail with `ENOENT`.
+///
+/// Empty — i.e. inject nothing — in two cases:
+/// - `cli_path` could not be resolved (dev build without a CLI sidecar), where a bogus editor
+///   would be worse than leaving ctrl+g on its `vi` default;
+/// - `cli_path` contains whitespace, which that space-splitting consumer cannot express at all.
+pub fn build_editor_env_entries(cli_path: Option<&str>) -> Vec<(String, String)> {
+    let Some(path) = cli_path.filter(|path| !path.contains(char::is_whitespace)) else {
+        return Vec::new();
+    };
+    let value = format!("{path} {CLI_WAIT_FLAG}");
+    vec![(EDITOR_ENV_NAME.to_string(), value.clone()), (VISUAL_ENV_NAME.to_string(), value)]
 }
 
 /// True when `exe_path` sits under a macOS `.app` bundle's `Contents/MacOS/` directory
@@ -630,6 +665,26 @@ mod tests {
         assert!(status.installed);
         assert!(status.dangling);
         assert!(status.resolved_path.is_none());
+    }
+
+    #[test]
+    fn editor_env_는_editor_와_visual_에_같은_값을_인용없이_주입한다() {
+        let entries = build_editor_env_entries(Some("/usr/local/bin/taide"));
+        let expected = "/usr/local/bin/taide --wait".to_string();
+        assert_eq!(
+            entries,
+            vec![("EDITOR".to_string(), expected.clone()), ("VISUAL".to_string(), expected)]
+        );
+    }
+
+    #[test]
+    fn 공백이_있는_사이드카_경로는_주입하지_않는다() {
+        assert!(build_editor_env_entries(Some("/Applications/My TAIDE.app/Contents/MacOS/taide-cli")).is_empty());
+    }
+
+    #[test]
+    fn cli_경로를_해석하지_못하면_주입하지_않는다() {
+        assert!(build_editor_env_entries(None).is_empty());
     }
 
     #[test]

@@ -363,6 +363,34 @@ fn resolve_cli_install_status() -> CliInstallStatus {
     }
 }
 
+/// The `taide` CLI to point an injected `EDITOR` at: the installed `/usr/local/bin/taide` symlink
+/// when it resolves to our own CLI sidecar (same ownership check `agent_cli_uninstall` applies, so
+/// a same-named binary TAIDE did not install is never made every terminal's editor), otherwise the
+/// CLI sidecar shipped inside the running app bundle (so ctrl+g works even before the user installs
+/// the shell command). `None` for a dev build that has neither.
+fn resolve_editor_cli_path() -> Option<String> {
+    let status = resolve_cli_install_status();
+    let is_owned_symlink = status
+        .resolved_path
+        .as_deref()
+        .is_some_and(|resolved| service::is_cli_symlink_owned(Path::new(resolved)));
+    if status.installed && !status.dangling && is_owned_symlink {
+        return Some(status.target_path);
+    }
+    let sidecar = service::resolve_cli_install_target(&std::env::current_exe().ok()?)?;
+    sidecar.exists().then(|| sidecar.to_string_lossy().to_string())
+}
+
+/// The `EDITOR`/`VISUAL` environment entries every newly spawned terminal inherits, so Claude
+/// Code's ctrl+g opens its temp file in this running TAIDE and waits for the tab to close instead
+/// of falling back to `vi`. Registered by `lib.rs`'s assembly on
+/// `terminal::commands::PtySpawnEnvProvider` next to `ide::store::claude_terminal_env`; an
+/// unresolvable CLI path yields an empty vec, never a spawn failure
+/// (`docs/features/agent-integration.md` §2.3).
+pub fn editor_terminal_env() -> Vec<(String, String)> {
+    service::build_editor_env_entries(resolve_editor_cli_path().as_deref())
+}
+
 /// Resolves the CLI sidecar symlink target from the running app's own executable path, rejecting
 /// unbundled dev builds. Shared by install (needs the target) and uninstall (only needs the gate).
 #[cfg(target_os = "macos")]

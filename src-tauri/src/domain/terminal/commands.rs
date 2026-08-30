@@ -225,7 +225,8 @@ pub type PtySpawnEnvFuture<'a> = Pin<Box<dyn Future<Output = Vec<(String, String
 
 /// The extra `(name, value)` environment entries [`pty_spawn`] injects into every new shell,
 /// contributed by whatever integration the assembly wires in. `lib.rs` registers the concrete
-/// provider (currently `ide::store::claude_terminal_env` — the Claude Code SSE port) so this
+/// provider (currently `ide::store::claude_terminal_env` — the Claude Code SSE port — concatenated
+/// with `agent::commands::editor_terminal_env` — the `EDITOR` pointing at the `taide` CLI) so this
 /// domain never reads the IDE server's state directly (audit R8#10, T1-I §1.4). Awaited before
 /// the mutation guard is taken, exactly where the old inline IDE-ready wait ran — the provider
 /// may block the spawn briefly (bounded by its own deadline), never the whole app.

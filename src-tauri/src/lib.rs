@@ -153,14 +153,21 @@ fn system_usage_label_providers() -> domain::system::commands::SystemUsageLabelP
     ])
 }
 
-/// Wires `pty_spawn`'s extra-env hook to the IDE integration: every new terminal inherits the
-/// Claude Code SSE port when the IDE server is (or comes) up — `ide::store::claude_terminal_env`
-/// owns the readiness wait, the terminal domain only injects the result (audit R8#10, T1-I §1.4).
+/// Wires `pty_spawn`'s extra-env hook to the two agent integrations that must be in a terminal's
+/// environment before the shell starts: the Claude Code SSE port when the IDE server is (or comes)
+/// up — `ide::store::claude_terminal_env` owns the readiness wait, the terminal domain only injects
+/// the result (audit R8#10, T1-I §1.4) — and `EDITOR` pointing at the `taide` CLI so ctrl+g opens
+/// files in this window (`agent::commands::editor_terminal_env`, agent-integration.md §2.3). Each
+/// domain owns its own resolution; this assembly only concatenates what they hand back.
 fn pty_spawn_env_provider() -> domain::terminal::commands::PtySpawnEnvProvider {
     use domain::terminal::commands::PtySpawnEnvFuture;
 
     domain::terminal::commands::PtySpawnEnvProvider::new(Box::new(|app| -> PtySpawnEnvFuture<'_> {
-        Box::pin(domain::ide::store::claude_terminal_env(app))
+        Box::pin(async move {
+            let mut env = domain::ide::store::claude_terminal_env(app).await;
+            env.extend(domain::agent::commands::editor_terminal_env());
+            env
+        })
     }))
 }
 
