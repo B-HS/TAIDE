@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -29,6 +29,7 @@ import { IS_MAC } from '@shared/constants/platform'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
+import { focusTextInputCaretAtEnd } from '@shared/lib/text-input-caret'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
@@ -80,6 +81,7 @@ export const CommandPalette = () => {
      * Escape/outside-click close — the exact focus-drops-to-body state this flag exists to avoid.
      */
     const closedByActionRef = useRef(false)
+    const inputRef = useRef<HTMLInputElement>(null)
 
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
@@ -330,6 +332,24 @@ export const CommandPalette = () => {
         onResult: setWorkspaceSymbolState,
     })
 
+    /**
+     * Second caret-placement path alongside `onOpenAutoFocus`, for the reopen that happens while the
+     * previous close is still animating out: radix's `Presence` keeps the content mounted for the
+     * exit animation, so a ⌘P/⌘⇧P/⌘T pressed inside that window flips it back to open without ever
+     * remounting `FocusScope` — its mount effect, and therefore `onOpenAutoFocus`, never fires again.
+     * Whatever the previous close left behind then stands: the input still carrying its select-all
+     * (an Escape close never moved focus), or focus parked wherever the action that closed the
+     * palette put it (`closedByActionRef`), which would leave the reopened palette unfocused.
+     *
+     * Runs on the first open too — after `FocusScope`'s own mount effect, since child effects flush
+     * before an ancestor's — where it lands on an input `onOpenAutoFocus` already focused and
+     * collapsed, and re-collapsing an unchanged caret is a no-op.
+     */
+    useEffect(() => {
+        if (!open) return
+        focusTextInputCaretAtEnd(inputRef.current)
+    }, [open])
+
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogHeader className='sr-only'>
@@ -338,12 +358,16 @@ export const CommandPalette = () => {
             <DialogContent
                 className='overflow-hidden p-0'
                 showCloseButton={false}
+                onOpenAutoFocus={(event) => {
+                    event.preventDefault()
+                    focusTextInputCaretAtEnd(inputRef.current)
+                }}
                 onCloseAutoFocus={(event) => {
                     if (closedByActionRef.current) event.preventDefault()
                     closedByActionRef.current = false
                 }}>
                 <Command shouldFilter={false} className='bg-panel-background text-app-foreground'>
-                    <CommandInput value={query} onValueChange={setQuery} placeholder={t(PALETTE_PLACEHOLDER_KEY[mode])} />
+                    <CommandInput ref={inputRef} value={query} onValueChange={setQuery} placeholder={t(PALETTE_PLACEHOLDER_KEY[mode])} />
                     <CommandList>
                         <CommandEmpty>{resolveEmptyStateMessage()}</CommandEmpty>
                         {mode === 'commands' && (
