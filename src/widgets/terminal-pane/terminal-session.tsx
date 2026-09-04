@@ -9,7 +9,7 @@ import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
 import { isTerminalSessionAlive, removeTerminalSession, upsertTerminalSession } from '@entities/terminal/terminal-session-cache'
 import { attachPty, detachPty, killPty, resizePty, resolveTerminalPath, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
-import { systemOpenExternalUrl } from '@entities/system/system.ipc'
+import { openExternalUrl } from '@entities/system/external-url'
 import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands, events } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
@@ -29,7 +29,6 @@ import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { Button } from '@shared/ui/button'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 import { appendPendingTerminalInput } from '@widgets/terminal-pane/pending-terminal-input'
-import { openTerminalLink, openViaBrowserWindow } from '@widgets/terminal-pane/terminal-link-opener'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
 
@@ -174,10 +173,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
     }
 
     const handleOpenLink = (uri: string) => {
-        void openTerminalLink(uri, {
-            windowOpen: (target) => openViaBrowserWindow(target, () => window.open()),
-            openExternalUrl: systemOpenExternalUrl,
-        }).catch(() => toast.error(t('terminal.openLinkFailed')))
+        void openExternalUrl(uri).catch(() => toast.error(t('terminal.openLinkFailed')))
     }
 
     const handleOpenFileLink = (match: TerminalLinkMatch) => {

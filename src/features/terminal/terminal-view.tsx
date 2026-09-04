@@ -27,6 +27,13 @@ const SHIFT_ENTER_LINE_FEED = '\n'
  * Ctrl-click (non-mac) / Alt-click, matching the modifier convention editors use for "open
  * reference". `isMac` defaults to {@link IS_MAC} and exists as a parameter purely so tests can
  * cover both platforms without touching `navigator` — production call sites never pass it.
+ *
+ * The same gate covers all three link kinds so they behave identically: plain-text URLs
+ * (`WebLinksAddon`), `path:line:col` matches (`terminal-file-link.ts`), and OSC 8 hyperlinks.
+ * The last of those needs the terminal's `linkHandler` option, because xterm registers its own
+ * `OscLinkProvider` at priority 0 and would otherwise activate them through its default handler
+ * — a `confirm()` dialog WKWebView never answers, followed by a `window.open()` the app must
+ * never take (`docs/features/terminal.md` §6.1).
  */
 export const shouldActivateTerminalLink = (event: Pick<MouseEvent, 'metaKey' | 'altKey' | 'ctrlKey'>, isMac: boolean = IS_MAC) =>
     event.altKey || (isMac ? event.metaKey : event.ctrlKey)
@@ -189,6 +196,13 @@ export const TerminalView: FC<TerminalViewProps> = ({
             drawBoldTextInBrightColors: true,
             smoothScrollDuration: 0,
             overviewRuler: { width: OVERVIEW_RULER_WIDTH_PX },
+            linkHandler: {
+                activate: (event, text) => {
+                    if (!shouldActivateTerminalLink(event)) return
+                    onOpenLinkRef.current(text)
+                },
+                allowNonHttpProtocols: false,
+            },
         })
 
         const fit = new FitAddon()

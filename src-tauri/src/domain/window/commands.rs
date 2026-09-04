@@ -14,6 +14,7 @@ use crate::constants;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::HotExitFlushRequested;
 use crate::ids::ProjectId;
+use crate::infra::navigation_guard;
 use crate::state::AppState;
 
 struct AuxiliaryWindowRecord {
@@ -99,22 +100,25 @@ pub async fn open_auxiliary_window(
         project_id.as_str()
     )));
 
-    WebviewWindowBuilder::new(app, &label, url)
-        .title(format!("{project_name} — TAIDE"))
-        .inner_size(AUXILIARY_WINDOW_DEFAULT_WIDTH, AUXILIARY_WINDOW_DEFAULT_HEIGHT)
-        .min_inner_size(AUXILIARY_WINDOW_MIN_WIDTH, AUXILIARY_WINDOW_MIN_HEIGHT)
-        .visible(false)
-        .title_bar_style(TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .build()
-        .map_err(|error| {
-            AppError::localized(
-                AppErrorKind::Internal,
-                "error.window.auxiliaryOpenFailed",
-                format!("failed to open the auxiliary window: {error}"),
-            )
-            .with_arg("detail", &error)
-        })?;
+    navigation_guard::apply_navigation_guard(
+        WebviewWindowBuilder::new(app, &label, url)
+            .title(format!("{project_name} — TAIDE"))
+            .inner_size(AUXILIARY_WINDOW_DEFAULT_WIDTH, AUXILIARY_WINDOW_DEFAULT_HEIGHT)
+            .min_inner_size(AUXILIARY_WINDOW_MIN_WIDTH, AUXILIARY_WINDOW_MIN_HEIGHT)
+            .visible(false)
+            .title_bar_style(TitleBarStyle::Overlay)
+            .hidden_title(true),
+        app.config(),
+    )
+    .build()
+    .map_err(|error| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.window.auxiliaryOpenFailed",
+            format!("failed to open the auxiliary window: {error}"),
+        )
+        .with_arg("detail", &error)
+    })?;
 
     windows.register(label.clone(), project_id.clone(), window_slot);
 

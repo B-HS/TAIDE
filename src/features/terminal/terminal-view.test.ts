@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { shouldActivateTerminalLink, shouldTranslateShiftEnterToLineFeed } from '@features/terminal/terminal-view'
 
-describe('shouldActivateTerminalLink', () => {
+describe('shouldActivateTerminalLink — WebLinksAddon URL·path:line:col·OSC 8(linkHandler) 세 링크 종류가 공유하는 수식키 게이트', () => {
     test('metaKey 만 눌렸으면 활성화한다', () => {
         expect(shouldActivateTerminalLink({ metaKey: true, altKey: false, ctrlKey: false })).toBe(true)
     })

@@ -5,6 +5,7 @@ import { AgentExternalOpenProvider } from '@app/providers/agent-external-open-pr
 import { AgentStateSyncProvider } from '@app/providers/agent-state-sync-provider'
 import { AppProviders } from '@app/providers/app-providers'
 import { EmmetProvider } from '@app/providers/emmet-provider'
+import { ExternalLinkProvider } from '@app/providers/external-link-provider'
 import { HotExitFlushProvider } from '@app/providers/hot-exit-flush-provider'
 import { IdeSyncProvider } from '@app/providers/ide-sync-provider'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
@@ -36,10 +37,11 @@ import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
  *   contract's F1 open issues). "Move Tab" is still reachable from an auxiliary window via the tab
  *   context menu (`tab-context-menu.tsx`), which needs neither of those two.
  *
- * `IpcSyncProvider`, `HotExitFlushProvider`, `AgentStateSyncProvider`, `LocaleProvider`,
- * `ThemeProvider`, `EmmetProvider`, and `KeybindingsRuntimeProvider` stay for both branches — none
- * of them read the global active-project session: `layout:changed`/hot-exit flush/theme+locale
- * sync/Emmet all need to reach every window, agent status pushes are keyed by `payload.projectId`
+ * `ExternalLinkProvider`, `IpcSyncProvider`, `HotExitFlushProvider`, `AgentStateSyncProvider`,
+ * `LocaleProvider`, `ThemeProvider`, `EmmetProvider`, and `KeybindingsRuntimeProvider` stay for both
+ * branches — none of them read the global active-project session: `layout:changed`/hot-exit
+ * flush/theme+locale sync/Emmet all need to reach every window, an off-origin anchor strands
+ * whichever window rendered it, agent status pushes are keyed by `payload.projectId`
  * (read by `PaneTabBar`'s agent badge in both `AppShell` and `AuxiliaryWindowShell`, via
  * `EditorArea`), and `KeybindingsRuntimeProvider` applies monaco keybinding overrides to *this*
  * window's own monaco instance and answers *this* window's own local "open keymap editor" shortcut
@@ -52,48 +54,52 @@ export const App = () => {
     if (windowContext.kind === 'auxiliary') {
         return (
             <AppProviders>
-                <IpcSyncProvider>
-                    <HotExitFlushProvider>
-                        <AgentStateSyncProvider>
-                            <LocaleProvider>
-                                <ThemeProvider>
-                                    <EmmetProvider>
-                                        <KeybindingsRuntimeProvider>
-                                            <AuxiliaryWindowShell projectId={windowContext.projectId} windowSlot={windowContext.windowSlot} />
-                                        </KeybindingsRuntimeProvider>
-                                    </EmmetProvider>
-                                </ThemeProvider>
-                            </LocaleProvider>
-                        </AgentStateSyncProvider>
-                    </HotExitFlushProvider>
-                </IpcSyncProvider>
+                <ExternalLinkProvider>
+                    <IpcSyncProvider>
+                        <HotExitFlushProvider>
+                            <AgentStateSyncProvider>
+                                <LocaleProvider>
+                                    <ThemeProvider>
+                                        <EmmetProvider>
+                                            <KeybindingsRuntimeProvider>
+                                                <AuxiliaryWindowShell projectId={windowContext.projectId} windowSlot={windowContext.windowSlot} />
+                                            </KeybindingsRuntimeProvider>
+                                        </EmmetProvider>
+                                    </ThemeProvider>
+                                </LocaleProvider>
+                            </AgentStateSyncProvider>
+                        </HotExitFlushProvider>
+                    </IpcSyncProvider>
+                </ExternalLinkProvider>
             </AppProviders>
         )
     }
 
     return (
         <AppProviders>
-            <IpcSyncProvider>
-                <HotExitFlushProvider>
-                    <AgentExternalOpenProvider>
-                        <IdeSyncProvider>
-                            <AgentStateSyncProvider>
-                                <LocaleProvider>
-                                    <ThemeProvider>
-                                        <EmmetProvider>
-                                            <KeybindingsRuntimeProvider>
-                                                <AppShell />
-                                                <CommandPalette />
-                                                <TaskRunnerDialog />
-                                            </KeybindingsRuntimeProvider>
-                                        </EmmetProvider>
-                                    </ThemeProvider>
-                                </LocaleProvider>
-                            </AgentStateSyncProvider>
-                        </IdeSyncProvider>
-                    </AgentExternalOpenProvider>
-                </HotExitFlushProvider>
-            </IpcSyncProvider>
+            <ExternalLinkProvider>
+                <IpcSyncProvider>
+                    <HotExitFlushProvider>
+                        <AgentExternalOpenProvider>
+                            <IdeSyncProvider>
+                                <AgentStateSyncProvider>
+                                    <LocaleProvider>
+                                        <ThemeProvider>
+                                            <EmmetProvider>
+                                                <KeybindingsRuntimeProvider>
+                                                    <AppShell />
+                                                    <CommandPalette />
+                                                    <TaskRunnerDialog />
+                                                </KeybindingsRuntimeProvider>
+                                            </EmmetProvider>
+                                        </ThemeProvider>
+                                    </LocaleProvider>
+                                </AgentStateSyncProvider>
+                            </IdeSyncProvider>
+                        </AgentExternalOpenProvider>
+                    </HotExitFlushProvider>
+                </IpcSyncProvider>
+            </ExternalLinkProvider>
         </AppProviders>
     )
 }

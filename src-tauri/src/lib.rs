@@ -383,6 +383,39 @@ fn specta_builder() -> Builder<tauri::Wry> {
 
 pub(crate) const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "file_read_raw"];
 
+/// Builds the `main` window by hand instead of letting Tauri auto-create it from
+/// `tauri.conf.json`, which is why that entry carries `"create": false` (`tauri::app::setup` skips
+/// every `WindowConfig` whose `create` is false). `WebviewWindowBuilder::from_config` reproduces
+/// the *identical* configured window — label, size/min-size, `backgroundColor`, `visible: false`,
+/// Overlay title bar — so the FOUC policy (`docs/features/window-chrome.md` §2) and the `main`
+/// capability's label match are untouched; the only thing hand-building buys is the chance to
+/// attach `infra::navigation_guard`'s two handlers, which the config has no way to express.
+///
+/// Called as the very first statement of `.setup`, i.e. at the same point in the boot sequence the
+/// auto-created window occupied (Tauri creates config windows immediately before invoking the
+/// setup hook), so nothing that reads `MAIN_WINDOW_LABEL` moves relative to it and the
+/// window-creation latency the boot-watcher deferral protects
+/// (`docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`) is unchanged. A failure here
+/// propagates as a setup error — an app with no main window has nothing to fall back to.
+fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let window_config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == constants::MAIN_WINDOW_LABEL)
+        .cloned()
+        .ok_or_else(|| format!("main window config not found: label={}", constants::MAIN_WINDOW_LABEL))?;
+
+    infra::navigation_guard::apply_navigation_guard(
+        tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?,
+        app.config(),
+    )
+    .build()?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(not(windows))]
@@ -430,7 +463,12 @@ pub fn run() {
 
     app.plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        // `open_js_links_on_click` (default `true`) injects a document-level click interceptor that
+        // calls the plugin's own `openUrl` — a call this app's capability set deliberately never
+        // grants (`2026-08-18-hand-qa-fix-contract.md` §"opener JS+capability 개방 기각"), so the
+        // interceptor could only ever `preventDefault()` a link and drop it. Turning it off leaves
+        // `app/providers/external-link-provider.tsx` as the single anchor-click owner.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .map_label(domain::window::service::normalize_window_state_label)
@@ -461,6 +499,8 @@ pub fn run() {
         })
         .setup(move |app| {
             let setup_started = std::time::Instant::now();
+
+            create_main_window(app)?;
 
             #[cfg(not(windows))]
             if let Some(error) = &path_env_fix_error {
