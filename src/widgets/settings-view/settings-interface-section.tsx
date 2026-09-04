@@ -92,6 +92,12 @@ export const SettingsInterfaceSection: FC<SettingsInterfaceSectionProps> = ({ id
                 onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), explorerAutoReveal: checked })}
             />
             <SwitchField
+                label={t('settings.welcomeOnEmptyEditor')}
+                description={t('settings.welcomeOnEmptyEditorDescription')}
+                checked={settings.welcomeOnEmptyEditor ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), welcomeOnEmptyEditor: checked })}
+            />
+            <SwitchField
                 label={t('settings.zenFullscreen')}
                 description={t('settings.zenFullscreenDescription')}
                 checked={settings.zenFullscreen ?? false}

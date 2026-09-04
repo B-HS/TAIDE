@@ -16,6 +16,7 @@ const dummyContext: CommandContext = {
     openSettingsTab: () => {},
     openSettingsFile: () => {},
     openTerminalTab: () => {},
+    openWelcomeTab: () => {},
     reopenClosedTab: () => {},
     switchToFileSearchMode: () => {},
 }

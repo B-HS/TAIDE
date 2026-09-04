@@ -7,6 +7,7 @@ export type CommandContext = {
     openSettingsTab: () => void
     openSettingsFile: () => void
     openTerminalTab: () => void
+    openWelcomeTab: () => void
     reopenClosedTab: () => void
     switchToFileSearchMode: () => void
 }

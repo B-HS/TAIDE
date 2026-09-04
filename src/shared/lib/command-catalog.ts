@@ -90,6 +90,7 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
         run: () => requestShowExplorerView('files'),
     },
     { id: 'view.git', titleKey: 'git.title', categoryKey: KEYMAP_CATEGORY.VIEW, keymapId: 'git', run: () => requestShowExplorerView('git') },
+    { id: 'view.welcome', titleKey: 'app.welcome', categoryKey: KEYMAP_CATEGORY.VIEW, run: (context) => context.openWelcomeTab() },
     {
         id: 'editor.split',
         titleKey: 'keymap.split',

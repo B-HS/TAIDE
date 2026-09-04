@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { lazy, Suspense, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useRef, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useDroppable } from '@dnd-kit/core'
@@ -14,8 +14,9 @@ import { SplitDropZones } from '@features/split/split-drop-zones'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { fileNameOf } from '@shared/lib/relative-path'
+import { getWindowContext } from '@shared/lib/window-context'
 import { getOpenWithOverride, subscribeOpenWithOverride } from '@entities/editor/open-with-registry'
-import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
+import { DEFAULT_RESIZER_THICKNESS, MIN_PANEL_SIZE_PX, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { PaneTabBar } from '@widgets/editor-area/pane-tab-bar'
 import { AppFilePane } from '@widgets/app-file-pane/app-file-pane'
 import { ClaudeDiffPane } from '@widgets/claude-diff-pane/claude-diff-pane'
@@ -29,7 +30,6 @@ import { TerminalSession } from '@widgets/terminal-pane/terminal-session'
 import { WelcomeContainerLazy } from '@widgets/welcome/welcome-container-lazy'
 
 const EQUAL_SPLIT_TOTAL_PERCENT = 100
-const MIN_PANEL_SIZE_PX = 120
 
 /**
  * The settings screen drags in the theme editor, the plugin manager and the snippet editor behind
@@ -52,6 +52,14 @@ type PaneNodeViewProps = {
 }
 
 export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPaneId, isDragging, overTarget, zen }) => {
+    /**
+     * The leaf's content box — everything below the tab bar, which is also exactly the area a
+     * terminal fills. Handed to `TerminalSession` so its context menu can measure how much room a
+     * split would have without this component observing its own size (a `ResizeObserver` here would
+     * re-render every pane on every drag of a separator). Measuring the content box rather than the
+     * whole leaf is what makes the tab bar drop out of the height automatically, Zen mode included.
+     */
+    const paneContentRef = useRef<HTMLDivElement>(null)
     const { t } = useTranslation()
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: resizePane } = useResizePane(projectId)
@@ -108,6 +116,15 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         )
     }
 
+    /**
+     * `!activeTab` is exactly "this window's pane tree holds no tabs at all" — `normalize_owned`
+     * collapses every empty leaf out of a split, so a half-empty split cannot exist and this branch
+     * only ever renders for a whole window. Auxiliary windows are excluded because an emptied one
+     * closes itself (`auxiliary-window-shell.tsx`, Wave I contract §3.2), and because Welcome's
+     * "recent projects" list switches the *global* active project — the one thing `app.tsx` keeps
+     * an auxiliary window from doing.
+     */
+    const showWelcomeOnEmptyEditor = getWindowContext().kind === 'main' && (settings?.welcomeOnEmptyEditor ?? true)
     const activeFileName = activeFilePath ? fileNameOf(activeFilePath) : null
     const activePreviewKind = openWithOverride === 'editor' ? null : activeFileName ? resolvePreviewKind(activeFileName) : null
     const dropRefByEdge: Record<DropEdgeName, (element: HTMLElement | null) => void> = {
@@ -123,7 +140,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
             {!zen && (
                 <PaneTabBar projectId={projectId} paneId={node.id} tabs={node.tabs} activeTabId={node.active} focused={node.id === focusedPaneId} />
             )}
-            <div className='bg-editor-background text-editor-foreground relative min-h-0 flex-1 overflow-hidden'>
+            <div ref={paneContentRef} className='bg-editor-background text-editor-foreground relative min-h-0 flex-1 overflow-hidden'>
                 {activeTab?.kind.kind === 'file' && activePreviewKind === null && (
                     <EditorPane projectId={projectId} tabId={activeTab.id} path={activeTab.kind.path} />
                 )}
@@ -133,8 +150,10 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                         key={activeTab.id}
                         projectId={projectId}
                         tabId={activeTab.id}
+                        paneId={node.id}
                         sessionId={activeTab.kind.sessionId}
                         autoFocus={node.id === focusedPaneId}
+                        paneElementRef={paneContentRef}
                     />
                 )}
                 {activeTab?.kind.kind === 'settings' && (
@@ -204,7 +223,14 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     activeTab.kind.kind !== 'welcome' && (
                         <div className='flex h-full w-full items-center justify-center text-sm opacity-60'>{activeTab.title}</div>
                     )}
-                {!activeTab && <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>}
+                {!activeTab &&
+                    (showWelcomeOnEmptyEditor ? (
+                        <Suspense fallback={<div className='bg-editor-background h-full w-full' />}>
+                            <WelcomeContainerLazy projectId={projectId} />
+                        </Suspense>
+                    ) : (
+                        <div className='flex h-full w-full items-center justify-center text-sm opacity-40'>{t('editor.noFileOpen')}</div>
+                    ))}
                 {isDragging && (
                     <SplitDropZones
                         activeEdge={overTarget?.paneId === node.id ? overTarget.edge : null}

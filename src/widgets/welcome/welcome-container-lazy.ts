@@ -1,9 +1,10 @@
 import { lazy } from 'react'
 
 /**
- * `WelcomeContainer` is rendered from two places — `app-shell.tsx` (the no-project-open screen) and
- * `pane-node-view.tsx` (the `welcome` tab kind) — so the `lazy()` wrapper lives here instead of
- * being created twice. Two separate `lazy()` calls would share the underlying chunk but not the
+ * `WelcomeContainer` is rendered from three call sites — `app-shell.tsx` (the no-project-open
+ * screen) and `pane-node-view.tsx` twice (the `welcome` tab kind, and the empty editor area of the
+ * main window when `welcomeOnEmptyEditor` is on) — so the `lazy()` wrapper lives here instead of
+ * being created per call site. Two separate `lazy()` calls would share the underlying chunk but not the
  * lazy component's own load state, so each call site would re-suspend independently the first time
  * it rendered.
  *

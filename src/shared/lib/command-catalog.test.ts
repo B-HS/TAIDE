@@ -10,6 +10,7 @@ const dummyContext: CommandContext = {
     openSettingsTab: () => {},
     openSettingsFile: () => {},
     openTerminalTab: () => {},
+    openWelcomeTab: () => {},
     reopenClosedTab: () => {},
     switchToFileSearchMode: () => {},
 }
@@ -33,6 +34,7 @@ describe('DEFAULT_COMMANDS', () => {
             'view.toggleSidebar',
             'view.explorer',
             'view.git',
+            'view.welcome',
             'editor.split',
             'tab.cycleNext',
             'tab.cyclePrev',
@@ -45,6 +47,22 @@ describe('DEFAULT_COMMANDS', () => {
             expect(command).toBeDefined()
             expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(true)
         }
+    })
+
+    test('view.welcome 은 컨텍스트의 openWelcomeTab 을 호출하며 기본 단축키가 없다', () => {
+        const command = DEFAULT_COMMANDS.find((entry) => entry.id === 'view.welcome')
+        expect(command).toBeDefined()
+        expect(command?.titleKey).toBe('app.welcome')
+        expect(command?.keymapId).toBeUndefined()
+
+        let calls = 0
+        void command?.run({ ...dummyContext, openWelcomeTab: () => void (calls += 1) })
+        expect(calls).toBe(1)
+    })
+
+    test('view.welcome 은 view.git 바로 뒤에 온다 — 팔레트 VIEW 카테고리 순서', () => {
+        const ids = DEFAULT_COMMANDS.map((entry) => entry.id)
+        expect(ids.indexOf('view.welcome')).toBe(ids.indexOf('view.git') + 1)
     })
 
     test('실행 구현이 없는 keymap 미러 커맨드(탭 닫기·파일 내 찾기)는 항상 비활성이다', () => {

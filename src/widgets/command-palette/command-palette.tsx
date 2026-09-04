@@ -34,10 +34,11 @@ import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { monaco } from '@shared/lib/monaco/setup'
-import { activeFilePathOf } from '@shared/lib/pane-tree'
+import { activeFilePathOf, currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { Command, CommandEmpty, CommandInput, CommandList } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
+import { WELCOME_TAB_TITLE } from '@shared/constants/tab'
 import { CommandPaletteCommandsGroup } from '@features/command-palette/command-palette-commands-group'
 import { CommandPaletteFilesGroup } from '@features/command-palette/command-palette-files-group'
 import { CommandPaletteLineGroup } from '@features/command-palette/command-palette-line-group'
@@ -164,6 +165,26 @@ export const CommandPalette = () => {
         )
     }
 
+    /**
+     * Passes {@link WELCOME_TAB_TITLE} rather than `t('app.welcome')` — `open_tab` activates an
+     * existing `welcome` tab instead of creating a second one and leaves its title untouched, so a
+     * localized title would only ever land on the very first Welcome tab and read differently from
+     * the one `default_layout` seeds (see the constant's doc).
+     */
+    const openWelcomeTab = () => {
+        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        openTab(
+            {
+                projectId: activeProjectId,
+                kind: { kind: 'welcome' },
+                title: WELCOME_TAB_TITLE,
+                target: currentWindowFocusedPane(layout),
+                preview: false,
+            },
+            { onError: (error) => toast.error(describeIpcError(error)) },
+        )
+    }
+
     const openSettingsFile = () => {
         if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
         openTab(
@@ -197,6 +218,7 @@ export const CommandPalette = () => {
         openSettingsTab,
         openSettingsFile,
         openTerminalTab,
+        openWelcomeTab,
         reopenClosedTab,
         switchToFileSearchMode: () => setQuery(''),
     }
