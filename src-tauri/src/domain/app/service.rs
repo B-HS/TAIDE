@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use super::types::{AppFileTarget, AppInfo, PromptTemplateId};
+use super::types::{AppFileTarget, AppInfo, PerfCounterEntry, PerfEntry, PerfSnapshot, PromptTemplateId};
 use crate::domain::ai::prompt as ai_prompt;
 use crate::domain::ai::types::{AiCommitMessagePromptTemplate, AiInlineEditPromptTemplate, AiPromptTemplate};
 use crate::domain::settings::types::Settings;
 use crate::error::{AppError, AppErrorKind, AppResult};
+use crate::infra::perf::{CounterSlot, PerfRegistry, SpanSlot};
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
@@ -80,6 +81,49 @@ fn validate_prompt_json(id: PromptTemplateId, content: &str) -> AppResult<()> {
 pub fn write_prompt_file(paths: &AppPaths, id: PromptTemplateId, content: &str) -> AppResult<()> {
     validate_prompt_json(id, content)?;
     persist::write_atomic(&app_file_path(paths, AppFileTarget::Prompt { id }), content.as_bytes())
+}
+
+const NANOS_PER_MILLISECOND: f64 = 1_000_000.0;
+
+/// Command counter names are namespaced so a per-command count can never collide with a
+/// [`CounterSlot`] name in the flat `counters` list.
+const COMMAND_COUNTER_PREFIX: &str = "command.";
+
+/// Renders `registry` as the wire snapshot: every duration slot in declaration order (including
+/// never-exercised ones, so a reader can see *what* is instrumented), then every counter slot,
+/// then the commands that were actually invoked.
+///
+/// Takes the registry by reference rather than reading `perf::global()` itself so the projection —
+/// unit conversion, ordering, which entries are omitted — is testable against a registry the test
+/// owns.
+pub fn perf_snapshot(registry: &PerfRegistry) -> PerfSnapshot {
+    let entries = SpanSlot::ALL
+        .iter()
+        .map(|slot| {
+            let sample = registry.span_sample(*slot);
+            PerfEntry {
+                name: slot.name().to_string(),
+                count: sample.count as f64,
+                total_ms: sample.total_ns as f64 / NANOS_PER_MILLISECOND,
+                max_ms: sample.max_ns as f64 / NANOS_PER_MILLISECOND,
+            }
+        })
+        .collect();
+
+    let slot_counters = CounterSlot::ALL.iter().map(|slot| PerfCounterEntry {
+        name: slot.name().to_string(),
+        total: registry.counter_value(*slot) as f64,
+    });
+    let command_counters = registry.command_samples().into_iter().map(|(name, count)| PerfCounterEntry {
+        name: format!("{COMMAND_COUNTER_PREFIX}{name}"),
+        total: count as f64,
+    });
+
+    PerfSnapshot {
+        enabled: registry.is_enabled(),
+        entries,
+        counters: slot_counters.chain(command_counters).collect(),
+    }
 }
 
 #[cfg(test)]
@@ -169,5 +213,80 @@ mod tests {
             .prompts_dir()
             .join(format!("{}.json", PromptTemplateId::CommitMessageDefault.as_str()))
             .exists());
+    }
+
+    fn entry<'a>(snapshot: &'a PerfSnapshot, name: &str) -> &'a PerfEntry {
+        snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.name == name)
+            .unwrap_or_else(|| panic!("{name} 항목이 스냅샷에 있어야 한다"))
+    }
+
+    fn counter<'a>(snapshot: &'a PerfSnapshot, name: &str) -> &'a PerfCounterEntry {
+        snapshot
+            .counters
+            .iter()
+            .find(|entry| entry.name == name)
+            .unwrap_or_else(|| panic!("{name} 카운터가 스냅샷에 있어야 한다"))
+    }
+
+    #[test]
+    fn 스냅샷은_모든_슬롯을_선언_순서로_담는다() {
+        let snapshot = perf_snapshot(&PerfRegistry::new());
+
+        let names: Vec<&str> = snapshot.entries.iter().map(|entry| entry.name.as_str()).collect();
+        let expected: Vec<&str> = SpanSlot::ALL.iter().map(|slot| slot.name()).collect();
+        assert_eq!(names, expected);
+
+        let counter_names: Vec<&str> = snapshot.counters.iter().map(|entry| entry.name.as_str()).collect();
+        let expected_counters: Vec<&str> = CounterSlot::ALL.iter().map(|slot| slot.name()).collect();
+        assert_eq!(counter_names, expected_counters, "커맨드 집계가 없으면 슬롯 카운터만 남는다");
+    }
+
+    #[test]
+    fn 게이트가_꺼져_있으면_스냅샷의_enabled_가_false_다() {
+        let snapshot = perf_snapshot(&PerfRegistry::new());
+
+        assert!(!snapshot.enabled);
+        assert!(snapshot.entries.iter().all(|entry| entry.count == 0.0));
+        assert!(snapshot.counters.iter().all(|entry| entry.total == 0.0));
+    }
+
+    #[test]
+    fn 나노초_누적치를_밀리초로_환산한다() {
+        let registry = PerfRegistry::new();
+        registry.set_enabled(true);
+        registry.record_span(SpanSlot::GitStatus, 2_500_000);
+        registry.record_span(SpanSlot::GitStatus, 500_000);
+
+        let snapshot = perf_snapshot(&registry);
+
+        let git_status = entry(&snapshot, "git_status");
+        assert!(snapshot.enabled);
+        assert_eq!(git_status.count, 2.0);
+        assert_eq!(git_status.total_ms, 3.0);
+        assert_eq!(git_status.max_ms, 2.5);
+    }
+
+    #[test]
+    fn 커맨드_집계는_prefix_를_붙여_카운터_뒤에_이어_붙는다() {
+        let registry = PerfRegistry::new();
+        registry.set_enabled(true);
+        registry.install_commands(["git_status", "file_open"]);
+        registry.record_command("git_status");
+        registry.record_command("git_status");
+        registry.record_command("file_open");
+        registry.add(CounterSlot::PtyOutputBytes, 4_096);
+
+        let snapshot = perf_snapshot(&registry);
+
+        assert_eq!(counter(&snapshot, "pty.output_bytes").total, 4_096.0);
+        assert_eq!(counter(&snapshot, "command.git_status").total, 2.0);
+        assert_eq!(counter(&snapshot, "command.file_open").total, 1.0);
+
+        let slot_count = CounterSlot::ALL.len();
+        assert_eq!(snapshot.counters.len(), slot_count + 2, "호출된 커맨드만 뒤에 이어진다");
+        assert_eq!(snapshot.counters[slot_count].name, "command.file_open", "커맨드는 이름순이다");
     }
 }

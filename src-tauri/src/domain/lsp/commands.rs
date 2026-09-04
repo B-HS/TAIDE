@@ -20,6 +20,7 @@ use crate::ids::ProjectId;
 use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::lsp_install;
 use crate::infra::lsp_proc;
+use crate::infra::perf::{self, CounterSlot};
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
@@ -613,9 +614,15 @@ pub async fn lsp_spawn(
 /// `tokio::sync::Mutex` (`infra::lsp_proc::LspProcHandle::write_message`). Gating this behind
 /// the global mutation lock would only make LSP requests (which fire far more often than
 /// saves/git operations) queue behind unrelated mutating commands for no correctness benefit.
+///
+/// Instrumented with a [`CounterSlot`], never a `perf::span`, for the same frequency reason: the
+/// `didChange`/completion/semantic-token traffic behind this command makes it one of the busiest
+/// in the app, and what matters is the number of IPC round trips, not any single write's duration
+/// (`infra::perf::CounterSlot`).
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: String) -> AppResult<()> {
+    perf::add(CounterSlot::LspSend, 1);
     let entry = find_entry(&store, &session_id)?;
     let proc = entry
         .proc

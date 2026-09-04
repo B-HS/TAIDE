@@ -6,6 +6,7 @@ import { buildImeDebugReport, isImeDebugEnabled } from '@shared/lib/ime-debug'
 import { i18next } from '@shared/i18n/i18n'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
 import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
+import { isPerfEnabled, printPerfReport } from '@shared/lib/perf-mark'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
 import { requestToggleZenMode } from '@shared/lib/bridge/zen-mode-bridge'
@@ -135,6 +136,25 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
             toast.success(i18next.t('terminal.imeDebugCopied'))
         },
         isEnabled: isImeDebugEnabled,
+    },
+    {
+        id: 'app.showPerfSnapshot',
+        titleKey: 'app.showPerfSnapshot',
+        /**
+         * Carries its own English label instead of a locale key, the way the monaco action mirrors
+         * do (`monaco-action-commands.ts`): this is a developer instrument that only appears while
+         * `TAIDE_PERF` instrumentation is on, and adding three catalog entries for a string no end
+         * user can reach would be noise in every locale file. `formatCategorizedLabel` prefers a
+         * real translation the moment one exists under this key.
+         *
+         * Prints the front-end registry only. The Rust half is one `invoke('perf_snapshot')` away
+         * in the same console (`docs/debugging.md` §4.1·§4.3) and cannot be read from here — `shared`
+         * may not reach the `entities` layer that owns IPC.
+         */
+        titleDefaultValue: 'Show Performance Snapshot',
+        categoryKey: KEYMAP_CATEGORY.APP,
+        run: () => printPerfReport(),
+        isEnabled: isPerfEnabled,
     },
     {
         id: 'tab.moveToNewWindow',

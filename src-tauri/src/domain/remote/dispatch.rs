@@ -197,6 +197,8 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "app_file_write",
     "notification_notify",
     "notification_open_system_settings",
+    "perf_snapshot",
+    "perf_reset",
 ];
 
 fn err(error: AppError) -> Value {
@@ -340,6 +342,16 @@ enum RemoteDenialPolicy {
     /// an authenticated remote session a shell, from which it could edit `settings.json` directly for
     /// equivalent persistence.
     CredentialStoreTampering,
+    /// `perf_snapshot`/`perf_reset` — the `infra::perf` registry is one process-global accumulator
+    /// shared by every window and every remote session, and the desktop user is the one who turned
+    /// it on (`TAIDE_PERF`, `docs/debugging.md` §4.1) to measure their own machine. A remote session
+    /// reading it would attribute the desktop's own work to itself, and `perf_reset` is the
+    /// `agent_pending_external_opens` shape [`SharedSingletonStateRace`] denies — a single-copy
+    /// state that whichever caller reaches first destroys for everyone, here wiping a measurement
+    /// window mid-run. Instrumentation is also strictly a local diagnostic surface: it has no
+    /// remote-renderable UI, and the remote mirror's own IPC traffic already shows up in the
+    /// desktop's snapshot because both realms invoke through the same dispatch closure.
+    DesktopProcessDiagnostics,
     /// The default-deny fallback: a command name that is not filed into either
     /// [`REMOTE_ALLOWED_COMMANDS`] or [`REMOTE_DENIED_COMMANDS`]. Every command [`dispatch`]/
     /// [`dispatch_raw`] can actually reach must be classified into exactly one of those two tables — see
@@ -390,6 +402,10 @@ impl RemoteDenialPolicy {
             RemoteDenialPolicy::CredentialStoreTampering => (
                 "error.remote.deniedCredentialStoreTampering",
                 format!("a remote session cannot change a stored credential (AI provider token, GitHub personal access token): {name}"),
+            ),
+            RemoteDenialPolicy::DesktopProcessDiagnostics => (
+                "error.remote.deniedDesktopProcessDiagnostics",
+                format!("a remote session cannot read or reset the desktop process's performance instrumentation: {name}"),
             ),
             RemoteDenialPolicy::Unclassified => (
                 "error.remote.deniedUnclassified",
@@ -537,6 +553,8 @@ const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
     ("ai_clear_token", RemoteDenialPolicy::CredentialStoreTampering),
     ("sync_connect", RemoteDenialPolicy::CredentialStoreTampering),
     ("sync_disconnect", RemoteDenialPolicy::CredentialStoreTampering),
+    ("perf_snapshot", RemoteDenialPolicy::DesktopProcessDiagnostics),
+    ("perf_reset", RemoteDenialPolicy::DesktopProcessDiagnostics),
 ];
 
 /// Looks `name` up in [`REMOTE_DENIED_COMMANDS`], returning the denial [`dispatch`] must answer with
@@ -1036,7 +1054,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "lsp_install_cancel" => respond(lsp::lsp_install_cancel(app.state(), arg!(args, "serverId")).await),
 
         "git_init" => respond(git::git_init(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
-        "git_status" => respond(git::git_status(app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_status" => respond(git::git_status(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_diff_file" => respond(
             git::git_diff_file(
                 app.state(),
@@ -1605,6 +1623,14 @@ mod tests {
     #[test]
     fn 원격_세션은_데스크톱_알림이나_시스템_설정을_열_수_없다() {
         for name in ["notification_notify", "notification_open_system_settings"] {
+            let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
+            assert_forbidden_denial(&value, name);
+        }
+    }
+
+    #[test]
+    fn 원격_세션은_성능_계측_레지스트리를_읽거나_초기화할_수_없다() {
+        for name in ["perf_snapshot", "perf_reset"] {
             let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
             assert_forbidden_denial(&value, name);
         }

@@ -1,17 +1,40 @@
 use tauri::State;
 
-use super::types::AppFileTarget;
+use super::types::{AppFileTarget, PerfSnapshot};
 use super::{service, types::AppInfo};
 use crate::domain::settings::commands as settings_commands;
 use crate::domain::settings::service as settings_service;
 use crate::domain::settings::types::Settings;
 use crate::error::AppResult;
+use crate::infra::perf;
 use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
 pub async fn app_get_info() -> AppResult<AppInfo> {
     Ok(service::app_info())
+}
+
+/// Reads the process-wide instrumentation registry (`infra::perf`). Every number is zero unless
+/// the `TAIDE_PERF` gate is on — `enabled` in the reply says which, so an all-zero snapshot is
+/// never ambiguous. Lives in `app` because the registry is app-wide, not any one domain's, and it
+/// is the same domain `app_get_info` already uses for process-level metadata.
+///
+/// Remote-denied: the registry is a single process-global accumulator shared with the desktop
+/// user's own measurement session (`RemoteDenialPolicy::DesktopProcessDiagnostics`).
+#[tauri::command]
+#[specta::specta]
+pub async fn perf_snapshot() -> AppResult<PerfSnapshot> {
+    Ok(service::perf_snapshot(perf::global()))
+}
+
+/// Zeroes every accumulated instrumentation number, starting a fresh measurement window. Leaves
+/// the `TAIDE_PERF` gate and the installed command-name table alone.
+#[tauri::command]
+#[specta::specta]
+pub async fn perf_reset() -> AppResult<()> {
+    perf::global().reset();
+    Ok(())
 }
 
 #[tauri::command]

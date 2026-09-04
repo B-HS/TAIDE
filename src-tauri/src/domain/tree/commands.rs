@@ -7,6 +7,7 @@ use super::service::{self, DirectoryListings, TreeState};
 use super::types::TreeRowPage;
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
+use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
 
 pub struct TreeStore(pub parking_lot::RwLock<HashMap<ProjectId, TreeState>>);
@@ -160,6 +161,7 @@ pub async fn tree_toggle(
     project_id: ProjectId,
     path: String,
 ) -> AppResult<TreeRowPage> {
+    let _span = perf::span(SpanSlot::TreeToggle);
     let dirs = plan_reads(&tree_store, &state, &project_id, |tree| {
         service::plan_toggle_reads(tree, Path::new(&path))
     })?;
@@ -180,6 +182,7 @@ pub async fn tree_reveal(
     project_id: ProjectId,
     path: String,
 ) -> AppResult<TreeRowPage> {
+    let _span = perf::span(SpanSlot::TreeReveal);
     let dirs = plan_reads(&tree_store, &state, &project_id, |tree| {
         service::plan_reveal_reads(tree, Path::new(&path))
     })?;

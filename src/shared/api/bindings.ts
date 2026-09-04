@@ -300,6 +300,11 @@ export const commands = {
 	 *  `tokio::sync::Mutex` (`infra::lsp_proc::LspProcHandle::write_message`). Gating this behind
 	 *  the global mutation lock would only make LSP requests (which fire far more often than
 	 *  saves/git operations) queue behind unrelated mutating commands for no correctness benefit.
+	 * 
+	 *  Instrumented with a [`CounterSlot`], never a `perf::span`, for the same frequency reason: the
+	 *  `didChange`/completion/semantic-token traffic behind this command makes it one of the busiest
+	 *  in the app, and what matters is the number of IPC round trips, not any single write's duration
+	 *  (`infra::perf::CounterSlot`).
 	 */
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	/**
@@ -408,7 +413,18 @@ export const commands = {
 	 *  `update_index` (audit R4#11) made stat-stale entries re-hash on **every** call until some
 	 *  index-writing operation refreshes them, and this event-driven path re-runs after each
 	 *  `GitStatusChanged`, so the synchronous libgit2 work must not pin an async worker thread
-	 *  (architecture.md §2.1, Phase E C11-GIT-2). Surface and return value are unchanged.
+	 *  (architecture.md §2.1, Phase E C11-GIT-2).
+	 * 
+	 *  Answers from [`StatusCache`] when the last result is still current, which is what keeps one file
+	 *  save from paying a full worktree walk once per open window (research 3b §2-C — five always-mounted
+	 *  consumers, and the `.git`/`fs:changed` invalidation axes both fan out to every window). The walk
+	 *  itself, the returned value and the IPC surface are unchanged; a cache hit differs from a miss only
+	 *  in not having recomputed a result that nothing has invalidated. `update_index` stays off — it is a
+	 *  separate decision this cache deliberately does not revisit (research 3b §7, 사용자 2차 결정 7).
+	 * 
+	 *  The `app` parameter carries no wire surface (`AppHandle`/`State` arguments are stripped from the
+	 *  generated bindings, as `git_init`'s already are) and exists only to let the cache install its
+	 *  subscriptions on first use — see [`GitStore::ensure_invalidation_listeners`].
 	 */
 	gitStatus: (projectId: ProjectId) => typedError<GitStatus, AppError>(__TAURI_INVOKE("git_status", { projectId })),
 	/**
@@ -891,6 +907,21 @@ export const commands = {
 	 *  URL argument at all.
 	 */
 	notificationOpenSystemSettings: () => typedError<null, AppError>(__TAURI_INVOKE("notification_open_system_settings")),
+	/**
+	 *  Reads the process-wide instrumentation registry (`infra::perf`). Every number is zero unless
+	 *  the `TAIDE_PERF` gate is on — `enabled` in the reply says which, so an all-zero snapshot is
+	 *  never ambiguous. Lives in `app` because the registry is app-wide, not any one domain's, and it
+	 *  is the same domain `app_get_info` already uses for process-level metadata.
+	 * 
+	 *  Remote-denied: the registry is a single process-global accumulator shared with the desktop
+	 *  user's own measurement session (`RemoteDenialPolicy::DesktopProcessDiagnostics`).
+	 */
+	perfSnapshot: () => typedError<PerfSnapshot, AppError>(__TAURI_INVOKE("perf_snapshot")),
+	/**
+	 *  Zeroes every accumulated instrumentation number, starting a fresh measurement window. Leaves
+	 *  the `TAIDE_PERF` gate and the installed command-name table alone.
+	 */
+	perfReset: () => typedError<null, AppError>(__TAURI_INVOKE("perf_reset")),
 };
 
 /** Events */
@@ -1559,6 +1590,40 @@ export type OpenedFile = {
 export type PaneId = string;
 
 export type PaneNode = { node: "split"; id: PaneId; dir: SplitDir; children: PaneNode[]; sizes: (number | null)[] } | { node: "leaf"; id: PaneId; tabs: Tab[]; active: TabId | null };
+
+/**
+ *  One accumulating counter's readout — bytes, chunks, or invocation counts, per the slot's
+ *  documented unit (`docs/debugging.md` §4.1). Counters carry no duration by design: they sit on
+ *  high-frequency paths where timing each occurrence would distort the measurement.
+ */
+export type PerfCounterEntry = {
+	name: string,
+	total: number | null,
+};
+
+/**
+ *  One duration slot's readout, milliseconds on the wire.
+ * 
+ *  `infra::perf` accumulates nanoseconds in `u64`; specta forbids exporting 64-bit integers to
+ *  TypeScript (precision loss), so the conversion to `f64` milliseconds happens once in
+ *  `app::service::perf_snapshot` rather than at every reader.
+ */
+export type PerfEntry = {
+	name: string,
+	count: number | null,
+	totalMs: number | null,
+	maxMs: number | null,
+};
+
+/**
+ *  `perf_snapshot`'s reply. `enabled` reports the `TAIDE_PERF` gate so a caller can tell "nothing
+ *  happened" from "instrumentation is off" — with the gate off every entry reads zero.
+ */
+export type PerfSnapshot = {
+	enabled: boolean,
+	entries: PerfEntry[],
+	counters: PerfCounterEntry[],
+};
 
 export type PluginContributions = {
 	languages?: PluginLanguageContribution[],

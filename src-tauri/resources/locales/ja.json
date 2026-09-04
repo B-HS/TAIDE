@@ -168,6 +168,7 @@
     "error.remote.deniedCredentialStoreTampering": "リモートセッションは保存された認証情報(AI プロバイダーのトークン・GitHub 個人アクセストークン)を変更できません: {{command}}",
     "error.remote.deniedDesktopCliInterception": "リモートセッションはデスクトップの CLI 連携(インストール・フック)を変更できません: {{command}}",
     "error.remote.deniedDesktopExitControl": "リモートセッションはアプリの終了を制御できません: {{command}}",
+    "error.remote.deniedDesktopProcessDiagnostics": "リモートセッションはデスクトップのパフォーマンス計測を取得・リセットできません: {{command}}",
     "error.remote.deniedInstallOrProcessExecution": "リモートセッションはインストーラーをダウンロードまたは実行できません: {{command}}",
     "error.remote.deniedLocalFilesystemEscape": "リモートセッションはデスクトップのローカルファイルシステムの任意のパスにアクセスできません: {{command}}",
     "error.remote.deniedLocalProjectHistoryExposure": "リモートセッションはローカルのウェルカム画面専用である全プロジェクト履歴を照会できません: {{command}}",

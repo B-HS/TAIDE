@@ -16,6 +16,7 @@ import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
 import { consumeExternallyDirtyModel } from '@shared/lib/lsp/model-dirty-tracker'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
@@ -232,6 +233,28 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         })
         return () => action.dispose()
     }, [editor, t])
+
+    /**
+     * The file-open span (metric 3 in `docs/quality-assurance/2026-09-04-perf-baseline.md`): from the
+     * commit that first shows this path — activating a file tab is what mounts this pane, since
+     * `pane-node-view.tsx` renders only each pane's active tab — to the commit where a live monaco
+     * instance exists for it. Declared as two effects in this order so the start always precedes the
+     * close within one commit; `editor` can only turn non-null in a *later* commit than the one that
+     * first rendered `CodeEditor`, because it is set from that child's own mount callback.
+     *
+     * Switching to an already-loaded path inside a live pane therefore measures near zero: the model
+     * swap happened in the child's effect, before this pane's effects ran at all. That is the metric
+     * being honest about a warm switch, not a gap — metric 3 is recorded on a cold open (a file this
+     * session has not read yet), which the baseline doc's procedure spells out.
+     */
+    useEffect(() => {
+        perfMark(PERF_MARK.FILE_OPEN_REQUESTED)
+    }, [path])
+
+    useEffect(() => {
+        if (!editor) return
+        perfMeasure(PERF_MEASURE.FILE_OPEN, PERF_MARK.FILE_OPEN_REQUESTED)
+    }, [editor, path])
 
     /**
      * Render-phase adjustment (same pattern as the `syncedPath` block above — React's

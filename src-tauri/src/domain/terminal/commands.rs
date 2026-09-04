@@ -17,6 +17,7 @@ use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
 use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited};
 use crate::ids::ProjectId;
+use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
 use crate::infra::root_guard::{self, ensure_within_root};
 use crate::infra::shell_integration;
@@ -209,9 +210,41 @@ fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
     .emit(app);
 }
 
-/// Folds one OSC 133 command marker (`infra::shell_integration::extract_command_markers`) into
-/// `session_id`'s command clock, emitting [`TerminalCommandFinished`] for every command that was
-/// actually timed.
+/// One shell command that both started and finished under a session's command clock — everything
+/// [`TerminalCommandFinished`] needs that isn't read from the session store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TimedCommand {
+    exit_code: Option<i32>,
+    duration_ms: u32,
+}
+
+/// Folds one OSC 133 command marker (`infra::shell_integration::extract_command_markers`) into a
+/// session's command clock, returning the elapsed command only when this fold actually closed one.
+///
+/// A `133;C` (re)arms the clock at `now`; a `133;D` consumes it. A `D` with no remembered start
+/// (the `C` fell on a chunk boundary, or the session was already running one command when the
+/// marker scan first saw it) returns `None` rather than a duration it would have to invent — the
+/// same "not measurable ≠ instant" rule the frontend gate applies. Taking `now` as an argument
+/// rather than reading the clock keeps the whole fold — including the `u32` saturation on a command
+/// that outran the field — testable without an `AppHandle` or a real wait.
+fn take_timed_command(started_at: &Mutex<Option<Instant>>, marker: shell_integration::CommandMarker, now: Instant) -> Option<TimedCommand> {
+    let exit_code = match marker {
+        shell_integration::CommandMarker::OutputStart => {
+            *started_at.lock() = Some(now);
+            return None;
+        }
+        shell_integration::CommandMarker::Finished { exit_code } => exit_code,
+    };
+
+    let started = started_at.lock().take()?;
+
+    Some(TimedCommand {
+        exit_code,
+        duration_ms: u32::try_from(now.saturating_duration_since(started).as_millis()).unwrap_or(u32::MAX),
+    })
+}
+
+/// Emits [`TerminalCommandFinished`] for every command [`take_timed_command`] actually timed.
 ///
 /// The clock lives on the pty reader thread because that is the only place a session's output is
 /// seen whether or not a window is displaying it — and "nobody is watching" is exactly the case the
@@ -221,20 +254,8 @@ fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
 /// the xterm instance the tracker lives in; when the user returns, `pty_attach`'s scrollback replay
 /// re-parses the same `C`/`D` bytes within milliseconds of each other, timing an hour-long build as
 /// an instant one (batch 4 review F-1). Here the two markers are separated by real elapsed time.
-///
-/// A `D` with no remembered start (the `C` fell on a chunk boundary, or the session was already
-/// running one command when the marker scan first saw it) reports nothing rather than a duration it
-/// would have to invent — the same "not measurable ≠ instant" rule the frontend gate applies.
 fn report_command_marker(app: &AppHandle, session_id: &str, started_at: &Mutex<Option<Instant>>, marker: shell_integration::CommandMarker) {
-    let exit_code = match marker {
-        shell_integration::CommandMarker::OutputStart => {
-            *started_at.lock() = Some(Instant::now());
-            return;
-        }
-        shell_integration::CommandMarker::Finished { exit_code } => exit_code,
-    };
-
-    let Some(started) = started_at.lock().take() else {
+    let Some(timed) = take_timed_command(started_at, marker, Instant::now()) else {
         return;
     };
 
@@ -243,8 +264,8 @@ fn report_command_marker(app: &AppHandle, session_id: &str, started_at: &Mutex<O
     let _ = TerminalCommandFinished {
         session_id: session_id.to_string(),
         cwd,
-        exit_code,
-        duration_ms: u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX),
+        exit_code: timed.exit_code,
+        duration_ms: timed.duration_ms,
     }
     .emit(app);
 }
@@ -350,6 +371,12 @@ pub async fn pty_spawn(
         pty::spawn(
             config,
             move |bytes| {
+                // Counters, never a `perf::span`: this closure runs once per pty output chunk on
+                // the reader thread, where two `Instant::now()` calls per chunk would measure the
+                // instrumentation as much as the terminal (`infra::perf::CounterSlot`). Throughput
+                // is `pty.output_bytes` over the wall time between two `perf_snapshot` calls.
+                perf::add(CounterSlot::PtyOutputBytes, bytes.len() as u64);
+                perf::add(CounterSlot::PtyOutputChunks, 1);
                 output_for_data.lock().append_and_broadcast(bytes);
                 if let Some(cwd) = shell_integration::extract_latest_cwd(bytes) {
                     report_cwd_change(&cwd_app, &cwd_session_id, cwd);
@@ -821,5 +848,127 @@ mod tests {
             let full: Vec<u8> = (0..STREAM_CHUNKS).map(|index| (index % 251) as u8).collect();
             assert_eq!(received.lock().concat(), full);
         }
+    }
+
+    fn output_start() -> shell_integration::CommandMarker {
+        shell_integration::CommandMarker::OutputStart
+    }
+
+    fn finished(exit_code: Option<i32>) -> shell_integration::CommandMarker {
+        shell_integration::CommandMarker::Finished { exit_code }
+    }
+
+    fn at(base: Instant, millis: u64) -> Instant {
+        base.checked_add(std::time::Duration::from_millis(millis))
+            .expect("측정 가능한 미래 시각")
+    }
+
+    /// The batch 4 F-1 contract (`docs/acknowledge/2026-09-04-usability-batch4-contract.md` §3.6):
+    /// a `133;D` whose `133;C` was never seen must publish nothing at all. Emitting it with a
+    /// duration of 0 would make every scrollback replay and every mid-command attach look like an
+    /// instantly finished task and fire a native notification for it.
+    #[test]
+    fn c_없이_들어온_d_는_아무것도_발행하지_않는다() {
+        let clock = Mutex::new(None);
+        let now = Instant::now();
+
+        assert_eq!(take_timed_command(&clock, finished(Some(0)), now), None);
+        assert!(
+            clock.lock().is_none(),
+            "소비할 시작 시각이 없었으므로 클럭도 그대로 비어 있어야 합니다"
+        );
+    }
+
+    #[test]
+    fn c_다음_d_는_두_마커_사이의_실제_경과를_보고한다() {
+        let clock = Mutex::new(None);
+        let start = Instant::now();
+
+        assert_eq!(
+            take_timed_command(&clock, output_start(), start),
+            None,
+            "C 는 아직 보고하지 않습니다"
+        );
+        assert_eq!(
+            take_timed_command(&clock, finished(Some(0)), at(start, 3_600_000)),
+            Some(TimedCommand {
+                exit_code: Some(0),
+                duration_ms: 3_600_000
+            })
+        );
+    }
+
+    #[test]
+    fn 종료_상태는_그대로_실려_나간다() {
+        for exit_code in [None, Some(0), Some(1), Some(130), Some(-1)] {
+            let clock = Mutex::new(None);
+            let start = Instant::now();
+            take_timed_command(&clock, output_start(), start);
+
+            assert_eq!(
+                take_timed_command(&clock, finished(exit_code), at(start, 5)).map(|timed| timed.exit_code),
+                Some(exit_code)
+            );
+        }
+    }
+
+    #[test]
+    fn 클럭은_한_번만_소비되어_연속된_d_는_한_건만_발행한다() {
+        let clock = Mutex::new(None);
+        let start = Instant::now();
+        take_timed_command(&clock, output_start(), start);
+
+        assert!(take_timed_command(&clock, finished(Some(0)), at(start, 10)).is_some());
+        assert_eq!(take_timed_command(&clock, finished(Some(0)), at(start, 20)), None);
+    }
+
+    /// A prompt redraw can emit `C` again before the previous command's `D` arrives; the clock must
+    /// then measure from the newest start, not the stale one.
+    #[test]
+    fn c_가_다시_오면_마지막_c_기준으로_측정한다() {
+        let clock = Mutex::new(None);
+        let start = Instant::now();
+
+        take_timed_command(&clock, output_start(), start);
+        take_timed_command(&clock, output_start(), at(start, 1_000));
+
+        assert_eq!(
+            take_timed_command(&clock, finished(None), at(start, 1_250)).map(|timed| timed.duration_ms),
+            Some(250)
+        );
+    }
+
+    #[test]
+    fn 같은_클럭에서_두_명령을_연속으로_측정한다() {
+        let clock = Mutex::new(None);
+        let start = Instant::now();
+
+        take_timed_command(&clock, output_start(), start);
+        let first = take_timed_command(&clock, finished(Some(0)), at(start, 100));
+        take_timed_command(&clock, output_start(), at(start, 200));
+        let second = take_timed_command(&clock, finished(Some(2)), at(start, 950));
+
+        assert_eq!(first.map(|timed| timed.duration_ms), Some(100));
+        assert_eq!(
+            second,
+            Some(TimedCommand {
+                exit_code: Some(2),
+                duration_ms: 750
+            })
+        );
+    }
+
+    /// `duration_ms` is a `u32` (~49.7 days); a command that outran it saturates instead of
+    /// wrapping around to a near-zero duration that would read as an instant command.
+    #[test]
+    fn u32_를_넘는_경과는_최댓값으로_포화된다() {
+        let clock = Mutex::new(None);
+        let start = Instant::now();
+        take_timed_command(&clock, output_start(), start);
+
+        assert_eq!(
+            take_timed_command(&clock, finished(Some(0)), at(start, u64::from(u32::MAX) + 1)).map(|timed| timed.duration_ms),
+            Some(u32::MAX)
+        );
     }
 }

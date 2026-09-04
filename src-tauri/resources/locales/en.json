@@ -168,6 +168,7 @@
     "error.remote.deniedCredentialStoreTampering": "A remote session cannot change a stored credential (AI provider token, GitHub personal access token): {{command}}",
     "error.remote.deniedDesktopCliInterception": "A remote session cannot change desktop CLI integration (install, hooks): {{command}}",
     "error.remote.deniedDesktopExitControl": "A remote session cannot control app exit: {{command}}",
+    "error.remote.deniedDesktopProcessDiagnostics": "A remote session cannot read or reset the desktop process's performance instrumentation: {{command}}",
     "error.remote.deniedInstallOrProcessExecution": "A remote session cannot download or run an installer: {{command}}",
     "error.remote.deniedLocalFilesystemEscape": "A remote session cannot access an arbitrary path on the desktop's local filesystem: {{command}}",
     "error.remote.deniedLocalProjectHistoryExposure": "A remote session cannot query the full project history, which is local-welcome-screen-only: {{command}}",

@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -8,6 +8,7 @@ import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
 import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
@@ -225,6 +226,12 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         }
     }
 
+    /** Opens the tree-expand span (metric 5) around the mutation the user's click starts. */
+    const handleToggleExpand = (row: FileTreeRow) => {
+        perfMark(PERF_MARK.TREE_TOGGLE_REQUESTED)
+        toggleNode({ projectId, path: row.path })
+    }
+
     const refreshVisibleTree = async () => {
         if (!project) return
         const expandedDirPaths = rows.filter((row) => row.kind === 'directory' && row.expanded).map((row) => row.path)
@@ -232,6 +239,19 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
             await refreshTreeDir({ projectId, dir })
         }
     }
+
+    /**
+     * Closes whichever tree span is open now that a new page has been committed — the project switch
+     * marked by `app-shell.tsx` (metric 2) or the expand marked just above (metric 5). Both live here
+     * because this is the commit that actually paints rows, and both are no-ops unless their own
+     * start mark is still unconsumed, so a page arriving from a refresh, a reveal, or a watcher
+     * invalidation measures nothing (`perf-mark.ts`, consume-on-measure).
+     */
+    useEffect(() => {
+        if (!page) return
+        perfMeasure(PERF_MEASURE.PROJECT_SWITCH, PERF_MARK.PROJECT_SWITCH_REQUESTED)
+        perfMeasure(PERF_MEASURE.TREE_TOGGLE, PERF_MARK.TREE_TOGGLE_REQUESTED)
+    }, [page])
 
     return (
         <>
@@ -247,7 +267,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                 selectPathRequest={selectPathRequest}
                 canPaste={clipboard !== null}
                 contextMenuHandlers={contextMenuHandlers}
-                onToggleExpand={(row) => toggleNode({ projectId, path: row.path })}
+                onToggleExpand={handleToggleExpand}
                 onOpenPreview={(row) => openRowFileTab(row, true)}
                 onOpenPinned={(row) => openRowFileTab(row, false)}
                 onSelectionChange={setSelectedRow}

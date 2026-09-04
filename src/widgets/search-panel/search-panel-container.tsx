@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
@@ -13,6 +13,7 @@ import { requestReveal } from '@entities/editor/reveal-registry'
 import { notifyNative } from '@entities/notification/notify'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import type { ReplaceAllInput } from '@features/search/search-panel'
 import { SearchPanel } from '@features/search/search-panel'
 
@@ -71,8 +72,15 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
 
     const queryMatchesResults = ranQuery !== null && isSameSearchQuery(buildQuery(), ranQuery)
 
+    /**
+     * Opens the search-render span (metric 6 in `docs/quality-assurance/2026-09-04-perf-baseline.md`)
+     * on the submit itself, so the measurement covers the backend walk *and* the first flush's
+     * render — what the user waits for — rather than the render alone. The re-run that follows a
+     * replace deliberately carries no mark: its results are a refresh of a list already on screen.
+     */
     const handleSubmit = () => {
         if (!query.trim()) return
+        perfMark(PERF_MARK.SEARCH_RUN_REQUESTED)
         run(buildQuery())
     }
 
@@ -133,6 +141,17 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
             { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
+
+    /**
+     * Closes the span at the first batch that actually produced rows — `useSearchRun` clears
+     * `results` to an empty array the moment a run starts, and an empty commit paints nothing worth
+     * timing. A run that finds no match at all leaves its start mark unconsumed until the next
+     * submit overwrites it, which is what keeps "no results" out of the metric 6 sample.
+     */
+    useEffect(() => {
+        if (results.length === 0) return
+        perfMeasure(PERF_MEASURE.SEARCH_RESULTS, PERF_MARK.SEARCH_RUN_REQUESTED)
+    }, [results])
 
     return (
         <SearchPanel

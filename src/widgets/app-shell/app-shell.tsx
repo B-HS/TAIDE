@@ -25,6 +25,7 @@ import {
 import { subscribeRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
 import { subscribeRenameInExplorer } from '@shared/lib/bridge/explorer-rename-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { PERF_MARK, perfMark } from '@shared/lib/perf-mark'
 import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
@@ -130,6 +131,22 @@ export const AppShell = () => {
         document.addEventListener('contextmenu', handleNativeContextMenu)
         return () => document.removeEventListener('contextmenu', handleNativeContextMenu)
     }, [])
+
+    /**
+     * Opens the project-switch span (metric 2 in `docs/quality-assurance/2026-09-04-perf-baseline.md`),
+     * closed by `explorer-container.tsx` when the new project's first tree page lands. The shell is
+     * where the switch becomes observable — the sidebar only fires the mutation, and the active
+     * project id is what every panel below actually reacts to.
+     *
+     * A switch whose tree page is already cached is not measured at all: `ExplorerContainer` is a
+     * child, so its effects run *before* this one in that single commit and find no start mark. That
+     * is the honest outcome — there was no round trip to measure — and it keeps a stale mark from
+     * being charged to an unrelated later render (`perf-mark.ts`, consume-on-measure).
+     */
+    useEffect(() => {
+        if (!activeProjectId) return
+        perfMark(PERF_MARK.PROJECT_SWITCH_REQUESTED)
+    }, [activeProjectId])
 
     useEffect(() => subscribeOpenSearchPanel(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
     useEffect(() => subscribeShowExplorerView(() => explorerPanelRef.current?.expand()), [explorerPanelRef])

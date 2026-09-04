@@ -168,6 +168,7 @@
     "error.remote.deniedCredentialStoreTampering": "원격 세션에서는 저장된 자격 증명(AI 프로바이더 토큰·GitHub 개인 액세스 토큰)을 변경할 수 없습니다: {{command}}",
     "error.remote.deniedDesktopCliInterception": "원격 세션에서는 데스크톱 CLI 연동(설치·훅)을 변경할 수 없습니다: {{command}}",
     "error.remote.deniedDesktopExitControl": "원격 세션에서는 앱 종료를 제어할 수 없습니다: {{command}}",
+    "error.remote.deniedDesktopProcessDiagnostics": "원격 세션에서는 데스크톱 프로세스의 성능 계측을 조회하거나 초기화할 수 없습니다: {{command}}",
     "error.remote.deniedInstallOrProcessExecution": "원격 세션에서는 설치 프로그램을 내려받거나 실행할 수 없습니다: {{command}}",
     "error.remote.deniedLocalFilesystemEscape": "원격 세션에서는 데스크톱의 로컬 파일시스템에 임의 경로로 접근할 수 없습니다: {{command}}",
     "error.remote.deniedLocalProjectHistoryExposure": "원격 세션에서는 로컬 웰컴 화면 전용인 전체 프로젝트 히스토리를 조회할 수 없습니다: {{command}}",

@@ -1075,6 +1075,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "remote.deniedCredentialStoreTampering",
             "remote.deniedDesktopCliInterception",
             "remote.deniedDesktopExitControl",
+            "remote.deniedDesktopProcessDiagnostics",
             "remote.deniedInstallOrProcessExecution",
             "remote.deniedLocalFilesystemEscape",
             "remote.deniedLocalProjectHistoryExposure",
@@ -1560,5 +1561,55 @@ mod tests {
     fn resolve_language는_존재하지_않는_언어를_en으로_폴백한다() {
         let paths = AppPaths::new(temp_data_dir("resolve-missing"));
         assert_eq!(resolve_language(&paths, "xx", "en-US"), BUILTIN_EN_ID);
+    }
+
+    /// The two set-comparison tests above (en ⊆ required, required ⊆ en) both go through
+    /// `BTreeSet`, which silently absorbs a key listed twice in [`MESSAGE_NAMESPACES`]. A duplicate
+    /// is harmless at runtime but hides a copy-paste in the table that a later edit would then
+    /// "fix" in only one of the two places.
+    #[test]
+    fn required_message_keys_에는_중복이_없다() {
+        let keys = required_message_keys();
+        let unique: std::collections::BTreeSet<_> = keys.iter().cloned().collect();
+
+        assert_eq!(unique.len(), keys.len(), "MESSAGE_NAMESPACES 에 같은 키가 두 번 등재되어 있습니다");
+    }
+
+    fn placeholders(text: &str) -> std::collections::BTreeSet<String> {
+        static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+        PATTERN
+            .get_or_init(|| regex::Regex::new(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}").expect("유효한 정규식"))
+            .captures_iter(text)
+            .map(|capture| capture[1].to_string())
+            .collect()
+    }
+
+    /// Interpolation parity across the three bundled catalogs. The frontend passes one argument map
+    /// per key regardless of the active language, so a translation that drops `{{name}}` renders a
+    /// sentence with the subject missing, and one that invents a placeholder the caller never
+    /// supplies renders the raw `{{…}}` braces on screen — neither is visible to the compiler, to
+    /// `bindings.ts`, or to the key-set tests above.
+    #[test]
+    fn 세_언어의_보간_플레이스홀더_집합은_키마다_같다() {
+        let en = builtin_en().messages;
+        let mut mismatches: Vec<String> = Vec::new();
+
+        for (locale_id, pack) in [(BUILTIN_KO_ID, builtin_ko()), (BUILTIN_JA_ID, builtin_ja())] {
+            for (key, en_text) in &en {
+                let Some(translated) = pack.messages.get(key) else {
+                    continue;
+                };
+                let (expected, actual) = (placeholders(en_text), placeholders(translated));
+                if expected != actual {
+                    mismatches.push(format!("{locale_id} / {key}: en={expected:?} vs {locale_id}={actual:?}"));
+                }
+            }
+        }
+
+        assert!(
+            mismatches.is_empty(),
+            "번역문의 보간 플레이스홀더가 en 과 다릅니다 (인자가 사라지거나 원문 중괄호가 화면에 노출됩니다):\n{}",
+            mismatches.join("\n")
+        );
     }
 }

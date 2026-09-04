@@ -11,6 +11,7 @@ use super::service::{self, ReplaceOutcome};
 use super::types::{ReplaceSkippedFile, SearchFileMatches, SearchQuery, SearchReplaceResult, REPLACE_SKIP_REPORT_LIMIT};
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
+use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
 
 /// Keyed by `(owner, session_id)` — a caller-supplied session id (one per
@@ -84,6 +85,7 @@ pub async fn search_run(
     query: SearchQuery,
     on_match: Channel<SearchFileMatches>,
 ) -> AppResult<u32> {
+    let _span = perf::span(SpanSlot::SearchRun);
     let root = project_root(&state, &project_id)?;
 
     let cancelled = {
@@ -224,6 +226,7 @@ pub async fn search_cancel(state: State<'_, AppState>, store: State<'_, SearchSt
 #[tauri::command]
 #[specta::specta]
 pub async fn search_list_files(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<String>> {
+    let _span = perf::span(SpanSlot::SearchListFiles);
     let root = project_root(&state, &project_id)?;
 
     let paths = tokio::task::spawn_blocking(move || service::list_project_files(&root))

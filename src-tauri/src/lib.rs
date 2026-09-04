@@ -357,6 +357,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::app::commands::app_file_write,
             domain::notification::commands::notification_notify,
             domain::notification::commands::notification_open_system_settings,
+            domain::app::commands::perf_snapshot,
+            domain::app::commands::perf_reset,
         ])
         .events(collect_events![
             ProjectOpened,
@@ -423,6 +425,17 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything that could be measured. The command-name universe handed to the registry is
+    // the dispatch table's own — the same list `collect_commands_매크로_출력과_dispatch_테이블은_
+    // 커맨드_이름_집합이_일치한다` pins to `collect_commands!` — so a new command starts being
+    // counted the moment it is registered, with no second list to keep in sync.
+    infra::perf::init(
+        domain::remote::dispatch::IMPLEMENTED_JSON_COMMANDS
+            .iter()
+            .chain(RAW_CHANNEL_COMMANDS.iter())
+            .copied(),
+    );
+
     #[cfg(not(windows))]
     let path_env_fix_error = fix_path_env::fix().err();
 
@@ -505,6 +518,11 @@ pub fn run() {
         })
         .on_menu_event(domain::window::commands::handle_menu_event)
         .invoke_handler(move |invoke| {
+            // The one place every IPC call passes through by name, so a per-command invoke counter
+            // costs nothing per command body (research 3b §4.2 — tauri's `InvokeResolver` is
+            // `pub(crate)` and tauri-specta has no middleware hook, so this closure is also the
+            // *only* place a generic hook can live; durations still need per-site `perf::span`).
+            infra::perf::record_command(invoke.message.command());
             if RAW_CHANNEL_COMMANDS.contains(&invoke.message.command()) {
                 raw_channel_handler(invoke)
             } else {
@@ -514,17 +532,24 @@ pub fn run() {
         .setup(move |app| {
             let setup_started = std::time::Instant::now();
 
-            create_main_window(app)?;
+            {
+                let _span = infra::perf::span(infra::perf::SpanSlot::SetupMainWindow);
+                create_main_window(app)?;
+            }
 
             #[cfg(not(windows))]
             if let Some(error) = &path_env_fix_error {
                 log::warn!("PATH 환경변수 보정 실패: {error}");
             }
 
-            domain::locale::service::warm_builtin_catalogs();
+            {
+                let _span = infra::perf::span(infra::perf::SpanSlot::SetupLocaleWarm);
+                domain::locale::service::warm_builtin_catalogs();
+            }
             builder.mount_events(app);
             app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
 
+            let state_restore_span = infra::perf::span(infra::perf::SpanSlot::SetupStateRestore);
             let data_dir = app.path().app_data_dir().expect("app data dir unavailable");
             let state = AppState::new(AppPaths::new(data_dir));
 
@@ -555,9 +580,13 @@ pub fn run() {
             app.manage(RemoteStore::default());
             app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowStore::default());
+            drop(state_restore_span);
+
+            let deferred_restore_span = infra::perf::span(infra::perf::SpanSlot::SetupDeferredRestore);
             domain::window::commands::restore_auxiliary_windows(app.handle());
             domain::project::commands::restore_project_watchers(app.handle(), restored);
             domain::remote::commands::refresh_password_configured_cache(app.handle());
+            drop(deferred_restore_span);
 
             domain::agent::commands::queue_cold_start_external_open(app.handle());
 
@@ -667,7 +696,11 @@ pub fn run() {
                 let mut ticker = tokio::time::interval(std::time::Duration::from_millis(domain::layout::service::LAYOUT_FLUSH_INTERVAL_MS));
                 loop {
                     ticker.tick().await;
-                    domain::layout::service::flush_dirty_layouts(&flush_handle.state::<AppState>());
+                    let tick_handle = flush_handle.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        domain::layout::service::flush_dirty_layouts(&tick_handle.state::<AppState>());
+                    })
+                    .await;
                 }
             });
 
@@ -830,6 +863,30 @@ mod tests {
         assert_eq!(
             fanned_out, expected,
             "fanout_remote_events! 가 의도된 예외 목록 밖의 이벤트를 빠뜨렸거나, 예외로 처리해야 할 이벤트를 원격으로 방송하고 있습니다"
+        );
+    }
+
+    /// The `LAYOUT_FLUSH_INTERVAL_MS` ticker persists every dirty layout, and each persist ends in
+    /// an `fsync` (`infra::persist::write_atomic`). Running that directly on the async worker made
+    /// the runtime pay N serialized fsyncs per tick (research 3b §2-D), which architecture §2.1
+    /// forbids — so the tick body hands the flush to `spawn_blocking` and awaits the handle, the
+    /// await being what keeps two flushes from overlapping. Scanning this file's own source pins
+    /// that shape: a revert to a direct call still passes every other test.
+    #[test]
+    fn 주기적_레이아웃_flush_는_blocking_스레드에서_실행된다() {
+        let tick_body = extract_between(include_str!("lib.rs"), "let flush_handle = app.handle().clone();", "log::info!(");
+
+        assert!(
+            tick_body.contains("flush_dirty_layouts"),
+            "주기 flush 태스크에서 flush_dirty_layouts 호출을 찾을 수 없습니다"
+        );
+        assert!(
+            tick_body.contains("spawn_blocking"),
+            "주기 flush 는 async 워커가 아니라 spawn_blocking 에서 실행돼야 합니다"
+        );
+        assert!(
+            tick_body.contains(".await"),
+            "spawn_blocking 핸들을 await 하지 않으면 tick 이 겹쳐 flush 순서가 깨집니다"
         );
     }
 

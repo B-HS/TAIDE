@@ -8,6 +8,7 @@ use super::types::OpenedFile;
 use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
+use crate::infra::perf::{self, SpanSlot};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
@@ -21,6 +22,7 @@ use crate::state::AppState;
 #[tauri::command]
 #[specta::specta]
 pub async fn file_open(state: State<'_, AppState>, plugins: State<'_, PluginStore>, path: String) -> AppResult<OpenedFile> {
+    let _span = perf::span(SpanSlot::FileOpen);
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
     let editor_config_enabled = state.settings.read().editor_config_enabled;

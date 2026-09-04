@@ -12,6 +12,7 @@ import '@xterm/xterm/css/xterm.css'
 import { INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/lib/ime-input'
 import { recordImeDebug } from '@shared/lib/ime-debug'
 import { IS_MAC } from '@shared/constants/platform'
+import { PERF_COUNTER, perfCount } from '@shared/lib/perf-mark'
 import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import type { CommandBlockDecorationColors } from '@features/terminal/terminal-osc133'
 import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
@@ -334,7 +335,17 @@ export const TerminalView: FC<TerminalViewProps> = ({
         fitRef.current = fit
         onReadyRef.current(term.cols, term.rows)
         attachRefRef.current.current = {
+            /**
+             * Counts what this view actually renders (metric 8 in
+             * `docs/quality-assurance/2026-09-04-perf-baseline.md`), which is deliberately not the
+             * same number as the Rust `pty.output_bytes` counter: a reattach replays the ring
+             * buffer through here, and a terminal in a background tab has no view at all. The gap
+             * between the two counters is itself the measurement of that replay cost. Counters
+             * rather than spans, because this runs per chunk (`perf-mark.ts`, `PERF_COUNTER`).
+             */
             write: (data) => {
+                perfCount(PERF_COUNTER.TERMINAL_OUTPUT_BYTES, data.byteLength)
+                perfCount(PERF_COUNTER.TERMINAL_OUTPUT_CHUNKS)
                 pendingRef.current += data.byteLength
                 reportBacklog()
                 term.write(data, () => {

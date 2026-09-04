@@ -8,3 +8,13 @@ codegen-units = 1
 panic = "abort"
 strip = true
 opt-level = 3
+
+# Release codegen with symbols kept, for `sample`/Instruments/`cargo flamegraph` only.
+# `[profile.release]` above strips symbols, which makes a release binary unprofilable.
+# Opt in explicitly with `cargo build --profile profiling`; nothing references it implicitly —
+# `tauri build` uses `release` (or `--debug`), and CI builds neither.
+# See docs/debugging.md §4.2.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = 1

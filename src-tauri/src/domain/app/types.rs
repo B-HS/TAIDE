@@ -12,6 +12,40 @@ pub struct AppInfo {
     pub arch: String,
 }
 
+/// One duration slot's readout, milliseconds on the wire.
+///
+/// `infra::perf` accumulates nanoseconds in `u64`; specta forbids exporting 64-bit integers to
+/// TypeScript (precision loss), so the conversion to `f64` milliseconds happens once in
+/// `app::service::perf_snapshot` rather than at every reader.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfEntry {
+    pub name: String,
+    pub count: f64,
+    pub total_ms: f64,
+    pub max_ms: f64,
+}
+
+/// One accumulating counter's readout — bytes, chunks, or invocation counts, per the slot's
+/// documented unit (`docs/debugging.md` §4.1). Counters carry no duration by design: they sit on
+/// high-frequency paths where timing each occurrence would distort the measurement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfCounterEntry {
+    pub name: String,
+    pub total: f64,
+}
+
+/// `perf_snapshot`'s reply. `enabled` reports the `TAIDE_PERF` gate so a caller can tell "nothing
+/// happened" from "instrumentation is off" — with the gate off every entry reads zero.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfSnapshot {
+    pub enabled: bool,
+    pub entries: Vec<PerfEntry>,
+    pub counters: Vec<PerfCounterEntry>,
+}
+
 /// Closed set of prompt-template overrides editable through an `AppFile` tab — deliberately a real
 /// enum (not a raw `String` id) so an invalid id can never reach `app::service::app_file_path` in
 /// the first place; there is no runtime whitelist check to forget. Variant names are the
