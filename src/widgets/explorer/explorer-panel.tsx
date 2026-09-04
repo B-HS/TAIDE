@@ -19,7 +19,7 @@ import { OutlinePanelContainer } from '@widgets/outline-panel/outline-panel-cont
 import { SearchPanelContainer } from '@widgets/search-panel/search-panel-container'
 import { IconButton } from '@shared/ui/icon-button'
 
-type ExplorerView = 'files' | 'search' | 'git' | 'outline'
+export type ExplorerView = 'files' | 'search' | 'git' | 'outline'
 
 const EXPLORER_VIEWS: { id: ExplorerView; labelKey: string; icon: typeof FolderTree }[] = [
     { id: 'files', labelKey: 'explorer.title', icon: FolderTree },
@@ -30,6 +30,8 @@ const EXPLORER_VIEWS: { id: ExplorerView; labelKey: string; icon: typeof FolderT
 
 type ExplorerPanelProps = {
     projectId: ProjectId
+    view: ExplorerView
+    onViewChange: (view: ExplorerView) => void
     rows: FileTreeRow[]
     draft: FileTreeDraft | null
     draftError: string | null
@@ -64,6 +66,8 @@ type ExplorerPanelProps = {
  */
 export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     projectId,
+    view,
+    onViewChange,
     rows,
     draft,
     draftError,
@@ -89,7 +93,6 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     onRevealInExplorerRequest,
 }) => {
     const { t } = useTranslation()
-    const [view, setView] = useState<ExplorerView>('files')
     const [searchRequest, setSearchRequest] = useState<SearchPanelRequest | null>(null)
     const [openNonce, setOpenNonce] = useState(0)
     const [scopedProjectId, setScopedProjectId] = useState(projectId)
@@ -104,22 +107,22 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     useEffect(
         () =>
             subscribeOpenSearchPanel((request) => {
-                setView('search')
+                onViewChange('search')
                 setSearchRequest(request)
                 setOpenNonce((nonce) => nonce + 1)
             }),
-        [],
+        [onViewChange],
     )
 
-    useEffect(() => subscribeShowExplorerView((requestedView) => setView(requestedView)), [])
+    useEffect(() => subscribeShowExplorerView((requestedView) => onViewChange(requestedView)), [onViewChange])
 
     useEffect(
         () =>
             subscribeRevealInExplorer((path) => {
-                setView('files')
+                onViewChange('files')
                 onRevealInExplorerRequest(path)
             }),
-        [onRevealInExplorerRequest],
+        [onViewChange, onRevealInExplorerRequest],
     )
 
     return (
@@ -136,7 +139,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                             aria-selected={view === id}
                             label={t(labelKey)}
                             icon={<Icon className='size-4' />}
-                            onClick={() => setView(id)}
+                            onClick={() => onViewChange(id)}
                             side='bottom'
                             className={cn(
                                 'flex size-6 items-center justify-center rounded-sm',

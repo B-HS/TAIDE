@@ -4,7 +4,7 @@ import type { languages } from 'monaco-editor'
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
-import { findActiveTab } from '@shared/lib/pane-tree'
+import { activeFilePathOf } from '@shared/lib/pane-tree'
 import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { layoutQueryOptions } from '@entities/layout/layout.query'
@@ -28,8 +28,7 @@ export const OutlinePanelContainer: FC<OutlinePanelContainerProps> = ({ projectI
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
-    const activeTab = layout ? findActiveTab(layout.root, layout.focusedPane) : null
-    const activePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
+    const activePath = activeFilePathOf(layout)
 
     const { data: file } = useQuery(fileQueryOptions(activePath))
     const { data: servers } = useQuery(lspServersQueryOptions())

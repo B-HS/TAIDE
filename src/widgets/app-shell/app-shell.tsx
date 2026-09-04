@@ -22,6 +22,7 @@ import {
     subscribeShowExplorerView,
     subscribeToggleExplorerSidebar,
 } from '@shared/lib/bridge/explorer-panel-bridge'
+import { subscribeRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { fileNameOf } from '@shared/lib/relative-path'
@@ -131,6 +132,14 @@ export const AppShell = () => {
 
     useEffect(() => subscribeOpenSearchPanel(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
     useEffect(() => subscribeShowExplorerView(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
+
+    /**
+     * "Reveal in Explorer" is an explicit request for the tree, so it expands a collapsed sidebar
+     * the way the search/view bridges above already do — without this the tab context menu's entry
+     * looked like a no-op whenever the sidebar was collapsed. Auto-reveal deliberately does not go
+     * through this bridge, so it can never pop the sidebar open on its own.
+     */
+    useEffect(() => subscribeRevealInExplorer(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
 
     /**
      * A no-op while Zen mode holds the panel force-collapsed — toggling it mid-Zen would desync

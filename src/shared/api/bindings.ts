@@ -1815,6 +1815,17 @@ export type Settings = {
 	terminalCursorStyle?: TerminalCursorStyle,
 	terminalCursorBlink?: boolean,
 	enablePreviewTabs?: boolean,
+	/**
+	 *  Reveals the active file in the Explorer tree — expanding its ancestors and selecting its
+	 *  row — whenever a file is opened or the focused tab changes. Mirrors VS Code's
+	 *  `explorer.autoReveal`, whose default is `true`. VS Code needs a third value there
+	 *  (`"focusNoScroll"`) because its reveal moves keyboard focus into the tree; this app's reveal
+	 *  only selects and scrolls the row (`src/features/explorer/file-tree.tsx`'s `selectByIndex`
+	 *  never touches DOM focus), so that distinction has nothing to express here and a boolean is
+	 *  the whole surface. See `docs/features/explorer-sidebar.md` §2.2 for the gates that also have
+	 *  to hold (sidebar visible, Files view active).
+	 */
+	explorerAutoReveal?: boolean,
 	aiAutoTabEnabled?: boolean,
 	/**
 	 *  Renamed from `ai_auto_tab_provider` — this field now backs every AI feature's default
@@ -1962,6 +1973,7 @@ export type SettingsPatch = {
 	terminalCursorStyle: TerminalCursorStyle | null,
 	terminalCursorBlink: boolean | null,
 	enablePreviewTabs: boolean | null,
+	explorerAutoReveal: boolean | null,
 	aiAutoTabEnabled: boolean | null,
 	aiProvider: AiProviderId | null,
 	aiModel: string | null,

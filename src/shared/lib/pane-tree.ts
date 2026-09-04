@@ -30,6 +30,19 @@ export const collectPaneTabs = (node: PaneNode): Tab[] => (node.node === 'leaf' 
 export type WindowPaneTree = { root: PaneNode; focusedPane: PaneId }
 
 /**
+ * The absolute path of the focused pane's active tab when that tab is a file, `null` for every
+ * other tab kind (terminal, settings, diff, …) and for a tree that hasn't loaded yet. Takes the
+ * tree — not a `ProjectLayout` — so each caller keeps deciding *which* tree it means: a widget that
+ * only ever renders in the main window passes the `ProjectLayout` itself (structurally a
+ * `WindowPaneTree`), while one that can render inside an auxiliary window passes its own
+ * `resolveWindowPaneTree` result, the same split those call sites already had inline.
+ */
+export const activeFilePathOf = (tree: WindowPaneTree | null | undefined): string | null => {
+    const activeTab = tree ? findActiveTab(tree.root, tree.focusedPane) : null
+    return activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
+}
+
+/**
  * Resolves which of a `ProjectLayout`'s pane trees the calling window owns — the main tree for the
  * main window, or the matching `AuxWindowLayout` entry for an auxiliary window's own `windowSlot`
  * (Wave I contract §3.1/§3.2 — every pane/tab mutation on the Rust side locates the same tree by

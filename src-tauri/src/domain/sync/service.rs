@@ -133,6 +133,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         terminal_cursor_style: Some(settings.terminal_cursor_style),
         terminal_cursor_blink: Some(settings.terminal_cursor_blink),
         enable_preview_tabs: Some(settings.enable_preview_tabs),
+        explorer_auto_reveal: Some(settings.explorer_auto_reveal),
         ai_auto_tab_enabled: Some(settings.ai_auto_tab_enabled),
         ai_provider: settings.ai_provider,
         ai_model: settings.ai_model.clone(),
@@ -408,6 +409,18 @@ mod tests {
         let patch = settings_to_sync_patch(&settings);
 
         assert_eq!(patch.editor_config_enabled, Some(true));
+    }
+
+    #[test]
+    fn settings_to_sync_patch는_탐색기_자동_표시_옵션을_포함한다() {
+        let settings = Settings {
+            explorer_auto_reveal: false,
+            ..Settings::default()
+        };
+
+        let patch = settings_to_sync_patch(&settings);
+
+        assert_eq!(patch.explorer_auto_reveal, Some(false));
     }
 
     #[test]

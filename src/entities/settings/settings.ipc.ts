@@ -46,6 +46,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     terminalCursorStyle: null,
     terminalCursorBlink: null,
     enablePreviewTabs: null,
+    explorerAutoReveal: null,
     aiAutoTabEnabled: null,
     aiProvider: null,
     aiModel: null,

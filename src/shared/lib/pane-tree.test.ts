@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
 import {
+    activeFilePathOf,
     collectAllPaneTabs,
     collectPaneTabs,
     findActiveTab,
@@ -64,6 +65,31 @@ describe('findActiveTab', () => {
         const tree = buildTree()
         if (tree.node === 'split') tree.children[0] = { ...tree.children[0], active: null } as PaneNode
         expect(findActiveTab(tree, 'left')).toBeNull()
+    })
+})
+
+describe('activeFilePathOf', () => {
+    test('포커스된 pane 의 활성 탭이 파일이면 그 경로를 반환한다', () => {
+        expect(activeFilePathOf({ root: buildTree(), focusedPane: 'left' })).toBe('/b.ts')
+    })
+
+    test('활성 탭이 파일이 아니면 null 을 반환한다', () => {
+        const root: PaneNode = {
+            node: 'leaf',
+            id: 'only',
+            tabs: [{ id: 'term', kind: { kind: 'terminal', sessionId: 's-1' }, title: 'terminal' }],
+            active: 'term',
+        }
+        expect(activeFilePathOf({ root, focusedPane: 'only' })).toBeNull()
+    })
+
+    test('트리가 없으면(레이아웃 미로딩) null 을 반환한다', () => {
+        expect(activeFilePathOf(null)).toBeNull()
+        expect(activeFilePathOf(undefined)).toBeNull()
+    })
+
+    test('포커스된 pane 이 트리에 없으면 null 을 반환한다', () => {
+        expect(activeFilePathOf({ root: buildTree(), focusedPane: 'missing' })).toBeNull()
     })
 })
 

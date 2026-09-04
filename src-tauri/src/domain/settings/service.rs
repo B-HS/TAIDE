@@ -400,6 +400,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         terminal_cursor_style: patch.terminal_cursor_style.unwrap_or(settings.terminal_cursor_style),
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
         enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
+        explorer_auto_reveal: patch.explorer_auto_reveal.unwrap_or(settings.explorer_auto_reveal),
         ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
         ai_provider: patch.ai_provider.or(settings.ai_provider),
         ai_model: merge_clearable_string(patch.ai_model.as_ref(), settings.ai_model.as_ref()),
@@ -1105,6 +1106,26 @@ mod tests {
 
         let preserved = apply_patch(&enabled, &SettingsPatch::default());
         assert!(preserved.editor_config_enabled);
+    }
+
+    #[test]
+    fn 탐색기_자동_표시의_기본값은_켜짐이다() {
+        assert!(Settings::default().explorer_auto_reveal);
+    }
+
+    #[test]
+    fn patch로_탐색기_자동_표시를_끄고_생략하면_기존값을_보존한다() {
+        let disabled = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                explorer_auto_reveal: Some(false),
+                ..SettingsPatch::default()
+            },
+        );
+        assert!(!disabled.explorer_auto_reveal);
+
+        let preserved = apply_patch(&disabled, &SettingsPatch::default());
+        assert!(!preserved.explorer_auto_reveal);
     }
 
     #[test]

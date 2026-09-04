@@ -86,6 +86,12 @@ export const SettingsInterfaceSection: FC<SettingsInterfaceSectionProps> = ({ id
                 onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), enablePreviewTabs: checked })}
             />
             <SwitchField
+                label={t('settings.explorerAutoReveal')}
+                description={t('settings.explorerAutoRevealDescription')}
+                checked={settings.explorerAutoReveal ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), explorerAutoReveal: checked })}
+            />
+            <SwitchField
                 label={t('settings.zenFullscreen')}
                 description={t('settings.zenFullscreenDescription')}
                 checked={settings.zenFullscreen ?? false}
