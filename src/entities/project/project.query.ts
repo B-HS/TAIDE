@@ -1,7 +1,7 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
-import type { ProjectId } from '@shared/api/bindings'
+import type { ProjectDisplayPatch, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import {
@@ -13,6 +13,7 @@ import {
     listRecentProjects,
     openProject,
     reorderProjects,
+    setProjectDisplay,
 } from '@entities/project/project.ipc'
 
 export const projectListQueryOptions = () => queryOptions({ queryKey: QUERY_KEY.PROJECT.LIST, queryFn: listProjects })
@@ -76,6 +77,20 @@ export const useReorderProjects = () => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: reorderProjects,
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.LIST }),
+    })
+}
+
+/**
+ * `project_set_display` also emits `ProjectListChanged`, which `ipc-sync-provider` already turns
+ * into the same invalidation for every window — this `onSuccess` exists for immediacy in the window
+ * that made the change, so the sidebar button repaints without waiting for the event round trip
+ * (the same reason `useReorderProjects` invalidates rather than relying on the event alone).
+ */
+export const useSetProjectDisplay = () => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ projectId, patch }: { projectId: ProjectId; patch: ProjectDisplayPatch }) => setProjectDisplay(projectId, patch),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.LIST }),
     })
 }

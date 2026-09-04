@@ -6,7 +6,7 @@ use tauri_specta::Event;
 
 use super::capability::ProjectCapabilities;
 use super::service;
-use super::types::{Project, ProjectRef, SessionState};
+use super::types::{Project, ProjectDisplayPatch, ProjectRef, SessionState};
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::AppResult;
 use crate::events::{FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened};
@@ -161,6 +161,37 @@ pub async fn project_reorder(app: AppHandle, state: State<'_, AppState>, ids: Ve
     service::reorder_projects(&state.paths, &mut session, &ids)?;
 
     *state.session.write() = session;
+    emit_list_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Sets one project's sidebar presentation (icon / short label / color token), each axis
+/// independently settable, clearable, or left alone — see `types::ProjectDisplayPatch` for the
+/// three-state convention and `service::set_project_display` for the sanitizing this command
+/// deliberately leaves to the service. Reuses [`ProjectListChanged`] rather than adding a
+/// `ProjectDisplayChanged` event: the sidebar renders from `project_list`'s `ProjectRef[]`, which
+/// now carries `display`, so the existing fanout already delivers this change to every window and
+/// to remote sessions (`lib.rs`'s `fanout_remote_events!`). Remote-allowed at the same grade as
+/// `project_reorder` — it rewrites the same two local files (`session.json` plus one
+/// `project.json`) with values the remote client could already set by reordering, and exposes no
+/// path the remote session cannot already see.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_set_display(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: ProjectId,
+    patch: ProjectDisplayPatch,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+    let mut projects = state.projects.read().clone();
+
+    service::set_project_display(&state.paths, &mut session, &mut projects, &project_id, &patch)?;
+
+    *state.session.write() = session;
+    *state.projects.write() = projects;
     emit_list_changed(&app, &state);
 
     Ok(())
@@ -412,7 +443,7 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::project::types::SESSION_SCHEMA_VERSION;
+    use crate::domain::project::types::{ProjectDisplay, SESSION_SCHEMA_VERSION};
 
     fn stub_project(id: &str, root: &str, root_missing: bool) -> Project {
         Project {
@@ -422,6 +453,7 @@ mod tests {
             capabilities: Vec::new(),
             root_missing,
             last_opened_at: 0.0,
+            display: ProjectDisplay::default(),
         }
     }
 
@@ -434,6 +466,7 @@ mod tests {
                     id: ProjectId::from((*id).to_string()),
                     root: String::new(),
                     name: (*id).to_string(),
+                    display: ProjectDisplay::default(),
                 })
                 .collect(),
             active_project: active_project.map(|id| ProjectId::from(id.to_string())),

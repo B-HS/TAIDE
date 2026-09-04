@@ -198,6 +198,7 @@ mod tests {
                 capabilities: Vec::new(),
                 root_missing: false,
                 last_opened_at: 0.0,
+                display: Default::default(),
             },
         );
         let error = resolve_owning_project(&projects, &outside).expect_err("어떤 프로젝트 루트에도 속하지 않아야 한다");
@@ -239,6 +240,7 @@ mod tests {
             capabilities: Vec::new(),
             root_missing: false,
             last_opened_at: 0.0,
+            display: Default::default(),
         }
     }
 
