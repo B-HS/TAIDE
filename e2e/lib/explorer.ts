@@ -16,3 +16,14 @@ export const explorerTreeRow = (page: Page, fileName: string) =>
  * attribute is the single stable oracle.
  */
 export const EXPLORER_SELECTED_ATTRIBUTE = 'aria-selected'
+
+/**
+ * The Explorer's inline name editor — the one `input` the tree ever renders
+ * (`file-tree-draft-row.tsx`), shared by the create draft row and the rename row.
+ *
+ * It commits on `Enter` and **cancels on blur**, so a spec must reach it with `fill`/`press` only:
+ * clicking anything else first (including elsewhere in the tree) discards the edit before the
+ * assertion runs. A rejected name keeps the input mounted with `aria-invalid='true'` and shows the
+ * reason in a `role='tooltip'`.
+ */
+export const explorerInlineNameInput = (page: Page) => page.getByRole('tree').locator('input').first()
