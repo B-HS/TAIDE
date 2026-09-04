@@ -16,6 +16,30 @@
   비활성 프로젝트의 view 는 unmount 하되, Rust 상태(pty·watcher·git 캐시)는 유지된다.
 - 탐색 사이드바 토글: `⌘B` / `Ctrl+B` (VSCode 동일). 폭은 드래그 리사이즈, 프로젝트별로 저장.
 
+### 1.1 빈 에디터 영역 = Welcome (메인 창 · 설정, 2026-09-04)
+
+Welcome 화면(`widgets/welcome/welcome-container.tsx` — 최근 프로젝트 + 폴더 열기)이 나타나는 표면은
+셋이고 **전부 같은 컴포넌트**다(d-27 §1.2 "적용 면 통일").
+
+| 표면 | 조건 | 렌더 지점 | `projectId` |
+|------|------|-----------|-------------|
+| 프로젝트 0개 전체화면 | `projects.length === 0` | `app-shell.tsx` | `null` (파일 열기 비활성) |
+| Welcome 탭 | 활성 탭이 `TabKind::Welcome` | `pane-node-view.tsx` | 활성 프로젝트 |
+| **빈 에디터 영역** | 활성 프로젝트 O + 그 창의 탭 0 | `pane-node-view.tsx` | 활성 프로젝트 |
+
+- **빈 에디터 영역은 탭이 아니라 렌더 교체다.** 레이아웃(`PaneNode` 트리)·`revision`·닫은 탭 스택·
+  hot-exit 영속을 전혀 건드리지 않으므로 `⇧⌘T`(reopen closed)·복원·원격 세션과 구조적으로 충돌하지
+  않는다. 탭으로 원할 때는 `⌘⇧P` → `view.welcome`(`command-palette.md` §2.1) 또는 탭 바 여백 메뉴를 쓴다.
+- 판정은 `pane-node-view.tsx` 의 `!activeTab` 한 조건이다 — `normalize_owned` 가 split 의 빈 leaf 를
+  모두 제거하므로 "한쪽만 빈 split pane" 은 존재할 수 없고, `!activeTab` 은 곧 **그 창의 탭 0** 과 동치다.
+- **메인 창 전용이다(옵션 아님).** 보조 편집 창은 트리가 비면 스스로 닫히고(§7.3 ·
+  `auxiliary-window-shell.tsx`), Welcome 의 "최근 프로젝트" 클릭은 전역 활성 프로젝트를 바꾸는 —
+  보조 창에 금지된 — 동작이다. 보조 창의 빈 상태는 기존 `editor.noFileOpen` 문구를 유지한다.
+- 끄기: 설정 > 인터페이스의 `welcomeOnEmptyEditor`(기본 `true`). 끄면 메인 창도 `editor.noFileOpen`
+  문구로 돌아간다.
+- 알려진 체감 이슈: 마지막 탭을 닫는 즉시 Welcome 이 화면을 채워 "탭이 안 닫혔나?" 로 읽힐 수 있다
+  (`docs/quality-assurance` 실기 확인 항목).
+
 ## 2. 앱 사이드바
 
 ### 2.1 구성 (위→아래)
@@ -24,11 +48,44 @@
 2. `+` 프로젝트 열기 버튼 — OS 폴더 선택 다이얼로그
 3. (하단 고정) 설정 버튼 — 설정 탭을 활성 프로젝트에 연다
 
-### 2.2 프로젝트 아이콘 (FR-A4)
+### 2.2 프로젝트 아이콘 — 표시 설정 (사용성 배치 4, 2026-09-04)
 
-- 기본 표시: 프로젝트 이름 이니셜(1~2자) 또는 폴더 아이콘. 활성 프로젝트는 accent 인디케이터
-  (`appSidebar.itemActive`).
-- **focus 된 content 타입에 따라 아이콘이 바뀐다**: 해당 프로젝트의 활성 pane 의 활성 탭 기준.
+프로젝트마다 아이콘·짧은 라벨·색을 지정할 수 있다. 영속 스키마는 `data-model.md` §20
+(`ProjectDisplay { icon, label, color }` — `project.json` 정본 + `session.json` 의 `ProjectRef` 미러),
+커맨드는 `ipc-contract.md` 의 `project_set_display` 다.
+
+**폴백 사다리 (배타 3택)** — 정본은 `shared/lib/project-display.ts` 의 `resolveProjectDisplay` **한 함수**다.
+specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 값이 갈린다(감사 R5#5). 컴포넌트는 이
+함수의 결과만 읽는다.
+
+| 순위 | 조건 | 표시 | 모드 |
+|------|------|------|------|
+| 1 | `label` 이 비어 있지 않음 | 라벨 텍스트(1~4 코드포인트) | `label` |
+| 2 | `icon` 이 비어 있지 않음 | 카탈로그 아이콘 | `icon` |
+| 3 | 그 외 | 폴더 아이콘 (기존 동작 무변경) | `default` |
+
+- 라벨과 아이콘이 **같은 40px 버튼을 다투므로 배타**다. 라벨이 아이콘을 이긴다.
+- **overflow 없음**: 글리프는 `max-w-full overflow-hidden` 래퍼 안에 그리고, 길이별 타이포 사다리
+  (`shared/constants/project-display.ts` 의 `PROJECT_LABEL_CLASS_BY_LENGTH`)로 CJK 4자도 40px 안에 넣는다.
+  래퍼가 버튼이 아닌 이유는 활성 인디케이터가 버튼 바깥(`-translate-x-1.5`)에 그려지기 때문이다.
+- **색은 글리프/텍스트 색만** 바꾼다(`style={{ color: colorVar }}`). 팔레트는 테마 토큰 신설 없이
+  `graph.lane1..lane12`(`var(--taide-graph-laneN)`)를 재사용한다 — 36종 번들 테마가 이미 전부 정의한다.
+  배경(`appSidebar.itemActive`)을 물들이지 않으므로 활성 표시의 대비가 무너지지 않는다.
+- **아이콘 카탈로그는 TS 단독 정본**이다 — `shared/icons/project-icon-registry.ts` 의 큐레이션 56종
+  (`file-icon-registry.ts` 와 같은 정적 `Record`). Rust 는 `[a-z0-9-]` 문자셋만 검사하는 불투명 문자열로
+  다루므로, 카탈로그에서 아이콘을 빼도 기존 `project.json` 이 파싱 실패하지 않고 `folder` 로 폴백한다.
+  `lucide-react/dynamic` 전량(2007종)은 청크 수천 개 문제로 기각했다.
+- **`aria-label` 은 항상 프로젝트 이름**이다. 짧은 라벨은 시각 축약일 뿐이라 접근성 트리에 새어나가면
+  안 된다. hover 툴팁도 이름 + 루트 경로를 그대로 보여준다.
+- 에이전트 상태는 표시 설정과 무관하게 **오버레이 배지**(`appSidebar.iconAgentRunning` 점)로 겹쳐 표시한다
+  — 백그라운드 프로젝트에서 에이전트가 돌고 있음을 항상 인지 가능해야 한다.
+- 적용 범위는 **1차로 앱 사이드바만**이다. Welcome 최근 목록·보조창 타이틀바로 넓힐 때는 다른 창 즉시
+  동기화를 위해 `ProjectDisplayChanged` 이벤트가 필요하다(백로그).
+
+**FR-A4(focus 타입별 아이콘)는 보류다.** PRD FR-A4 는 "focus 된 content 타입에 따라 아이콘이 바뀐다"를
+요구했고 아래 표가 그 설계였으나 구현은 0건이며(`FocusKind`·`project:focus-kind-changed` 는 X-A 배치에서
+제거), 사용자 지정 아이콘이 같은 슬롯을 쓴다. 되살릴 경우 **사용자 지정이 항상 이기고**, 지정이 없는
+프로젝트에만 focus 아이콘을 적용한다(§4 의 `LAYOUT.DETAIL` 캐시 기반 유도가 여전히 정본).
 
 | focus 타입 | 아이콘 |
 |-----------|--------|
@@ -38,22 +95,33 @@
 | diff 뷰 | diff 아이콘 |
 | code agent 실행 중 | 에이전트 아이콘 (터미널에서 에이전트 감지 시 — `agent-integration.md`) |
 
-- 에이전트 상태는 focus 와 무관하게 **오버레이 배지**(`appSidebar.iconAgentRunning` 점)로도 표시한다
-  — 백그라운드 프로젝트에서 에이전트가 돌고 있음을 항상 인지 가능해야 한다.
-- 우선순위: 에이전트 실행 중이면 에이전트 아이콘 > 그 외 focus 타입 아이콘.
-- hover 툴팁: 프로젝트 이름 + 루트 경로 (+ 에이전트 실행 중이면 에이전트 이름).
-
 ### 2.3 프로젝트 context menu
 
 - 닫기(Close Project) — pty·LSP 등 실행 중 자원이 있으면 확인 다이얼로그
 - Finder(파일 관리자)에서 열기 / 경로 복사
+- **프로젝트 표시…**(`project.displayMenu`) — §2.2 의 표시 설정 다이얼로그
+  (`features/project/project-display-dialog.tsx`)를 연다.
+- **기본값으로 되돌리기**(`project.displayReset`) — 세 축을 한 번에 해제한다. 표시 설정이 하나도 없으면
+  비활성이다. 해제는 축마다 빈 문자열을 보내는 규약(`null` = 유지)이라 상수
+  `CLEARED_PROJECT_DISPLAY_PATCH` 하나로 표현된다.
 - 사이드바 내 순서 변경은 DND(세로 sortable) — 순서는 세션에 저장
+
+#### 2.3.1 표시 설정 다이얼로그
+
+- 표시 모드 라디오 3택(아이콘 / 텍스트 라벨 / 폴더 아이콘) — 배타.
+- 아이콘 모드: `shared/ui/command` 검색이 붙은 8열 그리드(카탈로그 56종, 이름으로 검색).
+- 라벨 모드: 입력은 **코드포인트 기준**으로 잘린다(`maxLength` 는 UTF-16 단위라 서로게이트 쌍을 반으로
+  자른다). 저장 직전에만 trim 하므로 `A B` 처럼 가운데 공백이 있는 라벨을 입력할 수 있다.
+- 색 12 스와치는 모드와 무관하게 선택 가능하고, 선택된 스와치를 다시 누르면 해제된다.
+- 미리보기는 사이드바와 **같은 `ProjectDisplayGlyph` 컴포넌트**를 그린다(클래스 이중 관리 금지).
+- 닫힘→열림 전이에서 렌더 중 state 를 리셋한다(`create-tag-dialog.tsx` 선례) — 취소한 편집이 다음
+  프로젝트의 다이얼로그에 남아 잘못된 프로젝트에 저장되는 사고를 막는다.
 
 ## 3. 프로젝트 수명주기
 
 | 단계 | 동작 |
 |------|------|
-| 열기 | 폴더 선택 → Rust `project_open` → ProjectId 발급(기존 열림 이력 있으면 기존 id 재사용) → capability 자동 부착(`.git` 감지 → Git, 파일 감지 → LSP lazy) → 기본 레이아웃 생성(파일뷰 1 + 터미널 1, `tabs.md` §2) → `project:opened` 이벤트 |
+| 열기 | 폴더 선택 → Rust `project_open` → ProjectId 발급(기존 열림 이력 있으면 기존 id 재사용) → capability 자동 부착(`.git` 감지 → Git, 파일 감지 → LSP lazy) → 기본 레이아웃 생성(Welcome 1 + 터미널 1, `tabs.md` §2) → `project:opened` 이벤트 |
 | 활성화 | `project_activate` → 세션의 active 갱신 → view 는 해당 프로젝트 레이아웃으로 스왑 |
 | 닫기 | `project_close` → capability detach(pty kill, LSP shutdown, watcher stop — 대칭 해제) → 레이아웃·버퍼 영속화 후 메모리 해제 → `project:closed` |
 | 재시작 복원 | `session.json` 의 프로젝트 전량 재-open (레이아웃은 `layout.json` 복원). root 부재 시 사용자에게 재연결/제거 선택 |
@@ -77,7 +145,11 @@
   0 이었고, 레이아웃 변이마다 무조건 발행돼 트래픽만 2배였다. §2.2 의 focus 종류는 이미
   `layout:changed` 가 무효화하는 `LAYOUT.DETAIL` 캐시(`ProjectLayout.focused_pane` + 활성 탭의
   `kind`)에서 프론트가 그대로 유도할 수 있어, 이 파생값을 Rust 가 별도 이벤트로 다시 계산해
-  내보낼 필요가 없었다 — FR-A4 아이콘은 이 캐시 기반 유도로 구현하는 것이 정본이다)
+  내보낼 필요가 없었다 — FR-A4 아이콘을 되살릴 때도 이 캐시 기반 유도가 정본이다. FR-A4 자체는
+  §2.2 대로 보류 상태다)
+- mutation(신규, 사용성 배치 4): `project_set_display(projectId, patch)` — §2.2 의 표시 설정.
+  신규 이벤트 없이 기존 `project:list-changed` 를 재발행한다(`ProjectRef.display` 미러가 payload 에
+  실려 오므로 모든 창·원격 세션이 기존 fanout 으로 갱신된다).
 
 ## 5. 수명주기 · 누수 방지
 

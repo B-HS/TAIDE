@@ -152,3 +152,36 @@
 | 항목 | 내용 |
 |------|------|
 | 팔레트 `target:null` → focusedPane 소실 시 NotFound 토스트 | 파일 탭 열기는 `target: null` 로 "현재 포커스된 pane" 을 요청하는데, 그 `focusedPane` 이 이미 없으면 `layout/service.rs` 가 `NotFound("pane not found")` 를 돌려준다. 파일 자체는 멀쩡한데 `error.file.notFound` 와 같은 `NotFound` 코드라 `useOpenFileTab` 이 파일이 사라진 것으로 읽어 같은 토스트를 띄우고 퀵오픈 인덱스까지 무효화한다(무해하지만 불필요한 walk 1회). pane 부재는 파일 부재와 다른 코드/로케일 키로 분리하거나, 서버가 소실된 pane 을 유효한 pane 으로 대체(fallback)하도록 정한다. |
+
+### 터미널 컨텍스트 메뉴(사용성 배치 4, 2026-09-04)에서 이월된 후보
+
+> 계약 §F 가 "메뉴에 넣지 않는다"로 확정한 항목들. 정본 `docs/features/terminal.md` §6.2·§7·§8.
+
+| 항목 | 내용 |
+|------|------|
+| 터미널 검색 UI (`⌘F`) | `SearchAddon` 은 `terminal-view.tsx` 가 로드만 하고 `findNext`/`findPrevious`/검색 바 참조가 0건이다. 결과 카운트(`onDidChangeResults`)·overviewRuler 하이라이트·터미널 포커스 한정 `⌘F` 게이트(키맵 화이트리스트 등록 동반)까지가 한 묶음이라 컨텍스트 메뉴 항목만 먼저 넣을 수 없어 제외했다. |
+| 터미널 탭 이름 바꾸기 | 탭 제목을 바꾸는 커맨드 자체가 없다(`layout_rename_tab`/`set_title` 부재). 신규 Rust 커맨드 + 인라인 편집 UI 가 선행이라 메뉴 항목만 추가할 수 없다. 탭 바 쪽 "이름 바꾸기"(계약 §G.2-4)는 파일 탭을 탐색기 rename 으로 위임하는 별개 경로다. |
+| 터미널 종료 확인 다이얼로그 | 현재 "터미널 종료"는 일반 탭 닫기와 동일하게 즉시 닫는다(`layout_close_tab` 이 pty 회수). 실행 중인 명령이 있을 때만 묻는 VS Code 식 확인은 "실행 중" 판정(OSC 133 블록 상태) + 설정 토글 + 3언어 로케일이 필요해 별도 건으로 분리한다. |
+| "이 터미널 옮기기" 메뉴 항목 | 조사 안 C(하이브리드)의 하단 그룹. 지금도 탭 우클릭 Split 서브메뉴·`⌘\` 로 4방향 이동이 되고 탭 바 여백 메뉴에도 분할이 들어가, 터미널 표면에까지 놓으면 4중 중복이 된다. 서브메뉴가 8칸으로 늘어나는 비용도 크다. |
+| `@xterm/addon-clipboard`(OSC 52) | 셸이 OSC 52 로 요청하는 클립보드 쓰기 지원. 애드온이 설치돼 있지 않고(설치 addon 5종), Tauri clipboard-manager 위임 provider 설계가 선행이다. 컨텍스트 메뉴의 복사/붙여넣기는 `navigator.clipboard` + `term.paste()` 로 이미 동작한다. |
+
+### OS 네이티브 알림(사용성 배치 4 A, 2026-09-04)에서 이월된 후보
+
+> 계약 §A.2-8 이 지정한 등재분. 정본 `docs/features/settings-ui.md` §2.1 ·
+> `docs/ipc-contract.md` "사용성 배치 4 — OS 네이티브 알림" 절.
+
+| 항목 | 내용 |
+|------|------|
+| 권한 상태 조회 · 거부 감지 | `tauri-plugin-notification` 의 데스크톱 백엔드는 `permission_state()`/`request_permission()` 이 항상 `Granted` 스텁이고 `show()` 실패도 삼킨다 — 사용자가 macOS 설정에서 TAIDE 알림을 꺼도 앱은 알 수 없다. 그래서 `NotificationDelivery::Delivered` 는 "전달됐다"가 아니라 "시도했다"이고, 설정 화면은 "알림 설정 열기" 버튼으로 사용자에게 확인을 미룬다. 실제 권한 조회는 `UNUserNotificationCenter` 를 직접 부르는 크레이트(또는 objc2 바인딩) 도입이 선행이다. |
+| `UNUserNotificationCenter` 전환 | 위 항목의 상위 건. 권한 상태·전달 실패 콜백뿐 아니라 액션 버튼·응답 처리(알림 클릭 → 해당 탭 포커스)까지 이 API 가 있어야 열린다. 현재 `notify-rust`→`mac-notification-sys` 경로는 번들 서명된 앱에서만 이름·아이콘이 정상이고(dev 는 `com.apple.Terminal` 스푸핑), 클릭 콜백을 앱으로 되돌리지 못한다. |
+| 알림 클릭 → 원 지점 이동 | 완료 알림을 눌렀을 때 그 에이전트·터미널·git 패널로 포커스를 옮기는 동작. 위 전환이 선행이고, 카테고리별 딥링크(프로젝트 id + 탭 id) 페이로드 설계가 필요하다. |
+
+### 프로젝트 표시 설정(사용성 배치 4 D, 2026-09-04)에서 이월된 후보
+
+> 계약 §D.2-4 가 지정한 등재분. 정본 `docs/features/layout-shell.md` §2.2 · `docs/data-model.md` §20.
+
+| 항목 | 내용 |
+|------|------|
+| Welcome 최근 목록 · 보조 창 타이틀바에 표시 설정 반영 | 1차 범위는 **1차 사이드바 아이콘만**이다. Welcome 화면의 최근 프로젝트 목록과 보조 창 타이틀바(`auxiliary-title-bar-content.tsx`)는 이미 `Project`/`ProjectRef` 를 받으므로 추가 IPC 없이 `resolveProjectDisplay` 를 붙일 수 있지만, **표시 전용 필드 변경에 `ProjectListChanged`(프로젝트 목록 전체 fanout)를 재발행하는 현재 방식이 그 창들까지 갱신하는지**를 먼저 확인해야 한다. 필요하면 좁은 `ProjectDisplayChanged { projectId, display }` 이벤트를 신설한다(현재 신규 이벤트 0). |
+| PRD FR-A4(포커스된 content 타입에 따른 아이콘 변경) | 사이드바 아이콘 슬롯을 이번 표시 설정과 다툰다 — 사용자가 지정한 아이콘·라벨을 런타임 상태가 덮어쓰면 설정의 의미가 사라진다. `PRD.md` FR-A4 에 보류 각주를 달아 두었고, 되살린다면 "사용자 지정이 없을 때만 content 타입 아이콘" 같은 우선순위 규칙을 먼저 정해야 한다. |
+| 라벨 타이포 사다리 · lane 색 대비 실측 | `PROJECT_LABEL_CLASS_BY_LENGTH` 는 CJK 4자가 40px 버튼에 들어가도록 계산한 값이고, 색 12종은 `graph.lane1..12` 를 그대로 쓴다. 번들 테마 36종에서 `appSidebar.background` 대비가 충분한지, 4자 라벨이 실제로 잘리지 않는지는 앱 실행 확인이 필요하다. |

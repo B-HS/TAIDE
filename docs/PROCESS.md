@@ -68,8 +68,22 @@
       `acknowledge/2026-09-04-usability-batch4-user-decisions.md`
 - [x] c. 계약 작성 완료 — `acknowledge/2026-09-04-usability-batch4-contract.md` A(알림)·B(Welcome)·C(성능)·
       D(프로젝트 목록)·E(git 탭)·F(터미널 메뉴)·G(탭 바 메뉴)·H(테스트·하네스·CI)
-- [ ] d. 구현 wf(opus·xhigh) — 배치 3 완결(리뷰·테스트·커밋) 후 착수. 웨이브 1: A·B·D·E·F·G (Rust 직렬
-      B→A→D→F, TS 병렬) → 웨이브 2: C 성능(1단계→2단계)·H 하네스·테스트·CI
+- [x] d-1. 웨이브 1 구현 wf(opus·xhigh, `wf_c7cc982b` — 11 에이전트/에러 0, 2026-09-04) — A 알림(플러그인
+      2.4.0·MSRV 1.89·notification 도메인·설정 8·설정 섹션·발화 5카테고리)·B Welcome(view.welcome·빈 pane
+      Welcome·설정)·D 프로젝트 표시(ProjectDisplay·project_set_display·아이콘 56·다이얼로그)·E git 섹션(접이식
+      sticky 헤더·Stash 강등·접힘 메모리·로빙 헤더)·F 터미널 메뉴(layout_open_tab_in_split·분할 4방향 비활성 판정·
+      복사/붙여넣기/종료)·G 탭 바 여백 메뉴+이름 바꾸기 → 통합 verify 그린(bun 1960/0·cargo 1267/0·vite build·
+      typecheck:e2e). 커맨드 183·로케일 1016키×3. 계약 "## 3. 구현 기록 (웨이브 1)" 정본(이탈 17·미결 10)
+- [x] d-2. 웨이브 1 리뷰 wf(sonnet·xhigh, `wf_87b07fc4` — 발견 9: major 1 확증·minor 5·info 3. major F-1:
+      백그라운드 터미널의 태스크 완료 알림 소실 → 감지·계측을 Rust pty reader 로 이관, 이벤트
+      `terminal:command-finished` 신설. minor 5 전건 처리) → 테스트 wf(fable·medium, `wf_c362aeea` — 단위
+      TS +50·Rust +16, e2e 17~20 작성·**미실행**) → 메인 2차 `bun run verify`+vite build+typecheck:e2e exit 0
+      (bun 2008/0·cargo 1288/0) → 커밋 8분할(`8dfc769` feat(notification)·`8866af9` feat(welcome)·
+      `3e6baa7` feat(project)·`10b0443` feat(git)·`aef0971` feat(terminal)·`c93a4d8` feat(tab)·
+      `0f8dcc9` test(e2e)·`8aa712a` chore(claude)) + docs 커밋 → dev 푸시 → main ff. 기준선 커맨드 183·
+      로케일 1015키×3·이벤트 24
+- [ ] d-3. 웨이브 2 구현 wf — C 성능(1단계 계측+안전 수정 → 2단계 대형 3건+가상화)·H 하네스·테스트·CI
+      (사용자 2026-09-04 회신: 웨이브 1 커밋 후 이어서 진행)
 - [ ] e. 리뷰 wf(sonnet·xhigh) → 테스트 wf(fable·medium) → 메인 2차 검증 → docs → 커밋
 
 ## 완료: 사용성 배치 3 — 퀵오픈 미발견·터미널 링크 창내 열림·파일트리 자동 reveal (2026-09-04)

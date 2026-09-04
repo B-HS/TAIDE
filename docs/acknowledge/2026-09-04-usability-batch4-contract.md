@@ -385,3 +385,254 @@
 
 - 탭 바 전체 단일 ContextMenu + 히트테스트(B안): 이중 메뉴 위험·4파일 구조 변경 → 기각.
 - 기존 탭 메뉴에 저장/되돌리기·다른 이름으로 저장·Copy into New Window: 브리지 계약 확장 필요/백로그 확정 항목 → 보류.
+
+## 3. 구현 기록 (웨이브 1)
+
+> 2026-09-04, 구현 wf `wf_c7cc982b`. **A·B·D·E·F·G 6절**을 Rust 4 · TS 5 에이전트 + 통합 검증 1로
+> 나눠 구현했다(C 성능·H 테스트·CI 는 웨이브 2). 아래는 통합 단계가 실물 대조로 확인한 결과다.
+> 계약 각 절의 설계 문언과 실제 코드가 다른 곳은 "이탈" 에 사유와 함께 적었다.
+
+### 3.1 절별 반영 결과 (실물 대조)
+
+| 절 | 반영 | 실물 확인 지점 |
+|----|------|----------------|
+| **A.2-1** 의존성 | O | `src-tauri/Cargo.toml` `tauri-plugin-notification = "2"`·`rust-version = "1.89"`, `lib.rs:478` 플러그인 init, `capabilities/main.json` `notification:allow-is-permission-granted` **1개만**. Cargo.lock 순증 4(예측 3 + Windows cfg 게이트 `tauri-winrt-notification`) |
+| **A.2-2** notification 도메인 | O | `domain/notification/{mod,types,service,commands}.rs`, `NotificationCategory` 6종, `decide_delivery` 순수 함수 + 조합 테스트, `notification_notify`·`notification_open_system_settings` 2종 `REMOTE_DENIED`(`UnreachableDesktopWindow`) |
+| **A.2-3** 설정 8필드 | O | `settings/types.rs:202-238`(Settings)·`:393-400`(Patch)·`:508-515`(Default), `apply_patch`·`settings_to_sync_patch`·`emptySettingsPatch` 전부 |
+| **A.2-4** FE 파사드 | O | `entities/notification/{notification.ipc.ts,notify.ts}`, 순수 판정 `shared/lib/native-notification-gate.ts` + 테스트 18케이스 |
+| **A.2-5** 발생지 배선 | O | 에이전트·LSP = `app/providers/native-notification-provider.tsx`, 태스크 = `terminal-osc133.ts onCommandFinished` → `terminal-view` → `terminal-pane` → `terminal-session.tsx`, git = `git.query.ts:213/218`, 검색 = `search-panel-container.tsx:96` |
+| **A.2-6** 설정 UI | O | `settings-notification-section.tsx` SwitchField **8** + 시스템 설정 버튼 + 테스트 알림 버튼 + `import.meta.env.DEV` 힌트, 첫 전달 1회 안내는 `useRef` + sonner `action` |
+| **A.2-7·8** 로케일·문서 | O | 로케일 순증 48키(3언어 각 1016), `architecture.md`(도메인 25)·`tech-stack.md`·`data-model.md` §19·`deployment.md` §8·`ipc-contract.md`·`settings-ui.md` §2.1 |
+| **B.2-1** `view.welcome` | O | `command-catalog.ts:93`, `command-registry.ts:10`, `command-palette.tsx:174`, `shared/constants/tab.ts WELCOME_TAB_TITLE` |
+| **B.2-2** 탭 0 자동 표시 | O | `pane-node-view.tsx:127` `getWindowContext().kind === 'main' && (settings?.welcomeOnEmptyEditor ?? true)` → `:229` `WelcomeContainerLazy`, off·보조 창은 `editor.noFileOpen` 유지 |
+| **B.2-3·4** 설정·문서 | O | `settings-interface-section.tsx:95-98`, `command-palette.md`·`tabs.md`·`layout-shell.md` §1.1·`PRD.md` FR-B2 |
+| **D.2-1** Rust | O | `ProjectDisplay`/`ProjectDisplayPatch`, `Project.display`·`ProjectRef.display`(`#[serde(default)]`), `set_project_display` sanitize 3축 + `lane1..lane12` 허용목록, `project_set_display`(`REMOTE_ALLOWED`), 신규 이벤트 0 |
+| **D.2-2** FE | O | `project-icon-registry.ts`(**56종**)·`project-display.ts`(단일 폴백)·`project-display.test.ts` 20케이스·`project-display-dialog.tsx`·`sortable-project-icon.tsx:97-99` 메뉴 2항목 |
+| **D.2-3·4** 로케일·문서 | O | `project.display*` 11 + `error.project.displayInvalid`, `layout-shell.md` §2.2·§2.3.1·`data-model.md` §20·`ipc-contract.md`·`PRD.md` FR-A4 각주 |
+| **E.2-1~4** git 섹션 | O | 순서 Merge→Staged→Changes→Stashes→Graph, `git-sections.ts buildGitSections`, `features/git/git-section-header.tsx`(`resource-group-header.tsx` 삭제), `entities/git/git-section-collapse-memory.ts`, `GIT_SECTION_ROVING_SELECTOR` |
+| **E.2-5** 문서 | O | `features/git.md`·`architecture.md` §6.4 + 손 QA `quality-assurance/2026-09-04-git-section-ux-hand-qa.md` |
+| **F.2-1** `layout_open_tab_in_split` | O | `layout/service.rs` `insert_new_leaf`(추출)·`open_tab_in_split`, `commands.rs:169`, specta·dispatch 3표·테스트 7건 |
+| **F.2-2~7** FE | O | `entities/layout` 2줄, `terminal-split-availability.ts`·`terminal-clipboard-availability.ts`(+테스트), `features/terminal/terminal-context-menu.tsx`, `TerminalAttachHandle` 6메서드 + `rightClickSelectsWord: false`, `MIN_PANEL_SIZE_PX` → `shared/constants/layout.ts` 승격 |
+| **F.2-8·9** 로케일·문서 | O | `terminal.{copy,paste,selectAll,clear,kill}`, `terminal.md` §6.2 + §1·§7·§8·§11 정정, `backlog.md` 이월 5건 |
+| **G.2-1~3** 여백 메뉴 | O | `tab-bar-menu-items.ts` 순수 빌더 + 테스트 8건, `tab-bar-context-menu.tsx`, `pane-tab-bar.tsx` filler·`+` 양쪽 Trigger, `+` 드롭다운도 같은 빌더(`surface: 'addMenu'`) |
+| **G.2-4·5** 이름 바꾸기·문서 | O | `shared/lib/bridge/explorer-rename-bridge.ts`(+테스트 3건) → `app-shell`·`explorer-panel`·`explorer-container`, `tab-context-menu.tsx:139`, `tabs.md` §3.1·§3.2 |
+
+### 3.2 통합 단계가 직접 보완한 것
+
+계약 항목이지만 어느 에이전트의 소유 파일도 아니어서 비어 있던 4건을 통합에서 채웠다.
+
+1. `docs/ipc-contract.md` 최상단 **실측 배너** — 배치 4 웨이브 1 행 신설(command 179→**183**, raw 포함
+   182→**186**, `REMOTE_ALLOWED` 158→**160**, `REMOTE_DENIED` 24→**26**, event 23 불변). 각 에이전트가
+   자기 절에만 증분을 적어 헤더가 4개 배치만큼 뒤처져 있었다. (본문 §원격 dispatch 정책의 서술형
+   개수 "157종/24종" 은 d-42·d-50 때도 갱신하지 않은 이력 서술이라 선례대로 두었다 — 정본은 배너다.)
+2. `docs/backlog.md` — **A.2-8 이 지정한 알림 이월 3건**(권한 상태 조회·`UNUserNotificationCenter`
+   전환·알림 클릭 딥링크)과 **D.2-4 가 지정한 프로젝트 표시 이월 3건**(Welcome 최근 목록·보조창
+   타이틀바 확장 시 `ProjectDisplayChanged`, PRD FR-A4 슬롯 충돌, 타이포·색 대비 실측) 절 신설.
+   D 담당은 이 내용을 `layout-shell.md` 본문에만 적어 두었었다.
+3. `docs/features/settings-ui.md` §1 — Interface 섹션 설명에 `welcomeOnEmptyEditor` 스위치 1항목
+   추가(`explorerAutoReveal` 옆). Rust·FE 양쪽이 서로 상대 소유로 보고 비워 둔 자리다.
+4. `src/widgets/welcome/welcome-container-lazy.ts` JSDoc — 렌더 지점이 2곳에서 **3곳**(빈 편집 영역
+   추가)이 되어 서술을 정정.
+
+### 3.3 이탈 (계약과 다르게 구현한 것 — 중복 제거)
+
+| # | 이탈 | 사유 |
+|---|------|------|
+| 1 | `layout_open_tab_in_split` 인자를 위치 8개 → 구조체 1개(`OpenTabInSplitRequest`) | clippy `too_many_arguments`(상한 7)에 걸려 `-D warnings` 빌드 실패. `#[allow]` 은 컨벤션 금지라 같은 린트의 기존 선례(`LspSpawnRequest`·`PtySpawnOptions`)를 따랐다. 필드 이름·형태는 계약과 동일 |
+| 2 | `NotificationDecision`/`NotificationDelivery` 를 타입 1개로 합침 | 두 지점 사이에 관측 가능한 상태 변화가 없어 형태가 완전히 같다. 동형 타입 2개는 "타입은 원본에서 유도" 에 어긋남 |
+| 3 | `notification_open_system_settings` 에서 `AppHandle` 인자 제거 | `tauri_plugin_opener::open_url` 은 자유 함수이고(기존 `system_open_external_url` 도 안 받는다), 비-macOS 분기에서 미사용 인자가 되어 clippy 실패 |
+| 4 | 알림 FE 파사드가 `focusManager.isFocused()` 조기 컷을 하지 않음 | `onlyWhenUnfocused` 설정을 모른 채 포커스만으로 컷하면 그 설정을 끈 사용자의 알림을 삼킨다. 설정 캐시를 읽으려면 entities → app 역참조(FSD 위반·eslint 규칙 위반). 계약이 허용한 "컷을 Rust 에 위임" 채택 |
+| 5 | `set_project_display` 시그니처가 `(state, id, patch)` 가 아니라 `(paths, session, projects, id, patch)` | 같은 파일의 `open_project`/`close_project` 가 전부 개별 조각을 받는다. `AppState` 를 받으면 서비스 단위 테스트가 불가능 |
+| 6 | `merge_clearable_string` 재사용 대신 project 도메인에 `merge_display_axis` 신설 | 원본이 private 이고 `settings/service.rs` 는 다른 에이전트 소유였다. 해제 규약("생략=유지/빈문자열=해제")은 동일하게 따랐고 출처를 JSDoc·문서에 명시 |
+| 7 | `buildGitSections` 인자가 `{rows, stashes, conflicts, collapsed}` → `{rows, stashCount, graphCount, collapsed}` | conflicts 는 `rows[].isConflicted` 에서 유도되므로 따로 받으면 이중 출처, stash·graph 는 개수만 필요 |
+| 8 | 터미널 pane rect 를 leaf 루트가 아니라 **콘텐츠 박스**에서 측정 | 계약의 "높이에서 탭 바 36px(Zen 0) 제외" 가 매직넘버(컨벤션 금지) + zen 플래그 배선을 요구한다. 콘텐츠 박스는 같은 수치를 배선 없이 준다 |
+| 9 | 클립보드 판정 입력에서 `isSecureContext` 제외 | async clipboard API 는 secure context 에만 존재해 `writeText`/`readText` 존재 확인에 완전히 포함된다. AND 로 두면 Tauri 커스텀 스킴에서 상시 비활성이 되는 오검출만 남는다 |
+| 10 | `tab.newFile` 신규 키 미추가 → 기존 `tab.newUntitledFile` 재사용 | 실물 확인 결과 같은 의미의 키가 3언어에 이미 있었다 |
+| 11 | 여백 메뉴 빌더가 분할 4방향 표를 소유하지 않고 `SPLIT_EDGE_OPTIONS` 재사용(export 1단어 추가) | 표를 새로 만들면 `tab-context-menu.tsx` 와 통째로 중복. 빌더는 split 항목의 "표시 여부" 만 소유 |
+| 12 | 아이콘 그리드 빈 결과에 기존 `palette.noResults` 재사용, 색 스와치는 재클릭 해제(전용 "색 없음" 항목 없음) | 신규 로케일 키를 늘리지 않기 위해. `toast-position-picker` 의 `aria-pressed` 토글 선례 |
+| 13 | 소유 파일 밖 다수를 1줄씩 수정 | `Project` 에 필드가 늘어 `#[cfg(test)]` 스텁 9파일이 컴파일 불가(`display: Default::default()` 1줄씩), `CommandContext` 확장으로 `*.commands.test.ts` 3곳 dummyContext 파손(`openWelcomeTab: () => {}` 1줄씩), `TerminalView → TerminalSession` 사이의 실제 경로인 `terminal-pane.tsx` 콜백 통과 4곳, `commit-detail-panel.tsx` 가 삭제 대상 `ResourceGroupHeader` 의 마지막 소비처. 전부 해당 변경이 직접 유발한 파손 |
+| 14 | 계약에 없는 `open_project` 수정 1건 | 신규 분기가 이력에서 id 만 재사용하고 `Project` 를 새로 만들어, 프로젝트를 닫았다 열면 표시 설정이 매번 초기화됐다. `find_existing_project_id` → `find_existing_project_record` + 회귀 테스트 |
+| 15 | 계약에 없는 파일 2개 신설(`features/project/project-display-glyph.tsx`, `features/tab/tab-bar-menu-items.ts` 의 `group` 필드) | 전자는 사이드바 버튼과 다이얼로그 미리보기가 같은 폴백 사다리를 그려야 해서(2회 이상 룰), 후자는 항목이 필터로 사라져도 구분자가 어긋나지 않게 하기 위해 |
+| 16 | Graph 섹션 커밋 행에 `pl-4` 미적용 | 가상화 절대배치 폭 계산에 변수를 더한다. 리소스 행(변경 그룹·스태시)에는 적용 |
+| 17 | `docs/PROCESS.md` 기준선(커맨드 수·로케일 키 수) 미갱신 | 오케스트레이터가 PROCESS 를 건드리지 말라고 지시. 실측치는 이 절 §3.4 에 남긴다 |
+
+### 3.4 미결 (사용자·후속 결정)
+
+1. ~~**`git.stashEmpty` 키 처리**~~ — **해소(§3.6 L4-2)**: 3언어 + `MESSAGE_NAMESPACES` 에서 제거했다.
+2. ~~**보조 에디터 창 터미널의 태스크 완료 알림 부재**~~ — **해소(§3.6 F-1)**: 발화가 Rust 이벤트
+   (`terminal:command-finished`)로 올라가면서 메인 창이 모든 창의 터미널을 대신 알린다.
+3. **알림 본문(body) 로케일** — `notification.*` 10종은 보간 없는 **제목**만이고 본문은 FE 가
+   비번역 데이터(에이전트명·명령·브랜치·치환 건수·서버 id)로 조립한다. 본문에도 번역 문장이
+   필요하면(예: "exit {{code}} 로 종료") 키를 더 만들어야 한다.
+4. **테스트 알림 결과 토스트 문구** — 억제 사유를 그 스위치의 라벨 키로 대신 보여준다. 전용 키
+   3종(`test.sent`·억제 사유 문장)을 추가하면 명확해진다.
+5. **접힘 메모리 범위** — 창(프로세스) 단위 1벌이라 프로젝트 A 에서 접은 섹션이 B 에도 적용된다.
+   프로젝트별 분리를 원하면 `commit-message-memory.ts` 처럼 ProjectId 키 + 상한이 필요하다.
+6. **탭 바 여백 메뉴의 키보드 접근** — filler·`+` 영역에 `tabIndex` 가 없어 Shift+F10 으로 열 수
+   없다. 주면 Tab 순회에 빈 항목이 끼는 트레이드오프.
+7. **여백 메뉴 "Welcome 열기" 의 pane 지정** — **정정(§3.6 G-1)**: `open_tab` 의 kind dedupe 는
+   `find_leaf_mut` 로 찾은 **그 leaf 자신의 `tabs` 만** 훑는다(`layout/service.rs:428-444` —
+   `command-palette.md` 의 "`open_tab` 은 같은 leaf 에 동일 kind 탭이 있으면 재사용" 서술과 일치).
+   여백 메뉴는 항상 `target: paneId`(우클릭한 pane)를
+   넘기므로(`pane-tab-bar.tsx:167`) 다른 pane 의 Welcome 탭이 활성화되는 일은 없고, 대신 **pane 마다
+   별도의 Welcome 탭이 생길 수 있다**. 전역 dedupe 가 필요한지는 §3.4-9 실기 확인 후 결정한다.
+8. **워크스페이스 `resolver = "2"`** — MSRV 비인지 resolver 라 상향한 1.89 가 의존 해석에 반영되지
+   않는다. resolver 3 전환은 전 의존 해석에 영향을 주므로 별도 배치 권장.
+9. **실기 확인 대기(앱 실행 필요)** — 마지막 탭 닫힘 시 Welcome 즉시 표시 / 보조 창 터미널
+   우클릭 시 네이티브 메뉴 억제 / 유휴 터미널 연속 우클릭 시 xterm 히든 textarea 로 인한
+   `app-shell` 예외 분기 부작용 / 원격 미러에서 복사·붙여넣기 비활성 표시 / 릴리스 빌드
+   `otool -L` 자립성 / CJK 4자 라벨 클립·lane 색 대비 36테마.
+10. **기존 문서 결함(범위 밖·보고만)** — `docs/features/tabs.md` 에 리터럴 `\n## 4. DND` ·
+    `\n## 5. 스플릿 리사이즈` 2곳이 있어 두 헤딩이 렌더되지 않는다. HEAD 에도 동일하게 존재한다.
+
+### 3.5 검증 실측 (통합 단계, 전 항목 그린)
+
+| 명령 | 결과 |
+|------|------|
+| `bun run typecheck` | 통과 — 오류 0 |
+| `bun run lint` | 통과 — **0 errors / 9 warnings**(9건 전부 기존 파일: TanStack Virtual `incompatible-library` 4·`exhaustive-deps` 5) |
+| `bun run format:check` | 통과 — "All matched files use Prettier code style!" |
+| `bun test` | 통과 — **1960 pass / 0 fail / 3268 expect, 201 파일**(조사 시점 기준선 1817) |
+| `cargo fmt --all --check` | 통과 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 통과 — 경고 0 |
+| `cargo test --workspace` | 통과 — lib **1267 pass / 0 fail**(기준선 1248), 통합 3·6·17 pass, doc-test 0 |
+| `bunx vite build` | 통과 — 6.99s, 청크 경고는 기존(monaco·pdf) |
+| `bun run typecheck:e2e` | 통과 — 오류 0 |
+
+**표면 실측**: `IMPLEMENTED_JSON_COMMANDS` **183** = `bindings.ts` 의 `TAURI_INVOKE` 전수(raw 3종
+제외), `REMOTE_ALLOWED_COMMANDS` **160** ⊎ `REMOTE_DENIED_COMMANDS` **26** 완전분할, raw 3종 포함
+총 **186**. event **23종 불변**. 로케일 `{ko,en,ja}.json` 각 **1016키**(순증 48, 3언어 키집합 일치 ·
+`MESSAGE_NAMESPACES` 등재 완료 — `cargo test` 가 강제). 신규 TS 로케일 참조 173키 전수가 3언어에
+존재함을 별도 대조로 확인했고, 미참조 신규 키는 Rust 전용 2종(`error.notification.settingsUnsupported`·
+`error.project.displayInvalid`)뿐이다.
+
+**금지 패턴 전수 확인**(변경된 `src/**` 68파일, 생성물 `bindings.ts` 제외): `useCallback`/`useMemo` 0 ·
+`any` 0 · `enum` 0 · `function` 키워드 0 · 코드 주석(`//`) 0 · `@ts-ignore`/`@ts-expect-error`/
+`eslint-disable` 0. Rust 신규 코드의 `#[allow]` 0, 비테스트 `unwrap()` 0.
+
+> §3.6 이 이 표의 두 수치를 바꿨다: **event 23 → 24**, **로케일 1016 → 1015키×3**.
+
+### 3.6 리뷰 수정 (웨이브 1 코드 리뷰 반영)
+
+웨이브 1 diff 리뷰에서 확증된 major 1건을 전건 수정하고, minor 4건 중 근본 수정이 작고 회귀 위험이
+낮은 4건을 함께 처리했다. info 3건은 수정하지 않았다.
+
+| id | 등급 | 처리 | 사유·내용 |
+|----|------|------|-----------|
+| **F-1** 배경 터미널의 태스크 완료 알림 소실 | major | **수정** | 아래 상세 |
+| **A-1** `workingSinceByProjectRef` 무한 누적 | minor | 수정 | `native-notification-provider.tsx` 가 `project:closed` 를 구독해 그 projectId 키를 제거한다. 닫힌 프로젝트는 더 이상 `agent:state-changed` 를 내지 않으므로 그 항목을 지울 주체가 달리 없었다 |
+| **notif-body-unbounded-length** 알림 본문 길이 무제한 | minor | 수정 | `notifyNative` 진입점에서 제목·본문을 `NOTIFICATION_TEXT_MAX_CODE_POINTS`(200)로 자른다. 순수 함수 `truncateNotificationText`(코드포인트 단위 — 서로게이트 반쪽이 `NSString` 에 닿지 않게) + 테스트 3건 |
+| **L4-1** 카운트 뱃지 마크업 중복 | minor | 수정 | `features/git/git-section-count-badge.tsx` 신설 → `git-section-header.tsx`·`commit-detail-panel.tsx` 가 공유. 후자는 chevron·토글·sticky·로빙 정지점이 없는 순수 캡션이라 `GitSectionHeader` 자체를 재사용할 수 없어, 실제로 중복이던 뱃지만 뽑았다 |
+| **L4-2** `git.stashEmpty` 미참조 키 | minor | 수정 | 3언어 로케일 + `locale/service.rs` 의 `MESSAGE_NAMESPACES` 에서 제거(§3.4-1 해소). 로케일 **1015키×3**, `cargo test` 통과 |
+| **G-1** 계약 §3.4-7 서술 오류 | minor | 수정(문서) | `open_tab` 의 dedupe 범위를 실물 확인해 §3.4-7 을 정정했다. 코드 변경 없음 |
+| E-1 스태시 행이 로빙 시퀀스에 없음 | info | 미수정 | 참고만 |
+| project-label-format-chars-not-filtered | info | 미수정 | 참고만 |
+| L4-3 `sortable-project-icon.tsx` 훅 순서 | info | 미수정 | 참고만 |
+
+**F-1 상세 — 태스크 완료 감지를 pty reader 스레드로 올렸다.**
+
+- **증상**: `pane-node-view.tsx` 는 pane 의 활성 탭만 렌더하므로, 터미널 탭에서 빌드를 걸어두고 다른
+  탭으로 옮기면 `TerminalSession` 이 언마운트되고 xterm 인스턴스와 `attachOsc133BlockTracker` 가
+  통째로 dispose 된다. 그 사이 셸이 내보내는 OSC 133 `C`/`D` 를 볼 주체가 없어 알림이 발화하지
+  않고, 나중에 그 탭으로 돌아가면 `pty_attach` 의 스크롤백 재생이 같은 `C`/`D` 를 수 ms 간격으로 다시
+  파싱해 실행 시간이 0 에 수렴 → 10초 임계에 걸려 그때도 억제된다. "빌드 걸어두고 자리를 뜬다" 는
+  이 기능의 핵심 시나리오가 통째로 죽어 있었다.
+- **수정**: 계약 A.2-5 가 지정한 FE 배선(`terminal-osc133.ts onCommandFinished` → `terminal-view` →
+  `terminal-pane` → `terminal-session.tsx`)을 **철거**하고, 감지·계측을 pty reader 스레드로 옮겼다.
+  reader 콜백은 이미 `extract_latest_cwd` 로 OSC 7 을 스캔하던 자리이고, 부착 여부와 무관하게 항상
+  살아 있는 유일한 지점이다.
+  - `infra/shell_integration.rs`: `CommandMarker { OutputStart, Finished { exit_code } }` +
+    `extract_command_markers(bytes)`(기존 `earliest_terminator` 재사용, 청크당 전 마커를 순서대로
+    반환 — 한 청크에 `C`…`D` 가 함께 실릴 수 있어 "마지막 하나만" 이면 전이를 잃는다). 테스트 5건.
+  - `domain/terminal/commands.rs`: `report_command_marker` 가 세션별 `Mutex<Option<Instant>>` 를
+    `C` 에서 채우고 `D` 에서 소비해 `TerminalCommandFinished { sessionId, cwd, exitCode, durationMs }`
+    를 발행한다. `C` 를 못 본 `D` 는 발행하지 않는다(측정 불가 ≠ 즉시).
+  - `events.rs`·`lib.rs`: 이벤트 1종 추가(`collect_events!` + `fanout_remote_events!`),
+    `이벤트_타입_목록은…` 테스트 기준선 23 → **24**. `bindings.ts` 는 `cargo test` 의 export 로 재생성.
+  - FE: `native-notification-provider.tsx` 가 `terminal:command-finished` 를 구독해
+    `shouldNotifyTaskCompletion` 통과 시 알린다(본문 = 세션 cwd). 이제 측정된 명령만 도달하므로
+    `shouldNotifyTaskCompletion` 의 `durationMs` 는 `number | null` → `number` 로 좁혔고,
+    `resolveCommandDurationMs`·`TerminalCommandFinished`(TS) 와 4파일에 걸친 콜백 배선은 삭제했다.
+- **부수 효과**: 발화가 창과 무관한 백엔드 이벤트가 되면서 §3.4-2(보조 창 터미널 무알림)도 해소됐다.
+  본문이 탭 제목 → 세션 cwd 로 바뀌었다(탭 제목은 사실상 상시 "터미널" 이라 정보량이 늘었다).
+- **남는 한계**: 청크 경계에 걸려 잘린 `C`/`D` 마커는 이번 청크에서 감지되지 않는다(`extract_latest_cwd`
+  와 같은 의도적 한계). cwd 와 달리 그 명령의 알림은 회복되지 않고 그냥 뜨지 않는다.
+
+**재검증**(전 항목 그린, `bun run verify` exit 0): typecheck 0 · lint **0 errors / 9 warnings**(기존
+9건 그대로) · format:check 통과 · `bun test` **1958 pass / 0 fail**(1960 에서 삭제된 배선 테스트 8건 −,
+신규 6건 +) · `cargo fmt` · `cargo clippy -D warnings` 경고 0 · `cargo test` **lib 1272 pass**(1267 +
+`extract_command_markers` 5건) · `bunx vite build` exit 0.
+
+### 3.7 테스트 단계
+
+> 2026-09-04, §3.6 직후. 단위 보강 1 · e2e 스펙 작성 1 · 최종 검증 1 로 나눠 진행했다. 웨이브 1 이
+> 만들거나 바꾼 모듈의 **커버리지 공백만** 채우고, 기존 케이스와 겹치는 시나리오는 작성하지 않았다.
+> 프로덕션 코드는 건드리지 않았다(테스트·e2e·문서만).
+
+**단위 테스트 — `bun test` 1958 → 2008(순증 50) / `cargo test` lib 1272 → 1288(순증 16)**
+
+TS 는 기존 테스트 파일 9개를 보강하고 2개를 신설했다. 괄호는 실측 총 케이스 수다.
+
+| 파일 | 케이스 | 보강 요지 |
+|------|:-----:|-----------|
+| `src/shared/lib/native-notification-gate.test.ts` | 28 | 3스냅샷 연속 최초 시각 유지, 한 에이전트 완료 시 타 에이전트 기록 보존, 완료 후 재작업 새 시각, 빈 로스터, duration·임계 0, `truncate` 상한 경계(서로게이트)·상한 1·빈 문자열 |
+| `src/shared/lib/project-display.test.ts` | 27 | 3축 동시 입력 시 label 모드 배타(icon 버림·색 유지), 공백 라벨 → icon 모드, 아이콘 trim, 색 토큰 대소문자·CSS 변수 전체명 거부, 이모지 4개 타이포 단계 |
+| `src/widgets/terminal-pane/terminal-split-availability.test.ts` | 23 | 음수 측정, 두꺼운 구분자 축별 반영, 최소 0·구분자 0, cwd 후보 캐스케이드 없음·접두사 공유 형제 디렉터리·루트 끝 슬래시 |
+| `src/widgets/git-panel/git-sections.test.ts` | 16 | 5섹션 전부 비가시 + `showNoChanges`, `sections` 키 순서 = 렌더 순서, 같은 그룹 다건 순서·집계, 접힘 5축, 접힘이 가시성에 무영향 |
+| `src/features/tab/tab-bar-menu-items.test.ts` | 14 | `hasTabs` 만 참인 정확 목록, `group` 연속성·필터 후 그룹 순서 유지, 아이콘 부재 항목, `+` 드롭다운이 조건 인자를 무시하고 파괴적 항목 미노출 |
+| `src/entities/git/git-section-collapse-memory.test.ts` | 9 | 재기록 last-wins, 스냅샷 복사본(변형 미반영)·호출마다 새 객체, reset 후 기본값 복귀 |
+| `src/shared/lib/command-catalog.test.ts` | 7 | `view.welcome` 이 `openWelcomeTab` 호출·`app.welcome`·기본 단축키 없음, `view.git` 바로 뒤 위치 |
+| `src/shared/lib/bridge/explorer-rename-bridge.test.ts` | 5 | 구독자 없을 때 요청 폐기(재생 없음), 요청마다 1회 호출 |
+| `src/widgets/terminal-pane/terminal-clipboard-availability.test.ts` | 5 | 런타임 프로브가 bun(clipboard 부재)에서 예외 없이 둘 다 false |
+| **신규** `src/entities/notification/notify.test.ts` | 5 | 파사드가 게이트 결과 반환·IPC 인자 전달, 제목·본문 200 코드포인트 절단, 상한 이하 무변경, `delivered` 일 때만 첫 전달 안내 구독자 호출, IPC 실패 시 null |
+| **신규** `src/entities/project/project.query.test.ts` | 2 | `useSetProjectDisplay` 성공 시 `PROJECT.LIST` 만 무효화(RECENT·ACTIVE 무효화 없음), projectId·patch IPC 전달 |
+
+Rust 는 3파일 순증 16건: `infra/shell_integration.rs` 5(한 청크 2명령 C/D/C/D 순서 보존, OSC 7 과
+혼재해도 133 만 읽고 cwd 정상, A/B 만이면 빈 벡터, 음수·공백 종료 상태 파싱, 마커 없는 출력) ·
+`domain/project/service.rs` 7(아이콘 64바이트 경계, 라벨 길이 코드포인트 기준, 제어문자만인 라벨 =
+해제, 3축 동시 해제, 미열림 프로젝트 NotFound + 무기록, 해제 패치 양쪽 파일 미러, root/name 미러 불변) ·
+`domain/layout/service.rs` 4(Left/Top 은 새 페인이 앞·Right/Bottom 은 뒤, 중첩 대상에서도 새 페인 포커스 ·
+revision +1, 기존 페인 활성 탭 불변 = 터미널 언마운트 방지 계약).
+
+**e2e 스펙 17~20 (전부 미실행)**
+
+| 스펙 | 대상 절 | 검증 |
+|------|--------|------|
+| `e2e/specs/17-welcome-command-and-empty-pane.e2e.ts` | B | 탭 0 상태의 빈 편집 영역 Welcome → 팔레트 `View: Welcome` → Welcome 탭 활성 + `layout_get` welcome kind 0 → 1 |
+| `e2e/specs/18-tab-bar-context-menu.e2e.ts` | G | 여백 메뉴 `New Terminal` → terminal 탭 +1, 탭 0 상태에서 `Split`·`Close All Tabs` 숨김(탭 있을 때 표시로 양성 대조) |
+| `e2e/specs/19-git-sections-collapse.e2e.ts` | E | `Changes` 헤더 `role=button`·`position: sticky`, 클릭으로 `aria-expanded` true→false→true 및 행 표시/0건/표시, Stash 섹션 헤더 0건 |
+| `e2e/specs/20-terminal-context-menu-split.e2e.ts` | F | `.xterm` 우클릭 → `Split` ▸ `Split Right` → `.xterm` 2개 + `layout_get` root split/horizontal, leaf 2, terminal 탭 +1 |
+
+공용 헬퍼 2개 신설(2회 이상 사용): `e2e/lib/layout.ts`(`layout_get` 오라클 — leaf·탭 수집, kind 별
+카운트) · `e2e/lib/tab-bar.ts`(여백 filler 로케이터 + 여백 메뉴 열기). 하네스 문서
+`docs/quality-assurance/2026-08-18-e2e-harness.md` 는 스펙 16종 → **20종**, §5 표 17~20 행 + 미실행·
+전제 주석, §8 디렉토리 구조를 갱신했다.
+
+> **17~20 은 작성 시점에 미실행이다.** 하네스가 앱을 기동하지 않으므로(스펙 14~16 과 같은 이유)
+> 사용자가 `bun run tauri dev` + REMOTE 준비 후 `bun run e2e` 를 직접 돌려야 한다.
+
+**e2e 미작성 → 수동 QA 로 남긴 절**: §A 알림(`notification_notify` 가 `REMOTE_DENIED` 이고 앱 전체
+포커스 게이트를 Playwright 가 제어할 수 없다) · §D 프로젝트 표시(글리프·색 대비·CJK 클립이 시각
+오라클). 두 절의 체크 항목은 하네스 문서 §5.1 "수동 QA 로 남긴 항목" 에 체크박스로 두었다.
+
+**테스트 단계가 미작성으로 남긴 것**
+
+1. `domain/notification/service.rs decide_delivery` — 기존 6건이 마스터·카테고리 6종·포커스·
+   비포커스전용 off·사유 우선순위 전 조합을 이미 덮어 중복이라 추가하지 않았다.
+2. `domain/terminal/commands.rs report_command_marker` 의 "`C` 없이 `D` 는 미발행"(§3.6 F-1 계약) —
+   `AppHandle`·`TerminalStore` state 를 요구하는데 이 저장소에 `tauri::test` mock-app 하네스가 없다
+   (`commands.rs` doc 에 명시). 자동 검증하려면 `started_at` 소비부를 `AppHandle` 없는 순수 함수로
+   빼는 소규모 프로덕션 리팩토링이 필요해, 테스트 단계의 minimal diff 원칙상 손대지 않았다.
+3. `resolveSplitTerminalCwd` 의 `liveCwd === ''` 경로 — `??` 가 폴백하지 않고 `!candidate` 로 루트
+   폴백된다. OSC 7 이 빈 경로를 보고할 일은 없어 보이나 의도된 계약인지 불명해 고정하지 않았다.
+
+**최종 검증 실측**(저장소 루트, 2026-09-04)
+
+| 명령 | 결과 |
+|------|------|
+| `bun run verify` | **exit 0** — typecheck 오류 0 · lint 0 errors / 9 warnings(기존 9건 그대로) · format:check 통과 · `bun test` **2008 pass / 0 fail / 3340 expect, 203 파일** · `cargo fmt` 통과 · `cargo clippy -D warnings` 경고 0 · `cargo test` lib **1288 pass / 0 fail**, 통합 3·6·17 pass, doc-test 0 |
+| `bunx vite build` | **exit 0** — 청크 경고는 기존(monaco·pdf) |
+| `bun run typecheck:e2e` | **exit 0** |
+
+`cargo test` 의 bindings export 후에도 `git status --short` 에 신규 dirty 파일이 생기지 않았다
+(`bindings.ts` 는 §3.6 에서 이미 재생성된 상태 그대로).

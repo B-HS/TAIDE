@@ -63,7 +63,8 @@ TAIDE/
 ├── projects/
 │   └── {projectId}/
 │       ├── project.json     루트 경로, 이름, 부착 capability 설정 (프로젝트별 오버라이드 포함),
-│                            lastOpenedAt(밀리초 epoch, `#[serde(default)]` — d-27, §18)
+│                            lastOpenedAt(밀리초 epoch, `#[serde(default)]` — d-27, §18),
+│                            display(사이드바 아이콘·라벨·색 오버라이드, `#[serde(default)]` — §20)
 │       ├── layout.json      탭·스플릿 트리, 탭 순서, 활성 탭, 에디터별 viewState(커서·스크롤)
 │       └── buffers/         미저장(dirty) 버퍼 미러 — 파일 경로 해시별 스냅샷
 ├── themes/                  사용자 커스텀 테마 (*.json) — theme-system.md 스키마
@@ -91,7 +92,14 @@ struct SessionState {
 }
 // 윈도우 크기·위치·최대화는 tauri-plugin-window-state 가 담당 (ADR-0009)
 
-struct ProjectRef { id: ProjectId, root: PathBuf, name: String }
+struct ProjectRef { id: ProjectId, root: PathBuf, name: String, display: ProjectDisplay }
+// display 는 Project.display 의 미러 — upsert_project_ref 가 root/name 과 같은 지점에서 동기화 (§20)
+
+struct ProjectDisplay {                 // 사이드바 표시 오버라이드 — 전부 Option, 기본 폴더 아이콘
+    icon: Option<String>,               // 큐레이션 lucide 아이콘 이름 ([a-z0-9-], ≤64바이트)
+    label: Option<String>,              // 1~4 코드포인트 짧은 텍스트 라벨
+    color: Option<String>,              // graph.lane1..lane12 색 토큰 이름
+}
 
 struct ProjectLayout {
     version: u32,                       // Wave I: 2 (§8 마이그레이션 참조)
@@ -700,3 +708,58 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   `projects/` 디렉터리 전수를 읽어 기존 `Project` 를 그대로 반환할 뿐이다. 원격 dispatch 는 거부
   (`RemoteDenialPolicy::LocalProjectHistoryExposure`, `docs/ipc-contract.md` 참조).
 - **§2 디스크 레이아웃**의 `project.json` 설명에 `lastOpenedAt` 을 반영했다(이 절 갱신에 맞춰).
+
+## 19. 사용성 배치 4 — OS 알림 설정 8필드 (`settings.json` 영향, 2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §A.2-3. 커맨드는
+> `docs/ipc-contract.md` "사용성 배치 4 — OS 네이티브 알림" 절이 정본이다.
+
+- **`Settings` 에 플랫 `bool` 8필드 추가** — 전부 `#[serde(default = "default_true")]` 이라
+  기존 `settings.json` 은 마이그레이션 없이 "전부 켜짐"으로 읽힌다(§5).
+  - `notificationsEnabled` — 마스터 스위치.
+  - `notificationsOnlyWhenUnfocused` — TAIDE 창이 하나라도 포커스면 보내지 않는다.
+  - `notifyAgentCompleted` · `notifyTaskCompleted` · `notifyGitRemote` · `notifySearchReplace` ·
+    `notifyLspInstall` · `notifyError` — 카테고리 6종의 개별 스위치.
+- **기본값이 전부 `true` 인 이유**: 카테고리 집합이 이미 "완료성 이벤트"로 좁혀져 있어 (토스트
+  전량 미러가 아니다) 켜짐이 유용한 기본값이고, 끄는 쪽이 예외다. 정규화(`sanitize`)는 없다 —
+  순수 bool 8개다.
+- **동반 경로는 d-53 선례 그대로** — `SettingsPatch` 의 `Option<bool>` 8필드,
+  `service::apply_patch`, `sync::service::settings_to_sync_patch`(gist 업로드 대상),
+  `entities/settings/settings.ipc.ts` 의 `emptySettingsPatch()`. 원격 dispatch 의
+  `strip_remote_gated_settings*` 대상은 **아니다** — 알림 설정은 크리덴셜도 자기접근 확장도
+  아니라 원격 세션이 바꿔도 데스크톱 보안 경계를 넘지 않는다.
+- **새 영속 파일·디렉토리는 없다.** `NotificationCategory`/`NotificationDelivery`/
+  `NotificationSuppressionReason`(§10 성격의 비영속 IPC 타입)은 커맨드 인자·반환에만 쓰이고
+  디스크에 닿지 않는다.
+
+## 20. 사용성 배치 4 — `ProjectDisplay` 필드 추가 (`project.json`·`session.json` 영향, 2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §D.2. 커맨드는
+> `docs/ipc-contract.md` project 절이 정본이고, 사이드바 표시 규칙은
+> `docs/features/layout-shell.md` 다. §18 과 마찬가지로 **§2 의 영속 스키마를 실제로 건드린다.**
+
+- **신규 타입 `ProjectDisplay { icon, label, color }`**(`domain/project/types.rs`) — 세 축 모두
+  `Option<String>` 이고 전부 `None` 인 상태가 기본(폴더 아이콘)이다. 구조체 자체와 두 보유 필드가
+  전부 `#[serde(default)]` 라, 이 필드가 없던 `project.json`·`session.json` 은 마이그레이션 없이
+  기본값으로 읽힌다(§5 의 "필드 추가는 무마이그레이션 흡수" 규칙, §18 `last_opened_at` 과 같은 경로).
+- **두 곳에 저장된다** — `Project.display`(`projects/<id>/project.json`, 정본)와
+  `ProjectRef.display`(`session.json`, 미러). 미러를 두는 이유는 사이드바가 `project_list` 의
+  `ProjectRef[]` 만으로 렌더되기 때문이다 — 미러가 없으면 아이콘 하나를 그리려고 프로젝트당
+  `project_get` 을 한 번씩 더 불러야 한다. 동기화 지점은 기존 `root`/`name` 미러와 **같은 한 곳**
+  (`service::upsert_project_ref`)이고, 새 동기화 축을 만들지 않았다.
+- **값 규격(정본은 `service::set_project_display`)** — `icon` 은 `[a-z0-9-]` 로만 이루어진 ≤64바이트
+  이름(프론트 큐레이션 레지스트리 `shared/icons/project-icon-registry.ts` 의 이름. 알 수 없는
+  이름은 프론트가 폴더 아이콘으로 폴백하므로 Rust 는 **형식만** 검사한다), `label` 은 제어문자
+  제거·trim 후 1~4 코드포인트, `color` 는 `lane1`..`lane12`(테마의 `graph.laneN` 재사용 —
+  신규 테마 토큰 0). 규격을 벗어나면 `InvalidArgument` + `error.project.displayInvalid` 이고,
+  한 축이라도 거부되면 **같은 호출의 유효한 축도 적용되지 않는다**(부분 적용 없음).
+- **해제 규약은 설정 도메인과 같다** — `merge_clearable_string`(`domain/settings/service.rs`)의
+  3상태 규약을 그대로 따른다: 패치에서 **생략(`None`) = 그 축 유지**, **빈 문자열 = 그 축 해제**,
+  그 외 = 교체. `label` 만은 정리 후 비는 값(공백뿐인 입력)도 해제로 해석한다 — 보이지 않는
+  라벨을 영속화하지 않기 위해서다.
+- **닫았다 다시 열어도 보존된다** — `service::open_project` 는 같은 루트의 기존 기록에서 id 를
+  재사용하면서 그 기록의 `display` 도 함께 이어받는다(이 배치에서 `find_existing_project_id` 가
+  기록 전체를 돌려주는 `find_existing_project_record` 로 바뀌었다). 그렇게 하지 않으면 재열기가
+  사용자 지정 표시를 매번 초기화한다.
+- **신규 이벤트는 없다** — `project_set_display` 는 기존 `ProjectListChanged` 를 재발행한다
+  (`ProjectRef` 가 `display` 를 실어 나르므로 이 이벤트만으로 모든 창·원격 세션이 갱신된다).

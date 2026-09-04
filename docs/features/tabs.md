@@ -6,7 +6,7 @@
 ## 1. 모델
 
 - 에디터 영역은 **pane 트리**다: `Split(dir, children, sizes)` / `Leaf(tabs, active)` (data-model §3).
-- 탭 타입(`TabKind`): `File{path}` · `Terminal{sessionId}` · `Settings` · `Diff{spec}` ·
+- 탭 타입(`TabKind`): `File{path}` · `Terminal{sessionId}` · `Settings` · `Welcome` · `Diff{spec}` ·
   `AppFile{target}`(Wave I — 앱 소유 파일. `data-model.md` §8) · `SearchEditor{query}` — 확장 가능 enum.
 - 모든 변형(열기·닫기·이동·분할·리사이즈·활성화)은 **mutation → Rust layout 도메인**이 수행하고
   `layout:changed(projectId)` 이벤트로 view 가 갱신된다(ADR-0004). view 는 낙관적 UI 를 쓰지 않는다
@@ -14,8 +14,14 @@
 
 ## 2. 기본 탭 (FR-B2)
 
-- 새 프로젝트의 초기 레이아웃: Leaf 하나에 `[File(웰컴/빈 에디터), Terminal]` 2탭, 활성 = 파일뷰.
-  - 빈 파일뷰는 "아직 파일을 열지 않음" placeholder(최근 파일·단축키 안내). 실파일을 열면 대체된다.
+- 새 프로젝트의 초기 레이아웃: Leaf 하나에 `[Welcome, Terminal]` 2탭, 활성 = Welcome
+  (`layout::service::default_layout()`). 2026-09-04 정정 — 이전 서술의 `File(웰컴/빈 에디터)` 는
+  실제 코드(`TabKind::Welcome`)와 달랐다.
+  - Welcome 탭은 `WelcomeContainer`(최근 프로젝트·폴더 열기)를 렌더한다. 실파일을 열어도 자동으로
+    대체되지 않는 **독립 탭**이며, 닫은 뒤에는 `⌘⇧P` 의 `view.welcome` 커맨드나 탭 바 여백 메뉴로
+    다시 연다. 탭 제목은 로케일이 아니라 리터럴 `Welcome` 이다(`command-palette.md` §2.1).
+  - 탭이 하나도 없는 메인 창의 에디터 영역은 같은 Welcome 화면을 **탭 없이** 렌더한다
+    (`layout-shell.md` §1.1, 설정 `welcomeOnEmptyEditor`).
 - 탭 생성 경로: 파일 트리 클릭(File), 터미널 새로 열기(`⌃⇧\``/메뉴), 설정 버튼(Settings),
   git changes 클릭(Diff), 터미널 파일 링크 cmd+click(File — `terminal.md`), CLI/에이전트 요청(File).
 
@@ -46,7 +52,7 @@ macOS/Windows/Linux 에서 동일하게 보이게 한다(acknowledge §3.1).
 | 닫기 | Close · Close Others · Close to the Right · **Close Saved** · Close All | pinned 탭은 제외. Close Saved 는 dirty 아닌 탭만 |
 | 고정 | Pin/Unpin · Keep Open | Keep Open 은 preview 탭에서만 — 고정 승격 |
 | 복사 | Copy Path · Copy Relative Path | - |
-| 탐색·열기 | Reveal in Finder · Reveal in Explorer View · Open Changes · File History · Reopen Editor With… | Reopen With 는 editor/preview 전환(`preview.md`) |
+| 탐색·열기 | Reveal in Finder · Reveal in Explorer View · **이름 바꾸기** · Open Changes · File History · Reopen Editor With… | Reopen With 는 editor/preview 전환(`preview.md`). 이름 바꾸기는 아래 설명 |
 | 분할 | Split → Up · Down · Left · Right | `layout_split` |
 | 창 | Move into New Window · Move back to Main Window(보조 창에서만) · Move to Window N(다른 열린 보조 창마다) | Wave I 로 완전 구현(§4.4). **Copy into New Window 는 미구현**(backlog) — 동일 탭을 두 창이 공유하는 동기화 설계가 범위 밖 |
 
@@ -55,6 +61,39 @@ macOS/Windows/Linux 에서 동일하게 보이게 한다(acknowledge §3.1).
 
 - 조건에 맞지 않는 항목(git 없음·에이전트 없음·File 탭 아님)은 **숨긴다**(비활성 대신).
 - `when` 판정은 커맨드 레지스트리(`command-palette.md` §2)와 같은 컨텍스트를 공유한다.
+
+**이름 바꾸기 (2026-09-04, file 탭 한정)** — 탭 바에는 인라인 편집기가 없다. 대신 앱에 하나뿐인
+rename UI(탐색기 트리의 인라인 편집기 — `use-explorer-entry-crud.ts`)에 위임한다: 메뉴 선택 →
+`shared/lib/bridge/explorer-rename-bridge.ts` 발행 → ① `app-shell` 이 접힌 사이드바를 펼치고
+② `explorer-panel` 이 files 뷰로 전환한 뒤 ③ `explorer-container` 가 경로를 reveal·선택하고 그 행에서
+`startRename` 을 시작한다. "Reveal in Explorer View"(`explorer-reveal-bridge`)와 같은 3단 구조이며,
+검증·충돌 규칙·`layout_apply_path_change` 추종(§7.1)을 탐색기 경로 하나로 유지하기 위한 설계다.
+reveal 응답의 트리 페이지에서 대상 행을 찾으므로, 아직 펼쳐지지 않은 디렉토리 안의 파일도 동작한다.
+
+### 3.2 탭 바 여백 메뉴 (2026-09-04)
+
+탭이 아닌 **탭 바의 빈 공간**을 우클릭하면 pane 단위 메뉴가 열린다. 트리거는 두 곳이다 — 탭 뒤의
+filler(더블클릭 = 새 파일과 같은 요소)와 스크롤 컨테이너 밖의 우측 `+` 액션 영역. 탭 바 전체를 하나로
+감싸지 않는 이유는 Radix `ContextMenuTrigger` 가 `contextmenu` 를 `preventDefault` 만 하고 버블을
+막지 않아, 탭 위 우클릭에서 탭 메뉴와 여백 메뉴가 **동시에** 열리기 때문이다. 두 트리거 모두
+`asChild` 로 기존 div 에 합성되므로 dnd 드롭 타깃(filler)의 ref 가 유지된다.
+
+| 항목 | 실행 | 표시 조건 |
+|------|------|-----------|
+| 새 파일 | `layout_open_untitled(target: 우클릭한 pane)` | 항상 |
+| 새 터미널 | `layout_open_tab(terminal, target: 우클릭한 pane)` | 항상 |
+| 닫은 탭 다시 열기 | `layout_reopen_closed` | `layout.closedTabs` 가 있을 때 (untitled 탭은 스택에 쌓이지 않는다) |
+| 저장된 탭 닫기 | 탭 메뉴와 같은 `handleCloseSaved` | 탭이 1개 이상 |
+| 모든 탭 닫기 | 탭 메뉴와 같은 `handleCloseAll` | 탭이 1개 이상 |
+| 분할 ▸ 위·아래·왼쪽·오른쪽 | `layout_split(활성 탭)` — 탭 메뉴 Split 과 같은 "활성 탭 이동" | **활성 탭이 있을 때만** (`layout_split` 이 tabId 를 요구 → 탭 0 이면 NotFound) |
+| Welcome 열기 | `layout_open_tab(welcome)` — 같은 kind 는 Rust 가 dedupe | 항상 |
+
+- 표시 조건 판정은 순수 빌더 `features/tab/tab-bar-menu-items.ts` 의 `buildTabBarMenuItems` 가
+  단독으로 갖는다(`bun test` 로 검증). 우측 `+` 드롭다운도 같은 빌더를 `surface: 'addMenu'` 로 소비해
+  생성 항목 2개만 노출한다 — 파괴적 항목은 `+` 버튼에 올리지 않는다.
+- 조건 불충족 항목은 탭 메뉴와 같은 정책으로 **숨긴다**(§3.1). 단축키 힌트(`ContextMenuShortcut`)는
+  앱 전체 관례가 아직 없어 도입하지 않았다.
+- 신규 IPC 는 0건이다. 모든 항목이 기존 mutation 을 재사용한다.
 \n## 4. DND (FR-B3·B5)
 
 dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래그 소스는 탭, 드롭 대상은 두 종류다.

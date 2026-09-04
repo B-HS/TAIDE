@@ -32,20 +32,49 @@
 
 구성(위→아래):
 
-1. **헤더**: 현재 브랜치(클릭 시 브랜치 목록/전환 — 2차), ahead/behind 배지(`graph_ahead_behind`),
-   Sync 버튼(pull+push), remote 이름/주소 표시(FR-F1 — remote url 은 `Remote::url()`).
+1. **헤더 바**: 현재 브랜치(클릭 시 브랜치 목록/전환 — 2차), ahead/behind 배지(`graph_ahead_behind`),
+   **Stash 버튼**(`disabled={!canStash}` — 변경이 0건이면 비활성), Sync 버튼(pull+push),
+   remote 이름/주소 표시(FR-F1 — remote url 은 `Remote::url()`). Stash 실행은 저장소 레벨 액션이라
+   Sync 옆이 제자리다(2026-09-04 이전에는 stash 섹션 헤더의 hover 액션이었다 — 아래 §2.1).
 2. **커밋 입력**: 멀티라인 메시지 박스 + Commit 버튼 + 드롭다운.
-3. **리소스 그룹**: `Merge Changes`(충돌) / `Staged Changes` / `Changes` — 각 그룹 헤더에 카운트 배지,
-   hover 시 Stage All / Unstage All / Discard All 아이콘.
-4. **Graph 섹션**(§5).
+3. **섹션**(순서 고정): `Merge Changes`(충돌) → `Staged Changes` → `Changes` → `Stashes` → `Graph`(§5).
+   다섯 섹션 전부 같은 접이식 헤더 컴포넌트(`features/git/git-section-header.tsx`)를 쓴다 — chevron +
+   카운트 배지 + hover/focus-within 액션(Stage All / Unstage All).
+
+### 2.1 섹션 가시성·접힘 (2026-09-04, 사용성 배치 4 ⑤)
+
+- **가시성 판정 단일 출처는 순수 함수 `widgets/git-panel/git-sections.ts` 의 `buildGitSections`**
+  (+ `git-sections.test.ts`). 이 저장소에는 DOM 렌더 하네스가 없으므로 이 UX 의 회귀 검증은 이
+  함수에 모여 있다.
+- **빈 섹션은 그리지 않는다.** 변경 그룹 3종은 0건이면 미렌더(기존), `Stashes` 는
+  `stashes.length > 0` 일 때만 렌더한다. 이전에는 stash 섹션 조건이 `stashes.length > 0 || canStash`
+  라서 **스태시가 0건이어도 워킹트리가 더러우면 빈 "스태시" 헤더가 목록 맨 위에** 그려졌고, 이것이
+  "stash 와 changes 영역 구분이 모호하다"는 보고의 실제 원인이었다(색 대비 문제가 아니었다).
+- 변경 그룹 3종이 모두 비면 `git.noChanges` 한 줄을 그린다(신규 i18n 키 0 — 기존 미사용 키 재사용).
+- **접힘 상태는 `entities/git/git-section-collapse-memory.ts` 모듈 스코프 메모리**에 둔다
+  (`commit-message-memory.ts` 와 같은 계층·같은 수명 모델, `architecture.md` §6.4 등재). 기본값은
+  **Stashes 만 접힘**이고 나머지는 펼침. 사이드바 뷰를 파일/검색으로 바꿔 패널이 언마운트돼도,
+  프로젝트를 바꿔도 유지되며 앱 재시작 시 기본값으로 돌아간다(설정·레이아웃 스키마 무변경).
+- **접힌 섹션도 카운트 배지를 계속 보여준다.** 접은 `Staged Changes` 가 개수를 숨기면 "스테이지된 게
+  없다"고 오인해 `resolveCommitGate` 의 stage-all 확인 경로(§3)로 흘러 워킹트리 전체를 커밋할 수 있다.
+- **헤더 대비는 구분선(`border-t`) + `sticky top-0`(배경 `bg-explorer-background` 명시) + 행 `pl-4`
+  들여쓰기**로만 만든다. 헤더에 정적 배경 톤을 주지 않는 것은 의도적이다 — vsix 임포트 테마에서
+  list 상태 배경이 배경색과 충돌한 전례(`theme-system.md` §8.2.2·§8.2.4) 때문에 일부 테마에서
+  헤더 배경과 행 hover 가 같은 색이 되어 오히려 구분이 사라진다.
 
 파일 row:
 
 - 표시: 파일명 + 흐린 디렉토리 경로 + 상태 문자(우측). Renamed 는 `old → new` 툴팁.
 - 클릭 = **Open Changes**: 해당 파일의 diff 를 preview 탭으로 연다(§4).
-- **키보드 (2026-08-29 구현)**: 행은 `role='button'` + Enter/Space 활성화(기존), ↑↓ 로 그룹을
-  가로질러 행 간 로빙 포커스 이동(`widgets/git-panel/change-row-navigation.ts` — 파일트리와 같은
-  진입 규칙: 밖에서 ↓=첫 행·↑=마지막 행, 끝에서 비순환). 포커스 행은 `focus-within` 배경으로 표시.
+- **키보드 (2026-08-29 구현, 2026-09-04 헤더 포함으로 확장)**: 행과 **섹션 헤더**가 함께
+  `role='button'` + Enter/Space 활성화 대상이고, ↑↓ 는 두 종류를 문서 순서로 가로지르며 로빙
+  포커스를 옮긴다(`widgets/git-panel/change-row-navigation.ts` — 셀렉터 정본
+  `GIT_SECTION_ROVING_SELECTOR = '[data-git-change-row], [data-git-section-header]'`, 파일트리와 같은
+  진입 규칙: 밖에서 ↓=첫 항목·↑=마지막 항목, 끝에서 비순환). 헤더에 포커스가 있을 때 **→ 는 펼치고
+  ← 는 접는다**(무의미한 방향은 활성화 처리로 폴백). 포커스 항목은 `focus-within` 배경으로 표시.
+  헤더를 로빙에 넣은 것은 접기 때문만이 아니라, hover 로만 나타나던 Stage All / Unstage All 이
+  키보드로 도달 불가였던 결함(`group-focus-within:flex` 로 동시 해소)을 함께 고치기 위해서다.
+  접힌 섹션의 행은 렌더 자체를 건너뛰므로 로빙 시퀀스에서도 빠진다.
 - hover 액션 아이콘: Changes 그룹 `+`(stage)·`↺`(discard)·Open File,
   Staged 그룹 `−`(unstage)·Open File.
 - context menu(FR-F4):
@@ -157,6 +186,10 @@
   브랜치 라벨(로컬/원격 병합 표시)·태그 라벨·HEAD 마커. 미커밋 변경은 최상단 회색 열린 원.
 - 행 클릭: 커밋 상세(변경 파일 목록 → 파일 클릭 시 diff 에디터 탭, §9).
 - 성능: 가상 스크롤(행 높이 고정), 페이지 100 커밋 단위 로드.
+- **섹션 헤더는 §2.1 의 공용 접이식 헤더**를 쓴다(2026-09-04 통일 — 그전까지 이 섹션만 인라인
+  마크업이라 패널 안에 헤더 스타일이 2종 공존했다). 커밋이 0건이면 섹션을 렌더하지 않고, 접으면
+  그래프와 그 아래 커밋 상세 패널이 함께 숨는다. 커밋 상세 패널의 "변경된 파일" 줄은 섹션 헤더가
+  아니라 그 패널 내부의 라벨이므로 접이식이 아니고 로빙 시퀀스에도 들어가지 않는다.
 
 ## 6. IPC (상세: `docs/ipc-contract.md`)
 

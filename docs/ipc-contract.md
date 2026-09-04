@@ -4,6 +4,12 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
+> **실측(2026-09-04, 사용성 배치 4 웨이브 1 — `notification_notify`·`notification_open_system_settings`·
+> `project_set_display`·`layout_open_tab_in_split` 신규 반영)**: command **183종**
+> (raw 3종 포함 **186종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(160) ⊎ `REMOTE_DENIED_COMMANDS`(26).
+> event 는 **24종**이다 — 프로젝트 표시 변경은 기존 `ProjectListChanged` 재발행이라 신규 0 이었으나,
+> 웨이브 1 리뷰(F-1)가 `terminal:command-finished` 1종을 더했다. 아래는 그 직전(d-50 S8) 실측 기록이다.
+>
 > **실측(2026-08-29, d-50 S8 — `layout_apply_path_change` 신규 반영)**: command **179종**
 > (raw 3종 포함 **182종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(158) ⊎ `REMOTE_DENIED_COMMANDS`(24).
 > 아래는 그 직전(d-42) 실측 기록이다.
@@ -102,6 +108,19 @@
   epoch, IPC 시간 규칙)을 갱신하고 `project.json` 에 영속화한다(d-27, `Project` 타입 자체가
   `#[serde(default)]` 로 이 필드를 얻었으므로 IPC 시그니처는 무변경 — 반환 타입 `Project` 안의
   필드 하나가 늘었을 뿐이다).
+- mutation(신규, 사용성 배치 4): `project_set_display(projectId, patch: ProjectDisplayPatch)` —
+  사이드바 표시 오버라이드(아이콘·1~4자 라벨·`lane1..lane12` 색)를 프로젝트별로 저장한다. `patch`
+  의 세 축은 각각 **생략 = 유지 / 빈 문자열 = 해제 / 그 외 = 교체**(설정 도메인의
+  `merge_clearable_string` 과 같은 3상태 규약)이고, 규격 위반은 `InvalidArgument` +
+  `error.project.displayInvalid` 로 거부되며 그 호출의 다른 축도 적용되지 않는다(부분 적용 없음).
+  값은 `projects/<id>/project.json`(정본)과 `session.json` 의 `ProjectRef` 미러 **양쪽**에 저장되고
+  (`docs/data-model.md` §20), 완료 시 **신규 이벤트 없이** 기존 `project:list-changed` 를 재발행한다
+  — `project_list`/`ProjectRef` 가 `display` 를 실어 나르므로 모든 창·원격 세션이 이 이벤트만으로
+  갱신된다. 원격 dispatch **허용**(`project_reorder` 와 같은 등급 — 같은 두 로컬 파일을 쓰고
+  원격 세션이 이미 볼 수 있는 것 외의 경로를 드러내지 않는다).
+- 조회 반환 타입 변화: `project_list` 의 `ProjectRef` 와 `project_get`/`project_list_recent` 의
+  `Project` 에 `display?: ProjectDisplay` 가 늘었다(`#[serde(default)]` → specta optional).
+  시그니처는 무변경이다.
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`
   (**`project:focus-kind-changed` 는 X-A 배치(2026-08-19)에서 제거됐다** — 소비자가 0 이면서
   레이아웃 변이 18종마다 무조건 발행돼 이벤트 트래픽만 2배로 만들었다(X1#12,
@@ -114,7 +133,9 @@
 - mutation: `layout_open_tab(projectId, kind, title, target, preview)`(이전 판은 `target?` 뒤에
   `title`·`preview` 두 인자가 빠져 있었다 — 정정), `layout_close_tab(tabId)`,
   `layout_activate_tab(tabId)`, `layout_move_tab(tabId, paneId, index)`,
-  `layout_split(paneId, edge: DropEdge, tabId)`, `layout_resize(paneId, sizes)`,
+  `layout_split(paneId, edge: DropEdge, tabId)`,
+  `layout_open_tab_in_split(request: OpenTabInSplitRequest)`(사용성 배치 4 신설 — 아래 절 참조),
+  `layout_resize(paneId, sizes)`,
   `layout_focus_pane(paneId)`, `layout_pin_tab(tabId, pinned)`, `layout_set_preview(tabId, preview)`
   (7.7 후속 — 아래 절 참조), `layout_reopen_closed(projectId)`,
   `layout_set_view_state(tabId, viewState)`, `layout_set_dirty(tabId, dirty)`,
@@ -416,9 +437,18 @@
   스폰(추가)·`terminal:exited`(running=false)·고아 kill(제거)을 캐시에 즉시 써야 재부착 판정이
   사실과 맞는다 — 상세는 `docs/features/terminal.md` §3.1.
 - event: `terminal:exited(sessionId, ...)`, `terminal:cwd-changed(sessionId, cwd)`,
+  `terminal:command-finished(sessionId, cwd, exitCode, durationMs)`,
   `agent:state-changed(projectId, agents: DetectedAgent[])` — **`terminal_report_cwd` 라는 mutation
   은 코드에 없다**(정정: cwd 보고는 프론트→Rust mutation 이 아니라 Rust→view 이벤트
   `terminal:cwd-changed` 로 흐른다)
+- **`terminal:command-finished`(배치 4 웨이브 1 리뷰 F-1, 신규)**: `pty_spawn` 의 reader 콜백이
+  `extract_latest_cwd` 와 같은 자리에서 `infra::shell_integration::extract_command_markers` 로 OSC 133
+  `C`(출력 시작)·`D`(종료)를 스캔해, 세션별 `Instant` 로 실제 경과 시간을 재고 `D` 마다 발행한다.
+  `C` 를 못 본 `D` 는 발행하지 않는다(측정 불가 ≠ 즉시). 프론트 트래커
+  (`features/terminal/terminal-osc133.ts`)가 아니라 여기서 재는 이유는 pane 이 활성 탭만 렌더해
+  **탭이 배경이면 xterm 인스턴스와 트래커가 통째로 언마운트**되기 때문이다 — 그 상태로 완료된 명령은
+  알림이 아예 안 뜨고, 나중에 재부착하면 스크롤백 재생이 같은 `C`/`D` 를 수 ms 간격으로 다시 파싱해
+  실행 시간이 0 에 수렴한다. 소비자는 `native-notification-provider.tsx` 하나뿐이다.
 - **`terminal:cwd-changed`/`resolve_terminal_path` 배선 완성(X-A 배치, 2026-08-19)**: 이 문서가
   기술해온 흐름은 T0 감사 시점까지 타입·커맨드만 존재하고 실제로 배선되지 않은 죽은 표면이었다
   (`resolve_terminal_path` 호출자 0, `TerminalCwdChanged` 발행 지점 0). `infra::shell_integration`
@@ -1123,7 +1153,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   |--------|----------------------|-----------------|
   | `remote_set_password` / `remote_clear_password` / `remote_issue_link` | `SelfAccessExpansion` | 원격 세션이 자기 접속 게이트를 바꾸거나(비밀번호) 새 온보딩 링크를 발급해 접근을 자가 확장하지 못하게(Wave B §6) |
   | `file_flush_complete` | `DesktopExitControl` | 데스크톱 자신의 `CloseRequested` 종료 시퀀스만 재개 가능(Hot Exit) |
-  | `window_set_fullscreen` / `layout_move_tab_to_window` / `system_open_external_url` / `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` | `UnreachableDesktopWindow` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I·손 QA #12, 2026-08-18) — `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시/OS 기본 브라우저)을 띄우는 넷과, 네이티브 OS 창을 직접 열거나 제어하는 셋이 같은 결론이다. `window_open_auxiliary` 는 이 분류의 일곱 번째 멤버였으나 X-A 배치(2026-08-19)에서 커맨드 자체가 제거됐다(§"X-A 배선 + 소규모 잔여 청소 배치" 절) |
+  | `window_set_fullscreen` / `layout_move_tab_to_window` / `system_open_external_url` / `system_open_path` / `system_reveal_path` / `system_open_in_browser` / `system_open_app_data_path` / `notification_notify` / `notification_open_system_settings` | `UnreachableDesktopWindow` | 원격 세션에는 대응할 로컬 디스플레이/OS 창이 없음(Wave I·손 QA #12, 2026-08-18) — `tauri_plugin_opener` 로 데스크톱 자신의 화면에 앱 창(기본 앱 열기/Finder·Explorer 표시/OS 기본 브라우저)을 띄우는 넷과, 네이티브 OS 창을 직접 열거나 제어하는 셋이 같은 결론이다. 사용성 배치 4(2026-09-04)의 알림 둘도 같다 — 배너는 데스크톱 머신의 알림 센터에, 시스템 설정 창은 데스크톱 화면에 뜬다. `window_open_auxiliary` 는 이 분류의 일곱 번째 멤버였으나 X-A 배치(2026-08-19)에서 커맨드 자체가 제거됐다(§"X-A 배선 + 소규모 잔여 청소 배치" 절) |
   | `plugin_install` / `plugin_uninstall` / `vsix_import_plugin` / `vsix_extract_themes` | `LocalFilesystemEscape` | 데스크톱 로컬 파일시스템의 임의 경로를 이름으로 받음(Wave I) — 읽기(`vsix_extract_themes`)·쓰기(나머지 셋) 모두 프로젝트 루트 가드 밖 |
   | `agent_cli_install` / `agent_cli_uninstall` | `DesktopCliInterception` | `/usr/local/bin` 심링크·`osascript` 로 데스크톱 CLI 진입점을 설치/관리한다 — 원격 세션 종료 후에도 남는 CLI 실행 백도어가 되며(권한 프롬프트 불가시성은 부수 사유), `agent_hooks_install` User 스코프와 동일 분류(T0 감사 #12·#13, 2026-08-18) |
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
@@ -1727,3 +1757,122 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   계약 §5 이월. 오버라이드를 **지우는** 방향(섹션 삭제·설정 off)은 탭을 다시 열어도 반영되지
   않는다(모델이 앱 세션 내내 캐시되고, 오버라이드가 없으면 모델을 건드리지 않는다) — `features/editor.md`
   §17 · 계약 §5.
+
+### 사용성 배치 4 — OS 네이티브 알림 (2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §A.
+> 설정 필드 8종은 `docs/data-model.md` §19 가 정본이다.
+
+- **신규 도메인 `notification` · 신규 커맨드 2종.** `IMPLEMENTED_JSON_COMMANDS` 179 → **181**,
+  `REMOTE_DENIED_COMMANDS` 24 → **26**, 원격 커맨드 총계 182 → **184**(`REMOTE_ALLOWED_COMMANDS`
+  158 은 그대로 — 둘 다 거부다). 이벤트 신설 0.
+- **`notification_notify(category, title, body) → NotificationDelivery`** — 완료성 이벤트 하나를 OS
+  알림 센터로 보낸다. `category` 는 `NotificationCategory`
+  (`'agentCompleted' | 'taskCompleted' | 'gitRemote' | 'searchReplace' | 'lspInstall' | 'error'`).
+  - **게이트는 Rust 소유**다(`domain::notification::service::decide_delivery`, 순수 함수):
+    ① `notificationsEnabled` → ② 카테고리 스위치 → ③ `notificationsOnlyWhenUnfocused &&
+    webview_windows().values().any(is_focused)`. 순서는 보고 순서이기도 하다 — 세 조건이 동시에
+    성립하면 사용자가 **먼저 뒤집어야 할** 스위치를 사유로 돌려준다.
+  - **포커스 판정을 프론트에 두지 않는 이유**: 창마다 JS realm 이 달라 각 창은 자기 포커스만 알고,
+    보조 창을 보고 있는 사용자에게 메인 창이 알림을 쏜다. 또 트리거가 전 창 브로드캐스트
+    이벤트라 프론트 판정은 열린 창 수만큼 중복 발화한다.
+  - **반환 타입** `NotificationDelivery = { outcome: 'delivered' } | { outcome: 'suppressed';
+    reason: NotificationSuppressionReason }`, `NotificationSuppressionReason =
+    'notificationsDisabled' | 'categoryDisabled' | 'windowFocused'`.
+    **`delivered` 는 "플러그인에 넘겼다"는 뜻이지 "macOS 가 표시했다"가 아니다** —
+    `tauri-plugin-notification` 2.4.0 의 데스크톱 백엔드는 전달을 spawn 하고 결과를 버리며
+    (`src/desktop.rs` 의 `let _ = notification.show()`), 권한 조회는 항상 `Granted` 를 돌려주는
+    스텁이다. 즉 **"사용자가 TAIDE 알림을 꺼 뒀다"는 앱에서 관측 불가능**하다. 관측 가능한 것은
+    `suppressed` 뿐이며, 그래서 설정 화면의 "테스트 알림" 버튼이 무음 결과를 설명할 수 있다.
+  - **텍스트는 프론트 소유**다. `title`/`body` 는 이미 번역된 문자열로 도착하고 Rust 는 해석하지
+    않는다 — `t()` 카탈로그와 이벤트 데이터를 가진 쪽이 프론트다.
+- **`notification_open_system_settings() → null`** — macOS 시스템 설정의 알림 창을 연다.
+  권한 거부를 감지할 수 없으므로(위) 신호에 반응하는 대신 설정 화면에서 **상시 제공**한다.
+  - `system_open_external_url` 을 재사용하지 않는다: 그 커맨드의 `validate_external_url` 은
+    `http(s)://` 만 허용하고 그 좁음이 존재 이유다(§4). 대신 URL 인자를 아예 받지 않고
+    `constants::MACOS_NOTIFICATION_SETTINGS_URL`
+    (`x-apple.systempreferences:com.apple.Notifications-Settings.extension`) 하나만 연다.
+  - macOS 외 타깃은 `error.notification.settingsUnsupported`(`InvalidArgument`). 확장 번들 id 는 OS
+    버전 의존이고 `/usr/bin/open` 은 detached spawn 이라 실패가 무음이다 — 설정 화면이 수동 경로를
+    텍스트로 함께 보여준다.
+- **원격**: 둘 다 `REMOTE_DENIED_COMMANDS` + `RemoteDenialPolicy::UnreachableDesktopWindow`
+  (위 정책 표). 플러그인 커맨드(`plugin:notification|notify`)는 애초에
+  `IMPLEMENTED_JSON_COMMANDS` 밖이라 원격 dispatch 화이트리스트에 존재하지 않는다 — 미러가
+  데스크톱 알림을 쏘는 경로는 구조적으로 없다.
+- **capabilities**: `main.json` 에 `notification:allow-is-permission-granted` **1개만** 추가했다.
+  앱 코드가 그 커맨드를 부르기 때문이 아니라, 플러그인의 js init 스크립트가 창 로드마다
+  `.catch` 없이 그것을 invoke 하기 때문이다 — 미개방이면 부팅마다 unhandled rejection 이
+  `shared/lib/error-log-forwarding.ts` 를 통해 파일 로그에 error 로 남는다. 알림 발송 자체는
+  Rust 의 `NotificationExt` 로 하므로 `notification:allow-notify` 는 열지 않는다(NFR-7).
+- **JS 게스트 패키지(`@tauri-apps/plugin-notification`)는 설치하지 않는다** — 그 API 는 플러그인이
+  주입하는 `window.Notification` shim 에 의존하는데 원격 미러는 그 shim 을 받지 않고, 어차피 모든
+  발송이 Rust 게이트를 지나야 한다.
+
+### 사용성 배치 4 — 프로젝트 표시 설정 (2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §D.
+> 영속 스키마는 `docs/data-model.md` §20 이 정본이다.
+
+- **신규 커맨드 1종 `project_set_display`.** `IMPLEMENTED_JSON_COMMANDS` 181 → **182**,
+  `REMOTE_ALLOWED_COMMANDS` 158 → **159**(`REMOTE_DENIED_COMMANDS` 26 은 그대로), 원격 커맨드
+  총계 184 → **185**. 이벤트 신설 **0** — 완료 시 기존 `project:list-changed` 를 재발행한다.
+- **`project_set_display(projectId, patch: ProjectDisplayPatch) → null`** — 시그니처·규약·거부
+  조건은 위 project 절이 정본이다. 요약: 세 축(`icon`·`label`·`color`)이 각각 생략 = 유지 /
+  빈 문자열 = 해제 / 그 외 = 교체이고, 한 축이라도 규격 위반이면 호출 전체가
+  `error.project.displayInvalid`(`InvalidArgument`)로 거부된다.
+- **원격 허용인 이유**: 쓰기 대상이 `project_reorder` 와 같은 두 로컬 파일(`session.json` +
+  해당 `projects/<id>/project.json`)이고, 값은 열거된 아이콘 이름·짧은 라벨·lane 색 토큰뿐이라
+  원격 세션이 이미 볼 수 있는 것 밖의 경로·자원을 드러내지 않는다. 원격 미러는 같은 SPA 를
+  서빙하므로 사이드바가 원격에서도 렌더되고, `ProjectListChanged` 는 이미
+  `fanout_remote_events!` 에 등재돼 있어 원격 세션도 같은 이벤트로 갱신된다.
+- **조회 커맨드 반환 타입만 넓어졌다**: `project_list`(`ProjectRef[]`)·`project_get`·
+  `project_list_recent`(`Project`)에 `display?: ProjectDisplay` 가 생겼다. `#[serde(default)]`
+  이므로 specta 가 optional 로 생성하며, 프론트는 폴백을 소비처마다 적지 않고
+  `shared/lib/project-display.ts` 한 곳에서만 해석한다(감사 R5#5 의 `??` 드리프트 방지).
+
+### 사용성 배치 4 — 터미널 컨텍스트 메뉴의 분할 (2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §F.2-1.
+> 조사 원문: `docs/research/2026-09-04-batch4-terminal-tabbar-context-menu-research.md` §4·§5.
+
+- **신규 커맨드 1종 `layout_open_tab_in_split`.** `IMPLEMENTED_JSON_COMMANDS` 182 → **183**,
+  `REMOTE_ALLOWED_COMMANDS` 159 → **160**(`REMOTE_DENIED_COMMANDS` 26 은 그대로), 원격 커맨드
+  총계 185 → **186**. 이벤트 신설 **0** — 기존 `layout:changed` 를 정확히 1회 발행한다.
+- **`layout_open_tab_in_split(request: OpenTabInSplitRequest) → ProjectLayout`** — `target_pane`
+  옆(`edge` 방향)에 **새 페인을 만들고 그 안에 새 탭을 만든다.** `layout_split` 과 정반대의 의미다:
+  그쪽은 **이미 있는 탭을 옮긴다**(`extract_tab` → 새 Leaf). 터미널 우클릭의 "분할"은 VS Code 처럼
+  "그 방향에 새 터미널을 띄운다"는 뜻이라 옮기기로는 표현할 수 없다.
+  - `OpenTabInSplitRequest = { projectId, targetPane, edge: DropEdge, kind: TabKind, title,
+    preview?: boolean }`. 6필드를 한 구조체로 묶은 것은 **`clippy::too_many_arguments`(상한 7)**
+    때문이다 — `AppHandle`·`State` 를 더하면 8이 된다. `lsp_spawn` 의 `LspSpawnRequest`,
+    `pty_spawn` 의 `PtySpawnOptions` 와 같은 선례를 따랐다. `preview` 는 `#[serde(default)]`
+    (specta optional)이라 영구 탭만 여는 호출자는 생략한다.
+  - **`edge` 는 방향성 4종만** 받는다. `DropEdge::Center` 는 "이 페인 안에 열기"라는 뜻이고 그것은
+    `layout_open_tab` 의 일이므로 `InvalidArgument` 로 거절한다 — `layout_split` 이 Center 를
+    `move_tab` 으로 접어 넘기는 것과 다르다(옮길 탭이 애초에 없다).
+  - **`File` kind 선검증은 `layout_open_tab` 과 완전히 같다**: 커맨드 경계에서
+    `ensure_file_tab_target_exists`(→ `root_guard::resolve_owning_project` +
+    `root_guard::ensure_existing_file`)를 먼저 통과해야 한다(위 §layout 의 배치 3 절이 정본).
+    두 커맨드가 같은 헬퍼를 공유하므로 "탭은 열리고 본문만 `os error 2`" 를 새 진입점이 되살릴 수 없다.
+  - **`open_tab` 의 kind 동등 중복 제거를 타지 않는다.** `TabKind::Terminal { sessionId: "", cwd }`
+    두 개는 서로 같은 kind 라, 세션 id 가 아직 박히지 않은 터미널 탭이 있으면 `layout_open_tab` 은
+    새 탭 대신 그 탭을 활성화한다. 사용자는 "새 페인"을 요청한 것이므로 이 경로는 항상 새 탭을 만든다.
+- **왜 커맨드를 신설했는가(`layout_open_tab` + `layout_split` 2회 조합이 아닌 이유)** — 조합은 세
+  결함을 동시에 만든다: ① `open_tab` 이 새 탭을 **원래 페인에서** 활성화해 보고 있던 터미널 view 가
+  즉시 unmount 되고(xterm dispose → 재마운트 시 ring buffer 전량 replay), ② 새 터미널 탭이 마운트
+  즉시 스폰을 시작한 뒤 이어지는 split 이 그 탭을 다른 Leaf 로 옮겨 재마운트시키므로 **셸이 두 번
+  스폰**되고(감사 §4-B A6/C14 의 고아 셸 패턴), ③ 위의 kind 동등 중복 제거로 새 탭이 아예 안 생길 수
+  있다. 단일 커맨드는 `begin_mutation` 1회·`layout:changed` 1회·기존 페인 unmount 0 이라 이 셋이
+  **구조적으로 표현 불가능**하다.
+- **트리 삽입 로직은 `layout_split` 과 공유한다**: `layout::service::insert_new_leaf(layout,
+  target_pane, edge, new_leaf)` — 루트 Leaf 면 `wrap_leaf_in_split`, 부모 Split 의 방향이 같으면
+  형제 삽입 + 대상 share 반분, 다르면 대상 Leaf 만 감싸기. 이어 새 Leaf 를 그 트리의 포커스 페인으로
+  잡고 `normalize` · `ensure_focused_pane_valid` · `revision += 1` 까지 한 곳에서 한다. `split` 은
+  `extract_tab` 한 탭을, `open_tab_in_split` 은 갓 만든 탭을 같은 함수에 넘길 뿐이라
+  **분할 결과 트리 모양은 두 경로가 항상 동일**하다(회귀 테스트로 고정).
+- **원격 허용인 이유**: 이미 허용된 `layout_open_tab`(탭 생성)과 `layout_split`(페인 생성)의 합집합
+  이상을 하지 않는다 — 새 자원·새 경로를 드러내지 않고, 파일 탭이면 두 커맨드와 같은 root_guard 를
+  탄다. 원격 미러도 `pty_*` 를 이미 갖고 있어 새로 생긴 페인의 터미널이 그대로 붙는다.
+- **로케일 5키 순증**(`terminal.copy`·`terminal.paste`·`terminal.selectAll`·`terminal.clear`·
+  `terminal.kill`) — 분할 방향 라벨은 기존 `editorArea.splitTop/Bottom/Left/Right`,
+  "새 터미널"은 기존 `tab.newTerminal` 을 재사용한다.

@@ -10,7 +10,7 @@
 |------|------|------|
 | 패키지 매니저/스크립트 | **Bun** (컨벤션 기본) | Vite dev/build 는 Vite 자체 사용. bun 으로 `tauri dev` 실행 |
 | 프론트 빌드 | Vite **8.2.0** (Rolldown 기반) | `build.target`: win `chrome105` / 그 외 `safari13` (Tauri 템플릿 — 필수) |
-| Rust | stable 최신 + `src-tauri` | release 프로파일: lto, codegen-units 1, strip (`research/performance-memory.md` §8) |
+| Rust | stable 최신 + `src-tauri` (`rust-version = "1.89"`) | release 프로파일: lto, codegen-units 1, strip (`research/performance-memory.md` §8). MSRV 는 선언이 아니라 **의존성이 실제로 요구하는 값**이다 — `notify-rust` 4.18(알림 플러그인 전이 의존)이 1.89 를 요구해 사용성 배치 4 에서 1.80 → 1.89 로 올렸다 |
 | 테스트 | bun:test + Testing Library(프론트), `cargo test`(Rust) | 컨벤션 frontend.md §11 |
 
 ## 프론트엔드 (npm)
@@ -46,6 +46,7 @@
 | tauri-plugin-window-state | "2" | 윈도우 기하 복원 (ADR-0009) |
 | tauri-plugin-single-instance | "2" | CLI/중복 실행 (agent-integration) |
 | tauri-plugin-opener | "2" | Finder 열기·외부 링크 |
+| tauri-plugin-notification | "2" (현행 2.4.0) | OS 네이티브 알림 (사용성 배치 4). **Rust 의 `NotificationExt` 로만 쓴다** — npm 게스트 패키지 미설치, capability 는 `notification:allow-is-permission-granted` 1개(플러그인 init 스크립트의 unhandled rejection 방지)만. 전이 의존은 macOS 에서 `notify-rust` 4.18(→ MSRV 1.89) + `mac-notification-sys` 0.6(ObjC 정적 컴파일, `framework=AppKit` 만 링크 — 자립성 게이트 `deployment.md` §8), Windows 전용 `tauri-winrt-notification` 은 lock 에만 존재하고 macOS 빌드에는 들어가지 않는다. **데스크톱 백엔드의 권한 조회는 항상 `Granted` 스텁이고 전달 실패도 삼킨다** — 권한 거부 감지 불가(`ipc-contract.md` 사용성 배치 4 절) |
 | portable-pty | 0.9 | 터미널 pty (ADR-0005) |
 | git2 | 0.21 (`features = ["ssh","https","vendored-libgit2","vendored-openssl"]` — **전 플랫폼 vendored**: v0.1.0 3차 런에서 Homebrew libssl 동적 링크가 자립성 게이트에 적발돼 정적화) | Git 읽기·stage (ADR-0006 — **feature 미지정 시 push 인증 런타임 실패**) |
 | notify + notify-debouncer-full | 8.2 / 0.7 (stable 짝) | 파일 와처 (9.x/0.8.x 는 rc — 미사용) |

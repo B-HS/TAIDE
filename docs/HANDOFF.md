@@ -1,6 +1,6 @@
-# HANDOFF — 2026-09-04 세션 스냅샷 (사용성 배치 3 완결·커밋 / 배치 4 계약 확정·구현 대기 / 잔여 = e2e 14~16 실행·실기 확인·draft 3건 공개)
+# HANDOFF — 2026-09-04 세션 스냅샷 (배치 3 완결 / 배치 4 웨이브 1 완결·커밋 / 웨이브 2(성능·하네스·CI) 진행 중 / 잔여 = e2e 14~20 실행·실기 확인·draft 3건 공개)
 
-> 최종 갱신: 2026-09-04 / HEAD = `d7424f7`(dev, 이 docs 커밋이 그 위에 얹힘 → main ff 동기).
+> 최종 갱신: 2026-09-04 / HEAD = `8aa712a`(dev, 이 docs 커밋이 그 위에 얹힘 → main ff 동기). 배치 4 웨이브 1 완결.
 > 이 세션 — **사용성 배치 3**(퀵오픈 스테일 인덱스·파일 탭 열기 선검증 / 외부 URL 단일 오프너·OSC 8·
 > WebView 네비게이션 가드 / explorer autoReveal)을 조사→계약→구현 wf(opus·xhigh)→리뷰 wf(sonnet·xhigh)
 > →테스트 wf(fable·medium)→메인 2차 검증→커밋 5분할로 완결. 동시에 **사용성 배치 4**(OS 알림·Welcome·
@@ -16,10 +16,10 @@
 ## 2. 현재 목표
 
 - 최종: PRD FR-A~J(완료) → 전문 QA(qa6 실기 진행 중) → Phase 8 배포.
-- 현재 마일스톤: **배치 3 완결(커밋·푸시) → 배치 4 구현 착수**. **다음 한 줄 = 배치 4 웨이브 1
-  (A 알림·B Welcome·D 프로젝트 목록·E git 탭·F 터미널 메뉴·G 탭 바 메뉴) 구현 wf(opus·xhigh) 기동 →
-  리뷰 → 테스트 → 웨이브 2(C 성능·H 하네스/테스트/CI).** 사용자 몫: e2e 14~16 실행(`bun run tauri
-  dev` + REMOTE 준비 후 `bun run e2e`)·배치 3 표면 실기 확인·draft 3건 공개.
+- 현재 마일스톤: **배치 4 웨이브 1 완결(커밋·푸시) → 웨이브 2 진행**. **다음 한 줄 = 웨이브 2 구현 wf
+  (C 성능 1단계 계측·안전 수정 → 2단계 대형 3건·가상화 / H happy-dom+RTL 하네스·단위 P0+P1·e2e 선결·
+  CI 게이트) → 리뷰 → 테스트 → 커밋.** 사용자 몫: e2e 14~20 실행(`bun run tauri dev` + REMOTE 준비 후
+  `bun run e2e`)·배치 3/4 표면 실기 확인·수동 QA(알림·프로젝트 표시)·draft 3건 공개.
 
 ## 3. 완료 / 진행 중 / 미착수
 
@@ -64,14 +64,29 @@
 - 작업 방식: 역할표 갱신 + `.claude/settings.json` 허용 목록(`d7424f7`, 승인 프롬프트 폭주 대응) +
   "파일 수정은 Edit/Write 도구로만" 규칙(배치 4 계약 §0).
 
-### 3.4 잔여
+### 3.4 사용성 배치 4 웨이브 1 요약 (2026-09-04, 계약 `acknowledge/2026-09-04-usability-batch4-contract.md` "## 3. 구현 기록 (웨이브 1)" 정본)
 
-- **즉시(사용자)**: ① e2e 14~16 실행 + 배치 3 표면 실기(⌘P 삭제 파일 토스트·OSC 8/마크다운 링크가 OS
+- **A OS 알림** (`8dfc769`): `tauri-plugin-notification` 2.4(MSRV 1.89), notification 도메인(`decide_delivery`
+  순수 게이트 + `notification_notify`/`notification_open_system_settings`, 원격 거부), 설정 8종, 발화
+  5카테고리. 권한 거부 감지는 플러그인이 항상 granted 라 불가 → 설정 섹션 버튼 상시 노출. 리뷰 major:
+  터미널 탭 백그라운드 시 xterm 언마운트로 완료 감지 불가 → pty reader 가 OSC 133 C/D 스캔·실측 계측
+  후 `terminal:command-finished` 이벤트(창 무관, 보조 창도 해소). dev 실행에선 'Terminal' 이름으로 뜸.
+- **B Welcome** (`8866af9`): `view.welcome` 커맨드 + 탭 0 빈 pane Welcome(메인 창, 설정 `welcomeOnEmptyEditor`).
+- **D 프로젝트 표시** (`3e6baa7`): `ProjectDisplay` 양쪽 파일 미러·`project_set_display`·큐레이션 아이콘 56·
+  라벨 1~4자·lane 색 12, 다이얼로그. FR-A4(focus 아이콘)는 보류 각주.
+- **E git 섹션** (`10b0443`): 빈 Stash 섹션 최상단이 모호함의 원인 → Stashes 강등·0건 미렌더, 접이식 sticky
+  헤더 통일, 접힘 모듈 메모리, 로빙 헤더 포함.
+- **F 터미널 메뉴** (`aef0971`): `layout_open_tab_in_split`(insert_new_leaf 공유) — 2회 mutation 조합의
+  이중 스폰 구조적 차단, 분할 4방향 비활성 판정(pane rect), 복사/붙여넣기/종료.
+- **G 탭 바 메뉴** (`c93a4d8`): 여백·'+' 영역 메뉴(순수 빌더·표시 규칙 테스트), 탭 '이름 바꾸기' 브리지.
+- 테스트 (`0f8dcc9` + 단위): bun 2008·cargo 1288·e2e 17~20 **미실행**. 미결(사용자 실기): 계약 §3.4·§3.7.
+
+### 3.5 잔여
+
+- **즉시(사용자)**: ① e2e 14~20 실행 + 배치 3·4 표면 실기(알림 실기는 `tauri build` 산출물로 — dev 는 Terminal 이름)·수동 QA(`e2e-harness.md` §5.1)(⌘P 삭제 파일 토스트·OSC 8/마크다운 링크가 OS
   브라우저로·autoReveal·설정 스위치·IDE openFile 없는 경로 거절 표시) ② draft 3건 Publish ③ "빈 폴더" 재현 정보.
-- **다음 세션(메인)**: 배치 4 구현 — 계약 `acknowledge/2026-09-04-usability-batch4-contract.md`
-  A~H, 결정 `2026-09-04-usability-batch4-user-decisions.md`, 조사 원문 `research/2026-09-04-batch4-*.md`.
-  웨이브 1(A·B·D·E·F·G: Rust 직렬 B→A→D→F, TS 병렬) → 리뷰 → 테스트 → 웨이브 2(C 성능 1·2단계, H
-  하네스 happy-dom+RTL·테스트·CI 게이트). 신규 의존성 승인분: `tauri-plugin-notification`,
+- **다음(메인)**: 배치 4 웨이브 2 — 계약 C(성능 1·2단계)·H(하네스 happy-dom+RTL·단위 P0+P1·e2e 선결·CI)
+  구현 wf → 리뷰 → 테스트 → 커밋. 웨이브 1 미결(계약 §3.4·§3.6·§3.7)은 실기 결과 따라 처리. 신규 의존성 승인분: `tauri-plugin-notification`,
   devDependency happy-dom·@testing-library/react·@testing-library/dom.
 - qa6 실기·Phase 8 잔재·백로그(ignored 흐림·kitty·terminal 메뉴 이월분·target:null pane NotFound 등) 유지.
 - 이월(사용자 결정 대기): 직전 스냅샷 §3.3 목록 유지(`git show 3360aca:docs/HANDOFF.md`).
@@ -121,9 +136,9 @@
 
 ## 8. 다음 세션 TODO (우선순위)
 
-1. **배치 4 웨이브 1 구현 wf 기동**(계약 A·B·D·E·F·G) — 배치 3 계약 §0 의 wf 골격(Rust 직렬·TS 병렬·통합
-   verify) 재사용, 공통 규칙에 Edit/Write 전용 편집 포함.
-2. e2e 14~16 실행 결과·배치 3 실기 결과 청취(결함은 계약 §3 에 추가). draft 3건 공개 여부 확인.
+1. **배치 4 웨이브 2 구현 wf 기동**(계약 C·H) — 웨이브 1 wf 골격(Rust 직렬·TS 병렬·통합 verify) 재사용,
+   공통 규칙에 Edit/Write 전용 편집·단순 셸 명령만(승인 프롬프트) 포함.
+2. e2e 14~20 실행 결과·배치 3/4 실기 결과 청취(결함은 계약 §3 에 추가). draft 3건 공개 여부 확인.
 3. "빈 폴더" 재현 정보 확보 시 재추적(유력 가설: 트리 숨김 목록만 든 폴더 — wf C 트랙 openQuestion).
 4. qa6 계속 / Phase 8 잔재 판단 / 백로그(ignored 흐림·kitty protocol) 착수 여부.
 
@@ -134,7 +149,8 @@
 | `docs/HANDOFF.md` | **이 문서** — 단일 진입점 |
 | `docs/PROCESS.md` | 체크리스트 — "사용성 배치 3"(완결)·"사용성 배치 4"(대기) 절 |
 | `docs/acknowledge/2026-09-04-usability-batch3-contract.md` | 배치 3 계약 + §3 구현·리뷰·테스트 기록(이탈·미결 전건) |
-| `docs/acknowledge/2026-09-04-usability-batch4-contract.md` · `-user-decisions.md` | 배치 4 계약 A~H · 결정 7건 |
+| `docs/acknowledge/2026-09-04-usability-batch4-contract.md` · `-user-decisions.md` | 배치 4 계약 A~H · 결정 7건 · "## 3. 구현 기록 (웨이브 1)"(이탈·미결·리뷰 수정·테스트) |
+| `docs/quality-assurance/2026-09-04-git-section-ux-hand-qa.md` · `2026-08-18-e2e-harness.md` §5·§5.1 | git 섹션 손 QA · e2e 13~20 표 + 수동 QA(알림·프로젝트 표시) |
 | `docs/research/2026-09-04-batch4-topics1-5-research.md` · `-terminal-tabbar-context-menu-research.md` | 배치 4 조사 원문(파일:라인 인용) |
 | `docs/bug/2026-09-04-quick-open-stale-index-not-found.md` · `-external-link-opens-in-app-window.md` | 배치 3 버그 정본 2건 |
 | `docs/feedback/2026-09-04-research-must-use-workflow-opus-xhigh.md` · `docs/agent-operations.md` §1 | 역할표·서브에이전트 금지 |

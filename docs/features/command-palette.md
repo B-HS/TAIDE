@@ -44,13 +44,13 @@ type Command = {
 - 등록 지점은 앱 조립부(`app/`) — 각 도메인이 자기 커맨드를 등록해 올린다.
   플러그인(`plugins.md`)이 나중에 커맨드를 기여할 자리도 여기다.
 
-### 2.1 내장 커맨드 (실등록 23종 — `shared/lib/command-catalog.ts` `DEFAULT_COMMANDS` 정본)
+### 2.1 내장 커맨드 (실등록 24종 — `shared/lib/command-catalog.ts` `DEFAULT_COMMANDS` 정본)
 
 id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode 식 id 는 채택하지 않았다).
 
 | 영역 | id |
 |------|-----|
-| 창·뷰 | `window.reload`, `view.toggleSidebar`, `view.toggleTerminal`, `view.explorer`, `view.git`, `view.toggleZenMode` |
+| 창·뷰 | `window.reload`, `view.toggleSidebar`, `view.toggleTerminal`, `view.explorer`, `view.git`, `view.welcome`, `view.toggleZenMode` |
 | 탭 | `tab.close`, `tab.reopenClosed`, `tab.cycleNext` / `tab.cyclePrev`, `tab.moveToNewWindow` / `tab.moveToMainWindow` |
 | 에디터 | `editor.save`, `editor.find`, `editor.split` |
 | 검색·파일 | `file.quickOpen`, `search.find`, `search.replace` |
@@ -58,6 +58,17 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
 
 - git 동작(commit/push/pull)·LSP 재시작·플러그인 리로드·프로젝트 열기/닫기는 팔레트 커맨드로
   등록하지 않았다 — 각각 git 패널·설정 LSP 섹션·플러그인 매니저·사이드바 UI 로 노출된다.
+- `view.welcome`(2026-09-04) 은 `TabKind::Welcome` 탭을 **이 창의 focused pane** 에 연다
+  (`currentWindowFocusedPane`). 규약 3가지:
+  - **기본 단축키 없음.** `keymapId` 가 없으므로 `buildKeybindingRows` 가 `runsViaCommand` 행으로
+    만들어 주고, 사용자가 키바인딩 에디터에서 직접 바인딩할 수 있다(§5 · `keymap.md`). `APP_KEYMAP`
+    충돌 표면을 넓히지 않기 위한 선택이다.
+  - **탭 제목은 로케일이 아니라 리터럴** `WELCOME_TAB_TITLE`(`shared/constants/tab.ts`) — Rust
+    `layout::service::default_layout()` 이 쓰는 리터럴과 같다. `open_tab` 은 같은 leaf 에 동일 kind
+    탭이 있으면 재사용하면서 **기존 title 을 갱신하지 않으므로**, 로케일 제목을 넘기면 복원된 탭과
+    새 탭의 제목이 갈린다. 팔레트 라벨은 `app.welcome` 로케일 키를 쓴다.
+  - 활성 프로젝트가 없으면 목록에서 감추지 않고 실행 시 `app.openProjectFirst` 토스트를 띄운다
+    (`settings.open`·`terminal.new`·`app.openSettingsFile` 와 동일).
 
 ## 3. 매칭·정렬
 

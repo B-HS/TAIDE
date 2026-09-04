@@ -34,7 +34,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   ├── ids.rs           ProjectId / PaneId / TabId (newtype, serde transparent)
     │   ├── paths.rs         앱 데이터 디렉토리 경로 규칙 (data-model.md §2)
     │   ├── constants.rs     무시 목록·파일 크기 4단계 임계값 (워처·트리·검색이 공유)
-    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈, 총 24개 — 전부 tauri 무결합)
+    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈, 총 25개 — 전부 tauri 무결합)
     │   │   ├── agent/       에이전트 감지, wait 마커, CLI 설치 상태
     │   │   ├── ai/          AI 기능 — 자동완성·Inline Edit·커밋 메시지 (provider 3종: Codex·Ollama Cloud·OMLX)
     │   │   ├── app/         앱 정보 (버전·플랫폼)
@@ -45,6 +45,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리), 멀티 윈도우 탭 이동
     │   │   ├── locale/      번역 메시지 로드/병합 + 사용자 언어팩 (7.5-H)
     │   │   ├── lsp/         LSP 세션 관리, 서버 감지·설치, 루트 탐지
+    │   │   ├── notification/ OS 네이티브 알림 게이트 (설정·카테고리·앱 전체 포커스 판정)
     │   │   ├── plugin/      플러그인 매니페스트 로드·검증
     │   │   ├── project/     프로젝트 열기/닫기/목록, capability 확장점(trait·레지스트리 — §3)
     │   │   ├── remote/      원격 접속 서버 (axum WS·비밀번호 인증·허용/거부 정책·이벤트 팬아웃)
@@ -82,10 +83,17 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 > - `infra/repo.rs`(git2 래퍼)는 만들지 않았다 — git2 호출이 `domain/git/service.rs` 안에 있다.
 > - `infra/proc.rs` 대신 용도별로 `infra/pty.rs` 와 `infra/lsp_proc.rs` 로 나뉘었다.
 > - `src/cli/` 가 아니라 **별도 크레이트 `crates/taide-cli`** 다 (워크스페이스 구성).
-> - 초안에 없던 도메인이 순차 추가되어 24개가 됐다: `app`·`tree`·`agent`(초기), Phase 7.5 의
+> - 초안에 없던 도메인이 순차 추가되어 25개가 됐다: `app`·`tree`·`agent`(초기), Phase 7.5 의
 >   `locale`·`font`, 이후 웨이브에서 `ai`·`ide`·`remote`·`snippet`·`sync`·`system`·`task`·`vsix`·
->   `window`. `locale` 은 **테마와 완전히 같은 구조**다(내장 정의 + 사용자 파일 열거 + `extends`
->   부분 병합) — 같은 문제를 두 번 푸는 대신 검증된 구조를 재사용했다.
+>   `window`, 사용성 배치 4 의 `notification`. `locale` 은 **테마와 완전히 같은 구조**다(내장 정의
+>   + 사용자 파일 열거 + `extends` 부분 병합) — 같은 문제를 두 번 푸는 대신 검증된 구조를 재사용했다.
+> - `notification` 은 **상태를 갖지 않는 게이트 도메인**이다(스토어 없음, `app.manage` 없음).
+>   "OS 알림을 보낼지" 의 판정을 Rust 가 소유하는 이유는 두 가지다. (1) "앱이 비포커스" 는
+>   `webview_windows().values().any(is_focused)` 로만 정확하다 — 창마다 JS realm 이 분리돼 있어
+>   프론트가 자기 창만 보면 보조 창을 보고 있는 사용자에게도 알림이 간다. (2) 알림 트리거가
+>   전 창 브로드캐스트 이벤트(`agent:state-changed`·`lsp:install-progress`)라 판정을 프론트에
+>   두면 열린 창 수만큼 중복 발화한다. 텍스트(제목·본문)는 반대로 **프론트가 소유**한다 —
+>   `t()` 카탈로그와 이벤트 데이터를 가진 쪽이 프론트이고, Rust 는 문자열을 해석하지 않는다.
 > - 도메인별 저장소(`TreeStore`·`TerminalStore`·`GitStore`·`LspStore`·`SearchStore`·`AgentStore`)는
 >   `state.rs` 가 아니라 각 도메인 `commands.rs` 에 정의하고 `app.manage()` 로 등록한다.
 >   (병렬 구현 시 `state.rs` 충돌을 피하려는 선택 — 결과적으로 도메인 응집도가 높아졌다.
@@ -430,6 +438,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    | `entities/lsp/lsp-session-flush-registry.ts` + `entities/lsp/lsp-session-registry.ts` | 프로젝트/창/서버/root 별 LSP 세션(`sessionsByKey`) | 참조 카운트 0 도달 후 `LSP_SESSION_DISPOSE_GRACE_MS` 유예, 또는 `projectClosed` 이벤트(`ipc-sync-provider.tsx` → `flushLspSessionsForProject`)로 유예 없이 강제 회수, 또는 앱 종료(`HotExitFlushProvider` → `flushAllLspSessionDisposals`) |
    | `shared/lib/bridge/fire-and-forget-bridge.ts`·`shared/lib/bridge/external-store-bridge.ts` 로 만든 팩토리형 브리지 12+종 | 팩토리 자체는 무상태 — 소유권 범위는 **호출부가 정의**(대개 프로세스 전체, 창별 모듈 인스턴스로 자동 격리) | 팩토리는 구독자 0 정책(`emptyPolicy`)만 제공, TTL/용량은 호출부 책임(예: terminal-write-bridge 의 레이어) |
    | `entities/agent/agent-wait-marker-registry.ts` | tabId 별 외부 오픈 대기 마커 | `useCloseTab` 해제 경로 + `clearStaleWaitMarkersOnStartup`(앱 부팅 시 잔존분 정리) |
+   | `entities/git/git-section-collapse-memory.ts` | SCM 패널 섹션 5종(merge·staged·changes·stashes·graph)의 접힘 여부 — 프로세스(창) 전체 1벌, 프로젝트에 묶이지 않는 뷰 선호 | 앱 실행 종료. 키 집합이 닫힌 union 5개라 증가하지 않으므로 해제 신호·TTL·상한이 필요 없다(재시작 시 `GIT_SECTION_DEFAULT_COLLAPSED` 로 복귀) |
 
    **앱 수명 부수효과(이벤트 구독·전역 상태 동기화)는 조건부 렌더 위젯이 아니라 상시 마운트
    프로바이더(`app/providers/*`)가 소유한다(C4)** — `AppSidebar`·`StatusBarContent`·

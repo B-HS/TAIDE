@@ -106,6 +106,13 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
   `liblzma`(xz2)로 실패했다. 수정: git2 `vendored-openssl`·xz2 `static`(2026-08-28, 로컬
   otool 로 외부 링크 0 확증). **새 네이티브 의존을 추가할 때는 vendored/static 여부를 반드시
   확인**하라 — 이 게이트가 최종 방어선이다.
+  - **확인 절차**: 릴리스 빌드 후
+    `otool -L <repo>/target/release/bundle/macos/TAIDE.app/Contents/MacOS/TAIDE` 를 돌려
+    `/usr/lib/`·`/System/Library/` 밖의 링크가 0인지 본다.
+  - [ ] `tauri-plugin-notification`(사용성 배치 4, 2026-09-04) — 전이 의존
+    `mac-notification-sys` 가 `build.rs` 로 ObjC 를 `cc` 정적 컴파일하고 `framework=AppKit` 만
+    링크하므로 외부 dylib 를 만들지 않을 전망이다. **debug 빌드에서는 외부 링크 0 을 확인했고,
+    릴리스 빌드 확인은 미실행** — 다음 릴리스 런에서 위 절차로 확정한다.
 - 태그 재시도: 실패한 태그 런의 재실행(rerun)은 **태그 시점의 워크플로**로 돈다 — 워크플로
   수정을 반영하려면 태그를 새 커밋으로 다시 발행해야 한다(미발행 draft 상태라면 태그
   삭제·재푸시 가능 — 사용자 승인 필수).

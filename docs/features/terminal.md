@@ -6,9 +6,12 @@
 
 ## 1. 구성
 
-- view: `@xterm/xterm@6` + addon(fit, webgl(+onContextLoss 재로드), search, serialize, unicode11,
-  clipboard(OSC52 — Tauri clipboard-manager 위임 provider), web-links(URL), ligatures, progress).
-  canvas addon 은 v6 미대응 — 폴백은 DOM 렌더러.
+- view: `@xterm/xterm@6` + **실제 설치·로드된 addon 5종**(fit, webgl(+onContextLoss 재로드),
+  search, unicode11, web-links(URL)) + 커스텀 파일 링크 provider. canvas addon 은 v6 미대응 —
+  폴백은 DOM 렌더러.
+  - `serialize`·`clipboard`(OSC52)·`ligatures`·`progress` 는 **설치돼 있지 않다**(2026-09-04 확인 —
+    `package.json` 의 `@xterm/addon-*` 는 fit/search/unicode11/web-links/webgl 5개뿐). 도입은 백로그.
+  - `search` 는 로드만 돼 있고 검색 UI 는 아직 없다(§8).
 - Rust: `domain/terminal` + `infra/pty.rs`(portable-pty 0.9). 세션 구조체가
   master·writer(take_writer 1회 — 보관 필수)·killer(`clone_killer`)·child 를 소유.
   **spawn 후 slave drop 확인**(EOF 감지 조건 — research 함정 2).
@@ -132,6 +135,13 @@
   code 0/비0), `⌘↑`/`⌘↓`(키맵 `terminal-jump-to-previous-command`/`-next-command`)로 이전/다음
   명령 블록으로 스크롤. 블록 단위 복사는 여전히 2차(§11) — OSC7 cwd 추적 기본 배선은
   X-A 배치(2026-08-19)에서 완성됐다(§9), 남는 고도화(청크 경계에 걸친 시퀀스 재조립 등)만 2차.
+- **완료 알림용 실행 시간은 프론트가 아니라 Rust 가 잰다**(사용성 배치 4 웨이브 1 리뷰 F-1):
+  이 트래커는 xterm 인스턴스와 생사를 같이 하는데, `pane-node-view.tsx` 는 활성 탭만 렌더하므로
+  **터미널 탭이 배경으로 가면 통째로 언마운트**된다 — 정작 알림이 필요한 "빌드 걸어두고 다른 탭으로
+  갔다" 가 그 상태다. 그래서 이 트래커는 데코레이션·점프만 소유하고, "명령이 끝났다 + 얼마나
+  걸렸다" 는 pty reader 스레드가 `infra::shell_integration::extract_command_markers` 로 같은 OSC 133
+  `C`/`D` 를 읽어 `terminal:command-finished` 이벤트로 발행한다(§9). 프론트에서 재면 재부착 시
+  스크롤백 재생이 `C`/`D` 를 수 ms 간격으로 다시 파싱해 몇 시간짜리 명령도 0ms 로 측정된다.
 
 ## 5.1 태스크 러너 · Run Selected Text (Wave E, `tasks.md`)
 
@@ -228,19 +238,93 @@
 `on_navigation`/`on_new_window` 가드를 둔다 — 상세는 `docs/architecture.md` 의 "WebView 네비게이션
 가드" 절.
 
+### 6.2 우클릭 컨텍스트 메뉴 (사용성 배치 4, 2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §F. 조사 원문
+> `docs/research/2026-09-04-batch4-terminal-tabbar-context-menu-research.md` 주제 6.
+
+**항목.**
+
+```
+복사(선택 없음·클립보드 불가 시 비활성) · 붙여넣기(클립보드 불가 시 비활성) · 모두 선택
+── 지우기
+── 분할 ▸ 왼쪽 / 오른쪽 / 위 / 아래 (각 방향은 크기가 모자라면 비활성) · 새 터미널
+── 터미널 종료
+```
+
+- 라벨은 신규 5키(`terminal.copy`·`paste`·`selectAll`·`clear`·`kill`) + 기존 `tab.split`·
+  `editorArea.split*`·`tab.newTerminal` 재사용.
+- **분할 = "그 방향에 새 터미널을 만든다"**(VS Code `workbench.action.terminal.split` 파리티).
+  탭 우클릭 메뉴·`⌘\` 의 분할이 **이 탭을 옮기는** 것과 의미가 다르다. 전용 커맨드
+  `layout_open_tab_in_split` 을 쓰는 이유는 왕복 절감이 아니라 정확성이다 — 프론트에서
+  `layout_open_tab` + `layout_split` 으로 합성하면 (a) 새 탭이 원래 pane 에서 먼저 활성화돼 보고
+  있던 터미널이 unmount 되고 ring buffer 를 전량 replay 하며 (b) 새 탭이 마운트 즉시 스폰을
+  시작한 뒤 split 으로 재마운트돼 **셸을 두 번 스폰**하고(감사 §4-B A6/C14 의 고아 셸 패턴)
+  (c) `open_tab` 의 kind 동등 dedupe 때문에 `session_id` 가 아직 비어 있는 터미널 탭이 있으면
+  새 탭이 아예 생기지 않는다.
+- **비활성 방향은 숨기지 않는다.** 탭 메뉴의 "조건 불일치 항목은 숨긴다" 관례(`tabs.md` §3.1)와
+  반대인데, 방향이 사라지면 "이 앱은 아래로 못 나눈다"로 읽히고 흐려지면 "지금 크기로는 안
+  된다"로 읽히기 때문이다(사용자 확정 전제).
+- 새 터미널 = 같은 pane 에 터미널 탭 추가(`layout_open_tab`, 탭 바 `+`·팔레트와 동일 경로),
+  종료 = `layout_close_tab`(pty 회수 포함, 확인 다이얼로그 없음 — 일반 탭 닫기와 동일).
+
+**비활성 판정 (`widgets/terminal-pane/terminal-split-availability.ts`, 순수 함수 + `bun:test`).**
+
+- `resolveSplitAvailability({ paneWidthPx, paneHeightPx, minPaneSizePx, resizerThicknessPx })` →
+  `required = minPaneSizePx * 2 + resizerThicknessPx`, 좌/우는 폭·상/하는 높이로 판정.
+  측정 실패(0)는 그 축을 막는다.
+- `MIN_PANEL_SIZE_PX`(120)는 `pane-node-view.tsx` 에서 `shared/constants/layout.ts` 로 승격해
+  렌더러와 이 판정이 같은 수를 읽는다. react-resizable-panels 는 픽셀 `minSize` 를 그룹 대비
+  퍼센트로 환산한 뒤 **정규화**하므로, 너무 좁은 pane 의 분할을 거부하는 대신 조용히 뭉갠다 —
+  그래서 앱이 사전에 걸러야 한다.
+- 측정은 `PaneNodeView` 가 leaf **콘텐츠 박스**(탭 바 아래, 곧 터미널이 채우는 영역)에 단 ref 를
+  `TerminalSession → TerminalPane` 으로 내려 **메뉴 열림 시 `getBoundingClientRect()` 1회**만 한다
+  (ResizeObserver·리렌더 0). 콘텐츠 박스를 재기 때문에 탭 바 높이는 자동으로 빠지고 Zen 모드
+  (탭 바 없음)도 별도 분기 없이 맞는다.
+
+**클립보드 (`terminal-clipboard-availability.ts`, 순수 함수 + `bun:test`).**
+
+- `resolveTerminalClipboardAvailability({ hasWriteText, hasReadText })` 로 복사/붙여넣기 가능
+  여부를 따로 판정한다. async clipboard API 는 secure context 에만 노출되고 원격 미러는 LAN 평문
+  HTTP(`remote-control.md`)라 `navigator.clipboard` 자체가 없을 수 있다 — 두 메서드 존재 확인이
+  곧 secure context 판정이라 별도 `isSecureContext` 검사는 두지 않는다. 눌러도 아무 일이 없는
+  항목 대신 비활성 항목을 보여 준다.
+- 붙여넣기는 `writePty` 가 아니라 **`term.paste()`** 로 넣는다. CRLF 정규화와 bracketed paste
+  (`\x1b[200~`)를 적용하는 쪽이 xterm 이라, 원문을 그대로 쓰면 여러 줄 붙여넣기가 줄마다 실행된다.
+
+**입력·포커스.**
+
+- Terminal 옵션 `rightClickSelectsWord: false` 를 명시한다. 기본값이 macOS 에서 `true` 라 우클릭이
+  커서 아래 단어를 선택해 버려, "복사"의 대상이 사용자가 고른 범위와 달라진다.
+- Radix `ContextMenuTrigger` 가 `contextmenu` 를 `preventDefault` 하므로 **보조 창의 네이티브
+  메뉴도 함께 막힌다**(억제는 지금까지 메인 창 `app-shell.tsx` 에만 있었다).
+- `ContextMenuContent onCloseAutoFocus` 에서 기본 동작을 막고 `term.focus()` 를 부른다 — 안 그러면
+  메뉴가 닫힌 뒤 xterm textarea 가 blur 된 채로 남아 다음 키 입력이 어디에도 가지 않는다.
+- 마우스 리포팅 모드(vim·tmux 등)에서도 메뉴는 항상 뜬다(VS Code 동일).
+
+**cwd 상속.** 새 터미널은 `resolveSplitTerminalCwd({ liveCwd, persistedCwd, tabCwd, projectRoot })`
+가 고른 cwd 로 스폰한다 — OSC 7 라이브 cwd 우선, 없으면 세션 cwd → 탭 cwd. 단 `pty_default_options`
+가 넘겨받은 cwd 를 `ensure_within_root` 로 검증하므로 **루트 밖(`cd /tmp` 이후)이면 `null` 로
+떨어뜨려 프로젝트 루트에서 연다**(Forbidden 스폰 실패 대신).
+
 ## 7. 폰트 크기 (FR-G3)
 
-- `attachCustomKeyEventHandler` 로 cmd(ctrl) `+`/`-`/`0`(리셋) 처리 → `term.options.fontSize` 대입 +
-  `fit.fit()` (안 부르면 커서 밀림 — 함정 16). MIN 6.
-- 크기는 설정(settings 도메인)에 저장 — 전 터미널 공통, 변경 시 열린 터미널 전체 반영.
+- 크기는 설정(settings 도메인)에 저장 — 전 터미널 공통, 변경 시 열린 터미널 전체 반영. 조절
+  진입점은 **상태바(`status-bar-content.tsx`)와 설정 화면**(`settings-terminal-section.tsx`)이다.
+  MIN 6(`shared/constants/terminal.ts`).
+- **`⌘+`/`⌘-`/`⌘0` 커스텀 키 핸들러는 미구현이다**(2026-09-04 확인). `attachCustomKeyEventHandler`
+  는 Shift+Enter → LF 변환만 처리한다(§8). 도입 시 폰트 대입 후 `fit.fit()` 을 반드시 부른다
+  (안 부르면 커서 밀림 — 함정 16).
 - 컨테이너 리사이즈: ResizeObserver + rAF + `proposeDimensions()` 비교 후 fit
   (숨김 컨테이너 NaN 가드 — 함정 11). 순서: xterm resize → pty resize(함정 12).
 
 ## 8. 검색·기타 (FR-G4)
 
-- 검색 바(`⌘F` — 터미널 포커스 시): SearchAddon, 결과 카운트(`onDidChangeResults`)·
-  overviewRuler 하이라이트.
-- 복사/붙여넣기: 선택 시 자동 복사 옵션, `⌘V`. OSC52 지원(clipboard addon).
+- **검색 바는 미구현이다**(2026-09-04 확인). `SearchAddon` 은 로드만 돼 있고(`terminal-view.tsx`)
+  `findNext`/검색 UI 참조가 0건이다. 도입 시 결과 카운트(`onDidChangeResults`)·overviewRuler
+  하이라이트까지 함께 한다 — 백로그.
+- 복사/붙여넣기: **우클릭 컨텍스트 메뉴**(§6.2)가 유일한 진입점이다. 선택 시 자동 복사 옵션·
+  OSC52(clipboard addon)는 미구현이며 `@xterm/addon-clipboard` 는 설치돼 있지 않다 — 백로그.
 - 진행률: progress addon(OSC 9;4) → 탭·앱 사이드바 뱃지에 반영 가능(2차).
 - 이미지(Sixel/IIP)·리거처는 옵션(기본 off, `storageLimit` 제한).
 - Shift+Enter → LF(`\n`) 변환(2026-08-29): xterm.js 는 kitty keyboard protocol 미지원이라
@@ -270,7 +354,11 @@
   OSC7 을 직접 파싱해 발행**한다 — `infra::shell_integration` 의 zsh/bash 훅이 매 프롬프트마다
   `\e]7;$PWD\e\\` 를 pty 출력에 실어 보내고, `extract_latest_cwd` 가 그 raw 바이트를 스캔해
   `terminal::commands::pty_spawn` 의 `on_data` 콜백에서 이전 cwd 와 달라졌을 때만 이 이벤트를
-  발행한다), `agent:state-changed`(`agent-integration.md`)
+  발행한다), `terminal:command-finished(sessionId, cwd, exitCode, durationMs)`(§5 —
+  같은 `on_data` 콜백이 `extract_command_markers` 로 OSC 133 `C`/`D` 를 읽어 세션별 `Instant` 로 실제
+  경과 시간을 재고 발행한다. `C` 를 못 본 `D` 는 발행하지 않는다. 소비자는 메인 창의
+  `native-notification-provider.tsx` 하나 — 10초 이상 걸린 명령만 OS 알림이 된다),
+  `agent:state-changed`(`agent-integration.md`)
 
 ## 10. 수명주기 · 누수 방지
 
@@ -309,7 +397,7 @@
 
 | 1차 | 2차 |
 |-----|-----|
-| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기·파일 링크(cmd+click)·검색·복사/붙여넣기·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)**·**OSC7 cwd 추적 기본 배선(X-A, 2026-08-19)** | OSC7 cwd 추적 고도화(청크 경계 재조립 등)·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
+| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기(상태바·설정)·파일 링크(cmd+click)·**우클릭 컨텍스트 메뉴(복사/붙여넣기/모두 선택/지우기/분할/새 터미널/종료 — 사용성 배치 4, §6.2)**·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)**·**OSC7 cwd 추적 기본 배선(X-A, 2026-08-19)** | 검색 바 UI(SearchAddon 은 로드만 됨)·`⌘+`/`⌘-` 폰트 키·OSC52(clipboard addon)·OSC7 cwd 추적 고도화(청크 경계 재조립 등)·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
 
 
 ## 12. Phase 7.5 재평가 결과 (2026-08-06) — **xterm 유지, 우리 코드가 원인**
