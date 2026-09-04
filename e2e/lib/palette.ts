@@ -22,7 +22,7 @@ export const openFileViaQuickOpen = async (page: Page, fileNameQuery: string) =>
     await option.click()
 }
 
-const escapeRegExpLiteral = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+export const escapeRegExpLiteral = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
  * Runs an app command by title through the palette's `>` command mode (opened directly via

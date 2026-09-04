@@ -54,6 +54,12 @@ const FIXTURE_FILES: Record<string, string> = {
      */
     'tsconfig.json': JSON.stringify({ compilerOptions: { target: 'es2022', module: 'esnext', strict: true } }, null, 4) + '\n',
     'src/nested-only.ts': "export const nestedOnly = 'nested-only-marker'\n",
+    /**
+     * Deleted mid-test by spec 16 (`16-quick-open-missing-file-toast.e2e.ts`) to make a quick-open
+     * row go stale. Its content deliberately shares no identifier or text with the other fixture
+     * files so the search/symbol counts specs 03·05·06 assert on stay unchanged.
+     */
+    'src/ephemeral.ts': "export const ephemeral = 'ephemeral-marker'\n",
 }
 
 const GIT_COMMIT_ENV = {
