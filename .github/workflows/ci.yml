@@ -1,0 +1,76 @@
+# Branch/PR gate. release.yml only runs on v* tags, so before this workflow nothing verified a
+# dev/main push or a pull request. Decision: docs/acknowledge/2026-09-04-usability-batch4-user-decisions.md (2차 결정 6)
+name: CI
+
+on:
+    push:
+        branches: [dev, main]
+    pull_request:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    # Same ladder as `bun run verify` minus the rust half, plus the e2e project's typecheck.
+    # ubuntu is safe because dom-preload.ts pins a macOS user agent, so IS_MAC-gated tests
+    # do not depend on the host platform.
+    frontend:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: 1.3.14
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Typecheck
+              run: bun run typecheck
+
+            - name: Lint
+              run: bun run lint
+
+            - name: Format check
+              run: bun run format:check
+
+            - name: Unit tests
+              run: bun run test
+
+            - name: Typecheck e2e specs
+              run: bun run typecheck:e2e
+
+    # macOS because the app targets macOS only — platform crates (mac-notification-sys, tauri's
+    # macOS backend) do not build on linux. dtolnay/rust-toolchain installs `--profile minimal`,
+    # so rustfmt/clippy have to be requested explicitly.
+    rust:
+        runs-on: macos-latest
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: '.'
+                  shared-key: tests
+                  # shares the entry cache-warm.yml warms on main; PR-scoped saves are discarded anyway
+                  save-if: ${{ github.event_name == 'push' }}
+
+            - name: Rust format check
+              run: cargo fmt --all --check
+
+            - name: Clippy
+              run: cargo clippy --workspace --all-targets -- -D warnings
+
+            - name: Rust tests
+              run: cargo test --workspace
