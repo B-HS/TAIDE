@@ -199,6 +199,25 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         onClearSelection: () => setSelectedRow(null),
     }
 
+    /**
+     * Reveals a path in the tree and selects it — the shared half of the two bridges the tab bar
+     * drives ("Reveal in Explorer View" and "Rename"). The reveal mutation answers with the tree
+     * page it just expanded, so the rename request reads its row from that response instead of the
+     * `rows` snapshot this closure captured before the await.
+     */
+    const revealTreePath = async (path: string) => {
+        const page = await revealTreeNode({ projectId, path })
+        setSelectPathRequest(path)
+        return page
+    }
+
+    const startRenameAtPath = async (path: string) => {
+        const page = await revealTreePath(path)
+        const revealed = page.rows.find((row) => row.path === path)
+        if (!revealed) return
+        crud.startRename(toFileTreeRow(revealed, gitStatusByPath.get(revealed.path) ?? null))
+    }
+
     const collapseAllExpanded = async () => {
         const expandedDirPaths = rows.filter((row) => row.kind === 'directory' && row.expanded).map((row) => row.path)
         for (const path of expandedDirPaths) {
@@ -242,12 +261,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                 onRenameCommit={(name) => void crud.commitRename(name)}
                 onRenameCancel={crud.cancelRename}
                 onSelectPathRequestHandled={() => setSelectPathRequest(null)}
-                onRevealInExplorerRequest={(path) => {
-                    void (async () => {
-                        await revealTreeNode({ projectId, path })
-                        setSelectPathRequest(path)
-                    })()
-                }}
+                onRevealInExplorerRequest={(path) => void revealTreePath(path)}
+                onRenameInExplorerRequest={(path) => void startRenameAtPath(path)}
             />
             <EntryDeleteDialog
                 entryName={crud.deleteTarget?.name ?? null}

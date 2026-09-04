@@ -1,4 +1,4 @@
-import type { FC, ReactNode, WheelEvent } from 'react'
+import type { ComponentProps, FC, ReactNode, WheelEvent } from 'react'
 import { useEffect, useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind, TabWindowTarget } from '@shared/api/bindings'
 import { cn } from '@shared/lib/cn'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { WELCOME_TAB_TITLE } from '@shared/constants/tab'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
@@ -16,6 +17,7 @@ import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
 import { requestRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
+import { requestRenameInExplorer } from '@shared/lib/bridge/explorer-rename-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { disposeModel, toUntitledModelPath } from '@entities/editor/model-registry'
@@ -32,6 +34,7 @@ import {
     useOpenTab,
     useOpenUntitledTab,
     usePinTab,
+    useReopenClosedTab,
     useSetTabPreview,
     useSplitPane,
 } from '@entities/layout/layout.query'
@@ -40,6 +43,7 @@ import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 import type { SplitEdge } from '@features/tab/tab-context-menu'
 import { SortableTab } from '@features/tab/sortable-tab'
 import { TabBarAddMenu } from '@features/tab/tab-bar-add-menu'
+import { TabBarContextMenu } from '@features/tab/tab-bar-context-menu'
 
 const TAB_ICON_SIZE_CLASS = 'size-3.5'
 
@@ -89,6 +93,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { mutate: openTab } = useOpenTab(projectId)
     const { mutate: openUntitledTab } = useOpenUntitledTab(projectId)
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
+    const { mutate: reopenClosedTab } = useReopenClosedTab(projectId)
     const { setNodeRef: setContainerRef } = useDroppable({
         id: `pane-container:${paneId}`,
         data: { type: 'tab-container', paneId } satisfies TabContainerDropData,
@@ -158,6 +163,33 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
         }
     }
 
+    const handleOpenWelcome = () =>
+        openTab({ projectId, kind: { kind: 'welcome' }, title: WELCOME_TAB_TITLE, target: paneId, preview: false }, { onError: notifyError })
+
+    const handleSplitActiveTab = (edge: SplitEdge) => {
+        if (!activeTabId) return
+        splitPane({ paneId, edge, tabId: activeTabId })
+    }
+
+    /**
+     * Shared by the two triggers the empty-space menu is mounted on — the filler between the tabs
+     * and the `+` action area, which sits outside the scroll container and would otherwise stay
+     * unreactive to a right-click. Both open the same menu, and every entry that creates a tab
+     * targets *this* pane, matching the `+` button and the filler's double-click.
+     */
+    const tabBarContextMenuProps = {
+        hasTabs: tabs.length > 0,
+        hasActiveTab: activeTabId !== null,
+        hasClosedTabs: (layout?.closedTabs ?? []).length > 0,
+        onNewFile: handleNewUntitledFile,
+        onNewTerminal: handleNewTerminal,
+        onReopenClosedTab: () => reopenClosedTab(projectId, { onError: notifyError }),
+        onCloseSaved: () => void handleCloseSaved(),
+        onCloseAll: () => void handleCloseAll(),
+        onOpenWelcome: handleOpenWelcome,
+        onSplit: handleSplitActiveTab,
+    } satisfies Omit<ComponentProps<typeof TabBarContextMenu>, 'children'>
+
     const renderTab = (tab: Tab) => {
         const filePath = tab.kind.kind === 'file' ? tab.kind.path : null
         const relativePath = filePath && project ? toRelativePath(project.root, filePath) : null
@@ -203,6 +235,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 onFileHistory={filePath ? () => requestOpenFileHistory(filePath) : undefined}
                 onKeepOpen={() => setTabPreview({ tabId: tab.id, preview: false })}
                 onRevealInExplorerView={filePath ? () => requestRevealInExplorer(filePath) : undefined}
+                onRename={filePath ? () => requestRenameInExplorer(filePath) : undefined}
                 onReopenWithEditor={filePath && canReopenWith ? () => setOpenWithOverride(filePath, 'editor') : undefined}
                 onReopenWithPreview={filePath && canReopenWith ? () => setOpenWithOverride(filePath, null) : undefined}
                 onMoveToNewWindow={() => handleMoveToWindow(tab.id, { kind: 'newAuxiliary' })}
@@ -250,15 +283,19 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 <SortableContext items={unpinnedTabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
                     <div className='flex min-w-0 shrink-0 items-stretch'>{unpinnedTabs.map(renderTab)}</div>
                 </SortableContext>
-                <div ref={setContainerRef} onDoubleClick={handleNewUntitledFile} className='min-w-8 flex-1' />
+                <TabBarContextMenu {...tabBarContextMenuProps}>
+                    <div ref={setContainerRef} onDoubleClick={handleNewUntitledFile} className='min-w-8 flex-1' />
+                </TabBarContextMenu>
             </div>
-            <div
-                className={cn(
-                    'bg-tab-bar-background border-tab-bar-tab-border flex h-9 shrink-0 items-center border-b px-1',
-                    focused && 'border-b-ring',
-                )}>
-                <TabBarAddMenu onNewFile={handleNewUntitledFile} onNewTerminal={handleNewTerminal} />
-            </div>
+            <TabBarContextMenu {...tabBarContextMenuProps}>
+                <div
+                    className={cn(
+                        'bg-tab-bar-background border-tab-bar-tab-border flex h-9 shrink-0 items-center border-b px-1',
+                        focused && 'border-b-ring',
+                    )}>
+                    <TabBarAddMenu onNewFile={handleNewUntitledFile} onNewTerminal={handleNewTerminal} />
+                </div>
+            </TabBarContextMenu>
             <OverlayScrollbar viewportRef={scrollRef} orientation='horizontal' trackClassName='h-[3px]' />
         </div>
     )

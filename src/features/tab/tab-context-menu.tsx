@@ -11,6 +11,7 @@ import {
     PanelLeft,
     PanelRight,
     PanelTop,
+    Pencil,
     Pin,
     PinOff,
     X,
@@ -29,7 +30,8 @@ import {
 
 export type SplitEdge = Extract<DropEdge, 'left' | 'right' | 'top' | 'bottom'>
 
-const SPLIT_EDGE_OPTIONS: { edge: SplitEdge; labelKey: string; icon: ReactNode }[] = [
+/** Shared with the tab bar's empty-space menu (`tab-bar-context-menu.tsx`), whose Split submenu offers the same four edges with the same labels and icons. */
+export const SPLIT_EDGE_OPTIONS: { edge: SplitEdge; labelKey: string; icon: ReactNode }[] = [
     { edge: 'left', labelKey: 'editorArea.splitLeft', icon: <PanelLeft className='size-4' /> },
     { edge: 'right', labelKey: 'editorArea.splitRight', icon: <PanelRight className='size-4' /> },
     { edge: 'top', labelKey: 'editorArea.splitTop', icon: <PanelTop className='size-4' /> },
@@ -53,6 +55,7 @@ type TabContextMenuProps = {
     onFileHistory?: () => void
     onKeepOpen?: () => void
     onRevealInExplorerView?: () => void
+    onRename?: () => void
     onReopenWithEditor?: () => void
     onReopenWithPreview?: () => void
     onMoveToNewWindow: () => void
@@ -78,6 +81,7 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
     onFileHistory,
     onKeepOpen,
     onRevealInExplorerView,
+    onRename,
     onReopenWithEditor,
     onReopenWithPreview,
     onMoveToNewWindow,
@@ -114,7 +118,7 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                         {onCopyRelativePath && <ContextMenuItem onSelect={onCopyRelativePath}>{t('tab.copyRelativePath')}</ContextMenuItem>}
                     </>
                 )}
-                {isFileTab && (onRevealInFinder || onRevealInExplorerView || onOpenChanges || onFileHistory) && (
+                {isFileTab && (onRevealInFinder || onRevealInExplorerView || onRename || onOpenChanges || onFileHistory) && (
                     <>
                         <ContextMenuSeparator />
                         {onRevealInFinder && (
@@ -127,6 +131,12 @@ export const TabContextMenu: FC<TabContextMenuProps> = ({
                             <ContextMenuItem onSelect={onRevealInExplorerView}>
                                 <FolderTree className='size-4' />
                                 {t('tab.revealInExplorerView')}
+                            </ContextMenuItem>
+                        )}
+                        {onRename && (
+                            <ContextMenuItem onSelect={onRename}>
+                                <Pencil className='size-4' />
+                                {t('tab.rename')}
                             </ContextMenuItem>
                         )}
                         {onOpenChanges && <ContextMenuItem onSelect={onOpenChanges}>{t('tab.openChanges')}</ContextMenuItem>}

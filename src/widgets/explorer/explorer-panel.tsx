@@ -12,6 +12,7 @@ import { subscribeShowExplorerView } from '@shared/lib/bridge/explorer-panel-bri
 import type { SearchPanelRequest } from '@shared/lib/bridge/search-panel-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { subscribeRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
+import { subscribeRenameInExplorer } from '@shared/lib/bridge/explorer-rename-bridge'
 import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@features/explorer/file-tree'
 import { FileTree } from '@features/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
@@ -55,6 +56,7 @@ type ExplorerPanelProps = {
     onRenameCancel: () => void
     onSelectPathRequestHandled: () => void
     onRevealInExplorerRequest: (path: string) => void
+    onRenameInExplorerRequest: (path: string) => void
 }
 
 /**
@@ -91,6 +93,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     onRenameCancel,
     onSelectPathRequestHandled,
     onRevealInExplorerRequest,
+    onRenameInExplorerRequest,
 }) => {
     const { t } = useTranslation()
     const [searchRequest, setSearchRequest] = useState<SearchPanelRequest | null>(null)
@@ -123,6 +126,19 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                 onRevealInExplorerRequest(path)
             }),
         [onViewChange, onRevealInExplorerRequest],
+    )
+
+    /**
+     * A file tab's "Rename" delegates to the tree's inline rename editor, which only exists in the
+     * files view — so the request switches to it first, exactly as the reveal bridge above does.
+     */
+    useEffect(
+        () =>
+            subscribeRenameInExplorer((path) => {
+                onViewChange('files')
+                onRenameInExplorerRequest(path)
+            }),
+        [onViewChange, onRenameInExplorerRequest],
     )
 
     return (

@@ -23,6 +23,7 @@ import {
     subscribeToggleExplorerSidebar,
 } from '@shared/lib/bridge/explorer-panel-bridge'
 import { subscribeRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
+import { subscribeRenameInExplorer } from '@shared/lib/bridge/explorer-rename-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { fileNameOf } from '@shared/lib/relative-path'
@@ -140,6 +141,9 @@ export const AppShell = () => {
      * through this bridge, so it can never pop the sidebar open on its own.
      */
     useEffect(() => subscribeRevealInExplorer(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
+
+    /** A tab's "Rename" hands the job to the tree's inline editor, so it has to be visible for the same reason "Reveal in Explorer" does. */
+    useEffect(() => subscribeRenameInExplorer(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
 
     /**
      * A no-op while Zen mode holds the panel force-collapsed — toggling it mid-Zen would desync

@@ -31,6 +31,7 @@ type SortableTabProps = {
     onFileHistory?: () => void
     onKeepOpen?: () => void
     onRevealInExplorerView?: () => void
+    onRename?: () => void
     onReopenWithEditor?: () => void
     onReopenWithPreview?: () => void
     onMoveToNewWindow: () => void
@@ -60,6 +61,7 @@ export const SortableTab: FC<SortableTabProps> = ({
     onFileHistory,
     onKeepOpen,
     onRevealInExplorerView,
+    onRename,
     onReopenWithEditor,
     onReopenWithPreview,
     onMoveToNewWindow,
@@ -87,6 +89,7 @@ export const SortableTab: FC<SortableTabProps> = ({
             onFileHistory={onFileHistory}
             onKeepOpen={onKeepOpen}
             onRevealInExplorerView={onRevealInExplorerView}
+            onRename={onRename}
             onReopenWithEditor={onReopenWithEditor}
             onReopenWithPreview={onReopenWithPreview}
             onMoveToNewWindow={onMoveToNewWindow}
