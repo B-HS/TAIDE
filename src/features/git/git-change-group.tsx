@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { File, Minus, Plus, Undo2 } from 'lucide-react'
 import type { StatusRow } from '@shared/api/bindings'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
-import { ResourceGroupHeader } from '@features/git/resource-group-header'
+import { GIT_SECTION_ROW_INDENT_CLASS, GitSectionHeader } from '@features/git/git-section-header'
 import type { GitStatusChangeKind, StatusRowAction } from '@features/git/status-row-item'
 import { StatusRowItem } from '@features/git/status-row-item'
 
@@ -20,6 +20,8 @@ import { StatusRowItem } from '@features/git/status-row-item'
 export type GitDiffTarget = { path: string; beforePath: string | null }
 
 type GitChangeGroupBaseProps = {
+    expanded: boolean
+    onToggle: () => void
     onOpenFile: (path: string) => void
     onOpenChanges: (target: GitDiffTarget, group: 'staged' | 'unstaged') => void
     onCopyPath: (path: string) => void
@@ -155,41 +157,46 @@ const buildGitChangeGroupConfig = (props: GitChangeGroupProps, t: GitChangeGroup
 export const GitChangeGroup: FC<GitChangeGroupProps> = (props) => {
     const { t } = useTranslation()
     const config = buildGitChangeGroupConfig(props, t)
+    const actions =
+        config.actionLabel && config.onAction
+            ? [{ id: 'group-action', label: config.actionLabel, icon: config.actionIcon, onClick: config.onAction }]
+            : []
 
     return (
         <div>
-            <ResourceGroupHeader
-                title={config.title}
-                count={config.rows.length}
-                actionLabel={config.actionLabel}
-                actionIcon={config.actionIcon}
-                onAction={config.onAction}
-            />
-            {config.rows.map((row) => (
-                <ContextMenu key={row.path}>
-                    <ContextMenuTrigger>
-                        <StatusRowItem
-                            path={row.path}
-                            origPath={row.origPath}
-                            kind={row.kind}
-                            selected={false}
-                            actions={config.buildActions(row)}
-                            onClick={() => config.onRowClick(row)}
-                        />
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                        {config.buildContextMenuEntries(row).map((entry) =>
-                            entry.type === 'separator' ? (
-                                <ContextMenuSeparator key={entry.key} />
-                            ) : (
-                                <ContextMenuItem key={entry.key} variant={entry.destructive ? 'destructive' : undefined} onSelect={entry.onSelect}>
-                                    {entry.label}
-                                </ContextMenuItem>
-                            ),
-                        )}
-                    </ContextMenuContent>
-                </ContextMenu>
-            ))}
+            <GitSectionHeader title={config.title} count={config.rows.length} expanded={props.expanded} onToggle={props.onToggle} actions={actions} />
+            {props.expanded && (
+                <div className={GIT_SECTION_ROW_INDENT_CLASS}>
+                    {config.rows.map((row) => (
+                        <ContextMenu key={row.path}>
+                            <ContextMenuTrigger>
+                                <StatusRowItem
+                                    path={row.path}
+                                    origPath={row.origPath}
+                                    kind={row.kind}
+                                    selected={false}
+                                    actions={config.buildActions(row)}
+                                    onClick={() => config.onRowClick(row)}
+                                />
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                                {config.buildContextMenuEntries(row).map((entry) =>
+                                    entry.type === 'separator' ? (
+                                        <ContextMenuSeparator key={entry.key} />
+                                    ) : (
+                                        <ContextMenuItem
+                                            key={entry.key}
+                                            variant={entry.destructive ? 'destructive' : undefined}
+                                            onSelect={entry.onSelect}>
+                                            {entry.label}
+                                        </ContextMenuItem>
+                                    ),
+                                )}
+                            </ContextMenuContent>
+                        </ContextMenu>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

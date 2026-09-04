@@ -10,7 +10,7 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitCommitFilesQueryOptions } from '@entities/git/git.query'
 import { useOpenTab } from '@entities/layout/layout.query'
-import { ResourceGroupHeader } from '@features/git/resource-group-header'
+import { GitSectionCountBadge } from '@features/git/git-section-count-badge'
 import { fileNameOf } from '@shared/lib/relative-path'
 import type { GraphLogEntry } from '@widgets/git-panel/commit-graph'
 import { IconButton } from '@shared/ui/icon-button'
@@ -88,7 +88,10 @@ export const CommitDetailPanel: FC<CommitDetailPanelProps> = ({ projectId, commi
                 />
             </div>
 
-            <ResourceGroupHeader title={t('git.changedFiles')} count={files.length} />
+            <div className='text-panel-section-header flex h-6 items-center gap-1.5 px-2 text-[11px] font-semibold tracking-wide uppercase'>
+                <span className='truncate'>{t('git.changedFiles')}</span>
+                <GitSectionCountBadge count={files.length} />
+            </div>
             {isError && <div className='text-status-error px-2 py-1.5 text-xs'>{t('editor.diffLoadFailed')}</div>}
             {!isError && isPending && <div className='text-app-sidebar-icon-default px-2 py-1.5 text-xs'>{t('common.loading')}</div>}
             {files.map((file) => (
