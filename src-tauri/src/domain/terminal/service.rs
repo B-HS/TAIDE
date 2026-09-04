@@ -259,4 +259,72 @@ mod tests {
         let result = resolve_terminal_path("does/not/exist.rs", "/tmp");
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
+
+    #[test]
+    fn 앞뒤_공백만_있는_줄과_인라인_해시는_셸_목록에서_다르게_다뤄진다() {
+        let content = "   \n\t\n /bin/dash \n/bin/sh # not a comment\n";
+
+        assert_eq!(
+            parse_shell_list(content),
+            vec!["/bin/dash".to_string(), "/bin/sh # not a comment".to_string()],
+            "주석 판정은 줄 맨 앞의 # 뿐이라 경로 뒤의 #는 경로의 일부로 남습니다"
+        );
+    }
+
+    /// Three or more trailing numbers: only the last two are read as line/column, and the rest stay
+    /// in the path — a `path:1:2:3` pasted from a stack trace must not silently drop `:1`.
+    #[test]
+    fn 숫자_꼬리는_최대_둘까지만_행과_열로_읽는다() {
+        assert_eq!(parse_terminal_path("a:1:2:3"), ("a:1".to_string(), Some(2), Some(3)));
+    }
+
+    /// The `path_end > 1` guard: an input that is nothing but a number is a path, not a bare line
+    /// number, so the first segment is never consumed.
+    #[test]
+    fn 숫자만_있는_입력은_경로로_남는다() {
+        assert_eq!(parse_terminal_path("42"), ("42".to_string(), None, None));
+    }
+
+    #[test]
+    fn 앞뒤_공백은_경로_해석_전에_잘린다() {
+        assert_eq!(parse_terminal_path("  src/main.rs:7  "), ("src/main.rs".to_string(), Some(7), None));
+    }
+
+    #[test]
+    fn 음수나_소수_꼬리는_행_열로_읽히지_않는다() {
+        assert_eq!(parse_terminal_path("a:-1"), ("a:-1".to_string(), None, None));
+        assert_eq!(parse_terminal_path("a:1.5"), ("a:1.5".to_string(), None, None));
+    }
+
+    fn resolve_fixture(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("taide-terminal-resolve-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src").join("main.rs"), b"fn main() {}").unwrap();
+        dir
+    }
+
+    #[test]
+    fn 상대_경로는_cwd_를_기준으로_해석되고_행_열_꼬리는_버려진다() {
+        let dir = resolve_fixture("relative");
+        let expected = std::fs::canonicalize(dir.join("src").join("main.rs")).unwrap();
+
+        let resolved = resolve_terminal_path("src/main.rs:12:3", &dir.to_string_lossy()).expect("cwd 기준으로 찾아야 합니다");
+
+        assert_eq!(resolved, expected.to_string_lossy());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 절대_경로는_cwd_와_무관하게_해석된다() {
+        let dir = resolve_fixture("absolute");
+        let absolute = dir.join("src").join("main.rs");
+        let expected = std::fs::canonicalize(&absolute).unwrap();
+
+        let resolved = resolve_terminal_path(&absolute.to_string_lossy(), "/nonexistent-cwd").expect("절대 경로는 cwd 를 보지 않습니다");
+
+        assert_eq!(resolved, expected.to_string_lossy());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

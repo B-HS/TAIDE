@@ -107,11 +107,11 @@ pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay], editor_conf
         return Ok(refused_file(path_string, language_id, byte_size, modified_ms));
     }
 
-    if is_binary(&read_sniff(path)?) {
+    let Some(bytes) = read_text_bytes(path, byte_size)? else {
         return Ok(refused_file(path_string, language_id, byte_size, modified_ms));
-    }
+    };
 
-    let (content, encoding_lossy) = decode_utf8_lossy(std::fs::read(path)?);
+    let (content, encoding_lossy) = decode_utf8_lossy(bytes);
     let line_count = content.lines().count();
 
     let tier = if byte_size >= READ_ONLY_FILE_BYTES {
@@ -574,12 +574,32 @@ fn hash_path(path: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn read_sniff(path: &Path) -> AppResult<Vec<u8>> {
-    let mut file = std::fs::File::open(path)?;
-    let mut buffer = vec![0u8; BINARY_SNIFF_BYTES];
-    let read = file.read(&mut buffer)?;
-    buffer.truncate(read);
-    Ok(buffer)
+/// Reads a file for the editor buffer, or `None` when its first [`BINARY_SNIFF_BYTES`] contain a
+/// NUL — the caller turns that into a [`FileSizeTier::Refused`] response.
+///
+/// One `open`, one forward pass. [`open_file`] used to sniff through a `File::open` of its own and
+/// then hand the path to `std::fs::read`, which opened the file a second time and re-read the bytes
+/// the sniff had just looked at (research 3b §2-G); here the sniff window is simply the first chunk
+/// of the same reader that goes on to read the rest. This is the shape
+/// `search::service::read_scannable_bytes` already uses — including reading the window with
+/// `take(..).read_to_end`, which fills the full 8000-byte window where a bare `read` could return a
+/// short chunk and sniff less than it meant to.
+///
+/// Sizing the buffer from `byte_size` preserves the single allocation `std::fs::read` used to get
+/// from its own `metadata` call; the only call site has already established that `byte_size` is
+/// below `REFUSED_FILE_BYTES`, and a file that grew since that check just makes `read_to_end` grow
+/// the buffer as it always would.
+fn read_text_bytes(path: &Path, byte_size: u64) -> AppResult<Option<Vec<u8>>> {
+    let mut reader = std::fs::File::open(path)?;
+    let mut bytes = Vec::with_capacity(usize::try_from(byte_size).unwrap_or(BINARY_SNIFF_BYTES));
+
+    (&mut reader).take(BINARY_SNIFF_BYTES as u64).read_to_end(&mut bytes)?;
+    if is_binary(&bytes) {
+        return Ok(None);
+    }
+
+    reader.read_to_end(&mut bytes)?;
+    Ok(Some(bytes))
 }
 
 fn is_binary(sniff: &[u8]) -> bool {
@@ -939,6 +959,64 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("binary.dat");
         std::fs::write(&file, [0x00u8, 0x01, 0x02, 0x03]).unwrap();
+
+        let opened = open_file(&file, &[], false).expect("open");
+
+        assert_eq!(opened.tier, FileSizeTier::Refused);
+        assert!(opened.content.is_empty());
+
+        cleanup(&dir);
+    }
+
+    /// Long enough that the fixture spans several sniff windows, so a reader that restarted the
+    /// file (or skipped the sniffed prefix) after deciding the file is text would show up as
+    /// missing or duplicated content rather than passing by accident.
+    const SNIFF_SPAN_LINES: u32 = 2_000;
+
+    #[test]
+    fn sniff_창을_넘는_파일도_이어읽기로_전체가_그대로_열린다() {
+        let dir = temp_dir("sniff-continue");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("long.txt");
+        let text: String = (0..SNIFF_SPAN_LINES).map(|index| format!("line-{index}\n")).collect();
+        assert!(text.len() > BINARY_SNIFF_BYTES, "픽스처가 sniff 창보다 커야 의미가 있다");
+        std::fs::write(&file, &text).unwrap();
+
+        let opened = open_file(&file, &[], false).expect("open");
+
+        assert_eq!(opened.tier, FileSizeTier::Normal);
+        assert_eq!(opened.content, text, "sniff 로 읽은 앞부분이 빠지거나 중복되면 안 된다");
+        assert_eq!(opened.line_count, SNIFF_SPAN_LINES);
+        assert!(!opened.encoding_lossy);
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn sniff_창_밖의_nul_은_바이너리로_보지_않는다() {
+        let dir = temp_dir("sniff-late-nul");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("late-nul.txt");
+        let mut bytes = vec![b'a'; BINARY_SNIFF_BYTES];
+        bytes.push(0x00);
+        std::fs::write(&file, &bytes).unwrap();
+
+        let opened = open_file(&file, &[], false).expect("open");
+
+        assert_ne!(opened.tier, FileSizeTier::Refused, "바이너리 판정 창은 앞부분뿐이다");
+        assert_eq!(opened.content.len(), bytes.len(), "판정 창 뒤 바이트도 전부 실려야 한다");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn sniff_창_마지막_바이트의_nul_은_바이너리로_판정한다() {
+        let dir = temp_dir("sniff-edge-nul");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("edge-nul.dat");
+        let mut bytes = vec![b'a'; BINARY_SNIFF_BYTES * 2];
+        bytes[BINARY_SNIFF_BYTES - 1] = 0x00;
+        std::fs::write(&file, &bytes).unwrap();
 
         let opened = open_file(&file, &[], false).expect("open");
 
@@ -1318,5 +1396,119 @@ mod tests {
             !matches!(error, AppError::Localized(_)),
             "NotFound 이외의 io 에러는 로케일화 대상이 아니다"
         );
+    }
+
+    #[test]
+    fn 파일_생성은_없는_부모_디렉토리를_함께_만든다() {
+        let dir = temp_dir("create-nested-file");
+        let target = dir.join("a").join("b").join("new.rs");
+
+        create_entry(&target, false).expect("중첩 경로의 파일도 생성되어야 합니다");
+
+        assert!(target.is_file());
+        assert_eq!(std::fs::read(&target).unwrap(), Vec::<u8>::new(), "새 파일은 비어 있습니다");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 폴더_생성은_중간_경로를_전부_만든다() {
+        let dir = temp_dir("create-nested-dir");
+        let target = dir.join("a").join("b").join("c");
+
+        create_entry(&target, true).expect("중첩 폴더도 생성되어야 합니다");
+
+        assert!(target.is_dir());
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 같은_경로로의_개명은_아무_일도_하지_않고_성공한다() {
+        let dir = temp_dir("rename-noop");
+        let file = dir.join("a.rs");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&file, b"body").unwrap();
+
+        rename_entry(&file, &file).expect("동일 경로 개명은 no-op 성공입니다");
+
+        assert_eq!(std::fs::read(&file).unwrap(), b"body");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 개명_목적지의_없는_부모_디렉토리는_만들어진다() {
+        let dir = temp_dir("rename-nested");
+        let from = dir.join("a.rs");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&from, b"body").unwrap();
+        let to = dir.join("moved").join("deep").join("a.rs");
+
+        rename_entry(&from, &to).expect("중첩 목적지로도 옮겨져야 합니다");
+
+        assert!(!from.exists());
+        assert_eq!(std::fs::read(&to).unwrap(), b"body");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 파일_복사는_내용을_그대로_옮기고_원본을_남긴다() {
+        let dir = temp_dir("copy-file");
+        let from = dir.join("a.rs");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&from, b"fn main() {}").unwrap();
+        let to = dir.join("nested").join("b.rs");
+
+        copy_entry(&from, &to).expect("파일 복사는 부모 경로까지 만들어야 합니다");
+
+        assert_eq!(std::fs::read(&to).unwrap(), b"fn main() {}");
+        assert!(from.is_file(), "복사는 원본을 남깁니다");
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 자기_자신으로의_복사는_경로_충돌이_아니라_자기_복사로_거부된다() {
+        let dir = temp_dir("copy-self");
+        let file = dir.join("a.rs");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&file, b"body").unwrap();
+
+        let error = copy_entry(&file, &file).expect_err("자기 자신으로의 복사는 거부되어야 합니다");
+
+        assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+        match &error {
+            AppError::Localized(localized) => assert_eq!(localized.key, "error.file.copyIntoSelf"),
+            other => panic!("localized 에러여야 합니다: {other:?}"),
+        }
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn read_raw_는_없는_파일을_not_found_로_거부한다() {
+        let dir = temp_dir("read-raw-missing");
+
+        assert_eq!(read_raw(&dir.join("nope.bin")).unwrap_err().kind(), AppErrorKind::NotFound);
+    }
+
+    #[test]
+    fn read_raw_는_미리보기_상한을_넘는_파일을_거부한다() {
+        let dir = temp_dir("read-raw-large");
+        let file = dir.join("big.bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&file, vec![0x41u8; crate::constants::READ_ONLY_FILE_BYTES as usize + 1]).unwrap();
+
+        let error = read_raw(&file).expect_err("상한 초과 파일은 거부되어야 합니다");
+
+        assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+        match &error {
+            AppError::Localized(localized) => assert_eq!(localized.key, "error.file.previewTooLarge"),
+            other => panic!("localized 에러여야 합니다: {other:?}"),
+        }
+
+        cleanup(&dir);
     }
 }

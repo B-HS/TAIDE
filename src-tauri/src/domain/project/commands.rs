@@ -8,9 +8,10 @@ use super::capability::ProjectCapabilities;
 use super::service;
 use super::types::{Project, ProjectDisplayPatch, ProjectRef, SessionState};
 use crate::domain::file::types::{FsChange, FsChangeKind};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::events::{FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened};
 use crate::ids::ProjectId;
+use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
 
 fn emit_list_changed(app: &AppHandle, state: &AppState) {
@@ -66,19 +67,32 @@ pub async fn project_get_active(state: State<'_, AppState>) -> AppResult<Option<
 #[tauri::command]
 #[specta::specta]
 pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<service::ProjectOpenResult> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-    let mut projects = state.projects.read().clone();
+    let _span = perf::span(SpanSlot::ProjectOpen);
 
-    let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), |canonical| {
-        app.state::<ProjectCapabilities>().detected_kinds(canonical)
-    })?;
+    let result = {
+        let _guard = state.begin_mutation().await;
+        let mut session = state.session.read().clone();
+        let mut projects = state.projects.read().clone();
 
-    *state.session.write() = session;
-    *state.projects.write() = projects;
+        let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), |canonical| {
+            app.state::<ProjectCapabilities>().detected_kinds(canonical)
+        })?;
+
+        *state.session.write() = session;
+        *state.projects.write() = projects;
+        result
+    };
 
     if !result.already_open {
-        app.state::<ProjectCapabilities>().attach_all(&app, &state, &result.project);
+        if let Err(error) = attach_project_capabilities(&app, &result.project).await {
+            if let Err(rollback) = project_close(app.clone(), state.clone(), result.project.id.clone()).await {
+                log::warn!(
+                    "capability attach 실패 후 프로젝트 되돌리기도 실패했습니다 (projectId={}): {rollback}",
+                    result.project.id
+                );
+            }
+            return Err(error);
+        }
 
         let _ = ProjectOpened {
             project: result.project.clone(),
@@ -93,6 +107,106 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
     .emit(&app);
 
     Ok(result)
+}
+
+/// Runs the capability attach walk for a freshly opened project **without holding
+/// `AppState::begin_mutation` across it** — the "build outside the guard, register inside it" split
+/// `restore_project_watchers` established for boot, promoted to the capability trait itself
+/// (`ProjectCapability::build_attachment` → `ProjectAttachment`) and applied to `project_open`.
+///
+/// **Why.** The guard is a single app-wide `tokio::sync::Mutex` (`AppState::begin_mutation`), so
+/// while `project_open` held it across the whole one-shot attach walk it used to run, *every*
+/// mutation in the app — `file_save`,
+/// every `git_*`, `layout_*`, `tree_toggle`, the periodic dirty-layout flush and dirty-buffer
+/// mirror — queued behind the new project's `notify-debouncer-full` `FileIdMap` walk. That walk
+/// stats every entry below the root with no ignore list applied (`node_modules`/`target` included),
+/// which on a large working tree is seconds, not milliseconds. `architecture.md` §2.1's "no IO
+/// under a lock" rule says the same thing in the abstract; this is the one place `project_open`
+/// broke it hardest.
+///
+/// **Ordering is unchanged.** Both phases walk the registration list forward and the commit replays
+/// the build's vector position for position, so each capability still attaches after every
+/// capability registered before it — the order `lib.rs`'s `project_capabilities` pins and
+/// `project_close`'s reap mirrors (`architecture.md` §3·§6.3).
+///
+/// **No events are lost by the deferral.** A watcher handle is already subscribed when
+/// `build_watcher_handle`/`build_git_watcher_handle` returns, so changes landing between the build
+/// and its registration are still fanned out; registration is only what gives `project_close` a
+/// handle to drop. And this command still awaits the whole attach before it emits `ProjectOpened`/
+/// `ProjectActivated` or returns, so no frontend query for this project can run before its watchers
+/// are live — the deferral moved the *lock*, not the attach.
+///
+/// **Re-validation under the re-acquired guard.** `state.projects` only shrinks via
+/// `project_close`, which runs its whole body under one guard acquisition, so a close landing
+/// during the unguarded build is fully visible the instant this re-acquires. When it is, the built
+/// attachments are dropped instead of committed — dropping a watcher handle stops its debouncer, so
+/// nothing is left behind for a `detach` that already ran.
+///
+/// **Attach-completion git refresh (d-25 boot-gap correction, applied to this path).** `GIT.PROJECT`
+/// is one of the two frontend caches that only ever refresh on an event
+/// (`entities/git/git.query.ts`; see `restore_project_watchers`'s doc for the full pair), so a
+/// `.git` change landing before the watcher subscribes has nowhere to go on its own. One
+/// `GitStatusChanged` after the watcher registers closes that, and costs nothing in the normal
+/// case: `ProjectOpened`/`ProjectActivated` have not been emitted yet at that point, so no window
+/// has mounted a query under this project's key and the invalidation matches nothing. Where it
+/// does real work is the one window the deferral genuinely widened — a *second* `project_open` for
+/// the same path landing while this attach runs takes the `already_open` branch, so it emits
+/// `ProjectActivated` and returns without waiting for these watchers; this emit is what brings that
+/// caller's git query back in sync once they are live. The
+/// `FsChanged` half of the boot correction is deliberately not replicated — on this path the
+/// layout (and therefore any open File tab) becomes visible to the frontend only *after* this
+/// function returns, so there is no already-mounted `FILE.CONTENT` query to correct.
+///
+/// **A build that never lands is a failed open, not a silent one.** `spawn_blocking` reports a
+/// panicking build phase as a `JoinError`, and the split gives that failure somewhere to be lost
+/// that the pre-split synchronous walk did not have: nothing would be committed, yet `project_open`
+/// had already published the project into `state.projects`/`state.session`, so the caller would be
+/// told the open succeeded while not one of the registered capabilities — `LayoutCapability`, the
+/// only writer of `state.layouts`, included — had attached. It is reported as an error instead, and
+/// `project_open` unwinds the half-open project through [`project_close`] (the same reap walk a real
+/// close runs) before returning it. A project closed *during* the build is not that case: dropping
+/// the built attachments is the designed outcome there, so it still returns `Ok`.
+async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppResult<()> {
+    let build_app = app.clone();
+    let build_project = project.clone();
+    let built = tauri::async_runtime::spawn_blocking(move || {
+        let state = build_app.state::<AppState>();
+        build_app
+            .state::<ProjectCapabilities>()
+            .build_attachments(&build_app, &state, &build_project)
+    })
+    .await;
+
+    let attachments = match built {
+        Ok(attachments) => attachments,
+        Err(error) => {
+            log::warn!(
+                "프로젝트 capability attach 태스크가 실패했습니다 (projectId={}): {error}",
+                project.id
+            );
+            return Err(AppError::Internal(format!("project capability attach failed: {}", project.id)));
+        }
+    };
+
+    let state = app.state::<AppState>();
+    let git_attached = {
+        let _guard = state.begin_mutation().await;
+        if !state.projects.read().contains_key(&project.id) {
+            return Ok(());
+        }
+
+        app.state::<ProjectCapabilities>().commit_attachments(&state, project, attachments);
+        state.git_watchers.read().contains_key(&project.id)
+    };
+
+    if git_attached {
+        let _ = GitStatusChanged {
+            project_id: project.id.clone(),
+        }
+        .emit(app);
+    }
+
+    Ok(())
 }
 
 /// Closes `project_id` and reaps every resource that only makes sense while the project is open.
@@ -135,6 +249,7 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
 #[tauri::command]
 #[specta::specta]
 pub async fn project_activate(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
+    let _span = perf::span(SpanSlot::ProjectActivate);
     let _guard = state.begin_mutation().await;
     let mut session = state.session.read().clone();
     let mut projects = state.projects.read().clone();
@@ -274,8 +389,9 @@ pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Pro
 /// way the old fully-synchronous loop in `lib.rs`'s `setup()` did. `restore_state` and every
 /// `app.manage` call stay synchronous in `setup()` — the tree and editor need the
 /// projects/layouts they populate immediately — only the watcher attach itself moves here.
-/// `project_open`'s own synchronous attach (via `ProjectCapabilities::attach_all`) is unchanged;
-/// this function only covers boot restore.
+/// `project_open` attaches through [`attach_project_capabilities`], which now applies this same
+/// build/register split via the capability trait; this function stays separate because its unit of
+/// work is a *queue* of restored projects with its own ordering, skip, and shutdown rules.
 ///
 /// **Build outside the guard, register inside it.** Each iteration's `spawn_blocking` call — where
 /// the `FileIdMap` walk actually happens — runs with no `AppState::begin_mutation` held at all:
@@ -297,9 +413,9 @@ pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Pro
 /// **Skip a project `project_open` already reattached.** The snapshot
 /// [`projects_pending_watcher_restore`] took can include a project the user closed and reopened
 /// before this loop reached it — `project_open` reuses the same `ProjectId` for the same root
-/// (`domain::project::service::find_existing_project_id`), and its own synchronous attach already
-/// ran. `FileWatcherCapability::attach` always attaches the file watcher unconditionally on that
-/// path, so `state.watchers.read().contains_key(&project_id)` being true is a reliable "already
+/// (`domain::project::service::find_existing_project_id`), and its own attach already ran.
+/// `FileWatcherCapability::build_attachment` always attaches the file watcher unconditionally on
+/// that path, so `state.watchers.read().contains_key(&project_id)` being true is a reliable "already
 /// reattached, skip" signal — checked once before spawning the walk at all (the common case, so the
 /// walk is never even started) and once more right before registering under the guard (the race
 /// window between the two: `project_open` landing *during* this iteration's unguarded build).
@@ -444,6 +560,100 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
 mod tests {
     use super::*;
     use crate::domain::project::types::{ProjectDisplay, SESSION_SCHEMA_VERSION};
+
+    fn source_between<'a>(start_marker: &str, end_marker: &str) -> &'a str {
+        let source = include_str!("commands.rs");
+        let start = source
+            .find(start_marker)
+            .unwrap_or_else(|| panic!("시작 마커를 찾을 수 없습니다: {start_marker}"))
+            + start_marker.len();
+        let end = source[start..]
+            .find(end_marker)
+            .unwrap_or_else(|| panic!("종료 마커를 찾을 수 없습니다: {end_marker}"));
+        &source[start..start + end]
+    }
+
+    fn marker_position(body: &str, marker: &str) -> usize {
+        body.find(marker)
+            .unwrap_or_else(|| panic!("본문에서 마커를 찾을 수 없습니다: {marker}"))
+    }
+
+    const ATTACH_SIGNATURE: &str = "async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppResult<()> {";
+
+    /// The whole point of the two-phase attach is the *position of the lock*, and nothing but this
+    /// file's own control flow enforces it — every other test still passes if the build moves back
+    /// inside the guard. So scan the source: the expensive build must run on a blocking thread
+    /// before `begin_mutation` is ever awaited, and the commit only after it.
+    #[test]
+    fn attach_는_가드를_잡기_전에_build_하고_가드_안에서_commit_한다() {
+        let body = source_between(ATTACH_SIGNATURE, "\n}\n");
+
+        let build = marker_position(body, "build_attachments(");
+        let guard = marker_position(body, "begin_mutation()");
+        let commit = marker_position(body, "commit_attachments(");
+
+        assert!(
+            marker_position(body, "spawn_blocking(") < build,
+            "capability build 는 blocking 스레드에서 실행돼야 합니다 — async 워커에서 돌리면 워처 walk 가 런타임을 막습니다"
+        );
+        assert!(
+            build < guard,
+            "capability build 가 begin_mutation 뒤로 가면 후절화가 무효가 됩니다 — 워처 walk 동안 앱 전역 뮤테이션이 다시 정지합니다"
+        );
+        assert!(
+            guard < commit,
+            "commit 은 재획득한 가드 안에서만 실행돼야 합니다 — AppState 쓰기가 가드 밖으로 나가면 안 됩니다"
+        );
+        assert!(
+            body.contains("state.projects.read().contains_key(&project.id)"),
+            "가드 재획득 후 프로젝트가 아직 열려 있는지 재검증해야 합니다 — build 중 project_close 가 끼어들 수 있습니다"
+        );
+    }
+
+    /// `project_open` must reach the attach through [`attach_project_capabilities`] (which owns the
+    /// build/register split) and only *after* its own mutation guard scope has closed.
+    #[test]
+    fn project_open_은_가드_스코프를_닫은_뒤에_attach_한다() {
+        let body = source_between("pub async fn project_open(", "\n}\n");
+        let after_guard = source_between("let _guard = state.begin_mutation().await;", "attach_project_capabilities(");
+
+        assert!(
+            marker_position(body, "*state.projects.write() = projects;") < marker_position(body, "attach_project_capabilities("),
+            "attach 는 세션·프로젝트 맵 반영 뒤에 와야 합니다"
+        );
+        assert!(
+            after_guard.contains("};"),
+            "attach 호출 전에 가드 스코프가 닫혀야 합니다 — 가드를 쥔 채 attach 하면 후절화 이전으로 되돌아갑니다"
+        );
+        assert!(
+            !body.contains("build_attachments(") && !body.contains("commit_attachments("),
+            "attach 2단계는 attach_project_capabilities 한 곳에서만 조립돼야 합니다"
+        );
+    }
+
+    /// The build phase runs on a blocking thread, so its failure arrives as a `JoinError` that the
+    /// unit type would have swallowed: nothing committed, yet the project already published into
+    /// `state.projects`/`state.session` and the caller told the open succeeded. Pin the two halves
+    /// of the correction — the failure is reported, and the half-open project is unwound through
+    /// `project_close` before any `ProjectOpened` goes out.
+    #[test]
+    fn attach_실패는_열기_실패로_보고되고_프로젝트를_되돌린다() {
+        let attach = source_between(ATTACH_SIGNATURE, "\n}\n");
+        let open = source_between("pub async fn project_open(", "\n}\n");
+
+        assert!(
+            attach.contains("return Err(AppError::Internal("),
+            "spawn_blocking join 실패는 로그만 남기고 끝내면 안 됩니다 — 호출부가 실패를 알 수 있어야 합니다"
+        );
+        assert!(
+            marker_position(open, "attach_project_capabilities(") < marker_position(open, "project_close("),
+            "attach 실패 시 이미 등록해 둔 프로젝트를 project_close 로 되돌려야 합니다"
+        );
+        assert!(
+            marker_position(open, "project_close(") < marker_position(open, "ProjectOpened"),
+            "attach 실패 경로는 ProjectOpened 방출 전에 에러로 반환돼야 합니다"
+        );
+    }
 
     fn stub_project(id: &str, root: &str, root_missing: bool) -> Project {
         Project {

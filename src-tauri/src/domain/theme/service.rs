@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use crate::domain::theme::types::{ResolvedTheme, SyntaxStyle, Theme, ThemeSummary, ThemeType, TokenColorRule, THEME_SCHEMA_VERSION};
 use crate::error::{AppError, AppResult};
@@ -762,6 +763,42 @@ pub fn bundled_themes() -> Vec<Theme> {
         .collect()
 }
 
+/// Counts how many times [`builtin_summaries`] actually parsed the bundled sources, so
+/// `번들_요약은_list_themes_를_반복_호출해도_한_번만_파싱된다` can assert the re-parse count is zero
+/// however many times `list_themes` runs. A work counter, not a wall-clock budget (계약 §C.2-3);
+/// unlike a delta measured around `bundled_themes`, it stays correct while other tests run in
+/// parallel in the same process.
+#[cfg(test)]
+static SUMMARY_PARSE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(test)]
+fn summary_parse_count() -> u64 {
+    SUMMARY_PARSE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Summaries of the two Rust builtins plus every bundled JSON theme, parsed once per process.
+///
+/// [`list_themes`] used to rebuild this on every call, deserializing all of
+/// [`BUNDLED_THEME_SOURCES`] (~1.1MB of JSON) into full [`Theme`] values just to read three fields
+/// off each. `THEME.ALL` is invalidated by both `SettingsChanged` and `ThemeChanged`, so with the
+/// settings window open every toggle paid that parse (research 3b §2-E).
+///
+/// Caching is sound here precisely because these sources are `include_str!` constants compiled into
+/// the binary — nothing can change them while the process runs. User themes are the opposite: they
+/// live under `paths.themes_dir()` and are read from disk on every [`list_themes`] call, so adding,
+/// editing or deleting one is still reflected immediately.
+fn builtin_summaries() -> &'static [ThemeSummary] {
+    static SUMMARIES: OnceLock<Vec<ThemeSummary>> = OnceLock::new();
+    SUMMARIES.get_or_init(|| {
+        #[cfg(test)]
+        SUMMARY_PARSE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let mut list = vec![summarize(&builtin_dark(), true), summarize(&builtin_light(), true)];
+        list.extend(bundled_themes().iter().map(|theme| summarize(theme, true)));
+        list
+    })
+}
+
 pub fn builtin_by_id(theme_id: &str) -> Option<Theme> {
     match theme_id {
         BUILTIN_DARK_ID => Some(builtin_dark()),
@@ -902,8 +939,7 @@ pub fn resolve_theme(theme: &Theme, base: Option<&Theme>) -> ResolvedTheme {
 }
 
 pub fn list_themes(paths: &AppPaths) -> Vec<ThemeSummary> {
-    let mut list = vec![summarize(&builtin_dark(), true), summarize(&builtin_light(), true)];
-    list.extend(bundled_themes().iter().map(|theme| summarize(theme, true)));
+    let mut list = builtin_summaries().to_vec();
 
     let Ok(entries) = std::fs::read_dir(paths.themes_dir()) else {
         return list;
@@ -1244,6 +1280,59 @@ mod tests {
         assert!(list.iter().any(|summary| summary.id == "my-light" && !summary.builtin));
 
         std::fs::remove_dir_all(paths.themes_dir()).ok();
+    }
+
+    /// Enough repeats that a per-call parse would show up as a count far above 1. The assertion is
+    /// on the parse count, never on elapsed time.
+    const LIST_THEMES_REPEAT: usize = 20;
+
+    #[test]
+    fn 번들_요약은_list_themes_를_반복_호출해도_한_번만_파싱된다() {
+        let paths = AppPaths::new(temp_data_dir("summary-cache"));
+
+        for _ in 0..LIST_THEMES_REPEAT {
+            let list = list_themes(&paths);
+            assert_eq!(list.len(), 2 + BUNDLED_THEME_SOURCES.len());
+        }
+
+        assert_eq!(summary_parse_count(), 1, "번들 테마 요약은 프로세스당 한 번만 파싱돼야 한다");
+    }
+
+    #[test]
+    fn 사용자_테마_추가와_삭제는_요약_캐시와_무관하게_즉시_반영된다() {
+        let paths = AppPaths::new(temp_data_dir("summary-user"));
+        std::fs::create_dir_all(paths.themes_dir()).expect("create themes dir");
+
+        let builtin_only = list_themes(&paths).len();
+
+        let mut user_theme = builtin_light();
+        user_theme.id = "cache-probe".to_string();
+        user_theme.name = "Cache Probe".to_string();
+        let user_file = paths.themes_dir().join("cache-probe.json");
+        persist::write_json(&user_file, &user_theme).expect("write user theme");
+
+        let after_add = list_themes(&paths);
+        assert_eq!(after_add.len(), builtin_only + 1);
+        assert!(after_add.iter().any(|summary| summary.id == "cache-probe" && !summary.builtin));
+
+        std::fs::remove_file(&user_file).expect("remove user theme");
+
+        let after_remove = list_themes(&paths);
+        assert_eq!(after_remove.len(), builtin_only);
+        assert!(!after_remove.iter().any(|summary| summary.id == "cache-probe"));
+
+        std::fs::remove_dir_all(paths.themes_dir()).ok();
+    }
+
+    #[test]
+    fn 요약_캐시는_번들_테마_전량과_같은_내용을_준다() {
+        let cached = builtin_summaries();
+        let rebuilt: Vec<ThemeSummary> = std::iter::once(summarize(&builtin_dark(), true))
+            .chain(std::iter::once(summarize(&builtin_light(), true)))
+            .chain(bundled_themes().iter().map(|theme| summarize(theme, true)))
+            .collect();
+
+        assert_eq!(cached, rebuilt.as_slice());
     }
 
     #[test]

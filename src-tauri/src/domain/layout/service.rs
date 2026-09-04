@@ -1166,6 +1166,21 @@ pub fn save_layout(paths: &AppPaths, project_id: &ProjectId, layout: &ProjectLay
 
 pub(crate) const LAYOUT_FLUSH_INTERVAL_MS: u64 = 2_000;
 
+/// Persists every layout marked dirty since the last flush, then clears the dirty set.
+///
+/// **Blocking.** Each project costs one [`save_layout`] → `persist::write_json` → `write_atomic`,
+/// and `write_atomic` ends in `file.sync_all()`, so N dirty projects mean N serialized fsyncs. The
+/// `LAYOUT_FLUSH_INTERVAL_MS` ticker in `lib.rs` therefore calls this from
+/// `tauri::async_runtime::spawn_blocking` and awaits the handle: off the async worker (architecture
+/// §2.1 — blocking IO never runs on it, research 3b §2-D), and awaited so two flushes never overlap,
+/// which is what keeps the writes for one project in tick order. The two shutdown callers
+/// (`WindowEvent::Destroyed` and `RunEvent::Exit`) stay synchronous on purpose: they are the last
+/// chance to persist before the window or the process goes away, and there is nothing left to await
+/// on.
+///
+/// Draining first and writing from the drained snapshots is what makes a background flush lossless:
+/// a project re-marked dirty while its snapshot is being written stays in the set and is written
+/// again on the next tick, rather than having its newer state dropped.
 pub(crate) fn flush_dirty_layouts(state: &AppState) {
     let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
     if dirty.is_empty() {
@@ -2461,6 +2476,120 @@ mod tests {
 
     fn temp_data_dir(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("taide-layout-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
+    fn 임시_상태(name: &str) -> AppState {
+        AppState::new(AppPaths::new(temp_data_dir(name)))
+    }
+
+    fn 저장된_탭_제목(paths: &AppPaths, project_id: &ProjectId) -> Vec<String> {
+        let PaneNode::Leaf { tabs, .. } = load_layout(paths, project_id).root else {
+            panic!("expected leaf")
+        };
+        tabs.into_iter().map(|tab| tab.title).collect()
+    }
+
+    #[test]
+    fn flush_dirty_layouts_는_더러운_프로젝트만_저장하고_집합을_비운다() {
+        let state = 임시_상태("flush-dirty");
+        let dirty_id = ProjectId::new();
+        let clean_id = ProjectId::new();
+
+        let mut dirty_layout = default_layout();
+        let leaf_id = dirty_layout.focused_pane.clone();
+        open_tab(&mut dirty_layout, &leaf_id, 파일_탭("dirty.rs"), false).expect("open");
+
+        {
+            let mut layouts = state.layouts.write();
+            layouts.insert(dirty_id.clone(), dirty_layout);
+            layouts.insert(clean_id.clone(), default_layout());
+        }
+        state.dirty_layouts.write().insert(dirty_id.clone());
+
+        flush_dirty_layouts(&state);
+
+        assert!(state.dirty_layouts.read().is_empty(), "flush 후 dirty 집합은 비어야 한다");
+        assert!(state.paths.layout_file(&dirty_id).exists());
+        assert!(
+            !state.paths.layout_file(&clean_id).exists(),
+            "더럽지 않은 프로젝트는 저장되지 않아야 한다"
+        );
+        assert!(저장된_탭_제목(&state.paths, &dirty_id).contains(&"dirty.rs".to_string()));
+
+        std::fs::remove_dir_all(&state.paths.data_dir).ok();
+    }
+
+    #[test]
+    fn flush_이후_다시_더러워진_레이아웃은_다음_flush_에서_저장된다() {
+        let state = 임시_상태("flush-redirty");
+        let project_id = ProjectId::new();
+
+        state.layouts.write().insert(project_id.clone(), default_layout());
+        state.dirty_layouts.write().insert(project_id.clone());
+        flush_dirty_layouts(&state);
+
+        let first = 저장된_탭_제목(&state.paths, &project_id);
+        assert!(!first.contains(&"later.rs".to_string()));
+
+        {
+            let mut layouts = state.layouts.write();
+            let layout = layouts.get_mut(&project_id).expect("layout");
+            let leaf_id = layout.focused_pane.clone();
+            open_tab(layout, &leaf_id, 파일_탭("later.rs"), false).expect("open");
+        }
+        state.dirty_layouts.write().insert(project_id.clone());
+        flush_dirty_layouts(&state);
+
+        let second = 저장된_탭_제목(&state.paths, &project_id);
+        assert_eq!(second.len(), first.len() + 1);
+        assert!(
+            second.contains(&"later.rs".to_string()),
+            "flush 사이에 생긴 변경은 다음 flush 에서 저장돼야 한다"
+        );
+
+        std::fs::remove_dir_all(&state.paths.data_dir).ok();
+    }
+
+    #[test]
+    fn 연속_flush_는_마지막_상태를_남기고_중간_flush_를_덮어쓴다() {
+        let state = 임시_상태("flush-order");
+        let project_id = ProjectId::new();
+        state.layouts.write().insert(project_id.clone(), default_layout());
+
+        for index in 0..3 {
+            {
+                let mut layouts = state.layouts.write();
+                let layout = layouts.get_mut(&project_id).expect("layout");
+                let leaf_id = layout.focused_pane.clone();
+                open_tab(layout, &leaf_id, 파일_탭(&format!("step-{index}.rs")), false).expect("open");
+            }
+            state.dirty_layouts.write().insert(project_id.clone());
+            flush_dirty_layouts(&state);
+        }
+
+        let titles = 저장된_탭_제목(&state.paths, &project_id);
+        for index in 0..3 {
+            assert!(
+                titles.contains(&format!("step-{index}.rs")),
+                "매 flush 는 그 시점의 전체 스냅샷을 남겨야 한다"
+            );
+        }
+
+        std::fs::remove_dir_all(&state.paths.data_dir).ok();
+    }
+
+    #[test]
+    fn 레이아웃이_없는_더러운_프로젝트는_건너뛰고_집합에서_제거된다() {
+        let state = 임시_상태("flush-missing");
+        let missing_id = ProjectId::new();
+        state.dirty_layouts.write().insert(missing_id.clone());
+
+        flush_dirty_layouts(&state);
+
+        assert!(state.dirty_layouts.read().is_empty());
+        assert!(!state.paths.layout_file(&missing_id).exists());
+
+        std::fs::remove_dir_all(&state.paths.data_dir).ok();
     }
 
     #[test]

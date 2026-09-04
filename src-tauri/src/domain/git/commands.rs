@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, State};
+use serde::de::DeserializeOwned;
+use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
@@ -13,21 +15,149 @@ use super::types::{
 };
 use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::error::{AppError, AppResult};
-use crate::events::{GitRefsChanged, GitStatusChanged};
+use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
+use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
 
-/// Two independent per-project caches, kept as separate fields (not merged into one map) because
+/// Upper bound on how long [`StatusCache`] may serve a stored result when **nothing** has
+/// invalidated it. Every axis that can change a status result invalidates explicitly (see
+/// [`GitStore::ensure_invalidation_listeners`]), so this is purely the backstop for a change no
+/// watcher ever reported — a dropped FSEvents batch, an edit made in the window before a restored
+/// project's watcher finished attaching, a worktree written by another machine over a network
+/// mount. Two seconds is short enough that such a miss self-heals before a person reads the panel,
+/// and long enough to collapse the burst of identical reads one event fans out to every open
+/// window (research 3b §2-C, 사용자 2차 결정 7).
+const STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
+
+/// One project's stored status, dated by **when the repository was read** rather than when the read
+/// finished: a status that took a second to compute is already a second old on arrival, and dating
+/// it from the finish would hand that second back out as if it were fresh.
+#[derive(Debug)]
+struct StatusCacheEntry {
+    status: GitStatus,
+    observed_at: Instant,
+}
+
+/// Per-project cache state. `generation` counts invalidations and outlives `entry` on purpose —
+/// see [`StatusCache::finish`] for the in-flight computation it discards.
+#[derive(Debug, Default)]
+struct StatusSlot {
+    generation: u64,
+    entry: Option<StatusCacheEntry>,
+}
+
+/// The receipt [`StatusCache::read`] hands a caller that has to compute the status itself, and that
+/// [`StatusCache::finish`] requires back before it will store the result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingStatus {
+    generation: u64,
+    observed_at: Instant,
+}
+
+enum StatusRead {
+    Fresh(GitStatus),
+    Stale(PendingStatus),
+}
+
+/// `git_status`'s result cache — the M-2 backlog item, promoted once file-tree git decorations made
+/// `git_status` a hot path re-run on every save in every open window (research 3b §2-C).
+///
+/// Correctness rests on two rules, both enforced here rather than at the call site:
+///
+/// 1. **A stored result is only served while its generation is current.** Invalidation bumps the
+///    generation *and* drops the entry, so a change that arrives between a read and its use can
+///    never be served afterwards.
+/// 2. **A computation that raced an invalidation is discarded, not stored.** `git_status` computes
+///    off the mutation guard and off the cache lock, so an invalidation can land while libgit2 is
+///    still walking the worktree; [`Self::finish`] compares the generation it was handed at
+///    [`Self::read`] against the current one and drops the result when they differ. Without this
+///    the very next read would serve a result that predates a change already reported.
+///
+/// Slots are created by [`Self::read`] and reclaimed by [`GitStore::remove`] at `project_close`
+/// (`architecture.md` §6.3), so the map only ever holds entries for projects whose status was
+/// actually queried — an invalidation for an unknown project is a no-op rather than a new slot.
+#[derive(Debug, Default)]
+struct StatusCache {
+    slots: Mutex<HashMap<ProjectId, StatusSlot>>,
+}
+
+impl StatusCache {
+    /// Serves the stored status when it is still current and younger than `ttl`; otherwise returns
+    /// the receipt the caller must hand back to [`Self::finish`]. `now` and `ttl` are parameters so
+    /// the whole state machine is testable without sleeping.
+    fn read(&self, project_id: &ProjectId, now: Instant, ttl: Duration) -> StatusRead {
+        let mut slots = self.slots.lock();
+        let slot = slots.entry(project_id.clone()).or_default();
+
+        if let Some(entry) = &slot.entry {
+            if now.duration_since(entry.observed_at) < ttl {
+                return StatusRead::Fresh(entry.status.clone());
+            }
+            slot.entry = None;
+        }
+
+        StatusRead::Stale(PendingStatus {
+            generation: slot.generation,
+            observed_at: now,
+        })
+    }
+
+    /// Stores `status` under the receipt's generation. Silently drops it when the project closed
+    /// mid-computation (no slot left) or when an invalidation landed in between (generation moved)
+    /// — in both cases the result describes a repository state that is already known to be gone.
+    fn finish(&self, project_id: &ProjectId, pending: PendingStatus, status: &GitStatus) {
+        let mut slots = self.slots.lock();
+        let Some(slot) = slots.get_mut(project_id) else {
+            return;
+        };
+        if slot.generation != pending.generation {
+            return;
+        }
+        slot.entry = Some(StatusCacheEntry {
+            status: status.clone(),
+            observed_at: pending.observed_at,
+        });
+    }
+
+    fn invalidate(&self, project_id: &ProjectId) {
+        let mut slots = self.slots.lock();
+        let Some(slot) = slots.get_mut(project_id) else {
+            return;
+        };
+        slot.generation = slot.generation.wrapping_add(1);
+        slot.entry = None;
+    }
+
+    fn forget(&self, project_id: &ProjectId) {
+        self.slots.lock().remove(project_id);
+    }
+}
+
+/// Subscribes [`StatusCache`] to one event whose payload names the project whose status it
+/// invalidates. Registered once per event type by [`GitStore::ensure_invalidation_listeners`];
+/// the returned `EventId` is deliberately dropped, since these subscriptions live as long as the
+/// process (see that method's doc).
+fn listen_status_invalidation<E: Event + DeserializeOwned>(app: &AppHandle, project_id_of: fn(&E) -> &ProjectId) {
+    let store_handle = app.clone();
+    E::listen_any(app, move |event| {
+        store_handle.state::<GitStore>().invalidate_status(project_id_of(&event.payload));
+    });
+}
+
+/// Three independent per-project caches, kept as separate fields (not merged into one map) because
 /// they're keyed differently on purpose. `repo_roots` is keyed by `ProjectId` — the open-project
-/// session `resolve_repo_root` resolves once and remembers. `push_fetch_locks` is keyed by the
-/// canonical repo root path itself: the resource `git_push`/`git_fetch` actually race on is the
-/// repo, not whichever session happens to be looking at it right now, and [`GitStore::
-/// push_fetch_lock`]'s cross-project serialization depends on that being a path key (contract
-/// 2026-08-25 §1-b).
+/// session `resolve_repo_root` resolves once and remembers — as is `status_cache`.
+/// `push_fetch_locks` is keyed by the canonical repo root path itself: the resource
+/// `git_push`/`git_fetch` actually race on is the repo, not whichever session happens to be looking
+/// at it right now, and [`GitStore::push_fetch_lock`]'s cross-project serialization depends on that
+/// being a path key (contract 2026-08-25 §1-b).
 #[derive(Default)]
 pub struct GitStore {
     repo_roots: Mutex<HashMap<ProjectId, PathBuf>>,
     push_fetch_locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
+    status_cache: StatusCache,
+    invalidation_listeners: OnceLock<()>,
 }
 
 impl GitStore {
@@ -35,12 +165,17 @@ impl GitStore {
         Self::default()
     }
 
-    /// Forgets `project_id`'s cached repo root, called by `GitCacheCapability::detach` during
-    /// `project_close`, and by [`git_init`] right after re-initializing a repo at the project's
-    /// root — so a project reopened at the same path (or one just re-initialized in place) resolves
-    /// its repo root fresh instead of reusing a cache entry keyed by a `ProjectId` that no session
-    /// will ever look up again — see `resolve_repo_root`, which otherwise happily serves that stale
-    /// entry forever (the map is never pruned by size or age, only by this explicit removal).
+    /// Forgets `project_id`'s cached repo root **and its cached status**, called by
+    /// `GitCacheCapability::detach` during `project_close`, and by [`git_init`] right after
+    /// re-initializing a repo at the project's root — so a project reopened at the same path (or one
+    /// just re-initialized in place) resolves its repo root fresh instead of reusing a cache entry
+    /// keyed by a `ProjectId` that no session will ever look up again — see `resolve_repo_root`,
+    /// which otherwise happily serves that stale entry forever (the map is never pruned by size or
+    /// age, only by this explicit removal). The [`StatusCache`] slot is dropped **first**, ahead of
+    /// the `repo_roots` early return below, so its reclamation never becomes conditional on a
+    /// repo-root entry still being there — `architecture.md` §6.3 requires every per-project entry
+    /// this store owns to be gone when `project_close` returns, and a slot left behind would
+    /// resurrect a closed project's status the moment the same `ProjectId` is seen again.
     ///
     /// Also evicts that root's [`Self::push_fetch_lock`] entry, but **only when nothing is currently
     /// using it** — `Arc::strong_count(lock) == 1` means this map holds the only clone, i.e. no
@@ -59,6 +194,7 @@ impl GitStore {
     /// growing one, since ordinary closes (the common case: no push/fetch in flight) still evict
     /// normally.
     pub fn remove(&self, project_id: &ProjectId) {
+        self.status_cache.forget(project_id);
         let root = self.repo_roots.lock().remove(project_id);
         let Some(root) = root else { return };
         let mut locks = self.push_fetch_locks.lock();
@@ -116,6 +252,51 @@ impl GitStore {
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone()
     }
+
+    /// Drops `project_id`'s cached status so the next [`git_status`] recomputes, and discards any
+    /// computation already in flight for it ([`StatusCache::finish`]).
+    ///
+    /// Called from two places for two different reasons. The event subscriptions
+    /// ([`Self::ensure_invalidation_listeners`]) are the **complete** set — every signal that makes
+    /// the frontend re-ask for a status passes through one of them. The direct calls in
+    /// [`emit_status_changed`]/[`emit_refs_changed`] and in `watch::build_git_watcher_handle`'s
+    /// callback are the **ordering** guarantee for the paths this domain owns: `Manager::emit`
+    /// hands the payload to the webviews *before* it runs Rust listeners, so invalidating ahead of
+    /// the emit is what makes it impossible — not merely unlikely — for a refetch triggered by that
+    /// event to be served the pre-change status.
+    pub fn invalidate_status(&self, project_id: &ProjectId) {
+        self.status_cache.invalidate(project_id);
+    }
+
+    /// Subscribes the status cache, once per process, to every event that means "this project's
+    /// `GitStatus` may have changed".
+    ///
+    /// The set is exactly the frontend's own refetch axis for `QUERY_KEY.GIT.STATUS(projectId)`
+    /// (`app/providers/ipc-sync-provider.tsx`): `fs:changed` — the worktree axis d-44 opened,
+    /// emitted by the file domain's project-root watcher and the only signal an external editor's
+    /// edit ever produces — plus `git:status-changed` and `git:refs-changed`, which also carry
+    /// `branch`/`ahead`/`behind` movements and are emitted from outside this module too
+    /// (`domain::project::commands::restore_project_watchers` emits the former as d-25's boot
+    /// correction). Subscribing rather than hand-wiring each emitter is what keeps that coupling
+    /// from rotting: a future emitter in any domain is covered the moment it emits.
+    ///
+    /// Registration is lazy, and lives here rather than in `lib.rs`'s setup or in a
+    /// `ProjectCapability`, so that a populated cache without its subscriptions is structurally
+    /// impossible — [`git_status`] is the only writer and calls this before its first read. A
+    /// capability hook would additionally miss the boot restore path, which attaches watchers
+    /// without walking the capability registry.
+    ///
+    /// The subscriptions are process-lifetime and never unlistened, matching `lib.rs`'s remote
+    /// fanout listeners: they dispatch on the payload's `projectId`, so one set serves every
+    /// project, and it is [`Self::remove`] — not an unlisten — that reclaims a closed project's
+    /// slot.
+    fn ensure_invalidation_listeners(&self, app: &AppHandle) {
+        self.invalidation_listeners.get_or_init(|| {
+            listen_status_invalidation::<FsChanged>(app, |payload| &payload.project_id);
+            listen_status_invalidation::<GitStatusChanged>(app, |payload| &payload.project_id);
+            listen_status_invalidation::<GitRefsChanged>(app, |payload| &payload.project_id);
+        });
+    }
 }
 
 fn resolve_repo_root(state: &State<'_, AppState>, store: &State<'_, GitStore>, project_id: &ProjectId) -> AppResult<PathBuf> {
@@ -135,14 +316,22 @@ fn resolve_repo_root(state: &State<'_, AppState>, store: &State<'_, GitStore>, p
     Ok(repo_root)
 }
 
+/// Invalidates before emitting — see [`GitStore::invalidate_status`] for why the order matters and
+/// why this is not redundant with the subscription that also covers this event.
 fn emit_status_changed(app: &AppHandle, project_id: &ProjectId) {
+    app.state::<GitStore>().invalidate_status(project_id);
     let _ = GitStatusChanged {
         project_id: project_id.clone(),
     }
     .emit(app);
 }
 
+/// Invalidates the status cache too, because a refs movement changes [`GitStatus`] itself — its
+/// `branch`/`ahead`/`behind` come from `HEAD` and the upstream ref, not from the worktree — and the
+/// frontend maps this event to the same `QUERY_KEY.GIT.STATUS(projectId)` refetch that
+/// `git:status-changed` triggers.
 fn emit_refs_changed(app: &AppHandle, project_id: &ProjectId) {
+    app.state::<GitStore>().invalidate_status(project_id);
     let _ = GitRefsChanged {
         project_id: project_id.clone(),
     }
@@ -173,14 +362,40 @@ pub async fn git_init(app: AppHandle, state: State<'_, AppState>, store: State<'
 /// `update_index` (audit R4#11) made stat-stale entries re-hash on **every** call until some
 /// index-writing operation refreshes them, and this event-driven path re-runs after each
 /// `GitStatusChanged`, so the synchronous libgit2 work must not pin an async worker thread
-/// (architecture.md §2.1, Phase E C11-GIT-2). Surface and return value are unchanged.
+/// (architecture.md §2.1, Phase E C11-GIT-2).
+///
+/// Answers from [`StatusCache`] when the last result is still current, which is what keeps one file
+/// save from paying a full worktree walk once per open window (research 3b §2-C — five always-mounted
+/// consumers, and the `.git`/`fs:changed` invalidation axes both fan out to every window). The walk
+/// itself, the returned value and the IPC surface are unchanged; a cache hit differs from a miss only
+/// in not having recomputed a result that nothing has invalidated. `update_index` stays off — it is a
+/// separate decision this cache deliberately does not revisit (research 3b §7, 사용자 2차 결정 7).
+///
+/// The `app` parameter carries no wire surface (`AppHandle`/`State` arguments are stripped from the
+/// generated bindings, as `git_init`'s already are) and exists only to let the cache install its
+/// subscriptions on first use — see [`GitStore::ensure_invalidation_listeners`].
 #[tauri::command]
 #[specta::specta]
-pub async fn git_status(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<GitStatus> {
+pub async fn git_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<GitStatus> {
+    let _span = perf::span(SpanSlot::GitStatus);
+    store.ensure_invalidation_listeners(&app);
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::status(&repo_root))
+
+    let pending = match store.status_cache.read(&project_id, Instant::now(), STATUS_CACHE_TTL) {
+        StatusRead::Fresh(status) => return Ok(status),
+        StatusRead::Stale(pending) => pending,
+    };
+
+    let status = tauri::async_runtime::spawn_blocking(move || service::status(&repo_root))
         .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    store.status_cache.finish(&project_id, pending, &status);
+    Ok(status)
 }
 
 /// `before_path` is the row's pre-change path and feeds the **original (left) side only** — the
@@ -938,6 +1153,294 @@ pub async fn git_checkout_remote_branch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_status(branch: &str) -> GitStatus {
+        GitStatus {
+            rows: Vec::new(),
+            branch: Some(branch.to_string()),
+            ahead: 0,
+            behind: 0,
+            has_remote: false,
+        }
+    }
+
+    /// Runs one full miss — read, then store the computed result — and fails loudly if the cache
+    /// answered from a stored entry instead, which every caller of this helper is setting up to
+    /// *not* be the case.
+    fn fill_status(cache: &StatusCache, project_id: &ProjectId, now: Instant, status: &GitStatus) {
+        let StatusRead::Stale(pending) = cache.read(project_id, now, STATUS_CACHE_TTL) else {
+            panic!("채워지지 않은 캐시는 계산을 요구해야 한다");
+        };
+        cache.finish(project_id, pending, status);
+    }
+
+    fn is_fresh(read: &StatusRead, branch: &str) -> bool {
+        matches!(read, StatusRead::Fresh(status) if status.branch.as_deref() == Some(branch))
+    }
+
+    /// Spacing between the simulated consumer reads in the two budget tests below — far enough
+    /// apart to be distinct events, far short of [`STATUS_CACHE_TTL`] so the counters measure
+    /// invalidation behavior rather than expiry.
+    const BUDGET_READ_SPACING_MS: u64 = 100;
+
+    /// How many consumers re-ask after one event in the budget tests — the main window plus a
+    /// couple of auxiliary ones, each with its own query cache.
+    const BUDGET_READS: u64 = 5;
+
+    #[test]
+    fn 저장된_status는_ttl_안에서는_다시_계산하지_않고_그대로_돌려준다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        fill_status(&cache, &project_id, base, &sample_status("main"));
+
+        let read = cache.read(&project_id, base + STATUS_CACHE_TTL - Duration::from_millis(1), STATUS_CACHE_TTL);
+
+        assert!(is_fresh(&read, "main"), "TTL 안의 조회는 저장된 결과를 그대로 받아야 한다");
+    }
+
+    #[test]
+    fn 저장된_status는_ttl_경계에서_만료된다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        fill_status(&cache, &project_id, base, &sample_status("main"));
+
+        assert!(
+            matches!(
+                cache.read(&project_id, base + STATUS_CACHE_TTL, STATUS_CACHE_TTL),
+                StatusRead::Stale(_)
+            ),
+            "TTL 과 정확히 같은 나이는 이미 만료로 취급해야 워처가 놓친 변경의 노출 창이 TTL 을 넘지 않는다"
+        );
+    }
+
+    #[test]
+    fn 계산이_ttl보다_오래_걸리면_저장되자마자_만료다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        let StatusRead::Stale(pending) = cache.read(&project_id, base, STATUS_CACHE_TTL) else {
+            panic!("빈 캐시는 계산을 요구해야 한다");
+        };
+        cache.finish(&project_id, pending, &sample_status("main"));
+
+        assert!(
+            matches!(
+                cache.read(&project_id, base + STATUS_CACHE_TTL, STATUS_CACHE_TTL),
+                StatusRead::Stale(_)
+            ),
+            "나이는 계산이 끝난 시각이 아니라 저장소를 읽은 시각 기준이어야 한다"
+        );
+    }
+
+    #[test]
+    fn 무효화_이후에는_저장된_status를_돌려주지_않는다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        fill_status(&cache, &project_id, base, &sample_status("main"));
+
+        cache.invalidate(&project_id);
+
+        assert!(
+            matches!(cache.read(&project_id, base, STATUS_CACHE_TTL), StatusRead::Stale(_)),
+            "TTL 이 남아 있어도 무효화된 결과는 서빙되면 안 된다"
+        );
+    }
+
+    #[test]
+    fn 계산_중에_들어온_무효화는_그_계산_결과를_버린다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        let StatusRead::Stale(pending) = cache.read(&project_id, base, STATUS_CACHE_TTL) else {
+            panic!("빈 캐시는 계산을 요구해야 한다");
+        };
+
+        cache.invalidate(&project_id);
+        cache.finish(&project_id, pending, &sample_status("main"));
+
+        assert!(
+            matches!(cache.read(&project_id, base, STATUS_CACHE_TTL), StatusRead::Stale(_)),
+            "libgit2 가 워크트리를 도는 사이에 변경이 보고됐다면 그 결과는 이미 낡은 것이므로 저장되면 안 된다"
+        );
+    }
+
+    #[test]
+    fn 계산_중에_프로젝트가_닫히면_결과를_저장하지_않는다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        let StatusRead::Stale(pending) = cache.read(&project_id, base, STATUS_CACHE_TTL) else {
+            panic!("빈 캐시는 계산을 요구해야 한다");
+        };
+
+        cache.forget(&project_id);
+        cache.finish(&project_id, pending, &sample_status("main"));
+
+        assert!(
+            cache.slots.lock().is_empty(),
+            "닫힌 프로젝트의 슬롯이 뒤늦게 끝난 계산으로 되살아나면 회수 계약(architecture.md §6.3)이 깨진다"
+        );
+    }
+
+    #[test]
+    fn 무효화는_다른_프로젝트의_캐시를_건드리지_않는다() {
+        let cache = StatusCache::default();
+        let changed = ProjectId::new();
+        let untouched = ProjectId::new();
+        let base = Instant::now();
+        fill_status(&cache, &changed, base, &sample_status("main"));
+        fill_status(&cache, &untouched, base, &sample_status("release"));
+
+        cache.invalidate(&changed);
+
+        assert!(matches!(cache.read(&changed, base, STATUS_CACHE_TTL), StatusRead::Stale(_)));
+        assert!(is_fresh(&cache.read(&untouched, base, STATUS_CACHE_TTL), "release"));
+    }
+
+    #[test]
+    fn 모르는_프로젝트에_대한_무효화는_슬롯을_만들지_않는다() {
+        let cache = StatusCache::default();
+
+        cache.invalidate(&ProjectId::new());
+
+        assert!(
+            cache.slots.lock().is_empty(),
+            "status 를 한 번도 묻지 않은 프로젝트의 fs:changed 까지 슬롯을 만들면 맵이 열린 프로젝트 수보다 커진다"
+        );
+    }
+
+    /// The budget this batch's git-status work is measured against — a counter, never wall time
+    /// (계약 §C.2-3). One invalidation must cost exactly one worktree walk no matter how many
+    /// consumers re-ask, which is the multi-window fanout the cache exists for.
+    #[test]
+    fn 무효화_한_번마다_status_계산은_한_번뿐이다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        let mut computed = 0u64;
+
+        for step in 0..BUDGET_READS {
+            match cache.read(
+                &project_id,
+                base + Duration::from_millis(step * BUDGET_READ_SPACING_MS),
+                STATUS_CACHE_TTL,
+            ) {
+                StatusRead::Fresh(_) => {}
+                StatusRead::Stale(pending) => {
+                    computed += 1;
+                    cache.finish(&project_id, pending, &sample_status("main"));
+                }
+            }
+        }
+
+        assert_eq!(computed, 1, "한 번의 무효화 뒤 {BUDGET_READS}회 조회는 계산 1회로 끝나야 한다");
+    }
+
+    /// The other half of the budget: caching must not swallow a real change. With an invalidation
+    /// between every read the cache degrades to exactly the pre-cache behavior — one walk per read.
+    #[test]
+    fn 매번_무효화되면_계산_횟수는_캐시_도입_전과_같다() {
+        let cache = StatusCache::default();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        let mut computed = 0u64;
+
+        for step in 0..BUDGET_READS {
+            cache.invalidate(&project_id);
+            match cache.read(
+                &project_id,
+                base + Duration::from_millis(step * BUDGET_READ_SPACING_MS),
+                STATUS_CACHE_TTL,
+            ) {
+                StatusRead::Fresh(_) => {}
+                StatusRead::Stale(pending) => {
+                    computed += 1;
+                    cache.finish(&project_id, pending, &sample_status("main"));
+                }
+            }
+        }
+
+        assert_eq!(
+            computed, BUDGET_READS,
+            "변경이 계속 보고되는 동안에는 캐시가 한 번도 서빙되면 안 된다"
+        );
+    }
+
+    #[test]
+    fn remove는_repo_root가_없어도_status_캐시를_회수한다() {
+        let store = GitStore::new();
+        let project_id = ProjectId::new();
+        fill_status(&store.status_cache, &project_id, Instant::now(), &sample_status("main"));
+
+        store.remove(&project_id);
+
+        assert!(
+            store.status_cache.slots.lock().is_empty(),
+            "repo_root 를 해석한 적 없는 프로젝트도 status 슬롯은 닫힐 때 회수되어야 한다"
+        );
+    }
+
+    #[test]
+    fn remove는_닫는_프로젝트의_status_캐시만_회수한다() {
+        let store = GitStore::new();
+        let closing = ProjectId::new();
+        let staying = ProjectId::new();
+        let base = Instant::now();
+        store.repo_roots.lock().insert(closing.clone(), PathBuf::from("/tmp/closing-repo"));
+        fill_status(&store.status_cache, &closing, base, &sample_status("main"));
+        fill_status(&store.status_cache, &staying, base, &sample_status("release"));
+
+        store.remove(&closing);
+
+        assert!(!store.status_cache.slots.lock().contains_key(&closing));
+        assert!(is_fresh(&store.status_cache.read(&staying, base, STATUS_CACHE_TTL), "release"));
+    }
+
+    #[test]
+    fn invalidate_status는_status_캐시를_비운다() {
+        let store = GitStore::new();
+        let project_id = ProjectId::new();
+        let base = Instant::now();
+        fill_status(&store.status_cache, &project_id, base, &sample_status("main"));
+
+        store.invalidate_status(&project_id);
+
+        assert!(matches!(
+            store.status_cache.read(&project_id, base, STATUS_CACHE_TTL),
+            StatusRead::Stale(_)
+        ));
+    }
+
+    /// The one thing this batch must **not** have changed: `git_status`'s wire surface
+    /// (`docs/ipc-contract.md` "사용성 배치 4 — `git_status` 결과 캐시"). Caching added an
+    /// `AppHandle` parameter, which specta strips from the generated bindings — this pins that it
+    /// really was stripped, rather than surfacing as a new invoke argument or a changed return
+    /// type. Reads the committed `bindings.ts` at compile time, the same way `lib.rs`'s event-name
+    /// parity test does.
+    #[test]
+    fn git_status_의_바인딩_표면은_캐시_도입_뒤에도_그대로다() {
+        let bindings = include_str!("../../../../src/shared/api/bindings.ts");
+        let line = bindings
+            .lines()
+            .find(|line| line.trim_start().starts_with("gitStatus:"))
+            .expect("bindings.ts 에 gitStatus 항목이 있어야 한다");
+
+        assert!(
+            line.contains("(projectId: ProjectId)"),
+            "인자는 projectId 하나뿐이어야 한다: {line}"
+        );
+        assert!(
+            line.contains("typedError<GitStatus, AppError>"),
+            "반환 타입이 바뀌면 안 된다: {line}"
+        );
+        assert!(
+            line.contains(r#"__TAURI_INVOKE("git_status", { projectId })"#),
+            "invoke 페이로드에 새 키가 붙으면 안 된다: {line}"
+        );
+    }
 
     #[test]
     fn remove는_해당_프로젝트의_캐시된_repo_root만_지운다() {

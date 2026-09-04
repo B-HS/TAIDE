@@ -1,6 +1,6 @@
 use tauri::AppHandle;
 
-use crate::domain::project::capability::ProjectCapability;
+use crate::domain::project::capability::{ProjectAttachment, ProjectCapability};
 use crate::domain::project::types::Project;
 use crate::ids::ProjectId;
 use crate::state::AppState;
@@ -12,9 +12,15 @@ use super::service;
 pub struct LayoutCapability;
 
 impl ProjectCapability for LayoutCapability {
-    fn attach(&self, _app: &AppHandle, state: &AppState, project: &Project) {
+    /// The disk read is the build half (`AppState::paths` is a plain field, readable with no guard
+    /// held) and the map insert is the registration half — the same split every capability makes,
+    /// even though this read is orders of magnitude cheaper than the watcher walks'.
+    fn build_attachment(&self, _app: &AppHandle, state: &AppState, project: &Project) -> ProjectAttachment {
         let layout = service::load_layout(&state.paths, &project.id);
-        state.layouts.write().insert(project.id.clone(), layout);
+
+        ProjectAttachment::new(move |state: &AppState, project: &Project| {
+            state.layouts.write().insert(project.id.clone(), layout);
+        })
     }
 
     /// The flush-then-remove order here is correctness-sensitive, not just cleanup: a layout marked

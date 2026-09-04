@@ -45,17 +45,28 @@ fn entry_sort_key(entry: &Entry) -> (u8, String) {
     (kind_rank, entry.name.to_lowercase())
 }
 
+/// Lists one directory's visible entries, sorted by [`entry_sort_key`].
+///
+/// The kind comes from `DirEntry::file_type()`, not `DirEntry::metadata()`. Both answer the same
+/// question here — std documents each as *not* traversing symlinks, so a symlink is a
+/// [`TreeEntryKind::File`] either way, pointing at a directory or not — but on Unix `metadata()` is
+/// documented as "the equivalent of calling `symlink_metadata`", i.e. one `lstat` syscall per
+/// entry, while `file_type()` is free on most Unix platforms because `readdir` already returned
+/// `d_type` (research 3b §2-F). Where `d_type` is `DT_UNKNOWN` — some network volumes — std falls
+/// back to that same `symlink_metadata` internally, so the worst case is today's cost, never worse;
+/// the `Err(_) => continue` arm below is that fallback's failure path, exactly as it was
+/// `metadata()`'s.
 fn read_children(dir: &Path) -> AppResult<Vec<Entry>> {
     let mut entries = Vec::new();
 
     for item in std::fs::read_dir(dir)? {
         let item = item?;
-        let metadata = match item.metadata() {
-            Ok(metadata) => metadata,
+        let file_type = match item.file_type() {
+            Ok(file_type) => file_type,
             Err(_) => continue,
         };
         let name = item.file_name().to_string_lossy().to_string();
-        let kind = if metadata.is_dir() {
+        let kind = if file_type.is_dir() {
             TreeEntryKind::Directory
         } else {
             TreeEntryKind::File
@@ -402,6 +413,64 @@ mod tests {
         assert!(!children.iter().any(|entry| entry.name == "node_modules"));
     }
 
+    /// Symlinks are the one place where `file_type()` and `metadata()` could have disagreed, since
+    /// `metadata()` on Unix is `symlink_metadata` while `file_type()` reads `readdir`'s `d_type`.
+    /// std documents both as non-traversing, so a symlink is a plain row whatever it points at —
+    /// this fixture pins that so the syscall-shedding swap (research 3b §2-F) cannot change what
+    /// the tree shows.
+    #[cfg(unix)]
+    fn build_symlink_fixture() -> Fixture {
+        let root = std::env::temp_dir().join(format!("taide-tree-link-{}", uuid::Uuid::new_v4()));
+
+        std::fs::create_dir_all(root.join("real-dir").join("nested")).unwrap();
+        std::fs::write(root.join("real-file.rs"), "fn main() {}").unwrap();
+        std::os::unix::fs::symlink(root.join("real-dir"), root.join("link-to-dir")).unwrap();
+        std::os::unix::fs::symlink(root.join("real-file.rs"), root.join("link-to-file")).unwrap();
+        std::os::unix::fs::symlink(root.join("gone"), root.join("link-broken")).unwrap();
+
+        Fixture { root }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 심링크는_대상과_무관하게_파일로_표시된다() {
+        let fixture = build_symlink_fixture();
+        let children = read_children(&fixture.root).unwrap();
+
+        let kind_of = |name: &str| {
+            children
+                .iter()
+                .find(|entry| entry.name == name)
+                .unwrap_or_else(|| panic!("{name} 엔트리가 없다"))
+                .kind
+        };
+
+        assert_eq!(kind_of("real-dir"), TreeEntryKind::Directory);
+        assert_eq!(kind_of("real-file.rs"), TreeEntryKind::File);
+        assert_eq!(kind_of("link-to-dir"), TreeEntryKind::File, "디렉토리 심링크도 파일 행이다");
+        assert_eq!(kind_of("link-to-file"), TreeEntryKind::File);
+        assert_eq!(kind_of("link-broken"), TreeEntryKind::File, "끊어진 심링크도 목록에 남는다");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 심링크는_자식이_없는_것으로_취급되고_실제_디렉토리만_펼침_가능하다() {
+        let fixture = build_symlink_fixture();
+        let children = read_children(&fixture.root).unwrap();
+
+        let has_children_of = |name: &str| {
+            children
+                .iter()
+                .find(|entry| entry.name == name)
+                .unwrap_or_else(|| panic!("{name} 엔트리가 없다"))
+                .has_children
+        };
+
+        assert!(has_children_of("real-dir"));
+        assert!(!has_children_of("link-to-dir"), "심링크는 펼침 화살표를 얻지 않는다");
+        assert!(!has_children_of("link-broken"));
+    }
+
     #[test]
     fn 디렉토리가_파일보다_먼저_오고_이름순으로_정렬된다() {
         let fixture = build_fixture();
@@ -718,5 +787,81 @@ mod tests {
             "지운 폴더와 이름 접두사만 겹치는 형제는 그대로 남아야 한다"
         );
         assert!(flatten(&state).iter().any(|row| row.name == "kept"));
+    }
+
+    /// The prefetch plan is what keeps disk IO out of the mutation guard (`architecture.md` §2.1):
+    /// whatever the guarded operation reads must have been planned, and a plan that walked outside
+    /// the project root would prefetch — and cache — directories the tree can never show.
+    #[test]
+    fn 루트_밖_경로의_reveal_계획은_루트_읽기에서_멈춘다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        let outside = fixture.root.parent().expect("상위 디렉토리").join("elsewhere").join("a.rs");
+
+        assert_eq!(plan_reveal_reads(&state, &outside), vec![fixture.root.clone()]);
+
+        ensure_root_loaded(&mut state, &mut DirectoryListings::default()).unwrap();
+        assert!(
+            plan_reveal_reads(&state, &outside).is_empty(),
+            "루트가 이미 캐시되어 있으면 루트 밖 reveal 은 읽을 것이 없다"
+        );
+    }
+
+    #[test]
+    fn 접기는_캐시를_남겨_다시_펼칠_때_디스크를_읽지_않는다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        let src_path = fixture.root.join("src");
+        expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
+
+        collapse(&mut state, &src_path);
+
+        assert!(
+            !expanded_paths(&state).contains(&src_path.to_string_lossy().to_string()),
+            "접기는 펼침 표시만 지운다"
+        );
+        assert!(
+            plan_toggle_reads(&state, &src_path).is_empty(),
+            "캐시가 남아 있으므로 다시 펼치는 토글은 잠금 안에서 디스크를 읽지 않는다"
+        );
+
+        toggle_expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
+        assert!(flatten(&state).iter().any(|row| row.name == "main.rs"));
+    }
+
+    #[test]
+    fn 복원_대상에_사라진_경로가_섞여_있어도_나머지는_복원된다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        let src_path = fixture.root.join("src");
+        let gone = fixture.root.join("gone");
+
+        restore_expanded(
+            &mut state,
+            vec![gone.to_string_lossy().to_string(), src_path.to_string_lossy().to_string()],
+        );
+
+        let expanded = expanded_paths(&state);
+        assert!(expanded.contains(&src_path.to_string_lossy().to_string()));
+        assert!(
+            !expanded.contains(&gone.to_string_lossy().to_string()),
+            "읽을 수 없는 경로는 펼침 상태로 남지 않는다"
+        );
+        assert!(flatten(&state).iter().any(|row| row.name == "main.rs"));
+    }
+
+    #[test]
+    fn 펼침_상태_복원은_기존_상태에_더해진다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        let src_path = fixture.root.join("src");
+        let utils_path = src_path.join("utils");
+        expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
+
+        restore_expanded(&mut state, vec![utils_path.to_string_lossy().to_string()]);
+
+        let expanded = expanded_paths(&state);
+        assert!(expanded.contains(&src_path.to_string_lossy().to_string()));
+        assert!(expanded.contains(&utils_path.to_string_lossy().to_string()));
     }
 }

@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::domain::project::capability::ProjectCapability;
+use crate::domain::project::capability::{ProjectAttachment, ProjectCapability};
 use crate::domain::project::types::Project;
 use crate::events::FsChanged;
 use crate::ids::ProjectId;
@@ -11,25 +11,19 @@ use crate::state::AppState;
 
 use super::types::FsChange;
 
-/// Starts the project-root file watcher that fans debounced fs changes out as [`FsChanged`]
-/// events, registering its handle in `state.watchers`. `project_open`'s
-/// `FileWatcherCapability::attach` is the only caller that still builds and registers in one
-/// call — it already runs its entire `ProjectCapabilities::attach_all` walk under one
-/// `AppState::begin_mutation` acquisition, so splitting internally here changes nothing about when
-/// that guard is held. The boot restore path (`domain::project::commands::restore_project_watchers`) calls
-/// [`build_watcher_handle`] and [`register_watcher_handle`] separately instead, so its own guard
-/// only has to cover the register half — see that function's doc.
-pub fn attach_watcher(app: &AppHandle, state: &AppState, project_id: &ProjectId, root: &str) {
-    if let Some(handle) = build_watcher_handle(app, project_id, root) {
-        register_watcher_handle(state, project_id, handle);
-    }
-}
-
-/// The expensive half of [`attach_watcher`] — the `notify-debouncer-full` `FileIdMap` walk
-/// `watcher::start_watch` performs — split out so it can run without touching `AppState` at all.
-/// Returns `None` (after logging the same warning `attach_watcher` always has on failure) when the
-/// watcher fails to start. [`register_watcher_handle`] is the only `AppState` write this handle
-/// still needs.
+/// The expensive half of the project-root file watcher attach — the file-ID index walk
+/// `watcher::start_watch` performs, which stats every entry below the root that the watcher speaks
+/// for (`infra::watcher::ScopedIdCache`, which prunes `IGNORED_DIR_NAMES` subtrees; the crate's own
+/// `FileIdMap` did not, and took seconds on a large working tree). Deliberately touches **no**
+/// `AppState`: both callers
+/// (`project_open`'s `FileWatcherCapability::build_attachment` and the boot restore path
+/// `domain::project::commands::restore_project_watchers`) run it with no `AppState::begin_mutation`
+/// held, and reach for the guard only around [`register_watcher_handle`].
+///
+/// The returned handle is already **live** — `start_watch` has subscribed by the time this returns
+/// — so fs changes arriving between the build and its registration are still delivered; the
+/// registration is only what gives `project_close` a handle to drop. Returns `None` (after logging
+/// the same warning the caller would have) when the watcher fails to start.
 pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str) -> Option<watcher::WatcherHandle> {
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
@@ -56,10 +50,9 @@ pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str)
     }
 }
 
-/// Registers a handle [`build_watcher_handle`] already built — the one `AppState` write the boot
-/// restore split needs `AppState::begin_mutation` for (`domain::project::commands::restore_project_watchers`), held
-/// only across this call and its own `state.projects`/`state.watchers` re-checks, not across the
-/// handle's own walk.
+/// Registers a handle [`build_watcher_handle`] already built — the one `AppState` write the split
+/// needs `AppState::begin_mutation` for, held only across this call (plus the caller's own
+/// re-checks), never across the handle's own walk.
 pub fn register_watcher_handle(state: &AppState, project_id: &ProjectId, handle: watcher::WatcherHandle) {
     state.watchers.write().insert(project_id.clone(), handle);
 }
@@ -67,8 +60,14 @@ pub fn register_watcher_handle(state: &AppState, project_id: &ProjectId, handle:
 pub struct FileWatcherCapability;
 
 impl ProjectCapability for FileWatcherCapability {
-    fn attach(&self, app: &AppHandle, state: &AppState, project: &Project) {
-        attach_watcher(app, state, &project.id, &project.root);
+    fn build_attachment(&self, app: &AppHandle, _state: &AppState, project: &Project) -> ProjectAttachment {
+        let Some(handle) = build_watcher_handle(app, &project.id, &project.root) else {
+            return ProjectAttachment::none();
+        };
+
+        ProjectAttachment::new(move |state: &AppState, project: &Project| {
+            register_watcher_handle(state, &project.id, handle);
+        })
     }
 
     fn detach(&self, _app: &AppHandle, state: &AppState, project_id: &ProjectId) {
