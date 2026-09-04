@@ -59,18 +59,19 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
     │   │   ├── vsix/        VSIX 추출 (테마·grammar 임포트)
     │   │   └── window/      보조 윈도우 수명주기
-    │   └── infra/           외부 자원 어댑터 (19파일)
+    │   └── infra/           외부 자원 어댑터 (21파일)
     │       ├── pty.rs       portable-pty 래퍼 (배칭·flow control·링버퍼)
     │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
     │       ├── lsp_install.rs  LSP 서버 다운로드·설치
     │       ├── watcher.rs   notify + debouncer (무시 목록 필터)
     │       ├── persist.rs   원자적 쓰기 (temp → fsync → rename)
     │       ├── archive.rs   tar/zip/xz 해제 (LSP 설치·VSIX)
-    │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (유일한 tauri 결합 infra)
+    │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (tauri 결합 infra 2종 중 하나)
+    │       ├── navigation_guard.rs  웹뷰 네비게이션·새 창 정책 (§4.1 — tauri 결합)
     │       ├── crypto.rs    constant_time_eq 등 (ide·agent 가 재사용)
     │       ├── secret.rs    OS keyring (SecretStore trait)
     │       ├── http.rs      reqwest 래퍼
-    │       ├── clock.rs / language.rs / range_file.rs / redact.rs / root_guard.rs /
+    │       ├── clock.rs / external_url.rs / language.rs / range_file.rs / redact.rs / root_guard.rs /
     │       │   self_write.rs / shell_integration.rs / shell_quote.rs  (보조 유틸)
     ├── tests/               도메인 경계를 넘는 통합 테스트 (session_restore.rs) +
     │                        도메인 경계 아키텍처 테스트 (domain_boundaries.rs — 화이트리스트 기계 강제)
@@ -176,6 +177,51 @@ trait ProjectCapability: Send + Sync {
   (`REMOTE_DENIED_COMMANDS`) 둘 중 하나에 등재된 커맨드만 실핸들러로 위임하는 **기본 거부** 게이트다
   (T1-K, 2026-08-19). 새 커맨드는 `match` arm 추가만으로 원격 도달 가능해지지 않고, 두 목록 중
   하나에 이름을 등재해야 한다 — 상세 분류·전수 목록은 `docs/ipc-contract.md` §"원격 dispatch 정책".
+
+### 4.1 WebView 네비게이션 가드 (앱 창은 브라우저가 아니다)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch3-contract.md` §B.2-6. 정책·단위 테스트는
+> `src-tauri/src/infra/navigation_guard.rs` 한 곳이고, 부착 지점은 `lib.rs` 의
+> `create_main_window` 와 `domain/window/commands.rs` 의 `open_auxiliary_window` 두 곳뿐이다
+> (앱이 만드는 창이 그 둘뿐이므로 정책이 갈라질 여지가 없다).
+
+- **왜 필요한가**: 앱 창 자체가 외부 사이트로 이동해 버리면 되돌아올 UI 가 없다(주소창·뒤로가기가
+  없다). 프론트의 단일 오프너(`entities/system/external-url.ts`)가 1차 방어지만, OSC 8
+  하이퍼링크·마크다운 앵커·`window.open()` 처럼 그 오프너를 우회하는 JS 경로가 실제로 있었다
+  (`docs/bug/2026-09-04-external-link-opens-in-app-window.md`). 이 가드는 **어떤 JS 경로가 새더라도**
+  창이 오리진 밖으로 나가지 못하게 하는 2중 방어다.
+- **네비게이션 허용 목록**(`is_navigation_allowed`): 스킴 `tauri`·`asset`·`about`·`blob`,
+  `http(s)` 중 호스트가 `tauri.localhost`·`asset.localhost`·`ipc.localhost` 인 것, 그리고
+  **dev 빌드에서만** `build.devUrl` 과 오리진(scheme+host+port)이 같은 URL. 그 외는 전부 거부하고
+  `log::warn!` 로 남긴다. `devUrl` 은 릴리스 바이너리의 임베드 config 에도 남지만 Tauri 자신이
+  `cfg(dev)` 에서만 그리로 이동하므로, 가드도 `cfg!(dev)` 일 때만 그 오리진을 신뢰한다.
+- **`about:`·`blob:` 을 반드시 허용해야 하는 이유 — 정책 함수는 프레임을 구분하지 않는다**:
+  wry 0.55.1 의 `wkwebview/navigation.rs` 는 델리게이트에 URL 문자열만 넘기므로 **iframe 의
+  네비게이션도 같은 함수를 탄다**. `features/preview/html-preview.tsx` 의 `sandbox=''` blob
+  iframe(과 그 초기 문서 `about:srcdoc`/`about:blank`)이 여기서 막히면 HTML 프리뷰가 죽는다 —
+  CSP 의 `frame-src 'self' blob:` 과 짝을 맞춘 항목이다. 새 스킴을 허용 목록에 넣기 전에
+  "iframe 도 이걸 통과한다"를 먼저 따진다.
+- **새 창 요청은 OS 브라우저로 승격**(`open_new_window_externally`): `window.open()` 계열 요청의
+  응답은 **항상 `NewWindowResponse::Deny`** 다(앱이 소유하지 않는 두 번째 웹뷰는 만들지 않는다).
+  다만 그 URL 이 `infra::external_url::validate_external_url` 을 통과하면
+  `tauri_plugin_opener::open_url` 로 OS 브라우저에 넘긴다 — `system_open_external_url` 커맨드와
+  **문자 그대로 같은 화이트리스트**(http(s) 전용·제어/스푸핑 문자 금지·userinfo 금지)다.
+  그 검증기가 `domain/system/commands.rs` 가 아니라 `infra/` 에 있는 이유는, 소비자가 infra
+  (navigation_guard)와 domain(system) 둘인데 §2 가 `infra → domain` 참조를 전면 금지하기
+  때문이다(도메인이 infra 를 쓰는 정상 방향으로 뒤집었다).
+- **main 창을 `create: false` + `from_config` 로 직접 만드는 이유**: `on_navigation`/
+  `on_new_window` 는 빌더에만 붙는데 `tauri.conf.json` 이 자동 생성하는 창에는 빌더가 없다.
+  그래서 `app.windows[0]` 에 `"create": false` 를 두고(`tauri::app::setup` 이 `create=false` 창을
+  건너뛴다) `lib.rs` `.setup` 의 **첫 문장**에서 `WebviewWindowBuilder::from_config` 로 같은 config
+  를 그대로 재생한다. 라벨·크기·`backgroundColor`·`visible:false`·Overlay 타이틀바가 전부 config
+  에서 오므로 FOUC 정책(`features/window-chrome.md` §2)과 capability 의 라벨 매칭
+  (`capabilities/main.json` 의 `"windows": ["main", "editor-*"]`)은 무변경이고, 생성 시점도
+  자동 생성 구간과 동일하다(Tauri 는 setup 훅 **직전**에 config 창을 만든다) — 부팅 지연과
+  `MAIN_WINDOW_LABEL` 참조 순서에 영향이 없다. 창 생성 실패는 setup 오류로 전파한다.
+- **opener 플러그인의 JS 클릭 인터셉터는 끈다**(`tauri_plugin_opener::Builder::new()
+  .open_js_links_on_click(false)`): capability 에 `opener:allow-open-url` 이 없어 링크를
+  `preventDefault` 하고 아무 데도 열지 않던 죽은 인터셉터였다. 앵커 클릭의 단일 소유자는
+  `app/providers/external-link-provider.tsx` 다.
 
 ## 5. View(React) 구조 — FSD
 

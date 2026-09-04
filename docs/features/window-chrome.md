@@ -77,6 +77,17 @@
   넘어갔다. `locale-provider.tsx` 의 실패 배너+재시도 패턴을 `theme-provider.tsx` 에도 이식해
   `isError` 시 상단 배너(`t('theme.loadFailed')` + 재시도 버튼)를 띄운다.
 
+### 2.2 main 창은 setup 에서 직접 만든다 (2026-09-04)
+
+- `tauri.conf.json` `app.windows[0]` 은 `"create": false` 이고, 실제 생성은 `lib.rs` `.setup` 의
+  첫 문장 `create_main_window` 가 `WebviewWindowBuilder::from_config` 로 **같은 config 를 그대로**
+  재생한다. 이유는 웹뷰 네비게이션 가드(`architecture.md` §4.1)의 두 핸들러가 빌더에만 붙기
+  때문이고, 크롬 관점에서 바뀌는 것은 없다 — `backgroundColor`·`visible:false`·Overlay
+  타이틀바·`hiddenTitle` 이 전부 config 에서 오므로 위 §2·§2.1 의 FOUC 정책과 `useRevealWindow`
+  게이트는 그대로다.
+- 생성 시점도 같은 구간이다(Tauri 는 setup 훅 **직전**에 config 창을 만든다) — "창이 먼저 뜨고
+  무거운 부팅 작업은 뒤로" 라는 `2026-08-20-boot-watcher-defer-contract.md` 의 전제가 유지된다.
+
 ## 3. footer (상태바)
 
 ### 3.1 구성 (좌 → 우)

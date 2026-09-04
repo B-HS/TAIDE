@@ -173,6 +173,12 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
 - **경로 접근 차단** (`service.rs::ensure_path_within_any_project`): `openFile`/`saveDocument` 가
   프로젝트 루트 밖 경로에 접근하지 못하도록, file 도메인의 기존 검증(`ensure_within_root` 기반)을
   그대로 재사용한다(임의 파일 접근 차단).
+- **존재 선검증** (`server.rs::resolve_open_file_target`, 2026-09-04): `openFile` 은 경계 검사에 이어
+  `infra::root_guard::ensure_existing_file` 로 실제 파일인지 확인한 뒤에야 탭을 만든다. 이 핸들러는
+  도메인 경계상 `layout_open_tab` 커맨드를 부를 수 없어 `layout::service::open_tab_and_finish` 를 직접
+  호출하므로, 커맨드 층 게이트(`docs/ipc-contract.md` `layout_open_tab` 절)와 같은 함수를 자기 쪽에서
+  한 번 더 탄다. 없는 경로면 탭을 만들지 않고 `RPC_INVALID_PARAMS` 로 거절한다(에이전트가 기억하고
+  있던 옛 경로로 빈 탭이 열리던 흐름 차단).
 - **열린 에디터 목록** (`service.rs::open_editors_snapshot`): 모든 프로젝트의 레이아웃에서 File
   탭만 모아 `getOpenEditors` 응답을 만든다. `is_active` 는 각 프로젝트 레이아웃의 focused pane 의
   active tab 기준으로 판정한다(여러 프로젝트가 열려 있어도 프로젝트별로 하나씩 active 가 나올 수

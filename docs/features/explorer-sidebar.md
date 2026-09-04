@@ -23,8 +23,12 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
 
 ### 2.2 동작
 
-- **lazy load**: 폴더 펼침 시 그 한 단계만 `read_dir`(재귀 프리로드 금지). 펼침 상태는 Rust 트리에
-  기록되고 layout 영속화에 포함(재시작 복원).
+- **lazy load**: 폴더 펼침 시 그 한 단계만 `read_dir`(재귀 프리로드 금지). 펼침 상태는 Rust 트리
+  (`TreeStore` = `RwLock<HashMap<ProjectId, TreeState>>`)가 소유하지만 **프로세스 메모리에만 남는다**
+  — 앱 실행 중에는 프로젝트를 오가도 유지되고, 종료하면 사라진다. `layout` 영속화에는 펼침 상태가
+  들어가지 않는다(`domain/layout` 에 `expanded` 필드 0). `tree::service::expanded_paths`·
+  `restore_expanded` 는 존재하지만 **호출부가 테스트뿐**이라 재시작 복원은 아직 구현되지 않았다
+  (backlog — 이 문서는 2026-09-04 이전까지 "재시작 복원"으로 잘못 적고 있었다).
 - 렌더: 고정 행높이 22px, `getItemKey` = 안정 노드 id, overscan 12. 행 = 들여쓰기 + 폴더/파일
   아이콘 + 이름 + git 상태색(`explorer.git*` 토큰 — M/A/D/U/ignored 흐림).
 - **git 상태 데코레이션 (2026-08-29 구현)**: `gitStatusQueryOptions` 의 `StatusRow[]` 를
@@ -39,6 +43,39 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
   경로 복사, Finder 에서 열기, (git 있으면) 하위 항목 — 전부 Rust fs 명령 경유.
 - 파일 조작 후 watcher 이벤트로 트리 갱신(자기 쓰기 echo 는 origin 플래그로 낙관 갱신).
 - 트리 내 DND(파일 이동)는 2차(dnd-kit 재사용).
+
+#### 활성 파일 자동 표시 (autoReveal, 2026-09-04 구현)
+
+VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 트리가 그 파일까지 **펼쳐 선택**한다.
+
+- **게이트 3축** — 셋 다 만족할 때만 동작한다. ① 설정 `explorerAutoReveal`(기본 on) ② 사이드바가
+  실제로 보임(`shellView.sidebarCollapsed` 아님 + Zen 아님) ③ 사이드바 뷰가 `files`. 판정은
+  `widgets/explorer/explorer-auto-reveal.ts` 의 순수 함수 `decideAutoReveal`(`skip`/`select-only`/
+  `reveal-then-select`)이 전담하고, 훅은 입력 공급과 실행만 한다.
+- **이미 보이는 행은 IPC 0** — `visiblePaths` 에 있으면 `select-only` 로 기존 `selectPathRequest`
+  경로만 태운다. `tree_reveal` 은 성공 시 트리 페이지 전체를 재직렬화·교체하므로(`ipc-contract.md`
+  "응답 형태 불변"), 스크롤만 필요한 경우까지 왕복시키지 않는다.
+- **중복 억제** — 마지막으로 처리한 경로를 훅의 ref 에 기록해 같은 파일로는 다시 reveal 하지 않는다.
+  `skip` 은 기록하지 않으므로, 사이드바를 접은 채 파일을 바꾼 뒤 다시 펼치면 그때 reveal 된다.
+- **포커스 불탈취** — 선택은 `file-tree.tsx` 의 `selectByIndex`(`setSelectedId` + `scrollToIndex`)
+  로만 이뤄지고 DOM focus 를 건드리지 않는다. 에디터 타이핑이 끊기지 않는다.
+- **주 트리만 본다** — 사이드바는 주창에만 마운트되므로 활성 경로는 `layout.root`/`layout.focusedPane`
+  에서만 읽는다(`resolveWindowPaneTree` 금지). 보조창의 활성 탭이 주창 트리를 흔들지 않는다.
+- **프로젝트 루트 밖 경로는 skip** — `tree_reveal` 이 걸어 올라갈 조상이 없으므로 훅에서 선판정한다.
+- **실패는 조용히 무시** — 사용자가 요청한 동작이 아니므로 토스트를 띄우지 않는다(명시적 "탐색기에서
+  보기"는 기존대로 에러를 알린다).
+- **사이드바를 자동으로 펼치지 않는다** — 접힌 사이드바를 펼치는 것은 명시적 reveal(탭 우클릭
+  "탐색기에서 보기" → `explorer-reveal-bridge`)뿐이다. `app-shell.tsx` 가 그 브리지를 구독해
+  `explorerPanelRef.expand()` 를 부르며(2026-09-04 동반 수정 — 그전엔 접힌 상태에서 무반응이었다),
+  autoReveal 은 브리지를 타지 않으므로 이 구분이 자동으로 성립한다. Zen 모드에서는 이 `expand()` 가
+  Zen 의 강제 접힘과 부딪히지 않는다 — 브리지의 유일한 발행처인 탭 우클릭 메뉴가 Zen 에서는 탭 바째
+  렌더되지 않기 때문이다(`pane-node-view.tsx` 의 `{!zen && <PaneTabBar/>}`).
+- 구성: `widgets/explorer/use-explorer-auto-reveal.ts`(훅) + `widgets/explorer/explorer-auto-reveal.ts`
+  (판정 — 소비처가 이 위젯 하나뿐이라 슬라이스 안에 둔다. `paste-plan.ts`·`file-tree-git-status.ts`
+  와 같은 자리이며, 다른 슬라이스가 쓰게 되면 그때 `shared` 로 승격한다) + `shared/lib/pane-tree.ts`
+  `activeFilePathOf`(활성 파일 경로 유도). 사이드바 뷰 상태는 이 게이트를 위해 `ExplorerPanel` 에서
+  `ExplorerContainer` 로 올라간 controlled state 다(`view`/`onViewChange`). Rust 신규 커맨드는
+  없다(`tree_reveal` 재사용).
 
 ### 2.3 갱신·성능
 

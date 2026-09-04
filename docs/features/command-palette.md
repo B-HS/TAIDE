@@ -75,6 +75,45 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
   경로**다(`toProjectRelativePath`). 활성 프로젝트 root 가 아직 로딩 중이면 매칭·렌더 자체를
   보류한다(빈 상태에 로딩 표시) — 절대 경로가 매칭 대상으로 잠깐이라도 노출되지 않는다.
 
+### 3.1 인덱스 신선도 규약 (2026-09-04)
+
+`search_list_files` 는 매 호출마다 전체를 다시 순회하고 Rust 측 캐시가 없다. 따라서 퀵오픈 인덱스의
+유일한 저장소는 프론트의 `QUERY_KEY.SEARCH.PROJECT_FILES(projectId)` 쿼리 캐시 한 장이고, "이 배열이
+언제 갱신되는가" 가 곧 신선도 계약이다. 무효화 경로는 셋이며 각각 역할이 다르다.
+
+| 경로 | 트리거 | 방식 | 근거 |
+|------|--------|------|------|
+| 인앱 뮤테이션 | `useCreateEntry`·`useRenameEntry`·`useCopyEntry`·`useDeleteEntry` 의 `onSuccess` | `invalidateQueries({ refetchType: 'all' })` (`entities/file/file.query.ts` 의 `invalidateProjectFileIndex`) | 사용자 1회 조작 = walk 1회. 워처 에코(300ms 디바운스)보다 결정적이고 빠르다 |
+| 워처 에코 | `fs:changed` 의 `kind !== 'modified'` (`app/providers/ipc-sync-provider.tsx`) | 기본 `refetchType`(active 만) | 외부 대량 변경(브랜치 전환·설치)이 다수 배치로 쪼개져 오므로 `'all'` 은 walk 폭주가 된다 |
+| 열기 실패 | `layout_open_tab` 이 `NotFound` 를 돌려줌 | `useOpenFileTab` 이 그 자리에서 무효화 | `NotFound` 는 "이 목록이 낡았다" 는 신호 자체다. 같은 죽은 행을 다음 `⌘P` 가 또 내놓지 않는다 |
+
+- **재-walk 시점은 "다음 열기"다.** 팔레트 쿼리는 열려 있는 동안만 `enabled` 이고, TanStack Query 의
+  `refetchQueries` 는 `refetchType` 과 무관하게 disabled 쿼리를 제외한다(query-core 5.101 의
+  `!query.isDisabled()` 필터 — 옵저버가 하나라도 있으면 `isDisabled = !isActive`, 그 옵저버가 항상
+  마운트된 `<CommandPalette/>` 다). 그래서 팔레트가 닫힌 채 일어난 뮤테이션은 인덱스를 stale 로
+  표시하고, 실제 walk 는 다음 `⌘P` 오픈 시 1회 돈다. 그 첫 프레임이 낡은 배열을 보여 주는 창은 아래
+  "갱신 중 표시" + "열기 선검증" 두 겹이 막는다. `refetchType: 'all'` 은 **살아 있는 옵저버가 없는
+  인덱스**(활성이 아니게 된 프로젝트)까지 무효화 범위를 넓히는 역할이다. 팔레트가 닫혀 있어도 즉시
+  재-walk 하게 하려면 `app/bootstrap-snippets.ts` 처럼 영구 `QueryObserver` 를 붙여야 하는데, 그러면
+  워처 에코까지 항상 활성 쿼리를 때려 외부 대량 변경에서 walk 폭주가 되므로 채택하지 않았다.
+- `useSaveFile` 은 위 목록에 **넣지 않는다.** 저장은 인덱스에 이미 있는 경로를 덮어쓰고, 자동 저장이
+  빈도를 무한정 늘린다. 새 파일이 생기는 유일한 저장 경로(무제목 탭의 Save As)는 워처의 `created`
+  에코가 덮는다.
+- **열기 선검증**: 파일 탭은 Rust `layout_open_tab` 이 경로가 실제 파일인지 확인한 뒤에만 열린다.
+  낡은 행을 눌러도 빈 에디터가 열리고 본문에 `No such file or directory (os error 2)` 가 뜨는 대신,
+  탭이 아예 열리지 않고 `error.file.notFound` 토스트가 뜬다.
+- **프론트 단일 진입점**: 파일 탭을 여는 모든 호출부는 `entities/layout/layout.query.ts` 의
+  `useOpenFileTab` 을 쓴다. 에러 토스트와 위 `NotFound` 무효화가 이 한 곳에만 있고, 이후 MRU 기록·
+  autoReveal 같은 "파일 열기" 고도화도 여기서 확장한다.
+  - 예외 1곳: `app-shell.tsx` 의 드래그앤드롭 열기는 `useOpenTabInProject().mutateAsync` 를 유지한다.
+    여러 파일을 한 번에 떨어뜨리면 `for … await` 로 **한 개씩 순차 열기**를 해야 하는데(동시 발사하면
+    각 응답의 `applyFreshLayout` 이 완료 순서대로 캐시를 덮어써 마지막에 도착한 낡은 레이아웃이
+    이긴다), `useOpenFileTab` 은 `mutate` 기반이라 await 할 대상이 없다. OS 파일 매니저가 건네는
+    경로는 스테일 인덱스 출처가 아니므로 `NotFound` 무효화를 놓쳐도 잃는 것이 없고, 토스트는 그
+    호출부가 이미 띄운다. 순차성을 잃지 않는 async 변형이 필요해지면 그때 훅에 추가한다.
+- **갱신 중 표시**: 팔레트가 열려 있는 동안 재-walk 가 도는 창은 `files` 그룹 헤딩 옆에
+  `palette.filesRefreshing` 스피너로 드러낸다. 항목 클릭은 막지 않는다 — 선검증이 이미 방어한다.
+
 ## 4. UI
 
 - shadcn `command`(cmdk) 기반. **native `<input>` 금지**(acknowledge §3.1) — 자체 컴포넌트로.

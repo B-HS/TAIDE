@@ -146,3 +146,9 @@
 |------|------|
 | 파일트리 ignored 흐림 표시 | git status 는 ignored 파일을 나열하지 않아 현재 데코레이션(색·뱃지)으로는 판정 불가. 보이는 디렉토리 범위의 ignore 판정 IPC(git2 `status_should_ignore` 또는 check-ignore 배치)를 신설해 `FileTreeGitStatus 'ignored'`(렌더 경로는 기구현)를 채운다. |
 | 터미널 kitty keyboard protocol | xterm.js 미지원으로 Shift+Enter 를 LF 매핑으로 우회 중(`acknowledge/2026-08-29-terminal-shift-enter-decision.md`). 프로토콜 구현 시 TUI 전반의 조합 키 구분이 근본 해결되나 키 인코딩 전반 변경의 회귀 리스크가 커 별도 배치로만 착수한다. |
+
+### 퀵오픈 스테일 인덱스 수정(2026-09-04)에서 분리된 후속 후보
+
+| 항목 | 내용 |
+|------|------|
+| 팔레트 `target:null` → focusedPane 소실 시 NotFound 토스트 | 파일 탭 열기는 `target: null` 로 "현재 포커스된 pane" 을 요청하는데, 그 `focusedPane` 이 이미 없으면 `layout/service.rs` 가 `NotFound("pane not found")` 를 돌려준다. 파일 자체는 멀쩡한데 `error.file.notFound` 와 같은 `NotFound` 코드라 `useOpenFileTab` 이 파일이 사라진 것으로 읽어 같은 토스트를 띄우고 퀵오픈 인덱스까지 무효화한다(무해하지만 불필요한 walk 1회). pane 부재는 파일 부재와 다른 코드/로케일 키로 분리하거나, 서버가 소실된 pane 을 유효한 pane 으로 대체(fallback)하도록 정한다. |

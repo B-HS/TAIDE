@@ -153,27 +153,80 @@
   `outColumns` 아웃파라미터를 받지만 공개 `BufferLineApiView` 가 인자 3개까지만 전달하고 4번째를
   버린다(그대로 넘기면 조용히 빈 배열이 온다).
 
-### 6.1 URL 링크 열기 (손 QA 1차 수정, 2026-08-18)
+### 6.1 URL 링크 열기 — 외부 URL 은 항상 OS 브라우저 (사용성 배치 3, 2026-09-04 전면 개정)
 
-> 계약: `docs/acknowledge/2026-08-18-hand-qa-fix-contract.md` §2.1. 배경: `WebLinksAddon` 의
-> 기본 핸들러는 `window.open()` 에 의존하는데, WKWebView(Tauri macOS)에서 이 호출이 `null` 을
-> 반환해 무동작이었다 — 클릭 자체는 (수식어 무관하게) 핸들러까지 도달했지만 그 뒤에서 조용히
-> 실패했다.
+> 계약: `docs/acknowledge/2026-09-04-usability-batch3-contract.md` §B. 증상·원인 정본은
+> `docs/bug/2026-09-04-external-link-opens-in-app-window.md`. 이 절은 2026-08-18 손 QA 1차 수정
+> (`2026-08-18-hand-qa-fix-contract.md` §2.1)의 "`window.open` 선시도 → IPC 폴백" 설계를 **폐기**하고
+> 대체한다.
 
-- `WebLinksAddon` 을 **핸들러 주입형**으로 교체(`terminal-view.tsx`) — 기본 핸들러 대신
-  `(event, uri) => { if (!shouldActivateTerminalLink(event)) return; onOpenLink(uri) }`.
-  `shouldActivateTerminalLink` 는 `event.altKey || (isMac ? event.metaKey : event.ctrlKey)` 일
-  때만 참 — **⌘(비 macOS 는 Ctrl) 또는 ⌥ + 클릭**, 둘 중 하나로 겸용(§6 의 파일 경로 링크가
-  cmd(ctrl)+click 하나만 받는 것과 다른 설계). 수식어 없는 클릭은 여전히 무동작.
-- Terminal 생성 옵션에 `altClickMovesCursor: false` 추가 — 기본값(`true`)을 그대로 두면 ⌥클릭이
-  "커서를 그 위치로 이동"과 "링크 열기" 두 동작으로 동시에 해석돼 충돌한다. ⌥클릭의 커서 점프
-  동작 자체를 제거하는 트레이드오프이며 사용자 승인을 거쳤다.
-- 열기 경로(`widgets/terminal-pane/terminal-link-opener.ts` `openTerminalLink`):
-  `window.open(uri, '_blank', 'noopener')` 를 먼저 시도하고, `null` 이 돌아오면(WKWebView)
-  `systemOpenExternalUrl` IPC(`system_open_external_url` — 새 URL은 화이트리스트는 `http(s)://`
-  접두만, `ipc-contract.md` 참조)로 폴백한다. 원격 미러 브라우저에서는 `window.open` 이 실제
-  새 탭으로 정상 동작하므로 셸/WKWebView 감지 없이도 두 환경 모두 자연스럽게 동작한다.
-  두 경로 모두 실패하면 `toast.error(t('terminal.openLinkFailed'))`.
+**폐기 사유.** 1차 설계는 데스크톱에서도 `window.open()` 을 먼저 부르고 `null` 일 때만
+`system_open_external_url` IPC 로 폴백했다. 이 순서는 두 가지를 전제하는데 둘 다 유지될 수 없다.
+① 데스크톱 webview 가 팝업을 *반드시* 거부한다는 전제 — 거부 여부는 wry/WKWebView 의 구현 세부이고,
+`new_window_req_handler` 가 없을 때 무엇이 돌아오는지에 앱의 정책을 걸어 두면 그 세부가 바뀌는 순간
+외부 페이지가 TAIDE 창 안에 열린다(주소창·뒤로가기가 없어 사용자가 빠져나올 수 없다).
+② 실패했을 때만 폴백하므로, 팝업이 "성공"으로 보이면 IPC 경로는 영원히 실행되지 않는다.
+현행 설계는 순서를 정하는 대신 **환경별로 경로를 분리**해 데스크톱에서 `window.open` 을 아예 호출하지
+않는다.
+
+**단일 진입점.** 앱에서 외부 URL 을 여는 모든 코드는 `entities/system/external-url.ts` 의
+`openExternalUrl` 하나만 쓴다. 구현은 순수 팩토리 `shared/lib/external-url-opener.ts`
+`createExternalUrlOpener` 이고, 주입되는 세 의존은 아래와 같다.
+
+| 의존 | 데스크톱 | 원격 미러 |
+|------|---------|----------|
+| `isRemoteMirror` | `false` (`getCurrentWindow().label` 이 `main`·`editor-<n>`) | `true` (라벨 `remote`) |
+| `openViaShell` | `system_open_external_url` IPC — **항상 이 경로** | 호출하지 않음 |
+| `openViaBrowser` | **호출하지 않음** | `openViaBrowserWindow` (빈 탭 open → `opener` 절단 → `location.href`) |
+
+- 환경 판별은 `shared/lib/remote/runtime-environment.ts` `isRemoteMirrorRuntime` — 원격 shim 이
+  이미 보고하는 `getCurrentWindow().label === REMOTE_WINDOW_LABEL('remote')` 를 재사용하며 전역
+  상태를 새로 만들지 않는다. 순수 판정부 `isRemoteMirrorLabel(label)` 이 분리돼 있어 `bun:test`
+  (window 없음)에서 검증된다.
+- 원격 미러에서 IPC 를 쓰지 않는 이유: 원격 dispatch 가 `system_open_external_url` 을 명시적으로
+  거부한다(`remote/dispatch.rs`). 반대로 데스크톱에서 `window.open` 을 쓰지 않는 이유가 위 폐기
+  사유다. 원격에서 브라우저가 팝업을 거부하면 더 시도할 곳이 없으므로 throw 한다.
+- Rust 측은 `system_open_external_url` 이 http(s) 화이트리스트로 스킴을 재검증한다
+  (`ipc-contract.md`). 프론트 판정과 2중 방어다.
+
+**터미널 링크 3종이 같은 게이트·같은 오프너를 탄다.** 수식어 게이트
+`shouldActivateTerminalLink`(`event.altKey || (isMac ? event.metaKey : event.ctrlKey)` — ⌘/Ctrl
+또는 ⌥ + 클릭, 수식어 없는 클릭은 무동작)를 세 경로가 공유한다.
+
+| 링크 종류 | 제공자 | 활성화 경로 |
+|-----------|--------|------------|
+| 평문 URL | `WebLinksAddon`(핸들러 주입형) | 게이트 → `onOpenLink` → `openExternalUrl` |
+| `path:line:col` | `terminal-file-link.ts` `registerLinkProvider` | 게이트 → `resolve_terminal_path` → 에디터 탭 |
+| **OSC 8 하이퍼링크** | xterm 코어 `OscLinkProvider`(우선순위 0) | **Terminal 옵션 `linkHandler`** → 게이트 → `onOpenLink` |
+
+- OSC 8 이 별도 처리를 요구하는 이유: 코어의 `OscLinkProvider` 가 우선순위 0 으로 먼저 등록되고,
+  같은 셀에서 겹치는 하위 링크는 제거되므로 `WebLinksAddon` 핸들러가 아예 호출되지 않는다.
+  `linkHandler` 를 주지 않으면 xterm 의 `defaultActivate` 가 `confirm(...)` 뒤에 `window.open()` 을
+  부르는데, wry 0.55.1 은 `runJavaScriptConfirmPanel` 을 구현하지 않아 데스크톱에서 `confirm()` 은
+  항상 false — gh·vite·bun·eza·Claude Code 처럼 OSC 8 로 링크를 찍는 출력만 "아무 반응 없음"이 됐다.
+- `linkHandler.allowNonHttpProtocols: false` — OSC 8 텍스트가 http(s) 가 아니면 링크로 취급하지
+  않는다(xterm 이 `new URL(text).protocol` 로 걸러낸다). Rust 화이트리스트와 합쳐 2중 방어.
+- `linkHandler` 는 **OSC 8 에만** 적용된다(xterm 소스 확인: `OscLinkProvider.ts` 외 참조처 없음).
+  `WebLinksAddon`·커스텀 파일 링크 provider 의 `activate` 는 영향을 받지 않는다.
+- hover 툴팁은 추가하지 않는다(`WebLinksAddon` 에도 없어 기존 동작과 일치 — 백로그).
+- Terminal 생성 옵션 `altClickMovesCursor: false` 는 그대로 유지한다. 기본값(`true`)이면 ⌥클릭이
+  "커서 이동"과 "링크 열기"로 동시 해석돼 충돌한다(사용자 승인을 거친 트레이드오프).
+- 실패 시 `toast.error(t('terminal.openLinkFailed'))`.
+
+**앵커 위임 핸들러(터미널 밖).** 마크다운 프리뷰가 렌더한 `<a href>` 는 터미널을 거치지 않는다 —
+`marked` 는 `target="_blank"` 를 붙이지 않고, `tauri_plugin_opener` 가 주입하던 클릭 인터셉터는
+`target=_blank`/Ctrl/Shift 만 잡는 데다 capability 가 없어 `preventDefault` 만 하는 죽은 코드였다.
+그래서 앱 루트(`app/providers/external-link-provider.tsx`, `app.tsx` 의 **메인·보조 창 두 분기 모두**)
+에서 `document` capture-phase `click` 을 받아 `composedPath()` 의 첫 `HTMLAnchorElement` 를 찾고,
+순수 판정 `shared/lib/external-anchor.ts` `shouldOpenAnchorExternally(href, appOrigin)` 이 참이면
+`preventDefault()` 후 같은 `openExternalUrl` 로 넘긴다. 판정 규칙은 **절대 http(s) URL + 앱 오리진과
+다른 오리진**뿐 — 동일 오리진(앱 라우트·자산)·상대 경로·`mailto:`·`file:`·`blob:`·`tauri:` 는 전부
+앱에 남는다. 좌클릭(button 0)이 아니거나 이미 `defaultPrevented` 인 클릭은 건드리지 않아 컨텍스트
+메뉴와 기존 인앱 핸들러가 그대로 동작한다. 실패 시 `toast.error(t('common.openExternalLinkFailed'))`.
+
+**WebView 레벨 가드.** JS 경로가 어떤 이유로든 새더라도 앱 창이 오리진 밖으로 이동하지 못하게
+`on_navigation`/`on_new_window` 가드를 둔다 — 상세는 `docs/architecture.md` 의 "WebView 네비게이션
+가드" 절.
 
 ## 7. 폰트 크기 (FR-G3)
 

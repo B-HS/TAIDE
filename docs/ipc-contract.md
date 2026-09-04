@@ -124,6 +124,22 @@
   `layout_set_shell_view(projectId, patch: ShellViewPatch)`(둘 다 Wave I — 아래 절 참조),
   `layout_apply_path_change(projectId, change: TabPathChange) → TabPathChangeResult`
   (d-50 S8 신설 — 아래 절 참조)
+- **`layout_open_tab` 의 `File` kind 선검증(사용성 배치 3, 2026-09-04)**: `kind` 가
+  `TabKind::File { path }` 이면 탭을 만들기 **전에** `root_guard::resolve_owning_project` 로
+  경계를 확인하고(루트 밖이면 종전대로 `error.path.outsideOpenProjects` = `Forbidden`),
+  이어 `std::fs::metadata` 가 파일이 아니면 **탭을 열지 않고**
+  `error.file.notFound`(`NotFound`, arg `path`)를 반환한다. 팔레트 퀵오픈이 스테일 인덱스의
+  경로를 넘겼을 때 탭은 열리고 본문만 `file_open` 의 `No such file or directory (os error 2)` 를
+  보여주던 흐름을 커맨드 경계에서 끊는다 —
+  `docs/bug/2026-09-04-quick-open-stale-index-not-found.md`. `layout::service::open_tab` 은
+  검증하지 않는다 — 순수 인메모리 트리 그대로이고, 레이아웃 서비스 테스트는 가짜 경로로 탭을 연다.
+  존재 검사 자체는 `infra::root_guard::ensure_existing_file(resolved, display_path)` 에 있고,
+  **파일 탭을 여는 두 진입점이 모두 이것을 호출한다**: (1) 이 커맨드(UI·원격 세션 전부 — 원격은
+  같은 커맨드 함수를 dispatch 하므로 자동 적용), (2) IDE 도구 핸들러의 `openFile`
+  (`ide::server::resolve_open_file_target`) — 도메인 경계상 다른 도메인의 커맨드 함수를 부를 수 없어
+  `ide::service::ensure_path_within_any_project` 로 경계를 본 뒤
+  `layout::service::open_tab_and_finish` 를 직접 부르므로, 같은 게이트를 자기 쪽에서 한 번 더 탄다
+  (에러는 그 핸들러 관례대로 `ToolError(RPC_INVALID_PARAMS)` 로 변환된다).
 - event: `layout:changed(projectId, revision)` — **`revision` 발행 규약(X1#11 실사, X-A 배치)**:
   프로젝트별 독립 카운터(전역이 아니다)로, `layout::types::ProjectLayout::revision`(`u32`, 새
   레이아웃은 0)이 `layout::service::*` 의 레이아웃을 바꾸는 모든 함수(`open_tab`/`close_tab`/
@@ -274,6 +290,12 @@
   퀵오픈 인덱스는 상한을 두는 순간 상한 밖 파일이 검색 불가가 되어(자르면 정합성 파괴) 결함
   d 를 다른 형태로 재도입한다. 절단 없는 전체 목록이 규약이며, 매칭·표시 상한은 FE
   (`FILE_RESULT_LIMIT`)가 담당한다(d-42 검토 L2-3 판정 — 계약 §4).
+  **비-UTF8 경로는 제외한다(사용성 배치 3, 2026-09-04)**: 예전에는 `to_string_lossy` 로 손실
+  변환해 U+FFFD 가 섞인 **디스크에 없는 경로**를 목록에 실었고, 그 행을 고르면 눈에 보이는
+  파일이 "찾을 수 없음"으로 실패했다. 이제 `to_str()` 이 `None` 인 엔트리를 버린다 — 경로를
+  `String` 으로 나르는 `TabKind::File`·`OpenedFile` 규약상 어차피 열 수 없는 파일이므로, 빼는
+  것이 정직한 목록이고 "이 목록의 모든 경로는 열 수 있다"는 계약(위 `layout_open_tab` 선검증의
+  전제)이 유지된다.
 
 ### git (`git.md`)
 
@@ -964,6 +986,13 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   대소문자 무시) 화이트리스트 + 제어문자·공백 거부만 검증하고(스킴 파싱용 `url` 크레이트는 도입하지
   않았다), 통과하면 `tauri_plugin_opener::open_url` 로 OS 기본 브라우저를 연다. 터미널
   (`terminal.md` §"링크")의 xterm `WebLinksAddon` 이 ⌘/⌥ 클릭으로 인식한 URL 이 유일한 호출부다.
+  **정정(사용성 배치 3, 2026-09-04)**: 호출부는 프론트 단일 진입점 `entities/system/external-url.ts`
+  의 `openExternalUrl` 하나로 바뀌었고, 그 뒤에 터미널 링크 3종(플레인 매처·OSC 8 `linkHandler`·
+  파일 링크 제외)과 렌더된 마크다운 앵커(`app/providers/external-link-provider.tsx`)가 붙는다.
+  Rust 쪽에서도 `infra::navigation_guard::open_new_window_externally` 가 같은 화이트리스트
+  (`infra::external_url::validate_external_url`, `domain::system::commands` 에서 이동)를 통과시킨 뒤
+  `tauri_plugin_opener::open_url` 을 직접 부른다 — 커맨드 계약 자체는 불변이다
+  (`terminal.md` §6.1 · `architecture.md` §4.1).
   **원격에서는 명시 거부**(`system_open_external_url` 행 — 위 "원격 dispatch 정책" 표) — 원격
   세션이 데스크톱 자신의 OS 브라우저를 대신 열게 할 수는 없다는, `remote_issue_link` 자가 확장
   거부와 같은 근거.

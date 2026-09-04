@@ -19,6 +19,10 @@ OS 마다 생김새가 다르다.
   (좁으면 1열, 넓으면 2~3열). 한눈에 많이 보이는 것이 목적.
 - 섹션(실제 12종 — `settings-view.tsx` `SETTINGS_SECTION_ID` 정본): Appearance / Language /
   Interface / Editor / Snippets / Terminal / Keymap / LSP / AI / Plugins / Sync / Remote
+- Interface 섹션에는 `explorerAutoReveal` 스위치가 있다(2026-09-04 추가, 기본 on — VS Code
+  `explorer.autoReveal` 파리티). 라벨·설명 키는 `settings.explorerAutoReveal` /
+  `settings.explorerAutoRevealDescription`, 동작 규약은 `explorer-sidebar.md` §2.2 "활성 파일 자동
+  표시".
 
 ### 1.2 컴포넌트 규칙 (전 OS 일관 — acknowledge §3.1)
 

@@ -50,6 +50,67 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 대기: 사용성 배치 4 — OS 알림·Welcome 커맨드·성능 극한·프로젝트 목록·git 탭 UX (2026-09-04)
+
+> 사용자 추가 요청 5건(배치 3 구현 wf 진행 중에 접수). 조사 wf(opus·xhigh, 읽기 전용, 7주제 병렬)
+> 기동 + 결정 질문 발신. 계약은 조사·회신 후 `acknowledge/2026-09-04-usability-batch4-contract.md`.
+
+- [x] a. 조사 wf 완료(2026-09-04) — `wf_c018b9c9`(7주제, 원문 `research/2026-09-04-batch4-topics1-5-research.md`)
+      + `wf_6aa56329`(터미널·탭 바 메뉴, 원문 `research/2026-09-04-batch4-terminal-tabbar-context-menu-research.md`).
+      핵심: 알림 권한 거부 감지 불가(플러그인 항상 granted) → 상시 버튼; Welcome 은 빈 pane 렌더 교체;
+      git 탭 모호함의 원인은 색이 아니라 빈 Stash 섹션의 최상단 배치; 터미널 분할은 신규 커맨드
+      `layout_open_tab_in_split`(2회 mutation 조합은 이중 스폰 재발); 탭 바 여백 메뉴는 filler 만 래핑
+- [x] b. 사용자 결정 회신(2026-09-04, 전부 추천안) — 알림: 비활성 창+완료성 이벤트만·
+      tauri-plugin-notification 승인 / 성능: 8지표 계측 내장+FE·Rust 전부·의존성 0 / 탭 바: 여백
+      메뉴 신설+기존 탭 메뉴 보강 / Welcome: 커맨드+탭 0 자동 표시. 전제(프로젝트 목록 아이콘+
+      라벨+색, git 탭 VS Code SCM 파리티, 터미널 분할=새 터미널 생성) 고지. 2차(조사 후): 테스트
+      하네스 happy-dom+Testing Library / CI 게이트 push·PR 신설 / 성능 계측+안전 수정+2단계까지. 정본
+      `acknowledge/2026-09-04-usability-batch4-user-decisions.md`
+- [x] c. 계약 작성 완료 — `acknowledge/2026-09-04-usability-batch4-contract.md` A(알림)·B(Welcome)·C(성능)·
+      D(프로젝트 목록)·E(git 탭)·F(터미널 메뉴)·G(탭 바 메뉴)·H(테스트·하네스·CI)
+- [ ] d. 구현 wf(opus·xhigh) — 배치 3 완결(리뷰·테스트·커밋) 후 착수. 웨이브 1: A·B·D·E·F·G (Rust 직렬
+      B→A→D→F, TS 병렬) → 웨이브 2: C 성능(1단계→2단계)·H 하네스·테스트·CI
+- [ ] e. 리뷰 wf(sonnet·xhigh) → 테스트 wf(fable·medium) → 메인 2차 검증 → docs → 커밋
+
+## 완료: 사용성 배치 3 — 퀵오픈 미발견·터미널 링크 창내 열림·파일트리 자동 reveal (2026-09-04)
+
+> 사용자 보고 3건 + 작업 방식 지시(역할표 갱신 — `docs/agent-operations.md` §1 ·
+> `feedback/2026-09-04-research-must-use-workflow-opus-xhigh.md`). 근본 수정 + 향후 고도화를
+> 고려한 추상화 요구. 조사는 이 세션에 한해 이미 기동된 Explore 3개 결과를 소비(이후 리서치는
+> wf opus·xhigh).
+
+- [x] a. 조사 — ① 퀵오픈: `search_list_files` 프론트 캐시가 인앱 CRUD 에서 무효화되지 않고
+      (워처 300ms 에코만), `layout_open_tab` 이 존재 검증을 안 해 낡은 항목이 탭으로 열린 뒤
+      `io::Error` 원문 노출 ② 터미널: `window.open()` 선시도 순서 결함 + `linkHandler` 부재로 OSC 8
+      링크가 xterm 기본 핸들러(confirm→무동작)로 샘 + WebView 네비게이션 가드 0(마크다운 앵커는
+      확정 창내 열림). "데스크톱 non-null" 가설은 wry 소스로 반증·실측 미확증 ③ reveal 인프라
+      (`tree_reveal`·브리지·`selectPathRequest`) 완비, 활성 파일 구독 훅+설정 1종만 부재
+- [x] b. 지시서(계약) 작성 — `acknowledge/2026-09-04-usability-batch3-contract.md` A·B·C 절
+- [x] c. 구현 wf(opus·xhigh, `wf_b172fc7a`) — Rust 직렬 C(설정+로케일)→A(open_tab
+      선검증·NotFound 로케일·비-UTF8 제외)→B(navigation_guard·main 창 create:false+from_config·
+      opener JS off) ∥ TS A(useOpenFileTab 10곳·인덱스 무효화·팔레트 갱신표시)·B(openExternalUrl
+      단일화·OSC 8 linkHandler·앵커 위임)→C(activeFilePathOf·decideAutoReveal·useExplorerAutoReveal·
+      view controlled·설정 UI) → **통합 verify 전 단계 green**(typecheck·typecheck:e2e·lint 0 error
+      /9 기존 warning·format:check·bun 1848 pass 0 fail·cargo fmt/clippy·cargo 1238+3+6+17 pass
+      0 fail·`bunx vite build` exit 0). 계약 A.2·B.2·C.2 전 항목 대조 완료 — 미치환 1곳
+      (`app-shell.tsx` 드래그앤드롭, 순차성 사유로 의도적 예외·문서화)
+- [x] d. 리뷰 wf(sonnet·xhigh, `wf_97d0a59a` — 11 에이전트/에러 0) — 렌즈 4(발견 7: major 2·minor 3·
+      info 2) → 적대적 검증 3표(major 확증 0: A-1 refetchType:'all' 무효과는 minor 강등·문서 정정,
+      A-2 IDE 경로 우회는 반박(문서화됨)이나 기술 격차 실재 → e 에서 보완) → 수정(opus): decideAutoReveal
+      을 widgets/explorer 로 이동(FSD 2회 룰)·문서 3건 정정·C-1 기각(Zen 에선 탭 바 미렌더)·conv-01 이월.
+      계약 §3.4 정본. 수정 후 verify 전체 그린
+- [x] e. 테스트 wf(fable·medium, `wf_a864cd0f` — 4 에이전트/에러 0) — IDE `tool_open_file` 존재 선검증
+      공유(`root_guard::ensure_existing_file`, opus)·단위 +19(file.query 무효화 계약·isNotFoundIpcError·
+      autoReveal·external-anchor/opener·runtime-environment 보강, bun 1867/0)·e2e 스펙 14~16(autoReveal
+      선택·설정 off·퀵오픈 삭제 파일 NotFound 토스트 — **미실행, 사용자 앱 기동 필요**)·최종 verify 그린
+      (cargo 1265/0·vite build·typecheck:e2e). 계약 §3.5 정본
+- [x] f. 메인 2차 검증 — `bun run verify` + `bunx vite build` + `typecheck:e2e` 직접 실행 exit 0(bun 1867/0·
+      cargo 1265/0), 핵심 파일 스팟 확인(navigation_guard·create_main_window 위치·선검증·useOpenFileTab·
+      오프너·linkHandler·useExplorerAutoReveal)
+- [x] g. 커밋 5분할(`ef2ae3a` fix(palette)·`1f1ccbb` feat(explorer)·`14e129e` fix(terminal)·`0763994`
+      test(e2e)·`d7424f7` chore(claude)) + docs 커밋 → dev 푸시 → main ff 병합·푸시
+- [ ] h. 잔여(사용자): e2e 14~16 실행·배치 3 표면 실기 확인(계약 §3.5.2 미확인 가정 3건 포함)
+
 ## 완료: v0.1.6 릴리스 + docs 정합 일괄 (2026-08-30 — 완주)
 
 > 절차 정본 `docs/deployment.md` §3.
