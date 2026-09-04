@@ -94,9 +94,9 @@
 
 | 항목 | 내용 | 보류 사유 |
 |------|------|-----------|
-| git status 캐시·rename 방향 축소 (M-2) | 결과 캐시+워처 무효화 재계산, 양방향 rename 감지 축소, guarded index refresh | 캐시 설계·동작 변경 판단 수반 — 대량 dirty 실측 후 |
+| ~~git status 캐시~~ · rename 방향 축소 (M-2) | 결과 캐시+워처 무효화 재계산, 양방향 rename 감지 축소, guarded index refresh | **결과 캐시는 구현 완료**(사용성 배치 4 C.2-6 ③ — `GitStore::StatusCache`, `fs:changed`/`git:status-changed`/`git:refs-changed` 무효화 + 2초 TTL + 세대 비교). 잔존: 양방향 rename 감지 축소 · `StatusOptions::update_index`(아래 별도 행) |
 | git_log refs 캐시·커서 재개 (L-1) | 페이지마다 refs 전체 재구축 + O(skip) revwalk → GitRefsChanged 무효화 캐시·커서 | 태그 수천 규모에서만 체감 — 실수요 확인 후 |
-| 워처 선택적 IdCache (M-10) | IGNORED_DIR_NAMES 하위를 FileIdMap 워크에서 제외하는 커스텀 IdCache | d-35 NoCache 기각 사유(rename 오분류) 보존 필요 — 난이도 L |
+| ~~워처 선택적 IdCache (M-10)~~ | IGNORED_DIR_NAMES 하위를 FileIdMap 워크에서 제외하는 커스텀 IdCache | **구현 완료**(사용성 배치 4 C.2-6 ② — `infra::watcher::ScopedIdCache`. d-35 의 전면 `NoCache` 기각 사유는 보존: 앱이 보고하는 모든 경로쌍의 rename 짝짓기가 유지된다. `docs/architecture.md` §2.3). 항목 종결 |
 | 트리 mutation 응답 재설계 (H-4 후반) | full_page 전체 반환 → revision+영향 구간 축소 | IPC 계약 변경 — FE 동시 개정 필요 |
 | ide:diff-requested pull 전환 (L-4) | 파일 전문 이벤트 운반 → request_id 신호+query pull | MCP 흐름 동시 수정 |
 | search_list_files FsChanged 캐시 | 팔레트 열 때마다 전체 re-walk → 무효화 기반 캐시 | d-42 무상한 계약은 불변 — 캐시만 |
@@ -185,3 +185,26 @@
 | Welcome 최근 목록 · 보조 창 타이틀바에 표시 설정 반영 | 1차 범위는 **1차 사이드바 아이콘만**이다. Welcome 화면의 최근 프로젝트 목록과 보조 창 타이틀바(`auxiliary-title-bar-content.tsx`)는 이미 `Project`/`ProjectRef` 를 받으므로 추가 IPC 없이 `resolveProjectDisplay` 를 붙일 수 있지만, **표시 전용 필드 변경에 `ProjectListChanged`(프로젝트 목록 전체 fanout)를 재발행하는 현재 방식이 그 창들까지 갱신하는지**를 먼저 확인해야 한다. 필요하면 좁은 `ProjectDisplayChanged { projectId, display }` 이벤트를 신설한다(현재 신규 이벤트 0). |
 | PRD FR-A4(포커스된 content 타입에 따른 아이콘 변경) | 사이드바 아이콘 슬롯을 이번 표시 설정과 다툰다 — 사용자가 지정한 아이콘·라벨을 런타임 상태가 덮어쓰면 설정의 의미가 사라진다. `PRD.md` FR-A4 에 보류 각주를 달아 두었고, 되살린다면 "사용자 지정이 없을 때만 content 타입 아이콘" 같은 우선순위 규칙을 먼저 정해야 한다. |
 | 라벨 타이포 사다리 · lane 색 대비 실측 | `PROJECT_LABEL_CLASS_BY_LENGTH` 는 CJK 4자가 40px 버튼에 들어가도록 계산한 값이고, 색 12종은 `graph.lane1..12` 를 그대로 쓴다. 번들 테마 36종에서 `appSidebar.background` 대비가 충분한지, 4자 라벨이 실제로 잘리지 않는지는 앱 실행 확인이 필요하다. |
+
+### 성능 극한 최적화(사용성 배치 4 C, 2026-09-04)에서 이월된 후보
+
+> 계약 §C.2-8 이 지정한 등재분 + 조사 §9(`research/2026-09-04-batch4-topics1-5-research.md` 주제
+> 3a·3b)가 "이번 배치 제외" 로 확정한 것. **감사 §1(d-51 계약 §5 F7)의 이월분이 이 백로그에 없어
+> "이미 처리됨" 으로 오독되던 문제**를 여기서 해소한다. 측정 절차 정본은
+> `docs/quality-assurance/2026-09-04-perf-baseline.md`.
+
+| 항목 | 내용 | 보류 사유 |
+|------|------|-----------|
+| monaco 지연 로딩 + "에디터 없는 첫 프레임" 셸 | `shared/lib/monaco/setup.ts` 의 `import * as monaco` 를 **27개 모듈이 값으로** import 해 React 렌더 이전에 3.76MB JS + 163kB CSS 를 파싱한다(부팅 페이로드의 64%). 터미널만 여는 세션도 전액을 지불한다. | 효과가 이 축에서 가장 크지만 **구조 수술**이다 — 접촉 파일 30+, 부팅 순서 계약 신설, 첫 페인트 게이트(`use-reveal-window.ts`)·shiki·키맵 런타임·LSP 어댑터가 전부 monaco 인스턴스에 줄 서 있어 실패 모드가 d-20 blank-window 급이다. 2차 결정 §7 에서 **별도 배치**로 확정. 착수 시 지표 1 재측정 필수 |
+| `ts.worker` 청크(6.8MB) 축소 | TypeScript 파일을 처음 열 때 받는 워커 자산 크기 자체. 부팅 페이로드에는 잡히지 않는다(`MonacoEnvironment.getWorker` 가 요청 시점에 만들어 이미 지연). | monaco 구성 축 별건 — 위 항목의 하위 |
+| grammar 코어 3종 선정을 실측 기반으로 | 현재 코어 3종은 "앱이 사용자 동작 없이 스스로 여는 표면" 기준의 **판단값**이다. 세션 복원으로 열리는 파일(대개 ts/tsx/rs)은 온디맨드 경로라 하이라이팅이 한 박자 늦게 붙는다. | 옳은 해법은 코어 목록 확대가 아니라 **직전 세션이 요구한 언어를 영속**해 부팅 시 선로드하는 것 — 새 저장 표면이 필요 |
+| shiki tokens provider 전량 재부착 | `shikiToMonaco` 가 언어 1개만 등록하는 API 를 노출하지 않아, 새 언어가 붙을 때마다 로드된 전 언어분을 다시 등록하고 직전 묶음을 dispose 한다. | 서로 다른 언어의 파일을 **처음** 여는 횟수만큼만 일어나고 그 뒤로는 발생하지 않아 수용 중. 상류 API 변화 대기 |
+| 마커 재수집 — `ide-sync-provider` 전량 티어 | C.2-7 로 상태바는 severity 카운트 티어(`useMonacoMarkerCounts`)로 내려왔으나, `app/providers/ide-sync-provider.tsx` 가 앱 루트에서 세션 내내 **전량 티어**(`useMonacoMarkers`)를 구독한다 — `onDidChangeMarkers` 마다 `getModelMarkers({})` 전량 순회가 여전히 armed 다. | 그 프로바이더는 마커를 `ideStatus?.running` 일 때만 쓰므로 **구독 자체를 그 조건으로 게이팅**하면 LSP 초기 인덱싱 구간의 잔여 비용이 사라진다. 소형이나 IDE 동기화 계약(`docs/features/ide-integration.md`) 확인이 선행 |
+| `poll_agents` 의 `ps` fork 제거 (M-3 잔여) | pid 일괄 배칭·세션 0 조기 반환은 적용됐고 **프로젝트당 500ms 1회 fork 가 잔존**한다. `sysinfo` 로 교체하면 fork 가 사라진다. | 활동 판정 문자(`ps -o state` 의 R/S)가 `ProcessStatus` 의미로 바뀌어 **에이전트 배지 회귀 위험**이 있다. 2차 결정 §7 추천대로 이번 배치 제외 — `perf_snapshot` 계측으로 실제 비용을 먼저 확인한 뒤 판단 |
+| libgit2 `StatusOptions::update_index` 채택 | 켜면 stat-stale 파일 재해시가 1회로 끝나 반복 status 가 크게 빨라진다(`status.c:315` `GIT_DIFF_UPDATE_INDEX`). | 매 status 가 `.git/index` 를 되쓰게 되어 **외부 git 프로세스와 락 경합**이 생기고, 자기 쓰기가 다시 `git/watch.rs` 의 Status 무효화를 유발하는 **피드백 루프** 위험이 있다. C.2-6 ③ 결과 캐시로 반복 호출은 이미 흡수됐으므로 실측 후 재판단 |
+| `git_status` 단일 비행(single-flight) | 현재 캐시는 "직렬로 이어지는 조회" 만 합친다. 창 N개가 같은 이벤트로 **동시에** 조회하면 전부 miss 로 시작해 N회 계산이 남는다. | 계약 §C.2-6 이 "워처 무효화 + 2초 TTL" 로 범위를 확정했다. 프로젝트별 async 단일 비행 락이 다음 후보 |
+| `.git` 워처 캐시의 `objects/**` 프루닝 | 하류 `classify_git_change` 가 `objects/**` 를 전부 떨구므로 캐시에서 프루닝해도 짝짓기 손실이 없고, 루스 오브젝트가 많은 저장소에서 절감이 크다. | 계약 §C.2-6 ② 가 `WatchScope::GitDir` 는 무필터로 확정 — 계약 밖 신규 결정이라 보류 |
+| sniff 공유 리더의 `infra` 승격 | `domain/file/service.rs::read_text_bytes` 와 `domain/search/service.rs::read_scannable_bytes` 가 같은 형태의 "sniff 창 = 첫 청크" 리더를 각자 갖고 있다(`is_binary`/`BINARY_SNIFF_BYTES` 중복도 선행 상태). | 소비처가 2곳이 되는 시점이 승격 시점이다 — 배치 4 는 file 쪽만 소유해 한쪽만 고쳤다 |
+| `read_children` 의 `directory_has_children` 지연화 | 엔트리 타입 판정은 `file_type()` 로 내렸으나(C.2-5), 하위 디렉토리마다 `read_dir` 1회는 남는다 — 디렉토리 D개면 D회 추가 open/getdirentries/close. | `Entry.has_children` → `TreeRow` 의 의미를 바꾸므로 "안전 수정(회귀 위험 0)" 범위 밖 |
+| 트리 mutation 응답 재설계 (H-4 후반) | 위 "Rust 성능·설계" 표에 이미 있음 — `full_page` 전체 반환 → revision + 영향 구간 축소. | `docs/ipc-contract.md` 가 트리 응답 형태를 **불변**으로 못박고 있어 FE 동시 개정이 선행 |
+| 팔레트 결과 가상화 | C.2-7 에서 **미적용 확정**(계약이 허용한 폴백). cmdk 1.1.1 이 가상화를 지원하지 않고(README "Good performance up to 2,000-3,000 items"), 방향키 이동·선택 유지·`CommandEmpty` 카운트가 전부 마운트된 항목 수에 묶여 있다. 현재 상한 200 은 상류 권장 구간의 1/10. | 재검토 조건은 `FILE_RESULT_LIMIT` 을 1000 이상으로 올리거나 cmdk 가 가상화를 지원할 때. 사유 정본 `docs/features/command-palette.md` §4.1 |

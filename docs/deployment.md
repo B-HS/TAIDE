@@ -11,7 +11,7 @@
 | 태그 푸시 | `v*` 패턴 (예: `v0.1.0`) | 정식 릴리스 경로 — draft GitHub Release 생성까지 수행 |
 | 수동 실행 | Actions 탭 workflow_dispatch | 빌드·검증만 필요할 때. 태그 가드 스텝은 스킵되고 Release 도 만들지 않음 |
 
-- main/dev 브랜치의 일반 푸시는 릴리스를 트리거하지 않는다.
+- main/dev 브랜치의 일반 푸시는 릴리스를 트리거하지 않는다 — 대신 검증 전용 `ci.yml` 이 돈다(§4.1).
 
 ## 2. 절대 규칙 — 태그에 숫자 4 금지
 
@@ -34,7 +34,37 @@
 6. Actions 에서 Release 런 완주 확인(job 별 타임아웃: 테스트 20/45분·build 75분·release 15분)
    → draft Release 검토 후 수동 공개.
 
-## 4. CI 파이프라인 (release.yml — 4-job 병렬, 2026-08-28 재편)
+## 4. CI 파이프라인
+
+워크플로는 3개다. **`ci.yml`(브랜치·PR 게이트, §4.1)** · **`release.yml`(태그 릴리스, §4.2)** ·
+`cache-warm.yml`(main 푸시로 rust-cache `tests`/`release` 엔트리를 데워 태그 런이 복원할 수 있게 함 —
+GitHub 캐시 스코핑상 태그 ref 는 main 에서 만들어진 캐시만 본다).
+
+### 4.1 브랜치·PR 게이트 (ci.yml — 2026-09-04 신설)
+
+트리거는 `push`(dev·main) + `pull_request`. 동시성 그룹 `ci-${{ github.ref }}` 로 같은 ref 의 이전 런은 취소된다.
+권한은 `contents: read` 뿐이다.
+
+| job | 러너 | 내용 |
+|-----|------|------|
+| `frontend` | ubuntu-latest (20분) | `bun install --frozen-lockfile` → `typecheck` → `lint` → `format:check` → `bun test` → `typecheck:e2e` |
+| `rust` | macos-latest (45분) | `cargo fmt --all --check` → `cargo clippy --workspace --all-targets -- -D warnings` → `cargo test --workspace` |
+
+- 두 job 은 병렬이고, `bun run verify` 사다리와 같은 명령을 그대로 쓴다(+ e2e 프로젝트 타입체크).
+  e2e(Playwright) 실행과 `tauri build` 는 CI 게이트에 포함하지 않는다 — 앱 번들·WKWebView 가 필요해
+  릴리스 파이프라인(§4.2)과 로컬 검증의 몫이다. 커버리지 임계도 두지 않는다.
+- **frontend job 이 ubuntu 인데도 macOS 전용 분기가 검증되는 이유**: `src/shared/testing/dom-preload.ts` 가
+  happy-dom 을 macOS WKWebView user agent 로 등록해 `IS_MAC`(`shared/constants/platform.ts`)이 호스트와
+  무관하게 참이 된다. 이 고정을 풀면 macOS 전용 커맨드 카탈로그 테스트가 ubuntu 에서만 깨진다.
+- **rust job 만 macOS**: 앱이 macOS 전용(tauri·`mac-notification-sys` 등 플랫폼 의존)이라 리눅스에서는
+  컴파일 자체가 성립하지 않는다.
+- `dtolnay/rust-toolchain` 은 `--profile minimal` 로 설치하므로 `components: rustfmt, clippy` 를 명시한다.
+- 캐시는 `Swatinem/rust-cache@v2` `shared-key: tests` — `cache-warm.yml`·release.yml `test-rust` 와 같은
+  엔트리를 공유한다. `save-if: ${{ github.event_name == 'push' }}` 로 PR 런은 복원만 한다(PR 스코프 캐시는
+  머지 후 버려지므로 저장이 낭비).
+- 워크플로 문법 검증: `bunx actionlint .github/workflows/ci.yml`.
+
+### 4.2 릴리스 파이프라인 (release.yml — 4-job 병렬, 2026-08-28 재편)
 
 | job | 내용 | 비고 |
 |-----|------|------|

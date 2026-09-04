@@ -60,15 +60,16 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
     │   │   ├── vsix/        VSIX 추출 (테마·grammar 임포트)
     │   │   └── window/      보조 윈도우 수명주기
-    │   └── infra/           외부 자원 어댑터 (21파일)
+    │   └── infra/           외부 자원 어댑터 (22파일)
     │       ├── pty.rs       portable-pty 래퍼 (배칭·flow control·링버퍼)
     │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
     │       ├── lsp_install.rs  LSP 서버 다운로드·설치
-    │       ├── watcher.rs   notify + debouncer (무시 목록 필터)
+    │       ├── watcher.rs   notify + debouncer (무시 목록 필터 — 이벤트·파일ID 캐시 양쪽, §2.3)
     │       ├── persist.rs   원자적 쓰기 (temp → fsync → rename)
     │       ├── archive.rs   tar/zip/xz 해제 (LSP 설치·VSIX)
     │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (tauri 결합 infra 2종 중 하나)
     │       ├── navigation_guard.rs  웹뷰 네비게이션·새 창 정책 (§4.1 — tauri 결합)
+    │       ├── perf.rs      성능 계측 레지스트리 (게이트 뒤 고정 슬롯 + 원자 카운터 — §2.2)
     │       ├── crypto.rs    constant_time_eq 등 (ide·agent 가 재사용)
     │       ├── secret.rs    OS keyring (SecretStore trait)
     │       ├── http.rs      reqwest 래퍼
@@ -137,6 +138,75 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
   원격 dispatch 커맨드가 같은 풀을 공유한다 — 원격 쪽은 `RemoteDispatchLimiter`(128, d-35)로
   자기 몫만 상한을 두지만 데스크톱 쪽 `spawn_blocking` 호출에는 별도 상한이 없다.
 
+### 2.2 성능 계측 (`infra/perf.rs` — 상주, 게이트 뒤)
+
+성능 작업은 **추측이 아니라 실측 우선**이라는 결정(`2026-09-04-usability-batch4-user-decisions.md`
+§2)의 Rust 측 구현이다. 사용법·슬롯 목록은 `docs/debugging.md` §4.1, IPC 표면은
+`docs/ipc-contract.md` 의 app 도메인.
+
+- **소유권**: `infra::perf` 가 레지스트리와 슬롯 표를 소유한다. 프로세스 전역 인스턴스는
+  `perf::global()` 1벌이며 `app.manage` 하지 **않는다** — `perf::span()` 이 `State` 주입 없이
+  어느 코드에서나 불릴 수 있어야 커맨드 시그니처를 건드리지 않고 계측 지점을 늘릴 수 있다
+  (`locale::service` 의 `OnceLock` 웜업 캐시와 같은 프로세스 전역 선례).
+- **게이트가 설계 제약이다**: 계측은 릴리스 빌드에도 컴파일된다(사용자가 `TAIDE_PERF=1` 로
+  재현 수치를 보낼 수 있게). 그래서 모든 계측 지점은 off 일 때 **원자적 `load` 1회**만 쓴다 —
+  `Instant::now()` 도 하지 않는다. 게이트는 부팅 시 1회 결정되고 실행 중 바뀌지 않는다.
+- **전역 잠금 금지**: 기록은 `&'static str` 이름의 **고정 슬롯 배열 인덱스 + `AtomicU64`** 다.
+  `Mutex<HashMap<&str, _>>` 로 두면 병렬 검색 워커·pty 리더 스레드·git `spawn_blocking` 풀이
+  한 락에 줄서서 **자기 경합을 측정**한다(조사 3b §7). 슬롯 집합이 컴파일 타임에 닫혀 있는
+  이유가 이것이고, 슬롯 추가는 `SpanSlot`/`CounterSlot` 의 `ALL`·`name` 동시 갱신을 요구한다
+  (인덱스 파리티 테스트가 강제).
+- **고빈도 경로는 카운터만**: pty 리더 루프·`lsp_send` 는 누적 바이트/횟수만 올린다. 구간 시간을
+  넣으면 계측이 측정 대상을 왜곡한다. 처리량은 두 스냅샷 사이의 벽시계로 나눠 구한다.
+- **커맨드별 호출 수는 assembly 가 배선한다**: `lib.rs` 의 `invoke_handler` 클로저 한 곳에서
+  이름별 카운터를 올린다(커맨드 본문 무수정). 이름 표는 `dispatch::IMPLEMENTED_JSON_COMMANDS`
+  ⊎ `RAW_CHANNEL_COMMANDS` 를 `perf::init` 에 넘겨 만든다 — 커맨드 이름의 정본이 이미 그
+  표이고 `collect_commands!` 파리티 테스트가 그것을 핀 고정하므로, 두 번째 목록을 만들지 않는다.
+  표에 없는 invoke(tauri 플러그인 커맨드 등)는 `command.unlisted` 로 모인다.
+- **레이어**: `infra::perf` 는 domain 을 참조하지 않는다(§2 의 `infra → domain` 금지). 와이어
+  타입(`PerfSnapshot`/`PerfEntry`/`PerfCounterEntry`)은 `domain/app/types.rs` 가 소유하고
+  `domain/app/service.rs::perf_snapshot` 이 ns → ms 환산과 정렬을 담당한다 — specta 가 64비트
+  정수 export 를 금지하므로 환산이 한 곳에 있어야 한다.
+
+### 2.3 파일 워처의 파일-ID 캐시는 무시 목록으로 스코프된다 (`infra::watcher::ScopedIdCache`)
+
+`notify-debouncer-full` 은 rename 의 두 절반을 잇기 위해 파일-ID 캐시를 둔다. 기본값
+(`RecommendedCache` = macOS 의 `FileIdMap`)은 감시 루트를 `WalkDir(follow_links, max_depth=MAX)`
+로 훑으며 **엔트리마다 `stat`** 하고, `IGNORED_DIR_NAMES` 를 적용하지 않는다. TAIDE 는 그 자리에
+`ScopedIdCache`(`FileIdCache` 자체 구현)를 주입해 **`group_relevant_changes` 가 이벤트를 남기는
+경로 집합과 정확히 같은 집합**만 인덱싱한다 — 무시 디렉토리는 **자신 1엔트리로 끝내고 그 아래로
+내려가지 않는다**(그 디렉토리 자신의 이벤트는 "마지막 성분 제외" 규칙 때문에 살아남으므로 캐시에
+남겨야 짝짓기가 유지된다).
+
+- **효과**(이 저장소 실측, warm): 인덱스 대상 557,474 → **1,461 엔트리**(약 382배), `stat` 워크
+  3.79s → **0.01s**, 상주 메모리 프로젝트당 대략 105MB → **0.2MB**(엔트리당 `PathBuf` 24B +
+  `FileId` 24B + 해시맵 오버헤드 + 경로 문자열 힙 — 경로 텍스트만 65.9MB → 0.11MB). rename 마다
+  도는 `remove_path` 의 O(n) `retain` 도 같은 배수로 줄어든다. `project_open` 은 이미 §3.1
+  로 락 밖에서 build 하므로 이 절감은 잠금 시간이 아니라 **CPU·메모리**로 돌아온다. 부가 효과로
+  `npm install` 처럼 무시 디렉토리를 새로 만드는 이벤트가 전 트리 재인덱싱을 유발하던 것도 사라진다
+  (debouncer 의 `Create` 처리가 `add_path` 를 다시 부르기 때문이었다).
+- **d-35 §4-e 의 `NoCache` 기각과 다르다**: 기각 대상은 **전면** `NoCache` 였다. macOS FSEvents 는
+  rename cookie 를 주지 않아 짝짓기가 `file_ids_match` 단 하나뿐인데, 전면 무캐시는 모든 rename 의
+  짝짓기와 함께 `push_rename_event` 의 **재귀속**(같은 디바운스 창에 old 경로로 큐잉된 다른 이벤트를
+  new 경로로 옮기는 처리)까지 잃는다. 스코프 캐시는 앱이 보고하는 경로쌍의 짝짓기를 **그대로
+  유지**하고, 무시 경계를 넘는 이동에서만 짝짓기를 포기한다 — 그리고 그 경우 소비자가 보는 결과는
+  동일하다: 짝지어지면 `paths=[old,new]` 한 그룹에서 무시 쪽 절반이 필터로 떨어지고, 짝지어지지
+  않으면 두 이벤트가 각각 `Renamed` 로 매핑돼 무시 쪽이 필터로 떨어진다. 남는 유일한 저하는
+  "수정 후 300ms 안에 무시 경계 너머로 이동" 시퀀스의 재귀속 상실이며, 그 결과는 사라진 경로에 대한
+  무해한 `FILE.CONTENT` 무효화 1회다.
+- **열린 탭 추종(`layout_apply_path_change`)은 영향받지 않는다**(착수 전 선행 확인): 추종은
+  `entities/file/file.query.ts` 의 `useRenameEntry.onSuccess` → `followRenamedPathInTabs` 가
+  구동한다. 워처의 `fs:changed` `Renamed` 그룹은 이 경로를 부르지 않으므로, 이벤트가 1건이든
+  2건이든 탭 추종 계약과 무관하다.
+- **git 워처(`WatchScope::GitDir`)는 무필터**: 이벤트 필터와 같은 이유다 — `refs/heads/build/login`
+  의 `build` 는 브랜치 이름이지 무시 대상 디렉토리가 아니다.
+- **심링크**: 링크 엔트리 자체는 인덱싱하되 그 아래로 내려가지 않는다. notify 의 FSEvents 백엔드가
+  감시 루트를 canonicalize 하므로 심링크 경로로 주소지정된 이벤트는 애초에 오지 않는다 —
+  `follow_links(true)` 가 만들던 엔트리는 조회될 수 없는 사본이었고, 루프 노출도 함께 사라진다.
+- **플랫폼 분기 없음**: 릴리스·CI 타깃이 macOS 단독이라 `cfg` 로 캐시 타입을 갈아끼우지 않는다
+  (그러면 `WatcherHandle` 이 플랫폼마다 다른 타입이 된다). Linux 에서는 inotify 가 cookie 를 주므로
+  이 캐시가 **틀린 게 아니라 불필요**할 뿐이다.
+
 ## 3. 프로젝트 추상화 (핵심 확장 포인트)
 
 프로젝트는 "폴더 + 부착된 capability 집합"이다. 미래 기능(remote-control 등)은 새 capability 로 부착한다.
@@ -149,7 +219,7 @@ log-warn 으로 삼키는 형태였기 때문에, 실코드의 계약을 그대�
 ```rust
 trait ProjectCapability: Send + Sync {
     fn detected_kind(&self, root: &Path) -> Option<CapabilityKind>;  // Project.capabilities 에 기록될 검출 결과 (없으면 None)
-    fn attach(&self, app: &AppHandle, state: &AppState, project: &Project);      // 자원 부착 (project_open)
+    fn build_attachment(&self, app: &AppHandle, state: &AppState, project: &Project) -> ProjectAttachment; // 자원 부착 1단 (락 밖)
     fn detach(&self, app: &AppHandle, state: &AppState, project_id: &ProjectId); // 자원 회수 (project_close) — 반드시 대칭
 }
 ```
@@ -159,12 +229,44 @@ trait ProjectCapability: Send + Sync {
   과설계 금지, 계약 §1.1). `project_open`/`project_close` 는 등록 목록을 앞에서부터 순회 호출만
   한다. **등록 순서가 곧 close 의 자원 회수 순서 계약**이며(§6.3), lib.rs 의 소스 스캔 테스트가
   순서를 핀으로 고정한다.
+
 - 프로젝트 열기 = core(파일 접근·레이아웃) 초기화 + 감지된 capability 자동 부착
   (예: `.git` 있으면 Git). `detected_kind` 의 검출 결과와 `project::service::open_project` 가
   기록하는 `Project.capabilities` 의 정합은 lib.rs 파리티 테스트가 기계 강제한다.
 - capability 는 각자 명령·이벤트 네임스페이스를 가진다(`git_*`, `lsp_*`, ...).
 - **remote-control(미래)**: `RemoteControl` capability 가 프로젝트별 로컬 서버를 열고 웹 패널을 서빙하는
   형태로 부착된다. 코어는 capability 등록 API 외에 어떤 전제도 갖지 않는다.
+
+### 3.1 attach 는 2단이다 — build(락 밖) → register(락 안)
+
+`attach` 는 2026-09-04 배치 4에서 **`build_attachment` 1개 훅**으로 재정의됐다. 반환값
+`ProjectAttachment`(불투명 boxed 클로저)가 "가드 안에서 실행할 등록 절반"이고, 비싼 절반은 전부
+`build_attachment` 본문에서 **가드를 쥐지 않은 채** 끝난다. 조립은
+`domain/project/commands.rs::attach_project_capabilities` 한 곳이다.
+
+- **이유**: `project_open` 이 앱 전역 단일 `begin_mutation` 을 쥔 채 워처 attach 를 동기 호출해,
+  프로젝트를 여는 동안 `file_save`·`git_*`·`layout_*`·`tree_toggle`·주기 flush 가 전부 정지했다
+  (당시 `notify-debouncer-full` 의 `FileIdMap` walk 는 무시 목록 미적용이라 대형 워킹트리에서
+  초 단위였다 — 그 walk 자체는 이후 §2.3 이 스코프했지만, 락 분리는 walk 비용과 무관하게 유지된다:
+  attach 는 워처 외에도 IDE lockfile 재작성·에이전트 훅 등 IO 를 계속 수행한다).
+  §2.1 "잠금 안에서 IO 금지" 를 가장 크게 어기던 지점이다. 부팅 복원 경로(d-25)가 이미 쓰던
+  "밖에서 build, 안에서 register + 재검증" 패턴을 trait 로 승격해 `project_open` 에도 적용했다.
+- **순서 계약은 그대로**: build 순회와 commit 순회 **둘 다** 등록 순서 전방이고, commit 은 build 가
+  만든 벡터를 같은 인덱스로 재생한다. 따라서 capability 별 attach 상대 순서는 이전과 동일하다
+  (`domain/project/capability.rs` 단위 테스트가 두 순회를 핀 고정, `project/commands.rs` 소스 스캔
+  테스트가 "build → 가드 획득 → commit" 위치를 핀 고정).
+- **동작 불변**: `project_open` 은 여전히 attach 완료를 기다린 뒤 `ProjectOpened`/`ProjectActivated`
+  를 방출하고 반환한다 — 옮긴 것은 **락**이지 attach 가 아니다. 워처 핸들은 build 가 끝난 시점에
+  이미 구독 중이라 build~register 사이 이벤트도 유실되지 않는다.
+- **재검증**: 가드 재획득 시 프로젝트가 아직 열려 있는지 확인하고, 아니면 build 결과를 commit 하지
+  않고 **버린다**(핸들 drop = 워처 종료). 부분 커밋이 없으므로 detach 대칭이 유지된다.
+- **d-25 보정**: attach 완료 후 git 워처가 등록됐으면 `GitStatusChanged` 를 1회 방출한다
+  (이벤트로만 갱신되는 `GIT.PROJECT` 캐시 보정). 일반 경로에서는 방출 시점에 아직 `ProjectOpened`
+  를 보내지 않았으므로 구독자가 없어 비용 0이고, 실제로 일하는 곳은 후절화가 넓힌 유일한 창 —
+  attach 진행 중에 같은 경로로 들어온 **두 번째 `project_open`** 이다(그 호출은 `already_open`
+  분기라 워처를 기다리지 않고 반환한다).
+- `AppState` 를 건드리지 않는 attach 부수효과(IDE lockfile 재작성, 에이전트 훅 reconcile spawn)는
+  build 단계에서 수행하고 `ProjectAttachment::none()` 을 반환한다 — 가드 밖이 항상 더 낫다.
 
 ## 4. IPC 경계
 
@@ -316,14 +418,32 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    `project_capabilities()` 의 등록 순서가 계약이다. 새 도메인이 프로젝트 수명에 묶인 상태를
    추가하면 capability 구현 + lib.rs 등록 + 이 표 세 곳에 함께 추가한다.
 
+   부착 쪽이 2단(build/register)으로 나뉜 뒤에도(§3.1) 이 표의 대칭 요구는 그대로다 — build 가
+   만든 자원은 **commit 된 것만** `AppState` 에 들어가고(커밋되지 않은 build 결과는 drop 되어 그
+   자리에서 소멸), 들어간 것은 전부 여기 등재된 `detach` 가 회수한다. 새 capability 를 추가할 때
+   "build 에서 만든 것 ↔ detach 에서 회수하는 것" 이 1:1 인지 확인한다.
+
    | 자원 | 회수 방법 | 실패 시 |
    |---|---|---|
    | `dirty_layouts`/`layouts` | 남은 dirty 레이아웃 동기 flush 후 두 맵에서 제거 | 미저장 레이아웃 유실 |
    | `watchers`/`git_watchers` | 맵에서 제거 (핸들 drop이 watcher 스레드 종료) | 닫힌 프로젝트 파일 변경을 계속 감시 |
    | pty 세션 | `TerminalStore::kill_project` | 프로세스+fd+스레드가 앱 종료까지 잔존 |
-   | `GitStore` (projectId→repo_root 캐시) | `GitStore::remove` | 재오픈 시 옛 repo_root 캐시 부활 |
+   | `GitStore` (projectId→repo_root 캐시 · `git_status` 결과 캐시) | `GitStore::remove` | 재오픈 시 옛 repo_root·옛 status 부활 + 메모리 잔존 |
    | `TreeStore` (트리 캐시) | `TreeStore::remove` | 재오픈 시 옛 디렉터리 목록 부활 + 메모리 잔존 |
    | asset 프로토콜 접근 | **회수 불필요** — 아래 참고 (T1 2차, X1#7 근본 수정) | 해당 없음 |
+
+   **`git_status` 결과 캐시 (사용성 배치 4 · 계약 §C.2-6 ③)**: `GitStore::status_cache` 는
+   프로젝트별 슬롯 하나에 마지막 `GitStatus` 와 그것을 읽은 시각·무효화 세대를 담는다. 슬롯은
+   `git_status` 가 처음 조회될 때 생기고 위 표의 `GitStore::remove` 가 회수한다 — attach 쪽 짝은
+   없다(§3.1 의 "build 에서 만든 것 ↔ detach 에서 회수하는 것" 1:1 요구는 build 가 만드는 것이 없어
+   자동 충족). 무효화 축은 프론트가 `QUERY_KEY.GIT.STATUS` 를 다시 묻는 축과 **정확히 같다**:
+   `fs:changed`(d-44 워크트리 축) · `git:status-changed` · `git:refs-changed`. 세 이벤트 구독은
+   `GitStore::ensure_invalidation_listeners` 가 프로세스당 1회 지연 등록하고(부팅 복원 경로가
+   capability 순회를 타지 않으므로 capability 훅으로는 놓친다), 이 도메인이 직접 발행하는 지점
+   (`emit_status_changed`·`emit_refs_changed`·`git/watch.rs` 워처 콜백)은 emit **이전에** 같은
+   무효화를 한 번 더 호출해 순서를 보장한다(`Manager::emit` 은 Rust 리스너보다 웹뷰에 먼저 넘긴다).
+   어떤 워처도 보고하지 못한 변경(FSEvents 드롭·attach 지연 구간·네트워크 마운트)에 대비한 상한은
+   **2초 TTL** 이고, 계산 중 무효화가 들어오면 그 결과는 저장하지 않는다(세대 비교).
 
    **asset 프로토콜 재구현 완료 (T1 2차, X1#7)**: 1차 배치는 이 항목을 Tauri 내장
    `asset_protocol_scope()`(`scope::fs::Scope`)의 allow/forbid 가 **둘 다 추가 전용**이라(되돌릴

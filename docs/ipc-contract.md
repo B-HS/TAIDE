@@ -4,6 +4,12 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
+> **실측(2026-09-04, 사용성 배치 4 웨이브 2 — 성능 계측 `perf_snapshot`·`perf_reset` 신규 반영)**:
+> command **185종**(raw 3종 포함 **188종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(160) ⊎
+> `REMOTE_DENIED_COMMANDS`(28). event **24종 불변**. 신규 2종은 둘 다 원격 거부라 허용 표는
+> 그대로이고, `RemoteDenialPolicy` 에 `DesktopProcessDiagnostics` 변형 1종(로케일 키
+> `error.remote.deniedDesktopProcessDiagnostics`)이 늘었다. 아래는 그 직전(웨이브 1) 실측 기록이다.
+>
 > **실측(2026-09-04, 사용성 배치 4 웨이브 1 — `notification_notify`·`notification_open_system_settings`·
 > `project_set_display`·`layout_open_tab_in_split` 신규 반영)**: command **183종**
 > (raw 3종 포함 **186종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(160) ⊎ `REMOTE_DENIED_COMMANDS`(26).
@@ -86,6 +92,18 @@
   `entities/app/{app.ipc,app.query,app.type}.ts` 를 dead code 로 제거**해 현재 프론트 소비처는
   0 이다(백엔드 등록·원격 dispatch 표면만 유지). About/타이틀바 UI 자체가 코드베이스에 없다.
 - `app_file_read`/`app_file_write` 는 Wave I 신설(§"Wave I 계약 확정 추가" 절)이라 그쪽에서 다룬다.
+- query: `perf_snapshot() → PerfSnapshot{ enabled, entries: PerfEntry[], counters: PerfCounterEntry[] }`
+  (사용성 배치 4 웨이브 2 신설). `PerfEntry{ name, count, totalMs, maxMs }` 는 구간 시간 슬롯,
+  `PerfCounterEntry{ name, total }` 은 누적 카운터(pty 바이트/청크 · `lsp_send` · 커맨드별 invoke
+  수 `command.<이름>`)다. **`enabled` 는 `TAIDE_PERF` 게이트 상태**이며, off 면 모든 수치가 0인
+  것이 정상이다 — "아무 일도 없었다"와 구분하는 유일한 단서다. 슬롯 이름은 계약이다(이름이 바뀌면
+  과거 기준선과 대조가 불가능해진다). 슬롯 전체 목록과 사용법은 `docs/debugging.md` §4.1,
+  구현 근거는 `docs/architecture.md` §2.2.
+  ns 단위 누적을 밀리초 `f64` 로 환산해 내보내는 이유는 specta 가 64비트 정수의 TS export 를
+  금지하기 때문이다(정밀도 손실 방지) — 환산은 `app::service::perf_snapshot` 한 곳에서만 한다.
+- mutation: `perf_reset() → void`. 누적치만 0으로 되돌린다 — 게이트와 커맨드 이름 표는 유지되므로
+  "새 측정 창을 연다"는 의미이지 계측을 끄는 것이 아니다.
+- 둘 다 **원격 거부**(`DesktopProcessDiagnostics`) — 아래 §원격 dispatch 정책 표 참조.
 - **`app:ready(version)` 는 X-A 배치(2026-08-19)에서 제거됐다** — `.emit()` 호출 지점이 애초에 하나도
   없었고(정찰 확인) 프론트도 구독하지 않아, `events.rs`·`collect_events!`·`fanout_remote_events!` 에만
   등록된 채 발행된 적 없는 죽은 이벤트였다(T2-F dead 후보 판정 확정 — X1#2,
@@ -234,7 +252,7 @@
   `false` 로만 채우는 상수였다(X1#10). `AppState::self_writes`(`infra::self_write::
   SelfWriteTracker`)가 `file_save`/`file_create`/`file_rename`/`file_delete`/`file_copy`/
   `search_replace` 의 성공한 쓰기 경로마다 짧은 TTL(2초)로 마킹하고,
-  `domain::file::capability::attach_watcher` 가 watcher 그룹의 모든 경로가 그 마킹과 일치할 때만
+  `domain::file::capability::build_watcher_handle` 가 watcher 그룹의 모든 경로가 그 마킹과 일치할 때만
   `fromApp: true` 로 확정한다 — 묶음 안에 앱이 쓰지 않은 경로가 하나라도 섞이면 전체를 외부 변경으로
   보수적으로 처리한다(오마킹 방지가 마킹 누락보다 항상 우선). 마킹 누락(TTL 만료·경로 불일치)은
   기존과 동일한 `false` 로 안전하게 낙착된다.
@@ -1159,6 +1177,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   | `agent_pending_external_opens` | `SharedSingletonStateRace` | `AgentStore` 의 대기 중 외부 열기 큐(`taide open --wait`)는 세션 구분 없는 단일 큐라 먼저 호출한 쪽이 통째로 비운다. 원격 세션이 드레인하면 `waitMarker` 등록이 원격 realm 의 `agent-wait-marker-registry.ts` 에 남아 데스크톱 탭 종료로는 해제되지 않고, 외부 CLI 프로세스가 앱 종료 전까지 블록된다(T0 감사 #14) |
   | `lsp_install` | `InstallOrProcessExecution` | `plugin_install`/`vsix_import_plugin` 과 동일 계열 — 수백MB 언어서버 아카이브를 데스크톱 로컬에 내려받고 인스톨러 프로세스를 spawn 한다(T0 감사 #16) |
   | `project_list_recent` | `LocalProjectHistoryExposure` | 현재 세션에 열려 있지 않은 프로젝트를 포함해 디스크의 영속 프로젝트 기록 전수를 반환한다 — Welcome 화면 "최근 프로젝트" 전용 로컬 조회이며, `project_list`(현재 열린 세션만 노출)보다 넓게 로컬 파일시스템 경로/이름을 드러내므로 원격 세션에는 불필요·부적절하다(d-27). **기대 동작**: `welcome` 탭은 모든 프로젝트의 기본 레이아웃에 포함되므로 원격 세션에서도 마운트되고, 이 커맨드는 매번 Forbidden 을 받는다 — "최근 프로젝트" 섹션은 원격에서 항상 빈 상태로 렌더되는 것이 의도된 열화다(`WelcomeContainer` 가 `isError` 시 `app.recentProjectsUnavailable` 안내 문구를 보여준다) |
+  | `perf_snapshot` / `perf_reset` | `DesktopProcessDiagnostics` | `infra::perf` 레지스트리는 모든 창·모든 원격 세션이 공유하는 프로세스 전역 누적기 1벌이고, 그것을 켠 주체(`TAIDE_PERF`)는 자기 기계를 재는 데스크톱 사용자다. 원격 세션이 읽으면 데스크톱의 작업량을 자기 것으로 오독하게 되고, `perf_reset` 은 `agent_pending_external_opens`(`SharedSingletonStateRace`)와 같은 모양 — 먼저 부른 쪽이 모두의 측정 창을 통째로 지운다. 계측은 원격에 렌더할 UI 도 없는 순수 로컬 진단 표면이며, 원격 미러 자신의 IPC 트래픽은 같은 dispatch 클로저를 지나므로 데스크톱 스냅샷의 `command.*` 에 이미 잡힌다(사용성 배치 4 웨이브 2) |
   | `ai_set_token` / `ai_clear_token` / `sync_connect` / `sync_disconnect` | `CredentialStoreTampering` | 키링에 쓰거나 지우는 자격증명(AI 프로바이더 토큰 3종·GitHub 동기화 PAT)은 세션이 끝난 뒤에도 남는다 — 원격 세션이 자기 토큰으로 바꿔치면 이후 데스크톱이 내보내는 `ai_inline_complete`/`ai_inline_edit`/`ai_commit_message`·`sync_upload`/`sync_download` 트래픽이 공격자 계정으로 흐르고, 지우면 지속적인 서비스 거부가 된다 — `agent_hooks_install` User 스코프가 거부되는 것과 같은 "세션을 넘어 남는 백도어" 근거다(d-38, 감사 R3#7: 키링 5계정 중 `RemoteAccess` 만 원격 거부였다). 값을 절대 반환하지 않는 상태 조회 `ai_token_status`/`sync_status`(연결 여부만 반환)는 그대로 허용 유지. 닫힌 것은 키링 항목의 write/delete 이며, 저장된 키의 전송 대상을 정하는 `ai_omlx_base_url` 은 d-41(2026-08-25)로 원격 게이트 스트립(`strip_remote_gated_settings_patch`/`strip_remote_gated_settings`)과 gist 왕복 스트립(`sync/service.rs`의 `strip_non_syncable`) 양쪽에 편입돼 세 경로(`settings_update`·`app_file_write`·`sync_download`) 모두에서 변경 불가로 닫혔다(위 "d-38" 절 참조) |
 
 - **스코프 조건부 거부(`REMOTE_ALLOWED_COMMANDS` 소속, `match` arm 내부에서 분기, 1종)**:
@@ -1876,3 +1895,45 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - **로케일 5키 순증**(`terminal.copy`·`terminal.paste`·`terminal.selectAll`·`terminal.clear`·
   `terminal.kill`) — 분할 방향 라벨은 기존 `editorArea.splitTop/Bottom/Left/Right`,
   "새 터미널"은 기존 `tab.newTerminal` 을 재사용한다.
+
+### 사용성 배치 4 — 워처 파일-ID 캐시 스코프 (2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §C.2-6 ②.
+> 설계 근거·수치는 `docs/architecture.md` §2.3.
+
+- **표면 전부 불변**: 신규/삭제 커맨드 0, 인자·반환 타입 변경 0, 신규 타입·이벤트 0, 로케일 키
+  변동 0. `bindings.ts` 재생성 불요. 바뀐 것은 `notify-debouncer-full` 에 주입하는 파일-ID 캐시
+  구현(`infra::watcher::ScopedIdCache`)뿐이다.
+- **`fs:changed` 의 `Renamed` 그룹 계약(정밀화)**: `kind: 'Renamed'` 는 이전에도 지금도 **"이 경로가
+  이름 변경에 관여했다"** 이지, "한 그룹 안에 old·new 가 짝으로 온다" 가 **아니다**. 무시 디렉토리
+  경계를 넘는 이동(`node_modules/x` ↔ `src/x`)에서만 debouncer 가 두 절반을 잇지 않으므로 원본
+  이벤트가 2건이 되는데, 그 중 무시 쪽 절반은 기존 무시 필터가 떨구므로 **소비자가 실제로 받는
+  페이로드는 짝지어졌을 때와 동일**하다(살아남는 쪽 경로 1개). 무시 목록과 무관한 경로쌍의 rename 은
+  종전대로 짝지어져 `paths=[old, new]` 로 도착한다.
+- **소비자 영향 없음(선행 확인)**: `ipc-sync-provider.tsx` 는 `change.paths` 의 부모 디렉토리를
+  각각 `tree_refresh` 할 뿐 old/new 쌍을 전제하지 않는다. 열린 탭 추종(`layout_apply_path_change`)은
+  `useRenameEntry.onSuccess` → `followRenamedPathInTabs` 가 구동하며 `fs:changed` 를 구독하지 않는다.
+- **d-35 §4-e 와의 관계**: 그 항목이 기각한 것은 **전면 `NoCache`**(모든 rename 의 짝짓기·재귀속
+  상실)이고, 이번 변경은 무시 목록 밖의 짝짓기를 전부 유지하는 **스코프 캐시**다. 두 판단은 충돌하지
+  않는다 — 상세 대비는 `architecture.md` §2.3.
+
+### 사용성 배치 4 — `git_status` 결과 캐시 (2026-09-04)
+
+> 계약: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §C.2-6 ③.
+> 회수·무효화 축의 정본은 `docs/architecture.md` §6.3.
+
+- **표면 전부 불변**: 신규/삭제 커맨드 0, 인자·반환 타입 변경 0, 신규 타입·이벤트 0, 로케일 키 변동
+  0, `REMOTE_ALLOWED`/`REMOTE_DENIED` 변동 0. `git_status(projectId) → GitStatus` 는 시그니처도
+  반환 형태도 그대로다. Rust 쪽 `git_status` 가 `AppHandle` 인자를 받게 됐지만 **`AppHandle`/`State`
+  인자는 생성 bindings 에서 제거되므로**(`git_init` 이 같은 모양의 선례) `bindings.ts` 의
+  `gitStatus` 호출 시그니처는 문자 그대로 동일하다 — 재생성 diff 는 doc comment 뿐이다.
+- **의미 변화는 "언제 다시 계산하는가" 하나뿐**: 마지막 결과가 여전히 유효하면 libgit2 워크트리
+  워크를 건너뛰고 같은 값을 돌려준다. 무효화 축은 프론트가 `QUERY_KEY.GIT.STATUS(projectId)` 를
+  다시 묻는 축과 정확히 같아(`fs:changed` · `git:status-changed` · `git:refs-changed`), **프론트가
+  재조회할 이유가 있는 모든 순간에는 캐시도 이미 비어 있다.** 어떤 워처도 보고하지 못한 변경에
+  대비한 상한은 2초 TTL 이다.
+- **`StatusOptions::update_index` 는 종전대로 끈 상태**(감사 R4#11 결정 불변). 이번 캐시는 그
+  판단을 되돌리지 않는다.
+- **원격 미러**: `git_status` 는 계속 `REMOTE_ALLOWED` 이고, 원격 dispatch 경로도 같은 캐시를 탄다
+  (데스크톱 세션과 같은 프로젝트를 보고 있으면 그 결과를 공유한다 — 두 경로가 서로 다른 값을 볼 수
+  있는 지점은 새로 생기지 않는다).

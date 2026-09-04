@@ -11,7 +11,7 @@
 | 패키지 매니저/스크립트 | **Bun** (컨벤션 기본) | Vite dev/build 는 Vite 자체 사용. bun 으로 `tauri dev` 실행 |
 | 프론트 빌드 | Vite **8.2.0** (Rolldown 기반) | `build.target`: win `chrome105` / 그 외 `safari13` (Tauri 템플릿 — 필수) |
 | Rust | stable 최신 + `src-tauri` (`rust-version = "1.89"`) | release 프로파일: lto, codegen-units 1, strip (`research/performance-memory.md` §8). MSRV 는 선언이 아니라 **의존성이 실제로 요구하는 값**이다 — `notify-rust` 4.18(알림 플러그인 전이 의존)이 1.89 를 요구해 사용성 배치 4 에서 1.80 → 1.89 로 올렸다 |
-| 테스트 | bun:test + Testing Library(프론트), `cargo test`(Rust) | 컨벤션 frontend.md §11 |
+| 테스트 | bun:test + happy-dom + Testing Library(프론트), `cargo test`(Rust), Playwright(e2e) | 컨벤션 frontend.md §11. 하네스 사용법·커버 범위 한계는 **`docs/memory/test-conventions.md`** 가 정본 (2026-09-04 도입 전까지는 DOM 하네스가 실제로는 없었다 — 이 행의 "Testing Library" 는 계획 기재였다) |
 
 ## 프론트엔드 (npm)
 
@@ -174,3 +174,22 @@ alias·bin 정밀 파싱은 backlog. `argon2` 도 미승인 유지(Remote 비밀
   (`monaco-command-service-deep-import.md` 선례와 같은 범주).
 - 라이선스 고지: `THIRD_PARTY_LICENSES.md` "Bundled npm Libraries" 섹션(`emmet-monaco-es` + 전이
   의존 `emmet`, 둘 다 MIT).
+
+## 사용성 배치 4 — DOM 테스트 하네스 (2026-09-04, devDependency 전용)
+
+사용자 2차 결정 5(`docs/acknowledge/2026-09-04-usability-batch4-user-decisions.md`). **전부
+devDependency 라 앱 번들·릴리스 산출물에 들어가지 않는다** → `THIRD_PARTY_LICENSES.md` 고지 대상 아님.
+사용법·커버 범위 한계는 `docs/memory/test-conventions.md`.
+
+| 패키지 | 버전 | 용도 | 선정 이유 |
+|--------|------|------|-----------|
+| `happy-dom` | 20.14.0 | `bun test` 에 DOM 전역 제공 | `react-dom/server` 만으로는 렌더까지만 되고 `useEffect`·이벤트·`ref`·포커스가 전부 죽는다 — 감사가 실제로 찾아낸 결함 클래스(effect 순서 역전·재부착·저장 정착·포커스 복원)를 한 건도 재현하지 못한다. React 19.2.8 은 `act` 를 자체 export 하므로 부족한 것은 DOM 전역 하나뿐이었다. MIT, 전이 7개 |
+| `@happy-dom/global-registrator` | 20.14.0 | happy-dom 을 `globalThis` 에 등록 | **`GlobalRegistrator` 는 `happy-dom` 본체에 없다**(실물 확인). bun 공식 문서가 안내하는 등록 경로이며, `happy-dom` 본체를 그대로 재사용하는 17KB 래퍼라 중복 설치가 없다. MIT |
+| `@testing-library/react` | 16.3.3 | `render`/`renderHook`/`fireEvent`/`cleanup` | 컨벤션 `frontend.md` §11("역할·라벨 쿼리")과 이 문서 §런타임 표의 기존 기재를 실물로 맞춘다. Radix/shadcn 기반 UI 는 역할·라벨 쿼리가 `querySelector` 구조 결합보다 회귀에 강하다. MIT |
+| `@testing-library/dom` | 10.4.1 | 위 패키지의 peerDependency(`^10.0.0`) | RTL v16 부터 분리되어 명시 설치가 필수다. `screen`·역할/라벨 쿼리 구현체. MIT |
+
+- 진입점은 `bunfig.toml`(신설) `[test] preload` 하나뿐이다 — `bun test` 에만 적용되고 dev/build 는 무관.
+- 하네스 도입 시 기존 2008 케이스 중 12건이 깨졌고, 원인은 전부 **DOM 전역이 생기며 달라진 전제**였다
+  (`navigator.platform` 이 호스트 값에서 happy-dom 값으로, `navigator.clipboard` 부재 → 존재,
+  `window` 부재 → 존재). preload 가 UA 를 macOS WKWebView 로 고정해 6건을, 나머지 6건은 테스트 2파일의
+  전제를 고쳐 해결했다. **프로덕션 코드는 무변경.**

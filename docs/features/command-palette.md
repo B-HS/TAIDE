@@ -136,8 +136,44 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
   대비가 배경 채움보다 안정적).
 - 선택 행(방향키 이동)은 배경색 변화 + 얇은 링 2가지 단서로 표시한다(테마 의존 저대비 대응 —
   `docs/acknowledge/2026-08-20-palette-ux-contract.md` §4.1).
-- 결과 상한과 가상 스크롤: 파일이 수만 개일 수 있으므로 **상한 + 가상 스크롤** 둘 다 적용한다.
+- 결과 상한: 파일이 수만 개일 수 있으므로 files 모드는 `FILE_RESULT_LIMIT = 200` 으로 자른다
+  (`command-palette.tsx`). 나머지 모드는 원본 집합이 유한하다(카탈로그 커맨드·현재 파일 심볼·
+  LSP 가 이미 자른 워크스페이스 심볼). **가상 스크롤은 적용하지 않는다** — 근거는 §4.1.
 - `Esc` 닫기, `↑↓` 이동, `Enter` 실행, `⌘Enter`(있으면) 옆 pane 에 열기.
+
+### 4.1 가상 스크롤 미적용 결정 (2026-09-04, 배치 4 C.2-7 M4)
+
+성능 배치가 "팔레트 결과 가상화(cmdk 와 공존 가능하면)"를 지시했고, cmdk 1.1.1 실물을 읽어
+**공존 불가**로 판정했다. 상한 200 을 유지한다.
+
+- 상류가 명시적으로 미지원이다 — `node_modules/cmdk/README.md`: "Virtualization? No. Good
+  performance up to 2,000-3,000 items". 우리 상한 200 은 그 구간의 1/10 이다.
+- 선택 상태가 **DOM 질의 기반**이다(`node_modules/cmdk/dist/index.mjs`). 방향키 이동은
+  `listInnerRef.querySelectorAll('[cmdk-item=""]:not([aria-disabled="true"])')` 결과에서 현재 선택의
+  다음/이전을 고르므로, 윈도 밖 행이 언마운트된 가상 목록에서는 **마운트된 마지막 행에서 멈춘다**.
+- 항목 언마운트 시 등록 해제 콜백이 "그 항목이 선택 중이었으면 `selectFirstItem()`" 을 돌린다.
+  가상화하면 선택 행이 스크롤로 윈도를 벗어나는 순간 **선택이 첫 행으로 튄다**.
+- `CommandEmpty` 는 `filtered.count === 0` 에서 렌더되는데, `shouldFilter={false}`(팔레트가 쓰는
+  모드)에서 그 값은 **마운트된 항목 수**다. 윈도가 비는 프레임에 "결과 없음"이 깜빡인다.
+- 우회 경로는 있다: `Command` 는 `value`/`onValueChange` 로 제어 가능하고, root 의 `onKeyDown` 이
+  `event.defaultPrevented` 를 먼저 확인하므로 방향키를 우리가 가로챌 수 있다. 그러나 그것은 선택
+  이동·`aria-activedescendant`·`Enter` 실행·스크롤 동기화까지 팔레트가 다시 구현한다는 뜻이고,
+  키보드 계약(`acknowledge/2026-08-20-palette-ux-contract.md`)이 통째로 회귀 표면이 된다. 상한이
+  이미 상류 권장치 한참 안쪽이라 이득이 위험을 넘지 못한다.
+- 재검토 조건: 상한을 1000 이상으로 올리거나 cmdk 가 가상화를 지원하면 다시 판단한다.
+
+### 4.2 계측 마크 (지표 4)
+
+`docs/quality-assurance/2026-09-04-perf-baseline.md` 의 지표 4 를 `command-palette.tsx` 가 발행한다.
+
+| 지표 | 시작 | 종료 |
+|------|------|------|
+| 4-a 팔레트 열기 (`palette.open`) | `openPalette()` — 팔레트에 트리거 엘리먼트가 없어 모든 열기가 이 함수를 지난다. 이미 열려 있을 때의 모드 전환(⌘⇧P 재입력)은 마크하지 않는다 | 결과 목록이 커밋된 이펙트 |
+| 4-b 입력 응답 (`palette.filter`) | `CommandInput` 의 `onValueChange` | 같은 이펙트 |
+
+두 측정을 한 이펙트에서 닫는 이유는 `perfMeasure` 가 시작점을 **소비**하기 때문이다(`perf-mark.ts`).
+열기는 4-a 의 시작점만, 타이핑은 4-b 의 시작점만 남기므로, 그 실행에 없는 쪽은 낡은 마크의 나이를
+보고하는 대신 아무것도 측정하지 않는다.
 
 ## 5. 수명주기
 

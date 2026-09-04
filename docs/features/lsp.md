@@ -155,6 +155,27 @@
   로 만든다. `use-lsp-session.ts` 가 같은 이벤트에서 `didChange` 를 동기 전송하므로 재요청 시점의
   서버는 이미 새 텍스트를 갖고 있다. 팔레트의 심볼 로더는 열릴 때 1회 조회라 대상이 아니다.
 
+### 4.1 아웃라인 패널 (2026-09-04, 사용성 배치 4 ③ C.2-7)
+
+- 소비 경로: `widgets/outline-panel/outline-panel-container.tsx` 가 위 `loadDocumentSymbolsForPath`
+  로 심볼 스냅샷을 받아 `features/outline/outline-panel.tsx` 에 내린다.
+- **평탄화 → 가상화**: `features/outline/outline-rows.ts` 의 `buildOutlineRows(symbols, collapsedIds)`
+  가 심볼 트리를 깊이 우선 평탄 배열(`{ id, symbol, depth, hasChildren, collapsed }`)로 바꾸고,
+  패널이 `@tanstack/react-virtual` 로 뷰포트 안 행만 마운트한다(행 20px 고정 —
+  `OUTLINE_ROW_HEIGHT_PX`). 이전에는 `outline-symbol-row.tsx` 가 자식을 재귀 렌더해 **접기 없이
+  전체 트리**를 그렸고, 편집 400ms 후 심볼 재요청마다 통째로 다시 그렸다(조사 3a M2).
+- **접기**: 행 id 는 이름이 아니라 트리 위치(`/0/2/1`)다 — 같은 이름·같은 kind 의 형제 오버로드가
+  정상적으로 존재하므로 이름 기반 id 는 둘을 함께 접는다. 접힘 상태는 패널 컴포넌트 state 이고,
+  컨테이너가 `key={activePath}` 로 파일이 바뀔 때 초기화한다(다른 파일의 접힘·선택이 따라오지
+  않게).
+- **키보드**: 포커스는 행이 아니라 `role='tree'` 컨테이너가 갖는다(파일트리와 같은 로빙 모델).
+  ↑↓ 선택 이동(+`scrollToIndex`), →/← 펼치기·접기(접을 것이 없으면 부모로), Enter 는 심볼로
+  이동. 가상화로 뷰포트 밖 행이 DOM 에서 사라지므로 행마다 tab stop 을 두는 이전 방식은 성립하지
+  않는다. chevron 클릭은 같은 접기를 하는 포인터 보조 수단이라 접근성 트리에서는 감춘다.
+- 스크롤 뷰포트는 패널이 직접 소유한다(`ScrollContainer` 중첩 대신 검색 결과 목록과 같은 형태) —
+  가상화기가 측정할 스크롤 요소가 필요하고, `ScrollContainer` 의 MutationObserver 가 비가상화
+  목록에서 행 수만큼 ResizeObserver 대상을 만들던 비용(조사 3a L3)도 함께 사라진다.
+
 ## 5. 수명주기 · 누수 방지
 
 - 세션 소유는 Rust. 프로젝트 close(capability detach) 시: 공유 세션이면

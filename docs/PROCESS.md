@@ -50,7 +50,7 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
-## 대기: 사용성 배치 4 — OS 알림·Welcome 커맨드·성능 극한·프로젝트 목록·git 탭 UX (2026-09-04)
+## 완료(잔여 사용자 몫): 사용성 배치 4 — OS 알림·Welcome·성능 극한·프로젝트 목록·git 탭·터미널/탭 바 메뉴·하네스·CI (2026-09-04~05)
 
 > 사용자 추가 요청 5건(배치 3 구현 wf 진행 중에 접수). 조사 wf(opus·xhigh, 읽기 전용, 7주제 병렬)
 > 기동 + 결정 질문 발신. 계약은 조사·회신 후 `acknowledge/2026-09-04-usability-batch4-contract.md`.
@@ -82,9 +82,20 @@
       `3e6baa7` feat(project)·`10b0443` feat(git)·`aef0971` feat(terminal)·`c93a4d8` feat(tab)·
       `0f8dcc9` test(e2e)·`8aa712a` chore(claude)) + docs 커밋 → dev 푸시 → main ff. 기준선 커맨드 183·
       로케일 1015키×3·이벤트 24
-- [ ] d-3. 웨이브 2 구현 wf — C 성능(1단계 계측+안전 수정 → 2단계 대형 3건+가상화)·H 하네스·테스트·CI
-      (사용자 2026-09-04 회신: 웨이브 1 커밋 후 이어서 진행)
-- [ ] e. 리뷰 wf(sonnet·xhigh) → 테스트 wf(fable·medium) → 메인 2차 검증 → docs → 커밋
+- [x] d-3. 웨이브 2 구현 wf(opus·xhigh, `wf_6e5eb63f` — 15 에이전트/에러 0, 2026-09-05 02:00) — 하네스
+      happy-dom+RTL(+global-registrator)·Rust perf 인프라(슬롯 12·카운터 4·TAIDE_PERF 게이트·perf_snapshot/
+      reset)·FE perf-mark+bench·TS 안전 3(fuzzy 5.6배·캐시 회수·충돌 인덱스)·Rust 안전 4(테마 18배·fsync 비동기·
+      file_type·sniff)·대형 3(project_open 후절화·IdCache 382배·git status 캐시 417배)·가상화 A/B·e2e 21~25(C8
+      HMR 게이트)·CI ci.yml·단위/컴포넌트 +180·Rust +85 → 통합 verify 그린(bun 2287/0·cargo 1434/0·vite build).
+      커맨드 185·로케일 1016×3. 계약 "## 4. 구현 기록 (웨이브 2)"·perf-baseline·test-gap-map 정본
+- [x] d-4. 웨이브 2 리뷰 wf(sonnet·xhigh, `wf_3a0d5f31` — 발견 14: major 3(attach 실패 은폐 → 되돌림·에러
+      보고 / git 목록 sticky 헤더 가림 → scrollPaddingStart / JSDoc 범위는 레포 관행이라 사용자 결정으로),
+      minor 5 수정·1 보류·1 기각, info 4) → 메인 2차 verify+vite build+typecheck:e2e exit 0(bun 2287/0·cargo
+      1435/0·lint 11 warning=기존 9+가상화 2) → 커밋 7분할(`d2d7089` perf(core)·`c4e2af7` perf(rust)·
+      `a48ff08` perf(frontend)·`fae9693` test(harness)·`dbb1d80` test·`f83af47` test(e2e)·`141c3f1` ci)
+      + docs 커밋 → dev 푸시 → main ff
+- [ ] e. 잔여(사용자): 실기 8지표 측정(perf-baseline §2·§3)·e2e 14~25 실행(`TAIDE_E2E_NO_HMR=1 bun run tauri dev`)·
+      수동 QA(알림·프로젝트 표시)·미결 결정(계약 §3.4·§4.4)
 
 ## 완료: 사용성 배치 3 — 퀵오픈 미발견·터미널 링크 창내 열림·파일트리 자동 reveal (2026-09-04)
 

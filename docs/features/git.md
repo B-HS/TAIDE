@@ -66,15 +66,25 @@
 
 - 표시: 파일명 + 흐린 디렉토리 경로 + 상태 문자(우측). Renamed 는 `old → new` 툴팁.
 - 클릭 = **Open Changes**: 해당 파일의 diff 를 preview 탭으로 연다(§4).
-- **키보드 (2026-08-29 구현, 2026-09-04 헤더 포함으로 확장)**: 행과 **섹션 헤더**가 함께
-  `role='button'` + Enter/Space 활성화 대상이고, ↑↓ 는 두 종류를 문서 순서로 가로지르며 로빙
-  포커스를 옮긴다(`widgets/git-panel/change-row-navigation.ts` — 셀렉터 정본
-  `GIT_SECTION_ROVING_SELECTOR = '[data-git-change-row], [data-git-section-header]'`, 파일트리와 같은
-  진입 규칙: 밖에서 ↓=첫 항목·↑=마지막 항목, 끝에서 비순환). 헤더에 포커스가 있을 때 **→ 는 펼치고
-  ← 는 접는다**(무의미한 방향은 활성화 처리로 폴백). 포커스 항목은 `focus-within` 배경으로 표시.
-  헤더를 로빙에 넣은 것은 접기 때문만이 아니라, hover 로만 나타나던 Stage All / Unstage All 이
+- **키보드 (2026-08-29 구현, 2026-09-04 헤더 포함으로 확장 · 같은 날 인덱스 기반으로 재작성)**: 행과
+  **섹션 헤더**가 함께 `role='button'` + Enter/Space 활성화 대상이고, ↑↓ 는 두 종류를 패널의 항목
+  순서로 가로지르며 로빙 포커스를 옮긴다(`widgets/git-panel/change-row-navigation.ts` — 파일트리와
+  같은 진입 규칙: 밖에서 ↓=첫 항목·↑=마지막 항목, 끝에서 비순환). 헤더에 포커스가 있을 때 **→ 는
+  펼치고 ← 는 접는다**(무의미한 방향은 활성화 처리로 폴백). 포커스 항목은 `focus-within` 배경으로
+  표시. 헤더를 로빙에 넣은 것은 접기 때문만이 아니라, hover 로만 나타나던 Stage All / Unstage All 이
   키보드로 도달 불가였던 결함(`group-focus-within:flex` 로 동시 해소)을 함께 고치기 위해서다.
   접힌 섹션의 행은 렌더 자체를 건너뛰므로 로빙 시퀀스에서도 빠진다.
+  - **순서의 정본은 DOM 이 아니라 인덱스다**(§2.2 가상화 전제). 각 항목은 위치 인덱스를
+    `data-git-roving-index` 로 들고 있고(가상 항목은 위치 래퍼가, 스태시·그래프 섹션은 섹션
+    래퍼가), 이동은 `resolveNextChangeRowIndex(key, activeIndex, rovingItemCount)` 로 계산한 뒤
+    필요하면 `scrollToIndex` 로 먼저 스크롤하고 마운트된 뒤 포커스한다. `querySelectorAll` 로
+    문서 순서를 세던 이전 방식은 뷰포트 밖 행이 DOM 에 없어 조용히 끊긴다.
+    `data-git-change-row`·`data-git-section-header` 는 e2e 스펙 07·19 가 행·헤더를 집는 마커로
+    그대로 유지한다.
+  - 로빙 항목 수 = 가상화된 변경 목록 행 수 + 보이는 스태시 섹션(1) + 보이는 그래프 섹션(1).
+    스태시의 Apply 버튼·그래프 커밋 행·행/헤더의 hover 액션 버튼처럼 **항목 내부 컨트롤**에
+    포커스가 있을 때는 ↑↓ 를 건드리지 않는다(그 항목의 콘텐츠이지 패널의 항목이 아니다).
+    이전에는 이 경우 셀렉터가 아무것도 못 찾아 포커스가 **목록 맨 위로 튀었다**.
 - hover 액션 아이콘: Changes 그룹 `+`(stage)·`↺`(discard)·Open File,
   Staged 그룹 `−`(unstage)·Open File.
 - context menu(FR-F4):
@@ -85,6 +95,31 @@
     (VSCode 동일 — 데이터 손실 방지, research 함정 절). tracked discard 는
     `checkout_index/checkout_head + force()`.
   - Copy Path / Reveal in Explorer(파일 트리에서 보기)
+
+### 2.2 변경 목록 가상화 · 컨텍스트 메뉴 단일화 (2026-09-04, 사용성 배치 4 ③ C.2-7)
+
+- **변경 그룹 3종(Merge·Staged·Changes)은 하나의 가상 목록**이다. `change-row-navigation.ts` 의
+  `buildGitChangeListRows` 가 "헤더 1행 + 그 섹션의 행들" 을 평탄화하고
+  (`search-result-rows.ts`·`problem-list-rows.ts` 와 같은 확립 패턴),
+  `@tanstack/react-virtual` 이 뷰포트 안 행만 마운트한다. 헤더·행 모두 `h-6`(24px) 고정이라
+  재측정 없이 배치된다. 이전에는 브랜치 전환·대량 생성 리포에서 **수천 행이 통째로 DOM 에**
+  들어갔다(파일트리·검색·Problems·커밋그래프는 이미 가상화돼 있었고 변경 목록만 빠져 있었다 —
+  조사 3a M1).
+- **가상 목록은 스크롤 뷰포트의 첫 요소여야 한다.** 패널은 변경·스태시·그래프를 스크롤바 하나로
+  훑는 구조라 가상 목록의 오프셋이 0 이라는 전제 위에서 측정한다(위에 뭔가를 끼우려면
+  `scrollMargin` 이 필요하다).
+- **sticky 헤더는 `rangeExtractor` 로 유지한다.** 가상 행은 절대배치라 그 안의 `sticky` 는 자기
+  24px 상자를 벗어날 수 없다. 그래서 화면 맨 위에 붙어야 할 헤더(`resolveStickyHeaderIndex`)를
+  렌더 범위에 강제로 포함시키고, 그 항목만 translate 없이 흐름에 그린다. 어느 그룹의 행을 보고
+  있는지 알려주는 sticky 는 §2.1 의 헤더 대비 규칙이 기대는 축이라 포기하지 않는다.
+- **컨텍스트 메뉴는 목록당 1개**다. 이전에는 행마다 Radix `ContextMenu` 루트 + 항목 7개를 미리
+  만들었다. 지금은 우클릭 이벤트에서 대상 행을 역산하고, 행이 아닌 곳(헤더·빈 영역)에서는
+  `preventDefault()` 로 메뉴를 열지 않는다(Radix `composeEventHandlers` 가 defaultPrevented 인
+  이벤트에서 자기 핸들러를 건너뛴다). 메뉴 대상은 인덱스가 아니라 **경로**로 기억한다 — 메뉴가
+  열려 있는 사이 status 가 갱신돼도 다른 파일에 액션이 걸리지 않게.
+- `features/git/git-change-group.tsx` 는 컴포넌트가 아니라 **그룹 설정 빌더**다
+  (`buildGitChangeGroupConfig` → 제목·헤더 액션·정규화된 행·행 액션·컨텍스트 메뉴 항목·클릭 동작).
+  세 그룹이 더 이상 자기 DOM 서브트리를 갖지 않으므로, 패널이 섹션 id 로 그룹 동작을 찾는다.
 
 ## 3. Commit / Push (FR-F5)
 

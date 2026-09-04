@@ -1,6 +1,6 @@
-# HANDOFF — 2026-09-04 세션 스냅샷 (배치 3 완결 / 배치 4 웨이브 1 완결·커밋 / 웨이브 2(성능·하네스·CI) 진행 중 / 잔여 = e2e 14~20 실행·실기 확인·draft 3건 공개)
+# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·배치 4 웨이브 1·2 전부 완결·커밋 / 잔여 = 실기 8지표·e2e 14~25 실행·수동 QA·결정 항목·draft 3건 공개)
 
-> 최종 갱신: 2026-09-04 / HEAD = `8aa712a`(dev, 이 docs 커밋이 그 위에 얹힘 → main ff 동기). 배치 4 웨이브 1 완결.
+> 최종 갱신: 2026-09-05 / HEAD = `141c3f1`(dev, 이 docs 커밋이 그 위에 얹힘 → main ff 동기). 배치 4 웨이브 1·2 완결.
 > 이 세션 — **사용성 배치 3**(퀵오픈 스테일 인덱스·파일 탭 열기 선검증 / 외부 URL 단일 오프너·OSC 8·
 > WebView 네비게이션 가드 / explorer autoReveal)을 조사→계약→구현 wf(opus·xhigh)→리뷰 wf(sonnet·xhigh)
 > →테스트 wf(fable·medium)→메인 2차 검증→커밋 5분할로 완결. 동시에 **사용성 배치 4**(OS 알림·Welcome·
@@ -16,10 +16,11 @@
 ## 2. 현재 목표
 
 - 최종: PRD FR-A~J(완료) → 전문 QA(qa6 실기 진행 중) → Phase 8 배포.
-- 현재 마일스톤: **배치 4 웨이브 1 완결(커밋·푸시) → 웨이브 2 진행**. **다음 한 줄 = 웨이브 2 구현 wf
-  (C 성능 1단계 계측·안전 수정 → 2단계 대형 3건·가상화 / H happy-dom+RTL 하네스·단위 P0+P1·e2e 선결·
-  CI 게이트) → 리뷰 → 테스트 → 커밋.** 사용자 몫: e2e 14~20 실행(`bun run tauri dev` + REMOTE 준비 후
-  `bun run e2e`)·배치 3/4 표면 실기 확인·수동 QA(알림·프로젝트 표시)·draft 3건 공개.
+- 현재 마일스톤: **배치 4 전부 완결(커밋·푸시)**. **다음 한 줄 = 사용자: 실기 8지표 측정(`quality-assurance/
+  2026-09-04-perf-baseline.md` §2·§3, `TAIDE_PERF=1`) · e2e 14~25 실행(`TAIDE_E2E_NO_HMR=1 bun run tauri dev`
+  + REMOTE 준비 후 `bun run e2e`) · 수동 QA(알림은 `tauri build` 산출물로·프로젝트 표시) · 결정 항목
+  (계약 §3.4·§4.4 — JSDoc 범위 예외 명문화 여부·CI 액션 SHA 핀·`git.stashEmpty` 등) · draft 3건 공개.**
+  메인 다음 착수는 그 결과에 따라(결함은 계약 §3/§4 에 추가).
 
 ## 3. 완료 / 진행 중 / 미착수
 
@@ -81,12 +82,29 @@
 - **G 탭 바 메뉴** (`c93a4d8`): 여백·'+' 영역 메뉴(순수 빌더·표시 규칙 테스트), 탭 '이름 바꾸기' 브리지.
 - 테스트 (`0f8dcc9` + 단위): bun 2008·cargo 1288·e2e 17~20 **미실행**. 미결(사용자 실기): 계약 §3.4·§3.7.
 
-### 3.5 잔여
+### 3.5 사용성 배치 4 웨이브 2 요약 (2026-09-05, 계약 "## 4. 구현 기록 (웨이브 2)" 정본, wf `wf_6e5eb63f` 15 에이전트 + 리뷰 `wf_3a0d5f31`)
 
-- **즉시(사용자)**: ① e2e 14~20 실행 + 배치 3·4 표면 실기(알림 실기는 `tauri build` 산출물로 — dev 는 Terminal 이름)·수동 QA(`e2e-harness.md` §5.1)(⌘P 삭제 파일 토스트·OSC 8/마크다운 링크가 OS
+- **계측** (`d2d7089`): Rust `infra::perf`(슬롯 12·카운터 4·AtomicU64·`TAIDE_PERF` 게이트·`perf_snapshot/reset`
+  원격 거부·`[profile.profiling]`) + FE `perf-mark`(8지표 마크·상한·`app.showPerfSnapshot`) + `bun run bench`.
+- **Rust 성능** (`c4e2af7`): project_open 후절화(build/register 2단 — 리뷰로 attach 실패 시 되돌림·에러 보고
+  추가), 워처 ScopedIdCache(557k → 1.5k 엔트리, ~105MB → ~0.2MB), git status 캐시(3축 무효화 + 2초 TTL,
+  히트 8.5ms → 20µs), 테마 OnceLock(18배), flush fsync 비동기, read_children file_type, sniff 이어읽기.
+- **FE 성능** (`a48ff08`): fuzzy 단일 주사(5.6배), FILE 캐시 회수, 충돌 인덱스, git/아웃라인 가상화(+로빙·
+  sticky 패딩), 마커 2단 셀렉터, 스크롤바 관찰 축소. 팔레트 가상화는 cmdk 공존 불가로 상한 유지(계약 허용).
+- **테스트·CI** (`fae9693`·`dbb1d80`·`f83af47`·`141c3f1`): happy-dom+RTL 하네스(UA macOS 고정·mock.restore·
+  cleanup), 단위/컴포넌트 +180·Rust +85(bun 2287·cargo 1435), e2e 21~25 + `TAIDE_E2E_NO_HMR` 게이트, ci.yml
+  (push dev/main + PR, 프론트 ubuntu·Rust macOS). lint 경고 9 → 11(가상화 useVirtualizer 2, 기존과 동종).
+- 정본: `quality-assurance/2026-09-04-perf-baseline.md`(실기 8지표 체크박스·벤치·Rust 픽스처 실측),
+  `2026-09-04-test-gap-map.md`, `memory/test-conventions.md`(하네스 규약·함정).
+
+### 3.6 잔여
+
+- **즉시(사용자)**: ① 실기 8지표 측정(perf-baseline §2·§3) ② e2e 14~25 실행 + 배치 3·4 표면 실기(알림은
+  `tauri build` 산출물로 — dev 는 Terminal 이름)·수동 QA(`e2e-harness.md` §5.1) ③ 결정 항목(계약 §4.4-8-1/8-2:
+  JSDoc 예외 명문화·CI SHA 핀, §3.4 미결)(⌘P 삭제 파일 토스트·OSC 8/마크다운 링크가 OS
   브라우저로·autoReveal·설정 스위치·IDE openFile 없는 경로 거절 표시) ② draft 3건 Publish ③ "빈 폴더" 재현 정보.
-- **다음(메인)**: 배치 4 웨이브 2 — 계약 C(성능 1·2단계)·H(하네스 happy-dom+RTL·단위 P0+P1·e2e 선결·CI)
-  구현 wf → 리뷰 → 테스트 → 커밋. 웨이브 1 미결(계약 §3.4·§3.6·§3.7)은 실기 결과 따라 처리. 신규 의존성 승인분: `tauri-plugin-notification`,
+- **다음(메인)**: 실기·e2e 결과 회신 후 결함 처리(계약 §3/§4 파이프라인). 이월 백로그(monaco 지연·트리 응답
+  재설계·`ps` fork·update_index·ide-sync 마커 전량 티어·resolver 3 등 `backlog.md` "성능 극한 이월" 절). 신규 의존성 승인분: `tauri-plugin-notification`,
   devDependency happy-dom·@testing-library/react·@testing-library/dom.
 - qa6 실기·Phase 8 잔재·백로그(ignored 흐림·kitty·terminal 메뉴 이월분·target:null pane NotFound 등) 유지.
 - 이월(사용자 결정 대기): 직전 스냅샷 §3.3 목록 유지(`git show 3360aca:docs/HANDOFF.md`).
@@ -136,9 +154,10 @@
 
 ## 8. 다음 세션 TODO (우선순위)
 
-1. **배치 4 웨이브 2 구현 wf 기동**(계약 C·H) — 웨이브 1 wf 골격(Rust 직렬·TS 병렬·통합 verify) 재사용,
-   공통 규칙에 Edit/Write 전용 편집·단순 셸 명령만(승인 프롬프트) 포함.
-2. e2e 14~20 실행 결과·배치 3/4 실기 결과 청취(결함은 계약 §3 에 추가). draft 3건 공개 여부 확인.
+1. 사용자 실기·e2e·수동 QA 결과 청취 → 결함은 계약 §3/§4 에 추가해 wf 파이프라인(구현 opus·리뷰 sonnet·
+   테스트 fable). 승인 프롬프트 최소화: 워크플로 공통 규칙에 "Edit/Write 전용·한 줄 단순 셸만" 유지, 셸 전체
+   허용(`Bash(*)`)은 사용자만 추가 가능(에이전트 자가 확대는 분류기 차단).
+2. draft 3건 공개 여부 확인 · 백로그 성능 이월 12건 착수 여부.
 3. "빈 폴더" 재현 정보 확보 시 재추적(유력 가설: 트리 숨김 목록만 든 폴더 — wf C 트랙 openQuestion).
 4. qa6 계속 / Phase 8 잔재 판단 / 백로그(ignored 흐림·kitty protocol) 착수 여부.
 
@@ -150,7 +169,9 @@
 | `docs/PROCESS.md` | 체크리스트 — "사용성 배치 3"(완결)·"사용성 배치 4"(대기) 절 |
 | `docs/acknowledge/2026-09-04-usability-batch3-contract.md` | 배치 3 계약 + §3 구현·리뷰·테스트 기록(이탈·미결 전건) |
 | `docs/acknowledge/2026-09-04-usability-batch4-contract.md` · `-user-decisions.md` | 배치 4 계약 A~H · 결정 7건 · "## 3. 구현 기록 (웨이브 1)"(이탈·미결·리뷰 수정·테스트) |
-| `docs/quality-assurance/2026-09-04-git-section-ux-hand-qa.md` · `2026-08-18-e2e-harness.md` §5·§5.1 | git 섹션 손 QA · e2e 13~20 표 + 수동 QA(알림·프로젝트 표시) |
+| `docs/quality-assurance/2026-09-04-git-section-ux-hand-qa.md` · `2026-08-18-e2e-harness.md` §5·§5.1 | git 섹션 손 QA · e2e 13~25 표 + 수동 QA(알림·프로젝트 표시) |
+| `docs/quality-assurance/2026-09-04-perf-baseline.md` · `2026-09-04-test-gap-map.md` · `docs/memory/test-conventions.md` | 성능 기준선(실기 체크박스·벤치·Rust 실측) · 테스트 공백 맵 · 하네스 규약 |
+| `docs/debugging.md` §TAIDE_PERF · `docs/architecture.md`(perf·capability 2단·캐시 회수) | 계측 사용법·구조 |
 | `docs/research/2026-09-04-batch4-topics1-5-research.md` · `-terminal-tabbar-context-menu-research.md` | 배치 4 조사 원문(파일:라인 인용) |
 | `docs/bug/2026-09-04-quick-open-stale-index-not-found.md` · `-external-link-opens-in-app-window.md` | 배치 3 버그 정본 2건 |
 | `docs/feedback/2026-09-04-research-must-use-workflow-opus-xhigh.md` · `docs/agent-operations.md` §1 | 역할표·서브에이전트 금지 |

@@ -636,3 +636,290 @@ revision +1, 기존 페인 활성 탭 불변 = 터미널 언마운트 방지 계
 
 `cargo test` 의 bindings export 후에도 `git status --short` 에 신규 dirty 파일이 생기지 않았다
 (`bindings.ts` 는 §3.6 에서 이미 재생성된 상태 그대로).
+
+## 4. 구현 기록 (웨이브 2)
+
+> 2026-09-04~05, 웨이브 1(HEAD `ba1fa20`) 위에서 진행. **C 성능 · H 테스트·하네스·CI 2절**을
+> Rust 5 · TS 4 · e2e 1 · CI 1 에이전트 + 통합 검증 1로 나눠 구현했다. 아래는 통합 단계가 실물
+> 대조로 확인한 결과다. 계약 문언과 실제 코드가 다른 곳은 §4.3 에 사유와 함께 적었다.
+>
+> 웨이브 1과 달리 **한 워킹트리에서 여러 에이전트가 동시에** 작업했다. 그래서 각 에이전트의 검증
+> 수치는 서로의 진행분을 포함하며, 신뢰할 수 있는 총계는 §4.5 의 통합 실측뿐이다.
+
+### 4.1 절별 반영 결과 (실물 대조)
+
+| 계약 항목 | 반영 | 실물 |
+|----------|------|------|
+| **C.2-1** Rust 계측 | O | `src-tauri/src/infra/perf.rs` — `PerfRegistry`(컴파일 타임 닫힌 슬롯: `SpanSlot` 12 · `CounterSlot` 4, 슬롯마다 `AtomicU64` 3개, 전역 Mutex 0) · `perf::span()` RAII · 게이트 `TAIDE_PERF`(`AtomicBool` 1개, off 면 `load` 1회) · 순수 파서 `resolve_enabled`. span: 부팅 4단계 + 커맨드 8종, 고빈도 경로(pty·`lsp_send`)는 **카운터만**. 커맨드별 invoke 수는 `lib.rs` `invoke_handler` 클로저 한 곳에서만 — 커맨드 본문 무수정. `perf_snapshot`/`perf_reset`(app 도메인, 둘 다 `REMOTE_DENIED`). `[profile.profiling]` 워크스페이스 `Cargo.toml`(`cargo build --profile profiling -p taide-cli` 로 "optimized + debuginfo" 확인, CI 3워크플로·`tauri build` 미참조 grep 확인) |
+| **C.2-2** FE 계측 | O | `src/shared/lib/perf-mark.ts` — 닫힌 이름 집합(`PERF_MARK`·`PERF_MEASURE`·`PERF_COUNTER`) · 순수 게이트 `resolvePerfEnabled` · 세션 상한 `PERF_MARK_LIMIT=500` · 시작 마크 소비. 게이트 동기화 `src/entities/app/perf.ipc.ts`(부팅 직후 `perf_snapshot` 1회, 원격 미러는 스킵). 마크 8지점 배선(부팅·프로젝트 전환·파일 열기·트리 펼침·검색 결과·터미널 처리량 + 팔레트 열기·입력). 팔레트 커맨드 `app.showPerfSnapshot`(게이트 켜진 창에만) |
+| **C.2-3** 벤치·예산 | O | `scripts/bench-frontend.ts` + `bun run bench`(수동 전용, 고정 시드). `bun test` 에는 **연산 횟수 예산만** — `perf-budget.test.ts` · `search-result-budget.test.ts` · `perf-mark.test.ts`, 공용 `shared/testing/counting-map.ts`. Rust 예산: `list_themes` 재파싱 프로세스당 1회 · git status "무효화 1회당 계산 1회"/"매번 무효화면 캐시 전과 동일" · perf 게이트 off 무기록 5축 |
+| **C.2-4** FE 안전 3건 | O | H3 `fuzzy-match.ts` 단일 전진 주사(테스트 12건 선보강 후 교체, 40만 케이스 차분 불일치 0) · M3 `tab-path-change.ts` 단일 회수 지점(모든 창·프로젝트·스플릿·diff·프리뷰 판정, d-43 유지) · L2 `keybinding-catalog.ts` 충돌 인덱스(동치 테스트 약 780 단언) |
+| **C.2-5** Rust 안전 4건 | O | `list_themes` `OnceLock` 요약(사용자 테마는 매 호출 `read_dir` 유지) · `flush_dirty_layouts` 주기 flush 를 `spawn_blocking`(종료 경로 2곳은 동기 유지) · `read_children` `metadata()`→`file_type()`(심링크 픽스처 5종) · `file_open` 이중 읽기 제거(`read_text_bytes` 단일 리더, `read_sniff` 삭제) |
+| **C.2-6** Rust 대형 3건 | O | ① `project_open` 후절화 — `ProjectCapability::attach` → `build_attachment` 1개 훅 + 불투명 `ProjectAttachment`, `spawn_blocking` 에서 build → 가드 재획득 → 재검증 → commit. 등록 순서·detach 대칭은 소스 스캔 테스트로 고정 ② `infra::watcher::ScopedIdCache`(`new_debouncer_opt`, `read_dir` 명시 스택, 무시 디렉토리는 자신 1엔트리) — `layout_apply_path_change` 무영향 선행 확인 ③ `GitStore::StatusCache`(프로젝트별 슬롯 + 세대 + 2초 TTL, `fs:changed`/`git:status-changed`/`git:refs-changed` 3축을 `listen_any` 로 지연 구독, 회수는 기존 `GitCacheCapability::detach`) |
+| **C.2-7** FE 가상화 묶음 | △ | git 변경 목록 3그룹 단일 가상 목록(`buildGitChangeListRows`) + sticky 헤더(`rangeExtractor`) + 컨텍스트 메뉴 목록당 1개 + 인덱스 로빙 · 아웃라인 `outline-rows.ts` 평탄화·가상화·접기 + `role='tree'` 컨테이너 로빙 · H2 마커 2단 셀렉터(`useMonacoMarkerCounts`, 합계 불변 시 동일 참조) · L3 스크롤바 MutationRecord delta 관찰. **팔레트 결과 가상화는 미적용** — 계약이 허용한 폴백, 사유 `docs/features/command-palette.md` §4.1 |
+| **C.2-8** 문서 | O | `quality-assurance/2026-09-04-perf-baseline.md`(8지표·절차·체크박스·§5.1 Rust 실측·§4 벤치 실측) · `architecture.md`(§2.2 perf 소유권 · §2.3 `ScopedIdCache` · §3.1 후절화 · §6.3) · `ipc-contract.md`(perf 커맨드 · 워처 캐시) · `debugging.md`(§4.1 `TAIDE_PERF` · §4.2 profiling · §4.3 프론트) · `backlog.md`(§4.2 에서 통합 단계가 보완) |
+| **H.2-1** 하네스 | O | devDependency 4종(happy-dom 20.14.0 · `@happy-dom/global-registrator` 20.14.0 · `@testing-library/react` 16.3.3 · `@testing-library/dom` 10.4.1, 캐럿 없이 고정) · `bunfig.toml` `[test] preload` · `dom-preload.ts` · `render.tsx` · 스모크 8케이스 · `docs/memory/test-conventions.md` 신설 |
+| **H.2-2** 단위 P0+P1 | O | 순수 모듈 9종 + `.query.test.ts` **11종 완성**(계약 지정 목록 전부) + 하네스 컴포넌트·훅 7종. 신규 21파일 / 180케이스 |
+| **H.2-3** Rust 테스트 | O | "테스트 0" 4파일 해소(`infra/archive.rs` 10 · `error.rs` 10 · `events.rs` 8 · `domain/window/commands.rs` 6) + terminal·tree·locale·vsix·file 확장 + `tests/capability_symmetry.rs` 신설 4. §3.7 미작성 2번(`report_command_marker` 의 "C 없이 D 미발행")을 순수 함수 추출로 해소 |
+| **H.2-4** e2e | O | 선결 C8 = `vite.config.ts` opt-in 게이트 `TAIDE_E2E_NO_HMR=1` → `server.ws: false`. 신규 스펙 21~25(탐색기 생성 이름 충돌 · 탭 rename 추종 · 터미널 재부착 · 스플릿 동일 파일 저장 · 탭 pin 가드) + 헬퍼 `explorerInlineNameInput`. **전부 미실행** |
+| **H.2-5** CI | O | `.github/workflows/ci.yml` 신설 — `push`(dev·main) + `pull_request`, `frontend`(ubuntu: install·typecheck·lint·format:check·test·typecheck:e2e) · `rust`(macOS: fmt·clippy·test, `cache-warm.yml` 캐시 키 재사용). `bunx actionlint` 통과. `docs/deployment.md` §4 를 "CI 파이프라인" 으로 상위화(§4.1 신설 / §4.2 기존 릴리스, 하위 절 번호 유지) |
+| **H.2-6** 문서 | O | `docs/memory/test-conventions.md` · `docs/tech-stack.md`(테스트 행 정정 + 하네스 절) · `quality-assurance/2026-09-04-test-gap-map.md`(§4.2 에서 통합 단계가 신설) |
+
+### 4.2 통합 단계가 직접 보완한 것
+
+에이전트별 소유 파일 경계 밖이라 비어 있던 것들이다.
+
+1. **`docs/quality-assurance/2026-09-04-test-gap-map.md` 신설**(H.2-6 미작성분) — 배치 4 전후 수치,
+   이번에 새로 열린 축(컴포넌트 렌더 0→7 · 훅 0→3 · 쿼리 계약 0→11 · capability 대칭 0→4), 남은
+   공백을 P1/P2/P3 로 나눠 정리했다. P1 에는 `.query.ts` 미커버 12종, `error-boundary.test.tsx`
+   재작성, `app/providers/*` 통합, `bun test src/widgets` 부분 실행 깨짐을 넣었다.
+2. **`docs/backlog.md` 등재**(C.2-8 미작성분) — "성능 극한 최적화에서 이월된 후보" 절 신설 12행.
+   조사가 지적한 **"감사 §1 이월분이 백로그에 없어 '이미 처리됨' 으로 오독된다"** 를 여기서 해소했다
+   (monaco 지연 · `ts.worker` · grammar 코어 선정 · shiki tokens provider 전량 재부착 + `ps` fork ·
+   `update_index` · git status 단일 비행 · `.git objects` 프루닝 · sniff 리더 승격 ·
+   `directory_has_children` 지연화 · 팔레트 가상화 재검토 조건).
+   기존 행 2개 상태 갱신: **M-10 워처 선택적 IdCache 종결**, M-2 는 "결과 캐시 구현 완료 / rename
+   방향 축소·`update_index` 잔존" 으로 분할.
+3. **`docs/quality-assurance/2026-09-04-perf-baseline.md` 보정** — 지표 4 주석(팔레트 마크 배선
+   완료로 정정) · 지표 6 주석(캐시 도입 후 `count` 는 히트까지 세므로 **평균**을 봐야 한다고 정정,
+   rustBig3 이 남긴 미결) · §4 벤치 표를 3열(구현 직후 / 웨이브 2 재측정 / 조사 시점)로 확장 ·
+   **§5.1 신설**(대형 3건 + 안전 4건의 `cargo test` 픽스처 실측 전/후) · §7 체크박스 정리.
+4. **`docs/memory/test-conventions.md` 보완** — §3 에 "목의 원본을 라이브 네임스페이스로 되돌리면
+   무한 재귀"(실제 발생·수정됨)와 `createTestQueryClient` 의 `gcTime: 0` 시드 함정, §5 에
+   **"bun + happy-dom 에서 RTL `waitFor` 는 실패가 아니라 멈춘다"**(실측 2분+, SIGTERM 필요),
+   §6 에 낡아진 JSDoc 1건(`features/tab/tab-bar-menu-items.ts:69`)을 추가했다.
+5. **`docs/ipc-contract.md:255` 심볼명 정정** — `domain::file::capability::attach_watcher` →
+   `build_watcher_handle`(C.2-6 ① 이 함수를 쪼개며 이름이 바뀌었다. 로직 동일).
+
+### 4.3 이탈 (계약과 다르게 구현한 것 — 중복 제거)
+
+| # | 이탈 | 사유 |
+|---|------|------|
+| 1 | H.2-1 devDependency **3종 → 4종** | `GlobalRegistrator` 는 `happy-dom` 본체에 없다(실물 확인). bun 공식 등록 경로이고 본체를 재사용하는 17KB 래퍼라 중복 설치 0 |
+| 2 | `render.ts` → **`render.tsx`** | JSX 프로바이더 래퍼가 필요 |
+| 3 | 하네스 preload 가 **`navigator.userAgent` 를 macOS WKWebView 로 고정**(계약에 없음) | happy-dom 이 UA 괄호부에서 `navigator.platform` 을 파생시키고 `IS_MAC` 이 수식키·macOS 전용 커맨드 카탈로그를 좌우한다. 고정하지 않으면 6개 테스트가 호스트 OS 에 따라 통과/실패 — CI 게이트가 ubuntu 프론트 job 을 전제하므로 필수 |
+| 4 | `tsconfig.json` **무변경**(계약은 "types 갱신") | `types: ["vite/client","bun"]` 그대로 `tsc --noEmit` 그린. RTL·registrator 타입은 패키지에서 해소되고 전이 `@types/node` 는 화이트리스트 밖이라 오염 없음 |
+| 5 | 기존 테스트 **2파일 수정**(`notify.test.ts` · `terminal-clipboard-availability.test.ts`) | DOM 전역이 생기며 전제가 바뀌었다. 프로덕션 무변경. 후자는 "클립보드 없는 런타임" 전제가 무효가 되어 단언을 뒤집고 **부재 분기를 own property 로 가려 재현하는 케이스를 신설**(케이스 +1) |
+| 6 | C.2-1 **`app.manage(PerfRegistry)` 미사용** → 프로세스 전역 `static` + `perf::global()` | `perf::span()` 이 자유 함수 RAII 여야 어느 커맨드에서든 시그니처 변경 없이 계측을 넣을 수 있다. `State<'_, PerfRegistry>` 로 받으면 계측 대상 8커맨드 전부의 시그니처 + `dispatch.rs` match arm 을 함께 고쳐야 한다. 선례는 `locale/service.rs` 웜업 캐시. 레지스트리 자체는 값 타입이라 단위 테스트는 전역을 안 건드린다 |
+| 7 | `PerfSnapshot` 을 **`entries[]` + `counters[]` 로 분리** | 구간 시간(count·total·max)과 누적 카운터(단일 값)는 모양이 실제로 다르다. 합치면 `unit` 판별자와 다형 `total` 이 생긴다 |
+| 8 | 와이어 수치를 `u64` 가 아니라 **`f64`** | specta-typescript 0.0.12 가 64비트 정수 export 를 정밀도 손실 이유로 금지(레지스트리 소스 확인). 이 저장소 기존 와이어 타입에도 `u64` 가 없다. 내부 누적은 `AtomicU64` 그대로 |
+| 9 | `RemoteDenialPolicy` **변형 1종 + 로케일 키 1종 신설**(1015→1016 ×3언어) | 기존 변형 재사용은 사용자에게 엉뚱한 사유 문구가 나간다 — 이 enum 의 자체 계약이 "변형 1개 = 로케일 키 1개" |
+| 10 | pty 카운터 **2슬롯**(`output_bytes`/`output_chunks`) · `command.unlisted` 슬롯 신설 | 카운터 슬롯 하나 = 단일 누적치로 고정되어 와이어 타입이 단순해진다 / 이름 표에 없는 invoke(tauri 플러그인 커맨드 등)가 조용히 사라지지 않게 |
+| 11 | 커맨드 이름 표를 `dispatch::IMPLEMENTED_JSON_COMMANDS ⊎ RAW_CHANNEL_COMMANDS` 에서 주입 | `infra::perf` 가 목록을 소유하지 않아 계층 결합 0. 이름 정본이 이미 그 표이고 파리티 테스트가 핀 고정 — **세 번째 목록을 만들지 않았다** |
+| 12 | C.2-2 게이트를 `import.meta.env.DEV \|\| perfEnabled` 가 아니라 **`nativeGate ?? isDevBuild`** | 계약 문언대로면 `TAIDE_PERF=0` 으로 띄운 dev 빌드(= 오버헤드 배제 대조 실행, `debugging.md` §4.1 이 명시한 용법)에서 프론트만 계속 켜져 대조가 오염된다 |
+| 13 | 게이트 off 시 `perfMark` 가 **완전 no-op 이 아니다**(타임스탬프만, 저빈도 7지점) | 릴리스를 `TAIDE_PERF=1` 로 켜도 **부팅 마크가 게이트 IPC 응답보다 먼저** 찍힌다 — 없으면 지표 1이 릴리스에서 영구 측정 불가. `perfCount` 와 모든 기록·발행은 off 에서 완전 no-op |
+| 14 | `app.showPerfSnapshot` 이 로케일 키 없이 `titleDefaultValue` | 로케일 3파일 + `MESSAGE_NAMESPACES` 는 Rust 에이전트 소유였고, 게이트가 켜진 창에만 뜨는 개발자 도구다. 선례 `monaco-action-commands.ts`. 키가 생기면 `formatCategorizedLabel` 이 즉시 번역을 우선한다 |
+| 15 | dev 로그를 `plugin-log` 파일이 아니라 **`console.debug`** | 파일 로그는 40KB 회전(디버깅 정본 창구)이라 계측이 잡아먹으면 안 된다. 릴리스 판독은 팔레트 스냅샷 커맨드가 담당 |
+| 15b | C.2-2 마크 지점 목록의 **"탭 전환" 미배선** | 소유가 `pane-node-view.tsx` 였고, 에디터 쪽 절반은 `file.open`(탭 활성 → monaco 준비)이 이미 덮는다. 이미 열린 탭으로 되돌아가는 전환은 §3 8지표 표의 측정 대상이 아니라고 명시했다(`perf-baseline.md` §3.1 지표 2·3). 배선하려면 이름 2개(`PERF_MARK`/`PERF_MEASURE`) 추가로 끝난다 |
+| 16 | C.2-4 M3 회수를 `file.query.ts` 가 아니라 **`tab-path-change.ts`** 에 | `file.query.ts` 가 이미 `tab-path-change` 를 import 하므로 반대 방향은 entities 내부 순환(fsd.md §2). 그 파일은 이미 `QUERY_KEY.FILE.*` 를 직접 다루는 선례 |
+| 17 | `findConflictingRow` **삭제** | 인덱스 배선 후 프로덕션 호출부 0(ai-process §6.8). 기존 7테스트는 시나리오 그대로 두고 호출만 교체 — 충돌 규칙 구현체가 1개로 유지된다 |
+| 18 | C.2-5 sniff 공유 리더를 `infra` 로 **승격하지 않음** | 두 번째 소비처(`search/service.rs`)가 소유 밖이라 소비처 1곳짜리 infra 모듈이 된다("2회 이상" 룰 위반). 백로그 등재 |
+| 19 | sniff 창 읽기가 `read()` 1회 → `take(8000).read_to_end()` | 일반 파일은 동일. 짧은 read 경로에서 예전보다 더 많은 바이트를 검사한다(= search 도메인과 같은 동작, 판정이 정확해지는 방향) |
+| 20 | `flush_dirty_layouts` 를 **쪼개지 않고** lib.rs 태스크만 `spawn_blocking` | `AppPaths` 가 `Clone` 이 아니라 분리하면 소유 밖 `paths.rs` 수정이 필요. 조사 표도 "layout::service 표면 불변" 권고 |
+| 21 | 테마 재파싱 카운터를 프로덕션 파일에 `#[cfg(test)]` 로 | 계약 §C.2-3 이 카운터 예산 테스트를 명시 요구. 테스트가 병렬로 도는 프로세스에서 호출 델타는 오염되므로 **캐시 초기화 지점**을 세는 형태를 골랐다 |
+| 22 | C.2-6 ① `attach_all` **삭제** → `build_attachments`/`commit_attachments`. trait 구현체 4파일 동반 수정 | 훅 시그니처 변경이라 모든 구현체를 함께 고쳐야 한다. `git/watch.rs::register_git_watcher` 는 미사용이 되어 `dead_code`(-D warnings) 로 빌드가 깨져 삭제 |
+| 23 | git 워처 attach 에 `.git` `is_dir` 프로브 **1회 추가** | 공개된 `build_git_watcher_handle` + `register_git_watcher_handle` 조합을 쓴 결과. `detected_kind` 직후 재확인이라 결과 동일, `.git` 이 그 사이 사라진 경우만 더 정확 |
+| 24 | C.2-6 ② **플랫폼 `cfg` 분기 없음** · 심링크 디렉토리 미하강 | cfg 로 캐시 타입을 갈면 `WatcherHandle` 이 플랫폼마다 달라져 `AppState` 필드 타입까지 갈라진다. 심링크는 notify FSEvents 가 감시 루트를 canonicalize 하므로(소스 확인) 그 엔트리가 애초에 조회 불가능한 사본이었다 |
+| 25 | C.2-6 ② perf 슬롯 대신 **`log::debug!`** | `infra/perf.rs` 가 소유 밖 + `SpanSlot` 이 컴파일 타임 닫힌 집합이라 동시 편집 충돌 위험. `ScopedIdCache::entry_counter()` 가 엔트리 수·소요 ms 를 남긴다 |
+| 26 | C.2-6 ③ **세대(generation) 축 추가**(계약은 무효화 + TTL 만) | `git_status` 는 락을 놓고 `spawn_blocking` 에서 계산하므로, 워크트리를 도는 사이 도착한 변경이 계산 종료 시 낡은 값으로 저장된다. `read` 가 세대 영수증을 주고 `finish` 가 불일치 시 결과를 버린다 |
+| 27 | `emit_refs_changed` 도 status 캐시 무효화(계약은 status 축만) | `GitStatus` 가 `branch`/`ahead`/`behind` 를 담고 `ipc-sync-provider` 가 `git:refs-changed` 에도 같은 `GIT.STATUS` 를 무효화한다. 빼면 fetch/checkout 뒤 ahead/behind 가 최대 2초 낡는다 |
+| 28 | `git_status` 가 `AppHandle` 인자를 받게 됨 + `dispatch.rs` 1줄 수정 | 지연 구독 등록용. specta 가 `AppHandle`/`State` 를 제거하므로 **TS 표면 문자 단위 불변**(`git_init` 선례), 회귀 방지로 bindings 소스 스캔 테스트 1건 추가 |
+| 29 | 무효화 훅을 파일 capability 에 심지 않고 **`GitStore` 가 `listen_any` 로 지연 구독** | 소유 밖 파일 무수정 + `project/commands.rs` 의 d-25 부팅 보정 emit(이 도메인 밖 발행)까지 자동 커버 + 미래 발행자 자동 포함. 선례 `lib.rs` `fanout_remote_events!` |
+| 30 | **C.2-7 팔레트 결과 가상화 미적용** (계약이 허용한 폴백) | cmdk 1.1.1 실물 4근거: README 가 미지원 명시(권장 2~3천, 우리 상한 200 은 1/10) · 방향키가 `querySelectorAll('[cmdk-item]')` 기반 · 항목 언마운트 시 `selectFirstItem()` 로 선택이 튄다 · `CommandEmpty` 의 `filtered.count` 가 마운트 수라 "결과 없음" 이 깜빡인다. 우회는 팔레트가 선택 이동·aria-activedescendant·Enter·스크롤 동기를 재구현하는 일 |
+| 31 | `features/git/git-change-group.tsx` 가 **컴포넌트를 export 하지 않는다**(설정 빌더로) | 3그룹을 하나의 가상 목록으로 합치면 각 그룹이 자기 DOM 서브트리를 가질 수 없다. 파일명·경로는 유지해 소유 밖 import 는 그대로 |
+| 32 | 로빙 정본 교체: `GIT_SECTION_ROVING_SELECTOR` 삭제 → `data-git-roving-index` | 가상 목록은 뷰포트 밖 행이 DOM 에 없어 문서 순서 = 항목 순서가 더 이상 성립하지 않는다. e2e 가 쓰는 `data-git-change-row`·`data-git-section-header` 는 유지 |
+| 33 | **동작 1건 변화** — 항목 *내부 컨트롤*(hover 액션 버튼 등)에 포커스가 있을 때 ↑↓ 미처리 | 이전에는 셀렉터가 조상을 못 찾아 activeIndex 가 -1 이 되어 포커스가 목록 맨 위로 튀었다(의도된 동작이 아닌 부작용). 헤더·행 자체의 계약은 불변 |
+| 34 | sticky 헤더를 **`rangeExtractor` 강제 포함 + 흐름 배치**로(계약 문언에 없음) | 가상 행은 절대배치라 내부 `sticky` 가 24px 상자를 못 벗어난다. 없으면 §E 가 확정한 sticky 계약과 e2e 19 단언이 깨진다. 활성 판정은 ref 변이 대신 `rowVirtualizer.range.startIndex` 로 재계산해 rangeExtractor 와 구조적으로 일치 |
+| 35 | 아웃라인 행이 **개별 tab stop 이 아니게** 됨(컨테이너 로빙) · chevron 은 `aria-hidden` | 가상화로 화면 밖 행이 DOM 에서 사라지므로 행별 tab stop 은 유지 불가(file-tree 와 같은 모델). chevron 에 접근 가능한 이름을 주려면 신규 로케일 키가 필요한데 로케일이 소유 밖이라, 같은 동작을 →/← 로 제공하고 포인터 보조 수단은 접근성 트리에서 감췄다 |
+| 36 | `use-monaco-markers.ts` 의 monaco 접근을 **전부 지연(call-time)** 으로 | 모듈 최상단에서 `MarkerSeverity` 를 읽으면, `ide-sync-provider.test.ts` 의 monaco 스텁에 그 export 가 없어 **모듈 평가 자체가 TypeError** 로 죽는다(`mock.module` 프로세스 전역 — H.1 이 기록한 누수). 12건이 실제로 깨졌다 |
+| 37 | MutationObserver delta 처리에서 **"제거 먼저, 추가 나중"** | 키 재정렬(dnd-kit·React reorder)은 같은 노드를 remove+add 로 보고한다. 추가를 먼저 처리하면 그 행이 영구 미관찰로 남는다. 회귀 테스트 1건으로 고정 |
+| 38 | `problems-panel-container.tsx` **무변경** | 이 컴포넌트는 2단 셀렉터의 "전량 티어" 정당한 소비자이고, 카운트를 그룹핑과 같은 1패스에서 이미 만든다 — 카운트 티어를 쓰면 코드가 늘어난다 |
+| 39 | H.2-3 이 프로덕션 **최소 리팩터 2건** 수행(테스트 가능성 확보) | `report_command_marker` → 순수 `take_timed_command`(`Instant::now()` 를 인자로), `restore_auxiliary_windows` → 순수 2함수(락 순서 유지를 위해 둘로 분리). §3.7 미작성 2번 해소가 목적 |
+| 40 | H.2-4 C8 을 **`vite.config.ts` opt-in 환경변수 게이트**로 | `proxy_dev` 가 원본 요청 헤더를 하나도 전달하지 않아 dev 서버가 원격 페이지와 데스크톱 웹뷰를 구분할 수 없다. 원격만 끄려면 `serving.rs`(Rust·소유 밖) 수정 또는 `/@vite/client` 가짜 대체(= 우회)가 필요. **대가**: 그 세션은 데스크톱 창까지 HMR 상실 |
+| 41 | H.2-5 `docs/tech-stack.md` **무변경**(계약은 "필요 시") | grep 결과 CI 항목 자체가 없어 새 절을 만들어야 하는데 minimal diff 를 넘고, 하네스 에이전트가 같은 파일을 동시 수정 중이었다. CI 정본은 `deployment.md` §4.1 로 일원화 |
+| 42 | **규칙 위반 보고** — H.2-2 가 자기 신규 테스트 파일 일부에 `sed -i` 기계 치환 사용 | 계약 §0 위반. 대상은 전부 그 에이전트가 방금 만든 테스트 파일이고 프로덕션 코드에는 쓰지 않았다. 같은 세션에 주입된 auto-mode 지시("Bash 의 sed·heredoc 으로 고쳐라")는 계약 §0 이 우선한다는 판단으로 따르지 않았다 |
+| 43 | in-body `//` 주석 3곳(`lib.rs` 2 · `terminal/commands.rs` 1) | 전부 "여기에 span 을 넣으면 안 되는 이유" 이고 doc comment 를 붙일 위치가 없는 클로저·조립 코드다. 같은 파일의 기존 선례(`lsp/commands.rs:562-565`, `lib.rs` 플러그인 체인 — 둘 다 HEAD 에 존재)를 따랐다. 설명 본문은 `architecture.md` §2.2·`debugging.md` §4.1 |
+
+### 4.4 미결 (사용자·후속 결정)
+
+**실기 확인이 필요한 것 (앱 기동 — 사용자 몫)**
+
+1. **8지표 실측** — `docs/quality-assurance/2026-09-04-perf-baseline.md` §2 절차대로. 이 배치가
+   자동으로 잠근 것은 계측 동작과 **연산 횟수**뿐이고, 밀리초는 전부 빈칸이다. 수치를 적기 전에는
+   어떤 성능 주장도 하지 않는다.
+2. **e2e 25스펙 1회 완주** — 17~25 전부 미실행. `TAIDE_E2E_NO_HMR=1 bun run tauri dev` + REMOTE
+   준비 후 `bun run e2e`. C8 해소 실측(스위트 후반 열화 여부)도 이때 나온다. 첫 실행에서 가장 먼저
+   의심할 곳 3곳은 하네스 문서 §7.1 에 적어 두었다.
+3. **대형 3건 실기 재확인** — `project_open` 중 다른 커맨드가 안 막히는지 · 워처 attach 후 RSS ·
+   외부 CLI 로 워크트리를 바꿨을 때 git status 가 2초 안에 수렴하는지.
+
+**결정이 필요한 것**
+
+4. **C8 방식 확정** — 현재는 데스크톱 창까지 HMR 을 끄는 opt-in 게이트다. 데스크톱 HMR 을 살리려면
+   `serving.rs::proxy_dev` 가 원격 요청에 마커(헤더·쿼리)를 붙이고 Vite 플러그인이 그 요청에만
+   HMR 클라이언트를 끄는 방식이 필요하다(Rust 소유자 작업).
+5. **`app.showPerfSnapshot` 로케일 키**(ko/en/ja + `MESSAGE_NAMESPACES`)를 추가할지 — 지금은 영문
+   `titleDefaultValue`.
+6. **`ide-sync-provider` 의 전량 마커 티어 게이팅** — H2 의 남은 절반. 백로그 등재 완료, 소유자 배정 필요.
+7. **`git_status` 단일 비행** — 캐시는 직렬 조회만 합친다. 창 N개가 같은 이벤트로 **동시** 조회하면
+   N회 계산이 남는다. 계약이 "무효화 + 2초 TTL" 로 범위를 확정해 넘지 않았다.
+8. **`bun` 버전 핀** — 로컬 1.4.0 인데 워크플로 3개가 전부 1.3.14 다. 지금 lockfile 변경은 순수
+   추가라 안전하나, bun 1.4 전용 필드가 생기면 세 워크플로가 동시에 깨진다.
+8-1. **CI 액션 핀 고정 정책** (§4.7 F3) — `ci.yml`·`release.yml`·`cache-warm.yml` 의 `uses:` 21개가
+    전부 태그·브랜치 핀이다(`dtolnay/rust-toolchain@stable` 은 태그도 아닌 브랜치). 공급망 관점에서는
+    커밋 SHA 핀이 정석이나, 세 워크플로를 함께 바꿔야 의미가 있고 SHA 는 조회가 필요하다. 유지 / 전역
+    SHA 전환 중 택일.
+8-2. **코드 내 근거 서술 관행** (§4.7 F1·F4) — 비-export 지역 심볼 위 JSDoc(TS)·본문 `//`(Rust)로
+    설계 근거를 남기는 관행이 HEAD 시점부터 광범위하다. comments.md §2.1 문언과는 어긋난다. (a)
+    `docs/acknowledge` 에 예외로 명문화 / (b) 레포 전역 제거 + `docs/` 이관 중 택일.
+
+9. **아웃라인 접힘을 파일 간 유지할지** — 지금은 `key={activePath}` 로 파일이 바뀌면 초기화된다.
+10. **Graph 섹션 통합** — 여전히 자체 가상화기 + 320px 내부 뷰포트를 갖는다(커밋 상세 패널의 가변
+    높이 때문에 이번 범위 제외).
+
+**잠재 결함으로 보이나 동작 불변 원칙상 손대지 않은 것**
+
+11. `stillOpenElsewhere`(모델 폐기·openWith 해제)는 여전히 **file 탭만** 본다. 같은 경로를
+    diff/claudeDiff 탭이 보고 있는데 file 탭만 닫히면 그 탭들의 monaco 모델이 폐기된다(HEAD 에서도
+    동일). 이번엔 **회수 게이트만** 엄격하게 했다.
+12. `domain/vsix/service.rs::strip_trailing_commas` 는 정규식이라 **문자열 리터럴을 모른다** — 값
+    안에 `,]`·`,}` 가 있으면 쉼표가 지워진다. 같은 파일의 `strip_json_comments` 는 문자열을 인지하는
+    수동 스캐너라 비대칭이다.
+13. `domain/tree/service.rs::restore_expanded` 는 복원 경로가 프로젝트 루트 안인지 검증하지 않는다
+    (`flatten` 이 루트에서만 걸어 화면에는 안 드러난다).
+14. §3.7 미작성 3번(`resolveSplitTerminalCwd` 의 `liveCwd === ''`)은 **여전히 미결**이다.
+15. `bun test src/widgets` 부분 실행이 14건 실패한다 — `use-editor-lsp-integration.test.ts` 의
+    `project.ipc` 목이 부분 표면이라서다. 전체 실행은 그린이라 가려져 있다. 같은 클래스의 파일이 더
+    있을 수 있어 전수 점검을 test-gap-map §3.3 에 체크 항목으로 두었다.
+16. monaco·xterm 을 하네스에서 실제로 마운트할 수 있는지 **미검증**. 현재는 `mock.module` 유지.
+
+### 4.5 검증 실측 (통합 단계, 전 항목 그린)
+
+| 명령 | 결과 |
+|------|------|
+| `bun run typecheck` | **exit 0** — 오류 0 |
+| `bun run lint` | **0 errors / 11 warnings** — 웨이브 1 기준선 9건 + TanStack Virtual `incompatible-library` 2건(`outline-panel.tsx`·`git-panel.tsx` 신규 가상화). 기존 4건과 같은 종류이고 `useVirtualizer` 도입의 구조적 산물이다 |
+| `bun run format:check` | **통과** — "All matched files use Prettier code style!" |
+| `bun test` | **2287 pass / 0 fail / 4693 expect, 231 파일, 6.38s** (웨이브 1 종료 2008 pass / 203 파일 → **순증 279 / +28 파일**) |
+| `cargo fmt --all --check` | **통과** |
+| `cargo clippy --workspace --all-targets -- -D warnings` | **경고 0** |
+| `cargo test --workspace` | lib **1434 pass / 0 fail**(웨이브 1 종료 1288 → **순증 146**), 통합 `capability_symmetry` 4 · `domain_boundaries` 3 · `session_restore` 6, cli 17, doc-test 0 |
+| `TAIDE_PERF=1 cargo test --workspace` | **동일 결과**(lib 1434 pass) — 게이트를 켜도 테스트 결과가 바뀌지 않는다(레지스트리 테스트가 자기 인스턴스를 쓴다는 설계의 확인) |
+| `bunx vite build` | **exit 0** — 청크 경고는 기존(monaco·pdf) |
+| `bun run typecheck:e2e` | **exit 0** |
+| `bun run bench` | 6케이스 실행 — §4.6 |
+
+`cargo test` 의 bindings 재생성 후에도 `git status --short` 항목 수가 늘지 않았다(127 → 127).
+
+### 4.6 표면·수치 요약
+
+**IPC 표면** — 커맨드 183 → **185**(+2: `perf_snapshot`·`perf_reset`, 둘 다 `REMOTE_DENIED`).
+raw 채널 3종 포함 총 **188** = `REMOTE_ALLOWED` **160**(불변) ⊎ `REMOTE_DENIED` 26 → **28**.
+완전분할 테스트 통과. 이벤트 **24종 불변**. 로케일 `{ko,en,ja}.json` 각 1015 → **1016키**(3언어 일치).
+
+**테스트** — `bun test` 2008 → **2287**(+279, 파일 203 → 231) · `cargo test` lib 1288 → **1434**(+146,
+통합 9 → 13) · e2e 20 → **25스펙**(전부 미실행).
+
+**벤치**(`bun run bench`, Apple Silicon dev · bun 1.4.0 — 기기 간 비교 금지)
+
+| 케이스 | 조사 시점 | 지금 |
+|--------|----------|------|
+| `fuzzyFilter` 5,000 | 3.96 ms | **0.642 ms** |
+| `fuzzyFilter` 20,000 | 12.68 ms | **2.295 ms** |
+| `fuzzyFilter` 50,000 | **31.23 ms** | **5.560 ms** (5.6배) |
+| 키바인딩 충돌 인덱스 + 223조회 | 0.41 ms ×2/render | **0.074 ms** |
+| `findMatchingKeymapEntry`(23엔트리) | 0.002 ms | 0.007 ms (기각축, 잡음 범위) |
+| `appendSearchFileMatches`(2,000×5) | 0.33 ms | 0.546 ms (기각축, 코퍼스 상이) |
+
+**Rust 실측**(`cargo test` 픽스처 · debug 프로파일 — 전/후 비교만 유효, 전체 표는
+`quality-assurance/2026-09-04-perf-baseline.md` §5.1)
+
+| 항목 | 전 | 후 |
+|------|-----|-----|
+| `list_themes`(20회 평균) | 13.443 ms | **0.744 ms** (약 18배) |
+| `read_children` 타입 판정(2,000엔트리) | 2.685 ms | **1.233 ms** (−54%) |
+| `file_open` 읽기(2.29MB) | 150.185 µs | **108.033 µs** (−28%) |
+| 워처 인덱싱 엔트리(이 저장소) | 557,474 | **1,461** (382배) |
+| 워처 stat 워크 / 메모리 | 3.79 s / ~105 MB | **0.01 s / ~0.2 MB** |
+| `git_status` 캐시 히트(release, 98행 dirty) | 웜 계산 8.48 ms | **20.3 µs** (약 417배) |
+| `project_open` 가드 보유 구간 | open IO + attach 전량(워처 walk 포함) | **등록 절반만**(맵 insert 3회) |
+
+**구조 수치** — 계측 슬롯: 구간 12 · 카운터 4 + 커맨드별 동적 185(호출된 것만 노출). 게이트 off 시
+계측 지점당 relaxed `AtomicBool::load` **1회**(`Instant::now()` 도, 원자적 쓰기도 없음). 하네스
+번들 영향 **0 실측**(`dist/assets` 에서 `testing-library`·`happy-dom` 문자열 0건). happy-dom
+레이아웃 실측: `getBoundingClientRect()` width/height = **0**(시각 회귀는 e2e 전용).
+
+---
+
+### 4.7 리뷰 수정 (웨이브 2 코드 리뷰 반영)
+
+웨이브 2 diff 리뷰에서 확증된 major 3건 중 **동작 결함 2건을 전건 수정**하고 컨벤션 1건은 기각했다.
+minor 7건 중 5건을 수정, 1건 보류, 1건 기각했다. info 4건은 미수정이다. 성능 수정의 절대 원칙(기존
+기능 완전 보존)에 따라 정상 경로의 동작은 어느 항목에서도 바뀌지 않는다 — 고친 것은 **실패 경로**와
+**키보드 스크롤 정렬**뿐이다.
+
+| id | 등급 | 처리 | 사유·내용 |
+|----|------|------|-----------|
+| **rust-1** `project_open` 의 attach join 실패 무시 | major | **수정** | 아래 상세 (1) |
+| **git-panel-sticky-header-occludes-scrollToIndex-row** | major | **수정** | 아래 상세 (2) |
+| **F1** 비-export 지역 코드의 JSDoc 근거 서술 | major | **기각** | 아래 상세 (3) |
+| **rust-2** capability 대칭 테스트가 소스 스캔뿐 | minor | 수정(문서) | `capability_symmetry.rs` 의 대칭 테스트 doc 에 "검증하는 것은 *존재*이지 *동일성*이 아니다"를 명시했다(build 가 `state.foo` 를 쓰고 detach 가 `state.bar` 를 지워도 통과). 실행 검증은 mock-app 하네스가 없어 불가하므로, §6.3 반환표가 필드 짝의 정본이라는 점을 함께 적었다 |
+| **F1(테스트)** `test-gap-map` §3.1 "9건" | minor | 수정(문서) | 실측 재현 결과 **14건**이다(`use-editor-lsp-integration.test.ts` 4 + `use-lsp-session.test.ts` 5 + `pane-node-view-welcome.test.tsx` 5). 뒤 두 파일은 `project.ipc` 를 목하지 않는데도 프로세스 전역 `mock.module` 의 도미노 피해자라는 사실을 표와 체크리스트에 반영했다(§4.4 미결 15번의 14건과 일치) |
+| **F2(테스트)** `test-gap-map` §3.3 "`spyOn` 사용처 0" | minor | 수정(문서) | 같은 웨이브의 `shared/lib/perf-mark.test.ts` 가 `spyOn(console, 'info'/'table')` 를 실사용한다. "실사용 1곳"으로 정정하고, 그 스파이는 테스트 본문에서 세워 뒤 파일로 새지 않는다(전체 실행 2287 그린)는 점, 남은 부채는 `beforeAll` 스파이 복원이라는 점을 남겼다 |
+| **F3(테스트)** `test-conventions` §5 `waitFor` 절대 금지 | minor | 수정(문서) | 같은 웨이브 3파일이 12곳에서 `waitFor` 를 쓴다. 현재 고정 버전(bun 1.4.0 · happy-dom 20.14.0 · `@testing-library/dom` 10.4.1)에서 **멈춤이 재현되지 않음을 직접 실측**했다(스크래치 테스트 `{timeout:1000}` → 1005ms 만에 정상 실패). 규약을 "DOM 변화 대기는 마이크로태스크 플러시로 대체"로 좁히고, 비-DOM 조건을 기다리는 3파일을 예외로 명시했다(3파일 합산 894ms 그린). 코드는 그대로 둔다 — 재현되지 않는 위험을 근거로 12곳을 다시 쓰는 편이 회귀 위험이 크다 |
+| **F2(컨벤션)** `outline-panel.tsx` 훅 순서 | minor | 수정 | `const { t } = useTranslation()` 을 `return` 바로 위(그룹 4)로 내렸다. `t` 는 JSX 에서만 쓰여 frontend.md §3.2 의 예외("다른 로직의 입력으로 즉시 필요한 값")에 해당하지 않는다. 이 위반은 웨이브 2 가 그 줄 위·아래로 ref/state/로직을 끼워 넣으면서 생겼다(이전에는 본문 첫 줄) |
+| **F3(컨벤션)** CI 액션 SHA 핀 고정 | minor | **보류** | `ci.yml` 만 SHA 로 바꾸면 `release.yml`(서명·배포까지 하는, 위험이 더 큰 워크플로)·`cache-warm.yml` 의 태그 핀과 어긋난다 — 세 파일 21개 `uses:` 전부가 태그·브랜치 핀인 레포 전역 관행이다. SHA 는 네트워크 조회 없이 검증할 수 없어 임의 값을 넣을 수도 없다. **레포 전역 후속 작업**으로 사용자 결정에 올린다(§4.4 로 승계) |
+| **F4(컨벤션)** Rust 본문 `//` 주석 3곳 | minor | **기각** | 아래 상세 (3) 과 같은 사유 — 본문 내 `//` 는 HEAD 시점에 이미 10파일(`lib.rs` 만 22곳)에 존재하는 레포 관행이고, 이 3곳은 §4.3-43 이 이탈로 자진 신고해 근거를 `architecture.md` §2.2 · `debugging.md` §4.1 에 이중화해 둔 상태다 |
+| rust-3 `flush_dirty_layouts` 선점 레이스 | info | 미수정 | 이번 diff 이전부터 있던 것(함수 본문·동기 호출부 무변경) |
+| F4 `strip_comment_lines` 가 블록 주석 미제거 | info | 미수정 | 이 레포 Rust 는 블록 주석을 쓰지 않는다 |
+| F5 `report_command_marker` 의 `duration_ms` 시점 | info | 미수정 | 락 획득 전으로 당겨진 것이 오히려 계측 정확도에 유리 |
+| F6 `rust-cache` 가 dev push 에서도 저장 | info | 미수정 | 참고만 |
+
+**(1) `project_open` 의 attach 실패가 "열기 성공"으로 보고되던 문제 — `domain/project/commands.rs`**
+
+웨이브 2 가 attach 를 build(`spawn_blocking`, 가드 밖) / commit(가드 안) 2단으로 쪼개면서, build 단계의
+패닉이 `JoinError` 로 돌아오는 실패 경로가 새로 생겼다. `attach_project_capabilities` 의 반환이 `()`
+라 호출부가 그것을 알 수 없었고, `project_open` 은 이미 `state.projects`/`state.session` 에 프로젝트를
+써 둔 뒤였으므로 **capability 8종 중 하나도 붙지 않은 채** `ProjectOpened`/`ProjectActivated` 를 내고
+`Ok` 를 반환했다. `state.layouts` 에 항목을 넣는 유일한 경로가 `LayoutCapability` 라, 그 상태에서
+FE 의 `layout_get` 은 `NotFound` 를 받고 사용자는 그 프로젝트를 닫았다 열기 전까지 복구할 수 없다.
+
+- 반환 타입을 `AppResult<()>` 로 바꿔 `JoinError` 를 `AppError::Internal` 로 보고한다. build 중
+  프로젝트가 닫힌 경우(설계된 결과 — attachment 를 버린다)는 그대로 `Ok`.
+- `project_open` 은 실패 시 **`project_close` 로 반쯤 열린 프로젝트를 되돌린 뒤**(실제 close 와 같은
+  반환 walk — `architecture.md` §6.3) 에러를 반환한다. `ProjectOpened` 는 방출되지 않는다.
+- 정상 경로는 완전 불변이다(성공 시 분기·이벤트·반환 모두 이전과 동일).
+- 회귀 방어: 소스 스캔 테스트 `attach_실패는_열기_실패로_보고되고_프로젝트를_되돌린다` 신설 — ①
+  `JoinError` 팔이 `return Err(AppError::Internal(` 인지 ② `project_close` 로 되돌리는지 ③ 그것이
+  `ProjectOpened` 방출보다 앞서는지. 기존 후절화 스캔 테스트의 시그니처 마커는 상수
+  `ATTACH_SIGNATURE` 로 뽑아 두 테스트가 공유한다.
+
+**(2) SCM 목록 ArrowUp 이 sticky 헤더 밑으로 포커스를 밀어 넣던 문제 — `widgets/git-panel/git-panel.tsx`**
+
+`scrollToIndex` 의 `'auto'` 정렬은 위쪽 행을 **뷰포트 top 에 정확히** 붙인다(virtual-core 3.17.7
+`getOffsetForIndex`, `scrollPaddingStart` 기본 0). 그 자리는 sticky 섹션 헤더가 고정된 24px 이고,
+헤더는 `z-10` + 불투명 배경이라 방금 포커스된 행이 화면에서 완전히 사라진다(DOM 포커스는 이동하므로
+키보드 사용자만 "포커스가 어디 있는지 안 보이는" 상태가 된다). `useVirtualizer` 에
+`scrollPaddingStart: GIT_CHANGE_ROW_HEIGHT_PX` 를 더해 헤더 한 줄만큼 아래에 정렬시킨다. 같은 값이
+`align:'auto'` 판정에도 쓰여, 이미 헤더에 반쯤 가려 있던 행도 스크롤 대상이 된다. ArrowDown 은
+`'end'` 정렬이라 영향이 없다(`scrollPaddingEnd` 는 0 유지).
+
+**(3) 컨벤션 2건(F1 major · F4 minor)을 기각한 사유 — 레포 전역 선행 관행**
+
+두 지적 모두 "코드에 설명을 남기지 말라"(comments.md §1·§2.1)는 문언에는 정확히 해당한다. 그러나
+지적된 형태는 **이번 웨이브가 만든 것이 아니라 이 저장소의 확립된 관행**이다.
+
+- TS/TSX: HEAD 시점에 이미 비-export 지역 심볼·bare statement 위의 JSDoc 근거 서술이 광범위하다 —
+  `app/providers/theme-provider.tsx`·`ipc-sync-provider.tsx`(`useTauriEvent(...)` 호출 위)·
+  `features/editor/code-editor.tsx`·`ai-inline-edit.ts`·`entities/lsp/lsp-session-registry.ts` 등.
+  배치 3 계약(§ 여러 곳)도 "설계 근거는 영어 JSDoc 으로 남겼습니다"를 반복 기록한다.
+- Rust: 본문 내 `//` 는 HEAD 에 10파일(`lib.rs` 22곳 포함) 존재한다.
+- 따라서 이번 diff 의 6곳만 지우면 **같은 코드베이스 안에서 두 규칙이 공존**하게 되고, 근거 서술이
+  코드에서 사라지는 대신 최소 변경 원칙(ai-process §6.8)도 깨진다. 리뷰 범위 밖의 레포 전역 정리
+  작업이므로 **사용자 결정 사항으로 올린다**: (a) 관행을 인정하고 `docs/acknowledge` 에 예외로 명문화,
+  (b) 레포 전역 일괄 제거 + 근거를 `docs/` 로 이관. 어느 쪽이든 이번 배치 단독으로 정할 일이 아니다.
+
+**검증(리뷰 수정 후 재실행, 전 항목 그린)** — `bun run verify` exit 0(typecheck · eslint ·
+prettier --check · `bun test` **2287 pass / 0 fail**, 231파일 · `cargo fmt --check` · `clippy -D
+warnings` · `cargo test` lib **1435 pass**(+1, 신설 스캔 테스트) · 통합 13) · `bunx vite build` exit 0 ·
+`bun run typecheck:e2e` exit 0.
