@@ -1,7 +1,10 @@
 import { keepPreviousData, queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { DiffMode, OpenedFile, ProjectId } from '@shared/api/bindings'
+import type { DiffMode, GitStatus, OpenedFile, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { i18next } from '@shared/i18n/i18n'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
+import { notifyNative } from '@entities/notification/notify'
 import {
     applyGitStash,
     checkoutGitBranch,
@@ -164,15 +167,55 @@ export const isGitQueryScopeMutable = (queryKey: readonly unknown[]) =>
  * predicate to {@link isGitQueryScopeMutable} keeps the coarse `['git', projectId, ...]`-prefix
  * invalidation everything else relies on.
  */
-const useGitMutation = <TVariables, TResult>(projectId: ProjectId | null, mutationFn: (variables: TVariables) => Promise<TResult>) => {
+const useGitMutation = <TVariables, TResult>(
+    projectId: ProjectId | null,
+    mutationFn: (variables: TVariables) => Promise<TResult>,
+    callbacks: { onSuccess?: () => void; onError?: (error: Error) => void } = {},
+) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn,
-        onSuccess: () =>
-            queryClient.invalidateQueries({
+        onSuccess: () => {
+            callbacks.onSuccess?.()
+            return queryClient.invalidateQueries({
                 queryKey: QUERY_KEY.GIT.PROJECT(projectId ?? ''),
                 predicate: (query) => isGitQueryScopeMutable(query.queryKey),
+            })
+        },
+        onError: callbacks.onError,
+    })
+}
+
+const GIT_REMOTE_NOTIFICATION_TITLE_KEY = {
+    push: { succeeded: 'notification.gitPushSucceeded', failed: 'notification.gitPushFailed' },
+    pull: { succeeded: 'notification.gitPullSucceeded', failed: 'notification.gitPullFailed' },
+} as const
+
+/**
+ * Push and pull are the two git operations that routinely outlive the user's attention (a large
+ * push over a slow link, a pull that has to fetch a year of history), which is why they are the
+ * only git mutations wired to the OS notification channel — everything else on this panel settles
+ * in the time it takes to let go of the mouse. "Sync" needs no separate wiring: it is a `pull`
+ * followed by a `push` (`git-panel-container.tsx`), so it reports through these same two hooks.
+ *
+ * Text is built here rather than at the call site because the notification must be identical
+ * whichever button started the operation, and `i18next.t` is read directly for the same reason
+ * `ipc-error-message.ts` does — this is a hook body, not a component, and the string is consumed
+ * by the OS rather than rendered. The branch name comes from the already-cached status rather
+ * than a fetch of its own: it is only a subtitle, and an empty one is better than an IPC round
+ * trip on a path the user has already walked away from.
+ */
+const useGitRemoteMutation = (projectId: ProjectId | null, mutationFn: typeof pushGit, operation: 'push' | 'pull') => {
+    const queryClient = useQueryClient()
+    const titleKey = GIT_REMOTE_NOTIFICATION_TITLE_KEY[operation]
+    return useGitMutation(projectId, mutationFn, {
+        onSuccess: () =>
+            void notifyNative({
+                category: 'gitRemote',
+                title: i18next.t(titleKey.succeeded),
+                body: queryClient.getQueryData<GitStatus>(QUERY_KEY.GIT.STATUS(projectId ?? ''))?.branch ?? '',
             }),
+        onError: (error) => void notifyNative({ category: 'error', title: i18next.t(titleKey.failed), body: describeIpcError(error) }),
     })
 }
 
@@ -186,9 +229,9 @@ export const useDiscardGitPaths = (projectId: ProjectId | null) => useGitMutatio
 
 export const useCommitGit = (projectId: ProjectId | null) => useGitMutation(projectId, commitGit)
 
-export const usePushGit = (projectId: ProjectId | null) => useGitMutation(projectId, pushGit)
+export const usePushGit = (projectId: ProjectId | null) => useGitRemoteMutation(projectId, pushGit, 'push')
 
-export const usePullGit = (projectId: ProjectId | null) => useGitMutation(projectId, pullGit)
+export const usePullGit = (projectId: ProjectId | null) => useGitRemoteMutation(projectId, pullGit, 'pull')
 
 export const gitBranchesQueryOptions = (projectId: ProjectId | null) =>
     queryOptions({

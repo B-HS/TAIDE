@@ -18,6 +18,7 @@ import { SettingsInterfaceSection } from '@widgets/settings-view/settings-interf
 import { SettingsKeymapSection } from '@widgets/settings-view/settings-keymap-section'
 import { SettingsLanguageSection } from '@widgets/settings-view/settings-language-section'
 import { SettingsLspSection } from '@widgets/settings-view/settings-lsp-section'
+import { SettingsNotificationSection } from '@widgets/settings-view/settings-notification-section'
 import { SettingsPluginsSection } from '@widgets/settings-view/settings-plugins-section'
 import { SettingsRemoteSection } from '@widgets/settings-view/settings-remote-section'
 import { SettingsSnippetsSection } from '@widgets/settings-view/settings-snippets-section'
@@ -57,6 +58,7 @@ const SETTINGS_SECTION_ID = {
     APPEARANCE: 'settings-section-appearance',
     LANGUAGE: 'settings-section-language',
     INTERFACE: 'settings-section-interface',
+    NOTIFICATIONS: 'settings-section-notifications',
     EDITOR: 'settings-section-editor',
     SNIPPETS: 'settings-section-snippets',
     TERMINAL: 'settings-section-terminal',
@@ -72,6 +74,7 @@ const SETTINGS_TOC_ITEMS = [
     { id: SETTINGS_SECTION_ID.APPEARANCE, labelKey: 'settings.appearance' },
     { id: SETTINGS_SECTION_ID.LANGUAGE, labelKey: 'settings.language' },
     { id: SETTINGS_SECTION_ID.INTERFACE, labelKey: 'settings.interface' },
+    { id: SETTINGS_SECTION_ID.NOTIFICATIONS, labelKey: 'settings.notifications' },
     { id: SETTINGS_SECTION_ID.EDITOR, labelKey: 'settings.editor' },
     { id: SETTINGS_SECTION_ID.SNIPPETS, labelKey: 'settings.snippetsSectionTitle' },
     { id: SETTINGS_SECTION_ID.TERMINAL, labelKey: 'settings.terminal' },
@@ -188,6 +191,8 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                         />
 
                         <SettingsInterfaceSection id={SETTINGS_SECTION_ID.INTERFACE} settings={settings} updateSettings={updateSettings} />
+
+                        <SettingsNotificationSection id={SETTINGS_SECTION_ID.NOTIFICATIONS} settings={settings} updateSettings={updateSettings} />
 
                         <SettingsEditorSection id={SETTINGS_SECTION_ID.EDITOR} settings={settings} updateSettings={updateSettings} />
 

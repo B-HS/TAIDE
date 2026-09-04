@@ -23,12 +23,14 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "project_close",
     "project_activate",
     "project_reorder",
+    "project_set_display",
     "layout_get",
     "layout_open_tab",
     "layout_close_tab",
     "layout_activate_tab",
     "layout_move_tab",
     "layout_split",
+    "layout_open_tab_in_split",
     "layout_resize",
     "layout_focus_pane",
     "layout_pin_tab",
@@ -193,6 +195,8 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "window_set_fullscreen",
     "app_file_read",
     "app_file_write",
+    "notification_notify",
+    "notification_open_system_settings",
 ];
 
 fn err(error: AppError) -> Value {
@@ -254,7 +258,10 @@ enum RemoteDenialPolicy {
     /// `system_open_external_url` (the desktop's OS-default browser via
     /// `tauri_plugin_opener::open_url`), and `system_open_path`/`system_reveal_path`/
     /// `system_open_in_browser`/`system_open_app_data_path` (same `tauri_plugin_opener` family — default
-    /// app opener, Finder/Explorer reveal, `file://` browser open). A remote browser session has no way
+    /// app opener, Finder/Explorer reveal, `file://` browser open), and
+    /// `notification_notify`/`notification_open_system_settings` (a banner in the desktop machine's own
+    /// notification center, and System Settings itself — the second is the same `tauri_plugin_opener`
+    /// family as the four above). A remote browser session has no way
     /// to see or use a window the desktop pops up on its own screen, so honoring any of these would only
     /// ever open an unwanted, unreachable window on the desktop user's machine.
     UnreachableDesktopWindow,
@@ -517,6 +524,8 @@ const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
     ("system_open_in_browser", RemoteDenialPolicy::UnreachableDesktopWindow),
     ("system_open_app_data_path", RemoteDenialPolicy::UnreachableDesktopWindow),
     ("system_open_external_url", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("notification_notify", RemoteDenialPolicy::UnreachableDesktopWindow),
+    ("notification_open_system_settings", RemoteDenialPolicy::UnreachableDesktopWindow),
     ("vsix_extract_themes", RemoteDenialPolicy::LocalFilesystemEscape),
     ("vsix_import_plugin", RemoteDenialPolicy::LocalFilesystemEscape),
     ("remote_issue_link", RemoteDenialPolicy::SelfAccessExpansion),
@@ -566,12 +575,14 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "project_close",
     "project_activate",
     "project_reorder",
+    "project_set_display",
     "layout_get",
     "layout_open_tab",
     "layout_close_tab",
     "layout_activate_tab",
     "layout_move_tab",
     "layout_split",
+    "layout_open_tab_in_split",
     "layout_resize",
     "layout_focus_pane",
     "layout_pin_tab",
@@ -833,6 +844,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "project_close" => respond(project::project_close(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_activate" => respond(project::project_activate(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_reorder" => respond(project::project_reorder(app.clone(), app.state(), arg!(args, "ids")).await),
+        "project_set_display" => {
+            respond(project::project_set_display(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
+        }
 
         "layout_get" => respond(layout::layout_get(app.state(), arg!(args, "projectId")).await),
         "layout_open_tab" => respond(
@@ -869,6 +883,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
+        "layout_open_tab_in_split" => respond(layout::layout_open_tab_in_split(app.clone(), app.state(), arg!(args, "request")).await),
         "layout_resize" => respond(layout::layout_resize(app.clone(), app.state(), arg!(args, "paneId"), arg!(args, "sizes")).await),
         "layout_focus_pane" => respond(layout::layout_focus_pane(app.clone(), app.state(), arg!(args, "paneId")).await),
         "layout_pin_tab" => respond(layout::layout_pin_tab(app.clone(), app.state(), arg!(args, "tabId"), arg!(args, "pinned")).await),
@@ -1585,6 +1600,14 @@ mod tests {
     fn 원격_세션은_호스트_브라우저를_열_수_없다() {
         let value = remote_denied_response("system_open_external_url").expect("거부되어야 한다");
         assert_forbidden_denial(&value, "system_open_external_url");
+    }
+
+    #[test]
+    fn 원격_세션은_데스크톱_알림이나_시스템_설정을_열_수_없다() {
+        for name in ["notification_notify", "notification_open_system_settings"] {
+            let value = remote_denied_response(name).unwrap_or_else(|| panic!("{name} 은 거부되어야 한다"));
+            assert_forbidden_denial(&value, name);
+        }
     }
 
     #[test]

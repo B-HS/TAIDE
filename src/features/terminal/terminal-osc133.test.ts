@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { IMarker } from '@xterm/xterm'
+import type { IMarker, Terminal } from '@xterm/xterm'
 import {
     INITIAL_OSC133_BLOCK_TRACKER_STATE,
     applyOsc133Event,
+    attachOsc133BlockTracker,
     findNextCommandLine,
     findPreviousCommandLine,
     normalizeDecorationHexColor,
@@ -232,5 +233,60 @@ describe('resolveCommandBlockDecorationColor', () => {
 
     test('색상이 테마에 없으면 null 을 그대로 전달해 데코레이션을 생략시킨다', () => {
         expect(resolveCommandBlockDecorationColor(0, { success: null, failure: '#f85149' })).toBeNull()
+    })
+})
+
+const createFakeOsc133Terminal = () => {
+    let handleOsc: ((data: string) => boolean) | null = null
+    const term = {
+        parser: {
+            registerOscHandler: (_ident: number, handler: (data: string) => boolean) => {
+                handleOsc = handler
+                return { dispose: () => {} }
+            },
+        },
+        registerMarker: () => createFakeMarker(0),
+        registerDecoration: () => undefined,
+        buffer: { active: { viewportY: 0 } },
+        scrollToLine: () => {},
+    }
+    return { term: term as unknown as Terminal, emit: (data: string) => handleOsc?.(data) }
+}
+
+const attachTracker = () => {
+    const { term, emit } = createFakeOsc133Terminal()
+    const tracker = attachOsc133BlockTracker(term, { current: { success: null, failure: null } })
+    return { emit, tracker }
+}
+
+describe('attachOsc133BlockTracker', () => {
+    test('A 마다 명령 블록을 하나씩 추적한다', () => {
+        const { emit, tracker } = attachTracker()
+
+        emit('A')
+        emit('C')
+        emit('D;0')
+        emit('A')
+
+        expect(tracker.getCommandStartLines()).toHaveLength(2)
+        tracker.dispose()
+    })
+
+    test('열린 블록이 없는 D 는 블록을 만들지 않는다', () => {
+        const { emit, tracker } = attachTracker()
+
+        emit('D;0')
+
+        expect(tracker.getCommandStartLines()).toEqual([])
+        tracker.dispose()
+    })
+
+    test('dispose 하면 추적하던 블록이 남지 않는다', () => {
+        const { emit, tracker } = attachTracker()
+
+        emit('A')
+        tracker.dispose()
+
+        expect(tracker.getCommandStartLines()).toEqual([])
     })
 })

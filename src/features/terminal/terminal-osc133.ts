@@ -160,6 +160,12 @@ const disposeBlockMarkers = (block: TerminalCommandBlock) => {
  * the reducer replaces that object on every `C`/`D` transition (immutable updates), so a block
  * reference captured at `A` time would already be stale by the time its marker disposes. The
  * marker is the one field that stays the same object across the block's whole lifecycle.
+ *
+ * This tracker deliberately owns no "a command finished" side channel: it lives and dies with the
+ * xterm instance, which `pane-node-view.tsx` unmounts whenever the terminal's tab goes to the
+ * background — exactly when a long command most needs reporting. That signal is measured on the pty
+ * reader thread instead and arrives as the `terminal:command-finished` event
+ * (`domain::terminal::commands::report_command_marker`).
  */
 export const attachOsc133BlockTracker = (term: Terminal, colorsRef: { current: CommandBlockDecorationColors }): TerminalOsc133Tracker => {
     let state = INITIAL_OSC133_BLOCK_TRACKER_STATE

@@ -50,12 +50,42 @@ export const commands = {
 	projectClose: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_close", { projectId })),
 	projectActivate: (projectId: ProjectId) => typedError<null, AppError>(__TAURI_INVOKE("project_activate", { projectId })),
 	projectReorder: (ids: ProjectId[]) => typedError<null, AppError>(__TAURI_INVOKE("project_reorder", { ids })),
+	/**
+	 *  Sets one project's sidebar presentation (icon / short label / color token), each axis
+	 *  independently settable, clearable, or left alone — see `types::ProjectDisplayPatch` for the
+	 *  three-state convention and `service::set_project_display` for the sanitizing this command
+	 *  deliberately leaves to the service. Reuses [`ProjectListChanged`] rather than adding a
+	 *  `ProjectDisplayChanged` event: the sidebar renders from `project_list`'s `ProjectRef[]`, which
+	 *  now carries `display`, so the existing fanout already delivers this change to every window and
+	 *  to remote sessions (`lib.rs`'s `fanout_remote_events!`). Remote-allowed at the same grade as
+	 *  `project_reorder` — it rewrites the same two local files (`session.json` plus one
+	 *  `project.json`) with values the remote client could already set by reordering, and exposes no
+	 *  path the remote session cannot already see.
+	 */
+	projectSetDisplay: (projectId: ProjectId, patch: ProjectDisplayPatch) => typedError<null, AppError>(__TAURI_INVOKE("project_set_display", { projectId, patch })),
 	layoutGet: (projectId: ProjectId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_get", { projectId })),
 	layoutOpenTab: (projectId: ProjectId, kind: TabKind, title: string, target: string | null, preview: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_tab", { projectId, kind, title, target, preview })),
 	layoutCloseTab: (tabId: TabId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_close_tab", { tabId })),
 	layoutActivateTab: (tabId: TabId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_activate_tab", { tabId })),
 	layoutMoveTab: (tabId: TabId, paneId: PaneId, index: number) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_move_tab", { tabId, paneId, index })),
 	layoutSplit: (paneId: PaneId, edge: DropEdge, tabId: TabId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_split", { paneId, edge, tabId })),
+	/**
+	 *  Opens a *new* tab in a *new* pane beside `target_pane` — what the terminal's context menu calls
+	 *  "split", and what `layout_split` is not: that one moves a tab that already exists. Doing this in
+	 *  one command rather than `layout_open_tab` + `layout_split` is a correctness requirement, not a
+	 *  round-trip saving: `layout_open_tab` activates the new tab in the *source* pane first, which
+	 *  unmounts the terminal the user is looking at (replaying its whole ring buffer) and then, once
+	 *  the split remounts that tab elsewhere, spawns its shell a second time. One mutation guard and
+	 *  one `layout:changed` make that sequence unrepresentable. See
+	 *  `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §F.2 and the `open_tab_in_split`
+	 *  service function.
+	 * 
+	 *  `request.edge` must be directional: `DropEdge::Center` means "into the target pane", which is
+	 *  [`layout_open_tab`]'s job, so it is rejected as `InvalidArgument` rather than silently treated
+	 *  as one. `File` kinds run the same pre-flight [`ensure_file_tab_target_exists`] gate
+	 *  `layout_open_tab` runs, for the same reason: a tab must never outlive the path it was opened for.
+	 */
+	layoutOpenTabInSplit: (request: OpenTabInSplitRequest) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_tab_in_split", { request })),
 	layoutResize: (paneId: PaneId, sizes: (number | null)[]) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_resize", { paneId, sizes })),
 	layoutFocusPane: (paneId: PaneId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_focus_pane", { paneId })),
 	layoutPinTab: (tabId: TabId, pinned: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_pin_tab", { tabId, pinned })),
@@ -827,6 +857,40 @@ export const commands = {
 	 *  prompt (`ai::prompt::load_*`), not cached in `AppState`.
 	 */
 	appFileWrite: (target: AppFileTarget, content: string) => typedError<null, AppError>(__TAURI_INVOKE("app_file_write", { target, content })),
+	/**
+	 *  Sends one completion event to the OS notification center, gated by
+	 *  [`service::decide_delivery`].
+	 * 
+	 *  The gate lives here rather than in the frontend because "no TAIDE window has focus" is an
+	 *  app-wide fact: every window is a separate JS realm, so a window asking only about itself would
+	 *  notify while the user is looking at another TAIDE window. `webview_windows()` covers the main
+	 *  and every auxiliary editor window; `is_focused()` failing is read as "not focused" so a window
+	 *  that is being torn down cannot suppress a notification.
+	 * 
+	 *  `title`/`body` arrive already translated — Rust owns *whether* a notification is sent, the
+	 *  frontend owns *what it says* (it has the `t()` catalog and the event's data). Neither string is
+	 *  interpreted here.
+	 * 
+	 *  A [`NotificationDelivery::Delivered`] return means the notification was handed to
+	 *  `tauri-plugin-notification`, **not** that macOS displayed it: the plugin's desktop backend
+	 *  spawns delivery and drops the result, and its permission query is a `Granted` stub, so the app
+	 *  cannot observe "the user has notifications turned off for TAIDE". `Suppressed` is the only
+	 *  outcome that is fully knowable, and it names which switch stopped the notification so the
+	 *  settings screen's test button can explain a silent result.
+	 */
+	notificationNotify: (category: NotificationCategory, title: string, body: string) => typedError<NotificationDelivery, AppError>(__TAURI_INVOKE("notification_notify", { category, title, body })),
+	/**
+	 *  Opens System Settings on its Notifications pane, so a user whose notifications are silently
+	 *  blocked has one click to the switch that unblocks them. Detection is impossible (see
+	 *  [`notification_notify`]), so this is offered unconditionally from the settings screen instead of
+	 *  being triggered by a denied-permission signal that never arrives.
+	 * 
+	 *  macOS only, and deliberately not routed through `system_open_external_url`: that command's
+	 *  `validate_external_url` accepts `http(s)://` alone and must stay that narrow, so this opens the
+	 *  single hardcoded [`crate::constants::MACOS_NOTIFICATION_SETTINGS_URL`] instead of accepting a
+	 *  URL argument at all.
+	 */
+	notificationOpenSystemSettings: () => typedError<null, AppError>(__TAURI_INVOKE("notification_open_system_settings")),
 };
 
 /** Events */
@@ -851,6 +915,7 @@ export const events = {
 	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings:changed"),
 	syncStateChanged: makeEvent<SyncStateChanged>("sync:state-changed"),
+	terminalCommandFinished: makeEvent<TerminalCommandFinished>("terminal:command-finished"),
 	terminalCwdChanged: makeEvent<TerminalCwdChanged>("terminal:cwd-changed"),
 	terminalExited: makeEvent<TerminalExited>("terminal:exited"),
 	themeChanged: makeEvent<ThemeChanged>("theme:changed"),
@@ -1406,6 +1471,62 @@ export type MirrorEntry = {
 	conflict: boolean,
 };
 
+/**
+ *  The closed set of "a piece of work finished" events allowed to reach the OS notification
+ *  center. Deliberately an enum rather than a free-form string tag: the settings gate
+ *  ([`super::service::decide_delivery`]) matches on it exhaustively, so adding a category without
+ *  also adding its per-category toggle stops compiling instead of silently notifying with no way
+ *  to turn it off. The user decision that fixes this list to completion events only — no mirroring
+ *  of the app's ~150 in-app toasts — is
+ *  `docs/acknowledge/2026-09-04-usability-batch4-user-decisions.md` §결정 1.
+ */
+export type NotificationCategory = "agentCompleted" | "taskCompleted" | "gitRemote" | "searchReplace" | "lspInstall" | "error";
+
+/**
+ *  The outcome of one `notification_notify` call — the pure gate's decision
+ *  ([`super::service::decide_delivery`]) and the command's return value are the same type on
+ *  purpose, since nothing observable happens between them: `Delivered` means the notification was
+ *  handed to the plugin, **not** that macOS displayed it. The desktop backend spawns the actual
+ *  delivery and discards its result (`tauri-plugin-notification` 2.4.0 `src/desktop.rs`'s
+ *  `let _ = notification.show()`), and its `permission_state()` is a `Granted` stub, so "the user
+ *  has notifications turned off for TAIDE" is not observable from inside the app at all — see
+ *  `docs/features/settings-ui.md` for the always-visible escape hatch that replaces detection.
+ */
+export type NotificationDelivery = { outcome: "delivered" } | { outcome: "suppressed"; reason: NotificationSuppressionReason };
+
+/**
+ *  Why a notification never reached the OS. Returned to the caller rather than logged and dropped
+ *  so the settings screen's "send a test notification" button can say *which* switch swallowed it
+ *  — with `tauri-plugin-notification`'s desktop backend reporting neither permission state nor
+ *  delivery failure, a silent no-op is otherwise indistinguishable from macOS having notifications
+ *  turned off for the app.
+ */
+export type NotificationSuppressionReason = 
+/**  `Settings::notifications_enabled` is off — the master switch. */
+"notificationsDisabled" | 
+/**  The category's own `notify_*` switch is off. */
+"categoryDisabled" | 
+/**  `Settings::notifications_only_when_unfocused` is on and some TAIDE window has focus. */
+"windowFocused";
+
+/**
+ *  `layout_open_tab_in_split`'s payload, grouped into one struct (mirroring
+ *  `lsp::types::LspSpawnRequest` and `terminal::types::PtySpawnOptions`) purely to stay under
+ *  `clippy::too_many_arguments` — the command needs the six fields below plus `AppHandle` and
+ *  `State`, one past the limit. `edge` must be directional; `Center` is rejected as
+ *  `InvalidArgument` because "open a new tab inside this pane" is `layout_open_tab`'s job.
+ *  `preview` defaults to false so a caller that only ever opens permanent tabs (the terminal
+ *  context menu's split) can omit it.
+ */
+export type OpenTabInSplitRequest = {
+	projectId: ProjectId,
+	targetPane: PaneId,
+	edge: DropEdge,
+	kind: TabKind,
+	title: string,
+	preview?: boolean,
+};
+
 export type OpenedFile = {
 	path: string,
 	content: string,
@@ -1492,6 +1613,12 @@ export type Project = {
 	 *  its default rather than a migration (contract §1.3).
 	 */
 	lastOpenedAt?: number | null,
+	/**
+	 *  Sidebar presentation overrides — see [`ProjectDisplay`]. Persisted here (in
+	 *  `projects/<id>/project.json`) as the source of truth and mirrored into `ProjectRef` so a
+	 *  project keeps its icon/label/color across close and re-open.
+	 */
+	display?: ProjectDisplay,
 };
 
 export type ProjectActivated = {
@@ -1505,6 +1632,35 @@ export type ProjectAgents = {
 
 export type ProjectClosed = {
 	projectId: ProjectId,
+};
+
+/**
+ *  Per-project sidebar presentation overrides: a curated lucide icon name, a 1–4 codepoint text
+ *  label, and a `graph.laneN` color token, each independently optional and each `None` by default
+ *  (the plain folder icon). Written only through `service::set_project_display`, which sanitizes
+ *  every axis — nothing else in this domain may widen these shapes. `#[serde(default)]` (here and
+ *  on both owners' fields) reads a record written before this field existed as the all-`None`
+ *  default, so this is a decorative field earning its default rather than a schema migration
+ *  (`docs/data-model.md` §2's field-addition rule, the same route `last_opened_at` took in d-27).
+ */
+export type ProjectDisplay = {
+	icon?: string | null,
+	label?: string | null,
+	color?: string | null,
+};
+
+/**
+ *  A partial [`ProjectDisplay`] update, one axis per field, following the settings domain's
+ *  clearable-string convention (`domain::settings::service::merge_clearable_string`): `None`
+ *  leaves that axis untouched, `Some("")` clears it back to the default, and any other `Some`
+ *  replaces it. A plain `Option<String>` per axis could otherwise only express "touch" and
+ *  "don't touch", collapsing "reset this axis" and "leave it alone" into the same `None` — so the
+ *  display dialog can set an icon, clear a label, and leave the color alone in one call.
+ */
+export type ProjectDisplayPatch = {
+	icon: string | null,
+	label: string | null,
+	color: string | null,
 };
 
 export type ProjectId = string;
@@ -1536,6 +1692,12 @@ export type ProjectRef = {
 	id: ProjectId,
 	root: string,
 	name: string,
+	/**
+	 *  Mirror of `Project.display`, kept in sync by `service::upsert_project_ref` exactly like
+	 *  `root`/`name` — the sidebar renders from `project_list`'s `ProjectRef[]` alone, so without
+	 *  this mirror it would need one `project_get` per project just to draw an icon.
+	 */
+	display?: ProjectDisplay,
 };
 
 /**
@@ -1816,6 +1978,68 @@ export type Settings = {
 	terminalCursorBlink?: boolean,
 	enablePreviewTabs?: boolean,
 	/**
+	 *  Renders the Welcome screen in the editor area of the main window whenever the project has no
+	 *  open tabs left, instead of the plain `editor.noFileOpen` placeholder. Main-window only —
+	 *  an auxiliary window closes itself once its pane tree empties
+	 *  (`src/widgets/auxiliary-window-shell/auxiliary-window-shell.tsx`), so it never reaches an
+	 *  empty editor area to fill.
+	 *  Defaults to `true`; the setting exists so the placeholder can be kept
+	 *  (`docs/acknowledge/2026-09-04-usability-batch4-contract.md` §B.2). Purely a frontend render
+	 *  gate — no layout/tab state is created, so turning it off mid-session changes only what the
+	 *  empty pane paints.
+	 */
+	welcomeOnEmptyEditor?: boolean,
+	/**
+	 *  Master switch for OS notifications. Off means `notification_notify` suppresses everything
+	 *  without consulting the per-category switches below; the in-app toast the same event also
+	 *  raises is untouched either way — a native notification is always an *addition* to the toast,
+	 *  never a replacement (`docs/acknowledge/2026-09-04-usability-batch4-contract.md` §A).
+	 */
+	notificationsEnabled?: boolean,
+	/**
+	 *  Only notify while no TAIDE window has focus. "No window" is app-wide, not per-window: the
+	 *  gate reads `webview_windows().values().any(is_focused)` in Rust
+	 *  ([`crate::domain::notification::commands::notification_notify`]) precisely because each
+	 *  window is its own JS realm and would otherwise report itself unfocused while an auxiliary
+	 *  window is the one the user is looking at. Defaults to `true` — the point of a native
+	 *  notification is to reach the user when the toast cannot.
+	 */
+	notificationsOnlyWhenUnfocused?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentCompleted`]
+	 *  — an agent transitioning out of `Working` after a long enough run. All six category
+	 *  switches default to `true`: the categories are already narrowed to completion events by
+	 *  construction, so an on-by-default switch is the useful shape and turning one off is the
+	 *  exception.
+	 */
+	notifyAgentCompleted?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::TaskCompleted`]
+	 *  — a long-running terminal command finishing (OSC 133 `D`, exit code included).
+	 */
+	notifyTaskCompleted?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::GitRemote`]
+	 *  — push/pull finishing or failing.
+	 */
+	notifyGitRemote?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::SearchReplace`]
+	 *  — a Replace in Files run finishing.
+	 */
+	notifySearchReplace?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::LspInstall`]
+	 *  — a language server install finishing or failing.
+	 */
+	notifyLspInstall?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::Error`]
+	 *  — the failure half of the five categories above. Scoped to those failures only; the app's
+	 *  general IPC-error toasts are not mirrored to the notification center.
+	 */
+	notifyError?: boolean,
+	/**
 	 *  Reveals the active file in the Explorer tree — expanding its ancestors and selecting its
 	 *  row — whenever a file is opened or the focused tab changes. Mirrors VS Code's
 	 *  `explorer.autoReveal`, whose default is `true`. VS Code needs a third value there
@@ -1973,6 +2197,15 @@ export type SettingsPatch = {
 	terminalCursorStyle: TerminalCursorStyle | null,
 	terminalCursorBlink: boolean | null,
 	enablePreviewTabs: boolean | null,
+	welcomeOnEmptyEditor: boolean | null,
+	notificationsEnabled: boolean | null,
+	notificationsOnlyWhenUnfocused: boolean | null,
+	notifyAgentCompleted: boolean | null,
+	notifyTaskCompleted: boolean | null,
+	notifyGitRemote: boolean | null,
+	notifySearchReplace: boolean | null,
+	notifyLspInstall: boolean | null,
+	notifyError: boolean | null,
 	explorerAutoReveal: boolean | null,
 	aiAutoTabEnabled: boolean | null,
 	aiProvider: AiProviderId | null,
@@ -2289,6 +2522,24 @@ export type Task = {
 };
 
 export type TaskSource = "npm" | "make" | "cargo";
+
+/**
+ *  A shell command that ran in a pty session ended, with how long it ran for.
+ * 
+ *  Detected on the pty reader thread (`domain::terminal::commands::report_command_marker`) rather
+ *  than in the frontend's own OSC 133 tracker, because the notification this feeds exists precisely
+ *  for the case the frontend cannot see: a long command in a terminal tab the user switched away
+ *  from, whose `TerminalSession` — and with it the xterm instance and its tracker — is unmounted
+ *  while it runs. `duration_ms` is measured between the shell's `133;C` and `133;D`, so it is real
+ *  elapsed time no matter who was watching; a command whose start was never seen reports nothing at
+ *  all rather than a guess.
+ */
+export type TerminalCommandFinished = {
+	sessionId: string,
+	cwd: string | null,
+	exitCode: number | null,
+	durationMs: number,
+};
 
 /**
  *  `Settings.terminalCursorStyle` / `SettingsPatch.terminalCursorStyle`'s value set — mirrors

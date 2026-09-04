@@ -86,6 +86,25 @@ pub struct TerminalCwdChanged {
     pub cwd: String,
 }
 
+/// A shell command that ran in a pty session ended, with how long it ran for.
+///
+/// Detected on the pty reader thread (`domain::terminal::commands::report_command_marker`) rather
+/// than in the frontend's own OSC 133 tracker, because the notification this feeds exists precisely
+/// for the case the frontend cannot see: a long command in a terminal tab the user switched away
+/// from, whose `TerminalSession` — and with it the xterm instance and its tracker — is unmounted
+/// while it runs. `duration_ms` is measured between the shell's `133;C` and `133;D`, so it is real
+/// elapsed time no matter who was watching; a command whose start was never seen reports nothing at
+/// all rather than a guess.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "terminal:command-finished")]
+pub struct TerminalCommandFinished {
+    pub session_id: String,
+    pub cwd: Option<String>,
+    pub exit_code: Option<i32>,
+    pub duration_ms: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "git:status-changed")]

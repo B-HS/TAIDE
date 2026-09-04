@@ -4,6 +4,7 @@ use std::io::Write as _;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -14,7 +15,7 @@ use super::service;
 use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
 use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
-use crate::events::{TerminalCwdChanged, TerminalExited};
+use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited};
 use crate::ids::ProjectId;
 use crate::infra::pty;
 use crate::infra::root_guard::{self, ensure_within_root};
@@ -208,6 +209,46 @@ fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
     .emit(app);
 }
 
+/// Folds one OSC 133 command marker (`infra::shell_integration::extract_command_markers`) into
+/// `session_id`'s command clock, emitting [`TerminalCommandFinished`] for every command that was
+/// actually timed.
+///
+/// The clock lives on the pty reader thread because that is the only place a session's output is
+/// seen whether or not a window is displaying it — and "nobody is watching" is exactly the case the
+/// task-completion notification exists for. The frontend's own OSC 133 tracker
+/// (`features/terminal/terminal-osc133.ts`) cannot serve that case: `pane-node-view.tsx` renders
+/// only the active tab, so switching away unmounts `TerminalSession`, detaches the pty and disposes
+/// the xterm instance the tracker lives in; when the user returns, `pty_attach`'s scrollback replay
+/// re-parses the same `C`/`D` bytes within milliseconds of each other, timing an hour-long build as
+/// an instant one (batch 4 review F-1). Here the two markers are separated by real elapsed time.
+///
+/// A `D` with no remembered start (the `C` fell on a chunk boundary, or the session was already
+/// running one command when the marker scan first saw it) reports nothing rather than a duration it
+/// would have to invent — the same "not measurable ≠ instant" rule the frontend gate applies.
+fn report_command_marker(app: &AppHandle, session_id: &str, started_at: &Mutex<Option<Instant>>, marker: shell_integration::CommandMarker) {
+    let exit_code = match marker {
+        shell_integration::CommandMarker::OutputStart => {
+            *started_at.lock() = Some(Instant::now());
+            return;
+        }
+        shell_integration::CommandMarker::Finished { exit_code } => exit_code,
+    };
+
+    let Some(started) = started_at.lock().take() else {
+        return;
+    };
+
+    let cwd = app.state::<TerminalStore>().0.lock().get(session_id).map(|entry| entry.cwd.clone());
+
+    let _ = TerminalCommandFinished {
+        session_id: session_id.to_string(),
+        cwd,
+        exit_code,
+        duration_ms: u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX),
+    }
+    .emit(app);
+}
+
 fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
     if state.projects.read().contains_key(project_id) {
         return Ok(());
@@ -293,6 +334,10 @@ pub async fn pty_spawn(
     let cwd_app = app.clone();
     let cwd_session_id = session_id.clone();
 
+    let marker_app = app.clone();
+    let marker_session_id = session_id.clone();
+    let command_started_at = Mutex::new(None);
+
     let config = pty::PtySpawnConfig {
         shell: opts.shell.clone(),
         cwd: opts.cwd.clone(),
@@ -308,6 +353,9 @@ pub async fn pty_spawn(
                 output_for_data.lock().append_and_broadcast(bytes);
                 if let Some(cwd) = shell_integration::extract_latest_cwd(bytes) {
                     report_cwd_change(&cwd_app, &cwd_session_id, cwd);
+                }
+                for marker in shell_integration::extract_command_markers(bytes) {
+                    report_command_marker(&marker_app, &marker_session_id, &command_started_at, marker);
                 }
             },
             move |code| {
@@ -554,6 +602,7 @@ mod tests {
                 capabilities: Vec::new(),
                 root_missing: false,
                 last_opened_at: 0.0,
+                display: Default::default(),
             },
         );
         projects

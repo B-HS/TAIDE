@@ -11,6 +11,7 @@ import { IdeSyncProvider } from '@app/providers/ide-sync-provider'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
 import { KeybindingsRuntimeProvider } from '@app/providers/keybindings-runtime-provider'
 import { LocaleProvider } from '@app/providers/locale-provider'
+import { NativeNotificationProvider } from '@app/providers/native-notification-provider'
 import { ThemeProvider } from '@app/providers/theme-provider'
 import { getWindowContext } from '@shared/lib/window-context'
 import { AppShell } from '@widgets/app-shell/app-shell'
@@ -21,7 +22,7 @@ import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
 /**
  * Branches the whole provider tree on `getWindowContext()` (contract §3.1) — an auxiliary editor
  * window renders `AuxiliaryWindowShell` pinned to its own `(projectId, windowSlot)` instead of
- * `AppShell`, and skips three things the main-window tree mounts:
+ * `AppShell`, and skips four things the main-window tree mounts:
  *
  * - `AgentExternalOpenProvider`: its `openProject`/`activateProject` calls mutate the single global
  *   active-project session, which an auxiliary window must never do to itself (it stays pinned to
@@ -36,6 +37,10 @@ import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
  *   `widgets/command-palette`/`widgets/task-runner` change outside this wave's scope (see the Wave I
  *   contract's F1 open issues). "Move Tab" is still reachable from an auxiliary window via the tab
  *   context menu (`tab-context-menu.tsx`), which needs neither of those two.
+ * - `NativeNotificationProvider`: the backend broadcasts `agent:state-changed` and
+ *   `lsp:install-progress` to every window, so mounting it in both branches would send the same OS
+ *   notification once per open window — one realm has to own the channel, and the main window is
+ *   the one guaranteed to exist for the whole session (`native-notification-gate.ts`).
  *
  * `ExternalLinkProvider`, `IpcSyncProvider`, `HotExitFlushProvider`, `AgentStateSyncProvider`,
  * `LocaleProvider`, `ThemeProvider`, `EmmetProvider`, and `KeybindingsRuntimeProvider` stay for both
@@ -87,9 +92,11 @@ export const App = () => {
                                         <ThemeProvider>
                                             <EmmetProvider>
                                                 <KeybindingsRuntimeProvider>
-                                                    <AppShell />
-                                                    <CommandPalette />
-                                                    <TaskRunnerDialog />
+                                                    <NativeNotificationProvider>
+                                                        <AppShell />
+                                                        <CommandPalette />
+                                                        <TaskRunnerDialog />
+                                                    </NativeNotificationProvider>
                                                 </KeybindingsRuntimeProvider>
                                             </EmmetProvider>
                                         </ThemeProvider>

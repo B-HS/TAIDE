@@ -183,6 +183,59 @@ pub struct Settings {
     pub terminal_cursor_blink: bool,
     #[serde(default = "default_true")]
     pub enable_preview_tabs: bool,
+    /// Renders the Welcome screen in the editor area of the main window whenever the project has no
+    /// open tabs left, instead of the plain `editor.noFileOpen` placeholder. Main-window only —
+    /// an auxiliary window closes itself once its pane tree empties
+    /// (`src/widgets/auxiliary-window-shell/auxiliary-window-shell.tsx`), so it never reaches an
+    /// empty editor area to fill.
+    /// Defaults to `true`; the setting exists so the placeholder can be kept
+    /// (`docs/acknowledge/2026-09-04-usability-batch4-contract.md` §B.2). Purely a frontend render
+    /// gate — no layout/tab state is created, so turning it off mid-session changes only what the
+    /// empty pane paints.
+    #[serde(default = "default_true")]
+    pub welcome_on_empty_editor: bool,
+    /// Master switch for OS notifications. Off means `notification_notify` suppresses everything
+    /// without consulting the per-category switches below; the in-app toast the same event also
+    /// raises is untouched either way — a native notification is always an *addition* to the toast,
+    /// never a replacement (`docs/acknowledge/2026-09-04-usability-batch4-contract.md` §A).
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
+    /// Only notify while no TAIDE window has focus. "No window" is app-wide, not per-window: the
+    /// gate reads `webview_windows().values().any(is_focused)` in Rust
+    /// ([`crate::domain::notification::commands::notification_notify`]) precisely because each
+    /// window is its own JS realm and would otherwise report itself unfocused while an auxiliary
+    /// window is the one the user is looking at. Defaults to `true` — the point of a native
+    /// notification is to reach the user when the toast cannot.
+    #[serde(default = "default_true")]
+    pub notifications_only_when_unfocused: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentCompleted`]
+    /// — an agent transitioning out of `Working` after a long enough run. All six category
+    /// switches default to `true`: the categories are already narrowed to completion events by
+    /// construction, so an on-by-default switch is the useful shape and turning one off is the
+    /// exception.
+    #[serde(default = "default_true")]
+    pub notify_agent_completed: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::TaskCompleted`]
+    /// — a long-running terminal command finishing (OSC 133 `D`, exit code included).
+    #[serde(default = "default_true")]
+    pub notify_task_completed: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::GitRemote`]
+    /// — push/pull finishing or failing.
+    #[serde(default = "default_true")]
+    pub notify_git_remote: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::SearchReplace`]
+    /// — a Replace in Files run finishing.
+    #[serde(default = "default_true")]
+    pub notify_search_replace: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::LspInstall`]
+    /// — a language server install finishing or failing.
+    #[serde(default = "default_true")]
+    pub notify_lsp_install: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::Error`]
+    /// — the failure half of the five categories above. Scoped to those failures only; the app's
+    /// general IPC-error toasts are not mirrored to the notification center.
+    #[serde(default = "default_true")]
+    pub notify_error: bool,
     /// Reveals the active file in the Explorer tree — expanding its ancestors and selecting its
     /// row — whenever a file is opened or the focused tab changes. Mirrors VS Code's
     /// `explorer.autoReveal`, whose default is `true`. VS Code needs a third value there
@@ -336,6 +389,15 @@ pub struct SettingsPatch {
     pub terminal_cursor_style: Option<TerminalCursorStyle>,
     pub terminal_cursor_blink: Option<bool>,
     pub enable_preview_tabs: Option<bool>,
+    pub welcome_on_empty_editor: Option<bool>,
+    pub notifications_enabled: Option<bool>,
+    pub notifications_only_when_unfocused: Option<bool>,
+    pub notify_agent_completed: Option<bool>,
+    pub notify_task_completed: Option<bool>,
+    pub notify_git_remote: Option<bool>,
+    pub notify_search_replace: Option<bool>,
+    pub notify_lsp_install: Option<bool>,
+    pub notify_error: Option<bool>,
     pub explorer_auto_reveal: Option<bool>,
     pub ai_auto_tab_enabled: Option<bool>,
     pub ai_provider: Option<AiProviderId>,
@@ -442,6 +504,15 @@ impl Default for Settings {
             terminal_cursor_style: TerminalCursorStyle::default(),
             terminal_cursor_blink: default_true(),
             enable_preview_tabs: default_true(),
+            welcome_on_empty_editor: default_true(),
+            notifications_enabled: default_true(),
+            notifications_only_when_unfocused: default_true(),
+            notify_agent_completed: default_true(),
+            notify_task_completed: default_true(),
+            notify_git_remote: default_true(),
+            notify_search_replace: default_true(),
+            notify_lsp_install: default_true(),
+            notify_error: default_true(),
             explorer_auto_reveal: default_true(),
             ai_auto_tab_enabled: false,
             ai_provider: None,

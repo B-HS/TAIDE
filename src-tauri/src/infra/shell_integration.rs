@@ -338,6 +338,7 @@ pub fn prepare(_shell_override: Option<&str>) -> Option<ShellIntegrationPlan> {
 }
 
 const OSC7_PREFIX: &[u8] = b"\x1b]7;";
+const OSC133_PREFIX: &[u8] = b"\x1b]133;";
 const OSC_STRING_TERMINATOR: &[u8] = b"\x1b\\";
 const OSC_BEL: u8 = 0x07;
 
@@ -405,6 +406,63 @@ pub fn extract_latest_cwd(bytes: &[u8]) -> Option<String> {
     }
 
     latest
+}
+
+/// One OSC 133 command marker found in a chunk of raw pty output. Only the two markers that bound
+/// a command's runtime are represented; `133;A` (prompt start) and `133;B` (prompt end) are skipped
+/// because nothing downstream can tell them apart from "no marker in this chunk".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandMarker {
+    /// `133;C` — the shell has finished reading the command line and is handing the terminal to the
+    /// command, i.e. the moment its runtime starts. Deliberately not `133;A`: the gap between a
+    /// prompt appearing and the user pressing Enter is idle time, and billing it to the command
+    /// would turn a one-second `ls` typed after a coffee break into an hours-long "task".
+    OutputStart,
+    /// `133;D[;<exit status>]` — the command ended. `exit_code` is `None` when the shell reported no
+    /// status, or one that is not an integer.
+    Finished { exit_code: Option<i32> },
+}
+
+/// Scans one chunk of raw pty output for the OSC 133 command markers this module's own hooks (and
+/// fish's native ones — see [`ShellKind::FishNative`]) emit, in the order they appear. Every marker
+/// is returned rather than only the last, unlike [`extract_latest_cwd`]: a batched chunk can carry a
+/// whole command's `C`…`D` pair, and collapsing it would lose the very transition the caller times.
+///
+/// Terminator handling is shared with [`extract_latest_cwd`] ([`earliest_terminator`]), so a
+/// BEL-terminated sequence from a user's own prompt framework cannot extend a marker's payload to an
+/// unrelated later ST.
+///
+/// A marker split across two output chunks — the pty read loop batches on a byte/time threshold, not
+/// on escape-sequence boundaries — is not seen here rather than reassembled across calls, the same
+/// deliberate limitation [`extract_latest_cwd`] documents. The cost differs though: a missed `C`
+/// leaves the following `D` untimed (its caller reports nothing rather than a guess) instead of
+/// self-healing on the next prompt.
+pub fn extract_command_markers(bytes: &[u8]) -> Vec<CommandMarker> {
+    let mut markers = Vec::new();
+    let mut search_from = 0;
+
+    while let Some(prefix_offset) = find_subslice(&bytes[search_from..], OSC133_PREFIX) {
+        let payload_start = search_from + prefix_offset + OSC133_PREFIX.len();
+        let rest = &bytes[payload_start..];
+
+        let Some((payload_len, terminator_len)) = earliest_terminator(rest) else {
+            break;
+        };
+
+        if let Ok(payload) = std::str::from_utf8(&rest[..payload_len]) {
+            let mut fields = payload.split(';');
+            match fields.next() {
+                Some("C") => markers.push(CommandMarker::OutputStart),
+                Some("D") => markers.push(CommandMarker::Finished {
+                    exit_code: fields.next().and_then(|status| status.trim().parse().ok()),
+                }),
+                _ => {}
+            }
+        }
+        search_from = payload_start + payload_len + terminator_len;
+    }
+
+    markers
 }
 
 #[cfg(test)]
@@ -678,6 +736,96 @@ mod tests {
             None,
             "청크 경계에서 잘린 시퀀스는 이번 청크에서 감지되면 안 된다"
         );
+    }
+
+    #[test]
+    fn extract_command_markers는_한_청크의_c와_d를_순서대로_돌려준다() {
+        let output = b"\x1b]133;A\x1b\\$ ls\x1b]133;C\x1b\\a.rs\r\n\x1b]133;D;0\x1b\\";
+        assert_eq!(
+            extract_command_markers(output),
+            vec![CommandMarker::OutputStart, CommandMarker::Finished { exit_code: Some(0) }]
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_상태가_없는_d도_종료로_인식한다() {
+        assert_eq!(
+            extract_command_markers(b"\x1b]133;D\x1b\\"),
+            vec![CommandMarker::Finished { exit_code: None }]
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_정수가_아닌_상태를_none으로_읽는다() {
+        assert_eq!(
+            extract_command_markers(b"\x1b]133;D;fail\x1b\\"),
+            vec![CommandMarker::Finished { exit_code: None }]
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_bel_종결자와_프롬프트_마커를_구분한다() {
+        let output = b"\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;130\x07";
+        assert_eq!(
+            extract_command_markers(output),
+            vec![CommandMarker::OutputStart, CommandMarker::Finished { exit_code: Some(130) }]
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_종결자_없이_끊긴_마커를_무시한다() {
+        assert_eq!(extract_command_markers(b"\x1b]133;D;0"), Vec::new());
+    }
+
+    #[test]
+    fn extract_command_markers는_한_청크에_실린_두_명령의_마커를_전부_순서대로_돌려준다() {
+        let output = b"\x1b]133;C\x1b\\out1\x1b]133;D;0\x1b\\\x1b]133;A\x1b\\$ \x1b]133;C\x1b\\out2\x1b]133;D;1\x1b\\";
+        assert_eq!(
+            extract_command_markers(output),
+            vec![
+                CommandMarker::OutputStart,
+                CommandMarker::Finished { exit_code: Some(0) },
+                CommandMarker::OutputStart,
+                CommandMarker::Finished { exit_code: Some(1) },
+            ],
+            "마지막 하나만 남기면 첫 명령의 C→D 전이를 잃는다"
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_osc7_cwd_보고와_섞여_있어도_133_마커만_읽는다() {
+        let output = b"\x1b]7;/repo\x1b\\\x1b]133;C\x1b\\\x1b]7;/repo/src\x07\x1b]133;D;0\x1b\\";
+        assert_eq!(
+            extract_command_markers(output),
+            vec![CommandMarker::OutputStart, CommandMarker::Finished { exit_code: Some(0) }]
+        );
+        assert_eq!(
+            extract_latest_cwd(output).as_deref(),
+            Some("/repo/src"),
+            "같은 청크의 cwd 보고도 그대로 읽혀야 한다"
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_a_b_프롬프트_마커만_있으면_비어_있다() {
+        assert_eq!(extract_command_markers(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\"), Vec::new());
+    }
+
+    #[test]
+    fn extract_command_markers는_음수와_공백이_섞인_종료_상태도_정수로_읽는다() {
+        assert_eq!(
+            extract_command_markers(b"\x1b]133;D;-1\x1b\\\x1b]133;D; 2 \x1b\\"),
+            vec![
+                CommandMarker::Finished { exit_code: Some(-1) },
+                CommandMarker::Finished { exit_code: Some(2) },
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_command_markers는_마커가_없는_일반_출력에서_비어_있다() {
+        assert_eq!(extract_command_markers(b"plain output\r\n\x1b[31mred\x1b[0m"), Vec::new());
+        assert_eq!(extract_command_markers(b""), Vec::new());
     }
 
     #[test]

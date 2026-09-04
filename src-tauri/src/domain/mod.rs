@@ -8,6 +8,7 @@ pub mod ide;
 pub mod layout;
 pub mod locale;
 pub mod lsp;
+pub mod notification;
 pub mod plugin;
 pub mod project;
 pub mod remote;

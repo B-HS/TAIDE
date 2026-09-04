@@ -400,6 +400,17 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         terminal_cursor_style: patch.terminal_cursor_style.unwrap_or(settings.terminal_cursor_style),
         terminal_cursor_blink: patch.terminal_cursor_blink.unwrap_or(settings.terminal_cursor_blink),
         enable_preview_tabs: patch.enable_preview_tabs.unwrap_or(settings.enable_preview_tabs),
+        welcome_on_empty_editor: patch.welcome_on_empty_editor.unwrap_or(settings.welcome_on_empty_editor),
+        notifications_enabled: patch.notifications_enabled.unwrap_or(settings.notifications_enabled),
+        notifications_only_when_unfocused: patch
+            .notifications_only_when_unfocused
+            .unwrap_or(settings.notifications_only_when_unfocused),
+        notify_agent_completed: patch.notify_agent_completed.unwrap_or(settings.notify_agent_completed),
+        notify_task_completed: patch.notify_task_completed.unwrap_or(settings.notify_task_completed),
+        notify_git_remote: patch.notify_git_remote.unwrap_or(settings.notify_git_remote),
+        notify_search_replace: patch.notify_search_replace.unwrap_or(settings.notify_search_replace),
+        notify_lsp_install: patch.notify_lsp_install.unwrap_or(settings.notify_lsp_install),
+        notify_error: patch.notify_error.unwrap_or(settings.notify_error),
         explorer_auto_reveal: patch.explorer_auto_reveal.unwrap_or(settings.explorer_auto_reveal),
         ai_auto_tab_enabled: patch.ai_auto_tab_enabled.unwrap_or(settings.ai_auto_tab_enabled),
         ai_provider: patch.ai_provider.or(settings.ai_provider),
@@ -1126,6 +1137,75 @@ mod tests {
 
         let preserved = apply_patch(&disabled, &SettingsPatch::default());
         assert!(!preserved.explorer_auto_reveal);
+    }
+
+    #[test]
+    fn 빈_편집_영역_welcome의_기본값은_켜짐이다() {
+        assert!(Settings::default().welcome_on_empty_editor);
+    }
+
+    #[test]
+    fn patch로_빈_편집_영역_welcome을_끄고_생략하면_기존값을_보존한다() {
+        let disabled = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                welcome_on_empty_editor: Some(false),
+                ..SettingsPatch::default()
+            },
+        );
+        assert!(!disabled.welcome_on_empty_editor);
+
+        let preserved = apply_patch(&disabled, &SettingsPatch::default());
+        assert!(!preserved.welcome_on_empty_editor);
+    }
+
+    #[test]
+    fn 알림_설정_8종의_기본값은_전부_켜짐이다() {
+        let settings = Settings::default();
+        assert!(settings.notifications_enabled);
+        assert!(settings.notifications_only_when_unfocused);
+        assert!(settings.notify_agent_completed);
+        assert!(settings.notify_task_completed);
+        assert!(settings.notify_git_remote);
+        assert!(settings.notify_search_replace);
+        assert!(settings.notify_lsp_install);
+        assert!(settings.notify_error);
+    }
+
+    #[test]
+    fn patch로_알림_설정_8종을_끄고_생략하면_기존값을_보존한다() {
+        let disabled = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                notifications_enabled: Some(false),
+                notifications_only_when_unfocused: Some(false),
+                notify_agent_completed: Some(false),
+                notify_task_completed: Some(false),
+                notify_git_remote: Some(false),
+                notify_search_replace: Some(false),
+                notify_lsp_install: Some(false),
+                notify_error: Some(false),
+                ..SettingsPatch::default()
+            },
+        );
+        assert!(!disabled.notifications_enabled);
+        assert!(!disabled.notifications_only_when_unfocused);
+        assert!(!disabled.notify_agent_completed);
+        assert!(!disabled.notify_task_completed);
+        assert!(!disabled.notify_git_remote);
+        assert!(!disabled.notify_search_replace);
+        assert!(!disabled.notify_lsp_install);
+        assert!(!disabled.notify_error);
+
+        let preserved = apply_patch(&disabled, &SettingsPatch::default());
+        assert!(!preserved.notifications_enabled);
+        assert!(!preserved.notifications_only_when_unfocused);
+        assert!(!preserved.notify_agent_completed);
+        assert!(!preserved.notify_task_completed);
+        assert!(!preserved.notify_git_remote);
+        assert!(!preserved.notify_search_replace);
+        assert!(!preserved.notify_lsp_install);
+        assert!(!preserved.notify_error);
     }
 
     #[test]

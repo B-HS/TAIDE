@@ -26,8 +26,8 @@ use crate::domain::window::commands::WindowStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, GitRefsChanged, GitStatusChanged, HotExitFlushRequested, IdeCloseTabRequested,
     IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated,
-    ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCwdChanged,
-    TerminalExited, ThemeChanged,
+    ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished,
+    TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
@@ -183,12 +183,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::project::commands::project_close,
             domain::project::commands::project_activate,
             domain::project::commands::project_reorder,
+            domain::project::commands::project_set_display,
             domain::layout::commands::layout_get,
             domain::layout::commands::layout_open_tab,
             domain::layout::commands::layout_close_tab,
             domain::layout::commands::layout_activate_tab,
             domain::layout::commands::layout_move_tab,
             domain::layout::commands::layout_split,
+            domain::layout::commands::layout_open_tab_in_split,
             domain::layout::commands::layout_resize,
             domain::layout::commands::layout_focus_pane,
             domain::layout::commands::layout_pin_tab,
@@ -353,6 +355,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::window::commands::window_set_fullscreen,
             domain::app::commands::app_file_read,
             domain::app::commands::app_file_write,
+            domain::notification::commands::notification_notify,
+            domain::notification::commands::notification_open_system_settings,
         ])
         .events(collect_events![
             ProjectOpened,
@@ -364,6 +368,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             FsChanged,
             TerminalExited,
             TerminalCwdChanged,
+            TerminalCommandFinished,
             GitStatusChanged,
             GitRefsChanged,
             LspSessionStatusChanged,
@@ -463,6 +468,15 @@ pub fn run() {
 
     app.plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
+        // Registered for its Rust-side `NotificationExt` only (`domain::notification::commands`).
+        // The JS guest package is deliberately not installed: its API reads the `window.Notification`
+        // shim this plugin's init script injects, which the remote mirror never receives, and every
+        // send has to pass the app-wide focus/settings gate in Rust anyway. The capability grants
+        // `notification:allow-is-permission-granted` alone — not for app code, but because that init
+        // script invokes it on every window load without a `.catch`, and a denied invoke would land
+        // in the file log as an unhandled rejection each boot
+        // (`shared/lib/error-log-forwarding.ts`).
+        .plugin(tauri_plugin_notification::init())
         // `open_js_links_on_click` (default `true`) injects a document-level click interceptor that
         // calls the plugin's own `openUrl` — a call this app's capability set deliberately never
         // grants (`2026-08-18-hand-qa-fix-contract.md` §"opener JS+capability 개방 기각"), so the
@@ -577,6 +591,7 @@ pub fn run() {
                 FsChanged,
                 TerminalExited,
                 TerminalCwdChanged,
+                TerminalCommandFinished,
                 GitStatusChanged,
                 GitRefsChanged,
                 LspSessionStatusChanged,
@@ -783,7 +798,7 @@ mod tests {
     #[test]
     fn 이벤트_타입_목록은_events_rs와_collect_events_매크로에서_일치한다() {
         let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
-        assert_eq!(declared.len(), 23, "events.rs 에 선언된 이벤트 구조체 수가 23종에서 벗어났습니다");
+        assert_eq!(declared.len(), 24, "events.rs 에 선언된 이벤트 구조체 수가 24종에서 벗어났습니다");
 
         let collected = identifier_set(extract_between(include_str!("lib.rs"), "collect_events![", "]"));
 

@@ -16,6 +16,7 @@
         "core:webview:allow-internal-toggle-devtools",
         "dialog:allow-open",
         "dialog:allow-save",
-        "log:default"
+        "log:default",
+        "notification:allow-is-permission-granted"
     ]
 }

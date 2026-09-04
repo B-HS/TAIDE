@@ -10,6 +10,7 @@ import { useRecentSearches } from '@entities/search/search-history'
 import { useReplaceSearch } from '@entities/search/search.query'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
+import { notifyNative } from '@entities/notification/notify'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { ReplaceAllInput } from '@features/search/search-panel'
@@ -90,7 +91,9 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
             { projectId, query: replacedQuery, replacement: input.replacement, paths: input.paths.length > 0 ? input.paths : null },
             {
                 onSuccess: (result) => {
-                    toast.success(t('search.replaceDone', { files: result.changedFiles, matches: result.replacedMatches }))
+                    const replaceSummary = t('search.replaceDone', { files: result.changedFiles, matches: result.replacedMatches })
+                    toast.success(replaceSummary)
+                    void notifyNative({ category: 'searchReplace', title: t('notification.searchReplaceDone'), body: replaceSummary })
                     const report = buildReplaceSkipReport(result, (file) => `${file.path} — ${t(REPLACE_SKIP_REASON_MESSAGE_KEY[file.reason])}`)
                     if (report)
                         toast.warning(t('search.replaceSkipped', { count: report.total }), {
