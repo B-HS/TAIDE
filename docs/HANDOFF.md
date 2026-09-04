@@ -1,6 +1,6 @@
-# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·배치 4 웨이브 1·2 전부 완결·커밋 / 잔여 = 실기 8지표·e2e 14~25 실행·수동 QA·결정 항목·draft 3건 공개)
+# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·4 완결 → v0.1.7 draft 완주 / 잔여 = draft 4건 공개·실기 8지표·e2e 14~25·수동 QA·결정 항목)
 
-> 최종 갱신: 2026-09-05 / HEAD = `141c3f1`(dev, 이 docs 커밋이 그 위에 얹힘 → main ff 동기). 배치 4 웨이브 1·2 완결.
+> 최종 갱신: 2026-09-05 / HEAD = `fb6208a`(chore(release) v0.1.7, dev=main, 이 docs 커밋이 그 위에 얹힘). 배치 3·4 완결 + **v0.1.7 draft 완주**(런 `33903401416`).
 > 이 세션 — **사용성 배치 3**(퀵오픈 스테일 인덱스·파일 탭 열기 선검증 / 외부 URL 단일 오프너·OSC 8·
 > WebView 네비게이션 가드 / explorer autoReveal)을 조사→계약→구현 wf(opus·xhigh)→리뷰 wf(sonnet·xhigh)
 > →테스트 wf(fable·medium)→메인 2차 검증→커밋 5분할로 완결. 동시에 **사용성 배치 4**(OS 알림·Welcome·
@@ -16,7 +16,7 @@
 ## 2. 현재 목표
 
 - 최종: PRD FR-A~J(완료) → 전문 QA(qa6 실기 진행 중) → Phase 8 배포.
-- 현재 마일스톤: **배치 4 전부 완결(커밋·푸시)**. **다음 한 줄 = 사용자: 실기 8지표 측정(`quality-assurance/
+- 현재 마일스톤: **v0.1.7 draft 완주**(배치 3·4 수록). **다음 한 줄 = 사용자: draft v0.1.7 검토·공개(v0.1.3·5·6 누적) · 실기 8지표 측정(`quality-assurance/
   2026-09-04-perf-baseline.md` §2·§3, `TAIDE_PERF=1`) · e2e 14~25 실행(`TAIDE_E2E_NO_HMR=1 bun run tauri dev`
   + REMOTE 준비 후 `bun run e2e`) · 수동 QA(알림은 `tauri build` 산출물로·프로젝트 표시) · 결정 항목
   (계약 §3.4·§4.4 — JSDoc 범위 예외 명문화 여부·CI 액션 SHA 핀·`git.stashEmpty` 등) · draft 3건 공개.**
@@ -31,6 +31,7 @@
 | v0.1.3 | `33231960782` (10m32s 콜드) | 전수조사 정비 — fix 41·성능·설정 10종·thin LTO+opt3 |
 | v0.1.5 | `33248319213` (9m13s) | 파일트리 git 데코(색+M/A/D/R/U/! 뱃지·폴더 전파)·터미널 Shift+Enter→LF·SCM 목록 ↑↓ 로빙 포커스. 0.1.4 는 숫자 4 금지로 건너뜀 |
 | v0.1.6 | `33286185781` (6m49s 최단) | Claude Code Ctrl+G→TAIDE(EDITOR/VISUAL PTY 주입·`cli.connectExternalEditor` 커맨드)·팔레트 전체선택 해제·빈 폴더 비버그 확정+회귀 테스트 4 |
+| v0.1.7 | `33903401416` (8m34s, 새 크레이트로 부분 콜드) | 배치 3·4 전량 — 퀵오픈 선검증·외부 링크 OS 브라우저·autoReveal·OS 알림·Welcome·프로젝트 표시·git 섹션·터미널/탭 바 메뉴·성능·하네스·CI. dmg 15,078,659B |
 
 ### 3.2 사용성 배치 2 요약 (wf `wf_a068d4a0`, opus·max, 7 에이전트)
 

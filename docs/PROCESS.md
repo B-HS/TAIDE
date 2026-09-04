@@ -94,8 +94,11 @@
       1435/0·lint 11 warning=기존 9+가상화 2) → 커밋 7분할(`d2d7089` perf(core)·`c4e2af7` perf(rust)·
       `a48ff08` perf(frontend)·`fae9693` test(harness)·`dbb1d80` test·`f83af47` test(e2e)·`141c3f1` ci)
       + docs 커밋 → dev 푸시 → main ff
-- [ ] e. 잔여(사용자): 실기 8지표 측정(perf-baseline §2·§3)·e2e 14~25 실행(`TAIDE_E2E_NO_HMR=1 bun run tauri dev`)·
-      수동 QA(알림·프로젝트 표시)·미결 결정(계약 §3.4·§4.4)
+- [x] f. 릴리스 v0.1.7(2026-09-05 사용자 지시 "버전업·draft") — 버전 동기 3파일+Cargo.lock·릴리스 노트·verify+vite
+      build exit 0 → `fb6208a` chore(release) → dev 푸시·main ff → 태그 → Release 런 `33903401416` 완주(8m34s)
+      → draft(TAIDE_0.1.7_aarch64.dmg 15,078,659B). CI 게이트 첫 실전 dev·main 성공
+- [ ] e. 잔여(사용자): draft v0.1.7 공개(+v0.1.3·5·6 누적)·실기 8지표 측정(perf-baseline §2·§3)·e2e 14~25 실행
+      (`TAIDE_E2E_NO_HMR=1 bun run tauri dev`)·수동 QA(알림은 이 dmg 로·프로젝트 표시)·미결 결정(계약 §3.4·§4.4)
 
 ## 완료: 사용성 배치 3 — 퀵오픈 미발견·터미널 링크 창내 열림·파일트리 자동 reveal (2026-09-04)
 
