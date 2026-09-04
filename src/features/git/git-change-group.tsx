@@ -1,11 +1,9 @@
-import type { ComponentProps, FC, ReactNode } from 'react'
-import { useTranslation } from 'react-i18next'
+import type { ComponentProps } from 'react'
+import type { useTranslation } from 'react-i18next'
 import { File, Minus, Plus, Undo2 } from 'lucide-react'
 import type { StatusRow } from '@shared/api/bindings'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
-import { GIT_SECTION_ROW_INDENT_CLASS, GitSectionHeader } from '@features/git/git-section-header'
-import type { GitStatusChangeKind, StatusRowAction } from '@features/git/status-row-item'
-import { StatusRowItem } from '@features/git/status-row-item'
+import type { GitSectionHeaderAction } from '@features/git/git-section-header'
+import type { GitStatusChangeKind, StatusRowAction, StatusRowItem } from '@features/git/status-row-item'
 
 /**
  * What a "Open Changes" click asks a diff tab to show. `path` is always the *absolute* path, the
@@ -19,40 +17,45 @@ import { StatusRowItem } from '@features/git/status-row-item'
  */
 export type GitDiffTarget = { path: string; beforePath: string | null }
 
-type GitChangeGroupBaseProps = {
-    expanded: boolean
-    onToggle: () => void
+type GitChangeGroupHandlers = {
     onOpenFile: (path: string) => void
     onOpenChanges: (target: GitDiffTarget, group: 'staged' | 'unstaged') => void
     onCopyPath: (path: string) => void
     onRevealInExplorer: (path: string) => void
 }
 
-export type GitChangeGroupProps =
-    | ({ variant: 'merge'; rows: StatusRow[] } & GitChangeGroupBaseProps)
-    | ({ variant: 'staged'; rows: (StatusRow & { staged: GitStatusChangeKind })[]; onUnstage: (paths: string[]) => void } & GitChangeGroupBaseProps)
+export type GitChangeGroupInput =
+    | ({ variant: 'merge'; rows: StatusRow[] } & GitChangeGroupHandlers)
+    | ({ variant: 'staged'; rows: (StatusRow & { staged: GitStatusChangeKind })[]; onUnstage: (paths: string[]) => void } & GitChangeGroupHandlers)
     | ({
           variant: 'unstaged'
           rows: (StatusRow & { unstaged: GitStatusChangeKind })[]
           onStage: (paths: string[]) => void
           onDiscardRequest: (paths: string[]) => void
-      } & GitChangeGroupBaseProps)
+      } & GitChangeGroupHandlers)
 
-type NormalizedGitChangeRow = Pick<ComponentProps<typeof StatusRowItem>, 'path' | 'origPath' | 'kind'> &
+export type NormalizedGitChangeRow = Pick<ComponentProps<typeof StatusRowItem>, 'path' | 'origPath' | 'kind'> &
     Pick<StatusRow, 'absPath'> & {
         origAbsPath: string | null
     }
 
 const diffTargetOf = (row: NormalizedGitChangeRow): GitDiffTarget => ({ path: row.absPath, beforePath: row.origAbsPath })
 
-type GitChangeGroupContextMenuEntry =
+export type GitChangeGroupContextMenuEntry =
     { key: string; type: 'separator' } | { key: string; type: 'item'; label: string; destructive?: boolean; onSelect: () => void }
 
-type GitChangeGroupConfig = {
+/**
+ * Everything one resource group contributes to the panel's single virtualized list: its header
+ * title and actions, its rows already normalized to what a row renders, and the per-row action,
+ * context-menu and click behavior that differs between merge, staged and unstaged.
+ *
+ * It is a config rather than a component because the three groups no longer own their own DOM
+ * subtree — `git-panel.tsx` flattens them into one virtualized row list so the mounted rows stay
+ * bounded by the viewport, and it needs the group's behavior addressable by section id.
+ */
+export type GitChangeGroupConfig = {
     title: string
-    actionLabel?: string
-    actionIcon?: ReactNode
-    onAction?: () => void
+    headerActions: GitSectionHeaderAction[]
     rows: NormalizedGitChangeRow[]
     buildActions: (row: NormalizedGitChangeRow) => StatusRowAction[]
     buildContextMenuEntries: (row: NormalizedGitChangeRow) => GitChangeGroupContextMenuEntry[]
@@ -61,10 +64,11 @@ type GitChangeGroupConfig = {
 
 type GitChangeGroupTranslate = ReturnType<typeof useTranslation>['t']
 
-const buildMergeGroupConfig = (props: Extract<GitChangeGroupProps, { variant: 'merge' }>, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
+const buildMergeGroupConfig = (props: Extract<GitChangeGroupInput, { variant: 'merge' }>, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
     const { rows, onOpenFile, onOpenChanges, onCopyPath, onRevealInExplorer } = props
     return {
         title: t('git.mergeChanges'),
+        headerActions: [],
         rows: rows.map((row) => ({
             path: row.path,
             origPath: row.origPath ?? null,
@@ -86,13 +90,18 @@ const buildMergeGroupConfig = (props: Extract<GitChangeGroupProps, { variant: 'm
     }
 }
 
-const buildStagedGroupConfig = (props: Extract<GitChangeGroupProps, { variant: 'staged' }>, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
+const buildStagedGroupConfig = (props: Extract<GitChangeGroupInput, { variant: 'staged' }>, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
     const { rows, onUnstage, onOpenFile, onOpenChanges, onCopyPath, onRevealInExplorer } = props
     return {
         title: t('git.stagedChanges'),
-        actionLabel: t('git.unstageAll'),
-        actionIcon: <Minus className='size-3' />,
-        onAction: () => onUnstage(rows.map((row) => row.path)),
+        headerActions: [
+            {
+                id: 'group-action',
+                label: t('git.unstageAll'),
+                icon: <Minus className='size-3' />,
+                onClick: () => onUnstage(rows.map((row) => row.path)),
+            },
+        ],
         rows: rows.map((row) => ({
             path: row.path,
             origPath: row.origPath ?? null,
@@ -116,13 +125,13 @@ const buildStagedGroupConfig = (props: Extract<GitChangeGroupProps, { variant: '
     }
 }
 
-const buildUnstagedGroupConfig = (props: Extract<GitChangeGroupProps, { variant: 'unstaged' }>, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
+const buildUnstagedGroupConfig = (props: Extract<GitChangeGroupInput, { variant: 'unstaged' }>, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
     const { rows, onStage, onDiscardRequest, onOpenFile, onOpenChanges, onCopyPath, onRevealInExplorer } = props
     return {
         title: t('git.changes'),
-        actionLabel: t('git.stageAll'),
-        actionIcon: <Plus className='size-3' />,
-        onAction: () => onStage(rows.map((row) => row.path)),
+        headerActions: [
+            { id: 'group-action', label: t('git.stageAll'), icon: <Plus className='size-3' />, onClick: () => onStage(rows.map((row) => row.path)) },
+        ],
         rows: rows.map((row) => ({
             path: row.path,
             origPath: row.origPath ?? null,
@@ -148,55 +157,8 @@ const buildUnstagedGroupConfig = (props: Extract<GitChangeGroupProps, { variant:
     }
 }
 
-const buildGitChangeGroupConfig = (props: GitChangeGroupProps, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
+export const buildGitChangeGroupConfig = (props: GitChangeGroupInput, t: GitChangeGroupTranslate): GitChangeGroupConfig => {
     if (props.variant === 'merge') return buildMergeGroupConfig(props, t)
     if (props.variant === 'staged') return buildStagedGroupConfig(props, t)
     return buildUnstagedGroupConfig(props, t)
-}
-
-export const GitChangeGroup: FC<GitChangeGroupProps> = (props) => {
-    const { t } = useTranslation()
-    const config = buildGitChangeGroupConfig(props, t)
-    const actions =
-        config.actionLabel && config.onAction
-            ? [{ id: 'group-action', label: config.actionLabel, icon: config.actionIcon, onClick: config.onAction }]
-            : []
-
-    return (
-        <div>
-            <GitSectionHeader title={config.title} count={config.rows.length} expanded={props.expanded} onToggle={props.onToggle} actions={actions} />
-            {props.expanded && (
-                <div className={GIT_SECTION_ROW_INDENT_CLASS}>
-                    {config.rows.map((row) => (
-                        <ContextMenu key={row.path}>
-                            <ContextMenuTrigger>
-                                <StatusRowItem
-                                    path={row.path}
-                                    origPath={row.origPath}
-                                    kind={row.kind}
-                                    selected={false}
-                                    actions={config.buildActions(row)}
-                                    onClick={() => config.onRowClick(row)}
-                                />
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                                {config.buildContextMenuEntries(row).map((entry) =>
-                                    entry.type === 'separator' ? (
-                                        <ContextMenuSeparator key={entry.key} />
-                                    ) : (
-                                        <ContextMenuItem
-                                            key={entry.key}
-                                            variant={entry.destructive ? 'destructive' : undefined}
-                                            onSelect={entry.onSelect}>
-                                            {entry.label}
-                                        </ContextMenuItem>
-                                    ),
-                                )}
-                            </ContextMenuContent>
-                        </ContextMenu>
-                    ))}
-                </div>
-            )}
-        </div>
-    )
 }

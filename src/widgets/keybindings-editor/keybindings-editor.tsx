@@ -6,10 +6,11 @@ import { Keyboard } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatCategorizedLabel, listRegisteredCommands } from '@shared/lib/command-registry'
 import {
+    buildKeybindingConflictIndex,
     buildKeybindingRows,
     buildUnbindOverride,
     filterKeybindingRowsByCapturedKey,
-    findConflictingRow,
+    findConflictingRowInIndex,
     findKeybindingRowById,
     isKeybindingRowUnassigned,
     mergeKeybindingOverride,
@@ -77,6 +78,7 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
 
     const overrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
     const rows = buildKeybindingRows(listRegisteredCommands(), overrides)
+    const conflictIndex = buildKeybindingConflictIndex(rows)
     const sortedRows = sortKeybindingRows(rows, (row) => formatCategorizedLabel(t, row.categoryKey, row.titleKey, row.titleDefaultValue ?? undefined))
 
     const textFilteredRows = query
@@ -87,10 +89,10 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
           ).map((ranked) => ranked.item)
         : sortedRows
     const keyFilteredRows = searchedKey ? filterKeybindingRowsByCapturedKey(textFilteredRows, searchedKey.key, searchedKey.mods) : textFilteredRows
-    const conflictFilteredRows = showConflictsOnly ? keyFilteredRows.filter((row) => findConflictingRow(rows, row)) : keyFilteredRows
+    const conflictFilteredRows = showConflictsOnly ? keyFilteredRows.filter((row) => findConflictingRowInIndex(conflictIndex, row)) : keyFilteredRows
     const visibleRows = showUnassignedOnly ? conflictFilteredRows.filter(isKeybindingRowUnassigned) : conflictFilteredRows
 
-    const conflictCount = rows.filter((row) => findConflictingRow(rows, row)).length
+    const conflictCount = rows.filter((row) => findConflictingRowInIndex(conflictIndex, row)).length
     const unassignedCount = rows.filter(isKeybindingRowUnassigned).length
 
     const saveOverrides = (nextOverrides: typeof overrides) =>
@@ -103,7 +105,7 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
         if (!isKeyBindable(rowId, key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         if (chord && !isKeyBindable(rowId, chord.key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         const currentRow = findKeybindingRowById(rows, rowId)
-        const conflict = currentRow ? findConflictingRow(rows, { ...currentRow, key, mods, chord }) : null
+        const conflict = currentRow ? findConflictingRowInIndex(conflictIndex, { ...currentRow, key, mods, chord }) : null
         if (conflict)
             toast.warning(
                 t('settings.keymapConflictWarning', {
@@ -273,7 +275,7 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
                     ) : (
                         <ul className='flex flex-col gap-1 pr-2'>
                             {visibleRows.map((row) => {
-                                const conflict = findConflictingRow(rows, row)
+                                const conflict = findConflictingRowInIndex(conflictIndex, row)
                                 return (
                                     <KeybindingRow
                                         key={row.id}

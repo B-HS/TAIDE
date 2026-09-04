@@ -46,6 +46,50 @@ export const defaultTabPathChangeDeps: TabPathChangeDeps = {
 
 type ProjectScope = { queryClient: QueryClient; projectId: ProjectId }
 
+/** Where `QUERY_KEY.LAYOUT.DETAIL` puts the `ProjectId`, derived from the key itself rather than hard-coded so a key-shape change can't silently turn the filter below into a no-op. */
+const LAYOUT_DETAIL_PROJECT_ID_KEY_INDEX = QUERY_KEY.LAYOUT.DETAIL('').length - 1
+
+/**
+ * Every absolute path the tabs of one project still address through the two bare-path-keyed byte
+ * caches: `file` tabs (an editor pane's `FILE.CONTENT`, a preview pane's `FILE.RAW`), `diff` tabs
+ * (which read `FILE.CONTENT` for *both* sides, hence `compareWith` too) and `claudeDiff` tabs.
+ * Spans every tree the project owns — the main window's and each auxiliary window's — through
+ * `collectAllPaneTabs`.
+ */
+const collectAddressedFilePaths = (layout: ProjectLayout) =>
+    collectAllPaneTabs(layout).flatMap((tab) => {
+        if (tab.kind.kind === 'file' || tab.kind.kind === 'claudeDiff') return [tab.kind.path]
+        if (tab.kind.kind !== 'diff') return []
+        return tab.kind.compareWith ? [tab.kind.path, tab.kind.compareWith] : [tab.kind.path]
+    })
+
+/**
+ * Whether any window of any open project still addresses `path`.
+ *
+ * `layout` is *this* project's post-close tree and takes precedence over the cache: `useCloseTab`
+ * releases the closed path before `applyFreshLayout` publishes the new layout, so this project's
+ * cached `LAYOUT.DETAIL` entry is still the pre-close one and would report the tab that was just
+ * closed as open. Every *other* project's layout is read straight from the query cache — the shape
+ * `ipc-sync-provider.tsx`'s `collectOpenFilePathsOutsideProject` already uses to answer the same
+ * "is this path open somewhere else" question for the "reopen with" registry.
+ */
+const isFilePathAddressedAnywhere = ({
+    queryClient,
+    projectId,
+    path,
+    layout,
+}: {
+    queryClient: QueryClient
+    projectId: ProjectId | null
+    path: string
+    layout: ProjectLayout
+}) =>
+    collectAddressedFilePaths(layout).includes(path) ||
+    queryClient
+        .getQueriesData<ProjectLayout>({ queryKey: QUERY_KEY.LAYOUT.ALL })
+        .filter(([queryKey]) => queryKey[LAYOUT_DETAIL_PROJECT_ID_KEY_INDEX] !== (projectId ?? ''))
+        .some(([, cachedLayout]) => !!cachedLayout && collectAddressedFilePaths(cachedLayout).includes(path))
+
 /**
  * Releases everything the frontend keeps keyed by a file path once no tab addresses it any more —
  * the agent wait markers holding an agent's `ide:diff-requested`-style wait open, the hot-exit
@@ -60,6 +104,17 @@ type ProjectScope = { queryClient: QueryClient; projectId: ProjectId }
  *
  * Called both by `useCloseTab` (one tab closed by hand) and by {@link followDeletedPathInTabs} (every
  * tab a delete closed at once).
+ *
+ * The `FILE.CONTENT`/`FILE.RAW` reclaim at the end is contract §C.2-4 M3: both queries are
+ * `staleTime: Infinity` on a bare path key, so closing a tab used to leave a full second copy of the
+ * file — for `FILE.RAW` a preview's raw `ArrayBuffer`, tens of MB for a PDF or an image — sitting in
+ * the query cache for the global 10-minute `gcTime`, exactly the buffer audit §1-6 had just taught
+ * this function to free from monaco. It is deliberately gated harder than the model dispose above:
+ * `stillOpenElsewhere` only asks about *this* project's `file` tabs, while dropping the byte caches
+ * has to be certain no diff/claudeDiff side and no other project's window still reads them. Doing it
+ * here — the one place a file path is known to be closed everywhere — is also what keeps d-43's
+ * save-clobber contract intact: `useSaveFile`'s synchronous `FILE.CONTENT` patch only ever runs for a
+ * path that still has an open tab, so this reclaim can never race it into a re-fetch.
  */
 export const releaseClosedFileTabPath = (
     { queryClient, projectId, path, layout }: { queryClient: QueryClient; projectId: ProjectId | null; path: string; layout: ProjectLayout },
@@ -77,6 +132,10 @@ export const releaseClosedFileTabPath = (
 
     deps.setOpenWithOverride(path, null)
     deps.disposeModel(path)
+
+    if (isFilePathAddressedAnywhere({ queryClient, projectId, path, layout })) return
+    queryClient.removeQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path), exact: true })
+    queryClient.removeQueries({ queryKey: QUERY_KEY.FILE.RAW(path), exact: true })
 }
 
 /**

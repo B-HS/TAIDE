@@ -1,7 +1,7 @@
 import { IS_MAC } from '@shared/constants/platform'
 import type { AppCommand } from '@shared/lib/command-registry'
-import type { KeymapActionId, KeymapChordStage, KeymapEvent, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap/keymap'
-import { APP_KEYMAP, findKeymapConflict, keymapEntryToEvent, matchesKeymapEntry } from '@shared/lib/keymap/keymap'
+import type { KeymapActionId, KeymapChordStage, KeymapEntry, KeymapEvent, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap/keymap'
+import { APP_KEYMAP, findKeymapConflict, keymapEntryToEvent, matchesKeymapEntry, normalizeKeymapEventKey } from '@shared/lib/keymap/keymap'
 import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
 import { MONACO_ACTIONS } from '@shared/lib/monaco/monaco-actions'
 import { parseMonacoDefaultBindingLabel } from '@shared/lib/monaco/monaco-binding-label'
@@ -98,10 +98,79 @@ export const isKeybindingRowUnassigned = (row: KeybindingRow) => !row.key && (ro
 export const resolveKeybindingRowBinding = (row: KeybindingRow) =>
     row.key || row.isOverridden ? row : (parseMonacoDefaultBindingLabel(row.defaultBindingLabel) ?? row)
 
-export const findConflictingRow = (rows: KeybindingRow[], row: KeybindingRow, isMac: boolean = IS_MAC) => {
+/**
+ * The part of `findKeymapConflict`'s verdict that is pure equality, reduced to one string so rows
+ * that could possibly collide can be bucketed instead of compared pairwise.
+ *
+ * `matchesKeymapEntry(binding, keymapEntryToEvent(candidate, isMac), isMac)` is exactly "the two
+ * bindings agree on the canonical key AND on all four modifier booleans", because a synthesized
+ * candidate event carries no `code`: `matchesEntryKey`'s two accepted derivations of the event key
+ * (`normalizeKeymapEventKey`'s physical key and the legacy `normalizeKeymapKey(event.key)`) collapse
+ * to the same string without one, and both `matchesKeymapEntry`'s `wants*` and `keymapEntryToEvent`
+ * derive their booleans from `mods`/`isMac` with the identical formulas. The four booleans are a
+ * fixed-arity tail, so no key — space-bearing or not — can make two different bindings render the
+ * same string.
+ *
+ * Everything that is *not* pure equality — `when` scoping, chord-stage disjointness, the exclusion
+ * of the row itself, and first-in-array-order tie-breaking — deliberately stays inside
+ * {@link findKeymapConflict}, which {@link findConflictingRowInIndex} still runs over the bucket.
+ * The signature only ever narrows the candidate set; it never decides a conflict.
+ */
+const toKeybindingSignature = (binding: Pick<KeymapEntry, 'key' | 'mods'>, isMac: boolean) => {
+    const event = keymapEntryToEvent(binding, isMac)
+    const canonicalKey = normalizeKeymapEventKey({ key: binding.key }).toLowerCase()
+    return `${canonicalKey} ${event.metaKey} ${event.ctrlKey} ${event.shiftKey} ${event.altKey}`
+}
+
+export type KeybindingConflictIndex = { rowsByBinding: Map<string, KeybindingRow[]>; isMac: boolean }
+
+/**
+ * Buckets every bound row by {@link toKeybindingSignature} so conflict lookups stop being a scan of
+ * the whole catalog. The keybindings editor asks for a conflict once per row to count them, once
+ * more per row to render its warning, and again per row while the "conflicts only" filter is on —
+ * O(n) scans per row over ~200 rows, re-run on every keystroke in the search box (contract
+ * `2026-09-04-usability-batch4-contract.md` §C.2-4 L2). One index built per render turns each of
+ * those into a map lookup plus a walk of the handful of rows that share the exact binding.
+ *
+ * Rows with no effective binding are left out: `matchesKeymapEntry` rejects an empty `key` outright,
+ * so they can never be anyone's conflict. Insertion order is preserved inside each bucket, which is
+ * what keeps `findKeymapConflict`'s "first match in array order" answer identical to a full scan's.
+ */
+export const buildKeybindingConflictIndex = (rows: KeybindingRow[], isMac: boolean = IS_MAC): KeybindingConflictIndex => {
+    const rowsByBinding = new Map<string, KeybindingRow[]>()
+
+    for (const row of rows) {
+        const binding = resolveKeybindingRowBinding(row)
+        if (!binding.key) continue
+        const signature = toKeybindingSignature(binding, isMac)
+        const bucket = rowsByBinding.get(signature)
+        if (bucket) bucket.push(row)
+        else rowsByBinding.set(signature, [row])
+    }
+
+    return { rowsByBinding, isMac }
+}
+
+/**
+ * The row `row` collides with, or `null`. `row` need not be one of the indexed rows — the editor
+ * asks this about a binding the user is *about to* assign, using an index built from the catalog as
+ * it stands. Callers with a one-off question build a throwaway index for it; there is deliberately
+ * no second "just scan the array" entry point, so the conflict rule has exactly one implementation.
+ */
+export const findConflictingRowInIndex = (index: KeybindingConflictIndex, row: KeybindingRow) => {
     const candidate = resolveKeybindingRowBinding(row)
     if (!candidate.key) return null
-    return findKeymapConflict(rows, { key: candidate.key, mods: candidate.mods, chord: candidate.chord }, row.id, isMac, resolveKeybindingRowBinding)
+
+    const bucket = index.rowsByBinding.get(toKeybindingSignature(candidate, index.isMac))
+    if (!bucket) return null
+
+    return findKeymapConflict(
+        bucket,
+        { key: candidate.key, mods: candidate.mods, chord: candidate.chord },
+        row.id,
+        index.isMac,
+        resolveKeybindingRowBinding,
+    )
 }
 
 export const filterKeybindingRowsByCapturedKey = (rows: KeybindingRow[], key: string, mods: KeymapModifier[], isMac: boolean = IS_MAC) =>

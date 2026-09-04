@@ -46,9 +46,12 @@ type GitSectionHeaderProps = {
  *   that hid its count would read as "nothing is staged", and acting on that belief routes the
  *   commit through the stage-everything confirmation instead.
  *
- * `data-git-section-header` marks it as a stop in the panel's roving focus order
- * (`change-row-navigation.ts`), which is also what makes the group actions reachable from the
- * keyboard: `group-focus-within:flex` reveals them once the header itself holds focus.
+ * The header is a stop in the panel's roving focus order, which is what makes the group actions
+ * reachable from the keyboard: `group-focus-within:flex` reveals them once the header itself holds
+ * focus. Its position in that order comes from the wrapper the panel renders it in
+ * (`data-git-roving-index`, `change-row-navigation.ts`) rather than from document order, because a
+ * virtualized list only has its visible rows in the DOM. `data-git-section-header` stays as the
+ * marker the e2e specs address headers by.
  */
 export const GitSectionHeader: FC<GitSectionHeaderProps> = ({ title, count, expanded, onToggle, actions = [] }) => {
     const activate = createActivationKeyDownHandler(onToggle)

@@ -99,13 +99,26 @@ export const useOverlayScrollbar = ({ viewportRef, orientation = 'vertical' }: U
         const resizeObserver = new ResizeObserver(scheduleMeasure)
         resizeObserver.observe(viewport)
 
-        const observeContentChildren = () => {
-            for (const child of Array.from(viewport.children)) resizeObserver.observe(child)
-        }
-        observeContentChildren()
+        for (const child of viewport.children) resizeObserver.observe(child)
 
-        const contentObserver = new MutationObserver(() => {
-            observeContentChildren()
+        /**
+         * Observes the *delta* each mutation reports rather than re-walking `viewport.children`.
+         * The viewport of a virtualized list holds a single sizing element, but a plain
+         * `ScrollContainer` list (outline, git panel, settings) has one child per row, and re-walking
+         * on every `childList` record made each row insertion cost a pass over every row already
+         * there — quadratic while a long list streams in (research 3a L3). `subtree` stays off, so a
+         * record's added/removed nodes are exactly the direct children whose sizes this observer
+         * tracks; non-element nodes (whitespace, text) are skipped because `ResizeObserver` only
+         * accepts elements.
+         *
+         * Removals are applied before additions so that a *move* — the same element reported as
+         * removed and re-added when a keyed list reorders — ends up observed rather than dropped.
+         */
+        const contentObserver = new MutationObserver((records) => {
+            for (const record of records) {
+                for (const removed of record.removedNodes) if (removed instanceof Element) resizeObserver.unobserve(removed)
+                for (const added of record.addedNodes) if (added instanceof Element) resizeObserver.observe(added)
+            }
             scheduleMeasure()
         })
         contentObserver.observe(viewport, { childList: true })

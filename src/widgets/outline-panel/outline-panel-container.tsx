@@ -60,5 +60,5 @@ export const OutlinePanelContainer: FC<OutlinePanelContainerProps> = ({ projectI
         requestReveal(activePath, symbol.selectionRange.startLineNumber, symbol.selectionRange.startColumn)
     }
 
-    return <OutlinePanel hasActiveFile={!!activePath} symbols={symbols} onSelectSymbol={handleSelectSymbol} />
+    return <OutlinePanel key={activePath ?? ''} hasActiveFile={!!activePath} symbols={symbols} onSelectSymbol={handleSelectSymbol} />
 }

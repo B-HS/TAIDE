@@ -28,6 +28,7 @@ import { deriveMonacoChordPrefixes } from '@shared/lib/monaco/monaco-keybinding'
 import { IS_MAC } from '@shared/constants/platform'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { toRelativePath } from '@shared/lib/relative-path'
 import { focusTextInputCaretAtEnd } from '@shared/lib/text-input-caret'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
@@ -137,11 +138,24 @@ export const CommandPalette = () => {
      * Every keyboard entry point into the palette goes through here so {@link closedByActionRef} is
      * disarmed on the way in — see its doc comment for the reopen-before-the-close-animation case
      * `onCloseAutoFocus` alone cannot cover.
+     *
+     * Also the sole start point of metric 4-a (`docs/quality-assurance/2026-09-04-perf-baseline.md`):
+     * the palette has no trigger element, so `Dialog`'s `onOpenChange` never opens it — every open
+     * arrives here. Only an actual open is marked; the same shortcuts pressed while the palette is
+     * already up just swap the mode prefix, and timing that as an "open" would report a mode switch
+     * (no mount, no dialog animation) inside metric 4-a's sample.
      */
     const openPalette = (nextQuery: string) => {
+        if (!open) perfMark(PERF_MARK.PALETTE_OPEN_REQUESTED)
         closedByActionRef.current = false
         setQuery(nextQuery)
         setOpen(true)
+    }
+
+    /** Metric 4-b's start point: one keystroke in the palette input, closed by the effect below. */
+    const handleQueryChange = (nextQuery: string) => {
+        perfMark(PERF_MARK.PALETTE_QUERY_CHANGED)
+        setQuery(nextQuery)
     }
 
     const closeAfterAction = () => {
@@ -370,6 +384,20 @@ export const CommandPalette = () => {
         focusTextInputCaretAtEnd(inputRef.current)
     }, [open])
 
+    /**
+     * Closes both palette spans (metrics 4-a and 4-b) at the commit that put the result list on
+     * screen — the filtering itself runs in the render body above, so an effect is the first point
+     * where the work being measured is finished.
+     *
+     * Both are consumed here rather than in separate effects because `perfMeasure` consumes its
+     * start point (`perf-mark.ts`): an open marks only 4-a's, a keystroke only 4-b's, and whichever
+     * one this run does not have measures nothing instead of reporting a stale mark's age.
+     */
+    useEffect(() => {
+        perfMeasure(PERF_MEASURE.PALETTE_OPEN, PERF_MARK.PALETTE_OPEN_REQUESTED)
+        perfMeasure(PERF_MEASURE.PALETTE_FILTER, PERF_MARK.PALETTE_QUERY_CHANGED)
+    }, [open, query])
+
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogHeader className='sr-only'>
@@ -387,7 +415,7 @@ export const CommandPalette = () => {
                     closedByActionRef.current = false
                 }}>
                 <Command shouldFilter={false} className='bg-panel-background text-app-foreground'>
-                    <CommandInput ref={inputRef} value={query} onValueChange={setQuery} placeholder={t(PALETTE_PLACEHOLDER_KEY[mode])} />
+                    <CommandInput ref={inputRef} value={query} onValueChange={handleQueryChange} placeholder={t(PALETTE_PLACEHOLDER_KEY[mode])} />
                     <CommandList>
                         <CommandEmpty>{resolveEmptyStateMessage()}</CommandEmpty>
                         {mode === 'commands' && (

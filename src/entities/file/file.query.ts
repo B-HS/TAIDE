@@ -37,6 +37,19 @@ import { followDeletedPathInTabs, followRenamedPathInTabs } from '@entities/layo
 const invalidateProjectFileIndex = (queryClient: QueryClient, projectId: ProjectId) =>
     queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId), refetchType: 'all' })
 
+/**
+ * One open file's text and metadata, keyed by a bare path (not a `ProjectId`) so every window, pane,
+ * diff side and breadcrumb reading the same file shares one entry. `staleTime: Infinity` because
+ * nothing but an explicit invalidation can make it wrong — a save patches it here, an external write
+ * arrives as the watcher's `fs:changed` echo in `ipc-sync-provider.tsx`.
+ *
+ * Never expires on its own, therefore: an untouched entry would only be collected by the global
+ * 10-minute `gcTime` (`app/query-client.ts`), which for a session that browses a few dozen files
+ * means a full second copy of each one held long after its tab is gone. `releaseClosedFileTabPath`
+ * (`entities/layout/tab-path-change.ts`) is the single point that reclaims both this and
+ * {@link fileRawQueryOptions}'s entry, once no tab in any window of any project addresses the path —
+ * contract `2026-09-04-usability-batch4-contract.md` §C.2-4 M3.
+ */
 export const fileQueryOptions = (path: string | null) =>
     queryOptions({
         queryKey: QUERY_KEY.FILE.CONTENT(path ?? ''),
@@ -64,6 +77,12 @@ export const untitledMirrorsQueryOptions = (projectId: ProjectId) =>
         staleTime: Infinity,
     })
 
+/**
+ * The undecoded bytes behind a preview tab (image, PDF, spreadsheet — `widgets/preview-pane`). The
+ * single largest thing this app parks in the query cache: an `ArrayBuffer` of the whole file, tens
+ * of MB for a PDF, under the same never-expiring `staleTime` as {@link fileQueryOptions} and the same
+ * bare-path key. `releaseClosedFileTabPath` reclaims it on the same closed-everywhere condition.
+ */
 export const fileRawQueryOptions = (path: string | null) =>
     queryOptions({
         queryKey: QUERY_KEY.FILE.RAW(path ?? ''),

@@ -9,9 +9,9 @@ import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemUsageQueryOptions } from '@entities/system/system.query'
-import { toProblemSeverity } from '@features/problems/problem-severity'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
-import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
+import { useMonacoMarkerCounts } from '@shared/hooks/use-monaco-markers'
+import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
 import { MONACO_CHORD_PREFIX_KEY, formatKeymapShortcut } from '@shared/lib/keymap/keymap'
 import { getKeymapChordStoreSnapshot, subscribeKeymapChordNoMatch, subscribeKeymapChordStore } from '@shared/lib/keymap/keymap-chord-store'
@@ -48,11 +48,18 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, on
     const showSystemUsage = settings?.showSystemUsage ?? true
     const { data: systemUsage = null } = useQuery(systemUsageQueryOptions(showSystemUsage))
     const { mutate: updateSettings } = useUpdateSettings()
-    const markers = useMonacoMarkers()
+    /**
+     * The counts tier, never the marker array: this component is mounted for the whole session and
+     * shows one number, so subscribing it to every marker re-rendered the status bar (and re-scanned
+     * every marker) on each of the thousands of `onDidChangeMarkers` an LSP indexing pass fires
+     * (research 3a H2). `use-monaco-markers.ts` returns an identical counts reference while the
+     * totals hold, so this now re-renders only when a total moves.
+     */
+    const markerCounts = useMonacoMarkerCounts()
 
     const editorFontSize = settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE
     const terminalFontSize = settings?.terminalFontSize ?? DEFAULT_CODE_FONT_SIZE
-    const errorCount = markers.filter((marker) => toProblemSeverity(marker.severity) === 'error').length
+    const errorCount = markerCounts[monaco.MarkerSeverity.Error]
     const focusedTabId = layout ? findActiveTab(layout.root, layout.focusedPane)?.id : undefined
 
     const getCursorSnapshot = () => {
