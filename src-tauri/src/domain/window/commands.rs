@@ -284,24 +284,10 @@ pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::Menu
 /// that function's doc comment).
 pub(crate) fn restore_auxiliary_windows(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
-    let project_ids: Vec<ProjectId> = state
-        .projects
-        .read()
-        .iter()
-        .filter(|(_, project)| !project.root_missing)
-        .map(|(project_id, _)| project_id.clone())
-        .collect();
+    let project_ids = service::restorable_project_ids(&state.projects.read());
 
     let layouts = state.layouts.read();
-    let restorations: Vec<(ProjectId, u32)> = project_ids
-        .into_iter()
-        .filter_map(|project_id| {
-            layouts
-                .get(&project_id)
-                .map(|layout| (project_id, layout.auxiliary_windows.clone()))
-        })
-        .flat_map(|(project_id, windows)| windows.into_iter().map(move |window| (project_id.clone(), window.slot)))
-        .collect();
+    let restorations = service::plan_auxiliary_window_restorations(&project_ids, &layouts);
     drop(layouts);
 
     for (project_id, window_slot) in restorations {
@@ -314,5 +300,74 @@ pub(crate) fn restore_auxiliary_windows(app: &tauri::AppHandle) {
                 log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project_id(name: &str) -> ProjectId {
+        ProjectId::from(format!("prj-{name}"))
+    }
+
+    #[test]
+    fn 등록한_라벨로_프로젝트와_슬롯을_되찾는다() {
+        let store = WindowStore::default();
+        store.register("editor-1".to_string(), project_id("a"), 3);
+
+        assert_eq!(store.label_for(&project_id("a"), 3), Some("editor-1".to_string()));
+        assert_eq!(store.forget("editor-1"), Some((project_id("a"), 3)));
+    }
+
+    /// `CloseRequested` and `Destroyed` both run the same cleanup, so whichever fires second must
+    /// find nothing left to remove instead of re-running the tab-return hook for a window that is
+    /// already gone.
+    #[test]
+    fn forget_은_멱등이라_두_번째_호출은_아무것도_돌려주지_않는다() {
+        let store = WindowStore::default();
+        store.register("editor-1".to_string(), project_id("a"), 1);
+
+        assert!(store.forget("editor-1").is_some());
+        assert_eq!(store.forget("editor-1"), None);
+    }
+
+    #[test]
+    fn 등록되지_않은_라벨은_조회도_해제도_비어_있다() {
+        let store = WindowStore::default();
+
+        assert_eq!(store.forget("editor-9"), None);
+        assert_eq!(store.label_for(&project_id("a"), 1), None);
+    }
+
+    #[test]
+    fn 같은_프로젝트의_다른_슬롯은_서로_다른_창으로_구분된다() {
+        let store = WindowStore::default();
+        store.register("editor-1".to_string(), project_id("a"), 1);
+        store.register("editor-2".to_string(), project_id("a"), 2);
+
+        assert_eq!(store.label_for(&project_id("a"), 1), Some("editor-1".to_string()));
+        assert_eq!(store.label_for(&project_id("a"), 2), Some("editor-2".to_string()));
+        assert_eq!(store.label_for(&project_id("a"), 3), None);
+    }
+
+    #[test]
+    fn 슬롯_번호가_같아도_프로젝트가_다르면_다른_창이다() {
+        let store = WindowStore::default();
+        store.register("editor-1".to_string(), project_id("a"), 1);
+        store.register("editor-2".to_string(), project_id("b"), 1);
+
+        assert_eq!(store.label_for(&project_id("b"), 1), Some("editor-2".to_string()));
+    }
+
+    /// The reverse lookup must stop finding a window the moment it is forgotten — otherwise
+    /// `layout_move_tab_to_window` would try to close an OS window that no longer exists.
+    #[test]
+    fn 해제된_창은_역방향_조회에서도_사라진다() {
+        let store = WindowStore::default();
+        store.register("editor-1".to_string(), project_id("a"), 1);
+        store.forget("editor-1");
+
+        assert_eq!(store.label_for(&project_id("a"), 1), None);
     }
 }

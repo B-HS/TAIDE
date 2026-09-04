@@ -223,3 +223,147 @@ pub struct RemoteStateChanged {
 pub struct HotExitFlushRequested {
     pub timeout_ms: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use regex::Regex;
+
+    use super::*;
+    use crate::domain::lsp::types::{LspInstallPhase, LspServerId};
+
+    fn project_id() -> ProjectId {
+        ProjectId::from("prj-events".to_string())
+    }
+
+    /// `serde_json::Map` is a `BTreeMap` in this build (no `preserve_order` feature), so the keys
+    /// come back sorted rather than in declaration order — the assertions below compare sorted
+    /// name sets, which is what "the payload carries exactly these camelCase keys" needs anyway.
+    fn field_names(value: &serde_json::Value) -> Vec<String> {
+        value.as_object().expect("객체여야 합니다").keys().cloned().collect()
+    }
+
+    /// Every payload in this file must carry `#[serde(rename_all = "camelCase")]`: `specta` reads
+    /// the same attribute to generate `bindings.ts`, so a struct that loses it starts emitting
+    /// `snake_case` keys the frontend's generated type says are `camelCase` — a drift no compiler
+    /// on either side can see. `lib.rs` already pins the event *names* and the declared *set*; this
+    /// pins the field-name convention those payloads are read with.
+    #[test]
+    fn 모든_이벤트_페이로드는_camel_case_직렬화를_선언한다() {
+        let pattern = Regex::new(
+            r#"(?m)^#\[derive\([^\]]*\bEvent\b[^\]]*\)\]\n(?<attrs>(?:#\[[^\n]*\]\n)*)pub struct (?<name>[A-Za-z][A-Za-z0-9]*)"#,
+        )
+        .expect("유효한 정규식");
+
+        let declared: Vec<(String, bool)> = pattern
+            .captures_iter(include_str!("events.rs"))
+            .map(|capture| {
+                (
+                    capture["name"].to_string(),
+                    capture["attrs"].contains(r#"#[serde(rename_all = "camelCase")]"#),
+                )
+            })
+            .collect();
+
+        assert!(
+            declared.len() >= 24,
+            "이벤트 페이로드 스캔이 구조체를 놓쳤습니다 (찾은 수: {}) — events.rs 의 어트리뷰트 배치가 바뀌었는지 확인하십시오",
+            declared.len()
+        );
+
+        let missing: Vec<&String> = declared.iter().filter(|(_, has)| !has).map(|(name, _)| name).collect();
+        assert!(
+            missing.is_empty(),
+            "camelCase 직렬화를 선언하지 않은 이벤트 페이로드가 있습니다 (bindings.ts 와 런타임 키가 어긋납니다):\n{missing:#?}"
+        );
+    }
+
+    #[test]
+    fn 단일_필드_이벤트는_camel_case_키로_직렬화된다() {
+        let value = serde_json::to_value(ProjectClosed { project_id: project_id() }).expect("직렬화");
+
+        assert_eq!(field_names(&value), vec!["projectId"]);
+        assert_eq!(value["projectId"], "prj-events");
+    }
+
+    #[test]
+    fn 레이아웃_변경은_프로젝트와_리비전만_싣는다() {
+        let value = serde_json::to_value(LayoutChanged {
+            project_id: project_id(),
+            revision: 7,
+        })
+        .expect("직렬화");
+
+        assert_eq!(field_names(&value), vec!["projectId", "revision"]);
+        assert_eq!(value["revision"], 7);
+    }
+
+    /// The batch 4 F-1 payload (`docs/acknowledge/2026-09-04-usability-batch4-contract.md` §3.6) —
+    /// the native task-completion notification reads all four fields, and `cwd`/`exit_code` are
+    /// `Option`, so both the present and absent shapes are pinned.
+    #[test]
+    fn 명령_종료_이벤트는_네_필드를_camel_case_로_싣는다() {
+        let value = serde_json::to_value(TerminalCommandFinished {
+            session_id: "pty-1".to_string(),
+            cwd: Some("/repo".to_string()),
+            exit_code: Some(130),
+            duration_ms: 12_345,
+        })
+        .expect("직렬화");
+
+        assert_eq!(field_names(&value), vec!["cwd", "durationMs", "exitCode", "sessionId"]);
+        assert_eq!(value["sessionId"], "pty-1");
+        assert_eq!(value["cwd"], "/repo");
+        assert_eq!(value["exitCode"], 130);
+        assert_eq!(value["durationMs"], 12_345);
+    }
+
+    #[test]
+    fn 명령_종료_이벤트의_옵션_필드는_null_로_직렬화된다() {
+        let value = serde_json::to_value(TerminalCommandFinished {
+            session_id: "pty-2".to_string(),
+            cwd: None,
+            exit_code: None,
+            duration_ms: 0,
+        })
+        .expect("직렬화");
+
+        assert!(value["cwd"].is_null(), "cwd 는 생략이 아니라 null 이어야 합니다");
+        assert!(value["exitCode"].is_null(), "exitCode 는 생략이 아니라 null 이어야 합니다");
+    }
+
+    #[test]
+    fn 설치_진행_이벤트의_message_는_없어도_역직렬화된다() {
+        let event: LspInstallProgress =
+            serde_json::from_str(r#"{"serverId":"rust-analyzer","phase":"downloading","receivedBytes":1024.0,"totalBytes":null}"#)
+                .expect("message 없는 페이로드도 읽혀야 합니다");
+
+        assert_eq!(event.server_id, LspServerId("rust-analyzer".to_string()));
+        assert_eq!(event.phase, LspInstallPhase::Downloading);
+        assert_eq!(event.received_bytes, 1024.0);
+        assert_eq!(event.total_bytes, None);
+        assert_eq!(event.message, None);
+    }
+
+    #[test]
+    fn 탭_닫기_요청은_왕복_직렬화에서_필드를_잃지_않는다() {
+        let original = IdeCloseTabRequested {
+            tab_name: "main.rs".to_string(),
+            request_id: Some("req-1".to_string()),
+        };
+        let value = serde_json::to_value(&original).expect("직렬화");
+
+        assert_eq!(field_names(&value), vec!["requestId", "tabName"]);
+
+        let restored: IdeCloseTabRequested = serde_json::from_value(value).expect("역직렬화");
+        assert_eq!(restored.tab_name, original.tab_name);
+        assert_eq!(restored.request_id, original.request_id);
+    }
+
+    #[test]
+    fn 핫엑시트_플러시_요청은_밀리초를_수로_싣는다() {
+        let value = serde_json::to_value(HotExitFlushRequested { timeout_ms: 2_000.0 }).expect("직렬화");
+
+        assert_eq!(field_names(&value), vec!["timeoutMs"]);
+        assert_eq!(value["timeoutMs"], 2_000.0);
+    }
+}

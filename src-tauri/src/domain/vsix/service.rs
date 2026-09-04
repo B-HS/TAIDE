@@ -1049,4 +1049,104 @@ mod tests {
         std::fs::remove_file(&path).ok();
         std::fs::remove_dir_all(&plugins_dir).ok();
     }
+
+    #[test]
+    fn 줄_주석과_블록_주석을_모두_제거한다() {
+        let source = "{\n  // leading\n  \"a\": 1, /* inline */ \"b\": 2\n}";
+
+        assert_eq!(strip_json_comments(source), "{\n  \n  \"a\": 1,  \"b\": 2\n}");
+    }
+
+    /// The whole reason this is a hand-rolled scanner instead of a regex: a `//` inside a string
+    /// value (every theme with a documentation URL has one) must survive, and so must a `/*`.
+    #[test]
+    fn 문자열_안의_주석_기호는_보존된다() {
+        let source = r#"{"url": "https://example.com/x", "glob": "/*.json"}"#;
+
+        assert_eq!(strip_json_comments(source), source);
+    }
+
+    #[test]
+    fn 이스케이프된_따옴표는_문자열을_끝내지_않는다() {
+        let source = r#"{"a": "quote \" then // not a comment"}"#;
+
+        assert_eq!(strip_json_comments(source), source);
+    }
+
+    #[test]
+    fn 줄_주석은_개행에서_끝나고_개행은_남는다() {
+        assert_eq!(strip_json_comments("a // gone\nb"), "a \nb");
+    }
+
+    #[test]
+    fn 닫히지_않은_블록_주석은_끝까지_삼킨다() {
+        assert_eq!(strip_json_comments("{\"a\": 1 /* never closed"), "{\"a\": 1 ");
+    }
+
+    #[test]
+    fn 객체와_배열의_후행_쉼표를_공백_개행과_함께_제거한다() {
+        assert_eq!(strip_trailing_commas("{\"a\": 1,\n}"), "{\"a\": 1\n}");
+        assert_eq!(strip_trailing_commas("[1, 2, ]"), "[1, 2 ]");
+        assert_eq!(strip_trailing_commas(r#"{"a": [1,], "b": 2}"#), r#"{"a": [1], "b": 2}"#);
+    }
+
+    #[test]
+    fn include_는_주석과_후행_쉼표가_섞여_있어도_읽힌다() {
+        let raw = "{\n  // base\n  \"include\": \"./dark.json\",\n}";
+
+        assert_eq!(extract_include_path(raw), Some("./dark.json".to_string()));
+    }
+
+    #[test]
+    fn include_가_없거나_문자열이_아니면_체인은_시작되지_않는다() {
+        assert_eq!(extract_include_path(r#"{"name": "x"}"#), None);
+        assert_eq!(extract_include_path(r#"{"include": 7}"#), None);
+        assert_eq!(extract_include_path("not json at all"), None);
+    }
+
+    #[test]
+    fn zip_경로_정규화는_점_구간을_접고_확장_루트를_유지한다() {
+        assert_eq!(
+            normalize_zip_path("extension/themes", "../themes/nested/./a.json").unwrap(),
+            "extension/themes/nested/a.json"
+        );
+        assert_eq!(
+            normalize_zip_path("extension/themes/deep", "../../b.json").unwrap(),
+            "extension/b.json"
+        );
+    }
+
+    #[test]
+    fn zip_경로_정규화는_확장_루트_위로_올라가면_거부한다() {
+        for relative in ["../../outside.json", "../../../etc/passwd"] {
+            let error = normalize_zip_path("extension/themes", relative).expect_err("루트 밖은 거부되어야 합니다");
+            assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+        }
+    }
+
+    #[test]
+    fn 부모_zip_디렉토리는_최상위에서_빈_문자열이다() {
+        assert_eq!(parent_zip_dir("extension/themes/a.json"), "extension/themes");
+        assert_eq!(parent_zip_dir("a.json"), "");
+    }
+
+    #[test]
+    fn 라벨_폴백은_경로의_파일명을_쓴다() {
+        assert_eq!(theme_label_fallback("extension/themes/One Dark.json"), "One Dark.json");
+        assert_eq!(theme_label_fallback(""), "");
+    }
+
+    #[test]
+    fn nls_치환은_표에_없는_플레이스홀더를_원문_그대로_남긴다() {
+        let table: NlsTable = HashMap::from([("displayName".to_string(), "One Dark Pro".to_string())]);
+
+        assert_eq!(resolve_nls_placeholders("%displayName%", &table), "One Dark Pro");
+        assert_eq!(resolve_nls_placeholders("%missing.key%", &table), "%missing.key%");
+        assert_eq!(resolve_nls_placeholders("plain text", &table), "plain text");
+    }
+
+    #[test]
+    fn nls_표가_비어_있으면_치환을_시도하지_않는다() {
+        assert_eq!(resolve_nls_placeholders("%displayName%", &NlsTable::new()), "%displayName%");
+    }
 }

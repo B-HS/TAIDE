@@ -43,10 +43,56 @@ describe('fuzzyMatch', () => {
         expect(fullWord!.score).toBeGreaterThan(scatteredChars!.score)
     })
 
+    test('타겟이 비어 있으면 매칭되지 않는다', () => {
+        expect(fuzzyMatch('a', '')).toBeNull()
+        expect(fuzzyMatch('', '')).toEqual({ score: 0, indices: [] })
+    })
+
+    test('쿼리가 타겟보다 길면 매칭되지 않는다', () => {
+        expect(fuzzyMatch('abcd', 'abc')).toBeNull()
+    })
+
+    test('같은 문자가 반복되면 항상 가장 앞의 남은 위치를 집는다', () => {
+        expect(fuzzyMatch('aa', 'abaca')?.indices).toEqual([0, 2])
+    })
+
+    test('매칭 인덱스는 항상 증가하고 타겟 코드유닛 오프셋으로 그대로 슬라이스된다', () => {
+        const target = 'src/widgets/editor-area/pane-node-view.tsx'
+        const result = fuzzyMatch('pnv', target)
+        expect(result).not.toBeNull()
+        expect(result!.indices.every((index, position) => position === 0 || index > result!.indices[position - 1])).toBe(true)
+        expect(result!.indices.map((index) => target[index]).join('')).toBe('pnv')
+    })
+
     test('서로게이트 쌍(이모지)에 매칭되면 두 코드유닛 인덱스가 모두 담긴다', () => {
         const result = fuzzyMatch('🚀', 'src/🚀rocket.ts')
         expect(result).not.toBeNull()
         expect(result?.indices).toEqual([4, 5])
+    })
+
+    test('서로게이트 쌍이 타겟 끝에 있어도 두 코드유닛이 모두 담긴다', () => {
+        const target = 'ship🚀'
+        const result = fuzzyMatch('s🚀', target)
+        expect(result?.indices).toEqual([0, 4, 5])
+        expect(target.slice(4, 6)).toBe('🚀')
+    })
+
+    test('서로게이트 쌍이 여러 개면 각각의 코드유닛 오프셋을 정확히 가리킨다', () => {
+        const result = fuzzyMatch('🚀🎉', '🚀a🎉')
+        expect(result?.indices).toEqual([0, 1, 3, 4])
+    })
+
+    test('서로게이트 쌍도 코드포인트 1칸으로 세어 연속 매칭 보너스를 받는다', () => {
+        const consecutive = fuzzyMatch('a🚀', 'a🚀b')
+        const scattered = fuzzyMatch('a🚀', 'axx🚀')
+        expect(consecutive!.score).toBeGreaterThan(scattered!.score)
+    })
+
+    test('서로게이트 쌍 뒤의 문자 인덱스가 코드유닛 기준으로 밀린다', () => {
+        const target = '🚀ab'
+        const result = fuzzyMatch('b', target)
+        expect(result?.indices).toEqual([3])
+        expect(target[3]).toBe('b')
     })
 
     test('서로게이트 쌍 매칭 인덱스로 세그먼트를 나누면 문자가 쪼개지지 않는다', () => {
@@ -64,6 +110,26 @@ describe('fuzzyMatch', () => {
         expect(result).not.toBeNull()
         expect(result?.indices).toEqual([2])
         expect('İstanbul.ts'[2]).toBe('t')
+    })
+
+    test("İ 는 소문자형이 2코드유닛이라 단일 문자 'i' 쿼리와 매칭되지 않고 뒤의 진짜 i 로 넘어간다", () => {
+        expect(fuzzyMatch('i', 'İstanbul')).toBeNull()
+
+        const target = 'İstanbul.min.ts'
+        const result = fuzzyMatch('i', target)
+        expect(result?.indices).toEqual([10])
+        expect(target[10]).toBe('i')
+    })
+
+    test('İ 자신을 쿼리로 주면 코드포인트끼리 비교되어 매칭된다', () => {
+        expect(fuzzyMatch('İ', 'İstanbul.ts')?.indices).toEqual([0])
+    })
+
+    test('İ 가 중간에 있어도 뒤 문자들의 코드유닛 오프셋이 그대로 유지된다', () => {
+        const target = 'src/İd.ts'
+        const result = fuzzyMatch('sd', target)
+        expect(result?.indices).toEqual([0, 5])
+        expect(target[5]).toBe('d')
     })
 })
 

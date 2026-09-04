@@ -26,6 +26,13 @@ const PROJECT_ID = 'project-1'
 
 const buildFileTab = (id: string, path: string): Tab => ({ id, kind: { kind: 'file', path }, title: path, dirty: false })
 
+const buildDiffTab = (id: string, path: string, compareWith: string | null = null): Tab => ({
+    id,
+    kind: { kind: 'diff', path, staged: false, compareWith },
+    title: path,
+    dirty: false,
+})
+
 const buildLeaf = (tabs: Tab[]): PaneNode => ({ node: 'leaf', id: 'leaf', tabs, active: tabs[0]?.id ?? null })
 
 const buildLayout = (tabs: Tab[], revision = 1): ProjectLayout => ({
@@ -35,6 +42,23 @@ const buildLayout = (tabs: Tab[], revision = 1): ProjectLayout => ({
     revision,
     closedTabs: [],
     auxiliaryWindows: [],
+})
+
+const buildLayoutWithAuxiliary = (tabs: Tab[], auxiliaryTabs: Tab[]): ProjectLayout => ({
+    ...buildLayout(tabs),
+    auxiliaryWindows: [
+        { slot: 1, root: { node: 'leaf', id: 'aux-leaf', tabs: auxiliaryTabs, active: auxiliaryTabs[0]?.id ?? null }, focusedPane: 'aux-leaf' },
+    ],
+})
+
+const seedFileBytesCaches = (queryClient: QueryClient, path: string) => {
+    queryClient.setQueryData(QUERY_KEY.FILE.CONTENT(path), buildOpenedFile(path, 'cached', 'typescript'))
+    queryClient.setQueryData(QUERY_KEY.FILE.RAW(path), new ArrayBuffer(8))
+}
+
+const hasFileBytesCaches = (queryClient: QueryClient, path: string) => ({
+    content: queryClient.getQueryData(QUERY_KEY.FILE.CONTENT(path)) !== undefined,
+    raw: queryClient.getQueryData(QUERY_KEY.FILE.RAW(path)) !== undefined,
 })
 
 const buildOpenedFile = (path: string, content: string, languageId: string): OpenedFile => ({
@@ -324,5 +348,141 @@ describe('releaseClosedFileTabPath', () => {
 
         expect(recorder.releasedMarkers).toEqual(['marker-1'])
         expect(recorder.disposed).toEqual(['/repo/marked.ts'])
+    })
+})
+
+describe('releaseClosedFileTabPath 의 FILE.CONTENT/FILE.RAW 캐시 회수 (contract §C.2-4 M3)', () => {
+    const CLOSED_PATH = '/repo/closed.ts'
+
+    test('어느 창에도 남지 않은 경로는 두 바이트 캐시를 모두 회수한다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: false, raw: false })
+    })
+
+    test('같은 경로를 다른 페인이 아직 열고 있으면 회수하지 않는다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([buildFileTab('tab-split', CLOSED_PATH)])
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: true, raw: true })
+    })
+
+    test('보조 창이 아직 열고 있으면 회수하지 않는다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayoutWithAuxiliary([], [buildFileTab('tab-aux', CLOSED_PATH)])
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: true, raw: true })
+    })
+
+    test('같은 경로를 diff 탭이 원본 쪽으로 보고 있으면 회수하지 않는다 (모델은 폐기해도 두 캐시는 남긴다)', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([buildDiffTab('tab-diff', '/repo/other.ts', CLOSED_PATH)])
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(recorder.disposed).toEqual([CLOSED_PATH])
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: true, raw: true })
+    })
+
+    test('다른 프로젝트의 캐시된 레이아웃이 아직 열고 있으면 회수하지 않는다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL('project-2'), buildLayout([buildFileTab('tab-other', CLOSED_PATH)]))
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: true, raw: true })
+    })
+
+    test('이 프로젝트의 캐시된 레이아웃은 닫기 전 상태라 인자로 받은 레이아웃이 이긴다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID), buildLayout([buildFileTab('tab-stale', CLOSED_PATH)]))
+        const layout = buildLayout([])
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: false, raw: false })
+    })
+
+    test('회수는 그 경로에만 적용되고 다른 경로의 캐시는 건드리지 않는다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([buildFileTab('tab-keep', '/repo/kept.ts')])
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+        seedFileBytesCaches(queryClient, '/repo/kept.ts')
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: PROJECT_ID, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: false, raw: false })
+        expect(hasFileBytesCaches(queryClient, '/repo/kept.ts')).toEqual({ content: true, raw: true })
+    })
+
+    test('프로젝트 없는(null) 호출도 다른 프로젝트 레이아웃을 존중하며 회수한다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL('project-2'), buildLayout([]))
+        seedFileBytesCaches(queryClient, CLOSED_PATH)
+
+        releaseClosedFileTabPath(
+            { queryClient, projectId: null, path: CLOSED_PATH, layout },
+            createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } }),
+        )
+
+        expect(hasFileBytesCaches(queryClient, CLOSED_PATH)).toEqual({ content: false, raw: false })
+    })
+
+    test('followDeletedPathInTabs 로 닫힌 경로들도 캐시가 회수된다', async () => {
+        const { followDeletedPathInTabs } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        seedFileBytesCaches(queryClient, '/repo/src/a.ts')
+        seedFileBytesCaches(queryClient, '/repo/src/b.ts')
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: ['/repo/src/a.ts', '/repo/src/b.ts'] } })
+
+        await followDeletedPathInTabs({ queryClient, projectId: PROJECT_ID, path: '/repo/src' }, deps)
+
+        expect(hasFileBytesCaches(queryClient, '/repo/src/a.ts')).toEqual({ content: false, raw: false })
+        expect(hasFileBytesCaches(queryClient, '/repo/src/b.ts')).toEqual({ content: false, raw: false })
     })
 })

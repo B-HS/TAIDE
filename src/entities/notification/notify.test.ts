@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { NotificationDelivery } from '@shared/api/bindings'
 import { NOTIFICATION_TEXT_MAX_CODE_POINTS } from '@shared/constants/notification'
 
@@ -10,11 +10,24 @@ import { NOTIFICATION_TEXT_MAX_CODE_POINTS } from '@shared/constants/notificatio
  * `notifyNative` through `git.query.ts` (`mock.module` is process-global, last-registration-wins)
  * sees the same swallowed failure it would have seen with the real module.
  *
- * `bun:test` has no `window`, so `getWindowContext()` resolves to the main window and
- * `isRemoteMirrorRuntime()` is false: the forwarding gate is open here, and its closed branches are
- * covered by `native-notification-gate.test.ts`.
+ * The DOM harness (`shared/testing/dom-preload.ts`) gives this file a `window` with an empty
+ * `location.search`, so `getWindowContext()` resolves to the main window; `isRemoteMirrorRuntime()`
+ * then reads `getCurrentWindow().label`, which lives in `window.__TAURI_INTERNALS__.metadata` and is
+ * the one piece happy-dom cannot supply — the main window's label is installed for this file only,
+ * leaving the real gate under test. Its closed branches are covered by
+ * `native-notification-gate.test.ts`.
  */
 type SendNativeNotificationInput = { category: string; title: string; body: string }
+
+const MAIN_WINDOW_INTERNALS = { metadata: { currentWindow: { label: 'main' } } }
+
+beforeAll(() => {
+    window.__TAURI_INTERNALS__ = MAIN_WINDOW_INTERNALS
+})
+
+afterAll(() => {
+    delete window.__TAURI_INTERNALS__
+})
 
 const rejectLikeUnavailableIpc = () => Promise.reject(new Error('ipc unavailable under bun:test'))
 

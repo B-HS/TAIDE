@@ -3,6 +3,7 @@ import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
 import { isCommandRunnable } from '@shared/lib/command-registry'
 import { DEFAULT_COMMANDS } from '@shared/lib/command-catalog'
 import { setImeDebugEnabled } from '@shared/lib/ime-debug'
+import { applyNativePerfGate } from '@shared/lib/perf-mark'
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
@@ -87,6 +88,18 @@ describe('DEFAULT_COMMANDS', () => {
         setImeDebugEnabled(true)
         expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(true)
         setImeDebugEnabled(false)
+    })
+
+    test('app.showPerfSnapshot 은 계측 게이트가 켜졌을 때만 실행 가능하고 자체 라벨을 갖는다', () => {
+        const command = DEFAULT_COMMANDS.find((entry) => entry.id === 'app.showPerfSnapshot')
+        expect(command).toBeDefined()
+        expect(command?.titleDefaultValue).toBe('Show Performance Snapshot')
+        expect(command?.keymapId).toBeUndefined()
+        expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(false)
+
+        applyNativePerfGate(true)
+        expect(isCommandRunnable(command as AppCommand, dummyContext)).toBe(true)
+        applyNativePerfGate(false)
     })
 
     test('tab.moveToMainWindow 은 window-context 기반으로 활성 여부를 판단한다(테스트 환경엔 window 전역이 없어 비활성 경로만 검증)', () => {

@@ -45,6 +45,7 @@ mock.module('@entities/layout/layout.ipc', () => ({
     activateTab: rejectLikeUnavailableIpc,
     moveTab: rejectLikeUnavailableIpc,
     splitPane: rejectLikeUnavailableIpc,
+    openTabInSplit: rejectLikeUnavailableIpc,
     resizePane: rejectLikeUnavailableIpc,
     focusPane: rejectLikeUnavailableIpc,
     pinTab: rejectLikeUnavailableIpc,
@@ -169,5 +170,26 @@ describe('앱 내부 fs 뮤테이션의 퀵오픈 인덱스 무효화 (contract 
         expect(own.count).toBe(1)
         expect(other.count).toBe(1)
         expect(queryClient.getQueryState(QUERY_KEY.SEARCH.PROJECT_FILES(PROJECT_ID))?.isInvalidated).toBe(false)
+    })
+})
+
+/**
+ * §C.2-4 M3 reclaims `FILE.CONTENT`/`FILE.RAW` when a path's last tab closes. d-43
+ * (`2026-08-27-d43-save-stale-sync-clobber-contract.md`) depends on the *opposite* guarantee for a
+ * path that is still open: `useSaveFile`'s `onSuccess` patches the cached entry synchronously so a
+ * pane's dirty→false settle re-adopts the just-saved text instead of the pre-save text. This pins
+ * that the reclaim never reaches the save path — saving must leave a patched entry behind, not a
+ * hole that the next open would have to re-fetch through the very window d-43 closed.
+ */
+describe('저장 경로는 캐시 회수와 무관하다 (d-43 클로버 계약 유지)', () => {
+    test('useSaveFile 성공 후 FILE.CONTENT 엔트리가 남아 있고 방금 저장한 내용으로 패치된다', async () => {
+        const { useSaveFile } = await importFileQuery()
+        const { queryClient } = await setupIndexes()
+        queryClient.setQueryData(QUERY_KEY.FILE.CONTENT(FILE_PATH), { path: FILE_PATH, content: 'before', languageId: 'typescript' })
+
+        const mutation = renderQueryHook(queryClient, useSaveFile, PROJECT_ID)
+        await mutation.mutateAsync({ path: FILE_PATH, content: 'saved' })
+
+        expect(queryClient.getQueryData(QUERY_KEY.FILE.CONTENT(FILE_PATH))).toMatchObject({ path: FILE_PATH, content: 'saved' })
     })
 })
