@@ -12,7 +12,7 @@ import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
-import { useOpenTab, useSplitPane } from '@entities/layout/layout.query'
+import { useOpenFileTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
 import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
 import { gitStatusQueryOptions } from '@entities/git/git.query'
 import { projectQueryOptions } from '@entities/project/project.query'
@@ -20,8 +20,10 @@ import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.i
 import type { FileTreeContextMenuHandlers } from '@features/explorer/file-tree'
 import { buildFileTreeGitStatusByPath } from '@widgets/explorer/file-tree-git-status'
 import { parentDirOf } from '@widgets/explorer/explorer-path'
+import { useExplorerAutoReveal } from '@widgets/explorer/use-explorer-auto-reveal'
 import { useExplorerClipboard } from '@widgets/explorer/use-explorer-clipboard'
 import { useExplorerEntryCrud } from '@widgets/explorer/use-explorer-entry-crud'
+import type { ExplorerView } from '@widgets/explorer/explorer-panel'
 import { ExplorerPanel } from '@widgets/explorer/explorer-panel'
 import { FileHistoryPanel } from '@widgets/file-history/file-history-panel'
 
@@ -50,6 +52,7 @@ const findLeafPane = (node: PaneNode, paneId: PaneId): PaneNode | null => {
 
 export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => {
     const { t } = useTranslation()
+    const [view, setView] = useState<ExplorerView>('files')
     const [selectedRow, setSelectedRow] = useState<FileTreeRow | null>(null)
     const [selectPathRequest, setSelectPathRequest] = useState<string | null>(null)
     const [compareSourcePath, setCompareSourcePath] = useState<string | null>(null)
@@ -60,11 +63,12 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     const { mutate: toggleNode, mutateAsync: toggleNodeAsync } = useToggleTreeNode(projectId)
     const { mutateAsync: refreshTreeDir } = useRefreshTreeDir(projectId)
     const { mutateAsync: revealTreeNode } = useRevealTreeNode(projectId)
-    const { mutateAsync: createEntry } = useCreateEntry()
+    const { mutateAsync: createEntry } = useCreateEntry(projectId)
     const { mutateAsync: renameEntryAsync } = useRenameEntry(projectId)
     const { mutateAsync: copyEntryAsync } = useCopyEntry(projectId)
     const { mutateAsync: deleteEntryAsync } = useDeleteEntry(projectId)
-    const { mutate: openTab, mutateAsync: openTabAsync } = useOpenTab(projectId)
+    const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
     const { mutate: splitPane } = useSplitPane(projectId)
 
     const gitStatusByPath = buildFileTreeGitStatusByPath(gitStatus?.rows ?? [], project?.root ?? null)
@@ -77,20 +81,19 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         return project?.root ?? null
     }
 
-    const openFileTab = (row: FileTreeRow, preview: boolean) => {
+    const openRowFileTab = (row: FileTreeRow, preview: boolean) => {
         if (row.kind === 'directory') return
-        openTab({ projectId, kind: { kind: 'file', path: row.path }, title: row.name, target: null, preview }, { onError: notifyError })
+        openFileTab({ projectId, path: row.path, title: row.name, target: null, preview })
     }
 
-    const openSearchMatch = (path: string) =>
-        openTab({ projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true }, { onError: notifyError })
+    const openSearchMatch = (path: string) => openFileTab({ projectId, path, target: null, preview: true })
 
     const crud = useExplorerEntryCrud({
         projectId,
         rows,
         selectedRow,
         targetDirFor,
-        openFileTab,
+        openFileTab: openRowFileTab,
         notifyError,
         setSelectPathRequest,
         toggleNodeAsync,
@@ -115,17 +118,28 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         t,
     })
 
-    const openToTheSide = async (row: FileTreeRow) => {
+    useExplorerAutoReveal({
+        projectId,
+        projectRoot: project?.root ?? null,
+        rows,
+        explorerViewActive: view === 'files',
+        setSelectPathRequest,
+        revealTreeNode,
+    })
+
+    const openToTheSide = (row: FileTreeRow) => {
         if (row.kind !== 'file') return
-        try {
-            const layout = await openTabAsync({ projectId, kind: { kind: 'file', path: row.path }, title: row.name, target: null, preview: false })
-            const pane = findLeafPane(layout.root, layout.focusedPane)
-            const activeTabId = pane && pane.node === 'leaf' ? pane.active : null
-            if (!activeTabId) return
-            splitPane({ paneId: layout.focusedPane, edge: 'right', tabId: activeTabId })
-        } catch (error) {
-            notifyError(error)
-        }
+        openFileTab(
+            { projectId, path: row.path, title: row.name, target: null, preview: false },
+            {
+                onSuccess: (layout) => {
+                    const pane = findLeafPane(layout.root, layout.focusedPane)
+                    const activeTabId = pane && pane.node === 'leaf' ? pane.active : null
+                    if (!activeTabId) return
+                    splitPane({ paneId: layout.focusedPane, edge: 'right', tabId: activeTabId })
+                },
+            },
+        )
     }
 
     const openInTerminal = (row: FileTreeRow) => {
@@ -158,14 +172,14 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
     }
 
     const contextMenuHandlers: FileTreeContextMenuHandlers = {
-        onOpenToTheSide: (row) => void openToTheSide(row),
+        onOpenToTheSide: openToTheSide,
         onOpenWithEditor: (row) => {
             setOpenWithOverride(row.path, 'editor')
-            openFileTab(row, true)
+            openRowFileTab(row, true)
         },
         onOpenWithPreview: (row) => {
             setOpenWithOverride(row.path, null)
-            openFileTab(row, true)
+            openRowFileTab(row, true)
         },
         onOpenInBrowser: (row) => void systemOpenInBrowser(row.path).catch(notifyError),
         onRevealInFinder: (row) => void systemRevealPath(row.path).catch(notifyError),
@@ -204,6 +218,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         <>
             <ExplorerPanel
                 projectId={projectId}
+                view={view}
+                onViewChange={setView}
                 rows={rows}
                 draft={crud.draft}
                 draftError={crud.draftError}
@@ -213,8 +229,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                 canPaste={clipboard !== null}
                 contextMenuHandlers={contextMenuHandlers}
                 onToggleExpand={(row) => toggleNode({ projectId, path: row.path })}
-                onOpenPreview={(row) => openFileTab(row, true)}
-                onOpenPinned={(row) => openFileTab(row, false)}
+                onOpenPreview={(row) => openRowFileTab(row, true)}
+                onOpenPinned={(row) => openRowFileTab(row, false)}
                 onSelectionChange={setSelectedRow}
                 onOpenSearchMatch={openSearchMatch}
                 onNewFile={() => void crud.startDraft('file')}

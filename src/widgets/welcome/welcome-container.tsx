@@ -9,8 +9,7 @@ import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { isWithinRoot } from '@shared/lib/path-root'
-import { fileNameOf } from '@shared/lib/relative-path'
-import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenFileTab } from '@entities/layout/layout.query'
 import {
     projectListQueryOptions,
     recentProjectsQueryOptions,
@@ -52,7 +51,7 @@ export const WelcomeContainer: FC<WelcomeContainerProps> = ({ projectId }) => {
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: openProject } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
-    const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
     const handleOpenFolder = useOpenFolderDialog()
 
     const effectiveKeymap = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
@@ -71,16 +70,7 @@ export const WelcomeContainer: FC<WelcomeContainerProps> = ({ projectId }) => {
             toast.error(t('app.openFileOutsideRoot'))
             return
         }
-        openTab(
-            {
-                projectId,
-                kind: { kind: 'file', path: selected },
-                title: fileNameOf(selected),
-                target: currentWindowFocusedPane(layout),
-                preview: false,
-            },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId, path: selected, target: currentWindowFocusedPane(layout), preview: false })
     }
 
     const handleSelectRecent = (project: Project) => {

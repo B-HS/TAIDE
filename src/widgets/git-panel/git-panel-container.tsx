@@ -27,7 +27,7 @@ import {
     useUnstageGitPaths,
 } from '@entities/git/git.query'
 import { readCommitMessageDraft, writeCommitMessageDraft } from '@entities/git/commit-message-memory'
-import { useOpenTab } from '@entities/layout/layout.query'
+import { useOpenFileTab, useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
 import type { GitDiffTarget } from '@features/git/git-change-group'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
@@ -84,6 +84,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
     const { mutate: push, isPending: isPushing } = usePushGit(projectId)
     const { mutate: pull, isPending: isPulling } = usePullGit(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
     const { data: branches = [] } = useQuery(gitBranchesQueryOptions(projectId))
     const { mutate: checkoutBranch } = useCheckoutGitBranch(projectId)
     const { mutate: checkoutRemoteBranch } = useCheckoutRemoteGitBranch(projectId)
@@ -192,9 +193,6 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
 
     const handleSync = () => pull(projectId, { onSuccess: () => push(projectId, { onError: notifyError }), onError: notifyError })
 
-    const openFileTab = (path: string) =>
-        openTab({ projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true }, { onError: notifyError })
-
     const openDiffTab = (target: GitDiffTarget, group: 'staged' | 'unstaged') =>
         openTab(
             {
@@ -236,7 +234,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onStage={(paths) => stagePaths({ projectId, paths }, { onError: notifyError })}
             onUnstage={(paths) => unstagePaths({ projectId, paths }, { onError: notifyError })}
             onDiscard={(paths) => discardPaths({ projectId, paths }, { onError: notifyError })}
-            onOpenFile={openFileTab}
+            onOpenFile={(path) => openFileTab({ projectId, path, target: null, preview: true })}
             onOpenChanges={openDiffTab}
             onCopyPath={(path) => void navigator.clipboard.writeText(path)}
             onRevealInExplorer={(path) => void systemRevealPath(path).catch(notifyError)}

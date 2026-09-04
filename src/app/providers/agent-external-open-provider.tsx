@@ -1,4 +1,4 @@
-import { useEffect, type FC, type PropsWithChildren } from 'react'
+import { useEffect, useEffectEvent, type FC, type PropsWithChildren } from 'react'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ExternalOpenRequest } from '@shared/api/bindings'
@@ -7,15 +7,14 @@ import { i18next } from '@shared/i18n/i18n'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
-import { fileNameOf } from '@shared/lib/relative-path'
-import { useOpenTabInProject } from '@entities/layout/layout.query'
+import { useOpenFileTab } from '@entities/layout/layout.query'
 import { activateProject, listProjects, openProject } from '@entities/project/project.ipc'
 import { clearStaleWaitMarkersOnStartup, registerWaitMarker } from '@entities/agent/agent-wait-marker-registry'
 import { pendingExternalOpens, releaseWaitMarker } from '@entities/agent/agent.ipc'
 
 const PATH_SEPARATOR = '/'
 
-type OpenTabInProject = ReturnType<typeof useOpenTabInProject>['mutateAsync']
+type OpenFileTab = ReturnType<typeof useOpenFileTab>
 
 const isPathWithinRoot = (path: string, root: string) => path === root || path.startsWith(`${root}${PATH_SEPARATOR}`)
 
@@ -28,11 +27,7 @@ const tryOpenAsProject = async (path: string) => {
     }
 }
 
-const openExternalFile = (openTabInProject: OpenTabInProject, projectId: string, path: string) => {
-    return openTabInProject({ projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true })
-}
-
-const processExternalOpenRequest = async (queryClient: QueryClient, openTabInProject: OpenTabInProject, request: ExternalOpenRequest) => {
+const processExternalOpenRequest = async (queryClient: QueryClient, openFileTab: OpenFileTab, request: ExternalOpenRequest) => {
     if (await tryOpenAsProject(request.path)) {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
         if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
@@ -50,22 +45,39 @@ const processExternalOpenRequest = async (queryClient: QueryClient, openTabInPro
     try {
         await activateProject(owningProject.id)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
-        await openExternalFile(openTabInProject, owningProject.id, request.path)
-        if (request.waitMarker) registerWaitMarker(request.path, request.waitMarker)
+        openFileTab(
+            { projectId: owningProject.id, path: request.path, target: null, preview: true },
+            {
+                onSuccess: () => {
+                    if (request.waitMarker) registerWaitMarker(request.path, request.waitMarker)
+                },
+                onError: () => {
+                    if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
+                },
+            },
+        )
     } catch (error) {
         toast.error(describeIpcError(error))
         if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
     }
 }
 
-const drainPendingExternalOpens = (queryClient: QueryClient, openTabInProject: OpenTabInProject) =>
+const drainPendingExternalOpens = (queryClient: QueryClient, openFileTab: OpenFileTab) =>
     pendingExternalOpens().then((requests) => {
-        for (const request of requests) void processExternalOpenRequest(queryClient, openTabInProject, request)
+        for (const request of requests) void processExternalOpenRequest(queryClient, openFileTab, request)
     })
 
 export const AgentExternalOpenProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
-    const { mutateAsync: openTabInProject } = useOpenTabInProject()
+    const openFileTab = useOpenFileTab()
+
+    /**
+     * `useOpenFileTab` returns a fresh closure on every render (it is a plain function, not a
+     * mutation object), so the startup drain below reads it through a `useEffectEvent` instead of
+     * listing it as a dependency — a dependency would re-run the drain on every render and
+     * reprocess the same queued requests.
+     */
+    const drainOnMount = useEffectEvent(() => void drainPendingExternalOpens(queryClient, openFileTab))
 
     /**
      * The backend always queues the request in `AgentStore` before emitting this event (single
@@ -73,12 +85,12 @@ export const AgentExternalOpenProvider: FC<PropsWithChildren> = ({ children }) =
      * directly — acting on the payload too would leave the queued entry behind for the next
      * `pendingExternalOpens` drain (e.g. on Reload Window) to reprocess as a duplicate.
      */
-    useTauriEvent(events.agentExternalOpen, () => void drainPendingExternalOpens(queryClient, openTabInProject))
+    useTauriEvent(events.agentExternalOpen, () => void drainPendingExternalOpens(queryClient, openFileTab))
 
     useEffect(() => {
         clearStaleWaitMarkersOnStartup()
-        void drainPendingExternalOpens(queryClient, openTabInProject)
-    }, [queryClient, openTabInProject])
+        drainOnMount()
+    }, [])
 
     return children
 }

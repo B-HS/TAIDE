@@ -230,7 +230,21 @@ pub async fn search_list_files(state: State<'_, AppState>, project_id: ProjectId
         .await
         .map_err(|error| AppError::Internal(format!("list project files task failed: {error}")))?;
 
-    Ok(paths.into_iter().map(|path| path.to_string_lossy().into_owned()).collect())
+    Ok(utf8_paths(paths))
+}
+
+/// Drops entries whose path is not valid UTF-8 instead of `to_string_lossy`-ing them. A lossy
+/// conversion substitutes U+FFFD for the undecodable bytes, which produces a *different* path than
+/// the one on disk: the palette would list it, and opening it would fail at the filesystem with a
+/// "not found" for a file that plainly exists. Since `TabKind::File`/`OpenedFile` carry paths as
+/// `String`, such a file is unopenable through this app either way — omitting it is the honest
+/// listing, and it keeps the index's contract ("every path here is openable") intact for the
+/// quick-open pre-validation in `layout::commands::layout_open_tab`.
+fn utf8_paths(paths: Vec<PathBuf>) -> Vec<String> {
+    paths
+        .into_iter()
+        .filter_map(|path| path.into_os_string().into_string().ok())
+        .collect()
 }
 
 #[cfg(test)]
@@ -334,5 +348,28 @@ mod tests {
             !main_flag.load(Ordering::SeqCst),
             "editor-2 창의 취소가 같은 session_id를 쓰는 main 창의 검색을 취소하면 안 된다"
         );
+    }
+
+    /// The palette index must never advertise a path that cannot be opened. `to_string_lossy` used
+    /// to hand it a U+FFFD-substituted spelling of a non-UTF-8 filename — a path that does not
+    /// exist on disk, so clicking the row failed with "not found" for a file the walker had just
+    /// reported. The entry is synthesized from raw bytes rather than written to a temp directory
+    /// because the development platform (APFS) enforces UTF-8 filenames and rejects the `write`
+    /// outright (`EILSEQ`), so no fixture can produce one there; the byte sequence below is exactly
+    /// what [`service::list_project_files`] hands back on the filesystems that do allow it.
+    #[cfg(unix)]
+    #[test]
+    fn 비_utf8_경로는_퀵오픈_목록에서_제외된다() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let walked = vec![
+            PathBuf::from("/repo/readable.rs"),
+            PathBuf::from("/repo").join(OsStr::from_bytes(b"broken-\xff.rs")),
+        ];
+
+        let listed = utf8_paths(walked);
+
+        assert_eq!(listed, vec!["/repo/readable.rs".to_string()], "비-UTF8 경로는 목록에서 빠져야 한다");
     }
 }

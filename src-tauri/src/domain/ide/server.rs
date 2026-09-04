@@ -22,8 +22,10 @@ use super::types::{
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
 use crate::domain::plugin::service::{self as plugin_service, PluginStore};
+use crate::domain::project::types::Project;
 use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged};
 use crate::ids::ProjectId;
+use crate::infra::root_guard;
 use crate::state::AppState;
 
 const JSONRPC_VERSION: &str = "2.0";
@@ -249,6 +251,30 @@ fn find_file_tab(layouts: &HashMap<ProjectId, ProjectLayout>, path: &str) -> Opt
         })
 }
 
+/// Turns `openFile`'s `filePath` argument into the (owning project, canonical path, tab title)
+/// triple a file tab needs, rejecting it while no tab exists yet: outside every open project's root
+/// (the boundary check this tool has always run) or no longer a file on disk. The existence half is
+/// `root_guard::ensure_existing_file`, the same gate `layout::commands::layout_open_tab` runs —
+/// this handler drives `layout_service::open_tab_and_finish` directly (another domain's command
+/// function is not callable from here), so it has to run the gate itself or Claude Code could open
+/// an empty tab for a path it only remembered. Split out of [`tool_open_file`] so the precondition
+/// is testable: the rest of that handler needs a live `AppHandle`, and this codebase has no
+/// `tauri::test` mock-app harness.
+fn resolve_open_file_target(projects: &HashMap<ProjectId, Project>, file_path: &str) -> Result<(ProjectId, String, String), ToolError> {
+    let (project_id, resolved) = service::ensure_path_within_any_project(projects, Path::new(file_path))
+        .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
+    let path_string = resolved.to_string_lossy().to_string();
+    root_guard::ensure_existing_file(&resolved, &path_string).map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
+
+    let title = Path::new(&path_string)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&path_string)
+        .to_string();
+
+    Ok((project_id, path_string, title))
+}
+
 async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, ToolError> {
     let Some(file_path) = arguments.get("filePath").and_then(Value::as_str) else {
         return Err(tool_error(RPC_INVALID_PARAMS, "filePath is required"));
@@ -258,14 +284,7 @@ async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, Too
 
     let state = app.state::<AppState>();
     let projects = state.projects.read().clone();
-    let (project_id, resolved) = service::ensure_path_within_any_project(&projects, Path::new(file_path))
-        .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
-    let path_string = resolved.to_string_lossy().to_string();
-    let title = Path::new(&path_string)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(&path_string)
-        .to_string();
+    let (project_id, path_string, title) = resolve_open_file_target(&projects, file_path)?;
 
     layout_service::open_tab_and_finish(
         app,
@@ -789,6 +808,44 @@ mod tests {
     #[test]
     fn 잘못된_json은_파싱_에러를_반환한다() {
         assert!(parse_incoming("not json").is_err());
+    }
+
+    #[test]
+    fn 존재하지_않는_경로의_open_file은_탭을_만들기_전에_거절된다() {
+        let root = std::env::temp_dir().join(format!("taide-ide-open-file-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let existing = root.join("a.rs");
+        std::fs::write(&existing, "fn main() {}\n").unwrap();
+
+        let project_id = ProjectId::from("ide-open-file".to_string());
+        let projects = HashMap::from([(
+            project_id.clone(),
+            Project {
+                id: project_id,
+                root: root.to_string_lossy().to_string(),
+                name: "ide-open-file".to_string(),
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: 0.0,
+            },
+        )]);
+
+        let Ok((_, _, title)) = resolve_open_file_target(&projects, existing.to_str().unwrap()) else {
+            panic!("존재하는 파일은 통과해야 한다");
+        };
+        assert_eq!(title, "a.rs");
+
+        let Err(error) = resolve_open_file_target(&projects, root.join("deleted.rs").to_str().unwrap()) else {
+            panic!("사라진 경로는 open_tab_and_finish 에 닿기 전에 거절되어야 한다");
+        };
+        assert_eq!(error.code, RPC_INVALID_PARAMS);
+        assert!(
+            error.message.contains("file not found"),
+            "layout_open_tab 과 같은 error.file.notFound 게이트를 타야 한다: {}",
+            error.message
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     fn handshake_request(token: Option<&str>) -> tokio_tungstenite::tungstenite::handshake::client::Request {

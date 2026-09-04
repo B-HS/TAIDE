@@ -1,11 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { AppFileTarget, ProjectId, ProjectLayout } from '@shared/api/bindings'
+import type { AppFileTarget, PaneId, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { describeIpcError, isNotFoundIpcError } from '@shared/lib/ipc-error-message'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
+import { fileNameOf } from '@shared/lib/relative-path'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import { releaseClosedFileTabPath } from '@entities/layout/tab-path-change'
 import {
@@ -102,6 +103,51 @@ export const useOpenTabInProject = () => {
         mutationFn: openTab,
         onSuccess: (layout, variables) => applyFreshLayout(queryClient, variables.projectId, layout),
     })
+}
+
+type OpenFileTabRequest = { projectId: ProjectId; path: string; preview: boolean; target: PaneId | null; title?: string }
+
+type OpenFileTabCallbacks = { onSuccess?: (layout: ProjectLayout) => void; onError?: (error: unknown) => void }
+
+/**
+ * The single entry point for opening a `file` tab — every explorer/palette/search/git/problems/
+ * breadcrumb/welcome/agent call site funnels through here instead of hand-writing
+ * `openTab({ kind: { kind: 'file', … } }, { onError: toast })`, so the two behaviours a file open
+ * needs stay in one place (contract `2026-09-04-usability-batch3-contract.md` §A.2 item 4). The one
+ * deliberate holdout is `app-shell.tsx`'s drag-and-drop loop, which needs `mutateAsync` to open a
+ * multi-file drop one at a time — see `docs/features/command-palette.md` §3.1.
+ *
+ * The first is the error toast itself, which every call site used to copy verbatim. The second is
+ * the quick-open index repair: `layout_open_tab` now rejects a `file` tab whose path is not a file
+ * on disk, and the overwhelming source of such a path is the palette's `SEARCH.PROJECT_FILES`
+ * listing, which is a plain snapshot of one `search_list_files` walk with no backend cache behind
+ * it. A `NotFound` therefore means *this listing is stale*, not merely "this open failed", so the
+ * key is invalidated on the spot — the next ⌘P re-walks instead of offering the same dead row
+ * again. Any other failure (`Forbidden` outside a project root, an `Io` error) says nothing about
+ * the index and leaves it alone.
+ *
+ * `onSuccess` receives the fresh `ProjectLayout` because a caller sometimes needs the pane the tab
+ * landed in (the explorer's "Open to the Side" splits on it) — it is the same value
+ * `useOpenTabInProject`'s own `onSuccess` already wrote into the cache. This is also the extension
+ * point for later "opening a file" behaviour (MRU recording, explorer auto-reveal) rather than
+ * another round of call-site copy-paste.
+ */
+export const useOpenFileTab = () => {
+    const queryClient = useQueryClient()
+    const { mutate: openTabInProject } = useOpenTabInProject()
+
+    return ({ projectId, path, preview, target, title }: OpenFileTabRequest, callbacks?: OpenFileTabCallbacks) =>
+        openTabInProject(
+            { projectId, kind: { kind: 'file', path }, title: title ?? fileNameOf(path), target, preview },
+            {
+                onSuccess: (layout) => callbacks?.onSuccess?.(layout),
+                onError: (error) => {
+                    if (isNotFoundIpcError(error)) void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) })
+                    toast.error(describeIpcError(error))
+                    callbacks?.onError?.(error)
+                },
+            },
+        )
 }
 
 /**

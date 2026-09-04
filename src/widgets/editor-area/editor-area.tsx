@@ -15,6 +15,7 @@ import {
     useCloseTab,
     useMoveTab,
     useMoveTabToWindow,
+    useOpenFileTab,
     useOpenTab,
     useSplitPane,
 } from '@entities/layout/layout.query'
@@ -32,7 +33,6 @@ import { subscribeEditorPaneCommand } from '@shared/lib/bridge/editor-pane-comma
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
 import { collectAllPaneTabs, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
-import { fileNameOf } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { requestTerminalWrite } from '@shared/lib/bridge/terminal-write-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
@@ -80,6 +80,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const { mutate: closeTab } = useCloseTab(projectId)
     const { mutate: activateTab } = useActivateTab(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
 
     /**
@@ -271,16 +272,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
      */
     const handleOpenFileFromEditor = useEffectEvent(({ path: targetPath, line, column }: { path: string; line: number; column: number }) => {
         requestReveal(targetPath, line, column)
-        openTab(
-            {
-                projectId,
-                kind: { kind: 'file', path: targetPath },
-                title: fileNameOf(targetPath),
-                target: paneTree?.focusedPane ?? null,
-                preview: true,
-            },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId, path: targetPath, target: paneTree?.focusedPane ?? null, preview: true })
     })
 
     useEffect(() => subscribeOpenFileFromEditor(handleOpenFileFromEditor), [])

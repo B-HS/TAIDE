@@ -2,12 +2,10 @@ import type { FC } from 'react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { toast } from 'sonner'
 import type { languages } from 'monaco-editor'
 import type { ProjectId, TabId } from '@shared/api/bindings'
-import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
-import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
+import { toRelativePath } from '@shared/lib/relative-path'
 import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import {
@@ -22,7 +20,7 @@ import { waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { subscribeModelContentChange } from '@entities/editor/model-registry'
 import { fileQueryOptions } from '@entities/file/file.query'
-import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenFileTab } from '@entities/layout/layout.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
@@ -60,7 +58,7 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
     const { data: treeRowPage } = useQuery(treeRowsQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: revealTreeNode } = useRevealTreeNode(projectId)
-    const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
     const languageId = file?.languageId ?? null
 
     const relativePath = project && path ? toRelativePath(project.root, path) : null
@@ -110,16 +108,7 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
 
     const handleOpenFile = (targetPath: string) => {
         requestReveal(targetPath, 1, 1)
-        openTab(
-            {
-                projectId,
-                kind: { kind: 'file', path: targetPath },
-                title: fileNameOf(targetPath),
-                target: currentWindowFocusedPane(layout),
-                preview: true,
-            },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId, path: targetPath, target: currentWindowFocusedPane(layout), preview: true })
     }
 
     const handleSelectSymbol = (target: languages.DocumentSymbol) => {

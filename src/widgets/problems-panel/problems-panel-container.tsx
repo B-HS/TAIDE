@@ -1,11 +1,8 @@
 import type { FC } from 'react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
-import { describeIpcError } from '@shared/lib/ipc-error-message'
-import { fileNameOf } from '@shared/lib/relative-path'
-import { useOpenTab } from '@entities/layout/layout.query'
+import { useOpenFileTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import type { ProblemRowData } from '@features/problems/problem-row'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
@@ -27,7 +24,7 @@ export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projec
     const [activeSeverities, setActiveSeverities] = useState<Record<ProblemSeverity, boolean>>(emptySeverityRecord(true))
 
     const markers = useMonacoMarkers()
-    const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
 
     const counts = emptySeverityRecord(0)
     const problemsByPath = new Map<string, ProblemRowData[]>()
@@ -49,10 +46,7 @@ export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projec
 
     const handleOpenProblem = (path: string, line: number, column: number) => {
         requestReveal(path, line, column)
-        openTab(
-            { projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId, path, target: null, preview: true })
     }
 
     return (

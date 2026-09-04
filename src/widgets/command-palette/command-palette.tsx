@@ -28,13 +28,13 @@ import { deriveMonacoChordPrefixes } from '@shared/lib/monaco/monaco-keybinding'
 import { IS_MAC } from '@shared/constants/platform'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
-import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
+import { toRelativePath } from '@shared/lib/relative-path'
 import { focusTextInputCaretAtEnd } from '@shared/lib/text-input-caret'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { monaco } from '@shared/lib/monaco/setup'
-import { findActiveTab } from '@shared/lib/pane-tree'
+import { activeFilePathOf } from '@shared/lib/pane-tree'
 import { Command, CommandEmpty, CommandInput, CommandList } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
@@ -46,7 +46,7 @@ import { CommandPaletteWorkspaceSymbolGroup } from '@features/command-palette/co
 import { fileQueryOptions } from '@entities/file/file.query'
 import { activeProjectQueryOptions, projectQueryOptions } from '@entities/project/project.query'
 import { projectFilesQueryOptions } from '@entities/search/search.query'
-import { layoutQueryOptions, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenFileTab, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
@@ -102,14 +102,17 @@ export const CommandPalette = () => {
     const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mode, searchTerm } = parsePaletteQuery(query)
-    const { data: projectFiles, isPending: isProjectFilesPending } = useQuery({
+    const {
+        data: projectFiles,
+        isPending: isProjectFilesPending,
+        isFetching: isProjectFilesFetching,
+    } = useQuery({
         ...projectFilesQueryOptions(activeProjectId),
         enabled: open && mode === 'files' && !!activeProjectId,
     })
     const isSymbolNavMode = mode === 'symbol' || mode === 'line'
     const { data: layout } = useQuery({ ...layoutQueryOptions(activeProjectId), enabled: open && isSymbolNavMode && !!activeProjectId })
-    const activeTab = layout ? findActiveTab(layout.root, layout.focusedPane) : null
-    const activePath = activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
+    const activePath = activeFilePathOf(layout)
     const { data: activeFile } = useQuery({ ...fileQueryOptions(activePath), enabled: open && mode === 'symbol' && !!activePath })
     const { data: lspServers } = useQuery({ ...lspServersQueryOptions(), enabled: open && mode === 'symbol' })
     const needsActiveProjectRoot = mode === 'symbol' || mode === 'files'
@@ -118,6 +121,7 @@ export const CommandPalette = () => {
         enabled: open && needsActiveProjectRoot && !!activeProjectId,
     })
     const { mutate: openTab } = useOpenTab(activeProjectId)
+    const openFileTab = useOpenFileTab()
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
 
     const keymapOverrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
@@ -283,10 +287,7 @@ export const CommandPalette = () => {
 
     const openFile = (path: string) => {
         if (!activeProjectId) return
-        openTab(
-            { projectId: activeProjectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: null, preview: true },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId: activeProjectId, path, target: null, preview: true })
         closeAfterAction()
     }
 
@@ -305,10 +306,7 @@ export const CommandPalette = () => {
     const selectWorkspaceSymbol = (symbol: NormalizedWorkspaceSymbol) => {
         if (!activeProjectId) return
         requestReveal(symbol.path, symbol.line, symbol.column)
-        openTab(
-            { projectId: activeProjectId, kind: { kind: 'file', path: symbol.path }, title: fileNameOf(symbol.path), target: null, preview: true },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId: activeProjectId, path: symbol.path, target: null, preview: true })
         closeAfterAction()
     }
 
@@ -379,7 +377,12 @@ export const CommandPalette = () => {
                             />
                         )}
                         {mode === 'files' && (
-                            <CommandPaletteFilesGroup files={filteredFiles} toProjectRelativePath={toProjectRelativePath} onOpenFile={openFile} />
+                            <CommandPaletteFilesGroup
+                                files={filteredFiles}
+                                isRefreshing={isProjectFilesFetching}
+                                toProjectRelativePath={toProjectRelativePath}
+                                onOpenFile={openFile}
+                            />
                         )}
                         {mode === 'symbol' && <CommandPaletteSymbolGroup symbols={filteredDocumentSymbols} onSelectSymbol={selectDocumentSymbol} />}
                         {mode === 'line' && (

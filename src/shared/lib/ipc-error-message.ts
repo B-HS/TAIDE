@@ -30,3 +30,12 @@ export const describeIpcError = (error: unknown) => {
 
 /** Whether `error` is a `Localized` backend error carrying this exact locale key — used to branch on a specific backend condition (e.g. a user-initiated cancellation) instead of showing it as a failure. */
 export const isIpcErrorKey = (error: unknown, key: string) => error instanceof IpcError && error.localeKey === key
+
+/**
+ * Whether `error` is a backend `NotFound`, regardless of whether it arrived as a bare
+ * `AppError::NotFound` or as the `Localized` newtype wrapping one — `normalizeAppError`
+ * (`@shared/api/unwrap-result`) flattens the latter's inner `kind` into the same `code`, so both
+ * shapes match here. `useOpenFileTab` branches on it to refresh the quick-open file index that
+ * handed out a path which no longer exists on disk, instead of only reporting the failure.
+ */
+export const isNotFoundIpcError = (error: unknown) => error instanceof IpcError && error.code === 'NotFound'

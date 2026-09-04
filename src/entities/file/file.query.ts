@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query'
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { OpenedFile, ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -6,6 +7,35 @@ import { readFileRaw } from '@entities/file/file.raw'
 import { publishFileSaveSettle } from '@entities/editor/file-save-settle-registry'
 import { applyFreshLayout } from '@entities/layout/layout.query'
 import { followDeletedPathInTabs, followRenamedPathInTabs } from '@entities/layout/tab-path-change'
+
+/**
+ * Refreshes the command palette's quick-open file index after an in-app filesystem mutation
+ * (contract `2026-09-04-usability-batch3-contract.md` §A.2 item 5). `SEARCH.PROJECT_FILES` has no
+ * backend cache behind it — it is one `search_list_files` walk frozen in the query cache — so any
+ * create/rename/copy/delete this app performs makes it wrong until something invalidates it, and
+ * until now the *only* invalidator was `ipc-sync-provider`'s debounced watcher echo.
+ *
+ * The invalidation is demand-driven, not immediate: the palette query is `enabled` only while the
+ * palette is open, and `refetchQueries` skips every disabled query whatever `refetchType` says
+ * (query-core 5.101 `queryClient.refetchQueries` filters on `!query.isDisabled()`, and
+ * `isDisabled()` is `!isActive()` as soon as one observer exists — the always-mounted
+ * `<CommandPalette/>` is that observer). So a mutation made with the palette closed marks the
+ * index stale and the re-walk runs when the palette is next opened: still one walk per user file
+ * operation, but the first frame of that ⌘P renders the stale array while the walk is in flight.
+ * Two things cover that frame — the `palette.filesRefreshing` indicator on the files group, and
+ * `layout_open_tab`'s existence pre-check, which refuses a row whose file is gone instead of
+ * opening a broken tab. `refetchType: 'all'` only widens the invalidation to an index with no live
+ * observer (a project that is no longer the active one); keeping the refetch demand-driven is also
+ * what the watcher echo cannot do safely (an external bulk change fans out into many `fs:changed`
+ * batches — hence that path deliberately stays on the default `refetchType`).
+ *
+ * `useSaveFile` is intentionally not on this list even though it writes to disk: a save targets a
+ * path the index already carries, and auto-save makes its frequency unbounded, so invalidating
+ * here would buy nothing and cost a project-wide walk per keystroke-idle. The one case that does
+ * create a new file — an untitled tab's Save As — is covered by the watcher's `created` echo.
+ */
+const invalidateProjectFileIndex = (queryClient: QueryClient, projectId: ProjectId) =>
+    queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId), refetchType: 'all' })
 
 export const fileQueryOptions = (path: string | null) =>
     queryOptions({
@@ -85,7 +115,13 @@ export const useSaveFile = (projectId?: ProjectId) => {
     })
 }
 
-export const useCreateEntry = () => useMutation({ mutationFn: createEntry })
+export const useCreateEntry = (projectId: ProjectId) => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: createEntry,
+        onSuccess: () => void invalidateProjectFileIndex(queryClient, projectId),
+    })
+}
 
 /**
  * `onSuccess` is `async` on purpose: TanStack Query keeps the mutation pending until the promise it
@@ -126,6 +162,7 @@ export const useRenameEntry = (projectId: ProjectId) => {
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(from) })
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(to) })
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
+            void invalidateProjectFileIndex(queryClient, projectId)
         },
     })
 }
@@ -137,6 +174,7 @@ export const useCopyEntry = (projectId: ProjectId) => {
         onSuccess: (_, { to }) => {
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(to) })
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
+            void invalidateProjectFileIndex(queryClient, projectId)
         },
     })
 }
@@ -157,6 +195,7 @@ export const useDeleteEntry = (projectId: ProjectId) => {
             if (result) applyFreshLayout(queryClient, projectId, result.layout)
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
             void queryClient.invalidateQueries({ queryKey: QUERY_KEY.GIT.PROJECT(projectId) })
+            void invalidateProjectFileIndex(queryClient, projectId)
         },
     })
 }

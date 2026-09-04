@@ -2,7 +2,6 @@ import type { FC, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectId, SearchQuery, TabId } from '@shared/api/bindings'
 import { DEFAULT_SEARCH_OPTIONS } from '@entities/search/search.type'
@@ -13,7 +12,7 @@ import { resolveSearchResultsView } from '@entities/search/search-run-state'
 import { useRecentSearches } from '@entities/search/search-history'
 import { useSearchRun } from '@entities/search/use-search-run'
 import { requestReveal } from '@entities/editor/reveal-registry'
-import { layoutQueryOptions, useOpenTab } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenFileTab } from '@entities/layout/layout.query'
 import { SearchExcludeGlobInput } from '@features/search/search-exclude-glob-input'
 import { SearchHistoryDropdown } from '@features/search/search-history-dropdown'
 import { SearchOptionToggles } from '@features/search/search-option-toggles'
@@ -25,9 +24,7 @@ import {
 } from '@widgets/search-editor/search-editor-context-lines'
 import { SEARCH_MATCH_LIMIT } from '@shared/constants/search'
 import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
-import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
-import { fileNameOf } from '@shared/lib/relative-path'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 
 type SearchEditorPaneProps = {
@@ -67,7 +64,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
     const { t } = useTranslation()
     const recentSearches = useRecentSearches()
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
-    const { mutate: openTab } = useOpenTab(projectId)
+    const openFileTab = useOpenFileTab()
     const { results, totalMatches, status, isTruncated, run, readSnapshot } = useSearchRun(projectId, tabId, restored?.run)
 
     const hasResults = results.length > 0
@@ -96,10 +93,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
 
     const handleOpenMatch = (path: string, line: number, column: number) => {
         requestReveal(path, line, column)
-        openTab(
-            { projectId, kind: { kind: 'file', path }, title: fileNameOf(path), target: currentWindowFocusedPane(layout), preview: true },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
+        openFileTab({ projectId, path, target: currentWindowFocusedPane(layout), preview: true })
     }
 
     useEffect(() => {

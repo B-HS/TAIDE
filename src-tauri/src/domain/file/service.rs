@@ -62,13 +62,33 @@ pub struct UntitledMirrorEntry {
     pub saved_at_ms: f64,
 }
 
+/// Translates [`open_file`]'s `metadata` failure. Only `NotFound` is rewritten — into the same
+/// `error.file.notFound` the layout domain raises when it pre-validates a file tab — because that
+/// is the one failure the user routinely provokes (opening a path from a stale index, or a file
+/// deleted outside the app) and `From<io::Error>`'s untranslated `No such file or directory (os
+/// error 2)` used to reach the editor body verbatim, in English, in every locale. Every other io
+/// error keeps that blanket conversion: they are environmental (permissions, I/O faults) and their
+/// os-level text is the only diagnostic detail there is.
+fn open_metadata_error(path: &Path, error: std::io::Error) -> AppError {
+    if error.kind() != std::io::ErrorKind::NotFound {
+        return AppError::from(error);
+    }
+
+    AppError::localized(
+        AppErrorKind::NotFound,
+        "error.file.notFound",
+        format!("file not found: {}", path.display()),
+    )
+    .with_arg("path", path.display())
+}
+
 /// `editor_config_enabled` is the user's `Settings::editor_config_enabled` toggle, threaded in
 /// rather than read here so this stays a pure filesystem function. When it is off (the default) the
 /// `.editorconfig` chain is not walked at all, so a project that has no use for it pays nothing per
 /// open. A [`FileSizeTier::Refused`] file never carries the properties either — it has no editable
 /// buffer for them to apply to.
 pub fn open_file(path: &Path, language_overlays: &[LanguageOverlay], editor_config_enabled: bool) -> AppResult<OpenedFile> {
-    let metadata = std::fs::metadata(path)?;
+    let metadata = std::fs::metadata(path).map_err(|error| open_metadata_error(path, error))?;
     if !metadata.is_file() {
         return Err(AppError::localized(
             AppErrorKind::InvalidArgument,
@@ -1262,5 +1282,40 @@ mod tests {
         );
 
         cleanup(&dir);
+    }
+
+    #[test]
+    fn 존재하지_않는_파일을_열면_로케일_키가_실린_not_found_다() {
+        let dir = temp_dir("open-missing");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let missing = dir.join("gone.rs");
+        let error = open_file(&missing, &[], false).expect_err("존재하지 않는 파일은 실패해야 한다");
+
+        assert_eq!(error.kind(), AppErrorKind::NotFound);
+        let AppError::Localized(localized) = error else {
+            panic!("io 원문(No such file or directory) 대신 로케일 키가 실려야 한다");
+        };
+        assert_eq!(localized.key, "error.file.notFound");
+        assert_eq!(
+            localized.args.get("path").map(String::as_str),
+            Some(missing.to_string_lossy().as_ref())
+        );
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn not_found_이_아닌_io_에러는_기존_변환을_유지한다() {
+        let error = open_metadata_error(
+            Path::new("/repo/a.rs"),
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied"),
+        );
+
+        assert_eq!(error.kind(), AppErrorKind::Io);
+        assert!(
+            !matches!(error, AppError::Localized(_)),
+            "NotFound 이외의 io 에러는 로케일화 대상이 아니다"
+        );
     }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { applyLocaleMessages, i18next } from '@shared/i18n/i18n'
 import { IpcError } from '@shared/api/unwrap-result'
-import { describeIpcError, isIpcErrorKey } from '@shared/lib/ipc-error-message'
+import { describeIpcError, isIpcErrorKey, isNotFoundIpcError } from '@shared/lib/ipc-error-message'
 
 const REGISTERED_KEY = 'error.test.ipcErrorMessageKnown'
 const UNREGISTERED_KEY = 'error.test.ipcErrorMessageMissing'
@@ -65,5 +65,43 @@ describe('isIpcErrorKey', () => {
 
     test('IpcError 가 아니면 항상 false 를 반환한다', () => {
         expect(isIpcErrorKey(new Error('boom'), REGISTERED_KEY)).toBe(false)
+    })
+})
+
+describe('isNotFoundIpcError', () => {
+    test('NotFound 는 맨 AppError 든 Localized 로 감싸인 것이든 true 를 반환한다', () => {
+        expect(isNotFoundIpcError(new IpcError({ code: 'NotFound', message: 'gone' }))).toBe(true)
+        expect(
+            isNotFoundIpcError(
+                new IpcError({ code: 'Localized', message: { kind: 'NotFound', key: 'error.file.notFound', args: {}, fallback: 'gone' } }),
+            ),
+        ).toBe(true)
+    })
+
+    test('다른 코드거나 IpcError 가 아니면 false 를 반환한다', () => {
+        expect(isNotFoundIpcError(new IpcError({ code: 'Internal', message: 'boom' }))).toBe(false)
+        expect(isNotFoundIpcError(new Error('boom'))).toBe(false)
+    })
+
+    test('Forbidden·Io·InvalidArgument 는 맨 AppError 든 Localized 로 감싸인 것이든 false 를 반환한다 (useOpenFileTab 이 인덱스를 다시 걷지 않는 실패)', () => {
+        expect(isNotFoundIpcError(new IpcError({ code: 'Forbidden', message: 'outside project' }))).toBe(false)
+        expect(isNotFoundIpcError(new IpcError({ code: 'Io', message: 'permission denied' }))).toBe(false)
+        expect(isNotFoundIpcError(new IpcError({ code: 'InvalidArgument', message: 'bad path' }))).toBe(false)
+        expect(
+            isNotFoundIpcError(
+                new IpcError({
+                    code: 'Localized',
+                    message: { kind: 'Forbidden', key: 'error.path.outsideOpenProjects', args: { path: '/etc/passwd' }, fallback: 'outside' },
+                }),
+            ),
+        ).toBe(false)
+    })
+
+    test('message 가 NotFound 처럼 보여도 코드가 다르면 false 이고, Error 가 아닌 값은 항상 false 다', () => {
+        expect(isNotFoundIpcError(new IpcError({ code: 'Internal', message: 'NotFound' }))).toBe(false)
+        expect(isNotFoundIpcError(new FakeLocaleKeyError('gone', 'error.file.notFound', {}))).toBe(false)
+        expect(isNotFoundIpcError('NotFound')).toBe(false)
+        expect(isNotFoundIpcError(null)).toBe(false)
+        expect(isNotFoundIpcError(undefined)).toBe(false)
     })
 })

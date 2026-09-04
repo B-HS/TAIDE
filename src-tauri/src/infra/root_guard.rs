@@ -56,6 +56,32 @@ pub fn resolve_owning_project(projects: &HashMap<ProjectId, Project>, path: &Pat
     })
 }
 
+/// Rejects a path that no longer names a file on disk, raising the same localized
+/// `error.file.notFound` (arg `path`) that `file::service::open_file` raises, so the message reads
+/// identically wherever it surfaces. `resolved` is the canonical path actually probed;
+/// `display_path` is the path the caller was handed, and the one the message and the arg carry.
+///
+/// It lives here, in infra, because *both* ways a file tab can be opened have to run it before the
+/// tab exists: `layout::commands::layout_open_tab` (the command every UI and remote-session open
+/// goes through) and the IDE MCP `openFile` tool, which cannot call another domain's command
+/// function and drives `layout::service::open_tab_and_finish` directly. A gate private to either
+/// one would leave the other opening an empty tab for a path that was only remembered — a stale
+/// quick-open index entry, or a file Claude Code saw before it was renamed — whose body then showed
+/// nothing but a raw `os error 2`. The layout service itself stays unguarded on purpose: it is a
+/// pure in-memory tree, and its tests open tabs for paths that never existed.
+pub fn ensure_existing_file(resolved: &Path, display_path: &str) -> AppResult<()> {
+    if std::fs::metadata(resolved).is_ok_and(|metadata| metadata.is_file()) {
+        return Ok(());
+    }
+
+    Err(AppError::localized(
+        AppErrorKind::NotFound,
+        "error.file.notFound",
+        format!("file not found: {display_path}"),
+    )
+    .with_arg("path", display_path))
+}
+
 pub fn ensure_within_root(root: &Path, path: &Path) -> AppResult<PathBuf> {
     canonicalize_root_and_resolve(root, path).map(|(_, resolved)| resolved)
 }
