@@ -1,5 +1,15 @@
 import { commands } from '@shared/api/bindings'
-import type { DropEdge, PaneId, ProjectId, ShellViewPatch, TabId, TabKind, TabPathChange, TabWindowTarget } from '@shared/api/bindings'
+import type {
+    DropEdge,
+    OpenTabInSplitRequest,
+    PaneId,
+    ProjectId,
+    ShellViewPatch,
+    TabId,
+    TabKind,
+    TabPathChange,
+    TabWindowTarget,
+} from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const getLayout = (projectId: ProjectId) => unwrapResult(commands.layoutGet(projectId))
@@ -16,6 +26,14 @@ export const moveTab = (input: { tabId: TabId; paneId: PaneId; index: number }) 
 
 export const splitPane = (input: { paneId: PaneId; edge: DropEdge; tabId: TabId }) =>
     unwrapResult(commands.layoutSplit(input.paneId, input.edge, input.tabId))
+
+/**
+ * Opens a *brand-new* tab in a new pane beside `targetPane` — the terminal context menu's "split".
+ * Distinct from {@link splitPane}, which moves a tab that already exists; see
+ * `layout::commands::layout_open_tab_in_split` for why the two cannot be composed from the
+ * frontend.
+ */
+export const openTabInSplit = (request: OpenTabInSplitRequest) => unwrapResult(commands.layoutOpenTabInSplit(request))
 
 export const resizePane = (input: { paneId: PaneId; sizes: number[] }) => unwrapResult(commands.layoutResize(input.paneId, input.sizes))
 

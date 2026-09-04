@@ -1,16 +1,17 @@
-import type { FC } from 'react'
+import type { FC, RefObject } from 'react'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { ProjectId, TabId, TerminalSession as TerminalSessionInfo } from '@shared/api/bindings'
+import type { PaneId, ProjectId, TabId, TerminalSession as TerminalSessionInfo } from '@shared/api/bindings'
 import { currentThemeQueryOptions } from '@entities/theme/theme.query'
+import { projectQueryOptions } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
 import { isTerminalSessionAlive, removeTerminalSession, upsertTerminalSession } from '@entities/terminal/terminal-session-cache'
 import { attachPty, detachPty, killPty, resizePty, resolveTerminalPath, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
 import { openExternalUrl } from '@entities/system/external-url'
-import { layoutQueryOptions, useSetTerminalSession } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useCloseTab, useOpenTab, useOpenTabInSplit, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands, events } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
@@ -22,25 +23,32 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
+import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK, DEFAULT_SHELL_LABEL } from '@shared/constants/terminal'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import type { SplitEdge } from '@features/tab/tab-context-menu'
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { Button } from '@shared/ui/button'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 import { appendPendingTerminalInput } from '@widgets/terminal-pane/pending-terminal-input'
+import { resolveSplitTerminalCwd } from '@widgets/terminal-pane/terminal-split-availability'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
 
 type TerminalSessionProps = {
     projectId: ProjectId
     tabId: TabId
+    /** The pane this terminal is rendered in — the split target of its context menu. */
+    paneId: PaneId
     sessionId: string
     /** Whether this terminal's pane is the focused one — see `TerminalViewProps.autoFocus`. */
     autoFocus: boolean
+    /** The pane's terminal area, measured on context-menu open — see `TerminalPaneProps.paneElementRef`. */
+    paneElementRef: RefObject<HTMLDivElement | null>
 }
 
-export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, sessionId: persistedSessionId, autoFocus }) => {
+export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, paneId, sessionId: persistedSessionId, autoFocus, paneElementRef }) => {
     const spawnStartedRef = useRef(false)
     const dimensionsRef = useRef({ cols: 0, rows: 0 })
     const isMountedRef = useRef(true)
@@ -53,9 +61,13 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
 
     const { data: theme } = useQuery(currentThemeQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
+    const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: liveSessions, isFetched: isSessionsFetched } = useQuery(terminalSessionsQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutateAsync: persistTerminalSession } = useSetTerminalSession(projectId)
+    const { mutate: openTabInSplit } = useOpenTabInSplit(projectId)
+    const { mutate: openTab } = useOpenTab(projectId)
+    const { mutate: closeTab } = useCloseTab(projectId)
     const { t } = useTranslation()
     const queryClient = useQueryClient()
     const failureMessage = useIpcErrorMessage(failure)
@@ -184,6 +196,46 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
             .catch(() => toast.error(t('terminal.openLinkFailed')))
     }
 
+    const notifyError = (error: Error) => toast.error(describeIpcError(error))
+
+    /**
+     * The context menu's "Split" — a *new* terminal in a *new* pane beside this one, VS Code's
+     * meaning of the word, which is why it goes through `layout_open_tab_in_split` rather than the
+     * `layout_split` the tab bar uses (that one moves this very tab, leaving the original pane
+     * empty). Composing the two frontend-side would open the new tab in *this* pane first, tearing
+     * down the terminal the user is looking at and spawning its shell twice; the single command
+     * makes that unrepresentable. See `docs/features/terminal.md` §6.2.
+     */
+    const handleSplitNewTerminal = (edge: SplitEdge) =>
+        openTabInSplit(
+            {
+                projectId,
+                targetPane: paneId,
+                edge,
+                kind: {
+                    kind: 'terminal',
+                    sessionId: '',
+                    cwd: resolveSplitTerminalCwd({
+                        liveCwd: cwd,
+                        persistedCwd: persistedSession?.cwd ?? null,
+                        tabCwd,
+                        projectRoot: project?.root ?? null,
+                    }),
+                },
+                title: t('terminal.title'),
+                preview: false,
+            },
+            { onError: notifyError },
+        )
+
+    const handleNewTerminal = () =>
+        openTab(
+            { projectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: paneId, preview: false },
+            { onError: notifyError },
+        )
+
+    const handleKillTerminal = () => closeTab(tabId, { onError: notifyError })
+
     const handleRestart = () => {
         setExited(null)
         setSpawnedSessionId(null)
@@ -287,12 +339,17 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, se
             cursorBlink={settings?.terminalCursorBlink ?? true}
             commandSuccessColor={normalizeDecorationHexColor(theme.colors['statusIndicator.success'])}
             commandFailureColor={normalizeDecorationHexColor(theme.colors['statusIndicator.error'])}
+            paneElementRef={paneElementRef}
+            resizerThicknessPx={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS}
             onWrite={handleWrite}
             onResize={handleResize}
             onReady={handleReady}
             onSetPaused={handleSetPaused}
             onOpenLink={handleOpenLink}
             onOpenFileLink={handleOpenFileLink}
+            onSplitNewTerminal={handleSplitNewTerminal}
+            onNewTerminal={handleNewTerminal}
+            onKillTerminal={handleKillTerminal}
             attachData={handleAttachData}
         />
     )

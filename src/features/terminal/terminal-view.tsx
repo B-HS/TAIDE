@@ -52,10 +52,23 @@ export const shouldTranslateShiftEnterToLineFeed = (
     event: Pick<KeyboardEvent, 'type' | 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing'>,
 ) => event.type === 'keydown' && event.key === 'Enter' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing
 
+/**
+ * Everything an owner outside this view may do to the live `Terminal` instance. The clipboard and
+ * selection members exist for the context menu (`terminal-context-menu.tsx`): `paste` is xterm's
+ * own, not a `pty_write` shortcut, because it is what applies CRLF normalization and bracketed
+ * paste (`\x1b[200~`) — writing the raw text instead makes a multi-line paste execute line by line
+ * in any shell that supports bracketed paste.
+ */
 export type TerminalAttachHandle = {
     write: (data: Uint8Array) => void
     jumpToPreviousCommand: () => void
     jumpToNextCommand: () => void
+    focus: () => void
+    hasSelection: () => boolean
+    getSelection: () => string
+    selectAll: () => void
+    clear: () => void
+    paste: (text: string) => void
 }
 
 export type { TerminalCursorStyle }
@@ -192,6 +205,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
             cursorStyle: initialCursorStyleRef.current,
             macOptionIsMeta: true,
             altClickMovesCursor: false,
+            rightClickSelectsWord: false,
             minimumContrastRatio: 1,
             drawBoldTextInBrightColors: true,
             smoothScrollDuration: 0,
@@ -330,6 +344,12 @@ export const TerminalView: FC<TerminalViewProps> = ({
             },
             jumpToPreviousCommand: () => osc133Tracker.jumpToPreviousCommand(),
             jumpToNextCommand: () => osc133Tracker.jumpToNextCommand(),
+            focus: () => term.focus(),
+            hasSelection: () => term.hasSelection(),
+            getSelection: () => term.getSelection(),
+            selectAll: () => term.selectAll(),
+            clear: () => term.clear(),
+            paste: (text) => term.paste(text),
         }
 
         return () => {

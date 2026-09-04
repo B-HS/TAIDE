@@ -18,6 +18,7 @@ import {
     moveTab,
     moveTabToWindow,
     openTab,
+    openTabInSplit,
     openUntitledTab,
     pinTab,
     reopenClosedTab,
@@ -174,6 +175,8 @@ export const useActivateTab = (projectId: ProjectId | null) => useLayoutMutation
 export const useMoveTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, moveTab)
 
 export const useSplitPane = (projectId: ProjectId | null) => useLayoutMutation(projectId, splitPane)
+
+export const useOpenTabInSplit = (projectId: ProjectId | null) => useLayoutMutation(projectId, openTabInSplit)
 
 export const useResizePane = (projectId: ProjectId | null) => useLayoutMutation(projectId, resizePane)
 

@@ -821,34 +821,41 @@ pub fn move_tab(layout: &mut ProjectLayout, tab_id: &TabId, target_pane: &PaneId
     Ok(())
 }
 
-pub fn split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, tab_id: &TabId) -> AppResult<()> {
+/// Maps a directional drop edge onto the split axis it creates. `Center` has no axis — it means
+/// "drop into the target pane itself", which every caller resolves before a new leaf is ever built.
+fn split_dir_of_edge(edge: DropEdge) -> Option<SplitDir> {
+    match edge {
+        DropEdge::Left | DropEdge::Right => Some(SplitDir::Horizontal),
+        DropEdge::Top | DropEdge::Bottom => Some(SplitDir::Vertical),
+        DropEdge::Center => None,
+    }
+}
+
+/// Wraps one tab in a fresh `Leaf` that already has it active — the node shape both [`split`]
+/// (which moves an existing tab out into its own pane) and [`open_tab_in_split`] (which creates a
+/// brand-new tab already in its own pane) hand to [`insert_new_leaf`].
+fn leaf_with_tab(tab: Tab) -> PaneNode {
+    let active = tab.id.clone();
+    PaneNode::Leaf {
+        id: PaneId::new(),
+        tabs: vec![tab],
+        active: Some(active),
+    }
+}
+
+/// Grafts an already-built leaf next to `target_pane` along `edge` and focuses it — the half of a
+/// split that does not care where the tab inside that leaf came from. [`split`] arrives here with a
+/// tab extracted out of the tree, [`open_tab_in_split`] with a tab that did not exist a moment ago.
+/// Sharing this is what lets "open a new terminal to the right" be a single mutation (one
+/// `layout:changed`, zero remounts of the pane that was already there) instead of the
+/// `open_tab` + `split` pair, which activated the new tab in the source pane first and so
+/// unmounted the live terminal and spawned its shell a second time on remount — see
+/// `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §F.2.
+fn insert_new_leaf(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, new_leaf: PaneNode) -> AppResult<()> {
     let target_tree =
         locate_tree_of_pane(layout, target_pane).ok_or_else(|| AppError::NotFound(format!("pane not found: {target_pane}")))?;
-
-    if edge == DropEdge::Center {
-        return move_tab(layout, tab_id, target_pane, APPEND_AT_END);
-    }
-
-    let source_tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    let tab =
-        extract_tab(tree_root_mut(layout, source_tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
-    if source_tree != target_tree {
-        normalize(tree_root_mut(layout, source_tree));
-    }
-
-    let dir = match edge {
-        DropEdge::Left | DropEdge::Right => SplitDir::Horizontal,
-        DropEdge::Top | DropEdge::Bottom => SplitDir::Vertical,
-        DropEdge::Center => return Err(AppError::Internal("center edge handled above".to_string())),
-    };
-
-    let new_leaf_id = PaneId::new();
-    let new_tab_id = tab.id.clone();
-    let new_leaf = PaneNode::Leaf {
-        id: new_leaf_id.clone(),
-        tabs: vec![tab],
-        active: Some(new_tab_id),
-    };
+    let dir = split_dir_of_edge(edge).ok_or_else(|| AppError::Internal("center edge has no split axis".to_string()))?;
+    let new_leaf_id = pane_id_of(&new_leaf).clone();
 
     let target_root = tree_root_mut(layout, target_tree);
     let is_root_target = matches!(target_root, PaneNode::Leaf { id, .. } if id == target_pane);
@@ -873,6 +880,40 @@ pub fn split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, t
     ensure_focused_pane_valid(layout);
     layout.revision += 1;
     Ok(())
+}
+
+pub fn split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, tab_id: &TabId) -> AppResult<()> {
+    let target_tree =
+        locate_tree_of_pane(layout, target_pane).ok_or_else(|| AppError::NotFound(format!("pane not found: {target_pane}")))?;
+
+    if edge == DropEdge::Center {
+        return move_tab(layout, tab_id, target_pane, APPEND_AT_END);
+    }
+
+    let source_tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    let tab =
+        extract_tab(tree_root_mut(layout, source_tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+    if source_tree != target_tree {
+        normalize(tree_root_mut(layout, source_tree));
+    }
+
+    insert_new_leaf(layout, target_pane, edge, leaf_with_tab(tab))
+}
+
+/// Creates `tab` in a brand-new pane beside `target_pane` — the "open a new terminal to the right"
+/// primitive, as opposed to [`split`]'s "move this existing tab to the right". `Center` is rejected
+/// instead of being folded into `move_tab` the way [`split`] folds it: there is no existing tab to
+/// move, and "open a new tab inside this very pane" is already [`open_tab`]'s job. Unlike
+/// [`open_tab`] there is no kind-equality dedupe — the caller asked for a second pane, and two
+/// terminal tabs that have not been given their session id yet compare equal.
+pub fn open_tab_in_split(layout: &mut ProjectLayout, target_pane: &PaneId, edge: DropEdge, tab: Tab) -> AppResult<TabId> {
+    if edge == DropEdge::Center {
+        return Err(AppError::InvalidArgument("center edge cannot open a tab in a split".to_string()));
+    }
+
+    let tab_id = tab.id.clone();
+    insert_new_leaf(layout, target_pane, edge, leaf_with_tab(tab))?;
+    Ok(tab_id)
 }
 
 pub fn resize(layout: &mut ProjectLayout, pane_id: &PaneId, sizes: Vec<f32>) -> AppResult<()> {
@@ -1487,6 +1528,272 @@ mod tests {
         };
         assert_eq!(*dir, SplitDir::Vertical);
         assert_eq!(children.len(), 2);
+    }
+
+    fn 루트_리프_id(layout: &ProjectLayout) -> PaneId {
+        let PaneNode::Leaf { id, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        id.clone()
+    }
+
+    fn 터미널_탭() -> Tab {
+        Tab {
+            id: TabId::new(),
+            kind: TabKind::Terminal {
+                session_id: String::new(),
+                cwd: None,
+            },
+            title: "Terminal".to_string(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }
+    }
+
+    #[test]
+    fn 새_탭_분할은_루트_리프를_감싸고_새_페인을_포커스한다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        let 원래_탭_수 = tabs.len();
+
+        let tab = 파일_탭("new.rs");
+        let tab_id = tab.id.clone();
+        let opened = open_tab_in_split(&mut layout, &leaf_id, DropEdge::Right, tab).expect("open in split");
+
+        assert_eq!(opened, tab_id);
+        let PaneNode::Split { dir, children, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        assert_eq!(*dir, SplitDir::Horizontal);
+        assert_eq!(children.len(), 2);
+
+        let PaneNode::Leaf { id, tabs, .. } = &children[0] else {
+            panic!("expected existing leaf")
+        };
+        assert_eq!(id, &leaf_id);
+        assert_eq!(tabs.len(), 원래_탭_수, "기존 페인의 탭은 옮겨지지 않는다");
+
+        let PaneNode::Leaf {
+            id: new_leaf_id,
+            tabs: new_tabs,
+            active,
+        } = &children[1]
+        else {
+            panic!("expected new leaf")
+        };
+        assert_eq!(new_tabs.len(), 1);
+        assert_eq!(new_tabs[0].id, tab_id);
+        assert_eq!(active.as_ref(), Some(&tab_id));
+        assert_eq!(&layout.focused_pane, new_leaf_id);
+        assert_eq!(layout.revision, 1);
+    }
+
+    #[test]
+    fn 새_탭_분할의_left_top_엣지는_새_페인을_기존_페인_앞에_둔다() {
+        for (edge, expected_dir) in [(DropEdge::Left, SplitDir::Horizontal), (DropEdge::Top, SplitDir::Vertical)] {
+            let mut layout = default_layout();
+            let leaf_id = 루트_리프_id(&layout);
+            let tab = 파일_탭("a.rs");
+            let tab_id = tab.id.clone();
+
+            open_tab_in_split(&mut layout, &leaf_id, edge, tab).expect("open in split");
+
+            let PaneNode::Split { dir, children, .. } = &layout.root else {
+                panic!("expected split")
+            };
+            assert_eq!(*dir, expected_dir, "{edge:?}");
+            let PaneNode::Leaf { tabs, .. } = &children[0] else {
+                panic!("expected new leaf first")
+            };
+            assert_eq!(tabs[0].id, tab_id, "{edge:?} 는 새 페인이 앞에 와야 한다");
+            assert_eq!(pane_id_of(&children[1]), &leaf_id, "{edge:?} 는 기존 페인이 뒤에 와야 한다");
+        }
+    }
+
+    #[test]
+    fn 새_탭_분할의_right_bottom_엣지는_새_페인을_기존_페인_뒤에_둔다() {
+        for (edge, expected_dir) in [(DropEdge::Right, SplitDir::Horizontal), (DropEdge::Bottom, SplitDir::Vertical)] {
+            let mut layout = default_layout();
+            let leaf_id = 루트_리프_id(&layout);
+
+            open_tab_in_split(&mut layout, &leaf_id, edge, 파일_탭("a.rs")).expect("open in split");
+
+            let PaneNode::Split { dir, children, .. } = &layout.root else {
+                panic!("expected split")
+            };
+            assert_eq!(*dir, expected_dir, "{edge:?}");
+            assert_eq!(pane_id_of(&children[0]), &leaf_id, "{edge:?} 는 기존 페인이 앞에 와야 한다");
+        }
+    }
+
+    #[test]
+    fn 새_탭_분할은_중첩_대상에서도_새_페인을_포커스하고_revision을_한_번만_올린다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Right, 파일_탭("a.rs")).expect("first split");
+        let revision_before = layout.revision;
+
+        let tab = 파일_탭("b.rs");
+        let tab_id = tab.id.clone();
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Bottom, tab).expect("nested split");
+
+        assert_eq!(layout.revision, revision_before + 1);
+        let PaneNode::Split { children, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        let PaneNode::Split { children: inner, .. } = &children[0] else {
+            panic!("expected wrapped split")
+        };
+        let PaneNode::Leaf { id, tabs, active, .. } = &inner[1] else {
+            panic!("expected new leaf")
+        };
+        assert_eq!(tabs[0].id, tab_id);
+        assert_eq!(active.as_ref(), Some(&tab_id));
+        assert_eq!(&layout.focused_pane, id, "새 페인이 포커스를 받아야 한다");
+    }
+
+    #[test]
+    fn 새_탭_분할은_기존_페인의_활성_탭을_바꾸지_않는다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+        let PaneNode::Leaf { active, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        let active_before = active.clone();
+
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Right, 파일_탭("a.rs")).expect("open in split");
+
+        let PaneNode::Split { children, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        let PaneNode::Leaf { active, .. } = &children[0] else {
+            panic!("expected existing leaf")
+        };
+        assert_eq!(active, &active_before, "기존 페인이 새 탭을 활성화하면 터미널이 언마운트된다");
+    }
+
+    #[test]
+    fn 새_탭_분할은_같은_방향_부모에_형제로_삽입된다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Right, 파일_탭("a.rs")).expect("first split");
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Right, 파일_탭("b.rs")).expect("second split");
+
+        let PaneNode::Split { dir, children, sizes, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        assert_eq!(*dir, SplitDir::Horizontal);
+        assert_eq!(children.len(), 3);
+        assert_eq!(sizes.len(), 3);
+    }
+
+    #[test]
+    fn 새_탭_분할은_다른_방향_부모에서는_대상_리프만_감싼다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Right, 파일_탭("a.rs")).expect("first split");
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Bottom, 파일_탭("b.rs")).expect("second split");
+
+        let PaneNode::Split { dir, children, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        assert_eq!(*dir, SplitDir::Horizontal);
+        assert_eq!(children.len(), 2);
+
+        let PaneNode::Split {
+            dir: inner_dir,
+            children: inner,
+            ..
+        } = &children[0]
+        else {
+            panic!("expected wrapped split")
+        };
+        assert_eq!(*inner_dir, SplitDir::Vertical);
+        assert_eq!(inner.len(), 2);
+        assert_eq!(pane_id_of(&inner[0]), &leaf_id);
+    }
+
+    #[test]
+    fn 없는_페인에_새_탭_분할은_notfound_이고_레이아웃을_바꾸지_않는다() {
+        let mut layout = default_layout();
+        let missing = PaneId::new();
+
+        let error = open_tab_in_split(&mut layout, &missing, DropEdge::Right, 파일_탭("a.rs")).expect_err("pane not found");
+
+        assert!(matches!(error, AppError::NotFound(_)));
+        assert!(matches!(layout.root, PaneNode::Leaf { .. }));
+        assert_eq!(layout.revision, 0);
+    }
+
+    #[test]
+    fn 새_탭_분할은_center_엣지를_거부한다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+
+        let error = open_tab_in_split(&mut layout, &leaf_id, DropEdge::Center, 파일_탭("a.rs")).expect_err("center rejected");
+
+        assert!(matches!(error, AppError::InvalidArgument(_)));
+        assert!(matches!(layout.root, PaneNode::Leaf { .. }));
+        assert_eq!(layout.revision, 0);
+    }
+
+    /// `open_tab` 은 kind 가 같은 탭을 재사용하므로 session_id 가 아직 빈 터미널 탭이 있으면
+    /// "새 터미널"이 기존 탭 활성화로 끝난다. 분할 생성 경로는 그 중복 제거를 타지 않는다.
+    #[test]
+    fn 새_탭_분할은_같은_kind_터미널_탭을_중복_제거하지_않는다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+        let terminal = 터미널_탭();
+        let terminal_id = terminal.id.clone();
+
+        open_tab_in_split(&mut layout, &leaf_id, DropEdge::Bottom, terminal).expect("open in split");
+
+        let PaneNode::Split { children, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        let PaneNode::Leaf { tabs, .. } = &children[1] else {
+            panic!("expected new leaf")
+        };
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].id, terminal_id);
+    }
+
+    /// `insert_new_leaf` 추출 후에도 `split` 은 "이동" 의미를 유지한다 — 원래 페인에서 탭이 사라진다.
+    #[test]
+    fn 기존_split_은_추출_이후에도_탭을_원래_페인에서_옮긴다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+        let tab = 파일_탭("a.rs");
+        let tab_id = tab.id.clone();
+        open_tab(&mut layout, &leaf_id, tab, false).expect("open");
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        let 원래_탭_수 = tabs.len();
+
+        split(&mut layout, &leaf_id, DropEdge::Right, &tab_id).expect("split");
+
+        let PaneNode::Split { children, .. } = &layout.root else {
+            panic!("expected split")
+        };
+        let PaneNode::Leaf { tabs: 남은_탭, .. } = &children[0] else {
+            panic!("expected source leaf")
+        };
+        assert_eq!(남은_탭.len(), 원래_탭_수 - 1);
+        assert!(남은_탭.iter().all(|tab| tab.id != tab_id));
+
+        let PaneNode::Leaf { tabs: 옮겨진_탭, .. } = &children[1] else {
+            panic!("expected new leaf")
+        };
+        assert_eq!(옮겨진_탭.len(), 1);
+        assert_eq!(옮겨진_탭[0].id, tab_id);
     }
 
     #[test]

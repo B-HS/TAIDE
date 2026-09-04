@@ -1,11 +1,28 @@
-import type { FC } from 'react'
+import type { FC, RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { ITheme } from '@xterm/xterm'
 import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { TerminalView } from '@features/terminal/terminal-view'
 import type { TerminalAttachHandle, TerminalCursorStyle } from '@features/terminal/terminal-view'
+import type { SplitEdge } from '@features/tab/tab-context-menu'
+import { TerminalContextMenu } from '@features/terminal/terminal-context-menu'
 import { INITIAL_FLOW_CONTROL_STATE, evaluateFlowControl, shouldTogglePause } from '@widgets/terminal-pane/terminal-flow-control'
+import { probeTerminalClipboardAvailability } from '@widgets/terminal-pane/terminal-clipboard-availability'
+import { resolveSplitAvailability } from '@widgets/terminal-pane/terminal-split-availability'
+import { MIN_PANEL_SIZE_PX } from '@shared/constants/layout'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
+
+type TerminalMenuSnapshot = {
+    canCopy: boolean
+    canPaste: boolean
+    splitAvailability: Record<SplitEdge, boolean>
+}
+
+const CLOSED_MENU_SNAPSHOT: TerminalMenuSnapshot = {
+    canCopy: false,
+    canPaste: false,
+    splitAvailability: { left: false, right: false, top: false, bottom: false },
+}
 
 export type TerminalPaneProps = {
     sessionId: string | null
@@ -19,12 +36,18 @@ export type TerminalPaneProps = {
     cursorBlink: boolean
     commandSuccessColor: string | null
     commandFailureColor: string | null
+    /** The pane's terminal area, handed down from `pane-node-view.tsx` — measured once per menu open to decide which splits fit. */
+    paneElementRef: RefObject<HTMLDivElement | null>
+    resizerThicknessPx: number
     onWrite: (data: string) => void
     onResize: (cols: number, rows: number) => void
     onReady: (cols: number, rows: number) => void
     onSetPaused: (paused: boolean) => void
     onOpenLink: (uri: string) => void
     onOpenFileLink: (match: TerminalLinkMatch) => void
+    onSplitNewTerminal: (edge: SplitEdge) => void
+    onNewTerminal: () => void
+    onKillTerminal: () => void
     attachData: (onData: (bytes: Uint8Array) => void) => () => void
 }
 
@@ -39,12 +62,17 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     cursorBlink,
     commandSuccessColor,
     commandFailureColor,
+    paneElementRef,
+    resizerThicknessPx,
     onWrite,
     onResize,
     onReady,
     onSetPaused,
     onOpenLink,
     onOpenFileLink,
+    onSplitNewTerminal,
+    onNewTerminal,
+    onKillTerminal,
     attachData,
 }) => {
     const attachRef = useRef<TerminalAttachHandle | null>(null)
@@ -58,6 +86,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const attachDataRef = useRef(attachData)
 
     const [isFocused, setIsFocused] = useState(false)
+    const [menuSnapshot, setMenuSnapshot] = useState(CLOSED_MENU_SNAPSHOT)
 
     useEffect(() => {
         onWriteRef.current = onWrite
@@ -86,6 +115,41 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     }
 
     const handleFocusChange = (focused: boolean) => setIsFocused(focused)
+
+    /**
+     * Everything the menu shows about the terminal's *current* condition is sampled here, once,
+     * while it opens — the selection, whether this runtime even has a clipboard, and the pane's own
+     * size. Sampling on open rather than subscribing keeps the terminal free of a `ResizeObserver`
+     * and of a re-render per selection change; a menu that is already open cannot go stale anyway,
+     * since it swallows the input that would change any of the three.
+     */
+    const handleMenuOpenChange = (open: boolean) => {
+        if (!open) return
+        const paneRect = paneElementRef.current?.getBoundingClientRect()
+        const clipboard = probeTerminalClipboardAvailability()
+        setMenuSnapshot({
+            canCopy: clipboard.canCopy && (attachRef.current?.hasSelection() ?? false),
+            canPaste: clipboard.canPaste,
+            splitAvailability: resolveSplitAvailability({
+                paneWidthPx: paneRect?.width ?? 0,
+                paneHeightPx: paneRect?.height ?? 0,
+                minPaneSizePx: MIN_PANEL_SIZE_PX,
+                resizerThicknessPx,
+            }),
+        })
+    }
+
+    const handleCopySelection = () => {
+        const selection = attachRef.current?.getSelection() ?? ''
+        if (selection) void navigator.clipboard.writeText(selection).catch(() => undefined)
+    }
+
+    const handlePasteClipboard = () => {
+        void navigator.clipboard
+            .readText()
+            .then((text) => attachRef.current?.paste(text))
+            .catch(() => undefined)
+    }
 
     useGlobalKeymap({
         'terminal-jump-to-previous-command': isFocused ? () => attachRef.current?.jumpToPreviousCommand() : undefined,
@@ -120,24 +184,40 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     }, [sessionId])
 
     return (
-        <TerminalView
-            autoFocus={autoFocus}
-            fontSize={fontSize}
-            fontFamily={fontFamily}
-            theme={theme}
-            scrollback={scrollback}
-            cursorStyle={cursorStyle}
-            cursorBlink={cursorBlink}
-            commandSuccessColor={commandSuccessColor}
-            commandFailureColor={commandFailureColor}
-            onData={handleData}
-            onResize={handleResize}
-            onReady={handleReady}
-            onWriteBacklogChange={handleWriteBacklogChange}
-            onFocusChange={handleFocusChange}
-            onOpenLink={handleOpenLink}
-            onOpenFileLink={handleOpenFileLink}
-            attachRef={attachRef}
-        />
+        <TerminalContextMenu
+            canCopy={menuSnapshot.canCopy}
+            canPaste={menuSnapshot.canPaste}
+            splitAvailability={menuSnapshot.splitAvailability}
+            onOpenChange={handleMenuOpenChange}
+            onRestoreFocus={() => attachRef.current?.focus()}
+            onCopy={handleCopySelection}
+            onPaste={handlePasteClipboard}
+            onSelectAll={() => attachRef.current?.selectAll()}
+            onClear={() => attachRef.current?.clear()}
+            onSplit={onSplitNewTerminal}
+            onNewTerminal={onNewTerminal}
+            onKill={onKillTerminal}>
+            <div className='h-full w-full'>
+                <TerminalView
+                    autoFocus={autoFocus}
+                    fontSize={fontSize}
+                    fontFamily={fontFamily}
+                    theme={theme}
+                    scrollback={scrollback}
+                    cursorStyle={cursorStyle}
+                    cursorBlink={cursorBlink}
+                    commandSuccessColor={commandSuccessColor}
+                    commandFailureColor={commandFailureColor}
+                    onData={handleData}
+                    onResize={handleResize}
+                    onReady={handleReady}
+                    onWriteBacklogChange={handleWriteBacklogChange}
+                    onFocusChange={handleFocusChange}
+                    onOpenLink={handleOpenLink}
+                    onOpenFileLink={handleOpenFileLink}
+                    attachRef={attachRef}
+                />
+            </div>
+        </TerminalContextMenu>
     )
 }

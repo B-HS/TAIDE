@@ -3,7 +3,7 @@ use specta::Type;
 
 use crate::domain::app::types::AppFileTarget;
 use crate::domain::search::types::SearchQuery;
-use crate::ids::{PaneId, TabId};
+use crate::ids::{PaneId, ProjectId, TabId};
 
 /// v2 adds the auxiliary-window axis (`ProjectLayout::auxiliary_windows`) and per-project shell
 /// chrome state (`ProjectLayout::shell_view`) — both purely additive over v1, since every new field
@@ -172,6 +172,25 @@ pub enum TabWindowTarget {
     Existing {
         slot: u32,
     },
+}
+
+/// `layout_open_tab_in_split`'s payload, grouped into one struct (mirroring
+/// `lsp::types::LspSpawnRequest` and `terminal::types::PtySpawnOptions`) purely to stay under
+/// `clippy::too_many_arguments` — the command needs the six fields below plus `AppHandle` and
+/// `State`, one past the limit. `edge` must be directional; `Center` is rejected as
+/// `InvalidArgument` because "open a new tab inside this pane" is `layout_open_tab`'s job.
+/// `preview` defaults to false so a caller that only ever opens permanent tabs (the terminal
+/// context menu's split) can omit it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTabInSplitRequest {
+    pub project_id: ProjectId,
+    pub target_pane: PaneId,
+    pub edge: DropEdge,
+    pub kind: TabKind,
+    pub title: String,
+    #[serde(default)]
+    pub preview: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

@@ -4,7 +4,9 @@ use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
 use super::service;
-use super::types::{DropEdge, ProjectLayout, ShellViewPatch, Tab, TabKind, TabPathChange, TabPathChangeResult, TabWindowTarget};
+use super::types::{
+    DropEdge, OpenTabInSplitRequest, ProjectLayout, ShellViewPatch, Tab, TabKind, TabPathChange, TabPathChangeResult, TabWindowTarget,
+};
 use crate::domain::project::types::Project;
 use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
 use crate::error::{AppError, AppErrorKind, AppResult};
@@ -144,6 +146,56 @@ pub async fn layout_split(
 ) -> AppResult<ProjectLayout> {
     run_layout_mutation(&app, &state, LayoutLocate::WithPane(pane_id.clone()), move |layout| {
         service::split(layout, &pane_id, edge, &tab_id)
+    })
+    .await
+}
+
+/// Opens a *new* tab in a *new* pane beside `target_pane` — what the terminal's context menu calls
+/// "split", and what `layout_split` is not: that one moves a tab that already exists. Doing this in
+/// one command rather than `layout_open_tab` + `layout_split` is a correctness requirement, not a
+/// round-trip saving: `layout_open_tab` activates the new tab in the *source* pane first, which
+/// unmounts the terminal the user is looking at (replaying its whole ring buffer) and then, once
+/// the split remounts that tab elsewhere, spawns its shell a second time. One mutation guard and
+/// one `layout:changed` make that sequence unrepresentable. See
+/// `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §F.2 and the `open_tab_in_split`
+/// service function.
+///
+/// `request.edge` must be directional: `DropEdge::Center` means "into the target pane", which is
+/// [`layout_open_tab`]'s job, so it is rejected as `InvalidArgument` rather than silently treated
+/// as one. `File` kinds run the same pre-flight [`ensure_file_tab_target_exists`] gate
+/// `layout_open_tab` runs, for the same reason: a tab must never outlive the path it was opened for.
+#[tauri::command]
+#[specta::specta]
+pub async fn layout_open_tab_in_split(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: OpenTabInSplitRequest,
+) -> AppResult<ProjectLayout> {
+    let OpenTabInSplitRequest {
+        project_id,
+        target_pane,
+        edge,
+        kind,
+        title,
+        preview,
+    } = request;
+
+    let projects = state.projects.read().clone();
+    ensure_file_tab_target_exists(&projects, &kind)?;
+
+    let preview = preview && state.settings.read().enable_preview_tabs;
+    run_layout_mutation(&app, &state, LayoutLocate::Direct(project_id), move |layout| {
+        let tab = Tab {
+            id: TabId::new(),
+            kind,
+            title,
+            pinned: false,
+            preview,
+            dirty: false,
+            view_state: None,
+        };
+        service::open_tab_in_split(layout, &target_pane, edge, tab)?;
+        Ok(())
     })
     .await
 }
@@ -516,6 +568,7 @@ mod tests {
                 capabilities: Vec::new(),
                 root_missing: false,
                 last_opened_at: 0.0,
+                display: Default::default(),
             },
         )])
     }
