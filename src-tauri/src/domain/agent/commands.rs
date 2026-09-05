@@ -718,6 +718,22 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
     agents.prune_activity(&valid_session_ids);
 }
 
+/// Queues one CLI-originated open request — the cold-start argv below or a
+/// `tauri-plugin-single-instance` relay (`lib.rs`), the only two places a path ever enters
+/// `AppState::authorize_cli_opened_path`'s allowlist: the wait marker is registered for exit-time
+/// cleanup, the path is let past the open-project boundary (Claude Code's Ctrl+G temp file lives
+/// under the OS tmpdir, outside every root), and the request is queued for the frontend to drain
+/// (`agent_pending_external_opens`). Emitting `AgentExternalOpen` stays with the single-instance
+/// caller; a cold start has no subscribed frontend yet and relies on the boot-time drain alone.
+pub(crate) fn queue_external_open(app_handle: &tauri::AppHandle, request: ExternalOpenRequest) {
+    let agent_store = app_handle.state::<AgentStore>();
+    if let Some(marker) = request.wait_marker.clone() {
+        agent_store.register_wait_marker(marker);
+    }
+    app_handle.state::<AppState>().authorize_cli_opened_path(Path::new(&request.path));
+    agent_store.push_pending_external_open(request);
+}
+
 /// Handles a cold-start `taide <file>` invocation. `tauri-plugin-single-instance` only forwards
 /// argv to a *second* launch's callback, so a cold start that spawns the app fresh never reaches
 /// it; this queues the request into `AgentStore` instead so the frontend can drain it on boot.
@@ -727,11 +743,7 @@ pub(crate) fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
         return;
     };
 
-    let agent_store = app_handle.state::<AgentStore>();
-    if let Some(marker) = request.wait_marker.clone() {
-        agent_store.register_wait_marker(marker);
-    }
-    agent_store.push_pending_external_open(request);
+    queue_external_open(app_handle, request);
 }
 
 #[cfg(test)]

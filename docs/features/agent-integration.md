@@ -43,10 +43,25 @@ taide [--wait|-w] <file> [<file>...]
 - 앱 측: payload 수신 → 해당 파일을 **활성(또는 최근) 프로젝트의 새 탭**으로 열고 창 focus →
   **그 탭이 닫힐 때 마커 삭제**(저장이 아니라 탭 닫힘 — VSCode 동일. UI 에
   "저장 후 탭을 닫으면 Claude 에 반영됩니다" 힌트 표시).
+  - **대상 프로젝트 결정(2026-09-05 수정, `entities/agent/external-open-target.ts`)**: 경로를 품은
+    프로젝트(가장 긴 root 우선) → 활성 프로젝트 → 첫 프로젝트. 열린 프로젝트가 0개일 때만
+    `app.openProjectFirst`. 이전 구현은 "품은 프로젝트" 만 허용해 tmpdir 임시파일이 항상 이 토스트로
+    떨어졌다(`bug/2026-09-05-ctrl-g-temp-file-open-project-first.md`).
+  - **루트 밖 경로의 Rust 경계**: CLI 로 명시 전달된 경로만 `AppState::cli_opened_paths` 허용 목록에
+    정규화해 기록한다(진입점은 cold-start argv·single-instance 중계 2곳 → `queue_external_open` 단일
+    함수, IPC 로는 추가 불가). `layout_open_tab`·`file_open`·`file_save`·`file_read_raw` 는
+    `root_guard::resolve_owning_project_or_cli_opened` 를 타서 그 경로만 통과시키고, 나머지 커맨드
+    (IDE MCP `openFile`·파일 트리 변경·미러)는 엄격 경계를 유지한다. 허용 목록은 프로세스 수명이며
+    재시작 후 복원된 임시파일 탭은 `Forbidden` 안내를 보인다(Claude Code 가 지우는 파일이라 닫으면 끝).
+  - **`--wait` 요청은 preview 가 아닌 고정 탭**으로 연다. `layout::service::open_tab` 은 새 preview
+    탭이 기존 preview 탭을 자리 교체하는데 교체는 닫힘이 아니라 마커가 해제되지 않기 때문. 열리면
+    `app.externalEditorTabHint` 토스트를 띄운다.
 - 안전망: 탭 열기 실패 시 즉시 마커 삭제, 앱 종료 시 미해결 마커 전부 삭제,
   CLI 타임아웃 상한(기본 30분) 옵션.
 - 임시파일(tmpdir 하위) 탭에는 **포맷터/린터/LSP 를 붙이지 않는다** —
-  `externalEditorContext` 의 `#` 주석 블록 구조를 깨면 안 됨(함정 9).
+  `externalEditorContext` 의 `#` 주석 블록 구조를 깨면 안 됨(함정 9). 구현은
+  `editor-pane.tsx` 의 `isOutsideProjectRoot`(경로가 프로젝트 root 밖이면 LSP 세션·저장 시 코드
+  액션·format-on-save·hot-exit 미러를 모두 끈다 — 2026-09-05).
 - `taide <file>` (wait 없이)는 단순 파일 열기 CLI 로도 동작 — 일반 용도.
 - 설치: 설정 UI 에서 "CLI 설치"(`/usr/local/bin` 심링크 등) + EDITOR 설정 안내
   (`export EDITOR="taide --wait"`, git core.editor, Windows 는 절대경로 슬래시 표기).
@@ -54,7 +69,9 @@ taide [--wait|-w] <file> [<file>...]
 
 ### 2.2 Tauri 측
 
-- `tauri-plugin-single-instance`(2.4.x): 두 번째 인스턴스 argv 수신 → 파일 열기 이벤트.
+- `tauri-plugin-single-instance`(2.4.x): 두 번째 인스턴스 argv 수신 → `queue_external_open`(마커 등록·
+  허용 목록 기록·큐 적재) → `agent:external-open` 이벤트. cold-start argv 는 같은 함수를 부르고 이벤트
+  없이 부팅 drain 에 맡긴다.
 - 탭 닫힘 → `agent_release_marker(marker)` command 가 마커 삭제.
 
 ### 2.3 내장 터미널 `EDITOR`/`VISUAL` 자동 주입

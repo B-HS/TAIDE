@@ -20,6 +20,7 @@
     "ai.inlineEditPlaceholder": "Describe the change…",
     "ai.inlineEditReject": "Reject",
     "app.dropToOpen": "Drop to open",
+    "app.externalEditorTabHint": "Save and close this tab to hand the text back to Claude Code",
     "app.keyboardShortcutsTitle": "Keyboard Shortcuts",
     "app.noProjectOpen": "No project is open",
     "app.openFile": "Open File",

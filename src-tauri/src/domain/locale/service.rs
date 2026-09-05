@@ -39,6 +39,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "openFileHint",
             "openFileOutsideRoot",
             "openProjectFirst",
+            "externalEditorTabHint",
             "recentItems",
             "recentProjectRootMissing",
             "recentProjectsUnavailable",

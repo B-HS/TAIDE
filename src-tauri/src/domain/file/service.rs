@@ -174,15 +174,21 @@ fn save_file(path: &Path, content: &str) -> AppResult<()> {
 /// Every save initiated outside the `file` domain (currently `ide_resolve_diff`'s accepted-diff
 /// persist) must go through this instead of composing `save_file`/[`clear_mirror`] by hand, so
 /// no caller can skip the root guard or the self-write mark (R6#2). A rejection surfaces as
-/// [`AppError::Forbidden`](crate::error::AppError) — `root_guard::resolve_owning_project`'s only
-/// error shape — which callers may treat as "the owning project is no longer open".
+/// [`AppError::Forbidden`](crate::error::AppError) — the resolver's only error shape — which
+/// callers may treat as "the owning project is no longer open". The boundary is
+/// `root_guard::resolve_owning_project_or_cli_opened`'s: a file the user handed to the `taide` CLI
+/// (Claude Code's Ctrl+G temp file) saves even though it sits outside every open project, and, having
+/// no owning project, has no hot-exit mirror to clear.
 pub fn save_file_within_open_projects(state: &AppState, path: &Path, content: &str) -> AppResult<()> {
     let projects = state.projects.read().clone();
-    let (project_id, resolved) = root_guard::resolve_owning_project(&projects, path)?;
+    let (project_id, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), path)?;
 
     save_file(&resolved, content)?;
     state.self_writes.mark(&resolved);
-    clear_mirror(&state.paths, &project_id, &resolved)
+    match project_id {
+        Some(project_id) => clear_mirror(&state.paths, &project_id, &resolved),
+        None => Ok(()),
+    }
 }
 
 pub fn create_entry(path: &Path, is_dir: bool) -> AppResult<()> {

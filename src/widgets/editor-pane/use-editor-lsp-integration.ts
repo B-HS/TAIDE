@@ -58,6 +58,7 @@ type UseEditorLspIntegrationInput = {
     organizeImportsOnSave: boolean | undefined
     isPending: boolean
     isError: boolean
+    isOutsideProjectRoot: boolean
     t: ReturnType<typeof useTranslation>['t']
 }
 
@@ -65,7 +66,9 @@ type UseEditorLspIntegrationInput = {
  * Owns `EditorPane`'s LSP session attachment (`useLspSession`) and the two save-time LSP
  * integrations: notifying already-attached sessions of a completed disk write
  * (`textDocument/didSave`), and running Code Actions on Save (`source.fixAll` /
- * `source.organizeImports`) before the buffer is written.
+ * `source.organizeImports`) before the buffer is written. `isOutsideProjectRoot` (a CLI-opened
+ * file such as Claude Code's Ctrl+G temp file — see `editor-pane.tsx`) turns all three off: no
+ * session is attached, so neither save-time integration has anything to talk to.
  */
 export const useEditorLspIntegration = ({
     projectId,
@@ -77,6 +80,7 @@ export const useEditorLspIntegration = ({
     organizeImportsOnSave,
     isPending,
     isError,
+    isOutsideProjectRoot,
     t,
 }: UseEditorLspIntegrationInput) => {
     const { data: lspServers } = useQuery(lspServersQueryOptions())
@@ -84,13 +88,15 @@ export const useEditorLspIntegration = ({
 
     /**
      * LSP servers attached for `languageId` — must stay in exact lockstep with `use-lsp-session.ts`'s
-     * own attach gate (language-matching, installed/available, *and* `isLspAttachableTier`), not
-     * just approximate it: a serverId this returns but `use-lsp-session` would never actually
-     * attach a session for (e.g. a large/read-only-tier file) makes `waitForLspSessionForRoot` below
-     * wait on a session that will never be created.
+     * own attach gate (language-matching, installed/available, `isLspAttachableTier`, *and* the
+     * outside-root exclusion), not just approximate it: a serverId this returns but `use-lsp-session`
+     * would never actually attach a session for (e.g. a large/read-only-tier file) makes
+     * `waitForLspSessionForRoot` below wait on a session that will never be created.
      */
     const matchingLspServerIds = (forLanguageId: string, forTier: FileSizeTier | null) =>
-        isLspAttachableTier(forTier) ? filterAvailableLspServers(lspServers ?? [], forLanguageId).map((server) => server.id) : []
+        !isOutsideProjectRoot && isLspAttachableTier(forTier)
+            ? filterAvailableLspServers(lspServers ?? [], forLanguageId).map((server) => server.id)
+            : []
 
     const resolveRootForServer = (serverId: LspServerId) =>
         resolveLspSessionRootForSave({ serverId, path, projectRoot: project?.root ?? null, resolveRoot: resolveLspRoot })
@@ -194,7 +200,7 @@ export const useEditorLspIntegration = ({
         path,
         languageId,
         tier,
-        enabled: canRenderCodeEditor(isPending, isError, tier),
+        enabled: !isOutsideProjectRoot && canRenderCodeEditor(isPending, isError, tier),
     })
 
     return { notifyLspSessionsOfSave, runCodeActionsOnSave }

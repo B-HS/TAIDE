@@ -24,7 +24,7 @@ use crate::state::AppState;
 pub async fn file_open(state: State<'_, AppState>, plugins: State<'_, PluginStore>, path: String) -> AppResult<OpenedFile> {
     let _span = perf::span(SpanSlot::FileOpen);
     let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
+    let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), Path::new(&path))?;
     let editor_config_enabled = state.settings.read().editor_config_enabled;
 
     let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
@@ -249,7 +249,7 @@ pub async fn file_flush_complete(app: AppHandle, window: tauri::Window<tauri::Wr
 #[tauri::command]
 pub async fn file_read_raw(state: State<'_, AppState>, path: String) -> Result<tauri::ipc::Response, crate::error::AppError> {
     let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
+    let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), Path::new(&path))?;
     let bytes = service::read_raw(&resolved)?;
     Ok(tauri::ipc::Response::new(bytes))
 }

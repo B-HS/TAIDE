@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use parking_lot::RwLock;
 
@@ -6,6 +7,7 @@ use crate::domain::layout::types::ProjectLayout;
 use crate::domain::project::types::{Project, SessionState};
 use crate::domain::settings::types::Settings;
 use crate::ids::ProjectId;
+use crate::infra::root_guard;
 use crate::infra::self_write::SelfWriteTracker;
 use crate::infra::watcher::WatcherHandle;
 use crate::paths::AppPaths;
@@ -37,6 +39,7 @@ pub struct AppState {
     pub watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
     pub git_watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
     pub self_writes: SelfWriteTracker,
+    pub cli_opened_paths: RwLock<HashSet<PathBuf>>,
     mutation_guard: tokio::sync::Mutex<()>,
     hot_exit_flush: parking_lot::Mutex<HotExitFlushPhase>,
     shutting_down: std::sync::atomic::AtomicBool,
@@ -54,6 +57,7 @@ impl AppState {
             watchers: RwLock::new(HashMap::new()),
             git_watchers: RwLock::new(HashMap::new()),
             self_writes: SelfWriteTracker::new(),
+            cli_opened_paths: RwLock::new(HashSet::new()),
             mutation_guard: tokio::sync::Mutex::new(()),
             hot_exit_flush: parking_lot::Mutex::new(HotExitFlushPhase::Idle),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
@@ -62,6 +66,24 @@ impl AppState {
 
     pub async fn begin_mutation(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_guard.lock().await
+    }
+
+    /// Records a path the user handed to TAIDE through the `taide` CLI — a cold-start argv or a
+    /// `tauri-plugin-single-instance` relay, both funnelled through
+    /// `domain::agent::commands::queue_external_open` — so
+    /// `root_guard::resolve_owning_project_or_cli_opened` lets that one file through the
+    /// open-project boundary for the rest of this process. Claude Code's Ctrl+G hands `$EDITOR` a
+    /// temp file under the OS tmpdir, which no open project's root ever contains; without this
+    /// entry the file could neither be opened as a tab nor read nor saved back. Only those two
+    /// OS-level entry points feed the set — no IPC command can add to it, so neither the webview
+    /// nor a remote session can widen the boundary on its own. Stored canonicalized
+    /// (`root_guard::canonicalize_lenient`) so a later lookup of the same file under another
+    /// spelling (`/var/…` vs `/private/var/…` on macOS) still matches; a path that cannot be
+    /// canonicalized even leniently is not recorded.
+    pub fn authorize_cli_opened_path(&self, path: &Path) {
+        if let Ok(resolved) = root_guard::canonicalize_lenient(path) {
+            self.cli_opened_paths.write().insert(resolved);
+        }
     }
 
     /// Sync counterpart to [`Self::begin_mutation`] for callers already running on a blocking
@@ -208,6 +230,38 @@ mod tests {
 
     fn labels(values: &[&str]) -> HashSet<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn cli_로_전달된_경로는_정규화되어_허용_목록에_기록된다() {
+        let state = AppState::new(AppPaths::new(std::path::PathBuf::from("/tmp")));
+        let dir = std::env::temp_dir().join(format!("taide-cli-opened-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("claude-prompt.md");
+        std::fs::write(&file, b"prompt").unwrap();
+
+        state.authorize_cli_opened_path(&file);
+
+        let canonical = std::fs::canonicalize(&file).unwrap();
+        assert!(state.cli_opened_paths.read().contains(&canonical));
+        assert_eq!(state.cli_opened_paths.read().len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 아직_없는_파일도_부모가_존재하면_허용_목록에_기록된다() {
+        let state = AppState::new(AppPaths::new(std::path::PathBuf::from("/tmp")));
+        let dir = std::env::temp_dir().join(format!("taide-cli-opened-new-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("not-yet-written.md");
+
+        state.authorize_cli_opened_path(&file);
+
+        let expected = std::fs::canonicalize(&dir).unwrap().join("not-yet-written.md");
+        assert!(state.cli_opened_paths.read().contains(&expected));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::domain::project::types::Project;
@@ -54,6 +54,33 @@ pub fn resolve_owning_project(projects: &HashMap<ProjectId, Project>, path: &Pat
         )
         .with_arg("path", path.display())
     })
+}
+
+/// [`resolve_owning_project`], widened by the paths the user handed to TAIDE through the `taide`
+/// CLI (`AppState::authorize_cli_opened_path`). Claude Code's Ctrl+G opens a temp file under the OS
+/// tmpdir — outside every project root by construction — so the four commands that turn that file
+/// into a working tab (`layout_open_tab`/`layout_open_tab_in_split`, `file_open`, `file_save`,
+/// `file_read_raw`) consult this instead of the plain resolver. A path inside an open project
+/// resolves exactly as before, project id included; a CLI-opened path outside every root resolves
+/// with no owning project (`None`), and callers that need one for per-project bookkeeping (the
+/// hot-exit mirror) skip that step. Anything else is still the plain resolver's `Forbidden` — the
+/// allowlist never widens the boundary for a path the user did not name on the command line.
+pub fn resolve_owning_project_or_cli_opened(
+    projects: &HashMap<ProjectId, Project>,
+    cli_opened_paths: &HashSet<PathBuf>,
+    path: &Path,
+) -> AppResult<(Option<ProjectId>, PathBuf)> {
+    match resolve_owning_project(projects, path) {
+        Ok((project_id, resolved)) => Ok((Some(project_id), resolved)),
+        Err(error) => {
+            let resolved = canonicalize_lenient(path)?;
+            if cli_opened_paths.contains(&resolved) {
+                Ok((None, resolved))
+            } else {
+                Err(error)
+            }
+        }
+    }
 }
 
 /// Rejects a path that no longer names a file on disk, raising the same localized
@@ -202,6 +229,37 @@ mod tests {
             },
         );
         let error = resolve_owning_project(&projects, &outside).expect_err("어떤 프로젝트 루트에도 속하지 않아야 한다");
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
+
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn cli_로_연_루트_밖_경로는_프로젝트_없이_허용되고_나머지는_여전히_거부된다() {
+        let dir = temp_dir("root-guard-cli-opened");
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(dir.join("tmp")).unwrap();
+        let outside = dir.join("tmp").join("claude-prompt.md");
+        std::fs::write(&outside, b"prompt").unwrap();
+        let inside = root.join("main.rs");
+        std::fs::write(&inside, b"fn main() {}").unwrap();
+
+        let mut projects = HashMap::new();
+        projects.insert(ProjectId::from("project-1".to_string()), make_project("project-1", &root));
+        let cli_opened: HashSet<PathBuf> = [std::fs::canonicalize(&outside).unwrap()].into_iter().collect();
+
+        let (owner, resolved) =
+            resolve_owning_project_or_cli_opened(&projects, &cli_opened, &outside).expect("허용 목록 경로는 통과해야 한다");
+        assert!(owner.is_none());
+        assert_eq!(resolved, std::fs::canonicalize(&outside).unwrap());
+
+        let (owner, _) = resolve_owning_project_or_cli_opened(&projects, &cli_opened, &inside).expect("루트 안 경로는 그대로 통과한다");
+        assert_eq!(owner, Some(ProjectId::from("project-1".to_string())));
+
+        let other = dir.join("tmp").join("other.md");
+        let error =
+            resolve_owning_project_or_cli_opened(&projects, &cli_opened, &other).expect_err("허용 목록에 없는 루트 밖 경로는 거부된다");
         assert_eq!(error.kind(), AppErrorKind::Forbidden);
 
         cleanup(&dir);

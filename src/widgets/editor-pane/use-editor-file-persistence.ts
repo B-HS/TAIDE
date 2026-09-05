@@ -45,6 +45,7 @@ type UseEditorFilePersistenceInput = {
     trimTrailingWhitespaceOnSave: boolean | undefined
     insertFinalNewlineOnSave: boolean | undefined
     isMarkdown: boolean
+    isOutsideProjectRoot: boolean
     editor: monaco.editor.IStandaloneCodeEditor | null
     setSyncedContent: Dispatch<SetStateAction<string | null>>
     setTabDirty: ReturnType<typeof useSetTabDirty>['mutate']
@@ -62,7 +63,10 @@ type UseEditorFilePersistenceInput = {
  * because they share the same draft/epoch bookkeeping: every write path — a keystroke, an
  * explicit save, "view disk", a mirror restore — has to agree on which draft is current and
  * whether a given mirror write is still valid, so splitting them would mean splitting those refs
- * across files instead of concerns.
+ * across files instead of concerns. `isOutsideProjectRoot` (a CLI-opened file such as Claude Code's
+ * Ctrl+G temp file — see `editor-pane.tsx`) keeps the mirror off: `file_mirror_dirty` is keyed by
+ * project root and rejects such a path, so scheduling it would only burn a `Forbidden` round trip
+ * per keystroke burst.
  */
 export const useEditorFilePersistence = ({
     projectId,
@@ -74,6 +78,7 @@ export const useEditorFilePersistence = ({
     trimTrailingWhitespaceOnSave,
     insertFinalNewlineOnSave,
     isMarkdown,
+    isOutsideProjectRoot,
     editor,
     setSyncedContent,
     setTabDirty,
@@ -230,24 +235,26 @@ export const useEditorFilePersistence = ({
             setTabDirty({ tabId, dirty: true })
         }
 
-        pendingMirrorRef.current = true
-        clearTimeout(mirrorTimeoutRef.current)
-        /**
-         * Captured now, not read inside the timeout — `saveEpochRef` can bump while this timer is
-         * still counting down (a save started before this keystroke can finish after it). Passed
-         * straight through to `persistMirror`, which compares it against the *current* epoch both
-         * before writing and after the IPC round trip; see that function's doc comment.
-         */
-        const scheduledEpoch = saveEpochRef.current
-        mirrorTimeoutRef.current = setTimeout(() => {
-            const content = readDraftSafely(readContent)
-            if (content === null) return
-            void persistMirror(content, scheduledEpoch)
-                .then((committed) => {
-                    if (committed) pendingMirrorRef.current = false
-                })
-                .catch(() => undefined)
-        }, HOT_EXIT_MIRROR_DEBOUNCE_MS)
+        if (!isOutsideProjectRoot) {
+            pendingMirrorRef.current = true
+            clearTimeout(mirrorTimeoutRef.current)
+            /**
+             * Captured now, not read inside the timeout — `saveEpochRef` can bump while this timer is
+             * still counting down (a save started before this keystroke can finish after it). Passed
+             * straight through to `persistMirror`, which compares it against the *current* epoch both
+             * before writing and after the IPC round trip; see that function's doc comment.
+             */
+            const scheduledEpoch = saveEpochRef.current
+            mirrorTimeoutRef.current = setTimeout(() => {
+                const content = readDraftSafely(readContent)
+                if (content === null) return
+                void persistMirror(content, scheduledEpoch)
+                    .then((committed) => {
+                        if (committed) pendingMirrorRef.current = false
+                    })
+                    .catch(() => undefined)
+            }, HOT_EXIT_MIRROR_DEBOUNCE_MS)
+        }
 
         /**
          * Guarded by `savingRef` so an edit `handleSave` itself causes mid-save (formatOnSave's

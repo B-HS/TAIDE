@@ -20,6 +20,7 @@
     "ai.inlineEditPlaceholder": "変更内容を入力してください…",
     "ai.inlineEditReject": "却下",
     "app.dropToOpen": "ドロップして開く",
+    "app.externalEditorTabHint": "保存してこのタブを閉じると内容が Claude Code に戻ります",
     "app.keyboardShortcutsTitle": "キーボードショートカット",
     "app.noProjectOpen": "開いているプロジェクトがありません",
     "app.openFile": "ファイルを開く",

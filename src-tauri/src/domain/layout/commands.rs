@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, State};
 
@@ -37,13 +37,20 @@ pub async fn layout_get(state: State<'_, AppState>, project_id: ProjectId) -> Ap
 /// identically no matter which entry point reported it. That existence half deliberately lives in
 /// infra rather than here: the IDE MCP `openFile` tool cannot call this command function across the
 /// domain boundary and reaches [`service::open_tab_and_finish`] directly, so it runs the shared
-/// gate itself — see `root_guard::ensure_existing_file`.
-fn ensure_file_tab_target_exists(projects: &HashMap<ProjectId, Project>, kind: &TabKind) -> AppResult<()> {
+/// gate itself — see `root_guard::ensure_existing_file`. The boundary half is
+/// `root_guard::resolve_owning_project_or_cli_opened`'s, not the plain resolver's: a file the user
+/// handed to the `taide` CLI (Claude Code's Ctrl+G temp file, outside every root) may become a tab
+/// of whichever project the frontend chose for it, while the IDE MCP tool keeps the strict check.
+fn ensure_file_tab_target_exists(
+    projects: &HashMap<ProjectId, Project>,
+    cli_opened_paths: &HashSet<PathBuf>,
+    kind: &TabKind,
+) -> AppResult<()> {
     let TabKind::File { path } = kind else {
         return Ok(());
     };
 
-    let (_, resolved) = root_guard::resolve_owning_project(projects, Path::new(path))?;
+    let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(projects, cli_opened_paths, Path::new(path))?;
     root_guard::ensure_existing_file(&resolved, path)
 }
 
@@ -59,7 +66,7 @@ pub async fn layout_open_tab(
     preview: bool,
 ) -> AppResult<ProjectLayout> {
     let projects = state.projects.read().clone();
-    ensure_file_tab_target_exists(&projects, &kind)?;
+    ensure_file_tab_target_exists(&projects, &state.cli_opened_paths.read(), &kind)?;
 
     service::open_tab_and_finish(&app, &state, project_id, kind, title, target, preview).await
 }
@@ -181,7 +188,7 @@ pub async fn layout_open_tab_in_split(
     } = request;
 
     let projects = state.projects.read().clone();
-    ensure_file_tab_target_exists(&projects, &kind)?;
+    ensure_file_tab_target_exists(&projects, &state.cli_opened_paths.read(), &kind)?;
 
     let preview = preview && state.settings.read().enable_preview_tabs;
     run_layout_mutation(&app, &state, LayoutLocate::Direct(project_id), move |layout| {
@@ -591,7 +598,7 @@ mod tests {
         let file = root.join("a.rs");
         std::fs::write(&file, "fn main() {}\n").unwrap();
 
-        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &파일_탭_종류(&file)).is_ok());
+        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &파일_탭_종류(&file)).is_ok());
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -601,7 +608,7 @@ mod tests {
         let root = 임시_루트("missing");
         let stale = root.join("deleted.rs");
 
-        let error = ensure_file_tab_target_exists(&열린_프로젝트(&root), &파일_탭_종류(&stale))
+        let error = ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &파일_탭_종류(&stale))
             .expect_err("스테일 인덱스가 넘긴 사라진 경로는 탭을 열기 전에 거절되어야 한다");
 
         assert_eq!(error.kind(), AppErrorKind::NotFound);
@@ -623,7 +630,8 @@ mod tests {
         let dir = root.join("src");
         std::fs::create_dir_all(&dir).unwrap();
 
-        let error = ensure_file_tab_target_exists(&열린_프로젝트(&root), &파일_탭_종류(&dir)).expect_err("디렉토리는 파일 탭이 될 수 없다");
+        let error = ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &파일_탭_종류(&dir))
+            .expect_err("디렉토리는 파일 탭이 될 수 없다");
         assert_eq!(error.kind(), AppErrorKind::NotFound);
 
         std::fs::remove_dir_all(&root).ok();
@@ -637,8 +645,8 @@ mod tests {
         let outside = dir.join("secret.txt");
         std::fs::write(&outside, "x").unwrap();
 
-        let error =
-            ensure_file_tab_target_exists(&열린_프로젝트(&root), &파일_탭_종류(&outside)).expect_err("루트 밖 경로는 거절되어야 한다");
+        let error = ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &파일_탭_종류(&outside))
+            .expect_err("루트 밖 경로는 거절되어야 한다");
 
         assert_eq!(
             error.kind(),
@@ -650,12 +658,31 @@ mod tests {
     }
 
     #[test]
+    fn cli_로_연_루트_밖_파일_탭은_통과하고_없는_파일이면_not_found_다() {
+        let dir = 임시_루트("cli-opened");
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let prompt = dir.join("claude-prompt.md");
+        std::fs::write(&prompt, "# prompt\n").unwrap();
+        let cli_opened: HashSet<PathBuf> = [std::fs::canonicalize(&prompt).unwrap()].into_iter().collect();
+
+        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &cli_opened, &파일_탭_종류(&prompt)).is_ok());
+
+        std::fs::remove_file(&prompt).unwrap();
+        let error = ensure_file_tab_target_exists(&열린_프로젝트(&root), &cli_opened, &파일_탭_종류(&prompt))
+            .expect_err("허용 목록에 있어도 디스크에 없으면 거절된다");
+        assert_eq!(error.kind(), AppErrorKind::NotFound);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn 파일이_아닌_탭_종류는_디스크를_보지_않고_통과한다() {
         let root = 임시_루트("non-file");
 
-        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &TabKind::Settings).is_ok());
-        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &TabKind::Welcome).is_ok());
-        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &TabKind::Untitled { index: 1 }).is_ok());
+        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &TabKind::Settings).is_ok());
+        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &TabKind::Welcome).is_ok());
+        assert!(ensure_file_tab_target_exists(&열린_프로젝트(&root), &HashSet::new(), &TabKind::Untitled { index: 1 }).is_ok());
 
         std::fs::remove_dir_all(&root).ok();
     }

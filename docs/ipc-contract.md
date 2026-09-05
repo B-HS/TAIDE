@@ -179,6 +179,12 @@
   `ide::service::ensure_path_within_any_project` 로 경계를 본 뒤
   `layout::service::open_tab_and_finish` 를 직접 부르므로, 같은 게이트를 자기 쪽에서 한 번 더 탄다
   (에러는 그 핸들러 관례대로 `ToolError(RPC_INVALID_PARAMS)` 로 변환된다).
+  - **CLI 로 전달된 루트 밖 파일(2026-09-05)**: 경계 확인은 `root_guard::resolve_owning_project_or_cli_opened`
+    다 — `taide <file>`/`taide --wait <file>`(cold-start argv·single-instance 중계) 로 들어온 경로는
+    `AppState::cli_opened_paths` 에 정규화돼 기록되고, 그 경로만 어느 프로젝트 root 밖이어도 탭이 된다
+    (Claude Code Ctrl+G 의 tmpdir 임시파일). 존재 검사는 동일하게 적용. `file_open`·`file_save`·
+    `file_read_raw` 도 같은 resolver 를 쓴다(아래 file 절). IDE `openFile` 도구는 엄격 경계 유지.
+    `bug/2026-09-05-ctrl-g-temp-file-open-project-first.md`.
 - event: `layout:changed(projectId, revision)` — **`revision` 발행 규약(X1#11 실사, X-A 배치)**:
   프로젝트별 독립 카운터(전역이 아니다)로, `layout::types::ProjectLayout::revision`(`u32`, 새
   레이아웃은 0)이 `layout::service::*` 의 레이아웃을 바꾸는 모든 함수(`open_tab`/`close_tab`/
@@ -201,6 +207,12 @@
   뷰어 모드/대형, raw 커맨드 — 아래 절)
 - mutation: `file_save(path, content)`, `file_create(path, isDir)`, `file_rename(from, to)`,
   `file_delete(path)`(휴지통), `file_copy(from, to)`
+- **경계 규칙(2026-09-05)**: `file_open`·`file_read_raw`·`file_save` 는
+  `root_guard::resolve_owning_project_or_cli_opened` — 열린 프로젝트 root 안이거나, CLI 로 명시 전달돼
+  `AppState::cli_opened_paths` 에 기록된 경로만 통과한다(후자는 owning project 가 없어 `file_save` 의
+  hot-exit 미러 정리를 건너뛴다). `file_create`/`file_rename`/`file_delete`/`file_copy` 와 미러
+  커맨드는 종전 그대로 root 안 경로만 받는다. 허용 목록은 IPC 로 추가할 수 없다(진입점은 argv·
+  single-instance 2곳뿐).
 - **d-50 S2 계약 추가(2026-08-29)** — 커맨드 이름·인자·개수는 모두 불변이라 dispatch 테이블·원격
   정책 분류·커맨드 수 변동은 없다. 바뀐 것은 응답 타입 1필드와 두 mutation 의 거절 조건이다.
   - `OpenedFile` 에 **`encodingLossy: boolean` 순증**(bindings 재생성). 파일 바이트가 UTF-8 이

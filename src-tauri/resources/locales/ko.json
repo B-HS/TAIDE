@@ -20,6 +20,7 @@
     "ai.inlineEditPlaceholder": "변경할 내용을 설명하세요…",
     "ai.inlineEditReject": "거절",
     "app.dropToOpen": "놓아서 열기",
+    "app.externalEditorTabHint": "저장한 뒤 이 탭을 닫으면 Claude Code 로 내용이 돌아갑니다",
     "app.keyboardShortcutsTitle": "단축키",
     "app.noProjectOpen": "열려 있는 프로젝트가 없습니다",
     "app.openFile": "파일 열기",

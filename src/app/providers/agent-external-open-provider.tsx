@@ -8,15 +8,12 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { useOpenFileTab } from '@entities/layout/layout.query'
-import { activateProject, listProjects, openProject } from '@entities/project/project.ipc'
+import { activateProject, getActiveProjectId, listProjects, openProject } from '@entities/project/project.ipc'
 import { clearStaleWaitMarkersOnStartup, registerWaitMarker } from '@entities/agent/agent-wait-marker-registry'
+import { resolveExternalOpenTarget } from '@entities/agent/external-open-target'
 import { pendingExternalOpens, releaseWaitMarker } from '@entities/agent/agent.ipc'
 
-const PATH_SEPARATOR = '/'
-
 type OpenFileTab = ReturnType<typeof useOpenFileTab>
-
-const isPathWithinRoot = (path: string, root: string) => path === root || path.startsWith(`${root}${PATH_SEPARATOR}`)
 
 const tryOpenAsProject = async (path: string) => {
     try {
@@ -27,6 +24,15 @@ const tryOpenAsProject = async (path: string) => {
     }
 }
 
+/**
+ * A file that is not itself a project opens as a tab of the project `resolveExternalOpenTarget`
+ * picks — the one whose root contains it, else the active project, which is how Claude Code's
+ * Ctrl+G temp file (under the OS tmpdir, inside no root) reaches an editor at all. A `--wait`
+ * request opens a *pinned* tab, never a preview one: `layout::service::open_tab` replaces a pane's
+ * existing preview tab in place when another preview opens, and a replacement is not a close, so
+ * the marker `useCloseTab` releases on close would never be released and the waiting CLI (and the
+ * Claude Code prompt behind it) would sit until its timeout.
+ */
 const processExternalOpenRequest = async (queryClient: QueryClient, openFileTab: OpenFileTab, request: ExternalOpenRequest) => {
     if (await tryOpenAsProject(request.path)) {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
@@ -34,22 +40,24 @@ const processExternalOpenRequest = async (queryClient: QueryClient, openFileTab:
         return
     }
 
-    const projects = await listProjects()
-    const owningProject = projects.find((project) => isPathWithinRoot(request.path, project.root))
-    if (!owningProject) {
+    const [projects, activeProjectId] = await Promise.all([listProjects(), getActiveProjectId()])
+    const target = resolveExternalOpenTarget({ path: request.path, projects, activeProjectId })
+    if (!target) {
         toast.info(i18next.t('app.openProjectFirst'))
         if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
         return
     }
 
     try {
-        await activateProject(owningProject.id)
+        await activateProject(target.projectId)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
         openFileTab(
-            { projectId: owningProject.id, path: request.path, target: null, preview: true },
+            { projectId: target.projectId, path: request.path, target: null, preview: !request.waitMarker },
             {
                 onSuccess: () => {
-                    if (request.waitMarker) registerWaitMarker(request.path, request.waitMarker)
+                    if (!request.waitMarker) return
+                    registerWaitMarker(request.path, request.waitMarker)
+                    toast.info(i18next.t('app.externalEditorTabHint'))
                 },
                 onError: () => {
                     if (request.waitMarker) void releaseWaitMarker(request.waitMarker)

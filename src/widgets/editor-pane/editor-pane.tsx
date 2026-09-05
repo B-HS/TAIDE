@@ -14,6 +14,7 @@ import { resolveEditorConfigIndentProps } from '@shared/lib/editorconfig'
 import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { renderMarkdownToSafeHtml } from '@shared/lib/markdown'
+import { isWithinRoot } from '@shared/lib/path-root'
 import { consumeExternallyDirtyModel } from '@shared/lib/lsp/model-dirty-tracker'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
@@ -23,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { useSetTabDirty } from '@entities/layout/layout.query'
+import { projectQueryOptions } from '@entities/project/project.query'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { applyExternalContent } from '@entities/editor/model-registry'
@@ -69,10 +71,19 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
     const openErrorMessage = useIpcErrorMessage(error)
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
+    const { data: project } = useQuery(projectQueryOptions(projectId))
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
     const { mutate: updateSettings } = useUpdateSettings()
 
     const isMarkdown = file?.languageId === MARKDOWN_LANGUAGE_ID
+    /**
+     * A file tab whose path lies outside its project's root can only be one the user handed to the
+     * `taide` CLI — Claude Code's Ctrl+G temp file, opened here by `AgentExternalOpenProvider`. It
+     * gets no LSP session, no format-on-save and no hot-exit mirror: the first two would rewrite the
+     * `#`-commented prompt context Claude Code wraps around the buffer, and the mirror is keyed by
+     * project root and has nowhere to live (`docs/features/agent-integration.md` §2.1).
+     */
+    const isOutsideProjectRoot = project ? !isWithinRoot(path, project.root) : false
 
     const { previewTimeoutRef, showMarkdownPreview, setShowMarkdownPreview, previewSource, setPreviewSource } = useEditorMarkdownPreview()
 
@@ -86,6 +97,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         organizeImportsOnSave: settings?.organizeImportsOnSave,
         isPending,
         isError,
+        isOutsideProjectRoot,
         t,
     })
 
@@ -107,10 +119,11 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
         tabId,
         file,
         autoSaveDelayMs: settings?.autoSaveDelayMs,
-        formatOnSave: settings?.formatOnSave,
+        formatOnSave: isOutsideProjectRoot ? false : settings?.formatOnSave,
         trimTrailingWhitespaceOnSave: settings?.trimTrailingWhitespaceOnSave,
         insertFinalNewlineOnSave: settings?.insertFinalNewlineOnSave,
         isMarkdown,
+        isOutsideProjectRoot,
         editor,
         setSyncedContent,
         setTabDirty,

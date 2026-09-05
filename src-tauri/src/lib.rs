@@ -464,11 +464,7 @@ pub fn run() {
             }
 
             if let Some(request) = domain::agent::service::parse_cli_payload(&argv) {
-                let agent_store = app_handle.state::<AgentStore>();
-                if let Some(marker) = request.wait_marker.clone() {
-                    agent_store.register_wait_marker(marker);
-                }
-                agent_store.push_pending_external_open(request.clone());
+                domain::agent::commands::queue_external_open(app_handle, request.clone());
                 let _ = AgentExternalOpen { request }.emit(app_handle);
             }
         }));
