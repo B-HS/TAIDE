@@ -1,7 +1,14 @@
-# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·4 완결 → v0.1.7 draft 완주 / 잔여 = draft 4건 공개·실기 8지표·e2e 14~25·수동 QA·결정 항목)
+# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·4 완결 → v0.1.7 draft → 라이선스 MIT·README·Ctrl+G 임시파일 수정 / 잔여 = v0.1.8 릴리스 후 Ctrl+G 실기·draft 공개·8지표·e2e·수동 QA)
 
-> 최종 갱신: 2026-09-05 / HEAD = `fb6208a`(chore(release) v0.1.7, dev=main, 이 docs 커밋이 그 위에 얹힘). 배치 3·4 완결 + **v0.1.7 draft 완주**(런 `33903401416`).
-> 이 세션 — **사용성 배치 3**(퀵오픈 스테일 인덱스·파일 탭 열기 선검증 / 외부 URL 단일 오프너·OSC 8·
+> 최종 갱신: 2026-09-05 (2차) / HEAD = 라이선스·README·Ctrl+G 세션 커밋 4건(dev, main ff — `git log -5` 로 확인). 직전 스냅샷 `git show 047e7dd:docs/HANDOFF.md`.
+> **2차 세션(2026-09-05 오후)** — ① **라이선스 MIT 채택**(npm 171·Rust 392 전수 검토, 충돌 0 — `LICENSE`·manifest `license`·
+> `THIRD_PARTY_LICENSES.md` 요약, 정본 `acknowledge/2026-09-05-license-mit-decision.md`) ② **README.md 신설**(영문, raw-viewer
+> 구조, `docs/assets/` 아이콘·실캡처) ③ **Claude Code Ctrl+G "Open a project first" 근본 수정**(tmpdir 임시파일이 어떤 root 에도
+> 속하지 않아 프론트·Rust 이중 거부 → CLI 전달 경로 허용 목록 `AppState::cli_opened_paths` + `resolve_owning_project_or_cli_opened`
+> + 활성 프로젝트 고정 탭 + `isOutsideProjectRoot` 게이팅. 정본 `bug/2026-09-05-ctrl-g-temp-file-open-project-first.md`,
+> `PROCESS.md` 해당 절). **실제 Claude Code 왕복 확인은 v0.1.8 설치본 필요**(주입 EDITOR 가 `/Applications/TAIDE.app` 을 스폰).
+> 발견·미수정: SIGTERM/크래시 종료 시 wait 마커 미정리(`RunEvent::Exit` 만 정리) — 백로그 후보.
+> 이전(1차) 세션 — **사용성 배치 3**(퀵오픈 스테일 인덱스·파일 탭 열기 선검증 / 외부 URL 단일 오프너·OSC 8·
 > WebView 네비게이션 가드 / explorer autoReveal)을 조사→계약→구현 wf(opus·xhigh)→리뷰 wf(sonnet·xhigh)
 > →테스트 wf(fable·medium)→메인 2차 검증→커밋 5분할로 완결. 동시에 **사용성 배치 4**(OS 알림·Welcome·
 > 성능 극한·프로젝트 목록·git 탭·터미널/탭 바 메뉴·테스트 하네스·CI) 조사 wf 2건 + 결정 7건 + 계약 작성

@@ -50,6 +50,38 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 완료(잔여 사용자 몫): 라이선스 MIT·README·Claude Code Ctrl+G 임시파일 수정 (2026-09-05)
+
+> 사용자 지시 3건 — ① MIT 채택 가능성 검토 ② raw-viewer 형식 README(스크린샷은 직접 기동·캡처)
+> ③ "ctrl+g 를 claude terminal 에서 하면 open a project first" 해결. 커밋·푸시 자동(llm-rules).
+
+- [x] a. 라이선스 검토 — npm 프로덕션 폐쇄 집합 171·Rust macOS 그래프 392 전수 집계(충돌 0, MPL 5 crate 는 무수정,
+      vendored libgit2 는 linking exception) → `LICENSE`(MIT)·`package.json`/`Cargo.toml` 2종 `license` 필드·
+      `THIRD_PARTY_LICENSES.md` 상단 MIT 명시 + 런타임 의존성 요약 절. 정본 `acknowledge/2026-09-05-license-mit-decision.md`
+- [x] b. Ctrl+G 원인 — 프론트가 "경로를 품은 프로젝트" 만 허용해 tmpdir 임시파일이 항상 `openProjectFirst` 로 떨어졌고,
+      Rust root guard 도 루트 밖 파일의 탭·읽기·저장을 전부 거부(이중). v0.1.6 의 EDITOR 주입은 기계 검증만이었음.
+      정본 `bug/2026-09-05-ctrl-g-temp-file-open-project-first.md`
+- [x] c. 수정 — Rust `AppState::cli_opened_paths`(argv·single-instance 2진입점 → `queue_external_open` 단일화, IPC 로
+      추가 불가) + `root_guard::resolve_owning_project_or_cli_opened`(소비처 `layout_open_tab`/`_in_split`·`file_open`·
+      `file_save`·`file_read_raw`, IDE `openFile`·트리 변경·미러는 엄격 유지) / 프론트 `entities/agent/external-open-target.ts`
+      (품은 프로젝트→활성→첫 프로젝트), `--wait` 는 preview 가 아닌 고정 탭 + `app.externalEditorTabHint` 토스트,
+      `editor-pane.tsx` `isOutsideProjectRoot` 로 LSP 세션·코드 액션·format-on-save·hot-exit 미러 차단 / 로케일 1키×3.
+      테스트 Rust +4(기존 7 시그니처 갱신)·TS +6. 문서 agent-integration §2.1·2.2·ipc-contract layout/file 절
+- [x] d. 실기(dev 인스턴스, `TAIDE_APP_PATH=target/debug/taide target/debug/taide-cli --wait <tmpdir 파일>`) — 활성 프로젝트
+      (TAIDE)의 고정 탭으로 열려 본문이 표시됨(스크린샷 확인). 탭 닫힘→CLI 종료는 합성 입력(System Events 키·클릭, CGEvent)이
+      WKWebView 에 닿지 않아 자동화로 못 닫음 → 기존 경로(`releaseClosedFileTabPath`, 단위 테스트)에 의존.
+      **발견(기존 동작·미수정)**: `cleanup_all_wait_markers` 는 `RunEvent::Exit`/`ExitRequested` 에서만 돌아 SIGTERM/kill/크래시로
+      죽으면 마커가 남고 CLI 는 타임아웃(30분)까지 대기한다. 시그널 핸들러 부재 — 백로그 후보
+- [x] e. README — `README.md`(영문, raw-viewer 구조: 아이콘·한 줄 소개·스크린샷·Features·Install·Claude Code·단축키·
+      Development·License)·`docs/assets/app-icon.svg`(`src-tauri/icons/icon.svg` 복사)·`docs/assets/screenshot.png`
+      (dev 인스턴스 창 캡처 1680×1050, `screencapture -o -l <CGWindowID>` 로 가림 없이)
+- [x] f. 검증 — `bun run verify` exit 0(bun 2293/0·cargo 1439+4+3+6+17/0·lint 0 error/11 기존 warning·prettier)·
+      `bunx vite build`·`typecheck:e2e` exit 0
+- [x] g. 커밋 4분할(fix(agent)·chore(license)·docs(readme)·docs) → dev 푸시 → main ff
+- [ ] h. 잔여(사용자): 실제 Claude Code 로 Ctrl+G 왕복 재확인은 **새 릴리스 설치본이 필요** — 내장 터미널에 주입되는
+      EDITOR 는 `/usr/local/bin/taide` → 설치본 사이드카 → `/Applications/TAIDE.app`(0.1.7) 을 스폰하므로 dev 빌드로는
+      왕복이 안 된다. v0.1.8 릴리스 후 "저장→탭 닫기→Claude 프롬프트 복귀" 확인. + 기존 잔여(draft 공개·8지표·e2e·수동 QA)
+
 ## 완료(잔여 사용자 몫): 사용성 배치 4 — OS 알림·Welcome·성능 극한·프로젝트 목록·git 탭·터미널/탭 바 메뉴·하네스·CI (2026-09-04~05)
 
 > 사용자 추가 요청 5건(배치 3 구현 wf 진행 중에 접수). 조사 wf(opus·xhigh, 읽기 전용, 7주제 병렬)
