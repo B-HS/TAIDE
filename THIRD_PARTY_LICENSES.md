@@ -1,5 +1,9 @@
 # Third-Party Licenses
 
+TAIDE itself is released under the MIT License — see `LICENSE` at the repository
+root. Everything below is about code and data TAIDE bundles or fetches that
+belongs to someone else.
+
 This file covers four kinds of third-party code TAIDE distributes notices for:
 bundled color themes (shipped inside the app), bundled TextMate grammars used
 for syntax highlighting (shipped inside the app via the `shiki` package),
@@ -480,3 +484,55 @@ redistributes those.
   (`docs/features/editor.md` — Emmet). `emmet-monaco-es`'s own `emmet`
   transitive dependency is also MIT licensed.
 - Copyright (c) Sergey Chikuyonok (`emmet`)
+
+---
+
+## Runtime Dependencies (summary)
+
+The full dependency inventory is `bun.lock` (npm) and `Cargo.lock` (Rust); this
+section records the license classes found there so the Apache-2.0 notice
+requirement is met and any non-permissive terms are visible at a glance.
+Surveyed 2026-09-05 from `package.json` `license` fields (production
+dependency closure, 171 packages) and `cargo metadata
+--filter-platform aarch64-apple-darwin` (392 crates) —
+`docs/acknowledge/2026-09-05-license-mit-decision.md`.
+
+### npm (bundled into the app)
+
+- MIT, ISC, 0BSD — the large majority, including `monaco-editor`, `@xterm/*`,
+  `react`, `radix-ui`, `@tanstack/*`, `@dnd-kit/*`, `i18next`, `cmdk`,
+  `@rhwp/core` (HWP/HWPX rendering, Copyright (c) 2025-2026 Edward Kim),
+  `lucide-react` (ISC).
+- Apache-2.0 — `pdfjs-dist` (Mozilla), `xlsx` (SheetJS) and its helper packages
+  (`cfb`, `ssf`, `codepage`, `crc-32`, `adler-32`, `frac`, `wmf`, `word`),
+  `class-variance-authority`. Full text: https://www.apache.org/licenses/LICENSE-2.0
+- `dompurify` — MPL-2.0 OR Apache-2.0; TAIDE takes it under Apache-2.0.
+
+### Rust crates (compiled into the app binary)
+
+- MIT and/or Apache-2.0 (dual or either) — the large majority, including
+  `tauri` and its plugins, `tokio`, `serde`, `git2`/`libgit2-sys`, `notify`
+  (CC0-1.0), `portable-pty`, `reqwest`, `rustls` (Apache-2.0 OR ISC OR MIT),
+  `ring` (Apache-2.0 AND ISC), `keyring`, `fontdb`, `sysinfo`.
+- Unicode-3.0 — the ICU4X crates (`icu_*`, `zerovec`, `yoke`, `tinystr`, …).
+- CDLA-Permissive-2.0 — `webpki-roots` (Mozilla CA bundle).
+- Zlib, BSD-2-Clause, BSD-3-Clause, Unlicense, CC0-1.0 — a handful of small
+  crates (`foldhash`, `slotmap`, `subtle`, `Inflector`, `walkdir`, `notify`).
+- **MPL-2.0 (file-level copyleft)** — `cssparser`, `cssparser-macros`,
+  `selectors`, `dtoa-short`, `option-ext`. TAIDE uses them unmodified, as it
+  does the HCL grammar above; modifying any of these files would require
+  publishing that file's source.
+
+### Vendored native libraries (statically linked)
+
+| Library      | Via                         | License                                                                  |
+| ------------ | --------------------------- | ------------------------------------------------------------------------ |
+| libgit2 1.9  | `git2` (`vendored-libgit2`) | GPL-2.0 with linking exception (permits linking into an MIT application) |
+| OpenSSL 3    | `git2` (`vendored-openssl`) | Apache-2.0                                                               |
+| libssh2      | `git2` (`ssh`)              | BSD-3-Clause                                                             |
+| liblzma (xz) | `xz2` (`static`)            | 0BSD / public domain                                                     |
+| zlib         | `libz-sys`                  | Zlib                                                                     |
+
+Language servers are never bundled (see "Downloaded Language Servers" above),
+so their licenses — including the proprietary parts of the JetBrains Kotlin
+LSP archive — do not attach to the TAIDE application.

@@ -2,6 +2,7 @@
 name = "taide"
 version = "0.1.7"
 description = "TAIDE — agent-native IDE"
+license = "MIT"
 authors = ["Hyunseok Byun"]
 edition = "2021"
 rust-version = "1.89"
