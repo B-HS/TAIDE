@@ -77,10 +77,14 @@
       (dev 인스턴스 창 캡처 1680×1050, `screencapture -o -l <CGWindowID>` 로 가림 없이)
 - [x] f. 검증 — `bun run verify` exit 0(bun 2293/0·cargo 1439+4+3+6+17/0·lint 0 error/11 기존 warning·prettier)·
       `bunx vite build`·`typecheck:e2e` exit 0
-- [x] g. 커밋 4분할(fix(agent)·chore(license)·docs(readme)·docs) → dev 푸시 → main ff
-- [ ] h. 잔여(사용자): 실제 Claude Code 로 Ctrl+G 왕복 재확인은 **새 릴리스 설치본이 필요** — 내장 터미널에 주입되는
-      EDITOR 는 `/usr/local/bin/taide` → 설치본 사이드카 → `/Applications/TAIDE.app`(0.1.7) 을 스폰하므로 dev 빌드로는
-      왕복이 안 된다. v0.1.8 릴리스 후 "저장→탭 닫기→Claude 프롬프트 복귀" 확인. + 기존 잔여(draft 공개·8지표·e2e·수동 QA)
+- [x] g. 커밋 4분할(`372cb98` fix(agent)·`6cdbf7f` chore(license)·`439ddda` docs(readme)·`cb54fc8` docs) → dev 푸시 → main ff
+- [x] g-2. 릴리스 v0.1.8(사용자 지시 "커밋 푸시 머지 태그발행후 draft생성까지") — 버전 동기 3파일+Cargo.lock·릴리스 노트
+      `release-notes/v0.1.8.md`·verify+vite build exit 0 → `ba1962c` chore(release) → dev 푸시·main ff → 태그 → Release 런
+      `33951888564` 완주(wall 8m50s, build 8m18s) → draft(TAIDE_0.1.8_aarch64.dmg 15,083,863B + SHA256SUMS.txt). ci.yml
+      dev·main 성공. 이력 `deployment.md` §9
+- [ ] h. 잔여(사용자): **draft v0.1.8 설치 후 실제 Claude Code 로 Ctrl+G 왕복 확인**("저장→탭 닫기→Claude 프롬프트 복귀") —
+      내장 터미널에 주입되는 EDITOR 는 `/usr/local/bin/taide` → 설치본 사이드카 → `/Applications/TAIDE.app` 을 스폰하므로
+      설치본 갱신이 전제다. draft 공개(v0.1.3·5·6·7·8 누적) + 기존 잔여(8지표·e2e·수동 QA)
 
 ## 완료(잔여 사용자 몫): 사용성 배치 4 — OS 알림·Welcome·성능 극한·프로젝트 목록·git 탭·터미널/탭 바 메뉴·하네스·CI (2026-09-04~05)
 

@@ -1,6 +1,6 @@
-# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·4 완결 → v0.1.7 draft → 라이선스 MIT·README·Ctrl+G 임시파일 수정 / 잔여 = v0.1.8 릴리스 후 Ctrl+G 실기·draft 공개·8지표·e2e·수동 QA)
+# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·4 완결 → v0.1.7 draft → 라이선스 MIT·README·Ctrl+G 임시파일 수정 → **v0.1.8 draft 완주** / 잔여 = v0.1.8 설치본으로 Ctrl+G 실기·draft 5건 공개·8지표·e2e·수동 QA)
 
-> 최종 갱신: 2026-09-05 (2차) / HEAD = 라이선스·README·Ctrl+G 세션 커밋 4건(dev, main ff — `git log -5` 로 확인). 직전 스냅샷 `git show 047e7dd:docs/HANDOFF.md`.
+> 최종 갱신: 2026-09-05 (2차) / HEAD = `ba1962c`(chore(release) v0.1.8, dev=main, 이 docs 커밋이 그 위에 얹힘). **v0.1.8 draft 완주**(런 `33951888564`, 8m50s, dmg 15,083,863B). 직전 스냅샷 `git show 047e7dd:docs/HANDOFF.md`.
 > **2차 세션(2026-09-05 오후)** — ① **라이선스 MIT 채택**(npm 171·Rust 392 전수 검토, 충돌 0 — `LICENSE`·manifest `license`·
 > `THIRD_PARTY_LICENSES.md` 요약, 정본 `acknowledge/2026-09-05-license-mit-decision.md`) ② **README.md 신설**(영문, raw-viewer
 > 구조, `docs/assets/` 아이콘·실캡처) ③ **Claude Code Ctrl+G "Open a project first" 근본 수정**(tmpdir 임시파일이 어떤 root 에도
@@ -23,7 +23,7 @@
 ## 2. 현재 목표
 
 - 최종: PRD FR-A~J(완료) → 전문 QA(qa6 실기 진행 중) → Phase 8 배포.
-- 현재 마일스톤: **v0.1.7 draft 완주**(배치 3·4 수록). **다음 한 줄 = 사용자: draft v0.1.7 검토·공개(v0.1.3·5·6 누적) · 실기 8지표 측정(`quality-assurance/
+- 현재 마일스톤: **v0.1.8 draft 완주**(Ctrl+G 임시파일 수정·MIT·README 수록). **다음 한 줄 = 사용자: v0.1.8 설치 후 Claude Code Ctrl+G 왕복 실기("저장→탭 닫기→프롬프트 복귀") · draft 검토·공개(v0.1.3·5·6·7·8 누적) · 실기 8지표 측정(`quality-assurance/
   2026-09-04-perf-baseline.md` §2·§3, `TAIDE_PERF=1`) · e2e 14~25 실행(`TAIDE_E2E_NO_HMR=1 bun run tauri dev`
   + REMOTE 준비 후 `bun run e2e`) · 수동 QA(알림은 `tauri build` 산출물로·프로젝트 표시) · 결정 항목
   (계약 §3.4·§4.4 — JSDoc 범위 예외 명문화 여부·CI 액션 SHA 핀·`git.stashEmpty` 등) · draft 3건 공개.**
@@ -39,6 +39,7 @@
 | v0.1.5 | `33248319213` (9m13s) | 파일트리 git 데코(색+M/A/D/R/U/! 뱃지·폴더 전파)·터미널 Shift+Enter→LF·SCM 목록 ↑↓ 로빙 포커스. 0.1.4 는 숫자 4 금지로 건너뜀 |
 | v0.1.6 | `33286185781` (6m49s 최단) | Claude Code Ctrl+G→TAIDE(EDITOR/VISUAL PTY 주입·`cli.connectExternalEditor` 커맨드)·팔레트 전체선택 해제·빈 폴더 비버그 확정+회귀 테스트 4 |
 | v0.1.7 | `33903401416` (8m34s, 새 크레이트로 부분 콜드) | 배치 3·4 전량 — 퀵오픈 선검증·외부 링크 OS 브라우저·autoReveal·OS 알림·Welcome·프로젝트 표시·git 섹션·터미널/탭 바 메뉴·성능·하네스·CI. dmg 15,078,659B |
+| v0.1.8 | `33951888564` (8m50s) | Claude Code Ctrl+G 임시파일 열기 근본 수정(허용 목록·활성 프로젝트 고정 탭·루트 밖 탭 게이팅)·MIT 라이선스·README. dmg 15,083,863B |
 
 ### 3.2 사용성 배치 2 요약 (wf `wf_a068d4a0`, opus·max, 7 에이전트)
 

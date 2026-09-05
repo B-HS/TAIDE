@@ -151,6 +151,7 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
 
 | 태그 | 일자 | 비고 |
 |------|------|------|
+| `v0.1.8` | 2026-09-05 | **완주(런 `33951888564`, wall 약 8m50s — build 8m18s)** — Claude Code Ctrl+G 임시파일 열기 근본 수정(CLI 전달 경로 허용 목록·활성 프로젝트 고정 탭·루트 밖 탭 LSP/포맷/미러 차단) + MIT 라이선스 채택(`LICENSE`·서드파티 고지 요약) + README 신설. dmg 15,083,863B. ci.yml dev·main 성공(직전 docs 푸시 런 2건은 concurrency 로 cancelled). draft 생성 — 사용자 공개 대기(Ctrl+G 실기 확인은 이 설치본으로) |
 | `v0.1.7` | 2026-09-05 | **완주(런 `33903401416`, wall 약 8m34s — build 8m03s, 웨이브 2 의 새 크레이트·MSRV 1.89 로 캐시 부분 콜드)** — 사용성 배치 3(퀵오픈 선검증·외부 URL 단일 오프너+WebView 가드·autoReveal) + 배치 4(OS 알림·Welcome·프로젝트 표시·git 섹션·터미널/탭 바 메뉴·성능 계측/최적화·하네스·CI). dmg 15,078,659B. ci.yml 첫 실전(dev 3m39s·main 4m33s 성공). draft 생성 — 사용자 공개 대기 |
 | `v0.1.6` | 2026-08-30 | **완주(런 `33286185781`, wall 약 6m49s — 역대 최단, build 6m29s 워밍 캐시 효과)** — 에이전트 연동 릴리스(Claude Code Ctrl+G→TAIDE EDITOR/VISUAL 주입·팔레트 전체선택 해제·git 빈 폴더 비버그 확정+회귀 테스트). dmg 14,904,107B. draft 생성 — 사용자 공개 대기 |
 | `v0.1.5` | 2026-08-29 | **완주(런 `33248319213`, wall 약 9m13s — 워밍 캐시 첫 적용, build 8m55s)** — 사용성 릴리스(파일트리 git 데코레이션·터미널 Shift+Enter LF·SCM 키보드 내비). dmg 14,891,912B. 숫자 4 금지로 0.1.4 건너뜀. draft 생성 — 사용자 공개 대기 |
