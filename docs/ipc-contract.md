@@ -259,6 +259,12 @@
   `Modified` 여러 그룹으로 관측한다)에서 나오므로, 트리 구조까지 바뀌는 연산(생성/이름변경/삭제)만
   선택적으로 refresh 를 유지하고 싶은 소비자는 `fromApp` 단독이 아니라 `kind !== 'Modified'` 를
   함께 봐 스킵 범위를 좁힐 수 있다 — 이 필드가 그 판단에 쓰라고 존재한다.
+- event: `fs:rescan-required(projectId)` (d-57 신설 — 상세는 §"d-57 인프라 하드닝 웨이브 1" 절).
+  **워처가 이벤트를 흘렸다**는 신호다(`notify::Event::need_rescan` = FSEvents 큐 오버플로 뒤의
+  `kMustScanSubDirs` — 대형 checkout·`npm install`·슬립 웨이크). 경로 목록이 **없고**, 같은 배치의
+  `fs:changed` 보다 **항상 먼저** 1회 도착하며, 한 감시당 최소 간격 2초
+  (`infra::watcher::RESCAN_MIN_INTERVAL_MS`)로 스로틀된다. `fs:changed` 소비자는 이 이벤트를 위한
+  분기가 필요 없다(일반 변경에는 절대 발신되지 않는다).
 - **부팅 워처 재부착 직후 합성 발신(d-25, `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`)**:
   `domain::project::commands::restore_project_watchers` 가 복원 프로젝트의 파일 워처를 재부착한 직후, 그 프로젝트에
   **열린 `File` 탭 경로가 있으면** `fs:changed(paths: <그 경로들>, kind: 'Modified', fromApp: false)`
@@ -1994,3 +2000,39 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - **원격 미러**: `git_status` 는 계속 `REMOTE_ALLOWED` 이고, 원격 dispatch 경로도 같은 캐시를 탄다
   (데스크톱 세션과 같은 프로젝트를 보고 있으면 그 결과를 공유한다 — 두 경로가 서로 다른 값을 볼 수
   있는 지점은 새로 생기지 않는다).
+
+### d-57 인프라 하드닝 웨이브 1 — `fs:rescan-required` (2026-09-06)
+
+> 계약: `docs/acknowledge/2026-09-06-d57-infra-hardening-wave1-contract.md` §1.A·§1.B.
+> 워처 동작의 정본은 `explorer-sidebar.md` §2.3.
+
+- **신규 이벤트 1종**: `fs:rescan-required(projectId)` (`FsRescanRequired`, `events.rs`). 커맨드
+  표면·기존 이벤트 페이로드는 전부 불변이고, `bindings.ts` 는 이 이벤트와 타입 추가분만 늘어난다.
+  원격 fanout 목록(`fanout_remote_events!`)에도 등재해 원격 세션이 같은 신호를 받는다.
+- **발행 조건**: 한 debounce 배치 안에 `notify::Event::need_rescan()` 인 이벤트가 하나라도 있을 때.
+  `map_event_kind` 는 손대지 않았으므로 rescan 이벤트가 가짜 `Modified` 그룹을 만들지 않는다
+  (`EventKind::Other` 는 종전대로 버려진다).
+- **순서·최소 간격**: 같은 배치의 `fs:changed` 보다 **먼저** 1회 발신하고, 한 감시당
+  `RESCAN_MIN_INTERVAL_MS = 2_000`ms 로 스로틀한다(오버플로 버스트는 연속 틱마다 플래그가 서는데,
+  첫 1건이 나머지가 말할 것을 이미 전부 말한다). 프로젝트 워처(`domain::file::capability`)와 `.git`
+  워처(`domain::git::watch`)는 서로 다른 감시라 스로틀도 각각이다.
+- **`.git` 워처의 같은 신호는 기존 이벤트를 재사용**한다: `git:status-changed` + `git:refs-changed`
+  둘 다 발신하고 Rust 쪽 `git_status` 결과 캐시도 무효화한다(오버플로가 나는 상황 — 대형 checkout·
+  rebase — 은 인덱스와 refs 가 함께 움직였다고 보는 게 안전하다). git 전용 rescan 이벤트는 없다.
+- **프론트 무효화 집합**(`app/providers/ipc-sync-provider.tsx` — `rescanInvalidations`): 경로 목록이
+  없으므로 `fs:changed` 처럼 경로로 좁히지 못하고 `TREE.ROWS(projectId)` · `SEARCH.PROJECT_FILES
+  (projectId)` · `GIT.PROJECT(projectId)`(rev 불변 스코프 제외 predicate 재사용) · `FILE.ALL` 을
+  통째로 무효화한다. `FILE.ALL` 은 **무효화이지 제거가 아니라서** 같은 접두사의 핫엑시트 미러
+  (`FILE.MIRRORS`/`UNTITLED_MIRRORS`)는 재조회될 뿐 버려지지 않는다.
+  - **한계(알려진 잔여)**: `tree_rows` 는 트리 스토어의 현재 상태를 재직렬화할 뿐 이미 캐시된
+    디렉토리를 디스크에서 다시 읽지 않는다(`plan_root_read`). 따라서 이 무효화로 확실히 교정되는
+    것은 퀵오픈 인덱스(매번 새 walk)·열린 파일 내용·git 상태이고, **이미 펼쳐 둔 디렉토리의 트리
+    목록**은 뒤따르는 `fs:changed` 나 명시적 `tree_refresh` 전까지 오버플로 이전 상태로 남는다.
+- **로케일 키 1종 추가**: `error.watcher.emptyRoot`(en/ko/ja). `infra::watcher::start_watch` 가 빈
+  `root` 를 `AppErrorKind::InvalidArgument` 로 즉시 거부한다(§1.B — 두 호출처가 이미 검증된 프로젝트
+  루트를 넘기므로 심층 방어). 계약이 적은 `Validation` kind 는 `error.rs` 에 없어 `InvalidArgument`
+  를 썼다.
+- **에러 문자열 마스킹(표면 형태 불변)**: git 명령 실패의 `stderr`, LSP 툴체인 설치 실패 tail,
+  `notification_notify` 의 title·body 가 `infra::redact::mask_known_secrets` 를 통과한다 — 필드
+  구성·에러 코드·이벤트 이름은 그대로이고, 자격증명 모양의 부분 문자열만 `[redacted:<name>]` 로
+  치환된 값이 실린다(진단용 URL·경로·sha 는 보존).

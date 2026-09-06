@@ -185,17 +185,51 @@ impl FileIdCache for ScopedIdCache {
     }
 }
 
-/// `on_change` receives every non-empty [`FsChangeKind`] group from **one** debounce tick together,
-/// never one group per call — `infra::self_write::resolve_from_app` depends on seeing a whole
-/// batch at once to resolve `from_app` consistently for a path that (thanks to how
-/// `write_atomic`'s create-then-rename surfaces to `notify`) can legitimately appear in more than
-/// one of those groups in the same tick.
+/// What one debounce tick delivers to `start_watch`'s callback.
+///
+/// [`Changes`](WatchNotification::Changes) carries every non-empty [`FsChangeKind`] group from
+/// **one** tick together, never one group per call — `infra::self_write::resolve_from_app` depends
+/// on seeing a whole batch at once to resolve `from_app` consistently for a path that (thanks to
+/// how `write_atomic`'s create-then-rename surfaces to `notify`) can legitimately appear in more
+/// than one of those groups in the same tick.
+///
+/// [`RescanRequired`](WatchNotification::RescanRequired) is the backend saying *it dropped events*
+/// (`notify::Event::need_rescan`, FSEvents' `kMustScanSubDirs` after a queue overflow — a large
+/// checkout, an `npm install`, a sleep/wake). No path list exists for it, so the only correct
+/// response is for the consumer to reload whatever it derives from the tree; treating it as "no
+/// events" is what left the tree, the quick-open index and git status wrong until a manual refresh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatchNotification {
+    Changes(Vec<FsChange>),
+    RescanRequired,
+}
+
+/// Minimum spacing between two [`WatchNotification::RescanRequired`] notifications from one watch.
+/// An overflow burst sets the flag on many consecutive ticks and each one costs its consumers a
+/// full reload, so the extras are dropped rather than queued — the first one already tells them
+/// everything the rest would.
+const RESCAN_MIN_INTERVAL_MS: u64 = 2_000;
+
+/// An empty `root` is rejected before it can reach `debouncer.watch`: on macOS notify hands the
+/// path to CoreFoundation URL creation, whose failure mode for an empty path aborts the process
+/// rather than returning an error the caller could log. Both call sites
+/// (`domain::file::capability`, `domain::git::watch`) already hold a validated project root, so
+/// this is depth rather than the only line of defense.
 pub fn start_watch<F>(root: PathBuf, scope: WatchScope, on_change: F) -> AppResult<WatcherHandle>
 where
-    F: Fn(Vec<FsChange>) + Send + Sync + 'static,
+    F: Fn(WatchNotification) + Send + Sync + 'static,
 {
+    if root.as_os_str().is_empty() {
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.watcher.emptyRoot",
+            "cannot watch an empty path",
+        ));
+    }
+
     let on_change: Arc<F> = Arc::new(on_change);
     let watch_root = root.clone();
+    let mut last_rescan: Option<Instant> = None;
 
     let cache = ScopedIdCache::new(root.clone(), scope);
     let indexed_entries = cache.entry_counter();
@@ -214,9 +248,14 @@ where
                 }
             };
 
-            let changes = group_relevant_changes(&events, &watch_root, scope);
-            if !changes.is_empty() {
-                on_change(changes);
+            let now = Instant::now();
+            let emit_rescan = events.iter().any(|event| event.need_rescan()) && should_emit_rescan(last_rescan, now);
+            if emit_rescan {
+                last_rescan = Some(now);
+            }
+
+            for notification in notifications_for_batch(&events, &watch_root, scope, emit_rescan) {
+                on_change(notification);
             }
         },
         cache,
@@ -249,6 +288,30 @@ where
     );
 
     Ok(WatcherHandle { _debouncer: debouncer })
+}
+
+/// Whether a batch carrying the rescan flag may notify now, given when this watch last did.
+/// Separated from the debouncer callback so the throttle is testable without a real filesystem
+/// overflow, which cannot be provoked deterministically.
+fn should_emit_rescan(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|last| now.saturating_duration_since(last) >= Duration::from_millis(RESCAN_MIN_INTERVAL_MS))
+}
+
+/// Splits one debounce batch into the notifications to deliver, **in order**: the rescan signal
+/// first, then whatever grouped changes survived filtering. The order is the contract — a consumer
+/// that reloads its whole view on a rescan must do that before it applies the individual paths from
+/// the same tick, or the reload throws away the newer state those paths describe.
+fn notifications_for_batch(events: &[DebouncedEvent], root: &Path, scope: WatchScope, emit_rescan: bool) -> Vec<WatchNotification> {
+    let mut notifications = Vec::new();
+    if emit_rescan {
+        notifications.push(WatchNotification::RescanRequired);
+    }
+
+    let changes = group_relevant_changes(events, root, scope);
+    if !changes.is_empty() {
+        notifications.push(WatchNotification::Changes(changes));
+    }
+    notifications
 }
 
 fn group_relevant_changes(events: &[DebouncedEvent], root: &Path, scope: WatchScope) -> Vec<FsChange> {
@@ -370,6 +433,91 @@ mod tests {
 
     fn is_cached(cache: &ScopedIdCache, path: &Path) -> bool {
         cache.cached_file_id(path).is_some()
+    }
+
+    fn rescan_event() -> DebouncedEvent {
+        DebouncedEvent::new(
+            notify::Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan),
+            std::time::Instant::now(),
+        )
+    }
+
+    #[test]
+    fn 오버플로_배치는_rescan을_먼저_보내고_같은_틱의_변경을_뒤에_보낸다() {
+        let root = Path::new("/repo");
+        let target = root.join("src/main.rs");
+        let events = [
+            rescan_event(),
+            DebouncedEvent::new(
+                notify::Event::new(EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content))).add_path(target.clone()),
+                std::time::Instant::now(),
+            ),
+        ];
+
+        let notifications = notifications_for_batch(&events, root, WatchScope::Project, true);
+
+        assert_eq!(
+            notifications,
+            vec![
+                WatchNotification::RescanRequired,
+                WatchNotification::Changes(vec![FsChange {
+                    kind: FsChangeKind::Modified,
+                    paths: vec![target.to_string_lossy().to_string()],
+                    from_app: false,
+                }]),
+            ],
+            "rescan 은 같은 틱의 개별 변경보다 먼저 가야 소비자의 전체 리로드가 그 변경을 덮어쓰지 않는다"
+        );
+    }
+
+    #[test]
+    fn rescan_이벤트만_있는_배치는_변경_그룹을_만들지_않는다() {
+        let notifications = notifications_for_batch(&[rescan_event()], Path::new("/repo"), WatchScope::Project, true);
+
+        assert_eq!(notifications, vec![WatchNotification::RescanRequired]);
+    }
+
+    #[test]
+    fn 억제된_rescan_배치는_변경만_전달된다() {
+        let root = Path::new("/repo");
+        let target = root.join("src/main.rs");
+        let events = [
+            rescan_event(),
+            DebouncedEvent::new(
+                notify::Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(target.clone()),
+                std::time::Instant::now(),
+            ),
+        ];
+
+        let notifications = notifications_for_batch(&events, root, WatchScope::Project, false);
+
+        assert_eq!(notifications.len(), 1);
+        assert!(matches!(notifications[0], WatchNotification::Changes(_)));
+    }
+
+    #[test]
+    fn rescan은_최소_간격_안에서는_한_번만_보낸다() {
+        let now = Instant::now();
+        let interval = Duration::from_millis(RESCAN_MIN_INTERVAL_MS);
+
+        assert!(should_emit_rescan(None, now), "첫 오버플로는 항상 알려야 한다");
+        assert!(!should_emit_rescan(Some(now), now), "같은 순간의 연속 오버플로는 억제된다");
+        assert!(!should_emit_rescan(Some(now), now + interval / 2));
+        assert!(should_emit_rescan(Some(now), now + interval));
+        assert!(should_emit_rescan(Some(now), now + interval * 2));
+    }
+
+    #[test]
+    fn 빈_경로는_감시_등록_전에_거부된다() {
+        let Err(error) = start_watch(PathBuf::new(), WatchScope::Project, |_| {}) else {
+            panic!("빈 경로는 거부되어야 한다");
+        };
+
+        let AppError::Localized(localized) = error else {
+            panic!("빈 경로 거부는 로케일 키를 가진 오류여야 한다");
+        };
+        assert_eq!(localized.key, "error.watcher.emptyRoot");
+        assert_eq!(localized.kind, AppErrorKind::InvalidArgument);
     }
 
     #[test]

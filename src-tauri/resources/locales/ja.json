@@ -204,6 +204,7 @@
     "error.vsix.reloadAfterImportFailed": "インポートしたプラグインの再読み込みに失敗しました",
     "error.vsix.themeExtractLimitExceeded": "vsix テーマの展開サイズの上限を超えました",
     "error.vsix.unzipFailed": "vsix ファイルを展開できませんでした: {{detail}}",
+    "error.watcher.emptyRoot": "空のパスではファイル監視を開始できません",
     "error.watcher.registerFailed": "ファイル監視の登録に失敗しました: {{detail}}",
     "error.watcher.startFailed": "ファイル監視の開始に失敗しました: {{detail}}",
     "error.window.auxiliaryOpenFailed": "補助ウィンドウを開けませんでした: {{detail}}",

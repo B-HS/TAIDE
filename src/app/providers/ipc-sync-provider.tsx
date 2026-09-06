@@ -178,6 +178,47 @@ export const syncTreeRowsForChangedDirs = async (
     deps.invalidateTreeRows()
 }
 
+type RescanInvalidation = {
+    queryKey: readonly unknown[]
+    matchesQueryKey?: (queryKey: readonly unknown[]) => boolean
+}
+
+/**
+ * Every cache a `fs:rescan-required` event has to refetch, as `invalidateQueries` filters.
+ *
+ * That event means the watcher *dropped* events rather than delivering them — `notify` raised its
+ * rescan flag after a backend queue overflow (`infra::watcher::WatchNotification::RescanRequired`:
+ * a large checkout, an `npm install`, a sleep/wake). Unlike `fs:changed` it carries no path list at
+ * all, so nothing here can be narrowed by path the way `isFilePathQueryForChangedPaths` and
+ * `isGitWorktreeQueryForChangedPaths` narrow that handler: every project-scoped cache derived from
+ * the working tree is suspect and gets swept wholesale. Rust throttles the event to one per
+ * `infra::watcher::RESCAN_MIN_INTERVAL_MS` (2s) per watch, which is what makes a sweep this coarse
+ * affordable. Split out of the handler as a pure list so the *set* is testable — the handler itself
+ * is a `useTauriEvent` subscription with nothing to return.
+ *
+ * - `TREE.ROWS` and `SEARCH.PROJECT_FILES` are the two project-wide file listings the overflow can
+ *   desynchronize. The quick-open index is a fresh disk walk, so its refetch is a full correction;
+ *   `tree_rows` re-serializes the Rust tree store and only reads directories the store has *not*
+ *   cached (`domain::tree::service::plan_root_read`), so an already-expanded directory keeps its
+ *   pre-overflow listing until a later `fs:changed` or an explicit `tree_refresh` touches it.
+ * - `GIT.PROJECT` carries the same `predicate` the `git:status-changed` handler above and
+ *   `git.query.ts`'s mutations use, so the commit-keyed `REV_IMMUTABLE_SCOPES` panels keep their
+ *   `staleTime: Infinity` caches instead of refetching a blob that cannot have changed. The `.git`
+ *   watcher is a separate watch with its own rescan handling (`domain::git::watch`, which emits
+ *   `git:status-changed` + `git:refs-changed`), so this entry covers the case where only the
+ *   project watcher overflowed.
+ * - `FILE.ALL` is invalidated, never removed: `FILE.CONTENT`/`FILE.RAW` (both `staleTime: Infinity`,
+ *   and `FILE.RAW` has no other refresh path at all) re-read from disk, while
+ *   `FILE.MIRRORS`/`UNTITLED_MIRRORS` under the same prefix are merely refetched — a hot-exit mirror
+ *   is never dropped by a rescan.
+ */
+export const rescanInvalidations = (projectId: ProjectId): readonly RescanInvalidation[] => [
+    { queryKey: QUERY_KEY.TREE.ROWS(projectId) },
+    { queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) },
+    { queryKey: QUERY_KEY.GIT.PROJECT(projectId), matchesQueryKey: isGitQueryScopeMutable },
+    { queryKey: QUERY_KEY.FILE.ALL },
+]
+
 export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
     const lastLayoutRevisionByProjectRef = useRef(new Map<ProjectId, number>())
@@ -396,6 +437,16 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
             setTreeRows: (page) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId), page),
             invalidateTreeRows: () => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) }),
         })
+    })
+
+    /**
+     * The watcher lost events instead of delivering them, so the `fs:changed` handler above will
+     * never be told which paths moved during the gap — see {@link rescanInvalidations} for what is
+     * swept and why nothing can be narrowed by path here.
+     */
+    useTauriEvent(events.fsRescanRequired, ({ payload }) => {
+        for (const { queryKey, matchesQueryKey } of rescanInvalidations(payload.projectId))
+            void queryClient.invalidateQueries({ queryKey, predicate: matchesQueryKey ? (query) => matchesQueryKey(query.queryKey) : undefined })
     })
 
     return children

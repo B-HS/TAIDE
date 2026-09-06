@@ -21,6 +21,7 @@ use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::lsp_install;
 use crate::infra::lsp_proc;
 use crate::infra::perf::{self, CounterSlot};
+use crate::infra::redact::mask_known_secrets;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
@@ -1046,12 +1047,47 @@ async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &Language
 const TOOLCHAIN_POLL_INTERVAL_MS: u64 = 100;
 const TOOLCHAIN_OUTPUT_TAIL_LINES: usize = 20;
 
+/// Lowest pid that may be used as a `kill(-pid)` process-group target. `0` means "my own process
+/// group" (every TAIDE thread and every terminal/language-server child it owns) and `1` means
+/// "every process this user may signal" — see [`should_signal_process_group`].
+#[cfg(unix)]
+const MIN_SIGNALABLE_PGID: u32 = 2;
+
+/// Whether `pid` is safe to pass to [`kill_toolchain_process_group`] as a group target. Refusing
+/// `0`/`1` is what keeps a cancelled install from turning into an app-wide (or session-wide) kill
+/// if `Child::id()` ever comes back with a pid the app does not own. Contract §1.E.
+#[cfg(unix)]
+fn should_signal_process_group(pid: u32) -> bool {
+    pid >= MIN_SIGNALABLE_PGID
+}
+
+/// Signals the whole process group (negative pid) of a cancelled toolchain install: `start_kill()`
+/// reaches only the direct child, but installers (go/gem/coursier/ghcup) usually spawn a compiler
+/// or sub-installer that would otherwise be orphaned and keep running.
+///
+/// The caller must confirm the child is still alive (`Child::try_wait` returning anything but
+/// `Ok(Some(_))`) immediately before calling: once a child has exited, its pid — and with it the
+/// group id derived from it — can be recycled by the OS onto an unrelated process.
 #[cfg(unix)]
 fn kill_toolchain_process_group(pid: u32) {
-    // start_kill() only signals the direct child; toolchain installers (go/gem/coursier/ghcup)
-    // often spawn a compiler or sub-installer, so on cancel we must signal the whole process
-    // group (negative pid) to avoid leaving orphaned grandchildren running.
+    if !should_signal_process_group(pid) {
+        log::warn!("툴체인 설치 취소: 프로세스 그룹으로 시그널할 수 없는 pid 라 건너뜁니다 ({pid})");
+        return;
+    }
     let _ = std::process::Command::new("kill").arg("-TERM").arg(format!("-{pid}")).status();
+}
+
+/// The failure text for a toolchain installer that exited non-zero, with the captured output tail
+/// masked ([`mask_known_secrets`]) before it reaches either sink: this one string is both the
+/// `emit_install_progress` message — which `native-notification-provider.tsx` shows as an OS
+/// notification body — and the returned `AppError`, and package-manager installers routinely echo
+/// registry credentials (`_authToken=…`) in exactly this tail. Contract §1.D.
+fn toolchain_install_failure_message(binary: &str, exit_code: Option<i32>, tail: &str) -> String {
+    let masked_tail = mask_known_secrets(tail);
+    if masked_tail.is_empty() {
+        return format!("{binary} 설치 명령이 실패했습니다 (종료 코드: {exit_code:?})");
+    }
+    format!("{binary} 설치 명령이 실패했습니다 (종료 코드: {exit_code:?}): {masked_tail}")
 }
 
 fn capture_output_tail(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static) -> tokio::sync::oneshot::Receiver<Vec<String>> {
@@ -1126,7 +1162,9 @@ async fn run_toolchain_install(app: &AppHandle, spec: &LanguageServerSpec, cance
         if cancel.load(Ordering::SeqCst) {
             #[cfg(unix)]
             if let Some(pid) = child_pid {
-                kill_toolchain_process_group(pid);
+                if !matches!(child.try_wait(), Ok(Some(_))) {
+                    kill_toolchain_process_group(pid);
+                }
             }
             let _ = child.start_kill();
             let _ = child.wait().await;
@@ -1159,13 +1197,7 @@ async fn run_toolchain_install(app: &AppHandle, spec: &LanguageServerSpec, cance
                 if let Some(receiver) = stdout_tail {
                     tail_lines.extend(receiver.await.unwrap_or_default());
                 }
-                let tail = tail_lines.join("\n");
-
-                let message = if tail.is_empty() {
-                    format!("{binary} 설치 명령이 실패했습니다 (종료 코드: {:?})", status.code())
-                } else {
-                    format!("{binary} 설치 명령이 실패했습니다 (종료 코드: {:?}): {tail}", status.code())
-                };
+                let message = toolchain_install_failure_message(binary, status.code(), &tail_lines.join("\n"));
                 emit_install_progress(app, &spec.id, LspInstallPhase::Failed, 0, None, Some(message.clone()));
                 return Err(AppError::Internal(message));
             }
@@ -1230,6 +1262,40 @@ pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, serve
 mod tests {
     use super::*;
     use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspRootStrategy};
+
+    #[test]
+    fn 툴체인_설치_실패_메시지의_레지스트리_자격증명은_마스킹된다() {
+        let tail = "npm ERR! code E401\nnpm ERR! //registry.npmjs.org/:_authToken=abcd-1234-efgh-5678\nnpm ERR! 401 Unauthorized";
+        let message = toolchain_install_failure_message("npm", Some(1), tail);
+
+        assert!(
+            !message.contains("abcd-1234-efgh-5678"),
+            "설치 실패 알림 본문에 토큰이 남아 있습니다: {message}"
+        );
+        assert!(message.contains("_authToken=[redacted:key_value]"));
+        assert!(
+            message.contains("npm ERR! 401 Unauthorized"),
+            "실패 원인은 그대로 남아야 한다: {message}"
+        );
+        assert!(message.starts_with("npm 설치 명령이 실패했습니다 (종료 코드: Some(1))"));
+    }
+
+    #[test]
+    fn 툴체인_설치_실패_메시지는_출력이_없으면_종료_코드만_남긴다() {
+        assert_eq!(
+            toolchain_install_failure_message("go", None, ""),
+            "go 설치 명령이 실패했습니다 (종료 코드: None)"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 프로세스_그룹_시그널은_자기_그룹과_전체_시그널_pid를_거부한다() {
+        assert!(!should_signal_process_group(0), "0 은 TAIDE 자신의 프로세스 그룹이다");
+        assert!(!should_signal_process_group(1), "1 은 시그널 가능한 모든 프로세스를 뜻한다");
+        assert!(should_signal_process_group(MIN_SIGNALABLE_PGID));
+        assert!(should_signal_process_group(48_231));
+    }
 
     #[test]
     fn lspinstallguard는_설치_클로저가_패닉해도_슬롯을_해제한다() {

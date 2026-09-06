@@ -37,6 +37,27 @@ pub fn classify_git_change(path: &Path) -> Option<GitInvalidation> {
     }
 }
 
+/// Which git invalidations one debounce tick's worth of changed paths implies, as
+/// `(needs_status, needs_refs)`. A dropped-events rescan
+/// (`infra::watcher::WatchNotification::RescanRequired`) carries no paths at all and is treated as
+/// both — an overflow burst is exactly the case (a large checkout, a rebase) where the index *and*
+/// the refs have almost certainly moved.
+fn classify_git_changes(changes: &[FsChange]) -> (bool, bool) {
+    let mut needs_status = false;
+    let mut needs_refs = false;
+
+    for change in changes {
+        for path in &change.paths {
+            match classify_git_change(Path::new(path)) {
+                Some(GitInvalidation::Status) => needs_status = true,
+                Some(GitInvalidation::Refs) => needs_refs = true,
+                None => {}
+            }
+        }
+    }
+    (needs_status, needs_refs)
+}
+
 /// The one `AppState` write [`build_git_watcher_handle`]'s callers need. Split out so both attach
 /// paths (`project_open`'s `GitWatcherCapability::build_attachment` and the boot restore path
 /// `domain::project::commands::restore_project_watchers`) can build the handle — the expensive
@@ -77,19 +98,11 @@ fn build_watcher_handle_inner(app: &AppHandle, project_id: &ProjectId, root: &st
     let emit_handle = app.clone();
     let emit_project = project_id.clone();
 
-    match watcher::start_watch(git_dir.clone(), watcher::WatchScope::GitDir, move |changes: Vec<FsChange>| {
-        let mut needs_status = false;
-        let mut needs_refs = false;
-
-        for change in &changes {
-            for path in &change.paths {
-                match classify_git_change(Path::new(path)) {
-                    Some(GitInvalidation::Status) => needs_status = true,
-                    Some(GitInvalidation::Refs) => needs_refs = true,
-                    None => {}
-                }
-            }
-        }
+    match watcher::start_watch(git_dir.clone(), watcher::WatchScope::GitDir, move |notification| {
+        let (needs_status, needs_refs) = match notification {
+            watcher::WatchNotification::RescanRequired => (true, true),
+            watcher::WatchNotification::Changes(changes) => classify_git_changes(&changes),
+        };
 
         if needs_status || needs_refs {
             emit_handle.state::<GitStore>().invalidate_status(&emit_project);
@@ -119,6 +132,27 @@ fn build_watcher_handle_inner(app: &AppHandle, project_id: &ProjectId, root: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::file::types::FsChangeKind;
+
+    #[test]
+    fn 한_틱의_변경_목록에서_status와_refs_무효화가_함께_모인다() {
+        let changes = [
+            FsChange {
+                kind: FsChangeKind::Modified,
+                paths: vec!["/repo/.git/index".to_string(), "/repo/.git/objects/ab/cd".to_string()],
+                from_app: false,
+            },
+            FsChange {
+                kind: FsChangeKind::Created,
+                paths: vec!["/repo/.git/refs/heads/main".to_string()],
+                from_app: false,
+            },
+        ];
+
+        assert_eq!(classify_git_changes(&changes), (true, true));
+        assert_eq!(classify_git_changes(&changes[..1]), (true, false));
+        assert_eq!(classify_git_changes(&[]), (false, false));
+    }
 
     #[test]
     fn index_변경은_status_무효화다() {

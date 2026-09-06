@@ -304,3 +304,39 @@ describe('collectOpenFilePathsOutsideProject', () => {
         expect(collectOpenFilePathsOutsideProject(entries, 'closing-project')).toEqual([])
     })
 })
+
+describe('rescanInvalidations', () => {
+    test('경로를 알 수 없는 rescan 이라 트리·퀵오픈·git·파일 4종을 통째로 무효화한다', async () => {
+        const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
+
+        expect(rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)).toEqual([
+            QUERY_KEY.TREE.ROWS('project-1'),
+            QUERY_KEY.SEARCH.PROJECT_FILES('project-1'),
+            QUERY_KEY.GIT.PROJECT('project-1'),
+            QUERY_KEY.FILE.ALL,
+        ])
+    })
+
+    test('git 만 predicate 를 달아 rev 불변 스코프(commit-files·show)를 지키고 나머지는 접두사 전체를 쓴다', async () => {
+        const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
+        const [tree, search, git, file] = rescanInvalidations('project-1')
+
+        expect(tree.matchesQueryKey).toBeUndefined()
+        expect(search.matchesQueryKey).toBeUndefined()
+        expect(file.matchesQueryKey).toBeUndefined()
+        expect(git.matchesQueryKey?.(QUERY_KEY.GIT.STATUS('project-1'))).toBe(true)
+        expect(git.matchesQueryKey?.(QUERY_KEY.GIT.GUTTER('project-1', '/repo/a.ts'))).toBe(true)
+        expect(git.matchesQueryKey?.(QUERY_KEY.GIT.COMMIT_FILES('project-1', 'abc123'))).toBe(false)
+        expect(git.matchesQueryKey?.(QUERY_KEY.GIT.SHOW('project-1', 'abc123', '/repo/a.ts'))).toBe(false)
+    })
+
+    test('프로젝트 스코프 키만 쓴다 — 도메인 전역 접두사(TREE.ALL·SEARCH.ALL·GIT.ALL)로 다른 프로젝트까지 쓸지 않는다', async () => {
+        const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
+        const keys = rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)
+
+        expect(keys.filter((key) => key.includes('project-1'))).toHaveLength(3)
+        expect(keys).not.toContainEqual(QUERY_KEY.TREE.ALL)
+        expect(keys).not.toContainEqual(QUERY_KEY.SEARCH.ALL)
+        expect(keys).not.toContainEqual(QUERY_KEY.GIT.ALL)
+    })
+})

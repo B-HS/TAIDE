@@ -1111,6 +1111,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "vsix.reloadAfterImportFailed",
             "vsix.themeExtractLimitExceeded",
             "vsix.unzipFailed",
+            "watcher.emptyRoot",
             "watcher.registerFailed",
             "watcher.startFailed",
             "window.auxiliaryOpenFailed",

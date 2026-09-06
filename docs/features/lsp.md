@@ -59,6 +59,14 @@
   `lsp:install-progress` (설치 진행 — 설정 화면 LSP 섹션이 소비)
 - 서버 자동 감지·설치 파이프라인: `lsp_detect_servers` → 설정 UI(`settings-lsp-section.tsx`)에서
   설치 → `infra/lsp_install.rs` 가 다운로드·해제 → `{data_dir}/lsp/<serverId>/<version>/` 에 보관.
+- **툴체인 설치 실패 문구는 노출 전에 마스킹된다**(d-57 §1.D): 캡처한 출력 tail 이
+  `infra::redact::mask_known_secrets` 를 거친 뒤에야 `lsp:install-progress` 의 message(그대로 OS
+  알림 본문이 된다 — `native-notification-provider.tsx`)와 반환 `AppError` 에 같이 실린다. 패키지
+  매니저 설치기는 실패 tail 에 레지스트리 자격증명(`_authToken=…`)을 그대로 뱉는 일이 흔하고, 그
+  문자열은 디스크 로그에도 남는다. 실패 원인 문구·경로·종료 코드는 보존된다.
+- **툴체인 프로세스 그룹 종료 가드**(d-57 §1.E): 취소 시 보내는 `kill -TERM -<pgid>` 는 pgid 가 2
+  미만(`MIN_SIGNALABLE_PGID`)이면 no-op + `log::warn!` 이고, 호출부는 시그널 직전 `child.try_wait()`
+  로 생존을 확인한다 — pid 0/1 이면 TAIDE 자신의 프로세스 그룹까지 향하는 시그널이었다.
 
 ## 3. view — 클라이언트 (Wave A 로 갱신 — `docs/acknowledge/2026-08-14-wave-a-lsp-intelligence-contract.md`)
 

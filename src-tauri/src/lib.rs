@@ -24,10 +24,10 @@ use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::domain::window::commands::WindowStore;
 use crate::events::{
-    AgentExternalOpen, AgentStateChanged, FsChanged, GitRefsChanged, GitStatusChanged, HotExitFlushRequested, IdeCloseTabRequested,
-    IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated,
-    ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished,
-    TerminalCwdChanged, TerminalExited, ThemeChanged,
+    AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
+    IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
+    ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged,
+    TerminalCommandFinished, TerminalCwdChanged, TerminalExited, ThemeChanged,
 };
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
@@ -391,6 +391,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             LayoutChanged,
             ThemeChanged,
             FsChanged,
+            FsRescanRequired,
             TerminalExited,
             TerminalCwdChanged,
             TerminalCommandFinished,
@@ -639,6 +640,7 @@ pub fn run() {
                 LayoutChanged,
                 ThemeChanged,
                 FsChanged,
+                FsRescanRequired,
                 TerminalExited,
                 TerminalCwdChanged,
                 TerminalCommandFinished,
@@ -852,7 +854,7 @@ mod tests {
     #[test]
     fn 이벤트_타입_목록은_events_rs와_collect_events_매크로에서_일치한다() {
         let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
-        assert_eq!(declared.len(), 24, "events.rs 에 선언된 이벤트 구조체 수가 24종에서 벗어났습니다");
+        assert_eq!(declared.len(), 25, "events.rs 에 선언된 이벤트 구조체 수가 25종에서 벗어났습니다");
 
         let collected = identifier_set(extract_between(include_str!("lib.rs"), "collect_events![", "]"));
 

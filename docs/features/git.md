@@ -247,6 +247,12 @@
 - blame·log·대형 diff 는 `spawn_blocking` + 경로로 새 `Repository::open` (ADR-0006 스레드 모델).
   d-35 부터 stage/unstage/discard/commit/branch/stash/hunk/tag/checkout-remote 등 git2 인프로세스
   뮤테이션 13종도 동일하게 guard 보유 채 `spawn_blocking` (async 워커 스레드 비점유).
+- **`git` 서브프로세스 실패의 `stderr` 는 노출 전에 마스킹된다**(d-57 §1.D): `git_command_failed`
+  가 `infra::redact::mask_known_secrets` 를 통과시킨 값을 오류 message 와 `detail` 인자 양쪽에 같이
+  싣는다 — `https://user:<token>@host` 리모트로의 push/fetch/pull 실패는 git 이 그 URL 을 그대로
+  되뱉고, 그 문자열은 토스트와 디스크 로그(`tauri_plugin_log`)에 함께 남기 때문이다. 자격증명 모양의
+  부분만 `[redacted:<name>]` 이 되고 sha·ref·경로는 진단을 위해 보존된다(프로바이더 본문용
+  `mask_provider_error` 는 이 경로에 쓰지 않는다 — 그쪽은 긴 토큰 런을 통째로 지운다).
 - push/fetch 는 repo 경로를 키로 한 `tokio::sync::Mutex` 로 동일 repo 요청끼리만 직렬화 대기(경합
   대신 큐잉 — d-35 §1-b). `git_pull` 은 이 락을 잡지 않는다(전체 `begin_mutation` 유지 불변) —
   같은 repo 의 fetch-vs-pull 경합은 이전처럼 git 자체 락 실패로 남는다.

@@ -70,6 +70,19 @@ pub struct FsChanged {
     pub change: crate::domain::file::types::FsChange,
 }
 
+/// The file watcher lost events instead of delivering them — `notify` raised its rescan flag after
+/// a backend queue overflow (`infra::watcher::WatchNotification::RescanRequired`). Nothing can be
+/// said about *which* paths changed, so every consumer that mirrors the project tree
+/// (tree, quick-open index, open files) must reload rather than patch. Throttled per watch by
+/// `infra::watcher::RESCAN_MIN_INTERVAL_MS`, and never emitted for an ordinary change — a
+/// [`FsChanged`] consumer needs no special case for it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "fs:rescan-required")]
+pub struct FsRescanRequired {
+    pub project_id: ProjectId,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "terminal:exited")]

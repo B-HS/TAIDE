@@ -891,7 +891,7 @@ export const commands = {
 	 * 
 	 *  `title`/`body` arrive already translated — Rust owns *whether* a notification is sent, the
 	 *  frontend owns *what it says* (it has the `t()` catalog and the event's data). Neither string is
-	 *  interpreted here.
+	 *  interpreted here beyond [`masked_notification_text`], which strips credential-shaped substrings.
 	 * 
 	 *  A [`NotificationDelivery::Delivered`] return means the notification was handed to
 	 *  `tauri-plugin-notification`, **not** that macOS displayed it: the plugin's desktop backend
@@ -936,6 +936,7 @@ export const events = {
 	agentStateChanged: makeEvent<AgentStateChanged>("agent:state-changed"),
 	appHotExitFlushRequested: makeEvent<HotExitFlushRequested>("app:hot-exit-flush-requested"),
 	fsChanged: makeEvent<FsChanged>("fs:changed"),
+	fsRescanRequired: makeEvent<FsRescanRequired>("fs:rescan-required"),
 	gitRefsChanged: makeEvent<GitRefsChanged>("git:refs-changed"),
 	gitStatusChanged: makeEvent<GitStatusChanged>("git:status-changed"),
 	ideCloseTabRequested: makeEvent<IdeCloseTabRequested>("ide:close-tab-requested"),
@@ -1245,6 +1246,18 @@ export type FsChangeKind = "created" | "modified" | "removed" | "renamed";
 export type FsChanged = {
 	projectId: ProjectId,
 	change: FsChange,
+};
+
+/**
+ *  The file watcher lost events instead of delivering them — `notify` raised its rescan flag after
+ *  a backend queue overflow (`infra::watcher::WatchNotification::RescanRequired`). Nothing can be
+ *  said about *which* paths changed, so every consumer that mirrors the project tree
+ *  (tree, quick-open index, open files) must reload rather than patch. Throttled per watch by
+ *  `infra::watcher::RESCAN_MIN_INTERVAL_MS`, and never emitted for an ordinary change — a
+ *  [`FsChanged`] consumer needs no special case for it.
+ */
+export type FsRescanRequired = {
+	projectId: ProjectId,
 };
 
 export type GitBranch = {

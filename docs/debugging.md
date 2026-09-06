@@ -193,3 +193,9 @@ IPC 를 소유한 `entities` 를 참조할 수 없어 팔레트 커맨드가 대
   테이블과 `collect_commands!` 패리티 테스트가 잡는다.
 - cargo 환경: `CARGO_HOME=$HOME/development/rust/cargo`, `RUSTUP_HOME=$HOME/development/rust/rustup`
   를 PATH 에 선행 export(셸 프로필에 없으면 수동).
+- 로그·토스트·OS 알림의 **`[redacted:<name>]` 는 값이 지워진 자리**다(d-57 — `git` stderr · LSP
+  툴체인 설치 tail · 알림 title/body 가 `infra::redact::mask_known_secrets` 를 통과한다). `<name>`
+  은 어떤 패턴에 걸렸는지(`github`·`bearer`·`url_password`·`key_value` 등)를 알려주므로 어떤 종류의
+  자격증명이 섞였는지까지는 그 표기로 판별할 수 있다. 주변 문맥(URL·헤더 이름·키 이름·sha·경로)은
+  진단을 위해 보존되므로, 값이 사라졌다고 그 줄을 무시하지 않는다. best-effort 라 목록에 없는
+  발급자 형식은 걸리지 않는다 — 마스킹이 있으니 안전하다고 가정하지 않는다.

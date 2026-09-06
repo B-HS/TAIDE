@@ -204,6 +204,7 @@
     "error.vsix.reloadAfterImportFailed": "Failed to reload the imported plugin",
     "error.vsix.themeExtractLimitExceeded": "The vsix theme extraction size limit was exceeded",
     "error.vsix.unzipFailed": "Could not unzip the vsix file: {{detail}}",
+    "error.watcher.emptyRoot": "Cannot start a file watch on an empty path",
     "error.watcher.registerFailed": "Failed to register the file watch: {{detail}}",
     "error.watcher.startFailed": "Failed to start the file watcher: {{detail}}",
     "error.window.auxiliaryOpenFailed": "Failed to open the auxiliary window: {{detail}}",

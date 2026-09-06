@@ -9,6 +9,7 @@ use specta::Type;
 
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::language::{self, LanguageOverlay};
+use crate::infra::redact::mask_known_secrets;
 
 use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitChangeKind, GitRemote, GitStashEntry,
@@ -2101,23 +2102,62 @@ fn run_git(repo_path: &Path, args: &[&str]) -> AppResult<String> {
     };
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let command = args.join(" ");
-        return Err(AppError::localized(
-            AppErrorKind::Internal,
-            "error.git.commandFailed",
-            format!("git {command} failed: {stderr}"),
-        )
-        .with_arg("command", &command)
-        .with_arg("detail", &stderr));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(git_command_failed(&args.join(" "), stderr.trim()));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Builds the error for a `git` command that exited non-zero, with the subprocess's `stderr`
+/// masked ([`mask_known_secrets`]) before it reaches *either* the fallback message or the `detail`
+/// argument — both end up in the frontend toast and in the on-disk `tauri_plugin_log` file.
+///
+/// Masking is what this function exists for: a `push`/`fetch`/`pull` against an
+/// `https://user:<token>@host` remote fails with git echoing that remote back verbatim, and the
+/// generic mask (`infra::redact::mask_provider_error`) cannot be used here — it also deletes the
+/// shas, refs and paths that *are* the diagnostic. Contract §1.D.
+fn git_command_failed(command: &str, stderr: &str) -> AppError {
+    let stderr = mask_known_secrets(stderr);
+    AppError::localized(
+        AppErrorKind::Internal,
+        "error.git.commandFailed",
+        format!("git {command} failed: {stderr}"),
+    )
+    .with_arg("command", command)
+    .with_arg("detail", &stderr)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 실패한_git_명령의_stderr는_message와_detail_양쪽에서_마스킹된다() {
+        let token = format!("ghp_{}", "abcdefghijklmnopqrstuvwxyz012345");
+        let error = git_command_failed(
+            "push origin main",
+            &format!("fatal: could not read Username for 'https://taide:{token}@github.com': terminal prompts disabled"),
+        );
+
+        let AppError::Localized(localized) = error else {
+            panic!("git 명령 실패는 로케일 키를 가진 오류여야 한다");
+        };
+        let detail = localized.args.get("detail").expect("detail 인자");
+
+        assert!(
+            !localized.fallback.contains(&token),
+            "message 에 토큰이 남아 있습니다: {}",
+            localized.fallback
+        );
+        assert!(!detail.contains(&token), "detail 에 토큰이 남아 있습니다: {detail}");
+        assert!(detail.contains("[redacted:url_password]"));
+        assert!(
+            detail.contains("terminal prompts disabled"),
+            "실패 원인 자체는 진단을 위해 그대로 남아야 한다: {detail}"
+        );
+        assert_eq!(localized.args.get("command").map(String::as_str), Some("push origin main"));
+    }
 
     struct TestRepo {
         dir: PathBuf,

@@ -3,13 +3,11 @@ use tauri_specta::Event;
 
 use crate::domain::project::capability::{ProjectAttachment, ProjectCapability};
 use crate::domain::project::types::Project;
-use crate::events::FsChanged;
+use crate::events::{FsChanged, FsRescanRequired};
 use crate::ids::ProjectId;
 use crate::infra::self_write::resolve_from_app;
 use crate::infra::watcher;
 use crate::state::AppState;
-
-use super::types::FsChange;
 
 /// The expensive half of the project-root file watcher attach — the file-ID index walk
 /// `watcher::start_watch` performs, which stats every entry below the root that the watcher speaks
@@ -31,14 +29,22 @@ pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str)
     match watcher::start_watch(
         std::path::PathBuf::from(root),
         watcher::WatchScope::Project,
-        move |changes: Vec<FsChange>| {
-            let changes = resolve_from_app(&emit_handle.state::<AppState>().self_writes, changes);
-            for change in changes {
-                let _ = FsChanged {
+        move |notification| match notification {
+            watcher::WatchNotification::RescanRequired => {
+                let _ = FsRescanRequired {
                     project_id: emit_project.clone(),
-                    change,
                 }
                 .emit(&emit_handle);
+            }
+            watcher::WatchNotification::Changes(changes) => {
+                let changes = resolve_from_app(&emit_handle.state::<AppState>().self_writes, changes);
+                for change in changes {
+                    let _ = FsChanged {
+                        project_id: emit_project.clone(),
+                        change,
+                    }
+                    .emit(&emit_handle);
+                }
             }
         },
     ) {

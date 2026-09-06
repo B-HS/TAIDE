@@ -204,6 +204,7 @@
     "error.vsix.reloadAfterImportFailed": "가져온 플러그인을 다시 불러오지 못했습니다",
     "error.vsix.themeExtractLimitExceeded": "vsix 테마 추출 용량 상한을 초과했습니다",
     "error.vsix.unzipFailed": "vsix 압축을 해제할 수 없습니다: {{detail}}",
+    "error.watcher.emptyRoot": "빈 경로는 파일 감시를 시작할 수 없습니다",
     "error.watcher.registerFailed": "파일 감시 등록에 실패했습니다: {{detail}}",
     "error.watcher.startFailed": "파일 감시자를 시작하지 못했습니다: {{detail}}",
     "error.window.auxiliaryOpenFailed": "보조 창을 여는 데 실패했습니다: {{detail}}",
