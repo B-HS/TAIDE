@@ -1,6 +1,8 @@
 const NOT_FOUND_INDEX = -1
 const CONSECUTIVE_MATCH_BONUS = 5
 const MATCH_BASE_SCORE = 1
+const MAX_FUZZY_QUERY_TOKENS = 8
+const QUERY_TOKEN_SEPARATOR_PATTERN = /\s+/
 
 export type FuzzyMatch = {
     score: number
@@ -58,14 +60,50 @@ export const fuzzyMatch = (query: string, target: string): FuzzyMatch | null => 
 
 export type FuzzyRankedItem<T> = { item: T; match: FuzzyMatch }
 
-export const fuzzyFilter = <T>(query: string, items: T[], getLabel: (item: T) => string): FuzzyRankedItem<T>[] =>
-    items
+const splitQueryIntoTokens = (query: string) =>
+    query
+        .trim()
+        .split(QUERY_TOKEN_SEPARATOR_PATTERN)
+        .filter((token) => token.length > 0)
+        .slice(0, MAX_FUZZY_QUERY_TOKENS)
+
+const matchQueryTokens = (queryTokens: string[], target: string) => {
+    if (queryTokens.length <= 1) return fuzzyMatch(queryTokens[0] ?? '', target)
+
+    const matchedIndices = new Set<number>()
+    let score = 0
+
+    for (const token of queryTokens) {
+        const tokenMatch = fuzzyMatch(token, target)
+        if (!tokenMatch) return null
+        score += tokenMatch.score
+        for (const index of tokenMatch.indices) matchedIndices.add(index)
+    }
+
+    return { score, indices: [...matchedIndices].toSorted((left, right) => left - right) }
+}
+
+/**
+ * Ranks `items` by fuzzy relevance to `query`, reading each item's label exactly once. The query is
+ * split on whitespace into at most {@link MAX_FUZZY_QUERY_TOKENS} tokens (surplus tokens are
+ * ignored): an empty or whitespace-only query keeps every item in its original order, a single token
+ * behaves exactly like {@link fuzzyMatch}, and two or more tokens must *each* match the label on
+ * their own — in any order — scoring the sum of their matches and highlighting the union of their
+ * indices. Without this split a spaced query can never match the palette's file mode, whose labels
+ * are project-relative paths: {@link fuzzyMatch} consumes the space as an ordinary character, so
+ * `search panel` looks for a literal space that no path contains.
+ */
+export const fuzzyFilter = <T>(query: string, items: T[], getLabel: (item: T) => string): FuzzyRankedItem<T>[] => {
+    const queryTokens = splitQueryIntoTokens(query)
+
+    return items
         .map((item) => {
-            const match = fuzzyMatch(query, getLabel(item))
+            const match = matchQueryTokens(queryTokens, getLabel(item))
             return match ? { item, match } : null
         })
         .filter((ranked): ranked is FuzzyRankedItem<T> => ranked !== null)
         .toSorted((a, b) => b.match.score - a.match.score)
+}
 
 export type FuzzyHighlightSegment = { text: string; matched: boolean }
 

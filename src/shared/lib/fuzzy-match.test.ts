@@ -155,6 +155,57 @@ describe('fuzzyFilter', () => {
         const result = fuzzyFilter('', rows, (row) => row.path)
         expect(result.map((r) => r.item.path)).toEqual(rows.map((r) => r.path))
     })
+
+    test('공백으로 나뉜 토큰이 각각 매칭되면 통과한다', () => {
+        const result = fuzzyFilter('widgets pane', rows, (row) => row.path)
+        expect(result.map((ranked) => ranked.item.path)).toEqual(['src/widgets/editor-area/pane-node-view.tsx'])
+    })
+
+    test('토큰 순서가 라벨 등장 순서와 달라도 매칭된다', () => {
+        const forward = fuzzyFilter('widgets pane', rows, (row) => row.path)
+        const reversed = fuzzyFilter('pane widgets', rows, (row) => row.path)
+        expect(reversed).toEqual(forward)
+
+        const backwardTokens = fuzzyFilter('view editor', rows, (row) => row.path)
+        expect(backwardTokens.map((ranked) => ranked.item.path)).toEqual(['src/widgets/editor-area/pane-node-view.tsx'])
+    })
+
+    test('토큰이 하나라도 매칭되지 않으면 탈락한다', () => {
+        expect(fuzzyFilter('widgets zzzz', rows, (row) => row.path)).toEqual([])
+    })
+
+    test('여러 토큰의 점수는 각 토큰 점수의 합이다', () => {
+        const path = 'src/widgets/editor-area/pane-node-view.tsx'
+        const result = fuzzyFilter('widgets pane', rows, (row) => row.path)
+        expect(result[0]?.match.score).toBe(fuzzyMatch('widgets', path)!.score + fuzzyMatch('pane', path)!.score)
+    })
+
+    test('여러 토큰의 인덱스는 정렬된 합집합이며 겹치는 토큰도 중복되지 않는다', () => {
+        expect(fuzzyFilter('widgets pane', rows, (row) => row.path)[0]?.match.indices).toEqual([4, 5, 6, 7, 8, 9, 10, 24, 25, 26, 27])
+
+        const overlappingPath = 'src/shared/lib/fuzzy-match.ts'
+        expect(fuzzyFilter('fuzzy fu', rows, (row) => row.path)[0]?.match.indices).toEqual(fuzzyMatch('fuzzy', overlappingPath)!.indices)
+    })
+
+    test('앞뒤·연속 공백은 무시한다', () => {
+        expect(fuzzyFilter('  widgets   pane  ', rows, (row) => row.path)).toEqual(fuzzyFilter('widgets pane', rows, (row) => row.path))
+        expect(fuzzyFilter(' fuzzy ', rows, (row) => row.path)).toEqual(fuzzyFilter('fuzzy', rows, (row) => row.path))
+        expect(fuzzyFilter('   ', rows, (row) => row.path).map((ranked) => ranked.item.path)).toEqual(rows.map((row) => row.path))
+    })
+
+    test('토큰 상한(8개)을 넘는 토큰은 무시한다', () => {
+        expect(fuzzyFilter('s r c h l i b zzzz', rows, (row) => row.path)).toEqual([])
+        expect(fuzzyFilter('s r c h l i b f zzzz', rows, (row) => row.path).map((ranked) => ranked.item.path)).toEqual([
+            'src/shared/lib/fuzzy-match.ts',
+        ])
+    })
+
+    test('단일 토큰 결과는 fuzzyMatch 결과 그대로다', () => {
+        const path = 'src/shared/lib/fuzzy-match.ts'
+        const result = fuzzyFilter('fuzzy', rows, (row) => row.path)
+        expect(result.map((ranked) => ranked.item.path)).toEqual([path])
+        expect(result[0]?.match).toEqual(fuzzyMatch('fuzzy', path)!)
+    })
 })
 
 describe('buildFuzzyHighlightSegments', () => {
