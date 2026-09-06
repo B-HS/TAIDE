@@ -85,6 +85,9 @@
       질문을 중단 지시로 오독해 정지시켰다가 같은 run 으로 재개(렌즈 2건은 결과 전이라 재실행 — 약 25~30만 토큰 손실). 결과: 발견 6(major 1 확증 —
       `sk-` 접두가 단어 중간(task-/disk-)에서도 매치돼 진단 식별자를 지움 → 단어 시작 경계로 수정 / minor 3 수용·2 문서화). 계약 §3 "검토·수정" 정본
 - [x] h-1. d-57 검토 반영 → verify(bun 2338·cargo 1527) → 커밋 → docs 커밋 → dev 푸시 → main ff
+- [x] h-2. 릴리스 v0.1.9(사용자 지시 "드래프트") — 버전 동기 3파일+Cargo.lock·`release-notes/v0.1.9.md`·verify+vite build exit 0 → `631a201`
+      chore(release) → dev 푸시·main ff → 태그 → Release 런 `34052313011` 완주(wall 5m56s, build 5m26s) → draft(TAIDE_0.1.9_aarch64.dmg
+      15,082,500B + SHA256SUMS.txt). 이력 `deployment.md` §9
 - [ ] h. 잔여(사용자): 실기 확증(권한 다이얼로그 배지 즉시 전환·유휴 복귀·hooks 켠 세션의 PermissionRequest 즉시 반영), 미결 결정(계약 §4·리서치 §미결)
 
 ## 완료(잔여 사용자 몫): 라이선스 MIT·README·Claude Code Ctrl+G 임시파일 수정 (2026-09-05)
