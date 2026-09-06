@@ -142,3 +142,62 @@ R 단계가 남긴 3건을 모두 닫았다. Rust 로직은 손대지 않았다(
 - **d-57 전체 완료**: §1.A(rescan 이벤트 Rust + FE 배선) · §1.B(빈 경로 가드 + 로케일 3종) · §1.C(`mask_known_secrets`) · §1.D(git stderr · LSP tail · 알림 본문 마스킹) · §1.E(프로세스 그룹 시그널 가드). §1.F 범위 외 항목은 손대지 않았다.
 - **표면 변화**: 신규 이벤트 1종(`fs:rescan-required`) · 신규 로케일 키 1종(×3 언어) · 신규 커맨드 0 · 기존 페이로드 변경 0. `bindings.ts` 는 `events.fsRescanRequired` 와 `FsRescanRequired` 타입 추가(+ `notification_notify` doc 한 줄).
 - **테스트 22종 추가**(R 19 + F 3). 전체 검증: `cargo fmt --all -- --check` · `cargo clippy --workspace --all-targets -- -D warnings` · `cargo test --workspace` · `bun run typecheck` · `bun run lint` · `bun run format:check` · `bun test` 전부 통과.
+
+### 검토·수정 (2026-09-07)
+
+리뷰 발견 6건(확정 major 1 · minor 5). 코드 변경은 `src-tauri/src/infra/redact.rs`(정규식 3곳 + 회귀
+테스트 5종)와 `src/app/providers/ipc-sync-provider.tsx` 의 JSDoc·테스트뿐이다. **이벤트·커맨드·
+페이로드·`bindings.ts` 표면 변화 0**, 마스킹 함수의 시그니처·호출부도 불변이다.
+
+| id | severity | 확정 | 처리 |
+|----|----------|------|------|
+| F1 — 발급자 접두가 단어 중간에서도 매치(`task-`·`disk-`·`risk-` 안의 `sk-`) | major | 확정(재현) | **수정** — 발급자 블록에 단어 시작 경계 추가 |
+| F1-openai-sk-overreach — `sk-` + 하이픈 식별자(브랜치·호스트명) 오탐 | minor | - | **수용** — openai 본문을 실제 키 형태로 분리 |
+| F3 — `AWS_SECRET_ACCESS_KEY=` 류 접두 환경변수 미탐 | minor | - | **부분 수용** — 키워드 3종 추가, 제안된 임의 접두·접미 허용은 기각 |
+| F2 — `key=value` 가 URL 쿼리의 비밀 아닌 값도 마스킹 | minor | - | **부분 수용** — 규칙 축소는 기각, 트레이드오프를 테스트·문서로 고정 |
+| F2-file-all-cross-project-sweep — `FILE.ALL` 이 타 프로젝트까지 무효화 | minor | - | **부분 수용** — predicate 스코프는 기각, JSDoc·`ipc-contract.md`·테스트로 명시 |
+| F4 — rescan 이 이미 펼친 디렉토리를 교정하지 못함 | minor | - | **기록만** — 이미 문서화된 기지 한계, 코드 변경 없음 |
+
+#### 처리 상세
+
+1. **F1(수정)** — `SECRET_PATTERN` 의 발급자 10종을 한 블록으로 묶고 앞에 `(?:^|[^A-Za-z0-9])` 를
+   붙였다. regex 크레이트에 look-behind 가 없어 **접두 앞 문자를 소비**하는 방식을 썼다 — 치환은
+   여전히 명명 그룹 범위만 하므로 그 문자는 출력에 남는다. 회귀 테스트 2종:
+   `단어_중간에서_시작하는_발급자_접두는_시크릿이_아니다`(발견의 재현 문자열 그대로 +
+   `risk-`·`desk-`·단어 뒤에 붙은 `ghp_`), `문자열_맨_앞의_자격증명도_마스킹된다`(경계 문자가 없는
+   유일한 위치인 문자열 선두가 여전히 걸리는지 — 소비 방식의 유일한 함정).
+2. **F1-openai-sk-overreach(수용)** — openai 브랜치를 `sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}`
+   와 `sk-[A-Za-z0-9]{16,}` 두 형태로 나눴다. 발견이 제안한 "하이픈 제거"만 하면 `sk-proj-…` 실키를
+   놓치므로(하이픈이 실제 키에 들어간다) 알려진 하이픈 접두를 명시하는 쪽을 택했다. 양성 픽스처
+   2종(`sk-proj-`·`sk-svcacct-`) 추가, 음성 회귀 1종(`sk-refactor-login-flow-again` 브랜치·
+   `sk-eu-west-1-cluster-name` 호스트 생존).
+3. **F3(부분 수용)** — 키워드 목록에 `access[_-]?key`·`secret[_-]?key`·`private[_-]?key` 를 더해
+   `AWS_SECRET_ACCESS_KEY=`·`SSH_PRIVATE_KEY=` 를 잡는다. 발견이 제안한 키 이름 앞뒤 임의
+   `[A-Za-z0-9_]*` 허용은 **기각** — `--token-file=/tmp/build.log` 처럼 자격증명 단어가 들어간 경로
+   인자까지 값을 지워 계약 §2 검토 렌즈(오탐이 진단을 죽이지 않을 것)를 정면으로 위반한다. 대신
+   "키워드가 `=` 바로 앞에 온다" 는 조건을 유지해 이름의 **끝** 단어로만 판정한다. 그 결과
+   `STRIPE_API_KEY_LIVE=` 처럼 자격증명 단어 뒤에 말이 더 붙는 이름은 여전히 미탐이고, 이 한계는
+   `docs/debugging.md` §7 에 적었다(마스킹은 best-effort 라는 기존 안내의 구체 사례).
+4. **F2(부분 수용)** — `key=value` 를 Authorization 헤더·`.env` 대입으로 좁히자는 제안은 **기각**.
+   계약 §1.C 가 지정한 규칙 그대로이고, 좁히면 이 마스킹이 존재하는 이유인 npm `_authToken=` 류
+   서브프로세스 출력을 놓친다. 대신 트레이드오프를 테스트(`url_쿼리의_token_값은_마스킹되고_
+   주소는_남는다` — 값만 지워지고 주소·키 이름·다른 파라미터는 생존)와 `docs/debugging.md` §7 로
+   고정했다.
+5. **F2-file-all-cross-project-sweep(부분 수용)** — `FILE.ALL` 에 `isQueryKeyUnderProjectRoot`
+   predicate 를 다는 제안은 **기각**. 그 predicate 는 `PROJECT.DETAIL` 캐시의 `root` 가 있어야
+   성립하는데(`projectClosed` 는 삭제 대상이라 없으면 건너뛰어도 안전하다), rescan 에서 캐시가 비면
+   **아무것도 무효화하지 못해** 정체 파일이 남는다 — 워처가 이미 이벤트를 흘린 뒤라는 이 이벤트의
+   전제와 충돌한다. 비용은 관측 중인 쿼리의 재조회뿐이고 2초 스로틀로 묶여 있어 광역 유지가 낫다.
+   대신 발견이 지적한 "테스트 제목이 검증하지 않는다" 는 실제 문제라 제목을 정정하고(트리·퀵오픈·
+   git 만 프로젝트 스코프), `FILE.ALL` 만 도메인 전역임을 잠그는 테스트 1종을 추가했다. JSDoc 과
+   `docs/ipc-contract.md` 의 무효화 집합 절에도 교차 프로젝트 영향을 명시했다.
+6. **F4(기록만)** — 코드 변경 없음. F 단계 "남은 작업·한계" 와 `docs/ipc-contract.md` 의 한계 항목이
+   이미 정본이다. 완전 교정(rescan 시 Rust 트리 스토어 캐시 무효화 또는 펼친 디렉토리별
+   `tree_refresh`)은 이 계약 범위 밖이라 **별도 계약으로 스케줄링**해야 한다.
+
+- **테스트 6종 추가** — redact 5종(Rust lib 1522 → 1527), `rescanInvalidations` 1종(bun 2337 → 2338).
+  통합 테스트 30종 불변.
+- **검증**: `cargo fmt --all -- --check` OK · `cargo clippy --workspace --all-targets -- -D warnings`
+  경고 0 · `cargo test --workspace` 1527 passed / 0 failed(+통합 30) · `bun run typecheck` OK ·
+  `bun run lint` 0 errors(기존 경고 11 유지) · `bun run format:check` OK · `bun test` 2338 pass / 0
+  fail. `git diff -- src/shared/api/bindings.ts` 는 빈 diff(이벤트 추가가 없어 재생성 변동 0).

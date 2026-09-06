@@ -81,9 +81,10 @@
 - [x] g-2. d-56 완료(2026-09-07) — 구현 wf `wf_635033d6`(R Rust 테스트 +12·bindings 2건 / F TS 테스트 +14, replayBytes u32·attach 결과 도착 전 큐 등 이탈 6건)
       → 리뷰 wf `wf_5b790d6e`(major 0·minor 1 부분 수용(부재 캐시 트레이드오프 문서화)·info 4) → 메인 verify(bun 2334·cargo 1503)·vite build → 커밋
 - [x] g-3. d-57 완료(2026-09-07) — 구현 wf `wf_986f4e1b`(R Rust 테스트 +19·이벤트 `fs:rescan-required`·bindings / F TS 테스트 +3·로케일 3종·문서,
-      이탈 11건 계약 §3) → 메인 verify(bun 2337·cargo 1522)·vite build → 커밋. **렌즈 검토 wf 는 사용자 중단 지시로 미실행**(`wf_a95feb4b` 정지) —
-      다음 세션 첫 항목으로 d-57 검토(마스킹 오탐 렌즈 포함) 수행
-- [x] h-1. docs 커밋 → dev 푸시 → main ff. 세션 종료(사용자 지시)
+      이탈 11건 계약 §3) → 메인 verify(bun 2337·cargo 1522)·vite build → 커밋 `4e79288`. 렌즈 검토 wf `wf_a95feb4b` 는 메인이 사용자의 소요 시간
+      질문을 중단 지시로 오독해 정지시켰다가 같은 run 으로 재개(렌즈 2건은 결과 전이라 재실행 — 약 25~30만 토큰 손실). 결과: 발견 6(major 1 확증 —
+      `sk-` 접두가 단어 중간(task-/disk-)에서도 매치돼 진단 식별자를 지움 → 단어 시작 경계로 수정 / minor 3 수용·2 문서화). 계약 §3 "검토·수정" 정본
+- [x] h-1. d-57 검토 반영 → verify(bun 2338·cargo 1527) → 커밋 → docs 커밋 → dev 푸시 → main ff
 - [ ] h. 잔여(사용자): 실기 확증(권한 다이얼로그 배지 즉시 전환·유휴 복귀·hooks 켠 세션의 PermissionRequest 즉시 반영), 미결 결정(계약 §4·리서치 §미결)
 
 ## 완료(잔여 사용자 몫): 라이선스 MIT·README·Claude Code Ctrl+G 임시파일 수정 (2026-09-05)

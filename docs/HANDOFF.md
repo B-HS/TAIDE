@@ -131,8 +131,9 @@
 - **d-56 완료** (`6fe22ae`): 리플레이 flow control 제외(`PtyAttachResult.replayBytes`)·링 축출 개행 정렬·zsh OSC 7 printf·`~` 확장·링크 존재 검증
   resolver(`terminal_resolve_link_candidates`). 리뷰 major 0·minor 1 문서화(부재 캐시 트레이드오프).
 - **d-57 완료·검토 미실행**: FSEvents rescan → `fs:rescan-required` + FE 광역 무효화(트리 캐시 자체는 미갱신 — 한계 문서화)·워처 빈 경로 가드·
-  `mask_known_secrets`(13 패턴, git stderr·LSP 설치 tail·알림 본문 적용)·pgid 시그널 가드. 메인 verify 그린이나 **sonnet 렌즈 검토는 사용자 중단
-  지시로 돌리지 못했다** — 다음 세션 첫 항목(마스킹 오탐 렌즈 필수).
+  `mask_known_secrets`(13 패턴, git stderr·LSP 설치 tail·알림 본문 적용)·pgid 시그널 가드. sonnet 렌즈 검토(`wf_a95feb4b`, 메인 오판으로 한 번
+  정지 후 재개)에서 major 1 확증 — `sk-` 발급자 접두가 단어 중간에서도 매치돼 task-/disk- 식별자를 지우던 오탐 → 단어 시작 경계로 수정(후속 fix 커밋).
+  남은 한계: rescan 이 이미 펼친 트리 디렉토리는 갱신하지 않음(별도 계약 필요), `STRIPE_API_KEY_LIVE=` 류 미탐.
 
 ### 3.6 잔여
 
