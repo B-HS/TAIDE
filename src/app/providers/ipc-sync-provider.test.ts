@@ -330,7 +330,7 @@ describe('rescanInvalidations', () => {
         expect(git.matchesQueryKey?.(QUERY_KEY.GIT.SHOW('project-1', 'abc123', '/repo/a.ts'))).toBe(false)
     })
 
-    test('프로젝트 스코프 키만 쓴다 — 도메인 전역 접두사(TREE.ALL·SEARCH.ALL·GIT.ALL)로 다른 프로젝트까지 쓸지 않는다', async () => {
+    test('트리·퀵오픈·git 은 프로젝트 스코프다 — 도메인 전역 접두사(TREE.ALL·SEARCH.ALL·GIT.ALL)로 다른 프로젝트까지 쓸지 않는다', async () => {
         const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
         const keys = rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)
 
@@ -338,5 +338,13 @@ describe('rescanInvalidations', () => {
         expect(keys).not.toContainEqual(QUERY_KEY.TREE.ALL)
         expect(keys).not.toContainEqual(QUERY_KEY.SEARCH.ALL)
         expect(keys).not.toContainEqual(QUERY_KEY.GIT.ALL)
+    })
+
+    test('FILE.ALL 만 도메인 전역이다 — 경로로만 키가 잡히는 캐시라 타 프로젝트의 열린 파일 재조회를 감수한다', async () => {
+        const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
+        const keys = rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)
+
+        expect(keys.filter((key) => !key.includes('project-1'))).toEqual([QUERY_KEY.FILE.ALL])
+        expect(QUERY_KEY.FILE.CONTENT('/other-project/a.ts')).toEqual(['file', 'content', '/other-project/a.ts'])
     })
 })

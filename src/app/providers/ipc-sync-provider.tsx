@@ -211,6 +211,15 @@ type RescanInvalidation = {
  *   and `FILE.RAW` has no other refresh path at all) re-read from disk, while
  *   `FILE.MIRRORS`/`UNTITLED_MIRRORS` under the same prefix are merely refetched — a hot-exit mirror
  *   is never dropped by a rescan.
+ * - `FILE.ALL` is also the one entry here that is deliberately *domain-wide* rather than project
+ *   scoped, so another open project's files are refetched from disk too (review F2). `FILE.CONTENT`/
+ *   `FILE.RAW` are keyed by a bare path with no `ProjectId` axis at all, so the only way to scope
+ *   them is `projectClosed`'s `isQueryKeyUnderProjectRoot` predicate — which needs this project's
+ *   `root` out of the `PROJECT.DETAIL` cache, and would silently sweep *nothing* whenever that entry
+ *   is missing. That trades a bounded cost (an invalidation refetches only what something is
+ *   actually observing, and the same 2s throttle bounds how often) for a stale-file correctness hole
+ *   on the very event that exists because the watcher already lost changes, so the broad sweep
+ *   stands.
  */
 export const rescanInvalidations = (projectId: ProjectId): readonly RescanInvalidation[] => [
     { queryKey: QUERY_KEY.TREE.ROWS(projectId) },

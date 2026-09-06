@@ -11,30 +11,53 @@ const OPAQUE_TOKEN_REPLACEMENT: &str = "[redacted]";
 
 /// The credential shapes [`mask_known_secrets`] removes, as one alternation so a single pass over
 /// the text finds all of them. Every branch carries exactly one **named** group, and it is that
-/// group's span — not the whole match's — that gets redacted: the last three branches match
-/// surrounding context (`://user:`, `Authorization: Bearer `, `token=`) purely to locate the value,
-/// and keeping that context in the output is what makes a masked line still diagnosable.
+/// group's span — not the whole match's — that gets redacted: the issuer block's leading
+/// `(?:^|[^A-Za-z0-9])` and the last three branches match surrounding context (the character before
+/// the prefix, `://user:`, `Authorization: Bearer `, `token=`) purely to locate the value, and
+/// keeping that context in the output is what makes a masked line still diagnosable.
+///
+/// **An issuer prefix only counts at a word start.** The regex crate has no look-behind, so the
+/// issuer block consumes the character *before* the prefix instead — harmless, because redaction
+/// covers the named group alone and that character survives. Without it every prefix also matched
+/// mid-word: `sk-` is a literal substring of `task-`, `desk-`, `disk-`, `risk-`, so
+/// `task-1738273645123456` and `disk-cache-171234567890123` were both redacted as OpenAI keys,
+/// deleting the identifier the failure was actually about and reporting a key leak that never
+/// happened (review F1).
 ///
 /// Branch order matters where two prefixes nest (`sk-ant-` before `sk-`): the regex crate's
 /// alternation is leftmost-**first**, so at a shared start offset the earlier branch wins and the
 /// redaction is named after the more specific issuer.
 ///
+/// `openai` is the one issuer whose body is written as its real key shapes rather than one wide
+/// class: `sk-` + alphanumerics (the classic form), or a known hyphenated prefix (`sk-proj-`,
+/// `sk-svcacct-`, `sk-admin-`) + anything. A single `sk-[A-Za-z0-9_-]{16,}` also swallowed
+/// hyphenated identifiers that genuinely start with `sk-` — a `sk-refactor-login-flow-again` branch,
+/// a `sk-eu-west-1-cluster-name` host (review F1 minor).
+///
+/// `key_value`'s keyword has to sit immediately before the `=`, so it matches whatever a prefixed
+/// environment variable *ends* with: `AWS_SECRET_ACCESS_KEY=` needs `access[_-]?key` and
+/// `SSH_PRIVATE_KEY=` needs `private[_-]?key` in the list, while a plain `SECRET=`/`DB_PASSWORD=`
+/// is covered by the bare words (review F3). Requiring the `=` right after the keyword is also what
+/// keeps `--token-file=/tmp/build.log` — a path argument, not a credential — intact.
+///
 /// Only issuer-shaped credentials are listed. IP addresses, MAC addresses, phone numbers and long
 /// opaque identifiers are deliberately absent — see [`mask_known_secrets`].
 const SECRET_PATTERN: &str = concat!(
+    r"(?:^|[^A-Za-z0-9])(?:",
     r"(?P<github>gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})",
     r"|(?P<gitlab>glpat-[A-Za-z0-9_-]{16,})",
     r"|(?P<anthropic>sk-ant-[A-Za-z0-9_-]{16,})",
     r"|(?P<stripe>[sr]k_live_[A-Za-z0-9]{16,})",
-    r"|(?P<openai>sk-[A-Za-z0-9_-]{16,})",
+    r"|(?P<openai>sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{16,})",
     r"|(?P<aws>AKIA[0-9A-Z]{16})",
     r"|(?P<google>AIza[0-9A-Za-z_-]{35})",
     r"|(?P<slack>xox[baprs]-[A-Za-z0-9-]{10,})",
     r"|(?P<npm>npm_[A-Za-z0-9]{20,})",
     r"|(?P<jwt>eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)",
+    r")",
     r"|://[^\s:/@]+:(?P<url_password>[^\s@/]+)@",
     r"|(?i:authorization\s*:\s*bearer\s+)(?P<bearer>\S+)",
-    r#"|(?i:(?:api[_-]?key|secret|token|password|passwd)\s*=\s*)(?P<key_value>[^\s"'&;]+)"#,
+    r#"|(?i:(?:api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd)\s*=\s*)(?P<key_value>[^\s"'&;]+)"#,
 );
 
 /// Every named group of [`SECRET_PATTERN`], which is also the label a redaction carries
@@ -190,6 +213,8 @@ mod tests {
         ("glpat-", "abcdefghijklmnopqrst", "gitlab"),
         ("sk-ant-", "api03-abcdefghijklmnopqrstuvwxyz", "anthropic"),
         ("sk-", "abcdefghijklmnopqrstuvwxyz012345", "openai"),
+        ("sk-proj-", "abcdefghijklmnopqrst-uvwxyz_012345", "openai"),
+        ("sk-svcacct-", "abcdefghijklmnopqrst-uvwxyz", "openai"),
         ("sk_live_", "abcdefghijklmnopqrstuvwxyz", "stripe"),
         ("rk_live_", "abcdefghijklmnopqrstuvwxyz", "stripe"),
         ("AKIA", "IOSFODNN7EXAMPLE", "aws"),
@@ -278,6 +303,80 @@ mod tests {
         for text in survivors {
             assert_eq!(mask_known_secrets(text), text, "진단에 필요한 문자열이 마스킹되었습니다: {text}");
         }
+    }
+
+    /// Review F1. `sk-` is a literal substring of `task-`, `desk-`, `disk-`, `risk-`, so a prefix
+    /// that may start mid-word turns the identifier a failure is *about* into `[redacted:openai]`
+    /// and reports a key leak that never happened.
+    #[test]
+    fn 단어_중간에서_시작하는_발급자_접두는_시크릿이_아니다() {
+        let prefixed_github = format!("build{}", fixture("ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"));
+        let survivors = [
+            "npm ERR! failed while processing task-1738273645123456 in disk-cache-171234567890123",
+            "risk-assessment-1234567890123456 completed",
+            "desk-1234567890123456",
+            prefixed_github.as_str(),
+        ];
+
+        for text in survivors {
+            assert_eq!(mask_known_secrets(text), text, "일반 식별자가 마스킹되었습니다: {text}");
+        }
+    }
+
+    /// The word-start rule of [`SECRET_PATTERN`] consumes the character before the prefix, so the
+    /// one position that has no such character — the very start of the string — must still match.
+    #[test]
+    fn 문자열_맨_앞의_자격증명도_마스킹된다() {
+        let secret = fixture("ghp_", "abcdefghijklmnopqrstuvwxyz0123456789");
+
+        assert_eq!(mask_known_secrets(&secret), "[redacted:github]");
+        assert_eq!(mask_known_secrets(&format!("{secret} rejected")), "[redacted:github] rejected");
+    }
+
+    /// Review F1 (minor). A branch, host or cluster name may legitimately begin with `sk-`; only the
+    /// real key shapes are credentials.
+    #[test]
+    fn sk_로_시작하는_하이픈_식별자는_시크릿이_아니다() {
+        let survivors = [
+            "error: failed to push some refs to branch 'sk-refactor-login-flow-again'",
+            "hint: sk-eu-west-1-cluster-name is unreachable",
+        ];
+
+        for text in survivors {
+            assert_eq!(mask_known_secrets(text), text, "일반 식별자가 마스킹되었습니다: {text}");
+        }
+    }
+
+    /// Review F3. A real credential is almost always assigned to a *prefixed* environment variable,
+    /// so the keyword list has to cover whatever such a name ends with — while a `--token-file=`
+    /// path argument, whose keyword is not the one touching the `=`, stays readable.
+    #[test]
+    fn 접두가_붙은_환경변수_이름의_값도_마스킹된다() {
+        let masked = mask_known_secrets("env dump: AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        assert!(
+            !masked.contains("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+            "AWS 시크릿이 남아 있습니다: {masked}"
+        );
+        assert!(masked.contains("AWS_SECRET_ACCESS_KEY=[redacted:key_value]"));
+
+        assert!(mask_known_secrets("SSH_PRIVATE_KEY=abcdefghijklmnop").contains("[redacted:key_value]"));
+        assert!(mask_known_secrets("DB_PASSWORD=hunter2").contains("[redacted:key_value]"));
+
+        let path_argument = "npm ERR! spawn failed: --token-file=/tmp/build.log";
+        assert_eq!(mask_known_secrets(path_argument), path_argument, "경로 인자는 자격증명이 아니다");
+    }
+
+    /// Review F2. The `key=value` rule is name-based, so a URL query parameter called `token` loses
+    /// its value even when it is a pagination cursor rather than a credential. Locked here as the
+    /// accepted trade-off of contract §1.C: the address around it survives, which is what keeps the
+    /// line diagnosable.
+    #[test]
+    fn url_쿼리의_token_값은_마스킹되고_주소는_남는다() {
+        let masked = mask_known_secrets("GET https://example.com/v1/items?page_token=abc123&state=xyz failed");
+
+        assert!(masked.contains("page_token=[redacted:key_value]"));
+        assert!(masked.contains("https://example.com/v1/items"));
+        assert!(masked.contains("&state=xyz"), "자격증명이 아닌 파라미터는 그대로 남는다: {masked}");
     }
 
     #[test]
