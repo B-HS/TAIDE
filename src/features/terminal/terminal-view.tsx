@@ -13,9 +13,9 @@ import { INSERT_TEXT, createInsertTextDeduper, resolveImeInput } from '@shared/l
 import { recordImeDebug } from '@shared/lib/ime-debug'
 import { IS_MAC } from '@shared/constants/platform'
 import { PERF_COUNTER, perfCount } from '@shared/lib/perf-mark'
-import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import type { CommandBlockDecorationColors } from '@features/terminal/terminal-osc133'
 import { attachOsc133BlockTracker } from '@features/terminal/terminal-osc133'
+import type { ResolvedTerminalLinkMatch, TerminalFileLinkProviderDeps } from '@features/terminal/terminal-file-link'
 import { createTerminalFileLinkProvider } from '@features/terminal/terminal-file-link'
 
 const OVERVIEW_RULER_WIDTH_PX = 14
@@ -61,7 +61,13 @@ export const shouldTranslateShiftEnterToLineFeed = (
  * in any shell that supports bracketed paste.
  */
 export type TerminalAttachHandle = {
-    write: (data: Uint8Array) => void
+    /**
+     * `backlogBytes` is how much of `data` counts toward the write backlog that drives flow control
+     * — the whole chunk for live output, less for one that carries replayed scrollback (the owner
+     * charges those against `pty_attach`'s `replayBytes`, see `terminal-replay-budget.ts`). Passing
+     * `data.byteLength` unconditionally is what paused a healthy child process on every tab switch.
+     */
+    write: (data: Uint8Array, backlogBytes: number) => void
     jumpToPreviousCommand: () => void
     jumpToNextCommand: () => void
     focus: () => void
@@ -99,7 +105,10 @@ export type TerminalViewProps = {
     onWriteBacklogChange: (pendingBytes: number) => void
     onFocusChange: (isFocused: boolean) => void
     onOpenLink: (uri: string) => void
-    onOpenFileLink: (match: TerminalLinkMatch) => void
+    onOpenFileLink: (match: ResolvedTerminalLinkMatch) => void
+    /** Both halves of the file-link resolver this view injects into its provider — see {@link TerminalFileLinkProviderDeps}. */
+    getCwd: TerminalFileLinkProviderDeps['getCwd']
+    resolveFileLinkCandidates: TerminalFileLinkProviderDeps['resolveCandidates']
     attachRef: RefObject<TerminalAttachHandle | null>
 }
 
@@ -120,6 +129,8 @@ export const TerminalView: FC<TerminalViewProps> = ({
     onFocusChange,
     onOpenLink,
     onOpenFileLink,
+    getCwd,
+    resolveFileLinkCandidates,
     attachRef,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -132,6 +143,8 @@ export const TerminalView: FC<TerminalViewProps> = ({
     const onFocusChangeRef = useRef(onFocusChange)
     const onOpenLinkRef = useRef(onOpenLink)
     const onOpenFileLinkRef = useRef(onOpenFileLink)
+    const getCwdRef = useRef(getCwd)
+    const resolveFileLinkCandidatesRef = useRef(resolveFileLinkCandidates)
     const attachRefRef = useRef(attachRef)
     const initialFontSizeRef = useRef(fontSize)
     const initialFontFamilyRef = useRef(fontFamily)
@@ -150,6 +163,8 @@ export const TerminalView: FC<TerminalViewProps> = ({
         onFocusChangeRef.current = onFocusChange
         onOpenLinkRef.current = onOpenLink
         onOpenFileLinkRef.current = onOpenFileLink
+        getCwdRef.current = getCwd
+        resolveFileLinkCandidatesRef.current = resolveFileLinkCandidates
         attachRefRef.current = attachRef
         commandBlockColorsRef.current = { success: commandSuccessColor, failure: commandFailureColor }
     })
@@ -227,9 +242,13 @@ export const TerminalView: FC<TerminalViewProps> = ({
             if (!shouldActivateTerminalLink(event)) return
             onOpenLinkRef.current(uri)
         })
-        const fileLinkProvider = createTerminalFileLinkProvider(term, (match, event) => {
-            if (!shouldActivateTerminalLink(event)) return
-            onOpenFileLinkRef.current(match)
+        const fileLinkProvider = createTerminalFileLinkProvider(term, {
+            getCwd: () => getCwdRef.current(),
+            resolveCandidates: (cwd, candidates) => resolveFileLinkCandidatesRef.current(cwd, candidates),
+            onActivate: (match, event) => {
+                if (!shouldActivateTerminalLink(event)) return
+                onOpenFileLinkRef.current(match)
+            },
         })
 
         term.loadAddon(fit)
@@ -343,13 +362,13 @@ export const TerminalView: FC<TerminalViewProps> = ({
              * between the two counters is itself the measurement of that replay cost. Counters
              * rather than spans, because this runs per chunk (`perf-mark.ts`, `PERF_COUNTER`).
              */
-            write: (data) => {
+            write: (data, backlogBytes) => {
                 perfCount(PERF_COUNTER.TERMINAL_OUTPUT_BYTES, data.byteLength)
                 perfCount(PERF_COUNTER.TERMINAL_OUTPUT_CHUNKS)
-                pendingRef.current += data.byteLength
+                pendingRef.current += backlogBytes
                 reportBacklog()
                 term.write(data, () => {
-                    pendingRef.current = Math.max(0, pendingRef.current - data.byteLength)
+                    pendingRef.current = Math.max(0, pendingRef.current - backlogBytes)
                     reportBacklog()
                 })
             },

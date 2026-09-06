@@ -1,9 +1,8 @@
 import type { FC, RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { ITheme } from '@xterm/xterm'
-import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { TerminalView } from '@features/terminal/terminal-view'
-import type { TerminalAttachHandle, TerminalCursorStyle } from '@features/terminal/terminal-view'
+import type { TerminalAttachHandle, TerminalCursorStyle, TerminalViewProps } from '@features/terminal/terminal-view'
 import type { SplitEdge } from '@features/tab/tab-context-menu'
 import { TerminalContextMenu } from '@features/terminal/terminal-context-menu'
 import { INITIAL_FLOW_CONTROL_STATE, evaluateFlowControl, shouldTogglePause } from '@widgets/terminal-pane/terminal-flow-control'
@@ -44,11 +43,14 @@ export type TerminalPaneProps = {
     onReady: (cols: number, rows: number) => void
     onSetPaused: (paused: boolean) => void
     onOpenLink: (uri: string) => void
-    onOpenFileLink: (match: TerminalLinkMatch) => void
+    onOpenFileLink: TerminalViewProps['onOpenFileLink']
+    getCwd: TerminalViewProps['getCwd']
+    resolveFileLinkCandidates: TerminalViewProps['resolveFileLinkCandidates']
     onSplitNewTerminal: (edge: SplitEdge) => void
     onNewTerminal: () => void
     onKillTerminal: () => void
-    attachData: (onData: (bytes: Uint8Array) => void) => () => void
+    /** `backlogBytes` is the share of the chunk that counts toward flow control — see {@link TerminalAttachHandle.write}. */
+    attachData: (onData: (bytes: Uint8Array, backlogBytes: number) => void) => () => void
 }
 
 export const TerminalPane: FC<TerminalPaneProps> = ({
@@ -70,6 +72,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     onSetPaused,
     onOpenLink,
     onOpenFileLink,
+    getCwd,
+    resolveFileLinkCandidates,
     onSplitNewTerminal,
     onNewTerminal,
     onKillTerminal,
@@ -83,6 +87,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const onSetPausedRef = useRef(onSetPaused)
     const onOpenLinkRef = useRef(onOpenLink)
     const onOpenFileLinkRef = useRef(onOpenFileLink)
+    const getCwdRef = useRef(getCwd)
+    const resolveFileLinkCandidatesRef = useRef(resolveFileLinkCandidates)
     const attachDataRef = useRef(attachData)
 
     const [isFocused, setIsFocused] = useState(false)
@@ -95,6 +101,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
         onSetPausedRef.current = onSetPaused
         onOpenLinkRef.current = onOpenLink
         onOpenFileLinkRef.current = onOpenFileLink
+        getCwdRef.current = getCwd
+        resolveFileLinkCandidatesRef.current = resolveFileLinkCandidates
         attachDataRef.current = attachData
     })
 
@@ -106,7 +114,12 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
 
     const handleOpenLink = (uri: string) => onOpenLinkRef.current(uri)
 
-    const handleOpenFileLink = (match: TerminalLinkMatch) => onOpenFileLinkRef.current(match)
+    const handleOpenFileLink: TerminalViewProps['onOpenFileLink'] = (match) => onOpenFileLinkRef.current(match)
+
+    const handleGetCwd = () => getCwdRef.current()
+
+    const handleResolveFileLinkCandidates: TerminalViewProps['resolveFileLinkCandidates'] = (cwd, candidates) =>
+        resolveFileLinkCandidatesRef.current(cwd, candidates)
 
     const handleWriteBacklogChange = (pendingBytes: number) => {
         const next = evaluateFlowControl(flowStateRef.current, pendingBytes)
@@ -175,7 +188,7 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
         if (!sessionId) return
         flowStateRef.current = INITIAL_FLOW_CONTROL_STATE
         onSetPausedRef.current(false)
-        const unsubscribe = attachDataRef.current((bytes) => attachRef.current?.write(bytes))
+        const unsubscribe = attachDataRef.current((bytes, backlogBytes) => attachRef.current?.write(bytes, backlogBytes))
         return () => {
             unsubscribe()
             if (flowStateRef.current.paused) onSetPausedRef.current(false)
@@ -215,6 +228,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
                     onFocusChange={handleFocusChange}
                     onOpenLink={handleOpenLink}
                     onOpenFileLink={handleOpenFileLink}
+                    getCwd={handleGetCwd}
+                    resolveFileLinkCandidates={handleResolveFileLinkCandidates}
                     attachRef={attachRef}
                 />
             </div>

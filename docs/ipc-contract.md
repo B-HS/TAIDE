@@ -4,6 +4,13 @@
 > `docs/research/tauri-v2.md`·`performance-memory.md`. **이 문서의 목록이 command·event 의 정본이며,
 > 구현 시 추가·변경은 이 문서를 먼저 갱신한다.**
 >
+> **실측(2026-09-07, d-56 웨이브 1 — 터미널 링크 존재 검증 `terminal_resolve_link_candidates` 신규
+> 반영)**: command **186종**(raw 3종 포함 **189종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(161) ⊎
+> `REMOTE_DENIED_COMMANDS`(28). event **24종 불변**. 신규 1종은 형제 커맨드 `resolve_terminal_path`
+> 와 같은 등급(원격 허용)으로 등재했다 — 둘 다 루트 밖·부재를 구분 없이 접어 답하므로 민감도 축이
+> 같다. 같은 배치가 `pty_attach` 의 **반환 타입을 넓혔다**(`u32` → `PtyAttachResult`, 아래 terminal
+> 절). 아래는 그 직전(사용성 배치 4 웨이브 2) 실측 기록이다.
+>
 > **실측(2026-09-04, 사용성 배치 4 웨이브 2 — 성능 계측 `perf_snapshot`·`perf_reset` 신규 반영)**:
 > command **185종**(raw 3종 포함 **188종**), 원격 분할은 `REMOTE_ALLOWED_COMMANDS`(160) ⊎
 > `REMOTE_DENIED_COMMANDS`(28). event **24종 불변**. 신규 2종은 둘 다 원격 거부라 허용 표는
@@ -450,13 +457,30 @@
 ### terminal (`terminal.md`)
 
 - mutation(C): `pty_spawn(opts: PtySpawnOptions, onData) → sessionId`, `pty_attach(sessionId, onData)
-  → subscriptionId`(둘 다 raw 커맨드 — 아래 절)
+  → PtyAttachResult{subscriptionId: u32, replayBytes: u32}`(둘 다 raw 커맨드 — 아래 절)
+- **`pty_attach` 반환 확장(d-56 T2-F3, 2026-09-07)**: 종전 `subscriptionId` 단일 값에서
+  `PtyAttachResult` 객체로 넓혔다. `replayBytes` 는 이 attach 가 **구독 등록 전에** 채널로 흘린 재생
+  바이트 총량(SGR 리셋 프리앰블 4바이트 + 링의 두 조각)이며, 같은 채널을 쓰는 라이브 출력과 재생분을
+  프론트가 가르는 유일한 근거다 — 프론트는 이 값을 예산으로 삼아 flow control 집계에서 재생분을
+  제외한다(`terminal.md` §2). `u64` 가 아니라 `u32` 인 것은 `specta-typescript` 가 BigInt 계열 export
+  를 거부하기 때문이고, 한 번의 재생은 스크롤백 상한(2MB)+4바이트로 묶여 있어 충분하다. raw 커맨드라
+  `bindings.ts` 에 커맨드는 생성되지 않지만, **타입은** `lib.rs` 의 `specta_builder.typ::<PtyAttachResult>()`
+  로 명시 등록해 프론트가 손으로 다시 적지 않게 했다.
 - mutation: `pty_write(sessionId, data)`, `pty_resize(sessionId, cols, rows)`, `pty_kill(sessionId)`,
   `pty_set_paused(sessionId, paused)`, `pty_detach(sessionId, subscriptionId)`(Wave I 채널 다중화 —
   세션당 여러 창이 구독할 수 있게 되면서 신설. 세션/구독이 이미 없으면 에러가 아니라 already-detached
   로 취급한다)
 - query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`,
+  `terminal_resolve_link_candidates(cwd, candidates) → (string | null)[]`,
   `pty_default_options(projectId, cwd?)`(7.7 후속 — 아래 절 참조)
+- **`terminal_resolve_link_candidates`(d-56 T5-01, 2026-09-07)**: 터미널 한 행의 정규식 후보들을 한
+  번에 검증한다. **입력 순서를 자리로 보존**해 같은 길이의 배열로 답하고, 행당 상한
+  `MAX_LINK_CANDIDATES_PER_ROW`(16)을 넘는 후보는 해석하지 않고 `null` 이다. 내부는 후보마다
+  `resolve_terminal_path` 와 같은 `guard_terminal_path` 를 재사용하므로 **루트 밖과 부재를 똑같이
+  `null`** 로 접는다(존재 여부 오라클 비노출 정책 유지) — 그래서 원격 분류도 `resolve_terminal_path`
+  와 같은 등급(허용)이다. 프론트는 이 답으로 존재하는 후보만 링크로 만들고 활성화 때 두 번째 IPC 를
+  쓰지 않는다(`terminal.md` §6). 데스크톱 링크 경로가 이쪽으로 옮겨가면서 `resolve_terminal_path` 는
+  커맨드로만 남고 프론트 호출자는 0 이 됐다(원격 표면·계약은 그대로).
 - **pause 는 구독과 독립인 세션 상태다(클라이언트 규약, d-51 F5 — 표면 변경 없음)**:
   `pty_set_paused` 는 세션의 reader 스레드를 세우고 `pty_detach` 는 그것을 풀지 않는다(구독자 목록만
   건드린다). 따라서 **구독을 끊는 쪽이 자기가 올린 pause 를 내려야 하고, attach 하는 쪽은
@@ -1175,6 +1199,13 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 로딩에 의존하던 결함 수정) 을 `IMPLEMENTED_JSON_COMMANDS`·`REMOTE_ALLOWED_COMMANDS` 양쪽에 등재
 > (형제 `search_*` 3종과 동일 취급). `IMPLEMENTED_JSON_COMMANDS` 177 → **178**,
 > `REMOTE_ALLOWED_COMMANDS` 156 → **157**(`REMOTE_DENIED_COMMANDS` 24 는 그대로, 총 180 → **181**).
+>
+> **d-56(2026-09-07, `docs/acknowledge/2026-09-06-d56-terminal-pty-wave1-contract.md`)**: 신규 커맨드
+> `terminal_resolve_link_candidates(cwd, candidates) → (string | null)[]`(§1.E — 터미널 링크 존재
+> 검증)을 `IMPLEMENTED_JSON_COMMANDS`·`REMOTE_ALLOWED_COMMANDS` 양쪽에 등재했다. 분류 근거는 형제
+> `resolve_terminal_path` 와 동일하다 — 같은 `guard_terminal_path` 를 거쳐 루트 밖과 부재를 구분 없이
+> `null` 로 접으므로 원격 세션에 새로 열리는 정보가 없다. `IMPLEMENTED_JSON_COMMANDS` 185 → **186**,
+> `REMOTE_ALLOWED_COMMANDS` 160 → **161**(`REMOTE_DENIED_COMMANDS` 28 은 그대로, 총 188 → **189**).
 
 - **명시 허용(`REMOTE_ALLOWED_COMMANDS`, 157종 — d-42 이전 156종)**: `match` arm 이 실제 핸들러로 위임한다. 예: `git_*`
   전종·`file_*`(아래 예외 제외)·`ai_*` 6종(`ai_set_token`/`ai_clear_token` 제외 — d-38, 아래 표

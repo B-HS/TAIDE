@@ -93,7 +93,7 @@ fi
 unset _taide_rc_dir
 
 autoload -Uz add-zsh-hook
-_taide_precmd()  { print -Pn "\e]133;D;$?\e\\"; print -n "\e]7;$PWD\e\\"; print -Pn "\e]133;A\e\\" }
+_taide_precmd()  { print -Pn "\e]133;D;$?\e\\"; printf '\e]7;%s\e\\' "$PWD"; print -Pn "\e]133;A\e\\" }
 _taide_preexec() { print -Pn "\e]133;C\e\\" }
 add-zsh-hook precmd  _taide_precmd
 add-zsh-hook preexec _taide_preexec
@@ -126,9 +126,13 @@ rm -rf __TAIDE_TEMP_DIR__ 2>/dev/null
 /// `_taide_precmd` also emits a cwd-report sequence (`\e]7;$PWD\e\\`, the same OSC 7 numeric
 /// identifier real terminals use for "current directory changed") on every prompt render, alongside
 /// the OSC 133 command markers — [`crate::infra::terminal_scan::OutputScanner`] scans the
-/// pty's raw output for it. `print -n` (not `-P`) is deliberate: `-P` additionally performs zsh's
-/// own `%`-escape prompt expansion, which would corrupt a `$PWD` that happens to contain a literal
-/// `%`. Deliberately **not** the real spec's `file://host/path` form with percent-encoding (X1#1,
+/// pty's raw output for it. It is emitted with `printf` (a zsh builtin, so the hook still spawns no
+/// external process), matching [`BASH_SCRIPT_TEMPLATE`]: `print` interprets escape sequences in its
+/// *arguments* unless given `-r`, so `print -n "\e]7;$PWD\e\\"` mangled any directory holding a
+/// literal backslash (`~/a\btest` reported as `~/a<BS>test`), and `print -P` would additionally run
+/// `%`-expansion over a `$PWD` containing a literal `%`. With `printf '\e]7;%s\e\\' "$PWD"` the
+/// escapes live in the format string and the path travels as data. Deliberately **not** the real
+/// spec's `file://host/path` form with percent-encoding (X1#1,
 /// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.1's "최소 배선" — the only consumer
 /// is this module's own parser, not a real terminal emulator, so the bare path is sufficient and a
 /// path can't itself contain the ESC/BEL bytes that terminate the sequence).
@@ -392,6 +396,36 @@ mod tests {
             script.contains(&dir.to_string_lossy().to_string()),
             "임시 디렉터리 자가정리 경로가 포함되어야 한다"
         );
+    }
+
+    #[test]
+    fn zsh_스크립트는_cwd_보고를_printf_로_내보낸다() {
+        let script = zsh_integration_script(&temp_dir("zsh-osc7"));
+
+        assert!(
+            script.contains(r#"printf '\e]7;%s\e\\' "$PWD""#),
+            "OSC 7 보고는 $PWD 를 인자로 넘기는 printf 형식이어야 한다"
+        );
+        assert!(
+            !script.contains(r#"print -n "\e]7;"#),
+            "인자의 이스케이프를 해석하는 print 기반 보고가 남아 있으면 안 된다"
+        );
+    }
+
+    /// SI-5 round-trip: what the hook writes for a directory holding a backslash, a `%` or a space
+    /// must come back out of the scanner as that same path. The template assertion above only pins
+    /// the shell syntax; this pins the bytes it produces against the parser that reads them.
+    #[test]
+    fn 백슬래시_퍼센트_공백이_든_경로도_osc7_시퀀스를_왕복한다() {
+        for path in ["/repo/a\\b", "/repo/100%/src", "/repo/my project", "/repo/%s\\ndir"] {
+            let emitted = format!("\x1b]7;{path}\x1b\\");
+
+            assert_eq!(
+                crate::infra::terminal_scan::scan_once(emitted.as_bytes()).latest_cwd(),
+                Some(path),
+                "{path} 가 그대로 왕복해야 한다"
+            );
+        }
     }
 
     #[test]

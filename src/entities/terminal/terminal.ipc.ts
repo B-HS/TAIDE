@@ -1,6 +1,6 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { commands } from '@shared/api/bindings'
-import type { ProjectId, PtySpawnOptions } from '@shared/api/bindings'
+import type { ProjectId, PtyAttachResult, PtySpawnOptions } from '@shared/api/bindings'
 import { IpcError, isAppError, unwrapResult } from '@shared/api/unwrap-result'
 import { enqueueSessionWrite } from '@entities/terminal/session-write-order'
 
@@ -32,8 +32,14 @@ const invokeRaw = async <T>(command: string, args: Record<string, unknown>) => {
 export const spawnPty = (options: PtySpawnOptions, onData: (bytes: Uint8Array) => void) =>
     invokeRaw<string>(SPAWN_COMMAND, { opts: options, onData: createByteChannel(onData) })
 
+/**
+ * Resolves to the backend's `PtyAttachResult` — `subscriptionId` for {@link detachPty}, plus the
+ * `replayBytes` this attach put on the stream before any live output could reach it. The generic is
+ * written by hand (raw `invoke`, so specta cannot check it), which is why it names the generated
+ * type rather than repeating its shape.
+ */
 export const attachPty = (sessionId: string, onData: (bytes: Uint8Array) => void) =>
-    invokeRaw<number>(ATTACH_COMMAND, { sessionId, onData: createByteChannel(onData) })
+    invokeRaw<PtyAttachResult>(ATTACH_COMMAND, { sessionId, onData: createByteChannel(onData) })
 
 export const detachPty = (sessionId: string, subscriptionId: number) => unwrapResult(commands.ptyDetach(sessionId, subscriptionId))
 
@@ -52,4 +58,6 @@ export const listTerminalSessions = (projectId: ProjectId) => unwrapResult(comma
 
 export const listShellProfiles = () => unwrapResult(commands.shellProfiles())
 
-export const resolveTerminalPath = (input: { path: string; cwd: string }) => unwrapResult(commands.resolveTerminalPath(input.path, input.cwd))
+/** One call per terminal row (`terminal-file-link.ts`): each candidate answers with its absolute path, or `null` when it is not an openable file. */
+export const resolveTerminalLinkCandidates = (input: { cwd: string; candidates: string[] }) =>
+    unwrapResult(commands.terminalResolveLinkCandidates(input.cwd, input.candidates))

@@ -9,7 +9,16 @@ import { projectQueryOptions } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
 import { isTerminalSessionAlive, removeTerminalSession, upsertTerminalSession } from '@entities/terminal/terminal-session-cache'
-import { attachPty, detachPty, killPty, resizePty, resolveTerminalPath, setPtyPaused, spawnPty, writePty } from '@entities/terminal/terminal.ipc'
+import {
+    attachPty,
+    detachPty,
+    killPty,
+    resizePty,
+    resolveTerminalLinkCandidates,
+    setPtyPaused,
+    spawnPty,
+    writePty,
+} from '@entities/terminal/terminal.ipc'
 import { openExternalUrl } from '@entities/system/external-url'
 import { layoutQueryOptions, useCloseTab, useOpenTab, useOpenTabInSplit, useSetTerminalSession } from '@entities/layout/layout.query'
 import { commands, events } from '@shared/api/bindings'
@@ -20,7 +29,6 @@ import { findPaneTab } from '@shared/lib/pane-tree'
 import { registerTerminalWriteHandler } from '@shared/lib/bridge/terminal-write-bridge'
 import { requestOpenFileFromEditor } from '@shared/lib/bridge/editor-opener-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
-import type { TerminalLinkMatch } from '@shared/lib/terminal-link'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
@@ -28,10 +36,12 @@ import { DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK, DEFAULT_SHELL_LABEL } from '@sha
 import { QUERY_KEY } from '@shared/constants/query-key'
 import type { SplitEdge } from '@features/tab/tab-context-menu'
 import type { TerminalCursorStyle } from '@features/terminal/terminal-view'
+import type { ResolvedTerminalLinkMatch } from '@features/terminal/terminal-file-link'
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { Button } from '@shared/ui/button'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
 import { appendPendingTerminalInput } from '@widgets/terminal-pane/pending-terminal-input'
+import { consumeReplayBudget } from '@widgets/terminal-pane/terminal-replay-budget'
 import { resolveSplitTerminalCwd } from '@widgets/terminal-pane/terminal-split-availability'
 
 const DEFAULT_TERMINAL_CURSOR_STYLE: TerminalCursorStyle = 'bar'
@@ -188,13 +198,18 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
         void openExternalUrl(uri).catch(() => toast.error(t('terminal.openLinkFailed')))
     }
 
-    const handleOpenFileLink = (match: TerminalLinkMatch) => {
-        const effectiveCwd = cwd ?? persistedSession?.cwd ?? tabCwd
-        if (!effectiveCwd) return
-        void resolveTerminalPath({ path: match.path, cwd: effectiveCwd })
-            .then((resolvedPath) => requestOpenFileFromEditor({ path: resolvedPath, line: match.line ?? 1, column: match.column ?? 1 }))
-            .catch(() => toast.error(t('terminal.openLinkFailed')))
-    }
+    /**
+     * The link only exists because `terminal_resolve_link_candidates` already confirmed the file and
+     * handed back its absolute path (`terminal-file-link.ts`), so activation is a plain open — the
+     * click-time `resolve_terminal_path` round trip, and the failure toast that was its only visible
+     * outcome for a non-file match, are both gone.
+     */
+    const handleOpenFileLink = (match: ResolvedTerminalLinkMatch) =>
+        requestOpenFileFromEditor({ path: match.resolvedPath, line: match.line ?? 1, column: match.column ?? 1 })
+
+    const handleGetCwd = () => cwd ?? persistedSession?.cwd ?? tabCwd
+
+    const handleResolveFileLinkCandidates = (linkCwd: string, candidates: string[]) => resolveTerminalLinkCandidates({ cwd: linkCwd, candidates })
 
     const notifyError = (error: Error) => toast.error(describeIpcError(error))
 
@@ -244,22 +259,49 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
         void spawnWithMeasuredSize(cols, rows).catch(handleSpawnFailure)
     }
 
-    const handleAttachData = (onData: (bytes: Uint8Array) => void) => {
+    /**
+     * Attaches this pane to the session's output and tells the view how much of each chunk is live
+     * output, so replayed scrollback never reaches flow control (`terminal-replay-budget.ts`).
+     *
+     * Chunks are held until `pty_attach` resolves because the replay is sent from *inside* the
+     * command, before it returns: the byte budget those chunks must be charged against arrives only
+     * with the result, and counting them in the meantime would be the very pause this fix removes.
+     * The queue drains in arrival order the moment the result lands — one IPC round trip of
+     * already-old scrollback — and after that every chunk goes straight through.
+     */
+    const handleAttachData = (onData: (bytes: Uint8Array, backlogBytes: number) => void) => {
         if (!sessionId) return () => undefined
         const activeSessionId = sessionId
         let active = true
         let subscriptionId: number | null = null
+        let replayBudget: number | null = null
+        const queuedChunks: Uint8Array[] = []
+
+        const deliver = (bytes: Uint8Array) => {
+            const { countedBytes, remainingBudget } = consumeReplayBudget(replayBudget ?? 0, bytes.byteLength)
+            replayBudget = remainingBudget
+            onData(bytes, countedBytes)
+        }
+
         void attachPty(activeSessionId, (bytes) => {
-            if (active) onData(bytes)
+            if (!active) return
+            if (replayBudget === null) {
+                queuedChunks.push(bytes)
+                return
+            }
+            deliver(bytes)
         })
-            .then((resolvedSubscriptionId) => {
+            .then((result) => {
                 if (!active) {
-                    void detachPty(activeSessionId, resolvedSubscriptionId).catch(() => undefined)
+                    void detachPty(activeSessionId, result.subscriptionId).catch(() => undefined)
                     return
                 }
-                subscriptionId = resolvedSubscriptionId
+                subscriptionId = result.subscriptionId
+                replayBudget = result.replayBytes
+                for (const chunk of queuedChunks.splice(0)) deliver(chunk)
             })
             .catch(() => undefined)
+
         return () => {
             active = false
             if (subscriptionId !== null) void detachPty(activeSessionId, subscriptionId).catch(() => undefined)
@@ -347,6 +389,8 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
             onSetPaused={handleSetPaused}
             onOpenLink={handleOpenLink}
             onOpenFileLink={handleOpenFileLink}
+            getCwd={handleGetCwd}
+            resolveFileLinkCandidates={handleResolveFileLinkCandidates}
             onSplitNewTerminal={handleSplitNewTerminal}
             onNewTerminal={handleNewTerminal}
             onKillTerminal={handleKillTerminal}

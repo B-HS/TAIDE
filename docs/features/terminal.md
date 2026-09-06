@@ -25,6 +25,15 @@
 - **flow control**: view 는 `term.write(bytes, callback)` 미완료 바이트를 집계 —
   HIGH_WATER(512KB) 초과 시 `pty_set_paused(true)`, LOW_WATER(64KB) 미만 시 재개.
   Rust reader 는 pause 플래그(Condvar) 로 read 루프 정지 → pty 커널 버퍼가 자식을 자연 블록.
+- **리플레이 바이트는 이 집계에서 제외한다**(d-56 T2-F3, 2026-09-07). `pty_attach` 는 최대 2MB
+  스크롤백을 라이브와 **같은 채널**로 재생하므로, 그대로 세면 탭을 오갈 때마다 이미 지나간 출력이
+  HIGH_WATER 를 넘겨 멀쩡한 자식 프로세스를 멈춘다. `pty_attach` 가 돌려주는
+  `PtyAttachResult.replayBytes` 가 **예산**이 되어, `terminal-session.tsx` 의 attach 콜백이 도착
+  순서대로 차감하고(`terminal-replay-budget.ts` 의 `consumeReplayBudget`) 남은 만큼만
+  `TerminalAttachHandle.write(data, backlogBytes)` 의 두 번째 인자로 넘긴다. xterm `write` 자체와
+  perf 카운터(`TERMINAL_OUTPUT_BYTES`)는 리플레이를 포함해 그대로 센다 — 화면에는 실제로 그려지기
+  때문이다. 리플레이는 커맨드 **안에서** 전송되므로 결과(예산)보다 먼저 도착할 수 있어, 세션은
+  결과가 올 때까지 청크를 큐에 담았다가 순서대로 흘린다(왕복 1회 지연).
 - **pause 는 세션 단위이고 detach 로 풀리지 않는다**(`pty_detach` 는 구독자 목록만 건드린다).
   그래서 view 는 (d-51 F5, 2026-08-29) ① attach 이펙트 cleanup 에서 자기가 올린 pause 를 내리고
   ② attach 시 무조건 `pty_set_paused(false)` 로 재동기한다. ①이 없으면 버스트 도중 탭을 바꾼
@@ -44,6 +53,16 @@
   앞→뒤 순서로 최대 2청크에 나눠 보낸다(되감기기 전에는 1청크). 리플레이와 구독자 등록은 하나의
   락 아래 원자적이라 그 경계에서 청크가 중복되거나 유실되지 않는다 — 계약은
   `docs/ipc-contract.md` "d-50 S4" 절.
+- **축출은 개행 경계로 정렬한다(d-56 T2-F8, 2026-09-07)**. 2MB 를 넘긴 링은 넘치는 만큼을 바이트
+  단위로 버렸고, 그래서 재부착 첫 화면이 잘린 OSC/CSI 한가운데에서 시작해 이스케이프 잔여가 텍스트로
+  찍혔다(§12.2-C 가 남은 한계로 적어 두었던 것). 이제 `ScrollbackRing::append` 가 축출 지점을
+  **그 이후 첫 `\n` 다음**까지 전진시킨다. 개행이 `MAX_EVICTION_SCAN_BYTES`(64KB) 안에 없으면
+  원래 위치에서 자른다 — 개행이 드문 TUI 출력에서 링이 통째로 비는 것을 막기 위해서다. 비용은
+  capacity 를 최대 한 줄만큼 덜 채우는 것.
+- **리플레이 앞에는 SGR 리셋 프리앰블 `\x1b[0m` 1회**를 보낸다(같은 배치). 개행 정렬이 시퀀스를
+  반으로 자르는 것은 막지만, 잘린 지점 앞에서 열린 SGR 을 닫아 주던 `\x1b[m` 까지 되살리지는
+  못한다 — 프리앰블이 없으면 재생된 첫 줄이 그 색을 물려받아 화면 끝까지 끌고 간다. 이 4바이트도
+  리플레이의 일부이므로 `PtyAttachResult.replayBytes` 에 포함되어 flow control 집계에서 빠진다(§2).
 - xterm `scrollback: 10_000`. 앱 재시작 시 스크롤백은 복원하지 않는다(`data-model.md` §1) —
   터미널 탭은 같은 cwd·셸로 새 세션 + "이전 세션" 안내.
 - 백그라운드(비활성) 터미널 탭: xterm 인스턴스는 유지하되 WebGL addon 은 dispose(활성화 시 재로드)
@@ -207,8 +226,23 @@
 
 - URL 은 web-links addon, **파일 경로는 커스텀 `registerLinkProvider`** (research §10 구현 채택 —
   `path:line:col` 패턴, 1-based 좌표, wrapped line 처리).
-- cmd(ctrl)+click → Rust `resolve_terminal_path(path, cwd)` (OSC7 cwd 기준 존재 검증) →
-  해당 프로젝트 새 탭으로 열기 + line/col 로 커서 이동. modifier 없는 클릭은 무동작(터미널 관례).
+- **정규식 매치는 존재 검증을 통과한 것만 링크가 된다(d-56 T5-01, 2026-09-07)**. 예전에는 매치 전부에
+  밑줄·포인터를 그리고 검증은 클릭 뒤에 했으므로 `v18.20.4`·`127.0.0.1:8080`·`0.123s`·`e.g` 가
+  링크처럼 보였고 클릭하면 실패 토스트만 남았다. 이제 provider 가 한 행의 후보를 모아
+  `terminal_resolve_link_candidates(cwd, candidates)` 로 **한 번에** 물어(입력 순서 보존, 행당 최대
+  16개, 루트 밖·부재는 똑같이 `null` — 존재 여부 오라클 비노출) 절대 경로가 돌아온 후보만 `ILink` 로
+  만든다. 답은 (cwd, 행 텍스트) 키 FIFO 캐시(`LINK_RESOLVE_CACHE_MAX_ROWS`=256)에 담겨 같은 행을 다시
+  hover 해도 IPC 가 나가지 않고, 실패는 캐시하지 않아 다음 hover 에서 다시 시도한다. xterm 은
+  `provideLinks` 의 지연 콜백을 허용하므로 비동기 해석이 안전하다.
+- **캐시는 부재(`null`)도 담는다 — 의도한 트레이드오프(d-56 검토 d56-1, 2026-09-07)**. 후보가 전부
+  파일이 아닌 행(버전 문자열·호스트:포트 로그)이야말로 포인터가 가장 자주 지나는 행이라 이것을 매번
+  다시 물으면 캐시가 무의미해진다. 대신 **행이 찍힌 뒤에 생긴 파일**은 그 행에서 링크가 되지 않는다 —
+  캐시 항목이 FIFO 로 밀려나거나 cwd 가 바뀌어야 다시 검사한다. 그 파일을 여는 경로(탐색기·검색·직접
+  경로 입력)는 그대로 살아 있고, resolver 호출 자체가 실패한 경우만 캐시에서 빠진다.
+- cmd(ctrl)+click → 이미 해석된 절대 경로로 해당 프로젝트 새 탭 열기 + line/col 로 커서 이동
+  (클릭 시점의 두 번째 IPC 없음). modifier 없는 클릭은 무동작(터미널 관례).
+- provider 는 `features` 레이어라 IPC 를 직접 부르지 않는다 — cwd getter 와 resolver 를 주입받고,
+  둘 다 `widgets` 의 `terminal-session.tsx` 가 넘긴다(FSD).
 - hover 툴팁 DOM 은 `term.element` 내 `xterm-hover` 클래스(이벤트 관통 방지).
 - **좌표는 문자열 인덱스가 아니라 셀 열이다**(d-51 F5, 2026-08-29). 매치 문자 자체는 전부 단일폭
   ASCII 지만 **그 앞에 오는 것**(CJK 로그 접두·이모지 상태 표시)은 아니어서, 와이드 글리프 하나마다
@@ -402,7 +436,9 @@
 - mutation: `pty_spawn(opts, onData: Channel) → sessionId`(종료 통지는 `terminal:exited` 이벤트로만
   — onExit Channel 은 없다), `pty_write(sessionId, data)`, `pty_resize(sessionId, cols, rows)`,
   `pty_kill(sessionId)`, `pty_set_paused(sessionId, paused)`,
-  `pty_attach(sessionId, onData) → subscriptionId`(재생+재구독 — 다중 구독자/멀티윈도우 지원),
+  `pty_attach(sessionId, onData) → PtyAttachResult{subscriptionId, replayBytes}`(재생+재구독 —
+  다중 구독자/멀티윈도우 지원. `replayBytes` 는 이 attach 가 라이브 출력보다 먼저 흘린 바이트 수로,
+  flow control 집계에서 빼는 데 쓴다 — §2),
   `pty_detach(sessionId, subscriptionId)`(Wave I)
 - **`pty_write` 는 호출 순서를 스스로 보장하지 않는다**(d-50 S4 에서 블로킹 풀로 이관된 뒤로 — 같은
   틱에 발사된 두 호출은 독립 블로킹 태스크로 writer 뮤텍스를 경쟁한다). 같은 세션의 순서는
@@ -410,6 +446,8 @@
   `writePty` 가 그것을 통과한다. 대기 큐 flush(`terminal-write-bridge.ts`)처럼 한 틱에 N개를 연속
   발사하는 경로가 실제로 있으므로 필요한 계약이다.
 - query: `shell_profiles`, `terminal_sessions(projectId)`, `resolve_terminal_path(path, cwd)`,
+  `terminal_resolve_link_candidates(cwd, candidates) → (string | null)[]`(§6 — 데스크톱 링크 경로가
+  실제로 쓰는 쪽. `resolve_terminal_path` 는 커맨드로 남아 있지만 프론트 호출자는 없다),
   `pty_default_options`
 - event: `terminal:exited(sessionId, code)`, `terminal:cwd-changed(sessionId, cwd)`(X-A 배치
   (2026-08-19)에서 배선 완성 — 이 항목이 계획하던 "OSC7 은 view 파싱 → mutation 으로 Rust 에 보고"
@@ -508,8 +546,10 @@ incorrect lines or overwriting typed text"*.
 이스케이프 시퀀스 중간이 잘린다. 추가로 `pty_attach` 가 `ring_buffer` 와 `subscriber` 를
 **별개 잠금**으로 잡아 스냅샷~교체 사이 청크가 유실되는 레이스가 있다.
 → **레이스는 d-50 S4(2026-08-29)에서 해소**됐다(감사 §4-A-5). 스크롤백과 구독자 목록이 하나의
-`SessionOutput` 락으로 합쳐져 리플레이~등록이 원자적이다. 폭 차이·바이트 단위 절단은 그대로 남는
-한계다(위 3번 항목의 replay 경로 자체를 없애는 안).
+`SessionOutput` 락으로 합쳐져 리플레이~등록이 원자적이다.
+→ **바이트 단위 절단도 d-56(2026-09-07)에서 해소**됐다 — 축출이 개행 경계로 정렬되고 리플레이 앞에
+SGR 리셋 프리앰블이 붙는다(§3). 폭 차이는 그대로 남는 한계다(위 3번 항목의 replay 경로 자체를
+없애는 안).
 
 ### 12.3 반증된 가설 (조사해서 아니라고 확인)
 

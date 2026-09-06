@@ -141,6 +141,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "terminal_sessions",
     "shell_profiles",
     "resolve_terminal_path",
+    "terminal_resolve_link_candidates",
     "pty_default_options",
     "detect_tasks",
     "font_list",
@@ -569,7 +570,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (158 entries = the 157 arms in
+/// session — audited directly off the `match` arms in both functions (159 entries = the 158 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -703,6 +704,7 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "terminal_sessions",
     "shell_profiles",
     "resolve_terminal_path",
+    "terminal_resolve_link_candidates",
     "pty_default_options",
     "detect_tasks",
     "font_list",
@@ -1312,6 +1314,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "terminal_sessions" => respond(terminal::terminal_sessions(app.state(), arg!(args, "projectId")).await),
         "shell_profiles" => respond(terminal::shell_profiles().await),
         "resolve_terminal_path" => respond(terminal::resolve_terminal_path(app.state(), arg!(args, "path"), arg!(args, "cwd")).await),
+        "terminal_resolve_link_candidates" => {
+            respond(terminal::terminal_resolve_link_candidates(app.state(), arg!(args, "cwd"), arg!(args, "candidates")).await)
+        }
         "pty_default_options" => respond(terminal::pty_default_options(app.state(), arg!(args, "projectId"), arg!(args, "cwd")).await),
 
         "detect_tasks" => respond(task::detect_tasks(app.state(), arg!(args, "projectId")).await),

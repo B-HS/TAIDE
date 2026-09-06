@@ -188,6 +188,11 @@ fn pty_session_observers() -> domain::terminal::commands::PtySessionObservers {
     })])
 }
 
+/// `pty_spawn`/`pty_attach` take a `Channel` argument, so they are registered on the raw handler
+/// (`RAW_CHANNEL_COMMANDS`) rather than in `collect_commands!`. Nothing collected here therefore
+/// mentions [`domain::terminal::types::PtyAttachResult`], and specta would not export it; `.typ`
+/// registers it explicitly so the renderer's hand-written `pty_attach` invoke keeps deriving its
+/// result type from this definition instead of restating it.
 fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -319,6 +324,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::terminal::commands::terminal_sessions,
             domain::terminal::commands::shell_profiles,
             domain::terminal::commands::resolve_terminal_path,
+            domain::terminal::commands::terminal_resolve_link_candidates,
             domain::task::commands::detect_tasks,
             domain::font::commands::font_list,
             domain::locale::commands::locale_list,
@@ -403,6 +409,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             HotExitFlushRequested,
             SettingsChanged
         ])
+        .typ::<domain::terminal::types::PtyAttachResult>()
 }
 
 pub(crate) const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "file_read_raw"];

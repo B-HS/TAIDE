@@ -670,6 +670,12 @@ export const commands = {
 	terminalSessions: (projectId: ProjectId) => typedError<TerminalSession[], AppError>(__TAURI_INVOKE("terminal_sessions", { projectId })),
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
+	/**
+	 *  Answers "which of these regex matches are real files?" for one terminal row, so the renderer can
+	 *  underline only the candidates it can actually open instead of underlining every match and
+	 *  failing at click time (`v18.20.4`, `127.0.0.1:8080`, `0.123s` all match the path pattern).
+	 */
+	terminalResolveLinkCandidates: (cwd: string, candidates: string[]) => typedError<(string | null)[], AppError>(__TAURI_INVOKE("terminal_resolve_link_candidates", { cwd, candidates })),
 	detectTasks: (projectId: ProjectId) => typedError<Task[], AppError>(__TAURI_INVOKE("detect_tasks", { projectId })),
 	/**
 	 *  Never takes `AppState::begin_mutation` (it reads no app state); the one blocking cost left is
@@ -1774,6 +1780,22 @@ export type ProjectRef = {
  *  two together so the file name on disk and the id embedded in a tab never drift independently.
  */
 export type PromptTemplateId = "auto-tab-default" | "inline-edit-default" | "commit-message-default";
+
+/**
+ *  What one `pty_attach` handed back: the subscription id `pty_detach` consumes, plus how many
+ *  bytes that attach replayed before any live output could arrive.
+ * 
+ *  `replay_bytes` exists so the renderer can tell replayed scrollback from live output on a stream
+ *  that carries both. It counts them against a budget instead of the write backlog that drives flow
+ *  control, which otherwise saw up to a full scrollback land at once and paused a healthy child
+ *  process on every terminal tab switch. It is a `u32` because `specta-typescript` refuses to export
+ *  BigInt-style types; one replay is bounded by [`DEFAULT_SCROLLBACK_BYTES`] plus a four-byte
+ *  preamble, three orders of magnitude below that ceiling.
+ */
+export type PtyAttachResult = {
+	subscriptionId: number,
+	replayBytes: number,
+};
 
 export type PtySpawnOptions = {
 	projectId: ProjectId,

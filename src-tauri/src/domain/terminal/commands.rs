@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
-use super::types::{PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
+use super::types::{PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
 use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
 use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited};
@@ -24,9 +24,16 @@ use crate::infra::shell_integration;
 use crate::infra::terminal_scan::{OutputScanner, ScanEvent, ScanOutcome};
 use crate::state::AppState;
 
-/// Subscriber list entries — a subscription id (`pty_attach`'s return value, consumed by
+/// Subscriber list entries — a subscription id (carried by `pty_attach`'s result, consumed by
 /// `pty_detach`) paired with the channel it identifies.
 type PtySubscribers = Vec<(u32, Channel<InvokeResponseBody>)>;
+
+/// Sent once ahead of every scrollback replay: the ring evicts at a line boundary
+/// ([`service::ScrollbackRing::append`]), which keeps escape sequences from being cut in half but
+/// still drops the `\x1b[m` that would have closed an SGR opened before the cut. Without this reset
+/// the first replayed line inherits that color for the rest of the screen. It is part of the replay,
+/// so its length counts toward [`PtyAttachResult::replay_bytes`].
+const SCROLLBACK_REPLAY_PREAMBLE: &[u8] = b"\x1b[0m";
 
 /// A session's scrollback and its subscriber list behind **one** lock, so no output chunk can slip
 /// between [`pty_attach`]'s replay and its subscriber registration.
@@ -82,22 +89,35 @@ impl SessionOutput {
     }
 
     /// Attach path: replay the scrollback into `channel` and register it as a subscriber, as one
-    /// indivisible step. The replay goes out as the ring's two halves (the second is empty until
-    /// the buffer has wrapped) rather than being made contiguous first, which would `memmove` the
-    /// whole 2MB scrollback on every attach — see [`service::ScrollbackRing::as_slices`].
-    fn attach(&mut self, channel: Channel<InvokeResponseBody>) -> u32 {
+    /// indivisible step. The replay goes out as [`SCROLLBACK_REPLAY_PREAMBLE`] followed by the
+    /// ring's two halves (the second is empty until the buffer has wrapped) rather than being made
+    /// contiguous first, which would `memmove` the whole 2MB scrollback on every attach — see
+    /// [`service::ScrollbackRing::as_slices`].
+    ///
+    /// The returned byte count covers exactly what this call sent, which is exactly what the
+    /// subscriber will receive before any live chunk: holding this lock across both the replay and
+    /// the registration is what orders them.
+    fn attach(&mut self, channel: Channel<InvokeResponseBody>) -> PtyAttachResult {
         let (front, back) = self.scrollback.as_slices();
+        let mut replay_bytes = SCROLLBACK_REPLAY_PREAMBLE.len();
+        let _ = channel.send(InvokeResponseBody::Raw(SCROLLBACK_REPLAY_PREAMBLE.to_vec()));
+
         for half in [front, back] {
             if half.is_empty() {
                 continue;
             }
+            replay_bytes += half.len();
             let _ = channel.send(InvokeResponseBody::Raw(half.to_vec()));
         }
 
         let subscription_id = self.next_subscription_id;
         self.next_subscription_id = subscription_id.wrapping_add(1);
         self.subscribers.push((subscription_id, channel));
-        subscription_id
+
+        PtyAttachResult {
+            subscription_id,
+            replay_bytes: u32::try_from(replay_bytes).unwrap_or(u32::MAX),
+        }
     }
 
     fn detach(&mut self, subscription_id: u32) {
@@ -547,7 +567,9 @@ pub async fn pty_set_paused(store: State<'_, TerminalStore>, session_id: String,
 /// subscription id the caller must pass to [`pty_detach`] once it stops displaying the session
 /// (effect cleanup on tab switch/unmount) — otherwise-live channels (window still open) are never
 /// pruned by `broadcast_output`'s send-failure check alone, so without an explicit detach every
-/// re-attach to the same still-open window accumulates one more permanent subscriber.
+/// re-attach to the same still-open window accumulates one more permanent subscriber — alongside
+/// the replayed byte count the caller needs to keep that replay out of its flow-control accounting
+/// (see [`PtyAttachResult`]).
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_attach(
@@ -555,13 +577,13 @@ pub async fn pty_attach(
     store: State<'_, TerminalStore>,
     session_id: String,
     on_data: Channel<InvokeResponseBody>,
-) -> AppResult<u32> {
+) -> AppResult<PtyAttachResult> {
     let _guard = state.begin_mutation().await;
     let sessions = store.0.lock();
     let entry = find_entry(&sessions, &session_id)?;
 
-    let subscription_id = entry.output.lock().attach(on_data);
-    Ok(subscription_id)
+    let attached = entry.output.lock().attach(on_data);
+    Ok(attached)
 }
 
 /// Removes exactly the subscriber `pty_attach` registered under `subscription_id` — the counterpart
@@ -640,6 +662,47 @@ pub async fn resolve_terminal_path(state: State<'_, AppState>, path: String, cwd
     guard_terminal_path(&projects, &path, &cwd)
 }
 
+/// How many candidates one [`terminal_resolve_link_candidates`] call actually resolves. The unit of
+/// work is one terminal row, and a row of dense punctuation (a stack trace, a `PATH` dump) can
+/// regex-match far more candidates than a person could ever click; everything past this bound is
+/// answered `None` instead of turning a single row's render into that many `canonicalize` syscalls.
+const MAX_LINK_CANDIDATES_PER_ROW: usize = 16;
+
+/// Resolves a row's worth of link candidates against `cwd` in one pass, answering positionally so
+/// the caller can zip the results back onto the matches it sent.
+///
+/// Every candidate goes through the same [`guard_terminal_path`] a click would, and its failures —
+/// outside every open project root, or simply not there — are folded into `None`. That keeps the
+/// non-existence oracle closed exactly as `resolve_terminal_path` does (see its doc): a caller
+/// learns "this is not a link", never which of the two reasons applies, and one bad candidate never
+/// fails the whole row.
+fn resolve_link_candidates(projects: &HashMap<ProjectId, Project>, cwd: &str, candidates: &[String]) -> Vec<Option<String>> {
+    candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            if index >= MAX_LINK_CANDIDATES_PER_ROW {
+                return None;
+            }
+            guard_terminal_path(projects, candidate, cwd).ok()
+        })
+        .collect()
+}
+
+/// Answers "which of these regex matches are real files?" for one terminal row, so the renderer can
+/// underline only the candidates it can actually open instead of underlining every match and
+/// failing at click time (`v18.20.4`, `127.0.0.1:8080`, `0.123s` all match the path pattern).
+#[tauri::command]
+#[specta::specta]
+pub async fn terminal_resolve_link_candidates(
+    state: State<'_, AppState>,
+    cwd: String,
+    candidates: Vec<String>,
+) -> AppResult<Vec<Option<String>>> {
+    let projects = state.projects.read().clone();
+    Ok(resolve_link_candidates(&projects, &cwd, &candidates))
+}
+
 const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_TERMINAL_ROWS: u16 = 24;
 
@@ -672,7 +735,7 @@ pub async fn pty_default_options(state: State<'_, AppState>, project_id: Project
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     /// `resolve_terminal_path`'s `#[tauri::command]` wrapper needs a real `State<'_, AppState>`,
     /// which (unlike the plain `HashMap` [`guard_terminal_path`] takes) has no public constructor
@@ -751,6 +814,76 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    fn link_candidate_fixture(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("taide-terminal-link-candidates-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("project").join("src")).unwrap();
+        std::fs::write(dir.join("project").join("src").join("main.rs"), b"fn main() {}").unwrap();
+        std::fs::write(dir.join("project").join("README.md"), b"# readme").unwrap();
+        dir
+    }
+
+    #[test]
+    fn 링크_후보는_입력_순서대로_존재하는_것만_경로를_돌려준다() {
+        let dir = link_candidate_fixture("order");
+        let root = dir.join("project");
+        let projects = single_project("project-1", &root);
+
+        let candidates = ["src/main.rs", "v18.20.4", "README.md"].map(str::to_string);
+        let resolved = resolve_link_candidates(&projects, &root.to_string_lossy(), &candidates);
+
+        assert_eq!(resolved.len(), candidates.len());
+        assert!(
+            resolved[0].as_deref().unwrap().ends_with("main.rs"),
+            "첫 후보의 자리에 첫 결과가 와야 한다"
+        );
+        assert_eq!(resolved[1], None, "존재하지 않는 후보는 None 이다");
+        assert!(resolved[2].as_deref().unwrap().ends_with("README.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 링크_후보_상한을_넘은_자리는_해석하지_않고_none_이_된다() {
+        let dir = link_candidate_fixture("limit");
+        let root = dir.join("project");
+        let names: Vec<String> = (0..=MAX_LINK_CANDIDATES_PER_ROW).map(|index| format!("file-{index}.txt")).collect();
+        for name in &names {
+            std::fs::write(root.join(name), b"x").unwrap();
+        }
+
+        let projects = single_project("project-1", &root);
+        let resolved = resolve_link_candidates(&projects, &root.to_string_lossy(), &names);
+
+        assert_eq!(resolved.len(), names.len());
+        assert!(
+            resolved[..MAX_LINK_CANDIDATES_PER_ROW].iter().all(Option::is_some),
+            "상한 안의 후보는 전부 해석되어야 한다"
+        );
+        assert_eq!(
+            resolved[MAX_LINK_CANDIDATES_PER_ROW], None,
+            "존재하는 파일이라도 상한을 넘으면 해석하지 않는다"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 루트_밖_링크_후보는_에러가_아니라_none_으로_접힌다() {
+        let dir = link_candidate_fixture("outside");
+        let root = dir.join("project");
+        let outside_dir = dir.join("outside");
+        std::fs::create_dir_all(&outside_dir).unwrap();
+        std::fs::write(outside_dir.join("secret.txt"), b"secret").unwrap();
+
+        let projects = single_project("project-1", &root);
+        let candidates = ["secret.txt".to_string()];
+        let resolved = resolve_link_candidates(&projects, &outside_dir.to_string_lossy(), &candidates);
+
+        assert_eq!(resolved, vec![None], "루트 밖 존재 여부가 결과로 새어나가면 안 된다");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn recording_channel(received: Arc<Mutex<Vec<Vec<u8>>>>) -> Channel<InvokeResponseBody> {
         Channel::new(move |body| {
             if let InvokeResponseBody::Raw(bytes) = body {
@@ -810,14 +943,18 @@ mod tests {
         output.attach(recording_channel(received.clone()));
         let doomed = output.attach(failing_channel());
 
-        output.detach(doomed);
+        output.detach(doomed.subscription_id);
         assert_eq!(output.subscribers.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![0, 1]);
 
         output.append_and_broadcast(b"data");
-        assert_eq!(*received.lock(), vec![b"data".to_vec()]);
+        assert_eq!(received.lock().concat(), replayed(b"data"));
     }
 
     const TEST_SCROLLBACK_BYTES: usize = 64 * 1024;
+
+    fn replayed(prefix: &[u8]) -> Vec<u8> {
+        [SCROLLBACK_REPLAY_PREAMBLE, prefix].concat()
+    }
 
     #[test]
     fn attach_는_직전까지의_스크롤백만_재생하고_이후_출력은_브로드캐스트로_잇는다() {
@@ -830,19 +967,41 @@ mod tests {
 
         assert_eq!(
             received.lock().concat(),
-            b"beforeafter".to_vec(),
+            replayed(b"beforeafter"),
             "리플레이와 이후 브로드캐스트가 각 바이트를 정확히 한 번씩 전달해야 한다"
         );
     }
 
     #[test]
-    fn 스크롤백이_비어_있으면_attach_는_아무것도_재생하지_않는다() {
+    fn 스크롤백이_비어_있으면_attach_는_프리앰블만_재생한다() {
         let received = Arc::new(Mutex::new(Vec::new()));
         let mut output = SessionOutput::new(TEST_SCROLLBACK_BYTES);
 
-        output.attach(recording_channel(received.clone()));
+        let attached = output.attach(recording_channel(received.clone()));
 
-        assert!(received.lock().is_empty());
+        assert_eq!(received.lock().concat(), SCROLLBACK_REPLAY_PREAMBLE.to_vec());
+        assert_eq!(attached.replay_bytes as usize, SCROLLBACK_REPLAY_PREAMBLE.len());
+    }
+
+    /// The renderer subtracts `replay_bytes` from the stream it receives to find where live output
+    /// starts, so a count that disagrees with what was actually sent would either leak replayed
+    /// bytes into flow-control accounting or swallow live ones (contract §1.A).
+    #[test]
+    fn replay_bytes_는_실제로_재생한_바이트_수와_일치한다() {
+        const RING_CAPACITY: usize = 1024;
+        const CHUNK: &[u8] = b"0123456789";
+
+        for chunks in [1, RING_CAPACITY / CHUNK.len(), RING_CAPACITY] {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let mut output = SessionOutput::new(RING_CAPACITY);
+            for _ in 0..chunks {
+                output.append_and_broadcast(CHUNK);
+            }
+
+            let attached = output.attach(recording_channel(received.clone()));
+
+            assert_eq!(attached.replay_bytes as usize, received.lock().concat().len());
+        }
     }
 
     /// §4-A-5 회귀 가드. 스크롤백 append 와 브로드캐스트, 그리고 attach 의 리플레이와 구독 등록이
@@ -881,7 +1040,7 @@ mod tests {
 
         assert_eq!(
             received.lock().concat(),
-            b"beforeduring".to_vec(),
+            replayed(b"beforeduring"),
             "리플레이 이후 도착한 청크는 중복도 유실도 없이 이어져야 한다"
         );
     }
@@ -908,7 +1067,7 @@ mod tests {
             writer.join().expect("쓰기 스레드 종료");
 
             let full: Vec<u8> = (0..STREAM_CHUNKS).map(|index| (index % 251) as u8).collect();
-            assert_eq!(received.lock().concat(), full);
+            assert_eq!(received.lock().concat(), replayed(&full));
         }
     }
 
