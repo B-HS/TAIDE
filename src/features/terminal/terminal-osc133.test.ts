@@ -129,6 +129,54 @@ describe('applyOsc133Event', () => {
         expect(state.blocks[0].exitCode).toBe(0)
         expect(state.blocks[1].exitCode).toBe(1)
     })
+
+    test('C 를 본 세션에서 C 없는 A → D(빈 프롬프트)는 블록을 버린다', () => {
+        let state = INITIAL_OSC133_BLOCK_TRACKER_STATE
+        state = applyOsc133Event(state, { kind: 'A', params: [] }, () => createFakeMarker(1)).state
+        state = applyOsc133Event(state, { kind: 'C', params: [] }, () => createFakeMarker(2)).state
+        state = applyOsc133Event(state, { kind: 'D', params: ['0'] }, () => createFakeMarker(3)).state
+        expect(state.hasSeenOutputStart).toBe(true)
+
+        const emptyPromptStartMarker = createFakeMarker(10)
+        state = applyOsc133Event(state, { kind: 'A', params: [] }, () => emptyPromptStartMarker).state
+        const afterD = applyOsc133Event(state, { kind: 'D', params: ['130'] }, () => createFakeMarker(11))
+
+        expect(afterD.state.blocks).toHaveLength(1)
+        expect(afterD.state.blocks[0].exitCode).toBe(0)
+        expect(afterD.state.currentBlockIndex).toBeNull()
+        expect(afterD.changedBlock).toBeNull()
+        expect(afterD.discardedBlock?.startMarker).toBe(emptyPromptStartMarker)
+    })
+
+    test('버려지는 블록은 end 마커를 등록하지 않는다', () => {
+        let registerCount = 0
+        const registerMarker = () => {
+            registerCount += 1
+            return createFakeMarker(registerCount)
+        }
+        let state = INITIAL_OSC133_BLOCK_TRACKER_STATE
+        state = applyOsc133Event(state, { kind: 'A', params: [] }, registerMarker).state
+        state = applyOsc133Event(state, { kind: 'C', params: [] }, registerMarker).state
+        state = applyOsc133Event(state, { kind: 'D', params: ['0'] }, registerMarker).state
+        state = applyOsc133Event(state, { kind: 'A', params: [] }, registerMarker).state
+        const countBeforeEmptyPromptD = registerCount
+
+        const afterD = applyOsc133Event(state, { kind: 'D', params: ['0'] }, registerMarker)
+
+        expect(registerCount).toBe(countBeforeEmptyPromptD)
+        expect(afterD.discardedBlock?.endMarker).toBeNull()
+    })
+
+    test('C 를 본 적 없는 세션(bash 3.2 등)의 A → D 는 블록을 유지한다', () => {
+        const afterA = applyOsc133Event(INITIAL_OSC133_BLOCK_TRACKER_STATE, { kind: 'A', params: [] }, () => createFakeMarker(1))
+        const afterD = applyOsc133Event(afterA.state, { kind: 'D', params: ['0'] }, () => createFakeMarker(2))
+
+        expect(afterD.state.hasSeenOutputStart).toBe(false)
+        expect(afterD.state.blocks).toHaveLength(1)
+        expect(afterD.state.blocks[0].exitCode).toBe(0)
+        expect(afterD.discardedBlock).toBeNull()
+        expect(afterD.changedBlock?.exitCode).toBe(0)
+    })
 })
 
 describe('pruneDisposedBlocks', () => {
@@ -142,35 +190,42 @@ describe('pruneDisposedBlocks', () => {
     test('startMarker 가 dispose 된 블록만 제거한다', () => {
         const alive = buildBlock(5, false)
         const dead = buildBlock(1, true)
-        const result = pruneDisposedBlocks({ blocks: [dead, alive], currentBlockIndex: null })
+        const result = pruneDisposedBlocks({ blocks: [dead, alive], currentBlockIndex: null, hasSeenOutputStart: false })
         expect(result.blocks).toEqual([alive])
     })
 
     test('모두 살아있으면 그대로 반환한다', () => {
         const blocks = [buildBlock(1, false), buildBlock(2, false)]
-        const result = pruneDisposedBlocks({ blocks, currentBlockIndex: null })
+        const result = pruneDisposedBlocks({ blocks, currentBlockIndex: null, hasSeenOutputStart: false })
         expect(result.blocks).toEqual(blocks)
     })
 
     test('열린 블록보다 앞선 블록이 제거되면 currentBlockIndex 가 새 위치로 보정된다', () => {
         const dead = buildBlock(1, true)
         const open = buildBlock(10, false)
-        const result = pruneDisposedBlocks({ blocks: [dead, open], currentBlockIndex: 1 })
+        const result = pruneDisposedBlocks({ blocks: [dead, open], currentBlockIndex: 1, hasSeenOutputStart: false })
         expect(result.blocks).toEqual([open])
         expect(result.currentBlockIndex).toBe(0)
     })
 
     test('열린 블록 자신이 제거되면 currentBlockIndex 는 null 이 된다', () => {
         const open = buildBlock(10, true)
-        const result = pruneDisposedBlocks({ blocks: [open], currentBlockIndex: 0 })
+        const result = pruneDisposedBlocks({ blocks: [open], currentBlockIndex: 0, hasSeenOutputStart: false })
         expect(result.blocks).toEqual([])
         expect(result.currentBlockIndex).toBeNull()
     })
 
     test('열린 블록이 없으면 currentBlockIndex 는 계속 null 이다', () => {
         const dead = buildBlock(1, true)
-        const result = pruneDisposedBlocks({ blocks: [dead], currentBlockIndex: null })
+        const result = pruneDisposedBlocks({ blocks: [dead], currentBlockIndex: null, hasSeenOutputStart: false })
         expect(result.currentBlockIndex).toBeNull()
+    })
+
+    test('hasSeenOutputStart 래치는 정리 후에도 유지된다', () => {
+        const dead = buildBlock(1, true)
+        const open = buildBlock(10, false)
+        const result = pruneDisposedBlocks({ blocks: [dead, open], currentBlockIndex: 1, hasSeenOutputStart: true })
+        expect(result.hasSeenOutputStart).toBe(true)
     })
 })
 
@@ -236,7 +291,29 @@ describe('resolveCommandBlockDecorationColor', () => {
     })
 })
 
-const createFakeOsc133Terminal = () => {
+type MutableFakeMarker = { -readonly [K in keyof IMarker]: IMarker[K] }
+
+const createLifecycleFakeMarker = (line: number, onDisposed: (line: number) => void): IMarker => {
+    const disposeListeners: (() => void)[] = []
+    const marker: MutableFakeMarker = {
+        id: line,
+        line,
+        isDisposed: false,
+        dispose: () => {
+            if (marker.isDisposed) return
+            marker.isDisposed = true
+            onDisposed(line)
+            for (const listener of disposeListeners) listener()
+        },
+        onDispose: (listener: () => void) => {
+            disposeListeners.push(listener)
+            return { dispose: () => {} }
+        },
+    }
+    return marker
+}
+
+const createFakeOsc133Terminal = (createMarker: () => IMarker = () => createFakeMarker(0)) => {
     let handleOsc: ((data: string) => boolean) | null = null
     const term = {
         parser: {
@@ -245,7 +322,7 @@ const createFakeOsc133Terminal = () => {
                 return { dispose: () => {} }
             },
         },
-        registerMarker: () => createFakeMarker(0),
+        registerMarker: () => createMarker(),
         registerDecoration: () => undefined,
         buffer: { active: { viewportY: 0 } },
         scrollToLine: () => {},
@@ -278,6 +355,26 @@ describe('attachOsc133BlockTracker', () => {
         emit('D;0')
 
         expect(tracker.getCommandStartLines()).toEqual([])
+        tracker.dispose()
+    })
+
+    test('C 를 본 세션의 빈 프롬프트 블록은 점프 후보에서 빠지고 startMarker 를 회수한다', () => {
+        const disposedLines: number[] = []
+        let nextMarkerLine = 0
+        const { term, emit } = createFakeOsc133Terminal(() => {
+            nextMarkerLine += 1
+            return createLifecycleFakeMarker(nextMarkerLine, (line) => disposedLines.push(line))
+        })
+        const tracker = attachOsc133BlockTracker(term, { current: { success: null, failure: null } })
+
+        emit('A')
+        emit('C')
+        emit('D;0')
+        emit('A')
+        emit('D;130')
+
+        expect(tracker.getCommandStartLines()).toEqual([1])
+        expect(disposedLines).toEqual([4])
         tracker.dispose()
     })
 

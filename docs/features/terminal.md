@@ -131,6 +131,16 @@
     식별자 기준으로 재계산한다 — 앞선 블록이 먼저 정리돼도 열린 블록의 인덱스가 어긋나지 않는다.
   - **상한**: 개행 없이 `133;A` 만 반복하는 비정상 출력에 대비해 `MAX_TRACKED_COMMAND_BLOCKS`(500)
     를 넘으면 가장 오래된 블록의 마커를 강제 dispose 해 같은 정리 경로를 재사용한다.
+  - **빈 프롬프트 블록 폐기**(d-55 §1.B): 셸 훅은 프롬프트를 다시 그릴 때마다 `133;D;$?` → `133;A`
+    를 찍으므로, 아무것도 입력하지 않은 Enter·Ctrl-C 로 비운 줄은 `C` 없이 `A → D` 만 남는다.
+    상태의 `hasSeenOutputStart` 래치(그 세션에서 `C` 를 한 번이라도 열린 블록에 받으면 true, 이후
+    유지)가 켜진 세션에서 `outputStartMarker` 없이 `D` 가 오면 그 블록은 빈 프롬프트로 보고 end
+    마커를 등록하지 않은 채 배열에서 제거한다(`discardedBlock` 으로 돌려주면 트래커가
+    `startMarker` 를 dispose 해 회수 — 그 dispose 가 다시 `pruneDisposedBlocks` 로 재진입해도 이미
+    빠진 블록이라 무해). 그래서 빈 줄에 성공(초록)·Ctrl-C 실패(빨강) 거터 바가 생기지 않고,
+    `⌘↑`/`⌘↓` 점프 후보와 500개 예산에서도 빠진다. `C` 를 낼 수 없는 셸(위 bash 3.2 한계)은 래치가
+    켜지지 않으므로 **현행 그대로 모든 블록을 유지**한다 — 그 대신 그 셸에서는 빈 프롬프트 블록이
+    남고, `C` 를 내는 셸에서도 **세션 첫 명령 이전의 빈 Enter 1회**는 래치가 아직 꺼져 있어 남는다.
 - **UX**: 거터 박스섀도 + `overviewRulerOptions` 스크롤바 데코(테마 success/failure 색상, exit
   code 0/비0), `⌘↑`/`⌘↓`(키맵 `terminal-jump-to-previous-command`/`-next-command`)로 이전/다음
   명령 블록으로 스크롤. 블록 단위 복사는 여전히 2차(§11) — OSC7 cwd 추적 기본 배선은
@@ -206,9 +216,18 @@
 | 링크 종류 | 제공자 | 활성화 경로 |
 |-----------|--------|------------|
 | 평문 URL | `WebLinksAddon`(핸들러 주입형) | 게이트 → `onOpenLink` → `openExternalUrl` |
-| `path:line:col` | `terminal-file-link.ts` `registerLinkProvider` | 게이트 → `resolve_terminal_path` → 에디터 탭 |
+| 파일 경로 + 좌표 접미사 (아래 목록) | `terminal-file-link.ts` `registerLinkProvider` | 게이트 → `resolve_terminal_path` → 에디터 탭 |
 | **OSC 8 하이퍼링크** | xterm 코어 `OscLinkProvider`(우선순위 0) | **Terminal 옵션 `linkHandler`** → 게이트 → `onOpenLink` |
 
+- 좌표 접미사 문법은 `src/shared/lib/terminal-link.ts` 의 `TERMINAL_LINK_SUFFIX_PATTERNS` 한 곳에
+  모여 있고, 경로 뒤에서 **가장 긴 성공 접미사**를 채택한다(d-55 §1.A, 2026-09-06). 지원 형식:
+  `path:12` · `path:12:3`(뒤에 붙는 `: error` 의 콜론은 링크 밖) · `path:10-20`(범위 → 시작 줄) ·
+  `path(12,3)` · `path(12)`(tsc `--pretty false`·MSBuild) · `path#L42` · `path#L10-L20` ·
+  `path#L10-20`(GitHub) · `path", line 42` · `path', line 42`(python 트레이스백 — 경로를 닫는
+  따옴표가 문법의 일부).
+- 밑줄 범위(`TerminalLinkMatch.text`/`endIndex`)는 접미사를 포함해 `(12,3)`·`, line 42` 까지 덮지만
+  `path` 는 접미사를 제외한 원문이다 — Rust `resolve_terminal_path` 는 `match.path` 만 받으므로 IPC
+  계약(§9)은 문법이 늘어도 그대로다.
 - OSC 8 이 별도 처리를 요구하는 이유: 코어의 `OscLinkProvider` 가 우선순위 0 으로 먼저 등록되고,
   같은 셀에서 겹치는 하위 링크는 제거되므로 `WebLinksAddon` 핸들러가 아예 호출되지 않는다.
   `linkHandler` 를 주지 않으면 xterm 의 `defaultActivate` 가 `confirm(...)` 뒤에 `window.open()` 을

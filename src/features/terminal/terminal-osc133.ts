@@ -47,13 +47,26 @@ export const parseOsc133ExitCode = (params: string[]): number | null => {
 export type Osc133BlockTrackerState = {
     blocks: TerminalCommandBlock[]
     currentBlockIndex: number | null
+    /**
+     * Latched on the first `C` (command-output-start) that lands on an open block and never
+     * cleared, so it describes the shell rather than the current command. Only a session that has
+     * proven it emits `C` may treat a `D` on an output-start-less block as an empty prompt;
+     * shells that never emit `C` — macOS' stock bash 3.2 has no `PS0` — keep every block so their
+     * real commands still get decorations and jump targets.
+     */
+    hasSeenOutputStart: boolean
 }
 
-export const INITIAL_OSC133_BLOCK_TRACKER_STATE: Osc133BlockTrackerState = { blocks: [], currentBlockIndex: null }
+export const INITIAL_OSC133_BLOCK_TRACKER_STATE: Osc133BlockTrackerState = { blocks: [], currentBlockIndex: null, hasSeenOutputStart: false }
 
 export type Osc133EventTransition = {
     state: Osc133BlockTrackerState
     changedBlock: TerminalCommandBlock | null
+    /**
+     * The block a `D` dropped as an empty prompt. It is already out of `state.blocks`, so the
+     * caller owns disposing its markers to hand them back to xterm.
+     */
+    discardedBlock: TerminalCommandBlock | null
 }
 
 /**
@@ -61,6 +74,12 @@ export type Osc133EventTransition = {
  * transition stays pure and testable without a live xterm `Terminal`. Unknown kinds and stray
  * `C`/`D` events (no open block) are no-ops rather than errors, matching the spec's "unknown
  * parameters are ignored" guidance for shell-emitted sequences.
+ *
+ * A shell hook redraws its prompt after every Enter, so a bare Enter (or a Ctrl-C'd line) emits
+ * `A` then `D` with no `C` in between and would otherwise leave a decorated, jumpable block on an
+ * empty prompt line — with `$?` from the interrupted line, which paints Ctrl-C red. Once
+ * `hasSeenOutputStart` proves the shell does emit `C`, such a block is dropped on `D` (no end
+ * marker registered) and returned as `discardedBlock` instead.
  */
 export const applyOsc133Event = (
     state: Osc133BlockTrackerState,
@@ -69,30 +88,39 @@ export const applyOsc133Event = (
 ): Osc133EventTransition => {
     if (event.kind === 'A') {
         const marker = registerMarker()
-        if (!marker) return { state, changedBlock: null }
+        if (!marker) return { state, changedBlock: null, discardedBlock: null }
         const block: TerminalCommandBlock = { startMarker: marker, outputStartMarker: null, endMarker: null, exitCode: null }
-        return { state: { blocks: [...state.blocks, block], currentBlockIndex: state.blocks.length }, changedBlock: block }
+        return {
+            state: { ...state, blocks: [...state.blocks, block], currentBlockIndex: state.blocks.length },
+            changedBlock: block,
+            discardedBlock: null,
+        }
     }
 
     if (event.kind === 'C') {
-        if (state.currentBlockIndex === null) return { state, changedBlock: null }
+        if (state.currentBlockIndex === null) return { state, changedBlock: null, discardedBlock: null }
         const marker = registerMarker()
-        if (!marker) return { state, changedBlock: null }
+        if (!marker) return { state, changedBlock: null, discardedBlock: null }
         const index = state.currentBlockIndex
         const blocks = state.blocks.map((block, i) => (i === index ? { ...block, outputStartMarker: marker } : block))
-        return { state: { ...state, blocks }, changedBlock: blocks[index] }
+        return { state: { ...state, blocks, hasSeenOutputStart: true }, changedBlock: blocks[index], discardedBlock: null }
     }
 
     if (event.kind === 'D') {
-        if (state.currentBlockIndex === null) return { state, changedBlock: null }
+        if (state.currentBlockIndex === null) return { state, changedBlock: null, discardedBlock: null }
         const index = state.currentBlockIndex
+        const openBlock = state.blocks[index]
+        if (state.hasSeenOutputStart && openBlock.outputStartMarker === null) {
+            const blocks = state.blocks.filter((_, i) => i !== index)
+            return { state: { ...state, blocks, currentBlockIndex: null }, changedBlock: null, discardedBlock: openBlock }
+        }
         const marker = registerMarker()
         const exitCode = parseOsc133ExitCode(event.params)
         const blocks = state.blocks.map((block, i) => (i === index ? { ...block, endMarker: marker ?? block.endMarker, exitCode } : block))
-        return { state: { blocks, currentBlockIndex: null }, changedBlock: blocks[index] }
+        return { state: { ...state, blocks, currentBlockIndex: null }, changedBlock: blocks[index], discardedBlock: null }
     }
 
-    return { state, changedBlock: null }
+    return { state, changedBlock: null, discardedBlock: null }
 }
 
 /**
@@ -106,9 +134,9 @@ export const applyOsc133Event = (
 export const pruneDisposedBlocks = (state: Osc133BlockTrackerState): Osc133BlockTrackerState => {
     const currentBlock = state.currentBlockIndex === null ? null : (state.blocks[state.currentBlockIndex] ?? null)
     const blocks = state.blocks.filter((block) => !block.startMarker.isDisposed)
-    if (currentBlock === null) return { blocks, currentBlockIndex: null }
+    if (currentBlock === null) return { ...state, blocks, currentBlockIndex: null }
     const currentBlockIndex = blocks.indexOf(currentBlock)
-    return { blocks, currentBlockIndex: currentBlockIndex === -1 ? null : currentBlockIndex }
+    return { ...state, blocks, currentBlockIndex: currentBlockIndex === -1 ? null : currentBlockIndex }
 }
 
 export const findPreviousCommandLine = (commandLines: number[], currentLine: number): number | null => {
@@ -155,6 +183,11 @@ const disposeBlockMarkers = (block: TerminalCommandBlock) => {
  * prunes blocks whose start marker was dropped by xterm once its line scrolls out of scrollback.
  * `colorsRef` is read at each block completion so a later theme change is picked up without
  * re-creating the tracker.
+ *
+ * An empty-prompt block dropped by the reducer (`discardedBlock`) has its markers disposed here so
+ * xterm gets them back. That dispose re-enters `pruneBlockByStartMarker` through the `onDispose`
+ * wired at `A`, which is harmless: the block is already out of `state`, so the prune only drops the
+ * (never created) decoration and re-derives an unchanged block list.
  *
  * Decorations are keyed by `startMarker` rather than the `TerminalCommandBlock` object itself:
  * the reducer replaces that object on every `C`/`D` transition (immutable updates), so a block
@@ -204,13 +237,14 @@ export const attachOsc133BlockTracker = (term: Terminal, colorsRef: { current: C
 
     const handleOscData = (data: string) => {
         const { kind, params } = parseOsc133Data(data)
-        const { state: nextState, changedBlock } = applyOsc133Event(state, { kind, params }, () => term.registerMarker(0))
+        const { state: nextState, changedBlock, discardedBlock } = applyOsc133Event(state, { kind, params }, () => term.registerMarker(0))
         state = nextState
         if (changedBlock && kind === 'A') {
             changedBlock.startMarker.onDispose(() => pruneBlockByStartMarker(changedBlock.startMarker))
             evictOldestBlocksBeyondCap()
         }
         if (changedBlock && kind === 'D') applyDecoration(changedBlock)
+        if (discardedBlock) disposeBlockMarkers(discardedBlock)
         return false
     }
 
