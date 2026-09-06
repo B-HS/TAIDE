@@ -68,4 +68,77 @@ T6-F3(AI 프로바이더 본문 마스킹 — 결정 필요)·T6-F4/F5/F6/F7/F9 
 
 ## 3. 기록
 
-- (대기)
+### R 단계 — Rust 전량 (1.B → 1.C → 1.D → 1.E → 1.A Rust)
+
+변경 파일 8종.
+
+| 파일 | 내용 |
+|------|------|
+| `src-tauri/src/infra/watcher.rs` | §1.B 빈 경로 가드(`error.watcher.emptyRoot`), §1.A `WatchNotification`(`Changes`/`RescanRequired`)·`RESCAN_MIN_INTERVAL_MS`(2_000)·`should_emit_rescan`·`notifications_for_batch`, 콜백 시그니처 `Fn(WatchNotification)` |
+| `src-tauri/src/infra/redact.rs` | §1.C `mask_known_secrets` + `SECRET_PATTERN`(`OnceLock<Regex>` 1개, 명명 그룹 13종)·`SECRET_GROUP_NAMES`. `mask_provider_error` 는 존치하되 내부에서 이 마스크를 먼저 적용 |
+| `src-tauri/src/domain/git/service.rs` | §1.D `git_command_failed(command, stderr)` — stderr 마스킹 후 message·`detail` 에 같은 값 |
+| `src-tauri/src/domain/lsp/commands.rs` | §1.D `toolchain_install_failure_message`(tail 마스킹, 알림·AppError 공통), §1.E `MIN_SIGNALABLE_PGID`=2·`should_signal_process_group` 가드 + 호출부 `child.try_wait()` 생존 확인 |
+| `src-tauri/src/domain/notification/commands.rs` | §1.D `masked_notification_text` — `notification_notify` 진입부에서 title·body 마스킹 |
+| `src-tauri/src/domain/file/capability.rs` | §1.A `RescanRequired` → `FsRescanRequired` 발행, `Changes` → 기존 `FsChanged` 경로 그대로 |
+| `src-tauri/src/domain/git/watch.rs` | §1.A `RescanRequired` → status+refs 둘 다 무효화, `classify_git_changes` 추출 |
+| `src-tauri/src/events.rs` · `src-tauri/src/lib.rs` | `FsRescanRequired`(`fs:rescan-required`) 선언 + `collect_events!`·`fanout_remote_events!` 등재, 이벤트 수 단언 24 → 25 |
+
+- **테스트 19종 추가** (전체 1503 → 1522, 통합 테스트 30종 불변).
+  - watcher 5종: 빈 경로 거부 / rescan 우선 순서(혼합 배치) / rescan 단독 배치 / 억제된 rescan / `should_emit_rescan` 간격.
+  - redact 7종: 발급자 12케이스 양성(표 기반) / URL userinfo / `Authorization: Bearer` / `key=value` / 다중 매치 / **오탐 회귀 8종(40자 sha·UUID·`refs/heads/**`·`node_modules` 긴 경로·일반 URL·pathspec 문구·`npm_config_registry`·일반 로그)** / 무시크릿 원문 보존.
+  - git 2종: 실패 stderr 의 message·detail 동시 마스킹(`terminal prompts disabled` 는 생존) / `classify_git_changes` 집계.
+  - lsp 3종: tail 의 `_authToken=` 마스킹(원인 문구 생존) / 출력 없을 때 종료 코드만 / pgid 0·1 거부.
+  - notification 2종: 제목·본문 마스킹 / 무시크릿 원문 보존.
+- **검증**: `cargo fmt --all -- --check` OK · `cargo clippy --workspace --all-targets -- -D warnings` 경고 0 · `cargo test --workspace` 1552 passed / 0 failed · `bun run typecheck` OK · `bun run lint` 0 errors(기존 경고 11 유지) · `bun run format:check` OK.
+- **bindings.ts**: `cargo test` 가 재생성. `events.fsRescanRequired = makeEvent<FsRescanRequired>("fs:rescan-required")` + `export type FsRescanRequired = { projectId: ProjectId }` 추가(그 외 변경은 `notification_notify` doc 한 줄). 최초 1회는 `include_str!` 로 컴파일 시점에 박힌 낡은 bindings 때문에 이름 대조 테스트가 실패하고, 재실행하면 통과한다.
+
+#### 이탈 · 판단
+
+1. **`AppErrorKind::Validation` 부재** — `error.rs` 의 kind 는 `Io/NotFound/InvalidArgument/Forbidden/Internal` 5종뿐이라 §1.B 가 지정한 `Validation` 대신 **`InvalidArgument`** 를 썼다(계약이 허용한 "기존 유사 kind").
+2. **로케일 키 3종 미추가** — `error.watcher.emptyRoot` 의 en/ko/ja 값은 후속 TS·문서 단계 담당이라 키 이름만 코드에 확정했다. `src-tauri/resources/locales/{en,ko,ja}.json` 의 `error.watcher.registerFailed` 바로 위에 넣으면 된다(현재 카탈로그에 없으므로 fallback 문자열이 노출된다).
+3. **테스트 가능성을 위한 순수 함수 추출 5개** — `git_command_failed` · `toolchain_install_failure_message` · `masked_notification_text` · `classify_git_changes` · `notifications_for_batch`. 각각 네트워크(git push), `AppHandle`, 실제 FSEvents 오버플로 없이 마스킹·순서 계약을 결정적으로 잠그기 위한 최소 분리이며, 호출부 동작·출력 문자열은 이전과 동일하다.
+4. **`bearer` 그룹은 `Authorization: Bearer <v>` 헤더 형태로 한정** — 접두 헤더 없는 맨 `Bearer <v>` 까지 잡으면 "bearer of bad news" 류 산문이 오탐이 된다. 프로바이더 본문 경로에서는 기존 `mask_bearer_values` 가 계속 그 형태를 처리한다.
+5. **`RESCAN_MIN_INTERVAL_MS` 는 `infra/watcher.rs` 모듈 상수** — `WATCH_DEBOUNCE_MS`(constants.rs)와 달리 다른 모듈·문서 계약이 참조하지 않는 워처 내부 스로틀이라 파일 안에 두었다.
+6. **`map_event_kind` 는 손대지 않았다** — rescan 은 `EventKind::Other`(`notify` fsevent backend, `Flag::Rescan` 동반)로 오므로 `need_rescan()` 로 판정한다. 기존 `_ => None` 이 그대로 남아야 rescan 이벤트가 가짜 `Modified` 그룹을 만들지 않는다.
+
+#### 남은 작업 (F 단계)
+
+- FE `app/providers/ipc-sync-provider.tsx` 의 `events.fsRescanRequired` 구독·광역 무효화(§1.A) — **현재 구독자가 없어 이벤트는 발행되지만 소비되지 않는다.**
+- 로케일 키 `error.watcher.emptyRoot` ×3.
+- 문서: `ipc-contract.md` 이벤트 표 · `explorer-sidebar.md` 워처 절.
+
+### F 단계 — 프론트 + 로케일 + 문서 (§1.A FE · §1.B 로케일 · 문서)
+
+R 단계가 남긴 3건을 모두 닫았다. Rust 로직은 손대지 않았다(유일한 예외는 로케일 필수 키 목록 1줄 — 아래 이탈 2번).
+
+| 파일 | 내용 |
+|------|------|
+| `src/app/providers/ipc-sync-provider.tsx` | §1.A FE — `rescanInvalidations(projectId)`(순수 함수) + `useTauriEvent(events.fsRescanRequired, …)` 구독 |
+| `src/app/providers/ipc-sync-provider.test.ts` | `rescanInvalidations` 테스트 3종 |
+| `src-tauri/resources/locales/{en,ko,ja}.json` | §1.B `error.watcher.emptyRoot` ×3 (알파벳 순서상 `error.watcher.registerFailed` 바로 위) |
+| `src-tauri/src/domain/locale/service.rs` | 위 키를 `MESSAGE_NAMESPACES` 의 `error` 네임스페이스에 `"watcher.emptyRoot"` 1줄 등재(이탈 2번) |
+| `docs/ipc-contract.md` | file 도메인 이벤트 목록에 `fs:rescan-required` 1항 + 배치 절 "d-57 인프라 하드닝 웨이브 1"(발행 조건·순서·최소 간격·FE 무효화 집합·`.git` 워처의 기존 이벤트 재사용·로케일 키·마스킹 3지점) |
+| `docs/features/explorer-sidebar.md` | §2.3 워처 절에 rescan 항목 |
+| `docs/features/git.md` | §7 에 `git_command_failed` stderr 마스킹 1항 |
+| `docs/features/lsp.md` | §2 에 툴체인 설치 실패 tail 마스킹 · 프로세스 그룹 시그널 가드 2항 |
+| `docs/debugging.md` | §7 진단 팁에 `[redacted:<name>]` 표기 해설 |
+
+- **무효화 집합**: `TREE.ROWS(projectId)` · `SEARCH.PROJECT_FILES(projectId)` · `GIT.PROJECT(projectId)`(+ 기존 `isGitQueryScopeMutable` predicate 재사용) · `FILE.ALL`. 계약 §1.A 가 적은 `TREE.PROJECT` 는 실제 키 이름이 `QUERY_KEY.TREE.ROWS` 다(`shared/constants/query-key.ts`). 순수 함수 `rescanInvalidations` 가 `{ queryKey, matchesQueryKey? }` 목록을 반환하고 핸들러가 그대로 `invalidateQueries` 에 넘긴다 — 집합 자체를 테스트로 잠그기 위한 분리다.
+- **테스트 3종 추가** (`bun test src/app/providers` 43 pass / 0 fail): 4종 키 집합·순서 / git 항목만 predicate 를 달고 rev 불변 스코프(`commit-files`·`show`)를 제외한다 / 도메인 전역 접두사(`TREE.ALL`·`SEARCH.ALL`·`GIT.ALL`)를 쓰지 않아 타 프로젝트 캐시를 건드리지 않는다.
+- **검증**: `bun run typecheck` OK · `bun run lint` 0 errors(기존 경고 11 유지) · `bun run format:check` OK · `bun test` 2337 pass / 0 fail(그중 `src/app/providers` 43 pass) · `cargo fmt --all -- --check` OK · `cargo clippy --workspace --all-targets -- -D warnings` 경고 0 · `cargo test --workspace` 1522 passed / 0 failed. `cargo test` 재실행 후 `git diff -- src/shared/api/bindings.ts` 는 R 단계와 동일(F 단계에서 bindings 재변동 0).
+
+#### 이탈 · 판단
+
+1. **`TREE.PROJECT` → `TREE.ROWS`** — 계약이 적은 이름이 코드에 없다(§1.A 표기 정정). 프로젝트 스코프 키는 `QUERY_KEY.TREE.ROWS(projectId)` 하나뿐이라 그대로 대체했다.
+2. **"Rust 수정 금지" 의 불가피한 예외 1줄** — `src-tauri/src/domain/locale/service.rs` 의 `MESSAGE_NAMESPACES` 에 `"watcher.emptyRoot"` 를 등재했다. 이 목록은 내장 카탈로그의 필수 키 정본이고 `en_메시지의_모든_키는_required_message_keys에_포함된다` 테스트가 카탈로그와의 일치를 강제하므로, 로케일 키만 추가하면 `cargo test` 가 실패한다(실제로 1회 실패를 확인한 뒤 등재했다). 로직 변경이 아니라 §1.B 로케일 작업의 등록 절차다.
+3. **`FILE.ALL` 은 무효화이지 제거가 아니다** — 같은 접두사 아래의 핫엑시트 미러(`FILE.MIRRORS`/`UNTITLED_MIRRORS`)가 rescan 으로 버려지면 안 되므로, `projectClosed` 의 `removeQueries` 와 달리 `invalidateQueries` 만 쓴다(재조회될 뿐 데이터는 유지). 이 판단을 JSDoc 에 남겼다.
+
+#### 남은 작업 · 한계 (F 단계 이후)
+
+- **rescan 이 트리를 완전히 교정하지는 못한다**: `tree_rows` 는 트리 스토어의 현재 상태를 재직렬화할 뿐 이미 캐시된 디렉토리를 디스크에서 다시 읽지 않는다(`domain::tree::service::plan_root_read` 는 캐시에 없는 디렉토리만 계획한다). 따라서 `TREE.ROWS` 무효화로 확실히 교정되는 것은 퀵오픈 인덱스(매번 새 walk)·열린 파일 내용·git 상태이고, **이미 펼쳐 둔 디렉토리의 목록**은 뒤따르는 `fs:changed` 나 명시적 `tree_refresh` 전까지 오버플로 이전 상태로 남는다. 완전 교정은 Rust 쪽(rescan 시 트리 스토어 캐시 무효화) 또는 FE 가 펼친 디렉토리마다 `tree_refresh` 를 도는 후속이 필요하다 — 이번 계약 범위 밖이라 코드 JSDoc·`ipc-contract.md`·이 절에 한계로 명시만 했다.
+
+### R + F 총괄
+
+- **d-57 전체 완료**: §1.A(rescan 이벤트 Rust + FE 배선) · §1.B(빈 경로 가드 + 로케일 3종) · §1.C(`mask_known_secrets`) · §1.D(git stderr · LSP tail · 알림 본문 마스킹) · §1.E(프로세스 그룹 시그널 가드). §1.F 범위 외 항목은 손대지 않았다.
+- **표면 변화**: 신규 이벤트 1종(`fs:rescan-required`) · 신규 로케일 키 1종(×3 언어) · 신규 커맨드 0 · 기존 페이로드 변경 0. `bindings.ts` 는 `events.fsRescanRequired` 와 `FsRescanRequired` 타입 추가(+ `notification_notify` doc 한 줄).
+- **테스트 22종 추가**(R 19 + F 3). 전체 검증: `cargo fmt --all -- --check` · `cargo clippy --workspace --all-targets -- -D warnings` · `cargo test --workspace` · `bun run typecheck` · `bun run lint` · `bun run format:check` · `bun test` 전부 통과.

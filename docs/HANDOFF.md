@@ -128,8 +128,11 @@
   노출·AI 본문 마스킹·bash 3.2/fish 폴백·OSC 7 file://·pause 구독 단위·검색 라인 상한·글롭 통일·퀵오픈 랭킹·ps→sysinfo·OSC 52·탭 제목·중첩 셸 재주입).
 - **d-55 프론트 3건** (`545227a`·`714772e`): 링크 좌표 문법 8형식(가장 긴 접미사)·빈 프롬프트 가짜 블록 폐기(`hasSeenOutputStart` 래치, bash 3.2 관대)·
   퍼지 다중 토큰(≤8, 점수 합·인덱스 합집합). 리뷰 major 0·minor 1 수용(비공개 상수 JSDoc 제거)·1 기각(겹침 점수 — 문서화).
-- **계약만 작성(미착수)**: d-56 터미널·PTY(리플레이 flow control 제외·링 축출 개행 정렬·zsh OSC 7 printf·`~user` 확장·링크 존재 검증 resolver),
-  d-57 인프라 하드닝(FSEvents rescan 이벤트·워처 빈 경로 가드·명명 패턴 시크릿 마스킹·git/LSP stderr·알림 본문 마스킹·pgid 시그널 가드).
+- **d-56 완료** (`6fe22ae`): 리플레이 flow control 제외(`PtyAttachResult.replayBytes`)·링 축출 개행 정렬·zsh OSC 7 printf·`~` 확장·링크 존재 검증
+  resolver(`terminal_resolve_link_candidates`). 리뷰 major 0·minor 1 문서화(부재 캐시 트레이드오프).
+- **d-57 완료·검토 미실행**: FSEvents rescan → `fs:rescan-required` + FE 광역 무효화(트리 캐시 자체는 미갱신 — 한계 문서화)·워처 빈 경로 가드·
+  `mask_known_secrets`(13 패턴, git stderr·LSP 설치 tail·알림 본문 적용)·pgid 시그널 가드. 메인 verify 그린이나 **sonnet 렌즈 검토는 사용자 중단
+  지시로 돌리지 못했다** — 다음 세션 첫 항목(마스킹 오탐 렌즈 필수).
 
 ### 3.6 잔여
 

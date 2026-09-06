@@ -78,6 +78,12 @@
       나머지 Rust 10건은 계약 작성 완료 —
       **d-56 터미널·PTY**(T2-F3·T2-F8·SI-5·T5-10·T5-01, `acknowledge/2026-09-06-d56-terminal-pty-wave1-contract.md`) ·
       **d-57 인프라 하드닝**(W7-1·W7-10·T6-F1·T6-F2·T6-F8, `acknowledge/2026-09-06-d57-infra-hardening-wave1-contract.md`) — d-54 Rust 완료 후 순차 기동
+- [x] g-2. d-56 완료(2026-09-07) — 구현 wf `wf_635033d6`(R Rust 테스트 +12·bindings 2건 / F TS 테스트 +14, replayBytes u32·attach 결과 도착 전 큐 등 이탈 6건)
+      → 리뷰 wf `wf_5b790d6e`(major 0·minor 1 부분 수용(부재 캐시 트레이드오프 문서화)·info 4) → 메인 verify(bun 2334·cargo 1503)·vite build → 커밋
+- [x] g-3. d-57 완료(2026-09-07) — 구현 wf `wf_986f4e1b`(R Rust 테스트 +19·이벤트 `fs:rescan-required`·bindings / F TS 테스트 +3·로케일 3종·문서,
+      이탈 11건 계약 §3) → 메인 verify(bun 2337·cargo 1522)·vite build → 커밋. **렌즈 검토 wf 는 사용자 중단 지시로 미실행**(`wf_a95feb4b` 정지) —
+      다음 세션 첫 항목으로 d-57 검토(마스킹 오탐 렌즈 포함) 수행
+- [x] h-1. docs 커밋 → dev 푸시 → main ff. 세션 종료(사용자 지시)
 - [ ] h. 잔여(사용자): 실기 확증(권한 다이얼로그 배지 즉시 전환·유휴 복귀·hooks 켠 세션의 PermissionRequest 즉시 반영), 미결 결정(계약 §4·리서치 §미결)
 
 ## 완료(잔여 사용자 몫): 라이선스 MIT·README·Claude Code Ctrl+G 임시파일 수정 (2026-09-05)
