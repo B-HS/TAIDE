@@ -50,6 +50,36 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: d-54 에이전트 활동 감지 개편 + 터미널·에이전트 심층 비교 리서치 (2026-09-06)
+
+> 사용자 지시 2건 — ① "Claude Code 상태 감지가 늦고 `Do you want to proceed?` 인데 유휴 배지" 근본 수정 ② 외부 오픈소스 터미널 구현을
+> 심층 탐색해 TAIDE 기존 기능의 고도화·안정화·최적화 후보 도출·적용. 문서·릴리스 노트에 참고 출처를 적지 않는다(사용자 지시).
+> 커밋·푸시 자동(llm-rules). 승인 폭주 대응으로 사용자가 `Bash(*)` 허용 추가(2026-09-06).
+
+- [x] a. 근본 원인 계측 — hooks 미설치(마커 0건)·`ps` R 상태 단독·Claude 알림 채널 `no_method_available`·`permission_prompt` 6초 지연·
+      expect 탐침 3회(타이틀 `◐◑✳`·다이얼로그 중 600ms 점멸 출력·단어 단위 열 이동 렌더). 정본 계약 §0, `bug/2026-09-06-agent-badge-idle-during-permission-prompt.md`
+- [x] b. 리서치 wf(opus·xhigh, `wf_09a16fcd`, 7주제 병렬 + 종합, 31분) — 후보 66건·웨이브 1~3·기각 3·미결 결정 14. 정본
+      `research/2026-09-06-terminal-agent-deep-dive.md`(출처 비표기 요약), 원문 JSON 은 세션 스크래치
+- [x] c. 계약 작성 — `acknowledge/2026-09-06-d54-agent-activity-signals-contract.md`(스캐너 통합·세션 신호 판정·인밴드 command hook·pid 캐시)
+- [x] d. 구현 wf(opus·xhigh, `wf_e9c578ba`, 3h17m) A 스캐너(`infra/terminal_scan.rs`, 테스트 +15) → B 신호·훅(세션 신호 판정·인밴드
+      command hook·pid 캐시·env, 테스트 +33, 이탈 7건 계약 §3 기록) → C 문서(agent-integration §1·§4·§7 재작성·terminal §5.2·ipc-contract·
+      backlog·debugging). cargo 1,511 pass·bindings 무변경
+- [x] e-1. 렌즈 검토 wf(sonnet·xhigh 3렌즈 + 적대적 검증 2표, `wf_e805ef98`, 1h45m) — 발견 11: major 1 확증(f1 에코 억제가 다이얼로그
+      시그니처까지 막아 연쇄 승인을 놓침 → 실질 출력 분기로 한정)·minor 6(5 수용: 같은 청크 이벤트 래치 보호·에이전트 교체 시 레코드 재생성·
+      죽은 clear_project_override 삭제·마커 `notify;taide-agent;` 로 축소·콜드스타트 문서 정정, 1 기각: pid 캐시 exec 재검증 → §4 결정)·
+      info 4. 수정 후 cargo 1,517 pass. 계약 §3 "D 단계" 정본
+- [x] e-2. 테스트 wf(fable·medium, `wf_f3b63354`) — 실물 바이트 리플레이 타임라인 테스트 3(가상 시계로 (a)~(i) 단계 단언) +
+      `quality-assurance/2026-09-06-agent-activity-qa.md`. cargo 1,520 pass
+- [x] f. 메인 2차 검증 — `bun run verify` exit 0(bun 2319/0·cargo 1490+17+3+4+6/0·lint 0 error/11 기존 warning·prettier)·`bunx vite build`·
+      `typecheck:e2e` exit 0 → 커밋 `cf81f3d` feat(agent) + docs 커밋 → dev 푸시 → main ff
+- [x] g. 리서치 웨이브 1 — **d-55 프론트 3건(T5-03 링크 좌표 문법·SI-4 빈 프롬프트 가짜 블록·W7-7 퍼지 다중 토큰) 완료** —
+      구현 wf `wf_4932c33a`(3 에이전트, 테스트 +26) → 검토 wf `wf_662c31a5`(sonnet·xhigh 2렌즈: major 0·minor 2(1 수용·1 기각 문서화)·info 1)
+      → 메인 2차 검증(typecheck·lint·prettier·bun test 140 pass) → 커밋(`acknowledge/2026-09-06-d55-terminal-frontend-wave1-contract.md` §3 정본).
+      나머지 Rust 10건은 계약 작성 완료 —
+      **d-56 터미널·PTY**(T2-F3·T2-F8·SI-5·T5-10·T5-01, `acknowledge/2026-09-06-d56-terminal-pty-wave1-contract.md`) ·
+      **d-57 인프라 하드닝**(W7-1·W7-10·T6-F1·T6-F2·T6-F8, `acknowledge/2026-09-06-d57-infra-hardening-wave1-contract.md`) — d-54 Rust 완료 후 순차 기동
+- [ ] h. 잔여(사용자): 실기 확증(권한 다이얼로그 배지 즉시 전환·유휴 복귀·hooks 켠 세션의 PermissionRequest 즉시 반영), 미결 결정(계약 §4·리서치 §미결)
+
 ## 완료(잔여 사용자 몫): 라이선스 MIT·README·Claude Code Ctrl+G 임시파일 수정 (2026-09-05)
 
 > 사용자 지시 3건 — ① MIT 채택 가능성 검토 ② raw-viewer 형식 README(스크린샷은 직접 기동·캡처)

@@ -1,6 +1,13 @@
-# HANDOFF — 2026-09-05 세션 스냅샷 (배치 3·4 완결 → v0.1.7 draft → 라이선스 MIT·README·Ctrl+G 임시파일 수정 → **v0.1.8 draft 완주** / 잔여 = v0.1.8 설치본으로 Ctrl+G 실기·draft 5건 공개·8지표·e2e·수동 QA)
+# HANDOFF — 2026-09-06~07 세션 스냅샷 (d-54 에이전트 활동 감지 개편 + 터미널·에이전트 심층 비교 리서치 + 웨이브 1 프론트 3건 / 잔여 = d-56·d-57 Rust 웨이브 1·실기 QA·미결 결정)
 
-> 최종 갱신: 2026-09-05 (2차) / HEAD = `ba1962c`(chore(release) v0.1.8, dev=main, 이 docs 커밋이 그 위에 얹힘). **v0.1.8 draft 완주**(런 `33951888564`, 8m50s, dmg 15,083,863B). 직전 스냅샷 `git show 047e7dd:docs/HANDOFF.md`.
+> 최종 갱신: 2026-09-07 / HEAD = `cf81f3d`(feat(agent) d-54) 위에 이 docs 커밋. 직전 스냅샷 `git show 0a1c30d:docs/HANDOFF.md`.
+> **이 세션(2026-09-06~07)** — ① 사용자 보고 "Claude Code 권한 다이얼로그 중 배지가 유휴" 의 근본 원인을 계측(hooks 미설치·`ps` R 상태 단독·
+> 알림 채널 미지원·`permission_prompt` 6초 지연) + expect 탐침 3회(타이틀 `◐◑✳`·다이얼로그 중 ⏺ 점멸·단어 단위 열 이동 렌더)로 확정하고
+> **d-54**(`acknowledge/2026-09-06-d54-agent-activity-signals-contract.md`)로 pty 출력 스캐너 통합·세션 신호 판정·인밴드 OSC 777 command hook 을 구현
+> (`cf81f3d`, 테스트 +51, 리뷰 major 1 확증 수정). ② 외부 오픈소스 터미널 구현을 7주제로 비교한 리서치(`research/2026-09-06-terminal-agent-deep-dive.md`,
+> 후보 66·웨이브 3단·미결 결정 14 — 출처는 사용자 지시로 비표기) → 웨이브 1 중 프론트 3건 **d-55** 완료(`545227a`·`714772e`), Rust 10건은
+> **d-56·d-57 계약 작성 완료·미착수**. ③ 승인 프롬프트 폭주 → 허용 목록 확장(`57d726b`) + 사용자가 `Bash` 전체 허용 추가.
+> 직전 세션(2026-09-05) 요지는 §3.1~3.6 유지.
 > **2차 세션(2026-09-05 오후)** — ① **라이선스 MIT 채택**(npm 171·Rust 392 전수 검토, 충돌 0 — `LICENSE`·manifest `license`·
 > `THIRD_PARTY_LICENSES.md` 요약, 정본 `acknowledge/2026-09-05-license-mit-decision.md`) ② **README.md 신설**(영문, raw-viewer
 > 구조, `docs/assets/` 아이콘·실캡처) ③ **Claude Code Ctrl+G "Open a project first" 근본 수정**(tmpdir 임시파일이 어떤 root 에도
@@ -106,6 +113,24 @@
 - 정본: `quality-assurance/2026-09-04-perf-baseline.md`(실기 8지표 체크박스·벤치·Rust 픽스처 실측),
   `2026-09-04-test-gap-map.md`, `memory/test-conventions.md`(하네스 규약·함정).
 
+### 3.7 이 세션(2026-09-06~07) — d-54·리서치·d-55 (정본: 각 계약 §3, `PROCESS.md` "진행 중: d-54" 절)
+
+- **d-54 감지 개편** (`cf81f3d`): 원인 = hooks 는 opt-in 기본 off 라 `AwaitingInput` 이 구조적으로 불가능했고, `ps` R 상태는 API 대기·권한 대기·
+  유휴를 구분하지 못한다. 실측(계약 §0.2): Claude Code 2.1.263 은 `TERM_PROGRAM=TAIDE` 에서 인밴드 알림 0, 타이틀 `◐/◑`(작업)·`✳`(유휴)·
+  다이얼로그 중 동결, 다이얼로그 중에도 600ms 마다 48B ⏺ 점멸 출력, 텍스트는 단어마다 `CSI n G` 열 이동을 끼워 렌더. 수정 = `infra/terminal_scan.rs`
+  (단일 패스·경계 이월·정규화 텍스트·상한) + `domain/agent` 세션 신호 4종(다이얼로그 시그니처 `Do you want to proceed?`/`Would you like to proceed?`/
+  `Esc to cancel`·타이틀 글리프·실질 출력·사용자 입력) + `classify_session` + Claude hooks 를 OSC 777 `taide-agent` command hook(env 게이트·
+  `terminalSequence`/dev-tty)으로 교체(codex·gemini HTTP 유지) + pid 이름 캐시. 리뷰(sonnet 3렌즈) major 1 확증(에코 억제가 다이얼로그 판정까지
+  막음 → 실질 출력 분기 한정) 등 8건 반영·1건 기각(pid 캐시 exec 재검증 → 결정). 실물 바이트 리플레이 테스트 3 + `quality-assurance/
+  2026-09-06-agent-activity-qa.md`. **실기 미확증**(사용자: hooks 없이 권한 다이얼로그 → 1초 내 마름모 → 답 → 점 → 완료 빈 원).
+- **리서치** (`research/2026-09-06-terminal-agent-deep-dive.md`): 셸 통합·PTY 파이프라인·이스케이프/알림·CLI 에이전트·링크·마스킹/입력 대기·
+  감시/검색/퍼지 7주제, 후보 66(웨이브 1: 13 · 2: 30 · 3: 12 · 기각 3), 미결 결정 14(nix 직접 의존·완료 알림 포커스 토스트·OSC 9/777 승격·명령 텍스트
+  노출·AI 본문 마스킹·bash 3.2/fish 폴백·OSC 7 file://·pause 구독 단위·검색 라인 상한·글롭 통일·퀵오픈 랭킹·ps→sysinfo·OSC 52·탭 제목·중첩 셸 재주입).
+- **d-55 프론트 3건** (`545227a`·`714772e`): 링크 좌표 문법 8형식(가장 긴 접미사)·빈 프롬프트 가짜 블록 폐기(`hasSeenOutputStart` 래치, bash 3.2 관대)·
+  퍼지 다중 토큰(≤8, 점수 합·인덱스 합집합). 리뷰 major 0·minor 1 수용(비공개 상수 JSDoc 제거)·1 기각(겹침 점수 — 문서화).
+- **계약만 작성(미착수)**: d-56 터미널·PTY(리플레이 flow control 제외·링 축출 개행 정렬·zsh OSC 7 printf·`~user` 확장·링크 존재 검증 resolver),
+  d-57 인프라 하드닝(FSEvents rescan 이벤트·워처 빈 경로 가드·명명 패턴 시크릿 마스킹·git/LSP stderr·알림 본문 마스킹·pgid 시그널 가드).
+
 ### 3.6 잔여
 
 - **즉시(사용자)**: ① 실기 8지표 측정(perf-baseline §2·§3) ② e2e 14~25 실행 + 배치 3·4 표면 실기(알림은
@@ -145,7 +170,9 @@
 
 ## 6. 미해결 질문 / 사용자 확인 필요
 
-1. draft **v0.1.3·v0.1.5·v0.1.6 Publish** (세 건 누적 — 본문·산출물 검토 후).
+0. **d-54 실기 확증**(`quality-assurance/2026-09-06-agent-activity-qa.md`) + 결정 4건(계약 §4): hooks 기본값(opt-in 유지 추천) · Claude HTTP 훅 수신
+   분기 제거 시점(다음 릴리스 추천) · codex/gemini 인밴드 전환 · pid 캐시 exec 재검증 방식. 리서치 미결 14건(§3.7)은 `research/2026-09-06-…` 말미.
+1. draft **v0.1.3·v0.1.5·v0.1.6·v0.1.7·v0.1.8 Publish** (누적 — 본문·산출물 검토 후).
 2. "빈 폴더" 증상의 실체(§3.3 ③) — 확보 전까지 재추적 불가로 종결 보류.
 3. qa6 계속 → Phase 8 잔재 착수 판단.
 
@@ -155,17 +182,19 @@
 |------|-----|
 | 플랫폼 | macOS(arm64)·bun 1.4.0·tauri 2.11.x·React 19(Compiler). cargo PATH §5 |
 | 버전·식별 | **v0.1.6**(3파일 동기 — CI 가드)·identifier prod `net.gumyo.taide` / dev `.dev` |
-| git | HEAD=`7880ba1`+완주 기록 커밋(main=dev·origin 동기). 태그 v0.1.2/3/5/6(0/1 폐기·0.1.4 결번) |
-| 기준선(2026-08-30 메인 실측) | bun **1817**/0(189파일)·cargo workspace **1248**/0·verify+vite build 전체 exit 0·로케일 **963키×3**(en/ko/ja) |
+| git | HEAD=`cf81f3d`+이 docs 커밋(dev, main ff 예정). 태그 v0.1.2/3/5/6/7/8(0/1 폐기·0.1.4 결번) |
+| 기준선(2026-09-07 메인 실측) | bun **2319**/0(232파일)·cargo workspace **1490**+17+3+4+6/0·verify+vite build+typecheck:e2e 전체 exit 0·lint 0 error/11 기존 warning·신규 의존성 0 |
 | 실행·검증 | dev=`bun run tauri dev`(사용자만)·`bun run verify`·릴리스 산출은 루트 `target/release/bundle/` |
 | CI | release.yml 4-job 병렬 + cache-warm.yml(main push 워밍 — v0.1.6 에서 build 6m29s 실증) |
 | 신규 표면(실기 미확증) | 파일트리 git 데코·Shift+Enter LF·SCM ↑↓·팔레트 캐럿·Ctrl+G EDITOR 주입 — 전부 기계 검증만 완료, 실기는 §3.3 ② |
 
 ## 8. 다음 세션 TODO (우선순위)
 
+0. **d-56 → d-57 착수**(계약 완성, Rust 단일 에이전트 순차 — `acknowledge/2026-09-06-d56-…`·`d57-…`) → 리뷰 sonnet → 테스트 fable → 커밋. 그 뒤
+   리서치 웨이브 2 는 미결 결정(§6-0) 회신 후 계약화.
 1. 사용자 실기·e2e·수동 QA 결과 청취 → 결함은 계약 §3/§4 에 추가해 wf 파이프라인(구현 opus·리뷰 sonnet·
-   테스트 fable). 승인 프롬프트 최소화: 워크플로 공통 규칙에 "Edit/Write 전용·한 줄 단순 셸만" 유지, 셸 전체
-   허용(`Bash(*)`)은 사용자만 추가 가능(에이전트 자가 확대는 분류기 차단).
+   테스트 fable). 승인 프롬프트: 사용자가 `Bash` 전체 허용을 추가했고(2026-09-06) 읽기 전용 prefix 도 확장(`57d726b`) — 워크플로 공통 규칙
+   (Edit/Write 전용·한 줄 단순 셸·cd 금지)은 유지한다.
 2. draft 3건 공개 여부 확인 · 백로그 성능 이월 12건 착수 여부.
 3. "빈 폴더" 재현 정보 확보 시 재추적(유력 가설: 트리 숨김 목록만 든 폴더 — wf C 트랙 openQuestion).
 4. qa6 계속 / Phase 8 잔재 판단 / 백로그(ignored 흐림·kitty protocol) 착수 여부.
@@ -175,7 +204,12 @@
 | 문서 | 내용 |
 |------|------|
 | `docs/HANDOFF.md` | **이 문서** — 단일 진입점 |
-| `docs/PROCESS.md` | 체크리스트 — "사용성 배치 3"(완결)·"사용성 배치 4"(대기) 절 |
+| `docs/PROCESS.md` | 체크리스트 — "진행 중: d-54 …"(이 세션) · "사용성 배치 3"(완결) · "사용성 배치 4"(대기) 절 |
+| `docs/acknowledge/2026-09-06-d54-agent-activity-signals-contract.md` | 감지 개편 정본 — §0 실측 근거(탐침 표) · §1 설계(계층·판정·스캐너·훅) · §3 A~E 단계 기록·이탈 15+·리뷰 표 · §4 결정 |
+| `docs/acknowledge/2026-09-06-d55-…` · `d56-…` · `d57-…` | 웨이브 1 계약 3건(d-55 완료 §3, d-56/57 미착수) |
+| `docs/research/2026-09-06-terminal-agent-deep-dive.md` | 7주제 비교 리서치 요약(후보 66·웨이브·기각·미결 14) — 원문 JSON 은 세션 스크래치 |
+| `docs/bug/2026-09-06-agent-badge-idle-during-permission-prompt.md` · `docs/quality-assurance/2026-09-06-agent-activity-qa.md` | 배지 버그 정본 · 실기 체크리스트(탐침 사용법 포함) |
+| `docs/features/agent-integration.md` §1·§4·§7 · `terminal.md` §5.2·§6 · `ipc-contract.md`(스캐너·agent 절) · `command-palette.md` §3 | d-54·d-55 반영분 |
 | `docs/acknowledge/2026-09-04-usability-batch3-contract.md` | 배치 3 계약 + §3 구현·리뷰·테스트 기록(이탈·미결 전건) |
 | `docs/acknowledge/2026-09-04-usability-batch4-contract.md` · `-user-decisions.md` | 배치 4 계약 A~H · 결정 7건 · "## 3. 구현 기록 (웨이브 1)"(이탈·미결·리뷰 수정·테스트) |
 | `docs/quality-assurance/2026-09-04-git-section-ux-hand-qa.md` · `2026-08-18-e2e-harness.md` §5·§5.1 | git 섹션 손 QA · e2e 13~25 표 + 수동 QA(알림·프로젝트 표시) |
