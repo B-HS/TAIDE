@@ -18,4 +18,5 @@ pub mod secret;
 pub mod self_write;
 pub mod shell_integration;
 pub mod shell_quote;
+pub mod terminal_scan;
 pub mod watcher;

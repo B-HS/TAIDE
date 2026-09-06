@@ -30,7 +30,7 @@
 
 | 항목 | 내용 | 보류 사유 |
 |------|------|-----------|
-| hooks override 세션 단위 정밀화 | 현재 hook 이벤트는 에이전트 이름 단위 override — 같은 프로젝트의 동일 이름 다중 세션은 뭉뚱그려짐 | Claude Code hook 페이로드에 TAIDE 세션 식별자를 실을 방법이 없어 설계 재논의 필요 |
+| ~~hooks override 세션 단위 정밀화~~ | ~~현재 hook 이벤트는 에이전트 이름 단위 override — 같은 프로젝트의 동일 이름 다중 세션은 뭉뚱그려짐~~ | **해결(d-54, 2026-09-06)** — Claude 훅을 인밴드 command hook(OSC 777)으로 바꿔 이벤트가 **그 세션의 pty 로** 들어온다. 페이로드에 세션 식별자를 싣는 대신 전달 경로 자체가 세션이라 override 가 필요 없어졌다(`features/agent-integration.md` §4.1). codex·gemini 는 HTTP override 유지 — 인밴드 전환은 §1.7 후속 |
 | `agentHooksEnabled` OFF 시 주입분 자동 제거 | 현재는 리스너 종료+override 무시까지만. `.claude/settings.local.json` 의 훅 항목은 남는다 | 사용자 파일을 지우는 파괴적 동작 — 확인 UX 합의 선행 |
 | hooks/IDE 로컬 리스너 동시 연결 상한 | 타임아웃 도입으로 누적은 유한해졌으나 상한(semaphore)은 없음 | 상한값이 제품 판단 사항 |
 | `AgentHooksStatus` 에 "재설치 필요" 상태 노출 | URL 자동 재주입(자가 치유)으로 실사용 문제는 해소됨 | IPC 계약+i18n+UI 확장이라 실수요 확인 후 |
@@ -200,7 +200,7 @@
 | grammar 코어 3종 선정을 실측 기반으로 | 현재 코어 3종은 "앱이 사용자 동작 없이 스스로 여는 표면" 기준의 **판단값**이다. 세션 복원으로 열리는 파일(대개 ts/tsx/rs)은 온디맨드 경로라 하이라이팅이 한 박자 늦게 붙는다. | 옳은 해법은 코어 목록 확대가 아니라 **직전 세션이 요구한 언어를 영속**해 부팅 시 선로드하는 것 — 새 저장 표면이 필요 |
 | shiki tokens provider 전량 재부착 | `shikiToMonaco` 가 언어 1개만 등록하는 API 를 노출하지 않아, 새 언어가 붙을 때마다 로드된 전 언어분을 다시 등록하고 직전 묶음을 dispose 한다. | 서로 다른 언어의 파일을 **처음** 여는 횟수만큼만 일어나고 그 뒤로는 발생하지 않아 수용 중. 상류 API 변화 대기 |
 | 마커 재수집 — `ide-sync-provider` 전량 티어 | C.2-7 로 상태바는 severity 카운트 티어(`useMonacoMarkerCounts`)로 내려왔으나, `app/providers/ide-sync-provider.tsx` 가 앱 루트에서 세션 내내 **전량 티어**(`useMonacoMarkers`)를 구독한다 — `onDidChangeMarkers` 마다 `getModelMarkers({})` 전량 순회가 여전히 armed 다. | 그 프로바이더는 마커를 `ideStatus?.running` 일 때만 쓰므로 **구독 자체를 그 조건으로 게이팅**하면 LSP 초기 인덱싱 구간의 잔여 비용이 사라진다. 소형이나 IDE 동기화 계약(`docs/features/ide-integration.md`) 확인이 선행 |
-| `poll_agents` 의 `ps` fork 제거 (M-3 잔여) | pid 일괄 배칭·세션 0 조기 반환은 적용됐고 **프로젝트당 500ms 1회 fork 가 잔존**한다. `sysinfo` 로 교체하면 fork 가 사라진다. | 활동 판정 문자(`ps -o state` 의 R/S)가 `ProcessStatus` 의미로 바뀌어 **에이전트 배지 회귀 위험**이 있다. 2차 결정 §7 추천대로 이번 배치 제외 — `perf_snapshot` 계측으로 실제 비용을 먼저 확인한 뒤 판단 |
+| `poll_agents` 의 `ps` fork 제거 (M-3 잔여) | **d-54(2026-09-06)로 대부분 해소**: `ps` 는 pid → 에이전트 이름 해석 전용이 되고 `AgentStore` 의 pid 캐시(`None` 도 캐시)를 타므로, fork 는 **세션의 전경 pid 가 바뀐 틱에만** 일어난다(이전엔 프로젝트당 500ms 마다 1회). 잔여는 "명령을 새로 실행할 때마다 1회". `sysinfo` 로 교체하면 그마저 사라진다. | 회귀 위험의 근거였던 활동 판정(`ps -o state` 의 R/S)이 **제거**돼 배지와 무관해졌다(판정은 세션 신호로 이동 — `features/agent-integration.md` §1). 남은 판단은 순수 비용 문제이므로 `perf_snapshot` 계측 후 결정 |
 | libgit2 `StatusOptions::update_index` 채택 | 켜면 stat-stale 파일 재해시가 1회로 끝나 반복 status 가 크게 빨라진다(`status.c:315` `GIT_DIFF_UPDATE_INDEX`). | 매 status 가 `.git/index` 를 되쓰게 되어 **외부 git 프로세스와 락 경합**이 생기고, 자기 쓰기가 다시 `git/watch.rs` 의 Status 무효화를 유발하는 **피드백 루프** 위험이 있다. C.2-6 ③ 결과 캐시로 반복 호출은 이미 흡수됐으므로 실측 후 재판단 |
 | `git_status` 단일 비행(single-flight) | 현재 캐시는 "직렬로 이어지는 조회" 만 합친다. 창 N개가 같은 이벤트로 **동시에** 조회하면 전부 miss 로 시작해 N회 계산이 남는다. | 계약 §C.2-6 이 "워처 무효화 + 2초 TTL" 로 범위를 확정했다. 프로젝트별 async 단일 비행 락이 다음 후보 |
 | `.git` 워처 캐시의 `objects/**` 프루닝 | 하류 `classify_git_change` 가 `objects/**` 를 전부 떨구므로 캐시에서 프루닝해도 짝짓기 손실이 없고, 루스 오브젝트가 많은 저장소에서 절감이 크다. | 계약 §C.2-6 ② 가 `WatchScope::GitDir` 는 무필터로 확정 — 계약 밖 신규 결정이라 보류 |

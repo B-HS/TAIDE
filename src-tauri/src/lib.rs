@@ -153,12 +153,14 @@ fn system_usage_label_providers() -> domain::system::commands::SystemUsageLabelP
     ])
 }
 
-/// Wires `pty_spawn`'s extra-env hook to the two agent integrations that must be in a terminal's
+/// Wires `pty_spawn`'s extra-env hook to the three agent integrations that must be in a terminal's
 /// environment before the shell starts: the Claude Code SSE port when the IDE server is (or comes)
 /// up — `ide::store::claude_terminal_env` owns the readiness wait, the terminal domain only injects
-/// the result (audit R8#10, T1-I §1.4) — and `EDITOR` pointing at the `taide` CLI so ctrl+g opens
-/// files in this window (`agent::commands::editor_terminal_env`, agent-integration.md §2.3). Each
-/// domain owns its own resolution; this assembly only concatenates what they hand back.
+/// the result (audit R8#10, T1-I §1.4) — `EDITOR` pointing at the `taide` CLI so ctrl+g opens
+/// files in this window (`agent::commands::editor_terminal_env`, agent-integration.md §2.3), and
+/// the in-band agent protocol handshake the installed hooks gate on
+/// (`agent::commands::agent_protocol_env`). Each domain owns its own resolution; this assembly only
+/// concatenates what they hand back.
 fn pty_spawn_env_provider() -> domain::terminal::commands::PtySpawnEnvProvider {
     use domain::terminal::commands::PtySpawnEnvFuture;
 
@@ -166,9 +168,24 @@ fn pty_spawn_env_provider() -> domain::terminal::commands::PtySpawnEnvProvider {
         Box::pin(async move {
             let mut env = domain::ide::store::claude_terminal_env(app).await;
             env.extend(domain::agent::commands::editor_terminal_env());
+            env.extend(domain::agent::commands::agent_protocol_env());
             env
         })
     }))
+}
+
+/// Wires a pty session's own traffic to the agent domain's activity signals: every scanned output
+/// chunk and every user write reach `agent::commands`, which keeps them only for sessions that
+/// actually run an agent. Assembly-owned for the same reason as the env provider above — the
+/// terminal domain must not call into agent, which already reads terminal's foreground pid set
+/// (architecture.md §2).
+fn pty_session_observers() -> domain::terminal::commands::PtySessionObservers {
+    use domain::terminal::commands::PtySessionSignal;
+
+    domain::terminal::commands::PtySessionObservers::new(vec![Box::new(|app, session_id, signal| match signal {
+        PtySessionSignal::Output(outcome) => domain::agent::commands::record_session_scan(app, session_id, outcome),
+        PtySessionSignal::Input => domain::agent::commands::record_session_input(app, session_id),
+    })])
 }
 
 fn specta_builder() -> Builder<tauri::Wry> {
@@ -560,6 +577,7 @@ pub fn run() {
             app.manage(settings_toggle_observers());
             app.manage(system_usage_label_providers());
             app.manage(pty_spawn_env_provider());
+            app.manage(pty_session_observers());
             app.manage(TreeStore::default());
             app.manage(TerminalStore::default());
             app.manage(GitStore::default());

@@ -472,8 +472,8 @@
   은 코드에 없다**(정정: cwd 보고는 프론트→Rust mutation 이 아니라 Rust→view 이벤트
   `terminal:cwd-changed` 로 흐른다)
 - **`terminal:command-finished`(배치 4 웨이브 1 리뷰 F-1, 신규)**: `pty_spawn` 의 reader 콜백이
-  `extract_latest_cwd` 와 같은 자리에서 `infra::shell_integration::extract_command_markers` 로 OSC 133
-  `C`(출력 시작)·`D`(종료)를 스캔해, 세션별 `Instant` 로 실제 경과 시간을 재고 `D` 마다 발행한다.
+  cwd 와 **같은 스캔 패스**에서(`infra::terminal_scan`, `terminal.md` §5.2) OSC 133
+  `C`(출력 시작)·`D`(종료)를 읽어, 세션별 `Instant` 로 실제 경과 시간을 재고 `D` 마다 발행한다.
   `C` 를 못 본 `D` 는 발행하지 않는다(측정 불가 ≠ 즉시). 프론트 트래커
   (`features/terminal/terminal-osc133.ts`)가 아니라 여기서 재는 이유는 pane 이 활성 탭만 렌더해
   **탭이 배경이면 xterm 인스턴스와 트래커가 통째로 언마운트**되기 때문이다 — 그 상태로 완료된 명령은
@@ -485,12 +485,17 @@
   의 zsh `_taide_precmd`/bash `_taide_prompt` 훅이 기존 OSC 133 명령 경계 마커와 나란히
   `\e]7;$PWD\e\\`(OSC 7 번호를 재사용하되 `file://host/path` 형식·퍼센트 인코딩 없이 순수 경로만 —
   유일한 소비자가 이 모듈 자신의 파서라 실제 터미널 에뮬레이터 호환을 맞출 필요가 없다)를 매 프롬프트
-  렌더링마다 내보내고, `infra::shell_integration::extract_latest_cwd` 가 pty 원시 출력 청크에서 이를
-  스캔한다. `terminal::commands::pty_spawn` 의 `on_data` 콜백이 이 값을 `SessionEntry.cwd`(스폰 시점
+  렌더링마다 내보내고, pty 원시 출력 청크에서 이를 읽는다. `terminal::commands::pty_spawn` 의
+  `on_data` 콜백이 이 값을 `SessionEntry.cwd`(스폰 시점
   cwd 로 초기화됨)와 비교해 실제로 바뀐 경우에만 `TerminalCwdChanged` 를 발행한다(precmd 는 `cd` 여부
-  와 무관하게 매 명령마다 실행되므로, 비교 없이 그대로 발행하면 명령마다 이벤트가 튄다). 청크 경계에서
-  잘린 시퀀스는 이번 청크에서 감지되지 않을 뿐(다음 프롬프트가 같은 cwd 를 다시 보고해 자연히
-  회복) — "최소 배선" 원칙에 따른 의도된 한계다. `resolve_terminal_path(path, cwd)` 커맨드 시그니처
+  와 무관하게 매 명령마다 실행되므로, 비교 없이 그대로 발행하면 명령마다 이벤트가 튄다).
+  **청크 경계 정정(d-54, 2026-09-06)**: 스캔 주체는 이제 `infra::terminal_scan::OutputScanner`(세션당
+  1개)이고, 종결자 없이 끊긴 시퀀스는 다음 청크 앞에 이어 붙여 **재조립한다**. 이전 판이 적은
+  "청크 경계에서 잘린 시퀀스는 감지되지 않을 뿐 — 의도된 한계" 는 더 이상 사실이 아니다(cwd 는
+  다음 프롬프트가 자가 치유했지만, 1회성인 명령 완료·에이전트 이벤트는 자가 치유가 없어 재조립이
+  필요해졌다). 한 청크에 OSC 7 이 여러 번 실리면 **마지막 것만** 적용한다(`ScanOutcome::latest_cwd`)
+  — 중간 프롬프트 값으로 이벤트가 튀지 않게 하기 위한, 종전 `extract_latest_cwd` 의미의 보존이다.
+  `resolve_terminal_path(path, cwd)` 커맨드 시그니처
   자체는 무변경(항상 `cwd: String` 을 인자로 받는 순수 함수) — 프론트가 이 이벤트로 세션별 cwd 를
   보관했다가 호출 시 넘기는 소비 배선은 이 문서 범위 밖(F2 후속).
 
@@ -589,7 +594,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 없다** — 실제 이름은 `agent_release_marker`(정정)이고, 나머지 8종(감지·CLI 설치·hooks 설치)도
 > 통째로 누락돼 있었다.
 
-- query: `agent_list(projectId) → ProjectAgents`(pty 프로세스 트리에서 에이전트 감지, unix 1s/
+- query: `agent_list(projectId) → ProjectAgents`(pty 전경 프로세스에서 에이전트 감지, unix 500ms/
   Windows 2s 폴링), `agent_cli_status() → CliInstallStatus`(`taide` CLI 심링크 설치 여부, macOS
   전용), `agent_hooks_status(projectId, agentName) → AgentHooksStatus`,
   `agent_pending_external_opens() → ExternalOpenRequest[]`(drain — "기능 확장 1차" 절 참조)
@@ -601,6 +606,15 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `agent:external-open(request: ExternalOpenRequest{ path, waitMarker? })`(콜드스타트 argv·
   single-instance 유입 — **이전 판의 `editor-bridge:open-file` 이라는 이벤트 이름은 코드에 존재하지
   않는다**, 정정: 실제 이벤트명은 `agent:external-open`)
+- **`agent:state-changed` 의 `activity` 판정 근거(d-54, 2026-09-06 — 타입·이벤트 계약 무변경)**:
+  `DetectedAgent.activity` 는 더 이상 `ps` 의 프로세스 상태(`R`/`S`)에서 나오지 않는다. 그 세션이
+  자기 pty 로 내보낸 **인밴드 이벤트(OSC 777 `taide-agent`)·타이틀 글리프(OSC 0/2)·다이얼로그
+  시그니처·실질 출력** 과 사용자 입력(`pty_write`)을 세션별로 모아 순수 함수
+  `agent::service::classify_session` 이 판정한다(신호·상수·우선순위는 `agent-integration.md`
+  §1.2~§1.4). `ps` 는 pid → 에이전트 이름 해석에만 남았고 그 답은 캐시된다. 폴링 틱·diff·발행
+  조건(`agents_changed`)은 종전과 같으므로 **프론트 소비 계약은 그대로**이며, 달라진 것은
+  `AwaitingInput` 이 hooks 설치 없이도 나온다는 점이다(권한 다이얼로그가 떠 있는 동안 유휴 배지가
+  남던 증상의 해소 — `docs/bug/2026-09-06-agent-badge-idle-during-permission-prompt.md`).
 
 ### ide — Claude Code IDE MCP 연동 (`agent-integration.md` §3, 신설 도메인 — 이전 판 전체 누락)
 

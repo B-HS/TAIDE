@@ -144,19 +144,64 @@
 - **UX**: 거터 박스섀도 + `overviewRulerOptions` 스크롤바 데코(테마 success/failure 색상, exit
   code 0/비0), `⌘↑`/`⌘↓`(키맵 `terminal-jump-to-previous-command`/`-next-command`)로 이전/다음
   명령 블록으로 스크롤. 블록 단위 복사는 여전히 2차(§11) — OSC7 cwd 추적 기본 배선은
-  X-A 배치(2026-08-19)에서 완성됐다(§9), 남는 고도화(청크 경계에 걸친 시퀀스 재조립 등)만 2차.
+  X-A 배치(2026-08-19)에서 완성됐고(§9), **청크 경계에 걸친 시퀀스 재조립은 d-54(§5.2)에서 해소**됐다.
 - **완료 알림용 실행 시간은 프론트가 아니라 Rust 가 잰다**(사용성 배치 4 웨이브 1 리뷰 F-1):
   이 트래커는 xterm 인스턴스와 생사를 같이 하는데, `pane-node-view.tsx` 는 활성 탭만 렌더하므로
   **터미널 탭이 배경으로 가면 통째로 언마운트**된다 — 정작 알림이 필요한 "빌드 걸어두고 다른 탭으로
   갔다" 가 그 상태다. 그래서 이 트래커는 데코레이션·점프만 소유하고, "명령이 끝났다 + 얼마나
-  걸렸다" 는 pty reader 스레드가 `infra::shell_integration::extract_command_markers` 로 같은 OSC 133
-  `C`/`D` 를 읽어 `terminal:command-finished` 이벤트로 발행한다(§9). 프론트에서 재면 재부착 시
+  걸렸다" 는 pty reader 스레드가 §5.2 의 스캐너로 같은 OSC 133 `C`/`D` 를 읽어
+  `terminal:command-finished` 이벤트로 발행한다(§9). 프론트에서 재면 재부착 시
   스크롤백 재생이 `C`/`D` 를 수 ms 간격으로 다시 파싱해 몇 시간짜리 명령도 0ms 로 측정된다.
 
 ## 5.1 태스크 러너 · Run Selected Text (Wave E, `tasks.md`)
 
 팔레트의 "Run Task"(`detect_tasks` query)와 에디터의 "Run Selected Text in Terminal" 은 모두 이
 문서의 IPC(§9) 를 재사용해 텍스트를 터미널에 흘려보낸다. 상세는 `docs/features/tasks.md`.
+
+## 5.2 pty 출력 스캐너 — `infra/terminal_scan.rs` (d-54, 2026-09-06)
+
+> 계약: `docs/acknowledge/2026-09-06-d54-agent-activity-signals-contract.md` §1.3.
+> 이전에는 `infra::shell_integration` 의 `extract_latest_cwd`·`extract_command_markers` 가 청크마다
+> 시퀀스 종류별로 버퍼를 전수 탐색했고, 청크 경계에 걸린 시퀀스는 재조립하지 않았다. 두 함수는
+> 제거되고 이 스캐너로 통합됐다(`CommandMarker` 타입과 셸 스크립트 조립은 `shell_integration` 소유
+> 그대로).
+
+- **소유**: 세션당 `OutputScanner { carry, text_tail }` 하나를 `pty_spawn` 의 `on_data` 클로저가
+  `command_started_at` 과 같은 수명으로 캡처한다(`parking_lot::Mutex`).
+  `scan(&mut self, chunk) -> ScanOutcome { events, text, overlap }` 이 청크당 1회 불린다.
+  세션이 없는 호출자(테스트 등)를 위한 무상태 편의 함수 `scan_once(bytes)` 도 있다.
+- **단일 패스**: `0x1b`(ESC)를 한 번만 찾아 도입 문자로 분기한다.
+  - `]`(OSC) → `;` 앞의 ident 로 분기: `7` → `Cwd`(TAIDE 훅이 내는 순수 경로만 —
+    `file://` 로 시작하면 건너뛴다) / `133` → `CommandMarker`(`C`·`D` 만) / `0`·`2` → `Title` /
+    `777` → `notify;taide-agent;<body>` 인 것만 `AgentEvent`(body 는 `;` 재결합) /
+    `9` → `Notification9`(첫 필드가 순수 숫자면 진행률 서브커맨드로 보고 버린다). 그 외 ident 는 버린다.
+    종결자는 **BEL 과 ST(`ESC \`) 중 먼저 오는 쪽**이다 — ST 를 우선하면 BEL 로 끝난 시퀀스가 뒤쪽의
+    무관한 ST 까지 삼킨다.
+  - `[`(CSI) → 정규화 텍스트에만 반영(아래), `P`·`X`·`^`·`_`(DCS/SOS/PM/APC) → 페이로드째 제거,
+    `(`·`)` → 3바이트 제거, 그 외 → 2바이트 제거.
+- **경계 이월**: 종결자가 없는 미완 시퀀스는 `carry` 에 남겨 다음 청크 앞에 붙인다. 그래서
+  두 청크에 걸쳐 잘린 `133;D` 나 다이얼로그 프레임이 유실되지 않는다.
+  `carry` 가 `MAX_OSC_PAYLOAD_BYTES`(4096)를 넘으면 폐기하고 경고만 남긴다 — pty 출력은
+  신뢰할 수 없고, OSC 를 열고 닫지 않는 상대가 세션마다 메모리를 고정하게 둘 수 없다.
+- **하드닝**: 채택하는 문자열은 **할당 전에 길이로 거절**한다(`MAX_TITLE_BYTES` 512 — 타이틀·OSC 9
+  본문, `MAX_AGENT_EVENT_BYTES` 1024 — 인밴드 이벤트 본문). 채택 후에는 C0 제어문자
+  (0x00-0x1F·0x7F)를 제거한다.
+- **정규화 텍스트**(`ScanOutcome.text`): 에이전트 활동 판정(`agent-integration.md` §1.2)이 읽는
+  문자열이다. `CSI n G`·`CSI n C`(열 이동) → 공백 1개, `CSI … A/B/E/F/H/d/f`(행 이동) → 개행,
+  나머지 CSI(SGR·erase·private mode 등)와 OSC/DCS/APC/PM·`ESC ( ) = >` → 제거, `\r` 제거,
+  `\t` → 공백, 그 외 C0 제거, **연속 공백은 1개로** 접는다. Claude Code 가 다이얼로그 산문을
+  단어마다 `CSI n G` 를 끼워 그리기 때문에, 이 치환을 거쳐야 문구가 하나의 문자열로 복원된다.
+- **텍스트 꼬리**: 스캐너는 정규화 텍스트의 마지막 `TEXT_OVERLAP_BYTES`(128)만 보관했다가 다음
+  청크의 `ScanOutcome.overlap` 으로 돌려준다(대용량 출력에서도 메모리 고정). `text` 와 합쳐 주지
+  않는 이유는 소비처가 둘로 갈리기 때문이다 — 경계를 넘는 문구 매칭은 둘을 이어 보고, "이 청크가
+  실제로 얼마나 찍었나" 는 `text` 만 센다.
+- **소비**: `terminal::commands::dispatch_scan_outcome` 한 곳이 결과를 나눠 준다. 먼저
+  `ScanOutcome::latest_cwd()`(청크의 **마지막** OSC 7 만 — 한 청크에 프롬프트가 두 번 실려도
+  중간값을 발행하지 않는다) → `terminal:cwd-changed`, 다음 `CommandMarker` → §5 의
+  `terminal:command-finished`, 마지막으로 결과 전체를 `PtySessionObservers` 에 넘긴다(에이전트
+  도메인의 세션 신호 — `lib.rs` 가 조립하는 assembly-owned 배선).
+- **계측**: 청크당 이벤트 수를 `pty.scan_events` 카운터에 더한다(`debugging.md` §4.1). 리더
+  스레드라 구간 시간은 재지 않는다(기존 `pty.output_bytes`·`pty.output_chunks` 와 같은 이유).
 
 ## 6. 파일 링크 (FR-G2)
 
@@ -371,10 +416,11 @@
   방향은 실제 구현과 다르다: `events.rs` 가 애초에 `terminal:cwd-changed` 를 `Event` derive 로
   선언해(Rust→view 단방향) mutation 대응 짝이 없었고, X-A 배치도 그 구조를 그대로 따라 **Rust 가
   OSC7 을 직접 파싱해 발행**한다 — `infra::shell_integration` 의 zsh/bash 훅이 매 프롬프트마다
-  `\e]7;$PWD\e\\` 를 pty 출력에 실어 보내고, `extract_latest_cwd` 가 그 raw 바이트를 스캔해
-  `terminal::commands::pty_spawn` 의 `on_data` 콜백에서 이전 cwd 와 달라졌을 때만 이 이벤트를
-  발행한다), `terminal:command-finished(sessionId, cwd, exitCode, durationMs)`(§5 —
-  같은 `on_data` 콜백이 `extract_command_markers` 로 OSC 133 `C`/`D` 를 읽어 세션별 `Instant` 로 실제
+  `\e]7;$PWD\e\\` 를 pty 출력에 실어 보내고, `infra::terminal_scan` 스캐너(§5.2)가 그 raw 바이트를
+  읽어 `terminal::commands::pty_spawn` 의 `on_data` 콜백에서 이전 cwd 와 달라졌을 때만 이 이벤트를
+  발행한다. 한 청크에 여러 번 실렸으면 **마지막 것만** 적용한다),
+  `terminal:command-finished(sessionId, cwd, exitCode, durationMs)`(§5 —
+  같은 스캐너가 같은 패스에서 OSC 133 `C`/`D` 를 읽어 세션별 `Instant` 로 실제
   경과 시간을 재고 발행한다. `C` 를 못 본 `D` 는 발행하지 않는다. 소비자는 메인 창의
   `native-notification-provider.tsx` 하나 — 10초 이상 걸린 명령만 OS 알림이 된다),
   `agent:state-changed`(`agent-integration.md`)
@@ -416,7 +462,7 @@
 
 | 1차 | 2차 |
 |-----|-----|
-| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기(상태바·설정)·파일 링크(cmd+click)·**우클릭 컨텍스트 메뉴(복사/붙여넣기/모두 선택/지우기/분할/새 터미널/종료 — 사용성 배치 4, §6.2)**·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)**·**OSC7 cwd 추적 기본 배선(X-A, 2026-08-19)** | 검색 바 UI(SearchAddon 은 로드만 됨)·`⌘+`/`⌘-` 폰트 키·OSC52(clipboard addon)·OSC7 cwd 추적 고도화(청크 경계 재조립 등)·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
+| pty spawn/기본 셸·Channel Raw+배칭·flow control·ring buffer 복원·리사이즈·폰트 크기(상태바·설정)·파일 링크(cmd+click)·**우클릭 컨텍스트 메뉴(복사/붙여넣기/모두 선택/지우기/분할/새 터미널/종료 — 사용성 배치 4, §6.2)**·셸 프로필 열거·**OSC 133 명령 블록(Wave E)**·**태스크 러너·Run Selected Text(Wave E, `tasks.md`)**·**OSC7 cwd 추적 기본 배선(X-A, 2026-08-19)**·**pty 출력 스캐너 — 단일 패스·청크 경계 이월·정규화 텍스트(d-54, §5.2)** | 검색 바 UI(SearchAddon 은 로드만 됨)·`⌘+`/`⌘-` 폰트 키·OSC52(clipboard addon)·블록 단위 복사(serialize range)·progress 뱃지·이미지/리거처·분할 내 터미널 다중화·serialize 스냅샷 내보내기·PowerShell rc 주입·fish 4.0 미만 폴백 |
 
 
 ## 12. Phase 7.5 재평가 결과 (2026-08-06) — **xterm 유지, 우리 코드가 원인**

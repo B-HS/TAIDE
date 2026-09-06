@@ -104,6 +104,9 @@ impl SpanSlot {
 pub enum CounterSlot {
     PtyOutputBytes,
     PtyOutputChunks,
+    /// Escape sequences [`crate::infra::terminal_scan::OutputScanner`] recognized in that output —
+    /// the scan's own workload, which `pty.output_bytes` cannot separate from raw throughput.
+    PtyScanEvents,
     LspSend,
     /// Invocations whose command name was not in the table [`PerfRegistry::install_commands`]
     /// received — a Tauri plugin command, or an app command added without regenerating the
@@ -116,6 +119,7 @@ impl CounterSlot {
     pub const ALL: &'static [CounterSlot] = &[
         CounterSlot::PtyOutputBytes,
         CounterSlot::PtyOutputChunks,
+        CounterSlot::PtyScanEvents,
         CounterSlot::LspSend,
         CounterSlot::UnlistedCommand,
     ];
@@ -125,6 +129,7 @@ impl CounterSlot {
         match self {
             CounterSlot::PtyOutputBytes => "pty.output_bytes",
             CounterSlot::PtyOutputChunks => "pty.output_chunks",
+            CounterSlot::PtyScanEvents => "pty.scan_events",
             CounterSlot::LspSend => "lsp_send",
             CounterSlot::UnlistedCommand => "command.unlisted",
         }

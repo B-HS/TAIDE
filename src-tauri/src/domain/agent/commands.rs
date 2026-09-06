@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use tauri::{Manager, State};
@@ -10,11 +11,13 @@ use super::hooks;
 use super::service;
 use super::types::{
     AgentActivity, AgentHooksStatus, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ProjectAgents,
+    AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION_ENV_NAME, APP_VERSION_ENV_NAME, CLAUDE_VERSION_TIMEOUT_SECONDS,
 };
 use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
 use crate::ids::ProjectId;
+use crate::infra::terminal_scan::ScanOutcome;
 use crate::state::AppState;
 
 #[cfg(unix)]
@@ -26,7 +29,15 @@ pub(super) const TAIDE_CLI_TARGET_PATH: &str = "C:/Program Files/TAIDE/bin/taide
 struct AgentStoreInner {
     agents: HashMap<ProjectId, Vec<DetectedAgent>>,
     wait_markers: HashSet<String>,
-    activity_last_active: HashMap<String, Instant>,
+    /// One entry per pty session that currently runs an agent, keyed by session id — created by the
+    /// poll tick that first detects the agent, fed by the pty reader and by `pty_write`, dropped
+    /// when the session no longer has one.
+    signals: HashMap<String, service::AgentSessionSignals>,
+    /// `pid -> agent name`, so a `ps` fork happens only on the tick a session's foreground pid
+    /// actually changes rather than every 500ms tick forever. `None` is a cached answer too ("this
+    /// pid is a shell, not an agent"); entries leave when their pid leaves the foreground set.
+    #[cfg(unix)]
+    process_names: HashMap<u32, Option<&'static str>>,
     pending_external_opens: Vec<ExternalOpenRequest>,
 }
 
@@ -63,25 +74,86 @@ impl AgentStore {
         self.0.lock().agents.get(project_id).cloned().unwrap_or_default()
     }
 
-    pub fn compute_activity(&self, session_id: &str, probe_active: bool) -> AgentActivity {
+    /// Classifies one detected agent session from the signals collected since the last tick,
+    /// starting a signal record for a session seen for the first time.
+    ///
+    /// The record restarts when the same session's foreground agent changed, which `prune_signals`
+    /// cannot catch on its own: it only drops sessions that ran *no* agent on a tick, so a handoff
+    /// with no shell in between would leave the old agent's dialog latch and signature table
+    /// speaking for the new one.
+    pub fn classify_session_activity(&self, session_id: &str, agent_name: &'static str) -> AgentActivity {
         let mut guard = self.0.lock();
-        if probe_active {
-            guard.activity_last_active.insert(session_id.to_string(), Instant::now());
-            return AgentActivity::Working;
-        }
-        let ms_since_active = guard
-            .activity_last_active
-            .get(session_id)
-            .map(|instant| instant.elapsed().as_millis() as u64);
         let previous = last_known_activity(&guard, session_id);
-        service::classify_activity(previous, ms_since_active)
+        let signals = guard
+            .signals
+            .entry(session_id.to_string())
+            .or_insert_with(|| service::AgentSessionSignals::new(agent_name));
+        if signals.agent_name != agent_name {
+            *signals = service::AgentSessionSignals::new(agent_name);
+        }
+        service::classify_session(signals, previous, Instant::now())
     }
 
-    pub fn prune_activity(&self, valid_session_ids: &HashSet<String>) {
-        self.0
-            .lock()
-            .activity_last_active
-            .retain(|session_id, _| valid_session_ids.contains(session_id));
+    /// Folds one scanned pty chunk into the session's signals. Runs on the pty reader thread for
+    /// every chunk of every session, so a session without a detected agent costs one lock and one
+    /// failed lookup and nothing else.
+    fn record_scan(&self, session_id: &str, outcome: &ScanOutcome) {
+        let mut guard = self.0.lock();
+        let Some(signals) = guard.signals.get_mut(session_id) else {
+            return;
+        };
+        let agent_name = signals.agent_name;
+        service::apply_scan_to_signals(signals, outcome, agent_name, Instant::now());
+    }
+
+    fn record_input(&self, session_id: &str) {
+        let mut guard = self.0.lock();
+        let Some(signals) = guard.signals.get_mut(session_id) else {
+            return;
+        };
+        service::note_input(signals, Instant::now());
+    }
+
+    pub fn prune_signals(&self, valid_session_ids: &HashSet<String>) {
+        self.0.lock().signals.retain(|session_id, _| valid_session_ids.contains(session_id));
+    }
+
+    #[cfg(unix)]
+    fn unresolved_pids(&self, pids: &[(String, u32)]) -> Vec<u32> {
+        let guard = self.0.lock();
+        let mut unresolved: Vec<u32> = pids
+            .iter()
+            .map(|(_, pid)| *pid)
+            .filter(|pid| !guard.process_names.contains_key(pid))
+            .collect();
+        unresolved.sort_unstable();
+        unresolved.dedup();
+        unresolved
+    }
+
+    #[cfg(unix)]
+    fn remember_process_names(&self, resolved: HashMap<u32, Option<&'static str>>) {
+        self.0.lock().process_names.extend(resolved);
+    }
+
+    #[cfg(unix)]
+    fn probes_for(&self, pids: Vec<(String, u32)>) -> Vec<service::DetectedAgentProbe> {
+        let guard = self.0.lock();
+        pids.into_iter()
+            .filter_map(|(session_id, pid)| {
+                let name = (*guard.process_names.get(&pid)?)?;
+                Some(service::DetectedAgentProbe { session_id, name, pid })
+            })
+            .collect()
+    }
+
+    /// Drops name-cache entries for pids that are no longer any session's foreground process, so a
+    /// long-running app does not accumulate one entry per command the user ever ran.
+    pub fn retain_process_names(&self, live_pids: &HashSet<u32>) {
+        #[cfg(unix)]
+        self.0.lock().process_names.retain(|pid, _| live_pids.contains(pid));
+        #[cfg(not(unix))]
+        let _ = live_pids;
     }
 
     pub fn register_wait_marker(&self, marker: String) {
@@ -154,13 +226,6 @@ impl AgentHooksStore {
             .insert((project_id, agent_name), (activity, Instant::now()));
     }
 
-    pub fn clear_project_override(&self, project_id: &ProjectId, agent_name: &str) {
-        self.0
-            .lock()
-            .project_overrides
-            .remove(&(project_id.clone(), agent_name.to_string()));
-    }
-
     pub fn fresh_project_override(&self, project_id: &ProjectId, agent_name: &str) -> Option<AgentActivity> {
         let guard = self.0.lock();
         let key = (project_id.clone(), agent_name.to_string());
@@ -198,7 +263,7 @@ fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<String> {
 }
 
 #[cfg(unix)]
-const PS_OUTPUT_FORMAT: &str = "pid=,state=,comm=,args=";
+const PS_OUTPUT_FORMAT: &str = "pid=,comm=,args=";
 #[cfg(unix)]
 const PS_PID_SEPARATOR: &str = ",";
 
@@ -243,33 +308,16 @@ fn process_snapshot(system: &sysinfo::System) -> Vec<service::ProcessSnapshot> {
         .collect()
 }
 
-#[cfg(windows)]
-fn windows_activity_state(status: sysinfo::ProcessStatus) -> char {
-    match status {
-        sysinfo::ProcessStatus::Run => 'R',
-        _ => 'S',
-    }
-}
-
+/// Resolves the agent name (or its absence) for pids the name cache has no answer for yet.
 #[cfg(unix)]
-pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::DetectedAgentProbe> {
-    if pids.is_empty() {
-        return Vec::new();
-    }
-
-    let unique: Vec<u32> = pids.iter().map(|(_, pid)| *pid).collect::<HashSet<_>>().into_iter().collect();
-    let infos = resolve_process_infos(&unique);
-
-    pids.into_iter()
-        .filter_map(|(session_id, pid)| {
-            let info = infos.get(&pid)?;
-            let name = service::detect_agent_name(&info.comm, &info.cmdline)?;
-            Some(service::DetectedAgentProbe {
-                session_id,
-                name: name.to_string(),
-                pid,
-                state: info.state,
-            })
+fn resolve_agent_names(pids: &[u32]) -> HashMap<u32, Option<&'static str>> {
+    let infos = resolve_process_infos(pids);
+    pids.iter()
+        .map(|pid| {
+            let name = infos
+                .get(pid)
+                .and_then(|info| service::detect_agent_name(&info.comm, &info.cmdline));
+            (*pid, name)
         })
         .collect()
 }
@@ -280,20 +328,15 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
         return Vec::new();
     }
 
-    let system = sysinfo::System::new_all();
-    let snapshot = process_snapshot(&system);
+    let snapshot = process_snapshot(&sysinfo::System::new_all());
 
     pids.into_iter()
         .filter_map(|(session_id, shell_pid)| {
             let (agent_pid, name) = service::find_descendant_agent(&snapshot, shell_pid)?;
-            let state = system
-                .process(sysinfo::Pid::from_u32(agent_pid))
-                .map(|process| windows_activity_state(process.status()));
             Some(service::DetectedAgentProbe {
                 session_id,
-                name: name.to_string(),
+                name,
                 pid: agent_pid,
-                state,
             })
         })
         .collect()
@@ -302,7 +345,30 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
 /// Returns immediately for a project with no pty sessions instead of paying a blocking-pool
 /// dispatch for a probe that can only come back empty — the common case for every project whose
 /// terminal panel was never opened, on every poll tick.
-pub async fn detect_agents_for_pids_blocking(pids: Vec<(String, u32)>) -> AppResult<Vec<service::DetectedAgentProbe>> {
+#[cfg(unix)]
+pub async fn detect_agents_for_pids_blocking(agents: &AgentStore, pids: Vec<(String, u32)>) -> AppResult<Vec<service::DetectedAgentProbe>> {
+    if pids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let unresolved = agents.unresolved_pids(&pids);
+    if !unresolved.is_empty() {
+        let resolved = tauri::async_runtime::spawn_blocking(move || resolve_agent_names(&unresolved))
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        agents.remember_process_names(resolved);
+    }
+
+    Ok(agents.probes_for(pids))
+}
+
+/// The windows probe walks the whole process tree below each shell pid (the agent is a descendant
+/// of it, not the pid itself), so there is no per-pid answer to cache the way the unix path has.
+#[cfg(windows)]
+pub async fn detect_agents_for_pids_blocking(
+    _agents: &AgentStore,
+    pids: Vec<(String, u32)>,
+) -> AppResult<Vec<service::DetectedAgentProbe>> {
     if pids.is_empty() {
         return Ok(Vec::new());
     }
@@ -312,23 +378,21 @@ pub async fn detect_agents_for_pids_blocking(pids: Vec<(String, u32)>) -> AppRes
         .map_err(|error| AppError::Internal(error.to_string()))
 }
 
+/// The session's own signals decide. Only a session that has produced no signal at all falls back
+/// to the hook bridge's project-scoped override, and Claude does not even do that: its events now
+/// arrive in-band per session, so a stale project-wide override must not speak for it. Codex and
+/// gemini keep the fallback — their HTTP hooks are unchanged this batch.
 pub fn resolve_activity(
     agents: &AgentStore,
     hooks_store: &AgentHooksStore,
     project_id: &ProjectId,
     probe: &service::DetectedAgentProbe,
 ) -> AgentActivity {
-    let probe_active = service::is_probe_active(probe.state);
-    let heuristic = agents.compute_activity(&probe.session_id, probe_active);
-
-    if !service::is_hook_managed_agent(&probe.name) {
-        return heuristic;
+    let activity = agents.classify_session_activity(&probe.session_id, probe.name);
+    if activity != AgentActivity::Unknown || probe.name == AGENT_NAME_CLAUDE {
+        return activity;
     }
-    if probe_active {
-        hooks_store.clear_project_override(project_id, &probe.name);
-        return heuristic;
-    }
-    hooks_store.fresh_project_override(project_id, &probe.name).unwrap_or(heuristic)
+    hooks_store.fresh_project_override(project_id, probe.name).unwrap_or(activity)
 }
 
 pub fn build_detected_agents(
@@ -343,13 +407,76 @@ pub fn build_detected_agents(
             let activity = resolve_activity(agents, hooks_store, project_id, &probe);
             DetectedAgent {
                 session_id: probe.session_id,
-                name: probe.name,
+                name: probe.name.to_string(),
                 pid: probe.pid,
                 activity,
             }
         })
         .collect()
 }
+
+/// Feeds one scanned pty chunk into the agent signals, if that session runs an agent. Wired from
+/// the terminal domain through the assembly-owned `PtySessionObservers` (lib.rs) rather than
+/// called across domains (architecture.md §2).
+pub(crate) fn record_session_scan(app: &tauri::AppHandle, session_id: &str, outcome: &ScanOutcome) {
+    let Some(agents) = app.try_state::<AgentStore>() else {
+        return;
+    };
+    agents.record_scan(session_id, outcome);
+}
+
+/// Same wiring, for bytes going the other way: whoever is typing into this pty is watching it.
+pub(crate) fn record_session_input(app: &tauri::AppHandle, session_id: &str) {
+    let Some(agents) = app.try_state::<AgentStore>() else {
+        return;
+    };
+    agents.record_input(session_id);
+}
+
+/// The protocol handshake every spawned terminal inherits: the hook commands TAIDE writes into
+/// `settings.local.json` emit their event only when `TAIDE_AGENT_PROTOCOL_VERSION` is set, so the
+/// same project opened in another terminal stays silent (contract §1.4). Registered by `lib.rs`'s
+/// assembly on `terminal::commands::PtySpawnEnvProvider`, after [`editor_terminal_env`].
+pub fn agent_protocol_env() -> Vec<(String, String)> {
+    vec![
+        (AGENT_PROTOCOL_VERSION_ENV_NAME.to_string(), AGENT_PROTOCOL_VERSION.to_string()),
+        (APP_VERSION_ENV_NAME.to_string(), env!("CARGO_PKG_VERSION").to_string()),
+    ]
+}
+
+/// Which emitter the installed Claude hooks use, decided once per app run.
+///
+/// The probe is one `claude --version` on the blocking pool with a deadline, because the answer is
+/// only needed when hooks are installed or reconciled and a `claude` that hangs (or is not on
+/// `PATH`) must not hold that up: every failure mode resolves to `DevTty`, which works on every
+/// version. Cached in a `OnceLock` so reconciling ten projects forks once, not ten times.
+pub(super) async fn resolve_claude_hook_emitter() -> service::HookEmitter {
+    static EMITTER: OnceLock<service::HookEmitter> = OnceLock::new();
+
+    if let Some(cached) = EMITTER.get() {
+        return *cached;
+    }
+    let detected = detect_claude_hook_emitter().await;
+    *EMITTER.get_or_init(|| detected)
+}
+
+async fn detect_claude_hook_emitter() -> service::HookEmitter {
+    let probe = tauri::async_runtime::spawn_blocking(|| std::process::Command::new(AGENT_NAME_CLAUDE).arg(CLAUDE_VERSION_FLAG).output());
+
+    let Ok(Ok(Ok(output))) = tokio::time::timeout(Duration::from_secs(CLAUDE_VERSION_TIMEOUT_SECONDS), probe).await else {
+        return service::HookEmitter::DevTty;
+    };
+
+    let supported =
+        service::parse_claude_version(&String::from_utf8_lossy(&output.stdout)).is_some_and(service::supports_terminal_sequence);
+    if supported {
+        service::HookEmitter::TerminalSequence
+    } else {
+        service::HookEmitter::DevTty
+    }
+}
+
+const CLAUDE_VERSION_FLAG: &str = "--version";
 
 fn resolve_cli_install_status() -> CliInstallStatus {
     let target = Path::new(TAIDE_CLI_TARGET_PATH);
@@ -491,7 +618,7 @@ pub async fn agent_list(
     ensure_project_open(&state, &project_id)?;
 
     let pids = terminals.foreground_pids(&project_id);
-    let probes = detect_agents_for_pids_blocking(pids).await?;
+    let probes = detect_agents_for_pids_blocking(&agents, pids).await?;
 
     let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
     Ok(ProjectAgents {
@@ -626,10 +753,9 @@ pub async fn agent_hooks_install(
     match scope {
         HookInstallScope::Project => {
             let root = project_root(&state, &project_id)?;
-            let server = hooks::ensure_hooks_server_started(&app).await?;
-            let hook_url = hooks::build_hook_url(&server, &agent_name);
+            let emitter = resolve_claude_hook_emitter().await;
             let value = read_settings_local(&root)?;
-            let value = service::inject_taide_hook_entries(value, &hook_url);
+            let value = service::inject_taide_claude_command_hook_entries(value, emitter);
             write_settings_local(&root, &value)?;
             Ok(AgentHooksStatus {
                 agent_name,
@@ -696,11 +822,14 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
     let agent_hooks = app.state::<AgentHooksStore>();
 
     let project_ids: Vec<_> = state.projects.read().keys().cloned().collect();
-    let mut valid_session_ids = std::collections::HashSet::new();
+    let mut valid_session_ids = HashSet::new();
+    let mut live_pids = HashSet::new();
 
     for project_id in project_ids {
         let pids = terminals.foreground_pids(&project_id);
-        let Ok(probes) = detect_agents_for_pids_blocking(pids).await else {
+        live_pids.extend(pids.iter().map(|(_, pid)| *pid));
+
+        let Ok(probes) = detect_agents_for_pids_blocking(&agents, pids).await else {
             continue;
         };
         let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
@@ -715,7 +844,8 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
         }
     }
 
-    agents.prune_activity(&valid_session_ids);
+    agents.prune_signals(&valid_session_ids);
+    agents.retain_process_names(&live_pids);
 }
 
 /// Queues one CLI-originated open request — the cold-start argv below or a
@@ -768,12 +898,60 @@ mod tests {
 
         let info = infos.get(&own).expect("테스트 프로세스 자신의 pid 는 항상 살아 있다");
         assert!(!info.comm.is_empty());
-        assert!(info.state.is_some());
+        assert!(!info.cmdline.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 조회할_pid가_없으면_ps를_호출하지_않는다() {
+        assert!(resolve_process_infos(&[]).is_empty());
+        assert!(resolve_agent_names(&[]).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 에이전트가_아닌_pid도_이름_캐시에_남겨_다음_틱에_다시_묻지_않는다() {
+        let own = std::process::id();
+        let store = AgentStore::new();
+        let pids = vec![("session-1".to_string(), own)];
+
+        assert_eq!(store.unresolved_pids(&pids), vec![own]);
+        store.remember_process_names(resolve_agent_names(&[own]));
+
+        assert!(store.unresolved_pids(&pids).is_empty(), "에이전트가 아니라는 답도 캐시된 답이다");
+        assert!(store.probes_for(pids).is_empty(), "테스트 러너는 에이전트가 아니다");
+
+        store.retain_process_names(&HashSet::new());
+        assert_eq!(
+            store.unresolved_pids(&[("session-1".to_string(), own)]),
+            vec![own],
+            "전경 pid 집합을 벗어난 항목은 축출된다"
+        );
     }
 
     #[test]
-    fn pty_세션이_없으면_프로세스를_조회하지_않는다() {
-        assert!(detect_agents_for_pids(Vec::new()).is_empty());
+    fn 세션의_에이전트가_바뀌면_이전_에이전트의_신호를_버린다() {
+        use crate::domain::agent::types::AGENT_NAME_CODEX;
+
+        let store = AgentStore::new();
+        let dialog = ScanOutcome {
+            events: Vec::new(),
+            text: "Do you want to proceed?".to_string(),
+            overlap: String::new(),
+        };
+
+        store.classify_session_activity("session-1", AGENT_NAME_CLAUDE);
+        store.record_scan("session-1", &dialog);
+        assert_eq!(
+            store.classify_session_activity("session-1", AGENT_NAME_CLAUDE),
+            AgentActivity::AwaitingInput
+        );
+
+        assert_eq!(
+            store.classify_session_activity("session-1", AGENT_NAME_CODEX),
+            AgentActivity::Unknown,
+            "에이전트가 바뀐 세션에 이전 에이전트의 다이얼로그 래치가 남으면 안 된다"
+        );
     }
 
     #[test]

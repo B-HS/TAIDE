@@ -6,18 +6,105 @@
 
 ## 1. 에이전트 감지 (FR-H1)
 
+> 정본 계약: `docs/acknowledge/2026-09-06-d54-agent-activity-signals-contract.md`.
+> **"누가 돌고 있나"(신원)와 "지금 무엇을 하고 있나"(활동)는 완전히 다른 경로**다 — 신원만
+> 프로세스 조회로 얻고, 활동은 그 세션이 자기 pty 로 내보낸 것에서만 읽는다.
+
+### 1.1 신원 — 어떤 세션이 어떤 에이전트를 돌리는가
+
 - macOS/Linux: pty master 의 **`process_group_leader()`**(portable-pty 내장, tcgetpgrp) →
   pid 의 프로세스명 해석. `comm` 이 `node` 인 경우(런타임 위 실행) `cmdline` 전체 검사
-  (Linux comm 15자 잘림 주의). 감지 대상: `claude`, `codex`, `gemini` (+설정으로 추가 가능한 목록).
-  해석은 **폴링 틱당 `ps` 1회**다 — `ps -o pid=,state=,comm=,args= -p <pid1,pid2,...>` 로 그 프로젝트의
-  전체 pid 를 한 번에 조회하고 pid 로 맵 조회한다(d-50 S6 §2 M-3 — 이전에는 pid 당 fork). 죽은 pid 는
-  `ps` 출력에 아예 없으므로 조회 실패로 걸러지고, pty 세션이 0 인 프로젝트는 프로세스 조회 자체를 건너뛴다.
-- Windows: `sysinfo` 로 셸 pid 의 후손 프로세스 트리 탐색(스냅샷 비용 — 1~2초 폴링 + pty 출력
-  있을 때만 재검사).
-- 폴링 주기: unix 1s(값싼 syscall), Windows 2s. 상태 변화 시에만 `agent:state-changed(projectId,
-  sessionId, agent)` 이벤트 → 앱 사이드바 아이콘/배지(`layout-shell.md` §2.2)·터미널 탭 아이콘 갱신.
-- 초안의 보조 신호(pty 자기 식별 env·`CLAUDECODE=1` 검사)는 도입하지 않았다 — 실구현 감지는
+  (Linux comm 15자 잘림 주의). 감지 대상: `claude`, `codex`, `gemini`(`KNOWN_AGENT_NAMES`).
+- **`ps` 는 이름 해석에만 쓴다**(d-54). `AgentStore` 가 `pid -> Option<&'static str>` 캐시를 들고
+  (`process_names`), `detect_agents_for_pids_blocking` 은 **캐시에 없는 pid 만** 모아
+  `ps -o pid=,comm=,args= -p <pid1,pid2,...>` 를 한 번 부른다. "이 pid 는 에이전트가 아니다"(`None`)도
+  캐시되므로 fork 는 세션의 전경 pid 가 실제로 바뀐 틱에만 일어난다(이전에는 프로젝트당 500ms 마다
+  1회). 캐시 항목은 전경 pid 집합에서 빠지는 순간 축출된다(`retain_process_names`). pty 세션이 0 인
+  프로젝트는 프로세스 조회 자체를 건너뛴다.
+- `ps` 의 `state` 열은 **제거했다**. `R`/`S` 는 "모델 응답 대기"·"권한 응답 대기"·"유휴"를 전부
+  같은 `S` 로 보여 줘 셋을 구분할 수 없었고, 그것이 권한 다이얼로그가 떠 있는데도 유휴 배지가
+  남던 원인이다(계약 §0.1).
+- Windows: `sysinfo` 로 셸 pid 의 후손 프로세스 트리 탐색(스냅샷 비용 — 폴링 + pty 출력 있을 때만
+  재검사). 후손 탐색이라 pid 단위로 캐시할 답이 없어 unix 의 이름 캐시는 적용하지 않는다.
+- 폴링 주기: unix 500ms(`AGENT_POLL_UNIX_MS`), Windows 2s(`AGENT_POLL_WINDOWS_MS`). 상태 변화 시에만
+  `agent:state-changed(projectId, agents)` 이벤트 → 앱 사이드바 아이콘/배지(`layout-shell.md` §2.2)·
+  터미널 탭 아이콘 갱신. 이벤트·타입 계약은 d-54 에서도 무변경이다.
+- 초안의 보조 신호(pty 자기 식별 env·`CLAUDECODE=1` 검사)는 도입하지 않았다 — 신원 판정은
   `domain/agent/service.rs::detect_agent_name` 의 프로세스명(comm)/cmdline 매칭 단독이다.
+
+### 1.2 활동 신호 4종 (+ 사용자 입력)
+
+세션의 pty 출력은 `infra::terminal_scan` 스캐너(`terminal.md` §5.2)가 한 번 훑어
+`ScanOutcome { events, text, overlap }` 으로 돌려주고, `lib.rs` 가 조립한
+`terminal::commands::PtySessionObservers` 가 그것을 `agent::commands::record_session_scan` 으로
+흘려보낸다. 신호는 세션당 하나의 `AgentSessionSignals` 레코드에 쌓인다(`AgentStore.signals`, `session_id` 키 —
+그 틱에 에이전트가 감지되지 않은 세션의 레코드는 `prune_signals` 가 지운다).
+
+| # | 신호 | 출처 | 효과 |
+|---|------|------|------|
+| 1 | **인밴드 이벤트** | OSC 777 `notify;taide-agent;{"v":1,"agent":…,"event":…}`(§4 의 훅이 심는다) | `permission_request`·`question_asked` → 차단 래치 ON(`BlockedSource::Event`) / `tool_complete` → 래치 OFF / `stop`·`stop_failure` → 래치 OFF + 유휴 힌트 / `idle_prompt` → 무시 |
+| 2 | **타이틀 글리프** | OSC 0/2 의 첫 글자(`parse_title_glyph`) | `◐`/`◑` → `TITLE_WORKING_FRESH_MS` 동안 Working 증거 / `✳` → 유휴 힌트(단독으로 Idle 을 강제하지 않는다) |
+| 3 | **다이얼로그 시그니처** | 정규화 텍스트(`CLAUDE_DIALOG_SIGNATURES`) | 문구가 보이면 차단 래치 ON(`BlockedSource::Dialog`) |
+| 4 | **실질 출력** | 정규화 텍스트에서 공백·점멸/스피너 글리프를 뺀 문자 수 ≥ `SUBSTANTIVE_OUTPUT_MIN_CHARS` | Working 증거 + **차단 래치 OFF** |
+| — | **사용자 입력** | `pty_write` 바이트 도착(`record_session_input`) | 래치 OFF + 에코 억제 창 시작 |
+
+- **다이얼로그 시그니처는 정규화 텍스트에서만 복원된다.** Claude Code 는 다이얼로그 산문을
+  단어마다 `CSI n G`(열 이동)를 끼워 그리므로 원시 바이트 문구 매칭은 불가능하다. 스캐너가 열
+  이동을 공백 1개로 치환한 뒤에야 `Do you want to proceed?` 가 하나의 문자열이 된다.
+- 표는 `CLAUDE_DIALOG_SIGNATURES`(`Do you want to proceed?` · `Would you like to proceed?` ·
+  `Esc to cancel`) 이고 **대소문자 정확 일치**다 — 작업 중 푸터는 소문자 `esc to interrupt` 라
+  대소문자 무시 매칭이면 모든 작업 중 세션이 차단으로 읽힌다. codex·gemini 문구는 미검증이라
+  표가 비어 있다(`dialog_signatures_for` — 추측으로 채우지 않는다).
+- **청크 경계**: 스캐너가 직전 청크의 정규화 텍스트 꼬리(`TEXT_OVERLAP_BYTES`)를
+  `ScanOutcome.overlap` 으로 함께 준다. `find_dialog_signature_across_boundary` 는 꼬리·머리를
+  각각 그 시그니처 길이 - 1 로 잘라 이어 붙이므로 **경계를 가로지른 문구만** 매치되고, 이미
+  꼬리에 통째로 남아 있는(=사용자가 방금 답한) 문구로는 다시 래치되지 않는다.
+- **에코 억제**: 마지막 입력으로부터 `ECHO_SUPPRESS_MS` 안의 출력은 사용자가 친 글자를 터미널이
+  되그린 것이므로 **실질 출력(4)에서만** 제외한다. 이벤트(1·2)는 에이전트 자신이 쓴 것이라 창과
+  무관하고, 다이얼로그 시그니처(3)도 창 안에서 읽는다 — 연쇄 승인에서 다음 다이얼로그는 답변
+  직후(에코 창 안)에 그려지고 그 뒤로는 점멸만 흐르므로, 이 프레임을 건너뛰면 그 세션은 영영
+  차단으로 읽히지 않는다. 대가는 사용자가 시그니처 문구를 프롬프트에 직접 타이핑하면 래치가
+  걸리는 것인데, 그것은 다음 실질 출력이 곧바로 푼다(놓친 다이얼로그는 스스로 낫지 않는다).
+- **한 청크 안에서는 차단 증거가 이긴다**(`apply_scan_to_signals`). 실질 출력이 래치를 풀되 **그
+  청크의 이벤트가 방금 세운 래치는 풀지 않고**(`PermissionRequest` 훅은 다이얼로그가 그려지는
+  순간 발화하므로 OSC 와 프레임 앞부분이 같은 청크에 실린다), 다이얼로그 판정은 맨 마지막에
+  건다 — 다이얼로그 프레임 자체가 실질 출력이라 순서를 뒤집으면 방금 세운 래치를 자기가 지운다.
+  권한 대기 중에는 600ms 마다 48바이트짜리 `⏺` 점멸만 흐르는데 이것은 비실질 출력이라 래치를
+  풀지 못한다 — 이 비대칭이 감지의 핵심이다.
+- **OSC 9 알림**(`ScanEvent::Notification9`)은 유휴 힌트로만 기록한다 — 어떤 세션이든 "무언가
+  끝났다" 는 뜻으로 읽되, 힌트는 §1.3 의 조용함 기준을 앞당길 뿐 단독으로 Idle 을 만들지 않는다.
+
+### 1.3 판정 — `service::classify_session(signals, previous, now)`
+
+순수 함수이며 위→아래 우선순위로 첫 번째로 맞는 것을 돌려준다.
+
+1. 차단 래치 ON → `AwaitingInput`
+2. 타이틀 글리프가 `Working` 이고 `TITLE_WORKING_FRESH_MS` 이내 → `Working`
+3. 실질 출력이 `ACTIVITY_WORKING_HOLD_MS` 이내 → `Working`
+4. 마지막 이벤트가 `tool_complete` 이고 `ACTIVITY_WORKING_HOLD_MS` 이내 → `Working`
+5. 신호가 하나도 없음 → `Unknown`
+6. 유휴 힌트가 있고 마지막 신호 이후 `ACTIVITY_WORKING_HOLD_MS` 이상 조용 → `Idle`
+7. 마지막 신호 이후 `ACTIVITY_IDLE_QUIET_MS` 이상 조용 → `Idle`
+8. 그 외 → `previous`(히스테리시스 — 폴링 틱마다 배지가 떠는 것을 막는 구간)
+
+`poll_agents` 는 기존 틱에서 세션마다 이 함수를 부르고(`AgentStore::classify_session_activity`),
+`previous` 로 그 세션의 직전 `DetectedAgent.activity` 를 넘긴다. 결과는 종전대로
+`agents_changed` diff 를 지날 때만 `agent:state-changed` 로 나간다.
+
+### 1.4 상수 (`domain/agent/types.rs`)
+
+| 상수 | 값 | 근거 |
+|------|-----|------|
+| `ACTIVITY_WORKING_HOLD_MS` | 2,000 | 관측 누락 보정 — Working 증거 하나가 다음 틱까지 유효 |
+| `ACTIVITY_IDLE_QUIET_MS` | 4,000 | 점멸 600ms·스피너 ≤1s 보다 충분히 크되 유휴 진입은 빠르게(6,000 에서 축소) |
+| `TITLE_WORKING_FRESH_MS` | 3,000 | `◐`/`◑` 교대 주기 1~2s 의 2배 — 다이얼로그 동안 동결된 타이틀을 살아 있는 것으로 오인하지 않는다 |
+| `ECHO_SUPPRESS_MS` | 300 | 키 입력의 에코가 돌아오는 시간 |
+| `SUBSTANTIVE_OUTPUT_MIN_CHARS` | 2 | 점멸 1글자 프레임을 출력으로 세지 않는 최소선 |
+| `TEXT_OVERLAP_BYTES` | 128 | 청크 경계 문구 복원용 꼬리(스캐너 소유, `types.rs` 가 재export) |
+| `AGENT_PROTOCOL_VERSION` | 1 | 인밴드 이벤트 봉투 버전 = `TAIDE_AGENT_PROTOCOL_VERSION` 값 |
+| `AGENT_OSC_SENTINEL` | `taide-agent` | OSC 777 알림 중 TAIDE 이벤트를 고르는 title(스캐너 소유) |
+| `AGENT_OSC_MARKER` | `notify;taide-agent;` | hook 항목의 TAIDE 소유 판정에 쓰는 페이로드 접두사(§4.3) |
+| `HOOK_OVERRIDE_STALE_MS` | 900,000 | codex·gemini HTTP override 의 유효 기간(§4.4) |
 
 ## 2. 외부 에디터 왕복 — `taide` CLI (FR-H2)
 
@@ -129,14 +216,121 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
   `ENABLE_IDE_INTEGRATION=true` 는 검증 결과 불요로 도입하지 않았다.
 - 프로토콜이 비공식이므로 **실측 스모크 테스트를 CI/체크리스트에 포함**(버전 업 파손 감지).
 
-## 4. hooks / statusline 브리지 (후순위)
+## 4. hooks 브리지
 
-- TAIDE 로컬 HTTP 엔드포인트로 Claude Code hook(`PostToolUse(Edit|Write)` → 트리/탭 리로드,
-  `Stop`/`Notification` → OS 알림) 수신.
-- **사용자 동의 UI 필수 + `.claude/settings.local.json`(gitignore) 에만 주입 + 제거 UI 제공**
-  (팀 설정 오염 금지 — 함정 15).
-- statusline 바이너리: fire-and-forget POST 후 즉시 종료(300ms 디바운스 함정) —
-  컨텍스트 사용률·비용을 TAIDE 상태바에 표시.
+두 갈래다. **Claude 는 인밴드 command hook**(그 세션의 pty 로 이벤트를 직접 써 넣는다),
+**Codex·Gemini 는 종전의 HTTP command hook**(로컬 서버로 중계)이다. 설치는 양쪽 모두
+`agentHooksEnabled` opt-in 토글 + 동의 UI 를 전제로 하고, Claude 는 프로젝트 파일
+(`.claude/settings.local.json`, gitignore 대상), Codex·Gemini 는 사용자 레벨 파일에만 쓴다
+(§7.5 "설치 스코프는 에이전트 정체성으로 결정" — 팀 설정 오염 금지, 함정 15).
+
+### 4.1 Claude — 인밴드 command hook (d-54)
+
+훅이 내는 것은 OSC 777 알림(urxvt 계열 공개 규격) 한 줄이고, title 이
+`AGENT_OSC_SENTINEL`(`taide-agent`) 인 것만 TAIDE 이벤트로 읽힌다. 서버·포트·토큰·cwd 매칭·
+프로젝트 단위 override 가 전부 필요 없어지고, 이벤트가 **그 세션의 pty 로** 들어오므로 같은
+프로젝트의 두 Claude 세션이 서로를 덮지 않는다.
+
+```
+ESC ]777;notify;taide-agent;{"v":1,"agent":"claude","event":"permission_request"} BEL
+```
+
+설치 항목은 `service::claude_hook_entries(emitter)` 가 만드는 7행이다(`CLAUDE_HOOK_BINDINGS`).
+
+| 훅 이벤트 | matcher | 인밴드 event |
+|-----------|---------|--------------|
+| `PermissionRequest` | — | `permission_request` |
+| `Notification` | `permission_prompt` | `permission_request` |
+| `Notification` | `elicitation_dialog` | `question_asked` |
+| `Notification` | `idle_prompt` | `idle_prompt` |
+| `PostToolUse` | — | `tool_complete` |
+| `Stop` | — | `stop` |
+| `StopFailure` | — | `stop_failure` |
+
+`UserPromptSubmit`·`SessionStart` 는 **넣지 않는다** — 두 훅은 stdout 을 프롬프트 컨텍스트로도
+해석하는 이벤트이고, Working 판정은 §1.2 의 타이틀·출력이 이미 담당한다.
+
+`PermissionRequest` 는 다이얼로그가 뜨는 즉시 발화하므로 6초 타이머 뒤에야 오는
+`Notification(permission_prompt)` 보다 빠르다. 두 훅을 함께 설치하는 이유는 그 6초 안에 답한
+경우 후자가 아예 오지 않기 때문이다.
+
+**신뢰 경계 — 이 채널은 인증되지 않는다(수용된 위험).** 세션 신원 증표가 없으므로, 그 pty 에
+바이트를 쓸 수 있는 것은 무엇이든(에이전트가 실행한 하위 프로세스, `cat` 한 파일, 빌드 로그)
+같은 시퀀스를 흉내 내 배지를 `AwaitingInput` 으로 올리거나(`permission_request`) 실제 차단을
+지울 수 있다(`tool_complete`). 배지 전이는 OS 알림으로도 승격되므로 거짓 알림까지 간다. 이는
+`docs/research/2026-09-06-terminal-agent-deep-dive.md` SI-7 이 OSC 133 에 대해 이미 기록한
+위조 가능성과 **같은 등급**이며, pty 출력 전체가 신뢰할 수 없는 입력이라는 전제(`terminal.md`
+§5.2)에서 나오는 구조적 한계다. 완화(세션별 nonce 를 `agent_protocol_env()` 로 발급해 훅
+페이로드에 싣고 수신 시 대조)는 와이어 포맷 변경이라 계약 §4 의 후속 결정으로 남긴다.
+
+### 4.2 명령 형태 — env 게이트 · 정적 printf · 항상 exit 0
+
+`service::build_claude_agent_hook_command(event, emitter)` 가 만드는 문자열은 jq·CLI·서버 의존이
+0이다. 페이로드는 상수고, 셸이 하는 일은 `printf` 하나뿐이다(아래 두 줄은 실제 설치되는 명령
+문자열 그대로 — 백슬래시도 파일에 그대로 들어간다).
+
+```sh
+# HookEmitter::TerminalSequence — permission_request
+if [ -n "$TAIDE_AGENT_PROTOCOL_VERSION" ]; then printf '%s' '{"terminalSequence":"<ESC>]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"permission_request\"}<BEL>"}'; fi; exit 0
+
+# HookEmitter::DevTty — stop
+if [ -n "$TAIDE_AGENT_PROTOCOL_VERSION" ]; then printf '\033]777;notify;taide-agent;{"v":1,"agent":"claude","event":"stop"}\007' > /dev/tty 2>/dev/null; fi; exit 0
+```
+
+- **env 게이트**: `TAIDE_AGENT_PROTOCOL_VERSION` 이 없으면 아무것도 내지 않는다. 같은
+  `settings.local.json` 을 다른 터미널 앱에서 열어도 화면에 이상한 바이트가 찍히지 않는다는
+  뜻이다. 이 변수는 `agent::commands::agent_protocol_env()` 가 `TAIDE_APP_VERSION` 과 함께
+  돌려주고 `lib.rs::pty_spawn_env_provider` 가 `editor_terminal_env` 뒤에 이어 붙여
+  **pty 스폰에만** 주입한다(§2.3 과 같은 훅 — 원격 미러·다른 표면과는 무관).
+- **항상 `exit 0`**: `> /dev/tty` 는 제어 터미널이 없으면 리다이렉트 자체가 실패해 비영 종료가
+  되고, 그러면 Claude 트랜스크립트에 훅 실패로 노출된다.
+- 위 두 줄의 `<ESC>`·`<BEL>` 는 이 문서의 표기다. 실제 파일에서 `DevTty` 쪽은 `printf` 가 해석할
+  `\033`·`\007`(백슬래시를 포함한 문자 그대로)이고, `TerminalSequence` 쪽은 `serde_json` 이 낸
+  JSON 유니코드 이스케이프 6글자(백슬래시 + `u001b`, 백슬래시 + `u0007`)다.
+- **`terminalSequence` 봉투는 `serde_json` 이 만든다** — 제어 바이트의 이스케이프와 내부 따옴표
+  (`\"`)가 소비자(Claude Code 의 hook 출력 디코더)와 같은 규칙의 인코더에서 나오므로 어긋날 수
+  없고, 결과에 작은따옴표가 없어 셸 단일 인용이 안전하다.
+
+### 4.3 방출 방식 선택 · 마커 · 멱등성
+
+- **선택**: `commands::resolve_claude_hook_emitter()` 가 `claude --version` 을 블로킹 풀에서 1회
+  읽어(`CLAUDE_VERSION_TIMEOUT_SECONDS` 3초 데드라인, `OnceLock` 로 앱 실행당 캐시)
+  `>= CLAUDE_TERMINAL_SEQUENCE_MIN_VERSION`(2.1.141)이면 `TerminalSequence`, 그 외(구버전·PATH 에
+  없음·타임아웃·파싱 실패)는 전부 `DevTty` 로 떨어진다. `terminalSequence` 필드는 그 버전부터
+  hook 출력에서 해석되고, 그 전에는 `/dev/tty` 직접 쓰기만 가능하다. 두 방출기는 사용자 눈에
+  차이가 없어 별도 안내를 하지 않는다. 판정은 순수 함수
+  `parse_claude_version`/`supports_terminal_sequence` 다.
+- **마커 2종**: TAIDE 소유 항목은 `HOOKS_URL_MARKER`(`taide=1`, 폐기된 HTTP 설치)와
+  `AGENT_OSC_MARKER`(`notify;taide-agent;`, 현행 인밴드) **둘 다**로 인식한다(`TAIDE_HOOK_MARKERS`).
+  구버전 설치본도 계속 탐지·정리된다. 인밴드 쪽 마커가 센티널 단어(`taide-agent`)가 아니라 OSC
+  페이로드 접두사인 이유는 소유 판정이 `command`·`url` 문자열의 부분 문자열 매치이기 때문이다 —
+  단어만으로 판정하면 그 글자를 경로·문구에 담은 **사용자 자신의 hook 항목**이 TAIDE 소유로
+  오판돼 다음 재조정에서 통째로 사라진다(§4 "팀 설정 오염 금지").
+- **멱등 + 자가 치유**: `hooks::reconcile_claude_project_hooks`(부팅·토글 ON 전이·프로젝트 열기)가
+  이미 TAIDE 항목이 있는 프로젝트만 모아, `claude_hook_entries_match` 로 기대 집합과 **정확히**
+  같지 않으면(구 HTTP 항목·빠진 이벤트·다른 방출기의 사본) 제거 후 통째로 재주입한다. 항목이
+  없는 프로젝트는 건드리지 않는다 — 설치는 사용자의 결정이다. `installed_claude_entries` 가
+  `command` 뿐 아니라 `url` 도 읽으므로 HTTP 잔재는 어떤 기대 명령과도 같을 수 없어 반드시
+  교체된다. 대상 프로젝트가 하나도 없으면 `claude --version` 프로브 자체를 건너뛴다.
+- 제거(`agent_hooks_uninstall`·토글 OFF)는 `CLAUDE_MANAGED_HOOK_EVENTS`(현행 5종 + 레거시
+  `UserPromptSubmit` 의 합집합)를 훑어 두 마커를 모두 지운다.
+
+### 4.4 Codex · Gemini — HTTP 유지
+
+- 사용자 레벨 command hook(`taide hook --url <u>` shim → 로컬 HTTP 서버)은 **이번 배치에서
+  변경하지 않았다**. 재부팅으로 포트가 바뀌면 `reconcile_user_level_hooks` 가 새 URL 로 재주입하는
+  자가 치유도 그대로다(§7.5).
+- 그 페이로드는 종전대로 `(ProjectId, agent_name)` 단위 override 로 쌓이고, **세션 신호가 하나도
+  없어 `Unknown` 인 비-claude 세션에만** 적용된다(`commands::resolve_activity`).
+- Claude 는 더 이상 이 override 를 참고하지 않는다. 구버전 HTTP 설치가 남아 있는 세션은
+  `apply_hook_payload` 의 즉시 발행을 받을 수는 있으나 다음 폴링 틱에 세션 신호 판정으로 덮인다.
+  이 수신 분기(`agent=claude`)는 호환을 위해 이번 릴리스까지만 유지하고 제거 예정이다
+  (계약 §4 미결 2).
+
+### 4.5 statusline (후순위, 미구현)
+
+statusline 바이너리: fire-and-forget POST 후 즉시 종료(300ms 디바운스 함정) —
+컨텍스트 사용률·비용을 TAIDE 상태바에 표시.
 
 ## 5. 수명주기
 
@@ -156,27 +350,48 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
 
 ### 7.1 활동 판정 히스테리시스 (`domain/agent/types.rs`)
 
-- `ACTIVITY_WORKING_HOLD_MS`(2000ms): 프로세스가 "실행 중"으로 관측된 뒤에도 이 시간 동안은
-  Working 을 유지한다(폴링 사이 관측 누락 보정).
-- `ACTIVITY_IDLE_QUIET_MS`(6000ms): 마지막 활동 관측 이후 이 시간이 지나면 Idle 로 전이한다.
-  그 사이 구간(hold~quiet)은 직전 상태를 유지하는 히스테리시스 구간이다.
-- `HOOK_OVERRIDE_STALE_MS`(900000ms=15분): hooks 로 설정된 프로젝트 단위 활동 override 가
-  이 시간보다 오래되면 무시하고 프로세스 신호 기반 휴리스틱으로 복귀한다(hooks 미설치·비정상
-  종료 등으로 override 가 갱신되지 않는 경우의 안전망).
+값의 전체 표는 §1.4, 우선순위는 §1.3. 여기서는 세 상수의 **의미**만 적는다.
 
-### 7.2 프로세스 활동 신호 (`domain/agent/service.rs::is_probe_active`)
+- `ACTIVITY_WORKING_HOLD_MS`(2000ms): Working 증거(실질 출력·`tool_complete`)를 한 번 본 뒤
+  이 시간 동안은 Working 을 유지한다(폴링 틱 사이 관측 누락 보정). 유휴 힌트가 이미 있는
+  세션은 이 시간만 조용해도 Idle 로 내려간다 — 힌트가 조용함의 기준선을 앞당기는 셈이다.
+- `ACTIVITY_IDLE_QUIET_MS`(4000ms): 힌트가 없어도 마지막 신호 이후 이 시간이 지나면 Idle 이다.
+  그 사이 구간(hold~quiet)은 직전 상태를 유지하는 히스테리시스 구간이다. 6000ms 에서 줄인
+  근거는 §1.4 — 점멸 600ms·스피너 ≤1s 라 4초 침묵은 "정말 멈췄다" 로 읽어도 안전하다.
+- `HOOK_OVERRIDE_STALE_MS`(900000ms=15분): HTTP hooks 가 설정한 **프로젝트 단위** 활동 override 의
+  유효 기간. d-54 이후 이 override 를 보는 것은 codex·gemini 뿐이고, 그것도 세션 신호가 전무한
+  경우에 한한다(§4.4).
 
-프로세스가 지금 이 순간 CPU 위에서 실행 중인지("R" 상태)만을 활동 신호로 본다. sleeping 상태는
-"API 응답 대기"와 "사용자 입력 대기" 양쪽에서 동일하게 관측되어 구분할 수 없으므로, sleeping 은
-전부 활동 없음으로 취급한다. (이 한계 때문에 `AwaitingInput` 판정은 hooks 브리지가 전담한다 — §4)
+### 7.2 세션 신호의 수집 (`domain/agent/commands.rs::AgentStore` · `service::apply_scan_to_signals`)
 
-### 7.3 hooks 항목 병합 (`domain/agent/service.rs::remove_taide_hook_entries` / `inject_taide_hook_entries`)
+- **옵저버는 pty 리더 스레드에서 동기로 돈다** (`terminal::commands::PtySessionObservers`). 청크마다
+  불리므로 IO 를 하지 않고, 다른 pty 커맨드가 쥐는 락도 잡지 않는다. 에이전트가 없는 세션의 비용은
+  락 1회 + 실패하는 맵 조회 1회로 끝난다(`AgentStore::record_scan` 이 레코드가 없으면 즉시 반환).
+- **신호 레코드는 폴링이 만든다**: `classify_session_activity` 가 그 세션의 에이전트를 처음 본 틱에
+  `AgentSessionSignals::new(agent_name)` 를 넣는다. 그래서 감지 직전(최대 한 틱 = 500ms)에 도착한
+  청크는 버려진다. 기동 직후에 뜨는 다이얼로그(신뢰 다이얼로그 `Yes, I trust this folder`)가 이
+  창에 걸릴 수 있는지는 실기로 확인하지 않았다 — 걸리면 그 세션은 다음 실질 출력까지 차단으로
+  읽히지 않으므로, 확인되면 첫 감지 틱에서 한 번 더 즉시 재확인하는 콜드스타트 경로를 넣는다
+  (계약 §3 "검토·수정" f3).
+- `agent_name` 을 레코드에 함께 들고 있는 이유는 리더 스레드에서 에이전트별 시그니처 표를
+  O(1) 로 고르기 위해서다(매 청크 `agents` 맵을 전수 탐색하지 않는다). 세션의 에이전트가 바뀌면
+  `classify_session_activity` 가 레코드를 새로 만든다 — `prune_signals` 는 그 틱에 에이전트가
+  하나도 감지되지 않은 세션만 지우므로, 셸을 거치지 않은 교체는 그것만으로 정리되지 않는다.
+- **꼬리 결합 매칭은 경계를 가로지르는 경우로 좁혔다** (`find_dialog_signature_across_boundary`).
+  꼬리 전체와 새 텍스트를 통째로 이어 매칭하면, 사용자가 답한 뒤에도 꼬리에 남은 문구가 다시
+  래치를 건다 — 점멸 청크만 흐르는 동안 128바이트 꼬리가 밀려나가는 데 십수 초가 걸리므로
+  "실질 출력이 래치를 푼다"(§1.2)가 매 청크 무효화되고, 결국 고치려던 화면으로 되돌아간다.
+- `AgentEvent`·`BlockedSource`·`TitleGlyph` 는 `service.rs` 의 순수 계층이고, 모든 판정 함수는
+  `now: Instant` 를 인자로 받는다 — 대기 없이 단위 테스트로 시간 축을 재현하기 위해서다.
 
-`remove_taide_hook_entries` 는 TAIDE 가 주입한 hook 항목(`HOOKS_URL_MARKER` 포함 URL)만 골라
-제거하고, 사용자가 직접 추가한 다른 hook 은 그대로 둔다. `inject_taide_hook_entries` 는 먼저
-제거 후 삽입하는 방식으로 **재주입해도 항목이 중복되지 않게(멱등)** 만든다. 두 함수 모두
-`.claude/settings.local.json` 의 기존 설정을 보존한 채 병합해야 한다는 §4 의 "팀 설정 오염 금지"
-제약을 구현한다.
+### 7.3 hooks 항목 병합 (`domain/agent/service.rs::remove_taide_hook_entries` / `inject_taide_claude_command_hook_entries`)
+
+`remove_taide_hook_entries` 는 TAIDE 가 주입한 hook 항목(`TAIDE_HOOK_MARKERS` 2종 중 하나를 담은
+`command` 또는 `url`)만 골라 제거하고, 사용자가 직접 추가한 다른 hook 은 그대로 둔다.
+`inject_taide_claude_command_hook_entries` 는 먼저 제거 후 삽입하는 방식으로 **재주입해도 항목이
+중복되지 않게(멱등)** 만들고, 그래서 재설치·HTTP 설치본 승격·방출기 전환이 모두 같은 파일 내용으로
+수렴한다. 두 함수 모두 `.claude/settings.local.json` 의 기존 설정을 보존한 채 병합해야 한다는 §4 의
+"팀 설정 오염 금지" 제약을 구현한다.
 
 ### 7.4 IDE MCP 서버 (`domain/ide`)
 

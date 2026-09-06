@@ -1302,7 +1302,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "pty_write" => respond(terminal::pty_write(app.state(), arg!(args, "sessionId"), arg!(args, "data")).await),
+        "pty_write" => respond(terminal::pty_write(app.clone(), app.state(), arg!(args, "sessionId"), arg!(args, "data")).await),
         "pty_resize" => respond(terminal::pty_resize(app.state(), arg!(args, "sessionId"), arg!(args, "cols"), arg!(args, "rows")).await),
         "pty_kill" => respond(terminal::pty_kill(app.state(), app.state(), arg!(args, "sessionId")).await),
         "pty_set_paused" => respond(terminal::pty_set_paused(app.state(), arg!(args, "sessionId"), arg!(args, "paused")).await),

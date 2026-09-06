@@ -21,6 +21,7 @@ use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
 use crate::infra::root_guard::{self, ensure_within_root};
 use crate::infra::shell_integration;
+use crate::infra::terminal_scan::{OutputScanner, ScanEvent, ScanOutcome};
 use crate::state::AppState;
 
 /// Subscriber list entries — a subscription id (`pty_attach`'s return value, consumed by
@@ -183,8 +184,8 @@ fn broadcast_output(subscribers: &mut PtySubscribers, bytes: &[u8]) {
     subscribers.retain(|(_, channel)| channel.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok());
 }
 
-/// Applies one pty output chunk's detected cwd-report (`infra::shell_integration::
-/// extract_latest_cwd`) to `session_id`'s [`SessionEntry::cwd`], emitting [`TerminalCwdChanged`] only
+/// Applies one pty output chunk's detected cwd-report (`infra::terminal_scan::ScanEvent::Cwd`)
+/// to `session_id`'s [`SessionEntry::cwd`], emitting [`TerminalCwdChanged`] only
 /// when it actually differs from the last known value — `precmd`/`PROMPT_COMMAND` fire on every
 /// prompt render, not just after `cd`, so without this check the renderer would get one event per
 /// command instead of one per genuine directory change. A `session_id` not yet present in
@@ -218,7 +219,7 @@ struct TimedCommand {
     duration_ms: u32,
 }
 
-/// Folds one OSC 133 command marker (`infra::shell_integration::extract_command_markers`) into a
+/// Folds one OSC 133 command marker (`infra::terminal_scan::ScanEvent::CommandMarker`) into a
 /// session's command clock, returning the elapsed command only when this fold actually closed one.
 ///
 /// A `133;C` (re)arms the clock at `now`; a `133;D` consumes it. A `D` with no remembered start
@@ -268,6 +269,69 @@ fn report_command_marker(app: &AppHandle, session_id: &str, started_at: &Mutex<O
         duration_ms: timed.duration_ms,
     }
     .emit(app);
+}
+
+/// What a pty session just did, for the domains that read a terminal's traffic without owning one.
+pub enum PtySessionSignal<'a> {
+    /// One output chunk, already scanned (`infra::terminal_scan`).
+    Output(&'a ScanOutcome),
+    /// The user wrote to this session's pty.
+    Input,
+}
+
+pub type PtySessionObserver = Box<dyn Fn(&AppHandle, &str, &PtySessionSignal<'_>) + Send + Sync>;
+
+/// The reactions a pty session's traffic triggers outside this domain — currently the agent
+/// domain's activity signals, which are defined over a session's own output and input (contract
+/// 2026-09-06 §1.1). `lib.rs`'s assembly registers the concrete observers so the terminal domain
+/// never calls into agent and the existing `agent → terminal` edge does not become a cycle
+/// (architecture.md §2, same assembly-owned wiring as `PtySpawnEnvProvider`).
+///
+/// Observers run **synchronously on the pty reader thread**, once per output chunk: they must do
+/// no IO and take no lock another pty command holds.
+pub struct PtySessionObservers(Vec<PtySessionObserver>);
+
+impl PtySessionObservers {
+    pub fn new(observers: Vec<PtySessionObserver>) -> Self {
+        Self(observers)
+    }
+
+    fn notify(&self, app: &AppHandle, session_id: &str, signal: &PtySessionSignal<'_>) {
+        for observer in &self.0 {
+            observer(app, session_id, signal);
+        }
+    }
+}
+
+fn notify_session_observers(app: &AppHandle, session_id: &str, signal: &PtySessionSignal<'_>) {
+    let Some(observers) = app.try_state::<PtySessionObservers>() else {
+        return;
+    };
+    observers.notify(app, session_id, signal);
+}
+
+/// The single place one scanned chunk becomes app-visible effects, so every signal the scanner
+/// learns to recognize is wired in exactly once instead of at a growing list of call sites inside
+/// the pty reader closure.
+///
+/// Cwd is collapsed to the chunk's last report before anything else runs: a batched chunk can carry
+/// several prompt renders and only the newest describes where the shell now is, and applying it
+/// first is what lets a command marker in the same chunk report the directory the command actually
+/// ran in. The variants this domain has no use for are handed to the registered observers as a
+/// whole outcome, which is also how the normalized text reaches the agent signals.
+pub(crate) fn dispatch_scan_outcome(app: &AppHandle, session_id: &str, started_at: &Mutex<Option<Instant>>, outcome: &ScanOutcome) {
+    if let Some(cwd) = outcome.latest_cwd() {
+        report_cwd_change(app, session_id, cwd.to_string());
+    }
+
+    for event in &outcome.events {
+        match event {
+            ScanEvent::CommandMarker(marker) => report_command_marker(app, session_id, started_at, *marker),
+            ScanEvent::Cwd(_) | ScanEvent::Title(_) | ScanEvent::AgentEvent(_) | ScanEvent::Notification9(_) => {}
+        }
+    }
+
+    notify_session_observers(app, session_id, &PtySessionSignal::Output(outcome));
 }
 
 fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
@@ -352,12 +416,10 @@ pub async fn pty_spawn(
     let exit_session_id = session_id.clone();
     let exit_running = running.clone();
 
-    let cwd_app = app.clone();
-    let cwd_session_id = session_id.clone();
-
-    let marker_app = app.clone();
-    let marker_session_id = session_id.clone();
+    let scan_app = app.clone();
+    let scan_session_id = session_id.clone();
     let command_started_at = Mutex::new(None);
+    let scanner = Mutex::new(OutputScanner::new());
 
     let config = pty::PtySpawnConfig {
         shell: opts.shell.clone(),
@@ -378,12 +440,10 @@ pub async fn pty_spawn(
                 perf::add(CounterSlot::PtyOutputBytes, bytes.len() as u64);
                 perf::add(CounterSlot::PtyOutputChunks, 1);
                 output_for_data.lock().append_and_broadcast(bytes);
-                if let Some(cwd) = shell_integration::extract_latest_cwd(bytes) {
-                    report_cwd_change(&cwd_app, &cwd_session_id, cwd);
-                }
-                for marker in shell_integration::extract_command_markers(bytes) {
-                    report_command_marker(&marker_app, &marker_session_id, &command_started_at, marker);
-                }
+
+                let outcome = scanner.lock().scan(bytes);
+                perf::add(CounterSlot::PtyScanEvents, outcome.events.len() as u64);
+                dispatch_scan_outcome(&scan_app, &scan_session_id, &command_started_at, &outcome);
             },
             move |code| {
                 exit_running.store(false, Ordering::SeqCst);
@@ -430,7 +490,9 @@ pub async fn pty_spawn(
 /// `'static`), leaving the command's signature — and therefore the IPC surface — unchanged.
 #[tauri::command]
 #[specta::specta]
-pub async fn pty_write(store: State<'_, TerminalStore>, session_id: String, data: String) -> AppResult<()> {
+pub async fn pty_write(app: AppHandle, store: State<'_, TerminalStore>, session_id: String, data: String) -> AppResult<()> {
+    notify_session_observers(&app, &session_id, &PtySessionSignal::Input);
+
     let writer = {
         let sessions = store.0.lock();
         find_entry(&sessions, &session_id)?.pty.writer_handle()

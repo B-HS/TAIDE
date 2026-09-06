@@ -72,31 +72,49 @@ pub async fn reconcile_installed_hooks(app: &AppHandle) {
         return;
     }
 
+    reconcile_claude_project_hooks(app).await;
+
     let Ok(server) = ensure_hooks_server_started(app).await else {
         return;
     };
-    let hook_url = build_hook_url(&server, AGENT_NAME_CLAUDE);
+    reconcile_user_level_hooks(&server, commands::home_dir_env().as_deref());
+}
 
+/// Brings every already-opted-in project's Claude entries up to what this build installs: a
+/// leftover HTTP install, an entry set from before an event was added, or one written for the other
+/// emitter all compare unequal and are rewritten wholesale. Projects with no TAIDE entries are left
+/// alone — installing is the user's decision, not reconcile's.
+///
+/// Runs before (and independently of) the hooks HTTP server, which the in-band Claude hooks no
+/// longer need; only codex/gemini's user-level command hooks still carry its URL. The opted-in
+/// projects are collected first so the `claude --version` probe behind the emitter is skipped
+/// entirely when there is nothing to reconcile.
+async fn reconcile_claude_project_hooks(app: &AppHandle) {
     let roots: Vec<String> = {
         let state = app.state::<AppState>();
         let guard = state.projects.read();
         guard.values().map(|project| project.root.clone()).collect()
     };
 
-    for root in roots {
-        let Ok(value) = commands::read_settings_local(&root) else {
-            continue;
-        };
-        if !service::has_taide_hook_entries(&value) || service::has_hook_entries_for_url(&value, &hook_url) {
-            continue;
-        }
-        let updated = service::inject_taide_hook_entries(value, &hook_url);
-        if let Err(error) = commands::write_settings_local(&root, &updated) {
-            log::warn!("hooks URL 갱신 실패 ({root}): {error}");
-        }
+    let installed: Vec<(String, serde_json::Value)> = roots
+        .into_iter()
+        .filter_map(|root| commands::read_settings_local(&root).ok().map(|value| (root, value)))
+        .filter(|(_, value)| service::has_taide_hook_entries(value))
+        .collect();
+    if installed.is_empty() {
+        return;
     }
 
-    reconcile_user_level_hooks(&server, commands::home_dir_env().as_deref());
+    let emitter = commands::resolve_claude_hook_emitter().await;
+    for (root, value) in installed {
+        if service::claude_hook_entries_match(&value, emitter) {
+            continue;
+        }
+        let updated = service::inject_taide_claude_command_hook_entries(value, emitter);
+        if let Err(error) = commands::write_settings_local(&root, &updated) {
+            log::warn!("claude hooks 갱신 실패 ({root}): {error}");
+        }
+    }
 }
 
 fn reconcile_user_level_hooks(server: &HooksServerInfo, home_env: Option<&str>) {
@@ -344,7 +362,7 @@ mod tests {
                 "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]
             }
         });
-        let injected = service::inject_taide_hook_entries(existing, "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
+        let injected = service::inject_taide_claude_command_hook_entries(existing, service::HookEmitter::DevTty);
         commands::write_settings_local(&root, &injected).expect("write settings");
 
         remove_taide_hooks_from_roots(std::slice::from_ref(&root));
@@ -378,11 +396,35 @@ mod tests {
     }
 
     #[test]
+    fn 구버전_http_설치가_남은_프로젝트도_제거_대상이다() {
+        let root = make_project_root("legacy-http-install");
+        let legacy = serde_json::json!({
+            "hooks": {
+                "UserPromptSubmit": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:9999/claude/hook?token=abc&taide=1" }] }],
+                "Stop": [
+                    { "hooks": [{ "type": "command", "command": "echo done" }] },
+                    { "hooks": [{ "type": "http", "url": "http://127.0.0.1:9999/claude/hook?token=abc&taide=1" }] }
+                ]
+            }
+        });
+        commands::write_settings_local(&root, &legacy).expect("write settings");
+
+        remove_taide_hooks_from_roots(std::slice::from_ref(&root));
+
+        let after = commands::read_settings_local(&root).expect("read settings");
+        assert!(!service::has_taide_hook_entries(&after));
+        assert!(after["hooks"].get("UserPromptSubmit").is_none());
+        assert_eq!(after["hooks"]["Stop"].as_array().expect("stop entries").len(), 1);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn 존재하지_않는_프로젝트가_섞여도_나머지는_계속_처리한다() {
         let missing_root = make_project_root("missing-parent-remains-absent");
         let real_root = make_project_root("real-project");
 
-        let injected = service::inject_taide_hook_entries(serde_json::json!({}), "http://127.0.0.1:9999/claude/hook?token=abc&taide=1");
+        let injected = service::inject_taide_claude_command_hook_entries(serde_json::json!({}), service::HookEmitter::DevTty);
         commands::write_settings_local(&real_root, &injected).expect("write settings");
 
         remove_taide_hooks_from_roots(&[missing_root.clone(), real_root.clone()]);

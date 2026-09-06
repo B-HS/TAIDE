@@ -105,6 +105,7 @@ await window.__TAURI_INTERNALS__.invoke('perf_reset')   // 새 측정 창을 연
 | 이름 | 단위 |
 |------|------|
 | `pty.output_bytes` · `pty.output_chunks` | 바이트 / 청크 수 (터미널 처리량 = 두 스냅샷 사이 벽시계로 나눈다) |
+| `pty.scan_events` | pty 출력 스캐너가 인식한 이스케이프 시퀀스 수 (OSC 7/133/0·2/777/9 합 — `terminal.md` §5.2) |
 | `lsp_send` | 호출 수 |
 | `command.unlisted` | 커맨드 이름 표에 없던 invoke 수 (tauri 플러그인 커맨드 등) |
 | `command.<이름>` | 그 커맨드의 invoke 수 — **한 번이라도 불린 것만** 이름순으로 붙는다 |
