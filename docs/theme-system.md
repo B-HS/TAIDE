@@ -96,6 +96,75 @@ VSCode 의 color ID 체계를 참조해 다음 네임스페이스로 나눈다. 
 | `scrollbar.*` | thumb, thumbHover, track |
 | `input.*` / `button.*` / `list.*` | shadcn 컴포넌트 계열 매핑 (shadcn CSS 변수와 연결) |
 
+### 3.1 토큰 소비처 (d-61 §1.C)
+
+토큰은 정의만으로 끝나지 않는다. **각 토큰은 실제로 색을 칠하는 소비처가 하나 이상 있어야 한다.**
+소비처 없이 늘어난 토큰은 테마 저작자에게 "고쳐도 화면이 안 바뀌는 칸"으로 보이므로, 아래 표를
+정본으로 두고 `src/shared/styles/theme-token-consumer.test.ts` 가 기계 검사한다. **소비 = 실제로 칠하는
+곳**이다: `global.css` 의 칠하는 규칙(`@layer base` · `@utility`)에 있는 `var()` 참조, 컴포넌트 코드의
+`var()` 참조(`commit-graph.tsx` 의 `var(--taide-graph-lane${n})` 처럼 런타임 조립분 포함),
+Monaco/xterm 색 맵의 토큰 id, 또는 그 토큰의 `--color-*` 키에서 생성된 Tailwind 유틸리티
+클래스(`bg-menu-background` · `focus:bg-menu-item-hover` · `border-b-popover-separator` 등)의 실사용.
+**브릿지 줄(`@theme inline` · `:root` shadcn 별칭)만 있는 것은 소비가 아니다** — 변수를 다른 이름으로
+다시 내보낼 뿐이어서 어떤 표면도 쓰지 않을 수 있다(d-61 검토 G-6). 정의 레이어인
+`shared/lib/theme-convert/**` · `entities/theme/theme-tokens.ts` 는 소비 근거에서 제외한다.
+
+| 네임스페이스 | 소비처 |
+|--------------|--------|
+| `app.*` | `global.css` shadcn 브릿지(`--background`/`--foreground`/`--border`/`--ring`). `app.shadow` 는 `@utility shadow-overlay` · `shadow-overlay-lg` · `modal-scrim` 으로 드롭다운·컨텍스트메뉴·팝오버·다이얼로그 그림자와 모달 오버레이 스크림에 쓰인다 |
+| `appSidebar.*` / `tabBar.*` / `panel.*` | `@theme inline` 유틸리티 → 사이드바·탭바·패널 위젯 |
+| `explorer.*` | `features/explorer/file-tree*.tsx`. `folderIcon` 은 `shared/lib/file-icon.ts` 의 기본 폴더 아이콘 색, `gitModified`/`gitAdded`/`gitDeleted`/`gitUntracked`/`gitIgnored` 는 파일트리 행 데코 색(변환기가 `git.*` 과 같은 `gitDecoration.*ResourceForeground` 원천에서 파생한다 — `mapping-tables.ts`) |
+| `editor.*` / `editorGutter.*` / `editorBlame.*` / `diff.*` | `shared/lib/monaco/theme.ts` 색 맵 + `global.css` 의 gutter·blame·conflict 클래스 |
+| `terminal.*` | `shared/lib/xterm-theme.ts`(background/foreground/cursor/selection) + Monaco `textLink.foreground`(`linkForeground`) |
+| `git.*` / `graph.*` / `statusIndicator.*` | git 패널·커밋 그래프·상태 아이콘 유틸리티 |
+| `menu.*` | `shared/ui/dropdown-menu.tsx` · `context-menu.tsx`(배경·테두리·항목 hover·구분선). 팝오버 토큰에 의존하지 않는다 |
+| `popover.*` | `shared/ui/popover.tsx`(배경·테두리). `separator` 는 팝오버 안 `Command` 입력 구분선(`**:data-[slot=command-input-wrapper]`) |
+| `tooltip.*` | `shared/ui/tooltip.tsx`(배경·테두리) |
+| `modal.*` | `shared/ui/dialog.tsx` · `alert-dialog.tsx`(배경·테두리·닫기 버튼 hover). `separator` 는 명령 팔레트 입력 구분선과 `vsix-import-dialog` 섹션 구분선 |
+| `scrollbar.*` | `shared/scroll/overlay-scrollbar.tsx`(thumb·thumbHover·track) + `global.css` 의 네이티브 `::-webkit-scrollbar` 규칙(오버레이 스크롤바를 안 쓰는 잔여 표면) |
+| `input.*` / `button.*` / `list.*` | `global.css` shadcn 브릿지(`--input`/`--primary`/`--secondary`/`--accent`) |
+
+**소비처 없음(예외 등재)** — 테스트의 `CONSUMER_EXEMPTIONS` 와 1:1 이며, 소비처가 생기면 테스트가
+예외 쪽에서 실패해 등재를 지우게 한다.
+
+| 토큰 | 사유 |
+|------|------|
+| `terminal.commandBlockBorder` | OSC133 명령 블록 테두리 데코레이션이 아직 없다(터미널은 블록 성공/실패를 `statusIndicator` 색으로만 그린다) |
+| `tooltip.itemHover` · `tooltip.separator` | 앱의 툴팁은 전부 한 줄 텍스트라 hover 대상 항목도 구분선도 없다. 툴팁에 항목/구획이 생기면 배선한다 |
+| `graph.refTag` · `graph.refHead` | 커밋 그래프가 ref 배지를 종류와 무관하게 전부 `graph.refBranch` 로 그린다(`widgets/git-panel/commit-graph.tsx`). 태그/HEAD 를 구분해 그리게 되면 배선한다 |
+| `popover.itemHover` | 팝오버는 자유 콘텐츠만 담고 hover 대상 항목 목록이 없다. 드롭다운·컨텍스트메뉴는 `menu.itemHover`, 명령 팔레트는 `list.activeBackground` 를 쓴다 |
+| `input.focusBorder` | 입력 포커스 테두리를 전부 `app.focusBorder` 로 그린다(`focus:border-app-focus-border`). 입력 전용 포커스 색을 분리하게 되면 배선한다 |
+
+위 3행(`graph.refTag`/`graph.refHead`·`popover.itemHover`·`input.focusBorder`)은 브릿지 줄만 보던
+이전 검사가 소비로 세던 것들이다 — 유틸리티 실사용까지 보게 되면서 드러났다(d-61 검토 G-6).
+
+**§1.E 스크린샷 검수 항목 (d-61 검토 G-4)** — §1.C 가 제거한 `dark:` 분기 6곳(`shared/ui/button.tsx` 4 ·
+`dropdown-menu.tsx` · `context-menu.tsx`)은 "죽은 분기"가 아니라 **live 분기**였다. `global.css` 의
+`@custom-variant dark (&:where([data-appearance='dark'], …))` 와 `app/providers/theme-provider.tsx` 의
+`documentElement.dataset.appearance = theme.type` 이 다크 테마에서 실제로 적용시키고 있었다. 코드는
+그대로 둔다(TAIDE 토큰이 이미 테마별 명시값을 주므로 shadcn 시절의 알파 오버라이드는 두 번째 테마
+레이어가 된다). 대신 **다크 테마 스크린샷에서 아래 3항목을 육안 검수**한다 — 라이트와 같아지는
+방향이 맞는지가 판정 기준이다.
+
+- destructive 버튼 배경·테두리·hover (`shared/ui/button.tsx` `destructive` variant)
+- outline · ghost 버튼 hover 배경 (같은 파일 `outline`/`ghost` variant)
+- `aria-invalid` 포커스 링 (같은 파일, 제거한 `dark:aria-invalid:ring-destructive/40` 분기)
+
+### 3.2 raw 색 예외 (d-61 검토 G-1)
+
+컴포넌트는 hex·palette 를 직접 쓰지 않고 시맨틱 토큰만 쓴다(§4.1). Tailwind 내장 무채색
+유틸리티(`text-white`·`bg-black/50` 등)도 **테마가 못 바꾸는 색**이라 같은 금지 대상이며,
+`src/shared/styles/theme-token-consumer.test.ts` 의 `RAW_COLOR_EXEMPTIONS` 가 예외를 등재하고
+나머지를 전부 막는다(예외에 없는 raw 색이 들어오면 실패, 예외가 실제로 안 쓰이면 stale 로 실패).
+
+| 위치 | raw 색 | 사유 |
+|------|--------|------|
+| `shared/ui/button.tsx` `destructive` variant | `text-white` | 배경이 어떤 테마에서도 붉은 `statusIndicator.error`(`--destructive`)라 라벨은 테마와 무관하게 흰색이어야 한다. §1.C 가 토큰(`button.primaryForeground`)으로 바꿨더니 그 토큰은 **기본 버튼의 배경**을 섬기느라 붉은 배경 위에서 47종 중 19종이 3:1 미만으로 떨어졌다(흰색은 10종). 계측은 §8.6 의 `FIXED_FOREGROUND_CONTRAST_PAIRS` 자문 린트가 남긴다 |
+
+§0 이 "raw 색 5곳"으로 세던 나머지 4곳(`dialog.tsx`/`alert-dialog.tsx` `bg-black/50`,
+`html-preview.tsx` `bg-white`, `color-picker.tsx` `border-white` 2곳)은 §1.C 가 토큰으로 배선해
+사라졌다.
+
 ## 4. 파생 규칙
 
 ### 4.1 앱 CSS 변수 (Tailwind v4)
@@ -283,9 +352,10 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 
 ## 8. 번들 테마 (VS Code 테마 변환 · QA 8번)
 
-내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 38종을 **번들 테마**로 함께 내장한다
-(2026-08-28 d-46 으로 Dark/Light (Visual Studio - C/C++) 2종 추가 — 이 문서의 과거 감사
-서술에 남은 "36종" 수치는 해당 감사 시점의 카탈로그 기준이며 재감사 전까지 그대로 둔다).
+내장 2종(TAIDE Dark/Light) 외에 인기 VS Code 테마 47종을 **번들 테마**로 함께 내장한다
+(2026-08-28 d-46 으로 Dark/Light (Visual Studio - C/C++) 2종 추가, 2026-09-15 d-61 §1.D 로
+형제 variant 9종 추가 — 이 문서의 과거 감사 서술에 남은 "36종"·"38종" 수치는 해당 감사 시점의
+카탈로그 기준이며 재감사 전까지 그대로 둔다).
 `{app_data}/themes`(사용자 테마 디렉터리)가 아니라 **Rust `include_str!`** 로 바이너리에
 내장한다 — 이유는 두 가지다.
 
@@ -336,6 +406,15 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 | `darcula` | Darcula | dark | github.com/rokoroku/vscode-theme-darcula (IntelliJ Darcula 포트) |
 | `visual-studio-cpp-dark` | Dark (Visual Studio - C/C++) | dark | github.com/microsoft/vscode-cpptools (cpptools-themes 확장) |
 | `visual-studio-cpp-light` | Light (Visual Studio - C/C++) | light | github.com/microsoft/vscode-cpptools (cpptools-themes 확장) |
+| `catppuccin-latte` | Catppuccin Latte | light | github.com/catppuccin/vscode |
+| `catppuccin-frappe` | Catppuccin Frappé | dark | github.com/catppuccin/vscode |
+| `catppuccin-macchiato` | Catppuccin Macchiato | dark | github.com/catppuccin/vscode |
+| `tokyo-night-storm` | Tokyo Night Storm | dark | github.com/tokyo-night/tokyo-night-vscode-theme |
+| `tokyo-night-light` | Tokyo Night Light | light | github.com/tokyo-night/tokyo-night-vscode-theme |
+| `gruvbox-light` | Gruvbox Light | light | github.com/jdinhify/vscode-theme-gruvbox |
+| `rose-pine-moon` | Rosé Pine Moon | dark | github.com/rose-pine/vscode |
+| `ayu-mirage` | Ayu Mirage | dark | github.com/ayu-theme/vscode-ayu |
+| `github-dark-dimmed` | GitHub Dark Dimmed | dark | github.com/primer/github-vscode-theme |
 
 전부 MIT. 저작권 표시는 루트 `THIRD_PARTY_LICENSES.md` 를 따른다(MIT 는 저작권·허가
 표시를 모든 사본에 포함해야 한다 — 색상값만 재가공한 파생물도 대상으로 취급).
@@ -343,6 +422,46 @@ $ grep -rn "applyMonacoTheme" src/ | grep -v "shared/lib/monaco/theme.ts"
 `vscode-kimbie-dark`/`vscode-red`/`vscode-quiet-light`/`darcula`/
 `visual-studio-cpp-dark`/`visual-studio-cpp-light` 10종은 원본에
 `terminal.ansi*` 색이 전혀 없어 §8.2 "VS Code 기본 ANSI 팔레트 폴백"이 적용됐다.
+
+#### 8.1.1 d-61 §1.D 형제 variant 9종 — 선정 근거와 원본 출처
+
+이미 번들된 테마의 **형제 variant**(같은 업스트림이 같은 팔레트로 내는 다른 밝기·색조)만
+고른다. 계약 후보 11종 중 **Gruvbox Dark Hard·Dark Soft 2종을 제외**했다 — 둘은 이미 번들된
+`gruvbox-dark`(Dark Medium)와 배경 명도만 다르고 액센트 팔레트가 동일해, 후보 중 기존
+카탈로그와 가장 덜 구별되는 쌍이기 때문이다. 대신 Gruvbox 는 **카탈로그에 없던 라이트**를
+채우는 `gruvbox-light` 를 넣었다.
+
+라이트 비율: 신규 9종 중 3종(`catppuccin-latte`·`tokyo-night-light`·`gruvbox-light`)이
+light = **33.3%**, 카탈로그 전체로는 12 → 15 / 47 = **31.9%** 로 둘 다 계약의 ≥ 20% 를 만족한다.
+
+| id | 원본 파일 | 고정 ref |
+|----|-----------|----------|
+| `catppuccin-latte` | `extension/themes/latte.json` | `catppuccin-vsc-v3.19.0` 릴리스 자산 `catppuccin-vsc-3.19.0.vsix` |
+| `catppuccin-frappe` | `extension/themes/frappe.json` | 〃 |
+| `catppuccin-macchiato` | `extension/themes/macchiato.json` | 〃 |
+| `tokyo-night-storm` | `themes/tokyo-night-storm-color-theme.json` | 커밋 `7c0f11eaef322f293621ca7befe462214b7ea468` |
+| `tokyo-night-light` | `themes/tokyo-night-light-color-theme.json` | 〃 |
+| `gruvbox-light` | `extension/themes/gruvbox-light-medium.json` | 마켓플레이스 `jdinhlife.gruvbox` 1.29.1 VSIX (= 태그 `v1.29.1`) |
+| `rose-pine-moon` | `themes/rose-pine-moon-color-theme.json` | 태그 `v2.15.2` |
+| `ayu-mirage` | `ayu-mirage.json` (저장소 루트) | 커밋 `444ef92911cb75c3933c8003e3a7c79b6b6c914f` |
+| `github-dark-dimmed` | `extension/themes/dark-dimmed.json` | 마켓플레이스 `GitHub.github-vscode-theme` 6.3.5 (= 태그 `v6.3.5`) |
+
+**VSIX 경유 3 저장소의 이유**: `catppuccin/vscode`·`primer/github-vscode-theme`·
+`jdinhify/vscode-theme-gruvbox` 는 테마 JSON 을 **릴리스 시 생성**하고 저장소에 커밋하지
+않는다(각각 `build.ts`/`src` 빌드, `themes/` 가 `.gitignore` 대상). 그래서 "저장소 태그의 raw
+파일"이 존재하지 않아, 그 버전의 **발행 산출물**에서 꺼냈다 — Catppuccin 은 프로젝트 자신의
+GitHub 릴리스 자산이고, 나머지 둘은 마켓플레이스 발행본이되 **버전이 GitHub 태그와 정확히
+일치**(6.3.5 = `v6.3.5`, 1.29.1 = `v1.29.1`)하는 것을 확인해 태그와 대응시켰다. 나머지 3
+저장소는 계약대로 태그/커밋의 raw 파일을 그대로 받았다.
+
+**`tokyo-night-light` 의 `type`**: 원본 테마 JSON 안의 `"type": "dark"` 는 업스트림 오기다.
+확장 매니페스트(`package.json` `contributes.themes`)가 이 파일을 `"uiTheme": "vs"` 로 등록하고
+있어 **light 로 변환**했다(`--type light`).
+
+**변환 결과**: 9종 전부 `--include-dir` 불필요(include 체인 없음), 184 토큰 전량 명시,
+`terminal.ansi*` 16색 원본 보유라 ANSI 폴백 0건, safe-default 폴백 0건. §1.A 구별성·§1.B 대비
+수리는 변환 파이프라인 안에서 자동 적용됐고(`catppuccin-*` 3종·`tokyo-night-light`·
+`gruvbox-light`·`github-dark-dimmed` 6종에서 발동), 잔존 `stateDistinctnessErrors` 는 0 이다.
 
 ### 8.2 변환 파이프라인
 
@@ -593,9 +712,10 @@ d-40(`docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-a)
 (`list.activeBackground`) 대비 게이트를 `panel.matchHighlight`/`list.foreground` 두 축에 추가하면서,
 §8.2.3 과 같은 성격의 재변환 비재현 손수정이 두 토큰에도 생겼다. 손수정 방식은 §8.2.3 과 동일
 (d-31 §3-A 방식 — 값을 새로 발명하지 않고 업스트림 팔레트 **안에서** 재선정, 재변환이 아님).
-아래 표는 이 배치(d-40 §3-B) 손수정 12종 + 이후 검토에서 재정정된 3종(비고 열 참고)의 현재
-상태다 — "재변환 시 나오는 값"은 두 경우 모두 파이프라인(`mapping-tables.ts`)이 바뀐 적이 없어
-d-40 이전부터 지금까지 동일하다(손수정은 항상 커밋된 JSON 만 바꾼다).
+아래 표는 이 배치(d-40 §3-B) 손수정 12종 + 이후 검토에서 재정정된 3종(비고 열 참고)
++ d-61 §1.D 신규 추가분 1종의 현재 상태다 — "재변환 시 나오는 값"은 모든 경우
+파이프라인(`mapping-tables.ts`)이 바뀐 적이 없어 d-40 이전부터 지금까지 동일하다(손수정은 항상
+커밋된 JSON 만 바꾼다).
 
 | 테마 | 토큰 | 손수정값(현재) | 재변환 시 나오는 값 | 그 값의 `list.activeBackground` 대비비 | 근거 | 비고 |
 |---|---|---|---|---|---|---|
@@ -613,6 +733,7 @@ d-40 이전부터 지금까지 동일하다(손수정은 항상 커밋된 JSON �
 | ayu-light | `list.foreground` | `#5c6166`(업스트림 `list.activeSelectionForeground`) | `#828e9f`(d-40 이전 원본) | 2.19 | d-40 §3-B | 유지 |
 | everforest-dark | `list.foreground` | `#d3c6aa`(업스트림 `list.activeSelectionForeground`) | `#859289`(d-40 이전 원본) | 2.47 | d-40 §3-B | 유지 |
 | solarized-light | `list.foreground` | `#6C6C6C`(업스트림 `list.activeSelectionForeground`) | `#657B83`(d-40 이전 원본) | 2.75 | d-40 §3-B | 유지 |
+| ayu-mirage | `list.foreground` | `#cccac2`(업스트림 `list.activeSelectionForeground`) | `#707a8c`(업스트림 `foreground` — 이 테마는 `sideBar.foreground` 를 정의하지 않아 체인이 여기로 떨어진다) | 2.77 | d-61 §1.D — 같은 업스트림(`ayu-theme/vscode-ayu`)의 `ayu-dark`/`ayu-light` 와 **동일 처방**. ayu 계열은 `list.activeSelectionBackground` 가 자기 `list.hoverBackground` 와 같아(`#63759926`) §8.2.2 가드가 VS Code 기본값 `#04395E` 로 폴백시키는데, 그 위에서 dim 한 chrome 전경(`#707a8c`)이 2.77 로 미달한다. nord 회귀(아래 부기) 재발 점검 결과 `#cccac2` 는 `list.background`(3.58→9.45)·`list.hoverBackground`(1.07→2.82)·`app.background`(3.36→8.85) 전 표면에서 개선이라 다표면 역효과 없음 | **신규**(d-61) |
 
 **nord `list.foreground` 가 레지스트리를 이탈한 이유**: d-40 원안은 업스트림 `list.activeSelectionForeground`
 (선택 행 전용, `#2e3440`)를 TAIDE 의 선택/비선택 공용 `list.foreground` 에 그대로 이식했다 —
@@ -636,6 +757,59 @@ nord3(`#4c566a`)로 재선정해 해소했다 — 두 축을 모두 만족하는
 테스트는 번들 테마 전부가 §3 토큰 전량을 포함하고 `resolve_theme` 경고가 없는지
 검증한다(`service.rs` `번들_테마는_모두_시맨틱_토큰_전량을_포함하고_경고가_없다`).
 
+**등록 누락·오등록 게이트 (d-61 §1.D).** `BUNDLED_THEME_SOURCES` 는 손으로 적는 목록이라 두 가지로 어긋날 수 있다 — 파일을 추가하고 행을
+빠뜨리면 그 테마는 바이너리에 실려만 있고 `list_themes` 에 끝내 나타나지 않으며, 행과 파일을 잘못 짝지으면 `builtin_by_id` 가 한 id 에
+다른 테마의 색을 돌려준다. `번들_테마_등록_배열은_리소스_디렉터리_및_theme_id_와_일치한다` 가 `resources/themes/*.json` 파일 목록과
+등록 id 집합이 같은지, 각 행이 include 한 파일의 `theme.id` 가 그 행의 id 와 같은지를 함께 본다. TS 쪽 `bundled-theme-licenses.test.ts`
+가 `THIRD_PARTY_LICENSES.md` 에 대해 같은 두 사실을 보는 것과 짝이다.
+
+**카탈로그 린트 Rust 미러 (d-61 §1.A·§1.B).** §8.5·§8.6 의 쌍 표는 TS 가 정본이고, Rust 는 같은 표·임계·합성 규칙을 복제해 카탈로그
+린트로 돌린다.
+
+| Rust 테스트 | 대응 TS 정본 |
+| --- | --- |
+| `카탈로그_테마는_상태색이_바탕색과_구별된다` | `state-distinctness-pairs.ts` 50행 + `app.shadow` 알파 축 + `bundled-theme-state-distinctness.test.ts` |
+| `카탈로그_테마는_컴포넌트_전경색이_실제_배경과_최소_대비를_가진다` | `component-contrast-pairs.ts` 36행 + `bundled-theme-contrast.test.ts` |
+| `상태색_구별성_쌍_표는_ts_정본과_일치한다` · `컴포넌트_대비_쌍_표는_ts_정본과_일치한다` | 위 두 파일을 `include_str!` 로 다시 읽어 행 순서·라벨·키·표면·대안·형제 플래그·임계와 상수 4종(`STATE_MIN_DISTINCT_DELTA_E`·`SUBTLE_STATE_MIN_DISTINCT_DELTA_E`·`APP_SHADOW_MIN_ALPHA`·`MIN_CONTRAST_RATIO`)을 통째로 대조 |
+| `형제_쌍은_양쪽을_표면_위에_독립_합성해_비교한다` | `state-distinctness.test.ts` 의 형제 쌍 단위 테스트 — 표가 아니라 *측정 방식*을 고정한다(아래 형제 규칙) |
+| `컴포넌트_대비_예외_등재분은_실제로_최소_대비에_미달한다` | `bundled-theme-contrast.test.ts` 의 `예외 등재분은 실제로 등재된 축에서만 위반한다` |
+
+Rust 미러에는 행마다 붙는 주석이 없다. 유래(어느 컴포넌트·클래스에서 나온 쌍인지)는 TS 정본이 단일 출처이고, 같은 산문을 양쪽에 두면
+드리프트 테스트가 검사하지 못하는 곳이 하나 더 생기기 때문이다. ΔE76·알파 합성·WCAG 대비 계산은 `shared/lib/color.ts`·`contrast.ts` 의
+함수를 상수·연산 순서까지 그대로 이식했다. 실측 최소 여유는 상태색 ΔE +0.0056(`catppuccin-macchiato` `panelInputBorder`), 컴포넌트 대비
++0.00014(`everforest-light` `statusBarSuccess`) 로 부동소수 오차보다 훨씬 크다.
+
+**순회 범위는 `theme_catalog()` — 번들 47 + Rust 리터럴 2.** TS 게이트는 번들 JSON 47종만 보지만 Rust 린트는 d-36 §1-b 의 결정대로
+`builtin_dark`/`builtin_light` 까지 본다. 그 결정의 계기가 정확히 이 사각지대였다(`taide-light` 의 `panel.matchHighlight` 결함이
+`bundled_themes()` 만 도는 린트를 통과해 출시됐다). 예외 등재는 구별성 린트 0건, 컴포넌트 대비 린트 2건
+(`COMPONENT_CONTRAST_EXEMPTIONS` = ayu 2종의 `menuItemHoverText`, §8.6)이고 Rust 는 TS 레지스트리를 그대로 복제한다. 선택 행 전경색
+예외(`SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS`)는 형제 규칙이 `rose-pine-dawn` 의 전제를 없애 **양쪽 모두 빈 레지스트리**가 됐다 —
+등재분 역검증 테스트가 남아 있어 통과하는 테마가 등재되어 있으면 실패한다.
+
+**형제 쌍·그림자 축 (d-61 검토 A-1·G-2, Rust 미러).** 형제 쌍(`sibling: true` 5행)은 state 를 container 위에 올려 재지 않고 **양쪽을
+`surfaceKey` 위에 독립 합성한 뒤** 비교한다. 같은 반투명 오버레이를 쓰는 두 상태(ayu 의 `explorer.itemSelected`/`itemHover`)를 쌓아서
+재면 두 번 틴트돼 ΔE 6+ 로 통과하기 때문이다. 이 규칙은 쌍 표 대조로는 잡히지 않아서(플래그를 읽고 무시해도 표는 일치한다) 드리프트
+키에 `sibling` 을 넣고, 합성 순서 자체는 별도 단위 테스트가 고정한다. `app.shadow` 는 비교할 컨테이너가 없어 ΔE 대신 자기 알파를
+`APP_SHADOW_MIN_ALPHA`(0.149 = VS Code 라이트 `widget.shadow` 기본값 `#00000026`)와 비교한다. 카탈로그 실측 최소 여유는 알파
++0.00002(38/255 정확값이라 결정적)다.
+
+**`taide-light` `app.shadow` 정정 1토큰 (d-61 검토 G-2, Rust 리터럴).** `light_colors()` 의 `#00000022`(알파 0.133)가 위 하한에
+미달해 `#00000026` 으로 올렸다. `taide-dark` 는 `#00000066` 으로 통과다.
+
+**`taide-light` 정정 11토큰 (d-61 §1.B, Rust 리터럴).** 위 범위 확장으로 `light_colors()` 가 컴포넌트 대비 13축에서 미달했다(2.15~2.83).
+§8.6 의 수리 규칙을 그대로 적용해(색상 유지, 검정·흰색 양 끝으로 최소 이동) 전경 토큰 11개를 옮겼다. `taide-dark` 는 두 린트 모두 정정
+0건이다. 쌍 표에 없는 토큰(에이전트 상태 아이콘 `appSidebar.iconAgent*` 등)은 원래 값 그대로다.
+
+| 토큰 | 전 → 후 | 걸린 축(대비) |
+| --- | --- | --- |
+| `explorer.gitAdded` · `git.added` · `statusIndicator.success` | #40a02b → #3d9829 | explorerGitAdded · gitAdded · statusBarSuccess/problemSuccess (2.75) |
+| `explorer.gitModified` · `git.modified` · `statusIndicator.warning` | #df8e1d → #ba7718 | explorerGitModified · gitModified · statusBarWarning/problemWarning (2.15) |
+| `git.renamed` | #209fb5 → #1d92a6 | gitRenamed (2.58) |
+| `git.conflicted` | #fe640b → #e3590a | gitConflicted (2.45) |
+| `input.placeholder` | #9ca0b0 → #878b99 | inputPlaceholder (2.30) |
+| `tabBar.tabInactiveForeground` | #8c8fa1 → #828596 | tabInactive (2.63) |
+| `tabBar.previewForeground` | #8c8fa1 → #878a9b | tabPreview (2.83) |
+
 ### 8.4 UI 노출
 
 `ThemePicker`(`src/features/settings/theme-picker.tsx`) 는 `theme_list` 를
@@ -643,6 +817,471 @@ nord3(`#4c566a`)로 재선정해 해소했다 — 두 축을 모두 만족하는
 3개 섹션으로 나눠 그린다(`settings.builtinThemesSection` /
 `settings.bundledThemesSection` / `themeEditor.customThemes`). 각 카드에는
 복제 버튼(`onDuplicate`)이 있어 번들 테마를 곧바로 `extends` 상속 복제할 수 있다.
+
+### 8.5 상태색 구별성 린트 (d-61 §1.A)
+
+번들 테마는 §3 토큰 184종을 **전량 명시**하므로 "누락 폴백"은 0이다. 실제 위험은 그 반대 —
+**서로 다른 토큰이 같은 값으로 접혀 상태·경계가 화면에서 사라지는 것**이다(에디터 드래그 선택이
+에디터 배경과 같은 색, 설정 토글의 켜짐 트랙이 카드 배경과 같은 색 등). 대비(§8.2 `contrast.ts`)는
+전경/배경 축만 보므로 이 결함을 잡지 못한다.
+
+**정본 파일**
+
+| 파일 | 역할 |
+|---|---|
+| `src/shared/lib/theme-convert/state-distinctness-pairs.ts` | 쌍 표(`STATE_DISTINCTNESS_PAIRS`) + 임계 상수 2종. Rust 미러가 그대로 복제하는 원본 |
+| `src/shared/lib/theme-convert/state-distinctness.ts` | `validateStateDistinctness` / `repairStateDistinctness` |
+| `src/shared/lib/theme-convert/convert.ts` | 변환 파이프라인 통합(수리 → 대비 수리 → `stateDistinctnessErrors` 보고) |
+| `src/shared/lib/theme-convert/bundled-theme-state-distinctness.test.ts` | 번들 47종 전수 게이트(예외 등재 0) + `terminal` 미러 일치 |
+| `scripts/repair-theme-state-distinctness.ts` | 번들 JSON 정정(`bun run themes:repair-state-distinctness`, 멱등) |
+
+**쌍 표 도출 기준.** 토큰 어휘가 아니라 **코드**에서 뽑는다 — `global.css` 의 `@theme inline` 이
+각 `--taide-*` 토큰을 컴포넌트가 쓰는 Tailwind 색으로 연결하고, 나머지는 `monaco/theme.ts` 의
+`MONACO_COLOR_SOURCE` 와 `xterm-theme.ts` 가 두 임베디드 렌더러로 연결한다. 한 쌍이 표에 오르려면
+① 두 토큰이 동시에 화면에 있을 수 있고(또는 하나가 다른 하나 위에 직접 그려지고) ② 접혔을 때
+사용자가 읽어야 할 정보가 사라져야 한다. 각 행의 유래(컴포넌트·클래스)는 파일 안 JSDoc 1줄로
+남긴다.
+
+**판정.**
+
+1. `surfaceKey` 가 있으면 컨테이너를 그 표면 위에 먼저 합성한다. 반투명 컨테이너를 raw RGB 로 읽으면
+   오탐이 난다 — dracula 는 `explorer.itemHover` 를 `#44475A75`, `explorer.itemSelected` 를
+   `#44475A` 로 둬서 문자열은 다르지만 raw RGB 는 같고, 화면에서는 뚜렷이 다르다.
+2. 상태색을 그 컨테이너 위에 합성한 뒤 `deltaE76`(CIE76 ΔE\*ab, `shared/lib/color.ts`)로 거리를 잰다.
+3. **`sibling: true` 인 쌍은 예외다 (d-61 검토 A-1).** 컨테이너가 표면이 아니라 *형제 상태*인 쌍
+   (선택 행 vs hover 행, 켜짐 트랙 vs 꺼짐 트랙 등 5쌍)은 둘 다 `surfaceKey` 위에 그려지므로
+   **양쪽을 그 표면 위에 각각 합성한 뒤** 비교한다. 상태를 컨테이너 *위에* 얹으면 같은 오버레이가
+   두 번 칠해져, 화면에서 똑같이 보이는 두 행이 ΔE 6+ 로 통과한다 — ayu 3종이 `explorer.itemHover`
+   와 `itemSelected` 에 같은 `#47526640` 을 쓰는 것이 이 방식으로 통과하던 사례다.
+4. `alternativeStateKey` 가 있으면 둘 중 하나만 임계를 넘으면 통과한다(평평한 탭 스트립 +
+   활성 탭 인디케이터).
+5. 어느 한쪽이 hex 가 아니면(`transparent`, 미해석 `@palette` 참조) **측정 불가로 건너뛴다** — 위반이
+   아니다.
+6. `app.shadow` 는 비교할 컨테이너가 없는 유일한 축이다(앱의 모든 표면 위에 그려진다). 대신 **자기
+   알파**를 `APP_SHADOW_MIN_ALPHA` 와 비교한다 — 아래 "그림자 축" 참고.
+
+**임계값 근거.** 기본 `STATE_MIN_DISTINCT_DELTA_E = 2.3` 은 CIE76 의 통상적 JND(just noticeable
+difference)이자 이미 코드베이스가 쓰는 구별성 바닥값(`mapping-tables.ts` 의
+`MATCH_HIGHLIGHT_MIN_DISTINCT_DELTA_E`)이라 두 린트가 "다른 색"의 정의를 공유한다. 관례상 옅게
+두는 3축(현재 줄 강조·비활성 선택·보조 찾기 매치)만 `SUBTLE_STATE_MIN_DISTINCT_DELTA_E = 1`
+("육안 식별 불가" 경계)을 써서 **완전히 접힌 경우만** 잡는다. 정정 전 38종 실측 분포는 아래와 같고,
+모든 축에서 임계가 빈 구간에 떨어진다(접힌 값 0.00~2.19, 임계 이상 최솟값 2.32+).
+
+> 아래 표는 **d-61 §1.A 시점(번들 38종·쌍 표 37행)의 측정**이다. d-61 검토(A-1·A-2)가 형제 판정을
+> 바꾸고 행을 14개 늘렸으며, 그 시점의 재측정(47종)은 뒤의 "검토 재측정" 표에 따로 둔다. 47종·전 축
+> 기준으로도 임계는 여전히 빈 구간에 떨어진다 — 임계 미만 최댓값 2.26(`tokyo-night-light`
+> `listHoverOnActiveTab`), 임계 이상 최솟값 2.31(`palenight` `switchCheckedVsUncheckedTrack`).
+
+| 축(label) | 상태 → 바탕 | 임계 | ΔE 0.00 | 0<ΔE<임계 | 임계 이상 최솟값 | 중앙값 | 정정 |
+|---|---|---|---|---|---|---|---|
+| `editorSelection` | `editor.selection` → `editor.background` | 2.3 | 6 | 0 | 4.06 | 13.52 | 6 |
+| `editorInactiveSelection` | `editor.inactiveSelection` → `editor.background` | 1 | 17 | 0 | 2.28 | 4.33 | 17 |
+| `editorCurrentLine` | `editor.lineHighlight` → `editor.background` | 1 | 7 | 0 | 2.17 | 3.99 | 7 |
+| `editorFindMatch` | `editor.findMatch` → `editor.background` | 2.3 | 0 | 0 | 4.08 | 42.55 | 0 |
+| `editorFindMatchHighlight` | `editor.findMatchHighlight` → `editor.background` | 1 | 0 | 0 | 7.83 | 25.56 | 0 |
+| `editorBracketMatch` | `editor.bracketMatch` → `editor.background` | 2.3 | 5 | 1 | 5.78 | 14.05 | 6 |
+| `editorCursor` | `editor.cursor` → `editor.background` | 2.3 | 0 | 0 | 15.66 | 74.27 | 0 |
+| `terminalSelection` | `terminal.selection` → `terminal.background` | 2.3 | 21 | 3 | 2.42 | 0.00 | 24 |
+| `terminalCursor` | `terminal.cursor` → `terminal.background` | 2.3 | 0 | 0 | 15.66 | 76.21 | 0 |
+| `listHover` | `list.hoverBackground` → `list.background` | 2.3 | 2 | 2 | 2.38 | 6.90 | 4 |
+| `listActive` | `list.activeBackground` → `list.background` | 2.3 | 0 | 0 | 3.91 | 25.08 | 0 |
+| `listActiveVsHover` | `list.activeBackground` → `list.hoverBackground` | 2.3 | 0 | 1 | 3.50 | 17.21 | 1 |
+| `explorerItemHover` | `explorer.itemHover` → `explorer.background` | 2.3 | 0 | 2 | 2.38 | 7.12 | 2 |
+| `explorerItemSelected` | `explorer.itemSelected` → `explorer.background` | 2.3 | 0 | 0 | 2.77 | 15.48 | 0 |
+| `explorerItemFocused` | `explorer.itemFocused` → `explorer.background` | 2.3 | 0 | 0 | 2.77 | 10.30 | 0 |
+| `explorerSelectedVsHover` | `explorer.itemSelected` → `explorer.itemHover` | 2.3 | 4 | 2 | 3.50 | 8.95 | 6 |
+| `sidebarItemHover` | `appSidebar.itemHover` → `appSidebar.background` | 2.3 | 5 | 2 | 2.32 | 4.33 | 7 |
+| `sidebarItemActive` | `appSidebar.itemActive` → `appSidebar.background` | 2.3 | 4 | 1 | 2.38 | 8.54 | 5 |
+| `sidebarActiveVsHover` | `appSidebar.itemActive` → `appSidebar.itemHover` | 2.3 | 8 | 2 | 3.50 | 7.38 | 10 |
+| `sidebarActiveOnCard` | `appSidebar.itemActive` → `panel.background` | 2.3 | 5 | 0 | 2.77 | 8.54 | 5 |
+| `sidebarHoverOnCard` | `appSidebar.itemHover` → `panel.background` | 2.3 | 6 | 2 | 2.38 | 6.32 | 8 |
+| `sidebarBadge` | `appSidebar.badge` → `appSidebar.background` | 2.3 | 0 | 0 | 30.34 | 63.66 | 0 |
+| `tabActive` | `tabBar.tabActiveBackground` → `tabBar.background` | 2.3 | 0 | 0 | 4.06 | 54.47 | 0 |
+| `tabActiveVsInactive` | `tabBar.tabActiveBackground` → `tabBar.tabInactiveBackground` | 2.3 | 0 | 0 | 4.06 | 54.47 | 0 |
+| `switchCheckedTrackOnCard` | `button.primaryBackground` → `panel.background` | 2.3 | 5 | 0 | 5.99 | 48.75 | 5 |
+| `switchCheckedTrackVsThumb` | `button.primaryBackground` → `app.background` | 2.3 | 6 | 0 | 5.99 | 49.00 | 6 |
+| `switchUncheckedTrackOnCard` | `input.border` → `panel.background` | 2.3 | 3 | 0 | 2.39 | 9.68 | 3 |
+| `switchUncheckedTrackVsThumb` | `input.border` → `app.background` | 2.3 | 2 | 0 | 3.29 | 11.62 | 2 |
+| `switchCheckedVsUncheckedTrack` | `button.primaryBackground` → `input.border` | 2.3 | 1 | 0 | 8.69 | 43.42 | 1 |
+| `buttonHover` | `button.hoverBackground` → `button.background` | 2.3 | 8 | 0 | 3.17 | 8.08 | 8 |
+| `inputBorder` | `input.border` → `input.background` | 2.3 | 5 | 1 | 2.44 | 9.54 | 6 |
+| `panelInputBorder` | `panel.inputBorder` → `panel.inputBackground` | 2.3 | 5 | 1 | 2.44 | 9.54 | 6 |
+| `focusBorderOnApp` | `app.focusBorder` → `app.background` | 2.3 | 4 | 1 | 4.06 | 32.26 | 5 |
+| `focusBorderOnCard` | `app.focusBorder` → `panel.background` | 2.3 | 4 | 1 | 4.06 | 30.08 | 5 |
+| `inputFocusBorder` | `input.focusBorder` → `input.background` | 2.3 | 5 | 0 | 2.58 | 26.46 | 5 |
+| `menuItemHover` | `menu.itemHover` → `menu.background` | 2.3 | 3 | 0 | 2.38 | 7.51 | 3 |
+| `scrollbarThumb` | `scrollbar.thumb` → `scrollbar.track` | 2.3 | 0 | 0 | — | — | 0 |
+
+> `정정` 열은 그 축이 임계 미달로 잡아낸 테마 수다. 합(163)이 실제 정정 토큰 수(139)보다 큰 것은 한
+> 토큰을 고치면 그 토큰이 걸린 다른 축이 함께 해소되기 때문이다. `scrollbarThumb` 는 `scrollbar.track`
+> 이 매핑 단계에서 항상 `transparent` 로 파생되어 번들 테마에서는 측정 불가(비활성) 축이며, 손수정·
+> 사용자 저장 테마가 불투명 트랙을 넣는 경우를 위해 남겨 둔다.
+
+**수리 규칙.**
+
+- **바탕이 아니라 상태 토큰을 고친다.** 컨테이너는 다른 토큰들이 기준으로 삼는 표면이라, 그걸
+  움직이면 접힌 쌍 하나를 여러 개로 늘린다.
+- `alternativeStateKey` 가 있는 쌍은 **대안 쪽**을 고친다. 활성 탭 배경이 탭 스트립과 같은 색인 것은
+  의도적인 플랫 디자인이고, 그 디자인이 포기한 구별을 대신 지라고 있는 토큰이 인디케이터다.
+- 후보 선택: ① 테마 자신의 `palette` 중 조건을 만족하면서 **교체 대상 색에 가장 가까운** 값(동률은
+  palette 키 순서로 결정), ② 없으면 `mix(container, app.foreground, t)` 의 t 를 256단계 sRGB 구간에서
+  **이진 탐색**해 임계를 막 넘는 최소값으로 파생한다. 탐색은 상한을 항상 "검증된 통과 단계"에만
+  두므로 결과는 반드시 임계를 넘는다.
+- 결과는 **불투명 6자리 hex** 다. 원래 알파를 유지하면 컨테이너와 다시 섞여 방금 확보한 거리가
+  줄어든다.
+- 같은 토큰이 여러 쌍에 걸리므로 **표 전체를 변화가 없을 때까지 반복**한다(최대 4패스). 결정적·
+  멱등이라 스크립트를 몇 번 돌려도 같은 결과다.
+- 변환 파이프라인에서는 **상태색 수리를 대비 수리보다 먼저** 돌린다. 대비 수리는 배경을 기준으로
+  전경을 고르므로 배경이 나중에 움직이면 결과가 무효가 되지만, 반대 방향은 안전하다(대비 수리가
+  쓰는 토큰 중 구별성 쌍의 컨테이너·표면인 것이 없다).
+- VSIX 임포트를 **막지 않는다**. 남은 위반은 `outputColorErrors` 가 아니라 별도
+  `stateDistinctnessErrors` 로 나가고 CLI 는 경고만 찍는다(신규 임포트 거부 케이스 금지 —
+  `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-a).
+
+**데이터 정정 결과.** `bun run themes:repair-state-distinctness` 1회 실행으로 **38종 중 36종, 139개
+토큰**이 정정됐다(재실행 시 0건). 예외 등재는 0 — 모든 축이 구조적으로 수리 가능하므로(전경과
+배경조차 구분되지 않는 테마는 이미 `validateOutputColors` 가 거른다) "예외"는 곧 "스크립트를 안
+돌렸다"는 뜻이 된다.
+
+| 테마 | 정정 토큰 (이전 → 이후, 축) |
+|---|---|
+| `ayu-dark` | `terminal.selection` #10141c → #12151d (terminalSelection) |
+| `ayu-light` | `terminal.selection` #fcfcfc → #f1f2f4 (terminalSelection) |
+| `catppuccin-mocha` | `editor.inactiveSelection` #1e1e2e → #212131 (editorInactiveSelection)<br>`input.border` #00000000 → #1d1d2b (switchUncheckedTrackOnCard)<br>`input.border` #1d1d2b → #232333 (switchUncheckedTrackVsThumb)<br>`panel.inputBorder` #00000000 → #36374a (panelInputBorder) |
+| `darcula` | `editor.inactiveSelection` #242424 → #272727 (editorInactiveSelection)<br>`terminal.selection` #242424 → #292929 (terminalSelection)<br>`appSidebar.itemActive` #242424 → #292929 (sidebarActiveVsHover)<br>`appSidebar.itemHover` #242424 → #292929 (sidebarHoverOnCard)<br>`button.primaryBackground` #242424 → #292929 (switchCheckedTrackOnCard)<br>`button.hoverBackground` #242424 → #292929 (buttonHover)<br>`menu.itemHover` #242424 → #292929 (menuItemHover)<br>`appSidebar.itemActive` #292929 → #2e2e2e (sidebarActiveVsHover) |
+| `dracula` | `editor.inactiveSelection` #282A36 → #2b2d39 (editorInactiveSelection)<br>`editor.lineHighlight` #282A36 → #2b2d39 (editorCurrentLine)<br>`terminal.selection` #282A36 → #2d2f3a (terminalSelection) |
+| `everforest-dark` | `editor.bracketMatch` #2d353b00 → #323a3f (editorBracketMatch)<br>`terminal.selection` #2d353b → #323a3f (terminalSelection)<br>`list.hoverBackground` #2d353b00 → #323a3f (listHover)<br>`appSidebar.itemHover` #2d353b00 → #323a3f (sidebarItemHover)<br>`app.focusBorder` #2d353b00 → #323a3f (focusBorderOnApp)<br>`input.focusBorder` #2d353b00 → #323a3f (inputFocusBorder) |
+| `everforest-light` | `editor.bracketMatch` #fdf6e300 → #f5efde (editorBracketMatch)<br>`terminal.selection` #fdf6e3 → #f5efde (terminalSelection)<br>`list.hoverBackground` #fdf6e300 → #f5efde (listHover)<br>`appSidebar.itemHover` #fdf6e300 → #f5efde (sidebarItemHover)<br>`app.focusBorder` #fdf6e300 → #f5efde (focusBorderOnApp)<br>`input.focusBorder` #fdf6e300 → #f5efde (inputFocusBorder) |
+| `github-dark` | `editor.bracketMatch` #17E5E600 → #292e33 (editorBracketMatch) |
+| `github-light` | `editor.bracketMatch` #34d05800 → #f8f8f8 (editorBracketMatch) |
+| `gruvbox-dark` | `editor.inactiveSelection` #282828 → #2b2b2a (editorInactiveSelection)<br>`editor.bracketMatch` #28282800 → #2d2d2c (editorBracketMatch)<br>`terminal.selection` #282828 → #2d2d2c (terminalSelection)<br>`explorer.itemSelected` #3c383680 → #373533 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #3c383680 → #373533 (sidebarActiveVsHover) |
+| `intellij-islands-light` | `input.border` #00000000 → #f8f8f8 (switchUncheckedTrackOnCard)<br>`panel.inputBorder` #00000000 → #f8f8f8 (panelInputBorder) |
+| `kanagawa-wave` | `editor.inactiveSelection` #1F1F28 → #22222a (editorInactiveSelection)<br>`input.border` #16161D → #1b1b21 (inputBorder)<br>`panel.inputBorder` #16161D → #1b1b21 (panelInputBorder) |
+| `monokai` | `editor.inactiveSelection` #272822 → #2a2b25 (editorInactiveSelection)<br>`terminal.selection` #272822 → #2c2d27 (terminalSelection)<br>`input.border` #414339 → #47493f (inputBorder)<br>`panel.inputBorder` #414339 → #47493f (panelInputBorder) |
+| `night-owl-light` | `editor.inactiveSelection` #FBFBFB → #f8f8f8 (editorInactiveSelection)<br>`terminal.selection` #FBFBFB → #efeff0 (terminalSelection)<br>`explorer.itemSelected` #d3e8f8 → #cde1f2 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #d3e8f8 → #cde1f2 (sidebarActiveVsHover) |
+| `night-owl` | `appSidebar.itemHover` #011627 → #061b2c (sidebarItemHover)<br>`menu.itemHover` #011627 → #061b2c (menuItemHover) |
+| `nord` | `terminal.selection` #2e3440 → #343a46 (terminalSelection)<br>`input.border` #3b4252 → #414857 (inputBorder)<br>`panel.inputBorder` #3b4252 → #414857 (panelInputBorder)<br>`input.focusBorder` #3b4252 → #414857 (inputFocusBorder)<br>`menu.itemHover` #3b4252 → #414857 (menuItemHover) |
+| `one-dark-pro` | `editor.inactiveSelection` #282c34 → #2b2f37 (editorInactiveSelection)<br>`explorer.itemSelected` #2c313a → #313740 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #2c313a → #313740 (sidebarActiveVsHover)<br>`input.border` #21252b → #262a30 (switchUncheckedTrackOnCard)<br>`input.border` #262a30 → #2d3139 (switchUncheckedTrackVsThumb) |
+| `one-monokai` | `editor.inactiveSelection` #282c34 → #2b2f37 (editorInactiveSelection)<br>`terminal.selection` #282c34 → #2d3138 (terminalSelection)<br>`list.activeBackground` #2c313a → #2e3239 (listActiveVsHover)<br>`explorer.itemSelected` #2c313a → #2e3239 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #2c313a → #353942 (sidebarItemActive) |
+| `palenight` | `editor.bracketMatch` #282B3C → #2e3243 (editorBracketMatch)<br>`terminal.selection` #292D3E → #2e3243 (terminalSelection)<br>`button.primaryBackground` #7e57c2cc → #815bc3 (switchCheckedVsUncheckedTrack)<br>`app.focusBorder` #282B3C → #2e3243 (focusBorderOnApp) |
+| `solarized-light` | `editor.inactiveSelection` #FDF6E3 → #f9f3e1 (editorInactiveSelection)<br>`terminal.selection` #FDF6E3 → #f5f0de (terminalSelection) |
+| `tokyo-night` | `list.hoverBackground` #13131a → #1b1b24 (listHover)<br>`explorer.itemHover` #13131a → #1b1b24 (explorerItemHover)<br>`appSidebar.itemHover` #13131a → #1b1b24 (sidebarItemHover) |
+| `visual-studio-cpp-dark` | `editor.selection` #1E1E1E → #232323 (editorSelection)<br>`editor.lineHighlight` #1E1E1E → #212121 (editorCurrentLine)<br>`terminal.selection` #1E1E1E → #232323 (terminalSelection)<br>`appSidebar.itemHover` #1E1E1E → #232323 (sidebarItemHover)<br>`appSidebar.itemActive` #1E1E1E → #232323 (sidebarItemActive)<br>`appSidebar.itemActive` #232323 → #282828 (sidebarActiveVsHover)<br>`button.primaryBackground` #1E1E1E → #232323 (switchCheckedTrackOnCard)<br>`button.hoverBackground` #1E1E1E → #232323 (buttonHover) |
+| `visual-studio-cpp-light` | `editor.selection` #FFFFFF → #f8f8f8 (editorSelection)<br>`editor.lineHighlight` #FFFFFF → #fcfcfc (editorCurrentLine)<br>`terminal.selection` #FFFFFF → #f8f8f8 (terminalSelection)<br>`appSidebar.itemActive` #FFFFFF → #f8f8f8 (sidebarItemActive)<br>`button.primaryBackground` #FFFFFF → #f8f8f8 (switchCheckedTrackOnCard)<br>`button.hoverBackground` #FFFFFF → #f8f8f8 (buttonHover) |
+| `vitesse-dark` | `explorer.itemSelected` #181818 → #1d1d1d (explorerSelectedVsHover)<br>`appSidebar.itemActive` #181818 → #1d1d1d (sidebarActiveVsHover)<br>`button.hoverBackground` #4d9375 → #56977a (buttonHover)<br>`input.border` #191919 → #1d1d1d (inputBorder)<br>`panel.inputBorder` #191919 → #1d1d1d (panelInputBorder)<br>`app.focusBorder` #00000000 → #171716 (focusBorderOnApp)<br>`input.focusBorder` #00000000 → #1d1d1d (inputFocusBorder) |
+| `vitesse-light` | `explorer.itemSelected` #f7f7f7 → #f0f0f0 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #f7f7f7 → #f0f0f0 (sidebarActiveVsHover)<br>`button.hoverBackground` #1c6b48 → #1e6747 (buttonHover)<br>`app.focusBorder` #00000000 → #f8f8f8 (focusBorderOnApp)<br>`input.focusBorder` #00000000 → #f0f0f0 (inputFocusBorder) |
+| `vscode-abyss` | `editor.inactiveSelection` #000c18 → #010d1a (editorInactiveSelection)<br>`terminal.selection` #000c18 → #020e1c (terminalSelection) |
+| `vscode-dark-modern` | `editor.selection` #1F1F1F → #242424 (editorSelection)<br>`editor.lineHighlight` #1F1F1F → #222222 (editorCurrentLine)<br>`appSidebar.itemActive` #1F1F1F → #242424 (sidebarActiveVsHover) |
+| `vscode-dark-plus` | `editor.selection` #1E1E1E → #232323 (editorSelection)<br>`editor.lineHighlight` #1E1E1E → #212121 (editorCurrentLine)<br>`terminal.selection` #1E1E1E → #232323 (terminalSelection)<br>`appSidebar.itemHover` #1E1E1E → #232323 (sidebarItemHover)<br>`appSidebar.itemActive` #1E1E1E → #232323 (sidebarItemActive)<br>`appSidebar.itemActive` #232323 → #282828 (sidebarActiveVsHover)<br>`button.primaryBackground` #1E1E1E → #232323 (switchCheckedTrackOnCard)<br>`button.hoverBackground` #1E1E1E → #232323 (buttonHover) |
+| `vscode-kimbie-dark` | `editor.inactiveSelection` #221a0f → #241c10 (editorInactiveSelection)<br>`terminal.selection` #221a0f → #271e12 (terminalSelection) |
+| `vscode-light-modern` | `editor.selection` #FFFFFF → #f8f8f8 (editorSelection)<br>`editor.lineHighlight` #FFFFFF → #fcfcfc (editorCurrentLine)<br>`list.hoverBackground` #F2F2F2 → #f1f1f1 (listHover)<br>`explorer.itemHover` #F2F2F2 → #f1f1f1 (explorerItemHover)<br>`appSidebar.itemHover` #F2F2F2 → #f1f1f1 (sidebarItemHover) |
+| `vscode-light-plus` | `editor.selection` #FFFFFF → #f8f8f8 (editorSelection)<br>`editor.lineHighlight` #FFFFFF → #fcfcfc (editorCurrentLine)<br>`terminal.selection` #FFFFFF → #f8f8f8 (terminalSelection)<br>`appSidebar.itemActive` #FFFFFF → #f8f8f8 (sidebarItemActive)<br>`button.primaryBackground` #FFFFFF → #f8f8f8 (switchCheckedTrackOnCard)<br>`button.hoverBackground` #FFFFFF → #f8f8f8 (buttonHover) |
+| `vscode-monokai-dimmed` | `editor.inactiveSelection` #1e1e1e → #212121 (editorInactiveSelection)<br>`terminal.selection` #1e1e1e → #232323 (terminalSelection) |
+| `vscode-quiet-light` | `editor.inactiveSelection` #F5F5F5 → #f2f2f2 (editorInactiveSelection)<br>`terminal.selection` #F5F5F5 → #eeeeee (terminalSelection) |
+| `vscode-red` | `editor.inactiveSelection` #390000 → #3b0303 (editorInactiveSelection)<br>`terminal.selection` #390000 → #3d0505 (terminalSelection) |
+| `vscode-solarized-dark` | `editor.inactiveSelection` #002B36 → #042e39 (editorInactiveSelection)<br>`terminal.selection` #002B36 → #06303a (terminalSelection) |
+| `vscode-tomorrow-night-blue` | `editor.inactiveSelection` #002451 → #022652 (editorInactiveSelection)<br>`terminal.selection` #002451 → #062955 (terminalSelection)<br>`button.primaryBackground` #002451 → #062955 (switchCheckedTrackVsThumb)<br>`button.hoverBackground` #002451 → #062955 (buttonHover) |
+
+**그림자 축 (d-61 검토 G-2).** `app.shadow` 는 비교할 컨테이너가 없다 — `global.css` 의
+`@utility shadow-overlay`/`shadow-overlay-lg` 가 떠 있는 표면 전부의 드롭섀도로, `modal-scrim` 이
+그 절반 세기로 모달 스크림으로 쓴다. 그래서 다른 축과 달리 **자기 알파**를 본다:
+`APP_SHADOW_MIN_ALPHA = 0.149` 미만이면 위반이고, 수리는 **검정 하한값 `#00000026` 으로 교체**한다.
+
+- 임계 근거: `0.149` 는 VS Code 자신의 라이트 테마 `widget.shadow` 기본값(`#00000026`, 38/255)이자
+  이 변환기의 라이트 `SAFE_DEFAULT_COLORS.shadow` 다. 이 카탈로그에 맞춰 고른 값이 아니라 플랫폼이
+  출하하는 가장 옅은 그림자를 바닥으로 삼았다. 47종 실측 분포: **0.000 이 4종**(`tokyo-night`
+  `#ffffff00` · `tokyo-night-storm` `#ffffff00` · `tokyo-night-light` `#ffffff00` · `vitesse-dark`
+  `#00000000`), 0.071 1종(`ayu-light`), 0.125 2종(`everforest-light`·`intellij-islands-light`),
+  그 위로 0.149(5종)·0.188~0.502·1.000(5종) 40종. 하한은 앞의 7종만 올리고 나머지를 건드리지 않는다.
+- 선언 RGB 를 유지하지 않는 이유: 알파가 0 인 토큰의 RGB 는 쓸 수 있는 정보가 아니다.
+  `tokyo-night` 는 `#ffffff00` 을 출하하는데 그 알파만 올리면 다크 테마에 **흰 글로우와 흰 스크림**이
+  깔린다(§1.C 가 `rgb(from …)` 방식을 기각한 것과 같은 이유). 그림자는 뒤에 있는 것을 어둡게 하는
+  것이고, 이 변환기와 VS Code 의 shadow 기본값은 라이트·다크 양쪽 다 검정이다.
+
+**검토 재측정 (d-61 검토 A-1·A-2, 47종 · 정정 전).** 형제 판정으로 바뀐 5축과 새로 추가한 14축의
+분포다. 나머지 축은 위 38종 표에서 바뀌지 않았다.
+
+| 축(label) | 상태 → 바탕 | 임계 | ΔE 0.00 | 0<ΔE<임계 | 임계 이상 최솟값 | 중앙값 | 정정 |
+|---|---|---|---|---|---|---|---|
+| `listActiveVsHover` | `list.activeBackground` → `list.hoverBackground` (형제) | 2.3 | 0 | 1 | 2.40 | 15.93 | 1 |
+| `listHoverOnActiveTab` | `list.hoverBackground` → `tabBar.tabActiveBackground` | 2.3 | 3 | 1 | 2.34 | 6.18 | 4 |
+| `listHoverOnInactiveTab` | `list.hoverBackground` → `tabBar.tabInactiveBackground` | 2.3 | 0 | 3 | 2.34 | 5.98 | 3 |
+| `explorerSelectedVsHover` | `explorer.itemSelected` → `explorer.itemHover` (형제) | 2.3 | 3 | 1 | 2.35 | 8.74 | 4 |
+| `explorerHoverOnPanel` | `explorer.itemHover` → `panel.background` | 2.3 | 0 | 0 | 2.38 | 6.41 | 0 |
+| `explorerSelectedOnPanel` | `explorer.itemSelected` → `panel.background` | 2.3 | 0 | 0 | 2.53 | 12.65 | 0 |
+| `explorerFocusedOnPanel` | `explorer.itemFocused` → `panel.background` | 2.3 | 0 | 0 | 2.77 | 10.30 | 0 |
+| `explorerHoverOnStatusBar` | `explorer.itemHover` → `appSidebar.background` | 2.3 | 0 | 0 | 2.32 | 6.31 | 0 |
+| `explorerSelectedOnStatusBar` | `explorer.itemSelected` → `appSidebar.background` | 2.3 | 0 | 1 | 2.53 | 12.65 | 1 |
+| `explorerHoverOnEditorWidget` | `explorer.itemHover` → `editor.widgetBackground` | 2.3 | 0 | 1 | 2.43 | 6.01 | 1 |
+| `sidebarActiveVsHover` | `appSidebar.itemActive` → `appSidebar.itemHover` (형제) | 2.3 | 3 | 1 | 2.35 | 4.77 | 4 |
+| `sidebarHoverOnEditor` | `appSidebar.itemHover` → `editor.background` | 2.3 | 1 | 3 | 2.34 | 4.85 | 4 |
+| `sidebarHoverOnApp` | `appSidebar.itemHover` → `app.background` | 2.3 | 1 | 3 | 2.34 | 4.85 | 4 |
+| `sidebarActiveOnApp` | `appSidebar.itemActive` → `app.background` | 2.3 | 0 | 0 | 2.42 | 8.07 | 0 |
+| `sidebarHoverOnTabBar` | `appSidebar.itemHover` → `tabBar.background` | 2.3 | 0 | 1 | 2.34 | 4.33 | 1 |
+| `tabActiveVsInactive` | `tabBar.tabActiveBackground` → `tabBar.tabInactiveBackground` (형제) | 2.3 | 11 | 4 | 2.42 | 3.51 | 0 (15 전부 인디케이터 대안 통과) |
+| `switchCheckedVsUncheckedTrack` | `button.primaryBackground` → `input.border` (형제) | 2.3 | 1 | 0 | 2.31 | 44.80 | 1 |
+| `modalItemHover` | `modal.itemHover` → `modal.background` | 2.3 | 5 | 3 | 2.45 | 4.91 | 8 |
+
+> `sidebarHoverOnEditor` 와 `sidebarHoverOnApp` 의 수치가 같은 것은 우연이 아니다 — 변환기가
+> `app.background` 를 `editor.background` 에서 파생하므로(`mapping-tables.ts`) 번들 테마에서는 두 토큰이
+> 항상 같은 값이다. 소비처가 서로 다른 별개의 토큰이라 행은 둘 다 둔다(손수정·사용자 저장 테마는
+> 둘을 다르게 둘 수 있다).
+
+**검토 데이터 정정 결과 (d-61 검토).** 위 변경으로 `bun run themes:repair-state-distinctness` +
+`bun run themes:repair-contrast` 를 다시 돌려 **47종 중 22종, 46개 토큰**이 추가로 정정됐다(둘 다
+재실행 0건). 아래 표의 "전" 값은 d-61 §1.A·§1.B 반영본이다. `→ a → b` 로 두 번 적힌 것은 한 토큰이
+서로 다른 축에 연달아 걸려 두 패스에 걸쳐 이동한 경우다.
+
+| 테마 | 정정 토큰 (이전 → 이후, 축) |
+|---|---|
+| `ayu-dark` | `explorer.itemSelected` #47526640 → #202630 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #47526640 → #202630 (sidebarActiveVsHover) |
+| `ayu-light` | `explorer.itemSelected` #6b7d8f24 → #dde0e5 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #6b7d8f24 → #dde0e5 (sidebarActiveVsHover)<br>`app.shadow` #6b7d8f12 → #00000026 (appShadow) |
+| `ayu-mirage` | `explorer.itemSelected` #63759926 → #2e3646 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #63759926 → #2e3646 (sidebarActiveVsHover) |
+| `darcula` | `list.hoverBackground` #2A2D2E → #323232 (listHoverOnInactiveTab)<br>`explorer.itemHover` #2A2D2E → #363636 → #404040 (explorerHoverOnEditorWidget → explorerHoverOnStatusBar)<br>`modal.itemHover` #242424 → #292929 (modalItemHover) |
+| `everforest-dark` | `modal.itemHover` #2d353b00 → #323a3f (modalItemHover) |
+| `everforest-light` | `modal.itemHover` #fdf6e300 → #f5efde (modalItemHover)<br>`app.shadow` #3c474d20 → #00000026 (appShadow) |
+| `gruvbox-dark` | `list.hoverBackground` #3c383680 → #423e3a (listHoverOnActiveTab) |
+| `gruvbox-light` | `list.hoverBackground` #ebdbb280 → #e3d4ad (listHoverOnActiveTab) |
+| `intellij-islands-light` | `app.shadow` #00000020 → #00000026 (appShadow) |
+| `nord` | `list.hoverBackground` #3b4252 → #414857 (listHoverOnActiveTab) |
+| `one-monokai` | `explorer.itemSelected` #2e3239 → #353942 (explorerSelectedOnStatusBar)<br>`appSidebar.itemHover` #292d35 → #2d3138 → #353942 (sidebarHoverOnEditor → sidebarItemHover)<br>`appSidebar.itemActive` #353942 → #3b3e47 (sidebarActiveVsHover) |
+| `rose-pine-dawn` | `list.activeBackground` #6e6a8614 → #ece6e3 (listActiveVsHover)<br>`explorer.itemSelected` #6e6a8614 → #ece6e3 (explorerSelectedVsHover)<br>`appSidebar.itemActive` #6e6a8614 → #ece6e3 (sidebarActiveVsHover) |
+| `tokyo-night` | `appSidebar.itemHover` #1b1b24 → #1e202b (sidebarHoverOnEditor)<br>`appSidebar.itemActive` #202330 → #232531 (sidebarActiveVsHover)<br>`modal.itemHover` #13131a → #1b1b24 (modalItemHover)<br>`app.shadow` #ffffff00 → #00000026 (appShadow) |
+| `tokyo-night-light` | `list.hoverBackground` #e1e2e8 → #d3d5dd → #cfd1d9 (listHoverOnActiveTab → listHoverOnInactiveTab)<br>`list.activeBackground` #cfd1d9 → #c8cad2 (listActiveVsHover)<br>`appSidebar.itemHover` #e1e2e8 → #dfe0e7 (sidebarHoverOnEditor)<br>`app.shadow` #ffffff00 → #00000026 (appShadow) |
+| `tokyo-night-storm` | `app.shadow` #ffffff00 → #00000026 (appShadow) |
+| `visual-studio-cpp-dark` | `modal.itemHover` #1E1E1E → #232323 (modalItemHover) |
+| `vitesse-dark` | `app.shadow` #00000000 → #00000026 (appShadow) |
+| `vscode-dark-modern` | `appSidebar.itemHover` #1F1F1F → #242424 (sidebarHoverOnEditor)<br>`appSidebar.itemActive` #242424 → #292929 (sidebarActiveVsHover)<br>`modal.itemHover` #1F1F1F → #252525 (modalItemHover)<br>`menu.itemHover` #0078d4 → #2A2D2E (§8.6 menuItemHoverText) |
+| `vscode-dark-plus` | `modal.itemHover` #1E1E1E → #232323 (modalItemHover) |
+| `vscode-light-modern` | `modal.itemHover` #F2F2F2 → #f1f1f1 (modalItemHover)<br>`menu.itemHover` #005FB8 → #f1f1f1 (§8.6 menuItemHoverText) |
+| `vscode-monokai-dimmed` | `list.hoverBackground` #444444 → #464646 (listHoverOnInactiveTab) |
+| `vscode-solarized-dark` | `list.hoverBackground` #004454AA → #094657 (listHoverOnInactiveTab)<br>`appSidebar.itemHover` #004454AA → #094657 (sidebarHoverOnTabBar)<br>`button.primaryBackground` #2AA19899 → #267371 (switchCheckedVsUncheckedTrack)<br>`button.primaryForeground` #afbabb → #b7c0c1 (§8.6 buttonPrimary) |
+
+**일부러 넣지 않은 축.** 표는 "실사용 전수"지만, 아래는 위 ①②를 만족하지 않아 의도적으로 제외했다.
+재검토가 필요하면 근거부터 뒤집어야 한다.
+
+| 제외 축 | 사유 |
+|---|---|
+| `explorer.itemSelected` vs `explorer.itemFocused` | 한 행의 상호배타적 렌더링(트리 포커스 유무)이라 동시에 보이지 않는다. 트리 포커스는 `app.focusBorder`/`list.focusOutline` 로도 표시된다 |
+| `scrollbar.thumbHover` vs `scrollbar.thumb` | 썸은 하나뿐이라 자기 자신과 비교되지 않는다. 38종 중 33종이 동일값이고, 업스트림이 슬라이더 색을 하나만 정의하는 관행이라 hover 음영을 창작하는 셈이 된다 |
+| `tabBar.tabInactiveBackground` vs `tabBar.background` | 비활성 탭이 스트립에 녹아드는 것은 플랫 디자인 자체이고, 활성/비활성 구별은 `tabActiveVsInactive` 가 이미 본다 |
+| `app.border` vs `app.background`/`panel.background` | 테두리 없는(borderless) 디자인이 실재하는 미학 선택이다. 별도 판단이 필요해 후속으로 남긴다 |
+| `editor.hoverBackground`·`editor.widgetBackground` vs `editor.background` | 상태가 아니라 표면이고 각자 `editor.widgetBorder` 로 경계를 가진다 |
+| `popover.itemHover`·`tooltip.itemHover` | 소비처가 없다(§3.1 예외 등재분) — 팝오버는 항목 목록이 없고 툴팁은 한 줄 텍스트뿐이다. 배선되면 각각 한 행씩 추가한다. 함께 묶여 있던 `modal.itemHover` 는 §1.C 가 다이얼로그 닫기 버튼에 배선해 **`modalItemHover` 행으로 승격**됐다 |
+| `list.hoverBackground` vs `explorer.itemHover`·`appSidebar.itemHover` | 같은 hover 개념의 서로 다른 표면용 토큰이라, 한 화면에서 나란히 비교되는 두 상태가 아니다. 각자 자기 컨테이너 축에서 이미 검사된다 |
+
+**재실행.** 쌍 표나 임계를 바꿨거나 테마를 추가했으면
+`bun run themes:repair-state-distinctness` 를 돌려 JSON 을 갱신하고
+`bun test src/shared/lib/theme-convert` 로 게이트를 확인한다. Rust 카탈로그 린트는 같은 표·임계·합성
+규칙을 복제하며, 라벨/개수 비교 테스트로 TS 정본과의 드리프트를 막는다(§8.3).
+
+### 8.6 컴포넌트 전경/배경 대비 전수 린트 (d-61 §1.B)
+
+§8.2 의 대비 가드는 7쌍(앱·에디터·패널 헤더·툴팁·매치 강조 5 blocking + 선택 행 2 advisory)만 본다.
+그 7쌍이 통과해도 **실제 화면의 글자 대부분은 검사되지 않는다** — 상태바 문구, 설정 카드의 설명글,
+파일트리의 git 데코, 문제 패널의 심각도 색, 버튼 라벨, 탭 제목, 찾기 입력의 placeholder 는 어느
+쌍에도 걸리지 않았다. 이 절의 린트는 그 공백을 컴포넌트 실사용 기준으로 메운다. 임계는 기존과 같은
+`MIN_CONTRAST_RATIO = 3` 이다.
+
+**정본 파일**
+
+| 파일 | 역할 |
+|---|---|
+| `src/shared/lib/theme-convert/component-contrast-pairs.ts` | 쌍 표(`COMPONENT_CONTRAST_PAIRS`) 36행 + 자문 표(`FIXED_FOREGROUND_CONTRAST_PAIRS`) + 예외 레지스트리(`COMPONENT_CONTRAST_EXEMPTIONS`). Rust 미러가 그대로 복제하는 원본 |
+| `src/shared/lib/theme-convert/contrast.ts` | `validateComponentContrast` / `repairComponentContrast` / `validateFixedForegroundContrast` / `validateTerminalAnsiContrast` / `isExemptComponentContrastViolation`, `repairContrastPairs` 통합 |
+| `src/shared/lib/theme-convert/bundled-theme-contrast.test.ts` | 번들 전수 게이트(예외 등재 2 — 아래) + 쌍 표 불변식 |
+| `scripts/repair-theme-contrast.ts` | 번들 JSON 정정(`bun run themes:repair-contrast`, 멱등) |
+
+**기존 `CONTRAST_PAIRS` 를 늘리지 않고 표를 나눈 이유.** 그 7쌍에는 깨면 안 되는 약속이 둘 붙어
+있다 — blocking 5쌍은 VSIX 임포트 거부 여부를 결정하고(d-40 §1-a "기존 5쌍 판정·수리 불변"),
+advisory 2쌍은 예외 등재 테마별 **위반 개수까지** 테스트가 고정한다. 같은 배열에 행을 더하면 두
+약속이 모두 바뀐다. 새 표는 임포트를 거부할 수 없는 자문 축으로만 동작한다.
+
+**도출·판정.** 쌍은 §8.5 와 같은 방식으로 **코드에서** 뽑는다(`global.css` 의 `@theme inline` 과
+shadcn 브리지 변수 → 컴포넌트 클래스, `monaco/theme.ts` → 임베디드 에디터, `xterm-theme.ts` → 터미널).
+각 행은 배경이 놓이는 **표면(`surfaceKey`)을 필수로** 선언하고, 판정 전에 배경을 그 표면 위에,
+표면을 다시 `app.background` 위에 합성한다. 선택이 아니라 필수인 이유는 이 카탈로그에서 반투명
+배경이 예외가 아니기 때문이다 — `button.background` 9종, `list.hoverBackground` 20종이 `#rrggbbaa`
+이고, rose-pine 계열은 `tabBar.background`·`tabBar.tabInactiveBackground` 를 `#00000000` 으로 둔다.
+raw RGB 로 읽으면 투명한 탭 스트립이 **검정**으로 측정돼 없는 결함이 잡힌다.
+
+**수리 규칙 — 전경을 자기 색상(hue)대로 최소한만 옮긴다.**
+
+1. 수리 단위는 쌍이 아니라 **전경 토큰**이다. 한 토큰이 여러 표면에 그려지면(`statusIndicator.error`
+   는 상태바와 문제 패널, `appSidebar.iconDefault` 는 상태바·설정 카드·트리) 그 표면 전부를 동시에
+   만족하는 값 하나로 한 번만 옮긴다. 쌍 단위로 고치면 같은 토큰을 서로 반대로 밀게 된다.
+2. 후보 토큰 교체(blocking 쌍이 쓰는 방식)를 쓰지 않는다. 다른 토큰 값을 가져오면 색상이 통째로
+   바뀌어 테마 정체성을 잃는다. 대신 현재 색에서 검정·흰색 양 끝을 향해 각각 한 스텝씩(256단계)
+   걸어 **모든 표면을 만족하는 첫 지점**을 찾고, 두 방향 중 ΔE 가 작은 쪽을 고른다. 검정/흰색 혼합은
+   세 채널을 같은 비율로 움직이므로 색상은 유지되고 명도만 바뀐다. 이분 탐색이 아니라 순차 탐색인
+   것은, 표면 명도가 두 끝 사이에 있으면 광선 위 대비가 단조롭지 않아 이분 탐색이 최근접 해를 지나칠
+   수 있기 때문이다.
+3. 공유 축은 **제약으로만** 쓴다. `list.foreground` 는 이 표의 두 행과 d-40 `selectionForeground`
+   의 전경을 겸한다. 치환값은 `list.activeBackground` 도 만족해야 하지만, 그 축의 미달이 수리를
+   **촉발하지는 않는다** — 그 축의 예외 등재(everforest-light·rose-pine-dawn)가 어떤 테마가 왜 남아
+   있는지를 고정하고 있기 때문이다.
+4. 어느 방향으로도 모든 표면을 만족하지 못하면(두 표면이 서로 반대쪽 명도) **수리하지 않고 남긴다.**
+   한쪽을 고치려고 다른 쪽을 깨지 않는다.
+5. 결과값은 항상 불투명이다. 측정한 값이 표면 합성 결과이므로, 알파를 남기면 표면마다 다르게 읽히는
+   색을 하나의 수리값에 다시 집어넣는 셈이 된다.
+6. **예외적으로 배경을 옮기는 축이 하나 있다 (d-61 검토 G-3).** `menuItemHoverText`
+   (`app.foreground` on `menu.itemHover`)는 전경이 전역 본문색이라 1~5 를 그대로 적용하면 메뉴 한
+   행 때문에 앱 전체 글자색이 움직인다. 그래서 `COMPONENT_CONTRAST_BACKGROUND_SUBSTITUTES` 에 따라
+   **`menu.itemHover` 를 `list.hoverBackground` 로 치환**한다 — 그 테마 자신의 행 hover 틴트이고,
+   §8.2 매핑 체인도 이제 `menu.itemHover` 를 거기서 먼저 파생한다. 치환 후보는 ① 3:1 을 실제로
+   넘고 ② `menu.background` 와 ΔE 2.3(§8.5 `menuItemHover` 축) 이상 떨어져 있어야만 채택한다 —
+   못 넘으면 **원래 값을 그대로 둔다**(이 린트의 실패를 §8.5 의 실패로 바꾸지 않고, 더 나쁜 값으로
+   바꾸지도 않는다). 배경 치환 패스는 전경 패스보다 **먼저** 돈다.
+
+수리는 배경 치환 1패스 + 전경 1패스로 완결된다(전경 토큰이 어떤 쌍의 배경·표면도 아니라는 표
+불변식 테스트가 고정). `convert.ts` 는 `repairContrastPairs` 안에서 blocking → 선택 행 → 컴포넌트
+순으로 돌린다.
+
+**정정 결과 — 번들 47종 중 37종 167토큰.** 아래 표의 "전" 값은 §8.5 정정까지 반영된 커밋 상태다.
+
+| 테마 | 토큰 | 전 → 후 |
+|---|---:|---|
+| `ayu-dark` | 2 | appSidebar.iconDefault #5a637899→#5a606c · input.placeholder #5a637880→#5d626d |
+| `ayu-light` | 14 | appSidebar.iconDefault #828e9f99→#8b9199 · appSidebar.badge #f29718→#cc7f14 · explorer.gitAdded #6cbf43→#5ba138 · explorer.gitDeleted #ff7383→#e66876 · explorer.gitUntracked #6cbf43→#5ba138 · terminal.linkForeground #f29718→#cd8014 · git.added #6cbf43→#5ba138 · git.deleted #ff7383→#e66876 · git.renamed #21a1e2→#1f99d7 · git.untracked #6cbf43→#5ba138 · statusIndicator.info #21a1e2→#1f99d7 · statusIndicator.warning #f29718→#cc7f14 · statusIndicator.success #6cbf43→#5ba138 · input.placeholder #828e9f80→#8e9399 |
+| `darcula` | 1 | statusIndicator.error #cd3131→#d75c5c |
+| `dracula` | 1 | appSidebar.iconDefault #6272A4→#7180ad |
+| `everforest-dark` | 2 | explorer.gitDeleted #e67e80a0→#a76d70 · git.deleted #e67e80a0→#a76d70 |
+| `everforest-light` | 21 | appSidebar.iconDefault #939f91→#879285 · appSidebar.badge #93b259→#7e984c · tabBar.tabInactiveForeground #a4ad9e→#8a9185 · tabBar.previewForeground #879686→#849383 · explorer.gitModified #3a94c5a0→#6a95a8 · explorer.gitAdded #8da101a0→#8d9441 · explorer.gitDeleted #f85552a0→#cd776f · explorer.gitUntracked #dfa000a0→#aa8b3e · terminal.linkForeground #8da101→#859801 · git.added #8da101a0→#8d9441 · git.modified #3a94c5a0→#6a95a8 · git.deleted #f85552a0→#cd776f · git.untracked #dfa000a0→#aa8b3e · git.conflicted #df69baa0→#b87d9e · git.staged #35a77ca0→#659a80 · statusIndicator.info #6cb3c6→#5b97a7 · statusIndicator.warning #e4b649→#ad8a38 · statusIndicator.error #f1706f→#e36968 · statusIndicator.success #8da101→#859801 · input.placeholder #a4ad9e→#8a9185 · button.primaryForeground #fdf6e3→#595750 |
+| `github-dark` | 1 | appSidebar.badge #0366d6→#096ad7 |
+| `github-light` | 8 | appSidebar.iconDefault #959da5→#899198 · explorer.gitAdded #28a745→#28a544 · explorer.gitUntracked #28a745→#28a544 · git.added #28a745→#28a544 · git.untracked #28a745→#28a544 · statusIndicator.warning #f9c513→#b08b0d · statusIndicator.success #28a745→#28a544 · input.placeholder #959da5→#8b939a |
+| `gruvbox-dark` | 4 | explorer.gitDeleted #cc241d→#d13831 · git.deleted #cc241d→#d13831 · statusIndicator.error #cc241d→#d13831 · input.placeholder #ebdbb260→#7a7465 |
+| `intellij-islands-light` | 4 | appSidebar.iconDefault #AEB3C2→#9094a1 · statusIndicator.info #88ADF7→#7494d3 · statusIndicator.warning #F2BF57→#b58f41 · input.placeholder #AEB3C2→#9094a1 |
+| `monokai` | 3 | explorer.gitDeleted #C4265E→#c4285f · git.deleted #C4265E→#c4285f · statusIndicator.error #C4265E→#c9376b |
+| `night-owl-light` | 7 | explorer.gitModified #E0AF02→#aa8502 · git.modified #E0AF02→#aa8502 · git.staged #E0AF02→#aa8502 · statusIndicator.warning #daaa01→#ab8501 · input.placeholder #93A1A1→#818d8d · button.foreground #F0F0F0→#464646 · button.primaryForeground #F0F0F0→#fbfbfb |
+| `night-owl` | 3 | appSidebar.badge #44596b→#516575 · explorer.gitDeleted #EF535090→#944d52 · git.deleted #EF535090→#944d52 |
+| `nord` | 1 | tabBar.tabInactiveForeground #d8dee966→#777d88 |
+| `one-dark-pro` | 1 | statusIndicator.error #c24038→#c64c44 |
+| `one-monokai` | 3 | statusIndicator.error #c24038→#ca5851 · button.foreground #D4D4D4→#f7f7f7 · button.primaryForeground #D4D4D4→#f7f7f7 |
+| `palenight` | 3 | appSidebar.badge #7e57c2→#8763c6 · explorer.gitDeleted #EF535090→#aa6267 · git.deleted #EF535090→#aa6267 |
+| `rose-pine-dawn` | 7 | appSidebar.badge #d7827e→#c77875 · explorer.gitModified #d7827e→#c77875 · explorer.gitUntracked #ea9d34→#bf802a · git.modified #d7827e→#c77875 · git.untracked #ea9d34→#bf802a · statusIndicator.warning #ea9d34→#bf802a · button.primaryForeground #faf4ed→#4d4c49 |
+| `solarized-light` | 13 | appSidebar.badge #B58900→#a87f00 · explorer.gitModified #b58900→#a87f00 · explorer.gitAdded #859900→#7b8e00 · explorer.gitUntracked #859900→#7b8e00 · git.added #859900→#7b8e00 · git.modified #b58900→#a87f00 · git.untracked #859900→#7b8e00 · git.staged #b58900→#a87f00 · statusIndicator.warning #b58900→#987300 · statusIndicator.success #859900→#708000 · input.placeholder #586E75AA→#707b79 · button.foreground #657B83→#435156 · button.primaryForeground #657B83→#435156 |
+| `tokyo-night` | 5 | appSidebar.iconDefault #3b3e52→#616373 · appSidebar.badge #3d59a1→#4661a5 · explorer.gitDeleted #914c54→#935057 · git.deleted #914c54→#935057 · input.placeholder #787c998A→#5f6172 |
+| `vitesse-dark` | 1 | appSidebar.iconDefault #dedcd550→#62615f |
+| `vitesse-light` | 1 | appSidebar.iconDefault #393a3450→#949493 |
+| `vscode-abyss` | 1 | terminal.linkForeground #0063a5→#2077b0 |
+| `vscode-kimbie-dark` | 6 | appSidebar.badge #7f5d38→#8c6d4c · explorer.gitDeleted #cd3131→#d03c3c · git.deleted #cd3131→#d03c3c · git.renamed #2472c8→#2673c8 · statusIndicator.info #2472c8→#2673c8 · statusIndicator.error #cd3131→#d03c3c |
+| `vscode-light-modern` | 4 | explorer.gitModified #949800→#929600 · git.modified #949800→#929600 · git.staged #949800→#929600 · statusIndicator.warning #949800→#929600 |
+| `vscode-monokai-dimmed` | 4 | appSidebar.badge #3655b5→#516cbf · explorer.gitDeleted #C4265E→#c9376b · git.deleted #C4265E→#c9376b · statusIndicator.error #C4265E→#d0517e |
+| `vscode-quiet-light` | 7 | explorer.gitModified #949800→#8e9100 · git.modified #949800→#8e9100 · git.staged #949800→#8e9100 · statusIndicator.warning #949800→#8b8e00 · statusIndicator.error #f1897f→#c77169 · button.foreground #1E1E1E→#151515 · button.primaryForeground #1E1E1E→#151515 |
+| `vscode-solarized-dark` | 3 | input.placeholder #93A1A1AA→#658185 · button.foreground #839496→#afbabb · button.primaryForeground #839496→#afbabb |
+| `vscode-tomorrow-night-blue` | 1 | statusIndicator.error #a92049→#b43c60 |
+
+§1.D 로 같은 배치에 추가된 9종은 변환 직후 값에서 정정됐고 그 "전" 값은 커밋된 적이 없다. 정정된
+토큰과 결과값만 남긴다(rose-pine-moon 은 정정 0).
+
+| 테마 | 토큰 | 정정 후 |
+|---|---:|---|
+| `ayu-mirage` | 2 | appSidebar.iconDefault #676e7b · input.placeholder #6c737f |
+| `catppuccin-frappe` | 3 | input.placeholder #8a91a9 · button.foreground #ced7f6 · tabBar.previewForeground #777d97 |
+| `catppuccin-latte` | 13 | explorer.gitAdded #3d9829 · explorer.gitModified #ba7718 · explorer.gitUntracked #3d9829 · git.added #3d9829 · git.modified #ba7718 · git.untracked #3d9829 · git.staged #ba7718 · appSidebar.iconDefault #7c7f8c · statusIndicator.warning #d95509 · statusIndicator.success #3a9127 · input.placeholder #717482 · tabBar.tabInactiveForeground #828592 · tabBar.previewForeground #878b99 |
+| `catppuccin-macchiato` | 1 | input.placeholder #7e849e |
+| `github-dark-dimmed` | 1 | input.placeholder #66717e |
+| `gruvbox-light` | 8 | explorer.gitModified #b5811c · explorer.gitUntracked #908f19 · git.modified #b5811c · git.untracked #908f19 · git.staged #b5811c · statusIndicator.warning #b5811c · statusIndicator.success #908f19 · input.placeholder #918b75 |
+| `tokyo-night-light` | 2 | appSidebar.iconDefault #777988 · statusIndicator.info #0b869c |
+| `tokyo-night-storm` | 5 | explorer.gitDeleted #9a5b63 · git.deleted #9a5b63 · appSidebar.iconDefault #666c87 · appSidebar.badge #536cac · input.placeholder #616884 |
+
+**제외 축.** 아래는 실제 렌더 쌍이지만 표에 넣지 않았다. 괄호 안은 현재 커밋된 47종 기준 실측
+(미달 테마 수 / 최소 비율).
+
+| 제외 축 | 실측 | 사유 |
+|---|---|---|
+| `explorer.gitIgnored` vs `explorer.background` | 27/47, 1.12 | 흐리게 보이는 것이 이 토큰의 **목적**이다(무시된 파일). 3:1 게이트는 의도와 정면으로 충돌하고, "의도적으로 흐림"에 원칙 있는 하한선이 없다 |
+| `editor.lineNumber` vs `editor.background` | 25/47, 1.48 | 같은 이유. VS Code 기본 줄번호도 3:1 미만이고, 활성 줄은 `editor.lineNumberActive` 가 따로 있다 |
+| `editorBlame.foreground` vs `editor.background` | 12/47, 1.58 | 인라인 blame 오버레이는 본문을 가리지 않도록 흐린 것이 설계다(`global.css` 가 `opacity: 0.8` 을 더한다) |
+| `button.primaryForeground` vs `statusIndicator.error` (destructive 버튼) | 19/47, 1.09 | **더 이상 렌더 쌍이 아니다** — d-61 검토 G-1 이 이 버튼의 라벨을 `text-white` 로 되돌렸다(§3.2). 아래 자문 표가 대신 계측한다. 애초에 제외했던 이유도 유효하다: **토큰 하나가 서로 다른 색 배경 둘을 동시에 섬긴다.** 기본 버튼 배경과 파괴 버튼 배경을 함께 만족하는 값이 4종(dracula·vscode-abyss·vscode-red·vscode-tomorrow-night-blue)에는 아예 없고, 나머지에서도 파괴 축 때문에 **기본 버튼 라벨**이 최대 ΔE 93.7(github-dark #dcffe4→#0f110f)까지 끌려간다. 올바른 해법은 표면별 전경 토큰인데 §1.F 가 신규 토큰을 금지한다 → 후속 |
+| `button.primaryForeground` vs `appSidebar.badge` (Monaco 배지) | 14/47, 1.79 | 같은 공유 토큰 문제. 배지·기본 버튼·파괴 버튼 셋을 함께 만족하는 값이 없는 테마가 4종으로 늘어난다 |
+| `app.foreground`/`editor.foreground` vs 상태 오버레이 (`explorer.itemSelected` 5/47 · `explorer.itemHover` 2/47 · `diff.insertedLineBackground` 12/47 · `diff.removedLineBackground` 8/47 · `editor.findMatch` 12/47) | 최소 1.01 | 전경이 **전역 본문색**이라 이 절의 수리 규칙(전경 이동)으로는 앱 전체 글자색을 옮기는 수밖에 없다. 실제 원인은 배경 쪽 상태 토큰(§8.5 소관)이므로 여기서 게이트하면 잘못된 토큰을 고치게 된다. §1.E 스크린샷 매트릭스의 판정 대상으로 남긴다 |
+| `panel.matchHighlight` vs `list.hoverBackground` | 3/47, 2.45 | `panel.matchHighlight` 는 이미 blocking·advisory 두 축에 묶여 있고 수리 경로가 그 둘로 포화 상태다. 세 번째 축은 새 예외 등재만 늘린다 |
+
+`app.foreground` 가 표면(상태 오버레이가 아닌) 위에 놓이는 축 — `menu.background`(최소 3.09) ·
+`panel.inputBackground`(최소 3.07) — 은 47종 전부 통과한다. 수리 불가라 게이트에 올리지 않았지만
+현재 여유가 0.1 도 안 되므로, 새 테마를 추가할 때 함께 확인한다.
+
+> `menu.itemHover` 축(`menuItemHoverText`)만은 이 그룹에서 **표로 승격**됐다(d-61 검토 G-3). 전경은
+> 같은 전역 본문색이지만 **배경 쪽에 수리 수단이 있기 때문**이다(수리 규칙 6). 승격 계기는 §1.C 가
+> 메뉴 hover 를 `menu.selectionBackground` 로 배선하면서 글자색은 그대로 둔 것이었다 —
+> `vscode-light-modern` 이 1.78:1(`#005FB8` 위 `#3b3b3b`), `vscode-dark-modern` 이 2.82:1 이 됐고,
+> 둘 다 `list.hoverBackground` 치환으로 9.92 / 8.64 가 됐다.
+
+**예외 등재 2 (`COMPONENT_CONTRAST_EXEMPTIONS`).** 수리로도 3:1 을 못 넘는 테마는 사유·실측과 함께
+등재한다. 게이트·수리 스크립트·Rust 린트가 **같은 레지스트리 하나**를 읽고, 게이트는 등재분이 실제로
+그 축에서만 위반하는지도 함께 확인한다(등재가 낡으면 실패).
+
+| 테마:축 | 실측 | 사유 |
+|---|---|---|
+| `ayu-dark:menuItemHoverText` | 2.72 (치환 후보 2.62) | `app.foreground`(`#5a6378`)가 **틴트 없는** `menu.background`(`#0f131a`) 위에서 이미 3.09:1 이다. hover 로 읽히는 틴트(ΔE 2.3 이상)는 그 여유를 반드시 소모한다. `list.hoverBackground` 치환은 2.62 로 더 나빠 적용하지 않는다 |
+| `ayu-light:menuItemHoverText` | 2.88 (치환 후보 2.83) | 같은 구조. `app.foreground`(`#828e9f`) vs 흰 `menu.background` 가 3.32:1 이고 **흰색보다 밝은 배경은 없으므로** 어떤 hover 틴트도 대비를 낮춘다 |
+
+두 테마 모두 근본 원인은 ayu 계열의 dim 한 UI 전경이다. 고치려면 `app.foreground` 를 옮겨야 하는데,
+그것이 정확히 이 표가 절대 건드리지 않는 토큰이다(위 제외 축 표 참고).
+
+**고정 전경 자문 린트 — `FIXED_FOREGROUND_CONTRAST_PAIRS`(게이트·수리 없음).** 전경이 컴포넌트 안의
+리터럴이라 테마가 바꿀 수 없는 축이다. `validateFixedForegroundContrast(theme.colors)` 가 보고만
+한다. 현재 1행 — `shared/ui/button.tsx` 의 파괴적 버튼 라벨 `text-white` 위
+`statusIndicator.error`(§3.2) — 이고, 47종 중 **10종이 3:1 미만**이다(토큰이었을 때의 19종보다 적다).
+
+| 테마 | 비율 | `statusIndicator.error` |
+|---|---:|---|
+| `vscode-red` · `vscode-solarized-dark` | 1.15 | `#ffeaea` |
+| `vscode-abyss` | 1.98 | `#ff9da4` |
+| `catppuccin-mocha` | 2.32 | `#f38ba8` |
+| `catppuccin-macchiato` | 2.47 | `#ed8796` |
+| `catppuccin-frappe` | 2.65 | `#e78284` |
+| `github-dark` | 2.66 | `#f97583` |
+| `ayu-mirage` | 2.86 | `#ff6666` |
+| `rose-pine` · `rose-pine-moon` | 2.91 | `#eb6f92` |
+
+수리하지 않는 이유는 `statusIndicator.error` 가 **전경 토큰**이기 때문이다 — 상태바·문제 패널에서
+글자로 쓰이며 이미 이 표의 `statusBarError`/`problemError` 축이 그 용도로 값을 고정한다. 파괴 버튼의
+배경으로 쓰인다는 이유로 같은 토큰을 어둡게 옮기면 글자 용도가 깨진다. 올바른 해법은 전용
+`button.destructiveBackground` 토큰이고, §1.F 가 신규 토큰을 금지하므로 후속으로 남긴다.
+
+**검토 재정정 3토큰 (d-61 검토).** 위 변경과 §8.5 재정정으로 이 린트가 추가로 옮긴 토큰이다.
+
+| 테마 | 토큰 | 전 → 후 | 축 |
+|---|---|---|---|
+| `vscode-light-modern` | `menu.itemHover` | #005FB8 → #f1f1f1 | menuItemHoverText (1.78 → 9.92) |
+| `vscode-dark-modern` | `menu.itemHover` | #0078d4 → #2A2D2E | menuItemHoverText (2.82 → 8.64) |
+| `vscode-solarized-dark` | `button.primaryForeground` | #afbabb → #b7c0c1 | buttonPrimary — §8.5 가 `button.primaryBackground` 를 `#2AA19899`→`#267371` 로 옮긴 데 따른 연쇄 |
+
+**터미널 ANSI 16색 — 자문 전용(게이트·수리 없음).** `validateTerminalAnsiContrast(theme.terminal)`
+이 보고만 한다. 47종 실측(미달 수 / 최소 / 중앙값):
+
+| ANSI | 미달 | 최소 | 중앙 |
+|---|---:|---:|---:|
+| `black` | 34/47 | 1.00 | 1.35 |
+| `red` | 3/47 | 2.68 | 4.55 |
+| `green` | 6/47 | 2.17 | 6.13 |
+| `yellow` | 11/47 | 1.89 | 7.62 |
+| `blue` | 1/47 | 2.74 | 5.34 |
+| `magenta` | 2/47 | 2.34 | 5.09 |
+| `cyan` | 6/47 | 2.23 | 5.96 |
+| `white` | 7/47 | 1.00 | 8.89 |
+| `brightBlack` | 21/47 | 1.00 | 3.12 |
+| `brightRed` | 1/47 | 2.73 | 4.85 |
+| `brightGreen` | 9/47 | 1.95 | 7.14 |
+| `brightYellow` | 11/47 | 1.70 | 8.69 |
+| `brightBlue` | 3/47 | 2.24 | 5.82 |
+| `brightMagenta` | 3/47 | 1.56 | 5.67 |
+| `brightCyan` | 7/47 | 2.16 | 7.01 |
+| `brightWhite` | 12/47 | 1.00 | 10.84 |
+
+게이트로 올리지 않는 이유는 둘이다. ① 무채색 양 끝(`black`·`brightBlack`·`white`·`brightWhite`)이
+배경과 겹치는 것은 결함이 아니라 터미널 관행이다 — 어떤 터미널이든 검정 배경에 검정 글자를 찍으면
+안 보인다. ② 유채색 미달까지 포함하면 137건인데, ANSI 색은 테마 팔레트 그 자체라 `graph.lane*`,
+에이전트 상태 아이콘, 신택스 폴백이 함께 쓴다. 임계를 맞추려고 옮기면 터미널보다 훨씬 넓은 범위가
+다시 칠해진다.
+
+**재실행.** 쌍 표를 바꿨거나 테마를 추가했으면 `bun run themes:repair-contrast` 로 JSON 을 갱신하고
+`bun test src/shared/lib/theme-convert` 로 게이트를 확인한다. 스크립트는 정정 후 §8.5 구별성 린트도
+다시 돌려, 두 린트가 공유하는 토큰(`appSidebar.badge`)에서 한쪽 수리가 다른 쪽을 깨지 않았는지
+확인한다.
+
 
 ## 9. VSIX 테마 임포트 (7.10-W5)
 
