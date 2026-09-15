@@ -19,7 +19,19 @@ export const shouldForwardNativeNotification = (input: { windowKind: WindowConte
     input.windowKind === 'main' && !input.isRemoteMirror
 
 /** Activities that count as "the agent handed control back", the only transitions worth notifying about. */
-const AGENT_COMPLETION_ACTIVITIES: readonly AgentActivity[] = ['idle', 'awaitingInput']
+const AGENT_COMPLETION_ACTIVITIES = ['idle', 'awaitingInput'] as const satisfies readonly AgentActivity[]
+
+/**
+ * Which of the two ways an agent can hand control back this completion was. They read as the same
+ * event to the gate — both end a working stretch — but not to the user: one is "your work is done"
+ * and the other is "I am blocked on you", so the notification body has to say which, and the tuple
+ * above is narrowed here rather than widened to `AgentActivity` so a third completion activity
+ * cannot be added without the message side being updated too.
+ */
+export type AgentCompletionActivity = (typeof AGENT_COMPLETION_ACTIVITIES)[number]
+
+const isAgentCompletionActivity = (activity: AgentActivity): activity is AgentCompletionActivity =>
+    AGENT_COMPLETION_ACTIVITIES.some((candidate) => candidate === activity)
 
 const WORKING_ACTIVITY: AgentActivity = 'working'
 
@@ -30,7 +42,7 @@ export type AgentWorkingSinceMap = Readonly<Record<string, number>>
 
 export type AgentCompletionEvaluation = {
     workingSince: AgentWorkingSinceMap
-    completed: { sessionId: string; name: string; workedForMs: number }[]
+    completed: { sessionId: string; name: string; workedForMs: number; activity: AgentCompletionActivity }[]
 }
 
 /**
@@ -62,10 +74,10 @@ export const evaluateAgentCompletions = (input: {
             workingSince[agent.sessionId] = startedAtMs ?? input.nowMs
             continue
         }
-        if (startedAtMs === undefined || !AGENT_COMPLETION_ACTIVITIES.includes(agent.activity)) continue
+        if (startedAtMs === undefined || !isAgentCompletionActivity(agent.activity)) continue
         const workedForMs = input.nowMs - startedAtMs
         if (workedForMs < input.minWorkingMs) continue
-        completed.push({ sessionId: agent.sessionId, name: agent.name, workedForMs })
+        completed.push({ sessionId: agent.sessionId, name: agent.name, workedForMs, activity: agent.activity })
     }
 
     return { workingSince, completed }

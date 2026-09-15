@@ -47,13 +47,21 @@ describe('evaluateAgentCompletions', () => {
 
     test('임계 이상 working 후 idle 로 바뀌면 완료로 본다', () => {
         const result = evaluate({ a: 1_000 }, [agent('a', 'idle')], 1_000 + MIN_WORKING_MS)
-        expect(result.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS }])
+        expect(result.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS, activity: 'idle' }])
         expect(result.workingSince).toEqual({})
     })
 
     test('awaitingInput 도 완료로 본다', () => {
         const result = evaluate({ a: 0 }, [agent('a', 'awaitingInput')], MIN_WORKING_MS)
         expect(result.completed.map((entry) => entry.sessionId)).toEqual(['a'])
+    })
+
+    test('완료 보고에 어느 쪽으로 제어를 넘겼는지 싣는다 (알림 문구가 갈린다)', () => {
+        const finished = evaluate({ a: 0 }, [agent('a', 'idle')], MIN_WORKING_MS)
+        const blocked = evaluate({ a: 0 }, [agent('a', 'awaitingInput')], MIN_WORKING_MS)
+
+        expect(finished.completed[0]?.activity).toBe('idle')
+        expect(blocked.completed[0]?.activity).toBe('awaitingInput')
     })
 
     test('임계 미만이면 알리지 않고 기록만 지운다', () => {
@@ -89,7 +97,7 @@ describe('evaluateAgentCompletions', () => {
         const second = evaluate(first.workingSince, [agent('a', 'working')], 5_000)
         const third = evaluate(second.workingSince, [agent('a', 'idle')], 1_000 + MIN_WORKING_MS)
 
-        expect(third.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS }])
+        expect(third.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS, activity: 'idle' }])
     })
 
     test('한 에이전트가 끝나도 아직 일하는 다른 에이전트의 시작 시각은 유지된다', () => {

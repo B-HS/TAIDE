@@ -1,8 +1,9 @@
 import { keepPreviousData, queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { DiffMode, GitStatus, OpenedFile, ProjectId } from '@shared/api/bindings'
+import type { DiffMode, GitStatus, OpenedFile, ProjectId, ProjectRef } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { i18next } from '@shared/i18n/i18n'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { joinNotificationBody, resolveProjectNotificationTitle } from '@shared/lib/notification-text'
 import { cancelAiRequest, generateAiCommitMessage } from '@entities/ai/ai.ipc'
 import { notifyNative } from '@entities/notification/notify'
 import {
@@ -204,18 +205,34 @@ const GIT_REMOTE_NOTIFICATION_TITLE_KEY = {
  * by the OS rather than rendered. The branch name comes from the already-cached status rather
  * than a fetch of its own: it is only a subtitle, and an empty one is better than an IPC round
  * trip on a path the user has already walked away from.
+ *
+ * The title is the project, not the operation (batch 5 contract §1.F): with several projects open
+ * "Push complete" named no repository, so the operation moved into the body ahead of the branch —
+ * and ahead of the failure reason on the error path, which would otherwise be the only line left
+ * saying what had even been attempted.
  */
 const useGitRemoteMutation = (projectId: ProjectId | null, mutationFn: typeof pushGit, operation: 'push' | 'pull') => {
     const queryClient = useQueryClient()
     const titleKey = GIT_REMOTE_NOTIFICATION_TITLE_KEY[operation]
+    const notificationTitle = (fallbackTitle: string) =>
+        resolveProjectNotificationTitle({ projects: queryClient.getQueryData<ProjectRef[]>(QUERY_KEY.PROJECT.LIST), projectId, fallbackTitle })
+
     return useGitMutation(projectId, mutationFn, {
         onSuccess: () =>
             void notifyNative({
                 category: 'gitRemote',
-                title: i18next.t(titleKey.succeeded),
-                body: queryClient.getQueryData<GitStatus>(QUERY_KEY.GIT.STATUS(projectId ?? ''))?.branch ?? '',
+                title: notificationTitle(i18next.t(titleKey.succeeded)),
+                body: joinNotificationBody([
+                    i18next.t(titleKey.succeeded),
+                    queryClient.getQueryData<GitStatus>(QUERY_KEY.GIT.STATUS(projectId ?? ''))?.branch,
+                ]),
             }),
-        onError: (error) => void notifyNative({ category: 'error', title: i18next.t(titleKey.failed), body: describeIpcError(error) }),
+        onError: (error) =>
+            void notifyNative({
+                category: 'error',
+                title: notificationTitle(i18next.t(titleKey.failed)),
+                body: joinNotificationBody([i18next.t(titleKey.failed), describeIpcError(error)]),
+            }),
     })
 }
 
