@@ -9,7 +9,8 @@ import { APP_KEYMAP, applyKeymapOverrides, parseKeymapOverrides } from '@shared/
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { currentWindowFocusedPane } from '@shared/lib/pane-tree'
 import { isWithinRoot } from '@shared/lib/path-root'
-import { layoutQueryOptions, useOpenFileTab } from '@entities/layout/layout.query'
+import { RECENT_PROJECT_DISPLAY_LIMIT } from '@shared/constants/project'
+import { layoutQueryOptions, useOpenFileTab, useOpenTerminalTab } from '@entities/layout/layout.query'
 import {
     projectListQueryOptions,
     recentProjectsQueryOptions,
@@ -19,8 +20,6 @@ import {
 } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { WelcomeScreen } from '@features/welcome/welcome-screen'
-
-const RECENT_PROJECT_DISPLAY_LIMIT = 8
 
 /** A representative slice of `APP_KEYMAP` surfaced on the Welcome screen's shortcuts card — kept
  *  short (navigation/panel/save) rather than exhaustive; the full catalog lives in the keybindings
@@ -52,6 +51,7 @@ export const WelcomeContainer: FC<WelcomeContainerProps> = ({ projectId }) => {
     const { mutate: openProject } = useOpenProject()
     const { mutate: activateProject } = useActivateProject()
     const openFileTab = useOpenFileTab()
+    const openTerminalTab = useOpenTerminalTab(projectId)
     const handleOpenFolder = useOpenFolderDialog()
 
     const effectiveKeymap = applyKeymapOverrides(APP_KEYMAP, parseKeymapOverrides(settings?.keymapOverrides ?? null))
@@ -90,6 +90,8 @@ export const WelcomeContainer: FC<WelcomeContainerProps> = ({ projectId }) => {
             onOpenFolder={handleOpenFolder}
             canOpenFile={projectId !== null}
             onOpenFile={() => void handleOpenFile()}
+            canOpenTerminal={projectId !== null}
+            onOpenTerminal={openTerminalTab}
             onSelectRecent={handleSelectRecent}
         />
     )

@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { Clock, FileText, FolderOpen, Keyboard, TriangleAlert } from 'lucide-react'
+import { Clock, FileText, FolderOpen, Keyboard, Terminal, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Project } from '@shared/api/bindings'
 import type { KeymapEntry } from '@shared/lib/keymap/keymap'
@@ -21,6 +21,12 @@ type WelcomeScreenProps = {
      *  null`), true only inside a `welcome` tab of an already-open project. */
     canOpenFile: boolean
     onOpenFile: () => void
+    /** Same precondition as {@link WelcomeScreenProps.canOpenFile} — a terminal is owned by a
+     *  project (Rust `ensure_project_open`), so the zero-projects screen has nowhere to start one.
+     *  Kept as its own prop rather than reusing `canOpenFile` so the two buttons stay independently
+     *  gateable. */
+    canOpenTerminal: boolean
+    onOpenTerminal: () => void
     onSelectRecent: (project: Project) => void
 }
 
@@ -31,6 +37,8 @@ export const WelcomeScreen: FC<WelcomeScreenProps> = ({
     onOpenFolder,
     canOpenFile,
     onOpenFile,
+    canOpenTerminal,
+    onOpenTerminal,
     onSelectRecent,
 }) => {
     const { t } = useTranslation()
@@ -53,8 +61,12 @@ export const WelcomeScreen: FC<WelcomeScreenProps> = ({
                             <FileText />
                             {t('app.openFile')}
                         </Button>
+                        <Button onClick={onOpenTerminal} disabled={!canOpenTerminal} variant='outline' className='w-fit'>
+                            <Terminal />
+                            {t('keymap.newTerminal')}
+                        </Button>
                     </div>
-                    {!canOpenFile && <span className='text-app-sidebar-icon-default text-xs'>{t('app.openFileHint')}</span>}
+                    {(!canOpenFile || !canOpenTerminal) && <span className='text-app-sidebar-icon-default text-xs'>{t('app.openFileHint')}</span>}
                 </div>
 
                 {recentProjectsUnavailable ? (

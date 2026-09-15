@@ -3,6 +3,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { toast } from 'sonner'
 import type { AppFileTarget, PaneId, ProjectId, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { i18next } from '@shared/i18n/i18n'
 import { describeIpcError, isNotFoundIpcError } from '@shared/lib/ipc-error-message'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
@@ -88,6 +89,44 @@ export const useOpenAppFileTab = (projectId: ProjectId) => {
             { projectId, kind: { kind: 'appFile', target: appFileTarget }, title, target: currentWindowFocusedPane(layout), preview: false },
             { onError: (error) => toast.error(describeIpcError(error)) },
         )
+}
+
+/**
+ * Shared by the command palette's `new-terminal` command and the Welcome screen's terminal button
+ * (d-58 contract §1.C) so the three things opening a terminal needs — the "a terminal belongs to a
+ * project" precondition, the tab payload, the error toast — live in one place instead of being
+ * re-typed per call site.
+ *
+ * `target` resolves through `currentWindowFocusedPane` rather than being left `null`: a `null`
+ * target makes Rust fall back to `ProjectLayout.focused_pane`, which is the *main* tree's pane, so
+ * a Welcome tab living in an auxiliary window would open its terminal over in the main window. In
+ * the main window the two resolve to the same pane, which is why the palette — main-window only —
+ * adopts this without a behaviour change.
+ *
+ * `i18next.t` is read directly instead of `useTranslation` for the same reason `git.query.ts` does:
+ * `entities` holds no components, and these strings are tab/toast text built at call time rather
+ * than rendered markup.
+ */
+export const useOpenTerminalTab = (projectId: ProjectId | null) => {
+    const { mutate: openTab } = useOpenTab(projectId)
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
+
+    return () => {
+        if (!projectId) {
+            toast.info(i18next.t('app.openProjectFirst'))
+            return
+        }
+        openTab(
+            {
+                projectId,
+                kind: { kind: 'terminal', sessionId: '' },
+                title: i18next.t('terminal.title'),
+                target: currentWindowFocusedPane(layout),
+                preview: false,
+            },
+            { onError: (error) => toast.error(describeIpcError(error)) },
+        )
+    }
 }
 
 /**

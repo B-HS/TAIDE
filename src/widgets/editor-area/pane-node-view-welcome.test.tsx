@@ -50,6 +50,7 @@ describe('PaneNodeView 빈 편집 영역', () => {
         await renderPane({ welcomeOnEmptyEditor: true })
 
         expect(await screen.findByRole('button', { name: 'app.openFile' })).toBeDefined()
+        expect(screen.getByRole('button', { name: 'keymap.newTerminal' })).toBeDefined()
         expect(screen.queryByText('editor.noFileOpen')).toBeNull()
     })
 
