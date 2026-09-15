@@ -82,6 +82,12 @@ export const SettingsNotificationSection: FC<SettingsNotificationSectionProps> =
                 onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), notifyAgentCompleted: checked })}
             />
             <SwitchField
+                label={t('settings.notificationsAgentAwaitingInput')}
+                description={t('settings.notificationsAgentAwaitingInputDescription')}
+                checked={settings.notifyAgentAwaitingInput ?? true}
+                onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), notifyAgentAwaitingInput: checked })}
+            />
+            <SwitchField
                 label={t('settings.notificationsTaskCompleted')}
                 checked={settings.notifyTaskCompleted ?? true}
                 onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), notifyTaskCompleted: checked })}

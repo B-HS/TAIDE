@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { QueryClient } from '@tanstack/react-query'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ProjectId, ProjectLayout, ProjectRef } from '@shared/api/bindings'
+import type { BlockedReason, ProjectId, ProjectLayout, ProjectRef } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { AGENT_COMPLETION_NOTIFY_MIN_WORKING_MS, TASK_COMPLETION_NOTIFY_MIN_DURATION_MS } from '@shared/constants/notification'
 import { QUERY_KEY } from '@shared/constants/query-key'
@@ -28,22 +28,40 @@ import { notifyNative, subscribeNativeNotificationDelivered } from '@entities/no
 type AgentCompletion = AgentCompletionEvaluation['completed'][number]
 
 /**
+ * Which phrase a blocked agent's body uses, keyed by what the backend says it is waiting on
+ * (d-60 §1.D). `dialog` has no entry: a phrase read off the screen only proves some dialog is up,
+ * which is what the generic {@link AWAITING_INPUT_FALLBACK_BODY_KEY} already says, and inventing
+ * "waiting at a dialog" for a notification center would tell the user less than "permission
+ * request or question" does.
+ */
+const BLOCKED_REASON_BODY_KEY: Partial<Record<BlockedReason, string>> = {
+    permission: 'notification.agentPermissionBody',
+    question: 'notification.agentQuestionBody',
+}
+
+/** Used for `dialog` and for a block whose reason the backend could not name (hysteresis, HTTP override). */
+const AWAITING_INPUT_FALLBACK_BODY_KEY = 'notification.agentAwaitingInputBody'
+
+/**
  * What the body of an agent notification says, now that the title is the project rather than the
  * event (batch 5 contract §1.F). "claude" alone answered none of the three questions a user who
  * walked away has — which agent, whether it finished or is blocked on them, and how long it took —
  * and the second of those is the one that decides whether they have to come back right now.
  *
  * `awaitingInput` deliberately carries no duration: a permission prompt is not a result, and the
- * time spent so far is not what the user needs to decide whether to answer it. Whether the wait is
- * a permission request or a question cannot be told apart from the activity alone, so the phrase
- * names both (a dedicated category and the distinction itself are wave 3 work).
+ * time spent so far is not what the user needs to decide whether to answer it. Which kind of wait
+ * it is now comes from the roster's `blockedReason`, so the body names the permission request or
+ * the question outright and falls back to naming both only when the backend could not tell.
  *
  * Reads `i18next` directly for the same reason `git.query.ts` does — the string is consumed by the
  * OS notification center, not rendered, so it must not be bound to a React render.
  */
 export const buildAgentCompletionBody = (agent: AgentCompletion, tabTitle: string | null) => {
     const tab = notificationBodyFragment(tabTitle)
-    if (agent.activity === 'awaitingInput') return i18next.t('notification.agentAwaitingInputBody', { agent: agent.name, tab })
+    if (agent.activity === 'awaitingInput') {
+        const bodyKey = (agent.blockedReason && BLOCKED_REASON_BODY_KEY[agent.blockedReason]) ?? AWAITING_INPUT_FALLBACK_BODY_KEY
+        return i18next.t(bodyKey, { agent: agent.name, tab })
+    }
     return i18next.t('notification.agentFinishedBody', { agent: agent.name, duration: formatDurationShort(agent.workedForMs), tab })
 }
 
@@ -141,7 +159,7 @@ export const NativeNotificationProvider: FC<PropsWithChildren> = ({ children }) 
         const layout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(payload.projectId))
         for (const agent of completed)
             void notifyNative({
-                category: 'agentCompleted',
+                category: agent.activity === 'awaitingInput' ? 'agentAwaitingInput' : 'agentCompleted',
                 title,
                 body: buildAgentCompletionBody(agent, findTerminalTabTitle(layout, agent.sessionId)),
             })

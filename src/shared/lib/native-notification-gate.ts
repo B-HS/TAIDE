@@ -1,4 +1,4 @@
-import type { AgentActivity } from '@shared/api/bindings'
+import type { AgentActivity, BlockedReason } from '@shared/api/bindings'
 import type { WindowContext } from '@shared/lib/window-context'
 
 /**
@@ -35,14 +35,20 @@ const isAgentCompletionActivity = (activity: AgentActivity): activity is AgentCo
 
 const WORKING_ACTIVITY: AgentActivity = 'working'
 
-export type AgentCompletionCandidate = { sessionId: string; name: string; activity: AgentActivity }
+/**
+ * One roster entry as the gate reads it. `blockedReason` is optional because the binding's field
+ * is (`DetectedAgent.blocked_reason` is `#[serde(default)]`), and it is carried through to the
+ * completion report normalised to `null`: the gate has no opinion on it, but the body that names
+ * what a blocked agent is waiting on is built from that report and has no other view of the roster.
+ */
+export type AgentCompletionCandidate = { sessionId: string; name: string; activity: AgentActivity; blockedReason?: BlockedReason | null }
 
 /** `sessionId` → the `Date.now()` at which that agent was first seen `working` in the current stretch. */
 export type AgentWorkingSinceMap = Readonly<Record<string, number>>
 
 export type AgentCompletionEvaluation = {
     workingSince: AgentWorkingSinceMap
-    completed: { sessionId: string; name: string; workedForMs: number; activity: AgentCompletionActivity }[]
+    completed: { sessionId: string; name: string; workedForMs: number; activity: AgentCompletionActivity; blockedReason: BlockedReason | null }[]
 }
 
 /**
@@ -77,7 +83,13 @@ export const evaluateAgentCompletions = (input: {
         if (startedAtMs === undefined || !isAgentCompletionActivity(agent.activity)) continue
         const workedForMs = input.nowMs - startedAtMs
         if (workedForMs < input.minWorkingMs) continue
-        completed.push({ sessionId: agent.sessionId, name: agent.name, workedForMs, activity: agent.activity })
+        completed.push({
+            sessionId: agent.sessionId,
+            name: agent.name,
+            workedForMs,
+            activity: agent.activity,
+            blockedReason: agent.blockedReason ?? null,
+        })
     }
 
     return { workingSince, completed }

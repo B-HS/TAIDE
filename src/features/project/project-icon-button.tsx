@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { AgentActivity } from '@shared/api/bindings'
+import type { AgentActivity, BlockedReason } from '@shared/api/bindings'
+import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
 import { cn } from '@shared/lib/cn'
 import type { ProjectDisplayResolution } from '@shared/lib/project-display'
 import { AgentStatusBadge } from '@features/project/agent-status-badge'
@@ -11,6 +12,7 @@ type ProjectIconButtonProps = {
     display: ProjectDisplayResolution
     active: boolean
     agentActivity: AgentActivity | null
+    agentBlockedReason: BlockedReason | null
     badgeEnabled: boolean
     onActivate: () => void
 }
@@ -27,14 +29,22 @@ type ProjectIconButtonProps = {
  * wrapper rather than the button itself because the active indicator is drawn *outside* the button
  * box (`-translate-x-1.5`), and clipping at the button would erase it.
  */
-export const ProjectIconButton: FC<ProjectIconButtonProps> = ({ name, display, active, agentActivity, badgeEnabled, onActivate }) => {
+export const ProjectIconButton: FC<ProjectIconButtonProps> = ({
+    name,
+    display,
+    active,
+    agentActivity,
+    agentBlockedReason,
+    badgeEnabled,
+    onActivate,
+}) => {
     const { t } = useTranslation()
     const visibleActivity = badgeEnabled ? agentActivity : null
 
     return (
         <button
             type='button'
-            aria-label={visibleActivity ? `${name} — ${t(`agent.status.${visibleActivity}`)}` : name}
+            aria-label={visibleActivity ? `${name} — ${t(agentStatusLabelKey(visibleActivity, agentBlockedReason))}` : name}
             aria-current={active}
             onClick={onActivate}
             className={cn(

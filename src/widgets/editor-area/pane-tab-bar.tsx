@@ -7,6 +7,7 @@ import { FileDiff, FileSearch2, Settings, Sparkles, Terminal } from 'lucide-reac
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind, TabWindowTarget } from '@shared/api/bindings'
+import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
 import { cn } from '@shared/lib/cn'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { WELCOME_TAB_TITLE } from '@shared/constants/tab'
@@ -196,7 +197,9 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
         const fileName = filePath ? fileNameOf(filePath) : null
         const canReopenWith = fileName ? resolvePreviewKind(fileName) !== null : false
         const agent = tab.kind.kind === 'terminal' && tab.kind.sessionId ? agentBySessionId.get(tab.kind.sessionId) : undefined
-        const agentTooltip = agent ? t('agent.sessionTooltip', { name: agent.name, status: t(`agent.status.${agent.activity}`) }) : undefined
+        const agentTooltip = agent
+            ? t('agent.sessionTooltip', { name: agent.name, status: t(agentStatusLabelKey(agent.activity, agent.blockedReason)) })
+            : undefined
 
         return (
             <SortableTab

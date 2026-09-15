@@ -7,19 +7,22 @@ applyLocaleMessages(i18next.language, {
     'common.durationMinutesSeconds': '{{minutes}}m {{seconds}}s',
     'common.durationSeconds': '{{seconds}}s',
     'notification.agentAwaitingInputBody': '{{agent}} · Waiting for input (permission request or question){{tab}}',
+    'notification.agentPermissionBody': '{{agent}} · Waiting for permission{{tab}}',
+    'notification.agentQuestionBody': '{{agent}} · Waiting for an answer{{tab}}',
     'notification.agentFinishedBody': '{{agent}} · Finished · {{duration}}{{tab}}',
     'notification.exitCode': 'Exit code {{code}}',
 })
 
 const MINUTE_MS = 60_000
 
-const buildCompletion = (
-    overrides: Partial<AgentCompletionEvaluation['completed'][number]> = {},
-): AgentCompletionEvaluation['completed'][number] => ({
+type AgentCompletion = AgentCompletionEvaluation['completed'][number]
+
+const buildCompletion = (overrides: Partial<AgentCompletion> = {}): AgentCompletion => ({
     sessionId: 's1',
     name: 'claude',
     workedForMs: 3 * MINUTE_MS + 12_000,
     activity: 'idle',
+    blockedReason: null,
     ...overrides,
 })
 
@@ -42,11 +45,25 @@ describe('buildAgentCompletionBody', () => {
         expect(buildAgentCompletionBody(buildCompletion(), 'agent:claude')).toBe('claude · Finished · 3m 12s · agent:claude')
     })
 
-    test('awaitingInput 은 입력 대기 문구를 쓰고 경과 시간을 싣지 않는다', async () => {
+    test('사유를 모르는 awaitingInput 은 둘 다 아우르는 문구를 쓰고 경과 시간을 싣지 않는다', async () => {
         const { buildAgentCompletionBody } = await importProvider()
         expect(buildAgentCompletionBody(buildCompletion({ activity: 'awaitingInput' }), 'agent:claude')).toBe(
             'claude · Waiting for input (permission request or question) · agent:claude',
         )
+    })
+
+    test('permission · question · dialog 사유별로 문구가 갈린다(dialog 는 일반 문구로 폴백)', async () => {
+        const { buildAgentCompletionBody } = await importProvider()
+        const body = (blockedReason: AgentCompletion['blockedReason']) =>
+            buildAgentCompletionBody(buildCompletion({ activity: 'awaitingInput', blockedReason }), null)
+        expect(body('permission')).toBe('claude · Waiting for permission')
+        expect(body('question')).toBe('claude · Waiting for an answer')
+        expect(body('dialog')).toBe('claude · Waiting for input (permission request or question)')
+    })
+
+    test('idle 은 사유가 실려 있어도 완료 문구를 쓴다', async () => {
+        const { buildAgentCompletionBody } = await importProvider()
+        expect(buildAgentCompletionBody(buildCompletion({ blockedReason: 'permission' }), null)).toBe('claude · Finished · 3m 12s')
     })
 })
 

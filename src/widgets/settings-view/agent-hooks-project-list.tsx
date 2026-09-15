@@ -16,10 +16,22 @@ import {
 
 type AgentHooksAgentOption = { name: string; labelKey: string; scope: HookInstallScope }
 
+/**
+ * The agents this section can install hooks for, mirroring `domain::agent::service::AGENT_SPECS`.
+ *
+ * `scope` is the only column kept here: it picks which row shape to mount, and that has to be
+ * decided before a query for the agent exists. Whether an install needs the `taide` CLI is read off
+ * the agent's own hook status response (`AgentHooksStatus.requiresTaideCli`, produced by
+ * `service::requires_taide_cli` from that table's delivery column), so moving a row between HTTP and
+ * in-band delivery carries the missing-CLI warning and the disabled toggle with it instead of
+ * leaving a stale copy in the frontend.
+ */
 const AGENT_HOOKS_AGENTS: AgentHooksAgentOption[] = [
     { name: 'claude', labelKey: 'settings.agentHooksAgentClaude', scope: 'project' },
     { name: 'codex', labelKey: 'settings.agentHooksAgentCodex', scope: 'user' },
     { name: 'gemini', labelKey: 'settings.agentHooksAgentGemini', scope: 'user' },
+    { name: 'opencode', labelKey: 'settings.agentHooksAgentOpencode', scope: 'user' },
+    { name: 'pi', labelKey: 'settings.agentHooksAgentPi', scope: 'user' },
 ]
 
 type AgentHooksClaudeSectionProps = {
@@ -54,12 +66,14 @@ type AgentHooksUserLevelRowProps = {
 const AgentHooksUserLevelRow: FC<AgentHooksUserLevelRowProps> = ({ agentName, labelKey }) => {
     const { t } = useTranslation()
 
-    const { data: status, isPending } = useQuery(agentHooksStatusQueryOptions(USER_LEVEL_AGENT_HOOKS_UNUSED_PROJECT_ID, agentName))
+    const { data: status } = useQuery(agentHooksStatusQueryOptions(USER_LEVEL_AGENT_HOOKS_UNUSED_PROJECT_ID, agentName))
     const { data: cliStatus, isPending: isCliPending } = useQuery(cliInstallStatusQueryOptions())
     const { mutate: installHooks, isPending: isInstalling } = useInstallAgentHooks()
     const { mutate: uninstallHooks, isPending: isUninstalling } = useUninstallAgentHooks()
 
-    const isCliMissing = !isCliPending && !cliStatus?.installed
+    const requiresTaideCli = status?.requiresTaideCli ?? false
+    const isCliMissing = requiresTaideCli && !isCliPending && !cliStatus?.installed
+    const isCliBlocking = requiresTaideCli && (isCliPending || (isCliMissing && !status?.installed))
 
     const handleCheckedChange = (checked: boolean) => {
         const variables = { projectId: USER_LEVEL_AGENT_HOOKS_UNUSED_PROJECT_ID, agentName }
@@ -79,7 +93,7 @@ const AgentHooksUserLevelRow: FC<AgentHooksUserLevelRowProps> = ({ agentName, la
                 </>
             }
             checked={status?.installed ?? false}
-            disabled={isPending || isCliPending || isInstalling || isUninstalling || (isCliMissing && !status?.installed)}
+            disabled={!status || isInstalling || isUninstalling || isCliBlocking}
             onCheckedChange={handleCheckedChange}
         />
     )

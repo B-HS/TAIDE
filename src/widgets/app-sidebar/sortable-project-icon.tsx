@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectRef } from '@shared/api/bindings'
 import { CLEARED_PROJECT_DISPLAY_PATCH } from '@shared/constants/project-display'
+import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { isProjectDisplayCustomized, resolveProjectDisplay } from '@shared/lib/project-display'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
@@ -19,9 +20,15 @@ const DRAGGING_OPACITY = 0.4
 
 const ACTIVITY_PRIORITY: Record<AgentActivity, number> = { awaitingInput: 3, working: 2, idle: 1, unknown: 0 }
 
-const aggregateActivity = (agents: DetectedAgent[]): AgentActivity | null => {
+/**
+ * The one agent the project's single badge speaks for, so the badge shape and the reason beside it
+ * describe the same session rather than a shape from one agent and a reason from another. Picked by
+ * {@link ACTIVITY_PRIORITY} — a project with one blocked and one working agent needs the user to
+ * come back, which is the state the badge has to show.
+ */
+const topPriorityAgent = (agents: DetectedAgent[]): DetectedAgent | null => {
     if (agents.length === 0) return null
-    return agents.reduce((top, agent) => (ACTIVITY_PRIORITY[agent.activity] > ACTIVITY_PRIORITY[top] ? agent.activity : top), agents[0].activity)
+    return agents.reduce((top, agent) => (ACTIVITY_PRIORITY[agent.activity] > ACTIVITY_PRIORITY[top.activity] ? agent : top), agents[0])
 }
 
 type SortableProjectIconProps = {
@@ -42,6 +49,7 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
     const { mutate: setProjectDisplay, isPending: isDisplayPending } = useSetProjectDisplay()
 
     const display = resolveProjectDisplay(project)
+    const topAgent = topPriorityAgent(agents)
 
     const applyDisplay = (patch: ProjectDisplayPatch, onApplied?: () => void) =>
         setProjectDisplay(
@@ -65,7 +73,8 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
                                         name={project.name}
                                         display={display}
                                         active={active}
-                                        agentActivity={aggregateActivity(agents)}
+                                        agentActivity={topAgent?.activity ?? null}
+                                        agentBlockedReason={topAgent?.blockedReason ?? null}
                                         badgeEnabled={badgeEnabled}
                                         onActivate={onActivate}
                                     />
@@ -77,7 +86,10 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
                                     <span className='opacity-70'>{project.root}</span>
                                     {agents.map((agent) => (
                                         <span key={agent.sessionId} className='opacity-70'>
-                                            {t('agent.sessionTooltip', { name: agent.name, status: t(`agent.status.${agent.activity}`) })}
+                                            {t('agent.sessionTooltip', {
+                                                name: agent.name,
+                                                status: t(agentStatusLabelKey(agent.activity, agent.blockedReason)),
+                                            })}
                                         </span>
                                     ))}
                                 </div>

@@ -9,10 +9,16 @@ import {
 
 const MIN_WORKING_MS = 10_000
 
-const agent = (sessionId: string, activity: AgentCompletionCandidate['activity'], name = 'claude'): AgentCompletionCandidate => ({
+const agent = (
+    sessionId: string,
+    activity: AgentCompletionCandidate['activity'],
+    name = 'claude',
+    blockedReason: AgentCompletionCandidate['blockedReason'] = null,
+): AgentCompletionCandidate => ({
     sessionId,
     name,
     activity,
+    blockedReason,
 })
 
 const evaluate = (workingSince: AgentWorkingSinceMap, agents: AgentCompletionCandidate[], nowMs: number) =>
@@ -47,7 +53,7 @@ describe('evaluateAgentCompletions', () => {
 
     test('임계 이상 working 후 idle 로 바뀌면 완료로 본다', () => {
         const result = evaluate({ a: 1_000 }, [agent('a', 'idle')], 1_000 + MIN_WORKING_MS)
-        expect(result.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS, activity: 'idle' }])
+        expect(result.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS, activity: 'idle', blockedReason: null }])
         expect(result.workingSince).toEqual({})
     })
 
@@ -62,6 +68,21 @@ describe('evaluateAgentCompletions', () => {
 
         expect(finished.completed[0]?.activity).toBe('idle')
         expect(blocked.completed[0]?.activity).toBe('awaitingInput')
+    })
+
+    test('차단 사유를 완료 보고에 그대로 싣는다 (알림 문구가 사유별로 갈린다)', () => {
+        const result = evaluate({ a: 0 }, [agent('a', 'awaitingInput', 'claude', 'permission')], MIN_WORKING_MS)
+        expect(result.completed[0]?.blockedReason).toBe('permission')
+    })
+
+    test('사유가 없는 로스터 항목은 null 로 정규화된다', () => {
+        const result = evaluateAgentCompletions({
+            workingSince: { a: 0 },
+            agents: [{ sessionId: 'a', name: 'claude', activity: 'awaitingInput' }],
+            nowMs: MIN_WORKING_MS,
+            minWorkingMs: MIN_WORKING_MS,
+        })
+        expect(result.completed[0]?.blockedReason).toBeNull()
     })
 
     test('임계 미만이면 알리지 않고 기록만 지운다', () => {
@@ -97,7 +118,7 @@ describe('evaluateAgentCompletions', () => {
         const second = evaluate(first.workingSince, [agent('a', 'working')], 5_000)
         const third = evaluate(second.workingSince, [agent('a', 'idle')], 1_000 + MIN_WORKING_MS)
 
-        expect(third.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS, activity: 'idle' }])
+        expect(third.completed).toEqual([{ sessionId: 'a', name: 'claude', workedForMs: MIN_WORKING_MS, activity: 'idle', blockedReason: null }])
     })
 
     test('한 에이전트가 끝나도 아직 일하는 다른 에이전트의 시작 시각은 유지된다', () => {
