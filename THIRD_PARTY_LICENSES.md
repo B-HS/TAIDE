@@ -16,7 +16,7 @@ rather than relying on `package.json`/`bun.lock` alone.
 
 ## Bundled Themes
 
-TAIDE ships 36 color themes derived from popular VS Code extensions as built-in
+TAIDE ships 47 color themes derived from popular VS Code extensions as built-in
 (`builtin: true`) themes under `src-tauri/resources/themes/*.json`. Each source
 extension is MIT licensed; this file records the copyright notices required by
 the MIT license ("include the copyright notice and this permission notice in
@@ -42,23 +42,25 @@ values, which are re-expressed under TAIDE's own token names.
 - License: MIT
 - Copyright (c) 2016 Dracula Theme
 
-## GitHub Dark / GitHub Light
+## GitHub Dark / GitHub Dark Dimmed / GitHub Light
 
-- Bundled as: `github-dark`, `github-light`
+- Bundled as: `github-dark`, `github-dark-dimmed`, `github-light`
 - Source: https://github.com/primer/github-vscode-theme
 - License: MIT
 - Copyright (c) 2020 Primer
 
-## Tokyo Night
+## Tokyo Night / Tokyo Night Storm / Tokyo Night Light
 
-- Bundled as: `tokyo-night`
-- Source: https://github.com/enkia/tokyo-night-vscode-theme
+- Bundled as: `tokyo-night`, `tokyo-night-storm`, `tokyo-night-light`
+- Source: https://github.com/tokyo-night/tokyo-night-vscode-theme
 - License: MIT
 - Copyright (c) 2018-present Enkia
+- Note: the project moved from `enkia/tokyo-night-vscode-theme` to the
+  `tokyo-night` organization; the old URL still redirects there.
 
-## Catppuccin (Mocha)
+## Catppuccin (Latte / Frappé / Macchiato / Mocha)
 
-- Bundled as: `catppuccin-mocha`
+- Bundled as: `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`
 - Source: https://github.com/catppuccin/vscode
 - License: MIT
 - Copyright (c) 2021 Catppuccin
@@ -71,9 +73,9 @@ values, which are re-expressed under TAIDE's own token names.
 - Copyright (C) 2017-present Arctic Ice Studio <development@arcticicestudio.com>
 - Copyright (C) 2017-present Sven Greb <development@svengreb.de>
 
-## Gruvbox (Dark)
+## Gruvbox (Dark / Light)
 
-- Bundled as: `gruvbox-dark`
+- Bundled as: `gruvbox-dark`, `gruvbox-light`
 - Source: https://github.com/jdinhify/vscode-theme-gruvbox
 - License: MIT
 - Copyright (c) 2017 JD
@@ -107,9 +109,9 @@ values, which are re-expressed under TAIDE's own token names.
 - License: MIT
 - Copyright (c) a-havrysh
 
-## Ayu Dark / Ayu Light
+## Ayu Dark / Ayu Mirage / Ayu Light
 
-- Bundled as: `ayu-dark`, `ayu-light`
+- Bundled as: `ayu-dark`, `ayu-mirage`, `ayu-light`
 - Source: https://github.com/ayu-theme/vscode-ayu
 - License: MIT
 - Copyright (c) ayu-theme (dempfi)
@@ -128,9 +130,9 @@ values, which are re-expressed under TAIDE's own token names.
 - License: MIT
 - Copyright (c) Sarah Drasner
 
-## Rosé Pine / Rosé Pine Dawn
+## Rosé Pine / Rosé Pine Moon / Rosé Pine Dawn
 
-- Bundled as: `rose-pine`, `rose-pine-dawn`
+- Bundled as: `rose-pine`, `rose-pine-moon`, `rose-pine-dawn`
 - Source: https://github.com/rose-pine/vscode
 - License: MIT
 - Copyright (c) Rosé Pine
