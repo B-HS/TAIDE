@@ -24,7 +24,7 @@ export const OverlayScrollbar: FC<OverlayScrollbarProps> = ({ viewportRef, orien
             aria-valuemax={SCROLLBAR_SCROLL_PERCENT_MAX}
             data-slot='overlay-scrollbar-track'
             className={cn(
-                'pointer-events-none absolute z-10 opacity-0 transition-opacity duration-200 data-[scrollable=true]:pointer-events-auto data-[visible=true]:opacity-100',
+                'bg-scrollbar-track pointer-events-none absolute z-10 opacity-0 transition-opacity duration-200 data-[scrollable=true]:pointer-events-auto data-[visible=true]:opacity-100',
                 isVertical ? 'top-0 right-0 bottom-0 w-2.5' : 'right-0 bottom-0 left-0 h-2.5',
                 trackClassName,
             )}>

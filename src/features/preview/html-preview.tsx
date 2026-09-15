@@ -6,5 +6,5 @@ export type HtmlPreviewProps = {
 }
 
 export const HtmlPreview: FC<HtmlPreviewProps> = ({ src, title }) => (
-    <iframe src={src} title={title} sandbox='' className='h-full w-full border-0 bg-white' />
+    <iframe src={src} title={title} sandbox='' className='bg-editor-background h-full w-full border-0' />
 )

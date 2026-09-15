@@ -23,9 +23,9 @@ export const ROW_ICON_SIZE_CLASS = 'size-3.5'
 const CHEVRON_SIZE_CLASS = 'size-3'
 
 const GIT_STATUS_TEXT_CLASS: Record<Exclude<FileTreeGitStatus, null>, string> = {
-    added: 'text-git-added',
-    modified: 'text-git-modified',
-    deleted: 'text-git-deleted',
+    added: 'text-explorer-git-added',
+    modified: 'text-explorer-git-modified',
+    deleted: 'text-explorer-git-deleted',
     renamed: 'text-git-renamed',
     untracked: 'text-explorer-git-untracked',
     conflicted: 'text-git-conflicted',

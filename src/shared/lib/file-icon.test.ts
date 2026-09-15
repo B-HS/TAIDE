@@ -118,7 +118,7 @@ describe('resolveFolderIcon', () => {
     })
 
     test('일반 폴더명은 expanded 여부에 따라 다른 아이콘을 반환한다', () => {
-        expect(resolveFolderIcon('components', false)).toEqual({ icon: 'folder', colorClass: 'text-app-sidebar-icon-default' })
-        expect(resolveFolderIcon('components', true)).toEqual({ icon: 'folder-open', colorClass: 'text-app-sidebar-icon-default' })
+        expect(resolveFolderIcon('components', false)).toEqual({ icon: 'folder', colorClass: 'text-explorer-folder-icon' })
+        expect(resolveFolderIcon('components', true)).toEqual({ icon: 'folder-open', colorClass: 'text-explorer-folder-icon' })
     })
 })

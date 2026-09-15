@@ -175,7 +175,7 @@ export const VsixImportDialog: FC<VsixImportDialogProps> = ({ open, onOpenChange
                         )}
                     </section>
 
-                    <section className='border-app-border flex flex-col gap-2 border-t pt-3'>
+                    <section className='border-modal-separator flex flex-col gap-2 border-t pt-3'>
                         <h3 className='text-app-sidebar-icon-default text-xs font-medium'>{t('settings.pluginImportVsixGrammarsSection')}</h3>
                         <VsixImportGrammarsSection
                             imported={grammarsImported}

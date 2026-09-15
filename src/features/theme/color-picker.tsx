@@ -214,7 +214,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                         backgroundImage: 'linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)',
                     }}>
                     <span
-                        className='pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow'
+                        className='border-app-border pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow'
                         style={{ left: `${activeSaturation * 100}%`, top: `${(1 - activeValue) * 100}%` }}
                     />
                 </div>
@@ -239,7 +239,7 @@ export const ColorPicker: FC<ColorPickerProps> = ({ value, onChange }) => {
                         backgroundImage: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)',
                     }}>
                     <span
-                        className='pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow'
+                        className='border-app-border pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow'
                         style={{ left: `${(activeHue / FULL_HUE_DEGREES) * 100}%` }}
                     />
                 </div>

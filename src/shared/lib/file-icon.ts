@@ -41,6 +41,7 @@ const COLOR = {
     conflicted: 'text-git-conflicted',
     staged: 'text-git-staged',
     neutral: 'text-app-sidebar-icon-default',
+    folder: 'text-explorer-folder-icon',
 } as const
 
 const DEFAULT_FILE_ICON: FileIconSpec = { icon: 'file', colorClass: COLOR.neutral }
@@ -123,5 +124,5 @@ export const resolveFolderIcon = (folderName: string, expanded: boolean): FileIc
     const special = SPECIAL_FOLDER_NAME_ICON[nameLower]
     if (special) return special
 
-    return { icon: expanded ? DEFAULT_FOLDER_ICON.open : DEFAULT_FOLDER_ICON.closed, colorClass: COLOR.neutral }
+    return { icon: expanded ? DEFAULT_FOLDER_ICON.open : DEFAULT_FOLDER_ICON.closed, colorClass: COLOR.folder }
 }

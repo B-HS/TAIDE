@@ -36,6 +36,10 @@
     --taide-explorer-item-selected: #585b70;
     --taide-explorer-item-focused: #45475a;
     --taide-explorer-indent-guide: #313244;
+    --taide-explorer-folder-icon: #a6adc8;
+    --taide-explorer-git-modified: #f9e2af;
+    --taide-explorer-git-added: #a6e3a1;
+    --taide-explorer-git-deleted: #f38ba8;
     --taide-explorer-git-ignored: #6c7086;
     --taide-explorer-git-untracked: #94e2d5;
 
@@ -112,6 +116,8 @@
     --taide-tooltip-border: #313244;
     --taide-modal-background: #181825;
     --taide-modal-border: #313244;
+    --taide-modal-item-hover: #45475a;
+    --taide-modal-separator: #313244;
     --taide-input-background: #1e1e2e;
     --taide-input-foreground: #cdd6f4;
     --taide-input-border: #313244;
@@ -183,6 +189,10 @@
     --color-explorer-item-selected: var(--taide-explorer-item-selected);
     --color-explorer-item-focused: var(--taide-explorer-item-focused);
     --color-explorer-indent-guide: var(--taide-explorer-indent-guide);
+    --color-explorer-folder-icon: var(--taide-explorer-folder-icon);
+    --color-explorer-git-modified: var(--taide-explorer-git-modified);
+    --color-explorer-git-added: var(--taide-explorer-git-added);
+    --color-explorer-git-deleted: var(--taide-explorer-git-deleted);
     --color-explorer-git-ignored: var(--taide-explorer-git-ignored);
     --color-explorer-git-untracked: var(--taide-explorer-git-untracked);
 
@@ -231,12 +241,19 @@
     --color-status-error: var(--taide-status-indicator-error);
     --color-status-success: var(--taide-status-indicator-success);
 
+    --color-menu-background: var(--taide-menu-background);
+    --color-menu-border: var(--taide-menu-border);
+    --color-menu-item-hover: var(--taide-menu-item-hover);
+    --color-menu-separator: var(--taide-menu-separator);
     --color-popover-border: var(--taide-popover-border);
     --color-popover-item-hover: var(--taide-popover-item-hover);
+    --color-popover-separator: var(--taide-popover-separator);
     --color-tooltip-background: var(--taide-tooltip-background);
     --color-tooltip-border: var(--taide-tooltip-border);
     --color-modal-background: var(--taide-modal-background);
     --color-modal-border: var(--taide-modal-border);
+    --color-modal-item-hover: var(--taide-modal-item-hover);
+    --color-modal-separator: var(--taide-modal-separator);
     --color-input-background: var(--taide-input-background);
     --color-input-foreground: var(--taide-input-foreground);
     --color-input-placeholder: var(--taide-input-placeholder);
@@ -304,6 +321,40 @@
     html[data-theme-ready][data-locale-ready] body {
         visibility: visible;
     }
+
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background-color: var(--taide-scrollbar-track);
+    }
+
+    ::-webkit-scrollbar-corner {
+        background-color: var(--taide-scrollbar-track);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background-color: var(--taide-scrollbar-thumb);
+        border-radius: 9999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--taide-scrollbar-thumb-hover);
+    }
+}
+
+@utility shadow-overlay {
+    box-shadow: 0 2px 8px var(--taide-app-shadow);
+}
+
+@utility shadow-overlay-lg {
+    box-shadow: 0 8px 24px var(--taide-app-shadow);
+}
+
+@utility modal-scrim {
+    background-color: color-mix(in srgb, var(--taide-app-shadow) 50%, transparent);
 }
 
 @utility scrollbar-hidden {
