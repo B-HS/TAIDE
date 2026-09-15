@@ -210,6 +210,25 @@ const EDITOR_RULER_COLUMN_MIN: u32 = 1;
 const EDITOR_RULER_COLUMN_MAX: u32 = 1_000;
 const EDITOR_RULERS_MAX: usize = 16;
 
+/// `search_on_type_debounce_ms` bounds. The floor keeps a hand-edited `0` from turning every
+/// keystroke into a full project walk; the ceiling keeps a value so large that "search as you
+/// type" is indistinguishable from the Enter-only behavior the setting exists to replace.
+const SEARCH_ON_TYPE_DEBOUNCE_MIN_MS: u32 = 50;
+const SEARCH_ON_TYPE_DEBOUNCE_MAX_MS: u32 = 2_000;
+
+/// `git_graph_panel_size_px` bounds. The floor is the graph header's own height — the pane's
+/// collapsed size, below which the panel would have a resizable region nothing can be seen in —
+/// and the ceiling only has to exceed any real display height, since the resizable group already
+/// caps the pane at the panel's own height at layout time.
+const GIT_GRAPH_PANEL_SIZE_MIN_PX: u32 = 24;
+const GIT_GRAPH_PANEL_SIZE_MAX_PX: u32 = 4_000;
+
+/// `git_sections_collapsed` length cap. The frontend's `GitSectionId` union has five members, so a
+/// list longer than this can only come from a hand-edited `settings.json` or a malformed synced
+/// gist — the same entry points [`sanitize_recent_searches`] guards. Left comfortably above five
+/// rather than exactly five so adding a section does not need this constant changed in lockstep.
+const GIT_SECTIONS_COLLAPSED_MAX: usize = 16;
+
 fn sanitize_optional_url(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let authority = v.strip_prefix("http://").or_else(|| v.strip_prefix("https://"))?;
@@ -279,6 +298,11 @@ fn sanitize_recent_searches(mut searches: Vec<String>) -> Vec<String> {
     searches
 }
 
+fn sanitize_git_sections_collapsed(mut sections: Vec<String>) -> Vec<String> {
+    sections.truncate(GIT_SECTIONS_COLLAPSED_MAX);
+    sections
+}
+
 /// Normalizes `editor_rulers` into the canonical form the settings screen renders back: columns
 /// outside [`EDITOR_RULER_COLUMN_MIN`]..=[`EDITOR_RULER_COLUMN_MAX`] dropped, duplicates removed,
 /// ascending, at most [`EDITOR_RULERS_MAX`] entries. Applied inside [`sanitize`] so every entry
@@ -342,6 +366,13 @@ pub fn sanitize(settings: Settings) -> Settings {
         remote_allowed_hosts: sanitize_allowed_hosts(settings.remote_allowed_hosts),
         recent_searches: sanitize_recent_searches(settings.recent_searches),
         editor_rulers: sanitize_editor_rulers(settings.editor_rulers),
+        search_on_type_debounce_ms: settings
+            .search_on_type_debounce_ms
+            .clamp(SEARCH_ON_TYPE_DEBOUNCE_MIN_MS, SEARCH_ON_TYPE_DEBOUNCE_MAX_MS),
+        git_sections_collapsed: sanitize_git_sections_collapsed(settings.git_sections_collapsed),
+        git_graph_panel_size_px: settings
+            .git_graph_panel_size_px
+            .clamp(GIT_GRAPH_PANEL_SIZE_MIN_PX, GIT_GRAPH_PANEL_SIZE_MAX_PX),
         ..settings
     }
 }
@@ -437,6 +468,13 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
         editor_format_on_paste: patch.editor_format_on_paste.unwrap_or(settings.editor_format_on_paste),
         emmet_enabled: patch.emmet_enabled.unwrap_or(settings.emmet_enabled),
         recent_searches: patch.recent_searches.clone().unwrap_or_else(|| settings.recent_searches.clone()),
+        search_on_type: patch.search_on_type.unwrap_or(settings.search_on_type),
+        search_on_type_debounce_ms: patch.search_on_type_debounce_ms.unwrap_or(settings.search_on_type_debounce_ms),
+        git_sections_collapsed: patch
+            .git_sections_collapsed
+            .clone()
+            .unwrap_or_else(|| settings.git_sections_collapsed.clone()),
+        git_graph_panel_size_px: patch.git_graph_panel_size_px.unwrap_or(settings.git_graph_panel_size_px),
         zen_fullscreen: patch.zen_fullscreen.unwrap_or(settings.zen_fullscreen),
         zen_hide_status_bar: patch.zen_hide_status_bar.unwrap_or(settings.zen_hide_status_bar),
     })
@@ -467,6 +505,7 @@ pub fn set_theme(paths: &AppPaths, settings: &Settings, theme_id: &str) -> AppRe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::settings::types::{DEFAULT_GIT_GRAPH_PANEL_SIZE_PX, DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS};
 
     fn temp_data_dir(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("taide-settings-{name}-{}", uuid::Uuid::new_v4()))
@@ -1344,6 +1383,114 @@ mod tests {
 
         assert_eq!(updated.recent_searches.len(), RECENT_SEARCHES_MAX);
         assert_eq!(updated.recent_searches, oversized[..RECENT_SEARCHES_MAX]);
+    }
+
+    #[test]
+    fn search_on_type_기본값은_켜짐과_300ms다() {
+        let settings = Settings::default();
+
+        assert!(settings.search_on_type);
+        assert_eq!(settings.search_on_type_debounce_ms, DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS);
+    }
+
+    #[test]
+    fn search_on_type_디바운스는_범위를_벗어나면_보정된다() {
+        let settings = Settings::default();
+
+        let too_small = apply_patch(
+            &settings,
+            &SettingsPatch {
+                search_on_type_debounce_ms: Some(0),
+                ..SettingsPatch::default()
+            },
+        );
+        let too_large = apply_patch(
+            &settings,
+            &SettingsPatch {
+                search_on_type_debounce_ms: Some(999_999),
+                ..SettingsPatch::default()
+            },
+        );
+
+        assert_eq!(too_small.search_on_type_debounce_ms, SEARCH_ON_TYPE_DEBOUNCE_MIN_MS);
+        assert_eq!(too_large.search_on_type_debounce_ms, SEARCH_ON_TYPE_DEBOUNCE_MAX_MS);
+    }
+
+    #[test]
+    fn patch로_search_on_type을_끌_수_있다() {
+        let updated = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                search_on_type: Some(false),
+                search_on_type_debounce_ms: Some(120),
+                ..SettingsPatch::default()
+            },
+        );
+
+        assert!(!updated.search_on_type);
+        assert_eq!(updated.search_on_type_debounce_ms, 120);
+    }
+
+    #[test]
+    fn git_섹션_접힘_기본값은_스태시_하나다() {
+        let settings = Settings::default();
+
+        assert_eq!(settings.git_sections_collapsed, vec!["stashes".to_string()]);
+        assert_eq!(settings.git_graph_panel_size_px, DEFAULT_GIT_GRAPH_PANEL_SIZE_PX);
+    }
+
+    #[test]
+    fn git_섹션_접힘_목록은_상한을_초과하면_잘려나간다() {
+        let oversized: Vec<String> = (0..(GIT_SECTIONS_COLLAPSED_MAX + 5))
+            .map(|index| format!("section-{index}"))
+            .collect();
+
+        let updated = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                git_sections_collapsed: Some(oversized.clone()),
+                ..SettingsPatch::default()
+            },
+        );
+
+        assert_eq!(updated.git_sections_collapsed.len(), GIT_SECTIONS_COLLAPSED_MAX);
+        assert_eq!(updated.git_sections_collapsed, oversized[..GIT_SECTIONS_COLLAPSED_MAX]);
+    }
+
+    #[test]
+    fn git_그래프_패널_높이는_범위를_벗어나면_보정된다() {
+        let settings = Settings::default();
+
+        let too_small = apply_patch(
+            &settings,
+            &SettingsPatch {
+                git_graph_panel_size_px: Some(0),
+                ..SettingsPatch::default()
+            },
+        );
+        let too_large = apply_patch(
+            &settings,
+            &SettingsPatch {
+                git_graph_panel_size_px: Some(100_000),
+                ..SettingsPatch::default()
+            },
+        );
+
+        assert_eq!(too_small.git_graph_panel_size_px, GIT_GRAPH_PANEL_SIZE_MIN_PX);
+        assert_eq!(too_large.git_graph_panel_size_px, GIT_GRAPH_PANEL_SIZE_MAX_PX);
+    }
+
+    #[test]
+    fn git_섹션_접힘_목록은_빈_배열로_비울_수_있다() {
+        let updated = apply_patch(
+            &Settings::default(),
+            &SettingsPatch {
+                git_sections_collapsed: Some(Vec::new()),
+                ..SettingsPatch::default()
+            },
+        );
+
+        assert!(updated.git_sections_collapsed.is_empty());
     }
 
     #[test]

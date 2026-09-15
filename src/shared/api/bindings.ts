@@ -19,6 +19,21 @@ export const commands = {
 	 *  `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
 	 */
 	projectListRecent: () => typedError<Project[], AppError>(__TAURI_INVOKE("project_list_recent")),
+	/**
+	 *  Forgets every project the user is not currently working in: the persisted `projects/<id>/`
+	 *  record of each closed project is deleted, so `project_list_recent` stops offering it. The
+	 *  backing action for `File > Clear Recent` and the sidebar's equivalent.
+	 * 
+	 *  Open projects are deliberately kept — their record is live state (layout, display, id reuse),
+	 *  not history; see `service::forget_recent_projects`. Emits `ProjectListChanged` so every window
+	 *  re-reads its project queries — and so `lib.rs`'s listener rebuilds the native `File > Open
+	 *  Recent` menu that listed them.
+	 * 
+	 *  Deliberately **not** remote-reachable, for the same reason as `project_list_recent`: the recent
+	 *  list is local-desktop history (`RemoteDenialPolicy::LocalProjectHistoryExposure`), and a remote
+	 *  session that cannot read it has no business destroying it either.
+	 */
+	projectForgetRecent: () => typedError<number, AppError>(__TAURI_INVOKE("project_forget_recent")),
 	projectGet: (projectId: ProjectId) => typedError<Project, AppError>(__TAURI_INVOKE("project_get", { projectId })),
 	projectGetActive: () => typedError<string | null, AppError>(__TAURI_INVOKE("project_get_active")),
 	/**
@@ -2222,6 +2237,43 @@ export type Settings = {
 	 */
 	recentSearches?: string[],
 	/**
+	 *  Runs the search panel's query as the user types, instead of only on Enter. Enter still runs
+	 *  immediately and is the only trigger that appends to [`Settings::recent_searches`], so the
+	 *  history stays a record of searches the user committed to rather than of every prefix typed
+	 *  on the way there. Defaults to `true`, matching VS Code's `search.searchOnType`.
+	 */
+	searchOnType?: boolean,
+	/**
+	 *  How long typing has to pause before a [`Settings::search_on_type`] run fires, in
+	 *  milliseconds. Clamped to `[50, 2000]` by `service::sanitize`. Defaults to
+	 *  [`DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS`], matching VS Code's
+	 *  `search.searchOnTypeDebouncePeriod`.
+	 */
+	searchOnTypeDebounceMs?: number,
+	/**
+	 *  Which SCM panel sections the user has collapsed, by section id — the frontend's
+	 *  `GitSectionId` union owns that value set. A plain
+	 *  passthrough list like [`Settings::recent_searches`]: an id this Rust side does not
+	 *  recognize is meaningless noise to the panel, not a value worth a second copy of that union
+	 *  here to validate against, so only the length is bounded (`service::sanitize`) against an
+	 *  unbounded hand-edited or synced list. Defaults to
+	 *  [`DEFAULT_GIT_SECTIONS_COLLAPSED`].
+	 * 
+	 *  Persisted (rather than the process-lifetime module memory it replaced) because the panel
+	 *  only renders while the sidebar's git view is selected, so switching views already threw the
+	 *  state away once per view switch, and a restart threw it away again
+	 *  (`docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §1.H).
+	 */
+	gitSectionsCollapsed?: string[],
+	/**
+	 *  Height of the SCM panel's commit-graph pane in pixels — the bottom half of the panel's
+	 *  vertical resizable group. Clamped to `[24, 4000]` by `service::sanitize`, whose lower bound
+	 *  is the collapsed height (the graph header alone). No settings-screen control renders it;
+	 *  like [`Settings::recent_searches`] it is UI state that happens to need to outlive the
+	 *  process, written by the resize handle itself.
+	 */
+	gitGraphPanelSizePx?: number,
+	/**
 	 *  When `true`, entering Zen mode also fullscreens the main window
 	 *  (`window::commands::window_set_fullscreen`). Defaults to `false` — Zen mode's chrome hiding
 	 *  is opt-out (`zen_hide_status_bar`), but fullscreen is opt-in, since it also affects the OS
@@ -2325,6 +2377,10 @@ export type SettingsPatch = {
 	editorFormatOnPaste: boolean | null,
 	emmetEnabled: boolean | null,
 	recentSearches: string[] | null,
+	searchOnType: boolean | null,
+	searchOnTypeDebounceMs: number | null,
+	gitSectionsCollapsed: string[] | null,
+	gitGraphPanelSizePx: number | null,
 	zenFullscreen: boolean | null,
 	zenHideStatusBar: boolean | null,
 };

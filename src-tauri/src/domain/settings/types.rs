@@ -12,6 +12,14 @@ pub const DEFAULT_TOAST_POSITION: &str = "bottom-right";
 pub const DEFAULT_RESIZER_THICKNESS: u32 = 1;
 pub const DEFAULT_EDITOR_TAB_SIZE: u32 = 4;
 pub const DEFAULT_TERMINAL_SCROLLBACK: u32 = 10_000;
+pub const DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS: u32 = 300;
+pub const DEFAULT_GIT_GRAPH_PANEL_SIZE_PX: u32 = 240;
+
+/// Which SCM panel sections start collapsed. Only the stash list does: a stash is a side channel
+/// the user leaves and comes back to, while the resource groups and the commit graph are what the
+/// panel exists to show. Lives here rather than in the frontend's own module memory because the
+/// collapse state is now persisted (`Settings::git_sections_collapsed`) — see that field.
+pub const DEFAULT_GIT_SECTIONS_COLLAPSED: &[&str] = &["stashes"];
 
 /// `Settings.editorRenderWhitespace` / `SettingsPatch.editorRenderWhitespace`'s value set — mirrors
 /// `EditorRenderWhitespace` (`src/features/editor/code-editor.tsx`), the Monaco `renderWhitespace`
@@ -327,6 +335,39 @@ pub struct Settings {
     /// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.5.
     #[serde(default)]
     pub recent_searches: Vec<String>,
+    /// Runs the search panel's query as the user types, instead of only on Enter. Enter still runs
+    /// immediately and is the only trigger that appends to [`Settings::recent_searches`], so the
+    /// history stays a record of searches the user committed to rather than of every prefix typed
+    /// on the way there. Defaults to `true`, matching VS Code's `search.searchOnType`.
+    #[serde(default = "default_true")]
+    pub search_on_type: bool,
+    /// How long typing has to pause before a [`Settings::search_on_type`] run fires, in
+    /// milliseconds. Clamped to `[50, 2000]` by `service::sanitize`. Defaults to
+    /// [`DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS`], matching VS Code's
+    /// `search.searchOnTypeDebouncePeriod`.
+    #[serde(default = "default_search_on_type_debounce_ms")]
+    pub search_on_type_debounce_ms: u32,
+    /// Which SCM panel sections the user has collapsed, by section id — the frontend's
+    /// `GitSectionId` union owns that value set. A plain
+    /// passthrough list like [`Settings::recent_searches`]: an id this Rust side does not
+    /// recognize is meaningless noise to the panel, not a value worth a second copy of that union
+    /// here to validate against, so only the length is bounded (`service::sanitize`) against an
+    /// unbounded hand-edited or synced list. Defaults to
+    /// [`DEFAULT_GIT_SECTIONS_COLLAPSED`].
+    ///
+    /// Persisted (rather than the process-lifetime module memory it replaced) because the panel
+    /// only renders while the sidebar's git view is selected, so switching views already threw the
+    /// state away once per view switch, and a restart threw it away again
+    /// (`docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §1.H).
+    #[serde(default = "default_git_sections_collapsed")]
+    pub git_sections_collapsed: Vec<String>,
+    /// Height of the SCM panel's commit-graph pane in pixels — the bottom half of the panel's
+    /// vertical resizable group. Clamped to `[24, 4000]` by `service::sanitize`, whose lower bound
+    /// is the collapsed height (the graph header alone). No settings-screen control renders it;
+    /// like [`Settings::recent_searches`] it is UI state that happens to need to outlive the
+    /// process, written by the resize handle itself.
+    #[serde(default = "default_git_graph_panel_size_px")]
+    pub git_graph_panel_size_px: u32,
     /// When `true`, entering Zen mode also fullscreens the main window
     /// (`window::commands::window_set_fullscreen`). Defaults to `false` — Zen mode's chrome hiding
     /// is opt-out (`zen_hide_status_bar`), but fullscreen is opt-in, since it also affects the OS
@@ -417,6 +458,10 @@ pub struct SettingsPatch {
     pub editor_format_on_paste: Option<bool>,
     pub emmet_enabled: Option<bool>,
     pub recent_searches: Option<Vec<String>>,
+    pub search_on_type: Option<bool>,
+    pub search_on_type_debounce_ms: Option<u32>,
+    pub git_sections_collapsed: Option<Vec<String>>,
+    pub git_graph_panel_size_px: Option<u32>,
     pub zen_fullscreen: Option<bool>,
     pub zen_hide_status_bar: Option<bool>,
 }
@@ -455,6 +500,18 @@ fn default_editor_tab_size() -> u32 {
 
 fn default_terminal_scrollback() -> u32 {
     DEFAULT_TERMINAL_SCROLLBACK
+}
+
+fn default_search_on_type_debounce_ms() -> u32 {
+    DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS
+}
+
+fn default_git_sections_collapsed() -> Vec<String> {
+    DEFAULT_GIT_SECTIONS_COLLAPSED.iter().map(|id| id.to_string()).collect()
+}
+
+fn default_git_graph_panel_size_px() -> u32 {
+    DEFAULT_GIT_GRAPH_PANEL_SIZE_PX
 }
 
 impl Default for Settings {
@@ -534,6 +591,10 @@ impl Default for Settings {
             editor_format_on_paste: false,
             emmet_enabled: default_true(),
             recent_searches: Vec::new(),
+            search_on_type: default_true(),
+            search_on_type_debounce_ms: default_search_on_type_debounce_ms(),
+            git_sections_collapsed: default_git_sections_collapsed(),
+            git_graph_panel_size_px: default_git_graph_panel_size_px(),
             zen_fullscreen: false,
             zen_hide_status_bar: default_true(),
         }

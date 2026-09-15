@@ -74,6 +74,10 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     editorFormatOnPaste: null,
     emmetEnabled: null,
     recentSearches: null,
+    searchOnType: null,
+    searchOnTypeDebounceMs: null,
+    gitSectionsCollapsed: null,
+    gitGraphPanelSizePx: null,
     zenFullscreen: null,
     zenHideStatusBar: null,
 })
