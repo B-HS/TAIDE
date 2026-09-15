@@ -58,6 +58,10 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
 
 - git 동작(commit/push/pull)·LSP 재시작·플러그인 리로드·프로젝트 열기/닫기는 팔레트 커맨드로
   등록하지 않았다 — 각각 git 패널·설정 LSP 섹션·플러그인 매니저·사이드바 UI 로 노출된다.
+- `terminal.new` 는 d-58 부터 Welcome 화면의 "터미널 열기" 버튼과 `useOpenTerminalTab`
+  (`entities/layout/layout.query.ts`)을 공유한다. 이때 target 이 `null` 에서 **이 창의 focused pane**
+  으로 바뀌었다 — 팔레트는 메인 창 전용이라 Rust 의 `focused_pane` 폴백과 같은 pane 이고, Welcome
+  쪽이 보조 창에서도 제 창에 열리게 하기 위한 통일이다.
 - `view.welcome`(2026-09-04) 은 `TabKind::Welcome` 탭을 **이 창의 focused pane** 에 연다
   (`currentWindowFocusedPane`). 규약 3가지:
   - **기본 단축키 없음.** `keymapId` 가 없으므로 `buildKeybindingRows` 가 `runsViaCommand` 행으로
@@ -80,8 +84,22 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
 - 점수는 토큰별 매칭 점수의 단순 합이라, 서로 겹치는 토큰(`fuzzy fu`)은 같은 글자를 두 번 계산해
   그 후보의 점수만 올라간다(강조 인덱스는 합집합이라 불변, 통과·탈락 판정도 불변). 실사용 질의는
   토큰이 겹치지 않으므로 현재는 합 규칙을 유지한다.
-- 정렬: 점수 내림차순 → **최근 사용(MRU)** → 알파벳.
-  MRU 는 view 로컬이 아니라 `settings` 에 저장해 재시작 후에도 유지한다.
+- 정렬(d-58 G1): **점수 내림차순 → 마지막 경로 세그먼트(파일명) 매치 우선 → 라벨 길이 오름차순 →
+  라벨 사전순**. 네 단계가 전부 같은 후보만 입력 순서를 유지하므로 순위는 결정적이다. 점수 하나만
+  보던 이전 규칙은 동점 후보의 순서를 파일 순회 순서에 맡겼고, `FILE_RESULT_LIMIT = 200` 커트라인이
+  실행마다 다른 후보를 잘라냈다(같은 질의가 어떤 때는 파일을 찾고 어떤 때는 못 찾던 사용자 보고).
+  빈 질의·공백뿐인 질의는 전 항목이 0점이라 정렬 자체를 건너뛰고 입력 순서를 그대로 돌려준다.
+  **MRU 는 미구현이다** — 이 문서가 예전에 적어 둔 "최근 사용" 단계는 코드에 없었다. 도입 여부는
+  후속 과제(`acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §4)로 남긴다.
+- 유니코드 정규화(d-58 G2): 질의와 후보 라벨은 **NFC 로 통일해 매칭**한다(`fuzzy-match.ts` 의
+  `toNormalizedForMatching`). macOS 는 파일명을 NFD 로 돌려주는데 키보드·IME 는 NFC 를 만들고
+  `fuzzyMatch` 는 코드포인트 정확 비교라, 한글 파일명이 눈에 보이는 이름 그대로 쳐도 0건이었다.
+  - 결과 항목은 정규화한 라벨을 `FuzzyRankedItem.label` 로 함께 돌려주고, **화면 강조는 그 `label`
+    로만** 한다(매칭 인덱스가 그 문자열 기준이므로 다시 계산한 라벨을 그리면 강조가 밀린다).
+  - **여는 경로는 `item` 의 원본**이다. 정규화본은 표시·매칭 전용이고 디스크가 준 바이트는 바꾸지
+    않는다.
+  - ASCII 라벨은 모든 정규화 형태에서 같은 문자열이라 정규화 패스를 건너뛴다(키 입력마다 수만 후보를
+    훑는 경로라 통과 비용을 피한다).
 - 파일 퀵오픈은 **트리에 아직 로드되지 않은 폴더의 파일도 찾아야 한다** — `tree_rows`(사이드바와
   동일한 지연 로딩 트리)에 의존하면 안 된다. 전용 커맨드 `search_list_files(projectId) →
   string[]`(d-42, `search` 도메인의 `build_walk` 파일 순회 재사용 — 신규 크레이트 없이 기존
@@ -89,6 +107,19 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
   반환하고, `entities/search/search.query.ts` 의 `projectFilesQueryOptions` 가 이를 감싼다. (과거
   구현은 `tree_rows` 를 직접 필터해 이 요구사항을 위반했었다 — `docs/acknowledge/
   2026-08-25-d42-e2e-defects-contract.md` §3 item d 로 근본 수정)
+- **인덱스에 들어가는 것**: `IGNORED_DIR_NAMES`(`.git`·`node_modules`…)만 제외하고 `.gitignore` 는
+  적용하지 않는다(사이드바 트리와 같은 범위 — 트리에 보이는 파일은 항상 퀵오픈도 돼야 한다).
+  바이너리 파일도 포함한다(내용을 읽지 않는다). **심링크된 파일은 포함한다**(d-58 G4) — 워커가
+  링크를 따라가지 않아 `file_type().is_file()` 이 `false` 라 빠져 있었고, 엔트리가 심링크일 때만
+  대상을 확인해 파일이면 넣는다. 디렉토리 심링크는 계속 제외(순회 순환 방지)하고, 끊긴 링크도
+  제외한다 — "이 목록의 경로는 전부 열린다" 가 인덱스의 계약이기 때문이다. UTF-8 이 아닌 경로도
+  같은 이유로 제외한다.
+  - **예외(알려진 비대칭)**: 링크 **대상이 프로젝트 루트 밖**인 심링크 파일은 인덱스에는 뜨지만
+    열기는 거부된다. `infra::root_guard` 는 경계 판정 전에 심링크를 해소하므로(`canonicalize`)
+    해소된 경로가 루트 밖이면 `Forbidden`(`error.path.outsideProjectRoot`) 이다. 루트 안을 가리키는
+    심링크는 정상적으로 열린다. 경계가 정답이라 인덱스 쪽을 좁히지 않았다 — 루트 밖 파일을 열려면
+    그 프로젝트를 열거나 `taide` CLI 로 경로를 건네는 기존 경로를 쓴다
+    (회귀 테스트: `infra/root_guard.rs` 의 `루트_밖을_가리키는_심링크는_루트_안에_있어도_거부된다`).
 - 파일 퀵오픈의 fuzzy 매칭 대상은 `search_list_files` 의 **절대 경로가 아니라 활성 프로젝트 기준 상대
   경로**다(`toProjectRelativePath`). 활성 프로젝트 root 가 아직 로딩 중이면 매칭·렌더 자체를
   보류한다(빈 상태에 로딩 표시) — 절대 경로가 매칭 대상으로 잠깐이라도 노출되지 않는다.
@@ -103,7 +134,7 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
 |------|--------|------|------|
 | 인앱 뮤테이션 | `useCreateEntry`·`useRenameEntry`·`useCopyEntry`·`useDeleteEntry` 의 `onSuccess` | `invalidateQueries({ refetchType: 'all' })` (`entities/file/file.query.ts` 의 `invalidateProjectFileIndex`) | 사용자 1회 조작 = walk 1회. 워처 에코(300ms 디바운스)보다 결정적이고 빠르다 |
 | 워처 에코 | `fs:changed` 의 `kind !== 'modified'` (`app/providers/ipc-sync-provider.tsx`) | 기본 `refetchType`(active 만) | 외부 대량 변경(브랜치 전환·설치)이 다수 배치로 쪼개져 오므로 `'all'` 은 walk 폭주가 된다 |
-| 열기 실패 | `layout_open_tab` 이 `NotFound` 를 돌려줌 | `useOpenFileTab` 이 그 자리에서 무효화 | `NotFound` 는 "이 목록이 낡았다" 는 신호 자체다. 같은 죽은 행을 다음 `⌘P` 가 또 내놓지 않는다 |
+| 열기 실패 | `layout_open_tab` 이 `NotFound` 를 돌려줌 | `useOpenFileTab` 이 그 자리에서 무효화 | `NotFound` 는 "이 목록이 낡았다" 는 신호 자체다. 같은 죽은 행을 다음 `⌘P` 가 또 내놓지 않는다. d-58 이전에는 포커스된 pane 이 사라진 경우까지 같은 `NotFound` 로 와서 멀쩡한 인덱스를 헛되이 버렸다 — 이제 그 경우는 서버가 pane 을 폴백해 성공하고(`tabs.md` §1), 남는 pane 오류는 `error.layout.paneNotFound` 로 갈린다 |
 
 - **재-walk 시점은 "다음 열기"다.** 팔레트 쿼리는 열려 있는 동안만 `enabled` 이고, TanStack Query 의
   `refetchQueries` 는 `refetchType` 과 무관하게 disabled 쿼리를 제외한다(query-core 5.101 의
@@ -185,6 +216,13 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
 ## 5. 수명주기
 
 - 팔레트는 전역 1개. 열림 상태는 컴포넌트 로컬(zustand 불필요).
+- **메인 창 전용이다.** `app/app.tsx` 의 auxiliary 분기는 `CommandPalette` 를 마운트하지 않는다(그
+  JSDoc 의 근거 참고). 그래서 보조 창의 `⌘P`/`⌘⇧P` 는 예전엔 아무 반응이 없었고, 지금은
+  `widgets/auxiliary-window-shell` 이 두 키맵 id 를 잡아 `palette.mainWindowOnly` 안내 토스트를 띄운다
+  (d-58 G7). 창 스코프 팔레트는 웨이브 5 과제다.
+- 활성 프로젝트가 없을 때의 파일 열기(`openFile`)는 조용히 반환하지 않고 `app.openProjectFirst`
+  토스트를 띄운다 — 같은 파일의 터미널·설정 커맨드와 같은 규칙(d-58 G6). 현재 UI 에서는 프로젝트가
+  없으면 파일 행 자체가 만들어지지 않으므로 방어 경로다.
 - 전역 키 구독은 `use-global-keymap` 캡처 단계에 더해, 커맨드 실행형(`runsViaCommand`) 바인딩
   전용의 두 번째 캡처 리스너를 팔레트 자체가 하나 더 둔다(`command-palette.tsx` 의
   `useKeydownCapture` — Wave H 계약 근거는 해당 콜백의 JSDoc 참고). 전역 키맵에 엔트리가 없는

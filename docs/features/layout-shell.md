@@ -23,10 +23,15 @@ Welcome 화면(`widgets/welcome/welcome-container.tsx` — 최근 프로젝트 +
 
 | 표면 | 조건 | 렌더 지점 | `projectId` |
 |------|------|-----------|-------------|
-| 프로젝트 0개 전체화면 | `projects.length === 0` | `app-shell.tsx` | `null` (파일 열기 비활성) |
+| 프로젝트 0개 전체화면 | `projects.length === 0` | `app-shell.tsx` | `null` (파일·터미널 열기 비활성) |
 | Welcome 탭 | 활성 탭이 `TabKind::Welcome` | `pane-node-view.tsx` | 활성 프로젝트 |
 | **빈 에디터 영역** | 활성 프로젝트 O + 그 창의 탭 0 | `pane-node-view.tsx` | 활성 프로젝트 |
 
+- 액션 줄은 **폴더 열기 · 파일 열기 · 터미널 열기** 3개다(터미널은 d-58). 터미널은 프로젝트 소속
+  (Rust `ensure_project_open`)이라 파일 열기와 같은 조건(`projectId !== null`)으로 비활성되고, 둘 중
+  하나라도 막히면 `app.openFileHint` 안내가 붙는다. 실행은 팔레트 `new-terminal` 과 공유하는
+  `useOpenTerminalTab`(`entities/layout/layout.query.ts`)이며, 새 탭은 `target: null` 이 아니라
+  **그 창의 focused pane** 에 열린다 — 보조 창의 Welcome 탭이 메인 창에 터미널을 여는 것을 막는다.
 - **빈 에디터 영역은 탭이 아니라 렌더 교체다.** 레이아웃(`PaneNode` 트리)·`revision`·닫은 탭 스택·
   hot-exit 영속을 전혀 건드리지 않으므로 `⇧⌘T`(reopen closed)·복원·원격 세션과 구조적으로 충돌하지
   않는다. 탭으로 원할 때는 `⌘⇧P` → `view.welcome`(`command-palette.md` §2.1) 또는 탭 바 여백 메뉴를 쓴다.
@@ -45,8 +50,45 @@ Welcome 화면(`widgets/welcome/welcome-container.tsx` — 최근 프로젝트 +
 ### 2.1 구성 (위→아래)
 
 1. 프로젝트 아이콘 목록 (세션의 프로젝트 순서)
-2. `+` 프로젝트 열기 버튼 — OS 폴더 선택 다이얼로그
+2. `+` 프로젝트 추가 메뉴 — 경로로 열기 / Finder 로 열기 / 최근 프로젝트 (§2.1.1)
 3. (하단 고정) 설정 버튼 — 설정 탭을 활성 프로젝트에 연다
+
+#### 2.1.1 `+` 프로젝트 추가 메뉴 (사용성 배치 5, 2026-09-15)
+
+`+` 는 더 이상 폴더 피커를 곧바로 띄우지 않고 드롭다운을 연다
+(`features/project/sidebar-add-project-menu.tsx`, 순수 UI).
+
+| 항목 | 동작 |
+|------|------|
+| **경로로 열기…** (`sidebar.openByPath`) | 경로 입력 다이얼로그 (아래) |
+| **Finder 로 열기…** (`sidebar.openViaFinder`) | 기존 OS 폴더 선택 다이얼로그 (`useOpenFolderDialog`) |
+| **최근 항목** (`app.recentItems`) 아래 최근 프로젝트 | `project_open(root)` |
+
+- 최근 목록은 `project_list_recent` 를 **이미 열려 있는 프로젝트를 빼고** 최대
+  `RECENT_PROJECT_MENU_LIMIT`(10, `shared/constants/project.ts`)개 보여준다. 열린 프로젝트는 바로 위
+  아이콘 줄에 이미 있어 중복이고, 상한은 Rust `constants::RECENT_PROJECT_MENU_LIMIT` 와 같은 값이라
+  네이티브 `File > Open Recent`(`window-chrome.md` §7)과 같은 깊이를 보여준다. Welcome 의 최근 목록
+  상한(`RECENT_PROJECT_DISPLAY_LIMIT` = 8)도 같은 파일에 있다.
+- 항목 라벨은 §2.2 의 `resolveProjectDisplay` 사다리를 그대로 따른다(짧은 라벨 > 이름). 보조 줄은
+  `root`, `rootMissing` 이면 항목이 비활성이고 `app.recentProjectRootMissing` 이 붙는다.
+- **선택은 `project_open(root)` 한 경로다.** 이미 열린 root 면 Rust 가 `already_open` 으로 재활성화하므로
+  (`domain::project::service::open_project`) 프론트가 열림/활성 분기를 따로 두지 않는다.
+- 트리거는 `IconButton` 이 아니라 `tab-bar-add-menu.tsx` 와 같은
+  `DropdownMenu > Tooltip > TooltipTrigger asChild > DropdownMenuTrigger` 중첩이다 — `IconButton` 은 자체
+  Tooltip 트리거 `span` 을 품고 있어 `DropdownMenuTrigger asChild` 와 트리거가 겹친다.
+
+**경로로 열기 다이얼로그** (`features/project/open-project-by-path-dialog.tsx`)
+
+- Enter 제출, 좌우 공백 trim, 빈 값이면 확인 비활성, 진행 중이면 재제출 없음. 닫힘→열림 전이에서 입력을
+  비운다(`create-tag-dialog.tsx` 선례) — 취소한 경로가 다음 열기에서 확인 한 번에 열리면 안 된다.
+- `~`/`~/…` 확장과 존재·디렉토리 검사는 **Rust `open_project`**(`resolve_open_root`) 몫이다. 실패는
+  `error.project.pathNotFound` / `error.project.pathNotDirectory` 토스트로 그대로 뜨고, 성공하면
+  다이얼로그가 닫힌다.
+- 다른 창에서 프로젝트가 열리거나 닫히거나 `Clear Recent` 되면 `project:list-changed` 가 `PROJECT.LIST` 와
+  **`PROJECT.RECENT` 를 함께** 무효화한다(`ipc-sync-provider.tsx` 의 `PROJECT_LIST_CHANGED_INVALIDATIONS`).
+  최근 목록은 열린 목록과 별개 쿼리라 하나만 무효화하면 이 메뉴와 Welcome 이 낡은 채로 남는다.
+- 표시 라벨 변경(`project_set_display`)도 같은 `project:list-changed` 를 쏘므로 이 메뉴는 다른 창에서 바꾼
+  라벨까지 곧바로 따라간다. Welcome 최근 목록은 여전히 `project.name` 을 그린다(§2.2 의 적용 범위).
 
 ### 2.2 프로젝트 아이콘 — 표시 설정 (사용성 배치 4, 2026-09-04)
 

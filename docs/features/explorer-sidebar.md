@@ -153,6 +153,9 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   예시도 `*.test.ts` 형태다.
 - **projectId 스코프**: 검색 뷰는 `key={projectId}` 로 마운트된다. 프로젝트를 바꾸면 쿼리·결과·
   폴더 범위가 함께 초기화돼 이전 프로젝트의 경로를 새 프로젝트 레이아웃에 여는 교차 오염이 없다.
+- **결과 그룹 헤더의 파일 아이콘**은 탐색기·탭 바와 같은 레지스트리를 거친다
+  (`shared/ui/file-group-header.tsx` → `FileTypeIcon` → `resolveFileIcon`, d-58 §1.B). 같은 헤더를
+  쓰는 문제(Problems) 패널도 함께 적용된다. 색은 레지스트리의 `colorClass` 가 준다.
 - **취소 정책**: 새 검색은 명시 `search_cancel` 을 앞세우지 않는다 — `search_run` 의 `begin_search`
   가 같은 `(owner, sessionId)` 의 직전 토큰을 이미 취소하고, 앞세운 fire-and-forget 취소는 순서가
   뒤집히면 **새 실행**을 취소해 결과 0건·무에러가 됐다. 대신 **언마운트 시**에는 취소한다.
@@ -167,6 +170,29 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   제한되고, 저장된 projectId 가 다르면 폐기된다.
 - 편집된 쿼리·토글을 탭 레코드(`TabKind::SearchEditor.query`)에 영속화하는 것은 백엔드 표면 변경
   이라 이 배치 범위 밖이다 — 앱 재시작 시에는 탭이 열릴 때의 원래 쿼리로 돌아온다.
+
+### 3.3 실행 트리거 — 실시간 검색 (d-58 §1.B)
+
+- 검색 패널은 Enter 전용이 아니다. `settings.searchOnType`(기본 on, Settings > 인터페이스 > 검색)이
+  켜져 있으면 검색어·옵션(대소문자/단어/정규식/.gitignore/제외 글롭/폴더 범위)이 바뀐 뒤 입력이
+  `settings.searchOnTypeDebounceMs`(기본 300ms, `[50, 2000]` 클램프) 동안 멈추면 실행한다.
+  **트레일링 전용**이라 첫 글자에서는 돌지 않는다. 안내 문구도 설정에 따라 갈린다
+  (`search.liveSearchHint` / `search.pressEnterHint`).
+- **Enter 는 그대로 즉시 실행**하고, 대기 중이던 디바운스를 취소한다(중복 실행 방지).
+  **검색 이력(`recent_searches`)에 쌓는 것은 Enter 뿐이다** — 입력 중 실행은 `recordHistory: false`
+  라, 최종 검색어로 가는 길에 지나간 접두사가 이력을 채우지 않는다.
+- **실시간 실행의 실패는 토스트를 띄우지 않는다**(`RunSearchOptions.live`). 실제로 걸리는 실패는
+  `(foo` 처럼 **아직 덜 쓴 정규식**이라, 토스트로 알리면 글자마다 에러 알림이 쌓인다. 대신 패널
+  본문의 기존 실패 표시(`search.failed`)만 뜨고, Enter 실행은 현행대로 토스트까지 띄운다.
+- 실시간 실행은 성능 표본에서 제외한다 — `search.run-requested` 마크를 **찍지도 닫지도** 않는다
+  (`quality-assurance/2026-09-04-perf-baseline.md` 전역 검색 지표).
+- 이전 실행 취소는 추가 작업이 없다. 위 §3.1 "취소 정책" 그대로 `search_run` 의 `begin_search`
+  supersede 에 맡긴다.
+- **IME**: WKWebView 가 composition 이벤트를 주지 않으므로(`shared/lib/ime-composition.ts`) 한글·
+  일본어 입력은 조합 중 상태 그대로 검색될 수 있다. keydown 229 가드를 걸면 해당 언어 입력 전체가
+  실시간에서 빠지므로, **디바운스만으로 감수**하고 확정은 Enter 에 맡긴다. 최소 질의 길이는 두지
+  않는다(VS Code 동형).
+- **검색 에디터 탭(§3.2)은 범위 밖**이다 — Enter 전용을 유지한다.
 
 ## 4. 수명주기
 

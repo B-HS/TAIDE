@@ -167,3 +167,88 @@
 
 설정 화면 INTERFACE 섹션에 `zen_fullscreen`/`zen_hide_status_bar` 토글 2개가 있다(`settings-view.tsx`
 — 기존 `settingsUpdate` 플로우 그대로, 별도 저장 경로 없음).
+
+## 7. 앱 메뉴바 (macOS 네이티브 메뉴)
+
+> 사용성 배치 5 웨이브 1(d-58, 2026-09-15)에서 `File` 메뉴를 신설했다. 계약
+> `docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §1.E.
+
+### 7.1 구성
+
+```
+TAIDE   File   Edit   Window
+         └ Open Recent ▸  <최근 프로젝트 최대 10>
+                          ──────────
+                          Clear Recent
+```
+
+- 메뉴는 `domain::window::commands::build_app_menu` 이 조립하고, `File` 서브메뉴만
+  `domain::window::menu` 이 만든다(`build_file_submenu`). `lib.rs` 의 `setup` 은 **`AppState` 를
+  `manage` 한 뒤에** `set_menu` 를 호출한다 — `Open Recent` 는 `AppPaths` 가 가리키는 디스크의
+  프로젝트 기록에서 만들어지므로 상태보다 먼저 만들 수 없다(그 제약은 `build_app_menu` 의 문서
+  주석이 정본이다).
+- **window 도메인은 project·settings 도메인을 호출하지 않는다.** 클릭 디스패치도 메뉴 갱신도
+  전부 조립(`lib.rs`)이 소유한다 — architecture.md §2, `tests/domain_boundaries.rs` 가 강제한다.
+  `window::menu` 가 갖는 교차 참조는 최근 목록·라벨을 **읽는** 두 건(`project::service`,
+  `locale::service`)뿐이고 화이트리스트에 사유와 함께 등재돼 있다.
+- **Open Recent 항목**: `project::service::list_recent_projects`(=`last_opened_at` 내림차순) 상위
+  `RECENT_PROJECT_MENU_LIMIT`(10, `src-tauri/src/constants.rs`)개. 라벨은 프로젝트의 표시 라벨
+  (`display.label`)이 있으면 그것, 없으면 폴더명 — 알림 제목이 프로젝트를 부르는 방식과 같다.
+  폴더가 사라진 기록(`rootMissing`)은 **목록에 남되 비활성**이다(조용히 사라지면 어디로 갔는지
+  알 수 없다). 목록이 비면 비활성 `No Recent Projects` 한 줄이 대신 선다.
+- **Clear Recent**: 열려 있지 않은 프로젝트의 디스크 레코드를 지운다(`project_forget_recent`).
+  목록이 비어 있으면 비활성. 열려 있는 프로젝트는 지우지 않는다 — 그 레코드는 히스토리가 아니라
+  레이아웃·표시 오버라이드·id 재사용의 정본이다.
+
+### 7.2 클릭 처리 (조립이 디스패치한다)
+
+- `window::menu::menu_action(menuId) → MenuAction`(`Quit`·`OpenRecent(projectId)`·`ClearRecent`·
+  `Ignored`)은 **순수 함수**다 — id 표만 보고 판정하므로 이벤트 루프 없이 테스트된다.
+- `lib.rs` 의 `on_menu_event` → `dispatch_menu_action` 이 그 값을 주인 도메인으로 보낸다:
+  `Quit` → `window::commands::request_quit`(메인 스레드에서 그대로), 나머지는
+  `tauri::async_runtime::spawn` 으로 `project::commands::project_open` /
+  `project_forget_recent`. 메뉴 이벤트 핸들러는 메인 스레드에서 돌기 때문에 — `project_open` 의
+  뮤테이션 가드를 거기서 블로킹하면 그 open 이 필요로 하는 이벤트 루프가 멈춘다 — 그리고 최근
+  목록 읽기가 디스크 IO 이기 때문이다.
+- 최근 항목 클릭은 프론트를 거치지 않고 project 커맨드 함수를 직접 호출한다 — **창이 0개여도
+  동작해야** 하기 때문이다(macOS 는 마지막 창을 닫아도 앱이 살아 있고, 그 상태가 "최근 프로젝트
+  다시 열기"가 가장 쓸모 있는 상태다).
+- 메뉴 항목의 id 는 `taide-recent:<projectId>` 이고, root 는 클릭 시점에 레코드를 **다시 읽어**
+  얻는다(`menu::recent_project_root` — 그 사이 Clear Recent 로 지워졌을 수 있다).
+
+### 7.3 동적 갱신 (이벤트 구독)
+
+- `lib.rs` 의 `listen_for_app_menu_refresh` 가 `project:list-changed`·`project:activated` 를
+  구독해 `window::menu::refresh_recent_menu` 를, `settings:changed` 를 구독해 (언어가 실제로
+  바뀐 경우에만) `window::commands::refresh_app_menu` 를 부른다. **커맨드가 메뉴를 부르지
+  않는다** — 열기·닫기·활성·forget 은 이미 그 이벤트들을 내보내고 있었고, 구독으로 바꾸면서
+  project/settings → window 실행 경로가 사라졌다(d-58 §1.E-보강).
+- 두 반응 모두 `tauri::async_runtime::spawn_blocking` 으로 넘긴다. 리스너는 이벤트를 emit 한
+  스레드에서 그대로 실행되는데, `project_close`/`project_activate` 는 아직
+  `AppState::begin_mutation` 을 쥔 채 emit 하므로 그 자리에서 디스크를 읽으면
+  architecture.md §2.1 위반이다.
+- `settings:changed` 페이로드에는 이전 값이 없으므로 리스너가 **마지막으로 그린 언어를
+  기억**해 비교한다. 언어를 건드리지 않는 설정 변경(토글·에디터 옵션)은 메뉴를 다시 만들지
+  않는다.
+- 갱신은 `Open Recent` 안의 항목만 교체하고, **제거·추가를 `run_on_main_thread` 클로저 하나**
+  안에서 한다. `Submenu::append`/`remove_at` 은 각자 메인 스레드로 마샬링하지만
+  (`run_item_main_thread!` → `send_user_message` 는 이미 메인 스레드면 그 자리에서 실행) 그건
+  원자성이 아니다 — 갱신 둘이 겹치면 서로의 제거·추가가 끼어들어 두 목록이 섞인 메뉴가 남을 수
+  있다. 디스크 읽기는 클로저 **밖**(호출한 blocking 스레드)에 둔다.
+- 갱신 실패는 `log::warn!` 로만 남긴다(메뉴가 낡은 것은 미관 문제고, 갱신을 유발한 커맨드는 이미
+  성공했다).
+- **언어 변경 시에는 전체 메뉴를 다시 만든다**(`commands::refresh_app_menu` → `set_menu`).
+  서브메뉴의 제목(`File`·`Open Recent`)은 만들 때 고정되므로 항목만 교체해서는 바뀌지 않는다.
+
+### 7.4 알려진 제약
+
+- **`language: "system"` 이면 메뉴는 영어다.** 메뉴 라벨은 Rust 가
+  `locale::service::lookup_builtin_message` 로 내장 카탈로그에서 직접 읽는데, OS 로케일은 프론트의
+  `navigator.language`(=`locale_get_current(systemLanguage)` 인자)로만 이 앱에 들어오고 Rust
+  프로세스는 그 값을 관측하지 않는다. 언어를 명시적으로 `ko`/`ja` 로 고르면 메뉴도 그 언어가 된다.
+  (후속: 프론트가 해석한 로케일 id 를 Rust 에 보관하고 메뉴를 그 값으로 그린다.)
+- **Dock 메뉴는 구현하지 않는다.** tauri 2.11 에 Dock 메뉴 API 가 없다(결정:
+  `docs/acknowledge/2026-09-15-usability-batch5-user-decisions.md` §2).
+- **TAIDE/Edit/Window 메뉴의 문자열은 아직 영어 하드코딩**이다(범위 밖 — 계약 §4 후속).
+- 사용자 정의 로케일 팩(디스크 `.json`)의 메뉴 라벨은 읽지 않는다 — 메뉴 재구성 경로에 파일 IO 를
+  두지 않기 위해 내장 3종만 조회한다.

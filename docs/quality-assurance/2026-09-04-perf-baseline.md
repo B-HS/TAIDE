@@ -82,6 +82,10 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
   호출 횟수 자체는 예전과 같이 늘어난다** — 떨어지는 것은 `totalMs` 와 평균이다(`totalMs / count`).
   "저장마다 전량 재조회하는가" 를 보려면 횟수가 아니라 **평균**을 본다: 캐시가 살아 있으면 평균이
   마이크로초대(= `GitStatus` clone 비용)로 내려앉고, 매번 무효화되면 밀리초대에 머문다.
+- **지표 7** — `search.results` 는 **Enter 로 실행한 검색만** 센다. 실시간 검색(`settings.searchOnType`,
+  `explorer-sidebar.md` §3.3)은 `search.run-requested` 마크를 찍지도, 결과가 도착해도 닫지도 않는다 —
+  둘 중 하나라도 하면 타이핑 중 실행이 표본을 덮거나, 결과 0건으로 끝난 직전 Enter 의 마크를 소비해
+  그 경과를 검색 시간으로 보고한다.
 - **지표 8** — 두 카운터의 차이가 **재부착 리플레이 비용**이다. Rust `pty.output_bytes` 는 셸이
   낸 전량, 프론트 `terminal.output-bytes` 는 이 창의 xterm 이 실제로 그린 양이다. 배경 탭의
   터미널은 프론트 쪽이 늘지 않고, 탭으로 돌아오면 스크롤백 리플레이만큼 한 번에 늘어난다.

@@ -11,6 +11,11 @@
 - 모든 변형(열기·닫기·이동·분할·리사이즈·활성화)은 **mutation → Rust layout 도메인**이 수행하고
   `layout:changed(projectId)` 이벤트로 view 가 갱신된다(ADR-0004). view 는 낙관적 UI 를 쓰지 않는다
   (로컬 IPC 라 지연이 체감되지 않음 — 문제 시 재검토).
+- **열 pane 의 해소 규칙**(d-58): `layout_open_tab(target: null)` = "지금 포커스된 pane 에 연다".
+  그 `focusedPane` 이 트리에 없으면(분할 반쪽의 마지막 탭을 닫아 `normalize` 가 정리한 뒤 등)
+  실패하지 않고 **첫 leaf pane 으로 폴백**하면서 `focusedPane` 을 그 pane 으로 고친다. 명시한
+  `target` 이 실제로 없을 때만 `NotFound`(`error.layout.paneNotFound`)다 — 파일 부재
+  (`error.file.notFound`)와 키가 갈리므로 프론트가 "파일이 사라졌다"로 오인하지 않는다.
 
 ## 2. 기본 탭 (FR-B2)
 

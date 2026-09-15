@@ -2043,3 +2043,64 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   구성·에러 코드·이벤트 이름은 그대로이고, 자격증명 모양의 부분 문자열만 `[redacted:<name>]` 로
   치환된 값이 실린다(진단용 URL·경로·sha 는 보존). 발급자 접두는 **단어 시작에서만** 인정하므로
   `task-…`·`disk-cache-…` 안의 `sk-` 같은 단어 중간 부분 문자열은 자격증명으로 보지 않는다(검토 F1).
+
+### 사용성 배치 5 웨이브 1 — Rust (d-58, 2026-09-15)
+
+> 정본 계약 `docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §1.B·§1.D·§1.E·§1.G·§1.H.
+
+**settings — 필드 4종 추가**(`Settings`/`SettingsPatch`, 커맨드 시그니처 무변경. 전부
+`#[serde(default)]` → specta optional 이라 기존 `settings.json`·동기화 gist 는 그대로 읽힌다).
+
+| 필드 | 타입 | 기본 | 정규화 |
+|------|------|------|--------|
+| `searchOnType` | `boolean` | `true` | 없음 |
+| `searchOnTypeDebounceMs` | `number` | `300` | `[50, 2000]` clamp |
+| `gitSectionsCollapsed` | `string[]` | `["stashes"]` | 길이 상한 16 (`GIT_SECTIONS_COLLAPSED_MAX`) |
+| `gitGraphPanelSizePx` | `number` | `240` | `[24, 4000]` clamp |
+
+- 정규화는 `settings::service::sanitize` 안이라 patch·손편집 `settings.json`·동기화 gist 다운로드
+  **세 입구 전부**를 지난다(`recent_searches`·`editor_rulers` 와 같은 심층 방어).
+- `gitSectionsCollapsed` 의 값 집합(`GitSectionId`)은 프론트가 소유한다 — Rust 는 목록 길이만
+  묶고 미지의 id 는 그대로 통과시킨다(`recent_searches` 와 같은 passthrough). Rust 에 유니온을
+  한 벌 더 두면 섹션이 늘 때마다 두 곳이 어긋나기 때문이다.
+- 넷 다 gist 동기화 대상이다(`sync::service::settings_to_sync_patch` — `recent_searches` 선례).
+- `gitGraphPanelSizePx`/`gitSectionsCollapsed` 는 설정 화면에 노출되지 않는다(UI 상태의 영속화).
+
+**project — `project_forget_recent` 신설 + `project_open` 의 `~` 확장**
+
+- mutation(신규): `project_forget_recent() → number` — **현재 세션에 열려 있지 않은** 프로젝트의
+  디스크 레코드(`projects/<id>/`)를 삭제하고 지운 개수를 돌려준다. 열린 프로젝트의 레코드는
+  레이아웃·표시 오버라이드·id 재사용의 정본이라 유지한다. 완료 후 기존 `project:list-changed` 를
+  재발행한다(신규 이벤트 없음) — 네이티브 메뉴의 `File > Open Recent` 재구성은 커맨드가 아니라
+  그 이벤트를 구독하는 `lib.rs` 리스너가 한다(`docs/features/window-chrome.md` §7.3). **원격 dispatch
+  거부** — `project_list_recent` 와 같은 `RemoteDenialPolicy::LocalProjectHistoryExposure`(읽지
+  못하는 히스토리를 지우게 둘 이유도 없다).
+  - 프론트는 이 커맨드 후 `QUERY_KEY.PROJECT.RECENT` 가 갱신돼야 한다 — `project:list-changed`
+    핸들러의 무효화 범위에 포함시킬 것(§"미확인" — d-58 §3 기록 참조).
+- `project_open(path)` 는 이제 진입에서 선행 `~`/`~/…` 를 홈으로 확장한다
+  (`infra::home::expand_home` — 터미널 경로 링크 해석과 같은 함수. `~user` 는 확장하지 않는다).
+  원격 dispatch 경로도 같은 함수를 지나므로 동작이 같다. 시그니처는 무변경이다.
+- 존재하지 않는 경로는 더 이상 io 에러 원문이 아니라 로케일 키가 붙은 `NotFound` 다:
+  **`error.project.pathNotFound`**(`{{path}}`). 경로를 직접 입력해 여는 UI("경로로 열기…")가
+  생겼으므로 원문 노출을 없앴다.
+
+**layout — `layout_open_tab` 의 pane 해소 규칙**
+
+- `target: null` 이고 `focusedPane` 이 트리에 없으면 **첫 leaf pane 으로 폴백**하고 `focusedPane`
+  을 그 pane 으로 고친다(`log::info!`). 이전에는 `NotFound("pane not found")` 로 실패했고, 프론트가
+  이를 파일 부재로 오인해 퀵오픈 인덱스까지 무효화했다(`docs/backlog.md` 해당 항목 — d-58 해결).
+- 명시한 `target` 이 실제로 없을 때만 `NotFound` 로 남되, 로케일 키 **`error.layout.paneNotFound`**
+  (`{{paneId}}`)가 붙는다 — `error.file.notFound` 와 코드·키가 갈리므로 프론트가 둘을 구분할 수 있다.
+
+**search — `search_list_files` 의 심링크 파일**
+
+- 워커는 심링크를 따라가지 않으므로 심링크된 **파일**이 인덱스에서 빠져 있었다. 엔트리가
+  심링크일 때만 `std::fs::metadata` 로 대상을 확인해 파일이면 포함한다. 디렉토리 심링크는 계속
+  제외(순환 없음), 끊긴 링크도 제외(인덱스의 "여기 있는 경로는 전부 열린다" 계약 유지).
+  반환 타입·시그니처는 무변경이다.
+
+**로케일 키 신규 6종**(en/ko/ja): `error.layout.paneNotFound`, `error.project.pathNotFound`,
+그리고 새 `menu` 네임스페이스의 `menu.file`·`menu.openRecent`·`menu.noRecentProjects`·
+`menu.clearRecent`. `menu` 는 Rust 가 직접 조회하는 첫 네임스페이스다 —
+`locale::service::lookup_builtin_message(localeId, key)` 가 내장 카탈로그를 읽는 유일한 통로이고,
+어느 카탈로그를 읽을지는 `builtin_locale_for_language(settings.language)` 가 정한다.

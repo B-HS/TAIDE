@@ -37,24 +37,44 @@
    remote 이름/주소 표시(FR-F1 — remote url 은 `Remote::url()`). Stash 실행은 저장소 레벨 액션이라
    Sync 옆이 제자리다(2026-09-04 이전에는 stash 섹션 헤더의 hover 액션이었다 — 아래 §2.1).
 2. **커밋 입력**: 멀티라인 메시지 박스 + Commit 버튼 + 드롭다운.
-3. **섹션**(순서 고정): `Merge Changes`(충돌) → `Staged Changes` → `Changes` → `Stashes` → `Graph`(§5).
-   다섯 섹션 전부 같은 접이식 헤더 컴포넌트(`features/git/git-section-header.tsx`)를 쓴다 — chevron +
-   카운트 배지 + hover/focus-within 액션(Stage All / Unstage All).
+3. **본문(세로 2-pane, 2026-09-15 d-58 §1.H)**: `react-resizable-panels` 세로 `Group` 으로 나뉜다.
+   - **위 pane**(`git-changes`): `Merge Changes`(충돌) → `Staged Changes` → `Changes` → `Stashes`.
+     스크롤바 1개(`ScrollContainer`)로 이 넷을 훑는다.
+   - **`PaneSeparator`**(세로, 두께는 `resizerThickness` 설정): 드래그로 두 pane 높이를 조절한다.
+   - **아래 pane**(`git-graph`): `Graph`(§5). 커밋이 0건이면 separator 와 함께 통째로 렌더하지 않아
+     위 pane 이 패널 전체를 쓴다.
+   - 다섯 섹션 전부 같은 접이식 헤더 컴포넌트(`features/git/git-section-header.tsx`)를 쓴다 — chevron +
+     카운트 배지 + hover/focus-within 액션(Stage All / Unstage All).
 
 ### 2.1 섹션 가시성·접힘 (2026-09-04, 사용성 배치 4 ⑤)
 
 - **가시성 판정 단일 출처는 순수 함수 `widgets/git-panel/git-sections.ts` 의 `buildGitSections`**
-  (+ `git-sections.test.ts`). 이 저장소에는 DOM 렌더 하네스가 없으므로 이 UX 의 회귀 검증은 이
-  함수에 모여 있다.
+  (+ `git-sections.test.ts`). 렌더 쪽은 `git-panel.test.tsx`(RTL)가 보지만 happy-dom 에는 레이아웃이
+  없어 가상화된 행이 하나도 마운트되지 않으므로(`docs/memory/test-conventions.md` §5), "무엇을
+  그릴지"의 회귀는 여전히 이 순수 함수에 모여 있다.
 - **빈 섹션은 그리지 않는다.** 변경 그룹 3종은 0건이면 미렌더(기존), `Stashes` 는
   `stashes.length > 0` 일 때만 렌더한다. 이전에는 stash 섹션 조건이 `stashes.length > 0 || canStash`
   라서 **스태시가 0건이어도 워킹트리가 더러우면 빈 "스태시" 헤더가 목록 맨 위에** 그려졌고, 이것이
   "stash 와 changes 영역 구분이 모호하다"는 보고의 실제 원인이었다(색 대비 문제가 아니었다).
 - 변경 그룹 3종이 모두 비면 `git.noChanges` 한 줄을 그린다(신규 i18n 키 0 — 기존 미사용 키 재사용).
-- **접힘 상태는 `entities/git/git-section-collapse-memory.ts` 모듈 스코프 메모리**에 둔다
-  (`commit-message-memory.ts` 와 같은 계층·같은 수명 모델, `architecture.md` §6.4 등재). 기본값은
-  **Stashes 만 접힘**이고 나머지는 펼침. 사이드바 뷰를 파일/검색으로 바꿔 패널이 언마운트돼도,
-  프로젝트를 바꿔도 유지되며 앱 재시작 시 기본값으로 돌아간다(설정·레이아웃 스키마 무변경).
+- **접힘 상태는 `Settings.gitSectionsCollapsed`**(접힌 섹션 id 목록)에 영속한다(2026-09-15 d-58 §1.H,
+  결정 §2 #3 — 그전까지는 프로세스 수명 모듈 메모리였다). 읽기·쓰기 변환은 순수 함수
+  `entities/git/git-section.ts`(`toGitSectionCollapsedMap`/`toGitSectionCollapsedIds`)가 담당하고,
+  **값 집합(`GitSectionId`)의 소유자는 프론트**다 — Rust 는 목록 길이만 제한하는 passthrough이므로
+  모르는 id 는 읽는 쪽에서 무시한다(`docs/ipc-contract.md`). 기본값(필드가 아직 없을 때)은 **Stashes 만
+  접힘**. **정본은 패널의 로컬 state**(설정은 마운트 초기값 + 늦게 도착하면 사용자가 토글하기 전 1회만
+  반영)이고 `Settings` 는 토글할 때마다 맵 전체를 싣는 write-through 미러다 — 설정 캐시를 되읽던 이전
+  방식은 `settings_update` 왕복이 끝나기 전의 연속 토글이 서로를 덮어썼다(d-58 렌즈 검토 G-2). 사이드바
+  뷰를 바꿔 패널이 언마운트돼도, 프로젝트를 바꿔도, **앱을 재시작해도** 유지된다.
+- **그래프 pane 높이는 `Settings.gitGraphPanelSizePx`**(기본 240, Rust 가 `[24, 4000]` 로 클램프).
+  separator 드래그가 끝날 때 `onLayoutChanged(isUserInteraction)` 에서 `pane-resize-commit.ts` 의
+  120ms 트레일링 디바운스로 저장한다(에디터 pane 분할과 같은 경로). 설정 화면에 노출하는 컨트롤은
+  없다 — `recent_searches` 와 같은 "프로세스보다 오래 살아야 하는 UI 상태"다.
+- **`minSize`(120px) 아래로 끌면 그래프 pane 이 접힌다**(`collapsible`, `collapsedSize` = 헤더 24px).
+  드래그 접힘과 헤더 chevron 접힘은 같은 상태다 — 드래그 결과는 `gitSectionsCollapsed` 로 기록하고,
+  설정값은 `Panel` 의 명령형 핸들(`collapse()`/`resize()`)로 되밀어 넣는다(사이드바와 같은 방식,
+  `app-shell.tsx`). 펼칠 때 `expand()` 가 아니라 `resize(저장된 높이)` 를 쓰는 이유는 `expand()` 가
+  "이번 세션에 기억하는 크기"(접힌 채 뜬 pane 에서는 `minSize`)로 돌아가기 때문이다.
 - **접힌 섹션도 카운트 배지를 계속 보여준다.** 접은 `Staged Changes` 가 개수를 숨기면 "스테이지된 게
   없다"고 오인해 `resolveCommitGate` 의 stage-all 확인 경로(§3)로 흘러 워킹트리 전체를 커밋할 수 있다.
 - **헤더 대비는 구분선(`border-t`) + `sticky top-0`(배경 `bg-explorer-background` 명시) + 행 `pl-4`
@@ -75,16 +95,19 @@
   키보드로 도달 불가였던 결함(`group-focus-within:flex` 로 동시 해소)을 함께 고치기 위해서다.
   접힌 섹션의 행은 렌더 자체를 건너뛰므로 로빙 시퀀스에서도 빠진다.
   - **순서의 정본은 DOM 이 아니라 인덱스다**(§2.2 가상화 전제). 각 항목은 위치 인덱스를
-    `data-git-roving-index` 로 들고 있고(가상 항목은 위치 래퍼가, 스태시·그래프 섹션은 섹션
-    래퍼가), 이동은 `resolveNextChangeRowIndex(key, activeIndex, rovingItemCount)` 로 계산한 뒤
+    `data-git-roving-index` 로 들고 있고(가상 항목은 위치 래퍼가, 스태시 섹션은 섹션 래퍼가),
+    이동은 `resolveGitPanelFocusTarget`(내부적으로 `resolveNextChangeRowIndex`)로 계산한 뒤
     필요하면 `scrollToIndex` 로 먼저 스크롤하고 마운트된 뒤 포커스한다. `querySelectorAll` 로
     문서 순서를 세던 이전 방식은 뷰포트 밖 행이 DOM 에 없어 조용히 끊긴다.
     `data-git-change-row`·`data-git-section-header` 는 e2e 스펙 07·19 가 행·헤더를 집는 마커로
     그대로 유지한다.
-  - 로빙 항목 수 = 가상화된 변경 목록 행 수 + 보이는 스태시 섹션(1) + 보이는 그래프 섹션(1).
-    스태시의 Apply 버튼·그래프 커밋 행·행/헤더의 hover 액션 버튼처럼 **항목 내부 컨트롤**에
-    포커스가 있을 때는 ↑↓ 를 건드리지 않는다(그 항목의 콘텐츠이지 패널의 항목이 아니다).
-    이전에는 이 경우 셀렉터가 아무것도 못 찾아 포커스가 **목록 맨 위로 튀었다**.
+  - 위 pane 의 로빙 항목 수 = 가상화된 변경 목록 행 수 + 보이는 스태시 섹션(1). **그래프 헤더는
+    인덱스 공간 밖의 정거장**이라 `resolveGitPanelFocusTarget` 이 pane 경계를 넘는 이동만 따로
+    해소한다(목록 끝에서 ↓ → 그래프 헤더, 그래프 헤더에서 ↑ → 목록 마지막 항목, ref 로 포커스).
+    스태시의 Apply 버튼·행/헤더의 hover 액션 버튼처럼 **항목 내부 컨트롤**에 포커스가 있을 때는
+    ↑↓ 를 건드리지 않는다(그 항목의 콘텐츠이지 패널의 항목이 아니다). 이전에는 이 경우 셀렉터가
+    아무것도 못 찾아 포커스가 **목록 맨 위로 튀었다**. 그래프 pane 의 커밋 행도 같은 이유로 그대로
+    두는데, 그쪽은 "헤더가 아닌 곳에서 온 키는 무시"로 판정한다(pane 이 달라 위 규칙이 닿지 않는다).
 - hover 액션 아이콘: Changes 그룹 `+`(stage)·`↺`(discard)·Open File,
   Staged 그룹 `−`(unstage)·Open File.
 - context menu(FR-F4):
@@ -105,9 +128,9 @@
   재측정 없이 배치된다. 이전에는 브랜치 전환·대량 생성 리포에서 **수천 행이 통째로 DOM 에**
   들어갔다(파일트리·검색·Problems·커밋그래프는 이미 가상화돼 있었고 변경 목록만 빠져 있었다 —
   조사 3a M1).
-- **가상 목록은 스크롤 뷰포트의 첫 요소여야 한다.** 패널은 변경·스태시·그래프를 스크롤바 하나로
-  훑는 구조라 가상 목록의 오프셋이 0 이라는 전제 위에서 측정한다(위에 뭔가를 끼우려면
-  `scrollMargin` 이 필요하다).
+- **가상 목록은 스크롤 뷰포트의 첫 요소여야 한다.** 위 pane 은 변경·스태시를 스크롤바 하나로 훑는
+  구조라 가상 목록의 오프셋이 0 이라는 전제 위에서 측정한다(위에 뭔가를 끼우려면 `scrollMargin` 이
+  필요하다). 스크롤 영역은 패널에 둘이다 — 위 pane 하나, 그래프 pane 하나(§5).
 - **sticky 헤더는 `rangeExtractor` 로 유지한다.** 가상 행은 절대배치라 그 안의 `sticky` 는 자기
   24px 상자를 벗어날 수 없다. 그래서 화면 맨 위에 붙어야 할 헤더(`resolveStickyHeaderIndex`)를
   렌더 범위에 강제로 포함시키고, 그 항목만 translate 없이 흐름에 그린다. 어느 그룹의 행을 보고
@@ -225,6 +248,12 @@
   마크업이라 패널 안에 헤더 스타일이 2종 공존했다). 커밋이 0건이면 섹션을 렌더하지 않고, 접으면
   그래프와 그 아래 커밋 상세 패널이 함께 숨는다. 커밋 상세 패널의 "변경된 파일" 줄은 섹션 헤더가
   아니라 그 패널 내부의 라벨이므로 접이식이 아니고 로빙 시퀀스에도 들어가지 않는다.
+- **그래프 pane 의 내부 구성(d-58 §1.H)**: 헤더(고정 24px) → 그래프 본문(`flex-1`, 자체
+  `ScrollContainer`) → 선택한 커밋이 있으면 커밋 상세 패널(pane 높이의 최대 1/2, 자체
+  `ScrollContainer`). 그전에는 그래프 뷰포트가 `maxHeight: 320px` 고정 + 원시 `overflow-y-auto`
+  (레포에서 유일하게 `ScrollContainer` 를 안 거치는 스크롤)라, 패널이 짧으면 뷰포트를 삼키고 길면
+  커지지 않았으며 접은 섹션이 양보한 공간도 받지 못했다. 이제 높이는 pane 이 정하고, 상세 패널이
+  길어져도 그래프를 0 으로 밀어내지 않는다.
 
 ## 6. IPC (상세: `docs/ipc-contract.md`)
 

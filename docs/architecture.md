@@ -117,7 +117,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     시스템 사용량 프로세스 라벨은 `system::commands::SystemUsageLabelProviders`, 터미널 spawn
     추가 env 는 `terminal::commands::PtySpawnEnvProvider` — 전부 lib.rs 가 구현/클로저를 정적
     등록하고 도메인은 등록된 것을 소비만 한다. (초안이 언급한 "이벤트 버스(내부 broadcast
-    channel)"는 실현되지 않았다 — `events.rs` 는 프론트행 IPC 이벤트 전용이다.)
+    channel)"는 실현되지 않았다 — `events.rs` 는 프론트행 IPC 이벤트를 정의하고, 내부 연동이
+    필요하면 조립부가 그 이벤트를 `app.listen_any` 로 **구독**한다: 원격 세션 팬아웃
+    `fanout_remote_events!`, 네이티브 메뉴 갱신 `listen_for_app_menu_refresh`(d-58 —
+    `features/window-chrome.md` §7.3). 반응이 단방향이고 실패해도 커맨드 결과에 영향이 없는
+    경우에 한한다.)
     부팅 1회성 복원처럼 확장점 4종 어디에도 맞지 않는 연동은, **조립부가 호출 순서를 계속
     소유하는 조건**에서 스텝 본문을 도메인이 보유하고 그 교차 참조를 화이트리스트로 기록한다
     (d-32 — `project::commands` 부팅 복원 3함수의 4엣지가 이 경로의 선례).
@@ -558,7 +562,6 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    | `entities/lsp/lsp-session-flush-registry.ts` + `entities/lsp/lsp-session-registry.ts` | 프로젝트/창/서버/root 별 LSP 세션(`sessionsByKey`) | 참조 카운트 0 도달 후 `LSP_SESSION_DISPOSE_GRACE_MS` 유예, 또는 `projectClosed` 이벤트(`ipc-sync-provider.tsx` → `flushLspSessionsForProject`)로 유예 없이 강제 회수, 또는 앱 종료(`HotExitFlushProvider` → `flushAllLspSessionDisposals`) |
    | `shared/lib/bridge/fire-and-forget-bridge.ts`·`shared/lib/bridge/external-store-bridge.ts` 로 만든 팩토리형 브리지 12+종 | 팩토리 자체는 무상태 — 소유권 범위는 **호출부가 정의**(대개 프로세스 전체, 창별 모듈 인스턴스로 자동 격리) | 팩토리는 구독자 0 정책(`emptyPolicy`)만 제공, TTL/용량은 호출부 책임(예: terminal-write-bridge 의 레이어) |
    | `entities/agent/agent-wait-marker-registry.ts` | tabId 별 외부 오픈 대기 마커 | `useCloseTab` 해제 경로 + `clearStaleWaitMarkersOnStartup`(앱 부팅 시 잔존분 정리) |
-   | `entities/git/git-section-collapse-memory.ts` | SCM 패널 섹션 5종(merge·staged·changes·stashes·graph)의 접힘 여부 — 프로세스(창) 전체 1벌, 프로젝트에 묶이지 않는 뷰 선호 | 앱 실행 종료. 키 집합이 닫힌 union 5개라 증가하지 않으므로 해제 신호·TTL·상한이 필요 없다(재시작 시 `GIT_SECTION_DEFAULT_COLLAPSED` 로 복귀) |
 
    **앱 수명 부수효과(이벤트 구독·전역 상태 동기화)는 조건부 렌더 위젯이 아니라 상시 마운트
    프로바이더(`app/providers/*`)가 소유한다(C4)** — `AppSidebar`·`StatusBarContent`·

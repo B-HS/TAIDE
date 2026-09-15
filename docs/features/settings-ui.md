@@ -29,6 +29,13 @@ OS 마다 생김새가 다르다.
   "빈 에디터 영역 = Welcome". 끄면 기존 `editor.noFileOpen` 문구로 돌아간다(보조 창은 설정과
   무관하게 항상 문구 — 보조 창은 트리가 비면 스스로 닫히기 때문).
 
+- 같은 섹션 맨 아래 **"검색" 소제목**(사용성 배치 5 §1.B)에는 `searchOnType` 스위치(기본 on)와
+  `searchOnTypeDebounceMs` 숫자 필드(기본 300ms)가 있다. 라벨·설명 키는 `settings.searchOnType` /
+  `settings.searchOnTypeDescription` / `settings.searchOnTypeDebounceMs` /
+  `settings.searchOnTypeDebounceMsDescription`, 동작 규약은 `explorer-sidebar.md` §3.3 "실행 트리거".
+  숫자 필드의 `min`/`max`(50~2000)는 `shared/constants/search.ts` 가 Rust
+  `settings::service::sanitize` 의 클램프를 미러한 값이다 — 범위를 넓히면 저장 직후 값이 되돌아간다.
+
 ### 1.2 컴포넌트 규칙 (전 OS 일관 — acknowledge §3.1)
 
 **native 폼 위젯을 직접 쓰지 않는다.** 자체 컴포넌트로 만든다 — 실제 배치는 `shared/ui` 가
@@ -112,10 +119,10 @@ NumberInput→`numeric-field.tsx`, Select→`option-picker.tsx`, KeybindingInput
 
 | 카테고리 | 발화 지점 | 제목 / 본문 |
 |----------|-----------|-------------|
-| `agentCompleted` | `native-notification-provider.tsx` — `agent:state-changed` 의 Working→Idle\|AwaitingInput 전이, **Working 10초 이상**(`AGENT_COMPLETION_NOTIFY_MIN_WORKING_MS`) | `notification.agentCompleted` / 에이전트 이름 |
-| `taskCompleted` | `native-notification-provider.tsx` — Rust 가 발행하는 `terminal:command-finished`(OSC 133 `C`→`D`), **실행 10초 이상**(`TASK_COMPLETION_NOTIFY_MIN_DURATION_MS`) | `notification.taskCompleted{Succeeded,Failed}` / 세션 cwd |
-| `gitRemote` | `entities/git/git.query.ts` `usePushGit`·`usePullGit`(sync 는 이 둘의 조합) | `notification.git{Push,Pull}{Succeeded,Failed}` / 브랜치명 또는 실패 사유 |
-| `searchReplace` | `search-panel-container.tsx` 치환 성공 | `notification.searchReplaceDone` / `search.replaceDone` 요약 |
+| `agentCompleted` | `native-notification-provider.tsx` — `agent:state-changed` 의 Working→Idle\|AwaitingInput 전이, **Working 10초 이상**(`AGENT_COMPLETION_NOTIFY_MIN_WORKING_MS`) | 프로젝트 표시명 / `notification.agent{FinishedBody,AwaitingInputBody}` |
+| `taskCompleted` | `native-notification-provider.tsx` — Rust 가 발행하는 `terminal:command-finished`(OSC 133 `C`→`D`), **실행 10초 이상**(`TASK_COMPLETION_NOTIFY_MIN_DURATION_MS`) | 프로젝트 표시명 / 탭 제목(없으면 cwd) · `notification.exitCode` · 경과 시간 |
+| `gitRemote` | `entities/git/git.query.ts` `usePushGit`·`usePullGit`(sync 는 이 둘의 조합) | 프로젝트 표시명 / `notification.git{Push,Pull}{Succeeded,Failed}` · 브랜치명 또는 실패 사유 |
+| `searchReplace` | `search-panel-container.tsx` 치환 성공 | 프로젝트 표시명 / `search.replaceDone` 요약 |
 | `lspInstall` | `native-notification-provider.tsx` — `lsp:install-progress` 의 `done`·`failed` | `notification.lspInstall{Succeeded,Failed}` / 서버 id 또는 메시지 |
 
 - **에이전트·터미널의 10초 임계**: 짧은 턴·짧은 명령까지 알리면 알림 채널 자체를 무시하게 된다.
@@ -133,6 +140,48 @@ NumberInput→`numeric-field.tsx`, Select→`option-picker.tsx`, KeybindingInput
   중복되기 때문이다. 터미널은 발화가 Rust 이벤트로 올라간 뒤로 **보조 창에서 끝난 명령도 메인 창이
   대신 알린다**(git·검색 패널은 메인 창 전용이라 무관).
 - 검색 치환 실패·에이전트 실패는 알리지 않는다(대응 로케일 키가 없고, 실패 알림은 위 4종으로 한정).
+
+### 2.1.4 문구 포맷 — 제목은 프로젝트, 본문은 이벤트 (사용성 배치 5 §1.F)
+
+> 정본: `docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §1.F.
+> 그 전까지는 제목이 이벤트("에이전트 작업 완료"), 본문이 한 단어("claude")였다 — 프로젝트를 여러 개
+> 열어 두면 **어느 프로젝트에서 온 알림인지 알 수 없었고**, 에이전트가 끝난 것인지 권한 대기로 막힌
+> 것인지도 구분되지 않았다.
+
+- **제목 = 프로젝트 표시명.** `resolveProjectDisplay(project).label ?? project.name` —
+  사이드바가 그리는 것과 같은 값이라 둘이 어긋날 수 없다. `QUERY_KEY.PROJECT.LIST` 캐시에서 읽고(IPC
+  추가 없음), 캐시에 없으면 **기존 이벤트 제목으로 폴백**한다(`notification.agentCompleted` 등은 이
+  폴백 용도로 남아 있다). 프로젝트와 무관한 `lspInstall` 만 현행대로 이벤트 제목을 쓴다.
+- **본문 = `{주체} · {이벤트} · {세부}`.** 조각은 `shared/lib/notification-text.ts` 의
+  `joinNotificationBody`(없는 조각은 구분자를 남기지 않고 빠진다)·`notificationBodyFragment`(카탈로그
+  템플릿의 선택적 꼬리 `{{tab}}` 을 한 값으로 만든다)가 조립한다.
+
+| 이벤트 | 본문 |
+|--------|------|
+| 에이전트 `idle` | `{{agent}} · 작업 완료 · {{duration}}{{tab}}` (`notification.agentFinishedBody`) |
+| 에이전트 `awaitingInput` | `{{agent}} · 입력 대기 (권한 요청 또는 질문){{tab}}` (`notification.agentAwaitingInputBody`) |
+| 터미널 명령 | `{탭 제목 또는 cwd} · 종료 코드 {n} · {경과 시간}` |
+| git push·pull | `{이벤트 제목} · {브랜치 또는 실패 사유}` |
+| 파일에서 바꾸기 | `search.replaceDone` 요약(그대로) |
+
+- **`{{tab}}` 은 터미널 탭 제목**이다. 에이전트의 `sessionId` 는 곧 터미널 탭의
+  `TabKind::Terminal.sessionId` 라, 레이아웃 캐시(`QUERY_KEY.LAYOUT.DETAIL`)에서 찾는다. 보조 창의
+  탭도 찾는다(`collectAllPaneTabs`) — 배경으로 치워 둔 탭이야말로 알림이 필요한 쪽이다.
+- **`terminal:command-finished` 에는 projectId 가 없다.** pty reader 스레드는 프로젝트를 모른다 →
+  열린 프로젝트들의 레이아웃 캐시를 훑어 그 `sessionId` 를 가진 탭의 주인을 찾는다
+  (`findTerminalSessionOwner`). 못 찾으면(이미 닫힌 탭) 이벤트 제목으로 폴백한다.
+- **종료 코드는 `0` 도 싣는다.** 제목이 프로젝트명이 된 뒤로 성공/실패를 말하는 것은 본문뿐이다.
+  셸이 코드를 보고하지 않은 경우(`exitCode: null`)만 그 조각을 만들지 않는다.
+- **`awaitingInput` 에는 경과 시간을 싣지 않는다.** 권한 프롬프트는 결과가 아니고, 지금까지 걸린
+  시간은 "답해야 하는가"를 결정하는 데 쓰이지 않는다. 권한 요청과 질문을 구분하는 것과 카테고리
+  분리는 웨이브 3 몫이라, 현재 문구는 둘 다를 이름으로 부른다.
+- **경과 시간 포맷은 `shared/lib/format-duration.ts` `formatDurationShort`** 하나다(에이전트·터미널
+  공용). 최대 두 단위, 큰 단위가 시간이면 초는 버린다(`1시간 2분`) — 알림 배너가 감당하는 길이이자,
+  "5분이었나 한 시간이었나"에 답하면 되는 값이기 때문이다. 로케일 키는 `common.duration*` 3종.
+- **알림 클릭 라우팅은 불가능하다.** `tauri-plugin-notification` 2.4.0 데스크톱 백엔드는 title·body
+  만 받고 클릭 콜백을 돌려주지 않는다(§2.1.2 의 `permission_state()` 스텁과 같은 제약) → "알림을
+  눌러 그 탭으로 이동"은 구현할 수 없다. 그래서 **어느 프로젝트·어느 탭인지를 문구 자체가 말해야**
+  하고, 위 포맷이 그 대안이다.
 
 ## 3. 리사이저 두께 (12번)
 

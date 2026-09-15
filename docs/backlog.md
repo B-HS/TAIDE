@@ -151,7 +151,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| 팔레트 `target:null` → focusedPane 소실 시 NotFound 토스트 | 파일 탭 열기는 `target: null` 로 "현재 포커스된 pane" 을 요청하는데, 그 `focusedPane` 이 이미 없으면 `layout/service.rs` 가 `NotFound("pane not found")` 를 돌려준다. 파일 자체는 멀쩡한데 `error.file.notFound` 와 같은 `NotFound` 코드라 `useOpenFileTab` 이 파일이 사라진 것으로 읽어 같은 토스트를 띄우고 퀵오픈 인덱스까지 무효화한다(무해하지만 불필요한 walk 1회). pane 부재는 파일 부재와 다른 코드/로케일 키로 분리하거나, 서버가 소실된 pane 을 유효한 pane 으로 대체(fallback)하도록 정한다. |
+| ~~팔레트 `target:null` → focusedPane 소실 시 NotFound 토스트~~ **해결(d-58)** | `layout/service.rs` 의 `resolve_default_open_pane` 이 `target: null` 일 때 `focused_pane` 이 트리에 없으면 첫 leaf 로 폴백하고 `focused_pane` 을 그 pane 으로 고친다(`log::info!`). 명시 `target` 이 실제로 없는 경우만 `NotFound` 로 남되 로케일 키 `error.layout.paneNotFound` 가 붙어 `error.file.notFound` 와 구분되므로, `useOpenFileTab` 이 파일 소실로 오인해 퀵오픈 인덱스를 무효화하지 않는다. 정본 `docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md` §1.G G3. |
 
 ### 터미널 컨텍스트 메뉴(사용성 배치 4, 2026-09-04)에서 이월된 후보
 
