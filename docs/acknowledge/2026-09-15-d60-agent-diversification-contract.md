@@ -20,6 +20,24 @@
 | 에이전트 기제(1차 출처) | opencode: Bus 이벤트 `session.idle`·`permission.asked`·`permission.replied`·`tool.execute.*`, 플러그인 `.opencode/plugins/`·`~/.config/opencode/plugins/`, 권한 옵션 문구 `Allow once`/`Allow always`/`Reject`, 타이틀 `OC \| …`(글리프 없음). codex: hooks 시스템 실재(`hooks.json`, 이벤트 `PreToolUse`·`PermissionRequest`·`PostToolUse`·`Stop`·`UserPromptSubmit`…, command 핸들러). pi: `earendil-works/pi`(구 badlogic/pi-mono), npm `@earendil-works/pi-coding-agent`, 확장 `~/.pi/agent/extensions/*.ts`·`.pi/extensions/*.ts`, 이벤트 `agent_start`/`agent_settled`/`ui_prompt_start`/`ui_prompt_end`/`tool_call` | T4 Q2 |
 | 알림 | `AgentActivity` 4상태(권한 요청·질문이 `awaitingInput` 으로 접힘). Rust 내부 `AgentEvent::PermissionRequest\|QuestionAsked`·`BlockedSource` 는 IPC 를 못 넘음 | `types.rs:110-117`, `service.rs:554-557,645` |
 
+
+### 0.1 탐침 결과 반영 (2026-09-15, wf `wf_bdc360b2` — 정본 `research/2026-09-15-agent-probe-*.md`)
+
+| 축 | opencode (확정, 바이트 근거) | codex |
+|----|------|------|
+| 신원 | 단일 네이티브 Mach-O, comm 절대경로 basename `opencode`, pgid 리더 = 본체(자식은 MCP 서버) | pgid 리더 = **node 셸**(`codex.js:195 spawn(stdio:inherit)`), 네이티브 `codex` 는 자식 → 현행 node→cmdline basename 폴백으로 신원 무변경 |
+| 타이틀 | OSC 0 만. 기동 `OpenCode`, 첫 턴 요약 후 `OC \| <요약>`, 종료 시 빈 문자열. **선행 글리프 없음, 권한 대기 중 갱신 0건** → `TITLE_GLYPHS_FOR(opencode) = None` | [미확인] (세션 진입 전 차단). 바이너리에 `[tui].terminal_title` 식별자 존재 |
+| 스피너 | **유휴·권한 대기 중에도** 6프레임 무한 순환 `◦ U+25E6 · U+00B7 • U+2022 ● U+25CF ○ U+25CB ◌ U+25CC` → `NON_SUBSTANTIVE_GLYPHS` 에 5종(`·` 는 기존) 추가 필수(없으면 영구 Working). 진행 글리프 `⬝ U+2B1D`·`■ U+25A0` 는 턴 진행 중에만 → 실질 출력으로 둬도 옳다 | [미확인] |
+| 다이얼로그 | 정규화 텍스트(대소문자 정확) `Permission required` / `Shell command` / `Allow once` / `Allow always` / `Reject` / `enter confirm`. 렌더는 CUP(`CSI row;col H`) 셀 배치이나 **구 단위가 한 셀 런에 들어가** 정규화 후 독립 라인으로 복원됨(완전일치 가능). 시그니처는 `Permission required` 1개만 채택(질문형·계획 승인 다이얼로그 문구 미포착 → 넣지 않음). 사용자 기본 설정은 승인 없이 실행(permission 키 없음) → 다이얼로그 자체가 드묾 | 신뢰 다이얼로그만 채취: `› 1. Yes, continue` / `Press enter to continue`. **단어마다 CUP 이동**(`Do\e[3;6Hyou\e[3;10Htrust`) → 현 정규화(H→개행)에서는 단어 사이에 개행이 들어가 다구 시그니처 매치 불가. 승인 문구 후보(strings): ` needs your approval.` · `Approval requested: ` · `Do you want to approve network access to "` — 미검증이라 표에 넣지 않는다 |
+| 인밴드 전제 | **확정**: 플러그인 `process.stdout.write` 의 OSC 777 이 pty 에 그대로 도달(raw 100건, opentui 대체화면과 충돌 없음). `permission.asked`/`session.idle` 이 플러그인 핸들러에 실제 오는 순간은 [미확인](40초 창 안에 미도달) | hooks 이벤트 식별자 4종 실재. command 훅의 `/dev/tty` 쓰기 가능성은 [미확인](간접 근거: codex 자신의 OSC 52 `/dev/tty` 경로·샌드박스 `/dev/tty` 허용 규칙) |
+| 설치본 | 1.18.29, 플러그인 `oh-my-openagent@latest` 사용 중(사용자 설정) | `~/.bun/bin/codex` 0.142.0(PATH 1위) · nvm 경로 0.144.6 |
+
+**계약 조정**
+- §1.B 에 **스캐너 정규화 보강** 추가: `infra/terminal_scan.rs` 가 CUP(`CSI row;col H`) 을 처리할 때 **같은 행으로의 이동은 공백 1개, 다른 행은 개행**으로 치환(현재는 일괄 개행 — 확인 후). Claude 의 `CSI n G` 처리와 대칭. 회귀: Claude 시그니처 테스트·d-54 리플레이 타임라인 3건 전부 유지. codex 다이얼로그 시그니처는 여전히 빈 표(실측 후).
+- §1.C codex 인밴드: 구현하되 `/dev/tty` 도달은 [미확인] → 훅 명령은 Claude 와 동일 형태(`/dev/tty` 로 printf, 실패 시 exit 0). HTTP 서버·토큰 경로는 gemini 용으로 남으므로, 사용자 실기에서 codex 인밴드 이벤트가 관측되지 않으면 codex 를 HTTP 로 되돌리는 것은 설정 1줄(에이전트 스펙 테이블의 전달 방식 필드)로 가능하게 설계한다.
+- §1.C opencode 플러그인: 파일은 **사용자 레벨 `~/.config/opencode/plugins/taide-agent.js`** 로 두되, `opencode.json` 의 `plugin` 배열은 건드리지 않는다(디렉토리 자동 로드 여부는 공식 문서 기준 — 자동 로드가 아니면 [미확인] 표기 + 설정 안내 문구). 사용자의 기존 플러그인(`oh-my-openagent`)과 공존.
+- §1.B opencode 다이얼로그 시그니처 = `Permission required` 단독. 사용자 설정이 무승인이라 실효는 낮으나 인밴드 `permission.asked` 가 주 신호.
+
 ## 1. 수정 방향
 
 ### 1.A 실측 탐침 (opencode · codex — 설치본, 세션 내 실행)
