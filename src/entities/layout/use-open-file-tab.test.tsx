@@ -11,6 +11,12 @@ import { createTestQueryClient, renderHookWithProviders, waitFor } from '@shared
  * listing — and only that project's — is invalidated, while any other failure says nothing about
  * the index and must leave it alone.
  *
+ * The second branch is the `null` target: `layout_open_tab` would fall back to the *main* tree's
+ * `focused_pane`, so `withCurrentWindowTarget` resolves it against this window's tree before the
+ * call goes out (d-62 §1.D). The harness always resolves to the main window (`location` carries no
+ * query string — `docs/memory/test-conventions.md` §4), which is exactly the no-regression case
+ * worth locking here; the auxiliary branch is `resolveWindowPaneTree`'s own unit under test.
+ *
  * `layout.query.ts` reaches monaco (through `tab-path-change.ts` → `model-registry`) and its own
  * `.ipc` module at import time, so both are stubbed before it is pulled in through a *dynamic*
  * `import()`. `mock.module` is process-global and last-registration-wins
@@ -97,7 +103,25 @@ describe('useOpenFileTab', () => {
         })
     })
 
-    test('제목을 명시하면 파일명 대신 그 제목을 쓴다', async () => {
+    test('target 이 null 이면 이 창의 포커스 pane 으로 해소해 보낸다 (서버 폴백은 언제나 main 트리)', async () => {
+        const { useOpenFileTab } = await importLayoutQuery()
+        const queryClient = await setupIndexes()
+        await queryClient.fetchQuery({
+            queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID),
+            queryFn: () => Promise.resolve(buildLayout(1)),
+            gcTime: Infinity,
+        })
+        openTabImpl.current = () => Promise.resolve(buildLayout(2))
+        const sentBefore = capturedOpenTabCalls.length
+
+        const { result } = renderHookWithProviders(() => useOpenFileTab(), { queryClient })
+        result.current({ projectId: PROJECT_ID, path: FILE_PATH, preview: false, target: null })
+        await waitFor(() => expect(capturedOpenTabCalls.length).toBeGreaterThan(sentBefore))
+
+        expect(capturedOpenTabCalls.at(-1)?.target).toBe('leaf-1')
+    })
+
+    test('제목을 명시하면 파일명 대신 그 제목을 쓰고, 레이아웃 캐시가 비어 있으면 target 은 null 그대로 서버 폴백에 맡긴다', async () => {
         const { useOpenFileTab } = await importLayoutQuery()
         const queryClient = await setupIndexes()
         openTabImpl.current = () => Promise.resolve(buildLayout(1))

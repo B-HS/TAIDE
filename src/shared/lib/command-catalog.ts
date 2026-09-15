@@ -168,13 +168,11 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
         categoryKey: KEYMAP_CATEGORY.TAB,
         run: () => requestEditorPaneCommand({ type: 'move-focused-tab-to-window', target: { kind: 'main' } }),
         /**
-         * Only meaningful from inside an auxiliary window — this app's command palette is only
-         * mounted in the main window (`app.tsx`, Wave I contract §3.1: `widgets/command-palette`
-         * reads the global active-project session, which an auxiliary window deliberately never
-         * queries), so in practice this stays disabled wherever it's actually shown today. Gated on
-         * window context (rather than reusing `tab.close`'s hardcoded-off `alwaysDisabled`) so the
-         * command is genuinely runnable the moment any surface mounts the palette inside an
-         * auxiliary window; the tab context menu (`tab-context-menu.tsx`) already exercises the
+         * Only meaningful from inside an auxiliary window, so it is gated on window context rather
+         * than on `tab.close`'s hardcoded-off `alwaysDisabled`. That gate used to be theoretical —
+         * the palette was main-window-only while it read the global active-project session — and is
+         * live as of d-62 §1.D, which gave both dialogs a `projectId` prop and mounted them in the
+         * auxiliary branch too (`app.tsx`). The tab context menu (`tab-context-menu.tsx`) offers the
          * same "Move back to Main Window" action unconditionally there.
          */
         isEnabled: () => getWindowContext().kind === 'auxiliary',

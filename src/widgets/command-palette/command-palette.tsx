@@ -1,3 +1,4 @@
+import type { FC } from 'react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
@@ -10,6 +11,7 @@ import {
     parseLineModeTarget,
     parsePaletteQuery,
 } from '@shared/lib/command-palette-query'
+import type { ProjectId } from '@shared/api/bindings'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
 import {
     formatCategorizedLabel,
@@ -36,6 +38,7 @@ import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspa
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { monaco } from '@shared/lib/monaco/setup'
 import { activeFilePathOf, currentWindowFocusedPane } from '@shared/lib/pane-tree'
+import { useShellSlotFocus } from '@shared/lib/shell-slot-context'
 import { Command, CommandEmpty, CommandInput, CommandList } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
@@ -46,7 +49,7 @@ import { CommandPaletteLineGroup } from '@features/command-palette/command-palet
 import { CommandPaletteSymbolGroup } from '@features/command-palette/command-palette-symbol-group'
 import { CommandPaletteWorkspaceSymbolGroup } from '@features/command-palette/command-palette-workspace-symbol-group'
 import { fileQueryOptions } from '@entities/file/file.query'
-import { activeProjectQueryOptions, projectQueryOptions } from '@entities/project/project.query'
+import { projectQueryOptions } from '@entities/project/project.query'
 import { projectFilesQueryOptions } from '@entities/search/search.query'
 import { layoutQueryOptions, useOpenFileTab, useOpenTab, useOpenTerminalTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
@@ -67,7 +70,20 @@ const PALETTE_PLACEHOLDER_KEY: Record<PaletteMode, string> = {
     workspaceSymbol: 'palette.workspaceSymbolPlaceholder',
 }
 
-export const CommandPalette = () => {
+type CommandPaletteProps = {
+    projectId: ProjectId | null
+}
+
+/**
+ * Every project-scoped thing the palette does — file list, symbols, tab opens, terminal, settings —
+ * is scoped to the `projectId` its host hands it, not to the global active-project session it used
+ * to read itself (`activeProjectQueryOptions`). That read was the one reason the palette could only
+ * be mounted in the main window (d-58 Wave I F1's open issue): an auxiliary window is pinned to its
+ * own project and must never follow whatever the main window has active. The main window passes the
+ * project of whichever shell slot has focus (`app/main-window-dialogs.tsx`, d-62 §1.B), an auxiliary
+ * window passes its own fixed one.
+ */
+export const CommandPalette: FC<CommandPaletteProps> = ({ projectId }) => {
     /**
      * Whether this close was caused by the palette *acting* (running a command, opening a file,
      * revealing a symbol) rather than by Escape/outside-click. Radix restores focus to whatever was
@@ -101,7 +117,7 @@ export const CommandPalette = () => {
     const registeredCommands = useSyncExternalStore(subscribeRegisteredCommands, listRegisteredCommands)
 
     const { t } = useTranslation()
-    const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
+    const { focusedShellSlotId } = useShellSlotFocus()
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mode, searchTerm } = parsePaletteQuery(query)
     const {
@@ -109,23 +125,23 @@ export const CommandPalette = () => {
         isPending: isProjectFilesPending,
         isFetching: isProjectFilesFetching,
     } = useQuery({
-        ...projectFilesQueryOptions(activeProjectId),
-        enabled: open && mode === 'files' && !!activeProjectId,
+        ...projectFilesQueryOptions(projectId),
+        enabled: open && mode === 'files' && !!projectId,
     })
     const isSymbolNavMode = mode === 'symbol' || mode === 'line'
-    const { data: layout } = useQuery({ ...layoutQueryOptions(activeProjectId), enabled: open && isSymbolNavMode && !!activeProjectId })
+    const { data: layout } = useQuery({ ...layoutQueryOptions(projectId), enabled: open && isSymbolNavMode && !!projectId })
     const activePath = activeFilePathOf(layout)
     const { data: activeFile } = useQuery({ ...fileQueryOptions(activePath), enabled: open && mode === 'symbol' && !!activePath })
     const { data: lspServers } = useQuery({ ...lspServersQueryOptions(), enabled: open && mode === 'symbol' })
     const needsActiveProjectRoot = mode === 'symbol' || mode === 'files'
     const { data: activeProject } = useQuery({
-        ...projectQueryOptions(activeProjectId ?? ''),
-        enabled: open && needsActiveProjectRoot && !!activeProjectId,
+        ...projectQueryOptions(projectId ?? ''),
+        enabled: open && needsActiveProjectRoot && !!projectId,
     })
-    const { mutate: openTab } = useOpenTab(activeProjectId)
+    const { mutate: openTab } = useOpenTab(projectId)
     const openFileTab = useOpenFileTab()
-    const openTerminalTab = useOpenTerminalTab(activeProjectId)
-    const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
+    const openTerminalTab = useOpenTerminalTab(projectId)
+    const { mutate: reopenClosedTabMutate } = useReopenClosedTab(projectId)
 
     const keymapOverrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
 
@@ -165,9 +181,9 @@ export const CommandPalette = () => {
     }
 
     const openSettingsTab = () => {
-        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        if (!projectId) return toast.info(t('app.openProjectFirst'))
         openTab(
-            { projectId: activeProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
+            { projectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
             { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
@@ -179,10 +195,10 @@ export const CommandPalette = () => {
      * the one `default_layout` seeds (see the constant's doc).
      */
     const openWelcomeTab = () => {
-        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        if (!projectId) return toast.info(t('app.openProjectFirst'))
         openTab(
             {
-                projectId: activeProjectId,
+                projectId,
                 kind: { kind: 'welcome' },
                 title: WELCOME_TAB_TITLE,
                 target: currentWindowFocusedPane(layout),
@@ -193,10 +209,10 @@ export const CommandPalette = () => {
     }
 
     const openSettingsFile = () => {
-        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        if (!projectId) return toast.info(t('app.openProjectFirst'))
         openTab(
             {
-                projectId: activeProjectId,
+                projectId,
                 kind: { kind: 'appFile', target: { kind: 'settings' } },
                 title: SETTINGS_JSON_TAB_TITLE,
                 target: null,
@@ -207,8 +223,8 @@ export const CommandPalette = () => {
     }
 
     const reopenClosedTab = () => {
-        if (!activeProjectId) return
-        reopenClosedTabMutate(activeProjectId, { onError: (error) => toast.error(describeIpcError(error)) })
+        if (!projectId) return
+        reopenClosedTabMutate(projectId, { onError: (error) => toast.error(describeIpcError(error)) })
     }
 
     useGlobalKeymap({
@@ -220,7 +236,8 @@ export const CommandPalette = () => {
     })
 
     const commandContext: CommandContext = {
-        activeProjectId,
+        activeProjectId: projectId,
+        focusedShellSlotId,
         activeEditorActionIds,
         openSettingsTab,
         openSettingsFile,
@@ -269,7 +286,7 @@ export const CommandPalette = () => {
      * `toProjectRelativePath`'s absolute-path passthrough) keeps the fuzzy match target and the
      * displayed subtitle from briefly reverting to the absolute path this feature exists to hide.
      */
-    const fileProjectRootLoaded = !activeProjectId || !!activeProject
+    const fileProjectRootLoaded = !projectId || !!activeProject
     const documentSymbolsLoaded = documentSymbolState?.path === activePath
     const workspaceSymbolsLoaded = workspaceSymbolState?.query === searchTerm
 
@@ -299,9 +316,9 @@ export const CommandPalette = () => {
             if (mode === 'symbol' && !documentSymbolsLoaded) return t('common.loading')
             return t('palette.noResults')
         }
-        if (mode === 'files' && activeProjectId && (!fileProjectRootLoaded || isProjectFilesPending)) return t('common.loading')
+        if (mode === 'files' && projectId && (!fileProjectRootLoaded || isProjectFilesPending)) return t('common.loading')
         if (mode === 'workspaceSymbol') {
-            if (!activeProjectId) return t('app.openProjectFirst')
+            if (!projectId) return t('app.openProjectFirst')
             if (searchTerm.trim() && !workspaceSymbolsLoaded) return t('common.loading')
             return t('palette.noResults')
         }
@@ -315,8 +332,8 @@ export const CommandPalette = () => {
     }
 
     const openFile = (path: string) => {
-        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
-        openFileTab({ projectId: activeProjectId, path, target: null, preview: true })
+        if (!projectId) return toast.info(t('app.openProjectFirst'))
+        openFileTab({ projectId, path, target: null, preview: true })
         closeAfterAction()
     }
 
@@ -333,16 +350,16 @@ export const CommandPalette = () => {
     }
 
     const selectWorkspaceSymbol = (symbol: NormalizedWorkspaceSymbol) => {
-        if (!activeProjectId) return
+        if (!projectId) return
         requestReveal(symbol.path, symbol.line, symbol.column)
-        openFileTab({ projectId: activeProjectId, path: symbol.path, target: null, preview: true })
+        openFileTab({ projectId, path: symbol.path, target: null, preview: true })
         closeAfterAction()
     }
 
     useDocumentSymbolLoader({
         mode,
         open,
-        activeProjectId,
+        activeProjectId: projectId,
         activePath,
         activeFile,
         lspServers,
@@ -353,7 +370,7 @@ export const CommandPalette = () => {
     useWorkspaceSymbolSearch({
         mode,
         open,
-        activeProjectId,
+        activeProjectId: projectId,
         searchTerm,
         workspaceSymbolSearch,
         onResult: setWorkspaceSymbolState,

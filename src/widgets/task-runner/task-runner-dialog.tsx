@@ -1,14 +1,14 @@
+import type { FC } from 'react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Terminal } from 'lucide-react'
-import type { Task, TaskSource } from '@shared/api/bindings'
+import type { ProjectId, Task, TaskSource } from '@shared/api/bindings'
 import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { subscribeOpenTaskRunner } from '@shared/lib/bridge/task-runner-bridge'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
-import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { tasksQueryOptions } from '@entities/task/task.query'
 
 const TASK_SOURCE_LABEL_KEY: Record<TaskSource, string> = {
@@ -17,13 +17,21 @@ const TASK_SOURCE_LABEL_KEY: Record<TaskSource, string> = {
     cargo: 'task.sourceCargo',
 }
 
-export const TaskRunnerDialog = () => {
+type TaskRunnerDialogProps = {
+    projectId: ProjectId | null
+}
+
+/**
+ * Scoped by the `projectId` its host passes rather than by the global active-project session it
+ * used to read itself — the same rescoping, and for the same reason, as `CommandPalette`'s (see its
+ * doc comment): an auxiliary window has to discover *its own* project's tasks.
+ */
+export const TaskRunnerDialog: FC<TaskRunnerDialogProps> = ({ projectId }) => {
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
 
     const { t } = useTranslation()
-    const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
-    const { data: tasks, isPending } = useQuery({ ...tasksQueryOptions(activeProjectId), enabled: open && !!activeProjectId })
+    const { data: tasks, isPending } = useQuery({ ...tasksQueryOptions(projectId), enabled: open && !!projectId })
 
     const handleOpenChange = (next: boolean) => {
         setOpen(next)

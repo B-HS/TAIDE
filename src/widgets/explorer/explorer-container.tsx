@@ -11,6 +11,8 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
+import { resolveWindowPaneTree } from '@shared/lib/pane-tree'
+import { getWindowContext } from '@shared/lib/window-context'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
 import { useOpenFileTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
@@ -30,6 +32,8 @@ import { FileHistoryPanel } from '@widgets/file-history/file-history-panel'
 
 type ExplorerContainerProps = {
     projectId: ProjectId
+    /** Zen mode is a property of the window, not of this project (d-62 §0.1 S-6), so it comes in as a prop — an auxiliary window passes `false` because it has no Zen mode of its own. */
+    zen: boolean
 }
 
 const toFileTreeRow = (row: TreeRow, gitStatus: FileTreeRow['gitStatus']): FileTreeRow => ({
@@ -51,7 +55,7 @@ const findLeafPane = (node: PaneNode, paneId: PaneId): PaneNode | null => {
     return null
 }
 
-export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => {
+export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
     const [selectedRow, setSelectedRow] = useState<FileTreeRow | null>(null)
@@ -124,20 +128,24 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
         projectRoot: project?.root ?? null,
         rows,
         explorerViewActive: view === 'files',
+        zen,
         setSelectPathRequest,
         revealTreeNode,
     })
 
+    /** Splits the pane the tab actually landed in, resolved per window — an auxiliary window's own tree, not `ProjectLayout.focusedPane`, which always names the main tree's pane. */
     const openToTheSide = (row: FileTreeRow) => {
         if (row.kind !== 'file') return
         openFileTab(
             { projectId, path: row.path, title: row.name, target: null, preview: false },
             {
                 onSuccess: (layout) => {
-                    const pane = findLeafPane(layout.root, layout.focusedPane)
+                    const tree = resolveWindowPaneTree(layout, getWindowContext())
+                    if (!tree) return
+                    const pane = findLeafPane(tree.root, tree.focusedPane)
                     const activeTabId = pane && pane.node === 'leaf' ? pane.active : null
                     if (!activeTabId) return
-                    splitPane({ paneId: layout.focusedPane, edge: 'right', tabId: activeTabId })
+                    splitPane({ paneId: tree.focusedPane, edge: 'right', tabId: activeTabId })
                 },
             },
         )

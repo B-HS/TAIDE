@@ -72,7 +72,35 @@ const useLayoutMutation = <TVariables>(projectId: ProjectId | null, mutationFn: 
     })
 }
 
-export const useOpenTab = (projectId: ProjectId | null) => useLayoutMutation(projectId, openTab)
+type OpenTabRequest = Parameters<typeof openTab>[0]
+
+/**
+ * Resolves a tab-open request's `null` `target` to *this window's* focused pane before it reaches
+ * IPC. `layout_open_tab`'s own fallback for a missing target is `ProjectLayout.focused_pane` — the
+ * **main** tree's pane (`domain::layout::commands`) — so a call site that means "wherever the user
+ * is looking" was silently main-window-only. Every widget keeps passing `null`; only an auxiliary
+ * window sees a difference, since in the main window the two resolve to the same pane
+ * (`resolveWindowPaneTree`) — the same equivalence {@link useOpenTerminalTab} already relies on.
+ *
+ * It started to matter with d-62 §1.D, which gave auxiliary windows their own explorer, search and
+ * SCM panels: without this, a file clicked in an auxiliary window's tree (or a diff opened from its
+ * SCM panel) landed over in the main window. Doing it here rather than at each call site is what
+ * keeps the fix from having to be re-applied per widget.
+ *
+ * The layout comes from the query cache rather than a `useQuery` because the request names its own
+ * project, which is not necessarily the one the calling widget was rendered for
+ * ({@link useOpenTabInProject}). An unpopulated cache resolves to `null` and lands on the server
+ * fallback exactly as before.
+ */
+const withCurrentWindowTarget = (queryClient: QueryClient, request: OpenTabRequest): OpenTabRequest => ({
+    ...request,
+    target: request.target ?? currentWindowFocusedPane(queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(request.projectId))),
+})
+
+export const useOpenTab = (projectId: ProjectId | null) => {
+    const queryClient = useQueryClient()
+    return useLayoutMutation(projectId, (request: OpenTabRequest) => openTab(withCurrentWindowTarget(queryClient, request)))
+}
 
 /**
  * Shared by every "open settings.json / a prompt template as a tab" call site
@@ -140,7 +168,7 @@ export const useOpenTerminalTab = (projectId: ProjectId | null) => {
 export const useOpenTabInProject = () => {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: openTab,
+        mutationFn: (request: OpenTabRequest) => openTab(withCurrentWindowTarget(queryClient, request)),
         onSuccess: (layout, variables) => applyFreshLayout(queryClient, variables.projectId, layout),
     })
 }
