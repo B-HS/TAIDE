@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::domain::project::types::{Project, ProjectRef};
+use crate::domain::project::types::{Project, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::domain::settings::types::Settings;
-use crate::ids::ProjectId;
+use crate::ids::{ProjectId, ShellSlotId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +32,32 @@ pub struct ProjectActivated {
 #[tauri_specta(event_name = "project:list-changed")]
 pub struct ProjectListChanged {
     pub projects: Vec<ProjectRef>,
+}
+
+/// The main window's shell-slot arrangement changed — a slot was split, replaced, closed, or simply
+/// focused (d-62). Carries the whole tree rather than a delta for the same reason
+/// [`ProjectListChanged`] carries the whole list: the tree is small, every window and remote session
+/// has to converge on the identical shape, and a delta would need its own ordering guarantees.
+/// `tree` is `None` only when no project is open at all.
+///
+/// Emitted from the same mutation that changed the tree, alongside whatever else that mutation
+/// emits (`ProjectClosed`, `ProjectActivated`) — contract §0.1 S-1's atomicity requirement.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "session:shell-slots-changed")]
+pub struct SessionShellSlotsChanged {
+    pub tree: Option<ShellSlotTree>,
+    pub focused: Option<ShellSlotId>,
+}
+
+/// Window-level chrome (Zen, sidebar icon rail) changed — the axes contract §0.1 S-6 moved off the
+/// per-project `ProjectLayout::shell_view`, which is why this is its own event and not a
+/// `LayoutChanged`: there is no project id to scope it to.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "session:window-chrome-changed")]
+pub struct WindowChromeChanged {
+    pub chrome: WindowChrome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]

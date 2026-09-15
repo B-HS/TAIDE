@@ -26,8 +26,8 @@ use crate::domain::window::commands::WindowStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
     IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
-    ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SettingsChanged, SyncStateChanged,
-    TerminalCommandFinished, TerminalCwdChanged, TerminalExited, ThemeChanged,
+    ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened, RemoteStateChanged, SessionShellSlotsChanged, SettingsChanged,
+    SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, ThemeChanged, WindowChromeChanged,
 };
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
@@ -300,6 +300,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::project::commands::project_activate,
             domain::project::commands::project_reorder,
             domain::project::commands::project_set_display,
+            domain::project::commands::project_open_in_slot,
+            domain::project::commands::shell_slot_close,
+            domain::project::commands::session_get_shell_state,
+            domain::project::commands::session_focus_shell_slot,
+            domain::project::commands::session_set_shell_slot_sizes,
+            domain::project::commands::session_set_window_chrome,
             domain::layout::commands::layout_get,
             domain::layout::commands::layout_open_tab,
             domain::layout::commands::layout_close_tab,
@@ -482,6 +488,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             ProjectClosed,
             ProjectActivated,
             ProjectListChanged,
+            SessionShellSlotsChanged,
+            WindowChromeChanged,
             LayoutChanged,
             ThemeChanged,
             FsChanged,
@@ -733,6 +741,8 @@ pub fn run() {
                 ProjectClosed,
                 ProjectActivated,
                 ProjectListChanged,
+                SessionShellSlotsChanged,
+                WindowChromeChanged,
                 LayoutChanged,
                 ThemeChanged,
                 FsChanged,
@@ -950,7 +960,7 @@ mod tests {
     #[test]
     fn 이벤트_타입_목록은_events_rs와_collect_events_매크로에서_일치한다() {
         let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
-        assert_eq!(declared.len(), 25, "events.rs 에 선언된 이벤트 구조체 수가 25종에서 벗어났습니다");
+        assert_eq!(declared.len(), 27, "events.rs 에 선언된 이벤트 구조체 수가 27종에서 벗어났습니다");
 
         let collected = identifier_set(extract_between(include_str!("lib.rs"), "collect_events![", "]"));
 
@@ -1061,7 +1071,7 @@ mod tests {
             let paths = AppPaths::new(data_dir.clone());
             let mut session = domain::project::types::SessionState::default();
             let mut projects = std::collections::HashMap::new();
-            let opened = domain::project::service::open_project(&paths, &mut session, &mut projects, &workspace, |root| {
+            let opened = domain::project::service::open_project(&paths, &mut session, &mut projects, &workspace, true, |root| {
                 registry.detected_kinds(root)
             })
             .expect("open project");

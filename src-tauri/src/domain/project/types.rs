@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::ids::ProjectId;
+use crate::domain::layout::types::SplitDir;
+use crate::ids::{ProjectId, ShellSlotId};
 
 pub const SESSION_SCHEMA_VERSION: u32 = 1;
 pub const PROJECT_SCHEMA_VERSION: u32 = 1;
@@ -84,14 +85,121 @@ pub struct Project {
     pub display: ProjectDisplay,
 }
 
+/// How the main window is divided between whole project shells — the d-62 "shell slot" tree. Each
+/// `Leaf` holds one open project (identified for IPC by its own [`ShellSlotId`]), each `Split` two
+/// children side by side, so the shape mirrors `layout::types::PaneNode` without being it: a pane
+/// leaf's payload is a tab list, a shell slot leaf's payload is a project, and the two trees nest
+/// (every slot renders its project's whole pane tree inside itself). Deliberately **binary** —
+/// unlike `PaneNode`, which flattens same-direction splits into n-ary nodes — because a slot split
+/// is created one drop at a time and a fixed arity keeps `sizes` addressable by child index
+/// (`service::set_shell_slot_sizes`, which is how the resize commit names a node: a `Split` carries
+/// no id of its own).
+///
+/// `SplitDir` is reused from the layout domain rather than re-declared: it is the same geometry the
+/// frontend hands `react-resizable-panels`, and one shared enum keeps the two trees' direction
+/// values from drifting apart.
+///
+/// Naming: "shell slot", never "window slot" — `layout::types::AuxWindowLayout::slot` is a
+/// *different* concept (an auxiliary OS window), and contract §0.1 S-8 keeps the two apart.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "node", rename_all = "camelCase")]
+pub enum ShellSlotTree {
+    #[serde(rename_all = "camelCase")]
+    Split {
+        dir: SplitDir,
+        children: Vec<ShellSlotTree>,
+        sizes: Vec<f32>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Leaf { slot_id: ShellSlotId, project_id: ProjectId },
+}
+
+/// Where `project_open_in_slot` puts a project relative to the slot it was dropped on. The four
+/// directional edges create a split; `Replace` swaps the target slot's project in place, which is
+/// what the sidebar's plain click has always done to the single slot. Distinct from
+/// `layout::types::DropEdge` on purpose: that enum's `Center` means "into this pane's tab strip",
+/// which has no meaning for a slot (a slot holds one project, not a list).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ShellSlotEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Replace,
+}
+
+/// Window-level chrome state, moved off `layout::types::ShellViewState` (which is per *project*) by
+/// contract §0.1 S-6: the sidebar icon rail and Zen mode are properties of the one window, so
+/// keeping them per project made them flicker as the focused slot changed. The per-project struct
+/// keeps its fields for backward compatibility — `service::promote_legacy_window_chrome` reads them
+/// once at boot and clears them — and keeps owning the slot-local axes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowChrome {
+    #[serde(default)]
+    pub zen: bool,
+    #[serde(default)]
+    pub sidebar_rail_collapsed: bool,
+}
+
+/// Partial update for [`WindowChrome`] — `None` leaves that axis alone, the same merge convention as
+/// `layout::types::ShellViewPatch` and `settings::types::SettingsPatch`.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowChromePatch {
+    pub zen: Option<bool>,
+    pub sidebar_rail_collapsed: Option<bool>,
+}
+
+/// Everything `session_get_shell_state` answers with — the boot-time read of the state
+/// `SessionShellSlotsChanged`/`WindowChromeChanged` deliver on change afterwards. It exists for the
+/// same reason `project_get_active` does: an event only fires at a transition, so a window that
+/// just mounted has no other way to learn the current arrangement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionShellState {
+    pub tree: Option<ShellSlotTree>,
+    pub focused: Option<ShellSlotId>,
+    pub window_chrome: WindowChrome,
+}
+
+/// `project_open_in_slot`'s payload. Exactly one of `path`/`project_id` must be present: a drop from
+/// the sidebar names an already-open project, while "open a folder to the right" names a path that
+/// may not be open yet. Grouped into one struct like `layout::types::OpenTabInSplitRequest` so the
+/// command stays under `clippy::too_many_arguments`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenProjectInSlotRequest {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
+    pub target_slot: ShellSlotId,
+    pub edge: ShellSlotEdge,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionState {
     pub version: u32,
     #[serde(default)]
     pub projects: Vec<ProjectRef>,
+    /// The project of the **focused shell slot** since d-62 — the field kept its name and its
+    /// meaning for the single-slot case, so every existing reader (`project_get_active`, the native
+    /// menu, the frontend's `activeProjectQueryOptions`) stays correct without knowing about slots.
     #[serde(default)]
     pub active_project: Option<ProjectId>,
+    /// `None` means "no slots materialized" — either nothing is open, or this session was written
+    /// before d-62. `service::normalize_shell_slots` resolves the latter into a single leaf holding
+    /// `active_project` at boot, which is why no schema migration is needed
+    /// (`docs/data-model.md` §2's field-addition rule, the route `ProjectDisplay` took in §20).
+    #[serde(default)]
+    pub shell_slots: Option<ShellSlotTree>,
+    #[serde(default)]
+    pub focused_shell_slot: Option<ShellSlotId>,
+    #[serde(default)]
+    pub window_chrome: WindowChrome,
 }
 
 impl Default for SessionState {
@@ -100,6 +208,9 @@ impl Default for SessionState {
             version: SESSION_SCHEMA_VERSION,
             projects: Vec::new(),
             active_project: None,
+            shell_slots: None,
+            focused_shell_slot: None,
+            window_chrome: WindowChrome::default(),
         }
     }
 }

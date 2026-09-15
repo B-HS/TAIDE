@@ -25,6 +25,12 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "project_activate",
     "project_reorder",
     "project_set_display",
+    "project_open_in_slot",
+    "shell_slot_close",
+    "session_get_shell_state",
+    "session_focus_shell_slot",
+    "session_set_shell_slot_sizes",
+    "session_set_window_chrome",
     "layout_get",
     "layout_open_tab",
     "layout_close_tab",
@@ -577,7 +583,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (159 entries = the 158 arms in
+/// session — audited directly off the `match` arms in both functions (167 entries = the 166 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -602,6 +608,12 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "project_activate",
     "project_reorder",
     "project_set_display",
+    "project_open_in_slot",
+    "shell_slot_close",
+    "session_get_shell_state",
+    "session_focus_shell_slot",
+    "session_set_shell_slot_sizes",
+    "session_set_window_chrome",
     "layout_get",
     "layout_open_tab",
     "layout_close_tab",
@@ -874,6 +886,14 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "project_set_display" => {
             respond(project::project_set_display(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
         }
+        "project_open_in_slot" => respond(project::project_open_in_slot(app.clone(), app.state(), arg!(args, "request")).await),
+        "shell_slot_close" => respond(project::shell_slot_close(app.clone(), app.state(), arg!(args, "slotId")).await),
+        "session_get_shell_state" => respond(project::session_get_shell_state(app.state()).await),
+        "session_focus_shell_slot" => respond(project::session_focus_shell_slot(app.clone(), app.state(), arg!(args, "slotId")).await),
+        "session_set_shell_slot_sizes" => {
+            respond(project::session_set_shell_slot_sizes(app.clone(), app.state(), arg!(args, "path"), arg!(args, "sizes")).await)
+        }
+        "session_set_window_chrome" => respond(project::session_set_window_chrome(app.clone(), app.state(), arg!(args, "patch")).await),
 
         "layout_get" => respond(layout::layout_get(app.state(), arg!(args, "projectId")).await),
         "layout_open_tab" => respond(

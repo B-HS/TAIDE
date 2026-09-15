@@ -301,7 +301,6 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "symbols",
             "workspaceSymbols",
             "noActiveFile",
-            "mainWindowOnly",
         ],
     ),
     (
@@ -761,6 +760,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "openViaFinder",
         ],
     ),
+    ("shellSlot", &["close", "openToTheRight", "openBelow", "openToTheLeft", "openAbove"]),
     (
         "window",
         &[
@@ -1147,6 +1147,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "secret.storeFailed",
             "settings.jsonInvalid",
             "settings.schemaInvalid",
+            "shellSlot.projectAlreadyInSlot",
             "system.urlHasControlChars",
             "system.urlHasUserInfo",
             "system.urlSchemeNotAllowed",

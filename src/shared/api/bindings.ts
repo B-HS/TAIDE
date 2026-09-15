@@ -78,6 +78,50 @@ export const commands = {
 	 *  path the remote session cannot already see.
 	 */
 	projectSetDisplay: (projectId: ProjectId, patch: ProjectDisplayPatch) => typedError<null, AppError>(__TAURI_INVOKE("project_set_display", { projectId, patch })),
+	/**
+	 *  Opens a project **into a named shell slot** — the split half of d-62. Either `path` (a folder
+	 *  that may not be open yet) or `project_id` (a project already in the sidebar) names what to place;
+	 *  `edge` decides whether the target slot is split or its project simply replaced.
+	 * 
+	 *  The whole slot mutation — duplicate rejection, the split, the focus move, the session write and
+	 *  the events — happens under one `begin_mutation` acquisition (contract §0.1 S-1), and validation
+	 *  runs *before* anything is opened so a rejected drop cannot strand a half-opened project. The one
+	 *  step deliberately outside the guard is the capability attach for a project this call opened for
+	 *  the first time, for the reason [`attach_project_capabilities`] documents at length; a failure
+	 *  there unwinds through [`project_close`], which removes the project *and* the slot it was just
+	 *  placed in.
+	 */
+	projectOpenInSlot: (request: OpenProjectInSlotRequest) => typedError<SessionShellState, AppError>(__TAURI_INVOKE("project_open_in_slot", { request })),
+	/**
+	 *  Closes one shell slot while leaving its project open — the slot header's own close button. The
+	 *  last remaining slot is refused: a window with projects open always shows at least one of them.
+	 */
+	shellSlotClose: (slotId: ShellSlotId) => typedError<null, AppError>(__TAURI_INVOKE("shell_slot_close", { slotId })),
+	/**
+	 *  The current slot arrangement and window chrome, for a window that just mounted. Both halves
+	 *  otherwise only arrive as events (`SessionShellSlotsChanged`/`WindowChromeChanged`), which fire at
+	 *  transitions — the same gap `project_get_active` was added to close for `project:activated`.
+	 */
+	sessionGetShellState: () => typedError<SessionShellState, AppError>(__TAURI_INVOKE("session_get_shell_state")),
+	/**
+	 *  Moves the window's focus to one slot, which also makes that slot's project the active one — see
+	 *  `service::focus_shell_slot`. The frontend tracks focus itself from DOM events (contract §0.1 U-7)
+	 *  and calls this to persist it, so this is the write half of that pair, not its source of truth.
+	 */
+	sessionFocusShellSlot: (slotId: ShellSlotId) => typedError<null, AppError>(__TAURI_INVOKE("session_focus_shell_slot", { slotId })),
+	/**
+	 *  Persists one split node's child percentages after a drag. `path` addresses the node by child
+	 *  index from the root because a slot split has no id of its own — see
+	 *  `shell_slots::set_sizes`. The frontend debounces these the way `pane-resize-commit.ts` already
+	 *  debounces `layout_resize`, so this is not called per pointer move.
+	 */
+	sessionSetShellSlotSizes: (path: number[], sizes: (number | null)[]) => typedError<null, AppError>(__TAURI_INVOKE("session_set_shell_slot_sizes", { path, sizes })),
+	/**
+	 *  Sets the window-level chrome axes (Zen, sidebar icon rail) that contract §0.1 S-6 moved off the
+	 *  per-project layout. Patch semantics match `layout_set_shell_view`'s: an omitted axis is left
+	 *  alone.
+	 */
+	sessionSetWindowChrome: (patch: WindowChromePatch) => typedError<WindowChrome, AppError>(__TAURI_INVOKE("session_set_window_chrome", { patch })),
 	layoutGet: (projectId: ProjectId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_get", { projectId })),
 	layoutOpenTab: (projectId: ProjectId, kind: TabKind, title: string, target: string | null, preview: boolean) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_tab", { projectId, kind, title, target, preview })),
 	layoutCloseTab: (tabId: TabId) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_close_tab", { tabId })),
@@ -966,6 +1010,8 @@ export const events = {
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
 	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
+	sessionShellSlotsChanged: makeEvent<SessionShellSlotsChanged>("session:shell-slots-changed"),
+	sessionWindowChromeChanged: makeEvent<WindowChromeChanged>("session:window-chrome-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings:changed"),
 	syncStateChanged: makeEvent<SyncStateChanged>("sync:state-changed"),
 	terminalCommandFinished: makeEvent<TerminalCommandFinished>("terminal:command-finished"),
@@ -1604,6 +1650,19 @@ export type NotificationSuppressionReason =
 "windowFocused";
 
 /**
+ *  `project_open_in_slot`'s payload. Exactly one of `path`/`project_id` must be present: a drop from
+ *  the sidebar names an already-open project, while "open a folder to the right" names a path that
+ *  may not be open yet. Grouped into one struct like `layout::types::OpenTabInSplitRequest` so the
+ *  command stays under `clippy::too_many_arguments`.
+ */
+export type OpenProjectInSlotRequest = {
+	path?: string | null,
+	projectId?: ProjectId | null,
+	targetSlot: ShellSlotId,
+	edge: ShellSlotEdge,
+};
+
+/**
  *  `layout_open_tab_in_split`'s payload, grouped into one struct (mirroring
  *  `lsp::types::LspSpawnRequest` and `terminal::types::PtySpawnOptions`) purely to stay under
  *  `clippy::too_many_arguments` — the command needs the six fields below plus `AppHandle` and
@@ -2043,6 +2102,33 @@ export type SearchReplaceResult = {
 	skippedCount: number,
 };
 
+/**
+ *  The main window's shell-slot arrangement changed — a slot was split, replaced, closed, or simply
+ *  focused (d-62). Carries the whole tree rather than a delta for the same reason
+ *  [`ProjectListChanged`] carries the whole list: the tree is small, every window and remote session
+ *  has to converge on the identical shape, and a delta would need its own ordering guarantees.
+ *  `tree` is `None` only when no project is open at all.
+ * 
+ *  Emitted from the same mutation that changed the tree, alongside whatever else that mutation
+ *  emits (`ProjectClosed`, `ProjectActivated`) — contract §0.1 S-1's atomicity requirement.
+ */
+export type SessionShellSlotsChanged = {
+	tree: ShellSlotTree | null,
+	focused: ShellSlotId | null,
+};
+
+/**
+ *  Everything `session_get_shell_state` answers with — the boot-time read of the state
+ *  `SessionShellSlotsChanged`/`WindowChromeChanged` deliver on change afterwards. It exists for the
+ *  same reason `project_get_active` does: an event only fires at a transition, so a window that
+ *  just mounted has no other way to learn the current arrangement.
+ */
+export type SessionShellState = {
+	tree: ShellSlotTree | null,
+	focused: ShellSlotId | null,
+	windowChrome: WindowChrome,
+};
+
 export type Settings = {
 	version: number,
 	themeId?: string,
@@ -2428,6 +2514,37 @@ export type ShellProfile = {
 	path: string,
 	args?: string[],
 };
+
+/**
+ *  Where `project_open_in_slot` puts a project relative to the slot it was dropped on. The four
+ *  directional edges create a split; `Replace` swaps the target slot's project in place, which is
+ *  what the sidebar's plain click has always done to the single slot. Distinct from
+ *  `layout::types::DropEdge` on purpose: that enum's `Center` means "into this pane's tab strip",
+ *  which has no meaning for a slot (a slot holds one project, not a list).
+ */
+export type ShellSlotEdge = "left" | "right" | "top" | "bottom" | "replace";
+
+export type ShellSlotId = string;
+
+/**
+ *  How the main window is divided between whole project shells — the d-62 "shell slot" tree. Each
+ *  `Leaf` holds one open project (identified for IPC by its own [`ShellSlotId`]), each `Split` two
+ *  children side by side, so the shape mirrors `layout::types::PaneNode` without being it: a pane
+ *  leaf's payload is a tab list, a shell slot leaf's payload is a project, and the two trees nest
+ *  (every slot renders its project's whole pane tree inside itself). Deliberately **binary** —
+ *  unlike `PaneNode`, which flattens same-direction splits into n-ary nodes — because a slot split
+ *  is created one drop at a time and a fixed arity keeps `sizes` addressable by child index
+ *  (`service::set_shell_slot_sizes`, which is how the resize commit names a node: a `Split` carries
+ *  no id of its own).
+ * 
+ *  `SplitDir` is reused from the layout domain rather than re-declared: it is the same geometry the
+ *  frontend hands `react-resizable-panels`, and one shared enum keeps the two trees' direction
+ *  values from drifting apart.
+ * 
+ *  Naming: "shell slot", never "window slot" — `layout::types::AuxWindowLayout::slot` is a
+ *  *different* concept (an auxiliary OS window), and contract §0.1 S-8 keeps the two apart.
+ */
+export type ShellSlotTree = { node: "split"; dir: SplitDir; children: ShellSlotTree[]; sizes: (number | null)[] } | { node: "leaf"; slotId: ShellSlotId; projectId: ProjectId };
 
 /**
  *  Partial update for [`ShellViewState`] — `None` fields are left at their current value, same
@@ -2877,6 +2994,36 @@ export type VsixThemeExtractionResult = {
 export type VsixThemeIncludeEntry = {
 	path: string,
 	rawJson: string,
+};
+
+/**
+ *  Window-level chrome state, moved off `layout::types::ShellViewState` (which is per *project*) by
+ *  contract §0.1 S-6: the sidebar icon rail and Zen mode are properties of the one window, so
+ *  keeping them per project made them flicker as the focused slot changed. The per-project struct
+ *  keeps its fields for backward compatibility — `service::promote_legacy_window_chrome` reads them
+ *  once at boot and clears them — and keeps owning the slot-local axes.
+ */
+export type WindowChrome = {
+	zen?: boolean,
+	sidebarRailCollapsed?: boolean,
+};
+
+/**
+ *  Window-level chrome (Zen, sidebar icon rail) changed — the axes contract §0.1 S-6 moved off the
+ *  per-project `ProjectLayout::shell_view`, which is why this is its own event and not a
+ *  `LayoutChanged`: there is no project id to scope it to.
+ */
+export type WindowChromeChanged = {
+	chrome: WindowChrome,
+};
+
+/**
+ *  Partial update for [`WindowChrome`] — `None` leaves that axis alone, the same merge convention as
+ *  `layout::types::ShellViewPatch` and `settings::types::SettingsPatch`.
+ */
+export type WindowChromePatch = {
+	zen: boolean | null,
+	sidebarRailCollapsed: boolean | null,
 };
 
 /* Tauri Specta runtime */

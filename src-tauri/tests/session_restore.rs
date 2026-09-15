@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use taide_lib::domain::layout::service as layout_service;
 use taide_lib::domain::layout::types::{DropEdge, PaneNode, TabKind};
 use taide_lib::domain::project::service as project_service;
-use taide_lib::domain::project::types::{CapabilityKind, SessionState};
+use taide_lib::domain::project::shell_slots;
+use taide_lib::domain::project::types::{CapabilityKind, SessionState, ShellSlotEdge};
 use taide_lib::paths::AppPaths;
 
 fn detect_terminal_only(_root: &Path) -> Vec<CapabilityKind> {
@@ -55,8 +56,8 @@ fn 재시작하면_프로젝트와_탭_스플릿_활성상태가_복원된다() 
 
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
-    let opened =
-        project_service::open_project(&paths, &mut session, &mut projects, workspace.path(), detect_terminal_only).expect("open project");
+    let opened = project_service::open_project(&paths, &mut session, &mut projects, workspace.path(), true, detect_terminal_only)
+        .expect("open project");
     let project_id = opened.project.id.clone();
 
     let mut layout = layout_service::default_layout();
@@ -119,7 +120,7 @@ fn 루트가_사라진_프로젝트는_제거되지_않고_root_missing_으로_�
 
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
-    project_service::open_project(&paths, &mut session, &mut projects, &workspace_path, detect_terminal_only).expect("open project");
+    project_service::open_project(&paths, &mut session, &mut projects, &workspace_path, true, detect_terminal_only).expect("open project");
 
     drop(workspace);
 
@@ -143,9 +144,9 @@ fn 활성_프로젝트를_닫으면_남은_프로젝트가_활성화된다() {
     let mut projects = HashMap::new();
 
     let first_opened =
-        project_service::open_project(&paths, &mut session, &mut projects, first.path(), detect_terminal_only).expect("open first");
+        project_service::open_project(&paths, &mut session, &mut projects, first.path(), true, detect_terminal_only).expect("open first");
     let second_opened =
-        project_service::open_project(&paths, &mut session, &mut projects, second.path(), detect_terminal_only).expect("open second");
+        project_service::open_project(&paths, &mut session, &mut projects, second.path(), true, detect_terminal_only).expect("open second");
 
     assert_eq!(
         session.active_project,
@@ -188,8 +189,8 @@ fn 재시작_후_untitled_탭이_유지된다() {
 
     let mut session = SessionState::default();
     let mut projects = HashMap::new();
-    let opened =
-        project_service::open_project(&paths, &mut session, &mut projects, workspace.path(), detect_terminal_only).expect("open project");
+    let opened = project_service::open_project(&paths, &mut session, &mut projects, workspace.path(), true, detect_terminal_only)
+        .expect("open project");
     let project_id = opened.project.id.clone();
 
     let mut layout = layout_service::default_layout();
@@ -258,4 +259,55 @@ fn 스플릿_사이즈는_퍼센트_단위로_합이_100이_된다() {
         (total - 100.0).abs() < 0.001,
         "sizes 는 퍼센트(0..100) 단위여야 한다 — react-resizable-panels v4 Layout 과 동일 단위. 실제 합: {total}"
     );
+}
+
+#[test]
+fn 슬롯_분할은_세션_파일을_거쳐_복원되고_결손_리프는_정규화로_제거된다() {
+    let data = TempDir::new("data-slots");
+    let paths = AppPaths::new(data.path().clone());
+    let first = TempDir::new("ws-slot-first");
+    let second = TempDir::new("ws-slot-second");
+
+    let mut session = SessionState::default();
+    let mut projects = HashMap::new();
+
+    let first_opened =
+        project_service::open_project(&paths, &mut session, &mut projects, first.path(), true, detect_terminal_only).expect("open first");
+    project_service::open_project(&paths, &mut session, &mut projects, second.path(), false, detect_terminal_only).expect("open second");
+
+    let target_slot = shell_slots::first_slot(session.shell_slots.as_ref().expect("첫 프로젝트가 슬롯을 만든다")).expect("슬롯");
+    let second_id = session
+        .projects
+        .iter()
+        .map(|reference| reference.id.clone())
+        .find(|id| id != &first_opened.project.id)
+        .expect("두 번째 프로젝트");
+    let new_slot =
+        project_service::place_project_in_slot(&paths, &mut session, &mut projects, &second_id, &target_slot, ShellSlotEdge::Right)
+            .expect("슬롯에 배치");
+
+    let (restored, _, _) = project_service::restore_session(&paths).expect("restore");
+
+    let restored_tree = restored.shell_slots.as_ref().expect("슬롯 트리가 복원돼야 한다");
+    assert_eq!(shell_slots::leaf_count(restored_tree), 2, "좌우 분할이 그대로 복원된다");
+    assert_eq!(restored.focused_shell_slot, Some(new_slot));
+    assert_eq!(restored.active_project, Some(second_id.clone()));
+
+    project_service::close_project(&paths, &mut restored.clone(), &mut projects.clone(), &second_id).expect("닫기");
+
+    let mut hand_edited = restored;
+    hand_edited.projects.retain(|reference| reference.id == first_opened.project.id);
+    project_service::save_session(&paths, &hand_edited).expect("세션 저장");
+
+    let (normalized, _, _) = project_service::restore_session(&paths).expect("restore after prune");
+    let normalized_tree = normalized.shell_slots.as_ref().expect("리프 하나는 남는다");
+    assert_eq!(
+        shell_slots::leaves(normalized_tree)
+            .into_iter()
+            .map(|(_, project_id)| project_id)
+            .collect::<Vec<_>>(),
+        vec![first_opened.project.id.clone()],
+        "세션에 없는 프로젝트를 가리키던 리프는 복원 정규화에서 사라진다"
+    );
+    assert_eq!(normalized.active_project, Some(first_opened.project.id));
 }

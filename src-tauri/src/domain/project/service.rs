@@ -4,14 +4,19 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use specta::Type;
 
+use crate::domain::layout::types::ShellViewState;
 use crate::error::{AppError, AppErrorKind, AppResult};
-use crate::ids::ProjectId;
+use crate::ids::{ProjectId, ShellSlotId};
 use crate::infra::clock::now_epoch_ms;
 use crate::infra::home;
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
-use super::types::{CapabilityKind, Project, ProjectDisplay, ProjectDisplayPatch, ProjectRef, SessionState};
+use super::shell_slots;
+use super::types::{
+    CapabilityKind, Project, ProjectDisplay, ProjectDisplayPatch, ProjectRef, SessionShellState, SessionState, ShellSlotEdge, WindowChrome,
+    WindowChromePatch,
+};
 
 const BACKUP_SUFFIX: &str = ".bak";
 const PROJECTS_DIR_NAME: &str = "projects";
@@ -37,6 +42,312 @@ pub fn list_projects(session: &SessionState) -> Vec<ProjectRef> {
     session.projects.clone()
 }
 
+pub fn shell_state(session: &SessionState) -> SessionShellState {
+    SessionShellState {
+        tree: session.shell_slots.clone(),
+        focused: session.focused_shell_slot.clone(),
+        window_chrome: session.window_chrome,
+    }
+}
+
+/// Re-derives `focused_shell_slot` and `active_project` from the slot tree, the single place those
+/// three fields are reconciled after any structural change. The focus preference order is "keep the
+/// current slot if it still exists → otherwise the slot showing the current active project →
+/// otherwise the first slot", so a close that removed some *other* slot never moves the user's
+/// focus, while a close that removed the focused one lands somewhere deterministic.
+///
+/// `active_project` is assigned from the focused slot rather than the other way round — that is the
+/// d-62 redefinition of the field (see [`SessionState::active_project`]), and it is what keeps
+/// `project_get_active`, the native `File` menu and the frontend's `activeProjectQueryOptions`
+/// correct without any of them knowing that slots exist.
+fn reconcile_focus(session: &mut SessionState) {
+    let Some(tree) = session.shell_slots.as_ref() else {
+        session.focused_shell_slot = None;
+        session.active_project = None;
+        return;
+    };
+
+    let focused = session
+        .focused_shell_slot
+        .as_ref()
+        .filter(|slot| shell_slots::contains_slot(tree, slot))
+        .cloned()
+        .or_else(|| {
+            session
+                .active_project
+                .as_ref()
+                .and_then(|project_id| shell_slots::slot_of_project(tree, project_id))
+        })
+        .or_else(|| shell_slots::first_slot(tree));
+
+    session.active_project = focused.as_ref().and_then(|slot| shell_slots::project_of_slot(tree, slot));
+    session.focused_shell_slot = focused;
+}
+
+/// Brings the slot tree back into agreement with `session.projects`, then with itself. Runs on boot
+/// restore (contract §0.1 S-1) and after every close, so three invariants always hold before the
+/// tree is handed to a window: no leaf names a project the session does not list, a session with at
+/// least one open project always has at least one slot (a session written before d-62 has no tree
+/// at all — this is where it becomes one), and `focused_shell_slot`/`active_project` name a slot
+/// that exists.
+pub fn normalize_shell_slots(session: &mut SessionState) {
+    let open: HashSet<ProjectId> = session.projects.iter().map(|reference| reference.id.clone()).collect();
+    session.shell_slots = session
+        .shell_slots
+        .take()
+        .and_then(|tree| shell_slots::retain_projects(tree, &open));
+
+    if session.shell_slots.is_none() {
+        let fallback = session
+            .active_project
+            .clone()
+            .filter(|project_id| open.contains(project_id))
+            .or_else(|| session.projects.last().map(|reference| reference.id.clone()));
+        session.shell_slots = fallback.map(shell_slots::leaf);
+    }
+
+    reconcile_focus(session);
+}
+
+/// The slot meaning of "activate this project" (contract §0.1 S-5): a project already on screen
+/// just takes focus, and one that is not replaces whatever the focused slot was showing — which is
+/// exactly the pre-d-62 single-slot behaviour when there is only one slot.
+fn place_project_in_focused_slot(session: &mut SessionState, project_id: &ProjectId) {
+    let Some(tree) = session.shell_slots.as_mut() else {
+        let materialized = shell_slots::leaf(project_id.clone());
+        session.focused_shell_slot = shell_slots::first_slot(&materialized);
+        session.shell_slots = Some(materialized);
+        session.active_project = Some(project_id.clone());
+        return;
+    };
+
+    if let Some(slot) = shell_slots::slot_of_project(tree, project_id) {
+        session.focused_shell_slot = Some(slot);
+        session.active_project = Some(project_id.clone());
+        return;
+    }
+
+    let target = session
+        .focused_shell_slot
+        .clone()
+        .filter(|slot| shell_slots::contains_slot(tree, slot))
+        .or_else(|| shell_slots::first_slot(tree));
+
+    if let Some(slot) = target {
+        shell_slots::set_slot_project(tree, &slot, project_id.clone());
+        session.focused_shell_slot = Some(slot);
+    }
+    session.active_project = Some(project_id.clone());
+}
+
+fn project_already_in_slot(project_id: &ProjectId) -> AppError {
+    AppError::localized(
+        AppErrorKind::InvalidArgument,
+        "error.shellSlot.projectAlreadyInSlot",
+        format!("project is already shown in another shell slot: {project_id}"),
+    )
+}
+
+/// Server-side half of contract §0.1 S-3: the drop zones refuse a duplicate for UX, but the rule
+/// itself lives here, so a remote session or a command palette entry cannot put the same project in
+/// two slots either (its hot-exit mirror and pane tree are single-owner state — contract §1.E).
+/// Also validates that `target_slot` exists at all, *before* the caller opens anything, so a bad
+/// request never leaves a half-opened project behind.
+///
+/// `project_id` is `None` when the caller named a path that is not open yet: a project that is not
+/// open cannot be in any slot, so only the target check applies.
+pub fn ensure_slot_placement_allowed(
+    session: &SessionState,
+    project_id: Option<&ProjectId>,
+    target_slot: &ShellSlotId,
+    edge: ShellSlotEdge,
+) -> AppResult<()> {
+    let tree = session
+        .shell_slots
+        .as_ref()
+        .ok_or_else(|| AppError::NotFound(format!("shell slot not found: {target_slot}")))?;
+    if !shell_slots::contains_slot(tree, target_slot) {
+        return Err(AppError::NotFound(format!("shell slot not found: {target_slot}")));
+    }
+
+    let Some(project_id) = project_id else {
+        return Ok(());
+    };
+
+    let occupied = shell_slots::leaves(tree)
+        .into_iter()
+        .any(|(slot_id, occupant)| &occupant == project_id && (edge != ShellSlotEdge::Replace || &slot_id != target_slot));
+    if occupied {
+        return Err(project_already_in_slot(project_id));
+    }
+
+    Ok(())
+}
+
+/// Puts an already-open project into the slot tree at `target_slot`, either replacing that slot's
+/// project or splitting it along `edge`, and focuses the result. Assumes
+/// [`ensure_slot_placement_allowed`] already passed for the same arguments.
+///
+/// Placing a project is an activation, so it stamps `last_opened_at` and persists the record the
+/// same way [`activate_project`] and [`focus_shell_slot`] do: the slot this creates is the one the
+/// user is now looking at, and without the stamp "open to the right" would leave the project
+/// sitting at the bottom of the Welcome screen's recency ordering (contract §1.1) while it is on
+/// screen. When the caller opened the project in this same mutation, [`open_project`] has already
+/// stamped it once — restamping is what keeps the two entry points indistinguishable afterwards.
+pub fn place_project_in_slot(
+    paths: &AppPaths,
+    session: &mut SessionState,
+    projects: &mut HashMap<ProjectId, Project>,
+    project_id: &ProjectId,
+    target_slot: &ShellSlotId,
+    edge: ShellSlotEdge,
+) -> AppResult<ShellSlotId> {
+    let tree = session
+        .shell_slots
+        .as_mut()
+        .ok_or_else(|| AppError::NotFound(format!("shell slot not found: {target_slot}")))?;
+
+    let slot = if edge == ShellSlotEdge::Replace {
+        if !shell_slots::set_slot_project(tree, target_slot, project_id.clone()) {
+            return Err(AppError::NotFound(format!("shell slot not found: {target_slot}")));
+        }
+        target_slot.clone()
+    } else {
+        shell_slots::split_slot(tree, target_slot, edge, project_id)?
+            .ok_or_else(|| AppError::NotFound(format!("shell slot not found: {target_slot}")))?
+    };
+
+    session.focused_shell_slot = Some(slot.clone());
+    session.active_project = Some(project_id.clone());
+    if let Some(project) = projects.get_mut(project_id) {
+        project.last_opened_at = now_epoch_ms();
+        save_project(paths, project)?;
+    }
+    save_session(paths, session)?;
+    Ok(slot)
+}
+
+/// Removes one slot while leaving its project open — the slot header's close button, as opposed to
+/// closing the project itself. The last slot is refused rather than silently emptying the window:
+/// "at least one slot while at least one project is open" is the invariant
+/// [`normalize_shell_slots`] maintains everywhere else.
+pub fn close_shell_slot(paths: &AppPaths, session: &mut SessionState, slot_id: &ShellSlotId) -> AppResult<()> {
+    let tree = session
+        .shell_slots
+        .as_ref()
+        .ok_or_else(|| AppError::NotFound(format!("shell slot not found: {slot_id}")))?;
+    if !shell_slots::contains_slot(tree, slot_id) {
+        return Err(AppError::NotFound(format!("shell slot not found: {slot_id}")));
+    }
+    if shell_slots::leaf_count(tree) <= 1 {
+        return Err(AppError::InvalidArgument("cannot close the last shell slot".to_string()));
+    }
+
+    session.shell_slots = session.shell_slots.take().and_then(|tree| shell_slots::remove_slot(tree, slot_id));
+    reconcile_focus(session);
+    save_session(paths, session)
+}
+
+/// Focuses one slot and makes its project the active one, stamping `last_opened_at` exactly like
+/// [`activate_project`] — moving the focus between slots *is* an activation as far as the Welcome
+/// screen's recency ordering is concerned.
+pub fn focus_shell_slot(
+    paths: &AppPaths,
+    session: &mut SessionState,
+    projects: &mut HashMap<ProjectId, Project>,
+    slot_id: &ShellSlotId,
+) -> AppResult<()> {
+    let project_id = session
+        .shell_slots
+        .as_ref()
+        .and_then(|tree| shell_slots::project_of_slot(tree, slot_id))
+        .ok_or_else(|| AppError::NotFound(format!("shell slot not found: {slot_id}")))?;
+
+    session.focused_shell_slot = Some(slot_id.clone());
+    session.active_project = Some(project_id.clone());
+    if let Some(project) = projects.get_mut(&project_id) {
+        project.last_opened_at = now_epoch_ms();
+        save_project(paths, project)?;
+    }
+    save_session(paths, session)
+}
+
+pub fn set_shell_slot_sizes(paths: &AppPaths, session: &mut SessionState, path: &[u32], sizes: Vec<f32>) -> AppResult<()> {
+    let tree = session
+        .shell_slots
+        .as_mut()
+        .ok_or_else(|| AppError::NotFound("shell slot tree is empty".to_string()))?;
+    shell_slots::set_sizes(tree, path, sizes)?;
+    save_session(paths, session)
+}
+
+pub fn set_window_chrome(paths: &AppPaths, session: &mut SessionState, patch: &WindowChromePatch) -> AppResult<WindowChrome> {
+    if let Some(zen) = patch.zen {
+        session.window_chrome.zen = zen;
+    }
+    if let Some(sidebar_rail_collapsed) = patch.sidebar_rail_collapsed {
+        session.window_chrome.sidebar_rail_collapsed = sidebar_rail_collapsed;
+    }
+    save_session(paths, session)?;
+    Ok(session.window_chrome)
+}
+
+/// One-time boot promotion of the two window-chrome axes off the per-project
+/// `ProjectLayout::shell_view` and onto `SessionState::window_chrome` (contract §0.1 S-6). The
+/// source values are **cleared** on every layout as part of the promotion, and the ids of the
+/// layouts that changed are returned so the caller can persist them: without that clearing the
+/// promotion would re-fire on a later boot (the trigger is "session chrome is still at its default",
+/// which a user turning Zen back off restores), silently resurrecting a stale Zen from a layout file
+/// nothing reads any more.
+///
+/// The value promoted is the active project's, falling back to the first listed project that has
+/// either axis set — the same "what was the user actually looking at" ordering
+/// `projects_pending_watcher_restore` uses.
+pub fn promote_legacy_window_chrome(session: &mut SessionState, shell_views: &mut HashMap<ProjectId, ShellViewState>) -> Vec<ProjectId> {
+    if session.window_chrome != WindowChrome::default() {
+        return Vec::new();
+    }
+
+    let has_legacy_value = |view: &ShellViewState| view.zen || view.sidebar_collapsed;
+    let ordered: Vec<ProjectId> = session
+        .active_project
+        .iter()
+        .cloned()
+        .chain(
+            session
+                .projects
+                .iter()
+                .map(|reference| reference.id.clone())
+                .filter(|id| Some(id) != session.active_project.as_ref()),
+        )
+        .collect();
+
+    let source = ordered
+        .into_iter()
+        .find(|id| shell_views.get(id).is_some_and(has_legacy_value))
+        .and_then(|id| shell_views.get(&id).copied());
+    let Some(source) = source else {
+        return Vec::new();
+    };
+
+    session.window_chrome = WindowChrome {
+        zen: source.zen,
+        sidebar_rail_collapsed: source.sidebar_collapsed,
+    };
+
+    let mut cleared = Vec::new();
+    for (project_id, view) in shell_views.iter_mut() {
+        if !has_legacy_value(view) {
+            continue;
+        }
+        view.zen = false;
+        view.sidebar_collapsed = false;
+        cleared.push(project_id.clone());
+    }
+    cleared.sort();
+    cleared
+}
+
 pub fn get_project(projects: &HashMap<ProjectId, Project>, project_id: &ProjectId) -> AppResult<Project> {
     projects
         .get(project_id)
@@ -56,6 +367,21 @@ fn resolve_open_root(root: &Path) -> PathBuf {
     }
 }
 
+/// Which already-open project (if any) the path `root` names, resolved the same way
+/// [`open_project`] resolves it. `project_open_in_slot` needs this *before* it opens anything: the
+/// duplicate-slot rule ([`ensure_slot_placement_allowed`]) has to be able to reject a drop without
+/// leaving a freshly opened project stranded, and a path that resolves to nothing open yet cannot
+/// be a duplicate by definition. A path that does not canonicalize answers `None` and the real,
+/// localized error comes from [`open_project`] a moment later.
+pub fn find_open_project_by_root(projects: &HashMap<ProjectId, Project>, root: &Path) -> Option<ProjectId> {
+    let canonical = std::fs::canonicalize(resolve_open_root(root)).ok()?;
+    let root_str = canonical.to_string_lossy().to_string();
+    projects
+        .values()
+        .find(|project| project.root == root_str)
+        .map(|project| project.id.clone())
+}
+
 /// Opens (or re-activates) the project at `root`. `detect_capabilities` is called once with the
 /// canonicalized root on a fresh open and its result is recorded verbatim as
 /// `Project.capabilities` — `project_open` injects the capability registry's `detected_kinds`, so
@@ -67,11 +393,19 @@ fn resolve_open_root(root: &Path) -> PathBuf {
 /// `std::io::Error` string `AppError::from` would produce: this is the one project entry point a
 /// user can reach by typing a path, so "No such file or directory (os error 2)" is the error text
 /// they would actually see.
+///
+/// `activate` (contract §0.1 S-2) decides whether the newly opened project also becomes the focused
+/// slot's project: `project_open` passes `true` (its long-standing behaviour), while
+/// `project_open_in_slot` passes `false` because it places the project in a slot of its own right
+/// afterwards, and the future group-open queue will pass `false` for every member but the first. A
+/// non-activating open still records the project in the session, stamps `last_opened_at` and
+/// persists — it just leaves the focus, the slot tree and `ProjectActivated` alone.
 pub fn open_project(
     paths: &AppPaths,
     session: &mut SessionState,
     projects: &mut HashMap<ProjectId, Project>,
     root: &Path,
+    activate: bool,
     detect_capabilities: impl FnOnce(&Path) -> Vec<CapabilityKind>,
 ) -> AppResult<ProjectOpenResult> {
     let requested = resolve_open_root(root);
@@ -101,7 +435,9 @@ pub fn open_project(
         let mut existing = existing.clone();
         existing.last_opened_at = now_epoch_ms();
         projects.insert(existing.id.clone(), existing.clone());
-        session.active_project = Some(existing.id.clone());
+        if activate {
+            place_project_in_focused_slot(session, &existing.id);
+        }
         save_project(paths, &existing)?;
         save_session(paths, session)?;
         return Ok(ProjectOpenResult {
@@ -133,7 +469,9 @@ pub fn open_project(
 
     projects.insert(id, project.clone());
     upsert_project_ref(session, &project);
-    session.active_project = Some(project.id.clone());
+    if activate {
+        place_project_in_focused_slot(session, &project.id);
+    }
 
     save_project(paths, &project)?;
     save_session(paths, session)?;
@@ -144,6 +482,11 @@ pub fn open_project(
     })
 }
 
+/// Removes the project from the session **and** from the slot tree in the same mutation, so a close
+/// can never leave a slot pointing at a project that is gone (contract §0.1 S-1). The tree collapse
+/// and the focus/active recomputation are [`normalize_shell_slots`]'s, which is also what
+/// re-materializes a single slot when the last slot's project was the one closed but other projects
+/// are still open.
 pub fn close_project(
     paths: &AppPaths,
     session: &mut SessionState,
@@ -152,9 +495,14 @@ pub fn close_project(
 ) -> AppResult<()> {
     projects.remove(project_id);
     session.projects.retain(|reference| &reference.id != project_id);
+    session.shell_slots = session
+        .shell_slots
+        .take()
+        .and_then(|tree| shell_slots::remove_project(tree, project_id));
     if session.active_project.as_ref() == Some(project_id) {
         session.active_project = session.projects.last().map(|reference| reference.id.clone());
     }
+    normalize_shell_slots(session);
     save_session(paths, session)
 }
 
@@ -162,6 +510,10 @@ pub fn close_project(
 /// present in `projects`, stamps `last_opened_at` and persists it — mirrors `open_project`'s
 /// re-open branch so a mere pane-switch back to an already-open project also counts toward the
 /// Welcome screen's "recent" ordering (contract §1.1), not only a fresh `project_open` call.
+///
+/// Since d-62 this also carries the slot meaning of an activation — see
+/// [`place_project_in_focused_slot`]: a sidebar click on a project that is already on screen moves
+/// the focus to its slot instead of stealing the focused slot away from another project.
 pub fn activate_project(
     paths: &AppPaths,
     session: &mut SessionState,
@@ -171,7 +523,7 @@ pub fn activate_project(
     if !session.projects.iter().any(|reference| &reference.id == project_id) {
         return Err(AppError::NotFound(format!("project not open: {project_id}")));
     }
-    session.active_project = Some(project_id.clone());
+    place_project_in_focused_slot(session, project_id);
     if let Some(project) = projects.get_mut(project_id) {
         project.last_opened_at = now_epoch_ms();
         save_project(paths, project)?;
@@ -358,7 +710,7 @@ pub fn save_project(paths: &AppPaths, project: &Project) -> AppResult<()> {
 }
 
 pub fn restore_session(paths: &AppPaths) -> AppResult<(SessionState, Vec<Project>, Vec<String>)> {
-    let (session, mut warnings) = load_session(paths)?;
+    let (mut session, mut warnings) = load_session(paths)?;
     let mut projects = Vec::with_capacity(session.projects.len());
 
     for reference in &session.projects {
@@ -378,6 +730,8 @@ pub fn restore_session(paths: &AppPaths) -> AppResult<(SessionState, Vec<Project
         project.root_missing = !Path::new(&project.root).is_dir();
         projects.push(project);
     }
+
+    normalize_shell_slots(&mut session);
 
     Ok((session, projects, warnings))
 }
@@ -510,6 +864,7 @@ fn backup_corrupted(path: &Path) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::project::types::ShellSlotTree;
 
     fn temp_paths() -> AppPaths {
         let dir = std::env::temp_dir().join(format!("taide-project-test-{}", uuid::Uuid::new_v4()));
@@ -600,7 +955,7 @@ mod tests {
         let mut projects = HashMap::new();
         let missing = paths.data_dir.join("does-not-exist");
 
-        let error = open_project(&paths, &mut session, &mut projects, &missing, detect_terminal_only).expect_err("열기 실패");
+        let error = open_project(&paths, &mut session, &mut projects, &missing, true, detect_terminal_only).expect_err("열기 실패");
 
         match error {
             AppError::Localized(localized) => {
@@ -626,10 +981,10 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let first = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        let first = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
         assert!(!first.already_open);
 
-        let second = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open again");
+        let second = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open again");
         assert!(second.already_open);
         assert_eq!(first.project.id, second.project.id);
         assert_eq!(projects.len(), 1);
@@ -660,7 +1015,7 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
         assert_eq!(opened.project.id, previous_id);
         assert!(!opened.already_open);
 
@@ -680,13 +1035,13 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let first = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        let first = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
         assert!(!first.already_open);
         assert_eq!(session.active_project, Some(first.project.id.clone()));
 
         session.active_project = None;
 
-        let second = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("re-open");
+        let second = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("re-open");
         assert!(second.already_open);
         assert_eq!(session.active_project, Some(second.project.id));
 
@@ -702,7 +1057,7 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root, |_root| {
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, true, |_root| {
             vec![CapabilityKind::Git, CapabilityKind::Terminal]
         })
         .expect("open");
@@ -813,7 +1168,7 @@ mod tests {
 
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
         session.active_project = Some(opened.project.id.clone());
 
         close_project(&paths, &mut session, &mut projects, &opened.project.id).expect("close");
@@ -847,8 +1202,8 @@ mod tests {
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
 
-        let first = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
-        let second = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open again");
+        let first = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
+        let second = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open again");
 
         assert!(second.already_open);
         assert!(
@@ -872,7 +1227,7 @@ mod tests {
 
         let mut session = SessionState::default();
         let mut projects = HashMap::new();
-        let opened = open_project(&paths, &mut session, &mut projects, &project_root, detect_terminal_only).expect("open");
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
 
         let before = projects
             .get(&opened.project.id)
@@ -1021,7 +1376,7 @@ mod tests {
     fn open_workspace(paths: &AppPaths, session: &mut SessionState, projects: &mut HashMap<ProjectId, Project>) -> ProjectId {
         let project_root = paths.data_dir.join("workspace");
         std::fs::create_dir_all(&project_root).unwrap();
-        open_project(paths, session, projects, &project_root, detect_terminal_only)
+        open_project(paths, session, projects, &project_root, true, detect_terminal_only)
             .expect("open")
             .project
             .id
@@ -1407,6 +1762,398 @@ mod tests {
         let (session, session_warnings) = load_session(&paths).expect("load legacy session");
         assert!(session_warnings.is_empty(), "display 가 없다고 세션이 손상 처리되면 안 된다");
         assert_eq!(session.projects[0].display, ProjectDisplay::default());
+
+        cleanup(&paths);
+    }
+
+    fn 세션_레퍼런스(id: &str) -> ProjectRef {
+        ProjectRef {
+            id: ProjectId(id.to_string()),
+            root: format!("/tmp/{id}"),
+            name: id.to_string(),
+            display: ProjectDisplay::default(),
+        }
+    }
+
+    fn 슬롯_세션(ids: &[&str]) -> SessionState {
+        let mut session = SessionState {
+            projects: ids.iter().map(|id| 세션_레퍼런스(id)).collect(),
+            active_project: ids.first().map(|id| ProjectId((*id).to_string())),
+            ..SessionState::default()
+        };
+        normalize_shell_slots(&mut session);
+        session
+    }
+
+    fn 슬롯_목록(session: &SessionState) -> Vec<(ShellSlotId, ProjectId)> {
+        session.shell_slots.as_ref().map(shell_slots::leaves).unwrap_or_default()
+    }
+
+    #[test]
+    fn 슬롯_트리가_없던_세션은_활성_프로젝트_하나짜리_리프로_해석된다() {
+        let session = 슬롯_세션(&["a", "b"]);
+
+        let slots = 슬롯_목록(&session);
+        assert_eq!(slots.len(), 1, "구버전 세션은 슬롯 하나로 시작한다");
+        assert_eq!(slots[0].1, ProjectId("a".to_string()));
+        assert_eq!(session.focused_shell_slot, Some(slots[0].0.clone()));
+        assert_eq!(session.active_project, Some(ProjectId("a".to_string())));
+    }
+
+    #[test]
+    fn 열린_프로젝트가_없으면_슬롯도_포커스도_활성도_없다() {
+        let session = 슬롯_세션(&[]);
+
+        assert!(session.shell_slots.is_none());
+        assert!(session.focused_shell_slot.is_none());
+        assert!(session.active_project.is_none());
+    }
+
+    #[test]
+    fn 복원_정규화는_세션에_없는_리프를_지우고_남은_트리로_포커스를_다시_잡는다() {
+        let mut session = 슬롯_세션(&["a"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        session.projects.push(세션_레퍼런스("b"));
+        let tree = session.shell_slots.as_mut().expect("트리");
+        let slot_b = shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("분할")
+            .expect("b 슬롯");
+        session.focused_shell_slot = Some(slot_b);
+
+        session.projects.retain(|reference| reference.id != ProjectId("b".to_string()));
+        normalize_shell_slots(&mut session);
+
+        assert_eq!(슬롯_목록(&session), vec![(slot_a.clone(), ProjectId("a".to_string()))]);
+        assert_eq!(session.focused_shell_slot, Some(slot_a));
+        assert_eq!(session.active_project, Some(ProjectId("a".to_string())));
+    }
+
+    #[test]
+    fn 이미_슬롯에_있는_프로젝트의_활성화는_그_슬롯으로_포커스만_옮긴다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let tree = session.shell_slots.as_mut().expect("트리");
+        let slot_b = shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("분할")
+            .expect("b 슬롯");
+        let mut projects = HashMap::new();
+
+        activate_project(&paths, &mut session, &mut projects, &ProjectId("b".to_string())).expect("활성화");
+
+        assert_eq!(session.focused_shell_slot, Some(slot_b));
+        assert_eq!(session.active_project, Some(ProjectId("b".to_string())));
+        assert_eq!(슬롯_목록(&session).len(), 2, "이미 떠 있는 프로젝트는 슬롯을 늘리지 않는다");
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 슬롯에_없는_프로젝트의_활성화는_포커스_슬롯의_프로젝트를_교체한다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let mut projects = HashMap::new();
+
+        activate_project(&paths, &mut session, &mut projects, &ProjectId("b".to_string())).expect("활성화");
+
+        assert_eq!(슬롯_목록(&session), vec![(slot_a.clone(), ProjectId("b".to_string()))]);
+        assert_eq!(session.focused_shell_slot, Some(slot_a));
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 열려있지_않은_프로젝트의_활성화는_거부되고_슬롯도_그대로다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a"]);
+        let before = 슬롯_목록(&session);
+        let mut projects = HashMap::new();
+
+        let error = activate_project(&paths, &mut session, &mut projects, &ProjectId("zzz".to_string())).expect_err("거부");
+
+        assert!(matches!(error, AppError::NotFound(_)));
+        assert_eq!(슬롯_목록(&session), before);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 프로젝트를_닫으면_같은_호출에서_슬롯이_축약되고_포커스가_재계산된다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let tree = session.shell_slots.as_mut().expect("트리");
+        let slot_b = shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("분할")
+            .expect("b 슬롯");
+        session.focused_shell_slot = Some(slot_b);
+        session.active_project = Some(ProjectId("b".to_string()));
+        let mut projects = HashMap::new();
+
+        close_project(&paths, &mut session, &mut projects, &ProjectId("b".to_string())).expect("닫기");
+
+        assert_eq!(슬롯_목록(&session), vec![(slot_a.clone(), ProjectId("a".to_string()))]);
+        assert_eq!(session.focused_shell_slot, Some(slot_a));
+        assert_eq!(session.active_project, Some(ProjectId("a".to_string())));
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 슬롯에_없는_프로젝트를_닫아도_포커스는_움직이지_않는다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let mut projects = HashMap::new();
+
+        close_project(&paths, &mut session, &mut projects, &ProjectId("b".to_string())).expect("닫기");
+
+        assert_eq!(슬롯_목록(&session), vec![(slot_a.clone(), ProjectId("a".to_string()))]);
+        assert_eq!(session.focused_shell_slot, Some(slot_a));
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 마지막_슬롯은_닫을_수_없다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+
+        let error = close_shell_slot(&paths, &mut session, &slot_a).expect_err("거부");
+
+        assert!(matches!(error, AppError::InvalidArgument(_)));
+        assert_eq!(슬롯_목록(&session).len(), 1);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 슬롯만_닫으면_프로젝트는_열린_채로_남는다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let tree = session.shell_slots.as_mut().expect("트리");
+        let slot_b = shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("분할")
+            .expect("b 슬롯");
+
+        close_shell_slot(&paths, &mut session, &slot_b).expect("슬롯 닫기");
+
+        assert_eq!(슬롯_목록(&session), vec![(slot_a, ProjectId("a".to_string()))]);
+        assert_eq!(session.projects.len(), 2, "슬롯만 닫았으므로 프로젝트는 둘 다 열려 있다");
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 같은_프로젝트를_다른_슬롯에_또_두는_요청은_거부된다() {
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let tree = session.shell_slots.as_mut().expect("트리");
+        let slot_b = shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("분할")
+            .expect("b 슬롯");
+
+        let error =
+            ensure_slot_placement_allowed(&session, Some(&ProjectId("a".to_string())), &slot_b, ShellSlotEdge::Replace).expect_err("거부");
+
+        let AppError::Localized(localized) = &error else {
+            panic!("로케일 키가 있는 에러여야 한다");
+        };
+        assert_eq!(localized.key, "error.shellSlot.projectAlreadyInSlot");
+        assert_eq!(localized.kind, AppErrorKind::InvalidArgument);
+    }
+
+    #[test]
+    fn 대상_슬롯을_같은_프로젝트로_교체하는_것은_허용되고_분할은_거부된다() {
+        let session = 슬롯_세션(&["a"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let a = ProjectId("a".to_string());
+
+        assert!(ensure_slot_placement_allowed(&session, Some(&a), &slot_a, ShellSlotEdge::Replace).is_ok());
+        assert!(
+            ensure_slot_placement_allowed(&session, Some(&a), &slot_a, ShellSlotEdge::Right).is_err(),
+            "분할은 같은 프로젝트를 두 슬롯에 만드는 셈이라 거부돼야 한다"
+        );
+    }
+
+    #[test]
+    fn 없는_대상_슬롯은_아무것도_열기_전에_거부된다() {
+        let session = 슬롯_세션(&["a"]);
+
+        let error = ensure_slot_placement_allowed(&session, None, &ShellSlotId("shellslot-missing".to_string()), ShellSlotEdge::Right)
+            .expect_err("거부");
+
+        assert!(matches!(error, AppError::NotFound(_)));
+    }
+
+    #[test]
+    fn 슬롯에_두면_새_슬롯이_포커스와_활성_프로젝트가_된다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let mut projects = HashMap::new();
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+
+        let new_slot = place_project_in_slot(
+            &paths,
+            &mut session,
+            &mut projects,
+            &ProjectId("b".to_string()),
+            &slot_a,
+            ShellSlotEdge::Bottom,
+        )
+        .expect("배치");
+
+        assert_eq!(슬롯_목록(&session).len(), 2);
+        assert_eq!(session.focused_shell_slot, Some(new_slot.clone()));
+        assert_eq!(session.active_project, Some(ProjectId("b".to_string())));
+        assert_ne!(new_slot, slot_a);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 슬롯_배치는_이미_열린_프로젝트의_last_opened_at을_갱신하고_영속화한다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let b = ProjectId("b".to_string());
+        let mut projects = HashMap::from([(
+            b.clone(),
+            Project {
+                id: b.clone(),
+                root: "/tmp/b".to_string(),
+                name: "b".to_string(),
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: 0.0,
+                display: ProjectDisplay::default(),
+            },
+        )]);
+
+        place_project_in_slot(&paths, &mut session, &mut projects, &b, &slot_a, ShellSlotEdge::Bottom).expect("배치");
+
+        let stamped = projects.get(&b).expect("배치 후 in-memory project").last_opened_at;
+        assert!(stamped > 0.0, "슬롯 배치도 activate 처럼 recency 를 찍어야 한다");
+
+        let (persisted, _warnings) = load_project(&paths, &b).expect("project.json 적재");
+        assert_eq!(
+            persisted.expect("project.json 이 존재해야 한다").last_opened_at,
+            stamped,
+            "슬롯 배치의 갱신은 디스크에도 저장돼야 한다"
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 슬롯_크기는_인덱스_경로로_저장된다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let tree = session.shell_slots.as_mut().expect("트리");
+        shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("분할")
+            .expect("b 슬롯");
+
+        set_shell_slot_sizes(&paths, &mut session, &[], vec![25.0, 75.0]).expect("크기 저장");
+
+        let (reloaded, warnings) = load_session(&paths).expect("세션 재적재");
+        assert!(warnings.is_empty());
+        let Some(ShellSlotTree::Split { sizes, .. }) = reloaded.shell_slots else {
+            panic!("루트는 split 이어야 한다");
+        };
+        assert_eq!(sizes, vec![25.0, 75.0]);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 창_크롬은_활성_프로젝트의_구_shell_view에서_한_번만_승격된다() {
+        let mut session = 슬롯_세션(&["a", "b"]);
+        let mut shell_views: HashMap<ProjectId, ShellViewState> = HashMap::from([
+            (
+                ProjectId("a".to_string()),
+                ShellViewState {
+                    zen: true,
+                    sidebar_collapsed: false,
+                },
+            ),
+            (
+                ProjectId("b".to_string()),
+                ShellViewState {
+                    zen: false,
+                    sidebar_collapsed: true,
+                },
+            ),
+        ]);
+
+        let promoted = promote_legacy_window_chrome(&mut session, &mut shell_views);
+
+        assert_eq!(
+            session.window_chrome,
+            WindowChrome {
+                zen: true,
+                sidebar_rail_collapsed: false
+            }
+        );
+        assert_eq!(promoted, vec![ProjectId("a".to_string()), ProjectId("b".to_string())]);
+        assert!(shell_views.values().all(|view| !view.zen && !view.sidebar_collapsed));
+
+        let again = promote_legacy_window_chrome(&mut session, &mut shell_views);
+        assert!(again.is_empty(), "원본이 비워졌으므로 다음 부팅에 다시 승격되지 않는다");
+    }
+
+    #[test]
+    fn 창_크롬에_이미_값이_있으면_승격하지_않는다() {
+        let mut session = 슬롯_세션(&["a"]);
+        session.window_chrome = WindowChrome {
+            zen: false,
+            sidebar_rail_collapsed: true,
+        };
+        let mut shell_views: HashMap<ProjectId, ShellViewState> = HashMap::from([(
+            ProjectId("a".to_string()),
+            ShellViewState {
+                zen: true,
+                sidebar_collapsed: false,
+            },
+        )]);
+
+        let promoted = promote_legacy_window_chrome(&mut session, &mut shell_views);
+
+        assert!(promoted.is_empty());
+        assert!(!session.window_chrome.zen);
+        assert!(shell_views[&ProjectId("a".to_string())].zen, "원본도 건드리지 않는다");
+    }
+
+    #[test]
+    fn 승격할_구_값이_없으면_아무것도_하지_않는다() {
+        let mut session = 슬롯_세션(&["a"]);
+        let mut shell_views: HashMap<ProjectId, ShellViewState> = HashMap::from([(ProjectId("a".to_string()), ShellViewState::default())]);
+
+        assert!(promote_legacy_window_chrome(&mut session, &mut shell_views).is_empty());
+        assert_eq!(session.window_chrome, WindowChrome::default());
+    }
+
+    #[test]
+    fn 창_크롬_패치는_지정한_축만_바꾼다() {
+        let paths = temp_paths();
+        let mut session = 슬롯_세션(&["a"]);
+
+        let chrome = set_window_chrome(
+            &paths,
+            &mut session,
+            &WindowChromePatch {
+                zen: Some(true),
+                sidebar_rail_collapsed: None,
+            },
+        )
+        .expect("패치");
+
+        assert!(chrome.zen);
+        assert!(!chrome.sidebar_rail_collapsed);
 
         cleanup(&paths);
     }

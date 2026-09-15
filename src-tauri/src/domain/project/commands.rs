@@ -6,17 +6,36 @@ use tauri_specta::Event;
 
 use super::capability::ProjectCapabilities;
 use super::service;
-use super::types::{Project, ProjectDisplayPatch, ProjectRef, SessionState};
+use super::types::{
+    OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectRef, SessionShellState, SessionState, WindowChrome, WindowChromePatch,
+};
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
-use crate::events::{FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened};
-use crate::ids::ProjectId;
+use crate::events::{
+    FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened, SessionShellSlotsChanged,
+    WindowChromeChanged,
+};
+use crate::ids::{ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
 
 fn emit_list_changed(app: &AppHandle, state: &AppState) {
     let projects = service::list_projects(&state.session.read());
     let _ = ProjectListChanged { projects }.emit(app);
+}
+
+/// Publishes the current slot arrangement to every window and remote session. The session lock is
+/// released before the emit (the payload is built in its own scope) because a `listen_any` handler
+/// runs inline on the emitting thread — `lib.rs`'s menu refresh is only safe for the same reason.
+fn emit_shell_slots_changed(app: &AppHandle, state: &AppState) {
+    let payload = {
+        let session = state.session.read();
+        SessionShellSlotsChanged {
+            tree: session.shell_slots.clone(),
+            focused: session.focused_shell_slot.clone(),
+        }
+    };
+    let _ = payload.emit(app);
 }
 
 #[tauri::command]
@@ -100,7 +119,7 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
         let mut session = state.session.read().clone();
         let mut projects = state.projects.read().clone();
 
-        let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), |canonical| {
+        let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), true, |canonical| {
             app.state::<ProjectCapabilities>().detected_kinds(canonical)
         })?;
 
@@ -131,8 +150,201 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
         project_id: Some(result.project.id.clone()),
     }
     .emit(&app);
+    emit_shell_slots_changed(&app, &state);
 
     Ok(result)
+}
+
+/// Opens a project **into a named shell slot** — the split half of d-62. Either `path` (a folder
+/// that may not be open yet) or `project_id` (a project already in the sidebar) names what to place;
+/// `edge` decides whether the target slot is split or its project simply replaced.
+///
+/// The whole slot mutation — duplicate rejection, the split, the focus move, the session write and
+/// the events — happens under one `begin_mutation` acquisition (contract §0.1 S-1), and validation
+/// runs *before* anything is opened so a rejected drop cannot strand a half-opened project. The one
+/// step deliberately outside the guard is the capability attach for a project this call opened for
+/// the first time, for the reason [`attach_project_capabilities`] documents at length; a failure
+/// there unwinds through [`project_close`], which removes the project *and* the slot it was just
+/// placed in.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_open_in_slot(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: OpenProjectInSlotRequest,
+) -> AppResult<SessionShellState> {
+    let _span = perf::span(SpanSlot::ProjectOpen);
+
+    let opened = {
+        let _guard = state.begin_mutation().await;
+        let mut session = state.session.read().clone();
+        let mut projects = state.projects.read().clone();
+
+        let existing = match (&request.path, &request.project_id) {
+            (Some(path), None) => service::find_open_project_by_root(&projects, Path::new(path)),
+            (None, Some(project_id)) => {
+                service::get_project(&projects, project_id)?;
+                Some(project_id.clone())
+            }
+            _ => {
+                return Err(AppError::InvalidArgument(
+                    "project_open_in_slot needs exactly one of path or projectId".to_string(),
+                ));
+            }
+        };
+
+        service::ensure_slot_placement_allowed(&session, existing.as_ref(), &request.target_slot, request.edge)?;
+
+        let opened = match (existing, &request.path) {
+            (Some(project_id), _) => {
+                let project = service::get_project(&projects, &project_id)?;
+                service::ProjectOpenResult {
+                    project,
+                    already_open: true,
+                }
+            }
+            (None, Some(path)) => service::open_project(&state.paths, &mut session, &mut projects, Path::new(path), false, |canonical| {
+                app.state::<ProjectCapabilities>().detected_kinds(canonical)
+            })?,
+            (None, None) => return Err(AppError::Internal("project_open_in_slot resolved no project".to_string())),
+        };
+
+        service::place_project_in_slot(
+            &state.paths,
+            &mut session,
+            &mut projects,
+            &opened.project.id,
+            &request.target_slot,
+            request.edge,
+        )?;
+
+        *state.session.write() = session;
+        *state.projects.write() = projects;
+        opened
+    };
+
+    if !opened.already_open {
+        if let Err(error) = attach_project_capabilities(&app, &opened.project).await {
+            if let Err(rollback) = project_close(app.clone(), state.clone(), opened.project.id.clone()).await {
+                log::warn!(
+                    "capability attach 실패 후 슬롯 프로젝트 되돌리기도 실패했습니다 (projectId={}): {rollback}",
+                    opened.project.id
+                );
+            }
+            return Err(error);
+        }
+
+        let _ = ProjectOpened {
+            project: opened.project.clone(),
+        }
+        .emit(&app);
+        emit_list_changed(&app, &state);
+    }
+
+    let _ = ProjectActivated {
+        project_id: Some(opened.project.id.clone()),
+    }
+    .emit(&app);
+    emit_shell_slots_changed(&app, &state);
+
+    Ok(service::shell_state(&state.session.read()))
+}
+
+/// The current slot arrangement and window chrome, for a window that just mounted. Both halves
+/// otherwise only arrive as events (`SessionShellSlotsChanged`/`WindowChromeChanged`), which fire at
+/// transitions — the same gap `project_get_active` was added to close for `project:activated`.
+#[tauri::command]
+#[specta::specta]
+pub async fn session_get_shell_state(state: State<'_, AppState>) -> AppResult<SessionShellState> {
+    Ok(service::shell_state(&state.session.read()))
+}
+
+/// Moves the window's focus to one slot, which also makes that slot's project the active one — see
+/// `service::focus_shell_slot`. The frontend tracks focus itself from DOM events (contract §0.1 U-7)
+/// and calls this to persist it, so this is the write half of that pair, not its source of truth.
+#[tauri::command]
+#[specta::specta]
+pub async fn session_focus_shell_slot(app: AppHandle, state: State<'_, AppState>, slot_id: ShellSlotId) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+    let mut projects = state.projects.read().clone();
+
+    service::focus_shell_slot(&state.paths, &mut session, &mut projects, &slot_id)?;
+
+    let active_project = session.active_project.clone();
+    *state.session.write() = session;
+    *state.projects.write() = projects;
+    drop(_guard);
+
+    let _ = ProjectActivated {
+        project_id: active_project,
+    }
+    .emit(&app);
+    emit_shell_slots_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Persists one split node's child percentages after a drag. `path` addresses the node by child
+/// index from the root because a slot split has no id of its own — see
+/// `shell_slots::set_sizes`. The frontend debounces these the way `pane-resize-commit.ts` already
+/// debounces `layout_resize`, so this is not called per pointer move.
+#[tauri::command]
+#[specta::specta]
+pub async fn session_set_shell_slot_sizes(app: AppHandle, state: State<'_, AppState>, path: Vec<u32>, sizes: Vec<f32>) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::set_shell_slot_sizes(&state.paths, &mut session, &path, sizes)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_shell_slots_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Closes one shell slot while leaving its project open — the slot header's own close button. The
+/// last remaining slot is refused: a window with projects open always shows at least one of them.
+#[tauri::command]
+#[specta::specta]
+pub async fn shell_slot_close(app: AppHandle, state: State<'_, AppState>, slot_id: ShellSlotId) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::close_shell_slot(&state.paths, &mut session, &slot_id)?;
+
+    let active_project = session.active_project.clone();
+    *state.session.write() = session;
+    drop(_guard);
+
+    let _ = ProjectActivated {
+        project_id: active_project,
+    }
+    .emit(&app);
+    emit_shell_slots_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Sets the window-level chrome axes (Zen, sidebar icon rail) that contract §0.1 S-6 moved off the
+/// per-project layout. Patch semantics match `layout_set_shell_view`'s: an omitted axis is left
+/// alone.
+#[tauri::command]
+#[specta::specta]
+pub async fn session_set_window_chrome(app: AppHandle, state: State<'_, AppState>, patch: WindowChromePatch) -> AppResult<WindowChrome> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    let chrome = service::set_window_chrome(&state.paths, &mut session, &patch)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    let _ = WindowChromeChanged { chrome }.emit(&app);
+
+    Ok(chrome)
 }
 
 /// Runs the capability attach walk for a freshly opened project **without holding
@@ -267,6 +479,7 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
         project_id: active_project,
     }
     .emit(&app);
+    emit_shell_slots_changed(&app, &state);
     emit_list_changed(&app, &state);
 
     Ok(())
@@ -289,6 +502,7 @@ pub async fn project_activate(app: AppHandle, state: State<'_, AppState>, projec
         project_id: Some(project_id),
     }
     .emit(&app);
+    emit_shell_slots_changed(&app, &state);
 
     Ok(())
 }
@@ -342,7 +556,7 @@ pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
     let mut warnings = Vec::new();
 
     match service::restore_session(&state.paths) {
-        Ok((session, projects, session_warnings)) => {
+        Ok((mut session, projects, session_warnings)) => {
             let mut layouts = state.layouts.write();
             for project in &projects {
                 layouts.insert(
@@ -350,7 +564,25 @@ pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
                     crate::domain::layout::service::load_layout(&state.paths, &project.id),
                 );
             }
+
+            let mut shell_views = layouts
+                .iter()
+                .map(|(project_id, layout)| (project_id.clone(), layout.shell_view))
+                .collect();
+            let promoted = service::promote_legacy_window_chrome(&mut session, &mut shell_views);
+            for project_id in &promoted {
+                if let (Some(layout), Some(view)) = (layouts.get_mut(project_id), shell_views.get(project_id)) {
+                    layout.shell_view = *view;
+                }
+            }
             drop(layouts);
+
+            if !promoted.is_empty() {
+                state.dirty_layouts.write().extend(promoted.iter().cloned());
+                if let Err(error) = service::save_session(&state.paths, &session) {
+                    warnings.push(format!("창 크롬 상태 승격 후 세션 저장 실패: {error}"));
+                }
+            }
 
             *state.session.write() = session;
             *state.projects.write() = projects.into_iter().map(|project| (project.id.clone(), project)).collect();
@@ -706,6 +938,7 @@ mod tests {
                 })
                 .collect(),
             active_project: active_project.map(|id| ProjectId::from(id.to_string())),
+            ..SessionState::default()
         }
     }
 

@@ -40,6 +40,7 @@ macro_rules! string_id {
 string_id!(ProjectId, "prj");
 string_id!(PaneId, "pane");
 string_id!(TabId, "tab");
+string_id!(ShellSlotId, "shellslot");
 
 #[cfg(test)]
 mod tests {
