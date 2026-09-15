@@ -5,7 +5,16 @@ use crate::ids::ProjectId;
 
 pub const AGENT_POLL_UNIX_MS: u64 = 500;
 pub const AGENT_POLL_WINDOWS_MS: u64 = 2_000;
-pub const KNOWN_AGENT_NAMES: &[&str] = &["claude", "codex", "gemini"];
+/// Every agent TAIDE recognizes by process name. Kept in sync with the per-agent tables in
+/// `service.rs` (title glyphs, dialog signatures, spinner glyphs, hook delivery) — an entry here
+/// with no table entry is detected but produces no activity signal of its own.
+pub const KNOWN_AGENT_NAMES: &[&str] = &[
+    AGENT_NAME_CLAUDE,
+    AGENT_NAME_CODEX,
+    AGENT_NAME_GEMINI,
+    AGENT_NAME_OPENCODE,
+    AGENT_NAME_PI,
+];
 pub const WAIT_MARKER_PREFIX: &str = "taide-wait-";
 
 pub const ACTIVITY_WORKING_HOLD_MS: u64 = 2_000;
@@ -69,6 +78,15 @@ pub use crate::infra::terminal_scan::{AGENT_OSC_MARKER, AGENT_OSC_SENTINEL, OSC_
 pub const AGENT_NAME_CLAUDE: &str = "claude";
 pub const AGENT_NAME_CODEX: &str = "codex";
 pub const AGENT_NAME_GEMINI: &str = "gemini";
+pub const AGENT_NAME_OPENCODE: &str = "opencode";
+pub const AGENT_NAME_PI: &str = "pi";
+
+/// The npm package path a `pi` launched on a node runtime runs out of
+/// (`@earendil-works/pi-coding-agent`). `pi` is two characters long — short enough that an
+/// unrelated argument on some other node process's command line would be read as the coding agent —
+/// so a name matched off a command line is only accepted when this marker is on it as well
+/// (`service::agent_match_is_confirmed`).
+pub const PI_PACKAGE_PATH_MARKER: &str = "pi-coding-agent";
 
 pub const HOOK_EVENT_USER_PROMPT_SUBMIT: &str = "UserPromptSubmit";
 pub const HOOK_EVENT_NOTIFICATION: &str = "Notification";
@@ -106,6 +124,24 @@ pub const CODEX_MANAGED_HOOK_EVENTS: &[&str] = &[
 ];
 pub const GEMINI_MANAGED_HOOK_EVENTS: &[&str] = &[HOOK_EVENT_BEFORE_AGENT, HOOK_EVENT_NOTIFICATION, HOOK_EVENT_AFTER_AGENT];
 
+/// The bus event names opencode's plugin host dispatches, as its own binary spells them (probe
+/// 2026-09-15 §7 found every one of these in the shipped 1.18.29 binary). A plugin subscribes by
+/// matching `event.type` against them, so they belong next to the other agents' hook event names
+/// rather than inline in the generated plugin source.
+pub const OPENCODE_EVENT_PERMISSION_ASKED: &str = "permission.asked";
+pub const OPENCODE_EVENT_PERMISSION_REPLIED: &str = "permission.replied";
+pub const OPENCODE_EVENT_TOOL_EXECUTE_AFTER: &str = "tool.execute.after";
+pub const OPENCODE_EVENT_SESSION_IDLE: &str = "session.idle";
+
+/// The pi extension lifecycle events TAIDE subscribes to (`pi.on(<name>, handler)`), from the
+/// project's own extension documentation. `[미확인]`: pi is installed on no machine TAIDE has
+/// measured, so none of these has been seen on a real session — they are documentation, not
+/// observation.
+pub const PI_EVENT_UI_PROMPT_START: &str = "ui_prompt_start";
+pub const PI_EVENT_UI_PROMPT_END: &str = "ui_prompt_end";
+pub const PI_EVENT_AGENT_START: &str = "agent_start";
+pub const PI_EVENT_AGENT_SETTLED: &str = "agent_settled";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentActivity {
@@ -115,6 +151,18 @@ pub enum AgentActivity {
     Unknown,
 }
 
+/// What an `AwaitingInput` session is waiting on, so the badge tooltip and the OS notification can
+/// name one of the two instead of listing both. Derived from the latch that produced the state
+/// ([`super::service::blocked_reason`]): an in-band event the agent sent names itself, while a
+/// phrase read off the screen only proves some dialog is up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BlockedReason {
+    Permission,
+    Question,
+    Dialog,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DetectedAgent {
@@ -122,6 +170,12 @@ pub struct DetectedAgent {
     pub name: String,
     pub pid: u32,
     pub activity: AgentActivity,
+    /// Set only while the latch behind `AwaitingInput` is still held, so a reason can never outlive
+    /// the block it explains. `None` on every other activity, and on a session whose
+    /// `AwaitingInput` came from the project-scoped HTTP override instead of its own signals —
+    /// that bridge carries an activity and nothing else.
+    #[serde(default)]
+    pub blocked_reason: Option<BlockedReason>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -137,6 +191,10 @@ pub struct AgentHooksStatus {
     pub agent_name: String,
     pub scope: HookInstallScope,
     pub installed: bool,
+    /// Whether this agent's install needs TAIDE's `taide` CLI symlink to exist first
+    /// ([`super::service::requires_taide_cli`]). Read by the settings UI so the CLI warning and the
+    /// disabled toggle follow the agent spec table instead of a second copy of it in the frontend.
+    pub requires_taide_cli: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

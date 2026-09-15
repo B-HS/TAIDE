@@ -985,6 +985,12 @@ export type AgentHooksStatus = {
 	agentName: string,
 	scope: HookInstallScope,
 	installed: boolean,
+	/**
+	 *  Whether this agent's install needs TAIDE's `taide` CLI symlink to exist first
+	 *  ([`super::service::requires_taide_cli`]). Read by the settings UI so the CLI warning and the
+	 *  disabled toggle follow the agent spec table instead of a second copy of it in the frontend.
+	 */
+	requiresTaideCli: boolean,
 };
 
 export type AgentStateChanged = {
@@ -1114,6 +1120,14 @@ export type BlameLine = {
 	isUncommitted: boolean,
 };
 
+/**
+ *  What an `AwaitingInput` session is waiting on, so the badge tooltip and the OS notification can
+ *  name one of the two instead of listing both. Derived from the latch that produced the state
+ *  ([`super::service::blocked_reason`]): an in-band event the agent sent names itself, while a
+ *  phrase read off the screen only proves some dialog is up.
+ */
+export type BlockedReason = "permission" | "question" | "dialog";
+
 export type CapabilityKind = "git" | "lsp" | "terminal" | "agentWatch";
 
 export type CliInstallStatus = {
@@ -1171,6 +1185,13 @@ export type DetectedAgent = {
 	name: string,
 	pid: number,
 	activity: AgentActivity,
+	/**
+	 *  Set only while the latch behind `AwaitingInput` is still held, so a reason can never outlive
+	 *  the block it explains. `None` on every other activity, and on a session whose
+	 *  `AwaitingInput` came from the project-scoped HTTP override instead of its own signals —
+	 *  that bridge carries an activity and nothing else.
+	 */
+	blockedReason?: BlockedReason | null,
 };
 
 export type DiffMode = "workdirVsIndex" | "indexVsHead";
@@ -1545,7 +1566,15 @@ export type MirrorEntry = {
  *  of the app's ~150 in-app toasts — is
  *  `docs/acknowledge/2026-09-04-usability-batch4-user-decisions.md` §결정 1.
  */
-export type NotificationCategory = "agentCompleted" | "taskCompleted" | "gitRemote" | "searchReplace" | "lspInstall" | "error";
+export type NotificationCategory = "agentCompleted" | 
+/**
+ *  An agent stopping to ask for something — a permission approval or a question — as opposed to
+ *  finishing its turn. Split off `AgentCompleted` in d-60 because the two want different
+ *  answers: a finished turn is a result the user can read later, while a blocked one is a
+ *  prompt that holds the agent until they come back, and a user who wants only one of those
+ *  notifications had no way to say so while a single switch covered both.
+ */
+"agentAwaitingInput" | "taskCompleted" | "gitRemote" | "searchReplace" | "lspInstall" | "error";
 
 /**
  *  The outcome of one `notification_notify` call — the pure gate's decision
@@ -2122,12 +2151,19 @@ export type Settings = {
 	notificationsOnlyWhenUnfocused?: boolean,
 	/**
 	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentCompleted`]
-	 *  — an agent transitioning out of `Working` after a long enough run. All six category
+	 *  — an agent transitioning out of `Working` after a long enough run. All seven category
 	 *  switches default to `true`: the categories are already narrowed to completion events by
 	 *  construction, so an on-by-default switch is the useful shape and turning one off is the
 	 *  exception.
 	 */
 	notifyAgentCompleted?: boolean,
+	/**
+	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentAwaitingInput`]
+	 *  — an agent stopping on a permission request or a question. Its own switch since d-60: a user
+	 *  who wants to be called back only when the agent is *blocked on them* (or, the other way
+	 *  round, never for that) could say neither while one switch covered both halves.
+	 */
+	notifyAgentAwaitingInput?: boolean,
 	/**
 	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::TaskCompleted`]
 	 *  — a long-running terminal command finishing (OSC 133 `D`, exit code included).
@@ -2353,6 +2389,7 @@ export type SettingsPatch = {
 	notificationsEnabled: boolean | null,
 	notificationsOnlyWhenUnfocused: boolean | null,
 	notifyAgentCompleted: boolean | null,
+	notifyAgentAwaitingInput: boolean | null,
 	notifyTaskCompleted: boolean | null,
 	notifyGitRemote: boolean | null,
 	notifySearchReplace: boolean | null,

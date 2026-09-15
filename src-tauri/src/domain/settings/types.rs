@@ -217,12 +217,18 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub notifications_only_when_unfocused: bool,
     /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentCompleted`]
-    /// — an agent transitioning out of `Working` after a long enough run. All six category
+    /// — an agent transitioning out of `Working` after a long enough run. All seven category
     /// switches default to `true`: the categories are already narrowed to completion events by
     /// construction, so an on-by-default switch is the useful shape and turning one off is the
     /// exception.
     #[serde(default = "default_true")]
     pub notify_agent_completed: bool,
+    /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentAwaitingInput`]
+    /// — an agent stopping on a permission request or a question. Its own switch since d-60: a user
+    /// who wants to be called back only when the agent is *blocked on them* (or, the other way
+    /// round, never for that) could say neither while one switch covered both halves.
+    #[serde(default = "default_true")]
+    pub notify_agent_awaiting_input: bool,
     /// Per-category switch for [`crate::domain::notification::types::NotificationCategory::TaskCompleted`]
     /// — a long-running terminal command finishing (OSC 133 `D`, exit code included).
     #[serde(default = "default_true")]
@@ -434,6 +440,7 @@ pub struct SettingsPatch {
     pub notifications_enabled: Option<bool>,
     pub notifications_only_when_unfocused: Option<bool>,
     pub notify_agent_completed: Option<bool>,
+    pub notify_agent_awaiting_input: Option<bool>,
     pub notify_task_completed: Option<bool>,
     pub notify_git_remote: Option<bool>,
     pub notify_search_replace: Option<bool>,
@@ -565,6 +572,7 @@ impl Default for Settings {
             notifications_enabled: default_true(),
             notifications_only_when_unfocused: default_true(),
             notify_agent_completed: default_true(),
+            notify_agent_awaiting_input: default_true(),
             notify_task_completed: default_true(),
             notify_git_remote: default_true(),
             notify_search_replace: default_true(),

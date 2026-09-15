@@ -33,6 +33,7 @@ pub fn decide_delivery(settings: &Settings, category: NotificationCategory, any_
 fn is_category_enabled(settings: &Settings, category: NotificationCategory) -> bool {
     match category {
         NotificationCategory::AgentCompleted => settings.notify_agent_completed,
+        NotificationCategory::AgentAwaitingInput => settings.notify_agent_awaiting_input,
         NotificationCategory::TaskCompleted => settings.notify_task_completed,
         NotificationCategory::GitRemote => settings.notify_git_remote,
         NotificationCategory::SearchReplace => settings.notify_search_replace,
@@ -47,6 +48,7 @@ mod tests {
 
     const ALL_CATEGORIES: &[NotificationCategory] = &[
         NotificationCategory::AgentCompleted,
+        NotificationCategory::AgentAwaitingInput,
         NotificationCategory::TaskCompleted,
         NotificationCategory::GitRemote,
         NotificationCategory::SearchReplace,
@@ -57,6 +59,7 @@ mod tests {
     fn disable_category(settings: &mut Settings, category: NotificationCategory) {
         match category {
             NotificationCategory::AgentCompleted => settings.notify_agent_completed = false,
+            NotificationCategory::AgentAwaitingInput => settings.notify_agent_awaiting_input = false,
             NotificationCategory::TaskCompleted => settings.notify_task_completed = false,
             NotificationCategory::GitRemote => settings.notify_git_remote = false,
             NotificationCategory::SearchReplace => settings.notify_search_replace = false,
@@ -140,6 +143,33 @@ mod tests {
                 "{category:?} 는 비포커스 전용 off 에서 포커스 중에도 전달되어야 한다"
             );
         }
+    }
+
+    #[test]
+    fn 입력_대기_스위치는_완료_스위치와_독립이다() {
+        let only_completed_off = Settings {
+            notify_agent_completed: false,
+            ..Settings::default()
+        };
+        assert_eq!(
+            decide_delivery(&only_completed_off, NotificationCategory::AgentAwaitingInput, false),
+            NotificationDelivery::Delivered,
+            "완료 알림만 껐는데 입력 대기까지 막히면 분리한 의미가 없다"
+        );
+
+        let only_awaiting_off = Settings {
+            notify_agent_awaiting_input: false,
+            ..Settings::default()
+        };
+        assert_eq!(
+            decide_delivery(&only_awaiting_off, NotificationCategory::AgentCompleted, false),
+            NotificationDelivery::Delivered,
+            "입력 대기만 껐는데 완료까지 막히면 안 된다"
+        );
+        assert_eq!(
+            decide_delivery(&only_awaiting_off, NotificationCategory::AgentAwaitingInput, false),
+            NotificationDelivery::Suppressed(NotificationSuppressionReason::CategoryDisabled)
+        );
     }
 
     #[test]

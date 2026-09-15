@@ -101,11 +101,14 @@ impl ScanOutcome {
     }
 }
 
-/// Per-session scanner state: the unterminated escape tail and the normalized-text overlap.
+/// Per-session scanner state: the unterminated escape tail, the normalized-text overlap, and the
+/// terminal row the cursor was last moved to (carried across chunks because a full-screen TUI
+/// routinely splits one repaint over several reads).
 #[derive(Debug, Default)]
 pub struct OutputScanner {
     carry: Vec<u8>,
     text_tail: String,
+    cursor_row: Option<u32>,
 }
 
 enum EscapeStep {
@@ -132,13 +135,13 @@ impl OutputScanner {
         };
 
         let mut events = Vec::new();
-        let mut text = Vec::with_capacity(bytes.len());
+        let mut text = NormalizedText::with_capacity(bytes.len(), self.cursor_row);
         let mut index = 0;
 
         while index < bytes.len() {
             let byte = bytes[index];
             if byte != ESC {
-                push_plain_byte(&mut text, byte);
+                text.push_plain_byte(byte);
                 index += 1;
                 continue;
             }
@@ -157,7 +160,8 @@ impl OutputScanner {
             self.carry.clear();
         }
 
-        let text = String::from_utf8_lossy(&text).into_owned();
+        self.cursor_row = text.cursor_row;
+        let text = String::from_utf8_lossy(&text.bytes).into_owned();
         let overlap = self.text_tail.clone();
         self.remember_tail(&text);
 
@@ -187,23 +191,102 @@ fn char_boundary_at_or_after(text: &str, mut index: usize) -> usize {
     index
 }
 
-fn push_space(text: &mut Vec<u8>) {
-    if text.last() == Some(&b' ') {
-        return;
-    }
-    text.push(b' ');
+/// The row a `CSI …H`/`…f`/`…d` with no parameter (or a parameter of `0`) moves to, and the rows a
+/// relative move covers when its parameter is absent — both are 1 per ECMA-48.
+const CSI_DEFAULT_ROW: u32 = 1;
+const CSI_DEFAULT_ROW_DELTA: u32 = 1;
+
+/// Index of the row parameter in a CUP/HVP (`row;col`) or VPA (`row`) sequence.
+const CSI_ROW_PARAM_INDEX: usize = 0;
+
+/// The `?` that marks a `CSI … h`/`l` parameter list as private (DECSET/DECRST).
+const CSI_PRIVATE_PREFIX: u8 = b'?';
+
+/// The private modes that swap the screen buffer: the combined form every modern full-screen TUI
+/// uses (`1049`) and the two older spellings xterm still honors. Both directions matter — entering
+/// hands the program a buffer whose cursor this scanner has never seen, and leaving restores the
+/// shell's, so the tracked row is stale either way.
+const SCREEN_BUFFER_SWITCH_MODES: &[u32] = &[1049, 1047, 47];
+
+/// The normalized text of one chunk, plus the terminal row the cursor sits on as far as the moves
+/// seen so far can tell.
+///
+/// The row is what lets an absolute cursor move be read as the whitespace it really is: a move
+/// within the same row is one space (opencode and codex draw a single line as several positioned
+/// runs, and codex moves between *every word*), while a move to another row is a line break. Kept
+/// as `Option` because a chunk can start anywhere — an unknown row is treated as "the same row", so
+/// a phrase that arrives mid-repaint is joined rather than split by a break it never had.
+///
+/// The tracking is approximate by construction: scrolling at the bottom of the screen and clamped
+/// moves both drift. That only ever changes which whitespace a move becomes, never whether the
+/// text itself survives.
+struct NormalizedText {
+    bytes: Vec<u8>,
+    cursor_row: Option<u32>,
 }
 
-fn push_plain_byte(text: &mut Vec<u8>, byte: u8) {
-    match byte {
-        b'\n' => text.push(b'\n'),
-        b'\t' | b' ' => push_space(text),
-        0x00..=0x1f | 0x7f => {}
-        other => text.push(other),
+impl NormalizedText {
+    fn with_capacity(capacity: usize, cursor_row: Option<u32>) -> Self {
+        Self {
+            bytes: Vec::with_capacity(capacity),
+            cursor_row,
+        }
+    }
+
+    fn push_space(&mut self) {
+        if self.bytes.last() == Some(&b' ') {
+            return;
+        }
+        self.bytes.push(b' ');
+    }
+
+    fn push_newline(&mut self) {
+        self.bytes.push(b'\n');
+    }
+
+    fn push_plain_byte(&mut self, byte: u8) {
+        match byte {
+            b'\n' => {
+                self.push_newline();
+                self.cursor_row = self.cursor_row.map(|row| row.saturating_add(1));
+            }
+            b'\t' | b' ' => self.push_space(),
+            0x00..=0x1f | 0x7f => {}
+            other => self.bytes.push(other),
+        }
+    }
+
+    /// CUP/HVP/VPA — a move to an absolute row.
+    fn move_to_row(&mut self, row: u32) {
+        if self.cursor_row.is_none_or(|current| current == row) {
+            self.push_space();
+        } else {
+            self.push_newline();
+        }
+        self.cursor_row = Some(row);
+    }
+
+    /// Entering or leaving the alternate screen buffer. The row that was being tracked belongs to
+    /// the buffer being left, so it is dropped rather than compared against the new one — without
+    /// this, the first absolute move of a full-screen repaint reads as a line break (or a join)
+    /// decided by a row from another screen. Forgetting it puts the scanner back in its "row
+    /// unknown" state, where that first move anchors the row and joins with a space.
+    fn forget_row(&mut self) {
+        self.cursor_row = None;
+    }
+
+    /// Cursor up/down and next/previous line — always a different row, so always a break. The
+    /// tracked row follows the move so a later absolute move is still compared against something.
+    fn move_by_rows(&mut self, delta: i64) {
+        self.push_newline();
+        self.cursor_row = self
+            .cursor_row
+            .and_then(|row| u32::try_from(i64::from(row) + delta).ok())
+            .filter(|row| *row >= CSI_DEFAULT_ROW);
     }
 }
 
-fn step_escape(bytes: &[u8], start: usize, events: &mut Vec<ScanEvent>, text: &mut Vec<u8>) -> EscapeStep {
+fn step_escape(bytes: &[u8], start: usize, events: &mut Vec<ScanEvent>, text: &mut NormalizedText) -> EscapeStep {
     let Some(&introducer) = bytes.get(start + 1) else {
         return EscapeStep::Incomplete;
     };
@@ -263,17 +346,25 @@ fn step_string_sequence(bytes: &[u8], start: usize) -> EscapeStep {
 
 /// Resolves a CSI to the whitespace it moves the cursor by: a forward/absolute column move is one
 /// space (Claude Code renders dialog prose word-by-word with `CSI n G` between the words, so
-/// without this the phrase never appears as text at all), a row move is a newline, and everything
-/// else — SGR, erase, private mode toggles — leaves no text behind.
-fn step_csi(bytes: &[u8], start: usize, text: &mut Vec<u8>) -> EscapeStep {
-    let mut index = start + 2;
+/// without this the phrase never appears as text at all), a relative row move is a newline, an
+/// absolute row move is whichever of the two the row says it is ([`NormalizedText::move_to_row`]),
+/// and everything else — SGR, erase, private mode toggles — leaves no text behind. One private mode
+/// still matters without writing anything: the alternate-screen switch invalidates the tracked row
+/// ([`NormalizedText::forget_row`]).
+fn step_csi(bytes: &[u8], start: usize, text: &mut NormalizedText) -> EscapeStep {
+    let params_start = start + 2;
+    let mut index = params_start;
 
     while index < bytes.len() {
         let byte = bytes[index];
         if (0x40..=0x7e).contains(&byte) {
+            let params = &bytes[params_start..index];
             match byte {
-                b'G' | b'C' => push_space(text),
-                b'A' | b'B' | b'E' | b'F' | b'H' | b'd' | b'f' => text.push(b'\n'),
+                b'G' | b'C' => text.push_space(),
+                b'H' | b'f' | b'd' => text.move_to_row(csi_row_param(params)),
+                b'B' | b'E' => text.move_by_rows(i64::from(csi_row_delta_param(params))),
+                b'A' | b'F' => text.move_by_rows(-i64::from(csi_row_delta_param(params))),
+                b'h' | b'l' if switches_screen_buffer(params) => text.forget_row(),
                 _ => {}
             }
             return EscapeStep::Consumed(index + 1);
@@ -282,6 +373,38 @@ fn step_csi(bytes: &[u8], start: usize, text: &mut Vec<u8>) -> EscapeStep {
     }
 
     EscapeStep::Incomplete
+}
+
+/// The `row` of a CUP/HVP/VPA parameter list, defaulting to [`CSI_DEFAULT_ROW`] when it is absent,
+/// zero (which ECMA-48 reads as the default) or not a plain number — the last covers private
+/// parameter prefixes, which never reach a cursor-move final byte anyway.
+fn csi_row_param(params: &[u8]) -> u32 {
+    csi_param(params, CSI_ROW_PARAM_INDEX)
+        .filter(|row| *row >= CSI_DEFAULT_ROW)
+        .unwrap_or(CSI_DEFAULT_ROW)
+}
+
+fn csi_row_delta_param(params: &[u8]) -> u32 {
+    csi_param(params, CSI_ROW_PARAM_INDEX)
+        .filter(|delta| *delta >= CSI_DEFAULT_ROW_DELTA)
+        .unwrap_or(CSI_DEFAULT_ROW_DELTA)
+}
+
+/// Whether a DECSET/DECRST (`CSI ? … h`/`l`) parameter list names one of the screen-buffer swaps.
+/// A terminal may combine several private modes in one sequence, so every parameter is checked.
+fn switches_screen_buffer(params: &[u8]) -> bool {
+    let Some(modes) = params.strip_prefix(&[CSI_PRIVATE_PREFIX]) else {
+        return false;
+    };
+    modes
+        .split(|&byte| byte == b';')
+        .filter_map(|raw| std::str::from_utf8(raw).ok()?.parse::<u32>().ok())
+        .any(|mode| SCREEN_BUFFER_SWITCH_MODES.contains(&mode))
+}
+
+fn csi_param(params: &[u8], index: usize) -> Option<u32> {
+    let raw = params.split(|&byte| byte == b';').nth(index)?;
+    std::str::from_utf8(raw).ok()?.parse().ok()
 }
 
 fn classify_osc(payload: &str) -> Option<ScanEvent> {
@@ -357,6 +480,16 @@ mod tests {
 \r\x1b[1C\x1b[2B\x1b[39mDo\x1b[5Gyou\x1b[9Gwant\x1b[14Gto\x1b[17Gproceed?\
 \r\x1b[1C\x1b[1B\x1b[38;2;177;185;249m\xe2\x9d\xaf\x1b[4G\x1b[38;2;153;153;153m1. \x1b[38;2;177;185;249mYes\
 \r\x1b[1C\x1b[2B\x1b[38;2;153;153;153mEsc to cancel \xc2\xb7 Tab to amend\r\x1b[7B\x1b[39m\x1b[K\r";
+
+    /// The bytes codex 0.144.6 wrote for one line of its directory-trust dialog: a `CSI row;col H`
+    /// move between **every word** (probe 2026-09-15, codex §2), which is why an absolute move
+    /// within one row has to normalize to a space rather than a line break.
+    const CODEX_TRUST_LINE: &[u8] = b"Do\x1b[3;6Hyou\x1b[3;10Htrust";
+
+    /// One positioned run of opencode 1.18.29's permission dialog, SGR colors and all, exactly as
+    /// the probe captured it at offset 0x7956 (probe 2026-09-15 §4.2).
+    const OPENCODE_PERMISSION_LINE: &[u8] =
+        b"\x1b[32;8H\x1b[38;2;238;238;238m\x1b[48;2;20;20;20mPermission required\x1b[0m\x1b[32;27H\x1b[38;2;153;153;153mShell command";
 
     /// One 48-byte frame of the `⏺` blink Claude Code keeps writing every ~600ms *while* the
     /// permission dialog is up, and its blanking counterpart.
@@ -673,6 +806,96 @@ mod tests {
     fn 정규화는_열_이동을_공백으로_행_이동을_개행으로_바꾸고_나머지_시퀀스를_지운다() {
         let text = scan_once(b"\x1b(Ba\x1b[3Cb\x1b[2Ec\x1b[?25l\x1b[0m\td\re\x1b[Kf").text;
         assert_eq!(text, "a b\nc def");
+    }
+
+    #[test]
+    fn 같은_행으로의_절대_이동은_공백이_된다() {
+        assert_eq!(
+            scan_once(CODEX_TRUST_LINE).text,
+            "Do you trust",
+            "codex 는 단어마다 CUP 으로 옮겨 그리므로 같은 행 이동이 개행이면 문구가 복원되지 않는다"
+        );
+    }
+
+    #[test]
+    fn 다른_행으로의_절대_이동은_개행이_된다() {
+        assert_eq!(scan_once(b"\x1b[3;6HDo\x1b[4;6Hyou").text, " Do\nyou");
+    }
+
+    #[test]
+    fn opencode_다이얼로그_라인은_한_문구로_복원된다() {
+        let text = scan_once(OPENCODE_PERMISSION_LINE).text;
+
+        assert!(text.contains("Permission required"), "다이얼로그 제목이 복원되어야 한다: {text:?}");
+        assert!(
+            !text.contains("Permission\nrequired"),
+            "한 셀 런으로 쓰인 구가 쪼개지면 안 된다: {text:?}"
+        );
+    }
+
+    #[test]
+    fn 절대_행_이동은_청크를_건너도_이어_추적된다() {
+        let mut scanner = OutputScanner::new();
+
+        assert_eq!(scanner.scan(b"\x1b[3;6HDo").text, " Do");
+        assert_eq!(
+            scanner.scan(b"\x1b[3;10Hyou").text,
+            " you",
+            "직전 청크에서 옮겨 간 행을 기억해야 이어지는 이동이 같은 행으로 읽힌다"
+        );
+    }
+
+    #[test]
+    fn 대체화면_전환은_추적하던_행을_잊는다() {
+        let mut scanner = OutputScanner::new();
+        scanner.scan(b"\x1b[40;1Hshell");
+
+        assert_eq!(
+            scanner.scan(b"\x1b[?1049h\x1b[3;6HDo\x1b[4;6Hyou\x1b[4;10Htrust").text,
+            " Do\nyou trust",
+            "진입 직후 첫 CUP 는 떠나온 화면의 행과 비교되면 안 된다"
+        );
+        assert_eq!(
+            scanner.scan(b"\x1b[?1049l\x1b[40;1Hprompt").text,
+            " prompt",
+            "이탈도 같다 — 복귀한 셸의 행은 대체화면에서 추적하던 행과 무관하다"
+        );
+    }
+
+    #[test]
+    fn 구형_대체화면_표기도_전환이고_그_밖의_private_모드는_아니다() {
+        for entering in [&b"\x1b[?47h"[..], &b"\x1b[?1047h"[..]] {
+            let mut scanner = OutputScanner::new();
+            scanner.scan(b"\x1b[40;1Hshell");
+            scanner.scan(entering);
+            assert_eq!(scanner.scan(b"\x1b[3;6HDo").text, " Do", "구형 표기도 화면 전환이다");
+        }
+
+        let mut scanner = OutputScanner::new();
+        scanner.scan(b"\x1b[40;1Hshell");
+        scanner.scan(b"\x1b[?25l\x1b[?2004h");
+        assert_eq!(
+            scanner.scan(b"\x1b[3;6HDo").text,
+            "\nDo",
+            "커서 숨김·괄호 붙여넣기는 행을 바꾸지 않으므로 추적이 유지돼야 한다"
+        );
+    }
+
+    #[test]
+    fn 대체화면_진입은_claude_점멸_프레임의_첫_cup_판정을_바꾸지_않는다() {
+        let mut scanner = OutputScanner::new();
+        scanner.scan(b"\x1b[40;1Hshell\x1b[?1049h");
+
+        assert_eq!(
+            scanner.scan(BLINK_GLYPH_CHUNK).text,
+            scan_once(BLINK_GLYPH_CHUNK).text,
+            "진입으로 행을 잊으므로 이어지는 Claude 프레임은 새 스캐너와 똑같이 읽혀야 한다"
+        );
+    }
+
+    #[test]
+    fn 행_파라미터가_없거나_0이면_1행으로_읽는다() {
+        assert_eq!(scan_once(b"\x1b[1;4Ha\x1b[Hb\x1b[0;9Hc").text, " a b c");
     }
 
     #[test]

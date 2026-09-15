@@ -1,16 +1,20 @@
+use std::path::Path;
+
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use super::commands::{self, AgentHooksStore, AgentStore, HooksServerInfo};
-use super::service;
+use super::service::{self, HookDelivery, HookInstallShape};
 use super::types::{
-    AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI, HOOKS_AGENT_QUERY_KEY, HOOKS_HTTP_PATH, HOOKS_READ_TIMEOUT_MS,
-    HOOKS_TOKEN_QUERY_KEY, HOOKS_URL_MARKER, MAX_HOOKS_REQUEST_BYTES,
+    AGENT_NAME_CLAUDE, HOOKS_AGENT_QUERY_KEY, HOOKS_HTTP_PATH, HOOKS_READ_TIMEOUT_MS, HOOKS_TOKEN_QUERY_KEY, HOOKS_URL_MARKER,
+    MAX_HOOKS_REQUEST_BYTES,
 };
 #[cfg(test)]
-use super::types::{CODEX_MANAGED_HOOK_EVENTS, GEMINI_MANAGED_HOOK_EVENTS};
+use super::types::{
+    AGENT_NAME_CODEX, AGENT_NAME_GEMINI, AGENT_NAME_OPENCODE, AGENT_NAME_PI, CODEX_MANAGED_HOOK_EVENTS, GEMINI_MANAGED_HOOK_EVENTS,
+};
 use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
 use crate::infra::home;
@@ -73,12 +77,14 @@ pub async fn reconcile_installed_hooks(app: &AppHandle) {
         return;
     }
 
+    let home = home::home_dir_env();
     reconcile_claude_project_hooks(app).await;
+    reconcile_in_band_user_level_hooks(home.as_deref());
 
     let Ok(server) = ensure_hooks_server_started(app).await else {
         return;
     };
-    reconcile_user_level_hooks(&server, home::home_dir_env().as_deref());
+    reconcile_http_user_level_hooks(&server, home.as_deref());
 }
 
 /// Brings every already-opted-in project's Claude entries up to what this build installs: a
@@ -100,7 +106,7 @@ async fn reconcile_claude_project_hooks(app: &AppHandle) {
     let installed: Vec<(String, serde_json::Value)> = roots
         .into_iter()
         .filter_map(|root| commands::read_settings_local(&root).ok().map(|value| (root, value)))
-        .filter(|(_, value)| service::has_taide_hook_entries(value))
+        .filter(|(_, value)| service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, value))
         .collect();
     if installed.is_empty() {
         return;
@@ -108,18 +114,78 @@ async fn reconcile_claude_project_hooks(app: &AppHandle) {
 
     let emitter = commands::resolve_claude_hook_emitter().await;
     for (root, value) in installed {
-        if service::claude_hook_entries_match(&value, emitter) {
+        if service::agent_hook_entries_match(AGENT_NAME_CLAUDE, &value, emitter) {
             continue;
         }
-        let updated = service::inject_taide_claude_command_hook_entries(value, emitter);
+        let updated = service::inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, value, emitter);
         if let Err(error) = commands::write_settings_local(&root, &updated) {
             log::warn!("claude hooks 갱신 실패 ({root}): {error}");
         }
     }
 }
 
-fn reconcile_user_level_hooks(server: &HooksServerInfo, home_env: Option<&str>) {
-    for agent_name in [AGENT_NAME_CODEX, AGENT_NAME_GEMINI] {
+/// Brings every already-installed user-level in-band install up to what this build writes — codex's
+/// JSON rows and the plugin/extension files TAIDE owns whole. Needs no hooks server, which is why
+/// it runs before one is started: an in-band event never travels over HTTP.
+///
+/// Nothing is created here. A file TAIDE has never installed into, or one it does not own, is left
+/// exactly as it is — installing is the user's decision, not reconcile's.
+fn reconcile_in_band_user_level_hooks(home_env: Option<&str>) {
+    for spec in service::user_level_hook_agents() {
+        let Some(hooks) = spec.hooks.filter(|hooks| hooks.delivery == HookDelivery::InBandTty) else {
+            continue;
+        };
+        let Ok(path) = service::user_level_hooks_path(spec.name, home_env) else {
+            continue;
+        };
+        match hooks.shape {
+            HookInstallShape::JsonEntries => reconcile_in_band_hook_entries(spec.name, &path),
+            HookInstallShape::OwnedFile => reconcile_owned_hook_file(spec.name, &path),
+        }
+    }
+}
+
+fn reconcile_in_band_hook_entries(agent_name: &str, path: &Path) {
+    let Ok(value) = commands::read_user_level_hooks(path) else {
+        return;
+    };
+    if !service::has_taide_marker_anywhere(&value) {
+        return;
+    }
+    if service::agent_hook_entries_match(agent_name, &value, service::USER_LEVEL_IN_BAND_EMITTER) {
+        return;
+    }
+
+    let updated = service::inject_taide_agent_hook_entries(agent_name, value, service::USER_LEVEL_IN_BAND_EMITTER);
+    if let Err(error) = commands::write_user_level_hooks(path, &updated) {
+        log::warn!("hooks 갱신 실패 (사용자 레벨, {agent_name}): {error}");
+    }
+}
+
+fn reconcile_owned_hook_file(agent_name: &str, path: &Path) {
+    let (Some(expected), Ok(Some(existing))) = (
+        service::build_owned_hook_file_source(agent_name),
+        commands::read_owned_hook_file(path),
+    ) else {
+        return;
+    };
+    if !service::is_owned_hook_file(&existing) || existing == expected {
+        return;
+    }
+
+    if let Err(error) = commands::write_owned_hook_file(path, &expected) {
+        log::warn!("플러그인 갱신 실패 (사용자 레벨, {agent_name}): {error}");
+    }
+}
+
+/// The HTTP install's self-healing rewrite: the hooks server binds a fresh random port and token
+/// every launch, so a command recorded by a previous run points at a dead port.
+fn reconcile_http_user_level_hooks(server: &HooksServerInfo, home_env: Option<&str>) {
+    for spec in service::user_level_hook_agents() {
+        if !spec.hooks.is_some_and(|hooks| hooks.delivery == HookDelivery::Http) {
+            continue;
+        }
+        let agent_name = spec.name;
         let Ok(path) = service::user_level_hooks_path(agent_name, home_env) else {
             continue;
         };
@@ -156,21 +222,34 @@ pub async fn uninstall_hooks_from_open_projects(app: &AppHandle) {
 }
 
 fn remove_taide_hooks_from_user_level_files(home_env: Option<&str>) {
-    for agent_name in [AGENT_NAME_CODEX, AGENT_NAME_GEMINI] {
+    for spec in service::user_level_hook_agents() {
+        let Some(hooks) = spec.hooks else {
+            continue;
+        };
+        let agent_name = spec.name;
         let Ok(path) = service::user_level_hooks_path(agent_name, home_env) else {
             continue;
         };
-        let Ok(value) = commands::read_user_level_hooks(&path) else {
-            log::warn!("hooks 제거 실패 (사용자 레벨, {agent_name}): 읽기 실패");
-            continue;
-        };
-        if !service::has_taide_marker_anywhere(&value) {
-            continue;
-        }
-        let events = service::managed_hook_events_for(agent_name);
-        let updated = service::remove_taide_command_hook_entries(value, events);
-        if let Err(error) = commands::write_user_level_hooks(&path, &updated) {
-            log::warn!("hooks 제거 실패 (사용자 레벨, {agent_name}): {error}");
+
+        match hooks.shape {
+            HookInstallShape::JsonEntries => {
+                let Ok(value) = commands::read_user_level_hooks(&path) else {
+                    log::warn!("hooks 제거 실패 (사용자 레벨, {agent_name}): 읽기 실패");
+                    continue;
+                };
+                if !service::has_taide_marker_anywhere(&value) {
+                    continue;
+                }
+                let updated = service::remove_taide_agent_hook_entries(agent_name, value);
+                if let Err(error) = commands::write_user_level_hooks(&path, &updated) {
+                    log::warn!("hooks 제거 실패 (사용자 레벨, {agent_name}): {error}");
+                }
+            }
+            HookInstallShape::OwnedFile => {
+                if let Err(error) = commands::remove_owned_hook_file(&path) {
+                    log::warn!("플러그인 제거 실패 (사용자 레벨, {agent_name}): {error}");
+                }
+            }
         }
     }
 }
@@ -180,10 +259,10 @@ pub fn remove_taide_hooks_from_roots(roots: &[String]) {
         let Ok(value) = commands::read_settings_local(root) else {
             continue;
         };
-        if !service::has_taide_hook_entries(&value) {
+        if !service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &value) {
             continue;
         }
-        let updated = service::remove_taide_hook_entries(value);
+        let updated = service::remove_taide_agent_hook_entries(AGENT_NAME_CLAUDE, value);
         if let Err(error) = commands::write_settings_local(root, &updated) {
             log::warn!("hooks 제거 실패 ({root}): {error}");
         }
@@ -321,20 +400,11 @@ fn apply_hook_payload(app: &AppHandle, agent_name: &str, payload: &service::Hook
     let agent_hooks = app.state::<AgentHooksStore>();
     agent_hooks.set_project_override(project_id.clone(), agent_name.to_string(), activity);
 
-    let current = agents.agents_for(&project_id);
-    if current.is_empty() {
+    let mut updated = agents.agents_for(&project_id);
+    if updated.is_empty() {
         return;
     }
-
-    let updated: Vec<_> = current
-        .into_iter()
-        .map(|mut agent| {
-            if agent.name == agent_name {
-                agent.activity = activity;
-            }
-            agent
-        })
-        .collect();
+    service::apply_hook_activity(&mut updated, agent_name, activity);
 
     if let Some(changed) = agents.diff(&project_id, &updated) {
         let _ = AgentStateChanged {
@@ -363,13 +433,13 @@ mod tests {
                 "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]
             }
         });
-        let injected = service::inject_taide_claude_command_hook_entries(existing, service::HookEmitter::DevTty);
+        let injected = service::inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, existing, service::HookEmitter::DevTty);
         commands::write_settings_local(&root, &injected).expect("write settings");
 
         remove_taide_hooks_from_roots(std::slice::from_ref(&root));
 
         let after = commands::read_settings_local(&root).expect("read settings");
-        assert!(!service::has_taide_hook_entries(&after));
+        assert!(!service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &after));
         let stop_entries = after["hooks"]["Stop"].as_array().expect("stop entries");
         assert_eq!(stop_entries.len(), 1);
         assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo done");
@@ -413,7 +483,7 @@ mod tests {
         remove_taide_hooks_from_roots(std::slice::from_ref(&root));
 
         let after = commands::read_settings_local(&root).expect("read settings");
-        assert!(!service::has_taide_hook_entries(&after));
+        assert!(!service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &after));
         assert!(after["hooks"].get("UserPromptSubmit").is_none());
         assert_eq!(after["hooks"]["Stop"].as_array().expect("stop entries").len(), 1);
 
@@ -425,13 +495,13 @@ mod tests {
         let missing_root = make_project_root("missing-parent-remains-absent");
         let real_root = make_project_root("real-project");
 
-        let injected = service::inject_taide_claude_command_hook_entries(serde_json::json!({}), service::HookEmitter::DevTty);
+        let injected = service::inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, serde_json::json!({}), service::HookEmitter::DevTty);
         commands::write_settings_local(&real_root, &injected).expect("write settings");
 
         remove_taide_hooks_from_roots(&[missing_root.clone(), real_root.clone()]);
 
         let after = commands::read_settings_local(&real_root).expect("read settings");
-        assert!(!service::has_taide_hook_entries(&after));
+        assert!(!service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &after));
 
         std::fs::remove_dir_all(&real_root).ok();
     }
@@ -506,26 +576,26 @@ mod tests {
     #[test]
     fn 재부팅으로_포트가_바뀌면_사용자_레벨_command_hook을_새_url로_재주입한다() {
         let home = make_fake_home("stale-port-heals");
-        let codex_path = service::user_level_hooks_path(AGENT_NAME_CODEX, Some(&home)).unwrap();
+        let gemini_path = service::user_level_hooks_path(AGENT_NAME_GEMINI, Some(&home)).unwrap();
         let stale_command = service::build_command_hook_shell_command(
             commands::TAIDE_CLI_TARGET_PATH,
-            "http://127.0.0.1:9999/claude/hook?token=old&agent=codex&taide=1",
+            "http://127.0.0.1:9999/claude/hook?token=old&agent=gemini&taide=1",
         );
-        let existing = service::inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &stale_command, 5);
-        commands::write_user_level_hooks(&codex_path, &existing).expect("write codex hooks");
+        let existing = service::inject_taide_command_hook_entries(serde_json::json!({}), GEMINI_MANAGED_HOOK_EVENTS, &stale_command, 5_000);
+        commands::write_user_level_hooks(&gemini_path, &existing).expect("write gemini settings");
 
         let server = HooksServerInfo {
             port: 10000,
             token: "new-token".to_string(),
         };
-        reconcile_user_level_hooks(&server, Some(&home));
+        reconcile_http_user_level_hooks(&server, Some(&home));
 
-        let after = commands::read_user_level_hooks(&codex_path).expect("read codex hooks");
+        let after = commands::read_user_level_hooks(&gemini_path).expect("read gemini settings");
         let fresh_command =
-            service::build_command_hook_shell_command(commands::TAIDE_CLI_TARGET_PATH, &build_hook_url(&server, AGENT_NAME_CODEX));
+            service::build_command_hook_shell_command(commands::TAIDE_CLI_TARGET_PATH, &build_hook_url(&server, AGENT_NAME_GEMINI));
         assert!(service::has_command_hook_entries_for_command(
             &after,
-            CODEX_MANAGED_HOOK_EVENTS,
+            GEMINI_MANAGED_HOOK_EVENTS,
             &fresh_command
         ));
 
@@ -545,10 +615,134 @@ mod tests {
         let existing = service::inject_taide_command_hook_entries(serde_json::json!({}), GEMINI_MANAGED_HOOK_EVENTS, &fresh_command, 5_000);
         commands::write_user_level_hooks(&gemini_path, &existing).expect("write gemini settings");
 
-        reconcile_user_level_hooks(&server, Some(&home));
+        reconcile_http_user_level_hooks(&server, Some(&home));
 
         let after = commands::read_user_level_hooks(&gemini_path).expect("read gemini settings");
         assert_eq!(after, existing);
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn codex의_구버전_http_설치는_재조정에서_인밴드_명령으로_바뀐다() {
+        let home = make_fake_home("codex-http-to-in-band");
+        let codex_path = service::user_level_hooks_path(AGENT_NAME_CODEX, Some(&home)).unwrap();
+        let stale_command = service::build_command_hook_shell_command(
+            commands::TAIDE_CLI_TARGET_PATH,
+            "http://127.0.0.1:9999/claude/hook?token=old&agent=codex&taide=1",
+        );
+        let existing = service::inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &stale_command, 5);
+        commands::write_user_level_hooks(&codex_path, &existing).expect("write codex hooks");
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+
+        let after = commands::read_user_level_hooks(&codex_path).expect("read codex hooks");
+        assert!(service::agent_hook_entries_match(
+            AGENT_NAME_CODEX,
+            &after,
+            service::USER_LEVEL_IN_BAND_EMITTER
+        ));
+        assert!(
+            !serde_json::to_string(&after).unwrap().contains("hook --url"),
+            "인밴드로 옮긴 뒤에는 HTTP shim 명령이 남지 않는다"
+        );
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+        let twice = commands::read_user_level_hooks(&codex_path).expect("read codex hooks");
+        assert_eq!(twice, after, "재조정은 멱등이다");
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn taide_항목이_없는_codex_파일은_인밴드_재조정이_건드리지_않는다() {
+        let home = make_fake_home("codex-untouched");
+        let codex_path = service::user_level_hooks_path(AGENT_NAME_CODEX, Some(&home)).unwrap();
+        let existing = serde_json::json!({ "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "echo mine" }] }] } });
+        commands::write_user_level_hooks(&codex_path, &existing).expect("write codex hooks");
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+
+        assert_eq!(commands::read_user_level_hooks(&codex_path).expect("read codex hooks"), existing);
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    fn install_owned_file(agent_name: &str, home: &str) -> std::path::PathBuf {
+        let path = service::user_level_hooks_path(agent_name, Some(home)).unwrap();
+        let source = service::build_owned_hook_file_source(agent_name).expect("plugin source");
+        commands::write_owned_hook_file(&path, &source).expect("write plugin");
+        path
+    }
+
+    #[test]
+    fn 소유한_플러그인_파일만_설치되고_토글_해제시_제거된다() {
+        let home = make_fake_home("owned-file-install-remove");
+
+        for agent_name in [AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            let path = install_owned_file(agent_name, &home);
+            let written = std::fs::read_to_string(&path).expect("read plugin");
+            assert!(service::is_owned_hook_file(&written));
+            assert_eq!(written, service::build_owned_hook_file_source(agent_name).unwrap());
+        }
+
+        remove_taide_hooks_from_user_level_files(Some(&home));
+
+        for agent_name in [AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            let path = service::user_level_hooks_path(agent_name, Some(&home)).unwrap();
+            assert!(!path.exists(), "{agent_name} 플러그인이 남아 있다");
+        }
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn 남의_플러그인_파일은_재조정도_제거도_건드리지_않는다() {
+        let home = make_fake_home("owned-file-third-party");
+        let path = service::user_level_hooks_path(AGENT_NAME_OPENCODE, Some(&home)).unwrap();
+        let foreign = "export const Mine = async () => ({})\n";
+        commands::write_owned_hook_file(&path, foreign).expect("write third-party plugin");
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+        assert_eq!(std::fs::read_to_string(&path).expect("read plugin"), foreign);
+
+        remove_taide_hooks_from_user_level_files(Some(&home));
+        assert_eq!(std::fs::read_to_string(&path).expect("read plugin"), foreign);
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn 옛_버전의_소유_플러그인은_재조정에서_현재_소스로_갱신된다() {
+        let home = make_fake_home("owned-file-heals");
+        let path = service::user_level_hooks_path(AGENT_NAME_OPENCODE, Some(&home)).unwrap();
+        let stale = format!(
+            "// {} (v0)\nexport const TaideAgent = async () => ({{}})\n",
+            service::OWNED_HOOK_FILE_MARKER
+        );
+        commands::write_owned_hook_file(&path, &stale).expect("write stale plugin");
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+
+        let after = std::fs::read_to_string(&path).expect("read plugin");
+        assert_eq!(after, service::build_owned_hook_file_source(AGENT_NAME_OPENCODE).unwrap());
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+        assert_eq!(std::fs::read_to_string(&path).expect("read plugin"), after, "재조정은 멱등이다");
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn 설치한_적_없는_플러그인_경로는_재조정이_만들지_않는다() {
+        let home = make_fake_home("owned-file-absent");
+
+        reconcile_in_band_user_level_hooks(Some(&home));
+
+        for agent_name in [AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            let path = service::user_level_hooks_path(agent_name, Some(&home)).unwrap();
+            assert!(!path.exists(), "설치는 사용자의 결정이다: {agent_name}");
+        }
 
         std::fs::remove_dir_all(&home).ok();
     }

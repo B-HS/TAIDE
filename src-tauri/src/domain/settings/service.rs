@@ -437,6 +437,7 @@ pub fn apply_patch(settings: &Settings, patch: &SettingsPatch) -> Settings {
             .notifications_only_when_unfocused
             .unwrap_or(settings.notifications_only_when_unfocused),
         notify_agent_completed: patch.notify_agent_completed.unwrap_or(settings.notify_agent_completed),
+        notify_agent_awaiting_input: patch.notify_agent_awaiting_input.unwrap_or(settings.notify_agent_awaiting_input),
         notify_task_completed: patch.notify_task_completed.unwrap_or(settings.notify_task_completed),
         notify_git_remote: patch.notify_git_remote.unwrap_or(settings.notify_git_remote),
         notify_search_replace: patch.notify_search_replace.unwrap_or(settings.notify_search_replace),
@@ -1199,11 +1200,12 @@ mod tests {
     }
 
     #[test]
-    fn 알림_설정_8종의_기본값은_전부_켜짐이다() {
+    fn 알림_설정_9종의_기본값은_전부_켜짐이다() {
         let settings = Settings::default();
         assert!(settings.notifications_enabled);
         assert!(settings.notifications_only_when_unfocused);
         assert!(settings.notify_agent_completed);
+        assert!(settings.notify_agent_awaiting_input);
         assert!(settings.notify_task_completed);
         assert!(settings.notify_git_remote);
         assert!(settings.notify_search_replace);
@@ -1212,13 +1214,14 @@ mod tests {
     }
 
     #[test]
-    fn patch로_알림_설정_8종을_끄고_생략하면_기존값을_보존한다() {
+    fn patch로_알림_설정_9종을_끄고_생략하면_기존값을_보존한다() {
         let disabled = apply_patch(
             &Settings::default(),
             &SettingsPatch {
                 notifications_enabled: Some(false),
                 notifications_only_when_unfocused: Some(false),
                 notify_agent_completed: Some(false),
+                notify_agent_awaiting_input: Some(false),
                 notify_task_completed: Some(false),
                 notify_git_remote: Some(false),
                 notify_search_replace: Some(false),
@@ -1230,6 +1233,7 @@ mod tests {
         assert!(!disabled.notifications_enabled);
         assert!(!disabled.notifications_only_when_unfocused);
         assert!(!disabled.notify_agent_completed);
+        assert!(!disabled.notify_agent_awaiting_input);
         assert!(!disabled.notify_task_completed);
         assert!(!disabled.notify_git_remote);
         assert!(!disabled.notify_search_replace);
@@ -1240,6 +1244,7 @@ mod tests {
         assert!(!preserved.notifications_enabled);
         assert!(!preserved.notifications_only_when_unfocused);
         assert!(!preserved.notify_agent_completed);
+        assert!(!preserved.notify_agent_awaiting_input);
         assert!(!preserved.notify_task_completed);
         assert!(!preserved.notify_git_remote);
         assert!(!preserved.notify_search_replace);

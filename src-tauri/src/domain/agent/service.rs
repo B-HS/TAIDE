@@ -5,15 +5,17 @@ use std::time::Instant;
 use serde::Deserialize;
 
 use super::types::{
-    AgentActivity, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ACTIVITY_IDLE_QUIET_MS,
-    ACTIVITY_WORKING_HOLD_MS, AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI, AGENT_OSC_MARKER, AGENT_OSC_SENTINEL,
-    AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION_ENV_NAME, CLAUDE_MANAGED_HOOK_EVENTS, CLAUDE_TERMINAL_SEQUENCE_MIN_VERSION,
-    CODEX_HOOK_COMMAND_TIMEOUT_SECONDS, CODEX_MANAGED_HOOK_EVENTS, ECHO_SUPPRESS_MS, GEMINI_HOOK_COMMAND_TIMEOUT_MS,
-    GEMINI_MANAGED_HOOK_EVENTS, HOOKS_HTTP_TIMEOUT_SECONDS, HOOKS_URL_MARKER, HOOK_EVENT_AFTER_AGENT, HOOK_EVENT_BEFORE_AGENT,
-    HOOK_EVENT_NOTIFICATION, HOOK_EVENT_PERMISSION_REQUEST, HOOK_EVENT_POST_TOOL_USE, HOOK_EVENT_STOP, HOOK_EVENT_STOP_FAILURE,
-    HOOK_EVENT_USER_PROMPT_SUBMIT, HOOK_HANDLER_TYPE_COMMAND, KNOWN_AGENT_NAMES, NOTIFICATION_MATCHER_ELICITATION_DIALOG,
-    NOTIFICATION_MATCHER_IDLE_PROMPT, NOTIFICATION_MATCHER_PERMISSION_PROMPT, OSC_NOTIFY_IDENT, OSC_NOTIFY_SUBCOMMAND,
-    SUBSTANTIVE_OUTPUT_MIN_CHARS, TITLE_WORKING_FRESH_MS, WAIT_MARKER_PREFIX,
+    AgentActivity, BlockedReason, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ACTIVITY_IDLE_QUIET_MS,
+    ACTIVITY_WORKING_HOLD_MS, AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI, AGENT_NAME_OPENCODE, AGENT_NAME_PI, AGENT_OSC_MARKER,
+    AGENT_OSC_SENTINEL, AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION_ENV_NAME, CLAUDE_MANAGED_HOOK_EVENTS,
+    CLAUDE_TERMINAL_SEQUENCE_MIN_VERSION, CODEX_HOOK_COMMAND_TIMEOUT_SECONDS, CODEX_MANAGED_HOOK_EVENTS, ECHO_SUPPRESS_MS,
+    GEMINI_HOOK_COMMAND_TIMEOUT_MS, GEMINI_MANAGED_HOOK_EVENTS, HOOKS_HTTP_TIMEOUT_SECONDS, HOOKS_URL_MARKER, HOOK_EVENT_AFTER_AGENT,
+    HOOK_EVENT_BEFORE_AGENT, HOOK_EVENT_NOTIFICATION, HOOK_EVENT_PERMISSION_REQUEST, HOOK_EVENT_POST_TOOL_USE, HOOK_EVENT_STOP,
+    HOOK_EVENT_STOP_FAILURE, HOOK_EVENT_USER_PROMPT_SUBMIT, HOOK_HANDLER_TYPE_COMMAND, KNOWN_AGENT_NAMES,
+    NOTIFICATION_MATCHER_ELICITATION_DIALOG, NOTIFICATION_MATCHER_IDLE_PROMPT, NOTIFICATION_MATCHER_PERMISSION_PROMPT,
+    OPENCODE_EVENT_PERMISSION_ASKED, OPENCODE_EVENT_PERMISSION_REPLIED, OPENCODE_EVENT_SESSION_IDLE, OPENCODE_EVENT_TOOL_EXECUTE_AFTER,
+    OSC_NOTIFY_IDENT, OSC_NOTIFY_SUBCOMMAND, PI_EVENT_AGENT_SETTLED, PI_EVENT_AGENT_START, PI_EVENT_UI_PROMPT_END,
+    PI_EVENT_UI_PROMPT_START, PI_PACKAGE_PATH_MARKER, SUBSTANTIVE_OUTPUT_MIN_CHARS, TITLE_WORKING_FRESH_MS, WAIT_MARKER_PREFIX,
 };
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -52,10 +54,38 @@ fn match_agent_name_in(base: &str, known: &[&'static str]) -> Option<&'static st
         .find(|&name| base == name || (base.len() >= LINUX_COMM_MAX_LEN && name.starts_with(base)))
 }
 
+/// Where a name match came from — the process's own `comm`, or a token of the command line a node
+/// runtime was handed. The two carry very different weight: `comm` is what the kernel says the
+/// executable is called, while a command-line token is any word that happened to be passed along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentNameSource {
+    Comm,
+    Cmdline,
+}
+
+/// Extra evidence an agent-specific match must carry before the process is accepted as that agent.
+/// Every agent but `pi` is confirmed by the name alone; `pi`'s name is two characters, so a match
+/// off a node runtime's command line — where any argument may happen to be called `pi` — is only
+/// accepted when the command line also names the package the real one runs from
+/// ([`PI_PACKAGE_PATH_MARKER`]). A `comm` of `pi` needs no such evidence: the executable itself is
+/// named `pi`.
+///
+/// The cost is a false negative for a node-launched `pi` whose argv carries only a shim path and
+/// not the package path; that is the deliberate trade (contract §1.B — a two-character name may not
+/// claim sessions it cannot prove).
+fn agent_match_is_confirmed(name: &str, source: AgentNameSource, cmdline: &str) -> bool {
+    match name {
+        AGENT_NAME_PI => source == AgentNameSource::Comm || cmdline.contains(PI_PACKAGE_PATH_MARKER),
+        _ => true,
+    }
+}
+
 pub fn detect_agent_name(comm: &str, cmdline: &str) -> Option<&'static str> {
     let comm_base = process_basename(comm.trim());
 
-    if let Some(name) = match_agent_name_in(comm_base, KNOWN_AGENT_NAMES) {
+    if let Some(name) =
+        match_agent_name_in(comm_base, KNOWN_AGENT_NAMES).filter(|name| agent_match_is_confirmed(name, AgentNameSource::Comm, cmdline))
+    {
         return Some(name);
     }
 
@@ -66,7 +96,8 @@ pub fn detect_agent_name(comm: &str, cmdline: &str) -> Option<&'static str> {
     cmdline
         .split_whitespace()
         .map(process_basename)
-        .find_map(|arg| match_agent_name_in(arg, KNOWN_AGENT_NAMES))
+        .filter_map(|arg| match_agent_name_in(arg, KNOWN_AGENT_NAMES))
+        .find(|name| agent_match_is_confirmed(name, AgentNameSource::Cmdline, cmdline))
 }
 
 pub fn validate_wait_marker_path(marker: &str, temp_dir: &Path) -> AppResult<PathBuf> {
@@ -344,15 +375,21 @@ pub enum AgentEvent {
     Stop,
     StopFailure,
     IdlePrompt,
+    /// A turn is starting because the user handed the agent something to do. Claude never emits it
+    /// — its title and output already carry working state — but codex's `UserPromptSubmit` and pi's
+    /// `agent_start` are the only working hints those two give at all, so the vocabulary needs a
+    /// spelling for "went to work" that is not a tool result.
+    PromptSubmit,
 }
 
-const ALL_AGENT_EVENTS: [AgentEvent; 6] = [
+const ALL_AGENT_EVENTS: [AgentEvent; 7] = [
     AgentEvent::PermissionRequest,
     AgentEvent::QuestionAsked,
     AgentEvent::ToolComplete,
     AgentEvent::Stop,
     AgentEvent::StopFailure,
     AgentEvent::IdlePrompt,
+    AgentEvent::PromptSubmit,
 ];
 
 impl AgentEvent {
@@ -364,6 +401,7 @@ impl AgentEvent {
             Self::Stop => "stop",
             Self::StopFailure => "stop_failure",
             Self::IdlePrompt => "idle_prompt",
+            Self::PromptSubmit => "prompt_submit",
         }
     }
 
@@ -381,33 +419,92 @@ pub enum BlockedSource {
     Dialog,
 }
 
-/// The leading glyph of Claude Code's window title: the two half-circles it alternates while a turn
-/// runs, and the asterisk it settles on when the turn ends.
+/// The leading glyph of an agent's window title: the two half-circles Claude Code alternates while a
+/// turn runs, and the asterisk it settles on when the turn ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitleGlyph {
     Working,
     Idle,
 }
 
-const TITLE_WORKING_GLYPHS: [char; 2] = ['◐', '◑'];
-const TITLE_IDLE_GLYPH: char = '✳';
+/// One agent's leading-title-glyph table. Both sides are slices rather than fixed arrays so an
+/// agent that marks working turns but not idle ones (or the reverse) needs no placeholder glyph.
+struct AgentTitleGlyphs {
+    working: &'static [char],
+    idle: &'static [char],
+}
+
+const CLAUDE_TITLE_GLYPHS: AgentTitleGlyphs = AgentTitleGlyphs {
+    working: &['◐', '◑'],
+    idle: &['✳'],
+};
+
+/// The title-glyph table for one agent, or `None` when this build has none for it.
+///
+/// | agent | table | why |
+/// |---|---|---|
+/// | claude | [`CLAUDE_TITLE_GLYPHS`] | measured (d-54) |
+/// | opencode | none | measured: OSC 0 only, `OpenCode` then `OC \| <summary>`, no leading glyph and no update while a permission dialog is up (probe 2026-09-15 §2) |
+/// | codex | none | `[미확인]` — no OSC 0/2 at all in the captured window; the binary carries a `[tui].terminal_title` capability whose default is unmeasured (probe 2026-09-15, codex §[미확인]) |
+/// | pi | none | `[미확인]` — not installed, never measured |
+/// | gemini | none | `[미확인]` — not installed, never measured |
+///
+/// An unmeasured agent stays `None` on purpose: a guessed glyph would invent a working/idle signal
+/// rather than read one, and the classifier treats a wrong Working glyph as evidence for three full
+/// seconds ([`TITLE_WORKING_FRESH_MS`]).
+fn title_glyphs_for(agent_name: &str) -> Option<&'static AgentTitleGlyphs> {
+    match agent_name {
+        AGENT_NAME_CLAUDE => Some(&CLAUDE_TITLE_GLYPHS),
+        _ => None,
+    }
+}
 
 /// Glyphs that repaint on their own while nothing is actually happening — the `⏺` that keeps
-/// blinking every ~600ms *through* a permission dialog, and the spinner frames — so a chunk made of
-/// only these is not the agent printing anything.
+/// blinking every ~600ms *through* a permission dialog, and Claude Code's spinner frames — so a
+/// chunk made of only these is not the agent printing anything. Applied to every agent; per-agent
+/// additions come from [`agent_non_substantive_glyphs`].
 const NON_SUBSTANTIVE_GLYPHS: [char; 9] = ['⏺', '✶', '✻', '✽', '✢', '✳', '◐', '◑', '·'];
+
+/// The five frames of opencode's six-frame spinner that the shared table does not already carry
+/// (`·` is in [`NON_SUBSTANTIVE_GLYPHS`]). opencode keeps cycling all six **while idle and while a
+/// permission dialog waits**, so without these an opencode session never stops looking busy (probe
+/// 2026-09-15 §3). Its turn-progress glyphs (`⬝`, `■`) are deliberately absent — those appear only
+/// while a turn actually runs, so they are real output.
+const OPENCODE_NON_SUBSTANTIVE_GLYPHS: [char; 5] = ['◦', '•', '●', '○', '◌'];
+
+/// The glyphs one agent repaints on its own, on top of the shared [`NON_SUBSTANTIVE_GLYPHS`].
+/// Empty for every agent whose idle repaint has not been measured — counting a real character as
+/// noise would keep a working session from ever registering output.
+fn agent_non_substantive_glyphs(agent_name: &str) -> &'static [char] {
+    match agent_name {
+        AGENT_NAME_OPENCODE => &OPENCODE_NON_SUBSTANTIVE_GLYPHS,
+        _ => &[],
+    }
+}
 
 /// Phrases that only appear while Claude Code is holding a turn open for an answer. Matched
 /// case-sensitively on purpose: the running-turn footer is the lowercase `esc to interrupt`, and a
 /// case-insensitive match on `Esc to cancel` would read every working session as blocked.
-///
-/// Claude only, this batch — codex/gemini dialog wording is unverified and guessing it would invent
-/// signals rather than read them (contract §1.1.3).
 pub const CLAUDE_DIALOG_SIGNATURES: &[&str] = &["Do you want to proceed?", "Would you like to proceed?", "Esc to cancel"];
 
+/// opencode's permission dialog title, the one phrase the probe read back verbatim from the
+/// normalized text and cross-checked against the binary's own dialog options table (probe
+/// 2026-09-15 §4.1·§4.3). The option labels (`Allow once` and friends) are left out: they are
+/// ordinary words that a transcript or a diff could carry, while this title only ever renders on
+/// the dialog itself.
+pub const OPENCODE_DIALOG_SIGNATURES: &[&str] = &["Permission required"];
+
+/// The dialog phrases one agent's blocked state can be read off its own output.
+///
+/// codex, pi and gemini are empty on purpose. codex renders its dialogs with a `CSI row;col H` move
+/// **between every word**, so a multi-word phrase never survives normalization as one string, and
+/// its approval wording is `[미확인]` — only `strings` candidates were captured (probe 2026-09-15,
+/// codex §[미확인]). pi and gemini were never measured. Guessing a phrase here would latch sessions
+/// on words that are not a dialog at all.
 fn dialog_signatures_for(agent_name: &str) -> &'static [&'static str] {
     match agent_name {
         AGENT_NAME_CLAUDE => CLAUDE_DIALOG_SIGNATURES,
+        AGENT_NAME_OPENCODE => OPENCODE_DIALOG_SIGNATURES,
         _ => &[],
     }
 }
@@ -450,19 +547,21 @@ fn str_tail(text: &str, max_bytes: usize) -> &str {
     &text[start..]
 }
 
-pub fn is_substantive_output(text: &str) -> bool {
+pub fn is_substantive_output(agent_name: &str, text: &str) -> bool {
+    let agent_glyphs = agent_non_substantive_glyphs(agent_name);
     text.chars()
-        .filter(|character| !character.is_whitespace() && !NON_SUBSTANTIVE_GLYPHS.contains(character))
+        .filter(|character| !character.is_whitespace() && !NON_SUBSTANTIVE_GLYPHS.contains(character) && !agent_glyphs.contains(character))
         .nth(SUBSTANTIVE_OUTPUT_MIN_CHARS - 1)
         .is_some()
 }
 
-pub fn parse_title_glyph(title: &str) -> Option<TitleGlyph> {
+pub fn parse_title_glyph(agent_name: &str, title: &str) -> Option<TitleGlyph> {
+    let glyphs = title_glyphs_for(agent_name)?;
     let first = title.trim_start().chars().next()?;
-    if TITLE_WORKING_GLYPHS.contains(&first) {
+    if glyphs.working.contains(&first) {
         return Some(TitleGlyph::Working);
     }
-    (first == TITLE_IDLE_GLYPH).then_some(TitleGlyph::Idle)
+    glyphs.idle.contains(&first).then_some(TitleGlyph::Idle)
 }
 
 #[derive(Debug, Deserialize)]
@@ -531,7 +630,7 @@ fn is_echo(signals: &AgentSessionSignals, now: Instant) -> bool {
 }
 
 fn apply_title(signals: &mut AgentSessionSignals, title: &str, now: Instant) {
-    let Some(glyph) = parse_title_glyph(title) else {
+    let Some(glyph) = parse_title_glyph(signals.agent_name, title) else {
         return;
     };
     signals.title_glyph = Some(glyph);
@@ -555,7 +654,7 @@ fn apply_agent_event(signals: &mut AgentSessionSignals, body: &str, agent_name: 
             signals.blocked = Some(BlockedSource::Event);
             true
         }
-        AgentEvent::ToolComplete => {
+        AgentEvent::ToolComplete | AgentEvent::PromptSubmit => {
             signals.blocked = None;
             false
         }
@@ -603,7 +702,7 @@ pub fn apply_scan_to_signals(signals: &mut AgentSessionSignals, outcome: &ScanOu
         }
     }
 
-    if !is_echo(signals, now) && is_substantive_output(&outcome.text) {
+    if !is_echo(signals, now) && is_substantive_output(agent_name, &outcome.text) {
         signals.last_substantive_output_at = Some(now);
         if !blocked_by_event {
             signals.blocked = None;
@@ -651,7 +750,8 @@ pub fn classify_session(signals: &AgentSessionSignals, previous: AgentActivity, 
     if is_fresh(signals.last_substantive_output_at, ACTIVITY_WORKING_HOLD_MS, now) {
         return AgentActivity::Working;
     }
-    if matches!(signals.last_event, Some((AgentEvent::ToolComplete, at)) if elapsed_ms(at, now) < ACTIVITY_WORKING_HOLD_MS) {
+    if matches!(signals.last_event, Some((AgentEvent::ToolComplete | AgentEvent::PromptSubmit, at)) if elapsed_ms(at, now) < ACTIVITY_WORKING_HOLD_MS)
+    {
         return AgentActivity::Working;
     }
 
@@ -667,6 +767,45 @@ pub fn classify_session(signals: &AgentSessionSignals, previous: AgentActivity, 
         return AgentActivity::Idle;
     }
     previous
+}
+
+/// One session's badge state — the activity and, when something is holding the session, what.
+/// The two travel together because they are read off one signal snapshot: a reason that survived
+/// its latch, or a latch with no reason, would be a contradiction on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionState {
+    pub activity: AgentActivity,
+    pub blocked_reason: Option<BlockedReason>,
+}
+
+/// Why a blocked session is blocked, read off the latch that set it.
+///
+/// A signature matched in the session's own output proves only that some dialog is up, so it stays
+/// `Dialog`. An in-band event names itself, and `question_asked` is the one spelling that means a
+/// question rather than an approval — so it is the only branch that has to be told apart.
+/// `permission_request` and `question_asked` are the only events that latch
+/// [`BlockedSource::Event`] at all, and the same call that latches records the event, which is why
+/// every other pairing resolves to the permission case rather than an unreachable arm.
+///
+/// `None` while nothing holds the session, so [`classify_session`]'s hysteresis window — where a
+/// released latch still reports the previous `AwaitingInput` for a tick — carries no stale reason.
+pub fn blocked_reason(signals: &AgentSessionSignals) -> Option<BlockedReason> {
+    match signals.blocked? {
+        BlockedSource::Dialog => Some(BlockedReason::Dialog),
+        BlockedSource::Event => match signals.last_event {
+            Some((AgentEvent::QuestionAsked, _)) => Some(BlockedReason::Question),
+            _ => Some(BlockedReason::Permission),
+        },
+    }
+}
+
+/// [`classify_session`] plus [`blocked_reason`] — the pair `build_detected_agents` puts on the
+/// wire, taken at one instant from one snapshot.
+pub fn classify_session_state(signals: &AgentSessionSignals, previous: AgentActivity, now: Instant) -> SessionState {
+    SessionState {
+        activity: classify_session(signals, previous, now),
+        blocked_reason: blocked_reason(signals),
+    }
 }
 
 pub use crate::infra::crypto::constant_time_eq;
@@ -688,41 +827,377 @@ pub fn match_project_by_cwd<'a>(cwd: &str, projects: &'a [(ProjectId, String)]) 
         .map(|(id, _)| id)
 }
 
-pub fn map_hook_event_to_activity(agent_name: &str, event_name: &str) -> Option<AgentActivity> {
-    match agent_name {
-        AGENT_NAME_CLAUDE => match event_name {
-            HOOK_EVENT_USER_PROMPT_SUBMIT => Some(AgentActivity::Working),
-            HOOK_EVENT_NOTIFICATION => Some(AgentActivity::AwaitingInput),
-            HOOK_EVENT_STOP => Some(AgentActivity::Idle),
-            _ => None,
-        },
-        AGENT_NAME_CODEX => match event_name {
-            HOOK_EVENT_USER_PROMPT_SUBMIT => Some(AgentActivity::Working),
-            HOOK_EVENT_PERMISSION_REQUEST => Some(AgentActivity::AwaitingInput),
-            HOOK_EVENT_POST_TOOL_USE => Some(AgentActivity::Working),
-            HOOK_EVENT_STOP => Some(AgentActivity::Idle),
-            _ => None,
-        },
-        AGENT_NAME_GEMINI => match event_name {
-            HOOK_EVENT_BEFORE_AGENT => Some(AgentActivity::Working),
-            HOOK_EVENT_NOTIFICATION => Some(AgentActivity::AwaitingInput),
-            HOOK_EVENT_AFTER_AGENT => Some(AgentActivity::Idle),
-            _ => None,
-        },
-        _ => None,
+/// Overwrites one agent's badge state in a detected-agent snapshot with the activity the HTTP hook
+/// bridge just delivered, so the change shows before the next poll (`hooks::apply_hook_payload`).
+///
+/// The reason is cleared with it. A bridge payload carries an activity and nothing else — it is
+/// matched to a project by cwd, not to the session whose latch produced the reason — so a
+/// `blocked_reason` left standing beside a forced activity would explain a block that is over, or
+/// one that belongs to another session of the same agent. `None` is the same answer the override
+/// fallback in `commands::resolve_state` gives.
+pub fn apply_hook_activity(agents: &mut [DetectedAgent], agent_name: &str, activity: AgentActivity) {
+    for agent in agents.iter_mut().filter(|agent| agent.name == agent_name) {
+        agent.activity = activity;
+        agent.blocked_reason = None;
     }
+}
+
+/// How one agent's hook events travel from the agent to TAIDE.
+///
+/// The distinction is not cosmetic: an in-band event lands in the pty of the session that produced
+/// it, while an HTTP event is matched to a project by cwd and applies to every session of that
+/// agent in it ([`uses_project_hook_override`]). Moving an agent between the two is one field of
+/// its [`AgentSpec`] row plus the install shape it implies — which is the whole point of the table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookDelivery {
+    /// The hook writes TAIDE's OSC 777 sequence straight into the session's own terminal.
+    InBandTty,
+    /// The hook posts the event to TAIDE's loopback HTTP bridge through the `taide` CLI shim.
+    Http,
+}
+
+/// What TAIDE's install for one agent looks like on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookInstallShape {
+    /// Rows merged into a JSON settings file the agent owns, alongside whatever the user put there.
+    /// Ownership is per row, by marker ([`TAIDE_HOOK_MARKERS`]).
+    JsonEntries,
+    /// One whole file in a directory the agent auto-loads every file from. There is no host
+    /// document to merge into, so ownership is the whole file, by the marker on its first line
+    /// ([`is_owned_hook_file`]).
+    OwnedFile,
+}
+
+/// One installed hook row: the agent's own event name, the sub-kind matcher it is narrowed to (JSON
+/// installs only), and the in-band event TAIDE emits for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentHookBinding {
+    pub hook_event: &'static str,
+    pub matcher: Option<&'static str>,
+    pub event: AgentEvent,
+}
+
+/// Everything about one agent's hook install that differs from the others'.
+#[derive(Debug, Clone, Copy)]
+pub struct AgentHooks {
+    pub delivery: HookDelivery,
+    pub scope: HookInstallScope,
+    pub shape: HookInstallShape,
+    /// Path below the user's home directory. `Some` exactly when `scope` is
+    /// [`HookInstallScope::User`] — a project-scoped install is resolved against the project root
+    /// instead.
+    pub home_relative_path: Option<&'static str>,
+    /// Every hook event TAIDE has ever written a row under, including retired ones, so an install
+    /// from an older build is still recognized and removed. [`HookInstallShape::OwnedFile`] agents
+    /// have no rows and leave it empty.
+    pub managed_events: &'static [&'static str],
+    /// The `timeout` field a JSON row carries, in whatever unit that agent reads it in. `None`
+    /// writes no `timeout` field at all, which is what Claude's rows have always done.
+    pub command_timeout: Option<u64>,
+    /// The rows an in-band install writes, and — for an owned file — the event subscriptions its
+    /// generated source makes. Empty for an agent TAIDE only reaches over HTTP.
+    pub bindings: &'static [AgentHookBinding],
+    /// `hook event name -> activity`, for payloads arriving over the HTTP bridge. Kept even for an
+    /// agent that now delivers in-band, so a leftover HTTP install from an older build keeps
+    /// working until reconcile rewrites it — and so flipping `delivery` back is one field.
+    pub http_activities: &'static [(&'static str, AgentActivity)],
+    /// The generated body of an owned file, appended after the sequence table TAIDE emits above it.
+    /// `Some` exactly when `shape` is [`HookInstallShape::OwnedFile`].
+    pub owned_file_body: Option<&'static str>,
+}
+
+/// One agent TAIDE knows how to detect, and the hook install it has for it (`None` for an agent it
+/// only detects).
+#[derive(Debug, Clone, Copy)]
+pub struct AgentSpec {
+    pub name: &'static str,
+    pub hooks: Option<AgentHooks>,
+}
+
+/// The seven `(hook event, matcher, in-band event)` rows TAIDE installs for Claude (contract §1.4).
+/// `UserPromptSubmit` and `SessionStart` are deliberately absent: both feed a hook's stdout back as
+/// prompt context, and working state is already covered by the title and output signals.
+const CLAUDE_HOOK_BINDINGS: &[AgentHookBinding] = &[
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_PERMISSION_REQUEST,
+        matcher: None,
+        event: AgentEvent::PermissionRequest,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_NOTIFICATION,
+        matcher: Some(NOTIFICATION_MATCHER_PERMISSION_PROMPT),
+        event: AgentEvent::PermissionRequest,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_NOTIFICATION,
+        matcher: Some(NOTIFICATION_MATCHER_ELICITATION_DIALOG),
+        event: AgentEvent::QuestionAsked,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_NOTIFICATION,
+        matcher: Some(NOTIFICATION_MATCHER_IDLE_PROMPT),
+        event: AgentEvent::IdlePrompt,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_POST_TOOL_USE,
+        matcher: None,
+        event: AgentEvent::ToolComplete,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_STOP,
+        matcher: None,
+        event: AgentEvent::Stop,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_STOP_FAILURE,
+        matcher: None,
+        event: AgentEvent::StopFailure,
+    },
+];
+
+/// codex's rows. Unlike Claude, `UserPromptSubmit` is installed: the hook writes to `/dev/tty` and
+/// prints nothing on stdout, so there is no prompt context to pollute, and it is one of only two
+/// working hints codex gives (probe 2026-09-15 left codex's title and spinner `[미확인]`).
+const CODEX_HOOK_BINDINGS: &[AgentHookBinding] = &[
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_USER_PROMPT_SUBMIT,
+        matcher: None,
+        event: AgentEvent::PromptSubmit,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_PERMISSION_REQUEST,
+        matcher: None,
+        event: AgentEvent::PermissionRequest,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_POST_TOOL_USE,
+        matcher: None,
+        event: AgentEvent::ToolComplete,
+    },
+    AgentHookBinding {
+        hook_event: HOOK_EVENT_STOP,
+        matcher: None,
+        event: AgentEvent::Stop,
+    },
+];
+
+/// opencode's bus events, as its plugin sees them. `permission.replied` and `tool.execute.after`
+/// both mean "the thing that was blocking finished", which is exactly `tool_complete`'s job —
+/// releasing the latch and holding Working briefly.
+const OPENCODE_HOOK_BINDINGS: &[AgentHookBinding] = &[
+    AgentHookBinding {
+        hook_event: OPENCODE_EVENT_PERMISSION_ASKED,
+        matcher: None,
+        event: AgentEvent::PermissionRequest,
+    },
+    AgentHookBinding {
+        hook_event: OPENCODE_EVENT_PERMISSION_REPLIED,
+        matcher: None,
+        event: AgentEvent::ToolComplete,
+    },
+    AgentHookBinding {
+        hook_event: OPENCODE_EVENT_TOOL_EXECUTE_AFTER,
+        matcher: None,
+        event: AgentEvent::ToolComplete,
+    },
+    AgentHookBinding {
+        hook_event: OPENCODE_EVENT_SESSION_IDLE,
+        matcher: None,
+        event: AgentEvent::Stop,
+    },
+];
+
+/// pi's lifecycle events. `ui_prompt_start`/`ui_prompt_end` bracket the span pi blocks on a user
+/// answer, which is the same shape as a permission request and its reply.
+const PI_HOOK_BINDINGS: &[AgentHookBinding] = &[
+    AgentHookBinding {
+        hook_event: PI_EVENT_UI_PROMPT_START,
+        matcher: None,
+        event: AgentEvent::PermissionRequest,
+    },
+    AgentHookBinding {
+        hook_event: PI_EVENT_UI_PROMPT_END,
+        matcher: None,
+        event: AgentEvent::ToolComplete,
+    },
+    AgentHookBinding {
+        hook_event: PI_EVENT_AGENT_START,
+        matcher: None,
+        event: AgentEvent::PromptSubmit,
+    },
+    AgentHookBinding {
+        hook_event: PI_EVENT_AGENT_SETTLED,
+        matcher: None,
+        event: AgentEvent::Stop,
+    },
+];
+
+const CLAUDE_HTTP_ACTIVITIES: &[(&str, AgentActivity)] = &[
+    (HOOK_EVENT_USER_PROMPT_SUBMIT, AgentActivity::Working),
+    (HOOK_EVENT_NOTIFICATION, AgentActivity::AwaitingInput),
+    (HOOK_EVENT_STOP, AgentActivity::Idle),
+];
+
+const CODEX_HTTP_ACTIVITIES: &[(&str, AgentActivity)] = &[
+    (HOOK_EVENT_USER_PROMPT_SUBMIT, AgentActivity::Working),
+    (HOOK_EVENT_PERMISSION_REQUEST, AgentActivity::AwaitingInput),
+    (HOOK_EVENT_POST_TOOL_USE, AgentActivity::Working),
+    (HOOK_EVENT_STOP, AgentActivity::Idle),
+];
+
+const GEMINI_HTTP_ACTIVITIES: &[(&str, AgentActivity)] = &[
+    (HOOK_EVENT_BEFORE_AGENT, AgentActivity::Working),
+    (HOOK_EVENT_NOTIFICATION, AgentActivity::AwaitingInput),
+    (HOOK_EVENT_AFTER_AGENT, AgentActivity::Idle),
+];
+
+const CODEX_HOME_RELATIVE_PATH: &str = ".codex/hooks.json";
+const GEMINI_HOME_RELATIVE_PATH: &str = ".gemini/settings.json";
+const OPENCODE_HOME_RELATIVE_PATH: &str = ".config/opencode/plugins/taide-agent.js";
+const PI_HOME_RELATIVE_PATH: &str = ".pi/agent/extensions/taide-agent.ts";
+
+/// The one table the rest of this module asks instead of matching on an agent name. Every row is
+/// the agent's whole hook identity: where TAIDE writes, in what shape, how the events come back,
+/// and which of its events mean what.
+const AGENT_SPECS: &[AgentSpec] = &[
+    AgentSpec {
+        name: AGENT_NAME_CLAUDE,
+        hooks: Some(AgentHooks {
+            delivery: HookDelivery::InBandTty,
+            scope: HookInstallScope::Project,
+            shape: HookInstallShape::JsonEntries,
+            home_relative_path: None,
+            managed_events: CLAUDE_MANAGED_HOOK_EVENTS,
+            command_timeout: None,
+            bindings: CLAUDE_HOOK_BINDINGS,
+            http_activities: CLAUDE_HTTP_ACTIVITIES,
+            owned_file_body: None,
+        }),
+    },
+    AgentSpec {
+        name: AGENT_NAME_CODEX,
+        hooks: Some(AgentHooks {
+            delivery: HookDelivery::InBandTty,
+            scope: HookInstallScope::User,
+            shape: HookInstallShape::JsonEntries,
+            home_relative_path: Some(CODEX_HOME_RELATIVE_PATH),
+            managed_events: CODEX_MANAGED_HOOK_EVENTS,
+            command_timeout: Some(CODEX_HOOK_COMMAND_TIMEOUT_SECONDS),
+            bindings: CODEX_HOOK_BINDINGS,
+            http_activities: CODEX_HTTP_ACTIVITIES,
+            owned_file_body: None,
+        }),
+    },
+    AgentSpec {
+        name: AGENT_NAME_GEMINI,
+        hooks: Some(AgentHooks {
+            delivery: HookDelivery::Http,
+            scope: HookInstallScope::User,
+            shape: HookInstallShape::JsonEntries,
+            home_relative_path: Some(GEMINI_HOME_RELATIVE_PATH),
+            managed_events: GEMINI_MANAGED_HOOK_EVENTS,
+            command_timeout: Some(GEMINI_HOOK_COMMAND_TIMEOUT_MS),
+            bindings: &[],
+            http_activities: GEMINI_HTTP_ACTIVITIES,
+            owned_file_body: None,
+        }),
+    },
+    AgentSpec {
+        name: AGENT_NAME_OPENCODE,
+        hooks: Some(AgentHooks {
+            delivery: HookDelivery::InBandTty,
+            scope: HookInstallScope::User,
+            shape: HookInstallShape::OwnedFile,
+            home_relative_path: Some(OPENCODE_HOME_RELATIVE_PATH),
+            managed_events: &[],
+            command_timeout: None,
+            bindings: OPENCODE_HOOK_BINDINGS,
+            http_activities: &[],
+            owned_file_body: Some(OPENCODE_PLUGIN_BODY),
+        }),
+    },
+    AgentSpec {
+        name: AGENT_NAME_PI,
+        hooks: Some(AgentHooks {
+            delivery: HookDelivery::InBandTty,
+            scope: HookInstallScope::User,
+            shape: HookInstallShape::OwnedFile,
+            home_relative_path: Some(PI_HOME_RELATIVE_PATH),
+            managed_events: &[],
+            command_timeout: None,
+            bindings: PI_HOOK_BINDINGS,
+            http_activities: &[],
+            owned_file_body: Some(PI_EXTENSION_BODY),
+        }),
+    },
+];
+
+pub fn agent_spec(agent_name: &str) -> Option<&'static AgentSpec> {
+    AGENT_SPECS.iter().find(|spec| spec.name == agent_name)
+}
+
+pub fn agent_hooks(agent_name: &str) -> Option<AgentHooks> {
+    agent_spec(agent_name)?.hooks
+}
+
+/// Every agent whose install lives under the user's home directory, in table order — the set both
+/// the reconcile and the removal loops walk.
+pub fn user_level_hook_agents() -> impl Iterator<Item = &'static AgentSpec> {
+    AGENT_SPECS
+        .iter()
+        .filter(|spec| spec.hooks.is_some_and(|hooks| hooks.scope == HookInstallScope::User))
+}
+
+pub fn map_hook_event_to_activity(agent_name: &str, event_name: &str) -> Option<AgentActivity> {
+    agent_hooks(agent_name)?
+        .http_activities
+        .iter()
+        .find(|(name, _)| *name == event_name)
+        .map(|(_, activity)| *activity)
 }
 
 pub fn is_hook_managed_agent(name: &str) -> bool {
     KNOWN_AGENT_NAMES.contains(&name)
 }
 
+/// Whether this agent's hook events reach TAIDE through the HTTP bridge, which is the only writer
+/// of the project-scoped override a session with no signals of its own may borrow
+/// (`AgentHooksStore::fresh_project_override`).
+///
+/// An agent whose events arrive in-band gets them on the pty of the session that produced them, so
+/// a project-wide answer must never speak for it — with two Claude sessions open in one project,
+/// borrowing would let one session's permission dialog light up the other's badge.
+pub fn uses_project_hook_override(agent_name: &str) -> bool {
+    delivers_over_http(agent_name)
+}
+
+/// Whether installing this agent's hooks needs TAIDE's own `taide` CLI symlink on PATH.
+///
+/// Only the HTTP shape shells out to it — its rows run `"<cli>" hook --url "<url>"`, so without the
+/// symlink every event would die silently (`commands::install_user_level_hooks`). An in-band row
+/// runs a `printf` of a constant payload and needs nothing installed.
+///
+/// Carried on `AgentHooksStatus` so the settings UI reads the requirement off the server instead
+/// of keeping its own copy of the table: flipping one agent's `delivery` back to
+/// [`HookDelivery::Http`] then moves the CLI warning and the disabled toggle with it.
+pub fn requires_taide_cli(agent_name: &str) -> bool {
+    delivers_over_http(agent_name)
+}
+
+fn delivers_over_http(agent_name: &str) -> bool {
+    agent_hooks(agent_name).is_some_and(|hooks| hooks.delivery == HookDelivery::Http)
+}
+
 pub fn hook_scope_for_agent(agent_name: &str) -> AppResult<HookInstallScope> {
-    match agent_name {
-        AGENT_NAME_CLAUDE => Ok(HookInstallScope::Project),
-        AGENT_NAME_CODEX | AGENT_NAME_GEMINI => Ok(HookInstallScope::User),
-        other => Err(AppError::InvalidArgument(format!("unknown agent name: {other}"))),
-    }
+    agent_hooks(agent_name)
+        .map(|hooks| hooks.scope)
+        .ok_or_else(|| AppError::InvalidArgument(format!("unknown agent name: {agent_name}")))
+}
+
+pub fn hook_install_shape(agent_name: &str) -> AppResult<HookInstallShape> {
+    agent_hooks(agent_name)
+        .map(|hooks| hooks.shape)
+        .ok_or_else(|| AppError::InvalidArgument(format!("unknown agent name: {agent_name}")))
 }
 
 pub fn build_command_hook_shell_command(taide_cli_path: &str, hook_url: &str) -> String {
@@ -730,12 +1205,7 @@ pub fn build_command_hook_shell_command(taide_cli_path: &str, hook_url: &str) ->
 }
 
 pub fn managed_hook_events_for(agent_name: &str) -> &'static [&'static str] {
-    match agent_name {
-        AGENT_NAME_CLAUDE => CLAUDE_MANAGED_HOOK_EVENTS,
-        AGENT_NAME_CODEX => CODEX_MANAGED_HOOK_EVENTS,
-        AGENT_NAME_GEMINI => GEMINI_MANAGED_HOOK_EVENTS,
-        _ => &[],
-    }
+    agent_hooks(agent_name).map(|hooks| hooks.managed_events).unwrap_or(&[])
 }
 
 /// How an installed Claude hook gets its event into the session's terminal.
@@ -751,34 +1221,17 @@ pub enum HookEmitter {
 
 const HOOK_TERMINAL_SEQUENCE_FIELD: &str = "terminalSequence";
 
-/// The seven `(hook event, matcher, agent event)` bindings TAIDE installs for Claude (contract
-/// §1.4). `UserPromptSubmit` and `SessionStart` are deliberately absent: both feed a hook's stdout
-/// back as prompt context, and working state is already covered by the title and output signals.
-const CLAUDE_HOOK_BINDINGS: &[(&str, Option<&str>, AgentEvent)] = &[
-    (HOOK_EVENT_PERMISSION_REQUEST, None, AgentEvent::PermissionRequest),
-    (
-        HOOK_EVENT_NOTIFICATION,
-        Some(NOTIFICATION_MATCHER_PERMISSION_PROMPT),
-        AgentEvent::PermissionRequest,
-    ),
-    (
-        HOOK_EVENT_NOTIFICATION,
-        Some(NOTIFICATION_MATCHER_ELICITATION_DIALOG),
-        AgentEvent::QuestionAsked,
-    ),
-    (
-        HOOK_EVENT_NOTIFICATION,
-        Some(NOTIFICATION_MATCHER_IDLE_PROMPT),
-        AgentEvent::IdlePrompt,
-    ),
-    (HOOK_EVENT_POST_TOOL_USE, None, AgentEvent::ToolComplete),
-    (HOOK_EVENT_STOP, None, AgentEvent::Stop),
-    (HOOK_EVENT_STOP_FAILURE, None, AgentEvent::StopFailure),
-];
+/// The emitter every user-level in-band install uses. `TerminalSequence` is a field of *Claude's*
+/// hook-output contract — no other agent reads a hook's stdout looking for it — so codex and every
+/// owned-file plugin write the sequence themselves.
+pub const USER_LEVEL_IN_BAND_EMITTER: HookEmitter = HookEmitter::DevTty;
 
-fn claude_agent_event_payload(event: AgentEvent) -> String {
+/// One in-band event as it goes on the wire, for the agent that emits it. The `agent` field is what
+/// lets a session ignore an event some other agent's hook wrote into the same pty
+/// ([`apply_agent_event`]).
+fn agent_event_payload(agent_name: &str, event: AgentEvent) -> String {
     format!(
-        "{{\"v\":{AGENT_PROTOCOL_VERSION},\"agent\":\"{AGENT_NAME_CLAUDE}\",\"event\":\"{}\"}}",
+        "{{\"v\":{AGENT_PROTOCOL_VERSION},\"agent\":\"{agent_name}\",\"event\":\"{}\"}}",
         event.wire_name()
     )
 }
@@ -787,7 +1240,7 @@ fn agent_osc_sequence(payload: &str) -> String {
     format!("\u{1b}]{OSC_NOTIFY_IDENT};{OSC_NOTIFY_SUBCOMMAND};{AGENT_OSC_SENTINEL};{payload}\u{7}")
 }
 
-/// Builds the whole shell command one installed Claude hook runs.
+/// Builds the whole shell command one installed hook runs, for the agent that will run it.
 ///
 /// Three properties the shape encodes: it is gated on `TAIDE_AGENT_PROTOCOL_VERSION`, so the same
 /// `settings.local.json` emits nothing when that project is opened in iTerm instead of TAIDE; it
@@ -798,8 +1251,11 @@ fn agent_osc_sequence(payload: &str) -> String {
 /// bytes come out as the JSON unicode escapes Claude's own reader will decode, and the payload's
 /// inner quotes are escaped by that same encoder. The result carries no single quote, which is what
 /// makes wrapping it in shell single quotes safe (`훅_명령은_단일_인용을_깨뜨리는_문자를_담지_않는다`).
-pub fn build_claude_agent_hook_command(event: AgentEvent, emitter: HookEmitter) -> String {
-    let payload = claude_agent_event_payload(event);
+///
+/// Only the `agent` field of the payload varies by agent, so Claude's commands come out of this
+/// byte for byte as they did before the parameterization (`claude_훅_명령은_이전_릴리스와_바이트_동일하다`).
+pub fn build_agent_hook_command(agent_name: &str, event: AgentEvent, emitter: HookEmitter) -> String {
+    let payload = agent_event_payload(agent_name, event);
     let emit = match emitter {
         HookEmitter::TerminalSequence => {
             let envelope = serde_json::json!({ HOOK_TERMINAL_SEQUENCE_FIELD: agent_osc_sequence(&payload) });
@@ -813,12 +1269,103 @@ pub fn build_claude_agent_hook_command(event: AgentEvent, emitter: HookEmitter) 
     format!("if [ -n \"${AGENT_PROTOCOL_VERSION_ENV_NAME}\" ]; then {emit}; fi; exit 0")
 }
 
-/// The `(hook event, matcher, command)` rows an install writes for Claude.
-pub fn claude_hook_entries(emitter: HookEmitter) -> Vec<(&'static str, Option<&'static str>, String)> {
-    CLAUDE_HOOK_BINDINGS
+/// The `(hook event, matcher, command)` rows an in-band install writes for one agent. Empty for an
+/// agent that has no bindings (gemini, which is still reached over HTTP).
+pub fn agent_hook_entries(agent_name: &str, emitter: HookEmitter) -> Vec<(&'static str, Option<&'static str>, String)> {
+    let Some(hooks) = agent_hooks(agent_name) else {
+        return Vec::new();
+    };
+    hooks
+        .bindings
         .iter()
-        .map(|(hook_event, matcher, event)| (*hook_event, *matcher, build_claude_agent_hook_command(*event, emitter)))
+        .map(|binding| {
+            (
+                binding.hook_event,
+                binding.matcher,
+                build_agent_hook_command(agent_name, binding.event, emitter),
+            )
+        })
         .collect()
+}
+
+/// First line of every file TAIDE writes whole into an agent's plugin/extension directory. It is
+/// the only thing that makes such a file TAIDE's: a file without it is somebody else's and is never
+/// rewritten, never deleted, and never counted as installed.
+pub const OWNED_HOOK_FILE_MARKER: &str = "taide-agent-managed-file";
+
+const OWNED_HOOK_FILE_HEADER: &str = "// taide-agent-managed-file — generated by TAIDE. It is rewritten and removed as a whole;\n// delete this first line and TAIDE will leave the file alone.";
+
+/// Name of the generated constant the bodies below index. Kept here rather than inline so the test
+/// that asserts each body actually uses it has one definition to compare against.
+const OWNED_HOOK_FILE_MAP_NAME: &str = "TAIDE_EVENT_SEQUENCES";
+
+/// opencode's plugin shape: a named export returning the hooks object, with one `event` handler
+/// that the plugin host calls for every bus event (opencode plugin documentation). Writing the
+/// sequence to `process.stdout` reaches the pty intact even under opencode's alternate-screen
+/// renderer — the one thing the probe confirmed by bytes (probe 2026-09-15 §6).
+const OPENCODE_PLUGIN_BODY: &str = r#"export const TaideAgent = async () => ({
+    event: async ({ event }) => {
+        if (!process.env.TAIDE_AGENT_PROTOCOL_VERSION) return
+        const sequence = TAIDE_EVENT_SEQUENCES[event && event.type]
+        if (!sequence) return
+        try {
+            process.stdout.write(sequence)
+        } catch {
+            return
+        }
+    },
+})
+"#;
+
+/// pi's extension shape: a default-exported factory handed the extension API, which subscribes with
+/// `pi.on(name, handler)` (pi extension documentation). `[미확인]`: never run against a real pi —
+/// nothing here has been observed, and the file deliberately imports nothing so a missing package
+/// cannot turn a load failure into a startup failure.
+const PI_EXTENSION_BODY: &str = r#"export default (pi) => {
+    for (const name of Object.keys(TAIDE_EVENT_SEQUENCES)) {
+        pi.on(name, async () => {
+            if (!process.env.TAIDE_AGENT_PROTOCOL_VERSION) return
+            try {
+                process.stdout.write(TAIDE_EVENT_SEQUENCES[name])
+            } catch {
+                return
+            }
+        })
+    }
+}
+"#;
+
+/// The whole source of the file TAIDE owns for one agent: the marker header, the
+/// `agent event name -> OSC sequence` table built from that agent's bindings, and the subscription
+/// body for that agent's plugin API.
+///
+/// The sequences are emitted as JSON string literals, which are also valid JS/TS string literals,
+/// so the control bytes and the payload's inner quotes are escaped by the same encoder that builds
+/// Claude's `terminalSequence` envelope rather than by hand. The generated file therefore contains
+/// no payload construction of its own — every byte it can write comes from
+/// [`agent_event_payload`].
+pub fn build_owned_hook_file_source(agent_name: &str) -> Option<String> {
+    let hooks = agent_hooks(agent_name)?;
+    let body = hooks.owned_file_body?;
+
+    let mut table = String::new();
+    for binding in hooks.bindings {
+        let sequence = agent_osc_sequence(&agent_event_payload(agent_name, binding.event));
+        let name_literal = serde_json::Value::String(binding.hook_event.to_string());
+        let sequence_literal = serde_json::Value::String(sequence);
+        table.push_str(&format!("    {name_literal}: {sequence_literal},\n"));
+    }
+
+    Some(format!(
+        "{OWNED_HOOK_FILE_HEADER}\n\nconst {OWNED_HOOK_FILE_MAP_NAME} = {{\n{table}}}\n\n{body}"
+    ))
+}
+
+/// Whether a file TAIDE found where it installs an owned file is one TAIDE wrote. Only the first
+/// line counts: a substring match anywhere would let a user's own plugin that merely mentions the
+/// marker (in a comment about TAIDE, say) be silently overwritten or deleted.
+pub fn is_owned_hook_file(source: &str) -> bool {
+    source.lines().next().is_some_and(|line| line.contains(OWNED_HOOK_FILE_MARKER))
 }
 
 /// Reads the highest `<major>.<minor>.<patch>` triple out of `claude --version` output (`2.1.263
@@ -844,23 +1391,20 @@ pub fn supports_terminal_sequence(version: (u32, u32, u32)) -> bool {
     version >= CLAUDE_TERMINAL_SEQUENCE_MIN_VERSION
 }
 
+/// The `timeout` a user-level row carries, in the unit that agent reads it in — codex counts
+/// seconds, gemini milliseconds, and the two files cannot borrow each other's number. An agent
+/// whose rows carry no `timeout` (and any name with no spec at all) answers with the shared HTTP
+/// deadline, which is what the callers that ask before knowing the shape expect.
 pub fn user_level_hook_command_timeout(agent_name: &str) -> u64 {
-    match agent_name {
-        AGENT_NAME_CODEX => CODEX_HOOK_COMMAND_TIMEOUT_SECONDS,
-        AGENT_NAME_GEMINI => GEMINI_HOOK_COMMAND_TIMEOUT_MS,
-        _ => HOOKS_HTTP_TIMEOUT_SECONDS,
-    }
+    agent_hooks(agent_name)
+        .and_then(|hooks| hooks.command_timeout)
+        .unwrap_or(HOOKS_HTTP_TIMEOUT_SECONDS)
 }
 
-const CODEX_HOME_RELATIVE_PATH: &str = ".codex/hooks.json";
-const GEMINI_HOME_RELATIVE_PATH: &str = ".gemini/settings.json";
-
 pub fn user_level_hooks_path(agent_name: &str, home_env: Option<&str>) -> AppResult<PathBuf> {
-    let relative = match agent_name {
-        AGENT_NAME_CODEX => CODEX_HOME_RELATIVE_PATH,
-        AGENT_NAME_GEMINI => GEMINI_HOME_RELATIVE_PATH,
-        other => return Err(AppError::InvalidArgument(format!("agent has no user-level hooks path: {other}"))),
-    };
+    let relative = agent_hooks(agent_name)
+        .and_then(|hooks| hooks.home_relative_path)
+        .ok_or_else(|| AppError::InvalidArgument(format!("agent has no user-level hooks path: {agent_name}")))?;
     let home = home_env
         .filter(|value| !value.is_empty())
         .ok_or_else(|| AppError::Internal("home directory not found".to_string()))?;
@@ -955,21 +1499,25 @@ fn inject_taide_managed_entries(root: serde_json::Value, events: &[&str], hook_h
     root
 }
 
-/// Removes every TAIDE-owned Claude entry, across both the in-band command install and the retired
-/// HTTP one ([`CLAUDE_MANAGED_HOOK_EVENTS`]).
-pub fn remove_taide_hook_entries(root: serde_json::Value) -> serde_json::Value {
-    remove_taide_managed_entries(root, CLAUDE_MANAGED_HOOK_EVENTS)
+/// Removes every TAIDE-owned entry of one agent, across every event it has ever written a row
+/// under — the current set plus the retired ones its `managed_events` still lists.
+pub fn remove_taide_agent_hook_entries(agent_name: &str, root: serde_json::Value) -> serde_json::Value {
+    remove_taide_managed_entries(root, managed_hook_events_for(agent_name))
 }
 
-/// Writes the current in-band Claude hook set, having first removed whatever TAIDE had there
+/// Writes one agent's current in-band hook set, having first removed whatever TAIDE had there
 /// before — so reinstalling, upgrading from the HTTP install, and switching emitter all converge on
 /// the same file content rather than stacking entries.
-pub fn inject_taide_claude_command_hook_entries(root: serde_json::Value, emitter: HookEmitter) -> serde_json::Value {
-    let root = remove_taide_hook_entries(root);
+///
+/// The `timeout` field is written only for an agent whose spec asks for one: Claude's rows have
+/// never carried it, and adding one would change bytes this build must leave alone.
+pub fn inject_taide_agent_hook_entries(agent_name: &str, root: serde_json::Value, emitter: HookEmitter) -> serde_json::Value {
+    let root = remove_taide_agent_hook_entries(agent_name, root);
     let mut root = if root.is_object() { root } else { serde_json::json!({}) };
+    let timeout = agent_hooks(agent_name).and_then(|hooks| hooks.command_timeout);
 
-    for (hook_event, matcher, command) in claude_hook_entries(emitter) {
-        let handler = serde_json::json!({ "type": HOOK_HANDLER_TYPE_COMMAND, "command": command });
+    for (hook_event, matcher, command) in agent_hook_entries(agent_name, emitter) {
+        let handler = command_hook_handler(&command, timeout);
         let entry = match matcher {
             Some(matcher) => serde_json::json!({ "matcher": matcher, "hooks": [handler] }),
             None => serde_json::json!({ "hooks": [handler] }),
@@ -982,16 +1530,23 @@ pub fn inject_taide_claude_command_hook_entries(root: serde_json::Value, emitter
     root
 }
 
-/// Every TAIDE-owned Claude row actually present in the file, as `(event, matcher, handler)` — the
-/// handler being the entry's `command`, or its `url` for a leftover HTTP install, which is what
+fn command_hook_handler(command: &str, timeout: Option<u64>) -> serde_json::Value {
+    match timeout {
+        Some(timeout) => serde_json::json!({ "type": HOOK_HANDLER_TYPE_COMMAND, "command": command, "timeout": timeout }),
+        None => serde_json::json!({ "type": HOOK_HANDLER_TYPE_COMMAND, "command": command }),
+    }
+}
+
+/// Every TAIDE-owned row of one agent actually present in the file, as `(event, matcher, handler)` —
+/// the handler being the entry's `command`, or its `url` for a leftover HTTP install, which is what
 /// makes such a leftover compare unequal to any expected command and get replaced.
-fn installed_claude_entries(root: &serde_json::Value) -> Vec<(String, Option<String>, String)> {
+fn installed_taide_entries(agent_name: &str, root: &serde_json::Value) -> Vec<(String, Option<String>, String)> {
     let Some(hooks_obj) = root.get("hooks").and_then(|value| value.as_object()) else {
         return Vec::new();
     };
 
     let mut installed = Vec::new();
-    for event in CLAUDE_MANAGED_HOOK_EVENTS {
+    for event in managed_hook_events_for(agent_name) {
         let Some(entries) = hooks_obj.get(*event).and_then(|value| value.as_array()) else {
             continue;
         };
@@ -1010,37 +1565,32 @@ fn installed_claude_entries(root: &serde_json::Value) -> Vec<(String, Option<Str
     installed
 }
 
-/// Whether the file's TAIDE-owned Claude rows are *exactly* the set this build would install.
-/// Compared as a whole rather than "every expected row exists", so a stale extra row (an event we
-/// no longer install, a second emitter's copy) also counts as a mismatch and gets reconciled away.
-pub fn claude_hook_entries_match(root: &serde_json::Value, emitter: HookEmitter) -> bool {
-    let mut expected: Vec<_> = claude_hook_entries(emitter)
+/// Whether the file's TAIDE-owned rows for one agent are *exactly* the set this build would
+/// install. Compared as a whole rather than "every expected row exists", so a stale extra row (an
+/// event we no longer install, a leftover HTTP URL, a second emitter's copy) also counts as a
+/// mismatch and gets reconciled away.
+pub fn agent_hook_entries_match(agent_name: &str, root: &serde_json::Value, emitter: HookEmitter) -> bool {
+    let mut expected: Vec<_> = agent_hook_entries(agent_name, emitter)
         .into_iter()
         .map(|(hook_event, matcher, command)| (hook_event.to_string(), matcher.map(str::to_string), command))
         .collect();
-    let mut installed = installed_claude_entries(root);
+    let mut installed = installed_taide_entries(agent_name, root);
 
     expected.sort();
     installed.sort();
     expected == installed
 }
 
-pub fn remove_taide_command_hook_entries(root: serde_json::Value, events: &[&str]) -> serde_json::Value {
-    remove_taide_managed_entries(root, events)
-}
-
+/// Writes one shim command under every one of `events` — the HTTP install, where the command is a
+/// URL-carrying `taide hook --url …` rather than one of this agent's per-event constants.
 pub fn inject_taide_command_hook_entries(root: serde_json::Value, events: &[&str], command: &str, timeout: u64) -> serde_json::Value {
-    inject_taide_managed_entries(
-        root,
-        events,
-        serde_json::json!({ "type": HOOK_HANDLER_TYPE_COMMAND, "command": command, "timeout": timeout }),
-    )
+    inject_taide_managed_entries(root, events, command_hook_handler(command, Some(timeout)))
 }
 
 /// Whether every one of `events` carries a TAIDE-managed entry running exactly `command` — the
-/// freshness check the user-level (codex/gemini) reconcile makes before rewriting a file. An empty
-/// `events` slice means "this agent has no managed hooks", which is not freshness, hence the
-/// explicit guard rather than `[].iter().all(..)` vacuously returning `true`.
+/// freshness check the user-level HTTP reconcile makes before rewriting a file. An empty `events`
+/// slice means "this agent has no managed hooks", which is not freshness, hence the explicit guard
+/// rather than `[].iter().all(..)` vacuously returning `true`.
 pub fn has_command_hook_entries_for_command(root: &serde_json::Value, events: &[&str], command: &str) -> bool {
     if events.is_empty() {
         return false;
@@ -1066,9 +1616,9 @@ fn entry_has_command(entry: &serde_json::Value, command: &str) -> bool {
     })
 }
 
-/// Whether this project has a TAIDE Claude install at all — either shape, any event.
-pub fn has_taide_hook_entries(root: &serde_json::Value) -> bool {
-    !installed_claude_entries(root).is_empty()
+/// Whether this file carries a TAIDE install for one agent at all — either shape, any event.
+pub fn has_taide_agent_hook_entries(agent_name: &str, root: &serde_json::Value) -> bool {
+    !installed_taide_entries(agent_name, root).is_empty()
 }
 
 #[cfg(test)]
@@ -1091,6 +1641,43 @@ mod tests {
     fn 무관한_프로세스는_감지하지_않는다() {
         assert_eq!(detect_agent_name("bash", "bash"), None);
         assert_eq!(detect_agent_name("node", "node server.js"), None);
+    }
+
+    #[test]
+    fn 절대경로_comm_으로_실행된_opencode_를_감지한다() {
+        assert_eq!(
+            detect_agent_name("/Users/dev/.opencode/bin/opencode", "/Users/dev/.opencode/bin/opencode"),
+            Some(AGENT_NAME_OPENCODE),
+            "네이티브 단일 바이너리라 comm basename 만으로 잡힌다(탐침 §1)"
+        );
+    }
+
+    #[test]
+    fn 프로세스명이_pi_면_보조_조건_없이_감지한다() {
+        assert_eq!(detect_agent_name("pi", "pi"), Some(AGENT_NAME_PI));
+        assert_eq!(detect_agent_name("/opt/homebrew/bin/pi", "pi --resume"), Some(AGENT_NAME_PI));
+    }
+
+    #[test]
+    fn node_위의_pi_는_패키지_경로가_있어야_감지한다() {
+        let with_package = "node /Users/dev/.npm/lib/node_modules/@earendil-works/pi-coding-agent/dist/pi";
+        assert_eq!(detect_agent_name("node", with_package), Some(AGENT_NAME_PI));
+    }
+
+    #[test]
+    fn node_위의_pi_이름만으로는_감지하지_않는다() {
+        assert_eq!(
+            detect_agent_name("node", "node /Users/dev/scripts/pi"),
+            None,
+            "두 글자 이름은 근거 없이 에이전트로 읽으면 안 된다"
+        );
+        assert_eq!(detect_agent_name("node", "node build.js --target pi"), None);
+    }
+
+    #[test]
+    fn pi_보조_조건이_다른_에이전트의_감지를_막지_않는다() {
+        assert_eq!(detect_agent_name("node", "node /usr/local/bin/codex"), Some(AGENT_NAME_CODEX));
+        assert_eq!(detect_agent_name("opencode", "opencode"), Some(AGENT_NAME_OPENCODE));
     }
 
     #[test]
@@ -1271,12 +1858,14 @@ mod tests {
             name: "claude".to_string(),
             pid: 1,
             activity: AgentActivity::Unknown,
+            blocked_reason: None,
         };
         let b = DetectedAgent {
             session_id: "term-2".to_string(),
             name: "codex".to_string(),
             pid: 2,
             activity: AgentActivity::Unknown,
+            blocked_reason: None,
         };
         assert!(!agents_changed(&[a.clone(), b.clone()], &[b, a]));
     }
@@ -1288,8 +1877,63 @@ mod tests {
             name: "claude".to_string(),
             pid: 1,
             activity: AgentActivity::Unknown,
+            blocked_reason: None,
         };
         assert!(agents_changed(&[], &[a]));
+    }
+
+    #[test]
+    fn 활동이_같아도_차단_사유가_바뀌면_변경으로_본다() {
+        let permission = DetectedAgent {
+            session_id: "term-1".to_string(),
+            name: "claude".to_string(),
+            pid: 1,
+            activity: AgentActivity::AwaitingInput,
+            blocked_reason: Some(BlockedReason::Permission),
+        };
+        let question = DetectedAgent {
+            blocked_reason: Some(BlockedReason::Question),
+            ..permission.clone()
+        };
+
+        assert!(
+            agents_changed(&[permission], &[question]),
+            "사유만 바뀐 전이도 발행되어야 배지 툴팁이 따라간다"
+        );
+    }
+
+    #[test]
+    fn http_훅_활동_적용은_같은_이름_세션의_차단_사유를_함께_지운다() {
+        let blocked = DetectedAgent {
+            session_id: "term-1".to_string(),
+            name: AGENT_NAME_GEMINI.to_string(),
+            pid: 1,
+            activity: AgentActivity::AwaitingInput,
+            blocked_reason: Some(BlockedReason::Permission),
+        };
+        let other_session = DetectedAgent {
+            session_id: "term-2".to_string(),
+            blocked_reason: Some(BlockedReason::Dialog),
+            ..blocked.clone()
+        };
+        let other_agent = DetectedAgent {
+            session_id: "term-3".to_string(),
+            name: AGENT_NAME_CLAUDE.to_string(),
+            ..blocked.clone()
+        };
+        let mut agents = vec![blocked, other_session, other_agent];
+
+        apply_hook_activity(&mut agents, AGENT_NAME_GEMINI, AgentActivity::Working);
+
+        assert_eq!(agents[0].activity, AgentActivity::Working);
+        assert_eq!(
+            agents[0].blocked_reason, None,
+            "브리지는 활동만 싣고 오므로 사유가 남으면 끝난 차단을 설명하게 된다"
+        );
+        assert_eq!(agents[1].activity, AgentActivity::Working);
+        assert_eq!(agents[1].blocked_reason, None, "같은 에이전트의 다른 세션도 함께 덮인다");
+        assert_eq!(agents[2].activity, AgentActivity::AwaitingInput, "다른 에이전트는 건드리지 않는다");
+        assert_eq!(agents[2].blocked_reason, Some(BlockedReason::Permission));
     }
 
     #[test]
@@ -1436,7 +2080,7 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
 
     fn agent_event_outcome(event: AgentEvent) -> ScanOutcome {
         ScanOutcome {
-            events: vec![ScanEvent::AgentEvent(claude_agent_event_payload(event))],
+            events: vec![ScanEvent::AgentEvent(agent_event_payload(AGENT_NAME_CLAUDE, event))],
             text: String::new(),
             overlap: String::new(),
         }
@@ -1522,6 +2166,96 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
     }
 
     #[test]
+    fn 다이얼로그_래치의_사유는_dialog_다() {
+        let base = Instant::now();
+        let mut signals = claude_signals();
+
+        apply_scan_to_signals(&mut signals, &output(DIALOG_TEXT), AGENT_NAME_CLAUDE, base);
+
+        assert_eq!(
+            classify_session_state(&signals, AgentActivity::Working, at(base, 100)),
+            SessionState {
+                activity: AgentActivity::AwaitingInput,
+                blocked_reason: Some(BlockedReason::Dialog),
+            },
+            "화면에서 읽은 문구는 어떤 다이얼로그인지까지는 말해 주지 않는다"
+        );
+    }
+
+    #[test]
+    fn 인밴드_이벤트의_사유는_이벤트_이름에서_나온다() {
+        let base = Instant::now();
+
+        let mut permission = claude_signals();
+        apply_scan_to_signals(
+            &mut permission,
+            &agent_event_outcome(AgentEvent::PermissionRequest),
+            AGENT_NAME_CLAUDE,
+            base,
+        );
+        assert_eq!(
+            classify_session_state(&permission, AgentActivity::Working, at(base, 100)),
+            SessionState {
+                activity: AgentActivity::AwaitingInput,
+                blocked_reason: Some(BlockedReason::Permission),
+            }
+        );
+
+        let mut question = claude_signals();
+        apply_scan_to_signals(
+            &mut question,
+            &agent_event_outcome(AgentEvent::QuestionAsked),
+            AGENT_NAME_CLAUDE,
+            base,
+        );
+        assert_eq!(
+            classify_session_state(&question, AgentActivity::Working, at(base, 100)),
+            SessionState {
+                activity: AgentActivity::AwaitingInput,
+                blocked_reason: Some(BlockedReason::Question),
+            }
+        );
+    }
+
+    #[test]
+    fn 래치가_풀리면_사유도_함께_사라진다() {
+        let base = Instant::now();
+        let mut signals = claude_signals();
+        apply_scan_to_signals(&mut signals, &output(DIALOG_TEXT), AGENT_NAME_CLAUDE, base);
+        assert_eq!(blocked_reason(&signals), Some(BlockedReason::Dialog));
+
+        note_input(&mut signals, at(base, 1_000));
+
+        assert_eq!(blocked_reason(&signals), None);
+        assert_eq!(
+            classify_session_state(&signals, AgentActivity::AwaitingInput, at(base, 1_100)).blocked_reason,
+            None,
+            "히스테리시스로 직전 상태가 남더라도 사유는 남지 않는다"
+        );
+    }
+
+    #[test]
+    fn 차단되지_않은_세션에는_사유가_없다() {
+        let base = Instant::now();
+        let mut signals = claude_signals();
+
+        apply_scan_to_signals(
+            &mut signals,
+            &output("Running touch /tmp/taide-probe-file"),
+            AGENT_NAME_CLAUDE,
+            base,
+        );
+
+        assert_eq!(
+            classify_session_state(&signals, AgentActivity::Idle, at(base, 100)),
+            SessionState {
+                activity: AgentActivity::Working,
+                blocked_reason: None,
+            }
+        );
+    }
+
+    #[test]
     fn 사용자_입력은_래치를_해제한다() {
         let base = Instant::now();
         let mut signals = claude_signals();
@@ -1595,7 +2329,10 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         apply_scan_to_signals(
             &mut signals,
             &ScanOutcome {
-                events: vec![ScanEvent::AgentEvent(claude_agent_event_payload(AgentEvent::PermissionRequest))],
+                events: vec![ScanEvent::AgentEvent(agent_event_payload(
+                    AGENT_NAME_CLAUDE,
+                    AgentEvent::PermissionRequest,
+                ))],
                 text: "Bash command touch /tmp/taide-probe-file".to_string(),
                 overlap: String::new(),
             },
@@ -1619,7 +2356,10 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         apply_scan_to_signals(
             &mut signals,
             &ScanOutcome {
-                events: vec![ScanEvent::AgentEvent(claude_agent_event_payload(AgentEvent::ToolComplete))],
+                events: vec![ScanEvent::AgentEvent(agent_event_payload(
+                    AGENT_NAME_CLAUDE,
+                    AgentEvent::ToolComplete,
+                ))],
                 text: DIALOG_TEXT.to_string(),
                 overlap: String::new(),
             },
@@ -1743,6 +2483,48 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         );
     }
 
+    /// codex and pi carry no measured title or spinner, so `prompt_submit` is the only thing that
+    /// says a turn started — it has to both release the latch and read as Working on its own.
+    #[test]
+    fn prompt_submit_이벤트는_래치를_풀고_working_으로_읽힌다() {
+        let base = Instant::now();
+        let mut signals = AgentSessionSignals::new(AGENT_NAME_CODEX);
+        let permission = ScanOutcome {
+            events: vec![ScanEvent::AgentEvent(agent_event_payload(
+                AGENT_NAME_CODEX,
+                AgentEvent::PermissionRequest,
+            ))],
+            text: String::new(),
+            overlap: String::new(),
+        };
+        let submitted = ScanOutcome {
+            events: vec![ScanEvent::AgentEvent(agent_event_payload(
+                AGENT_NAME_CODEX,
+                AgentEvent::PromptSubmit,
+            ))],
+            text: String::new(),
+            overlap: String::new(),
+        };
+
+        apply_scan_to_signals(&mut signals, &permission, AGENT_NAME_CODEX, base);
+        assert_eq!(
+            classify_session(&signals, AgentActivity::Idle, at(base, 100)),
+            AgentActivity::AwaitingInput
+        );
+
+        apply_scan_to_signals(&mut signals, &submitted, AGENT_NAME_CODEX, at(base, 1_000));
+        assert_eq!(signals.blocked, None);
+        assert_eq!(
+            classify_session(&signals, AgentActivity::AwaitingInput, at(base, 1_500)),
+            AgentActivity::Working
+        );
+        assert_eq!(
+            classify_session(&signals, AgentActivity::Working, at(base, 1_000 + ACTIVITY_IDLE_QUIET_MS)),
+            AgentActivity::Idle,
+            "작업 시작 힌트는 유휴 복귀를 막지 않는다"
+        );
+    }
+
     #[test]
     fn idle_prompt_이벤트는_상태를_바꾸지_않는다() {
         let base = Instant::now();
@@ -1792,6 +2574,28 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
     #[test]
     fn 시그니처_표가_없는_에이전트는_다이얼로그로_판정하지_않는다() {
         assert!(!find_dialog_signature(AGENT_NAME_CODEX, DIALOG_TEXT));
+        for agent_name in [AGENT_NAME_CODEX, AGENT_NAME_PI, AGENT_NAME_GEMINI] {
+            assert!(
+                dialog_signatures_for(agent_name).is_empty(),
+                "{agent_name} 문구는 미확인이라 표가 비어 있어야 한다"
+            );
+        }
+    }
+
+    #[test]
+    fn opencode_권한_다이얼로그_문구는_래치를_건다() {
+        assert!(find_dialog_signature(
+            AGENT_NAME_OPENCODE,
+            "Permission required Shell command $ cat README.md"
+        ));
+        assert!(
+            !find_dialog_signature(AGENT_NAME_OPENCODE, DIALOG_TEXT),
+            "claude 문구가 opencode 표로 새면 안 된다"
+        );
+        assert!(
+            !find_dialog_signature(AGENT_NAME_CLAUDE, "Permission required"),
+            "opencode 문구가 claude 표로 새면 안 된다"
+        );
     }
 
     #[test]
@@ -1866,6 +2670,55 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         );
     }
 
+    /// The permission dialog opencode 1.18.29 actually wrote to a pty (probe 2026-09-15 §4.2),
+    /// straight through the scanner — the title and the shell command are two positioned runs on the
+    /// same terminal row, so this only latches if the row-aware normalization holds.
+    #[test]
+    fn opencode_실물_pty_바이트로_래치가_걸리고_스피너가_돌아도_유지된다() {
+        const RAW_OPENCODE_PERMISSION: &[u8] =
+            b"\x1b[32;8H\x1b[38;2;238;238;238m\x1b[48;2;20;20;20mPermission required\x1b[0m\x1b[32;27H\x1b[38;2;153;153;153mShell command";
+        const OPENCODE_SPINNER_FRAMES: &str = "◦ · • ● ○ ◌";
+
+        let base = Instant::now();
+        let mut scanner = crate::infra::terminal_scan::OutputScanner::new();
+        let mut signals = AgentSessionSignals::new(AGENT_NAME_OPENCODE);
+
+        apply_scan_to_signals(&mut signals, &scanner.scan(RAW_OPENCODE_PERMISSION), AGENT_NAME_OPENCODE, base);
+        assert_eq!(signals.blocked, Some(BlockedSource::Dialog));
+
+        for tick in 1..=5 {
+            apply_scan_to_signals(
+                &mut signals,
+                &output(OPENCODE_SPINNER_FRAMES),
+                AGENT_NAME_OPENCODE,
+                at(base, tick * 1_000),
+            );
+        }
+
+        assert_eq!(
+            classify_session(&signals, AgentActivity::Working, at(base, 6_000)),
+            AgentActivity::AwaitingInput,
+            "유휴 중에도 도는 스피너가 래치를 풀면 안 된다"
+        );
+    }
+
+    #[test]
+    fn opencode_는_스피너만_흐르면_유휴로_떨어진다() {
+        let base = Instant::now();
+        let mut signals = AgentSessionSignals::new(AGENT_NAME_OPENCODE);
+
+        apply_scan_to_signals(&mut signals, &output("파일 목록을 보여드릴게요"), AGENT_NAME_OPENCODE, base);
+        for tick in 1..=10 {
+            apply_scan_to_signals(&mut signals, &output("◦ · • ● ○ ◌"), AGENT_NAME_OPENCODE, at(base, tick * 500));
+        }
+
+        assert_eq!(
+            classify_session(&signals, AgentActivity::Working, at(base, ACTIVITY_IDLE_QUIET_MS + 5_000)),
+            AgentActivity::Idle,
+            "스피너를 실질 출력으로 세면 opencode 세션은 영원히 작업 중으로 남는다"
+        );
+    }
+
     #[test]
     fn 신호가_없으면_unknown_이다() {
         assert_eq!(
@@ -1876,20 +2729,63 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
 
     #[test]
     fn 실질_출력_판정은_공백과_점멸_글리프를_세지_않는다() {
-        assert!(!is_substantive_output(BLINK_TEXT));
-        assert!(!is_substantive_output("   \n  "));
-        assert!(!is_substantive_output("⏺ ✻ ◐ ·"));
-        assert!(!is_substantive_output("a"));
-        assert!(is_substantive_output("ok"));
+        assert!(!is_substantive_output(AGENT_NAME_CLAUDE, BLINK_TEXT));
+        assert!(!is_substantive_output(AGENT_NAME_CLAUDE, "   \n  "));
+        assert!(!is_substantive_output(AGENT_NAME_CLAUDE, "⏺ ✻ ◐ ·"));
+        assert!(!is_substantive_output(AGENT_NAME_CLAUDE, "a"));
+        assert!(is_substantive_output(AGENT_NAME_CLAUDE, "ok"));
+    }
+
+    #[test]
+    fn opencode_유휴_스피너_프레임은_실질_출력이_아니다() {
+        const OPENCODE_SPINNER_CYCLE: &str = "◦ · • ● ○ ◌ ◦ · • ● ○ ◌";
+
+        assert!(
+            !is_substantive_output(AGENT_NAME_OPENCODE, OPENCODE_SPINNER_CYCLE),
+            "유휴·권한 대기 중에도 도는 6프레임 스피너는 실질 출력이 아니다"
+        );
+        assert!(
+            is_substantive_output(AGENT_NAME_CLAUDE, OPENCODE_SPINNER_CYCLE),
+            "claude 의 판정 기준은 그대로다"
+        );
+    }
+
+    #[test]
+    fn opencode_턴_진행_글리프는_실질_출력이다() {
+        assert!(
+            is_substantive_output(AGENT_NAME_OPENCODE, "⬝ ■"),
+            "턴이 도는 동안에만 나오는 진행 글리프는 실질 출력으로 둔다"
+        );
     }
 
     #[test]
     fn 타이틀_글리프를_판정한다() {
-        assert_eq!(parse_title_glyph("◐ 작업 중"), Some(TitleGlyph::Working));
-        assert_eq!(parse_title_glyph("◑ 작업 중"), Some(TitleGlyph::Working));
-        assert_eq!(parse_title_glyph("✳ Claude Code"), Some(TitleGlyph::Idle));
-        assert_eq!(parse_title_glyph("zsh"), None);
-        assert_eq!(parse_title_glyph(""), None);
+        assert_eq!(parse_title_glyph(AGENT_NAME_CLAUDE, "◐ 작업 중"), Some(TitleGlyph::Working));
+        assert_eq!(parse_title_glyph(AGENT_NAME_CLAUDE, "◑ 작업 중"), Some(TitleGlyph::Working));
+        assert_eq!(parse_title_glyph(AGENT_NAME_CLAUDE, "✳ Claude Code"), Some(TitleGlyph::Idle));
+        assert_eq!(parse_title_glyph(AGENT_NAME_CLAUDE, "zsh"), None);
+        assert_eq!(parse_title_glyph(AGENT_NAME_CLAUDE, ""), None);
+    }
+
+    #[test]
+    fn 글리프_표가_없는_에이전트의_타이틀은_판정하지_않는다() {
+        assert_eq!(
+            parse_title_glyph(AGENT_NAME_OPENCODE, "OC | ls로 디렉토리 파일 목록 보기"),
+            None,
+            "opencode 타이틀에는 선행 글리프가 없다(탐침 확정)"
+        );
+        assert_eq!(
+            parse_title_glyph(AGENT_NAME_OPENCODE, "◐ 작업 중"),
+            None,
+            "claude 글리프가 다른 에이전트의 타이틀에 적용되면 안 된다"
+        );
+        for agent_name in [AGENT_NAME_CODEX, AGENT_NAME_PI, AGENT_NAME_GEMINI] {
+            assert_eq!(
+                parse_title_glyph(agent_name, "✳ something"),
+                None,
+                "{agent_name} 표는 미확인이라 비어 있다"
+            );
+        }
     }
 
     #[test]
@@ -2006,10 +2902,14 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
 
     #[test]
     fn 빈_설정에_claude_hook을_주입하면_이벤트별_항목이_생긴다() {
-        let injected = inject_taide_claude_command_hook_entries(serde_json::json!({}), HookEmitter::TerminalSequence);
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, serde_json::json!({}), HookEmitter::TerminalSequence);
 
-        assert!(has_taide_hook_entries(&injected));
-        assert!(claude_hook_entries_match(&injected, HookEmitter::TerminalSequence));
+        assert!(has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &injected));
+        assert!(agent_hook_entries_match(
+            AGENT_NAME_CLAUDE,
+            &injected,
+            HookEmitter::TerminalSequence
+        ));
         assert_eq!(injected["hooks"]["Notification"].as_array().unwrap().len(), 3);
         assert_eq!(injected["hooks"][HOOK_EVENT_STOP_FAILURE].as_array().unwrap().len(), 1);
         assert!(
@@ -2029,7 +2929,7 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
                 "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]
             }
         });
-        let injected = inject_taide_claude_command_hook_entries(existing, HookEmitter::TerminalSequence);
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, existing, HookEmitter::TerminalSequence);
         let stop_entries = injected["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop_entries.len(), 2);
         assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo done");
@@ -2037,14 +2937,14 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
 
     #[test]
     fn 두_번_주입해도_taide_항목이_중복되지_않는다() {
-        let once = inject_taide_claude_command_hook_entries(serde_json::json!({}), HookEmitter::TerminalSequence);
-        let twice = inject_taide_claude_command_hook_entries(once.clone(), HookEmitter::TerminalSequence);
+        let once = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, serde_json::json!({}), HookEmitter::TerminalSequence);
+        let twice = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, once.clone(), HookEmitter::TerminalSequence);
         assert_eq!(twice, once);
 
-        let switched = inject_taide_claude_command_hook_entries(twice, HookEmitter::DevTty);
-        assert!(claude_hook_entries_match(&switched, HookEmitter::DevTty));
+        let switched = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, twice, HookEmitter::DevTty);
+        assert!(agent_hook_entries_match(AGENT_NAME_CLAUDE, &switched, HookEmitter::DevTty));
         assert!(
-            !claude_hook_entries_match(&switched, HookEmitter::TerminalSequence),
+            !agent_hook_entries_match(AGENT_NAME_CLAUDE, &switched, HookEmitter::TerminalSequence),
             "방출 방식이 바뀌면 이전 명령은 남지 않는다"
         );
     }
@@ -2052,25 +2952,32 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
     #[test]
     fn hooks_값이_객체가_아니어도_패닉없이_주입한다() {
         let broken = serde_json::json!({ "hooks": "disabled" });
-        let injected = inject_taide_claude_command_hook_entries(broken, HookEmitter::DevTty);
-        assert!(claude_hook_entries_match(&injected, HookEmitter::DevTty));
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, broken, HookEmitter::DevTty);
+        assert!(agent_hook_entries_match(AGENT_NAME_CLAUDE, &injected, HookEmitter::DevTty));
     }
 
     #[test]
     fn hook_이벤트_값이_배열이_아니어도_패닉없이_주입한다() {
         let broken = serde_json::json!({ "hooks": { "Stop": {}, "Notification": 3 } });
-        let injected = inject_taide_claude_command_hook_entries(broken, HookEmitter::DevTty);
-        assert!(claude_hook_entries_match(&injected, HookEmitter::DevTty));
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, broken, HookEmitter::DevTty);
+        assert!(agent_hook_entries_match(AGENT_NAME_CLAUDE, &injected, HookEmitter::DevTty));
     }
 
     #[test]
     fn 구버전_http_설치는_taide_항목으로_인식되고_기대_집합과_어긋난다() {
         let legacy = legacy_http_settings();
-        assert!(has_taide_hook_entries(&legacy), "구버전 설치도 TAIDE 항목으로 인식해야 제거된다");
-        assert!(!claude_hook_entries_match(&legacy, HookEmitter::TerminalSequence));
+        assert!(
+            has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &legacy),
+            "구버전 설치도 TAIDE 항목으로 인식해야 제거된다"
+        );
+        assert!(!agent_hook_entries_match(AGENT_NAME_CLAUDE, &legacy, HookEmitter::TerminalSequence));
 
-        let reinstalled = inject_taide_claude_command_hook_entries(legacy, HookEmitter::TerminalSequence);
-        assert!(claude_hook_entries_match(&reinstalled, HookEmitter::TerminalSequence));
+        let reinstalled = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, legacy, HookEmitter::TerminalSequence);
+        assert!(agent_hook_entries_match(
+            AGENT_NAME_CLAUDE,
+            &reinstalled,
+            HookEmitter::TerminalSequence
+        ));
         assert!(reinstalled["hooks"].get(HOOK_EVENT_USER_PROMPT_SUBMIT).is_none());
         assert!(!has_taide_marker_anywhere(&serde_json::json!({ "hooks": { "Stop": [] } })));
     }
@@ -2103,11 +3010,80 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
     }
 
     #[test]
-    fn claude는_프로젝트_스코프이고_codex_gemini는_사용자_스코프다() {
+    fn claude만_프로젝트_스코프이고_나머지는_사용자_스코프다() {
         assert_eq!(hook_scope_for_agent("claude").unwrap(), HookInstallScope::Project);
-        assert_eq!(hook_scope_for_agent("codex").unwrap(), HookInstallScope::User);
-        assert_eq!(hook_scope_for_agent("gemini").unwrap(), HookInstallScope::User);
+        for agent_name in [AGENT_NAME_CODEX, AGENT_NAME_GEMINI, AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            assert_eq!(hook_scope_for_agent(agent_name).unwrap(), HookInstallScope::User, "{agent_name}");
+        }
         assert!(hook_scope_for_agent("bash").is_err());
+    }
+
+    #[test]
+    fn 에이전트별_설치_형태와_전달_방식이_표에_있다() {
+        for agent_name in [AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI] {
+            assert_eq!(
+                hook_install_shape(agent_name).unwrap(),
+                HookInstallShape::JsonEntries,
+                "{agent_name}"
+            );
+        }
+        for agent_name in [AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            assert_eq!(hook_install_shape(agent_name).unwrap(), HookInstallShape::OwnedFile, "{agent_name}");
+        }
+        assert!(hook_install_shape("bash").is_err());
+
+        for agent_name in [AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            assert_eq!(
+                agent_hooks(agent_name).unwrap().delivery,
+                HookDelivery::InBandTty,
+                "{agent_name} 은 인밴드다"
+            );
+        }
+        assert_eq!(agent_hooks(AGENT_NAME_GEMINI).unwrap().delivery, HookDelivery::Http);
+    }
+
+    /// Every invariant the rest of the module reads off a row without re-checking it.
+    #[test]
+    fn 에이전트_스펙_표는_형태별_불변식을_지킨다() {
+        for spec in AGENT_SPECS {
+            assert!(KNOWN_AGENT_NAMES.contains(&spec.name), "{} 이 감지 목록에 없다", spec.name);
+            let Some(hooks) = spec.hooks else { continue };
+
+            assert_eq!(
+                hooks.home_relative_path.is_some(),
+                hooks.scope == HookInstallScope::User,
+                "{}: 사용자 레벨 설치만 홈 상대 경로를 가진다",
+                spec.name
+            );
+            assert_eq!(
+                hooks.owned_file_body.is_some(),
+                hooks.shape == HookInstallShape::OwnedFile,
+                "{}: 소유 파일만 생성 본문을 가진다",
+                spec.name
+            );
+            match hooks.shape {
+                HookInstallShape::JsonEntries => assert!(
+                    !hooks.managed_events.is_empty(),
+                    "{}: JSON 설치는 관리 대상 이벤트가 있어야 제거된다",
+                    spec.name
+                ),
+                HookInstallShape::OwnedFile => {
+                    assert!(hooks.managed_events.is_empty(), "{}: 소유 파일에는 JSON 행이 없다", spec.name);
+                    assert!(hooks.command_timeout.is_none(), "{}: 소유 파일에는 timeout 이 없다", spec.name);
+                }
+            }
+            if hooks.delivery == HookDelivery::InBandTty {
+                assert!(!hooks.bindings.is_empty(), "{}: 인밴드 전달은 바인딩이 있어야 한다", spec.name);
+            }
+            for binding in hooks.bindings {
+                assert!(
+                    hooks.shape == HookInstallShape::OwnedFile || hooks.managed_events.contains(&binding.hook_event),
+                    "{}: 설치하는 이벤트 {} 가 제거 목록에 없으면 남는다",
+                    spec.name,
+                    binding.hook_event
+                );
+            }
+        }
     }
 
     #[test]
@@ -2119,6 +3095,14 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         assert_eq!(
             user_level_hooks_path("gemini", Some("/Users/dev")).unwrap(),
             PathBuf::from("/Users/dev/.gemini/settings.json")
+        );
+        assert_eq!(
+            user_level_hooks_path(AGENT_NAME_OPENCODE, Some("/Users/dev")).unwrap(),
+            PathBuf::from("/Users/dev/.config/opencode/plugins/taide-agent.js")
+        );
+        assert_eq!(
+            user_level_hooks_path(AGENT_NAME_PI, Some("/Users/dev")).unwrap(),
+            PathBuf::from("/Users/dev/.pi/agent/extensions/taide-agent.ts")
         );
         assert!(user_level_hooks_path("claude", Some("/Users/dev")).is_err());
         assert!(user_level_hooks_path("codex", None).is_err());
@@ -2143,10 +3127,10 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
                 ]
             }
         });
-        let removed = remove_taide_hook_entries(existing);
+        let removed = remove_taide_agent_hook_entries(AGENT_NAME_CLAUDE, existing);
         let stop_entries = removed["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop_entries.len(), 1);
-        assert!(!has_taide_hook_entries(&removed));
+        assert!(!has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &removed));
     }
 
     #[test]
@@ -2158,9 +3142,9 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         });
 
         assert!(!has_taide_marker_anywhere(&user_owned));
-        assert!(!has_taide_hook_entries(&user_owned));
+        assert!(!has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &user_owned));
         assert_eq!(
-            remove_taide_hook_entries(user_owned.clone()),
+            remove_taide_agent_hook_entries(AGENT_NAME_CLAUDE, user_owned.clone()),
             user_owned,
             "소유 판정은 OSC 페이로드 접두사여야 한다 — 단어만 겹친 사용자 항목을 지우면 안 된다"
         );
@@ -2168,11 +3152,11 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
 
     #[test]
     fn taide_hook만_있었다면_제거_후_hooks_키_자체가_사라진다() {
-        let injected = inject_taide_claude_command_hook_entries(serde_json::json!({}), HookEmitter::TerminalSequence);
-        let removed = remove_taide_hook_entries(injected);
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, serde_json::json!({}), HookEmitter::TerminalSequence);
+        let removed = remove_taide_agent_hook_entries(AGENT_NAME_CLAUDE, injected);
         assert!(removed.get("hooks").is_none());
 
-        let legacy_removed = remove_taide_hook_entries(legacy_http_settings());
+        let legacy_removed = remove_taide_agent_hook_entries(AGENT_NAME_CLAUDE, legacy_http_settings());
         assert!(legacy_removed.get("hooks").is_none(), "구버전 http 항목도 남기지 않는다");
     }
 
@@ -2182,6 +3166,12 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         assert_eq!(managed_hook_events_for("codex"), CODEX_MANAGED_HOOK_EVENTS);
         assert_eq!(managed_hook_events_for("gemini"), GEMINI_MANAGED_HOOK_EVENTS);
         assert!(managed_hook_events_for("bash").is_empty());
+        for agent_name in [AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            assert!(
+                managed_hook_events_for(agent_name).is_empty(),
+                "{agent_name} 은 JSON 행이 아니라 파일 하나를 소유한다"
+            );
+        }
     }
 
     #[test]
@@ -2261,7 +3251,7 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
     #[test]
     fn codex_taide_command_hook을_제거하면_사용자_hook만_남고_제거_대상이_없으면_hooks_키가_사라진다() {
         let injected = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
-        let removed = remove_taide_command_hook_entries(injected, CODEX_MANAGED_HOOK_EVENTS);
+        let removed = remove_taide_agent_hook_entries(AGENT_NAME_CODEX, injected);
         assert!(removed.get("hooks").is_none());
 
         let existing = serde_json::json!({
@@ -2273,7 +3263,7 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
             }
         });
         let injected_with_user_hook = inject_taide_command_hook_entries(existing, CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
-        let removed = remove_taide_command_hook_entries(injected_with_user_hook, CODEX_MANAGED_HOOK_EVENTS);
+        let removed = remove_taide_agent_hook_entries(AGENT_NAME_CODEX, injected_with_user_hook);
         let stop_entries = removed["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop_entries.len(), 1);
         assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo done");
@@ -2318,7 +3308,7 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
         let with_codex = inject_taide_command_hook_entries(serde_json::json!({}), CODEX_MANAGED_HOOK_EVENTS, &codex_command(), 5);
         let with_both = inject_taide_command_hook_entries(with_codex, GEMINI_MANAGED_HOOK_EVENTS, &gemini_command(), 5_000);
 
-        let gemini_removed = remove_taide_command_hook_entries(with_both, GEMINI_MANAGED_HOOK_EVENTS);
+        let gemini_removed = remove_taide_agent_hook_entries(AGENT_NAME_GEMINI, with_both);
         assert!(gemini_removed["hooks"].get(HOOK_EVENT_BEFORE_AGENT).is_none());
         assert_eq!(
             gemini_removed["hooks"][HOOK_EVENT_STOP].as_array().unwrap()[0]["hooks"][0]["command"],
@@ -2328,14 +3318,14 @@ Do you want to proceed? ❯ 1. Yes 2. No Esc to cancel · Tab to amend";
 
     #[test]
     fn 훅_명령은_env_게이트와_정적_payload로_구성된다() {
-        let terminal_sequence = build_claude_agent_hook_command(AgentEvent::PermissionRequest, HookEmitter::TerminalSequence);
+        let terminal_sequence = build_agent_hook_command(AGENT_NAME_CLAUDE, AgentEvent::PermissionRequest, HookEmitter::TerminalSequence);
         assert_eq!(
             terminal_sequence,
             "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '%s' \
 '{\"terminalSequence\":\"\\u001b]777;notify;taide-agent;{\\\"v\\\":1,\\\"agent\\\":\\\"claude\\\",\\\"event\\\":\\\"permission_request\\\"}\\u0007\"}'; fi; exit 0"
         );
 
-        let dev_tty = build_claude_agent_hook_command(AgentEvent::Stop, HookEmitter::DevTty);
+        let dev_tty = build_agent_hook_command(AGENT_NAME_CLAUDE, AgentEvent::Stop, HookEmitter::DevTty);
         assert_eq!(
             dev_tty,
             "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then \
@@ -2346,7 +3336,7 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
     #[test]
     fn 훅_명령은_단일_인용을_깨뜨리는_문자를_담지_않는다() {
         for event in ALL_AGENT_EVENTS {
-            let payload = claude_agent_event_payload(event);
+            let payload = agent_event_payload(AGENT_NAME_CLAUDE, event);
             assert!(
                 !payload.contains('\''),
                 "payload 에 작은따옴표가 있으면 셸 인용이 깨진다: {payload}"
@@ -2354,7 +3344,7 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
             assert!(!agent_osc_sequence(&payload).contains('\''));
 
             for emitter in [HookEmitter::TerminalSequence, HookEmitter::DevTty] {
-                let command = build_claude_agent_hook_command(event, emitter);
+                let command = build_agent_hook_command(AGENT_NAME_CLAUDE, event, emitter);
                 assert_eq!(command.matches('\'').count() % 2, 0, "인용이 닫히지 않았다: {command}");
             }
         }
@@ -2362,7 +3352,7 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
 
     #[test]
     fn claude_훅_항목은_이벤트_matcher_명령_7종이다() {
-        let entries = claude_hook_entries(HookEmitter::DevTty);
+        let entries = agent_hook_entries(AGENT_NAME_CLAUDE, HookEmitter::DevTty);
 
         assert_eq!(entries.len(), 7);
         let shapes: Vec<_> = entries.iter().map(|(event, matcher, _)| (*event, *matcher)).collect();
@@ -2384,12 +3374,162 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
         );
     }
 
+    /// The whole regression bar for parameterizing the builder: Claude's seven installed commands
+    /// must come out byte for byte as the previous release wrote them. Frozen as literals rather
+    /// than rebuilt from the same helpers, which would only prove the code equals itself.
+    #[test]
+    fn claude_훅_명령은_이전_릴리스와_바이트_동일하다() {
+        let commands: Vec<String> = agent_hook_entries(AGENT_NAME_CLAUDE, HookEmitter::DevTty)
+            .into_iter()
+            .map(|(_, _, command)| command)
+            .collect();
+
+        assert_eq!(
+            commands,
+            vec![
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"permission_request\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"permission_request\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"question_asked\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"idle_prompt\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"tool_complete\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"stop\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+                "if [ -n \"$TAIDE_AGENT_PROTOCOL_VERSION\" ]; then printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"stop_failure\"}\\007' > /dev/tty 2>/dev/null; fi; exit 0",
+            ]
+        );
+    }
+
+    #[test]
+    fn 페이로드의_agent_필드만_에이전트마다_다르다() {
+        assert_eq!(
+            agent_event_payload(AGENT_NAME_CODEX, AgentEvent::Stop),
+            "{\"v\":1,\"agent\":\"codex\",\"event\":\"stop\"}"
+        );
+        assert_eq!(
+            agent_event_payload(AGENT_NAME_OPENCODE, AgentEvent::PermissionRequest),
+            "{\"v\":1,\"agent\":\"opencode\",\"event\":\"permission_request\"}"
+        );
+        assert_eq!(
+            parse_agent_event_body(&agent_event_payload(AGENT_NAME_PI, AgentEvent::PromptSubmit)),
+            Some((AGENT_NAME_PI.to_string(), AgentEvent::PromptSubmit))
+        );
+    }
+
+    #[test]
+    fn codex_인밴드_항목은_이벤트_4종이고_timeout을_담는다() {
+        let entries = agent_hook_entries(AGENT_NAME_CODEX, USER_LEVEL_IN_BAND_EMITTER);
+        let shapes: Vec<_> = entries.iter().map(|(event, matcher, _)| (*event, *matcher)).collect();
+        assert_eq!(
+            shapes,
+            vec![
+                (HOOK_EVENT_USER_PROMPT_SUBMIT, None),
+                (HOOK_EVENT_PERMISSION_REQUEST, None),
+                (HOOK_EVENT_POST_TOOL_USE, None),
+                (HOOK_EVENT_STOP, None),
+            ]
+        );
+        assert!(entries
+            .iter()
+            .all(|(_, _, command)| command.contains("\"agent\":\"codex\"") && command.ends_with("exit 0")));
+
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CODEX, serde_json::json!({}), USER_LEVEL_IN_BAND_EMITTER);
+        assert_eq!(
+            injected["hooks"]["Stop"][0]["hooks"][0]["timeout"],
+            CODEX_HOOK_COMMAND_TIMEOUT_SECONDS
+        );
+        assert_eq!(injected["hooks"]["Stop"][0]["hooks"][0]["type"], HOOK_HANDLER_TYPE_COMMAND);
+        assert!(agent_hook_entries_match(AGENT_NAME_CODEX, &injected, USER_LEVEL_IN_BAND_EMITTER));
+    }
+
+    #[test]
+    fn claude_항목에는_timeout_필드가_없다() {
+        let injected = inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, serde_json::json!({}), HookEmitter::DevTty);
+        assert!(injected["hooks"]["Stop"][0]["hooks"][0].get("timeout").is_none());
+    }
+
+    #[test]
+    fn codex_인밴드_주입은_멱등이고_사용자_항목을_보존한다() {
+        let existing = serde_json::json!({
+            "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "echo mine" }] }] }
+        });
+        let once = inject_taide_agent_hook_entries(AGENT_NAME_CODEX, existing, USER_LEVEL_IN_BAND_EMITTER);
+        let twice = inject_taide_agent_hook_entries(AGENT_NAME_CODEX, once.clone(), USER_LEVEL_IN_BAND_EMITTER);
+
+        assert_eq!(once, twice);
+        let stop_entries = twice["hooks"]["Stop"].as_array().expect("stop entries");
+        assert_eq!(stop_entries.len(), 2);
+        assert_eq!(stop_entries[0]["hooks"][0]["command"], "echo mine");
+
+        let removed = remove_taide_agent_hook_entries(AGENT_NAME_CODEX, twice);
+        assert_eq!(removed["hooks"]["Stop"].as_array().expect("stop entries").len(), 1);
+        assert!(!has_taide_marker_anywhere(&removed));
+    }
+
+    #[test]
+    fn 소유_파일_소스는_마커_헤더와_이벤트_시퀀스_표를_담는다() {
+        for agent_name in [AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            let source = build_owned_hook_file_source(agent_name).expect("plugin source");
+
+            assert!(is_owned_hook_file(&source), "{agent_name}: 자기가 쓴 파일을 자기 것으로 알아본다");
+            assert!(
+                source.contains(OWNED_HOOK_FILE_MAP_NAME),
+                "{agent_name}: 본문이 시퀀스 표를 참조한다"
+            );
+            assert!(
+                source.contains(AGENT_PROTOCOL_VERSION_ENV_NAME),
+                "{agent_name}: TAIDE 밖에서는 아무것도 내지 않는다"
+            );
+            assert!(
+                !source.contains('\u{1b}'),
+                "{agent_name}: 제어 바이트는 JSON 이스케이프로만 들어간다"
+            );
+
+            for binding in agent_hooks(agent_name).unwrap().bindings {
+                let sequence = agent_osc_sequence(&agent_event_payload(agent_name, binding.event));
+                let line = format!(
+                    "    {}: {},",
+                    serde_json::Value::String(binding.hook_event.to_string()),
+                    serde_json::Value::String(sequence.clone())
+                );
+                assert!(source.contains(&line), "{agent_name}: {} 행이 없다", binding.hook_event);
+
+                let scanned = crate::infra::terminal_scan::scan_once(sequence.as_bytes());
+                assert_eq!(
+                    scanned.events,
+                    vec![ScanEvent::AgentEvent(agent_event_payload(agent_name, binding.event))],
+                    "{agent_name}: {} 시퀀스를 스캐너가 되읽지 못한다",
+                    binding.hook_event
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn 소유_판정은_첫_줄의_마커만_본다() {
+        let owned = build_owned_hook_file_source(AGENT_NAME_OPENCODE).expect("plugin source");
+        assert!(is_owned_hook_file(&owned));
+
+        assert!(
+            !is_owned_hook_file(&format!("export const Mine = async () => ({{}})\n// {OWNED_HOOK_FILE_MARKER}\n")),
+            "본문에 마커를 언급한 남의 플러그인을 소유로 보면 안 된다"
+        );
+        assert!(!is_owned_hook_file(""));
+        assert!(!is_owned_hook_file("export const Mine = async () => ({})\n"));
+    }
+
+    #[test]
+    fn 훅이_없는_에이전트는_항목도_소유_파일도_만들지_않는다() {
+        assert!(agent_hook_entries("bash", HookEmitter::DevTty).is_empty());
+        assert!(build_owned_hook_file_source("bash").is_none());
+        assert!(build_owned_hook_file_source(AGENT_NAME_CLAUDE).is_none());
+        assert!(build_owned_hook_file_source(AGENT_NAME_GEMINI).is_none());
+    }
+
     /// The emitted sequence has to survive the round trip TAIDE actually performs: Claude parses the
     /// hook's stdout as JSON, writes `terminalSequence` to the pty, and the scanner reads it back.
     #[cfg(unix)]
     #[test]
     fn 훅_명령을_실행하면_스캐너가_읽는_시퀀스가_나온다() {
-        let command = build_claude_agent_hook_command(AgentEvent::PermissionRequest, HookEmitter::TerminalSequence);
+        let command = build_agent_hook_command(AGENT_NAME_CLAUDE, AgentEvent::PermissionRequest, HookEmitter::TerminalSequence);
         let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(&command)
@@ -2404,10 +3544,13 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
         let scanned = crate::infra::terminal_scan::scan_once(sequence.as_bytes());
         assert_eq!(
             scanned.events,
-            vec![ScanEvent::AgentEvent(claude_agent_event_payload(AgentEvent::PermissionRequest))]
+            vec![ScanEvent::AgentEvent(agent_event_payload(
+                AGENT_NAME_CLAUDE,
+                AgentEvent::PermissionRequest
+            ))]
         );
         assert_eq!(
-            parse_agent_event_body(&claude_agent_event_payload(AgentEvent::PermissionRequest)),
+            parse_agent_event_body(&agent_event_payload(AGENT_NAME_CLAUDE, AgentEvent::PermissionRequest)),
             Some((AGENT_NAME_CLAUDE.to_string(), AgentEvent::PermissionRequest))
         );
     }
@@ -2416,7 +3559,7 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
     #[test]
     fn taide_밖에서_실행된_훅_명령은_아무것도_내지_않는다() {
         for emitter in [HookEmitter::TerminalSequence, HookEmitter::DevTty] {
-            let command = build_claude_agent_hook_command(AgentEvent::Stop, emitter);
+            let command = build_agent_hook_command(AGENT_NAME_CLAUDE, AgentEvent::Stop, emitter);
             let output = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(&command)
@@ -2426,6 +3569,39 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
 
             assert!(output.status.success(), "훅은 언제나 0 으로 끝난다");
             assert!(output.stdout.is_empty(), "env 게이트가 닫히면 출력이 없어야 한다");
+        }
+    }
+
+    #[test]
+    fn 프로젝트_오버라이드는_http_훅_에이전트만_쓴다() {
+        assert!(uses_project_hook_override(AGENT_NAME_GEMINI));
+        for agent_name in [AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            assert!(
+                !uses_project_hook_override(agent_name),
+                "{agent_name} 은 인밴드라 프로젝트 전역 오버라이드를 빌리지 않는다"
+            );
+        }
+        assert!(!uses_project_hook_override("bash"));
+    }
+
+    #[test]
+    fn taide_cli_전제는_http_전달_에이전트에만_붙는다() {
+        assert!(requires_taide_cli(AGENT_NAME_GEMINI), "shim 커맨드가 CLI 절대경로를 부른다");
+        for agent_name in [AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_OPENCODE, AGENT_NAME_PI] {
+            assert!(
+                !requires_taide_cli(agent_name),
+                "{agent_name} 의 인밴드 설치는 CLI 도 hooks 서버도 필요 없다"
+            );
+        }
+        assert!(!requires_taide_cli("bash"));
+
+        for spec in AGENT_SPECS {
+            assert_eq!(
+                requires_taide_cli(spec.name),
+                spec.hooks.is_some_and(|hooks| hooks.delivery == HookDelivery::Http),
+                "{}: 프론트가 읽는 값은 표의 delivery 를 그대로 따라가야 한다",
+                spec.name
+            );
         }
     }
 
@@ -2501,7 +3677,7 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
         }
 
         fn osc777(event: AgentEvent) -> Vec<u8> {
-            agent_osc_sequence(&claude_agent_event_payload(event)).into_bytes()
+            agent_osc_sequence(&agent_event_payload(AGENT_NAME_CLAUDE, event)).into_bytes()
         }
 
         #[test]
@@ -2652,20 +3828,24 @@ printf '\\033]777;notify;taide-agent;{\"v\":1,\"agent\":\"claude\",\"event\":\"s
 
             let glyph_only = scanner.scan(RAW_SPINNER_GLYPH_FRAME);
             assert!(
-                !is_substantive_output(&glyph_only.text),
+                !is_substantive_output(AGENT_NAME_CLAUDE, &glyph_only.text),
                 "글리프 한 글자 프레임: {:?}",
                 glyph_only.text
             );
 
             let counter = scanner.scan(RAW_SPINNER_COUNTER_FRAME);
-            assert!(is_substantive_output(&counter.text), "경과 카운터 프레임: {:?}", counter.text);
+            assert!(
+                is_substantive_output(AGENT_NAME_CLAUDE, &counter.text),
+                "경과 카운터 프레임: {:?}",
+                counter.text
+            );
         }
 
         #[test]
         fn 실물_타이틀_시퀀스는_시작_작업_종료_글리프로_해석된다() {
             let mut scanner = OutputScanner::new();
             let glyph_of = |scanner: &mut OutputScanner, raw: &[u8]| match scanner.scan(raw).events.as_slice() {
-                [ScanEvent::Title(title)] => parse_title_glyph(title),
+                [ScanEvent::Title(title)] => parse_title_glyph(AGENT_NAME_CLAUDE, title),
                 other => panic!("타이틀 이벤트 하나를 기대했다: {other:?}"),
             };
 

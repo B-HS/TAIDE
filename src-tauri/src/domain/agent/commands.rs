@@ -82,7 +82,7 @@ impl AgentStore {
     /// cannot catch on its own: it only drops sessions that ran *no* agent on a tick, so a handoff
     /// with no shell in between would leave the old agent's dialog latch and signature table
     /// speaking for the new one.
-    pub fn classify_session_activity(&self, session_id: &str, agent_name: &'static str) -> AgentActivity {
+    pub fn classify_session_state(&self, session_id: &str, agent_name: &'static str) -> service::SessionState {
         let mut guard = self.0.lock();
         let previous = last_known_activity(&guard, session_id);
         let signals = guard
@@ -92,7 +92,7 @@ impl AgentStore {
         if signals.agent_name != agent_name {
             *signals = service::AgentSessionSignals::new(agent_name);
         }
-        service::classify_session(signals, previous, Instant::now())
+        service::classify_session_state(signals, previous, Instant::now())
     }
 
     /// Folds one scanned pty chunk into the session's signals. Runs on the pty reader thread for
@@ -379,21 +379,32 @@ pub async fn detect_agents_for_pids_blocking(
         .map_err(|error| AppError::Internal(error.to_string()))
 }
 
-/// The session's own signals decide. Only a session that has produced no signal at all falls back
-/// to the hook bridge's project-scoped override, and Claude does not even do that: its events now
-/// arrive in-band per session, so a stale project-wide override must not speak for it. Codex and
-/// gemini keep the fallback — their HTTP hooks are unchanged this batch.
-pub fn resolve_activity(
+/// The session's own signals decide. Only a session that has produced no signal at all falls back to
+/// the hook bridge's project-scoped override, and only for an agent that actually delivers its
+/// events through that bridge (`service::uses_project_hook_override`) — an agent whose events arrive
+/// in-band per session must not be spoken for by a stale project-wide answer.
+///
+/// The fallback carries no `blocked_reason`: the override is one activity per project, recorded
+/// from an HTTP hook that has already been mapped to it (`service::map_hook_event_to_activity`), so
+/// there is no session latch to read a reason off. Reporting `AwaitingInput` with no reason is the
+/// honest answer there.
+pub fn resolve_state(
     agents: &AgentStore,
     hooks_store: &AgentHooksStore,
     project_id: &ProjectId,
     probe: &service::DetectedAgentProbe,
-) -> AgentActivity {
-    let activity = agents.classify_session_activity(&probe.session_id, probe.name);
-    if activity != AgentActivity::Unknown || probe.name == AGENT_NAME_CLAUDE {
-        return activity;
+) -> service::SessionState {
+    let state = agents.classify_session_state(&probe.session_id, probe.name);
+    if state.activity != AgentActivity::Unknown || !service::uses_project_hook_override(probe.name) {
+        return state;
     }
-    hooks_store.fresh_project_override(project_id, probe.name).unwrap_or(activity)
+    match hooks_store.fresh_project_override(project_id, probe.name) {
+        Some(activity) => service::SessionState {
+            activity,
+            blocked_reason: None,
+        },
+        None => state,
+    }
 }
 
 pub fn build_detected_agents(
@@ -405,12 +416,13 @@ pub fn build_detected_agents(
     probes
         .into_iter()
         .map(|probe| {
-            let activity = resolve_activity(agents, hooks_store, project_id, &probe);
+            let state = resolve_state(agents, hooks_store, project_id, &probe);
             DetectedAgent {
                 session_id: probe.session_id,
                 name: probe.name.to_string(),
                 pid: probe.pid,
-                activity,
+                activity: state.activity,
+                blocked_reason: state.blocked_reason,
             }
         })
         .collect()
@@ -590,9 +602,45 @@ pub(super) fn write_user_level_hooks(path: &Path, value: &serde_json::Value) -> 
     write_hooks_file_preserving_mode(path, value)
 }
 
+/// Reads a file TAIDE owns whole, `None` when it is not there. Unlike the JSON installs there is
+/// nothing to parse — ownership is decided by the first line (`service::is_owned_hook_file`), and a
+/// file failing that check belongs to somebody else whatever is in it.
+pub(super) fn read_owned_hook_file(path: &Path) -> AppResult<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(AppError::from(error)),
+    }
+}
+
+/// Writes a plugin/extension file, creating the directory when the agent has not made one yet.
+/// Deliberately *not* `write_private_atomic`: this file carries no server token (that is the point
+/// of the in-band install) and sits among the user's own plugins, so narrowing it to `0600` would
+/// make TAIDE's the odd one out in a directory the agent reads.
+pub(super) fn write_owned_hook_file(path: &Path, source: &str) -> AppResult<()> {
+    crate::infra::persist::write_atomic_preserving_mode(path, source.as_bytes())
+}
+
+/// Deletes a file TAIDE owns. A missing file and a file owned by somebody else are both a quiet
+/// no-op — uninstall must never remove a plugin TAIDE did not write.
+pub(super) fn remove_owned_hook_file(path: &Path) -> AppResult<()> {
+    let Some(existing) = read_owned_hook_file(path)? else {
+        return Ok(());
+    };
+    if !service::is_owned_hook_file(&existing) {
+        return Ok(());
+    }
+    std::fs::remove_file(path).map_err(AppError::from)
+}
+
 fn resolve_user_level_hooks_installed(agent_name: &str) -> AppResult<bool> {
     let home = home::home_dir_env();
     let path = service::user_level_hooks_path(agent_name, home.as_deref())?;
+
+    if service::hook_install_shape(agent_name)? == service::HookInstallShape::OwnedFile {
+        return Ok(read_owned_hook_file(&path)?.is_some_and(|source| service::is_owned_hook_file(&source)));
+    }
+
     match std::fs::read_to_string(&path) {
         Ok(text) => {
             let value: serde_json::Value = serde_json::from_str(&text)?;
@@ -724,11 +772,12 @@ pub async fn agent_hooks_status(state: State<'_, AppState>, project_id: ProjectI
         HookInstallScope::Project => {
             let root = project_root(&state, &project_id)?;
             let value = read_settings_local(&root)?;
-            service::has_taide_hook_entries(&value)
+            service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &value)
         }
         HookInstallScope::User => resolve_user_level_hooks_installed(&agent_name)?,
     };
     Ok(AgentHooksStatus {
+        requires_taide_cli: service::requires_taide_cli(&agent_name),
         agent_name,
         scope,
         installed,
@@ -752,34 +801,53 @@ pub async fn agent_hooks_install(
             let root = project_root(&state, &project_id)?;
             let emitter = resolve_claude_hook_emitter().await;
             let value = read_settings_local(&root)?;
-            let value = service::inject_taide_claude_command_hook_entries(value, emitter);
+            let value = service::inject_taide_agent_hook_entries(&agent_name, value, emitter);
             write_settings_local(&root, &value)?;
-            Ok(AgentHooksStatus {
-                agent_name,
-                scope,
-                installed: true,
-            })
         }
-        HookInstallScope::User => {
-            if !resolve_cli_install_status().installed {
-                return Err(AppError::InvalidArgument("taide CLI is not installed yet".to_string()));
-            }
-            let server = hooks::ensure_hooks_server_started(&app).await?;
-            let hook_url = hooks::build_hook_url(&server, &agent_name);
-            let command = service::build_command_hook_shell_command(TAIDE_CLI_TARGET_PATH, &hook_url);
-            let events = service::managed_hook_events_for(&agent_name);
-            let timeout = service::user_level_hook_command_timeout(&agent_name);
-            let path = service::user_level_hooks_path(&agent_name, home::home_dir_env().as_deref())?;
-            let value = read_user_level_hooks(&path)?;
-            let value = service::inject_taide_command_hook_entries(value, events, &command, timeout);
-            write_user_level_hooks(&path, &value)?;
-            Ok(AgentHooksStatus {
-                agent_name,
-                scope,
-                installed: true,
-            })
-        }
+        HookInstallScope::User => install_user_level_hooks(&app, &agent_name).await?,
     }
+
+    Ok(AgentHooksStatus {
+        requires_taide_cli: service::requires_taide_cli(&agent_name),
+        agent_name,
+        scope,
+        installed: true,
+    })
+}
+
+/// The three user-level installs, picked by the agent's own spec rather than by its name: an owned
+/// plugin file, in-band JSON rows, or the HTTP shim rows.
+///
+/// Only the HTTP shape needs the `taide` CLI and the hooks server — its rows run
+/// `"<cli>" hook --url "<url>"`, so without the symlink every hook event would die silently. The
+/// in-band shapes run a `printf` with a constant payload and need neither.
+async fn install_user_level_hooks(app: &tauri::AppHandle, agent_name: &str) -> AppResult<()> {
+    let path = service::user_level_hooks_path(agent_name, home::home_dir_env().as_deref())?;
+
+    if service::hook_install_shape(agent_name)? == service::HookInstallShape::OwnedFile {
+        let source = service::build_owned_hook_file_source(agent_name)
+            .ok_or_else(|| AppError::Internal(format!("agent has no plugin source: {agent_name}")))?;
+        if read_owned_hook_file(&path)?.is_some_and(|existing| !service::is_owned_hook_file(&existing)) {
+            return Err(AppError::InvalidArgument(format!("{} is not a TAIDE-managed file", path.display())));
+        }
+        return write_owned_hook_file(&path, &source);
+    }
+
+    let value = read_user_level_hooks(&path)?;
+    let value = if service::uses_project_hook_override(agent_name) {
+        if !resolve_cli_install_status().installed {
+            return Err(AppError::InvalidArgument("taide CLI is not installed yet".to_string()));
+        }
+        let server = hooks::ensure_hooks_server_started(app).await?;
+        let hook_url = hooks::build_hook_url(&server, agent_name);
+        let command = service::build_command_hook_shell_command(TAIDE_CLI_TARGET_PATH, &hook_url);
+        let events = service::managed_hook_events_for(agent_name);
+        let timeout = service::user_level_hook_command_timeout(agent_name);
+        service::inject_taide_command_hook_entries(value, events, &command, timeout)
+    } else {
+        service::inject_taide_agent_hook_entries(agent_name, value, service::USER_LEVEL_IN_BAND_EMITTER)
+    };
+    write_user_level_hooks(&path, &value)
 }
 
 #[tauri::command]
@@ -790,22 +858,26 @@ pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: Proje
         HookInstallScope::Project => {
             let root = project_root(&state, &project_id)?;
             let value = read_settings_local(&root)?;
-            if service::has_taide_hook_entries(&value) {
-                let value = service::remove_taide_hook_entries(value);
+            if service::has_taide_agent_hook_entries(&agent_name, &value) {
+                let value = service::remove_taide_agent_hook_entries(&agent_name, value);
                 write_settings_local(&root, &value)?;
             }
         }
         HookInstallScope::User => {
             let path = service::user_level_hooks_path(&agent_name, home::home_dir_env().as_deref())?;
-            let value = read_user_level_hooks(&path)?;
-            if service::has_taide_marker_anywhere(&value) {
-                let events = service::managed_hook_events_for(&agent_name);
-                let value = service::remove_taide_command_hook_entries(value, events);
-                write_user_level_hooks(&path, &value)?;
+            if service::hook_install_shape(&agent_name)? == service::HookInstallShape::OwnedFile {
+                remove_owned_hook_file(&path)?;
+            } else {
+                let value = read_user_level_hooks(&path)?;
+                if service::has_taide_marker_anywhere(&value) {
+                    let value = service::remove_taide_agent_hook_entries(&agent_name, value);
+                    write_user_level_hooks(&path, &value)?;
+                }
             }
         }
     }
     Ok(AgentHooksStatus {
+        requires_taide_cli: service::requires_taide_cli(&agent_name),
         agent_name,
         scope,
         installed: false,
@@ -928,7 +1000,7 @@ mod tests {
 
     #[test]
     fn 세션의_에이전트가_바뀌면_이전_에이전트의_신호를_버린다() {
-        use crate::domain::agent::types::AGENT_NAME_CODEX;
+        use crate::domain::agent::types::{BlockedReason, AGENT_NAME_CODEX};
 
         let store = AgentStore::new();
         let dialog = ScanOutcome {
@@ -937,16 +1009,22 @@ mod tests {
             overlap: String::new(),
         };
 
-        store.classify_session_activity("session-1", AGENT_NAME_CLAUDE);
+        store.classify_session_state("session-1", AGENT_NAME_CLAUDE);
         store.record_scan("session-1", &dialog);
         assert_eq!(
-            store.classify_session_activity("session-1", AGENT_NAME_CLAUDE),
-            AgentActivity::AwaitingInput
+            store.classify_session_state("session-1", AGENT_NAME_CLAUDE),
+            service::SessionState {
+                activity: AgentActivity::AwaitingInput,
+                blocked_reason: Some(BlockedReason::Dialog),
+            }
         );
 
         assert_eq!(
-            store.classify_session_activity("session-1", AGENT_NAME_CODEX),
-            AgentActivity::Unknown,
+            store.classify_session_state("session-1", AGENT_NAME_CODEX),
+            service::SessionState {
+                activity: AgentActivity::Unknown,
+                blocked_reason: None,
+            },
             "에이전트가 바뀐 세션에 이전 에이전트의 다이얼로그 래치가 남으면 안 된다"
         );
     }

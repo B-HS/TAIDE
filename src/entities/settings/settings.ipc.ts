@@ -50,6 +50,7 @@ export const emptySettingsPatch = (): SettingsPatch => ({
     notificationsEnabled: null,
     notificationsOnlyWhenUnfocused: null,
     notifyAgentCompleted: null,
+    notifyAgentAwaitingInput: null,
     notifyTaskCompleted: null,
     notifyGitRemote: null,
     notifySearchReplace: null,

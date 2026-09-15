@@ -137,6 +137,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         notifications_enabled: Some(settings.notifications_enabled),
         notifications_only_when_unfocused: Some(settings.notifications_only_when_unfocused),
         notify_agent_completed: Some(settings.notify_agent_completed),
+        notify_agent_awaiting_input: Some(settings.notify_agent_awaiting_input),
         notify_task_completed: Some(settings.notify_task_completed),
         notify_git_remote: Some(settings.notify_git_remote),
         notify_search_replace: Some(settings.notify_search_replace),
@@ -449,11 +450,12 @@ mod tests {
     }
 
     #[test]
-    fn settings_to_sync_patch는_알림_설정_8종을_전부_포함한다() {
+    fn settings_to_sync_patch는_알림_설정_9종을_전부_포함한다() {
         let settings = Settings {
             notifications_enabled: false,
             notifications_only_when_unfocused: false,
             notify_agent_completed: false,
+            notify_agent_awaiting_input: false,
             notify_task_completed: false,
             notify_git_remote: false,
             notify_search_replace: false,
@@ -467,6 +469,7 @@ mod tests {
         assert_eq!(patch.notifications_enabled, Some(false));
         assert_eq!(patch.notifications_only_when_unfocused, Some(false));
         assert_eq!(patch.notify_agent_completed, Some(false));
+        assert_eq!(patch.notify_agent_awaiting_input, Some(false));
         assert_eq!(patch.notify_task_completed, Some(false));
         assert_eq!(patch.notify_git_remote, Some(false));
         assert_eq!(patch.notify_search_replace, Some(false));

@@ -12,6 +12,12 @@ use specta::Type;
 #[serde(rename_all = "camelCase")]
 pub enum NotificationCategory {
     AgentCompleted,
+    /// An agent stopping to ask for something — a permission approval or a question — as opposed to
+    /// finishing its turn. Split off `AgentCompleted` in d-60 because the two want different
+    /// answers: a finished turn is a result the user can read later, while a blocked one is a
+    /// prompt that holds the agent until they come back, and a user who wants only one of those
+    /// notifications had no way to say so while a single switch covered both.
+    AgentAwaitingInput,
     TaskCompleted,
     GitRemote,
     SearchReplace,
