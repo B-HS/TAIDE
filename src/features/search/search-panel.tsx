@@ -47,6 +47,12 @@ type SearchPanelProps = {
     history: string[]
     onSelectHistory: (term: string) => void
     onSubmit: () => void
+    /**
+     * Whether the container runs the query as the user types (`settings.searchOnType`). Only the
+     * idle hint changes: "press Enter" is wrong copy once results already follow typing, but Enter
+     * still runs immediately and is still the only trigger that records history.
+     */
+    isLiveSearch: boolean
     status: SearchRunStatus
     totalMatches: number
     isTruncated: boolean
@@ -82,6 +88,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
     history,
     onSelectHistory,
     onSubmit,
+    isLiveSearch,
     status,
     totalMatches,
     isTruncated,
@@ -242,7 +249,7 @@ export const SearchPanel: FC<SearchPanelProps> = ({
                     {view === 'hint' && (
                         <div className='text-app-sidebar-icon-default flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
                             <Search className='size-5 opacity-60' />
-                            {t('search.pressEnterHint')}
+                            {t(isLiveSearch ? 'search.liveSearchHint' : 'search.pressEnterHint')}
                         </div>
                     )}
                     {view === 'empty' && (

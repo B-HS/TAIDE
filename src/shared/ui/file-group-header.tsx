@@ -1,8 +1,9 @@
 import type { FC } from 'react'
-import { ChevronRight, File } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { cn } from '@shared/lib/cn'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
 import { fileNameOf } from '@shared/lib/relative-path'
+import { FileTypeIcon } from '@shared/icons/file-type-icon'
 import { Checkbox } from '@shared/ui/checkbox'
 
 type FileGroupHeaderProps = {
@@ -26,7 +27,7 @@ export const FileGroupHeader: FC<FileGroupHeaderProps> = ({ path, count, expande
             onKeyDown={createActivationKeyDownHandler(onToggle)}
             className={cn('flex flex-1 items-center gap-1 py-0.5 pr-2', onToggleSelect ? 'pl-1' : 'pl-2')}>
             <ChevronRight className={cn('size-3 shrink-0', expanded && 'rotate-90')} />
-            <File className='size-3.5 shrink-0 opacity-80' />
+            <FileTypeIcon fileName={fileNameOf(path)} className='size-3.5 shrink-0' />
             <span className='truncate font-medium'>{fileNameOf(path)}</span>
             <span className='text-app-sidebar-icon-default truncate'>{path}</span>
             <span className='text-app-sidebar-icon-default ml-auto shrink-0 tabular-nums'>{count}</span>

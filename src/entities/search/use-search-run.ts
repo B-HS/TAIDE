@@ -11,6 +11,13 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 
 type RunSearchOptions = {
     recordHistory: boolean
+    /**
+     * Whether this run was started by typing rather than by an explicit submit. A live run reports
+     * a failure only through the surface's own `failed` view, because the failure it hits in
+     * practice is a regex that is merely *half typed* (`(foo` on the way to `(foo)`): toasting it
+     * would stack an error notification per keystroke for a query the user is still writing.
+     */
+    live?: boolean
 }
 
 const DEFAULT_RUN_SEARCH_OPTIONS: RunSearchOptions = { recordHistory: true }
@@ -151,7 +158,7 @@ export const useSearchRun = (projectId: ProjectId, sessionId: string, initialSna
             })
             .catch((error: unknown) => {
                 if (generationRef.current !== generation) return
-                toast.error(describeIpcError(error))
+                if (!options.live) toast.error(describeIpcError(error))
                 setStatus('failed')
             })
     }

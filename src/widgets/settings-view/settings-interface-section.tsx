@@ -12,6 +12,12 @@ import { SettingsSection } from '@features/settings/settings-section'
 import { SwitchField } from '@features/settings/switch-field'
 import { ToastPositionPicker } from '@features/settings/toast-position-picker'
 import { DEFAULT_RESIZER_THICKNESS, MAX_RESIZER_THICKNESS, MIN_RESIZER_THICKNESS } from '@shared/constants/layout'
+import {
+    DEFAULT_SEARCH_ON_TYPE,
+    DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS,
+    MAX_SEARCH_ON_TYPE_DEBOUNCE_MS,
+    MIN_SEARCH_ON_TYPE_DEBOUNCE_MS,
+} from '@shared/constants/search'
 import { DEFAULT_TOAST_POSITION } from '@shared/constants/toast'
 import type { Settings } from '@shared/api/bindings'
 
@@ -109,6 +115,25 @@ export const SettingsInterfaceSection: FC<SettingsInterfaceSectionProps> = ({ id
                 checked={settings.zenHideStatusBar ?? true}
                 onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), zenHideStatusBar: checked })}
             />
+            <div className='border-app-border flex flex-col gap-3 border-t pt-3'>
+                <span className='text-app-foreground text-xs font-medium'>{t('search.title')}</span>
+                <SwitchField
+                    label={t('settings.searchOnType')}
+                    description={t('settings.searchOnTypeDescription')}
+                    checked={settings.searchOnType ?? DEFAULT_SEARCH_ON_TYPE}
+                    onCheckedChange={(checked) => updateSettings({ ...emptySettingsPatch(), searchOnType: checked })}
+                />
+                <div className='flex flex-col gap-1'>
+                    <NumericField
+                        label={t('settings.searchOnTypeDebounceMs')}
+                        value={settings.searchOnTypeDebounceMs ?? DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS}
+                        min={MIN_SEARCH_ON_TYPE_DEBOUNCE_MS}
+                        max={MAX_SEARCH_ON_TYPE_DEBOUNCE_MS}
+                        onCommit={(value) => updateSettings({ ...emptySettingsPatch(), searchOnTypeDebounceMs: value })}
+                    />
+                    <span className='text-app-sidebar-icon-default text-xs'>{t('settings.searchOnTypeDebounceMsDescription')}</span>
+                </div>
+            </div>
         </SettingsSection>
     )
 }
