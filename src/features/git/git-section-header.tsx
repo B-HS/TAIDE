@@ -20,6 +20,13 @@ export type GitSectionHeaderAction = {
  */
 export const GIT_SECTION_ROW_INDENT_CLASS = 'pl-4'
 
+/**
+ * The `h-6` the header below renders at, in pixels. Exported because the commit graph's pane
+ * collapses to exactly its own header (`collapsedSize`, `git-panel.tsx`), so that number has to
+ * come from the header rather than being guessed next to it.
+ */
+export const GIT_SECTION_HEADER_HEIGHT_PX = 24
+
 type GitSectionHeaderProps = {
     title: string
     count: number

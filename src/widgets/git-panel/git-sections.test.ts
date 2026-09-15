@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { StatusRow } from '@shared/api/bindings'
-import type { GitSectionId } from '@entities/git/git-section-collapse-memory'
-import { GIT_SECTION_DEFAULT_COLLAPSED } from '@entities/git/git-section-collapse-memory'
+import type { GitSectionId } from '@entities/git/git-section'
+import { GIT_SECTION_DEFAULT_COLLAPSED } from '@entities/git/git-section'
 import { buildGitSections } from '@widgets/git-panel/git-sections'
 
 const rowOf = (path: string, overrides: Partial<StatusRow> = {}): StatusRow => ({

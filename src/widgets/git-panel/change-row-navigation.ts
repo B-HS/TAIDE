@@ -1,4 +1,4 @@
-import type { GitSectionId } from '@entities/git/git-section-collapse-memory'
+import type { GitSectionId } from '@entities/git/git-section'
 
 /** The resource groups whose headers and rows make up the panel's one virtualized change list. */
 export type GitChangeSectionId = Extract<GitSectionId, 'merge' | 'staged' | 'changes'>
@@ -82,13 +82,49 @@ export const parseGitRovingIndex = (value: string | null | undefined) => {
  * the bottom, mirroring the file tree's behavior. Movement clamps at both ends instead of wrapping.
  * Returns `-1` when there is nothing to focus so the caller can leave the event untouched.
  *
- * `rowCount` counts every roving item, not just the change rows: the virtualized change list first,
- * then the stash and graph section headers that follow it in the panel. Headers joined the sequence
- * when they became collapsible — leaving them out would have made their Stage All / Unstage All
- * actions reachable by mouse only, since those actions only reveal on hover or focus-within.
+ * `rowCount` counts every roving item of the scrolled pane, not just the change rows: the
+ * virtualized change list first, then the stash section header that follows it. Headers joined the
+ * sequence when they became collapsible — leaving them out would have made their Stage All /
+ * Unstage All actions reachable by mouse only, since those actions only reveal on hover or
+ * focus-within. The graph header is no longer one of these items — see
+ * {@link resolveGitPanelFocusTarget}.
  */
 export const resolveNextChangeRowIndex = (key: 'ArrowDown' | 'ArrowUp', activeIndex: number, rowCount: number) => {
     if (rowCount <= 0) return -1
     if (activeIndex < 0) return key === 'ArrowDown' ? 0 : rowCount - 1
     return key === 'ArrowDown' ? Math.min(activeIndex + 1, rowCount - 1) : Math.max(activeIndex - 1, 0)
+}
+
+/** Where the panel's roving focus sits: an item of the scrolled pane (by index) or the graph pane's header. */
+export type GitPanelFocusTarget = { kind: 'item'; index: number } | { kind: 'graph' }
+
+/**
+ * Extends {@link resolveNextChangeRowIndex} across the panel's two resizable panes (d-58 §1.H): the
+ * scrolled pane holds the change list and the stash section, the graph pane below the separator
+ * holds its own header and body. The graph header is therefore no longer an index in the
+ * virtualizer's space, but it is still one stop in the same top-to-bottom ↑↓ sequence, so the move
+ * *across* the separator has to be resolved here rather than by each pane's key handler.
+ *
+ * `origin` is `null` when focus sits outside every stop (a pane's scroll container itself), which
+ * enters the sequence at the top for ArrowDown and at the bottom — the graph header, when there is
+ * one — for ArrowUp. Movement clamps at both ends instead of wrapping, and `null` comes back when
+ * there is nothing to move to so the caller leaves the event untouched.
+ */
+export const resolveGitPanelFocusTarget = (
+    key: 'ArrowDown' | 'ArrowUp',
+    origin: GitPanelFocusTarget | null,
+    itemCount: number,
+    hasGraphPane: boolean,
+): GitPanelFocusTarget | null => {
+    if (origin?.kind === 'graph') {
+        if (key === 'ArrowDown') return null
+        return itemCount > 0 ? { kind: 'item', index: itemCount - 1 } : null
+    }
+    if (hasGraphPane && origin === null && key === 'ArrowUp') return { kind: 'graph' }
+    if (hasGraphPane && itemCount <= 0 && key === 'ArrowDown') return { kind: 'graph' }
+
+    const index = resolveNextChangeRowIndex(key, origin?.index ?? -1, itemCount)
+    if (index < 0) return null
+    if (hasGraphPane && key === 'ArrowDown' && origin !== null && index === origin.index) return { kind: 'graph' }
+    return { kind: 'item', index }
 }

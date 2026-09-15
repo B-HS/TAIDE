@@ -2,7 +2,10 @@ import type { GitBranch as GitBranchInfo, GitRemote, GitStashEntry, ProjectId, S
 import type { FC, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
+import { Group, Panel, usePanelRef } from 'react-resizable-panels'
+import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import { Archive, ArrowDown, ArrowUp, Loader2, RefreshCw } from 'lucide-react'
 import { BranchSwitcher } from '@features/git/branch-switcher'
 import {
@@ -20,20 +23,26 @@ import { IconButton } from '@shared/ui/icon-button'
 import { CommitBox } from '@features/git/commit-box'
 import type { GitChangeGroupConfig, GitDiffTarget } from '@features/git/git-change-group'
 import { buildGitChangeGroupConfig } from '@features/git/git-change-group'
-import { GIT_SECTION_ROW_INDENT_CLASS, GitSectionHeader } from '@features/git/git-section-header'
+import { GIT_SECTION_HEADER_HEIGHT_PX, GIT_SECTION_ROW_INDENT_CLASS, GitSectionHeader } from '@features/git/git-section-header'
+import { PaneSeparator } from '@features/split/pane-separator'
 import { StatusRowItem } from '@features/git/status-row-item'
 import { StashList } from '@features/git/stash-list'
+import { DEFAULT_RESIZER_THICKNESS, MIN_PANEL_SIZE_PX, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
-import type { GitSectionId } from '@entities/git/git-section-collapse-memory'
-import { readGitSectionCollapseState, writeGitSectionCollapsed } from '@entities/git/git-section-collapse-memory'
-import type { GitChangeSectionId } from '@widgets/git-panel/change-row-navigation'
+import { DEFAULT_GIT_GRAPH_PANEL_SIZE_PX } from '@entities/git/git.constant'
+import type { GitSectionId } from '@entities/git/git-section'
+import { toGitSectionCollapsedIds, toGitSectionCollapsedMap } from '@entities/git/git-section'
+import { schedulePaneResizeCommit } from '@entities/layout/pane-resize-commit'
+import { emptySettingsPatch } from '@entities/settings/settings.ipc'
+import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
+import type { GitChangeSectionId, GitPanelFocusTarget } from '@widgets/git-panel/change-row-navigation'
 import {
     buildGitChangeListRows,
     GIT_ROVING_ITEM_SELECTOR,
     gitChangeListHeaderIndexes,
     gitRovingItemSelector,
     parseGitRovingIndex,
-    resolveNextChangeRowIndex,
+    resolveGitPanelFocusTarget,
     resolveStickyHeaderIndex,
 } from '@widgets/git-panel/change-row-navigation'
 import { CommitDetailPanel } from '@widgets/git-panel/commit-detail-panel'
@@ -51,6 +60,9 @@ export type GitRemoteInfo = GitRemote
 const GIT_CHANGE_ROW_HEIGHT_PX = 24
 
 const GIT_CHANGE_LIST_OVERSCAN = 12
+
+/** Debounce key for the graph pane's persisted height — one pane, so one entry in the shared timer map. */
+const GIT_GRAPH_PANEL_RESIZE_KEY = 'git:graph-panel'
 
 /**
  * The roving item that owns focus for a keyboard event, and where it sits in the panel's item
@@ -101,10 +113,16 @@ export type GitPanelProps = {
 }
 
 /**
+ * The panel body is a vertical resizable group: the change list and the stash section share the
+ * scrolled pane on top, the commit graph owns its own pane below the separator (d-58 §1.H). The
+ * graph used to sit inside the one scroll area with a hard-coded 320px viewport of its own, which
+ * swallowed a short panel, never grew in a tall one, and left the space a collapsed section gave
+ * back unused.
+ *
  * The three resource groups render as one virtualized list, and three invariants hold it together.
  *
  * - **The list is the first thing inside the scroll viewport.** The virtualizer measures against
- *   that viewport (the panel keeps a single scrollbar over changes, stashes and the graph), so the
+ *   that viewport (the top pane keeps a single scrollbar over the changes and the stashes), so the
  *   list's own offset inside it has to stay zero — anything inserted above it would need
  *   `scrollMargin` instead.
  * - **The top-most section header renders in flow, everything else absolutely.** A virtualized row
@@ -122,7 +140,9 @@ export type GitPanelProps = {
  *   items pointing at whichever file moved into that slot.
  *
  * Keyboard roving moves over item indexes rather than the mounted DOM, since only the rows inside
- * the virtual window exist: the change list first, then the stash and graph headers.
+ * the virtual window exist: the change list first, then the stash header. The graph header is the
+ * stop after those but lives in the other pane, so it is addressed by ref rather than by index
+ * (`resolveGitPanelFocusTarget`).
  */
 export const GitPanel: FC<GitPanelProps> = ({
     projectId,
@@ -161,15 +181,32 @@ export const GitPanel: FC<GitPanelProps> = ({
 }) => {
     const viewportRef = useRef<HTMLDivElement>(null)
     const sectionsRef = useRef<HTMLDivElement>(null)
+    const graphHeaderRef = useRef<HTMLDivElement>(null)
+    const graphPanelRef = usePanelRef()
     const pendingFocusIndexRef = useRef<number | null>(null)
 
     const [discardTargets, setDiscardTargets] = useState<string[] | null>(null)
     const [confirmStageAllOpen, setConfirmStageAllOpen] = useState(false)
     const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null)
-    const [collapsedSections, setCollapsedSections] = useState(readGitSectionCollapseState)
     const [contextMenuTarget, setContextMenuTarget] = useState<{ section: GitChangeSectionId; path: string } | null>(null)
 
     const { t } = useTranslation()
+    const { data: settings } = useQuery(settingsQueryOptions())
+    const { mutate: updateSettings } = useUpdateSettings()
+
+    /**
+     * The collapse map is component state with `Settings.gitSectionsCollapsed` as its write-through
+     * mirror, rather than being read straight back out of the settings cache (d-58 review G-2). That
+     * cache only moves when `settings_update` returns, so a toggle fired before that round trip
+     * landed still started from the map the previous one had read, and dropped it. The ref is what a
+     * toggle computes from: the state variable is a per-render snapshot, so two toggles dispatched
+     * inside one task would both start from whatever that render captured.
+     */
+    const [collapsedSections, setCollapsedSections] = useState(() => toGitSectionCollapsedMap(settings?.gitSectionsCollapsed))
+    const collapsedSectionsRef = useRef(collapsedSections)
+    const storedCollapseAdoptedRef = useRef(settings !== undefined)
+
+    const graphPanelSizePx = settings?.gitGraphPanelSizePx ?? DEFAULT_GIT_GRAPH_PANEL_SIZE_PX
 
     const { mergeRows, stagedRows, unstagedRows, sections, showNoChanges } = buildGitSections({
         rows,
@@ -237,8 +274,7 @@ export const GitPanel: FC<GitPanelProps> = ({
     const stickyHeaderIndex = resolveStickyHeaderIndex(headerIndexes, rowVirtualizer.range?.startIndex ?? 0)
 
     const stashesRovingIndex = listRows.length
-    const graphRovingIndex = listRows.length + (sections.stashes.visible ? 1 : 0)
-    const rovingItemCount = graphRovingIndex + (sections.graph.visible ? 1 : 0)
+    const rovingItemCount = listRows.length + (sections.stashes.visible ? 1 : 0)
 
     const contextMenuRow = contextMenuTarget
         ? (groupConfigs[contextMenuTarget.section].rows.find((row) => row.path === contextMenuTarget.path) ?? null)
@@ -246,10 +282,42 @@ export const GitPanel: FC<GitPanelProps> = ({
     const contextMenuEntries =
         contextMenuRow && contextMenuTarget ? groupConfigs[contextMenuTarget.section].buildContextMenuEntries(contextMenuRow) : []
 
-    const toggleSection = (id: GitSectionId) => {
-        const collapsed = !collapsedSections[id]
-        writeGitSectionCollapsed(id, collapsed)
-        setCollapsedSections({ ...collapsedSections, [id]: collapsed })
+    /**
+     * Collapse state survives the panel because it is persisted in `Settings` (d-58 §1.H, decision
+     * §2 #3): the panel only renders while the sidebar's git view is selected, so it was thrown away
+     * on every view switch, and again on every restart. Each change applies to the local map first
+     * and persists that whole map in the same step, so a burst of toggles keeps every one of them —
+     * the last write carries them all. A write that fails leaves the panel where the user put it and
+     * says so through `settings.saveFailed` (`settings.query.ts`).
+     */
+    const writeCollapsedSections = (collapsed: Record<GitSectionId, boolean>) => {
+        storedCollapseAdoptedRef.current = true
+        collapsedSectionsRef.current = collapsed
+        setCollapsedSections(collapsed)
+        updateSettings({ ...emptySettingsPatch(), gitSectionsCollapsed: toGitSectionCollapsedIds(collapsed) })
+    }
+
+    const toggleSection = (id: GitSectionId) => writeCollapsedSections({ ...collapsedSectionsRef.current, [id]: !collapsedSectionsRef.current[id] })
+
+    /**
+     * A drag that crosses `minSize` collapses the graph pane, which is the same state the header's
+     * chevron writes — recording it as a collapse is what keeps the two in step and stops the
+     * collapsed height from being stored as the user's preferred graph height. Anything else is a
+     * resize, debounced like every other pane resize in the app (`pane-resize-commit.ts`).
+     */
+    const handleGraphLayoutChanged = (_layout: Layout, meta: LayoutChangedMeta) => {
+        if (!meta.isUserInteraction) return
+        const panel = graphPanelRef.current
+        if (!panel) return
+        const collapsed = panel.isCollapsed()
+        const current = collapsedSectionsRef.current
+        if (collapsed !== current.graph) {
+            writeCollapsedSections({ ...current, graph: collapsed })
+            return
+        }
+        if (collapsed) return
+        const sizePx = Math.round(panel.getSize().inPixels)
+        schedulePaneResizeCommit(GIT_GRAPH_PANEL_RESIZE_KEY, () => updateSettings({ ...emptySettingsPatch(), gitGraphPanelSizePx: sizePx }))
     }
 
     const requestCommit = () => {
@@ -279,24 +347,49 @@ export const GitPanel: FC<GitPanelProps> = ({
         return target !== null
     }
 
+    const graphHeaderElement = () => resolveRovingFocusTarget(graphHeaderRef.current)
+
     const rovingItemOf = (target: EventTarget | null) =>
         target instanceof HTMLElement ? target.closest<HTMLElement>(GIT_ROVING_ITEM_SELECTOR) : null
 
+    const moveRovingFocus = (target: GitPanelFocusTarget) => {
+        if (target.kind === 'graph') {
+            graphHeaderElement()?.focus()
+            return
+        }
+        if (target.index < listRows.length) rowVirtualizer.scrollToIndex(target.index)
+        pendingFocusIndexRef.current = focusRovingItemNow(target.index) ? null : target.index
+    }
+
     /**
      * Arrow keys are left alone while focus sits on a control *inside* a roving item — a stash's
-     * Apply button, a commit row in the graph — since those belong to the section's own content,
-     * not to the panel's item sequence. Focus outside every item (the scroll container itself)
-     * still enters the sequence at the top or bottom.
+     * Apply button — since those belong to the section's own content, not to the panel's item
+     * sequence. Focus outside every item (the scroll container itself) still enters the sequence at
+     * the top or bottom.
      */
     const handleSectionsKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
         const item = rovingItemOf(event.target)
         if (item && resolveRovingFocusTarget(item) !== event.target) return
-        const nextIndex = resolveNextChangeRowIndex(event.key, parseGitRovingIndex(item?.dataset.gitRovingIndex), rovingItemCount)
-        if (nextIndex < 0) return
+        const index = parseGitRovingIndex(item?.dataset.gitRovingIndex)
+        const next = resolveGitPanelFocusTarget(event.key, index < 0 ? null : { kind: 'item', index }, rovingItemCount, sections.graph.visible)
+        if (!next) return
         event.preventDefault()
-        if (nextIndex < listRows.length) rowVirtualizer.scrollToIndex(nextIndex)
-        pendingFocusIndexRef.current = focusRovingItemNow(nextIndex) ? null : nextIndex
+        moveRovingFocus(next)
+    }
+
+    /**
+     * The graph pane's half of the same sequence. Only its header is a stop, so a key pressed on a
+     * commit row (or anywhere else in the pane's body) is left to that content — the rows used to be
+     * covered by the "inside a roving item" rule above, which no longer reaches across the separator.
+     */
+    const handleGraphPaneKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+        if (event.target !== graphHeaderElement()) return
+        const next = resolveGitPanelFocusTarget(event.key, { kind: 'graph' }, rovingItemCount, true)
+        if (!next) return
+        event.preventDefault()
+        moveRovingFocus(next)
     }
 
     const handleChangeListContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -320,6 +413,36 @@ export const GitPanel: FC<GitPanelProps> = ({
         if (pendingIndex === null) return
         if (focusRovingItemNow(pendingIndex)) pendingFocusIndexRef.current = null
     })
+
+    /**
+     * Adopts the stored collapse map when settings land after this mount — a cold start renders the
+     * panel before the settings query resolves, and its defaults would otherwise hold for the whole
+     * session. It runs at most once: once the user has toggled anything the local map is the newer
+     * answer, and the payload arriving here is normally the echo of the panel's own write.
+     */
+    useEffect(() => {
+        if (storedCollapseAdoptedRef.current || !settings) return
+        storedCollapseAdoptedRef.current = true
+        const stored = toGitSectionCollapsedMap(settings.gitSectionsCollapsed)
+        collapsedSectionsRef.current = stored
+        setCollapsedSections(stored)
+    }, [settings])
+
+    /**
+     * Pushes the stored collapse state into the graph pane, which has no controlled "collapsed"
+     * prop — the same external-widget sync `app-shell.tsx` does for the sidebar. Expanding goes
+     * through `resize` rather than `expand`: `expand` restores whatever size this session happens to
+     * remember, which is `minSize` for a pane that mounted collapsed, while the stored height is the
+     * answer the user actually gave. `sections.graph.visible` is a dependency because the pane is
+     * unmounted while the repository has no commits, so the sync has to run again when it returns.
+     */
+    useEffect(() => {
+        const panel = graphPanelRef.current
+        if (!panel) return
+        if (panel.isCollapsed() === collapsedSections.graph) return
+        if (collapsedSections.graph) panel.collapse()
+        else panel.resize(graphPanelSizePx)
+    }, [graphPanelRef, collapsedSections.graph, graphPanelSizePx, sections.graph.visible])
 
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
@@ -377,101 +500,124 @@ export const GitPanel: FC<GitPanelProps> = ({
                 blockedReason={commitGate === 'blockedByConflicts' ? t('git.commitBlockedByConflicts') : null}
             />
 
-            <ScrollContainer className='min-h-0 flex-1' viewportRef={viewportRef}>
-                <div ref={sectionsRef} role='group' aria-label={t('git.title')} onKeyDown={handleSectionsKeyDown}>
-                    <ContextMenu open={contextMenuRow !== null} onOpenChange={(open) => !open && setContextMenuTarget(null)}>
-                        <ContextMenuTrigger asChild>
-                            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }} onContextMenu={handleChangeListContextMenu}>
-                                {virtualRows.map((virtualRow) => {
-                                    const listRow = listRows[virtualRow.index]
-                                    const isSticky = virtualRow.index === stickyHeaderIndex
-                                    const style = isSticky
-                                        ? { position: 'sticky' as const, top: 0, width: '100%', height: virtualRow.size }
-                                        : {
-                                              position: 'absolute' as const,
-                                              top: 0,
-                                              left: 0,
-                                              width: '100%',
-                                              height: virtualRow.size,
-                                              transform: `translateY(${virtualRow.start}px)`,
-                                          }
+            <Group
+                orientation='vertical'
+                onLayoutChanged={handleGraphLayoutChanged}
+                resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
+                className='min-h-0 flex-1'>
+                <Panel id='git-changes' className='min-h-0'>
+                    <ScrollContainer className='h-full' viewportRef={viewportRef}>
+                        <div ref={sectionsRef} role='group' aria-label={t('git.title')} onKeyDown={handleSectionsKeyDown}>
+                            <ContextMenu open={contextMenuRow !== null} onOpenChange={(open) => !open && setContextMenuTarget(null)}>
+                                <ContextMenuTrigger asChild>
+                                    <div
+                                        style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}
+                                        onContextMenu={handleChangeListContextMenu}>
+                                        {virtualRows.map((virtualRow) => {
+                                            const listRow = listRows[virtualRow.index]
+                                            const isSticky = virtualRow.index === stickyHeaderIndex
+                                            const style = isSticky
+                                                ? { position: 'sticky' as const, top: 0, width: '100%', height: virtualRow.size }
+                                                : {
+                                                      position: 'absolute' as const,
+                                                      top: 0,
+                                                      left: 0,
+                                                      width: '100%',
+                                                      height: virtualRow.size,
+                                                      transform: `translateY(${virtualRow.start}px)`,
+                                                  }
 
-                                    if (listRow.kind === 'header') {
-                                        return (
-                                            <div key={virtualRow.key} data-git-roving-index={virtualRow.index} style={style}>
-                                                <GitSectionHeader
-                                                    title={groupConfigs[listRow.section].title}
-                                                    count={sections[listRow.section].count}
-                                                    expanded={!sections[listRow.section].collapsed}
-                                                    onToggle={() => toggleSection(listRow.section)}
-                                                    actions={groupConfigs[listRow.section].headerActions}
-                                                />
-                                            </div>
-                                        )
-                                    }
+                                            if (listRow.kind === 'header') {
+                                                return (
+                                                    <div key={virtualRow.key} data-git-roving-index={virtualRow.index} style={style}>
+                                                        <GitSectionHeader
+                                                            title={groupConfigs[listRow.section].title}
+                                                            count={sections[listRow.section].count}
+                                                            expanded={!sections[listRow.section].collapsed}
+                                                            onToggle={() => toggleSection(listRow.section)}
+                                                            actions={groupConfigs[listRow.section].headerActions}
+                                                        />
+                                                    </div>
+                                                )
+                                            }
 
-                                    const config = groupConfigs[listRow.section]
-                                    const row = config.rows[listRow.rowIndex]
+                                            const config = groupConfigs[listRow.section]
+                                            const row = config.rows[listRow.rowIndex]
 
-                                    return (
-                                        <div
-                                            key={virtualRow.key}
-                                            data-git-roving-index={virtualRow.index}
-                                            style={style}
-                                            className={GIT_SECTION_ROW_INDENT_CLASS}>
-                                            <StatusRowItem
-                                                path={row.path}
-                                                origPath={row.origPath}
-                                                kind={row.kind}
-                                                selected={false}
-                                                actions={config.buildActions(row)}
-                                                onClick={() => config.onRowClick(row)}
-                                            />
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                            {contextMenuEntries.map((entry) =>
-                                entry.type === 'separator' ? (
-                                    <ContextMenuSeparator key={entry.key} />
-                                ) : (
-                                    <ContextMenuItem
-                                        key={entry.key}
-                                        variant={entry.destructive ? 'destructive' : undefined}
-                                        onSelect={entry.onSelect}>
-                                        {entry.label}
-                                    </ContextMenuItem>
-                                ),
-                            )}
-                        </ContextMenuContent>
-                    </ContextMenu>
+                                            return (
+                                                <div
+                                                    key={virtualRow.key}
+                                                    data-git-roving-index={virtualRow.index}
+                                                    style={style}
+                                                    className={GIT_SECTION_ROW_INDENT_CLASS}>
+                                                    <StatusRowItem
+                                                        path={row.path}
+                                                        origPath={row.origPath}
+                                                        kind={row.kind}
+                                                        selected={false}
+                                                        actions={config.buildActions(row)}
+                                                        onClick={() => config.onRowClick(row)}
+                                                    />
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent>
+                                    {contextMenuEntries.map((entry) =>
+                                        entry.type === 'separator' ? (
+                                            <ContextMenuSeparator key={entry.key} />
+                                        ) : (
+                                            <ContextMenuItem
+                                                key={entry.key}
+                                                variant={entry.destructive ? 'destructive' : undefined}
+                                                onSelect={entry.onSelect}>
+                                                {entry.label}
+                                            </ContextMenuItem>
+                                        ),
+                                    )}
+                                </ContextMenuContent>
+                            </ContextMenu>
 
-                    {showNoChanges && <div className='text-app-sidebar-icon-default px-2 py-1.5 text-xs'>{t('git.noChanges')}</div>}
+                            {showNoChanges && <div className='text-app-sidebar-icon-default px-2 py-1.5 text-xs'>{t('git.noChanges')}</div>}
 
-                    {sections.stashes.visible && (
-                        <div data-git-roving-index={stashesRovingIndex}>
-                            <GitSectionHeader
-                                title={t('git.stash')}
-                                count={sections.stashes.count}
-                                expanded={!sections.stashes.collapsed}
-                                onToggle={() => toggleSection('stashes')}
-                            />
-                            {!sections.stashes.collapsed && (
-                                <StashList stashes={stashes} disabled={isStashing} onApply={onStashApply} onDrop={onStashDrop} />
+                            {sections.stashes.visible && (
+                                <div data-git-roving-index={stashesRovingIndex}>
+                                    <GitSectionHeader
+                                        title={t('git.stash')}
+                                        count={sections.stashes.count}
+                                        expanded={!sections.stashes.collapsed}
+                                        onToggle={() => toggleSection('stashes')}
+                                    />
+                                    {!sections.stashes.collapsed && (
+                                        <StashList stashes={stashes} disabled={isStashing} onApply={onStashApply} onDrop={onStashDrop} />
+                                    )}
+                                </div>
                             )}
                         </div>
-                    )}
-
-                    {sections.graph.visible && (
-                        <div data-git-roving-index={graphRovingIndex}>
-                            <GitSectionHeader
-                                title={t('git.graph')}
-                                count={sections.graph.count}
-                                expanded={!sections.graph.collapsed}
-                                onToggle={() => toggleSection('graph')}
-                            />
+                    </ScrollContainer>
+                </Panel>
+                {sections.graph.visible && (
+                    <PaneSeparator orientation='vertical' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
+                )}
+                {sections.graph.visible && (
+                    <Panel
+                        id='git-graph'
+                        panelRef={graphPanelRef}
+                        className='min-h-0'
+                        defaultSize={graphPanelSizePx}
+                        minSize={MIN_PANEL_SIZE_PX}
+                        collapsible
+                        collapsedSize={GIT_SECTION_HEADER_HEIGHT_PX}>
+                        <div className='flex h-full min-h-0 flex-col' onKeyDown={handleGraphPaneKeyDown}>
+                            <div ref={graphHeaderRef} className='shrink-0'>
+                                <GitSectionHeader
+                                    title={t('git.graph')}
+                                    count={sections.graph.count}
+                                    expanded={!sections.graph.collapsed}
+                                    onToggle={() => toggleSection('graph')}
+                                />
+                            </div>
                             {!sections.graph.collapsed && (
                                 <CommitGraph
                                     projectId={projectId}
@@ -482,17 +628,21 @@ export const GitPanel: FC<GitPanelProps> = ({
                                 />
                             )}
                             {!sections.graph.collapsed && selectedCommit && (
-                                <CommitDetailPanel
-                                    key={selectedCommit.id}
-                                    projectId={projectId}
-                                    commit={selectedCommit}
-                                    onClose={() => setSelectedCommitId(null)}
-                                />
+                                <div className='flex max-h-1/2 shrink-0 flex-col'>
+                                    <ScrollContainer className='min-h-0 flex-1'>
+                                        <CommitDetailPanel
+                                            key={selectedCommit.id}
+                                            projectId={projectId}
+                                            commit={selectedCommit}
+                                            onClose={() => setSelectedCommitId(null)}
+                                        />
+                                    </ScrollContainer>
+                                </div>
                             )}
                         </div>
-                    )}
-                </div>
-            </ScrollContainer>
+                    </Panel>
+                )}
+            </Group>
 
             <AlertDialog open={discardTargets !== null} onOpenChange={(open) => !open && setDiscardTargets(null)}>
                 <AlertDialogContent>

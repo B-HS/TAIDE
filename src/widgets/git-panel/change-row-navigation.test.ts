@@ -5,6 +5,7 @@ import {
     gitChangeListHeaderIndexes,
     gitRovingItemSelector,
     parseGitRovingIndex,
+    resolveGitPanelFocusTarget,
     resolveNextChangeRowIndex,
     resolveStickyHeaderIndex,
 } from '@widgets/git-panel/change-row-navigation'
@@ -121,13 +122,55 @@ describe('resolveNextChangeRowIndex', () => {
         expect(resolveNextChangeRowIndex('ArrowUp', 3, 5)).toBe(2)
     })
 
-    test('가상화 목록 뒤의 정적 헤더(스태시·그래프)까지 인덱스가 이어진다', () => {
+    test('가상화 목록 뒤의 정적 스태시 헤더까지 인덱스가 이어진다', () => {
         const changeListLength = 4
-        const rovingItemCount = changeListLength + 2
+        const rovingItemCount = changeListLength + 1
 
         expect(resolveNextChangeRowIndex('ArrowDown', changeListLength - 1, rovingItemCount)).toBe(4)
-        expect(resolveNextChangeRowIndex('ArrowDown', 4, rovingItemCount)).toBe(5)
-        expect(resolveNextChangeRowIndex('ArrowDown', 5, rovingItemCount)).toBe(5)
+        expect(resolveNextChangeRowIndex('ArrowDown', 4, rovingItemCount)).toBe(4)
         expect(resolveNextChangeRowIndex('ArrowUp', 4, rovingItemCount)).toBe(3)
+    })
+})
+
+describe('resolveGitPanelFocusTarget', () => {
+    const ITEM_COUNT = 3
+
+    test('스크롤 pane 안에서는 기존 인덱스 이동 그대로다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowDown', { kind: 'item', index: 0 }, ITEM_COUNT, true)).toEqual({ kind: 'item', index: 1 })
+        expect(resolveGitPanelFocusTarget('ArrowUp', { kind: 'item', index: 2 }, ITEM_COUNT, true)).toEqual({ kind: 'item', index: 1 })
+        expect(resolveGitPanelFocusTarget('ArrowUp', { kind: 'item', index: 0 }, ITEM_COUNT, true)).toEqual({ kind: 'item', index: 0 })
+    })
+
+    test('목록 끝에서 ↓ 는 그래프 헤더로 건너간다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowDown', { kind: 'item', index: ITEM_COUNT - 1 }, ITEM_COUNT, true)).toEqual({ kind: 'graph' })
+    })
+
+    test('그래프 pane 이 없으면 목록 끝에서 ↓ 는 제자리다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowDown', { kind: 'item', index: ITEM_COUNT - 1 }, ITEM_COUNT, false)).toEqual({
+            kind: 'item',
+            index: ITEM_COUNT - 1,
+        })
+    })
+
+    test('그래프 헤더에서 ↑ 는 목록 마지막 항목으로 돌아가고 ↓ 는 움직이지 않는다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowUp', { kind: 'graph' }, ITEM_COUNT, true)).toEqual({ kind: 'item', index: ITEM_COUNT - 1 })
+        expect(resolveGitPanelFocusTarget('ArrowDown', { kind: 'graph' }, ITEM_COUNT, true)).toBeNull()
+    })
+
+    test('포커스가 밖이면 ↓ 는 첫 항목, ↑ 는 가장 아래인 그래프 헤더로 진입한다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowDown', null, ITEM_COUNT, true)).toEqual({ kind: 'item', index: 0 })
+        expect(resolveGitPanelFocusTarget('ArrowUp', null, ITEM_COUNT, true)).toEqual({ kind: 'graph' })
+        expect(resolveGitPanelFocusTarget('ArrowUp', null, ITEM_COUNT, false)).toEqual({ kind: 'item', index: ITEM_COUNT - 1 })
+    })
+
+    test('스크롤 pane 에 항목이 없으면 그래프 헤더가 유일한 정거장이다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowDown', null, 0, true)).toEqual({ kind: 'graph' })
+        expect(resolveGitPanelFocusTarget('ArrowUp', null, 0, true)).toEqual({ kind: 'graph' })
+        expect(resolveGitPanelFocusTarget('ArrowUp', { kind: 'graph' }, 0, true)).toBeNull()
+    })
+
+    test('정거장이 하나도 없으면 null 이라 키 이벤트를 그대로 둔다', () => {
+        expect(resolveGitPanelFocusTarget('ArrowDown', null, 0, false)).toBeNull()
+        expect(resolveGitPanelFocusTarget('ArrowUp', null, 0, false)).toBeNull()
     })
 })

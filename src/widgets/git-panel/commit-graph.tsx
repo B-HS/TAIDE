@@ -12,7 +12,7 @@ import { computeGraphLanes } from '@shared/lib/graph-lanes'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { tagsTargetingCommit } from '@shared/lib/git-tags'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
-import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
+import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { subscribeOpenCreateTagDialog } from '@shared/lib/bridge/create-tag-dialog-bridge'
 import {
     ContextMenu,
@@ -42,14 +42,20 @@ const LANE_WIDTH = 14
 const NODE_RADIUS = 3
 const STROKE_WIDTH = 1.5
 const LANE_COLOR_COUNT = 12
-const VIEWPORT_HEIGHT_PX = 320
 const OVERSCAN = 12
 
 const laneX = (lane: number) => lane * LANE_WIDTH + LANE_WIDTH / 2
 const laneColor = (lane: number) => `var(--taide-graph-lane${(lane % LANE_COLOR_COUNT) + 1})`
 
+/**
+ * The graph fills the SCM panel's bottom pane rather than a fixed-height box: it used to cap its own
+ * viewport at 320px, which swallowed a short panel and left the bottom empty in a tall one, and its
+ * raw `overflow-y-auto` was the one scroll area in the app that did not go through
+ * {@link ScrollContainer} (d-58 §1.H). `min-h-0` is what lets it shrink inside that flex column
+ * instead of pushing the commit detail panel out of the pane.
+ */
 export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selectedCommitId = null, onSelectCommit, onOpenFile }) => {
-    const parentRef = useRef<HTMLDivElement>(null)
+    const viewportRef = useRef<HTMLDivElement>(null)
 
     const [tagDialogTarget, setTagDialogTarget] = useState<string | null>(null)
 
@@ -60,7 +66,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
 
     const rowVirtualizer = useVirtualizer({
         count: nodes.length,
-        getScrollElement: () => parentRef.current,
+        getScrollElement: () => viewportRef.current,
         estimateSize: () => ROW_HEIGHT,
         overscan: OVERSCAN,
         getItemKey: (index) => nodes[index].id,
@@ -121,8 +127,8 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
     useEffect(() => subscribeOpenCreateTagDialog(({ target }) => setTagDialogTarget(target)), [])
 
     return (
-        <div className='relative min-w-0'>
-            <div ref={parentRef} className='scrollbar-hidden overflow-y-auto' style={{ maxHeight: VIEWPORT_HEIGHT_PX }}>
+        <>
+            <ScrollContainer className='min-h-0 min-w-0 flex-1' viewportRef={viewportRef}>
                 <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
                     {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                         const node = nodes[virtualRow.index]
@@ -235,8 +241,7 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                         )
                     })}
                 </div>
-            </div>
-            <OverlayScrollbar viewportRef={parentRef} orientation='vertical' />
+            </ScrollContainer>
             <CreateTagDialog
                 open={tagDialogTarget !== null}
                 targetLabel={tagDialogTarget ?? ''}
@@ -244,6 +249,6 @@ export const CommitGraph: FC<CommitGraphProps> = ({ projectId, commits, selected
                 onOpenChange={(open) => !open && setTagDialogTarget(null)}
                 onConfirm={handleCreateTag}
             />
-        </div>
+        </>
     )
 }

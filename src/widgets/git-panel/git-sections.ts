@@ -1,5 +1,5 @@
 import type { StatusRow } from '@shared/api/bindings'
-import type { GitSectionId } from '@entities/git/git-section-collapse-memory'
+import type { GitSectionId } from '@entities/git/git-section'
 import { isStagedRow, isUnstagedRow } from '@widgets/git-panel/commit-gate'
 
 export type GitSectionState = {

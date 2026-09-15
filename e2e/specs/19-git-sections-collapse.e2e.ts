@@ -13,19 +13,24 @@ const isExpanded = async (header: Locator) => (await header.getAttribute('aria-e
 
 /**
  * Coverage for `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §E: every SCM section is
- * headed by the one `GitSectionHeader` (`role='button'`, `aria-expanded`, `data-git-section-header`,
- * `sticky top-0`), a click toggles the section, and the Stashes section is not rendered at all while
- * there are no stashes — previously it sat at the top of the list whenever there was anything to
- * stash, which is the ambiguity §E set out to remove.
+ * headed by the one `GitSectionHeader` (`role='button'`, `aria-expanded`, `data-git-section-header`),
+ * a click toggles the section, and the Stashes section is not rendered at all while there are no
+ * stashes — previously it sat at the top of the list whenever there was anything to stash, which is
+ * the ambiguity §E set out to remove.
  *
  * The header's accessible name is its title followed by the count badge's text (`Changes1`), so
  * titles are matched as a prefix against the header's own text; the anchored `^Changes` also keeps
  * `Staged Changes`/`Merge Changes` out. `^Stash` is checked on section headers only, because the
  * panel's header bar carries a `Stash changes` icon button that would match the same prefix.
  *
- * The collapse state lives in module-scope memory for the life of the app process
- * (`git-section-collapse-memory.ts`) and the harness shares one app instance across specs, so the
- * `finally` re-expands `Changes` even on failure — spec 07 asserts on rows inside that section.
+ * `sticky top-0` is asserted on `Changes` because the sticky behaviour only means something for the
+ * headers *inside* the scrolled pane — the changes groups and the stashes. Since d-58 §1.H the graph
+ * has its own resizable pane below the separator and its header is simply pinned to the top of that
+ * pane, so it is deliberately out of this assertion's scope.
+ *
+ * The collapse state is persisted in `Settings` (`gitSectionsCollapsed`) and the harness shares one
+ * app instance across specs, so the `finally` re-expands `Changes` even on failure — spec 07 asserts
+ * on rows inside that section, and a collapse left behind would now also survive a restart.
  */
 test('git 뷰의 Changes 섹션 헤더는 sticky 이고 클릭으로 접었다 펼 수 있으며, 스태시가 없으면 Stashes 섹션이 없다', async ({
     page,
