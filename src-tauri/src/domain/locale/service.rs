@@ -15,6 +15,9 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
         "common",
         &[
             "cancel",
+            "durationHoursMinutes",
+            "durationMinutesSeconds",
+            "durationSeconds",
             "confirm",
             "close",
             "save",
@@ -120,6 +123,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "replaceSkipReason.notUtf8",
             "replaceSkipReason.unreadable",
             "replaceSkipReason.writeFailed",
+            "liveSearchHint",
         ],
     ),
     ("searchEditor", &["title", "contextLinesLabel", "noResults"]),
@@ -297,6 +301,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "symbols",
             "workspaceSymbols",
             "noActiveFile",
+            "mainWindowOnly",
         ],
     ),
     (
@@ -587,6 +592,10 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "notificationsOpenSystemSettings",
             "notificationsSendTest",
             "notificationsDevHint",
+            "searchOnType",
+            "searchOnTypeDescription",
+            "searchOnTypeDebounceMs",
+            "searchOnTypeDebounceMsDescription",
         ],
     ),
     (
@@ -594,6 +603,9 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
         &[
             "enableHint",
             "agentCompleted",
+            "agentAwaitingInputBody",
+            "agentFinishedBody",
+            "exitCode",
             "taskCompletedSucceeded",
             "taskCompletedFailed",
             "gitPushSucceeded",
@@ -731,7 +743,18 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "displayReset",
         ],
     ),
-    ("sidebar", &["projectsAriaLabel", "openFolderAriaLabel", "settingsAriaLabel"]),
+    (
+        "sidebar",
+        &[
+            "projectsAriaLabel",
+            "settingsAriaLabel",
+            "addProjectMenu",
+            "openByPath",
+            "openByPathTitle",
+            "openByPathPlaceholder",
+            "openViaFinder",
+        ],
+    ),
     (
         "window",
         &[
@@ -756,6 +779,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "systemUsageEmpty",
         ],
     ),
+    ("menu", &["file", "openRecent", "noRecentProjects", "clearRecent"]),
     (
         "keymap",
         &[
@@ -1041,6 +1065,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "git.unbornBranch",
             "git.uncommittedChanges",
             "ide.serverPortUnavailable",
+            "layout.paneNotFound",
             "lsp.checksumMismatch",
             "lsp.checksumUnpublished",
             "lsp.downloadHttpStatus",
@@ -1072,6 +1097,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "plugin.reloadAfterInstallFailed",
             "project.displayInvalid",
             "project.pathNotDirectory",
+            "project.pathNotFound",
             "remote.channelArgRequired",
             "remote.deniedCredentialStoreTampering",
             "remote.deniedDesktopCliInterception",
@@ -1204,6 +1230,38 @@ pub fn builtin_ja() -> LocalePack {
         name: "日本語".to_string(),
         extends: None,
         messages: ja_messages().clone(),
+    }
+}
+
+/// One message out of a bundled catalog, for the rare consumer that has to render UI text from
+/// Rust instead of handing the frontend a key: the native app menu (`domain::window::menu`), which
+/// the OS draws outside every webview. Builtin catalogs only — a user-installed locale pack lives
+/// on disk and would put a file read on the menu-rebuild path — and `None` when `locale_id` names
+/// no builtin or that catalog has no such key, so the caller owns its own fallback text. Keeps the
+/// catalog JSON readable from exactly one module (this one), the same containment
+/// [`load_locale`] gives every other consumer.
+pub fn lookup_builtin_message(locale_id: &str, key: &str) -> Option<String> {
+    let messages = match locale_id {
+        BUILTIN_EN_ID => en_messages(),
+        BUILTIN_KO_ID => ko_messages(),
+        BUILTIN_JA_ID => ja_messages(),
+        _ => return None,
+    };
+    messages.get(key).cloned()
+}
+
+/// Which bundled catalog Rust-side UI text should read, given the raw `Settings::language` value.
+///
+/// Unlike [`resolve_language`] there is no `system_language` argument to consult: the OS's own
+/// locale reaches this app only as the frontend's `navigator.language`, handed in per call to
+/// `locale_get_current`, and nothing in the Rust process observes it. So `"system"` — the default
+/// — and any non-builtin id both resolve to English here, while an explicitly chosen `ko`/`ja`
+/// resolves to that catalog. See `docs/features/window-chrome.md` for the menu-label consequence.
+pub fn builtin_locale_for_language(language: &str) -> &'static str {
+    match language {
+        BUILTIN_KO_ID => BUILTIN_KO_ID,
+        BUILTIN_JA_ID => BUILTIN_JA_ID,
+        _ => BUILTIN_EN_ID,
     }
 }
 
