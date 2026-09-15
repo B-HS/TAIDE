@@ -184,6 +184,20 @@ type RescanInvalidation = {
 }
 
 /**
+ * Every cache a `project:list-changed` event has to refetch.
+ *
+ * `PROJECT.RECENT` is a *separate* query from `PROJECT.LIST` — the list is the open session, the
+ * recent list is every project record on disk — and the events that change one change the other:
+ * `project_open` adds a record, `project_close` leaves one behind, `project_forget_recent` deletes
+ * the ones that are not open. Invalidating only `PROJECT.LIST` left the sidebar's `+` menu and the
+ * Welcome screen showing a stale "recent projects" list in every window but the one that made the
+ * change (whose own mutation `onSuccess` sweeps `PROJECT.ALL`). Both keys rather than the shared
+ * `PROJECT.ALL` prefix, so `PROJECT.ACTIVE`/`PROJECT.DETAIL` — which have their own, narrower
+ * events right below — are not dragged into every list change.
+ */
+export const PROJECT_LIST_CHANGED_INVALIDATIONS: readonly (readonly unknown[])[] = [QUERY_KEY.PROJECT.LIST, QUERY_KEY.PROJECT.RECENT]
+
+/**
  * Every cache a `fs:rescan-required` event has to refetch, as `invalidateQueries` filters.
  *
  * That event means the watcher *dropped* events rather than delivering them — `notify` raised its
@@ -235,7 +249,7 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     useLspSessionsQueryInvalidationSync()
 
     useTauriEvent(events.projectListChanged, () => {
-        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.LIST })
+        for (const queryKey of PROJECT_LIST_CHANGED_INVALIDATIONS) void queryClient.invalidateQueries({ queryKey })
     })
 
     useTauriEvent(events.projectOpened, ({ payload }) => {

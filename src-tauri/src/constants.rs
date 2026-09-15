@@ -38,6 +38,12 @@ pub const MAIN_WINDOW_LABEL: &str = "main";
 /// button (`docs/features/settings-ui.md`).
 pub const MACOS_NOTIFICATION_SETTINGS_URL: &str = "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
 
+/// How many entries the app menu's `File > Open Recent` submenu shows, newest first. A native menu
+/// has no scrolling of its own, so the cap is what keeps a long project history from growing a
+/// screen-tall menu. Mirrored by the sidebar's + menu on the frontend
+/// (`src/shared/constants/project.ts`) so both "recent projects" surfaces offer the same depth.
+pub const RECENT_PROJECT_MENU_LIMIT: usize = 10;
+
 pub const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub const LARGE_FILE_LINES: usize = 50_000;
 pub const READ_ONLY_FILE_BYTES: u64 = 20 * 1024 * 1024;

@@ -67,6 +67,16 @@ use regex::Regex;
 /// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
 ///   reloads it; the deliberate single direction left after R7#4's cycle cut (plugin no longer
 ///   references vsix).
+/// - `window/menu.rs → project::service`·`locale::service` — the app menu's `File > Open Recent`
+///   *draws* the recent-project list and its own labels; both targets are read-only data providers
+///   for it (`list_recent_projects`, `lookup_builtin_message`), the same shape as
+///   `remote/login_page.rs → locale::service` above ("locale is a data provider"). Every
+///   *execution* edge the menu created was removed instead (d-58 §1.E-보강): the refresh is driven
+///   by `lib.rs`'s `project:list-changed`/`project:activated`/`settings:changed` listeners, and a
+///   click resolves to a `menu::MenuAction` that `lib.rs`'s `dispatch_menu_action` hands to the
+///   owning domain. Injecting the data from the assembly instead was considered and rejected: the
+///   menu is rebuilt on every project change, so `lib.rs` would have to carry the query itself at
+///   every one of those points and the assembly would grow rather than shrink.
 const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/agent/commands.rs", "terminal::commands"),
     ("domain/app/commands.rs", "settings::commands"),
@@ -94,6 +104,8 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/sync/service.rs", "settings::service"),
     ("domain/sync/service.rs", "theme::service"),
     ("domain/vsix/commands.rs", "plugin::service"),
+    ("domain/window/menu.rs", "locale::service"),
+    ("domain/window/menu.rs", "project::service"),
     ("domain/window/service.rs", "layout::service"),
 ];
 

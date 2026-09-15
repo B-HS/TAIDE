@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::types::ShellProfile;
 use crate::error::{AppError, AppResult};
+use crate::infra::home;
 
 /// How far past the raw overflow point [`ScrollbackRing::append`] looks for the `\n` it aligns an
 /// eviction to before giving up and cutting at that raw point instead. Output that carries no
@@ -184,32 +185,9 @@ pub fn parse_terminal_path(input: &str) -> (String, Option<u32>, Option<u32>) {
     (path, numbers.first().copied(), numbers.get(1).copied())
 }
 
-/// Expands a leading `~` against `home`, but only in the two forms where `~` actually stands for
-/// that home directory: `~` alone, and a `~/…` prefix.
-///
-/// `~user` names a *different* account's home, which this has no way to resolve — pasting `home` in
-/// front of the remainder turned `~alice/notes.md` into `/Users/me` + `alice/notes.md`, a path that
-/// silently pointed somewhere else — so that form, like every path that does not start with `~`, is
-/// returned untouched and left to fail resolution honestly. `home` is `None` when the environment
-/// has no `HOME`, which resolves the same way.
-fn expand_home(path: &str, home: Option<&str>) -> String {
-    let Some(rest) = path.strip_prefix('~') else {
-        return path.to_string();
-    };
-
-    if !rest.is_empty() && !rest.starts_with('/') {
-        return path.to_string();
-    }
-
-    match home {
-        Some(home) => format!("{home}{rest}"),
-        None => path.to_string(),
-    }
-}
-
 pub fn resolve_terminal_path(raw: &str, cwd: &str) -> AppResult<String> {
     let (path_part, _line, _col) = parse_terminal_path(raw);
-    let expanded = expand_home(&path_part, std::env::var("HOME").ok().as_deref());
+    let expanded = home::expand_home_from_env(&path_part);
     let candidate = PathBuf::from(&expanded);
 
     let resolved = if candidate.is_absolute() {
@@ -392,26 +370,6 @@ mod tests {
     fn 음수나_소수_꼬리는_행_열로_읽히지_않는다() {
         assert_eq!(parse_terminal_path("a:-1"), ("a:-1".to_string(), None, None));
         assert_eq!(parse_terminal_path("a:1.5"), ("a:1.5".to_string(), None, None));
-    }
-
-    const TEST_HOME: &str = "/Users/tester";
-
-    #[test]
-    fn 물결_단독과_슬래시_접두만_홈으로_확장된다() {
-        assert_eq!(expand_home("~", Some(TEST_HOME)), TEST_HOME);
-        assert_eq!(expand_home("~/src/main.rs", Some(TEST_HOME)), format!("{TEST_HOME}/src/main.rs"));
-    }
-
-    #[test]
-    fn 다른_사용자의_홈_표기는_원문_그대로_남는다() {
-        assert_eq!(expand_home("~alice/notes.md", Some(TEST_HOME)), "~alice/notes.md");
-        assert_eq!(expand_home("~alice", Some(TEST_HOME)), "~alice");
-    }
-
-    #[test]
-    fn home_이_없으면_물결을_확장하지_않는다() {
-        assert_eq!(expand_home("~/src/main.rs", None), "~/src/main.rs");
-        assert_eq!(expand_home("~", None), "~");
     }
 
     fn resolve_fixture(name: &str) -> PathBuf {

@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tauri_specta::Event;
 
+use super::menu;
 use super::service;
 use super::types::{
     AuxiliaryWindowInfo, AUXILIARY_WINDOW_DEFAULT_HEIGHT, AUXILIARY_WINDOW_DEFAULT_WIDTH, AUXILIARY_WINDOW_MIN_HEIGHT,
@@ -150,14 +151,16 @@ pub async fn window_set_fullscreen(window: tauri::Window<tauri::Wry>, fullscreen
     })
 }
 
-/// A custom (non-predefined) menu item id for the app menu's Quit entry —
-/// see [`handle_menu_event`] for why this can't be `PredefinedMenuItem::quit`.
-const MENU_ID_QUIT: &str = "taide-quit";
-
+/// Assembles the whole app menu bar (`TAIDE` · `File` · `Edit` · `Window`).
+///
+/// **Must not be called before `AppState` is managed**: the `File` submenu's `Open Recent` rows are
+/// read from the persisted project history `AppState::paths` points at
+/// ([`menu::build_file_submenu`]), so `lib.rs`'s `setup()` calls `set_menu` right after
+/// `app.manage(state)` rather than at builder time.
 pub(crate) fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 
-    let quit_item = MenuItemBuilder::with_id(MENU_ID_QUIT, "Quit")
+    let quit_item = MenuItemBuilder::with_id(menu::MENU_ID_QUIT, "Quit")
         .accelerator("CmdOrCtrl+Q")
         .build(handle)?;
 
@@ -183,6 +186,8 @@ pub(crate) fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::
         .item(&PredefinedMenuItem::select_all(handle, None)?)
         .build()?;
 
+    let file_menu = menu::build_file_submenu(handle)?;
+
     let window_menu = SubmenuBuilder::new(handle, "Window")
         .item(&PredefinedMenuItem::minimize(handle, None)?)
         .item(&PredefinedMenuItem::maximize(handle, None)?)
@@ -190,7 +195,31 @@ pub(crate) fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::
         .item(&PredefinedMenuItem::fullscreen(handle, None)?)
         .build()?;
 
-    MenuBuilder::new(handle).items(&[&app_menu, &edit_menu, &window_menu]).build()
+    MenuBuilder::new(handle)
+        .items(&[&app_menu, &file_menu, &edit_menu, &window_menu])
+        .build()
+}
+
+/// Rebuilds the whole app menu and reinstalls it — the language-change reaction, called from
+/// `lib.rs`'s `settings:changed` listener when `Settings::language` actually changes.
+///
+/// A whole rebuild rather than [`menu::refresh_recent_menu`] because a submenu's own title
+/// (`File`, `Open Recent`) is fixed when the submenu is built, so refreshing only the rows inside
+/// `Open Recent` would leave the titles in the previous language. It runs once per explicit
+/// language change over a menu of a dozen items, which is cheaper than maintaining a `set_text`
+/// walk that has to be kept in step with [`build_app_menu`].
+///
+/// Failures are logged, not propagated: the settings change itself has already been persisted and
+/// broadcast by the time this runs, and a menu still drawn in the old language is cosmetic.
+pub(crate) fn refresh_app_menu(app: &tauri::AppHandle) {
+    match build_app_menu(app) {
+        Ok(menu) => {
+            if let Err(error) = app.set_menu(menu) {
+                log::warn!("앱 메뉴를 다시 설치하지 못했습니다: {error}");
+            }
+        }
+        Err(error) => log::warn!("앱 메뉴를 다시 만들지 못했습니다: {error}"),
+    }
 }
 
 /// Handles `CloseRequested` for an auxiliary editor window (`editor-<n>`).
@@ -258,18 +287,18 @@ pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &t
     });
 }
 
-/// Routes the app menu's Quit item through the same `WindowEvent::CloseRequested`
-/// flush handshake as clicking the window's close button, instead of the native
-/// `NSApplication terminate:` binding `PredefinedMenuItem::quit` uses on macOS.
+/// Routes the app menu's Quit item ([`menu::MenuAction::Quit`]) through the same
+/// `WindowEvent::CloseRequested` flush handshake as clicking the window's close button, instead of
+/// the native `NSApplication terminate:` binding `PredefinedMenuItem::quit` uses on macOS.
 /// `terminate:` runs straight to `applicationWillTerminate` and `RunEvent::Exit`
 /// with no `CloseRequested` (or preventable `ExitRequested`) event in between —
 /// tao's macOS app delegate has no `applicationShouldTerminate:` hook to catch it
 /// — so Cmd+Q would otherwise skip `handle_close_requested` entirely and drop
 /// any hot-exit mirror writes still pending in the last debounce window.
-pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
-    if event.id() != MENU_ID_QUIT {
-        return;
-    }
+///
+/// Runs inline on the main thread the menu handler is called on: closing a window is main-thread
+/// work already, and the flush handshake it starts is itself asynchronous.
+pub(crate) fn request_quit(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
         let _ = window.close();
     }

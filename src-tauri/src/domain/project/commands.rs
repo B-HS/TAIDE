@@ -40,6 +40,32 @@ pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Pr
     service::list_recent_projects(&state.paths)
 }
 
+/// Forgets every project the user is not currently working in: the persisted `projects/<id>/`
+/// record of each closed project is deleted, so `project_list_recent` stops offering it. The
+/// backing action for `File > Clear Recent` and the sidebar's equivalent.
+///
+/// Open projects are deliberately kept — their record is live state (layout, display, id reuse),
+/// not history; see `service::forget_recent_projects`. Emits `ProjectListChanged` so every window
+/// re-reads its project queries — and so `lib.rs`'s listener rebuilds the native `File > Open
+/// Recent` menu that listed them.
+///
+/// Deliberately **not** remote-reachable, for the same reason as `project_list_recent`: the recent
+/// list is local-desktop history (`RemoteDenialPolicy::LocalProjectHistoryExposure`), and a remote
+/// session that cannot read it has no business destroying it either.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -> AppResult<u32> {
+    let removed = {
+        let _guard = state.begin_mutation().await;
+        let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
+        service::forget_recent_projects(&state.paths, &open_ids)?
+    };
+
+    emit_list_changed(&app, &state);
+
+    Ok(removed as u32)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn project_get(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Project> {

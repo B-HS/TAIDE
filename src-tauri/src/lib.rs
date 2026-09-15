@@ -188,6 +188,99 @@ fn pty_session_observers() -> domain::terminal::commands::PtySessionObservers {
     })])
 }
 
+/// Routes one app-menu click to the domain that owns the action it stands for — the assembly's
+/// half of the native menu. It lives here, not in `domain::window`, so the window domain never
+/// calls `project::commands` itself (architecture.md §2; `tests/domain_boundaries.rs` enforces it),
+/// the same shape as [`settings_toggle_observers`] and [`project_capabilities`].
+///
+/// Everything but Quit runs on a spawned task. This handler is called on the main thread, where
+/// blocking on `project_open`'s mutation guard would stall the very event loop that open needs, and
+/// where neither the recent list's disk read nor a project open belongs. The clicked row's root is
+/// re-read at dispatch time (`menu::recent_project_root`) rather than carried in the menu item: a
+/// menu built minutes ago can name a project `Clear Recent` has since forgotten, and re-reading
+/// turns that into a logged no-op instead of an open against a stale path.
+///
+/// The project commands are called directly rather than by asking a window to invoke IPC, so the
+/// menu keeps working with **zero windows open** — the state macOS leaves the app in after the last
+/// window closes, and the exact state in which "reopen a recent project" is most useful.
+fn dispatch_menu_action(app: &tauri::AppHandle, action: domain::window::menu::MenuAction) {
+    use domain::window::menu::MenuAction;
+
+    match action {
+        MenuAction::Quit => domain::window::commands::request_quit(app),
+        MenuAction::ClearRecent => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app.state::<AppState>();
+                if let Err(error) = domain::project::commands::project_forget_recent(app.clone(), state).await {
+                    log::warn!("최근 항목 지우기에 실패했습니다: {error}");
+                }
+            });
+        }
+        MenuAction::OpenRecent(project_id) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let Some(root) = domain::window::menu::recent_project_root(&app, &project_id) else {
+                    log::warn!("최근 항목 메뉴가 가리키는 프로젝트 레코드를 찾지 못했습니다 (projectId={project_id})");
+                    return;
+                };
+                let state = app.state::<AppState>();
+                if let Err(error) = domain::project::commands::project_open(app.clone(), state, root).await {
+                    log::warn!("최근 항목 메뉴에서 프로젝트를 열지 못했습니다 (projectId={project_id}): {error}");
+                }
+            });
+        }
+        MenuAction::Ignored => {}
+    }
+}
+
+/// Keeps the native app menu in step with the state it draws, by **subscribing** to the events the
+/// project and settings domains already emit instead of having those domains call into
+/// `domain::window` (architecture.md §2 — the assembly owns cross-domain wiring; the same
+/// `listen_any` shape as `fanout_remote_events!`).
+///
+/// - `project:list-changed`/`project:activated` — every open, close, activation and
+///   `project_forget_recent` changes which projects `File > Open Recent` should list, or their
+///   order.
+/// - `settings:changed` — a language change has to rebuild the **whole** menu, because a submenu's
+///   title (`File`, `Open Recent`) is fixed when the submenu is built. The event carries the new
+///   settings but not the old, so the listener remembers the language it last drew and rebuilds
+///   only when that actually changed; a settings write that leaves the language alone (every
+///   toggle, every editor preference) must not rebuild the menu.
+///
+/// Each reaction is handed to `spawn_blocking`: both rebuilds re-read the on-disk project history,
+/// and a listener runs inline on the thread that emitted the event — which for
+/// `project_close`/`project_activate` is still inside `AppState::begin_mutation`, where
+/// architecture.md §2.1 forbids IO.
+fn listen_for_app_menu_refresh(app: &tauri::AppHandle) {
+    for event_name in [ProjectListChanged::NAME, ProjectActivated::NAME] {
+        let recent_handle = app.clone();
+        app.listen_any(event_name, move |_| {
+            let handle = recent_handle.clone();
+            tauri::async_runtime::spawn_blocking(move || domain::window::menu::refresh_recent_menu(&handle));
+        });
+    }
+
+    let language_handle = app.clone();
+    let drawn_language = parking_lot::Mutex::new(app.state::<AppState>().settings.read().language.clone());
+    app.listen_any(SettingsChanged::NAME, move |event| {
+        let Ok(changed) = serde_json::from_str::<SettingsChanged>(event.payload()) else {
+            log::warn!("settings:changed 페이로드를 읽지 못해 메뉴 언어를 갱신하지 못했습니다");
+            return;
+        };
+
+        let mut drawn = drawn_language.lock();
+        if *drawn == changed.settings.language {
+            return;
+        }
+        *drawn = changed.settings.language;
+        drop(drawn);
+
+        let handle = language_handle.clone();
+        tauri::async_runtime::spawn_blocking(move || domain::window::commands::refresh_app_menu(&handle));
+    });
+}
+
 /// `pty_spawn`/`pty_attach` take a `Channel` argument, so they are registered on the raw handler
 /// (`RAW_CHANNEL_COMMANDS`) rather than in `collect_commands!`. Nothing collected here therefore
 /// mentions [`domain::terminal::types::PtyAttachResult`], and specta would not export it; `.typ`
@@ -199,6 +292,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::app::commands::app_get_info,
             domain::project::commands::project_list,
             domain::project::commands::project_list_recent,
+            domain::project::commands::project_forget_recent,
             domain::project::commands::project_get,
             domain::project::commands::project_get_active,
             domain::project::commands::project_open,
@@ -537,7 +631,7 @@ pub fn run() {
             let projects = state.projects.read();
             infra::asset_protocol::respond(&projects, request)
         })
-        .on_menu_event(domain::window::commands::handle_menu_event)
+        .on_menu_event(|app, event| dispatch_menu_action(app, domain::window::menu::menu_action(event.id().as_ref())))
         .invoke_handler(move |invoke| {
             // The one place every IPC call passes through by name, so a per-command invoke counter
             // costs nothing per command body (research 3b §4.2 — tauri's `InvokeResolver` is
@@ -568,7 +662,6 @@ pub fn run() {
                 domain::locale::service::warm_builtin_catalogs();
             }
             builder.mount_events(app);
-            app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
 
             let state_restore_span = infra::perf::span(infra::perf::SpanSlot::SetupStateRestore);
             let data_dir = app.path().app_data_dir().expect("app data dir unavailable");
@@ -603,6 +696,9 @@ pub fn run() {
             app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowStore::default());
             drop(state_restore_span);
+
+            app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
+            listen_for_app_menu_refresh(app.handle());
 
             let deferred_restore_span = infra::perf::span(infra::perf::SpanSlot::SetupDeferredRestore);
             domain::window::commands::restore_auxiliary_windows(app.handle());

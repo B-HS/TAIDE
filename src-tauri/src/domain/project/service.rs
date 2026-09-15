@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -7,6 +7,7 @@ use specta::Type;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
 use crate::infra::clock::now_epoch_ms;
+use crate::infra::home;
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
@@ -43,12 +44,29 @@ pub fn get_project(projects: &HashMap<ProjectId, Project>, project_id: &ProjectI
         .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))
 }
 
+/// Resolves the path a caller handed [`open_project`] into one the filesystem can answer for: a
+/// leading `~` is a shell convention `canonicalize` knows nothing about, so a path the user typed
+/// by hand ("Open by path…", the sidebar's + menu) would otherwise fail as a literal directory
+/// named `~`. Shares [`home::expand_home`] with the terminal's own path-link resolver rather than
+/// re-deriving the rule — see that function for why `~user` is deliberately left alone.
+fn resolve_open_root(root: &Path) -> PathBuf {
+    match root.to_str() {
+        Some(text) => PathBuf::from(home::expand_home_from_env(text)),
+        None => root.to_path_buf(),
+    }
+}
+
 /// Opens (or re-activates) the project at `root`. `detect_capabilities` is called once with the
 /// canonicalized root on a fresh open and its result is recorded verbatim as
 /// `Project.capabilities` — `project_open` injects the capability registry's `detected_kinds`, so
 /// the registry is the single source of that field and `GitWatcherCapability::attach`'s
 /// `contains(Git)` gate is the one place the git decision is made on the open path (no second
 /// filesystem probe here).
+///
+/// A missing path is reported as a localized `error.project.pathNotFound` rather than the bare
+/// `std::io::Error` string `AppError::from` would produce: this is the one project entry point a
+/// user can reach by typing a path, so "No such file or directory (os error 2)" is the error text
+/// they would actually see.
 pub fn open_project(
     paths: &AppPaths,
     session: &mut SessionState,
@@ -56,7 +74,16 @@ pub fn open_project(
     root: &Path,
     detect_capabilities: impl FnOnce(&Path) -> Vec<CapabilityKind>,
 ) -> AppResult<ProjectOpenResult> {
-    let canonical = std::fs::canonicalize(root)?;
+    let requested = resolve_open_root(root);
+    let canonical = std::fs::canonicalize(&requested).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => AppError::localized(
+            AppErrorKind::NotFound,
+            "error.project.pathNotFound",
+            format!("path not found: {}", requested.display()),
+        )
+        .with_arg("path", requested.display()),
+        _ => AppError::from(error),
+    })?;
     let metadata = std::fs::metadata(&canonical)?;
     if !metadata.is_dir() {
         return Err(AppError::localized(
@@ -427,6 +454,34 @@ pub fn list_recent_projects(paths: &AppPaths) -> AppResult<Vec<Project>> {
     Ok(projects)
 }
 
+/// Deletes the persisted record (`projects/<id>/`) of every project that is **not** currently open,
+/// and answers how many were removed — what `File > Clear Recent` and the sidebar's equivalent
+/// mean by "clear": the recent list is derived from those records ([`list_recent_projects`]), so
+/// forgetting one is deleting its directory, there is no separate history file to truncate.
+///
+/// Open projects are kept because their record is live state, not history: `save_project` rewrites
+/// it on every activation, `save_layout` writes the layout beside it, and `close_project`
+/// deliberately leaves the directory behind so a re-open restores the same id, layout and display.
+/// Deleting an open project's directory would strand all three.
+///
+/// A directory that fails to delete is logged and skipped rather than failing the whole call —
+/// same per-entry tolerance as [`list_recent_projects`], since a half-cleared list is still a
+/// better answer than an error that clears nothing.
+pub fn forget_recent_projects(paths: &AppPaths, open_project_ids: &HashSet<ProjectId>) -> AppResult<usize> {
+    let mut removed = 0usize;
+    for id in iter_project_ids(paths)? {
+        if open_project_ids.contains(&id) {
+            continue;
+        }
+        match std::fs::remove_dir_all(paths.project_dir(&id)) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => log::warn!("최근 프로젝트 레코드를 지우지 못했습니다 (projectId={id}): {error}"),
+        }
+    }
+    Ok(removed)
+}
+
 /// The persisted record of a previously-opened project at `root`, if any — `open_project` reuses
 /// both its id (so `projects/<id>/` and its layout survive a close/re-open cycle) and the parts of
 /// it the user authored rather than the filesystem: currently `display`. Returning the whole
@@ -467,6 +522,99 @@ mod tests {
 
     fn detect_terminal_only(_root: &Path) -> Vec<CapabilityKind> {
         vec![CapabilityKind::Terminal]
+    }
+
+    #[test]
+    fn 열기_경로의_물결은_홈으로_확장되고_다른_형태는_그대로다() {
+        let home = home::home_dir_env();
+        let expanded_tilde = match &home {
+            Some(home) => PathBuf::from(home.clone()),
+            None => PathBuf::from("~"),
+        };
+        let expanded_subpath = match &home {
+            Some(home) => PathBuf::from(format!("{home}/workspace/demo")),
+            None => PathBuf::from("~/workspace/demo"),
+        };
+
+        assert_eq!(resolve_open_root(Path::new("~")), expanded_tilde);
+        assert_eq!(resolve_open_root(Path::new("~/workspace/demo")), expanded_subpath);
+        assert_eq!(resolve_open_root(Path::new("~alice/demo")), PathBuf::from("~alice/demo"));
+        assert_eq!(resolve_open_root(Path::new("/abs/demo")), PathBuf::from("/abs/demo"));
+    }
+
+    #[test]
+    fn 최근_기록_삭제는_열려있지_않은_프로젝트_레코드만_지운다() {
+        let paths = temp_paths();
+        let open = Project {
+            id: ProjectId::new(),
+            root: "/tmp/open".to_string(),
+            name: "open".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 2.0,
+            display: ProjectDisplay::default(),
+        };
+        let closed = Project {
+            id: ProjectId::new(),
+            root: "/tmp/closed".to_string(),
+            name: "closed".to_string(),
+            last_opened_at: 1.0,
+            ..open.clone()
+        };
+        save_project(&paths, &open).expect("열린 프로젝트 저장");
+        save_project(&paths, &closed).expect("닫힌 프로젝트 저장");
+
+        let open_ids: HashSet<ProjectId> = [open.id.clone()].into_iter().collect();
+        let removed = forget_recent_projects(&paths, &open_ids).expect("최근 기록 삭제");
+
+        assert_eq!(removed, 1);
+        assert!(paths.project_dir(&open.id).exists());
+        assert!(!paths.project_dir(&closed.id).exists());
+        assert_eq!(
+            list_recent_projects(&paths)
+                .expect("목록")
+                .into_iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            vec![open.id]
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 최근_기록_삭제는_지울_레코드가_없으면_0을_돌려준다() {
+        let paths = temp_paths();
+
+        let removed = forget_recent_projects(&paths, &HashSet::new()).expect("최근 기록 삭제");
+
+        assert_eq!(removed, 0);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 존재하지_않는_경로를_열면_로케일_키가_붙은_notfound_다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let mut projects = HashMap::new();
+        let missing = paths.data_dir.join("does-not-exist");
+
+        let error = open_project(&paths, &mut session, &mut projects, &missing, detect_terminal_only).expect_err("열기 실패");
+
+        match error {
+            AppError::Localized(localized) => {
+                assert_eq!(localized.kind, AppErrorKind::NotFound);
+                assert_eq!(localized.key, "error.project.pathNotFound");
+                assert_eq!(
+                    localized.args.get("path").map(String::as_str),
+                    Some(missing.display().to_string().as_str())
+                );
+            }
+            other => panic!("로케일 키가 붙은 NotFound 여야 합니다: {other:?}"),
+        }
+
+        cleanup(&paths);
     }
 
     #[test]

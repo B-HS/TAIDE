@@ -13,6 +13,7 @@ use super::types::{
 use super::types::{CODEX_MANAGED_HOOK_EVENTS, GEMINI_MANAGED_HOOK_EVENTS};
 use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
+use crate::infra::home;
 use crate::state::AppState;
 
 pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServerInfo> {
@@ -77,7 +78,7 @@ pub async fn reconcile_installed_hooks(app: &AppHandle) {
     let Ok(server) = ensure_hooks_server_started(app).await else {
         return;
     };
-    reconcile_user_level_hooks(&server, commands::home_dir_env().as_deref());
+    reconcile_user_level_hooks(&server, home::home_dir_env().as_deref());
 }
 
 /// Brings every already-opted-in project's Claude entries up to what this build installs: a
@@ -151,7 +152,7 @@ pub async fn uninstall_hooks_from_open_projects(app: &AppHandle) {
         guard.values().map(|project| project.root.clone()).collect()
     };
     remove_taide_hooks_from_roots(&roots);
-    remove_taide_hooks_from_user_level_files(commands::home_dir_env().as_deref());
+    remove_taide_hooks_from_user_level_files(home::home_dir_env().as_deref());
 }
 
 fn remove_taide_hooks_from_user_level_files(home_env: Option<&str>) {

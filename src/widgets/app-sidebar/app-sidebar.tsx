@@ -3,13 +3,25 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Plus, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import type { DetectedAgent, ProjectId } from '@shared/api/bindings'
-import { projectListQueryOptions, useActivateProject, useOpenFolderDialog, useReorderProjects } from '@entities/project/project.query'
+import { RECENT_PROJECT_MENU_LIMIT } from '@shared/constants/project'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
+import {
+    projectListQueryOptions,
+    recentProjectsQueryOptions,
+    useActivateProject,
+    useOpenFolderDialog,
+    useOpenProject,
+    useReorderProjects,
+} from '@entities/project/project.query'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { IconButton } from '@shared/ui/icon-button'
+import { OpenProjectByPathDialog } from '@features/project/open-project-by-path-dialog'
+import { SidebarAddProjectMenu } from '@features/project/sidebar-add-project-menu'
 import { SortableProjectIcon } from '@widgets/app-sidebar/sortable-project-icon'
 
 const DRAG_ACTIVATION_DISTANCE_PX = 4
@@ -22,12 +34,15 @@ type AppSidebarProps = {
 export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps) => {
     const { t } = useTranslation()
     const [draggingId, setDraggingId] = useState<string | null>(null)
+    const [isOpenByPathDialogOpen, setIsOpenByPathDialogOpen] = useState(false)
 
     const { data: projects = [] } = useQuery(projectListQueryOptions())
+    const { data: recentProjects = [] } = useQuery(recentProjectsQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: activateProject } = useActivateProject()
     const { mutate: reorderProjects } = useReorderProjects()
-    const handleOpenProject = useOpenFolderDialog()
+    const { mutate: openProject, isPending: isOpeningProject } = useOpenProject()
+    const handleOpenViaFinder = useOpenFolderDialog()
 
     const agentQueries = useQueries({
         queries: projects.map((project) => projectAgentsQueryOptions(project.id)),
@@ -38,6 +53,16 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
     const badgeEnabled = settings?.agentStatusBadgeEnabled ?? true
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE_PX } }))
+
+    const openProjectIds = new Set(projects.map((project) => project.id))
+    const menuRecentProjects = recentProjects.filter((project) => !openProjectIds.has(project.id)).slice(0, RECENT_PROJECT_MENU_LIMIT)
+
+    const handleOpenByPath = (path: string) => {
+        openProject(path, {
+            onSuccess: () => setIsOpenByPathDialogOpen(false),
+            onError: (error) => toast.error(describeIpcError(error)),
+        })
+    }
 
     const handleDragEnd = ({ active, over }: DragEndEvent) => {
         setDraggingId(null)
@@ -75,12 +100,17 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
                 </SortableContext>
             </DndContext>
 
-            <IconButton
-                label={t('sidebar.openFolderAriaLabel')}
-                icon={<Plus className='size-5' />}
-                onClick={handleOpenProject}
-                side='right'
-                className='text-app-sidebar-icon-default hover:bg-app-sidebar-item-hover flex size-10 shrink-0 items-center justify-center rounded-md'
+            <SidebarAddProjectMenu
+                recentProjects={menuRecentProjects}
+                onOpenByPath={() => setIsOpenByPathDialogOpen(true)}
+                onOpenViaFinder={handleOpenViaFinder}
+                onSelectRecent={(project) => openProject(project.root, { onError: (error) => toast.error(describeIpcError(error)) })}
+            />
+            <OpenProjectByPathDialog
+                open={isOpenByPathDialogOpen}
+                isPending={isOpeningProject}
+                onOpenChange={setIsOpenByPathDialogOpen}
+                onConfirm={handleOpenByPath}
             />
 
             <IconButton

@@ -17,6 +17,7 @@ use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
 use crate::ids::ProjectId;
+use crate::infra::home;
 use crate::infra::terminal_scan::ScanOutcome;
 use crate::state::AppState;
 
@@ -589,12 +590,8 @@ pub(super) fn write_user_level_hooks(path: &Path, value: &serde_json::Value) -> 
     write_hooks_file_preserving_mode(path, value)
 }
 
-pub(super) fn home_dir_env() -> Option<String> {
-    std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()
-}
-
 fn resolve_user_level_hooks_installed(agent_name: &str) -> AppResult<bool> {
-    let home = home_dir_env();
+    let home = home::home_dir_env();
     let path = service::user_level_hooks_path(agent_name, home.as_deref())?;
     match std::fs::read_to_string(&path) {
         Ok(text) => {
@@ -772,7 +769,7 @@ pub async fn agent_hooks_install(
             let command = service::build_command_hook_shell_command(TAIDE_CLI_TARGET_PATH, &hook_url);
             let events = service::managed_hook_events_for(&agent_name);
             let timeout = service::user_level_hook_command_timeout(&agent_name);
-            let path = service::user_level_hooks_path(&agent_name, home_dir_env().as_deref())?;
+            let path = service::user_level_hooks_path(&agent_name, home::home_dir_env().as_deref())?;
             let value = read_user_level_hooks(&path)?;
             let value = service::inject_taide_command_hook_entries(value, events, &command, timeout);
             write_user_level_hooks(&path, &value)?;
@@ -799,7 +796,7 @@ pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: Proje
             }
         }
         HookInstallScope::User => {
-            let path = service::user_level_hooks_path(&agent_name, home_dir_env().as_deref())?;
+            let path = service::user_level_hooks_path(&agent_name, home::home_dir_env().as_deref())?;
             let value = read_user_level_hooks(&path)?;
             if service::has_taide_marker_anywhere(&value) {
                 let events = service::managed_hook_events_for(&agent_name);

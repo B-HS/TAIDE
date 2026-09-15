@@ -17,6 +17,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "app_get_info",
     "project_list",
     "project_list_recent",
+    "project_forget_recent",
     "project_get",
     "project_get_active",
     "project_open",
@@ -304,7 +305,8 @@ enum RemoteDenialPolicy {
     /// external CLI process blocked (its `waitMarker` release registers in a realm the desktop's own
     /// tab-close handling never observes).
     SharedSingletonStateRace,
-    /// `project_list_recent` — reads every persisted project record on the desktop's local disk
+    /// `project_list_recent`/`project_forget_recent` — read and destroy, respectively, every
+    /// persisted project record on the desktop's local disk
     /// (`AppPaths::project_file`, one per project ever opened here), not merely the projects
     /// currently open in this session's `project_list`. It exists purely to power the local
     /// Welcome screen's "recent projects" list (d-27, `docs/acknowledge/2026-08-20-welcome-page-
@@ -319,7 +321,11 @@ enum RemoteDenialPolicy {
     /// ceiling. The Welcome tab still mounts in a remote session (it's part of every project's
     /// default layout) and calls this command on render, so its "recent projects" section is
     /// expected to always render empty there — see `docs/ipc-contract.md`'s
-    /// `LocalProjectHistoryExposure` table row.
+    /// `LocalProjectHistoryExposure` table row. `project_forget_recent` is denied under the same
+    /// policy from the other direction: a session that may not enumerate this desktop's project
+    /// history has no business deleting it either, and the records it would delete
+    /// (`projects/<id>/`) carry the layouts and display overrides of projects the remote session
+    /// never opened.
     LocalProjectHistoryExposure,
     /// `ai_set_token`/`ai_clear_token` (writes or deletes whichever of the `AiOllamaCloud`/`AiCodex`/
     /// `AiOmlx` keyring entries the caller-supplied `provider` selects) and `sync_connect`/
@@ -550,6 +556,7 @@ const REMOTE_DENIED_COMMANDS: &[RemoteDeniedCommandEntry] = &[
     ("remote_clear_password", RemoteDenialPolicy::SelfAccessExpansion),
     ("window_set_fullscreen", RemoteDenialPolicy::UnreachableDesktopWindow),
     ("project_list_recent", RemoteDenialPolicy::LocalProjectHistoryExposure),
+    ("project_forget_recent", RemoteDenialPolicy::LocalProjectHistoryExposure),
     ("ai_set_token", RemoteDenialPolicy::CredentialStoreTampering),
     ("ai_clear_token", RemoteDenialPolicy::CredentialStoreTampering),
     ("sync_connect", RemoteDenialPolicy::CredentialStoreTampering),

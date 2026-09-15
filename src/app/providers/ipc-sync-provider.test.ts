@@ -305,6 +305,21 @@ describe('collectOpenFilePathsOutsideProject', () => {
     })
 })
 
+describe('PROJECT_LIST_CHANGED_INVALIDATIONS', () => {
+    test('열린 목록과 최근 목록을 함께 무효화한다 — 두 목록은 서로 다른 쿼리이고 같은 이벤트가 둘 다 바꾼다', async () => {
+        const { PROJECT_LIST_CHANGED_INVALIDATIONS } = await import('@app/providers/ipc-sync-provider')
+
+        expect(PROJECT_LIST_CHANGED_INVALIDATIONS).toEqual([QUERY_KEY.PROJECT.LIST, QUERY_KEY.PROJECT.RECENT])
+    })
+
+    test('PROJECT.ALL 접두사를 쓰지 않는다 — active·detail 은 각자의 이벤트가 담당한다', async () => {
+        const { PROJECT_LIST_CHANGED_INVALIDATIONS } = await import('@app/providers/ipc-sync-provider')
+
+        expect(PROJECT_LIST_CHANGED_INVALIDATIONS).not.toContainEqual(QUERY_KEY.PROJECT.ALL)
+        expect(PROJECT_LIST_CHANGED_INVALIDATIONS).not.toContainEqual(QUERY_KEY.PROJECT.ACTIVE)
+    })
+})
+
 describe('rescanInvalidations', () => {
     test('경로를 알 수 없는 rescan 이라 트리·퀵오픈·git·파일 4종을 통째로 무효화한다', async () => {
         const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
