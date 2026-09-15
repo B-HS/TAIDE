@@ -37,6 +37,7 @@ import type { PaneDirection } from '@shared/lib/pane-tree'
 import { collectAllPaneTabs, findAdjacentPaneLeaf, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { requestTerminalWrite } from '@shared/lib/bridge/terminal-write-bridge'
+import { useIsShellSlotFocused } from '@shared/lib/shell-slot-context'
 import { getWindowContext } from '@shared/lib/window-context'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
@@ -64,11 +65,25 @@ type DragTabState = {
 
 type EditorAreaProps = {
     projectId: ProjectId
+    /**
+     * Window-level as of d-62 §0.1 S-6 — it used to be read here off this project's `shell_view`,
+     * which stopped being the truth once one window could hold several project shells. An auxiliary
+     * window passes `false`: it is editor-only chrome with nothing to hide, and the session-wide Zen
+     * flag must not reach it just because the main window happens to be in Zen mode.
+     */
+    zen: boolean
     isProblemsOpen: boolean
     onCloseProblems: () => void
 }
 
-export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onCloseProblems }) => {
+/**
+ * Every global listener below is gated on {@link useIsShellSlotFocused} (contract §0.1 S-4/U-1): this
+ * component is mounted once per open shell slot, and both `useGlobalKeymap` and the two broadcast
+ * bridges it subscribes to are per-realm rather than per-slot — ungated, one ⌘S or one palette
+ * "Split Editor" would fire once for every slot on screen. Outside a slot scope (an auxiliary window,
+ * a component test) the gate is always open, so those realms behave exactly as before.
+ */
+export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen, onCloseProblems }) => {
     const prunedProjectIdRef = useRef<ProjectId | null>(null)
 
     const [dragTab, setDragTab] = useState<DragTabState | null>(null)
@@ -86,6 +101,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const openFileTab = useOpenFileTab()
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
     const { mutate: focusPane } = useFocusPane(projectId)
+    const isFocused = useIsShellSlotFocused()
 
     /**
      * Which of the project's pane trees *this* window renders — the main tree for the main window,
@@ -96,13 +112,6 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
      */
     const windowContext = getWindowContext()
     const paneTree = layout ? resolveWindowPaneTree(layout, windowContext) : null
-
-    /**
-     * `ProjectLayout::shell_view` is main-window-only (Wave I contract §3.2) — an auxiliary window
-     * is editor-only chrome with no sidebar/status bar to begin with, so it never hides its own tab
-     * bar just because the main window happens to be in Zen mode.
-     */
-    const zen = windowContext.kind === 'main' && (layout?.shellView?.zen ?? false)
 
     /** A pinned tab survives ⌘W with a warning instead of closing (`docs/features/tabs.md` §3) — the tab bar's own close affordances guard themselves in `tab-item.tsx`. */
     const closeFocusedTab = () => {
@@ -267,37 +276,41 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (text !== null) runInTerminal(text, null)
     }
 
+    /** `undefined` rather than a no-op function: `useGlobalKeymap` only calls `preventDefault` when a handler exists, so an unfocused slot leaves the keystroke for the focused one to claim. */
+    const whenFocused = (handler: () => void) => (isFocused ? handler : undefined)
+
     useGlobalKeymap({
-        'close-tab': closeFocusedTab,
-        find: openFind,
-        search: openGlobalSearch,
-        'search-replace': () => requestOpenSearchPanel({ openReplace: true }),
-        split: splitActiveEditor,
-        'tab-cycle-next': () => cycleTab('next'),
-        'tab-cycle-prev': () => cycleTab('prev'),
-        'editor-next': () => cycleTab('next'),
-        'editor-previous': () => cycleTab('prev'),
-        save: saveActiveTab,
-        'toggle-terminal': toggleTerminal,
-        'focus-group-left': () => focusGroup({ kind: 'direction', direction: 'left' }),
-        'focus-group-right': () => focusGroup({ kind: 'direction', direction: 'right' }),
-        'focus-group-up': () => focusGroup({ kind: 'direction', direction: 'up' }),
-        'focus-group-down': () => focusGroup({ kind: 'direction', direction: 'down' }),
-        'move-tab-to-group-left': () => moveActiveTabToGroup('left'),
-        'move-tab-to-group-right': () => moveActiveTabToGroup('right'),
-        'close-all-tabs': () => void closeAllTabsInFocusedGroup(),
-        'focus-group-1': () => focusGroup({ kind: 'position', position: 1 }),
-        'focus-group-2': () => focusGroup({ kind: 'position', position: 2 }),
-        'focus-group-3': () => focusGroup({ kind: 'position', position: 3 }),
-        'focus-group-4': () => focusGroup({ kind: 'position', position: 4 }),
-        'focus-group-5': () => focusGroup({ kind: 'position', position: 5 }),
-        'focus-group-6': () => focusGroup({ kind: 'position', position: 6 }),
-        'focus-group-7': () => focusGroup({ kind: 'position', position: 7 }),
-        'focus-group-8': () => focusGroup({ kind: 'position', position: 8 }),
-        'focus-group-9': () => focusGroup({ kind: 'position', position: 9 }),
+        'close-tab': whenFocused(closeFocusedTab),
+        find: whenFocused(openFind),
+        search: whenFocused(openGlobalSearch),
+        'search-replace': whenFocused(() => requestOpenSearchPanel({ openReplace: true })),
+        split: whenFocused(splitActiveEditor),
+        'tab-cycle-next': whenFocused(() => cycleTab('next')),
+        'tab-cycle-prev': whenFocused(() => cycleTab('prev')),
+        'editor-next': whenFocused(() => cycleTab('next')),
+        'editor-previous': whenFocused(() => cycleTab('prev')),
+        save: whenFocused(saveActiveTab),
+        'toggle-terminal': whenFocused(toggleTerminal),
+        'focus-group-left': whenFocused(() => focusGroup({ kind: 'direction', direction: 'left' })),
+        'focus-group-right': whenFocused(() => focusGroup({ kind: 'direction', direction: 'right' })),
+        'focus-group-up': whenFocused(() => focusGroup({ kind: 'direction', direction: 'up' })),
+        'focus-group-down': whenFocused(() => focusGroup({ kind: 'direction', direction: 'down' })),
+        'move-tab-to-group-left': whenFocused(() => moveActiveTabToGroup('left')),
+        'move-tab-to-group-right': whenFocused(() => moveActiveTabToGroup('right')),
+        'close-all-tabs': whenFocused(() => void closeAllTabsInFocusedGroup()),
+        'focus-group-1': whenFocused(() => focusGroup({ kind: 'position', position: 1 })),
+        'focus-group-2': whenFocused(() => focusGroup({ kind: 'position', position: 2 })),
+        'focus-group-3': whenFocused(() => focusGroup({ kind: 'position', position: 3 })),
+        'focus-group-4': whenFocused(() => focusGroup({ kind: 'position', position: 4 })),
+        'focus-group-5': whenFocused(() => focusGroup({ kind: 'position', position: 5 })),
+        'focus-group-6': whenFocused(() => focusGroup({ kind: 'position', position: 6 })),
+        'focus-group-7': whenFocused(() => focusGroup({ kind: 'position', position: 7 })),
+        'focus-group-8': whenFocused(() => focusGroup({ kind: 'position', position: 8 })),
+        'focus-group-9': whenFocused(() => focusGroup({ kind: 'position', position: 9 })),
     })
 
     const handleEditorPaneCommand = useEffectEvent((command: EditorPaneCommand) => {
+        if (!isFocused) return
         if (command.type === 'split') return splitActiveEditor()
         if (command.type === 'cycle-tab') return cycleTab(command.direction)
         if (command.type === 'save-active-tab') return saveActiveTab()
@@ -320,6 +333,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
      * `ProblemsPanelContainer.handleOpenProblem`'s reveal-then-open pattern exactly.
      */
     const handleOpenFileFromEditor = useEffectEvent(({ path: targetPath, line, column }: { path: string; line: number; column: number }) => {
+        if (!isFocused) return
         requestReveal(targetPath, line, column)
         openFileTab({ projectId, path: targetPath, target: paneTree?.focusedPane ?? null, preview: true })
     })
@@ -329,6 +343,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const focusedSaveRoutableTabId = getFocusedSaveRoutableTabId()
 
     useEffect(() => {
+        if (!isFocused) return
         if (!focusedSaveRoutableTabId) {
             setActiveEditorActionIds(null)
             return
@@ -375,7 +390,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
             languageAdapterSubscription()
             modelSubscription?.dispose()
         }
-    }, [focusedSaveRoutableTabId])
+    }, [isFocused, focusedSaveRoutableTabId])
 
     useEffect(() => () => setActiveEditorActionIds(null), [])
 

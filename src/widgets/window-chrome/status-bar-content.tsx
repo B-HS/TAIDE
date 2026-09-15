@@ -1,11 +1,10 @@
 import type { FC } from 'react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { LspSessionStatus } from '@shared/api/bindings'
+import type { LspSessionStatus, ProjectId } from '@shared/api/bindings'
 import { getEditorInstance, subscribeEditorInstance } from '@entities/editor/editor-instance-registry'
 import { layoutQueryOptions } from '@entities/layout/layout.query'
 import { lspSessionsQueryOptions } from '@entities/lsp/lsp.query'
-import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { systemUsageQueryOptions } from '@entities/system/system.query'
@@ -29,22 +28,29 @@ const isLspRunning = (status: LspSessionStatus) => status === 'running'
 const isLspCrashed = (status: LspSessionStatus) => status === 'crashed'
 
 type StatusBarContentProps = {
+    projectId: ProjectId | null
     isProblemsOpen: boolean
     onToggleProblems: () => void
 }
 
-export const StatusBarContent: FC<StatusBarContentProps> = ({ isProblemsOpen, onToggleProblems }) => {
+/**
+ * Scoped to the project its host hands it rather than reading the global active-project session
+ * itself (d-62 §1.B) — with several project shells side by side the status bar speaks for whichever
+ * shell slot has focus, and `AppShell` is the one component that knows which that is. The Problems
+ * pair is window-level for the same reason: the toggle has to reach into the *focused* slot's
+ * `ProjectShell`, so its state is owned above every slot and threaded back down.
+ */
+export const StatusBarContent: FC<StatusBarContentProps> = ({ projectId, isProblemsOpen, onToggleProblems }) => {
     const cursorSnapshotRef = useRef<{ line: number; column: number } | null>(null)
     const chordNoMatchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const [isUsageModalOpen, setUsageModalOpen] = useState(false)
     const [chordNoMatchFlash, setChordNoMatchFlash] = useState(false)
 
-    const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: ideStatus = null } = useQuery(ideStatusQueryOptions())
-    const { data: layout } = useQuery(layoutQueryOptions(activeProjectId))
-    const { data: lspSessions = [] } = useQuery(lspSessionsQueryOptions(activeProjectId))
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
+    const { data: lspSessions = [] } = useQuery(lspSessionsQueryOptions(projectId))
     const showSystemUsage = settings?.showSystemUsage ?? true
     const { data: systemUsage = null } = useQuery(systemUsageQueryOptions(showSystemUsage))
     const { mutate: updateSettings } = useUpdateSettings()

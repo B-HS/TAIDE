@@ -21,6 +21,10 @@ export const QUERY_KEY = {
         ACTIVE: ['project', 'active'] as const,
         DETAIL: (projectId: ProjectId) => ['project', 'detail', projectId] as const,
     },
+    SESSION: {
+        ALL: ['session'] as const,
+        SHELL_STATE: ['session', 'shell-state'] as const,
+    },
     LAYOUT: {
         ALL: ['layout'] as const,
         DETAIL: (projectId: ProjectId) => ['layout', 'detail', projectId] as const,

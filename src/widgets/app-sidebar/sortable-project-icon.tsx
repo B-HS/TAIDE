@@ -4,7 +4,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectRef } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectRef, ShellSlotEdge } from '@shared/api/bindings'
 import { CLEARED_PROJECT_DISPLAY_PATCH } from '@shared/constants/project-display'
 import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
@@ -17,6 +17,18 @@ import { useCloseProject, useSetProjectDisplay } from '@entities/project/project
 import { systemOpenPath } from '@entities/system/system.ipc'
 
 const DRAGGING_OPACITY = 0.4
+
+/**
+ * "Open to the Right/Below/…" — the menu route to a shell split (contract §0.1, 2a), standing in for
+ * the sidebar-to-slot drag that stage 2b adds. Ordered the way the contract names them, and labelled
+ * by direction rather than by edge id so the wording survives a future right-to-left layout.
+ */
+const SHELL_SLOT_OPEN_EDGES: { edge: ShellSlotEdge; labelKey: string }[] = [
+    { edge: 'right', labelKey: 'shellSlot.openToTheRight' },
+    { edge: 'bottom', labelKey: 'shellSlot.openBelow' },
+    { edge: 'left', labelKey: 'shellSlot.openToTheLeft' },
+    { edge: 'top', labelKey: 'shellSlot.openAbove' },
+]
 
 const ACTIVITY_PRIORITY: Record<AgentActivity, number> = { awaitingInput: 3, working: 2, idle: 1, unknown: 0 }
 
@@ -37,10 +49,22 @@ type SortableProjectIconProps = {
     dragging: boolean
     agents: DetectedAgent[]
     badgeEnabled: boolean
+    /** `false` while the window has no shell slot to split — projects are closed, or the tree has not loaded yet. */
+    canOpenInShellSlot: boolean
     onActivate: () => void
+    onOpenInShellSlot: (edge: ShellSlotEdge) => void
 }
 
-export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, active, dragging, agents, badgeEnabled, onActivate }) => {
+export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
+    project,
+    active,
+    dragging,
+    agents,
+    badgeEnabled,
+    canOpenInShellSlot,
+    onActivate,
+    onOpenInShellSlot,
+}) => {
     const [displayDialogOpen, setDisplayDialogOpen] = useState(false)
 
     const { t } = useTranslation()
@@ -100,6 +124,12 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({ project, act
 
                 <ContextMenuContent>
                     <ContextMenuItem onSelect={() => closeProject(project.id)}>{t('project.close')}</ContextMenuItem>
+                    <ContextMenuSeparator />
+                    {SHELL_SLOT_OPEN_EDGES.map(({ edge, labelKey }) => (
+                        <ContextMenuItem key={edge} disabled={!canOpenInShellSlot} onSelect={() => onOpenInShellSlot(edge)}>
+                            {t(labelKey)}
+                        </ContextMenuItem>
+                    ))}
                     <ContextMenuSeparator />
                     <ContextMenuItem onSelect={() => void systemOpenPath(project.root).catch((error: Error) => toast.error(describeIpcError(error)))}>
                         {t('project.openInFileManager')}

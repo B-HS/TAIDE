@@ -20,6 +20,9 @@ const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'PROJECT.RECENT', scopedByProject: false },
     { path: 'PROJECT.ACTIVE', scopedByProject: false },
     { path: 'PROJECT.DETAIL', scopedByProject: true, factory: QUERY_KEY.PROJECT.DETAIL },
+    /** Window-scoped, not project-scoped: one shell-slot arrangement per session, so closing a project reshapes it rather than invalidating it — Rust emits `session:shell-slots-changed` for that. */
+    { path: 'SESSION.ALL', scopedByProject: false },
+    { path: 'SESSION.SHELL_STATE', scopedByProject: false },
     { path: 'LAYOUT.ALL', scopedByProject: false },
     { path: 'LAYOUT.DETAIL', scopedByProject: true, factory: QUERY_KEY.LAYOUT.DETAIL },
     { path: 'FILE.ALL', scopedByProject: false },

@@ -14,6 +14,8 @@ type UseExplorerAutoRevealInput = {
     projectRoot: string | null
     rows: FileTreeRow[]
     explorerViewActive: boolean
+    /** Window-level as of d-62 §0.1 S-6, so it arrives as an input instead of being read off this project's `shell_view` — see `use-window-chrome.ts`. */
+    zen: boolean
     setSelectPathRequest: (path: string) => void
     revealTreeNode: ReturnType<typeof useRevealTreeNode>['mutateAsync']
 }
@@ -41,6 +43,7 @@ export const useExplorerAutoReveal = ({
     projectRoot,
     rows,
     explorerViewActive,
+    zen,
     setSelectPathRequest,
     revealTreeNode,
 }: UseExplorerAutoRevealInput) => {
@@ -54,7 +57,7 @@ export const useExplorerAutoReveal = ({
     const revealablePath = isUnderProjectRoot ? activePath : null
 
     const enabled = settings?.explorerAutoReveal ?? true
-    const sidebarVisible = !(layout?.shellView?.zen ?? false) && !(layout?.shellView?.sidebarCollapsed ?? false)
+    const sidebarVisible = !zen && !(layout?.shellView?.sidebarCollapsed ?? false)
 
     /**
      * The decision is taken here rather than during render because `lastRevealedPath` lives in a

@@ -6,9 +6,10 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { DetectedAgent, ProjectId } from '@shared/api/bindings'
+import type { DetectedAgent, ProjectId, ShellSlotEdge } from '@shared/api/bindings'
 import { RECENT_PROJECT_MENU_LIMIT } from '@shared/constants/project'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { useShellSlotFocus } from '@shared/lib/shell-slot-context'
 import {
     projectListQueryOptions,
     recentProjectsQueryOptions,
@@ -18,6 +19,7 @@ import {
     useReorderProjects,
 } from '@entities/project/project.query'
 import { projectAgentsQueryOptions } from '@entities/agent/agent.query'
+import { useOpenProjectInSlot } from '@entities/session/session.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { IconButton } from '@shared/ui/icon-button'
 import { OpenProjectByPathDialog } from '@features/project/open-project-by-path-dialog'
@@ -31,6 +33,14 @@ type AppSidebarProps = {
     onOpenSettings: () => void
 }
 
+/**
+ * `activeProjectId` is the *focused shell slot's* project as of d-62 §1.B — a plain click still goes
+ * through `project_activate`, which Rust redefined as "focus the slot this project is already in, or
+ * else swap the focused slot's project" (contract §0.1 S-5), so the single-slot behaviour is
+ * unchanged. The context menu's "Open to the Right/Below/…" is the split route: it targets the
+ * focused slot, and the server refuses a project that is already in another slot (§0.1 S-3) rather
+ * than this side pre-checking it.
+ */
 export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps) => {
     const { t } = useTranslation()
     const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -42,6 +52,8 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
     const { mutate: activateProject } = useActivateProject()
     const { mutate: reorderProjects } = useReorderProjects()
     const { mutate: openProject, isPending: isOpeningProject } = useOpenProject()
+    const { mutate: openProjectInSlot } = useOpenProjectInSlot()
+    const { focusedShellSlotId } = useShellSlotFocus()
     const handleOpenViaFinder = useOpenFolderDialog()
 
     const agentQueries = useQueries({
@@ -62,6 +74,14 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
             onSuccess: () => setIsOpenByPathDialogOpen(false),
             onError: (error) => toast.error(describeIpcError(error)),
         })
+    }
+
+    const handleOpenInShellSlot = (projectId: ProjectId, edge: ShellSlotEdge) => {
+        if (!focusedShellSlotId) return
+        openProjectInSlot(
+            { path: null, projectId, targetSlot: focusedShellSlotId, edge },
+            { onError: (error) => toast.error(describeIpcError(error)) },
+        )
     }
 
     const handleDragEnd = ({ active, over }: DragEndEvent) => {
@@ -94,7 +114,9 @@ export const AppSidebar = ({ activeProjectId, onOpenSettings }: AppSidebarProps)
                             dragging={draggingId === project.id}
                             agents={agentsByProjectId.get(project.id) ?? []}
                             badgeEnabled={badgeEnabled}
+                            canOpenInShellSlot={!!focusedShellSlotId}
                             onActivate={() => activateProject(project.id)}
+                            onOpenInShellSlot={(edge) => handleOpenInShellSlot(project.id, edge)}
                         />
                     ))}
                 </SortableContext>

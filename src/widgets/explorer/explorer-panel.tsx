@@ -13,6 +13,7 @@ import type { SearchPanelRequest } from '@shared/lib/bridge/search-panel-bridge'
 import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { subscribeRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
 import { subscribeRenameInExplorer } from '@shared/lib/bridge/explorer-rename-bridge'
+import { useIsShellSlotFocused } from '@shared/lib/shell-slot-context'
 import type { FileTreeContextMenuHandlers, FileTreeDraft, FileTreeRenameTarget } from '@features/explorer/file-tree'
 import { FileTree } from '@features/explorer/file-tree'
 import { GitPanelContainer } from '@widgets/git-panel/git-panel-container'
@@ -103,6 +104,13 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     const [scopedProjectId, setScopedProjectId] = useState(projectId)
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
+    /**
+     * All four bridges below are per-realm broadcasts with no slot address of their own (contract
+     * §0.1 U-1), and this panel is mounted once per open shell slot — ungated, one ⌘⇧F would switch
+     * every slot's sidebar to the search view at once. Outside a slot scope (an auxiliary window, a
+     * component test) the gate is always open.
+     */
+    const isShellSlotFocused = useIsShellSlotFocused()
 
     if (scopedProjectId !== projectId) {
         setScopedProjectId(projectId)
@@ -112,22 +120,31 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     useEffect(
         () =>
             subscribeOpenSearchPanel((request) => {
+                if (!isShellSlotFocused) return
                 onViewChange('search')
                 setSearchRequest(request)
                 setOpenNonce((nonce) => nonce + 1)
             }),
-        [onViewChange],
+        [isShellSlotFocused, onViewChange],
     )
 
-    useEffect(() => subscribeShowExplorerView((requestedView) => onViewChange(requestedView)), [onViewChange])
+    useEffect(
+        () =>
+            subscribeShowExplorerView((requestedView) => {
+                if (!isShellSlotFocused) return
+                onViewChange(requestedView)
+            }),
+        [isShellSlotFocused, onViewChange],
+    )
 
     useEffect(
         () =>
             subscribeRevealInExplorer((path) => {
+                if (!isShellSlotFocused) return
                 onViewChange('files')
                 onRevealInExplorerRequest(path)
             }),
-        [onViewChange, onRevealInExplorerRequest],
+        [isShellSlotFocused, onViewChange, onRevealInExplorerRequest],
     )
 
     /**
@@ -137,10 +154,11 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     useEffect(
         () =>
             subscribeRenameInExplorer((path) => {
+                if (!isShellSlotFocused) return
                 onViewChange('files')
                 onRenameInExplorerRequest(path)
             }),
-        [onViewChange, onRenameInExplorerRequest],
+        [isShellSlotFocused, onViewChange, onRenameInExplorerRequest],
     )
 
     return (

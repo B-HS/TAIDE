@@ -1,64 +1,86 @@
-import { Suspense, useEffect, useEffectEvent, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { EventCallback } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { DragDropEvent } from '@tauri-apps/api/webview'
 import { useTranslation } from 'react-i18next'
-import { Group, Panel, usePanelRef } from 'react-resizable-panels'
-import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import { toast } from 'sonner'
-import { useOpenTab, useOpenTabInProject, useSetShellView } from '@entities/layout/layout.query'
-import { activeProjectQueryOptions, projectListQueryOptions, useOpenProject } from '@entities/project/project.query'
+import type { ShellSlotId } from '@shared/api/bindings'
+import { useOpenTab, useOpenTabInProject } from '@entities/layout/layout.query'
+import { projectListQueryOptions, useOpenProject } from '@entities/project/project.query'
+import { shellStateQueryOptions, useCloseShellSlot, useSetShellSlotSizes } from '@entities/session/session.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
-import { PaneSeparator } from '@features/split/pane-separator'
-import { useZenMode } from '@widgets/app-shell/use-zen-mode'
+import { useWindowChrome } from '@widgets/app-shell/use-window-chrome'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
-import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
+import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { IS_MAC } from '@shared/constants/platform'
-import {
-    requestShowExplorerView,
-    requestToggleExplorerSidebar,
-    subscribeShowExplorerView,
-    subscribeToggleExplorerSidebar,
-} from '@shared/lib/bridge/explorer-panel-bridge'
-import { subscribeRevealInExplorer } from '@shared/lib/bridge/explorer-reveal-bridge'
-import { subscribeRenameInExplorer } from '@shared/lib/bridge/explorer-rename-bridge'
+import { requestShowExplorerView, requestToggleExplorerSidebar } from '@shared/lib/bridge/explorer-panel-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, perfMark } from '@shared/lib/perf-mark'
-import { subscribeOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { fileNameOf } from '@shared/lib/relative-path'
+import { withShellSlotToggled } from '@shared/lib/shell-slot'
+import { useShellSlotFocus } from '@shared/lib/shell-slot-context'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { ZenModeHint } from '@features/window/zen-mode-hint'
 import { ErrorBoundary } from '@shared/ui/error-boundary'
 import { AppSidebar } from '@widgets/app-sidebar/app-sidebar'
-import { EditorArea } from '@widgets/editor-area/editor-area'
-import { ExplorerContainer } from '@widgets/explorer/explorer-container'
+import { ShellSlotTreeView } from '@widgets/app-shell/shell-slot-tree-view'
 import { StatusBarContent } from '@widgets/window-chrome/status-bar-content'
 import { TitleBarContent } from '@widgets/window-chrome/title-bar-content'
 import { WelcomeContainerLazy } from '@widgets/welcome/welcome-container-lazy'
 
 const dragDropEventSource = { listen: (handler: EventCallback<DragDropEvent>) => getCurrentWebview().onDragDropEvent(handler) }
 
+/**
+ * The main window's chrome: the project rail, the shell-slot tree (one `ProjectShell` per slot,
+ * contract §1.B), and the title/status bars that act on whichever slot has focus.
+ *
+ * The three panel shortcuts stay registered *here*, once, rather than inside each slot: they publish
+ * to the per-realm panel bridges, and a registration per slot would publish once per open slot. The
+ * subscribing side is what picks the focused slot out (`project-shell.tsx`), which is contract
+ * §0.1 U-1's "gate the subscriber, leave the publisher alone" in both directions.
+ *
+ * Problems-panel visibility is tracked per slot here rather than inside each `ProjectShell` because
+ * the status bar's toggle is window-level: it has to both read and flip the *focused* slot's flag,
+ * which means one owner above all the slots. Every other slot-local piece of state stays inside the
+ * slot. A closed slot's entry is dropped once `shell_slot_close` reports success — slot ids are
+ * per-session uuids so nothing would inherit the flag, but the list lives as long as the window and
+ * would otherwise only ever grow.
+ */
 export const AppShell = () => {
-    const explorerPanelRef = usePanelRef()
     const [isDragActive, setIsDragActive] = useState(false)
-    const [isProblemsOpen, setIsProblemsOpen] = useState(false)
+    const [problemsOpenSlotIds, setProblemsOpenSlotIds] = useState<readonly ShellSlotId[]>([])
 
     const { t } = useTranslation()
-    const { data: projects = [], isPending } = useQuery(projectListQueryOptions())
-    const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
+    const { data: projects = [], isPending: isProjectListPending } = useQuery(projectListQueryOptions())
+    const { data: shellState, isPending: isShellStatePending } = useQuery(shellStateQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
+    const { focusedShellSlotId, focusedProjectId } = useShellSlotFocus()
     const { mutateAsync: openProjectAsync } = useOpenProject()
-    const { mutate: openTab } = useOpenTab(activeProjectId)
+    const { mutate: openTab } = useOpenTab(focusedProjectId)
     const { mutateAsync: openTabInProject } = useOpenTabInProject()
-    const { mutate: setShellView } = useSetShellView(activeProjectId)
-    const { zen, sidebarCollapsed, hideStatusBar } = useZenMode(activeProjectId)
+    const { mutate: closeShellSlot } = useCloseShellSlot()
+    const { mutate: setShellSlotSizes } = useSetShellSlotSizes()
+    const { zen, sidebarRailCollapsed, hideStatusBar } = useWindowChrome()
+
+    const tree = shellState?.tree ?? null
+    const isProblemsOpenInFocusedSlot = !!focusedShellSlotId && problemsOpenSlotIds.includes(focusedShellSlotId)
+
+    const toggleProblemsInFocusedSlot = () => {
+        if (!focusedShellSlotId) return
+        setProblemsOpenSlotIds((slotIds) => withShellSlotToggled(slotIds, focusedShellSlotId))
+    }
+
+    const forgetSlotProblems = (slotId: ShellSlotId) => setProblemsOpenSlotIds((slotIds) => slotIds.filter((current) => current !== slotId))
+
+    const handleCloseSlot = (slotId: ShellSlotId) =>
+        closeShellSlot(slotId, { onSuccess: () => forgetSlotProblems(slotId), onError: (error) => toast.error(describeIpcError(error)) })
 
     const handleOpenSettings = () => {
-        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
+        if (!focusedProjectId) return toast.info(t('app.openProjectFirst'))
         openTab(
-            { projectId: activeProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
+            { projectId: focusedProjectId, kind: { kind: 'settings' }, title: t('settings.title'), target: null, preview: false },
             { onError: (error) => toast.error(describeIpcError(error)) },
         )
     }
@@ -71,7 +93,7 @@ export const AppShell = () => {
     }
 
     const handleDroppedPaths = async (paths: string[]) => {
-        let targetProjectId = activeProjectId
+        let targetProjectId = focusedProjectId
 
         for (const path of paths) {
             try {
@@ -107,18 +129,6 @@ export const AppShell = () => {
         event.preventDefault()
     }
 
-    /** Promotes the explorer panel's collapsed/expanded state from view-local (pre-Wave-I) to Rust-owned `shell_view.sidebarCollapsed` (ADR-0004) — the panel's *width* stays a view-local default, per contract §3.2. */
-    const persistSidebarCollapsed = (collapsed: boolean) => {
-        if (!activeProjectId) return
-        setShellView({ projectId: activeProjectId, patch: { zen: null, sidebarCollapsed: collapsed } })
-    }
-
-    /** Catches a *drag*-driven collapse/expand (dragging the separator past `minSize`) — imperative `.collapse()`/`.expand()` calls (below, and in `subscribeToggleExplorerSidebar`'s handler) report `isUserInteraction: false` and persist explicitly at their own call site instead. */
-    const handleShellLayoutChanged = (_layout: Layout, meta: LayoutChangedMeta) => {
-        if (!meta.isUserInteraction) return
-        persistSidebarCollapsed(explorerPanelRef.current?.isCollapsed() ?? false)
-    }
-
     useGlobalKeymap({
         'toggle-sidebar': () => requestToggleExplorerSidebar(),
         explorer: () => requestShowExplorerView('files'),
@@ -135,62 +145,20 @@ export const AppShell = () => {
     /**
      * Opens the project-switch span (metric 2 in `docs/quality-assurance/2026-09-04-perf-baseline.md`),
      * closed by `explorer-container.tsx` when the new project's first tree page lands. The shell is
-     * where the switch becomes observable — the sidebar only fires the mutation, and the active
-     * project id is what every panel below actually reacts to.
+     * where the switch becomes observable — the sidebar only fires the mutation, and the focused
+     * slot's project is what every panel below actually reacts to.
      *
      * A switch whose tree page is already cached is not measured at all: `ExplorerContainer` is a
-     * child, so its effects run *before* this one in that single commit and find no start mark. That
-     * is the honest outcome — there was no round trip to measure — and it keeps a stale mark from
+     * descendant, so its effects run *before* this one in that single commit and find no start mark.
+     * That is the honest outcome — there was no round trip to measure — and it keeps a stale mark from
      * being charged to an unrelated later render (`perf-mark.ts`, consume-on-measure).
      */
     useEffect(() => {
-        if (!activeProjectId) return
+        if (!focusedProjectId) return
         perfMark(PERF_MARK.PROJECT_SWITCH_REQUESTED)
-    }, [activeProjectId])
+    }, [focusedProjectId])
 
-    useEffect(() => subscribeOpenSearchPanel(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
-    useEffect(() => subscribeShowExplorerView(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
-
-    /**
-     * "Reveal in Explorer" is an explicit request for the tree, so it expands a collapsed sidebar
-     * the way the search/view bridges above already do — without this the tab context menu's entry
-     * looked like a no-op whenever the sidebar was collapsed. Auto-reveal deliberately does not go
-     * through this bridge, so it can never pop the sidebar open on its own.
-     */
-    useEffect(() => subscribeRevealInExplorer(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
-
-    /** A tab's "Rename" hands the job to the tree's inline editor, so it has to be visible for the same reason "Reveal in Explorer" does. */
-    useEffect(() => subscribeRenameInExplorer(() => explorerPanelRef.current?.expand()), [explorerPanelRef])
-
-    /**
-     * A no-op while Zen mode holds the panel force-collapsed — toggling it mid-Zen would desync
-     * from the `shouldCollapse` sync effect below (no separator to drag it back with either, since
-     * that's also hidden in Zen), so the manual toggle is suppressed until the user leaves Zen
-     * mode. `useEffectEvent` (not a dependency array) so the effect subscribes exactly once while
-     * still always reading the *latest* `zen`/`activeProjectId` at the moment the bridge fires.
-     */
-    const handleToggleSidebarRequested = useEffectEvent(() => {
-        if (zen) return
-        const panel = explorerPanelRef.current
-        if (!panel) return
-        const collapsed = panel.isCollapsed()
-        if (collapsed) panel.expand()
-        else panel.collapse()
-        persistSidebarCollapsed(!collapsed)
-    })
-    useEffect(() => subscribeToggleExplorerSidebar(handleToggleSidebarRequested), [])
-
-    /** Applies Zen mode (always collapsed) and the persisted `sidebarCollapsed` preference (otherwise) to the panel's actual imperative state — an external-widget sync, not a derived render value, since `Panel` has no controlled "collapsed" prop. */
-    useEffect(() => {
-        const panel = explorerPanelRef.current
-        if (!panel) return
-        const shouldCollapse = zen || sidebarCollapsed
-        if (panel.isCollapsed() === shouldCollapse) return
-        if (shouldCollapse) panel.collapse()
-        else panel.expand()
-    }, [explorerPanelRef, zen, sidebarCollapsed])
-
-    if (isPending) return <div className='bg-app-background h-full w-full' />
+    if (isProjectListPending || isShellStatePending) return <div className='bg-app-background h-full w-full' />
 
     return (
         <div className='bg-app-background text-app-foreground relative flex h-full w-full flex-col'>
@@ -198,7 +166,7 @@ export const AppShell = () => {
             <ZenModeHint zen={zen} />
             {IS_MAC && (
                 <div className='border-tab-bar-tab-border shrink-0 border-b'>
-                    <TitleBarContent />
+                    <TitleBarContent projectId={focusedProjectId} />
                 </div>
             )}
             {projects.length === 0 ? (
@@ -211,43 +179,24 @@ export const AppShell = () => {
                 </div>
             ) : (
                 <div className='flex min-h-0 flex-1'>
-                    {!zen && (
+                    {!zen && !sidebarRailCollapsed && (
                         <ErrorBoundary labelKey='errorBoundary.sidebar' labelFallback='Activity Bar' fallbackSizeClassName='h-full w-14 shrink-0'>
-                            <AppSidebar activeProjectId={activeProjectId} onOpenSettings={handleOpenSettings} />
+                            <AppSidebar activeProjectId={focusedProjectId} onOpenSettings={handleOpenSettings} />
                         </ErrorBoundary>
                     )}
                     <main className='flex min-w-0 flex-1'>
-                        {activeProjectId ? (
-                            <Group
-                                orientation='horizontal'
-                                onLayoutChanged={handleShellLayoutChanged}
-                                resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
-                                className='min-h-0 min-w-0 flex-1'>
-                                <Panel
-                                    id='explorer'
-                                    panelRef={explorerPanelRef}
-                                    defaultSize='240px'
-                                    minSize='180px'
-                                    maxSize='40%'
-                                    collapsible
-                                    collapsedSize={0}>
-                                    <ErrorBoundary labelKey='errorBoundary.sidebarPanel' labelFallback='Sidebar Panel'>
-                                        <ExplorerContainer projectId={activeProjectId} />
-                                    </ErrorBoundary>
-                                </Panel>
-                                {!zen && (
-                                    <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />
-                                )}
-                                <Panel id='editor' minSize='30%'>
-                                    <ErrorBoundary labelKey='errorBoundary.editorArea' labelFallback='Editor'>
-                                        <EditorArea
-                                            projectId={activeProjectId}
-                                            isProblemsOpen={isProblemsOpen}
-                                            onCloseProblems={() => setIsProblemsOpen(false)}
-                                        />
-                                    </ErrorBoundary>
-                                </Panel>
-                            </Group>
+                        {tree ? (
+                            <ShellSlotTreeView
+                                tree={tree}
+                                projects={projects}
+                                focusedShellSlotId={focusedShellSlotId}
+                                zen={zen}
+                                resizerThickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS}
+                                problemsOpenSlotIds={problemsOpenSlotIds}
+                                onCloseProblems={forgetSlotProblems}
+                                onCloseSlot={handleCloseSlot}
+                                onCommitSizes={(path, sizes) => setShellSlotSizes({ path, sizes })}
+                            />
                         ) : (
                             <span className='text-app-sidebar-icon-default m-auto'>{t('app.selectProject')}</span>
                         )}
@@ -256,7 +205,11 @@ export const AppShell = () => {
             )}
             {!(zen && hideStatusBar) && (
                 <ErrorBoundary labelKey='errorBoundary.statusBar' labelFallback='Status Bar' fallbackSizeClassName='h-6 w-full shrink-0'>
-                    <StatusBarContent isProblemsOpen={isProblemsOpen} onToggleProblems={() => setIsProblemsOpen((open) => !open)} />
+                    <StatusBarContent
+                        projectId={focusedProjectId}
+                        isProblemsOpen={isProblemsOpenInFocusedSlot}
+                        onToggleProblems={toggleProblemsInFocusedSlot}
+                    />
                 </ErrorBoundary>
             )}
         </div>

@@ -11,7 +11,9 @@ import { IdeSyncProvider } from '@app/providers/ide-sync-provider'
 import { IpcSyncProvider } from '@app/providers/ipc-sync-provider'
 import { KeybindingsRuntimeProvider } from '@app/providers/keybindings-runtime-provider'
 import { LocaleProvider } from '@app/providers/locale-provider'
+import { MainWindowDialogs } from '@app/main-window-dialogs'
 import { NativeNotificationProvider } from '@app/providers/native-notification-provider'
+import { ShellSlotProvider } from '@app/providers/shell-slot-provider'
 import { ThemeProvider } from '@app/providers/theme-provider'
 import { getWindowContext } from '@shared/lib/window-context'
 import { AppShell } from '@widgets/app-shell/app-shell'
@@ -22,7 +24,7 @@ import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
 /**
  * Branches the whole provider tree on `getWindowContext()` (contract §3.1) — an auxiliary editor
  * window renders `AuxiliaryWindowShell` pinned to its own `(projectId, windowSlot)` instead of
- * `AppShell`, and skips four things the main-window tree mounts:
+ * `AppShell`, and skips three things the main-window tree mounts:
  *
  * - `AgentExternalOpenProvider`: its `openProject`/`activateProject` calls mutate the single global
  *   active-project session, which an auxiliary window must never do to itself (it stays pinned to
@@ -32,15 +34,19 @@ import { TaskRunnerDialog } from '@widgets/task-runner/task-runner-dialog'
  *   plain `.emit(app)`, so mounting it in both branches would race both windows to open/resolve the
  *   same request twice; its diagnostics push also reads the global active-project session, same as
  *   `AgentExternalOpenProvider` above.
- * - `CommandPalette` / `TaskRunnerDialog`: both key off `activeProjectQueryOptions()` internally
- *   (that same global session), not this window's fixed project — rescoping them per-window is a
- *   `widgets/command-palette`/`widgets/task-runner` change outside this wave's scope (see the Wave I
- *   contract's F1 open issues). "Move Tab" is still reachable from an auxiliary window via the tab
- *   context menu (`tab-context-menu.tsx`), which needs neither of those two.
  * - `NativeNotificationProvider`: the backend broadcasts `agent:state-changed` and
  *   `lsp:install-progress` to every window, so mounting it in both branches would send the same OS
  *   notification once per open window — one realm has to own the channel, and the main window is
  *   the one guaranteed to exist for the whole session (`native-notification-gate.ts`).
+ *
+ * `CommandPalette`/`TaskRunnerDialog` are mounted in *both* branches as of d-62 §1.D: each now
+ * takes the project it acts on as a prop — the main window's active project (`MainWindowDialogs`),
+ * an auxiliary window's own fixed one — instead of reading the global active-project session
+ * itself, which was the sole reason they used to be main-window-only (Wave I F1's open issue).
+ *
+ * `ShellSlotProvider` is likewise main-window-only: it owns which of the main window's shell slots
+ * has focus (d-62 §1.B), and an auxiliary window has no slot tree at all. Everything that reads it
+ * treats "no provider" as "one shell, always focused", which is exactly an auxiliary window.
  *
  * `ExternalLinkProvider`, `IpcSyncProvider`, `HotExitFlushProvider`, `AgentStateSyncProvider`,
  * `LocaleProvider`, `ThemeProvider`, `EmmetProvider`, and `KeybindingsRuntimeProvider` stay for both
@@ -68,6 +74,8 @@ export const App = () => {
                                         <EmmetProvider>
                                             <KeybindingsRuntimeProvider>
                                                 <AuxiliaryWindowShell projectId={windowContext.projectId} windowSlot={windowContext.windowSlot} />
+                                                <CommandPalette projectId={windowContext.projectId} />
+                                                <TaskRunnerDialog projectId={windowContext.projectId} />
                                             </KeybindingsRuntimeProvider>
                                         </EmmetProvider>
                                     </ThemeProvider>
@@ -85,25 +93,26 @@ export const App = () => {
             <ExternalLinkProvider>
                 <IpcSyncProvider>
                     <HotExitFlushProvider>
-                        <AgentExternalOpenProvider>
-                            <IdeSyncProvider>
-                                <AgentStateSyncProvider>
-                                    <LocaleProvider>
-                                        <ThemeProvider>
-                                            <EmmetProvider>
-                                                <KeybindingsRuntimeProvider>
-                                                    <NativeNotificationProvider>
-                                                        <AppShell />
-                                                        <CommandPalette />
-                                                        <TaskRunnerDialog />
-                                                    </NativeNotificationProvider>
-                                                </KeybindingsRuntimeProvider>
-                                            </EmmetProvider>
-                                        </ThemeProvider>
-                                    </LocaleProvider>
-                                </AgentStateSyncProvider>
-                            </IdeSyncProvider>
-                        </AgentExternalOpenProvider>
+                        <ShellSlotProvider>
+                            <AgentExternalOpenProvider>
+                                <IdeSyncProvider>
+                                    <AgentStateSyncProvider>
+                                        <LocaleProvider>
+                                            <ThemeProvider>
+                                                <EmmetProvider>
+                                                    <KeybindingsRuntimeProvider>
+                                                        <NativeNotificationProvider>
+                                                            <AppShell />
+                                                            <MainWindowDialogs />
+                                                        </NativeNotificationProvider>
+                                                    </KeybindingsRuntimeProvider>
+                                                </EmmetProvider>
+                                            </ThemeProvider>
+                                        </LocaleProvider>
+                                    </AgentStateSyncProvider>
+                                </IdeSyncProvider>
+                            </AgentExternalOpenProvider>
+                        </ShellSlotProvider>
                     </HotExitFlushProvider>
                 </IpcSyncProvider>
             </ExternalLinkProvider>

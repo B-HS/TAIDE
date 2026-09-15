@@ -6,6 +6,7 @@ import { GIT_COMMANDS } from '@entities/git/git.commands'
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
+    focusedShellSlotId: null,
     activeEditorActionIds: null,
     openSettingsTab: () => {},
     openSettingsFile: () => {},

@@ -3,6 +3,13 @@ import type { KeymapActionId } from '@shared/lib/keymap/keymap'
 
 export type CommandContext = {
     activeProjectId: string | null
+    /**
+     * Which shell slot the main window currently has focus in, or `null` outside a split shell
+     * (an auxiliary window, a window with a single slot). Read-only — contract §0.1 U-5 keeps slot
+     * addressing out of the ~12 publishing call sites by gating the *subscribers* instead, so this
+     * exists for commands that need to name the slot they act on rather than to route a broadcast.
+     */
+    focusedShellSlotId: string | null
     activeEditorActionIds: Set<string> | null
     openSettingsTab: () => void
     openSettingsFile: () => void

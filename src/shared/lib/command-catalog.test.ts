@@ -7,6 +7,7 @@ import { applyNativePerfGate } from '@shared/lib/perf-mark'
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
+    focusedShellSlotId: null,
     activeEditorActionIds: null,
     openSettingsTab: () => {},
     openSettingsFile: () => {},

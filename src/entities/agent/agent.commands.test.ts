@@ -16,6 +16,7 @@ const DANGLING_STATUS: CliInstallStatus = { ...INSTALLED_STATUS, resolvedPath: n
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
+    focusedShellSlotId: null,
     activeEditorActionIds: null,
     openSettingsTab: () => {},
     openSettingsFile: () => {},

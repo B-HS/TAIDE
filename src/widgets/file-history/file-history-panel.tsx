@@ -7,6 +7,7 @@ import type { LogEntry, ProjectId } from '@shared/api/bindings'
 import { relativeTimeToken } from '@shared/lib/relative-time'
 import { subscribeOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
+import { useIsShellSlotFocused } from '@shared/lib/shell-slot-context'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { COMMIT_SHORT_HASH_LENGTH } from '@entities/git/git.constant'
 import { gitFileLogQueryOptions } from '@entities/git/git.query'
@@ -25,6 +26,8 @@ export const FileHistoryPanel: FC<FileHistoryPanelProps> = ({ projectId }) => {
     const [selectedEntry, setSelectedEntry] = useState<LogEntry | null>(null)
 
     const { data: entries = [], isPending, isError } = useQuery(gitFileLogQueryOptions({ projectId, path }))
+    /** One panel per open shell slot subscribes to the same per-realm bridge (contract §0.1 U-1), so without the gate a gutter's "File History" would open the dialog in every slot at once. */
+    const isShellSlotFocused = useIsShellSlotFocused()
 
     const handleOpenChange = (open: boolean) => {
         if (open) return
@@ -35,10 +38,11 @@ export const FileHistoryPanel: FC<FileHistoryPanelProps> = ({ projectId }) => {
     useEffect(
         () =>
             subscribeOpenFileHistory((requestedPath) => {
+                if (!isShellSlotFocused) return
                 setPath(requestedPath)
                 setSelectedEntry(null)
             }),
-        [],
+        [isShellSlotFocused],
     )
 
     return (

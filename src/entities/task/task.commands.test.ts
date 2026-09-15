@@ -5,6 +5,7 @@ import { TASK_COMMANDS } from '@entities/task/task.commands'
 
 const dummyContext: CommandContext = {
     activeProjectId: null,
+    focusedShellSlotId: null,
     activeEditorActionIds: null,
     openSettingsTab: () => {},
     openSettingsFile: () => {},

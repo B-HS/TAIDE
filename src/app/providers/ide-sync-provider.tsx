@@ -11,9 +11,9 @@ import { publishIdeDiagnostics, resolveIdeDiff, resolveIdeSave } from '@entities
 import { ideStatusQueryOptions, useIdeStatusSync } from '@entities/ide/ide.query'
 import { setTabDirty } from '@entities/layout/layout.ipc'
 import { useOpenTabInProject } from '@entities/layout/layout.query'
-import { activeProjectQueryOptions } from '@entities/project/project.query'
 import { getSettings } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { useFocusedProjectId } from '@app/providers/shell-slot-provider'
 import { toProblemSeverity } from '@features/problems/problem-severity'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
@@ -39,10 +39,15 @@ const findFileTabByPath = (node: PaneNode, path: string): Tab | null => {
  * silently dropping the whole protocol for as long as the user stayed in that view. Mounted once at
  * the main-window app root (`app.tsx`), alongside the other provider-layer IPC sync, for the whole
  * session's lifetime.
+ *
+ * The diagnostics push is scoped to the *focused shell slot's* project (d-62 §1.B): with several
+ * project shells open side by side, the markers monaco reports belong to the shell the user is
+ * working in, and attributing them to a different project's IDE session would be wrong rather than
+ * merely stale.
  */
 export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
-    const { data: activeProjectId = null } = useQuery(activeProjectQueryOptions())
+    const activeProjectId = useFocusedProjectId()
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: ideStatus = null } = useQuery(ideStatusQueryOptions())
     const markers = useMonacoMarkers()

@@ -280,6 +280,21 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
     })
 
+    /**
+     * Both halves of `SessionShellState` land in one cache entry (`entities/session/session.query.ts`),
+     * so either event refreshes it. The payloads carry the new values, but they are merged by a
+     * refetch rather than written in place on purpose: a slot mutation can change the tree *and* the
+     * focused slot *and* which project is active, and the command that answers the refetch is the one
+     * place all three are consistent.
+     */
+    useTauriEvent(events.sessionShellSlotsChanged, () => {
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SESSION.SHELL_STATE })
+    })
+
+    useTauriEvent(events.sessionWindowChromeChanged, () => {
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SESSION.SHELL_STATE })
+    })
+
     useTauriEvent(events.layoutChanged, ({ payload }) => {
         const lastRevision = lastLayoutRevisionByProjectRef.current.get(payload.projectId)
         if (isStaleLayoutRevision(lastRevision, payload.revision)) return

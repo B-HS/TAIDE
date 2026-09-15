@@ -86,6 +86,7 @@ type AutoRevealOverrides = {
     rows?: FileTreeRow[]
     explorerViewActive?: boolean
     projectRoot?: string | null
+    zen?: boolean
     revealFails?: boolean
 }
 
@@ -95,6 +96,7 @@ const renderAutoReveal = async ({
     rows = [],
     explorerViewActive = true,
     projectRoot = PROJECT_ROOT,
+    zen = false,
     revealFails = false,
 }: AutoRevealOverrides = {}) => {
     const { useExplorerAutoReveal } = await importUseExplorerAutoReveal()
@@ -129,6 +131,7 @@ const renderAutoReveal = async ({
                 projectRoot,
                 rows: props.rows,
                 explorerViewActive,
+                zen,
                 setSelectPathRequest: (path: string) => selectCalls.push(path),
                 revealTreeNode: revealTreeNode as Parameters<typeof useExplorerAutoReveal>[0]['revealTreeNode'],
             }),
@@ -183,7 +186,7 @@ describe('useExplorerAutoReveal', () => {
 
     test('사이드바가 접혀 있거나 Zen 이면 트리를 건드리지 않는다', async () => {
         const collapsed = await renderAutoReveal({ layout: buildLayout([buildFileTab(ACTIVE_PATH)], { sidebarCollapsed: true }) })
-        const zen = await renderAutoReveal({ layout: buildLayout([buildFileTab(ACTIVE_PATH)], { zen: true }) })
+        const zen = await renderAutoReveal({ zen: true })
 
         await settle()
 

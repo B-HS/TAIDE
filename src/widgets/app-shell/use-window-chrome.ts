@@ -1,44 +1,44 @@
 import { useEffect, useEffectEvent, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { ProjectId } from '@shared/api/bindings'
-import { layoutQueryOptions, useSetShellView } from '@entities/layout/layout.query'
+import { emptyWindowChromePatch } from '@entities/session/session.ipc'
+import { shellStateQueryOptions, useSetWindowChrome } from '@entities/session/session.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { setWindowFullscreen } from '@entities/window/window.ipc'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { subscribeToggleZenMode } from '@shared/lib/bridge/zen-mode-bridge'
 import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 
-export type ZenModeState = {
+export type WindowChromeState = {
     zen: boolean
-    sidebarCollapsed: boolean
+    sidebarRailCollapsed: boolean
     hideStatusBar: boolean
 }
 
 /**
- * Owns every cross-cutting Zen-mode concern that isn't tied to a specific DOM widget (the shell's
- * imperative sidebar-panel collapse lives in `app-shell.tsx` instead, since it needs the panel
- * ref): the `layout_set_shell_view` mutation, the ⌘K Z chord, the palette-command bridge, the
- * Escape exit, and the opt-in OS-fullscreen side effect. `projectId === null` (no active project,
- * or a project whose layout hasn't loaded yet) degrades to "never in zen" rather than throwing —
- * every consumer already renders a project-less state (welcome screen) that has no shell chrome to
- * hide in the first place.
+ * Owns every cross-cutting window-chrome concern that isn't tied to a specific DOM widget (the
+ * shell's imperative explorer-panel collapse lives in `project-shell.tsx` instead, since it needs the
+ * panel ref): the `session_set_window_chrome` mutation, the ⌘K Z chord, the palette-command bridge,
+ * the Escape exit, and the opt-in OS-fullscreen side effect.
+ *
+ * Zen and the sidebar icon rail read from `SessionState::window_chrome`, not from the per-project
+ * `ProjectLayout::shell_view` they used to live in (contract §0.1 S-6): with several project shells
+ * side by side in one window these are properties of the *window*, so keeping them per project made
+ * them flip as the focused slot changed. The slot-local axes (the explorer panel's collapsed state)
+ * stay on the per-project struct.
  */
-export const useZenMode = (projectId: ProjectId | null): ZenModeState => {
-    const { data: layout } = useQuery(layoutQueryOptions(projectId))
+export const useWindowChrome = (): WindowChromeState => {
+    const { data: shellState } = useQuery(shellStateQueryOptions())
     const { data: settings } = useQuery(settingsQueryOptions())
-    const { mutate: setShellView } = useSetShellView(projectId)
+    const { mutate: setWindowChrome } = useSetWindowChrome()
 
-    const zen = layout?.shellView?.zen ?? false
-    const sidebarCollapsed = layout?.shellView?.sidebarCollapsed ?? false
+    const zen = shellState?.windowChrome.zen ?? false
+    const sidebarRailCollapsed = shellState?.windowChrome.sidebarRailCollapsed ?? false
     const hideStatusBar = settings?.zenHideStatusBar ?? true
     const fullscreenOnZen = settings?.zenFullscreen ?? false
     const desiredFullscreen = zen && fullscreenOnZen
     const appliedFullscreenRef = useRef(desiredFullscreen)
 
-    const toggleZen = () => {
-        if (!projectId) return
-        setShellView({ projectId, patch: { zen: !zen, sidebarCollapsed: null } })
-    }
+    const toggleZen = () => setWindowChrome({ ...emptyWindowChromePatch(), zen: !zen })
 
     useGlobalKeymap({ 'toggle-zen-mode': toggleZen })
 
@@ -62,8 +62,8 @@ export const useZenMode = (projectId: ProjectId | null): ZenModeState => {
      * so without it a Korean typo correction would drop the user out of Zen mode.
      */
     const handleEscape = useEffectEvent((event: KeyboardEvent) => {
-        if (isImeCompositionKeydown(event) || event.key !== 'Escape' || event.defaultPrevented || !projectId) return
-        setShellView({ projectId, patch: { zen: false, sidebarCollapsed: null } })
+        if (isImeCompositionKeydown(event) || event.key !== 'Escape' || event.defaultPrevented) return
+        setWindowChrome({ ...emptyWindowChromePatch(), zen: false })
     })
 
     useEffect(() => {
@@ -81,21 +81,20 @@ export const useZenMode = (projectId: ProjectId | null): ZenModeState => {
      * at that moment, so a window fullscreened by a since-disabled setting still un-fullscreens on
      * exit instead of getting stuck.
      *
-     * The `appliedFullscreenRef` comparison is load-bearing: this hook (and its query data) mounts
-     * fresh on every project switch and at boot, so a naive `[projectId, zen, fullscreenOnZen]`
-     * effect would fire `setWindowFullscreen(false)` on that very first render too — forcibly
-     * exiting a window the user put into native fullscreen themselves, or one
-     * `tauri-plugin-window-state` just restored to fullscreen from a previous session, even though
-     * `zen` was never involved. Seeding the ref with the *current* render's `desiredFullscreen`
-     * means the first render is always a no-op match; only a later render where the computed value
-     * actually differs from what was last applied issues the Rust call.
+     * The `appliedFullscreenRef` comparison is load-bearing: this hook's query data is empty on the
+     * first paint of every boot, so a naive `[zen, fullscreenOnZen]` effect would fire
+     * `setWindowFullscreen(false)` on that very first render too — forcibly exiting a window the user
+     * put into native fullscreen themselves, or one `tauri-plugin-window-state` just restored to
+     * fullscreen from a previous session, even though `zen` was never involved. Seeding the ref with
+     * the *current* render's `desiredFullscreen` means the first render is always a no-op match; only
+     * a later render where the computed value actually differs from what was last applied issues the
+     * Rust call.
      */
     useEffect(() => {
-        if (!projectId) return
         if (appliedFullscreenRef.current === desiredFullscreen) return
         appliedFullscreenRef.current = desiredFullscreen
         void setWindowFullscreen(desiredFullscreen).catch(() => undefined)
-    }, [projectId, desiredFullscreen])
+    }, [desiredFullscreen])
 
-    return { zen, sidebarCollapsed, hideStatusBar }
+    return { zen, sidebarRailCollapsed, hideStatusBar }
 }

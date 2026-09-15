@@ -10,6 +10,7 @@ import { probeTerminalClipboardAvailability } from '@widgets/terminal-pane/termi
 import { resolveSplitAvailability } from '@widgets/terminal-pane/terminal-split-availability'
 import { MIN_PANEL_SIZE_PX } from '@shared/constants/layout'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
+import { useIsShellSlotFocused } from '@shared/lib/shell-slot-context'
 
 type TerminalMenuSnapshot = {
     canCopy: boolean
@@ -94,6 +95,8 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
     const [isFocused, setIsFocused] = useState(false)
     const [menuSnapshot, setMenuSnapshot] = useState(CLOSED_MENU_SNAPSHOT)
 
+    const isShellSlotFocused = useIsShellSlotFocused()
+
     useEffect(() => {
         onWriteRef.current = onWrite
         onResizeRef.current = onResize
@@ -164,9 +167,18 @@ export const TerminalPane: FC<TerminalPaneProps> = ({
             .catch(() => undefined)
     }
 
+    /**
+     * Two gates, not one. `isFocused` is this terminal's own xterm focus, which is what makes the
+     * jump shortcuts terminal-local in the first place; `isShellSlotFocused` (contract §0.1 S-4) is
+     * the shell slot this pane lives in, since the main window now mounts one whole project shell per
+     * slot and every one of them registers this same handler. Outside a slot scope — an auxiliary
+     * window, a component test — the slot gate is always open.
+     */
+    const isJumpEnabled = isFocused && isShellSlotFocused
+
     useGlobalKeymap({
-        'terminal-jump-to-previous-command': isFocused ? () => attachRef.current?.jumpToPreviousCommand() : undefined,
-        'terminal-jump-to-next-command': isFocused ? () => attachRef.current?.jumpToNextCommand() : undefined,
+        'terminal-jump-to-previous-command': isJumpEnabled ? () => attachRef.current?.jumpToPreviousCommand() : undefined,
+        'terminal-jump-to-next-command': isJumpEnabled ? () => attachRef.current?.jumpToNextCommand() : undefined,
     })
 
     /**
