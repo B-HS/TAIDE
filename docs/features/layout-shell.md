@@ -6,15 +6,18 @@
 
 ```
 윈도우
-└── 앱 사이드바(세로, 고정폭 48px 급) | content
-    content
-    └── 탐색 사이드바(접기 가능, 리사이즈 가능) | 에디터 영역(탭 바 + pane 트리)
+└── 앱 사이드바(세로, 고정폭 48px 급) | 셸 슬롯 트리
+    셸 슬롯 트리 (§8 — 기본은 슬롯 1개, 분할하면 리사이즈 가능한 중첩 그룹)
+    └── 슬롯 = 프로젝트 셸 1개
+        └── 탐색 사이드바(접기 가능, 리사이즈 가능) | 에디터 영역(탭 바 + pane 트리)
 ```
 
 - 앱 사이드바 = VSCode Activity Bar 위치에 **프로젝트 목록**을 두는 TAIDE 고유 구조.
-- 탐색 사이드바(explorer/search/git)와 에디터 영역은 **활성 프로젝트의 것**만 렌더된다.
-  비활성 프로젝트의 view 는 unmount 하되, Rust 상태(pty·watcher·git 캐시)는 유지된다.
+- **슬롯이 하나면 화면은 분할 도입 이전과 똑같다** — 슬롯 헤더도 구분선도 없다(§8).
+- 탐색 사이드바(explorer/search/git)와 에디터 영역은 **그 슬롯의 프로젝트의 것**만 렌더된다.
+  어느 슬롯에도 없는 프로젝트의 view 는 unmount 하되, Rust 상태(pty·watcher·git 캐시)는 유지된다.
 - 탐색 사이드바 토글: `⌘B` / `Ctrl+B` (VSCode 동일). 폭은 드래그 리사이즈, 프로젝트별로 저장.
+  분할 상태에서는 **포커스 슬롯**에만 적용된다(§8.3).
 
 ### 1.1 빈 에디터 영역 = Welcome (메인 창 · 설정, 2026-09-04)
 
@@ -219,18 +222,26 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
 
 - **main 창 하나 + 보조 편집 창(`editor-<n>`) 0개 이상.** 라벨은 Rust 가 발급한다(현재 열려 있는
   라벨 중 재사용 가능한 최소 번호 — 창을 닫았다 다시 열어도 라벨이 무한정 늘지 않는다).
-- 보조 창은 **사이드바·상태바가 없는 에디터 전용 크롬**이다(`AuxiliaryWindowShell` — 탭바+pane
-  트리만, `window-chrome.md` §5). 자기 `(projectId, windowSlot)` 에 **고정**되어 렌더링하고, main
-  창의 활성 프로젝트가 바뀌어도(`ProjectActivated`) 영향받지 않는다.
-- `AppShell`/`CommandPalette`/`KeybindingsEditor`/`TaskRunnerDialog` 는 main 창에만 마운트된다 —
-  넷 다 내부적으로 "전역 활성 프로젝트" 세션을 읽어 동작하는데, 보조 창은 정의상 그 세션과 무관한
-  고정 프로젝트를 보여줘야 하기 때문이다(`app.tsx`). 보조 창에서 "Move back to Main Window"/"Move to
-  Window N" 은 탭 컨텍스트 메뉴로만 실행 가능하다(팔레트는 보조 창에 없다 — 알려진 범위 제한, 아래
-  "알려진 제한" 참조).
+- 보조 창은 **앱 사이드바(프로젝트 아이콘 레일)·상태바가 없는 크롬**이다(`AuxiliaryWindowShell`,
+  `window-chrome.md` §5). 자기 `(projectId, windowSlot)` 에 **고정**되어 렌더링하고, main 창의 활성
+  프로젝트가 바뀌어도(`ProjectActivated`) 영향받지 않는다.
+- **d-62 §1.D 로 보조 창이 완성됐다**: 탐색 사이드바(`ExplorerContainer` — 파일/검색/SCM/아웃라인
+  뷰 스위처가 딸려 있으므로 `SearchPanelContainer`·`GitPanelContainer` 도 이 한 번의 마운트로 들어
+  온다)와 `CommandPalette`·`TaskRunnerDialog` 가 보조 창에도 마운트된다. 셋 다 이 창의 고정
+  `projectId` 로 스코프된다 — 팔레트/TaskRunner 는 전역 활성 프로젝트 세션을 스스로 읽던 것을
+  `projectId` prop 으로 바꿨고(메인 창은 `app/main-window-dialogs.tsx` 가 활성 프로젝트를 주입),
+  그 자기-읽기가 바로 Wave I 가 둘을 main 창 전용으로 묶어 뒀던 유일한 이유였다. `AppShell` 만
+  여전히 main 창 전용이다(프로젝트 1개에 고정된 창에는 프로젝트 전환 레일이 의미가 없다).
+  `KeybindingsRuntimeProvider` 는 원래부터 양쪽 창에 붙는다(그 JSDoc 참고).
+- 보조 창의 탐색 사이드바 접힘/펼침(`⌘B`)은 **창 로컬**이다. `shell_view.sidebarCollapsed` 는
+  프로젝트 단위 필드라 같은 프로젝트를 연 main 창과 서로 덮어쓰기 때문이다(재분배는 d-62 §0.1 S-6).
+- 사이드바 토글·뷰 전환·reveal·rename·search 열기 브리지는 **JS 렘 단위 모듈 상태**이고 Tauri 는
+  창마다 webview(=렘)를 따로 주므로, 보조 창에서 publish 한 요청은 그 창의 패널에만 도달한다 —
+  `AppShell` 의 배선을 그대로 재사용할 수 있는 근거다(창 스코프 채널이 따로 필요 없다).
 
 ### 7.2 창을 여는/이동하는 경로
 
-- 탭 컨텍스트 메뉴(`tabs.md` §3.1) · 커맨드 팔레트(main 창에서만) 에 3가지 액션이 있다:
+- 탭 컨텍스트 메뉴(`tabs.md` §3.1) · 커맨드 팔레트(d-62 §1.D 이후 양쪽 창) 에 3가지 액션이 있다:
   **Move into New Window**(항상 가능) · **Move back to Main Window**(보조 창일 때만) · **Move to
   Window N**(다른 열려 있는 보조 창마다 하나씩).
 - 셋 다 `layout_move_tab_to_window(tabId, target)` 커맨드 하나로 처리된다. 탭의 dirty·미러 연결·
@@ -290,8 +301,6 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
 
 ### 7.6 알려진 제한
 
-- 팔레트가 보조 창에 마운트되지 않으므로(§7.1), "Move back to Main Window"/"Move to Window N" 팔레트
-  커맨드는 오늘 시점엔 탭 컨텍스트 메뉴로만 도달 가능하다.
 - "Settings" 탭을 보조 창으로 옮길 수 있다 — `SettingsView` 는 자신이 속한 `projectId`(props 로
   전달, 전역 활성 프로젝트가 아니다)를 기준으로 `settings.json`/프롬프트 탭을 연다.
 - 메인 창이 프로젝트를 닫는 동안 그 프로젝트의 보조 창이 열려 있으면, 그 보조 창은 레이아웃 조회가
@@ -303,3 +312,88 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
   모든 `editor-<n>` 을 하나의 캐시 키로 접기만 하고 제외하지 않으면, 보조 창을 2개 이상 열었을 때
   둘 다 그 하나의 캐시 항목에 저장된 같은 좌표·크기로 복원되어 완전히 겹쳐 열린다 — 매번 기본
   크기(1000×700)로 여는 편이 `.window-state.json` 무한 증식과 겹침 둘 다를 동시에 피한다.
+
+## 8. 셸 슬롯 — 한 창에 여러 프로젝트 (d-62 2a)
+
+> 계약 `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A·§1.B + §0.1.
+> Rust 스키마·연산은 `data-model.md` §22 와 `domain::project::shell_slots`, IPC 는
+> `ipc-contract.md` 의 "session — 셸 슬롯·창 크롬" 절이 정본이다. 창 크롬(Zen·레일)은
+> `window-chrome.md` §6.
+>
+> **이름 주의**: 여기서 말하는 "슬롯"은 `ShellSlotId`(한 창 *안*의 영역)다. `AuxWindowLayout.slot`
+> (보조 OS 창, §7)과는 다른 개념이며 계약 §0.1 S-8 이 둘을 구분해 명명했다.
+
+### 8.1 슬롯 트리
+
+- `SessionState.shell_slots` = 이진 트리. 리프 하나가 **프로젝트 셸 한 벌**(탐색 패널 + 에디터
+  영역 + Problems 패널)이고, split 노드는 방향(`horizontal`/`vertical`)과 자식 2개·크기 비율을
+  갖는다. 프로젝트의 pane 트리(`tabs.md`)는 그 리프 *안*에 그대로 중첩된다.
+- 렌더는 `widgets/app-shell/shell-slot-tree-view.tsx` → 리프마다
+  `widgets/app-shell/project-shell.tsx`. 중첩 `react-resizable-panels` 그룹이라 pane 트리
+  (`pane-node-view.tsx`)와 같은 구조를 한 단계 위에서 반복한다.
+- **슬롯이 1개면 헤더가 없다.** 2개 이상일 때만 슬롯 헤더(프로젝트 이름 + ✕)가 붙고, 마지막 슬롯의
+  ✕ 는 비활성이다 — `shell_slot_close` 가 서버에서도 같은 이유로 거부한다.
+- split 노드에는 id 가 없다. 크기 영속(`session_set_shell_slot_sizes`)은 루트부터의 **자식 인덱스
+  경로**로 노드를 지정하고, 드래그는 pane 리사이즈와 같은 debounce(`pane-resize-commit.ts`)를 탄다.
+- **Zen 은 렌더 트리를 바꾸지 않는다.** 포커스 슬롯만 보이는 화면(`window-chrome.md` §6.1)은
+  비포커스 리프의 `Panel` 과 그 사이 구분선에 **`hidden` 속성**을 얹어서 만든다(Tailwind preflight 의
+  `[hidden]{display:none!important}`). 슬롯 컴포넌트는 Zen 중에도 **전부 마운트된 채로 남아**,
+  토글이 에디터 모델·스크롤 위치·터미널 버퍼를 버리지 않는다. 슬롯이 1개인 창도 같은 경로를 탄다 —
+  Zen 일 때만 다른 컴포넌트를 루트에 두면 분할하지 않은 창에서도 프로젝트 셸이 재마운트된다.
+  슬롯 헤더는 Zen 에서 렌더되지 않는다(상태를 갖지 않아 숨길 필요가 없다).
+- 같은 프로젝트를 두 슬롯에 띄우는 것은 **금지**다(hot-exit 미러 상호작용 미검증). 서버가
+  `error.shellSlot.projectAlreadyInSlot` 로 거부하고 프론트는 그 메시지를 토스트한다.
+
+### 8.2 분할·닫기 조작
+
+| 조작 | 경로 |
+|------|------|
+| 오른쪽/아래/왼쪽/위에 열기 | 사이드바 프로젝트 아이콘 context menu → `project_open_in_slot(projectId, 포커스 슬롯, edge)` |
+| 프로젝트 전환(분할 없음) | 아이콘 클릭 → `project_activate` — 그 프로젝트가 이미 어느 슬롯에 있으면 **그 슬롯으로 포커스**, 없으면 **포커스 슬롯의 프로젝트를 교체**(계약 §0.1 S-5, 단일 슬롯 시절 동작과 동일) |
+| 슬롯만 닫기 | 슬롯 헤더 ✕ → `shell_slot_close` (프로젝트는 계속 열려 있다) |
+| 프로젝트 닫기 | 기존 `project_close` — 프로젝트 제거·슬롯 축약·포커스 재계산이 한 뮤테이션이다(§0.1 S-1) |
+
+- 사이드바 프로젝트 아이콘을 **드래그해서** 슬롯에 떨구는 경로는 2b 범위다(아직 없다). 메뉴가 그
+  자리를 대신한다.
+
+### 8.3 포커스 슬롯 — 창 크롬이 누구를 가리키는가
+
+- 포커스는 **DOM 이 정본**이다: 앱 루트의 `ShellSlotProvider`(`app/providers/shell-slot-provider.tsx`)
+  가 캡처 단계 `pointerdown`/`focusin` 리스너 하나로 이벤트 대상이 속한 슬롯을 찾는다. 슬롯 밖
+  (사이드바·상태바·Radix 포털의 다이얼로그/메뉴)은 `null` 로 해소되어 **포커스를 옮기지 않는다** —
+  팔레트나 context menu 가 "열 때 보고 있던 슬롯"에 계속 작용하도록.
+- Rust 의 `session_focus_shell_slot` 은 **영속용**이다. 화면은 로컬 override 로 같은 프레임에 먼저
+  움직이고, 서버 값이 따라오면 override 는 스스로 사라진다.
+- 창 하나짜리 전역 크롬은 전부 포커스 슬롯의 프로젝트를 읽는다: 타이틀바 · 상태바 · 커맨드 팔레트 ·
+  TaskRunner · IDE 진단 push · 앱 사이드바의 활성 표시. 여섯 곳 다 자기 자신이
+  `project_get_active` 를 읽던 것을 prop/컨텍스트로 바꿨다.
+- 상태바의 Problems 토글은 **포커스 슬롯의** Problems 패널만 여닫는다(슬롯별 상태, `AppShell` 소유).
+
+### 8.4 중복 리스너 게이팅 (§0.1 S-4/U-1)
+
+슬롯마다 프로젝트 셸이 통째로 한 벌씩 마운트되므로, 창 단위 싱글턴이던 두 메커니즘이 슬롯 수만큼
+복제된다. 둘 다 **구독 측에서** `useIsShellSlotFocused()` 로 막는다 — 발행 측(팔레트·메뉴·에디터
+액션 12곳+)은 손대지 않는다.
+
+| 대상 | 게이트 위치 |
+|------|-------------|
+| 전역 키맵(⌘S·⌘W·⌘F·그룹 포커스 등 약 27개) | `editor-area.tsx` — 핸들러를 `isFocused ? fn : undefined` 로. `undefined` 면 `useGlobalKeymap` 이 `preventDefault` 조차 하지 않아 포커스 슬롯이 그 키를 가져간다 |
+| 터미널 점프(`terminal-jump-to-*`) | `terminal-pane.tsx` — 기존 xterm 포커스 게이트와 **AND** |
+| `editor-pane-command` · `editor-opener` | `editor-area.tsx` 구독 핸들러 선두 |
+| `active-editor-actions` 발행 | `editor-area.tsx` — 포커스 슬롯만 자기 액션 목록을 싣는다(팔레트의 `isEnabled` 가 이 집합을 읽는다) |
+| `explorer-panel`(뷰 전환) · `explorer-reveal` · `explorer-rename` · `search-panel` | `explorer-panel.tsx`(뷰 전환·reveal·rename 수행) + `project-shell.tsx`(접힌 패널 펼치기) |
+| `file-history-panel` | `file-history-panel.tsx` |
+
+- **슬롯 스코프가 없으면 게이트는 항상 열려 있다.** 보조 창과 컴포넌트 테스트가 정확히 그 경우이고,
+  그래서 이 기능은 그 두 실행 환경의 동작을 전혀 바꾸지 않는다.
+- `terminal-write-bridge` 는 `tabId` 로 주소가 찍히므로 게이팅 대상이 아니다.
+- 커맨드가 슬롯을 **지명**해야 할 때를 위해 `CommandContext.focusedShellSlotId`(읽기 전용)가 있다.
+
+### 8.5 알려진 제한 (2a 시점)
+
+- 사이드바 → 슬롯 **드래그** 분할 없음(2b), 프로젝트 **그룹** 없음(2c).
+- 같은 프로젝트를 여러 슬롯에 띄울 수 없다(§8.1).
+- 슬롯 간 탭 드래그 이동 없음(프로젝트가 다른 pane 트리라 별도 과제).
+- 슬롯별 탐색 패널 **폭**은 영속되지 않는다(폭은 원래 뷰 로컬 — `window-chrome.md` §6.2).
+- `ShellSlotId` 는 세션 안의 주소이지 영속 핸들이 아니다. 구버전 세션은 첫 슬롯 변경 전까지 부팅마다
+  새 id 를 받으므로, 낡은 id 로 온 포커스 요청은 첫 슬롯으로 물러난다(`resolveShellSlotFocus`).

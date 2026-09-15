@@ -59,7 +59,10 @@ TAIDE/
 ├── prompts/                 사용자 AI 프롬프트 오버라이드(`<id>.json`, `auto-tab-default`·
 │                            `inline-edit-default`·`commit-message-default`) — Wave G,
 │                            `features/ai.md` §5
-├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트, 윈도우 크기/위치
+├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트(= 포커스 셸 슬롯의
+│                            프로젝트), shellSlots(셸 슬롯 분할 트리)·focusedShellSlot·
+│                            windowChrome(zen·사이드바 레일 접힘) — 전부 `#[serde(default)]`,
+│                            d-62, §22. 윈도우 크기/위치는 tauri-plugin-window-state
 ├── projects/
 │   └── {projectId}/
 │       ├── project.json     루트 경로, 이름, 부착 capability 설정 (프로젝트별 오버라이드 포함),
@@ -88,9 +91,19 @@ TAIDE/
 struct SessionState {
     version: u32,                       // 스키마 버전 — 마이그레이션 기준
     projects: Vec<ProjectRef>,          // 순서 = 사이드바 표시 순서
-    active_project: Option<ProjectId>,
+    active_project: Option<ProjectId>,  // d-62: 의미 재정의 = "포커스 셸 슬롯의 프로젝트"
+    shell_slots: Option<ShellSlotTree>, // d-62 신설 — 메인 창의 프로젝트 셸 분할 트리, §22
+    focused_shell_slot: Option<ShellSlotId>,  // d-62 신설 — §22
+    window_chrome: WindowChrome,        // d-62 신설 — 창 단위 zen·사이드바 레일 접힘, §22
 }
 // 윈도우 크기·위치·최대화는 tauri-plugin-window-state 가 담당 (ADR-0009)
+
+enum ShellSlotTree {                    // d-62 — PaneNode 와 같은 모양, 리프 페이로드만 다르다(프로젝트)
+    Split { dir: SplitDir, children: Vec<ShellSlotTree>, sizes: Vec<f32> },  // 항상 2-ary
+    Leaf  { slot_id: ShellSlotId, project_id: ProjectId },
+}
+
+struct WindowChrome { zen: bool, sidebar_rail_collapsed: bool }   // d-62 — §22
 
 struct ProjectRef { id: ProjectId, root: PathBuf, name: String, display: ProjectDisplay }
 // display 는 Project.display 의 미러 — upsert_project_ref 가 root/name 과 같은 지점에서 동기화 (§20)
@@ -782,3 +795,53 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   대상은 아니다(§19 와 같은 이유).
 - **새 영속 파일·디렉토리는 없다.** `BlockedReason`(같은 배치에서 `DetectedAgent` 에 추가된 필드의
   타입)은 §10 성격의 비영속 IPC 타입으로 디스크에 닿지 않는다.
+
+## 22. d-62 2a — 셸 슬롯 분할 트리·창 크롬 3필드 추가 (`session.json` 영향, 2026-09-15)
+
+> 계약: `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A + §0.1(S-1·S-2·S-3·
+> S-5·S-6·S-8). 커맨드·이벤트는 `docs/ipc-contract.md` "session — 셸 슬롯·창 크롬" 절이 정본이다.
+> 그룹(`ProjectGroup`/`SessionState.groups`)은 이 단계(2a) 범위 밖이라 아직 없다.
+
+- **`SessionState` 에 3필드 추가** — `shell_slots: Option<ShellSlotTree>`,
+  `focused_shell_slot: Option<ShellSlotId>`, `window_chrome: WindowChrome`. 전부
+  `#[serde(default)]` 라 **마이그레이션이 없다**(§5 의 필드 추가 규칙, §20 `ProjectDisplay` 와 같은
+  경로). `SESSION_SCHEMA_VERSION` 은 1 유지.
+- **`shell_slots: None` = "아직 슬롯이 없다"** — 구버전 세션이거나 열린 프로젝트가 0개라는 뜻이다.
+  부팅 복원(`project::service::restore_session` → `normalize_shell_slots`)이 전자를
+  `active_project` 하나짜리 리프로 **해석**해 주므로, 디스크에 없던 필드가 화면에서는 종전과 똑같은
+  단일 셸로 보인다.
+- **`ShellSlotId`** 는 `ids.rs` 의 네 번째 string id(`shellslot-<uuid>`)다. 보조 창의
+  `AuxWindowLayout.slot: u32`(§8)와는 **다른 개념**이므로 이름을 `windowSlot` 과 분리했다(계약 §0.1
+  S-8). 슬롯 리프에만 id 가 있고 split 노드에는 없다 — 크기 저장은 루트부터의 자식 인덱스 경로로
+  주소를 잡는다(`session_set_shell_slot_sizes`).
+- **`active_project` 의 의미 재정의** — "포커스 셸 슬롯의 프로젝트". 슬롯이 하나뿐일 때의 값은
+  종전과 동일하므로 `project_get_active`·네이티브 `File` 메뉴·프론트
+  `activeProjectQueryOptions` 는 시그니처도 동작도 그대로다.
+- **복원 정규화(§0.1 S-1)** — `normalize_shell_slots` 가 ① `session.projects` 에 없는 projectId 를
+  가리키는 리프 제거(형제가 부모 자리로 올라오는 축약), ② 프로젝트가 하나라도 열려 있으면 슬롯이
+  최소 1개가 되도록 재구성, ③ `focused_shell_slot`/`active_project` 가 실재하는 리프를 가리키도록
+  재계산을 매 복원·매 close 에서 수행한다. 손으로 고친 `session.json` 이나 앱이 꺼진 사이 사라진
+  프로젝트 기록도 이 경로에서 흡수된다.
+- **`window_chrome` 는 `ProjectLayout.shell_view` 에서 부팅 1회 승격된다(§0.1 S-6)** — 창 단위 축
+  (zen·사이드바 아이콘 레일)이 프로젝트별로 저장돼 있어 포커스 전환 때마다 깜빡이던 문제의 이전.
+  `service::promote_legacy_window_chrome` 이 (a) `session.window_chrome` 이 아직 기본값이고
+  (b) 어떤 레이아웃의 `shell_view` 에 값이 있을 때만 활성 프로젝트(없으면 목록 순서 첫 보유자)의
+  값을 세션으로 옮기고, **모든 레이아웃의 두 축을 비운다**. 비우지 않으면 사용자가 Zen 을 껐을 때
+  세션 값이 다시 기본값이 되어 다음 부팅에 낡은 값이 되살아난다. 비워진 레이아웃은
+  `dirty_layouts` 에 올려 기존 2초 flush 가 저장한다.
+  `ProjectLayout.shell_view` 의 **필드 자체는 남는다**(하위 호환) — 읽기 경로만 세션으로 옮겼고,
+  이 구조체는 앞으로 슬롯 로컬 축(explorer 접힘·Problems 열림)을 담는다.
+- **승격의 트레이드오프 — 승격되지 않는 값(렌즈 검토 S-102)**: 세션으로 올라가는 것은 **한
+  프로젝트의 값 1벌**뿐이고, 승격 시점에 열려 있던 **나머지 프로젝트의 레거시
+  `zen`/`sidebar_collapsed` 는 병합되지 않고 함께 초기화된다**. 예: 활성 프로젝트 A 는 레일만 접어
+  뒀고 프로젝트 B 에서만 Zen 이었다면, 승격 결과는 A 의 값이고 B 의 Zen 은 사라진다(부팅 후 B 슬롯은
+  Zen 이 아니다). 두 축이 이제 **창 단위 단일 값**이라 N 벌을 무손실로 합칠 방법이 없고, OR 병합
+  (하나라도 켜져 있으면 켬)은 "한 프로젝트에서만 Zen 이었는데 부팅하니 창 전체가 Zen" 이라는 더
+  놀라운 결과가 된다. 되돌릴 값이 UI 토글 2개뿐인 **1회성 이행**이라 마이그레이션·백업 없이
+  수용한다.
+- **승격 시점에 세션에 없던(닫혀 있던) 프로젝트의 `layout.json` 은 비워지지 않는다** — 그 두 축을
+  읽는 경로가 사라졌으므로 평소엔 무해하지만, 사용자가 이후 `window_chrome` 두 축을 **모두 기본값으로
+  되돌린 상태**에서 그 프로젝트를 다시 열면 다음 부팅의 승격 조건이 재성립해 그 낡은 값이 올라올 수
+  있다. 이행 창 한정이고, 사용자가 Zen/레일을 한 번이라도 켜 두면 더는 발생하지 않는다.
+- **새 파일·디렉토리는 없다.** 슬롯 트리는 `session.json` 안에서만 산다. 프로젝트별 레이아웃·버퍼
+  미러·LSP 세션 스코프는 전부 무변경이다(계약 §0 의 "슬롯 분할에서 무변경" 행).

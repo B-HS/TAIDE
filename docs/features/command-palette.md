@@ -215,11 +215,13 @@ id 체계는 `<영역>.<동작>` 이다(초안의 `workbench.action.*` VSCode �
 
 ## 5. 수명주기
 
-- 팔레트는 전역 1개. 열림 상태는 컴포넌트 로컬(zustand 불필요).
-- **메인 창 전용이다.** `app/app.tsx` 의 auxiliary 분기는 `CommandPalette` 를 마운트하지 않는다(그
-  JSDoc 의 근거 참고). 그래서 보조 창의 `⌘P`/`⌘⇧P` 는 예전엔 아무 반응이 없었고, 지금은
-  `widgets/auxiliary-window-shell` 이 두 키맵 id 를 잡아 `palette.mainWindowOnly` 안내 토스트를 띄운다
-  (d-58 G7). 창 스코프 팔레트는 웨이브 5 과제다.
+- 팔레트는 **창마다 1개**. 열림 상태는 컴포넌트 로컬(zustand 불필요).
+- **창 스코프다 (d-62 §1.D).** `CommandPalette` 는 자기가 다룰 프로젝트를 `projectId` prop 으로
+  받는다 — 메인 창은 활성 프로젝트를(`app/main-window-dialogs.tsx`), 보조 창은 자기 창에 고정된
+  프로젝트를(`app/app.tsx` 의 auxiliary 분기) 넘긴다. 전역 활성 프로젝트 세션을 스스로 읽던 것이
+  "메인 창 전용"의 유일한 이유였고(Wave I F1 미결), 그래서 d-58 G7 의 `palette.mainWindowOnly`
+  안내 토스트와 그 로케일 키는 함께 제거됐다. 보조 창의 `⌘P`/`⌘⇧P` 는 이제 그 창의 프로젝트로
+  실제 팔레트를 연다.
 - 활성 프로젝트가 없을 때의 파일 열기(`openFile`)는 조용히 반환하지 않고 `app.openProjectFirst`
   토스트를 띄운다 — 같은 파일의 터미널·설정 커맨드와 같은 규칙(d-58 G6). 현재 UI 에서는 프로젝트가
   없으면 파일 행 자체가 만들어지지 않으므로 방어 경로다.

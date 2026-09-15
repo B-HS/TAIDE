@@ -120,19 +120,43 @@
 
 > 멀티 윈도우 모델 자체는 `layout-shell.md` §7 이 정본이다. 여기서는 그 창의 **크롬**만 다룬다.
 
-- 보조 창(`editor-<n>`)은 앱 사이드바·탐색 사이드바·상태바가 전혀 없다 — 탭바 + pane 트리(스플릿
-  포함)만 있는 **에디터 전용 크롬**(`AuxiliaryWindowShell`).
+- 보조 창(`editor-<n>`)은 **앱 사이드바(프로젝트 아이콘 레일)·상태바가 없다.** 탐색 사이드바는
+  d-62 §1.D 로 들어왔다 — `AuxiliaryWindowShell` 은 접힘 가능한 탐색 패널(`ExplorerContainer`,
+  파일/검색/SCM/아웃라인 뷰 스위처 포함) + 탭바 + pane 트리(스플릿 포함)로 구성된다. 그 패널의
+  접힘 상태는 **창 로컬**이다(아래 참조).
 - 타이틀바는 macOS 에서만 렌더(다른 플랫폼은 OS 네이티브 타이틀바를 그대로 쓴다 — main 창과 동일
   정책)하며, main 창의 `TitleBar` 컴포넌트를 그대로 재사용한다. 단 표시하는 값(활성 탭 이름·
   프로젝트명·git 브랜치)은 전역 활성 프로젝트가 아니라 **이 창 자신의 고정 `(projectId,
   windowSlot)`** 에서 유도한다(`AuxiliaryTitleBarContent`).
-- 보조 창은 `shell_view`(Zen·사이드바 접힘)의 영향을 받지 않는다 — 애초에 숨길 사이드바/상태바가
-  없다. 아래 §6 의 Zen 모드는 main 창 전용이다.
+- 보조 창은 `shell_view`(Zen·사이드바 접힘)의 영향을 받지 않는다. `shell_view.sidebarCollapsed` 는
+  프로젝트 단위 필드라 같은 프로젝트를 연 main 창과 보조 창이 서로 덮어쓰게 되므로, 보조 창의 탐색
+  패널 접힘은 영속되지 않는 **창 로컬 상태**로 둔다(축 재분배는 d-62 §0.1 S-6). 아래 §6 의 Zen
+  모드는 main 창 전용이다.
 
-## 6. Zen 모드 (Wave I)
+## 6. Zen 모드 (Wave I · d-62 에서 창 단위로 이전)
 
-> 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2. 스키마:
-> `data-model.md` §8 `ShellViewState`. IPC: `layout_set_shell_view`.
+> 계약: `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.2 +
+> `2026-09-15-d62-project-split-groups-contract.md` §0.1 S-6. 스키마: `data-model.md` §22
+> `WindowChrome`. IPC: `session_set_window_chrome` / 이벤트 `session:window-chrome-changed`.
+
+### 6.0 소유 축 재분배 (d-62)
+
+Zen 은 원래 `ProjectLayout.shell_view.zen` 으로 **프로젝트마다** 저장됐다. 한 창이 여러 프로젝트
+셸(셸 슬롯, `layout-shell.md` §8)을 동시에 보여주게 되면서 그 소유가 틀어졌다 — Zen 은 *창*의
+성질이라, 프로젝트별로 두면 포커스 슬롯이 바뀔 때마다 켜졌다 꺼졌다 한다.
+
+| 축 | 소유 (d-62 이후) | 이유 |
+|----|------------------|------|
+| Zen | `SessionState.window_chrome.zen` | 창 전체를 한 번에 정리하는 모드 |
+| 앱 사이드바(아이콘 레일) 접힘 | `SessionState.window_chrome.sidebar_rail_collapsed` | 레일은 슬롯이 아니라 창에 하나뿐 |
+| 탐색 패널 접힘 | `ProjectLayout.shell_view.sidebar_collapsed`(유지) | 슬롯 로컬 — 슬롯마다 다른 값이 맞다 |
+| Problems 패널 열림 | 뷰 상태(슬롯별, `app-shell.tsx` 가 소유) | 상태바 토글이 **포커스 슬롯**만 바꾼다 |
+
+- 구버전 세션은 부팅 때 `promote_legacy_window_chrome` 이 프로젝트 레이아웃의 값을 한 번 승격하고
+  원본을 비운다(자세한 이유는 계약 §3 의 2a 기록).
+- 프론트 소비 지점은 `widgets/app-shell/use-window-chrome.ts` 하나다(이전 `use-zen-mode.ts` 대체).
+- 보조 창은 이 값을 **읽지 않는다.** `AuxiliaryWindowShell` 이 `zen={false}` 를 그대로 내려준다 —
+  세션 단일 값이라 그러지 않으면 메인 창의 Zen 이 보조 창 크롬까지 숨겨 버린다.
 
 ### 6.1 무엇을 숨기는가
 
@@ -143,7 +167,11 @@
   한 줄만 되돌리면 된다.
 - 모든 pane 의 탭바.
 - 상태바 — `Settings.zen_hide_status_bar`(기본 true)가 켜져 있을 때만.
-- 위 넷 다 `layout.shell_view.zen` 하나로 제어되고, **프로젝트 단위로 영속**된다(창을 닫았다 다시
+- **포커스 슬롯을 제외한 모든 셸 슬롯**(d-62). 슬롯 헤더와 슬롯 사이 구분선도 함께 사라져, 좌우로
+  분할된 창의 Zen 화면이 단일 슬롯 창의 Zen 화면과 구별되지 않는다. **슬롯 트리도 슬롯 컴포넌트도
+  그대로 두고** `hidden` 으로 화면에서만 빼므로(`layout-shell.md` §8.1) Zen 을 나가면 배치가 그대로
+  돌아오고, 토글이 프로젝트 셸을 재마운트하지 않는다.
+- 위 다섯 다 `session.window_chrome.zen` 하나로 제어되고, **세션 단위로 영속**된다(창을 닫았다 다시
   열거나 앱을 재시작해도 유지 — 로컬 `useState` 가 아니다).
 
 ### 6.2 진입·이탈
@@ -151,7 +179,7 @@
 | 방법 | 동작 |
 |------|------|
 | `⌘K Z` chord | `toggle-zen-mode` 커맨드 — `open-keybindings-editor`(`⌘K ⌘S`)와 1단(`⌘K`)을 공유하는 두 번째 chord (`keymap.md` 참조) |
-| 팔레트 `view.toggleZenMode` | main 창에서만 활성(보조 창엔 `shell_view` 개념이 없다) |
+| 팔레트 `view.toggleZenMode` | main 창에서만 활성(보조 창은 `window_chrome` 을 읽지 않는다 — §6.0) |
 | `Esc` | Zen 상태일 때만 리스너를 붙이는 `window` **bubble 단계** 리스너 — Radix 다이얼로그·팔레트·monaco 자체 Escape 처리가 전부 먼저 `preventDefault()` 할 기회를 가진 **뒤에** 평가되므로, 다이얼로그가 열려 있을 때 Esc 를 누르면 다이얼로그만 닫히고 Zen 은 유지된다(`event.defaultPrevented` 가드) |
 | 진입 힌트 오버레이 | Zen 진입 시 3초간 "Zen Mode · Press Esc to exit" 배너(`zen.hint`/`zen.hintExit`) — 자동 소멸 |
 
@@ -159,9 +187,13 @@
   전환한다(`window_set_fullscreen` — 호출한 창 자신이 대상, 라벨 불필요). 설정을 Zen 도중에 바꿔도
   즉시 반영되고, Zen 을 나가면 그 순간의 설정값과 무관하게 항상 전체화면을 해제한다(전체화면에 갇히지
   않는다).
-- 사이드바 **접힘 여부**(`shell_view.sidebar_collapsed`)는 Zen 과 별개로 드래그/`⌘B` 양쪽 경로 모두
-  영속된다. 사이드바 **폭**은 기존과 동일하게 프론트 로컬 debounce 로만 저장한다(ADR-0004 예외 —
-  변경 없음).
+- 탐색 패널 **접힘 여부**(`shell_view.sidebar_collapsed`)는 Zen 과 별개로 드래그/`⌘B` 양쪽 경로 모두
+  영속되며, d-62 이후에도 **슬롯 로컬**(프로젝트 단위)로 남는다 — 슬롯마다 다른 값이 맞는 축이기
+  때문이다(§6.0). 사이드바 **폭**은 기존과 동일하게 프론트 로컬 debounce 로만 저장한다(ADR-0004
+  예외 — 변경 없음).
+- `window_chrome.sidebar_rail_collapsed` 는 오늘 **읽기만 한다.** 레일을 접는 UI 는 아직 없고(Zen
+  이 레일을 숨기는 경로가 별개로 존재한다), 필드·커맨드는 준비돼 있으므로 토글을 붙이는 작업은
+  프론트 한 곳만 건드리면 된다.
 
 ### 6.3 설정 UI
 

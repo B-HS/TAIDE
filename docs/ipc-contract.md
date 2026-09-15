@@ -146,11 +146,62 @@
 - 조회 반환 타입 변화: `project_list` 의 `ProjectRef` 와 `project_get`/`project_list_recent` 의
   `Project` 에 `display?: ProjectDisplay` 가 늘었다(`#[serde(default)]` → specta optional).
   시그니처는 무변경이다.
+- mutation(신규, d-62): 슬롯에 여는 `project_open_in_slot` 은 아래 "session" 절이 정본이다.
+  `project_open`/`project_activate` 는 시그니처가 그대로이되 **슬롯 의미**가 붙었다(같은 절).
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`
   (**`project:focus-kind-changed` 는 X-A 배치(2026-08-19)에서 제거됐다** — 소비자가 0 이면서
   레이아웃 변이 18종마다 무조건 발행돼 이벤트 트래픽만 2배로 만들었다(X1#12,
   `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2) — `FocusKind` 타입·
   `layout::service::focus_kind` 도 함께 제거됐다)
+
+### session — 셸 슬롯·창 크롬 (d-62 신설, `layout-shell.md`)
+
+> **명칭 주의**: 여기의 `shellSlot`/`ShellSlotId` 는 메인 창을 프로젝트 셸 단위로 나눈 슬롯이다.
+> 보조 창의 `windowSlot`(`AuxWindowLayout.slot: u32`, `layout` 도메인)과는 다른 개념이다
+> (계약 §0.1 S-8). 커맨드는 `SessionState` 의 소유자인 **project 도메인**에 구현돼 있다.
+
+- query: `session_get_shell_state() → SessionShellState { tree: ShellSlotTree | null, focused:
+  ShellSlotId | null, windowChrome: WindowChrome }` — 창이 막 떴을 때의 초기 조회. 아래 두 이벤트는
+  전환 시점에만 오므로 `project_get_active` 와 같은 이유로 query 가 따로 필요하다.
+- mutation: `project_open_in_slot(request: OpenProjectInSlotRequest) → SessionShellState` —
+  `request` 는 `{ path?, projectId?, targetSlot, edge }` 이고 `path`/`projectId` 중 **정확히 하나**만
+  있어야 한다(둘 다/둘 다 없음은 `InvalidArgument`). `edge` 는 `left|right|top|bottom|replace`
+  (`layout` 의 `DropEdge` 와 달리 `center` 가 없다 — 슬롯은 탭 목록이 아니라 프로젝트 하나를 담는다).
+  - **중복 거부(계약 §0.1 S-3)**: 같은 프로젝트가 결과적으로 두 슬롯에 놓이면
+    `InvalidArgument` + **`error.shellSlot.projectAlreadyInSlot`** 으로 거부한다. 방향 분할은 대상
+    슬롯이 그 프로젝트를 이미 담고 있어도 거부고, `replace` 는 대상 슬롯 자신이면 허용(무해한 no-op)
+    이다. 드롭존의 사전 거부는 UX 용이고 강제는 서버가 한다.
+  - 검증(대상 슬롯 존재·중복)은 **아무것도 열기 전에** 끝난다 — 거부된 요청이 반쯤 열린 프로젝트를
+    남기지 않는다. 아직 열려 있지 않은 `path` 는 `activate: false` 로 열려(포커스를 가로채지 않는다)
+    곧바로 대상 슬롯에 놓인다. 첫 열기라면 capability attach 는 종전처럼 뮤테이션 밖에서 await 되고,
+    실패하면 `project_close` 로 되감긴다(프로젝트와 방금 만든 슬롯이 함께 사라진다).
+- mutation: `shell_slot_close(slotId)` — 프로젝트는 **열린 채로** 슬롯만 닫고 형제를 부모 자리로
+  올린다. 마지막 슬롯은 `InvalidArgument` 로 거부한다(프로젝트가 열려 있는 한 슬롯은 최소 1개).
+- mutation: `session_focus_shell_slot(slotId)` — 포커스 슬롯을 옮기고 그 슬롯의 프로젝트를
+  `active_project` 로 만든다(`project_activate` 와 같은 등급의 활성화라 `lastOpenedAt` 도 갱신된다).
+  포커스 판정 자체는 프론트가 DOM 이벤트로 하고(계약 §0.1 U-7) 이 커맨드는 그 결과를 영속화한다.
+- mutation: `session_set_shell_slot_sizes(path: u32[], sizes: f32[])` — 한 split 노드의 자식 비율을
+  저장한다. split 노드에는 id 가 없으므로 **루트부터의 자식 인덱스 경로**로 주소를 잡는다(`[]` 는
+  루트, `[0,1]` 은 첫 자식의 두 번째 자식). `sizes` 길이가 그 노드의 자식 수와 다르면
+  `InvalidArgument`(`layout_resize` 와 같은 검사). 프론트는 `pane-resize-commit.ts` 선례대로
+  디바운스해서 보낸다.
+- mutation: `session_set_window_chrome(patch: WindowChromePatch) → WindowChrome` — `zen` ·
+  `sidebarRailCollapsed` 를 창 단위로 설정한다. 생략한 축은 유지(= `layout_set_shell_view` 와 같은
+  머지 규약). 이 두 축은 d-62 에서 `ProjectLayout.shell_view`(프로젝트별)에서 세션으로 옮겨졌다
+  (계약 §0.1 S-6, `docs/data-model.md` §22) — `layout_set_shell_view` 는 하위 호환으로 남아 있지만
+  창 크롬의 정본은 더 이상 아니다.
+- event: `session:shell-slots-changed({ tree, focused })` — 트리를 바꾼 **모든** 커맨드가 같은
+  뮤테이션에서 발행한다: 위 5종 + `project_open`·`project_activate`·`project_close`. 델타가 아니라
+  전체 트리를 싣는다(`project:list-changed` 와 같은 이유).
+- event: `session:window-chrome-changed({ chrome })` — `session_set_window_chrome` 전용.
+- 둘 다 원격 세션으로도 팬아웃된다(`lib.rs` `fanout_remote_events!`).
+- **`project_activate`/`project_open` 의 슬롯 의미(계약 §0.1 S-5)**: 대상 프로젝트가 이미 어느
+  슬롯에 있으면 **그 슬롯으로 포커스만** 옮기고, 없으면 **포커스 슬롯의 프로젝트를 교체**한다.
+  슬롯이 하나뿐이면 d-62 이전과 완전히 같은 동작이다. 시그니처는 무변경이고, 원격 dispatch 도 같은
+  서비스를 지난다.
+- **원격 dispatch**: 위 6개 커맨드는 전부 **허용**(`project_open`/`project_activate` 와 같은 등급 —
+  같은 로컬 파일 하나(`session.json`)를 쓰고, 원격 세션이 이미 볼 수 있는 것 외의 경로를 드러내지
+  않는다).
 
 ### layout (`tabs.md`)
 
@@ -2145,3 +2196,24 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 `menu.clearRecent`. `menu` 는 Rust 가 직접 조회하는 첫 네임스페이스다 —
 `locale::service::lookup_builtin_message(localeId, key)` 가 내장 카탈로그를 읽는 유일한 통로이고,
 어느 카탈로그를 읽을지는 `builtin_locale_for_language(settings.language)` 가 정한다.
+
+### d-62 2a — 셸 슬롯 분할·창 크롬 (Rust, 2026-09-15)
+
+> 계약: `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A + §0.1. 정본 목록은
+> 위 "session — 셸 슬롯·창 크롬" 절이다. 그룹(`project_group_*`·`ProjectGroupsChanged`)은 이
+> 단계(2a) 범위 밖이라 아직 없다.
+
+- **신규 커맨드 6종**: `project_open_in_slot`·`shell_slot_close`·`session_get_shell_state`·
+  `session_focus_shell_slot`·`session_set_shell_slot_sizes`·`session_set_window_chrome`. 전부
+  `IMPLEMENTED_JSON_COMMANDS` 와 `REMOTE_ALLOWED_COMMANDS` 양쪽에 등재됐다(허용 테이블 161 → 167).
+- **신규 이벤트 2종**: `session:shell-slots-changed`·`session:window-chrome-changed`
+  (events.rs 25 → 27종, `collect_events!`·`fanout_remote_events!` 양쪽 등재).
+- **반환 타입 변화**: `project_list`/`project_get` 등 기존 project 커맨드는 무변경이다. 세션 자체는
+  IPC 로 통째 노출된 적이 없으므로 `SessionState` 의 3필드 추가는 바인딩에 드러나지 않고,
+  새로 노출되는 타입은 `ShellSlotTree`·`ShellSlotId`·`ShellSlotEdge`·`WindowChrome`·
+  `WindowChromePatch`·`SessionShellState`·`OpenProjectInSlotRequest` 다.
+- **로케일 키 신규 1종**(en/ko/ja): `error.shellSlot.projectAlreadyInSlot` — 같은 프로젝트를 두
+  슬롯에 두려는 요청의 거부 메시지. `MESSAGE_NAMESPACES` 의 `error` 네임스페이스에 등재.
+- **`layout_set_shell_view` 는 남는다** — `ShellViewState` 의 `zen`/`sidebarCollapsed` 필드도
+  남지만, 창 크롬의 읽기 정본은 `session_get_shell_state().windowChrome` 으로 옮겼다. 부팅 1회
+  승격 규칙은 `docs/data-model.md` §22.
