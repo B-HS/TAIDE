@@ -52,7 +52,7 @@
         "editor.lineHighlight": "#ff000033",
         "editor.cursor": "#970000",
         "editor.selection": "#750000",
-        "editor.inactiveSelection": "#390000",
+        "editor.inactiveSelection": "#3b0303",
         "editor.lineNumber": "#ff777788",
         "editor.lineNumberActive": "#ffbbbb88",
         "editor.indentGuide": "#ff666633",
@@ -76,7 +76,7 @@
         "terminal.background": "#390000",
         "terminal.foreground": "#F8F8F8",
         "terminal.cursor": "#970000",
-        "terminal.selection": "#390000",
+        "terminal.selection": "#3d0505",
         "terminal.commandBlockBorder": "#ff666633",
         "terminal.linkForeground": "#FFD0AA",
         "git.added": "#0dbc79",
@@ -583,7 +583,7 @@
         "background": "#390000",
         "foreground": "#F8F8F8",
         "cursor": "#970000",
-        "selection": "#390000"
+        "selection": "#3d0505"
     },
     "author": "Microsoft",
     "license": "MIT",
