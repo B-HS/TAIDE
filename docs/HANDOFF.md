@@ -1,4 +1,13 @@
-# HANDOFF — 2026-09-06~07 세션 스냅샷 (d-54 에이전트 활동 감지 개편 + 터미널·에이전트 심층 비교 리서치 + 웨이브 1 프론트 3건 / 잔여 = d-56·d-57 Rust 웨이브 1·실기 QA·미결 결정)
+# HANDOFF — 2026-09-15 세션 스냅샷 (사용성 배치 5: d-58~d-61 완료·dev/main 반영, d-62 프로젝트 split 구현 진행 중)
+
+> 최종 갱신: 2026-09-15 / HEAD = `4696c08`(웨이브 4 머지) 위에 이 docs 커밋. 직전 스냅샷 `git show fe504ec:docs/HANDOFF.md`.
+> **이 세션(2026-09-15)** — 사용자 항목 14건(단축키·파일트리·프로젝트 split·알림·에이전트 다각화·Dock Recent·퀵오픈 버그·Welcome 터미널·실시간 검색·+ 메뉴·git 패널·테마·메뉴 아이콘 정렬)을
+> 조사 wf 2건(9주제, `research/2026-09-15-batch5-research.md`) → 결정 문서(`acknowledge/2026-09-15-usability-batch5-user-decisions.md` §0~§4) → 계약 5개(d-58~d-62)로 나눠 진행.
+> **완료·반영**: d-58 웨이브 1(`5900f91`, 10커밋) · d-59 웨이브 2(`843ba4c`, 3커밋) · d-60 웨이브 3(`7f81db1`, 4커밋, worktree 병렬) · d-61 웨이브 4(`4696c08`, 6커밋, worktree 병렬). 각 계약 §3 에 구현·검토(major 전건 반박 검증)·수정·최종 검증·실기 대상 기록.
+> **진행 중**: d-62 웨이브 5 — 설계 사전 검토(major 10 수용, 계약 §0.1)로 보정 후 구현 wf `wf_bab968ee`(1단계 보조 창 완성 ∥ 2a Rust 슬롯 트리 → 2a 프론트 셸 슬롯) 기동. 2b(드래그 분할)·2c(그룹)은 그 뒤.
+> **작업 방식 확정(결정 §0)**: 항상 Workflow + opus/sonnet, Agent 도구 금지(Fable 상속), 테스트 작성 sonnet·high, 커밋·푸시 자동(`git config llm-rules.*`), 병렬은 worktree(`taide-w3/w4`, 머지 후 삭제).
+> **사용자 잔여**: 웨이브 1~4 실기 확인(각 계약 최종 기록의 실기 대상), d-61 §1.E 스크린샷 매트릭스(`TAIDE_E2E_NO_HMR=1 bun run tauri dev` 기동 후 `bun run e2e --grep theme-surface-matrix`), pi·gemini 설치 후 실측, Dock 메뉴는 Tauri 미지원으로 File > Open Recent 로 대체 확정.
+> 직전 세션(2026-09-06~07, d-54~d-57·v0.1.9) 요지는 아래 §3 유지.
 
 > 최종 갱신: 2026-09-07 / HEAD = `cf81f3d`(feat(agent) d-54) 위에 이 docs 커밋. 직전 스냅샷 `git show 0a1c30d:docs/HANDOFF.md`.
 > **이 세션(2026-09-06~07)** — ① 사용자 보고 "Claude Code 권한 다이얼로그 중 배지가 유휴" 의 근본 원인을 계측(hooks 미설치·`ps` R 상태 단독·
