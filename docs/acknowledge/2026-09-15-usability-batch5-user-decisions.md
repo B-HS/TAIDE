@@ -78,4 +78,4 @@
 
 ## 5. 릴리스 (2026-09-15, 사용자 지시)
 
-- 웨이브 5(d-62) 완료·dev/main 반영 후 **v0.2.0 릴리스**: 버전 동기 3파일 + Cargo.lock · `release-notes/v0.2.0.md`(d-58~d-62 요약) · verify + vite build exit 0 → `chore(release)` 커밋 → dev 푸시 · main ff → 태그 `v0.2.0` → Release 런 완주 → draft(dmg + SHA256SUMS). 태그 숫자 4 금지 규칙(`2026-08-28-release-tag-no-digit-4.md`)에 저촉 없음. 이력은 `deployment.md` §9.
+- 웨이브 5(d-62) 완료·dev/main 반영 후 **v0.2.0 릴리스**: 버전 동기 3파일 + Cargo.lock · `release-notes/v0.2.0.md`(d-58~d-62 요약) · verify + vite build exit 0 → `chore(release)` 커밋 → dev 푸시 · main ff → 태그 `v0.2.0` → Release 런 완주 → **draft**(dmg + SHA256SUMS). 공개(publish)는 이전과 같이 사용자가(2026-09-15 확인). 태그 숫자 4 금지 규칙(`2026-08-28-release-tag-no-digit-4.md`)에 저촉 없음. 이력은 `deployment.md` §9.
