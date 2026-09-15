@@ -18,6 +18,27 @@
 | 탭 분할 드롭존 선례 `src/features/split/split-drop-zones.tsx`(4방향), 레이아웃 `PaneNode` split 트리 | `src/features/split/*`, `layout/types.rs:116` |
 | 보조 창은 `tauri-plugin-window-state` 추적 제외(위치·크기 복원 없음) | `layout-shell.md` §7.6 |
 
+
+## 0.1 설계 사전 검토 반영 (2026-09-15, wf `wf_fefded11`, sonnet·xhigh 2렌즈 — major 10·minor 4·info 2, 전건 수용)
+
+| id | 지적 | 계약 보정 |
+|----|------|----------|
+| S-1 | 슬롯 트리 축약이 프론트 후속 IPC 라 close 와 원자성 없음·부팅 복구 부재 | **`close_project` 서비스 안에서** 프로젝트 제거 + 세션 목록 정리 + `shell_slots` 축약 + `focused_slot` 재계산을 한 뮤테이션·한 저장으로. `ProjectClosed` 와 `SessionShellSlotsChanged` 를 같은 커맨드에서 emit. 부팅 복원(`restore_state`)에 dangling leaf 정규화(세션에 없는 projectId 리프 제거, 빈 트리면 active 로 리프 1개) |
+| S-2 | 그룹 백그라운드 열기가 `project_open` 재사용 시 매번 활성화·`ProjectActivated` 발화 | `open_project` 에 `activate: bool` 인자(기존 커맨드는 `true`). 그룹 큐는 첫 멤버만 `true`, 나머지 `false`(세션 목록 추가·워처·capability 만, 활성·이벤트 없음 — `ProjectListChanged` 만) |
+| S-3 | 같은 프로젝트 다중 슬롯 금지가 드롭존에서만 강제 | `project_open_in_slot` 서비스가 다른 리프에 같은 projectId 가 있으면 `AppError::InvalidArgument`(로케일 키 `error.shellSlot.projectAlreadyInSlot`) 로 거부. 드롭존 거부는 UX 선검사 |
+| S-4 / U-2 | EditorArea 약 20개·TerminalPane 의 `useGlobalKeymap` 핸들러가 슬롯 수만큼 복제 → ⌘S/⌘W 동시 발화. when 컨텍스트도 전역 activeElement | **슬롯 포커스 게이트**: `ShellSlotContext` 의 `isFocused` 로 EditorArea·TerminalPane 의 모든 `useGlobalKeymap` 핸들러를 `isFocused ? fn : undefined` 게이팅(terminal-pane 선례). 리스너 등록 위치는 현행(컴포넌트별) 유지 — 게이트가 동시 발화를 막는다. 규모에 반영 |
+| U-1 | `editor-pane-command-bridge`·`active-editor-actions-bridge` 등 EditorArea/TerminalPane 이 구독하는 브로드캐스트 브리지가 slotId 필터 대상에서 빠짐 | 구독 측 전수 게이팅: EditorArea·TerminalPane 이 구독하는 모든 브리지(editor-pane-command·active-editor-actions·explorer-panel/reveal/rename·search-panel·terminal 관련)는 `isFocused` 일 때만 처리. 발행 측은 무변경(포커스 슬롯만 반응하므로) — 단 "특정 슬롯 지정" 이 필요한 발행(외부 파일 열기·CLI 진입)은 `slotId` 를 실어 보내고 구독자가 자기 것만 처리 |
+| U-5 | 발행부 12곳+·순수 함수 run() 은 포커스 슬롯을 모름 | 위 구독 측 게이팅으로 발행부 개조를 회피. `CommandContext` 에 `focusedShellSlotId`(읽기)만 추가 — 팔레트·TaskRunner 가 프로젝트를 고를 때 사용 |
+| S-5 | 사이드바 클릭(`project_activate`)의 슬롯 의미 부재 | `activate_project`: 대상이 어느 슬롯에 있으면 그 슬롯을 `focused_slot` 으로; 없으면 **포커스 슬롯의 프로젝트를 교체**(기존 단일 슬롯 동작과 동일). 원격 dispatch 도 같은 서비스 경유 |
+| S-6 / U-3 | `ShellViewState`(zen·sidebarCollapsed) 가 프로젝트별인데 사이드바 레일은 공용 → 포커스 전환 시 깜빡임. Zen·Problems 패널 상태 미정의 | **재분배**: 창 크롬 축(zen·사이드바 아이콘 레일 접힘·상태바)은 `SessionState.window_chrome`(무마이그레이션 가산)으로 이동, 슬롯 로컬 축(explorer 패널 접힘·Problems 열림)은 `ProjectLayout.shell_view` 유지. Zen = 포커스 슬롯만 남기고 나머지 슬롯 숨김(트리 보존). Problems 토글(상태바)은 포커스 슬롯의 `ProjectShell` 상태를 제어(컨텍스트 콜백) |
+| U-4 | 사이드바 DndContext 와 EditorArea 탭 DndContext 가 분리돼 사이드바→슬롯 드롭 불가 | **AppShell 최상위 프로젝트 전용 DndContext** 가 사이드바 재정렬(기존)과 슬롯 드롭존을 함께 담고 `active.data.current.type`('project') 으로 분기. EditorArea 의 탭 DndContext 는 중첩 유지 — 중첩 동작은 구현 초기 스파이크 테스트로 확인([미확인]); 불가 시 사이드바→슬롯 드래그는 pointer 이벤트 오버레이로 대체 |
+| U-6 | 그룹 편입 조작 부재 | 컨텍스트 메뉴 "그룹에 추가 ▸"(그룹 목록 서브메뉴)·"그룹에서 제거" 추가. 크로스 컨테이너 드래그는 범위 외 |
+| U-7 | 포커스 슬롯 전달 경로 미정 | React Context 단일 경로(앱 루트 Provider, DOM 캡처 갱신). `session_focus_slot` 은 영속화 용도 |
+| S-7 | `forget_recent` 가 그룹 멤버를 못 지움·큐의 결손 멤버 정책 | `forget_recent_projects(&mut session)` 로 확장해 `groups[].members` 정리 + 저장. 그룹 열기 큐는 결손 멤버 스킵 + `log::warn` + 진행 |
+| S-8 / U-8 | `windowSlot`(보조 창) 과 명칭 충돌 | 신규 개념은 **`ShellSlotId`/`shellSlot`** 로 명명, 문서에 구별 표기 |
+
+**규모 재추정**: 2단계는 L → **XL**. 단계 재편: **2a**(Rust: 슬롯 트리·window_chrome·activate/close/open 의미 + 프론트: 슬롯 트리 렌더·포커스 컨텍스트·키맵/브리지 게이팅·Zen/Problems 재배치, 분할은 메뉴/커맨드 "오른쪽/아래에 열기" 로) → **2b**(사이드바 드래그 분할 DndContext 통합) → **2c**(그룹). 각 단계 끝에 렌즈 검토.
+
 ## 1. 설계
 
 ### 1.A 데이터 모델 (Rust, 무마이그레이션 가산)
@@ -52,7 +73,7 @@
 ## 2. 실행 계획 (3·4 머지 후)
 
 1. **설계 검토 wf(sonnet·xhigh 2렌즈: 상태 소유·동시성 / UI 상호작용)** 로 이 계약을 먼저 검토(구현 전 major 는 계약 수정).
-2. 구현 wf(opus·xhigh): **R**(Rust: 1.A 타입·서비스·커맨드·이벤트·dispatch·bindings, 단일) → **F1**(1.D 보조 창) ∥ **F2**(1.B 슬롯 트리·포커스 컨텍스트·브리지/키맵 스코프) → **F3**(1.B 드래그 분할 UI) ∥ **F4**(1.C 그룹 UI). 테스트: Rust 슬롯 트리 연산(split/remove/축약)·그룹 CRUD·멤버십 정리, TS 브리지 필터·포커스 판정·드롭존·2단 정렬.
+2. 구현 wf(opus·xhigh, §0.1 재편): **1단계 F1**(1.D 보조 창 완성) → **2a R**(Rust 단일: 슬롯 트리·window_chrome·activate/close/open(activate 옵션)·open_in_slot 검증·forget 그룹 정리·복원 정규화·이벤트·dispatch·bindings) → **2a F2**(슬롯 트리 렌더·ShellSlotContext·EditorArea/TerminalPane 키맵·브리지 게이팅·Zen/Problems 재배치·"오른쪽/아래에 열기" 메뉴) → 렌즈 검토 → **2b F3**(DndContext 통합·드롭존, 스파이크 선행) → **2c R2+F4**(그룹 엔티티·IPC·UI) → 렌즈 검토. 테스트: Rust 슬롯 트리 연산(split/remove/축약)·그룹 CRUD·멤버십 정리, TS 브리지 필터·포커스 판정·드롭존·2단 정렬.
 3. 렌즈 검토 wf(3렌즈 + major 반박 2표) → 메인 2차 verify·vite build → 분할 커밋 → dev 푸시 → main ff → 사용자 실기(2 프로젝트 좌우 분할·포커스 전환 시 ⌘B/⌘⇧F 대상·그룹 열기).
 
 ## 3. 구현 기록
