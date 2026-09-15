@@ -1,10 +1,34 @@
 import { describe, expect, test } from 'bun:test'
 import type { VsixThemeExtractionResult } from '@shared/api/bindings'
+import { convertVscodeTheme } from '@shared/lib/theme-convert/convert'
 import { buildVsixThemeCandidates } from '@shared/lib/vsix-theme-import'
 
 const MINIMAL_THEME_JSON = JSON.stringify({
     colors: { 'editor.background': '#1e1e1e', 'editor.foreground': '#d4d4d4', foreground: '#d4d4d4' },
 })
+
+const EDITOR_BACKGROUND = '#1e1e1e'
+const BODY_TEXT_COLOR = '#d4d4d4'
+
+/**
+ * A terminal surface deliberately painted in the theme's own body text color. The distinctness
+ * repair derives a replacement by mixing the container toward `app.foreground`, so a container that
+ * already is that foreground leaves the repair nothing to move toward and the violation survives
+ * into `stateDistinctnessErrors` instead of being fixed away.
+ */
+const UNREPAIRABLE_TERMINAL_BACKGROUND = BODY_TEXT_COLOR
+
+const terminalStateThemeJson = (selection: string, cursor: string) =>
+    JSON.stringify({
+        colors: {
+            'editor.background': EDITOR_BACKGROUND,
+            'editor.foreground': BODY_TEXT_COLOR,
+            foreground: BODY_TEXT_COLOR,
+            'terminal.background': UNREPAIRABLE_TERMINAL_BACKGROUND,
+            'terminal.selectionBackground': selection,
+            'terminalCursor.foreground': cursor,
+        },
+    })
 
 const extensionResult = (overrides: Partial<VsixThemeExtractionResult> = {}): VsixThemeExtractionResult => ({
     extension: { name: 'my-cool-theme', displayName: 'My Cool Theme', publisher: 'someone', version: '1.0.0' },
@@ -71,6 +95,29 @@ describe('buildVsixThemeCandidates', () => {
         const [candidate] = buildVsixThemeCandidates(result, [])
 
         expect(candidate.theme?.tokenColors).toContainEqual({ scope: ['comment'], settings: { foreground: '#6a9955', fontStyle: 'italic' } })
+    })
+
+    test('수리 뒤에도 남은 상태색 구별성 위반을 경고 수에 반영한다', () => {
+        const candidateFor = (selection: string, cursor: string) =>
+            buildVsixThemeCandidates(
+                extensionResult({
+                    themes: [{ label: 'Terminal', uiTheme: 'vs-dark', rawJson: terminalStateThemeJson(selection, cursor), includeChain: [] }],
+                }),
+                [],
+            )[0]
+        const residualErrorsFor = (selection: string, cursor: string) =>
+            convertVscodeTheme([JSON.parse(terminalStateThemeJson(selection, cursor))], 'dark').stateDistinctnessErrors.length
+
+        const distinct = candidateFor(EDITOR_BACKGROUND, EDITOR_BACKGROUND)
+        const collapsed = candidateFor(UNREPAIRABLE_TERMINAL_BACKGROUND, UNREPAIRABLE_TERMINAL_BACKGROUND)
+        const addedErrors =
+            residualErrorsFor(UNREPAIRABLE_TERMINAL_BACKGROUND, UNREPAIRABLE_TERMINAL_BACKGROUND) -
+            residualErrorsFor(EDITOR_BACKGROUND, EDITOR_BACKGROUND)
+
+        expect(addedErrors).toBeGreaterThan(0)
+        expect(distinct.failureReason).toBeNull()
+        expect(collapsed.failureReason).toBeNull()
+        expect(collapsed.warningCount - distinct.warningCount).toBe(addedErrors)
     })
 
     test('includeChain 은 base 를 먼저 병합하고 테마 본문이 마지막에 덮어쓴다', () => {

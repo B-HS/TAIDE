@@ -1,5 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import { repairContrastPairs, validateOutputColors, validateSelectionRowContrast } from '@shared/lib/theme-convert/contrast'
+import { deltaE76 } from '@shared/lib/color'
+import {
+    contrastRatio,
+    isExemptComponentContrastViolation,
+    repairComponentContrast,
+    repairContrastPairs,
+    validateComponentContrast,
+    validateFixedForegroundContrast,
+    validateOutputColors,
+    validateSelectionRowContrast,
+    validateTerminalAnsiContrast,
+} from '@shared/lib/theme-convert/contrast'
 
 const BASE_COLORS: Record<string, string> = {
     'app.foreground': '#d4d4d4',
@@ -170,5 +181,205 @@ describe('repairContrastPairs — list.foreground 수리는 list.background/list
         expect(repairedColors['list.foreground']).toBe('#d8dee9')
         expect(repairs.some((repair) => repair.startsWith('list.foreground'))).toBe(false)
         expect(validateSelectionRowContrast(repairedColors).some((error) => error.includes('selectionForeground'))).toBe(true)
+    })
+})
+
+/**
+ * d-61 §1.B. These exercise `component-contrast-pairs.ts`'s axes through the three entry points the
+ * catalog gate and `scripts/repair-theme-contrast.ts` use.
+ */
+describe('validateComponentContrast — 배경을 표면 위에 합성한 뒤 판정한다', () => {
+    test('완전 투명한 탭 배경(rose-pine 계열 #00000000)은 raw RGB(검정)가 아니라 그 아래 앱 배경으로 읽는다', () => {
+        const colors = {
+            'app.background': '#ffffff',
+            'tabBar.tabInactiveBackground': '#00000000',
+            'tabBar.tabInactiveForeground': '#111111',
+        }
+
+        expect(validateComponentContrast(colors)).toEqual([])
+    })
+
+    test('불투명 배경이면 합성이 항등이라 일반 대비 판정을 그대로 따른다', () => {
+        const colors = {
+            'app.background': '#ffffff',
+            'tabBar.tabInactiveBackground': '#ffffff',
+            'tabBar.tabInactiveForeground': '#dddddd',
+        }
+
+        expect(validateComponentContrast(colors).some((error) => error.startsWith('tabInactive'))).toBe(true)
+    })
+})
+
+describe('repairComponentContrast', () => {
+    test('테마 고유 색상(hue)을 유지한 채 최소한만 이동한다 — 연한 초록 git 데코는 진한 초록으로 돌아온다', () => {
+        const colors = { 'app.background': '#ffffff', 'explorer.background': '#f6f8fa', 'explorer.gitAdded': '#28a745' }
+
+        const { colors: repairedColors, repairs } = repairComponentContrast(colors)
+        const repaired = repairedColors['explorer.gitAdded']
+
+        expect(repairs.some((repair) => repair.startsWith('explorer.gitAdded'))).toBe(true)
+        expect(validateComponentContrast(repairedColors)).toEqual([])
+        expect(contrastRatio(repaired, '#f6f8fa')).toBeGreaterThanOrEqual(3)
+        expect(deltaE76(repaired, '#28a745')).toBeLessThan(5)
+    })
+
+    test('한 토큰이 여러 표면에 그려지면 한 번만 이동해 전부를 동시에 만족시킨다', () => {
+        const colors = {
+            'app.background': '#282828',
+            'appSidebar.background': '#282828',
+            'panel.background': '#1e1f1c',
+            'statusIndicator.error': '#cc241d',
+        }
+
+        const { colors: repairedColors, repairs } = repairComponentContrast(colors)
+
+        expect(repairs.filter((repair) => repair.startsWith('statusIndicator.error'))).toHaveLength(1)
+        expect(repairs[0]).toContain('statusBarError/problemError')
+        expect(validateComponentContrast(repairedColors)).toEqual([])
+    })
+
+    test('두 표면이 서로 반대쪽 명도라 한 값으로 둘 다 만족할 수 없으면 수리하지 않는다(한쪽을 고치려고 다른 쪽을 깨지 않는다)', () => {
+        const colors = {
+            'app.background': '#ffffff',
+            'appSidebar.background': '#9d9d9d',
+            'panel.background': '#333333',
+            'statusIndicator.error': '#ff0000',
+        }
+
+        const { colors: repairedColors, repairs } = repairComponentContrast(colors)
+
+        expect(repairs).toEqual([])
+        expect(repairedColors['statusIndicator.error']).toBe('#ff0000')
+    })
+
+    /**
+     * `list.foreground` is shared with the d-40 `selectionForeground` pair. A component-axis repair
+     * has to keep that surface legible, and — since `bundled-theme-contrast.test.ts` pins exactly
+     * which themes still fail that axis and why — must never be the thing that repairs it either.
+     */
+    test('list.foreground 수리는 선택 행 축(list.activeBackground)도 만족해야 하며, 만족 못 하면 미수리로 남는다', () => {
+        const colors = {
+            'app.background': '#000000',
+            'list.foreground': '#888888',
+            'list.background': '#000000',
+            'list.hoverBackground': '#777777',
+            'list.activeBackground': '#ffffff',
+        }
+
+        const { colors: repairedColors, repairs } = repairComponentContrast(colors)
+
+        expect(repairs).toEqual([])
+        expect(repairedColors['list.foreground']).toBe('#888888')
+        expect(validateComponentContrast(repairedColors).some((error) => error.startsWith('listHoverRow'))).toBe(true)
+    })
+
+    test('컴포넌트 축이 전부 통과하면 선택 행 축만 미달이어도 건드리지 않는다(예외 등재분 보호)', () => {
+        const colors = {
+            'app.background': '#ffffff',
+            'list.foreground': '#797593',
+            'list.background': '#ffffff',
+            'list.hoverBackground': '#ffffff',
+            'list.activeBackground': '#6e6a86',
+        }
+
+        const { colors: repairedColors, repairs } = repairComponentContrast(colors)
+
+        expect(repairs).toEqual([])
+        expect(repairedColors['list.foreground']).toBe('#797593')
+    })
+})
+
+describe('validateTerminalAnsiContrast — 자문 전용', () => {
+    test('배경에 묻힌 ANSI 색을 보고한다', () => {
+        const errors = validateTerminalAnsiContrast({ background: '#1e1e1e', black: '#101010', white: '#e5e5e5' })
+
+        expect(errors).toHaveLength(1)
+        expect(errors[0]).toStartWith('ansi black')
+    })
+
+    test('전부 읽히는 팔레트면 아무것도 보고하지 않는다', () => {
+        const errors = validateTerminalAnsiContrast({ background: '#1e1e1e', red: '#f14c4c', white: '#e5e5e5' })
+
+        expect(errors).toEqual([])
+    })
+})
+
+describe('menu.itemHover — 배경 쪽 수리', () => {
+    /**
+     * `vscode-light-modern` as shipped upstream: the menu hover is the VS Code accent
+     * (`menu.selectionBackground` `#005FB8`) while the row label stays `app.foreground`, which the
+     * d-61 review measured at 1.78:1 (finding G-3).
+     */
+    const ACCENT_MENU_COLORS: Record<string, string> = {
+        'app.background': '#ffffff',
+        'app.foreground': '#3b3b3b',
+        'menu.background': '#ffffff',
+        'menu.itemHover': '#005fb8',
+        'list.hoverBackground': '#f1f1f1',
+    }
+
+    test('본문 전경이 아니라 menu.itemHover 를 list.hoverBackground 로 교체해 대비를 확보한다', () => {
+        const { colors, repairs } = repairComponentContrast(ACCENT_MENU_COLORS)
+
+        expect(colors['app.foreground']).toBe('#3b3b3b')
+        expect(colors['menu.itemHover']).toBe('#f1f1f1')
+        expect(repairs).toEqual(['menu.itemHover: #005fb8 -> #f1f1f1 (menuItemHoverText 대비 확보)'])
+        expect(validateComponentContrast(colors).some((error) => error.startsWith('menuItemHoverText '))).toBe(false)
+    })
+
+    /**
+     * The substitute has to keep reading as a hover — `state-distinctness-pairs.ts`'s `menuItemHover`
+     * axis measures the same two tokens — so a candidate that equals the menu background is refused
+     * rather than trading this lint's failure for that one's.
+     */
+    test('후보가 menu.background 와 구별되지 않으면 교체하지 않는다', () => {
+        const { colors, repairs } = repairComponentContrast({ ...ACCENT_MENU_COLORS, 'list.hoverBackground': '#ffffff' })
+
+        expect(colors['menu.itemHover']).toBe('#005fb8')
+        expect(repairs).toEqual([])
+    })
+
+    test('후보가 임계를 못 넘으면 원래 값을 그대로 둔다(ayu 식 — 더 나쁜 값으로 바꾸지 않는다)', () => {
+        const ayuLike = {
+            'app.background': '#0d1017',
+            'app.foreground': '#5a6378',
+            'menu.background': '#0f131a',
+            'menu.itemHover': '#47526633',
+            'list.hoverBackground': '#47526640',
+        }
+
+        const { colors, repairs } = repairComponentContrast(ayuLike)
+
+        expect(colors['menu.itemHover']).toBe('#47526633')
+        expect(repairs).toEqual([])
+    })
+
+    test('등재된 예외만 그 축에서 무시한다', () => {
+        expect(isExemptComponentContrastViolation('ayu-dark', 'menuItemHoverText 대비 부족: ...')).toBe(true)
+        expect(isExemptComponentContrastViolation('ayu-dark', 'listRow 대비 부족: ...')).toBe(false)
+        expect(isExemptComponentContrastViolation('dracula', 'menuItemHoverText 대비 부족: ...')).toBe(false)
+    })
+})
+
+describe('validateFixedForegroundContrast — 자문 전용', () => {
+    test('테마가 못 바꾸는 고정 전경(파괴적 버튼의 흰 라벨)의 미달을 보고한다', () => {
+        const errors = validateFixedForegroundContrast({
+            'app.background': '#1e1e1e',
+            'panel.background': '#1e1e1e',
+            'statusIndicator.error': '#f38ba8',
+        })
+
+        expect(errors).toHaveLength(1)
+        expect(errors[0]).toStartWith('destructiveButtonLabel')
+    })
+
+    test('충분히 어두운 배경이면 아무것도 보고하지 않는다', () => {
+        const errors = validateFixedForegroundContrast({
+            'app.background': '#1e1e1e',
+            'panel.background': '#1e1e1e',
+            'statusIndicator.error': '#a31515',
+        })
+
+        expect(errors).toEqual([])
     })
 })

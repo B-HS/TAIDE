@@ -16,6 +16,8 @@
         "test": "bun test",
         "bench": "bun run scripts/bench-frontend.ts",
         "themes:convert": "bun run scripts/convert-vscode-theme.ts",
+        "themes:repair-state-distinctness": "bun run scripts/repair-theme-state-distinctness.ts",
+        "themes:repair-contrast": "bun run scripts/repair-theme-contrast.ts",
         "cli:sidecar": "bun run scripts/build-cli-sidecar.ts",
         "rust:fmt": "cargo fmt --all --check",
         "rust:lint": "cargo clippy --workspace --all-targets -- -D warnings",

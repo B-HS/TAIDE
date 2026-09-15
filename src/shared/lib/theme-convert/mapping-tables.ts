@@ -81,11 +81,12 @@ const MATCH_HIGHLIGHT_FOREGROUND_CANDIDATES = ['list.highlightForeground', 'edit
 /**
  * Minimum CIE76 ΔE*ab (see {@link deltaE76}) a `panel.matchHighlight` foreground candidate must
  * clear against the resolved `app.foreground` body text color to count as visually distinct.
- * Empirically, a full sweep of the 36 bundled themes' `panel.matchHighlight` vs `app.foreground`
+ * Empirically, a full sweep of the 47 bundled themes' `panel.matchHighlight` vs `app.foreground`
  * pairs clusters into exact duplicates (ΔE 0.0 — monokai/night-owl-light/palenight, all fixed as
  * bundled data per `docs/acknowledge/2026-08-24-d33-restructure-carryover-contract.md` §"임무 C")
- * and then jumps straight to 5.4+ (one-monokai) / 7.2+ (vscode-kimbie-dark) / 13.8+ (the remaining
- * 31) with nothing in between. `2.3` sits inside that empty (0, 5.4) gap and is also the commonly
+ * and then jumps straight to 5.4+ (one-monokai) / 7.2+ (vscode-kimbie-dark) / 11.4+
+ * (tokyo-night-storm) / 13.8+ (the remaining 44) with nothing in between. `2.3` sits inside that
+ * empty (0, 5.4) gap and is also the commonly
  * cited CIE76 "just noticeable difference" threshold in color-difference literature — any value in
  * the gap would exclude the same set for today's catalog, but this one is independently grounded
  * rather than picked to fit.
@@ -259,7 +260,17 @@ export const COLOR_MAPPING: ColorMappingEntry[] = [
 
     chain('menu.background', 'background', ['menu.background', 'dropdown.background']),
     chain('menu.border', 'border', ['menu.border', 'dropdown.border']),
-    chain('menu.itemHover', 'background', ['menu.selectionBackground', 'list.hoverBackground']),
+    /**
+     * `list.hoverBackground` comes first even though `menu.selectionBackground` is the literal
+     * upstream counterpart. VS Code paints its native menus with a *selection* color and a matching
+     * `menu.selectionForeground`, but TAIDE's menus (`shared/ui/dropdown-menu.tsx`,
+     * `context-menu.tsx`) keep `text-app-foreground` on the hovered row, so importing the selection
+     * color drops the label onto a saturated accent — `vscode-light-modern`'s `#005FB8` leaves the
+     * body text at 1.78:1 (d-61 review finding G-3). The theme's own row-hover tint is the value
+     * that was designed to hold unchanged body text, and `component-contrast-pairs.ts`'s
+     * `menuItemHoverText` axis measures the result either way.
+     */
+    chain('menu.itemHover', 'background', ['list.hoverBackground', 'menu.selectionBackground']),
     chain('menu.separator', 'border', ['menu.separatorBackground']),
 
     chain('popover.background', 'background', ['editorWidget.background', 'menu.background']),

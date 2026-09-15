@@ -82,6 +82,30 @@ const BUNDLED_THEME_SOURCES: &[(&str, &str)] = &[
         "visual-studio-cpp-light",
         include_str!("../../../resources/themes/visual-studio-cpp-light.json"),
     ),
+    ("catppuccin-latte", include_str!("../../../resources/themes/catppuccin-latte.json")),
+    (
+        "catppuccin-frappe",
+        include_str!("../../../resources/themes/catppuccin-frappe.json"),
+    ),
+    (
+        "catppuccin-macchiato",
+        include_str!("../../../resources/themes/catppuccin-macchiato.json"),
+    ),
+    (
+        "tokyo-night-storm",
+        include_str!("../../../resources/themes/tokyo-night-storm.json"),
+    ),
+    (
+        "tokyo-night-light",
+        include_str!("../../../resources/themes/tokyo-night-light.json"),
+    ),
+    ("gruvbox-light", include_str!("../../../resources/themes/gruvbox-light.json")),
+    ("rose-pine-moon", include_str!("../../../resources/themes/rose-pine-moon.json")),
+    ("ayu-mirage", include_str!("../../../resources/themes/ayu-mirage.json")),
+    (
+        "github-dark-dimmed",
+        include_str!("../../../resources/themes/github-dark-dimmed.json"),
+    ),
 ];
 
 const COLOR_NAMESPACES: &[(&str, &[&str])] = &[
@@ -460,7 +484,7 @@ fn light_colors() -> BTreeMap<String, String> {
         ("app.foreground", "#4c4f69"),
         ("app.border", "#ccd0da"),
         ("app.focusBorder", "#1e66f5"),
-        ("app.shadow", "#00000022"),
+        ("app.shadow", "#00000026"),
         ("app.accent", "#1e66f5"),
         ("appSidebar.background", "#e6e9ef"),
         ("appSidebar.itemHover", "#ccd0da"),
@@ -476,11 +500,11 @@ fn light_colors() -> BTreeMap<String, String> {
         ("tabBar.tabActiveBackground", "#eff1f5"),
         ("tabBar.tabInactiveBackground", "#e6e9ef"),
         ("tabBar.tabActiveForeground", "#4c4f69"),
-        ("tabBar.tabInactiveForeground", "#8c8fa1"),
+        ("tabBar.tabInactiveForeground", "#828596"),
         ("tabBar.tabBorder", "#ccd0da"),
         ("tabBar.tabActiveIndicator", "#1e66f5"),
         ("tabBar.dirtyDot", "#df8e1d"),
-        ("tabBar.previewForeground", "#8c8fa1"),
+        ("tabBar.previewForeground", "#878a9b"),
         ("tabBar.dropTarget", "#1e66f5"),
         ("explorer.background", "#e6e9ef"),
         ("explorer.itemHover", "#ccd0da"),
@@ -488,8 +512,8 @@ fn light_colors() -> BTreeMap<String, String> {
         ("explorer.itemFocused", "#bcc0cc"),
         ("explorer.indentGuide", "#ccd0da"),
         ("explorer.folderIcon", "#1e66f5"),
-        ("explorer.gitModified", "#df8e1d"),
-        ("explorer.gitAdded", "#40a02b"),
+        ("explorer.gitModified", "#ba7718"),
+        ("explorer.gitAdded", "#3d9829"),
         ("explorer.gitDeleted", "#d20f39"),
         ("explorer.gitUntracked", "#179299"),
         ("explorer.gitIgnored", "#9ca0b0"),
@@ -530,12 +554,12 @@ fn light_colors() -> BTreeMap<String, String> {
         ("terminal.selection", "#bcc0cc"),
         ("terminal.commandBlockBorder", "#ccd0da"),
         ("terminal.linkForeground", "#1e66f5"),
-        ("git.added", "#40a02b"),
-        ("git.modified", "#df8e1d"),
+        ("git.added", "#3d9829"),
+        ("git.modified", "#ba7718"),
         ("git.deleted", "#d20f39"),
-        ("git.renamed", "#209fb5"),
+        ("git.renamed", "#1d92a6"),
         ("git.untracked", "#179299"),
-        ("git.conflicted", "#fe640b"),
+        ("git.conflicted", "#e3590a"),
         ("git.staged", "#8839ef"),
         ("graph.lane1", "#dc8a78"),
         ("graph.lane2", "#dd7878"),
@@ -553,9 +577,9 @@ fn light_colors() -> BTreeMap<String, String> {
         ("graph.refTag", "#df8e1d"),
         ("graph.refHead", "#40a02b"),
         ("statusIndicator.info", "#1e66f5"),
-        ("statusIndicator.warning", "#df8e1d"),
+        ("statusIndicator.warning", "#ba7718"),
         ("statusIndicator.error", "#d20f39"),
-        ("statusIndicator.success", "#40a02b"),
+        ("statusIndicator.success", "#3d9829"),
         ("menu.background", "#e6e9ef"),
         ("menu.border", "#ccd0da"),
         ("menu.itemHover", "#bcc0cc"),
@@ -578,7 +602,7 @@ fn light_colors() -> BTreeMap<String, String> {
         ("input.background", "#eff1f5"),
         ("input.foreground", "#4c4f69"),
         ("input.border", "#ccd0da"),
-        ("input.placeholder", "#9ca0b0"),
+        ("input.placeholder", "#878b99"),
         ("input.focusBorder", "#1e66f5"),
         ("button.background", "#ccd0da"),
         ("button.foreground", "#4c4f69"),
@@ -1033,10 +1057,10 @@ mod tests {
     }
 
     /// The full theme catalog surfaced to users: every bundled JSON theme (`bundled_themes()`,
-    /// 38 today) plus the two Rust-literal builtin themes (`builtin_dark()`/`builtin_light()`),
+    /// 47 today) plus the two Rust-literal builtin themes (`builtin_dark()`/`builtin_light()`),
     /// which `bundled_themes()` alone omits. Production code (`list_themes`, `builtin_by_id`)
     /// already assembles builtin + bundled + user themes itself; this test-only helper exists so
-    /// the data-quality lints below share one 40-theme iteration source instead of each hand-rolling
+    /// the data-quality lints below share one 49-theme iteration source instead of each hand-rolling
     /// its own `bundled_themes().chain(...)`. See
     /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b — before this helper,
     /// all five lints below iterated `bundled_themes()` only, so a defect exclusive to
@@ -1470,7 +1494,7 @@ mod tests {
     /// `isDistinctFromBodyForeground`) already runs a full CIE76 `deltaE76` check with a 2.3
     /// just-noticeable-difference threshold on every *derived* candidate before a bundled JSON is
     /// ever written, so this Rust lint deliberately does not re-implement CIE76: across the current
-    /// 40-theme catalog (38 bundled + 2 builtin, since
+    /// 49-theme catalog (47 bundled + 2 builtin, since
     /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b widened this lint's
     /// iteration source from `bundled_themes()` to `theme_catalog()`) the identical-color defect
     /// always manifests as exact hex equality (ΔE 0.0), and the next-lowest real distinctness value
@@ -1542,7 +1566,7 @@ mod tests {
     /// on the TS side, for the same `hexToRgb` reason).
     ///
     /// Not compositing the *foreground* argument (`panel.matchHighlight` or `list.foreground`, per
-    /// caller) is justified empirically, same as before: across the current 40-theme catalog (38
+    /// caller) is justified empirically, same as before: across the current 49-theme catalog (47
     /// bundled JSON files plus the two builtin Rust literals), every `panel.matchHighlight` and
     /// `list.foreground` value is a plain 6-digit opaque hex today (verified by direct scan when
     /// `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-c added the two
@@ -1626,7 +1650,7 @@ mod tests {
     /// WCAG contrast gate (3) for `panel.matchHighlight` vs `panel.background`, ported from TS
     /// `validateOutputColors`'s `matchHighlight` pair (`contrast.ts`'s `CONTRAST_PAIRS`) — see
     /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-c. Runs over the full
-    /// 40-theme catalog (38 bundled + 2 builtin, via `theme_catalog()`), closing the structural gap
+    /// 49-theme catalog (47 bundled + 2 builtin, via `theme_catalog()`), closing the structural gap
     /// the opacity-only `카탈로그_테마는_panel_매치_하이라이트가_불투명하다` above leaves: an opaque
     /// 6-digit hex can still be arbitrarily low-contrast, which is exactly how `taide-light`'s
     /// `panel.matchHighlight` (`#df8e1d`, 2.15 against `panel.background` `#e6e9ef`) shipped
@@ -1726,7 +1750,7 @@ mod tests {
     /// gap `docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §0 identified: a theme
     /// can pass the `panel.background` axis (the unselected row) while still rendering illegible search/
     /// palette match emphasis the moment that same row is selected (`nord`'s `1.00` being the extreme
-    /// case — see the exemption above). Runs over the full 40-theme catalog via `theme_catalog()`, same
+    /// case — see the exemption above). Runs over the full 49-theme catalog via `theme_catalog()`, same
     /// as every other lint in this module.
     #[test]
     fn 카탈로그_테마는_panel_매치_하이라이트가_선택_행_배경과_최소_대비를_가진다() {
@@ -1793,11 +1817,15 @@ mod tests {
     /// `list.foreground` against `list.activeBackground` — the row's non-matched text, same render-path
     /// as `SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS` above but for ordinary row text instead of
     /// search/palette match glyphs. Mirrors TS `SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS`
-    /// (`bundled-theme-contrast.test.ts`) with the identical single entry and reasoning.
-    const SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS: &[(&str, &str)] = &[(
-        "rose-pine-dawn",
-        "same gate-vs-render mismatch as this theme's selectionMatchHighlight exemption above: even upstream's own dedicated list.activeSelectionForeground (#575279, already reused elsewhere in this file as app.foreground) falls short of 3:1 against the gate's raw-RGB reading of the near-transparent list.activeBackground (#6e6a86) — the shortfall is in how a translucent background is measured, not in the foreground choice.",
-    )];
+    /// (`bundled-theme-contrast.test.ts`), which is likewise empty now.
+    ///
+    /// `rose-pine-dawn` was the one entry, exempted because the gate read that theme's near-transparent
+    /// `list.activeBackground` (`#6e6a8614`) at its raw RGB. d-61's review (finding A-1) made the
+    /// sibling pairs composite both tokens over their surface, which moved the token to an opaque
+    /// `#ece6e3` and lifted the real ratio to 3.56 — so the exemption's premise is gone and keeping a
+    /// passing theme listed would disable the lint for it. Kept as an empty registry rather than
+    /// deleted so the lint and its reverse check below stay wired for the next genuine case.
+    const SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS: &[(&str, &str)] = &[];
 
     /// WCAG contrast gate (3) for `list.foreground` vs `list.activeBackground` — the general (non-match)
     /// text counterpart to `카탈로그_테마는_panel_매치_하이라이트가_선택_행_배경과_최소_대비를_가진다` above. See
@@ -2165,6 +2193,1426 @@ mod tests {
         assert_eq!(
             rust_terminal_keys, ts_terminal_keys,
             "터미널 ANSI 토큰 목록이 Rust TERMINAL_ANSI_TOKENS 와 TS TERMINAL_TOKENS 사이에서 다릅니다"
+        );
+    }
+
+    /// Minimum CIE76 ΔE*ab a state color must clear against the container it is painted on, mirrored
+    /// from TS `STATE_MIN_DISTINCT_DELTA_E` (`src/shared/lib/theme-convert/state-distinctness-pairs.ts`)
+    /// — the same 2.3 just-noticeable-difference value `MATCH_HIGHLIGHT_MIN_DISTINCT_DELTA_E`
+    /// (`mapping-tables.ts`) already uses, so every distinctness check in the codebase agrees on what
+    /// "a different color" means. `상태색_구별성_쌍_표는_ts_정본과_일치한다` below reads the number back out
+    /// of that TS file and compares it, so the two cannot drift apart silently.
+    const STATE_MIN_DISTINCT_DELTA_E: f64 = 2.3;
+
+    /// Relaxed counterpart of [`STATE_MIN_DISTINCT_DELTA_E`] for the editor overlays upstream themes
+    /// deliberately keep faint (current line, inactive selection, secondary find matches) — mirrored
+    /// from TS `SUBTLE_STATE_MIN_DISTINCT_DELTA_E`. Rejects only a state that has collapsed into its
+    /// container outright.
+    const SUBTLE_STATE_MIN_DISTINCT_DELTA_E: f64 = 1.0;
+
+    /// Minimum alpha `app.shadow` must carry for the separation it exists to draw to survive,
+    /// mirrored from TS `APP_SHADOW_MIN_ALPHA` (`state-distinctness-pairs.ts`) — VS Code's own light
+    /// `widget.shadow` default (`#00000026`, 38/255), i.e. the faintest shadow the platform itself
+    /// ships rather than a value fitted to this catalog. The token colors every floating surface's
+    /// drop shadow and, at half strength, the modal scrim, so a zeroed alpha pastes a dialog flat
+    /// onto the content behind it with nothing marking it as modal.
+    /// `상태색_구별성_쌍_표는_ts_정본과_일치한다` below reads the number back out of that TS file and
+    /// compares it, so the two cannot drift apart silently.
+    const APP_SHADOW_MIN_ALPHA: f64 = 0.149;
+
+    /// The token [`APP_SHADOW_MIN_ALPHA`] bounds. Mirrors TS `SHADOW_KEY` (`state-distinctness.ts`).
+    const APP_SHADOW_KEY: &str = "app.shadow";
+
+    /// One row of [`STATE_DISTINCTNESS_PAIRS`] — a state color, the container it is drawn on, the
+    /// opaque surface that container is itself drawn on (so a translucent container is composited
+    /// before it is measured), an optional second token allowed to carry the distinction instead,
+    /// whether the container is a *sibling* state rather than the surface the state is painted on
+    /// (see [`resolve_pair_surfaces`]), and the ΔE the pair must clear.
+    struct StateDistinctnessPair {
+        label: &'static str,
+        state_key: &'static str,
+        container_key: &'static str,
+        surface_key: Option<&'static str>,
+        alternative_state_key: Option<&'static str>,
+        sibling: bool,
+        min_delta_e: f64,
+    }
+
+    /// Verbatim mirror of TS `STATE_DISTINCTNESS_PAIRS`
+    /// (`src/shared/lib/theme-convert/state-distinctness-pairs.ts`), which is the single source of
+    /// truth: that file derives each pair from the component that renders it and documents the
+    /// provenance of every row, and `상태색_구별성_쌍_표는_ts_정본과_일치한다` below re-parses it and
+    /// compares label, both keys, the surface, the alternative, the sibling flag and the threshold of
+    /// every row in order — the same arrangement `테마_토큰_목록은_rust와_theme_tokens_ts에서_일치한다` uses for the
+    /// semantic token list. Rows carry no per-row comment here on purpose: duplicating the prose
+    /// would give a second place for it to go stale, while the drift test cannot check prose.
+    const STATE_DISTINCTNESS_PAIRS: &[StateDistinctnessPair] = &[
+        StateDistinctnessPair {
+            label: "editorSelection",
+            state_key: "editor.selection",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "editorInactiveSelection",
+            state_key: "editor.inactiveSelection",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: SUBTLE_STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "editorCurrentLine",
+            state_key: "editor.lineHighlight",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: SUBTLE_STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "editorFindMatch",
+            state_key: "editor.findMatch",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "editorFindMatchHighlight",
+            state_key: "editor.findMatchHighlight",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: SUBTLE_STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "editorBracketMatch",
+            state_key: "editor.bracketMatch",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "editorCursor",
+            state_key: "editor.cursor",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "terminalSelection",
+            state_key: "terminal.selection",
+            container_key: "terminal.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "terminalCursor",
+            state_key: "terminal.cursor",
+            container_key: "terminal.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "listHover",
+            state_key: "list.hoverBackground",
+            container_key: "list.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "listActive",
+            state_key: "list.activeBackground",
+            container_key: "list.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "listActiveVsHover",
+            state_key: "list.activeBackground",
+            container_key: "list.hoverBackground",
+            surface_key: Some("list.background"),
+            alternative_state_key: None,
+            sibling: true,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "listHoverOnActiveTab",
+            state_key: "list.hoverBackground",
+            container_key: "tabBar.tabActiveBackground",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "listHoverOnInactiveTab",
+            state_key: "list.hoverBackground",
+            container_key: "tabBar.tabInactiveBackground",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerItemHover",
+            state_key: "explorer.itemHover",
+            container_key: "explorer.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerItemSelected",
+            state_key: "explorer.itemSelected",
+            container_key: "explorer.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerItemFocused",
+            state_key: "explorer.itemFocused",
+            container_key: "explorer.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerSelectedVsHover",
+            state_key: "explorer.itemSelected",
+            container_key: "explorer.itemHover",
+            surface_key: Some("explorer.background"),
+            alternative_state_key: None,
+            sibling: true,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerHoverOnPanel",
+            state_key: "explorer.itemHover",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerSelectedOnPanel",
+            state_key: "explorer.itemSelected",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerFocusedOnPanel",
+            state_key: "explorer.itemFocused",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerHoverOnStatusBar",
+            state_key: "explorer.itemHover",
+            container_key: "appSidebar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerSelectedOnStatusBar",
+            state_key: "explorer.itemSelected",
+            container_key: "appSidebar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "explorerHoverOnEditorWidget",
+            state_key: "explorer.itemHover",
+            container_key: "editor.widgetBackground",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarItemHover",
+            state_key: "appSidebar.itemHover",
+            container_key: "appSidebar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarItemActive",
+            state_key: "appSidebar.itemActive",
+            container_key: "appSidebar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarActiveVsHover",
+            state_key: "appSidebar.itemActive",
+            container_key: "appSidebar.itemHover",
+            surface_key: Some("appSidebar.background"),
+            alternative_state_key: None,
+            sibling: true,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarActiveOnCard",
+            state_key: "appSidebar.itemActive",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarHoverOnCard",
+            state_key: "appSidebar.itemHover",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarHoverOnEditor",
+            state_key: "appSidebar.itemHover",
+            container_key: "editor.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarHoverOnApp",
+            state_key: "appSidebar.itemHover",
+            container_key: "app.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarActiveOnApp",
+            state_key: "appSidebar.itemActive",
+            container_key: "app.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarHoverOnTabBar",
+            state_key: "appSidebar.itemHover",
+            container_key: "tabBar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "sidebarBadge",
+            state_key: "appSidebar.badge",
+            container_key: "appSidebar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "tabActive",
+            state_key: "tabBar.tabActiveBackground",
+            container_key: "tabBar.background",
+            surface_key: Some("app.background"),
+            alternative_state_key: Some("tabBar.tabActiveIndicator"),
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "tabActiveVsInactive",
+            state_key: "tabBar.tabActiveBackground",
+            container_key: "tabBar.tabInactiveBackground",
+            surface_key: Some("app.background"),
+            alternative_state_key: Some("tabBar.tabActiveIndicator"),
+            sibling: true,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "switchCheckedTrackOnCard",
+            state_key: "button.primaryBackground",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "switchCheckedTrackVsThumb",
+            state_key: "button.primaryBackground",
+            container_key: "app.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "switchUncheckedTrackOnCard",
+            state_key: "input.border",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "switchUncheckedTrackVsThumb",
+            state_key: "input.border",
+            container_key: "app.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "switchCheckedVsUncheckedTrack",
+            state_key: "button.primaryBackground",
+            container_key: "input.border",
+            surface_key: Some("panel.background"),
+            alternative_state_key: None,
+            sibling: true,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "buttonHover",
+            state_key: "button.hoverBackground",
+            container_key: "button.background",
+            surface_key: Some("panel.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "inputBorder",
+            state_key: "input.border",
+            container_key: "input.background",
+            surface_key: Some("panel.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "panelInputBorder",
+            state_key: "panel.inputBorder",
+            container_key: "panel.inputBackground",
+            surface_key: Some("panel.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "focusBorderOnApp",
+            state_key: "app.focusBorder",
+            container_key: "app.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "focusBorderOnCard",
+            state_key: "app.focusBorder",
+            container_key: "panel.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "inputFocusBorder",
+            state_key: "input.focusBorder",
+            container_key: "input.background",
+            surface_key: Some("panel.background"),
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "menuItemHover",
+            state_key: "menu.itemHover",
+            container_key: "menu.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "modalItemHover",
+            state_key: "modal.itemHover",
+            container_key: "modal.background",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+        StateDistinctnessPair {
+            label: "scrollbarThumb",
+            state_key: "scrollbar.thumb",
+            container_key: "scrollbar.track",
+            surface_key: None,
+            alternative_state_key: None,
+            sibling: false,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        },
+    ];
+
+    /// One row of [`COMPONENT_CONTRAST_PAIRS`]. `surface_key` is required rather than optional for
+    /// the same reason it is on the TS side: a background carrying alpha is the normal case in this
+    /// catalog, so every pair names what sits underneath and the background is composited before the
+    /// ratio is taken.
+    struct ComponentContrastPair {
+        label: &'static str,
+        foreground_key: &'static str,
+        background_key: &'static str,
+        surface_key: &'static str,
+    }
+
+    /// Verbatim mirror of TS `COMPONENT_CONTRAST_PAIRS`
+    /// (`src/shared/lib/theme-convert/component-contrast-pairs.ts`) — every (text color, surface it
+    /// is drawn on) pair the UI actually renders, kept in sync by
+    /// `컴포넌트_대비_쌍_표는_ts_정본과_일치한다` below. Deliberately separate from the five blocking and
+    /// two advisory pairs the lints above guard (`contrast.ts`'s `CONTRAST_PAIRS`): those decide
+    /// whether a VSIX import is rejected and have per-theme exemption registries pinned to them,
+    /// which is why d-61 §1.B added rows here instead of widening that array.
+    const COMPONENT_CONTRAST_PAIRS: &[ComponentContrastPair] = &[
+        ComponentContrastPair {
+            label: "listRow",
+            foreground_key: "list.foreground",
+            background_key: "list.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "listHoverRow",
+            foreground_key: "list.foreground",
+            background_key: "list.hoverBackground",
+            surface_key: "list.background",
+        },
+        ComponentContrastPair {
+            label: "explorerGitAdded",
+            foreground_key: "explorer.gitAdded",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "explorerGitModified",
+            foreground_key: "explorer.gitModified",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "explorerGitDeleted",
+            foreground_key: "explorer.gitDeleted",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "explorerGitUntracked",
+            foreground_key: "explorer.gitUntracked",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitAdded",
+            foreground_key: "git.added",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitModified",
+            foreground_key: "git.modified",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitDeleted",
+            foreground_key: "git.deleted",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitRenamed",
+            foreground_key: "git.renamed",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitUntracked",
+            foreground_key: "git.untracked",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitConflicted",
+            foreground_key: "git.conflicted",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "gitStaged",
+            foreground_key: "git.staged",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "statusBarText",
+            foreground_key: "appSidebar.iconDefault",
+            background_key: "appSidebar.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "panelMutedText",
+            foreground_key: "appSidebar.iconDefault",
+            background_key: "panel.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "explorerMutedText",
+            foreground_key: "appSidebar.iconDefault",
+            background_key: "explorer.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "panelBadge",
+            foreground_key: "appSidebar.badge",
+            background_key: "panel.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "statusBarError",
+            foreground_key: "statusIndicator.error",
+            background_key: "appSidebar.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "statusBarWarning",
+            foreground_key: "statusIndicator.warning",
+            background_key: "appSidebar.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "statusBarSuccess",
+            foreground_key: "statusIndicator.success",
+            background_key: "appSidebar.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "problemError",
+            foreground_key: "statusIndicator.error",
+            background_key: "panel.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "problemWarning",
+            foreground_key: "statusIndicator.warning",
+            background_key: "panel.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "problemInfo",
+            foreground_key: "statusIndicator.info",
+            background_key: "panel.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "problemSuccess",
+            foreground_key: "statusIndicator.success",
+            background_key: "panel.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "inputText",
+            foreground_key: "input.foreground",
+            background_key: "input.background",
+            surface_key: "editor.widgetBackground",
+        },
+        ComponentContrastPair {
+            label: "inputPlaceholder",
+            foreground_key: "input.placeholder",
+            background_key: "input.background",
+            surface_key: "editor.widgetBackground",
+        },
+        ComponentContrastPair {
+            label: "buttonPrimary",
+            foreground_key: "button.primaryForeground",
+            background_key: "button.primaryBackground",
+            surface_key: "panel.background",
+        },
+        ComponentContrastPair {
+            label: "buttonSecondary",
+            foreground_key: "button.foreground",
+            background_key: "button.background",
+            surface_key: "panel.background",
+        },
+        ComponentContrastPair {
+            label: "buttonSecondaryHover",
+            foreground_key: "button.foreground",
+            background_key: "button.hoverBackground",
+            surface_key: "panel.background",
+        },
+        ComponentContrastPair {
+            label: "tabActive",
+            foreground_key: "tabBar.tabActiveForeground",
+            background_key: "tabBar.tabActiveBackground",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "tabInactive",
+            foreground_key: "tabBar.tabInactiveForeground",
+            background_key: "tabBar.tabInactiveBackground",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "tabPreview",
+            foreground_key: "tabBar.previewForeground",
+            background_key: "tabBar.tabActiveBackground",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "terminalText",
+            foreground_key: "terminal.foreground",
+            background_key: "terminal.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "editorLink",
+            foreground_key: "terminal.linkForeground",
+            background_key: "editor.background",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "editorWidgetLink",
+            foreground_key: "terminal.linkForeground",
+            background_key: "editor.widgetBackground",
+            surface_key: "app.background",
+        },
+        ComponentContrastPair {
+            label: "menuItemHoverText",
+            foreground_key: "app.foreground",
+            background_key: "menu.itemHover",
+            surface_key: "menu.background",
+        },
+    ];
+
+    /// Verbatim mirror of TS `COMPONENT_CONTRAST_EXEMPTIONS`
+    /// (`src/shared/lib/theme-convert/component-contrast-pairs.ts`), keyed `<theme id>:<pair label>`:
+    /// the catalog themes that stay below [`MIN_CONTRAST_RATIO`] on one axis of
+    /// [`COMPONENT_CONTRAST_PAIRS`] even after repair. Both entries are ayu's, and both are the same
+    /// shape — the theme's UI foreground already sits at the contrast floor against the plain menu
+    /// background (3.09:1 dark / 3.32:1 light), so any hover tint that reads as a hover at all spends
+    /// the remaining margin, and the only other lever is the global body color the repair rule never
+    /// moves. `컴포넌트_대비_예외_등재분은_실제로_최소_대비에_미달한다` below re-measures every entry, so an
+    /// exemption that stops being needed fails the suite instead of lingering.
+    const COMPONENT_CONTRAST_EXEMPTIONS: &[(&str, &str)] = &[("ayu-dark", "menuItemHoverText"), ("ayu-light", "menuItemHoverText")];
+
+    /// CIE 1976 L*a*b* (D65, 2° standard observer) constants for [`delta_e76`], ported verbatim from
+    /// TS `shared/lib/color.ts`. The linearization breakpoint here is the sRGB color-science value
+    /// (0.04045, IEC 61966-2-1), deliberately not the WCAG relative-luminance breakpoint
+    /// [`SRGB_LINEAR_THRESHOLD`] (0.03928) the contrast helpers above use — the two measure different
+    /// things (perceptual distance vs contrast ratio) and TS keeps the same split.
+    const CIE_SRGB_LINEAR_THRESHOLD: f64 = 0.04045;
+    const CIE_SRGB_LINEAR_DIVISOR: f64 = 12.92;
+    const CIE_SRGB_GAMMA_OFFSET: f64 = 0.055;
+    const CIE_SRGB_GAMMA_DIVISOR: f64 = 1.055;
+    const CIE_SRGB_GAMMA_EXPONENT: f64 = 2.4;
+    const CIE_XYZ_MATRIX_X: [f64; 3] = [0.4124564, 0.3575761, 0.1804375];
+    const CIE_XYZ_MATRIX_Y: [f64; 3] = [0.2126729, 0.7151522, 0.072175];
+    const CIE_XYZ_MATRIX_Z: [f64; 3] = [0.0193339, 0.119192, 0.9503041];
+    const CIE_D65_WHITE_POINT: [f64; 3] = [0.95047, 1.0, 1.08883];
+    const CIE_LAB_EPSILON: f64 = 216.0 / 24389.0;
+    const CIE_LAB_KAPPA: f64 = 24389.0 / 27.0;
+    const CIE_LAB_L_SCALE: f64 = 116.0;
+    const CIE_LAB_L_OFFSET: f64 = 16.0;
+    const CIE_LAB_A_SCALE: f64 = 500.0;
+    const CIE_LAB_B_SCALE: f64 = 200.0;
+
+    /// Length of an `#rrggbbaa` value, the only form [`composite_over_background`] composites — same
+    /// rule as TS `compositeOverBackground`, which passes 3-, 6- and 8-digit forms through untouched.
+    const HEX_WITH_ALPHA_LENGTH: usize = 9;
+    const OPAQUE_HEX_LENGTH: usize = 7;
+    const ALPHA_CHANNEL_MAX: f64 = 255.0;
+    const HEX_RADIX: u32 = 16;
+
+    /// The root surface every other surface is ultimately painted on — mirrors TS
+    /// `APP_BACKGROUND_KEY` (`contrast.ts`). No catalog theme gives it an alpha channel, which is
+    /// what lets [`resolve_component_surface`] resolve a translucent surface against something
+    /// concrete instead of recursing.
+    const APP_BACKGROUND_KEY: &str = "app.background";
+
+    /// Ports TS `isHexColor` (`shared/lib/color.ts`) — the shape check every measurement below uses
+    /// to decide whether a token is measurable at all. A value that is missing, `transparent`, or an
+    /// unresolved `$palette` reference makes its pair unmeasurable rather than violating, exactly as
+    /// on the TS side.
+    fn is_hex_color(value: &str) -> bool {
+        let trimmed = value.trim();
+        let Some(digits) = trimmed.strip_prefix('#') else {
+            return false;
+        };
+        matches!(digits.len(), 3 | 6 | 8) && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }
+
+    /// Ports TS `toHexChannel` (`shared/lib/color.ts`) — clamp, round, lowercase two-digit hex.
+    fn hex_channel(channel: f64) -> String {
+        format!("{:02x}", channel.clamp(0.0, RGB_CHANNEL_MAX).round() as u8)
+    }
+
+    /// Ports TS `rgbToHex` (`shared/lib/color.ts`).
+    fn rgb_to_hex(r: f64, g: f64, b: f64) -> String {
+        format!("#{}{}{}", hex_channel(r), hex_channel(g), hex_channel(b))
+    }
+
+    /// The composition half of [`composite_over_background`], split out so the fallback path (a
+    /// malformed value that got past the length check) stays a plain `unwrap_or_else` instead of a
+    /// nest of early returns.
+    fn composite_channels(foreground: &str, background: &str, opaque: &str) -> Option<String> {
+        let (foreground_r, foreground_g, foreground_b) = hex_to_rgb(opaque)?;
+        let (background_r, background_g, background_b) = hex_to_rgb(background)?;
+        let alpha_digits = foreground.get(OPAQUE_HEX_LENGTH..HEX_WITH_ALPHA_LENGTH)?;
+        let alpha = f64::from(u8::from_str_radix(alpha_digits, HEX_RADIX).ok()?) / ALPHA_CHANNEL_MAX;
+        Some(rgb_to_hex(
+            foreground_r * alpha + background_r * (1.0 - alpha),
+            foreground_g * alpha + background_g * (1.0 - alpha),
+            foreground_b * alpha + background_b * (1.0 - alpha),
+        ))
+    }
+
+    /// Ports TS `compositeOverBackground` (`shared/lib/color.ts`) — the opaque color an
+    /// `#rrggbbaa` value actually renders as over a given background. Every other hex form passes
+    /// through unchanged, which makes this an identity operation for opaque tokens. The lints below
+    /// composite both the state/foreground *and* the container/background, because a token that
+    /// scores against its raw RGB is being measured as a color nothing on screen ever shows.
+    fn composite_over_background(foreground: &str, background: &str) -> String {
+        if foreground.len() != HEX_WITH_ALPHA_LENGTH {
+            return foreground.to_string();
+        }
+        let opaque = foreground.get(..OPAQUE_HEX_LENGTH).unwrap_or(foreground);
+        composite_channels(foreground, background, opaque).unwrap_or_else(|| opaque.to_string())
+    }
+
+    /// Ports TS `srgbChannelToLinear`'s color-science twin in `shared/lib/color.ts`
+    /// (`srgbChannelToCieLinear`) — the sRGB electro-optical transfer function the L*a*b*
+    /// conversion needs.
+    fn srgb_channel_to_cie_linear(channel: f64) -> f64 {
+        let normalized = channel / RGB_CHANNEL_MAX;
+        if normalized <= CIE_SRGB_LINEAR_THRESHOLD {
+            normalized / CIE_SRGB_LINEAR_DIVISOR
+        } else {
+            ((normalized + CIE_SRGB_GAMMA_OFFSET) / CIE_SRGB_GAMMA_DIVISOR).powf(CIE_SRGB_GAMMA_EXPONENT)
+        }
+    }
+
+    /// Ports TS `cieLabF` (`shared/lib/color.ts`) — the CIE's piecewise f(t) helper.
+    fn cie_lab_f(t: f64) -> f64 {
+        if t > CIE_LAB_EPSILON {
+            t.cbrt()
+        } else {
+            (CIE_LAB_KAPPA * t + CIE_LAB_L_OFFSET) / CIE_LAB_L_SCALE
+        }
+    }
+
+    /// Ports TS `hexToLab` (`shared/lib/color.ts`). Reads only the RGB half of an alpha-carrying
+    /// value, same as [`hex_to_rgb`] above — callers composite first when what matters is the color
+    /// on screen.
+    fn hex_to_lab(value: &str) -> Option<(f64, f64, f64)> {
+        let (r, g, b) = hex_to_rgb(value)?;
+        let r_linear = srgb_channel_to_cie_linear(r);
+        let g_linear = srgb_channel_to_cie_linear(g);
+        let b_linear = srgb_channel_to_cie_linear(b);
+        let x = r_linear * CIE_XYZ_MATRIX_X[0] + g_linear * CIE_XYZ_MATRIX_X[1] + b_linear * CIE_XYZ_MATRIX_X[2];
+        let y = r_linear * CIE_XYZ_MATRIX_Y[0] + g_linear * CIE_XYZ_MATRIX_Y[1] + b_linear * CIE_XYZ_MATRIX_Y[2];
+        let z = r_linear * CIE_XYZ_MATRIX_Z[0] + g_linear * CIE_XYZ_MATRIX_Z[1] + b_linear * CIE_XYZ_MATRIX_Z[2];
+        let fx = cie_lab_f(x / CIE_D65_WHITE_POINT[0]);
+        let fy = cie_lab_f(y / CIE_D65_WHITE_POINT[1]);
+        let fz = cie_lab_f(z / CIE_D65_WHITE_POINT[2]);
+        Some((
+            CIE_LAB_L_SCALE * fy - CIE_LAB_L_OFFSET,
+            CIE_LAB_A_SCALE * (fx - fy),
+            CIE_LAB_B_SCALE * (fy - fz),
+        ))
+    }
+
+    /// Ports TS `deltaE76` (`shared/lib/color.ts`) — straight-line distance in L*a*b* space. Unlike
+    /// [`contrast_ratio`] this measures how *distinguishable* two colors are regardless of which is
+    /// lighter, which is what a state-vs-container comparison needs: a selection band and the text
+    /// canvas behind it can be equally luminant and still obviously different.
+    fn delta_e76(hex_a: &str, hex_b: &str) -> Option<f64> {
+        let (l_a, a_a, b_a) = hex_to_lab(hex_a)?;
+        let (l_b, a_b, b_b) = hex_to_lab(hex_b)?;
+        Some(((l_a - l_b).powi(2) + (a_a - a_b).powi(2) + (b_a - b_b).powi(2)).sqrt())
+    }
+
+    /// Ports TS `foregroundContrastRatio` (`contrast.ts`) — the WCAG ratio between a foreground as
+    /// it renders over a background and that background. Distinct from [`contrast_ratio`] above,
+    /// which the five pre-existing pairs use on raw values and which stays untouched
+    /// (`docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-a).
+    fn foreground_contrast_ratio(foreground: &str, background: &str) -> Option<f64> {
+        contrast_ratio(&composite_over_background(foreground, background), background)
+    }
+
+    /// Ports TS `resolvePairSurfaces` (`state-distinctness.ts`) — the two opaque colors a pair is
+    /// compared at: the container as it renders, and the base the state is composited over before the
+    /// comparison.
+    ///
+    /// A container carrying alpha is composited over the pair's surface first; without that,
+    /// `dracula`'s `explorer.itemHover` (`#44475A75`, an overlay of the very color
+    /// `explorer.itemSelected` uses opaquely) would score ΔE 0 against a state that is plainly
+    /// distinguishable on screen. For a normal pair the state is painted *on* the container, so its
+    /// base is that resolved container; for a [`StateDistinctnessPair::sibling`] pair the two tokens
+    /// are peers on the same surface, so both are composited over that surface independently — which
+    /// is what catches ayu's `explorer.itemSelected` and `explorer.itemHover` shipping the same
+    /// overlay (laying one over the other tints it twice and scores ΔE 6+ for two rows that render
+    /// identically).
+    fn resolve_pair_surfaces(pair: &StateDistinctnessPair, colors: &BTreeMap<String, String>) -> Option<(String, String)> {
+        let container = colors.get(pair.container_key)?;
+        if !is_hex_color(container) {
+            return None;
+        }
+        let surface = pair.surface_key.and_then(|key| colors.get(key)).filter(|value| is_hex_color(value));
+        let container_hex = match surface {
+            Some(surface) => composite_over_background(container, surface),
+            None => container.clone(),
+        };
+        let state_base_hex = match (pair.sibling, surface) {
+            (true, Some(surface)) => surface.clone(),
+            _ => container_hex.clone(),
+        };
+        Some((container_hex, state_base_hex))
+    }
+
+    /// Ports TS `measureDistance` (`state-distinctness.ts`) — the state composited over its base,
+    /// then compared with the container.
+    fn state_distance(state: &str, container_hex: &str, state_base_hex: &str) -> Option<f64> {
+        if !is_hex_color(state) {
+            return None;
+        }
+        delta_e76(&composite_over_background(state, state_base_hex), container_hex)
+    }
+
+    /// Ports TS `shadowAlpha` (`state-distinctness.ts`) — the alpha `app.shadow` renders at. A
+    /// 6-digit value is opaque; a value that is not a hex color at all (`transparent`, an unresolved
+    /// `@palette` reference) returns `None` and is left alone, the same "unmeasurable rather than
+    /// violating" rule the pairs follow.
+    fn shadow_alpha(shadow: &str) -> Option<f64> {
+        if !is_hex_color(shadow) {
+            return None;
+        }
+        if shadow.len() != HEX_WITH_ALPHA_LENGTH {
+            return Some(1.0);
+        }
+        let alpha_digits = shadow.get(OPAQUE_HEX_LENGTH..HEX_WITH_ALPHA_LENGTH)?;
+        u8::from_str_radix(alpha_digits, HEX_RADIX)
+            .ok()
+            .map(|alpha| f64::from(alpha) / ALPHA_CHANNEL_MAX)
+    }
+
+    /// Ports TS `resolveComponentSurface` (`contrast.ts`) — a surface is itself composited over
+    /// [`APP_BACKGROUND_KEY`], which is what makes a translucent surface (`darcula`'s
+    /// `appSidebar.background`, `#ffffff1a`) resolve to what the user sees.
+    fn resolve_component_surface(colors: &BTreeMap<String, String>, surface_key: &str) -> Option<String> {
+        let surface = colors.get(surface_key)?;
+        if !is_hex_color(surface) {
+            return None;
+        }
+        if surface_key == APP_BACKGROUND_KEY {
+            return Some(surface.clone());
+        }
+        let Some(root) = colors.get(APP_BACKGROUND_KEY).filter(|value| is_hex_color(value)) else {
+            return Some(surface.clone());
+        };
+        Some(composite_over_background(surface, root))
+    }
+
+    /// Ports TS `resolveComponentBackground` (`contrast.ts`).
+    fn resolve_component_background(pair: &ComponentContrastPair, colors: &BTreeMap<String, String>) -> Option<String> {
+        let background = colors.get(pair.background_key)?;
+        if !is_hex_color(background) {
+            return None;
+        }
+        match resolve_component_surface(colors, pair.surface_key) {
+            Some(surface) => Some(composite_over_background(background, &surface)),
+            None => Some(background.clone()),
+        }
+    }
+
+    /// Rust mirror of the TS catalog gate `bundled-theme-state-distinctness.test.ts`
+    /// (d-61 §1.A). Carries no exemption registry, and unlike the TS gate it also covers the two
+    /// Rust-literal builtins via [`theme_catalog`] — the reason
+    /// `docs/acknowledge/2026-08-25-d36-theme-catalog-audit-contract.md` §1-b widened every other
+    /// lint in this module the same way, after a `taide-light` defect shipped because
+    /// `bundled_themes()`-only lints never looked at it. Every axis here is repairable by
+    /// construction (`repairStateDistinctness` walks the container toward the theme's own body
+    /// foreground), so a failure means `bun run themes:repair-state-distinctness` was not run, not
+    /// that a theme legitimately collapses the state.
+    ///
+    /// Covers the pair table plus the one axis that has no container to be compared against
+    /// ([`APP_SHADOW_MIN_ALPHA`], d-61 review finding G-2): `app.shadow` is drawn over every surface
+    /// in the app, so what makes it collapse is its own alpha rather than a ΔE against another token.
+    #[test]
+    fn 카탈로그_테마는_상태색이_바탕색과_구별된다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            for pair in STATE_DISTINCTNESS_PAIRS {
+                let (Some(state_raw), Some(container_raw)) = (theme.colors.get(pair.state_key), theme.colors.get(pair.container_key))
+                else {
+                    continue;
+                };
+                let Some((container_hex, state_base_hex)) = resolve_pair_surfaces(pair, &theme.colors) else {
+                    continue;
+                };
+                let Some(distance) = state_distance(state_raw, &container_hex, &state_base_hex) else {
+                    continue;
+                };
+                let alternative = pair
+                    .alternative_state_key
+                    .and_then(|key| theme.colors.get(key))
+                    .and_then(|value| state_distance(value, &container_hex, &state_base_hex))
+                    .unwrap_or(0.0);
+
+                if distance >= pair.min_delta_e || alternative >= pair.min_delta_e {
+                    continue;
+                }
+                violations.push(format!(
+                    "'{}': {} 구별성 부족: {}({state_raw:?}) vs {}({container_raw:?}) = ΔE {distance:.2} (최소 {})",
+                    theme.id, pair.label, pair.state_key, pair.container_key, pair.min_delta_e
+                ));
+            }
+
+            let Some(shadow) = theme.colors.get(APP_SHADOW_KEY) else {
+                continue;
+            };
+            let Some(alpha) = shadow_alpha(shadow) else {
+                continue;
+            };
+            if alpha < APP_SHADOW_MIN_ALPHA {
+                violations.push(format!(
+                    "'{}': appShadow 구별성 부족: {APP_SHADOW_KEY}({shadow:?}) 알파 {alpha:.3} (최소 {APP_SHADOW_MIN_ALPHA})",
+                    theme.id
+                ));
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "state distinctness defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    /// Pins the [`StateDistinctnessPair::sibling`] measurement itself, which neither guard around it
+    /// can: the catalog lint only reports what the repaired data happens to hit, and
+    /// `상태색_구별성_쌍_표는_ts_정본과_일치한다` compares the two tables rather than what they measure, so a
+    /// mirror that read the flag and ignored it would pass both. Two peer states shipping the *same*
+    /// translucent overlay (ayu's `explorer.itemSelected`/`itemHover` before d-61 repaired them)
+    /// render identically; composing one over the other tints it a second time and scores a
+    /// comfortable pass, which is the false negative the flag removes.
+    #[test]
+    fn 형제_쌍은_양쪽을_표면_위에_독립_합성해_비교한다() {
+        let colors = map_from_pairs(&[
+            ("explorer.background", "#0f131a"),
+            ("explorer.itemHover", "#e6b45040"),
+            ("explorer.itemSelected", "#e6b45040"),
+        ]);
+        let sibling_pair = StateDistinctnessPair {
+            label: "explorerSelectedVsHover",
+            state_key: "explorer.itemSelected",
+            container_key: "explorer.itemHover",
+            surface_key: Some("explorer.background"),
+            alternative_state_key: None,
+            sibling: true,
+            min_delta_e: STATE_MIN_DISTINCT_DELTA_E,
+        };
+        let stacked_pair = StateDistinctnessPair {
+            sibling: false,
+            ..sibling_pair
+        };
+
+        let measure = |pair: &StateDistinctnessPair| {
+            let (container_hex, state_base_hex) = resolve_pair_surfaces(pair, &colors).expect("두 토큰 모두 hex 입니다");
+            state_distance(&colors[pair.state_key], &container_hex, &state_base_hex).expect("state 가 hex 입니다")
+        };
+
+        assert!(
+            measure(&sibling_pair) < STATE_MIN_DISTINCT_DELTA_E,
+            "같은 오버레이를 쓰는 형제 상태가 구별된다고 측정됐습니다: ΔE {:.2}",
+            measure(&sibling_pair)
+        );
+        assert!(
+            measure(&stacked_pair) >= STATE_MIN_DISTINCT_DELTA_E,
+            "형제 플래그 없이 쌓아 재면 통과해야 이 테스트가 플래그를 검증합니다: ΔE {:.2}",
+            measure(&stacked_pair)
+        );
+    }
+
+    /// Rust mirror of the TS catalog gate for `COMPONENT_CONTRAST_PAIRS`
+    /// (`bundled-theme-contrast.test.ts`, d-61 §1.B) — the component-wide extension of the
+    /// three single-pair contrast lints above. Same threshold ([`MIN_CONTRAST_RATIO`], WCAG 1.4.11's
+    /// 3:1 for non-text UI), same full-catalog iteration source: the table excludes the axes where a
+    /// single token cannot satisfy every surface it serves (`docs/theme-system.md` §8.6 records those
+    /// with their measurements), so every row left in it is repairable by `repairComponentContrast`
+    /// and a failure normally means `bun run themes:repair-contrast` was not run.
+    ///
+    /// The exception is the `menuItemHoverText` axis d-61's review added (finding G-3), whose
+    /// foreground *is* the shared body color and which is repaired on the background side instead.
+    /// Where even that cannot clear the threshold the theme is listed in
+    /// [`COMPONENT_CONTRAST_EXEMPTIONS`], the mirror of the one registry the TS gate and the repair
+    /// script read.
+    #[test]
+    fn 카탈로그_테마는_컴포넌트_전경색이_실제_배경과_최소_대비를_가진다() {
+        let mut violations = Vec::new();
+
+        for theme in theme_catalog() {
+            for pair in COMPONENT_CONTRAST_PAIRS {
+                if COMPONENT_CONTRAST_EXEMPTIONS
+                    .iter()
+                    .any(|(id, label)| *id == theme.id && *label == pair.label)
+                {
+                    continue;
+                }
+                let Some(foreground_raw) = theme.colors.get(pair.foreground_key).filter(|value| is_hex_color(value)) else {
+                    continue;
+                };
+                let Some(background_raw) = theme.colors.get(pair.background_key) else {
+                    continue;
+                };
+                let Some(background) = resolve_component_background(pair, &theme.colors) else {
+                    continue;
+                };
+
+                match foreground_contrast_ratio(foreground_raw, &background) {
+                    Some(ratio) if ratio >= MIN_CONTRAST_RATIO => {}
+                    Some(ratio) => violations.push(format!(
+                        "'{}': {} 대비 부족: {}({foreground_raw:?}) vs {}({background_raw:?} -> {background}) = {ratio:.2} (최소 {MIN_CONTRAST_RATIO})",
+                        theme.id, pair.label, pair.foreground_key, pair.background_key
+                    )),
+                    None => violations.push(format!(
+                        "'{}': {} — {}({foreground_raw:?}) 또는 {}({background_raw:?}) hex 파싱 실패",
+                        theme.id, pair.label, pair.foreground_key, pair.background_key
+                    )),
+                }
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "component contrast defects in catalog themes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    /// The exemption counterpart of the lint above, in the same shape as
+    /// `선택_행_전경색_대비_예외_등재분은_실제로_최소_대비에_미달한다`: an entry of
+    /// [`COMPONENT_CONTRAST_EXEMPTIONS`] that no longer measures below the threshold is a stale
+    /// exemption quietly disabling a lint for a theme that would now pass it, so it has to fail here
+    /// rather than linger. The TS gate holds its copy of the registry to the same rule
+    /// (`bundled-theme-contrast.test.ts`'s `예외 등재분은 실제로 등재된 축에서만 위반한다`).
+    #[test]
+    fn 컴포넌트_대비_예외_등재분은_실제로_최소_대비에_미달한다() {
+        let catalog = theme_catalog();
+
+        for (exempt_id, exempt_label) in COMPONENT_CONTRAST_EXEMPTIONS {
+            let theme = catalog
+                .iter()
+                .find(|theme| theme.id == *exempt_id)
+                .unwrap_or_else(|| panic!("exempted theme '{exempt_id}' not found in catalog"));
+            let pair = COMPONENT_CONTRAST_PAIRS
+                .iter()
+                .find(|pair| pair.label == *exempt_label)
+                .unwrap_or_else(|| panic!("'{exempt_id}' 의 예외 축 '{exempt_label}' 이 COMPONENT_CONTRAST_PAIRS 에 없습니다"));
+            let foreground_raw = theme
+                .colors
+                .get(pair.foreground_key)
+                .unwrap_or_else(|| panic!("'{exempt_id}' has no {}", pair.foreground_key));
+            let background = resolve_component_background(pair, &theme.colors)
+                .unwrap_or_else(|| panic!("'{exempt_id}' {} hex 파싱 실패", pair.background_key));
+            let ratio = foreground_contrast_ratio(foreground_raw, &background)
+                .unwrap_or_else(|| panic!("'{exempt_id}' {} hex 파싱 실패", pair.foreground_key));
+
+            assert!(
+                ratio < MIN_CONTRAST_RATIO,
+                "'{exempt_id}' is listed in COMPONENT_CONTRAST_EXEMPTIONS for '{exempt_label}' but its contrast {ratio:.2} already meets MIN_CONTRAST_RATIO — remove the exemption",
+            );
+        }
+    }
+
+    /// Extracts the object literals of a `... = [` table in one of the TS mirror sources, in file
+    /// order. Entries hold no nested braces (the per-row provenance docs are line comments outside
+    /// them), so a non-nesting `{...}` match is exact rather than a heuristic — and if that ever
+    /// stops holding, the drift tests below fail loudly with a row count mismatch instead of
+    /// silently comparing fewer rows.
+    fn ts_table_entries(source: &str, marker: &str) -> Vec<String> {
+        let start = source.find(marker).unwrap_or_else(|| panic!("{marker} 를 찾을 수 없습니다")) + marker.len();
+        let end = source[start..]
+            .find("\n]")
+            .unwrap_or_else(|| panic!("{marker} 의 끝(\\n])을 찾을 수 없습니다"));
+        let block = &source[start..start + end];
+        Regex::new(r"\{([^{}]*)\}")
+            .expect("유효한 정규식")
+            .captures_iter(block)
+            .map(|capture| capture[1].to_string())
+            .collect()
+    }
+
+    /// Reads a quoted string field out of one TS object literal. The leading `(?:^|[\s,{])` keeps
+    /// `stateKey` from also matching inside a longer key that ends with the same letters.
+    fn ts_entry_string(entry: &str, name: &str) -> Option<String> {
+        Regex::new(&format!(r"(?:^|[\s,{{]){name}:\s*'([^']+)'"))
+            .expect("유효한 정규식")
+            .captures(entry)
+            .map(|capture| capture[1].to_string())
+    }
+
+    /// Reads an optional boolean field out of one TS object literal. A row that omits the field is
+    /// `false`, matching the TS type's `sibling?: boolean`; `sibling: false` is never written on the
+    /// TS side, so an explicit `false` reads back the same way an omission does.
+    fn ts_entry_flag(entry: &str, name: &str) -> bool {
+        Regex::new(&format!(r"(?:^|[\s,{{]){name}:\s*true"))
+            .expect("유효한 정규식")
+            .is_match(entry)
+    }
+
+    /// Reads a field whose value is a SCREAMING_CASE constant reference rather than a literal.
+    fn ts_entry_constant(entry: &str, name: &str) -> Option<String> {
+        Regex::new(&format!(r"(?:^|[\s,{{]){name}:\s*([A-Z_]+)"))
+            .expect("유효한 정규식")
+            .captures(entry)
+            .map(|capture| capture[1].to_string())
+    }
+
+    /// Reads a numeric `const NAME = <number>` declaration out of a TS source, so the thresholds
+    /// mirrored into this module are compared against their originals rather than trusted.
+    fn ts_number_constant(source: &str, name: &str) -> f64 {
+        Regex::new(&format!(r"(?m)^\s*(?:export )?const {name} = ([0-9.]+)"))
+            .expect("유효한 정규식")
+            .captures(source)
+            .unwrap_or_else(|| panic!("{name} 상수를 찾을 수 없습니다"))[1]
+            .parse()
+            .expect("숫자 상수")
+    }
+
+    /// One comparable line per pair, used for both sides of the state-distinctness drift test so a
+    /// mismatch prints as a readable diff of the rows themselves. `sibling` is part of the key
+    /// because it changes what the pair measures, not just which tokens it reads: a mirror that kept
+    /// the tokens but dropped the flag would compare a state composited over its container against a
+    /// TS gate that composites both over the surface, and pass.
+    fn describe_state_pair(
+        label: &str,
+        state_key: &str,
+        container_key: &str,
+        surface_key: Option<&str>,
+        alternative_state_key: Option<&str>,
+        sibling: bool,
+        min_delta_e: f64,
+    ) -> String {
+        format!(
+            "{label}|{state_key}|{container_key}|{}|{}|{sibling}|{min_delta_e:.4}",
+            surface_key.unwrap_or("-"),
+            alternative_state_key.unwrap_or("-")
+        )
+    }
+
+    /// d-61 §1.A's drift guard: [`STATE_DISTINCTNESS_PAIRS`] is hand-mirrored from TS with no
+    /// generator, so a row added, reordered, retargeted or re-thresholded on one side would
+    /// otherwise leave the Rust lint quietly checking a different table than the TS gate and the
+    /// repair script.
+    #[test]
+    fn 상태색_구별성_쌍_표는_ts_정본과_일치한다() {
+        let ts_source = include_str!("../../../../src/shared/lib/theme-convert/state-distinctness-pairs.ts");
+        let state_threshold = ts_number_constant(ts_source, "STATE_MIN_DISTINCT_DELTA_E");
+        let subtle_threshold = ts_number_constant(ts_source, "SUBTLE_STATE_MIN_DISTINCT_DELTA_E");
+
+        assert_eq!(
+            state_threshold, STATE_MIN_DISTINCT_DELTA_E,
+            "STATE_MIN_DISTINCT_DELTA_E 가 Rust 미러와 TS 정본에서 다릅니다"
+        );
+        assert_eq!(
+            subtle_threshold, SUBTLE_STATE_MIN_DISTINCT_DELTA_E,
+            "SUBTLE_STATE_MIN_DISTINCT_DELTA_E 가 Rust 미러와 TS 정본에서 다릅니다"
+        );
+        assert_eq!(
+            ts_number_constant(ts_source, "APP_SHADOW_MIN_ALPHA"),
+            APP_SHADOW_MIN_ALPHA,
+            "APP_SHADOW_MIN_ALPHA 가 Rust 미러와 TS 정본에서 다릅니다"
+        );
+
+        let ts_rows: Vec<String> = ts_table_entries(
+            ts_source,
+            "export const STATE_DISTINCTNESS_PAIRS: readonly StateDistinctnessPair[] = [",
+        )
+        .iter()
+        .map(|entry| {
+            let label = ts_entry_string(entry, "label").unwrap_or_else(|| panic!("label 없는 쌍: {entry}"));
+            let threshold = match ts_entry_constant(entry, "minDeltaE").as_deref() {
+                Some("STATE_MIN_DISTINCT_DELTA_E") => state_threshold,
+                Some("SUBTLE_STATE_MIN_DISTINCT_DELTA_E") => subtle_threshold,
+                other => panic!("'{label}' 의 minDeltaE 상수를 알 수 없습니다: {other:?}"),
+            };
+            describe_state_pair(
+                &label,
+                &ts_entry_string(entry, "stateKey").unwrap_or_else(|| panic!("'{label}' 에 stateKey 가 없습니다")),
+                &ts_entry_string(entry, "containerKey").unwrap_or_else(|| panic!("'{label}' 에 containerKey 가 없습니다")),
+                ts_entry_string(entry, "surfaceKey").as_deref(),
+                ts_entry_string(entry, "alternativeStateKey").as_deref(),
+                ts_entry_flag(entry, "sibling"),
+                threshold,
+            )
+        })
+        .collect();
+
+        let rust_rows: Vec<String> = STATE_DISTINCTNESS_PAIRS
+            .iter()
+            .map(|pair| {
+                describe_state_pair(
+                    pair.label,
+                    pair.state_key,
+                    pair.container_key,
+                    pair.surface_key,
+                    pair.alternative_state_key,
+                    pair.sibling,
+                    pair.min_delta_e,
+                )
+            })
+            .collect();
+
+        assert!(!ts_rows.is_empty(), "TS 정본에서 상태색 구별성 쌍을 한 건도 읽지 못했습니다");
+        assert_eq!(
+            rust_rows, ts_rows,
+            "상태색 구별성 쌍 표가 Rust 미러와 TS 정본(state-distinctness-pairs.ts) 사이에서 다릅니다"
+        );
+    }
+
+    /// d-61 §1.B's drift guard, the component-contrast counterpart of
+    /// `상태색_구별성_쌍_표는_ts_정본과_일치한다` above. Also pins [`MIN_CONTRAST_RATIO`] to the TS
+    /// threshold it claims to mirror.
+    #[test]
+    fn 컴포넌트_대비_쌍_표는_ts_정본과_일치한다() {
+        let ts_source = include_str!("../../../../src/shared/lib/theme-convert/component-contrast-pairs.ts");
+        let contrast_source = include_str!("../../../../src/shared/lib/theme-convert/contrast.ts");
+
+        assert_eq!(
+            ts_number_constant(contrast_source, "MIN_CONTRAST_RATIO"),
+            MIN_CONTRAST_RATIO,
+            "MIN_CONTRAST_RATIO 가 Rust 미러와 TS 정본(contrast.ts)에서 다릅니다"
+        );
+
+        let ts_rows: Vec<String> = ts_table_entries(
+            ts_source,
+            "export const COMPONENT_CONTRAST_PAIRS: readonly ComponentContrastPair[] = [",
+        )
+        .iter()
+        .map(|entry| {
+            let label = ts_entry_string(entry, "label").unwrap_or_else(|| panic!("label 없는 쌍: {entry}"));
+            let foreground = ts_entry_string(entry, "foregroundKey").unwrap_or_else(|| panic!("'{label}' 에 foregroundKey 가 없습니다"));
+            let background = ts_entry_string(entry, "backgroundKey").unwrap_or_else(|| panic!("'{label}' 에 backgroundKey 가 없습니다"));
+            let surface = ts_entry_string(entry, "surfaceKey").unwrap_or_else(|| panic!("'{label}' 에 surfaceKey 가 없습니다"));
+            format!("{label}|{foreground}|{background}|{surface}")
+        })
+        .collect();
+
+        let rust_rows: Vec<String> = COMPONENT_CONTRAST_PAIRS
+            .iter()
+            .map(|pair| {
+                format!(
+                    "{}|{}|{}|{}",
+                    pair.label, pair.foreground_key, pair.background_key, pair.surface_key
+                )
+            })
+            .collect();
+
+        assert!(!ts_rows.is_empty(), "TS 정본에서 컴포넌트 대비 쌍을 한 건도 읽지 못했습니다");
+        assert_eq!(
+            rust_rows, ts_rows,
+            "컴포넌트 대비 쌍 표가 Rust 미러와 TS 정본(component-contrast-pairs.ts) 사이에서 다릅니다"
+        );
+    }
+
+    /// d-61 §1.D's registration gate. [`BUNDLED_THEME_SOURCES`] is a hand-written `include_str!`
+    /// list, so a theme file added to `resources/themes/` without a row here ships as dead weight in
+    /// the binary and never appears in `list_themes`, while a row paired with the wrong file makes
+    /// `builtin_by_id` answer one id with another theme's colors. Reads the directory through
+    /// `CARGO_MANIFEST_DIR` — a source-tree path, which is exactly what a data-quality lint wants;
+    /// the TS side gates the same two facts against `THIRD_PARTY_LICENSES.md`
+    /// (`bundled-theme-licenses.test.ts`).
+    #[test]
+    fn 번들_테마_등록_배열은_리소스_디렉터리_및_theme_id_와_일치한다() {
+        let themes_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/themes");
+        let mut files: Vec<String> = std::fs::read_dir(&themes_dir)
+            .unwrap_or_else(|error| panic!("{} 를 읽을 수 없습니다: {error}", themes_dir.display()))
+            .flatten()
+            .filter(|entry| entry.path().extension().and_then(|extension| extension.to_str()) == Some("json"))
+            .filter_map(|entry| {
+                entry
+                    .path()
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(std::string::ToString::to_string)
+            })
+            .collect();
+        files.sort();
+
+        let mut registered: Vec<String> = BUNDLED_THEME_SOURCES.iter().map(|(id, _)| (*id).to_string()).collect();
+        registered.sort();
+
+        assert!(!files.is_empty(), "{} 에 번들 테마 JSON 이 없습니다", themes_dir.display());
+        assert_eq!(
+            registered, files,
+            "BUNDLED_THEME_SOURCES 등록 목록이 resources/themes 의 JSON 파일과 다릅니다"
+        );
+
+        let mismatched: Vec<String> = BUNDLED_THEME_SOURCES
+            .iter()
+            .filter_map(|(id, source)| {
+                let theme = serde_json::from_str::<Theme>(source).ok()?;
+                (theme.id != *id).then(|| format!("'{id}' 로 등록된 파일의 theme.id 는 '{}' 입니다", theme.id))
+            })
+            .collect();
+
+        assert!(
+            mismatched.is_empty(),
+            "번들 테마 등록 id 와 파일 내용이 어긋납니다:\n{}",
+            mismatched.join("\n")
         );
     }
 }

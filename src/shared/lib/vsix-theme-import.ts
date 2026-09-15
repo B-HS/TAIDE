@@ -66,6 +66,16 @@ const resolveFailureReason = (
     return null
 }
 
+/**
+ * Advisories the conversion produced for one theme. `stateDistinctnessErrors` is counted here rather
+ * than turned into a {@link VsixThemeImportFailureReason}: `convertVscodeTheme` reports it after
+ * repair has already run, so a residual entry means a state color the repair could not pull away
+ * from its surface — a degraded theme, not an unusable one, which is the same standing as a
+ * safe-default substitution or an ANSI fallback.
+ */
+const countWarnings = ({ safeDefaultNotices, ansiFallbackTokens, repairs, stateDistinctnessErrors }: ConversionResult) =>
+    safeDefaultNotices.length + ansiFallbackTokens.length + repairs.length + stateDistinctnessErrors.length
+
 const buildTheme = (id: string, label: string, themeType: ThemeType, conversion: ConversionResult, extension: VsixExtensionInfo): Theme => ({
     version: THEME_SCHEMA_VERSION,
     id,
@@ -93,7 +103,7 @@ export const buildVsixThemeCandidates = (result: VsixThemeExtractionResult, exis
         const rawChain = buildRawChain(extracted)
         const conversion = rawChain ? convertVscodeTheme(rawChain, themeType) : null
         const failureReason = resolveFailureReason(rawChain, conversion)
-        const warningCount = conversion ? conversion.safeDefaultNotices.length + conversion.ansiFallbackTokens.length + conversion.repairs.length : 0
+        const warningCount = conversion ? countWarnings(conversion) : 0
 
         return {
             key: `${index}-${extracted.label}`,

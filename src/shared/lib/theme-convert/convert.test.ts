@@ -284,3 +284,39 @@ describe('convertVscodeTheme', () => {
         expect(result.outputColorErrors).toEqual([])
     })
 })
+
+describe('convertVscodeTheme — 상태색 구별성 단계', () => {
+    test('바탕과 같은 값으로 들어온 상태색을 수리해 stateDistinctnessErrors 를 비운다', () => {
+        const source = {
+            colors: {
+                'editor.background': '#1e1e1e',
+                'editor.foreground': '#d4d4d4',
+                foreground: '#d4d4d4',
+                'editor.selectionBackground': '#1e1e1e',
+            },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.colors['editor.selection']).not.toBe('#1e1e1e')
+        expect(result.repairs.some((repair) => repair.includes('editorSelection 구별성 확보'))).toBe(true)
+        expect(result.stateDistinctnessErrors).toEqual([])
+    })
+
+    test('구별성 수리는 terminal 미러보다 먼저 일어나 xterm 이 읽는 값에도 반영된다', () => {
+        const source = {
+            colors: {
+                'editor.background': '#1e1e1e',
+                'editor.foreground': '#d4d4d4',
+                foreground: '#d4d4d4',
+                'terminal.background': '#1e1e1e',
+                'terminal.selectionBackground': '#1e1e1e',
+            },
+        }
+
+        const result = convertVscodeTheme([source], 'dark')
+
+        expect(result.terminal.selection).toBe(result.colors['terminal.selection'])
+        expect(result.terminal.selection).not.toBe('#1e1e1e')
+    })
+})

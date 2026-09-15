@@ -126,8 +126,13 @@ const main = async () => {
     }
 
     if (result.repairs.length > 0) {
-        console.warn(`convert-vscode-theme: '${args.id}' substituted a low-contrast token with a same-family alternative:`)
+        console.warn(`convert-vscode-theme: '${args.id}' substituted a low-contrast or indistinguishable token with a same-family alternative:`)
         for (const repair of result.repairs) console.warn(`  - ${repair}`)
+    }
+
+    if (result.stateDistinctnessErrors.length > 0) {
+        console.warn(`convert-vscode-theme: '${args.id}' has state colors that stayed indistinguishable from the surface they render on:`)
+        for (const error of result.stateDistinctnessErrors) console.warn(`  - ${error}`)
     }
 
     if (result.outputColorErrors.length > 0) {

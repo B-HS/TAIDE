@@ -2,7 +2,17 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import type { Theme_Serialize } from '@shared/api/bindings'
-import { validateOutputColors, validateSelectionRowContrast } from '@shared/lib/theme-convert/contrast'
+import { COMPONENT_CONTRAST_EXEMPTIONS, COMPONENT_CONTRAST_PAIRS } from '@shared/lib/theme-convert/component-contrast-pairs'
+import {
+    isExemptComponentContrastViolation,
+    repairComponentContrast,
+    validateComponentContrast,
+    validateFixedForegroundContrast,
+    validateOutputColors,
+    validateSelectionRowContrast,
+    validateTerminalAnsiContrast,
+} from '@shared/lib/theme-convert/contrast'
+import { COLOR_NAMESPACES } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
 const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../src-tauri/resources/themes')
 
@@ -81,11 +91,16 @@ const SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS: Record<string, string> = {
  * `list.foreground` against `list.activeBackground` — same render-path as
  * {@link SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS} above, for the row's non-matched text instead
  * of the search/palette match glyphs.
+ *
+ * Empty since the d-61 review fix. Its only entry was `rose-pine-dawn`, and the reason was the
+ * translucent `list.activeBackground` (`#6e6a8614`, ~8% alpha) the gate read at its raw RGB. The
+ * sibling rule added to `state-distinctness-pairs.ts` (`listActiveVsHover`) then found that same
+ * overlay indistinguishable from the row hover it sits next to and replaced it with an opaque
+ * `#ece6e3`, against which the theme's own `list.foreground` (`#797593`) clears 3:1 — the premise of
+ * the exemption is gone, so the entry is gone rather than kept as a passing exemption. Kept as an
+ * empty registry because the axis and the three tests that read it are unchanged.
  */
-const SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS: Record<string, string> = {
-    'rose-pine-dawn':
-        "same gate-vs-render mismatch as this theme's selectionMatchHighlight exemption above: even upstream's own dedicated list.activeSelectionForeground (#575279, already reused elsewhere in this file as app.foreground) falls short of 3:1 against the gate's raw-RGB reading of the near-transparent list.activeBackground (#6e6a86) — the shortfall is in how a translucent background is measured, not in the foreground choice.",
-}
+const SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS: Record<string, string> = {}
 
 describe('번들 테마 대비 게이트 — 선택 행 축(list.activeBackground)', () => {
     test('src-tauri/resources/themes/*.json 전량이 validateSelectionRowContrast 를 통과한다(예외 명시분 제외)', () => {
@@ -170,5 +185,126 @@ describe('번들 테마 대비 게이트 — list.foreground 동일색', () => {
             })
 
         expect(violations).toEqual([])
+    })
+})
+
+const readBundledThemes = () =>
+    readdirSync(BUNDLED_THEMES_DIR)
+        .filter((name) => name.endsWith('.json'))
+        .map((name) => JSON.parse(readFileSync(join(BUNDLED_THEMES_DIR, name), 'utf-8')) as Theme_Serialize)
+
+/**
+ * The catalog gate for `component-contrast-pairs.ts` (d-61 §1.B). Almost every axis it checks is
+ * repairable by construction — `repairComponentContrast` moves the text color along its own hue
+ * until it clears every surface it is drawn on, and the table deliberately excludes the axes where
+ * that is impossible (a shared body foreground, or one token owing legibility to two
+ * opposite-luminance backgrounds; `docs/theme-system.md` §8.6 records both classes with their
+ * measurements). So a violation here normally means "the repair was not run", and the fix is
+ * `bun run themes:repair-contrast` rather than registering the theme.
+ *
+ * The one exception is `menuItemHoverText`, added by the d-61 review (finding G-3): its foreground
+ * *is* the shared body color, and it earns a row only because its background is repairable instead.
+ * Where even that substitution cannot clear the threshold the theme is registered in
+ * `COMPONENT_CONTRAST_EXEMPTIONS` (`component-contrast-pairs.ts`) with its measurement — one shared
+ * registry that this gate, `scripts/repair-theme-contrast.ts` and the Rust catalog lint all read.
+ */
+describe('번들 테마 대비 게이트 — 컴포넌트 전경/배경 전수', () => {
+    test('src-tauri/resources/themes/*.json 전량이 validateComponentContrast 를 통과한다(예외 명시분 제외)', () => {
+        const themes = readBundledThemes()
+        expect(themes.length).toBeGreaterThan(0)
+
+        const violations = themes.flatMap((theme) =>
+            validateComponentContrast(theme.colors)
+                .filter((error) => !isExemptComponentContrastViolation(theme.id, error))
+                .map((error) => `'${theme.id}': ${error}`),
+        )
+
+        expect(violations).toEqual([])
+    })
+
+    test('예외 등재분은 실제로 등재된 축에서만 위반한다', () => {
+        const expectedLabelsById = new Map<string, string[]>()
+        for (const key of Object.keys(COMPONENT_CONTRAST_EXEMPTIONS)) {
+            const [id, label] = key.split(':')
+            expectedLabelsById.set(id, [...(expectedLabelsById.get(id) ?? []), label])
+        }
+
+        expect(expectedLabelsById.size).toBeGreaterThan(0)
+
+        for (const [id, expectedLabels] of expectedLabelsById) {
+            const errors = validateComponentContrast(readBundledThemeColors(`${id}.json`))
+            expect(errors.length).toBe(expectedLabels.length)
+            for (const label of expectedLabels) expect(errors.some((error) => error.startsWith(`${label} `))).toBe(true)
+        }
+
+        for (const reason of Object.values(COMPONENT_CONTRAST_EXEMPTIONS)) expect(reason.length).toBeGreaterThan(0)
+    })
+
+    /**
+     * The fixed-foreground advisory (`FIXED_FOREGROUND_CONTRAST_PAIRS`, d-61 review finding G-1) is
+     * measured and recorded, never gated: its foreground is a literal in a component, so a theme has
+     * nothing to move. This locks that split the same way the ANSI test below does.
+     */
+    test('고정 전경 자문 린트는 게이트가 아니다 — 미달 테마가 있어도 컴포넌트 게이트는 통과한다', () => {
+        const themes = readBundledThemes()
+
+        expect(themes.flatMap((theme) => validateFixedForegroundContrast(theme.colors)).length).toBeGreaterThan(0)
+    })
+
+    test('번들 테마에 수리기를 다시 돌려도 바꿀 것이 없다(repair 스크립트 결과가 커밋된 상태)', () => {
+        const repairs = readBundledThemes().flatMap((theme) =>
+            repairComponentContrast(theme.colors).repairs.map((repair) => `'${theme.id}': ${repair}`),
+        )
+
+        expect(repairs).toEqual([])
+    })
+
+    /**
+     * ANSI legibility is reported, never gated (see {@link validateTerminalAnsiContrast}). This locks
+     * that split: the bundled catalog really does contain ANSI colors below the threshold — the
+     * achromatic ends collapse into the background by terminal convention — and that must not be what
+     * decides whether the catalog passes.
+     */
+    test('ANSI 자문 린트는 게이트가 아니다 — 미달 색이 있어도 컴포넌트 게이트는 통과한다', () => {
+        const themes = readBundledThemes()
+
+        expect(themes.flatMap((theme) => validateTerminalAnsiContrast(theme.terminal)).length).toBeGreaterThan(0)
+        expect(
+            themes.flatMap((theme) =>
+                validateComponentContrast(theme.colors).filter((error) => !isExemptComponentContrastViolation(theme.id, error)),
+            ),
+        ).toEqual([])
+    })
+})
+
+describe('컴포넌트 대비 쌍 표', () => {
+    test('라벨이 중복되지 않는다(Rust 미러의 드리프트 검사 기준)', () => {
+        const labels = COMPONENT_CONTRAST_PAIRS.map((pair) => pair.label)
+
+        expect(new Set(labels).size).toBe(labels.length)
+    })
+
+    test('모든 쌍이 실제 토큰 어휘의 키만 참조한다', () => {
+        const vocabulary = new Set(COLOR_NAMESPACES.flatMap(({ id, tokens }) => tokens.map((token) => `${id}.${token}`)))
+
+        const unknown = COMPONENT_CONTRAST_PAIRS.flatMap((pair) =>
+            [pair.foregroundKey, pair.backgroundKey, pair.surfaceKey].filter((key) => !vocabulary.has(key)).map((key) => `${pair.label}: ${key}`),
+        )
+
+        expect(unknown).toEqual([])
+    })
+
+    /**
+     * `repairComponentContrast` repairs each foreground token once, in a single pass, and that is
+     * only complete because repairing a foreground cannot change any pair's background or surface. A
+     * row that made a text color double as someone else's surface would silently break that, leaving
+     * whichever pair came first measured against a stale value.
+     */
+    test('전경 토큰은 어떤 쌍의 배경·표면으로도 쓰이지 않는다(1패스 수리가 완결적이다)', () => {
+        const surfaces = new Set(COMPONENT_CONTRAST_PAIRS.flatMap((pair) => [pair.backgroundKey, pair.surfaceKey]))
+
+        const overlapping = [...new Set(COMPONENT_CONTRAST_PAIRS.map((pair) => pair.foregroundKey))].filter((key) => surfaces.has(key))
+
+        expect(overlapping).toEqual([])
     })
 })
