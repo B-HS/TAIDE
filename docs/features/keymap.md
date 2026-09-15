@@ -20,7 +20,8 @@
 
 ## 1. 엔트리 모델
 
-`APP_KEYMAP: KeymapEntry[]`(23건 — Wave H chord 표본 + Wave I `toggle-zen-mode` 2번째 chord 포함)의 각 엔트리:
+`APP_KEYMAP: KeymapEntry[]`(41건 — Wave H chord 표본 + Wave I `toggle-zen-mode` 2번째 chord + d-59
+에디터 그룹/탭 단축키 18건 포함)의 각 엔트리:
 
 ```ts
 type KeymapEntry = {
@@ -35,15 +36,17 @@ type KeymapEntry = {
 
 - `chord` 는 **선택 필드**다. 구버전 파서(`isKeymapOverrideEntry` 의 얕은 가드)는 이 필드를 몰라도
   조용히 통과한다 — 데이터 소실 없이 1단만 아는 것으로 해석된다(전방호환).
-- `when` 이 있는 엔트리는 기존 21건 중 **`terminal-jump-to-previous/next-command` 2건뿐**이다
-  (마이그레이션 전략 1 — 보수). 나머지 19건은 `when` 이 없어 `findMatchingKeymapEntry` 가
+- `when` 이 있는 엔트리는 41건 중 **20건**이다. Wave H 당시에는
+  `terminal-jump-to-previous/next-command` 2건(의미적 스코프)뿐이었고(마이그레이션 전략 1 — 보수),
+  여기에 ⌘K chord 2건과 d-59 가 더한 에디터 그룹 단축키 16건(⌘K chord 7 + ⌘1~⌘9 9)의
+  `!terminalFocus` 가 붙었다(§5). 나머지 21건은 `when` 이 없어 `findMatchingKeymapEntry` 가
   `isWhenSatisfied` 콜백을 **아예 호출하지 않는다**(구조적 보장, 조건문이 아니라 `entry.when ===
-  undefined` 단락 평가) — 어떤 컨텍스트 게터를 넘겨도 이 19건의 행동은 절대 변하지 않는다.
+  undefined` 단락 평가) — 어떤 컨텍스트 게터를 넘겨도 이 21건의 행동은 절대 변하지 않는다.
 - `KeymapOverrideEntry`(사용자 재바인딩 저장 포맷)도 동일한 선택 `chord?` 필드를 가진다.
   **재바인딩은 완전한 재선언**이다 — `applyKeymapOverrides` 가 오버라이드에 `chord` 가 없으면 base
   엔트리의 `chord` 를 무조건 제거한다("이전 chord 유지"가 아니라 "단일 키로 확정"으로 해석).
 - **chord 엔트리의 `when` 은 1단 보호용이라 1단이 바뀌면 승계되지 않는다**(d-51 F4).
-  `APP_KEYMAP` 의 chord 2건이 가진 `!terminalFocus` 는 오로지 1단이 ⌘K 이기 때문에 붙어 있다(§5) —
+  `APP_KEYMAP` 의 chord 9건이 가진 `!terminalFocus` 는 오로지 1단이 ⌘K 이기 때문에 붙어 있다(§5) —
   ⌘K ⌘S 를 ⌘J 같은 다른 1단으로 재바인딩하면 그 근거가 사라지는데도 게이트만 남아 터미널 포커스
   중에는 새 바인딩이 조용히 죽어 있었다. `applyKeymapOverrides` 는 **base 엔트리에 `chord` 가 있고
   오버라이드의 1단(key+mods)이 base 와 다를 때만** `when` 을 떨어뜨린다. `chord` 가 없는 엔트리의
@@ -230,6 +233,56 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
 에 전혀 전달하지 않고 삼켜버린다. `terminalFocus` 는 §6 화이트리스트 게터이므로 `findMatchingChordPrefixEntry`
 가 소비하는 `isWhenSatisfied` 콜백을 그대로 통과한다.
 
+### 5.1 ⌘K 네임스페이스 현황 (d-59)
+
+d-59 가 에디터 그룹 단축키를 들이면서 ⌘K 아래 형제 chord 는 **9건**이 됐다. 전부
+`when: '!terminalFocus'`(위와 같은 근거, `keymap.ts::GROUP_SHORTCUT_TERMINAL_GUARD_WHEN`)이고,
+2단이 서로 달라 §8 충돌 판정에 걸리지 않는다.
+
+| 2단 | 액션 | 처리 |
+|-----|------|------|
+| `⌘S` | `open-keybindings-editor` | `KeybindingsRuntimeProvider` |
+| `Z` | `toggle-zen-mode` | `zen-mode-bridge` |
+| `⌘←` / `⌘→` / `⌘↑` / `⌘↓` | `focus-group-left/right/up/down` | `editor-area.tsx` → `useFocusPane` |
+| `⌘⇧←` / `⌘⇧→` | `move-tab-to-group-left/right` | `editor-area.tsx` → `useMoveTab` |
+| `⌘W` | `close-all-tabs` | `editor-area.tsx` → `useCloseTab`(pinned 제외, 직렬) |
+
+chord 가 아닌 나머지 d-59 엔트리는 `⌥⌘←/→`(`editor-previous`/`editor-next`, `when` 없음 — monaco
+카탈로그에 그 조합이 없다. `⌥⌘↑/↓` 는 monaco `insertCursorAbove/Below` 라 의도적으로 미배정)와
+`⌘1`~`⌘9`(`focus-group-1`~`-9`, 단일 단계 + `!terminalFocus`)다. 그룹 순서는
+`pane-tree.ts::collectPaneLeaves` 의 DFS(좌→우·상→하) 이고, 방향 이웃은 `findAdjacentPaneLeaf` 가
+**같은 축의 가장 가까운 형제 서브트리**에서 맞닿은 끝 leaf 를 고른다(기하 계산 없음 — `sizes` 는
+픽셀이 아니라 비율이라 트리 중첩만이 렌더와 합의된 순서다). 가장자리에서는 순환하지 않고 무동작.
+
+### 5.2 에디터 텍스트 포커스 중의 그룹 chord — monaco 액션 미러 (d-59 검토 G-1)
+
+§2 단계 3 의 규칙("chord 1단은 에디터 텍스트 포커스 중 진입하지 않는다")은 위 표의 신규 7건에도
+그대로 적용된다. 즉 **편집 중에는 앱 디스패치가 ⌘K 를 monaco 에 양보**하고
+(`observe-monaco-chord-prefix` → 다음 keydown `defer-to-monaco`), 그룹 이동/탭 이동/전체 닫기는
+앱 경로로는 발동하지 않는다. 그런데 이 7건의 주 사용 시나리오가 바로 편집 중이므로, 양보받은
+monaco 쪽에 **같은 chord 를 monaco 액션으로 미러 등록**해 그 상태를 되살린다.
+
+- 등록: `CodeEditor` 가 마운트 시 `attachEditorGroupShortcutActions`(`features/editor/`)를 호출해
+  `editor.addAction({ id: 'taide.<키맵 id>', keybindingContext: 'editorTextFocus', keybindings: [2단 chord 인코딩] })`
+  7건을 건다. `run()` 은 `requestEditorPaneCommand(...)` 로 **앱 핸들러와 같은 브리지 커맨드**를
+  발행하므로 실행부(`editor-area.tsx`)는 하나다.
+- 키 변환: 등록 키는 `APP_KEYMAP` 기본값이 아니라 **유효 키맵**(`applyKeymapOverrides`)에서 나온다.
+  인코딩은 기존 `monaco-keybinding.ts::buildMonacoChordKeybinding`(1단 저 16비트 · 2단 고 16비트)
+  재사용. 오버라이드가 바뀌면 `settings.keymapOverrides` 문자열이 바뀌고 등록 effect 가 다시 돌아
+  **재등록**된다(`useKeymapOverridesJson`).
+- 오버라이드가 chord 를 **없애면**(단일 키로 재바인딩) 키 없이 액션만 등록한다 — 단일 단계 엔트리는
+  애초에 에디터 포커스 게이트를 받지 않아 앱 디스패치가 그 키의 단독 주인이고, monaco 에도 키를
+  걸면 한 키에 주인이 둘이 된다.
+- 이 7개 액션은 `MONACO_ACTIONS`/`TAIDE_CUSTOM_ACTIONS`(§10)에 **넣지 않는다.** 넣으면 키바인딩
+  에디터에 미러가 원본과 별개 행으로 한 벌 더 생겨 같은 키를 두 행이 주장한다. 대신 monaco 자체
+  명령 팔레트(F1)에는 노출된다(액션 id 를 camelCase 가 아니라 키맵 id 그대로 둔 이유 — 어느
+  엔트리의 미러인지 그 자리에서 보인다).
+- ⌘1~⌘9 는 미러 대상이 아니다: chord 가 아니라 단일 단계라 에디터 포커스 중에도 원래대로 앱
+  디스패치가 처리한다.
+- 2단 무충돌은 정적으로 고정돼 있다 — `monaco-group-shortcut-actions.test.ts` 가 `MONACO_ACTIONS`
+  의 `defaultBindingLabel` 중 `⌘K ` 로 시작하는 21건을 뽑아 우리 7건의 2단 라벨과 교집합이 0 임을
+  검사한다.
+
 ## 6. when 컨텍스트
 
 - **평가기 = monaco `ContextKeyExpr` 딥임포트**(`shared/lib/keymap/keymap-when.ts`,
@@ -294,6 +347,16 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
 mac 표기지만 `⌘` → `mod` 매핑이 monaco 자신의 `KeyMod.CtrlCmd` 와 같아 비-mac 에서도 성립한다.
 파싱은 라벨 단위로 캐시돼 카탈로그 전체 대조가 추가 할당 없이 돈다.
 
+**d-59 §1.C — 카탈로그 행이 `when` 을 나르지 않던 갭.** 위 "when 이산" 규칙은 `APP_KEYMAP` 을 직접
+비교할 때만 성립했다. 키바인딩 에디터가 쓰는 `KeybindingRow` 에는 `when` 필드 자체가 없어
+`buildKeybindingRows` 가 채우지 못했고, 그래서 카탈로그 경로의 모든 비교가 "양쪽 무스코프"로
+내려가 터미널 전용 ⌘↑/⌘↓ 가 다른 스코프의 같은 키와 충돌로 오탐됐다(사용자가 해소할 방법이 없는
+경고). 이제 `KeybindingRow.when` 이 base 엔트리의 `when` 을 그대로 받고,
+`findConflictingRowInIndex` 가 후보에 `when: row.when` 을 실어 보낸다 — `resolveKeybindingRowBinding`
+이 돌려주는 monaco 기본 바인딩에는 `when` 이 없으므로(스코프는 액션의 것이지 대역 바인딩의 것이
+아니다) 반드시 행에서 읽는다. 재바인딩된 행의 `when` 도 디스패치와 같은 규칙
+(`resolveOverriddenKeymapWhen`, §1)을 통과시켜, 1단을 옮긴 chord 는 카탈로그에서도 게이트를 잃는다.
+
 이 chord-aware 판정은 Phase D 에서 추가했다 — 원래 `findKeymapConflict` 는 chord 를 전혀 몰라서,
 같은 프리픽스를 쓰는 두 chord(예: 미래에 ⌘K ⌘X 를 새로 추가)를 항상 오탐 충돌로 잘못 표시했다.
 `keybinding-catalog.ts::findConflictingRow` 는 `KeybindingRow` 가 이미 `chord` 필드를 나르고 있어
@@ -318,6 +381,17 @@ mac 표기지만 `⌘` → `mod` 매핑이 monaco 자신의 `KeyMod.CtrlCmd` 와
 - **키로 검색 모드에 들어가면 텍스트 필터를 비운다**(d-51 F4) — 그 모드에서는 텍스트 입력 칸이
   캡처 버튼으로 교체돼, 남아 있는 필터가 보이지도 지워지지도 않는 채로 목록을 계속 좁혔다.
 - monaco 재바인딩 불가 키 가드(`isKeyBindable`)는 1단·2단 **양쪽 모두**에 동일하게 적용한다.
+- **화살표 키 라벨은 글리프다**(d-59 검토 B-1): `formatKeymapShortcut` 은 `ArrowLeft`/`Right`/`Up`/
+  `Down` 을 `←`/`→`/`↑`/`↓` 로 바꾼 뒤 나머지 키만 대문자화한다. 그 전에는 d-59 가 들인 화살표
+  바인딩 10건이 "⌥⌘ARROWLEFT" 로 렌더됐다. 플랫폼 분기는 없다 — `MONACO_ACTIONS` 의
+  `defaultBindingLabel` 도 같은 글리프를 쓰므로(`⌥⌘↑`), 앱 행과 monaco 내장 행이 한 표에서 같은
+  표기로 읽힌다. 화살표가 아닌 다중 문자 키(`Backspace`·`F12`)는 종전대로 대문자 raw key 다.
+- **행의 `when` 표기**(d-59 §1.C): 스코프가 있는 행은 커맨드 라벨 아래에 `when` 식을 **원문 그대로**
+  작은 모노 글씨로 보여준다(`!terminalFocus`·`terminalFocus`). 바로 위 컨텍스트 인스펙터가 쓰는
+  어휘와 같아서 번역하지 않는다 — 번역하면 두 패널이 서로 다른 이름으로 같은 것을 가리키게 된다.
+  스코프 없는 행(21건)에는 아무것도 붙지 않는다.
+- 저장 전 미리보기 충돌 검사도 **저장 후 실제로 적용될 스코프**로 판정한다 — chord 를 다른 1단으로
+  옮기는 캡처면 `resolveOverriddenKeymapWhen` 이 게이트를 떨어뜨린 뒤 비교한다(§8 d-59 문단).
 - **컨텍스트 인스펙터**: `settings.keymapInspectorTitle` 아래 현재 활성 컨텍스트 키 배지
   (`settings.keymapInspectorEmpty` — 없을 때) — `DEFAULT_KEYMAP_CONTEXT_GETTERS` 를 500ms
   (`KEYMAP_CONTEXT_INSPECTOR_POLL_MS`) 폴링해 표시한다. **다이얼로그가 닫혀 있을 때만 폴링한다**

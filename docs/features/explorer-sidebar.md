@@ -37,8 +37,9 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
   조상 전파, VS Code 파리티). 우선순위 conflicted > added > untracked > renamed > modified >
   deleted (근거는 모듈 JSDoc). 갱신은 `git:status-changed` → `GIT.STATUS` 무효화로 자동.
   ignored 흐림은 미구현(별도 ignore 판정 IPC 필요 — backlog).
-- 클릭 = preview 탭으로 열기, 더블클릭 = 고정 탭(FR-C4, `tabs.md` §3).
-- 키보드: ↑↓ 이동, ←→ 접기/펼치기, Enter 열기, 타이핑 시 이름 점프(typeahead).
+- 클릭 = preview 탭으로 열기, 더블클릭 = 고정 탭(FR-C4, `tabs.md` §3). **행이 없는 빈 공간 더블클릭 =
+  프로젝트 루트에 새 파일 초안**(d-59 §1.E) — 선택을 먼저 지우고 루트를 명시 대상으로 넘긴다.
+- 키보드: ↑↓ 이동, ←→ 접기/펼치기, 타이핑 시 이름 점프(typeahead), 그 외 단축키는 §2.5.
 - context menu: 새 파일/폴더, 이름 변경(인라인 입력), 삭제(휴지통 이동 + 확인), 복사/붙여넣기,
   경로 복사, Finder 에서 열기, (git 있으면) 하위 항목 — 전부 Rust fs 명령 경유.
 - 파일 조작 후 watcher 이벤트로 트리 갱신(자기 쓰기 echo 는 origin 플래그로 낙관 갱신).
@@ -120,6 +121,39 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   `useRenameEntry` 가, 삭제는 `useDeleteEntry` 가 `layout_apply_path_change` 를 이어 부른다. 위젯이
   아니라 이 mutation 에 붙였기 때문에 인라인 개명뿐 아니라 **잘라내기 → 붙여넣기(이동)** 도 같은
   추종을 받는다. 상세 규약은 `tabs.md` §7.1.
+
+### 2.5 단축키 (d-59 §1.D)
+
+파일 트리가 포커스를 가진 동안만 도는 **로컬 단축키**다. VS Code macOS 탐색기 기본키를 따른다.
+
+| 키 | 동작 |
+|----|------|
+| `↩` / `F2` | 이름 바꾸기(인라인 편집 시작) |
+| `⌘↓` | 고정 탭으로 열기 |
+| `␣` | 미리보기 탭으로 열기 |
+| `⌘⌫` | 삭제(휴지통 이동 — 기존 확인 다이얼로그 그대로) |
+| `⌘X` / `⌘C` / `⌘V` | 잘라내기 / 복사 / 붙여넣기 |
+| `⌘N` / `⇧⌘N` | 새 파일 / 새 폴더(선택 폴더 하위, 파일 선택 시 그 부모) |
+| `⌥⌘R` | Finder 에서 표시 |
+| `⌥⌘C` / `⌥⇧⌘C` | 경로 복사 / 상대 경로 복사 |
+
+- **리바인딩 불가.** 이 키들은 `APP_KEYMAP` 엔트리가 아니라 `features/explorer/explorer-shortcuts.ts`
+  의 정적 표를 `file-tree.tsx` 의 `onKeyDown` 이 직접 해석하므로 키바인딩 에디터에 나타나지 않는다.
+  전역 키맵으로 올리는 것은 `explorerFocus` when 컨텍스트가 생긴 뒤의 후속 과제다(d-59 §4).
+- **전역 키맵이 우선한다.** 창 capture 리스너가 먼저 돌고 매칭 시 `preventDefault`+`stopPropagation`
+  하므로, `when` 없는 `APP_KEYMAP` 엔트리와 겹치는 키는 트리에 도달하지 못한다. `⌘↓` 만 겹치는데
+  그 엔트리(`terminal-jump-to-next-command`)가 `terminalFocus` 로 묶여 있어 안전하다 —
+  `explorer-shortcuts.test.ts` 가 이 불변식을 전 바인딩에 대해 검사한다.
+- **디렉터리 `Enter` 는 더 이상 펼치기가 아니다**(이름 바꾸기로 바뀜, VS Code 동일). 펼치기/접기는
+  `→`/`←` 와 클릭이 담당한다.
+- 인라인 편집(생성·개명) 중에는 핸들러 전체가 비활성이고, IME 조합 중 keydown 은
+  `isImeCompositionKeydown` 으로 걸러낸다.
+- 컨텍스트 메뉴 항목에는 같은 표에서 온 `ContextMenuShortcut` 라벨이 붙는다(macOS 기호 고정 —
+  Finder 표시처럼 macOS 전용 동작이 섞여 있다). 수식키 표기 순서는 앱의 기존
+  `formatKeymapShortcut`(⌃⌥⇧⌘)을 따르므로 상대 경로 복사는 `⌥⇧⌘C` 로 그려진다.
+- **[미확인] `␣` 미리보기 뒤 포커스**: 트리는 포커스를 넘기지 않지만, 열린 파일이 에디터를 새로
+  붙이면 `code-editor.tsx` 의 `editor.focus()` 가 포커스를 가져간다(클릭 미리보기와 동일). 실기
+  확인 후 필요하면 별도로 다룬다.
 
 ## 3. 검색 (FR-C5)
 

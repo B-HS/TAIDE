@@ -159,14 +159,29 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
 | 동작 | macOS | Win/Linux |
 |------|-------|-----------|
 | 탭 닫기 | `⌘W` | `Ctrl+W` |
+| 그룹의 탭 모두 닫기 | `⌘K ⌘W` | `Ctrl+K Ctrl+W` |
 | 분할 | `⌘\` | `Ctrl+\` |
-| pane 포커스 순환 | `⌘1`·`⌘2`… (그룹 n 포커스) | `Ctrl+1`… |
+| 그룹 n 포커스 | `⌘1`·`⌘2`… | `Ctrl+1`… |
+| 인접 그룹 포커스 | `⌘K ⌘←` / `⌘→` / `⌘↑` / `⌘↓` | `Ctrl+K Ctrl+←`… |
+| 활성 탭을 옆 그룹으로 이동 | `⌘K ⌘⇧←` / `⌘K ⌘⇧→` | `Ctrl+K Ctrl+Shift+←`… |
 | 탭 순환 | `⌃Tab` / `⌃⇧Tab` | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
+| 이전/다음 에디터 | `⌥⌘←` / `⌥⌘→` | `Ctrl+Alt+←` / `Ctrl+Alt+→` |
 | 닫은 탭 재열기 | `⇧⌘T` | `Ctrl+Shift+T` |
 
 - `⌘W` 등 WebView/OS 기본 동작과 충돌하는 키는 캡처 단계 preventDefault + Tauri 메뉴 accelerator 로 선점
   (research 함정 절). 키 처리 계층 규칙은 `editor.md` §키바인딩(에디터 내/외 구분)과 함께 정의.
 - 닫은 탭 재열기를 위해 Rust layout 도메인이 프로젝트별 "최근 닫은 탭" 스택(상한 20)을 유지한다.
+- **d-59 구현 메모**: 그룹 관련 단축키는 전부 `when: '!terminalFocus'` 라 터미널 포커스 중에는 셸로
+  간다(⌘K 의 "화면 지우기" 관용구 보호 — `keymap.md` §5.1). 그룹 번호·인접 판정은
+  `pane-tree.ts`(`collectPaneLeaves`/`findAdjacentPaneLeaf`), 실행은 `editor-area.tsx` 가
+  `useFocusPane`/`useMoveTab`/`useCloseTab` 으로 한다. `⌘K ⌘W` 는 탭 바의 "모두 닫기" 와 같은 규칙
+  (pinned 탭은 남는다)이고, 인접 그룹이 없으면 무동작(순환 없음). `⌥⌘←/→` 는 ⌃Tab/⌃⇧Tab 과 같은
+  순서 순환이며 둘 다 유지된다. `⌥⌘↑/↓` 는 monaco `insertCursorAbove/Below` 라 미배정.
+- **편집 중(⌘K chord 6건 + `⌘K ⌘W`)**: 에디터에 텍스트 포커스가 있는 동안 앱은 ⌘K 를 monaco 에
+  양보하므로(키맵 엔진의 전역 규칙), 이 7건은 `CodeEditor` 가 같은 키를 monaco 액션으로 미러 등록해
+  편집 중에도 동작한다 — 실행은 브리지를 거쳐 결국 같은 `editor-area.tsx` 핸들러다. 재바인딩도
+  따라간다. 상세·제약은 `keymap.md` §5.2. `⌘1`~`⌘9` 는 chord 가 아니라 이 양보의 대상이 아니며
+  편집 중에도 원래 경로로 동작한다.
 
 ## 7. 복원 (FR-B4)
 
