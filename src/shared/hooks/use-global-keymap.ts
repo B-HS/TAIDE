@@ -31,8 +31,12 @@ export type KeymapHandlers = Partial<Record<KeymapActionId, () => void>>
  * unrelated query) and relied on the raw JSON string staying referentially stable to avoid spurious
  * re-renders — `select` here scopes the subscription to this one query and only re-renders when the
  * selected `keymapOverrides` value itself changes.
+ *
+ * Exported for `CodeEditor`, which registers the editor-group ⌘K chords as monaco actions
+ * (`editor-group-shortcut-actions.ts`) and needs the same overrides this dispatcher applies — as the
+ * raw JSON string, so its registration effect can depend on a value that is stable across renders.
  */
-const useKeymapOverridesJson = () => {
+export const useKeymapOverridesJson = () => {
     const { data } = useQuery({ queryKey: QUERY_KEY.SETTINGS.CURRENT, queryFn: skipToken, select: (settings: Settings) => settings.keymapOverrides })
     return data ?? null
 }

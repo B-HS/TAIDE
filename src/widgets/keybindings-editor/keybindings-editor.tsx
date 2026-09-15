@@ -24,6 +24,7 @@ import {
     formatKeymapShortcut,
     normalizeKeymapEventKey,
     parseKeymapOverrides,
+    resolveOverriddenKeymapWhen,
     serializeKeymapOverrides,
 } from '@shared/lib/keymap/keymap'
 import { setKeymapCapturing } from '@shared/lib/keymap/keymap-capture'
@@ -105,14 +106,29 @@ export const KeybindingsEditor: FC<KeybindingsEditorProps> = ({ open, onOpenChan
         if (!isKeyBindable(rowId, key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         if (chord && !isKeyBindable(rowId, chord.key)) return toast.warning(t('settings.keymapKeyNotBindable'))
         const currentRow = findKeybindingRowById(rows, rowId)
-        const conflict = currentRow ? findConflictingRowInIndex(conflictIndex, { ...currentRow, key, mods, chord }) : null
+        /**
+         * The candidate is checked with the scope the binding will *actually* run under once saved:
+         * a chord entry's `when` guards its first stage only, so moving the chord onto another
+         * prefix drops it (`resolveOverriddenKeymapWhen`) and the pre-save warning must judge the
+         * same way `buildKeybindingRows` will a moment later.
+         */
+        const candidateOverride = { actionId: rowId, key, mods, chord }
+        const conflict = currentRow
+            ? findConflictingRowInIndex(conflictIndex, {
+                  ...currentRow,
+                  key,
+                  mods,
+                  chord,
+                  when: resolveOverriddenKeymapWhen(currentRow, candidateOverride),
+              })
+            : null
         if (conflict)
             toast.warning(
                 t('settings.keymapConflictWarning', {
                     action: formatCategorizedLabel(t, conflict.categoryKey, conflict.titleKey, conflict.titleDefaultValue ?? undefined),
                 }),
             )
-        saveOverrides(mergeKeybindingOverride(overrides, { actionId: rowId, key, mods, chord }))
+        saveOverrides(mergeKeybindingOverride(overrides, candidateOverride))
         setCaptureTarget(null)
     }
 

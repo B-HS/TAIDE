@@ -132,6 +132,50 @@ describe('충돌 판정 규칙', () => {
     })
 })
 
+describe('when 스코프 전달', () => {
+    test('APP_KEYMAP 엔트리의 when 이 행에 그대로 실린다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        expect(rows.find((row) => row.id === 'terminal-jump-to-next-command')?.when).toBe('terminalFocus')
+        expect(rows.find((row) => row.id === 'focus-group-left')?.when).toBe('!terminalFocus')
+    })
+
+    test('when 이 없는 엔트리와 monaco 행은 when 이 undefined 다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        expect(rows.find((row) => row.id === 'save')?.when).toBeUndefined()
+        expect(rows.find((row) => row.id === 'monaco.editor.action.triggerSuggest')?.when).toBeUndefined()
+    })
+
+    test('chord 엔트리를 다른 1단으로 재바인딩하면 1단 보호용 when 이 떨어진다(디스패치와 동일 규칙)', () => {
+        const overrides: KeymapOverrideEntry[] = [{ actionId: 'open-keybindings-editor', key: 'j', mods: ['mod'] }]
+        const rows = buildKeybindingRows(commands, overrides)
+        expect(rows.find((row) => row.id === 'open-keybindings-editor')?.when).toBeUndefined()
+    })
+
+    test('같은 1단을 유지한 chord 재바인딩과 chord 없는 의미적 스코프는 when 을 유지한다', () => {
+        const overrides: KeymapOverrideEntry[] = [
+            { actionId: 'open-keybindings-editor', key: 'k', mods: ['mod'], chord: { key: 'y', mods: [] } },
+            { actionId: 'terminal-jump-to-next-command', key: 'j', mods: ['mod', 'alt'] },
+        ]
+        const rows = buildKeybindingRows(commands, overrides)
+        expect(rows.find((row) => row.id === 'open-keybindings-editor')?.when).toBe('!terminalFocus')
+        expect(rows.find((row) => row.id === 'terminal-jump-to-next-command')?.when).toBe('terminalFocus')
+    })
+
+    /**
+     * The §1.C defect: without `when` on the row, the catalog compared every binding as if it were
+     * globally scoped, so the terminal-only ⌘↓ was reported as colliding with any other action
+     * bound to ⌘↓ in a different scope — a warning the user could do nothing about.
+     */
+    test('스코프가 서로 다르면 같은 키라도 충돌로 보지 않고, 한쪽이 무스코프면 여전히 충돌로 본다', () => {
+        const rows = buildKeybindingRows(commands, [])
+        const index = buildKeybindingConflictIndex(rows, true)
+        const terminalRow = rows.find((row) => row.id === 'terminal-jump-to-next-command')!
+
+        expect(findConflictingRowInIndex(index, { ...terminalRow, id: 'other.action', when: 'editorTextFocus' })).toBeNull()
+        expect(findConflictingRowInIndex(index, { ...terminalRow, id: 'other.action', when: undefined })?.id).toBe('terminal-jump-to-next-command')
+    })
+})
+
 /**
  * The pre-index implementation of `findConflictingRow`, kept verbatim as the oracle the bucketed
  * lookup has to agree with on every row of every catalog shape below (contract §C.2-4 L2 — the
@@ -140,7 +184,13 @@ describe('충돌 판정 규칙', () => {
 const findConflictingRowByFullScan = (rows: KeybindingCatalogRow[], row: KeybindingCatalogRow, isMac: boolean) => {
     const candidate = resolveKeybindingRowBinding(row)
     if (!candidate.key) return null
-    return findKeymapConflict(rows, { key: candidate.key, mods: candidate.mods, chord: candidate.chord }, row.id, isMac, resolveKeybindingRowBinding)
+    return findKeymapConflict(
+        rows,
+        { key: candidate.key, mods: candidate.mods, chord: candidate.chord, when: row.when },
+        row.id,
+        isMac,
+        resolveKeybindingRowBinding,
+    )
 }
 
 describe('buildKeybindingConflictIndex / findConflictingRowInIndex', () => {

@@ -1,7 +1,14 @@
 import { IS_MAC } from '@shared/constants/platform'
 import type { AppCommand } from '@shared/lib/command-registry'
 import type { KeymapActionId, KeymapChordStage, KeymapEntry, KeymapEvent, KeymapModifier, KeymapOverrideEntry } from '@shared/lib/keymap/keymap'
-import { APP_KEYMAP, findKeymapConflict, keymapEntryToEvent, matchesKeymapEntry, normalizeKeymapEventKey } from '@shared/lib/keymap/keymap'
+import {
+    APP_KEYMAP,
+    findKeymapConflict,
+    keymapEntryToEvent,
+    matchesKeymapEntry,
+    normalizeKeymapEventKey,
+    resolveOverriddenKeymapWhen,
+} from '@shared/lib/keymap/keymap'
 import { KEYMAP_CATEGORY } from '@shared/lib/keymap/keymap-category'
 import { MONACO_ACTIONS } from '@shared/lib/monaco/monaco-actions'
 import { parseMonacoDefaultBindingLabel } from '@shared/lib/monaco/monaco-binding-label'
@@ -19,6 +26,15 @@ export type KeybindingRow = {
     key: string
     mods: KeymapModifier[]
     chord?: KeymapChordStage
+    /**
+     * The backing `APP_KEYMAP` entry's `when` scope, carried onto the row so conflict detection
+     * sees it. Without it every catalog-path check ran `findKeymapConflict` with an undefined
+     * scope on both sides, which `hasDisjointKeymapWhenScopes` reads as "could overlap" — so a
+     * terminal-only binding (⌘↑/⌘↓) was reported as colliding with an unrelated action bound to
+     * the same keys in a different scope. Monaco rows have no `when` of their own (monaco owns
+     * their real scoping internally), so they stay `undefined` and keep today's behaviour.
+     */
+    when?: string
     isOverridden: boolean
     runsViaCommand: boolean
     source: KeybindingRowSource
@@ -51,6 +67,7 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
             key: baseEntry?.key ?? '',
             mods: baseEntry?.mods ?? [],
             chord: baseEntry?.chord,
+            when: baseEntry?.when,
             isOverridden: false,
             runsViaCommand: !command.keymapId && !isMonaco,
             source: isMonaco ? 'monaco' : 'app',
@@ -68,6 +85,7 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
         key: entry.key,
         mods: entry.mods,
         chord: entry.chord,
+        when: entry.when,
         isOverridden: false,
         runsViaCommand: false,
         source: 'app',
@@ -76,7 +94,17 @@ export const buildKeybindingRows = (commands: AppCommand[], overrides: KeymapOve
 
     return [...commandRows, ...keymapOnlyRows].map((row) => {
         const override = overrides.find((item) => item.actionId === row.id)
-        return override ? { ...row, key: override.key, mods: override.mods, chord: override.chord, isOverridden: true } : row
+        /** `when` follows the same rebind rule dispatch applies (`resolveOverriddenKeymapWhen`), so the row's declared scope never claims a gate the live keymap has already dropped. */
+        return override
+            ? {
+                  ...row,
+                  key: override.key,
+                  mods: override.mods,
+                  chord: override.chord,
+                  when: resolveOverriddenKeymapWhen(row, override),
+                  isOverridden: true,
+              }
+            : row
     })
 }
 
@@ -164,9 +192,14 @@ export const findConflictingRowInIndex = (index: KeybindingConflictIndex, row: K
     const bucket = index.rowsByBinding.get(toKeybindingSignature(candidate, index.isMac))
     if (!bucket) return null
 
+    /**
+     * `when` comes off the row itself, not off `candidate` — `resolveKeybindingRowBinding` may have
+     * substituted a parsed monaco default, which carries only `key`/`mods`/`chord`. The scope
+     * belongs to the action, never to the binding that stands in for it.
+     */
     return findKeymapConflict(
         bucket,
-        { key: candidate.key, mods: candidate.mods, chord: candidate.chord },
+        { key: candidate.key, mods: candidate.mods, chord: candidate.chord, when: row.when },
         row.id,
         index.isMac,
         resolveKeybindingRowBinding,

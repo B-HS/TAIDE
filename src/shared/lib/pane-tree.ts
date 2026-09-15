@@ -1,5 +1,16 @@
-import type { PaneId, PaneNode, ProjectLayout, Tab, TabId } from '@shared/api/bindings'
+import type { PaneId, PaneNode, ProjectLayout, SplitDir, Tab, TabId } from '@shared/api/bindings'
 import { getWindowContext, type WindowContext } from '@shared/lib/window-context'
+
+export type PaneDirection = 'left' | 'right' | 'up' | 'down'
+
+/** A `horizontal` split lays its children out left-to-right, a `vertical` one top-to-bottom (Rust's `split_dir_of_edge`), so only a split on the matching axis can hold a neighbour in a given direction. */
+const SPLIT_DIR_BY_PANE_DIRECTION: Record<PaneDirection, SplitDir> = { left: 'horizontal', right: 'horizontal', up: 'vertical', down: 'vertical' }
+
+/** Which way to step through a split's `children` to reach the neighbour subtree — earlier for left/up, later for right/down. */
+const SIBLING_STEP_BY_PANE_DIRECTION: Record<PaneDirection, number> = { left: -1, right: 1, up: -1, down: 1 }
+
+/** Which end of the neighbour subtree actually touches the pane we came from: moving right lands on that subtree's first leaf, moving left on its last. */
+const ENTRY_LEAF_BY_PANE_DIRECTION: Record<PaneDirection, 'first' | 'last'> = { left: 'last', right: 'first', up: 'last', down: 'first' }
 
 export const findPaneLeaf = (node: PaneNode, paneId: PaneId): Extract<PaneNode, { node: 'leaf' }> | null => {
     if (node.node === 'leaf') return node.id === paneId ? node : null
@@ -26,6 +37,57 @@ export const findActiveTab = (node: PaneNode, paneId: PaneId): Tab | null => {
 }
 
 export const collectPaneTabs = (node: PaneNode): Tab[] => (node.node === 'leaf' ? node.tabs : node.children.flatMap(collectPaneTabs))
+
+/**
+ * Every leaf pane (editor group) in depth-first order — left-to-right inside a `horizontal` split,
+ * top-to-bottom inside a `vertical` one, because `PaneNode.children` is already stored in visual
+ * order. This is the order the ⌘1..⌘9 group-focus shortcuts count in.
+ */
+export const collectPaneLeaves = (node: PaneNode): Extract<PaneNode, { node: 'leaf' }>[] =>
+    node.node === 'leaf' ? [node] : node.children.flatMap(collectPaneLeaves)
+
+/** The group at `position` in {@link collectPaneLeaves} order — 1-based, so it reads the same as the ⌘1..⌘9 label the user presses. `null` when the tree has fewer groups than that. */
+export const paneLeafAtPosition = (root: PaneNode, position: number) => collectPaneLeaves(root)[position - 1] ?? null
+
+/** Root-to-leaf chain ending at `paneId` (the leaf itself last), or `null` when the tree has no such pane. Node identity is preserved so callers can locate a child inside its own parent's `children`. */
+const findPanePath = (node: PaneNode, paneId: PaneId): PaneNode[] | null => {
+    if (node.node === 'leaf') return node.id === paneId ? [node] : null
+    for (const child of node.children) {
+        const path = findPanePath(child, paneId)
+        if (path) return [node, ...path]
+    }
+    return null
+}
+
+const siblingSubtreeOf = (ancestor: PaneNode, child: PaneNode, direction: PaneDirection) => {
+    if (ancestor.node !== 'split' || ancestor.dir !== SPLIT_DIR_BY_PANE_DIRECTION[direction]) return null
+    return ancestor.children[ancestor.children.indexOf(child) + SIBLING_STEP_BY_PANE_DIRECTION[direction]] ?? null
+}
+
+/**
+ * The group immediately `direction` of `paneId`, or `null` when there is none (the caller then does
+ * nothing rather than wrapping around — VS Code's own behaviour for ⌘K ⌘←/→/↑/↓ at an edge).
+ *
+ * Walks the ancestor chain outward and takes the *nearest* split on the requested axis that still
+ * has a sibling subtree on that side, then descends into whichever end of that subtree faces back
+ * at us ({@link ENTRY_LEAF_BY_PANE_DIRECTION}). Deliberately no geometric/diagonal reasoning: pane
+ * sizes live in `sizes` as ratios, not pixels, so there is no true "the pane physically above this
+ * one" to compute here — the tree's own nesting is the only ordering both this and the rendered
+ * layout agree on.
+ */
+export const findAdjacentPaneLeaf = (root: PaneNode, paneId: PaneId, direction: PaneDirection) => {
+    const path = findPanePath(root, paneId)
+    if (!path) return null
+
+    const sibling = path
+        .slice(0, -1)
+        .map((ancestor, index) => siblingSubtreeOf(ancestor, path[index + 1], direction))
+        .findLast((node) => node !== null)
+    if (!sibling) return null
+
+    const leaves = collectPaneLeaves(sibling)
+    return (ENTRY_LEAF_BY_PANE_DIRECTION[direction] === 'first' ? leaves.at(0) : leaves.at(-1)) ?? null
+}
 
 export type WindowPaneTree = { root: PaneNode; focusedPane: PaneId }
 

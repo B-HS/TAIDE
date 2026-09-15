@@ -71,6 +71,7 @@ export const KeybindingRow: FC<KeybindingRowProps> = ({
                 <span className='text-app-foreground truncate'>
                     {formatCategorizedLabel(t, row.categoryKey, row.titleKey, row.titleDefaultValue ?? undefined)}
                 </span>
+                {row.when && <span className='text-app-sidebar-icon-default truncate font-mono text-[10px]'>{row.when}</span>}
                 {conflictLabel && (
                     <span className='text-status-warning flex min-w-0 items-center gap-1'>
                         <TriangleAlert className='size-3 shrink-0' />

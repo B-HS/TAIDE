@@ -14,6 +14,8 @@ export type KeymapActionId =
     | 'split'
     | 'tab-cycle-next'
     | 'tab-cycle-prev'
+    | 'editor-previous'
+    | 'editor-next'
     | 'reopen-closed-tab'
     | 'save'
     | 'toggle-terminal'
@@ -24,6 +26,22 @@ export type KeymapActionId =
     | 'font-size-down'
     | 'open-keybindings-editor'
     | 'toggle-zen-mode'
+    | 'focus-group-left'
+    | 'focus-group-right'
+    | 'focus-group-up'
+    | 'focus-group-down'
+    | 'move-tab-to-group-left'
+    | 'move-tab-to-group-right'
+    | 'close-all-tabs'
+    | 'focus-group-1'
+    | 'focus-group-2'
+    | 'focus-group-3'
+    | 'focus-group-4'
+    | 'focus-group-5'
+    | 'focus-group-6'
+    | 'focus-group-7'
+    | 'focus-group-8'
+    | 'focus-group-9'
 
 export type KeymapModifier = 'mod' | 'ctrl' | 'shift' | 'alt'
 
@@ -61,6 +79,21 @@ export type KeymapEvent = {
     keyCode?: number
 }
 
+/**
+ * The `when` every editor-group shortcut below carries. ⌘K — the first stage of all seven chord
+ * entries — is the terminal's own "clear screen" key, so an app chord under that prefix has to
+ * stand down while a terminal is focused or its first stage arms a pending-chord wait that
+ * swallows the next keystroke instead of ever reaching xterm (the same reason
+ * `open-keybindings-editor`/`toggle-zen-mode` carry the gate verbatim). ⌘1..⌘9 take the identical
+ * gate so the group-focus family behaves as one: half of it yielding to a focused terminal and
+ * half of it not would be indistinguishable from a broken binding.
+ *
+ * On a chord entry this protects the *first stage*, not the action's meaning, so
+ * `applyKeymapOverrides` correctly drops it the moment the user rebinds that entry onto a
+ * different prefix — see {@link resolveOverriddenKeymapWhen}.
+ */
+const GROUP_SHORTCUT_TERMINAL_GUARD_WHEN = '!terminalFocus'
+
 export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'quick-open', key: 'p', mods: ['mod'], descriptionKey: 'keymap.quickOpen' },
     { id: 'command-palette', key: 'p', mods: ['mod', 'shift'], descriptionKey: 'keymap.commandPalette' },
@@ -75,6 +108,14 @@ export const APP_KEYMAP: KeymapEntry[] = [
     { id: 'split', key: '\\', mods: ['mod'], descriptionKey: 'keymap.split' },
     { id: 'tab-cycle-next', key: 'Tab', mods: ['ctrl'], descriptionKey: 'keymap.tabCycleNext' },
     { id: 'tab-cycle-prev', key: 'Tab', mods: ['ctrl', 'shift'], descriptionKey: 'keymap.tabCyclePrev' },
+    /**
+     * Positional siblings of ⌃Tab/⌃⇧Tab above, which stay as they are: both pairs walk the focused
+     * pane's tab strip in order. ⌥⌘←/→ is free of monaco's catalog (unlike ⌥⌘↑/↓, which monaco
+     * binds to `insertCursorAbove`/`Below`), so these need no `when` gate to coexist with the
+     * editor.
+     */
+    { id: 'editor-previous', key: 'ArrowLeft', mods: ['mod', 'alt'], descriptionKey: 'keymap.editorPrevious' },
+    { id: 'editor-next', key: 'ArrowRight', mods: ['mod', 'alt'], descriptionKey: 'keymap.editorNext' },
     { id: 'reopen-closed-tab', key: 't', mods: ['mod', 'shift'], descriptionKey: 'keymap.reopenClosedTab' },
     { id: 'save', key: 's', mods: ['mod'], descriptionKey: 'keymap.save' },
     { id: 'toggle-terminal', key: '`', mods: ['ctrl'], descriptionKey: 'keymap.toggleTerminal' },
@@ -126,6 +167,79 @@ export const APP_KEYMAP: KeymapEntry[] = [
         when: '!terminalFocus',
         descriptionKey: 'keymap.toggleZenMode',
     },
+    /**
+     * Editor-group navigation (d-59 §1.B). The four direction chords and the two tab-move chords
+     * join `open-keybindings-editor`/`toggle-zen-mode` as siblings under the one ⌘K prefix — the
+     * chord engine resolves stage 2 against every candidate the prefix matched
+     * ({@link findMatchingChordPrefixEntries}), so adding siblings here costs nothing but a
+     * distinct second stage, which is also what keeps the keybindings editor from reporting them
+     * as conflicts ({@link findKeymapConflict}).
+     */
+    {
+        id: 'focus-group-left',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'ArrowLeft', mods: ['mod'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.focusGroupLeft',
+    },
+    {
+        id: 'focus-group-right',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'ArrowRight', mods: ['mod'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.focusGroupRight',
+    },
+    {
+        id: 'focus-group-up',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'ArrowUp', mods: ['mod'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.focusGroupUp',
+    },
+    {
+        id: 'focus-group-down',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'ArrowDown', mods: ['mod'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.focusGroupDown',
+    },
+    {
+        id: 'move-tab-to-group-left',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'ArrowLeft', mods: ['mod', 'shift'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.moveTabToGroupLeft',
+    },
+    {
+        id: 'move-tab-to-group-right',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'ArrowRight', mods: ['mod', 'shift'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.moveTabToGroupRight',
+    },
+    {
+        id: 'close-all-tabs',
+        key: 'k',
+        mods: ['mod'],
+        chord: { key: 'w', mods: ['mod'] },
+        when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN,
+        descriptionKey: 'keymap.closeAllTabs',
+    },
+    { id: 'focus-group-1', key: '1', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup1' },
+    { id: 'focus-group-2', key: '2', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup2' },
+    { id: 'focus-group-3', key: '3', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup3' },
+    { id: 'focus-group-4', key: '4', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup4' },
+    { id: 'focus-group-5', key: '5', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup5' },
+    { id: 'focus-group-6', key: '6', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup6' },
+    { id: 'focus-group-7', key: '7', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup7' },
+    { id: 'focus-group-8', key: '8', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup8' },
+    { id: 'focus-group-9', key: '9', mods: ['mod'], when: GROUP_SHORTCUT_TERMINAL_GUARD_WHEN, descriptionKey: 'keymap.focusGroup9' },
 ]
 
 /**
@@ -281,7 +395,7 @@ export const serializeKeymapOverrides = (overrides: KeymapOverrideEntry[]) => JS
  * (`terminalFocus` on the terminal jump commands: the action only means anything there), so it
  * survives every rebind untouched.
  */
-const resolveOverriddenKeymapWhen = (entry: KeymapEntry, override: KeymapOverrideEntry) => {
+export const resolveOverriddenKeymapWhen = (entry: Pick<KeymapEntry, 'key' | 'mods' | 'chord' | 'when'>, override: KeymapOverrideEntry) => {
     if (!entry.chord) return entry.when
     const isSameFirstStage = entry.key.toLowerCase() === override.key.toLowerCase() && areKeymapModsEqual(entry.mods, override.mods)
     return isSameFirstStage ? entry.when : undefined
@@ -351,12 +465,23 @@ const NON_MAC_MODIFIER_ORDER: KeymapModifier[] = ['mod', 'ctrl', 'alt', 'shift']
 const MAC_MODIFIER_LABEL: Record<KeymapModifier, string> = { mod: '⌘', ctrl: '⌃', alt: '⌥', shift: '⇧' }
 const NON_MAC_MODIFIER_LABEL: Record<KeymapModifier, string> = { mod: 'Ctrl', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }
 
+/**
+ * The four arrow keys, whose raw `KeymapEntry.key` ("ArrowLeft") upper-cases into an unreadable
+ * "ARROWLEFT". Glyphs rather than words, and platform-independent: `MONACO_ACTIONS`'s own
+ * `defaultBindingLabel` column spells monaco's arrow defaults the same way ("⌥⌘↑"), so a keybindings
+ * editor row showing an app entry and one showing a monaco built-in read alike. Every other
+ * multi-character key (Backspace, Enter, F12, ...) keeps the upper-cased raw form.
+ */
+const ARROW_KEY_LABEL: Record<string, string> = { arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓' }
+
+const formatKeymapStageKey = (key: string) => ARROW_KEY_LABEL[key.toLowerCase()] ?? key.toUpperCase()
+
 const formatKeymapStage = (stage: KeymapChordStage, isMac: boolean) => {
     const modifierLabel = isMac ? MAC_MODIFIER_LABEL : NON_MAC_MODIFIER_LABEL
     const modifierOrder = isMac ? MAC_MODIFIER_ORDER : NON_MAC_MODIFIER_ORDER
     const labels = modifierOrder.filter((mod) => stage.mods.includes(mod)).map((mod) => modifierLabel[mod])
     const dedupedLabels = labels.filter((label, index) => labels.indexOf(label) === index)
-    return [...dedupedLabels, stage.key.toUpperCase()].join(isMac ? '' : '+')
+    return [...dedupedLabels, formatKeymapStageKey(stage.key)].join(isMac ? '' : '+')
 }
 
 /** A chord's second stage is joined with a space after the first, mirroring monaco's own `defaultBindingLabel` chord notation ("⌘K ⌘S" / "Ctrl+K Ctrl+S"). */

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { KeymapEntry, KeymapEvent } from '@shared/lib/keymap/keymap'
+import { APP_KEYMAP } from '@shared/lib/keymap/keymap'
+import { isEditorGroupShortcutKeymapId } from '@shared/lib/monaco/monaco-group-shortcut-actions'
 import type { KeymapChordStoreState } from '@shared/lib/keymap/keymap-chord-store'
 import type { KeymapContextGetters } from '@shared/lib/keymap/keymap-context'
 import { decideKeymapDispatch } from '@shared/lib/keymap/keymap-dispatch'
@@ -280,5 +282,43 @@ describe('decideKeymapDispatch — WKWebView IME 조합(keyCode 229, isComposing
             type: 'dispatch',
             entryId: 'close-tab',
         })
+    })
+})
+
+describe('decideKeymapDispatch — d-59 그룹 ⌘K chord 7건은 에디터 텍스트 포커스 중 monaco 에 양보한다 (G-2 회귀 고정)', () => {
+    const groupChordEntries = APP_KEYMAP.filter((entry) => isEditorGroupShortcutKeymapId(entry.id))
+
+    test('7건 전부 ⌘K 를 1단으로 갖는 chord 엔트리다(전제 고정)', () => {
+        expect(groupChordEntries.length).toBe(7)
+        for (const entry of groupChordEntries) {
+            expect({ key: entry.key, mods: entry.mods }).toEqual({ key: 'k', mods: ['mod'] })
+            expect(entry.chord).toBeDefined()
+        }
+    })
+
+    test('에디터 텍스트 포커스 중 ⌘K 는 chord 진입이 아니라 monaco 프리픽스 관찰로 빠진다', () => {
+        const action = decideKeymapDispatch(keyEvent({ key: 'k', metaKey: true }), groupChordEntries, idleChordState, true, editorFocused)
+        expect(action).toEqual({ type: 'observe-monaco-chord-prefix' })
+    })
+
+    test('에디터 포커스가 아니면 같은 ⌘K 가 7건 전부를 후보로 chord 진입한다(양보는 에디터 포커스 한정)', () => {
+        const action = decideKeymapDispatch(keyEvent({ key: 'k', metaKey: true }), groupChordEntries, idleChordState, true, noContext)
+        expect(action).toEqual({
+            type: 'enter-chord',
+            entryIds: groupChordEntries.map((entry) => entry.id),
+            prefix: { key: 'k', mods: ['mod'] },
+        })
+    })
+
+    test('관찰로 무장된 유예 중에는 2단(⌘←)이 앱으로 오지 않고 monaco 로 넘어간다', () => {
+        const armedState: KeymapChordStoreState = { pending: null, monacoDeferral: true }
+        const action = decideKeymapDispatch(keyEvent({ key: 'ArrowLeft', metaKey: true }), groupChordEntries, armedState, true, editorFocused)
+        expect(action).toEqual({ type: 'defer-to-monaco' })
+    })
+
+    test('⌘1~9 그룹 포커스는 chord 가 아니라 에디터 포커스 중에도 그대로 dispatch 된다(미러 등록 대상이 아닌 이유)', () => {
+        const focusGroupOne = APP_KEYMAP.filter((entry) => entry.id === 'focus-group-1')
+        const action = decideKeymapDispatch(keyEvent({ key: '1', metaKey: true }), focusGroupOne, idleChordState, true, editorFocused)
+        expect(action).toEqual({ type: 'dispatch', entryId: 'focus-group-1' })
     })
 })

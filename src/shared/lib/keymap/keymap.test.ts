@@ -156,6 +156,42 @@ describe('findMatchingKeymapEntry', () => {
         expect(found?.id).toBe('toggle-sidebar')
     })
 
+    test('에디터 이전/다음(⌥⌘←/→)은 alt+mod 조합으로 매칭되고 when 게이트가 없다', () => {
+        const previous = findMatchingKeymapEntry(APP_KEYMAP, { key: 'ArrowLeft', metaKey: true, ctrlKey: false, shiftKey: false, altKey: true }, true)
+        const next = findMatchingKeymapEntry(APP_KEYMAP, { key: 'ArrowRight', metaKey: true, ctrlKey: false, shiftKey: false, altKey: true }, true)
+        expect(previous?.id).toBe('editor-previous')
+        expect(next?.id).toBe('editor-next')
+        expect(previous?.when).toBeUndefined()
+        expect(next?.when).toBeUndefined()
+    })
+
+    test('⌘1~⌘9 는 각각 해당 번호의 그룹 포커스 엔트리로 매칭된다', () => {
+        const matchedIds = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(
+            (key) => findMatchingKeymapEntry(APP_KEYMAP, { key, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)?.id ?? null,
+        )
+        expect(matchedIds).toEqual([
+            'focus-group-1',
+            'focus-group-2',
+            'focus-group-3',
+            'focus-group-4',
+            'focus-group-5',
+            'focus-group-6',
+            'focus-group-7',
+            'focus-group-8',
+            'focus-group-9',
+        ])
+    })
+
+    test('⌘1~⌘9 는 터미널 포커스 스코프(!terminalFocus)라 predicate 가 false 면 매칭되지 않는다', () => {
+        const found = findMatchingKeymapEntry(
+            APP_KEYMAP,
+            { key: '1', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false },
+            true,
+            () => false,
+        )
+        expect(found).toBeNull()
+    })
+
     test('chord 를 가진 엔트리는 1단 키/mods 가 일치해도 제외된다', () => {
         const entries: KeymapEntry[] = [{ id: 'save', key: 'k', mods: ['mod'], chord: { key: 's', mods: [] }, descriptionKey: 'keymap.save' }]
         const found = findMatchingKeymapEntry(entries, { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, true)
@@ -213,6 +249,33 @@ describe('findMatchingChordPrefixEntries — 형제 chord', () => {
             true,
         )
         expect(found).toEqual([])
+    })
+})
+
+/**
+ * A default binding that silently shadows another is invisible in the UI — the loser simply never
+ * fires — so the whole shipped table is checked pairwise rather than only the entries a given wave
+ * happens to add. `findKeymapConflict` already encodes the real rule (`when` scopes and chord
+ * second stages make two entries coexist), so this reuses it instead of restating it.
+ */
+describe('APP_KEYMAP 기본 바인딩 유일성', () => {
+    for (const isMac of [true, false]) {
+        test(`어떤 두 엔트리도 같은 실효 바인딩을 갖지 않는다 (isMac: ${isMac})`, () => {
+            const collisions = APP_KEYMAP.filter(
+                (entry) =>
+                    findKeymapConflict(APP_KEYMAP, { key: entry.key, mods: entry.mods, when: entry.when, chord: entry.chord }, entry.id, isMac) !==
+                    null,
+            )
+            expect(collisions.map((entry) => entry.id)).toEqual([])
+        })
+    }
+
+    test('⌘K 를 1단으로 공유하는 chord 들은 2단이 서로 다르다', () => {
+        const stages = APP_KEYMAP.filter((entry) => entry.chord && entry.key === 'k' && entry.mods.includes('mod')).map(
+            (entry) => `${entry.chord?.key.toLowerCase()} ${[...(entry.chord?.mods ?? [])].toSorted().join('+')}`,
+        )
+        expect(stages.length).toBeGreaterThan(1)
+        expect(new Set(stages).size).toBe(stages.length)
     })
 })
 
@@ -470,6 +533,38 @@ describe('formatKeymapShortcut', () => {
     test('chord 가 없으면 1단만 표기한다(회귀 방지)', () => {
         const entry: Pick<KeymapEntry, 'key' | 'mods' | 'chord'> = { key: 's', mods: ['mod'] }
         expect(formatKeymapShortcut(entry, true)).toBe('⌘S')
+    })
+
+    test('화살표 4종은 글리프로 표기된다(raw key 를 대문자화한 "ARROWLEFT" 가 아니다)', () => {
+        expect(formatKeymapShortcut({ key: 'ArrowLeft', mods: ['mod', 'alt'] }, true)).toBe('⌥⌘←')
+        expect(formatKeymapShortcut({ key: 'ArrowRight', mods: ['mod', 'alt'] }, true)).toBe('⌥⌘→')
+        expect(formatKeymapShortcut({ key: 'ArrowUp', mods: ['mod'] }, true)).toBe('⌘↑')
+        expect(formatKeymapShortcut({ key: 'ArrowDown', mods: ['mod'] }, true)).toBe('⌘↓')
+    })
+
+    test('화살표 글리프는 비-mac 에서도 같다(monaco defaultBindingLabel 표기와 동일)', () => {
+        expect(formatKeymapShortcut({ key: 'ArrowUp', mods: ['mod', 'alt'] }, false)).toBe('Ctrl+Alt+↑')
+    })
+
+    test('chord 2단의 화살표도 글리프로 표기된다', () => {
+        const entry: Pick<KeymapEntry, 'key' | 'mods' | 'chord'> = { key: 'k', mods: ['mod'], chord: { key: 'ArrowLeft', mods: ['mod', 'shift'] } }
+        expect(formatKeymapShortcut(entry, true)).toBe('⌘K ⇧⌘←')
+    })
+
+    test('화살표가 아닌 다중 문자 키는 종전대로 대문자 raw key 다', () => {
+        expect(formatKeymapShortcut({ key: 'Backspace', mods: ['mod'] }, true)).toBe('⌘BACKSPACE')
+        expect(formatKeymapShortcut({ key: 'F12', mods: [] }, true)).toBe('F12')
+    })
+
+    test('APP_KEYMAP 의 모든 화살표 바인딩 라벨에 ARROW 문자열이 남아 있지 않다', () => {
+        const arrowEntries = APP_KEYMAP.filter(
+            (entry) => entry.key.toLowerCase().startsWith('arrow') || (entry.chord?.key.toLowerCase().startsWith('arrow') ?? false),
+        )
+        expect(arrowEntries.length).toBe(10)
+        for (const entry of arrowEntries) {
+            expect(formatKeymapShortcut(entry, true)).not.toContain('ARROW')
+            expect(formatKeymapShortcut(entry, false)).not.toContain('ARROW')
+        }
     })
 })
 

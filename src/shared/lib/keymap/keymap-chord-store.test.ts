@@ -263,6 +263,11 @@ describe('멀티 리스너 팬아웃 통합 — decideKeymapDispatch + 실제 �
      * picked whichever entry appears first in `APP_KEYMAP`, permanently starving every sibling
      * chord registered after it — this test dispatches the *real* array (not a hand-built fixture)
      * and resolves the second sibling's own second stage (Z) to prove it still fires.
+     *
+     * d-59 grew the ⌘K namespace to nine siblings (editor-group focus/move/close-all), so the
+     * expected candidate list below is the whole family in `APP_KEYMAP` order — spelled out rather
+     * than loosened to a `toContain`, because "every sibling under this prefix is armed" is exactly
+     * the property that regressed once before.
      */
     test('형제 chord(⌘K Z)의 1단도 함께 pending 후보에 담기고, 실제 2단(Z)에서 open-keybindings-editor 가 아니라 toggle-zen-mode 로 정확히 매칭된다', async () => {
         const cmdK: KeymapEvent = { key: 'k', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }
@@ -270,7 +275,17 @@ describe('멀티 리스너 팬아웃 통합 — decideKeymapDispatch + 실제 �
             if (action.type === 'enter-chord') enterKeymapChordPending(action.prefix, action.entryIds)
         })
         expect(cmdKActions.map((action) => action.type)).toEqual(Array(MOCK_LISTENER_COUNT).fill('enter-chord'))
-        expect(getKeymapChordStoreSnapshot().pending?.entryIds).toEqual(['open-keybindings-editor', 'toggle-zen-mode'])
+        expect(getKeymapChordStoreSnapshot().pending?.entryIds).toEqual([
+            'open-keybindings-editor',
+            'toggle-zen-mode',
+            'focus-group-left',
+            'focus-group-right',
+            'focus-group-up',
+            'focus-group-down',
+            'move-tab-to-group-left',
+            'move-tab-to-group-right',
+            'close-all-tabs',
+        ])
 
         await Promise.resolve()
         await Promise.resolve()

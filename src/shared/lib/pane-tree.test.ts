@@ -3,11 +3,14 @@ import type { PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
 import {
     activeFilePathOf,
     collectAllPaneTabs,
+    collectPaneLeaves,
     collectPaneTabs,
     findActiveTab,
+    findAdjacentPaneLeaf,
     findPaneLeaf,
     findPaneTab,
     isPaneTreeEmpty,
+    paneLeafAtPosition,
     resolveWindowPaneTree,
 } from '@shared/lib/pane-tree'
 
@@ -155,5 +158,100 @@ describe('collectAllPaneTabs', () => {
     test('보조 창이 없으면 main 트리의 탭만 반환한다', () => {
         const layout = buildLayout()
         expect(collectAllPaneTabs(layout).map((tab) => tab.id)).toEqual(['main-a'])
+    })
+})
+
+const buildLeaf = (id: string): PaneNode => ({ node: 'leaf', id, tabs: [buildTab(`${id}-tab`)], active: `${id}-tab` })
+
+/**
+ * Two stacked columns side by side — the smallest tree that exercises every branch of
+ * `findAdjacentPaneLeaf`: an axis mismatch (a vertical parent ignored while moving horizontally),
+ * a sibling lookup one level further out, and the "which end of the neighbour subtree" choice.
+ *
+ * ```
+ * root (horizontal)
+ * ├── left  (vertical)  : top-left, bottom-left
+ * └── right (vertical)  : top-right, bottom-right
+ * ```
+ */
+const buildGridTree = (): PaneNode => ({
+    node: 'split',
+    id: 'root',
+    dir: 'horizontal',
+    sizes: [50, 50],
+    children: [
+        { node: 'split', id: 'left-column', dir: 'vertical', sizes: [50, 50], children: [buildLeaf('top-left'), buildLeaf('bottom-left')] },
+        { node: 'split', id: 'right-column', dir: 'vertical', sizes: [50, 50], children: [buildLeaf('top-right'), buildLeaf('bottom-right')] },
+    ],
+})
+
+describe('collectPaneLeaves', () => {
+    test('중첩 split 의 모든 leaf 를 DFS 순서(좌→우·상→하)로 모은다', () => {
+        expect(collectPaneLeaves(buildGridTree()).map((leaf) => leaf.id)).toEqual(['top-left', 'bottom-left', 'top-right', 'bottom-right'])
+    })
+
+    test('단일 leaf 트리는 그 leaf 하나만 반환한다', () => {
+        expect(collectPaneLeaves(buildLeaf('only')).map((leaf) => leaf.id)).toEqual(['only'])
+    })
+})
+
+describe('paneLeafAtPosition', () => {
+    test('1-based 위치로 그룹을 찾는다 (⌘1~⌘9 라벨과 같은 번호)', () => {
+        expect(paneLeafAtPosition(buildGridTree(), 1)?.id).toBe('top-left')
+        expect(paneLeafAtPosition(buildGridTree(), 4)?.id).toBe('bottom-right')
+    })
+
+    test('그룹 수보다 큰 위치나 0 이하는 null 을 반환한다', () => {
+        expect(paneLeafAtPosition(buildGridTree(), 5)).toBeNull()
+        expect(paneLeafAtPosition(buildGridTree(), 0)).toBeNull()
+    })
+})
+
+describe('findAdjacentPaneLeaf', () => {
+    test('같은 split 의 좌우 형제를 찾는다', () => {
+        expect(findAdjacentPaneLeaf(buildTree(), 'left', 'right')?.id).toBe('right')
+        expect(findAdjacentPaneLeaf(buildTree(), 'right', 'left')?.id).toBe('left')
+    })
+
+    test('가장자리에서는 순환하지 않고 null 을 반환한다', () => {
+        expect(findAdjacentPaneLeaf(buildTree(), 'left', 'left')).toBeNull()
+        expect(findAdjacentPaneLeaf(buildTree(), 'right', 'right')).toBeNull()
+    })
+
+    test('요청한 방향의 축과 다른 split 밖에 없으면 null 을 반환한다', () => {
+        expect(findAdjacentPaneLeaf(buildTree(), 'left', 'up')).toBeNull()
+        expect(findAdjacentPaneLeaf(buildTree(), 'left', 'down')).toBeNull()
+    })
+
+    test('세로 split 안에서는 위아래 형제를 찾는다', () => {
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'top-left', 'down')?.id).toBe('bottom-left')
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'bottom-left', 'up')?.id).toBe('top-left')
+    })
+
+    test('축이 다른 부모는 건너뛰고 바깥쪽 split 에서 이웃 서브트리를 찾는다', () => {
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'bottom-left', 'right')?.id).toBe('top-right')
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'top-right', 'left')?.id).toBe('bottom-left')
+    })
+
+    test('오른쪽으로 갈 때는 이웃 서브트리의 첫 leaf, 왼쪽으로 갈 때는 마지막 leaf 에 들어간다', () => {
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'top-left', 'right')?.id).toBe('top-right')
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'bottom-right', 'left')?.id).toBe('bottom-left')
+    })
+
+    test('셋 이상 나란한 split 에서는 가장 가까운 형제만 고른다', () => {
+        const row: PaneNode = {
+            node: 'split',
+            id: 'row',
+            dir: 'horizontal',
+            sizes: [33, 33, 34],
+            children: [buildLeaf('one'), buildLeaf('two'), buildLeaf('three')],
+        }
+        expect(findAdjacentPaneLeaf(row, 'one', 'right')?.id).toBe('two')
+        expect(findAdjacentPaneLeaf(row, 'three', 'left')?.id).toBe('two')
+    })
+
+    test('단일 leaf 트리와 존재하지 않는 paneId 는 null 을 반환한다', () => {
+        expect(findAdjacentPaneLeaf(buildLeaf('only'), 'only', 'right')).toBeNull()
+        expect(findAdjacentPaneLeaf(buildGridTree(), 'missing', 'right')).toBeNull()
     })
 })

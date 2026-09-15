@@ -192,4 +192,137 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
          */
         isEnabled: () => getWindowContext().kind !== 'auxiliary',
     },
+    {
+        id: 'tab.previousEditor',
+        titleKey: 'keymap.editorPrevious',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        keymapId: 'editor-previous',
+        run: () => requestEditorPaneCommand({ type: 'cycle-tab', direction: 'prev' }),
+    },
+    {
+        id: 'tab.nextEditor',
+        titleKey: 'keymap.editorNext',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        keymapId: 'editor-next',
+        run: () => requestEditorPaneCommand({ type: 'cycle-tab', direction: 'next' }),
+    },
+    {
+        id: 'editor.focusGroupLeft',
+        titleKey: 'keymap.focusGroupLeft',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-left',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'direction', direction: 'left' } }),
+    },
+    {
+        id: 'editor.focusGroupRight',
+        titleKey: 'keymap.focusGroupRight',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-right',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'direction', direction: 'right' } }),
+    },
+    {
+        id: 'editor.focusGroupUp',
+        titleKey: 'keymap.focusGroupUp',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-up',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'direction', direction: 'up' } }),
+    },
+    {
+        id: 'editor.focusGroupDown',
+        titleKey: 'keymap.focusGroupDown',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-down',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'direction', direction: 'down' } }),
+    },
+    {
+        id: 'tab.moveToGroupLeft',
+        titleKey: 'keymap.moveTabToGroupLeft',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        keymapId: 'move-tab-to-group-left',
+        run: () => requestEditorPaneCommand({ type: 'move-tab-to-group', direction: 'left' }),
+    },
+    {
+        id: 'tab.moveToGroupRight',
+        titleKey: 'keymap.moveTabToGroupRight',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        keymapId: 'move-tab-to-group-right',
+        run: () => requestEditorPaneCommand({ type: 'move-tab-to-group', direction: 'right' }),
+    },
+    {
+        id: 'tab.closeAllInGroup',
+        titleKey: 'keymap.closeAllTabs',
+        categoryKey: KEYMAP_CATEGORY.TAB,
+        keymapId: 'close-all-tabs',
+        run: () => requestEditorPaneCommand({ type: 'close-all-tabs' }),
+    },
+    /**
+     * ⌘1..⌘9 focus the n-th editor group in leaf order (`collectPaneLeaves`). Spelled out one entry
+     * per position rather than generated: `keymapId` is a literal member of `KeymapActionId` and
+     * `titleKey` a literal locale key, both of which a `map` over a range would widen to `string`,
+     * costing the compile-time guarantee that every command points at a real keymap entry — the
+     * same reason `MONACO_ACTIONS` lists its ~200 rows literally.
+     */
+    {
+        id: 'editor.focusGroup1',
+        titleKey: 'keymap.focusGroup1',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-1',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 1 } }),
+    },
+    {
+        id: 'editor.focusGroup2',
+        titleKey: 'keymap.focusGroup2',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-2',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 2 } }),
+    },
+    {
+        id: 'editor.focusGroup3',
+        titleKey: 'keymap.focusGroup3',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-3',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 3 } }),
+    },
+    {
+        id: 'editor.focusGroup4',
+        titleKey: 'keymap.focusGroup4',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-4',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 4 } }),
+    },
+    {
+        id: 'editor.focusGroup5',
+        titleKey: 'keymap.focusGroup5',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-5',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 5 } }),
+    },
+    {
+        id: 'editor.focusGroup6',
+        titleKey: 'keymap.focusGroup6',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-6',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 6 } }),
+    },
+    {
+        id: 'editor.focusGroup7',
+        titleKey: 'keymap.focusGroup7',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-7',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 7 } }),
+    },
+    {
+        id: 'editor.focusGroup8',
+        titleKey: 'keymap.focusGroup8',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-8',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 8 } }),
+    },
+    {
+        id: 'editor.focusGroup9',
+        titleKey: 'keymap.focusGroup9',
+        categoryKey: KEYMAP_CATEGORY.EDITOR,
+        keymapId: 'focus-group-9',
+        run: () => requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 9 } }),
+    },
 ]

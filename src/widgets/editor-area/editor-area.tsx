@@ -13,6 +13,7 @@ import {
     layoutQueryOptions,
     useActivateTab,
     useCloseTab,
+    useFocusPane,
     useMoveTab,
     useMoveTabToWindow,
     useOpenFileTab,
@@ -28,17 +29,19 @@ import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { resolveSelectedTextOrCurrentLine } from '@shared/lib/editor-selection'
 import { subscribeOpenFileFromEditor } from '@shared/lib/bridge/editor-opener-bridge'
-import type { EditorPaneCommand, TabCycleDirection } from '@shared/lib/bridge/editor-pane-command-bridge'
+import type { EditorPaneCommand, PaneFocusTarget, TabCycleDirection } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { subscribeEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monaco } from '@shared/lib/monaco/setup'
-import { collectAllPaneTabs, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
+import type { PaneDirection } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, findAdjacentPaneLeaf, findPaneLeaf, findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { requestTerminalWrite } from '@shared/lib/bridge/terminal-write-bridge'
 import { getWindowContext } from '@shared/lib/window-context'
 import { TabItem } from '@features/tab/tab-item'
 import type { TabContainerDropData } from '@widgets/editor-area/pane-tab-bar'
 import { getTabIcon } from '@widgets/editor-area/pane-tab-bar'
+import { collectClosableTabIdsInFocusedGroup, resolveFocusGroupPaneId } from '@widgets/editor-area/group-shortcut-targets'
 import type { SplitDropData } from '@widgets/editor-area/pane-node-view'
 import { PaneNodeView } from '@widgets/editor-area/pane-node-view'
 import { resolveSaveRoutableTabId } from '@widgets/editor-area/focused-editor-tab'
@@ -77,11 +80,12 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: moveTab } = useMoveTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
-    const { mutate: closeTab } = useCloseTab(projectId)
+    const { mutate: closeTab, mutateAsync: closeTabAsync } = useCloseTab(projectId)
     const { mutate: activateTab } = useActivateTab(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
     const openFileTab = useOpenFileTab()
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
+    const { mutate: focusPane } = useFocusPane(projectId)
 
     /**
      * Which of the project's pane trees *this* window renders — the main tree for the main window,
@@ -161,6 +165,30 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         const step = direction === 'next' ? 1 : -1
         const nextIndex = (currentIndex + step + leaf.tabs.length) % leaf.tabs.length
         activateTab(leaf.tabs[nextIndex].id)
+    }
+
+    /** ⌘K ⌘←/→/↑/↓ and ⌘1..⌘9 both land here; {@link resolveFocusGroupPaneId} owns which group that is and which presses are no-ops. */
+    const focusGroup = (target: PaneFocusTarget) => {
+        const paneId = resolveFocusGroupPaneId(paneTree, target)
+        if (!paneId) return
+        focusPane(paneId)
+    }
+
+    /** Appends the focused tab to the neighbouring group's strip; `layout_move_tab` focuses the destination pane itself, so the tab stays with the user. */
+    const moveActiveTabToGroup = (direction: PaneDirection) => {
+        if (!paneTree) return
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
+        if (!leaf?.active) return
+        const adjacent = findAdjacentPaneLeaf(paneTree.root, paneTree.focusedPane, direction)
+        if (!adjacent) return
+        moveTab({ tabId: leaf.active, paneId: adjacent.id, index: adjacent.tabs.length })
+    }
+
+    /** Closes are serialized because each one returns a fresh layout the next close would have to be computed against; {@link collectClosableTabIdsInFocusedGroup} owns the pinned-survives rule. */
+    const closeAllTabsInFocusedGroup = async () => {
+        for (const tabId of collectClosableTabIdsInFocusedGroup(paneTree)) {
+            await closeTabAsync(tabId)
+        }
     }
 
     const getFocusedSaveRoutableTabId = () => {
@@ -247,8 +275,26 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         split: splitActiveEditor,
         'tab-cycle-next': () => cycleTab('next'),
         'tab-cycle-prev': () => cycleTab('prev'),
+        'editor-next': () => cycleTab('next'),
+        'editor-previous': () => cycleTab('prev'),
         save: saveActiveTab,
         'toggle-terminal': toggleTerminal,
+        'focus-group-left': () => focusGroup({ kind: 'direction', direction: 'left' }),
+        'focus-group-right': () => focusGroup({ kind: 'direction', direction: 'right' }),
+        'focus-group-up': () => focusGroup({ kind: 'direction', direction: 'up' }),
+        'focus-group-down': () => focusGroup({ kind: 'direction', direction: 'down' }),
+        'move-tab-to-group-left': () => moveActiveTabToGroup('left'),
+        'move-tab-to-group-right': () => moveActiveTabToGroup('right'),
+        'close-all-tabs': () => void closeAllTabsInFocusedGroup(),
+        'focus-group-1': () => focusGroup({ kind: 'position', position: 1 }),
+        'focus-group-2': () => focusGroup({ kind: 'position', position: 2 }),
+        'focus-group-3': () => focusGroup({ kind: 'position', position: 3 }),
+        'focus-group-4': () => focusGroup({ kind: 'position', position: 4 }),
+        'focus-group-5': () => focusGroup({ kind: 'position', position: 5 }),
+        'focus-group-6': () => focusGroup({ kind: 'position', position: 6 }),
+        'focus-group-7': () => focusGroup({ kind: 'position', position: 7 }),
+        'focus-group-8': () => focusGroup({ kind: 'position', position: 8 }),
+        'focus-group-9': () => focusGroup({ kind: 'position', position: 9 }),
     })
 
     const handleEditorPaneCommand = useEffectEvent((command: EditorPaneCommand) => {
@@ -260,6 +306,9 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, isProblemsOpen, onC
         if (command.type === 'run-selected-text-in-terminal') return runSelectedTextInTerminal()
         if (command.type === 'run-in-terminal') return runInTerminal(command.text, command.cwd)
         if (command.type === 'move-focused-tab-to-window') return moveFocusedTabToWindow(command.target)
+        if (command.type === 'focus-group') return focusGroup(command.target)
+        if (command.type === 'move-tab-to-group') return moveActiveTabToGroup(command.direction)
+        if (command.type === 'close-all-tabs') return void closeAllTabsInFocusedGroup()
     })
 
     useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])

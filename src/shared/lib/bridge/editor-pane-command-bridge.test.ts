@@ -56,6 +56,54 @@ describe('editorPaneCommandBridge', () => {
         expect(received).toEqual({ type: 'run-selected-text-in-terminal' })
     })
 
+    test('focus-group 커맨드는 방향 타깃을 그대로 전달한다', () => {
+        let received: unknown
+        const unsubscribe = subscribeEditorPaneCommand((command) => {
+            received = command
+        })
+
+        requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'direction', direction: 'left' } })
+        unsubscribe()
+
+        expect(received).toEqual({ type: 'focus-group', target: { kind: 'direction', direction: 'left' } })
+    })
+
+    test('focus-group 커맨드는 위치 타깃(⌘1~⌘9)도 그대로 전달한다', () => {
+        let received: unknown
+        const unsubscribe = subscribeEditorPaneCommand((command) => {
+            received = command
+        })
+
+        requestEditorPaneCommand({ type: 'focus-group', target: { kind: 'position', position: 3 } })
+        unsubscribe()
+
+        expect(received).toEqual({ type: 'focus-group', target: { kind: 'position', position: 3 } })
+    })
+
+    test('move-tab-to-group 커맨드는 방향을 그대로 전달한다', () => {
+        let received: unknown
+        const unsubscribe = subscribeEditorPaneCommand((command) => {
+            received = command
+        })
+
+        requestEditorPaneCommand({ type: 'move-tab-to-group', direction: 'right' })
+        unsubscribe()
+
+        expect(received).toEqual({ type: 'move-tab-to-group', direction: 'right' })
+    })
+
+    test('close-all-tabs 커맨드는 페이로드 없이 그대로 전달된다', () => {
+        let received: unknown
+        const unsubscribe = subscribeEditorPaneCommand((command) => {
+            received = command
+        })
+
+        requestEditorPaneCommand({ type: 'close-all-tabs' })
+        unsubscribe()
+
+        expect(received).toEqual({ type: 'close-all-tabs' })
+    })
+
     test('run-in-terminal 커맨드는 text·cwd 페이로드를 그대로 전달한다', () => {
         let received: unknown
         const unsubscribe = subscribeEditorPaneCommand((command) => {

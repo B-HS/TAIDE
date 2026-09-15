@@ -5,7 +5,9 @@ import type { EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, T
 import type { AiInlineCompletionClient, AiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
 import { acquireAiInlineCompletionProvider } from '@shared/lib/ai/inline-completion'
 import { attachAiInlineEditAction } from '@features/editor/ai-inline-edit'
+import { attachEditorGroupShortcutActions } from '@features/editor/editor-group-shortcut-actions'
 import { monaco } from '@shared/lib/monaco/setup'
+import { useKeymapOverridesJson } from '@shared/hooks/use-global-keymap'
 import { resolveEditorConfigModelIndent } from '@shared/lib/editorconfig'
 import { cancelAiRequest, completeAiInline } from '@entities/ai/ai.ipc'
 import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
@@ -116,6 +118,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     registryTabId,
 }) => {
     const { t } = useTranslation()
+    const keymapOverridesJson = useKeymapOverridesJson()
     const containerRef = useRef<HTMLDivElement>(null)
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
     const registryTabIdRef = useRef<TabId | null>(null)
@@ -227,6 +230,13 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         const aiInlineEdit = attachAiInlineEditAction(editor, t)
         return () => aiInlineEdit.dispose()
     }, [t])
+
+    useEffect(() => {
+        const editor = editorRef.current
+        if (!editor) return
+        const groupShortcuts = attachEditorGroupShortcutActions(editor, keymapOverridesJson, t)
+        return () => groupShortcuts.dispose()
+    }, [t, keymapOverridesJson])
 
     useEffect(() => {
         editorRef.current?.updateOptions({ folding: !largeFile, bracketPairColorization: { enabled: bracketPairColorization && !largeFile } })
