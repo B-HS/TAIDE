@@ -75,3 +75,7 @@
 - **웨이브 3(d-60) ∥ 웨이브 4(d-61) 를 별도 git worktree·브랜치에서 병렬** 구현·검토(파일 집합이 거의 겹치지 않음). 각각 완료 후 dev 에 순서대로 머지(로케일 JSON·MESSAGE_NAMESPACES·lib.rs 등록·bindings 재생성은 가산 충돌 → 머지 시 재생성으로 해소).
 - **웨이브 5(d-62)** 는 설계 계약만 지금 작성, 구현은 3·4 머지 후(사이드바·셸 대수술이 4 의 UI 배선과 겹칠 여지).
 - 웨이브 2(d-59)는 dev 워킹트리에서 진행 중 — 커밋 직후 worktree 2개 생성.
+
+## 5. 릴리스 (2026-09-15, 사용자 지시)
+
+- 웨이브 5(d-62) 완료·dev/main 반영 후 **v0.2.0 릴리스**: 버전 동기 3파일 + Cargo.lock · `release-notes/v0.2.0.md`(d-58~d-62 요약) · verify + vite build exit 0 → `chore(release)` 커밋 → dev 푸시 · main ff → 태그 `v0.2.0` → Release 런 완주 → draft(dmg + SHA256SUMS). 태그 숫자 4 금지 규칙(`2026-08-28-release-tag-no-digit-4.md`)에 저촉 없음. 이력은 `deployment.md` §9.
