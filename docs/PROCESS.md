@@ -50,6 +50,18 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: 사용성 배치 5 — 13항목(단축키·파일트리·프로젝트 split·알림·에이전트 다각화·Dock Recent·퀵오픈 버그·Welcome·검색·+메뉴·git 패널·테마) (2026-09-15)
+
+> 사용자 지시 13건(항목 1~10 + 추가 11~13). 작업 방식 지시: **항상 Workflow + opus/sonnet, 메인(Fable)은 오케스트레이팅 전담,
+> Agent(서브에이전트) 도구 절대 금지**(세션 모델 상속). 커밋·푸시 합의는 결정 질문 15 로 확정 예정(레포 `llm-rules.*` 미설정).
+
+- [x] a. 조사 wf 기동(읽기 전용) — `wf_e9242362`(7주제: 키맵·프로젝트 split·알림·에이전트·Dock/+메뉴·퀵오픈 버그·Welcome/검색, opus·high, 주제당 10분 상한, 종합 문서 `research/2026-09-15-batch5-research.md` 작성 예정) + `wf_5e4b8e2c`(2주제: git 패널 리사이즈·테마 확충)
+- [x] b. 결정 질문 16건 발신 → 사용자 회신(전부 추천안, 9 정정: Welcome 에 Open Terminal 버튼 추가가 의도 / 10 디바운스 설정화 / 15 자동 커밋·푸시 → git config 기록) → `acknowledge/2026-09-15-usability-batch5-user-decisions.md` · 역할표 갱신(`agent-operations.md` §1 테스트 sonnet·high)
+- [x] c. 조사 결과 수신(9주제 전부, 원문은 세션 스크래치 + 종합 `research/2026-09-15-batch5-research.md`(wf 작성 중)) → 메인이 핵심 사실 실물 대조(Dock API 부재·알림 플러그인 클릭 콜백 부재·그래프 320px·SubTrigger gap 등 소스 재확인) → 조사 후 결정 4건 회신(결정 문서 §2: Dock 불가→File>Open Recent, 클릭 라우팅 제외, git 패널 C안+Settings 영속, 퀵오픈 전수 수정) → **웨이브 1 계약 `acknowledge/2026-09-15-d58-usability-batch5-wave1-contract.md`** 작성(항목 4·6·7·8·9·10·11·14). 발견: `node_modules` 부재 → `bun install --frozen-lockfile` 완료. G5(하드 제외 디렉토리)는 트리·워처 공유 확인으로 보류(결정 문서 §2.1 재질문)
+- [ ] d. 웨이브 1 구현 wf `wf_f602eddf`(opus·xhigh: R Rust 순차 ∥ T1·T4·T5 → T2·T3·T6) 진행 중 → 렌즈 검토 wf(sonnet·xhigh 3렌즈) → 메인 2차 verify+vite build+typecheck:e2e → 분할 커밋 → dev 푸시 → main ff
+- [ ] e. 웨이브 2~5(키맵 / 에이전트 / 테마 / 프로젝트 split) 순차 — 각각 계약·구현·검토·검증·커밋
+- [ ] f. 잔여(사용자): 실기 확증·미결 결정
+
 ## 진행 중: d-54 에이전트 활동 감지 개편 + 터미널·에이전트 심층 비교 리서치 (2026-09-06)
 
 > 사용자 지시 2건 — ① "Claude Code 상태 감지가 늦고 `Do you want to proceed?` 인데 유휴 배지" 근본 수정 ② 외부 오픈소스 터미널 구현을

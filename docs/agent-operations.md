@@ -13,10 +13,10 @@
 | 구현 fixer | opus + xhigh | 메인이 명확한 지시·구현 방법을 먼저 작성한 뒤 계약 범위 내 코드 구현. TS 는 병렬 허용, **Rust 는 한 시점 한 에이전트**(파일 경합 방지). (2026-09-04 이전: sonnet + xhigh) |
 | 렌즈 검토 | sonnet + xhigh | 관점(렌즈)별 코드 검토 — 근본성·회귀·경계. 소형 배치는 1렌즈로 축소 가능하되 축소 근거를 기록. (2026-09-04 이전: opus + xhigh) |
 | 적대적 검증 | sonnet + xhigh | 렌즈 major 발견 건별 반박 시도. **생략 가능 조건**: 다렌즈 수렴 / 실행 재현 / 기계(grep) 재현 + 메인 직접 확인 — 생략 시 근거를 계약에 기록 |
-| e2e·테스트 작성 | fable + medium | e2e 스펙·단위 테스트 코드 생성 |
+| e2e·테스트 작성 | sonnet + high | e2e 스펙·단위 테스트 코드 생성. (2026-09-15 이전: fable + medium — 사용자 지시 "항상 workflow + opus/sonnet" 으로 갱신, `acknowledge/2026-09-15-usability-batch5-user-decisions.md` §0) |
 | 사용자 | - | 앱 실행·재시작(`tauri dev`/`build`) 전담, 실기 확증, 커밋·푸시·릴리스 지시, 결정 |
 
-- 위임은 **Workflow 도구로만** 한다(Agent 단발 호출 금지 — 리서치·Explore 포함.
+- 위임은 **Workflow 도구로만** 한다(Agent 단발 호출 금지 — 리서치·Explore 포함. **Agent 도구는 세션 모델(Fable)을 상속하므로 어떤 용도로도 쓰지 않는다**(2026-09-15 재확인).
   `docs/feedback/2026-08-11-use-workflow-not-agent-tool.md` ·
   `docs/feedback/2026-09-04-research-must-use-workflow-opus-xhigh.md` 정본). 병렬성·재개(journal)·
   구조화 출력이 이유다. 독립 작업은 한 워크플로 안에서 `parallel`/`pipeline` 으로 병렬화한다.
