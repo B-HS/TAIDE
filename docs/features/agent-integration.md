@@ -14,7 +14,22 @@
 
 - macOS/Linux: pty master 의 **`process_group_leader()`**(portable-pty 내장, tcgetpgrp) →
   pid 의 프로세스명 해석. `comm` 이 `node` 인 경우(런타임 위 실행) `cmdline` 전체 검사
-  (Linux comm 15자 잘림 주의). 감지 대상: `claude`, `codex`, `gemini`(`KNOWN_AGENT_NAMES`).
+  (Linux comm 15자 잘림 주의). 감지 대상: `claude`, `codex`, `gemini`, `opencode`, `pi`
+  (`KNOWN_AGENT_NAMES`).
+
+| 에이전트 | 전경 pgid 리더 | 판정 경로 | 근거 |
+|---|---|---|---|
+| claude | `claude` 또는 node 셸 | comm basename, 아니면 cmdline basename | d-54 |
+| codex | **node 셸**(네이티브 `codex` 는 그 자식, `spawn(stdio:inherit)`) | node → cmdline basename 폴백 | 탐침 2026-09-15 |
+| opencode | `opencode` 본체(네이티브 단일 바이너리, 자식은 MCP 서버) | comm basename(절대경로 → basename) | 탐침 2026-09-15 §1 |
+| pi | `pi` 또는 node 셸 | comm 완전일치, 또는 cmdline basename + **`pi-coding-agent` 패키지 경로** | `[미확인]` — 미설치 |
+| gemini | `gemini` | comm basename | `[미확인]` — 미설치 |
+
+- **`pi` 는 보조 조건을 요구한다**(`agent_match_is_confirmed`). 두 글자 이름이라 node 셸의
+  명령줄에 우연히 실린 `pi`(스크립트·디렉토리)가 전부 에이전트로 읽힌다. comm 이 `pi` 면 실행
+  파일 자체가 `pi` 이므로 그대로 채택하고, 명령줄에서 매치된 경우에만
+  `PI_PACKAGE_PATH_MARKER`(`pi-coding-agent`)를 함께 요구한다. 대가는 argv 에 패키지 경로가 없는
+  shim 실행의 **미탐지**이며, 이는 의도한 선택이다(오탐 < 미탐).
 - **`ps` 는 이름 해석에만 쓴다**(d-54). `AgentStore` 가 `pid -> Option<&'static str>` 캐시를 들고
   (`process_names`), `detect_agents_for_pids_blocking` 은 **캐시에 없는 pid 만** 모아
   `ps -o pid=,comm=,args= -p <pid1,pid2,...>` 를 한 번 부른다. "이 pid 는 에이전트가 아니다"(`None`)도
@@ -42,19 +57,40 @@
 
 | # | 신호 | 출처 | 효과 |
 |---|------|------|------|
-| 1 | **인밴드 이벤트** | OSC 777 `notify;taide-agent;{"v":1,"agent":…,"event":…}`(§4 의 훅이 심는다) | `permission_request`·`question_asked` → 차단 래치 ON(`BlockedSource::Event`) / `tool_complete` → 래치 OFF / `stop`·`stop_failure` → 래치 OFF + 유휴 힌트 / `idle_prompt` → 무시 |
-| 2 | **타이틀 글리프** | OSC 0/2 의 첫 글자(`parse_title_glyph`) | `◐`/`◑` → `TITLE_WORKING_FRESH_MS` 동안 Working 증거 / `✳` → 유휴 힌트(단독으로 Idle 을 강제하지 않는다) |
-| 3 | **다이얼로그 시그니처** | 정규화 텍스트(`CLAUDE_DIALOG_SIGNATURES`) | 문구가 보이면 차단 래치 ON(`BlockedSource::Dialog`) |
+| 1 | **인밴드 이벤트** | OSC 777 `notify;taide-agent;{"v":1,"agent":…,"event":…}`(§4 의 훅·플러그인이 심는다 — claude·codex·opencode·pi) | `permission_request`·`question_asked` → 차단 래치 ON(`BlockedSource::Event`) / `tool_complete`·`prompt_submit` → 래치 OFF + 짧은 Working / `stop`·`stop_failure` → 래치 OFF + 유휴 힌트 / `idle_prompt` → 무시 |
+| 2 | **타이틀 글리프** | OSC 0/2 의 첫 글자(`parse_title_glyph(agent_name, title)`) | `◐`/`◑` → `TITLE_WORKING_FRESH_MS` 동안 Working 증거 / `✳` → 유휴 힌트(단독으로 Idle 을 강제하지 않는다) |
+| 3 | **다이얼로그 시그니처** | 정규화 텍스트(`dialog_signatures_for(agent_name)`) | 문구가 보이면 차단 래치 ON(`BlockedSource::Dialog`) |
 | 4 | **실질 출력** | 정규화 텍스트에서 공백·점멸/스피너 글리프를 뺀 문자 수 ≥ `SUBSTANTIVE_OUTPUT_MIN_CHARS` | Working 증거 + **차단 래치 OFF** |
 | — | **사용자 입력** | `pty_write` 바이트 도착(`record_session_input`) | 래치 OFF + 에코 억제 창 시작 |
+
+**신호 2·3·4 의 표는 에이전트별이다.** 세션의 `AgentSessionSignals.agent_name` 으로 골라
+쓰므로(`title_glyphs_for` · `dialog_signatures_for` · `agent_non_substantive_glyphs`), 한 에이전트의
+글리프·문구가 다른 에이전트의 세션을 판정하는 일은 없다.
+
+| 에이전트 | 타이틀 글리프 | 다이얼로그 시그니처 | 추가 비실질 글리프 |
+|---|---|---|---|
+| claude | `◐`/`◑` → Working, `✳` → 유휴 힌트 | `Do you want to proceed?` · `Would you like to proceed?` · `Esc to cancel` | — (공통 9종) |
+| opencode | **없음** — OSC 0 만 쓰고 선행 글리프가 없다(`OpenCode` → `OC \| <요약>`), 권한 대기 중 갱신 0건 | `Permission required` | `◦ • ● ○ ◌` — 유휴·권한 대기 중에도 도는 6프레임 스피너(`·` 는 공통) |
+| codex | `[미확인]` — 캡처 구간 OSC 0/2 0건 | 빈 표 — 단어마다 CUP 으로 옮겨 그려 다구 문구가 복원되지 않고, 승인 문구는 `strings` 후보뿐 | `[미확인]` |
+| pi | `[미확인]` — 미설치 | 빈 표 | `[미확인]` |
+| gemini | `[미확인]` — 미설치 | 빈 표 | `[미확인]` |
+
+- **빈 칸은 추측으로 채우지 않는다.** 잘못 넣은 Working 글리프는 3초(`TITLE_WORKING_FRESH_MS`)
+  동안 Working 을 강제하고, 잘못 넣은 시그니처는 다이얼로그가 아닌 출력에 래치를 건다.
+- **opencode 의 스피너 제외는 지원의 필수 전제다.** 6프레임이 유휴 중에도 끊김 없이 흐르므로
+  이것을 실질 출력으로 세면 세션이 영구 Working 으로 굳는다. 반대로 턴 진행 중에만 나오는
+  `⬝`·`■` 는 실질 출력으로 둔다(탐침 2026-09-15 §3).
 
 - **다이얼로그 시그니처는 정규화 텍스트에서만 복원된다.** Claude Code 는 다이얼로그 산문을
   단어마다 `CSI n G`(열 이동)를 끼워 그리므로 원시 바이트 문구 매칭은 불가능하다. 스캐너가 열
   이동을 공백 1개로 치환한 뒤에야 `Do you want to proceed?` 가 하나의 문자열이 된다.
-- 표는 `CLAUDE_DIALOG_SIGNATURES`(`Do you want to proceed?` · `Would you like to proceed?` ·
+- Claude 표는 `CLAUDE_DIALOG_SIGNATURES`(`Do you want to proceed?` · `Would you like to proceed?` ·
   `Esc to cancel`) 이고 **대소문자 정확 일치**다 — 작업 중 푸터는 소문자 `esc to interrupt` 라
-  대소문자 무시 매칭이면 모든 작업 중 세션이 차단으로 읽힌다. codex·gemini 문구는 미검증이라
-  표가 비어 있다(`dialog_signatures_for` — 추측으로 채우지 않는다).
+  대소문자 무시 매칭이면 모든 작업 중 세션이 차단으로 읽힌다.
+- **opencode·codex 는 `CSI row;col H`(CUP) 로 그린다.** opencode 는 한 줄을 여러 셀 런으로,
+  codex 는 단어마다 옮긴다. 그래서 스캐너는 절대 행 이동을 **같은 행이면 공백 1개, 다른 행이면
+  개행**으로 치환한다(`terminal.md` §5.2 행 추적). 이 치환이 있어야 `Permission required` 가 한
+  문구로 복원되고, codex 의 `Do\e[3;6Hyou\e[3;10Htrust` 가 `Do you trust` 가 된다.
 - **청크 경계**: 스캐너가 직전 청크의 정규화 텍스트 꼬리(`TEXT_OVERLAP_BYTES`)를
   `ScanOutcome.overlap` 으로 함께 준다. `find_dialog_signature_across_boundary` 는 꼬리·머리를
   각각 그 시그니처 길이 - 1 로 잘라 이어 붙이므로 **경계를 가로지른 문구만** 매치되고, 이미
@@ -74,6 +110,28 @@
 - **OSC 9 알림**(`ScanEvent::Notification9`)은 유휴 힌트로만 기록한다 — 어떤 세션이든 "무언가
   끝났다" 는 뜻으로 읽되, 힌트는 §1.3 의 조용함 기준을 앞당길 뿐 단독으로 Idle 을 만들지 않는다.
 
+**차단 사유**(d-60 §1.D) — `AwaitingInput` 하나로 접혀 있던 세 가지를 래치에서 되읽어
+`DetectedAgent.blockedReason` 으로 내보낸다(`service::blocked_reason`, 순수 함수).
+
+| 래치 | 마지막 인밴드 이벤트 | `blockedReason` |
+|---|---|---|
+| `BlockedSource::Event` | `permission_request` | `permission` |
+| `BlockedSource::Event` | `question_asked` | `question` |
+| `BlockedSource::Dialog` | — | `dialog` |
+| 없음 | — | `None` |
+
+- **래치를 세우는 이벤트는 그 둘뿐**이고 래치와 `last_event` 는 같은 호출에서 함께 기록되므로,
+  이벤트 래치에서 `question_asked` 가 아닌 경우는 곧 권한 요청이다.
+- **사유는 래치보다 오래 살지 않는다.** 실질 출력·사용자 입력·`stop` 이 래치를 풀면 같은 틱부터
+  `None` 이고, §1.3 의 8번(히스테리시스)이 직전 `AwaitingInput` 을 한 틱 더 돌려주는 구간에서도
+  사유는 실리지 않는다.
+- **화면에서 읽은 문구는 `dialog` 까지만 말한다.** 어떤 다이얼로그인지는 시그니처가 말해 주지
+  않으므로(`Permission required` 처럼 문구 자체가 권한을 뜻하는 경우도 있으나 표를 그렇게 나누면
+  에이전트마다 규칙이 갈린다) 한 값으로 둔다.
+- 활동과 사유는 한 스냅샷에서 함께 뽑는다(`service::classify_session_state` →
+  `AgentStore::classify_session_state`). 프로젝트 스코프 HTTP override 로만 활동이 정해진 세션은
+  읽을 래치가 없어 사유가 `None` 이다(§4.4).
+
 ### 1.3 판정 — `service::classify_session(signals, previous, now)`
 
 순수 함수이며 위→아래 우선순위로 첫 번째로 맞는 것을 돌려준다.
@@ -87,9 +145,10 @@
 7. 마지막 신호 이후 `ACTIVITY_IDLE_QUIET_MS` 이상 조용 → `Idle`
 8. 그 외 → `previous`(히스테리시스 — 폴링 틱마다 배지가 떠는 것을 막는 구간)
 
-`poll_agents` 는 기존 틱에서 세션마다 이 함수를 부르고(`AgentStore::classify_session_activity`),
-`previous` 로 그 세션의 직전 `DetectedAgent.activity` 를 넘긴다. 결과는 종전대로
-`agents_changed` diff 를 지날 때만 `agent:state-changed` 로 나간다.
+`poll_agents` 는 기존 틱에서 세션마다 이 함수를 부르고(`AgentStore::classify_session_state` — 판정과
+§1.2 의 차단 사유를 한 번에 돌려준다), `previous` 로 그 세션의 직전 `DetectedAgent.activity` 를
+넘긴다. 결과는 종전대로 `agents_changed` diff 를 지날 때만 `agent:state-changed` 로 나가며, 사유도
+동등 비교에 들어가므로 활동이 같고 사유만 바뀐 전이도 발행된다.
 
 ### 1.4 상수 (`domain/agent/types.rs`)
 
@@ -105,6 +164,55 @@
 | `AGENT_OSC_SENTINEL` | `taide-agent` | OSC 777 알림 중 TAIDE 이벤트를 고르는 title(스캐너 소유) |
 | `AGENT_OSC_MARKER` | `notify;taide-agent;` | hook 항목의 TAIDE 소유 판정에 쓰는 페이로드 접두사(§4.3) |
 | `HOOK_OVERRIDE_STALE_MS` | 900,000 | codex·gemini HTTP override 의 유효 기간(§4.4) |
+
+### 1.5 프론트 소비 — 배지 · 툴팁 · 알림 (d-60 §1.D·§1.E)
+
+`agent:state-changed` 가 실어 나르는 `DetectedAgent { activity, blockedReason }` 를 프론트가
+읽는 곳은 셋이고, 문구 선택은 전부 순수 함수 하나(`shared/lib/agent-status-text.ts`
+`agentStatusLabelKey(activity, blockedReason)`)를 거친다 — 사유가 있으면
+`agent.blocked.{permission,question,dialog}`, 없으면 종전의 `agent.status.{activity}`.
+
+| 소비처 | 파일 | 무엇을 보여주나 |
+|---|---|---|
+| 프로젝트 아이콘 툴팁 | `widgets/app-sidebar/sortable-project-icon.tsx` | 세션마다 한 줄(`agent.sessionTooltip` = `{{name}} — {{status}}`) |
+| 프로젝트 아이콘 `aria-label` | `features/project/project-icon-button.tsx` | 배지가 보일 때 `프로젝트명 — 상태` |
+| 터미널 탭 툴팁 | `widgets/editor-area/pane-tab-bar.tsx` | 그 탭 세션의 에이전트 한 줄 |
+
+- **배지 컴포넌트 자체(`features/project/agent-status-badge.tsx`)에는 문구가 없다.** `aria-hidden`
+  도형 하나라 읽을 것이 없고, 배지를 설명하는 툴팁은 배지를 감싸는 위 위젯이 그린다. 사유는 그
+  툴팁 줄에 들어간다.
+- **프로젝트 배지는 에이전트 하나를 대표로 고른다**(`topPriorityAgent`, `ACTIVITY_PRIORITY` 최상위).
+  사유도 **그 대표 에이전트의 것**을 쓴다 — 도형은 A 에서, 사유는 B 에서 오면 툴팁이 거짓말을 한다.
+- **사유 없는 `awaitingInput` 은 일반 문구로 돌아간다.** §1.3 8번 히스테리시스 구간과 HTTP
+  override 세션은 읽을 래치가 없어 `blockedReason` 이 `None` 이고, 그때 "알 수 없는 이유로 차단"
+  같은 문구를 만드는 대신 종전 `agent.status.awaitingInput` 을 그대로 쓴다.
+
+**OS 알림**(`app/providers/native-notification-provider.tsx`) — `awaitingInput` 완료는 이제
+`agentCompleted` 가 아니라 **`agentAwaitingInput` 카테고리**로 나가고(설정 스위치
+`notify_agent_awaiting_input`), 본문은 사유별로 갈린다.
+
+| `blockedReason` | 본문 키 |
+|---|---|
+| `permission` | `notification.agentPermissionBody` |
+| `question` | `notification.agentQuestionBody` |
+| `dialog` · 없음 | `notification.agentAwaitingInputBody`(권한 요청 또는 질문) |
+
+- `dialog` 가 일반 문구로 폴백하는 것은 의도다 — 화면에서 읽은 문구는 "어떤 다이얼로그인지" 를
+  말해 주지 않으므로(§1.2), 알림 센터에서 "다이얼로그 대기" 는 "권한 요청 또는 질문" 보다 정보가
+  적다. 툴팁은 화면 옆이라 `agent.blocked.dialog` 로 그 사실을 그대로 말한다.
+- 사유는 `evaluateAgentCompletions`(`shared/lib/native-notification-gate.ts`)가 완료 보고에 그대로
+  실어 나른다(`blockedReason: BlockedReason | null`). 게이트는 사유를 해석하지 않는다 — 본문을
+  만드는 쪽이 로스터를 달리 볼 방법이 없기 때문이다.
+
+**설정 UI**(`widgets/settings-view/agent-hooks-project-list.tsx`) — `AGENT_HOOKS_AGENTS` 는 다섯
+에이전트의 노출 목록이고, 행이 들고 있는 컬럼은 `scope` 하나다(프로젝트 섹션이냐 사용자 레벨
+토글이냐는 그 에이전트의 쿼리가 생기기 전에 정해야 한다). `taide` CLI 미설치 경고·토글 비활성화는
+그 행의 훅 상태 응답 `AgentHooksStatus.requiresTaideCli`(= `service::requires_taide_cli`,
+`delivery == Http` — 현재 gemini 뿐)로 결정한다. 프론트가 `AGENT_SPECS`(§7.5)를 복제하지 않으므로
+`delivery` 를 되돌리면 경고와 잠금이 따라 옮겨간다(렌즈 검토 B-1). 인밴드 설치는 CLI 도 hooks 서버도
+필요 없다(§7.5 마지막 항). 아직 상태 응답이 없는 행(로딩·실패)은 무엇을 요구하는지 알 수 없으므로
+토글을 잠근 채 둔다.
+
 
 ## 2. 외부 에디터 왕복 — `taide` CLI (FR-H2)
 
@@ -218,11 +326,23 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
 
 ## 4. hooks 브리지
 
-두 갈래다. **Claude 는 인밴드 command hook**(그 세션의 pty 로 이벤트를 직접 써 넣는다),
-**Codex·Gemini 는 종전의 HTTP command hook**(로컬 서버로 중계)이다. 설치는 양쪽 모두
-`agentHooksEnabled` opt-in 토글 + 동의 UI 를 전제로 하고, Claude 는 프로젝트 파일
-(`.claude/settings.local.json`, gitignore 대상), Codex·Gemini 는 사용자 레벨 파일에만 쓴다
-(§7.5 "설치 스코프는 에이전트 정체성으로 결정" — 팀 설정 오염 금지, 함정 15).
+에이전트마다 분기하던 것이 **에이전트 스펙 표 1개**(`service.rs::AGENT_SPECS`)로 모였다(d-60 §1.C).
+한 행이 그 에이전트의 훅 정체성 전부다 — **전달 방식**(`HookDelivery::InBandTty | Http`),
+**설치 스코프**(`Project | User`), **설치 형태**(`JsonEntries | OwnedFile`), 홈 상대 경로, 관리 대상
+이벤트, `timeout`, 인밴드 바인딩, HTTP 이벤트→활동 표. 전달 방식을 되돌리는 것(예: codex 를 다시
+HTTP 로)은 이 표의 **필드 하나**다.
+
+| 에이전트 | 전달 | 스코프 | 형태 | 설치 위치 |
+|---|---|---|---|---|
+| claude | 인밴드 | Project | JSON 행 | `.claude/settings.local.json`(gitignore 대상) |
+| codex | 인밴드 | User | JSON 행 | `~/.codex/hooks.json` |
+| gemini | **HTTP** | User | JSON 행 | `~/.gemini/settings.json` |
+| opencode | 인밴드 | User | **소유 파일** | `~/.config/opencode/plugins/taide-agent.js` |
+| pi | 인밴드 | User | **소유 파일** | `~/.pi/agent/extensions/taide-agent.ts` |
+
+설치는 전부 `agentHooksEnabled` opt-in 토글 + 동의 UI 를 전제로 하고, Claude 만 프로젝트 파일에,
+나머지는 사용자 레벨 파일에만 쓴다(§7.5 "설치 스코프는 에이전트 정체성으로 결정" — 팀 설정 오염
+금지, 함정 15). 사용자 레벨은 원격 세션에서 거부된다(`ipc-contract.md` 스코프 조건부 거부).
 
 ### 4.1 Claude — 인밴드 command hook (d-54)
 
@@ -235,7 +355,10 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
 ESC ]777;notify;taide-agent;{"v":1,"agent":"claude","event":"permission_request"} BEL
 ```
 
-설치 항목은 `service::claude_hook_entries(emitter)` 가 만드는 7행이다(`CLAUDE_HOOK_BINDINGS`).
+설치 항목은 `service::agent_hook_entries("claude", emitter)` 가 만드는 7행이다
+(`CLAUDE_HOOK_BINDINGS`). 빌더는 d-60 §1.C 에서 에이전트 파라미터화됐고, 페이로드의 `agent` 필드만
+행마다 달라지므로 **Claude 가 설치하는 명령 문자열은 이전 릴리스와 바이트 동일**하다
+(`claude_훅_명령은_이전_릴리스와_바이트_동일하다` 가 7행을 리터럴로 고정해 지킨다).
 
 | 훅 이벤트 | matcher | 인밴드 event |
 |-----------|---------|--------------|
@@ -265,7 +388,7 @@ ESC ]777;notify;taide-agent;{"v":1,"agent":"claude","event":"permission_request"
 
 ### 4.2 명령 형태 — env 게이트 · 정적 printf · 항상 exit 0
 
-`service::build_claude_agent_hook_command(event, emitter)` 가 만드는 문자열은 jq·CLI·서버 의존이
+`service::build_agent_hook_command(agent, event, emitter)` 가 만드는 문자열은 jq·CLI·서버 의존이
 0이다. 페이로드는 상수고, 셸이 하는 일은 `printf` 하나뿐이다(아래 두 줄은 실제 설치되는 명령
 문자열 그대로 — 백슬래시도 파일에 그대로 들어간다).
 
@@ -284,6 +407,8 @@ if [ -n "$TAIDE_AGENT_PROTOCOL_VERSION" ]; then printf '\033]777;notify;taide-ag
   **pty 스폰에만** 주입한다(§2.3 과 같은 훅 — 원격 미러·다른 표면과는 무관).
 - **항상 `exit 0`**: `> /dev/tty` 는 제어 터미널이 없으면 리다이렉트 자체가 실패해 비영 종료가
   되고, 그러면 Claude 트랜스크립트에 훅 실패로 노출된다.
+- **`TerminalSequence` 는 Claude 전용이다.** 그 필드를 훅 stdout 에서 읽는 소비자가 Claude 뿐이라,
+  사용자 레벨 인밴드 설치는 전부 `DevTty`(`service::USER_LEVEL_IN_BAND_EMITTER`)로 쓴다.
 - 위 두 줄의 `<ESC>`·`<BEL>` 는 이 문서의 표기다. 실제 파일에서 `DevTty` 쪽은 `printf` 가 해석할
   `\033`·`\007`(백슬래시를 포함한 문자 그대로)이고, `TerminalSequence` 쪽은 `serde_json` 이 낸
   JSON 유니코드 이스케이프 6글자(백슬래시 + `u001b`, 백슬래시 + `u0007`)다.
@@ -307,27 +432,86 @@ if [ -n "$TAIDE_AGENT_PROTOCOL_VERSION" ]; then printf '\033]777;notify;taide-ag
   단어만으로 판정하면 그 글자를 경로·문구에 담은 **사용자 자신의 hook 항목**이 TAIDE 소유로
   오판돼 다음 재조정에서 통째로 사라진다(§4 "팀 설정 오염 금지").
 - **멱등 + 자가 치유**: `hooks::reconcile_claude_project_hooks`(부팅·토글 ON 전이·프로젝트 열기)가
-  이미 TAIDE 항목이 있는 프로젝트만 모아, `claude_hook_entries_match` 로 기대 집합과 **정확히**
+  이미 TAIDE 항목이 있는 프로젝트만 모아, `agent_hook_entries_match` 로 기대 집합과 **정확히**
   같지 않으면(구 HTTP 항목·빠진 이벤트·다른 방출기의 사본) 제거 후 통째로 재주입한다. 항목이
-  없는 프로젝트는 건드리지 않는다 — 설치는 사용자의 결정이다. `installed_claude_entries` 가
+  없는 프로젝트는 건드리지 않는다 — 설치는 사용자의 결정이다. `installed_taide_entries` 가
   `command` 뿐 아니라 `url` 도 읽으므로 HTTP 잔재는 어떤 기대 명령과도 같을 수 없어 반드시
   교체된다. 대상 프로젝트가 하나도 없으면 `claude --version` 프로브 자체를 건너뛴다.
 - 제거(`agent_hooks_uninstall`·토글 OFF)는 `CLAUDE_MANAGED_HOOK_EVENTS`(현행 5종 + 레거시
   `UserPromptSubmit` 의 합집합)를 훑어 두 마커를 모두 지운다.
 
-### 4.4 Codex · Gemini — HTTP 유지
+### 4.4 Codex — 인밴드 command hook (d-60 §1.C) · Gemini — HTTP 유지
 
-- 사용자 레벨 command hook(`taide hook --url <u>` shim → 로컬 HTTP 서버)은 **이번 배치에서
-  변경하지 않았다**. 재부팅으로 포트가 바뀌면 `reconcile_user_level_hooks` 가 새 URL 로 재주입하는
-  자가 치유도 그대로다(§7.5).
+- **codex 는 HTTP 에서 인밴드로 옮겼다.** `~/.codex/hooks.json` 에 쓰는 것은 종전과 같은 JSON 행
+  (`{"type":"command","command":…,"timeout":5}` — 스키마·`timeout` 단위 모두 무변경)이고, 그 안의
+  명령만 `taide hook --url <u>` shim 에서 §4.2 의 `/dev/tty` printf 로 바뀌었다. 이벤트는 4종:
+
+  | 훅 이벤트 | 인밴드 event | 활동 |
+  |---|---|---|
+  | `UserPromptSubmit` | `prompt_submit` | Working |
+  | `PermissionRequest` | `permission_request` | AwaitingInput |
+  | `PostToolUse` | `tool_complete` | Working |
+  | `Stop` | `stop` | Idle |
+
+  Claude 와 달리 `UserPromptSubmit` 을 설치한다 — 훅이 stdout 에 아무것도 쓰지 않아(`/dev/tty` 로만
+  쓴다) 프롬프트 컨텍스트를 오염시킬 수 없고, codex 는 타이틀·스피너가 `[미확인]`이라 이 훅이
+  "턴이 시작됐다"를 말하는 유일한 신호다. `prompt_submit` 은 이 배치에서 추가한 인밴드 이벤트
+  어휘로, `tool_complete` 처럼 래치를 풀고 `ACTIVITY_WORKING_HOLD_MS` 동안 Working 으로 읽힌다.
+- **`/dev/tty` 도달은 아직 `[미확인]`이다**(탐침이 codex 신뢰 다이얼로그에서 막혀 훅까지 못 갔다).
+  실기에서 이벤트가 안 보이면 되돌리는 것은 `AGENT_SPECS` 의 codex 행 `delivery` 를 `Http` 로
+  바꾸는 것 하나다 — HTTP 이벤트→활동 표(`CODEX_HTTP_ACTIVITIES`)와 서버·shim 경로를 그대로 남겨
+  둔 이유가 이것이다. 구버전 HTTP 설치가 남아 있으면 재조정이 인밴드 행으로 교체한다.
+- **gemini 만 HTTP 로 남는다.** 사용자 레벨 command hook(`taide hook --url <u>` shim → 로컬 HTTP
+  서버), 재부팅으로 포트가 바뀌면 `reconcile_http_user_level_hooks` 가 새 URL 로 재주입하는 자가
+  치유도 그대로다(§7.5). 설치에 `taide` CLI 심링크를 요구하는 것도 이제 이 경로뿐이다.
 - 그 페이로드는 종전대로 `(ProjectId, agent_name)` 단위 override 로 쌓이고, **세션 신호가 하나도
-  없어 `Unknown` 인 비-claude 세션에만** 적용된다(`commands::resolve_activity`).
+  없어 `Unknown` 이면서 그 override 를 실제로 쓰는 에이전트에만** 적용된다
+  (`commands::resolve_activity` → `service::uses_project_hook_override`). 이 게이트는 에이전트
+  이름 하드코딩이 아니라 표의 `delivery` 필드다(d-60 §1.B·§1.C): 현재 `true` 는 **gemini 뿐**이고,
+  나머지 넷은 전부 인밴드라 세션별 pty 로 받는다.
 - Claude 는 더 이상 이 override 를 참고하지 않는다. 구버전 HTTP 설치가 남아 있는 세션은
   `apply_hook_payload` 의 즉시 발행을 받을 수는 있으나 다음 폴링 틱에 세션 신호 판정으로 덮인다.
   이 수신 분기(`agent=claude`)는 호환을 위해 이번 릴리스까지만 유지하고 제거 예정이다
   (계약 §4 미결 2).
 
-### 4.5 statusline (후순위, 미구현)
+### 4.5 opencode · pi — TAIDE 가 소유하는 플러그인 파일 (d-60 §1.C)
+
+두 에이전트는 hooks 설정 스키마가 없고, **디렉터리의 파일을 기동 시 자동 로드**한다(opencode 플러그인
+문서 · pi 확장 문서 확인). 그래서 병합할 호스트 문서가 없고, TAIDE 는 파일 **하나를 통째로 소유**한다.
+
+- **소유 판정은 첫 줄의 마커**(`OWNED_HOOK_FILE_MARKER` = `taide-agent-managed-file`)다. 첫 줄에
+  마커가 없으면 그 파일은 남의 것이라 **덮어쓰지도, 지우지도, 설치됨으로 세지도 않는다**. 부분
+  문자열 매치가 아니라 첫 줄인 이유는 "TAIDE 에 대해 언급한 사용자 자신의 플러그인"을 소유로
+  오판하지 않기 위해서다(§4.3 마커 규칙과 같은 근거).
+- **파일 내용은 Rust 가 만든다**(`service::build_owned_hook_file_source`). 마커 헤더 +
+  `에이전트 이벤트 이름 → OSC 777 시퀀스` 표 + 구독 본문이고, 시퀀스는 `serde_json` 이 낸 JSON
+  문자열 리터럴(= 유효한 JS/TS 리터럴)이라 제어 바이트·따옴표 이스케이프가 `terminalSequence`
+  봉투와 **같은 인코더**에서 나온다. 생성 파일 안에는 페이로드를 조립하는 코드가 없다.
+- 규약은 §4.2 와 같다: `process.env.TAIDE_AGENT_PROTOCOL_VERSION` 이 없으면 아무것도 쓰지 않고,
+  쓰기는 `try/catch` 로 감싸 절대 throw 하지 않는다(훅의 `exit 0` 에 해당).
+
+| 에이전트 | 파일 | 에이전트 이벤트 → 인밴드 event |
+|---|---|---|
+| opencode | `~/.config/opencode/plugins/taide-agent.js` | `permission.asked`→`permission_request` · `permission.replied`·`tool.execute.after`→`tool_complete` · `session.idle`→`stop` |
+| pi | `~/.pi/agent/extensions/taide-agent.ts` | `ui_prompt_start`→`permission_request` · `ui_prompt_end`→`tool_complete` · `agent_start`→`prompt_submit` · `agent_settled`→`stop` |
+
+- **opencode 는 `opencode.json` 을 건드리지 않는다.** 전역 `~/.config/opencode/plugins/` 는 등록 없이
+  자동 로드된다(공식 플러그인 문서로 확인). 플러그인 stdout 의 OSC 777 이 pty 에 그대로 도달하는
+  것은 탐침이 바이트로 확정했다(probe §6). 다만 `permission.asked`/`session.idle` 이 실제로 플러그인
+  핸들러에 도달하는 순간은 아직 `[미확인]`이다(탐침 창 안에 미도달).
+- **디렉터리 이름은 `plugins/` 하나뿐이다.** 공식 문서가 자동 로드한다고 적은 전역 디렉터리는
+  `plugins/` 단수형이고, TAIDE 는 거기에만 쓴다. 탐침이 프로젝트 레벨에서 `plugin/`·`plugins/` 가
+  둘 다 로드되는 것을 관측했지만(probe §6) 그건 **스크래치 탐침 한정 관측**이라 설치 경로 판단
+  근거로 쓰지 않는다 — 문서에 없는 경로에 파일을 두면 사용자 디렉터리에 유령 파일이 남는다.
+- **pi 는 전부 `[미확인]`이다.** 설치본이 없어 실측한 것이 하나도 없고, 파일 형태는 pi 확장 문서의
+  `export default (pi) => { pi.on(name, handler) }` 만 따랐다. 패키지에서 아무것도 import 하지 않는
+  이유도 이것이다 — 모듈 해석 실패가 pi 기동 실패로 번지면 안 된다.
+- **설치·제거·멱등**: 설치는 파일을 쓰고(없으면 디렉터리 생성), 제거는 소유한 파일만 지운다.
+  재조정은 **이미 소유한 파일이 현재 소스와 다를 때만** 다시 쓴다 — 없는 파일을 만들지 않으므로
+  설치는 계속 사용자의 결정이다. 파일 권한은 `0600` 이 아니라 기본 umask 다(토큰이 실리지 않고,
+  사용자 자신의 플러그인들과 같은 디렉터리에 있어야 한다 — §7.6 의 hooks JSON 과 다른 판단).
+
+### 4.6 statusline (후순위, 미구현)
 
 statusline 바이너리: fire-and-forget POST 후 즉시 종료(300ms 디바운스 함정) —
 컨텍스트 사용률·비용을 TAIDE 상태바에 표시.
@@ -454,24 +638,39 @@ statusline 바이너리: fire-and-forget POST 후 즉시 종료(300ms 디바운�
 
 > 7.10-W4 — Codex·Gemini hooks 브리지 확장에서 추가한 비자명한 제약.
 
-- **이벤트 매핑은 에이전트별 분기** (`service.rs::map_hook_event_to_activity`): 같은 활동을 알리는
-  이벤트 이름이 에이전트마다 다르다 — Claude 는 `Notification`, Codex 는 `PermissionRequest`,
-  Gemini 는 `BeforeAgent`/`AfterAgent` 로 시작·종료를 알린다. 매핑 함수는 `agent_name` 을 1차
-  분기 기준으로 삼는다. Codex 의 `PostToolUse` 는 (도구 실행이 재개됐다는 뜻이므로) `Working` 으로
-  매핑해 직전의 `AwaitingInput` override 를 자연히 덮어쓴다 — 별도의 "override 해제" 코드 경로를
-  두지 않고, 기존 override 값 자체가 최신 이벤트로 대체되는 방식으로 처리한다.
+- **에이전트별 분기는 전부 `AGENT_SPECS` 표 1개다** (d-60 §1.C): 이전에는 여섯 군데의 `match` 팔
+  (`map_hook_event_to_activity` · `hook_scope_for_agent` · `managed_hook_events_for` ·
+  `user_level_hook_command_timeout` · `user_level_hooks_path` · 폴백 게이트)이 각자 에이전트 이름을
+  나열했다. 지금은 전부 표를 조회하는 한 줄이고, 새 에이전트는 **행 1개** 추가다. 표의 형태별
+  불변식(사용자 레벨 ↔ 홈 상대 경로, 소유 파일 ↔ 생성 본문, 설치 이벤트 ⊆ 제거 대상 이벤트)은
+  `에이전트_스펙_표는_형태별_불변식을_지킨다` 가 지킨다 — 행을 추가하면서 필드를 빠뜨리면 그
+  테스트가 잡는다.
+- **이벤트 매핑은 여전히 에이전트별이다** (`AgentHooks::http_activities` / `bindings`): 같은 활동을
+  알리는 이벤트 이름이 에이전트마다 다르다 — Claude 는 `Notification`, Codex 는
+  `PermissionRequest`, Gemini 는 `BeforeAgent`/`AfterAgent` 로 시작·종료를 알린다. Codex 의
+  `PostToolUse` 는 (도구 실행이 재개됐다는 뜻이므로) `Working` 으로 매핑해 직전의 `AwaitingInput`
+  을 자연히 덮어쓴다 — 별도의 "해제" 코드 경로를 두지 않고, 최신 이벤트가 값을 대체하는 방식이다.
+- **HTTP 표는 인밴드로 옮긴 뒤에도 남긴다** (`http_activities`): codex 를 인밴드로 옮겼지만 그
+  행의 HTTP 이벤트→활동 표는 그대로 있다. ① 구버전 HTTP 설치가 남은 사용자의 이벤트를 재조정
+  전까지 계속 해석할 수 있고, ② 되돌리기가 `delivery` 필드 하나로 끝난다.
 - **hook override 스코프는 (프로젝트, 에이전트) 쌍** (`commands.rs::AgentHooksStore`): 기존에는
   프로젝트 단위로만 override 를 쌓아 같은 프로젝트의 claude·codex 세션이 서로의 활동 판정을
   덮어썼다. 키를 `(ProjectId, agent_name)` 로 확장해 에이전트별로 독립된 override 를 유지한다.
   `resolve_activity` 의 override 소비·해제(`fresh_project_override`/`clear_project_override`)도
   동일 키로 조회한다.
 - **설치 스코프는 에이전트 정체성으로 결정** (`service.rs::hook_scope_for_agent`): Claude 는
-  프로젝트 파일(`.claude/settings.local.json`, gitignore 대상)에 설치하지만 Codex·Gemini 는
+  프로젝트 파일(`.claude/settings.local.json`, gitignore 대상)에 설치하지만 나머지 넷은
   프로젝트 파일이 커밋 대상이라 오염 위험이 있어 사용자 레벨(`~/.codex/hooks.json`,
-  `~/.gemini/settings.json`)에만 설치한다 (`docs/acknowledge/2026-08-11-qa5-batch-decisions.md`).
+  `~/.gemini/settings.json`, `~/.config/opencode/plugins/`, `~/.pi/agent/extensions/`)에만 설치한다
+  (`docs/acknowledge/2026-08-11-qa5-batch-decisions.md`).
 - **사용자 레벨 경로는 순수 함수** (`service.rs::user_level_hooks_path`): `lockfile.rs::resolve_lockfile_dir`
   와 동일 패턴 — `home_env: Option<&str>` 를 인자로 받아, 테스트에서 실제 프로세스 env 를 건드리지
-  않고 양쪽 에이전트 분기를 검증한다.
+  않고 각 에이전트 분기를 검증한다. **사용자 홈의 실제 에이전트 설정을 테스트가 건드리는 일이
+  없어야 하므로**, 사용자 레벨을 다루는 테스트는 예외 없이 임시 디렉터리를 `home_env` 로 넘긴다.
+- **소유 파일은 JSON 병합 경로를 타지 않는다** (`HookInstallShape::OwnedFile`): opencode·pi 는
+  `managed_events`·`command_timeout` 이 비어 있고, 읽기·쓰기·삭제가 `read_owned_hook_file` /
+  `write_owned_hook_file` / `remove_owned_hook_file` 로 간다. 재조정도 "소유했고 내용이 다를 때만
+  다시 쓴다"는 별도 분기다(`hooks.rs::reconcile_owned_hook_file`). 자세한 소유 규칙은 §4.5.
 - **마커 탐지는 문서 전체 재귀 스캔** (`service.rs::has_taide_marker_anywhere`): Codex·Gemini 의
   실제 hook 항목(`type: "command"`, shim 커맨드라인에 hook URL 이 인자로 박힘)은 특정 JSON 키
   구조에 의존하지 않고 문서 전체에서 `HOOKS_URL_MARKER` 문자열을 재귀적으로 찾는 관대한 탐지로
@@ -485,28 +684,34 @@ statusline 바이너리: fire-and-forget POST 후 즉시 종료(300ms 디바운�
   shim(`taide-cli hook --url <u>`)이 페이로드를 로컬 서버로 중계한다. 바이너리 경로와 URL 을
   각각 큰따옴표로 감싸는데, 경로는 공백을 포함할 수 있고(Windows `Program Files`) URL 은
   `&`/`?` 를 포함하기 때문이다.
-- **command hook timeout 은 에이전트별 단위가 다르다** (`service.rs::user_level_hook_command_timeout`):
+- **command hook timeout 은 에이전트별 단위가 다르다** (`AgentHooks::command_timeout`):
   Codex 는 `timeout` 을 초 단위로, Gemini 는 밀리초 단위로 해석한다. 두 사용자 레벨 hooks 파일은
   이 값을 서로 바꿔 쓸 수 없어 별도 상수(`CODEX_HOOK_COMMAND_TIMEOUT_SECONDS`,
-  `GEMINI_HOOK_COMMAND_TIMEOUT_MS`)로 분리했다.
+  `GEMINI_HOOK_COMMAND_TIMEOUT_MS`)로 분리했다. Claude 는 `None` 이라 `timeout` 필드 자체를 쓰지
+  않는다 — 넣으면 기존 설치 파일의 바이트가 달라진다.
 - **사용자 레벨 파일 정리는 열린 프로젝트 목록과 무관** (`hooks.rs::remove_taide_hooks_from_user_level_files`):
-  Codex·Gemini 는 사용자 레벨 설정 파일을 1개씩만 가지므로(프로젝트별이 아님) OFF 전이 시
+  사용자 레벨 에이전트는 설정 파일을 1개씩만 가지므로(프로젝트별이 아님) OFF 전이 시
   열린 프로젝트가 0개여도 항상 정리 대상이다.
-- **재부팅 후 사용자 레벨 hook URL 자가 치유** (`hooks.rs::reconcile_user_level_hooks`): hooks 서버는
-  기동마다 랜덤 포트·새 토큰으로 뜨므로(`ensure_hooks_server_started`), 이전 실행에서
-  `~/.codex/hooks.json`·`~/.gemini/settings.json` 에 박아 둔 커맨드 문자열은 재시작 후 죽은
-  포트를 가리킨다. `reconcile_installed_hooks`(부팅·`agent_hooks_enabled` ON 전이·프로젝트
-  열기 시 호출)가 Claude 의 프로젝트 파일 갱신에 이어 Codex·Gemini 의 사용자 레벨 파일도
-  훑어, taide 마커가 있는데 현재 서버 기준 커맨드와 다르면(`has_command_hook_entries_for_command`)
-  새 URL 로 재주입한다.
-- **사용자 레벨 설치는 CLI 존재를 전제로 한다** (`commands.rs::agent_hooks_install`): command
-  hook 이 실행하는 shim 커맨드라인은 `TAIDE_CLI_TARGET_PATH`(`/usr/local/bin/taide` 등)를
-  절대경로로 참조한다. CLI 가 심볼릭 링크로 설치돼 있지 않으면 모든 hook 이벤트가 실행 실패로
-  조용히 죽으므로, 설치 전에 `resolve_cli_install_status().installed` 를 확인해 미설치면
-  설치를 거부한다.
+- **재조정은 전달 방식별로 둘로 나뉜다** (`hooks.rs`): `reconcile_in_band_user_level_hooks` 는 hooks
+  서버 없이 먼저 돌아 codex 의 JSON 행과 소유 파일을 현행 내용으로 맞추고,
+  `reconcile_http_user_level_hooks` 는 서버가 뜬 뒤 gemini 의 URL 을 고친다. hooks 서버는 기동마다
+  랜덤 포트·새 토큰으로 뜨므로(`ensure_hooks_server_started`) 이전 실행이 박아 둔 URL 은 재시작 후
+  죽은 포트를 가리킨다 — taide 마커가 있는데 현재 서버 기준 커맨드와 다르면
+  (`has_command_hook_entries_for_command`) 새 URL 로 재주입한다. 양쪽 모두 **이미 설치된 것만**
+  갱신한다.
+- **CLI 존재 전제는 이제 HTTP 설치에만 적용된다** (`commands.rs::install_user_level_hooks`): shim
+  커맨드라인은 `TAIDE_CLI_TARGET_PATH`(`/usr/local/bin/taide` 등)를 절대경로로 참조하므로 CLI 가
+  심링크로 설치돼 있지 않으면 모든 hook 이벤트가 조용히 죽는다. 그래서 설치 전에
+  `resolve_cli_install_status().installed` 를 확인해 미설치면 거부하는데, 이 전제가 필요한 것은
+  `delivery == Http`(현재 gemini 뿐)뿐이다. 인밴드 설치는 상수 페이로드를 `printf` 할 뿐이라 CLI 도
+  hooks 서버도 필요 없다. 이 전제는 `AgentHooksStatus.requiresTaideCli`
+  (`service::requires_taide_cli`)로 훅 상태 IPC 에 실려 나간다 — 설정 UI 가 표를 복제하지 않고 서버
+  값을 읽게 해서, `delivery` 를 되돌릴 때 UI 가 따라오게 하기 위함이다(렌즈 검토 B-1,
+  `ipc-contract.md` agent 절).
 - **uninstall 은 taide 항목이 없으면 파일을 새로 만들지 않는다** (`commands.rs::agent_hooks_uninstall`):
   프로젝트·사용자 레벨 양쪽 모두 기록된 taide 마커가 있을 때만 쓰기를 수행한다. 존재하지 않는
-  파일(설치한 적 없는 상태)에 uninstall 을 호출해도 빈 JSON 파일이 새로 생기지 않는다.
+  파일(설치한 적 없는 상태)에 uninstall 을 호출해도 빈 JSON 파일이 새로 생기지 않는다. 소유 파일도
+  같다 — 없거나 남의 파일이면 조용한 no-op 이다.
 
 ### 7.6 서드파티 hooks 파일 안전성 (`domain/agent/commands.rs`)
 

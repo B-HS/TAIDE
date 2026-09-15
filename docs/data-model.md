@@ -763,3 +763,22 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   사용자 지정 표시를 매번 초기화한다.
 - **신규 이벤트는 없다** — `project_set_display` 는 기존 `ProjectListChanged` 를 재발행한다
   (`ProjectRef` 가 `display` 를 실어 나르므로 이 이벤트만으로 모든 창·원격 세션이 갱신된다).
+
+## 21. d-60 — 알림 카테고리 `agentAwaitingInput` 설정 1필드 추가 (`settings.json` 영향, 2026-09-15)
+
+> 계약: `docs/acknowledge/2026-09-15-d60-agent-diversification-contract.md` §1.D. 커맨드·타입은
+> `docs/ipc-contract.md` "사용성 배치 4 — OS 네이티브 알림" 절이 정본이고, §19 의 8필드를 잇는다.
+
+- **`Settings.notifyAgentAwaitingInput`(`bool`, `#[serde(default = "default_true")]`) 1필드 추가** —
+  §19 의 8필드와 같은 규약이라 기존 `settings.json` 은 마이그레이션 없이 "켜짐"으로 읽힌다(§5).
+  `SETTINGS_SCHEMA_VERSION` 은 1 유지.
+- **왜 쪼갰나**: `notifyAgentCompleted` 하나가 "턴이 끝났다" 와 "사용자에게 막혀 서 있다" 를 함께
+  덮고 있었다. 전자는 나중에 읽어도 되는 결과고 후자는 답할 때까지 에이전트를 세워 두는 호출이라,
+  둘 중 하나만 받고 싶은 사용자가 그 말을 할 수 없었다. `NotificationCategory` 는 6종 → **7종**이
+  되고, 카테고리↔스위치 매칭은 종전대로 `decide_delivery` 의 exhaustive match 가 강제한다.
+- **동반 경로는 §19 그대로** — `SettingsPatch.notify_agent_awaiting_input`,
+  `service::apply_patch`, `sync::service::settings_to_sync_patch`,
+  `entities/settings/settings.ipc.ts` 의 `emptySettingsPatch()`. `strip_remote_gated_settings*`
+  대상은 아니다(§19 와 같은 이유).
+- **새 영속 파일·디렉토리는 없다.** `BlockedReason`(같은 배치에서 `DetectedAgent` 에 추가된 필드의
+  타입)은 §10 성격의 비영속 IPC 타입으로 디스크에 닿지 않는다.

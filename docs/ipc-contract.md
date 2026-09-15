@@ -645,6 +645,38 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   조건(`agents_changed`)은 종전과 같으므로 **프론트 소비 계약은 그대로**이며, 달라진 것은
   `AwaitingInput` 이 hooks 설치 없이도 나온다는 점이다(권한 다이얼로그가 떠 있는 동안 유휴 배지가
   남던 증상의 해소 — `docs/bug/2026-09-06-agent-badge-idle-during-permission-prompt.md`).
+- **`DetectedAgent.blockedReason` 필드 추가(d-60 §1.D, 2026-09-15 — 기존 `agent:state-changed`
+  payload 의 확장이고 신규 이벤트·커맨드는 0)**: `blockedReason?: BlockedReason | null`,
+  `BlockedReason = 'permission' | 'question' | 'dialog'`. `AwaitingInput` 하나로 접혀 있던
+  "권한 요청 / 질문 / 화면에서 읽은 다이얼로그" 를 프론트가 구분할 수 있게 하는 필드다(배지 툴팁·
+  알림 문구).
+  - **유도는 Rust 소유**다(`agent::service::blocked_reason`, 순수 함수): 차단 래치가
+    `BlockedSource::Dialog` 면 `'dialog'`, `BlockedSource::Event` 면 그 래치를 세운 인밴드 이벤트가
+    `question_asked` 일 때 `'question'`, 그 외(=`permission_request`) `'permission'`.
+    `activity` 와 같은 신호 스냅샷에서 한 번에 뽑으므로(`classify_session_state`) 둘이 어긋나지
+    않는다.
+  - **래치가 풀리면 `null` 이다.** `classify_session` 의 히스테리시스 구간(래치는 풀렸는데 직전
+    `awaitingInput` 이 한 틱 더 보고되는 구간)에서도 사유는 남지 않는다 — 설명할 차단이 없는데
+    사유를 싣는 것이 더 나쁜 거짓말이다.
+  - **HTTP override 경로는 항상 `null`** 이다(`resolve_state`). 프로젝트 스코프 override 는 활동
+    하나만 기억하고(`map_hook_event_to_activity` 로 이미 접힌 값), 읽을 세션 래치가 없다.
+  - **발행 조건은 그대로 `agents_changed`** 다. `DetectedAgent` 동등 비교에 필드가 포함되므로
+    활동이 같고 사유만 바뀐 전이(권한 → 질문)도 이벤트로 나간다.
+  - **HTTP 훅이 즉시 반영되는 경로도 사유를 함께 덮는다**(`hooks::apply_hook_payload` →
+    `service::apply_hook_activity`, 렌즈 검토 G-1). 브리지 페이로드는 활동 하나만 싣고 cwd 로
+    프로젝트에 매칭되므로, 세션 래치에서 읽은 사유를 남겨 두면 이미 끝난(혹은 같은 에이전트의 다른
+    세션의) 차단을 설명하게 된다 — 활동을 강제하는 자리에서 `blockedReason` 은 `null` 이 된다.
+- **`AgentHooksStatus.requiresTaideCli` 필드 추가(d-60 렌즈 검토 B-1, 2026-09-15 — 기존 응답 타입의
+  확장이고 신규 커맨드·이벤트는 0)**: 응답은 이제
+  `{ agentName, scope, installed, requiresTaideCli }` 이고 세 커맨드(`agent_hooks_status` ·
+  `agent_hooks_install` · `agent_hooks_uninstall`)가 모두 싣는다.
+  - **값은 Rust 소유**다(`agent::service::requires_taide_cli`): 그 에이전트 `AGENT_SPECS` 행의
+    `delivery == Http` 와 같다. HTTP 설치만 shim 커맨드(`"<cli>" hook --url "<url>"`)로 `taide` CLI
+    심링크를 부르기 때문이다(`agent-integration.md` §7.5 마지막 항). 인밴드 설치는 상수 페이로드를
+    `printf` 할 뿐이라 CLI 도 hooks 서버도 필요 없다.
+  - **필드를 만든 이유는 프론트의 표 복제를 없애기 위해서다.** 설정 UI 의 "CLI 미설치" 경고와 토글
+    비활성화가 이 값만 보면 되고, 에이전트의 `delivery` 를 되돌려도(예: codex 를 다시 HTTP 로) UI 가
+    서버 값을 따라간다 — 프론트가 같은 목록을 손으로 들고 있으면 그 되돌리기에서 드리프트가 난다.
 
 ### ide — Claude Code IDE MCP 연동 (`agent-integration.md` §3, 신설 도메인 — 이전 판 전체 누락)
 
@@ -1247,8 +1279,11 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
   `agent_hooks_install` 은 `agentName` 으로 `hook_scope_for_agent` 가 결정하는 스코프에 따라
   분기한다 — `HookInstallScope::Project`(`claude`, 프로젝트 루트 하위
   `.claude/settings.local.json` 에 `project_root` 로 루트 가드됨)는 원격에서도 그대로 허용,
-  `User` 스코프(`codex`/`gemini`, 홈 디렉터리의 `~/.codex/hooks.json` / `~/.gemini/settings.json` 에
-  루트 가드 밖 **command 훅**을 주입)는 `RemoteDenialPolicy::DesktopCliInterception` 으로 거부한다
+  `User` 스코프(`codex`/`gemini`/`opencode`/`pi` — 홈 디렉터리의 `~/.codex/hooks.json` /
+  `~/.gemini/settings.json` 에 루트 가드 밖 **command 훅**을 주입하거나,
+  `~/.config/opencode/plugins/taide-agent.js` / `~/.pi/agent/extensions/taide-agent.ts` 에 에이전트가
+  기동마다 로드하는 **플러그인 파일**을 통째로 쓴다)는 `RemoteDenialPolicy::DesktopCliInterception`
+  으로 거부한다
   (`REMOTE_DENIED_COMMANDS` 테이블에는 없다 — args 조건부 판정이라 커맨드 이름만으로 결정되는 그
   테이블의 형태에 맞지 않는다). User 스코프 훅은 TAIDE CLI 가 모든 훅 이벤트마다 실행하는 셸
   커맨드를 심는 것과 같아, 원격 세션이 종료돼도 살아남는 백도어가 된다는 점에서 `settings_update`
@@ -1851,6 +1886,12 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - **`notification_notify(category, title, body) → NotificationDelivery`** — 완료성 이벤트 하나를 OS
   알림 센터로 보낸다. `category` 는 `NotificationCategory`
   (`'agentCompleted' | 'taskCompleted' | 'gitRemote' | 'searchReplace' | 'lspInstall' | 'error'`).
+  - **d-60 §1.D (2026-09-15) 에서 `'agentAwaitingInput'` 이 추가돼 7종이 됐다** — 에이전트가 턴을
+    끝낸 것(`agentCompleted`)과 사용자에게 막혀 서 있는 것을 한 스위치가 덮고 있어서, 둘 중 하나만
+    받고 싶은 사용자가 그 말을 할 수 없었다. 대응 설정 스위치는
+    `notifyAgentAwaitingInput`(`Settings`·`SettingsPatch`·`emptySettingsPatch()`·
+    `settings_to_sync_patch` 동반, 기본값 `true`, `docs/data-model.md` §21). 커맨드 시그니처·반환
+    타입·원격 정책은 무변경이다.
   - **게이트는 Rust 소유**다(`domain::notification::service::decide_delivery`, 순수 함수):
     ① `notificationsEnabled` → ② 카테고리 스위치 → ③ `notificationsOnlyWhenUnfocused &&
     webview_windows().values().any(is_focused)`. 순서는 보고 순서이기도 하다 — 세 조건이 동시에

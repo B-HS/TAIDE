@@ -73,13 +73,14 @@ NumberInput→`numeric-field.tsx`, Select→`option-picker.tsx`, KeybindingInput
 > 정본: `docs/acknowledge/2026-09-04-usability-batch4-contract.md` §A.
 > 앱 안 toast(§2)는 그대로 두고, **완료성 이벤트만** OS 알림 센터에 추가로 보낸다.
 
-### 2.1.1 스위치 8개 (`settings-notification-section.tsx`)
+### 2.1.1 스위치 9개 (`settings-notification-section.tsx`)
 
 | 설정 키 | 라벨 키 | 기본값 | 의미 |
 |---------|---------|:------:|------|
 | `notifications_enabled` | `settings.notificationsEnabled` | true | 마스터 스위치 |
 | `notifications_only_when_unfocused` | `settings.notificationsOnlyWhenUnfocused` | true | TAIDE 창이 하나라도 포커스면 보내지 않음 |
-| `notify_agent_completed` | `settings.notificationsAgentCompleted` | true | 에이전트 작업 완료 |
+| `notify_agent_completed` | `settings.notificationsAgentCompleted` | true | 에이전트 작업 완료(턴 종료) |
+| `notify_agent_awaiting_input` | `settings.notificationsAgentAwaitingInput` | true | 에이전트 입력 대기(권한 요청·질문) |
 | `notify_task_completed` | `settings.notificationsTaskCompleted` | true | 오래 걸린 터미널 명령 완료 |
 | `notify_git_remote` | `settings.notificationsGitRemote` | true | git push·pull(+sync) 성공 |
 | `notify_search_replace` | `settings.notificationsSearchReplace` | true | 파일에서 바꾸기 완료 |
@@ -115,16 +116,22 @@ NumberInput→`numeric-field.tsx`, Select→`option-picker.tsx`, KeybindingInput
   하단에 보여준다 — 플러그인이 dev 에서 `com.apple.Terminal` 로 스푸핑하므로 알림이 Terminal 의
   이름·아이콘으로 뜨고 Terminal 의 권한을 따른다. 패키징 빌드는 정상이다.
 
-### 2.1.3 발화 지점 (5카테고리)
+### 2.1.3 발화 지점 (6카테고리)
 
 | 카테고리 | 발화 지점 | 제목 / 본문 |
 |----------|-----------|-------------|
-| `agentCompleted` | `native-notification-provider.tsx` — `agent:state-changed` 의 Working→Idle\|AwaitingInput 전이, **Working 10초 이상**(`AGENT_COMPLETION_NOTIFY_MIN_WORKING_MS`) | 프로젝트 표시명 / `notification.agent{FinishedBody,AwaitingInputBody}` |
+| `agentCompleted` | `native-notification-provider.tsx` — `agent:state-changed` 의 Working→**Idle** 전이, **Working 10초 이상**(`AGENT_COMPLETION_NOTIFY_MIN_WORKING_MS`) | 프로젝트 표시명 / `notification.agentFinishedBody` |
+| `agentAwaitingInput` | 같은 지점의 Working→**AwaitingInput** 전이(d-60 §1.D) | 프로젝트 표시명 / `notification.agent{PermissionBody,QuestionBody,AwaitingInputBody}` — `DetectedAgent.blockedReason` 으로 고른다 |
 | `taskCompleted` | `native-notification-provider.tsx` — Rust 가 발행하는 `terminal:command-finished`(OSC 133 `C`→`D`), **실행 10초 이상**(`TASK_COMPLETION_NOTIFY_MIN_DURATION_MS`) | 프로젝트 표시명 / 탭 제목(없으면 cwd) · `notification.exitCode` · 경과 시간 |
 | `gitRemote` | `entities/git/git.query.ts` `usePushGit`·`usePullGit`(sync 는 이 둘의 조합) | 프로젝트 표시명 / `notification.git{Push,Pull}{Succeeded,Failed}` · 브랜치명 또는 실패 사유 |
 | `searchReplace` | `search-panel-container.tsx` 치환 성공 | 프로젝트 표시명 / `search.replaceDone` 요약 |
 | `lspInstall` | `native-notification-provider.tsx` — `lsp:install-progress` 의 `done`·`failed` | `notification.lspInstall{Succeeded,Failed}` / 서버 id 또는 메시지 |
 
+- **에이전트 알림은 두 카테고리로 갈린다**(d-60 §1.D). 끝난 턴은 나중에 읽어도 되는 결과지만
+  차단된 턴은 사용자가 돌아올 때까지 에이전트를 붙잡아 두는 프롬프트라, 한쪽만 끄고 싶은 사용자에게
+  스위치 하나로는 답이 없었다. 판정 지점·10초 임계·본문 조립은 그대로고 `category` 와 본문 키만
+  갈린다. 사유를 모르는 차단(히스테리시스·HTTP override)은 종전 문구(`권한 요청 또는 질문`)로
+  폴백한다 — 문구 선택 규칙은 `agent-integration.md` §1.5.
 - **에이전트·터미널의 10초 임계**: 짧은 턴·짧은 명령까지 알리면 알림 채널 자체를 무시하게 된다.
   "사용자가 화면을 떠났을 만한 길이"를 기준으로 둘 다 10초를 쓴다(상수는 별개 —
   `shared/constants/notification.ts`).
