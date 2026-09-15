@@ -61,8 +61,15 @@ export const useExplorerEntryCrud = ({
     const [renameError, setRenameError] = useState<string | null>(null)
     const [deleteTarget, setDeleteTarget] = useState<FileTreeRow | null>(null)
 
-    const startDraft = async (kind: FileTreeNodeKind) => {
-        const targetDir = targetDirFor(selectedRow)
+    /**
+     * `explicitTargetDir` exists for callers that already know where the entry belongs — the tree's
+     * empty-space double-click, which means "at the project root" no matter what was selected a
+     * moment ago. Without it the fallback below would read `selectedRow`, and a caller that cleared
+     * the selection in the same tick would still get the *previous* selection's directory, because
+     * this closure was created with the pre-clear value.
+     */
+    const startDraft = async (kind: FileTreeNodeKind, explicitTargetDir?: string) => {
+        const targetDir = explicitTargetDir ?? targetDirFor(selectedRow)
         if (!targetDir) return
         const targetRow = rows.find((row) => row.path === targetDir)
         if (targetRow && !targetRow.expanded) await toggleNodeAsync({ projectId, path: targetDir })

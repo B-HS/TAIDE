@@ -18,12 +18,14 @@ import {
     Trash2,
 } from 'lucide-react'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
+import { EXPLORER_SHORTCUT_LABELS } from '@features/explorer/explorer-shortcuts'
 import { resolvePreviewKind } from '@shared/lib/preview-kind'
 import {
     ContextMenu,
     ContextMenuContent,
     ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuShortcut,
     ContextMenuSub,
     ContextMenuSubContent,
     ContextMenuSubTrigger,
@@ -97,10 +99,12 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
                 <ContextMenuItem onSelect={onNewFile}>
                     <FilePlus className='size-4' />
                     {t('explorer.newFile')}
+                    <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.newFile}</ContextMenuShortcut>
                 </ContextMenuItem>
                 <ContextMenuItem onSelect={onNewFolder}>
                     <FolderPlus className='size-4' />
                     {t('explorer.newFolder')}
+                    <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.newFolder}</ContextMenuShortcut>
                 </ContextMenuItem>
 
                 {isFile && (
@@ -146,6 +150,7 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
                         <ContextMenuItem onSelect={onRevealInFinder}>
                             <FolderOpen className='size-4' />
                             {t('explorer.revealInFinder')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.revealInFinder}</ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuItem onSelect={onOpenInTerminal}>
                             <SquareTerminal className='size-4' />
@@ -166,21 +171,30 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
                         <ContextMenuItem onSelect={onCut}>
                             <Scissors className='size-4' />
                             {t('explorer.cut')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.cut}</ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuItem onSelect={onCopy}>
                             <Copy className='size-4' />
                             {t('explorer.copy')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.copy}</ContextMenuShortcut>
                         </ContextMenuItem>
                     </>
                 )}
                 <ContextMenuItem disabled={!canPaste} onSelect={onPaste}>
                     <ClipboardPaste className='size-4' />
                     {t('explorer.paste')}
+                    <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.paste}</ContextMenuShortcut>
                 </ContextMenuItem>
                 {row && (
                     <>
-                        <ContextMenuItem onSelect={onCopyPath}>{t('explorer.copyPath')}</ContextMenuItem>
-                        <ContextMenuItem onSelect={onCopyRelativePath}>{t('explorer.copyRelativePath')}</ContextMenuItem>
+                        <ContextMenuItem onSelect={onCopyPath}>
+                            {t('explorer.copyPath')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.copyPath}</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={onCopyRelativePath}>
+                            {t('explorer.copyRelativePath')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.copyRelativePath}</ContextMenuShortcut>
+                        </ContextMenuItem>
                     </>
                 )}
 
@@ -190,10 +204,12 @@ export const FileTreeContextMenu: FC<FileTreeContextMenuProps> = ({
                         <ContextMenuItem onSelect={onRename}>
                             <Pencil className='size-4' />
                             {t('explorer.rename')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.rename}</ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuItem variant='destructive' onSelect={onDelete}>
                             <Trash2 className='size-4' />
                             {t('explorer.delete')}
+                            <ContextMenuShortcut>{EXPLORER_SHORTCUT_LABELS.delete}</ContextMenuShortcut>
                         </ContextMenuItem>
                     </>
                 )}

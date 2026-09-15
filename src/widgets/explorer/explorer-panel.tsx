@@ -48,6 +48,7 @@ type ExplorerPanelProps = {
     onOpenSearchMatch: (path: string) => void
     onNewFile: () => void
     onNewFolder: () => void
+    onNewFileAtRoot: () => void
     onRefresh: () => void
     onCollapseAll: () => void
     onDraftCommit: (name: string) => void
@@ -85,6 +86,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     onOpenSearchMatch,
     onNewFile,
     onNewFolder,
+    onNewFileAtRoot,
     onRefresh,
     onCollapseAll,
     onDraftCommit,
@@ -199,6 +201,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                         onSelectPathRequestHandled={onSelectPathRequestHandled}
                         onNewFile={onNewFile}
                         onNewFolder={onNewFolder}
+                        onNewFileAtRoot={onNewFileAtRoot}
                     />
                 )}
                 {view === 'search' && (

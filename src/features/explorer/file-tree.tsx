@@ -6,6 +6,9 @@ import type { FileTreeNodeKind, FileTreeRow } from '@features/explorer/file-tree
 import { FileTreeRowItem } from '@features/explorer/file-tree-row'
 import { FileTreeDraftRowItem } from '@features/explorer/file-tree-draft-row'
 import { FileTreeContextMenu } from '@features/explorer/file-tree-context-menu'
+import type { ExplorerShortcutId } from '@features/explorer/explorer-shortcuts'
+import { findExplorerShortcutId } from '@features/explorer/explorer-shortcuts'
+import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
 import { findTypeaheadMatchIndex } from '@shared/lib/typeahead'
 import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 
@@ -59,6 +62,7 @@ type FileTreeProps = {
     onSelectPathRequestHandled: () => void
     onNewFile: () => void
     onNewFolder: () => void
+    onNewFileAtRoot: () => void
 }
 
 const findParentIndex = (rows: FileTreeRow[], fromIndex: number) => {
@@ -98,6 +102,7 @@ export const FileTree: FC<FileTreeProps> = ({
     onSelectPathRequestHandled,
     onNewFile,
     onNewFolder,
+    onNewFileAtRoot,
 }) => {
     const { t } = useTranslation()
     const parentRef = useRef<HTMLDivElement>(null)
@@ -153,8 +158,50 @@ export const FileTree: FC<FileTreeProps> = ({
         typeaheadTimeoutRef.current = setTimeout(() => setTypeaheadBuffer(''), TYPEAHEAD_RESET_MS)
     }
 
+    const rowShortcutActions: Record<Exclude<ExplorerShortcutId, 'paste' | 'newFile' | 'newFolder'>, (row: FileTreeRow) => void> = {
+        rename: contextMenuHandlers.onStartRename,
+        openPinned: onOpenPinned,
+        preview: onOpenPreview,
+        delete: contextMenuHandlers.onRequestDelete,
+        cut: contextMenuHandlers.onCut,
+        copy: contextMenuHandlers.onCopy,
+        revealInFinder: contextMenuHandlers.onRevealInFinder,
+        copyPath: contextMenuHandlers.onCopyPath,
+        copyRelativePath: contextMenuHandlers.onCopyRelativePath,
+    }
+
+    /**
+     * Paste and the two create actions run without a row — paste falls back to the project root and
+     * the create actions carry their own target resolution — so they are split out before the row
+     * guard instead of being skipped along with the row-scoped actions.
+     */
+    const runShortcut = (id: ExplorerShortcutId, row: FileTreeRow | null) => {
+        if (id === 'paste') {
+            contextMenuHandlers.onPaste(row)
+            return
+        }
+        if (id === 'newFile') {
+            onNewFile()
+            return
+        }
+        if (id === 'newFolder') {
+            onNewFolder()
+            return
+        }
+        if (row) rowShortcutActions[id](row)
+    }
+
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-        if (isEditing) return
+        if (isEditing || isImeCompositionKeydown(event)) return
+
+        const shortcutId = findExplorerShortcutId(event)
+        if (shortcutId) {
+            event.preventDefault()
+            const shortcutRow = selectedIndex < 0 ? null : displayRows[selectedIndex]
+            runShortcut(shortcutId, shortcutRow && shortcutRow.id !== DRAFT_ROW_ID ? shortcutRow : null)
+            return
+        }
+
         if (event.key === 'ArrowDown') {
             event.preventDefault()
             selectByIndex(selectedIndex < 0 ? 0 : selectedIndex + 1)
@@ -188,18 +235,24 @@ export const FileTree: FC<FileTreeProps> = ({
             selectByIndex(findParentIndex(displayRows, selectedIndex))
             return
         }
-        if (event.key === 'Enter') {
-            event.preventDefault()
-            if (selectedRow.kind === 'directory') {
-                onToggleExpand(selectedRow)
-                return
-            }
-            onOpenPreview(selectedRow)
-            return
-        }
         if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
             handleTypeahead(event.key)
         }
+    }
+
+    /** Rows are absolutely positioned at a fixed height, so a pointer's y maps straight to an index — and a miss means the pointer is below the last row, in the container's empty space. */
+    const rowAtClientY = (clientY: number) => {
+        const viewport = parentRef.current
+        if (!viewport) return null
+        const offsetY = clientY - viewport.getBoundingClientRect().top + viewport.scrollTop
+        return displayRows[Math.floor(offsetY / FILE_TREE_ROW_HEIGHT_PX)] ?? null
+    }
+
+    const handleContainerDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+        if (isEditing || rowAtClientY(event.clientY)) return
+        setSelectedId(null)
+        contextMenuHandlers.onClearSelection()
+        onNewFileAtRoot()
     }
 
     const handleContainerContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -207,10 +260,7 @@ export const FileTree: FC<FileTreeProps> = ({
             setContextRow(null)
             return
         }
-        const rect = parentRef.current.getBoundingClientRect()
-        const offsetY = event.clientY - rect.top + parentRef.current.scrollTop
-        const index = Math.floor(offsetY / FILE_TREE_ROW_HEIGHT_PX)
-        const row = displayRows[index]
+        const row = rowAtClientY(event.clientY)
         if (!row || row.id === DRAFT_ROW_ID) {
             setContextRow(null)
             setSelectedId(null)
@@ -278,6 +328,7 @@ export const FileTree: FC<FileTreeProps> = ({
                     aria-label={t('explorer.title')}
                     tabIndex={0}
                     onKeyDown={handleKeyDown}
+                    onDoubleClick={handleContainerDoubleClick}
                     onContextMenu={handleContainerContextMenu}
                     onFocus={() => setIsContainerFocused(true)}
                     onBlur={() => setIsContainerFocused(false)}

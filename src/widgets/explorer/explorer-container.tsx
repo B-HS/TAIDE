@@ -274,6 +274,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId }) => 
                 onOpenSearchMatch={openSearchMatch}
                 onNewFile={() => void crud.startDraft('file')}
                 onNewFolder={() => void crud.startDraft('directory')}
+                onNewFileAtRoot={() => project && void crud.startDraft('file', project.root)}
                 onRefresh={() => void refreshVisibleTree()}
                 onCollapseAll={() => void collapseAllExpanded()}
                 onDraftCommit={(name) => void crud.commitDraft(name)}
