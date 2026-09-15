@@ -41,6 +41,12 @@ pub async fn layout_get(state: State<'_, AppState>, project_id: ProjectId) -> Ap
 /// `root_guard::resolve_owning_project_or_cli_opened`'s, not the plain resolver's: a file the user
 /// handed to the `taide` CLI (Claude Code's Ctrl+G temp file, outside every root) may become a tab
 /// of whichever project the frontend chose for it, while the IDE MCP tool keeps the strict check.
+///
+/// A refusal is logged at `warn` with which of the two gates rejected it, because this is the one
+/// quick-open failure a user reports as "the palette just does nothing" — the frontend answers it
+/// with a toast and drops the path, leaving no record of *why* the index and the disk disagreed.
+/// Only the path is logged; it carries no secret the app does not already print in tab titles. See
+/// `docs/debugging.md` §4.
 fn ensure_file_tab_target_exists(
     projects: &HashMap<ProjectId, Project>,
     cli_opened_paths: &HashSet<PathBuf>,
@@ -50,8 +56,18 @@ fn ensure_file_tab_target_exists(
         return Ok(());
     };
 
-    let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(projects, cli_opened_paths, Path::new(path))?;
-    root_guard::ensure_existing_file(&resolved, path)
+    let result = root_guard::resolve_owning_project_or_cli_opened(projects, cli_opened_paths, Path::new(path))
+        .and_then(|(_, resolved)| root_guard::ensure_existing_file(&resolved, path));
+
+    if let Err(error) = &result {
+        let reason = match error.kind() {
+            AppErrorKind::Forbidden => "프로젝트 경계 밖",
+            _ => "파일 부재",
+        };
+        log::warn!("파일 탭 열기 선검증 실패 (path={path}, 사유={reason}): {error}");
+    }
+
+    result
 }
 
 #[tauri::command]

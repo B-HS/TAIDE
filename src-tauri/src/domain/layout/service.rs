@@ -8,7 +8,7 @@ use super::types::{
     AuxWindowLayout, ClosedTab, DropEdge, PaneNode, ProjectLayout, ShellViewPatch, ShellViewState, SplitDir, Tab, TabKind, TabPathChange,
     TabPathMove, CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
 };
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::LayoutChanged;
 use crate::ids::{PaneId, ProjectId, TabId};
 use crate::infra::persist;
@@ -425,10 +425,48 @@ fn normalize_owned(node: PaneNode) -> PaneNode {
     }
 }
 
+/// The "that pane is gone" error the tab-open path answers with. Localized, unlike the other
+/// `pane not found` raises in this module, because this is the only one a user can reach without
+/// having done anything wrong: quick-open opens into the *focused* pane, and a layout whose
+/// focused pane was pruned used to surface the raw `pane not found: pane-<uuid>` string, which the
+/// frontend then read as "the file is missing" and invalidated its file index over
+/// (`docs/backlog.md`'s quick-open entry). [`resolve_default_open_pane`] removes the no-`target`
+/// half of that; this covers the remaining case, an explicit `target` naming a pane that closed
+/// between the caller reading the layout and this call.
+fn pane_not_found(pane_id: &PaneId) -> AppError {
+    AppError::localized(
+        AppErrorKind::NotFound,
+        "error.layout.paneNotFound",
+        format!("pane not found: {pane_id}"),
+    )
+    .with_arg("paneId", pane_id)
+}
+
+/// Which pane a tab-open with no explicit `target` lands in: the focused pane when it still exists,
+/// otherwise the first leaf of the main tree, with `focused_pane` repaired to match.
+///
+/// `normalize` can prune the pane `focused_pane` names (closing the last tab of a split half), and
+/// [`ensure_focused_pane_valid`] only runs on the persist path — so an in-memory layout could sit
+/// with a dangling `focused_pane` for the rest of the session and fail *every* subsequent
+/// `layout_open_tab` that did not name a target. Repairing here instead of erroring makes the
+/// window openable again on the first attempt rather than only after the next save/restore cycle.
+fn resolve_default_open_pane(layout: &mut ProjectLayout) -> PaneId {
+    if find_leaf(&layout.root, &layout.focused_pane).is_some() {
+        return layout.focused_pane.clone();
+    }
+
+    let stale = layout.focused_pane.clone();
+    ensure_focused_pane_valid(layout);
+    log::info!(
+        "focused_pane 이 트리에 없어 첫 leaf 로 폴백했습니다 (이전={stale}, 현재={})",
+        layout.focused_pane
+    );
+    layout.focused_pane.clone()
+}
+
 pub fn open_tab(layout: &mut ProjectLayout, pane_id: &PaneId, mut tab: Tab, preview: bool) -> AppResult<TabId> {
-    let tree = locate_tree_of_pane(layout, pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
-    let leaf =
-        find_leaf_mut(tree_root_mut(layout, tree), pane_id).ok_or_else(|| AppError::NotFound(format!("pane not found: {pane_id}")))?;
+    let tree = locate_tree_of_pane(layout, pane_id).ok_or_else(|| pane_not_found(pane_id))?;
+    let leaf = find_leaf_mut(tree_root_mut(layout, tree), pane_id).ok_or_else(|| pane_not_found(pane_id))?;
     let PaneNode::Leaf { tabs, active, .. } = leaf else {
         return Err(AppError::Internal("expected leaf pane".to_string()));
     };
@@ -1328,7 +1366,10 @@ pub async fn open_tab_and_finish(
     let layout = get_layout_mut(&mut layouts, &project_id)?;
 
     let preview = preview && state.settings.read().enable_preview_tabs;
-    let pane_id = target.unwrap_or_else(|| layout.focused_pane.clone());
+    let pane_id = match target {
+        Some(target) => target,
+        None => resolve_default_open_pane(layout),
+    };
     let tab = Tab {
         id: TabId::new(),
         kind,
@@ -2084,6 +2125,49 @@ mod tests {
         assert_eq!(tabs.len(), 1);
         assert_eq!(tabs[0].id, file_tab_id);
         assert_eq!(active, &Some(file_tab_id));
+    }
+
+    #[test]
+    fn focused_pane이_사라졌으면_첫_leaf로_폴백하고_focused_pane을_고친다() {
+        let mut layout = default_layout();
+        let stale = PaneId::new();
+        layout.focused_pane = stale.clone();
+
+        let resolved = resolve_default_open_pane(&mut layout);
+
+        let PaneNode::Leaf { id, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(&resolved, id);
+        assert_eq!(&layout.focused_pane, id);
+        assert_ne!(resolved, stale);
+        open_tab(&mut layout, &resolved, 파일_탭("a.rs"), false).expect("폴백한 pane 으로 탭이 열린다");
+    }
+
+    #[test]
+    fn focused_pane이_살아있으면_그대로_쓴다() {
+        let mut layout = default_layout();
+        let focused = layout.focused_pane.clone();
+
+        assert_eq!(resolve_default_open_pane(&mut layout), focused);
+        assert_eq!(layout.focused_pane, focused);
+    }
+
+    #[test]
+    fn 명시한_pane이_없으면_로케일_키가_붙은_notfound_다() {
+        let mut layout = default_layout();
+        let missing = PaneId::new();
+
+        let error = open_tab(&mut layout, &missing, 파일_탭("a.rs"), false).expect_err("열기 실패");
+
+        match error {
+            AppError::Localized(localized) => {
+                assert_eq!(localized.kind, AppErrorKind::NotFound);
+                assert_eq!(localized.key, "error.layout.paneNotFound");
+                assert_eq!(localized.args.get("paneId").map(String::as_str), Some(missing.as_str()));
+            }
+            other => panic!("로케일 키가 붙은 NotFound 여야 합니다: {other:?}"),
+        }
     }
 
     #[test]

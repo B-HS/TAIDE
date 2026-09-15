@@ -229,11 +229,18 @@ pub async fn search_list_files(state: State<'_, AppState>, project_id: ProjectId
     let _span = perf::span(SpanSlot::SearchListFiles);
     let root = project_root(&state, &project_id)?;
 
+    let started = std::time::Instant::now();
     let paths = tokio::task::spawn_blocking(move || service::list_project_files(&root))
         .await
         .map_err(|error| AppError::Internal(format!("list project files task failed: {error}")))?;
 
-    Ok(utf8_paths(paths))
+    let paths = utf8_paths(paths);
+    log::debug!(
+        "search_list_files 완료 (projectId={project_id}, 건수={}, 소요={}ms)",
+        paths.len(),
+        started.elapsed().as_millis()
+    );
+    Ok(paths)
 }
 
 /// Drops entries whose path is not valid UTF-8 instead of `to_string_lossy`-ing them. A lossy

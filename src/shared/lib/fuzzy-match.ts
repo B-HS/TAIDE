@@ -1,8 +1,13 @@
 const NOT_FOUND_INDEX = -1
+const LAST_ELEMENT_INDEX = -1
 const CONSECUTIVE_MATCH_BONUS = 5
 const MATCH_BASE_SCORE = 1
 const MAX_FUZZY_QUERY_TOKENS = 8
 const QUERY_TOKEN_SEPARATOR_PATTERN = /\s+/
+const NON_ASCII_CODE_UNIT_PATTERN = /[\u0080-\uffff]/
+const PATH_SEGMENT_SEPARATOR = '/'
+const ORDER_LEFT_FIRST = -1
+const ORDER_RIGHT_FIRST = 1
 
 export type FuzzyMatch = {
     score: number
@@ -58,7 +63,27 @@ export const fuzzyMatch = (query: string, target: string): FuzzyMatch | null => 
     return null
 }
 
-export type FuzzyRankedItem<T> = { item: T; match: FuzzyMatch }
+/**
+ * Unicode-normalizes one side of a match to NFC. macOS hands file paths back in NFD — a Hangul
+ * syllable or an accented Latin letter arrives decomposed — while every keyboard and IME produces
+ * NFC, and {@link fuzzyMatch} compares code points exactly, so a decomposed name matches nothing a
+ * user can type for it. Both the query and every candidate label go through here so the comparison
+ * happens in a single form.
+ *
+ * The ASCII guard is not an approximation: ASCII text is identical in all four normalization forms,
+ * so skipping `normalize` for it returns the same string while keeping the palette's hot path —
+ * thousands of ASCII paths rescanned on every keystroke — free of a per-candidate normalization pass.
+ */
+const toNormalizedForMatching = (value: string) => (NON_ASCII_CODE_UNIT_PATTERN.test(value) ? value.normalize('NFC') : value)
+
+/**
+ * `label` is the {@link toNormalizedForMatching}-normalized label the match was computed against, so
+ * it — not the string `getLabel` returned — is what `match.indices` index into. A renderer must
+ * highlight *this* string (the normalized and original forms look identical on screen); `item` stays
+ * the untouched source value, so anything acting on the result (opening a file by path) keeps the
+ * bytes the filesystem gave us.
+ */
+export type FuzzyRankedItem<T> = { item: T; match: FuzzyMatch; label: string }
 
 const splitQueryIntoTokens = (query: string) =>
     query
@@ -84,6 +109,35 @@ const matchQueryTokens = (queryTokens: string[], target: string) => {
 }
 
 /**
+ * Whether the match reaches into the label's last path segment — the filename for the palette's file
+ * mode, the whole label for one without a separator. `FuzzyMatch.indices` is ascending, so its last
+ * entry answers this without scanning.
+ */
+const matchesLastSegment = <T>({ label, match }: FuzzyRankedItem<T>) => {
+    const lastMatchedIndex = match.indices.at(LAST_ELEMENT_INDEX)
+    return lastMatchedIndex !== undefined && lastMatchedIndex > label.lastIndexOf(PATH_SEGMENT_SEPARATOR)
+}
+
+/**
+ * A total order over ranked results, so the same query always yields the same list. Score alone left
+ * every tie to the order the candidates arrived in, which for the file palette is the filesystem walk
+ * order: the `FILE_RESULT_LIMIT` cut in `command-palette.tsx` then kept a different subset of an
+ * equal-scoring set between runs, and the row a user aimed for appeared or vanished at random.
+ *
+ * The tiebreakers, in order: a match that reaches the last path segment wins (a filename hit is what
+ * the typist meant, not the same letters spread over directories), then the shorter label, then the
+ * label itself — which leaves only byte-identical labels tied, and `toSorted` keeps those in input
+ * order.
+ */
+const compareRankedItems = <T>(left: FuzzyRankedItem<T>, right: FuzzyRankedItem<T>) => {
+    if (left.match.score !== right.match.score) return right.match.score - left.match.score
+    const leftMatchesLastSegment = matchesLastSegment(left)
+    if (leftMatchesLastSegment !== matchesLastSegment(right)) return leftMatchesLastSegment ? ORDER_LEFT_FIRST : ORDER_RIGHT_FIRST
+    if (left.label.length !== right.label.length) return left.label.length - right.label.length
+    return left.label.localeCompare(right.label)
+}
+
+/**
  * Ranks `items` by fuzzy relevance to `query`, reading each item's label exactly once. The query is
  * split on whitespace into at most {@link MAX_FUZZY_QUERY_TOKENS} tokens (surplus tokens are
  * ignored): an empty or whitespace-only query keeps every item in its original order, a single token
@@ -92,17 +146,24 @@ const matchQueryTokens = (queryTokens: string[], target: string) => {
  * indices. Without this split a spaced query can never match the palette's file mode, whose labels
  * are project-relative paths: {@link fuzzyMatch} consumes the space as an ordinary character, so
  * `search panel` looks for a literal space that no path contains.
+ *
+ * Query and labels are matched in NFC ({@link toNormalizedForMatching}), and survivors are ordered by
+ * {@link compareRankedItems}. A query with no tokens skips that ordering entirely: every item scores
+ * 0, so the comparator's tiebreakers would rearrange an untouched list — the empty-query pass exists
+ * to hand the caller its own order back.
  */
 export const fuzzyFilter = <T>(query: string, items: T[], getLabel: (item: T) => string): FuzzyRankedItem<T>[] => {
-    const queryTokens = splitQueryIntoTokens(query)
+    const queryTokens = splitQueryIntoTokens(toNormalizedForMatching(query))
 
-    return items
+    const rankedItems = items
         .map((item) => {
-            const match = matchQueryTokens(queryTokens, getLabel(item))
-            return match ? { item, match } : null
+            const label = toNormalizedForMatching(getLabel(item))
+            const match = matchQueryTokens(queryTokens, label)
+            return match ? { item, match, label } : null
         })
         .filter((ranked): ranked is FuzzyRankedItem<T> => ranked !== null)
-        .toSorted((a, b) => b.match.score - a.match.score)
+
+    return queryTokens.length === 0 ? rankedItems : rankedItems.toSorted(compareRankedItems)
 }
 
 export type FuzzyHighlightSegment = { text: string; matched: boolean }

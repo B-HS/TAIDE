@@ -48,7 +48,7 @@ import { CommandPaletteWorkspaceSymbolGroup } from '@features/command-palette/co
 import { fileQueryOptions } from '@entities/file/file.query'
 import { activeProjectQueryOptions, projectQueryOptions } from '@entities/project/project.query'
 import { projectFilesQueryOptions } from '@entities/search/search.query'
-import { layoutQueryOptions, useOpenFileTab, useOpenTab, useReopenClosedTab } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenFileTab, useOpenTab, useOpenTerminalTab, useReopenClosedTab } from '@entities/layout/layout.query'
 import { requestReveal } from '@entities/editor/reveal-registry'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
@@ -124,6 +124,7 @@ export const CommandPalette = () => {
     })
     const { mutate: openTab } = useOpenTab(activeProjectId)
     const openFileTab = useOpenFileTab()
+    const openTerminalTab = useOpenTerminalTab(activeProjectId)
     const { mutate: reopenClosedTabMutate } = useReopenClosedTab(activeProjectId)
 
     const keymapOverrides = parseKeymapOverrides(settings?.keymapOverrides ?? null)
@@ -161,14 +162,6 @@ export const CommandPalette = () => {
     const closeAfterAction = () => {
         closedByActionRef.current = true
         handleOpenChange(false)
-    }
-
-    const openTerminalTab = () => {
-        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
-        openTab(
-            { projectId: activeProjectId, kind: { kind: 'terminal', sessionId: '' }, title: t('terminal.title'), target: null, preview: false },
-            { onError: (error) => toast.error(describeIpcError(error)) },
-        )
     }
 
     const openSettingsTab = () => {
@@ -322,7 +315,7 @@ export const CommandPalette = () => {
     }
 
     const openFile = (path: string) => {
-        if (!activeProjectId) return
+        if (!activeProjectId) return toast.info(t('app.openProjectFirst'))
         openFileTab({ projectId: activeProjectId, path, target: null, preview: true })
         closeAfterAction()
     }
@@ -427,12 +420,7 @@ export const CommandPalette = () => {
                             />
                         )}
                         {mode === 'files' && (
-                            <CommandPaletteFilesGroup
-                                files={filteredFiles}
-                                isRefreshing={isProjectFilesFetching}
-                                toProjectRelativePath={toProjectRelativePath}
-                                onOpenFile={openFile}
-                            />
+                            <CommandPaletteFilesGroup files={filteredFiles} isRefreshing={isProjectFilesFetching} onOpenFile={openFile} />
                         )}
                         {mode === 'symbol' && <CommandPaletteSymbolGroup symbols={filteredDocumentSymbols} onSelectSymbol={selectDocumentSymbol} />}
                         {mode === 'line' && (

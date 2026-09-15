@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { splitFileMatchForDisplay } from '@shared/lib/command-palette-file-match'
+import { fuzzyFilter } from '@shared/lib/fuzzy-match'
 
 describe('splitFileMatchForDisplay', () => {
     test('디렉토리가 있으면 파일명과 상위 경로로 나눈다', () => {
@@ -44,5 +45,26 @@ describe('splitFileMatchForDisplay', () => {
         expect(result.fileName).toBe('pane-node-view.tsx')
         expect(result.dirPathIndices).toEqual([0])
         expect(result.fileNameIndices).toEqual([1, 9])
+    })
+})
+
+/**
+ * The palette feeds this function `FuzzyRankedItem.label`, not a freshly derived relative path, so
+ * the split has to stay aligned with the offsets `fuzzyFilter` produced. macOS hands back decomposed
+ * (NFD) names, where one Hangul syllable occupies three code units instead of one — reading the
+ * indices against the raw path would move every highlight and, once a directory separator fell
+ * inside the shifted window, move characters across the filename/directory boundary.
+ */
+describe('splitFileMatchForDisplay + fuzzyFilter 인덱스 정합', () => {
+    test('NFD 경로를 NFC 질의로 찾아도 파일명 강조가 어긋나지 않는다', () => {
+        const composedPath = 'src/한글/문서.ts'
+        const [ranked] = fuzzyFilter('문서', [composedPath.normalize('NFD')], (path) => path)
+
+        const result = splitFileMatchForDisplay(ranked.label, ranked.match.indices)
+
+        expect(result.fileName).toBe('문서.ts')
+        expect(result.dirPath).toBe('src/한글')
+        expect(result.fileNameIndices).toEqual([0, 1])
+        expect(result.dirPathIndices).toEqual([])
     })
 })

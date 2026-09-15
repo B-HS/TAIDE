@@ -592,9 +592,29 @@ fn collect_project_files(root: &Path, query: &SearchQuery) -> Vec<PathBuf> {
 pub fn list_project_files(root: &Path) -> Vec<PathBuf> {
     build_walk(root, false)
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false))
+        .filter(is_indexable_file)
         .map(|entry| entry.into_path())
         .collect()
+}
+
+/// Whether one walk entry is a file [`list_project_files`] should index.
+///
+/// The walker does not follow symlinks, so `DirEntry::file_type` describes the *link*, not its
+/// target: a symlinked file answers `is_file() == false` and was silently missing from quick-open
+/// although opening it worked perfectly (`docs/acknowledge/2026-09-15-d58-usability-batch5-wave1-
+/// contract.md` §1.G G4). Only a symlink entry pays the extra `metadata` call to follow the link,
+/// and a broken one (metadata fails) stays excluded — the index's "every path here is openable"
+/// contract. A symlinked *directory* still answers `false` here and is still not descended into,
+/// so this cannot introduce a traversal cycle: it only reclassifies an entry the walk already
+/// visited.
+fn is_indexable_file(entry: &ignore::DirEntry) -> bool {
+    let Some(file_type) = entry.file_type() else {
+        return false;
+    };
+    if file_type.is_file() {
+        return true;
+    }
+    file_type.is_symlink() && std::fs::metadata(entry.path()).map(|metadata| metadata.is_file()).unwrap_or(false)
 }
 
 fn strip_line_terminator(chunk: &str) -> &str {
@@ -1045,6 +1065,25 @@ mod tests {
         let files = list_project_files(&fixture.root);
 
         assert!(files.iter().any(|path| path.ends_with("binary.bin")));
+    }
+
+    /// The walker reports a symlink's own type, not its target's, so a symlinked file used to be
+    /// filtered out of the quick-open index although opening it works — see
+    /// [`is_indexable_file`]. A symlink to a *directory* still must not be listed as a file, and a
+    /// broken symlink must not be listed at all (the index promises every path in it is openable).
+    #[test]
+    #[cfg(unix)]
+    fn 파일_심링크는_목록에_포함되고_디렉토리_심링크와_끊긴_링크는_제외된다() {
+        let fixture = build_fixture();
+        std::os::unix::fs::symlink(fixture.root.join("src").join("main.rs"), fixture.root.join("linked-main.rs")).unwrap();
+        std::os::unix::fs::symlink(fixture.root.join("src"), fixture.root.join("linked-src")).unwrap();
+        std::os::unix::fs::symlink(fixture.root.join("nowhere.rs"), fixture.root.join("linked-broken.rs")).unwrap();
+
+        let files = list_project_files(&fixture.root);
+
+        assert!(files.iter().any(|path| path.ends_with("linked-main.rs")), "found: {files:?}");
+        assert!(!files.iter().any(|path| path.ends_with("linked-src")));
+        assert!(!files.iter().any(|path| path.ends_with("linked-broken.rs")));
     }
 
     /// `respect_gitignore: false` is deliberate (see `list_project_files`'s doc comment) — a file

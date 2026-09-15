@@ -208,6 +208,78 @@ describe('fuzzyFilter', () => {
     })
 })
 
+describe('fuzzyFilter 동점 정렬', () => {
+    const rank = (query: string, paths: string[]) => fuzzyFilter(query, paths, (path) => path).map((ranked) => ranked.item)
+
+    test('점수가 같으면 파일명 매치가 디렉토리 매치보다 앞선다', () => {
+        const dirMatch = 'src/ab/x.ts'
+        const fileNameMatch = 'src/x/ab.ts'
+
+        expect(rank('ab', [dirMatch, fileNameMatch])).toEqual([fileNameMatch, dirMatch])
+        expect(rank('ab', [fileNameMatch, dirMatch])).toEqual([fileNameMatch, dirMatch])
+    })
+
+    test('점수·매치 위치가 같으면 짧은 라벨이 앞선다', () => {
+        expect(rank('ab', ['ab.tsx', 'ab.ts'])).toEqual(['ab.ts', 'ab.tsx'])
+        expect(rank('ab', ['ab.ts', 'ab.tsx'])).toEqual(['ab.ts', 'ab.tsx'])
+    })
+
+    test('길이까지 같으면 라벨 사전순으로 고정된다', () => {
+        expect(rank('ab', ['ab.ts', 'ab.js'])).toEqual(['ab.js', 'ab.ts'])
+        expect(rank('ab', ['ab.js', 'ab.ts'])).toEqual(['ab.js', 'ab.ts'])
+    })
+
+    test('같은 후보 집합은 입력 순서가 달라도 같은 순위를 낸다 — 파일 순회 순서가 상한 커트라인을 바꾸지 않는다', () => {
+        const paths = ['src/ab/x.ts', 'src/x/ab.ts', 'ab.ts', 'ab.js', 'a/b.ts']
+
+        expect(rank('ab', paths)).toEqual(rank('ab', paths.toReversed()))
+    })
+
+    test('빈 질의는 정렬하지 않고 입력 순서를 그대로 돌려준다', () => {
+        const paths = ['zzz.ts', 'a.ts', 'src/m.ts']
+
+        expect(rank('', paths)).toEqual(paths)
+        expect(rank('   ', paths)).toEqual(paths)
+    })
+})
+
+describe('fuzzyFilter 유니코드 정규화', () => {
+    const composedPath = 'src/한글/파일.ts'
+    const decomposedPath = composedPath.normalize('NFD')
+
+    test('NFD 라벨도 NFC 질의로 매칭된다', () => {
+        expect(decomposedPath).not.toBe(composedPath)
+        expect(fuzzyFilter('파일', [decomposedPath], (path) => path)).toHaveLength(1)
+    })
+
+    test('NFD 질의도 NFC 라벨을 찾는다', () => {
+        expect(fuzzyFilter('파일'.normalize('NFD'), [composedPath], (path) => path)).toHaveLength(1)
+    })
+
+    test('item 은 원본 그대로 두고 label 만 NFC 정규화본이다 — 열기는 디스크가 준 경로로 한다', () => {
+        const [ranked] = fuzzyFilter('파일', [decomposedPath], (path) => path)
+
+        expect(ranked.item).toBe(decomposedPath)
+        expect(ranked.label).toBe(composedPath)
+    })
+
+    test('매칭 인덱스는 label(정규화본) 기준이라 강조가 질의와 정확히 겹친다', () => {
+        const [ranked] = fuzzyFilter('파일', [decomposedPath], (path) => path)
+
+        expect(buildFuzzyHighlightSegments(ranked.label, ranked.match.indices)).toEqual([
+            { text: 'src/한글/', matched: false },
+            { text: '파일', matched: true },
+            { text: '.ts', matched: false },
+        ])
+    })
+
+    test('ASCII 라벨은 정규화를 거쳐도 동일 문자열이다', () => {
+        const [ranked] = fuzzyFilter('pnv', ['pane-node-view.tsx'], (path) => path)
+
+        expect(ranked.label).toBe('pane-node-view.tsx')
+    })
+})
+
 describe('buildFuzzyHighlightSegments', () => {
     test('매칭 인덱스가 없으면 전체를 비매칭 세그먼트 하나로 반환한다', () => {
         expect(buildFuzzyHighlightSegments('index.ts', [])).toEqual([{ text: 'index.ts', matched: false }])

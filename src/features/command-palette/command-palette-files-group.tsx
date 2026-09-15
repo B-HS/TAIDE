@@ -9,7 +9,6 @@ import { HighlightedText } from '@features/command-palette/highlighted-text'
 type CommandPaletteFilesGroupProps = {
     files: FuzzyRankedItem<string>[]
     isRefreshing: boolean
-    toProjectRelativePath: (path: string) => string
     onOpenFile: (path: string) => void
 }
 
@@ -20,8 +19,13 @@ type CommandPaletteFilesGroupProps = {
  * already open. The rows stay clickable throughout: `layout_open_tab` validates the path before it
  * opens a tab, so a row that went stale fails loudly instead of opening an empty editor, and
  * blocking the list would punish every open on a large project for a case that is already handled.
+ *
+ * A row renders `FuzzyRankedItem.label` — the NFC-normalized project-relative path the match indices
+ * belong to — and opens `item`, the untouched path the walk returned. Re-deriving the label here
+ * instead would put a decomposed (NFD) macOS path back on screen while the offsets still counted
+ * composed characters, sliding every highlight after the first decomposed syllable.
  */
-export const CommandPaletteFilesGroup: FC<CommandPaletteFilesGroupProps> = ({ files, isRefreshing, toProjectRelativePath, onOpenFile }) => {
+export const CommandPaletteFilesGroup: FC<CommandPaletteFilesGroupProps> = ({ files, isRefreshing, onOpenFile }) => {
     const { t } = useTranslation()
 
     return (
@@ -37,8 +41,8 @@ export const CommandPaletteFilesGroup: FC<CommandPaletteFilesGroupProps> = ({ fi
                     )}
                 </span>
             }>
-            {files.map(({ item: path, match }) => {
-                const { fileName, dirPath, fileNameIndices, dirPathIndices } = splitFileMatchForDisplay(toProjectRelativePath(path), match.indices)
+            {files.map(({ item: path, match, label }) => {
+                const { fileName, dirPath, fileNameIndices, dirPathIndices } = splitFileMatchForDisplay(label, match.indices)
                 return (
                     <CommandItem key={path} value={path} onSelect={() => onOpenFile(path)}>
                         <File className='size-4' />

@@ -265,6 +265,36 @@ mod tests {
         cleanup(&dir);
     }
 
+    /// The quick-open index lists a symlinked file inside the root (d-58 G4,
+    /// `search::service::is_indexable_file`), but the guard resolves symlinks before the
+    /// containment check — so a link whose *target* lives outside the root is listed and still
+    /// refused on open. The asymmetry is deliberate (`docs/features/command-palette.md` §3);
+    /// this pins the refusing half so a later "follow the link for the guard too" change cannot
+    /// quietly widen the boundary.
+    #[test]
+    #[cfg(unix)]
+    fn 루트_밖을_가리키는_심링크는_루트_안에_있어도_거부된다() {
+        let dir = temp_dir("root-guard-symlink");
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(dir.join("outside")).unwrap();
+
+        let outside = dir.join("outside").join("secret.txt");
+        std::fs::write(&outside, b"secret").unwrap();
+        let inside_link = root.join("linked-secret.txt");
+        std::os::unix::fs::symlink(&outside, &inside_link).unwrap();
+
+        let error = ensure_within_root(&root, &inside_link).expect_err("링크 대상이 루트 밖이면 거부해야 한다");
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
+
+        let mut projects = HashMap::new();
+        projects.insert(ProjectId::from("project-1".to_string()), make_project("project-1", &root));
+        let error = resolve_owning_project(&projects, &inside_link).expect_err("어떤 프로젝트 루트에도 속하지 않아야 한다");
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
+
+        cleanup(&dir);
+    }
+
     #[test]
     fn 루트_자신은_허용된다() {
         let dir = temp_dir("root-guard-self");

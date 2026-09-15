@@ -1,9 +1,12 @@
 import type { FC } from 'react'
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { toast } from 'sonner'
 import type { ProjectId } from '@shared/api/bindings'
 import { layoutQueryOptions } from '@entities/layout/layout.query'
+import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { IS_MAC } from '@shared/constants/platform'
 import { isPaneTreeEmpty, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { ErrorBoundary } from '@shared/ui/error-boundary'
@@ -36,10 +39,20 @@ const noop = () => {}
  * this project (`project_close` removes the project's `state.layouts` entry) while this auxiliary
  * window is still open on it. Without this branch the window would freeze on its last-known tree
  * forever, since the server has nothing left to serve and no further `LayoutChanged` will arrive.
+ *
+ * Also answers the two palette shortcuts this window cannot serve. `CommandPalette` is deliberately
+ * not mounted here (see above), so `⌘P`/`⌘⇧P` used to do nothing at all and read as a dead keyboard;
+ * claiming the two keymap ids and explaining the limitation in a toast keeps the window honest until
+ * the palette is rescoped per window.
  */
 export const AuxiliaryWindowShell: FC<AuxiliaryWindowShellProps> = ({ projectId, windowSlot }) => {
+    const { t } = useTranslation()
     const { data: layout, isError } = useQuery(layoutQueryOptions(projectId))
     const paneTree = layout ? resolveWindowPaneTree(layout, { kind: 'auxiliary', projectId, windowSlot }) : null
+
+    const notifyPaletteUnavailable = () => toast.info(t('palette.mainWindowOnly'))
+
+    useGlobalKeymap({ 'quick-open': notifyPaletteUnavailable, 'command-palette': notifyPaletteUnavailable })
 
     useEffect(() => {
         if (!isError && !layout) return
