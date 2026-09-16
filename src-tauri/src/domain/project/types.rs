@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::domain::layout::types::SplitDir;
-use crate::ids::{ProjectId, ShellSlotId};
+use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 
 pub const SESSION_SCHEMA_VERSION: u32 = 1;
 pub const PROJECT_SCHEMA_VERSION: u32 = 1;
@@ -179,6 +179,44 @@ pub struct OpenProjectInSlotRequest {
     pub edge: ShellSlotEdge,
 }
 
+/// A named, ordered bundle of projects in the sidebar (d-62 §1.C). A group is an organization of
+/// things the user *can* open, not a record of what is open: `session.projects` stays the single
+/// truth for both open-ness and the global sidebar order, and `members` is only a membership set —
+/// closing a project leaves it in its group, and only forgetting its record
+/// (`service::forget_recent_projects`, contract §0.1 S-7) takes it out.
+///
+/// `color` reuses `ProjectDisplay`'s palette (`service::sanitize_display_color`'s
+/// `graph.lane1..lane12` allow-list) rather than declaring a second color vocabulary, so a group
+/// header and a project icon can be tinted from the same theme tokens.
+///
+/// A project belongs to **at most one** group: `service::set_group_members` and
+/// `service::create_group` take a project away from whatever group held it before. Without that
+/// rule the sidebar would have to render the same project under two headers, and the contract's
+/// own "그룹에서 제거" context-menu item (§0.1 U-6) would have no single group to name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroup {
+    pub id: ProjectGroupId,
+    pub name: String,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub members: Vec<ProjectId>,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+/// What `project_group_open` answers with: `opened` lists the members this call actually opened, in
+/// the order it opened them (the first of them is the one that took focus), and `skipped` lists the
+/// members it deliberately passed over — already open, record gone from disk, root no longer a
+/// directory, or never reached because a shutdown interrupted the queue.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroupOpenResult {
+    pub opened: Vec<ProjectId>,
+    pub skipped: Vec<ProjectId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionState {
@@ -200,6 +238,11 @@ pub struct SessionState {
     pub focused_shell_slot: Option<ShellSlotId>,
     #[serde(default)]
     pub window_chrome: WindowChrome,
+    /// Sidebar project groups in display order — see [`ProjectGroup`]. `#[serde(default)]` reads a
+    /// session written before d-62 2c as "no groups", so this is another field addition rather than
+    /// a schema migration (`docs/data-model.md` §5's rule, §23).
+    #[serde(default)]
+    pub groups: Vec<ProjectGroup>,
 }
 
 impl Default for SessionState {
@@ -211,6 +254,7 @@ impl Default for SessionState {
             shell_slots: None,
             focused_shell_slot: None,
             window_chrome: WindowChrome::default(),
+            groups: Vec::new(),
         }
     }
 }

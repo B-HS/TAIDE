@@ -41,6 +41,7 @@ string_id!(ProjectId, "prj");
 string_id!(PaneId, "pane");
 string_id!(TabId, "tab");
 string_id!(ShellSlotId, "shellslot");
+string_id!(ProjectGroupId, "group");
 
 #[cfg(test)]
 mod tests {

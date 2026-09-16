@@ -6,17 +6,17 @@ use specta::Type;
 
 use crate::domain::layout::types::ShellViewState;
 use crate::error::{AppError, AppErrorKind, AppResult};
-use crate::ids::{ProjectId, ShellSlotId};
+use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::clock::now_epoch_ms;
 use crate::infra::home;
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
-use super::shell_slots;
 use super::types::{
-    CapabilityKind, Project, ProjectDisplay, ProjectDisplayPatch, ProjectRef, SessionShellState, SessionState, ShellSlotEdge, WindowChrome,
-    WindowChromePatch,
+    CapabilityKind, Project, ProjectDisplay, ProjectDisplayPatch, ProjectGroup, ProjectRef, SessionShellState, SessionState, ShellSlotEdge,
+    WindowChrome, WindowChromePatch,
 };
+use super::{groups, shell_slots};
 
 const BACKUP_SUFFIX: &str = ".bak";
 const PROJECTS_DIR_NAME: &str = "projects";
@@ -30,6 +30,11 @@ const DISPLAY_LABEL_MAX_CODEPOINTS: usize = 4;
 const DISPLAY_COLOR_TOKENS: &[&str] = &[
     "lane1", "lane2", "lane3", "lane4", "lane5", "lane6", "lane7", "lane8", "lane9", "lane10", "lane11", "lane12",
 ];
+/// Upper bound on a [`ProjectGroup`] name, measured in codepoints like
+/// [`DISPLAY_LABEL_MAX_CODEPOINTS`]. A group name is a sidebar header, not prose — this keeps one
+/// from pushing the project rail's layout around, and keeps `session.json` from growing a pasted
+/// document.
+const GROUP_NAME_MAX_CODEPOINTS: usize = 40;
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -653,6 +658,158 @@ pub fn set_project_display(
     save_session(paths, session)
 }
 
+fn group_invalid(field: &str) -> AppError {
+    AppError::localized(
+        AppErrorKind::InvalidArgument,
+        "error.projectGroup.invalid",
+        format!("invalid project group value for field: {field}"),
+    )
+}
+
+fn group_not_found(group_id: &ProjectGroupId) -> AppError {
+    AppError::NotFound(format!("project group not found: {group_id}"))
+}
+
+/// A sidebar header string: control characters are dropped and the result trimmed before the length
+/// is measured (so a pasted newline is corrected rather than rejected), and a name that is empty
+/// once cleaned is refused — unlike a display label, an unnamed group has nothing to click on.
+fn sanitize_group_name(value: &str) -> AppResult<String> {
+    let cleaned: String = value.chars().filter(|character| !character.is_control()).collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > GROUP_NAME_MAX_CODEPOINTS {
+        return Err(group_invalid("name"));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn sanitize_group_color(value: Option<&str>) -> AppResult<Option<String>> {
+    match value {
+        None => Ok(None),
+        Some(token) => sanitize_display_color(token).map_err(|_| group_invalid("color")),
+    }
+}
+
+/// Every project this desktop has a persisted record for — the membership vocabulary. Groups
+/// organize what the user *can* open, so a closed project is a perfectly good member (its
+/// `projects/<id>/` directory is still there); only an id with no record at all is refused, which is
+/// also why [`forget_recent_projects`] is the one thing that evicts a member.
+fn known_project_ids(paths: &AppPaths) -> AppResult<HashSet<ProjectId>> {
+    Ok(iter_project_ids(paths)?.into_iter().collect())
+}
+
+/// Dedupes `members` and refuses any id with no persisted project record. Refusing rather than
+/// silently dropping is what keeps a stale client list from quietly shrinking a group the user
+/// still sees — the caller gets an error and re-reads, instead of a half-applied write.
+fn normalize_group_members(paths: &AppPaths, members: Vec<ProjectId>) -> AppResult<Vec<ProjectId>> {
+    let known = known_project_ids(paths)?;
+    let deduped = groups::dedupe_members(members);
+    if let Some(unknown) = deduped.iter().find(|project_id| !known.contains(project_id)) {
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.projectGroup.memberUnknown",
+            format!("project group member has no persisted record: {unknown}"),
+        ));
+    }
+    Ok(deduped)
+}
+
+pub fn list_groups(session: &SessionState) -> Vec<ProjectGroup> {
+    session.groups.clone()
+}
+
+/// The root `project_group_open` should open a member at, or `None` when the member cannot be
+/// opened: its record is gone, unreadable, or names a root that is no longer a directory. Read-only
+/// on purpose — this runs for every member of a group before anything is opened, so it uses the same
+/// never-writes path [`list_recent_projects`] does rather than `load_project`'s quarantining one.
+pub fn group_member_root(paths: &AppPaths, project_id: &ProjectId) -> Option<String> {
+    let project = try_load_project_readonly(paths, project_id)?;
+    Path::new(&project.root).is_dir().then_some(project.root)
+}
+
+/// The members of one group, in the user's own order — the queue `project_group_open` walks.
+pub fn group_members(session: &SessionState, group_id: &ProjectGroupId) -> AppResult<Vec<ProjectId>> {
+    groups::find(&session.groups, group_id)
+        .map(|group| group.members.clone())
+        .ok_or_else(|| group_not_found(group_id))
+}
+
+pub fn create_group(
+    paths: &AppPaths,
+    session: &mut SessionState,
+    name: &str,
+    color: Option<&str>,
+    members: Option<Vec<ProjectId>>,
+) -> AppResult<ProjectGroup> {
+    let group = ProjectGroup {
+        id: ProjectGroupId::new(),
+        name: sanitize_group_name(name)?,
+        color: sanitize_group_color(color)?,
+        members: normalize_group_members(paths, members.unwrap_or_default())?,
+        collapsed: false,
+    };
+
+    groups::claim_members(&mut session.groups, &group.id, &group.members);
+    session.groups.push(group.clone());
+    save_session(paths, session)?;
+    Ok(group)
+}
+
+pub fn rename_group(paths: &AppPaths, session: &mut SessionState, group_id: &ProjectGroupId, name: &str) -> AppResult<()> {
+    let name = sanitize_group_name(name)?;
+    let group = groups::find_mut(&mut session.groups, group_id).ok_or_else(|| group_not_found(group_id))?;
+    group.name = name;
+    save_session(paths, session)
+}
+
+pub fn set_group_color(paths: &AppPaths, session: &mut SessionState, group_id: &ProjectGroupId, color: Option<&str>) -> AppResult<()> {
+    let color = sanitize_group_color(color)?;
+    let group = groups::find_mut(&mut session.groups, group_id).ok_or_else(|| group_not_found(group_id))?;
+    group.color = color;
+    save_session(paths, session)
+}
+
+pub fn set_group_collapsed(paths: &AppPaths, session: &mut SessionState, group_id: &ProjectGroupId, collapsed: bool) -> AppResult<()> {
+    let group = groups::find_mut(&mut session.groups, group_id).ok_or_else(|| group_not_found(group_id))?;
+    group.collapsed = collapsed;
+    save_session(paths, session)
+}
+
+/// Deletes the group itself and nothing else: its members stay open, stay in `session.projects`, and
+/// keep their own records. A group is an organization of projects, never their owner.
+pub fn delete_group(paths: &AppPaths, session: &mut SessionState, group_id: &ProjectGroupId) -> AppResult<()> {
+    if groups::find(&session.groups, group_id).is_none() {
+        return Err(group_not_found(group_id));
+    }
+    session.groups.retain(|group| &group.id != group_id);
+    save_session(paths, session)
+}
+
+/// Replaces one group's membership wholesale, taking each named project away from whatever other
+/// group held it (the one-group-per-project rule on [`ProjectGroup`]). The whole list is validated
+/// before anything is assigned, so a rejected member leaves every group exactly as it was.
+pub fn set_group_members(
+    paths: &AppPaths,
+    session: &mut SessionState,
+    group_id: &ProjectGroupId,
+    members: Vec<ProjectId>,
+) -> AppResult<()> {
+    if groups::find(&session.groups, group_id).is_none() {
+        return Err(group_not_found(group_id));
+    }
+    let members = normalize_group_members(paths, members)?;
+
+    groups::claim_members(&mut session.groups, group_id, &members);
+    if let Some(group) = groups::find_mut(&mut session.groups, group_id) {
+        group.members = members;
+    }
+    save_session(paths, session)
+}
+
+pub fn reorder_groups(paths: &AppPaths, session: &mut SessionState, ids: &[ProjectGroupId]) -> AppResult<()> {
+    session.groups = groups::reorder(std::mem::take(&mut session.groups), ids);
+    save_session(paths, session)
+}
+
 pub fn migrate_session(value: serde_json::Value) -> AppResult<SessionState> {
     let session: SessionState = serde_json::from_value(value)?;
     Ok(session)
@@ -808,6 +965,17 @@ pub fn list_recent_projects(paths: &AppPaths) -> AppResult<Vec<Project>> {
     Ok(projects)
 }
 
+/// What one [`forget_recent_projects`] call did. The two answers are deliberately separate: most
+/// calls delete records that no group ever listed, so `removed` being non-zero says nothing about
+/// whether the sidebar's groups moved. `project_forget_recent` emits `ProjectGroupsChanged` only
+/// when `groups_changed` is true — every window re-reads its group query on that event, and a
+/// clear-recent that touched no membership has nothing for them to re-read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForgetRecentOutcome {
+    pub removed: usize,
+    pub groups_changed: bool,
+}
+
 /// Deletes the persisted record (`projects/<id>/`) of every project that is **not** currently open,
 /// and answers how many were removed — what `File > Clear Recent` and the sidebar's equivalent
 /// mean by "clear": the recent list is derived from those records ([`list_recent_projects`]), so
@@ -821,19 +989,42 @@ pub fn list_recent_projects(paths: &AppPaths) -> AppResult<Vec<Project>> {
 /// A directory that fails to delete is logged and skipped rather than failing the whole call —
 /// same per-entry tolerance as [`list_recent_projects`], since a half-cleared list is still a
 /// better answer than an error that clears nothing.
-pub fn forget_recent_projects(paths: &AppPaths, open_project_ids: &HashSet<ProjectId>) -> AppResult<usize> {
-    let mut removed = 0usize;
+///
+/// Group membership is cleaned in the same call (contract §0.1 S-7): a forgotten project has no
+/// record left to re-open, so leaving it listed under a group header would draw a member that
+/// resolves to nothing. Only the ids this call actually deleted are evicted — a member whose record
+/// was already missing for some other reason is left alone rather than silently pruned here, the
+/// same restraint `normalize_shell_slots` shows by reconciling only at restore. The session is
+/// rewritten only when a group really changed, so the common "nothing to forget" call still writes
+/// nothing — and [`ForgetRecentOutcome::groups_changed`] hands that same answer back, so the caller
+/// does not have to re-derive it to decide whether a group event is worth emitting.
+pub fn forget_recent_projects(
+    paths: &AppPaths,
+    session: &mut SessionState,
+    open_project_ids: &HashSet<ProjectId>,
+) -> AppResult<ForgetRecentOutcome> {
+    let mut forgotten: HashSet<ProjectId> = HashSet::new();
     for id in iter_project_ids(paths)? {
         if open_project_ids.contains(&id) {
             continue;
         }
         match std::fs::remove_dir_all(paths.project_dir(&id)) {
-            Ok(()) => removed += 1,
+            Ok(()) => {
+                forgotten.insert(id);
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => log::warn!("최근 프로젝트 레코드를 지우지 못했습니다 (projectId={id}): {error}"),
         }
     }
-    Ok(removed)
+
+    let groups_changed = groups::forget_members(&mut session.groups, &forgotten);
+    if groups_changed {
+        save_session(paths, session)?;
+    }
+    Ok(ForgetRecentOutcome {
+        removed: forgotten.len(),
+        groups_changed,
+    })
 }
 
 /// The persisted record of a previously-opened project at `root`, if any — `open_project` reuses
@@ -920,9 +1111,14 @@ mod tests {
         save_project(&paths, &closed).expect("닫힌 프로젝트 저장");
 
         let open_ids: HashSet<ProjectId> = [open.id.clone()].into_iter().collect();
-        let removed = forget_recent_projects(&paths, &open_ids).expect("최근 기록 삭제");
+        let mut session = SessionState::default();
+        let outcome = forget_recent_projects(&paths, &mut session, &open_ids).expect("최근 기록 삭제");
 
-        assert_eq!(removed, 1);
+        assert_eq!(outcome.removed, 1);
+        assert!(
+            !outcome.groups_changed,
+            "그룹이 없으면 레코드를 지워도 그룹 변경으로 보고하면 안 됩니다 — 호출부가 groups-changed 를 발행합니다"
+        );
         assert!(paths.project_dir(&open.id).exists());
         assert!(!paths.project_dir(&closed.id).exists());
         assert_eq!(
@@ -941,9 +1137,11 @@ mod tests {
     fn 최근_기록_삭제는_지울_레코드가_없으면_0을_돌려준다() {
         let paths = temp_paths();
 
-        let removed = forget_recent_projects(&paths, &HashSet::new()).expect("최근 기록 삭제");
+        let mut session = SessionState::default();
+        let outcome = forget_recent_projects(&paths, &mut session, &HashSet::new()).expect("최근 기록 삭제");
 
-        assert_eq!(removed, 0);
+        assert_eq!(outcome.removed, 0);
+        assert!(!outcome.groups_changed);
 
         cleanup(&paths);
     }
@@ -2155,6 +2353,283 @@ mod tests {
         assert!(chrome.zen);
         assert!(!chrome.sidebar_rail_collapsed);
 
+        cleanup(&paths);
+    }
+    fn seed_project_record(paths: &AppPaths, name: &str) -> ProjectId {
+        let project = Project {
+            id: ProjectId::new(),
+            root: format!("/tmp/{name}"),
+            name: name.to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: ProjectDisplay::default(),
+        };
+        save_project(paths, &project).expect("프로젝트 레코드 저장");
+        project.id
+    }
+
+    #[test]
+    fn 그룹_생성은_이름과_색과_멤버를_저장하고_세션_왕복에서_살아남는다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let first = seed_project_record(&paths, "alpha");
+        let second = seed_project_record(&paths, "beta");
+
+        let created = create_group(
+            &paths,
+            &mut session,
+            "  백엔드  ",
+            Some("lane3"),
+            Some(vec![first.clone(), second.clone(), first.clone()]),
+        )
+        .expect("그룹 생성");
+
+        assert_eq!(created.name, "백엔드", "이름은 트림돼 저장된다");
+        assert_eq!(created.color.as_deref(), Some("lane3"));
+        assert_eq!(created.members, vec![first.clone(), second.clone()], "중복 멤버는 제거된다");
+        assert!(!created.collapsed);
+
+        let (restored, _) = load_session(&paths).expect("세션 로드");
+        assert_eq!(restored.groups, vec![created], "그룹은 session.json 왕복에서 그대로다");
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 구버전_세션에는_그룹이_없고_기본값으로_읽힌다() {
+        let session: SessionState = serde_json::from_str(r#"{"version":1,"projects":[],"activeProject":null}"#).expect("구버전 세션");
+
+        assert!(session.groups.is_empty(), "groups 가 없던 세션도 마이그레이션 없이 읽혀야 합니다");
+    }
+
+    #[test]
+    fn 그룹_이름과_색은_규격을_벗어나면_거부된다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+
+        let blank = create_group(&paths, &mut session, "   ", None, None).expect_err("빈 이름은 거부");
+        let AppError::Localized(localized) = &blank else {
+            panic!("로케일 키가 있는 에러여야 한다");
+        };
+        assert_eq!(localized.key, "error.projectGroup.invalid");
+        assert_eq!(localized.kind, AppErrorKind::InvalidArgument);
+
+        let long = "가".repeat(GROUP_NAME_MAX_CODEPOINTS + 1);
+        assert!(
+            create_group(&paths, &mut session, &long, None, None).is_err(),
+            "상한 초과 이름은 거부"
+        );
+        assert!(
+            create_group(&paths, &mut session, "그룹", Some("crimson"), None).is_err(),
+            "팔레트 밖 색은 거부"
+        );
+        assert!(session.groups.is_empty(), "거부된 생성은 아무것도 남기지 않는다");
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 그룹_멤버는_레코드가_없는_아이디를_거부한다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let known = seed_project_record(&paths, "alpha");
+        let group = create_group(&paths, &mut session, "그룹", None, Some(vec![known.clone()])).expect("그룹 생성");
+
+        let error = set_group_members(
+            &paths,
+            &mut session,
+            &group.id,
+            vec![known.clone(), ProjectId::from("prj-ghost".to_string())],
+        )
+        .expect_err("없는 프로젝트는 멤버가 될 수 없다");
+
+        let AppError::Localized(localized) = &error else {
+            panic!("로케일 키가 있는 에러여야 한다");
+        };
+        assert_eq!(localized.key, "error.projectGroup.memberUnknown");
+        assert_eq!(localized.kind, AppErrorKind::InvalidArgument);
+        assert_eq!(
+            session.groups[0].members,
+            vec![known],
+            "거부된 멤버 변경은 기존 멤버십을 그대로 둔다"
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 프로젝트는_한_그룹에만_속한다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let shared = seed_project_record(&paths, "shared");
+        let old = create_group(&paths, &mut session, "이전", None, Some(vec![shared.clone()])).expect("이전 그룹");
+        let new = create_group(&paths, &mut session, "새", None, None).expect("새 그룹");
+
+        set_group_members(&paths, &mut session, &new.id, vec![shared.clone()]).expect("멤버 이동");
+
+        assert!(
+            groups::find(&session.groups, &old.id).expect("이전 그룹").members.is_empty(),
+            "이전 그룹에서 빠져야 합니다"
+        );
+        assert_eq!(groups::find(&session.groups, &new.id).expect("새 그룹").members, vec![shared]);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 그룹_이름_색_접힘_변경은_영속화된다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let group = create_group(&paths, &mut session, "처음", Some("lane1"), None).expect("그룹 생성");
+
+        rename_group(&paths, &mut session, &group.id, "나중").expect("이름 변경");
+        set_group_color(&paths, &mut session, &group.id, None).expect("색 해제");
+        set_group_collapsed(&paths, &mut session, &group.id, true).expect("접기");
+
+        let (restored, _) = load_session(&paths).expect("세션 로드");
+        let stored = &restored.groups[0];
+        assert_eq!(stored.name, "나중");
+        assert_eq!(stored.color, None);
+        assert!(stored.collapsed);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 없는_그룹을_바꾸거나_지우면_notfound_다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let missing = ProjectGroupId::from("group-missing".to_string());
+
+        assert_eq!(
+            rename_group(&paths, &mut session, &missing, "이름").expect_err("없는 그룹").kind(),
+            AppErrorKind::NotFound
+        );
+        assert_eq!(
+            delete_group(&paths, &mut session, &missing).expect_err("없는 그룹").kind(),
+            AppErrorKind::NotFound
+        );
+        assert_eq!(
+            group_members(&session, &missing).expect_err("없는 그룹").kind(),
+            AppErrorKind::NotFound
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 그룹_삭제는_멤버_프로젝트를_건드리지_않는다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let member = seed_project_record(&paths, "member");
+        let group = create_group(&paths, &mut session, "그룹", None, Some(vec![member.clone()])).expect("그룹 생성");
+
+        delete_group(&paths, &mut session, &group.id).expect("그룹 삭제");
+
+        assert!(session.groups.is_empty());
+        assert!(paths.project_dir(&member).exists(), "그룹을 지워도 프로젝트 레코드는 남는다");
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 그룹_재정렬은_지정_순서를_따르고_누락분을_뒤에_붙인다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let first = create_group(&paths, &mut session, "첫", None, None).expect("첫 그룹");
+        let second = create_group(&paths, &mut session, "둘", None, None).expect("둘 그룹");
+        let third = create_group(&paths, &mut session, "셋", None, None).expect("셋 그룹");
+
+        reorder_groups(&paths, &mut session, &[third.id.clone(), first.id.clone()]).expect("재정렬");
+
+        let (restored, _) = load_session(&paths).expect("세션 로드");
+        assert_eq!(
+            restored.groups.into_iter().map(|group| group.id).collect::<Vec<_>>(),
+            vec![third.id, first.id, second.id]
+        );
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 최근_기록_삭제는_그룹_멤버십도_정리하고_저장한다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let kept = seed_project_record(&paths, "kept");
+        let forgotten = seed_project_record(&paths, "forgotten");
+        let group = create_group(&paths, &mut session, "그룹", None, Some(vec![kept.clone(), forgotten.clone()])).expect("그룹 생성");
+
+        let open_ids: HashSet<ProjectId> = [kept.clone()].into_iter().collect();
+        let outcome = forget_recent_projects(&paths, &mut session, &open_ids).expect("최근 기록 삭제");
+
+        assert_eq!(outcome.removed, 1);
+        assert!(outcome.groups_changed, "멤버십이 정리됐으면 그룹 변경으로 보고해야 합니다");
+        assert_eq!(session.groups[0].members, vec![kept.clone()]);
+
+        let (restored, _) = load_session(&paths).expect("세션 로드");
+        assert_eq!(
+            restored.groups[0].members,
+            vec![kept],
+            "정리된 멤버십이 session.json 에도 저장돼야 합니다"
+        );
+        assert_eq!(restored.groups[0].id, group.id);
+
+        cleanup(&paths);
+    }
+
+    /// 계약 §3 B-1 — `project_forget_recent` 는 이 답으로 `ProjectGroupsChanged` 발행 여부를 가른다.
+    /// 그룹이 있어도 지워진 프로젝트가 아무 그룹의 멤버가 아니면 사이드바에 바뀐 것이 없으므로
+    /// 변경 없음으로 보고해야 한다(그러면 세션 재저장도 없다).
+    #[test]
+    fn 최근_기록_삭제가_어느_그룹의_멤버도_건드리지_않으면_변경_없음이다() {
+        let paths = temp_paths();
+        let mut session = SessionState::default();
+        let member = seed_project_record(&paths, "member");
+        let outsider = seed_project_record(&paths, "outsider");
+        create_group(&paths, &mut session, "그룹", None, Some(vec![member.clone()])).expect("그룹 생성");
+
+        let open_ids: HashSet<ProjectId> = [member.clone()].into_iter().collect();
+        let outcome = forget_recent_projects(&paths, &mut session, &open_ids).expect("최근 기록 삭제");
+
+        assert_eq!(outcome.removed, 1, "그룹 밖 레코드는 지워져야 합니다");
+        assert!(
+            !outcome.groups_changed,
+            "지운 프로젝트가 어느 그룹에도 없으면 그룹 변경으로 보고하면 안 됩니다"
+        );
+        assert!(!paths.project_dir(&outsider).exists());
+        assert_eq!(session.groups[0].members, vec![member]);
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 그룹_멤버_루트는_레코드와_실재하는_디렉토리일_때만_해소된다() {
+        let paths = temp_paths();
+        let workspace = std::env::temp_dir().join(format!("taide-group-root-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).expect("작업 디렉토리 생성");
+
+        let present = Project {
+            id: ProjectId::new(),
+            root: workspace.to_string_lossy().to_string(),
+            name: "present".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: ProjectDisplay::default(),
+        };
+        save_project(&paths, &present).expect("프로젝트 저장");
+        let gone = seed_project_record(&paths, "gone-from-disk");
+
+        assert_eq!(group_member_root(&paths, &present.id), Some(present.root.clone()));
+        assert_eq!(group_member_root(&paths, &gone), None, "루트가 없으면 열 수 없다");
+        assert_eq!(
+            group_member_root(&paths, &ProjectId::from("prj-ghost".to_string())),
+            None,
+            "레코드가 없으면 열 수 없다"
+        );
+
+        std::fs::remove_dir_all(&workspace).ok();
         cleanup(&paths);
     }
 }

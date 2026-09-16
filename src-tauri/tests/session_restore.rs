@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use taide_lib::domain::layout::service as layout_service;
@@ -6,6 +6,7 @@ use taide_lib::domain::layout::types::{DropEdge, PaneNode, TabKind};
 use taide_lib::domain::project::service as project_service;
 use taide_lib::domain::project::shell_slots;
 use taide_lib::domain::project::types::{CapabilityKind, SessionState, ShellSlotEdge};
+use taide_lib::ids::ProjectId;
 use taide_lib::paths::AppPaths;
 
 fn detect_terminal_only(_root: &Path) -> Vec<CapabilityKind> {
@@ -310,4 +311,61 @@ fn 슬롯_분할은_세션_파일을_거쳐_복원되고_결손_리프는_정규
         "세션에 없는 프로젝트를 가리키던 리프는 복원 정규화에서 사라진다"
     );
     assert_eq!(normalized.active_project, Some(first_opened.project.id));
+}
+
+/// d-62 2c — a group is sidebar organization, so it has to survive a restart, keep holding a
+/// project the user closed, and lose one whose record `project_forget_recent` deleted.
+#[test]
+fn 그룹은_세션_파일을_거쳐_복원되고_닫힌_멤버를_유지하되_forget_된_멤버는_잃는다() {
+    let data = TempDir::new("data-groups");
+    let paths = AppPaths::new(data.path().clone());
+    let kept = TempDir::new("ws-group-kept");
+    let forgotten = TempDir::new("ws-group-forgotten");
+
+    let mut session = SessionState::default();
+    let mut projects = HashMap::new();
+
+    let kept_opened =
+        project_service::open_project(&paths, &mut session, &mut projects, kept.path(), true, detect_terminal_only).expect("open kept");
+    let forgotten_opened =
+        project_service::open_project(&paths, &mut session, &mut projects, forgotten.path(), false, detect_terminal_only)
+            .expect("open forgotten");
+
+    let group = project_service::create_group(
+        &paths,
+        &mut session,
+        "작업 묶음",
+        Some("lane2"),
+        Some(vec![kept_opened.project.id.clone(), forgotten_opened.project.id.clone()]),
+    )
+    .expect("그룹 생성");
+
+    project_service::close_project(&paths, &mut session, &mut projects, &forgotten_opened.project.id).expect("멤버 닫기");
+
+    let (restored, _, _) = project_service::restore_session(&paths).expect("restore");
+    assert_eq!(restored.groups.len(), 1);
+    assert_eq!(restored.groups[0].id, group.id);
+    assert_eq!(restored.groups[0].color.as_deref(), Some("lane2"));
+    assert_eq!(
+        restored.groups[0].members,
+        vec![kept_opened.project.id.clone(), forgotten_opened.project.id.clone()],
+        "닫힌 프로젝트도 그룹 멤버로 남아야 합니다"
+    );
+
+    let mut after_forget = restored;
+    let open_ids: HashSet<ProjectId> = [kept_opened.project.id.clone()].into_iter().collect();
+    let outcome = project_service::forget_recent_projects(&paths, &mut after_forget, &open_ids).expect("최근 기록 삭제");
+
+    assert_eq!(outcome.removed, 1);
+    assert!(
+        outcome.groups_changed,
+        "그룹 멤버가 빠졌으면 호출부가 groups-changed 를 발행하도록 변경으로 보고해야 합니다"
+    );
+
+    let (reloaded, _, _) = project_service::restore_session(&paths).expect("restore after forget");
+    assert_eq!(
+        reloaded.groups[0].members,
+        vec![kept_opened.project.id],
+        "레코드가 사라진 멤버는 그룹에서도 빠져야 합니다"
+    );
 }

@@ -29,6 +29,12 @@ export const commands = {
 	 *  re-reads its project queries — and so `lib.rs`'s listener rebuilds the native `File > Open
 	 *  Recent` menu that listed them.
 	 * 
+	 *  `ProjectGroupsChanged` follows **only when a forgotten project was actually listed under a
+	 *  group** (`ForgetRecentOutcome::groups_changed`, contract §3 B-1): the groups are untouched in the
+	 *  ordinary clear-recent call, and telling every window to re-read a group list that did not change
+	 *  is both noise and a contradiction of `docs/ipc-contract.md`, which documents this event as the
+	 *  membership-cleanup half of the call.
+	 * 
 	 *  Deliberately **not** remote-reachable, for the same reason as `project_list_recent`: the recent
 	 *  list is local-desktop history (`RemoteDenialPolicy::LocalProjectHistoryExposure`), and a remote
 	 *  session that cannot read it has no business destroying it either.
@@ -78,6 +84,62 @@ export const commands = {
 	 *  path the remote session cannot already see.
 	 */
 	projectSetDisplay: (projectId: ProjectId, patch: ProjectDisplayPatch) => typedError<null, AppError>(__TAURI_INVOKE("project_set_display", { projectId, patch })),
+	/**
+	 *  Every sidebar project group, for a window that just mounted — [`ProjectGroupsChanged`] only fires
+	 *  at a transition, the same gap `project_get_active`/`session_get_shell_state` exist to close.
+	 */
+	projectGroupList: () => typedError<ProjectGroup[], AppError>(__TAURI_INVOKE("project_group_list")),
+	/**
+	 *  Creates a sidebar group. `members` may name projects that are merely *known* (a persisted
+	 *  `projects/<id>/` record) rather than currently open — a group organizes what the user can open —
+	 *  and any member that belonged to another group is moved out of it, since a project belongs to at
+	 *  most one group (`types::ProjectGroup`).
+	 */
+	projectGroupCreate: (name: string, color: string | null, members: ProjectId[] | null) => typedError<ProjectGroup, AppError>(__TAURI_INVOKE("project_group_create", { name, color, members })),
+	projectGroupRename: (groupId: ProjectGroupId, name: string) => typedError<null, AppError>(__TAURI_INVOKE("project_group_rename", { groupId, name })),
+	/**
+	 *  Sets (or, with `color: null`, clears) the group header's tint. The token vocabulary is
+	 *  `ProjectDisplay`'s own `lane1..lane12` palette — see `service::sanitize_display_color`.
+	 */
+	projectGroupSetColor: (groupId: ProjectGroupId, color: string | null) => typedError<null, AppError>(__TAURI_INVOKE("project_group_set_color", { groupId, color })),
+	/**
+	 *  Persists whether the group's members are folded away in the sidebar. Its own command rather than
+	 *  frontend-local state because `ProjectGroup.collapsed` lives in `session.json` — a fold the user
+	 *  makes has to survive a restart and reach every window, like every other group axis.
+	 */
+	projectGroupSetCollapsed: (groupId: ProjectGroupId, collapsed: boolean) => typedError<null, AppError>(__TAURI_INVOKE("project_group_set_collapsed", { groupId, collapsed })),
+	/**
+	 *  Replaces a group's membership wholesale — the backing call for both "그룹에 추가" and "그룹에서
+	 *  제거" (contract §0.1 U-6), which are the same write with a different list. Nothing is opened or
+	 *  closed by this: membership and open-ness are separate axes (`session.projects` owns the latter).
+	 */
+	projectGroupSetMembers: (groupId: ProjectGroupId, members: ProjectId[]) => typedError<null, AppError>(__TAURI_INVOKE("project_group_set_members", { groupId, members })),
+	/**
+	 *  Deletes the group only — its members stay open and keep their records, exactly as
+	 *  `project_close` leaves a project's record behind.
+	 */
+	projectGroupDelete: (groupId: ProjectGroupId) => typedError<null, AppError>(__TAURI_INVOKE("project_group_delete", { groupId })),
+	projectGroupReorder: (ids: ProjectGroupId[]) => typedError<null, AppError>(__TAURI_INVOKE("project_group_reorder", { ids })),
+	/**
+	 *  Opens one group's members in the user's own member order. The first member this call actually
+	 *  opens takes focus; every later one is opened with `activate: false` (contract §0.1 S-2) so the
+	 *  queue never yanks the user between projects as it progresses — each member's arrival shows up as
+	 *  a `ProjectListChanged`, which is all the sidebar needs. "Actually opens" is enforced by
+	 *  [`run_group_open_plan`], not by the plan alone: a member whose open fails focuses nothing, so the
+	 *  activation passes to the next member that succeeds.
+	 * 
+	 *  Three kinds of member are passed over rather than failing the call, and every one of them comes
+	 *  back in `skipped`: a member that is already open (opening it again would only steal focus), a
+	 *  member whose record or root is gone (contract §0.1 S-7 — logged and stepped over), and a member
+	 *  an open failure or a shutdown stopped this call from reaching. `is_shutting_down` is re-checked
+	 *  per member and stays set once tripped, so the first member that sees it ends the real work and
+	 *  every remaining member is reported as skipped rather than silently dropped.
+	 * 
+	 *  Sequential rather than concurrent: each member's open takes the app-wide mutation guard and its
+	 *  capability attach walks the whole working tree, the same reason `restore_project_watchers`
+	 *  attaches one project at a time.
+	 */
+	projectGroupOpen: (groupId: ProjectGroupId) => typedError<ProjectGroupOpenResult, AppError>(__TAURI_INVOKE("project_group_open", { groupId })),
 	/**
 	 *  Opens a project **into a named shell slot** — the split half of d-62. Either `path` (a folder
 	 *  that may not be open yet) or `project_id` (a project already in the sidebar) names what to place;
@@ -1007,6 +1069,7 @@ export const events = {
 	lspSessionStatusChanged: makeEvent<LspSessionStatusChanged>("lsp:session-status-changed"),
 	projectActivated: makeEvent<ProjectActivated>("project:activated"),
 	projectClosed: makeEvent<ProjectClosed>("project:closed"),
+	projectGroupsChanged: makeEvent<ProjectGroupsChanged>("project:groups-changed"),
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
 	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
@@ -1848,6 +1911,56 @@ export type ProjectDisplayPatch = {
 	icon: string | null,
 	label: string | null,
 	color: string | null,
+};
+
+/**
+ *  A named, ordered bundle of projects in the sidebar (d-62 §1.C). A group is an organization of
+ *  things the user *can* open, not a record of what is open: `session.projects` stays the single
+ *  truth for both open-ness and the global sidebar order, and `members` is only a membership set —
+ *  closing a project leaves it in its group, and only forgetting its record
+ *  (`service::forget_recent_projects`, contract §0.1 S-7) takes it out.
+ * 
+ *  `color` reuses `ProjectDisplay`'s palette (`service::sanitize_display_color`'s
+ *  `graph.lane1..lane12` allow-list) rather than declaring a second color vocabulary, so a group
+ *  header and a project icon can be tinted from the same theme tokens.
+ * 
+ *  A project belongs to **at most one** group: `service::set_group_members` and
+ *  `service::create_group` take a project away from whatever group held it before. Without that
+ *  rule the sidebar would have to render the same project under two headers, and the contract's
+ *  own "그룹에서 제거" context-menu item (§0.1 U-6) would have no single group to name.
+ */
+export type ProjectGroup = {
+	id: ProjectGroupId,
+	name: string,
+	color?: string | null,
+	members?: ProjectId[],
+	collapsed?: boolean,
+};
+
+export type ProjectGroupId = string;
+
+/**
+ *  What `project_group_open` answers with: `opened` lists the members this call actually opened, in
+ *  the order it opened them (the first of them is the one that took focus), and `skipped` lists the
+ *  members it deliberately passed over — already open, record gone from disk, root no longer a
+ *  directory, or never reached because a shutdown interrupted the queue.
+ */
+export type ProjectGroupOpenResult = {
+	opened: ProjectId[],
+	skipped: ProjectId[],
+};
+
+/**
+ *  The sidebar's project groups changed — created, renamed, recolored, collapsed, reordered,
+ *  deleted, or had their membership rewritten (d-62 2c). Carries the whole list for the same reason
+ *  [`ProjectListChanged`] does: it is small, every window and remote session has to converge on the
+ *  identical order, and a delta would need ordering guarantees of its own.
+ * 
+ *  `project_group_open` does **not** emit this — opening a group changes which projects are open,
+ *  not the groups themselves, so its progress shows up as [`ProjectListChanged`] per member.
+ */
+export type ProjectGroupsChanged = {
+	groups: ProjectGroup[],
 };
 
 export type ProjectId = string;

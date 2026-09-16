@@ -5,17 +5,19 @@ use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::capability::ProjectCapabilities;
+use super::groups;
 use super::service;
 use super::types::{
-    OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectRef, SessionShellState, SessionState, WindowChrome, WindowChromePatch,
+    OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectGroup, ProjectGroupOpenResult, ProjectRef, SessionShellState,
+    SessionState, WindowChrome, WindowChromePatch,
 };
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
 use crate::events::{
-    FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectListChanged, ProjectOpened, SessionShellSlotsChanged,
-    WindowChromeChanged,
+    FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened,
+    SessionShellSlotsChanged, WindowChromeChanged,
 };
-use crate::ids::{ProjectId, ShellSlotId};
+use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
 
@@ -36,6 +38,13 @@ fn emit_shell_slots_changed(app: &AppHandle, state: &AppState) {
         }
     };
     let _ = payload.emit(app);
+}
+
+/// Publishes the sidebar's project groups to every window and remote session. Releases the session
+/// lock before the emit for the same reason [`emit_shell_slots_changed`] does.
+fn emit_groups_changed(app: &AppHandle, state: &AppState) {
+    let groups = service::list_groups(&state.session.read());
+    let _ = ProjectGroupsChanged { groups }.emit(app);
 }
 
 #[tauri::command]
@@ -68,21 +77,33 @@ pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Pr
 /// re-reads its project queries — and so `lib.rs`'s listener rebuilds the native `File > Open
 /// Recent` menu that listed them.
 ///
+/// `ProjectGroupsChanged` follows **only when a forgotten project was actually listed under a
+/// group** (`ForgetRecentOutcome::groups_changed`, contract §3 B-1): the groups are untouched in the
+/// ordinary clear-recent call, and telling every window to re-read a group list that did not change
+/// is both noise and a contradiction of `docs/ipc-contract.md`, which documents this event as the
+/// membership-cleanup half of the call.
+///
 /// Deliberately **not** remote-reachable, for the same reason as `project_list_recent`: the recent
 /// list is local-desktop history (`RemoteDenialPolicy::LocalProjectHistoryExposure`), and a remote
 /// session that cannot read it has no business destroying it either.
 #[tauri::command]
 #[specta::specta]
 pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -> AppResult<u32> {
-    let removed = {
+    let outcome = {
         let _guard = state.begin_mutation().await;
         let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
-        service::forget_recent_projects(&state.paths, &open_ids)?
+        let mut session = state.session.read().clone();
+        let outcome = service::forget_recent_projects(&state.paths, &mut session, &open_ids)?;
+        *state.session.write() = session;
+        outcome
     };
 
     emit_list_changed(&app, &state);
+    if outcome.groups_changed {
+        emit_groups_changed(&app, &state);
+    }
 
-    Ok(removed as u32)
+    Ok(outcome.removed as u32)
 }
 
 #[tauri::command]
@@ -552,6 +573,321 @@ pub async fn project_set_display(
     Ok(())
 }
 
+/// Every sidebar project group, for a window that just mounted — [`ProjectGroupsChanged`] only fires
+/// at a transition, the same gap `project_get_active`/`session_get_shell_state` exist to close.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectGroup>> {
+    Ok(service::list_groups(&state.session.read()))
+}
+
+/// Creates a sidebar group. `members` may name projects that are merely *known* (a persisted
+/// `projects/<id>/` record) rather than currently open — a group organizes what the user can open —
+/// and any member that belonged to another group is moved out of it, since a project belongs to at
+/// most one group (`types::ProjectGroup`).
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    color: Option<String>,
+    members: Option<Vec<ProjectId>>,
+) -> AppResult<ProjectGroup> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    let group = service::create_group(&state.paths, &mut session, &name, color.as_deref(), members)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(group)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_rename(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId, name: String) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::rename_group(&state.paths, &mut session, &group_id, &name)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Sets (or, with `color: null`, clears) the group header's tint. The token vocabulary is
+/// `ProjectDisplay`'s own `lane1..lane12` palette — see `service::sanitize_display_color`.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_set_color(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    group_id: ProjectGroupId,
+    color: Option<String>,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::set_group_color(&state.paths, &mut session, &group_id, color.as_deref())?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Persists whether the group's members are folded away in the sidebar. Its own command rather than
+/// frontend-local state because `ProjectGroup.collapsed` lives in `session.json` — a fold the user
+/// makes has to survive a restart and reach every window, like every other group axis.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_set_collapsed(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    group_id: ProjectGroupId,
+    collapsed: bool,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::set_group_collapsed(&state.paths, &mut session, &group_id, collapsed)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Replaces a group's membership wholesale — the backing call for both "그룹에 추가" and "그룹에서
+/// 제거" (contract §0.1 U-6), which are the same write with a different list. Nothing is opened or
+/// closed by this: membership and open-ness are separate axes (`session.projects` owns the latter).
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_set_members(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    group_id: ProjectGroupId,
+    members: Vec<ProjectId>,
+) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::set_group_members(&state.paths, &mut session, &group_id, members)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Deletes the group only — its members stay open and keep their records, exactly as
+/// `project_close` leaves a project's record behind.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_delete(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::delete_group(&state.paths, &mut session, &group_id)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_reorder(app: AppHandle, state: State<'_, AppState>, ids: Vec<ProjectGroupId>) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    let mut session = state.session.read().clone();
+
+    service::reorder_groups(&state.paths, &mut session, &ids)?;
+
+    *state.session.write() = session;
+    drop(_guard);
+
+    emit_groups_changed(&app, &state);
+
+    Ok(())
+}
+
+/// Opens one group's members in the user's own member order. The first member this call actually
+/// opens takes focus; every later one is opened with `activate: false` (contract §0.1 S-2) so the
+/// queue never yanks the user between projects as it progresses — each member's arrival shows up as
+/// a `ProjectListChanged`, which is all the sidebar needs. "Actually opens" is enforced by
+/// [`run_group_open_plan`], not by the plan alone: a member whose open fails focuses nothing, so the
+/// activation passes to the next member that succeeds.
+///
+/// Three kinds of member are passed over rather than failing the call, and every one of them comes
+/// back in `skipped`: a member that is already open (opening it again would only steal focus), a
+/// member whose record or root is gone (contract §0.1 S-7 — logged and stepped over), and a member
+/// an open failure or a shutdown stopped this call from reaching. `is_shutting_down` is re-checked
+/// per member and stays set once tripped, so the first member that sees it ends the real work and
+/// every remaining member is reported as skipped rather than silently dropped.
+///
+/// Sequential rather than concurrent: each member's open takes the app-wide mutation guard and its
+/// capability attach walks the whole working tree, the same reason `restore_project_watchers`
+/// attaches one project at a time.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_group_open(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId) -> AppResult<ProjectGroupOpenResult> {
+    let members = service::group_members(&state.session.read(), &group_id)?;
+    let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
+    let plan = groups::plan_open(&members, &open_ids, |project_id| {
+        service::group_member_root(&state.paths, project_id)
+    });
+
+    for (project_id, reason) in &plan.skipped {
+        if reason == &groups::GroupSkipReason::Unavailable {
+            log::warn!("그룹 멤버의 레코드나 루트가 없어 건너뜁니다 (groupId={group_id}, projectId={project_id})");
+        }
+    }
+
+    let mut result = ProjectGroupOpenResult {
+        opened: Vec::new(),
+        skipped: plan.skipped.into_iter().map(|(project_id, _)| project_id).collect(),
+    };
+
+    let app_handle = &app;
+    let app_state = &state;
+    let opening_group = &group_id;
+    run_group_open_plan(
+        plan.steps,
+        &mut result,
+        || state.is_shutting_down(),
+        |step, activate| async move {
+            match open_group_member(app_handle, app_state, &step.root, activate).await {
+                Ok(project) => Some(project.id),
+                Err(error) => {
+                    log::warn!(
+                        "그룹 멤버를 열지 못했습니다 (groupId={opening_group}, projectId={}): {error}",
+                        step.project_id
+                    );
+                    None
+                }
+            }
+        },
+    )
+    .await;
+
+    Ok(result)
+}
+
+/// Walks one group's open queue, handing each member to `open_member` — which answers the opened
+/// project's id, or `None` when that member could not be opened — and records every member in
+/// `result` as opened or skipped.
+///
+/// **Carries the activation forward.** [`groups::plan_open`] marks the one member it expects to
+/// open first, but a member whose open fails emits no `ProjectActivated` at all, so spending the
+/// mark on it would leave the whole group open with the focus still on whatever the user was
+/// looking at before — while `ProjectGroupOpenResult` and `docs/ipc-contract.md` both say focus
+/// lands on the first member the call *actually* opened (contract §3 S-9). The mark is therefore
+/// held until a member really joins the session, and inherited by the next member otherwise.
+///
+/// `stop` is re-checked per member (it stays set once tripped, so the first member that sees a
+/// shutdown ends the real work) and every remaining member is still reported as skipped rather
+/// than silently dropped.
+///
+/// Generic over the open itself so this hand-off is unit-testable: opening a member needs a real
+/// `AppHandle` and this codebase has no `tauri::test` mock-app harness — the same constraint
+/// [`projects_pending_watcher_restore`] works around by staying a pure selection.
+async fn run_group_open_plan<Open, Fut>(
+    steps: Vec<groups::GroupOpenStep>,
+    result: &mut ProjectGroupOpenResult,
+    mut stop: impl FnMut() -> bool,
+    mut open_member: Open,
+) where
+    Open: FnMut(groups::GroupOpenStep, bool) -> Fut,
+    Fut: std::future::Future<Output = Option<ProjectId>>,
+{
+    let mut pending_activation = steps.iter().any(|step| step.activate);
+
+    for step in steps {
+        if stop() {
+            result.skipped.push(step.project_id);
+            continue;
+        }
+
+        let activate = pending_activation;
+        let project_id = step.project_id.clone();
+        match open_member(step, activate).await {
+            Some(opened_id) => {
+                if activate {
+                    pending_activation = false;
+                }
+                result.opened.push(opened_id);
+            }
+            None => result.skipped.push(project_id),
+        }
+    }
+}
+
+/// One step of [`project_group_open`]'s queue. Same shape as [`project_open`] — mutation guard
+/// around the session/project write, capability attach outside it, rollback through
+/// [`project_close`] when the attach fails — with two differences: the root is already known (the
+/// member's own record named it), and `activate` is the caller's, so a background member joins the
+/// session without emitting `ProjectActivated` or touching the slot tree.
+async fn open_group_member(app: &AppHandle, state: &State<'_, AppState>, root: &str, activate: bool) -> AppResult<Project> {
+    let opened = {
+        let _guard = state.begin_mutation().await;
+        let mut session = state.session.read().clone();
+        let mut projects = state.projects.read().clone();
+
+        let opened = service::open_project(&state.paths, &mut session, &mut projects, Path::new(root), activate, |canonical| {
+            app.state::<ProjectCapabilities>().detected_kinds(canonical)
+        })?;
+
+        *state.session.write() = session;
+        *state.projects.write() = projects;
+        opened
+    };
+
+    if !opened.already_open {
+        if let Err(error) = attach_project_capabilities(app, &opened.project).await {
+            if let Err(rollback) = project_close(app.clone(), state.clone(), opened.project.id.clone()).await {
+                log::warn!(
+                    "capability attach 실패 후 그룹 멤버 되돌리기도 실패했습니다 (projectId={}): {rollback}",
+                    opened.project.id
+                );
+            }
+            return Err(error);
+        }
+
+        let _ = ProjectOpened {
+            project: opened.project.clone(),
+        }
+        .emit(app);
+        emit_list_changed(app, state);
+    }
+
+    if activate {
+        let _ = ProjectActivated {
+            project_id: Some(opened.project.id.clone()),
+        }
+        .emit(app);
+        emit_shell_slots_changed(app, state);
+    }
+
+    Ok(opened.project)
+}
+
 pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
     let mut warnings = Vec::new();
 
@@ -816,6 +1152,8 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::*;
     use crate::domain::project::types::{ProjectDisplay, SESSION_SCHEMA_VERSION};
 
@@ -910,6 +1248,93 @@ mod tests {
         assert!(
             marker_position(open, "project_close(") < marker_position(open, "ProjectOpened"),
             "attach 실패 경로는 ProjectOpened 방출 전에 에러로 반환돼야 합니다"
+        );
+    }
+
+    fn open_step(project_id: &str, activate: bool) -> groups::GroupOpenStep {
+        groups::GroupOpenStep {
+            project_id: ProjectId::from(project_id.to_string()),
+            root: format!("/repo/{project_id}"),
+            activate,
+        }
+    }
+
+    /// 계약 §3 S-9 — 활성화는 "열릴 예정인 첫 멤버" 가 아니라 **실제로 열린 첫 멤버** 의 것이어야
+    /// 한다. 실패한 열기는 `ProjectActivated` 를 내지 않으므로, 계획의 표식이 실패한 멤버에서
+    /// 소모되면 그룹을 다 열고도 포커스가 이전 프로젝트에 남는다. 승계되는지와, 그래도 활성화가
+    /// 한 번뿐인지를 함께 고정한다.
+    #[tokio::test]
+    async fn 그룹_열기는_활성화가_계획된_멤버가_실패하면_다음_성공_멤버에_승계한다() {
+        let failing = ProjectId::from("prj-fails".to_string());
+        let steps = vec![
+            open_step("prj-fails", true),
+            open_step("prj-opens", false),
+            open_step("prj-rest", false),
+        ];
+        let attempts: RefCell<Vec<(ProjectId, bool)>> = RefCell::new(Vec::new());
+        let attempted = &attempts;
+        let failing_member = &failing;
+        let mut result = ProjectGroupOpenResult {
+            opened: Vec::new(),
+            skipped: Vec::new(),
+        };
+
+        run_group_open_plan(
+            steps,
+            &mut result,
+            || false,
+            |step, activate| async move {
+                attempted.borrow_mut().push((step.project_id.clone(), activate));
+                (&step.project_id != failing_member).then_some(step.project_id)
+            },
+        )
+        .await;
+
+        assert_eq!(
+            attempts.borrow().clone(),
+            vec![
+                (failing.clone(), true),
+                (ProjectId::from("prj-opens".to_string()), true),
+                (ProjectId::from("prj-rest".to_string()), false),
+            ],
+            "첫 멤버가 실패하면 그다음 멤버가 활성화를 이어받고, 그 뒤로는 다시 포커스를 가로채지 않아야 합니다"
+        );
+        assert_eq!(
+            attempts
+                .borrow()
+                .iter()
+                .filter(|(project_id, activate)| *activate && result.opened.contains(project_id))
+                .count(),
+            1,
+            "ProjectActivated 는 실제로 열린 멤버 하나에서만 나가야 합니다"
+        );
+        assert_eq!(
+            result.opened,
+            vec![ProjectId::from("prj-opens".to_string()), ProjectId::from("prj-rest".to_string())]
+        );
+        assert_eq!(result.skipped, vec![failing], "열지 못한 멤버는 skipped 로 보고돼야 합니다");
+    }
+
+    /// 계약 §3 B-1 — 멤버십이 바뀌지 않은 clear-recent 는 `ProjectGroupsChanged` 를 내면 안 된다
+    /// (`docs/ipc-contract.md` 도 "그룹이 실제로 바뀐 경우" 라고 적는다). 커맨드 자체는 `AppHandle`
+    /// 없이 돌릴 수 없고 이 파일의 제어 흐름 말고는 강제하는 것이 없으므로, 소스에서 emit 이
+    /// 조건 안에 있는지를 고정한다 — 위 attach 순서 테스트와 같은 수단이다.
+    #[test]
+    fn forget_recent_는_그룹이_바뀐_경우에만_groups_changed_를_발행한다() {
+        let body = source_between("pub async fn project_forget_recent(", "\n}\n");
+
+        assert_eq!(
+            body.matches("emit_groups_changed(").count(),
+            1,
+            "그룹 이벤트 발행 지점은 한 곳이어야 조건 검사가 의미를 갖습니다"
+        );
+        assert!(
+            marker_position(body, "if outcome.groups_changed {") < marker_position(body, "emit_groups_changed("),
+            "그룹 이벤트는 groups_changed 조건 안에서만 발행돼야 합니다 — 무조건 발행하면 모든 창이 바뀌지도 않은 그룹 목록을 다시 읽습니다"
+        );
+        assert!(
+            body.contains("emit_list_changed(&app, &state);"),
+            "최근 목록 변경은 그룹과 무관하게 항상 발행돼야 합니다"
         );
     }
 

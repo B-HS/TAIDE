@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::domain::project::types::{Project, ProjectRef, ShellSlotTree, WindowChrome};
+use crate::domain::project::types::{Project, ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::domain::settings::types::Settings;
 use crate::ids::{ProjectId, ShellSlotId};
 
@@ -32,6 +32,20 @@ pub struct ProjectActivated {
 #[tauri_specta(event_name = "project:list-changed")]
 pub struct ProjectListChanged {
     pub projects: Vec<ProjectRef>,
+}
+
+/// The sidebar's project groups changed — created, renamed, recolored, collapsed, reordered,
+/// deleted, or had their membership rewritten (d-62 2c). Carries the whole list for the same reason
+/// [`ProjectListChanged`] does: it is small, every window and remote session has to converge on the
+/// identical order, and a delta would need ordering guarantees of its own.
+///
+/// `project_group_open` does **not** emit this — opening a group changes which projects are open,
+/// not the groups themselves, so its progress shows up as [`ProjectListChanged`] per member.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "project:groups-changed")]
+pub struct ProjectGroupsChanged {
+    pub groups: Vec<ProjectGroup>,
 }
 
 /// The main window's shell-slot arrangement changed — a slot was split, replaced, closed, or simply

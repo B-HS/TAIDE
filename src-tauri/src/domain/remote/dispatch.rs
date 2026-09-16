@@ -25,6 +25,15 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "project_activate",
     "project_reorder",
     "project_set_display",
+    "project_group_list",
+    "project_group_create",
+    "project_group_rename",
+    "project_group_set_color",
+    "project_group_set_collapsed",
+    "project_group_set_members",
+    "project_group_delete",
+    "project_group_reorder",
+    "project_group_open",
     "project_open_in_slot",
     "shell_slot_close",
     "session_get_shell_state",
@@ -583,7 +592,7 @@ fn remote_denied_response(name: &str) -> Option<Value> {
 }
 
 /// Every command name [`dispatch`]/[`dispatch_raw`] will actually route to a real handler for a remote
-/// session — audited directly off the `match` arms in both functions (167 entries = the 166 arms in
+/// session — audited directly off the `match` arms in both functions (176 entries = the 175 arms in
 /// [`dispatch`]'s `match` plus `file_read_raw`, [`dispatch_raw`]'s one arm), not derived from
 /// [`IMPLEMENTED_JSON_COMMANDS`] minus [`REMOTE_DENIED_COMMANDS`]: deriving it that way would make any
 /// newly-added command silently "allowed by subtraction" the moment it's dropped into
@@ -608,6 +617,15 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "project_activate",
     "project_reorder",
     "project_set_display",
+    "project_group_list",
+    "project_group_create",
+    "project_group_rename",
+    "project_group_set_color",
+    "project_group_set_collapsed",
+    "project_group_set_members",
+    "project_group_delete",
+    "project_group_reorder",
+    "project_group_open",
     "project_open_in_slot",
     "shell_slot_close",
     "session_get_shell_state",
@@ -886,6 +904,32 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "project_set_display" => {
             respond(project::project_set_display(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
         }
+        "project_group_list" => respond(project::project_group_list(app.state()).await),
+        "project_group_create" => respond(
+            project::project_group_create(
+                app.clone(),
+                app.state(),
+                arg!(args, "name"),
+                arg!(args, "color"),
+                arg!(args, "members"),
+            )
+            .await,
+        ),
+        "project_group_rename" => {
+            respond(project::project_group_rename(app.clone(), app.state(), arg!(args, "groupId"), arg!(args, "name")).await)
+        }
+        "project_group_set_color" => {
+            respond(project::project_group_set_color(app.clone(), app.state(), arg!(args, "groupId"), arg!(args, "color")).await)
+        }
+        "project_group_set_collapsed" => {
+            respond(project::project_group_set_collapsed(app.clone(), app.state(), arg!(args, "groupId"), arg!(args, "collapsed")).await)
+        }
+        "project_group_set_members" => {
+            respond(project::project_group_set_members(app.clone(), app.state(), arg!(args, "groupId"), arg!(args, "members")).await)
+        }
+        "project_group_delete" => respond(project::project_group_delete(app.clone(), app.state(), arg!(args, "groupId")).await),
+        "project_group_reorder" => respond(project::project_group_reorder(app.clone(), app.state(), arg!(args, "ids")).await),
+        "project_group_open" => respond(project::project_group_open(app.clone(), app.state(), arg!(args, "groupId")).await),
         "project_open_in_slot" => respond(project::project_open_in_slot(app.clone(), app.state(), arg!(args, "request")).await),
         "shell_slot_close" => respond(project::shell_slot_close(app.clone(), app.state(), arg!(args, "slotId")).await),
         "session_get_shell_state" => respond(project::session_get_shell_state(app.state()).await),
