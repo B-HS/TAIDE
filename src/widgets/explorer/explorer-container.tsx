@@ -7,6 +7,7 @@ import type { PaneId, PaneNode, ProjectId, TreeRow } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
 import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
+import { copyTextToClipboard } from '@shared/lib/copy-text-to-clipboard'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
@@ -201,8 +202,8 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }
         onCut: (row) => setClipboard({ mode: 'cut', path: row.path, kind: row.kind }),
         onCopy: (row) => setClipboard({ mode: 'copy', path: row.path, kind: row.kind }),
         onPaste: (row) => void pasteClipboard(row),
-        onCopyPath: (row) => void navigator.clipboard.writeText(row.path),
-        onCopyRelativePath: (row) => project && void navigator.clipboard.writeText(toRelativePath(project.root, row.path)),
+        onCopyPath: (row) => void copyTextToClipboard(row.path),
+        onCopyRelativePath: (row) => project && void copyTextToClipboard(toRelativePath(project.root, row.path)),
         onStartRename: crud.startRename,
         onRequestDelete: crud.setDeleteTarget,
         onClearSelection: () => setSelectedRow(null),

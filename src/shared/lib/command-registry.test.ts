@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { toast } from 'sonner'
 import type { AppCommand, CommandContext } from '@shared/lib/command-registry'
 import {
     clearCommandRegistry,
@@ -7,6 +8,7 @@ import {
     listRegisteredCommands,
     registerCommand,
     registerCommands,
+    runCommandSafely,
     unregisterCommand,
 } from '@shared/lib/command-registry'
 
@@ -87,5 +89,66 @@ describe('isCommandRunnable', () => {
         const command = buildCommand({ isEnabled: (context) => context.activeProjectId !== null })
         expect(isCommandRunnable(command, dummyContext)).toBe(false)
         expect(isCommandRunnable(command, { ...dummyContext, activeProjectId: 'p1' })).toBe(true)
+    })
+})
+
+const REJECTION_FLUSH_TICKS = 5
+
+/**
+ * Drains the microtask queue far enough for an async `run` to settle and for the helper's own
+ * rejection handler to run after it — an `async` function that *returns* a rejected promise (the
+ * shape `terminal.copyImeDebug` has) adopts it over several ticks, so a single `await` is short.
+ */
+const flushRejectionHandling = async () => {
+    for (let tick = 0; tick < REJECTION_FLUSH_TICKS; tick += 1) await Promise.resolve()
+}
+
+/**
+ * The two palette dispatch sites hand `run` straight to this helper, so both shapes a command can
+ * fail in have to end at the same reporter — a synchronous throw never becomes a promise, and a
+ * rejected one never reaches a `catch` block.
+ */
+describe('runCommandSafely', () => {
+    test('동기 run 이 throw 해도 전파하지 않고 실패를 토스트로 보고한다', () => {
+        const toastError = spyOn(toast, 'error')
+
+        runCommandSafely(
+            buildCommand({
+                run: () => {
+                    throw new Error('sync boom')
+                },
+            }),
+            dummyContext,
+        )
+
+        expect(toastError).toHaveBeenCalledWith('sync boom')
+    })
+
+    test('async run 이 reject 하면 unhandled rejection 으로 흘리지 않고 실패를 토스트로 보고한다', async () => {
+        const toastError = spyOn(toast, 'error')
+
+        runCommandSafely(buildCommand({ run: async () => Promise.reject(new Error('async boom')) }), dummyContext)
+        await flushRejectionHandling()
+
+        expect(toastError).toHaveBeenCalledWith('async boom')
+    })
+
+    test('정상적으로 끝난 커맨드는 아무것도 보고하지 않는다', async () => {
+        const toastError = spyOn(toast, 'error')
+        const calls: string[] = []
+
+        runCommandSafely(buildCommand({ run: () => void calls.push('sync') }), dummyContext)
+        runCommandSafely(
+            buildCommand({
+                run: async () => {
+                    calls.push('async')
+                },
+            }),
+            dummyContext,
+        )
+        await flushRejectionHandling()
+
+        expect(calls).toEqual(['sync', 'async'])
+        expect(toastError).not.toHaveBeenCalled()
     })
 })

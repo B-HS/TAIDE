@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectGroup, ProjectGroupId, ProjectRef, ShellSlotEdge } from '@shared/api/bindings'
 import { CLEARED_PROJECT_DISPLAY_PATCH } from '@shared/constants/project-display'
 import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
+import { copyTextToClipboard } from '@shared/lib/copy-text-to-clipboard'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { isProjectDisplayCustomized, resolveProjectDisplay } from '@shared/lib/project-display'
 import type { ProjectDragData } from '@shared/lib/project-drag'
@@ -177,7 +178,7 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
                     <ContextMenuItem onSelect={() => void systemOpenPath(project.root).catch((error: Error) => toast.error(describeIpcError(error)))}>
                         {t('project.openInFileManager')}
                     </ContextMenuItem>
-                    <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(project.root)}>{t('project.copyPath')}</ContextMenuItem>
+                    <ContextMenuItem onSelect={() => void copyTextToClipboard(project.root)}>{t('project.copyPath')}</ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem onSelect={() => setDisplayDialogOpen(true)}>{t('project.displayMenu')}</ContextMenuItem>
                     <ContextMenuItem disabled={!isProjectDisplayCustomized(display)} onSelect={() => applyDisplay(CLEARED_PROJECT_DISPLAY_PATCH)}>

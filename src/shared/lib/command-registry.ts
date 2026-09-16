@@ -1,5 +1,7 @@
 import type { TFunction } from 'i18next'
+import { toast } from 'sonner'
 import type { KeymapActionId } from '@shared/lib/keymap/keymap'
+import { describeIpcError } from '@shared/lib/ipc-error-message'
 
 export type CommandContext = {
     activeProjectId: string | null
@@ -85,6 +87,31 @@ export const subscribeRegisteredCommands = (listener: () => void) => {
 }
 
 export const isCommandRunnable = (command: AppCommand, context: CommandContext) => (command.isEnabled ? command.isEnabled(context) : true)
+
+/**
+ * Dispatches one command and reports whatever it fails with, instead of dropping it.
+ *
+ * `run` is declared `void | Promise<void>` and the palette's two dispatch sites (the keydown
+ * capture and the list selection) both discarded the result with `void`, so an async command that
+ * rejected became an unhandled rejection — a line in the file log through the global forwarder
+ * (`error-log-forwarding.ts`) and nothing at all on screen, with the command's own success toast
+ * skipped. Centralising it here also means the next async command inherits the handling rather than
+ * re-opening the same hole.
+ *
+ * The `try`/`catch` wraps the call itself rather than chaining `.catch()` onto its result, because a
+ * synchronous `run` throws *before* there is a promise to attach a handler to — the same reason
+ * `monaco/on-save-cleanup.ts` guards `IEditorAction.run` this way. `Promise.resolve(...)` around the
+ * call would not help either: the throw escapes while its argument is being evaluated.
+ */
+export const runCommandSafely = (command: AppCommand, context: CommandContext) => {
+    const report = (error: unknown) => toast.error(describeIpcError(error))
+    try {
+        const result = command.run(context)
+        if (result instanceof Promise) void result.catch(report)
+    } catch (error) {
+        report(error)
+    }
+}
 
 export const formatCategorizedLabel = (t: TFunction, categoryKey: string | null | undefined, titleKey: string, titleDefaultValue?: string) => {
     const title = titleDefaultValue ? t(titleKey, { defaultValue: titleDefaultValue }) : t(titleKey)

@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 import type { AppCommand } from '@shared/lib/command-registry'
 import { requestEditorPaneCommand } from '@shared/lib/bridge/editor-pane-command-bridge'
 import { requestShowExplorerView, requestToggleExplorerSidebar } from '@shared/lib/bridge/explorer-panel-bridge'
+import { copyTextToClipboard } from '@shared/lib/copy-text-to-clipboard'
 import { buildImeDebugReport, isImeDebugEnabled } from '@shared/lib/ime-debug'
 import { i18next } from '@shared/i18n/i18n'
 import { requestOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-bridge'
@@ -132,8 +133,7 @@ export const DEFAULT_COMMANDS: AppCommand[] = [
         titleKey: 'terminal.copyImeDebugLog',
         categoryKey: KEYMAP_CATEGORY.TERMINAL,
         run: async () => {
-            await navigator.clipboard.writeText(buildImeDebugReport())
-            toast.success(i18next.t('terminal.imeDebugCopied'))
+            if (await copyTextToClipboard(buildImeDebugReport())) toast.success(i18next.t('terminal.imeDebugCopied'))
         },
         isEnabled: isImeDebugEnabled,
     },

@@ -18,6 +18,7 @@ import {
     getRegisteredCommand,
     isCommandRunnable,
     listRegisteredCommands,
+    runCommandSafely,
     subscribeRegisteredCommands,
 } from '@shared/lib/command-registry'
 import { getActiveEditorActionIdsSnapshot, subscribeActiveEditorActionIds } from '@shared/lib/bridge/active-editor-actions-bridge'
@@ -274,7 +275,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({ projectId }) => {
         if (!command || !isCommandRunnable(command, commandContext)) return
         event.preventDefault()
         event.stopPropagation()
-        void command.run(commandContext)
+        runCommandSafely(command, commandContext)
     })
 
     const toProjectRelativePath = (path: string) => (activeProject ? toRelativePath(activeProject.root, path) : path)
@@ -327,7 +328,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({ projectId }) => {
 
     const runCommand = (command: AppCommand) => {
         if (!isCommandRunnable(command, commandContext)) return
-        void command.run(commandContext)
+        runCommandSafely(command, commandContext)
         if (command.id !== 'file.quickOpen') closeAfterAction()
     }
 

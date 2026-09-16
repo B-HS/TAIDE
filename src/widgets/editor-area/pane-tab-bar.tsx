@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, PaneId, ProjectId, Tab, TabId, TabKind, TabWindowTarget } from '@shared/api/bindings'
 import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
 import { cn } from '@shared/lib/cn'
+import { copyTextToClipboard } from '@shared/lib/copy-text-to-clipboard'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { WELCOME_TAB_TITLE } from '@shared/constants/tab'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
@@ -217,8 +218,8 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 onCloseAll={() => void handleCloseAll()}
                 onTogglePin={() => pinTab({ tabId: tab.id, pinned: !tab.pinned })}
                 onSplit={(edge: SplitEdge) => splitPane({ paneId, edge, tabId: tab.id })}
-                onCopyPath={filePath ? () => void navigator.clipboard.writeText(filePath) : undefined}
-                onCopyRelativePath={relativePath ? () => void navigator.clipboard.writeText(relativePath) : undefined}
+                onCopyPath={filePath ? () => void copyTextToClipboard(filePath) : undefined}
+                onCopyRelativePath={relativePath ? () => void copyTextToClipboard(relativePath) : undefined}
                 onRevealInFinder={filePath ? () => void systemRevealPath(filePath).catch(notifyError) : undefined}
                 onOpenChanges={
                     filePath
