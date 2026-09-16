@@ -1,4 +1,13 @@
-# HANDOFF — 2026-09-15 세션 스냅샷 (사용성 배치 5: d-58~d-61 완료·dev/main 반영, d-62 프로젝트 split 구현 진행 중)
+# HANDOFF — 2026-09-16 세션 스냅샷 (사용성 배치 5 d-58~d-62 전량 완료·dev/main 반영, v0.2.0 draft 릴리스)
+
+> 최종 갱신: 2026-09-16 / HEAD = `b01e901`(chore(release) v0.2.0) 위에 이 docs 커밋. 직전 스냅샷 `git show 2ef3732:docs/HANDOFF.md`.
+> **이 세션(2026-09-15~16)** — 사용자 항목 14건을 조사 wf 2건(`research/2026-09-15-batch5-research.md`) → 결정 문서(`acknowledge/2026-09-15-usability-batch5-user-decisions.md` §0~§5) → 계약 5개로 나눠 전량 완료.
+> **반영 커밋**: d-58 웨이브 1 `5900f91`(10) · d-59 웨이브 2 `843ba4c`(3) · d-60 웨이브 3 `7f81db1`(4, worktree) · d-61 웨이브 4 `4696c08`(6, worktree) · d-62 웨이브 5 1단계+2a `72e2e0d`(4) · 2b+2c `d69f4f6`(4). 각 계약 §3 에 구현·렌즈 검토(major 전건 반박 검증)·수정·최종 검증·실기 대상 기록.
+> **릴리스**: `v0.2.0` 태그 `b01e901`, Release 런 `35040329094`(결과·dmg 크기는 `deployment.md` §9). draft 유지 — 공개는 사용자(결정 §5).
+> **작업 방식 확정(결정 §0·§4)**: 항상 Workflow + opus/sonnet, Agent 도구 금지(Fable 상속), 테스트 작성 sonnet·high, 커밋·푸시 자동(`git config llm-rules.*`), 병렬은 worktree(머지 후 삭제). d-62 는 설계 사전 검토(major 10 수용 → 계약 §0.1)로 보정 후 착수 — **대형 기능은 구현 전 설계 검토 wf 를 두는 것이 효과적**이었다(Zen 재마운트·키맵 20개 복제·close 원자성 등 구현 전 적발).
+> **사용자 잔여**: 웨이브 1~5 실기 확증(각 계약 최종 기록 "실기 대상"), d-61 §1.E 스크린샷 매트릭스(`TAIDE_E2E_NO_HMR=1 bun run tauri dev` 기동 후 `bun run e2e --grep theme-surface-matrix`, 1순위 검수 대상은 d-61 최종 기록), pi·gemini 설치 후 실측, codex 인밴드 훅 실기(불가 시 AgentSpec delivery 1줄 롤백), draft 공개.
+> **후속 후보(계약 §4)**: d-58 팔레트 MRU·메뉴바 로케일화·G5 하드 제외 디렉토리 / d-60 gemini 인밴드·opencode SSE / d-61 고대비 타입·Tier B 테마 / d-62 같은 프로젝트 다중 슬롯·그룹 자동 배치·드래그 상태 컨텍스트화(G-2)·set_members 동시성(S-10).
+> 직전 세션(2026-09-06~07, d-54~d-57·v0.1.9) 요지는 아래 §3 유지.
 
 > 최종 갱신: 2026-09-15 / HEAD = `4696c08`(웨이브 4 머지) 위에 이 docs 커밋. 직전 스냅샷 `git show fe504ec:docs/HANDOFF.md`.
 > **이 세션(2026-09-15)** — 사용자 항목 14건(단축키·파일트리·프로젝트 split·알림·에이전트 다각화·Dock Recent·퀵오픈 버그·Welcome 터미널·실시간 검색·+ 메뉴·git 패널·테마·메뉴 아이콘 정렬)을
