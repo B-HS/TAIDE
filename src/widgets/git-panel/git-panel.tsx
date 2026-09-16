@@ -1,10 +1,10 @@
 import type { GitBranch as GitBranchInfo, GitRemote, GitStashEntry, ProjectId, StatusRow } from '@shared/api/bindings'
 import type { FC, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
-import { Group, Panel, usePanelRef } from 'react-resizable-panels'
+import { Group, Panel, usePanelCallbackRef } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import { Archive, ArrowDown, ArrowUp, Loader2, RefreshCw } from 'lucide-react'
 import { BranchSwitcher } from '@features/git/branch-switcher'
@@ -61,8 +61,13 @@ const GIT_CHANGE_ROW_HEIGHT_PX = 24
 
 const GIT_CHANGE_LIST_OVERSCAN = 12
 
-/** Debounce key for the graph pane's persisted height — one pane, so one entry in the shared timer map. */
-const GIT_GRAPH_PANEL_RESIZE_KEY = 'git:graph-panel'
+/**
+ * Debounce key suffix for the graph pane's persisted height. `schedulePaneResizeCommit` keys one shared
+ * module-level timer map, so this is namespaced with the instance's {@link panelIdPrefix} at the call
+ * site: the SCM view mounts once per shell slot (d-62 §1.B), and a module constant alone would let one
+ * slot's resize commit cancel the other slot's still-pending one.
+ */
+const GIT_GRAPH_PANEL_RESIZE_KEY = 'git-graph-panel'
 
 /**
  * The roving item that owns focus for a keyboard event, and where it sits in the panel's item
@@ -182,13 +187,16 @@ export const GitPanel: FC<GitPanelProps> = ({
     const viewportRef = useRef<HTMLDivElement>(null)
     const sectionsRef = useRef<HTMLDivElement>(null)
     const graphHeaderRef = useRef<HTMLDivElement>(null)
-    const graphPanelRef = usePanelRef()
     const pendingFocusIndexRef = useRef<number | null>(null)
+
+    /** The SCM view mounts once per shell slot (d-62 §1.B), and `Panel` publishes its `id` as the DOM `id` its separator's `aria-controls` points at — so both panes below are namespaced per instance rather than being duplicate ids in one document (`project-shell.tsx` carries the full note). */
+    const panelIdPrefix = useId()
 
     const [discardTargets, setDiscardTargets] = useState<string[] | null>(null)
     const [confirmStageAllOpen, setConfirmStageAllOpen] = useState(false)
     const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null)
     const [contextMenuTarget, setContextMenuTarget] = useState<{ section: GitChangeSectionId; path: string } | null>(null)
+    const [graphPanel, setGraphPanel] = usePanelCallbackRef()
 
     const { t } = useTranslation()
     const { data: settings } = useQuery(settingsQueryOptions())
@@ -306,18 +314,18 @@ export const GitPanel: FC<GitPanelProps> = ({
      * resize, debounced like every other pane resize in the app (`pane-resize-commit.ts`).
      */
     const handleGraphLayoutChanged = (_layout: Layout, meta: LayoutChangedMeta) => {
-        if (!meta.isUserInteraction) return
-        const panel = graphPanelRef.current
-        if (!panel) return
-        const collapsed = panel.isCollapsed()
+        if (!meta.isUserInteraction || !graphPanel) return
+        const collapsed = graphPanel.isCollapsed()
         const current = collapsedSectionsRef.current
         if (collapsed !== current.graph) {
             writeCollapsedSections({ ...current, graph: collapsed })
             return
         }
         if (collapsed) return
-        const sizePx = Math.round(panel.getSize().inPixels)
-        schedulePaneResizeCommit(GIT_GRAPH_PANEL_RESIZE_KEY, () => updateSettings({ ...emptySettingsPatch(), gitGraphPanelSizePx: sizePx }))
+        const sizePx = Math.round(graphPanel.getSize().inPixels)
+        schedulePaneResizeCommit(`${panelIdPrefix}:${GIT_GRAPH_PANEL_RESIZE_KEY}`, () =>
+            updateSettings({ ...emptySettingsPatch(), gitGraphPanelSizePx: sizePx }),
+        )
     }
 
     const requestCommit = () => {
@@ -433,16 +441,23 @@ export const GitPanel: FC<GitPanelProps> = ({
      * prop — the same external-widget sync `app-shell.tsx` does for the sidebar. Expanding goes
      * through `resize` rather than `expand`: `expand` restores whatever size this session happens to
      * remember, which is `minSize` for a pane that mounted collapsed, while the stored height is the
-     * answer the user actually gave. `sections.graph.visible` is a dependency because the pane is
-     * unmounted while the repository has no commits, so the sync has to run again when it returns.
+     * answer the user actually gave. The handle comes from `usePanelCallbackRef` rather than
+     * `usePanelRef` because the pane is mounted *into* an already-live `Group` whenever the log query
+     * answers after this panel did, or after a project switch: `Panel` only registers itself in a
+     * layout effect and the `Group` recomputes its constraints on the *next* commit, so asking a plain
+     * ref for `isCollapsed()` in the mount commit's passive phase made `react-resizable-panels` throw
+     * `Panel constraints not found for Panel git-graph` and the sidebar's ErrorBoundary swallow the
+     * whole view — every cold open of the git view, every project switch. A callback ref arrives as a
+     * state update queued in that same layout phase, so this effect runs one commit later, after the
+     * group has taken the pane into its constraints; the handle turning null↔object also stands in for
+     * the mount and unmount the repository having no commits causes.
      */
     useEffect(() => {
-        const panel = graphPanelRef.current
-        if (!panel) return
-        if (panel.isCollapsed() === collapsedSections.graph) return
-        if (collapsedSections.graph) panel.collapse()
-        else panel.resize(graphPanelSizePx)
-    }, [graphPanelRef, collapsedSections.graph, graphPanelSizePx, sections.graph.visible])
+        if (!graphPanel) return
+        if (graphPanel.isCollapsed() === collapsedSections.graph) return
+        if (collapsedSections.graph) graphPanel.collapse()
+        else graphPanel.resize(graphPanelSizePx)
+    }, [graphPanel, collapsedSections.graph, graphPanelSizePx])
 
     return (
         <div className='flex h-full min-h-0 w-full flex-col'>
@@ -505,7 +520,7 @@ export const GitPanel: FC<GitPanelProps> = ({
                 onLayoutChanged={handleGraphLayoutChanged}
                 resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
                 className='min-h-0 flex-1'>
-                <Panel id='git-changes' className='min-h-0'>
+                <Panel id={`${panelIdPrefix}-git-changes`} className='min-h-0'>
                     <ScrollContainer className='h-full' viewportRef={viewportRef}>
                         <div ref={sectionsRef} role='group' aria-label={t('git.title')} onKeyDown={handleSectionsKeyDown}>
                             <ContextMenu open={contextMenuRow !== null} onOpenChange={(open) => !open && setContextMenuTarget(null)}>
@@ -602,8 +617,8 @@ export const GitPanel: FC<GitPanelProps> = ({
                 )}
                 {sections.graph.visible && (
                     <Panel
-                        id='git-graph'
-                        panelRef={graphPanelRef}
+                        id={`${panelIdPrefix}-git-graph`}
+                        panelRef={setGraphPanel}
                         className='min-h-0'
                         defaultSize={graphPanelSizePx}
                         minSize={MIN_PANEL_SIZE_PX}

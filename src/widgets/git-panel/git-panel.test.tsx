@@ -16,7 +16,8 @@ import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } fr
  * `@tanstack/virtual-core` returns an empty range for a zero-height viewport, so a virtualized row
  * never mounts here (`docs/memory/test-conventions.md` §5). A pane's *body* is therefore identified
  * by the `ScrollContainer` it owns — its `overlay-scrollbar-track` slot — and the panes themselves
- * by the `data-testid` `react-resizable-panels` puts on every `Panel`.
+ * by the `data-testid` `react-resizable-panels` puts on every `Panel` — matched by *suffix*, since
+ * that id carries a per-instance `useId()` prefix (see {@link GRAPH_PANE_TEST_ID}).
  *
  * What a toggle writes is read back from the `MutationCache` rather than from a stubbed
  * `settings.ipc`: that module is already `mock.module`-ed by two other test files, and those
@@ -37,6 +38,14 @@ const { GitPanel } = await import('@widgets/git-panel/git-panel')
 const PROJECT_ID = 'project-1'
 const SCROLL_TRACK_SELECTOR = '[data-slot="overlay-scrollbar-track"]'
 
+/**
+ * A `Panel` publishes its `id` verbatim as both the DOM `id` and the `data-testid`, and the panel
+ * ids are prefixed per component instance so two shell slots showing the SCM view cannot put
+ * duplicate ids in one document — so a pane is addressed by the suffix the component owns.
+ */
+const GRAPH_PANE_TEST_ID = /git-graph$/
+const CHANGES_PANE_TEST_ID = /git-changes$/
+
 const COMMITS: LogEntry[] = [{ id: 'c1', parents: [], summary: 'feat: first commit', author: 'author', timeUnix: 0, refs: [] }]
 const STASHES: GitStashEntry[] = [{ index: 0, message: 'stash@{0}' }]
 
@@ -49,8 +58,50 @@ const sectionHeader = (title: RegExp) => {
 
 const graphHeader = () => sectionHeader(/^git\.graph/)
 const stashHeader = () => sectionHeader(/^git\.stash/)
-const graphPane = () => screen.getByTestId('git-graph')
+const graphPane = () => screen.getByTestId(GRAPH_PANE_TEST_ID)
 const graphBody = () => graphPane().querySelector(SCROLL_TRACK_SELECTOR)
+
+/** The panel element on its own, so a test can hand the same tree back to `rerender` with different props. */
+const buildPanel = (props: Partial<ComponentProps<typeof GitPanel>> = {}) => (
+    <TooltipProvider>
+        <GitPanel
+            projectId={PROJECT_ID}
+            branch='main'
+            ahead={0}
+            behind={0}
+            hasRemote={false}
+            remote={null}
+            rows={[]}
+            commitMessage=''
+            onCommitMessageChange={() => {}}
+            onCommit={() => {}}
+            isCommitting={false}
+            onGenerateCommitMessage={() => {}}
+            isGeneratingCommitMessage={false}
+            onStage={() => {}}
+            onUnstage={() => {}}
+            onDiscard={() => {}}
+            onOpenFile={() => {}}
+            onOpenChanges={() => {}}
+            onCopyPath={() => {}}
+            onRevealInExplorer={() => {}}
+            onSync={() => {}}
+            isSyncing={false}
+            branches={[]}
+            stashes={[]}
+            canStash={false}
+            isStashing={false}
+            onStashPush={() => {}}
+            onStashApply={() => {}}
+            onStashDrop={() => {}}
+            onCheckoutBranch={() => {}}
+            onCheckoutRemoteBranch={() => {}}
+            onCreateBranch={() => {}}
+            graphCommits={COMMITS}
+            {...props}
+        />
+    </TooltipProvider>
+)
 
 /**
  * `null` is the cold start: the panel mounts while the settings query has nothing yet. Fetching is
@@ -64,47 +115,7 @@ const renderPanel = (settings: Partial<Settings> | null, props: Partial<Componen
     else queryClient.setQueryDefaults(QUERY_KEY.SETTINGS.CURRENT, { enabled: false })
     queryClient.setQueryData(QUERY_KEY.GIT.TAGS(PROJECT_ID), [])
 
-    return renderWithProviders(
-        <TooltipProvider>
-            <GitPanel
-                projectId={PROJECT_ID}
-                branch='main'
-                ahead={0}
-                behind={0}
-                hasRemote={false}
-                remote={null}
-                rows={[]}
-                commitMessage=''
-                onCommitMessageChange={() => {}}
-                onCommit={() => {}}
-                isCommitting={false}
-                onGenerateCommitMessage={() => {}}
-                isGeneratingCommitMessage={false}
-                onStage={() => {}}
-                onUnstage={() => {}}
-                onDiscard={() => {}}
-                onOpenFile={() => {}}
-                onOpenChanges={() => {}}
-                onCopyPath={() => {}}
-                onRevealInExplorer={() => {}}
-                onSync={() => {}}
-                isSyncing={false}
-                branches={[]}
-                stashes={[]}
-                canStash={false}
-                isStashing={false}
-                onStashPush={() => {}}
-                onStashApply={() => {}}
-                onStashDrop={() => {}}
-                onCheckoutBranch={() => {}}
-                onCheckoutRemoteBranch={() => {}}
-                onCreateBranch={() => {}}
-                graphCommits={COMMITS}
-                {...props}
-            />
-        </TooltipProvider>,
-        { queryClient },
-    )
+    return renderWithProviders(buildPanel(props), { queryClient })
 }
 
 const isSettingsPatch = (value: unknown): value is SettingsPatch => typeof value === 'object' && value !== null && 'gitSectionsCollapsed' in value
@@ -142,7 +153,7 @@ describe('GitPanel 그래프 pane', () => {
         renderPanel({ gitSectionsCollapsed: [] })
 
         expect(graphPane().contains(graphHeader())).toBe(true)
-        expect(screen.getByTestId('git-changes').contains(graphHeader())).toBe(false)
+        expect(screen.getByTestId(CHANGES_PANE_TEST_ID).contains(graphHeader())).toBe(false)
     })
 
     test('설정이 그래프를 접었다고 하면 헤더만 남고 본문을 그리지 않는다', () => {
@@ -168,8 +179,55 @@ describe('GitPanel 그래프 pane', () => {
     test('커밋이 없으면 그래프 pane 자체를 만들지 않는다', () => {
         renderPanel({ gitSectionsCollapsed: [] }, { graphCommits: [] })
 
-        expect(screen.queryByTestId('git-graph')).toBeNull()
-        expect(screen.getByTestId('git-changes')).toBeDefined()
+        expect(screen.queryByTestId(GRAPH_PANE_TEST_ID)).toBeNull()
+        expect(screen.getByTestId(CHANGES_PANE_TEST_ID)).toBeDefined()
+    })
+
+    /**
+     * The cold open and the project switch: the log query answers after the panel is already
+     * mounted, so the graph pane is mounted *into* a `Group` that is already live. The pane's
+     * `Panel` registers itself in a layout effect and the `Group` only recomputes its constraints on
+     * the next commit, so the collapse-sync effect below — which ran in the mount commit's passive
+     * phase while holding a plain `usePanelRef` — asked the handle for `isCollapsed()` too early and
+     * `react-resizable-panels` threw `Panel constraints not found for Panel git-graph`, which the
+     * sidebar's ErrorBoundary caught. Deferring the pane's arrival to a callback ref keeps that sync
+     * one commit behind the registration.
+     */
+    test('커밋이 늦게 도착해 pane 이 뒤늦게 마운트돼도 그래프가 그대로 열린다', async () => {
+        const { rerender } = renderPanel({ gitSectionsCollapsed: [] }, { graphCommits: [] })
+        expect(screen.queryByTestId(GRAPH_PANE_TEST_ID)).toBeNull()
+
+        await act(async () => {
+            rerender(buildPanel({ graphCommits: COMMITS }))
+        })
+        await act(async () => {})
+
+        expect(graphPane()).toBeDefined()
+        expect(graphHeader().getAttribute('aria-expanded')).toBe('true')
+    })
+
+    /**
+     * Two shell slots can show the SCM view side by side (d-62 §1.B). `Panel` writes its `id` straight
+     * into the DOM and the separator between two panes addresses them through `aria-controls`, so a
+     * static id made the second slot's separator point at the *first* slot's panes — and put duplicate
+     * ids in one document.
+     */
+    test('한 문서에 두 개가 떠도 pane id 가 서로 다르다', () => {
+        const queryClient = createTestQueryClient()
+        queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, { gitSectionsCollapsed: [] })
+        queryClient.setQueryData(QUERY_KEY.GIT.TAGS(PROJECT_ID), [])
+        renderWithProviders(
+            <>
+                {buildPanel()}
+                {buildPanel()}
+            </>,
+            { queryClient },
+        )
+
+        const paneIds = screen.getAllByTestId(GRAPH_PANE_TEST_ID).map((pane) => pane.id)
+
+        expect(paneIds.length).toBe(2)
+        expect(new Set(paneIds).size).toBe(2)
     })
 
     test('헤더를 클릭하면 접힌 섹션 목록을 설정에 저장한다', async () => {

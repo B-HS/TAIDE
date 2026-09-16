@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useRef, useState } from 'react'
+import { useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -30,6 +30,7 @@ import { readCommitMessageDraft, writeCommitMessageDraft } from '@entities/git/c
 import { useOpenFileTab, useOpenTab } from '@entities/layout/layout.query'
 import { systemRevealPath } from '@entities/system/system.ipc'
 import type { GitDiffTarget } from '@features/git/git-change-group'
+import { copyTextToClipboard } from '@shared/lib/copy-text-to-clipboard'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { Button } from '@shared/ui/button'
@@ -46,7 +47,9 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
      * Mirrors `commitMessageRequestId` state so `handleGenerateCommitMessage`'s async callbacks can
      * check "am I still the latest request?" without a stale closure — state read inside a
      * `.then`/`finally` body would still see the value from the render that started this call, not
-     * whatever a later cancel-then-restart click has since set it to.
+     * whatever a later cancel-then-restart click has since set it to. Holding the id (rather than a
+     * bare "is one running" flag) is also what lets `abandonCommitMessageRequest` cancel the request
+     * a project switch orphans.
      */
     const latestCommitMessageRequestIdRef = useRef<string | null>(null)
 
@@ -60,10 +63,16 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
      * unsent message stays in the box and can be committed into the wrong repository (audit §4-B
      * C6). The outgoing project's message needs no saving here: `applyCommitMessage` writes it
      * through on every keystroke.
+     *
+     * Clearing the request id along with it drops the spinner an AI generation started for the
+     * outgoing project would otherwise leave running here; disowning that request's *result* is the
+     * matching layout effect's job (`abandonCommitMessageRequest`), since a ref may not be written
+     * during render.
      */
     if (scopedProjectId !== projectId) {
         setScopedProjectId(projectId)
         setCommitMessage(readCommitMessageDraft(projectId))
+        setCommitMessageRequestId(null)
     }
 
     const applyCommitMessage = (message: string) => {
@@ -187,7 +196,10 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
                 toast.error(t('git.generateCommitMessageFailed'), { description: describeIpcError(error) })
             }
         } finally {
-            if (latestCommitMessageRequestIdRef.current === requestId) setCommitMessageRequestId(null)
+            if (latestCommitMessageRequestIdRef.current === requestId) {
+                latestCommitMessageRequestIdRef.current = null
+                setCommitMessageRequestId(null)
+            }
         }
     }
 
@@ -204,6 +216,33 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             },
             { onError: notifyError },
         )
+
+    /**
+     * Gives up on an AI commit message still being generated for a project this container has
+     * stopped showing. Nulling the ref is the part that matters: nothing remounts this container on
+     * a project switch, so without it every guard in `handleGenerateCommitMessage` still reads the
+     * request as current and `applyCommitMessage` would put the previous repository's message into
+     * the incoming one's input — a commit into the wrong repository by the same route as the unsent
+     * draft above (audit §4-B C6), only through the AI path. The cancel is the courtesy half: it
+     * wakes the `tokio::select!` racing the provider call (`domain/ai/commands.rs`), so the backend
+     * stops working for nobody and resolves the command with no text.
+     */
+    const abandonCommitMessageRequest = useEffectEvent(() => {
+        const abandonedRequestId = latestCommitMessageRequestIdRef.current
+        if (!abandonedRequestId) return
+        latestCommitMessageRequestIdRef.current = null
+        void cancelCommitMessageGeneration(abandonedRequestId).catch(() => undefined)
+    })
+
+    /**
+     * Deliberately a `useLayoutEffect`, not a passive one (same reasoning as
+     * `use-editor-view-state`'s save-on-teardown): React runs layout cleanups synchronously inside
+     * the commit that changed `projectId`, whereas passive effects are flushed from a scheduler
+     * task — and an AI response landing in that gap would still be treated as current and applied to
+     * the project now on screen. The cleanup also covers this container unmounting, which is what
+     * closing the git view does.
+     */
+    useLayoutEffect(() => () => abandonCommitMessageRequest(), [projectId])
 
     if (isError) {
         return (
@@ -236,7 +275,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onDiscard={(paths) => discardPaths({ projectId, paths }, { onError: notifyError })}
             onOpenFile={(path) => openFileTab({ projectId, path, target: null, preview: true })}
             onOpenChanges={openDiffTab}
-            onCopyPath={(path) => void navigator.clipboard.writeText(path)}
+            onCopyPath={(path) => void copyTextToClipboard(path)}
             onRevealInExplorer={(path) => void systemRevealPath(path).catch(notifyError)}
             onSync={handleSync}
             branches={branches}
