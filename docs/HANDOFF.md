@@ -1,4 +1,13 @@
-# HANDOFF — 2026-09-16 세션 스냅샷 (사용성 배치 5 d-58~d-62 전량 완료·dev/main 반영, v0.2.0 draft 릴리스)
+# HANDOFF — 2026-09-16 세션 스냅샷 (d-63 git 패널 크래시 + 같은 클래스 전수 조사 후속·부팅 스플래시, v0.2.1 draft 릴리스)
+
+> 최종 갱신: 2026-09-16(2차) / HEAD = `e13a5d9`(chore(release) v0.2.1) 위에 이 docs 커밋. 직전 스냅샷 `git show 77e3d20:docs/HANDOFF.md`.
+> **이 세션(2026-09-16 2차)** — 사용자 실기 보고 "git 창 열면 Sidebar Panel / Retry" → 앱 로그 `Panel constraints not found for Panel git-graph` + react-resizable-panels 4.12.2 dist 통독으로 원인 확정(그래프 Panel 이 log 도착 후 기존 Group 에 늦게 마운트 → Group 의 constraints 재계산(다음 커밋)보다 접힘 동기화 passive effect 가 먼저 `isCollapsed()` 호출). `usePanelCallbackRef` 전환으로 수정(`bug/2026-09-16-git-graph-pane-late-mount-constraints-crash.md`). 이어 사용자 지시로 **같은 클래스 전수 조사**(wf 4관점 opus·xhigh → major 10건 sonnet·xhigh 반박, `research/2026-09-16-same-class-timing-bug-audit.md` 항목 1~13) → A·B 수정, C 는 정석 판정(8·9·12·13 수정, 10·11 패스) + 부팅 스플래시(로고+TAIDE) 신규 → 계약 `acknowledge/2026-09-16-d63-timing-audit-fixes-contract.md`(§1 판정표·§3 구현/검증/부채).
+> **반영 커밋(dev=main)**: `82e898b`(locale) `6949fea`(clipboard) `dd22709`(git) `96decbc`(shell) `f7fbee9`(terminal) `d628186`(editor) `788482b`(app) `ad58009`(boot) `e5d651e`(docs) `e13a5d9`(release). 검증: typecheck 0 · lint 0 error · format 통과 · bun test 2733/0 · vite build.
+> **릴리스**: `v0.2.1` 태그 `e13a5d9`, Release 런 `35065374306` 완주(`deployment.md` §9). draft 유지 — 공개는 사용자.
+> **사용자 잔여(실기, v0.2.1 설치본)**: git 뷰 첫 오픈·git 뷰 열린 채 프로젝트 전환(폴백 없음·로그 미출력), AI 커밋 메시지 생성 중 프로젝트 전환, 세로 분할 터미널 창 축소, 스플래시 표시·페이드, 경로 복사 실패 토스트(원격 미러), 에디터 분할/복원 포커스. 항목 10·11 은 패스(계약 §1 사유) — 증상 보이면 재개.
+> **원격 이동 알림**: 푸시 시 GitHub 가 `B-HS/TAIDE` 로 이동했다고 응답(리다이렉트 정상). `git remote set-url` 은 사용자 확인 후.
+
+> 직전 스냅샷(2026-09-16 1차, 배치 5·v0.2.0) 헤더는 아래 유지.
 
 > 최종 갱신: 2026-09-16 / HEAD = `b01e901`(chore(release) v0.2.0) 위에 이 docs 커밋. 직전 스냅샷 `git show 2ef3732:docs/HANDOFF.md`.
 > **이 세션(2026-09-15~16)** — 사용자 항목 14건을 조사 wf 2건(`research/2026-09-15-batch5-research.md`) → 결정 문서(`acknowledge/2026-09-15-usability-batch5-user-decisions.md` §0~§5) → 계약 5개로 나눠 전량 완료.

@@ -75,9 +75,10 @@
       **계약 `acknowledge/2026-09-16-d63-timing-audit-fixes-contract.md`**(판정: 1~7 수정, 8 판정 위임, 9·12·13 수정, 10·11 패스, 스플래시 신규)
 - [x] g. 구현 wf `wf_f75f3381`(fixer 6 병렬 opus·xhigh → 통합 검증 sonnet·high) + 잔여 4건 wf `wf_e7f3f4b5` → 메인 diff 전수 대조 →
       계약 §3 기록. 검증: typecheck 0 · lint 0 error · format 통과 · **bun test 2733 pass / 0 fail** · vite build 성공
-- [ ] h. 사용자 지시 "draft 까지" → 논리 단위 분할 커밋 10건 → dev 푸시 · main ff → 태그 `v0.2.1` → Release 런 완주 → draft(dmg + SHA256SUMS)
-      → `deployment.md` §9 이력 기록. 공개(publish)와 실기 확인(git 뷰 첫 오픈·프로젝트 전환·AI 커밋 메시지 중 전환·분할 터미널 축소·스플래시·
-      경로 복사 실패 토스트)은 사용자 몫
+- [x] h. 사용자 지시 "draft 까지" → 논리 단위 분할 커밋 10건(`82e898b`~`e13a5d9`) → dev 푸시 · main ff → 태그 `v0.2.1` → **Release 런
+      `35065374306` 완주(wall 10m41s)** → draft(`TAIDE_0.2.1_aarch64.dmg` 15,277,489B + SHA256SUMS.txt) → `deployment.md` §9·HANDOFF 기록
+- [ ] i. 사용자 몫 — draft 공개(publish) 여부 · v0.2.1 설치본 실기(git 뷰 첫 오픈·프로젝트 전환·AI 커밋 메시지 중 전환·분할 터미널 축소·
+      스플래시·경로 복사 실패 토스트·분할/복원 에디터 포커스) · 원격 URL `B-HS/TAIDE` 전환 여부
 
 ## 진행 중: 사용성 배치 5 — 13항목(단축키·파일트리·프로젝트 split·알림·에이전트 다각화·Dock Recent·퀵오픈 버그·Welcome·검색·+메뉴·git 패널·테마) (2026-09-15)
 
