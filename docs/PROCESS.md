@@ -69,7 +69,9 @@
       전제 2건 정정(`monaco.typescript` 네임스페이스 / 0.56 은 `setModeConfiguration` 소급 미적용 → 정지 시 `setDiagnosticsOptions` 동반,
       한계는 editor.md §12 명시). 렌즈 major 0·minor 1(ipc-contract 캐비어트 → 메인 직접 정정)·info 1(attach warn 테스트 → QA 부채)
 - [x] d. 메인 2차 verify exit 0(bun 2745·cargo 1661+4+3+8+17·clippy 0)·vite build·typecheck:e2e → 커밋 5분할(editor/lsp/tree/docs/release)
-- [ ] e. 사용자 지시 "다 끝나면 draft 까지" → dev 푸시 · main ff · 태그 `v0.2.2` · Release 런 · draft → `deployment.md` §9·HANDOFF 기록
+- [x] e. 사용자 지시 "다 끝나면 draft 까지" → 커밋 `7b5dbaf`(editor) `b8a9aef`(lsp) `b9ac6f3`(tree) `fc1d927`(docs) `f256ad7`(release) → dev 푸시 ·
+      main ff → 태그 `v0.2.2` → **Release 런 `35071071392` 완주(wall 약 9m12s)** → draft(`TAIDE_0.2.2_aarch64.dmg` 15,280,748B + SHA256SUMS.txt)
+      → `deployment.md` §9·HANDOFF 기록
 - [ ] f. 사용자 실기(v0.2.2 설치본) — 설정 LSP 행·상태바 LSP n/m·로그 `lsp detect`/`spawn`/`exited`·vendor-utils.ts 밑줄·트리
       node_modules/.next 표시·완성 목록 중복 여부. 로그가 `available=false` 면 §4 PATH 보강 착수
 
