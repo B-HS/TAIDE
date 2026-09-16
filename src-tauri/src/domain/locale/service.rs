@@ -27,6 +27,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "unsavedChangesTitle",
             "unsavedChangesDescription",
             "openExternalLinkFailed",
+            "copyFailed",
         ],
     ),
     (

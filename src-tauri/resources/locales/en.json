@@ -46,6 +46,7 @@
     "common.cancel": "Cancel",
     "common.close": "Close",
     "common.confirm": "Confirm",
+    "common.copyFailed": "Couldn't copy to clipboard",
     "common.discardChanges": "Discard changes",
     "common.durationHoursMinutes": "{{hours}}h {{minutes}}m",
     "common.durationMinutesSeconds": "{{minutes}}m {{seconds}}s",

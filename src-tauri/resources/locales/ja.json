@@ -46,6 +46,7 @@
     "common.cancel": "キャンセル",
     "common.close": "閉じる",
     "common.confirm": "確認",
+    "common.copyFailed": "クリップボードにコピーできませんでした",
     "common.discardChanges": "変更を破棄",
     "common.durationHoursMinutes": "{{hours}}時間{{minutes}}分",
     "common.durationMinutesSeconds": "{{minutes}}分{{seconds}}秒",

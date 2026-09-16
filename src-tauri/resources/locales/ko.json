@@ -46,6 +46,7 @@
     "common.cancel": "취소",
     "common.close": "닫기",
     "common.confirm": "확인",
+    "common.copyFailed": "클립보드에 복사하지 못했습니다",
     "common.discardChanges": "변경사항 버리기",
     "common.durationHoursMinutes": "{{hours}}시간 {{minutes}}분",
     "common.durationMinutesSeconds": "{{minutes}}분 {{seconds}}초",
