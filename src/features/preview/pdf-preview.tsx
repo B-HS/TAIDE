@@ -26,6 +26,7 @@ export const PdfPreview: FC<PdfPreviewProps> = ({ data, onOpenExternally }) => {
     const documentRef = useRef<PDFDocumentProxy | null>(null)
     const renderTaskRef = useRef<RenderTask | null>(null)
 
+    const [loadedData, setLoadedData] = useState(data)
     const [status, setStatus] = useState<PdfPreviewStatus>('loading')
     const [numPages, setNumPages] = useState(0)
     const [currentPage, setCurrentPage] = useState(1)
@@ -37,6 +38,24 @@ export const PdfPreview: FC<PdfPreviewProps> = ({ data, onOpenExternally }) => {
     const goToNextPage = () => setCurrentPage((page) => Math.min(numPages, page + 1))
     const zoomIn = () => setScale((value) => Math.min(PDF_MAX_SCALE, value + PDF_SCALE_STEP))
     const zoomOut = () => setScale((value) => Math.max(PDF_MIN_SCALE, value - PDF_SCALE_STEP))
+
+    /**
+     * Render-phase adjustment (React's documented "adjust state when a prop changes", the same shape
+     * `editor-pane.tsx` uses) rather than a `setStatus` inside the load effect below, which the
+     * React Compiler lint rejects as a cascading render.
+     *
+     * Re-entering `loading` is what makes a swapped `data` actually repaint. The render effect keys
+     * off `[status, currentPage, scale]`, none of which `data` touches, and a reload that lands back
+     * on page 1 at 100% sets all three to the values they already held — so without this reset the
+     * effect never re-ran and the canvas kept the *previous* document's pixels (an external save to
+     * the previewed file refetches `fileRawQueryOptions` into a new `ArrayBuffer`). Dropping back to
+     * `loading` also unmounts the canvas for that frame, which closes the window where `status` said
+     * `ready` while the load effect's cleanup had already nulled `documentRef.current`.
+     */
+    if (loadedData !== data) {
+        setLoadedData(data)
+        setStatus('loading')
+    }
 
     useEffect(() => {
         let cancelled = false
@@ -71,16 +90,28 @@ export const PdfPreview: FC<PdfPreviewProps> = ({ data, onOpenExternally }) => {
 
         let cancelled = false
 
+        /**
+         * `getPage` rejects with "Transport destroyed" whenever the load effect's cleanup destroys the
+         * loading task while a page request is still in flight — closing or switching away from the tab
+         * right after a page/zoom change, or the same external-save refetch that swaps `data`. The
+         * `cancelled` flag is only read *after* the await resolves, so it cannot cover that path; this
+         * `try` is what keeps it from becoming an unhandled rejection, and mirrors the load effect's own
+         * catch by surfacing a genuine (non-cancelled) failure as `error` rather than a frozen canvas.
+         */
         const renderPage = async () => {
-            const page = await pdfDocument.getPage(currentPage)
-            if (cancelled) return
-            const viewport = page.getViewport({ scale })
-            canvas.width = viewport.width
-            canvas.height = viewport.height
+            try {
+                const page = await pdfDocument.getPage(currentPage)
+                if (cancelled) return
+                const viewport = page.getViewport({ scale })
+                canvas.width = viewport.width
+                canvas.height = viewport.height
 
-            const renderTask = page.render({ canvas, viewport })
-            renderTaskRef.current = renderTask
-            renderTask.promise.catch(() => undefined)
+                const renderTask = page.render({ canvas, viewport })
+                renderTaskRef.current = renderTask
+                renderTask.promise.catch(() => undefined)
+            } catch {
+                if (!cancelled) setStatus('error')
+            }
         }
         void renderPage()
 

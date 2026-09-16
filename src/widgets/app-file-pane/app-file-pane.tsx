@@ -24,6 +24,8 @@ type AppFilePaneProps = {
     tabId: TabId
     target: AppFileTarget
     initialDirty: boolean
+    /** Whether this pane is the focused one — handed straight to {@link CodeEditor}'s own `autoFocus`, which documents what it gates. */
+    autoFocus: boolean
 }
 
 /**
@@ -44,7 +46,7 @@ type AppFilePaneProps = {
  * that seed into `draftRef` from the model's live value so `⌘S` works immediately after switching
  * back, even before the user types another character in this new component instance.
  */
-export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, initialDirty }) => {
+export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, initialDirty, autoFocus }) => {
     const draftRef = useRef<string | null>(null)
 
     const [syncedContent, setSyncedContent] = useState<string | null>(null)
@@ -158,6 +160,7 @@ export const AppFilePane: FC<AppFilePaneProps> = ({ projectId, tabId, target, in
             path={modelPath}
             language={APP_FILE_LANGUAGE_ID}
             value={content}
+            autoFocus={autoFocus}
             readOnly={false}
             largeFile={false}
             {...resolveCodeEditorSettingsProps(settings)}

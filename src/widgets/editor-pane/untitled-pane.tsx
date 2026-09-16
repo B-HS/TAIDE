@@ -29,9 +29,11 @@ type UntitledPaneProps = {
     projectId: ProjectId
     tabId: TabId
     index: number
+    /** Whether this pane is the focused one — handed straight to {@link CodeEditor}'s own `autoFocus`, which documents what it gates. */
+    autoFocus: boolean
 }
 
-export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index }) => {
+export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index, autoFocus }) => {
     const seedContent = getUntitledContent(projectId, tabId)
     const restoredFromMirrorRef = useRef(seedContent !== null)
     const pendingMirrorRef = useRef(false)
@@ -193,6 +195,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index })
             path={untitledPath}
             language={UNTITLED_LANGUAGE_ID}
             value={initialContent}
+            autoFocus={autoFocus}
             readOnly={false}
             largeFile={false}
             {...resolveCodeEditorSettingsProps(settings)}

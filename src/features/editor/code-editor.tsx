@@ -59,6 +59,15 @@ export type CodeEditorProps = {
     aiAutoTabEnabled: boolean
     aiCompletionConfig: AiInlineCompletionConfig | null
     /**
+     * Whether this editor's pane is the focused one — the counterpart of `TerminalViewProps.autoFocus`,
+     * and read for the same reason: every pane in the tree mounts its own editor at once when a session
+     * is restored or a split is opened, so an unconditional `focus()` in the model-attach effect below
+     * handed the keyboard to whichever pane happened to commit last, overriding the focused pane the
+     * layout actually persisted. Optional and defaulting to `true` so the hosts that own the *only*
+     * editor in their subtree (`untitled-pane`, `app-file-pane`) keep today's behavior untouched.
+     */
+    autoFocus?: boolean
+    /**
      * Handed a lazy reader for the model's text rather than the text itself: every host debounces
      * what it does with a keystroke (hot-exit mirror, auto-save, markdown preview), so materializing
      * the whole document as a string on each `onDidChangeModelContent` builds a full copy of the file
@@ -110,6 +119,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     formatOnPaste,
     aiAutoTabEnabled,
     aiCompletionConfig,
+    autoFocus = true,
     onChange,
     onSave,
     onCursorLineChange,
@@ -123,6 +133,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
     const registryTabIdRef = useRef<TabId | null>(null)
     const activePathRef = useRef<string | null>(null)
+    const autoFocusRef = useRef(autoFocus)
     const valueRef = useRef(value)
     const initialFontFamilyRef = useRef(fontFamily)
     const initialFontSizeRef = useRef(fontSize)
@@ -138,6 +149,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         valueRef.current = value
         minimapRef.current = minimap
         aiCompletionConfigRef.current = aiCompletionConfig
+        autoFocusRef.current = autoFocus
         onChangeRef.current = onChange
         onSaveRef.current = onSave
         onCursorLineChangeRef.current = onCursorLineChange
@@ -311,16 +323,34 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         editorRef.current?.updateOptions({ fontSize })
     }, [fontSize])
 
+    /**
+     * Attaches this path's model, and takes keyboard focus only when both halves of "the user just
+     * arrived at this buffer" hold.
+     *
+     * `autoFocusRef` gates on the pane: read through a ref, and deliberately absent from the
+     * dependency list, so that a pane merely *becoming* focused (⌘K ⌘→, a tab-bar mousedown) does not
+     * re-run the whole attach — `focusPane` and `activateTab` are separate layout mutations, and the
+     * activation that changes `path` always carries the focus change with it (Rust serializes the two
+     * writes and every layout response is a full snapshot), so the focused pane's own tab switches
+     * still focus exactly as before.
+     *
+     * `activePathRef.current !== path` gates on the buffer: `language` is in the dependency list
+     * because a re-language (`applyModelLanguage` after a rename changed the extension) has to re-attach,
+     * but that re-run is not navigation — focusing there yanked the caret out of the terminal or the
+     * search box the user was actually typing in. Tab-switch returns inside one pane keep their focus,
+     * which is the documented behavior (`docs/features/editor.md` §restore).
+     */
     useEffect(() => {
         const editor = editorRef.current
         if (!editor) return
 
-        if (activePathRef.current && activePathRef.current !== path) saveViewState(activePathRef.current, editor)
+        const isPathChange = activePathRef.current !== path
+        if (activePathRef.current && isPathChange) saveViewState(activePathRef.current, editor)
 
         const model = getOrCreateModel(path, valueRef.current, language)
         editor.setModel(model)
         restoreViewState(path, editor)
-        editor.focus()
+        if (autoFocusRef.current && isPathChange) editor.focus()
         activePathRef.current = path
     }, [path, language])
 

@@ -142,7 +142,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
             )}
             <div ref={paneContentRef} className='bg-editor-background text-editor-foreground relative min-h-0 flex-1 overflow-hidden'>
                 {activeTab?.kind.kind === 'file' && activePreviewKind === null && (
-                    <EditorPane projectId={projectId} tabId={activeTab.id} path={activeTab.kind.path} />
+                    <EditorPane projectId={projectId} tabId={activeTab.id} path={activeTab.kind.path} autoFocus={node.id === focusedPaneId} />
                 )}
                 {activeTab?.kind.kind === 'file' && activePreviewKind !== null && <PreviewPane key={activeTab.id} path={activeTab.kind.path} />}
                 {activeTab?.kind.kind === 'terminal' && (
@@ -197,7 +197,13 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                     />
                 )}
                 {activeTab?.kind.kind === 'untitled' && (
-                    <UntitledPane key={activeTab.id} projectId={projectId} tabId={activeTab.id} index={activeTab.kind.index} />
+                    <UntitledPane
+                        key={activeTab.id}
+                        projectId={projectId}
+                        tabId={activeTab.id}
+                        index={activeTab.kind.index}
+                        autoFocus={node.id === focusedPaneId}
+                    />
                 )}
                 {activeTab?.kind.kind === 'searchEditor' && (
                     <SearchEditorPane key={activeTab.id} projectId={projectId} tabId={activeTab.id} query={activeTab.kind.query} />
@@ -209,6 +215,7 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
                         tabId={activeTab.id}
                         target={activeTab.kind.target}
                         initialDirty={activeTab.dirty ?? false}
+                        autoFocus={node.id === focusedPaneId}
                     />
                 )}
                 {activeTab &&

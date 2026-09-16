@@ -59,9 +59,11 @@ type EditorPaneProps = {
     projectId: ProjectId
     tabId: TabId
     path: string
+    /** Whether this editor's pane is the focused one — handed straight to {@link CodeEditor}'s own `autoFocus`, which documents what it gates. */
+    autoFocus: boolean
 }
 
-export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
+export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFocus }) => {
     const [syncedPath, setSyncedPath] = useState(path)
     const [syncedContent, setSyncedContent] = useState<string | null>(null)
     const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -344,6 +346,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
             formatOnType={settings?.editorFormatOnType ?? false}
             formatOnPaste={settings?.editorFormatOnPaste ?? false}
             aiCompletionConfig={aiCompletionConfig}
+            autoFocus={autoFocus}
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}
@@ -385,7 +388,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path }) => {
      * pre-existing sizing exactly, without depending on `We()`'s output ever needing the
      * separate sum-to-100 renormalization pass (`K()`) a declared `defaultSize='50%'` on a lone
      * panel would have required. Same no-`defaultSize` pattern already used by `editor-area.tsx`'s
-     * outer `<Panel id='editor-panes'>`. It also fixes the one frame rendered before the group's
+     * outer editor-panes `Panel` (its id carries an instance prefix). It also fixes the one frame rendered before the group's
      * own layout effect commits: with no `defaultSize`, that frame's inline style is
      * `flexGrow: 1` (fills the row immediately) rather than a stale 50% `flexBasis`.
      *
