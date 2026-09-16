@@ -34,6 +34,21 @@
 - **서버 실행 감지**(ADR-0007 배포 전략): 프로젝트 로컬(`node_modules/.bin`, `.venv/bin`) →
   PATH/rustup(`rust-analyzer` 는 인자 없이 stdio — `--stdio` 플래그 없음) → TAIDE 관리 디렉토리 →
   다운로드 제안. 감지 결과·버전은 설정 UI 에 표시.
+- **관측성 로그**(d-64 R1): 그전까지 Rust LSP 경로의 로그 문은 툴체인 취소 warn 하나뿐이라 앱 로그
+  (`~/Library/Logs/net.gumyo.taide/TAIDE.log`)에 `lsp` 줄이 0개였고, "감지 실패 / spawn 실패 /
+  크래시" 중 무엇이었는지 사후 확정이 불가능했다(d-64 계약 §0.1). 지금 남기는 것:
+  - `lsp_detect_servers`: 서버마다 `lsp detect: {id} available={bool} path={Option<경로>}`(info),
+    탐색에 쓴 PATH 는 호출당 1회(debug).
+  - `spawn_process`: 실행파일 해석 실패 `lsp {id}: executable not found (bin=…, root=…)`(warn —
+    에러 반환은 종전 그대로), 성공 `lsp {id}: spawn {resolved} {args:?} cwd={root} pid={pid}`(info).
+  - `handle_process_exit`: `lsp_stop` 이 세운 `stopping` 경로는 `lsp {id}: stopped (code=…)`(info),
+    그 외(크래시)는 `lsp {id}: exited code=… restarts=… stderr_tail=…`(warn).
+  - `infra::lsp_proc::spawn` 이 stderr 를 `Stdio::piped()` 로 받아 **최신
+    `LSP_STDERR_TAIL_BYTES`(4 KiB)만** 링으로 보관하고(`LspProcHandle::stderr_tail()`), 종료 콜백에
+    그 tail 을 인자로 실어 보낸다 — 핸들이 세션(`SessionEntry::proc`)에 설치되기 **전에** 죽는
+    프로세스도 사유가 남게 하기 위함이다. tail 은 노출 전 마스킹(§2).
+  - `lib.rs`: `fix_path_env` 성공 시 `PATH 환경변수 보정 완료: {n} 항목`(info, `n` 은 보정된 PATH 의
+    항목 수), 실패 warn 은 종전 유지.
 - **initialize 정본** (서버별 — research §1~5 의 JSON 예시를 그대로 사용):
   - 공통: `clientInfo: { name: "TAIDE" }`, `workspaceFolders`, **`general.positionEncoding` 협상**
     (`["utf-16"]` 기본 — Rust 쪽 UTF-8 인덱스와의 변환 유틸을 한 곳에 둔다).
@@ -64,6 +79,11 @@
   알림 본문이 된다 — `native-notification-provider.tsx`)와 반환 `AppError` 에 같이 실린다. 패키지
   매니저 설치기는 실패 tail 에 레지스트리 자격증명(`_authToken=…`)을 그대로 뱉는 일이 흔하고, 그
   문자열은 디스크 로그에도 남는다. 실패 원인 문구·경로·종료 코드는 보존된다.
+- **언어 서버 stderr tail 도 같은 마스킹을 거친다**(d-64 R1): 종료 로그에 싣기 전에
+  `domain::lsp::commands::masked_stderr_tail` 이 `infra::redact::mask_known_secrets` 를 적용하고
+  줄바꿈을 `STDERR_TAIL_LOG_SEPARATOR`(` / `)로 합친다(한 종료 = 로그 한 줄이라야 grep 이 된다).
+  래퍼(`npx`·`node_modules/.bin` shim·venv 활성화)를 거쳐 뜨는 서버는 실패 stderr 에 레지스트리
+  자격증명을 그대로 뱉을 수 있고, 그 문자열은 회전 디스크 로그에 남는다.
 - **툴체인 프로세스 그룹 종료 가드**(d-57 §1.E): 취소 시 보내는 `kill -TERM -<pgid>` 는 pgid 가 2
   미만(`MIN_SIGNALABLE_PGID`)이면 no-op + `log::warn!` 이고, 호출부는 시그널 직전 `child.try_wait()`
   로 생존을 확인한다 — pid 0/1 이면 TAIDE 자신의 프로세스 그룹까지 향하는 시그널이었다.
@@ -148,8 +168,30 @@
 
 ## 4. 에디터 연동 규칙
 
-- TS/JS: LSP 세션이 뜨면 내장 ts worker 기능을 `setModeConfiguration` 으로 끄고 일원화
-  (`editor.md` §8). LSP 실패/미설치 시 내장 worker 가 fallback.
+- **TS/JS: LSP 세션이 붙은 언어는 그 세션 동안 내장 ts 언어 서비스를 정지시킨다**(d-64 F2). 이
+  항목은 그전까지 **미구현을 구현된 것처럼** 적고 있었다 — `setModeConfiguration` 호출은 저장소
+  어디에도 없었다(d-64 계약 §0.1-6). 실구현:
+  - 모듈 `src/shared/lib/monaco/builtin-typescript-mode.ts` 의
+    `suspendBuiltinTypeScriptMode(languageId, monaco.typescript)` → `release`. 언어 id → 언어 서비스
+    매핑은 `typescript`/`typescriptreact` → `typescriptDefaults`, `javascript`/`javascriptreact` →
+    `javascriptDefaults`, 그 외 언어는 no-op(내장 서비스가 없다).
+  - refcount 는 **언어 id 가 아니라 defaults 객체 단위**다(`typescript` 와 `typescriptreact` 가 한
+    서비스를 공유하므로). 0→1 에서 현재 `modeConfiguration`·`getDiagnosticsOptions()` 를 스냅샷하고
+    `setModeConfiguration`(전 기능 `false`)·`setDiagnosticsOptions`(semantic·syntax·suggestion 전부
+    off)를 걸며, 1→0 에서만 스냅샷을 되돌린다. 반환된 release 는 멱등이라 이중 `dispose()` 가 다른
+    소유자의 카운트를 깎지 않는다.
+  - 호출 지점은 `entities/lsp/lsp-session-registry.ts::ensureLanguageRegistered` 의 `disposables`
+    배열(`{ dispose: suspendBuiltinTypeScriptMode(languageId, monaco.typescript) }`) —
+    `disposeSession` 이 언어별 disposables 를 전부 dispose 하므로 복원은 세션 종료에 자동으로
+    따라온다. `serverId` 와 무관한 **언어 기준** 게이팅이다.
+  - **실효는 진단 쪽이 낸다**(monaco-editor 0.56 실측 — 모듈 JSDoc 에 근거 경로 기재):
+    `setDiagnosticsOptions` 는 `DiagnosticsAdapter` 가 `onDidChange` 로 받아 즉시 마커를 지우지만,
+    `setModeConfiguration` 은 이 버전에서 이미 등록된 provider 를 소급 해제하지 않는다. 그래도
+    거는 이유는 "내장 기능 off" 의 API 계약이고, 이후 셋업되는 모드가 아무것도 등록하지 않게
+    하기 때문이다.
+- LSP 실패·미설치 시에는 내장 worker 가 폴백이며, 그 폴백은 **구문 검사 전용**이다(d-64 F1 —
+  `editor.md` §12). 프로젝트 컨텍스트(tsconfig·node_modules)가 없는 worker 의 semantic 진단은
+  사실상 전부 오탐(TS2792/2307/2580/2304)이라 끈다.
 - 파일 열기 → 해당 언어 세션 lazy 기동(프로젝트 capability attach 시점이 아니라 첫 didOpen 시점).
 - 파일 rename: marksman 은 didRename 미지원 → didClose(구)+didOpen(신) 전송(research 함정).
 - 상태 표시: 상태바(또는 탭 영역)에 서버 상태·인덱싱 진행 표시. 크래시 시 재시작 버튼.

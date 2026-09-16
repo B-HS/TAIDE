@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::Notify;
@@ -11,11 +12,57 @@ use crate::error::{AppError, AppErrorKind, AppResult};
 const HEADER_BODY_SEPARATOR: &[u8] = b"\r\n\r\n";
 const CONTENT_LENGTH_HEADER: &str = "content-length";
 const LSP_READ_BUFFER_BYTES: usize = 64 * 1024;
+/// Upper bound on the stderr this module keeps per language server: only the newest
+/// [`LSP_STDERR_TAIL_BYTES`] bytes survive, so a server that logs for hours costs a fixed amount of
+/// memory instead of growing without bound. The tail exists to name *why* a server died in
+/// `domain::lsp::commands::handle_process_exit`'s exit log, and the newest bytes are where that
+/// answer lives (the panic, the missing runtime, the rejected flag).
+const LSP_STDERR_TAIL_BYTES: usize = 4 * 1024;
+/// Read chunk for the stderr reader task, smaller than [`LSP_READ_BUFFER_BYTES`] because stderr
+/// carries occasional diagnostics rather than the protocol stream.
+const LSP_STDERR_READ_BUFFER_BYTES: usize = 8 * 1024;
+/// How long [`spawn`]'s wait task lets the stderr reader reach EOF after the process exits, before
+/// reporting whatever tail it already has. The pipe's write end closes with the process, so the
+/// reader normally finishes at once; this bound only matters when a surviving grandchild still
+/// holds that end open — in which case the exit report must not wait on it forever.
+const LSP_STDERR_DRAIN_TIMEOUT_MS: u64 = 500;
 
 pub struct LspProcConfig {
     pub command: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+}
+
+/// The newest [`LSP_STDERR_TAIL_BYTES`] bytes a language server wrote to stderr, shared between
+/// [`spawn`]'s reader task (which appends) and the exit report (which snapshots). Before this
+/// existed stderr was `Stdio::null()`, so a server that failed to start — a missing `node` for a
+/// `#!/usr/bin/env node` shim, a rejected flag, a panic — said exactly why on a stream nothing
+/// read, and the app could only report the exit code (d-64 §0.1).
+#[derive(Default)]
+struct StderrTail {
+    bytes: Vec<u8>,
+}
+
+impl StderrTail {
+    fn push(&mut self, chunk: &[u8]) {
+        if chunk.len() >= LSP_STDERR_TAIL_BYTES {
+            self.bytes.clear();
+            self.bytes.extend_from_slice(&chunk[chunk.len() - LSP_STDERR_TAIL_BYTES..]);
+            return;
+        }
+
+        self.bytes.extend_from_slice(chunk);
+        let overflow = self.bytes.len().saturating_sub(LSP_STDERR_TAIL_BYTES);
+        if overflow > 0 {
+            self.bytes.drain(0..overflow);
+        }
+    }
+
+    /// Lossy on purpose: the bound cuts at a byte offset, which can land mid-character, and a
+    /// replacement character inside one log line beats dropping the whole tail.
+    fn snapshot(&self) -> String {
+        String::from_utf8_lossy(&self.bytes).into_owned()
+    }
 }
 
 pub struct LspProcHandle {
@@ -31,6 +78,7 @@ pub struct LspProcHandle {
     /// can detect real process death directly instead of guessing from a fixed sleep.
     exited: Arc<AtomicBool>,
     pid: Option<u32>,
+    stderr_tail: Arc<Mutex<StderrTail>>,
 }
 
 impl LspProcHandle {
@@ -89,6 +137,14 @@ impl LspProcHandle {
     /// (`domain::system::commands::system_usage_breakdown`).
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    /// The newest bytes this server wrote to stderr, at most [`LSP_STDERR_TAIL_BYTES`] of them.
+    /// Process output, so a caller that logs or shows it must mask it first
+    /// (`domain::lsp::commands::masked_stderr_tail`) — the same policy the toolchain-install tail
+    /// follows (d-57 §1.D).
+    pub fn stderr_tail(&self) -> String {
+        self.stderr_tail.lock().snapshot()
     }
 
     /// Whether the wait task spawned in [`spawn`] has observed this process exit. Lets a shutdown
@@ -223,10 +279,19 @@ impl MessageBuffer {
     }
 }
 
+/// Starts one language server process and wires its three streams: framed messages out of stdout
+/// to `on_message`, writes in through [`LspProcHandle::write_message`], and stderr into a bounded
+/// tail.
+///
+/// `on_exit` receives the exit code and that tail. The tail is passed *by value* rather than read
+/// back off the handle at exit time because the handle is installed on the session
+/// (`domain::lsp::commands::SessionEntry::proc`) only after this function returns: a server that
+/// dies immediately — the very case the tail is for — would otherwise have its exit observed while
+/// the session still holds the previous process's handle, or none at all.
 pub fn spawn<D, X>(config: LspProcConfig, on_message: D, on_exit: X) -> AppResult<LspProcHandle>
 where
     D: Fn(String) + Send + 'static,
-    X: FnOnce(Option<i32>) + Send + 'static,
+    X: FnOnce(Option<i32>, String) + Send + 'static,
 {
     let mut command = Command::new(&config.command);
     command
@@ -234,7 +299,7 @@ where
         .current_dir(&config.cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::piped());
 
     let mut child = command.spawn().map_err(|error| {
         AppError::localized(
@@ -262,6 +327,21 @@ where
         )
     })?;
 
+    let stderr_tail = Arc::new(Mutex::new(StderrTail::default()));
+    let stderr_reader = child.stderr.take().map(|mut stderr| {
+        let tail = stderr_tail.clone();
+        tokio::spawn(async move {
+            let mut read_buf = [0u8; LSP_STDERR_READ_BUFFER_BYTES];
+
+            loop {
+                match stderr.read(&mut read_buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => tail.lock().push(&read_buf[..n]),
+                }
+            }
+        })
+    });
+
     tokio::spawn(async move {
         let mut buffer = MessageBuffer::new();
         let mut read_buf = [0u8; LSP_READ_BUFFER_BYTES];
@@ -283,6 +363,7 @@ where
     let kill_for_wait = kill_signal.clone();
     let exited = Arc::new(AtomicBool::new(false));
     let exited_for_wait = exited.clone();
+    let stderr_tail_for_exit = stderr_tail.clone();
 
     // Parks on process death and a kill request at once instead of waking every
     // `LSP_WAIT_POLL_MS` to `try_wait` (§2 L-3): an idle language server costs this task nothing,
@@ -304,7 +385,13 @@ where
         };
 
         exited_for_wait.store(true, Ordering::SeqCst);
-        on_exit(status.ok().and_then(|status| status.code()));
+
+        if let Some(reader) = stderr_reader {
+            let _ = tokio::time::timeout(tokio::time::Duration::from_millis(LSP_STDERR_DRAIN_TIMEOUT_MS), reader).await;
+        }
+
+        let tail = stderr_tail_for_exit.lock().snapshot();
+        on_exit(status.ok().and_then(|status| status.code()), tail);
     });
 
     Ok(LspProcHandle {
@@ -312,6 +399,7 @@ where
         kill_signal,
         exited,
         pid,
+        stderr_tail,
     })
 }
 
@@ -459,7 +547,7 @@ mod tests {
             cwd: std::env::temp_dir(),
         };
 
-        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let handle = spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         while !handle.is_exited() && tokio::time::Instant::now() < deadline {
@@ -478,7 +566,7 @@ mod tests {
             cwd: std::env::temp_dir(),
         };
 
-        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let handle = spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert!(!handle.is_exited(), "아직 실행 중인 프로세스는 종료로 감지되면 안 된다");
@@ -501,7 +589,7 @@ mod tests {
             args: vec!["-c".to_string(), "sleep 5".to_string()],
             cwd: std::env::temp_dir(),
         };
-        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let handle = spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
         let pid = handle.pid().expect("pid 확보");
 
         handle.kill();
@@ -539,7 +627,7 @@ mod tests {
             args: vec!["-c".to_string(), "sleep 5".to_string()],
             cwd: std::env::temp_dir(),
         };
-        let handle = spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let handle = spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
 
         handle.kill();
 
@@ -581,6 +669,7 @@ mod tests {
             kill_signal: Arc::new(Notify::new()),
             exited: Arc::new(AtomicBool::new(true)),
             pid: Some(victim_pid),
+            stderr_tail: Arc::new(Mutex::new(StderrTail::default())),
         };
 
         stale_handle.kill();
@@ -595,5 +684,79 @@ mod tests {
 
         let _ = victim.start_kill();
         let _ = victim.wait().await;
+    }
+
+    /// The `sh` victim pattern above pointed at stderr: a server that says why it is dying must have
+    /// that text reach the exit report, which is the whole point of piping stderr instead of
+    /// `Stdio::null()` (d-64 §0.1 — the app could previously only report an exit code). Asserts the
+    /// code alongside it so a callback that lost one of the two arguments cannot pass.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stderr에_쓴_뒤_종료한_프로세스의_tail이_종료_콜백에_실린다() {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let config = LspProcConfig {
+            command: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo 'env: node: No such file or directory' 1>&2; exit 127".to_string(),
+            ],
+            cwd: std::env::temp_dir(),
+        };
+
+        let handle = spawn(
+            config,
+            |_message| {},
+            move |code, tail| {
+                let _ = sender.send((code, tail));
+            },
+        )
+        .expect("프로세스 spawn 성공");
+
+        const EXIT_CALLBACK_TIMEOUT_MS: u64 = 5_000;
+        let (code, tail) = tokio::time::timeout(Duration::from_millis(EXIT_CALLBACK_TIMEOUT_MS), receiver)
+            .await
+            .expect("종료 콜백이 제때 호출되어야 한다")
+            .expect("종료 콜백 결과 수신");
+
+        assert_eq!(code, Some(127), "종료 코드는 그대로 전달되어야 한다");
+        assert!(
+            tail.contains("No such file or directory"),
+            "stderr 내용이 tail 에 남아야 한다 (실제: {tail})"
+        );
+        assert!(
+            handle.stderr_tail().contains("No such file or directory"),
+            "핸들 접근자도 같은 tail 을 돌려줘야 한다"
+        );
+    }
+
+    /// The bound is what keeps a chatty server from growing this buffer for the life of the session.
+    /// Covers both ways it can be crossed: many small writes accumulating past it, and a single
+    /// write larger than it.
+    #[test]
+    fn stderr_tail은_상한을_넘으면_오래된_앞부분부터_잘린다() {
+        const CHUNK_BYTES: usize = 512;
+        let mut tail = StderrTail::default();
+
+        tail.push(b"oldest-line\n");
+        for _ in 0..(LSP_STDERR_TAIL_BYTES / CHUNK_BYTES) {
+            tail.push(&[b'x'; CHUNK_BYTES]);
+        }
+
+        let snapshot = tail.snapshot();
+        assert_eq!(snapshot.len(), LSP_STDERR_TAIL_BYTES, "보관량이 상한을 넘으면 안 된다");
+        assert!(
+            !snapshot.contains("oldest-line"),
+            "상한을 넘으면 가장 오래된 바이트부터 버려야 한다"
+        );
+
+        tail.push(&vec![b'y'; LSP_STDERR_TAIL_BYTES * 2]);
+
+        let oversized = tail.snapshot();
+        assert_eq!(
+            oversized.len(),
+            LSP_STDERR_TAIL_BYTES,
+            "한 번에 상한보다 큰 청크가 와도 상한을 지켜야 한다"
+        );
+        assert!(oversized.chars().all(|char| char == 'y'), "상한보다 큰 청크는 그 꼬리만 남는다");
     }
 }

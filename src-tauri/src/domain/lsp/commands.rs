@@ -39,6 +39,10 @@ const LSP_RESTART_BACKOFF_BASE_MS: u64 = 500;
 /// uninterrupted uptime is long enough to distinguish "recovered" from "still crash-looping" (the
 /// backoff between attempts is already well under this at every `restarts` value up to the limit).
 const LSP_RESTART_HEALTHY_RESET_MS: u64 = 30_000;
+/// Joins the lines of a language server's stderr tail into the single log line
+/// [`handle_process_exit`] writes. A multi-line value would interleave with every other line in the
+/// rotating app log and break `grep`-ing one exit report out of it.
+const STDERR_TAIL_LOG_SEPARATOR: &str = " / ";
 
 struct SessionEntry {
     project_id: ProjectId,
@@ -289,14 +293,19 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
         .as_ref()
         .and_then(|download| download.bin_path_in_archive.as_deref());
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let resolved = service::resolve_spec_command(
+    let Some(resolved) = service::resolve_spec_command(
         &spec,
         Some(std::path::Path::new(&root)),
         managed_dir.as_deref(),
         managed_relative_path,
         &path_var,
-    )
-    .ok_or_else(|| AppError::NotFound(format!("language server executable not found: {}", spec.command.bin())))?;
+    ) else {
+        log::warn!("lsp {}: executable not found (bin={}, root={root})", spec.id, spec.command.bin());
+        return Err(AppError::NotFound(format!(
+            "language server executable not found: {}",
+            spec.command.bin()
+        )));
+    };
 
     let args = resolved_args(&spec, &root, managed_dir.as_deref());
     if args.iter().any(|arg| arg.contains('{') && arg.contains('}')) {
@@ -311,9 +320,10 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
         .with_arg("serverId", &spec.id));
     }
 
+    let command = resolved.to_string_lossy().to_string();
     let config = lsp_proc::LspProcConfig {
-        command: resolved.to_string_lossy().to_string(),
-        args,
+        command: command.clone(),
+        args: args.clone(),
         cwd: PathBuf::from(&root),
     };
 
@@ -334,8 +344,10 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
             };
             broadcast_message(&entry.channels, &message);
         },
-        move |code| handle_process_exit(&exit_app, exit_session_id, code),
+        move |code, stderr_tail| handle_process_exit(&exit_app, exit_session_id, code, stderr_tail),
     )?;
+
+    log::info!("lsp {}: spawn {command} {args:?} cwd={root} pid={:?}", spec.id, handle.pid());
 
     Ok(Arc::new(handle))
 }
@@ -348,9 +360,27 @@ fn broadcast_message(channels: &Mutex<HashMap<String, Channel<String>>>, message
     channels.lock().retain(|_, channel| channel.send(message.to_string()).is_ok());
 }
 
+/// The stderr tail as one masked log line. A language server's stderr is process output exactly the
+/// way a toolchain installer's is, so it gets the same treatment before reaching the rotating disk
+/// log (d-57 §1.D): a server launched through a wrapper script — `npx`, a `.bin` shim, a venv
+/// activation — can echo registry credentials or tokens into it while failing.
+fn masked_stderr_tail(tail: &str) -> String {
+    mask_known_secrets(tail)
+        .lines()
+        .map(|line| line.trim_end())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(STDERR_TAIL_LOG_SEPARATOR)
+}
+
 /// Reacts to an unexpected language server process exit (`Some`/`None` exit code from a crash, not
 /// a `lsp_stop`-initiated shutdown, which sets `stopping` first and short-circuits above). Retries
 /// with backoff up to [`RESTART_BACKOFF_LIMIT`] times, then gives up and reports [`LspSessionStatus::Crashed`].
+///
+/// `stderr_tail` is what the process last wrote to stderr, carried in from `infra::lsp_proc::spawn`
+/// (d-64 R1). It is logged — masked, see [`masked_stderr_tail`] — beside the exit code, because the
+/// exit code alone never distinguished "never started" from "crashed while indexing", and until
+/// this the whole LSP path wrote nothing to the app log at all (d-64 §0.1).
 ///
 /// A successful respawn (`spawn_process` returning `Ok`) deliberately still reports
 /// [`LspSessionStatus::Crashed`], not `Running` — unlike [`lsp_spawn`]/[`lsp_restart`], which *do*
@@ -373,7 +403,7 @@ fn broadcast_message(channels: &Mutex<HashMap<String, Channel<String>>>, message
 /// doc comment) flips `status` to `Running`; nothing in this function ever reports `Running` directly,
 /// preserving the T0 #24 invariant that a silent respawn is never reported healthy before the
 /// renderer has actually re-handshaked.
-fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
+fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>, stderr_tail: String) {
     let Some(store) = app.try_state::<LspStore>() else {
         return;
     };
@@ -382,11 +412,17 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>) {
     };
 
     if entry.stopping.load(Ordering::SeqCst) {
+        log::info!("lsp {}: stopped (code={code:?})", entry.server_id);
         set_status(app, &session_id, &entry, LspSessionStatus::Stopped, None);
         return;
     }
 
     let restarts = entry.restart_count.fetch_add(1, Ordering::SeqCst) + 1;
+    log::warn!(
+        "lsp {}: exited code={code:?} restarts={restarts} stderr_tail={}",
+        entry.server_id,
+        masked_stderr_tail(&stderr_tail)
+    );
     if restarts > RESTART_BACKOFF_LIMIT {
         set_status(
             app,
@@ -869,7 +905,19 @@ pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> 
 #[specta::specta]
 pub async fn lsp_detect_servers(state: State<'_, AppState>) -> AppResult<Vec<LspServerDetection>> {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    Ok(service::detect_servers(&state.paths.lsp_dir(), &path_var))
+    log::debug!("lsp detect: PATH={}", path_var.to_string_lossy());
+
+    let detections = service::detect_servers(&state.paths.lsp_dir(), &path_var);
+    for detection in &detections {
+        log::info!(
+            "lsp detect: {} available={} path={:?}",
+            detection.id,
+            detection.available,
+            detection.resolved_path
+        );
+    }
+
+    Ok(detections)
 }
 
 #[tauri::command]
@@ -1280,6 +1328,21 @@ mod tests {
         assert!(message.starts_with("npm 설치 명령이 실패했습니다 (종료 코드: Some(1))"));
     }
 
+    /// The exit log's stderr tail follows the same masking policy as the install tail (d-57 §1.D) —
+    /// it lands in the same rotating disk log — and is flattened so one exit report is one line.
+    #[test]
+    fn 종료_로그의_stderr_tail은_자격증명을_마스킹하고_한_줄로_합친다() {
+        let masked = masked_stderr_tail("npm ERR! //registry.npmjs.org/:_authToken=abcd-1234-efgh-5678\n\nvtsls: exiting\n");
+
+        assert!(
+            !masked.contains("abcd-1234-efgh-5678"),
+            "토큰이 로그에 그대로 남아 있습니다: {masked}"
+        );
+        assert!(masked.contains("_authToken=[redacted:key_value]"));
+        assert!(masked.contains("vtsls: exiting"), "종료 원인 문구는 그대로 남아야 한다: {masked}");
+        assert!(!masked.contains('\n'), "로그 한 줄로 합쳐져야 한다: {masked}");
+    }
+
     #[test]
     fn 툴체인_설치_실패_메시지는_출력이_없으면_종료_코드만_남긴다() {
         assert_eq!(
@@ -1585,7 +1648,7 @@ mod tests {
             args: vec!["-c".to_string(), "exit 0".to_string()],
             cwd: std::env::temp_dir(),
         };
-        let proc = lsp_proc::spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let proc = lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
 
         let started = tokio::time::Instant::now();
         wait_for_process_exit(&proc, 2_000).await;
@@ -1605,7 +1668,7 @@ mod tests {
             args: vec!["-c".to_string(), "sleep 5".to_string()],
             cwd: std::env::temp_dir(),
         };
-        let proc = lsp_proc::spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공");
+        let proc = lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
 
         let started = tokio::time::Instant::now();
         wait_for_process_exit(&proc, 200).await;
@@ -1625,7 +1688,7 @@ mod tests {
             args: vec!["-c".to_string(), "sleep 5".to_string()],
             cwd: std::env::temp_dir(),
         };
-        Arc::new(lsp_proc::spawn(config, |_message| {}, |_code| {}).expect("프로세스 spawn 성공"))
+        Arc::new(lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공"))
     }
 
     #[cfg(unix)]

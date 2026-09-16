@@ -673,6 +673,11 @@ pub fn run() {
             #[cfg(not(windows))]
             if let Some(error) = &path_env_fix_error {
                 log::warn!("PATH 환경변수 보정 실패: {error}");
+            } else {
+                let path_entry_count = std::env::var_os("PATH")
+                    .map(|path_var| std::env::split_paths(&path_var).count())
+                    .unwrap_or_default();
+                log::info!("PATH 환경변수 보정 완료: {path_entry_count} 항목");
             }
 
             {
