@@ -21,6 +21,15 @@ export const QUERY_KEY = {
         ACTIVE: ['project', 'active'] as const,
         DETAIL: (projectId: ProjectId) => ['project', 'detail', projectId] as const,
     },
+    /**
+     * Sidebar project groups (d-62 2c). Its own domain rather than a `PROJECT` branch because
+     * membership and open-ness are separate axes: `project:list-changed` must not refetch the groups,
+     * and `project:groups-changed` must not refetch the rail — each event invalidates one of the two.
+     */
+    PROJECT_GROUP: {
+        ALL: ['project-group'] as const,
+        LIST: ['project-group', 'list'] as const,
+    },
     SESSION: {
         ALL: ['session'] as const,
         SHELL_STATE: ['session', 'shell-state'] as const,

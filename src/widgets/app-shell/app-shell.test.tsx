@@ -1,25 +1,57 @@
+import type { FC } from 'react'
 import { describe, expect, mock, spyOn, test } from 'bun:test'
+import { DndContext, useDndContext, useDraggable } from '@dnd-kit/core'
 import type { ProjectRef, SessionShellState } from '@shared/api/bindings'
 import { commands } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { shellSlotDropDataOf } from '@shared/lib/project-drag'
 import { ShellSlotFocusProvider } from '@shared/lib/shell-slot-context'
 import { TooltipProvider } from '@shared/ui/tooltip'
 import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
+
+/**
+ * Reads whichever `DndContext` sits above its own position: the slot drop zones that context has
+ * registered, and what it currently holds as the active drag. One on each side of the stub's own
+ * provider is what turns nesting and isolation into something a test can read.
+ */
+const SlotDndProbe: FC<{ scope: string }> = ({ scope }) => {
+    const { active, droppableContainers } = useDndContext()
+    const slotIds = [...droppableContainers].flatMap(([, container]) => {
+        const data = shellSlotDropDataOf(container)
+        return data ? [data.slotId] : []
+    })
+    return <div>{`${scope} slots=${[...new Set(slotIds)].sort().join(',') || 'none'} active=${active?.id ?? 'none'}`}</div>
+}
+
+/** Stands in for a tab: something the stub's own `DndContext` can pick up, named so a test can grab it by role. */
+const SlotTabDragStub: FC<{ id: string }> = ({ id }) => {
+    const { setNodeRef, listeners, attributes } = useDraggable({ id })
+    return (
+        <button type='button' ref={setNodeRef} {...listeners} {...attributes}>
+            {id}
+        </button>
+    )
+}
 
 /**
  * The window-level state `AppShell` owns on behalf of every slot below it. Only the Problems pair is
  * exercised here: it is the one flag that lives *above* the slots (the status bar's toggle has to
  * reach the focused slot), so it is also the one that can outlive the slot it belongs to.
  *
+ * The second subject is the nesting `EditorArea` relies on, pinned here in the real shell rather
+ * than in the synthetic tree of `project-drag-nesting.test.tsx`: the `ProjectShell` stub carries a
+ * `DndContext` of its own where the editor's tab context would be, with a probe on each side of it.
+ *
  * Five module fakes, all registered before the shell is pulled in through a dynamic `import()`
  * (`mock.module` is process-global and last-registration-wins — `docs/memory/test-conventions.md`
- * §3). `ProjectShell` carries the same stub shape `shell-slot-tree-view.test.tsx` registers, so
- * whichever of the two files runs last the other still reads the flag off the rendered text. The
- * status bar is reduced to its Problems pair, the title bar and sidebar to nothing — none of them
- * has anything to do with this file, and all three open project-scoped queries that cannot resolve
- * without IPC. `@tauri-apps/api/webview` is faked because the drag-and-drop subscription calls
- * `getCurrentWebview()` synchronously inside an effect, which throws with no `__TAURI_INTERNALS__`;
- * this is the only module in `src` that imports it.
+ * §3). `ProjectShell` still renders the same `shell:<projectId>` line
+ * `shell-slot-tree-view.test.tsx` registers, so whichever of the two files runs last the other still
+ * reads the flag off the rendered text; the drag stub beside it registers nothing outward and is
+ * inert in that file. The status bar is reduced to its Problems pair, the title bar and sidebar to
+ * nothing — none of them has anything to do with this file, and all three open project-scoped
+ * queries that cannot resolve without IPC. `@tauri-apps/api/webview` is faked because the
+ * drag-and-drop subscription calls `getCurrentWebview()` synchronously inside an effect, which
+ * throws with no `__TAURI_INTERNALS__`; this is the only module in `src` that imports it.
  *
  * The real `ShellSlotTreeView` is kept — the slot header's ✕ is the only user-facing way to reach
  * `onCloseSlot`, and going through it is what makes this a wiring test rather than a restatement of
@@ -28,7 +60,14 @@ import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } fr
 mock.module('@shared/lib/monaco/setup', () => ({ monaco: { Uri: { file: () => ({ toString: () => '' }) }, editor: {} } }))
 mock.module('@widgets/app-shell/project-shell', () => ({
     ProjectShell: ({ projectId, isProblemsOpen }: { projectId: string; isProblemsOpen: boolean }) => (
-        <div>{`shell:${projectId}${isProblemsOpen ? ' problems' : ''}`}</div>
+        <>
+            <div>{`shell:${projectId}${isProblemsOpen ? ' problems' : ''}`}</div>
+            <SlotDndProbe scope={`outer:${projectId}`} />
+            <DndContext>
+                <SlotDndProbe scope={`inner:${projectId}`} />
+                <SlotTabDragStub id={`tab:${projectId}`} />
+            </DndContext>
+        </>
     ),
 }))
 mock.module('@widgets/window-chrome/title-bar-content', () => ({ TitleBarContent: () => null }))
@@ -101,6 +140,16 @@ const renderShell = async () => {
 
 const shellTexts = () => screen.getAllByText(/^shell:/).map((element) => element.textContent)
 
+/**
+ * Down and straight back up, then a real wait: a started drag leaves a capture-phase `click`
+ * swallower on the document that dnd-kit only removes 50ms after the drag ends
+ * (`AbstractPointerSensor.detach`), and leaving it behind would neutralize the clicks of whatever
+ * test runs next in this process (`docs/memory/test-conventions.md` §3).
+ */
+const CLICK_SUPPRESSION_TEARDOWN_MS = 60
+
+const dndProbeText = (side: string) => screen.getByText(new RegExp(`^${side}:${LEFT_PROJECT_ID} `)).textContent
+
 const closeSlot = async (index: number) => {
     const closeButton = screen.getAllByRole('button', { name: 'shellSlot.close' })[index]
     await act(async () => {
@@ -137,5 +186,26 @@ describe('AppShell 슬롯별 Problems 상태', () => {
         await closeSlot(0)
 
         expect(shellTexts()).toEqual([`shell:${LEFT_PROJECT_ID} problems`, `shell:${RIGHT_PROJECT_ID}`])
+    })
+})
+
+describe('AppShell 중첩 DndContext', () => {
+    test('슬롯 안의 탭 컨텍스트는 창의 프로젝트 컨텍스트 안에 중첩되고, 그 안에서 시작한 드래그는 바깥을 깨우지 않는다', async () => {
+        await renderShell()
+
+        expect(dndProbeText('outer')).toBe(`outer:${LEFT_PROJECT_ID} slots=${LEFT_SLOT_ID},${RIGHT_SLOT_ID} active=none`)
+        expect(dndProbeText('inner')).toBe(`inner:${LEFT_PROJECT_ID} slots=none active=none`)
+
+        act(() => {
+            fireEvent.pointerDown(screen.getByRole('button', { name: `tab:${LEFT_PROJECT_ID}` }), { isPrimary: true, button: 0 })
+        })
+
+        expect(dndProbeText('inner')).toBe(`inner:${LEFT_PROJECT_ID} slots=none active=tab:${LEFT_PROJECT_ID}`)
+        expect(dndProbeText('outer')).toBe(`outer:${LEFT_PROJECT_ID} slots=${LEFT_SLOT_ID},${RIGHT_SLOT_ID} active=none`)
+
+        await act(async () => {
+            fireEvent.pointerUp(document)
+            await new Promise((resolve) => setTimeout(resolve, CLICK_SUPPRESSION_TEARDOWN_MS))
+        })
     })
 })

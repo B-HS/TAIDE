@@ -20,6 +20,9 @@ const QUERY_KEY_LEAF_CLASSIFICATION: QueryKeyLeaf[] = [
     { path: 'PROJECT.RECENT', scopedByProject: false },
     { path: 'PROJECT.ACTIVE', scopedByProject: false },
     { path: 'PROJECT.DETAIL', scopedByProject: true, factory: QUERY_KEY.PROJECT.DETAIL },
+    /** Session-scoped, not project-scoped: a group survives its members closing — membership is "what the user can open", so closing a project must leave the list alone (contract §1.A). */
+    { path: 'PROJECT_GROUP.ALL', scopedByProject: false },
+    { path: 'PROJECT_GROUP.LIST', scopedByProject: false },
     /** Window-scoped, not project-scoped: one shell-slot arrangement per session, so closing a project reshapes it rather than invalidating it — Rust emits `session:shell-slots-changed` for that. */
     { path: 'SESSION.ALL', scopedByProject: false },
     { path: 'SESSION.SHELL_STATE', scopedByProject: false },

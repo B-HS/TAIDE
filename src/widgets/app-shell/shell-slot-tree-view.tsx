@@ -1,14 +1,19 @@
 import type { FC } from 'react'
+import { useDroppable } from '@dnd-kit/core'
 import { Group, Panel } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import type { ProjectRef, ShellSlotId, ShellSlotTree } from '@shared/api/bindings'
 import { schedulePaneResizeCommit } from '@entities/layout/pane-resize-commit'
 import { PaneSeparator } from '@features/split/pane-separator'
+import type { DropEdgeName } from '@features/split/split-drop-zones'
+import { SplitDropZones } from '@features/split/split-drop-zones'
 import { ShellSlotHeader } from '@features/shell-slot/shell-slot-header'
 import { MIN_PANEL_SIZE_PX, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
 import { SHELL_SLOT_ID_ATTRIBUTE, resolveShellSlotFocus, shellSlotLeaves } from '@shared/lib/shell-slot'
 import type { ShellSlotLeaf } from '@shared/lib/shell-slot'
 import { ShellSlotScope } from '@shared/lib/shell-slot-context'
+import type { ShellSlotDropData } from '@shared/lib/project-drag'
+import { SHELL_SLOT_DROP_TYPE } from '@shared/lib/project-drag'
 import { ProjectShell } from '@widgets/app-shell/project-shell'
 
 const EQUAL_SPLIT_TOTAL_PERCENT = 100
@@ -23,6 +28,9 @@ type SlotRenderContext = {
     zen: boolean
     slotCount: number
     focusedShellSlotId: ShellSlotId | null
+    /** Only while a project is being dragged do the slots show where it would land — the drop zones cover a slot completely, so they cannot sit there the rest of the time. */
+    isProjectDragging: boolean
+    slotDropTarget: ShellSlotDropData | null
     resizerThickness: number
     problemsOpenSlotIds: readonly ShellSlotId[]
     onCloseProblems: (slotId: ShellSlotId) => void
@@ -36,9 +44,39 @@ type ShellSlotLeafViewProps = SlotRenderContext & { leaf: ShellSlotLeaf }
  * A leaf is kept a component of its own — rather than folded into {@link ShellSlotNodeView}'s
  * recursion the way `pane-node-view.tsx` does it one level down — because a leaf is the unit Zen
  * hides, and hiding must never change which component sits at a given position in the tree.
+ *
+ * It is also the unit a dragged project lands on. The five zones are the same four-edges-plus-centre
+ * shape the tab drag uses on a pane (`split-drop-zones.tsx`), one level up: an edge splits the slot,
+ * the centre replaces the project in it. They register with the window's project `DndContext`
+ * (`use-project-drag.ts`) — the slot's *own* tab context lives further down, inside `ProjectShell`,
+ * so the two never compete for the same drop.
  */
-const ShellSlotLeafView: FC<ShellSlotLeafViewProps> = ({ leaf, projects, zen, slotCount, problemsOpenSlotIds, onCloseProblems, onCloseSlot }) => {
+const ShellSlotLeafView: FC<ShellSlotLeafViewProps> = ({
+    leaf,
+    projects,
+    zen,
+    slotCount,
+    isProjectDragging,
+    slotDropTarget,
+    problemsOpenSlotIds,
+    onCloseProblems,
+    onCloseSlot,
+}) => {
+    const dropDataOf = (edge: DropEdgeName) => ({ type: SHELL_SLOT_DROP_TYPE, slotId: leaf.slotId, edge }) satisfies ShellSlotDropData
+    const dropLeft = useDroppable({ id: `${leaf.slotId}:left`, data: dropDataOf('left') })
+    const dropRight = useDroppable({ id: `${leaf.slotId}:right`, data: dropDataOf('right') })
+    const dropTop = useDroppable({ id: `${leaf.slotId}:top`, data: dropDataOf('top') })
+    const dropBottom = useDroppable({ id: `${leaf.slotId}:bottom`, data: dropDataOf('bottom') })
+    const dropCenter = useDroppable({ id: `${leaf.slotId}:center`, data: dropDataOf('center') })
+
     const project = projects.find((candidate) => candidate.id === leaf.projectId) ?? null
+    const dropRefByEdge: Record<DropEdgeName, (element: HTMLElement | null) => void> = {
+        left: dropLeft.setNodeRef,
+        right: dropRight.setNodeRef,
+        top: dropTop.setNodeRef,
+        bottom: dropBottom.setNodeRef,
+        center: dropCenter.setNodeRef,
+    }
 
     return (
         <div className='flex h-full min-h-0 w-full min-w-0 flex-col' {...{ [SHELL_SLOT_ID_ATTRIBUTE]: leaf.slotId }}>
@@ -46,13 +84,19 @@ const ShellSlotLeafView: FC<ShellSlotLeafViewProps> = ({ leaf, projects, zen, sl
                 <ShellSlotHeader label={project?.name ?? leaf.projectId} canClose={slotCount > 1} onClose={() => onCloseSlot(leaf.slotId)} />
             )}
             <ShellSlotScope slotId={leaf.slotId} projectId={leaf.projectId}>
-                <div className='flex min-h-0 min-w-0 flex-1'>
+                <div className='relative flex min-h-0 min-w-0 flex-1'>
                     <ProjectShell
                         projectId={leaf.projectId}
                         zen={zen}
                         isProblemsOpen={problemsOpenSlotIds.includes(leaf.slotId)}
                         onCloseProblems={() => onCloseProblems(leaf.slotId)}
                     />
+                    {isProjectDragging && (
+                        <SplitDropZones
+                            activeEdge={slotDropTarget?.slotId === leaf.slotId ? slotDropTarget.edge : null}
+                            renderZone={(edge, className) => <div key={edge} ref={dropRefByEdge[edge]} className={className} />}
+                        />
+                    )}
                 </div>
             </ShellSlotScope>
         </div>

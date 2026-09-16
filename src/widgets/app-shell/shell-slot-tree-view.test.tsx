@@ -1,11 +1,14 @@
+import type { FC } from 'react'
 import { describe, expect, mock, test } from 'bun:test'
+import { DndContext, useDndContext } from '@dnd-kit/core'
 import type { ProjectRef, ShellSlotTree } from '@shared/api/bindings'
+import { shellSlotDropDataOf } from '@shared/lib/project-drag'
 import { SHELL_SLOT_ID_ATTRIBUTE } from '@shared/lib/shell-slot'
 import { TooltipProvider } from '@shared/ui/tooltip'
 import { fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 
 /**
- * How the window paints the slot tree (contract §1.B). Four properties are locked, in the order
+ * How the window paints the slot tree (contract §1.B). Five properties are locked, in the order
  * they matter:
  *
  * 1. A single-leaf tree renders exactly the pre-split screen — one project shell, no slot header and
@@ -19,6 +22,9 @@ import { fireEvent, renderWithProviders, screen } from '@shared/testing/render'
  *    Zen swapped the component at the root of the tree — so the same DOM node has to survive a
  *    toggle. This is asserted by node identity rather than a mount counter, which keeps the stub
  *    below interchangeable with the one `app-shell.test.tsx` registers for the same module.
+ * 5. Each leaf offers the window's project drag five drop zones — four edges and a centre — carrying
+ *    its own slot id, and paints them only while a drag is in flight, since they cover the slot
+ *    completely and would otherwise swallow every click.
  *
  * `ProjectShell` is stubbed — it mounts the whole explorer/editor stack, none of which this file is
  * about. Registered before the view is pulled in through a dynamic `import()` because `mock.module`
@@ -46,27 +52,46 @@ const SPLIT: ShellSlotTree = { node: 'split', dir: 'horizontal', sizes: [50, 50]
 
 const RESIZER_THICKNESS_PX = 4
 
-const renderTree = async (tree: ShellSlotTree, zen = false) => {
+/** Reads the registered drop zones straight out of the enclosing `DndContext`, which is where the leaves put them — a zone is an empty div with neither role nor label, so the registry is the only handle on it that says what it *is*. */
+const DropZoneProbe: FC = () => {
+    const { droppableContainers } = useDndContext()
+    const zones = [...droppableContainers].flatMap(([, container]) => {
+        const data = shellSlotDropDataOf(container)
+        return data ? [`${data.slotId}/${data.edge}`] : []
+    })
+
+    return <div>{`zones:${zones.sort().join(' ')}`}</div>
+}
+
+const renderTree = async (tree: ShellSlotTree, zen = false, isProjectDragging = false) => {
     const { ShellSlotTreeView } = await importTreeView()
     const closedSlots: string[] = []
     const view = (zenMode: boolean) => (
         <TooltipProvider>
-            <ShellSlotTreeView
-                tree={tree}
-                projects={PROJECTS}
-                focusedShellSlotId={LEFT_SLOT_ID}
-                zen={zenMode}
-                resizerThickness={RESIZER_THICKNESS_PX}
-                problemsOpenSlotIds={[]}
-                onCloseProblems={() => {}}
-                onCloseSlot={(slotId) => closedSlots.push(slotId)}
-                onCommitSizes={() => {}}
-            />
+            <DndContext>
+                <DropZoneProbe />
+                <ShellSlotTreeView
+                    tree={tree}
+                    projects={PROJECTS}
+                    focusedShellSlotId={LEFT_SLOT_ID}
+                    zen={zenMode}
+                    isProjectDragging={isProjectDragging}
+                    slotDropTarget={null}
+                    resizerThickness={RESIZER_THICKNESS_PX}
+                    problemsOpenSlotIds={[]}
+                    onCloseProblems={() => {}}
+                    onCloseSlot={(slotId) => closedSlots.push(slotId)}
+                    onCommitSizes={() => {}}
+                />
+            </DndContext>
         </TooltipProvider>
     )
     const rendered = renderWithProviders(view(zen))
     return { ...rendered, closedSlots, setZen: (zenMode: boolean) => rendered.rerender(view(zenMode)) }
 }
+
+/** A drop zone is an unlabelled, empty overlay element, so the class the shared `SplitDropZones` gives every zone is the only way to count what is on screen (`docs/memory/test-conventions.md` §2 allows the fallback when role and label cannot reach it). */
+const paintedDropZones = (container: HTMLElement) => container.querySelectorAll('.pointer-events-auto')
 
 const renderedShells = () => screen.getAllByText(/^shell:/).map((element) => element.textContent)
 
@@ -146,5 +171,29 @@ describe('ShellSlotTreeView', () => {
         setZen(false)
 
         expect(shellNodeOf('project-left')).toBe(shell)
+    })
+})
+
+describe('ShellSlotTreeView 드롭존', () => {
+    test('슬롯마다 4방향 + 가운데 드롭존을 자기 슬롯 id 로 등록한다', async () => {
+        await renderTree(SPLIT)
+
+        expect(screen.getByText(/^zones:/).textContent).toBe(
+            `zones:${[LEFT_SLOT_ID, RIGHT_SLOT_ID]
+                .flatMap((slotId) => ['bottom', 'center', 'left', 'right', 'top'].map((edge) => `${slotId}/${edge}`))
+                .join(' ')}`,
+        )
+    })
+
+    test('드래그 중이 아니면 드롭존을 그리지 않는다 — 슬롯을 통째로 덮기 때문이다', async () => {
+        const { container } = await renderTree(SPLIT)
+
+        expect(paintedDropZones(container)).toHaveLength(0)
+    })
+
+    test('드래그 중이면 슬롯마다 5개씩 그린다', async () => {
+        const { container } = await renderTree(SPLIT, false, true)
+
+        expect(paintedDropZones(container)).toHaveLength(10)
     })
 })

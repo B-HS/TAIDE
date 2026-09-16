@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useState } from 'react'
+import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { useQuery } from '@tanstack/react-query'
 import type { EventCallback } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -10,6 +11,7 @@ import { useOpenTab, useOpenTabInProject } from '@entities/layout/layout.query'
 import { projectListQueryOptions, useOpenProject } from '@entities/project/project.query'
 import { shellStateQueryOptions, useCloseShellSlot, useSetShellSlotSizes } from '@entities/session/session.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { useProjectDrag } from '@widgets/app-shell/use-project-drag'
 import { useWindowChrome } from '@widgets/app-shell/use-window-chrome'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
@@ -18,9 +20,11 @@ import { IS_MAC } from '@shared/constants/platform'
 import { requestShowExplorerView, requestToggleExplorerSidebar } from '@shared/lib/bridge/explorer-panel-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, perfMark } from '@shared/lib/perf-mark'
+import { resolveProjectDisplay } from '@shared/lib/project-display'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { withShellSlotToggled } from '@shared/lib/shell-slot'
 import { useShellSlotFocus } from '@shared/lib/shell-slot-context'
+import { ProjectDragPreview } from '@features/project/project-drag-preview'
 import { DragDropOverlay } from '@features/window/drag-drop-overlay'
 import { ZenModeHint } from '@features/window/zen-mode-hint'
 import { ErrorBoundary } from '@shared/ui/error-boundary'
@@ -47,6 +51,11 @@ const dragDropEventSource = { listen: (handler: EventCallback<DragDropEvent>) =>
  * slot. A closed slot's entry is dropped once `shell_slot_close` reports success — slot ids are
  * per-session uuids so nothing would inherit the flag, but the list lives as long as the window and
  * would otherwise only ever grow.
+ *
+ * The rail and the slots share one `DndContext` here — dragging a project out of the rail and onto a
+ * slot's drop zone is a single drag, so it cannot be split across the two components it crosses
+ * (contract §0.1 U-4). `use-project-drag.ts` holds the wiring, including why each slot's own tab
+ * context nests safely inside this one.
  */
 export const AppShell = () => {
     const [isDragActive, setIsDragActive] = useState(false)
@@ -63,8 +72,10 @@ export const AppShell = () => {
     const { mutate: closeShellSlot } = useCloseShellSlot()
     const { mutate: setShellSlotSizes } = useSetShellSlotSizes()
     const { zen, sidebarRailCollapsed, hideStatusBar } = useWindowChrome()
+    const { draggingProjectId, slotDropTarget, dndContextProps } = useProjectDrag()
 
     const tree = shellState?.tree ?? null
+    const draggedProject = projects.find((project) => project.id === draggingProjectId) ?? null
     const isProblemsOpenInFocusedSlot = !!focusedShellSlotId && problemsOpenSlotIds.includes(focusedShellSlotId)
 
     const toggleProblemsInFocusedSlot = () => {
@@ -178,30 +189,39 @@ export const AppShell = () => {
                     </ErrorBoundary>
                 </div>
             ) : (
-                <div className='flex min-h-0 flex-1'>
-                    {!zen && !sidebarRailCollapsed && (
-                        <ErrorBoundary labelKey='errorBoundary.sidebar' labelFallback='Activity Bar' fallbackSizeClassName='h-full w-14 shrink-0'>
-                            <AppSidebar activeProjectId={focusedProjectId} onOpenSettings={handleOpenSettings} />
-                        </ErrorBoundary>
-                    )}
-                    <main className='flex min-w-0 flex-1'>
-                        {tree ? (
-                            <ShellSlotTreeView
-                                tree={tree}
-                                projects={projects}
-                                focusedShellSlotId={focusedShellSlotId}
-                                zen={zen}
-                                resizerThickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS}
-                                problemsOpenSlotIds={problemsOpenSlotIds}
-                                onCloseProblems={forgetSlotProblems}
-                                onCloseSlot={handleCloseSlot}
-                                onCommitSizes={(path, sizes) => setShellSlotSizes({ path, sizes })}
-                            />
-                        ) : (
-                            <span className='text-app-sidebar-icon-default m-auto'>{t('app.selectProject')}</span>
+                <DndContext {...dndContextProps}>
+                    <div className='flex min-h-0 flex-1'>
+                        {!zen && !sidebarRailCollapsed && (
+                            <ErrorBoundary labelKey='errorBoundary.sidebar' labelFallback='Activity Bar' fallbackSizeClassName='h-full w-14 shrink-0'>
+                                <AppSidebar
+                                    activeProjectId={focusedProjectId}
+                                    draggingProjectId={draggingProjectId}
+                                    onOpenSettings={handleOpenSettings}
+                                />
+                            </ErrorBoundary>
                         )}
-                    </main>
-                </div>
+                        <main className='flex min-w-0 flex-1'>
+                            {tree ? (
+                                <ShellSlotTreeView
+                                    tree={tree}
+                                    projects={projects}
+                                    focusedShellSlotId={focusedShellSlotId}
+                                    zen={zen}
+                                    isProjectDragging={!!draggingProjectId}
+                                    slotDropTarget={slotDropTarget}
+                                    resizerThickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS}
+                                    problemsOpenSlotIds={problemsOpenSlotIds}
+                                    onCloseProblems={forgetSlotProblems}
+                                    onCloseSlot={handleCloseSlot}
+                                    onCommitSizes={(path, sizes) => setShellSlotSizes({ path, sizes })}
+                                />
+                            ) : (
+                                <span className='text-app-sidebar-icon-default m-auto'>{t('app.selectProject')}</span>
+                            )}
+                        </main>
+                    </div>
+                    <DragOverlay>{draggedProject && <ProjectDragPreview display={resolveProjectDisplay(draggedProject)} />}</DragOverlay>
+                </DndContext>
             )}
             {!(zen && hideStatusBar) && (
                 <ErrorBoundary labelKey='errorBoundary.statusBar' labelFallback='Status Bar' fallbackSizeClassName='h-6 w-full shrink-0'>

@@ -281,6 +281,16 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     })
 
     /**
+     * The payload carries the whole list, but a refetch is what lands it (the arrangement the two
+     * shell-slot events below use): the group list is small, and a window that also just handled a
+     * `project:list-changed` from the same group write converges on one consistent read instead of
+     * two independently-timed writes.
+     */
+    useTauriEvent(events.projectGroupsChanged, () => {
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT_GROUP.ALL })
+    })
+
+    /**
      * Both halves of `SessionShellState` land in one cache entry (`entities/session/session.query.ts`),
      * so either event refreshes it. The payloads carry the new values, but they are merged by a
      * refetch rather than written in place on purpose: a slot mutation can change the tree *and* the

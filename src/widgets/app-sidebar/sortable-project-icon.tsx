@@ -4,12 +4,23 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectRef, ShellSlotEdge } from '@shared/api/bindings'
+import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectGroup, ProjectGroupId, ProjectRef, ShellSlotEdge } from '@shared/api/bindings'
 import { CLEARED_PROJECT_DISPLAY_PATCH } from '@shared/constants/project-display'
 import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { isProjectDisplayCustomized, resolveProjectDisplay } from '@shared/lib/project-display'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@shared/ui/context-menu'
+import type { ProjectDragData } from '@shared/lib/project-drag'
+import { PROJECT_DRAG_TYPE } from '@shared/lib/project-drag'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
+    ContextMenuTrigger,
+} from '@shared/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { ProjectDisplayDialog } from '@features/project/project-display-dialog'
 import { ProjectIconButton } from '@features/project/project-icon-button'
@@ -19,9 +30,10 @@ import { systemOpenPath } from '@entities/system/system.ipc'
 const DRAGGING_OPACITY = 0.4
 
 /**
- * "Open to the Right/Below/…" — the menu route to a shell split (contract §0.1, 2a), standing in for
- * the sidebar-to-slot drag that stage 2b adds. Ordered the way the contract names them, and labelled
- * by direction rather than by edge id so the wording survives a future right-to-left layout.
+ * "Open to the Right/Below/…" — the keyboard-reachable route to a shell split (contract §0.1, 2a),
+ * alongside dragging the icon onto a slot. It always targets the *focused* slot, which is what a
+ * drag says with its pointer instead. Ordered the way the contract names them, and labelled by
+ * direction rather than by edge id so the wording survives a future right-to-left layout.
  */
 const SHELL_SLOT_OPEN_EDGES: { edge: ShellSlotEdge; labelKey: string }[] = [
     { edge: 'right', labelKey: 'shellSlot.openToTheRight' },
@@ -51,8 +63,15 @@ type SortableProjectIconProps = {
     badgeEnabled: boolean
     /** `false` while the window has no shell slot to split — projects are closed, or the tree has not loaded yet. */
     canOpenInShellSlot: boolean
+    /** Every group the rail knows, for the "add to group" submenu. Membership is owned one level up (`AppSidebar`), which is the only place that can take a project out of the group it was in. */
+    groups: ProjectGroup[]
+    /** The group this project belongs to, or `null` when no group claims it — a project belongs to at most one (`types::ProjectGroup`). */
+    groupId: ProjectGroupId | null
     onActivate: () => void
     onOpenInShellSlot: (edge: ShellSlotEdge) => void
+    onAddToGroup: (groupId: ProjectGroupId) => void
+    onCreateGroup: () => void
+    onRemoveFromGroup: () => void
 }
 
 export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
@@ -62,13 +81,21 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
     agents,
     badgeEnabled,
     canOpenInShellSlot,
+    groups,
+    groupId,
     onActivate,
     onOpenInShellSlot,
+    onAddToGroup,
+    onCreateGroup,
+    onRemoveFromGroup,
 }) => {
     const [displayDialogOpen, setDisplayDialogOpen] = useState(false)
 
     const { t } = useTranslation()
-    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: project.id.toString() })
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+        id: project.id.toString(),
+        data: { type: PROJECT_DRAG_TYPE, projectId: project.id } satisfies ProjectDragData,
+    })
     const { mutate: closeProject } = useCloseProject()
     const { mutate: setProjectDisplay, isPending: isDisplayPending } = useSetProjectDisplay()
 
@@ -130,6 +157,22 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
                             {t(labelKey)}
                         </ContextMenuItem>
                     ))}
+                    <ContextMenuSeparator />
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger>{t('projectGroup.addTo')}</ContextMenuSubTrigger>
+                        <ContextMenuSubContent>
+                            {groups.map((group) => (
+                                <ContextMenuItem key={group.id} disabled={group.id === groupId} onSelect={() => onAddToGroup(group.id)}>
+                                    {group.name}
+                                </ContextMenuItem>
+                            ))}
+                            {groups.length > 0 && <ContextMenuSeparator />}
+                            <ContextMenuItem onSelect={onCreateGroup}>{t('projectGroup.newGroup')}</ContextMenuItem>
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+                    <ContextMenuItem disabled={!groupId} onSelect={onRemoveFromGroup}>
+                        {t('projectGroup.removeFrom')}
+                    </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem onSelect={() => void systemOpenPath(project.root).catch((error: Error) => toast.error(describeIpcError(error)))}>
                         {t('project.openInFileManager')}
