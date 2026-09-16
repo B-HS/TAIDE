@@ -7,11 +7,74 @@
         <style>
             html {
                 height: 100%;
-                background-color: #1e1e2e;
+                background-color: #000000;
+            }
+
+            #boot-splash {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 16px;
+                background: #000000;
+                visibility: visible;
+                user-select: none;
+                pointer-events: none;
+            }
+
+            #boot-splash span {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans KR', sans-serif;
+                font-size: 20px;
+                font-weight: 600;
+                letter-spacing: 0.2em;
+                text-indent: 0.2em;
+                color: #cdd6f4;
+            }
+
+            html[data-theme-ready][data-locale-ready] #boot-splash {
+                opacity: 0;
+                visibility: hidden;
+                transition:
+                    opacity 150ms ease-out,
+                    visibility 0s linear 150ms;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                html[data-theme-ready][data-locale-ready] #boot-splash {
+                    transition: none;
+                }
             }
         </style>
     </head>
     <body>
+        <div id="boot-splash" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="96" height="96">
+                <defs>
+                    <linearGradient id="boot-bg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#1d2030" />
+                        <stop offset="1" stop-color="#101321" />
+                    </linearGradient>
+                    <linearGradient id="boot-chev" gradientUnits="userSpaceOnUse" x1="330" y1="356" x2="540" y2="668">
+                        <stop offset="0" stop-color="#a6c8ff" />
+                        <stop offset="1" stop-color="#6f92f5" />
+                    </linearGradient>
+                </defs>
+                <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#boot-bg)" />
+                <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="6" />
+                <path
+                    d="M 330 364 L 512 512 L 330 660"
+                    fill="none"
+                    stroke="url(#boot-chev)"
+                    stroke-width="96"
+                    stroke-linecap="round"
+                    stroke-linejoin="round" />
+                <rect x="556" y="616" width="176" height="92" rx="28" fill="#b4befe" />
+                <path d="M 688 276 Q 702 342 768 356 Q 702 370 688 436 Q 674 370 608 356 Q 674 342 688 276 Z" fill="#cba6f7" />
+            </svg>
+            <span>TAIDE</span>
+        </div>
         <div id="root"></div>
         <script type="module" src="/src/main.tsx"></script>
     </body>
