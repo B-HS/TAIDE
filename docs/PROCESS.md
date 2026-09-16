@@ -50,6 +50,35 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: 버그 — git 뷰 첫 오픈·프로젝트 전환 시 Sidebar Panel 폴백(그래프 pane 지연 마운트 크래시) (2026-09-16)
+
+> 사용자 실기 보고. 기록 정본 `docs/bug/2026-09-16-git-graph-pane-late-mount-constraints-crash.md`.
+
+- [x] a. 원인 확정(메인 직접) — 앱 로그 `Panel constraints not found for Panel git-graph` + react-resizable-panels 4.12.2 dist 통독:
+      `git-graph` Panel 이 log 도착 후 기존 Group 안에 늦게 마운트되면 Group 의 constraints 재계산(다음 커밋 layout effect)보다
+      GitPanel 의 접힘 동기화 passive effect(`graphPanelRef.current.isCollapsed()`)가 먼저 돌아 throw. 같은 클래스 다른 지점 없음
+- [x] b. 수정 계약 → wf `wf_3fb1bb7b`(fixer opus·xhigh): `usePanelRef` → `usePanelCallbackRef`(state 콜백 ref) 전환, effect deps 를
+      핸들 기준으로, 지연 마운트 회귀 테스트 1건(`git-panel.test.tsx`)
+- [x] c. 검증(wf 실행, 메인 diff 대조) — 새 테스트는 수정 전 코드에서 앱 로그와 같은 `Panel constraints not found for Panel git-graph`
+      (`git-panel.tsx:442 isCollapsed` → `commitHookPassiveMountEffects`)로 실패(15 pass/1 fail) → 수정 후 `bun test git-panel.test.tsx`
+      **16 pass/0 fail** · `bunx tsc --noEmit` exit 0 · eslint exit 0(기존 `react-hooks/incompatible-library` 경고 1건, 무관) ·
+      prettier --check 통과. act 경고는 기존 테스트의 flake(HEAD 기준 5회 중 1회 재현)로 무관
+- [ ] d. 사용자 실기(릴리스 재빌드 후) — git 뷰 첫 오픈·git 뷰 열린 채 프로젝트 전환에서 폴백 미발생·로그 미출력 확인 → 통과 후 커밋
+- [x] e. 같은 클래스 전수 조사(사용자 지시 "이러한 형식으로 또 버그가 될만한 것들") — wf `wf_00c240f3`: 4관점 finder(opus·xhigh, 10분 상한:
+      resizable-panels 등록 타이밍·id / monaco·xterm 생명주기 / virtual·dnd-kit·radix·자체 registry / 데이터 도착 순서·unhandled
+      rejection) 20건 → major 이상 10건 건별 반박(sonnet·xhigh) → **정본 `research/2026-09-16-same-class-timing-bug-audit.md`**.
+      분류: A 확인·major 3(①AI 커밋 메시지가 프로젝트 전환 뒤 다른 저장소 입력창에 적용 ②0px 터미널 pane 이 PTY 를 2×1 로 리사이즈
+      ③사이드바 세퍼레이터 리사이즈마다 setShellView IPC 무디바운스) / B 확인·minor 4묶음(clipboard writeText 6곳 무catch — 로그에 실제
+      ERROR·pdf renderPage·팔레트 async run·IPC void 위생) / C 미검증 6(에디터 focus 강탈·pdf 외부변경 재렌더 누락·pane 제거 후
+      디바운스 발화·숨긴 슬롯 resize/0·Panel id 중복·AppToaster provider 밖). 원형과 정확히 같은 "등록 전 핸들 호출" 은 추가 발견 0
+- [x] f. 사용자 지시(2026-09-16): "A, B 수정, C 는 정석적으로 필요하면 수정 아니면 패스 + index.html 초기 구동 정중앙 logo+TAIDE" →
+      **계약 `acknowledge/2026-09-16-d63-timing-audit-fixes-contract.md`**(판정: 1~7 수정, 8 판정 위임, 9·12·13 수정, 10·11 패스, 스플래시 신규)
+- [x] g. 구현 wf `wf_f75f3381`(fixer 6 병렬 opus·xhigh → 통합 검증 sonnet·high) + 잔여 4건 wf `wf_e7f3f4b5` → 메인 diff 전수 대조 →
+      계약 §3 기록. 검증: typecheck 0 · lint 0 error · format 통과 · **bun test 2733 pass / 0 fail** · vite build 성공
+- [ ] h. 사용자 지시 "draft 까지" → 논리 단위 분할 커밋 10건 → dev 푸시 · main ff → 태그 `v0.2.1` → Release 런 완주 → draft(dmg + SHA256SUMS)
+      → `deployment.md` §9 이력 기록. 공개(publish)와 실기 확인(git 뷰 첫 오픈·프로젝트 전환·AI 커밋 메시지 중 전환·분할 터미널 축소·스플래시·
+      경로 복사 실패 토스트)은 사용자 몫
+
 ## 진행 중: 사용성 배치 5 — 13항목(단축키·파일트리·프로젝트 split·알림·에이전트 다각화·Dock Recent·퀵오픈 버그·Welcome·검색·+메뉴·git 패널·테마) (2026-09-15)
 
 > 사용자 지시 13건(항목 1~10 + 추가 11~13). 작업 방식 지시: **항상 Workflow + opus/sonnet, 메인(Fable)은 오케스트레이팅 전담,
