@@ -52,9 +52,12 @@ Welcome 화면(`widgets/welcome/welcome-container.tsx` — 최근 프로젝트 +
 
 ### 2.1 구성 (위→아래)
 
-1. 프로젝트 아이콘 목록 (세션의 프로젝트 순서)
-2. `+` 프로젝트 추가 메뉴 — 경로로 열기 / Finder 로 열기 / 최근 프로젝트 (§2.1.1)
-3. (하단 고정) 설정 버튼 — 설정 탭을 활성 프로젝트에 연다
+1. 그룹 섹션 — 그룹 헤더 + 그 그룹의 열린 멤버 아이콘 (그룹이 있을 때만, §2.4)
+2. 미분류 프로젝트 아이콘 목록 (세션의 프로젝트 순서)
+3. `+` 프로젝트 추가 메뉴 — 경로로 열기 / Finder 로 열기 / 최근 프로젝트 (§2.1.1)
+4. (하단 고정) 설정 버튼 — 설정 탭을 활성 프로젝트에 연다
+
+그룹이 하나도 없으면 1 이 사라지고 2 가 열린 프로젝트 전체가 되므로, 그룹 도입 전 레일과 배열이 같다.
 
 #### 2.1.1 `+` 프로젝트 추가 메뉴 (사용성 배치 5, 2026-09-15)
 
@@ -149,6 +152,10 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
 - **기본값으로 되돌리기**(`project.displayReset`) — 세 축을 한 번에 해제한다. 표시 설정이 하나도 없으면
   비활성이다. 해제는 축마다 빈 문자열을 보내는 규약(`null` = 유지)이라 상수
   `CLEARED_PROJECT_DISPLAY_PATCH` 하나로 표현된다.
+- **오른쪽/아래/왼쪽/위에 열기**(`shellSlot.open*`) — 포커스 슬롯을 그 방향으로 분할한다(§8.2).
+- **그룹에 추가 ▸**(`projectGroup.addTo`) — 그룹 목록 서브메뉴 + **새 그룹…**(`projectGroup.newGroup`).
+  이미 속한 그룹은 비활성. / **그룹에서 제거**(`projectGroup.removeFrom`) — 속한 그룹이 없으면 비활성.
+  (§2.4)
 - 사이드바 내 순서 변경은 DND(세로 sortable) — 순서는 세션에 저장
 
 #### 2.3.1 표시 설정 다이얼로그
@@ -161,6 +168,57 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
 - 미리보기는 사이드바와 **같은 `ProjectDisplayGlyph` 컴포넌트**를 그린다(클래스 이중 관리 금지).
 - 닫힘→열림 전이에서 렌더 중 state 를 리셋한다(`create-tag-dialog.tsx` 선례) — 취소한 편집이 다음
   프로젝트의 다이얼로그에 남아 잘못된 프로젝트에 저장되는 사고를 막는다.
+
+### 2.4 프로젝트 그룹 (d-62 2c, 2026-09-16)
+
+프로젝트를 이름 있는 그룹으로 묶어 레일에서 접고 펼치고 한 번에 열 수 있다. 영속 스키마는
+`data-model.md` §23(`ProjectGroup { id, name, color, members, collapsed }` — `session.json` 정본),
+커맨드는 `ipc-contract.md` 의 "project group" 절이다.
+
+**두 축은 분리돼 있다.**
+
+| 축 | 정본 | 뜻 |
+|----|------|----|
+| 열림 여부·전역 순서 | `session.projects` | 레일에 그려지는 것과 그 순서 |
+| 소속 | `ProjectGroup.members` | "열 수 있는 것" 의 조직화 — **닫힌 프로젝트도 멤버일 수 있다** |
+
+- 그러므로 섹션의 멤버는 `members` 를 순회해 만들지 않고 **열린 목록을 필터**해서 만든다
+  (`shared/lib/project-group.ts` 의 `resolveProjectGroupSections`). 닫힌 멤버는 레일에 없고, 멤버 순서는
+  언제나 `session.projects` 순서다.
+- 한 프로젝트는 **최대 한 그룹**에 속한다. "그룹에 추가" 는 대상 그룹의 `members` 에 붙이는 한 번의
+  `project_group_set_members` 이고, 이전 그룹에서 빼는 것은 서버가 한다.
+- 프로젝트를 닫아도 멤버십은 남는다. 레코드를 `forget` 하면 그때 멤버에서도 빠진다(계약 §0.1 S-7).
+
+**헤더** (`widgets/app-sidebar/sortable-project-group-header.tsx`)
+
+- 접기 토글이 곧 드래그 핸들이다. 접힘은 로컬 state 가 아니라 `project_group_set_collapsed` — 세션에
+  살아야 재시작·다른 창까지 같은 상태가 된다.
+- 색은 §2.2 의 `PROJECT_COLOR_TOKENS`(`graph.lane1..lane12`) 를 그대로 쓴다. 새 테마 토큰 없음.
+- context menu: **그룹 열기**(`projectGroup.open`) / **이름·색 변경…**(`projectGroup.edit`) /
+  **그룹 삭제**(`projectGroup.delete`, 확인 다이얼로그 — 그룹만 사라지고 멤버는 열린 채로 남는다).
+- **그룹 열기**는 첫 멤버만 활성화하고 나머지는 `activate: false` 로 순차 열기(계약 §0.1 S-2). 결과
+  `{ opened, skipped }` 를 `projectGroup.openResult` 토스트로 알린다(이미 열림·레코드 없음·셧다운은 skip).
+  **슬롯 자동 배치는 하지 않는다**(결정 §3 #3).
+
+**2단 정렬** — 레일의 `DndContext` 는 여전히 `AppShell` 의 그것 하나다(계약 §0.1 U-4).
+
+| 단 | `SortableContext` | 드롭 결과 |
+|----|-------------------|-----------|
+| 바깥 | 그룹 헤더들 | `project_group_reorder(ids)` |
+| 안쪽 | 그룹별 멤버 + 미분류 | `project_reorder(ids)` — **전역** 순서를 고쳐 쓴다 |
+
+- 두 단은 `active.data.current.type`(`project` / `projectGroup`)으로 갈린다. 헤더를 아이콘 위에, 아이콘을
+  헤더 위에 떨구면 `indexOf` 가 대상을 못 찾아 **아무 일도 일어나지 않는다**(`shared/lib/project-drag.ts`).
+- 따라서 **드래그로 그룹을 옮길 수는 없다.** 크로스 컨테이너 이동은 context menu 전용이다(계약 §0.1 U-6).
+
+**다이얼로그** (`features/project/project-group-dialog.tsx`) — 생성·편집 공용. 이름(1~40 코드포인트,
+제출 직전에만 trim) + §2.2 와 같은 12 스와치. 닫힘→열림 전이에서 렌더 중 리셋하는 것도 §2.3.1 과 같다.
+
+**동기화** — 모든 그룹 쓰기는 `project:groups-changed` 를 쏘고 `ipc-sync-provider.tsx` 가
+`QUERY_KEY.PROJECT_GROUP.ALL` 을 무효화한다. `project_group_open` 만 예외로 그룹이 아니라 열린 프로젝트를
+바꾸므로 멤버마다 `project:list-changed` 로 나타난다.
+
+**Welcome 최근 목록·File > Open Recent 는 그룹과 직교**한다(변경 없음).
 
 ## 3. 프로젝트 수명주기
 
@@ -313,7 +371,7 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
   둘 다 그 하나의 캐시 항목에 저장된 같은 좌표·크기로 복원되어 완전히 겹쳐 열린다 — 매번 기본
   크기(1000×700)로 여는 편이 `.window-state.json` 무한 증식과 겹침 둘 다를 동시에 피한다.
 
-## 8. 셸 슬롯 — 한 창에 여러 프로젝트 (d-62 2a)
+## 8. 셸 슬롯 — 한 창에 여러 프로젝트 (d-62 2a·2b)
 
 > 계약 `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A·§1.B + §0.1.
 > Rust 스키마·연산은 `data-model.md` §22 와 `domain::project::shell_slots`, IPC 는
@@ -349,14 +407,45 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
 | 조작 | 경로 |
 |------|------|
 | 오른쪽/아래/왼쪽/위에 열기 | 사이드바 프로젝트 아이콘 context menu → `project_open_in_slot(projectId, 포커스 슬롯, edge)` |
+| 아이콘을 끌어서 분할·교체 | 사이드바 아이콘을 슬롯의 드롭존에 드래그 → `project_open_in_slot(projectId, 그 슬롯, edge)` — §8.3 |
 | 프로젝트 전환(분할 없음) | 아이콘 클릭 → `project_activate` — 그 프로젝트가 이미 어느 슬롯에 있으면 **그 슬롯으로 포커스**, 없으면 **포커스 슬롯의 프로젝트를 교체**(계약 §0.1 S-5, 단일 슬롯 시절 동작과 동일) |
 | 슬롯만 닫기 | 슬롯 헤더 ✕ → `shell_slot_close` (프로젝트는 계속 열려 있다) |
 | 프로젝트 닫기 | 기존 `project_close` — 프로젝트 제거·슬롯 축약·포커스 재계산이 한 뮤테이션이다(§0.1 S-1) |
 
-- 사이드바 프로젝트 아이콘을 **드래그해서** 슬롯에 떨구는 경로는 2b 범위다(아직 없다). 메뉴가 그
-  자리를 대신한다.
+- 메뉴는 언제나 **포커스 슬롯**을 겨냥하고, 드래그는 포인터가 가리킨 슬롯을 겨냥한다. 둘 다 같은
+  커맨드를 부른다.
 
-### 8.3 포커스 슬롯 — 창 크롬이 누구를 가리키는가
+### 8.3 드래그 분할 — 레일에서 슬롯으로 (d-62 2b)
+
+- 창 전체가 **프로젝트 전용 `DndContext` 하나**를 갖는다(`widgets/app-shell/app-shell.tsx` 최상위,
+  배선은 `use-project-drag.ts`). 사이드바 재정렬(`SortableContext`)과 슬롯 드롭존이 그 안에 함께
+  들어 있다 — 레일에서 시작해 슬롯에서 끝나는 드래그는 하나의 드래그이기 때문이다(계약 §0.1 U-4).
+  사이드바는 자기 `DndContext` 를 잃고 `SortableContext` 만 남았다.
+- **슬롯마다 드롭존 5종**: 좌/우/상/하는 그 방향으로 분할, 가운데는 그 슬롯의 프로젝트를 교체.
+  탭 분할이 쓰는 `features/split/split-drop-zones.tsx` 를 한 단계 위에서 그대로 재사용한다.
+  **드래그 중에만** 그린다 — 슬롯을 통째로 덮기 때문에 평소에 두면 클릭을 전부 먹는다.
+- 드롭 → `project_open_in_slot(projectId, 대상 슬롯, edge)`. UI 의 `center` 는 커맨드의 `replace`
+  로 번역된다(`shared/lib/project-drag.ts` — 탭 분할의 `center` 와 의미가 다르다).
+- **프론트가 스스로 막는 것은 하나뿐**이다: 이미 그 슬롯에 있는 프로젝트를 그 슬롯 **가운데**에
+  떨어뜨리는 것(자기 자신으로 교체) → 아무 요청도 하지 않는다. 그 외 거부(다른 슬롯에 이미 있음
+  등)는 서버가 판정하고 프론트는 `describeIpcError` 로 토스트한다(§0.1 S-3).
+- **중첩 `DndContext` 는 서로를 보지 못한다.** 슬롯마다 `EditorArea` 가 자기 탭 `DndContext` 를
+  갖는데, dnd-kit 은 등록부를 React 컨텍스트에 두므로 안쪽 프로바이더가 자기 하위 트리에서 바깥을
+  가린다 — 탭의 드롭존은 안쪽에만 등록되고, 탭 드래그는 안쪽 센서만 깨운다. 구현 전 스파이크로 양쪽을
+  실측해 고정했다(`widgets/app-shell/project-drag-nesting.test.tsx`). 성립하지 않았다면 대안인 포인터
+  이벤트 오버레이로 갔어야 했다.
+- 충돌 판정은 `pointerWithin` 우선 + **포인터가 레일 안일 때만 도는** `closestCenter` 폴백이다.
+  폴백 후보에서는 슬롯 드롭존을 뺀다 — 안 그러면 아무 드롭 대상도 없는 자리에서 손을 떼도 "가장
+  가까운 슬롯"이 분할된다. 레일을 벗어난 폴백까지 허용하면 슬롯 헤더·리사이저·타이틀바 위에서 뗀
+  손이 "가장 가까운 아이콘"의 재정렬로 읽히므로, 레일 밖에서 드롭존을 빗나간 릴리스는 **대상 없음**
+  으로 끝낸다. 레일 rect 는 `AppSidebar` 가 `nav` 에 거는 droppable(`PROJECT_RAIL_DROPPABLE_ID`,
+  **측정 전용** — 드롭 대상이 아니라 후보에서 항상 빠진다)을 dnd-kit 이 측정한 값이다. 레일 안
+  아이콘 사이 틈에서 떼는 재정렬은 폴백 덕분에 예전 그대로다.
+- 포인터를 따라가는 것은 `features/project/project-drag-preview.tsx`(글리프만, 버튼 아님).
+  레일의 원본 아이콘은 제자리에서 흐려진다 — `DragOverlay` 가 있으면 dnd-kit 이 드래그 소스를 직접
+  옮기지 않기 때문이다.
+
+### 8.4 포커스 슬롯 — 창 크롬이 누구를 가리키는가
 
 - 포커스는 **DOM 이 정본**이다: 앱 루트의 `ShellSlotProvider`(`app/providers/shell-slot-provider.tsx`)
   가 캡처 단계 `pointerdown`/`focusin` 리스너 하나로 이벤트 대상이 속한 슬롯을 찾는다. 슬롯 밖
@@ -369,7 +458,7 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
   `project_get_active` 를 읽던 것을 prop/컨텍스트로 바꿨다.
 - 상태바의 Problems 토글은 **포커스 슬롯의** Problems 패널만 여닫는다(슬롯별 상태, `AppShell` 소유).
 
-### 8.4 중복 리스너 게이팅 (§0.1 S-4/U-1)
+### 8.5 중복 리스너 게이팅 (§0.1 S-4/U-1)
 
 슬롯마다 프로젝트 셸이 통째로 한 벌씩 마운트되므로, 창 단위 싱글턴이던 두 메커니즘이 슬롯 수만큼
 복제된다. 둘 다 **구독 측에서** `useIsShellSlotFocused()` 로 막는다 — 발행 측(팔레트·메뉴·에디터
@@ -389,11 +478,15 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
 - `terminal-write-bridge` 는 `tabId` 로 주소가 찍히므로 게이팅 대상이 아니다.
 - 커맨드가 슬롯을 **지명**해야 할 때를 위해 `CommandContext.focusedShellSlotId`(읽기 전용)가 있다.
 
-### 8.5 알려진 제한 (2a 시점)
+### 8.6 알려진 제한 (2c 시점)
 
-- 사이드바 → 슬롯 **드래그** 분할 없음(2b), 프로젝트 **그룹** 없음(2c).
+- **그룹과 슬롯은 아직 무관하다** — 그룹(§2.4)을 열어도 멤버가 슬롯에 자동 배치되지 않는다
+  (계약 §1.E 범위 외).
 - 같은 프로젝트를 여러 슬롯에 띄울 수 없다(§8.1).
-- 슬롯 간 탭 드래그 이동 없음(프로젝트가 다른 pane 트리라 별도 과제).
+- **키보드로 분할할 수 없다** — 분할 경로는 context menu 와 드래그 둘뿐이고(§8.2), `APP_KEYMAP` 에
+  슬롯 액션이 없다.
+- 슬롯 **사이**로 탭을 끌어 옮길 수 없다(계약 §1.E 범위 외) — 슬롯마다 pane 트리가 따로이고, 탭
+  `DndContext` 도 슬롯 안에 갇혀 있다.
 - 슬롯별 탐색 패널 **폭**은 영속되지 않는다(폭은 원래 뷰 로컬 — `window-chrome.md` §6.2).
 - `ShellSlotId` 는 세션 안의 주소이지 영속 핸들이 아니다. 구버전 세션은 첫 슬롯 변경 전까지 부팅마다
   새 id 를 받으므로, 낡은 id 로 온 포커스 요청은 첫 슬롯으로 물러난다(`resolveShellSlotFocus`).

@@ -62,7 +62,9 @@ TAIDE/
 ├── session.json             전역 세션 — 열린 프로젝트 목록·순서, 활성 프로젝트(= 포커스 셸 슬롯의
 │                            프로젝트), shellSlots(셸 슬롯 분할 트리)·focusedShellSlot·
 │                            windowChrome(zen·사이드바 레일 접힘) — 전부 `#[serde(default)]`,
-│                            d-62, §22. 윈도우 크기/위치는 tauri-plugin-window-state
+│                            d-62, §22. groups(사이드바 프로젝트 그룹 — 이름·색·멤버·접힘,
+│                            `#[serde(default)]` — d-62 2c, §23).
+│                            윈도우 크기/위치는 tauri-plugin-window-state
 ├── projects/
 │   └── {projectId}/
 │       ├── project.json     루트 경로, 이름, 부착 capability 설정 (프로젝트별 오버라이드 포함),
@@ -95,6 +97,7 @@ struct SessionState {
     shell_slots: Option<ShellSlotTree>, // d-62 신설 — 메인 창의 프로젝트 셸 분할 트리, §22
     focused_shell_slot: Option<ShellSlotId>,  // d-62 신설 — §22
     window_chrome: WindowChrome,        // d-62 신설 — 창 단위 zen·사이드바 레일 접힘, §22
+    groups: Vec<ProjectGroup>,          // d-62 2c 신설 — 사이드바 프로젝트 그룹, 순서 = 표시 순서, §23
 }
 // 윈도우 크기·위치·최대화는 tauri-plugin-window-state 가 담당 (ADR-0009)
 
@@ -104,6 +107,14 @@ enum ShellSlotTree {                    // d-62 — PaneNode 와 같은 모양, 
 }
 
 struct WindowChrome { zen: bool, sidebar_rail_collapsed: bool }   // d-62 — §22
+
+struct ProjectGroup {                   // d-62 2c — 사이드바 조직화. 열림 여부는 session.projects 가 정본, §23
+    id: ProjectGroupId,                 // group-<uuid>
+    name: String,                       // 제어문자 제거 + 트림 후 1~40 코드포인트
+    color: Option<String>,              // ProjectDisplay 와 같은 graph.lane1..lane12 팔레트
+    members: Vec<ProjectId>,            // 소속 집합 — 한 프로젝트는 한 그룹에만 속한다
+    collapsed: bool,                    // 사이드바에서 멤버를 접어 뒀는지
+}
 
 struct ProjectRef { id: ProjectId, root: PathBuf, name: String, display: ProjectDisplay }
 // display 는 Project.display 의 미러 — upsert_project_ref 가 root/name 과 같은 지점에서 동기화 (§20)
@@ -800,7 +811,7 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
 
 > 계약: `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A + §0.1(S-1·S-2·S-3·
 > S-5·S-6·S-8). 커맨드·이벤트는 `docs/ipc-contract.md` "session — 셸 슬롯·창 크롬" 절이 정본이다.
-> 그룹(`ProjectGroup`/`SessionState.groups`)은 이 단계(2a) 범위 밖이라 아직 없다.
+> 그룹(`ProjectGroup`/`SessionState.groups`)은 이 단계(2a) 범위 밖이었고, §23 에서 들어왔다.
 
 - **`SessionState` 에 3필드 추가** — `shell_slots: Option<ShellSlotTree>`,
   `focused_shell_slot: Option<ShellSlotId>`, `window_chrome: WindowChrome`. 전부
@@ -845,3 +856,32 @@ struct AuxiliaryWindowInfo { label: String, project_id: ProjectId, window_slot: 
   있다. 이행 창 한정이고, 사용자가 Zen/레일을 한 번이라도 켜 두면 더는 발생하지 않는다.
 - **새 파일·디렉토리는 없다.** 슬롯 트리는 `session.json` 안에서만 산다. 프로젝트별 레이아웃·버퍼
   미러·LSP 세션 스코프는 전부 무변경이다(계약 §0 의 "슬롯 분할에서 무변경" 행).
+
+## 23. d-62 2c — 프로젝트 그룹 1필드 추가 (`session.json` 영향, 2026-09-16)
+
+> 계약: `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A(그룹 절) + §0.1 S-7.
+> 커맨드·이벤트는 `docs/ipc-contract.md` "project group — 사이드바 프로젝트 그룹" 절이 정본이다.
+
+- **`SessionState` 에 1필드 추가** — `groups: Vec<ProjectGroup>`. `#[serde(default)]` 라
+  **마이그레이션이 없다**(§5 의 필드 추가 규칙, §22 의 슬롯 3필드와 같은 경로). `SESSION_SCHEMA_VERSION`
+  은 1 유지고, 그룹이 없던 세션은 빈 목록으로 읽힌다. **새 파일·디렉토리는 없다** — 그룹은
+  `session.json` 안에서만 산다.
+- **`ProjectGroupId`** 는 `ids.rs` 의 다섯 번째 string id(`group-<uuid>`)다.
+- **소유 관계**: `session.projects` 가 계속 **열림 여부와 전역 사이드바 순서의 단일 진실**이고,
+  `ProjectGroup.members` 는 소속 집합일 뿐이다. 사이드바는 그룹 헤더 아래에 멤버를 그리고, 어느 그룹에도
+  없는 프로젝트를 "미분류" 로 둔다(계약 §1.C).
+- **닫아도 남고, forget 하면 빠진다(§0.1 S-7)** — 그룹은 "열 수 있는 것" 의 조직화라 `project_close`
+  는 멤버십을 건드리지 않는다. 멤버를 지우는 유일한 경로는 `service::forget_recent_projects` 로,
+  `projects/<id>/` 레코드를 **실제로 지운** id 만 모든 그룹의 `members` 에서 빼고 그때만
+  `session.json` 을 다시 쓴다. 그래서 멤버십의 어휘는 "디스크에 레코드가 있는 프로젝트" 이고,
+  `project_group_create`/`set_members` 는 레코드 없는 id 를 거부한다
+  (`error.projectGroup.memberUnknown`).
+- **한 프로젝트는 한 그룹에만 속한다** — 멤버 지정은 그 프로젝트를 이전 그룹에서 빼낸다. 같은 프로젝트를
+  두 헤더 아래 그리지 않기 위해서이고, 계약 §0.1 U-6 의 "그룹에서 제거" 가 그룹을 지목하지 않아도 되는
+  이유다.
+- **`color` 는 `ProjectDisplay` 팔레트 재사용** — `graph.lane1..lane12` 토큰 이름(§20 과 같은
+  allow-list). 새 테마 토큰이 필요 없다.
+- **복원 시 그룹 정규화는 없다** — 슬롯 트리와 달리 부팅 때 `members` 를 디스크와 대조하지 않는다.
+  그러려면 닫혀 있는 프로젝트까지 매 부팅 전수 확인해야 하고, 멤버가 가리키는 레코드는 forget 이외의
+  경로로는 사라지지 않는다. 손으로 지운 `projects/<id>/` 가 남긴 멤버는 다음
+  `project_forget_recent` 나 멤버 재지정에서 정리된다.

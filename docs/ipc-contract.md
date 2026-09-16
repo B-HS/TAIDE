@@ -148,6 +148,8 @@
   시그니처는 무변경이다.
 - mutation(신규, d-62): 슬롯에 여는 `project_open_in_slot` 은 아래 "session" 절이 정본이다.
   `project_open`/`project_activate` 는 시그니처가 그대로이되 **슬롯 의미**가 붙었다(같은 절).
+- mutation(신규, d-62 2c): 사이드바 그룹 `project_group_*` 9종은 아래 "project group" 절이 정본이다.
+  `project_forget_recent` 는 시그니처가 그대로이되 지운 레코드를 **그룹 멤버에서도 뺀다**(같은 절).
 - event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`
   (**`project:focus-kind-changed` 는 X-A 배치(2026-08-19)에서 제거됐다** — 소비자가 0 이면서
   레이아웃 변이 18종마다 무조건 발행돼 이벤트 트래픽만 2배로 만들었다(X1#12,
@@ -202,6 +204,50 @@
 - **원격 dispatch**: 위 6개 커맨드는 전부 **허용**(`project_open`/`project_activate` 와 같은 등급 —
   같은 로컬 파일 하나(`session.json`)를 쓰고, 원격 세션이 이미 볼 수 있는 것 외의 경로를 드러내지
   않는다).
+
+### project group — 사이드바 프로젝트 그룹 (d-62 2c 신설, `layout-shell.md`)
+
+> 그룹은 **조직화**다. 무엇이 열려 있는지·사이드바 전역 순서는 계속 `session.projects` 가 정본이고,
+> `members` 는 소속 집합일 뿐이다. 프로젝트를 닫아도 멤버십은 남고, `project_forget_recent` 로
+> **레코드가 지워질 때만** 멤버에서 빠진다(계약 §0.1 S-7). 커맨드는 `SessionState` 의 소유자인
+> **project 도메인**에 구현돼 있다.
+
+- **한 프로젝트는 한 그룹에만 속한다.** `project_group_create`/`project_group_set_members` 가 멤버를
+  지정하면 그 프로젝트는 이전 그룹에서 자동으로 빠진다. 계약 §0.1 U-6 의 "그룹에서 제거" 가 대상
+  그룹을 지목하지 않아도 되는 이유이고, 사이드바가 같은 프로젝트를 두 헤더 아래 그리지 않게 한다.
+- query: `project_group_list() → ProjectGroup[]` — 창이 막 떴을 때의 초기 조회. `ProjectGroup` 은
+  `{ id: ProjectGroupId, name, color: string | null, members: ProjectId[], collapsed }` 이고 순서가
+  곧 사이드바 그룹 순서다. `project:groups-changed` 는 전환 시점에만 오므로
+  `session_get_shell_state` 와 같은 이유로 query 가 따로 필요하다.
+- mutation: `project_group_create(name, color?, members?) → ProjectGroup` — `name` 은 제어문자 제거 +
+  트림 후 1~40 코드포인트, `color` 는 `ProjectDisplay` 와 **같은 팔레트**(`lane1..lane12`, 생략·null
+  이면 색 없음). `members` 는 중복이 제거되고, **이 기기에 저장된 레코드가 없는 projectId 가 하나라도
+  있으면 호출 전체가 거부**된다(부분 적용 없음). 열려 있지 않은 프로젝트도 레코드만 있으면 멤버가 될
+  수 있다 — 그룹은 "열 수 있는 것" 의 조직화이기 때문이다.
+- mutation: `project_group_rename(groupId, name)` · `project_group_set_color(groupId, color)`(`null`
+  이면 해제) · `project_group_set_collapsed(groupId, collapsed)` · `project_group_delete(groupId)` ·
+  `project_group_reorder(ids)`. 없는 `groupId` 는 `NotFound`. **삭제는 그룹만 지운다** — 멤버
+  프로젝트는 열린 채로 남고 `projects/<id>/` 레코드도 그대로다. `reorder` 는 `project_reorder` 와 같은
+  관용 규칙(목록에 없는 그룹은 기존 상대 순서로 뒤에 붙는다).
+- mutation: `project_group_open(groupId) → ProjectGroupOpenResult { opened: ProjectId[], skipped:
+  ProjectId[] }` — 멤버를 **그룹의 멤버 순서대로 순차** 로 연다. **실제로 연 첫 멤버만**
+  `activate: true`(그 프로젝트가 포커스 슬롯을 차지한다), 나머지는 `activate: false` 로 세션에
+  합류만 한다(계약 §0.1 S-2) — 큐가 진행하는 동안 사용자를 프로젝트 사이로 끌고 다니지 않기 위해서다.
+  진행 상황은 멤버마다 발행되는 `project:list-changed` 로 드러난다.
+  - `skipped` 에 들어가는 것: **이미 열려 있는 멤버**(다시 열면 포커스만 뺏는다), **레코드·루트가
+    사라진 멤버**(`log::warn` 후 건너뛴다 — 계약 §0.1 S-7), 열기가 실패한 멤버, 그리고 종료
+    (`is_shutting_down`)로 더 진행하지 못한 멤버. 어느 경우도 호출 전체를 실패시키지 않는다.
+  - **슬롯 자동 배치는 없다**(계약 §1.E). 그룹 열기는 사이드바 조직화일 뿐이고, 화면 분할은
+    `project_open_in_slot` 의 몫이다.
+- event: `project:groups-changed({ groups })` — 위 그룹 변경 커맨드 6종 + `project_forget_recent`
+  (**멤버십이 실제로 바뀌었을 때만** — 지운 레코드를 어느 그룹도 멤버로 갖고 있지 않았으면 발행하지
+  않는다)가 발행한다. 델타가 아니라 전체 목록을 싣는다(`project:list-changed` 와 같은 이유).
+  **`project_group_open` 은 발행하지 않는다** — 그룹이 아니라 열린 프로젝트가 바뀌기 때문이다.
+- 로케일 키: `error.projectGroup.invalid`(이름·색 규격 위반) ·
+  `error.projectGroup.memberUnknown`(레코드 없는 멤버). 둘 다 `InvalidArgument`.
+- **원격 dispatch**: 위 9개 커맨드는 전부 **허용**(`project_reorder`/`project_open` 과 같은 등급 —
+  같은 로컬 파일 하나(`session.json`)를 쓰고, `project_group_open` 이 여는 것은 원격 세션이
+  `project_open` 으로 이미 열 수 있는 프로젝트뿐이다).
 
 ### layout (`tabs.md`)
 
@@ -2200,8 +2246,8 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 ### d-62 2a — 셸 슬롯 분할·창 크롬 (Rust, 2026-09-15)
 
 > 계약: `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A + §0.1. 정본 목록은
-> 위 "session — 셸 슬롯·창 크롬" 절이다. 그룹(`project_group_*`·`ProjectGroupsChanged`)은 이
-> 단계(2a) 범위 밖이라 아직 없다.
+> 위 "session — 셸 슬롯·창 크롬" 절이다. 그룹(`project_group_*`·`project:groups-changed`)은 이
+> 단계(2a) 범위 밖이었고, 아래 "d-62 2c" 절에서 들어왔다.
 
 - **신규 커맨드 6종**: `project_open_in_slot`·`shell_slot_close`·`session_get_shell_state`·
   `session_focus_shell_slot`·`session_set_shell_slot_sizes`·`session_set_window_chrome`. 전부
@@ -2217,3 +2263,23 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 - **`layout_set_shell_view` 는 남는다** — `ShellViewState` 의 `zen`/`sidebarCollapsed` 필드도
   남지만, 창 크롬의 읽기 정본은 `session_get_shell_state().windowChrome` 으로 옮겼다. 부팅 1회
   승격 규칙은 `docs/data-model.md` §22.
+
+### d-62 2c — 프로젝트 그룹 (Rust, 2026-09-16)
+
+> 계약: `docs/acknowledge/2026-09-15-d62-project-split-groups-contract.md` §1.A(그룹 절) + §0.1
+> S-2·S-7. 정본 목록은 위 "project group — 사이드바 프로젝트 그룹" 절이다.
+
+- **신규 커맨드 9종**: `project_group_list`·`project_group_create`·`project_group_rename`·
+  `project_group_set_color`·`project_group_set_collapsed`·`project_group_set_members`·
+  `project_group_delete`·`project_group_reorder`·`project_group_open`. 전부
+  `IMPLEMENTED_JSON_COMMANDS` 와 `REMOTE_ALLOWED_COMMANDS` 양쪽에 등재됐다(허용 테이블 167 → 176).
+- **신규 이벤트 1종**: `project:groups-changed`(events.rs 27 → 28종, `collect_events!`·
+  `fanout_remote_events!` 양쪽 등재).
+- **반환 타입 변화**: 기존 커맨드는 전부 무변경이다. `SessionState` 는 IPC 로 통째 노출된 적이 없으므로
+  `groups` 필드 추가는 바인딩에 드러나지 않고, 새로 노출되는 타입은 `ProjectGroup`·`ProjectGroupId`·
+  `ProjectGroupOpenResult` 다.
+- **`project_forget_recent` 의 의미 확장(계약 §0.1 S-7)**: 시그니처는 무변경이되, 레코드를 지운
+  프로젝트를 모든 그룹의 `members` 에서도 빼고 `session.json` 을 다시 쓴다. 그룹이 실제로 바뀐 경우에만
+  저장하고, 바뀌었으면 `project:list-changed` 와 함께 `project:groups-changed` 도 발행한다.
+- **로케일 키 신규 2종**(en/ko/ja): `error.projectGroup.invalid`·`error.projectGroup.memberUnknown`.
+  `MESSAGE_NAMESPACES` 의 `error` 네임스페이스에 등재.
