@@ -1,6 +1,6 @@
 [package]
 name = "taide"
-version = "0.1.9"
+version = "0.2.0"
 description = "TAIDE — agent-native IDE"
 license = "MIT"
 authors = ["Hyunseok Byun"]
