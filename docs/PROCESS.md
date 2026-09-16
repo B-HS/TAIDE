@@ -50,6 +50,29 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: d-64 — TS 진단 폴백 정직화 · LSP 무음 실패 관측성 · 파일트리 하드 제외 해제 (2026-09-16)
+
+> 사용자 보고: ① gumba 에서 node_modules/.next 가 있는데 모든 import 에 빨간 밑줄("감지 못하나, 의도적 차단인가") ② 트리에
+> node_modules/·.next/ 가 안 보임("숨김파일도 싹다 떠야") ③ 간헐 토스트 `File not found: /Users/gkn/taide/help`.
+> 정본 계약 `acknowledge/2026-09-16-d64-ts-fallback-lsp-observability-tree-contract.md`, 버그 기록
+> `bug/2026-09-16-ts-builtin-worker-fallback-module-errors.md`.
+
+- [x] a. 원인 확정(메인 직접, 실행 중 릴리스 v0.2.1 실측) — IDE 서버 `getDiagnostics` 메시지가 전부 TS2792/TS2580 = **monaco 내장 ts
+      worker** 산출물, vtsls 프로세스 없음, LSP 로그 0줄(Rust 감지·spawn·종료 로그 전무·stderr null·프론트 `.catch(() => undefined)`),
+      `monaco.languages.typescript.*Defaults` 호출 저장소 전체 0건(editor.md §12·lsp.md §4 가 미구현을 구현된 것처럼 기술),
+      vtsls·로그인 셸 PATH·`fix_path_env` 프로브(launchd 유사 빈 env)·initialize 응답은 전부 정상 → 세션 부재 원인은 로그 부재로 미확정.
+      트리는 `IGNORED_DIR_NAMES` 를 `tree::service::read_children` 이 적용(G5 "현행 유지" 추천안 → 사용자 번복). ③ 은 메인의 `taide help`
+      CLI 탐색이 원인(`feedback/2026-09-16-taide-cli-probe-opens-file-in-app.md`)
+- [x] b. 계약 작성 — R1 관측성(Rust 로그·stderr tail 마스킹·프론트 warn) / F1 내장 worker semantic 진단 off / F2 세션 중
+      `setModeConfiguration` 정지·복원 / T1 트리 전부 표시(워처·검색 유지) / D 문서 정정. 범위 외: PATH 보강(실기 로그 조건부)·상태바 미감지 표시·IDE 진단 중복
+- [x] c. 구현 wf `wf_f0dd012e`(fixer-rust ∥ fixer-ts opus·xhigh → verify sonnet·high → 렌즈 1 sonnet·xhigh, 23분) — fixer-ts 가 계약
+      전제 2건 정정(`monaco.typescript` 네임스페이스 / 0.56 은 `setModeConfiguration` 소급 미적용 → 정지 시 `setDiagnosticsOptions` 동반,
+      한계는 editor.md §12 명시). 렌즈 major 0·minor 1(ipc-contract 캐비어트 → 메인 직접 정정)·info 1(attach warn 테스트 → QA 부채)
+- [x] d. 메인 2차 verify exit 0(bun 2745·cargo 1661+4+3+8+17·clippy 0)·vite build·typecheck:e2e → 커밋 5분할(editor/lsp/tree/docs/release)
+- [ ] e. 사용자 지시 "다 끝나면 draft 까지" → dev 푸시 · main ff · 태그 `v0.2.2` · Release 런 · draft → `deployment.md` §9·HANDOFF 기록
+- [ ] f. 사용자 실기(v0.2.2 설치본) — 설정 LSP 행·상태바 LSP n/m·로그 `lsp detect`/`spawn`/`exited`·vendor-utils.ts 밑줄·트리
+      node_modules/.next 표시·완성 목록 중복 여부. 로그가 `available=false` 면 §4 PATH 보강 착수
+
 ## 진행 중: 버그 — git 뷰 첫 오픈·프로젝트 전환 시 Sidebar Panel 폴백(그래프 pane 지연 마운트 크래시) (2026-09-16)
 
 > 사용자 실기 보고. 기록 정본 `docs/bug/2026-09-16-git-graph-pane-late-mount-constraints-crash.md`.
