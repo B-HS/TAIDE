@@ -23,6 +23,15 @@ const SEARCH_HIGHLIGHT_LIMIT = 1000
 const SHIFT_ENTER_LINE_FEED = '\n'
 
 /**
+ * The floor `@xterm/addon-fit` clamps `proposeDimensions()` to — its last statement is
+ * `{ cols: Math.max(2, …), rows: Math.max(1, …) }` (`node_modules/@xterm/addon-fit/lib/addon-fit.js`),
+ * and xterm's own `resize()` uses the same `MINIMUM_COLS`/`MINIMUM_ROWS`. A proposal sitting exactly
+ * on it therefore carries no information about the container — see {@link fitIfMeasurable}.
+ */
+const FIT_ADDON_MIN_COLS = 2
+const FIT_ADDON_MIN_ROWS = 1
+
+/**
  * xterm's built-in web-links handler activates on any click, which collides with terminal
  * text selection and cursor placement. TAIDE gates link activation to Cmd-click (mac) /
  * Ctrl-click (non-mac) / Alt-click, matching the modifier convention editors use for "open
@@ -52,6 +61,42 @@ export const shouldActivateTerminalLink = (event: Pick<MouseEvent, 'metaKey' | '
 export const shouldTranslateShiftEnterToLineFeed = (
     event: Pick<KeyboardEvent, 'type' | 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing'>,
 ) => event.type === 'keydown' && event.key === 'Enter' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing
+
+/**
+ * The single rule every `fit()` call site in this view goes through: resize the terminal only from a
+ * container that can still be measured. `Number.isFinite` alone is not that rule — `proposeDimensions()`
+ * clamps to {@link FIT_ADDON_MIN_COLS}×{@link FIT_ADDON_MIN_ROWS}, so a pane squashed to 0px returns a
+ * perfectly finite `(2, 1)` that passes it, `fit()` forwards it to `term.onResize`, and the chain ends at
+ * `pty_resize(2, 1)` (`terminal-pane.tsx` → `terminal-session.tsx` → Rust `pty_resize`). The child process
+ * gets SIGWINCH for a one-row screen and any TUI in it — Claude Code, vim — redraws into a corrupted frame
+ * that restoring the pane does not repaint. That collapse is reachable without any exotic setup:
+ * react-resizable-panels squashes panes below their pixel `minSize` when a group cannot honour all of them
+ * at once (`MIN_PANEL_SIZE_PX`, `@shared/constants/layout`), so shrinking the window under a few stacked
+ * terminal panes is enough.
+ *
+ * A proposal on *either* axis' floor is refused, not only both: the clamp makes a genuinely 2-column or
+ * 1-row container indistinguishable from a collapsed one, and since no session is usable at that size,
+ * refusing is the side that cannot corrupt a live child process. Refusing loses nothing — the caller's
+ * `ResizeObserver` fires again when the container grows back, and this helper then applies the real
+ * dimensions — whereas accepting is irreversible from the app's side.
+ *
+ * The initial fit runs through the same gate, where refusing costs one extra step: the terminal keeps
+ * xterm's constructor default of 80x24 and `onReady` reports *that* to `terminal-session.tsx`, so a tab
+ * activated inside an already-collapsed pane spawns its PTY at a workable size instead of 2x1 — and the
+ * `ResizeObserver` corrects it to the real geometry the moment the container is measurable again.
+ */
+export const fitIfMeasurable = (
+    term: Pick<Terminal, 'cols' | 'rows'>,
+    fit: Pick<FitAddon, 'fit' | 'proposeDimensions'>,
+    container: Pick<HTMLElement, 'clientWidth' | 'clientHeight'>,
+) => {
+    if (container.clientWidth === 0 || container.clientHeight === 0) return
+    const dimensions = fit.proposeDimensions()
+    if (!dimensions || !Number.isFinite(dimensions.cols) || !Number.isFinite(dimensions.rows)) return
+    if (dimensions.cols <= FIT_ADDON_MIN_COLS || dimensions.rows <= FIT_ADDON_MIN_ROWS) return
+    if (dimensions.cols === term.cols && dimensions.rows === term.rows) return
+    fit.fit()
+}
 
 /**
  * Everything an owner outside this view may do to the live `Terminal` instance. The clipboard and
@@ -171,16 +216,20 @@ export const TerminalView: FC<TerminalViewProps> = ({
 
     useEffect(() => {
         const term = termRef.current
-        if (!term) return
+        const fit = fitRef.current
+        const container = containerRef.current
+        if (!term || !fit || !container) return
         term.options.fontSize = fontSize
-        fitRef.current?.fit()
+        fitIfMeasurable(term, fit, container)
     }, [fontSize])
 
     useEffect(() => {
         const term = termRef.current
-        if (!term) return
+        const fit = fitRef.current
+        const container = containerRef.current
+        if (!term || !fit || !container) return
         term.options.fontFamily = fontFamily
-        fitRef.current?.fit()
+        fitIfMeasurable(term, fit, container)
     }, [fontFamily])
 
     useEffect(() => {
@@ -278,7 +327,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
         }
         loadWebgl()
 
-        fit.fit()
+        fitIfMeasurable(term, fit, container)
         if (initialAutoFocusRef.current) term.focus()
 
         const pendingRef = { current: 0 }
@@ -287,11 +336,7 @@ export const TerminalView: FC<TerminalViewProps> = ({
         let resizeRafId = 0
         const resizeObserver = new ResizeObserver(() => {
             cancelAnimationFrame(resizeRafId)
-            resizeRafId = requestAnimationFrame(() => {
-                const dimensions = fit.proposeDimensions()
-                if (!dimensions || !Number.isFinite(dimensions.cols) || !Number.isFinite(dimensions.rows)) return
-                if (dimensions.cols !== term.cols || dimensions.rows !== term.rows) fit.fit()
-            })
+            resizeRafId = requestAnimationFrame(() => fitIfMeasurable(term, fit, container))
         })
         resizeObserver.observe(container)
 
