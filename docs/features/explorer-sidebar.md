@@ -81,11 +81,23 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
 ### 2.3 갱신·성능
 
 - watcher(notify 8.2 + notify-debouncer-full 0.7, 300ms debounce)가 **변경 디렉토리의 자식만**
-  재조회 — 루트 재스캔 금지. 무시 목록(`.git`, `node_modules`, `target`, `dist`, `.next` 등)은
-  워처·트리·검색이 **동일 규칙 공유**(`shared` 상수 + Rust 상수 동기). 다만 목록이 가리키는 것은
-  **디렉토리 이름**이므로 적용 지점이 셋 다 다르다 — 트리는 항목이 디렉토리일 때만 감추고, 워처는
-  경로의 **조상 성분에만** 적용한다(마지막 성분 제외 — d-50 S6, `ipc-contract.md`). 그래서 루트에
-  `build` 라는 이름의 파일이 있으면 트리에도 보이고 그 변경 이벤트도 도착한다.
+  재조회 — 루트 재스캔 금지.
+- **트리는 무시 목록을 적용하지 않는다 — 전부 표시한다**(d-64 T1, 사용자 결정 2026-09-16 —
+  2026-09-15 G5 의 "현행 유지" 번복). `node_modules/`·`.next/`·`.git/`·`target/` 도 다른 디렉토리와
+  똑같이 행으로 뜨고 펼칠 수 있다(`domain::tree::service::read_children` 에 이름 필터가 없다).
+  무시 목록(`constants::IGNORED_DIR_NAMES` — `.git`, `node_modules`, `target`, `dist`, `.next` 등)을
+  쓰는 곳은 이제 **워처(`infra::watcher`)와 검색·퀵오픈(`domain::search`) 둘뿐**이고, 성능 근거는
+  그대로다. 적용 방식도 둘이 다르다 — 워처는 경로의 **조상 성분에만** 적용한다(마지막 성분 제외 —
+  d-50 S6, `ipc-contract.md`). 그래서 루트에 `build` 라는 이름의 **파일**이 있으면 트리에 보이고 그
+  변경 이벤트도 도착한다.
+- **그에 따른 절충 두 가지**:
+  - 워처가 무시 디렉토리 **내부**를 감시하지 않으므로, `node_modules/` 를 펼쳐 둔 상태에서 그 안의
+    파일이 바뀌어도 트리 행이 실시간으로 갱신되지 않을 수 있다(무시 디렉토리 **자신**의 생성·삭제
+    이벤트 1건은 통과 — `ipc-contract.md` §4-A-4). 최신 목록이 필요하면 그 폴더를 새로고침한다
+    (`tree_refresh`). VS Code 의 `files.watcherExclude` 기본값과 같은 절충이다.
+  - 퀵오픈(`search_list_files`)·검색은 여전히 무시 디렉토리를 건너뛰므로, **트리가 보여주는 파일
+    집합과 검색이 찾는 파일 집합이 더는 일치하지 않는다**(`ipc-contract.md` 의 `search_list_files`
+    항목이 근거로 들던 등식은 트리 쪽이 넓어진 만큼 깨졌다 — 검색 쪽 동작은 미변경).
 - Linux inotify watch 한도 초과는 조용히 실패 — 에러를 UI 배너로 노출(research 함정).
 - 이벤트는 경로 배열 1건으로 묶어 emit(파일당 1 emit 금지).
 - **워처가 이벤트를 흘리면 `fs:rescan-required(projectId)` 를 먼저 1회 보낸다**(d-57). FSEvents 큐

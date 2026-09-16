@@ -1,7 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::constants;
 use crate::error::AppResult;
 
 use super::types::{TreeEntryKind, TreeRow, TreeRowPage};
@@ -45,7 +44,14 @@ fn entry_sort_key(entry: &Entry) -> (u8, String) {
     (kind_rank, entry.name.to_lowercase())
 }
 
-/// Lists one directory's visible entries, sorted by [`entry_sort_key`].
+/// Lists one directory's entries, sorted by [`entry_sort_key`].
+///
+/// **Nothing is filtered out** (d-64 T1, user decision 2026-09-16): `constants::IGNORED_DIR_NAMES`
+/// used to drop directories named `node_modules`/`.next`/`target`/… here, so the tree was the one
+/// surface that hid part of the project. The watcher (`infra::watcher`) and search/quick-open
+/// (`domain::search`) still prune by that list for cost reasons, which is why a change *inside* an
+/// ignored directory may not refresh an expanded row live — the same tradeoff as VS Code's
+/// `files.watcherExclude` default (`docs/features/explorer-sidebar.md` §2.3).
 ///
 /// The kind comes from `DirEntry::file_type()`, not `DirEntry::metadata()`. Both answer the same
 /// question here — std documents each as *not* traversing symlinks, so a symlink is a
@@ -71,10 +77,6 @@ fn read_children(dir: &Path) -> AppResult<Vec<Entry>> {
         } else {
             TreeEntryKind::File
         };
-
-        if kind == TreeEntryKind::Directory && constants::is_ignored_dir(&name) {
-            continue;
-        }
 
         let path = item.path();
         let has_children = if kind == TreeEntryKind::Directory {
@@ -406,11 +408,17 @@ mod tests {
     }
 
     #[test]
-    fn 무시_디렉토리는_자식_목록에서_제외된다() {
+    fn 무시_디렉토리도_자식_목록에_포함된다() {
         let fixture = build_fixture();
         let children = read_children(&fixture.root).unwrap();
 
-        assert!(!children.iter().any(|entry| entry.name == "node_modules"));
+        let node_modules = children
+            .iter()
+            .find(|entry| entry.name == "node_modules")
+            .expect("무시 목록에 있던 디렉토리도 트리에 보여야 한다");
+
+        assert_eq!(node_modules.kind, TreeEntryKind::Directory);
+        assert!(node_modules.has_children, "안에 pkg 가 있으므로 펼칠 수 있어야 한다");
     }
 
     /// Symlinks are the one place where `file_type()` and `metadata()` could have disagreed, since
@@ -477,7 +485,7 @@ mod tests {
         let children = read_children(&fixture.root).unwrap();
 
         let names: Vec<&str> = children.iter().map(|entry| entry.name.as_str()).collect();
-        assert_eq!(names, vec!["src", "Cargo.toml", "README.md"]);
+        assert_eq!(names, vec!["node_modules", "src", "Cargo.toml", "README.md"]);
     }
 
     #[test]
@@ -487,7 +495,7 @@ mod tests {
         ensure_root_loaded(&mut state, &mut DirectoryListings::default()).unwrap();
 
         let rows_before_expand = flatten(&state);
-        assert_eq!(rows_before_expand.len(), 3);
+        assert_eq!(rows_before_expand.len(), 4);
         assert!(rows_before_expand.iter().all(|row| row.depth == 0));
 
         let src_path = fixture.root.join("src");
@@ -515,11 +523,11 @@ mod tests {
 
         let src_path = fixture.root.join("src");
         expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
-        assert_eq!(flatten(&state).len(), 5);
+        assert_eq!(flatten(&state).len(), 6);
 
         collapse(&mut state, &src_path);
         let rows = flatten(&state);
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 4);
         assert!(rows.iter().all(|row| row.depth == 0));
     }
 
@@ -531,14 +539,14 @@ mod tests {
 
         let page = rows_page(&state, 0, Some(2));
         assert_eq!(page.rows.len(), 2);
-        assert_eq!(page.total, 3);
+        assert_eq!(page.total, 4);
 
         let overflow_page = rows_page(&state, 10, Some(5));
         assert!(overflow_page.rows.is_empty());
-        assert_eq!(overflow_page.total, 3);
+        assert_eq!(overflow_page.total, 4);
 
         let clipped_page = rows_page(&state, 2, Some(10));
-        assert_eq!(clipped_page.rows.len(), 1);
+        assert_eq!(clipped_page.rows.len(), 2);
     }
 
     #[test]
@@ -548,12 +556,12 @@ mod tests {
         ensure_root_loaded(&mut state, &mut DirectoryListings::default()).unwrap();
 
         let page = rows_page(&state, 0, None);
-        assert_eq!(page.rows.len(), 3);
-        assert_eq!(page.total, 3);
+        assert_eq!(page.rows.len(), 4);
+        assert_eq!(page.total, 4);
 
         let offset_page = rows_page(&state, 1, None);
-        assert_eq!(offset_page.rows.len(), 2);
-        assert_eq!(offset_page.total, 3);
+        assert_eq!(offset_page.rows.len(), 3);
+        assert_eq!(offset_page.total, 4);
     }
 
     #[test]
@@ -599,13 +607,13 @@ mod tests {
 
         let src_path = fixture.root.join("src");
         expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
-        assert_eq!(flatten(&state).len(), 5);
+        assert_eq!(flatten(&state).len(), 6);
 
         std::fs::write(src_path.join("new_file.rs"), "// new").unwrap();
         invalidate(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
 
         let rows = flatten(&state);
-        assert_eq!(rows.len(), 6);
+        assert_eq!(rows.len(), 7);
         assert!(rows.iter().any(|row| row.name == "new_file.rs"));
     }
 
@@ -616,17 +624,17 @@ mod tests {
         ensure_root_loaded(&mut state, &mut DirectoryListings::default()).unwrap();
         expand(&mut state, &fixture.root.join("src"), &mut DirectoryListings::default()).unwrap();
 
-        let page = rows_page(&state, 1, Some(2));
+        let page = rows_page(&state, 2, Some(2));
         let names: Vec<&str> = page.rows.iter().map(|row| row.name.as_str()).collect();
 
         assert_eq!(names, vec!["utils", "main.rs"], "창 안의 행만 그대로 만들어져야 한다");
         assert_eq!(page.rows[0].depth, 1, "창이 펼쳐진 하위 트리 중간에서 시작해도 깊이가 맞아야 한다");
-        assert_eq!(page.total, 5, "창 밖 행도 전체 수에는 세어져야 한다");
+        assert_eq!(page.total, 6, "창 밖 행도 전체 수에는 세어져야 한다");
 
-        let tail = rows_page(&state, 3, Some(10));
+        let tail = rows_page(&state, 4, Some(10));
         let tail_names: Vec<&str> = tail.rows.iter().map(|row| row.name.as_str()).collect();
         assert_eq!(tail_names, vec!["Cargo.toml", "README.md"]);
-        assert_eq!(tail.total, 5);
+        assert_eq!(tail.total, 6);
     }
 
     #[test]
@@ -730,7 +738,7 @@ mod tests {
 
         let src_path = fixture.root.join("src");
         expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
-        assert_eq!(flatten(&state).len(), 5);
+        assert_eq!(flatten(&state).len(), 6);
 
         std::fs::remove_dir_all(src_path.join("utils")).unwrap();
         std::fs::remove_file(src_path.join("main.rs")).unwrap();
