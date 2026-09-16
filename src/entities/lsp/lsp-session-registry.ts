@@ -1,6 +1,7 @@
 import type { LspInitializationOptionsValue, LspServerId, LspSessionStatusChanged, ProjectId } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { monaco } from '@shared/lib/monaco/setup'
+import { suspendBuiltinTypeScriptMode } from '@shared/lib/monaco/builtin-typescript-mode'
 import type { LspClient, OutgoingMessage } from '@shared/lib/lsp/client'
 import { createLspClient } from '@shared/lib/lsp/client'
 import { buildInitializeParams } from '@shared/lib/lsp/initialize-params'
@@ -454,7 +455,8 @@ export const acquireLspSession = (
     const record: SessionRecord = { group, ready }
     createSession(record, sibling, projectId, serverId, root, initializationOptions, siblingReadyTimeoutMs).then(resolveReady, rejectReady)
 
-    void ready.catch(() => {
+    void ready.catch((error: unknown) => {
+        console.warn('[lsp] session failed', serverId, root, error)
         if (sessionsByKey.get(key) === record) sessionsByKey.delete(key)
     })
     sessionsByKey.set(key, record)
@@ -621,6 +623,14 @@ export const subscribeLanguageAdapterRegistration = (listener: () => void) => {
     }
 }
 
+/**
+ * Registers this session's monaco providers for `languageId` — once per language per session group
+ * — and, for TypeScript/JavaScript, suspends monaco's *built-in* language service for as long as
+ * those providers live. The suspension's `release` is parked in the same `disposables` array as the
+ * providers, so `disposeSession`'s existing per-language dispose loop restores the built-in service
+ * with no extra teardown path, and a language monaco has no built-in service for gets a no-op
+ * release (`shared/lib/monaco/builtin-typescript-mode.ts`).
+ */
 export const ensureLanguageRegistered = (
     record: SessionRecord,
     client: LspClient,
@@ -638,6 +648,7 @@ export const ensureLanguageRegistered = (
         registerCodeAction(monaco, client, serverId, languageId),
         registerCodeLens(monaco, client, languageId, isCodeLensEnabled),
         registerSemanticTokens(monaco, client, languageId, isSemanticHighlightingEnabled),
+        { dispose: suspendBuiltinTypeScriptMode(languageId, monaco.typescript) },
     ]
     state.languageDisposables.set(languageId, disposables)
     for (const listener of languageAdapterListeners) listener()

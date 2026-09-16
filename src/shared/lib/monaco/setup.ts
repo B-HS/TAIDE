@@ -5,6 +5,7 @@ import jsonWorker from 'monaco-editor/language/json/json.worker.js?worker'
 import tsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker'
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import { TAIDE_LANGUAGE_IDS } from '@shared/lib/shiki/lang-map'
+import { configureBuiltinTypeScriptFallback } from '@shared/lib/monaco/builtin-typescript'
 
 self.MonacoEnvironment = {
     getWorker: (_workerId, label) => {
@@ -17,5 +18,7 @@ self.MonacoEnvironment = {
 }
 
 for (const languageId of TAIDE_LANGUAGE_IDS) monaco.languages.register({ id: languageId })
+
+configureBuiltinTypeScriptFallback(monaco.typescript)
 
 export { monaco }

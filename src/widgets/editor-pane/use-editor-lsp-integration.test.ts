@@ -38,6 +38,17 @@ mock.module('@entities/project/project.ipc', () => ({
     activateProject: () => Promise.resolve(undefined),
     reorderProjects: () => Promise.resolve(undefined),
     listRecentProjects: () => Promise.resolve([]),
+    /**
+     * Completes the fake's coverage of `project.ipc.ts`'s export surface. `mock.module` is
+     * process-global and last-registration-wins, so a partial fake here made
+     * `project.query.ts`'s `import { setProjectDisplay }` fail with a `SyntaxError` for every file
+     * sharing the run — this file's own 4 tests plus `use-lsp-session.test.ts` and
+     * `pane-node-view-welcome.test.tsx`, none of which mock `project.ipc` themselves
+     * (`docs/quality-assurance/2026-09-04-test-gap-map.md`, `widgets/**` 부분 실행 깨짐). Masked in a
+     * full `bun test` run only because entities load first; a scoped `bun test src/widgets/...` hit
+     * it every time.
+     */
+    setProjectDisplay: () => Promise.resolve(undefined),
 }))
 
 const importUseEditorLspIntegration = () => import('@widgets/editor-pane/use-editor-lsp-integration')

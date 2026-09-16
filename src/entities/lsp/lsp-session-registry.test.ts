@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { describe, expect, mock, spyOn, test } from 'bun:test'
 
 /**
  * `@shared/lib/monaco/setup` pulls in real monaco-editor worker bundles (`?worker` imports) that
@@ -47,7 +47,23 @@ const createFakeLspIpc = () => {
      */
     const setSharesSessions = (serverId: string) => sharedServerIds.add(serverId)
 
+    /**
+     * Makes the *next* `spawnLspSession` reject, the way a real backend does when the executable
+     * cannot be resolved or the process dies during launch — the only path that drives a
+     * `record.ready` rejection, and therefore the only way to exercise `acquireLspSession`'s
+     * failure reporting (d-64 R1).
+     */
+    let spawnFailure: Error | null = null
+    const failNextSpawn = (error: Error) => {
+        spawnFailure = error
+    }
+
     const spawnLspSession = (args: { projectId: string; serverId: string; root: string; onMessage: (raw: string) => void }) => {
+        if (spawnFailure) {
+            const failure = spawnFailure
+            spawnFailure = null
+            return Promise.reject(failure)
+        }
         const shareKey = `${args.projectId}::${args.serverId}`
         const reusable = sharedServerIds.has(args.serverId) ? sessionIdByProjectServer.get(shareKey) : undefined
         const sessionId = reusable ?? `fake-session-${++nextSessionId}`
@@ -120,6 +136,7 @@ const createFakeLspIpc = () => {
         reportLspReinitializeFailure,
         setSharesSessions,
         suppressNextInitializeResponses,
+        failNextSpawn,
         spawns,
         stopCalls,
         sentMessages,
@@ -757,5 +774,24 @@ describe('createSession — sibling.ready 대기 타임아웃 (correctness minor
         expect(fakeLspIpc.spawns.length).toBe(spawnCountBeforeSecond + 1)
 
         void first.record.ready.catch(() => undefined)
+    })
+})
+
+describe('acquireLspSession — 세션 실패 관측성 (d-64 R1)', () => {
+    test('spawn 이 실패하면 무음으로 삼키지 않고 serverId·root·error 를 warn 으로 남긴다', async () => {
+        const warn = spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+            const { acquireLspSession, peekLspSessionForRoot } = await importRegistry()
+            const failure = new Error('lsp server-1: executable not found')
+            fakeLspIpc.failNextSpawn(failure)
+
+            const { record } = acquireLspSession(PROJECT_ID, SERVER_ID, '/root/spawn-failure')
+            await record.ready.catch(() => undefined)
+
+            expect(warn).toHaveBeenCalledWith('[lsp] session failed', SERVER_ID, '/root/spawn-failure', failure)
+            expect(peekLspSessionForRoot(PROJECT_ID, SERVER_ID, '/root/spawn-failure')).toBeNull()
+        } finally {
+            warn.mockRestore()
+        }
     })
 })

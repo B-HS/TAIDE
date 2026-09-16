@@ -147,7 +147,7 @@ const attachLspSession = ({
                 })
             })
         })
-        .catch(() => undefined)
+        .catch((error: unknown) => console.warn('[lsp] attach failed', serverId, path, error))
 
     return () => {
         disposed = true

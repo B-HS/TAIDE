@@ -303,12 +303,41 @@
   (§3.4, `{tokenizer:'standard'}` + monaco 비공개 API 사용만 승인)의 범위 밖이라 별도 계약
   검토 없이는 보류한다.
 
-## 12. 내장 TS/JS 지원 (LSP 이전 베이스라인)
+## 12. 내장 TS/JS 지원 (LSP 세션이 없을 때의 폴백)
 
-- 1차 기동 시 TS/JS 는 내장 ts worker(TS 5.9.3)로 시작: `setEagerModelSync(true)`,
-  Rust 가 프로젝트 `tsconfig.json` 을 읽어 `setCompilerOptions` 주입(paths·jsx 등).
-- 한계(연구 확정): node_modules 타입 해석·프로젝트 전역 참조 불가 → LSP 전환 시
-  `setModeConfiguration` 으로 내장 기능을 끄고 일원화(`lsp.md` 참조).
+> d-64(`docs/acknowledge/2026-09-16-d64-ts-fallback-lsp-observability-tree-contract.md`) 로 실물에
+> 맞춰 정정한 절이다. 이전 판이 기술하던 `setEagerModelSync(true)` 와 "Rust 가 프로젝트
+> `tsconfig.json` 을 읽어 `setCompilerOptions` 주입" 은 **구현된 적이 없다**(저장소 전체에 해당 호출
+> 0건 — §0.1). 아래는 코드 실물이다.
+
+- 실체: `shared/lib/monaco/setup.ts` 가 `monaco-editor` 전체 번들을 import 하므로 내장 TypeScript
+  기여가 자동으로 켜지고, `typescript`/`javascript` 모델에 내장 ts worker 가 붙는다. 컴파일러 옵션은
+  주입하지 않으므로 worker 는 **tsconfig 도 node_modules 도 모르는** 상태(lib 만, classic 모듈 해석)로
+  돈다. 그 상태의 semantic 진단은 실제 프로젝트에 대해 사실상 전부 오탐이다(실측: TS2792
+  `moduleResolution`, TS2580 `Cannot find name 'process'`).
+- `.tsx`/`.jsx` 는 TAIDE 가 `typescriptreact`/`javascriptreact` 로 등록하므로(`shiki/lang-map.ts`)
+  내장 worker 가 붙지 않는다. 내장 진단이 화면에 보이는 것은 `.ts`/`.js` 뿐이다.
+- **폴백 = 구문 검사 전용** (`shared/lib/monaco/builtin-typescript.ts`, 부팅 시 1회):
+  `typescriptDefaults`·`javascriptDefaults` 양쪽에
+  `setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false, noSuggestionDiagnostics: true })`.
+  컨텍스트가 필요 없는 구문 오류만 남기고 semantic·suggestion 진단은 끈다. 완성·호버 등 나머지 내장
+  기능은 폴백에서 계속 동작한다(세션이 없을 땐 그게 최선의 답이라서).
+- **LSP 세션 중에는 정지** (`shared/lib/monaco/builtin-typescript-mode.ts`):
+  `ensureLanguageRegistered`(`entities/lsp/lsp-session-registry.ts`)가 언어별 disposables 에
+  `suspendBuiltinTypeScriptMode(languageId, monaco.typescript)` 가 돌려준 release 를 함께 넣는다 →
+  `disposeSession` 의 기존 dispose 루프가 그대로 복원 경로가 된다. refcount 는 language service 객체
+  단위라 `typescript`/`typescriptreact` 세션이 같은 카운트를 쓰고, 0 → 1 에서만 스냅샷·정지하고
+  1 → 0 에서만 복원한다. 정지 중에는 `setModeConfiguration` 전 기능 `false` + `setDiagnosticsOptions`
+  3종(구문 포함) 전부 off — 세션 서버가 구문 오류도 보고하므로 두 소유자의 마커가 겹치지 않게 한다.
+- **알려진 한계 (monaco-editor 0.56)**: `setModeConfiguration` 은 **이미 등록된 provider 를 되돌리지
+  못한다.** `setupMode` 가 `registerProviders()` 를 1회만 호출하고 `defaults.onDidChange` 재등록을 하지
+  않기 때문이다(`node_modules/monaco-editor/esm/vs/languages/features/typescript/tsMode.js:30-132`).
+  즉 세션 중에도 내장 완성·호버 provider 는 등록된 채 남아 LSP 결과와 목록에 섞일 수 있다. 반면
+  `setDiagnosticsOptions` 는 즉시 반영된다 — `DiagnosticsAdapter` 가 `defaults.onDidChange` 를 구독해
+  모델 마커를 비우고(`languageFeatures.js:153`) 새 옵션으로 재계산한다(`:183`, `:204`). 사용자가 보는
+  중복·오탐 밑줄이 사라지는 것은 이 경로다. provider 까지 떼어내려면 업스트림 변경이 필요해 보류한다.
+- 한계: node_modules 타입 해석·프로젝트 전역 참조는 폴백에서 불가능하다. 정상 경로는 LSP 세션
+  (`lsp.md`)이고, 폴백은 "세션이 없을 때의 구문 검사 + 단일 파일 수준 보조" 이상을 약속하지 않는다.
 
 ## 13. 수명주기 · 누수 방지
 
