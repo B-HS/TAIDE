@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -85,6 +85,9 @@ type EditorAreaProps = {
  */
 export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen, onCloseProblems }) => {
     const prunedProjectIdRef = useRef<ProjectId | null>(null)
+
+    /** One of these mounts per shell slot (d-62 §1.B), and `Panel` publishes its `id` as the DOM `id` its separator's `aria-controls` points at — so the two panes below are namespaced per instance rather than being duplicate ids in one document (`project-shell.tsx` carries the full note). */
+    const panelIdPrefix = useId()
 
     const [dragTab, setDragTab] = useState<DragTabState | null>(null)
     const [overTarget, setOverTarget] = useState<{ paneId: PaneId; edge: DropEdge } | null>(null)
@@ -502,7 +505,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}>
             <Group orientation='vertical' className='min-h-0 min-w-0 flex-1'>
-                <Panel id='editor-panes' minSize='30%' className='min-h-0 min-w-0'>
+                <Panel id={`${panelIdPrefix}-editor-panes`} minSize='30%' className='min-h-0 min-w-0'>
                     <div className='relative flex h-full min-h-0 w-full min-w-0 overflow-hidden'>
                         <PaneNodeView
                             node={paneTree.root}
@@ -516,7 +519,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
                 </Panel>
                 {isProblemsOpen && <PaneSeparator orientation='vertical' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />}
                 {isProblemsOpen && (
-                    <Panel id='problems-panel' defaultSize='220px' minSize='120px' className='min-h-0 min-w-0'>
+                    <Panel id={`${panelIdPrefix}-problems-panel`} defaultSize='220px' minSize='120px' className='min-h-0 min-w-0'>
                         <ProblemsPanelContainer projectId={projectId} onClose={onCloseProblems} />
                     </Panel>
                 )}

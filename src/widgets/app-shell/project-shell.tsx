@@ -1,10 +1,11 @@
 import type { FC } from 'react'
-import { useEffect, useEffectEvent } from 'react'
+import { useEffect, useEffectEvent, useId } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Group, Panel, usePanelRef } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import type { ProjectId } from '@shared/api/bindings'
 import { layoutQueryOptions, useSetShellView } from '@entities/layout/layout.query'
+import { schedulePaneResizeCommit } from '@entities/layout/pane-resize-commit'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { DEFAULT_RESIZER_THICKNESS, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
@@ -39,6 +40,15 @@ type ProjectShellProps = {
 export const ProjectShell: FC<ProjectShellProps> = ({ projectId, zen, isProblemsOpen, onCloseProblems }) => {
     const explorerPanelRef = usePanelRef()
 
+    /**
+     * `Panel` publishes its `id` verbatim as the DOM `id`, and the separator between two panels points
+     * at those ids through `aria-controls`. A window now holds one of these shells per open slot
+     * (d-62 §1.B), so static ids would put duplicates in one document and aim every slot's separator
+     * at the *first* slot's panels. The per-instance prefix is what keeps each shell's pair its own.
+     * `auxiliary-window-shell` is a separate document and keeps the plain ids.
+     */
+    const panelIdPrefix = useId()
+
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: setShellView } = useSetShellView(projectId)
@@ -49,10 +59,23 @@ export const ProjectShell: FC<ProjectShellProps> = ({ projectId, zen, isProblems
     /** The explorer panel's collapsed state stays a *slot-local* axis on the per-project layout — only Zen and the icon rail moved to the window (contract §0.1 S-6). The panel's *width* remains a view-local default. */
     const persistSidebarCollapsed = (collapsed: boolean) => setShellView({ projectId, patch: { zen: null, sidebarCollapsed: collapsed } })
 
-    /** Catches a *drag*-driven collapse/expand (dragging the separator past `minSize`) — imperative `.collapse()`/`.expand()` calls report `isUserInteraction: false` and persist explicitly at their own call site instead. */
+    /**
+     * Catches a *drag*-driven collapse/expand (dragging the separator past `minSize`) — imperative
+     * `.collapse()`/`.expand()` calls report `isUserInteraction: false` and persist explicitly at their
+     * own call site instead.
+     *
+     * Only a *crossing* is worth a write: a resize that leaves the panel on the same side of `minSize`
+     * would persist the value already stored. That matters because this notification is not one per
+     * gesture — `react-resizable-panels` reports keyboard resizing once per keydown, auto-repeat
+     * included, so a held arrow key fired one `layout_set_shell_view` per repeat. The surviving
+     * crossings go through the same trailing debounce as every other pane resize
+     * (`pane-resize-commit.ts`), since one drag can cross `minSize` several times before it rests.
+     */
     const handleShellLayoutChanged = (_layout: Layout, meta: LayoutChangedMeta) => {
         if (!meta.isUserInteraction) return
-        persistSidebarCollapsed(explorerPanelRef.current?.isCollapsed() ?? false)
+        const collapsed = explorerPanelRef.current?.isCollapsed() ?? false
+        if (collapsed === sidebarCollapsed) return
+        schedulePaneResizeCommit(`${projectId}:sidebar-collapsed`, () => persistSidebarCollapsed(collapsed))
     }
 
     /**
@@ -105,13 +128,20 @@ export const ProjectShell: FC<ProjectShellProps> = ({ projectId, zen, isProblems
             onLayoutChanged={handleShellLayoutChanged}
             resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
             className='min-h-0 min-w-0 flex-1'>
-            <Panel id='explorer' panelRef={explorerPanelRef} defaultSize='240px' minSize='180px' maxSize='40%' collapsible collapsedSize={0}>
+            <Panel
+                id={`${panelIdPrefix}-explorer`}
+                panelRef={explorerPanelRef}
+                defaultSize='240px'
+                minSize='180px'
+                maxSize='40%'
+                collapsible
+                collapsedSize={0}>
                 <ErrorBoundary labelKey='errorBoundary.sidebarPanel' labelFallback='Sidebar Panel'>
                     <ExplorerContainer projectId={projectId} zen={zen} />
                 </ErrorBoundary>
             </Panel>
             {!zen && <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />}
-            <Panel id='editor' minSize='30%'>
+            <Panel id={`${panelIdPrefix}-editor`} minSize='30%'>
                 <ErrorBoundary labelKey='errorBoundary.editorArea' labelFallback='Editor'>
                     <EditorArea projectId={projectId} zen={zen} isProblemsOpen={isProblemsOpen} onCloseProblems={onCloseProblems} />
                 </ErrorBoundary>
