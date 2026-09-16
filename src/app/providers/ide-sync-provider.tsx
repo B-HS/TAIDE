@@ -148,7 +148,7 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
                     source: marker.source ?? null,
                 }
             })
-            void publishIdeDiagnostics({ projectId: activeProjectId, items })
+            void publishIdeDiagnostics({ projectId: activeProjectId, items }).catch(() => undefined)
         }, IDE_DIAGNOSTICS_PUSH_DEBOUNCE_MS)
 
         return () => clearTimeout(timeout)

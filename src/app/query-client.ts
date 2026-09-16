@@ -22,7 +22,7 @@ export const bindQueryClientToWindow = () => {
     focusManager.setEventListener((handleFocus) => {
         const unlisten = getCurrentWindow().onFocusChanged(({ payload }) => handleFocus(payload))
         return () => {
-            void unlisten.then((dispose) => dispose())
+            void unlisten.then((dispose) => dispose()).catch(() => undefined)
         }
     })
 }

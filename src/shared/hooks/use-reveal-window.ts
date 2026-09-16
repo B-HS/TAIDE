@@ -13,7 +13,9 @@ export const useRevealWindow = (ready: boolean) => {
     useEffect(() => {
         if (!ready) return
         perfMeasure(PERF_MEASURE.BOOT_REVEAL, PERF_MARK.BOOT_MODULE_EVALUATED)
-        void getCurrentWindow().show()
+        void getCurrentWindow()
+            .show()
+            .catch(() => undefined)
     }, [ready])
 }
 

@@ -120,7 +120,7 @@ export const releaseClosedFileTabPath = (
     { queryClient, projectId, path, layout }: { queryClient: QueryClient; projectId: ProjectId | null; path: string; layout: ProjectLayout },
     deps: TabPathChangeDeps = defaultTabPathChangeDeps,
 ) => {
-    for (const marker of deps.takeWaitMarkers(path)) void deps.releaseWaitMarker(marker)
+    for (const marker of deps.takeWaitMarkers(path)) void deps.releaseWaitMarker(marker).catch(() => undefined)
 
     if (projectId) {
         void deps.clearMirror({ projectId, path }).catch(() => undefined)

@@ -36,19 +36,26 @@ const tryOpenAsProject = async (path: string) => {
 const processExternalOpenRequest = async (queryClient: QueryClient, openFileTab: OpenFileTab, request: ExternalOpenRequest) => {
     if (await tryOpenAsProject(request.path)) {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
-        if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
+        if (request.waitMarker) void releaseWaitMarker(request.waitMarker).catch(() => undefined)
         return
     }
 
-    const [projects, activeProjectId] = await Promise.all([listProjects(), getActiveProjectId()])
-    const target = resolveExternalOpenTarget({ path: request.path, projects, activeProjectId })
-    if (!target) {
-        toast.info(i18next.t('app.openProjectFirst'))
-        if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
-        return
-    }
-
+    /**
+     * The project lookup sits inside the same `try` as the activate/open below rather than ahead of
+     * it: `listProjects`/`getActiveProjectId` go through `unwrapResult`, so a rejection there used to
+     * escape this function entirely — past the `catch` that exists to toast the failure and release
+     * the `--wait` marker — and land as an unhandled rejection at the `void` call sites below, with
+     * the waiting CLI left hanging until its own timeout.
+     */
     try {
+        const [projects, activeProjectId] = await Promise.all([listProjects(), getActiveProjectId()])
+        const target = resolveExternalOpenTarget({ path: request.path, projects, activeProjectId })
+        if (!target) {
+            toast.info(i18next.t('app.openProjectFirst'))
+            if (request.waitMarker) void releaseWaitMarker(request.waitMarker).catch(() => undefined)
+            return
+        }
+
         await activateProject(target.projectId)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.PROJECT.ALL })
         openFileTab(
@@ -60,20 +67,28 @@ const processExternalOpenRequest = async (queryClient: QueryClient, openFileTab:
                     toast.info(i18next.t('app.externalEditorTabHint'))
                 },
                 onError: () => {
-                    if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
+                    if (request.waitMarker) void releaseWaitMarker(request.waitMarker).catch(() => undefined)
                 },
             },
         )
     } catch (error) {
         toast.error(describeIpcError(error))
-        if (request.waitMarker) void releaseWaitMarker(request.waitMarker)
+        if (request.waitMarker) void releaseWaitMarker(request.waitMarker).catch(() => undefined)
     }
 }
 
+/**
+ * The `.catch` closes the chain for both call sites below at once — each one only ever `void`s the
+ * returned promise, so a rejected `pendingExternalOpens()` (or a `processExternalOpenRequest` that
+ * somehow still throws) would otherwise surface as an unhandled rejection. Nothing here is worth
+ * interrupting the user for: the queue stays in `AgentStore` and the next drain reprocesses it.
+ */
 const drainPendingExternalOpens = (queryClient: QueryClient, openFileTab: OpenFileTab) =>
-    pendingExternalOpens().then((requests) => {
-        for (const request of requests) void processExternalOpenRequest(queryClient, openFileTab, request)
-    })
+    pendingExternalOpens()
+        .then((requests) => {
+            for (const request of requests) void processExternalOpenRequest(queryClient, openFileTab, request)
+        })
+        .catch(() => undefined)
 
 export const AgentExternalOpenProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
