@@ -25,10 +25,17 @@ import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
-import { requestReveal } from '@entities/editor/reveal-registry'
+import { revealInTab } from '@entities/editor/reveal-registry'
 import { treeRowsQueryOptions, useRevealTreeNode } from '@entities/tree/tree.query'
 import type { BreadcrumbSegmentEntry } from '@features/editor/breadcrumb-segment'
 import { BreadcrumbSegment } from '@features/editor/breadcrumb-segment'
+
+/**
+ * Picking a sibling file out of the path dropdown lands at the top of it — the position a freshly
+ * opened tab already gets, and, for a file the dropdown re-opens, an explicit reset rather than
+ * resuming wherever that tab's cursor happened to be.
+ */
+const BREADCRUMB_FILE_REVEAL = { line: 1, column: 1 }
 
 type SymbolsForPath = { path: string; symbols: languages.DocumentSymbol[] }
 
@@ -106,14 +113,12 @@ export const BreadcrumbsBar: FC<BreadcrumbsBarProps> = ({ projectId, tabId, path
     const cursorPosition = useSyncExternalStore(subscribeToCursor, getCursorSnapshot)
     const enclosingChain = cursorPosition ? findEnclosingSymbolChain(symbols, cursorPosition) : []
 
-    const handleOpenFile = (targetPath: string) => {
-        requestReveal(targetPath, 1, 1)
-        openFileTab({ projectId, path: targetPath, target: currentWindowFocusedPane(layout), preview: true })
-    }
+    const handleOpenFile = (targetPath: string) =>
+        openFileTab({ projectId, path: targetPath, target: currentWindowFocusedPane(layout), preview: true, reveal: BREADCRUMB_FILE_REVEAL })
 
     const handleSelectSymbol = (target: languages.DocumentSymbol) => {
-        if (!path) return
-        requestReveal(path, target.selectionRange.startLineNumber, target.selectionRange.startColumn)
+        if (!tabId) return
+        revealInTab(tabId, { line: target.selectionRange.startLineNumber, column: target.selectionRange.startColumn })
     }
 
     const handlePathDropdownOpenChange = (open: boolean) => {

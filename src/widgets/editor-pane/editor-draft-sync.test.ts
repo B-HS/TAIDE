@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { publishFileSaveSettle, subscribeFileSaveSettle } from '@entities/editor/file-save-settle-registry'
-import { hasChangedOnDiskConflict, readDraftSafely, shouldSettleDraftAfterDiskWrite, syncModelFromDisk } from '@widgets/editor-pane/editor-draft-sync'
+import {
+    hasChangedOnDiskConflict,
+    readDraftSafely,
+    shouldAdoptLiveModelEdit,
+    shouldSettleDraftAfterDiskWrite,
+    syncModelFromDisk,
+} from '@widgets/editor-pane/editor-draft-sync'
 
 type SyncLog = string[]
 
@@ -145,6 +151,30 @@ describe('경로 단위 저장 정착 (F1 A7·B7 — 스플릿 동일 파일 / i
         expect(pane.syncedContent).toBe('original')
 
         unsubscribe()
+    })
+})
+
+describe('shouldAdoptLiveModelEdit (감사 §2-7·§2-8 — 공유 모델 위에 마운트)', () => {
+    test('형제 pane 이 편집해 둔 라이브 모델을 물려받으면 인수한다', () => {
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: true, modelContent: 'sibling edit', diskContent: 'on disk' })).toBe(true)
+    })
+
+    test('라이브 모델이어도 디스크와 같으면(아무도 편집하지 않은 파일의 두 번째 pane) 인수하지 않는다', () => {
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: true, modelContent: 'on disk', diskContent: 'on disk' })).toBe(false)
+    })
+
+    test('이번 attach 가 만든 모델이면(첫 마운트·크래시 복원) 내용이 달라도 인수하지 않는다 — 워처가 물어온 외부 변경을 가짜 draft 로 굳히지 않는다', () => {
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: false, modelContent: 'stale disk text', diskContent: 'changed on disk' })).toBe(false)
+    })
+
+    test('모델이 아직 없거나 파일 쿼리가 미해소면 판정하지 않는다', () => {
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: true, modelContent: null, diskContent: 'on disk' })).toBe(false)
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: true, modelContent: 'sibling edit', diskContent: null })).toBe(false)
+    })
+
+    test('빈 문자열 모델도 null 과 구분해 실제 내용으로 비교된다 (전체 삭제한 형제 버퍼)', () => {
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: true, modelContent: '', diskContent: 'on disk' })).toBe(true)
+        expect(shouldAdoptLiveModelEdit({ hadLiveModelOnAttach: true, modelContent: '', diskContent: '' })).toBe(false)
     })
 })
 

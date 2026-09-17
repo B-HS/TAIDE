@@ -10,7 +10,6 @@ import { buildReplaceSkipReport, REPLACE_SKIP_REASON_MESSAGE_KEY } from '@entiti
 import { useRecentSearches } from '@entities/search/search-history'
 import { useReplaceSearch } from '@entities/search/search.query'
 import { useSearchRun } from '@entities/search/use-search-run'
-import { requestReveal } from '@entities/editor/reveal-registry'
 import { notifyNative } from '@entities/notification/notify'
 import { useOpenTab } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
@@ -24,7 +23,7 @@ import { SearchPanel } from '@features/search/search-panel'
 
 type SearchPanelContainerProps = {
     projectId: ProjectId
-    onOpenMatch: (path: string) => void
+    onOpenMatch: (path: string, line: number, column: number) => void
     includeGlob: string | null
     onClearScope: () => void
     seedText: string | null
@@ -154,11 +153,6 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
         )
     }
 
-    const handleOpenMatch = (path: string, line: number, column: number) => {
-        requestReveal(path, line, column)
-        onOpenMatch(path)
-    }
-
     const handleOpenInEditor = () => {
         const searchQuery = buildQuery()
         openTab(
@@ -235,7 +229,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
             totalMatches={totalMatches}
             isTruncated={isTruncated}
             results={results}
-            onOpenMatch={handleOpenMatch}
+            onOpenMatch={onOpenMatch}
             onReplaceAll={handleReplaceAll}
             isReplacing={isReplacing}
             queryMatchesResults={queryMatchesResults}

@@ -114,6 +114,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFo
         handleSave,
         handleViewDisk,
         handleKeepMine,
+        noteModelAttach,
         settleAfterDiskWrite,
     } = useEditorFilePersistence({
         projectId,
@@ -209,19 +210,20 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFo
 
     /**
      * Called before `consumePendingReveal` below (not with the other custom hooks up top) so an
-     * explicit navigation into an already-open tab — the one case where both this hook's first-visit
-     * restore and a pending reveal could target the same commit — always wins: `useEditorViewState`
-     * only ever restores a `tabId` once per `EditorPane` instance, and a reveal only ever targets a
-     * tab that's already open (never a first-visit-with-no-persisted-viewState tab), so the two never
-     * really collide, but this ordering is what guarantees a reveal's `editor.setPosition` is always
-     * the *last* word on the cursor position for this commit regardless.
+     * explicit navigation into this tab always wins over its own persisted cursor: both can target
+     * the same commit whenever the navigation activates a background tab that already has a
+     * `viewState` (a search hit in a file open-but-not-active in another group), and
+     * `useEditorViewState`'s restore would otherwise put the cursor back where the user last left
+     * it. This ordering is what makes a reveal's `editor.setPosition` the *last* word on the cursor
+     * position for that commit — and it is also why `reveal-registry` waits to be consumed here
+     * instead of pushing from `registerEditorInstance`, which runs a commit earlier.
      */
     useEditorViewState({ projectId, tabId, editor })
 
     useEffect(() => {
         if (!editor) return
-        consumePendingReveal(path, editor)
-    }, [editor, path])
+        consumePendingReveal(tabId, editor)
+    }, [editor, tabId])
 
     /**
      * Called here rather than up with the other hooks (its own natural position by convention —
@@ -350,6 +352,7 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFo
             onChange={handleChange}
             onSave={handleSave}
             onCursorLineChange={setCursorLine}
+            onModelAttach={noteModelAttach}
             onEditorMount={handleEditorMount}
             onMinimapToggle={handleMinimapToggle}
             registryTabId={tabId}

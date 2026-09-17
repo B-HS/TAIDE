@@ -153,3 +153,59 @@ describe('CodeEditor 모델 attach 포커스', () => {
         expect(focusCalls.count).toBe(1)
     })
 })
+
+/**
+ * `onModelAttach` is the one fact only this component can report (d-66, audit §2-7/§2-8): once
+ * `getOrCreateModel` has run, every later `getModel(path)` says "exists", so a host asking the
+ * question from its own effects can no longer tell an inherited buffer from one this attach just
+ * created. Exercised against the REAL `entities/editor/model-registry` (only monaco itself is
+ * stubbed), so "already existed" means what it means in the app: a model another pane registered
+ * for the same path.
+ */
+describe('CodeEditor onModelAttach (물려받은 모델인지 보고)', () => {
+    test('이 attach 가 모델을 새로 만들었으면 hadLiveModel 은 false 다', async () => {
+        const attaches: { path: string; hadLiveModel: boolean }[] = []
+
+        await renderCodeEditor({ path: '/tmp/taide-code-editor-attach/fresh.ts', onModelAttach: (attach) => attaches.push(attach) })
+
+        expect(attaches).toEqual([{ path: '/tmp/taide-code-editor-attach/fresh.ts', hadLiveModel: false }])
+    })
+
+    test('다른 pane 이 이미 연 경로에 붙으면 hadLiveModel 은 true 다 (스플릿 뷰의 두 번째 pane)', async () => {
+        const path = '/tmp/taide-code-editor-attach/shared.ts'
+        const { getOrCreateModel } = await import('@entities/editor/model-registry')
+        getOrCreateModel(path, 'const a = 1\n', 'typescript')
+        const attaches: { path: string; hadLiveModel: boolean }[] = []
+
+        await renderCodeEditor({ path, onModelAttach: (attach) => attaches.push(attach) })
+
+        expect(attaches).toEqual([{ path, hadLiveModel: true }])
+    })
+
+    test('같은 pane 안에서 탭을 바꾸면 새 경로로 다시 보고한다', async () => {
+        const attaches: { path: string; hadLiveModel: boolean }[] = []
+        const { rerender } = await renderCodeEditor({
+            path: '/tmp/taide-code-editor-attach/switch-a.ts',
+            onModelAttach: (attach) => attaches.push(attach),
+        })
+
+        rerender({ path: '/tmp/taide-code-editor-attach/switch-b.ts' })
+
+        expect(attaches.map((attach) => attach.path)).toEqual([
+            '/tmp/taide-code-editor-attach/switch-a.ts',
+            '/tmp/taide-code-editor-attach/switch-b.ts',
+        ])
+    })
+
+    test('path 는 그대로고 language 만 바뀐 재attach 는 보고하지 않는다 (같은 버퍼를 다시 붙이는 것뿐)', async () => {
+        const attaches: { path: string; hadLiveModel: boolean }[] = []
+        const { rerender } = await renderCodeEditor({
+            path: '/tmp/taide-code-editor-attach/relanguage.ts',
+            onModelAttach: (attach) => attaches.push(attach),
+        })
+
+        rerender({ language: 'javascript' })
+
+        expect(attaches).toHaveLength(1)
+    })
+})

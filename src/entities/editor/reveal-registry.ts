@@ -1,25 +1,21 @@
-import { monaco } from '@shared/lib/monaco/setup'
+import type { TabId } from '@shared/api/bindings'
+import type { monaco } from '@shared/lib/monaco/setup'
+import { getEditorInstance } from '@entities/editor/editor-instance-registry'
 
-type RevealTarget = { line: number; column: number }
+export type RevealTarget = { line: number; column: number }
+
 type PendingReveal = { target: RevealTarget; timeoutId: ReturnType<typeof setTimeout> }
 
 /**
- * How long a reveal request waits for its target path to open in some editor before being
- * discarded. Without an expiry, a request for a path the user never actually opens (or opens much
- * later, for an unrelated reason — e.g. clicking it in the explorer long after the search/symbol
- * navigation that originally requested the reveal) would sit in `pendingReveals` for the rest of
- * the window's session and then silently hijack the cursor the moment that path finally opens.
+ * How long a reveal request waits for its target tab to mount an editor before being discarded.
+ * Without an expiry, a request for a tab that never actually mounts (the open failed, or the user
+ * closed/moved the tab in the same beat) would sit in `pendingReveals` for the rest of the
+ * window's session and then silently hijack the cursor the moment that tab id happens to mount
+ * later.
  */
 export const REVEAL_PENDING_TTL_MS = 5_000
 
-const pendingReveals = new Map<string, PendingReveal>()
-
-const toKey = (path: string) => monaco.Uri.file(path).toString()
-
-const findEditorForPath = (path: string) => {
-    const key = toKey(path)
-    return monaco.editor.getEditors().find((editor) => editor.getModel()?.uri.toString() === key) ?? null
-}
+const pendingReveals = new Map<TabId, PendingReveal>()
 
 const applyReveal = (editor: monaco.editor.ICodeEditor, target: RevealTarget) => {
     const position = { lineNumber: target.line, column: target.column }
@@ -28,34 +24,50 @@ const applyReveal = (editor: monaco.editor.ICodeEditor, target: RevealTarget) =>
     editor.focus()
 }
 
-const clearPendingReveal = (key: string, pending: PendingReveal) => {
+const takePendingReveal = (tabId: TabId) => {
+    const pending = pendingReveals.get(tabId)
+    if (!pending) return null
     clearTimeout(pending.timeoutId)
-    pendingReveals.delete(key)
+    pendingReveals.delete(tabId)
+    return pending
 }
 
 /**
+ * Points a navigation (search hit, diagnostic, symbol, go-to-definition, breadcrumb) at ONE tab's
+ * editor — the tab the navigation itself just opened or is already sitting in — instead of at a
+ * path. The path-keyed predecessor asked monaco for "any editor in this webview whose model is
+ * that file" and moved whichever one it found first, so in a split with the same file open twice
+ * the wrong pane jumped (and stole focus, since {@link applyReveal} focuses) while the tab the user
+ * actually opened stayed on line 1 (audit #9). A `TabId` is unique across every pane and every
+ * window of a project, so there is no "first match" to get wrong.
+ *
+ * Both arrival orders have to work, because a caller cannot tell them apart up front:
+ * `layout_open_tab` dedupes inside the target pane, so an open either returns an ALREADY MOUNTED
+ * tab (nothing remounts — {@link getEditorInstance} answers right here) or activates/creates a tab
+ * whose `EditorPane` mounts a commit or two later (queued until that pane calls
+ * {@link consumePendingReveal}). Deliberately not `subscribeEditorInstance`: `CodeEditor` registers
+ * its instance from its own effect, one commit BEFORE `EditorPane`'s `useEditorViewState` restores
+ * that tab's persisted cursor/scroll, so applying from a registry subscription would let the
+ * restore overwrite the reveal for any tab that has a persisted `viewState`. Consuming from
+ * `EditorPane`, after that hook, keeps the reveal the last word on the cursor.
+ *
  * `ttlMs` defaults to {@link REVEAL_PENDING_TTL_MS} and is only ever overridden by tests — every
- * real caller (`command-palette.tsx`, `editor-area.tsx`, `search-panel-container.tsx`, etc.) relies
- * on the production default.
+ * real caller relies on the production default.
  */
-export const requestReveal = (path: string, line: number, column = 1, ttlMs: number = REVEAL_PENDING_TTL_MS) => {
-    const editor = findEditorForPath(path)
+export const revealInTab = (tabId: TabId, target: RevealTarget, ttlMs: number = REVEAL_PENDING_TTL_MS) => {
+    takePendingReveal(tabId)
+
+    const editor = getEditorInstance(tabId)
     if (editor) {
-        applyReveal(editor, { line, column })
+        applyReveal(editor, target)
         return
     }
 
-    const key = toKey(path)
-    const existing = pendingReveals.get(key)
-    if (existing) clearTimeout(existing.timeoutId)
-    const timeoutId = setTimeout(() => pendingReveals.delete(key), ttlMs)
-    pendingReveals.set(key, { target: { line, column }, timeoutId })
+    pendingReveals.set(tabId, { target, timeoutId: setTimeout(() => pendingReveals.delete(tabId), ttlMs) })
 }
 
-export const consumePendingReveal = (path: string, editor: monaco.editor.ICodeEditor) => {
-    const key = toKey(path)
-    const pending = pendingReveals.get(key)
+export const consumePendingReveal = (tabId: TabId, editor: monaco.editor.ICodeEditor) => {
+    const pending = takePendingReveal(tabId)
     if (!pending) return
-    clearPendingReveal(key, pending)
     applyReveal(editor, pending.target)
 }

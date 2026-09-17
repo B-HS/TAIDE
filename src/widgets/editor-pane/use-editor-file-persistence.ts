@@ -16,7 +16,7 @@ import type { useSetTabDirty } from '@entities/layout/layout.query'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { publishFileSaveSettle, subscribeFileSaveSettle } from '@entities/editor/file-save-settle-registry'
 import { registerMirrorFlush, unregisterMirrorFlush } from '@entities/editor/mirror-flush-registry'
-import { readDraftSafely, shouldSettleDraftAfterDiskWrite } from '@widgets/editor-pane/editor-draft-sync'
+import { readDraftSafely, shouldAdoptLiveModelEdit, shouldSettleDraftAfterDiskWrite } from '@widgets/editor-pane/editor-draft-sync'
 import type { ConflictBannerVariant } from '@features/editor/conflict-banner'
 
 const MARKDOWN_PREVIEW_DEBOUNCE_MS = 200
@@ -122,6 +122,14 @@ export const useEditorFilePersistence = ({
      * timers check this at fire time against the `scheduledPath` they captured when armed.
      */
     const pathRef = useRef(path)
+    /**
+     * `CodeEditor`'s last `onModelAttach` report, consumed once by the mount reconciliation below.
+     * One-shot on purpose (the `consumeExternallyDirtyModel` idiom): it answers a question about a
+     * single attach, and letting a later re-run of that effect — the `mirrors` query resolving, say —
+     * read it again would apply an attach-time judgement to a pane that has been observing its own
+     * model ever since.
+     */
+    const liveModelOnAttachRef = useRef(false)
 
     const [dirty, setDirtyState] = useState(false)
     const [restoreNotice, setRestoreNotice] = useState<Exclude<ConflictBannerVariant, 'changedOnDisk'> | 'none'>('none')
@@ -298,6 +306,11 @@ export const useEditorFilePersistence = ({
         draftRef.current = readContent
         setDirty(true)
         setTabDirty({ tabId, dirty: true })
+    }
+
+    /** Wired to `CodeEditor`'s `onModelAttach` prop; see {@link liveModelOnAttachRef} and the mount reconciliation effect below for what it decides. */
+    const noteModelAttach = ({ hadLiveModel }: { hadLiveModel: boolean }) => {
+        liveModelOnAttachRef.current = hadLiveModel
     }
 
     /**
@@ -510,14 +523,45 @@ export const useEditorFilePersistence = ({
     }, [path])
 
     /**
-     * Restores unsaved edits from the hot-exit mirror the first time the monaco editor is mounted
-     * and nothing has been typed yet for this `path` (a fresh mount or a path switch, never
-     * mid-edit — the reset effect above always runs first for a path switch within the same commit).
+     * Takes over an already-live buffer instead of restoring over it, for the attach this effect is
+     * reconciling. Runs *before* the mirror branch below and returns whether it claimed the pane, so a
+     * mirror that is up to `HOT_EXIT_MIRROR_DEBOUNCE_MS` behind what the other pane is typing can never
+     * roll the shared model back — and so the "unsaved changes were restored" banner keeps meaning a
+     * crash recovery rather than "the file is also open next door" (audit §2-8). Marking the pane dirty
+     * here is also what stops `editor-pane.tsx`'s disk sync from overwriting the same buffer moments
+     * later (audit §2-7): that sync's guard reads `isDraftDirty()` live, and {@link setDirty} moves
+     * {@link dirtyRef} synchronously.
+     *
+     * The draft is the model's own lazy reader, exactly like a keystroke's, so the adopted text keeps
+     * tracking whatever the other pane types from here on rather than freezing at this instant.
+     */
+    const adoptLiveModelEdit = useEffectEvent(() => {
+        const model = editor?.getModel()
+        const shouldAdopt = shouldAdoptLiveModelEdit({
+            hadLiveModelOnAttach: liveModelOnAttachRef.current,
+            modelContent: model?.getValue() ?? null,
+            diskContent: file?.content ?? null,
+        })
+        if (!shouldAdopt || !model) return false
+        adoptUnobservedModelEdit(() => model.getValue())
+        return true
+    })
+
+    /**
+     * Reconciles this pane with its buffer the first time the monaco editor is mounted and nothing has
+     * been typed yet for this `path` (a fresh mount or a path switch, never mid-edit — the reset effect
+     * above always runs first for a path switch within the same commit).
+     *
+     * {@link adoptLiveModelEdit} gets first refusal, because a buffer somebody else is already editing
+     * is not this pane's to restore over. Otherwise the hot-exit mirror is restored as before;
      * `mirror.conflict` (computed in Rust from `disk_modified_ms` vs the mirror's baseline) decides
-     * whether this surfaces as a plain restore notice or a conflict requiring the user to choose.
+     * whether that surfaces as a plain restore notice or a conflict requiring the user to choose.
      */
     useEffect(() => {
         if (!editor || draftRef.current !== null) return
+        const claimedByLiveModel = adoptLiveModelEdit()
+        liveModelOnAttachRef.current = false
+        if (claimedByLiveModel) return
         const mirror = (mirrors ?? []).find((entry) => entry.path === path)
         if (mirror) queueMicrotask(() => applyMirrorRestore(mirror))
     }, [editor, path, mirrors])
@@ -590,6 +634,7 @@ export const useEditorFilePersistence = ({
         handleSave,
         handleViewDisk,
         handleKeepMine,
+        noteModelAttach,
         settleAfterDiskWrite,
     }
 }

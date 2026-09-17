@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import type { PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
 import {
     activeFilePathOf,
@@ -9,6 +9,7 @@ import {
     findAdjacentPaneLeaf,
     findPaneLeaf,
     findPaneTab,
+    currentWindowActiveFilePath,
     isPaneTreeEmpty,
     paneLeafAtPosition,
     resolveWindowPaneTree,
@@ -126,6 +127,29 @@ describe('resolveWindowPaneTree', () => {
     test('auxiliaryWindows 필드 자체가 없어도(v1 레이아웃) null 을 반환한다', () => {
         const layout = buildLayout()
         expect(resolveWindowPaneTree(layout, { kind: 'auxiliary', projectId: 'prj-1', windowSlot: 1 })).toBeNull()
+    })
+
+    test('focusedPane 이 트리에 없으면(닫힌 pane) 첫 leaf 로 폴백한다', () => {
+        const layout = buildLayout({ root: buildTree(), focusedPane: 'closed-pane' })
+        expect(resolveWindowPaneTree(layout, { kind: 'main' })).toEqual({ root: layout.root, focusedPane: 'left' })
+    })
+
+    test('focusedPane 이 트리에 있으면 그대로 둔다 (첫 leaf 로 바꾸지 않는다)', () => {
+        const layout = buildLayout({ root: buildTree(), focusedPane: 'right' })
+        expect(resolveWindowPaneTree(layout, { kind: 'main' })).toEqual({ root: layout.root, focusedPane: 'right' })
+    })
+
+    test('보조 창의 focusedPane 이 stale 이면 그 창 트리의 첫 leaf 로 폴백한다 (main 은 영향 없음)', () => {
+        const layout = buildLayout({
+            auxiliaryWindows: [{ slot: 1, root: buildGridTree(), focusedPane: 'closed-pane' }],
+        })
+        expect(resolveWindowPaneTree(layout, { kind: 'auxiliary', projectId: 'prj-1', windowSlot: 1 })?.focusedPane).toBe('top-left')
+        expect(resolveWindowPaneTree(layout, { kind: 'main' })?.focusedPane).toBe('main-leaf')
+    })
+
+    test('leaf 가 하나도 없는 트리는 원래 focusedPane 을 유지한다', () => {
+        const layout = buildLayout({ root: { node: 'split', id: 'root', dir: 'horizontal', sizes: [], children: [] }, focusedPane: 'closed-pane' })
+        expect(resolveWindowPaneTree(layout, { kind: 'main' })?.focusedPane).toBe('closed-pane')
     })
 })
 
@@ -253,5 +277,52 @@ describe('findAdjacentPaneLeaf', () => {
     test('단일 leaf 트리와 존재하지 않는 paneId 는 null 을 반환한다', () => {
         expect(findAdjacentPaneLeaf(buildLeaf('only'), 'only', 'right')).toBeNull()
         expect(findAdjacentPaneLeaf(buildGridTree(), 'missing', 'right')).toBeNull()
+    })
+})
+
+const MAIN_WINDOW_URL = '/'
+const AUXILIARY_WINDOW_URL = '/?projectId=prj-1&windowSlot=1'
+
+/**
+ * `currentWindowActiveFilePath` reads `getWindowContext()`, which parses `location.search`, and the
+ * harness pins that to empty so every test starts in the main window
+ * (`docs/memory/test-conventions.md` §4). `history.replaceState` is the one same-document way to move
+ * it without a navigation, and the URL is put back after each case because bun shares one process —
+ * and so one `location` — across every test file.
+ */
+const enterWindowUrl = (url: string) => window.history.replaceState({}, '', url)
+
+afterEach(() => enterWindowUrl(MAIN_WINDOW_URL))
+
+describe('currentWindowActiveFilePath', () => {
+    const buildSplitWindowsLayout = () =>
+        buildLayout({
+            auxiliaryWindows: [
+                { slot: 1, root: { node: 'leaf', id: 'aux-leaf', tabs: [buildTab('aux-a')], active: 'aux-a' }, focusedPane: 'aux-leaf' },
+            ],
+        })
+
+    test('main 창에서는 main 트리의 활성 파일을 반환한다', () => {
+        expect(currentWindowActiveFilePath(buildSplitWindowsLayout())).toBe('/main-a.ts')
+    })
+
+    test('보조 창에서는 그 창 트리의 활성 파일을 반환한다 (main 창 파일이 아니라)', () => {
+        enterWindowUrl(AUXILIARY_WINDOW_URL)
+        expect(currentWindowActiveFilePath(buildSplitWindowsLayout())).toBe('/aux-a.ts')
+    })
+
+    test('slot 이 레이아웃에 없는 보조 창은 main 트리로 폴백하지 않고 null 을 반환한다', () => {
+        enterWindowUrl(AUXILIARY_WINDOW_URL)
+        expect(currentWindowActiveFilePath(buildLayout({ auxiliaryWindows: [] }))).toBeNull()
+    })
+
+    test('레이아웃을 아직 못 읽었으면 null 을 반환한다', () => {
+        expect(currentWindowActiveFilePath(undefined)).toBeNull()
+    })
+
+    test('활성 탭이 파일이 아니면 null 을 반환한다', () => {
+        const terminalTab: Tab = { id: 'term', kind: { kind: 'terminal', sessionId: '', cwd: null }, title: 'term' }
+        const layout = buildLayout({ root: { node: 'leaf', id: 'main-leaf', tabs: [terminalTab], active: 'term' } })
+        expect(currentWindowActiveFilePath(layout)).toBeNull()
     })
 })

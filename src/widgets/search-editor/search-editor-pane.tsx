@@ -11,7 +11,6 @@ import type { SearchRunSnapshot } from '@entities/search/search-run-state'
 import { resolveSearchResultsView } from '@entities/search/search-run-state'
 import { useRecentSearches } from '@entities/search/search-history'
 import { useSearchRun } from '@entities/search/use-search-run'
-import { requestReveal } from '@entities/editor/reveal-registry'
 import { layoutQueryOptions, useOpenFileTab } from '@entities/layout/layout.query'
 import { SearchExcludeGlobInput } from '@features/search/search-exclude-glob-input'
 import { SearchHistoryDropdown } from '@features/search/search-history-dropdown'
@@ -91,10 +90,8 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
         handleSubmit()
     }
 
-    const handleOpenMatch = (path: string, line: number, column: number) => {
-        requestReveal(path, line, column)
-        openFileTab({ projectId, path, target: currentWindowFocusedPane(layout), preview: true })
-    }
+    const handleOpenMatch = (path: string, line: number, column: number) =>
+        openFileTab({ projectId, path, target: currentWindowFocusedPane(layout), preview: true, reveal: { line, column } })
 
     useEffect(() => {
         latestRef.current = { form, readSnapshot }

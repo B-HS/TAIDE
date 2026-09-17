@@ -6,8 +6,10 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { i18next } from '@shared/i18n/i18n'
 import { describeIpcError, isNotFoundIpcError } from '@shared/lib/ipc-error-message'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
-import { collectAllPaneTabs, currentWindowFocusedPane } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, currentWindowFocusedPane, findActiveTab } from '@shared/lib/pane-tree'
 import { fileNameOf } from '@shared/lib/relative-path'
+import type { RevealTarget } from '@entities/editor/reveal-registry'
+import { revealInTab } from '@entities/editor/reveal-registry'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
 import { releaseClosedFileTabPath } from '@entities/layout/tab-path-change'
 import {
@@ -173,9 +175,32 @@ export const useOpenTabInProject = () => {
     })
 }
 
-type OpenFileTabRequest = { projectId: ProjectId; path: string; preview: boolean; target: PaneId | null; title?: string }
+type OpenFileTabRequest = { projectId: ProjectId; path: string; preview: boolean; target: PaneId | null; title?: string; reveal?: RevealTarget }
 
 type OpenFileTabCallbacks = { onSuccess?: (layout: ProjectLayout) => void; onError?: (error: unknown) => void }
+
+/**
+ * The tab a just-returned `layout_open_tab` actually landed on, or `null` when the fresh layout
+ * cannot confirm one. `open_tab` makes the tab it opened — a brand new one, the preview slot it
+ * replaced, or the existing tab its dedupe reused — the ACTIVE tab of the target pane in every
+ * branch, so the target pane's active tab *is* the opened tab. The pane is looked up across every
+ * tree the project owns because an auxiliary window's panes live under `auxiliaryWindows[].root`.
+ *
+ * Confirming the kind and path before answering is what keeps a reveal off the wrong tab: a `null`
+ * `target` was resolved against the *cached* layout by {@link withCurrentWindowTarget} (or, on an
+ * unpopulated cache, by Rust's own `resolve_default_open_pane`), so re-deriving it here from the
+ * fresh layout can in principle name a different pane. Answering `null` in that case costs a reveal
+ * that does not happen; answering optimistically would move the cursor in a file the user never
+ * asked to navigate.
+ */
+const openedFileTabIdOf = (layout: ProjectLayout, target: PaneId | null, path: string) => {
+    const paneId = target ?? currentWindowFocusedPane(layout)
+    if (!paneId) return null
+
+    const roots = [layout.root, ...(layout.auxiliaryWindows ?? []).map((window) => window.root)]
+    const activeTab = roots.map((root) => findActiveTab(root, paneId)).find((tab) => tab !== null)
+    return activeTab?.kind.kind === 'file' && activeTab.kind.path === path ? activeTab.id : null
+}
 
 /**
  * The single entry point for opening a `file` tab — every explorer/palette/search/git/problems/
@@ -199,16 +224,30 @@ type OpenFileTabCallbacks = { onSuccess?: (layout: ProjectLayout) => void; onErr
  * `useOpenTabInProject`'s own `onSuccess` already wrote into the cache. This is also the extension
  * point for later "opening a file" behaviour (MRU recording, explorer auto-reveal) rather than
  * another round of call-site copy-paste.
+ *
+ * `reveal` is the third behaviour, and it lives here for exactly that reason: every "go to this
+ * line of this file" caller used to queue the jump by PATH before opening, which let whichever
+ * other pane already had the file steal both the cursor and the focus (audit #9). Resolving the
+ * opened tab ({@link openedFileTabIdOf}) from the very layout the open returned is the only moment
+ * a caller can name the tab it just created, so the reveal is handed to `revealInTab` from here
+ * rather than being re-derived at each call site. Ordered before `callbacks.onSuccess` so a caller
+ * that splits/activates in its own handler still finds the reveal already queued for its tab.
  */
 export const useOpenFileTab = () => {
     const queryClient = useQueryClient()
     const { mutate: openTabInProject } = useOpenTabInProject()
 
-    return ({ projectId, path, preview, target, title }: OpenFileTabRequest, callbacks?: OpenFileTabCallbacks) =>
+    return ({ projectId, path, preview, target, title, reveal }: OpenFileTabRequest, callbacks?: OpenFileTabCallbacks) =>
         openTabInProject(
             { projectId, kind: { kind: 'file', path }, title: title ?? fileNameOf(path), target, preview },
             {
-                onSuccess: (layout) => callbacks?.onSuccess?.(layout),
+                onSuccess: (layout) => {
+                    if (reveal) {
+                        const openedTabId = openedFileTabIdOf(layout, target, path)
+                        if (openedTabId) revealInTab(openedTabId, reveal)
+                    }
+                    callbacks?.onSuccess?.(layout)
+                },
                 onError: (error) => {
                     if (isNotFoundIpcError(error)) void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) })
                     toast.error(describeIpcError(error))

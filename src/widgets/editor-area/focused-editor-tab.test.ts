@@ -11,7 +11,8 @@ const untitledTab: Tab = { id: 'tab-untitled', kind: { kind: 'untitled', index: 
  * Reproduces the d-42 `⌘S` appFile no-op (contract §3, item a): before the fix, this returned
  * `null` for a focused `appFile` tab exactly like it correctly does for `terminal`, so
  * `editor-area.tsx`'s `saveActiveTab` silently no-op'd for `settings.json`/prompt-override tabs
- * with no other save path in the UI.
+ * with no other save path in the UI. d-66 (audit info `persistence-5`) closed the identical
+ * `untitled` case, whose only save path is `untitled-pane.tsx`'s "save as…" dialog.
  */
 describe('resolveSaveRoutableTabId', () => {
     test('file 탭이 포커스면 그 탭 id 를 반환한다', () => {
@@ -29,8 +30,14 @@ describe('resolveSaveRoutableTabId', () => {
         expect(resolveSaveRoutableTabId(leaf)).toBeNull()
     })
 
-    test('untitled 탭이 포커스면 null 이다 (동일 원인의 별건 미수정 결함 — d-42 범위 외로 기록됨)', () => {
+    test('untitled 탭이 포커스면 그 탭 id 를 반환한다 (d-66 수정 대상 — ⌘S 가 save as 로 간다)', () => {
         const leaf = { tabs: [untitledTab], active: untitledTab.id }
+        expect(resolveSaveRoutableTabId(leaf)).toBe(untitledTab.id)
+    })
+
+    test('diff 탭이 포커스면 null 이다 (자체 위젯을 그리는 kind 는 계속 no-op)', () => {
+        const diffTab: Tab = { id: 'tab-diff', kind: { kind: 'diff', path: '/repo/a.ts', staged: false, compareWith: null }, title: 'a.ts' }
+        const leaf = { tabs: [diffTab], active: diffTab.id }
         expect(resolveSaveRoutableTabId(leaf)).toBeNull()
     })
 

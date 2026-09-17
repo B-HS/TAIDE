@@ -96,7 +96,11 @@ const isFilePathAddressedAnywhere = ({
  * mirror, the sticky "reopen with" override, and the monaco model itself.
  *
  * `layout` is the post-close layout: a file open in a split (or in another window) still has a tab,
- * so only the per-path state of a path that is now closed *everywhere* is torn down. Disposing the
+ * so only the per-path state of a path that is now closed *everywhere* is torn down. That guard runs
+ * *first*, before a single release: every piece of state below is keyed by bare path and shared by
+ * the surviving tabs, so releasing anything ahead of the check is unrecoverable — audit §2-3 found
+ * `takeWaitMarkers` (a destructive take, so a `taide --wait` returns early) and `clearMirror` (the
+ * only crash safety net for the still-live split) running unconditionally above it. Disposing the
  * model is audit §1-6 — nothing but `untitled` tabs ever disposed one, so every file opened in a
  * session kept its full text (and its undo stack) alive in monaco until the app quit. The undo stack
  * is the price: reopening the file starts a fresh model, which is what contract §3 S8 records as
@@ -120,15 +124,15 @@ export const releaseClosedFileTabPath = (
     { queryClient, projectId, path, layout }: { queryClient: QueryClient; projectId: ProjectId | null; path: string; layout: ProjectLayout },
     deps: TabPathChangeDeps = defaultTabPathChangeDeps,
 ) => {
+    const stillOpenElsewhere = collectAllPaneTabs(layout).some((tab) => tab.kind.kind === 'file' && tab.kind.path === path)
+    if (stillOpenElsewhere) return
+
     for (const marker of deps.takeWaitMarkers(path)) void deps.releaseWaitMarker(marker).catch(() => undefined)
 
     if (projectId) {
         void deps.clearMirror({ projectId, path }).catch(() => undefined)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
     }
-
-    const stillOpenElsewhere = collectAllPaneTabs(layout).some((tab) => tab.kind.kind === 'file' && tab.kind.path === path)
-    if (stillOpenElsewhere) return
 
     deps.setOpenWithOverride(path, null)
     deps.disposeModel(path)

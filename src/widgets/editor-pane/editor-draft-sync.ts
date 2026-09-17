@@ -74,6 +74,42 @@ export const readDraftSafely = (reader: (() => string) | null) => {
     }
 }
 
+type AdoptLiveModelEditInput = {
+    /** `CodeEditor`'s `onModelAttach` report for the attach this pane is reconciling: whether the buffer it was handed already existed. */
+    hadLiveModelOnAttach: boolean
+    /** The attached model's current text, `null` when there is no model to read (the editor is not mounted yet). */
+    modelContent: string | null
+    /** The last known on-disk text for the same path, `null` while the file query has not resolved. */
+    diskContent: string | null
+}
+
+/**
+ * Whether a pane mounting onto a path must take the monaco model's current text as its own unsaved
+ * draft instead of treating the buffer as reconcilable against disk.
+ *
+ * A model is shared by every pane showing the same path (`entities/editor/model-registry.ts` keys it
+ * by path, and `open_tab`'s dedupe is per-leaf, so a split view legitimately puts two panes on one
+ * buffer). A pane that mounts onto an ALREADY-LIVE model therefore inherits a buffer whose edits its
+ * own `onDidChangeModelContent` never saw: it starts `dirty: false` with a draft of `null` while the
+ * text on screen is somebody else's unsaved work. Both of the reconciliations that then run would
+ * destroy it — `editor-pane.tsx`'s disk sync `setValue`s the model back to the file's on-disk text
+ * (audit §2-7), and `use-editor-file-persistence.ts`'s hot-exit restore rolls it back to a mirror
+ * snapshot up to `HOT_EXIT_MIRROR_DEBOUNCE_MS` old while claiming a crash recovery in the banner
+ * (audit §2-8) — and neither is observable, because `applyExternalContent` masks its own change
+ * event from every editor on the model.
+ *
+ * Both halves are required. `hadLiveModelOnAttach` is what separates "this buffer is somebody's live
+ * draft" from "the disk text moved while this pane was clean": only the attach can see the
+ * difference, since after `getOrCreateModel` the model always exists, and a pane that has been
+ * mounted all along has been observing every change itself. Without it, an external write picked up
+ * by the file watcher — where the model legitimately still holds the OLD disk text and must be
+ * updated to the new one — would be misread as an unobserved edit and freeze the stale text as a
+ * bogus unsaved draft. The content comparison is what keeps the ordinary split-view case (a second
+ * pane on a file nobody has edited) on the normal path.
+ */
+export const shouldAdoptLiveModelEdit = ({ hadLiveModelOnAttach, modelContent, diskContent }: AdoptLiveModelEditInput) =>
+    hadLiveModelOnAttach && modelContent !== null && diskContent !== null && modelContent !== diskContent
+
 type ChangedOnDiskConflictInput = {
     isDirty: boolean
     syncedContent: string | null

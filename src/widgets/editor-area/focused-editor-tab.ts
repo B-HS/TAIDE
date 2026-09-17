@@ -8,15 +8,15 @@ type PaneLeaf = Extract<PaneNode, { node: 'leaf' }>
  * only kinds `⌘S`/`taide.*` monaco-action dispatch (`editor-area.tsx`'s `saveActiveTab`/
  * `runMonacoAction`) can ever reach through `getEditorInstance(tabId)`. `settings`/`terminal`/`diff`/
  * `claudeDiff`/`searchEditor`/`welcome` render their own widgets instead and correctly stay no-ops
- * here. `untitled` also stays excluded, but not because it is handled elsewhere: `untitled-pane.tsx`'s
- * `<CodeEditor>` never passes `registryTabId`, so `⌘S` no-ops on a focused `untitled` tab today for
- * the same unregistered-instance reason `appFile` did before this fix, which makes its
- * `onSave={() => void handleSaveAs()}` prop unreachable dead code. That is a separate, un-fixed defect
- * outside this contract's scope (`docs/acknowledge/2026-08-25-d42-e2e-defects-contract.md` §1) —
- * recorded here rather than silently fixed so a future reader does not mistake the exclusion for
- * something `handleSaveAs` already covers.
+ * here.
+ *
+ * `untitled` joined the set in d-66 (audit info `persistence-5`), together with the
+ * `registryTabId={tabId}` `untitled-pane.tsx` now passes. Until then its `<CodeEditor>` registered
+ * nothing, so `⌘S` on a focused `untitled` tab no-op'd for the same unregistered-instance reason
+ * `appFile` did before d-42 — which left that pane's `onSave={() => void handleSaveAs()}` (the
+ * "save as…" dialog, the only way an untitled buffer reaches disk) as unreachable dead code.
  */
-const SAVE_ROUTABLE_TAB_KINDS: ReadonlySet<TabKind['kind']> = new Set(['file', 'appFile'])
+const SAVE_ROUTABLE_TAB_KINDS: ReadonlySet<TabKind['kind']> = new Set(['file', 'appFile', 'untitled'])
 
 /**
  * Resolves the focused pane's active tab id, but only when its kind is one `⌘S`/monaco-action

@@ -11,7 +11,7 @@ import { useKeymapOverridesJson } from '@shared/hooks/use-global-keymap'
 import { resolveEditorConfigModelIndent } from '@shared/lib/editorconfig'
 import { cancelAiRequest, completeAiInline } from '@entities/ai/ai.ipc'
 import { registerEditorInstance, unregisterEditorInstance } from '@entities/editor/editor-instance-registry'
-import { getOrCreateModel, isApplyingExternalContentTo, restoreViewState, saveViewState } from '@entities/editor/model-registry'
+import { getModel, getOrCreateModel, isApplyingExternalContentTo, restoreViewState, saveViewState } from '@entities/editor/model-registry'
 
 const AI_INLINE_COMPLETION_CLIENT: AiInlineCompletionClient = { complete: completeAiInline, cancel: cancelAiRequest }
 
@@ -78,6 +78,20 @@ export type CodeEditorProps = {
     onChange: (readContent: () => string) => void
     onSave: () => void
     onCursorLineChange: (line: number) => void
+    /**
+     * Reports each time this editor binds to a DIFFERENT path's model (the mount, and every tab
+     * switch inside the same pane) — never a mere re-language re-attach, which rebinds the same
+     * buffer. `hadLiveModel` is whether `model-registry` already held a model for that path *before*
+     * this attach, i.e. whether the buffer handed over is one somebody else has been editing (the
+     * other half of a split view, or the same pane returning to a tab it left dirty) rather than a
+     * fresh one this attach just created from `value`.
+     *
+     * Only this component can answer that: by the time the host's own effects run, `getOrCreateModel`
+     * has already created the model, so a `getModel(path)` there always says "existed". Hosts use it
+     * to decide whether the buffer on screen is theirs to reconcile against disk or an unsaved draft
+     * they must adopt — see `use-editor-file-persistence.ts`'s `noteModelAttach`.
+     */
+    onModelAttach?: (attach: { path: string; hadLiveModel: boolean }) => void
     onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor | null) => void
     onMinimapToggle: (enabled: boolean) => void
     registryTabId?: TabId
@@ -123,6 +137,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     onChange,
     onSave,
     onCursorLineChange,
+    onModelAttach,
     onEditorMount,
     onMinimapToggle,
     registryTabId,
@@ -142,6 +157,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
     const onChangeRef = useRef(onChange)
     const onSaveRef = useRef(onSave)
     const onCursorLineChangeRef = useRef(onCursorLineChange)
+    const onModelAttachRef = useRef(onModelAttach)
     const onEditorMountRef = useRef(onEditorMount)
     const onMinimapToggleRef = useRef(onMinimapToggle)
 
@@ -153,6 +169,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         onChangeRef.current = onChange
         onSaveRef.current = onSave
         onCursorLineChangeRef.current = onCursorLineChange
+        onModelAttachRef.current = onModelAttach
         onEditorMountRef.current = onEditorMount
         onMinimapToggleRef.current = onMinimapToggle
     })
@@ -347,11 +364,13 @@ export const CodeEditor: FC<CodeEditorProps> = ({
         const isPathChange = activePathRef.current !== path
         if (activePathRef.current && isPathChange) saveViewState(activePathRef.current, editor)
 
+        const hadLiveModel = !!getModel(path)
         const model = getOrCreateModel(path, valueRef.current, language)
         editor.setModel(model)
         restoreViewState(path, editor)
         if (autoFocusRef.current && isPathChange) editor.focus()
         activePathRef.current = path
+        if (isPathChange) onModelAttachRef.current?.({ path, hadLiveModel })
     }, [path, language])
 
     /**

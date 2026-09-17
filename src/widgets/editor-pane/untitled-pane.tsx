@@ -207,6 +207,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index, a
             onCursorLineChange={() => undefined}
             onEditorMount={handleEditorMount}
             onMinimapToggle={handleMinimapToggle}
+            registryTabId={tabId}
         />
     )
 }

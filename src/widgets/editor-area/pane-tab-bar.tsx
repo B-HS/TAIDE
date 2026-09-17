@@ -31,7 +31,6 @@ import {
     layoutQueryOptions,
     useActivateTab,
     useCloseTab,
-    useFocusPane,
     useMoveTabToWindow,
     useOpenTab,
     useOpenUntitledTab,
@@ -91,7 +90,6 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { mutate: pinTab } = usePinTab(projectId)
     const { mutate: setTabPreview } = useSetTabPreview(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
-    const { mutate: focusPane } = useFocusPane(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
     const { mutate: openUntitledTab } = useOpenUntitledTab(projectId)
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
@@ -273,7 +271,6 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
             <div
                 ref={scrollRef}
                 role='tablist'
-                onMouseDown={() => focusPane(paneId)}
                 onWheel={handleWheel}
                 className={cn(
                     'bg-tab-bar-background border-tab-bar-tab-border scrollbar-hidden flex h-9 min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden border-b',

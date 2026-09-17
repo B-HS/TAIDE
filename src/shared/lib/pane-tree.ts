@@ -105,6 +105,23 @@ export const activeFilePathOf = (tree: WindowPaneTree | null | undefined): strin
 }
 
 /**
+ * A window's tree with its `focusedPane` narrowed to a pane that actually exists in `root`, falling
+ * back to the first leaf ({@link collectPaneLeaves} order) — the frontend mirror of Rust's
+ * `ensure_focused_pane_valid` (d-65 contract §1.R1). Rust seals the invariant on its own side, but
+ * every window renders from whatever `ProjectLayout` snapshot its cache currently holds, so the
+ * window between a mutation pruning the focused pane (⌘W on a split half's last tab, a deleted
+ * file's tabs closing, another OS window's mutation) and this window applying the `layout:changed`
+ * echo would otherwise hand consumers a dangling id: `withCurrentWindowTarget` would promote it to
+ * an explicit `target` and get `pane_not_found` back, and `editor-area.tsx`'s keymap handlers all
+ * bail silently when `findPaneLeaf` returns `null`. A tree with no leaves at all (a split emptied
+ * of children) keeps the original id — there is nothing truthful to point at instead.
+ */
+const withExistingFocusedPane = (root: PaneNode, focusedPane: PaneId) => {
+    if (findPaneLeaf(root, focusedPane)) return { root, focusedPane }
+    return { root, focusedPane: collectPaneLeaves(root).at(0)?.id ?? focusedPane }
+}
+
+/**
  * Resolves which of a `ProjectLayout`'s pane trees the calling window owns — the main tree for the
  * main window, or the matching `AuxWindowLayout` entry for an auxiliary window's own `windowSlot`
  * (Wave I contract §3.1/§3.2 — every pane/tab mutation on the Rust side locates the same tree by
@@ -113,11 +130,15 @@ export const activeFilePathOf = (tree: WindowPaneTree | null | undefined): strin
  * or the window's own slot having just been cleaned up by `layout_move_tab_to_window`'s
  * `cleanup_emptied_auxiliary_windows` — callers should render an empty state rather than falling
  * back to the main tree, which would silently show/mutate the wrong window's tabs.
+ *
+ * Whichever tree it lands on, the returned `focusedPane` is validated against that tree by
+ * {@link withExistingFocusedPane}, so no consumer of this function — every call site reading
+ * `focusedPane`, {@link currentWindowFocusedPane} included — ever sees a pane id the tree lost.
  */
 export const resolveWindowPaneTree = (layout: ProjectLayout, windowContext: WindowContext): WindowPaneTree | null => {
-    if (windowContext.kind === 'main') return { root: layout.root, focusedPane: layout.focusedPane }
+    if (windowContext.kind === 'main') return withExistingFocusedPane(layout.root, layout.focusedPane)
     const auxiliaryWindow = (layout.auxiliaryWindows ?? []).find((window) => window.slot === windowContext.windowSlot)
-    return auxiliaryWindow ? { root: auxiliaryWindow.root, focusedPane: auxiliaryWindow.focusedPane } : null
+    return auxiliaryWindow ? withExistingFocusedPane(auxiliaryWindow.root, auxiliaryWindow.focusedPane) : null
 }
 
 /**
@@ -152,3 +173,17 @@ export const collectAllPaneTabs = (layout: ProjectLayout): Tab[] => [
  */
 export const currentWindowFocusedPane = (layout: ProjectLayout | null | undefined): PaneId | null =>
     layout ? (resolveWindowPaneTree(layout, getWindowContext())?.focusedPane ?? null) : null
+
+/**
+ * The active file path of *this* OS window — {@link activeFilePathOf} over whichever tree
+ * {@link resolveWindowPaneTree} hands the calling realm, and the symmetric counterpart of
+ * {@link currentWindowFocusedPane}. Every widget that can render inside an auxiliary window and
+ * asks "which file is the user looking at" wants this, not `activeFilePathOf(layout)`: a raw
+ * `ProjectLayout` is structurally a `WindowPaneTree`, so passing it type-checks and silently
+ * answers with the *main* window's active file (audit #5/#6 — the palette's `@`/`:` modes and the
+ * outline panel both did, and acted on a file that window was not showing). `null` for a layout
+ * that has not loaded yet and for an auxiliary window whose slot is no longer in the layout, which
+ * every consumer already treats as "no active file".
+ */
+export const currentWindowActiveFilePath = (layout: ProjectLayout | null | undefined): string | null =>
+    activeFilePathOf(layout ? resolveWindowPaneTree(layout, getWindowContext()) : null)

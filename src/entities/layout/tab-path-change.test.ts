@@ -84,6 +84,8 @@ type Recorder = {
     languages: { path: string; languageId: string }[]
     disposed: string[]
     overrides: { path: string; override: 'editor' | null }[]
+    /** Paths `takeWaitMarkers` was called with — a destructive take, so the *call* is the observable side effect, not just what it returned. */
+    takenMarkerPaths: string[]
     releasedMarkers: string[]
 }
 
@@ -123,7 +125,10 @@ const createDeps = (
     setOpenWithOverride: (path: string, override: 'editor' | null) => {
         recorder.overrides.push({ path, override })
     },
-    takeWaitMarkers: (path: string) => (path === '/repo/marked.ts' ? ['marker-1'] : []),
+    takeWaitMarkers: (path: string) => {
+        recorder.takenMarkerPaths.push(path)
+        return path === '/repo/marked.ts' ? ['marker-1'] : []
+    },
     releaseWaitMarker: (marker: string) => {
         recorder.releasedMarkers.push(marker)
         return Promise.resolve(null)
@@ -142,6 +147,7 @@ beforeEach(() => {
         languages: [],
         disposed: [],
         overrides: [],
+        takenMarkerPaths: [],
         releasedMarkers: [],
     }
 })
@@ -325,7 +331,7 @@ describe('followDeletedPathInTabs', () => {
 })
 
 describe('releaseClosedFileTabPath', () => {
-    test('다른 페인·창에 같은 파일이 남아 있으면 모델을 폐기하지 않는다', async () => {
+    test('다른 페인·창에 같은 파일이 남아 있으면 모델도 미러도 건드리지 않는다', async () => {
         const { releaseClosedFileTabPath } = await importTabPathChange()
         const queryClient = new QueryClient()
         const layout = buildLayout([buildFileTab('tab-2', '/repo/split.ts')])
@@ -333,9 +339,35 @@ describe('releaseClosedFileTabPath', () => {
 
         releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/split.ts', layout }, deps)
 
-        expect(recorder.clearedMirrors).toEqual(['/repo/split.ts'])
+        expect(recorder.clearedMirrors).toEqual([])
         expect(recorder.disposed).toEqual([])
         expect(recorder.overrides).toEqual([])
+    })
+
+    test('마커가 달린 경로라도 다른 페인에 아직 열려 있으면 마커를 take 조차 하지 않는다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([buildFileTab('tab-2', '/repo/marked.ts')])
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } })
+
+        releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/marked.ts', layout }, deps)
+
+        expect(recorder.takenMarkerPaths).toEqual([])
+        expect(recorder.releasedMarkers).toEqual([])
+        expect(recorder.clearedMirrors).toEqual([])
+    })
+
+    test('보조 창에 같은 파일이 남아 있어도 마커·미러를 해제하지 않는다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayoutWithAuxiliary([], [buildFileTab('tab-aux', '/repo/marked.ts')])
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } })
+
+        releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/marked.ts', layout }, deps)
+
+        expect(recorder.releasedMarkers).toEqual([])
+        expect(recorder.clearedMirrors).toEqual([])
+        expect(recorder.disposed).toEqual([])
     })
 
     test('어디에도 열려 있지 않으면 모델을 폐기하고 대기 마커를 반납한다', async () => {

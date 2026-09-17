@@ -3,7 +3,6 @@ import { useState } from 'react'
 import type { ProjectId } from '@shared/api/bindings'
 import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useOpenFileTab } from '@entities/layout/layout.query'
-import { requestReveal } from '@entities/editor/reveal-registry'
 import type { ProblemRowData } from '@features/problems/problem-row'
 import type { ProblemSeverity } from '@features/problems/problem-severity'
 import { PROBLEM_SEVERITIES, toProblemSeverity } from '@features/problems/problem-severity'
@@ -44,10 +43,8 @@ export const ProblemsPanelContainer: FC<ProblemsPanelContainerProps> = ({ projec
         .map(([path, problems]) => ({ path, problems: problems.toSorted(compareProblems) }))
         .toSorted((a, b) => a.path.localeCompare(b.path))
 
-    const handleOpenProblem = (path: string, line: number, column: number) => {
-        requestReveal(path, line, column)
-        openFileTab({ projectId, path, target: null, preview: true })
-    }
+    const handleOpenProblem = (path: string, line: number, column: number) =>
+        openFileTab({ projectId, path, target: null, preview: true, reveal: { line, column } })
 
     return (
         <ProblemsPanel

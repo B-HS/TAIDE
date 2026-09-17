@@ -6,7 +6,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { Group, Panel } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
 import type { DropEdge, PaneId, PaneNode, ProjectId } from '@shared/api/bindings'
-import { useResizePane } from '@entities/layout/layout.query'
+import { useFocusPane, useResizePane } from '@entities/layout/layout.query'
 import { schedulePaneResizeCommit } from '@entities/layout/pane-resize-commit'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { DropEdgeName } from '@features/split/split-drop-zones'
@@ -60,9 +60,12 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
      * whole leaf is what makes the tab bar drop out of the height automatically, Zen mode included.
      */
     const paneContentRef = useRef<HTMLDivElement>(null)
+    /** In-flight marker for {@link PaneNodeView}'s focus-follows-pointer guard — see the JSDoc on `requestPaneFocus` below. */
+    const paneFocusRequestRef = useRef(false)
     const { t } = useTranslation()
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: resizePane } = useResizePane(projectId)
+    const { mutate: focusPane } = useFocusPane(projectId)
     const dropLeft = useDroppable({ id: `${node.id}:left`, data: { type: 'split', paneId: node.id, edge: 'left' } satisfies SplitDropData })
     const dropRight = useDroppable({ id: `${node.id}:right`, data: { type: 'split', paneId: node.id, edge: 'right' } satisfies SplitDropData })
     const dropTop = useDroppable({ id: `${node.id}:top`, data: { type: 'split', paneId: node.id, edge: 'top' } satisfies SplitDropData })
@@ -135,8 +138,39 @@ export const PaneNodeView: FC<PaneNodeViewProps> = ({ node, projectId, focusedPa
         center: dropCenter.setNodeRef,
     }
 
+    /**
+     * Which pane the layout calls focused has to follow the pointer into the pane's *body* — the
+     * editor, a terminal, a diff, a preview — and not only into its tab bar, which used to be the
+     * one place that moved it (d-65 contract §0.2). Rust focuses a pane it creates, so after a
+     * split the user goes on typing in the pane they were already in while `focused_pane` sits on
+     * the new one, and ⌘S saves and ⌘W closes the *other* pane's tab.
+     *
+     * Capture phase so a child that stops propagation — a tab's drag sensor, a terminal's own
+     * pointer handling — cannot swallow the signal, and `focusin` beside `pointerdown` so keyboard
+     * focus counts exactly as a click does, the same pair `ShellSlotProvider` decides a shell slot
+     * from. The handlers never call `preventDefault`/`stopPropagation`, so dnd-kit's sensors and
+     * Radix triggers below are untouched; a portalled menu or dialog renders outside this wrapper
+     * and so keeps acting on the pane it was opened from.
+     *
+     * `paneFocusRequestRef` is what makes one click one IPC. A click emits `pointerdown` and then
+     * the `focusin` of the focus it moves, both before React has committed anything, so a guard
+     * reading `focusedPaneId` alone would see the stale pane twice and send `layout_focus_pane`
+     * twice. The ref is written on the way out and cleared once the round trip settles — by then
+     * `focusedPaneId` is this pane and the first check takes over — so it cannot go stale, a failed
+     * request included.
+     */
+    const requestPaneFocus = () => {
+        if (node.id === focusedPaneId || paneFocusRequestRef.current) return
+        paneFocusRequestRef.current = true
+        focusPane(node.id, {
+            onSettled: () => {
+                paneFocusRequestRef.current = false
+            },
+        })
+    }
+
     return (
-        <div className='flex h-full min-h-0 w-full min-w-0 flex-1 flex-col'>
+        <div onPointerDownCapture={requestPaneFocus} onFocusCapture={requestPaneFocus} className='flex h-full min-h-0 w-full min-w-0 flex-1 flex-col'>
             {!zen && (
                 <PaneTabBar projectId={projectId} paneId={node.id} tabs={node.tabs} activeTabId={node.active} focused={node.id === focusedPaneId} />
             )}

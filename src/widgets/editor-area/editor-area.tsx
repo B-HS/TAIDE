@@ -20,7 +20,6 @@ import {
     useOpenTab,
     useSplitPane,
 } from '@entities/layout/layout.query'
-import { requestReveal } from '@entities/editor/reveal-registry'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { PaneSeparator } from '@features/split/pane-separator'
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
@@ -333,12 +332,13 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
      * Consumes the cross-file navigation requests `registerLspEditorOpener` (app bootstrap) emits
      * when monaco needs to open a resource outside the current model — go-to-definition/
      * implementation/type-definition/declaration/references/F8 landing on another file. Mirrors
-     * `ProblemsPanelContainer.handleOpenProblem`'s reveal-then-open pattern exactly.
+     * `ProblemsPanelContainer.handleOpenProblem` exactly: the jump rides along with the open as
+     * `reveal`, so it lands on the tab THIS open produced rather than on whichever pane already had
+     * the file (audit #9).
      */
     const handleOpenFileFromEditor = useEffectEvent(({ path: targetPath, line, column }: { path: string; line: number; column: number }) => {
         if (!isFocused) return
-        requestReveal(targetPath, line, column)
-        openFileTab({ projectId, path: targetPath, target: paneTree?.focusedPane ?? null, preview: true })
+        openFileTab({ projectId, path: targetPath, target: paneTree?.focusedPane ?? null, preview: true, reveal: { line, column } })
     })
 
     useEffect(() => subscribeOpenFileFromEditor(handleOpenFileFromEditor), [])
