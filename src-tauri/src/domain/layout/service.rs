@@ -657,16 +657,34 @@ pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<Closed
 /// ClaudeDiff tabs resolve their pending IDE request the moment they close
 /// (`reconcile_closed_tab`), so reviving one from the undo stack would
 /// restore a zombie tab whose accept/reject can never succeed again.
-fn push_closed(layout: &mut ProjectLayout, closed: ClosedTab) {
+///
+/// `dirty` is normalized away on the way in. The same close round-trip that fills this stack also
+/// disposes the tab's monaco model and clears its hot-exit mirror (`releaseClosedFileTabPath`), so
+/// a `true` kept here names unsaved work that no longer exists anywhere — and since `Tab.dirty` is
+/// persisted, that ghost dot survives restart, permanently excludes the tab from "close saved tabs"
+/// (`handleCloseSaved` skips `tab.dirty`), and can only be cleared by editing and saving the file
+/// again. A tab whose mirror *did* survive the close gets its dirty state back from
+/// `applyMirrorRestore` on reopen, so nothing actually restorable is dropped here.
+fn push_closed(layout: &mut ProjectLayout, mut closed: ClosedTab) {
     if is_volatile(&closed.tab.kind) {
         return;
     }
+    closed.tab.dirty = false;
     layout.closed_tabs.push(closed);
     if layout.closed_tabs.len() > CLOSED_TAB_STACK_LIMIT {
         layout.closed_tabs.remove(0);
     }
 }
 
+/// Pops the last closed tab back into the pane it was closed from (or the focused pane, or any
+/// remaining leaf) at the index it held when it closed.
+///
+/// That index is clamped through [`clamp_to_pinned_zone`] rather than used raw: pins can change
+/// while a tab sits on the stack, so a stale raw index could drop an unpinned tab into the middle
+/// of the pinned zone (or vice versa) and break the "pinned tabs occupy a contiguous head" the tab
+/// bar renders by — see that function's doc for what reading a desynced raw order does to ⌃Tab
+/// cycling and "close tabs to the right". The leaf is read immutably for the clamp before it is
+/// borrowed mutably for the insert, since `clamp_to_pinned_zone` counts the pins already there.
 pub fn reopen_closed(layout: &mut ProjectLayout) -> Option<TabId> {
     let ClosedTab { tab, pane_id, index } = layout.closed_tabs.pop()?;
     let tab_id = tab.id.clone();
@@ -680,9 +698,10 @@ pub fn reopen_closed(layout: &mut ProjectLayout) -> Option<TabId> {
         (PaneTreeRef::Main, fallback)
     };
 
-    let root = tree_root_mut(layout, target_tree);
-    if let Some(leaf) = find_leaf_mut(root, &target_pane) {
-        insert_tab(leaf, tab, Some(index as usize));
+    let index = find_leaf(tree_root(layout, target_tree), &target_pane)
+        .map_or(index as usize, |leaf| clamp_to_pinned_zone(leaf, tab.pinned, index as usize));
+    if let Some(leaf) = find_leaf_mut(tree_root_mut(layout, target_tree), &target_pane) {
+        insert_tab(leaf, tab, Some(index));
     }
     set_tree_focused_pane(layout, target_tree, target_pane);
     layout.revision += 1;
@@ -1199,6 +1218,50 @@ pub fn move_tab_to_new_window(layout: &mut ProjectLayout, tab_id: &TabId, slot: 
     Ok(())
 }
 
+/// Clears the `dirty` flag on auxiliary window `window_slot`'s `File` tabs whose path has no
+/// hot-exit mirror, and reports whether it changed anything. Called immediately before
+/// [`return_auxiliary_window_tabs`] merges those tabs into the main tree.
+///
+/// A `Tab::dirty` set in one window and a mirror file are two halves of the same claim: "this path
+/// has unsaved content somewhere". Only the flag survived an auxiliary window closing — it rode
+/// into the main tree on the returning tab, while the main window's freshly-mounted `EditorPane`
+/// starts from a clean model and never contradicts it, so the tab bar showed a dot the user could
+/// only clear by overwriting the file with identical content (audit wave 2 #5). Now that the
+/// closing window flushes first (`domain::window::commands::handle_auxiliary_close_requested`),
+/// the absence of a mirror is a reliable statement that there is nothing unsaved, so the flag is
+/// the half that is wrong.
+///
+/// Deliberately scoped to the window that is going away, and run *before* the merge: a main-window
+/// tab for the same path may be genuinely dirty inside its own debounce window with no mirror
+/// written yet, and clearing that would put the tab bar out of step with a live editor model.
+/// Running first also means [`return_auxiliary_window_tabs`]'s `existing.dirty |= tab.dirty`
+/// cannot promote a phantom flag onto that survivor.
+///
+/// `has_mirror` is supplied by the caller (`domain::window::service`) rather than read here, which
+/// keeps this module free of filesystem access; it is asked only about paths that are actually
+/// flagged dirty.
+pub fn clear_auxiliary_window_phantom_dirty(layout: &mut ProjectLayout, window_slot: u32, has_mirror: &dyn Fn(&str) -> bool) -> bool {
+    let Some(window) = layout.auxiliary_windows.iter_mut().find(|window| window.slot == window_slot) else {
+        return false;
+    };
+
+    let mut cleared = false;
+    visit_tabs_mut(&mut window.root, &mut |tab| {
+        if !tab.dirty {
+            return;
+        }
+        let TabKind::File { path } = &tab.kind else {
+            return;
+        };
+        if has_mirror(path) {
+            return;
+        }
+        tab.dirty = false;
+        cleared = true;
+    });
+    cleared
+}
+
 /// Merges an auxiliary window's tabs back into the main tree's tail before dropping that window's
 /// layout entry — TAIDE's 0-loss philosophy on aux-window close (contract §3.1), unlike VS Code
 /// discarding an auxiliary window's content when it closes. Tabs are appended in the window's
@@ -1207,6 +1270,21 @@ pub fn move_tab_to_new_window(layout: &mut ProjectLayout, tab_id: &TabId, slot: 
 /// window closes). Returns `false` (a no-op) if `window_slot` doesn't name a currently-recorded
 /// auxiliary window — already-processed idempotent closes (`CloseRequested` then `Destroyed` for
 /// the same window) hit this path harmlessly.
+///
+/// Merging obeys the same two rules a hand-opened tab does, which this join path used to skip:
+/// - **dedupe by kind** ([`is_dedupable`], the guard [`open_tab`] uses): the same file open in both
+///   windows came back as a second tab of the same path in one tab bar, which the user could only
+///   fix by closing one by hand. The survivor inherits a returning tab's `dirty` so a merge never
+///   downgrades unsaved state, and is promoted out of preview by a returning non-preview tab the
+///   same way [`open_tab`] promotes one — the user deliberately opened that file in the auxiliary
+///   window, so the merged tab must not stay the italic slot the next single click overwrites. A
+///   non-dedupable kind (an empty-session terminal placeholder) is still appended, exactly as
+///   `open_tab` leaves it alone.
+/// - **the pinned zone**: an auxiliary window's pinned tab was appended after main's unpinned ones,
+///   so the array order disagreed with the two rendered groups and everything reading the raw order
+///   (⌃Tab cycling, "close tabs to the right", drop indices) jumped to the wrong tab. One stable
+///   `sort_by_key(|tab| !tab.pinned)` after the merge — the same key [`pin_tab`] uses — restores the
+///   invariant [`clamp_to_pinned_zone`] documents while preserving each group's arrival order.
 pub fn return_auxiliary_window_tabs(layout: &mut ProjectLayout, window_slot: u32) -> bool {
     let Some(position) = layout.auxiliary_windows.iter().position(|window| window.slot == window_slot) else {
         return false;
@@ -1234,12 +1312,28 @@ pub fn return_auxiliary_window_tabs(layout: &mut ProjectLayout, window_slot: u32
     {
         let had_active = active.is_some();
         for tab in tabs {
-            let id = tab.id.clone();
-            leaf_tabs.push(tab);
+            let merged_into = is_dedupable(&tab.kind)
+                .then(|| leaf_tabs.iter_mut().find(|existing| existing.kind == tab.kind))
+                .flatten();
+            let id = match merged_into {
+                Some(existing) => {
+                    existing.dirty |= tab.dirty;
+                    if !tab.preview && existing.preview {
+                        existing.preview = false;
+                    }
+                    existing.id.clone()
+                }
+                None => {
+                    let id = tab.id.clone();
+                    leaf_tabs.push(tab);
+                    id
+                }
+            };
             if !had_active {
                 *active = Some(id);
             }
         }
+        leaf_tabs.sort_by_key(|tab| !tab.pinned);
     }
     layout.revision += 1;
     true
@@ -1566,6 +1660,7 @@ mod tests {
             exclude_glob: None,
             context_lines: 0,
             respect_gitignore: true,
+            scope_dir: None,
         }
     }
 
@@ -2280,6 +2375,264 @@ mod tests {
         move_tab(&mut layout, &plain_id, &pane_id, 0).expect("move");
 
         assert_eq!(탭_제목들(&layout, &pane_id), vec!["pinned.rs".to_string(), "plain.rs".to_string()]);
+    }
+
+    /// 닫히던 시점의 raw 인덱스를 그대로 쓰면 그 사이 바뀐 핀 구성 때문에 일반 탭이 핀 구역
+    /// 한가운데로 들어가, 배열 순서가 탭 바의 두 그룹과 어긋난다.
+    #[test]
+    fn 닫은_탭_다시_열기는_핀_구역_뒤로_클램프된다() {
+        let b = 파일_탭("b.rs");
+        let b_id = b.id.clone();
+        let c = 파일_탭("c.rs");
+        let c_id = c.id.clone();
+        let d = 파일_탭("d.rs");
+        let d_id = d.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![파일_탭("a.rs"), b, c, d]);
+
+        close_tab(&mut layout, &b_id).expect("close b");
+        pin_tab(&mut layout, &c_id, true).expect("pin c");
+        pin_tab(&mut layout, &d_id, true).expect("pin d");
+        reopen_closed(&mut layout).expect("reopen b");
+
+        assert_eq!(
+            탭_제목들(&layout, &pane_id),
+            vec!["c.rs".to_string(), "d.rs".to_string(), "b.rs".to_string(), "a.rs".to_string()]
+        );
+    }
+
+    /// 닫기 왕복이 monaco 모델과 미러를 이미 버리므로 스택의 dirty 는 되살릴 수 없는 죽은
+    /// 정보다. 남겨 두면 ⌘⇧T 로 되살린 탭에 유령 점이 붙고 "저장된 탭 닫기" 가 영구히 그 탭을
+    /// 건너뛴다.
+    #[test]
+    fn 닫은_탭_스택은_dirty를_정규화한다() {
+        let a = 파일_탭("a.rs");
+        let a_id = a.id.clone();
+        let (mut layout, _) = 단일_리프_레이아웃(vec![a, 파일_탭("b.rs")]);
+        set_dirty(&mut layout, &a_id, true).expect("dirty a");
+
+        close_tab(&mut layout, &a_id).expect("close a");
+
+        assert!(!layout.closed_tabs.last().expect("닫은 탭 스택").tab.dirty);
+
+        reopen_closed(&mut layout).expect("reopen a");
+
+        assert!(
+            !find_tab_mut_in_layout(&mut layout, &a_id).expect("되살린 탭").dirty,
+            "되살린 탭에 유령 dirty 가 남으면 안 된다"
+        );
+    }
+
+    fn 보조_창_리프(layout: &ProjectLayout, slot: u32) -> PaneId {
+        layout
+            .auxiliary_windows
+            .iter()
+            .find(|window| window.slot == slot)
+            .expect("보조 창")
+            .focused_pane
+            .clone()
+    }
+
+    /// 같은 파일이 두 창에 하나씩 열려 있으면 보조 창을 닫는 순간 한 탭 바에 같은 경로 탭이
+    /// 두 개 남는다 — 사용자가 합칠 방법이 없다. `open_tab` 의 kind 중복 제거를 이 합류
+    /// 경로에도 적용하고, 미저장 상태는 생존 탭으로 승계한다.
+    #[test]
+    fn 보조_창_회수는_같은_파일_탭을_합치고_dirty를_승계한다() {
+        let main_a = 파일_탭("a.rs");
+        let main_a_id = main_a.id.clone();
+        let b = 파일_탭("b.rs");
+        let b_id = b.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![main_a, b]);
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &b_id, slot).expect("move b to new window");
+        let aux_pane = 보조_창_리프(&layout, slot);
+        let aux_a = Tab {
+            dirty: true,
+            ..파일_탭("a.rs")
+        };
+        open_tab(&mut layout, &aux_pane, aux_a, false).expect("open a in aux");
+
+        assert!(return_auxiliary_window_tabs(&mut layout, slot));
+
+        assert_eq!(탭_제목들(&layout, &pane_id), vec!["a.rs".to_string(), "b.rs".to_string()]);
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&layout.root, &pane_id) else {
+            panic!("리프가 있어야 한다")
+        };
+        let survivor = tabs.iter().find(|tab| tab.id == main_a_id).expect("main 탭이 살아남아야 한다");
+        assert!(survivor.dirty, "보조 창의 미저장 상태를 생존 탭이 승계해야 한다");
+    }
+
+    /// 합치기가 `dirty` 만 승계하면, main 의 프리뷰 탭으로 합쳐진 "보조 창에서 명시적으로 연 탭"
+    /// 이 이탤릭 프리뷰 슬롯에 남는다 — 탐색기에서 다른 파일을 한 번 클릭하는 순간 그 탭이
+    /// 통째로 교체된다. `open_tab` 의 승격 규칙을 이 합류 경로에도 적용한다.
+    #[test]
+    fn 보조_창에서_명시적으로_연_탭이_합쳐지면_main_프리뷰_탭을_승격시킨다() {
+        let anchor = 파일_탭("anchor.rs");
+        let anchor_id = anchor.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![anchor]);
+        let main_a_id = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), true).expect("open preview a in main");
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &anchor_id, slot).expect("move anchor to new window");
+        let aux_pane = 보조_창_리프(&layout, slot);
+        open_tab(&mut layout, &aux_pane, 파일_탭("a.rs"), false).expect("open a in aux");
+
+        assert!(return_auxiliary_window_tabs(&mut layout, slot));
+
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&layout.root, &pane_id) else {
+            panic!("리프가 있어야 한다")
+        };
+        let survivor = tabs.iter().find(|tab| tab.id == main_a_id).expect("main 탭이 살아남아야 한다");
+        assert!(
+            !survivor.preview,
+            "명시적으로 연 탭이 프리뷰 탭과 합쳐지면 생존 탭은 프리뷰에서 승격돼야 한다"
+        );
+    }
+
+    /// 감사 2차 #5 후반: 보조 창이 flush 를 마친 뒤에도 미러가 없는 경로는 미저장 내용이 없다는
+    /// 뜻이므로, 그 탭의 dirty 점은 main 으로 따라오면 안 된다.
+    #[test]
+    fn 미러가_없는_보조_창_파일_탭의_dirty는_복귀_전에_해제된다() {
+        let anchor = 파일_탭("anchor.rs");
+        let anchor_id = anchor.id.clone();
+        let (mut layout, _) = 단일_리프_레이아웃(vec![anchor]);
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &anchor_id, slot).expect("move anchor to new window");
+        let aux_pane = 보조_창_리프(&layout, slot);
+        let mirrored = Tab {
+            dirty: true,
+            ..파일_탭("mirrored.rs")
+        };
+        let mirrored_id = mirrored.id.clone();
+        let phantom = Tab {
+            dirty: true,
+            ..파일_탭("phantom.rs")
+        };
+        let phantom_id = phantom.id.clone();
+        open_tab(&mut layout, &aux_pane, mirrored, false).expect("open mirrored in aux");
+        open_tab(&mut layout, &aux_pane, phantom, false).expect("open phantom in aux");
+
+        let cleared = clear_auxiliary_window_phantom_dirty(&mut layout, slot, &|path| path == "mirrored.rs");
+
+        assert!(cleared);
+        let window = &layout.auxiliary_windows[0];
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&window.root, &aux_pane) else {
+            panic!("보조 창 리프가 있어야 한다")
+        };
+        let mirrored_tab = tabs.iter().find(|tab| tab.id == mirrored_id).expect("미러 탭");
+        let phantom_tab = tabs.iter().find(|tab| tab.id == phantom_id).expect("유령 탭");
+        assert!(mirrored_tab.dirty, "미러가 있는 경로의 dirty 는 유지돼야 한다");
+        assert!(!phantom_tab.dirty, "미러가 없는 경로의 dirty 는 해제돼야 한다");
+    }
+
+    /// 복귀 전에 해제하는 이유: `return_auxiliary_window_tabs` 의 `existing.dirty |= tab.dirty` 가
+    /// 유령 dirty 를 main 생존 탭으로 승계시키면 안 된다.
+    #[test]
+    fn 유령_dirty는_회수_합치기에서_main_탭으로_승계되지_않는다() {
+        let main_a = 파일_탭("a.rs");
+        let main_a_id = main_a.id.clone();
+        let anchor = 파일_탭("anchor.rs");
+        let anchor_id = anchor.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![main_a, anchor]);
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &anchor_id, slot).expect("move anchor to new window");
+        let aux_pane = 보조_창_리프(&layout, slot);
+        let aux_a = Tab {
+            dirty: true,
+            ..파일_탭("a.rs")
+        };
+        open_tab(&mut layout, &aux_pane, aux_a, false).expect("open a in aux");
+
+        clear_auxiliary_window_phantom_dirty(&mut layout, slot, &|_| false);
+        assert!(return_auxiliary_window_tabs(&mut layout, slot));
+
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&layout.root, &pane_id) else {
+            panic!("리프가 있어야 한다")
+        };
+        let survivor = tabs.iter().find(|tab| tab.id == main_a_id).expect("main 탭이 살아남아야 한다");
+        assert!(!survivor.dirty, "미러가 없으면 유령 dirty 가 승계되면 안 된다");
+    }
+
+    #[test]
+    fn 유령_dirty_해제는_파일이_아닌_탭과_다른_창을_건드리지_않는다() {
+        let main_dirty = Tab {
+            dirty: true,
+            ..파일_탭("main-only.rs")
+        };
+        let main_dirty_id = main_dirty.id.clone();
+        let anchor = 파일_탭("anchor.rs");
+        let anchor_id = anchor.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![main_dirty, anchor]);
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &anchor_id, slot).expect("move anchor to new window");
+        let aux_pane = 보조_창_리프(&layout, slot);
+        let aux_terminal = Tab {
+            dirty: true,
+            ..터미널_탭()
+        };
+        let aux_terminal_id = aux_terminal.id.clone();
+        open_tab(&mut layout, &aux_pane, aux_terminal, false).expect("open terminal in aux");
+
+        clear_auxiliary_window_phantom_dirty(&mut layout, slot, &|_| false);
+
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&layout.root, &pane_id) else {
+            panic!("리프가 있어야 한다")
+        };
+        let main_tab = tabs.iter().find(|tab| tab.id == main_dirty_id).expect("main 탭");
+        assert!(main_tab.dirty, "main 창 탭은 debounce 중일 수 있으므로 건드리면 안 된다");
+
+        let window = &layout.auxiliary_windows[0];
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&window.root, &aux_pane) else {
+            panic!("보조 창 리프가 있어야 한다")
+        };
+        let terminal_tab = tabs.iter().find(|tab| tab.id == aux_terminal_id).expect("터미널 탭");
+        assert!(terminal_tab.dirty, "파일 탭이 아닌 탭은 판단 대상이 아니다");
+    }
+
+    #[test]
+    fn 없는_슬롯의_유령_dirty_해제는_아무것도_바꾸지_않는다() {
+        let mut layout = default_layout();
+        assert!(!clear_auxiliary_window_phantom_dirty(&mut layout, 999, &|_| false));
+    }
+
+    /// 빈 세션 터미널 탭은 kind 동등이 "같은 터미널" 을 뜻하지 않으므로(`is_dedupable`)
+    /// 회수에서도 합치지 않는다.
+    #[test]
+    fn 보조_창_회수는_세션id가_빈_터미널_탭을_합치지_않는다() {
+        let anchor = 파일_탭("a.rs");
+        let anchor_id = anchor.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![anchor, 터미널_탭()]);
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &anchor_id, slot).expect("move anchor to new window");
+        let aux_pane = 보조_창_리프(&layout, slot);
+        open_tab(&mut layout, &aux_pane, 터미널_탭(), false).expect("open terminal in aux");
+
+        assert!(return_auxiliary_window_tabs(&mut layout, slot));
+
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&layout.root, &pane_id) else {
+            panic!("리프가 있어야 한다")
+        };
+        assert_eq!(tabs.iter().filter(|tab| matches!(tab.kind, TabKind::Terminal { .. })).count(), 2);
+    }
+
+    /// 보조 창에서 고정된 채 돌아온 탭을 main 의 일반 탭 뒤에 붙이면 배열 순서가 렌더 순서와
+    /// 어긋난다(⌃Tab 순환·"오른쪽 탭 닫기"·드롭 인덱스가 전부 raw 순서를 읽는다).
+    #[test]
+    fn 보조_창에서_돌아온_핀_탭은_핀_구역으로_들어간다() {
+        let c = 파일_탭("c.rs");
+        let c_id = c.id.clone();
+        let d = 파일_탭("d.rs");
+        let d_id = d.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![파일_탭("a.rs"), 파일_탭("b.rs"), c, d]);
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &c_id, slot).expect("move c to new window");
+        move_tab_to_existing_window(&mut layout, &d_id, slot).expect("move d to that window");
+        pin_tab(&mut layout, &c_id, true).expect("pin c in aux");
+
+        assert!(return_auxiliary_window_tabs(&mut layout, slot));
+
+        assert_eq!(
+            탭_제목들(&layout, &pane_id),
+            vec!["c.rs".to_string(), "a.rs".to_string(), "b.rs".to_string(), "d.rs".to_string()]
+        );
     }
 
     #[test]
