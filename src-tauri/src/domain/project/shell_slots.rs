@@ -179,6 +179,35 @@ pub fn remove_slot(tree: ShellSlotTree, slot_id: &ShellSlotId) -> Option<ShellSl
     prune(tree, &|candidate, _| candidate != slot_id)
 }
 
+fn is_slot_leaf(tree: &ShellSlotTree, slot_id: &ShellSlotId) -> bool {
+    matches!(tree, ShellSlotTree::Leaf { slot_id: candidate, .. } if candidate == slot_id)
+}
+
+/// Which slot should inherit focus when `slot_id` is pruned: the **previous sibling's last slot**
+/// inside the split holding it, or, when `slot_id` is that split's first child, the **next sibling's
+/// first slot**. The shell-slot twin of `layout::service::successor_leaf_after_prune`, and read
+/// *before* the prune for the same reason — [`prune`] collapses the split around the removed slot,
+/// taking with it the only record of which slot sat next to it.
+///
+/// Splits here are always binary ([`SPLIT_CHILD_COUNT`]), so "the previous or next sibling" is just
+/// the other child; the descent into it keeps the on-screen adjacency when that child is itself a
+/// split. `None` when `slot_id` is the tree's root leaf (nothing outlives it to inherit) or is not in
+/// the tree at all — callers then fall back to the rest of the focus preference order.
+pub fn successor_slot_after_prune(tree: &ShellSlotTree, slot_id: &ShellSlotId) -> Option<ShellSlotId> {
+    let ShellSlotTree::Split { children, .. } = tree else {
+        return None;
+    };
+
+    let Some(position) = children.iter().position(|child| is_slot_leaf(child, slot_id)) else {
+        return children.iter().find_map(|child| successor_slot_after_prune(child, slot_id));
+    };
+
+    if position > 0 {
+        return leaves(&children[position - 1]).pop().map(|(slot, _)| slot);
+    }
+    leaves(children.get(1)?).into_iter().next().map(|(slot, _)| slot)
+}
+
 pub fn remove_project(tree: ShellSlotTree, project_id: &ProjectId) -> Option<ShellSlotTree> {
     prune(tree, &|_, candidate| candidate != project_id)
 }
@@ -234,6 +263,20 @@ mod tests {
 
     fn 슬롯_아이디(tree: &ShellSlotTree, project: &ProjectId) -> ShellSlotId {
         slot_of_project(tree, project).expect("슬롯이 있어야 한다")
+    }
+
+    /// 화면상 `[A | B | C]` — 슬롯 분할은 항상 이진이라 트리는 `Split(A, Split(B, C))` 가 된다.
+    fn 삼분할_트리() -> (ShellSlotTree, Vec<ShellSlotId>) {
+        let (a, b, c) = (프로젝트("a"), 프로젝트("b"), 프로젝트("c"));
+        let mut tree = leaf(a.clone());
+        let slot_a = 슬롯_아이디(&tree, &a);
+        let slot_b = split_slot(&mut tree, &slot_a, ShellSlotEdge::Right, &b)
+            .expect("첫 분할")
+            .expect("b 슬롯");
+        let slot_c = split_slot(&mut tree, &slot_b, ShellSlotEdge::Right, &c)
+            .expect("둘째 분할")
+            .expect("c 슬롯");
+        (tree, vec![slot_a, slot_b, slot_c])
     }
 
     #[test]
@@ -340,6 +383,56 @@ mod tests {
             leaves(&pruned),
             vec![(slot_a, a), (slot_b, b)],
             "c 가 빠지면 세로 분할이 사라지고 원래 가로 분할만 남아야 한다"
+        );
+    }
+
+    /// `[A | B | C]` 는 `Split(A, Split(B, C))` 이므로, 세 번째 슬롯의 유일한 형제는 B 다.
+    #[test]
+    fn 삼분할의_마지막_슬롯은_바로_이웃을_승계자로_지목한다() {
+        let (tree, slots) = 삼분할_트리();
+
+        assert_eq!(successor_slot_after_prune(&tree, &slots[2]), Some(slots[1].clone()));
+    }
+
+    #[test]
+    fn 첫_슬롯의_승계자는_다음_형제의_첫_슬롯이다() {
+        let (tree, slots) = 삼분할_트리();
+
+        assert_eq!(successor_slot_after_prune(&tree, &slots[0]), Some(slots[1].clone()));
+    }
+
+    /// 형제가 리프가 아니라 서브트리면 그 안의 마지막 슬롯까지 내려가야 화면상 이웃이 된다.
+    /// `split_slot` 은 리프만 감싸므로 `Split(Split(A, B), C)` 형태는 직접 조립한다.
+    #[test]
+    fn 승계자는_이전_형제_서브트리의_마지막_슬롯이다() {
+        let (a, b, c) = (프로젝트("a"), 프로젝트("b"), 프로젝트("c"));
+        let mut left = leaf(a.clone());
+        let slot_a = 슬롯_아이디(&left, &a);
+        let slot_b = split_slot(&mut left, &slot_a, ShellSlotEdge::Right, &b)
+            .expect("분할")
+            .expect("b 슬롯");
+        let right = leaf(c.clone());
+        let slot_c = 슬롯_아이디(&right, &c);
+        let tree = ShellSlotTree::Split {
+            dir: SplitDir::Horizontal,
+            children: vec![left, right],
+            sizes: vec![50.0, 50.0],
+        };
+
+        assert_eq!(successor_slot_after_prune(&tree, &slot_c), Some(slot_b));
+    }
+
+    #[test]
+    fn 루트_리프와_없는_슬롯에는_승계자가_없다() {
+        let a = 프로젝트("a");
+        let single = leaf(a.clone());
+        let slot_a = 슬롯_아이디(&single, &a);
+        let (tree, _) = 삼분할_트리();
+
+        assert_eq!(successor_slot_after_prune(&single, &slot_a), None);
+        assert_eq!(
+            successor_slot_after_prune(&tree, &ShellSlotId("shellslot-missing".to_string())),
+            None
         );
     }
 

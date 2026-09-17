@@ -57,15 +57,23 @@ pub fn shell_state(session: &SessionState) -> SessionShellState {
 
 /// Re-derives `focused_shell_slot` and `active_project` from the slot tree, the single place those
 /// three fields are reconciled after any structural change. The focus preference order is "keep the
-/// current slot if it still exists → otherwise the slot showing the current active project →
-/// otherwise the first slot", so a close that removed some *other* slot never moves the user's
-/// focus, while a close that removed the focused one lands somewhere deterministic.
+/// current slot if it still exists → otherwise `successor`, the neighbour a caller picked out before
+/// pruning → otherwise the slot showing the current active project → otherwise the first slot", so a
+/// close that removed some *other* slot never moves the user's focus, while a close that removed the
+/// focused one lands on the slot that was next to it.
+///
+/// `successor` is what closing the focused slot needs and nothing else supplies: its old id is gone
+/// from the tree, no project points back at it, and the remaining fallback is the tree's *first*
+/// slot — so closing the third of three slots used to jump focus (and, through it, the active
+/// project, the native `File` menu and every ⌘P/⌘B target) all the way back to the first. Callers
+/// compute it with [`shell_slots::successor_slot_after_prune`] before the prune and pass `None` when
+/// the slot they removed was not the focused one; a candidate the prune also swallowed is ignored.
 ///
 /// `active_project` is assigned from the focused slot rather than the other way round — that is the
 /// d-62 redefinition of the field (see [`SessionState::active_project`]), and it is what keeps
 /// `project_get_active`, the native `File` menu and the frontend's `activeProjectQueryOptions`
 /// correct without any of them knowing that slots exist.
-fn reconcile_focus(session: &mut SessionState) {
+fn reconcile_focus(session: &mut SessionState, successor: Option<ShellSlotId>) {
     let Some(tree) = session.shell_slots.as_ref() else {
         session.focused_shell_slot = None;
         session.active_project = None;
@@ -77,6 +85,7 @@ fn reconcile_focus(session: &mut SessionState) {
         .as_ref()
         .filter(|slot| shell_slots::contains_slot(tree, slot))
         .cloned()
+        .or_else(|| successor.filter(|slot| shell_slots::contains_slot(tree, slot)))
         .or_else(|| {
             session
                 .active_project
@@ -89,13 +98,31 @@ fn reconcile_focus(session: &mut SessionState) {
     session.focused_shell_slot = focused;
 }
 
+/// The neighbour that inherits focus when the focused slot is about to be pruned, read while the
+/// tree still records where that slot sat — [`shell_slots::successor_slot_after_prune`]'s "before
+/// the prune" precondition. `focus_is_doomed` is the caller's answer to "is the focused slot one of
+/// the ones this removal takes": a slot-id match for [`close_shell_slot`], a project match for
+/// [`close_project`], which can take several slots at once. `false` yields `None`, leaving
+/// [`reconcile_focus`]'s first branch to keep focus exactly where it is.
+fn focus_successor(session: &SessionState, focus_is_doomed: bool) -> Option<ShellSlotId> {
+    if !focus_is_doomed {
+        return None;
+    }
+    let tree = session.shell_slots.as_ref()?;
+    let focused = session.focused_shell_slot.as_ref()?;
+    shell_slots::successor_slot_after_prune(tree, focused)
+}
+
 /// Brings the slot tree back into agreement with `session.projects`, then with itself. Runs on boot
 /// restore (contract §0.1 S-1) and after every close, so three invariants always hold before the
 /// tree is handed to a window: no leaf names a project the session does not list, a session with at
 /// least one open project always has at least one slot (a session written before d-62 has no tree
 /// at all — this is where it becomes one), and `focused_shell_slot`/`active_project` name a slot
 /// that exists.
-pub fn normalize_shell_slots(session: &mut SessionState) {
+///
+/// `successor` is forwarded to [`reconcile_focus`] — see there. Boot restore passes `None`; only a
+/// close that took the focused slot with it has a neighbour to nominate.
+pub fn normalize_shell_slots(session: &mut SessionState, successor: Option<ShellSlotId>) {
     let open: HashSet<ProjectId> = session.projects.iter().map(|reference| reference.id.clone()).collect();
     session.shell_slots = session
         .shell_slots
@@ -111,7 +138,7 @@ pub fn normalize_shell_slots(session: &mut SessionState) {
         session.shell_slots = fallback.map(shell_slots::leaf);
     }
 
-    reconcile_focus(session);
+    reconcile_focus(session, successor);
 }
 
 /// The slot meaning of "activate this project" (contract §0.1 S-5): a project already on screen
@@ -236,6 +263,9 @@ pub fn place_project_in_slot(
 /// closing the project itself. The last slot is refused rather than silently emptying the window:
 /// "at least one slot while at least one project is open" is the invariant
 /// [`normalize_shell_slots`] maintains everywhere else.
+///
+/// Closing the *focused* slot hands focus to its on-screen neighbour, nominated before the prune
+/// erases the adjacency — see [`reconcile_focus`]. Closing any other slot leaves focus untouched.
 pub fn close_shell_slot(paths: &AppPaths, session: &mut SessionState, slot_id: &ShellSlotId) -> AppResult<()> {
     let tree = session
         .shell_slots
@@ -248,8 +278,9 @@ pub fn close_shell_slot(paths: &AppPaths, session: &mut SessionState, slot_id: &
         return Err(AppError::InvalidArgument("cannot close the last shell slot".to_string()));
     }
 
+    let successor = focus_successor(session, session.focused_shell_slot.as_ref() == Some(slot_id));
     session.shell_slots = session.shell_slots.take().and_then(|tree| shell_slots::remove_slot(tree, slot_id));
-    reconcile_focus(session);
+    reconcile_focus(session, successor);
     save_session(paths, session)
 }
 
@@ -492,12 +523,23 @@ pub fn open_project(
 /// and the focus/active recomputation are [`normalize_shell_slots`]'s, which is also what
 /// re-materializes a single slot when the last slot's project was the one closed but other projects
 /// are still open.
+///
+/// This is the higher-traffic half of the focus succession [`close_shell_slot`] also performs: when
+/// the focused slot is one of the ones this project occupied, focus goes to its on-screen neighbour
+/// rather than to the tree's first slot — see [`reconcile_focus`].
 pub fn close_project(
     paths: &AppPaths,
     session: &mut SessionState,
     projects: &mut HashMap<ProjectId, Project>,
     project_id: &ProjectId,
 ) -> AppResult<()> {
+    let focused_project = session
+        .shell_slots
+        .as_ref()
+        .zip(session.focused_shell_slot.as_ref())
+        .and_then(|(tree, slot)| shell_slots::project_of_slot(tree, slot));
+    let successor = focus_successor(session, focused_project.as_ref() == Some(project_id));
+
     projects.remove(project_id);
     session.projects.retain(|reference| &reference.id != project_id);
     session.shell_slots = session
@@ -507,7 +549,7 @@ pub fn close_project(
     if session.active_project.as_ref() == Some(project_id) {
         session.active_project = session.projects.last().map(|reference| reference.id.clone());
     }
-    normalize_shell_slots(session);
+    normalize_shell_slots(session, successor);
     save_session(paths, session)
 }
 
@@ -888,7 +930,7 @@ pub fn restore_session(paths: &AppPaths) -> AppResult<(SessionState, Vec<Project
         projects.push(project);
     }
 
-    normalize_shell_slots(&mut session);
+    normalize_shell_slots(&mut session, None);
 
     Ok((session, projects, warnings))
 }
@@ -1979,7 +2021,7 @@ mod tests {
             active_project: ids.first().map(|id| ProjectId((*id).to_string())),
             ..SessionState::default()
         };
-        normalize_shell_slots(&mut session);
+        normalize_shell_slots(&mut session, None);
         session
     }
 
@@ -2019,7 +2061,7 @@ mod tests {
         session.focused_shell_slot = Some(slot_b);
 
         session.projects.retain(|reference| reference.id != ProjectId("b".to_string()));
-        normalize_shell_slots(&mut session);
+        normalize_shell_slots(&mut session, None);
 
         assert_eq!(슬롯_목록(&session), vec![(slot_a.clone(), ProjectId("a".to_string()))]);
         assert_eq!(session.focused_shell_slot, Some(slot_a));
@@ -2109,6 +2151,87 @@ mod tests {
 
         assert_eq!(슬롯_목록(&session), vec![(slot_a.clone(), ProjectId("a".to_string()))]);
         assert_eq!(session.focused_shell_slot, Some(slot_a));
+
+        cleanup(&paths);
+    }
+
+    /// 화면상 `[A | B | C]` — 슬롯 분할은 항상 이진이라 트리는 `Split(A, Split(B, C))` 가 된다.
+    fn 삼분할_슬롯_세션() -> (SessionState, Vec<ShellSlotId>) {
+        let mut session = 슬롯_세션(&["a", "b", "c"]);
+        let slot_a = 슬롯_목록(&session)[0].0.clone();
+        let tree = session.shell_slots.as_mut().expect("트리");
+        let slot_b = shell_slots::split_slot(tree, &slot_a, ShellSlotEdge::Right, &ProjectId("b".to_string()))
+            .expect("첫 분할")
+            .expect("b 슬롯");
+        let slot_c = shell_slots::split_slot(tree, &slot_b, ShellSlotEdge::Right, &ProjectId("c".to_string()))
+            .expect("둘째 분할")
+            .expect("c 슬롯");
+        (session, vec![slot_a, slot_b, slot_c])
+    }
+
+    /// 포커스 슬롯이 사라지면 남는 후보는 "첫 슬롯" 뿐이라, 셋 중 마지막을 닫을 때 포커스가
+    /// 화면 반대편 끝으로 튀었다(활성 프로젝트·네이티브 File 메뉴·⌘P 대상까지 함께).
+    #[test]
+    fn 포커스한_슬롯을_닫으면_이웃_슬롯이_포커스를_승계한다() {
+        let paths = temp_paths();
+        let (mut session, slots) = 삼분할_슬롯_세션();
+        session.focused_shell_slot = Some(slots[2].clone());
+        session.active_project = Some(ProjectId("c".to_string()));
+
+        close_shell_slot(&paths, &mut session, &slots[2]).expect("슬롯 닫기");
+
+        assert_eq!(session.focused_shell_slot, Some(slots[1].clone()));
+        assert_eq!(session.active_project, Some(ProjectId("b".to_string())));
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 포커스한_첫_슬롯을_닫으면_다음_슬롯이_포커스를_승계한다() {
+        let paths = temp_paths();
+        let (mut session, slots) = 삼분할_슬롯_세션();
+        session.focused_shell_slot = Some(slots[0].clone());
+        session.active_project = Some(ProjectId("a".to_string()));
+
+        close_shell_slot(&paths, &mut session, &slots[0]).expect("슬롯 닫기");
+
+        assert_eq!(session.focused_shell_slot, Some(slots[1].clone()));
+        assert_eq!(session.active_project, Some(ProjectId("b".to_string())));
+
+        cleanup(&paths);
+    }
+
+    #[test]
+    fn 포커스하지_않은_슬롯을_닫으면_포커스는_그대로다() {
+        let paths = temp_paths();
+        let (mut session, slots) = 삼분할_슬롯_세션();
+        session.focused_shell_slot = Some(slots[0].clone());
+        session.active_project = Some(ProjectId("a".to_string()));
+
+        close_shell_slot(&paths, &mut session, &slots[2]).expect("슬롯 닫기");
+
+        assert_eq!(session.focused_shell_slot, Some(slots[0].clone()));
+        assert_eq!(session.active_project, Some(ProjectId("a".to_string())));
+
+        cleanup(&paths);
+    }
+
+    /// 같은 승계를 `close_project` 경로도 타야 한다 — 실사용 빈도는 이쪽이 더 높다. 사이드바 순서
+    /// (`session.projects`)를 슬롯 배치와 다르게 둬야 옛 폴백(활성 프로젝트를 목록 맨 뒤로 되돌린
+    /// 뒤 그 슬롯을 잡는 ②분기)이 이웃과 갈린다.
+    #[test]
+    fn 포커스한_슬롯의_프로젝트를_닫아도_이웃_슬롯이_포커스를_승계한다() {
+        let paths = temp_paths();
+        let (mut session, slots) = 삼분할_슬롯_세션();
+        session.projects = ["b", "c", "a"].into_iter().map(세션_레퍼런스).collect();
+        session.focused_shell_slot = Some(slots[2].clone());
+        session.active_project = Some(ProjectId("c".to_string()));
+        let mut projects = HashMap::new();
+
+        close_project(&paths, &mut session, &mut projects, &ProjectId("c".to_string())).expect("프로젝트 닫기");
+
+        assert_eq!(session.focused_shell_slot, Some(slots[1].clone()));
+        assert_eq!(session.active_project, Some(ProjectId("b".to_string())));
 
         cleanup(&paths);
     }
