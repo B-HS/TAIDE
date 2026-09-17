@@ -1,7 +1,7 @@
-import { describe, expect, mock, test } from 'bun:test'
-import type { Project } from '@shared/api/bindings'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
+import type { PaneNode, Project, ProjectLayout } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { act, createTestQueryClient, renderWithProviders, screen } from '@shared/testing/render'
+import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 
 /**
  * The palette used to read the *global* active-project session for its file index, symbols, tab
@@ -53,5 +53,69 @@ describe('CommandPalette 프로젝트 스코프', () => {
 
         expect(screen.queryByText(FILE_NAME)).toBeNull()
         expect(queryClient.getQueryState(QUERY_KEY.SEARCH.PROJECT_FILES(OTHER_PROJECT_ID))).toBeTruthy()
+    })
+})
+
+const MAIN_PATH = '/tmp/aux-project/src/main.ts'
+const AUXILIARY_PATH = '/tmp/aux-project/src/aux.ts'
+const SYMBOL_MODE_QUERY = '@'
+
+const MAIN_WINDOW_URL = '/'
+const AUXILIARY_WINDOW_URL = `/?projectId=${PROJECT_ID}&windowSlot=1`
+
+/** See `pane-tree.test.ts` — the harness pins `location.search` to empty, and this is the one same-document way to move it. */
+const enterWindowUrl = (url: string) => window.history.replaceState({}, '', url)
+
+afterEach(() => enterWindowUrl(MAIN_WINDOW_URL))
+
+const buildFileLeaf = (id: string, path: string): PaneNode => ({
+    node: 'leaf',
+    id,
+    tabs: [{ id: `${id}-tab`, kind: { kind: 'file', path }, title: path }],
+    active: `${id}-tab`,
+})
+
+const LAYOUT: ProjectLayout = {
+    version: 2,
+    root: buildFileLeaf('main-leaf', MAIN_PATH),
+    focusedPane: 'main-leaf',
+    auxiliaryWindows: [{ slot: 1, root: buildFileLeaf('aux-leaf', AUXILIARY_PATH), focusedPane: 'aux-leaf' }],
+}
+
+const openSymbolMode = async () => {
+    const queryClient = createTestQueryClient()
+    await queryClient.fetchQuery({ queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID), queryFn: () => LAYOUT, gcTime: Infinity })
+    const { CommandPalette } = await importPalette()
+    const rendered = renderWithProviders(<CommandPalette projectId={PROJECT_ID} />, { queryClient })
+    act(() => {
+        pressKey({ key: 'p', code: 'KeyP', metaKey: true })
+    })
+    act(() => {
+        fireEvent.change(screen.getByPlaceholderText('palette.filePlaceholder'), { target: { value: SYMBOL_MODE_QUERY } })
+    })
+    return rendered
+}
+
+/**
+ * `@`(Go to Symbol) and `:`(line) act on "the active file", which an auxiliary window's palette read
+ * off the main tree — it listed another window's symbols and revealed into another window (audit #5).
+ * The observable is which file the palette asks for: `fileQueryOptions(activePath)` is the only query
+ * it starts in symbol mode.
+ */
+describe('CommandPalette 창별 활성 파일', () => {
+    test('보조 창의 심볼 모드는 그 창의 활성 파일을 대상으로 한다', async () => {
+        enterWindowUrl(AUXILIARY_WINDOW_URL)
+
+        const { queryClient } = await openSymbolMode()
+
+        expect(queryClient.getQueryState(QUERY_KEY.FILE.CONTENT(AUXILIARY_PATH))).toBeTruthy()
+        expect(queryClient.getQueryState(QUERY_KEY.FILE.CONTENT(MAIN_PATH))).toBeUndefined()
+    })
+
+    test('main 창의 심볼 모드는 main 트리의 활성 파일을 대상으로 한다', async () => {
+        const { queryClient } = await openSymbolMode()
+
+        expect(queryClient.getQueryState(QUERY_KEY.FILE.CONTENT(MAIN_PATH))).toBeTruthy()
+        expect(queryClient.getQueryState(QUERY_KEY.FILE.CONTENT(AUXILIARY_PATH))).toBeUndefined()
     })
 })

@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 import type { languages } from 'monaco-editor'
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
+import { getWindowContext } from '@shared/lib/window-context'
 import { monaco } from '@shared/lib/monaco/setup'
-import { activeFilePathOf } from '@shared/lib/pane-tree'
+import { currentWindowActiveFilePath, findActiveTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { loadDocumentSymbolsForPath } from '@shared/lib/lsp/document-symbol-session-waiters'
 import { fileQueryOptions } from '@entities/file/file.query'
 import { layoutQueryOptions } from '@entities/layout/layout.query'
@@ -12,7 +13,7 @@ import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { projectQueryOptions } from '@entities/project/project.query'
-import { requestReveal } from '@entities/editor/reveal-registry'
+import { revealInTab } from '@entities/editor/reveal-registry'
 import { subscribeModelContentChange } from '@entities/editor/model-registry'
 import { waitForLspSessionForRoot } from '@entities/lsp/lsp-session-registry'
 import { OutlinePanel } from '@features/outline/outline-panel'
@@ -28,7 +29,10 @@ export const OutlinePanelContainer: FC<OutlinePanelContainerProps> = ({ projectI
 
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
-    const activePath = activeFilePathOf(layout)
+    const activePath = currentWindowActiveFilePath(layout)
+    const windowPaneTree = layout ? resolveWindowPaneTree(layout, getWindowContext()) : null
+    const activeTab = windowPaneTree ? findActiveTab(windowPaneTree.root, windowPaneTree.focusedPane) : null
+    const activeFileTabId = activeTab?.kind.kind === 'file' ? activeTab.id : null
 
     const { data: file } = useQuery(fileQueryOptions(activePath))
     const { data: servers } = useQuery(lspServersQueryOptions())
@@ -56,8 +60,8 @@ export const OutlinePanelContainer: FC<OutlinePanelContainerProps> = ({ projectI
     }, [activePath, languageId, servers, projectId, project?.root])
 
     const handleSelectSymbol = (symbol: languages.DocumentSymbol) => {
-        if (!activePath) return
-        requestReveal(activePath, symbol.selectionRange.startLineNumber, symbol.selectionRange.startColumn)
+        if (!activeFileTabId) return
+        revealInTab(activeFileTabId, { line: symbol.selectionRange.startLineNumber, column: symbol.selectionRange.startColumn })
     }
 
     return <OutlinePanel key={activePath ?? ''} hasActiveFile={!!activePath} symbols={symbols} onSelectSymbol={handleSelectSymbol} />

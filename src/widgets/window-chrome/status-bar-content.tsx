@@ -7,8 +7,8 @@ import { layoutQueryOptions } from '@entities/layout/layout.query'
 import { lspSessionsQueryOptions } from '@entities/lsp/lsp.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
+import { useEditorFontSize } from '@entities/settings/use-editor-font-size'
 import { systemUsageQueryOptions } from '@entities/system/system.query'
-import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { useMonacoMarkerCounts } from '@shared/hooks/use-monaco-markers'
 import { monaco } from '@shared/lib/monaco/setup'
 import { findActiveTab } from '@shared/lib/pane-tree'
@@ -54,6 +54,7 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ projectId, isProbl
     const showSystemUsage = settings?.showSystemUsage ?? true
     const { data: systemUsage = null } = useQuery(systemUsageQueryOptions(showSystemUsage))
     const { mutate: updateSettings } = useUpdateSettings()
+    const { editorFontSize, increaseEditorFontSize, decreaseEditorFontSize, resetEditorFontSize } = useEditorFontSize()
     /**
      * The counts tier, never the marker array: this component is mounted for the whole session and
      * shows one number, so subscribing it to every marker re-rendered the status bar (and re-scanned
@@ -63,7 +64,6 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ projectId, isProbl
      */
     const markerCounts = useMonacoMarkerCounts()
 
-    const editorFontSize = settings?.editorFontSize ?? DEFAULT_CODE_FONT_SIZE
     const terminalFontSize = settings?.terminalFontSize ?? DEFAULT_CODE_FONT_SIZE
     const errorCount = markerCounts[monaco.MarkerSeverity.Error]
     const focusedTabId = layout ? findActiveTab(layout.root, layout.focusedPane)?.id : undefined
@@ -128,14 +128,6 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ projectId, isProbl
               }
             : null
 
-    const increaseEditorFontSize = () =>
-        updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize + CODE_FONT_SIZE_STEP) })
-
-    const decreaseEditorFontSize = () =>
-        updateSettings({ ...emptySettingsPatch(), editorFontSize: clampFontSize(editorFontSize - CODE_FONT_SIZE_STEP) })
-
-    useGlobalKeymap({ 'font-size-up': increaseEditorFontSize, 'font-size-down': decreaseEditorFontSize })
-
     useEffect(() => {
         const unsubscribe = subscribeKeymapChordNoMatch(() => {
             if (chordNoMatchTimeoutRef.current) clearTimeout(chordNoMatchTimeoutRef.current)
@@ -165,7 +157,7 @@ export const StatusBarContent: FC<StatusBarContentProps> = ({ projectId, isProbl
                 terminalFontSize={terminalFontSize}
                 onEditorFontSizeDecrease={decreaseEditorFontSize}
                 onEditorFontSizeIncrease={increaseEditorFontSize}
-                onEditorFontSizeReset={() => updateSettings({ ...emptySettingsPatch(), editorFontSize: DEFAULT_CODE_FONT_SIZE })}
+                onEditorFontSizeReset={resetEditorFontSize}
                 onTerminalFontSizeDecrease={() =>
                     updateSettings({ ...emptySettingsPatch(), terminalFontSize: clampFontSize(terminalFontSize - CODE_FONT_SIZE_STEP) })
                 }

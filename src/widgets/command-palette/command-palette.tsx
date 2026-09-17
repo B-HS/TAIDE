@@ -38,8 +38,9 @@ import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import type { NormalizedWorkspaceSymbol } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { createWorkspaceSymbolSearch } from '@shared/lib/lsp/adapters/workspace-symbol'
 import { monaco } from '@shared/lib/monaco/setup'
-import { activeFilePathOf, currentWindowFocusedPane } from '@shared/lib/pane-tree'
+import { currentWindowActiveFilePath, currentWindowFocusedPane, findActiveTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { useShellSlotFocus } from '@shared/lib/shell-slot-context'
+import { getWindowContext } from '@shared/lib/window-context'
 import { Command, CommandEmpty, CommandInput, CommandList } from '@shared/ui/command'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
@@ -53,7 +54,7 @@ import { fileQueryOptions } from '@entities/file/file.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { projectFilesQueryOptions } from '@entities/search/search.query'
 import { layoutQueryOptions, useOpenFileTab, useOpenTab, useOpenTerminalTab, useReopenClosedTab } from '@entities/layout/layout.query'
-import { requestReveal } from '@entities/editor/reveal-registry'
+import { revealInTab } from '@entities/editor/reveal-registry'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import type { DocumentSymbolState } from '@widgets/command-palette/use-document-symbol-loader'
@@ -131,7 +132,10 @@ export const CommandPalette: FC<CommandPaletteProps> = ({ projectId }) => {
     })
     const isSymbolNavMode = mode === 'symbol' || mode === 'line'
     const { data: layout } = useQuery({ ...layoutQueryOptions(projectId), enabled: open && isSymbolNavMode && !!projectId })
-    const activePath = activeFilePathOf(layout)
+    const activePath = currentWindowActiveFilePath(layout)
+    const windowPaneTree = layout ? resolveWindowPaneTree(layout, getWindowContext()) : null
+    const activeTab = windowPaneTree ? findActiveTab(windowPaneTree.root, windowPaneTree.focusedPane) : null
+    const activeFileTabId = activeTab?.kind.kind === 'file' ? activeTab.id : null
     const { data: activeFile } = useQuery({ ...fileQueryOptions(activePath), enabled: open && mode === 'symbol' && !!activePath })
     const { data: lspServers } = useQuery({ ...lspServersQueryOptions(), enabled: open && mode === 'symbol' })
     const needsActiveProjectRoot = mode === 'symbol' || mode === 'files'
@@ -339,21 +343,20 @@ export const CommandPalette: FC<CommandPaletteProps> = ({ projectId }) => {
     }
 
     const selectDocumentSymbol = (symbol: FlatPaletteSymbol) => {
-        if (!activePath) return
-        requestReveal(activePath, symbol.selectionRange.startLineNumber, symbol.selectionRange.startColumn)
+        if (!activeFileTabId) return
+        revealInTab(activeFileTabId, { line: symbol.selectionRange.startLineNumber, column: symbol.selectionRange.startColumn })
         closeAfterAction()
     }
 
     const selectLineTarget = (target: PaletteLineTarget) => {
-        if (!activePath) return
-        requestReveal(activePath, target.line, target.column)
+        if (!activeFileTabId) return
+        revealInTab(activeFileTabId, { line: target.line, column: target.column })
         closeAfterAction()
     }
 
     const selectWorkspaceSymbol = (symbol: NormalizedWorkspaceSymbol) => {
         if (!projectId) return
-        requestReveal(symbol.path, symbol.line, symbol.column)
-        openFileTab({ projectId, path: symbol.path, target: null, preview: true })
+        openFileTab({ projectId, path: symbol.path, target: null, preview: true, reveal: { line: symbol.line, column: symbol.column } })
         closeAfterAction()
     }
 

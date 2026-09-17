@@ -6,6 +6,7 @@ import { subscribeOpenKeybindingsEditor } from '@shared/lib/keymap/keybindings-b
 import { useGlobalKeymap } from '@shared/hooks/use-global-keymap'
 import { applyMonacoKeybindingOverrides } from '@shared/lib/monaco/monaco-keybinding-runtime'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
+import { useEditorFontSize } from '@entities/settings/use-editor-font-size'
 
 /**
  * Split out of the boot payload (audit §1-1) together with its keybinding catalog and conflict
@@ -42,12 +43,23 @@ type KeybindingsDialogState = (typeof KEYBINDINGS_DIALOG_STATE)[keyof typeof KEY
  * nothing at all. Registering it in the provider gives every window exactly one owner of the
  * shortcut. The `keybindings-bridge` subscription stays for the other two entry points that reach
  * this dialog without a keystroke (the palette command and the settings view's button).
+ *
+ * ⌘=/⌘− (`font-size-up`/`font-size-down`) joined it for exactly the same reason (audit #14/#15):
+ * their only owner was `StatusBarContent`, which an auxiliary window has no equivalent of, so the
+ * editor font size there could not be changed by key or by button. `useEditorFontSize` is the shared
+ * owner of the arithmetic; the status bar now calls into it rather than registering the keys a
+ * second time, keeping one handler per window for a keymap entry that has no `when` gate.
  */
 export const KeybindingsRuntimeProvider: FC<PropsWithChildren> = ({ children }) => {
     const [dialogState, setDialogState] = useState<KeybindingsDialogState>(KEYBINDINGS_DIALOG_STATE.UNMOUNTED)
     const { data: settings } = useQuery(settingsQueryOptions())
+    const { increaseEditorFontSize, decreaseEditorFontSize } = useEditorFontSize()
 
-    useGlobalKeymap({ 'open-keybindings-editor': () => setDialogState(KEYBINDINGS_DIALOG_STATE.OPEN) })
+    useGlobalKeymap({
+        'open-keybindings-editor': () => setDialogState(KEYBINDINGS_DIALOG_STATE.OPEN),
+        'font-size-up': increaseEditorFontSize,
+        'font-size-down': decreaseEditorFontSize,
+    })
 
     useEffect(() => subscribeOpenKeybindingsEditor(() => setDialogState(KEYBINDINGS_DIALOG_STATE.OPEN)), [])
     useEffect(() => applyMonacoKeybindingOverrides(parseKeymapOverrides(settings?.keymapOverrides ?? null)), [settings?.keymapOverrides])

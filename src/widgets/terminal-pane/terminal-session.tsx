@@ -25,7 +25,8 @@ import { commands, events } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 import { toXtermTheme } from '@shared/lib/xterm-theme'
 import { buildMonospaceFontStack } from '@shared/lib/font-stack'
-import { findPaneTab } from '@shared/lib/pane-tree'
+import { findPaneTab, resolveWindowPaneTree } from '@shared/lib/pane-tree'
+import { getWindowContext } from '@shared/lib/window-context'
 import { registerTerminalWriteHandler } from '@shared/lib/bridge/terminal-write-bridge'
 import { requestOpenFileFromEditor } from '@shared/lib/bridge/editor-opener-bridge'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
@@ -84,7 +85,15 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
 
     const persistedSession = (liveSessions ?? []).find((session) => session.id === persistedSessionId)
     const sessionId = exited ? null : (spawnedSessionId ?? (isTerminalSessionAlive(liveSessions, persistedSessionId) ? persistedSessionId : null))
-    const activeTabKind = layout ? findPaneTab(layout.root, tabId)?.kind : null
+    /**
+     * Looked up in *this* window's own tree, not `layout.root`: a terminal opened from an auxiliary
+     * window ("Open in Terminal" on a folder there) lives only in that window's `AuxWindowLayout`,
+     * so searching the main tree found nothing and the tab's `cwd` silently became `null` — and
+     * `pty_default_options` then spawns the shell at the project root instead of the chosen folder,
+     * with no error to show for it (audit #4).
+     */
+    const windowPaneTree = layout ? resolveWindowPaneTree(layout, getWindowContext()) : null
+    const activeTabKind = windowPaneTree ? findPaneTab(windowPaneTree.root, tabId)?.kind : null
     const tabCwd = activeTabKind?.kind === 'terminal' ? (activeTabKind.cwd ?? null) : null
 
     const flushPendingInput = (created: string) => {

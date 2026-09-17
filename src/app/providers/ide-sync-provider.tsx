@@ -2,7 +2,7 @@ import type { FC, PropsWithChildren } from 'react'
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { OpenedFile, PaneNode, ProjectLayout, Tab } from '@shared/api/bindings'
+import type { OpenedFile, ProjectLayout } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { getModel } from '@entities/editor/model-registry'
 import { useSaveFile } from '@entities/file/file.query'
@@ -19,18 +19,10 @@ import { useMonacoMarkers } from '@shared/hooks/use-monaco-markers'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
+import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { QUERY_KEY } from '@shared/constants/query-key'
 
 const IDE_DIAGNOSTICS_PUSH_DEBOUNCE_MS = 300
-
-const findFileTabByPath = (node: PaneNode, path: string): Tab | null => {
-    if (node.node === 'leaf') return node.tabs.find((tab) => tab.kind.kind === 'file' && tab.kind.path === path) ?? null
-    for (const child of node.children) {
-        const found = findFileTabByPath(child, path)
-        if (found) return found
-    }
-    return null
-}
 
 /**
  * Keeps the Claude Code IDE protocol (diff/save/close-tab requests, status sync, diagnostics push)
@@ -78,7 +70,18 @@ export const IdeSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     useTauriEvent(events.ideSaveRequested, ({ payload }) => {
         void (async () => {
             const layout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(payload.projectId))
-            const tab = layout ? findFileTabByPath(layout.root, payload.path) : null
+            /**
+             * Every tree in the project, not `layout.root` alone: `move_tab_to_new_window` *removes*
+             * the tab from the main tree, so a file being edited in an auxiliary window is only ever
+             * found through `collectAllPaneTabs`. Missing it made `!tab?.dirty` true and answered the
+             * agent "Document saved successfully" without writing a byte (audit #2). Actually saving
+             * a tab that lives in another window is still out of reach from here — this provider is
+             * main-window-only and `model-registry` is per-realm — so that case now resolves
+             * `saved: false` through the `!model` branch below instead of lying.
+             */
+            const tab = layout
+                ? (collectAllPaneTabs(layout).find((open) => open.kind.kind === 'file' && open.kind.path === payload.path) ?? null)
+                : null
 
             if (!tab?.dirty) {
                 await resolveIdeSave({ requestId: payload.requestId, saved: true }).catch(() => undefined)
