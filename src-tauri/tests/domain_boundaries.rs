@@ -67,6 +67,11 @@ use regex::Regex;
 /// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
 ///   reloads it; the deliberate single direction left after R7#4's cycle cut (plugin no longer
 ///   references vsix).
+/// - `window/service.rs → file::service` — returning a closed auxiliary window's tabs to the main
+///   tree asks which of their paths still hold a hot-exit mirror, so a `dirty` flag with nothing
+///   unsaved behind it does not ride into the main tab bar (audit wave 2 #5). `list_mirrors` is a
+///   read-only data provider here, the same shape as `ide/commands.rs → file::service`; the
+///   alternative would re-implement the mirror filename hash outside the domain that owns it.
 /// - `window/menu.rs → project::service`·`locale::service` — the app menu's `File > Open Recent`
 ///   *draws* the recent-project list and its own labels; both targets are read-only data providers
 ///   for it (`list_recent_projects`, `lookup_builtin_message`), the same shape as
@@ -106,6 +111,7 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/vsix/commands.rs", "plugin::service"),
     ("domain/window/menu.rs", "locale::service"),
     ("domain/window/menu.rs", "project::service"),
+    ("domain/window/service.rs", "file::service"),
     ("domain/window/service.rs", "layout::service"),
 ];
 

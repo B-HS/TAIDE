@@ -4,6 +4,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use super::types::{AUXILIARY_WINDOW_LABEL_PREFIX, AUXILIARY_WINDOW_STATE_KEY};
+use crate::domain::file::service as file_service;
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::ProjectLayout;
 use crate::domain::project::types::Project;
@@ -75,6 +76,20 @@ pub fn plan_auxiliary_window_restorations(project_ids: &[ProjectId], layouts: &H
         .collect()
 }
 
+/// Every path this project currently holds an unsaved hot-exit mirror for — the disk-side half of
+/// a tab's `dirty` flag, read once per auxiliary-window close and handed to
+/// `layout_service::clear_auxiliary_window_phantom_dirty` as a plain membership test.
+///
+/// An unreadable mirror directory answers "no mirrors", which is the safe direction here: the
+/// worst it does is leave a `dirty` flag alone.
+fn mirrored_paths(state: &AppState, project_id: &ProjectId) -> HashSet<String> {
+    file_service::list_mirrors(&state.paths, project_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mirror| mirror.path)
+        .collect()
+}
+
 /// Runs on an auxiliary editor window's `CloseRequested`/`Destroyed` — merges that window's tabs
 /// back into the main window's layout tail and drops its `AuxWindowLayout` entry
 /// (`layout::service::return_auxiliary_window_tabs`), TAIDE's 0-loss philosophy on aux-window close
@@ -90,9 +105,10 @@ pub fn plan_auxiliary_window_restorations(project_ids: &[ProjectId], layouts: &H
 /// across that gap — so a synchronous read-modify-write straight into `state.layouts` here could
 /// still race a concurrent command's write and silently lose either mutation. Routing through the
 /// same `begin_mutation` guard and the same clone→mutate→write-back shape those commands use closes
-/// that gap. The window itself doesn't wait on this task (both `CloseRequested` and `Destroyed`
-/// already let the OS proceed independently — `handle_auxiliary_close_requested` never calls
-/// `prevent_close`) — worst case if the app quits before this task gets scheduled, the just-closed
+/// that gap. The window itself doesn't wait on this task — by the time either arm reaches here the
+/// OS close is already proceeding (`handle_auxiliary_close_requested` intercepts only the *first*
+/// close request, to run that window's scoped flush; this runs from the follow-up close it
+/// re-issues, and from `Destroyed`) — worst case if the app quits before this task gets scheduled, the just-closed
 /// window's `AuxWindowLayout` entry (and its tabs) simply stays in the persisted layout and comes
 /// back as a re-opened window on next launch (`restore_auxiliary_windows`) instead of merging into
 /// main immediately; nothing is lost. A no-op (with a debug log, not a warning — this is the
@@ -105,11 +121,15 @@ pub fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &Projec
         let state = app.state::<AppState>();
         let _guard = state.begin_mutation().await;
 
+        let mirrored_paths = mirrored_paths(&state, &project_id);
+
         let mut layouts = state.layouts.read().clone();
         let Some(layout) = layouts.get_mut(&project_id) else {
             log::debug!("보조 창 탭 복귀 생략: 프로젝트가 이미 닫혔습니다 (projectId={project_id})");
             return;
         };
+
+        layout_service::clear_auxiliary_window_phantom_dirty(layout, window_slot, &|path| mirrored_paths.contains(path));
 
         if !layout_service::return_auxiliary_window_tabs(layout, window_slot) {
             log::debug!("보조 창 탭 복귀 생략: 슬롯을 찾을 수 없습니다 (projectId={project_id}, windowSlot={window_slot})");

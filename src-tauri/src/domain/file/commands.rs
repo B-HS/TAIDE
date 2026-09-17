@@ -10,7 +10,7 @@ use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::infra::root_guard;
-use crate::state::AppState;
+use crate::state::{AppState, FlushScope};
 
 /// The read itself (up to `REFUSED_FILE_BYTES` of bytes, plus the UTF-8 decode and line count over
 /// them) runs on a blocking thread instead of pinning an async worker for its duration
@@ -230,17 +230,34 @@ pub async fn file_prune_untitled_mirrors(state: State<'_, AppState>, project_id:
     service::prune_untitled_mirrors(&state.paths, &project_id, &keep_tab_ids)
 }
 
-/// Confirms the calling window has finished flushing every dirty editor
-/// model to the hot-exit mirror in response to `HotExitFlushRequested`, then
-/// resumes the app exit that the main window's `CloseRequested` deferred
-/// once every window expected to confirm has done so (Wave I: main plus any
-/// currently-open `editor-*` auxiliary windows — see
-/// `AppState::begin_hot_exit_flush`). A no-op if the flush was already
-/// completed (by every window confirming, or by the timeout fallback).
+/// Confirms the calling window has finished flushing its dirty editor models to the hot-exit
+/// mirror in response to a `HotExitFlushRequested` carrying `scope`, then resumes whatever
+/// teardown that scope's request deferred — once *every* window expected to confirm has done so.
+///
+/// `window: tauri::Window` is Tauri-injected as whichever window's webview made this call, so a
+/// window can only ever confirm on its own behalf. `scope` must be echoed back from the request
+/// the window is answering, which is what keeps three concurrent handshakes apart: the app exit
+/// ([`FlushScope::All`] — main plus any currently-open `editor-*` windows, see
+/// `AppState::begin_hot_exit_flush`), one auxiliary window's close
+/// ([`FlushScope::Window`]), and one project's close ([`FlushScope::Project`], which every window
+/// answers because a project spans windows).
+///
+/// A no-op if that scope's flush was already completed (by every window confirming, or by the
+/// timeout fallback), if the scope has no handshake at all, or if this window was not among the
+/// ones it expected.
 #[tauri::command]
 #[specta::specta]
-pub async fn file_flush_complete(app: AppHandle, window: tauri::Window<tauri::Wry>, state: State<'_, AppState>) -> AppResult<()> {
-    if state.complete_hot_exit_flush(window.label()) {
+pub async fn file_flush_complete(
+    app: AppHandle,
+    window: tauri::Window<tauri::Wry>,
+    state: State<'_, AppState>,
+    scope: FlushScope,
+) -> AppResult<()> {
+    // Reaching `Ready` is the whole signal for every scope but the app exit: the auxiliary window's
+    // close (`domain::window::commands::handle_auxiliary_close_requested`) and the project close
+    // (`domain::project::commands::project_close`) each await their own handshake and resume
+    // themselves, so nothing is dispatched from here.
+    if state.complete_flush(&scope, window.label()) && matches!(scope, FlushScope::All) {
         app.exit(0);
     }
     Ok(())

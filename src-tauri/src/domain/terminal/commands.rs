@@ -12,10 +12,10 @@ use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use super::service;
-use super::types::{PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession, DEFAULT_SCROLLBACK_BYTES};
+use super::types::{self, PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
 use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
-use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited};
+use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
@@ -427,7 +427,9 @@ pub async fn pty_spawn(
     drop(on_data);
 
     let session_id = new_session_id();
-    let output = Arc::new(Mutex::new(SessionOutput::new(DEFAULT_SCROLLBACK_BYTES)));
+    let output = Arc::new(Mutex::new(SessionOutput::new(types::resolve_scrollback_bytes(
+        opts.scrollback_bytes,
+    ))));
     let running = Arc::new(AtomicBool::new(true));
 
     let output_for_data = output.clone();
@@ -487,7 +489,14 @@ pub async fn pty_spawn(
         running,
     };
 
+    let spawned = TerminalSpawned {
+        session_id: session_id.clone(),
+        project_id: entry.project_id.clone(),
+        cwd: entry.cwd.clone(),
+        shell: entry.shell.clone(),
+    };
     store.0.lock().insert(session_id.clone(), entry);
+    let _ = spawned.emit(&app);
 
     Ok(session_id)
 }
@@ -729,6 +738,7 @@ pub async fn pty_default_options(state: State<'_, AppState>, project_id: Project
         shell: state.settings.read().shell_override.clone(),
         cols: DEFAULT_TERMINAL_COLS,
         rows: DEFAULT_TERMINAL_ROWS,
+        scrollback_bytes: None,
     })
 }
 

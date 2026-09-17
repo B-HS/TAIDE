@@ -8,18 +8,19 @@ use super::capability::ProjectCapabilities;
 use super::groups;
 use super::service;
 use super::types::{
-    OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectGroup, ProjectGroupOpenResult, ProjectRef, SessionShellState,
-    SessionState, WindowChrome, WindowChromePatch,
+    ForgetRecentOutcome, OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectGroup, ProjectGroupOpenResult, ProjectRef,
+    SessionShellState, SessionState, WindowChrome, WindowChromePatch,
 };
+use crate::constants;
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
 use crate::events::{
-    FsChanged, GitStatusChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened,
-    SessionShellSlotsChanged, WindowChromeChanged,
+    FsChanged, GitStatusChanged, HotExitFlushRequested, ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged,
+    ProjectOpened, ProjectRecentCleared, SessionShellSlotsChanged, WindowChromeChanged,
 };
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
-use crate::state::AppState;
+use crate::state::{AppState, FlushScope};
 
 fn emit_list_changed(app: &AppHandle, state: &AppState) {
     let projects = service::list_projects(&state.session.read());
@@ -77,6 +78,11 @@ pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Pr
 /// re-reads its project queries — and so `lib.rs`'s listener rebuilds the native `File > Open
 /// Recent` menu that listed them.
 ///
+/// A closed project whose hot-exit mirrors still hold unsaved work is kept as well and reported in
+/// `ForgetRecentOutcome::skipped_with_drafts`, which is why this returns the whole outcome instead
+/// of the removed count it used to: the caller turns a non-zero count into the notice that explains
+/// why the recent list did not empty (`service::forget_recent_projects`).
+///
 /// `ProjectGroupsChanged` follows **only when a forgotten project was actually listed under a
 /// group** (`ForgetRecentOutcome::groups_changed`, contract §3 B-1): the groups are untouched in the
 /// ordinary clear-recent call, and telling every window to re-read a group list that did not change
@@ -88,7 +94,7 @@ pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Pr
 /// session that cannot read it has no business destroying it either.
 #[tauri::command]
 #[specta::specta]
-pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -> AppResult<u32> {
+pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -> AppResult<ForgetRecentOutcome> {
     let outcome = {
         let _guard = state.begin_mutation().await;
         let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
@@ -102,8 +108,13 @@ pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -
     if outcome.groups_changed {
         emit_groups_changed(&app, &state);
     }
+    let _ = ProjectRecentCleared {
+        removed: outcome.removed,
+        skipped_with_drafts: outcome.skipped_with_drafts,
+    }
+    .emit(&app);
 
-    Ok(outcome.removed as u32)
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -468,10 +479,74 @@ async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppR
     Ok(())
 }
 
-/// Closes `project_id` and reaps every resource that only makes sense while the project is open.
-/// See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
+/// Runs [`project_close`]'s pre-close flush handshake: broadcast the request, wait for every window
+/// open at this moment to confirm, give up after `constants::HOT_EXIT_FLUSH_TIMEOUT_MS`.
+///
+/// Returns nothing because the close proceeds either way — the only thing a timeout changes is
+/// that the mirror may be missing the last debounce window, which is strictly better than the
+/// project staying open. A handshake already in flight for this project (a second `project_close`
+/// racing the first) is left alone and not waited on again; the real close is serialized by
+/// `AppState::begin_mutation`, and [`project_close`] re-checks `state.projects` once that guard is
+/// held so the losing call returns `Ok(())` — the project is already closed, which is exactly the
+/// outcome it asked for, so a double-click on "close project" must not surface an error toast —
+/// instead of reaping a project the winner already closed. `service::close_project` refuses
+/// nothing on its own — removing an absent key is a no-op,
+/// and it would still re-normalize the shell slots, re-persist the session and let the caller
+/// re-emit `ProjectClosed`/`ProjectActivated`, moving the focus a second time.
+async fn await_project_flush(app: &AppHandle, state: &AppState, project_id: &ProjectId) {
+    let scope = FlushScope::Project(project_id.clone());
+    // `windows()` needs the `unstable` Tauri feature this project doesn't enable;
+    // `webview_windows()` is the stable equivalent and every window here is a webview window.
+    let expected_windows: HashSet<String> = app.webview_windows().into_keys().collect();
+    if expected_windows.is_empty() {
+        return;
+    }
+
+    let Some(ticket) = state.begin_flush(scope.clone(), expected_windows) else {
+        return;
+    };
+
+    let _ = HotExitFlushRequested {
+        timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
+        scope: scope.clone(),
+    }
+    .emit(app);
+
+    let confirmed = ticket
+        .wait(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS))
+        .await;
+    if !confirmed {
+        log::warn!("프로젝트 닫기 flush 가 시간 내에 확인되지 않아 그대로 닫습니다 (projectId={project_id})");
+    }
+    state.clear_flush(&scope);
+}
+
+/// Asks every window to flush this project's dirty editor models to the hot-exit mirror, waits for
+/// them (bounded by `constants::HOT_EXIT_FLUSH_TIMEOUT_MS`), and only then closes `project_id`.
+///
+/// The wait is not optional politeness. Every write path the mirror uses is gated on the project
+/// still being open — `file_mirror_dirty` starts with `root_guard::project_root`, which answers
+/// `NotFound` the instant `state.projects` loses the entry — and the frontend's own flush runs
+/// from an unmount effect, which cannot fire until *after* this command has already removed the
+/// project and `ipc-sync-provider` has torn the layout query down. So closing first meant the last
+/// `HOT_EXIT_MIRROR_DEBOUNCE_MS` of typing was rejected by the backend and swallowed by the
+/// caller's `.catch(() => false)` — no error, no toast, nothing on disk (audit wave 2 #12). The
+/// handshake here is the same one the app exit and an auxiliary window's close use, scoped to this
+/// project ([`FlushScope::Project`]), so a window that renders other projects too flushes only
+/// what is about to disappear.
+///
+/// The wait deliberately happens **before** `AppState::begin_mutation`: it is bounded by a
+/// frontend round-trip, and holding the one global mutation guard across it would stall every
+/// other command for as long as a window takes to answer. Timing out is not an error — the close
+/// proceeds regardless, because a window whose listener never answers must not be able to keep a
+/// project open forever. That same gap is why the "still open?" check is repeated after the guard
+/// is taken: two closes for the same project can both pass the entry check while they wait, and
+/// only one of them may run the reap below.
+///
+/// Then it reaps every resource that only makes sense while the project is open. See
+/// `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
 /// `asset://` read access needs no entry of its own in that list any more: `infra::asset_protocol`
-/// decides per-request from `state.projects`, and the `*state.projects.write() = projects;` above
+/// decides per-request from `state.projects`, and the `*state.projects.write() = projects;` below
 /// (via `service::close_project`, which removes `project_id`) already revokes it before any
 /// capability's detach even runs. The reaps themselves are owned by the registered
 /// [`ProjectCapabilities`], whose detach walk runs in registration order — an order that is part
@@ -480,7 +555,17 @@ async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppR
 #[tauri::command]
 #[specta::specta]
 pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
+    if !state.projects.read().contains_key(&project_id) {
+        return Err(AppError::NotFound(format!("project not open: {project_id}")));
+    }
+
+    await_project_flush(&app, &state, &project_id).await;
+
     let _guard = state.begin_mutation().await;
+    if !state.projects.read().contains_key(&project_id) {
+        return Ok(());
+    }
+
     let mut session = state.session.read().clone();
     let mut projects = state.projects.read().clone();
 
@@ -1206,6 +1291,56 @@ mod tests {
         );
     }
 
+    /// `File > Clear Recent` runs this command **from Rust** (`lib.rs`'s `dispatch_menu_action`, so
+    /// the menu keeps working with zero windows open) and drops the returned outcome on the floor —
+    /// there is no IPC caller to hand it to. Unless the command publishes the counts itself, the
+    /// "kept N projects that still hold unsaved drafts" notice is unreachable from the only path that
+    /// actually clears the list, and a recent list that refuses to empty reads as a failed command.
+    #[test]
+    fn project_forget_recent_은_초안_때문에_건너뛴_수를_이벤트로_알린다() {
+        let body = source_between("pub async fn project_forget_recent(", "\n}\n");
+
+        assert!(
+            body.contains("ProjectRecentCleared {"),
+            "project_forget_recent 가 ProjectRecentCleared 를 emit 하지 않으면 네이티브 메뉴 경로에서 초안 보존 안내가 사라집니다"
+        );
+        assert!(
+            body.contains("skipped_with_drafts: outcome.skipped_with_drafts"),
+            "이벤트가 skipped_with_drafts 를 그대로 실어야 프론트가 안내 여부를 판단할 수 있습니다"
+        );
+    }
+
+    /// `await_project_flush` deliberately waits *outside* `begin_mutation`, so two closes of the
+    /// same project can both clear the entry check and then queue on the guard. Nothing but this
+    /// file's own control flow stops the loser from reaping a second time —
+    /// `service::close_project` removes an absent key happily, re-normalizes the shell slots and
+    /// re-persists the session, after which the caller re-emits `ProjectClosed`/`ProjectActivated`
+    /// and moves the focus again. So scan the source: the re-check must sit after the guard.
+    #[test]
+    fn project_close_는_가드를_잡은_뒤_프로젝트가_아직_열려_있는지_재검사한다() {
+        let body = source_between("pub async fn project_close(", "\n}\n");
+        let guard = marker_position(body, "let _guard = state.begin_mutation().await;");
+        let checks: Vec<usize> = body
+            .match_indices("state.projects.read().contains_key(&project_id)")
+            .map(|(position, _)| position)
+            .collect();
+
+        assert_eq!(
+            checks.len(),
+            2,
+            "열림 검사는 두 번이어야 합니다 — flush 대기 전 진입 검사와 가드 재획득 뒤 재검사"
+        );
+        assert!(
+            checks[0] < guard && guard < checks[1],
+            "재검사가 begin_mutation 앞으로 가면 flush 대기 중 끼어든 다른 close 를 걸러내지 못합니다"
+        );
+        let recheck_block = &body[checks[1]..marker_position(body, "let mut session = state.session.read().clone();")];
+        assert!(
+            recheck_block.contains("return Ok(())"),
+            "재검사에서 이미 닫힌 프로젝트는 조용히 성공해야 합니다 — 이중 닫기는 목표를 이미 달성한 것이라 NotFound 토스트를 띄우면 안 됩니다"
+        );
+    }
+
     /// `project_open` must reach the attach through [`attach_project_capabilities`] (which owns the
     /// build/register split) and only *after* its own mutation guard scope has closed.
     #[test]
@@ -1360,6 +1495,7 @@ mod tests {
                     root: String::new(),
                     name: (*id).to_string(),
                     display: ProjectDisplay::default(),
+                    root_missing: false,
                 })
                 .collect(),
             active_project: active_project.map(|id| ProjectId::from(id.to_string())),

@@ -37,6 +37,14 @@ struct MirrorFile {
 /// state at list time. `conflict` is `true` when the disk was modified after
 /// the mirror's `disk_modified_ms` baseline was captured, meaning applying
 /// the mirror as-is would silently discard an external change.
+///
+/// `source_missing` marks the other resolution: the file the draft belongs to
+/// is gone from disk (deleted outside the app — `rm`, a `git checkout`, a build
+/// script). Such a mirror is still listed, because being unlistable is exactly
+/// what used to make the draft unreachable, but neither `conflict` nor
+/// `disk_modified_ms` can be answered against a file that is not there, so both
+/// come back `false`/`None` and the frontend offers "save as" instead of a
+/// restore.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MirrorEntry {
@@ -45,6 +53,7 @@ pub struct MirrorEntry {
     pub saved_at_ms: f64,
     pub disk_modified_ms: Option<f64>,
     pub conflict: bool,
+    pub source_missing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,10 +373,18 @@ pub fn clear_mirror(paths: &AppPaths, project_id: &ProjectId, path: &Path) -> Ap
     }
 }
 
-/// Lists restorable mirrors. A mirror whose source file no longer exists on
-/// disk is skipped rather than surfaced as a ghost restore target — the
-/// stale mirror JSON itself is left in place for `prune_mirrors` to reap
-/// once the caller knows which paths are still open.
+/// Lists restorable mirrors, including those whose source file no longer
+/// exists on disk — flagged with [`MirrorEntry::source_missing`].
+///
+/// Skipping them (the previous behaviour) made the draft unreachable rather
+/// than tidy: this listing is the *only* path by which a mirror reaches the
+/// frontend, so an external `rm` between two runs silently took the unsaved
+/// work with it — hot-exit's whole promise — while the file itself sat intact
+/// in `buffers/`. `useRenameEntry` already had to work around exactly this by
+/// force-refetching before the old path disappeared; an external delete had no
+/// such workaround. Surfacing the mirror with a flag lets the editor offer
+/// "원본이 삭제됨 — 다른 이름으로 저장" instead of a plain open error, and
+/// `prune_mirrors` still reaps it once its tab is really gone.
 pub fn list_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppResult<Vec<MirrorEntry>> {
     let dir = paths.buffers_dir(project_id);
     let entries = match std::fs::read_dir(&dir) {
@@ -385,16 +402,18 @@ pub fn list_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppResult<Vec<M
         let Some(mirror) = persist::read_json::<MirrorFile>(&entry.path())? else {
             continue;
         };
-        let Some(current_disk_modified_ms) = current_modified_ms(Path::new(&mirror.path)) else {
-            continue;
+        let current_disk_modified_ms = current_modified_ms(Path::new(&mirror.path));
+        let conflict = match (current_disk_modified_ms, mirror.disk_modified_ms) {
+            (Some(current), Some(baseline)) => current > baseline,
+            _ => false,
         };
-        let conflict = mirror.disk_modified_ms.is_some_and(|baseline| current_disk_modified_ms > baseline);
         mirrors.push(MirrorEntry {
             path: mirror.path,
             content: mirror.content,
             saved_at_ms: mirror.saved_at_ms,
-            disk_modified_ms: mirror.disk_modified_ms,
+            disk_modified_ms: current_disk_modified_ms.and(mirror.disk_modified_ms),
             conflict,
+            source_missing: current_disk_modified_ms.is_none(),
         });
     }
     Ok(mirrors)
@@ -403,6 +422,11 @@ pub fn list_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppResult<Vec<M
 /// Deletes every path-mirror not present in `keep_paths` (currently open
 /// tabs). Corrupt/unreadable mirror files are also swept, since they can
 /// never be restored anyway.
+///
+/// Whether the mirrored file still exists on disk is deliberately not part of
+/// the decision: a tab whose file was deleted outside the app keeps its draft
+/// exactly as long as the tab is open, which is what makes
+/// [`MirrorEntry::source_missing`]'s "save as" recovery reachable.
 pub fn prune_mirrors(paths: &AppPaths, project_id: &ProjectId, keep_paths: &[String]) -> AppResult<()> {
     let dir = paths.buffers_dir(project_id);
     let entries = match std::fs::read_dir(&dir) {
@@ -1186,8 +1210,11 @@ mod tests {
         cleanup(&dir);
     }
 
+    /// 외부 삭제(`rm`·`git checkout`)로 원본이 사라져도 초안 자체는 디스크에 남는다. 목록에서
+    /// 빼 버리면 앱 안에서 그 초안에 닿을 길이 사라져, hot-exit 가 지켜 주기로 한 작업물이
+    /// 사용자에겐 그냥 없어진 것이 된다.
     #[test]
-    fn 디스크에서_사라진_미러_항목은_목록에서_제외된다() {
+    fn 원본이_사라진_미러도_source_missing_표시와_함께_목록에_남는다() {
         let dir = temp_dir("mirror-missing-disk");
         std::fs::create_dir_all(&dir).unwrap();
         let paths = AppPaths::new(dir.clone());
@@ -1200,7 +1227,56 @@ mod tests {
 
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
 
-        assert!(mirrors.is_empty());
+        assert_eq!(mirrors.len(), 1);
+        assert_eq!(mirrors[0].path, target.to_string_lossy().to_string());
+        assert_eq!(mirrors[0].content, "mirrored content");
+        assert!(mirrors[0].source_missing);
+        assert!(!mirrors[0].conflict, "없는 파일과는 충돌을 판정할 수 없다");
+        assert_eq!(mirrors[0].disk_modified_ms, None);
+
+        cleanup(&dir);
+    }
+
+    /// 살아 있는 원본은 종전대로 `source_missing` 이 아니다.
+    #[test]
+    fn 원본이_있는_미러는_source_missing이_아니다() {
+        let dir = temp_dir("mirror-present-source");
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = AppPaths::new(dir.clone());
+        let project_id = ProjectId::new();
+        let target = dir.join("alive.rs");
+        std::fs::write(&target, "on disk").unwrap();
+
+        mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "draft").expect("mirror");
+
+        let mirrors = list_mirrors(&paths, &project_id).expect("list");
+
+        assert_eq!(mirrors.len(), 1);
+        assert!(!mirrors[0].source_missing);
+        assert!(mirrors[0].disk_modified_ms.is_some());
+
+        cleanup(&dir);
+    }
+
+    /// 탭이 열려 있는 한 초안은 살아남아야 "다른 이름으로 저장" 복구가 닿는다 — 원본 부재는
+    /// prune 판정에 끼어들지 않는다.
+    #[test]
+    fn prune_mirrors는_원본이_사라져도_keep_paths의_미러를_남긴다() {
+        let dir = temp_dir("mirror-prune-missing-source");
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = AppPaths::new(dir.clone());
+        let project_id = ProjectId::new();
+        let target = dir.join("gone.rs");
+        std::fs::write(&target, "will be deleted").unwrap();
+
+        mirror_dirty(&paths, &project_id, &target, &target.to_string_lossy(), "draft").expect("mirror");
+        std::fs::remove_file(&target).unwrap();
+
+        prune_mirrors(&paths, &project_id, &[target.to_string_lossy().to_string()]).expect("prune");
+        let mirrors = list_mirrors(&paths, &project_id).expect("list");
+
+        assert_eq!(mirrors.len(), 1);
+        assert!(mirrors[0].source_missing);
 
         cleanup(&dir);
     }

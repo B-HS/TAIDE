@@ -41,6 +41,20 @@ pub struct SearchQuery {
     pub context_lines: u32,
     #[serde(default = "default_respect_gitignore")]
     pub respect_gitignore: bool,
+    /// Confines the whole run to one directory, given **project-relative** (`node_modules/pkg`,
+    /// `src`) — the Explorer's "폴더에서 찾기" entry point.
+    ///
+    /// Distinct from `include_glob` on purpose. A glob only filters entries the walk already
+    /// produced, and the walk prunes `constants::IGNORED_DIR_NAMES` before any glob is consulted,
+    /// so `node_modules/**` as an include pattern reported a truthful-looking zero results for a
+    /// folder the user had just pointed at. A scope instead *moves the walk root* and, because the
+    /// user named this directory explicitly, suspends that pruning inside it
+    /// (`service::configure_walk`). Relative paths reported back are still relative to the project
+    /// root, so results look the same as an unscoped run's.
+    ///
+    /// `None` — every caller that predates this field — leaves the project-wide walk untouched.
+    #[serde(default)]
+    pub scope_dir: Option<String>,
 }
 
 /// How many individual skipped files `search_replace` names in its result before it stops

@@ -77,6 +77,7 @@ pub const IMPLEMENTED_JSON_COMMANDS: &[&str] = &[
     "file_flush_complete",
     "tree_rows",
     "tree_toggle",
+    "tree_collapse_all",
     "tree_reveal",
     "tree_refresh",
     "search_run",
@@ -667,6 +668,7 @@ const REMOTE_ALLOWED_COMMANDS: &[&str] = &[
     "file_prune_untitled_mirrors",
     "tree_rows",
     "tree_toggle",
+    "tree_collapse_all",
     "tree_reveal",
     "tree_refresh",
     "search_run",
@@ -1042,6 +1044,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             .await,
         ),
         "tree_toggle" => respond(tree::tree_toggle(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
+        "tree_collapse_all" => respond(tree::tree_collapse_all(app.state(), app.state(), arg!(args, "projectId")).await),
         "tree_reveal" => respond(tree::tree_reveal(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
         "tree_refresh" => respond(tree::tree_refresh(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "dir")).await),
 

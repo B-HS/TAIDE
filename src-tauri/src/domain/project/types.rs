@@ -59,6 +59,37 @@ pub struct ProjectRef {
     /// this mirror it would need one `project_get` per project just to draw an icon.
     #[serde(default)]
     pub display: ProjectDisplay,
+    /// Mirror of `Project.root_missing`, recomputed against the live filesystem wherever that field
+    /// is (`service::restore_session`, `service::open_project`) and written through by
+    /// `service::upsert_project_ref` — the same reason `display` is mirrored.
+    ///
+    /// Without it the one surface that shows a restored project — the sidebar rail and its slot
+    /// header, both of which render from `project_list` alone — had no way to know the folder is
+    /// gone, so a project whose drive was unplugged came back looking perfectly healthy with an
+    /// empty file tree, while `Open Recent` and the Welcome list (which read `Project`) disabled
+    /// the very same entry.
+    ///
+    /// `#[serde(default)]` reads a pre-d-67 `session.json` (no such field) as `false`; the next
+    /// `restore_session` recomputes it from disk anyway.
+    #[serde(default)]
+    pub root_missing: bool,
+}
+
+/// What one `service::forget_recent_projects` call did. The three answers are deliberately
+/// separate: most calls delete records that no group ever listed, so `removed` being non-zero says
+/// nothing about whether the sidebar's groups moved, and `skipped_with_drafts` counts records the
+/// call refused to touch rather than ones it failed to.
+///
+/// `project_forget_recent` emits `ProjectGroupsChanged` only when `groups_changed` is true — every
+/// window re-reads its group query on that event, and a clear-recent that touched no membership has
+/// nothing for them to re-read. `skipped_with_drafts` is what the frontend turns into the "초안이
+/// 있는 프로젝트는 남겨 두었습니다" notice, so the user learns why the list did not empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgetRecentOutcome {
+    pub removed: u32,
+    pub skipped_with_drafts: u32,
+    pub groups_changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

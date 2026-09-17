@@ -26,8 +26,9 @@ use crate::domain::window::commands::WindowStore;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
     IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
-    ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, RemoteStateChanged, SessionShellSlotsChanged,
-    SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, ThemeChanged, WindowChromeChanged,
+    ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged,
+    SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
+    TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
@@ -352,6 +353,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::file::commands::file_flush_complete,
             domain::tree::commands::tree_rows,
             domain::tree::commands::tree_toggle,
+            domain::tree::commands::tree_collapse_all,
             domain::tree::commands::tree_reveal,
             domain::tree::commands::tree_refresh,
             domain::search::commands::search_run,
@@ -498,12 +500,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
             ProjectActivated,
             ProjectListChanged,
             ProjectGroupsChanged,
+            ProjectRecentCleared,
             SessionShellSlotsChanged,
             WindowChromeChanged,
             LayoutChanged,
             ThemeChanged,
             FsChanged,
             FsRescanRequired,
+            TerminalSpawned,
             TerminalExited,
             TerminalCwdChanged,
             TerminalCommandFinished,
@@ -757,12 +761,14 @@ pub fn run() {
                 ProjectActivated,
                 ProjectListChanged,
                 ProjectGroupsChanged,
+                ProjectRecentCleared,
                 SessionShellSlotsChanged,
                 WindowChromeChanged,
                 LayoutChanged,
                 ThemeChanged,
                 FsChanged,
                 FsRescanRequired,
+                TerminalSpawned,
                 TerminalExited,
                 TerminalCwdChanged,
                 TerminalCommandFinished,
@@ -976,7 +982,7 @@ mod tests {
     #[test]
     fn 이벤트_타입_목록은_events_rs와_collect_events_매크로에서_일치한다() {
         let declared: BTreeSet<String> = event_name_by_type().into_keys().collect();
-        assert_eq!(declared.len(), 28, "events.rs 에 선언된 이벤트 구조체 수가 28종에서 벗어났습니다");
+        assert_eq!(declared.len(), 30, "events.rs 에 선언된 이벤트 구조체 수가 30종에서 벗어났습니다");
 
         let collected = identifier_set(extract_between(include_str!("lib.rs"), "collect_events![", "]"));
 

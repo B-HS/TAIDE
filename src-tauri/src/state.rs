@@ -1,7 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
+use std::time::Duration;
 
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use crate::domain::layout::types::ProjectLayout;
 use crate::domain::project::types::{Project, SessionState};
@@ -12,21 +16,87 @@ use crate::infra::self_write::SelfWriteTracker;
 use crate::infra::watcher::WatcherHandle;
 use crate::paths::AppPaths;
 
-/// Tracks the hot-exit close-intercept handshake between the main window's
-/// `CloseRequested` event and every currently-open window's individual flush
-/// completion. `Idle` -> `Pending(expected window labels)` on the first close
-/// attempt (guards re-entrant close requests — e.g. mashing Cmd+Q — from
-/// re-emitting the flush event), `Pending` -> `Ready` once every expected
-/// window has confirmed (`AppState::complete_hot_exit_flush`) or the timeout
-/// fallback force-completes it (guards a double `AppHandle::exit`). Wave I:
-/// before multi-window support, `Pending` carried no payload because the main
-/// window was the only window that could ever confirm — see
+/// Which dirty editor models one flush handshake asks the frontend to write to the hot-exit mirror
+/// before the backend does something that would otherwise lose them.
+///
+/// The handshake itself (`crate::events::HotExitFlushRequested` out,
+/// `domain::file::commands::file_flush_complete` back, with a timeout fallback) started life as an
+/// app-exit-only mechanism. Three separate teardowns destroy a webview or drop a project's state
+/// while the mirror debounce (`HOT_EXIT_MIRROR_DEBOUNCE_MS`) may still be holding the last half
+/// second of typing, and only one of them used to run it — so the scope travels with the request
+/// and with every confirmation, and one window confirming a project close can never be mistaken
+/// for the same window confirming the app's exit.
+///
+/// Serialized externally-tagged, which is what gives the frontend the union it reads:
+/// `"all" | { window: label } | { project: projectId }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FlushScope {
+    /// Every window, every project — the app is exiting.
+    All,
+    /// One window's own models, because that OS window is about to be destroyed. Keyed by the
+    /// Tauri label (`editor-<n>`) rather than by project so two auxiliary windows closing at the
+    /// same time each wait for their own confirmation.
+    Window(String),
+    /// Every window's models belonging to one project, because that project is being closed and
+    /// its `file_mirror_dirty` writes stop being accepted the moment it leaves `AppState`.
+    Project(ProjectId),
+}
+
+/// Tracks one scope's close-intercept handshake between the event that started it and every
+/// window that must individually confirm its flush. Absent (no map entry) -> `Pending(expected
+/// window labels)` on the first close attempt (which is what guards re-entrant close requests —
+/// mashing Cmd+Q, or clicking an auxiliary window's ✕ twice — from re-emitting the flush event),
+/// `Pending` -> `Ready` once every expected window has confirmed
+/// (`AppState::complete_flush`) or the timeout fallback force-completes it (which is what
+/// guards a double `AppHandle::exit`). Wave I: before multi-window support, `Pending` carried no
+/// payload because the main window was the only window that could ever confirm — see
 /// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §3.1.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum HotExitFlushPhase {
-    Idle,
+enum FlushPhase {
     Pending(HashSet<String>),
     Ready,
+}
+
+struct FlushHandshake {
+    /// Distinguishes this handshake from the next one over the same scope — a `Window` label and
+    /// a `Project` id are both reusable (`editor-1` is reissued to the next auxiliary window, a
+    /// project can be closed, reopened and closed again), so a timeout task that fires late must
+    /// not force-complete whatever handshake happens to occupy its scope by then.
+    token: u64,
+    phase: FlushPhase,
+    /// Woken when this handshake reaches `Ready`, for the one caller that awaits its own
+    /// handshake inline ([`FlushTicket::wait`]) rather than reacting from a spawned task.
+    completed: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+/// What [`AppState::begin_flush`] hands the caller that owns a handshake: the token its timeout
+/// fallback must present, and a one-shot completion signal.
+pub struct FlushTicket {
+    pub token: u64,
+    completed: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl FlushTicket {
+    /// Waits for every expected window to confirm, giving up after `timeout`. `false` means the
+    /// caller must proceed anyway — a window that never answered (its webview crashed, its
+    /// listener threw) can never be allowed to hold a project close, or an app exit, open forever.
+    ///
+    /// Dropping the ticket instead is the right shape for callers that cannot await — a
+    /// `WindowEvent` handler — which react from a spawned timeout task and from
+    /// `file_flush_complete` instead.
+    pub async fn wait(self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, self.completed)
+            .await
+            .is_ok_and(|received| received.is_ok())
+    }
+}
+
+fn mark_ready(handshake: &mut FlushHandshake) {
+    handshake.phase = FlushPhase::Ready;
+    if let Some(sender) = handshake.completed.take() {
+        let _ = sender.send(());
+    }
 }
 
 pub struct AppState {
@@ -41,7 +111,8 @@ pub struct AppState {
     pub self_writes: SelfWriteTracker,
     pub cli_opened_paths: RwLock<HashSet<PathBuf>>,
     mutation_guard: tokio::sync::Mutex<()>,
-    hot_exit_flush: parking_lot::Mutex<HotExitFlushPhase>,
+    flush_handshakes: parking_lot::Mutex<HashMap<FlushScope, FlushHandshake>>,
+    next_flush_token: AtomicU64,
     shutting_down: std::sync::atomic::AtomicBool,
 }
 
@@ -59,7 +130,8 @@ impl AppState {
             self_writes: SelfWriteTracker::new(),
             cli_opened_paths: RwLock::new(HashSet::new()),
             mutation_guard: tokio::sync::Mutex::new(()),
-            hot_exit_flush: parking_lot::Mutex::new(HotExitFlushPhase::Idle),
+            flush_handshakes: parking_lot::Mutex::new(HashMap::new()),
+            next_flush_token: AtomicU64::new(0),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -149,78 +221,158 @@ impl AppState {
         self.shutting_down.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Starts the hot-exit close-intercept handshake, recording which window
-    /// labels must each individually confirm their flush (via
-    /// `complete_hot_exit_flush`) before the app actually exits — main plus
-    /// whichever `editor-*` auxiliary windows happen to be open at the
-    /// moment the main window's close was requested. Returns `true` only for
-    /// the first `CloseRequested` after boot; later re-entrant close
-    /// attempts return `false` so the caller can skip re-emitting the
-    /// flush-requested event while still blocking the close.
+    /// Starts a flush handshake for `scope`, recording which window labels must each individually
+    /// confirm (via [`Self::complete_flush`]) before whatever deferred teardown asked for it may
+    /// proceed. Returns `None` when that scope already has a handshake — the caller is a
+    /// re-entrant close attempt (mashing Cmd+Q, clicking an auxiliary window's ✕ twice) and must
+    /// keep blocking without re-emitting the flush event.
+    ///
+    /// The expected set is whatever the caller can see at this instant: every open window for
+    /// [`FlushScope::All`] and [`FlushScope::Project`], the one closing window for
+    /// [`FlushScope::Window`]. A window that opens *after* this point was never asked to flush
+    /// anything this handshake needs, and its confirmation is ignored.
+    pub fn begin_flush(&self, scope: FlushScope, expected_windows: HashSet<String>) -> Option<FlushTicket> {
+        let mut handshakes = self.flush_handshakes.lock();
+        if handshakes.contains_key(&scope) {
+            return None;
+        }
+
+        let token = self.next_flush_token.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        handshakes.insert(
+            scope,
+            FlushHandshake {
+                token,
+                phase: FlushPhase::Pending(expected_windows),
+                completed: Some(sender),
+            },
+        );
+        Some(FlushTicket {
+            token,
+            completed: receiver,
+        })
+    }
+
+    /// Records `window_label`'s flush confirmation for `scope`. Returns `true` only once every
+    /// window that scope expected has confirmed (or was dropped mid-flush via
+    /// [`Self::forget_hot_exit_flush_window`]), so exactly one caller proceeds to the teardown the
+    /// handshake was deferring. A confirmation from a window outside the expected set (a window
+    /// opened after the flush started, or one answering a different scope's request) is a no-op.
+    pub fn complete_flush(&self, scope: &FlushScope, window_label: &str) -> bool {
+        let mut handshakes = self.flush_handshakes.lock();
+        let Some(handshake) = handshakes.get_mut(scope) else {
+            return false;
+        };
+        let FlushPhase::Pending(pending) = &mut handshake.phase else {
+            return false;
+        };
+        pending.remove(window_label);
+        if !pending.is_empty() {
+            return false;
+        }
+        mark_ready(handshake);
+        true
+    }
+
+    /// Force-completes `scope`'s handshake regardless of which windows have confirmed so far —
+    /// the timeout fallback. Returns `true` only for whichever of {a window's own confirmation
+    /// reaching zero pending, this fallback} observes the handshake as still pending, so exactly
+    /// one of them proceeds to the deferred teardown.
+    ///
+    /// `token` is what keeps a fallback that fires late from force-completing a *different*
+    /// handshake that has since taken the same scope over: the same auxiliary window label, or the
+    /// same project closed a second time after being reopened.
+    pub fn force_complete_flush(&self, scope: &FlushScope, token: u64) -> bool {
+        let mut handshakes = self.flush_handshakes.lock();
+        let Some(handshake) = handshakes.get_mut(scope) else {
+            return false;
+        };
+        if handshake.token != token || matches!(handshake.phase, FlushPhase::Ready) {
+            return false;
+        }
+        mark_ready(handshake);
+        true
+    }
+
+    /// Drops `scope`'s handshake entirely, whatever phase it is in, so the scope can host a fresh
+    /// one. Every scope but [`FlushScope::All`] names something that comes back — an auxiliary
+    /// window label is reissued, a project can be reopened — and a leftover `Ready` entry would
+    /// make the next [`Self::begin_flush`] on it return `None` and skip the flush.
+    pub fn clear_flush(&self, scope: &FlushScope) {
+        self.flush_handshakes.lock().remove(scope);
+    }
+
+    /// Consumes `scope`'s handshake if it has already reached `Ready`, reporting whether it had.
+    ///
+    /// This is how an auxiliary window's second `CloseRequested` — the one this module itself
+    /// triggers with `close()` after the flush confirmed — tells itself apart from the user's
+    /// first click, which must be intercepted instead.
+    pub fn take_completed_flush(&self, scope: &FlushScope) -> bool {
+        let mut handshakes = self.flush_handshakes.lock();
+        if !matches!(handshakes.get(scope), Some(handshake) if matches!(handshake.phase, FlushPhase::Ready)) {
+            return false;
+        }
+        handshakes.remove(scope);
+        true
+    }
+
+    /// [`FlushScope::All`] shorthand — the main window's `CloseRequested` starting the app-exit
+    /// handshake. `true` only for the first `CloseRequested` after boot; later re-entrant attempts
+    /// return `false` so the caller skips re-emitting the flush event while still blocking the
+    /// close.
     pub fn begin_hot_exit_flush(&self, expected_windows: HashSet<String>) -> bool {
-        let mut phase = self.hot_exit_flush.lock();
-        if !matches!(*phase, HotExitFlushPhase::Idle) {
-            return false;
-        }
-        *phase = HotExitFlushPhase::Pending(expected_windows);
-        true
+        self.begin_flush(FlushScope::All, expected_windows).is_some()
     }
 
-    /// Records `window_label`'s flush confirmation. Returns `true` only once
-    /// every window expected by `begin_hot_exit_flush` has confirmed (or was
-    /// dropped mid-flush via `forget_hot_exit_flush_window`), so exactly one
-    /// caller proceeds to actually exit the app. A confirmation from a
-    /// window outside the expected set (e.g. a fresh auxiliary window opened
-    /// after the flush already started) is a no-op — that window was never
-    /// asked to flush anything hot-exit needs.
+    /// [`FlushScope::All`] shorthand — one window confirming it flushed for the app exit. `true`
+    /// for the single caller that must now actually exit the app.
     pub fn complete_hot_exit_flush(&self, window_label: &str) -> bool {
-        let mut phase = self.hot_exit_flush.lock();
-        let HotExitFlushPhase::Pending(pending) = &mut *phase else {
-            return false;
-        };
-        pending.remove(window_label);
-        if !pending.is_empty() {
-            return false;
-        }
-        *phase = HotExitFlushPhase::Ready;
-        true
+        self.complete_flush(&FlushScope::All, window_label)
     }
 
-    /// Drops `window_label` from the still-pending confirmation set without
-    /// counting as a flush confirmation. Used when a window closes (or is
-    /// destroyed) independently while a main-window hot-exit flush it was
-    /// never going to answer is already in flight, so its absence can't
-    /// stall the exit until the timeout fallback. Mirrors
-    /// `complete_hot_exit_flush`'s "last one out transitions to `Ready`"
-    /// behavior: dropping the *last* still-pending window must also unblock
-    /// the exit — otherwise a flush that every other window already
-    /// confirmed sits stuck until `force_complete_hot_exit_flush`'s timeout
-    /// fires, even though nothing is actually still pending.
+    /// The window is gone. Drops `window_label` from the app-exit handshake's still-pending set
+    /// without counting as a confirmation — used when a window closes (or is destroyed)
+    /// independently while an app-exit flush it was never going to answer is already in flight, so
+    /// its absence can't stall the exit until the timeout fallback. Mirrors
+    /// [`Self::complete_hot_exit_flush`]'s "last one out transitions to `Ready`" behavior:
+    /// dropping the *last* still-pending window must also unblock the exit — otherwise a flush
+    /// every other window already confirmed sits stuck until [`Self::force_complete_hot_exit_flush`]'s
+    /// timeout fires, even though nothing is actually still pending.
+    ///
+    /// It also drops that window's own [`FlushScope::Window`] handshake, for the same reason and
+    /// with the same force: a destroyed webview answers nothing, and its label will be reissued to
+    /// the next auxiliary window.
     pub fn forget_hot_exit_flush_window(&self, window_label: &str) -> bool {
-        let mut phase = self.hot_exit_flush.lock();
-        let HotExitFlushPhase::Pending(pending) = &mut *phase else {
-            return false;
-        };
-        pending.remove(window_label);
-        if !pending.is_empty() {
-            return false;
-        }
-        *phase = HotExitFlushPhase::Ready;
-        true
+        self.clear_flush(&FlushScope::Window(window_label.to_string()));
+        self.complete_flush(&FlushScope::All, window_label)
     }
 
-    /// Force-completes the flush regardless of which windows have confirmed
-    /// so far. Returns `true` only for whichever of {a window's own
-    /// confirmation reaching zero pending, this timeout fallback} observes
-    /// the flush as still pending, so exactly one of them proceeds to
-    /// actually exit the app.
+    /// Force-completes the app exit regardless of which windows have confirmed so far. Returns
+    /// `true` only for whichever of {a window's own confirmation reaching zero pending, this
+    /// timeout fallback} observes the flush as still pending, so exactly one of them proceeds to
+    /// actually exit the app. Unlike [`Self::force_complete_flush`] it carries no token: the app
+    /// exits exactly once, so [`FlushScope::All`] never hosts a second handshake.
     pub fn force_complete_hot_exit_flush(&self) -> bool {
-        let mut phase = self.hot_exit_flush.lock();
-        if matches!(*phase, HotExitFlushPhase::Ready) {
-            return false;
+        let mut handshakes = self.flush_handshakes.lock();
+        match handshakes.get_mut(&FlushScope::All) {
+            Some(handshake) if matches!(handshake.phase, FlushPhase::Ready) => false,
+            Some(handshake) => {
+                mark_ready(handshake);
+                true
+            }
+            None => {
+                let token = self.next_flush_token.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                handshakes.insert(
+                    FlushScope::All,
+                    FlushHandshake {
+                        token,
+                        phase: FlushPhase::Ready,
+                        completed: None,
+                    },
+                );
+                true
+            }
         }
-        *phase = HotExitFlushPhase::Ready;
-        true
     }
 }
 
@@ -340,6 +492,178 @@ mod tests {
         assert!(state.force_complete_hot_exit_flush());
         assert!(!state.force_complete_hot_exit_flush(), "이미 Ready 다");
         assert!(!state.complete_hot_exit_flush("main"), "타임아웃으로 이미 완료되었다");
+    }
+
+    fn state() -> AppState {
+        AppState::new(AppPaths::new(std::path::PathBuf::from("/tmp")))
+    }
+
+    fn window_scope(label: &str) -> FlushScope {
+        FlushScope::Window(label.to_string())
+    }
+
+    fn project_scope(id: &str) -> FlushScope {
+        FlushScope::Project(ProjectId::from(id.to_string()))
+    }
+
+    #[test]
+    fn 스코프가_다르면_핸드셰이크는_서로_간섭하지_않는다() {
+        let state = state();
+        let aux = window_scope("editor-1");
+        let project = project_scope("prj-a");
+
+        assert!(state.begin_hot_exit_flush(labels(&["main", "editor-1"])));
+        assert!(state.begin_flush(aux.clone(), labels(&["editor-1"])).is_some());
+        assert!(state.begin_flush(project.clone(), labels(&["main", "editor-1"])).is_some());
+
+        assert!(state.complete_flush(&aux, "editor-1"), "창 스코프는 그 창만으로 완료된다");
+        assert!(
+            !state.complete_hot_exit_flush("editor-1"),
+            "창 스코프 확인이 앱 종료 핸드셰이크를 앞당기면 안 된다"
+        );
+        assert!(!state.complete_flush(&project, "editor-1"), "프로젝트는 main 이 남아 있다");
+        assert!(state.complete_flush(&project, "main"));
+        assert!(state.complete_hot_exit_flush("main"));
+    }
+
+    #[test]
+    fn 같은_스코프의_재진입_요청은_새_핸드셰이크를_만들지_않는다() {
+        let state = state();
+        let aux = window_scope("editor-1");
+
+        assert!(state.begin_flush(aux.clone(), labels(&["editor-1"])).is_some());
+        assert!(
+            state.begin_flush(aux, labels(&["editor-1"])).is_none(),
+            "두 번째 닫기 클릭은 flush 요청을 다시 보내면 안 된다"
+        );
+    }
+
+    #[test]
+    fn 완료된_창_핸드셰이크는_한_번만_회수된다() {
+        let state = state();
+        let aux = window_scope("editor-1");
+
+        state.begin_flush(aux.clone(), labels(&["editor-1"]));
+        assert!(!state.take_completed_flush(&aux), "아직 pending 이면 회수되지 않는다");
+        assert!(state.complete_flush(&aux, "editor-1"));
+        assert!(state.take_completed_flush(&aux), "확인된 핸드셰이크는 후속 닫기에서 소비된다");
+        assert!(!state.take_completed_flush(&aux), "소비된 뒤에는 남아 있지 않다");
+    }
+
+    /// The whole reason a token exists: `editor-1` is reissued to the next auxiliary window, so a
+    /// timeout task from the *previous* window must not force-complete the new one's handshake and
+    /// close a window the user never asked to close.
+    #[test]
+    fn 이전_핸드셰이크의_타임아웃은_같은_스코프의_새_핸드셰이크를_강제완료하지_않는다() {
+        let state = state();
+        let aux = window_scope("editor-1");
+
+        let first = state.begin_flush(aux.clone(), labels(&["editor-1"])).expect("첫 핸드셰이크");
+        state.clear_flush(&aux);
+        let second = state.begin_flush(aux.clone(), labels(&["editor-1"])).expect("두 번째 핸드셰이크");
+
+        assert_ne!(first.token, second.token);
+        assert!(!state.force_complete_flush(&aux, first.token), "낡은 토큰은 거절된다");
+        assert!(state.force_complete_flush(&aux, second.token));
+    }
+
+    #[test]
+    fn 창_스코프_타임아웃_강제완료는_한_번만_성공한다() {
+        let state = state();
+        let aux = window_scope("editor-1");
+
+        let ticket = state.begin_flush(aux.clone(), labels(&["editor-1"])).expect("핸드셰이크");
+        assert!(state.force_complete_flush(&aux, ticket.token));
+        assert!(!state.force_complete_flush(&aux, ticket.token), "이미 Ready 다");
+        assert!(!state.complete_flush(&aux, "editor-1"), "타임아웃으로 이미 완료되었다");
+    }
+
+    #[test]
+    fn 없는_스코프의_확인과_강제완료는_무시된다() {
+        let state = state();
+        let aux = window_scope("editor-9");
+
+        assert!(!state.complete_flush(&aux, "editor-9"));
+        assert!(!state.force_complete_flush(&aux, 0));
+    }
+
+    /// Wave 2 #12: a project can be closed, reopened and closed again, so a leftover `Ready` entry
+    /// must never make the second close skip its flush.
+    #[test]
+    fn 프로젝트_핸드셰이크를_정리하면_같은_프로젝트를_다시_닫을_수_있다() {
+        let state = state();
+        let project = project_scope("prj-a");
+
+        state.begin_flush(project.clone(), labels(&["main"]));
+        assert!(state.complete_flush(&project, "main"));
+        state.clear_flush(&project);
+
+        assert!(
+            state.begin_flush(project, labels(&["main"])).is_some(),
+            "정리된 스코프는 새 핸드셰이크를 받을 수 있어야 한다"
+        );
+    }
+
+    /// A destroyed webview answers nothing — its own window-scoped handshake has to go with it, or
+    /// the label it is about to hand back to the next auxiliary window starts out already taken.
+    #[test]
+    fn 창을_잊으면_그_창의_창스코프_핸드셰이크도_사라진다() {
+        let state = state();
+        let aux = window_scope("editor-1");
+
+        state.begin_flush(aux.clone(), labels(&["editor-1"]));
+        state.forget_hot_exit_flush_window("editor-1");
+
+        assert!(!state.complete_flush(&aux, "editor-1"), "핸드셰이크가 남아 있으면 안 된다");
+        assert!(state.begin_flush(aux, labels(&["editor-1"])).is_some());
+    }
+
+    #[tokio::test]
+    async fn 대기_티켓은_모든_창이_확인하면_깨어난다() {
+        let state = std::sync::Arc::new(state());
+        let project = project_scope("prj-a");
+        let ticket = state
+            .begin_flush(project.clone(), labels(&["main", "editor-1"]))
+            .expect("핸드셰이크");
+
+        let confirming = state.clone();
+        let confirming_scope = project.clone();
+        tokio::spawn(async move {
+            confirming.complete_flush(&confirming_scope, "main");
+            confirming.complete_flush(&confirming_scope, "editor-1");
+        });
+
+        assert!(
+            ticket.wait(std::time::Duration::from_secs(5)).await,
+            "모든 창이 확인하면 타임아웃 전에 깨어나야 한다"
+        );
+    }
+
+    #[tokio::test]
+    async fn 대기_티켓은_확인이_없으면_타임아웃하고_진행을_막지_않는다() {
+        let state = state();
+        let ticket = state.begin_flush(project_scope("prj-a"), labels(&["main"])).expect("핸드셰이크");
+
+        assert!(
+            !ticket.wait(std::time::Duration::from_millis(20)).await,
+            "확인이 오지 않으면 false 로 돌아와 호출부가 그대로 진행해야 한다"
+        );
+    }
+
+    #[tokio::test]
+    async fn 대기_티켓은_강제완료로도_깨어난다() {
+        let state = std::sync::Arc::new(state());
+        let project = project_scope("prj-a");
+        let ticket = state.begin_flush(project.clone(), labels(&["main"])).expect("핸드셰이크");
+        let token = ticket.token;
+
+        let forcing = state.clone();
+        let forcing_scope = project.clone();
+        tokio::spawn(async move {
+            forcing.force_complete_flush(&forcing_scope, token);
+        });
+
+        assert!(ticket.wait(std::time::Duration::from_secs(5)).await);
     }
 
     #[test]

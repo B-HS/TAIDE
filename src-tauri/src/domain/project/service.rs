@@ -13,8 +13,8 @@ use crate::infra::persist;
 use crate::paths::AppPaths;
 
 use super::types::{
-    CapabilityKind, Project, ProjectDisplay, ProjectDisplayPatch, ProjectGroup, ProjectRef, SessionShellState, SessionState, ShellSlotEdge,
-    WindowChrome, WindowChromePatch,
+    CapabilityKind, ForgetRecentOutcome, Project, ProjectDisplay, ProjectDisplayPatch, ProjectGroup, ProjectRef, SessionShellState,
+    SessionState, ShellSlotEdge, WindowChrome, WindowChromePatch,
 };
 use super::{groups, shell_slots};
 
@@ -430,6 +430,15 @@ pub fn find_open_project_by_root(projects: &HashMap<ProjectId, Project>, root: &
 /// user can reach by typing a path, so "No such file or directory (os error 2)" is the error text
 /// they would actually see.
 ///
+/// The re-activation branch (`already_open`) clears `root_missing` and writes the whole `ProjectRef`
+/// mirror through: everything above it — `canonicalize`, the `is_dir` check, the `read_dir` probe —
+/// has just proven the root is readable, so a flag left over from a boot where the folder was
+/// missing (an unplugged drive, restored by `restore_session`) would otherwise stay stuck for the
+/// rest of the session and keep the sidebar drawing a warning on a project that is demonstrably
+/// fine. Re-attaching that project's watchers still requires a real close/re-open — the boot-time
+/// exclusion in `commands::projects_pending_watcher_restore` is deliberate — which is what the
+/// slot header's "다시 열기" action does.
+///
 /// `activate` (contract §0.1 S-2) decides whether the newly opened project also becomes the focused
 /// slot's project: `project_open` passes `true` (its long-standing behaviour), while
 /// `project_open_in_slot` passes `false` because it places the project in a slot of its own right
@@ -470,7 +479,9 @@ pub fn open_project(
     if let Some(existing) = projects.values().find(|project| project.root == root_str) {
         let mut existing = existing.clone();
         existing.last_opened_at = now_epoch_ms();
+        existing.root_missing = false;
         projects.insert(existing.id.clone(), existing.clone());
+        upsert_project_ref(session, &existing);
         if activate {
             place_project_in_focused_slot(session, &existing.id);
         }
@@ -912,7 +923,7 @@ pub fn restore_session(paths: &AppPaths) -> AppResult<(SessionState, Vec<Project
     let (mut session, mut warnings) = load_session(paths)?;
     let mut projects = Vec::with_capacity(session.projects.len());
 
-    for reference in &session.projects {
+    for reference in &mut session.projects {
         let (loaded, load_warnings) = load_project(paths, &reference.id)?;
         warnings.extend(load_warnings);
 
@@ -927,6 +938,7 @@ pub fn restore_session(paths: &AppPaths) -> AppResult<(SessionState, Vec<Project
         });
 
         project.root_missing = !Path::new(&project.root).is_dir();
+        reference.root_missing = project.root_missing;
         projects.push(project);
     }
 
@@ -940,12 +952,14 @@ fn upsert_project_ref(session: &mut SessionState, project: &Project) {
         existing.root = project.root.clone();
         existing.name = project.name.clone();
         existing.display = project.display.clone();
+        existing.root_missing = project.root_missing;
     } else {
         session.projects.push(ProjectRef {
             id: project.id.clone(),
             root: project.root.clone(),
             name: project.name.clone(),
             display: project.display.clone(),
+            root_missing: project.root_missing,
         });
     }
 }
@@ -1007,17 +1021,6 @@ pub fn list_recent_projects(paths: &AppPaths) -> AppResult<Vec<Project>> {
     Ok(projects)
 }
 
-/// What one [`forget_recent_projects`] call did. The two answers are deliberately separate: most
-/// calls delete records that no group ever listed, so `removed` being non-zero says nothing about
-/// whether the sidebar's groups moved. `project_forget_recent` emits `ProjectGroupsChanged` only
-/// when `groups_changed` is true — every window re-reads its group query on that event, and a
-/// clear-recent that touched no membership has nothing for them to re-read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ForgetRecentOutcome {
-    pub removed: usize,
-    pub groups_changed: bool,
-}
-
 /// Deletes the persisted record (`projects/<id>/`) of every project that is **not** currently open,
 /// and answers how many were removed — what `File > Clear Recent` and the sidebar's equivalent
 /// mean by "clear": the recent list is derived from those records ([`list_recent_projects`]), so
@@ -1027,6 +1030,13 @@ pub struct ForgetRecentOutcome {
 /// it on every activation, `save_layout` writes the layout beside it, and `close_project`
 /// deliberately leaves the directory behind so a re-open restores the same id, layout and display.
 /// Deleting an open project's directory would strand all three.
+///
+/// A closed project whose hot-exit buffers still hold unsaved work is kept too, and counted into
+/// [`ForgetRecentOutcome::skipped_with_drafts`] so the caller can say so. `projects/<id>/` is where
+/// `domain::file`'s mirrors live (`AppPaths::buffers_dir`), and `close_project` deliberately leaves
+/// them behind — re-opening the project restores the draft. "Clear Recent" reads as "forget this
+/// entry", not "discard the work I have not saved yet", and the deletion is irreversible, so the
+/// record outlives the clear until the draft is either restored or dropped.
 ///
 /// A directory that fails to delete is logged and skipped rather than failing the whole call —
 /// same per-entry tolerance as [`list_recent_projects`], since a half-cleared list is still a
@@ -1046,8 +1056,13 @@ pub fn forget_recent_projects(
     open_project_ids: &HashSet<ProjectId>,
 ) -> AppResult<ForgetRecentOutcome> {
     let mut forgotten: HashSet<ProjectId> = HashSet::new();
+    let mut skipped_with_drafts: u32 = 0;
     for id in iter_project_ids(paths)? {
         if open_project_ids.contains(&id) {
+            continue;
+        }
+        if has_hot_exit_drafts(paths, &id) {
+            skipped_with_drafts += 1;
             continue;
         }
         match std::fs::remove_dir_all(paths.project_dir(&id)) {
@@ -1064,9 +1079,35 @@ pub fn forget_recent_projects(
         save_session(paths, session)?;
     }
     Ok(ForgetRecentOutcome {
-        removed: forgotten.len(),
+        removed: forgotten.len() as u32,
+        skipped_with_drafts,
         groups_changed,
     })
+}
+
+/// Whether `project_id` still has any hot-exit mirror on disk — a path mirror
+/// (`buffers/<hash>.json`) or an untitled one (`buffers/untitled/<tabId>.json`).
+///
+/// Asked as "is there any file under `buffers_dir`", deliberately not by re-deriving
+/// `domain::file`'s mirror naming here: the only question that matters is whether deleting this
+/// record would destroy work the user never saved, and anything the file domain wrote there is
+/// exactly that. An unreadable directory answers `false` — the same per-entry tolerance the rest of
+/// this listing shows, and a directory that cannot be read cannot be deleted either.
+fn has_hot_exit_drafts(paths: &AppPaths, project_id: &ProjectId) -> bool {
+    let mut pending = vec![paths.buffers_dir(project_id)];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            match entry.file_type() {
+                Ok(file_type) if file_type.is_dir() => pending.push(entry.path()),
+                Ok(_) => return true,
+                Err(_) => continue,
+            }
+        }
+    }
+    false
 }
 
 /// The persisted record of a previously-opened project at `root`, if any — `open_project` reuses
@@ -1171,6 +1212,100 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![open.id]
         );
+
+        cleanup(&paths);
+    }
+
+    /// "최근 항목 지우기" 는 목록에서 빼는 조작으로 읽히는데, 닫힌 프로젝트의 디렉터리에는
+    /// hot-exit 미러가 함께 산다(`close_project` 가 의도적으로 남긴다). 되돌릴 수 없는 삭제이므로
+    /// 초안이 남아 있는 레코드는 건너뛰고 그 개수를 보고한다.
+    #[test]
+    fn 최근_기록_삭제는_미저장_초안이_있는_프로젝트를_건너뛴다() {
+        let paths = temp_paths();
+        let with_draft = Project {
+            id: ProjectId::new(),
+            root: "/tmp/with-draft".to_string(),
+            name: "with-draft".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 2.0,
+            display: ProjectDisplay::default(),
+        };
+        let clean = Project {
+            id: ProjectId::new(),
+            root: "/tmp/clean".to_string(),
+            name: "clean".to_string(),
+            last_opened_at: 1.0,
+            ..with_draft.clone()
+        };
+        save_project(&paths, &with_draft).expect("초안 프로젝트 저장");
+        save_project(&paths, &clean).expect("깨끗한 프로젝트 저장");
+        let buffers = paths.buffers_dir(&with_draft.id);
+        std::fs::create_dir_all(&buffers).expect("버퍼 디렉터리");
+        std::fs::write(buffers.join("deadbeefdeadbeef.json"), b"{}").expect("경로 미러");
+
+        let mut session = SessionState::default();
+        let outcome = forget_recent_projects(&paths, &mut session, &HashSet::new()).expect("최근 기록 삭제");
+
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(outcome.skipped_with_drafts, 1);
+        assert!(paths.buffers_dir(&with_draft.id).exists(), "초안이 있는 레코드는 살아남아야 한다");
+        assert!(!paths.project_dir(&clean.id).exists());
+
+        cleanup(&paths);
+    }
+
+    /// untitled 미러는 `buffers/untitled/` 하위에 있어, 경로 미러와 똑같이 보호 대상이다.
+    #[test]
+    fn 최근_기록_삭제는_untitled_초안만_있어도_건너뛴다() {
+        let paths = temp_paths();
+        let project = Project {
+            id: ProjectId::new(),
+            root: "/tmp/untitled-only".to_string(),
+            name: "untitled-only".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 1.0,
+            display: ProjectDisplay::default(),
+        };
+        save_project(&paths, &project).expect("프로젝트 저장");
+        let untitled = paths.buffers_dir(&project.id).join("untitled");
+        std::fs::create_dir_all(&untitled).expect("untitled 디렉터리");
+        std::fs::write(untitled.join("tab-1.json"), b"{}").expect("untitled 미러");
+
+        let mut session = SessionState::default();
+        let outcome = forget_recent_projects(&paths, &mut session, &HashSet::new()).expect("최근 기록 삭제");
+
+        assert_eq!(outcome.removed, 0);
+        assert_eq!(outcome.skipped_with_drafts, 1);
+        assert!(paths.project_dir(&project.id).exists());
+
+        cleanup(&paths);
+    }
+
+    /// 비어 있는 버퍼 디렉터리는 초안이 아니다 — 미러를 다 정리한 프로젝트까지 남기면 목록이
+    /// 영영 비지 않는다.
+    #[test]
+    fn 최근_기록_삭제는_빈_버퍼_디렉터리를_초안으로_보지_않는다() {
+        let paths = temp_paths();
+        let project = Project {
+            id: ProjectId::new(),
+            root: "/tmp/empty-buffers".to_string(),
+            name: "empty-buffers".to_string(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 1.0,
+            display: ProjectDisplay::default(),
+        };
+        save_project(&paths, &project).expect("프로젝트 저장");
+        std::fs::create_dir_all(paths.buffers_dir(&project.id).join("untitled")).expect("빈 버퍼 디렉터리");
+
+        let mut session = SessionState::default();
+        let outcome = forget_recent_projects(&paths, &mut session, &HashSet::new()).expect("최근 기록 삭제");
+
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(outcome.skipped_with_drafts, 0);
+        assert!(!paths.project_dir(&project.id).exists());
 
         cleanup(&paths);
     }
@@ -1317,18 +1452,21 @@ mod tests {
                     root: "/a".to_string(),
                     name: "a".to_string(),
                     display: ProjectDisplay::default(),
+                    root_missing: false,
                 },
                 ProjectRef {
                     id: ProjectId("prj-b".to_string()),
                     root: "/b".to_string(),
                     name: "b".to_string(),
                     display: ProjectDisplay::default(),
+                    root_missing: false,
                 },
                 ProjectRef {
                     id: ProjectId("prj-c".to_string()),
                     root: "/c".to_string(),
                     name: "c".to_string(),
                     display: ProjectDisplay::default(),
+                    root_missing: false,
                 },
             ],
             ..SessionState::default()
@@ -1388,14 +1526,43 @@ mod tests {
             root: project.root.clone(),
             name: project.name.clone(),
             display: ProjectDisplay::default(),
+            root_missing: false,
         });
         save_session(&paths, &session).expect("save session");
 
-        let (_restored_session, projects, warnings) = restore_session(&paths).expect("restore");
+        let (restored_session, projects, warnings) = restore_session(&paths).expect("restore");
 
         assert_eq!(projects.len(), 1);
         assert!(projects[0].root_missing);
+        assert!(
+            restored_session.projects[0].root_missing,
+            "사이드바·슬롯 헤더는 ProjectRef 만 읽으므로 미러가 없으면 루트 부재를 그릴 수 없다"
+        );
         assert!(warnings.is_empty());
+
+        cleanup(&paths);
+    }
+
+    /// 드라이브가 돌아온 뒤 같은 루트를 다시 열면 `already_open` 분기를 타는데, 여기서
+    /// 재계산하지 않으면 부팅 때 세운 플래그가 세션 내내 남아 멀쩡한 프로젝트에 경고가 붙는다.
+    #[test]
+    fn 이미_열린_프로젝트를_다시_열면_root_missing_미러가_해제된다() {
+        let paths = temp_paths();
+        let project_root = paths.data_dir.join("workspace");
+        std::fs::create_dir_all(&project_root).unwrap();
+
+        let mut session = SessionState::default();
+        let mut projects = HashMap::new();
+        let opened = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("open");
+        projects.get_mut(&opened.project.id).expect("프로젝트").root_missing = true;
+        session.projects[0].root_missing = true;
+
+        let reopened = open_project(&paths, &mut session, &mut projects, &project_root, true, detect_terminal_only).expect("reopen");
+
+        assert!(reopened.already_open);
+        assert!(!reopened.project.root_missing);
+        assert!(!projects[&opened.project.id].root_missing);
+        assert!(!session.projects[0].root_missing);
 
         cleanup(&paths);
     }
@@ -2012,6 +2179,7 @@ mod tests {
             root: format!("/tmp/{id}"),
             name: id.to_string(),
             display: ProjectDisplay::default(),
+            root_missing: false,
         }
     }
 

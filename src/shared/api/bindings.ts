@@ -29,6 +29,11 @@ export const commands = {
 	 *  re-reads its project queries — and so `lib.rs`'s listener rebuilds the native `File > Open
 	 *  Recent` menu that listed them.
 	 * 
+	 *  A closed project whose hot-exit mirrors still hold unsaved work is kept as well and reported in
+	 *  `ForgetRecentOutcome::skipped_with_drafts`, which is why this returns the whole outcome instead
+	 *  of the removed count it used to: the caller turns a non-zero count into the notice that explains
+	 *  why the recent list did not empty (`service::forget_recent_projects`).
+	 * 
 	 *  `ProjectGroupsChanged` follows **only when a forgotten project was actually listed under a
 	 *  group** (`ForgetRecentOutcome::groups_changed`, contract §3 B-1): the groups are untouched in the
 	 *  ordinary clear-recent call, and telling every window to re-read a group list that did not change
@@ -39,7 +44,7 @@ export const commands = {
 	 *  list is local-desktop history (`RemoteDenialPolicy::LocalProjectHistoryExposure`), and a remote
 	 *  session that cannot read it has no business destroying it either.
 	 */
-	projectForgetRecent: () => typedError<number, AppError>(__TAURI_INVOKE("project_forget_recent")),
+	projectForgetRecent: () => typedError<ForgetRecentOutcome, AppError>(__TAURI_INVOKE("project_forget_recent")),
 	projectGet: (projectId: ProjectId) => typedError<Project, AppError>(__TAURI_INVOKE("project_get", { projectId })),
 	projectGetActive: () => typedError<string | null, AppError>(__TAURI_INVOKE("project_get_active")),
 	/**
@@ -58,10 +63,32 @@ export const commands = {
 	 */
 	projectOpen: (path: string) => typedError<ProjectOpenResult, AppError>(__TAURI_INVOKE("project_open", { path })),
 	/**
-	 *  Closes `project_id` and reaps every resource that only makes sense while the project is open.
-	 *  See `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
+	 *  Asks every window to flush this project's dirty editor models to the hot-exit mirror, waits for
+	 *  them (bounded by `constants::HOT_EXIT_FLUSH_TIMEOUT_MS`), and only then closes `project_id`.
+	 * 
+	 *  The wait is not optional politeness. Every write path the mirror uses is gated on the project
+	 *  still being open — `file_mirror_dirty` starts with `root_guard::project_root`, which answers
+	 *  `NotFound` the instant `state.projects` loses the entry — and the frontend's own flush runs
+	 *  from an unmount effect, which cannot fire until *after* this command has already removed the
+	 *  project and `ipc-sync-provider` has torn the layout query down. So closing first meant the last
+	 *  `HOT_EXIT_MIRROR_DEBOUNCE_MS` of typing was rejected by the backend and swallowed by the
+	 *  caller's `.catch(() => false)` — no error, no toast, nothing on disk (audit wave 2 #12). The
+	 *  handshake here is the same one the app exit and an auxiliary window's close use, scoped to this
+	 *  project ([`FlushScope::Project`]), so a window that renders other projects too flushes only
+	 *  what is about to disappear.
+	 * 
+	 *  The wait deliberately happens **before** `AppState::begin_mutation`: it is bounded by a
+	 *  frontend round-trip, and holding the one global mutation guard across it would stall every
+	 *  other command for as long as a window takes to answer. Timing out is not an error — the close
+	 *  proceeds regardless, because a window whose listener never answers must not be able to keep a
+	 *  project open forever. That same gap is why the "still open?" check is repeated after the guard
+	 *  is taken: two closes for the same project can both pass the entry check while they wait, and
+	 *  only one of them may run the reap below.
+	 * 
+	 *  Then it reaps every resource that only makes sense while the project is open. See
+	 *  `architecture.md` §6.3 for the authoritative list of what a project close must reclaim.
 	 *  `asset://` read access needs no entry of its own in that list any more: `infra::asset_protocol`
-	 *  decides per-request from `state.projects`, and the `*state.projects.write() = projects;` above
+	 *  decides per-request from `state.projects`, and the `*state.projects.write() = projects;` below
 	 *  (via `service::close_project`, which removes `project_id`) already revokes it before any
 	 *  capability's detach even runs. The reaps themselves are owned by the registered
 	 *  [`ProjectCapabilities`], whose detach walk runs in registration order — an order that is part
@@ -333,17 +360,36 @@ export const commands = {
 	fileClearUntitledMirror: (projectId: ProjectId, tabId: TabId) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_untitled_mirror", { projectId, tabId })),
 	filePruneUntitledMirrors: (projectId: ProjectId, keepTabIds: TabId[]) => typedError<null, AppError>(__TAURI_INVOKE("file_prune_untitled_mirrors", { projectId, keepTabIds })),
 	/**
-	 *  Confirms the calling window has finished flushing every dirty editor
-	 *  model to the hot-exit mirror in response to `HotExitFlushRequested`, then
-	 *  resumes the app exit that the main window's `CloseRequested` deferred
-	 *  once every window expected to confirm has done so (Wave I: main plus any
-	 *  currently-open `editor-*` auxiliary windows — see
-	 *  `AppState::begin_hot_exit_flush`). A no-op if the flush was already
-	 *  completed (by every window confirming, or by the timeout fallback).
+	 *  Confirms the calling window has finished flushing its dirty editor models to the hot-exit
+	 *  mirror in response to a `HotExitFlushRequested` carrying `scope`, then resumes whatever
+	 *  teardown that scope's request deferred — once *every* window expected to confirm has done so.
+	 * 
+	 *  `window: tauri::Window` is Tauri-injected as whichever window's webview made this call, so a
+	 *  window can only ever confirm on its own behalf. `scope` must be echoed back from the request
+	 *  the window is answering, which is what keeps three concurrent handshakes apart: the app exit
+	 *  ([`FlushScope::All`] — main plus any currently-open `editor-*` windows, see
+	 *  `AppState::begin_hot_exit_flush`), one auxiliary window's close
+	 *  ([`FlushScope::Window`]), and one project's close ([`FlushScope::Project`], which every window
+	 *  answers because a project spans windows).
+	 * 
+	 *  A no-op if that scope's flush was already completed (by every window confirming, or by the
+	 *  timeout fallback), if the scope has no handshake at all, or if this window was not among the
+	 *  ones it expected.
 	 */
-	fileFlushComplete: () => typedError<null, AppError>(__TAURI_INVOKE("file_flush_complete")),
+	fileFlushComplete: (scope: FlushScope) => typedError<null, AppError>(__TAURI_INVOKE("file_flush_complete", { scope })),
 	treeRows: (projectId: ProjectId, offset: number, limit: number | null) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_rows", { projectId, offset, limit })),
 	treeToggle: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_toggle", { projectId, path })),
+	/**
+	 *  "모두 접기" — clears this project's entire expanded set and returns the collapsed page.
+	 * 
+	 *  One mutation instead of the frontend's former loop of a `tree_toggle` per *visible* expanded
+	 *  row. That loop could only name rows it could see, so every descendant hidden under an
+	 *  already-collapsed parent survived it and sprang back the next time its parent opened
+	 *  (`service::collapse_all`), and each iteration paid the app-wide mutation guard plus a full page
+	 *  re-serialization. Collapsing reads no directory, so the prefetch here only covers the cold-start
+	 *  case where this is the first call for the project and `ensure_entry` has to load the root.
+	 */
+	treeCollapseAll: (projectId: ProjectId) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_collapse_all", { projectId })),
 	treeReveal: (projectId: ProjectId, path: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_reveal", { projectId, path })),
 	treeRefresh: (projectId: ProjectId, dir: string) => typedError<TreeRowPage, AppError>(__TAURI_INVOKE("tree_refresh", { projectId, dir })),
 	searchRun: (projectId: ProjectId, owner: string, sessionId: string, query: SearchQuery, onMatch: Channel<SearchFileMatches>) => typedError<number, AppError>(__TAURI_INVOKE("search_run", { projectId, owner, sessionId, query, onMatch })),
@@ -1072,6 +1118,7 @@ export const events = {
 	projectGroupsChanged: makeEvent<ProjectGroupsChanged>("project:groups-changed"),
 	projectListChanged: makeEvent<ProjectListChanged>("project:list-changed"),
 	projectOpened: makeEvent<ProjectOpened>("project:opened"),
+	projectRecentCleared: makeEvent<ProjectRecentCleared>("project:recent-cleared"),
 	remoteStateChanged: makeEvent<RemoteStateChanged>("remote:state-changed"),
 	sessionShellSlotsChanged: makeEvent<SessionShellSlotsChanged>("session:shell-slots-changed"),
 	sessionWindowChromeChanged: makeEvent<WindowChromeChanged>("session:window-chrome-changed"),
@@ -1080,6 +1127,7 @@ export const events = {
 	terminalCommandFinished: makeEvent<TerminalCommandFinished>("terminal:command-finished"),
 	terminalCwdChanged: makeEvent<TerminalCwdChanged>("terminal:cwd-changed"),
 	terminalExited: makeEvent<TerminalExited>("terminal:exited"),
+	terminalSpawned: makeEvent<TerminalSpawned>("terminal:spawned"),
 	themeChanged: makeEvent<ThemeChanged>("theme:changed"),
 };
 
@@ -1375,9 +1423,56 @@ export type ExternalOpenRequest = {
 
 export type FileSizeTier = "normal" | "large" | "readOnly" | "refused";
 
+/**
+ *  Which dirty editor models one flush handshake asks the frontend to write to the hot-exit mirror
+ *  before the backend does something that would otherwise lose them.
+ * 
+ *  The handshake itself (`crate::events::HotExitFlushRequested` out,
+ *  `domain::file::commands::file_flush_complete` back, with a timeout fallback) started life as an
+ *  app-exit-only mechanism. Three separate teardowns destroy a webview or drop a project's state
+ *  while the mirror debounce (`HOT_EXIT_MIRROR_DEBOUNCE_MS`) may still be holding the last half
+ *  second of typing, and only one of them used to run it — so the scope travels with the request
+ *  and with every confirmation, and one window confirming a project close can never be mistaken
+ *  for the same window confirming the app's exit.
+ * 
+ *  Serialized externally-tagged, which is what gives the frontend the union it reads:
+ *  `"all" | { window: label } | { project: projectId }`.
+ */
+export type FlushScope = 
+/**  Every window, every project — the app is exiting. */
+"all" | 
+/**
+ *  One window's own models, because that OS window is about to be destroyed. Keyed by the
+ *  Tauri label (`editor-<n>`) rather than by project so two auxiliary windows closing at the
+ *  same time each wait for their own confirmation.
+ */
+({ window: string }) & { project?: never } | 
+/**
+ *  Every window's models belonging to one project, because that project is being closed and
+ *  its `file_mirror_dirty` writes stop being accepted the moment it leaves `AppState`.
+ */
+({ project: ProjectId }) & { window?: never };
+
 export type FontFamily = {
 	name: string,
 	monospaced: boolean,
+};
+
+/**
+ *  What one `service::forget_recent_projects` call did. The three answers are deliberately
+ *  separate: most calls delete records that no group ever listed, so `removed` being non-zero says
+ *  nothing about whether the sidebar's groups moved, and `skipped_with_drafts` counts records the
+ *  call refused to touch rather than ones it failed to.
+ * 
+ *  `project_forget_recent` emits `ProjectGroupsChanged` only when `groups_changed` is true — every
+ *  window re-reads its group query on that event, and a clear-recent that touched no membership has
+ *  nothing for them to re-read. `skipped_with_drafts` is what the frontend turns into the "초안이
+ *  있는 프로젝트는 남겨 두었습니다" notice, so the user learns why the list did not empty.
+ */
+export type ForgetRecentOutcome = {
+	removed: number,
+	skippedWithDrafts: number,
+	groupsChanged: boolean,
 };
 
 export type FsChange = {
@@ -1449,13 +1544,23 @@ export type GutterHunk = {
 export type HookInstallScope = "project" | "user";
 
 /**
- *  Emitted once when the OS requests the window to close, asking the
- *  frontend to flush every dirty editor model to the hot-exit mirror before
- *  the app actually exits. `timeout_ms` mirrors `HOT_EXIT_FLUSH_TIMEOUT_MS`
- *  so the frontend never needs its own copy of that constant.
+ *  Asks the frontend to flush dirty editor models to the hot-exit mirror before a teardown that
+ *  would otherwise lose the last debounce window of typing, and to confirm with
+ *  `domain::file::commands::file_flush_complete` once it has.
+ * 
+ *  `scope` says which models: the app is exiting ([`FlushScope::All`], the original and still the
+ *  only one that ends in `AppHandle::exit`), one auxiliary window is closing
+ *  ([`FlushScope::Window`]), or one project is closing ([`FlushScope::Project`]). Broadcast
+ *  app-wide in every case — a project spans windows, so each window decides for itself what the
+ *  scope covers of its own models and then confirms with that same scope.
+ * 
+ *  `timeout_ms` mirrors `HOT_EXIT_FLUSH_TIMEOUT_MS` so the frontend never needs its own copy of
+ *  that constant. The backend proceeds without a confirmation once it elapses, so a listener that
+ *  takes longer loses the flush, not the teardown.
  */
 export type HotExitFlushRequested = {
 	timeoutMs: number | null,
+	scope: FlushScope,
 };
 
 export type HunkKind = "added" | "modified" | "deleted";
@@ -1657,6 +1762,14 @@ export type LspSpawnRequest = {
  *  state at list time. `conflict` is `true` when the disk was modified after
  *  the mirror's `disk_modified_ms` baseline was captured, meaning applying
  *  the mirror as-is would silently discard an external change.
+ * 
+ *  `source_missing` marks the other resolution: the file the draft belongs to
+ *  is gone from disk (deleted outside the app — `rm`, a `git checkout`, a build
+ *  script). Such a mirror is still listed, because being unlistable is exactly
+ *  what used to make the draft unreachable, but neither `conflict` nor
+ *  `disk_modified_ms` can be answered against a file that is not there, so both
+ *  come back `false`/`None` and the frontend offers "save as" instead of a
+ *  restore.
  */
 export type MirrorEntry = {
 	path: string,
@@ -1664,6 +1777,7 @@ export type MirrorEntry = {
 	savedAtMs: number | null,
 	diskModifiedMs: number | null,
 	conflict: boolean,
+	sourceMissing: boolean,
 };
 
 /**
@@ -1988,6 +2102,26 @@ export type ProjectOpened = {
 	project: Project,
 };
 
+/**
+ *  `File > Clear Recent` ran: how many persisted project records it deleted, and how many it
+ *  deliberately kept because their hot-exit mirrors still hold unsaved drafts (audit wave 2 #9).
+ * 
+ *  Those counts already come back to whoever invoked `project_forget_recent`, but the action's real
+ *  trigger is the native `File > Clear Recent` item, which `lib.rs`'s `dispatch_menu_action` runs in
+ *  Rust so the menu keeps working with **zero windows open** — leaving no IPC caller to hand the
+ *  outcome to. Without this event the "kept N projects that still have unsaved drafts" notice was
+ *  unreachable from the only path that actually clears the list, and a recent list that refused to
+ *  empty read as a command that had simply failed.
+ * 
+ *  Emitted unconditionally, alongside the [`ProjectListChanged`] the same call emits: the event
+ *  means "clear recent ran", and it is the frontend that decides a zero skip count is worth no
+ *  notice.
+ */
+export type ProjectRecentCleared = {
+	removed: number,
+	skippedWithDrafts: number,
+};
+
 export type ProjectRef = {
 	id: ProjectId,
 	root: string,
@@ -1998,6 +2132,21 @@ export type ProjectRef = {
 	 *  this mirror it would need one `project_get` per project just to draw an icon.
 	 */
 	display?: ProjectDisplay,
+	/**
+	 *  Mirror of `Project.root_missing`, recomputed against the live filesystem wherever that field
+	 *  is (`service::restore_session`, `service::open_project`) and written through by
+	 *  `service::upsert_project_ref` — the same reason `display` is mirrored.
+	 * 
+	 *  Without it the one surface that shows a restored project — the sidebar rail and its slot
+	 *  header, both of which render from `project_list` alone — had no way to know the folder is
+	 *  gone, so a project whose drive was unplugged came back looking perfectly healthy with an
+	 *  empty file tree, while `Open Recent` and the Welcome list (which read `Project`) disabled
+	 *  the very same entry.
+	 * 
+	 *  `#[serde(default)]` reads a pre-d-67 `session.json` (no such field) as `false`; the next
+	 *  `restore_session` recomputes it from disk anyway.
+	 */
+	rootMissing?: boolean,
 };
 
 /**
@@ -2018,8 +2167,8 @@ export type PromptTemplateId = "auto-tab-default" | "inline-edit-default" | "com
  *  that carries both. It counts them against a budget instead of the write backlog that drives flow
  *  control, which otherwise saw up to a full scrollback land at once and paused a healthy child
  *  process on every terminal tab switch. It is a `u32` because `specta-typescript` refuses to export
- *  BigInt-style types; one replay is bounded by [`DEFAULT_SCROLLBACK_BYTES`] plus a four-byte
- *  preamble, three orders of magnitude below that ceiling.
+ *  BigInt-style types; one replay is bounded by [`MAX_SCROLLBACK_BYTES`] plus a four-byte
+ *  preamble, two orders of magnitude below that ceiling.
  */
 export type PtyAttachResult = {
 	subscriptionId: number,
@@ -2032,6 +2181,15 @@ export type PtySpawnOptions = {
 	shell?: string | null,
 	cols: number,
 	rows: number,
+	/**
+	 *  How many bytes of output this session's scrollback ring keeps, resolved through
+	 *  [`resolve_scrollback_bytes`]. `None` — every caller that predates this field — keeps the
+	 *  previous fixed [`DEFAULT_SCROLLBACK_BYTES`] budget. A `u32` because `specta-typescript`
+	 *  refuses BigInt-style types, the same constraint [`PtyAttachResult::replay_bytes`] carries;
+	 *  [`MAX_SCROLLBACK_BYTES`] is far below that ceiling. Applies from the next spawn on — there
+	 *  is no command to resize a running session's ring.
+	 */
+	scrollbackBytes?: number | null,
 };
 
 export type RemoteLinkInfo = {
@@ -2201,6 +2359,21 @@ export type SearchQuery = {
 	excludeGlob?: string | null,
 	contextLines?: number,
 	respectGitignore?: boolean,
+	/**
+	 *  Confines the whole run to one directory, given **project-relative** (`node_modules/pkg`,
+	 *  `src`) — the Explorer's "폴더에서 찾기" entry point.
+	 * 
+	 *  Distinct from `include_glob` on purpose. A glob only filters entries the walk already
+	 *  produced, and the walk prunes `constants::IGNORED_DIR_NAMES` before any glob is consulted,
+	 *  so `node_modules/**` as an include pattern reported a truthful-looking zero results for a
+	 *  folder the user had just pointed at. A scope instead *moves the walk root* and, because the
+	 *  user named this directory explicitly, suspends that pruning inside it
+	 *  (`service::configure_walk`). Relative paths reported back are still relative to the project
+	 *  root, so results look the same as an unscoped run's.
+	 * 
+	 *  `None` — every caller that predates this field — leaves the project-wide walk untouched.
+	 */
+	scopeDir?: string | null,
 };
 
 export type SearchReplaceResult = {
@@ -2988,6 +3161,27 @@ export type TerminalSession = {
 	cwd: string,
 	shell: string,
 	running: boolean,
+};
+
+/**
+ *  A pty session was created and registered — the spawn-side counterpart to [`TerminalExited`].
+ * 
+ *  Exists because the terminal roster (`TERMINAL.SESSIONS`) is a per-window TanStack Query cache
+ *  with `staleTime: Infinity`, and the only thing that used to record a fresh session was the
+ *  spawning window writing into *its own* cache. A window that never saw that write — the other
+ *  window a terminal tab was dragged to — decided the still-running session was dead and spawned a
+ *  replacement over it, orphaning the original pty. Broadcasting the same fact app-wide lets every
+ *  window's roster converge, exactly as `terminal:exited` already does for the other direction
+ *  (`docs/features/terminal.md` §3.1: every event that changes the roster writes to the cache).
+ * 
+ *  Emitted after the session is in `TerminalStore`, so a listener that reacts by querying the
+ *  store always finds it.
+ */
+export type TerminalSpawned = {
+	sessionId: string,
+	projectId: ProjectId,
+	cwd: string,
+	shell: string,
 };
 
 export type Theme = Theme_Serialize | Theme_Deserialize;

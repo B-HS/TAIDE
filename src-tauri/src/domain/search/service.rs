@@ -443,8 +443,8 @@ fn claim_match_budget(total: &AtomicU32, found: &mut Vec<SearchLineMatch>) -> bo
 /// filesystem/never affect results, so this is a (tiny, per-search) I/O
 /// cost rather than a correctness or sandboxing gap. See
 /// `docs/acknowledge/2026-08-15-wave-d-search-nav-contract.md` §3.4.
-fn configure_walk(root: &Path, respect_gitignore: bool) -> WalkBuilder {
-    let mut builder = WalkBuilder::new(root);
+fn configure_walk(walk_root: &Path, respect_gitignore: bool, prune_ignored_dirs: bool) -> WalkBuilder {
+    let mut builder = WalkBuilder::new(walk_root);
     builder
         .hidden(false)
         .parents(false)
@@ -453,8 +453,8 @@ fn configure_walk(root: &Path, respect_gitignore: bool) -> WalkBuilder {
         .git_ignore(respect_gitignore)
         .git_exclude(respect_gitignore)
         .require_git(false)
-        .filter_entry(|entry| {
-            if entry.depth() == 0 {
+        .filter_entry(move |entry| {
+            if !prune_ignored_dirs || entry.depth() == 0 {
                 return true;
             }
             let is_dir = entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false);
@@ -467,7 +467,35 @@ fn configure_walk(root: &Path, respect_gitignore: bool) -> WalkBuilder {
 }
 
 fn build_walk(root: &Path, respect_gitignore: bool) -> ignore::Walk {
-    configure_walk(root, respect_gitignore).build()
+    configure_walk(root, respect_gitignore, true).build()
+}
+
+/// Resolves where one run's walk actually starts, and whether that walk still prunes
+/// `constants::IGNORED_DIR_NAMES`.
+///
+/// Without a [`SearchQuery::scope_dir`] this is exactly the previous behaviour: walk the project
+/// root, prune the ignored directories. With one, the user has pointed at a specific folder in the
+/// Explorer, so the walk starts there and the pruning is suspended — otherwise "폴더에서 찾기" on
+/// `node_modules` (or `dist`, `target`, `.next`, …) reported a confident "no results" for a folder
+/// full of them, because `filter_entry` removed the subtree long before any glob or match test ran.
+///
+/// The scope is resolved against `root` through [`root_guard::ensure_within_root`], so a
+/// `../`-laden or symlinked scope can never walk outside the project, and it must name an existing
+/// directory — a stale Explorer row (folder deleted between the right-click and the search) fails
+/// loudly instead of silently searching the whole project.
+fn resolve_scope(root: &Path, scope_dir: Option<&str>) -> AppResult<(PathBuf, bool)> {
+    let Some(scope_dir) = scope_dir.map(str::trim).filter(|scope| !scope.is_empty()) else {
+        return Ok((root.to_path_buf(), true));
+    };
+
+    let resolved = root_guard::ensure_within_root(root, &root.join(scope_dir))?;
+    if !resolved.is_dir() {
+        return Err(AppError::InvalidArgument(format!(
+            "search scope is not a directory: {}",
+            resolved.display()
+        )));
+    }
+    Ok((resolved, false))
 }
 
 /// Walks `root` on every available core and streams each file's matches out as a single
@@ -502,6 +530,8 @@ pub fn search(
     }
 
     let compiled = compile_query(query)?;
+    let (walk_root, prune_ignored_dirs) = resolve_scope(root, query.scope_dir.as_deref())?;
+    let walk_root = walk_root.as_path();
     let total = AtomicU32::new(0);
 
     std::thread::scope(|scope| {
@@ -510,53 +540,55 @@ pub fn search(
         let compiled = &compiled;
 
         scope.spawn(move || {
-            configure_walk(root, query.respect_gitignore).build_parallel().run(|| {
-                let sender = sender.clone();
-                let mode = compiled.mode();
-                Box::new(move |entry| {
-                    if cancelled.load(Ordering::Relaxed) {
-                        return WalkState::Quit;
-                    }
+            configure_walk(walk_root, query.respect_gitignore, prune_ignored_dirs)
+                .build_parallel()
+                .run(|| {
+                    let sender = sender.clone();
+                    let mode = compiled.mode();
+                    Box::new(move |entry| {
+                        if cancelled.load(Ordering::Relaxed) {
+                            return WalkState::Quit;
+                        }
 
-                    let Ok(entry) = entry else {
-                        return WalkState::Continue;
-                    };
-                    if !entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false) {
-                        return WalkState::Continue;
-                    }
+                        let Ok(entry) = entry else {
+                            return WalkState::Continue;
+                        };
+                        if !entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false) {
+                            return WalkState::Continue;
+                        }
 
-                    let path = entry.path();
-                    if !passes_glob_filters(root, path, query) {
-                        return WalkState::Continue;
-                    }
+                        let path = entry.path();
+                        if !passes_glob_filters(root, path, query) {
+                            return WalkState::Continue;
+                        }
 
-                    let claimed = total.load(Ordering::Acquire);
-                    if claimed >= SEARCH_MATCH_LIMIT {
-                        return WalkState::Quit;
-                    }
+                        let claimed = total.load(Ordering::Acquire);
+                        if claimed >= SEARCH_MATCH_LIMIT {
+                            return WalkState::Quit;
+                        }
 
-                    let mut found = search_file(path, query, &mode, SEARCH_MATCH_LIMIT - claimed, cancelled);
-                    if cancelled.load(Ordering::Relaxed) {
-                        return WalkState::Quit;
-                    }
-                    if found.is_empty() {
-                        return WalkState::Continue;
-                    }
-                    if !claim_match_budget(total, &mut found) {
-                        return WalkState::Quit;
-                    }
+                        let mut found = search_file(path, query, &mode, SEARCH_MATCH_LIMIT - claimed, cancelled);
+                        if cancelled.load(Ordering::Relaxed) {
+                            return WalkState::Quit;
+                        }
+                        if found.is_empty() {
+                            return WalkState::Continue;
+                        }
+                        if !claim_match_budget(total, &mut found) {
+                            return WalkState::Quit;
+                        }
 
-                    let batch = SearchFileMatches {
-                        path: path.to_string_lossy().to_string(),
-                        matches: found,
-                    };
-                    if sender.send(batch).is_err() {
-                        return WalkState::Quit;
-                    }
+                        let batch = SearchFileMatches {
+                            path: path.to_string_lossy().to_string(),
+                            matches: found,
+                        };
+                        if sender.send(batch).is_err() {
+                            return WalkState::Quit;
+                        }
 
-                    WalkState::Continue
-                })
-            });
+                        WalkState::Continue
+                    })
+                });
         });
 
         for batch in receiver {
@@ -567,8 +599,17 @@ pub fn search(
     Ok(total.load(Ordering::Acquire))
 }
 
+/// `search_replace`'s target set when the caller named no explicit paths — the same walk
+/// [`search`] runs, including its [`SearchQuery::scope_dir`] handling, so "replace all" rewrites
+/// exactly the files the search that produced the results could see. A scope that no longer
+/// resolves yields no targets rather than silently widening the replace to the whole project.
 fn collect_project_files(root: &Path, query: &SearchQuery) -> Vec<PathBuf> {
-    build_walk(root, query.respect_gitignore)
+    let Ok((walk_root, prune_ignored_dirs)) = resolve_scope(root, query.scope_dir.as_deref()) else {
+        return Vec::new();
+    };
+
+    configure_walk(&walk_root, query.respect_gitignore, prune_ignored_dirs)
+        .build()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().map(|file_type| file_type.is_file()).unwrap_or(false))
         .map(|entry| entry.into_path())
@@ -583,12 +624,20 @@ fn collect_project_files(root: &Path, query: &SearchQuery) -> Vec<PathBuf> {
 /// appear (`constants::IGNORED_DIR_NAMES` — `.git`, `node_modules`, ...) rather than
 /// re-implementing that list a second time.
 ///
-/// Always called with `respect_gitignore: false` — unlike `search`/`collect_project_files`, there
-/// is no per-call `SearchQuery` toggle to honor here, and this index must stay a superset of
-/// `domain::tree`'s own listing (`tree::service` prunes only `IGNORED_DIR_NAMES`, never
-/// `.gitignore`): a file the Explorer sidebar shows must always be quick-open-able too, so a
-/// gitignored-but-tracked file (e.g. a generated file someone deliberately `git add -f`'d) doesn't
-/// vanish from quick-open while still sitting in the tree.
+/// Always called with `respect_gitignore: false` — unlike `search`/`collect_project_files` there is
+/// no per-call `SearchQuery` toggle to honor here, and a gitignored-but-tracked file (a generated
+/// file someone deliberately `git add -f`'d) must not vanish from ⌘P.
+///
+/// It is **not** a superset of `domain::tree`'s listing, and this comment used to claim it was. That
+/// claim rested on `tree::service` pruning `IGNORED_DIR_NAMES`, which it stopped doing in d-64 T1
+/// (`read_children` filters nothing at all now). The real relation is the other way round —
+/// `tree ⊋ quick-open` — because this walk still prunes those directories while the tree shows
+/// them: a file under `node_modules/` has a row in the Explorer and no entry here. That asymmetry is
+/// intended (an index of every dependency file would drown ⌘P), and it is the same asymmetry
+/// `search` applies, which is why "폴더에서 찾기" on such a folder needs
+/// [`SearchQuery::scope_dir`] to suspend the pruning (audit wave 2 #23). Consequences are written up
+/// in `docs/features/explorer-sidebar.md` §2.3 and `docs/ipc-contract.md`'s `search_list_files`
+/// entry; do not read this function as a licence to turn `respect_gitignore` on.
 pub fn list_project_files(root: &Path) -> Vec<PathBuf> {
     build_walk(root, false)
         .filter_map(|entry| entry.ok())
@@ -716,6 +765,7 @@ mod tests {
             exclude_glob: None,
             context_lines: 0,
             respect_gitignore: true,
+            scope_dir: None,
         }
     }
 
@@ -1024,6 +1074,131 @@ mod tests {
         let fixture = build_fixture();
         let mut q = query("needle");
         q.respect_gitignore = false;
+        let cancelled = AtomicBool::new(false);
+
+        let (total, results) = collect_search(&fixture.root, &q, &cancelled);
+
+        assert_eq!(total, 1);
+        assert!(results[0].0.ends_with("main.rs"));
+    }
+
+    fn build_scope_fixture() -> Fixture {
+        let root = std::env::temp_dir().join(format!("taide-search-scope-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules").join("pkg")).unwrap();
+        std::fs::write(root.join("src").join("main.rs"), "needle in src\n").unwrap();
+        std::fs::write(root.join("node_modules").join("pkg").join("index.js"), "needle in dependency\n").unwrap();
+        Fixture { root }
+    }
+
+    /// The "폴더에서 찾기" regression: pointing the search at a directory inside
+    /// `constants::IGNORED_DIR_NAMES` used to report zero results, because the walk pruned the
+    /// subtree before any filter ran. An explicit scope suspends that pruning.
+    #[test]
+    fn scope_dir가_무시_디렉토리면_그_안의_매치를_반환한다() {
+        let fixture = build_scope_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("node_modules/pkg".to_string());
+        let cancelled = AtomicBool::new(false);
+
+        let (total, results) = collect_search(&fixture.root, &q, &cancelled);
+
+        assert_eq!(total, 1, "scope 안의 매치가 반환돼야 한다");
+        assert!(results[0].0.ends_with("index.js"));
+    }
+
+    /// `node_modules` is gitignored in every real project, so the scoped walk has to survive the
+    /// default `respect_gitignore: true` as well — `configure_walk`'s `.parents(false)` is what
+    /// keeps the project root's own `.gitignore` from applying to a walk rooted inside it.
+    #[test]
+    fn scope_dir는_gitignore된_디렉토리_안에서도_동작한다() {
+        let fixture = build_gitignore_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("ignored-by-git".to_string());
+        let cancelled = AtomicBool::new(false);
+
+        let (total, results) = collect_search(&fixture.root, &q, &cancelled);
+
+        assert_eq!(total, 1);
+        assert!(results[0].0.ends_with("skip.rs"));
+    }
+
+    #[test]
+    fn scope_dir는_그_바깥_파일을_결과에서_제외한다() {
+        let fixture = build_scope_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("src".to_string());
+        let cancelled = AtomicBool::new(false);
+
+        let (total, results) = collect_search(&fixture.root, &q, &cancelled);
+
+        assert_eq!(total, 1);
+        assert!(results[0].0.ends_with("main.rs"));
+    }
+
+    /// Scope absent must leave the pre-existing project-wide behaviour byte for byte: the ignored
+    /// directory stays pruned.
+    #[test]
+    fn scope_dir가_없으면_무시_디렉토리는_그대로_제외된다() {
+        let fixture = build_scope_fixture();
+        let cancelled = AtomicBool::new(false);
+
+        let (total, results) = collect_search(&fixture.root, &query("needle"), &cancelled);
+
+        assert_eq!(total, 1);
+        assert!(results[0].0.ends_with("main.rs"));
+    }
+
+    #[test]
+    fn 루트를_벗어나는_scope_dir는_거부된다() {
+        let fixture = build_scope_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("../".to_string());
+        let cancelled = AtomicBool::new(false);
+
+        let error = search(&fixture.root, &q, &cancelled, |_| {}).expect_err("루트 밖 scope 는 거부돼야 한다");
+
+        assert!(
+            matches!(error, AppError::Localized(_)),
+            "root guard 의 outsideProjectRoot 오류여야 한다: {error:?}"
+        );
+    }
+
+    #[test]
+    fn 존재하지_않는_scope_dir는_거부된다() {
+        let fixture = build_scope_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("no-such-dir".to_string());
+        let cancelled = AtomicBool::new(false);
+
+        let error = search(&fixture.root, &q, &cancelled, |_| {}).expect_err("없는 scope 는 거부돼야 한다");
+
+        assert!(
+            matches!(error, AppError::NotFound(_) | AppError::Io(_) | AppError::InvalidArgument(_)),
+            "없는 디렉토리는 성공이 아니라 오류여야 한다: {error:?}"
+        );
+    }
+
+    #[test]
+    fn 파일을_가리키는_scope_dir는_거부된다() {
+        let fixture = build_scope_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("src/main.rs".to_string());
+        let cancelled = AtomicBool::new(false);
+
+        let error = search(&fixture.root, &q, &cancelled, |_| {}).expect_err("파일 scope 는 거부돼야 한다");
+
+        assert!(
+            matches!(error, AppError::InvalidArgument(_)),
+            "디렉토리가 아닌 scope 는 InvalidArgument 여야 한다: {error:?}"
+        );
+    }
+
+    #[test]
+    fn 빈_scope_dir는_프로젝트_전체_검색과_같다() {
+        let fixture = build_scope_fixture();
+        let mut q = query("needle");
+        q.scope_dir = Some("   ".to_string());
         let cancelled = AtomicBool::new(false);
 
         let (total, results) = collect_search(&fixture.root, &q, &cancelled);

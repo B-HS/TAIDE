@@ -5,6 +5,7 @@ use tauri_specta::Event;
 use crate::domain::project::types::{Project, ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::domain::settings::types::Settings;
 use crate::ids::{ProjectId, ShellSlotId};
+use crate::state::FlushScope;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +47,27 @@ pub struct ProjectListChanged {
 #[tauri_specta(event_name = "project:groups-changed")]
 pub struct ProjectGroupsChanged {
     pub groups: Vec<ProjectGroup>,
+}
+
+/// `File > Clear Recent` ran: how many persisted project records it deleted, and how many it
+/// deliberately kept because their hot-exit mirrors still hold unsaved drafts (audit wave 2 #9).
+///
+/// Those counts already come back to whoever invoked `project_forget_recent`, but the action's real
+/// trigger is the native `File > Clear Recent` item, which `lib.rs`'s `dispatch_menu_action` runs in
+/// Rust so the menu keeps working with **zero windows open** — leaving no IPC caller to hand the
+/// outcome to. Without this event the "kept N projects that still have unsaved drafts" notice was
+/// unreachable from the only path that actually clears the list, and a recent list that refused to
+/// empty read as a command that had simply failed.
+///
+/// Emitted unconditionally, alongside the [`ProjectListChanged`] the same call emits: the event
+/// means "clear recent ran", and it is the frontend that decides a zero skip count is worth no
+/// notice.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "project:recent-cleared")]
+pub struct ProjectRecentCleared {
+    pub removed: u32,
+    pub skipped_with_drafts: u32,
 }
 
 /// The main window's shell-slot arrangement changed — a slot was split, replaced, closed, or simply
@@ -121,6 +143,28 @@ pub struct FsChanged {
 #[tauri_specta(event_name = "fs:rescan-required")]
 pub struct FsRescanRequired {
     pub project_id: ProjectId,
+}
+
+/// A pty session was created and registered — the spawn-side counterpart to [`TerminalExited`].
+///
+/// Exists because the terminal roster (`TERMINAL.SESSIONS`) is a per-window TanStack Query cache
+/// with `staleTime: Infinity`, and the only thing that used to record a fresh session was the
+/// spawning window writing into *its own* cache. A window that never saw that write — the other
+/// window a terminal tab was dragged to — decided the still-running session was dead and spawned a
+/// replacement over it, orphaning the original pty. Broadcasting the same fact app-wide lets every
+/// window's roster converge, exactly as `terminal:exited` already does for the other direction
+/// (`docs/features/terminal.md` §3.1: every event that changes the roster writes to the cache).
+///
+/// Emitted after the session is in `TerminalStore`, so a listener that reacts by querying the
+/// store always finds it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+#[tauri_specta(event_name = "terminal:spawned")]
+pub struct TerminalSpawned {
+    pub session_id: String,
+    pub project_id: ProjectId,
+    pub cwd: String,
+    pub shell: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -266,15 +310,25 @@ pub struct RemoteStateChanged {
     pub status: crate::domain::remote::types::RemoteStatus,
 }
 
-/// Emitted once when the OS requests the window to close, asking the
-/// frontend to flush every dirty editor model to the hot-exit mirror before
-/// the app actually exits. `timeout_ms` mirrors `HOT_EXIT_FLUSH_TIMEOUT_MS`
-/// so the frontend never needs its own copy of that constant.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, Event)]
+/// Asks the frontend to flush dirty editor models to the hot-exit mirror before a teardown that
+/// would otherwise lose the last debounce window of typing, and to confirm with
+/// `domain::file::commands::file_flush_complete` once it has.
+///
+/// `scope` says which models: the app is exiting ([`FlushScope::All`], the original and still the
+/// only one that ends in `AppHandle::exit`), one auxiliary window is closing
+/// ([`FlushScope::Window`]), or one project is closing ([`FlushScope::Project`]). Broadcast
+/// app-wide in every case — a project spans windows, so each window decides for itself what the
+/// scope covers of its own models and then confirms with that same scope.
+///
+/// `timeout_ms` mirrors `HOT_EXIT_FLUSH_TIMEOUT_MS` so the frontend never needs its own copy of
+/// that constant. The backend proceeds without a confirmation once it elapses, so a listener that
+/// takes longer loses the flush, not the teardown.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "app:hot-exit-flush-requested")]
 pub struct HotExitFlushRequested {
     pub timeout_ms: f64,
+    pub scope: FlushScope,
 }
 
 #[cfg(test)]
@@ -412,11 +466,64 @@ mod tests {
         assert_eq!(restored.request_id, original.request_id);
     }
 
+    /// The roster upsert on the frontend reads all four fields (`upsertTerminalSession`), so the
+    /// exact camelCase key set is the contract — a rename here would silently produce sessions with
+    /// `undefined` cwd/shell in every window's roster.
     #[test]
-    fn 핫엑시트_플러시_요청은_밀리초를_수로_싣는다() {
-        let value = serde_json::to_value(HotExitFlushRequested { timeout_ms: 2_000.0 }).expect("직렬화");
+    fn 터미널_스폰_이벤트는_세션_프로젝트_cwd_셸을_camel_case_로_싣는다() {
+        let value = serde_json::to_value(TerminalSpawned {
+            session_id: "pty-1".to_string(),
+            project_id: project_id(),
+            cwd: "/repo".to_string(),
+            shell: "/bin/zsh".to_string(),
+        })
+        .expect("직렬화");
 
-        assert_eq!(field_names(&value), vec!["timeoutMs"]);
+        assert_eq!(field_names(&value), vec!["cwd", "projectId", "sessionId", "shell"]);
+        assert_eq!(value["sessionId"], "pty-1");
+        assert_eq!(value["projectId"], "prj-events");
+        assert_eq!(value["cwd"], "/repo");
+        assert_eq!(value["shell"], "/bin/zsh");
+    }
+
+    #[test]
+    fn 핫엑시트_플러시_요청은_밀리초와_스코프를_싣는다() {
+        let value = serde_json::to_value(HotExitFlushRequested {
+            timeout_ms: 2_000.0,
+            scope: FlushScope::All,
+        })
+        .expect("직렬화");
+
+        assert_eq!(field_names(&value), vec!["scope", "timeoutMs"]);
         assert_eq!(value["timeoutMs"], 2_000.0);
+    }
+
+    /// The scope is the only thing that tells a window whether a flush request is about its own
+    /// close, a project it may not even render, or the whole app — so its wire shape is the
+    /// contract `bindings.ts` hands the frontend: `"all" | { window } | { project }`.
+    #[test]
+    fn 플러시_스코프는_all_window_project_유니온으로_직렬화된다() {
+        assert_eq!(serde_json::to_value(FlushScope::All).expect("직렬화"), serde_json::json!("all"));
+        assert_eq!(
+            serde_json::to_value(FlushScope::Window("editor-1".to_string())).expect("직렬화"),
+            serde_json::json!({ "window": "editor-1" })
+        );
+        assert_eq!(
+            serde_json::to_value(FlushScope::Project(project_id())).expect("직렬화"),
+            serde_json::json!({ "project": "prj-events" })
+        );
+    }
+
+    #[test]
+    fn 플러시_스코프는_왕복_직렬화에서_같은_값으로_돌아온다() {
+        for scope in [
+            FlushScope::All,
+            FlushScope::Window("editor-2".to_string()),
+            FlushScope::Project(project_id()),
+        ] {
+            let value = serde_json::to_value(&scope).expect("직렬화");
+            let restored: FlushScope = serde_json::from_value(value).expect("역직렬화");
+            assert_eq!(restored, scope);
+        }
     }
 }

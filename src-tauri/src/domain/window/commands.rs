@@ -16,7 +16,7 @@ use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::HotExitFlushRequested;
 use crate::ids::ProjectId;
 use crate::infra::navigation_guard;
-use crate::state::AppState;
+use crate::state::{AppState, FlushScope};
 
 struct AuxiliaryWindowRecord {
     project_id: ProjectId,
@@ -227,13 +227,59 @@ pub(crate) fn refresh_app_menu(app: &tauri::AppHandle) {
 /// sequence `handle_close_requested` runs for the main window below, so
 /// closing a second window silently terminated the whole app
 /// (`docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.1).
-/// The close is intentionally left un-prevented here so the OS's default
-/// close proceeds and only this one window goes away. Both registry cleanups
-/// are idempotent with `lib.rs`'s `WindowEvent::Destroyed` handler, which runs
-/// this same cleanup again as a backstop for closes that don't go through
-/// `CloseRequested` at all (e.g. a crash).
-fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>) {
-    if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
+/// Only this one window goes away — but it does so *after* its own scoped flush, not immediately.
+///
+/// The close used to be left un-prevented, so the webview was destroyed before React could
+/// unmount: the mirror-flush effect cleanup never ran, no `beforeunload`/`pagehide` handler exists
+/// to stand in for it, and anything typed inside the last `HOT_EXIT_MIRROR_DEBOUNCE_MS` was gone
+/// with no warning (audit wave 2 #5). Now the first request is intercepted exactly like the main
+/// window's, with [`FlushScope::Window`] so only this window flushes and only this window's
+/// confirmation counts, and the real close is re-issued by
+/// [`finish_auxiliary_window_close`] once the flush confirms or the timeout fallback fires.
+/// A second click while that is in flight is intercepted again but starts nothing new
+/// (`AppState::begin_flush` returns `None`).
+///
+/// Both registry cleanups are idempotent with `lib.rs`'s `WindowEvent::Destroyed` handler, which
+/// runs this same cleanup again as a backstop for closes that don't go through `CloseRequested` at
+/// all (e.g. a crash) — and which also drops this window's pending handshake, since a destroyed
+/// webview can no longer confirm anything.
+fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
+    let state = window.state::<AppState>();
+    let scope = FlushScope::Window(window.label().to_string());
+
+    if !state.take_completed_flush(&scope) && !state.is_shutting_down() {
+        api.prevent_close();
+
+        let Some(ticket) = state.begin_flush(scope.clone(), HashSet::from([window.label().to_string()])) else {
+            return;
+        };
+
+        let _ = HotExitFlushRequested {
+            timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
+            scope: scope.clone(),
+        }
+        .emit(window);
+
+        let app_handle = window.app_handle().clone();
+        let label = window.label().to_string();
+        let token = ticket.token;
+        tauri::async_runtime::spawn(async move {
+            let confirmed = ticket
+                .wait(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS))
+                .await;
+            let state = app_handle.state::<AppState>();
+            if !confirmed {
+                if !state.force_complete_flush(&scope, token) {
+                    return;
+                }
+                log::warn!("보조 창 flush 가 시간 내에 확인되지 않아 그대로 닫습니다 (label={label})");
+            }
+            finish_auxiliary_window_close(&app_handle, &label);
+        });
+        return;
+    }
+
+    if state.forget_hot_exit_flush_window(window.label()) {
         window.app_handle().exit(0);
     }
 
@@ -242,11 +288,33 @@ fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>) {
     }
 }
 
+/// Re-issues the close [`handle_auxiliary_close_requested`] deferred, now that `label`'s flush has
+/// confirmed (or timed out). The follow-up `CloseRequested` finds the handshake already `Ready`,
+/// consumes it, and lets the OS close proceed.
+///
+/// Reached only from the one task that owns that handshake, and only after it has established the
+/// handshake is still its own — an auxiliary label is reissued to the next window, so closing on a
+/// bare label match could close a window the user never asked about. A window that is already gone
+/// leaves its `Ready` handshake behind, so it is cleared here rather than left to block the
+/// label's reuse.
+fn finish_auxiliary_window_close(app: &AppHandle, label: &str) {
+    let Some(window) = app.get_webview_window(label) else {
+        app.state::<AppState>().clear_flush(&FlushScope::Window(label.to_string()));
+        return;
+    };
+
+    if let Err(error) = window.close() {
+        log::warn!("보조 창을 닫지 못했습니다 (label={label}): {error}");
+        app.state::<AppState>().clear_flush(&FlushScope::Window(label.to_string()));
+    }
+}
+
 /// Intercepts the window close request to give every open window a chance to
 /// flush its own dirty editor models to the hot-exit mirror before the app
-/// actually exits. Only the main window runs this path — see
-/// [`handle_auxiliary_close_requested`] for `editor-*` windows, which close
-/// immediately instead. Always defers the main window's close
+/// actually exits. Only the main window runs this path — an `editor-*` window
+/// goes through [`handle_auxiliary_close_requested`], which runs the same
+/// handshake scoped to that one window and ends in closing it rather than in
+/// exiting the app. Always defers the main window's close
 /// (`prevent_close`) and lets either every expected window's own
 /// `file_flush_complete` call or the timeout fallback below perform the real
 /// `AppHandle::exit`, so the window is never destroyed by the OS's default
@@ -254,7 +322,7 @@ fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>) {
 /// attempts (e.g. mashing Cmd+Q) from emitting the flush event twice.
 pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
     if service::is_auxiliary_label(window.label()) {
-        handle_auxiliary_close_requested(window);
+        handle_auxiliary_close_requested(window, api);
         return;
     }
 
@@ -274,6 +342,7 @@ pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &t
     // the main window — no separate per-window fanout loop is needed here.
     let _ = HotExitFlushRequested {
         timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
+        scope: FlushScope::All,
     }
     .emit(window);
 
