@@ -67,8 +67,9 @@
       `release-notes/v0.2.3.md`(sonnet → 메인 사실 대조). 메인 최종 검증 `bun run verify` exit 0(bun 2916 pass/0 fail·cargo lib 1733·clippy 0)·
       `vite build`·`typecheck:e2e` exit 0 → 커밋 6분할(`e33334a` fix(layout)·`6cad794` fix(tree)·`8445866` fix(core)·`73bd807` chore(locale)·
       `bdd0418` fix(editor)·`a3ac9ae` fix(shell)) + docs 커밋
-- [ ] d-2. dev 푸시 → main ff → **v0.2.3 릴리스**(버전 3파일+Cargo.lock·릴리스 노트·태그·Release 런·draft) → `deployment.md` §9·HANDOFF 기록 →
-      사용자 실기(`bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §9 + 1차 §7 + d-65 계약 §4)
+- [x] d-2. dev 푸시 → main ff → `040a7ee` chore(release) v0.2.3 → 태그 → **Release 런 `35201509238` 완주(wall 약 8m05s)** → draft(`TAIDE_0.2.3_aarch64.dmg`
+      15,320,467B + SHA256SUMS.txt) → `deployment.md` §9·HANDOFF 기록
+- [ ] e. 사용자 실기(v0.2.3 설치본) — `bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §9 + 1차 §7 + d-65 계약 §4 · draft 공개 여부
 
 ## 진행 중: d-66 — 편집 표면 버그 전수조사 + 확인된 결함 일괄 수정 (2026-09-17)
 

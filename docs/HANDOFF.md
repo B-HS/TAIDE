@@ -1,4 +1,14 @@
-# HANDOFF — 2026-09-16 세션 스냅샷 (d-64 TS 진단 폴백 정직화·LSP 관측성·파일트리 하드 제외 해제, v0.2.2 draft 릴리스)
+# HANDOFF — 2026-09-17 세션 스냅샷 (편집 표면 전수조사 d-65~d-67 · v0.2.3 draft 릴리스)
+
+> 최종 갱신: 2026-09-17 / HEAD = `040a7ee`(chore(release) v0.2.3) 위에 이 docs 커밋. 직전 스냅샷 `git show 8751d9b:docs/HANDOFF.md`.
+> **이 세션(2026-09-17)** — 사용자 보고 2건(분할 pane 닫은 뒤 "pane not found"·저장/열기 불가 / 새 pane 뒤 기존 pane 단축키 무반응) → d-65 계약(`close_tab` 형제 승계·`finish_mutation` 불변식·프론트 미러·pane 포커스 pointerdown/focusin 캡처). 이어 사용자 지시 "버그 전수조사·다 바꿔" → 1차 조사 wf(8관점 finder → 반박 검증, `research/2026-09-17-editing-surface-bug-audit.md`, 생존 20/기각 3) → d-66 계약(15+1 수정) → 2차 조사 wf(1차 미조사 7축, `research/…-wave2.md`, 생존 24/기각 4) → d-67 계약(24+1 수정, 렌즈 major 2·minor 4 추가 수정). 운용: 리서치·fixer opus·xhigh, 렌즈 sonnet·xhigh, 문서 opus·high, 메인은 계약·diff 대조·2차 검증·Git.
+> **반영 커밋(dev=main)**: d-65+d-66 `165e9c0`(layout) `74d8228`(project) `010a9fd`(editor) `decc63b`(window) `749bc9c`(explorer) `0f16120`(docs) / d-67 `e33334a`(layout) `6cad794`(tree) `8445866`(core) `73bd807`(locale) `bdd0418`(editor) `a3ac9ae`(shell) `58e6e87`(docs) `040a7ee`(release). 최종 검증 `bun run verify` exit 0(bun **2916**·cargo lib **1733**·clippy 0)·vite build·typecheck:e2e.
+> **릴리스**: `v0.2.3` 태그 `040a7ee`, Release 런 `35201509238` 완주(wall 약 8m05s, dmg 15,320,467B — `deployment.md` §9). draft 유지 — 공개는 사용자.
+> **사용자 잔여(실기, v0.2.3 설치본)**: d-65 계약 §4 3항목 + `bug/2026-09-17-editing-surface-audit-fixes.md` §7(18행) + `bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §9(24행). 특히 flush 왕복 3경로(앱 종료·보조 창 닫기·프로젝트 닫기)·dirty 닫기 다이얼로그·신규 UI 5종(닫기 다이얼로그·슬롯 경고 배지·탐색기 빈 상태·삭제 배너·터미널 재시작)의 라이트·다크 렌더.
+> **재론 금지 추가**: 1차 조사 §3(`stale-ids-4` L1-07·`open-paths-3` d-58 B-3·`fileops-tabs-3` d-50 #2), 2차 조사 §3(`save-during-transitions-1`·`aux-window-lifecycle-2`·`session-window-ids-5`·`tab-menu-2`). 백로그: 보조 창 파일 IDE 저장 릴레이, 슬롯 닫기 시 살아남은 슬롯 리마운트(key 정체성), 터미널 닫기 실행 중 확인.
+
+> 직전 스냅샷(2026-09-16 3차, d-64·v0.2.2) 헤더는 아래 유지.
+
 
 > 최종 갱신: 2026-09-16(3차) / HEAD = `f256ad7`(chore(release) v0.2.2) 위에 이 docs 커밋. 직전 스냅샷 `git show 227121f:docs/HANDOFF.md`.
 > **이 세션(2026-09-16 3차)** — 사용자 보고 ① gumba 에서 `node_modules`·`.next` 가 있는데 `.ts` 의 모든 import 에 빨간 밑줄("감지 못하나, 의도적 차단인가") ② 트리에 `node_modules/`·`.next/` 미표시 ③ 간헐 토스트 `File not found: /Users/gkn/taide/help`. 메인 실측(실행 중 v0.2.1): IDE 서버 `getDiagnostics` 메시지가 전부 TS2792/TS2580 = **monaco 내장 ts worker** 산출물, vtsls 프로세스 없음, LSP 로그 0줄(Rust 감지·spawn·종료 로그 전무·stderr null·프론트 무음 catch), `monaco.languages.typescript.*Defaults` 호출 저장소 전체 0건(editor.md §12·lsp.md §4 가 미구현을 구현된 것처럼 기술). vtsls·로그인 셸 PATH·`fix_path_env` 프로브(launchd 유사 빈 env)·initialize 응답은 정상 → **세션 부재 원인은 로그 부재로 미확정**(다음 실행 로그로 확정). ③ 은 메인의 `taide help` CLI 탐색이 원인(`feedback/2026-09-16-taide-cli-probe-opens-file-in-app.md`). 계약 `acknowledge/2026-09-16-d64-ts-fallback-lsp-observability-tree-contract.md`(§0 실측·§1 R1/F1/F2/T1/D·§3 구현/검토/검증), 버그 `bug/2026-09-16-ts-builtin-worker-fallback-module-errors.md`.
