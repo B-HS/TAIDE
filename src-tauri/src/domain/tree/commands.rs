@@ -174,6 +174,31 @@ pub async fn tree_toggle(
     Ok(service::full_page(tree))
 }
 
+/// "모두 접기" — clears this project's entire expanded set and returns the collapsed page.
+///
+/// One mutation instead of the frontend's former loop of a `tree_toggle` per *visible* expanded
+/// row. That loop could only name rows it could see, so every descendant hidden under an
+/// already-collapsed parent survived it and sprang back the next time its parent opened
+/// (`service::collapse_all`), and each iteration paid the app-wide mutation guard plus a full page
+/// re-serialization. Collapsing reads no directory, so the prefetch here only covers the cold-start
+/// case where this is the first call for the project and `ensure_entry` has to load the root.
+#[tauri::command]
+#[specta::specta]
+pub async fn tree_collapse_all(
+    state: State<'_, AppState>,
+    tree_store: State<'_, TreeStore>,
+    project_id: ProjectId,
+) -> AppResult<TreeRowPage> {
+    let dirs = plan_reads(&tree_store, &state, &project_id, service::plan_root_read)?;
+    let mut listings = prefetch_listings(dirs).await?;
+
+    let _guard = state.begin_mutation().await;
+    let mut trees = tree_store.0.write();
+    let tree = ensure_entry(&mut trees, &state, &project_id, &mut listings)?;
+    service::collapse_all(tree);
+    Ok(service::full_page(tree))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn tree_reveal(

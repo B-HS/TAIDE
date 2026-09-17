@@ -53,15 +53,23 @@ fn entry_sort_key(entry: &Entry) -> (u8, String) {
 /// ignored directory may not refresh an expanded row live — the same tradeoff as VS Code's
 /// `files.watcherExclude` default (`docs/features/explorer-sidebar.md` §2.3).
 ///
-/// The kind comes from `DirEntry::file_type()`, not `DirEntry::metadata()`. Both answer the same
-/// question here — std documents each as *not* traversing symlinks, so a symlink is a
-/// [`TreeEntryKind::File`] either way, pointing at a directory or not — but on Unix `metadata()` is
-/// documented as "the equivalent of calling `symlink_metadata`", i.e. one `lstat` syscall per
-/// entry, while `file_type()` is free on most Unix platforms because `readdir` already returned
-/// `d_type` (research 3b §2-F). Where `d_type` is `DT_UNKNOWN` — some network volumes — std falls
-/// back to that same `symlink_metadata` internally, so the worst case is today's cost, never worse;
-/// the `Err(_) => continue` arm below is that fallback's failure path, exactly as it was
-/// `metadata()`'s.
+/// The kind comes from `DirEntry::file_type()`, not `DirEntry::metadata()`. Both are documented as
+/// *not* traversing symlinks, but on Unix `metadata()` is "the equivalent of calling
+/// `symlink_metadata`", i.e. one `lstat` syscall per entry, while `file_type()` is free on most Unix
+/// platforms because `readdir` already returned `d_type` (research 3b §2-F). Where `d_type` is
+/// `DT_UNKNOWN` — some network volumes — std falls back to that same `symlink_metadata` internally,
+/// so the worst case is today's cost, never worse; the `Err(_) => continue` arm below is that
+/// fallback's failure path, exactly as it was `metadata()`'s.
+///
+/// Symlinks then pay one extra traversing [`std::fs::metadata`] each, and only they do: a
+/// non-traversing answer made every directory symlink a file row that could neither be expanded nor
+/// opened (`root_guard::ensure_existing_file` *does* traverse, so the open it routed to failed with
+/// "파일을 찾을 수 없습니다" on a path that plainly exists). Since d-64 stopped hiding ignored
+/// directories that is most of a pnpm `node_modules` — every `<pkg>` there is a symlink into
+/// `.pnpm/` — and all of a Python `.venv/lib`. Resolving the kind is what routes the row to expand
+/// instead of open, and `has_children` is re-asked against the resolved kind so the row actually
+/// gets its disclosure arrow. A broken symlink's `metadata` fails and it stays a file row, exactly
+/// as before. The same asymmetry `domain::search`'s `is_indexable_file` already applies.
 fn read_children(dir: &Path) -> AppResult<Vec<Entry>> {
     let mut entries = Vec::new();
 
@@ -72,13 +80,14 @@ fn read_children(dir: &Path) -> AppResult<Vec<Entry>> {
             Err(_) => continue,
         };
         let name = item.file_name().to_string_lossy().to_string();
-        let kind = if file_type.is_dir() {
-            TreeEntryKind::Directory
-        } else {
-            TreeEntryKind::File
-        };
-
         let path = item.path();
+        let is_dir = if file_type.is_symlink() {
+            std::fs::metadata(&path).is_ok_and(|target| target.is_dir())
+        } else {
+            file_type.is_dir()
+        };
+        let kind = if is_dir { TreeEntryKind::Directory } else { TreeEntryKind::File };
+
         let has_children = if kind == TreeEntryKind::Directory {
             directory_has_children(&path)
         } else {
@@ -205,6 +214,19 @@ pub fn expand(state: &mut TreeState, path: &Path, listings: &mut DirectoryListin
 
 pub fn collapse(state: &mut TreeState, path: &Path) {
     state.expanded.remove(path);
+}
+
+/// Collapses the whole tree in one step — "모두 접기".
+///
+/// Clearing the set is the only way to keep that promise: [`collapse`] removes exactly the one path
+/// it is given (deliberately, so re-expanding a folder restores the subtree the user had open), and
+/// the frontend can only ever name the rows it can see — `rows_page` walks into a directory only
+/// while it is expanded, so a descendant hidden under a collapsed parent is invisible to the caller
+/// and used to survive "모두 접기" untouched, springing back the next time its parent opened.
+/// Cached listings are left alone: they are a disk-read cache, not user state, and dropping them
+/// would make the next expand pay a cold `read_dir` for nothing.
+pub fn collapse_all(state: &mut TreeState) {
+    state.expanded.clear();
 }
 
 pub fn toggle_expand(state: &mut TreeState, path: &Path, listings: &mut DirectoryListings) -> AppResult<()> {
@@ -421,11 +443,10 @@ mod tests {
         assert!(node_modules.has_children, "안에 pkg 가 있으므로 펼칠 수 있어야 한다");
     }
 
-    /// Symlinks are the one place where `file_type()` and `metadata()` could have disagreed, since
-    /// `metadata()` on Unix is `symlink_metadata` while `file_type()` reads `readdir`'s `d_type`.
-    /// std documents both as non-traversing, so a symlink is a plain row whatever it points at —
-    /// this fixture pins that so the syscall-shedding swap (research 3b §2-F) cannot change what
-    /// the tree shows.
+    /// Three symlinks — one to a populated directory, one to a file, one dangling — pinning the
+    /// one place `read_children` deliberately pays a traversing syscall. The rows a user sees must
+    /// match what opening the path would do (`root_guard::ensure_existing_file` traverses), which
+    /// is what makes a directory symlink expandable instead of an un-openable file row.
     #[cfg(unix)]
     fn build_symlink_fixture() -> Fixture {
         let root = std::env::temp_dir().join(format!("taide-tree-link-{}", uuid::Uuid::new_v4()));
@@ -441,7 +462,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn 심링크는_대상과_무관하게_파일로_표시된다() {
+    fn 심링크는_가리키는_대상의_종류로_표시된다() {
         let fixture = build_symlink_fixture();
         let children = read_children(&fixture.root).unwrap();
 
@@ -455,14 +476,18 @@ mod tests {
 
         assert_eq!(kind_of("real-dir"), TreeEntryKind::Directory);
         assert_eq!(kind_of("real-file.rs"), TreeEntryKind::File);
-        assert_eq!(kind_of("link-to-dir"), TreeEntryKind::File, "디렉토리 심링크도 파일 행이다");
+        assert_eq!(
+            kind_of("link-to-dir"),
+            TreeEntryKind::Directory,
+            "디렉토리 심링크를 파일 행으로 두면 열 수도 펼칠 수도 없는 행이 된다"
+        );
         assert_eq!(kind_of("link-to-file"), TreeEntryKind::File);
-        assert_eq!(kind_of("link-broken"), TreeEntryKind::File, "끊어진 심링크도 목록에 남는다");
+        assert_eq!(kind_of("link-broken"), TreeEntryKind::File, "끊어진 심링크는 파일 행으로 남는다");
     }
 
     #[cfg(unix)]
     #[test]
-    fn 심링크는_자식이_없는_것으로_취급되고_실제_디렉토리만_펼침_가능하다() {
+    fn 디렉토리_심링크는_펼침_가능하고_끊어진_심링크는_아니다() {
         let fixture = build_symlink_fixture();
         let children = read_children(&fixture.root).unwrap();
 
@@ -475,8 +500,24 @@ mod tests {
         };
 
         assert!(has_children_of("real-dir"));
-        assert!(!has_children_of("link-to-dir"), "심링크는 펼침 화살표를 얻지 않는다");
+        assert!(has_children_of("link-to-dir"), "대상에 자식이 있으면 펼침 화살표가 있어야 한다");
         assert!(!has_children_of("link-broken"));
+        assert!(!has_children_of("link-to-file"));
+    }
+
+    /// 디렉토리 심링크가 디렉토리로 분류되면 정렬 순위도 디렉토리다 — 탐색기 한 화면 안에서
+    /// 같은 성격의 행이 파일 사이에 섞여 보이지 않아야 한다.
+    #[cfg(unix)]
+    #[test]
+    fn 디렉토리_심링크는_파일보다_먼저_정렬된다() {
+        let fixture = build_symlink_fixture();
+        let children = read_children(&fixture.root).unwrap();
+
+        let names: Vec<&str> = children.iter().map(|entry| entry.name.as_str()).collect();
+        let link_to_dir = names.iter().position(|name| *name == "link-to-dir").expect("link-to-dir");
+        let first_file = names.iter().position(|name| *name == "link-broken").expect("link-broken");
+
+        assert!(link_to_dir < first_file);
     }
 
     #[test]
@@ -835,6 +876,47 @@ mod tests {
 
         toggle_expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
         assert!(flatten(&state).iter().any(|row| row.name == "main.rs"));
+    }
+
+    /// "모두 접기" 가 화면에 보이는 행만 접으면, 상위를 접어 숨겨 둔 자손의 펼침 플래그가
+    /// 그대로 남아 다음에 그 상위를 열 때 긴 서브트리가 되살아난다.
+    #[test]
+    fn 모두_접기는_화면_밖_자손의_펼침_상태까지_지운다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        let src_path = fixture.root.join("src");
+        let utils_path = src_path.join("utils");
+        expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
+        expand(&mut state, &utils_path, &mut DirectoryListings::default()).unwrap();
+        collapse(&mut state, &src_path);
+        assert_eq!(
+            expanded_paths(&state),
+            vec![utils_path.to_string_lossy().to_string()],
+            "상위를 접어도 자손의 펼침 상태는 남는다(개별 접기의 의도된 동작)"
+        );
+
+        collapse_all(&mut state);
+
+        assert!(expanded_paths(&state).is_empty());
+        expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
+        assert!(
+            !flatten(&state).iter().any(|row| row.name == "deep.rs"),
+            "다시 펼친 상위 아래에서 자손이 펼쳐진 채로 돌아오면 안 된다"
+        );
+    }
+
+    /// 펼침 집합만 비우고 디렉토리 캐시는 남긴다 — 캐시는 사용자 상태가 아니라 디스크 읽기
+    /// 캐시이고, 버리면 다음 펼치기가 이유 없이 콜드 `read_dir` 을 낸다.
+    #[test]
+    fn 모두_접기는_디렉토리_캐시를_버리지_않는다() {
+        let fixture = build_fixture();
+        let mut state = new_tree_state(fixture.root.clone());
+        let src_path = fixture.root.join("src");
+        expand(&mut state, &src_path, &mut DirectoryListings::default()).unwrap();
+
+        collapse_all(&mut state);
+
+        assert!(plan_toggle_reads(&state, &src_path).is_empty());
     }
 
     #[test]
