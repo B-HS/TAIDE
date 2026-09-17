@@ -58,9 +58,17 @@
 - [x] a. 조사 완료 + 메인 triage → 계약 `acknowledge/2026-09-17-d67-editing-surface-wave2-fixes-contract.md`(24건 전부 수정, 중복 4쌍 합침.
       #8 dirty 닫기 다이얼로그 / #5·#12 스코프 flush 핸드셰이크 / #23 범위 우선 / #11 심링크 kind 재판정 / #18 스크롤백 예산 상수 결정)
 - [x] b. 선행 완료 — d-66 검증·커밋(5+docs)·dev 푸시·main ff
-- [ ] c. 수정 wf(웨이브 1: R1 ∥ TS-L ∥ TS-T → 웨이브 2: R2 ∥ TS-W1 → 웨이브 3: TS-W2 → 검증 → 렌즈 3 → 수정 → 문서)
-- [ ] d. 메인 2차 verify + vite build → 커밋 분할 → dev 푸시 → main ff → **v0.2.3 릴리스**(버전 3파일+Cargo.lock·릴리스 노트·태그·Release 런·draft) →
-      `deployment.md` §9·HANDOFF 기록 → 사용자 실기
+- [x] c. 수정 wf `wf_daf590f0`(13 에이전트·2h11m: R1 ∥ TS-L ∥ TS-T → R2 ∥ TS-W1 → TS-W2 → 검증 allGreen → 렌즈 3: major 2(닫기 확인 "저장" 이
+      실제 쓰기 미대기 → `save-request-registry` + `handleSave` mutateAsync / Clear Recent 안내 도달 불가 → 이벤트 `project:recent-cleared`)·minor 7
+      → 수정 → 재검증 allGreen → 문서). 메인 diff 대조(flush 핸드셰이크·닫기 다이얼로그·저장 경로·심링크·검색 scope). 백로그로 넘긴 minor 4건
+      (project_close 재진입·회수 dedupe preview 승격·disposeModel 시 외부 dirty 마크·setQueryData 제네릭)은 후속 wf `wf_518a3c47` 로 즉시 수정
+      + v0.2.3 릴리스 노트 초안 병행
+- [x] d-1. 후속 wf `wf_518a3c47` — minor 4건 수정(메인 판정 1건 변경: 이중 닫기 재검사는 NotFound 가 아니라 조용히 `Ok(())`) + 릴리스 노트 초안
+      `release-notes/v0.2.3.md`(sonnet → 메인 사실 대조). 메인 최종 검증 `bun run verify` exit 0(bun 2916 pass/0 fail·cargo lib 1733·clippy 0)·
+      `vite build`·`typecheck:e2e` exit 0 → 커밋 6분할(`e33334a` fix(layout)·`6cad794` fix(tree)·`8445866` fix(core)·`73bd807` chore(locale)·
+      `bdd0418` fix(editor)·`a3ac9ae` fix(shell)) + docs 커밋
+- [ ] d-2. dev 푸시 → main ff → **v0.2.3 릴리스**(버전 3파일+Cargo.lock·릴리스 노트·태그·Release 런·draft) → `deployment.md` §9·HANDOFF 기록 →
+      사용자 실기(`bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §9 + 1차 §7 + d-65 계약 §4)
 
 ## 진행 중: d-66 — 편집 표면 버그 전수조사 + 확인된 결함 일괄 수정 (2026-09-17)
 

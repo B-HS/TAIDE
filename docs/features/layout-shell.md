@@ -451,6 +451,13 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
   가 캡처 단계 `pointerdown`/`focusin` 리스너 하나로 이벤트 대상이 속한 슬롯을 찾는다. 슬롯 밖
   (사이드바·상태바·Radix 포털의 다이얼로그/메뉴)은 `null` 로 해소되어 **포커스를 옮기지 않는다** —
   팔레트나 context menu 가 "열 때 보고 있던 슬롯"에 계속 작용하도록.
+- **슬롯 안에도 포커스를 옮기지 않는 영역이 있다**(d-67 #7): `SHELL_SLOT_FOCUS_IGNORE_ATTRIBUTE` 마커가 붙은
+  서브트리는 `resolveShellSlotIdFromEventTarget` 이 슬롯 id 보다 **먼저** 만나면 `null` 로 해소한다(두 셀렉터를
+  `closest` 한 번에 넣어 더 가까운 쪽이 이긴다). 현재 유일한 사용처는 **슬롯 헤더의 ✕** 다 — 그 pointerdown 이
+  닫기 직전 그 슬롯으로 포커스를 옮겨, 바로 아래 "비포커스 슬롯을 닫으면 포커스는 불변" 계약이 UI 로는
+  **도달 불가**였다(항상 닫는 슬롯이 포커스가 된 상태로 닫혔고, 승계 계산이 매번 돌았다). 마커는 버튼이 아니라
+  `display:contents` 래퍼에 단다 — 비활성 상태의 `pointer-events-none` 때문에 이벤트 타깃이 툴팁 래퍼 span 이
+  되는 경로까지 덮어야 하고, `contents` 라 flex 레이아웃에는 영향이 없다.
 - Rust 의 `session_focus_shell_slot` 은 **영속용**이다. 화면은 로컬 override 로 같은 프레임에 먼저
   움직이고, 서버 값이 따라오면 override 는 스스로 사라진다.
 - **닫을 때는 이웃이 포커스를 잇는다**(d-66). 포커스 슬롯이 사라지는 두 경로(`shell_slot_close`,

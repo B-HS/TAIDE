@@ -150,7 +150,20 @@
   `project_open`/`project_activate` 는 시그니처가 그대로이되 **슬롯 의미**가 붙었다(같은 절).
 - mutation(신규, d-62 2c): 사이드바 그룹 `project_group_*` 9종은 아래 "project group" 절이 정본이다.
   `project_forget_recent` 는 시그니처가 그대로이되 지운 레코드를 **그룹 멤버에서도 뺀다**(같은 절).
-- event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`
+- **d-67(2026-09-17) 변경 3건**:
+  - `project_forget_recent()` 의 반환 타입이 `number` → **`ForgetRecentOutcome { removed, skippedWithDrafts,
+    groupsChanged }`**(전부 `u32`/`bool`)로 넓어졌다. 이제 **`buffers/` 아래에 미러(미저장 초안)가 하나라도 있는
+    프로젝트는 지우지 않고 건너뛰며** 그 수가 `skippedWithDrafts` 다(`window-chrome.md` §7.1). 커맨드 이름·인자는
+    불변이라 dispatch 표·원격 정책 분류는 그대로다.
+  - `ProjectRef` 에 **`rootMissing?: boolean` 순증**(`#[serde(default)]` → specta optional). `Project.rootMissing`
+    의 세션 측 미러이며 `restore_session`·`upsert_project_ref`·`open_project` 의 already-open 분기에서 실제
+    파일시스템 기준으로 재계산된다. 프론트는 `=== true` 로 판정한다(undefined 는 "없음" 과 동치).
+  - **신규 이벤트 `project:recent-cleared { removed, skippedWithDrafts }`** — `project_forget_recent` 가 성공하면
+    **무조건** 발행한다(스킵 0 이어도). 네이티브 `File > Clear Recent` 는 `lib.rs` 가 커맨드를 직접 부르고 반환값을
+    프론트에 돌려줄 길이 없어(창이 0개여도 메뉴가 동작해야 하는 의도된 설계), 안내 토스트가 이 이벤트로만 닿는다.
+    원격 fanout 대상이다(페이로드가 숫자 둘뿐이라 로컬 히스토리 노출이 없다).
+- event: `project:opened`, `project:closed`, `project:activated`, `project:list-changed`,
+  `project:recent-cleared`(d-67)
   (**`project:focus-kind-changed` 는 X-A 배치(2026-08-19)에서 제거됐다** — 소비자가 0 이면서
   레이아웃 변이 18종마다 무조건 발행돼 이벤트 트래픽만 2배로 만들었다(X1#12,
   `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2) — `FocusKind` 타입·
@@ -317,6 +330,18 @@
     세션 id 가 채워진 터미널과 다른 모든 kind 는 종전대로 dedupe 된다. `layout_open_tab_in_split` 이 원래부터 dedupe 를
     하지 않던 것과 같은 근거다(아래 d-58 절).
   → `bug/2026-09-17-editing-surface-audit-fixes.md`, `features/tabs.md` §1·§3·§4.1
+- **탭 상태 뮤테이션의 부수 규칙(d-67, 2026-09-17 — 시그니처·반환 타입 전부 불변)**:
+  - `layout_reopen_closed(projectId)` 도 **핀 구역으로 클램프**한다(위 d-66 의 `layout_move_tab` 과 같은
+    `clamp_to_pinned_zone`). 기억해 둔 index 를 그대로 쓰던 경로였다.
+  - `layout_close_tab` 이 닫은 탭을 스택에 적재할 때 **`dirty` 를 false 로 정규화**한다. ⌘⇧T 로 되살아난 탭의 본문은
+    언제나 디스크 내용이므로 dirty 플래그가 남으면 지울 수 없는 유령 점이 되고 "저장된 탭 닫기" 가 그 탭을 영원히
+    건너뛴다. 커맨드가 **반환**하는 `ClosedTab` 은 실제 닫힌 시점의 정보라 그대로다.
+  - 보조 창 닫기의 탭 회수(`window_close` 경로의 `return_auxiliary_window_tabs`)가 **`open_tab` 과 같은 kind 동등
+    dedupe 를 탄다** — 대상 leaf 에 같은 kind 의 `is_dedupable` 탭이 있으면 합치고 `dirty` 만 승계하며, 회수 push 가
+    끝난 뒤 `sort_by_key(!pinned)` 안정 정렬로 핀 구역을 복원한다. 합치기는 main 의 현재 포커스를 빼앗지 않는다.
+    회수 **직전** 에는 그 보조 창의 File 탭 중 미러가 없는 것의 `dirty` 를 내린다(flush 완료 후라 "미러 없음 =
+    미저장 없음"), 그래야 유령 dirty 가 생존 탭으로 승계되지 않는다.
+  → `bug/2026-09-17-editing-surface-audit-wave2-fixes.md`, `features/tabs.md` §3·§8.1
 - event: `layout:changed(projectId, revision)` — **`revision` 발행 규약(X1#11 실사, X-A 배치)**:
   프로젝트별 독립 카운터(전역이 아니다)로, `layout::types::ProjectLayout::revision`(`u32`, 새
   레이아웃은 0)이 `layout::service::*` 의 레이아웃을 바꾸는 모든 함수(`open_tab`/`close_tab`/
@@ -377,6 +402,14 @@
     `file_prune_untitled_mirrors`)는 `projectId` 가 현재 열린 프로젝트인지
     `root_guard::project_root` 로 검증하고, `tabId` 를 파일명 컴포넌트로 쓰는 두 커맨드는 추가로
     `root_guard::ensure_safe_component` 로 경로 탈출 문자(`/`·`\`·`..`)를 거부한다(경로 조작 방지).
+  - **d-67(2026-09-17) 변경 2건**:
+    - **`file_flush_complete(scope: FlushScope)`** — 무인자였던 확인 커맨드가 인자 1개를 받는다. 창은 자신이
+      응답하는 `app:hot-exit-flush-requested` 의 `scope` 를 **그대로 되돌려 보낸다**. 원격 거부는 그대로다.
+    - **`MirrorEntry.source_missing: boolean` 순증**(필수 필드). `file_list_mirrors` 가 **원본 파일이 사라진
+      미러도 목록에 남기고** 이 플래그로 표시한다(그때 `conflict` 는 항상 `false`, `diskModifiedMs` 는 없다).
+      그전에는 제외해, 외부에서 파일이 지워지면 그 파일의 미저장 초안을 앱 어디서도 꺼낼 수 없었다.
+      `file_prune_mirrors` 의 판정은 무변경 — `keepPaths` 에 있으면 원본 부재와 무관하게 남는다.
+      프론트 소비는 `features/editor.md` §3.
 - event: `fs:changed(paths[], kind, fromApp)` (watcher — debounce·배치·echo 플래그; 실제 필드명은
   `origin` 이 아니라 `fromApp: boolean` — 정정). `kind` 는 `FsChangeKind` = `'Created' | 'Modified' |
   'Removed' | 'Renamed'` — 기존 타입 그대로 항상 실려 있었다(신설 아님). `fromApp: true` 인 그룹의
@@ -397,7 +430,21 @@
   워처 attach 완료)에 외부에서 바뀌었을 수 있는 파일의 `FILE.CONTENT` 캐시(`staleTime: Infinity` +
   `refetchOnWindowFocus: false`라 이 이벤트 없이는 무기한 정체)를 보정하기 위함. 신규 이벤트·필드
   없음 — 기존 watcher 방출과 동일한 페이로드 형태를 재사용한다.
-  `app:hot-exit-flush-requested(timeoutMs)` (Hot Exit — 종료 인터셉트)
+- event: **`app:hot-exit-flush-requested(timeoutMs, scope)`** (Hot Exit — 철거 인터셉트).
+  **`scope` 는 d-67 신설 필드**이고, 앱 종료 전용이던 이 핸드셰이크를 "미러 쓰기를 더는 받지 않게 되는 모든
+  철거" 로 일반화한다. `FlushScope` 는 외부 태깅 유니온 `'all' | { window: string } | { project: ProjectId }` 다.
+  - `'all'` — 앱 종료(원래 경로). 모든 창이 전부 flush 하고 확인한다.
+  - `{ window }` — 그 라벨의 OS 창만 파괴된다. **그 창만** flush 하고 확인하며, 다른 창은 아무 응답도 하지
+    않는다(Rust 가 그 스코프에 라벨 하나만 expected 로 기록했고, 없는 창의 확인은 남의 닫기를 대신 답하는 것이다).
+  - `{ project }` — 그 프로젝트가 닫힌다. **모든 창이** 확인을 보내되 flush 대상은 그 프로젝트의 등록분뿐이다
+    (그 프로젝트를 안 연 창이 침묵하면 닫기가 타임아웃 전체를 기다린다).
+  - `Event::emit` 은 호출한 핸들과 무관하게 모든 창에 도달하므로 스코프 판정은 **수신 측** 책임이다.
+  - 타임아웃은 종전대로 `HOT_EXIT_FLUSH_TIMEOUT_MS`(2.5s). 핸드셰이크가 스코프별 토큰을 들어, 늦게 터진
+    타임아웃이 같은 스코프의 **다음** 핸드셰이크를 강제완료하지 못한다(창 라벨 `editor-<n>` 은 재발급되고
+    프로젝트는 다시 열 수 있다). 이 이벤트는 데스크톱 로컬 전용이라 원격 fanout 대상이 아니다.
+  - 인터셉트 지점: 메인 창 `CloseRequested`(`'all'`), `handle_auxiliary_close_requested`(`{ window }` —
+    `prevent_close` 후 완료·타임아웃 시 `window.close()` 재발행), `project_close`(`{ project }` —
+    `begin_mutation` 취득 **전**에 인라인 대기). → `features/editor.md` §3
 - **`fromApp` echo 마킹 완성(X-A 배치, 2026-08-19)**: T0 감사 시점까지 `fromApp` 은 watcher 가 항상
   `false` 로만 채우는 상수였다(X1#10). `AppState::self_writes`(`infra::self_write::
   SelfWriteTracker`)가 `file_save`/`file_create`/`file_rename`/`file_delete`/`file_copy`/
@@ -429,7 +476,8 @@
   그 센티널을 보내도 값 자체(`u32::MAX`)는 그대로 유효하므로 당장 깨지지는 않는다 — 센티널을 실제
   `null` 로 바꾸는 소비 전환은 이 문서 범위 밖(F1 후속).
 - mutation: `tree_toggle(projectId, path)`, `tree_reveal(projectId, path)`,
-  `tree_refresh(projectId, dir)` — 셋 다 갱신된 `TreeRowPage` 를 **반환값으로 직접** 돌려준다. 트리
+  `tree_refresh(projectId, dir)`, `tree_collapse_all(projectId)`(d-67 신설) — 넷 다 갱신된 `TreeRowPage` 를
+  **반환값으로 직접** 돌려준다. 트리
   갱신을 알리는 별도 이벤트는 없다(옛 `tree:changed` 는 실재하지 않는다 — 정정).
   - **디스크 읽기 시점**(d-50 S7, 2026-08-29): 세 커맨드 모두 필요한 디렉토리를 `begin_mutation`
     guard 를 잡기 **전에** 블로킹 풀에서 읽고, 잠금 안에서는 그 결과를 꽂기만 한다(§2 H-4).
@@ -437,6 +485,16 @@
     같은 디렉토리에 대한 두 갱신이 겹치면 나중에 도착한 호출이 더 오래된 목록을 쓸 수 있다.
     자기 교정은 기존과 같다: 뒤따르는 `fs:changed` 가 다시 `tree_refresh` 를 부른다.
     응답 형태(전체 트리 재직렬화)는 이번 배치에서 **불변** — 재설계는 백로그.
+  - **`tree_collapse_all(projectId) → TreeRowPage`**(d-67 #24): 그 프로젝트의 펼침 집합을 통째로 비운다
+    (`expanded.clear()`). **디렉토리 캐시는 버리지 않는다** — 사용자 상태가 아니라 디스크 읽기 캐시다.
+    프론트가 "화면에 보이는 펼친 행" 만 `tree_toggle` 로 하나씩 접던 루프를 대체한다: 그 루프는 상위가 먼저
+    접히면 화면 밖 자손의 펼침을 남겼고(상위를 다시 열면 깊은 서브트리가 펼쳐진 채 돌아왔다), 반복마다 전역
+    뮤테이션 가드와 전체 페이지 재직렬화를 지불했다. 개별 `tree_toggle`(접기)이 자손의 펼침을 기억하는 동작은
+    종전 그대로다. 원격 dispatch 는 `tree_toggle` 과 같은 등급(허용)이고 `SpanSlot` 은 없다(디스크를 읽지 않는다).
+  - **`read_children` 은 심링크를 추적해 종류를 판정한다**(d-67 #11): `read_dir` 의 `d_type` 은 심링크를 항상
+    "파일" 로 보고하므로, **심링크 엔트리에 한해** `std::fs::metadata` 1회로 `TreeEntryKind` 와 `has_children` 을
+    재판정한다. 끊어진 심링크는 `metadata` 실패로 종전대로 파일 행이다. 결과적으로 트리가 프로젝트 루트 밖
+    디렉토리를 보여줄 수 있으나, 파일 열기·저장의 `root_guard` 경계는 불변이다.
   - **`tree_refresh` 는 사라진 하위의 상태를 함께 버린다**(d-50 S7): 갱신된 목록에 없는 자식
     디렉토리 아래의 펼침 상태·캐시를 경로 접두사(컴포넌트 단위 — `src-old` 는 `src` 의 하위가
     아니다)로 정리하고, 자식이 없어진 자식 디렉토리는 캐시된 목록만 버린다. 삭제한 폴더와 같은
@@ -457,6 +515,16 @@
   - **크기 상한**: `constants::REFUSED_FILE_BYTES`(50MB) 이상인 파일은 스캔하지 않는다 — `file_open`
     이 열기를 거절하는 것과 같은 경계라 "열 수 있는 파일 = 검색되는 파일"이 유지된다. 바이너리
     판별은 앞 8KB 만 먼저 읽어 수행하고, 통과한 파일만 전량을 읽는다.
+- **`SearchQuery.scope_dir?: string | null`**(d-67 #23 신설, 프로젝트 **상대** 디렉토리 경로): 있으면 walk 의
+  루트가 그 폴더가 되고 **그 서브트리 안에서는 `constants::IGNORED_DIR_NAMES` 가지치기를 하지 않는다**.
+  탐색기의 "폴더에서 찾기" 가 `<dir>/**` include glob 대신 이것을 쓴다 — glob 은 walk 가 훑어 온 파일을 거르는
+  뒤쪽 필터라, `filter_entry` 가 그 서브트리를 먼저 지우는 무시 디렉토리에서는 아무 효과가 없어 언제나 0건을
+  반환했다(d-64 로 트리에 `node_modules` 가 뜨면서 실제로 도달 가능해진 경로). scope 는
+  `root_guard::ensure_within_root` 로 검증하며 루트 밖이면 `error.path.outsideProjectRoot`(`Forbidden`),
+  디렉토리가 아니거나 없으면 `InvalidArgument` 다(신규 로케일 키 없음). **scope 없음(생략·null·빈 문자열)의
+  동작은 완전히 불변**이고, include/exclude glob 의 상대경로 기준도 **프로젝트 루트 그대로**라 결과 경로와
+  glob 의 의미가 scope 유무에 따라 달라지지 않는다. `search_run` 과 `search_replace` 가 같은 해소 함수를 타므로
+  "검색 범위" 와 "전체 치환 범위" 가 어긋나지 않는다. → `features/explorer-sidebar.md` §3.4
 - mutation: `search_replace(projectId, query: SearchQuery, replacement, paths?) →
   SearchReplaceResult { changedFiles, replacedMatches, skipped: ReplaceSkippedFile[],
   skippedCount }`(이전 판은 `projectId` 인자가 빠져 있었다 — 정정). `skipped`/`skippedCount` 는
@@ -477,7 +545,10 @@
   `search_replace` 는 쿼리별 `respect_gitignore` 토글이 있어 다르다). **d-64 T1(2026-09-16) 이후 이
   등식은 성립하지 않는다** — 트리(`tree_rows`)는 무시 목록을 더는 적용하지 않고 전부 표시하므로
   `node_modules/` 안의 파일은 트리에는 보이지만 퀵오픈은 찾지 않는다(`features/explorer-sidebar.md`
-  §2.3 절충 2, 검색 쪽 동작은 미변경). 결과에 **상한이 없다** —
+  §2.3 절충 2, 검색 쪽 동작은 미변경). 실제 관계는 **`트리 ⊋ 퀵오픈`** 이며 그 비대칭은 의도된 것이다 —
+  `list_project_files` 의 주석이 이를 거꾸로("인덱스가 트리의 상위집합") 적고 있던 것은 d-67 에서 정정했다
+  (info `tree-watcher-search-4`). 무시 디렉토리 안을 실제로 검색해야 하는 경우의 해법은 위
+  `SearchQuery.scope_dir` 다. 결과에 **상한이 없다** —
   `search_run` 의 `SEARCH_MATCH_LIMIT`·`tree_rows` 의 페이지네이션과 달리 의도적 결정이다:
   퀵오픈 인덱스는 상한을 두는 순간 상한 밖 파일이 검색 불가가 되어(자르면 정합성 파괴) 결함
   d 를 다른 형태로 재도입한다. 절단 없는 전체 목록이 규약이며, 매칭·표시 상한은 FE
@@ -592,6 +663,18 @@
 
 - mutation(C): `pty_spawn(opts: PtySpawnOptions, onData) → sessionId`, `pty_attach(sessionId, onData)
   → PtyAttachResult{subscriptionId: u32, replayBytes: u32}`(둘 다 raw 커맨드 — 아래 절)
+- **d-67(2026-09-17) 추가 2건**:
+  - **`PtySpawnOptions.scrollback_bytes?: number | null`**(옵션 필드, **바이트** 단위): 그 세션의
+    `ScrollbackRing` 용량. 생략·`null` 이면 `DEFAULT_SCROLLBACK_BYTES`(2MiB)이고, 값이 있어도
+    `resolve_scrollback_bytes` 가 `DEFAULT_SCROLLBACK_BYTES..=MAX_SCROLLBACK_BYTES`(32MiB)로 clamp 한다.
+    줄→바이트 환산은 **프론트 몫**이다(설정 `terminalScrollback` × `SCROLLBACK_BYTES_PER_LINE_ESTIMATE`=512,
+    같은 창으로 재clamp). `pty_default_options` 는 이 필드를 `null` 로 돌려준다. 원격 JSON 에 필드가 없어도
+    역직렬화된다(하위호환). **실행 중 세션을 다시 설정하는 커맨드는 없다 — 다음 스폰부터 적용된다.**
+  - **`terminal:spawned(sessionId, projectId, cwd, shell)`** 이벤트 신설. `pty_spawn` 이 `TerminalStore::insert`
+    **이후** 발행하므로 이 이벤트를 받고 즉시 스토어를 조회하는 리스너가 항상 세션을 찾는다. `terminal:exited`
+    와 대칭인 **전역 로스터 신호**이며(그전에는 스폰 성공 쓰기가 스폰한 창의 캐시에만 들어가, 터미널 탭을 다른
+    창으로 옮기면 재attach 대신 새 셸을 스폰하고 앞의 셸이 고아가 됐다), 원격 fanout 대상이다.
+    → `features/terminal.md` §3.1
 - **`pty_attach` 반환 확장(d-56 T2-F3, 2026-09-07)**: 종전 `subscriptionId` 단일 값에서
   `PtyAttachResult` 객체로 넓혔다. `replayBytes` 는 이 attach 가 **구독 등록 전에** 채널로 흘린 재생
   바이트 총량(SGR 리셋 프리앰블 4바이트 + 링의 두 조각)이며, 같은 채널을 쓰는 라이브 출력과 재생분을
@@ -624,7 +707,8 @@
 - **`terminal_sessions` 로스터는 프론트가 직접 갱신한다(d-51 F5)**: 쿼리가 `staleTime: Infinity` 라
   스폰(추가)·`terminal:exited`(running=false)·고아 kill(제거)을 캐시에 즉시 써야 재부착 판정이
   사실과 맞는다 — 상세는 `docs/features/terminal.md` §3.1.
-- event: `terminal:exited(sessionId, ...)`, `terminal:cwd-changed(sessionId, cwd)`,
+- event: `terminal:exited(sessionId, ...)`, `terminal:spawned(sessionId, projectId, cwd, shell)`(d-67 — 위),
+  `terminal:cwd-changed(sessionId, cwd)`,
   `terminal:command-finished(sessionId, cwd, exitCode, durationMs)`,
   `agent:state-changed(projectId, agents: DetectedAgent[])` — **`terminal_report_cwd` 라는 mutation
   은 코드에 없다**(정정: cwd 보고는 프론트→Rust mutation 이 아니라 Rust→view 이벤트

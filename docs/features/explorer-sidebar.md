@@ -90,6 +90,22 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   `ExplorerContainer` 로 올라간 controlled state 다(`view`/`onViewChange`). Rust 신규 커맨드는
   없다(`tree_reveal` 재사용).
 
+- **심링크는 가리키는 대상의 종류로 뜬다**(d-67 #11). `read_children` 은 `read_dir` 이 주는 `d_type` 만 봤는데
+  심링크는 그 값이 "파일" 이라, 디렉토리 심링크(pnpm 의 `node_modules/<pkg>`, 모노레포의 `packages/*` 링크,
+  `~/Library` 류)가 **파일 행**으로 떠서 펼칠 수도, 클릭해 열 수도 없이 "파일을 찾을 수 없습니다" 로 실패했다.
+  이제 **심링크 엔트리에 한해서만** 추적 `metadata` 를 1회 더 내 종류를 재판정하고 `has_children` 도 그 기준으로
+  계산한다(비-심링크의 `d_type` 최적화는 그대로다). 끊어진 심링크는 `metadata` 가 실패하므로 종전대로 파일 행이다.
+  - **결과로 트리가 프로젝트 루트 밖 디렉토리를 보여줄 수 있다** — 사용자가 심링크를 타고 나가는 것은 의도된
+    동작이고, 파일 열기·저장의 `root_guard` 경계는 그대로라 쓰기 경계는 변하지 않는다.
+  - 비용은 심링크 엔트리당 `metadata` 1회다. 심링크가 수천 개인 `node_modules` 를 펼칠 때의 실측은 하지 않았다.
+  - 순환 가드는 넣지 않았다: `expand` 는 사용자의 명시적 펼침에만 반응하고 재귀 프리로드가 없으며,
+    `directory_has_children` 은 1단계, `reveal`/`ancestors_under_root` 는 경로 컴포넌트로 유한하다.
+- **"모두 접기" 는 단일 커맨드다**(d-67 #24). `tree_collapse_all(projectId)` = `expanded.clear()`. 그전에는
+  프론트가 **화면에 보이는** 펼친 행만 `tree_toggle` 로 하나씩 접었기 때문에, 상위 폴더가 먼저 접히면 그 아래
+  자손의 펼침 상태가 남아 상위를 다시 열었을 때 깊은 서브트리가 펼쳐진 채 돌아왔다(루프마다 전역 뮤테이션
+  가드 + 전체 페이지 재직렬화를 지불하기도 했다). **디렉토리 캐시는 버리지 않는다** — 사용자 상태가 아니라
+  디스크 읽기 캐시다. 개별 `collapse` 가 자손의 펼침을 기억하는 동작은 종전 그대로다.
+
 ### 2.3 갱신·성능
 
 - watcher(notify 8.2 + notify-debouncer-full 0.7, 300ms debounce)가 **변경 디렉토리의 자식만**
@@ -109,7 +125,13 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
     (`tree_refresh`). VS Code 의 `files.watcherExclude` 기본값과 같은 절충이다.
   - 퀵오픈(`search_list_files`)·검색은 여전히 무시 디렉토리를 건너뛰므로, **트리가 보여주는 파일
     집합과 검색이 찾는 파일 집합이 더는 일치하지 않는다**(`ipc-contract.md` 의 `search_list_files`
-    항목이 근거로 들던 등식은 트리 쪽이 넓어진 만큼 깨졌다 — 검색 쪽 동작은 미변경).
+    항목이 근거로 들던 등식은 트리 쪽이 넓어진 만큼 깨졌다 — 검색 쪽 동작은 미변경). 실제 관계는
+    `트리 ⊋ 퀵오픈` 이고, 그 비대칭은 의도된 것이다(의존성 파일 전부를 ⌘P 인덱스에 넣으면 인덱스가 익사한다).
+    `domain::search::service::list_project_files` 의 주석이 반대로 "인덱스가 트리의 상위집합" 이라 적고 있던
+    것은 d-67 에서 정정했다.
+  - **그 비대칭의 대가는 "폴더에서 찾기" 가 지불했다** — 트리에 보이는 `node_modules` 를 우클릭해 검색하면
+    walk 가 그 서브트리를 통째로 가지치기해 언제나 자신 있는 0건을 돌려줬다. d-67 #23 이 범위 우선으로
+    해소했다(§3.4).
 - Linux inotify watch 한도 초과는 조용히 실패 — 에러를 UI 배너로 노출(research 함정).
 - 이벤트는 경로 배열 1건으로 묶어 emit(파일당 1 emit 금지).
 - **워처가 이벤트를 흘리면 `fs:rescan-required(projectId)` 를 먼저 1회 보낸다**(d-57). FSEvents 큐
@@ -186,6 +208,26 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   붙이면 `code-editor.tsx` 의 `editor.focus()` 가 포커스를 가져간다(클릭 미리보기와 동일). 실기
   확인 후 필요하면 별도로 다룬다.
 
+### 2.6 프로젝트 폴더가 사라졌을 때 (d-67 #14·#15)
+
+외장 드라이브를 빼거나 폴더를 옮긴 채 앱을 재시작하면, 그 프로젝트는 종전에 **아무 표시 없이** 슬롯과
+사이드바 레일에 복원되고 탐색기만 빈 트리를 보여줬다. 게다가 부팅 시 루트가 없던 프로젝트는 파일·git 워처를
+배제한 채로 남아, 드라이브가 돌아와도 **세션 끝까지** 변경을 받지 못했다(재시작 외 회복 수단 없음).
+
+- `ProjectRef.root_missing` 이 세션 쪽에도 미러된다(`restore_session`·`upsert_project_ref`·`open_project` 의
+  이미 열림 분기에서 실제 파일시스템 기준으로 재계산). 그전에는 `Project` 에만 있어 슬롯·레일이 읽을 수 없었다.
+- 표시는 세 곳이다: 셸 슬롯 헤더의 **경고 배지**, 사이드바 레일 아이콘의 **흐림 + 툴팁 경고줄**
+  (`app.recentProjectRootMissing` 재사용), 탐색기의 **전용 빈 상태**(`explorer.projectRootMissing`).
+- **레일 아이콘은 클릭을 막지 않는다.** 프로젝트는 실제로 열려 있고 슬롯도 살아 있으며, 아래 복구 액션에
+  닿으려면 그 슬롯을 포커스할 수 있어야 한다.
+- 빈 상태의 조건은 `rootMissing === true` **또는** `tree_rows` 실패다. 부팅 복원은 둘 다 참이지만, 세션 도중
+  드라이브가 빠지면 `root_missing` 은 갱신되지 않고 조회 실패만 남기 때문이다(두 경우의 복구 수단이 같다).
+  대신 권한 오류 등 폴더 부재가 아닌 실패도 같은 문구로 보이는 부정확이 남는다.
+- **복구는 "다시 열기"**(`explorer.reopenProject`) 한 줄이다 — `project_close` 후 같은 root 로 `project_open`.
+  워처 배제 판정은 여는 시점에 다시 내려지므로 이 왕복이 워처를 되살린다(세션 중 자동 회복은 넣지 않았다 —
+  부재 프로젝트를 주기적으로 stat 하는 폴링을 새로 들이지 않기 위해서다). 프로젝트 id 가 바뀌어도 두 mutation
+  이 `PROJECT.ALL` 을 무효화하므로 레일 목록이 따라온다.
+
 ## 3. 검색 (FR-C5)
 
 - 프로젝트 전역 텍스트 검색: Rust `domain/search` 가 **ripgrep 라이브러리(grep 크레이트 계열)** 또는
@@ -258,6 +300,25 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   실시간에서 빠지므로, **디바운스만으로 감수**하고 확정은 Enter 에 맡긴다. 최소 질의 길이는 두지
   않는다(VS Code 동형).
 - **검색 에디터 탭(§3.2)은 범위 밖**이다 — Enter 전용을 유지한다.
+
+### 3.4 "폴더에서 찾기" — 범위는 glob 이 아니라 `scope_dir` 이다 (d-67 #23)
+
+- 탐색기 컨텍스트 메뉴의 "폴더에서 찾기" 는 **명시적 범위**(`SearchQuery.scope_dir`, 프로젝트 상대 경로)를
+  보낸다. 그전에는 `<dir>/**` include glob 이었고, glob 은 walk 가 훑어 온 파일을 거르는 **뒤쪽** 필터라
+  무시 디렉토리에는 아무 효과가 없었다 — `filter_entry` 의 `is_ignored_dir` 가지치기가 그 서브트리를 glob 이
+  보기도 전에 지웠고, 결과는 "자신 있는 0건" 이었다. d-64 로 `node_modules` 가 트리에 뜨면서 실제로 도달
+  가능해진 경로다.
+- **범위 우선을 채택했다**: scope 가 있으면 walk 의 루트가 그 폴더가 되고, **그 서브트리 안에서는
+  `is_ignored_dir` 가지치기를 하지 않는다**. 사용자가 손으로 가리킨 폴더는 검색 대상이라는 판단이다.
+  `.gitignore` 존중은 쿼리 토글 그대로다.
+- **일반 검색(scope 없음)의 동작은 완전히 불변**이다. include/exclude glob 의 상대경로 기준도 **프로젝트
+  루트 그대로** 유지해, 결과 경로와 glob 의 의미가 scope 유무에 따라 달라지지 않는다.
+- scope 는 `root_guard::ensure_within_root` 로 검증한다 — `../` 나 심링크로 루트를 벗어나면 기존
+  `error.path.outsideProjectRoot`, 존재하지 않거나 파일을 가리키면 `InvalidArgument` 로 **소리 내어 실패**한다
+  (우클릭과 검색 사이에 폴더가 지워진 stale 행이 조용히 프로젝트 전체를 훑는 것보다 낫다).
+- `search_replace` 도 같은 scope 를 타므로 "검색 결과의 범위" 와 "전체 치환의 범위" 가 어긋나지 않는다.
+  검색 패널의 범위 칩은 `scopeDir ?? includeGlob` 로 표시하고, Search Editor 탭은 재실행 시 scope 를 보존한다.
+- **주의**: 큰 서브트리를 scope 로 잡으면 그 안에 중첩된 `node_modules` 까지 걸어 들어가므로 느려질 수 있다.
 
 ## 4. 수명주기
 

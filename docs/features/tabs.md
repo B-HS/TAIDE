@@ -69,6 +69,10 @@
       섞어 배열 순서와 화면 순서가 어긋났고, 그 배열을 읽는 ⌃Tab 순환·"오른쪽 탭 닫기" 가 화면과 다른 탭을 잡았다.
       클램프가 mutation 쪽에 있으므로 드래그 3경로·⌘K ⌘⇧←/→·향후 호출부가 구조적으로 덮인다(프런트의 드롭
       미리보기 클램프는 추출 전 카운트라 한 칸 어긋날 수 있으나 최종 위치는 Rust 가 정한다).
+    - **남은 두 삽입 경로도 같은 규칙을 탄다**(d-67): `layout_reopen_closed`(⌘⇧T)는 기억해 둔 index 를 그대로 쓰지 않고
+      `clamp_to_pinned_zone` 을 거치고, 보조 창 탭 회수는 탭마다 클램프하는 대신 push 루프가 끝난 뒤
+      `sort_by_key(!pinned)` **안정 정렬** 1회로 핀 구역을 복원한다(각 그룹의 도착 순서는 보존된다). 그전에는 두 경로만
+      raw index 로 삽입해 같은 ⌃Tab 오작동이 남아 있었다. → `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §1
   - **dirty dot**: 미저장 파일 탭은 닫기 버튼 자리에 점 표시(`tabBar.dirtyDot`).
   - 탭 클릭 = 활성화, 휠 클릭(middle) = 닫기, 우클릭 context menu → §3.1.
 - 탭 폭 정책: 내용 기반 폭 + 최대폭 말줄임. 넘치면 탭 바 가로 스크롤(휠 지원) — VSCode 동일.
@@ -80,6 +84,14 @@
   spawn 에 실패해 id 가 영원히 빈 탭이 있으면 그 pane 에서 새 터미널이 아예 열리지 않았다. 이제 `is_dedupable` 가드가
   **빈 세션 id 인 터미널만** dedupe 대상에서 뺀다(세션 id 가 채워진 터미널과 다른 모든 kind 는 종전대로).
   `layout_open_tab_in_split` 은 원래부터 dedupe 를 하지 않는다(`ipc-contract.md`).
+- **보조 창 탭 회수도 같은 dedupe 를 탄다**(d-67): 보조 창을 닫아 탭이 main 으로 복귀할 때
+  (`return_auxiliary_window_tabs`), 대상 leaf 에 `kind` 가 같고 `is_dedupable` 인 탭이 이미 있으면 **합친다** —
+  생존 탭이 `dirty |= 회수 탭의 dirty` 로 미저장 상태만 승계하고 새 탭은 만들지 않는다. 그전에는 무조건 push 해
+  같은 파일 탭이 한 pane 에 두 개 생겼다. 합치기는 main 창의 현재 포커스를 빼앗지 않는다(대상 leaf 가 비어 있어
+  회수가 원래 활성 탭을 정하던 경우에만 생존 탭이 활성이 된다). `preview` 는 승계하지 않는다(후속 — 버그 문서 §10).
+- **닫은 탭 스택의 dirty 정규화**(d-67): `close_tab` 이 `closed_tabs` 에 적재하기 직전 `tab.dirty = false` 로
+  정규화한다. ⌘⇧T 로 되살아난 탭의 본문은 언제나 디스크 내용인데 dirty 플래그만 남으면 지울 수 없는 유령 점이 되고,
+  "저장된 탭 닫기" 가 그 탭을 영원히 건너뛴다. 커맨드가 **반환**하는 `ClosedTab` 은 실제 닫힌 시점의 정보라 그대로다.
 
 
 ### 3.1 탭 context menu (Phase 7.5 확정 — 사용자 지정 목록)
@@ -192,7 +204,8 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
   두 탭은 Monaco 모델을 공유한다(`editor.md` §2·§3).
 - 파일 존재 선검증은 `layout_open_tab` 과 동일하게 돈다. `layout:changed` 도 2회에서 1회로 줄었다.
 
-\n## 5. 스플릿 리사이즈
+
+## 5. 스플릿 리사이즈
 
 - react-resizable-panels 로 Split 의 `sizes` 렌더·드래그. 드래그 종료 시 `layout_resize` mutation 으로
   Rust 에 반영(드래그 중 매 프레임 IPC 금지 — 종료 시 1회).
@@ -272,8 +285,38 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
     monaco 모델을 `disposeModel`** (감사 §1-6, d-50 S8). 이전에는 untitled 탭만 폐기해 세션 중 연
     모든 파일의 본문이 앱 종료까지 메모리에 남았다. 다시 열면 새 모델이므로 **undo 스택은
     보존되지 않는다** — 메모리 누수 제거를 우선한 결정(계약 §3 S8).
-    dirty 면 저장/버리기/취소 다이얼로그.
-  - Terminal: 실행 중 포그라운드 프로세스가 있으면 확인 다이얼로그 → pty kill(Rust). xterm dispose.
+    dirty 면 저장/버리기/취소 다이얼로그 → §8.1.
+  - Terminal: pty kill(Rust) + xterm dispose. **"실행 중 포그라운드 프로세스가 있으면 확인 다이얼로그" 는
+    여전히 설계 의도로만 남아 있다** — §8.1 의 게이트는 `file`·`untitled` 에만 걸리고, 터미널 쪽은 2차 조사에서
+    기각된 항목(`tab-menu-2`, `docs/backlog.md`)이다. 현재는 무조건 즉시 kill 이다(`terminal.md` §10).
   - Diff/Settings: 위젯 unmount 만.
 - 탭 바 위젯 구독은 `layout:changed` 단일 이벤트 + layout query 재조회로 한정.
 - DND 센서·리스너는 dnd-kit context 가 관리 — 전역 document 리스너 직접 부착 금지.
+
+### 8.1 dirty 탭 닫기 확인 (d-67 — 이 절이 요구하던 다이얼로그의 실구현)
+
+이 §8 은 "dirty 면 저장/버리기/취소 다이얼로그" 를 처음부터 요구했지만 **구현이 없었다** — 미저장 편집이 있는 탭도
+확인 없이 닫혔고, 닫기가 그 파일의 hot-exit 미러와 monaco 모델을 함께 없애는 데다 닫은 탭 스택은 메타데이터만
+보관하므로, 클릭 한 번이 편집과 되돌릴 두 수단을 동시에 가져갔다.
+
+- **단일 진입점**: 모든 닫기가 `useRequestCloseTab(projectId)`(`widgets/editor-area/use-request-close-tab.tsx`)를
+  지난다 — 탭 ✕ · context menu Close · 휠 클릭 · ⌘W · "다른 탭/오른쪽/저장된/모두 닫기" 4루프 · ⌘K ⌘W. 그전에는
+  여섯 호출부가 각자 `layout_close_tab` 을 무조건 발행했다.
+- **게이트 대상은 `file`·`untitled` 의 dirty 탭만**이다. 터미널·diff·설정 등 나머지 kind 는 종전대로 즉시 닫힌다
+  (터미널의 실행 중 프로세스 확인은 여전히 미구현 — 기각 항목 `tab-menu-2`, `backlog.md`). 고정 탭은 이 훅에 닿기
+  전에 호출부가 걸러낸다.
+- **여러 탭을 닫는 요청은 한 번만 묻는다**(VS Code 와 동일). 답은 그 요청의 dirty 탭 전체에 적용된다.
+- **저장**: 마운트된 pane 이 있으면 그 pane 의 저장 파이프라인(read-only 거부 · Code Actions on Save ·
+  format on save · on-save 공백 정리)을 타고 **디스크 쓰기가 끝난 뒤** 닫는다. 그 통로가
+  `entities/editor/save-request-registry.ts`(tabId 키)인 이유는 monaco 가 `IEditorAction.run()` 을
+  `Promise<void>` 로 타이핑해 "썼는지" 를 돌려줄 수 없기 때문이다. 언마운트 탭은 모델 값 → 미러 내용 순으로 초안을
+  읽어 `file_save` 로 직접 쓴다. untitled 탭은 훅이 Save As 를 직접 수행한다(pane 의 핸들러는 성공 여부도 취소
+  여부도 돌려주지 않고, 언마운트 탭에는 아예 없다). **쓰기 실패 · read-only 거부 · Save As 취소는 닫기를 취소한다.**
+- **저장 안 함**: 닫기 전에 `layout_set_dirty(false)` 를 보낸다 — 그래야 §3 의 닫은 탭 스택 정규화와 맞물려 ⌘⇧T
+  복원 탭에 유령 점이 남지 않는다.
+- **취소**: 아무 일도 하지 않는다.
+- **확인이 떠 있는 동안 다른 닫기 요청은 무시된다.** ⌘W·⌘K ⌘W 는 document 캡처 단계 키다운이라 모달이 막지 못하므로,
+  훅 인스턴스(EditorArea 1개 + PaneTabBar N개)가 모듈 레벨 카운터를 공유해 전역으로 보장한다.
+- 직렬 닫기 루프의 실패 처리는 `closeTabsSerially` 가 맡는다 — `NotFound` 는 조용히 건너뛰고 계속, 그 외 실패는
+  모아 1회 토스트. 단일 닫기도 같은 경로라 **이제 실패가 조용하지 않다**(종전에는 무통지).
+- → `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §4

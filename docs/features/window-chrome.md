@@ -231,6 +231,18 @@ TAIDE   File   Edit   Window
 - **Clear Recent**: 열려 있지 않은 프로젝트의 디스크 레코드를 지운다(`project_forget_recent`).
   목록이 비어 있으면 비활성. 열려 있는 프로젝트는 지우지 않는다 — 그 레코드는 히스토리가 아니라
   레이아웃·표시 오버라이드·id 재사용의 정본이다.
+  - **미저장 초안이 있는 프로젝트는 건너뛴다**(d-67 #9). `projects/<id>/` 아래에는 레이아웃·표시 설정만이
+    아니라 **hot-exit 미러(= 그 편집의 유일본)** 가 들어 있다. 그전에는 이 메뉴 한 번이 닫힌 프로젝트의 미저장
+    초안을 경고 없이 영구 삭제했다. 이제 `buffers/` 아래에 파일이 하나라도 있으면(경로 미러·untitled 미러
+    모두) 그 레코드를 남기고, 건너뛴 수를 `ForgetRecentOutcome.skipped_with_drafts` 로 돌려준다.
+  - **안내는 이벤트로 온다**: 이 메뉴는 `lib.rs` 의 `dispatch_menu_action` 이 커맨드를 직접 부르므로(창이
+    0개여도 메뉴가 동작해야 한다는 의도된 설계) 프론트가 반환값을 볼 수 없다. 그래서 `project_forget_recent`
+    가 `project:recent-cleared { removed, skippedWithDrafts }` 를 **무조건** 발행하고, 프론트
+    (`useRecentProjectsClearedNotice`, `IpcSyncProvider` 에 마운트)가 `skippedWithDrafts > 0` 일 때만
+    `project.clearRecentKeptDrafts` 토스트를 띄운다. 토스트가 이 한 곳에만 있어 어떤 진입점으로 들어와도
+    안내는 1회다(창이 여럿이면 창마다 한 번씩 — 창 단위 알림이 맞다고 봤다).
+  - 목록에서 지워진 만큼 사이드바 그룹 멤버도 함께 정리되고(`groups_changed`), 그 사실은 기존
+    `project:list-changed`/`project:groups-changed` 로 전파된다.
 
 ### 7.2 클릭 처리 (조립이 디스패치한다)
 

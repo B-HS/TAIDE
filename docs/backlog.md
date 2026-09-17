@@ -221,3 +221,21 @@
 | 탭 드래그 미리보기의 pinned 클램프 보정 | `move_tab` 이 최종 위치를 핀 구역으로 클램프하므로 결과는 항상 옳지만(`features/tabs.md` §3), 프런트의 자체 클램프는 추출 **전** 카운트라 드래그 중 미리보기가 한 칸 어긋나 보일 수 있다. 미리보기 전용으로 남기되 `pinnedCount - 1` 보정이 필요한지 실기 확인 후 판단. |
 | `currentWindowActiveFileTab` 공용 헬퍼 승격 | d-66 에서 `command-palette.tsx`·`outline-panel-container.tsx` 가 "자기 창 포커스 pane 의 file 탭 id" 를 `resolveWindowPaneTree` + `findActiveTab` 2줄로 각각 유도한다(파일 소유 경계 때문에 중복). `shared/lib/pane-tree.ts` 에 `currentWindowActiveFilePath` 와 대칭인 헬퍼를 올리고 두 곳을 치환한다. |
 | 테스트 하네스의 보조 창 컨텍스트 헬퍼 | d-66 이 추가한 보조 창 테스트 4개 파일이 `window.history.replaceState` 로 `location.search` 를 바꾸는 2줄 헬퍼를 각자 갖고 있다(공용 하네스 `shared/testing/render.tsx` 가 소유 밖이었다). 전역 URL 을 건드리는 규약이라 `docs/memory/test-conventions.md` §4 갱신과 함께 하나로 올린다. |
+
+### d-67 편집 표면 2차 조사 수정(2026-09-17)에서 분리된 후속 후보
+
+> 정본 `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §10, 계약
+> `docs/acknowledge/2026-09-17-d67-editing-surface-wave2-fixes-contract.md` §4.
+> 조사 원본의 기각 4건(`save-during-transitions-1`·`aux-window-lifecycle-2`·`session-window-ids-5`·`tab-menu-2`)은
+> 재론 대상이 아니다 — 아래 표에는 그중 "언젠가 다시 볼 값은 있으나 지금은 하지 않는다" 로 남은 것만 적는다.
+
+| 항목 | 내용 |
+|------|------|
+| 터미널 탭 닫기의 실행 중 프로세스 확인 (`tab-menu-2`, 기각) | d-67 이 dirty 탭 닫기 확인 다이얼로그를 만들었지만(`features/tabs.md` §8.1) 게이트 대상은 `File`·`Untitled` 의 dirty 탭뿐이다. `features/terminal.md` §10 이 오래전부터 서술해 온 "포그라운드 자식 프로세스 실행 중이면 확인" 은 여전히 미구현이고, 2차 조사에서 **기각**됐다(전경 pid 판정이 `poll_agents` 폴링 주기에 묶여 있고, 터미널은 사용자가 의도적으로 죽이는 경우가 대부분). 다시 본다면 확인 대상 판정(`TerminalStore::foreground_pids`)의 신선도부터 정한다. |
+| `project_close` 의 flush 대기 중 재진입 가드 | flush 왕복(최대 2.5초) 중 같은 프로젝트에 두 번째 `project_close` 가 오면, `begin_flush` 에 실패한 쪽도 `close_project`·`detach_all`·이벤트 발행을 중복 수행하고 `Ok(())` 를 돌려준다. 전부 멱등이라 사용자 영향은 없으나, `handle_auxiliary_close_requested` 가 `begin_flush` 실패 시 본체를 건너뛰는 것과 비대칭이다. `await_project_flush` 가 own/joined 를 반환하게 하는 것이 근본 해법이고, `commands.rs` 의 "`service::close_project` refuses the second one" doc 문구도 함께 정정해야 한다. |
+| 보조 창 탭 회수 dedupe 의 `preview` 승계 | `return_auxiliary_window_tabs` 의 합치기가 `dirty` 만 승계한다(계약 명시 범위). 보조 창의 "영구" 탭이 main 의 preview 탭으로 합쳐지면 다음 단일 클릭에 교체될 수 있다. `open_tab` 과 같은 한 줄(`if !tab.preview && existing.preview { existing.preview = false }`)로 확장 가능. |
+| `disposeModel` 시 `externallyDirtyPaths` 정리 | LSP WorkspaceEdit 이 배경 모델에 착지하면 `model-dirty-tracker` 의 모듈 `Set` 에 경로가 남는데, 이를 비우는 경로가 `consumeExternallyDirtyModel`(탭 활성화) 하나뿐이다. 그 탭을 활성화하지 않고 닫으면 경로가 남아, 나중에 같은 파일을 다시 열었을 때 디스크와 동일한 내용이 "미관측 편집" 으로 채택돼 **아무것도 안 바꿨는데 dirty 점**이 뜬다. `releaseClosedFileTabPath` 의 `disposeModel` 지점에서 함께 정리한다. |
+| `persistMirror` 의 `setQueryData` 제네릭 명시 | `use-editor-file-persistence.ts` 의 미러 캐시 패치가 `setQueryData<MirrorEntry[]>` 를 쓰지 않아 updater 반환 타입이 `unknown` 으로 붕괴, `MirrorEntry` 에 필수 필드가 늘어도 tsc 가 잡지 못한다(d-67 의 `sourceMissing` 이 실제로 누락됐고 falsy 기본값과 우연히 일치해 무해했다). 제네릭 명시 + `sourceMissing: false` 보강. |
+| `prune_mirrors` keep 집합에 `source_missing` 미러 포함 | `editor-area.tsx` 의 prune 스윕은 프로젝트 활성화당 1회 돌고 keep 집합이 "열린 탭의 경로" 라, 원본이 사라진 탭을 닫은 뒤 프로젝트를 전환하거나 앱을 재시작하면 그 초안 미러가 GC 된다(d-67 #10 의 반쪽). keep 집합에 `sourceMissing` 미러를 무조건 포함시킨다. |
+| "최근 항목 지우기" 프론트 진입점 | `useForgetRecentProjects`/`forgetRecentProjects` 는 UI 호출부가 0 이다(d-67 이전부터). 유일한 실제 트리거는 네이티브 `File > Clear Recent` 이고 안내는 `project:recent-cleared` 이벤트가 담당한다(`window-chrome.md` §7.1). Welcome·사이드바에 진입점을 추가한다면 토스트를 mutation 쪽에 다시 넣지 않는다(중복). |
+| 내장 TS 폴백 복원 단언 테스트 | d-67 #3 의 세션 철거가 `disposeSession` 의 per-language dispose 루프로 내장 구문 검사를 되살리는데, 이를 단언하려면 `lsp-session-registry.test.ts` 의 fake monaco 에 어댑터 등록 API 20여 개를 추가해야 한다. 테스트 부채로 `docs/quality-assurance` 에 기록. |

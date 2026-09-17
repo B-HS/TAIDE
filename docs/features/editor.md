@@ -29,6 +29,9 @@
     (uri 는 불변이라 in-place 이동이 불가능 — 그래서 여기서도 undo 스택은 초기화된다).
     확장자가 바뀐 개명은 새 경로 재조회 결과의 `languageId` 를 `applyModelLanguage` 로 반영한다.
   - DiffEditor 의 original 모델(`taide://git/...` 스킴)은 diff 탭 닫을 때 함께 dispose.
+  - **모델이 공유된다는 사실은 LSP 쪽에서도 지켜야 한다**: 같은 파일을 두 pane 에 띄우면 모델도 LSP client 도
+    하나이므로, 문서 변경 리스너는 pane 이 아니라 **문서(uri)마다 하나**여야 한다(d-67 #1, `lsp.md` §5).
+    pane 마다 걸면 한 번의 키 입력이 `didChange` 두 번으로 나가 서버의 문서 사본이 망가진다.
 - viewState: 탭 전환 시 `saveViewState()` → 레지스트리에 보관, 복귀 시 `restoreViewState()` + `editor.focus()`
   (restore 는 포커스를 주지 않음 — 함정 7). viewState 는 직렬화 가능 → Rust layout 도메인에 미러해
   재시작 복원에 사용(`data-model.md` layout.json).
@@ -74,19 +77,52 @@
   variant(위험, 선택 강제), false 면 `mirrorRestored` variant(경미, 닫기만 가능)를 띄운다.
   "디스크 보기" 선택 시 `file_clear_mirror`. 탭 닫기 시 미러 삭제, 프로젝트 열기 시
   `file_prune_mirrors(projectId, keepPaths)` 로 열린 탭 외 미러 GC.
+  - **탭 닫기의 미러 삭제에는 두 가지 예외가 있다.** (1) 같은 파일이 다른 pane·다른 창에 아직 열려 있으면 지우지
+    않는다(d-66). (2) **원본이 디스크에서 사라진 미러는 지우지 않는다**(d-67, 아래 `source_missing`) — 그 초안이
+    이 세상에 남은 유일본이기 때문이다.
+  - **`MirrorEntry.source_missing`**(d-67): `file_list_mirrors` 는 원본 파일이 없어진 미러도 **목록에 남기고**
+    이 플래그로 표시한다(그때 `conflict` 는 항상 false, `diskModifiedMs` 는 없다). 그전에는 목록에서 아예
+    제외돼, 외부에서 파일이 지워지는 순간 그 파일의 미저장 초안을 앱 어느 표면에서도 꺼낼 수 없었다. 프론트는
+    `file_open` 실패(`isError`) + 이 플래그인 미러가 있으면 에러 화면 대신 **"원본이 삭제됨" 배너 + 초안 본문
+    (읽기 전용) + "다른 이름으로 저장"** 을 그린다. 본문을 `CodeEditor` 가 아니라 `<pre>` 로 그리는 것은 같은
+    `registryTabId` 로 monaco 인스턴스를 하나 더 마운트하는 것이 editor-corpse 크래시 클래스이기 때문이다.
+    저장은 기본 경로를 원래 경로로 제시하므로 그대로 확인하면 파일이 재생성되고 탭이 회복된다(성공했을 때만
+    미러를 지운다).
+  - **창 간 미러 가시성**(d-67 #4): `FILE.MIRRORS` 는 창마다 `staleTime: Infinity` 인 스냅샷이라, 보조 창이 남긴
+    미러를 메인 창이 모른 채로 탭을 회수했다. 이제 `layout:changed` 처리에서 **보조 창이 실제로 사라졌을 때만**
+    (`auxiliaryWindows` 의 슬롯 집합 비교 — 개수 비교가 아니다) `FILE.MIRRORS(projectId)` 를 무효화한다.
 - **hot-exit 미러(untitled 탭)**: untitled 탭은 더 이상 휘발성이 아니다(레이아웃에 영속) —
   탭ID 를 키로 `file_mirror_untitled(projectId, tabId, content)` / `file_list_untitled_mirrors` /
   `file_clear_untitled_mirror` / `file_prune_untitled_mirrors(projectId, keepTabIds)`. 파일 탭과
   동일한 debounce·blur/언마운트 flush·`setQueryData` 캐시 동기화를 따르되 경로가 없으므로
   conflict 판정은 없다(항상 `mirrorRestored`류 복원 없이 조용히 적용).
-- **종료 시 0-손실 플러시**: 창 X 버튼(`WindowEvent::CloseRequested`)을 Rust 가 가로채
-  `prevent_close()` 후 `HotExitFlushRequested` 이벤트를 emit → 프론트(`HotExitFlushProvider`)가
-  마운트된 모든 편집기 pane 의 flush 콜백을 `Promise.all` 로 실행·대기(각 콜백은 실제
-  `file_mirror_dirty`/`file_mirror_untitled` IPC 완료까지 await)한 뒤 `file_flush_complete` 호출 →
-  Rust 가 `app.exit(0)`. 프론트 무응답 시 `HOT_EXIT_FLUSH_TIMEOUT_MS`(2.5s, `constants.rs`) 타임아웃
-  폴백이 강제 종료한다. 앱 메뉴 Quit(⌘Q)도 `NSApplication terminate:` 로 직행하는 대신 커스텀
-  메뉴 아이템이 메인 윈도우의 `close()` 를 호출해 같은 경로를 탄다. 이 핸드셰이크는
-  데스크톱 로컬 전용이며 원격 클라이언트에는 전파되지 않는다(원격 세션은 종료를 제어할 수 없음).
+- **0-손실 플러시 핸드셰이크 — 이제 스코프가 있다**(d-67 #5·#12): 원래 앱 종료 전용이던 이 왕복이 "미러 쓰기를
+  더 이상 받아 주지 않게 되는 모든 철거" 로 일반화됐다. 이벤트는 `HotExitFlushRequested { timeoutMs, scope }`,
+  확인은 `file_flush_complete(scope)` 이고 `FlushScope` 는 셋 중 하나다.
+  - **`'all'`** — 앱 종료(원래 경로). 메인 창 X 버튼·⌘Q 가 `prevent_close()` 로 가로채고, 모든 창이 자기 flush
+    콜백을 전부 돌린 뒤 확인하면 Rust 가 `app.exit(0)` 한다. 앱 메뉴 Quit 이 `NSApplication terminate:` 대신
+    메인 윈도우 `close()` 를 부르는 것도 그대로다.
+  - **`{ window: label }`** — 보조 창 닫기(d-67 이전에는 핸드셰이크 자체가 없어 마지막 debounce 구간 편집이
+    사라지고 복귀 탭에는 유령 dirty 점만 남았다). `handle_auxiliary_close_requested` 가 `prevent_close` 한 뒤
+    창 스코프 flush 를 기다리고, 확인·타임아웃 후 `window.close()` 를 **재발행**한다(재발행분은 완료된
+    핸드셰이크를 소비해 다시 가로채이지 않는다). **그 라벨의 창만** flush 하고 확인한다 — 다른 창은 아무것도
+    하지 않는다(expected 목록에 없는 창의 확인은 남의 닫기를 대신 답하는 것이다).
+  - **`{ project: id }`** — 프로젝트 닫기(그전에는 프로젝트를 먼저 제거해 언마운트 시 flush IPC 가 **항상**
+    실패했다). `project_close` 가 `begin_mutation` 을 잡기 **전에** 프로젝트 스코프 flush 를 인라인으로 기다린
+    뒤 제거·detach·이벤트를 낸다. 여기서는 **모든 창이** 확인을 보낸다(그 프로젝트를 안 연 창은 flush 할 것이
+    없어도 답한다 — 침묵하면 닫기가 타임아웃 전체를 기다린다).
+  - 창 축 판정은 `getCurrentWindow().label` 비교다(창마다 JS realm 이 분리돼 registry 내용은 이미 그 창의
+    것이고, Rust 라벨 `editor-<n>` 은 `windowSlot` 과 값이 다르다). `mirror-flush-registry` 는 projectId 키를
+    함께 들어 `flushProjectMirrors(projectId)` 가 가능하다. LSP 세션 flush 는 `'all'` 일 때만 돈다 — 프로젝트
+    스코프에서 전 세션을 flush 하면 열린 채 남는 프로젝트의 서버까지 정리되고, 그 경로는 `projectClosed` 의
+    `flushLspSessionsForProject` 가 이미 담당한다.
+  - 프론트 무응답 시 `HOT_EXIT_FLUSH_TIMEOUT_MS`(2.5s, `constants.rs`) 타임아웃 폴백이 그대로 진행한다(핸드셰이크는
+    스코프별 토큰을 들어, 늦게 터진 타임아웃이 같은 스코프의 **다음** 핸드셰이크를 강제완료하지 못한다).
+  - 이 핸드셰이크는 데스크톱 로컬 전용이며 원격 클라이언트에는 전파되지 않는다(원격 세션은 종료를 제어할 수 없음).
+  - **복귀 탭의 유령 dirty**: 보조 창 탭을 main 으로 회수하기 **직전**, 그 창의 File 탭 중 미러가 없는 것은
+    `dirty` 를 내린다(flush 를 마친 뒤라 "미러 없음 = 미저장 없음" 이 성립한다). main 창 탭과 파일 아닌 탭은
+    건드리지 않으며, 이 해제가 §3 회수 dedupe 의 `dirty |=` 승계보다 먼저 돌아야 유령 dirty 가 생존 탭으로
+    옮겨붙지 않는다(`tabs.md` §3).
 - 외부 변경: watcher 이벤트로 열린 파일이 바뀌면 — dirty 아니면 조용히 리로드(viewState 유지),
   dirty 면 충돌 배너(디스크 내용 보기 / 덮어쓰기 / 유지, `changedOnDisk` variant).
 - **이미 라이브인 모델 위에 마운트하면 그 내용을 인수한다**(d-66). 같은 파일을 두 번째 pane 에 열면 monaco 모델은
@@ -106,6 +142,16 @@
     "라이브" 다 → 인수 경로를 타 **"미저장 내용을 복구했습니다" 배너가 뜨지 않는다**. 미러 내용과 모델 값이 같아
     본문·dirty 결과는 동일하고, 복구가 아니라 개명이므로 오히려 정확한 표시다.
   → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §4
+- **백그라운드 모델에 착지한 LSP 편집도 탭을 dirty 로 만든다**(d-67 #2). 프로젝트 전역 rename·quick-fix 의
+  `WorkspaceEdit` 은 에디터에 붙지 않은 모델에도 적용되는데, 그때 `markModelDirtyExternally(path)` 가 렌더러 로컬
+  `Set` 만 건드려 **탭 바의 dirty 점이 켜지지 않았다** — 그 탭을 닫으면(확인도 없이) 편집이 조용히 사라지고,
+  가장 안전지향적인 "저장된 탭 닫기" 마저 그 탭을 파괴 대상에 넣었다. 이제 `markModelDirtyExternally` 안에서
+  `onModelEditedExternally(path)` 브리지가 발행되고, `use-editor-lsp-integration.ts`(widgets)가 이를 구독해
+  `collectAllPaneTabs(layout)` 로 **그 경로의 모든 file 탭**(보조 창 포함)에 `layout_set_dirty(true)` 를 보낸다.
+  `shared` 는 `entities` 를 import 할 수 없어 브리지가 필요하고, 알림을 적용기 호출부가 아니라
+  `markModelDirtyExternally` **안에서** 내는 것은 "외부 dirty 표시" 와 "탭 dirty 플래그" 가 드리프트할 수 없게
+  하기 위함이다. 구독자는 단일 슬롯이 아니라 `Set` 이다 — 셸 슬롯마다 다른 프로젝트의 `EditorArea` 가 동시에 떠
+  있을 수 있다. → `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §3
 
 ### 3.1 reveal — "이번에 연 탭" 에만 적용한다 (d-66)
 

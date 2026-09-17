@@ -39,7 +39,11 @@
 
 Run Task 와 Run Selected Text 가 공유하는 단일 전달 로직(`editor-area.tsx::runInTerminal`):
 
-1. 포커스된 pane 에 터미널 탭이 있으면 그 탭을 활성화하고 재사용한다.
+1. 포커스된 pane 에 터미널 탭이 있으면 그 탭을 활성화하고 재사용한다. **활성 탭이 터미널이면 그것을 우선**
+   하고(d-67 #16), 아니면 탭 스트립의 첫 터미널을 쓴다(`widgets/editor-area/terminal-tab-targets.ts` 의
+   `resolveRunTargetTerminalTab`). 그전에는 위치만 보는 `find` 라 pane 에 터미널이 둘 이상이면 **보고 있던
+   터미널이 아니라 맨 왼쪽 터미널**에 명령이 들어갔다 — 그쪽에 전경 프로세스(`npm run dev`·REPL·pager)가
+   있으면 텍스트가 그 stdin 으로 조용히 삼켜지고 화면은 사용자가 고른 터미널에서 떠난다.
 2. 없으면 새 터미널 탭을 연다(`cwd` 전달).
 3. 텍스트에 개행을 붙여 `terminal-write-bridge`(`shared/lib/bridge/terminal-write-bridge.ts`) 로 쓴다.
    `pty_write` 를 직접 부르지 않는 이유: 방금 연 탭은 `TerminalSession` 이 비동기로 크기 측정 후

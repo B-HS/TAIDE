@@ -63,6 +63,16 @@
   반으로 자르는 것은 막지만, 잘린 지점 앞에서 열린 SGR 을 닫아 주던 `\x1b[m` 까지 되살리지는
   못한다 — 프리앰블이 없으면 재생된 첫 줄이 그 색을 물려받아 화면 끝까지 끌고 간다. 이 4바이트도
   리플레이의 일부이므로 `PtyAttachResult.replayBytes` 에 포함되어 flow control 집계에서 빠진다(§2).
+- **링 용량은 이제 스폰 옵션이다**(d-67 #18). `PtySpawnOptions.scrollback_bytes`(옵션)를 프론트가 채우고,
+  Rust `resolve_scrollback_bytes` 가 `DEFAULT_SCROLLBACK_BYTES`(2MiB) 하한 · `MAX_SCROLLBACK_BYTES`(32MiB)
+  상한으로 clamp 한다. 프론트는 설정값 `terminalScrollback`(**줄** 수, 설정 UI 가 제공하는 유일한 단위)에
+  `SCROLLBACK_BYTES_PER_LINE_ESTIMATE`(512, `shared/constants/terminal.ts`)를 곱해 같은 창으로 좁힌다
+  (`entities/terminal/scrollback-budget.ts`). 양쪽에서 clamp 하는 것은 중복이 아니다 — 프론트 쪽은 설정 화면의
+  숫자가 실제로 살 수 있는 양을 넘지 않게 하고, 백엔드 쪽은 원격 피어의 `pty_spawn` 을 막는다. 설정을 아직 못
+  받은 창(null/undefined·비유한값)은 **하한** 으로 떨어져 이 필드가 없던 시절과 정확히 같은 예산으로 스폰된다.
+  - **실행 중 세션에는 적용되지 않는다.** 재설정 커맨드를 만들지 않았으므로 **다음 스폰부터** 반영되고, 설정
+    화면이 `settings.terminalScrollbackHint` 보조문구로 그 사실과 32MiB 상한을 함께 알린다. 그전에는 설정이
+    10만 줄까지 받아 놓고 재부착 복원은 언제나 2MiB 에서 잘려 초과분이 말없이 사라졌다.
 - xterm `scrollback: 10_000`. 앱 재시작 시 스크롤백은 복원하지 않는다(`data-model.md` §1) —
   터미널 탭은 같은 cwd·셸로 새 세션 + "이전 세션" 안내.
 - 백그라운드(비활성) 터미널 탭: xterm 인스턴스는 유지하되 WebGL addon 은 dispose(활성화 시 재로드)
@@ -85,6 +95,12 @@
   듣지 못했고, 그 결과 죽은 세션에 attach 해 입력만 먹는 터미널이 됐다(감사 §4-B B14). 무효화가 아니라
   즉시 쓰기인 이유는 리페치가 도착하기 전에 재마운트가 캐시를 읽고 attach 해버리기 때문이다.
 - **탭이 닫히며 고아가 될 세션** → `removeTerminalSession` + `pty_kill`(§10).
+- **`terminal:spawned`**(d-67 #6) → `ipc-sync-provider` 가 **전역으로** 받아
+  `setQueryData(TERMINAL.SESSIONS(projectId))` 로 upsert 한다. 위의 "스폰 성공" 쓰기는 **스폰한 창의 캐시에만**
+  들어가므로, 터미널 탭을 다른 OS 창으로 옮기면 그 창의 로스터에는 그 세션이 없고 `isTerminalSessionAlive` 가
+  거짓을 돌려줘 **재attach 대신 새 셸을 스폰**했다(앞의 셸은 고아). Rust 가 `pty_spawn` 말미에
+  (`TerminalStore::insert` **이후**) 이 이벤트를 내보내 모든 창의 로스터가 수렴한다. 페이로드는
+  `{ sessionId, projectId, cwd, shell }` 이고 원격 fanout 대상이다 — `terminal:exited` 와 대칭이다.
 
 ### 3.2 탭 활성 직후의 입력·포커스 (d-51 F5, 2026-08-29)
 
@@ -448,6 +464,9 @@
   다중 구독자/멀티윈도우 지원. `replayBytes` 는 이 attach 가 라이브 출력보다 먼저 흘린 바이트 수로,
   flow control 집계에서 빼는 데 쓴다 — §2),
   `pty_detach(sessionId, subscriptionId)`(Wave I)
+- **`PtySpawnOptions.scrollbackBytes`**(d-67, 옵션 필드): 이 세션의 링 용량(바이트). 생략·null 이면 2MiB,
+  서버가 2MiB~32MiB 로 clamp 한다(§3). `pty_default_options` 는 이 필드를 `null` 로 돌려준다 — 줄→바이트
+  환산은 프론트 몫이다.
 - **`pty_write` 는 호출 순서를 스스로 보장하지 않는다**(d-50 S4 에서 블로킹 풀로 이관된 뒤로 — 같은
   틱에 발사된 두 호출은 독립 블로킹 태스크로 writer 뮤텍스를 경쟁한다). 같은 세션의 순서는
   **프론트가** `entities/terminal/session-write-order.ts` 의 세션별 프라미스 체인으로 보장하며,
@@ -469,6 +488,8 @@
   같은 스캐너가 같은 패스에서 OSC 133 `C`/`D` 를 읽어 세션별 `Instant` 로 실제
   경과 시간을 재고 발행한다. `C` 를 못 본 `D` 는 발행하지 않는다. 소비자는 메인 창의
   `native-notification-provider.tsx` 하나 — 10초 이상 걸린 명령만 OS 알림이 된다),
+  `terminal:spawned(sessionId, projectId, cwd, shell)`(d-67 — `pty_spawn` 성공 직후 `TerminalStore::insert`
+  **뒤에** 발행. `terminal:exited` 와 대칭인 전역 로스터 신호이고, 소비자는 `ipc-sync-provider` 하나다 — §3.1),
   `agent:state-changed`(`agent-integration.md`)
 
 ## 10. 수명주기 · 누수 방지
@@ -478,8 +499,10 @@
   (T0 감사 #21, `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3 — **접합부 수정,
   Phase D**: 사용자 결정 9 는 이 배선을 명시했으나 실구현 단계에서 어느 트랙도 실제 호출부를 연결하지
   않아 `pty_kill`/`killPty` 호출부가 0건인 채 남아 있었다). **"포그라운드 자식 프로세스 실행 중이면
-  확인 다이얼로그"는 설계 의도로만 남아 있고 프론트에 실구현이 없다** — 현재는 무조건 즉시 kill 이다
-  (탭 닫기용 프론트 확인 다이얼로그가 미구현이라는 뜻이다 — `PtySession::foreground_pid`/
+  확인 다이얼로그"는 여전히 설계 의도로만 남아 있다** — 터미널 탭은 무조건 즉시 kill 이다.
+  (d-67 이 탭 닫기 확인 다이얼로그 자체는 만들었으나 게이트 대상은 **dirty 인 file·untitled 탭뿐**이고,
+  터미널의 실행 중 프로세스 확인은 2차 조사에서 기각된 항목 `tab-menu-2` 그대로 범위 밖이다 —
+  `tabs.md` §8.1, `docs/backlog.md`. `PtySession::foreground_pid`/
   `TerminalStore::foreground_pids` 자체는 존재하며 시스템 사용량(`system/commands.rs`)·에이전트
   감지 폴링(`domain::agent::commands::poll_agents`) 용도로 별도 쓰인다, 감사로 확인). ring
   buffer 는
@@ -493,11 +516,16 @@
   으로는 구분할 수 없다).
 - 프로세스 종료(exit) 감지: try_wait 폴링 또는 wait 스레드 → `terminal:exited` → 탭에
   "[process exited]" 표시 + 재시작 버튼. 로스터 갱신은 §3.1(전역 처리).
+- **스폰 실패 화면에도 같은 재시작 버튼이 있다**(d-67 #17). 종전에는 exited 분기에만 버튼이 있어, 셸 경로가
+  틀렸거나 권한 문제로 `pty_spawn` 자체가 실패한 탭은 에러 화면에 영구 고착됐다(탭을 닫고 새로 여는 것이
+  유일한 탈출구). `handleRestart` 가 `setFailure(null)` 로 실패 상태를 먼저 걷어야 다시 스폰한 결과가 화면에
+  반영된다 — 버튼과 이 한 줄이 각각 없으면 안 된다.
 - view unmount(탭 전환): xterm dispose 하지 않고 DOM 분리 유지(활성 pane 내 다중 터미널 전환 시).
   프로젝트 전환으로 위젯 트리가 내려가면 xterm dispose — 재마운트 시 ring buffer 재생.
 - **프로젝트 닫기**: `project_close` 가 그 프로젝트 소유의 모든 pty 세션을
   `TerminalStore::kill_project` 로 일괄 회수한다(T0 감사 #21 — 이전에는 프로젝트를 닫아도 세션이
-  앱 종료까지 계속 살아 있었다).
+  앱 종료까지 계속 살아 있었다). d-67 부터 이 회수 **앞에** 프로젝트 스코프 미러 flush 왕복이 끼어들어
+  (최대 2.5초), 커맨드가 그만큼 늦게 resolve 한다 — `editor.md` §3.
 - 앱 종료: 전 세션 kill(자식 프로세스 잔존 금지 — Drop + 명시 shutdown 이중화). `PtySession::drop`
   이 kill 과 일시정지 게이트 해제(`pause.set_paused(false)`)를 함께 수행하므로(T0 감사 #21) 탭
   닫기·프로젝트 닫기·앱 종료 중 어느 경로로 죽어도, 그리고 일시정지된 채로 죽어도 reader/flusher

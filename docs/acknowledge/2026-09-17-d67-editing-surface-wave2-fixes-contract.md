@@ -123,9 +123,163 @@
 
 ## 3. 기록 (구현·검토·검증)
 
-(구현 wf 완료 후 문서 에이전트가 채운다)
+> 실행: 웨이브 1(R1 ∥ TS-L ∥ TS-T) → 웨이브 2(R2 ∥ TS-W1) → 웨이브 3(TS-W2) → 통합 검증 → 렌즈 3관점 →
+> 수정 1회 + 재검증. fixer 는 전부 opus·xhigh, 검증·렌즈는 계약대로.
+> **무엇을 고쳤는가의 정본은 `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md`** 이고, 여기에는
+> 계약과 실제 구현이 갈린 지점(이탈)·검증 수치·렌즈 결과·남은 위험만 적는다.
+
+### 3.1 구현 — 소유자별 요지
+
+**R1 (Rust 웨이브 1 — #13·#20·#21·#9·#14/15-R·#11·#24-R·#10-R)**
+
+- 변경: `domain/layout/service.rs`, `domain/project/{types,service,commands}.rs`,
+  `domain/tree/{service,commands}.rs`, `domain/file/service.rs`, `domain/remote/dispatch.rs`, `lib.rs`,
+  `src/shared/api/bindings.ts`(재생성).
+- 이탈 4건:
+  1. **소유 밖 최소 변경** — `domain/project/commands.rs` 의 `project_forget_recent` 반환 타입을
+     `AppResult<u32>` → `AppResult<ForgetRecentOutcome>` 로. 이 커맨드가 `skipped_with_drafts` 가 TS 로 나가는
+     유일한 통로라, 바꾸지 않으면 §0 의 "#9 … 안내(토스트)" 자체가 성립하지 않는다.
+  2. `ForgetRecentOutcome` 정의를 `service.rs` → `types.rs` 로 이동(specta `Type` 파생이 필요).
+  3. **#13 의 "aux active 였다면 survivor 를 active 로" 를 `!had_active` 가드 아래로 좁혔다.** 계약 문구를 문자
+     그대로 구현하면 기존 테스트가 고정한 "복귀는 main 의 현재 포커스를 빼앗지 않는다" 불변식과 충돌한다.
+  4. `ProjectRef` 구조체 리터럴이 있던 테스트 6곳에 `root_missing: false` 추가(필드 추가에 따른 컴파일 필수).
+- **미채택**: #13 의 `preview` 승계(계약이 dirty·active 만 명시) — 렌즈가 minor 로 재지적, 후속.
+- 테스트 18건 + 기존 기대값 교체 3건. **검출력 실측**: layout 4 / project 4 / tree 4 / file 2 = 14건이 수정 전
+  코드에서 FAILED 임을 임시 되돌리기로 확인 후 원상 복구.
+
+**TS-L (LSP — #1·#2·#3)**
+
+- 변경: `entities/lsp/lsp-session-registry.ts`, `shared/lib/lsp/{model-dirty-tracker,workspace-edit-applier}.ts`,
+  `widgets/editor-pane/{use-lsp-session,use-editor-lsp-integration}.ts`(+각 test).
+- 계약 경로 정정: 계약 §1 표의 `src/shared/lib/monaco/model-dirty-tracker.ts` 는 실재하지 않는다 —
+  실제 파일은 `src/shared/lib/lsp/model-dirty-tracker.ts` 이며 `shared/lib/lsp/**` 도 소유 범위다.
+- 이탈 3건: (a) #2 의 부가 제안 2건(`releaseClosedFileTabPath` 최종 dirty 가드 / `disposeModel` 시
+  `externallyDirtyPaths` 정리)은 TS-W1 소유 파일이라 하지 않았다 — 주 증상과 독립이고 후속으로 넘겼다.
+  (b) #3 의 별건(상태바 LSP 표시 버튼화)은 소유 밖. (c) "소진 후 **새 요청** 즉시 reject" 는 `client.ts` 에
+  disposed 가드가 없어 문자 그대로 구현 불가 — 재시도 루프가 도는 **동안** 발생한 요청이 소진 시점에 reject
+  되는 것으로 테스트했다.
+- 테스트 8건. 검출력 실측: #1 3건 fail, #3 1건 타임아웃, #2 2건 fail.
+
+**TS-T (탭·터미널·슬롯 UI — #8·#22·#16·#19·#17·#7)**
+
+- 변경: `widgets/editor-area/{editor-area,pane-tab-bar}.tsx` + 신규
+  `{terminal-tab-targets,close-tabs-serially,use-request-close-tab}`, 신규
+  `features/tab/close-dirty-tab-dialog.tsx`, `widgets/terminal-pane/terminal-session.tsx`,
+  `features/shell-slot/shell-slot-header.tsx`, `shared/lib/shell-slot.ts`, 로케일 3종 + `MESSAGE_NAMESPACES`.
+- 결정 2건(계약이 선택지를 남긴 곳): **untitled 탭의 저장은 훅이 Save As 를 직접 수행**한다(pane 의 핸들러는
+  성공 여부도 취소 여부도 돌려주지 않아 "취소했는데 닫는" 데이터 손실이 생기고, 언마운트 탭에는 아예 없다).
+  **다이얼로그는 훅이 ReactNode 로 돌려주고 각 호출부가 렌더**한다(`PaneNodeView` 수정 회피) — 대신 모듈 레벨
+  카운터로 "확인 중 다른 닫기 무시" 를 전역 보장했다.
+- 이탈 3건: (a) `MESSAGE_NAMESPACES`(Rust) 등재 — 계약 §1 이 명시한 소유 범위이고, 미등재 키는 locale 테스트가
+  막는다. (b) `collectClosableTabIdsInFocusedGroup` 의 반환 타입을 `Tab[]` 로 바꾸지 않고 호출부에서
+  `findPaneLeaf` 로 되돌렸다(그 파일이 어느 fixer 표에도 없다). (c) `PaneTabBar`·`EditorArea` 단위 wiring 렌더
+  테스트는 만들지 않았다(dnd-kit·Radix·OverlayScrollbar 전부 세워야 함) — 훅 레벨 10 케이스로 고정하고 wiring 은
+  통독으로 확인했다. **이 (c) 를 렌즈가 minor 로 지적했고, 렌즈 major 1 수정에서 마운트 경로 테스트가 들어갔다.**
+- 테스트 28건. 검출력 실측 전 항목 수행(각 수정을 임시로 되돌려 fail 확인 후 md5 로 원상 복구 검증).
+
+**R2 (Rust 웨이브 2 — #5·#12·#6·#18·#23)**
+
+- 변경: `state.rs`, `events.rs`, `lib.rs`, `domain/window/{commands,service}.rs`,
+  `domain/file/commands.rs`, `domain/project/commands.rs`, `domain/layout/service.rs`(헬퍼),
+  `domain/terminal/{types,commands}.rs`, `domain/search/{types,service}.rs`, `tests/domain_boundaries.rs`,
+  bindings 재생성.
+- 설계 결정 4건: `FlushScope` 를 `state.rs` 에 둔 것(핸드셰이크 상태가 사는 곳), **스코프별 토큰**(늦은
+  타임아웃이 다음 핸드셰이크를 강제완료하지 못하게), `project_close` 의 **인라인 await**(커맨드가 "프로젝트가
+  실제로 사라진 뒤" resolve 한다는 기존 계약 유지 — 대기는 `begin_mutation` **전**), 보조 창은 자기 티켓을
+  await 한 뒤 **스스로 `window.close()` 재발행**(프로젝트 스코프와 대칭 + 도메인 간 엣지 제거).
+- 이탈 3건: (a) `tests/domain_boundaries.rs` 에 `window/service → file::service` 엣지 등재(등재 없이는 실패).
+  (b) **#23 의 scope 오류에 신규 로케일 키를 만들지 않았다** — `MESSAGE_NAMESPACES` 가 그 시점 TS-W1 과
+  충돌 위험이 커서 `InvalidArgument` 평문 + 기존 `error.path.outsideProjectRoot` 로 갈음했다.
+  (c) `domain/layout/service.rs` 를 "소량 헬퍼" 보다 조금 넓게 건드렸다(유령 dirty 헬퍼 + 테스트 4건 +
+  `SearchQuery` 필드 추가에 따른 기계적 수정) — R1 의 `return_auxiliary_window_tabs` 본문은 한 줄도 바꾸지 않았다.
+- 테스트 30건. **검출력 실측은 #23 2건뿐**이다 — 나머지는 대상 함수·타입 자체가 수정 전에 없어(컴파일 불가)
+  실측이 성립하지 않는다.
+
+**TS-W1 (프론트 웨이브 2 — #25·#4·#24-FE·#9-FE·#14/15-FE·#10-FE)**
+
+- 변경: `entities/layout/{layout.query,tab-path-change}.ts`, `entities/{tree,project}/**`,
+  `app/providers/ipc-sync-provider.tsx`, `features/shell-slot/shell-slot-header.tsx`,
+  `widgets/{app-shell,app-sidebar,explorer,editor-pane}/**`, 로케일 3종 + `MESSAGE_NAMESPACES`(+각 test).
+- 결정 3건: **#14 의 "사이드바 비활성" 을 클릭 차단이 아니라 흐림 + 툴팁**으로 해석(복구 액션에 닿으려면 그
+  슬롯을 포커스할 수 있어야 한다), **탐색기 빈 상태 조건을 `rootMissing || treeRows isError` 의 OR** 로(세션
+  도중 드라이브가 빠지면 `root_missing` 이 갱신되지 않는다), **#10 초안 본문을 `CodeEditor` 가 아니라 읽기 전용
+  `<pre>`** 로(같은 `registryTabId` 로 monaco 를 하나 더 마운트하는 것이 editor-corpse 크래시 클래스다).
+- 이탈 3건: (a) `MESSAGE_NAMESPACES` 에 자기 키 5개 등재. (b) `widgets/explorer/explorer-panel.tsx` 수정
+  (컨테이너에서 단락시키면 뷰 전환기까지 사라진다). (c) TS-L 소유 테스트의 `project.ipc` 부분 목에
+  `forgetRecentProjects` 한 줄 추가(`mock.module` 이 프로세스 전역이라 미추가 시 같은 런의 다른 파일이
+  `SyntaxError` 로 깨진다 — 스코프 실행으로 재현 확인).
+- **미완**: #9-FE 의 토스트에 도달할 호출부가 없다고 보고했다(렌즈가 major 로 확정 → 3.3 에서 해소).
+- 테스트 27건. 검출력 실측: #25 1 / #14·#15 3 / #10 2건 FAILED.
+
+**TS-W2 (프론트 웨이브 3 — #5·#12-FE·#6-FE·#18-FE·#23-FE)**
+
+- 변경: `app/providers/{hot-exit-flush-provider,ipc-sync-provider}.tsx`,
+  `entities/editor/mirror-flush-registry.ts`, `entities/file/file.ipc.ts`, 신규
+  `entities/terminal/scrollback-budget.ts`, `entities/search/**`, `shared/constants/terminal.ts`,
+  `widgets/{terminal-pane,explorer,search-panel,search-editor,settings-view,editor-pane}/**`, 로케일 3종.
+- 이탈 2건(계약 문구와 다르게 구현): (a) **#6-FE 를 `setQueriesData(TERMINAL.SESSIONS_ALL, …)` 가 아니라
+  `setQueryData(TERMINAL.SESSIONS(projectId))`** 로 — `upsertTerminalSession` 은 append 라 전 로스터 스윕은 그
+  세션을 남의 프로젝트 로스터에도 집어넣는다. 이벤트가 projectId 를 실어 오므로 정확한 키가 오염 없이 같은
+  목적을 달성한다. (b) 소유 밖 5건(`shared/lib/bridge/search-panel-bridge.ts` 의 `scopeDir` 필드,
+  `explorer-panel.tsx` prop, `search-editor-pane.tsx` 2줄, `untitled-pane`·`use-editor-view-state` 의 registry
+  인자, `MESSAGE_NAMESPACES` 1줄) — 전부 해당 항목이 성립하기 위한 최소 추가다.
+- 테스트 20건. 검출력 실측: #18 3건, #23 1건 FAILED.
+
+### 3.2 검증
+
+| 단계 | 결과 |
+|---|---|
+| `bun run typecheck` · `typecheck:e2e` | exit 0 |
+| `bun run lint` | exit 0 — error 0 / **warning 11(기존 baseline 과 동일 파일·동일 내용)** |
+| `bun run format:check` | exit 0 |
+| `bun test` | **2912 pass / 0 fail**(288 파일, 6431 expect) |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo test -p taide --lib` | **1731 passed / 0 failed** |
+| `cargo test --workspace` | 통합 포함 전부 통과(`domain_boundaries`·`capability_symmetry`·`session_restore`·`cli`) |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0(`#[allow]` 추가 없음) |
+| `src/shared/api/bindings.ts` | specta export 테스트로 재생성 — 생성 헤더 유지, 수기 편집 흔적 없음 |
+
+- 웨이브 경계에서는 의도적으로 빨간 구간이 있었다(R1 의 `MirrorEntry.sourceMissing` 필수화 → TS-W1 소유 3파일,
+  R2 의 `fileFlushComplete(scope)`·`scopeDir` → TS-W2 소유 2파일). 전부 **다음 웨이브 소유 파일**이었고 웨이브 3
+  완료 시점에 0 이 됐다.
+- 위 수치는 렌즈 수정 **이후**의 재검증 값이다(수정 전 통합 검증은 2907 pass / 1730 passed).
+
+### 3.3 렌즈 검토 — 전 9건과 처리
+
+| # | severity | 제목 | 처리 |
+|---|---|---|---|
+| 1 | **major** | dirty 탭 닫기의 "저장" 이 실제 디스크 쓰기 완료를 기다리지 않는다(`use-request-close-tab.tsx` → monaco 액션 → `handleSave` 가 `mutate` 로 발행) | **수정**. `handleSave` 를 `mutateAsync` 기반 boolean 반환으로 바꾸고 신설 `entities/editor/save-request-registry.ts`(tabId 키)로 pane 파이프라인의 결과를 닫기 확인에 전달. 테스트 5건 |
+| 2 | **major** | `#9-FE` 초안 보존 안내가 어떤 호출부로도 도달 불가(유일 트리거인 네이티브 메뉴가 `ForgetRecentOutcome` 을 버린다) | **수정**. `project_forget_recent` 가 신규 이벤트 `project:recent-cleared` 를 무조건 emit, 프론트는 `useRecentProjectsClearedNotice`(IpcSyncProvider) 한 곳에서 안내. 이벤트 수 29 → 30 |
+| 3 | minor | `project_close` 의 재진입 가드가 flush 대기 중 동시 호출을 못 막고 doc 문구가 사실과 다름 | **수정**(후속 wf `wf_518a3c47`). `begin_mutation` 직후 `projects.contains_key` 재검사 — 이미 닫혔으면 조용히 `Ok(())`(메인 판정: 이중 닫기는 목표 달성이라 NotFound 토스트를 띄우지 않는다). doc 정정 + 소스 위치 테스트 |
+| 4 | minor | #13 dedupe 가 `open_tab` 과 달리 `preview` 를 승격하지 않음 | **수정**(후속 wf). 병합 분기에 `open_tab` 과 같은 `preview` 승격 + 테스트 |
+| 5 | minor | `externallyDirtyPaths` 가 `disposeModel` 시 정리되지 않아 재개방 시 거짓 dirty | **수정**(후속 wf). `clearExternallyDirtyMark(path)` 를 `TabPathChangeDeps` 로 주입해 `releaseClosedFileTabPath` 가 `disposeModel` 직후 호출 + 테스트(신규 `model-dirty-tracker.test.ts` 3건) |
+| 6 | minor | #3 의 내장 TS 폴백 복원을 단언하는 테스트가 없다 | **테스트 부채**(backlog / `docs/quality-assurance`). harness 개조 범위 과도 |
+| 7 | minor | `persistMirror` 의 `setQueryData` 제네릭 생략으로 `sourceMissing` 누락을 tsc 가 못 잡음 | **수정**(후속 wf). `<MirrorEntry[]>` 명시 + `sourceMissing: diskModifiedMs === null`(백엔드 `list_mirrors` 와 같은 유도 — `false` 하드코딩은 외부 삭제된 파일의 초안을 닫기 시 파기시킬 위험) |
+| 8 | minor | #8 회귀 테스트가 mounted(활성) 탭 경로를 검증하지 않음 | 렌즈 major 1 수정에서 **해소** |
+| 9 | minor | #9-FE 안내 도달 불가(위 2 의 테스트 측면) | 렌즈 major 2 수정에서 **해소** |
+
+- major 2건은 메인이 소스로 직접 판정했다(렌즈 severity 를 그대로 신뢰하지 않는다는 기존 원칙).
+- 렌즈 major 2 는 계약 §1 이 프론트 전용으로 잡았던 항목이지만 근본 원인이 Rust 쪽(커맨드가 결과를 창에 알리지
+  않음)이라 이벤트 추가 + bindings 재생성까지 했다. **미채택**: 렌즈 제안 후반부("Welcome·사이드바에 진입점
+  추가")는 새 제품 표면 결정이고 그 파일들은 d-67 이 만진 적이 없어 하지 않았다.
+
+### 3.4 미확인 · 실기 대상
+
+- **앱 실기(`tauri dev`/build)는 전 구간에서 하지 않았다.** 테스트는 fake monaco·fake IPC·순수 헬퍼 층까지만
+  덮는다. 실기 체크리스트는 `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §9 가 정본이다.
+- 특히 확인이 필요한 것: flush 왕복 3경로(앱 종료·보조 창 닫기·프로젝트 닫기)와 **보조 창 라벨이 Rust
+  `FlushScope::Window` 와 실제로 일치하는지**(어긋나면 데이터 손실은 없고 2.5초 지연으로 나타난다), 실제 vtsls
+  에서의 didChange 카운트와 크래시 3회 후 내장 구문검사 복귀, 심링크가 많은 `node_modules` 펼침 속도,
+  스크롤백 예산 상향 후 다중 터미널의 상주 메모리, 네이티브 `File > Clear Recent` 경로, 그리고 신규 UI 5종
+  (닫기 다이얼로그·슬롯 경고 배지·탐색기 빈 상태·삭제 배너·터미널 재시작 버튼)의 **라이트·다크 렌더**.
+- 알려진 표면 변화 3건(회귀가 아니라 의도): 단일 탭 닫기 실패가 이제 토스트를 띄운다, 보조 창 닫기가 첫
+  `CloseRequested` 를 가로채 한 왕복만큼 늦어진다(`layout_move_tab_to_window` 의 빈 창 자동 닫기 포함),
+  `project_close` 가 프론트 왕복 1회만큼 느려진다(`project_open` 실패 롤백 경로 3곳 포함).
 
 ## 4. 후속
+
+> 아래 2건 + 렌즈 minor 에서 나온 6건 + #10 의 prune keep 잔여는 전부
+> `docs/backlog.md` 의 "d-67 …에서 분리된 후속 후보" 표에 사유와 함께 등재했다.
 
 - 보조 창 파일의 IDE `save_document` 실저장(d-66 #2 잔여) — 요청 릴레이 설계 백로그.
 - 슬롯 닫기 시 살아남은 슬롯 리마운트(기각 `save-during-transitions-1` 의 minor 잔여: key 를 슬롯 정체성으로 분리) — 백로그.

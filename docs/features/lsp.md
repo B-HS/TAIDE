@@ -262,6 +262,25 @@
   `lsp-session-registry.ts` 가 감지해 자동으로 `initialize` 를 재실행하고
   `lsp_confirm_reinitialize` 로 확정한다(실패 시 `lsp_report_reinitialize_failure`).
   테스트: `lsp-session-registry.test.ts`.
+- **재시도가 소진되면 세션을 실제로 철거한다**(d-67 #3). `lsp_report_reinitialize_failure` 를 보낸 뒤 그냥
+  돌아오던 분기가, 이제 `rejectPendingRequests('lsp session reinitialize retries exhausted')` →
+  `finalizeSessionDisposal` 순으로 정리한다(이 순서여야 매달린 요청이 "재시작 중" 이 아니라 소진 사유로
+  settle 된다). 그전에는 크래시 세션 레코드가 레지스트리에 남아 ① 그 세션에 매달린 요청이 영원히 pending 이고,
+  ② `disposeSession` 의 per-language dispose 루프가 돌지 않아 **내장 TS/JS 구문 검사 폴백이 정지된 채**
+  남았다(§`editor.md` §12 의 `suspendBuiltinTypeScriptMode` 해제가 그 루프에 있다). 철거는 영구 차단이 아니다 —
+  `sessionsByKey` 에서 그룹이 빠지므로 다음 `acquireLspSession` 이 새 세션을 스폰한다.
+  (내장 폴백 복원까지 단언하는 테스트는 harness 개조 비용 때문에 남겨 뒀다 — `docs/quality-assurance`.)
+- **문서 변경 리스너는 문서당 하나다**(d-67 #1). `onDidChangeContent` → `didChange` 등록이
+  `acquireDocument`/`releaseDocument` 의 **uri refcount 아래**로 들어갔다(`ConnectionState.contentSubscriptions`).
+  그전에는 `attachLspSession` 이 `EditorPane` 마다 자기 리스너를 걸었는데, 같은 파일을 두 pane 에 띄우면
+  monaco 모델도(uri 싱글턴) LSP client 도(세션 키 동일) 공유되므로 **한 글자 입력이 `didChange` 두 번**으로
+  나가 서버의 문서 사본이 이중 편집으로 망가졌다(진단·완성·정의 이동이 전부 오염된 사본 기준이 된다).
+  이제 첫 `acquireDocument`(`current === 0`)에서만 구독하고 마지막 `releaseDocument` 에서 didClose 와 함께
+  dispose 한다. 구독 등록은 `isReinitializing` 게이트 **밖**이다 — 그 게이트는 프로토콜 전송만 막고, 이미 열린
+  uri 는 `current > 0` 이라 replay 중 재구독이 없다. 강제 철거(프로젝트 닫기·앱 종료·위 소진)는
+  `releaseDocument` 를 거치지 않으므로 `disposeSession` 이 남은 구독을 전부 dispose 한다 — 그러지 않으면 죽은
+  client 로 didChange 가 계속 나간다.
+  → `docs/bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §3
 
 ## 6. 플러그인 확장 (FR-E3)
 

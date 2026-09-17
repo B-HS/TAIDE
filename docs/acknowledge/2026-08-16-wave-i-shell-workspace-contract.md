@@ -102,7 +102,10 @@
   전 창+원격 fanout — 프론트는 SETTINGS.CURRENT 무효화)를 한 트랜잭션으로. 유효하지 않은 JSON 은
   저장 거부(기존값 보존)+에러 표시. **sync_download 도 동일 재적용 경로를 타도록 정리(기존 결함
   동반 해소)**. prompts 는 순수 쓰기+쿼리 무효화.
-- 미러(hot-exit) 1차 제외 — dirty 표시만, 닫기 시 확인 다이얼로그 기존 dirty 흐름 재사용. 동일
+- 미러(hot-exit) 1차 제외 — dirty 표시만, 닫기 시 확인 다이얼로그 기존 dirty 흐름 재사용.
+  - **정정(2026-09-17, d-67)**: 이 줄이 전제한 "기존 dirty 흐름" 은 당시 존재하지 않았다. dirty 탭 닫기 확인
+    다이얼로그는 d-67 에서 처음 구현됐고(`features/tabs.md` §8.1), 그 게이트는 `File`·`Untitled` 탭에만 걸린다 —
+    `AppFile` 탭은 지금도 확인 없이 닫힌다. dirty **표시**만 계약대로다. → `docs/data-model.md` §8 동일
   target 탭의 pane 단위 중복 가능성은 기존 파일 탭과 동일 정책(문서화). 원격 dispatch: app_file_*
   는 settings_update 와 동급으로 허용하되 SettingsChanged fanout 정합 확인.
 - 진입: 설정 화면 "Open settings.json"·팔레트·프롬프트 편집 진입.

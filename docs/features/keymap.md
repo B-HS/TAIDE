@@ -467,3 +467,17 @@ chord 오버라이드에는 만들지 않는다(그 스킴은 "쥔 채로 화살
 - `taide.*` 커스텀 액션과 손으로 등록된 `AppCommand` 의 중복 행(§10) — 통합 여부 미결정.
 - `taide.runSelectedTextInTerminal`(에디터 컨텍스트 메뉴) 과 `terminal.runSelectedText`
   (`AppCommand`) 가 같은 기능의 서로 다른 구현 경로로 병존 — 회귀는 아니나 통합 검토 권장.
+
+## 12. 엔트리별 동작 보정 — 터미널 토글의 복귀 대상 (d-67 #19)
+
+`toggle-terminal`(⌃\`, `editor-area.tsx` 의 `toggleTerminal`)은 "활성 탭이 터미널이면 원래 보던 탭으로 돌아가고,
+아니면 그 pane 의 터미널로 간다" 는 왕복 키다. 복귀 대상을 **위치로만**(활성 탭이 아닌 첫 탭) 고르고 있어서,
+터미널이 둘 이상인 pane 에서는 키가 터미널끼리만 오가며 **빠져나갈 수 없었다**(터미널만 있는 pane 에서는 두
+터미널을 번갈아 활성화했다).
+
+- 이제 복귀 대상은 `resolveTerminalToggleFallbackTab(leaf)` = "활성 탭이 아니면서 `kind !== 'terminal'` 인 첫 탭"
+  이다. 그런 탭이 없으면(= pane 이 터미널로만 이루어져 있으면) `null` 이고 키는 **아무 일도 하지 않는다** —
+  제자리에 있는 편이 튀는 것보다 정직하다.
+- 터미널로 **가는** 방향은 불변이다(그 pane 의 첫 터미널, 없으면 새 터미널 탭). 태스크 실행의 대상 선택은
+  다른 규칙을 쓴다 — 그쪽은 활성 탭 우선이다(`tasks.md` §3).
+- 두 판정 모두 순수 헬퍼 `widgets/editor-area/terminal-tab-targets.ts` 에 있고 단위 테스트로 잠겨 있다.
