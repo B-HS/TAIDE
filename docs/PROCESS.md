@@ -50,6 +50,55 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: d-67 — 편집 표면 2차 조사 확인 결함 일괄 수정 (2026-09-17)
+
+> 2차 조사 wf `wf_0553e963`(7관점 opus·xhigh → 반박 검증 sonnet·xhigh, 47 에이전트·46분) — 발견 35 → 29 → 생존 **24**(major 11·minor 13) /
+> 기각 4 / info 1. 정본 `research/2026-09-17-editing-surface-bug-audit-wave2.md`. 사용자 추가 지시: "커밋 푸시 draft 잘 생성해두고".
+
+- [x] a. 조사 완료 + 메인 triage → 계약 `acknowledge/2026-09-17-d67-editing-surface-wave2-fixes-contract.md`(24건 전부 수정, 중복 4쌍 합침.
+      #8 dirty 닫기 다이얼로그 / #5·#12 스코프 flush 핸드셰이크 / #23 범위 우선 / #11 심링크 kind 재판정 / #18 스크롤백 예산 상수 결정)
+- [x] b. 선행 완료 — d-66 검증·커밋(5+docs)·dev 푸시·main ff
+- [ ] c. 수정 wf(웨이브 1: R1 ∥ TS-L ∥ TS-T → 웨이브 2: R2 ∥ TS-W1 → 웨이브 3: TS-W2 → 검증 → 렌즈 3 → 수정 → 문서)
+- [ ] d. 메인 2차 verify + vite build → 커밋 분할 → dev 푸시 → main ff → **v0.2.3 릴리스**(버전 3파일+Cargo.lock·릴리스 노트·태그·Release 런·draft) →
+      `deployment.md` §9·HANDOFF 기록 → 사용자 실기
+
+## 진행 중: d-66 — 편집 표면 버그 전수조사 + 확인된 결함 일괄 수정 (2026-09-17)
+
+> 사용자 지시(d-65 직후): "버그 전수조사해봐 믿을 수가 없네 다른 부분들도 버그될 만한 건 다 바꿔 확실하게 수정". 범위 = 편집 표면 전체
+> (Rust 레이아웃 불변식·프론트→IPC stale id·포커스/키맵 디스패치·저장/dirty/미러·열기 경로 전수·탭 바/DnD·슬롯/보조 창/Zen·파일 조작↔탭).
+
+- [x] a. 조사 wf `wf_32cb22f7`(finder 8 병렬 opus·xhigh → 중복 제거 → 반박 검증 sonnet·xhigh, 45 에이전트·36분) — 발견 28 → 24 → 생존 **20**
+      (major 13·minor 7) / 기각 3(L1-07·d-58 B-3·d-50 #2 기존 결정) / info 1(untitled ⌘S). 종합 `research/2026-09-17-editing-surface-bug-audit.md`
+- [x] b. 메인 triage → 계약 `acknowledge/2026-09-17-d66-editing-surface-fixes-contract.md` — 중복 5쌍 합쳐 15 결함 + info 전부 수정. #12 는
+      d-57 F4 "기록만" 을 사용자 포괄 지시로 대체, #19 는 동작 변경(항상 분할) 채택, #1 방어심층(closed_tabs 기록)은 UX 부작용으로 미채택
+- [x] c. 수정 wf `wf_d32c59d4`(fixer 5: R ∥ TS-A ∥ TS-B ∥ TS-C → TS-D reveal → 검증 sonnet·high allGreen → 렌즈 3 sonnet·xhigh: major 0·minor 1(reveal
+      target 재계산 레이스 → d-67 #25)·info 1 → 문서, 사용량 제한으로 문서 단계 1회 중단·재개, 총 2h13m). 메인 diff 전수 대조(Rust·지속성·reveal·탐색기·보조 창).
+      병행 2차 조사 wf `wf_0553e963` 완료 → d-67 절
+- [x] d. 메인 2차 검증 — `bun run verify` exit 0(bun 2819 pass/0 fail·cargo lib 1685·clippy 0·prettier 통과)·`bunx vite build` exit 0 → 커밋 5분할
+      (`165e9c0` fix(layout)·`74d8228` fix(project)·`010a9fd` fix(editor)·`decc63b` fix(window)·`749bc9c` fix(explorer), d-65 변경 포함) + docs 커밋 → dev 푸시 → main ff
+- [ ] e. 사용자 실기 — `bug/2026-09-17-editing-surface-audit-fixes.md` 실기 대상 + d-65 계약 §4 3항목. 릴리스는 d-67 완료 후 v0.2.3 로 일괄
+
+## 진행 중: d-65 — focused pane 불변식(닫기 후 dangling) + pane 포커스 클릭 추종 (2026-09-17)
+
+> 사용자 보고: ① 파일 pane 을 옮기거나 닫은 뒤 `pane not found` 토스트·저장 불가·트리/⌘P 로 열려 있는 파일이 안 열림
+> ② 새 pane 을 열면 기존 pane 에서 ⌘S·⌘W 등 단축키가 안 먹고 수정사항이 저장되지 않음.
+> 정본 계약 `acknowledge/2026-09-17-d65-pane-focus-invariant-contract.md`.
+
+- [x] a. 원인 확정(메인 직접, 소스 실물) — ① `close_tab` 만 `ensure_focused_pane_valid` 미호출(move/split 은 호출) → dangling
+      `focused_pane` 이 `finish_mutation` 스냅샷으로 프론트에 전달, d-62 `withCurrentWindowTarget` 이 그 id 를 명시 target 으로 보내
+      d-58 Rust 폴백 우회 → `error.layout.paneNotFound`; `editor-area` 키맵 핸들러는 `findPaneLeaf` null 로 무반응 ② pane 포커스를
+      바꾸는 경로가 탭 바 mousedown·⌘K 그룹 이동뿐 — 에디터 본문/터미널 클릭은 `layout_focus_pane` 미발신 → 새 pane 이 포커스를 가진 채
+      기존 pane 에서 편집하면 ⌘S/⌘W 가 새 pane 을 대상으로 동작
+- [x] b. 계약 작성 — R1(Rust: close_tab 형제 승계 + finish_mutation 불변식) / F1(pane-tree 프론트 미러) / F2(리프 래퍼 pointerdown·focusin
+      캡처 → focusPane, 탭 바 mousedown 제거) / 문서
+- [x] c. 구현 wf `wf_a68bc4dc`(fixer 3 병렬 opus·xhigh → 검증 sonnet·high → 렌즈 2 sonnet·xhigh 발견 0 → 문서 opus·high, 22분) —
+      R1 `successor_leaf_after_prune`·`tree_focused_pane` 신설 + `close_tab` 형제 승계 + `finish_mutation` 불변식(테스트 +6, 검출력 실측) /
+      F1 `withExistingFocusedPane` 미러(테스트 +5) / F2 리프 래퍼 pointerdown·focusin 캡처 + in-flight ref 가드(`onSettled` 해제 — 계약의
+      "요청 당시 focusedPaneId 저장" 안은 리프별 ref 라 L→R→L→R 왕복에서 영구 억제돼 이탈, 테스트 +4) + 탭 바 mousedown 경로 제거.
+      메인 diff 전수 대조 완료. 정본 계약 §3
+- [x] d. 메인 2차 검증 — `bun run verify` exit 0(bun 2754 pass/0 fail·cargo lib 1667·clippy 0·prettier 통과)·`bunx vite build` exit 0
+- [x] e. 커밋은 d-66 과 함께 분할(사용자 지시 "커밋 푸시 draft") — `165e9c0`(layout)·`010a9fd`(editor). 실기는 d-66 e 항목과 함께
+
 ## 진행 중: d-64 — TS 진단 폴백 정직화 · LSP 무음 실패 관측성 · 파일트리 하드 제외 해제 (2026-09-16)
 
 > 사용자 보고: ① gumba 에서 node_modules/.next 가 있는데 모든 import 에 빨간 밑줄("감지 못하나, 의도적 차단인가") ② 트리에

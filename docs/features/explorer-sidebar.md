@@ -39,6 +39,11 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
   ignored 흐림은 미구현(별도 ignore 판정 IPC 필요 — backlog).
 - 클릭 = preview 탭으로 열기, 더블클릭 = 고정 탭(FR-C4, `tabs.md` §3). **행이 없는 빈 공간 더블클릭 =
   프로젝트 루트에 새 파일 초안**(d-59 §1.E) — 선택을 먼저 지우고 루트를 명시 대상으로 넘긴다.
+- **선택은 행 목록의 함수다**(d-66). 컨테이너는 선택된 **id** 하나만 들고 행은 `rows` 에서 파생하므로, 삭제·
+  외부 변경으로 그 행이 사라지면 선택은 자동으로 없음이 된다. 그전에는 행 객체를 state 로 들어, 폴더를 지운 뒤
+  "새 파일" 을 누르면 **삭제된 폴더가 대상으로 잡혀 그 폴더가 되살아났다**. 대상 디렉토리 해소(`resolveTargetDir`)도
+  rows 멤버십을 확인해 없으면 프로젝트 루트로 폴백하고, 트리에도 루트에도 없는 대상에는 초안 자체를 열지 않는다.
+  → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §3
 - 키보드: ↑↓ 이동, ←→ 접기/펼치기, 타이핑 시 이름 점프(typeahead), 그 외 단축키는 §2.5.
 - context menu: 새 파일/폴더, 이름 변경(인라인 입력), 삭제(휴지통 이동 + 확인), 복사/붙여넣기,
   경로 복사, Finder 에서 열기, (git 있으면) 하위 항목 — 전부 Rust fs 명령 경유.
@@ -49,8 +54,9 @@ react-arborist(redux5+react-dnd14+react-window 동반 + dnd-kit 과 DnD 이중�
 
 VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 트리가 그 파일까지 **펼쳐 선택**한다.
 
-- **게이트 3축** — 셋 다 만족할 때만 동작한다. ① 설정 `explorerAutoReveal`(기본 on) ② 사이드바가
-  실제로 보임(`shellView.sidebarCollapsed` 아님 + Zen 아님) ③ 사이드바 뷰가 `files`. 판정은
+- **게이트 3축** — 셋 다 만족할 때만 동작한다. ① 설정 `explorerAutoReveal`(기본 on) ② **이 창의**
+  사이드바가 실제로 보임(호출부가 주입한 `sidebarCollapsed` 아님 + Zen 아님 — d-66, 아래 "창마다 따로 본다")
+  ③ 사이드바 뷰가 `files`. 판정은
   `widgets/explorer/explorer-auto-reveal.ts` 의 순수 함수 `decideAutoReveal`(`skip`/`select-only`/
   `reveal-then-select`)이 전담하고, 훅은 입력 공급과 실행만 한다.
 - **이미 보이는 행은 IPC 0** — `visiblePaths` 에 있으면 `select-only` 로 기존 `selectPathRequest`
@@ -60,8 +66,14 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
   `skip` 은 기록하지 않으므로, 사이드바를 접은 채 파일을 바꾼 뒤 다시 펼치면 그때 reveal 된다.
 - **포커스 불탈취** — 선택은 `file-tree.tsx` 의 `selectByIndex`(`setSelectedId` + `scrollToIndex`)
   로만 이뤄지고 DOM focus 를 건드리지 않는다. 에디터 타이핑이 끊기지 않는다.
-- **주 트리만 본다** — 사이드바는 주창에만 마운트되므로 활성 경로는 `layout.root`/`layout.focusedPane`
-  에서만 읽는다(`resolveWindowPaneTree` 금지). 보조창의 활성 탭이 주창 트리를 흔들지 않는다.
+- **창마다 따로 본다**(d-66 — 종전 서술 "주 트리만 본다" 정정). 사이드바가 주창 전용이라는 전제는 d-62 §1.D
+  이후 거짓이다: `auxiliary-window-shell.tsx` 가 같은 `ExplorerContainer` 를 보조 창에도 마운트한다. 활성 경로는
+  `activeFilePathOf(resolveWindowPaneTree(layout, getWindowContext()))` 로 **그 창의 트리**에서 읽고, 게이트 ②의
+  사이드바 접힘도 `layout.shellView.sidebarCollapsed`(주창 전용 값)가 아니라 두 셸(`project-shell.tsx`·
+  `auxiliary-window-shell.tsx`)이 패널 `onLayoutChanged` 에서 갱신해 내려 주는 **창별 state** 를 쓴다. 그전에는
+  보조 창 트리가 주창 활성 파일을 따라가고, 주창 사이드바를 ⌘B 로 접으면 보조 창 autoReveal 까지 멈췄다.
+  두 창이 각자 `lastRevealedRef` 를 갖고 같은 경로로 `tree_reveal` 을 중복 발행하던 것도 함께 사라진다.
+  → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §3
 - **프로젝트 루트 밖 경로는 skip** — `tree_reveal` 이 걸어 올라갈 조상이 없으므로 훅에서 선판정한다.
 - **실패는 조용히 무시** — 사용자가 요청한 동작이 아니므로 토스트를 띄우지 않는다(명시적 "탐색기에서
   보기"는 기존대로 에러를 알린다).
@@ -102,9 +114,16 @@ VS Code `explorer.autoReveal` 파리티. 활성 에디터 탭이 파일이면 �
 - 이벤트는 경로 배열 1건으로 묶어 emit(파일당 1 emit 금지).
 - **워처가 이벤트를 흘리면 `fs:rescan-required(projectId)` 를 먼저 1회 보낸다**(d-57). FSEvents 큐
   오버플로(대형 checkout·`npm install`·슬립 웨이크)에서 `notify` 가 세우는 rescan 플래그를 그대로
-  전달하는 신호로, 경로 목록이 없어 프론트는 트리 행·퀵오픈 인덱스·git·열린 파일 캐시를 통째로
+  전달하는 신호로, 경로 목록이 없어 프론트는 퀵오픈 인덱스·git·열린 파일 캐시를 통째로
   무효화한다(한 감시당 최소 간격 2초 — `ipc-contract.md` §d-57). 그전에는 이 플래그가 통째로
   버려져 다음 변경이 오기 전까지 트리·인덱스가 틀린 채로 남았다.
+  - **트리만은 무효화가 아니라 실제 재조회다**(d-66 — d-57 F4 의 "기록만" 결정을 대체). `tree_rows` 는 Rust 트리
+    스토어를 재직렬화할 뿐 이미 캐시된 디렉토리를 디스크에서 다시 읽지 않으므로, `TREE.ROWS` 무효화로는 **이미
+    펼쳐 둔 디렉토리**가 영영 교정되지 않았다(접었다 펴도 마찬가지 — `expand` 도 캐시가 있으면 디스크를 건너뛴다).
+    이제 `TREE.ROWS` 는 무효화 목록에서 빠지고, 대신 **프로젝트 루트 + 캐시된 rows 중 펼쳐진 디렉토리** 전부를
+    기존 `syncTreeRowsForChangedDirs`(디렉토리별 `tree_refresh`) 로 다시 읽는다 — 툴바 새로고침이 쓰는 경로와 같다.
+    보여 줄 목록이 아직 없으면(첫 로드 전·루트 미상) 종전 무효화로 폴백한다. 신규 Rust 커맨드는 없고, 대신 rescan
+    한 번의 IPC 가 `펼친 디렉토리 수 + 1` 회로 늘어난다(2초 스로틀 안).
 - **폴더 삭제·개명은 그 하위의 펼침 상태·캐시까지 정리된다**(d-50 S7). `tree_refresh` 가 갱신한
   목록에 없는 자식 디렉토리는 경로 접두사로 하위 전체를 버리고, 남아 있지만 자식이 없어진 자식
   디렉토리는 캐시된 목록만 버린다(펼침 표시는 유지 — 빈 폴더도 펼칠 수 있다). 그전에는 지운 폴더의

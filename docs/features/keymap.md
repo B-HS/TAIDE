@@ -228,6 +228,13 @@ keydown 을 받는 형제 리스너" 하나이므로, chord `pending`/`monacoDef
 고아가 되는 것을 막기 위해 `parseKeymapOverrides` 가 `keybindings.open → open-keybindings-editor`
 1회성 별칭 마이그레이션을 수행한다(`keymap.ts::LEGACY_KEYMAP_OVERRIDE_ACTION_ID_ALIASES`).
 
+**같은 이유로 `font-size-up`/`font-size-down`(⌘= / ⌘−)의 등록처도 `KeybindingsRuntimeProvider` 다**(d-66).
+d-66 이전의 유일한 등록처는 메인 창 전용 상태바(`widgets/window-chrome/status-bar-content.tsx`)여서 보조 창에서는
+두 키가 아무 동작도 하지 않았다. 증감·리셋 로직은 `entities/settings/use-editor-font-size.ts` 훅 하나로 모았고
+(clamp·step 소유), 상태바 버튼은 같은 훅을 재사용하되 **자기 `useGlobalKeymap` 두 엔트리를 제거**했다 — 남겨 두면
+메인 창에서 §3 팬아웃으로 한 번의 키 입력이 두 번 반영된다. 위 `open-keybindings-editor` 와 함께 "창마다 정확히 하나의
+소유자" 규칙의 두 번째 사례다. → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §2
+
 이 엔트리는 `when: '!terminalFocus'` 도 함께 가진다 — 그러지 않으면 터미널에 포커스가 있을 때 ⌘K
 를 누르는 것만으로(macOS 터미널 관용구 "화면 지우기") chord 대기에 들어가 다음 keydown 1개를 xterm
 에 전혀 전달하지 않고 삼켜버린다. `terminalFocus` 는 §6 화이트리스트 게터이므로 `findMatchingChordPrefixEntry`

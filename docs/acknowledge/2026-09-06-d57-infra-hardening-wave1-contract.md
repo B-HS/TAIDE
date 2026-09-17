@@ -156,7 +156,7 @@ R 단계가 남긴 3건을 모두 닫았다. Rust 로직은 손대지 않았다(
 | F3 — `AWS_SECRET_ACCESS_KEY=` 류 접두 환경변수 미탐 | minor | - | **부분 수용** — 키워드 3종 추가, 제안된 임의 접두·접미 허용은 기각 |
 | F2 — `key=value` 가 URL 쿼리의 비밀 아닌 값도 마스킹 | minor | - | **부분 수용** — 규칙 축소는 기각, 트레이드오프를 테스트·문서로 고정 |
 | F2-file-all-cross-project-sweep — `FILE.ALL` 이 타 프로젝트까지 무효화 | minor | - | **부분 수용** — predicate 스코프는 기각, JSDoc·`ipc-contract.md`·테스트로 명시 |
-| F4 — rescan 이 이미 펼친 디렉토리를 교정하지 못함 | minor | - | **기록만** — 이미 문서화된 기지 한계, 코드 변경 없음 |
+| F4 — rescan 이 이미 펼친 디렉토리를 교정하지 못함 | minor | - | **기록만** — 이미 문서화된 기지 한계, 코드 변경 없음. **(d-66 에서 사용자 지시로 수정 — 이 결정은 대체됐다: `docs/acknowledge/2026-09-17-d66-editing-surface-fixes-contract.md` §0·#12)** |
 
 #### 처리 상세
 
@@ -194,6 +194,10 @@ R 단계가 남긴 3건을 모두 닫았다. Rust 로직은 손대지 않았다(
 6. **F4(기록만)** — 코드 변경 없음. F 단계 "남은 작업·한계" 와 `docs/ipc-contract.md` 의 한계 항목이
    이미 정본이다. 완전 교정(rescan 시 Rust 트리 스토어 캐시 무효화 또는 펼친 디렉토리별
    `tree_refresh`)은 이 계약 범위 밖이라 **별도 계약으로 스케줄링**해야 한다.
+   - **후일 대체(2026-09-17)**: 그 "별도 계약" 이 d-66 이다. 사용자의 포괄 지시("버그될 만한 건 다 바꿔")를 이
+     결정을 대체하는 새 지시로 보고, 여기서 적은 두 선택지 중 **펼친 디렉토리별 `tree_refresh`** 쪽으로 수정했다
+     (`ipc-sync-provider.tsx` 의 `rescanTreeRefreshDirs` + 기존 `syncTreeRowsForChangedDirs` 재사용, 신규 Rust 커맨드
+     없음). `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §3 #12.
 
 - **테스트 6종 추가** — redact 5종(Rust lib 1522 → 1527), `rescanInvalidations` 1종(bun 2337 → 2338).
   통합 테스트 30종 불변.

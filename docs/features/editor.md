@@ -89,6 +89,43 @@
   데스크톱 로컬 전용이며 원격 클라이언트에는 전파되지 않는다(원격 세션은 종료를 제어할 수 없음).
 - 외부 변경: watcher 이벤트로 열린 파일이 바뀌면 — dirty 아니면 조용히 리로드(viewState 유지),
   dirty 면 충돌 배너(디스크 내용 보기 / 덮어쓰기 / 유지, `changedOnDisk` variant).
+- **이미 라이브인 모델 위에 마운트하면 그 내용을 인수한다**(d-66). 같은 파일을 두 번째 pane 에 열면 monaco 모델은
+  공유(§2)지만 `dirty`·`syncedContent` 는 pane 별 state 라, 새 pane 이 자기 기준으로 디스크 내용을 쓰거나 미러를
+  복원해 **형제 pane 의 미저장 편집을 덮었다**(dirty 표시는 남아 ⌘S 가 디스크 내용을 다시 썼고, 미러가 있으면 대신
+  "복구됨" 배너가 오탐하며 버퍼가 마지막 미러 시점으로 롤백됐다). 이제 판정이 마운트 1회로 모인다:
+  - `CodeEditor` 가 `getOrCreateModel` **직전에** `getModel(path)` 로 "이 경로의 모델이 이미 있었는가" 를 확인해
+    `onModelAttach({ path, hadLiveModel })` 로 호스트에 보고한다(경로가 바뀌는 attach 에서만 — 확장자가 바뀐 개명 뒤의
+    re-language 재attach 는 같은 버퍼를 다시 붙이는 것이라 보고하지 않는다).
+  - 순수 판정 `shouldAdoptLiveModelEdit({ hadLiveModelOnAttach, modelContent, diskContent })` 가 참이면 **미러 복원을
+    건너뛰고** 모델의 현재 값을 draft 로 인수해 dirty 만 세운다(`restoreNotice` 는 `'none'` — 배너 없음). draft 는
+    고정 문자열이 아니라 모델의 lazy reader 라 형제 pane 이 계속 타이핑해도 따라간다.
+  - `hadLiveModelOnAttach` 를 AND 조건으로 두는 것이 핵심이다. "모델 값 ≠ 쓰려는 디스크 내용" 만으로 일반화하면
+    **워처 재로드가 회귀한다** — 외부 변경으로 `syncedContent` 가 새 내용이 된 시점에 모델은 아직 옛 내용이라 정상
+    재로드가 "미관측 편집 인수" 로 오판돼 외부 변경이 조용히 사라진다.
+  - **개명(rename) 직후의 예외**: `retargetModel` 이 새 경로에 모델을 먼저 등록하므로 개명 직후 attach 는 항상
+    "라이브" 다 → 인수 경로를 타 **"미저장 내용을 복구했습니다" 배너가 뜨지 않는다**. 미러 내용과 모델 값이 같아
+    본문·dirty 결과는 동일하고, 복구가 아니라 개명이므로 오히려 정확한 표시다.
+  → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §4
+
+### 3.1 reveal — "이번에 연 탭" 에만 적용한다 (d-66)
+
+검색 결과·진단·심볼·정의로 이동·브레드크럼·터미널 `path:line:col` Cmd-클릭은 모두 "파일을 열고 그 줄로 이동" 이다.
+그 이동(`reveal`)의 대상은 **경로가 아니라 이번에 연 탭**이다.
+
+- `entities/editor/reveal-registry.ts` API: `revealInTab(tabId, { line, column }, ttlMs?)` +
+  `consumePendingReveal(tabId, editor)`. 이미 마운트된 탭이면 `getEditorInstance(tabId)` 로 즉시 적용하고, 아니면
+  `Map<TabId, …>` 에 보류해 `EditorPane` 이 마운트 시 1회 소비한다. 보류는 `REVEAL_PENDING_TTL_MS`(5s)로 만료되며,
+  그 의미는 d-66 에서 "그 경로가 열릴 때까지" → **"그 탭이 에디터를 마운트할 때까지"** 로 바뀌었다.
+- 여는 쪽은 `useOpenFileTab` 요청에 `reveal?: { line, column }` 을 실어 보내고, `onSuccess` 가 대상 pane 의 active 탭을
+  확인해 **kind 가 `file` 이고 path 가 일치할 때만** 큐잉한다. 불일치면 reveal 을 버린다 — 엉뚱한 탭에서 커서가 움직이는
+  것보다 아무 일도 없는 편이 낫다. 이미 열려 있어 dedupe 로 기존 탭이 돌아오는 경로도 같은 판정을 탄다.
+- 소비는 registry 구독이 아니라 `EditorPane` 의 effect 다. `CodeEditor` 의 인스턴스 등록은 **자식** effect 라 부모의
+  viewState 복원보다 한 커밋 빠르고, 구독으로 밀면 viewState 가 있는 배경 탭을 활성화하는 경로에서 복원이 reveal 을
+  덮어쓴다. 이 순서 덕에 reveal 이 항상 커서의 마지막 한마디가 된다.
+- **금지**: `setTimeout` 으로 reveal 을 미루는 우회. 경합만 좁아질 뿐 "다른 pane 이 먼저 잡는" 구조가 남는다.
+- d-66 이전에는 `requestReveal(path, …)` 가 `monaco.editor.getEditors()` 전역 스캔으로 **그 경로의 아무 에디터**에나 즉시
+  적용하고 보류를 큐잉하지 않았다 — 분할 화면에서 같은 파일이 다른 pane 에 열려 있으면 그 pane 이 점프하며 포커스까지
+  가져가고 정작 새로 연 탭은 1행에 머물렀다. → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §5
 
 ## 4. Git gutter (FR-D2)
 
@@ -131,6 +168,12 @@
 
 - 전체 키 목록 정본: `docs/research/vscode-behaviors.md` §8 표. 앱 전역 키맵은
   `shared/lib/keymap/keymap.ts` 한 곳에서 선언한다(설정 오버라이드 대비 데이터 구조로).
+- **⌘S 가 닿는 탭 kind**: `file`·`appFile`·`untitled`(`widgets/editor-area/focused-editor-tab.ts` 의
+  `SAVE_ROUTABLE_TAB_KINDS`). untitled 는 d-66 에서 들어왔다 — 그전에는 `untitled-pane.tsx` 의 `<CodeEditor>` 가
+  `registryTabId` 를 넘기지 않아 에디터 인스턴스가 등록되지 않았고, 그 결과 ⌘S 가 무반응이고 그 파일의 `onSave`
+  (save-as 다이얼로그)가 도달 불가능한 코드였다. 이제 untitled 탭의 ⌘S 는 파일 저장이 아니라 **save-as 다이얼로그**를
+  연다. 같은 상수가 `runMonacoAction`·`runSelectedTextInTerminal`·상태바 커서 표시·active-action-ids 도 함께 태우므로,
+  untitled 탭에서 그것들이 동작하는 것은 `appFile` 과 같은 정상화다.
 - WebView 기본 동작(`⌘P` 인쇄 등) preventDefault 필수(vscode-behaviors 함정 절).
 
 ## 7. 테마 연동

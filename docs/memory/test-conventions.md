@@ -86,7 +86,7 @@ fireEvent.click(screen.getByRole('button', { name: 'tab.close' }))
 
 | 전역 | 값 | 이유 |
 |------|-----|------|
-| `location` | `http://localhost/` (쿼리 없음) | `getWindowContext()` 가 **main 창**으로 해소된다. 보조창 분기를 테스트하려면 `readWindowContext(search)` 순수 함수를 직접 부른다 |
+| `location` | `http://localhost/` (쿼리 없음) | `getWindowContext()` 가 **main 창**으로 해소된다. 보조창 분기는 두 가지로 본다 — 순수 함수라면 `readWindowContext(search)` 를 직접 부르고, **렌더가 필요하면**(d-66 의 보조 창 위젯 테스트 5종) `window.history.replaceState({}, '', '/?projectId=…&windowSlot=1')` 로 same-document 전환한 뒤 `afterEach` 에서 `/` 로 되돌린다. `location` 은 프로세스 전역이라(§3) 복원을 빠뜨리면 뒤에 도는 파일이 보조 창 컨텍스트로 돈다 |
 | `navigator.userAgent` | macOS WKWebView UA 고정 | happy-dom 은 UA 괄호부에서 `navigator.platform` 을 만든다. `IS_MAC`(`shared/constants/platform.ts`)이 수식키 라벨과 macOS 전용 커맨드 카탈로그를 좌우하므로 **호스트 OS 에 따라 테스트 결과가 바뀌지 않도록** 고정했다(ubuntu CI 러너 대비) |
 | `navigator.clipboard` | 존재함(`writeText`/`readText`) | 원격 미러(평문 HTTP)의 "클립보드 없음" 분기를 보려면 테스트에서 own property 로 가려야 한다 — `widgets/terminal-pane/terminal-clipboard-availability.test.ts` 의 `withoutClipboardApi` 참고 |
 | `window.__TAURI_INTERNALS__` | **없음** | `invoke`·`listen` 은 여전히 거부(reject)된다. IPC 모듈은 `mock.module` 로 대체하는 기존 관례를 유지한다. `getCurrentWindow().label` 이 필요한 코드(예: `isRemoteMirrorRuntime`)만 그 파일에서 `{ metadata: { currentWindow: { label: 'main' } } }` 를 심고 `afterAll` 에서 지운다 |

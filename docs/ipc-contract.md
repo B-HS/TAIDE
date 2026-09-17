@@ -179,6 +179,12 @@
     실패하면 `project_close` 로 되감긴다(프로젝트와 방금 만든 슬롯이 함께 사라진다).
 - mutation: `shell_slot_close(slotId)` — 프로젝트는 **열린 채로** 슬롯만 닫고 형제를 부모 자리로
   올린다. 마지막 슬롯은 `InvalidArgument` 로 거부한다(프로젝트가 열려 있는 한 슬롯은 최소 1개).
+  - **포커스 승계(d-66, 시그니처 불변)**: 닫는 슬롯이 그 순간의 `focused_shell_slot` 이면 포커스는 **이웃 슬롯**이
+    잇는다 — prune 전에 계산한 `successor_slot_after_prune`(닫히는 리프를 담은 Split 의 다른 쪽 자식, 서브트리면 그
+    첫/마지막 리프)을 `reconcile_focus` 가 ①분기로 받는다. `active_project` 도 그 슬롯의 프로젝트로 따라온다.
+    비포커스 슬롯을 닫으면 포커스는 불변이다. **`project_close` 도 같은 승계를 탄다**(`normalize_shell_slots` 를 관통해
+    같은 후보를 넘긴다). 그전에는 둘 다 `reconcile_focus` 의 `first_slot` 폴백으로 떨어져 포커스가 항상 첫 슬롯으로
+    점프했다 — `bug/2026-09-17-editing-surface-audit-fixes.md`, `features/layout-shell.md` §8.4.
 - mutation: `session_focus_shell_slot(slotId)` — 포커스 슬롯을 옮기고 그 슬롯의 프로젝트를
   `active_project` 로 만든다(`project_activate` 와 같은 등급의 활성화라 `lastOpenedAt` 도 갱신된다).
   포커스 판정 자체는 프론트가 DOM 이벤트로 하고(계약 §0.1 U-7) 이 커맨드는 그 결과를 영속화한다.
@@ -289,6 +295,28 @@
     (Claude Code Ctrl+G 의 tmpdir 임시파일). 존재 검사는 동일하게 적용. `file_open`·`file_save`·
     `file_read_raw` 도 같은 resolver 를 쓴다(아래 file 절). IDE `openFile` 도구는 엄격 경계 유지.
     `bug/2026-09-05-ctrl-g-temp-file-open-project-first.md`.
+- **`focusedPane` 불변식(d-65, 2026-09-17)**: 위 레이아웃 뮤테이션이 응답으로 돌려주는 `ProjectLayout`
+  스냅샷은 **항상** 트리에 실재하는 `focusedPane` 을 갖는다(main·보조 창 각 트리). `finish_mutation` 이
+  스냅샷 직전에 `ensure_focused_pane_valid` 를 부르기 때문이며, `revision` 은 올리지 않는다(보정이 원인
+  뮤테이션에 편승). `layout_close_tab` 은 그 위에 **형제 승계**를 한다 — 닫는 탭이 그 pane 의 마지막 탭이고
+  그 pane 이 그 트리의 포커스면 이전 형제의 마지막 리프(첫 자식이면 다음 형제의 첫 리프)로 포커스를 넘기고,
+  포커스가 아닌 pane 을 닫으면 포커스는 불변이다. `layout_focus_pane(paneId)` 는 그 pane 이 속한 트리의
+  포커스만 바꾼다(보조 창에서 불러도 main 포커스는 그대로). 프론트는 `resolveWindowPaneTree` 가 같은 규칙을
+  미러하므로 `target` 인자로 사라진 pane id 가 되돌아오지 않는다 —
+  `bug/2026-09-17-stale-focused-pane-and-focus-not-following-click.md`, `features/tabs.md` §1.
+- **탭 상태 뮤테이션의 부수 규칙(d-66, 2026-09-17 — 시그니처·반환 타입 전부 불변)**:
+  - `layout_set_dirty(tabId, true)` 와 `layout_pin_tab(tabId, true)` 는 그 탭의 `preview` 를 **false 로 내린다**
+    (단방향 — `dirty=false`/`pinned=false` 는 preview 로 되돌리지 않는다). `docs/features/tabs.md` §3 의 "편집 시작·pin 시
+    일반 탭 승격" 규칙이 이 두 커맨드에 구현된 것이며, 응답 `ProjectLayout` 의 해당 탭에서 관측된다. 짝으로
+    `layout_open_tab(preview: true)` 의 교체 대상도 `preview && !dirty && !pinned` 인 탭으로 좁아졌다 — dirty·pinned 인
+    탭은 더 이상 in-place 로 교체되지 않는다.
+  - `layout_move_tab(tabId, paneId, index)` 는 넘긴 `index` 를 **대상 leaf 의 핀 구역 경계로 클램프**한다(이동 탭이
+    pinned 면 `min(pinnedCount)`, 아니면 `max(pinnedCount)`, 카운트는 추출 **후** 기준). 요청은 거절되지 않고 조용히
+    보정되므로, 호출부가 자체 클램프를 하지 않아도 배열 순서와 렌더 순서가 어긋나지 않는다.
+  - `layout_open_tab` 의 kind 동등 중복 제거에서 **`TabKind::Terminal { sessionId: "" }` 는 제외**된다(cwd 유무 무관).
+    세션 id 가 채워진 터미널과 다른 모든 kind 는 종전대로 dedupe 된다. `layout_open_tab_in_split` 이 원래부터 dedupe 를
+    하지 않던 것과 같은 근거다(아래 d-58 절).
+  → `bug/2026-09-17-editing-surface-audit-fixes.md`, `features/tabs.md` §1·§3·§4.1
 - event: `layout:changed(projectId, revision)` — **`revision` 발행 규약(X1#11 실사, X-A 배치)**:
   프로젝트별 독립 카운터(전역이 아니다)로, `layout::types::ProjectLayout::revision`(`u32`, 새
   레이아웃은 0)이 `layout::service::*` 의 레이아웃을 바꾸는 모든 함수(`open_tab`/`close_tab`/
@@ -2172,10 +2200,14 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
     predicate 를 만들어야 하는데, 그 캐시가 비면 아무것도 쓸지 못해 정체 파일이 그대로 남는다 —
     워처가 이미 이벤트를 흘린 뒤라는 이 이벤트의 전제와 정면으로 충돌하므로, 관측 중인 쿼리만
     재조회되고 2초 스로틀로 빈도가 묶이는 광역 무효화를 그대로 둔다.
-  - **한계(알려진 잔여)**: `tree_rows` 는 트리 스토어의 현재 상태를 재직렬화할 뿐 이미 캐시된
-    디렉토리를 디스크에서 다시 읽지 않는다(`plan_root_read`). 따라서 이 무효화로 확실히 교정되는
-    것은 퀵오픈 인덱스(매번 새 walk)·열린 파일 내용·git 상태이고, **이미 펼쳐 둔 디렉토리의 트리
-    목록**은 뒤따르는 `fs:changed` 나 명시적 `tree_refresh` 전까지 오버플로 이전 상태로 남는다.
+  - **~~한계(알려진 잔여)~~ → d-66 에서 해소**: `tree_rows` 는 트리 스토어의 현재 상태를 재직렬화할 뿐 이미 캐시된
+    디렉토리를 디스크에서 다시 읽지 않으므로(`plan_root_read`), `TREE.ROWS` 무효화로는 **이미 펼쳐 둔 디렉토리의 트리
+    목록**이 교정되지 않았다(d-57 검토 F4 는 이를 "기록만" 으로 닫았다). d-66 에서 `TREE.ROWS` 를 위 무효화 목록에서
+    빼고, **프로젝트 루트 + 캐시된 rows 중 펼쳐진 디렉토리** 전부를 기존 `syncTreeRowsForChangedDirs`(디렉토리별
+    `tree_refresh` = 실제 디스크 재조회)로 다시 읽는다. 보여 줄 목록이 아직 없으면(첫 로드 전·루트 미상) 종전 무효화로
+    폴백한다. 신규 커맨드·이벤트는 없고, rescan 1회의 IPC 가 `펼친 디렉토리 수 + 1` 회로 늘어난다(2초 스로틀 안,
+    `IpcSyncProvider` 가 창마다 마운트되므로 창 수만큼 배수) — `bug/2026-09-17-editing-surface-audit-fixes.md`,
+    `features/explorer-sidebar.md` §2.3.
 - **로케일 키 1종 추가**: `error.watcher.emptyRoot`(en/ko/ja). `infra::watcher::start_watch` 가 빈
   `root` 를 `AppErrorKind::InvalidArgument` 로 즉시 거부한다(§1.B — 두 호출처가 이미 검증된 프로젝트
   루트를 넘기므로 심층 방어). 계약이 적은 `Validation` kind 는 `error.rs` 에 없어 `InvalidArgument`

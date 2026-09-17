@@ -453,10 +453,23 @@ specta 가 `display?:` 로 내보내므로 소비처마다 `??` 를 적으면 �
   팔레트나 context menu 가 "열 때 보고 있던 슬롯"에 계속 작용하도록.
 - Rust 의 `session_focus_shell_slot` 은 **영속용**이다. 화면은 로컬 override 로 같은 프레임에 먼저
   움직이고, 서버 값이 따라오면 override 는 스스로 사라진다.
+- **닫을 때는 이웃이 포커스를 잇는다**(d-66). 포커스 슬롯이 사라지는 두 경로(`shell_slot_close`,
+  `project_close`)는 prune **전에** `successor_slot_after_prune(tree, slotId)` 로 후보를 계산해 `reconcile_focus` 에
+  넘기고, 그 후보가 prune 뒤에도 살아 있으면 ①분기가 그대로 받는다(`active_project` 도 함께 재유도된다). 슬롯 트리는
+  항상 이진 분할이라 후보는 "닫히는 리프를 담은 Split 의 다른 쪽 자식"(리프면 그대로, 서브트리면 첫/마지막 리프로
+  내려감) 하나다 — pane 층의 `successor_leaf_after_prune`(d-65, `tabs.md` §1)과 동형이다. **비포커스 슬롯·프로젝트를
+  닫으면 포커스는 불변**이다. 그전에는 두 경로 모두 `reconcile_focus` 의 ③ 폴백(`first_slot`)으로 떨어져, 3분할에서
+  포커스 슬롯을 닫으면 포커스가 옆이 아니라 **항상 첫 슬롯**으로 뛰었고 상태바·타이틀바·⌘P·네이티브 File 메뉴가
+  통째로 그 프로젝트로 끌려갔다. → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §1
 - 창 하나짜리 전역 크롬은 전부 포커스 슬롯의 프로젝트를 읽는다: 타이틀바 · 상태바 · 커맨드 팔레트 ·
   TaskRunner · IDE 진단 push · 앱 사이드바의 활성 표시. 여섯 곳 다 자기 자신이
   `project_get_active` 를 읽던 것을 prop/컨텍스트로 바꿨다.
 - 상태바의 Problems 토글은 **포커스 슬롯의** Problems 패널만 여닫는다(슬롯별 상태, `AppShell` 소유).
+- **pane 층도 같은 판정을 쓴다**(d-65): 슬롯 안의 에디터 pane 포커스(`focusedPane`)는
+  `pane-node-view.tsx` 리프 래퍼의 캡처 단계 `pointerdown`/`focusin` 으로 정해진다 — 이 §8.4 의 슬롯 판정과
+  대칭이고, 레이어만 다르다(슬롯 = `ShellSlotProvider` 의 창 단위 리스너 하나, pane = 리프마다 달린 래퍼
+  핸들러). 다만 pane 포커스는 로컬 override 가 아니라 `layout_focus_pane` 뮤테이션으로 Rust 정본을 바꾼다
+  (`tabs.md` §1). Radix 포털은 양쪽 모두 래퍼 밖이라 포커스를 옮기지 않는다.
 
 ### 8.5 중복 리스너 게이팅 (§0.1 S-4/U-1)
 

@@ -147,7 +147,8 @@
 - **cross-file 오프너**(`shared/lib/bridge/editor-opener-bridge.ts`): `monaco.editor.registerEditorOpener`
   를 부트스트랩에서 1회 등록. 같은 모델 이동은 monaco 기본 처리에 위임(false 반환), untitled 는
   이미 열린 에디터로 직접 reveal, file scheme 은 `requestOpenFileFromEditor` 로 pub/sub emit —
-  `widgets/editor-area/editor-area.tsx` 가 구독해 `requestReveal` + `openTab(preview)` 실행. 이
+  `widgets/editor-area/editor-area.tsx` 가 구독해 `openFileTab({ preview: true, reveal: { line, column } })` 실행
+  (d-66 이전에는 `requestReveal` 선호출 + `openTab` 2단계였다 — `editor.md` §3.1). 이
   오프너 없이는 F12/⌘F12 cross-file·Peek·F8(파일 간) 이동이 무음 실패한다.
 - **Peek 미리보기 모델 선생성**(`peek-model-preload.ts`): definition 계열·references 어댑터가
   위치 반환 직전 대상 파일의 monaco 모델을 `PEEK_MODEL_PRELOAD_LIMIT`(8, distinct 상한)까지

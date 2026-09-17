@@ -16,6 +16,23 @@
   실패하지 않고 **첫 leaf pane 으로 폴백**하면서 `focusedPane` 을 그 pane 으로 고친다. 명시한
   `target` 이 실제로 없을 때만 `NotFound`(`error.layout.paneNotFound`)다 — 파일 부재
   (`error.file.notFound`)와 키가 갈리므로 프론트가 "파일이 사라졌다"로 오인하지 않는다.
+- **`focusedPane` 불변식**(d-65): 레이아웃 뮤테이션이 돌려주는 **모든 스냅샷**은 트리에 실재하는
+  `focusedPane` 을 갖는다 — `layout::service::finish_mutation` 이 스냅샷을 만들기 전에
+  `ensure_focused_pane_valid` 를 부르므로, 메모리·영속본·프론트 캐시 어디에도 사라진 pane id 가 남지
+  않는다(main 트리와 보조 창 트리 모두). 그 위에 `close_tab` 이 **형제 승계**를 따로 한다: 닫는 탭이 그
+  pane 의 마지막 탭이고 그 pane 이 그 트리의 포커스면, 부모 split 의 **이전 형제의 마지막 리프**(그 pane 이
+  첫 자식이면 **다음 형제의 첫 리프**)가 포커스를 잇는다. 포커스가 아닌 pane 을 닫으면 포커스는 그대로이고,
+  MRU("가장 최근 활성 그룹")는 채택하지 않았다. 프론트는 `shared/lib/pane-tree.ts` 의
+  `resolveWindowPaneTree` 가 같은 규칙을 미러한다 — 반환 `focusedPane` 이 트리에 없으면 첫 leaf 로 폴백해,
+  캐시 스냅샷과 `layout:changed` 에코 사이의 창에서도 dangling id 가 소비처(`withCurrentWindowTarget` 의
+  명시 target, `editor-area.tsx` 키맵 핸들러)에 닿지 않는다.
+  → `docs/bug/2026-09-17-stale-focused-pane-and-focus-not-following-click.md`
+- **pane 포커스는 클릭을 추종한다**(d-65): `focusedPane` 은 탭 바 클릭만이 아니라 **pane 안 어디를
+  눌러도**(에디터 본문·터미널·diff·미리보기) 따라온다. 판정은 `pane-node-view.tsx` 리프 래퍼의 캡처 단계
+  `pointerdown`/`focusin` 한 곳이고(셸 슬롯 층 `layout-shell.md` §8.4 와 같은 방식), 그 pane 이 이미
+  포커스면 IPC 를 보내지 않으며 한 클릭이 내는 pointerdown → focusin 쌍은 in-flight ref 가드로 1회만
+  나간다. 종전의 탭 바 `mousedown → focusPane` 경로는 이 판정으로 대체돼 제거됐다(판정 1곳, 중복 IPC 없음).
+  Radix 포털의 메뉴·다이얼로그는 래퍼 밖이라 포커스를 옮기지 않는다.
 
 ## 2. 기본 탭 (FR-B2)
 
@@ -35,16 +52,34 @@
 - VSCode 규칙 채택 (research §10):
   - **preview 탭**: 파일 트리 단일 클릭 = preview(제목 이탤릭, `previewTabId` 는 Leaf 당 최대 1개 —
     다음 단일 클릭이 같은 탭을 재사용). 더블 클릭·편집 시작·pin 시 일반 탭으로 승격.
+    - **승격은 Rust 한 곳에서 한다**(d-66). `layout_set_dirty(dirty=true)` 와 `layout_pin_tab(pinned=true)` 가
+      `tab.preview = false` 로 **단방향** 승격한다 — 저장(`dirty=false`)이나 고정 해제는 탭을 preview 슬롯으로
+      되돌리지 않는다. d-66 이전에는 이 규칙이 구현 자체가 없어, 편집 중이던 preview 탭이 다음 단일 클릭에
+      in-place 로 교체돼 사라지고(`close_tab` 을 거치지 않아 ⌘⇧T 로도 복구 불가) 고정한 preview 탭도 덮였다.
+      방어심층으로 `open_tab` 의 교체 대상도 `preview && !dirty && !pinned` 로 좁혔다.
+      → `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §1
   - **pin**: 고정 탭은 좌측 정렬 유지, 닫기 버튼 대신 pin 아이콘, `⌘W` 로 닫히지 않음(경고 후 유지).
     d-51 F4 에서 실제로 그렇게 구현됐다 — 그전에는 그 자리 버튼의 라벨만 "고정 해제" 이고 동작은
     닫기였다. 지금은 고정 탭에서 그 버튼이 `onTogglePin`(고정 해제), 휠 클릭은 무시,
     `⌘W` 는 `tab.pinnedCloseBlocked` 경고 후 유지(`tab-item.tsx` · `editor-area.tsx`). context menu 의
     **Close 는 그대로 닫는다** — 명시적 메뉴 선택은 실수로 발동하는 제스처가 아니라 탈출구다.
+    - **핀 구역 불변식**(d-66): "고정 탭은 leaf 배열의 앞쪽 연속 구역을 차지한다" 는 `pin_tab` 의 재정렬만이
+      아니라 **이동에도** 성립한다 — `layout_move_tab` 이 `extract_tab` 뒤·`insert_tab` 앞에서 대상 leaf 의
+      `pinned_count` 로 index 를 클램프한다(이동 탭이 pinned 면 `min`, 아니면 `max`). 그전에는 드래그가 두 구역을
+      섞어 배열 순서와 화면 순서가 어긋났고, 그 배열을 읽는 ⌃Tab 순환·"오른쪽 탭 닫기" 가 화면과 다른 탭을 잡았다.
+      클램프가 mutation 쪽에 있으므로 드래그 3경로·⌘K ⌘⇧←/→·향후 호출부가 구조적으로 덮인다(프런트의 드롭
+      미리보기 클램프는 추출 전 카운트라 한 칸 어긋날 수 있으나 최종 위치는 Rust 가 정한다).
   - **dirty dot**: 미저장 파일 탭은 닫기 버튼 자리에 점 표시(`tabBar.dirtyDot`).
   - 탭 클릭 = 활성화, 휠 클릭(middle) = 닫기, 우클릭 context menu → §3.1.
 - 탭 폭 정책: 내용 기반 폭 + 최대폭 말줄임. 넘치면 탭 바 가로 스크롤(휠 지원) — VSCode 동일.
 - 같은 파일 재열기: 같은 Leaf 에 이미 있으면 그 탭 활성화. 다른 Leaf 에는 명시적 분할 이동으로만 중복 허용
   (동일 파일 다중 뷰 — Monaco 모델 공유, `editor.md` §모델 관리).
+- **kind 동등 중복 제거의 예외 — 세션 id 가 없는 터미널**(d-66): `open_tab` 은 같은 leaf 안에서 `kind` 가 같은 탭을
+  재사용하는데, 터미널의 정체성은 pty 세션이고 그 id 는 spawn 왕복이 끝나야 박힌다. 그 전의
+  `Terminal { sessionId: '' }` 는 서로 전부 같은 kind 라, 그대로 두면 두 번째 "새 터미널" 이 첫 탭을 다시 활성화할 뿐이고
+  spawn 에 실패해 id 가 영원히 빈 탭이 있으면 그 pane 에서 새 터미널이 아예 열리지 않았다. 이제 `is_dedupable` 가드가
+  **빈 세션 id 인 터미널만** dedupe 대상에서 뺀다(세션 id 가 채워진 터미널과 다른 모든 kind 는 종전대로).
+  `layout_open_tab_in_split` 은 원래부터 dedupe 를 하지 않는다(`ipc-contract.md`).
 
 
 ### 3.1 탭 context menu (Phase 7.5 확정 — 사용자 지정 목록)
@@ -145,6 +180,18 @@ dnd-kit 사용(구현 세부: `docs/research/react-frontend-stack.md`). 드래�
 창간 이동·창별 닫기(main 복귀)·다중 창의 LSP/터미널 세션 공유까지 전부 동작한다. 모델·엣지 케이스
 정본은 `layout-shell.md` §7, 크롬은 `window-chrome.md` §5. `Copy into New Window`(같은 탭을 두 창이
 동시에 공유)만 이번 범위에서 제외됐다(backlog).
+
+### 4.5 Open to the Side — 항상 분할한다 (d-66)
+
+- 탐색기 context menu 의 "Open to the Side" 는 `layout_open_tab_in_split`(edge `right`, target = **그 창의**
+  focusedPane, `preview: false`) **단일 mutation** 이다. 그전에는 "포커스 pane 에 연 뒤 그 탭을 오른쪽으로 분할해
+  내보낸다" 는 2단계였는데, 소스 pane 이 비면 `normalize` 가 방금 만든 Split 을 다시 단일 Leaf 로 접어 **에디터가
+  비었거나 그 파일 탭 하나뿐일 때 분할이 일어나지 않았다**(앱을 막 켠 첫인상 경로).
+- **의도된 동작 변경**: `open_tab_in_split` 은 kind 중복 제거를 하지 않으므로, 이미 열려 있는 파일에 "Open to the
+  Side" 를 하면 같은 파일의 새 탭이 하나 더 생기며 **항상** 분할된다. "옆에 열기" 의 의미상 더 옳다고 판단해 채택했다.
+  두 탭은 Monaco 모델을 공유한다(`editor.md` §2·§3).
+- 파일 존재 선검증은 `layout_open_tab` 과 동일하게 돈다. `layout:changed` 도 2회에서 1회로 줄었다.
+
 \n## 5. 스플릿 리사이즈
 
 - react-resizable-panels 로 Split 의 `sizes` 렌더·드래그. 드래그 종료 시 `layout_resize` mutation 으로

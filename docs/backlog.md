@@ -208,3 +208,16 @@
 | `read_children` 의 `directory_has_children` 지연화 | 엔트리 타입 판정은 `file_type()` 로 내렸으나(C.2-5), 하위 디렉토리마다 `read_dir` 1회는 남는다 — 디렉토리 D개면 D회 추가 open/getdirentries/close. | `Entry.has_children` → `TreeRow` 의 의미를 바꾸므로 "안전 수정(회귀 위험 0)" 범위 밖 |
 | 트리 mutation 응답 재설계 (H-4 후반) | 위 "Rust 성능·설계" 표에 이미 있음 — `full_page` 전체 반환 → revision + 영향 구간 축소. | `docs/ipc-contract.md` 가 트리 응답 형태를 **불변**으로 못박고 있어 FE 동시 개정이 선행 |
 | 팔레트 결과 가상화 | C.2-7 에서 **미적용 확정**(계약이 허용한 폴백). cmdk 1.1.1 이 가상화를 지원하지 않고(README "Good performance up to 2,000-3,000 items"), 방향키 이동·선택 유지·`CommandEmpty` 카운트가 전부 마운트된 항목 수에 묶여 있다. 현재 상한 200 은 상류 권장 구간의 1/10. | 재검토 조건은 `FILE_RESULT_LIMIT` 을 1000 이상으로 올리거나 cmdk 가 가상화를 지원할 때. 사유 정본 `docs/features/command-palette.md` §4.1 |
+
+### d-66 편집 표면 전수조사 수정(2026-09-17)에서 분리된 후속 후보
+
+> 정본 `docs/bug/2026-09-17-editing-surface-audit-fixes.md` §8, 계약
+> `docs/acknowledge/2026-09-17-d66-editing-surface-fixes-contract.md` §4.
+
+| 항목 | 내용 |
+|------|------|
+| 보조 창 파일의 IDE 실저장 (#2 의 남은 절반) | d-66 은 "저장됨" 거짓 성공만 없앴다. `model-registry` 는 창별 모듈 싱글턴이고 `IdeSyncProvider` 는 메인 창에만 마운트되므로, 보조 창에만 있는 파일의 `save_document` 는 이제 `saved:false`(model not found) 로 정직하게 실패한다. 실제 저장에는 창 간 요청 릴레이(또는 미러 기반 저장) 설계가 필요하다. Claude Code 쪽에서 이 실패가 어떻게 보이는지도 미확인이다. |
+| `openedFileTabIdOf` 의 `target: null` 재계산 (#9 잔여) | `withCurrentWindowTarget` 이 뮤테이션 시점의 캐시 레이아웃으로 확정해 보낸 pane 과, `onSuccess` 가 신선한 레이아웃에서 다시 읽는 pane 이 그 사이 다른 IPC 로 갈릴 수 있다. 그 pane 의 active 탭이 우연히 같은 경로면 kind/path 검사를 통과해 좁은 레이스로 #9 증상이 재현된다. 근본 해법은 `mutationFn` 이 실제로 보낸 `paneId` 를 `onSuccess` 까지 관통시켜 재계산 자체를 없애는 것. |
+| 탭 드래그 미리보기의 pinned 클램프 보정 | `move_tab` 이 최종 위치를 핀 구역으로 클램프하므로 결과는 항상 옳지만(`features/tabs.md` §3), 프런트의 자체 클램프는 추출 **전** 카운트라 드래그 중 미리보기가 한 칸 어긋나 보일 수 있다. 미리보기 전용으로 남기되 `pinnedCount - 1` 보정이 필요한지 실기 확인 후 판단. |
+| `currentWindowActiveFileTab` 공용 헬퍼 승격 | d-66 에서 `command-palette.tsx`·`outline-panel-container.tsx` 가 "자기 창 포커스 pane 의 file 탭 id" 를 `resolveWindowPaneTree` + `findActiveTab` 2줄로 각각 유도한다(파일 소유 경계 때문에 중복). `shared/lib/pane-tree.ts` 에 `currentWindowActiveFilePath` 와 대칭인 헬퍼를 올리고 두 곳을 치환한다. |
+| 테스트 하네스의 보조 창 컨텍스트 헬퍼 | d-66 이 추가한 보조 창 테스트 4개 파일이 `window.history.replaceState` 로 `location.search` 를 바꾸는 2줄 헬퍼를 각자 갖고 있다(공용 하네스 `shared/testing/render.tsx` 가 소유 밖이었다). 전역 URL 을 건드리는 규약이라 `docs/memory/test-conventions.md` §4 갱신과 함께 하나로 올린다. |
