@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { MirrorEntry, OpenedFile, ProjectId, TabId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { act, createTestQueryClient, renderHookWithProviders } from '@shared/testing/render'
@@ -57,9 +57,19 @@ mock.module('@shared/lib/monaco/setup', () => ({
 
 const mirrorCalls = { writes: [] as { path: string; content: string }[], cleared: [] as string[] }
 
+/**
+ * The disk write, made observable *and* controllable: the "save reports completion" cases below turn
+ * on when the `file_save` round trip settles, not just on whether it was issued (audit wave 2 #8).
+ * `respond` is what the stubbed IPC returns, so a case can hold the write open or fail it.
+ */
+const fileSaves = { writes: [] as { path: string; content: string }[], respond: (): Promise<null> => Promise.resolve(null) }
+
 mock.module('@entities/file/file.ipc', () => ({
     openFile: () => Promise.resolve(null),
-    saveFile: () => Promise.resolve(null),
+    saveFile: (input: { path: string; content: string }) => {
+        fileSaves.writes.push(input)
+        return fileSaves.respond()
+    },
     createEntry: () => Promise.resolve(null),
     renameEntry: () => Promise.resolve(null),
     deleteEntry: () => Promise.resolve(null),
@@ -109,6 +119,7 @@ const buildMirror = (path: string, content: string): MirrorEntry => ({
     savedAtMs: 1_700_000_000_000,
     diskModifiedMs: 1_700_000_000_000,
     conflict: false,
+    sourceMissing: false,
 })
 
 const createFakeEditor = (model: ReturnType<typeof createFakeModel>) =>
@@ -245,5 +256,90 @@ describe('useEditorFilePersistence 마운트 시 라이브 모델 인수 (감사
 
         expect(model.getValue()).toBe('mirror for an untouched buffer\n')
         expect(result.current.restoreNotice).toBe('mirrorRestored')
+    })
+})
+
+const EDITED_CONTENT = 'edited in the pane\n'
+const WRITE_FAILED = new Error('disk is full')
+
+/** Lets the microtask chain inside `handleSave` (code actions, format, cleanup, the mutation's own retryer hop) run without resolving the write itself. */
+const flushPendingSaveSteps = async () => {
+    for (let hop = 0; hop < 6; hop += 1) await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * `handleSave` answers whether the file is now on disk, and answers it only once the write has
+ * settled — the guarantee the close confirmation's "Save" stands on (audit wave 2 #8). It used to
+ * fire `useSaveFile`'s `mutate` and return immediately, so awaiting it proved nothing at all.
+ */
+describe('useEditorFilePersistence 저장 완료 보고 (감사 웨이브 2 #8)', () => {
+    afterEach(() => {
+        fileSaves.respond = () => Promise.resolve(null)
+        fileSaves.writes.length = 0
+    })
+
+    test('handleSave 는 디스크 쓰기가 끝나기 전에는 resolve 하지 않고, 끝나면 성공을 보고한다', async () => {
+        const path = '/repo/save-awaits.ts'
+        const { result } = await mountPaneOnLiveModel({ path, hadLiveModel: false, mirror: null })
+        act(() => result.current.handleChange(() => EDITED_CONTENT))
+
+        const write: { release: (() => void) | null } = { release: null }
+        fileSaves.respond = () =>
+            new Promise<null>((resolve) => {
+                write.release = () => resolve(null)
+            })
+
+        const outcome: { current: boolean | null } = { current: null }
+        const saving = (async () => {
+            outcome.current = await result.current.handleSave()
+        })()
+
+        await act(async () => {
+            await flushPendingSaveSteps()
+        })
+
+        expect(fileSaves.writes).toEqual([{ path, content: EDITED_CONTENT }])
+        expect(outcome.current).toBeNull()
+
+        await act(async () => {
+            write.release?.()
+            await saving
+        })
+
+        expect(outcome.current).toBe(true)
+    })
+
+    test('마운트된 pane 은 자기 저장 파이프라인을 tabId 로 등록한다 — 닫기 확인이 그것으로 저장한다', async () => {
+        const { getSaveRequest } = await import('@entities/editor/save-request-registry')
+        const path = '/repo/registered-save.ts'
+        const { result } = await mountPaneOnLiveModel({ path, hadLiveModel: false, mirror: null })
+        act(() => result.current.handleChange(() => EDITED_CONTENT))
+
+        const requestSave = getSaveRequest(TAB_ID)
+        expect(requestSave).not.toBeNull()
+
+        const outcome: { current: boolean | null } = { current: null }
+        await act(async () => {
+            outcome.current = (await requestSave?.()) ?? null
+        })
+
+        expect(outcome.current).toBe(true)
+        expect(fileSaves.writes).toEqual([{ path, content: EDITED_CONTENT }])
+    })
+
+    test('쓰기가 실패하면 실패를 보고한다 — 닫기 확인이 그 답으로 닫기를 취소한다', async () => {
+        const path = '/repo/save-fails.ts'
+        const { result } = await mountPaneOnLiveModel({ path, hadLiveModel: false, mirror: null })
+        act(() => result.current.handleChange(() => EDITED_CONTENT))
+
+        fileSaves.respond = () => Promise.reject(WRITE_FAILED)
+
+        const outcome: { current: boolean | null } = { current: null }
+        await act(async () => {
+            outcome.current = await result.current.handleSave()
+        })
+
+        expect(fileSaves.writes).toEqual([{ path, content: EDITED_CONTENT }])
+        expect(outcome.current).toBe(false)
     })
 })

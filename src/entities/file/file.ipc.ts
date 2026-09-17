@@ -1,5 +1,5 @@
 import { commands } from '@shared/api/bindings'
-import type { ProjectId, TabId } from '@shared/api/bindings'
+import type { FlushScope, ProjectId, TabId } from '@shared/api/bindings'
 import { unwrapResult } from '@shared/api/unwrap-result'
 
 export const openFile = (path: string) => unwrapResult(commands.fileOpen(path))
@@ -36,4 +36,11 @@ export const clearUntitledMirror = (input: { projectId: ProjectId; tabId: TabId 
 export const pruneUntitledMirrors = (input: { projectId: ProjectId; keepTabIds: TabId[] }) =>
     unwrapResult(commands.filePruneUntitledMirrors(input.projectId, input.keepTabIds))
 
-export const flushMirrorsComplete = () => unwrapResult(commands.fileFlushComplete())
+/**
+ * Confirms a hot-exit flush handshake, echoing back the exact `scope` the request carried. The scope
+ * travels on the confirmation too because three different teardowns share this one channel now (the
+ * app exit, an auxiliary window's close, a project's close) and they can overlap: without it a window
+ * answering "I flushed for the project close" would be counted as having answered the app's exit and
+ * could let it proceed early (`state.rs`'s `FlushScope` doc).
+ */
+export const flushMirrorsComplete = (scope: FlushScope) => unwrapResult(commands.fileFlushComplete(scope))

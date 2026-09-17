@@ -30,7 +30,6 @@ import { projectQueryOptions } from '@entities/project/project.query'
 import {
     layoutQueryOptions,
     useActivateTab,
-    useCloseTab,
     useMoveTabToWindow,
     useOpenTab,
     useOpenUntitledTab,
@@ -45,6 +44,7 @@ import type { SplitEdge } from '@features/tab/tab-context-menu'
 import { SortableTab } from '@features/tab/sortable-tab'
 import { TabBarAddMenu } from '@features/tab/tab-bar-add-menu'
 import { TabBarContextMenu } from '@features/tab/tab-bar-context-menu'
+import { useRequestCloseTab } from '@widgets/editor-area/use-request-close-tab'
 
 const TAB_ICON_SIZE_CLASS = 'size-3.5'
 
@@ -85,8 +85,6 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { data: projectAgents } = useQuery(projectAgentsQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: activateTab } = useActivateTab(projectId)
-    const { mutate: closeTab } = useCloseTab(projectId)
-    const { mutateAsync: closeTabAsync } = useCloseTab(projectId)
     const { mutate: pinTab } = usePinTab(projectId)
     const { mutate: setTabPreview } = useSetTabPreview(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
@@ -94,6 +92,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
     const { mutate: openUntitledTab } = useOpenUntitledTab(projectId)
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
     const { mutate: reopenClosedTab } = useReopenClosedTab(projectId)
+    const { requestCloseTab, requestCloseTabs, closeDirtyTabDialog } = useRequestCloseTab(projectId)
     const { setNodeRef: setContainerRef } = useDroppable({
         id: `pane-container:${paneId}`,
         data: { type: 'tab-container', paneId } satisfies TabContainerDropData,
@@ -133,35 +132,23 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
             { onError: notifyError },
         )
 
-    const handleCloseOthers = async (keepId: TabId) => {
-        for (const tab of tabs) {
-            if (tab.id === keepId || tab.pinned) continue
-            await closeTabAsync(tab.id)
-        }
-    }
+    /**
+     * The four bulk entries only decide *which* tabs the request covers — a pinned tab survives every
+     * one of them (`docs/features/tabs.md` §3). Asking about unsaved edits, closing one tab after
+     * another and reporting a close that failed all belong to {@link useRequestCloseTab}, so one
+     * dirty question covers the whole request instead of one per tab.
+     */
+    const handleCloseOthers = (keepId: TabId) => requestCloseTabs(tabs.filter((tab) => tab.id !== keepId && !tab.pinned))
 
-    const handleCloseToRight = async (fromId: TabId) => {
+    const handleCloseToRight = (fromId: TabId) => {
         const fromIndex = tabs.findIndex((tab) => tab.id === fromId)
         if (fromIndex < 0) return
-        for (const tab of tabs.slice(fromIndex + 1)) {
-            if (tab.pinned) continue
-            await closeTabAsync(tab.id)
-        }
+        requestCloseTabs(tabs.slice(fromIndex + 1).filter((tab) => !tab.pinned))
     }
 
-    const handleCloseSaved = async () => {
-        for (const tab of tabs) {
-            if (tab.pinned || tab.dirty) continue
-            await closeTabAsync(tab.id)
-        }
-    }
+    const handleCloseSaved = () => requestCloseTabs(tabs.filter((tab) => !tab.pinned && !tab.dirty))
 
-    const handleCloseAll = async () => {
-        for (const tab of tabs) {
-            if (tab.pinned) continue
-            await closeTabAsync(tab.id)
-        }
-    }
+    const handleCloseAll = () => requestCloseTabs(tabs.filter((tab) => !tab.pinned))
 
     const handleOpenWelcome = () =>
         openTab({ projectId, kind: { kind: 'welcome' }, title: WELCOME_TAB_TITLE, target: paneId, preview: false }, { onError: notifyError })
@@ -184,8 +171,8 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
         onNewFile: handleNewUntitledFile,
         onNewTerminal: handleNewTerminal,
         onReopenClosedTab: () => reopenClosedTab(projectId, { onError: notifyError }),
-        onCloseSaved: () => void handleCloseSaved(),
-        onCloseAll: () => void handleCloseAll(),
+        onCloseSaved: handleCloseSaved,
+        onCloseAll: handleCloseAll,
         onOpenWelcome: handleOpenWelcome,
         onSplit: handleSplitActiveTab,
     } satisfies Omit<ComponentProps<typeof TabBarContextMenu>, 'children'>
@@ -209,11 +196,11 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 icon={getTabIcon(tab.kind, agent)}
                 agentTooltip={agentTooltip}
                 onActivate={() => activateTab(tab.id)}
-                onClose={() => closeTab(tab.id)}
-                onCloseOthers={() => void handleCloseOthers(tab.id)}
-                onCloseToRight={() => void handleCloseToRight(tab.id)}
-                onCloseSaved={() => void handleCloseSaved()}
-                onCloseAll={() => void handleCloseAll()}
+                onClose={() => requestCloseTab(tab)}
+                onCloseOthers={() => handleCloseOthers(tab.id)}
+                onCloseToRight={() => handleCloseToRight(tab.id)}
+                onCloseSaved={handleCloseSaved}
+                onCloseAll={handleCloseAll}
                 onTogglePin={() => pinTab({ tabId: tab.id, pinned: !tab.pinned })}
                 onSplit={(edge: SplitEdge) => splitPane({ paneId, edge, tabId: tab.id })}
                 onCopyPath={filePath ? () => void copyTextToClipboard(filePath) : undefined}
@@ -298,6 +285,7 @@ export const PaneTabBar: FC<PaneTabBarProps> = ({ projectId, paneId, tabs, activ
                 </div>
             </TabBarContextMenu>
             <OverlayScrollbar viewportRef={scrollRef} orientation='horizontal' trackClassName='h-[3px]' />
+            {closeDirtyTabDialog}
         </div>
     )
 }

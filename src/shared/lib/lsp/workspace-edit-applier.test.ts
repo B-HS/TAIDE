@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { IpcError } from '@shared/api/unwrap-result'
-import { consumeExternallyDirtyModel } from '@shared/lib/lsp/model-dirty-tracker'
+import { consumeExternallyDirtyModel, onModelEditedExternally } from '@shared/lib/lsp/model-dirty-tracker'
 import type { Monaco } from '@shared/lib/lsp/monaco-types'
 import { preloadPeekModel } from '@shared/lib/lsp/peek-model-preload'
 import type { TextEdit, WorkspaceEdit } from '@shared/lib/lsp/protocol'
@@ -424,6 +424,62 @@ describe('applyWorkspaceEdit — 백그라운드 탭(에디터 미부착) 모델
         expect(result).toEqual({ applied: true })
         expect(getEdits()).toHaveLength(1)
         expect(consumeExternallyDirtyModel('/fg.ts')).toBe(false)
+    })
+})
+
+describe('applyWorkspaceEdit — 백그라운드 편집은 탭 dirty 브리지를 깨운다 (wave-2 #2)', () => {
+    test('에디터 미부착 모델을 편집하면 onModelEditedExternally 구독자에게 그 경로를 알린다', async () => {
+        const { model } = createFakeModel('bridge edit applied')
+        const { deps } = createFakeDeps()
+        const monaco = createFakeMonaco({ 'file:///bridge-bg.ts': model })
+
+        const notified: string[] = []
+        const unsubscribe = onModelEditedExternally((path) => notified.push(path))
+
+        const edit: WorkspaceEdit = {
+            changes: { 'file:///bridge-bg.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' }] },
+        }
+        const result = await applyWorkspaceEdit(monaco, edit, deps)
+        unsubscribe()
+
+        expect(result).toEqual({ applied: true })
+        expect(notified).toEqual(['/bridge-bg.ts'])
+        consumeExternallyDirtyModel('/bridge-bg.ts')
+    })
+
+    test('포그라운드(에디터 부착) 모델 편집은 알리지 않고, 구독 해제 후에도 알리지 않는다', async () => {
+        const { model: foreground } = createFakeModel()
+        const { model: background } = createFakeModel()
+        const { deps } = createFakeDeps()
+        const monaco = {
+            Uri: { parse: (uri: string) => ({ fsPath: uri.replace('file://', ''), toString: () => uri }) },
+            editor: {
+                getModel: (uri: { toString: () => string }) =>
+                    ({ 'file:///bridge-fg.ts': foreground, 'file:///bridge-after-unsubscribe.ts': background })[uri.toString()] ?? null,
+                getEditors: () => [{ getModel: () => foreground }],
+            },
+        } as unknown as Monaco
+
+        const notified: string[] = []
+        const unsubscribe = onModelEditedExternally((path) => notified.push(path))
+
+        const foregroundEdit: WorkspaceEdit = {
+            changes: { 'file:///bridge-fg.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' }] },
+        }
+        expect(await applyWorkspaceEdit(monaco, foregroundEdit, deps)).toEqual({ applied: true })
+        expect(notified).toEqual([])
+
+        unsubscribe()
+        const backgroundEdit: WorkspaceEdit = {
+            changes: {
+                'file:///bridge-after-unsubscribe.ts': [
+                    { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' },
+                ],
+            },
+        }
+        expect(await applyWorkspaceEdit(monaco, backgroundEdit, deps)).toEqual({ applied: true })
+        expect(notified).toEqual([])
+        consumeExternallyDirtyModel('/bridge-after-unsubscribe.ts')
     })
 })
 

@@ -150,9 +150,9 @@ export const useEditorViewState = ({ projectId, tabId, editor }: UseEditorViewSt
             const serialized = captureChangedViewState(editor, tabId, lastSentViewStateRef.current)
             if (serialized) await persistViewState(tabId, serialized)
         }
-        registerViewStateFlush(tabId, flush)
+        registerViewStateFlush(tabId, projectId, flush)
         return () => unregisterViewStateFlush(tabId)
-    }, [editor, tabId])
+    }, [editor, tabId, projectId])
 
     useEffect(() => {
         if (!editor || persistedViewState === undefined || restoredTabIdsRef.current.has(tabId)) return

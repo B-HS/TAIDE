@@ -1,11 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { useTranslation } from 'react-i18next'
-import type { FileSizeTier, LspServerId, ProjectId } from '@shared/api/bindings'
+import type { FileSizeTier, LspServerId, ProjectId, ProjectLayout, TabId } from '@shared/api/bindings'
+import { QUERY_KEY } from '@shared/constants/query-key'
 import { monaco } from '@shared/lib/monaco/setup'
 import { monacoRangeToLsp } from '@shared/lib/lsp/position'
+import { collectAllPaneTabs } from '@shared/lib/pane-tree'
+import { onModelEditedExternally } from '@shared/lib/lsp/model-dirty-tracker'
 import { getStoredDiagnostics } from '@shared/lib/lsp/adapters/diagnostics'
 import { applyCodeActionOrCommand, requestCodeActionsForKind, supportsCodeActionResolve } from '@shared/lib/lsp/adapters/code-action'
+import { useSetTabDirty } from '@entities/layout/layout.query'
 import { resolveLspRoot } from '@entities/lsp/lsp.ipc'
 import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
 import { lspServersQueryOptions } from '@entities/lsp/lsp.query'
@@ -48,6 +53,43 @@ export const resolveLspSessionRootForSave = async (input: {
     return resolvedRoot ?? input.projectRoot
 }
 
+/**
+ * Raises the tab-bar dirty flag for every file tab pointing at a path a `WorkspaceEdit` just landed
+ * on while no `EditorPane` was attached to its model (`model-dirty-tracker.ts`'s
+ * {@link onModelEditedExternally}).
+ *
+ * Every tree the project owns is searched (`collectAllPaneTabs`, auxiliary windows included), not
+ * just the focused pane's: a project-wide rename's collateral lands precisely on the tabs *not* in
+ * front of the user, and the same path can legitimately be open in several panes at once. Tabs the
+ * cache already reports dirty are skipped — the flag is already what it should be, and the user's
+ * own unsaved edits are not this handler's business.
+ *
+ * Without it the flag only ever went up when the affected tab was next *activated*
+ * (`editor-pane.tsx`'s `consumeExternallyDirtyModel` → `adoptUnobservedModelEdit` chain), so closing
+ * such a tab first destroyed the edit with no dot, no confirmation, and — worse — with "close saved
+ * tabs" actively treating it as safe to discard (wave-2 audit #2).
+ *
+ * Built as a factory taking its layout read and its mutation rather than reading them from hook
+ * scope, so the whole decision is exercisable from a test without rendering the hook (this file's
+ * existing pattern — see {@link resolveLspSessionRootForSave}).
+ */
+export const createExternalModelEditTabDirtyHandler =
+    ({
+        getLayout,
+        setTabDirty,
+    }: {
+        getLayout: () => ProjectLayout | null | undefined
+        setTabDirty: (input: { tabId: TabId; dirty: boolean }) => void
+    }) =>
+    (path: string) => {
+        const layout = getLayout()
+        if (!layout) return
+        for (const tab of collectAllPaneTabs(layout)) {
+            if (tab.kind.kind !== 'file' || tab.kind.path !== path || tab.dirty) continue
+            setTabDirty({ tabId: tab.id, dirty: true })
+        }
+    }
+
 type UseEditorLspIntegrationInput = {
     projectId: ProjectId
     path: string
@@ -69,6 +111,13 @@ type UseEditorLspIntegrationInput = {
  * `source.organizeImports`) before the buffer is written. `isOutsideProjectRoot` (a CLI-opened
  * file such as Claude Code's Ctrl+G temp file — see `editor-pane.tsx`) turns all three off: no
  * session is attached, so neither save-time integration has anything to talk to.
+ *
+ * Also the project's subscriber for {@link createExternalModelEditTabDirtyHandler} — scoped to this
+ * hook (rather than to `editor-pane.tsx` or a provider) because it is already the one place holding
+ * both an LSP concern and this project's `projectId`, and because an LSP-pushed `WorkspaceEdit` can
+ * only exist while at least one pane has a session attached, i.e. while at least one of these is
+ * mounted. That subscription is *not* gated on `isOutsideProjectRoot`: the edit it reacts to may
+ * well have come from another pane's session and land on a tab this one knows nothing about.
  */
 export const useEditorLspIntegration = ({
     projectId,
@@ -85,6 +134,8 @@ export const useEditorLspIntegration = ({
 }: UseEditorLspIntegrationInput) => {
     const { data: lspServers } = useQuery(lspServersQueryOptions())
     const { data: project } = useQuery(projectQueryOptions(projectId))
+    const queryClient = useQueryClient()
+    const { mutate: setTabDirty } = useSetTabDirty(projectId)
 
     /**
      * LSP servers attached for `languageId` — must stay in exact lockstep with `use-lsp-session.ts`'s
@@ -202,6 +253,22 @@ export const useEditorLspIntegration = ({
         tier,
         enabled: !isOutsideProjectRoot && canRenderCodeEditor(isPending, isError, tier),
     })
+
+    /**
+     * Layout comes from the cache rather than a `useQuery` because the handler reacts to an edit on
+     * *any* path in this project, not just this pane's `path`, and re-subscribing on every layout
+     * revision would churn the subscription on every keystroke's dirty flag.
+     */
+    useEffect(
+        () =>
+            onModelEditedExternally(
+                createExternalModelEditTabDirtyHandler({
+                    getLayout: () => queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId)),
+                    setTabDirty,
+                }),
+            ),
+        [projectId, queryClient, setTabDirty],
+    )
 
     return { notifyLspSessionsOfSave, runCodeActionsOnSave }
 }

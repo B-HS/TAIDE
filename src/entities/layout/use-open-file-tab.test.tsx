@@ -101,6 +101,14 @@ const buildOpenedLayout = (revision: number): ProjectLayout => ({
     revision,
 })
 
+/**
+ * The same two-pane response, but with the focus already moved off the pane this open asked for —
+ * what another window's mutation (or a pane focused between request and response) leaves in the
+ * layout a `layout_open_tab` round trip hands back. The reveal must still land on `leaf-1`'s tab
+ * (d-67 #25), not on the second pane that happens to hold the same path.
+ */
+const buildOpenedLayoutFocusedElsewhere = (revision: number): ProjectLayout => ({ ...buildOpenedLayout(revision), focusedPane: 'leaf-2' })
+
 type FakeEditor = { positions: { lineNumber: number; column: number }[]; focusCount: number }
 
 const createFakeEditor = () => {
@@ -295,6 +303,31 @@ describe('useOpenFileTab', () => {
         expect(opened.calls.positions).toEqual([])
 
         unregisterEditorInstance(OPENED_TAB_ID)
+    })
+
+    test('응답 레이아웃의 focusedPane 이 다른 pane 으로 옮겨가 있어도 reveal 은 이번에 연 pane 의 탭에 남는다', async () => {
+        const { useOpenFileTab } = await importLayoutQuery()
+        const queryClient = await setupIndexes()
+        await queryClient.fetchQuery({
+            queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID),
+            queryFn: () => Promise.resolve(buildLayout(1)),
+            gcTime: Infinity,
+        })
+        openTabImpl.current = () => Promise.resolve(buildOpenedLayoutFocusedElsewhere(8))
+        const opened = createFakeEditor()
+        const otherPane = createFakeEditor()
+        registerEditorInstance(OPENED_TAB_ID, opened.editor)
+        registerEditorInstance(OTHER_PANE_TAB_ID, otherPane.editor)
+
+        const { result } = renderHookWithProviders(() => useOpenFileTab(), { queryClient })
+        result.current({ projectId: PROJECT_ID, path: FILE_PATH, preview: true, target: null, reveal: { line: 42, column: 2 } })
+        await waitFor(() => expect(opened.calls.positions.length).toBe(1))
+
+        expect(opened.calls.positions).toEqual([{ lineNumber: 42, column: 2 }])
+        expect(otherPane.calls.positions).toEqual([])
+
+        unregisterEditorInstance(OPENED_TAB_ID)
+        unregisterEditorInstance(OTHER_PANE_TAB_ID)
     })
 
     test('NotFound 실패면 그 프로젝트의 퀵오픈 인덱스만 무효화한다 (다른 프로젝트 인덱스는 그대로)', async () => {

@@ -5,6 +5,7 @@ import { suspendBuiltinTypeScriptMode } from '@shared/lib/monaco/builtin-typescr
 import type { LspClient, OutgoingMessage } from '@shared/lib/lsp/client'
 import { createLspClient } from '@shared/lib/lsp/client'
 import { buildInitializeParams } from '@shared/lib/lsp/initialize-params'
+import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { registerCodeAction } from '@shared/lib/lsp/adapters/code-action'
 import { registerCodeLens, triggerCodeLensRefresh } from '@shared/lib/lsp/adapters/code-lens'
 import { registerCompletion } from '@shared/lib/lsp/adapters/completion'
@@ -55,12 +56,20 @@ type ConnectionState = {
     languageDisposables: Map<string, Disposable[]>
     diagnosticsDisposable: Disposable | null
     openDocuments: Map<string, number>
+    /**
+     * The one `onDidChangeContent` → `textDocument/didChange` subscription this connection holds per
+     * open document uri, created/disposed strictly alongside `openDocuments`' refcount by
+     * {@link acquireDocument}/{@link releaseDocument} — see {@link subscribeDocumentContentChanges}
+     * for why the subscription has to live here rather than per `EditorPane`.
+     */
+    contentSubscriptions: Map<string, Disposable>
 }
 
 const createConnectionState = (): ConnectionState => ({
     languageDisposables: new Map(),
     diagnosticsDisposable: null,
     openDocuments: new Map(),
+    contentSubscriptions: new Map(),
 })
 
 type ResolvedSession = {
@@ -374,6 +383,14 @@ const disposeSession = async (record: SessionRecord, group: SessionGroup) => {
     for (const disposables of group.state.languageDisposables.values()) {
         for (const disposable of disposables) disposable.dispose()
     }
+    /**
+     * A forced teardown (project close, app exit, reinitialize retries exhausted) disposes the group
+     * while its documents are still open — their `releaseDocument` never runs, so without this the
+     * per-document listeners would stay attached to models `model-registry.ts` never disposes and
+     * keep pushing `didChange` into a dead client.
+     */
+    for (const subscription of group.state.contentSubscriptions.values()) subscription.dispose()
+    group.state.contentSubscriptions.clear()
     group.state.diagnosticsDisposable?.dispose()
     if (!session) return
     session.executeCommandsDisposable.dispose()
@@ -655,18 +672,52 @@ export const ensureLanguageRegistered = (
 }
 
 /**
+ * Forwards every edit of `uri`'s monaco model to this connection as one `textDocument/didChange`.
+ *
+ * Owned by the document refcount below rather than by `use-lsp-session.ts`'s per-`EditorPane`
+ * attach (where it used to live) because two panes showing the same path share *both* sides of this
+ * wiring: `entities/editor/model-registry.ts` hands them the identical `ITextModel` and
+ * `acquireLspSession` hands them the identical `LspClient`. A per-pane subscription therefore sent
+ * the same incremental change twice for one keystroke — `client.didChange` bumps its own version
+ * unconditionally, so the server applied it as versions N+1 *and* N+2 and its copy of the file
+ * drifted one duplicated edit per keystroke for as long as the split lasted (wave-2 audit #1).
+ * Registered once per uri here, it fires once no matter how many panes are open on it.
+ *
+ * `null` when the model does not exist (yet): the caller opened a document whose model was never
+ * created or has already gone, and there is nothing to subscribe to.
+ */
+const subscribeDocumentContentChanges = (client: LspClient, uri: string): Disposable | null => {
+    const model = monaco.editor.getModel(monaco.Uri.parse(uri))
+    if (!model) return null
+    return model.onDidChangeContent((event) => {
+        const changes = event.changes.map((change) => ({
+            range: monacoRangeToLsp(change.range),
+            rangeLength: change.rangeLength,
+            text: change.text,
+        }))
+        client.didChange(uri, changes)
+    })
+}
+
+/**
  * While `record.group.isReinitializing` is `true` ({@link reinitializeSession} mid-retry-loop), a
  * genuinely new document (`current === 0`) still gets counted here but does *not* get its own
  * `didOpen` sent — `openDocuments` is exactly what that loop's own live-map iteration replays, so a
  * document added mid-replay is naturally picked up by it (or, if added just after this attempt's
  * iterator already passed it, by the next attempt's fresh iteration) without this call also sending
- * its own `didOpen` and racing a double-send for the same document (F7#1 follow-up).
+ * its own `didOpen` and racing a double-send for the same document (F7#1 follow-up). The content
+ * subscription is created regardless of that gate: it tracks the *model*, which the crash never
+ * touched, and the replayed `didOpen` restores the server-side version this connection's
+ * `didChange`s are numbered against.
  */
 export const acquireDocument = (record: SessionRecord, client: LspClient, uri: string, languageId: string, text: string) => {
-    const openDocuments = record.group.state.openDocuments
-    const current = openDocuments.get(uri) ?? 0
-    openDocuments.set(uri, current + 1)
-    if (current === 0 && !record.group.isReinitializing) client.didOpen({ uri, languageId, version: 0, text })
+    const state = record.group.state
+    const current = state.openDocuments.get(uri) ?? 0
+    state.openDocuments.set(uri, current + 1)
+    if (current > 0) return
+    if (!record.group.isReinitializing) client.didOpen({ uri, languageId, version: 0, text })
+    const subscription = subscribeDocumentContentChanges(client, uri)
+    if (subscription) state.contentSubscriptions.set(uri, subscription)
 }
 
 /**
@@ -682,17 +733,25 @@ export const acquireDocument = (record: SessionRecord, client: LspClient, uri: s
  * new process believing it's still open (no compensating `didClose`) until the next real edit to
  * that document's session state — accepted as a narrow, low-impact residual rather than adding a
  * second deferred-close queue for a crash-recovery path already carrying real complexity.
+ *
+ * The content subscription ({@link subscribeDocumentContentChanges}) is disposed here and only here,
+ * on the *last* release — releasing one of several panes open on the same uri must leave the
+ * surviving panes' edits still reaching the server, which is exactly what keying the subscription to
+ * this refcount (rather than to a pane's lifetime) buys. Disposed before `didClose` so an edit
+ * landing between the two cannot send a `didChange` for a document this call is closing.
  */
 export const releaseDocument = (record: SessionRecord, client: LspClient, uri: string) => {
-    const openDocuments = record.group.state.openDocuments
-    const current = openDocuments.get(uri)
+    const state = record.group.state
+    const current = state.openDocuments.get(uri)
     if (!current) return
-    if (current <= 1) {
-        openDocuments.delete(uri)
-        if (!record.group.isReinitializing) client.didClose(uri)
+    if (current > 1) {
+        state.openDocuments.set(uri, current - 1)
         return
     }
-    openDocuments.set(uri, current - 1)
+    state.openDocuments.delete(uri)
+    state.contentSubscriptions.get(uri)?.dispose()
+    state.contentSubscriptions.delete(uri)
+    if (!record.group.isReinitializing) client.didClose(uri)
 }
 
 /**
@@ -745,12 +804,23 @@ const LSP_REINITIALIZE_RETRY_DELAY_MS = 2_000
  * currently running, and this stale loop must stop rather than race it with an out-of-date attempt
  * (silently, without reporting failure — the fresher loop's own outcome is the one that should stand).
  * Exhausting every attempt instead calls {@link reportLspReinitializeFailure} (§1.3(4), X-A wiring
- * cleanup contract) before returning, so `status` settles on `Crashed` with an honest "retries
- * exhausted, restart manually" `last_error` (`domain::lsp::commands::lsp_report_reinitialize_failure`
- * on the Rust side, guarded by the exact same generation check `lsp_confirm_reinitialize` uses)
- * instead of the auto-restart path's optimistic "재시작됐습니다, 기다려주세요" wording sitting there
- * forever. A later generation bump (a second auto-restart) or a manual `lsp_restart` remain the only
- * further recovery paths after that.
+ * cleanup contract), so `status` settles on `Crashed` with an honest "retries exhausted, restart
+ * manually" `last_error` (`domain::lsp::commands::lsp_report_reinitialize_failure` on the Rust side,
+ * guarded by the exact same generation check `lsp_confirm_reinitialize` uses) instead of the
+ * auto-restart path's optimistic "재시작됐습니다, 기다려주세요" wording sitting there forever — and
+ * then actually tears the session down (wave-2 audit #3):
+ *  - `rejectPendingRequests` settles everything still waiting on a connection that will never answer
+ *    again. `client.ts`'s `request` has no timeout of its own, so without this a hover/completion
+ *    issued while the retry loop was running spins forever.
+ *  - `finalizeSessionDisposal` runs {@link disposeSession}'s dispose loop, whose per-language
+ *    disposables include `suspendBuiltinTypeScriptMode`'s `release` — leaving the session parked in
+ *    `sessionsByKey` kept monaco's built-in TS/JS service suspended (`noSyntaxValidation: true`),
+ *    i.e. *worse* than having no LSP at all, with no user-reachable way out
+ *    (`docs/features/editor.md` §12's no-session fallback never came back).
+ * Dropping the group from `sessionsByKey` is also what restores automatic recovery: the next file
+ * open/tab switch's `acquireLspSession` finds no entry and spawns a fresh session under the backend's
+ * own restart policy, rather than handing out a dead one forever. A later generation bump (a second
+ * auto-restart) and a manual `lsp_restart` still work as before.
  *
  * `group.isReinitializing` is `true` for the entire loop below (`finally`-reset on every exit path,
  * including the staleness `return`) — see {@link acquireDocument}/{@link releaseDocument}'s own doc
@@ -799,6 +869,8 @@ const reinitializeSession = async (
             } catch {
                 if (attempt === maxAttempts) {
                     await reportLspReinitializeFailure(session.sessionId, generation).catch(() => undefined)
+                    session.client.rejectPendingRequests(new Error('lsp session reinitialize retries exhausted'))
+                    finalizeSessionDisposal(record, group)
                     return
                 }
                 await delay(retryDelayMs)

@@ -12,7 +12,6 @@ import { pruneMirrors, pruneUntitledMirrors } from '@entities/file/file.ipc'
 import {
     layoutQueryOptions,
     useActivateTab,
-    useCloseTab,
     useFocusPane,
     useMoveTab,
     useMoveTabToWindow,
@@ -45,6 +44,8 @@ import { collectClosableTabIdsInFocusedGroup, resolveFocusGroupPaneId } from '@w
 import type { SplitDropData } from '@widgets/editor-area/pane-node-view'
 import { PaneNodeView } from '@widgets/editor-area/pane-node-view'
 import { resolveSaveRoutableTabId } from '@widgets/editor-area/focused-editor-tab'
+import { resolveRunTargetTerminalTab, resolveTerminalToggleFallbackTab } from '@widgets/editor-area/terminal-tab-targets'
+import { useRequestCloseTab } from '@widgets/editor-area/use-request-close-tab'
 import type { TabDragData } from '@features/tab/sortable-tab'
 import { subscribeLanguageAdapterRegistration } from '@entities/lsp/lsp-session-registry'
 import { ProblemsPanelContainer } from '@widgets/problems-panel/problems-panel-container'
@@ -97,12 +98,12 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
     const { data: settings } = useQuery(settingsQueryOptions())
     const { mutate: moveTab } = useMoveTab(projectId)
     const { mutate: splitPane } = useSplitPane(projectId)
-    const { mutate: closeTab, mutateAsync: closeTabAsync } = useCloseTab(projectId)
     const { mutate: activateTab } = useActivateTab(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
     const openFileTab = useOpenFileTab()
     const { mutate: moveTabToWindow } = useMoveTabToWindow(projectId)
     const { mutate: focusPane } = useFocusPane(projectId)
+    const { requestCloseTab, requestCloseTabs, isCloseConfirmationOpen, closeDirtyTabDialog } = useRequestCloseTab(projectId)
     const isFocused = useIsShellSlotFocused()
 
     /**
@@ -115,17 +116,24 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
     const windowContext = getWindowContext()
     const paneTree = layout ? resolveWindowPaneTree(layout, windowContext) : null
 
-    /** A pinned tab survives ⌘W with a warning instead of closing (`docs/features/tabs.md` §3) — the tab bar's own close affordances guard themselves in `tab-item.tsx`. */
+    /**
+     * A pinned tab survives ⌘W with a warning instead of closing (`docs/features/tabs.md` §3) — the
+     * tab bar's own close affordances guard themselves in `tab-item.tsx`. Unsaved edits are
+     * {@link useRequestCloseTab}'s question, which is also why the whole handler steps aside while one
+     * is on screen: this runs from a document-level keydown capture that a modal dialog does not stop,
+     * so a second ⌘W would otherwise ask again on top of the first question.
+     */
     const closeFocusedTab = () => {
-        if (!paneTree) return
+        if (!paneTree || isCloseConfirmationOpen()) return
         const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
         if (!leaf?.active) return
         const activeTab = leaf.tabs.find((tab) => tab.id === leaf.active)
-        if (activeTab?.pinned) {
+        if (!activeTab) return
+        if (activeTab.pinned) {
             toast.warning(t('tab.pinnedCloseBlocked', { title: activeTab.title }))
             return
         }
-        closeTab(leaf.active)
+        requestCloseTab(activeTab)
     }
 
     const moveFocusedTabToWindow = (target: TabWindowTarget) => {
@@ -195,11 +203,12 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
         moveTab({ tabId: leaf.active, paneId: adjacent.id, index: adjacent.tabs.length })
     }
 
-    /** Closes are serialized because each one returns a fresh layout the next close would have to be computed against; {@link collectClosableTabIdsInFocusedGroup} owns the pinned-survives rule. */
-    const closeAllTabsInFocusedGroup = async () => {
-        for (const tabId of collectClosableTabIdsInFocusedGroup(paneTree)) {
-            await closeTabAsync(tabId)
-        }
+    /** {@link collectClosableTabIdsInFocusedGroup} owns the pinned-survives rule; resolving its ids back to tabs is what lets {@link useRequestCloseTab} ask about the group's unsaved edits once and then serialize the closes. */
+    const closeAllTabsInFocusedGroup = () => {
+        if (!paneTree || isCloseConfirmationOpen()) return
+        const closableTabIds = new Set(collectClosableTabIdsInFocusedGroup(paneTree))
+        const leaf = findPaneLeaf(paneTree.root, paneTree.focusedPane)
+        requestCloseTabs((leaf?.tabs ?? []).filter((tab) => closableTabIds.has(tab.id)))
     }
 
     const getFocusedSaveRoutableTabId = () => {
@@ -222,7 +231,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
         if (!leaf) return
         const activeTab = leaf.tabs.find((tab) => tab.id === leaf.active)
         if (activeTab?.kind.kind === 'terminal') {
-            const fallbackTab = leaf.tabs.find((tab) => tab.id !== leaf.active)
+            const fallbackTab = resolveTerminalToggleFallbackTab(leaf)
             if (fallbackTab) activateTab(fallbackTab.id)
             return
         }
@@ -251,7 +260,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
         if (!leaf) return
         const payload = `${text}\n`
 
-        const terminalTab = leaf.tabs.find((tab) => tab.kind.kind === 'terminal')
+        const terminalTab = resolveRunTargetTerminalTab(leaf)
         if (terminalTab) {
             if (terminalTab.id !== leaf.active) activateTab(terminalTab.id)
             requestTerminalWrite(terminalTab.id, payload)
@@ -299,7 +308,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
         'focus-group-down': whenFocused(() => focusGroup({ kind: 'direction', direction: 'down' })),
         'move-tab-to-group-left': whenFocused(() => moveActiveTabToGroup('left')),
         'move-tab-to-group-right': whenFocused(() => moveActiveTabToGroup('right')),
-        'close-all-tabs': whenFocused(() => void closeAllTabsInFocusedGroup()),
+        'close-all-tabs': whenFocused(closeAllTabsInFocusedGroup),
         'focus-group-1': whenFocused(() => focusGroup({ kind: 'position', position: 1 })),
         'focus-group-2': whenFocused(() => focusGroup({ kind: 'position', position: 2 })),
         'focus-group-3': whenFocused(() => focusGroup({ kind: 'position', position: 3 })),
@@ -323,7 +332,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
         if (command.type === 'move-focused-tab-to-window') return moveFocusedTabToWindow(command.target)
         if (command.type === 'focus-group') return focusGroup(command.target)
         if (command.type === 'move-tab-to-group') return moveActiveTabToGroup(command.direction)
-        if (command.type === 'close-all-tabs') return void closeAllTabsInFocusedGroup()
+        if (command.type === 'close-all-tabs') return closeAllTabsInFocusedGroup()
     })
 
     useEffect(() => subscribeEditorPaneCommand(handleEditorPaneCommand), [])
@@ -541,6 +550,7 @@ export const EditorArea: FC<EditorAreaProps> = ({ projectId, zen, isProblemsOpen
                     </div>
                 )}
             </DragOverlay>
+            {closeDirtyTabDialog}
         </DndContext>
     )
 }

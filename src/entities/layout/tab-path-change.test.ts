@@ -87,6 +87,7 @@ type Recorder = {
     /** Paths `takeWaitMarkers` was called with — a destructive take, so the *call* is the observable side effect, not just what it returned. */
     takenMarkerPaths: string[]
     releasedMarkers: string[]
+    clearedDirtyMarks: string[]
 }
 
 const createDeps = (
@@ -121,6 +122,9 @@ const createDeps = (
     disposeModel: (path: string) => {
         recorder.disposed.push(path)
     },
+    clearExternallyDirtyMark: (path: string) => {
+        recorder.clearedDirtyMarks.push(path)
+    },
     getOpenWithOverride: () => null,
     setOpenWithOverride: (path: string, override: 'editor' | null) => {
         recorder.overrides.push({ path, override })
@@ -149,6 +153,7 @@ beforeEach(() => {
         overrides: [],
         takenMarkerPaths: [],
         releasedMarkers: [],
+        clearedDirtyMarks: [],
     }
 })
 
@@ -182,6 +187,7 @@ describe('followRenamedPathInTabs', () => {
             savedAtMs: 1,
             diskModifiedMs: 1,
             conflict: false,
+            sourceMissing: false,
         }
         queryClient.setQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID), [staleMirror])
         const deps = createDeps(recorder, {
@@ -199,7 +205,14 @@ describe('followRenamedPathInTabs', () => {
         expect(recorder.mirrorWrites).toEqual([{ path: '/repo/b.ts', content: 'freshest draft' }])
         expect(recorder.clearedMirrors).toEqual(['/repo/a.ts'])
         expect(queryClient.getQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID))).toEqual([
-            { path: '/repo/b.ts', content: 'freshest draft', savedAtMs: expect.any(Number), diskModifiedMs: 1_700_000_000_000, conflict: false },
+            {
+                path: '/repo/b.ts',
+                content: 'freshest draft',
+                savedAtMs: expect.any(Number),
+                diskModifiedMs: 1_700_000_000_000,
+                conflict: false,
+                sourceMissing: false,
+            },
         ])
     })
 
@@ -207,7 +220,7 @@ describe('followRenamedPathInTabs', () => {
         const { followRenamedPathInTabs } = await importTabPathChange()
         const queryClient = new QueryClient()
         queryClient.setQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID), [
-            { path: '/repo/readme.md', content: 'older draft', savedAtMs: 1, diskModifiedMs: 1, conflict: false },
+            { path: '/repo/readme.md', content: 'older draft', savedAtMs: 1, diskModifiedMs: 1, conflict: false, sourceMissing: false },
         ])
         const deps = createDeps(recorder, {
             result: {
@@ -223,7 +236,14 @@ describe('followRenamedPathInTabs', () => {
 
         expect(recorder.mirrorOps).toEqual(['clear:/repo/readme.md', 'write:/repo/README.md'])
         expect(queryClient.getQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID))).toEqual([
-            { path: '/repo/README.md', content: 'live draft', savedAtMs: expect.any(Number), diskModifiedMs: 1_700_000_000_000, conflict: false },
+            {
+                path: '/repo/README.md',
+                content: 'live draft',
+                savedAtMs: expect.any(Number),
+                diskModifiedMs: 1_700_000_000_000,
+                conflict: false,
+                sourceMissing: false,
+            },
         ])
     })
 
@@ -231,7 +251,7 @@ describe('followRenamedPathInTabs', () => {
         const { followRenamedPathInTabs } = await importTabPathChange()
         const queryClient = new QueryClient()
         queryClient.setQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID), [
-            { path: '/repo/a.ts', content: 'mirror draft', savedAtMs: 1, diskModifiedMs: 1, conflict: false },
+            { path: '/repo/a.ts', content: 'mirror draft', savedAtMs: 1, diskModifiedMs: 1, conflict: false, sourceMissing: false },
         ])
         const deps = createDeps(recorder, {
             result: {
@@ -342,6 +362,7 @@ describe('releaseClosedFileTabPath', () => {
         expect(recorder.clearedMirrors).toEqual([])
         expect(recorder.disposed).toEqual([])
         expect(recorder.overrides).toEqual([])
+        expect(recorder.clearedDirtyMarks).toEqual([])
     })
 
     test('마커가 달린 경로라도 다른 페인에 아직 열려 있으면 마커를 take 조차 하지 않는다', async () => {
@@ -380,6 +401,68 @@ describe('releaseClosedFileTabPath', () => {
 
         expect(recorder.releasedMarkers).toEqual(['marker-1'])
         expect(recorder.disposed).toEqual(['/repo/marked.ts'])
+    })
+
+    /**
+     * d-67 #5 — the mark is a session-lifetime `Set` keyed by bare path while the model it describes
+     * is disposed here. Left behind, it is read by the *next* model created for that path (a reopen
+     * builds a fresh one), which makes the first `EditorPane` to attach believe an edit it never saw
+     * is already in a buffer that only holds disk content.
+     */
+    test('닫기 시 외부 dirty 마크가 정리된다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } })
+
+        releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/marked.ts', layout }, deps)
+
+        expect(recorder.clearedDirtyMarks).toEqual(['/repo/marked.ts'])
+    })
+
+    /**
+     * d-67 #10 — a draft whose file was deleted outside the app is the only copy of that work, and
+     * the tab showing it looks broken, so closing it is the natural thing for a user to do. The
+     * model and the wait markers still go: they are rebuildable, the mirror is not.
+     */
+    test('원본이 사라진 미러는 탭을 닫아도 지우지 않는다 (초안이 유일본이다)', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        queryClient.setQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID), [
+            { path: '/repo/gone.ts', content: 'only copy', savedAtMs: 1, diskModifiedMs: null, conflict: false, sourceMissing: true },
+        ])
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } })
+
+        releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/gone.ts', layout }, deps)
+
+        expect(recorder.clearedMirrors).toEqual([])
+        expect(recorder.disposed).toEqual(['/repo/gone.ts'])
+    })
+
+    test('원본이 멀쩡한 미러는 종전대로 탭을 닫을 때 지운다', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        queryClient.setQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(PROJECT_ID), [
+            { path: '/repo/alive.ts', content: 'draft', savedAtMs: 1, diskModifiedMs: 1, conflict: false, sourceMissing: false },
+        ])
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } })
+
+        releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/alive.ts', layout }, deps)
+
+        expect(recorder.clearedMirrors).toEqual(['/repo/alive.ts'])
+    })
+
+    test('미러 목록을 아직 받지 못했으면 종전대로 지운다 (source_missing 을 추측하지 않는다)', async () => {
+        const { releaseClosedFileTabPath } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const layout = buildLayout([])
+        const deps = createDeps(recorder, { result: { layout, moved: [], closedPaths: [] } })
+
+        releaseClosedFileTabPath({ queryClient, projectId: PROJECT_ID, path: '/repo/unknown.ts', layout }, deps)
+
+        expect(recorder.clearedMirrors).toEqual(['/repo/unknown.ts'])
     })
 })
 

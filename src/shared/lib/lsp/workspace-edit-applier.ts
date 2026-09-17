@@ -190,7 +190,8 @@ export const applyTextEditsToContent = (content: string, edits: readonly TextEdi
  * therefore never run for a tab this edit lands on while unmounted (a background split-pane tab, or
  * one simply not active in its pane — see `model-dirty-tracker.ts`). Without this, the edit sits
  * only in the monaco model until that tab is next activated; a hot exit before then loses it even
- * though `markModelDirtyExternally` already flags the tab dirty in-memory.
+ * though `markModelDirtyExternally` has already flagged the path (an in-renderer `Set` plus the
+ * tab-dirty bridge — neither of which survives the process).
  *
  * Needs a `ProjectId` the mirror IPC is scoped to. The server-initiated `workspace/applyEdit` push
  * — the only caller that can reach a model belonging to a project other than the active one, since
@@ -258,7 +259,10 @@ const applyTextEditsToUri = async (
              * Its own `onDidChangeModelContent` → dirty-tracking chain only runs while an editor is
              * attached, so this edit would otherwise go unnoticed until something else overwrites
              * the model with stale disk content on tab activation. Marking it here is how
-             * `editor-pane.tsx`'s activation-sync effect finds out not to do that.
+             * `editor-pane.tsx`'s activation-sync effect finds out not to do that — and, through
+             * `model-dirty-tracker.ts`'s `onModelEditedExternally` bridge, how the tab's own dirty
+             * flag gets raised right now instead of only when that tab is next activated (closing it
+             * before then took the edit with it, with neither a dot nor a confirmation).
              */
             const isAttachedToAnEditor = monaco.editor.getEditors().some((editor) => editor.getModel() === model)
             if (!isAttachedToAnEditor) {

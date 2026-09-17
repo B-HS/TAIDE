@@ -4,7 +4,6 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { FileSizeTier, LspInitializationOptionsValue, LspServerId, ProjectId, Settings } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { triggerSemanticTokensRefresh } from '@shared/lib/lsp/adapters/semantic-tokens'
-import { monacoRangeToLsp } from '@shared/lib/lsp/position'
 import { getModel } from '@entities/editor/model-registry'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { filterAvailableLspServers } from '@entities/lsp/lsp.constant'
@@ -100,7 +99,6 @@ const attachLspSession = ({
 }: AttachLspSessionInput) => {
     let disposed = false
     let openedUri: string | null = null
-    let contentChangeDisposable: { dispose: () => void } | null = null
     let sessionHandle: { key: string; record: SessionRecord } | null = null
     let unsubscribeSemanticHighlightingSetting: (() => void) | null = null
 
@@ -135,23 +133,19 @@ const attachLspSession = ({
 
                 const uri = model.uri.toString()
                 openedUri = uri
+                /**
+                 * Also owns this document's single `onDidChangeContent` → `didChange` subscription,
+                 * under the same uri refcount — a subscription per mounted pane sent one keystroke
+                 * twice whenever two panes showed the same file (wave-2 audit #1; see
+                 * `subscribeDocumentContentChanges` in `lsp-session-registry.ts`).
+                 */
                 acquireDocument(handle.record, session.client, uri, languageId, model.getValue())
-
-                contentChangeDisposable = model.onDidChangeContent((event) => {
-                    const changes = event.changes.map((change) => ({
-                        range: monacoRangeToLsp(change.range),
-                        rangeLength: change.rangeLength,
-                        text: change.text,
-                    }))
-                    session.client.didChange(uri, changes)
-                })
             })
         })
         .catch((error: unknown) => console.warn('[lsp] attach failed', serverId, path, error))
 
     return () => {
         disposed = true
-        contentChangeDisposable?.dispose()
         unsubscribeSemanticHighlightingSetting?.()
         if (!sessionHandle) return
 

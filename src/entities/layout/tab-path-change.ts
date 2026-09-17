@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { MirrorEntry, OpenedFile, ProjectId, ProjectLayout, TabPathMove } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
+import { clearExternallyDirtyMark } from '@shared/lib/lsp/model-dirty-tracker'
 import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { takeWaitMarkers } from '@entities/agent/agent-wait-marker-registry'
 import { releaseWaitMarker } from '@entities/agent/agent.ipc'
@@ -23,6 +24,7 @@ export type TabPathChangeDeps = {
     retargetModel: typeof retargetModel
     applyModelLanguage: typeof applyModelLanguage
     disposeModel: typeof disposeModel
+    clearExternallyDirtyMark: typeof clearExternallyDirtyMark
     getOpenWithOverride: typeof getOpenWithOverride
     setOpenWithOverride: typeof setOpenWithOverride
     takeWaitMarkers: typeof takeWaitMarkers
@@ -38,6 +40,7 @@ export const defaultTabPathChangeDeps: TabPathChangeDeps = {
     retargetModel,
     applyModelLanguage,
     disposeModel,
+    clearExternallyDirtyMark,
     getOpenWithOverride,
     setOpenWithOverride,
     takeWaitMarkers,
@@ -91,9 +94,28 @@ const isFilePathAddressedAnywhere = ({
         .some(([, cachedLayout]) => !!cachedLayout && collectAddressedFilePaths(cachedLayout).includes(path))
 
 /**
+ * Whether this path's hot-exit mirror is the one kind that must outlive its tab: a draft whose file
+ * was deleted outside the app (`MirrorEntry.source_missing`).
+ *
+ * Such a mirror is the only remaining copy of that work — the file is gone, so nothing on disk holds
+ * it — and `editor-pane.tsx` renders it behind the "original file was deleted" banner so the user
+ * can save it somewhere. Clearing it on close (which is right for every ordinary tab, where the mirror
+ * is a crash net for a file that still exists) would destroy the draft at the exact moment a user
+ * tidies away a tab that looks broken (d-67 #10).
+ *
+ * An in-app delete does not take this branch: `list_mirrors` only reports `source_missing` for a
+ * mirror it listed *after* the file went missing, and the cache a delete releases against was fetched
+ * while the file was still there — so a deliberate delete still clears, exactly as before.
+ */
+const hasSourceMissingMirror = (queryClient: QueryClient, projectId: ProjectId, path: string) =>
+    !!queryClient.getQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(projectId))?.some((entry) => entry.path === path && entry.sourceMissing)
+
+/**
  * Releases everything the frontend keeps keyed by a file path once no tab addresses it any more —
  * the agent wait markers holding an agent's `ide:diff-requested`-style wait open, the hot-exit
- * mirror, the sticky "reopen with" override, and the monaco model itself.
+ * mirror, the sticky "reopen with" override, the monaco model itself, and that model's unobserved-
+ * edit mark (`shared/lib/lsp/model-dirty-tracker.ts`, whose one-shot flag has no tab left to
+ * consume it once the model is gone — see `clearExternallyDirtyMark`).
  *
  * `layout` is the post-close layout: a file open in a split (or in another window) still has a tab,
  * so only the per-path state of a path that is now closed *everywhere* is torn down. That guard runs
@@ -129,13 +151,14 @@ export const releaseClosedFileTabPath = (
 
     for (const marker of deps.takeWaitMarkers(path)) void deps.releaseWaitMarker(marker).catch(() => undefined)
 
-    if (projectId) {
+    if (projectId && !hasSourceMissingMirror(queryClient, projectId, path)) {
         void deps.clearMirror({ projectId, path }).catch(() => undefined)
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) })
     }
 
     deps.setOpenWithOverride(path, null)
     deps.disposeModel(path)
+    deps.clearExternallyDirtyMark(path)
 
     if (isFilePathAddressedAnywhere({ queryClient, projectId, path, layout })) return
     queryClient.removeQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path), exact: true })
@@ -191,9 +214,14 @@ const migrateMirror = async (scope: ProjectScope, move: TabPathMove, draft: stri
     const migrated =
         draft === null
             ? null
-            : await deps
-                  .mirrorDirty({ projectId, path: move.to, content: draft })
-                  .then((diskModifiedMs): MirrorEntry => ({ path: move.to, content: draft, savedAtMs: Date.now(), diskModifiedMs, conflict: false }))
+            : await deps.mirrorDirty({ projectId, path: move.to, content: draft }).then((diskModifiedMs): MirrorEntry => ({
+                  path: move.to,
+                  content: draft,
+                  savedAtMs: Date.now(),
+                  diskModifiedMs,
+                  conflict: false,
+                  sourceMissing: false,
+              }))
     rewriteMirrorCache(scope, move, migrated)
 }
 

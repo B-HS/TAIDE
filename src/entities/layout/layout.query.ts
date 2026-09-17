@@ -186,15 +186,17 @@ type OpenFileTabCallbacks = { onSuccess?: (layout: ProjectLayout) => void; onErr
  * branch, so the target pane's active tab *is* the opened tab. The pane is looked up across every
  * tree the project owns because an auxiliary window's panes live under `auxiliaryWindows[].root`.
  *
- * Confirming the kind and path before answering is what keeps a reveal off the wrong tab: a `null`
- * `target` was resolved against the *cached* layout by {@link withCurrentWindowTarget} (or, on an
- * unpopulated cache, by Rust's own `resolve_default_open_pane`), so re-deriving it here from the
- * fresh layout can in principle name a different pane. Answering `null` in that case costs a reveal
- * that does not happen; answering optimistically would move the cursor in a file the user never
- * asked to navigate.
+ * Confirming the kind and path before answering is what keeps a reveal off the wrong tab, and the
+ * pane it confirms against is the one the *request* named — {@link useOpenFileTab} resolves the
+ * request's `null` target through {@link withCurrentWindowTarget} before the call goes out and
+ * hands that settled id here. Re-deriving the pane from the fresh layout's `focusedPane` instead
+ * would name a different pane whenever the response's focus moved (another window's mutation
+ * landing in the same round trip, a pane focused between request and response), and with the same
+ * file already open in that other pane the reveal would move a cursor the user never asked to
+ * navigate. A `null` id — an unpopulated layout cache, so Rust picked the pane through its own
+ * `resolve_default_open_pane` — costs a reveal that does not happen, which is the safe half.
  */
-const openedFileTabIdOf = (layout: ProjectLayout, target: PaneId | null, path: string) => {
-    const paneId = target ?? currentWindowFocusedPane(layout)
+const openedFileTabIdOf = (layout: ProjectLayout, paneId: PaneId | null, path: string) => {
     if (!paneId) return null
 
     const roots = [layout.root, ...(layout.auxiliaryWindows ?? []).map((window) => window.root)]
@@ -232,29 +234,41 @@ const openedFileTabIdOf = (layout: ProjectLayout, target: PaneId | null, path: s
  * a caller can name the tab it just created, so the reveal is handed to `revealInTab` from here
  * rather than being re-derived at each call site. Ordered before `callbacks.onSuccess` so a caller
  * that splits/activates in its own handler still finds the reveal already queued for its tab.
+ *
+ * The request is settled through {@link withCurrentWindowTarget} *here*, before it is handed to the
+ * mutation, so the pane the reveal confirms against is the one this open asked for rather than the
+ * response layout's `focusedPane` (d-67 #25). `useOpenTabInProject` applies the same resolution to
+ * whatever it receives, and it is idempotent on an already-explicit target, so the call going out
+ * over IPC is unchanged.
  */
 export const useOpenFileTab = () => {
     const queryClient = useQueryClient()
     const { mutate: openTabInProject } = useOpenTabInProject()
 
-    return ({ projectId, path, preview, target, title, reveal }: OpenFileTabRequest, callbacks?: OpenFileTabCallbacks) =>
-        openTabInProject(
-            { projectId, kind: { kind: 'file', path }, title: title ?? fileNameOf(path), target, preview },
-            {
-                onSuccess: (layout) => {
-                    if (reveal) {
-                        const openedTabId = openedFileTabIdOf(layout, target, path)
-                        if (openedTabId) revealInTab(openedTabId, reveal)
-                    }
-                    callbacks?.onSuccess?.(layout)
-                },
-                onError: (error) => {
-                    if (isNotFoundIpcError(error)) void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) })
-                    toast.error(describeIpcError(error))
-                    callbacks?.onError?.(error)
-                },
+    return ({ projectId, path, preview, target, title, reveal }: OpenFileTabRequest, callbacks?: OpenFileTabCallbacks) => {
+        const request = withCurrentWindowTarget(queryClient, {
+            projectId,
+            kind: { kind: 'file', path },
+            title: title ?? fileNameOf(path),
+            target,
+            preview,
+        })
+
+        return openTabInProject(request, {
+            onSuccess: (layout) => {
+                if (reveal) {
+                    const openedTabId = openedFileTabIdOf(layout, request.target, path)
+                    if (openedTabId) revealInTab(openedTabId, reveal)
+                }
+                callbacks?.onSuccess?.(layout)
             },
-        )
+            onError: (error) => {
+                if (isNotFoundIpcError(error)) void queryClient.invalidateQueries({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) })
+                toast.error(describeIpcError(error))
+                callbacks?.onError?.(error)
+            },
+        })
+    }
 }
 
 /**

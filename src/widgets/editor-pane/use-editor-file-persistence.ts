@@ -16,6 +16,7 @@ import type { useSetTabDirty } from '@entities/layout/layout.query'
 import { applyExternalContent } from '@entities/editor/model-registry'
 import { publishFileSaveSettle, subscribeFileSaveSettle } from '@entities/editor/file-save-settle-registry'
 import { registerMirrorFlush, unregisterMirrorFlush } from '@entities/editor/mirror-flush-registry'
+import { registerSaveRequest, unregisterSaveRequest } from '@entities/editor/save-request-registry'
 import { readDraftSafely, shouldAdoptLiveModelEdit, shouldSettleDraftAfterDiskWrite } from '@widgets/editor-pane/editor-draft-sync'
 import type { ConflictBannerVariant } from '@features/editor/conflict-banner'
 
@@ -136,7 +137,7 @@ export const useEditorFilePersistence = ({
 
     const queryClient = useQueryClient()
     const { data: mirrors } = useQuery(fileMirrorsQueryOptions(projectId))
-    const { mutate: saveFile } = useSaveFile(projectId)
+    const { mutateAsync: saveFile } = useSaveFile(projectId)
 
     /**
      * The only way this hook (and `EditorPane`, through the returned `setDirty`) changes dirtiness —
@@ -208,15 +209,27 @@ export const useEditorFilePersistence = ({
      * project's mirror list has never been fetched: seeding a one-entry list into that
      * `staleTime: Infinity` query would state that this is the project's *only* mirror. The backend
      * already holds this write, so the list's own first fetch reports it anyway.
+     *
+     * The patched entry is typed as a full `MirrorEntry` so the compiler holds it to the shape a
+     * real `file_list_mirrors` would return — an untyped updater let `sourceMissing` go missing, and
+     * a `false` in that slot is not free: it is what `tab-path-change.ts`'s `hasSourceMissingMirror`
+     * reads to decide whether closing the tab may clear the mirror, so a draft typed into a file
+     * deleted outside the app would be discarded on close (the d-67 #10 hazard, reintroduced through
+     * the cache). `diskModifiedMs === null` is the same derivation `list_mirrors` makes
+     * (`source_missing: current_disk_modified_ms.is_none()`) against the value `file_mirror_dirty`
+     * just returned for this very write.
      */
     const persistMirror = async (content: string, epoch: number): Promise<boolean> => {
         if (epoch !== saveEpochRef.current) return false
         const writeSeq = ++mirrorWriteSeqRef.current
         const diskModifiedMs = await mirrorDirty({ projectId, path, content })
         if (epoch === saveEpochRef.current) {
-            queryClient.setQueryData(QUERY_KEY.FILE.MIRRORS(projectId), (previous?: MirrorEntry[]) =>
+            queryClient.setQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(projectId), (previous) =>
                 previous
-                    ? [...previous.filter((entry) => entry.path !== path), { path, content, savedAtMs: Date.now(), diskModifiedMs, conflict: false }]
+                    ? [
+                          ...previous.filter((entry) => entry.path !== path),
+                          { path, content, savedAtMs: Date.now(), diskModifiedMs, conflict: false, sourceMissing: diskModifiedMs === null },
+                      ]
                     : undefined,
             )
             return true
@@ -332,13 +345,23 @@ export const useEditorFilePersistence = ({
      * is a tab that *looks* dirty (a restored mirror, an adopted background edit), so a silent
      * no-op reads as "saving is broken". Auto-save stays silent — it fires on a timer the user did
      * not press.
+     *
+     * Resolves to whether the file is now on disk with this pane's draft, and only once the write
+     * has actually settled — `useSaveFile`'s `mutateAsync`, not `mutate`. ⌘S and auto-save both
+     * ignore the answer (their feedback is the toast below and the dirty dot), but the close
+     * confirmation's "Save" cannot: it publishes `layout_close_tab` next, which clears the file's
+     * hot-exit mirror and disposes its monaco model, so it has to know the write landed before it
+     * takes both copies away (audit wave 2 #8). `false` covers the read-only refusal above as well
+     * as a rejected write — in both cases the draft is still the only copy. "Nothing to write"
+     * answers `true`: there is no edit left to lose. The rejected write is already reported by the
+     * mutation's own `onError` below, so the `catch` that turns it into `false` adds no second toast.
      */
     const handleSave = async (reason: 'explicit' | 'auto' = 'explicit') => {
         if (file?.readOnly) {
             if (reason === 'explicit') toast.error(t('editor.readOnlySaveBlocked'))
-            return
+            return false
         }
-        if (readDraft() === null) return
+        if (readDraft() === null) return true
 
         savingRef.current = true
         clearTimeout(autoSaveTimeoutRef.current)
@@ -373,56 +396,61 @@ export const useEditorFilePersistence = ({
         const finalContent = readDraft()
         if (finalContent === null) {
             savingRef.current = false
-            return
+            return true
         }
 
-        saveFile(
-            { path, content: finalContent },
-            {
-                /**
-                 * `saveEpochRef` bumps unconditionally — Rust's `file_save` already cleared the
-                 * mirror server-side for `finalContent` regardless of what's typed since, so any
-                 * mirror write `persistMirror` scheduled before this point must not be trusted to
-                 * still reflect reality (see `persistMirror`'s doc comment). *Not* bumped on
-                 * `onError` below — a failed save changes nothing on disk, so a write already in
-                 * flight for the pre-save content is still exactly the recovery data hot exit needs.
-                 *
-                 * The rest of this success handling only fires when the live draft still equals
-                 * `finalContent` — i.e. nothing was typed during the save round trip. If it doesn't
-                 * match, the user kept typing while the save/format/code-actions were in flight; that
-                 * content was never sent to disk and must stay `dirty` with its mirror timer left
-                 * armed (it will find `pendingMirrorRef` still true and, thanks to the epoch bump
-                 * above, either fire successfully with a fresh schedule or fall through to the
-                 * mirror-flush effect — either way the still-unsaved edit reaches the mirror, never
-                 * gets silently marked clean, and is never clobbered by the `FILE.CONTENT` refetch
-                 * this mutation's `onSuccess` triggers.
-                 *
-                 * `setSyncedContent(finalContent)` below restores this hook's `syncedContent`
-                 * invariant ("last known disk content") the instant the save is known to have landed,
-                 * instead of leaving it holding the pre-save content until a separate `FILE.CONTENT`
-                 * refetch (armed by `file.modifiedMs` changing) happens to land. `editor-pane.tsx`'s
-                 * `[editor, syncedContent, dirty, path]` effect re-applies `syncedContent` via
-                 * `applyExternalContent` on every dirty→false transition it observes; without this
-                 * line, a refetch that loses the race (a slow/remote round trip) leaves that effect
-                 * firing against the still-stale pre-save `syncedContent`, clobbering the
-                 * just-typed-and-saved buffer back to its pre-save contents and re-marking it dirty
-                 * with no path back to clean (docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-
-                 * contract.md §0). Restoring the invariant here makes that effect's re-apply a
-                 * same-content no-op instead, closing the race window entirely rather than trying to
-                 * win it.
-                 */
-                onSuccess: () => {
-                    savingRef.current = false
-                    saveEpochRef.current += 1
-                    if (readDraft() === finalContent) settleDraftToDiskContent(finalContent)
-                    void notifyLspSessionsOfSave()
+        try {
+            await saveFile(
+                { path, content: finalContent },
+                {
+                    /**
+                     * `saveEpochRef` bumps unconditionally — Rust's `file_save` already cleared the
+                     * mirror server-side for `finalContent` regardless of what's typed since, so any
+                     * mirror write `persistMirror` scheduled before this point must not be trusted to
+                     * still reflect reality (see `persistMirror`'s doc comment). *Not* bumped on
+                     * `onError` below — a failed save changes nothing on disk, so a write already in
+                     * flight for the pre-save content is still exactly the recovery data hot exit needs.
+                     *
+                     * The rest of this success handling only fires when the live draft still equals
+                     * `finalContent` — i.e. nothing was typed during the save round trip. If it doesn't
+                     * match, the user kept typing while the save/format/code-actions were in flight; that
+                     * content was never sent to disk and must stay `dirty` with its mirror timer left
+                     * armed (it will find `pendingMirrorRef` still true and, thanks to the epoch bump
+                     * above, either fire successfully with a fresh schedule or fall through to the
+                     * mirror-flush effect — either way the still-unsaved edit reaches the mirror, never
+                     * gets silently marked clean, and is never clobbered by the `FILE.CONTENT` refetch
+                     * this mutation's `onSuccess` triggers.
+                     *
+                     * `setSyncedContent(finalContent)` below restores this hook's `syncedContent`
+                     * invariant ("last known disk content") the instant the save is known to have landed,
+                     * instead of leaving it holding the pre-save content until a separate `FILE.CONTENT`
+                     * refetch (armed by `file.modifiedMs` changing) happens to land. `editor-pane.tsx`'s
+                     * `[editor, syncedContent, dirty, path]` effect re-applies `syncedContent` via
+                     * `applyExternalContent` on every dirty→false transition it observes; without this
+                     * line, a refetch that loses the race (a slow/remote round trip) leaves that effect
+                     * firing against the still-stale pre-save `syncedContent`, clobbering the
+                     * just-typed-and-saved buffer back to its pre-save contents and re-marking it dirty
+                     * with no path back to clean (docs/acknowledge/2026-08-27-d43-save-stale-sync-clobber-
+                     * contract.md §0). Restoring the invariant here makes that effect's re-apply a
+                     * same-content no-op instead, closing the race window entirely rather than trying to
+                     * win it.
+                     */
+                    onSuccess: () => {
+                        savingRef.current = false
+                        saveEpochRef.current += 1
+                        if (readDraft() === finalContent) settleDraftToDiskContent(finalContent)
+                        void notifyLspSessionsOfSave()
+                    },
+                    onError: (saveError) => {
+                        savingRef.current = false
+                        toast.error(describeIpcError(saveError))
+                    },
                 },
-                onError: (saveError) => {
-                    savingRef.current = false
-                    toast.error(describeIpcError(saveError))
-                },
-            },
-        )
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     /**
@@ -590,7 +618,7 @@ export const useEditorFilePersistence = ({
             if (committed) pendingMirrorRef.current = false
         }
 
-        registerMirrorFlush(tabId, flush)
+        registerMirrorFlush(tabId, projectId, flush)
         window.addEventListener('blur', flush)
         return () => {
             window.removeEventListener('blur', flush)
@@ -598,6 +626,29 @@ export const useEditorFilePersistence = ({
             unregisterMirrorFlush(tabId)
         }
     }, [projectId, path, tabId, file?.modifiedMs])
+
+    /**
+     * Publishes this pane's save pipeline so the close confirmation can drive it and learn whether
+     * the write landed — see `entities/editor/save-request-registry.ts` for why the monaco action it
+     * used to run cannot answer that (audit wave 2 #8).
+     *
+     * Gated on `editor` so the pipeline is offered only once this pane can actually run it — the same
+     * condition the close confirmation used to test through `getEditorInstance`. A pane still loading
+     * its file holds no draft yet, so answering its save would report "nothing to write" for a tab
+     * whose edit is sitting in the hot-exit mirror; unregistered, the caller falls back to writing
+     * that mirror, exactly as it did before.
+     *
+     * Deliberately without a dependency array: {@link handleSave} closes over this render's `file`,
+     * `formatOnSave`, `editorConfig` and draft refs, so a registration pinned to `[tabId]` would keep
+     * serving the first render's closure — saving a stale path with stale on-save settings. Re-running
+     * every commit costs one `Map` delete plus one set, and the cleanup always unregisters the `tabId`
+     * it registered, so a pane that switches tabs (`EditorPane` has no `key`) leaves nothing behind.
+     */
+    useEffect(() => {
+        if (!editor) return
+        registerSaveRequest(tabId, () => handleSave())
+        return () => unregisterSaveRequest(tabId)
+    })
 
     /**
      * Settles this pane whenever *anything* writes this path to disk — this pane's own ⌘S/auto-save,

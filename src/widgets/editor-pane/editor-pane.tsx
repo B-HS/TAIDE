@@ -1,9 +1,10 @@
 import type { CSSProperties, FC } from 'react'
 import { useEffect, useEffectEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
-import { Columns2 } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Columns2, TriangleAlert } from 'lucide-react'
 import { Group, Panel } from 'react-resizable-panels'
+import { save } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import type { ProjectId, TabId } from '@shared/api/bindings'
 import { resolveAiInlineCompletionConfig } from '@shared/lib/ai/inline-completion'
@@ -20,10 +21,12 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { useIpcErrorMessage } from '@shared/hooks/use-ipc-error-message'
 import { DEFAULT_RESIZER_THICKNESS } from '@shared/constants/layout'
+import { QUERY_KEY } from '@shared/constants/query-key'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/ui/tooltip'
 import { aiTokenStatusQueryOptions } from '@entities/ai/ai.query'
-import { fileQueryOptions } from '@entities/file/file.query'
-import { useSetTabDirty } from '@entities/layout/layout.query'
+import { fileMirrorsQueryOptions, fileQueryOptions, useSaveFile } from '@entities/file/file.query'
+import { clearMirror } from '@entities/file/file.ipc'
+import { useOpenFileTab, useSetTabDirty } from '@entities/layout/layout.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { settingsQueryOptions, useUpdateSettings } from '@entities/settings/settings.query'
 import { emptySettingsPatch } from '@entities/settings/settings.ipc'
@@ -69,13 +72,26 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFo
     const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
 
     const { t } = useTranslation()
+    const queryClient = useQueryClient()
     const { data: file, isPending, isError, error } = useQuery(fileQueryOptions(path))
     const openErrorMessage = useIpcErrorMessage(error)
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: aiTokenStatus } = useQuery(aiTokenStatusQueryOptions())
     const { data: project } = useQuery(projectQueryOptions(projectId))
+    const { data: mirrors } = useQuery(fileMirrorsQueryOptions(projectId))
     const { mutate: setTabDirty } = useSetTabDirty(projectId)
     const { mutate: updateSettings } = useUpdateSettings()
+    const { mutate: saveFile } = useSaveFile(projectId)
+    const openFileTab = useOpenFileTab()
+
+    /**
+     * The hot-exit draft of a file that has since been deleted outside the app (`rm`, a branch
+     * switch, a build script). `file_open` fails for such a path, which used to end the render at a
+     * bare error line — so the draft was on disk the whole time with no way to reach it, and closing
+     * the broken-looking tab deleted it (d-67 #10). `list_mirrors` reports these with
+     * `source_missing` rather than skipping them, which is what makes them addressable here at all.
+     */
+    const missingSourceMirror = (mirrors ?? []).find((entry) => entry.path === path && entry.sourceMissing) ?? null
 
     const isMarkdown = file?.languageId === MARKDOWN_LANGUAGE_ID
     /**
@@ -170,6 +186,38 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFo
     }
 
     const conflict = hasChangedOnDiskConflict({ isDirty: dirty, syncedContent, diskContent: file?.content ?? null })
+
+    /**
+     * Gets a `source_missing` draft back onto disk, which is the only thing that can be done with it:
+     * the file it belonged to is gone, so there is nothing for an ordinary ⌘S to write over.
+     *
+     * The dialog defaults to the original path, so confirming it re-creates the deleted file with the
+     * draft in it and the tab recovers on the `FILE.CONTENT` invalidation. A different path is opened
+     * as its own tab instead, since this one still addresses a path that does not exist. The mirror is
+     * cleared only on success — that clear is exactly what `releaseClosedFileTabPath`'s guard refuses
+     * to do on close, and it is safe here precisely because the draft now has a file of its own. Its
+     * `FILE.MIRRORS` refetch is chained onto the clear rather than fired beside it, or the refetch
+     * could still read the entry this call is removing and leave the banner up over a saved draft.
+     */
+    const handleSaveMissingSourceDraft = async () => {
+        if (!missingSourceMirror) return
+        const selected = await save({ defaultPath: path, title: t('tab.saveAsTitle') })
+        if (!selected) return
+
+        saveFile(
+            { path: selected, content: missingSourceMirror.content },
+            {
+                onSuccess: () => {
+                    void clearMirror({ projectId, path })
+                        .then(() => queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(projectId) }))
+                        .catch(() => undefined)
+                    void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.CONTENT(path) })
+                    if (selected !== path) openFileTab({ projectId, path: selected, target: null, preview: false })
+                },
+                onError: (error) => toast.error(describeIpcError(error)),
+            },
+        )
+    }
 
     const handleMinimapToggle = (enabled: boolean) => updateSettings({ ...emptySettingsPatch(), editorMinimap: enabled })
 
@@ -315,7 +363,36 @@ export const EditorPane: FC<EditorPaneProps> = ({ projectId, tabId, path, autoFo
     if (isPending) return <div className='bg-editor-background h-full w-full' />
 
     if (isError) {
-        return <div className='bg-editor-background text-status-error flex h-full w-full items-center justify-center text-sm'>{openErrorMessage}</div>
+        if (!missingSourceMirror) {
+            return (
+                <div className='bg-editor-background text-status-error flex h-full w-full items-center justify-center text-sm'>
+                    {openErrorMessage}
+                </div>
+            )
+        }
+
+        /**
+         * The draft is shown as plain read-only text rather than in a `CodeEditor`: this branch
+         * renders while `resolveEditorStateForRender` is holding `editor` at `null` for the very
+         * failure above, and mounting a second monaco instance under the same `registryTabId` is the
+         * editor-corpse class this file's render-phase adjustment exists to prevent
+         * (docs/acknowledge/2026-08-20-crash-class-seal-contract.md §1-1). Saving it somewhere is the
+         * action that matters here, not editing it in place.
+         */
+        return (
+            <div className='bg-editor-background flex h-full w-full flex-col'>
+                <div className='bg-status-error/15 text-status-error flex shrink-0 items-center gap-2 px-3 py-1.5 text-xs'>
+                    <TriangleAlert className='size-3.5 shrink-0' />
+                    <span className='flex-1'>{t('editor.sourceDeleted')}</span>
+                    <Button type='button' variant='outline' size='xs' onClick={() => void handleSaveMissingSourceDraft()}>
+                        {t('editor.saveDraftAs')}
+                    </Button>
+                </div>
+                <pre className='text-app-foreground min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-xs whitespace-pre-wrap'>
+                    {missingSourceMirror.content}
+                </pre>
+            </div>
+        )
     }
 
     if (file.tier === 'refused') {

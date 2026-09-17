@@ -181,7 +181,7 @@ export const UntitledPane: FC<UntitledPaneProps> = ({ projectId, tabId, index, a
             if (committed) pendingMirrorRef.current = false
         }
 
-        registerMirrorFlush(tabId, flush)
+        registerMirrorFlush(tabId, projectId, flush)
         window.addEventListener('blur', flush)
         return () => {
             window.removeEventListener('blur', flush)

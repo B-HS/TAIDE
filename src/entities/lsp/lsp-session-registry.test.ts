@@ -10,9 +10,42 @@ import { describe, expect, mock, spyOn, test } from 'bun:test'
  * import graph, including the offending worker files, before a same-file `mock.module` call would
  * ever run) is what makes this file able to load `lsp-session-registry.ts` at all.
  */
-type FakeModel = { getLanguageId: () => string; getValue: () => string }
+type FakeModelContentChange = {
+    range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }
+    rangeLength: number
+    text: string
+}
 
-const FAKE_MODELS = new Map<string, FakeModel>()
+type FakeModelContentListener = (event: { changes: FakeModelContentChange[] }) => void
+
+/**
+ * The `ITextModel` surface `acquireDocument`/`releaseDocument` now touch: the language id and value
+ * a `didOpen`/reinitialize replay reads, plus the `onDidChangeContent` subscription those two own
+ * per open document (wave-2 #1). `emitContentChange`/`contentListenerCount` are the test-only
+ * handles — one drives a keystroke, the other asserts that exactly one subscription exists no matter
+ * how many panes hold the document open.
+ */
+const createFakeModel = (languageId: string, value: string) => {
+    const listeners = new Set<FakeModelContentListener>()
+    return {
+        getLanguageId: () => languageId,
+        getValue: () => value,
+        onDidChangeContent: (listener: FakeModelContentListener) => {
+            listeners.add(listener)
+            return {
+                dispose: () => {
+                    listeners.delete(listener)
+                },
+            }
+        },
+        emitContentChange: (change: FakeModelContentChange) => {
+            for (const listener of listeners) listener({ changes: [change] })
+        },
+        contentListenerCount: () => listeners.size,
+    }
+}
+
+const FAKE_MODELS = new Map<string, ReturnType<typeof createFakeModel>>()
 
 const FAKE_MONACO = {
     Uri: {
@@ -439,12 +472,113 @@ describe('acquireLspSession — 다중 root 세션 공유 (R7#7)', () => {
     })
 })
 
+describe('acquireDocument / releaseDocument — 문서당 didChange 리스너 1개 (wave-2 #1)', () => {
+    const CHANGE = { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, rangeLength: 0, text: 'x' }
+
+    const countDidChange = (sessionId: string, uri: string) =>
+        fakeLspIpc.sentMessages.filter(
+            (message) =>
+                message.sessionId === sessionId &&
+                message.method === 'textDocument/didChange' &&
+                (message.params as { textDocument: { uri: string } }).textDocument.uri === uri,
+        ).length
+
+    test('같은 문서를 두 pane 이 열어도 편집 1회는 didChange 를 1번만 보내고, 한쪽이 닫혀도 계속 보낸다', async () => {
+        const { acquireLspSession, acquireDocument, releaseDocument, releaseLspSession } = await importRegistry()
+        const serverId = `${SERVER_ID}-didchange-refcount` as typeof SERVER_ID
+        const root = '/tmp/didchange-root'
+        const uri = `file://${root}/shared.ts`
+        const model = createFakeModel('typescript', 'const shared = 1')
+        FAKE_MODELS.set(uri, model)
+
+        const first = acquireLspSession(PROJECT_ID, serverId, root)
+        const session = await first.record.ready
+        acquireDocument(first.record, session.client, uri, 'typescript', model.getValue())
+
+        const second = acquireLspSession(PROJECT_ID, serverId, root)
+        await second.record.ready
+        acquireDocument(second.record, session.client, uri, 'typescript', model.getValue())
+
+        expect(model.contentListenerCount()).toBe(1)
+        expect(second.record).toBe(first.record)
+
+        model.emitContentChange(CHANGE)
+        expect(countDidChange(session.sessionId, uri)).toBe(1)
+
+        releaseDocument(first.record, session.client, uri)
+        expect(model.contentListenerCount()).toBe(1)
+
+        model.emitContentChange(CHANGE)
+        expect(countDidChange(session.sessionId, uri)).toBe(2)
+
+        releaseLspSession(first.key, first.record, TEST_GRACE_MS)
+        releaseDocument(second.record, session.client, uri)
+        releaseLspSession(second.key, second.record, TEST_GRACE_MS)
+        FAKE_MODELS.delete(uri)
+        await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
+    })
+
+    test('마지막 해제에서 didClose 를 보내고 리스너도 함께 dispose 한다 — 이후 편집은 아무것도 보내지 않는다', async () => {
+        const { acquireLspSession, acquireDocument, releaseDocument, releaseLspSession } = await importRegistry()
+        const serverId = `${SERVER_ID}-didchange-release` as typeof SERVER_ID
+        const root = '/tmp/didchange-release-root'
+        const uri = `file://${root}/last.ts`
+        const model = createFakeModel('typescript', 'const last = 1')
+        FAKE_MODELS.set(uri, model)
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
+        const session = await handle.record.ready
+        acquireDocument(handle.record, session.client, uri, 'typescript', model.getValue())
+
+        model.emitContentChange(CHANGE)
+        expect(countDidChange(session.sessionId, uri)).toBe(1)
+
+        releaseDocument(handle.record, session.client, uri)
+
+        expect(model.contentListenerCount()).toBe(0)
+        const didClose = fakeLspIpc.sentMessages.filter(
+            (message) =>
+                message.sessionId === session.sessionId &&
+                message.method === 'textDocument/didClose' &&
+                (message.params as { textDocument: { uri: string } }).textDocument.uri === uri,
+        )
+        expect(didClose).toHaveLength(1)
+
+        model.emitContentChange(CHANGE)
+        expect(countDidChange(session.sessionId, uri)).toBe(1)
+
+        releaseLspSession(handle.key, handle.record, TEST_GRACE_MS)
+        FAKE_MODELS.delete(uri)
+        await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
+    })
+
+    test('강제 dispose 는 아직 열려 있던 문서의 리스너도 정리한다 — 죽은 세션으로 didChange 가 새지 않는다', async () => {
+        const { acquireLspSession, acquireDocument, flushLspSessionsForProject } = await importRegistry()
+        const serverId = `${SERVER_ID}-didchange-dispose` as typeof SERVER_ID
+        const root = '/tmp/didchange-dispose-root'
+        const uri = `file://${root}/forced.ts`
+        const model = createFakeModel('typescript', 'const forced = 1')
+        FAKE_MODELS.set(uri, model)
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
+        const session = await handle.record.ready
+        acquireDocument(handle.record, session.client, uri, 'typescript', model.getValue())
+        expect(model.contentListenerCount()).toBe(1)
+
+        flushLspSessionsForProject(PROJECT_ID)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(model.contentListenerCount()).toBe(0)
+        FAKE_MODELS.delete(uri)
+    })
+})
+
 describe('handleLspSessionStatusChanged — 자동 재시작 재핸드셰이크 (R7#1)', () => {
     test('generation 증가 + crashed 상태 수신 시 pending 요청을 reject 하고 initialize 를 재실행하며, 열린 문서를 다시 didOpen 하고 lsp_confirm_reinitialize 를 호출한다', async () => {
         const { acquireLspSession, acquireDocument, handleLspSessionStatusChanged } = await importRegistry()
         const serverId = `${SERVER_ID}-reinit` as typeof SERVER_ID
         const uri = 'file:///tmp/reinit-root/a.ts'
-        FAKE_MODELS.set(uri, { getLanguageId: () => 'typescript', getValue: () => 'const a = 1' })
+        FAKE_MODELS.set(uri, createFakeModel('typescript', 'const a = 1'))
 
         const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/reinit-root')
         const session = await handle.record.ready
@@ -575,7 +709,7 @@ describe('handleLspSessionStatusChanged — 자동 재시작 재핸드셰이크 
         const { acquireLspSession, handleLspSessionStatusChanged, acquireDocument } = await importRegistry()
         const serverId = `${SERVER_ID}-reinit-mid-open` as typeof SERVER_ID
         const uri = 'file:///tmp/reinit-mid-open-root/mid.ts'
-        FAKE_MODELS.set(uri, { getLanguageId: () => 'typescript', getValue: () => 'const mid = 1' })
+        FAKE_MODELS.set(uri, createFakeModel('typescript', 'const mid = 1'))
 
         const handle = acquireLspSession(PROJECT_ID, serverId, '/tmp/reinit-mid-open-root')
         const session = await handle.record.ready
@@ -610,6 +744,44 @@ describe('handleLspSessionStatusChanged — 자동 재시작 재핸드셰이크 
         expect(didOpenCallsForUri).toHaveLength(1)
 
         FAKE_MODELS.delete(uri)
+    })
+})
+
+describe('reinitializeSession — 재시도 소진 시 세션 철거 (wave-2 #3)', () => {
+    test('소진되면 남은 요청을 reject 하고 레지스트리에서 사라지며, 다음 획득이 새 세션을 띄운다', async () => {
+        const { acquireLspSession, handleLspSessionStatusChanged, peekLspSessionForRoot, releaseLspSession } = await importRegistry()
+        const serverId = `${SERVER_ID}-reinit-teardown` as typeof SERVER_ID
+        const root = '/tmp/reinit-teardown-root'
+
+        const handle = acquireLspSession(PROJECT_ID, serverId, root)
+        const session = await handle.record.ready
+
+        fakeLspIpc.suppressNextInitializeResponses(1)
+        handleLspSessionStatusChanged(
+            { sessionId: session.sessionId, status: 'crashed', lastError: 'boom', generation: 1 },
+            { timeoutMs: 20, maxAttempts: 1, retryDelayMs: 5 },
+        )
+        /** `reinitializeSession` awaits `record.ready` before entering the loop; one macrotask hop puts us inside the (suppressed, therefore pending) `initialize` — i.e. after this attempt's own `rejectPendingRequests`, so the request below can only be settled by the exhaustion path. */
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        /** Not one of `FEATURE_CAPABILITY_CHECKS` (`client.ts`), so it really reaches `pendingRequests` instead of rejecting on capabilities — the same reason the retry test above picks this method. */
+        const pendingRequest = session.client.request('rust-analyzer/testPendingRequest', {})
+        pendingRequest.catch(() => undefined)
+
+        await new Promise((resolve) => setTimeout(resolve, REINIT_TEST_SETTLE_MS))
+
+        await expect(pendingRequest).rejects.toThrow('lsp session reinitialize retries exhausted')
+        expect(fakeLspIpc.reportReinitializeFailureCalls).toContainEqual({ sessionId: session.sessionId, generation: 1 })
+        expect(peekLspSessionForRoot(PROJECT_ID, serverId, root)).toBeNull()
+        expect(fakeLspIpc.stopCalls.some((call) => call.sessionId === session.sessionId && call.root === root)).toBe(true)
+
+        const reacquired = acquireLspSession(PROJECT_ID, serverId, root)
+        expect(reacquired.record).not.toBe(handle.record)
+        const respawned = await reacquired.record.ready
+        expect(respawned.sessionId).not.toBe(session.sessionId)
+
+        releaseLspSession(reacquired.key, reacquired.record, TEST_GRACE_MS)
+        await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS * 3))
     })
 })
 
