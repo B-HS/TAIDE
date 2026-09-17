@@ -7,6 +7,8 @@ export const getTreeRows = (input: { projectId: ProjectId; offset: number; limit
 
 export const toggleTreeNode = (input: { projectId: ProjectId; path: string }) => unwrapResult(commands.treeToggle(input.projectId, input.path))
 
+export const collapseAllTreeNodes = (input: { projectId: ProjectId }) => unwrapResult(commands.treeCollapseAll(input.projectId))
+
 export const revealTreeNode = (input: { projectId: ProjectId; path: string }) => unwrapResult(commands.treeReveal(input.projectId, input.path))
 
 export const refreshTreeDir = (input: { projectId: ProjectId; dir: string }) => unwrapResult(commands.treeRefresh(input.projectId, input.dir))

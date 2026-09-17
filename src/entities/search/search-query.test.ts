@@ -10,6 +10,7 @@ const panelQuery = (overrides: Partial<SearchQuery> = {}): SearchQuery => ({
     includeGlob: null,
     excludeGlob: null,
     respectGitignore: true,
+    scopeDir: null,
     ...overrides,
 })
 
@@ -24,6 +25,7 @@ describe('normalizeSearchQuery', () => {
             excludeGlob: null,
             contextLines: 0,
             respectGitignore: true,
+            scopeDir: null,
         })
     })
 
@@ -54,6 +56,10 @@ describe('isSameSearchQuery', () => {
     test('포함·제외 글롭이 다르면 다르다', () => {
         expect(isSameSearchQuery(panelQuery(), panelQuery({ includeGlob: 'src/**' }))).toBe(false)
         expect(isSameSearchQuery(panelQuery(), panelQuery({ excludeGlob: '*.test.ts' }))).toBe(false)
+    })
+
+    test('scopeDir 이 다르면 다르다 — 폴더 범위는 매치 집합을 바꾸므로 Replace All 스냅샷 비교에 들어간다', () => {
+        expect(isSameSearchQuery(panelQuery(), panelQuery({ scopeDir: 'node_modules/pkg' }))).toBe(false)
     })
 
     test('컨텍스트 줄 수는 매치 집합을 바꾸지 않으므로 비교하지 않는다', () => {

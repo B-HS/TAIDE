@@ -175,6 +175,53 @@ describe('isLayoutEchoAlreadyInCache', () => {
     })
 })
 
+describe('hasAuxiliaryWindowClosed', () => {
+    const withAuxiliaryWindows = (slots: number[]): ProjectLayout => ({
+        ...buildLeafLayout([]),
+        auxiliaryWindows: slots.map((slot) => ({
+            slot,
+            root: { node: 'leaf', id: `aux-leaf-${slot}`, tabs: [], active: null },
+            focusedPane: `aux-leaf-${slot}`,
+        })),
+    })
+
+    test('보조 창 하나가 사라지면 true 다 (닫힌 창이 남긴 미러를 다시 읽어야 한다)', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(withAuxiliaryWindows([1]), withAuxiliaryWindows([]))).toBe(true)
+    })
+
+    test('여러 창 중 하나만 닫혀도 true 다', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(withAuxiliaryWindows([1, 2]), withAuxiliaryWindows([2]))).toBe(true)
+    })
+
+    test('같은 에코에서 한 창이 닫히고 다른 창이 열려 개수가 같아도 true 다 (길이가 아니라 slot 집합으로 본다)', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(withAuxiliaryWindows([1]), withAuxiliaryWindows([2]))).toBe(true)
+    })
+
+    test('보조 창이 그대로면 false 다 (dirty 토글 같은 평범한 레이아웃 변경마다 미러를 리페치하지 않는다)', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(withAuxiliaryWindows([1]), withAuxiliaryWindows([1]))).toBe(false)
+    })
+
+    test('보조 창이 새로 열린 것뿐이면 false 다', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(withAuxiliaryWindows([]), withAuxiliaryWindows([1]))).toBe(false)
+    })
+
+    test('보조 창 필드가 아예 없는 레이아웃끼리는 false 다', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(buildLeafLayout([]), buildLeafLayout([]))).toBe(false)
+    })
+
+    test('어느 한쪽 스냅샷이 없으면 false 다 (비교할 근거가 없다)', async () => {
+        const { hasAuxiliaryWindowClosed } = await import('@app/providers/ipc-sync-provider')
+        expect(hasAuxiliaryWindowClosed(undefined, withAuxiliaryWindows([]))).toBe(false)
+        expect(hasAuxiliaryWindowClosed(withAuxiliaryWindows([1]), undefined)).toBe(false)
+    })
+})
+
 describe('isGitWorktreeQueryForChangedPaths', () => {
     test('GUTTER 스코프이고 path 가 changedPaths 에 있으면 true 다', async () => {
         const { isGitWorktreeQueryForChangedPaths } = await import('@app/providers/ipc-sync-provider')

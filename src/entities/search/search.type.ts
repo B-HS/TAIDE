@@ -10,4 +10,5 @@ export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {
     excludeGlob: null,
     contextLines: 0,
     respectGitignore: true,
+    scopeDir: null,
 }

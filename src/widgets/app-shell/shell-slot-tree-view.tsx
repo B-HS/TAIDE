@@ -81,7 +81,12 @@ const ShellSlotLeafView: FC<ShellSlotLeafViewProps> = ({
     return (
         <div className='flex h-full min-h-0 w-full min-w-0 flex-col' {...{ [SHELL_SLOT_ID_ATTRIBUTE]: leaf.slotId }}>
             {slotCount > 1 && !zen && (
-                <ShellSlotHeader label={project?.name ?? leaf.projectId} canClose={slotCount > 1} onClose={() => onCloseSlot(leaf.slotId)} />
+                <ShellSlotHeader
+                    label={project?.name ?? leaf.projectId}
+                    rootMissing={project?.rootMissing === true}
+                    canClose={slotCount > 1}
+                    onClose={() => onCloseSlot(leaf.slotId)}
+                />
             )}
             <ShellSlotScope slotId={leaf.slotId} projectId={leaf.projectId}>
                 <div className='relative flex min-h-0 min-w-0 flex-1'>

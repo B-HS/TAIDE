@@ -14,11 +14,11 @@ import { ShellSlotHeader } from '@features/shell-slot/shell-slot-header'
  */
 const SLOT_LABEL = 'taide'
 
-const renderHeader = (canClose: boolean) => {
+const renderHeader = (canClose: boolean, rootMissing = false) => {
     const closes: number[] = []
     renderWithProviders(
         <TooltipProvider>
-            <ShellSlotHeader label={SLOT_LABEL} canClose={canClose} onClose={() => closes.push(1)} />
+            <ShellSlotHeader label={SLOT_LABEL} rootMissing={rootMissing} canClose={canClose} onClose={() => closes.push(1)} />
         </TooltipProvider>,
     )
     return { closes, closeButton: screen.getByRole('button', { name: 'shellSlot.close' }) }
@@ -37,6 +37,18 @@ describe('ShellSlotHeader', () => {
         fireEvent.click(closeButton)
 
         expect(closes).toHaveLength(1)
+    })
+
+    test('루트가 사라진 프로젝트면 경고 배지를 단다 — 빈 트리와 구분할 유일한 표시다', () => {
+        renderHeader(true, true)
+
+        expect(screen.getByRole('img', { name: 'app.recentProjectRootMissing' })).toBeTruthy()
+    })
+
+    test('루트가 멀쩡하면 경고 배지가 없다', () => {
+        renderHeader(true)
+
+        expect(screen.queryByRole('img', { name: 'app.recentProjectRootMissing' })).toBeNull()
     })
 
     test('마지막 슬롯이면 닫기 버튼이 비활성이다 — 서버도 같은 이유로 거부한다', () => {

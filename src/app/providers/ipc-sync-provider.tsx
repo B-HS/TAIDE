@@ -10,9 +10,10 @@ import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { isGitQueryScopeMutable } from '@entities/git/git.query'
 import { refreshTreeDir } from '@entities/tree/tree.ipc'
 import { pruneOpenWithOverrides } from '@entities/editor/open-with-registry'
-import { markTerminalSessionExited } from '@entities/terminal/terminal-session-cache'
+import { markTerminalSessionExited, upsertTerminalSession } from '@entities/terminal/terminal-session-cache'
 import { flushLspSessionsForProject } from '@entities/lsp/lsp-session-flush-registry'
 import { useLspSessionsQueryInvalidationSync } from '@entities/lsp/lsp.query'
+import { useRecentProjectsClearedNotice } from '@entities/project/project.query'
 
 const PATH_SEPARATOR = '/'
 
@@ -92,6 +93,30 @@ export const isGitWorktreeQueryForChangedPaths = (queryKey: readonly unknown[], 
  */
 export const isLayoutEchoAlreadyInCache = (cachedRevision: number | undefined, eventRevision: number) =>
     cachedRevision !== undefined && cachedRevision >= eventRevision
+
+/**
+ * Whether an auxiliary window that `previous` still listed is gone from `next` — the one layout
+ * transition that also invalidates this window's hot-exit mirror cache (d-67 #4).
+ *
+ * `FILE.MIRRORS` is `staleTime: Infinity` and every window holds its own module-level query cache,
+ * so the main window's copy is a snapshot taken when the project was activated, predating anything
+ * the auxiliary window has since typed. The mirrors themselves are project-scoped files on disk
+ * (`file::service::mirror_dirty` knows nothing about windows), so a tab returning from a closing
+ * auxiliary window comes back with its draft safely persisted — but `use-editor-file-persistence`'s
+ * restore effect reads it out of that stale list, finds nothing, and renders disk content under a
+ * dirty tab. `useRenameEntry.onMutate` already force-refetches the same query for the same reason;
+ * this is the close path's missing counterpart.
+ *
+ * Keyed on the auxiliary slots rather than the array length so a close arriving in the same echo as
+ * an unrelated open is still recognized, and gated on a window actually disappearing so the ordinary
+ * per-keystroke layout churn (dirty toggles, tab activation) never refetches mirrors. Missing
+ * snapshots answer `false`: with nothing to compare there is no evidence a window closed.
+ */
+export const hasAuxiliaryWindowClosed = (previous: ProjectLayout | undefined, next: ProjectLayout | undefined) => {
+    if (!previous || !next) return false
+    const remainingSlots = new Set((next.auxiliaryWindows ?? []).map((window) => window.slot))
+    return (previous.auxiliaryWindows ?? []).some((window) => !remainingSlots.has(window.slot))
+}
 
 /**
  * Matches a cached query's key against `PROJECT_SCOPED_PATH_KEY_PREFIXES` — `[domain, scope,
@@ -266,6 +291,7 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const lastLayoutRevisionByProjectRef = useRef(new Map<ProjectId, number>())
 
     useLspSessionsQueryInvalidationSync()
+    useRecentProjectsClearedNotice()
 
     useTauriEvent(events.projectListChanged, () => {
         for (const queryKey of PROJECT_LIST_CHANGED_INVALIDATIONS) void queryClient.invalidateQueries({ queryKey })
@@ -332,7 +358,19 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
         const cachedLayout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(payload.projectId))
         if (isLayoutEchoAlreadyInCache(cachedLayout?.revision, payload.revision)) return
 
-        void queryClient.invalidateQueries({ queryKey: QUERY_KEY.LAYOUT.DETAIL(payload.projectId) })
+        /**
+         * The mirror sweep is chained onto the refetch rather than fired beside it because the event
+         * payload carries only a revision — the auxiliary window list this window last saw has to be
+         * compared against the one the refetch brings back. See {@link hasAuxiliaryWindowClosed}.
+         */
+        void queryClient
+            .invalidateQueries({ queryKey: QUERY_KEY.LAYOUT.DETAIL(payload.projectId) })
+            .then(() => {
+                const refreshedLayout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(payload.projectId))
+                if (!hasAuxiliaryWindowClosed(cachedLayout, refreshedLayout)) return
+                void queryClient.invalidateQueries({ queryKey: QUERY_KEY.FILE.MIRRORS(payload.projectId) })
+            })
+            .catch(() => undefined)
     })
 
     useTauriEvent(events.themeChanged, () => {
@@ -393,6 +431,34 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     useTauriEvent(events.terminalExited, ({ payload }) => {
         queryClient.setQueriesData<TerminalSession[]>({ queryKey: QUERY_KEY.TERMINAL.SESSIONS_ALL }, (sessions) =>
             markTerminalSessionExited(sessions, payload.sessionId),
+        )
+    })
+
+    /**
+     * The spawn-side counterpart of the handler above, and for the mirror-image reason: the roster is
+     * a per-window `staleTime: Infinity` cache, so a session recorded only by the window that spawned
+     * it stayed invisible to every other window. Dragging a running terminal tab to another window
+     * therefore met a roster that had never heard of its session, read `isTerminalSessionAlive` as
+     * dead, and spawned a replacement over a pty that kept holding its ports and CPU with nothing
+     * referencing it (audit wave 2 #6). `terminal:spawned` makes the same fact app-wide, exactly as
+     * `docs/features/terminal.md` §3.1 requires of everything that changes the roster.
+     *
+     * Written to `SESSIONS(projectId)` rather than swept across `SESSIONS_ALL` the way the exit above
+     * is: an exit carries only a globally unique `sessionId` and so has to be looked for wherever it
+     * is cached, while a spawn carries its own project and `upsertTerminalSession` *appends* — a
+     * sweep would file this session into every other open project's roster too. Idempotent by
+     * construction (the id replaces an existing entry), which is what lets the spawning window's own
+     * `setQueryData` in `terminal-session.tsx` and this echo of it coexist.
+     */
+    useTauriEvent(events.terminalSpawned, ({ payload }) => {
+        queryClient.setQueryData<TerminalSession[]>(QUERY_KEY.TERMINAL.SESSIONS(payload.projectId), (sessions) =>
+            upsertTerminalSession(sessions, {
+                id: payload.sessionId,
+                projectId: payload.projectId,
+                cwd: payload.cwd,
+                shell: payload.shell,
+                running: true,
+            }),
         )
     })
 

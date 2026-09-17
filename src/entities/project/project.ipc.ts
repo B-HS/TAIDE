@@ -6,6 +6,8 @@ export const listProjects = () => unwrapResult(commands.projectList())
 
 export const listRecentProjects = () => unwrapResult(commands.projectListRecent())
 
+export const forgetRecentProjects = () => unwrapResult(commands.projectForgetRecent())
+
 export const getProject = (projectId: ProjectId) => unwrapResult(commands.projectGet(projectId))
 
 export const getActiveProjectId = () => unwrapResult(commands.projectGetActive())

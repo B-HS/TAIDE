@@ -69,6 +69,8 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
     const hasResults = results.length > 0
     const view = resolveSearchResultsView({ status, hasResults })
     const includeGlob = query.includeGlob ?? null
+    /** Carried through re-runs exactly as `includeGlob` is, so a folder-scoped panel search opened into an editor tab keeps its scope instead of quietly widening to the whole project. */
+    const scopeDir = query.scopeDir ?? null
     const form: SearchEditorFormState = { queryText, caseSensitive, wholeWord, regex, respectGitignore, excludeGlob, contextLines }
 
     const handleSubmit = () => {
@@ -82,6 +84,7 @@ export const SearchEditorPane: FC<SearchEditorPaneProps> = ({ projectId, tabId, 
             excludeGlob: excludeGlob.trim() || null,
             contextLines,
             respectGitignore,
+            scopeDir,
         })
     }
 

@@ -1,7 +1,7 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
-import { getTreeRows, refreshTreeDir, revealTreeNode, toggleTreeNode } from '@entities/tree/tree.ipc'
+import { collapseAllTreeNodes, getTreeRows, refreshTreeDir, revealTreeNode, toggleTreeNode } from '@entities/tree/tree.ipc'
 
 /**
  * `tree_rows`'s `limit` is `Option<u32>` — `None` makes Rust's `rows_page` return every row past
@@ -26,6 +26,22 @@ export const useToggleTreeNode = (projectId: ProjectId | null) => {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: toggleTreeNode,
+        onSuccess: (page) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId ?? ''), page),
+    })
+}
+
+/**
+ * "모두 접기" as the single mutation Rust exposes for it, replacing the frontend loop of one
+ * `tree_toggle` per *visible* expanded row. That loop could only name rows the current page shows,
+ * and `service::collapse` deliberately forgets only the path it was given — so every directory
+ * hidden under an already-collapsed parent kept its `expanded` flag and sprang back open the next
+ * time the parent was expanded (d-67 #24). Clearing the whole set server-side also drops the N
+ * round trips, each of which took the app-wide mutation guard and re-serialized the entire page.
+ */
+export const useCollapseAllTree = (projectId: ProjectId | null) => {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: collapseAllTreeNodes,
         onSuccess: (page) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId ?? ''), page),
     })
 }

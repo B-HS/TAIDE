@@ -72,13 +72,16 @@ export const SettingsTerminalSection: FC<SettingsTerminalSectionProps> = ({ id, 
                     onSelect={(path) => updateSettings({ ...emptySettingsPatch(), shellOverride: path })}
                 />
             )}
-            <NumericField
-                label={t('settings.terminalScrollback')}
-                value={settings.terminalScrollback ?? DEFAULT_SCROLLBACK}
-                min={MIN_SCROLLBACK}
-                max={MAX_SCROLLBACK}
-                onCommit={(value) => updateSettings({ ...emptySettingsPatch(), terminalScrollback: value })}
-            />
+            <div className='flex flex-col gap-1'>
+                <NumericField
+                    label={t('settings.terminalScrollback')}
+                    value={settings.terminalScrollback ?? DEFAULT_SCROLLBACK}
+                    min={MIN_SCROLLBACK}
+                    max={MAX_SCROLLBACK}
+                    onCommit={(value) => updateSettings({ ...emptySettingsPatch(), terminalScrollback: value })}
+                />
+                <span className='text-app-sidebar-icon-default text-xs'>{t('settings.terminalScrollbackHint')}</span>
+            </div>
             <OptionPicker
                 label={t('settings.terminalCursorStyle')}
                 options={TERMINAL_CURSOR_STYLE_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) }))}

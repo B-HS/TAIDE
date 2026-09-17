@@ -4,6 +4,8 @@ import { commands } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { SHELL_SLOT_ID_ATTRIBUTE } from '@shared/lib/shell-slot'
 import { useShellSlotFocus } from '@shared/lib/shell-slot-context'
+import { TooltipProvider } from '@shared/ui/tooltip'
+import { ShellSlotHeader } from '@features/shell-slot/shell-slot-header'
 import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 
 /**
@@ -69,6 +71,9 @@ const renderProvider = async () => {
                 <button type='button'>left editor</button>
             </div>
             <div {...{ [SHELL_SLOT_ID_ATTRIBUTE]: RIGHT_SLOT_ID }}>
+                <TooltipProvider>
+                    <ShellSlotHeader label='right project' rootMissing={false} canClose onClose={() => undefined} />
+                </TooltipProvider>
                 <button type='button'>right editor</button>
             </div>
             <button type='button'>status bar</button>
@@ -113,6 +118,21 @@ describe('ShellSlotProvider 포커스 추적', () => {
 
         expect(focusShellSlot).toHaveBeenCalledTimes(1)
         expect(focusLabel()).toBe(`${RIGHT_SLOT_ID}/${RIGHT_PROJECT_ID}`)
+    })
+
+    test('다른 슬롯의 헤더 ✕ 를 눌러도 그 슬롯으로 포커스가 옮겨가지 않는다 — 닫기는 포커스 이동이 아니다', async () => {
+        const focusShellSlot = spyOn(commands, 'sessionFocusShellSlot').mockResolvedValue({ status: 'ok', data: null })
+        await renderProvider()
+
+        const closeButton = screen.getByRole('button', { name: 'shellSlot.close' })
+        await act(async () => {
+            fireEvent.pointerDown(closeButton)
+            fireEvent.focusIn(closeButton)
+            await settleMutation()
+        })
+
+        expect(focusShellSlot).not.toHaveBeenCalled()
+        expect(focusLabel()).toBe(`${LEFT_SLOT_ID}/${LEFT_PROJECT_ID}`)
     })
 
     test('슬롯 밖(상태바·사이드바·포털)을 눌러도 포커스는 그대로다', async () => {

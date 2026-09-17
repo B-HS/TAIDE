@@ -16,6 +16,7 @@ export const normalizeSearchQuery = (query: SearchQuery) => ({
     excludeGlob: query.excludeGlob ?? DEFAULT_SEARCH_OPTIONS.excludeGlob,
     contextLines: query.contextLines ?? DEFAULT_SEARCH_OPTIONS.contextLines,
     respectGitignore: query.respectGitignore ?? DEFAULT_SEARCH_OPTIONS.respectGitignore,
+    scopeDir: query.scopeDir ?? DEFAULT_SEARCH_OPTIONS.scopeDir,
 })
 
 /**
@@ -35,6 +36,7 @@ export const isSameSearchQuery = (left: SearchQuery, right: SearchQuery) => {
         a.regex === b.regex &&
         a.includeGlob === b.includeGlob &&
         a.excludeGlob === b.excludeGlob &&
-        a.respectGitignore === b.respectGitignore
+        a.respectGitignore === b.respectGitignore &&
+        a.scopeDir === b.scopeDir
     )
 }

@@ -1,6 +1,6 @@
 import type { FC } from 'react'
 import { useEffect, useState } from 'react'
-import { FolderTree, GitBranch, ListTree, Search } from 'lucide-react'
+import { FolderTree, GitBranch, ListTree, Search, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectId } from '@shared/api/bindings'
@@ -41,6 +41,14 @@ type ExplorerPanelProps = {
     renameError: string | null
     selectPathRequest: string | null
     canPaste: boolean
+    /**
+     * Whether this project's folder cannot be read — `ProjectRef.root_missing` from a restore, or a
+     * `tree_rows` failure after the folder went away mid-session. The files view draws the reason and
+     * the recovery instead of a tree, because a failed `read_children` is otherwise indistinguishable
+     * from an empty folder (d-67 #14) and nothing else in the window says the watcher is gone too
+     * (#15).
+     */
+    rootUnavailable: boolean
     contextMenuHandlers: FileTreeContextMenuHandlers
     onToggleExpand: (row: FileTreeRow) => void
     onOpenPreview: (row: FileTreeRow) => void
@@ -59,6 +67,7 @@ type ExplorerPanelProps = {
     onSelectPathRequestHandled: () => void
     onRevealInExplorerRequest: (path: string) => void
     onRenameInExplorerRequest: (path: string) => void
+    onReopenProject: () => void
 }
 
 /**
@@ -79,6 +88,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     renameError,
     selectPathRequest,
     canPaste,
+    rootUnavailable,
     contextMenuHandlers,
     onToggleExpand,
     onOpenPreview,
@@ -97,6 +107,7 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
     onSelectPathRequestHandled,
     onRevealInExplorerRequest,
     onRenameInExplorerRequest,
+    onReopenProject,
 }) => {
     const { t } = useTranslation()
     const [searchRequest, setSearchRequest] = useState<SearchPanelRequest | null>(null)
@@ -198,7 +209,17 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
             )}
 
             <div className='min-h-0 flex-1'>
-                {view === 'files' && (
+                {view === 'files' && rootUnavailable && (
+                    <div className='text-app-sidebar-icon-default flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs'>
+                        <TriangleAlert className='size-5 shrink-0' />
+                        <p className='text-app-foreground'>{t('explorer.projectRootMissing')}</p>
+                        {project && <p className='break-all'>{project.root}</p>}
+                        <button type='button' onClick={onReopenProject} className='text-app-foreground underline'>
+                            {t('explorer.reopenProject')}
+                        </button>
+                    </div>
+                )}
+                {view === 'files' && !rootUnavailable && (
                     <FileTree
                         rows={rows}
                         draft={draft}
@@ -228,7 +249,8 @@ export const ExplorerPanel: FC<ExplorerPanelProps> = ({
                         projectId={projectId}
                         onOpenMatch={onOpenSearchMatch}
                         includeGlob={searchRequest?.includeGlob ?? null}
-                        onClearScope={() => setSearchRequest((current) => (current ? { ...current, includeGlob: null } : null))}
+                        scopeDir={searchRequest?.scopeDir ?? null}
+                        onClearScope={() => setSearchRequest((current) => (current ? { ...current, includeGlob: null, scopeDir: null } : null))}
                         seedText={searchRequest?.seedText ?? null}
                         openReplace={searchRequest?.openReplace ?? false}
                         openNonce={openNonce}

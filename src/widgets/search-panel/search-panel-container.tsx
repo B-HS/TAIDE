@@ -25,18 +25,19 @@ type SearchPanelContainerProps = {
     projectId: ProjectId
     onOpenMatch: (path: string, line: number, column: number) => void
     includeGlob: string | null
+    /** The project-relative directory a "폴더에서 찾기" confined this panel to — see `SearchQuery.scopeDir`. */
+    scopeDir: string | null
     onClearScope: () => void
     seedText: string | null
     openReplace: boolean
     openNonce: number
 }
 
-const SCOPE_GLOB_SUFFIX = /\/\*\*$/
-
 export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
     projectId,
     onOpenMatch,
     includeGlob,
+    scopeDir,
     onClearScope,
     seedText,
     openReplace,
@@ -63,7 +64,13 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
     const sessionId = `search-panel-${useId()}`
     const { results, totalMatches, status, ranQuery, isTruncated, run } = useSearchRun(projectId, sessionId)
 
-    const scopePath = includeGlob ? includeGlob.replace(SCOPE_GLOB_SUFFIX, '') : null
+    /**
+     * What the scope chip above the results names. `scopeDir` is the Explorer's folder scope, carried
+     * as its own field rather than as a `<dir>/**` include glob so the backend can move the walk root
+     * instead of filtering a walk that already pruned the folder away (audit wave 2 #23); an
+     * `includeGlob` still shows as a chip for the Search Editor tabs that persist one.
+     */
+    const scopePath = scopeDir ?? includeGlob
     const isLiveSearchEnabled = settings?.searchOnType ?? DEFAULT_SEARCH_ON_TYPE
     const liveSearchDebounceMs = settings?.searchOnTypeDebounceMs ?? DEFAULT_SEARCH_ON_TYPE_DEBOUNCE_MS
 
@@ -80,6 +87,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
         includeGlob,
         excludeGlob: excludeGlob.trim() || null,
         respectGitignore,
+        scopeDir,
     })
 
     const queryMatchesResults = ranQuery !== null && isSameSearchQuery(buildQuery(), ranQuery)
@@ -192,7 +200,7 @@ export const SearchPanelContainer: FC<SearchPanelContainerProps> = ({
         if (!isLiveSearchEnabled || !query.trim()) return
         liveRunTimerRef.current = setTimeout(() => liveRunRef.current(), liveSearchDebounceMs)
         return () => clearTimeout(liveRunTimerRef.current)
-    }, [isLiveSearchEnabled, liveSearchDebounceMs, query, caseSensitive, wholeWord, regex, respectGitignore, excludeGlob, includeGlob])
+    }, [isLiveSearchEnabled, liveSearchDebounceMs, query, caseSensitive, wholeWord, regex, respectGitignore, excludeGlob, includeGlob, scopeDir])
 
     /**
      * Closes the span at the first batch that actually produced rows — `useSearchRun` clears

@@ -86,6 +86,7 @@ mock.module('@entities/layout/layout.ipc', () => ({
 
 const SEARCH_FAILURE_MESSAGE = 'regex parse error'
 const PROJECT_ID = 'project-1'
+const IGNORED_SCOPE_DIR = 'node_modules/pkg'
 const DEBOUNCE_MS = 20
 const SETTLE_MS = DEBOUNCE_MS * 5
 
@@ -100,7 +101,7 @@ const buildSettings = (searchOnType = true): Settings => ({
 
 const importContainer = () => import('@widgets/search-panel/search-panel-container')
 
-const renderPanel = async (searchOnType = true) => {
+const renderPanel = async (searchOnType = true, scopeDir: string | null = null) => {
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, buildSettings(searchOnType))
 
@@ -111,6 +112,7 @@ const renderPanel = async (searchOnType = true) => {
                 projectId={PROJECT_ID}
                 onOpenMatch={() => undefined}
                 includeGlob={null}
+                scopeDir={scopeDir}
                 onClearScope={() => undefined}
                 seedText={null}
                 openReplace={false}
@@ -234,5 +236,47 @@ describe('SearchPanelContainer 실시간 검색 (d-58 §1.B B4)', () => {
         await renderPanel()
 
         expect(screen.getByText('search.liveSearchHint')).toBeTruthy()
+    })
+})
+
+/**
+ * "폴더에서 찾기" 는 include glob 이 아니라 `scopeDir` 로 내려간다 — glob 은 walk 가 이미 내보낸
+ * 엔트리에만 걸리고 walk 는 `IGNORED_DIR_NAMES` 를 먼저 가지치기해서, `node_modules` 를 지정한 검색이
+ * 조용히 0건을 반환했다(audit wave 2 #23).
+ */
+describe('SearchPanelContainer 폴더 범위 (d-67 #23)', () => {
+    beforeEach(() => {
+        searchRunCalls.length = 0
+        settingsWritePatches.length = 0
+        errorMessages.length = 0
+        searchRunOutcome.shouldFail = false
+    })
+
+    test('폴더 범위는 includeGlob 이 아니라 scopeDir 로 실행된다', async () => {
+        const { input } = await renderPanel(false, IGNORED_SCOPE_DIR)
+
+        typeQuery(input, 'version')
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(searchRunCalls).toHaveLength(1)
+        expect(searchRunCalls[0]?.scopeDir).toBe(IGNORED_SCOPE_DIR)
+        expect(searchRunCalls[0]?.includeGlob).toBeNull()
+        await settle()
+    })
+
+    test('범위 칩은 그대로 표시된다', async () => {
+        await renderPanel(false, IGNORED_SCOPE_DIR)
+
+        expect(screen.getByText('explorer.searchScopeLabel')).toBeTruthy()
+    })
+
+    test('범위가 없으면 scopeDir 없이 프로젝트 전체를 검색한다', async () => {
+        const { input } = await renderPanel(false)
+
+        typeQuery(input, 'version')
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(searchRunCalls[0]?.scopeDir).toBeNull()
+        await settle()
     })
 })

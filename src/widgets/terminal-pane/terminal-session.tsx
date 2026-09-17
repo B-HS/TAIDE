@@ -9,6 +9,7 @@ import { projectQueryOptions } from '@entities/project/project.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
 import { terminalSessionsQueryOptions } from '@entities/terminal/terminal.query'
 import { isTerminalSessionAlive, removeTerminalSession, upsertTerminalSession } from '@entities/terminal/terminal-session-cache'
+import { resolveScrollbackBytes } from '@entities/terminal/scrollback-budget'
 import {
     attachPty,
     detachPty,
@@ -131,9 +132,20 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
         }
     }
 
+    /**
+     * `pty_default_options` fills in shell and cwd but knows nothing about settings, so the
+     * scrollback budget is applied here — the one place a spawn is actually issued. Until this
+     * field existed the settings slider only ever resized xterm's own display buffer, while the ring
+     * every tab switch replays from stayed at the fixed 2 MiB default, silently truncating exactly
+     * the long logs the setting was raised for (audit wave 2 #18). It applies from this spawn on:
+     * there is no command to resize a running session's ring, which is what the settings hint says.
+     */
     const spawnWithMeasuredSize = async (cols: number, rows: number) => {
         const defaults = await unwrapResult(commands.ptyDefaultOptions(projectId, tabCwd))
-        const created = await spawnPty({ ...defaults, cols, rows }, () => undefined)
+        const created = await spawnPty(
+            { ...defaults, cols, rows, scrollbackBytes: resolveScrollbackBytes(settings?.terminalScrollback) },
+            () => undefined,
+        )
         setSpawnedSessionId(created)
         setCwd(defaults.cwd)
         /**
@@ -260,8 +272,17 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
 
     const handleKillTerminal = () => closeTab(tabId, { onError: notifyError })
 
+    /**
+     * Shared by the exited and the spawn-failure screens. Clearing `failure` is what makes the second
+     * one recoverable at all: `handleSpawnFailure` already resets `spawnStartedRef` for a retry, but
+     * the failure branch renders instead of `TerminalPane`, so `handleReady` — the only other caller
+     * that reads that flag — can never run again. The measurement `handleReady` recorded before the
+     * spawn was attempted is still in `dimensionsRef`, so the retry reuses it rather than waiting for
+     * a remeasure.
+     */
     const handleRestart = () => {
         setExited(null)
+        setFailure(null)
         setSpawnedSessionId(null)
         spawnStartedRef.current = true
         const { cols, rows } = dimensionsRef.current
@@ -361,8 +382,16 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
         setExited({ code: payload.code })
     })
 
+    /** The failure is usually something the user can undo — `pty_default_options` forwards the unvalidated `shell_override` free-text setting — so this screen offers the same restart the exited one does instead of leaving the tab permanently dead. */
     if (failure) {
-        return <div className='bg-terminal-background text-status-error flex h-full w-full items-center justify-center text-sm'>{failureMessage}</div>
+        return (
+            <div className='bg-terminal-background text-status-error flex h-full w-full flex-col items-center justify-center gap-2 text-sm'>
+                <span>{failureMessage}</span>
+                <Button size='sm' variant='outline' onClick={handleRestart}>
+                    {t('terminal.restart')}
+                </Button>
+            </div>
+        )
     }
 
     if (exited) {

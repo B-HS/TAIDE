@@ -13,11 +13,11 @@ import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
-import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
+import { treeRowsQueryOptions, useCollapseAllTree, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
 import { layoutQueryOptions, useOpenFileTab, useOpenTab, useOpenTabInSplit } from '@entities/layout/layout.query'
 import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
 import { gitStatusQueryOptions } from '@entities/git/git.query'
-import { projectQueryOptions } from '@entities/project/project.query'
+import { projectQueryOptions, useCloseProject, useOpenProject } from '@entities/project/project.query'
 import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
 import type { FileTreeContextMenuHandlers } from '@features/explorer/file-tree'
 import { buildFileTreeGitStatusByPath } from '@widgets/explorer/file-tree-git-status'
@@ -60,11 +60,12 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
     const [selectPathRequest, setSelectPathRequest] = useState<string | null>(null)
     const [compareSourcePath, setCompareSourcePath] = useState<string | null>(null)
 
-    const { data: page } = useQuery(treeRowsQueryOptions(projectId))
+    const { data: page, isError: isTreeRowsError } = useQuery(treeRowsQueryOptions(projectId))
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: gitStatus } = useQuery(gitStatusQueryOptions(projectId))
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: toggleNode, mutateAsync: toggleNodeAsync } = useToggleTreeNode(projectId)
+    const { mutate: collapseAllTree } = useCollapseAllTree(projectId)
     const { mutateAsync: refreshTreeDir } = useRefreshTreeDir(projectId)
     const { mutateAsync: revealTreeNode } = useRevealTreeNode(projectId)
     const { mutateAsync: createEntry } = useCreateEntry(projectId)
@@ -74,6 +75,17 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
     const { mutate: openTab } = useOpenTab(projectId)
     const openFileTab = useOpenFileTab()
     const { mutate: openTabInSplit } = useOpenTabInSplit(projectId)
+    const { mutate: closeProject } = useCloseProject()
+    const { mutate: openProject } = useOpenProject()
+
+    /**
+     * Either signal that this project's folder cannot be read: the flag Rust computed when it restored
+     * the session (`ProjectRef.root_missing`), or a `tree_rows` failure for a folder that went away
+     * while the app was running — which the restore flag never notices, because nothing recomputes it
+     * for an already-open project (d-67 #15). Both leave the tree empty and both are recovered the
+     * same way, so they share one empty state rather than one of them staying silent.
+     */
+    const rootUnavailable = project?.rootMissing === true || isTreeRowsError
 
     const gitStatusByPath = buildFileTreeGitStatusByPath(gitStatus?.rows ?? [], project?.root ?? null)
     const rows = (page?.rows ?? []).map((row) => toFileTreeRow(row, gitStatusByPath.get(row.path) ?? null))
@@ -154,9 +166,17 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
         )
     }
 
+    /**
+     * Sends the folder as an explicit `scopeDir`, not as a `<dir>/**` include glob. The glob form was
+     * silently unreachable for exactly the folders this entry is most used on: the backend walk prunes
+     * `IGNORED_DIR_NAMES` before any glob is consulted, so right-clicking `node_modules`/`dist`/
+     * `target` and searching a string that is certainly there answered "no results" with no hint that
+     * the scope had been dropped (audit wave 2 #23). A scope moves the walk root and suspends that
+     * pruning inside the subtree the user pointed at, which is what makes the answer truthful.
+     */
     const findInFolder = (row: FileTreeRow) => {
         if (row.kind !== 'directory' || !project) return
-        requestOpenSearchPanel({ includeGlob: `${toRelativePath(project.root, row.path)}/**` })
+        requestOpenSearchPanel({ scopeDir: toRelativePath(project.root, row.path) })
     }
 
     const compareWithSelected = (row: FileTreeRow) => {
@@ -220,11 +240,16 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
         crud.startRename(toFileTreeRow(revealed, gitStatusByPath.get(revealed.path) ?? null))
     }
 
-    const collapseAllExpanded = async () => {
-        const expandedDirPaths = rows.filter((row) => row.kind === 'directory' && row.expanded).map((row) => row.path)
-        for (const path of expandedDirPaths) {
-            await toggleNodeAsync({ projectId, path })
-        }
+    /**
+     * The only recovery from a project whose capabilities were never attached: `close_project` drops
+     * the in-memory record entirely, so reopening the same root takes `open_project`'s fresh-open
+     * branch and attaches the watcher and git capability this project has been missing all session
+     * (d-67 #15). Both mutations invalidate `PROJECT.ALL`, so the rail follows the new project id.
+     */
+    const reopenProject = () => {
+        if (!project) return
+        const { root } = project
+        closeProject(projectId, { onSuccess: () => openProject(root, { onError: notifyError }), onError: notifyError })
     }
 
     /** Opens the tree-expand span (metric 5) around the mutation the user's click starts. */
@@ -267,6 +292,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
                 renameError={crud.renameError}
                 selectPathRequest={selectPathRequest}
                 canPaste={clipboard !== null}
+                rootUnavailable={rootUnavailable}
                 contextMenuHandlers={contextMenuHandlers}
                 onToggleExpand={handleToggleExpand}
                 onOpenPreview={(row) => openRowFileTab(row, true)}
@@ -277,7 +303,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
                 onNewFolder={() => void crud.startDraft('directory')}
                 onNewFileAtRoot={() => project && void crud.startDraft('file', project.root)}
                 onRefresh={() => void refreshVisibleTree()}
-                onCollapseAll={() => void collapseAllExpanded()}
+                onCollapseAll={() => collapseAllTree({ projectId })}
                 onDraftCommit={(name) => void crud.commitDraft(name)}
                 onDraftCancel={crud.cancelDraft}
                 onRenameCommit={(name) => void crud.commitRename(name)}
@@ -285,6 +311,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
                 onSelectPathRequestHandled={() => setSelectPathRequest(null)}
                 onRevealInExplorerRequest={(path) => void revealTreePath(path)}
                 onRenameInExplorerRequest={(path) => void startRenameAtPath(path)}
+                onReopenProject={reopenProject}
             />
             <EntryDeleteDialog
                 entryName={crud.deleteTarget?.name ?? null}

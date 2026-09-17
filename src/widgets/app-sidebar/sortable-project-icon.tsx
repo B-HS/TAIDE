@@ -2,11 +2,13 @@ import type { FC } from 'react'
 import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { AgentActivity, DetectedAgent, ProjectDisplayPatch, ProjectGroup, ProjectGroupId, ProjectRef, ShellSlotEdge } from '@shared/api/bindings'
 import { CLEARED_PROJECT_DISPLAY_PATCH } from '@shared/constants/project-display'
 import { agentStatusLabelKey } from '@shared/lib/agent-status-text'
+import { cn } from '@shared/lib/cn'
 import { copyTextToClipboard } from '@shared/lib/copy-text-to-clipboard'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { isProjectDisplayCustomized, resolveProjectDisplay } from '@shared/lib/project-display'
@@ -102,6 +104,14 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
 
     const display = resolveProjectDisplay(project)
     const topAgent = topPriorityAgent(agents)
+    /**
+     * `ProjectRef.root_missing` — the rail is one of the two surfaces that draw a *restored* project
+     * (the slot header is the other), and both showed a project whose folder is gone exactly like a
+     * healthy one while `Open Recent` and the Welcome list already disabled the same entry (d-67
+     * #14). Dimmed and annotated rather than made unclickable: the project is open, its slot is real,
+     * and the explorer's "reopen" recovery (d-67 #15) is reached by focusing that slot.
+     */
+    const rootMissing = project.rootMissing === true
 
     const applyDisplay = (patch: ProjectDisplayPatch, onApplied?: () => void) =>
         setProjectDisplay(
@@ -120,7 +130,7 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
                         {...listeners}>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <div>
+                                <div className={cn(rootMissing && 'opacity-50')}>
                                     <ProjectIconButton
                                         name={project.name}
                                         display={display}
@@ -135,6 +145,12 @@ export const SortableProjectIcon: FC<SortableProjectIconProps> = ({
                             <TooltipContent side='right'>
                                 <div className='flex flex-col'>
                                     <span>{project.name}</span>
+                                    {rootMissing && (
+                                        <span className='flex items-center gap-1'>
+                                            <TriangleAlert className='size-3 shrink-0' />
+                                            {t('app.recentProjectRootMissing')}
+                                        </span>
+                                    )}
                                     <span className='opacity-70'>{project.root}</span>
                                     {agents.map((agent) => (
                                         <span key={agent.sessionId} className='opacity-70'>

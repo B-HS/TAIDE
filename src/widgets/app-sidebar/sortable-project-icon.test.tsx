@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext } from '@dnd-kit/sortable'
-import type { ProjectGroup, ProjectGroupId, ShellSlotEdge } from '@shared/api/bindings'
+import type { ProjectGroup, ProjectGroupId, ProjectRef, ShellSlotEdge } from '@shared/api/bindings'
 import { TooltipProvider } from '@shared/ui/tooltip'
 import { fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 import { SortableProjectIcon } from '@widgets/app-sidebar/sortable-project-icon'
@@ -18,7 +18,7 @@ import { SortableProjectIcon } from '@widgets/app-sidebar/sortable-project-icon'
  * `useSortable` needs the dnd-kit context its real parent supplies, so the harness reproduces the
  * sidebar's `DndContext`/`SortableContext` pair rather than the icon carrying a fallback for tests.
  */
-const PROJECT = { id: 'project-1', root: '/tmp/project-1', name: 'project-1' }
+const PROJECT: ProjectRef = { id: 'project-1', root: '/tmp/project-1', name: 'project-1' }
 
 const WORK_GROUP: ProjectGroup = { id: 'group-work', name: 'Work', members: [PROJECT.id] }
 
@@ -26,9 +26,9 @@ const SIDE_GROUP: ProjectGroup = { id: 'group-side', name: 'Side' }
 
 const OPEN_IN_SLOT_LABELS = ['shellSlot.openToTheRight', 'shellSlot.openBelow', 'shellSlot.openToTheLeft', 'shellSlot.openAbove']
 
-type RenderIconOptions = { canOpenInShellSlot?: boolean; groups?: ProjectGroup[]; groupId?: ProjectGroupId | null }
+type RenderIconOptions = { canOpenInShellSlot?: boolean; groups?: ProjectGroup[]; groupId?: ProjectGroupId | null; project?: ProjectRef }
 
-const renderIcon = async ({ canOpenInShellSlot = true, groups = [], groupId = null }: RenderIconOptions = {}) => {
+const mountIcon = ({ canOpenInShellSlot = true, groups = [], groupId = null, project = PROJECT }: RenderIconOptions = {}) => {
     const edges: ShellSlotEdge[] = []
     const addedGroupIds: ProjectGroupId[] = []
     const actions: string[] = []
@@ -38,7 +38,7 @@ const renderIcon = async ({ canOpenInShellSlot = true, groups = [], groupId = nu
             <DndContext>
                 <SortableContext items={[PROJECT.id]}>
                     <SortableProjectIcon
-                        project={PROJECT}
+                        project={project}
                         active
                         dragging={false}
                         agents={[]}
@@ -57,11 +57,29 @@ const renderIcon = async ({ canOpenInShellSlot = true, groups = [], groupId = nu
         </TooltipProvider>,
     )
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: PROJECT.name }))
+    return { edges, addedGroupIds, actions, project }
+}
+
+/**
+ * Radix marks the rest of the tree `aria-hidden` while a context menu is open, so the rail icon
+ * itself is only queryable before the menu opens — which is why mounting and opening the menu are
+ * two steps rather than one.
+ */
+const renderIcon = async (options: RenderIconOptions = {}) => {
+    const mounted = mountIcon(options)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: mounted.project.name }))
     await screen.findByRole('menuitem', { name: 'project.close' })
 
-    return { edges, addedGroupIds, actions }
+    return mounted
 }
+
+/**
+ * The rail icon sits inside the tooltip trigger's wrapper, which is the element the dim lands on —
+ * the tooltip copy itself only exists while the tooltip is open, so the dim is what a closed rail
+ * can be asserted on.
+ */
+const iconWrapperOf = (name: string) => screen.getByRole('button', { name }).parentElement
 
 /** Radix opens a submenu on hover or on ArrowRight; the keyboard route is the deterministic one in a harness with no layout (`tab-bar-context-menu.test.tsx` precedent). */
 const openAddToGroupSubmenu = async () => {
@@ -137,5 +155,31 @@ describe('SortableProjectIcon 그룹 메뉴', () => {
         fireEvent.click(screen.getByRole('menuitem', { name: 'projectGroup.removeFrom' }))
 
         expect(actions).toEqual(['remove'])
+    })
+})
+
+/**
+ * A project restored from a session whose root is gone from disk (`ProjectRef.root_missing`) used to
+ * look exactly like a healthy one in the rail, while `Open Recent` and the Welcome list already
+ * disabled the very same entry (d-67 #14). It stays clickable on purpose: its slot is real, and
+ * focusing it is how the explorer's "reopen" recovery is reached (d-67 #15).
+ */
+describe('SortableProjectIcon 루트 부재 표시', () => {
+    test('root_missing 이면 아이콘을 흐리게 그린다', () => {
+        mountIcon({ project: { ...PROJECT, rootMissing: true } })
+
+        expect(iconWrapperOf(PROJECT.name)?.className).toContain('opacity-50')
+    })
+
+    test('root_missing 이어도 클릭은 막지 않는다 — 슬롯을 열어 복구 액션에 닿아야 한다', () => {
+        mountIcon({ project: { ...PROJECT, rootMissing: true } })
+
+        expect(screen.getByRole('button', { name: PROJECT.name }).hasAttribute('disabled')).toBe(false)
+    })
+
+    test('루트가 멀쩡하면 흐려지지 않는다', () => {
+        mountIcon()
+
+        expect(iconWrapperOf(PROJECT.name)?.className).not.toContain('opacity-50')
     })
 })

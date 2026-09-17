@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { ShellSlotTree } from '@shared/api/bindings'
 import {
+    SHELL_SLOT_FOCUS_IGNORE_ATTRIBUTE,
     SHELL_SLOT_ID_ATTRIBUTE,
     projectOfShellSlot,
     resolveShellSlotFocus,
@@ -88,6 +89,30 @@ describe('resolveShellSlotIdFromEventTarget', () => {
         expect(resolveShellSlotIdFromEventTarget(document.createElement('div'))).toBeNull()
         expect(resolveShellSlotIdFromEventTarget(null)).toBeNull()
         expect(resolveShellSlotIdFromEventTarget(window)).toBeNull()
+    })
+
+    test('슬롯 안이어도 포커스 무시 마커 아래면 null — 슬롯 헤더 ✕ 가 닫기 직전에 포커스를 끌어오지 않는다', () => {
+        const slot = document.createElement('div')
+        slot.setAttribute(SHELL_SLOT_ID_ATTRIBUTE, 'shellslot-a')
+        const ignored = document.createElement('span')
+        ignored.setAttribute(SHELL_SLOT_FOCUS_IGNORE_ATTRIBUTE, '')
+        const closeButton = document.createElement('button')
+        ignored.appendChild(closeButton)
+        slot.appendChild(ignored)
+
+        expect(resolveShellSlotIdFromEventTarget(closeButton)).toBeNull()
+        expect(resolveShellSlotIdFromEventTarget(ignored)).toBeNull()
+    })
+
+    test('마커 밖의 형제는 그대로 슬롯으로 해소된다 — 마커는 자기 서브트리만 뺀다', () => {
+        const slot = document.createElement('div')
+        slot.setAttribute(SHELL_SLOT_ID_ATTRIBUTE, 'shellslot-a')
+        const ignored = document.createElement('span')
+        ignored.setAttribute(SHELL_SLOT_FOCUS_IGNORE_ATTRIBUTE, '')
+        const sibling = document.createElement('button')
+        slot.append(ignored, sibling)
+
+        expect(resolveShellSlotIdFromEventTarget(sibling)).toBe('shellslot-a')
     })
 })
 

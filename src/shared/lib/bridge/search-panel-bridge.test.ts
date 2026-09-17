@@ -54,6 +54,18 @@ describe('searchPanelBridge', () => {
         requestOpenSearchPanel({ includeGlob: 'src/**' })
         unsubscribe()
 
-        expect(received).toEqual({ includeGlob: 'src/**', seedText: null, openReplace: false })
+        expect(received).toEqual({ includeGlob: 'src/**', scopeDir: null, seedText: null, openReplace: false })
+    })
+
+    test('폴더 범위 요청은 scopeDir 만 싣고 includeGlob 은 비운다 — 두 필드는 백엔드에서 다르게 동작한다', () => {
+        let received: unknown
+        const unsubscribe = subscribeOpenSearchPanel((request) => {
+            received = request
+        })
+
+        requestOpenSearchPanel({ scopeDir: 'node_modules/pkg' })
+        unsubscribe()
+
+        expect(received).toEqual({ includeGlob: null, scopeDir: 'node_modules/pkg', seedText: null, openReplace: false })
     })
 })
