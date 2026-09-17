@@ -13,6 +13,7 @@ import { joinPath, parentDirOf } from '@widgets/explorer/explorer-path'
 
 type UseExplorerEntryCrudInput = {
     projectId: ProjectId
+    projectRoot: string | null
     rows: FileTreeRow[]
     selectedRow: FileTreeRow | null
     targetDirFor: (row: FileTreeRow | null) => string | null
@@ -30,6 +31,7 @@ type UseExplorerEntryCrudInput = {
 
 export const useExplorerEntryCrud = ({
     projectId,
+    projectRoot,
     rows,
     selectedRow,
     targetDirFor,
@@ -67,11 +69,18 @@ export const useExplorerEntryCrud = ({
      * moment ago. Without it the fallback below would read `selectedRow`, and a caller that cleared
      * the selection in the same tick would still get the *previous* selection's directory, because
      * this closure was created with the pre-clear value.
+     *
+     * A directory the page does not hold is not a place a draft can be typed into: the tree's rows
+     * start at the project root's *children*, so the root itself is the one legitimate target with
+     * no row of its own, and every other rowless path is a directory that has gone away since it
+     * was picked. Such a draft would be drawn at root depth while committing into the vanished path
+     * (d-66 #13), so it is refused here rather than being opened and mis-rendered.
      */
     const startDraft = async (kind: FileTreeNodeKind, explicitTargetDir?: string) => {
         const targetDir = explicitTargetDir ?? targetDirFor(selectedRow)
         if (!targetDir) return
         const targetRow = rows.find((row) => row.path === targetDir)
+        if (!targetRow && targetDir !== projectRoot) return
         if (targetRow && !targetRow.expanded) await toggleNodeAsync({ projectId, path: targetDir })
         setDraft({ kind, parentDir: targetDir })
         setDraftError(null)

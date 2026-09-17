@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useEffect, useEffectEvent, useId } from 'react'
+import { useEffect, useEffectEvent, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Group, Panel, usePanelRef } from 'react-resizable-panels'
 import type { Layout, LayoutChangedMeta } from 'react-resizable-panels'
@@ -49,6 +49,16 @@ export const ProjectShell: FC<ProjectShellProps> = ({ projectId, zen, isProblems
      */
     const panelIdPrefix = useId()
 
+    /**
+     * What the panel is *actually* doing right now, as opposed to `sidebarCollapsed` below, which is
+     * the preference Rust persists. The two differ while a drag is still inside its trailing debounce
+     * and during the first frames of Zen mode, and the explorer's auto-reveal gate needs the live one
+     * — reading the persisted field made a main-window ⌘B silence an auxiliary window too (d-66 #18).
+     * Kept in sync from `onLayoutChanged`, which `react-resizable-panels` also fires for imperative
+     * `.collapse()`/`.expand()` calls and for the initial mount (`LayoutChangedMeta`).
+     */
+    const [explorerPanelCollapsed, setExplorerPanelCollapsed] = useState(false)
+
     const { data: settings } = useQuery(settingsQueryOptions())
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: setShellView } = useSetShellView(projectId)
@@ -72,8 +82,9 @@ export const ProjectShell: FC<ProjectShellProps> = ({ projectId, zen, isProblems
      * (`pane-resize-commit.ts`), since one drag can cross `minSize` several times before it rests.
      */
     const handleShellLayoutChanged = (_layout: Layout, meta: LayoutChangedMeta) => {
-        if (!meta.isUserInteraction) return
         const collapsed = explorerPanelRef.current?.isCollapsed() ?? false
+        setExplorerPanelCollapsed(collapsed)
+        if (!meta.isUserInteraction) return
         if (collapsed === sidebarCollapsed) return
         schedulePaneResizeCommit(`${projectId}:sidebar-collapsed`, () => persistSidebarCollapsed(collapsed))
     }
@@ -137,7 +148,7 @@ export const ProjectShell: FC<ProjectShellProps> = ({ projectId, zen, isProblems
                 collapsible
                 collapsedSize={0}>
                 <ErrorBoundary labelKey='errorBoundary.sidebarPanel' labelFallback='Sidebar Panel'>
-                    <ExplorerContainer projectId={projectId} zen={zen} />
+                    <ExplorerContainer projectId={projectId} zen={zen} sidebarCollapsed={explorerPanelCollapsed} />
                 </ErrorBoundary>
             </Panel>
             {!zen && <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />}

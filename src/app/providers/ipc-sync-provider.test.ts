@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { FsChange, ProjectLayout, Tab } from '@shared/api/bindings'
+import type { FsChange, ProjectLayout, Tab, TreeEntryKind, TreeRow } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 
 const buildFileTab = (id: string, path: string): Tab => ({ id, kind: { kind: 'file', path }, title: id })
@@ -321,22 +321,32 @@ describe('PROJECT_LIST_CHANGED_INVALIDATIONS', () => {
 })
 
 describe('rescanInvalidations', () => {
-    test('경로를 알 수 없는 rescan 이라 트리·퀵오픈·git·파일 4종을 통째로 무효화한다', async () => {
+    test('경로를 알 수 없는 rescan 이라 퀵오픈·git·파일 3종을 통째로 무효화한다', async () => {
         const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
 
         expect(rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)).toEqual([
-            QUERY_KEY.TREE.ROWS('project-1'),
             QUERY_KEY.SEARCH.PROJECT_FILES('project-1'),
             QUERY_KEY.GIT.PROJECT('project-1'),
             QUERY_KEY.FILE.ALL,
         ])
     })
 
+    /**
+     * `tree_rows` re-serializes the Rust tree store instead of re-reading disk, so an invalidation
+     * could never correct an already-expanded directory — the rescan handler drives `tree_refresh`
+     * per visible directory instead (`rescanTreeRefreshDirs`), and listing `TREE.ROWS` here again
+     * would put back the refetch that only looked like a fix.
+     */
+    test('TREE.ROWS 는 목록에 없다 — 무효화로는 펼친 디렉터리를 교정할 수 없어 실제 재조회가 대신한다', async () => {
+        const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
+
+        expect(rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)).not.toContainEqual(QUERY_KEY.TREE.ROWS('project-1'))
+    })
+
     test('git 만 predicate 를 달아 rev 불변 스코프(commit-files·show)를 지키고 나머지는 접두사 전체를 쓴다', async () => {
         const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
-        const [tree, search, git, file] = rescanInvalidations('project-1')
+        const [search, git, file] = rescanInvalidations('project-1')
 
-        expect(tree.matchesQueryKey).toBeUndefined()
         expect(search.matchesQueryKey).toBeUndefined()
         expect(file.matchesQueryKey).toBeUndefined()
         expect(git.matchesQueryKey?.(QUERY_KEY.GIT.STATUS('project-1'))).toBe(true)
@@ -345,12 +355,11 @@ describe('rescanInvalidations', () => {
         expect(git.matchesQueryKey?.(QUERY_KEY.GIT.SHOW('project-1', 'abc123', '/repo/a.ts'))).toBe(false)
     })
 
-    test('트리·퀵오픈·git 은 프로젝트 스코프다 — 도메인 전역 접두사(TREE.ALL·SEARCH.ALL·GIT.ALL)로 다른 프로젝트까지 쓸지 않는다', async () => {
+    test('퀵오픈·git 은 프로젝트 스코프다 — 도메인 전역 접두사(SEARCH.ALL·GIT.ALL)로 다른 프로젝트까지 쓸지 않는다', async () => {
         const { rescanInvalidations } = await import('@app/providers/ipc-sync-provider')
         const keys = rescanInvalidations('project-1').map((invalidation) => invalidation.queryKey)
 
-        expect(keys.filter((key) => key.includes('project-1'))).toHaveLength(3)
-        expect(keys).not.toContainEqual(QUERY_KEY.TREE.ALL)
+        expect(keys.filter((key) => key.includes('project-1'))).toHaveLength(2)
         expect(keys).not.toContainEqual(QUERY_KEY.SEARCH.ALL)
         expect(keys).not.toContainEqual(QUERY_KEY.GIT.ALL)
     })
@@ -361,5 +370,51 @@ describe('rescanInvalidations', () => {
 
         expect(keys.filter((key) => !key.includes('project-1'))).toEqual([QUERY_KEY.FILE.ALL])
         expect(QUERY_KEY.FILE.CONTENT('/other-project/a.ts')).toEqual(['file', 'content', '/other-project/a.ts'])
+    })
+})
+
+/**
+ * The rescan's tree half. `fs:rescan-required` means the watcher dropped the paths that changed, so
+ * the only thing left to go on is what the tree is currently showing — the project root plus every
+ * expanded directory, which is exactly the set the toolbar's Refresh button walks.
+ */
+describe('rescanTreeRefreshDirs', () => {
+    const buildRow = (path: string, kind: TreeEntryKind, expanded: boolean): TreeRow => ({
+        path,
+        name: path.slice(path.lastIndexOf('/') + 1),
+        kind,
+        depth: 0,
+        expanded,
+        hasChildren: kind === 'directory',
+    })
+
+    test('프로젝트 루트와 펼쳐진 디렉터리를 모두 다시 읽는다', async () => {
+        const { rescanTreeRefreshDirs } = await import('@app/providers/ipc-sync-provider')
+        const rows = [
+            buildRow('/repo/src', 'directory', true),
+            buildRow('/repo/src/app.ts', 'file', false),
+            buildRow('/repo/docs', 'directory', true),
+        ]
+
+        expect(rescanTreeRefreshDirs({ rows, total: rows.length }, '/repo')).toEqual(['/repo', '/repo/src', '/repo/docs'])
+    })
+
+    test('접힌 디렉터리와 파일 행은 다시 읽지 않는다 — 다음에 펼칠 때 어차피 디스크를 읽는다', async () => {
+        const { rescanTreeRefreshDirs } = await import('@app/providers/ipc-sync-provider')
+        const rows = [buildRow('/repo/src', 'directory', false), buildRow('/repo/a.ts', 'file', false)]
+
+        expect(rescanTreeRefreshDirs({ rows, total: rows.length }, '/repo')).toEqual(['/repo'])
+    })
+
+    test('캐시된 페이지가 없으면(첫 로드 전) 다시 읽을 것도 없다 — 호출부가 기존 무효화로 폴백한다', async () => {
+        const { rescanTreeRefreshDirs } = await import('@app/providers/ipc-sync-provider')
+
+        expect(rescanTreeRefreshDirs(undefined, '/repo')).toEqual([])
+    })
+
+    test('프로젝트 루트를 모르면 아무 것도 재조회하지 않는다', async () => {
+        const { rescanTreeRefreshDirs } = await import('@app/providers/ipc-sync-provider')
+
+        expect(rescanTreeRefreshDirs({ rows: [buildRow('/repo/src', 'directory', true)], total: 1 }, null)).toEqual([])
     })
 })

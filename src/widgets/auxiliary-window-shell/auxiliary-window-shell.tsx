@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useEffect, useEffectEvent } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Group, Panel, usePanelRef } from 'react-resizable-panels'
@@ -73,6 +73,14 @@ const noop = () => {}
 export const AuxiliaryWindowShell: FC<AuxiliaryWindowShellProps> = ({ projectId, windowSlot }) => {
     const explorerPanelRef = usePanelRef()
 
+    /**
+     * This window's own panel state. There is no persisted field to read it from — the collapse is
+     * deliberately view-local here (see above) — and the explorer's auto-reveal gate needs it, so it
+     * is mirrored into state from `onLayoutChanged`, which `react-resizable-panels` fires for the
+     * imperative `.collapse()`/`.expand()` calls below as well as for drags (`LayoutChangedMeta`).
+     */
+    const [explorerPanelCollapsed, setExplorerPanelCollapsed] = useState(false)
+
     const { data: layout, isError } = useQuery(layoutQueryOptions(projectId))
     const { data: settings } = useQuery(settingsQueryOptions())
     const paneTree = layout ? resolveWindowPaneTree(layout, { kind: 'auxiliary', projectId, windowSlot }) : null
@@ -115,10 +123,14 @@ export const AuxiliaryWindowShell: FC<AuxiliaryWindowShellProps> = ({ projectId,
                 </div>
             )}
             <main className='flex min-h-0 min-w-0 flex-1'>
-                <Group orientation='horizontal' resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE} className='min-h-0 min-w-0 flex-1'>
+                <Group
+                    orientation='horizontal'
+                    onLayoutChanged={() => setExplorerPanelCollapsed(explorerPanelRef.current?.isCollapsed() ?? false)}
+                    resizeTargetMinimumSize={RESIZE_HIT_TARGET_SIZE}
+                    className='min-h-0 min-w-0 flex-1'>
                     <Panel id='explorer' panelRef={explorerPanelRef} defaultSize='240px' minSize='180px' maxSize='40%' collapsible collapsedSize={0}>
                         <ErrorBoundary labelKey='errorBoundary.sidebarPanel' labelFallback='Sidebar Panel'>
-                            <ExplorerContainer projectId={projectId} zen={false} />
+                            <ExplorerContainer projectId={projectId} zen={false} sidebarCollapsed={explorerPanelCollapsed} />
                         </ErrorBoundary>
                     </Panel>
                     <PaneSeparator orientation='horizontal' thickness={settings?.resizerThickness ?? DEFAULT_RESIZER_THICKNESS} />

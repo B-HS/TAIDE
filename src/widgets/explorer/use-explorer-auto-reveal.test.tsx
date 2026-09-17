@@ -6,10 +6,9 @@ import { act, createTestQueryClient, renderHookWithProviders, waitFor } from '@s
 
 /**
  * The live half of `explorer.autoReveal`: `decideAutoReveal` already owns the rules (and has its own
- * tests), so what is left here is everything the hook alone can get wrong — reading the *main* pane
- * tree's active file, refusing a path outside the project root, claiming a path before the async
- * reveal so a re-render mid-flight cannot fire it twice, and never selecting when the reveal itself
- * failed.
+ * tests), so what is left here is everything the hook alone can get wrong — reading *this window's*
+ * active file, refusing a path outside the project root, claiming a path before the async reveal so
+ * a re-render mid-flight cannot fire it twice, and never selecting when the reveal itself failed.
  *
  * The hook reads layout and settings through `useQuery`, so both entity `.ipc` modules are stubbed
  * before it is pulled in through a *dynamic* `import()`; each fake covers its module's whole export
@@ -60,15 +59,37 @@ const PROJECT_ID = 'project-1'
 const PROJECT_ROOT = '/project'
 const ACTIVE_PATH = '/project/src/app.tsx'
 
-const buildFileTab = (path: string): Tab => ({ id: 'tab-1', kind: { kind: 'file', path }, title: path, dirty: false })
+const AUX_ACTIVE_PATH = '/project/src/aux.tsx'
+const AUX_WINDOW_SLOT = 1
 
-const buildLayout = (tabs: Tab[], shellView?: ProjectLayout['shellView']): ProjectLayout => ({
+const buildFileTab = (path: string): Tab => ({ id: path, kind: { kind: 'file', path }, title: path, dirty: false })
+
+/**
+ * Points `getWindowContext()` at an auxiliary window for the duration of one test. The harness pins
+ * `location` to the main window (`docs/memory/test-conventions.md` §4), and this is the documented
+ * way back out of that default without stubbing the module for the whole process.
+ */
+const withAuxiliaryWindowLocation = async (run: () => Promise<void>) => {
+    window.history.replaceState({}, '', `/?projectId=${PROJECT_ID}&windowSlot=${AUX_WINDOW_SLOT}`)
+    try {
+        await run()
+    } finally {
+        window.history.replaceState({}, '', '/')
+    }
+}
+
+const buildLayout = (tabs: Tab[], extra: Pick<ProjectLayout, 'auxiliaryWindows' | 'shellView'> = {}): ProjectLayout => ({
     version: 2,
     root: { node: 'leaf', id: 'leaf-1', tabs, active: tabs[0]?.id ?? null },
     focusedPane: 'leaf-1',
     revision: 1,
-    shellView,
+    ...extra,
 })
+
+const buildAuxiliaryWindow = (path: string): NonNullable<ProjectLayout['auxiliaryWindows']> => {
+    const tab = buildFileTab(path)
+    return [{ slot: AUX_WINDOW_SLOT, root: { node: 'leaf', id: 'aux-leaf', tabs: [tab], active: tab.id }, focusedPane: 'aux-leaf' }]
+}
 
 const buildRow = (path: string): FileTreeRow => ({
     id: path,
@@ -87,6 +108,7 @@ type AutoRevealOverrides = {
     explorerViewActive?: boolean
     projectRoot?: string | null
     zen?: boolean
+    sidebarCollapsed?: boolean
     revealFails?: boolean
 }
 
@@ -97,6 +119,7 @@ const renderAutoReveal = async ({
     explorerViewActive = true,
     projectRoot = PROJECT_ROOT,
     zen = false,
+    sidebarCollapsed = false,
     revealFails = false,
 }: AutoRevealOverrides = {}) => {
     const { useExplorerAutoReveal } = await importUseExplorerAutoReveal()
@@ -132,6 +155,7 @@ const renderAutoReveal = async ({
                 rows: props.rows,
                 explorerViewActive,
                 zen,
+                sidebarCollapsed,
                 setSelectPathRequest: (path: string) => selectCalls.push(path),
                 revealTreeNode: revealTreeNode as Parameters<typeof useExplorerAutoReveal>[0]['revealTreeNode'],
             }),
@@ -185,7 +209,7 @@ describe('useExplorerAutoReveal', () => {
     })
 
     test('사이드바가 접혀 있거나 Zen 이면 트리를 건드리지 않는다', async () => {
-        const collapsed = await renderAutoReveal({ layout: buildLayout([buildFileTab(ACTIVE_PATH)], { sidebarCollapsed: true }) })
+        const collapsed = await renderAutoReveal({ sidebarCollapsed: true })
         const zen = await renderAutoReveal({ zen: true })
 
         await settle()
@@ -243,5 +267,38 @@ describe('useExplorerAutoReveal', () => {
         await settle()
 
         expect(selectCalls).toEqual([])
+    })
+
+    /**
+     * d-62 §1.D mounts the same `ExplorerContainer` in auxiliary windows, so the tree there has to
+     * follow *that* window's active tab. Reading `ProjectLayout.focusedPane` made it follow the main
+     * window instead — the tree jumped whenever the main window changed file and stood still when the
+     * user changed tabs in front of it.
+     */
+    test('보조 창에서는 그 창 트리의 활성 파일을 드러낸다 (메인 창 활성 파일이 아니다)', async () => {
+        await withAuxiliaryWindowLocation(async () => {
+            const { revealCalls, selectCalls } = await renderAutoReveal({
+                layout: buildLayout([buildFileTab(ACTIVE_PATH)], { auxiliaryWindows: buildAuxiliaryWindow(AUX_ACTIVE_PATH) }),
+            })
+
+            await waitFor(() => expect(selectCalls).toEqual([AUX_ACTIVE_PATH]))
+
+            expect(revealCalls).toEqual([{ projectId: PROJECT_ID, path: AUX_ACTIVE_PATH }])
+        })
+    })
+
+    /** `shell_view.sidebarCollapsed` is the main window's persisted preference, so an auxiliary window with its own expanded panel must keep revealing while the main window's sidebar is shut. */
+    test('메인 창이 접어 둔 사이드바가 보조 창의 드러내기를 막지 않는다', async () => {
+        await withAuxiliaryWindowLocation(async () => {
+            const { selectCalls } = await renderAutoReveal({
+                sidebarCollapsed: false,
+                layout: buildLayout([buildFileTab(ACTIVE_PATH)], {
+                    auxiliaryWindows: buildAuxiliaryWindow(AUX_ACTIVE_PATH),
+                    shellView: { sidebarCollapsed: true },
+                }),
+            })
+
+            await waitFor(() => expect(selectCalls).toEqual([AUX_ACTIVE_PATH]))
+        })
     })
 })

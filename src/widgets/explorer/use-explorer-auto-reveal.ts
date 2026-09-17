@@ -5,8 +5,9 @@ import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import type { useRevealTreeNode } from '@entities/tree/tree.query'
 import { layoutQueryOptions } from '@entities/layout/layout.query'
 import { settingsQueryOptions } from '@entities/settings/settings.query'
-import { activeFilePathOf } from '@shared/lib/pane-tree'
+import { activeFilePathOf, resolveWindowPaneTree } from '@shared/lib/pane-tree'
 import { toRelativePath } from '@shared/lib/relative-path'
+import { getWindowContext } from '@shared/lib/window-context'
 import { decideAutoReveal } from '@widgets/explorer/explorer-auto-reveal'
 
 type UseExplorerAutoRevealInput = {
@@ -16,6 +17,8 @@ type UseExplorerAutoRevealInput = {
     explorerViewActive: boolean
     /** Window-level as of d-62 §0.1 S-6, so it arrives as an input instead of being read off this project's `shell_view` — see `use-window-chrome.ts`. */
     zen: boolean
+    /** The shell's own panel state, injected for the same reason `zen` is — `shell_view.sidebarCollapsed` is the *main* window's, and an auxiliary window keeps a view-local collapse. */
+    sidebarCollapsed: boolean
     setSelectPathRequest: (path: string) => void
     revealTreeNode: ReturnType<typeof useRevealTreeNode>['mutateAsync']
 }
@@ -26,10 +29,11 @@ type UseExplorerAutoRevealInput = {
  * and expand the ancestors, then the existing `selectPathRequest` handshake to scroll and select.
  * Selection never touches DOM focus, so typing in the editor is uninterrupted.
  *
- * The active file is read from the *main* pane tree only (`layout.root`/`layout.focusedPane`, not
- * `resolveWindowPaneTree`): the sidebar is mounted in the main window alone, so letting an
- * auxiliary window's focused tab steer it would move the tree under a user who is looking at a
- * different window.
+ * The active file is read from *this window's* pane tree (`resolveWindowPaneTree`): d-62 §1.D gave
+ * auxiliary windows the same `ExplorerContainer`, so reading `layout.root`/`layout.focusedPane` here
+ * made every window's tree follow the main window's active tab — and made two windows publish
+ * `tree_reveal` for the same path. Whether the tree is *visible* comes in as `sidebarCollapsed` for
+ * the same reason: the persisted `shell_view.sidebarCollapsed` is the main window's alone.
  *
  * A path outside the project root can't be revealed — `tree_reveal` has no ancestors under the root
  * to walk — so it is filtered out here rather than being sent and failing. Everything else that
@@ -44,6 +48,7 @@ export const useExplorerAutoReveal = ({
     rows,
     explorerViewActive,
     zen,
+    sidebarCollapsed,
     setSelectPathRequest,
     revealTreeNode,
 }: UseExplorerAutoRevealInput) => {
@@ -52,12 +57,12 @@ export const useExplorerAutoReveal = ({
     const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { data: settings } = useQuery(settingsQueryOptions())
 
-    const activePath = activeFilePathOf(layout)
+    const activePath = activeFilePathOf(layout ? resolveWindowPaneTree(layout, getWindowContext()) : null)
     const isUnderProjectRoot = !!activePath && !!projectRoot && toRelativePath(projectRoot, activePath) !== activePath
     const revealablePath = isUnderProjectRoot ? activePath : null
 
     const enabled = settings?.explorerAutoReveal ?? true
-    const sidebarVisible = !zen && !(layout?.shellView?.sidebarCollapsed ?? false)
+    const sidebarVisible = !zen && !sidebarCollapsed
 
     /**
      * The decision is taken here rather than during render because `lastRevealedPath` lives in a

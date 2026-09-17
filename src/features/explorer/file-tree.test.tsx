@@ -21,6 +21,7 @@ const renderTree = ({ draft = null }: { draft?: FileTreeDraft | null } = {}) => 
         (name: string) =>
         (row: FileTreeRow | null = null) =>
             void calls.push({ name, path: row?.path ?? null })
+    const selectionChanges: (string | null)[] = []
 
     const contextMenuHandlers: FileTreeContextMenuHandlers = {
         onOpenToTheSide: record('openToTheSide'),
@@ -41,7 +42,6 @@ const renderTree = ({ draft = null }: { draft?: FileTreeDraft | null } = {}) => 
         onCopyRelativePath: record('copyRelativePath'),
         onStartRename: record('startRename'),
         onRequestDelete: record('requestDelete'),
-        onClearSelection: record('clearSelection'),
     }
 
     const rendered = renderWithProviders(
@@ -57,7 +57,7 @@ const renderTree = ({ draft = null }: { draft?: FileTreeDraft | null } = {}) => 
             onToggleExpand={record('toggleExpand')}
             onOpenPreview={record('openPreview')}
             onOpenPinned={record('openPinned')}
-            onSelectionChange={noop}
+            onSelectionChange={(id) => void selectionChanges.push(id)}
             onDraftCommit={noop}
             onDraftCancel={noop}
             onRenameCommit={noop}
@@ -69,7 +69,7 @@ const renderTree = ({ draft = null }: { draft?: FileTreeDraft | null } = {}) => 
         />,
     )
 
-    return { ...rendered, calls, tree: screen.getByRole('tree') }
+    return { ...rendered, calls, selectionChanges, tree: screen.getByRole('tree') }
 }
 
 const selectFirstRow = (tree: HTMLElement) => fireEvent.keyDown(tree, { key: 'ArrowDown' })
@@ -163,11 +163,13 @@ describe('FileTree 단축키', () => {
 
 describe('FileTree 빈 공간 더블클릭', () => {
     test('행이 없는 아래쪽을 더블클릭하면 선택을 지우고 루트 새 파일 초안을 연다', () => {
-        const { tree, calls } = renderTree()
+        const { tree, calls, selectionChanges } = renderTree()
+        selectFirstRow(tree)
 
         fireEvent.doubleClick(tree, { clientY: ROWS.length * ROW_HEIGHT_PX + 1 })
 
-        expect(calls.map((call) => call.name)).toEqual(['clearSelection', 'newFileAtRoot'])
+        expect(selectionChanges).toEqual([ROWS[0].id, null])
+        expect(calls.map((call) => call.name)).toEqual(['newFileAtRoot'])
     })
 
     /**

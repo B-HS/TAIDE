@@ -1,7 +1,7 @@
 import type { FC, PropsWithChildren } from 'react'
 import { useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { FsChange, Project, ProjectId, ProjectLayout, TerminalSession } from '@shared/api/bindings'
+import type { FsChange, Project, ProjectId, ProjectLayout, TerminalSession, TreeRowPage } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { GIT_SCOPE_DIFF, GIT_SCOPE_GUTTER, PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
@@ -210,11 +210,13 @@ export const PROJECT_LIST_CHANGED_INVALIDATIONS: readonly (readonly unknown[])[]
  * affordable. Split out of the handler as a pure list so the *set* is testable — the handler itself
  * is a `useTauriEvent` subscription with nothing to return.
  *
- * - `TREE.ROWS` and `SEARCH.PROJECT_FILES` are the two project-wide file listings the overflow can
- *   desynchronize. The quick-open index is a fresh disk walk, so its refetch is a full correction;
- *   `tree_rows` re-serializes the Rust tree store and only reads directories the store has *not*
- *   cached (`domain::tree::service::plan_root_read`), so an already-expanded directory keeps its
- *   pre-overflow listing until a later `fs:changed` or an explicit `tree_refresh` touches it.
+ * - `SEARCH.PROJECT_FILES` is the one project-wide file listing an invalidation can actually
+ *   correct: the quick-open index is a fresh disk walk, so refetching it re-reads everything. The
+ *   Explorer tree is *not* in this list — invalidating `TREE.ROWS` would only re-run `tree_rows`,
+ *   which re-serializes the Rust tree store and reads a directory from disk only when the store has
+ *   not cached it yet (`domain::tree::service::plan_root_read`), so every already-expanded directory
+ *   would keep its pre-overflow listing. {@link rescanTreeRefreshDirs} drives the real re-read
+ *   instead, through the same `tree_refresh` calls the toolbar's Refresh button uses.
  * - `GIT.PROJECT` carries the same `predicate` the `git:status-changed` handler above and
  *   `git.query.ts`'s mutations use, so the commit-keyed `REV_IMMUTABLE_SCOPES` panels keep their
  *   `staleTime: Infinity` caches instead of refetching a blob that cannot have changed. The `.git`
@@ -236,11 +238,28 @@ export const PROJECT_LIST_CHANGED_INVALIDATIONS: readonly (readonly unknown[])[]
  *   stands.
  */
 export const rescanInvalidations = (projectId: ProjectId): readonly RescanInvalidation[] => [
-    { queryKey: QUERY_KEY.TREE.ROWS(projectId) },
     { queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId) },
     { queryKey: QUERY_KEY.GIT.PROJECT(projectId), matchesQueryKey: isGitQueryScopeMutable },
     { queryKey: QUERY_KEY.FILE.ALL },
 ]
+
+/**
+ * Which directories a `fs:rescan-required` has to re-read from disk: the project root plus every
+ * directory the cached tree page currently shows expanded. Those are exactly the listings the user
+ * can see, and — because `tree_rows` serves an expanded directory straight from the Rust tree store
+ * — the only ones a plain invalidation would leave stale (d-66 #12, superseding d-57 F4's
+ * "record only" decision). Collapsing and re-expanding does not fix them either: `expand` also skips
+ * the disk when the store already holds the entry.
+ *
+ * Taken as the cached page rather than a `QueryClient` so the set is pure and testable, mirroring
+ * the helpers above. An absent page (nothing rendered yet) or an unknown root (the `PROJECT.DETAIL`
+ * entry swept away by a concurrent close) yields no directory at all, and the handler falls back to
+ * the invalidation this replaced — there is no visible listing to correct in either case.
+ */
+export const rescanTreeRefreshDirs = (page: TreeRowPage | undefined, projectRoot: string | null) => {
+    if (!page || !projectRoot) return []
+    return [projectRoot, ...page.rows.filter((row) => row.kind === 'directory' && row.expanded).map((row) => row.path)]
+}
 
 export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     const queryClient = useQueryClient()
@@ -491,10 +510,27 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
      * The watcher lost events instead of delivering them, so the `fs:changed` handler above will
      * never be told which paths moved during the gap — see {@link rescanInvalidations} for what is
      * swept and why nothing can be narrowed by path here.
+     *
+     * The Explorer tree is corrected by re-reading its visible directories rather than by
+     * invalidating its query ({@link rescanTreeRefreshDirs}), reusing the same
+     * {@link syncTreeRowsForChangedDirs} the `fs:changed` handler drives.
      */
     useTauriEvent(events.fsRescanRequired, ({ payload }) => {
-        for (const { queryKey, matchesQueryKey } of rescanInvalidations(payload.projectId))
+        const { projectId } = payload
+        for (const { queryKey, matchesQueryKey } of rescanInvalidations(projectId))
             void queryClient.invalidateQueries({ queryKey, predicate: matchesQueryKey ? (query) => matchesQueryKey(query.queryKey) : undefined })
+
+        const projectRoot = queryClient.getQueryData<Project>(QUERY_KEY.PROJECT.DETAIL(projectId))?.root ?? null
+        const dirs = rescanTreeRefreshDirs(queryClient.getQueryData<TreeRowPage>(QUERY_KEY.TREE.ROWS(projectId)), projectRoot)
+        if (dirs.length === 0) {
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) })
+            return
+        }
+        void syncTreeRowsForChangedDirs(dirs, {
+            refreshTreeDir: (dir) => refreshTreeDir({ projectId, dir }),
+            setTreeRows: (page) => queryClient.setQueryData(QUERY_KEY.TREE.ROWS(projectId), page),
+            invalidateTreeRows: () => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.TREE.ROWS(projectId) }),
+        })
     })
 
     return children

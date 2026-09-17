@@ -39,7 +39,6 @@ export type FileTreeContextMenuHandlers = {
     onCopyRelativePath: (row: FileTreeRow) => void
     onStartRename: (row: FileTreeRow) => void
     onRequestDelete: (row: FileTreeRow) => void
-    onClearSelection: () => void
 }
 
 type FileTreeProps = {
@@ -54,7 +53,7 @@ type FileTreeProps = {
     onToggleExpand: (row: FileTreeRow) => void
     onOpenPreview: (row: FileTreeRow) => void
     onOpenPinned: (row: FileTreeRow) => void
-    onSelectionChange?: (row: FileTreeRow) => void
+    onSelectionChange?: (id: string | null) => void
     onDraftCommit: (name: string) => void
     onDraftCancel: () => void
     onRenameCommit: (name: string) => void
@@ -130,13 +129,13 @@ export const FileTree: FC<FileTreeProps> = ({
         const row = displayRows[index]
         if (row.id === DRAFT_ROW_ID) return
         setSelectedId(row.id)
-        onSelectionChange?.(row)
+        onSelectionChange?.(row.id)
         rowVirtualizer.scrollToIndex(index)
     }
 
     const handleRowClick = (row: FileTreeRow) => {
         setSelectedId(row.id)
-        onSelectionChange?.(row)
+        onSelectionChange?.(row.id)
         if (row.kind === 'directory') {
             onToggleExpand(row)
             return
@@ -251,7 +250,7 @@ export const FileTree: FC<FileTreeProps> = ({
     const handleContainerDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
         if (isEditing || rowAtClientY(event.clientY)) return
         setSelectedId(null)
-        contextMenuHandlers.onClearSelection()
+        onSelectionChange?.(null)
         onNewFileAtRoot()
     }
 
@@ -264,11 +263,11 @@ export const FileTree: FC<FileTreeProps> = ({
         if (!row || row.id === DRAFT_ROW_ID) {
             setContextRow(null)
             setSelectedId(null)
-            contextMenuHandlers.onClearSelection()
+            onSelectionChange?.(null)
             return
         }
         setSelectedId(row.id)
-        onSelectionChange?.(row)
+        onSelectionChange?.(row.id)
         setContextRow(row)
     }
 

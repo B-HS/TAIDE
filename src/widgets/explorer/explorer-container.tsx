@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { PaneId, PaneNode, ProjectId, TreeRow } from '@shared/api/bindings'
+import type { ProjectId, TreeRow } from '@shared/api/bindings'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
 import { EntryDeleteDialog } from '@features/explorer/entry-delete-dialog'
 import { requestOpenFileHistory } from '@shared/lib/bridge/file-history-panel-bridge'
@@ -12,18 +12,17 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 import { fileNameOf, toRelativePath } from '@shared/lib/relative-path'
 import { requestOpenSearchPanel } from '@shared/lib/bridge/search-panel-bridge'
-import { resolveWindowPaneTree } from '@shared/lib/pane-tree'
-import { getWindowContext } from '@shared/lib/window-context'
 import { setOpenWithOverride } from '@entities/editor/open-with-registry'
 import { treeRowsQueryOptions, useRefreshTreeDir, useRevealTreeNode, useToggleTreeNode } from '@entities/tree/tree.query'
-import { useOpenFileTab, useOpenTab, useSplitPane } from '@entities/layout/layout.query'
+import { layoutQueryOptions, useOpenFileTab, useOpenTab, useOpenTabInSplit } from '@entities/layout/layout.query'
 import { useCopyEntry, useCreateEntry, useDeleteEntry, useRenameEntry } from '@entities/file/file.query'
 import { gitStatusQueryOptions } from '@entities/git/git.query'
 import { projectQueryOptions } from '@entities/project/project.query'
 import { systemOpenInBrowser, systemRevealPath } from '@entities/system/system.ipc'
 import type { FileTreeContextMenuHandlers } from '@features/explorer/file-tree'
 import { buildFileTreeGitStatusByPath } from '@widgets/explorer/file-tree-git-status'
-import { parentDirOf } from '@widgets/explorer/explorer-path'
+import { resolveTargetDir } from '@widgets/explorer/explorer-path'
+import { planOpenToTheSide } from '@widgets/explorer/open-to-the-side-plan'
 import { useExplorerAutoReveal } from '@widgets/explorer/use-explorer-auto-reveal'
 import { useExplorerClipboard } from '@widgets/explorer/use-explorer-clipboard'
 import { useExplorerEntryCrud } from '@widgets/explorer/use-explorer-entry-crud'
@@ -35,6 +34,13 @@ type ExplorerContainerProps = {
     projectId: ProjectId
     /** Zen mode is a property of the window, not of this project (d-62 §0.1 S-6), so it comes in as a prop — an auxiliary window passes `false` because it has no Zen mode of its own. */
     zen: boolean
+    /**
+     * Whether the shell has this panel collapsed. Window-level for the same reason `zen` is: the
+     * main window persists its own collapse to `shell_view.sidebarCollapsed` while an auxiliary
+     * window keeps a view-local one (`auxiliary-window-shell.tsx`), so reading the persisted field
+     * here would let the main window's ⌘B silence an auxiliary window's auto-reveal (d-66 #18).
+     */
+    sidebarCollapsed: boolean
 }
 
 const toFileTreeRow = (row: TreeRow, gitStatus: FileTreeRow['gitStatus']): FileTreeRow => ({
@@ -47,25 +53,17 @@ const toFileTreeRow = (row: TreeRow, gitStatus: FileTreeRow['gitStatus']): FileT
     gitStatus,
 })
 
-const findLeafPane = (node: PaneNode, paneId: PaneId): PaneNode | null => {
-    if (node.node === 'leaf') return node.id === paneId ? node : null
-    for (const child of node.children) {
-        const found = findLeafPane(child, paneId)
-        if (found) return found
-    }
-    return null
-}
-
-export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }) => {
+export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, sidebarCollapsed }) => {
     const { t } = useTranslation()
     const [view, setView] = useState<ExplorerView>('files')
-    const [selectedRow, setSelectedRow] = useState<FileTreeRow | null>(null)
+    const [selectedId, setSelectedId] = useState<string | null>(null)
     const [selectPathRequest, setSelectPathRequest] = useState<string | null>(null)
     const [compareSourcePath, setCompareSourcePath] = useState<string | null>(null)
 
     const { data: page } = useQuery(treeRowsQueryOptions(projectId))
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const { data: gitStatus } = useQuery(gitStatusQueryOptions(projectId))
+    const { data: layout } = useQuery(layoutQueryOptions(projectId))
     const { mutate: toggleNode, mutateAsync: toggleNodeAsync } = useToggleTreeNode(projectId)
     const { mutateAsync: refreshTreeDir } = useRefreshTreeDir(projectId)
     const { mutateAsync: revealTreeNode } = useRevealTreeNode(projectId)
@@ -75,27 +73,33 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }
     const { mutateAsync: deleteEntryAsync } = useDeleteEntry(projectId)
     const { mutate: openTab } = useOpenTab(projectId)
     const openFileTab = useOpenFileTab()
-    const { mutate: splitPane } = useSplitPane(projectId)
+    const { mutate: openTabInSplit } = useOpenTabInSplit(projectId)
 
     const gitStatusByPath = buildFileTreeGitStatusByPath(gitStatus?.rows ?? [], project?.root ?? null)
     const rows = (page?.rows ?? []).map((row) => toFileTreeRow(row, gitStatusByPath.get(row.path) ?? null))
 
+    /**
+     * The selection is held as an id and the row is looked up in the page every render, so a row
+     * that the tree has since lost (a deleted directory, a watcher-driven rename) resolves to `null`
+     * instead of lingering as a stale object that later actions would still aim at (d-66 #13).
+     */
+    const selectedRow = rows.find((row) => row.id === selectedId) ?? null
+
     const notifyError = (error: unknown) => toast.error(describeIpcError(error))
 
-    const targetDirFor = (row: FileTreeRow | null) => {
-        if (row) return row.kind === 'directory' ? row.path : parentDirOf(row.path)
-        return project?.root ?? null
-    }
+    const targetDirFor = (row: FileTreeRow | null) => resolveTargetDir(row, rows, project?.root ?? null)
 
     const openRowFileTab = (row: FileTreeRow, preview: boolean) => {
         if (row.kind === 'directory') return
         openFileTab({ projectId, path: row.path, title: row.name, target: null, preview })
     }
 
-    const openSearchMatch = (path: string) => openFileTab({ projectId, path, target: null, preview: true })
+    const openSearchMatch = (path: string, line: number, column: number) =>
+        openFileTab({ projectId, path, target: null, preview: true, reveal: { line, column } })
 
     const crud = useExplorerEntryCrud({
         projectId,
+        projectRoot: project?.root ?? null,
         rows,
         selectedRow,
         targetDirFor,
@@ -130,26 +134,15 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }
         rows,
         explorerViewActive: view === 'files',
         zen,
+        sidebarCollapsed,
         setSelectPathRequest,
         revealTreeNode,
     })
 
-    /** Splits the pane the tab actually landed in, resolved per window — an auxiliary window's own tree, not `ProjectLayout.focusedPane`, which always names the main tree's pane. */
+    /** One mutation that opens the file straight into a new pane — see {@link planOpenToTheSide} for why the open-then-split pair it replaced could end without a split. */
     const openToTheSide = (row: FileTreeRow) => {
-        if (row.kind !== 'file') return
-        openFileTab(
-            { projectId, path: row.path, title: row.name, target: null, preview: false },
-            {
-                onSuccess: (layout) => {
-                    const tree = resolveWindowPaneTree(layout, getWindowContext())
-                    if (!tree) return
-                    const pane = findLeafPane(tree.root, tree.focusedPane)
-                    const activeTabId = pane && pane.node === 'leaf' ? pane.active : null
-                    if (!activeTabId) return
-                    splitPane({ paneId: tree.focusedPane, edge: 'right', tabId: activeTabId })
-                },
-            },
-        )
+        const request = planOpenToTheSide(projectId, row, layout)
+        if (request) openTabInSplit(request, { onError: notifyError })
     }
 
     const openInTerminal = (row: FileTreeRow) => {
@@ -206,7 +199,6 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }
         onCopyRelativePath: (row) => project && void copyTextToClipboard(toRelativePath(project.root, row.path)),
         onStartRename: crud.startRename,
         onRequestDelete: crud.setDeleteTarget,
-        onClearSelection: () => setSelectedRow(null),
     }
 
     /**
@@ -279,7 +271,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen }
                 onToggleExpand={handleToggleExpand}
                 onOpenPreview={(row) => openRowFileTab(row, true)}
                 onOpenPinned={(row) => openRowFileTab(row, false)}
-                onSelectionChange={setSelectedRow}
+                onSelectionChange={setSelectedId}
                 onOpenSearchMatch={openSearchMatch}
                 onNewFile={() => void crud.startDraft('file')}
                 onNewFolder={() => void crud.startDraft('directory')}

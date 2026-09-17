@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { joinPath, parentDirOf } from '@widgets/explorer/explorer-path'
+import type { FileTreeRow } from '@features/explorer/file-tree-row'
+import { joinPath, parentDirOf, resolveTargetDir } from '@widgets/explorer/explorer-path'
 
 /**
  * The two path helpers behind explorer create/rename/paste. They deliberately do not touch the
@@ -51,5 +52,47 @@ describe('joinPath', () => {
         const path = '/project/src/app.tsx'
 
         expect(joinPath(parentDirOf(path), 'app.tsx')).toBe(path)
+    })
+})
+
+const PROJECT_ROOT = '/project'
+
+const buildRow = (path: string, kind: FileTreeRow['kind']): FileTreeRow => ({
+    id: path,
+    path,
+    name: path.slice(path.lastIndexOf('/') + 1),
+    depth: 0,
+    kind,
+    expanded: false,
+    gitStatus: null,
+})
+
+/**
+ * The delete case is the one that used to resurrect a directory: the tree page no longer holds the
+ * row, but the explorer's selection still pointed at it, so "new file" resolved to the deleted path
+ * and `create_dir_all` made it again.
+ */
+describe('resolveTargetDir', () => {
+    const dir = buildRow('/project/src', 'directory')
+    const file = buildRow('/project/src/app.tsx', 'file')
+    const rows = [dir, file]
+
+    test('디렉터리 행은 자기 경로가, 파일 행은 부모 디렉터리가 대상이다', () => {
+        expect(resolveTargetDir(dir, rows, PROJECT_ROOT)).toBe('/project/src')
+        expect(resolveTargetDir(file, rows, PROJECT_ROOT)).toBe('/project/src')
+    })
+
+    test('행이 없으면 프로젝트 루트가 대상이다', () => {
+        expect(resolveTargetDir(null, rows, PROJECT_ROOT)).toBe(PROJECT_ROOT)
+    })
+
+    test('트리에서 사라진 행(삭제된 디렉터리)은 대상이 되지 못하고 루트로 떨어진다', () => {
+        expect(resolveTargetDir(dir, [], PROJECT_ROOT)).toBe(PROJECT_ROOT)
+        expect(resolveTargetDir(file, [], PROJECT_ROOT)).toBe(PROJECT_ROOT)
+    })
+
+    test('프로젝트 루트를 아직 모르면(로딩 전) 대상이 없다', () => {
+        expect(resolveTargetDir(dir, [], null)).toBeNull()
+        expect(resolveTargetDir(null, rows, null)).toBeNull()
     })
 })
