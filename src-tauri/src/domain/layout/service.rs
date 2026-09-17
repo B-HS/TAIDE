@@ -65,6 +65,13 @@ fn set_tree_focused_pane(layout: &mut ProjectLayout, tree: PaneTreeRef, pane_id:
     }
 }
 
+fn tree_focused_pane(layout: &ProjectLayout, tree: PaneTreeRef) -> &PaneId {
+    match tree {
+        PaneTreeRef::Main => &layout.focused_pane,
+        PaneTreeRef::Auxiliary(index) => &layout.auxiliary_windows[index].focused_pane,
+    }
+}
+
 fn locate_tree_of_pane(layout: &ProjectLayout, pane_id: &PaneId) -> Option<PaneTreeRef> {
     if contains_pane(&layout.root, pane_id) {
         return Some(PaneTreeRef::Main);
@@ -464,6 +471,19 @@ fn resolve_default_open_pane(layout: &mut ProjectLayout) -> PaneId {
     layout.focused_pane.clone()
 }
 
+/// Whether [`open_tab`] may reuse an existing tab of this kind instead of creating a new one.
+///
+/// Every other kind carries its whole identity in `kind` (a path, an index, a query), so kind
+/// equality *is* tab equality. A terminal's identity is its pty session, and that id only arrives
+/// once the spawn round-trip finishes ([`set_terminal_session`]) — until then every freshly created
+/// terminal tab is `Terminal { session_id: "", .. }` and compares equal to every other one. Deduping
+/// on that placeholder means the second "New Terminal" in a pane just re-activates the first, and a
+/// tab whose spawn failed (its id stays empty forever) blocks that pane from ever opening another.
+/// [`open_tab_in_split`]'s doc already noted the same trap for the split path.
+fn is_dedupable(kind: &TabKind) -> bool {
+    !matches!(kind, TabKind::Terminal { session_id, .. } if session_id.is_empty())
+}
+
 pub fn open_tab(layout: &mut ProjectLayout, pane_id: &PaneId, mut tab: Tab, preview: bool) -> AppResult<TabId> {
     let tree = locate_tree_of_pane(layout, pane_id).ok_or_else(|| pane_not_found(pane_id))?;
     let leaf = find_leaf_mut(tree_root_mut(layout, tree), pane_id).ok_or_else(|| pane_not_found(pane_id))?;
@@ -471,20 +491,25 @@ pub fn open_tab(layout: &mut ProjectLayout, pane_id: &PaneId, mut tab: Tab, prev
         return Err(AppError::Internal("expected leaf pane".to_string()));
     };
 
-    if let Some(existing) = tabs.iter_mut().find(|existing| existing.kind == tab.kind) {
-        let id = existing.id.clone();
-        if !preview && existing.preview {
-            existing.preview = false;
+    if is_dedupable(&tab.kind) {
+        if let Some(existing) = tabs.iter_mut().find(|existing| existing.kind == tab.kind) {
+            let id = existing.id.clone();
+            if !preview && existing.preview {
+                existing.preview = false;
+            }
+            *active = Some(id.clone());
+            layout.revision += 1;
+            return Ok(id);
         }
-        *active = Some(id.clone());
-        layout.revision += 1;
-        return Ok(id);
     }
 
     tab.preview = preview;
     let id = tab.id.clone();
     if preview {
-        if let Some(pos) = tabs.iter().position(|existing| existing.preview) {
+        if let Some(pos) = tabs
+            .iter()
+            .position(|existing| existing.preview && !existing.dirty && !existing.pinned)
+        {
             tabs[pos] = tab;
         } else {
             tabs.push(tab);
@@ -559,13 +584,65 @@ pub fn convert_untitled_to_file(layout: &mut ProjectLayout, tab_id: &TabId, path
     Ok(tab_id.clone())
 }
 
+/// The pane focus should fall back to when `pane_id` is about to be pruned out of `root` by
+/// [`normalize`]: the **previous sibling's last leaf** inside the split that holds `pane_id`, or,
+/// when `pane_id` is that split's first child, the **next sibling's first leaf**. Reading the tree
+/// *before* the prune is the whole point — once `normalize` has run, the pruned pane's position,
+/// the only thing that says which pane sat next to it, is gone with it.
+///
+/// Pure, and deliberately not MRU ("most recently active group", VS Code's rule): sibling order is
+/// what the user sees on screen, needs no extra per-pane bookkeeping to stay correct across
+/// splits/moves/restores, and the contract settled on it as sufficient
+/// (`docs/acknowledge/2026-09-17-d65-pane-focus-invariant-contract.md` §1 R1 1 and 범위 외).
+///
+/// `None` when `pane_id` is the tree's root leaf (nothing outlives it to inherit) or is not in the
+/// tree at all; callers fall back to [`ensure_focused_pane_valid`] for both.
+fn successor_leaf_after_prune(root: &PaneNode, pane_id: &PaneId) -> Option<PaneId> {
+    let PaneNode::Split { children, .. } = root else {
+        return None;
+    };
+
+    let Some(position) = children.iter().position(|child| pane_id_of(child) == pane_id) else {
+        return children.iter().find_map(|child| successor_leaf_after_prune(child, pane_id));
+    };
+
+    if position > 0 {
+        return collect_leaves(&children[position - 1]).last().map(|leaf| pane_id_of(leaf).clone());
+    }
+    collect_leaves(children.get(1)?).first().map(|leaf| pane_id_of(leaf).clone())
+}
+
+/// Closes `tab_id`, and when that empties the pane it lived in *and* that pane is the one its tree
+/// currently focuses — the case [`normalize`] is about to prune out from under `focused_pane` —
+/// hands focus to the sibling [`successor_leaf_after_prune`] names instead of leaving a dangling id
+/// behind. Closing a tab in a pane that keeps other tabs, or in a pane that is not the focused one,
+/// leaves focus exactly where it was.
+///
+/// Focus is repaired here because `close_tab` used to be the one pane-pruning mutation that did not
+/// ([`move_tab`], [`insert_new_leaf`] and [`return_auxiliary_window_tabs`] all call
+/// [`ensure_focused_pane_valid`]): ⌘W on the last tab of a split half left `focused_pane` naming a
+/// pane that no longer existed, which made every later `layout_open_tab` carrying that id as an
+/// explicit `target` fail with [`pane_not_found`] and every `focused_pane`-keyed frontend shortcut
+/// (⌘S/⌘W/터미널 토글) silently no-op until the next save/restore cycle repaired it — contract §0.1.
 pub fn close_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<ClosedTab> {
     let tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     let (pane_id, index) = find_tab(tree_root(layout, tree), tab_id)
         .map(|(pane_id, index)| (pane_id.clone(), index))
         .ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     let tab = extract_tab(tree_root_mut(layout, tree), tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
+
+    let pane_was_emptied = find_leaf(tree_root(layout, tree), &pane_id).is_some_and(is_empty_leaf);
+    let successor = if pane_was_emptied && tree_focused_pane(layout, tree) == &pane_id {
+        successor_leaf_after_prune(tree_root(layout, tree), &pane_id)
+    } else {
+        None
+    };
+
     normalize(tree_root_mut(layout, tree));
+    match successor {
+        Some(successor) if find_leaf(tree_root(layout, tree), &successor).is_some() => set_tree_focused_pane(layout, tree, successor),
+        _ => ensure_focused_pane_valid(layout),
+    }
 
     let closed = ClosedTab {
         tab,
@@ -803,6 +880,14 @@ pub fn activate_tab(layout: &mut ProjectLayout, tab_id: &TabId) -> AppResult<()>
     Ok(())
 }
 
+/// Pins or unpins a tab and re-sorts the leaf so pinned tabs keep the left zone the tab bar renders
+/// them in ([`move_tab`] clamps drags to that same boundary).
+///
+/// Pinning also promotes a preview tab to a permanent one, one of the three promotions
+/// `docs/features/tabs.md` §3 specifies (double click · first edit · pin). Without it the pinned tab
+/// stays the pane's preview slot and the very next single click replaces it — id, pin and all. The
+/// promotion is one-way on purpose, the same shape [`convert_untitled_to_file`] uses: unpinning
+/// later does not hand the tab back to the preview slot.
 pub fn pin_tab(layout: &mut ProjectLayout, tab_id: &TabId, pinned: bool) -> AppResult<()> {
     let tree = locate_tree_of_tab(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     let pane_id = find_tab(tree_root(layout, tree), tab_id)
@@ -813,6 +898,9 @@ pub fn pin_tab(layout: &mut ProjectLayout, tab_id: &TabId, pinned: bool) -> AppR
     if let PaneNode::Leaf { tabs, .. } = leaf {
         if let Some(tab) = tabs.iter_mut().find(|tab| &tab.id == tab_id) {
             tab.pinned = pinned;
+            if pinned {
+                tab.preview = false;
+            }
         }
         tabs.sort_by_key(|tab| !tab.pinned);
     }
@@ -825,6 +913,28 @@ pub fn set_preview(layout: &mut ProjectLayout, tab_id: &TabId, preview: bool) ->
     tab.preview = preview;
     layout.revision += 1;
     Ok(())
+}
+
+/// Holds the "pinned tabs occupy a contiguous zone at the head of the leaf" invariant across a move,
+/// the same invariant [`pin_tab`]'s `sort_by_key` establishes and the tab bar relies on by rendering
+/// pinned and unpinned tabs as two separate rows.
+///
+/// The invariant used to live only in `pin_tab`, so a drag could interleave the two zones: the array
+/// order then disagreed with the rendered order, and everything reading the raw order (⌃Tab cycling,
+/// "close tabs to the right") jumped to a different tab than the one on screen. Clamping here rather
+/// than in the three frontend drop handlers means every caller — the drags, ⌘K ⌘⇧←/→, and whatever
+/// comes next — is covered by construction. `leaf` is read *after* extraction, so a pinned tab moved
+/// within its own pane no longer counts itself.
+fn clamp_to_pinned_zone(leaf: &PaneNode, pinned: bool, index: usize) -> usize {
+    let PaneNode::Leaf { tabs, .. } = leaf else {
+        return index;
+    };
+    let pinned_count = tabs.iter().filter(|tab| tab.pinned).count();
+    if pinned {
+        index.min(pinned_count)
+    } else {
+        index.max(pinned_count)
+    }
 }
 
 /// Moves `tab_id` to `index` within whichever leaf `target_pane` resolves to — same-tree
@@ -850,6 +960,7 @@ pub fn move_tab(layout: &mut ProjectLayout, tab_id: &TabId, target_pane: &PaneId
 
     let target_root = tree_root_mut(layout, target_tree);
     let leaf = find_leaf_mut(target_root, target_pane).ok_or_else(|| AppError::Internal("pane vanished during move".to_string()))?;
+    let index = clamp_to_pinned_zone(leaf, tab.pinned, index);
     insert_tab(leaf, tab, Some(index));
 
     set_tree_focused_pane(layout, target_tree, target_pane.clone());
@@ -990,9 +1101,19 @@ pub fn set_view_state(layout: &mut ProjectLayout, tab_id: &TabId, view_state: Op
     Ok(())
 }
 
+/// Records a tab's unsaved-changes flag, and on the first edit promotes a preview tab to a permanent
+/// one — the "편집 시작" arm of the same `docs/features/tabs.md` §3 rule [`pin_tab`] implements.
+///
+/// Doing it here rather than in the frontend is what makes the loss unrepresentable: [`open_tab`]
+/// replaces the pane's preview tab in place, without going through [`close_tab`], so a dirty preview
+/// tab used to vanish with its edits and without a `closed_tabs` entry to reopen. Clearing the flag
+/// again (a save) does not put the tab back in the preview slot — promotion is one-way.
 pub fn set_dirty(layout: &mut ProjectLayout, tab_id: &TabId, dirty: bool) -> AppResult<()> {
     let tab = find_tab_mut_in_layout(layout, tab_id).ok_or_else(|| AppError::NotFound(format!("tab not found: {tab_id}")))?;
     tab.dirty = dirty;
+    if dirty {
+        tab.preview = false;
+    }
     layout.revision += 1;
     Ok(())
 }
@@ -1334,7 +1455,19 @@ pub fn get_layout_mut<'a>(layouts: &'a mut HashMap<ProjectId, ProjectLayout>, pr
         .ok_or_else(|| AppError::NotFound(format!("layout not found: {project_id}")))
 }
 
+/// Completes a layout mutation: seals the pane-focus invariant, marks the project dirty for the
+/// next flush, announces the new revision, and returns the snapshot the command replies with.
+///
+/// [`ensure_focused_pane_valid`] runs *before* the snapshot is taken so that the one layout value
+/// three consumers share — the in-memory `state.layouts` entry, the persisted copy the flush writes,
+/// and the object the frontend caches — can never carry a `focused_pane` (main tree or any
+/// auxiliary window) naming a pane that does not exist. Individual mutations still choose the
+/// *right* successor themselves ([`close_tab`]); this is the backstop that keeps a future mutation
+/// that forgets to from handing the frontend an id it will send straight back as an explicit
+/// `target` (contract §1 R1 2). No `revision` bump: the repair rides along with the mutation that
+/// caused it, so the snapshot `LayoutChanged` announces is already the repaired one.
 pub fn finish_mutation(app: &AppHandle, state: &AppState, project_id: &ProjectId, layout: &mut ProjectLayout) -> ProjectLayout {
+    ensure_focused_pane_valid(layout);
     let snapshot = layout.clone();
     state.dirty_layouts.write().insert(project_id.clone());
 
@@ -1496,6 +1629,39 @@ mod tests {
             tabs,
             active,
         }
+    }
+
+    fn 가로_분할(children: Vec<PaneNode>) -> PaneNode {
+        let sizes = vec![SPLIT_TOTAL_PERCENT / children.len() as f32; children.len()];
+        PaneNode::Split {
+            id: PaneId::new(),
+            dir: SplitDir::Horizontal,
+            children,
+            sizes,
+        }
+    }
+
+    fn 레이아웃(root: PaneNode, focused_pane: PaneId) -> ProjectLayout {
+        ProjectLayout {
+            version: LAYOUT_SCHEMA_VERSION,
+            root,
+            focused_pane,
+            revision: 0,
+            closed_tabs: Vec::new(),
+            auxiliary_windows: Vec::new(),
+            shell_view: ShellViewState::default(),
+        }
+    }
+
+    /// `[A, B, C]` 가로 3분할 — 리프마다 파일 탭 하나, `focused` 번째 리프를 포커스한 레이아웃과
+    /// 그 리프/탭 id 들을 순서대로 돌려준다.
+    fn 삼분할_레이아웃(focused: usize) -> (ProjectLayout, Vec<PaneId>, Vec<TabId>) {
+        let tabs: Vec<Tab> = ["a.rs", "b.rs", "c.rs"].into_iter().map(파일_탭).collect();
+        let tab_ids: Vec<TabId> = tabs.iter().map(|tab| tab.id.clone()).collect();
+        let leaves: Vec<PaneNode> = tabs.into_iter().map(|tab| 리프(vec![tab])).collect();
+        let pane_ids: Vec<PaneId> = leaves.iter().map(|leaf| pane_id_of(leaf).clone()).collect();
+        let layout = 레이아웃(가로_분할(leaves), pane_ids[focused].clone());
+        (layout, pane_ids, tab_ids)
     }
 
     #[test]
@@ -1940,6 +2106,182 @@ mod tests {
         assert_eq!(tabs[0].id, a_id);
     }
 
+    fn 세션_터미널_탭(session_id: &str) -> Tab {
+        Tab {
+            kind: TabKind::Terminal {
+                session_id: session_id.to_string(),
+                cwd: None,
+            },
+            ..터미널_탭()
+        }
+    }
+
+    fn 핀_파일_탭(path: &str) -> Tab {
+        Tab {
+            pinned: true,
+            ..파일_탭(path)
+        }
+    }
+
+    fn 단일_리프_레이아웃(tabs: Vec<Tab>) -> (ProjectLayout, PaneId) {
+        let leaf = 리프(tabs);
+        let pane_id = pane_id_of(&leaf).clone();
+        let layout = 레이아웃(leaf, pane_id.clone());
+        (layout, pane_id)
+    }
+
+    fn 탭_제목들(layout: &ProjectLayout, pane_id: &PaneId) -> Vec<String> {
+        let Some(PaneNode::Leaf { tabs, .. }) = find_leaf(&layout.root, pane_id) else {
+            panic!("리프가 있어야 한다")
+        };
+        tabs.iter().map(|tab| tab.title.clone()).collect()
+    }
+
+    /// 편집 시작 승격이 없으면 프리뷰 교체가 편집 중인 탭을 통째로 덮어쓰는데, 그 경로는
+    /// `close_tab` 을 타지 않아 `closed_tabs` 에도 남지 않는다(⌘⇧T 로도 복구 불가).
+    #[test]
+    fn 편집한_프리뷰_탭은_다음_프리뷰_열기에_교체되지_않는다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![]);
+        let a_id = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), true).expect("open preview a");
+
+        set_dirty(&mut layout, &a_id, true).expect("dirty a");
+        open_tab(&mut layout, &pane_id, 파일_탭("b.rs"), true).expect("open preview b");
+
+        assert_eq!(탭_제목들(&layout, &pane_id), vec!["a.rs".to_string(), "b.rs".to_string()]);
+    }
+
+    #[test]
+    fn 편집을_시작하면_프리뷰_탭이_영구_탭으로_승격된다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![]);
+        let a_id = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), true).expect("open preview a");
+
+        set_dirty(&mut layout, &a_id, true).expect("dirty a");
+
+        let tab = find_tab_mut_in_layout(&mut layout, &a_id).expect("탭이 있어야 한다");
+        assert!(!tab.preview);
+        assert!(tab.dirty);
+
+        set_dirty(&mut layout, &a_id, false).expect("save a");
+        let saved = find_tab_mut_in_layout(&mut layout, &a_id).expect("탭이 있어야 한다");
+        assert!(!saved.preview, "저장해도 프리뷰 슬롯으로 되돌리지 않는다");
+    }
+
+    #[test]
+    fn 고정한_프리뷰_탭은_다음_프리뷰_열기에_유지된다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![]);
+        let a_id = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), true).expect("open preview a");
+
+        pin_tab(&mut layout, &a_id, true).expect("pin a");
+        let b_id = open_tab(&mut layout, &pane_id, 파일_탭("b.rs"), true).expect("open preview b");
+
+        assert_eq!(탭_제목들(&layout, &pane_id), vec!["a.rs".to_string(), "b.rs".to_string()]);
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert!(tabs.iter().any(|tab| tab.id == a_id && tab.pinned));
+        assert!(tabs.iter().any(|tab| tab.id == b_id && tab.preview));
+    }
+
+    #[test]
+    fn 탭을_고정하면_프리뷰_플래그가_해제된다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![]);
+        let a_id = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), true).expect("open preview a");
+
+        pin_tab(&mut layout, &a_id, true).expect("pin a");
+        assert!(!find_tab_mut_in_layout(&mut layout, &a_id).expect("탭").preview);
+
+        pin_tab(&mut layout, &a_id, false).expect("unpin a");
+        let unpinned = find_tab_mut_in_layout(&mut layout, &a_id).expect("탭");
+        assert!(!unpinned.preview, "고정을 풀어도 프리뷰로 되돌리지 않는다");
+        assert!(!unpinned.pinned);
+    }
+
+    /// 터미널의 정체성은 pty 세션이고 그 id 는 spawn 왕복 뒤에야 채워지므로, 빈 id 끼리의
+    /// kind 동등은 "같은 터미널" 이 아니다. `새_탭_분할은_같은_kind_터미널_탭을_중복_제거하지_않는다`
+    /// 가 분할 경로에만 걸어 두었던 예외를 `open_tab` 도 갖는다.
+    #[test]
+    fn 세션id가_빈_터미널_탭은_중복_제거되지_않는다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![파일_탭("a.rs")]);
+
+        let first = open_tab(&mut layout, &pane_id, 터미널_탭(), false).expect("open terminal");
+        let second = open_tab(&mut layout, &pane_id, 터미널_탭(), false).expect("open another terminal");
+
+        assert_ne!(first, second);
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.iter().filter(|tab| matches!(tab.kind, TabKind::Terminal { .. })).count(), 2);
+    }
+
+    #[test]
+    fn 세션id가_채워진_터미널_탭은_여전히_중복_제거된다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![파일_탭("a.rs")]);
+
+        let first = open_tab(&mut layout, &pane_id, 세션_터미널_탭("pty-1"), false).expect("open terminal");
+        let second = open_tab(&mut layout, &pane_id, 세션_터미널_탭("pty-1"), false).expect("reopen terminal");
+
+        assert_eq!(first, second);
+        let PaneNode::Leaf { tabs, .. } = &layout.root else {
+            panic!("expected leaf")
+        };
+        assert_eq!(tabs.iter().filter(|tab| matches!(tab.kind, TabKind::Terminal { .. })).count(), 1);
+    }
+
+    #[test]
+    fn 파일_탭은_여전히_kind로_중복_제거된다() {
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![]);
+
+        let first = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), false).expect("open a");
+        let second = open_tab(&mut layout, &pane_id, 파일_탭("a.rs"), false).expect("reopen a");
+
+        assert_eq!(first, second);
+        assert_eq!(탭_제목들(&layout, &pane_id), vec!["a.rs".to_string()]);
+    }
+
+    /// 핀 구역 불변식을 `pin_tab` 만 세우면 드래그가 raw 배열 순서를 화면 순서와 어긋나게 만들어
+    /// ⌃Tab 순환과 "오른쪽 탭 닫기" 가 다른 탭을 집는다.
+    #[test]
+    fn 같은_페인에서_핀_탭을_맨_뒤로_끌어도_핀_구역_안에_머문다() {
+        let a = 핀_파일_탭("a.rs");
+        let a_id = a.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![a, 핀_파일_탭("b.rs"), 파일_탭("c.rs")]);
+
+        move_tab(&mut layout, &a_id, &pane_id, APPEND_AT_END).expect("move");
+
+        assert_eq!(
+            탭_제목들(&layout, &pane_id),
+            vec!["b.rs".to_string(), "a.rs".to_string(), "c.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn 다른_페인으로_옮긴_핀_탭은_대상_핀_구역_끝에_들어간다() {
+        let moving = 핀_파일_탭("moving.rs");
+        let moving_id = moving.id.clone();
+        let source = 리프(vec![moving, 파일_탭("rest.rs")]);
+        let target = 리프(vec![핀_파일_탭("pinned.rs"), 파일_탭("plain.rs")]);
+        let target_pane = pane_id_of(&target).clone();
+        let mut layout = 레이아웃(가로_분할(vec![source, target]), target_pane.clone());
+
+        move_tab(&mut layout, &moving_id, &target_pane, APPEND_AT_END).expect("move");
+
+        assert_eq!(
+            탭_제목들(&layout, &target_pane),
+            vec!["pinned.rs".to_string(), "moving.rs".to_string(), "plain.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn 핀되지_않은_탭은_맨_앞으로_끌어도_핀_구역_뒤에_들어간다() {
+        let plain = 파일_탭("plain.rs");
+        let plain_id = plain.id.clone();
+        let (mut layout, pane_id) = 단일_리프_레이아웃(vec![핀_파일_탭("pinned.rs"), plain]);
+
+        move_tab(&mut layout, &plain_id, &pane_id, 0).expect("move");
+
+        assert_eq!(탭_제목들(&layout, &pane_id), vec!["pinned.rs".to_string(), "plain.rs".to_string()]);
+    }
+
     #[test]
     fn 같은_파일_재열기는_활성화만_한다() {
         let mut layout = default_layout();
@@ -2304,6 +2646,99 @@ mod tests {
         ensure_focused_pane_valid(&mut layout);
 
         assert_eq!(layout.focused_pane, focused);
+    }
+
+    #[test]
+    fn 포커스_페인의_마지막_탭을_닫으면_형제_페인이_포커스를_승계한다() {
+        let mut layout = default_layout();
+        let leaf_id = 루트_리프_id(&layout);
+        let tab = 파일_탭("a.rs");
+        let tab_id = tab.id.clone();
+        open_tab(&mut layout, &leaf_id, tab, false).expect("open");
+        split(&mut layout, &leaf_id, DropEdge::Right, &tab_id).expect("split");
+        let new_leaf_id = layout.focused_pane.clone();
+        assert_ne!(new_leaf_id, leaf_id, "분할은 새 리프를 포커스한다");
+
+        close_tab(&mut layout, &tab_id).expect("close");
+
+        assert!(matches!(&layout.root, PaneNode::Leaf { .. }));
+        assert!(find_leaf(&layout.root, &new_leaf_id).is_none(), "빈 리프는 제거된다");
+        assert_eq!(layout.focused_pane, leaf_id, "남은 형제 리프가 포커스를 승계한다");
+    }
+
+    #[test]
+    fn 삼분할_마지막_페인을_닫으면_이전_형제가_포커스를_승계한다() {
+        let (mut layout, pane_ids, tab_ids) = 삼분할_레이아웃(2);
+
+        close_tab(&mut layout, &tab_ids[2]).expect("close");
+
+        assert!(find_leaf(&layout.root, &pane_ids[2]).is_none());
+        assert_eq!(layout.focused_pane, pane_ids[1]);
+    }
+
+    #[test]
+    fn 삼분할_첫_페인을_닫으면_다음_형제가_포커스를_승계한다() {
+        let (mut layout, pane_ids, tab_ids) = 삼분할_레이아웃(0);
+
+        close_tab(&mut layout, &tab_ids[0]).expect("close");
+
+        assert!(find_leaf(&layout.root, &pane_ids[0]).is_none());
+        assert_eq!(layout.focused_pane, pane_ids[1]);
+    }
+
+    #[test]
+    fn 포커스되지_않은_페인의_마지막_탭을_닫아도_포커스는_그대로다() {
+        let (mut layout, pane_ids, tab_ids) = 삼분할_레이아웃(0);
+
+        close_tab(&mut layout, &tab_ids[2]).expect("close");
+
+        assert!(find_leaf(&layout.root, &pane_ids[2]).is_none());
+        assert_eq!(
+            layout.focused_pane, pane_ids[0],
+            "포커스 아닌 페인이 사라져도 포커스는 그 페인의 형제로 옮겨가지 않는다"
+        );
+    }
+
+    #[test]
+    fn 파일_삭제로_포커스_페인이_비어도_focused_pane은_유효하다() {
+        let keep_leaf = 리프(vec![파일_탭("/repo/keep.rs")]);
+        let keep_pane_id = pane_id_of(&keep_leaf).clone();
+        let deleted_leaf = 리프(vec![파일_탭("/repo/src/gone.rs")]);
+        let deleted_pane_id = pane_id_of(&deleted_leaf).clone();
+        let mut layout = 레이아웃(가로_분할(vec![keep_leaf, deleted_leaf]), deleted_pane_id.clone());
+
+        let outcome = apply_tab_path_change(
+            &mut layout,
+            &TabPathChange::Deleted {
+                path: "/repo/src".to_string(),
+            },
+        );
+
+        assert_eq!(outcome.closed_paths, vec!["/repo/src/gone.rs".to_string()]);
+        assert!(find_leaf(&layout.root, &deleted_pane_id).is_none());
+        assert_eq!(layout.focused_pane, keep_pane_id);
+        assert!(find_leaf(&layout.root, &layout.focused_pane).is_some());
+    }
+
+    #[test]
+    fn 보조_창의_포커스_페인을_닫으면_그_창만_승계하고_main은_그대로다() {
+        let mut layout = default_layout();
+        let main_leaf_id = 루트_리프_id(&layout);
+        let moved_tab_id = open_tab(&mut layout, &main_leaf_id, 파일_탭("a.rs"), false).expect("open a");
+        let slot = next_window_slot(&layout);
+        move_tab_to_new_window(&mut layout, &moved_tab_id, slot).expect("move to new window");
+        let aux_leaf_id = layout.auxiliary_windows[0].focused_pane.clone();
+        let split_tab_id = open_tab_in_split(&mut layout, &aux_leaf_id, DropEdge::Right, 파일_탭("b.rs")).expect("split in aux");
+        let aux_new_leaf_id = layout.auxiliary_windows[0].focused_pane.clone();
+        assert_ne!(aux_new_leaf_id, aux_leaf_id, "보조 창 분할은 그 창의 새 리프를 포커스한다");
+        let main_focused_before = layout.focused_pane.clone();
+
+        close_tab(&mut layout, &split_tab_id).expect("close");
+
+        let window = &layout.auxiliary_windows[0];
+        assert!(find_leaf(&window.root, &aux_new_leaf_id).is_none());
+        assert_eq!(window.focused_pane, aux_leaf_id, "보조 창의 포커스만 형제로 승계된다");
+        assert_eq!(layout.focused_pane, main_focused_before, "main 트리의 포커스는 건드리지 않는다");
     }
 
     #[test]
