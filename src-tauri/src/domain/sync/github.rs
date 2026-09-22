@@ -9,6 +9,7 @@ use crate::infra::redact::mask_provider_error;
 const GITHUB_API_BASE: &str = "https://api.github.com";
 const GITHUB_API_VERSION: &str = "2022-11-28";
 const USER_AGENT: &str = "TAIDE-Sync";
+const GIST_PAGE_SIZE: usize = 100;
 
 #[derive(Debug, Serialize)]
 struct GistFileWrite<'a> {
@@ -42,6 +43,8 @@ struct GistFileRead {
 struct GistResponse {
     id: String,
     updated_at: String,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     files: HashMap<String, GistFileRead>,
 }
@@ -79,17 +82,49 @@ impl GistClient<'_> {
             .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))
     }
 
-    pub async fn verify_token(&self) -> AppResult<()> {
-        let res = self
-            .request(reqwest::Method::GET, format!("{GITHUB_API_BASE}/gists"))
-            .send()
-            .await
-            .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+    pub async fn discover_sync_gist(&self, preferred_id: Option<&str>) -> AppResult<Option<(String, String)>> {
+        self.discover_sync_gist_at(GITHUB_API_BASE, preferred_id).await
+    }
 
-        if !res.status().is_success() {
-            return Err(AppError::InvalidArgument("GitHub personal access token was rejected".to_string()));
+    async fn discover_sync_gist_at(&self, api_base: &str, preferred_id: Option<&str>) -> AppResult<Option<(String, String)>> {
+        let mut page = 1;
+        let mut newest: Option<(String, String)> = None;
+        loop {
+            let response = self
+                .request(reqwest::Method::GET, format!("{api_base}/gists"))
+                .query(&[("per_page", GIST_PAGE_SIZE), ("page", page)])
+                .send()
+                .await
+                .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            if !response.status().is_success() {
+                return Err(AppError::InvalidArgument(
+                    "GitHub personal access token was rejected or gist discovery failed".to_string(),
+                ));
+            }
+            let gists = response
+                .json::<Vec<GistResponse>>()
+                .await
+                .map_err(|error| AppError::Internal(mask_provider_error(&error.to_string())))?;
+            let is_last_page = gists.len() < GIST_PAGE_SIZE;
+            for gist in gists {
+                if gist.description.as_deref() != Some(SYNC_GIST_DESCRIPTION) || !gist.files.contains_key(SYNC_GIST_FILENAME) {
+                    continue;
+                }
+                if Some(gist.id.as_str()) == preferred_id {
+                    return Ok(Some((gist.id, gist.updated_at)));
+                }
+                if newest
+                    .as_ref()
+                    .is_none_or(|(id, updated)| (&gist.updated_at, &gist.id) > (updated, id))
+                {
+                    newest = Some((gist.id, gist.updated_at));
+                }
+            }
+            if is_last_page {
+                return Ok(newest);
+            }
+            page += 1;
         }
-        Ok(())
     }
 
     pub async fn create_gist(&self, payload_json: &str) -> AppResult<(String, String)> {
@@ -136,6 +171,67 @@ impl GistClient<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn 기존_동기화_gist를_페이지_끝까지_검색하고_저장된_id를_우선한다() {
+        use axum::{http::Uri, routing::get, Router};
+        let router = Router::new().route(
+            "/gists",
+            get(|uri: Uri| async move {
+                let query = uri.query().unwrap();
+                assert!(query.split('&').any(|pair| pair == "per_page=100"));
+                let gist = |id: &str, date: &str, description: &str| {
+                    serde_json::json!({
+                        "id": id, "updated_at": date, "description": description,
+                        "files": { SYNC_GIST_FILENAME: {} }
+                    })
+                };
+                let page = if query.split('&').any(|pair| pair == "page=1") {
+                    let mut page = vec![gist("unrelated", "2026-09-23T00:00:00Z", "other"); GIST_PAGE_SIZE];
+                    page[0] = gist("latest", "2026-09-22T00:00:00Z", SYNC_GIST_DESCRIPTION);
+                    page
+                } else {
+                    vec![gist("preferred", "2026-09-21T00:00:00Z", SYNC_GIST_DESCRIPTION)]
+                };
+                (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    serde_json::to_string(&page).unwrap(),
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = reqwest::Client::new();
+        let gist = GistClient {
+            client: &client,
+            token: "test-token",
+        };
+        let latest = gist.discover_sync_gist_at(&base, None).await.unwrap().unwrap();
+        assert_eq!(latest.0, "latest");
+        let preferred = gist.discover_sync_gist_at(&base, Some("preferred")).await.unwrap().unwrap();
+        assert_eq!(preferred.0, "preferred");
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn 빈_gist_목록과_인증_실패를_구별한다() {
+        use axum::{routing::get, Router};
+        let router = Router::new()
+            .route("/empty/gists", get(|| async { "[]" }))
+            .route("/denied/gists", get(|| async { axum::http::StatusCode::UNAUTHORIZED }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = reqwest::Client::new();
+        let gist = GistClient {
+            client: &client,
+            token: "test-token",
+        };
+        assert!(gist.discover_sync_gist_at(&format!("{base}/empty"), None).await.unwrap().is_none());
+        assert!(gist.discover_sync_gist_at(&format!("{base}/denied"), None).await.is_err());
+        task.abort();
+    }
 
     #[test]
     fn gist_바디는_비공개이며_지정된_파일명으로_담긴다() {

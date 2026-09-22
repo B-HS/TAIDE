@@ -65,20 +65,13 @@ pub async fn file_create(state: State<'_, AppState>, path: String, is_dir: bool)
     Ok(())
 }
 
-/// The destination the rename actually uses is the *requested* spelling re-attached to the
-/// root-guard-validated canonical parent, not `resolved_to` itself — canonicalization answers with
-/// the on-disk spelling on a case-insensitive filesystem, which turned every case-only rename
-/// (`readme.md` → `README.md`) into a silent no-op (audit §4-A-1). See
-/// [`service::destination_with_requested_name`]; the containment the root guard established is
-/// unaffected, since only the final component changes and it cannot be a traversal segment.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_rename(state: State<'_, AppState>, from: String, to: String) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let projects = state.projects.read().clone();
-    let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
-    let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
-    let destination = service::destination_with_requested_name(&resolved_to, Path::new(&to));
+    let (_, resolved_from) = root_guard::resolve_entry_owning_project(&projects, Path::new(&from))?;
+    let (_, destination) = root_guard::resolve_entry_owning_project(&projects, Path::new(&to))?;
 
     service::rename_entry(&resolved_from, &destination)?;
     state.self_writes.mark(&resolved_from);
@@ -91,7 +84,7 @@ pub async fn file_rename(state: State<'_, AppState>, from: String, to: String) -
 pub async fn file_delete(state: State<'_, AppState>, path: String) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
+    let (_, resolved) = root_guard::resolve_entry_owning_project(&projects, Path::new(&path))?;
 
     service::delete_entry(&resolved)?;
     state.self_writes.mark(&resolved);

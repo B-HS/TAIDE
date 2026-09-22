@@ -216,24 +216,6 @@ pub fn create_entry(path: &Path, is_dir: bool) -> AppResult<()> {
     Ok(())
 }
 
-/// Re-attaches the caller's requested file name to an already-resolved destination directory.
-///
-/// `root_guard::resolve_owning_project` canonicalizes both sides of a rename, and canonicalization
-/// on a case-insensitive filesystem (macOS APFS/HFS+, Windows) answers with the name **as it is
-/// spelled on disk** — so `readme.md` → `README.md` reaches [`rename_entry`] as `from == to` and
-/// `std::fs::rename` silently does nothing. Keeping the canonical *parent* (the part the root guard
-/// actually validated) while restoring the requested *file name* is what makes a case-only rename
-/// expressible at all; on a case-sensitive filesystem the two are identical anyway, since a
-/// not-yet-existing destination is already joined verbatim by `root_guard::canonicalize_lenient`.
-/// Falls back to the resolved path when the request has no file name to re-attach (`..`, a bare
-/// root), which [`rename_entry`]'s own guards then reject on their merits.
-pub fn destination_with_requested_name(resolved_to: &Path, requested_to: &Path) -> PathBuf {
-    match (resolved_to.parent(), requested_to.file_name()) {
-        (Some(parent), Some(file_name)) => parent.join(file_name),
-        _ => resolved_to.to_path_buf(),
-    }
-}
-
 /// Renames `from` to `to`, refusing to clobber whatever already sits at `to`.
 ///
 /// The single exception is a **case-only rename** — `to` resolving to `from` itself on a
@@ -529,12 +511,23 @@ pub fn list_untitled_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppRes
     Ok(mirrors)
 }
 
-/// Whether both paths name the same filesystem entry. Compared through `canonicalize`, which
-/// resolves case-insensitive spellings and symlinks to one identity — the only cross-platform way
-/// to tell "the destination is really the source under another spelling" (the case-only rename)
-/// from "the destination is a different file that would be clobbered". A path that cannot be
-/// canonicalized is never the same entry.
+#[cfg(unix)]
 fn is_same_entry(left: &Path, right: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    match (std::fs::symlink_metadata(left), std::fs::symlink_metadata(right)) {
+        (Ok(left), Ok(right)) => left.dev() == right.dev() && left.ino() == right.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_same_entry(left: &Path, right: &Path) -> bool {
+    if left.symlink_metadata().is_ok_and(|metadata| metadata.is_symlink())
+        || right.symlink_metadata().is_ok_and(|metadata| metadata.is_symlink())
+    {
+        return false;
+    }
     match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,
         _ => false,
@@ -735,13 +728,6 @@ mod tests {
             .collect()
     }
 
-    /// Reproduces `file_rename`'s whole path, not just [`rename_entry`]: the command canonicalizes
-    /// both sides first, and on a case-insensitive filesystem that is what collapses the requested
-    /// `README.md` into the on-disk `readme.md`, so the rename used to be handed `from == to` and
-    /// silently did nothing (audit §4-A-1). Handing `resolved_to` straight to [`rename_entry`] —
-    /// the pre-fix composition — leaves the file under its old spelling and fails the assertions
-    /// below. On a case-sensitive filesystem the destination simply does not exist, the plain
-    /// rename branch runs, and the same assertions hold.
     #[test]
     fn 대소문자만_다른_개명은_정규화로_경로가_같아져도_요청한_표기로_반영된다() {
         let dir = temp_dir("rename-case-only");
@@ -750,11 +736,7 @@ mod tests {
         let requested = dir.join("README.md");
         std::fs::write(&lower, "hello").unwrap();
 
-        let resolved_from = std::fs::canonicalize(&lower).expect("canonicalize from");
-        let resolved_to = root_guard::canonicalize_lenient(&requested).expect("canonicalize to");
-        let destination = destination_with_requested_name(&resolved_to, &requested);
-
-        rename_entry(&resolved_from, &destination).expect("rename");
+        rename_entry(&lower, &requested).expect("rename");
 
         let names = entry_names(&dir);
         assert!(names.contains(&"README.md".to_string()), "요청한 표기로 개명되어야 한다: {names:?}");
@@ -766,21 +748,6 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&requested).unwrap(), "hello");
 
         cleanup(&dir);
-    }
-
-    #[test]
-    fn destination_with_requested_name은_정규화된_부모에_요청한_이름을_붙인다() {
-        let resolved = Path::new("/canonical/project/readme.md");
-
-        assert_eq!(
-            destination_with_requested_name(resolved, Path::new("/symlinked/project/README.md")),
-            PathBuf::from("/canonical/project/README.md")
-        );
-        assert_eq!(
-            destination_with_requested_name(resolved, Path::new("/")),
-            PathBuf::from("/canonical/project/readme.md"),
-            "붙일 파일명이 없으면 해석된 경로를 그대로 쓴다"
-        );
     }
 
     #[test]

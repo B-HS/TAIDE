@@ -309,14 +309,6 @@ export const commands = {
 	 */
 	fileSave: (path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_save", { path, content })),
 	fileCreate: (path: string, isDir: boolean) => typedError<null, AppError>(__TAURI_INVOKE("file_create", { path, isDir })),
-	/**
-	 *  The destination the rename actually uses is the *requested* spelling re-attached to the
-	 *  root-guard-validated canonical parent, not `resolved_to` itself — canonicalization answers with
-	 *  the on-disk spelling on a case-insensitive filesystem, which turned every case-only rename
-	 *  (`readme.md` → `README.md`) into a silent no-op (audit §4-A-1). See
-	 *  [`service::destination_with_requested_name`]; the containment the root guard established is
-	 *  unaffected, since only the final component changes and it cannot be a traversal segment.
-	 */
 	fileRename: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_rename", { from, to })),
 	fileDelete: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_delete", { path })),
 	/**

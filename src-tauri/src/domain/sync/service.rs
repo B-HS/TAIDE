@@ -98,9 +98,9 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         language: Some(settings.language.clone()),
         toast_position: Some(settings.toast_position.clone()),
         resizer_thickness: Some(settings.resizer_thickness),
-        editor_font_family: settings.editor_font_family.clone(),
-        terminal_font_family: settings.terminal_font_family.clone(),
-        ui_font_family: settings.ui_font_family.clone(),
+        editor_font_family: Some(settings.editor_font_family.clone().unwrap_or_default()),
+        terminal_font_family: Some(settings.terminal_font_family.clone().unwrap_or_default()),
+        ui_font_family: Some(settings.ui_font_family.clone().unwrap_or_default()),
         format_on_save: Some(settings.format_on_save),
         auto_save_delay_ms: Some(settings.auto_save_delay_ms),
         keymap_overrides: settings.keymap_overrides.clone(),
@@ -146,7 +146,7 @@ pub fn settings_to_sync_patch(settings: &Settings) -> SettingsPatch {
         explorer_auto_reveal: Some(settings.explorer_auto_reveal),
         ai_auto_tab_enabled: Some(settings.ai_auto_tab_enabled),
         ai_provider: settings.ai_provider,
-        ai_model: settings.ai_model.clone(),
+        ai_model: Some(settings.ai_model.clone().unwrap_or_default()),
         ai_omlx_base_url: settings.ai_omlx_base_url.clone(),
         remote_access_enabled: Some(settings.remote_access_enabled),
         remote_password_only_login: Some(settings.remote_password_only_login),
@@ -301,6 +301,11 @@ pub fn parse_synced_payload(content: &str) -> Option<SyncPayload> {
     if let Some(settings_object) = raw.get_mut("settings").and_then(|value| value.as_object_mut()) {
         settings_service::migrate_legacy_ai_provider_keys(settings_object);
         settings_service::sanitize_legacy_settings_values(settings_object);
+        for field in ["editorFontFamily", "terminalFontFamily", "uiFontFamily", "aiModel"] {
+            if settings_object.get(field).is_some_and(serde_json::Value::is_null) {
+                settings_object.insert(field.to_string(), serde_json::Value::String(String::new()));
+            }
+        }
     }
     serde_json::from_value(raw).ok()
 }

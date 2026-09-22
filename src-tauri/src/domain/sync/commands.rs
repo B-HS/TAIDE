@@ -115,22 +115,50 @@ pub async fn sync_status(state: State<'_, AppState>, secret: State<'_, SecretSto
 
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_connect(state: State<'_, AppState>, secret: State<'_, SecretStoreState>, pat: String) -> AppResult<SyncStatus> {
+pub async fn sync_connect(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    secret: State<'_, SecretStoreState>,
+    pat: String,
+) -> AppResult<SyncStatus> {
     if pat.trim().is_empty() {
         return Err(AppError::InvalidArgument("token must not be empty".to_string()));
     }
 
     let client = outbound_http_client(HttpClientProfile::Api);
-    GistClient {
+    let previous_gist_id = state.settings.read().sync_gist_id.clone();
+    let discovered = GistClient {
         client: &client,
         token: &pat,
     }
-    .verify_token()
+    .discover_sync_gist(previous_gist_id.as_deref())
     .await?;
-    secret.0.as_ref().set(SecretAccount::GithubSync, &pat)?;
 
-    let settings = state.settings.read().clone();
-    Ok(current_status_snapshot(&settings, true))
+    let _guard = state.begin_mutation().await;
+    let current = state.settings.read().clone();
+    if current.sync_gist_id != previous_gist_id {
+        return Err(AppError::InvalidArgument(
+            "sync configuration changed while connecting — retry the connection".to_string(),
+        ));
+    }
+    secret.0.as_ref().set(SecretAccount::GithubSync, &pat)?;
+    let gist_id = discovered.as_ref().map(|(id, _)| id.clone());
+    let last_synced_at = if current.sync_gist_id == gist_id {
+        current.sync_last_synced_at.clone()
+    } else {
+        None
+    };
+    let updated = Settings {
+        sync_gist_id: gist_id,
+        sync_last_synced_at: last_synced_at,
+        ..current
+    };
+    settings_service::save_settings(&state.paths, &updated)?;
+    *state.settings.write() = updated.clone();
+    let mut status = current_status_snapshot(&updated, true);
+    status.remote_newer = discovered.map(|(_, updated_at)| service::is_remote_newer(&updated_at, updated.sync_last_synced_at.as_deref()));
+    let _ = SyncStateChanged { status: status.clone() }.emit(&app);
+    Ok(status)
 }
 
 #[tauri::command]

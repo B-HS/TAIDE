@@ -110,8 +110,9 @@ fn detect_make_tasks(root: &Path) -> Vec<Task> {
             if rest.starts_with('=') || rest.starts_with(":=") {
                 return None;
             }
-            Some(captures[1].trim().to_string())
+            Some(captures[1].trim().trim_end_matches('&').trim_end().to_string())
         })
+        .flat_map(|targets| split_make_targets(&targets))
         .filter(|target| !target.is_empty() && seen.insert(target.clone()))
         .map(|target| Task {
             command: format!("make {}", posix_quote(&target)),
@@ -120,6 +121,40 @@ fn detect_make_tasks(root: &Path) -> Vec<Task> {
             cwd: cwd.clone(),
         })
         .collect()
+}
+
+fn split_make_targets(targets: &str) -> Vec<String> {
+    if targets.contains(['$', '%']) {
+        return Vec::new();
+    }
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut escaped = false;
+    for character in targets.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if character.is_whitespace() {
+            if !current.is_empty() {
+                result.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        current.push(character);
+    }
+    if escaped {
+        return Vec::new();
+    }
+    if !current.is_empty() {
+        result.push(current);
+    }
+    result
 }
 
 /// Cargo tasks use a fixed command set rather than parsing `Cargo.toml` for

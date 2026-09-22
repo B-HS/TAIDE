@@ -147,14 +147,15 @@ pub fn stage(repo_path: &Path, paths: &[String]) -> AppResult<()> {
         let relative = to_repo_relative(&workdir, raw)?;
         let relative_path = Path::new(&relative);
         let absolute = workdir.join(relative_path);
-        if absolute.is_dir() {
-            index
-                .add_all([without_trailing_separator(&relative)], git2::IndexAddOption::DEFAULT, None)
-                .map_err(map_git_err)?;
-        } else if absolute.exists() {
-            index.add_path(relative_path).map_err(map_git_err)?;
-        } else {
-            index.remove_path(relative_path).map_err(map_git_err)?;
+        match absolute.symlink_metadata() {
+            Ok(metadata) if metadata.is_dir() => {
+                index
+                    .add_all([without_trailing_separator(&relative)], git2::IndexAddOption::DEFAULT, None)
+                    .map_err(map_git_err)?;
+            }
+            Ok(_) => index.add_path(relative_path).map_err(map_git_err)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => index.remove_path(relative_path).map_err(map_git_err)?,
+            Err(error) => return Err(error.into()),
         }
     }
 
@@ -356,7 +357,13 @@ pub fn diff_file(
     let (original, modified) = match mode {
         DiffMode::WorkdirVsIndex => {
             let original = read_index_blob(&repo, &before_relative).unwrap_or_default();
-            let modified = std::fs::read_to_string(workdir.join(&relative)).unwrap_or_default();
+            let absolute = workdir.join(&relative);
+            let modified = match absolute.symlink_metadata() {
+                Ok(metadata) if metadata.is_symlink() => std::fs::read_link(&absolute)?.to_string_lossy().into_owned(),
+                Ok(_) => std::fs::read_to_string(&absolute)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(error) => return Err(error.into()),
+            };
             (original, modified)
         }
         DiffMode::IndexVsHead => {

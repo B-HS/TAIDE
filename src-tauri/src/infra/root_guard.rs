@@ -56,6 +56,19 @@ pub fn resolve_owning_project(projects: &HashMap<ProjectId, Project>, path: &Pat
     })
 }
 
+pub fn resolve_entry_owning_project(projects: &HashMap<ProjectId, Project>, path: &Path) -> AppResult<(ProjectId, PathBuf)> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.path.invalid",
+            format!("invalid path: {}", path.display()),
+        )
+        .with_arg("path", path.display()));
+    };
+    let (project_id, resolved_parent) = resolve_owning_project(projects, parent)?;
+    Ok((project_id, resolved_parent.join(name)))
+}
+
 /// [`resolve_owning_project`], widened by the paths the user handed to TAIDE through the `taide`
 /// CLI (`AppState::authorize_cli_opened_path`). Claude Code's Ctrl+G opens a temp file under the OS
 /// tmpdir — outside every project root by construction — so the four commands that turn that file
