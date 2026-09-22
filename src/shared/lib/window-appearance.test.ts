@@ -14,7 +14,7 @@ import type { ThemeType } from '@shared/api/bindings'
  * `window.__TAURI_INTERNALS__` it plants — a fake that stayed installed for the rest of the run
  * would silently answer that file's window-kind gate instead.
  */
-type FakeWindow = { setTheme: (type?: ThemeType | null) => Promise<void> }
+type FakeWindow = { theme: () => Promise<ThemeType | null>; setTheme: (type?: ThemeType | null) => Promise<void> }
 
 /**
  * Captured *before* `mock.module` replaces the module, because the namespace binding is live: after
@@ -30,9 +30,10 @@ mock.module('@tauri-apps/api/window', () => ({ ...tauriWindow, getCurrentWindow:
 
 const importWindowAppearance = () => import('@shared/lib/window-appearance')
 
-const installFakeWindow = (setTheme: FakeWindow['setTheme']) => {
+const installFakeWindow = (setTheme: FakeWindow['setTheme'], currentTheme: ThemeType | null = null) => {
     const calls: (ThemeType | null | undefined)[] = []
     getCurrentWindowImpl.current = () => ({
+        theme: () => Promise.resolve(currentTheme),
         setTheme: (type) => {
             calls.push(type)
             return setTheme(type)
@@ -61,7 +62,7 @@ describe('applyWindowAppearance', () => {
         let lookups = 0
         getCurrentWindowImpl.current = () => {
             lookups += 1
-            return { setTheme: () => Promise.resolve() }
+            return { theme: () => Promise.resolve('dark'), setTheme: () => Promise.resolve() }
         }
 
         await applyWindowAppearance('dark')
@@ -85,5 +86,25 @@ describe('applyWindowAppearance', () => {
         installFakeWindow(() => Promise.reject(failure))
 
         await expect(applyWindowAppearance('light')).rejects.toBe(failure)
+    })
+})
+
+describe('synchronizeWindowAppearance', () => {
+    test('네이티브 창이 이미 같은 theme 이면 setTheme 을 다시 호출하지 않는다', async () => {
+        const { synchronizeWindowAppearance } = await importWindowAppearance()
+        const calls = installFakeWindow(() => Promise.resolve(), 'dark')
+
+        await synchronizeWindowAppearance('dark')
+
+        expect(calls).toEqual([])
+    })
+
+    test('네이티브 창의 theme 이 다를 때만 원하는 값으로 맞춘다', async () => {
+        const { synchronizeWindowAppearance } = await importWindowAppearance()
+        const calls = installFakeWindow(() => Promise.resolve(), 'light')
+
+        await synchronizeWindowAppearance('dark')
+
+        expect(calls).toEqual(['dark'])
     })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type FC, type PropsWithChildren } from 'react'
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, type FC, type PropsWithChildren } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { currentThemeQueryOptions, useThemePreviewValue } from '@entities/theme/theme.query'
@@ -8,7 +8,7 @@ import { readPluginGrammar } from '@entities/plugin/plugin.ipc'
 import { pluginListQueryOptions } from '@entities/plugin/plugin.query'
 import type { ThemeType } from '@shared/api/bindings'
 import { applyThemeVariables } from '@shared/lib/theme-variables'
-import { applyWindowAppearance } from '@shared/lib/window-appearance'
+import { applyWindowAppearance, synchronizeWindowAppearance } from '@shared/lib/window-appearance'
 import { registerPluginLanguages } from '@shared/lib/monaco/register-plugin-languages'
 import { applyShikiTheme, initShiki } from '@shared/lib/shiki/shiki-monaco'
 import { isWindowReadyToReveal, useRevealWindow } from '@shared/hooks/use-reveal-window'
@@ -65,23 +65,17 @@ export const ThemeProvider: FC<PropsWithChildren> = ({ children }) => {
 
     useEffect(() => subscribeSystemTheme(() => void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })), [queryClient])
 
-    /**
-     * Resets the window-appearance guard whenever this window regains focus. The native appearance
-     * effect (`NSApplication.setAppearance:`) is app-wide, but `lastAppliedWindowAppearanceTypeRef`
-     * is scoped to this webview realm (contract d-45 F-01): an auxiliary editor window mounts its
-     * own `ThemeProvider` with its own ref starting at `null`, so it applies its own resolved theme's
-     * appearance app-wide without this realm ever finding out — leaving this realm's ref pointing at
-     * a `type` that is no longer what the native appearance actually is, and permanently blocking
-     * this realm's guard from re-syncing until `theme.type` happens to change again. Clearing the ref
-     * on focus — the moment this window's appearance is about to be looked at again — reopens that
-     * re-sync path for the next time this effect runs.
-     */
-    useEffect(() => {
-        const handleWindowFocus = () => {
+    const synchronizeAppearanceOnFocus = useEffectEvent(() => {
+        if (!theme) return
+        void synchronizeWindowAppearance(theme.type).catch((error: unknown) => {
             lastAppliedWindowAppearanceTypeRef.current = null
-        }
-        window.addEventListener('focus', handleWindowFocus)
-        return () => window.removeEventListener('focus', handleWindowFocus)
+            console.error('[window-appearance] failed to synchronize', error)
+        })
+    })
+
+    useEffect(() => {
+        window.addEventListener('focus', synchronizeAppearanceOnFocus)
+        return () => window.removeEventListener('focus', synchronizeAppearanceOnFocus)
     }, [])
 
     /**

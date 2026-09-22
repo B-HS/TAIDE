@@ -19,3 +19,9 @@ import type { ThemeType } from '@shared/api/bindings'
  * never actually landed, permanently blocking every later retry of the same `type`.
  */
 export const applyWindowAppearance = (type: ThemeType) => getCurrentWindow().setTheme(type)
+
+export const synchronizeWindowAppearance = async (type: ThemeType) => {
+    const window = getCurrentWindow()
+    if ((await window.theme()) === type) return
+    await window.setTheme(type)
+}
