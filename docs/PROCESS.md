@@ -50,7 +50,7 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
-## 진행 중: 파일·Git 트리 선택/탭 열기·포커스 복귀·알림 설정 CTA 수정 (2026-09-22)
+## 완료: 파일·Git 트리 선택/탭 열기·포커스 복귀·알림 설정 CTA 수정 (2026-09-22)
 
 > 사용자 요청 4건. 다중 에이전트 workflow 미사용, 메인 Sol 직접 수행. 기준 문서:
 > `~/.claude/convention/{ai-process,common,comments,security,git,frontend,fsd,query,desktop}.md`.
