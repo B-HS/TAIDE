@@ -91,6 +91,26 @@ const createFakeDeps = (overrides: Partial<WorkspaceEditApplierDeps> = {}) => {
 }
 
 describe('applyTextEditsToContent', () => {
+    test('같은 위치의 삽입은 서버 배열 순서를 보존한다', () => {
+        const start = { line: 0, character: 0 }
+        const edits = ['first', 'second'].map((newText) => ({ range: { start, end: start }, newText }))
+        expect(applyTextEditsToContent('tail', edits)).toBe('firstsecondtail')
+        expect(applyTextEditsToContent('tail', [...edits, { range: { start, end: { line: 0, character: 1 } }, newText: 'T' }])).toBe(
+            'firstsecondTail',
+        )
+    })
+
+    test('줄 길이를 넘는 문자는 줄 끝으로 제한하고 줄바꿈을 보존한다', () => {
+        const BEYOND_LINE_END = 100
+        const position = { line: 0, character: BEYOND_LINE_END }
+        for (const newline of ['\n', '\r\n', '\r']) {
+            expect(applyTextEditsToContent(`abc${newline}xyz`, [{ range: { start: position, end: position }, newText: '!' }])).toBe(
+                `abc!${newline}xyz`,
+            )
+        }
+        expect(applyTextEditsToContent('', [{ range: { start: position, end: position }, newText: '!' }])).toBe('!')
+    })
+
     test('단일 edit 을 range 만큼 치환한다', () => {
         const edits: TextEdit[] = [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, newText: 'howdy' }]
         expect(applyTextEditsToContent('hello world', edits)).toBe('howdy world')

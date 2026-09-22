@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useRemoteConnectionRevision } from '@shared/hooks/use-remote-connection-revision'
 import { QueryObserver, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import type { FileSizeTier, LspInitializationOptionsValue, LspServerId, ProjectId, Settings } from '@shared/api/bindings'
@@ -160,6 +161,7 @@ const attachLspSession = ({
 }
 
 export const useLspSession = ({ projectId, path, languageId, tier, enabled }: UseLspSessionInput) => {
+    const remoteConnectionRevision = useRemoteConnectionRevision()
     const { data: servers } = useQuery(lspServersQueryOptions())
     const { data: project } = useQuery(projectQueryOptions(projectId))
     const queryClient = useQueryClient()
@@ -188,5 +190,5 @@ export const useLspSession = ({ projectId, path, languageId, tier, enabled }: Us
         return () => {
             cleanups.forEach((cleanup) => cleanup())
         }
-    }, [enabled, languageId, path, projectId, tier, project?.root, servers, queryClient])
+    }, [enabled, languageId, path, projectId, tier, project?.root, servers, queryClient, remoteConnectionRevision])
 }

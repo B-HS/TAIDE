@@ -142,32 +142,6 @@ export const useCreateEntry = (projectId: ProjectId) => {
     })
 }
 
-/**
- * `onSuccess` is `async` on purpose: TanStack Query keeps the mutation pending until the promise it
- * returns settles, so the explorer's rename flow (`use-explorer-entry-crud.ts` awaits
- * `renameEntryAsync`) only proceeds to its tree refresh/reveal once every open tab has been moved to
- * the new path — no window ever renders the renamed file under a path that no longer exists.
- *
- * `followRenamedPathInTabs` is wired here rather than in the explorer widget so the explorer's own
- * renames all reach it: the inline rename and the cut-and-paste move (`use-explorer-clipboard.ts`
- * runs a `rename` too) both funnel through this one mutation (audit §4-B A3). It is *not* the only
- * way a file gets renamed — `shared/lib/lsp/workspace-edit-applier.ts` calls `commands.fileRename`
- * directly for an LSP `RenameFile` operation and therefore still does not move tabs (carried in
- * contract §5 S8 / d-51 §5 F1).
- *
- * `onMutate` re-reads the project's mirror list *before* the rename lands, because that list is the
- * only place an unsaved draft belonging to **another OS window** can be read from: model registries
- * and query caches are per-window module instances, and `FILE.MIRRORS` is `staleTime: Infinity`, so
- * this window's copy is a project-activation snapshot that predates anything the other window has
- * typed. Refreshing it here (rather than after the rename) is what makes the draft reachable at all
- * — `list_mirrors` skips every mirror whose file no longer exists on disk, so once `from` is gone
- * its mirror can never be listed again, and the next `prune_mirrors` sweep deletes it.
- *
- * `onSuccess`'s failure is swallowed: the file is already renamed on disk at this point, so
- * rejecting here would report a successful rename as failed — and `use-explorer-clipboard.ts`'s
- * paste retry, which only re-runs on `error.file.destinationExists`, would surface it as a dead-end
- * error toast.
- */
 export const useRenameEntry = (projectId: ProjectId) => {
     const queryClient = useQueryClient()
     return useMutation({

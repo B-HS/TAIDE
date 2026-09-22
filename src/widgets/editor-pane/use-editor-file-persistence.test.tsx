@@ -129,7 +129,7 @@ const createFakeEditor = (model: ReturnType<typeof createFakeModel>) =>
         restoreViewState: () => {},
     }) as unknown as NonNullable<PersistenceInput['editor']>
 
-type MountOptions = { path: string; hadLiveModel: boolean; mirror: MirrorEntry | null }
+type MountOptions = { path: string; hadLiveModel: boolean; mirror: MirrorEntry | null; autoSaveDelayMs?: number }
 
 /**
  * Mounts the hook the way `EditorPane` does, in the order React actually produces: `editor` is `null`
@@ -139,7 +139,7 @@ type MountOptions = { path: string; hadLiveModel: boolean; mirror: MirrorEntry |
  * order right is the point: a test that handed the hook a live `editor` from the very first render
  * would never exercise the mount reconciliation at all.
  */
-const mountPaneOnLiveModel = async ({ path, hadLiveModel, mirror }: MountOptions) => {
+const mountPaneOnLiveModel = async ({ path, hadLiveModel, mirror, autoSaveDelayMs = 0 }: MountOptions) => {
     const { useEditorFilePersistence } = await importPersistence()
     const { getOrCreateModel } = await importModelRegistry()
 
@@ -155,7 +155,7 @@ const mountPaneOnLiveModel = async ({ path, hadLiveModel, mirror }: MountOptions
         path,
         tabId: TAB_ID,
         file: buildOpenedFile(path, DISK_CONTENT),
-        autoSaveDelayMs: 0,
+        autoSaveDelayMs,
         formatOnSave: false,
         trimTrailingWhitespaceOnSave: false,
         insertFinalNewlineOnSave: false,
@@ -174,7 +174,7 @@ const mountPaneOnLiveModel = async ({ path, hadLiveModel, mirror }: MountOptions
     })
 
     const initialProps: { liveEditor: PersistenceInput['editor'] } = { liveEditor: null }
-    const { result, rerender } = renderHookWithProviders(
+    const { result, rerender, unmount } = renderHookWithProviders(
         ({ liveEditor }: { liveEditor: PersistenceInput['editor'] }) => useEditorFilePersistence(buildInput(liveEditor)),
         { queryClient, initialProps },
     )
@@ -184,7 +184,7 @@ const mountPaneOnLiveModel = async ({ path, hadLiveModel, mirror }: MountOptions
         rerender({ liveEditor: editor })
     })
 
-    return { result, model, tabDirtyCalls }
+    return { result, model, tabDirtyCalls, unmount }
 }
 
 describe('useEditorFilePersistence 마운트 시 라이브 모델 인수 (감사 §2-7 · §2-8)', () => {
@@ -276,6 +276,53 @@ describe('useEditorFilePersistence 저장 완료 보고 (감사 웨이브 2 #8)'
     afterEach(() => {
         fileSaves.respond = () => Promise.resolve(null)
         fileSaves.writes.length = 0
+    })
+
+    test('저장 중 추가 입력은 다음 자동 저장으로 이어지고 최신 초안까지 저장된다', async () => {
+        const AUTO_SAVE_DELAY_MS = 20
+        const AUTO_SAVE_SETTLE_MS = 100
+        const path = '/repo/auto-save-followup.ts'
+        const { result } = await mountPaneOnLiveModel({ path, hadLiveModel: false, mirror: null, autoSaveDelayMs: AUTO_SAVE_DELAY_MS })
+        const write = Promise.withResolvers<null>()
+        fileSaves.respond = () => write.promise
+        act(() => result.current.handleChange(() => 'first'))
+        const saving = result.current.handleSave()
+        await act(flushPendingSaveSteps)
+        expect(fileSaves.writes).toEqual([{ path, content: 'first' }])
+        act(() => result.current.handleChange(() => 'latest'))
+        fileSaves.respond = () => Promise.resolve(null)
+        await act(async () => {
+            write.resolve(null)
+            expect(await saving).toBe(false)
+        })
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, AUTO_SAVE_SETTLE_MS))
+        })
+        expect(fileSaves.writes).toEqual([
+            { path, content: 'first' },
+            { path, content: 'latest' },
+        ])
+        expect(result.current.dirty).toBe(false)
+    })
+
+    test('저장 대기 중 닫힌 pane 은 완료 후 자동 저장을 예약하지 않는다', async () => {
+        const AUTO_SAVE_DELAY_MS = 20
+        const AUTO_SAVE_SETTLE_MS = 100
+        const path = '/repo/auto-save-unmounted.ts'
+        const { result, unmount } = await mountPaneOnLiveModel({ path, hadLiveModel: false, mirror: null, autoSaveDelayMs: AUTO_SAVE_DELAY_MS })
+        const write = Promise.withResolvers<null>()
+        fileSaves.respond = () => write.promise
+        act(() => result.current.handleChange(() => 'first'))
+        const saving = result.current.handleSave()
+        await act(flushPendingSaveSteps)
+        act(() => result.current.handleChange(() => 'latest'))
+        unmount()
+        await act(async () => {
+            write.resolve(null)
+            expect(await saving).toBe(false)
+            await new Promise((resolve) => setTimeout(resolve, AUTO_SAVE_SETTLE_MS))
+        })
+        expect(fileSaves.writes).toEqual([{ path, content: 'first' }])
     })
 
     test('handleSave 는 디스크 쓰기가 끝나기 전에는 resolve 하지 않고, 끝나면 성공을 보고한다', async () => {

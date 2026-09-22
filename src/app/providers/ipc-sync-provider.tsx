@@ -1,10 +1,11 @@
 import type { FC, PropsWithChildren } from 'react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { FsChange, Project, ProjectId, ProjectLayout, TerminalSession, TreeRowPage } from '@shared/api/bindings'
+import type { FsChange, Project, ProjectId, ProjectLayout, Settings, TerminalSession, TreeRowPage } from '@shared/api/bindings'
 import { events } from '@shared/api/bindings'
 import { GIT_SCOPE_DIFF, GIT_SCOPE_GUTTER, PROJECT_SCOPED_KEYS, PROJECT_SCOPED_PATH_KEY_PREFIXES, QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
+import { subscribeRemoteConnection } from '@shared/lib/remote/connection-revision'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
 import { collectAllPaneTabs } from '@shared/lib/pane-tree'
 import { isGitQueryScopeMutable } from '@entities/git/git.query'
@@ -293,6 +294,14 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     useLspSessionsQueryInvalidationSync()
     useRecentProjectsClearedNotice()
 
+    useEffect(
+        () =>
+            subscribeRemoteConnection(() => {
+                void queryClient.invalidateQueries()
+            }),
+        [queryClient],
+    )
+
     useTauriEvent(events.projectListChanged, () => {
         for (const queryKey of PROJECT_LIST_CHANGED_INVALIDATIONS) void queryClient.invalidateQueries({ queryKey })
     })
@@ -402,6 +411,12 @@ export const IpcSyncProvider: FC<PropsWithChildren> = ({ children }) => {
     })
 
     useTauriEvent(events.settingsChanged, ({ payload }) => {
+        const previous = queryClient.getQueryData<Settings>(QUERY_KEY.SETTINGS.CURRENT)
+        if (!previous || previous.themeId !== payload.settings.themeId || previous.followSystemTheme !== payload.settings.followSystemTheme)
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.THEME.ALL })
+        if (!previous || previous.language !== payload.settings.language) void queryClient.invalidateQueries({ queryKey: QUERY_KEY.LOCALE.ALL })
+        if (!previous || previous.remoteAccessEnabled !== payload.settings.remoteAccessEnabled)
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEY.REMOTE.STATUS })
         queryClient.setQueryData(QUERY_KEY.SETTINGS.CURRENT, payload.settings)
         // The settings.json `AppFile` tab (`app-file-pane.tsx`) reads this same content through its
         // own `staleTime: Infinity` query, so without this it silently keeps showing whatever it

@@ -122,7 +122,9 @@ export const useEditorFilePersistence = ({
      * timers rather than remounting them away; `handleChange`'s auto-save and markdown-preview
      * timers check this at fire time against the `scheduledPath` they captured when armed.
      */
-    const pathRef = useRef(path)
+    const pathRef = useRef<string | null>(path)
+    const autoSaveDelayRef = useRef(autoSaveDelayMs)
+    const pathGenerationRef = useRef(0)
     /**
      * `CodeEditor`'s last `onModelAttach` report, consumed once by the mount reconciliation below.
      * One-shot on purpose (the `consumeExternallyDirtyModel` idiom): it answers a question about a
@@ -357,17 +359,21 @@ export const useEditorFilePersistence = ({
      * mutation's own `onError` below, so the `catch` that turns it into `false` adds no second toast.
      */
     const handleSave = async (reason: 'explicit' | 'auto' = 'explicit') => {
+        if (pathRef.current !== path || savingRef.current) return false
         if (file?.readOnly) {
             if (reason === 'explicit') toast.error(t('editor.readOnlySaveBlocked'))
             return false
         }
         if (readDraft() === null) return true
 
+        const generation = pathGenerationRef.current
+        const isCurrentSave = () => pathRef.current === path && pathGenerationRef.current === generation
         savingRef.current = true
         clearTimeout(autoSaveTimeoutRef.current)
 
         if (reason === 'explicit') await runCodeActionsOnSave().catch(() => undefined)
 
+        if (!isCurrentSave()) return false
         if (formatOnSave) {
             const formatAction = editor?.getAction(FORMAT_DOCUMENT_ACTION_ID)
             if (formatAction) await formatAction.run().catch(() => undefined)
@@ -387,12 +393,14 @@ export const useEditorFilePersistence = ({
          * explicit `false` against a global `true`. The properties arrive on `OpenedFile`, so they
          * are whatever was in force when this tab was opened.
          */
+        if (!isCurrentSave()) return false
         await runOnSaveCleanup({
             editor,
             ...resolveOnSaveCleanupFlags({ trimTrailingWhitespaceOnSave, insertFinalNewlineOnSave }, file?.editorConfig),
             isAutoSave: reason === 'auto',
         })
 
+        if (!isCurrentSave()) return false
         const finalContent = readDraft()
         if (finalContent === null) {
             savingRef.current = false
@@ -436,18 +444,26 @@ export const useEditorFilePersistence = ({
                      * win it.
                      */
                     onSuccess: () => {
+                        if (!isCurrentSave()) return
                         savingRef.current = false
                         saveEpochRef.current += 1
                         if (readDraft() === finalContent) settleDraftToDiskContent(finalContent)
+                        const nextAutoSaveDelayMs = autoSaveDelayRef.current ?? 0
+                        if (readDraft() !== finalContent && nextAutoSaveDelayMs > 0) {
+                            clearTimeout(autoSaveTimeoutRef.current)
+                            autoSaveTimeoutRef.current = setTimeout(() => {
+                                if (isCurrentSave() && (autoSaveDelayRef.current ?? 0) > 0) void handleSave('auto')
+                            }, nextAutoSaveDelayMs)
+                        }
                         void notifyLspSessionsOfSave()
                     },
                     onError: (saveError) => {
-                        savingRef.current = false
+                        if (isCurrentSave()) savingRef.current = false
                         toast.error(describeIpcError(saveError))
                     },
                 },
             )
-            return true
+            return isCurrentSave() && readDraft() === finalContent
         } catch {
             return false
         }
@@ -548,7 +564,18 @@ export const useEditorFilePersistence = ({
     useEffect(() => {
         draftRef.current = null
         pathRef.current = path
+        savingRef.current = false
+        return () => {
+            pathRef.current = null
+            pathGenerationRef.current += 1
+            clearTimeout(autoSaveTimeoutRef.current)
+        }
     }, [path])
+
+    useEffect(() => {
+        autoSaveDelayRef.current = autoSaveDelayMs
+        if (!(autoSaveDelayMs && autoSaveDelayMs > 0)) clearTimeout(autoSaveTimeoutRef.current)
+    }, [autoSaveDelayMs])
 
     /**
      * Takes over an already-live buffer instead of restoring over it, for the attach this effect is

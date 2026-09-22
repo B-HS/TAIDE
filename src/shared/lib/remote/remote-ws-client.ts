@@ -1,5 +1,6 @@
 import type { AppError } from '@shared/api/bindings'
 import { ERROR_KEY } from '@shared/constants/error-key'
+import { publishRemoteReconnect } from '@shared/lib/remote/connection-revision'
 import { isRecord, numberOf, parseJson, stringOf } from '@shared/lib/remote/remote-json'
 
 const RESPONSE_TAG = 0x02
@@ -37,15 +38,19 @@ export type NonResponseFrame =
 
 export type RemoteWsClient = {
     invoke: (command: string, args: unknown) => Promise<unknown>
+    dispose: () => void
 }
 
 type PendingResolver = { resolve: (value: unknown) => void; reject: (reason: unknown) => void }
 
-export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void): RemoteWsClient => {
+export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void, onReconnect = publishRemoteReconnect): RemoteWsClient => {
     const pending = new Map<number, PendingResolver>()
-    const outbox: string[] = []
+    let outbox: string[] = []
     let socket: WebSocket | null = null
     let nextSeq = 1
+    let needsRecovery = false
+    let isDisposed = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
     const rejectAll = () => {
         for (const resolver of pending.values()) {
@@ -55,6 +60,7 @@ export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void)
             } satisfies AppError)
         }
         pending.clear()
+        outbox = []
     }
 
     const handleTextFrame = (raw: string) => {
@@ -106,17 +112,20 @@ export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void)
     }
 
     const connect = () => {
+        if (isDisposed) return
         const url = new URL('/__taide/ws', location.href)
         url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
         const next = new WebSocket(url)
+        socket = next
         next.binaryType = 'arraybuffer'
 
         next.onopen = () => {
             socket = next
-            while (outbox.length > 0) {
-                const message = outbox.shift()
-                if (message) next.send(message)
-            }
+            const queued = outbox
+            outbox = []
+            for (const message of queued) next.send(message)
+            if (needsRecovery) onReconnect()
+            needsRecovery = false
         }
         next.onmessage = (event) => {
             if (typeof event.data === 'string') handleTextFrame(event.data)
@@ -125,11 +134,13 @@ export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void)
         next.onclose = (event) => {
             socket = null
             rejectAll()
+            if (isDisposed) return
+            needsRecovery = true
             if (isSessionExpiredClose(event.code)) {
                 location.assign(REMOTE_LOGIN_PATH)
                 return
             }
-            setTimeout(connect, RECONNECT_DELAY_MS)
+            reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS)
         }
         next.onerror = () => next.close()
     }
@@ -137,15 +148,24 @@ export const createRemoteWsClient = (onFrame: (frame: NonResponseFrame) => void)
     connect()
 
     const invoke = (command: string, args: unknown) => {
+        if (isDisposed) return Promise.reject(new Error('Remote client is closed'))
         const seq = nextSeq
         nextSeq += 1
         const message = JSON.stringify({ seq, command, args: args ?? null })
         return new Promise<unknown>((resolve, reject) => {
             pending.set(seq, { resolve, reject })
             if (socket && socket.readyState === WebSocket.OPEN) socket.send(message)
-            else outbox.push(message)
+            else outbox = [...outbox, message]
         })
     }
 
-    return { invoke }
+    const dispose = () => {
+        isDisposed = true
+        clearTimeout(reconnectTimer)
+        rejectAll()
+        socket?.close()
+        socket = null
+    }
+
+    return { invoke, dispose }
 }

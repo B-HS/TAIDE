@@ -11,7 +11,7 @@ import { fileNameOf } from '@shared/lib/relative-path'
 import type { RevealTarget } from '@entities/editor/reveal-registry'
 import { revealInTab } from '@entities/editor/reveal-registry'
 import { removePendingClaudeDiff } from '@entities/ide/claude-diff-registry'
-import { releaseClosedFileTabPath } from '@entities/layout/tab-path-change'
+import { reconcileRenamedLayoutPaths, releaseClosedFileTabPath } from '@entities/layout/tab-path-change'
 import {
     activateTab,
     closeTab,
@@ -37,7 +37,11 @@ import {
 export const layoutQueryOptions = (projectId: ProjectId | null) =>
     queryOptions({
         queryKey: QUERY_KEY.LAYOUT.DETAIL(projectId ?? ''),
-        queryFn: () => getLayout(projectId ?? ''),
+        queryFn: async ({ client }) => {
+            const layout = await getLayout(projectId ?? '')
+            if (projectId) await reconcileRenamedLayoutPaths({ queryClient: client, projectId }, layout)
+            return layout
+        },
         enabled: !!projectId,
     })
 

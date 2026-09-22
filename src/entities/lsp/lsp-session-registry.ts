@@ -29,6 +29,7 @@ import { registerSessionExecuteCommands } from '@shared/lib/lsp/command-relay'
 import { createWorkspaceApplyEditHandler } from '@shared/lib/lsp/workspace-edit-apply-handler'
 import { confirmLspReinitialize, reportLspReinitializeFailure, sendLspMessage, spawnLspSession, stopLspSession } from '@entities/lsp/lsp.ipc'
 import { registerLspSessionAllFlush, registerLspSessionProjectFlush } from '@entities/lsp/lsp-session-flush-registry'
+import { subscribeRemoteConnection } from '@shared/lib/remote/connection-revision'
 
 type Disposable = { dispose: () => void }
 
@@ -96,6 +97,8 @@ type ResolvedSession = {
  * does not still send while this is `true`).
  */
 type SessionGroup = {
+    pendingClient?: LspClient
+    pendingSessionId?: string
     projectId: ProjectId
     serverId: LspServerId
     initializationOptions: LspInitializationOptionsValue | null | undefined
@@ -127,6 +130,8 @@ const sessionsByKey = new Map<string, SessionRecord>()
 const recordsBySessionId = new Map<string, SessionRecord>()
 const waitersBySessionKey = new Map<string, Set<() => void>>()
 const languageAdapterListeners = new Set<() => void>()
+const disposedGroups = new WeakSet<SessionGroup>()
+let remoteRecovery: Promise<void> | null = null
 
 const toSessionKey = (projectId: ProjectId, serverId: LspServerId, root: string) => `${projectId}::${serverId}::${root}`
 
@@ -250,6 +255,7 @@ const createSession = async (
     initializationOptions?: LspInitializationOptionsValue | null,
     siblingReadyTimeoutMs: number = LSP_SIBLING_READY_TIMEOUT_MS,
 ): Promise<ResolvedSession> => {
+    if (remoteRecovery) await remoteRecovery
     if (sibling) await withTimeout(sibling.ready, siblingReadyTimeoutMs, 'sibling lsp session ready wait timed out').catch(() => undefined)
 
     let sessionId: string | null = null
@@ -267,6 +273,7 @@ const createSession = async (
         onNotification: () => undefined,
     })
     activeClient = client
+    record.group.pendingClient = client
 
     /**
      * Registered on `client` immediately after it's created — *before* `spawnLspSession` even
@@ -298,6 +305,7 @@ const createSession = async (
             }
         },
     })
+    record.group.pendingSessionId = sessionId
 
     const joined = recordsBySessionId.get(sessionId)
     if (joined) {
@@ -379,6 +387,8 @@ const createSession = async (
 }
 
 const disposeSession = async (record: SessionRecord, group: SessionGroup) => {
+    if (disposedGroups.has(group)) return
+    disposedGroups.add(group)
     const session = await record.ready.catch(() => null)
     for (const disposables of group.state.languageDisposables.values()) {
         for (const disposable of disposables) disposable.dispose()
@@ -392,7 +402,12 @@ const disposeSession = async (record: SessionRecord, group: SessionGroup) => {
     for (const subscription of group.state.contentSubscriptions.values()) subscription.dispose()
     group.state.contentSubscriptions.clear()
     group.state.diagnosticsDisposable?.dispose()
-    if (!session) return
+    if (!session) {
+        group.pendingClient?.dispose()
+        const sessionId = group.pendingSessionId
+        if (sessionId) await stopLspSession(sessionId).catch(() => undefined)
+        return
+    }
     session.executeCommandsDisposable.dispose()
     session.applyEditDisposable.dispose()
     session.semanticTokensRefreshDisposable.dispose()
@@ -914,3 +929,12 @@ export const handleLspSessionStatusChanged = (
 }
 
 void events.lspSessionStatusChanged.listen(({ payload }) => handleLspSessionStatusChanged(payload)).catch(() => undefined)
+
+subscribeRemoteConnection(() => {
+    const records = [...new Set(sessionsByKey.values())]
+    sessionsByKey.clear()
+    for (const record of records) record.group.pendingClient?.rejectPendingRequests(new Error('Remote connection was interrupted'))
+    remoteRecovery = (async () => {
+        await Promise.all(records.map((record) => disposeSession(record, record.group)))
+    })()
+})

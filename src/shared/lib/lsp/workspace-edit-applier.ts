@@ -16,6 +16,7 @@ import type {
 } from '@shared/lib/lsp/protocol'
 import { lspRangeToMonaco } from '@shared/lib/lsp/position'
 import { isWithinRoot } from '@shared/lib/path-root'
+import { deleteWorkspaceEntry, renameWorkspaceEntry } from '@shared/lib/lsp/resource-operations'
 
 /** Mirrors LSP's `ApplyWorkspaceEditResult` wire shape so handlers can return this value as-is. */
 export type WorkspaceEditApplyResult = { applied: boolean; failureReason?: string }
@@ -30,8 +31,8 @@ export type WorkspaceEditApplyResult = { applied: boolean; failureReason?: strin
 const openFile = (path: string) => unwrapResult(commands.fileOpen(path))
 const saveFile = (input: { path: string; content: string }) => unwrapResult(commands.fileSave(input.path, input.content))
 const createEntry = (input: { path: string; isDir: boolean }) => unwrapResult(commands.fileCreate(input.path, input.isDir))
-const renameEntry = (input: { from: string; to: string }) => unwrapResult(commands.fileRename(input.from, input.to))
-const deleteEntry = (path: string) => unwrapResult(commands.fileDelete(path))
+const renameEntry = renameWorkspaceEntry
+const deleteEntry = deleteWorkspaceEntry
 const getActiveProjectId = () => unwrapResult(commands.projectGetActive())
 const mirrorDirtyExternally = (input: { projectId: ProjectId; path: string; content: string }) =>
     unwrapResult(commands.fileMirrorDirty(input.projectId, input.path, input.content))
@@ -154,15 +155,22 @@ const pathExists = async (deps: WorkspaceEditApplierDeps, path: string) => {
 
 const LINE_TERMINATOR_PATTERN = /\r\n|\r|\n/g
 
-/** Byte-for-character offset of the start of each line, indexed by (0-based) line number. */
-const buildLineStartOffsets = (content: string) => {
-    const offsets = [0]
-    for (const match of content.matchAll(LINE_TERMINATOR_PATTERN)) offsets.push((match.index ?? 0) + match[0].length)
-    return offsets
+const buildLineRanges = (content: string) => {
+    const starts = [0]
+    const ends: number[] = []
+    for (const match of content.matchAll(LINE_TERMINATOR_PATTERN)) {
+        ends.push(match.index)
+        starts.push(match.index + match[0].length)
+    }
+    ends.push(content.length)
+    return starts.map((start, index) => ({ start, end: ends[index] ?? content.length }))
 }
 
-const toOffset = (lineStartOffsets: number[], contentLength: number, position: { line: number; character: number }) =>
-    (lineStartOffsets[position.line] ?? contentLength) + position.character
+const toOffset = (lines: ReturnType<typeof buildLineRanges>, contentLength: number, position: TextEdit['range']['start']) => {
+    const line = lines[position.line]
+    if (!line) return contentLength
+    return Math.min(line.start + Math.max(0, position.character), line.end)
+}
 
 /**
  * Applies `edits` to a raw string outside of monaco (a file with no open model). Edits are sorted
@@ -171,14 +179,15 @@ const toOffset = (lineStartOffsets: number[], contentLength: number, position: {
  * `pushEditOperations` provides for free on an open model.
  */
 export const applyTextEditsToContent = (content: string, edits: readonly TextEdit[]) => {
-    const lineStartOffsets = buildLineStartOffsets(content)
+    const lines = buildLineRanges(content)
     const withOffsets = edits
-        .map((edit) => ({
+        .map((edit, index) => ({
             edit,
-            start: toOffset(lineStartOffsets, content.length, edit.range.start),
-            end: toOffset(lineStartOffsets, content.length, edit.range.end),
+            index,
+            start: toOffset(lines, content.length, edit.range.start),
+            end: toOffset(lines, content.length, edit.range.end),
         }))
-        .toSorted((a, b) => b.start - a.start)
+        .toSorted((a, b) => b.start - a.start || b.index - a.index)
 
     return withOffsets.reduce((current, { edit, start, end }) => current.slice(0, start) + edit.newText + current.slice(end), content)
 }

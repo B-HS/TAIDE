@@ -158,6 +158,26 @@ beforeEach(() => {
 })
 
 describe('followRenamedPathInTabs', () => {
+    test('다른 창의 개명 레이아웃도 아직 dirty 표시 전인 로컬 초안을 보존한다', async () => {
+        const { reconcileRenamedLayoutPaths } = await importTabPathChange()
+        const queryClient = new QueryClient()
+        const previous = buildLayout([buildFileTab('tab', '/repo/before.ts')], 1)
+        const next = buildLayout([buildFileTab('tab', '/repo/after.ts')], 2)
+        queryClient.setQueryData(QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID), previous)
+        queryClient.setQueryData(QUERY_KEY.FILE.CONTENT('/repo/before.ts'), buildOpenedFile('/repo/before.ts', 'disk', 'typescript'))
+        const deps = createDeps(recorder, {
+            result: { layout: next, moved: [], closedPaths: [] },
+            modelContents: { '/repo/before.ts': 'unsaved draft' },
+            openedFiles: { '/repo/after.ts': buildOpenedFile('/repo/after.ts', 'disk', 'typescript') },
+        })
+        await Promise.all([
+            reconcileRenamedLayoutPaths({ queryClient, projectId: PROJECT_ID }, next, deps),
+            reconcileRenamedLayoutPaths({ queryClient, projectId: PROJECT_ID }, next, deps),
+        ])
+        expect(recorder.retargeted).toEqual([{ from: '/repo/before.ts', to: '/repo/after.ts' }])
+        expect(recorder.mirrorWrites).toEqual([{ path: '/repo/after.ts', content: 'unsaved draft' }])
+        expect(recorder.changes).toEqual([])
+    })
     test('개명된 경로의 모델·FILE 캐시를 옮기고 새 languageId 를 적용한다', async () => {
         const { followRenamedPathInTabs } = await importTabPathChange()
         const queryClient = new QueryClient()

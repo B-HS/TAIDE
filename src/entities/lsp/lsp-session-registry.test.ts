@@ -967,3 +967,45 @@ describe('acquireLspSession — 세션 실패 관측성 (d-64 R1)', () => {
         }
     })
 })
+
+test('원격 재접속 후 기존 언어 서버를 정리한 다음 새 채널로 다시 초기화한다', async () => {
+    const { acquireLspSession, acquireDocument, flushLspSessionsForProject } = await importRegistry()
+    const { publishRemoteReconnect } = await import('@shared/lib/remote/connection-revision')
+    const projectId = 'remote-recovery-project'
+    const root = '/tmp/remote-recovery'
+    const first = acquireLspSession(projectId, SERVER_ID, root)
+    const firstSession = await first.record.ready
+    const uri = `file://${root}/draft.ts`
+    const model = createFakeModel('typescript', 'unsaved draft')
+    FAKE_MODELS.set(uri, model)
+    acquireDocument(first.record, firstSession.client, uri, 'typescript', model.getValue())
+    publishRemoteReconnect()
+    const next = acquireLspSession(projectId, SERVER_ID, root)
+    const nextSession = await next.record.ready
+    acquireDocument(next.record, nextSession.client, uri, 'typescript', model.getValue())
+    expect(nextSession.sessionId).not.toBe(firstSession.sessionId)
+    expect(fakeLspIpc.stopCalls.some((call) => call.sessionId === firstSession.sessionId)).toBe(true)
+    expect(model.contentListenerCount()).toBe(1)
+    expect(fakeLspIpc.sentMessages.some((message) => message.sessionId === nextSession.sessionId && message.method === 'textDocument/didOpen')).toBe(
+        true,
+    )
+    flushLspSessionsForProject(projectId)
+    FAKE_MODELS.delete(uri)
+})
+
+test('초기화 응답을 잃은 원격 언어 서버도 남겨두지 않고 복구한다', async () => {
+    const { acquireLspSession, flushLspSessionsForProject } = await importRegistry()
+    const { publishRemoteReconnect } = await import('@shared/lib/remote/connection-revision')
+    const projectId = 'remote-initializing-project'
+    fakeLspIpc.suppressNextInitializeResponses(1)
+    const first = acquireLspSession(projectId, SERVER_ID, '/tmp/remote-initializing')
+    const rejected = first.record.ready.catch(() => null)
+    await new Promise((resolve) => setTimeout(resolve, TEST_GRACE_MS))
+    const oldSessionId = fakeLspIpc.spawns.at(-1)?.sessionId
+    publishRemoteReconnect()
+    expect(await rejected).toBeNull()
+    const next = acquireLspSession(projectId, SERVER_ID, '/tmp/remote-initializing')
+    await next.record.ready
+    expect(fakeLspIpc.stopCalls.some((call) => call.sessionId === oldSessionId)).toBe(true)
+    flushLspSessionsForProject(projectId)
+})

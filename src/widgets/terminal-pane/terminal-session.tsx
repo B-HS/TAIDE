@@ -42,6 +42,7 @@ import type { ResolvedTerminalLinkMatch } from '@features/terminal/terminal-file
 import { normalizeDecorationHexColor } from '@features/terminal/terminal-osc133'
 import { Button } from '@shared/ui/button'
 import { TerminalPane } from '@widgets/terminal-pane/terminal-pane'
+import { useRemoteConnectionRevision } from '@shared/hooks/use-remote-connection-revision'
 import { appendPendingTerminalInput } from '@widgets/terminal-pane/pending-terminal-input'
 import { consumeReplayBudget } from '@widgets/terminal-pane/terminal-replay-budget'
 import { resolveSplitTerminalCwd } from '@widgets/terminal-pane/terminal-split-availability'
@@ -61,6 +62,7 @@ type TerminalSessionProps = {
 }
 
 export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, paneId, sessionId: persistedSessionId, autoFocus, paneElementRef }) => {
+    const remoteConnectionRevision = useRemoteConnectionRevision()
     const spawnStartedRef = useRef(false)
     const dimensionsRef = useRef({ cols: 0, rows: 0 })
     const isMountedRef = useRef(true)
@@ -409,6 +411,7 @@ export const TerminalSession: FC<TerminalSessionProps> = ({ projectId, tabId, pa
 
     return (
         <TerminalPane
+            key={remoteConnectionRevision}
             sessionId={sessionId}
             autoFocus={autoFocus}
             fontSize={settings?.terminalFontSize ?? DEFAULT_FONT_SIZE}

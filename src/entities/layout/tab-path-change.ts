@@ -247,7 +247,13 @@ const migrateRenamedFileTabPath = async (scope: ProjectScope, move: TabPathMove,
     const cachedMirrorContent = queryClient
         .getQueryData<MirrorEntry[]>(QUERY_KEY.FILE.MIRRORS(projectId))
         ?.find((entry) => entry.path === move.from)?.content
-    const draft = move.dirty ? (deps.readModelContent(move.from) ?? cachedMirrorContent ?? null) : null
+    const previousContent = queryClient.getQueryData<OpenedFile>(QUERY_KEY.FILE.CONTENT(move.from))
+    const modelContent = deps.readModelContent(move.from)
+    const hasDraft =
+        move.dirty ||
+        cachedMirrorContent !== undefined ||
+        (modelContent !== null && previousContent !== undefined && modelContent !== previousContent.content)
+    const draft = hasDraft ? (modelContent ?? cachedMirrorContent ?? null) : null
     const openWithOverride = deps.getOpenWithOverride(move.from)
 
     deps.retargetModel(move.from, move.to)
@@ -257,7 +263,6 @@ const migrateRenamedFileTabPath = async (scope: ProjectScope, move: TabPathMove,
         deps.setOpenWithOverride(move.to, openWithOverride)
     }
 
-    const previousContent = queryClient.getQueryData<OpenedFile>(QUERY_KEY.FILE.CONTENT(move.from))
     if (previousContent) {
         queryClient.setQueryData<OpenedFile>(QUERY_KEY.FILE.CONTENT(move.to), { ...previousContent, path: move.to })
 
@@ -269,6 +274,34 @@ const migrateRenamedFileTabPath = async (scope: ProjectScope, move: TabPathMove,
     }
 
     await migrateMirror(scope, move, draft, deps)
+}
+
+const pendingMigrations = new WeakMap<QueryClient, Map<string, Promise<void>>>()
+
+const migratePathOnce = async (scope: ProjectScope, move: TabPathMove, deps: TabPathChangeDeps) => {
+    const pending = pendingMigrations.get(scope.queryClient) ?? new Map<string, Promise<void>>()
+    pendingMigrations.set(scope.queryClient, pending)
+    const key = JSON.stringify([scope.projectId, move.from, move.to])
+    const existing = pending.get(key)
+    if (existing) return existing
+    const task = migrateRenamedFileTabPath(scope, move, deps)
+    pending.set(key, task)
+    try {
+        await task
+    } finally {
+        pending.delete(key)
+    }
+}
+
+export const reconcileRenamedLayoutPaths = async (scope: ProjectScope, next: ProjectLayout, deps: TabPathChangeDeps = defaultTabPathChangeDeps) => {
+    const previous = scope.queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(scope.projectId))
+    if (!previous || (previous.revision ?? 0) >= (next.revision ?? 0)) return
+    const previousTabs = new Map(collectAllPaneTabs(previous).map((tab) => [tab.id, tab]))
+    for (const tab of collectAllPaneTabs(next)) {
+        const oldTab = previousTabs.get(tab.id)
+        if (tab.kind.kind !== 'file' || oldTab?.kind.kind !== 'file' || tab.kind.path === oldTab.kind.path) continue
+        await migratePathOnce(scope, { from: oldTab.kind.path, to: tab.kind.path, dirty: !!(tab.dirty || oldTab.dirty) }, deps)
+    }
 }
 
 /**
@@ -285,7 +318,7 @@ export const followRenamedPathInTabs = async (
     deps: TabPathChangeDeps = defaultTabPathChangeDeps,
 ) => {
     const result = await deps.applyTabPathChange({ projectId, change: { kind: 'renamed', from, to } })
-    for (const move of result.moved) await migrateRenamedFileTabPath({ queryClient, projectId }, move, deps)
+    for (const move of result.moved) await migratePathOnce({ queryClient, projectId }, move, deps)
     return result
 }
 

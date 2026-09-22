@@ -3,6 +3,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { App } from '@app/app'
+import { queryClient } from '@app/query-client'
+import { createWorkspaceResourceOperations } from '@entities/file/workspace-resource-operations'
+import { registerResourceOperations } from '@shared/lib/lsp/resource-operations'
 import { syncNativePerfGate } from '@entities/app/perf.ipc'
 import { PERF_MARK, perfMark } from '@shared/lib/perf-mark'
 import { installRemoteInternalsShim } from '@shared/lib/remote/tauri-internals-shim'
@@ -10,6 +13,7 @@ import { ErrorBoundary } from '@shared/ui/error-boundary'
 import '@shared/styles/global.css'
 
 installRemoteInternalsShim()
+registerResourceOperations(createWorkspaceResourceOperations(queryClient))
 
 /**
  * Boot instrumentation's start point (metric 1 in `docs/quality-assurance/2026-09-04-perf-baseline.md`).
