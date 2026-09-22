@@ -42,4 +42,9 @@
 
 ## 릴리스
 
-버전 정본은 `0.2.6`으로 통일했습니다. 사용자 지시 범위는 dev 커밋·푸시, dev → main 직접 병합, GitHub Release 초안과 설치 자산 생성까지입니다. 공개 게시하지 않습니다.
+버전 정본은 `0.2.6`으로 통일했습니다. dev → main 직접 병합·태그 푸시를 완료했고, [Release 런 35708383779](https://github.com/B-HS/TAIDE/actions/runs/35708383779)이 성공했습니다. [GitHub Release 초안](https://github.com/B-HS/TAIDE/releases/tag/untagged-9c361083159303433093)은 공개하지 않았습니다.
+
+- 태그 커밋: `199c942`
+- 설치 파일: `TAIDE_0.2.6_aarch64.dmg` (15,335,063 bytes), Developer ID 서명·Apple 공증 완료
+- SHA-256: `6867c471eeda71e55ec8a90a8b6a9053e441078a060b2dd3da3aecb0d618a045` (다운로드한 DMG와 SHA256SUMS.txt 일치)
+- dev CI `35707935003`·main CI `35708348698`: frontend·Rust 모두 성공
