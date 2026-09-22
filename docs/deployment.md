@@ -139,10 +139,10 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
   - **확인 절차**: 릴리스 빌드 후
     `otool -L <repo>/target/release/bundle/macos/TAIDE.app/Contents/MacOS/TAIDE` 를 돌려
     `/usr/lib/`·`/System/Library/` 밖의 링크가 0인지 본다.
-  - [ ] `tauri-plugin-notification`(사용성 배치 4, 2026-09-04) — 전이 의존
+  - [x] `tauri-plugin-notification`(사용성 배치 4, 2026-09-04) — 전이 의존
     `mac-notification-sys` 가 `build.rs` 로 ObjC 를 `cc` 정적 컴파일하고 `framework=AppKit` 만
-    링크하므로 외부 dylib 를 만들지 않을 전망이다. **debug 빌드에서는 외부 링크 0 을 확인했고,
-    릴리스 빌드 확인은 미실행** — 다음 릴리스 런에서 위 절차로 확정한다.
+    링크한다. debug 빌드에 이어 **v0.2.5 Release 런 `35695586141`의 자립성 검증도 통과**해
+    릴리스 앱 번들의 비시스템 dylib 링크가 없음을 확정했다.
 - 태그 재시도: 실패한 태그 런의 재실행(rerun)은 **태그 시점의 워크플로**로 돈다 — 워크플로
   수정을 반영하려면 태그를 새 커밋으로 다시 발행해야 한다(미발행 draft 상태라면 태그
   삭제·재푸시 가능 — 사용자 승인 필수).
@@ -151,6 +151,7 @@ GitHub 레포 secrets 5건 등재 완료(2026-08-19, raw-viewer 선례 이식):
 
 | 태그 | 일자 | 비고 |
 |------|------|------|
+| `v0.2.5` | 2026-09-22 | **완주(런 `35695586141`, wall 약 9m05s — build 8m27s, test-frontend 38s·test-rust 2m14s 병렬, release 16s)** — 파일·Git 트리 Shift 범위/Command 추가 선택, permanent 탭 열기와 현재 창 동일 file 탭 재사용(diff·명시적 split 분리), 포커스 복귀 appearance 중복 적용 차단, 알림 전달 안내의 불필요한 설정 CTA 제거. CI에서만 발생한 FE 12건은 Bun `mock.module` 파일 순서 누수로 확정해 IPC namespace 감시와 비수거 설정 캐시로 안정화. dev·main CI 성공, dmg 15,321,084B, SHA-256 `dc0823f95e8e2fff52dda912aa2335e9b031854ea2a8401f09391742943e08d8` 검증. draft 생성 — 사용자 공개 대기 |
 | `v0.2.3` | 2026-09-17 | **완주(런 `35201509238`, wall 약 8m05s — build 6m37s, test-frontend 46s·test-rust 2m30s 병렬, release 18s)** — 편집 표면 전수조사 릴리스(d-65~d-67): 닫기 후 dangling 포커스·pane 포커스 클릭 추종 + 1차 조사 확인 15건(preview 편집/고정 승격·핀 클램프·터미널 dedupe·슬롯 승계·보조 창 정합 6·탐색기 4·공유 모델/미러 보존·reveal 탭 키·untitled ⌘S) + 2차 조사 확인 24건(dirty 닫기 확인 다이얼로그·스코프 flush 핸드셰이크(보조 창·프로젝트 닫기)·LSP didChange 1회/WorkspaceEdit dirty/크래시 철거·창 간 미러 복원·원본 삭제 초안 복구·Clear Recent 초안 보존·root_missing 표시·심링크 폴더·scope 검색·collapse_all·터미널 재attach/재시작/스크롤백 예산 등). dmg 15,320,467B. draft 생성 — 사용자 공개 대기(실기 대상은 `bug/2026-09-17-editing-surface-audit-fixes.md` §7·`bug/2026-09-17-editing-surface-audit-wave2-fixes.md` §9·d-65 계약 §4) |
 | `v0.2.2` | 2026-09-16 | **완주(런 `35071071392`, wall 약 9m12s — build 8m13s, test-frontend 24s·test-rust 2m24s 병렬, release 14s)** — d-64 유지보수: TS/JS 내장 ts worker 폴백을 구문 검사 전용으로(tsconfig·node_modules 를 모르는 semantic 오탐 밑줄 제거) + LSP 세션 중 내장 진단 정지·복원 + LSP 감지·spawn·종료 로그(stderr tail 마스킹) + 파일 트리 하드 제외 해제(node_modules·.next 등 전부 표시, 워처·검색 제외 유지). dmg 15,280,748B. draft 생성 — 사용자 공개 대기(실기 대상은 `acknowledge/2026-09-16-d64-ts-fallback-lsp-observability-tree-contract.md` §2, 특히 설정 LSP 행·상태바 LSP n/m·로그 `lsp detect`) |
 | `v0.2.1` | 2026-09-16 | **완주(런 `35065374306`, wall 약 10m41s — build 9m22s, test-frontend 33s·test-rust 1m34s 병렬, release 17s)** — d-63 유지보수: git 뷰 첫 오픈·프로젝트 전환 크래시(그래프 pane 지연 마운트 → `usePanelCallbackRef`) + 같은 클래스 전수 조사 후속(AI 커밋 메시지 프로젝트 전환 격리·0px 터미널 pane PTY 2×1 차단·사이드바 접힘 영속 디바운스·클립보드 실패 토스트·팔레트 async reject·PDF 재렌더/거부 처리·에디터 autoFocus 게이팅·Panel id 인스턴스화·AppToaster provider·IPC void 위생) + 부팅 스플래시(로고+TAIDE). dmg 15,277,489B. draft 생성 — 사용자 공개 대기(실기 대상은 `acknowledge/2026-09-16-d63-timing-audit-fixes-contract.md` §2) |

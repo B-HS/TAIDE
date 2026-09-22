@@ -66,7 +66,7 @@
 - [x] f. 회귀 테스트 122 pass, typecheck·format·diff check 통과, lint 오류 0(기존 warning 11),
       `bug/2026-09-22-tree-selection-tab-focus-notification.md` 기록 후 논리 단위 커밋·dev push 완료
 
-## 진행 중: v0.2.5 릴리스 draft (2026-09-22)
+## 완료: v0.2.5 릴리스 draft (2026-09-22)
 
 > 사용자 지시: 커밋·푸시·main 병합·tag·draft까지 완료. 다중 에이전트 workflow 미사용, 메인 Sol 직접 수행.
 > 숫자 `4` 금지 규칙(`deployment.md` §2)에 따라 v0.2.4를 건너뛰고 v0.2.5로 진행.
@@ -75,8 +75,9 @@
 - [x] b. package·Tauri·Cargo 버전과 lockfile을 0.2.5로 동기화하고 릴리스 노트 작성
 - [x] c. CI FE 12건을 `mock.module` 파일 순서 누수로 재현·수정 후 검증 — Bun 1.3.14 오염 순서 63+13 pass,
       typecheck·lint(오류 0, 기존 warning 11)·format·bun 2933·cargo 1765·clippy·vite build·typecheck:e2e 통과
-- [ ] d. 릴리스 커밋·dev push, main fast-forward 병합·push, `v0.2.5` 태그·push
-- [ ] e. Release workflow 완주와 draft·dmg·SHA256SUMS 확인, deployment·HANDOFF·PROCESS 현행화 후 dev/main 동기화
+- [x] d. `58e4f37` 테스트 안정화·`10431dd` 릴리스 커밋 후 dev push, main fast-forward·push, `v0.2.5` 태그·push
+- [x] e. dev CI `35695274498`·main CI `35695584637` 성공, Release 런 `35695586141` 완주, draft의 dmg 15,321,084B와
+      `SHA256SUMS.txt` 일치 확인 후 deployment·HANDOFF·PROCESS 현행화 및 dev/main 동기화
 
 ## 진행 중: d-67 — 편집 표면 2차 조사 확인 결함 일괄 수정 (2026-09-17)
 

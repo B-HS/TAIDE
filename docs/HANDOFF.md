@@ -1,4 +1,13 @@
-# HANDOFF — 2026-09-17 세션 스냅샷 (편집 표면 전수조사 d-65~d-67 · v0.2.3 draft 릴리스)
+# HANDOFF — 2026-09-22 세션 스냅샷 (트리 선택·탭·포커스·알림 · v0.2.5 draft 릴리스)
+
+> 최종 갱신: 2026-09-22 / 태그 HEAD = `10431dd`(chore(release) v0.2.5) 위에 이 docs 커밋. 직전 스냅샷 `git show 663f0c1:docs/HANDOFF.md`.
+> **이 세션(2026-09-22)** — 파일/Git 트리 Shift 범위 선택과 Command/Ctrl 추가·해제 선택, 파일 permanent 탭 열기와 현재 창 동일 file 탭 재사용, 백그라운드 복귀 appearance 중복 적용 차단, 알림 전달 성공 toast의 불필요한 설정 CTA 제거를 구현했습니다. 명시적 split은 동일 파일 중복을 허용하고 diff 탭은 file 탭과 분리했습니다. 실제 알림 권한 조회는 플러그인 한계로 이월하고 설정 화면의 수동 버튼은 유지했습니다.
+> **반영 커밋(dev=main)**: `70fcc49`(tree) `506459c`(layout) `d8961cb`(theme) `679aa8e`(notification) `6726855`·`e9bd587`(docs) `58e4f37`(CI 테스트 안정화) `10431dd`(release). CI FE 12건은 Bun 1.3.14의 파일 간 `mock.module` 누수로 확정해 실제 소비 경계인 IPC namespace를 감시하도록 수정하고 설정 테스트 캐시의 수거를 차단했습니다.
+> **검증**: Bun 1.3.14 오염 순서 회귀 63+13 pass, typecheck·format·vite build·typecheck:e2e 통과, lint 오류 0(기존 warning 11), bun 2933 pass, cargo 1765 pass, clippy 통과. dev CI `35695274498`와 main CI `35695584637` 모두 frontend·Rust 성공.
+> **릴리스**: 숫자 `4` 금지 규칙에 따라 v0.2.4를 건너뛴 `v0.2.5`, 태그 `10431dd`. Release 런 `35695586141` 완주(wall 약 9m05s), draft 유지. `TAIDE_0.2.5_aarch64.dmg` 15,321,084B와 `SHA256SUMS.txt`를 내려받아 SHA-256 `dc0823f95e8e2fff52dda912aa2335e9b031854ea2a8401f09391742943e08d8` 일치를 확인했습니다.
+> **사용자 잔여**: draft 공개 여부 결정과 설치본 실기 확인. 실제 macOS 알림 권한 상태 조회는 현재 플러그인 계약상 불가능하므로 후속 후보입니다.
+
+> 직전 스냅샷(2026-09-17, 편집 표면 전수조사 d-65~d-67·v0.2.3)은 아래 유지.
 
 > 최종 갱신: 2026-09-17 / HEAD = `040a7ee`(chore(release) v0.2.3) 위에 이 docs 커밋. 직전 스냅샷 `git show 8751d9b:docs/HANDOFF.md`.
 > **이 세션(2026-09-17)** — 사용자 보고 2건(분할 pane 닫은 뒤 "pane not found"·저장/열기 불가 / 새 pane 뒤 기존 pane 단축키 무반응) → d-65 계약(`close_tab` 형제 승계·`finish_mutation` 불변식·프론트 미러·pane 포커스 pointerdown/focusin 캡처). 이어 사용자 지시 "버그 전수조사·다 바꿔" → 1차 조사 wf(8관점 finder → 반박 검증, `research/2026-09-17-editing-surface-bug-audit.md`, 생존 20/기각 3) → d-66 계약(15+1 수정) → 2차 조사 wf(1차 미조사 7축, `research/…-wave2.md`, 생존 24/기각 4) → d-67 계약(24+1 수정, 렌즈 major 2·minor 4 추가 수정). 운용: 리서치·fixer opus·xhigh, 렌즈 sonnet·xhigh, 문서 opus·high, 메인은 계약·diff 대조·2차 검증·Git.
