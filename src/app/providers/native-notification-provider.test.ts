@@ -83,3 +83,11 @@ describe('buildTaskCompletionBody', () => {
         expect(buildTaskCompletionBody({ target: '/tmp/work', exitCode: null, durationMs: 45_000 })).toBe('/tmp/work · 45s')
     })
 })
+
+describe('buildNativeNotificationDeliveryToastArgs', () => {
+    test('전달 성공 안내에는 시스템 설정 CTA 옵션을 붙이지 않는다', async () => {
+        const { buildNativeNotificationDeliveryToastArgs } = await importProvider()
+
+        expect(buildNativeNotificationDeliveryToastArgs('Notifications are enabled')).toEqual(['Notifications are enabled'])
+    })
+})

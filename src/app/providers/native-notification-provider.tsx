@@ -11,7 +11,6 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { useTauriEvent } from '@shared/hooks/use-tauri-event'
 import { i18next } from '@shared/i18n/i18n'
 import { formatDurationShort } from '@shared/lib/format-duration'
-import { describeIpcError } from '@shared/lib/ipc-error-message'
 import type { AgentCompletionEvaluation, AgentWorkingSinceMap } from '@shared/lib/native-notification-gate'
 import { evaluateAgentCompletions, shouldNotifyTaskCompletion } from '@shared/lib/native-notification-gate'
 import type { ProjectLayoutEntry } from '@shared/lib/notification-text'
@@ -22,7 +21,6 @@ import {
     notificationBodyFragment,
     resolveProjectNotificationTitle,
 } from '@shared/lib/notification-text'
-import { openNotificationSystemSettings } from '@entities/notification/notification.ipc'
 import { notifyNative, subscribeNativeNotificationDelivered } from '@entities/notification/notify'
 
 type AgentCompletion = AgentCompletionEvaluation['completed'][number]
@@ -78,6 +76,8 @@ export const buildTaskCompletionBody = (input: { target: string; exitCode: numbe
         input.exitCode === null ? null : i18next.t('notification.exitCode', { code: input.exitCode }),
         formatDurationShort(input.durationMs),
     ])
+
+export const buildNativeNotificationDeliveryToastArgs = (message: string) => [message] as const
 
 /**
  * Every open project's cached layout, which is what a `terminal:command-finished` has to be matched
@@ -137,12 +137,7 @@ export const NativeNotificationProvider: FC<PropsWithChildren> = ({ children }) 
     const announceFirstDelivery = useEffectEvent(() => {
         if (hasAnnouncedDeliveryRef.current) return
         hasAnnouncedDeliveryRef.current = true
-        toast.info(t('notification.enableHint'), {
-            action: {
-                label: t('settings.notificationsOpenSystemSettings'),
-                onClick: () => void openNotificationSystemSettings().catch((error: unknown) => toast.error(describeIpcError(error))),
-            },
-        })
+        toast.info(...buildNativeNotificationDeliveryToastArgs(t('notification.enableHint')))
     })
 
     useTauriEvent(events.agentStateChanged, ({ payload }) => {
