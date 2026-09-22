@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import type { FC } from 'react'
 import type { MirrorEntry, ProjectLayout, Tab } from '@shared/api/bindings'
-import { commands } from '@shared/api/bindings'
 import * as fileIpc from '@entities/file/file.ipc'
 import { registerSaveRequest, unregisterSaveRequest } from '@entities/editor/save-request-registry'
+import * as layoutIpc from '@entities/layout/layout.ipc'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 /** Type-only, so it is erased before runtime and does not pull the hook in ahead of the `mock.module` calls below. */
@@ -98,8 +98,8 @@ const answer = async (key: string) => {
     })
 }
 
-const spyOnCloseTab = () => spyOn(commands, 'layoutCloseTab').mockResolvedValue({ status: 'ok', data: LAYOUT })
-const spyOnSetDirty = () => spyOn(commands, 'layoutSetDirty').mockResolvedValue({ status: 'ok', data: LAYOUT })
+const spyOnCloseTab = () => spyOn(layoutIpc, 'closeTab').mockResolvedValue(LAYOUT)
+const spyOnSetDirty = () => spyOn(layoutIpc, 'setTabDirty').mockResolvedValue(LAYOUT)
 const dialogTitle = () => screen.queryByText('tab.confirmCloseDirtyTitle')
 
 describe('useRequestCloseTab 더티 게이트', () => {
@@ -110,7 +110,7 @@ describe('useRequestCloseTab 더티 게이트', () => {
 
         await renderHarness([fileTab('clean', DIRTY_PATH, false)])
 
-        expect(closeTab.mock.calls).toEqual([['clean']])
+        expect(closeTab.mock.calls.map(([tabId]) => tabId)).toEqual(['clean'])
         expect(dialogTitle()).toBeNull()
     })
 
@@ -119,7 +119,7 @@ describe('useRequestCloseTab 더티 게이트', () => {
 
         await renderHarness([terminalTab('term-a')])
 
-        expect(closeTab.mock.calls).toEqual([['term-a']])
+        expect(closeTab.mock.calls.map(([tabId]) => tabId)).toEqual(['term-a'])
         expect(dialogTitle()).toBeNull()
     })
 
@@ -146,13 +146,13 @@ describe('useRequestCloseTab 더티 게이트', () => {
 
     test('저장 안 함은 dirty 를 먼저 끈 뒤 닫는다 — 닫힌 탭 스택에 유령 dirty 가 남지 않게', async () => {
         const order: string[] = []
-        spyOnSetDirty().mockImplementation(async (tabId, dirty) => {
+        spyOnSetDirty().mockImplementation(async ({ tabId, dirty }) => {
             order.push(`set-dirty:${tabId}:${dirty}`)
-            return { status: 'ok', data: LAYOUT }
+            return LAYOUT
         })
         spyOnCloseTab().mockImplementation(async (tabId) => {
             order.push(`close:${tabId}`)
-            return { status: 'ok', data: LAYOUT }
+            return LAYOUT
         })
         const saveFile = spyOn(fileIpc, 'saveFile').mockResolvedValue(null)
 
@@ -171,7 +171,7 @@ describe('useRequestCloseTab 더티 게이트', () => {
         })
         spyOnCloseTab().mockImplementation(async (tabId) => {
             order.push(`close:${tabId}`)
-            return { status: 'ok', data: LAYOUT }
+            return LAYOUT
         })
 
         await renderHarness([fileTab('dirty', DIRTY_PATH, true)])
@@ -202,11 +202,11 @@ describe('useRequestCloseTab 더티 게이트', () => {
 
         await answer('tab.confirmCloseDirtyDiscard')
 
-        expect(setDirty.mock.calls).toEqual([
-            ['dirty-a', false],
-            ['dirty-b', false],
+        expect(setDirty.mock.calls.map(([input]) => input)).toEqual([
+            { tabId: 'dirty-a', dirty: false },
+            { tabId: 'dirty-b', dirty: false },
         ])
-        expect(closeTab.mock.calls).toEqual([['dirty-a'], ['clean'], ['dirty-b']])
+        expect(closeTab.mock.calls.map(([tabId]) => tabId)).toEqual(['dirty-a', 'clean', 'dirty-b'])
     })
 
     test('확인이 떠 있는 동안에는 다른 진입점의 닫기 요청을 무시한다 — ⌘W 가 질문 위에 질문을 쌓지 않는다', async () => {
@@ -258,7 +258,7 @@ describe('useRequestCloseTab 더티 게이트', () => {
             await settleMutations()
         })
 
-        expect(closeTab.mock.calls).toEqual([['dirty']])
+        expect(closeTab.mock.calls.map(([tabId]) => tabId)).toEqual(['dirty'])
     })
 
     test('마운트된 탭의 pane 저장이 실패를 보고하면 닫지 않고, 초안을 뒤로 돌려 쓰지도 않는다', async () => {

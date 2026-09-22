@@ -1,6 +1,6 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test'
 import type { PaneNode, ProjectLayout, Settings } from '@shared/api/bindings'
-import { commands } from '@shared/api/bindings'
+import * as layoutIpc from '@entities/layout/layout.ipc'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 
@@ -54,8 +54,7 @@ const focusedLayout = (focusedPane: string): ProjectLayout => ({ version: 2, roo
 /** Drains the mutation's own promise chain (retryer hop, `onSettled`, the notify-manager microtask) so its state lands inside the `act` scope the events were fired in. */
 const settleMutation = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-const spyOnFocusPane = (focusedPane: string) =>
-    spyOn(commands, 'layoutFocusPane').mockResolvedValue({ status: 'ok', data: focusedLayout(focusedPane) })
+const spyOnFocusPane = (focusedPane: string) => spyOn(layoutIpc, 'focusPane').mockResolvedValue(focusedLayout(focusedPane))
 
 /** `viewAt` comes back alongside the render result so a case can move the focused pane the way the server would — a re-render with a new `focusedPaneId` — instead of remounting and losing the guard under test. */
 const renderSplit = async () => {
@@ -82,7 +81,7 @@ describe('PaneNodeView pane 포커스 추종', () => {
         })
 
         expect(focusPane).toHaveBeenCalledTimes(1)
-        expect(focusPane).toHaveBeenLastCalledWith(RIGHT_PANE_ID)
+        expect(focusPane.mock.calls.at(-1)?.[0]).toBe(RIGHT_PANE_ID)
     })
 
     test('같은 클릭이 잇따라 내는 focusin 은 IPC 를 다시 보내지 않는다', async () => {

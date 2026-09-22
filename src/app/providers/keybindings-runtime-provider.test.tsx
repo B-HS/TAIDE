@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import type { Settings } from '@shared/api/bindings'
-import { commands } from '@shared/api/bindings'
+import * as settingsIpc from '@entities/settings/settings.ipc'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { act, createTestQueryClient, renderWithProviders } from '@shared/testing/render'
 
@@ -40,13 +40,16 @@ const FONT_SIZE_UP_KEY: KeyboardEventInit = { key: '=', code: 'Equal', metaKey: 
 const FONT_SIZE_DOWN_KEY: KeyboardEventInit = { key: '-', code: 'Minus', metaKey: true }
 
 /**
- * The settings cache is seeded rather than fetched (no IPC in the harness), and the `Settings` shape
- * is narrowed to the one field this provider reads — the same partial-seed shape
- * `pane-node-view-welcome.test.tsx` uses.
+ * The settings cache is seeded through a non-collecting test query rather than IPC, and the
+ * `Settings` shape is narrowed to the one field this provider reads.
  */
 const renderProvider = async () => {
     const queryClient = createTestQueryClient()
-    queryClient.setQueryData<Partial<Settings>>(QUERY_KEY.SETTINGS.CURRENT, { editorFontSize: SEEDED_EDITOR_FONT_SIZE })
+    await queryClient.fetchQuery({
+        queryKey: QUERY_KEY.SETTINGS.CURRENT,
+        queryFn: () => Promise.resolve({ editorFontSize: SEEDED_EDITOR_FONT_SIZE } satisfies Partial<Settings>),
+        gcTime: Infinity,
+    })
     const { KeybindingsRuntimeProvider } = await import('@app/providers/keybindings-runtime-provider')
     const rendered = renderWithProviders(<KeybindingsRuntimeProvider />, { queryClient })
     await act(async () => undefined)
@@ -54,11 +57,12 @@ const renderProvider = async () => {
 }
 
 const patchedEditorFontSizes = async (key: KeyboardEventInit) => {
-    const settingsUpdate = spyOn(commands, 'settingsUpdate')
+    const settingsUpdate = spyOn(settingsIpc, 'updateSettings')
     await renderProvider()
 
     await act(async () => {
         pressKey(key)
+        await new Promise((resolve) => setTimeout(resolve, 0))
     })
     return settingsUpdate.mock.calls.map(([patch]) => patch.editorFontSize)
 }
