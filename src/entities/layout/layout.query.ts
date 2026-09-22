@@ -6,7 +6,7 @@ import { QUERY_KEY } from '@shared/constants/query-key'
 import { i18next } from '@shared/i18n/i18n'
 import { describeIpcError, isNotFoundIpcError } from '@shared/lib/ipc-error-message'
 import { isStaleLayoutRevision } from '@shared/lib/layout-revision'
-import { collectAllPaneTabs, currentWindowFocusedPane, findActiveTab } from '@shared/lib/pane-tree'
+import { collectAllPaneTabs, currentWindowFileTabPane, currentWindowFocusedPane, findActiveTab } from '@shared/lib/pane-tree'
 import { fileNameOf } from '@shared/lib/relative-path'
 import type { RevealTarget } from '@entities/editor/reveal-registry'
 import { revealInTab } from '@entities/editor/reveal-registry'
@@ -246,11 +246,12 @@ export const useOpenFileTab = () => {
     const { mutate: openTabInProject } = useOpenTabInProject()
 
     return ({ projectId, path, preview, target, title, reveal }: OpenFileTabRequest, callbacks?: OpenFileTabCallbacks) => {
+        const layout = queryClient.getQueryData<ProjectLayout>(QUERY_KEY.LAYOUT.DETAIL(projectId))
         const request = withCurrentWindowTarget(queryClient, {
             projectId,
             kind: { kind: 'file', path },
             title: title ?? fileNameOf(path),
-            target,
+            target: target ?? currentWindowFileTabPane(layout, path),
             preview,
         })
 

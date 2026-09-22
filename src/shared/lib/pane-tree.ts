@@ -104,6 +104,13 @@ export const activeFilePathOf = (tree: WindowPaneTree | null | undefined): strin
     return activeTab?.kind.kind === 'file' ? activeTab.kind.path : null
 }
 
+export const fileTabPaneIdOf = (tree: WindowPaneTree | null | undefined, path: string): PaneId | null => {
+    if (!tree) return null
+    const focusedPane = findPaneLeaf(tree.root, tree.focusedPane)
+    if (focusedPane?.tabs.some((tab) => tab.kind.kind === 'file' && tab.kind.path === path)) return focusedPane.id
+    return collectPaneLeaves(tree.root).find((pane) => pane.tabs.some((tab) => tab.kind.kind === 'file' && tab.kind.path === path))?.id ?? null
+}
+
 /**
  * A window's tree with its `focusedPane` narrowed to a pane that actually exists in `root`, falling
  * back to the first leaf ({@link collectPaneLeaves} order) — the frontend mirror of Rust's
@@ -173,6 +180,9 @@ export const collectAllPaneTabs = (layout: ProjectLayout): Tab[] => [
  */
 export const currentWindowFocusedPane = (layout: ProjectLayout | null | undefined): PaneId | null =>
     layout ? (resolveWindowPaneTree(layout, getWindowContext())?.focusedPane ?? null) : null
+
+export const currentWindowFileTabPane = (layout: ProjectLayout | null | undefined, path: string): PaneId | null =>
+    fileTabPaneIdOf(layout ? resolveWindowPaneTree(layout, getWindowContext()) : null, path)
 
 /**
  * The active file path of *this* OS window — {@link activeFilePathOf} over whichever tree

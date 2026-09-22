@@ -212,7 +212,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
                 kind: { kind: 'diff', path: target.path, staged: group === 'staged', beforePath: target.beforePath },
                 title: `${fileNameOf(target.path)} (diff)`,
                 target: null,
-                preview: true,
+                preview: false,
             },
             { onError: notifyError },
         )
@@ -273,7 +273,7 @@ export const GitPanelContainer: FC<GitPanelContainerProps> = ({ projectId }) => 
             onStage={(paths) => stagePaths({ projectId, paths }, { onError: notifyError })}
             onUnstage={(paths) => unstagePaths({ projectId, paths }, { onError: notifyError })}
             onDiscard={(paths) => discardPaths({ projectId, paths }, { onError: notifyError })}
-            onOpenFile={(path) => openFileTab({ projectId, path, target: null, preview: true })}
+            onOpenFile={(path) => openFileTab({ projectId, path, target: null, preview: false })}
             onOpenChanges={openDiffTab}
             onCopyPath={(path) => void copyTextToClipboard(path)}
             onRevealInExplorer={(path) => void systemRevealPath(path).catch(notifyError)}

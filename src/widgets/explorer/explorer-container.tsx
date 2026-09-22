@@ -198,11 +198,11 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
         onOpenToTheSide: openToTheSide,
         onOpenWithEditor: (row) => {
             setOpenWithOverride(row.path, 'editor')
-            openRowFileTab(row, true)
+            openRowFileTab(row, false)
         },
         onOpenWithPreview: (row) => {
             setOpenWithOverride(row.path, null)
-            openRowFileTab(row, true)
+            openRowFileTab(row, false)
         },
         onOpenInBrowser: (row) => void systemOpenInBrowser(row.path).catch(notifyError),
         onRevealInFinder: (row) => void systemRevealPath(row.path).catch(notifyError),
@@ -295,7 +295,7 @@ export const ExplorerContainer: FC<ExplorerContainerProps> = ({ projectId, zen, 
                 rootUnavailable={rootUnavailable}
                 contextMenuHandlers={contextMenuHandlers}
                 onToggleExpand={handleToggleExpand}
-                onOpenPreview={(row) => openRowFileTab(row, true)}
+                onOpenPreview={(row) => openRowFileTab(row, false)}
                 onOpenPinned={(row) => openRowFileTab(row, false)}
                 onSelectionChange={setSelectedId}
                 onOpenSearchMatch={openSearchMatch}

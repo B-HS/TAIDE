@@ -7,6 +7,7 @@ import {
     collectPaneTabs,
     findActiveTab,
     findAdjacentPaneLeaf,
+    fileTabPaneIdOf,
     findPaneLeaf,
     findPaneTab,
     currentWindowActiveFilePath,
@@ -94,6 +95,27 @@ describe('activeFilePathOf', () => {
 
     test('포커스된 pane 이 트리에 없으면 null 을 반환한다', () => {
         expect(activeFilePathOf({ root: buildTree(), focusedPane: 'missing' })).toBeNull()
+    })
+})
+
+describe('fileTabPaneIdOf', () => {
+    test('같은 파일 탭이 포커스 pane 에 있으면 그 pane 을 우선한다', () => {
+        const tree = buildTree()
+        expect(fileTabPaneIdOf({ root: tree, focusedPane: 'left' }, '/b.ts')).toBe('left')
+    })
+
+    test('다른 pane 에 열린 같은 파일 탭을 찾는다', () => {
+        expect(fileTabPaneIdOf({ root: buildTree(), focusedPane: 'left' }, '/c.ts')).toBe('right')
+    })
+
+    test('같은 경로의 diff 탭은 file 탭으로 취급하지 않는다', () => {
+        const root: PaneNode = {
+            node: 'leaf',
+            id: 'only',
+            tabs: [{ id: 'diff', kind: { kind: 'diff', path: '/a.ts', staged: false, beforePath: null }, title: 'a.ts (diff)' }],
+            active: 'diff',
+        }
+        expect(fileTabPaneIdOf({ root, focusedPane: 'only' }, '/a.ts')).toBeNull()
     })
 })
 

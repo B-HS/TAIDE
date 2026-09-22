@@ -128,6 +128,31 @@ const buildLayout = (revision: number): ProjectLayout => ({ version: 2, root: EM
 /** A cached snapshot whose `focusedPane` points at a pane the tree no longer has — what a window holds between another pane's last tab closing and the `layout:changed` echo (d-65 §1.F1). */
 const buildStaleFocusLayout = (revision: number): ProjectLayout => ({ version: 2, root: EMPTY_LEAF, focusedPane: 'closed-pane', revision })
 
+const buildLayoutWithExistingTab = (revision: number, kind: 'file' | 'diff'): ProjectLayout => ({
+    version: 2,
+    root: {
+        node: 'split',
+        id: 'split-existing',
+        dir: 'horizontal',
+        sizes: [0.5, 0.5],
+        children: [
+            { node: 'leaf', id: 'leaf-1', tabs: [], active: null },
+            {
+                node: 'leaf',
+                id: 'leaf-existing',
+                tabs: [
+                    kind === 'file'
+                        ? fileTab('existing-file', FILE_PATH)
+                        : { id: 'existing-diff', kind: { kind: 'diff', path: FILE_PATH, staged: false, beforePath: null }, title: 'app.tsx (diff)' },
+                ],
+                active: kind === 'file' ? 'existing-file' : 'existing-diff',
+            },
+        ],
+    },
+    focusedPane: 'leaf-1',
+    revision,
+})
+
 const seedProjectFileIndex = async (queryClient: ReturnType<typeof createTestQueryClient>, projectId: string) => {
     await queryClient.fetchQuery({ queryKey: QUERY_KEY.SEARCH.PROJECT_FILES(projectId), queryFn: () => Promise.resolve([]), gcTime: Infinity })
 }
@@ -177,6 +202,60 @@ describe('useOpenFileTab', () => {
         await waitFor(() => expect(capturedOpenTabCalls.length).toBeGreaterThan(sentBefore))
 
         expect(capturedOpenTabCalls.at(-1)?.target).toBe('leaf-1')
+    })
+
+    test('현재 창의 다른 pane 에 같은 file 탭이 열려 있으면 그 pane 을 target 으로 재사용한다', async () => {
+        const { useOpenFileTab } = await importLayoutQuery()
+        const queryClient = await setupIndexes()
+        await queryClient.fetchQuery({
+            queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID),
+            queryFn: () => Promise.resolve(buildLayoutWithExistingTab(1, 'file')),
+            gcTime: Infinity,
+        })
+        openTabImpl.current = () => Promise.resolve(buildLayoutWithExistingTab(2, 'file'))
+        const sentBefore = capturedOpenTabCalls.length
+
+        const { result } = renderHookWithProviders(() => useOpenFileTab(), { queryClient })
+        result.current({ projectId: PROJECT_ID, path: FILE_PATH, preview: false, target: null })
+        await waitFor(() => expect(capturedOpenTabCalls.length).toBeGreaterThan(sentBefore))
+
+        expect(capturedOpenTabCalls.at(-1)?.target).toBe('leaf-existing')
+    })
+
+    test('같은 경로의 diff 탭은 file 탭 재사용 대상이 아니다', async () => {
+        const { useOpenFileTab } = await importLayoutQuery()
+        const queryClient = await setupIndexes()
+        await queryClient.fetchQuery({
+            queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID),
+            queryFn: () => Promise.resolve(buildLayoutWithExistingTab(1, 'diff')),
+            gcTime: Infinity,
+        })
+        openTabImpl.current = () => Promise.resolve(buildLayout(2))
+        const sentBefore = capturedOpenTabCalls.length
+
+        const { result } = renderHookWithProviders(() => useOpenFileTab(), { queryClient })
+        result.current({ projectId: PROJECT_ID, path: FILE_PATH, preview: false, target: null })
+        await waitFor(() => expect(capturedOpenTabCalls.length).toBeGreaterThan(sentBefore))
+
+        expect(capturedOpenTabCalls.at(-1)?.target).toBe('leaf-1')
+    })
+
+    test('명시적 target 은 같은 파일이 다른 pane 에 열려 있어도 유지한다', async () => {
+        const { useOpenFileTab } = await importLayoutQuery()
+        const queryClient = await setupIndexes()
+        await queryClient.fetchQuery({
+            queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID),
+            queryFn: () => Promise.resolve(buildLayoutWithExistingTab(1, 'file')),
+            gcTime: Infinity,
+        })
+        openTabImpl.current = () => Promise.resolve(buildLayout(2))
+        const sentBefore = capturedOpenTabCalls.length
+
+        const { result } = renderHookWithProviders(() => useOpenFileTab(), { queryClient })
+        result.current({ projectId: PROJECT_ID, path: FILE_PATH, preview: false, target: 'leaf-explicit' })
+        await waitFor(() => expect(capturedOpenTabCalls.length).toBeGreaterThan(sentBefore))
+
+        expect(capturedOpenTabCalls.at(-1)?.target).toBe('leaf-explicit')
     })
 
     test('캐시의 focusedPane 이 이미 닫힌 pane 이면 stale id 대신 첫 leaf 를 target 으로 보낸다', async () => {
