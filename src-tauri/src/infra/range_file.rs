@@ -46,6 +46,13 @@ pub fn extension_mime(path: &Path) -> &'static str {
         Some("gif") => "image/gif",
         Some("webp") => "image/webp",
         Some("svg") => "image/svg+xml",
+        Some("css") => "text/css; charset=utf-8",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        Some("avif") => "image/avif",
+        Some("ico") => "image/x-icon",
         _ => "application/octet-stream",
     }
 }

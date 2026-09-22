@@ -339,4 +339,27 @@ mod tests {
             })
             .collect()
     }
+
+    #[test]
+    fn 계층형_미리보기_url은_css를_정확한_mime으로_읽고_프로젝트_밖은_거부한다() {
+        let dir = std::env::temp_dir().join(format!("taide-preview-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("styles")).unwrap();
+        std::fs::write(dir.join("styles/main.css"), "body { color: red }").unwrap();
+        let projects = open_project(&dir);
+        let uri = format!(
+            "asset://localhost/{}",
+            url_encode(&dir.join("pages/index.html").to_string_lossy()).replace("%2F", "/")
+        );
+        let base = reqwest::Url::parse(&uri).unwrap();
+        let css = base.join("../styles/main.css").unwrap();
+        let request = Request::builder().uri(css.as_str()).body(Vec::new()).unwrap();
+        let response = respond(&projects, request);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/css; charset=utf-8");
+        assert_eq!(response.body(), b"body { color: red }");
+        let outside = base.join("../../../outside.css").unwrap();
+        let response = respond(&projects, Request::builder().uri(outside.as_str()).body(Vec::new()).unwrap());
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

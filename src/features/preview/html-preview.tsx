@@ -1,10 +1,10 @@
 import type { FC } from 'react'
 
 export type HtmlPreviewProps = {
-    src: string
+    document: string
     title: string
 }
 
-export const HtmlPreview: FC<HtmlPreviewProps> = ({ src, title }) => (
-    <iframe src={src} title={title} sandbox='' className='bg-editor-background h-full w-full border-0' />
+export const HtmlPreview: FC<HtmlPreviewProps> = ({ document, title }) => (
+    <iframe srcDoc={document} title={title} sandbox='allow-same-origin' className='bg-editor-background h-full w-full border-0' />
 )

@@ -129,6 +129,18 @@ pub async fn file_range(State(app): State<AppHandle>, uri: Uri, headers: HeaderM
         return (StatusCode::BAD_REQUEST, "path 쿼리가 필요합니다").into_response();
     };
 
+    serve_project_file(app, requested, headers).await
+}
+
+pub async fn file_path(
+    State(app): State<AppHandle>,
+    axum::extract::Path(path): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    serve_project_file(app, path, headers).await
+}
+
+async fn serve_project_file(app: AppHandle, requested: String, headers: HeaderMap) -> Response {
     let resolved = {
         let state = app.state::<AppState>();
         let projects = state.projects.read();

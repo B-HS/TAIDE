@@ -24,6 +24,7 @@ pub fn build_router(app: AppHandle) -> Router {
     Router::new()
         .route("/__taide/ws", get(ws_upgrade_route))
         .route("/__taide/file", get(serving::file_range))
+        .route("/__taide/file/{*path}", get(serving::file_path))
         .route(REMOTE_LOGIN_PATH, get(login_get_route).post(login_post_route))
         .fallback(serving::serve_static)
         .layer(middleware::from_fn_with_state(app.clone(), auth_middleware))

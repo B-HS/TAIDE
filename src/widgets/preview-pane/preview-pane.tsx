@@ -7,6 +7,7 @@ import { describeIpcError } from '@shared/lib/ipc-error-message'
 import { resolvePreviewKind, resolvePreviewMimeType } from '@shared/lib/preview-kind'
 import { fileNameOf } from '@shared/lib/relative-path'
 import { useObjectUrl } from '@shared/hooks/use-object-url'
+import { hierarchicalAssetUrl, htmlPreviewDocument } from '@shared/lib/html-preview-document'
 import { fileRawQueryOptions } from '@entities/file/file.query'
 import { systemOpenPath } from '@entities/system/system.ipc'
 import { ImagePreview } from '@features/preview/image-preview'
@@ -47,9 +48,9 @@ export type PreviewPaneProps = {
 export const PreviewPane: FC<PreviewPaneProps> = ({ path }) => {
     const fileName = fileNameOf(path)
     const kind = resolvePreviewKind(fileName)
-    const needsObjectUrl = kind === 'image' || kind === 'html'
+    const needsObjectUrl = kind === 'image'
     const needsBuffer = kind === 'pdf' || kind === 'spreadsheet' || kind === 'hwp' || kind === 'presentation'
-    const needsRawBytes = needsObjectUrl || needsBuffer
+    const needsRawBytes = needsObjectUrl || needsBuffer || kind === 'html'
     const mimeType = resolvePreviewMimeType(fileName) ?? DEFAULT_BLOB_MIME_TYPE
 
     const { data, isPending, isError } = useQuery({ ...fileRawQueryOptions(path), enabled: needsRawBytes })
@@ -62,10 +63,15 @@ export const PreviewPane: FC<PreviewPaneProps> = ({ path }) => {
 
     if (needsRawBytes && isError) return <UnsupportedPreview fileName={fileName} onOpenExternal={handleOpenExternal} />
 
+    if (kind === 'html') {
+        if (isPending || !data) return <div className='bg-editor-background h-full w-full' />
+        const sourceUrl = hierarchicalAssetUrl(convertFileSrc(path), window.location.href)
+        return <HtmlPreview document={htmlPreviewDocument(data, sourceUrl)} title={fileName} />
+    }
+
     if (needsObjectUrl) {
         if (isPending || !objectUrl) return <div className='bg-editor-background h-full w-full' />
-        if (kind === 'image') return <ImagePreview src={objectUrl} alt={fileName} />
-        return <HtmlPreview src={objectUrl} title={fileName} />
+        return <ImagePreview src={objectUrl} alt={fileName} />
     }
 
     if (needsBuffer) {
