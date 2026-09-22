@@ -1,5 +1,16 @@
 # PROCESS — TAIDE 작업 상태
 
+## 완료: 프로젝트 전체 사용자 기능 버그 점검 (2026-09-22)
+
+> 요청: 실제 사용에서 명확한 버그를 전체 검토하고 목록화합니다. 메인이 직접 점검하며 제품 코드는 수정하지 않습니다.
+> 기준: 사용자 제공 AGENTS.md, `~/.codex/llm-rules/{ai-process,common,comments,frontend,fsd,query,desktop,security,git}.md`.
+
+- [x] a. 프로젝트 구조·기능·기존 검증 경로 확인 — 프론트엔드, Rust 도메인, CLI, E2E 범위를 정리했습니다.
+- [x] b. 기능별 코드 흐름 점검 — 파일·저장·편집·레이아웃, 검색·Git, 터미널·에이전트·LSP, 설정·원격·미리보기를 검토했습니다.
+- [x] c. 후보 반증과 최소 재현 — Bun 2,933개·Rust 1,765개 통과, 타입 검사 통과. 격리 재현과 호출 경로 대조로 확정 목록을 추렸습니다.
+- [x] d. 결과 목록 문서화 — `docs/bug/2026-09-22-project-user-bug-audit.md`에 14건(P1 3건·P2 11건)의 재현 조건·근거·검증 한계를 기록했습니다.
+- [x] e. 문서 diff 검증·선별 커밋·일반 푸시 — 소스 링크 33개·중복 없는 항목 14개를 확인했고 제품 코드 변경 없이 점검 문서 2개만 반영합니다.
+
 > 기준 문서: `~/.claude/convention/*.md`(전 컨벤션), `docs/acknowledge/`(결정), 이 문서(체크리스트).
 > 구현 순서 정본은 `docs/roadmap.md`, 버전 정본은 `docs/tech-stack.md`, API 정본은 `docs/research/*.md`.
 
