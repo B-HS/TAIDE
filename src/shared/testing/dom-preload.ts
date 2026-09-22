@@ -31,12 +31,18 @@ import { afterEach, beforeEach, mock } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 const TEST_DOCUMENT_URL = 'http://localhost/'
+const NATIVE_WEBSOCKET = globalThis.WebSocket
 const MACOS_WEBVIEW_USER_AGENT =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
 
 if (!GlobalRegistrator.isRegistered) {
-    GlobalRegistrator.register({ url: TEST_DOCUMENT_URL, settings: { navigator: { userAgent: MACOS_WEBVIEW_USER_AGENT } } })
+    GlobalRegistrator.register({
+        url: TEST_DOCUMENT_URL,
+        settings: { navigator: { userAgent: MACOS_WEBVIEW_USER_AGENT }, disableCSSFileLoading: true },
+    })
 }
+
+globalThis.WebSocket = NATIVE_WEBSOCKET
 
 const { cleanup } = await import('@testing-library/react')
 
