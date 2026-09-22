@@ -1,4 +1,4 @@
-import type { CSSProperties, FC } from 'react'
+import type { CSSProperties, FC, MouseEvent as ReactMouseEvent } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@shared/lib/cn'
 import { FileTypeIcon } from '@shared/icons/file-type-icon'
@@ -46,7 +46,7 @@ type FileTreeRowItemProps = {
     selected: boolean
     focused: boolean
     style: CSSProperties
-    onClick: () => void
+    onClick: (event: ReactMouseEvent<HTMLDivElement>) => void
     onDoubleClick: () => void
 }
 

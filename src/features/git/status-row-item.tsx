@@ -1,4 +1,4 @@
-import type { FC, ReactNode } from 'react'
+import type { FC, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { cn } from '@shared/lib/cn'
 import { ICON_BUTTON_CLASS } from '@shared/constants/ui-class'
 import { createActivationKeyDownHandler } from '@shared/lib/activation-key'
@@ -41,10 +41,11 @@ type StatusRowItemProps = {
     kind: GitStatusChangeKind
     selected: boolean
     actions: StatusRowAction[]
-    onClick: () => void
+    onClick: (event: ReactMouseEvent<HTMLDivElement>) => void
+    onKeyboardActivate: () => void
 }
 
-export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, selected, actions, onClick }) => {
+export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, selected, actions, onClick, onKeyboardActivate }) => {
     const lastSlashIndex = path.lastIndexOf('/')
     const fileName = fileNameOf(path)
     const dirPath = lastSlashIndex === -1 ? '' : path.slice(0, lastSlashIndex)
@@ -57,10 +58,11 @@ export const StatusRowItem: FC<StatusRowItemProps> = ({ path, origPath, kind, se
             )}>
             <div
                 role='button'
+                aria-pressed={selected}
                 tabIndex={0}
                 data-git-change-row
                 onClick={onClick}
-                onKeyDown={createActivationKeyDownHandler(onClick)}
+                onKeyDown={createActivationKeyDownHandler(onKeyboardActivate)}
                 className='flex min-w-0 flex-1 items-center gap-1.5 outline-none'>
                 <span className='truncate'>{fileName}</span>
                 {dirPath && <span className='text-app-sidebar-icon-default truncate opacity-70'>{dirPath}</span>}

@@ -1,10 +1,10 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { ComponentProps } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import type { GitStashEntry, LogEntry, Settings, SettingsPatch } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { TooltipProvider } from '@shared/ui/tooltip'
-import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
+import { act, createTestQueryClient, fireEvent, renderWithProviders, screen, waitFor } from '@shared/testing/render'
 
 /**
  * The SCM panel's two-pane body (d-58 §1.H): the commit graph moved out of the one scrolled list
@@ -48,6 +48,11 @@ const CHANGES_PANE_TEST_ID = /git-changes$/
 
 const COMMITS: LogEntry[] = [{ id: 'c1', parents: [], summary: 'feat: first commit', author: 'author', timeUnix: 0, refs: [] }]
 const STASHES: GitStashEntry[] = [{ index: 0, message: 'stash@{0}' }]
+const CHANGE_ROWS: ComponentProps<typeof GitPanel>['rows'] = [
+    { path: 'a.ts', absPath: '/project/a.ts', staged: null, unstaged: 'modified', isConflicted: false },
+    { path: 'b.ts', absPath: '/project/b.ts', staged: null, unstaged: 'modified', isConflicted: false },
+    { path: 'c.ts', absPath: '/project/c.ts', staged: null, unstaged: 'modified', isConflicted: false },
+]
 
 /** The panel's header bar also carries a `git.stashPush` button, so a section header is the match that is one. */
 const sectionHeader = (title: RegExp) => {
@@ -328,5 +333,49 @@ describe('GitPanel 로빙 포커스', () => {
         fireEvent.keyDown(graphPane(), { key: 'ArrowUp' })
 
         expect(document.activeElement).not.toBe(stashHeader())
+    })
+})
+
+describe('GitPanel 변경 행 다중 선택', () => {
+    const nativeOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
+    const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+
+    beforeAll(() => {
+        Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 600 })
+        Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 600 })
+    })
+
+    afterAll(() => {
+        if (nativeOffsetWidth) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', nativeOffsetWidth)
+        if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', nativeOffsetHeight)
+    })
+
+    test('Command 클릭과 Shift 클릭은 선택만 바꾸고 diff 를 추가로 열지 않는다', async () => {
+        const openedPaths: string[] = []
+        renderPanel(
+            { gitSectionsCollapsed: [] },
+            {
+                rows: CHANGE_ROWS,
+                graphCommits: [],
+                onOpenChanges: (target) => openedPaths.push(target.path),
+            },
+        )
+        const first = await screen.findByRole('button', { name: 'a.ts' })
+        const second = await screen.findByRole('button', { name: 'b.ts' })
+        const third = await screen.findByRole('button', { name: 'c.ts' })
+
+        fireEvent.click(first)
+        fireEvent.click(second, { metaKey: true })
+
+        await waitFor(() => expect(first.getAttribute('aria-pressed')).toBe('true'))
+        expect(second.getAttribute('aria-pressed')).toBe('true')
+        expect(openedPaths).toEqual(['/project/a.ts'])
+
+        fireEvent.click(third, { shiftKey: true })
+
+        await waitFor(() => expect(first.getAttribute('aria-pressed')).toBe('false'))
+        expect(second.getAttribute('aria-pressed')).toBe('true')
+        expect(third.getAttribute('aria-pressed')).toBe('true')
+        expect(openedPaths).toEqual(['/project/a.ts'])
     })
 })

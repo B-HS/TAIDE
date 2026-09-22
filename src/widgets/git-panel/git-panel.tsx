@@ -28,6 +28,7 @@ import { PaneSeparator } from '@features/split/pane-separator'
 import { StatusRowItem } from '@features/git/status-row-item'
 import { StashList } from '@features/git/stash-list'
 import { DEFAULT_RESIZER_THICKNESS, MIN_PANEL_SIZE_PX, RESIZE_HIT_TARGET_SIZE } from '@shared/constants/layout'
+import { resolveListSelection } from '@shared/lib/list-selection'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
 import { DEFAULT_GIT_GRAPH_PANEL_SIZE_PX } from '@entities/git/git.constant'
 import type { GitSectionId } from '@entities/git/git-section'
@@ -195,6 +196,8 @@ export const GitPanel: FC<GitPanelProps> = ({
     const [discardTargets, setDiscardTargets] = useState<string[] | null>(null)
     const [confirmStageAllOpen, setConfirmStageAllOpen] = useState(false)
     const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null)
+    const [selectedChangeRowIds, setSelectedChangeRowIds] = useState<Set<string>>(() => new Set())
+    const [changeSelectionAnchorId, setChangeSelectionAnchorId] = useState<string | null>(null)
     const [contextMenuTarget, setContextMenuTarget] = useState<{ section: GitChangeSectionId; path: string } | null>(null)
     const [graphPanel, setGraphPanel] = usePanelCallbackRef()
 
@@ -255,6 +258,7 @@ export const GitPanel: FC<GitPanelProps> = ({
         })),
     )
     const headerIndexes = gitChangeListHeaderIndexes(listRows)
+    const changeRowIds = listRows.flatMap((row) => (row.kind === 'row' ? [row.id] : []))
 
     /**
      * `scrollPaddingStart` is what keeps the sticky header from eating the row a keyboard move just
@@ -407,7 +411,35 @@ export const GitPanel: FC<GitPanelProps> = ({
             setContextMenuTarget(null)
             return
         }
+        setSelectedChangeRowIds(new Set([listRow.id]))
+        setChangeSelectionAnchorId(listRow.id)
         setContextMenuTarget({ section: listRow.section, path: groupConfigs[listRow.section].rows[listRow.rowIndex].path })
+    }
+
+    const activateChangeRow = (rowId: string, config: GitChangeGroupConfig, row: GitChangeGroupConfig['rows'][number]) => {
+        setSelectedChangeRowIds(new Set([rowId]))
+        setChangeSelectionAnchorId(rowId)
+        config.onRowClick(row)
+    }
+
+    const handleChangeRowClick = (
+        event: ReactMouseEvent<HTMLDivElement>,
+        rowId: string,
+        config: GitChangeGroupConfig,
+        row: GitChangeGroupConfig['rows'][number],
+    ) => {
+        const hasSelectionModifier = event.shiftKey || event.metaKey || event.ctrlKey
+        const selection = resolveListSelection({
+            orderedIds: changeRowIds,
+            selectedIds: selectedChangeRowIds,
+            anchorId: changeSelectionAnchorId,
+            clickedId: rowId,
+            shiftKey: event.shiftKey,
+            additiveKey: event.metaKey || event.ctrlKey,
+        })
+        setSelectedChangeRowIds(selection.selectedIds)
+        setChangeSelectionAnchorId(selection.anchorId)
+        if (!hasSelectionModifier) config.onRowClick(row)
     }
 
     /**
@@ -569,9 +601,10 @@ export const GitPanel: FC<GitPanelProps> = ({
                                                         path={row.path}
                                                         origPath={row.origPath}
                                                         kind={row.kind}
-                                                        selected={false}
+                                                        selected={selectedChangeRowIds.has(listRow.id)}
                                                         actions={config.buildActions(row)}
-                                                        onClick={() => config.onRowClick(row)}
+                                                        onClick={(event) => handleChangeRowClick(event, listRow.id, config, row)}
+                                                        onKeyboardActivate={() => activateChangeRow(listRow.id, config, row)}
                                                     />
                                                 </div>
                                             )

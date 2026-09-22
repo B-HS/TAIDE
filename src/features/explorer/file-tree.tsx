@@ -9,6 +9,7 @@ import { FileTreeContextMenu } from '@features/explorer/file-tree-context-menu'
 import type { ExplorerShortcutId } from '@features/explorer/explorer-shortcuts'
 import { findExplorerShortcutId } from '@features/explorer/explorer-shortcuts'
 import { isImeCompositionKeydown } from '@shared/lib/ime-composition'
+import { resolveListSelection } from '@shared/lib/list-selection'
 import { findTypeaheadMatchIndex } from '@shared/lib/typeahead'
 import { OverlayScrollbar } from '@shared/scroll/overlay-scrollbar'
 
@@ -107,13 +108,15 @@ export const FileTree: FC<FileTreeProps> = ({
     const parentRef = useRef<HTMLDivElement>(null)
     const typeaheadTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-    const [selectedId, setSelectedId] = useState<string | null>(null)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+    const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
+    const [primarySelectedId, setPrimarySelectedId] = useState<string | null>(null)
     const [typeaheadBuffer, setTypeaheadBuffer] = useState('')
     const [contextRow, setContextRow] = useState<FileTreeRow | null>(null)
     const [isContainerFocused, setIsContainerFocused] = useState(false)
 
     const displayRows = buildDisplayRows(rows, draft)
-    const selectedIndex = displayRows.findIndex((row) => row.id === selectedId)
+    const selectedIndex = displayRows.findIndex((row) => row.id === primarySelectedId)
     const isEditing = draft !== null || renameTarget !== null
 
     const rowVirtualizer = useVirtualizer({
@@ -128,14 +131,28 @@ export const FileTree: FC<FileTreeProps> = ({
         if (index < 0 || index >= displayRows.length) return
         const row = displayRows[index]
         if (row.id === DRAFT_ROW_ID) return
-        setSelectedId(row.id)
+        setSelectedIds(new Set([row.id]))
+        setSelectionAnchorId(row.id)
+        setPrimarySelectedId(row.id)
         onSelectionChange?.(row.id)
         rowVirtualizer.scrollToIndex(index)
     }
 
-    const handleRowClick = (row: FileTreeRow) => {
-        setSelectedId(row.id)
-        onSelectionChange?.(row.id)
+    const handleRowClick = (row: FileTreeRow, event: ReactMouseEvent<HTMLDivElement>) => {
+        const hasSelectionModifier = event.shiftKey || event.metaKey || event.ctrlKey
+        const selection = resolveListSelection({
+            orderedIds: displayRows.filter((displayRow) => displayRow.id !== DRAFT_ROW_ID).map((displayRow) => displayRow.id),
+            selectedIds,
+            anchorId: selectionAnchorId,
+            clickedId: row.id,
+            shiftKey: event.shiftKey,
+            additiveKey: event.metaKey || event.ctrlKey,
+        })
+        setSelectedIds(selection.selectedIds)
+        setSelectionAnchorId(selection.anchorId)
+        setPrimarySelectedId(selection.primaryId)
+        onSelectionChange?.(selection.primaryId)
+        if (hasSelectionModifier) return
         if (row.kind === 'directory') {
             onToggleExpand(row)
             return
@@ -249,7 +266,9 @@ export const FileTree: FC<FileTreeProps> = ({
 
     const handleContainerDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
         if (isEditing || rowAtClientY(event.clientY)) return
-        setSelectedId(null)
+        setSelectedIds(new Set())
+        setSelectionAnchorId(null)
+        setPrimarySelectedId(null)
         onSelectionChange?.(null)
         onNewFileAtRoot()
     }
@@ -262,11 +281,15 @@ export const FileTree: FC<FileTreeProps> = ({
         const row = rowAtClientY(event.clientY)
         if (!row || row.id === DRAFT_ROW_ID) {
             setContextRow(null)
-            setSelectedId(null)
+            setSelectedIds(new Set())
+            setSelectionAnchorId(null)
+            setPrimarySelectedId(null)
             onSelectionChange?.(null)
             return
         }
-        setSelectedId(row.id)
+        setSelectedIds(new Set([row.id]))
+        setSelectionAnchorId(row.id)
+        setPrimarySelectedId(row.id)
         onSelectionChange?.(row.id)
         setContextRow(row)
     }
@@ -377,10 +400,10 @@ export const FileTree: FC<FileTreeProps> = ({
                                 <FileTreeRowItem
                                     key={virtualRow.key}
                                     row={row}
-                                    selected={row.id === selectedId}
-                                    focused={row.id === selectedId && isContainerFocused}
+                                    selected={selectedIds.has(row.id)}
+                                    focused={row.id === primarySelectedId && isContainerFocused}
                                     style={rowStyle}
-                                    onClick={() => handleRowClick(row)}
+                                    onClick={(event) => handleRowClick(row, event)}
                                     onDoubleClick={() => handleRowDoubleClick(row)}
                                 />
                             )

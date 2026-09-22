@@ -1,14 +1,15 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { FileTreeContextMenuHandlers, FileTreeDraft } from '@features/explorer/file-tree'
 import { FileTree } from '@features/explorer/file-tree'
 import type { FileTreeRow } from '@features/explorer/file-tree-row'
-import { fireEvent, renderWithProviders, screen } from '@shared/testing/render'
+import { fireEvent, renderWithProviders, screen, waitFor } from '@shared/testing/render'
 
 const ROW_HEIGHT_PX = 22
 
 const ROWS: FileTreeRow[] = [
     { id: '/p/src', path: '/p/src', name: 'src', depth: 0, kind: 'directory', expanded: false, gitStatus: null },
     { id: '/p/a.ts', path: '/p/a.ts', name: 'a.ts', depth: 0, kind: 'file', expanded: false, gitStatus: null },
+    { id: '/p/b.ts', path: '/p/b.ts', name: 'b.ts', depth: 0, kind: 'file', expanded: false, gitStatus: null },
 ]
 
 type Call = { name: string; path: string | null }
@@ -192,5 +193,48 @@ describe('FileTree 빈 공간 더블클릭', () => {
         fireEvent.doubleClick(tree, { clientY: ROWS.length * ROW_HEIGHT_PX + 100 })
 
         expect(calls).toEqual([])
+    })
+})
+
+describe('FileTree 다중 선택', () => {
+    const nativeOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
+    const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+
+    beforeAll(() => {
+        Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 600 })
+        Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 600 })
+    })
+
+    afterAll(() => {
+        if (nativeOffsetWidth) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', nativeOffsetWidth)
+        if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', nativeOffsetHeight)
+    })
+
+    test('Command 클릭은 기존 선택에 파일을 더하고 파일 열기는 실행하지 않는다', async () => {
+        const { calls } = renderTree()
+        const firstFile = await screen.findByRole('treeitem', { name: 'a.ts' })
+        const secondFile = await screen.findByRole('treeitem', { name: 'b.ts' })
+
+        fireEvent.click(firstFile)
+        fireEvent.click(secondFile, { metaKey: true })
+
+        await waitFor(() => expect(firstFile.getAttribute('aria-selected')).toBe('true'))
+        expect(secondFile.getAttribute('aria-selected')).toBe('true')
+        expect(calls).toEqual([{ name: 'openPreview', path: '/p/a.ts' }])
+    })
+
+    test('Shift 클릭은 anchor 부터 클릭한 행까지 연속 선택하고 추가 열기를 실행하지 않는다', async () => {
+        const { calls } = renderTree()
+        const directory = await screen.findByRole('treeitem', { name: 'src' })
+        const firstFile = await screen.findByRole('treeitem', { name: 'a.ts' })
+        const secondFile = await screen.findByRole('treeitem', { name: 'b.ts' })
+
+        fireEvent.click(directory)
+        fireEvent.click(secondFile, { shiftKey: true })
+
+        await waitFor(() => expect(directory.getAttribute('aria-selected')).toBe('true'))
+        expect(firstFile.getAttribute('aria-selected')).toBe('true')
+        expect(secondFile.getAttribute('aria-selected')).toBe('true')
+        expect(calls).toEqual([{ name: 'toggleExpand', path: '/p/src' }])
     })
 })
