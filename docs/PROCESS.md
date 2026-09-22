@@ -50,6 +50,22 @@
   이벤트 23·ALLOWED 160 ⊎ DENIED **20**·로케일 **792키×3**. 신규 의존성 0 유지.
 - 병합 상태: **main=dev 동기**(d-31 포함 전량 병합 완료 — 2026-08-24).
 
+## 진행 중: 파일·Git 트리 선택/탭 열기·포커스 복귀·알림 설정 CTA 수정 (2026-09-22)
+
+> 사용자 요청 4건. 다중 에이전트 workflow 미사용, 메인 Sol 직접 수행. 기준 문서:
+> `~/.claude/convention/{ai-process,common,comments,security,git,frontend,fsd,query,desktop}.md`.
+
+- [x] a. 현행 동작과 원인 확정 — 단일 selected id·Git `selected={false}`, preview 요청, pane 내부 dedupe, focus 시 appearance guard 초기화,
+      desktop 알림 권한 조회의 `Granted` 스텁과 전달 안내 CTA를 실제 코드로 확인
+- [x] b. file tree·git tree Shift 범위 선택과 Command/Ctrl 추가 선택 구현 — 공용 순수 선택 모델, modifier 클릭 시 열기 차단, ARIA 선택 상태,
+      단일 클릭·키보드·컨텍스트 메뉴 보존
+- [x] c. file tree·git tree 파일 열기 시 새 file tab 우선 및 기존 file tab 재사용 구현 — tree·Git open을 permanent로 변경하고 현재 창의 기존
+      file pane을 우선, 명시적 split과 동일 경로 diff tab은 분리
+- [x] d. 백그라운드 복귀 시 IDE view 리프레시 제거 — focus guard reset 대신 native `Window.theme()` 비교 후 실제 타입이 다를 때만 appearance 동기화
+- [x] e. 알림 권한이 허용된 경우 toast의 설정 열기 CTA 숨김 — native 전달 성공 안내 action 제거, 설정 화면의 수동 복구 버튼 유지
+- [x] f. 회귀 테스트 122 pass, typecheck·format·diff check 통과, lint 오류 0(기존 warning 11),
+      `bug/2026-09-22-tree-selection-tab-focus-notification.md` 기록 후 논리 단위 커밋·dev push 완료
+
 ## 진행 중: d-67 — 편집 표면 2차 조사 확인 결함 일괄 수정 (2026-09-17)
 
 > 2차 조사 wf `wf_0553e963`(7관점 opus·xhigh → 반박 검증 sonnet·xhigh, 47 에이전트·46분) — 발견 35 → 29 → 생존 **24**(major 11·minor 13) /
