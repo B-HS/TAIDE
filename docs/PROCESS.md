@@ -17,7 +17,7 @@
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0 기능/데이터/성능 baseline이 통과한 뒤 UI framework 공통 spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 전에는 native UI를 구현하거나 기존 코드를 삭제하지 않습니다.
 
-> 현재 세부 실행 항목은 M2입니다. 이번 재개에서 `opencode run --agent … --model ollama-cloud/deepseek-v4.1-flash#max` 호출은 실행 환경의 `Permission denied: shell`로 차단돼 M2 조사·구현을 진행하지 않았습니다. 허가 없이 다른 모델·호출 방식으로 우회하지 않습니다. 다음 웨이브는 완료한 항목만 `[x]`로 표시하고 동일 형식의 범위·테스트·검증 기록을 추가합니다.
+> 현재 세부 실행 항목은 M2입니다. 이번 재개에서 모델을 지정한 `opencode run --agent … --model ollama-cloud/deepseek-v4.1-flash#max` 호출은 두 번 모두 실행 환경의 `Permission denied: shell`로 차단됐습니다. 메인이 `paths.rs`·`state.rs`·기존 테스트를 직접 읽어 M2 첫 slice의 준비를 시작했으나 구현·검증은 아직 하지 않았습니다. 허가 없이 다른 모델·호출 방식으로 우회하지 않습니다. 다음 웨이브는 완료한 항목만 `[x]`로 표시하고 동일 형식의 범위·테스트·검증 기록을 추가합니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
