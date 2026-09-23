@@ -13,7 +13,7 @@ Rust-native 실행 경로나 crate 분리를 먼저 시작하지 않습니다. �
 
 - `src-tauri/src/lib.rs`: Specta command, event, raw channel 등록 집합
 - `src-tauri/src/events.rs`: event wire name과 payload 직렬화 계약
-- `src-tauri/src/error.rs`: IPC error code 집합
+- `crates/taide-model/src/error.rs`: IPC error code 집합 (`src-tauri/src/error.rs`는 재수출 facade)
 - `src-tauri/src/domain/remote/dispatch.rs`: remote JSON·raw command 구현 및 기본 거부 정책
 - `src/shared/api/bindings.ts`: 생성된 command 입력·출력 DTO와 event payload의 현행 wire 계약
 

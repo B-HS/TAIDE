@@ -1,5 +1,24 @@
 # PROCESS — TAIDE 작업 상태
 
+## 진행 중: Rust-native 이전을 위한 전체 기능 crate 분리 (2026-09-23)
+
+> 요청: 기존 기능을 가능한 한 독립 crate로 분리하고 동작·테스트를 확인한 뒤에만 native UI 구현에 착수합니다. 매 변경에는 적합한 테스트를 동반하고, 가능한 경우 새 경계 테스트를 먼저 실패시킨 후 통과시키는 TDD로 진행합니다.
+> 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. workflow·모델 선택은 재개 시 다시 묻습니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
+> 현재 브랜치: `to_rust_native`. 기존 Tauri 앱과 TS UI는 대체 native UI 검증 전까지 유지합니다. 앱 실행·재시작은 사용자 몫입니다.
+> 기준: rust-native 전환 계약·로드맵·parity plan, `docs/architecture.md`, `docs/agent-operations.md`, 상위 AGENTS 및 적용 컨벤션.
+
+- [x] M0. 실제 의존 그래프와 TDD 경계 조사 — 25개 도메인, infra 역참조 4건, layout↔ide·layout↔window 순환, Tauri command 203개와 source-scan 테스트 경로 결합을 확인했습니다. 단계별 crate 소유권은 이 작업의 계약 문서에 기록합니다.
+- [x] M1. 첫 실구현: `taide-model`에 `ids`·`error` 추출 — 경계/파사드 테스트 red→green, 기존 unit 12건 이동, IPC manifest 원천 경로 갱신. Rust 전체 1,787개 통과(경계 1개 후속 순증, 전용 6개 재확인), fmt·clippy 통과, bindings digest 불변. 현재 브랜치에 선별 commit·push했습니다.
+- [ ] M2. model 확장 — paths·persistence DTO·FlushScope와 25개 도메인 직렬화 타입의 의존 묶음을 세분화해 이전. 각 묶음마다 직렬화/역직렬화·구버전 호환 회귀를 먼저 추가.
+- [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
+- [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
+- [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
+- [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
+- [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
+- [ ] M8. native UI 착수 gate — M1~M7과 Phase 0 기능/데이터/성능 baseline이 통과한 뒤 UI framework 공통 spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 전에는 native UI를 구현하거나 기존 코드를 삭제하지 않습니다.
+
+> 현재 세부 실행 항목은 M1입니다. 다음 웨이브는 완료한 항목만 `[x]`로 표시하고 동일 형식의 범위·테스트·검증 기록을 추가합니다.
+
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
 > 요청: `to_rust_native` 브랜치의 Rust-native 계획을 실제 코드에 대조해 실현 순서와 누락 근거를 보강하고, workflow 기반으로 첫 구현 배치를 시작합니다.

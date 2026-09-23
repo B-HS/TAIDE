@@ -1,6 +1,6 @@
 # Rust-native 전환 로드맵
 
-> 상태: Phase 0 진행 중 — IPC contract manifest·drift test 완료
+> 상태: Phase 0 진행 중 — IPC contract manifest 완료, Phase 1 model crate 첫 slice 진행 중
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 검증: `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`
 > 현행 구조: `docs/architecture.md`
@@ -139,6 +139,7 @@ TypeScript/JavaScript의 Monaco 내장 worker를 제거하기 전에 Rust-owned 
 
 - model, error, event, persistence schema와 순수 service를 workspace crate로 이동한다.
 - Tauri command는 새 application facade를 호출하되 기존 UI 동작을 바꾸지 않는다.
+- 첫 slice인 `taide-model`은 `ids`·`error`부터 실제 이전합니다. 전체 도메인 이전은 `docs/PROCESS.md`의 M1~M7 체크리스트를 따르며, Phase 0의 나머지 기준선과 기존 앱 회귀 확인을 병행합니다.
 - 완료: domain boundary, session restore, persistence, 기존 전체 검증이 새 경계에서 통과한다.
 - 롤백: 기존 Tauri adapter가 같은 facade 위에 남는다.
 

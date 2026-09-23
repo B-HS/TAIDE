@@ -10,12 +10,12 @@ const BINDINGS_HASH_ALGORITHM: &str = "sha256";
 const BINDINGS_PATH: &str = "src/shared/api/bindings.ts";
 const IPC_REGISTRATION_PATH: &str = "src-tauri/src/lib.rs";
 const EVENTS_PATH: &str = "src-tauri/src/events.rs";
-const ERROR_PATH: &str = "src-tauri/src/error.rs";
+const ERROR_PATH: &str = "crates/taide-model/src/error.rs";
 const REMOTE_DISPATCH_PATH: &str = "src-tauri/src/domain/remote/dispatch.rs";
 
 const IPC_REGISTRATION_SOURCE: &str = include_str!("../src/lib.rs");
 const EVENTS_SOURCE: &str = include_str!("../src/events.rs");
-const ERROR_SOURCE: &str = include_str!("../src/error.rs");
+const ERROR_SOURCE: &str = include_str!("../../crates/taide-model/src/error.rs");
 const REMOTE_DISPATCH_SOURCE: &str = include_str!("../src/domain/remote/dispatch.rs");
 const BINDINGS_SOURCE: &str = include_str!("../../src/shared/api/bindings.ts");
 

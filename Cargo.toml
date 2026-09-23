@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/taide-cli"]
+members = ["src-tauri", "crates/taide-cli", "crates/taide-model"]
 
 [profile.release]
 lto = "thin"

@@ -20,21 +20,22 @@ React view (표시 전용)  →  IPC 경계 (typed commands / events)  →  Rust
 ## 2. Rust 코어 구조
 
 ```
-TAIDE/                       (Cargo workspace — members: src-tauri, crates/taide-cli)
+TAIDE/                       (Cargo workspace — members: src-tauri, crates/taide-cli, crates/taide-model)
 ├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
+├── crates/taide-model/      Tauri 미의존 공통 ID·AppError (기존 public 경로는 src-tauri facade)
 └── src-tauri/
     ├── src/
     │   ├── main.rs          진입점 (lib.rs 의 run() 호출만)
     │   ├── lib.rs           부트스트랩: 커맨드 등록·플러그인·AppState·복원·폴링 태스크·종료 정리
     │   ├── state.rs         AppState — 전 도메인 상태의 루트 (parking_lot RwLock + mutation guard)
-    │   ├── error.rs         AppError — 코드·메시지 중앙화, 모든 command 의 Result 에러 타입
+    │   ├── error.rs         taide-model::error 재수출 facade — 모든 command 의 Result 에러 타입
     │   ├── events.rs        이벤트 payload 타입 (ipc-contract 의 Rust 측 정본)
-    │   ├── ids.rs           ProjectId / PaneId / TabId (newtype, serde transparent)
+    │   ├── ids.rs           taide-model::ids 재수출 facade (ProjectId / PaneId / TabId 등)
     │   ├── paths.rs         앱 데이터 디렉토리 경로 규칙 (data-model.md §2)
     │   ├── constants.rs     무시 목록·파일 크기 4단계 임계값 (워처·트리·검색이 공유)
-    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈, 총 25개 — 전부 tauri 무결합)
+    │   ├── domain/          도메인 로직 (한 도메인 = 한 모듈, 총 25개 — commands/capability 일부는 Tauri 결합)
     │   │   ├── agent/       에이전트 감지, wait 마커, CLI 설치 상태
     │   │   ├── ai/          AI 기능 — 자동완성·Inline Edit·커밋 메시지 (provider 3종: Codex·Ollama Cloud·OMLX)
     │   │   ├── app/         앱 정보 (버전·플랫폼)

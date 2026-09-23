@@ -4,7 +4,7 @@
   "sources": {
     "ipcRegistration": "src-tauri/src/lib.rs",
     "events": "src-tauri/src/events.rs",
-    "error": "src-tauri/src/error.rs",
+    "error": "crates/taide-model/src/error.rs",
     "remoteDispatch": "src-tauri/src/domain/remote/dispatch.rs"
   },
   "generatedBindings": {

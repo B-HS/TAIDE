@@ -7,7 +7,7 @@
 
 ## 갱신 절차
 
-1. 원천(`src-tauri/src/lib.rs`, `events.rs`, `error.rs`, `domain/remote/dispatch.rs`)을 변경합니다.
+1. 원천(`src-tauri/src/lib.rs`, `events.rs`, `domain/remote/dispatch.rs`, `crates/taide-model/src/error.rs`)을 변경합니다.
 2. 목록 항목을 해당 원천 선언 순서대로 manifest에 반영합니다.
 3. `bindings.ts` digest를 다시 계산해 `generatedBindings.sha256`에 넣습니다.
 
