@@ -10,5 +10,7 @@ pub mod paths;
 pub mod project;
 pub mod search;
 pub mod snippet;
+pub mod system;
+pub mod task;
 pub mod theme;
 pub mod tree;

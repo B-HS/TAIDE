@@ -9,7 +9,7 @@
 
 - [x] M0. 실제 의존 그래프와 TDD 경계 조사 — 25개 도메인, infra 역참조 4건, layout↔ide·layout↔window 순환, Tauri command 203개와 source-scan 테스트 경로 결합을 확인했습니다. 단계별 crate 소유권은 이 작업의 계약 문서에 기록합니다.
 - [x] M1. 첫 실구현: `taide-model`에 `ids`·`error` 추출 — 경계/파사드 테스트 red→green, 기존 unit 12건 이동, IPC manifest 원천 경로 갱신. Rust 전체 1,787개 통과(경계 1개 후속 순증, 전용 6개 재확인), fmt·clippy 통과, bindings digest 불변. 현재 브랜치에 선별 commit·push했습니다.
-- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout·file/tree/font wire 타입을 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,807개·fmt·clippy·IPC 계약·bindings digest 불변을 확인했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
+- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system wire 타입을 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,810개·fmt·clippy·IPC 계약·bindings digest 불변을 확인했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
   - [x] M2-A. 이전 전 `paths.rs` 구현·unit 4개와 기존 공개 경로·소비처를 확인했습니다.
   - [x] M2-B. 타입 동일성·14개 경로 테스트를 먼저 작성하고 `taide_model::paths` 부재로 의도한 E0432(exit 101)를 확인했습니다.
   - [x] M2-C. 구현·unit 4개를 바이트 동일하게 model crate로 옮기고 기존 `taide_lib::paths::AppPaths` 경로를 재수출했습니다.
@@ -41,7 +41,11 @@
   - [x] M2-AC. file·tree·font 순수 wire 타입의 경계·기존 fixture 테스트를 먼저 작성했고 model 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
   - [x] M2-AD. 세 도메인의 타입 구현을 바이트 동일하게 model crate로 이전하고 기존 공개 경로·infra 소비를 유지했습니다.
   - [x] M2-AE. 전용 경계 3건·domain boundary 3건·IPC 7건·workspace 1,807개·fmt·clippy·bindings digest 불변을 확인했습니다.
-  - [ ] M2-AF. 여덟 번째 slice의 검증된 변경만 선별 commit·현재 브랜치에 일반 push합니다.
+  - [x] M2-AF. 여덟 번째 slice의 검증된 변경을 commit `52274d2`로 현재 브랜치에 반영하고 원격 HEAD와 일치를 확인했습니다.
+  - [x] M2-AG. task·system의 기존 wire·공개 경로·서비스 소비를 확인하고 새 model 경계/fixture 테스트를 작성해 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
+  - [x] M2-AH. task·system 타입을 model crate로 원본 바이트 동일하게 옮기고 기존 공개 경로를 재수출했습니다. 신규 테스트 3건과 IPC 계약 7건 통과.
+  - [x] M2-AI. task/system 서비스 포함 workspace 1,810개·IPC 계약 7건·fmt·clippy·bindings digest 불변을 검증했습니다.
+  - [x] M2-AJ. 아홉 번째 slice의 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
@@ -49,7 +53,7 @@
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0 기능/데이터/성능 baseline이 통과한 뒤 UI framework 공통 spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 전에는 native UI를 구현하거나 기존 코드를 삭제하지 않습니다.
 
-> 현재 세부 실행 항목은 M2입니다. 이 재개의 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max` 역할별 CLI 호출이 `Permission denied: shell`로 차단돼 메인이 첫 slice를 직접 수행했습니다. `AppPaths` 이전의 red(E0432, exit 101)와 green을 확인했고, 이 slice의 세부 완료·잔여 항목은 계약 문서 §M2에 기록했습니다. 다른 모델·호출 방식으로 우회하지 않았으며 M2 전체는 아직 진행 중입니다.
+> 현재 세부 실행 항목은 M2입니다. 이전 재개의 `Permission denied: shell` 기록은 첫 slice의 역사이며, 이번 재개에서는 지정 모델의 explore-pen CLI 작업 `taide-m2-next-explore-20260924`가 600초 한도에 걸려 `TIMED_OUT`(출력 0·단계 0)으로 종료됐습니다. 같은 역할을 다른 모델로 대체하지 않고 메인이 다음 slice의 코드·검증을 직접 수행합니다. M2 전체는 아직 진행 중입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 

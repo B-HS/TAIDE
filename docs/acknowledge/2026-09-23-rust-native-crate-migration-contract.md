@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session·search·app 파일 대상·layout·file/tree/font 타입 자동 검증 완료, 전체 M2 진행 중
+> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system 타입 이전, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -116,10 +116,18 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 신규 구버전 layout/탭 fixture 2건, model unit 18건(이전 layout unit 2건 포함), `session_restore` 8건, IPC 7건, `cargo test --workspace --quiet` 총 1,804개(taide lib 1,717·통합 52·CLI 17·model 18) 통과했습니다. 신규 테스트 포맷 1건 수정 뒤 fmt·clippy `--workspace --all-targets -- -D warnings` 통과, bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
 - [x] E. 검증된 파일 5개만 선별 commit `6fdd84f`·현재 브랜치에 일반 push했습니다.
 
-## M2 여덟 번째 slice — file·tree·font 순수 wire 타입 (진행 중)
+## M2 여덟 번째 slice — file·tree·font 순수 wire 타입 (완료)
 
 - [x] A. `src-tauri/src/domain/{file,tree,font}/types.rs`는 serde·specta·순수 타입만 참조하고 새 의존성 없이 model crate로 이동할 수 있습니다. file의 `FsChange`는 infra watcher/self_write가 기존 `file::types` 경로로 소비하므로 facade를 보존하고, tree/font도 기존 IPC 이름·필드·문서 속성을 유지합니다. 기존 파일들에 unit은 없습니다.
 - [x] B. `src-tauri/tests/taide_model_file_tree_font.rs`에 file change·editorconfig·tree page·font wire와 양쪽 타입 동일성 3건을 먼저 추가했고 model 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
 - [x] C. file·tree·font 구현을 바이트 동일하게 model crate로 옮기고 각각의 domain/types.rs에서 재수출합니다. 기존 unit은 없었고 infra가 쓰는 `file::types` 경로를 유지했습니다.
 - [x] D. 신규 경계 3건·domain boundary 3건·IPC 7건, `cargo test --workspace --quiet` 총 1,807개(taide lib 1,717·통합 55·CLI 17·model 18)와 fmt·clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
-- [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 검증된 파일 10개를 commit `52274d2`로 현재 브랜치에 반영했고 원격 HEAD와 일치합니다.
+
+## M2 아홉 번째 slice — task·system 순수 wire 타입 (완료)
+
+- [x] A. `task/types.rs`(TaskSource·Task)와 `system/types.rs`(SystemUsage·AppDataPathKind·SystemUsageProcessKind·SystemUsageProcess)의 기존 serde camelCase·공개 경로와 task/system 서비스 소비를 확인했습니다. 두 타입 파일은 serde·specta 외 Tauri·도메인 import가 없습니다.
+- [x] B. model↔facade 타입 동일성·기존 작업 목록, `cpuPercent: null` 시스템·프로세스 사용량, app data 경로 enum wire 테스트 3개를 먼저 작성했고 model 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
+- [x] C. 타입 구현·속성을 원본 바이트 동일하게 model crate로 옮기고 기존 `domain::{task,system}::types::*` 경로를 재수출했습니다. 신규 테스트 3건과 IPC 계약 7건 통과. command, 서비스 로직, bindings는 변경하지 않았습니다.
+- [x] D. 새 경계 3건·관련 task/system 서비스를 포함한 `cargo test --workspace --quiet` 총 1,810개, IPC 계약 7건, fmt·clippy `--workspace --all-targets -- -D warnings`가 통과했습니다. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변. GUI 실행·실제 재시작은 수행하지 않았습니다.
+- [x] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
