@@ -65,3 +65,13 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [ ] E. `FlushScope`와 persistence DTO의 실제 의존 묶음을 조사해 다음 M2 slice를 확정합니다. 해당 범위의 테스트와 구현이 완료되기 전에는 M2 전체를 `[x]`로 표시하지 않습니다.
 
 현재 제약: 사용자 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max`는 모델 목록에서 확인했으나, 이번 재개에서도 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 변경하지 않고 메인이 첫 slice를 직접 수행했습니다. 앱 실행·재시작은 사용자 몫이므로 이번 자동 검증에서 다루지 않았습니다. E와 M2 전체는 후속 slice가 끝나기 전까지 미완료입니다.
+
+## M2 두 번째 slice — `FlushScope` 경계 (진행 중)
+
+- [x] A. `src-tauri/src/state.rs:19-44`의 `FlushScope`는 이미 model crate에 있는 `ProjectId`·serde·specta만 사용합니다. `events.rs:505-528`의 all/window/project 직렬화·왕복 테스트와 생성 bindings의 타입 설명까지 확인했습니다. 이벤트 구조체와 Tauri `Event` derive는 기존 adapter에 남기고 `state::FlushScope` 경로를 보존합니다.
+- [x] B. 기존 `events::tests::플러시_스코프` 2개 green을 먼저 확인했습니다. `src-tauri/tests/taide_model_flush_scope.rs`에 model↔facade 타입 동일성·Hash·all/window/project 레거시 wire fixture를 추가했고, `cargo test -p taide --test taide_model_flush_scope`는 `taide_model::flush` 부재(E0432, exit 101)로 의도대로 실패했습니다.
+- [x] C. enum과 기존 문서 속성을 바이트 동일하게 `crates/taide-model/src/flush.rs`로 옮기고 `state::FlushScope`에서 재수출했습니다. variant·serde rename·specta 설명을 바꾸지 않았습니다. 신규 타입·wire 2건, 기존 이벤트 wire 2건, Phase 0 IPC 7건이 통과했습니다.
+- [x] D. 새 모델↔facade 경계 2건, 기존 event wire 2건, Phase 0 IPC 7건, Rust workspace 총 1,792개(taide lib 1,719·통합 40·CLI 17·model 16)가 통과했습니다. fmt는 신규 테스트의 긴 행 때문에 첫 검사에서 실패해 해당 행만 고쳤고 재검사는 통과했습니다. clippy `--workspace --all-targets -- -D warnings` exit 0; 생성 bindings SHA-256은 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49`로 불변이며 source-scan 계약도 통과했습니다. 앱 실행은 사용자 몫입니다.
+- [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+
+이번 재개에서도 지정 모델의 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 바꾸지 않고 메인이 직접 진행합니다.

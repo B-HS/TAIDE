@@ -15,6 +15,9 @@
   - [x] M2-C. 구현·unit 4개를 바이트 동일하게 model crate로 옮기고 기존 `taide_lib::paths::AppPaths` 경로를 재수출했습니다.
   - [x] M2-D. 경계·세션 복원·IPC 계약·workspace 1,790개와 fmt·clippy가 통과했고 bindings digest가 동일했습니다.
   - [ ] M2-E. `FlushScope`·persistence DTO의 의존 묶음은 후속 slice에서 조사·이전합니다. 앱 실행·재시작은 사용자 몫입니다.
+  - [x] M2-F. 기존 wire 테스트 green→새 타입·fixture 테스트 E0432 red→green 후 enum·문서 속성을 model crate로 옮기고 `state::FlushScope`를 재수출했습니다.
+  - [x] M2-G. 관련 wire·경계·IPC 계약·workspace 1,792개 테스트와 fmt·clippy 통과, bindings digest 불변을 확인했습니다.
+  - [ ] M2-H. 두 번째 slice의 검증된 변경만 선별 commit·현재 브랜치에 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
