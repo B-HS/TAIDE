@@ -7,6 +7,7 @@ pub mod ids;
 pub mod layout;
 pub mod locale;
 pub mod paths;
+pub mod plugin;
 pub mod project;
 pub mod search;
 pub mod snippet;

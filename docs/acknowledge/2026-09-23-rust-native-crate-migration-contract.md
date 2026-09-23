@@ -139,3 +139,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 상수는 원래 도메인 파일에 남기고 DTO 본문은 원본 바이트 동일하게 model crate로 이전했습니다. 기존 `domain::{vsix,window}::types::*` 경로를 재수출하고 도메인 서비스·Tauri 창 로직을 수정하지 않았습니다. 새 경계 2건·IPC 계약 7건·도메인 경계 3건이 통과했습니다.
 - [x] D. 전용 경계 2건·도메인 서비스 포함 `cargo test --workspace --quiet` 총 1,812개·IPC 계약 7건·domain boundaries 3건·fmt·clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다. 앱 실행·재시작은 수행하지 않았습니다.
 - [x] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+
+## M2 열한 번째 slice — plugin manifest·상태 DTO (완료)
+
+- [x] A. `src-tauri/src/domain/plugin/types.rs`의 상수 3개는 manifest 버전·파일 이름·grammar 크기 정책이며 같은 파일의 DTO 7개는 serde·specta·표준 타입만 사용합니다. `PluginErrorCode`는 kebab-case, 선택 기여와 오류는 `#[serde(default)]`입니다. 기존 공개 경로·service·IPC 소비를 확인했습니다.
+- [x] B. 플러그인 구버전 manifest 기본값·언어/LSP optional 속성·로드 상태 오류 wire·타입 동일성 테스트 2건을 먼저 작성했고 새 model 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
+- [x] C. 지정 모델 sub-pen이 DTO 7개를 model crate로 옮기고 도메인 상수 3개·공개 경로를 보존했습니다. 첫 구현 호출은 출력 상한 초과, 재시도는 최종 JSON 파싱 오류로 FAILED여서 완료로 간주하지 않았습니다. 파일 실물·검증을 메인이 직접 확인하고 같은 모델 인수 작업 `taide-m2-plugin-adopt-20260924`의 수정 없는 DONE으로 종료 상태를 확정했습니다. 공유 트리는 에이전트 실행 중 메인이 수정하지 않았습니다.
+- [x] D. DTO 구현 본문 2,187B 원본 바이트 동일·전용 경계 2건·IPC 7건·도메인 경계 3건·`cargo test --workspace --quiet` 총 1,814개·fmt·clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다. GUI 실기는 미실행입니다.
+- [x] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
