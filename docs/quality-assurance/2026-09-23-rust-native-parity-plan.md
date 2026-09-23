@@ -1,6 +1,6 @@
 # Rust-native 기능·성능 동등성 계획
 
-> 상태: 계획 확정, 측정·구현 미착수
+> 상태: Phase 0 진행 중 — IPC contract manifest·drift test 완료
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 로드맵: `docs/roadmap-rust-native.md`
 > 현행 실기 기준선: `docs/quality-assurance/2026-09-04-perf-baseline.md`
@@ -15,7 +15,7 @@
 
 ## 2. Phase 0 기준선
 
-- [ ] command, event, raw channel 이름·payload·error code manifest
+- [x] command, event, raw channel 이름·payload·error code manifest — `src-tauri/tests/fixtures/rust-native/ipc-contract-manifest.json`, `src-tauri/tests/rust_native_phase0_contract.rs`
 - [ ] remote allow·deny, authentication, session revoke와 binary channel fixture
 - [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture
 - [ ] settings, session, project, layout, hot-exit buffer의 versioned fixture

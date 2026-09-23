@@ -1,5 +1,17 @@
 # PROCESS — TAIDE 작업 상태
 
+## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
+
+> 요청: `to_rust_native` 브랜치의 Rust-native 계획을 실제 코드에 대조해 실현 순서와 누락 근거를 보강하고, workflow 기반으로 첫 구현 배치를 시작합니다.
+> 범위: 계획의 선행 조건인 Phase 0 중 자동화 가능한 command·event·raw channel·error·remote policy 기준선을 기계 판독 가능한 manifest와 drift test로 고정합니다. 제품 동작, IPC payload, dependency, crate 경계는 변경하지 않습니다.
+> 기준 문서: `docs/roadmap-rust-native.md`, `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/acknowledge/2026-09-23-rust-native-phase0-contract-baseline.md`.
+
+- [x] a. 계획·코드·검증·보안 경계 병렬 조사 — Phase 0이 선행해야 함을 확인하고 command/event/raw, remote/IDE/CLI, persistence의 실제 원천과 테스트 공백을 파일·심볼 기준으로 정리했습니다.
+- [x] b. Phase 0 contract manifest와 drift test 구현 — command 203개, event 30개, raw 3개, error 6개, remote 허용 177개·거부 29개와 생성 bindings digest를 기준선으로 고정했습니다.
+- [x] c. 구현 독립 검토와 최소 검증 — 전용 Rust test 7개와 fmt가 통과했고, 독립 검토 PASS·`git diff --check` exit 0을 확인했습니다. event 등록 순서는 비의미 집합으로 검증한다는 범위를 문서에 명시했습니다.
+- [x] d. 문서 상태·잔여 수동 gate 정리 — 로드맵과 QA를 Phase 0 진행 중으로 갱신하고 IPC manifest만 완료 처리했습니다. remote 인증·IDE/CLI·persistence·기능 inventory·실기 성능은 미완료로 유지합니다.
+- [x] e. 선별 commit·push — 구현·fixture·정본 문서 7개만 staged diff로 확인해 Conventional Commit으로 현재 브랜치에 반영합니다.
+
 ## 완료: Rust-native 전환 계획 수립 (2026-09-23)
 
 > 요청: `to_rust_native` 브랜치에서 TypeScript·React·Tauri·Monaco·xterm을 제거하고 현재 기능 전체를 Rust-native로 달성하기 위한 실행 계획을 작성한 뒤 commit·push합니다.

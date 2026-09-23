@@ -1,6 +1,6 @@
 # Rust-native 전환 로드맵
 
-> 상태: 계획 확정, 구현 미착수
+> 상태: Phase 0 진행 중 — IPC contract manifest·drift test 완료
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 검증: `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`
 > 현행 구조: `docs/architecture.md`
