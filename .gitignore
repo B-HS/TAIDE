@@ -15,6 +15,7 @@ src-tauri/binaries
 !.env.example
 
 .claude/settings.local.json
+.opencode/pen-state/
 
 e2e/.auth/
 e2e/.tmp/
