@@ -1,6 +1,8 @@
 pub mod app;
 pub mod error;
+pub mod file;
 pub mod flush;
+pub mod font;
 pub mod ids;
 pub mod layout;
 pub mod locale;
@@ -9,3 +11,4 @@ pub mod project;
 pub mod search;
 pub mod snippet;
 pub mod theme;
+pub mod tree;
