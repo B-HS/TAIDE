@@ -9,7 +9,7 @@
 
 - [x] M0. 실제 의존 그래프와 TDD 경계 조사 — 25개 도메인, infra 역참조 4건, layout↔ide·layout↔window 순환, Tauri command 203개와 source-scan 테스트 경로 결합을 확인했습니다. 단계별 crate 소유권은 이 작업의 계약 문서에 기록합니다.
 - [x] M1. 첫 실구현: `taide-model`에 `ids`·`error` 추출 — 경계/파사드 테스트 red→green, 기존 unit 12건 이동, IPC manifest 원천 경로 갱신. Rust 전체 1,787개 통과(경계 1개 후속 순증, 전용 6개 재확인), fmt·clippy 통과, bindings digest 불변. 현재 브랜치에 선별 commit·push했습니다.
-- [ ] M2. model 확장 — paths·persistence DTO·FlushScope와 25개 도메인 직렬화 타입의 의존 묶음을 세분화해 이전. 각 묶음마다 직렬화/역직렬화·구버전 호환 회귀를 먼저 추가.
+- [ ] M2. model 확장 — 첫 slice `AppPaths`는 경계·14개 경로 characterization red(E0432)→green, 기존 unit 4개 동반 이전, Rust workspace 1,790개·fmt·clippy·IPC 계약·bindings digest 불변을 확인했습니다. `FlushScope`·persistence DTO·25개 도메인 직렬화 타입은 별도 후속 slice로 남겨 둡니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
@@ -17,7 +17,7 @@
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0 기능/데이터/성능 baseline이 통과한 뒤 UI framework 공통 spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 전에는 native UI를 구현하거나 기존 코드를 삭제하지 않습니다.
 
-> 현재 세부 실행 항목은 M2입니다. 이번 재개에서 모델을 지정한 `opencode run --agent … --model ollama-cloud/deepseek-v4.1-flash#max` 호출은 두 번 모두 실행 환경의 `Permission denied: shell`로 차단됐습니다. 메인이 `paths.rs`·`state.rs`·기존 테스트를 직접 읽어 M2 첫 slice의 준비를 시작했으나 구현·검증은 아직 하지 않았습니다. 허가 없이 다른 모델·호출 방식으로 우회하지 않습니다. 다음 웨이브는 완료한 항목만 `[x]`로 표시하고 동일 형식의 범위·테스트·검증 기록을 추가합니다.
+> 현재 세부 실행 항목은 M2입니다. 이 재개의 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max` 역할별 CLI 호출이 `Permission denied: shell`로 차단돼 메인이 첫 slice를 직접 수행했습니다. `AppPaths` 이전의 red(E0432, exit 101)와 green을 확인했고, 이 slice의 세부 완료·잔여 항목은 계약 문서 §M2에 기록했습니다. 다른 모델·호출 방식으로 우회하지 않았으며 M2 전체는 아직 진행 중입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 

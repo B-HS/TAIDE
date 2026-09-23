@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 자동 검증 완료, Git 반영
+> 상태: M1 완료; M2 `AppPaths` 첫 slice 자동 검증 완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -56,12 +56,12 @@
 
 M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 때 하위 checklist를 추가합니다. M1을 끝냈다는 사실만으로 crate 분리 전체나 native UI 착수 gate를 완료로 간주하지 않습니다.
 
-## M2 첫 slice — `AppPaths` 경계 (준비 중)
+## M2 첫 slice — `AppPaths` 경계 (자동 검증 완료)
 
-- [x] A. 첫 후보를 실제 파일로 확인했습니다. `src-tauri/src/paths.rs:1-69`의 `AppPaths`는 표준 라이브러리 `PathBuf`와 이미 분리된 `ProjectId`만 사용하며, 같은 파일 `:71-108`에 경로 unit test 4개가 있습니다. `src-tauri/src/lib.rs:7,34`의 공개 모듈·앱 호출과 `src-tauri/tests/session_restore.rs:10`의 기존 import는 facade로 보존할 수 있습니다. `src-tauri/src/state.rs:32-44`의 `FlushScope`는 별도 후속 slice로 유지합니다.
-- [ ] B. `taide-model::paths::AppPaths`와 `taide_lib::paths::AppPaths` 동일 타입 및 기존 data-dir 하위 모든 경로의 characterization/경계 테스트를 먼저 추가하고 red를 기록합니다. 서버 ID·버전 입력을 새 정책으로 정규화하거나 경로를 변경하지 않습니다.
-- [ ] C. 구현·unit test 4개를 `crates/taide-model/src/paths.rs`로 이동하고 `src-tauri/src/paths.rs`는 기존 공개 경로를 재수출합니다. 파일시스템 접근이나 새 dependency를 추가하지 않습니다.
-- [ ] D. 새 crate unit·경계·session_restore·Rust workspace test 및 fmt·clippy로 parity를 확인하고 source-scan·bindings digest 불변을 판정합니다.
+- [x] A. 이전 전 `src-tauri/src/paths.rs:1-69`의 `AppPaths`는 표준 라이브러리 `PathBuf`와 이미 분리된 `ProjectId`만 사용했고, 같은 파일 `:71-108`에 경로 unit test 4개가 있었습니다. `src-tauri/src/lib.rs:7,34`의 공개 모듈·앱 호출과 `src-tauri/tests/session_restore.rs:10`의 기존 import는 facade로 보존했습니다. `src-tauri/src/state.rs:32-44`의 `FlushScope`는 별도 후속 slice로 유지합니다.
+- [x] B. `src-tauri/tests/taide_model_paths.rs`에 두 공개 경로의 타입 동일성과 모든 경로 메서드 14개의 기존 출력 검증을 먼저 추가했습니다. `cargo test -p taide --test taide_model_paths`는 `taide_model::paths` 미존재(E0432)로 예상대로 exit 101이었습니다. 서버 ID·버전 입력을 새 정책으로 정규화하거나 경로를 변경하지 않습니다.
+- [x] C. 기존 `paths.rs` 구현·unit 4개를 바이트 동일하게 `crates/taide-model/src/paths.rs`로 이전하고 `src-tauri/src/paths.rs`는 `AppPaths`를 재수출합니다. 기존 unit 4개는 이전 전·후 모두 통과했고, 새 crate 16개·경계 2개·세션 복원 8개·추출 경계 6개·IPC 계약 7개가 통과했습니다. 파일시스템 접근이나 새 dependency를 추가하지 않았습니다.
+- [x] D. 새 crate unit 16개(이전 unit 4개 포함), 경계 2개, `session_restore` 8개, Phase 0 IPC 7개 및 기존 추출 경계 6개가 통과했습니다. `cargo test --workspace` exit 0, 총 1,790개(taide lib 1,719·통합 38·CLI 17·model 16), 실패·ignored 0; `cargo fmt --all --check` 및 `cargo clippy --workspace --all-targets -- -D warnings` exit 0. 경계·source-scan 테스트는 그대로 통과했고 bindings SHA-256은 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49`로 불변입니다. 생성 bindings·IPC 등록·Cargo 의존성·저장 경로는 변경하지 않았습니다.
 - [ ] E. `FlushScope`와 persistence DTO의 실제 의존 묶음을 조사해 다음 M2 slice를 확정합니다. 해당 범위의 테스트와 구현이 완료되기 전에는 M2 전체를 `[x]`로 표시하지 않습니다.
 
-현재 제약: 사용자 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max`는 모델 목록에서 확인했으나, 이번 세션에서 `opencode run` 역할별 호출 자체가 `Permission denied: shell`로 거부됐습니다. M2 B~E의 코드 구현·검증은 시작하지 않았으며, 모델·호출 방식의 임의 변경으로 우회하지 않습니다.
+현재 제약: 사용자 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max`는 모델 목록에서 확인했으나, 이번 재개에서도 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 변경하지 않고 메인이 첫 slice를 직접 수행했습니다. 앱 실행·재시작은 사용자 몫이므로 이번 자동 검증에서 다루지 않았습니다. E와 M2 전체는 후속 slice가 끝나기 전까지 미완료입니다.
