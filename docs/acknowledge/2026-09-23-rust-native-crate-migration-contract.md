@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session·search·app 파일 대상 타입 자동 검증 완료, 전체 M2 진행 중
+> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session·search·app 파일 대상·layout 타입 자동 검증 완료, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -100,10 +100,18 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 신규 검색 경계·구버전 fixture 2건, IPC 7건, `cargo test --workspace --quiet` 총 1,800개(taide lib 1,719·통합 48·CLI 17·model 16), fmt 및 clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
 - [x] E. 검증된 파일 6개만 선별 commit `3355ae5`·현재 브랜치에 일반 push했습니다.
 
-## M2 여섯 번째 slice — app 파일 대상 타입·프롬프트 ID (진행 중)
+## M2 여섯 번째 slice — app 파일 대상 타입·프롬프트 ID (자동 검증 완료)
 
 - [x] A. `src-tauri/src/domain/app/types.rs:1-84`는 serde·specta만 쓰지만 `PromptTemplateId::as_str`이 `src-tauri/src/domain/ai/prompt.rs:10-12`의 세 문자열 상수를 참조합니다. 해당 상수를 model app 타입과 함께 소유시키고 기존 ai::prompt 경로에서 재수출하면 Tauri 의존·cycle 없이 layout의 `AppFileTarget` 선행 DTO가 됩니다. 타입/IPC·프롬프트 파일 경로·기존 bindings 설명은 유지합니다.
 - [x] B. `src-tauri/tests/taide_model_app.rs`의 enum wire·기존 프롬프트 ID 문자열·model↔facade 타입 동일성 테스트가 새 model app 모듈 부재 E0432/E0433(exit 101)로 의도대로 실패했습니다.
 - [x] C. app/types.rs의 타입·원본 문서 속성을 model crate로 옮기고 세 prompt ID 상수의 문자열을 같은 모듈로 이전했습니다. 기존 app/AI 공개 경로는 각각 재수출로 유지하고 `PromptTemplateId::as_str`은 이전한 같은 상수를 참조합니다. `domain_boundaries.rs`의 제거된 `app/types.rs → ai::prompt` 허용 항목을 정리했습니다.
 - [x] D. 신규 app 경계 2건·app service 9건·domain boundary 3건·IPC 7건·`cargo test --workspace --quiet` 총 1,802개(taide lib 1,719·통합 50·CLI 17·model 16) 통과했습니다. fmt는 신규 테스트 행 3곳 정리 뒤 통과, clippy `--workspace --all-targets -- -D warnings` 통과, bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
+- [x] E. 검증된 파일 8개만 선별 commit `640d2b1`·현재 브랜치에 일반 push했습니다.
+
+## M2 일곱 번째 slice — 레이아웃 영속 타입 (진행 중)
+
+- [x] A. `src-tauri/src/domain/layout/types.rs`의 잔여 `TabKind`·`ProjectLayout`·2개 unit은 model에 앞서 이전한 `AppFileTarget`·`SearchQuery`·`SplitDir`·`DropEdge`·ID만 사용합니다. `layout.json`의 구버전 기본값·Diff 필드·AppFile 및 SearchEditor 변형을 먼저 고정합니다. 기존 `layout::types::*` 공개 경로와 레이아웃 서비스는 그대로 둡니다.
+- [x] B. `src-tauri/tests/taide_model_layout.rs`에 구버전 `layout.json` 기본값·Diff/앱 파일/검색 탭 wire와 model↔facade 타입 동일성 테스트를 추가했고 `cargo test -p taide --test taide_model_layout`은 새 model 타입 부재(E0432, exit 101)로 의도한 red였습니다.
+- [x] C. 선행 분리된 방향 enum에 나머지 `layout/types.rs` 구현·unit 2개를 합쳐 model `layout.rs`로 이전하고 기존 domain/types.rs는 재수출만 유지했습니다. 모델 파일의 나머지 구현은 이전 전 원본과 바이트 동일함을 확인했습니다.
+- [x] D. 신규 구버전 layout/탭 fixture 2건, model unit 18건(이전 layout unit 2건 포함), `session_restore` 8건, IPC 7건, `cargo test --workspace --quiet` 총 1,804개(taide lib 1,717·통합 52·CLI 17·model 18) 통과했습니다. 신규 테스트 포맷 1건 수정 뒤 fmt·clippy `--workspace --all-targets -- -D warnings` 통과, bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
 - [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.

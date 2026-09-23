@@ -9,7 +9,7 @@
 
 - [x] M0. 실제 의존 그래프와 TDD 경계 조사 — 25개 도메인, infra 역참조 4건, layout↔ide·layout↔window 순환, Tauri command 203개와 source-scan 테스트 경로 결합을 확인했습니다. 단계별 crate 소유권은 이 작업의 계약 문서에 기록합니다.
 - [x] M1. 첫 실구현: `taide-model`에 `ids`·`error` 추출 — 경계/파사드 테스트 red→green, 기존 unit 12건 이동, IPC manifest 원천 경로 갱신. Rust 전체 1,787개 통과(경계 1개 후속 순증, 전용 6개 재확인), fmt·clippy 통과, bindings digest 불변. 현재 브랜치에 선별 commit·push했습니다.
-- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상 타입을 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,802개·fmt·clippy·IPC 계약·bindings digest 불변을 확인했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
+- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout 영속 타입을 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,804개·fmt·clippy·IPC 계약·bindings digest 불변을 확인했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
   - [x] M2-A. 이전 전 `paths.rs` 구현·unit 4개와 기존 공개 경로·소비처를 확인했습니다.
   - [x] M2-B. 타입 동일성·14개 경로 테스트를 먼저 작성하고 `taide_model::paths` 부재로 의도한 E0432(exit 101)를 확인했습니다.
   - [x] M2-C. 구현·unit 4개를 바이트 동일하게 model crate로 옮기고 기존 `taide_lib::paths::AppPaths` 경로를 재수출했습니다.
@@ -33,7 +33,11 @@
   - [x] M2-U. app 파일 대상·프롬프트 ID의 기존 wire와 문자열 상수 동일성 테스트를 먼저 추가해 model app 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
   - [x] M2-V. `PromptTemplateId`·`AppFileTarget`과 순수 app 타입을 model로 옮기며 AI prompt 상수 경로를 재수출하고 stale domain-boundary 허용 항목을 제거했습니다.
   - [x] M2-W. app service 9건·경계 3건·IPC 7건·workspace 1,802개·fmt·clippy·bindings digest 불변을 확인했습니다.
-  - [ ] M2-X. 여섯 번째 slice의 검증된 변경만 선별 commit·현재 브랜치에 일반 push합니다.
+  - [x] M2-X. 여섯 번째 slice의 검증된 8개 파일을 선별 commit `640d2b1`·현재 브랜치에 일반 push했습니다.
+  - [x] M2-Y. 구버전 layout.json·Diff·AppFile·SearchEditor의 타입/wire 경계 테스트를 먼저 추가해 미이전 타입 E0432(exit 101) red를 확인했습니다.
+  - [x] M2-Z. layout 잔여 타입·unit 2개를 선행 app/search/layout enum과 같은 model 모듈로 이전하고 facade를 유지했습니다.
+  - [x] M2-AA. layout unit 2개·session_restore 8건·workspace 1,804개·fmt·clippy·bindings digest 불변을 확인했습니다.
+  - [ ] M2-AB. 일곱 번째 slice의 검증된 변경만 선별 commit·현재 브랜치에 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
