@@ -1,5 +1,16 @@
 # PROCESS — TAIDE 작업 상태
 
+## 완료: Swift 단독 전환 가능성 평가 (2026-09-23)
+
+> 요청: 현재 TS + Rust 기반 TAIDE를 Swift 단독 구현으로 전환할 수 있는지 실제 코드 구조와 기능 경계를 근거로 평가합니다.
+> 범위: 읽기 전용 아키텍처 조사, Swift 대응 기술 검토, 전환 난이도·손실·권장 경로 제시. 제품 코드는 수정하지 않습니다.
+> 기준 문서: 사용자 제공 `AGENTS.md`, `~/.codex/llm-rules/ai-process.md`, `llm-rules-subagent-workflow`, `llm-rules-process`.
+
+- [x] a. 프로젝트 구조와 TS·Rust 책임 경계 확인 — React·Monaco·xterm 중심 TS 874파일/93,645줄, Tauri 도메인·Git·PTY·LSP·원격 중심 Rust 163파일/71,565줄과 생성 IPC 계약을 확인했습니다.
+- [x] b. 프론트엔드·Rust 코어의 Swift 대체 난이도 병렬 분석 — 일반 UI는 중간, Monaco·xterm·Git·PTY·원격 서버는 높음~매우 높음으로 판정했습니다.
+- [x] c. Swift 네이티브 기술의 현재 지원 범위 확인 — TextKit 2, SwiftTerm, Process, FSEvents, SwiftNIO, SourceKit-LSP, SwiftGit2/libgit2의 공식·일차 자료를 확인했습니다.
+- [x] d. 결론 통합·문서 상태 정리 — 자동 변환이 아닌 전면 재작성으로 판정하고, 현행 유지 권장과 조건부 단계 경로를 `docs/research/2026-09-23-swift-only-feasibility.md`에 기록했습니다.
+
 ## 완료: 사용자 기능 버그 14건 수정·병합·릴리스 초안 (2026-09-22)
 
 > 요청: 워크플로우·서브에이전트 없이 메인이 전부 판정·수정하고 commit·push, dev → main 병합, GitHub Release 초안까지 완료합니다.
