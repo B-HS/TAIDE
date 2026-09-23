@@ -1,5 +1,17 @@
 # PROCESS — TAIDE 작업 상태
 
+## 완료: Rust-native 전환 계획 수립 (2026-09-23)
+
+> 요청: `to_rust_native` 브랜치에서 TypeScript·React·Tauri·Monaco·xterm을 제거하고 현재 기능 전체를 Rust-native로 달성하기 위한 실행 계획을 작성한 뒤 commit·push합니다.
+> 목표: 현행 Rust 코어를 보존하면서 네이티브 UI, 편집기, 터미널, LSP, 미리보기와 검증 체계를 단계적으로 교체합니다. 이번 작업은 계획 문서만 작성하며 제품 코드는 수정하지 않습니다.
+> 기준 문서: 사용자 제공 `AGENTS.md`, `~/.codex/llm-rules/{ai-process,git}.md`, `llm-rules-subagent-workflow`, `llm-rules-process`, `llm-rules-save-docs`, `llm-rules-verify`.
+
+- [x] a. 전환 브랜치와 기준선 확정 — `dev`의 `deb5867`에서 `to_rust_native` 브랜치를 생성하고 동일 이름의 로컬·원격 브랜치가 없음을 확인했습니다.
+- [x] b. Rust-native 목표 아키텍처와 위험 영역 병렬 설계 — 애플리케이션 셸, 편집기·LSP, 터미널·PTY, 기능 이관·검증 관점의 계획을 독립적으로 작성했습니다.
+- [x] c. 로드맵·결정·검증 계약 통합 — 전환 계약, 10단계 로드맵, 기능·성능·보안·rollback gate를 세 문서로 통합했습니다.
+- [x] d. 문서 최소 검증 — 정본 경로, 10개 phase, 동등성 체크 87개, Markdown 포맷과 diff 검사를 통과했습니다.
+- [x] e. 선별 commit·push — 계획 문서 5개만 Conventional Commit으로 반영하고 `to_rust_native` 원격 브랜치를 생성합니다.
+
 ## 완료: Swift 단독 전환 가능성 평가 (2026-09-23)
 
 > 요청: 현재 TS + Rust 기반 TAIDE를 Swift 단독 구현으로 전환할 수 있는지 실제 코드 구조와 기능 경계를 근거로 평가합니다.

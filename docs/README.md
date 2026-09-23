@@ -13,6 +13,7 @@
 | `theme-system.md` | 테마 파이프라인·번들 카탈로그·게이트 |
 | `tech-stack.md` | 스택·버전 정본 |
 | `roadmap.md` | 구현 순서 정본 |
+| `roadmap-rust-native.md` | `to_rust_native` 브랜치의 Rust-native 전환 순서·게이트 |
 | `PRD.md` / `backlog.md` | 요구사항·백로그 |
 | `deployment.md` | 릴리스 파이프라인·태그 규칙(숫자 4 금지)·secrets |
 | `debugging.md` | 로그·검증 사다리·실증 계측 기법·함정 목록 |
@@ -42,4 +43,5 @@
 - 진단·계측: `debugging.md`
 - e2e 실행: `quality-assurance/2026-08-18-e2e-harness.md`
 - 실기 QA 마스터: `quality-assurance/2026-08-11-qa6-checklist.md`
+- Rust-native 전환 계약·검증: `acknowledge/2026-09-23-rust-native-transition-contract.md` · `quality-assurance/2026-09-23-rust-native-parity-plan.md`
 - 커밋 규칙 우선순위: `feedback/2026-08-27-commit-despite-no-commit-directive.md`
