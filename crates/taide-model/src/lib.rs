@@ -1,7 +1,9 @@
 pub mod error;
 pub mod flush;
 pub mod ids;
+pub mod layout;
 pub mod locale;
 pub mod paths;
+pub mod project;
 pub mod snippet;
 pub mod theme;

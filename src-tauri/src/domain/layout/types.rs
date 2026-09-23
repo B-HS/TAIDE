@@ -5,6 +5,8 @@ use crate::domain::app::types::AppFileTarget;
 use crate::domain::search::types::SearchQuery;
 use crate::ids::{PaneId, ProjectId, TabId};
 
+pub use taide_model::layout::{DropEdge, SplitDir};
+
 /// v2 adds the auxiliary-window axis (`ProjectLayout::auxiliary_windows`) and per-project shell
 /// chrome state (`ProjectLayout::shell_view`) — both purely additive over v1, since every new field
 /// already deserializes via `#[serde(default)]`. See `service::migrate_layout` and
@@ -12,23 +14,6 @@ use crate::ids::{PaneId, ProjectId, TabId};
 pub const LAYOUT_SCHEMA_VERSION: u32 = 2;
 pub const CLOSED_TAB_STACK_LIMIT: usize = 20;
 pub const FIRST_UNTITLED_INDEX: u32 = 1;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum SplitDir {
-    Horizontal,
-    Vertical,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum DropEdge {
-    Left,
-    Right,
-    Top,
-    Bottom,
-    Center,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]

@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 `AppPaths`·`FlushScope` 및 첫 저장 DTO 묶음 자동 검증 완료, 전체 M2 진행 중
+> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session 타입 자동 검증 완료, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -64,7 +64,7 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 새 crate unit 16개(이전 unit 4개 포함), 경계 2개, `session_restore` 8개, Phase 0 IPC 7개 및 기존 추출 경계 6개가 통과했습니다. `cargo test --workspace` exit 0, 총 1,790개(taide lib 1,719·통합 38·CLI 17·model 16), 실패·ignored 0; `cargo fmt --all --check` 및 `cargo clippy --workspace --all-targets -- -D warnings` exit 0. 경계·source-scan 테스트는 그대로 통과했고 bindings SHA-256은 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49`로 불변입니다. 생성 bindings·IPC 등록·Cargo 의존성·저장 경로는 변경하지 않았습니다.
 - [x] E. `FlushScope`는 `ProjectId`·serde·specta만 의존함을 확인해 두 번째 slice로 이전했습니다. 이어 `theme/types.rs`(103줄), `locale/types.rs`(36줄), `snippet/types.rs`(50줄)는 서로·Tauri를 의존하지 않고 표준 `BTreeMap`·serde·specta만 사용하는 저장 데이터 DTO임을 확인해 세 번째 slice로 확정했습니다. 그 밖의 DTO와 M2 전체는 미완료입니다.
 
-현재 제약: 사용자 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max`는 모델 목록에서 확인했으나, 이번 재개에서도 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 변경하지 않고 메인이 첫 slice를 직접 수행했습니다. 앱 실행·재시작은 사용자 몫이므로 이번 자동 검증에서 다루지 않았습니다. E와 M2 전체는 후속 slice가 끝나기 전까지 미완료입니다.
+첫 slice 당시 제약: 사용자 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max`의 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부돼 메인이 직접 수행했습니다. 앱 실행·재시작은 사용자 몫입니다. M2 전체는 후속 slice가 끝나기 전까지 미완료입니다.
 
 ## M2 두 번째 slice — `FlushScope` 경계 (진행 중)
 
@@ -76,10 +76,18 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 
 이번 재개에서도 지정 모델의 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 바꾸지 않고 메인이 직접 진행합니다.
 
-## M2 세 번째 slice — 저장 데이터 DTO(theme·locale·snippet, 진행 중)
+## M2 세 번째 slice — 저장 데이터 DTO(theme·locale·snippet, 자동 검증 완료)
 
 - [x] A. `src-tauri/src/domain/{theme,locale,snippet}/types.rs`에 저장 파일용 타입·기본값·직렬화 속성이 있고, 이 세 파일 사이 의존·Tauri import·원천 경로 고정 source-scan은 없습니다. `docs/data-model.md:75-79`의 `themes/`, `snippets/`, `locales/` 저장 구역에 대응합니다. 세 facade의 기존 공개 경로는 보존합니다.
 - [x] B. `src-tauri/tests/taide_model_persistence.rs`에 세 도메인의 model↔facade 동일 타입과 구버전 언어팩·테마의 기본값, 스니펫의 단일/배열·선택 필드 wire fixture를 먼저 추가했습니다. `cargo test -p taide --test taide_model_persistence`는 새 model 모듈 부재 13건(E0433, exit 101)으로 의도한 red였습니다.
 - [x] C. 세 파일을 바이트 동일하게 model crate로 옮겼습니다. 원본에 unit은 없었고, `src-tauri/src/domain/{theme,locale,snippet}/types.rs`는 기존 API 전체를 재수출합니다. 신규 타입·구버전 wire 3건과 model unit 16건이 통과했습니다.
 - [x] D. `cargo test --workspace --quiet` exit 0, 총 1,795개(taide lib 1,719·통합 43·CLI 17·model 16)가 통과해 기존 도메인 서비스·source-scan·IPC 계약도 포함합니다. fmt는 신규 테스트 행 길이 5곳 수정 뒤 재검사 통과, clippy `--workspace --all-targets -- -D warnings` exit 0. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변이고 원천 코드·저장 경로에 동작 변경이 없습니다.
+- [x] E. 검증된 파일 10개만 선별 commit `f8bdd24`·현재 브랜치에 일반 push했습니다.
+
+## M2 네 번째 slice — project/session 영속 타입 (진행 중)
+
+- [x] A. `src-tauri/src/domain/project/types.rs:1-291`은 `SplitDir`(layout/types.rs:16-21)과 model crate에 있는 ID·serde·specta만 참조합니다. layout 방향 enum `SplitDir`·`DropEdge`는 다른 타입·Tauri를 참조하지 않아 선행 이동 가능한 DAG 경계입니다. `SessionState`의 기존 기본값·project.json의 필드 기본값·ShellSlotTree의 wire를 먼저 고정합니다. `layout::types`와 `project::types`의 공개 경로는 파사드로 유지하며 layout의 나머지 타입·unit 2개는 아직 이동하지 않습니다.
+- [x] B. `src-tauri/tests/taide_model_project.rs`에 기존 소비 경로↔model 타입 동일성, 구버전 session/project/group 기본값과 슬롯 트리 wire를 먼저 작성했습니다. `cargo test -p taide --test taide_model_project`는 새 layout/project 모듈 부재 E0432/E0433(exit 101)로 의도한 red였습니다.
+- [x] C. layout의 `SplitDir`·`DropEdge`를 model crate로 옮기고 layout 공개 경로를 재수출했습니다. 뒤이어 project/types.rs 전체 구현을 model crate로 이전해 `SplitDir` import만 새 crate 내부 경로로 갱신하고 rustfmt에 맞게 순서를 정리했습니다. project 공개 경로도 재수출합니다. 프로젝트 원본에는 unit이 없고 layout unit 2개는 원래 모듈에 유지했습니다.
+- [x] D. 신규 project 경계·구버전 fixture 3건, `session_restore` 8건, IPC 7건, Rust workspace 총 1,798개(taide lib 1,719·통합 46·CLI 17·model 16) 통과했습니다. fmt의 project import 순서 1건을 고친 뒤 fmt·clippy `--workspace --all-targets -- -D warnings` exit 0. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
 - [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
