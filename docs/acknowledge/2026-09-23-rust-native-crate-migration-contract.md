@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 `AppPaths` 첫 slice 자동 검증 완료
+> 상태: M1 완료; M2 `AppPaths`·`FlushScope` 및 첫 저장 DTO 묶음 자동 검증 완료, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -62,7 +62,7 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. `src-tauri/tests/taide_model_paths.rs`에 두 공개 경로의 타입 동일성과 모든 경로 메서드 14개의 기존 출력 검증을 먼저 추가했습니다. `cargo test -p taide --test taide_model_paths`는 `taide_model::paths` 미존재(E0432)로 예상대로 exit 101이었습니다. 서버 ID·버전 입력을 새 정책으로 정규화하거나 경로를 변경하지 않습니다.
 - [x] C. 기존 `paths.rs` 구현·unit 4개를 바이트 동일하게 `crates/taide-model/src/paths.rs`로 이전하고 `src-tauri/src/paths.rs`는 `AppPaths`를 재수출합니다. 기존 unit 4개는 이전 전·후 모두 통과했고, 새 crate 16개·경계 2개·세션 복원 8개·추출 경계 6개·IPC 계약 7개가 통과했습니다. 파일시스템 접근이나 새 dependency를 추가하지 않았습니다.
 - [x] D. 새 crate unit 16개(이전 unit 4개 포함), 경계 2개, `session_restore` 8개, Phase 0 IPC 7개 및 기존 추출 경계 6개가 통과했습니다. `cargo test --workspace` exit 0, 총 1,790개(taide lib 1,719·통합 38·CLI 17·model 16), 실패·ignored 0; `cargo fmt --all --check` 및 `cargo clippy --workspace --all-targets -- -D warnings` exit 0. 경계·source-scan 테스트는 그대로 통과했고 bindings SHA-256은 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49`로 불변입니다. 생성 bindings·IPC 등록·Cargo 의존성·저장 경로는 변경하지 않았습니다.
-- [ ] E. `FlushScope`와 persistence DTO의 실제 의존 묶음을 조사해 다음 M2 slice를 확정합니다. 해당 범위의 테스트와 구현이 완료되기 전에는 M2 전체를 `[x]`로 표시하지 않습니다.
+- [x] E. `FlushScope`는 `ProjectId`·serde·specta만 의존함을 확인해 두 번째 slice로 이전했습니다. 이어 `theme/types.rs`(103줄), `locale/types.rs`(36줄), `snippet/types.rs`(50줄)는 서로·Tauri를 의존하지 않고 표준 `BTreeMap`·serde·specta만 사용하는 저장 데이터 DTO임을 확인해 세 번째 slice로 확정했습니다. 그 밖의 DTO와 M2 전체는 미완료입니다.
 
 현재 제약: 사용자 지정 모델 `ollama-cloud/deepseek-v4.1-flash#max`는 모델 목록에서 확인했으나, 이번 재개에서도 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 변경하지 않고 메인이 첫 slice를 직접 수행했습니다. 앱 실행·재시작은 사용자 몫이므로 이번 자동 검증에서 다루지 않았습니다. E와 M2 전체는 후속 slice가 끝나기 전까지 미완료입니다.
 
@@ -72,6 +72,14 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 기존 `events::tests::플러시_스코프` 2개 green을 먼저 확인했습니다. `src-tauri/tests/taide_model_flush_scope.rs`에 model↔facade 타입 동일성·Hash·all/window/project 레거시 wire fixture를 추가했고, `cargo test -p taide --test taide_model_flush_scope`는 `taide_model::flush` 부재(E0432, exit 101)로 의도대로 실패했습니다.
 - [x] C. enum과 기존 문서 속성을 바이트 동일하게 `crates/taide-model/src/flush.rs`로 옮기고 `state::FlushScope`에서 재수출했습니다. variant·serde rename·specta 설명을 바꾸지 않았습니다. 신규 타입·wire 2건, 기존 이벤트 wire 2건, Phase 0 IPC 7건이 통과했습니다.
 - [x] D. 새 모델↔facade 경계 2건, 기존 event wire 2건, Phase 0 IPC 7건, Rust workspace 총 1,792개(taide lib 1,719·통합 40·CLI 17·model 16)가 통과했습니다. fmt는 신규 테스트의 긴 행 때문에 첫 검사에서 실패해 해당 행만 고쳤고 재검사는 통과했습니다. clippy `--workspace --all-targets -- -D warnings` exit 0; 생성 bindings SHA-256은 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49`로 불변이며 source-scan 계약도 통과했습니다. 앱 실행은 사용자 몫입니다.
-- [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 검증된 파일 6개만 선별 commit `1b17864`·현재 브랜치에 일반 push했습니다.
 
 이번 재개에서도 지정 모델의 `opencode run --agent explore-pen --model ollama-cloud/deepseek-v4.1-flash#max` 호출이 `Permission denied: shell`로 거부됐습니다. 모델·호출 방식을 바꾸지 않고 메인이 직접 진행합니다.
+
+## M2 세 번째 slice — 저장 데이터 DTO(theme·locale·snippet, 진행 중)
+
+- [x] A. `src-tauri/src/domain/{theme,locale,snippet}/types.rs`에 저장 파일용 타입·기본값·직렬화 속성이 있고, 이 세 파일 사이 의존·Tauri import·원천 경로 고정 source-scan은 없습니다. `docs/data-model.md:75-79`의 `themes/`, `snippets/`, `locales/` 저장 구역에 대응합니다. 세 facade의 기존 공개 경로는 보존합니다.
+- [x] B. `src-tauri/tests/taide_model_persistence.rs`에 세 도메인의 model↔facade 동일 타입과 구버전 언어팩·테마의 기본값, 스니펫의 단일/배열·선택 필드 wire fixture를 먼저 추가했습니다. `cargo test -p taide --test taide_model_persistence`는 새 model 모듈 부재 13건(E0433, exit 101)으로 의도한 red였습니다.
+- [x] C. 세 파일을 바이트 동일하게 model crate로 옮겼습니다. 원본에 unit은 없었고, `src-tauri/src/domain/{theme,locale,snippet}/types.rs`는 기존 API 전체를 재수출합니다. 신규 타입·구버전 wire 3건과 model unit 16건이 통과했습니다.
+- [x] D. `cargo test --workspace --quiet` exit 0, 총 1,795개(taide lib 1,719·통합 43·CLI 17·model 16)가 통과해 기존 도메인 서비스·source-scan·IPC 계약도 포함합니다. fmt는 신규 테스트 행 길이 5곳 수정 뒤 재검사 통과, clippy `--workspace --all-targets -- -D warnings` exit 0. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변이고 원천 코드·저장 경로에 동작 변경이 없습니다.
+- [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
