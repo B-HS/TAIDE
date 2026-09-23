@@ -131,3 +131,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 타입 구현·속성을 원본 바이트 동일하게 model crate로 옮기고 기존 `domain::{task,system}::types::*` 경로를 재수출했습니다. 신규 테스트 3건과 IPC 계약 7건 통과. command, 서비스 로직, bindings는 변경하지 않았습니다.
 - [x] D. 새 경계 3건·관련 task/system 서비스를 포함한 `cargo test --workspace --quiet` 총 1,810개, IPC 계약 7건, fmt·clippy `--workspace --all-targets -- -D warnings`가 통과했습니다. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변. GUI 실행·실제 재시작은 수행하지 않았습니다.
 - [x] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+
+## M2 열 번째 slice — VSIX 결과·보조 창 정보 DTO (완료)
+
+- [x] A. `vsix/types.rs`의 첫 6개 경로·크기 상수는 파서에서 사용하고 결과 DTO 4종은 serde·specta만 사용합니다. `window/types.rs`는 창 크기·라벨 정책 상수와 `ProjectId`가 든 `AuxiliaryWindowInfo`로 나뉩니다. 기존 공개 경로와 command·service 소비를 확인했습니다.
+- [x] B. VSIX 확장 정보·include chain과 보조 창 `projectId`·`windowSlot` wire/타입 동일성 테스트 2건을 먼저 작성했고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 상수는 원래 도메인 파일에 남기고 DTO 본문은 원본 바이트 동일하게 model crate로 이전했습니다. 기존 `domain::{vsix,window}::types::*` 경로를 재수출하고 도메인 서비스·Tauri 창 로직을 수정하지 않았습니다. 새 경계 2건·IPC 계약 7건·도메인 경계 3건이 통과했습니다.
+- [x] D. 전용 경계 2건·도메인 서비스 포함 `cargo test --workspace --quiet` 총 1,812개·IPC 계약 7건·domain boundaries 3건·fmt·clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다. 앱 실행·재시작은 수행하지 않았습니다.
+- [x] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
