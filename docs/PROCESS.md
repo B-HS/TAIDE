@@ -3,7 +3,7 @@
 ## 진행 중: Rust-native 이전을 위한 전체 기능 crate 분리 (2026-09-23)
 
 > 요청: 기존 기능을 가능한 한 독립 crate로 분리하고 동작·테스트를 확인한 뒤에만 native UI 구현에 착수합니다. 매 변경에는 적합한 테스트를 동반하고, 가능한 경우 새 경계 테스트를 먼저 실패시킨 후 통과시키는 TDD로 진행합니다.
-> 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. workflow·모델 선택은 재개 시 다시 묻습니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
+> 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. 이번 작업에서 사용자가 직접 지정한 방식은 다중 에이전트 workflow 사용, 모든 subagent에 `ollama-cloud/deepseek-v4.1-flash#max` 지정입니다. 모델 명칭은 DeepSeek V4.1 Flash, variant `max`입니다. 이 기록을 지우거나 설치 기본 모델로 바꾸지 않습니다. 단, 재개된 실행 작업에서는 상위 운영 계약에 따라 workflow·모델 선택을 사용자에게 다시 확인합니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
 > 현재 브랜치: `to_rust_native`. 기존 Tauri 앱과 TS UI는 대체 native UI 검증 전까지 유지합니다. 앱 실행·재시작은 사용자 몫입니다.
 > 기준: rust-native 전환 계약·로드맵·parity plan, `docs/architecture.md`, `docs/agent-operations.md`, 상위 AGENTS 및 적용 컨벤션.
 
@@ -17,7 +17,7 @@
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0 기능/데이터/성능 baseline이 통과한 뒤 UI framework 공통 spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 전에는 native UI를 구현하거나 기존 코드를 삭제하지 않습니다.
 
-> 현재 세부 실행 항목은 M1입니다. 다음 웨이브는 완료한 항목만 `[x]`로 표시하고 동일 형식의 범위·테스트·검증 기록을 추가합니다.
+> 현재 세부 실행 항목은 M2입니다. 이번 재개에서 `opencode run --agent … --model ollama-cloud/deepseek-v4.1-flash#max` 호출은 실행 환경의 `Permission denied: shell`로 차단돼 M2 조사·구현을 진행하지 않았습니다. 허가 없이 다른 모델·호출 방식으로 우회하지 않습니다. 다음 웨이브는 완료한 항목만 `[x]`로 표시하고 동일 형식의 범위·테스트·검증 기록을 추가합니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
