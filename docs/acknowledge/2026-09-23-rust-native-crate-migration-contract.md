@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session 타입 자동 검증 완료, 전체 M2 진행 중
+> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session·search 타입 자동 검증 완료, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -90,4 +90,12 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. `src-tauri/tests/taide_model_project.rs`에 기존 소비 경로↔model 타입 동일성, 구버전 session/project/group 기본값과 슬롯 트리 wire를 먼저 작성했습니다. `cargo test -p taide --test taide_model_project`는 새 layout/project 모듈 부재 E0432/E0433(exit 101)로 의도한 red였습니다.
 - [x] C. layout의 `SplitDir`·`DropEdge`를 model crate로 옮기고 layout 공개 경로를 재수출했습니다. 뒤이어 project/types.rs 전체 구현을 model crate로 이전해 `SplitDir` import만 새 crate 내부 경로로 갱신하고 rustfmt에 맞게 순서를 정리했습니다. project 공개 경로도 재수출합니다. 프로젝트 원본에는 unit이 없고 layout unit 2개는 원래 모듈에 유지했습니다.
 - [x] D. 신규 project 경계·구버전 fixture 3건, `session_restore` 8건, IPC 7건, Rust workspace 총 1,798개(taide lib 1,719·통합 46·CLI 17·model 16) 통과했습니다. fmt의 project import 순서 1건을 고친 뒤 fmt·clippy `--workspace --all-targets -- -D warnings` exit 0. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
+- [x] E. 검증된 파일 8개만 선별 commit `b131fe6`·현재 브랜치에 일반 push했습니다.
+
+## M2 다섯 번째 slice — search 직렬화 타입 (진행 중)
+
+- [x] A. `src-tauri/src/domain/search/types.rs:1-147`은 serde·specta만 사용하고 `SearchQuery`는 `src-tauri/src/domain/layout/types.rs:85`에서 저장 레이아웃의 검색 탭이 사용합니다. 검색/치환 결과·채널 wire도 이 파일 소유입니다. type 파일 자체에는 unit이 없습니다. 기존 `search::types::*` 공개 경로와 검색 동작은 보존합니다.
+- [x] B. `src-tauri/tests/taide_model_search.rs`의 구버전 SearchQuery 기본값·치환 실패 사유·검색 채널 wire·model↔facade 타입 동일성 테스트가 신규 모듈 부재 E0432/E0433(exit 101)로 의도대로 실패했습니다.
+- [x] C. `src-tauri/src/domain/search/types.rs` 전체 구현·속성을 바이트 동일하게 `crates/taide-model/src/search.rs`로 이전하고 기존 search facade에서 재수출합니다. 기존 파일에는 unit이 없었습니다.
+- [x] D. 신규 검색 경계·구버전 fixture 2건, IPC 7건, `cargo test --workspace --quiet` 총 1,800개(taide lib 1,719·통합 48·CLI 17·model 16), fmt 및 clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다.
 - [ ] E. 검증된 파일만 선별 commit·현재 브랜치에 일반 push합니다.
