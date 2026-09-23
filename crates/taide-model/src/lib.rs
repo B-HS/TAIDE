@@ -1,3 +1,4 @@
+pub mod app;
 pub mod error;
 pub mod flush;
 pub mod ids;

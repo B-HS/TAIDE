@@ -7,9 +7,7 @@ use crate::domain::ai::types::{
 use crate::infra::persist;
 use crate::paths::AppPaths;
 
-pub const AUTO_TAB_PROMPT_ID: &str = "auto-tab-default";
-pub const INLINE_EDIT_PROMPT_ID: &str = "inline-edit-default";
-pub const COMMIT_MESSAGE_PROMPT_ID: &str = "commit-message-default";
+pub use taide_model::app::{AUTO_TAB_PROMPT_ID, COMMIT_MESSAGE_PROMPT_ID, INLINE_EDIT_PROMPT_ID};
 
 /// Selected code plus surrounding context sent to the model for Inline Edit is capped at this many
 /// characters per side (`{prefix}`/`{suffix}`) — the selection itself and the instruction are never

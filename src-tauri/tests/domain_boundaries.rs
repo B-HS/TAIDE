@@ -22,9 +22,8 @@ use regex::Regex;
 /// - `app/commands.rs → settings::commands`·`settings::service` — the `AppFileTarget::Settings`
 ///   editor must funnel through `apply_and_broadcast`, the single settings reapply path every
 ///   settings writer shares (its doc comment names these callers).
-/// - `app/service.rs`·`app/types.rs → ai::prompt` — the app-file surface edits AI prompt template
-///   files; their ids and bundled defaults are owned by `ai::prompt` and `PromptTemplateId` must
-///   stay in lockstep with its `*_PROMPT_ID` constants.
+/// - `app/service.rs → ai::prompt` — reads bundled AI prompt templates as app-file fallbacks;
+///   `PromptTemplateId` and the re-exported filename constants now share a model owner.
 /// - `file/commands.rs`·`git/commands.rs`·`ide/server.rs → plugin::service` — `ensure_loaded` is
 ///   the read-through plugin snapshot cache + `language_overlays` conversion every language-aware
 ///   domain needs; re-implementing the cache per domain would be worse than the edge. An
@@ -87,7 +86,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/app/commands.rs", "settings::commands"),
     ("domain/app/commands.rs", "settings::service"),
     ("domain/app/service.rs", "ai::prompt"),
-    ("domain/app/types.rs", "ai::prompt"),
     ("domain/file/commands.rs", "plugin::service"),
     ("domain/git/commands.rs", "plugin::service"),
     ("domain/ide/commands.rs", "file::service"),
