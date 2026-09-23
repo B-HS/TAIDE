@@ -147,3 +147,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 지정 모델 sub-pen이 DTO 7개를 model crate로 옮기고 도메인 상수 3개·공개 경로를 보존했습니다. 첫 구현 호출은 출력 상한 초과, 재시도는 최종 JSON 파싱 오류로 FAILED여서 완료로 간주하지 않았습니다. 파일 실물·검증을 메인이 직접 확인하고 같은 모델 인수 작업 `taide-m2-plugin-adopt-20260924`의 수정 없는 DONE으로 종료 상태를 확정했습니다. 공유 트리는 에이전트 실행 중 메인이 수정하지 않았습니다.
 - [x] D. DTO 구현 본문 2,187B 원본 바이트 동일·전용 경계 2건·IPC 7건·도메인 경계 3건·`cargo test --workspace --quiet` 총 1,814개·fmt·clippy `--workspace --all-targets -- -D warnings` 통과. bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다. GUI 실기는 미실행입니다.
 - [x] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+
+## M2 열두 번째 slice — AI provider·프롬프트 wire 타입 (완료)
+
+- [x] A. `ai/types.rs`는 serde·specta만 import하고 `AiProviderId`를 `settings/types.rs`가 소비합니다. 요청/응답·저장 프롬프트 타입·`AiPromptVars` 2종과 원본 unit 3개는 같은 파일에 있습니다. 모델/토큰/요청 기본값 및 기존 공개 경로를 확인했습니다.
+- [x] B. model↔기존 도메인 타입 동일성·구버전 provider/owner 요청·프롬프트 저장 wire 경계 테스트 2건을 먼저 작성했고 model 모듈 부재 E0432/E0433(exit 101) red를 확인했습니다.
+- [x] C. 지정 모델 `sub-pen`(task `taide-m2-ai-implement-20260924`, session `ses_f30e49303ffeERgGBKB08G3G6M`)이 AI 타입·기존 unit 3개를 원본 바이트 동일하게 model crate로 옮겼습니다. 메인이 소유한 새 경계 테스트·문서와 Git은 수정하지 않았고 기존 facade/등록을 보존했습니다.
+- [x] D. 메인이 AI 원본 208줄 바이트 동일성과 `cargo test --workspace --quiet` 총 1,816개(taide lib 1,714·model 21·CLI 17·기타 통합 64), fmt·clippy `--workspace --all-targets -- -D warnings`·diff 검사를 직접 통과했습니다. IPC 계약은 workspace의 기존 7건을 포함하며 bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다. 앱 실기는 미실행입니다.
+- [x] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
