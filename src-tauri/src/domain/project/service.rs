@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
-use specta::Type;
-
 use crate::domain::layout::types::ShellViewState;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
@@ -36,12 +33,7 @@ const DISPLAY_COLOR_TOKENS: &[&str] = &[
 /// document.
 const GROUP_NAME_MAX_CODEPOINTS: usize = 40;
 
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectOpenResult {
-    pub project: Project,
-    pub already_open: bool,
-}
+pub use taide_model::project::ProjectOpenResult;
 
 pub fn list_projects(session: &SessionState) -> Vec<ProjectRef> {
     session.projects.clone()

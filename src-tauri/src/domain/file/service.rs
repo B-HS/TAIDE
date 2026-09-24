@@ -2,9 +2,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use serde::{Deserialize, Serialize};
-use specta::Type;
-
 use crate::constants::{LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES};
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::{ProjectId, TabId};
@@ -14,6 +11,7 @@ use crate::infra::persist;
 use crate::infra::root_guard;
 use crate::paths::AppPaths;
 use crate::state::AppState;
+use serde::{Deserialize, Serialize};
 
 use super::editorconfig;
 use super::types::{EditorConfigOptions, FileSizeTier, OpenedFile};
@@ -33,42 +31,13 @@ struct MirrorFile {
     disk_modified_ms: Option<f64>,
 }
 
-/// A restorable hot-exit mirror, resolved against the file's *current* disk
-/// state at list time. `conflict` is `true` when the disk was modified after
-/// the mirror's `disk_modified_ms` baseline was captured, meaning applying
-/// the mirror as-is would silently discard an external change.
-///
-/// `source_missing` marks the other resolution: the file the draft belongs to
-/// is gone from disk (deleted outside the app — `rm`, a `git checkout`, a build
-/// script). Such a mirror is still listed, because being unlistable is exactly
-/// what used to make the draft unreachable, but neither `conflict` nor
-/// `disk_modified_ms` can be answered against a file that is not there, so both
-/// come back `false`/`None` and the frontend offers "save as" instead of a
-/// restore.
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MirrorEntry {
-    pub path: String,
-    pub content: String,
-    pub saved_at_ms: f64,
-    pub disk_modified_ms: Option<f64>,
-    pub conflict: bool,
-    pub source_missing: bool,
-}
+pub use taide_model::file::{MirrorEntry, UntitledMirrorEntry};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UntitledMirrorFile {
     tab_id: String,
     content: String,
     saved_at_ms: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct UntitledMirrorEntry {
-    pub tab_id: TabId,
-    pub content: String,
-    pub saved_at_ms: f64,
 }
 
 /// Translates [`open_file`]'s `metadata` failure. Only `NotFound` is rewritten — into the same

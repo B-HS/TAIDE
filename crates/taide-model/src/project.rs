@@ -4,6 +4,13 @@ use specta::Type;
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::layout::SplitDir;
 
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectOpenResult {
+    pub project: Project,
+    pub already_open: bool,
+}
+
 pub const SESSION_SCHEMA_VERSION: u32 = 1;
 pub const PROJECT_SCHEMA_VERSION: u32 = 1;
 

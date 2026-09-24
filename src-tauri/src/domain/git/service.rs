@@ -2,14 +2,11 @@ use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use std::path::{Component, Path, PathBuf};
 
-use git2::build::CheckoutBuilder;
-use git2::Repository;
-use serde::Serialize;
-use specta::Type;
-
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::language::{self, LanguageOverlay};
 use crate::infra::redact::mask_known_secrets;
+use git2::build::CheckoutBuilder;
+use git2::Repository;
 
 use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitChangeKind, GitRemote, GitStashEntry,
@@ -77,12 +74,7 @@ const GIT_COMMAND_POLL_INTERVAL_MS: u64 = 20;
 /// kill path already makes by abandoning its readers.
 const GIT_PIPE_DRAIN_TIMEOUT_SECS: u64 = 5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AheadBehind {
-    pub ahead: u32,
-    pub behind: u32,
-}
+pub use taide_model::git::AheadBehind;
 
 pub fn init(root: &Path) -> AppResult<()> {
     run_git(root, &["init"]).map(|_| ())
