@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use taide_lsp::protocol::workspace_folders_notification;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -99,31 +100,6 @@ struct SessionEntry {
     generation: AtomicU32,
     stopping: Arc<AtomicBool>,
     roots: Mutex<Vec<(String, u32)>>,
-}
-
-/// `uri` must be spelled exactly the way the frontend spells the same root in `initialize`
-/// (`monaco.Uri.file(root).toString()`) — see [`service::workspace_folder_uri`] for why a raw
-/// `file://{root}` made a space- or Korean-containing root look like a different folder to the
-/// server than the one the handshake announced.
-fn workspace_folder_json(root: &str) -> serde_json::Value {
-    serde_json::json!({
-        "uri": service::workspace_folder_uri(root),
-        "name": std::path::Path::new(root).file_name().and_then(|name| name.to_str()).unwrap_or("workspace"),
-    })
-}
-
-fn workspace_folders_notification(added: &[String], removed: &[String]) -> String {
-    serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "workspace/didChangeWorkspaceFolders",
-        "params": {
-            "event": {
-                "added": added.iter().map(|root| workspace_folder_json(root)).collect::<Vec<_>>(),
-                "removed": removed.iter().map(|root| workspace_folder_json(root)).collect::<Vec<_>>(),
-            }
-        }
-    })
-    .to_string()
 }
 
 #[derive(Default)]
