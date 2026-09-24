@@ -595,3 +595,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 폴더 JSON과 알림 직렬화를 taide-lsp protocol로 옮기고 실제 Tauri 세션 전송은 기존 명령 경로에 유지했습니다. 기존 private 함수 설명은 공개 API의 영어 rustdoc으로 정리했습니다. 새 경계 1건·Tauri LSP 명령 24건·crate unit 45건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-lsp --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. fixture는 공백·한글 경로 URI와 JSON-RPC method/added/removed/name을 확인합니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 LSP 프로세스·세션·재시작·GUI 실기는 미실행이며 M5 전체는 미완료입니다.
 - [x] D. 구현은 commit `4ae91a2`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 열 번째 slice — remote 설정 보안 필터 이전 (완료, dispatch 조립은 유지)
+
+- [x] A. remote dispatch의 `settings_update` patch와 `app_file_write` 전체 설정 필터는 taide-model의 Settings/SettingsPatch만 사용합니다. 새 독립 crate 경계 2건은 policy 모듈 부재 E0433(exit 101)으로 의도대로 실패했습니다. 직전 workspace 전체 green은 동일 remote 코드 상태의 결과로 재사용했습니다.
+- [x] B. 두 필터를 taide-remote policy로 옮기고 실제 remote dispatch의 호출 위치는 유지했습니다. patch에서는 `remote_password_only_login`·`remote_allowed_hosts`·`shell_override`·`ai_omlx_base_url`을 제거하고, 전체 설정 쓰기에서는 네 필드를 현재값으로 복원합니다. 앞의 두 필드는 접속 게이트의 자기 확장을, 셸 경로는 세션 종료 후 지속되는 실행 경로 변경을, OMLX 주소는 저장된 API 키의 향후 전송 대상 변경을 방지합니다. `remote_access_enabled`의 자가 차단과 무관한 설정은 계속 통과합니다. 새 경계 2건·기존 dispatch unit 37건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 브라우저 로그인·원격 세션의 설정 쓰기 실기는 미실행이며 M5 전체는 미완료입니다.
+- [x] D. 구현은 commit `f774471`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
