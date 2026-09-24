@@ -14,6 +14,7 @@ pub mod notification;
 pub mod paths;
 pub mod plugin;
 pub mod project;
+pub mod remote;
 pub mod search;
 pub mod settings;
 pub mod snippet;

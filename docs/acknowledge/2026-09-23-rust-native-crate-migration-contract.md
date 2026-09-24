@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 공통 DTO·settings/sync 영속 DTO·notification/Git/IDE/agent/terminal wire 이전, 전체 M2 진행 중
+> 상태: M1 완료; M2 공통 DTO·settings/sync 영속 DTO·notification/Git/IDE/agent/terminal/remote wire 이전, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -221,3 +221,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 타입·스크롤백 계산·기존 unit 5건을 model crate로 옮기고 기존 `domain::terminal::types::*` 경로를 재수출했습니다.
 - [x] D. 전용 경계 2건·기존 model unit 5건·`cargo test --workspace --quiet` 총 1,831건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 타입 본문은 rustdoc 링크 1곳 외 원본 바이트 동일하며 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다.
 - [x] E. 관련 6파일을 commit `ab56d30`으로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
+
+## M2 스물한 번째 slice — remote wire DTO (진행 중)
+
+- [x] A. `remote/types.rs`의 인증·호스트·dispatch 상수는 도메인에 두고, serde·specta·JSON Value만 의존하는 DTO 3종을 model로 옮기는 경계를 확인했습니다.
+- [x] B. status·link·request legacy wire와 model↔facade 타입 동일성 테스트를 먼저 추가했고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. DTO 3종을 model crate로 옮기고 기존 `domain::remote::types::*` 경로를 재수출했습니다. 인증·호스트·dispatch 상수는 도메인에 유지했습니다.
+- [x] D. 전용 경계 2건·`cargo test --workspace --quiet` 총 1,833건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. DTO 본문은 원본 바이트 동일하며 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다.
+- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.

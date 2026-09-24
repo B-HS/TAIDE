@@ -1,7 +1,3 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use specta::Type;
-
 /// Single-owner wildcard-prefix syntax for a `remote_allowed_hosts` entry (RFC 6125 single-label
 /// wildcard, matched by `service::host_matches_allowed_entry`) — `settings::service::
 /// is_valid_allowed_host` (sanitizing user input) and `service`'s matcher/link-formatting callers
@@ -141,25 +137,4 @@ pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;
 /// longer make `owner` say anything else in the first place.
 pub const REMOTE_OWNER_LABEL: &str = "remote";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteStatus {
-    pub running: bool,
-    pub port: u32,
-    pub client_count: u32,
-    pub password_configured: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteLinkInfo {
-    pub url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RemoteRequest {
-    pub seq: u32,
-    pub command: String,
-    #[serde(default)]
-    pub args: Value,
-}
+pub use taide_model::remote::*;
