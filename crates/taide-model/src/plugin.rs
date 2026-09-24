@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+pub const PLUGIN_MANIFEST_VERSION: u32 = 1;
+pub const PLUGIN_MANIFEST_FILE: &str = "taide-plugin.json";
+pub const PLUGIN_GRAMMAR_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginLanguageContribution {
