@@ -294,10 +294,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 원자적 쓰기·권한·임시 파일 회귀를 포함한 `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 8파일을 commit `ee0073a`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
 
-## M3 여섯 번째 slice — watcher 자원 이전 (진행 중)
+## M3 여섯 번째 slice — watcher 자원 이전 (완료)
 
 - [x] A. `watcher.rs`는 model `FsChange`와 기존 notify·notify-debouncer-full·log, 이전한 infra `persist`, `constants.rs`의 무시 디렉터리 정책을 사용합니다. 기존 watcher unit 24건과 constants unit 1건, `WatchScope`별 필터·debounce·cache 검사를 함께 옮기고 `infra::watcher` 및 `constants::*` 공개 경로를 유지합니다.
 - [x] B. crate 직접 경로와 기존 facade의 watcher 타입·빈 루트 거부·무시 디렉터리 정책을 추가했고 두 모듈 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. 정책·watcher 구현·기존 unit 25건을 infra crate로 옮기고 두 기존 공개 경로를 재수출했습니다. 새 경계 6건이 통과했고 실제 핸들 종료 테스트 1건을 추가·단독 실행해 통과했습니다. private rustdoc 링크 2곳만 일반 경로 표기로 고쳤습니다.
 - [x] D. 실제 핸들 종료와 기존 배치·필터 회귀를 포함한 infra unit 96건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 10파일을 commit `692a24b`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
