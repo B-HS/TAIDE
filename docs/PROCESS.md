@@ -188,12 +188,16 @@
   - [x] M3-BY. `src-tauri/src/infra`에는 21개 재수출 facade와 `asset_protocol`·`navigation_guard` platform adapter만 남았습니다. `taide-infra` 소스·정상 의존 그래프에 Tauri/domain 역의존이 없고 마지막 코드 변경에서 workspace 전체·fmt·clippy·strict rustdoc·IPC/bindings가 통과했습니다.
   - [x] M3-BZ. Git 서비스는 M4, 두 Tauri adapter는 M6으로 소유권을 기록하고 M3를 완료 처리해 관련 문서를 선별 commit·일반 push합니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
+  - [x] M4-A. font 서비스는 fontdb·model FontFamily만 의존하고 fontdb의 유일한 소비자입니다. 기존 unit 3건·Tauri command 소비를 확인했고 새 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+  - [x] M4-B. font 구현·기존 unit 3건을 taide-font로 이전하고 기존 Tauri service 경로를 재수출 facade로 유지했습니다. 새 crate unit 3건과 red였던 경계 테스트 1건이 통과했습니다.
+  - [x] M4-C. 새 crate unit 3건·경계 1건·권한 허용 후 workspace 전체·fmt·clippy·strict font rustdoc·bindings SHA-256 불변을 확인했습니다. 제한된 sandbox의 프로세스·소켓·휴지통 관련 기존 9건 실패는 동일 명령의 권한 허용 재실행에서 모두 통과했습니다.
+  - [x] M4-D. font slice 구현을 commit `5fc420a`로 선별 반영하고 검증·미완료 GUI 실기 범위를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M3까지 완료했습니다. 다음 세부 실행 항목은 M4의 기능별 서비스 crate 이전입니다. Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
+> M3까지 완료하고 M4의 첫 font 서비스 slice만 분리·검증했습니다. 다음 세부 실행 항목은 M4의 나머지 기능별 서비스 crate 이전입니다. Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 

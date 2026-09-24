@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1·M2·M3 완료, M4 font 첫 slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -379,3 +379,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] A. `docs/architecture.md`는 별도 `infra/repo.rs`가 없고 git2가 `domain/git/service.rs`에 있다고 명시합니다. 실제 3,641줄 구현도 Git DTO·정책, libgit2 호출, timeout subprocess를 함께 소유하며 이 계약의 소유권 지도는 file/tree/git 서비스 crate를 M4로 배치합니다. 얇은 repo 래퍼를 임의로 만들지 않고 Git 구현·테스트를 M4에서 서비스 단위로 이전합니다.
 - [x] B. `src-tauri/src/infra`의 나머지는 21개 facade와 Tauri `asset_protocol`·`navigation_guard` adapter 두 파일입니다. `taide-infra` 소스와 정상 의존 그래프에 Tauri/domain 역의존은 없고 마지막 코드 변경에서 경계 16건·infra unit 259건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC/bindings 계약이 통과했습니다. GUI 실기는 실행하지 않았습니다.
 - [x] C. M3를 완료 처리하고 Git 서비스는 M4, 두 Tauri adapter는 M6으로 소유권을 기록해 문서를 선별 commit·일반 push합니다.
+
+## M4 첫 번째 slice — font 서비스 이전 (완료, M4 전체는 진행 중)
+
+- [x] A. font 서비스는 fontdb와 model `FontFamily`만 의존합니다. fontdb의 다른 src-tauri 소비자는 없고 Tauri `font_list` command는 서비스의 공개 `list_families`만 호출합니다. 기존 unit 3건은 빈 DB, 프로세스 수명 캐시 1회 스캔, 가족명 정렬·중복 제거를 검증합니다.
+- [x] B. 새 `taide_font::service`와 기존 `taide_lib::domain::font::service`가 같은 함수 진입점·DTO를 공유하는 경계 테스트에서 crate 부재 E0433(exit 101) red를 확인했습니다. 구현·unit 3건을 새 crate로 옮기고 기존 경로는 재수출 facade로 유지했습니다.
+- [x] C. 새 crate unit 3건·경계 1건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-font --no-deps`가 통과했습니다. 제한된 sandbox의 기존 프로세스·소켓·휴지통 테스트 9건은 동일 명령을 권한 허용 환경에서 재실행해 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 사용자 몫이며 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `5fc420a`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
