@@ -1,11 +1,11 @@
 use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 
-use crate::domain::ai::prompt;
-use crate::domain::ai::providers::{provider_http_error, provider_transport_error, AiProviderClient};
-use crate::domain::ai::types::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars};
-use crate::error::{AppError, AppResult};
-use crate::infra::redact::mask_provider_error;
+use crate::prompt;
+use crate::providers::{provider_http_error, provider_transport_error, AiProviderClient};
+use taide_infra::redact::mask_provider_error;
+use taide_model::ai::{AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars};
+use taide_model::error::{AppError, AppResult};
 
 const CODEX_PROVIDER_NAME: &str = "codex";
 
@@ -481,7 +481,7 @@ mod tests {
         ];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, false)).unwrap();
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, false)).unwrap();
 
         assert_eq!(result, Some("fn add(a: i32, b: i32) -> i32 {\n    a + b\n}".to_string()));
     }
@@ -492,7 +492,7 @@ mod tests {
             vec![Ok(b"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"Bearer at-thisisaverylongopaquetoken1234567890 rejected\"}}}\n")];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, false));
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, false));
 
         let Err(AppError::Internal(message)) = result else {
             panic!("expected AppError::Internal, got {result:?}");
@@ -510,7 +510,7 @@ mod tests {
         )];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, false));
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, false));
 
         assert!(matches!(result, Err(AppError::Internal(_))));
     }
@@ -526,7 +526,7 @@ mod tests {
         ];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, false)).unwrap();
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, false)).unwrap();
 
         assert_eq!(result, Some("fn add(a".to_string()));
     }
@@ -542,7 +542,7 @@ mod tests {
         ];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, true));
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, true));
 
         let Err(AppError::Internal(message)) = result else {
             panic!("expected AppError::Internal, got {result:?}");
@@ -556,7 +556,7 @@ mod tests {
             vec![Ok(b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n")];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, false)).unwrap();
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, false)).unwrap();
 
         assert_eq!(result, Some("partial".to_string()));
     }
@@ -566,7 +566,7 @@ mod tests {
         let chunks: Vec<Result<&'static [u8], std::io::Error>> = vec![];
         let stream = futures_util::stream::iter(chunks);
 
-        let result = tauri::async_runtime::block_on(read_codex_completion(stream, false)).unwrap();
+        let result = crate::test_runtime::block_on(read_codex_completion(stream, false)).unwrap();
 
         assert_eq!(result, None);
     }

@@ -1,12 +1,10 @@
 use serde::Deserialize;
 
-use crate::domain::ai::prompt;
-use crate::domain::ai::providers::{post_json_and_parse, provider_http_error, provider_transport_error, AiProviderClient};
-use crate::domain::ai::types::{
-    AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars,
-};
-use crate::error::{AppError, AppResult};
-use crate::infra::redact::mask_provider_error;
+use crate::prompt;
+use crate::providers::{post_json_and_parse, provider_http_error, provider_transport_error, AiProviderClient};
+use taide_infra::redact::mask_provider_error;
+use taide_model::ai::{AiChatPromptTemplate, AiFimPromptTemplate, AiInlineCompleteRequest, AiModelInfo, AiPromptTemplate, AiPromptVars};
+use taide_model::error::{AppError, AppResult};
 
 const OLLAMA_BASE: &str = "https://ollama.com/api";
 const OLLAMA_PROVIDER_NAME: &str = "ollama";
