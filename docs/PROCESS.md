@@ -72,7 +72,7 @@
   - [x] M2-BG. Git status·diff·commit 관련 legacy wire와 model↔facade 타입 동일성 경계 테스트를 먼저 추가했고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
   - [x] M2-BH. Git DTO와 공개 타입 경로를 model crate와 facade로 이전했습니다. 서비스 rustdoc 링크 1곳은 경로 텍스트로 보존했습니다.
   - [x] M2-BI. 경계 2건·Rust workspace 1,825건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 타입 본문은 rustdoc 링크 1곳 외 원본 바이트 동일하며 생성 bindings도 해당 설명 1줄만 달라 manifest SHA-256을 `17a94672163a91185d30df392d94313025188817fccf728c1f2e90e12317c9d8`로 동기화했습니다.
-  - [ ] M2-BJ. 검증된 Git DTO slice를 선별 commit·push합니다.
+  - [x] M2-BJ. 검증된 Git DTO 8파일을 commit `e199ad4`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
