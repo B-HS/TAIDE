@@ -52,6 +52,7 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 ignore = "0.4.30"
 taide-font = { path = "../crates/taide-font" }
 taide-infra = { path = "../crates/taide-infra" }
+taide-locale = { path = "../crates/taide-locale" }
 taide-model = { path = "../crates/taide-model" }
 taide-notification = { path = "../crates/taide-notification" }
 taide-snippet = { path = "../crates/taide-snippet" }
