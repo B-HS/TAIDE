@@ -5,9 +5,13 @@ license = "MIT"
 edition = "2021"
 rust-version = "1.89"
 
+[features]
+test-support = []
+
 [dependencies]
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 log = "0.4"
 notify = "8.2"
 notify-debouncer-full = "0.7"

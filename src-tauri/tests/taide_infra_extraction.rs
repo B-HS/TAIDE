@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use taide_infra::{
     archive, clock, crypto, external_url, home, http, language, lsp_install, lsp_proc, perf, persist, pty, range_file, redact, root_guard,
-    self_write, shell_integration, shell_quote, terminal_scan, watch_policy, watcher,
+    secret, self_write, shell_integration, shell_quote, terminal_scan, watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
@@ -199,4 +199,15 @@ fn lsp_프로세스는_기존_핸들과_프레이밍_경계를_유지한다() {
     let mut buffer: infra::lsp_proc::MessageBuffer = lsp_proc::MessageBuffer::new();
     buffer.extend(&framed);
     assert_eq!(buffer.take_message().as_deref(), Some(payload));
+}
+
+#[test]
+fn 키체인_계정과_테스트_저장소는_기존_경로의_타입을_유지한다() {
+    let account: infra::secret::SecretAccount = secret::SecretAccount::AiCodex;
+    let _: Option<infra::secret::SecretStoreState> = None::<secret::SecretStoreState>;
+    let store = secret::test_support::InMemorySecretStore::default();
+    let _: &dyn infra::secret::SecretStore = &store;
+
+    assert_eq!(account.as_str(), "ai-codex");
+    assert_eq!(secret::SecretStore::get(&store, account).expect("메모리 저장소 조회"), None);
 }

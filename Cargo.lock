@@ -4371,7 +4371,6 @@ dependencies = [
  "futures-util",
  "git2",
  "ignore",
- "keyring",
  "log",
  "notify",
  "notify-debouncer-full",
@@ -4419,6 +4418,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "futures-util",
+ "keyring",
  "log",
  "notify",
  "notify-debouncer-full",
