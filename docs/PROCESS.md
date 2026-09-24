@@ -62,7 +62,7 @@
   - [x] M2-AW. model↔facade 타입 동일성, 구버전 설정 기본값과 patch wire fixture를 먼저 추가했고 model DTO 부재 E0432(exit 101) red를 확인했습니다.
   - [x] M2-AX. 상수·기본값 함수·`Settings`·`SettingsPatch`를 model crate로 이전하고 기존 settings 공개 경로를 재수출했습니다. frontend `bindings.ts` field parity unit은 facade에 유지했습니다.
   - [x] M2-AY. 전용 경계 3건·settings 서비스 70건·Rust workspace 1,821건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings는 이동된 rustdoc 경로 9곳만 바뀌어 manifest SHA-256을 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`로 동기화했습니다. workspace 최초 실행의 9개 권한 실패는 제한 밖 동일 명령에서 전부 통과했습니다.
-  - [ ] M2-AZ. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+  - [x] M2-AZ. 관련 7파일을 선별 commit `34deeae`로 현재 브랜치에 반영하고 기록 commit과 함께 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.

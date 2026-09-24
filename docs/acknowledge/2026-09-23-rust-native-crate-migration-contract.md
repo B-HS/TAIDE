@@ -174,10 +174,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 새 경계 2건·`cargo test --workspace --quiet` 총 1,820건(IPC 계약 7건 포함)·fmt·clippy·strict model rustdoc가 통과했습니다. 생성 bindings의 설명 2줄만 바뀌어 manifest 해시를 `56f31885f4920d663972a80b1db640634d2fae126347e4914f1ecd262c6eeccc`으로 갱신했습니다. 구현 sub-pen 2회는 JSON 파싱·완료 근거 오류로 FAILED였지만 소유 파일 diff를 메인이 대조했고 읽기 전용 인수 `taide-m2-notification-adopt-20260924`(session `ses_f2e5ef48affekRM7q1hekuBzcR`)가 변경 없이 DONE을 반환했습니다.
 - [x] E. 검증된 구현 6파일을 commit `36ef8e3`으로 현재 브랜치에 반영했습니다. 샌드박스 DNS 제한 해제 후 기록 commit `e05807d`와 함께 원격 `to_rust_native`에 일반 push했습니다.
 
-## M2 열다섯 번째 slice — settings 영속 DTO (진행 중)
+## M2 열다섯 번째 slice — settings 영속 DTO (완료)
 
 - [x] A. `Settings`·`SettingsPatch`는 선행 이전한 settings enum 4개와 `AiProviderId`만 참조하고, 상수·serde 기본값 함수도 표준 라이브러리 외 의존이 없습니다. 서비스의 sanitize·migration·apply 로직은 도메인에 남깁니다. `bindings.ts` field parity unit은 frontend 계약을 읽으므로 기존 settings facade에 유지합니다.
 - [x] B. model↔facade 타입 동일성, 구버전 기본값과 patch wire fixture를 먼저 작성했고 model DTO 부재 E0432(exit 101) red를 기록했습니다.
 - [x] C. 순수 DTO·상수·기본값을 model crate로 이전하고 기존 `domain::settings::types::*` 공개 경로를 재수출했습니다. frontend `bindings.ts` field parity unit은 facade에 남겼습니다.
 - [x] D. 전용 경계 3건·settings 서비스 70건·`cargo test --workspace --quiet` 총 1,821건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings는 이동된 rustdoc 경로 9곳만 바뀌어 manifest SHA-256을 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`로 동기화했습니다. sandbox 안 workspace 실행은 프로세스 조회·로컬 소켓·macOS 휴지통 권한으로 9건 실패했고, 제한 밖 동일 명령에서는 전부 통과했습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 7파일을 선별 commit `34deeae`로 현재 브랜치에 반영하고 기록 commit과 함께 일반 push합니다.
