@@ -93,6 +93,11 @@
   - [x] M2-CB. remote DTO 3종을 model로 이전하고 기존 공개 경로를 재수출했습니다. 인증·호스트·dispatch 상수는 도메인에 유지했습니다.
   - [x] M2-CC. 경계 2건·Rust workspace 1,833건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. DTO 본문은 원본 바이트 동일하며 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다.
   - [x] M2-CD. 검증된 remote DTO 6파일을 commit `4da998a`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
+  - [x] M2-CE. LSP types에서 `include_str!` 리소스·restart 상수를 도메인에 유지하고 나머지 순수 타입·기본값 함수의 이전 경계를 확인했습니다.
+  - [x] M2-CF. LSP ID·manifest 기본값·spawn/session wire와 model↔facade 타입 테스트의 red를 확인했습니다(E0432).
+  - [x] M2-CG. LSP 순수 타입을 model로 이전하고 기존 공개 경로를 재수출했습니다.
+  - [x] M2-CH. 전용 경계 2건·workspace 전체·fmt·clippy·strict rustdoc·IPC/bindings 계약을 검증했습니다.
+  - [x] M2-CI. 검증된 LSP DTO slice를 선별 commit `12f3e0a`와 기록 commit으로 반영하고 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
