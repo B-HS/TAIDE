@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use taide_remote::policy::{strip_remote_gated_settings, strip_remote_gated_settings_patch};
+use taide_remote::policy::{enforce_remote_owner_label, strip_remote_gated_settings, strip_remote_gated_settings_patch};
 use tauri::ipc::{Channel, InvokeResponseBody, IpcResponse, Response};
 use tauri::{AppHandle, Manager};
 
-use super::types::{REMOTE_CHANNEL_PREFIX, REMOTE_OWNER_LABEL};
+use super::types::REMOTE_CHANNEL_PREFIX;
 use crate::domain;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::state::AppState;
@@ -718,50 +718,6 @@ macro_rules! arg {
     };
 }
 
-/// The trust boundary for every `"owner"` value a remote request can ever carry: `dispatch`/
-/// `dispatch_raw` are the only two entry points a request arriving over `ws.rs`'s WebSocket can reach
-/// (see `handle_request`), and every `args` value they receive is client-controlled JSON from an
-/// authenticated but otherwise adversarial remote session. A handful of commands key window-scoped
-/// state by a caller-supplied `owner` string — `IdeStore::is_desktop_owner` (selection no-ops for a
-/// remote `owner`), and the owner-keyed maps in `SearchStore`/`AiRequestStore`/`LspStore`'s
-/// `SessionEntry.channels` — precisely so a browser-side remote session can never be mistaken for the
-/// real desktop window (`main`/`editor-<n>`) it is scoped apart from. Every one of those gates only
-/// holds if a remote caller can never make its `owner` say anything other than [`REMOTE_OWNER_LABEL`];
-/// left to the client, `owner: "main"` impersonates the desktop window outright and walks straight
-/// through every gate above (R6#12).
-///
-/// Rather than adding that same check at each of today's handful of call sites — top-level
-/// (`arg!(args, "owner")`: `search_run`/`search_cancel`/`lsp_stop`/`ide_clear_selection`/
-/// `ai_request_cancel`) as well as nested one level inside a request/input struct
-/// (`IdeSelectionInput.owner` via `arg!(args, "input")`; `LspSpawnRequest.owner`,
-/// `AiInlineCompleteRequest.owner`/`AiInlineEditRequest.owner`/`AiCommitMessageRequest.owner` via
-/// `arg!(args, "request")`) — and relying on every *future* command that grows an `owner` field to
-/// remember it too, this walks the whole `args` tree exactly once, before any per-command handler runs,
-/// and force-overwrites every JSON object key literally named `"owner"` it finds, however deeply
-/// nested. A well-behaved remote client already sends [`REMOTE_OWNER_LABEL`] for `owner` (the
-/// remote-mirror shim's `getCurrentWindow().label` — `src/shared/lib/remote/tauri-internals-shim.ts`),
-/// so this is a no-op for it; only a spoofed `owner` is ever changed. See
-/// `docs/acknowledge/2026-08-19-audit-t1-batch3-contract.md`.
-fn enforce_remote_owner_label(mut args: Value) -> Value {
-    match &mut args {
-        Value::Object(fields) => {
-            if fields.contains_key("owner") {
-                fields.insert("owner".to_string(), Value::String(REMOTE_OWNER_LABEL.to_string()));
-            }
-            for field in fields.values_mut() {
-                *field = enforce_remote_owner_label(std::mem::take(field));
-            }
-        }
-        Value::Array(items) => {
-            for item in items.iter_mut() {
-                *item = enforce_remote_owner_label(std::mem::take(item));
-            }
-        }
-        _ => {}
-    }
-    args
-}
-
 /// Routes one JSON-args remote request to its real handler, gating every request through three steps in
 /// order before any handler runs: (1) [`REMOTE_DENIED_COMMANDS`] — an unconditional denial always wins
 /// first; (2) default-deny — `name` must also be listed in [`REMOTE_ALLOWED_COMMANDS`], or it is refused
@@ -1427,6 +1383,7 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+    use crate::domain::remote::types::REMOTE_OWNER_LABEL;
     use crate::error::AppErrorKind;
 
     fn invoke_command_names() -> BTreeSet<String> {

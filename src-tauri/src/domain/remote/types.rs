@@ -97,23 +97,6 @@ pub const REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED: &str = "session_expired";
 /// `begin_mutation_blocking`'s guard-holder count — see that method's doc.
 pub const REMOTE_DISPATCH_MAX_CONCURRENT: usize = 128;
 
-/// Fixed window-label the remote (browser) client always reports as its caller-supplied `owner` on
-/// window-scoped IPC calls — `getCurrentWindow().label` returns this constant in the remote-mirror
-/// shim (`src/shared/lib/remote/tauri-internals-shim.ts::REMOTE_WINDOW_LABEL`), the same label
-/// `domain::lsp::commands::SessionEntry.channels` already keys reuse by. Domains that must keep a
-/// remote session's writes from being mistaken for a real desktop window's — e.g.
-/// `domain::ide::store::IdeStore`'s selection state, which must reflect only the local desktop
-/// editor for the local IDE MCP protocol (`ide::server`) — compare their caller-supplied `owner`
-/// against this constant rather than duplicating the literal.
-///
-/// That comparison alone is not the trust boundary: a value read straight off a remote request is
-/// client-controlled, so a domain that merely checks `owner != REMOTE_OWNER_LABEL` can be defeated by
-/// a client that simply never sends the real label (`owner: "main"`). The actual enforcement point is
-/// `remote::dispatch::enforce_remote_owner_label`, which force-overwrites every `"owner"` key in a
-/// remote request's `args` (top-level or nested) with this constant before any handler — including the
-/// comparisons above — ever sees the value. The per-domain comparisons stay in place as defense in
-/// depth (and as the actual behavioral no-op for a legitimate remote call), but a remote caller can no
-/// longer make `owner` say anything else in the first place.
-pub const REMOTE_OWNER_LABEL: &str = "remote";
+pub use taide_remote::types::REMOTE_OWNER_LABEL;
 
 pub use taide_model::remote::*;

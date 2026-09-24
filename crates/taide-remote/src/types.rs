@@ -6,6 +6,9 @@ pub const REMOTE_CHANNEL_PREFIX: &str = "__CHANNEL__:";
 pub const REMOTE_BINARY_TAG_RESPONSE: u8 = 0x02;
 pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;
 
+/// Fixed owner label applied to every owner field in remote request arguments.
+pub const REMOTE_OWNER_LABEL: &str = "remote";
+
 /// Minimum accepted length (in `chars`, after trimming) for a newly set
 /// remote-access password. Only enforced on write (Tauri's `remote_set_password`) —
 /// a password already stored below this length keeps working until the user
