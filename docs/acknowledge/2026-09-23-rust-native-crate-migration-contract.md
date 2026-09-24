@@ -270,10 +270,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 전용 경계 2건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. 새 crate의 6모듈 원천은 기존 파일과 rustdoc 표기 3곳만 다릅니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 21파일을 commit `960a71e`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다. 현재 M3의 자원 이전은 계속 진행 중입니다.
 
-## M3 세 번째 slice — self-write tracker 이전 (진행 중)
+## M3 세 번째 slice — self-write tracker 이전 (완료)
 
 - [x] A. `self_write.rs`는 `taide_model::file::FsChange`와 기존 `parking_lot`만 외부에서 소비하고, `state.rs`·`file/capability.rs`가 기존 `infra::self_write` 경로를 사용합니다. 기존 unit 9건을 함께 옮기고 facade로 경로를 유지합니다.
 - [x] B. crate 직접 경로와 기존 facade의 타입·배치 소비 경계를 추가했고 모듈 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. tracker·배치 판정·unit 9건을 infra crate로 옮기고 기존 facade를 재수출했습니다. 전용 경계 3건과 infra unit 49건이 통과했습니다. 원본 구현은 private rustdoc 링크 표기 1곳만 다릅니다.
 - [x] D. 전용 경계 3건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 8파일을 commit `63858e0`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.

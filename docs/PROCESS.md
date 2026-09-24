@@ -123,7 +123,7 @@
   - [x] M3-L. crate↔facade 타입·단일 소비·배치 판정 경계 테스트를 추가했고 `taide_infra::self_write` 부재 E0432(exit 101) red를 확인했습니다.
   - [x] M3-M. self-write 구현·기존 unit 9건을 infra crate로 옮기고 공개 경로를 재수출했습니다. 새 경계 3건과 infra unit 49건이 통과했습니다.
   - [x] M3-N. 전용 경계 3건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
-  - [ ] M3-O. 검증된 self-write slice를 선별 commit·push합니다.
+  - [x] M3-O. 검증된 self-write slice를 선별 commit `63858e0`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
