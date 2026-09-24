@@ -252,12 +252,16 @@
   - [x] M4-BJ. 파일·프롬프트·성능 구현과 unit 9건을 taide-app으로 이전하고 Tauri 패키지 버전 소유 `app_info`는 기존 어댑터에 남겨 공개 경로를 유지했습니다. 낡은 app→ai 도메인 경계 화이트리스트를 제거했고 새 crate unit 9건·경계 1건이 통과했습니다.
   - [x] M4-BK. 새 crate unit 9건·경계 1건·workspace 전체·fmt·clippy·strict app rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256은 불변입니다. app 파일 편집·성능 표시 UI 실기는 실행하지 않았습니다.
   - [x] M4-BL. app slice 구현을 commit `a0395d7`로 선별 반영하고 Tauri 패키지 버전 보존·검증·미완료 app 파일/성능 UI 실기를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M4-BM. project groups·shell_slots는 model의 ID/project/layout/error만 의존하고 기존 unit 9건·15건이 green임을 확인했습니다. 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+  - [x] M4-BN. groups·shell_slots 구현과 unit 24건을 taide-project로 이전하고 기존 공개 경로를 재수출 facade로 유지했습니다. 새 crate unit 24건·경계 1건이 통과했고 project service/commands는 후속 slice로 남깁니다.
+  - [x] M4-BO. 새 crate unit 24건·경계 1건·session restore 8건·workspace 전체·fmt·clippy·strict project rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. rustdoc의 private 링크 표기 2곳을 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph는 model만 참조하고 생성 bindings SHA-256은 불변입니다. project 서비스·UI 실기는 미완료입니다.
+  - [x] M4-BP. project 순수 정책 slice 구현을 commit `67d796d`로 선별 반영하고 검증·미완료 project service/commands·UI·실제 재시작 범위를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M3까지 완료하고 M4의 font·notification·snippet·system·task·tree·locale·theme·settings·sync·search·plugin·VSIX·file·AI·app 서비스 slice를 분리·검증했습니다. 다음 세부 실행 항목은 M4의 나머지 기능별 서비스 crate 이전입니다. Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
+> M3까지 완료하고 M4의 font·notification·snippet·system·task·tree·locale·theme·settings·sync·search·plugin·VSIX·file·AI·app 서비스 및 project의 그룹·슬롯 순수 정책을 분리·검증했습니다. project 서비스·Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
