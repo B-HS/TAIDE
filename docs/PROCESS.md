@@ -275,11 +275,15 @@
   - [x] M4-CG. 계약의 기능별 서비스 19개와 추가 app 서비스가 독립 crate에 있고 Tauri의 공개 service 경로는 재수출 또는 조립 adapter로 보존됨을 대조했습니다. root_guard·persist는 infra로, watcher·plugin overlay 취득은 Tauri adapter에 두고 서비스 입력 경계로 넘깁니다. 마지막 workspace 전체·fmt·clippy·strict layout rustdoc·Phase 0 IPC·bindings 해시가 통과했고 GUI/실제 재시작은 M7 검증입니다.
   - [x] M4-CH. M4의 코드 분리 완료와 Tauri 조립·GUI 검증의 후속 소유권을 계약 문서에 고정하고 PROCESS 상태를 완료로 갱신해 문서만 선별 commit·일반 push합니다.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
+  - [x] M5-A. terminal 서비스의 scrollback·shell profile·경로 정책은 model ShellProfile/error와 infra home만 의존하고 PTY command/capability는 Tauri 조립 경계임을 확인했습니다. 기존 unit 21건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+  - [x] M5-B. terminal 정책 구현·unit 21건을 taide-terminal crate로 옮기고 기존 service 공개 경로를 재수출했습니다. 새 crate unit 21건·경계 1건·PTY command 테스트 22건이 통과했고 PTY 세션/자원 조립은 Tauri에 유지했습니다.
+  - [x] M5-C. 새 crate unit 21건·경계 1건·PTY command 테스트 22건·workspace 전체·fmt·clippy·strict terminal rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. 경계 테스트의 타입 복잡도 지적은 표기를 단순화한 뒤 해당 테스트·fmt·clippy를 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256은 불변입니다. 실제 PTY/GUI 실기는 미실행입니다.
+  - [x] M5-D. terminal 정책 slice 구현을 commit `1390e41`로 선별 반영하고 검증·Tauri PTY command/capability 유지·미완료 실제 PTY lifecycle/GUI 실기를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M1~M4의 코드 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립은 Tauri 경계에 남기고 M5의 도메인 결합 절단, M6의 platform adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
+> M1~M4의 코드 분리가 완료됐고 M5의 terminal 정책 slice를 검증했습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY 세션/자원은 Tauri 경계에 남깁니다. M5의 나머지 도메인 결합 절단, M6의 platform adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 

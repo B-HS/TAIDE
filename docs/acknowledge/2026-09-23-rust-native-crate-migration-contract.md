@@ -532,3 +532,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] 계약의 project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification 서비스가 각각 Tauri 없는 기능 crate에 있으며 추가 app 서비스도 분리됐습니다. 기존 Tauri 공개 service 경로는 재수출 facade 또는 명시적 조립 adapter로 보존했습니다.
 - [x] 기존 기능 unit·번들 fixture/resource는 소유 crate와 함께 이전했습니다. AppState/AppHandle이 필요한 guarded save, layout flush/이벤트/IDE·terminal 후처리, project·agent·Git commands/capability/hooks/watch/plugin overlay 취득은 Tauri 조립 경계에 남겼습니다. root_guard·persist는 taide-infra 소유이며 서비스는 검증된 경로·overlay를 입력으로 소비합니다.
 - [x] 마지막 layout slice에서 `cargo test --workspace --quiet` 전체, fmt, clippy, strict layout rustdoc, Phase 0 IPC 계약 7건, TypeScript typecheck, normal feature graph 및 생성 bindings 해시 불변을 확인했습니다. 이는 M4의 코드 분리 완료 근거이며 실제 GUI·재시작·원격/OS 통합 parity를 통과했다는 뜻이 아닙니다. M5~M7에서 결합 절단·adapter·실기 검증을 계속합니다.
+
+## M5 첫 번째 slice — terminal scrollback·shell·경로 정책 이전 (완료, PTY 조립은 유지)
+
+- [x] A. terminal 서비스는 model ShellProfile/error, infra home만 의존하며 scrollback·shell profile·경로 정책을 소유합니다. 기존 unit 21건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다. PTY command/capability·구독 채널·세션 수명주기는 Tauri 조립 경계입니다.
+- [x] B. 정책 구현과 unit 21건을 taide-terminal로 이전하고 기존 service 경로를 재수출 facade로 유지했습니다. 새 crate unit 21건·경계 1건·PTY command 테스트 22건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-terminal --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. 경계 테스트의 타입 복잡도 지적은 중복 타입 표기를 줄인 뒤 해당 테스트·fmt·clippy를 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 PTY 프로세스·셸 프로필 OS·GUI 실기는 실행하지 않았고 M5 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `1390e41`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
