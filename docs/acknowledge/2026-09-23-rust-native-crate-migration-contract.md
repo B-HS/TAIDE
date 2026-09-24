@@ -278,10 +278,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 전용 경계 3건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 8파일을 commit `63858e0`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
 
-## M3 네 번째 slice — root/symlink guard 이전 (진행 중)
+## M3 네 번째 slice — root/symlink guard 이전 (완료)
 
 - [x] A. `root_guard.rs`는 이미 분리한 model의 error·ID·Project와 표준 파일시스템만 사용합니다. 기존 unit 10건과 `user-bug-regressions` symlink 회귀가 있으며, `state`·`plugin`이 쓰는 `canonicalize_lenient`의 crate-private facade 가시성은 유지해야 합니다.
 - [x] B. crate 직접 경로와 기존 facade의 타입·안전 컴포넌트 경계를 추가했고 모듈 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. 구현·unit 10건을 infra crate로 옮기고 공개 API·crate-private facade 경로를 보존했습니다. 전용 경계 4건과 infra unit 59건이 통과했습니다. 원본 구현은 model import와 crate 간 가시성만 바뀌었습니다.
 - [x] D. 기존 root/symlink 회귀를 포함한 `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 8파일을 commit `d9eaba6`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
