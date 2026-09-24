@@ -539,3 +539,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 정책 구현과 unit 21건을 taide-terminal로 이전하고 기존 service 경로를 재수출 facade로 유지했습니다. 새 crate unit 21건·경계 1건·PTY command 테스트 22건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-terminal --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. 경계 테스트의 타입 복잡도 지적은 중복 타입 표기를 줄인 뒤 해당 테스트·fmt·clippy를 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 PTY 프로세스·셸 프로필 OS·GUI 실기는 실행하지 않았고 M5 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `1390e41`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 두 번째 slice — IDE 토큰·경로·열린 편집기 정책 이전 (완료, MCP 조립은 유지)
+
+- [x] A. IDE 서비스는 model layout/project/ide/ids, infra language/root_guard/crypto, layout 서비스와 uuid에 의존합니다. 기존 unit 12건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다. MCP server/store/command와 세션 수명주기는 Tauri 조립 경계입니다.
+- [x] B. 서비스 정책·unit 12건과 전용 포트 범위 상수를 taide-ide로 이전하고 새 crate가 taide-layout에 단방향 의존하게 했습니다. 기존 service/types 공개 경로는 재수출 facade로 유지했습니다. 새 crate unit 12건·경계 1건·IDE 전체 lib 테스트 39건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-ide --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. 첫 workspace 검사는 더 이상 존재하지 않는 ide/service→layout/service 화이트리스트 1건에서 실패해 항목·설명을 정리한 뒤 경계 3건과 workspace 전체를 재검증했습니다. normal feature graph는 ide→layout→model/infra 단방향이며 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 MCP server·세션·GUI 실기는 실행하지 않았고 M5 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `82d2b6f`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.

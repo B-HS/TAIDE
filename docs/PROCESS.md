@@ -279,11 +279,15 @@
   - [x] M5-B. terminal 정책 구현·unit 21건을 taide-terminal crate로 옮기고 기존 service 공개 경로를 재수출했습니다. 새 crate unit 21건·경계 1건·PTY command 테스트 22건이 통과했고 PTY 세션/자원 조립은 Tauri에 유지했습니다.
   - [x] M5-C. 새 crate unit 21건·경계 1건·PTY command 테스트 22건·workspace 전체·fmt·clippy·strict terminal rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. 경계 테스트의 타입 복잡도 지적은 표기를 단순화한 뒤 해당 테스트·fmt·clippy를 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256은 불변입니다. 실제 PTY/GUI 실기는 미실행입니다.
   - [x] M5-D. terminal 정책 slice 구현을 commit `1390e41`로 선별 반영하고 검증·Tauri PTY command/capability 유지·미완료 실제 PTY lifecycle/GUI 실기를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M5-E. IDE 서비스의 layout snapshot·root guard·인증 토큰/포트 정책은 model layout/project/ide/ids, infra language/root_guard/crypto, layout 서비스에 의존하고 Tauri server/store/command는 조립 경계임을 확인했습니다. 기존 unit 12건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+  - [x] M5-F. IDE 서비스 정책·unit 12건과 전용 포트 범위 상수를 taide-ide crate로 옮겨 taide-layout에 단방향 의존시키고 기존 service/types 공개 경로를 재수출 facade로 유지했습니다. 새 crate unit 12건·경계 1건·IDE 전체 lib 테스트 39건이 통과했습니다.
+  - [x] M5-G. 새 crate unit 12건·경계 1건·IDE lib 테스트 39건·workspace 전체·fmt·clippy·strict ide rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. 첫 workspace 검사는 더 이상 존재하지 않는 ide/service→layout/service 경계 화이트리스트 1건에서 실패해 항목과 설명을 정리한 뒤 경계 3건·workspace 전체를 재검증했습니다. normal feature graph는 ide→layout→model/infra 단방향이며 Tauri·test-support가 없고 생성 bindings SHA-256은 불변입니다. 실제 MCP server/세션/GUI 실기는 미실행입니다.
+  - [x] M5-H. IDE 정책 slice 구현을 commit `82d2b6f`로 선별 반영하고 검증·Tauri MCP server/store/commands 유지·미완료 실제 MCP 연결/세션/GUI 실기를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M1~M4의 코드 분리가 완료됐고 M5의 terminal 정책 slice를 검증했습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY 세션/자원은 Tauri 경계에 남깁니다. M5의 나머지 도메인 결합 절단, M6의 platform adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
+> M1~M4의 코드 분리가 완료됐고 M5의 terminal·IDE 정책 slice를 검증했습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP 세션/자원은 Tauri 경계에 남깁니다. M5의 나머지 도메인 결합 절단, M6의 platform adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
