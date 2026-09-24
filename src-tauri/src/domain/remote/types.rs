@@ -1,9 +1,8 @@
 pub use taide_model::remote::ALLOWED_HOST_WILDCARD_PREFIX;
-pub use taide_remote::types::{REMOTE_LINK_TOKEN_QUERY_KEY, REMOTE_LOOPBACK_HOSTNAMES, REMOTE_PASSWORD_MIN_LEN};
+pub use taide_remote::types::{REMOTE_LINK_TOKEN_QUERY_KEY, REMOTE_LOGIN_PATH, REMOTE_LOOPBACK_HOSTNAMES, REMOTE_PASSWORD_MIN_LEN};
 
 pub const REMOTE_SESSION_COOKIE_NAME: &str = "taide_remote_session";
 pub const REMOTE_LOGIN_NONCE_COOKIE_NAME: &str = "taide_remote_login_nonce";
-pub const REMOTE_LOGIN_PATH: &str = "/__taide/login";
 pub const REMOTE_BROADCAST_CHANNEL_CAPACITY: usize = 256;
 pub const REMOTE_SHUTDOWN_GRACE_MS: u64 = 2_000;
 pub const REMOTE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;

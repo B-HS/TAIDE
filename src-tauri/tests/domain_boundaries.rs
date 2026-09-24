@@ -54,8 +54,6 @@ use regex::Regex;
 ///   the `file::capability`/`git::watch` halves; the `layout::service`/`settings::service` halves
 ///   are boot state loads and are not capability-shaped. Deferred — d-35 §4-f upheld the deferral
 ///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
-/// - `remote/login_page.rs → locale::service` — the served login HTML renders the current UI
-///   language's strings; locale is a data provider here.
 /// - `sync/commands.rs → settings::*` — sync upload/download shares the settings command path;
 ///   its former service aggregation edges are now owned by `taide-sync`.
 /// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
@@ -68,8 +66,7 @@ use regex::Regex;
 ///   alternative would re-implement the mirror filename hash outside the domain that owns it.
 /// - `window/menu.rs → project::service`·`locale::service` — the app menu's `File > Open Recent`
 ///   *draws* the recent-project list and its own labels; both targets are read-only data providers
-///   for it (`list_recent_projects`, `lookup_builtin_message`), the same shape as
-///   `remote/login_page.rs → locale::service` above ("locale is a data provider"). Every
+///   for it (`list_recent_projects`, `lookup_builtin_message`). Every
 ///   *execution* edge the menu created was removed instead (d-58 §1.E-보강): the refresh is driven
 ///   by `lib.rs`'s `project:list-changed`/`project:activated`/`settings:changed` listeners, and a
 ///   click resolves to a `menu::MenuAction` that `lib.rs`'s `dispatch_menu_action` hands to the
@@ -92,7 +89,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/project/commands.rs", "git::watch"),
     ("domain/project/commands.rs", "layout::service"),
     ("domain/project/commands.rs", "settings::service"),
-    ("domain/remote/login_page.rs", "locale::service"),
     ("domain/sync/commands.rs", "settings::commands"),
     ("domain/sync/commands.rs", "settings::service"),
     ("domain/vsix/commands.rs", "plugin::service"),
