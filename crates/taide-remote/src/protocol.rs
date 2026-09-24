@@ -25,3 +25,12 @@ pub fn response_binary_frame(seq: u32, bytes: &[u8]) -> Vec<u8> {
 pub fn response_frame(seq: u32, ok: bool, payload: Value) -> String {
     serde_json::json!({ "t": "resp", "seq": seq, "ok": ok, "payload": payload }).to_string()
 }
+
+pub fn channel_json_frame(channel_id: u32, index: u32, message: Value) -> String {
+    serde_json::json!({ "t": "chan", "channelId": channel_id, "index": index, "message": message })
+        .to_string()
+}
+
+pub fn channel_end_frame(channel_id: u32, index: u32) -> String {
+    serde_json::json!({ "t": "chanEnd", "channelId": channel_id, "index": index }).to_string()
+}

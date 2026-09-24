@@ -4,7 +4,7 @@ use std::sync::Arc;
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use taide_remote::protocol::{channel_binary_frame, response_binary_frame, response_frame};
+use taide_remote::protocol::{channel_binary_frame, channel_end_frame, channel_json_frame, response_binary_frame, response_frame};
 use tauri::ipc::InvokeResponseBody;
 use tauri::{AppHandle, Manager};
 use tokio::sync::broadcast::error::RecvError;
@@ -44,7 +44,7 @@ struct ChannelEndGuard {
 impl Drop for ChannelEndGuard {
     fn drop(&mut self) {
         let index = self.counter.load(Ordering::Relaxed);
-        let frame = serde_json::json!({ "t": "chanEnd", "channelId": self.channel_id, "index": index }).to_string();
+        let frame = channel_end_frame(self.channel_id, index);
         let _ = self.ws_out.send(WsOut::Text(frame));
     }
 }
@@ -65,7 +65,7 @@ fn make_channel_factory(ws_out: UnboundedSender<WsOut>) -> ChannelFactory {
             let delivery = match body {
                 InvokeResponseBody::Json(text) => {
                     let message = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
-                    let frame = serde_json::json!({ "t": "chan", "channelId": channel_id, "index": index, "message": message }).to_string();
+                    let frame = channel_json_frame(channel_id, index, message);
                     sink_out.send(WsOut::Text(frame))
                 }
                 InvokeResponseBody::Raw(bytes) => sink_out.send(WsOut::Binary(channel_binary_frame(channel_id, index, &bytes))),
@@ -304,7 +304,22 @@ mod tests {
         let result = sink(InvokeResponseBody::Json("{}".to_string()));
 
         assert!(result.is_ok());
-        assert!(matches!(rx.try_recv(), Ok(WsOut::Text(_))));
+        let Ok(WsOut::Text(frame)) = rx.try_recv() else {
+            panic!("채널 JSON 프레임을 수신해야 한다");
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap(),
+            serde_json::json!({ "t": "chan", "channelId": 1, "index": 0, "message": {} })
+        );
+
+        drop(sink);
+        let Ok(WsOut::Text(frame)) = rx.try_recv() else {
+            panic!("채널 종료 프레임을 수신해야 한다");
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap(),
+            serde_json::json!({ "t": "chanEnd", "channelId": 1, "index": 1 })
+        );
     }
 
     /// §1.3(3) 회귀: `make_channel_factory` 가 만든 싱크는 `ws_out`(`handle_socket` 의 `tx`) 의
