@@ -602,3 +602,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 두 필터를 taide-remote policy로 옮기고 실제 remote dispatch의 호출 위치는 유지했습니다. patch에서는 `remote_password_only_login`·`remote_allowed_hosts`·`shell_override`·`ai_omlx_base_url`을 제거하고, 전체 설정 쓰기에서는 네 필드를 현재값으로 복원합니다. 앞의 두 필드는 접속 게이트의 자기 확장을, 셸 경로는 세션 종료 후 지속되는 실행 경로 변경을, OMLX 주소는 저장된 API 키의 향후 전송 대상 변경을 방지합니다. `remote_access_enabled`의 자가 차단과 무관한 설정은 계속 통과합니다. 새 경계 2건·기존 dispatch unit 37건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 브라우저 로그인·원격 세션의 설정 쓰기 실기는 미실행이며 M5 전체는 미완료입니다.
 - [x] D. 구현은 commit `f774471`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 열한 번째 slice — remote 세션 owner 강제 정책 이전 (완료, dispatch 조립은 유지)
+
+- [x] A. WebSocket의 `dispatch`/`dispatch_raw`는 인증된 원격 요청의 클라이언트 제어 JSON을 받아 명령에 전달하며, `owner`는 IDE 선택·검색·AI 요청·LSP 채널의 창별 격리에 사용됩니다. 기존 top-level·중첩·배열·무변경 회귀 5건을 확인했습니다. 새 crate 경계 2건은 owner 함수·라벨 부재 E0425(exit 101)로 의도대로 실패했습니다.
+- [x] B. 모든 JSON 객체의 `owner` 키를 깊이에 관계없이 고정 `remote` 라벨로 바꾸는 함수를 taide-remote policy로, 공유 라벨을 taide-remote types로 옮겼습니다. Tauri의 기존 types 공개 경로는 재수출하고 두 dispatch 진입점의 호출 위치를 유지했습니다. 클라이언트가 `main`·`editor-*`를 보내도 데스크톱 창 소유자로 위장하지 못하도록 하는 신뢰 경계는 동일합니다. 새 경계 2건·기존 dispatch unit 37건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 WebSocket 연결·원격/데스크톱 owner 분리 실기는 미실행이며 M5 전체는 미완료입니다.
+- [x] D. 구현은 commit `39a4523`으로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.

@@ -315,6 +315,10 @@
   - [x] M5-AL. 두 필터를 taide-remote 정책 모듈로 이전하고 dispatch 호출 경로를 유지했습니다. 새 보안 경계 2건과 기존 dispatch unit 37건이 통과했습니다. 무관한 통합 테스트 실행 파일을 순회하던 필터 실행은 중단하고 동일 37건을 `--lib`로 종료 상태까지 재확인했습니다.
   - [x] M5-AM. 새 경계 2건·기존 dispatch unit 37건·workspace 전체·fmt·clippy·strict remote rustdoc·Phase 0 계약 7건·typecheck가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다.
   - [x] M5-AN. 구현은 commit `f774471`로 선별 반영했습니다. 실제 브라우저 로그인·원격 세션·설정 쓰기 실기는 미실행이며 M5 전체는 미완료로 유지합니다. 보호 필드의 근거와 검증을 계약 문서에 기록하고 문서 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M5-AO. 원격 요청의 중첩 owner 강제 규칙·공유 라벨과 기존 보안 회귀 5건을 확인했습니다. 새 crate 경계 2건은 함수·상수 부재 E0425(exit 101)로 의도대로 실패했습니다. 직전 dispatch unit 37건 green은 동일 코드 상태의 결과로 재사용했습니다.
+  - [x] M5-AP. owner 강제 규칙·공유 라벨을 taide-remote policy/types로 이전하고 Tauri dispatch/기존 공개 경로를 유지했습니다. 새 경계 2건·기존 dispatch unit 37건이 통과했고 테스트 전용 상수 import 경고를 제거했습니다.
+  - [x] M5-AQ. 새 중첩/배열 경계 2건·기존 dispatch unit 37건·workspace 전체·fmt·clippy·strict remote rustdoc·Phase 0 계약 7건·typecheck가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다.
+  - [x] M5-AR. 구현은 commit `39a4523`으로 선별 반영했습니다. 실제 WebSocket 세션·owner 분리 실기는 미실행이며 M5 전체는 미완료로 유지합니다. 신뢰 경계와 검증을 계약 문서에 기록하고 문서 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
