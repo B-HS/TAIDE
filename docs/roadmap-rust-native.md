@@ -140,6 +140,7 @@ TypeScript/JavaScript의 Monaco 내장 worker를 제거하기 전에 Rust-owned 
 - model, error, event, persistence schema와 순수 service를 workspace crate로 이동한다.
 - Tauri command는 새 application facade를 호출하되 기존 UI 동작을 바꾸지 않는다.
 - 첫 slice인 `taide-model`은 `ids`·`error`부터 실제 이전합니다. 전체 도메인 이전은 `docs/PROCESS.md`의 M1~M7 체크리스트를 따르며, Phase 0의 나머지 기준선과 기존 앱 회귀 확인을 병행합니다.
+- crate는 미리 정한 개수·이름에 끼워 맞추지 않고 기능별 책임과 실제 의존 DAG에 따라 나눕니다. 공통 `taide-model` DTO 이동만으로 기능별 서비스 분리가 완료된 것으로 보지 않습니다.
 - 완료: domain boundary, session restore, persistence, 기존 전체 검증이 새 경계에서 통과한다.
 - 롤백: 기존 Tauri adapter가 같은 facade 위에 남는다.
 
@@ -150,6 +151,8 @@ TypeScript/JavaScript의 Monaco 내장 worker를 제거하기 전에 Rust-owned 
 - 완료: core가 `AppHandle` 없이 compile되고 기존 Tauri 앱이 port 구현으로 동작한다.
 
 ### Phase 3 — 병렬 기술 spike
+
+진입 조건: Phase 0의 전체 기능·데이터·성능 baseline과 M1~M7의 기능별 crate 이관·검증이 끝나야 합니다. 기술 비교용 spike는 이 gate 이후에 수행하며, 그 전에는 native UI를 구현하지 않습니다.
 
 - UI: egui/eframe과 iced shell 비교, GPUI editor surface 제한 비교.
 - Editor: rope transaction + native text/IME/render 한 view.
@@ -180,6 +183,7 @@ TypeScript/JavaScript의 Monaco 내장 worker를 제거하기 전에 Rust-owned 
 - Git, search, settings, theme editor, plugin·VSIX, snippets, tasks, preview, remote UI, agent UI, notification과 system usage를 native UI로 이관한다.
 - remote HTTP/WS와 IDE/MCP는 UI에서 분리된 protocol adapter로 기존 wire contract를 유지한다.
 - 완료: 전체 기능 inventory와 security fixture 통과.
+- 각 native 화면은 기존 TS view inventory의 표시·상태·동작·키보드·멀티윈도·테마/로케일·접근성 항목과 일대일 대조합니다. 기능 누락 0과 유사한 시각적 구성의 실기 확인 없이 기존 view를 제거하지 않습니다.
 
 ### Phase 8 — beta와 cutover
 

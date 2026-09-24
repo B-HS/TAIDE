@@ -21,6 +21,9 @@
 - [ ] settings, session, project, layout, hot-exit buffer의 versioned fixture
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
 - [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결
+- [ ] 현재 TS view 전체의 화면/패널/다이얼로그·상태·동작·키보드·테마/로케일·멀티윈도·접근성·시각 요소 inventory에 실제 컴포넌트 경로와 자동/실기 증거 연결
+
+UI 착수 전 gate: 위 inventory와 Phase 0 기능·데이터·성능 baseline 및 기능별 crate 분리 M1~M7이 모두 준비·검증돼야 합니다. native UI 구현은 이 gate 이후에만 시작합니다. 각 TS view 항목에 native 대응 경로·자동 검사·실기 결과를 연결하고 미대응 항목이 0이 될 때까지 TS/Tauri view를 유지합니다. 시각적 구성의 유사성은 테마별 캡처와 실제 창 크기·포커스·IME·보조 창 동작에서 비교하며, 기능 동등성을 단순한 화면 유사성으로 대체하지 않습니다.
 
 ## 3. Application shell
 

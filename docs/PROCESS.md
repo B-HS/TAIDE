@@ -6,10 +6,11 @@
 > 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. 이번 작업에서 사용자가 직접 지정한 방식은 다중 에이전트 workflow 사용, 모든 subagent에 `ollama-cloud/deepseek-v4.1-flash#max` 지정입니다. 모델 명칭은 DeepSeek V4.1 Flash, variant `max`입니다. 이 기록을 지우거나 설치 기본 모델로 바꾸지 않습니다. 단, 재개된 실행 작업에서는 상위 운영 계약에 따라 workflow·모델 선택을 사용자에게 다시 확인합니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
 > 현재 브랜치: `to_rust_native`. 기존 Tauri 앱과 TS UI는 대체 native UI 검증 전까지 유지합니다. 앱 실행·재시작은 사용자 몫입니다.
 > 기준: rust-native 전환 계약·로드맵·parity plan, `docs/architecture.md`, `docs/agent-operations.md`, 상위 AGENTS 및 적용 컨벤션.
+> 사용자 추가 결정(2026-09-24): 기능별 crate 경계는 실제 의존 DAG와 책임에 맞춰 분리합니다. 모든 기존 기능·데이터·IPC 준비와 검증 gate를 통과하기 전에는 native UI를 시작하지 않습니다. native UI는 현재 TS view의 화면별 기능·상태·상호작용을 누락 없이 대응시키고 시각·접근성도 비교합니다. 자동·수동 parity가 확인되기 전에는 기존 TS/Tauri UI를 삭제하지 않습니다.
 
 - [x] M0. 실제 의존 그래프와 TDD 경계 조사 — 25개 도메인, infra 역참조 4건, layout↔ide·layout↔window 순환, Tauri command 203개와 source-scan 테스트 경로 결합을 확인했습니다. 단계별 crate 소유권은 이 작업의 계약 문서에 기록합니다.
 - [x] M1. 첫 실구현: `taide-model`에 `ids`·`error` 추출 — 경계/파사드 테스트 red→green, 기존 unit 12건 이동, IPC manifest 원천 경로 갱신. Rust 전체 1,787개 통과(경계 1개 후속 순증, 전용 6개 재확인), fmt·clippy 통과, bindings digest 불변. 현재 브랜치에 선별 commit·push했습니다.
-- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system·VSIX 결과·보조 창 정보·plugin·AI wire 타입을 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,816개·fmt·clippy·IPC 계약·bindings digest 불변을 확인했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
+- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system·VSIX 결과·보조 창 정보·plugin·AI wire 타입과 settings 선택지 enum을 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,818개·fmt·clippy·IPC 계약을 확인했습니다. 설명 2줄만 변경된 생성 bindings의 manifest 해시는 M2-AT에서 갱신했고, 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
   - [x] M2-A. 이전 전 `paths.rs` 구현·unit 4개와 기존 공개 경로·소비처를 확인했습니다.
   - [x] M2-B. 타입 동일성·14개 경로 테스트를 먼저 작성하고 `taide_model::paths` 부재로 의도한 E0432(exit 101)를 확인했습니다.
   - [x] M2-C. 구현·unit 4개를 바이트 동일하게 model crate로 옮기고 기존 `taide_lib::paths::AppPaths` 경로를 재수출했습니다.
@@ -54,12 +55,14 @@
   - [x] M2-AP. 유효한 sub-pen 인수 결과와 실제 diff·독립 검증을 대조하고 plugin slice만 선별 commit·현재 브랜치에 일반 push합니다.
   - [x] M2-AQ. settings가 참조하는 `AiProviderId`와 AI 요청/프롬프트 fixture 테스트의 model 모듈 부재 E0432/E0433 red(exit 101)를 확인했습니다. 지정 모델 `sub-pen` 작업 `taide-m2-ai-implement-20260924`(session `ses_f30e49303ffeERgGBKB08G3G6M`, 소유: model ai/lib·domain ai facade)가 67,424ms·13단계·27,415 관측 토큰으로 DONE. `ai/types.rs` 전체 208줄·unit 3건이 model로 바이트 동일 이전됐고 공개 경로를 유지했습니다.
   - [x] M2-AR. 메인이 AI 원본 바이트 동일성·Rust workspace 1,816개·fmt·clippy·IPC 계약·bindings digest 불변을 직접 확인하고 해당 파일만 선별 commit·push합니다.
+  - [x] M2-AS. 이전된 `taide-model/src/file.rs:64`의 rustdoc 링크가 Tauri 도메인 경로를 가리켜 `RUSTDOCFLAGS='-D warnings' cargo doc -p taide-model --no-deps`가 실패(exit 101)했습니다. 설명을 코드 경로 텍스트로 보존한 뒤 동일 명령이 통과했습니다.
+  - [x] M2-AT. settings의 4개 순수 enum 경계를 red(E0432)→green(2건)으로 분리하고 기존 저장·서비스·bindings 계약을 유지했습니다. Phase 0 계약 7건·Rust workspace 1,818건·fmt·clippy·model rustdoc가 통과했습니다. `file.rs`의 선행 rustdoc 수정과 이번 enum 문서 경로 이동으로 생성 bindings의 설명 2줄만 달라져 manifest SHA-256을 `0554f681b1f02cc1959439e451464799b071a2781524d6fa916e536ec2639c33`으로 동기화했습니다. model sub-pen 응답 파싱이 두 차례 실패했으나 소유 파일 구현은 남았고 메인이 실제 diff·검사를 확인했습니다. 별도 읽기 전용 인수 `taide-m2-settings-adopt-20260924`(session `ses_f2e87a7bcffe959QLmtgKQx7u2`)가 변경 없이 DONE을 반환했습니다. 변경 7파일을 commit `1159884`로 선별 반영·현재 브랜치에 일반 push했습니다. 전체 `Settings`·`SettingsPatch`와 source-coupled field parity 테스트는 별도 slice입니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
-- [ ] M8. native UI 착수 gate — M1~M7과 Phase 0 기능/데이터/성능 baseline이 통과한 뒤 UI framework 공통 spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 전에는 native UI를 구현하거나 기존 코드를 삭제하지 않습니다.
+- [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
 > 현재 세부 실행 항목은 M2입니다. 이전 재개의 `Permission denied: shell` 및 `taide-m2-next-explore-20260924` 600초 timeout에 이어, 이번 좁은 재시도도 `CANCELLED`(단계·출력 0)로 끝났습니다. 다른 모델로 우회하지 않고 메인이 범위를 제한해 직접 진행합니다. M2 전체는 아직 진행 중입니다.
 

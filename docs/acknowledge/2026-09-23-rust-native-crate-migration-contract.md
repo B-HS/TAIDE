@@ -9,6 +9,8 @@
 
 현재 사용자 기능의 Rust 서비스와 자원 관리를 기능별 crate로 분리하고, 현행 Tauri 실행 경로·테스트를 보존한 다음 native UI를 시작합니다. 기존 `docs/acknowledge/2026-08-28-no-crate-split-decision.md`의 단일 소비자 전제는 이번 native 앱 추가 요청으로 바뀌었습니다. 전체 이동은 한 번에 하지 않습니다. 각 변경은 자체 테스트·기존 공개 API·wire 계약의 green 상태에서 끝납니다.
 
+2026-09-24 사용자 추가 결정: 특정 crate 수·이름을 미리 강제하지 않고 **기능별 책임·실제 의존 DAG에 맞게** 나눕니다. `taide-model`은 공통 순수 DTO 경계이지 모든 기능 구현의 단일 도착지가 아닙니다. UI와 독립적인 기존 기능 서비스·데이터·프로토콜·자원 경계를 이관·검증하고 Phase 0 기능/데이터/성능 baseline과 M1~M7이 통과하기 전에는 native UI 구현을 시작하지 않습니다. 화면에만 존재하는 기능은 이 단계에서 제거하지 않고 TS view inventory·동작 계약으로 고정합니다. UI 착수 뒤에는 현재 TS view 전수 inventory의 각 화면·상태·상호작용·단축키·멀티윈도·테마/로케일·접근성·시각적 구성 요소를 빠짐없이 native 화면으로 대응시킵니다. 자동·실기 parity가 완료되기 전까지 기존 TS/Tauri view는 유지합니다.
+
 로드맵의 `taide-core`/`taide-infra`는 목표 역할이지 무조건 한 파일 묶음으로 고정된 crate 이름이 아닙니다. 구체 crate는 실제 의존 방향이 DAG가 되도록 기능별로 확정합니다. `src-tauri` 패키지 `taide`, 라이브러리 `taide_lib`, CLI `taide-cli`와 기존 frontend/IPC 계약은 전환 중 그대로 유지합니다.
 
 ## 소유권 지도와 의존성 차단
@@ -155,3 +157,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 지정 모델 `sub-pen`(task `taide-m2-ai-implement-20260924`, session `ses_f30e49303ffeERgGBKB08G3G6M`)이 AI 타입·기존 unit 3개를 원본 바이트 동일하게 model crate로 옮겼습니다. 메인이 소유한 새 경계 테스트·문서와 Git은 수정하지 않았고 기존 facade/등록을 보존했습니다.
 - [x] D. 메인이 AI 원본 208줄 바이트 동일성과 `cargo test --workspace --quiet` 총 1,816개(taide lib 1,714·model 21·CLI 17·기타 통합 64), fmt·clippy `--workspace --all-targets -- -D warnings`·diff 검사를 직접 통과했습니다. IPC 계약은 workspace의 기존 7건을 포함하며 bindings SHA-256 `092a866cf053f7ed81518d045ac3b332c42722dc542031e4c9bd46b3f7450e49` 불변입니다. 앱 실기는 미실행입니다.
 - [x] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+
+## M2 열세 번째 slice — settings 선택지 enum 경계 (완료)
+
+- [x] A. `settings/types.rs:25-83`의 에디터 렌더 공백·커서 스타일·커서 깜빡임·터미널 커서 스타일 enum 4개는 serde·specta만 의존하며, 같은 파일의 `Settings`/`SettingsPatch`가 이를 소비합니다. 상수·default 함수·영속 필드·binding parity unit은 기존 파일에 유지합니다.
+- [x] B. model↔facade enum 타입 동일성·camelCase wire/default fixture와 `Settings`/`SettingsPatch` 소비 테스트 2개가 새 model 모듈 부재 E0432(exit 101)로 red인 것을 확인했습니다.
+- [x] C. 네 enum을 model의 settings 모듈로 분리하고 기존 공개 경로를 재수출했습니다. 구 도메인 service rustdoc 링크만 plain path로 정정했고 `RUSTDOCFLAGS='-D warnings' cargo doc -p taide-model --no-deps`가 통과했습니다.
+- [x] D. 전용 경계 2건, Phase 0 IPC 계약 7건, Rust workspace 1,818건·fmt·clippy·model rustdoc를 확인했습니다. `file.rs`의 선행 rustdoc 수정과 enum 문서 경로 변경은 생성된 `bindings.ts`의 설명 2줄만 변경하여 Phase 0 manifest 해시를 `0554f681b1f02cc1959439e451464799b071a2781524d6fa916e536ec2639c33`으로 갱신했습니다. JSON 파싱 오류로 구현 sub-pen 호출 2회가 실패했지만 소유 파일 구현이 남아 메인이 직접 diff·검증을 확인했습니다. 별도 인수 `taide-m2-settings-adopt-20260924`(session `ses_f2e87a7bcffe959QLmtgKQx7u2`)는 읽기 전용으로 변경 없이 DONE을 반환했습니다.
+- [x] E. 관련 구현·경계 테스트·생성 bindings·Phase 0 manifest 7파일만 선별 commit `1159884`로 반영하고 현재 브랜치에 일반 push했습니다. 계약·체크리스트 문서는 별도 커밋에서 현행화합니다.
