@@ -3,6 +3,13 @@ use specta::Type;
 
 use crate::ids::ProjectId;
 
+#[derive(Debug, Deserialize)]
+pub struct HookPayload {
+    pub hook_event_name: String,
+    #[serde(default)]
+    pub cwd: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentActivity {

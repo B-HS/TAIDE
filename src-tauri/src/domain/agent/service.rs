@@ -4,6 +4,8 @@ use std::time::Instant;
 
 use serde::Deserialize;
 
+pub use taide_model::agent::HookPayload;
+
 use super::types::{
     AgentActivity, BlockedReason, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ACTIVITY_IDLE_QUIET_MS,
     ACTIVITY_WORKING_HOLD_MS, AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI, AGENT_NAME_OPENCODE, AGENT_NAME_PI, AGENT_OSC_MARKER,
@@ -354,13 +356,6 @@ pub struct DetectedAgentProbe {
     /// returned rather than a copy — session signals key their agent-specific tables off it.
     pub name: &'static str,
     pub pid: u32,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct HookPayload {
-    pub hook_event_name: String,
-    #[serde(default)]
-    pub cwd: String,
 }
 
 /// One in-band agent event, as carried by the OSC 777 payload TAIDE's own hook commands write into

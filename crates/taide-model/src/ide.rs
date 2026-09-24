@@ -3,6 +3,18 @@ use specta::Type;
 
 use crate::ids::ProjectId;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeLockfileContent {
+    pub pid: u32,
+    pub workspace_folders: Vec<String>,
+    pub ide_name: String,
+    pub transport: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub running_in_windows: bool,
+    pub auth_token: String,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct IdeStatus {

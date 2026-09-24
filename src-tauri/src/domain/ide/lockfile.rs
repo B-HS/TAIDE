@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+pub use taide_model::ide::IdeLockfileContent;
 
 use super::types::{IDE_NAME, IDE_TRANSPORT};
 use crate::error::{AppError, AppResult};
@@ -16,18 +16,6 @@ const CLAUDE_DIR: &str = ".claude";
 const LOCKFILE_DIR_MODE: u32 = 0o700;
 #[cfg(all(unix, test))]
 const LOCKFILE_FILE_MODE: u32 = 0o600;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdeLockfileContent {
-    pub pid: u32,
-    pub workspace_folders: Vec<String>,
-    pub ide_name: String,
-    pub transport: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub running_in_windows: bool,
-    pub auth_token: String,
-}
 
 pub fn build_lockfile_content(pid: u32, workspace_folders: Vec<String>, auth_token: String) -> IdeLockfileContent {
     IdeLockfileContent {
