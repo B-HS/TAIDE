@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너·PTY 검증 완료, 자원 이전 진행 중
+> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너·PTY·LSP 프로세스 검증 완료, 자원 이전 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -357,3 +357,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 구현·unit 16건을 infra crate로 옮기고 공개 경로를 유지했습니다. 새 경계 14건과 paused 자식 종료·임시 디렉터리 정리를 포함한 infra unit 237건이 통과했습니다. 이전 crate import·private rustdoc 링크 표기만 바뀌었습니다.
 - [x] D. paused 자식 종료·임시 디렉터리 정리를 포함한 infra unit 237건·경계 14건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 6파일을 commit `9a216f6`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+
+## M3 열네 번째 slice — LSP 프로세스 자원 이전 (완료)
+
+- [x] A. LSP 프로세스는 model error·기존 parking_lot/tokio/sysinfo만 의존하고 LSP 명령이 소비합니다. unit 18건에 프레이밍·실프로세스 종료·PID 재사용 보호·stderr tail 상한이 포함됨을 확인했습니다.
+- [x] B. crate 직접 경로와 기존 facade의 config·handle·프레이밍 경계 테스트에서 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 구현·unit 18건을 infra crate로 옮기고 공개 경로를 유지했습니다. 새 경계 15건과 실프로세스 회귀를 포함한 infra unit 255건이 통과했으며 model import·private rustdoc 링크 표기만 바뀌었습니다.
+- [x] D. 실프로세스 종료·PID 재사용·stderr 상한을 포함한 infra unit 255건·경계 15건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
+- [x] E. 관련 6파일을 commit `1d1912b`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
