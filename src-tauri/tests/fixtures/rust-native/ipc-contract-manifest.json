@@ -10,7 +10,7 @@
   "generatedBindings": {
     "path": "src/shared/api/bindings.ts",
     "algorithm": "sha256",
-    "sha256": "17a94672163a91185d30df392d94313025188817fccf728c1f2e90e12317c9d8"
+    "sha256": "0085288be0f5948e5570273ccf795f5cbee8318ba130568ad79e21b20bdbed17"
   },
   "spectaCommands": [
     "app_get_info",

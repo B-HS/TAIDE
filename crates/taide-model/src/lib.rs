@@ -5,6 +5,7 @@ pub mod file;
 pub mod flush;
 pub mod font;
 pub mod git;
+pub mod ide;
 pub mod ids;
 pub mod layout;
 pub mod locale;
