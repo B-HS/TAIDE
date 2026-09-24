@@ -2208,7 +2208,7 @@ export type RemoteStatus = {
  */
 export type ReplaceSkipReason = 
 /**
- *  At or above `constants::REFUSED_FILE_BYTES` — the same ceiling `domain::file` refuses to
+ *  At or above `file::REFUSED_FILE_BYTES` — the same ceiling the file service refuses to
  *  open a file at, so replace never buffers a file the editor itself would not load.
  */
 "tooLarge" | 
