@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use taide_infra::{
     archive, clock, crypto, external_url, home, http, language, lsp_install, perf, persist, range_file, redact, root_guard, self_write,
-    shell_quote, watch_policy, watcher,
+    shell_integration, shell_quote, terminal_scan, watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
@@ -147,4 +147,25 @@ fn 성능_계측은_같은_전역_레지스트리와_wire_슬롯을_쓴다() {
     assert_eq!(infra::perf::SPAN_SLOT_COUNT, perf::SPAN_SLOT_COUNT);
     assert_eq!(perf::SpanSlot::GitStatus.name(), "git_status");
     assert_eq!(perf::CounterSlot::PtyOutputBytes.name(), "pty.output_bytes");
+}
+
+#[test]
+fn 셸_마커와_터미널_스캐너는_기존_경로의_osc_계약을_유지한다() {
+    let marker: infra::shell_integration::CommandMarker = shell_integration::CommandMarker::OutputStart;
+    let event: infra::terminal_scan::ScanEvent = terminal_scan::ScanEvent::CommandMarker(marker);
+    assert_eq!(
+        event,
+        terminal_scan::ScanEvent::CommandMarker(shell_integration::CommandMarker::OutputStart)
+    );
+    assert_eq!(
+        shell_integration::SHELL_INTEGRATION_ENV_VAR,
+        infra::shell_integration::SHELL_INTEGRATION_ENV_VAR
+    );
+    assert_eq!(terminal_scan::MAX_OSC_PAYLOAD_BYTES, infra::terminal_scan::MAX_OSC_PAYLOAD_BYTES);
+
+    let payload = b"\x1b]7;/repo/a%20b\x1b\\";
+    assert_eq!(
+        terminal_scan::scan_once(payload).latest_cwd(),
+        infra::terminal_scan::scan_once(payload).latest_cwd()
+    );
 }
