@@ -254,7 +254,7 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 전용 경계 2건·Rust workspace 1,839건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 두 DTO 본문은 원본 바이트 동일하고 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`도 불변입니다.
 - [x] E. 구현·테스트 5파일을 commit `7974e31`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다. 남은 private 직렬화 구조체는 해당 adapter·서비스와 함께 M3~M6에서 이전하며 M2 공통 model에 잘못 합치지 않습니다.
 
-## M3 첫 slice — infra→domain 역참조 제거 (진행 중)
+## M3 첫 slice — infra→domain 역참조 제거 (완료)
 
 - [x] A. `asset_protocol`·`root_guard`는 `Project`, `self_write`·`watcher`는 `FsChange`/`FsChangeKind`를 이미 분리된 model의 도메인 facade로 import합니다. 경계 테스트의 4항목 허용 목록을 비우면 역참조가 명시적으로 검출됩니다. Tauri HTTP가 필요한 `asset_protocol`은 이후 platform adapter에 남깁니다.
 - [x] B. infra→domain 허용 목록을 없애고 경계 검사를 강화해 기존 네 참조가 모두 검출되는 red(exit 101)를 확인했습니다.
@@ -262,10 +262,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 경계 3건·`cargo test --workspace --quiet` 1,839건·fmt·clippy·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다.
 - [x] E. 코드·경계 테스트 5파일을 commit `819f037`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
 
-## M3 두 번째 slice — 독립 infra crate 첫 모듈 (진행 중)
+## M3 두 번째 slice — 독립 infra crate 첫 모듈 (완료)
 
 - [x] A. 6모듈은 Tauri·domain·infra sibling을 import하지 않고 표준 라이브러리와 `redact`의 기존 `regex`만 사용합니다. 기존 unit을 함께 옮길 수 있고 domain/infra 소비는 `crate::infra::*` facade를 통해 유지합니다. `asset_protocol`·`navigation_guard`는 Tauri adapter에 남깁니다.
 - [x] B. 새 crate와 기존 facade의 타입·동작 경계 테스트를 먼저 추가했고 `taide_infra` 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. 6모듈과 기존 unit 40건을 `taide-infra`로 이전하고 기존 `infra::*` 경로를 재수출했습니다. 전용 경계 2건이 통과했습니다. 엄격 rustdoc의 기존 private 링크·HTML 표기 3곳만 경로 텍스트로 고쳤습니다.
 - [x] D. 전용 경계 2건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. 새 crate의 6모듈 원천은 기존 파일과 rustdoc 표기 3곳만 다릅니다. GUI 실기는 실행하지 않았습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 21파일을 commit `960a71e`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다. 현재 M3의 자원 이전은 계속 진행 중입니다.
