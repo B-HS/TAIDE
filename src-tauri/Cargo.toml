@@ -69,6 +69,7 @@ taide-snippet = { path = "../crates/taide-snippet" }
 taide-sync = { path = "../crates/taide-sync" }
 taide-system = { path = "../crates/taide-system" }
 taide-task = { path = "../crates/taide-task" }
+taide-terminal = { path = "../crates/taide-terminal" }
 taide-theme = { path = "../crates/taide-theme" }
 taide-tree = { path = "../crates/taide-tree" }
 taide-vsix = { path = "../crates/taide-vsix" }

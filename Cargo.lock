@@ -4402,6 +4402,7 @@ dependencies = [
  "taide-sync",
  "taide-system",
  "taide-task",
+ "taide-terminal",
  "taide-theme",
  "taide-tree",
  "taide-vsix",
@@ -4645,6 +4646,15 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "taide-infra",
+ "taide-model",
+ "uuid",
+]
+
+[[package]]
+name = "taide-terminal"
+version = "0.1.0"
+dependencies = [
  "taide-infra",
  "taide-model",
  "uuid",
