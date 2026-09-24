@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 공통 DTO·settings/sync 영속 DTO·notification wire 이전, 전체 M2 진행 중
+> 상태: M1 완료; M2 공통 DTO·settings/sync 영속 DTO·notification/Git wire 이전, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -189,3 +189,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. sync 상수·DTO·기존 unit 2건을 model crate로 이전하고 기존 `domain::sync::types::*` 공개 경로를 재수출했습니다.
 - [x] D. 전용 경계 2건·model unit 23건·`cargo test --workspace --quiet` 총 1,823건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings와 SHA-256 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`는 불변입니다.
 - [x] E. 관련 6파일을 선별 commit `599e98d`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
+
+## M2 열일곱 번째 slice — Git wire DTO (진행 중)
+
+- [x] A. `src-tauri/src/domain/git/types.rs` 214줄은 serde·specta 외 도메인 의존이 없고, Git 서비스·IPC가 기존 공개 경로를 사용합니다. Git 서비스 정책과 git2 의존은 원위치에 둡니다.
+- [x] B. Git status·diff·commit legacy wire와 model↔facade 타입 동일성 테스트를 먼저 추가했고 model 모듈 부재 E0432(exit 101) red를 기록했습니다.
+- [x] C. Git DTO를 model crate로 이전하고 기존 `domain::git::types::*` 경로를 재수출했습니다. 서비스 rustdoc 링크 1곳은 경로 텍스트로 보존했습니다.
+- [x] D. 전용 경계 2건·`cargo test --workspace --quiet` 총 1,825건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 타입 본문은 rustdoc 링크 1곳 외 원본 바이트 동일하며 생성 bindings의 해당 설명 1줄만 달라 manifest SHA-256을 `17a94672163a91185d30df392d94313025188817fccf728c1f2e90e12317c9d8`로 동기화했습니다.
+- [ ] E. 관련 파일을 선별 commit·현재 브랜치에 일반 push합니다.

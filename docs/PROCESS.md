@@ -10,7 +10,7 @@
 
 - [x] M0. 실제 의존 그래프와 TDD 경계 조사 — 25개 도메인, infra 역참조 4건, layout↔ide·layout↔window 순환, Tauri command 203개와 source-scan 테스트 경로 결합을 확인했습니다. 단계별 crate 소유권은 이 작업의 계약 문서에 기록합니다.
 - [x] M1. 첫 실구현: `taide-model`에 `ids`·`error` 추출 — 경계/파사드 테스트 red→green, 기존 unit 12건 이동, IPC manifest 원천 경로 갱신. Rust 전체 1,787개 통과(경계 1개 후속 순증, 전용 6개 재확인), fmt·clippy 통과, bindings digest 불변. 현재 브랜치에 선별 commit·push했습니다.
-- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system·VSIX 결과·보조 창 정보·plugin·AI wire 타입, settings·sync 영속 DTO와 notification wire를 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,823개·fmt·clippy·IPC 계약을 확인했습니다. 생성 bindings 설명 변경에 따른 manifest 해시는 각 slice에서 갱신했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
+- [ ] M2. model 확장 — `AppPaths`, `FlushScope`, theme·locale·snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system·VSIX 결과·보조 창 정보·plugin·AI·Git wire 타입, settings·sync 영속 DTO와 notification wire를 경계·구버전 wire 테스트 red→green으로 분리했습니다. Rust workspace 1,825개·fmt·clippy·IPC 계약을 확인했습니다. 생성 bindings 설명 변경에 따른 manifest 해시는 각 slice에서 갱신했고 나머지 DTO·도메인 직렬화 타입은 후속 slice입니다.
   - [x] M2-A. 이전 전 `paths.rs` 구현·unit 4개와 기존 공개 경로·소비처를 확인했습니다.
   - [x] M2-B. 타입 동일성·14개 경로 테스트를 먼저 작성하고 `taide_model::paths` 부재로 의도한 E0432(exit 101)를 확인했습니다.
   - [x] M2-C. 구현·unit 4개를 바이트 동일하게 model crate로 옮기고 기존 `taide_lib::paths::AppPaths` 경로를 재수출했습니다.
@@ -68,6 +68,11 @@
   - [x] M2-BC. sync 상수·DTO·기존 unit 2건을 model crate로 이전하고 기존 공개 경로를 재수출했습니다.
   - [x] M2-BD. 전용 경계 2건·model unit 23건·Rust workspace 1,823건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings와 SHA-256 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`는 불변입니다.
   - [x] M2-BE. 관련 6파일을 선별 commit `599e98d`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
+  - [x] M2-BF. Git DTO 파일 214줄이 serde·specta 외 도메인 의존이 없고 기존 Git 서비스·IPC가 facade 경로를 소비함을 확인했습니다.
+  - [x] M2-BG. Git status·diff·commit 관련 legacy wire와 model↔facade 타입 동일성 경계 테스트를 먼저 추가했고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
+  - [x] M2-BH. Git DTO와 공개 타입 경로를 model crate와 facade로 이전했습니다. 서비스 rustdoc 링크 1곳은 경로 텍스트로 보존했습니다.
+  - [x] M2-BI. 경계 2건·Rust workspace 1,825건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 타입 본문은 rustdoc 링크 1곳 외 원본 바이트 동일하며 생성 bindings도 해당 설명 1줄만 달라 manifest SHA-256을 `17a94672163a91185d30df392d94313025188817fccf728c1f2e90e12317c9d8`로 동기화했습니다.
+  - [ ] M2-BJ. 검증된 Git DTO slice를 선별 commit·push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.

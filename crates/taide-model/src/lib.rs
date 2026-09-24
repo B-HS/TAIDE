@@ -4,6 +4,7 @@ pub mod error;
 pub mod file;
 pub mod flush;
 pub mod font;
+pub mod git;
 pub mod ids;
 pub mod layout;
 pub mod locale;

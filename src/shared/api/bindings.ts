@@ -2933,7 +2933,7 @@ export type SplitDir = "horizontal" | "vertical";
 
 /**
  *  Unified diff text of staged changes (HEAD vs index), for AI commit message generation
- *  (`ai_commit_message`) — see [`crate::domain::git::service::diff_staged_text`] for how
+ *  (`ai_commit_message`) — see `domain::git::service::diff_staged_text` for how
  *  `truncated`/`skipped_files` get populated. `used_fallback` is `true` when the index had no
  *  staged deltas against HEAD and `diff_text` was built from the working tree instead (Wave H
  *  unstaged fallback, `docs/acknowledge/2026-08-16-wave-h-keymap-contract.md` §3.4).
