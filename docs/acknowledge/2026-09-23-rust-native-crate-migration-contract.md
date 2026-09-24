@@ -302,10 +302,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 실제 핸들 종료와 기존 배치·필터 회귀를 포함한 infra unit 96건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 10파일을 commit `692a24b`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
 
-## M3 일곱 번째 slice — range·URL 보안 유틸 이전 (진행 중)
+## M3 일곱 번째 slice — range·URL 보안 유틸 이전 (완료)
 
 - [x] A. `range_file.rs`는 표준 라이브러리만 쓰고 원격 파일 route·asset adapter가 동일한 범위·MIME·CSP 정책을 소비합니다. `external_url.rs`는 model `AppError`만 필요하고 system command·navigation adapter가 소비합니다. 기존 unit은 각각 10건·9건입니다.
 - [x] B. crate 직접 경로와 기존 facade의 범위 파싱·URL 거부 경계를 추가했고 두 모듈 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. 두 구현·unit 19건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 전용 경계 8건과 infra unit 115건이 통과했습니다. 원본 구현은 model error import와 rustdoc 경로 표기만 바뀌었습니다.
 - [x] D. 범위 상한·CSP·URL 위장 회귀를 포함한 infra unit 115건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 8파일을 commit `6a15a79`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
