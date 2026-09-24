@@ -442,3 +442,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. wildcard 상수를 taide-model로 옮기고 Tauri의 기존 remote 경로는 재수출했습니다. settings 구현·unit 69건을 taide-settings로 이전하고 기존 서비스 경로도 재수출 facade로 유지했습니다. 새 crate unit 69건·경계 1건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·settings/model strict rustdoc가 통과했습니다. 첫 workspace 검사는 이전 경계 화이트리스트의 미사용 항목 1건에서 실패해 항목 제거 후 전부 재검증했습니다. strict settings rustdoc의 private 링크 표기 1건도 코드 텍스트로 바로잡았습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. settings UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `db16b6d`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 열 번째 slice — sync 서비스 이전 (완료, M4 전체는 진행 중)
+
+- [x] A. sync 서비스는 model DTO/error/paths, 이전된 locale/settings/theme 서비스, serde_json·log에 의존합니다. 기존 unit 31건은 UTC·버전 게이트, 비동기화 설정 필드, 레거시 payload, 테마/로케일 적용을 검증합니다. 새 crate 경계 테스트에서 crate 부재 E0433(exit 101)를 확인했습니다.
+- [x] B. 구현·unit 31건을 taide-sync로 이전하고 기존 Tauri 공개 서비스 경로를 재수출 facade로 유지했습니다. 더 이상 존재하지 않는 sync 서비스의 도메인 간 엣지 3개를 화이트리스트에서 제거했습니다. 새 crate unit 31건·경계 1건·도메인 경계 3건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-sync --no-deps`가 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. 실제 동기화 업로드·다운로드 GUI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `89ff027`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
