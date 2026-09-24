@@ -4542,7 +4542,11 @@ dependencies = [
 name = "taide-project"
 version = "0.1.0"
 dependencies = [
+ "log",
+ "serde_json",
+ "taide-infra",
  "taide-model",
+ "uuid",
 ]
 
 [[package]]

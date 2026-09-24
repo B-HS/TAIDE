@@ -6,4 +6,10 @@ edition = "2021"
 rust-version = "1.89"
 
 [dependencies]
+log = "0.4"
+serde_json = "1"
+taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
