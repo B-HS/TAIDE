@@ -60,7 +60,7 @@ pub struct SearchQuery {
 /// How many individual skipped files `search_replace` names in its result before it stops
 /// listing them (the running `skipped_count` keeps counting past this point). A project-wide
 /// replace can legitimately walk past thousands of files it must refuse — every binary asset,
-/// every file above `constants::REFUSED_FILE_BYTES` — and shipping all of them back would turn a
+/// every file above `file::REFUSED_FILE_BYTES` — and shipping all of them back would turn a
 /// "3 files skipped" notice into a multi-megabyte payload. The cap only bounds the *listing*, so
 /// the frontend can still say "N skipped" truthfully and show the first few paths.
 pub const REPLACE_SKIP_REPORT_LIMIT: usize = 50;
@@ -73,7 +73,7 @@ pub const REPLACE_SKIP_REPORT_LIMIT: usize = 50;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ReplaceSkipReason {
-    /// At or above `constants::REFUSED_FILE_BYTES` — the same ceiling `domain::file` refuses to
+    /// At or above `file::REFUSED_FILE_BYTES` — the same ceiling the file service refuses to
     /// open a file at, so replace never buffers a file the editor itself would not load.
     TooLarge,
     /// A NUL byte inside the first `BINARY_SNIFF_BYTES` — rewriting it would corrupt it.

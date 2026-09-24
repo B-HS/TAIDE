@@ -4388,6 +4388,7 @@ dependencies = [
  "taide-locale",
  "taide-model",
  "taide-notification",
+ "taide-search",
  "taide-settings",
  "taide-snippet",
  "taide-sync",
@@ -4482,6 +4483,17 @@ name = "taide-notification"
 version = "0.1.0"
 dependencies = [
  "taide-model",
+]
+
+[[package]]
+name = "taide-search"
+version = "0.1.0"
+dependencies = [
+ "ignore",
+ "regex",
+ "taide-infra",
+ "taide-model",
+ "uuid",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+[package]
+name = "taide-search"
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+ignore = "0.4"
+regex = "1"
+taide-infra = { path = "../taide-infra" }
+taide-model = { path = "../taide-model" }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

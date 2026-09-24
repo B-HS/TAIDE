@@ -1,4 +1,5 @@
 pub use taide_infra::watch_policy::{is_ignored_dir, IGNORED_DIR_NAMES, WATCH_DEBOUNCE_MS};
+pub use taide_model::file::{LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES};
 
 pub const HOT_EXIT_FLUSH_TIMEOUT_MS: u64 = 2_500;
 
@@ -27,11 +28,3 @@ pub const MACOS_NOTIFICATION_SETTINGS_URL: &str = "x-apple.systempreferences:com
 /// screen-tall menu. Mirrored by the sidebar's + menu on the frontend
 /// (`src/shared/constants/project.ts`) so both "recent projects" surfaces offer the same depth.
 pub const RECENT_PROJECT_MENU_LIMIT: usize = 10;
-
-pub const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
-pub const LARGE_FILE_LINES: usize = 50_000;
-pub const READ_ONLY_FILE_BYTES: u64 = 20 * 1024 * 1024;
-pub const REFUSED_FILE_BYTES: u64 = 50 * 1024 * 1024;
-
-const _: () = assert!(LARGE_FILE_BYTES < READ_ONLY_FILE_BYTES);
-const _: () = assert!(READ_ONLY_FILE_BYTES < REFUSED_FILE_BYTES);

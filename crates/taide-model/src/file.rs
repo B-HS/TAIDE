@@ -3,6 +3,14 @@ use specta::Type;
 
 use crate::ids::TabId;
 
+pub const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+pub const LARGE_FILE_LINES: usize = 50_000;
+pub const READ_ONLY_FILE_BYTES: u64 = 20 * 1024 * 1024;
+pub const REFUSED_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
+const _: () = assert!(LARGE_FILE_BYTES < READ_ONLY_FILE_BYTES);
+const _: () = assert!(READ_ONLY_FILE_BYTES < REFUSED_FILE_BYTES);
+
 /// A restorable hot-exit mirror, resolved against the file's *current* disk
 /// state at list time. `conflict` is `true` when the disk was modified after
 /// the mirror's `disk_modified_ms` baseline was captured, meaning applying
