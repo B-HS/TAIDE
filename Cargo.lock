@@ -4392,6 +4392,7 @@ dependencies = [
  "taide-model",
  "taide-notification",
  "taide-plugin",
+ "taide-project",
  "taide-search",
  "taide-settings",
  "taide-snippet",
@@ -4535,6 +4536,13 @@ dependencies = [
  "taide-infra",
  "taide-model",
  "uuid",
+]
+
+[[package]]
+name = "taide-project"
+version = "0.1.0"
+dependencies = [
+ "taide-model",
 ]
 
 [[package]]
