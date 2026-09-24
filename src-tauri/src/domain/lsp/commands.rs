@@ -556,10 +556,31 @@ pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: S
     proc.write_message(&message).await
 }
 
-/// `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) removes that
-/// caller's subscriber explicitly; send-failure pruning alone cannot detect a live window that
-/// released this session. Root refcounting then determines whether this owner's shared session
-/// still has roots or requires process teardown.
+fn release_owner_root(entry: &SessionEntry, owner: &str, root: Option<&str>) -> (Option<String>, bool) {
+    let Some(root) = root else {
+        entry.subscribers.remove(owner);
+        return (None, false);
+    };
+
+    let mut roots = entry.roots.lock();
+    let mut removed_root = None;
+    if let Some(position) = roots.iter().position(|(existing_root, _)| existing_root == root) {
+        roots[position].1 = roots[position].1.saturating_sub(1);
+        if roots[position].1 == 0 {
+            removed_root = Some(roots.remove(position).0);
+        }
+    }
+    let has_remaining_roots = !roots.is_empty();
+    drop(roots);
+    if !has_remaining_roots {
+        entry.subscribers.remove(owner);
+    }
+    (removed_root, has_remaining_roots)
+}
+
+/// `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) keeps its
+/// subscriber while any root remains. The last root or a rootless stop removes the subscriber
+/// explicitly; send-failure pruning cannot detect a live window that released the session.
 ///
 /// The guard (`AppState::begin_mutation`) is held only for the synchronous bookkeeping above and,
 /// on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.0.lock().remove`
@@ -596,31 +617,17 @@ pub async fn lsp_stop(
     let entry = {
         let _guard = state.begin_mutation().await;
         let entry = find_entry(&store, &session_id)?;
-        entry.subscribers.remove(&owner);
+        let (removed_root, has_remaining_roots) = release_owner_root(&entry, &owner, root.as_deref());
 
-        if let Some(root) = root {
-            let (removed_root, remaining_roots) = {
-                let mut roots = entry.roots.lock();
-                let mut removed_root: Option<String> = None;
-                if let Some(position) = roots.iter().position(|(existing_root, _)| existing_root == &root) {
-                    roots[position].1 = roots[position].1.saturating_sub(1);
-                    if roots[position].1 == 0 {
-                        removed_root = Some(roots.remove(position).0);
-                    }
+        if has_remaining_roots {
+            if let Some(removed_root) = removed_root {
+                let proc = entry.proc.lock().clone();
+                if let Some(proc) = proc {
+                    let notification = workspace_folders_notification(&[], std::slice::from_ref(&removed_root));
+                    let _ = proc.write_message(&notification).await;
                 }
-                (removed_root, !roots.is_empty())
-            };
-
-            if remaining_roots {
-                if let Some(removed_root) = removed_root {
-                    let proc = entry.proc.lock().clone();
-                    if let Some(proc) = proc {
-                        let notification = workspace_folders_notification(&[], std::slice::from_ref(&removed_root));
-                        let _ = proc.write_message(&notification).await;
-                    }
-                }
-                return Ok(());
             }
+            return Ok(());
         }
 
         store.0.lock().remove(&session_id);
@@ -1418,6 +1425,51 @@ mod tests {
         let reused = find_reusable_entry(&store, &project_id, &server_id, "owner-a");
         assert_eq!(reused.map(|(id, _)| id), Some("active-session".to_string()));
         assert!(find_reusable_entry(&store, &project_id, &server_id, "owner-b").is_none());
+    }
+
+    #[test]
+    fn 일부_root_해제는_남은_root의_owner_구독을_유지한다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        entry
+            .subscribers
+            .insert("owner-a".to_string(), channel_sink(recording_channel(received.clone())));
+        entry.roots.lock().push(("/tmp/second-root".to_string(), 1));
+
+        let (removed_root, has_remaining_roots) = release_owner_root(&entry, "owner-a", Some("/tmp/project"));
+        entry.subscribers.broadcast("remaining-root-message");
+
+        assert_eq!(removed_root.as_deref(), Some("/tmp/project"));
+        assert!(has_remaining_roots);
+        assert!(entry.subscribers.contains("owner-a"));
+        assert_eq!(*received.lock(), vec!["remaining-root-message".to_string()]);
+    }
+
+    #[test]
+    fn 같은_root의_마지막_참조를_해제할_때만_owner_구독을_제거한다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+        entry.roots.lock()[0].1 = 2;
+
+        let (removed_root, has_remaining_roots) = release_owner_root(&entry, "owner-a", Some("/tmp/project"));
+        assert!(removed_root.is_none());
+        assert!(has_remaining_roots);
+        assert!(entry.subscribers.contains("owner-a"));
+
+        let (removed_root, has_remaining_roots) = release_owner_root(&entry, "owner-a", Some("/tmp/project"));
+        assert_eq!(removed_root.as_deref(), Some("/tmp/project"));
+        assert!(!has_remaining_roots);
+        assert!(!entry.subscribers.contains("owner-a"));
+    }
+
+    #[test]
+    fn root_없는_전체_종료는_owner_구독을_제거한다() {
+        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
+
+        let (removed_root, has_remaining_roots) = release_owner_root(&entry, "owner-a", None);
+
+        assert!(removed_root.is_none());
+        assert!(!has_remaining_roots);
+        assert!(!entry.subscribers.contains("owner-a"));
     }
 
     #[test]

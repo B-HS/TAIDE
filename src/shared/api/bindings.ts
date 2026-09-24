@@ -466,10 +466,9 @@ export const commands = {
 	 */
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	/**
-	 *  `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) removes that
-	 *  caller's subscriber explicitly; send-failure pruning alone cannot detect a live window that
-	 *  released this session. Root refcounting then determines whether this owner's shared session
-	 *  still has roots or requires process teardown.
+	 *  `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) keeps its
+	 *  subscriber while any root remains. The last root or a rootless stop removes the subscriber
+	 *  explicitly; send-failure pruning cannot detect a live window that released the session.
 	 * 
 	 *  The guard (`AppState::begin_mutation`) is held only for the synchronous bookkeeping above and,
 	 *  on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.0.lock().remove`
