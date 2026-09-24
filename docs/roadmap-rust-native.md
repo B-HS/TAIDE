@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | `taide-model` | ID, 직렬화 DTO, error, persistence schema, `AppEvent` | UI toolkit, Tauri, OS window handle |
 | `taide-core` | project/layout/file/git/search/settings/theme/agent 정책, document transaction | UI toolkit, HTTP/WebSocket wire, native window API |
-| `taide-infra` | filesystem, Git, PTY, LSP process, watcher, persist, archive, HTTP, keyring 구현 | UI crate, protocol consumer |
+| `taide-infra` | filesystem, PTY, LSP process, watcher, persist, archive, HTTP, keyring 구현 | UI crate, protocol consumer |
 | `taide-runtime` | `AppServices`, Tokio runtime, task supervisor, store registry, event bus, shutdown | UI widget, remote wire decoder |
 | `taide-platform` | window, menu, dialog, notification, clipboard, drag/drop, external open, preview host | domain 상태 직접 수정 |
 | `taide-editor` | document/view store, transaction·undo, selection, layout, decorations, input·IME | Tauri IPC, remote wire |
@@ -34,6 +34,8 @@
 | `taide-app` | composition root, 명시적 dependency injection, 실행 파일 | 도메인 로직 재구현 |
 
 의존 방향은 `taide-app → UI·platform·protocol adapter → runtime·core·infra → model`로 제한한다. `taide-model`이 최하위이며 `taide-app`만 전체를 조립한다. `Arc<AppServices>`는 composition root가 만들고 명시적으로 주입하며 전역 mutable singleton을 만들지 않는다.
+
+현재 Git의 libgit2 호출은 별도 `infra/repo.rs`가 아니라 `domain/git/service.rs`의 정책·DTO와 한 구현입니다. M3에서 독립성이 없는 Git 래퍼를 만들지 않고, M4에서 Git 구현과 테스트를 기능별 서비스 crate로 함께 이전합니다.
 
 ## 3. Tauri 제거를 가능하게 하는 선행 분리
 

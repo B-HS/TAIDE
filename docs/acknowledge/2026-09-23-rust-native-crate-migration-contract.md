@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너·PTY·LSP 프로세스·키체인 검증 완료, Git 자원 소유권 판정 대기
+> 상태: M1·M2·M3 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -373,3 +373,9 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 구현·unit 4건을 infra crate로 옮기고 공개 경로를 유지했습니다. test-support 기능은 taide dev-dependency에서만 활성화해 AI/sync unit의 메모리 저장소 경로를 보존했습니다. 새 경계 16건·infra unit 259건이 통과했고 `cargo tree -p taide -e normal,features -i taide-infra`에 test-support가 없습니다.
 - [x] D. 실제 키체인 값을 건드리지 않는 경계 16건·infra unit 259건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 일반 빌드 의존성 그래프에는 test-support가 없고 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 7파일을 commit `7dd075c`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+
+## M3 종료 판정 — Git 소유권과 adapter 잔여 (완료)
+
+- [x] A. `docs/architecture.md`는 별도 `infra/repo.rs`가 없고 git2가 `domain/git/service.rs`에 있다고 명시합니다. 실제 3,641줄 구현도 Git DTO·정책, libgit2 호출, timeout subprocess를 함께 소유하며 이 계약의 소유권 지도는 file/tree/git 서비스 crate를 M4로 배치합니다. 얇은 repo 래퍼를 임의로 만들지 않고 Git 구현·테스트를 M4에서 서비스 단위로 이전합니다.
+- [x] B. `src-tauri/src/infra`의 나머지는 21개 facade와 Tauri `asset_protocol`·`navigation_guard` adapter 두 파일입니다. `taide-infra` 소스와 정상 의존 그래프에 Tauri/domain 역의존은 없고 마지막 코드 변경에서 경계 16건·infra unit 259건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC/bindings 계약이 통과했습니다. GUI 실기는 실행하지 않았습니다.
+- [x] C. M3를 완료 처리하고 Git 서비스는 M4, 두 Tauri adapter는 M6으로 소유권을 기록해 문서를 선별 commit·일반 push합니다.

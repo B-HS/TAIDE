@@ -108,7 +108,7 @@
   - [x] M2-CQ. 두 외부 경계 DTO를 model로 이전하고 기존 공개 경로를 재수출했습니다.
   - [x] M2-CR. 전용 경계 2건·workspace 1,839건·fmt·clippy·strict rustdoc·IPC/bindings 계약을 검증했습니다.
   - [x] M2-CS. 검증된 DTO slice를 선별 commit `7974e31`과 기록 commit으로 반영·push하고 M2 잔여 타입 소유권을 분류했습니다.
-- [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
+- [x] M3. infra 역참조 4건을 제거하고 파일시스템·watcher·persist·LSP·PTY·키체인 자원을 Tauri 없는 infra crate로 이전했습니다. Git의 libgit2 호출은 별도 infra 래퍼가 아닌 `domain/git/service.rs`의 서비스 정책과 한 구현이므로 계약 소유권 지도대로 M4 Git 서비스 crate로 이월합니다. `asset_protocol`·`navigation_guard`는 M6 platform adapter입니다. 경계 16건·infra unit 259건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC/bindings 계약이 통과했고 GUI 실기는 아직 수행하지 않았습니다.
   - [x] M3-A. infra→domain 잔여 4참조와 model 타입·기존 경계 테스트의 소유 관계를 확인했습니다.
   - [x] M3-B. infra→domain 무허용 검사로 강화해 기존 4참조의 red를 확인했습니다.
   - [x] M3-C. infra 4파일의 타입 import를 model로 돌리고 경계 3건을 통과시켰습니다.
@@ -184,13 +184,16 @@
   - [x] M3-BU. secret 구현·unit 4건을 infra crate로 옮기고 test-support 기능을 taide dev-dependency에서만 활성화해 기존 공개 경로를 재수출했습니다. 새 경계 16건·infra unit 259건이 통과했고 normal dependency graph에는 test-support가 없습니다.
   - [x] M3-BV. 실제 키체인 값을 건드리지 않는 경계 16건·infra unit 259건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 normal feature graph에 test-support가 없으며 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
   - [x] M3-BW. 검증된 secret slice를 선별 commit `7dd075c`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+  - [x] M3-BX. `domain/git/service.rs` 3,641줄에 libgit2 호출·Git DTO/정책·시간제한 subprocess가 함께 있고 독립 `infra/repo.rs`가 없음을 확인했습니다. 별도 1회성 래퍼를 만들지 않고 기존 계약 지도대로 M4 Git 서비스 crate가 구현을 소유합니다.
+  - [x] M3-BY. `src-tauri/src/infra`에는 21개 재수출 facade와 `asset_protocol`·`navigation_guard` platform adapter만 남았습니다. `taide-infra` 소스·정상 의존 그래프에 Tauri/domain 역의존이 없고 마지막 코드 변경에서 workspace 전체·fmt·clippy·strict rustdoc·IPC/bindings가 통과했습니다.
+  - [x] M3-BZ. Git 서비스는 M4, 두 Tauri adapter는 M6으로 소유권을 기록하고 M3를 완료 처리해 관련 문서를 선별 commit·일반 push합니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너·PTY·LSP 프로세스·키체인 경계를 검증했습니다. Git 자원 소유권 판정과 M4~M8은 아직 미완료입니다.
+> M3까지 완료했습니다. 다음 세부 실행 항목은 M4의 기능별 서비스 crate 이전입니다. Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
