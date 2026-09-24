@@ -20,6 +20,7 @@ pub mod snippet;
 pub mod sync;
 pub mod system;
 pub mod task;
+pub mod terminal;
 pub mod theme;
 pub mod tree;
 pub mod vsix;
