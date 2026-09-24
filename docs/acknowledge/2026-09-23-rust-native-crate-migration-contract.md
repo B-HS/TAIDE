@@ -165,3 +165,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 네 enum을 model의 settings 모듈로 분리하고 기존 공개 경로를 재수출했습니다. 구 도메인 service rustdoc 링크만 plain path로 정정했고 `RUSTDOCFLAGS='-D warnings' cargo doc -p taide-model --no-deps`가 통과했습니다.
 - [x] D. 전용 경계 2건, Phase 0 IPC 계약 7건, Rust workspace 1,818건·fmt·clippy·model rustdoc를 확인했습니다. `file.rs`의 선행 rustdoc 수정과 enum 문서 경로 변경은 생성된 `bindings.ts`의 설명 2줄만 변경하여 Phase 0 manifest 해시를 `0554f681b1f02cc1959439e451464799b071a2781524d6fa916e536ec2639c33`으로 갱신했습니다. JSON 파싱 오류로 구현 sub-pen 호출 2회가 실패했지만 소유 파일 구현이 남아 메인이 직접 diff·검증을 확인했습니다. 별도 인수 `taide-m2-settings-adopt-20260924`(session `ses_f2e87a7bcffe959QLmtgKQx7u2`)는 읽기 전용으로 변경 없이 DONE을 반환했습니다.
 - [x] E. 관련 구현·경계 테스트·생성 bindings·Phase 0 manifest 7파일만 선별 commit `1159884`로 반영하고 현재 브랜치에 일반 push했습니다. 계약·체크리스트 문서는 별도 커밋에서 현행화합니다.
+
+## M2 열네 번째 slice — notification 순수 wire 타입 (진행 중)
+
+- [x] A. `src-tauri/src/domain/notification/types.rs`의 3개 enum은 serde·specta만 쓰며 서비스의 완료 정책과 별도입니다. 기존 서비스·명령·공개 경로와 도메인 doc 링크를 확인했습니다.
+- [x] B. category·suppression·delivery의 model↔facade 타입 동일성, tag/content·camelCase wire와 구버전 데이터를 2개 테스트로 고정하고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. enum과 설명을 model crate로 이전하고 도메인 파일은 재수출했습니다. stale 도메인 rustdoc 링크 2건만 일반 코드 경로로 고쳤습니다.
+- [x] D. 새 경계 2건·`cargo test --workspace --quiet` 총 1,820건(IPC 계약 7건 포함)·fmt·clippy·strict model rustdoc가 통과했습니다. 생성 bindings의 설명 2줄만 바뀌어 manifest 해시를 `56f31885f4920d663972a80b1db640634d2fae126347e4914f1ecd262c6eeccc`으로 갱신했습니다. 구현 sub-pen 2회는 JSON 파싱·완료 근거 오류로 FAILED였지만 소유 파일 diff를 메인이 대조했고 읽기 전용 인수 `taide-m2-notification-adopt-20260924`(session `ses_f2e5ef48affekRM7q1hekuBzcR`)가 변경 없이 DONE을 반환했습니다.
+- [ ] E. 검증된 구현 6파일을 commit `36ef8e3`으로 현재 브랜치에 반영했습니다. `git push origin to_rust_native` 2회가 `Could not resolve host: github.com`(exit 128)으로 실패했습니다. 네트워크 복구 후 원격에 일반 push하고 그때 완료로 갱신합니다.
