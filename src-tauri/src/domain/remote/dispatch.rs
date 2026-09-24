@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use taide_remote::policy::{strip_remote_gated_settings, strip_remote_gated_settings_patch};
 use tauri::ipc::{Channel, InvokeResponseBody, IpcResponse, Response};
 use tauri::{AppHandle, Manager};
 
@@ -443,83 +444,6 @@ impl RemoteDenialPolicy {
 /// denied remote request with, for `name` denied under `policy`.
 fn denial_response(policy: RemoteDenialPolicy, name: &str) -> Value {
     err(policy.denial_error(name))
-}
-
-/// Strips `remote_password_only_login`, `remote_allowed_hosts`, `shell_override`, and
-/// `ai_omlx_base_url` from a `settings_update` patch arriving through the
-/// remote dispatch table.
-///
-/// The first two guard self-expansion: a remote session must never be able
-/// to flip its own access gate from password-optional to password-only (or
-/// back), nor grow the Host allowlist that gates which `Host` headers
-/// `auth_middleware` accepts (self-expanding it would let an
-/// already-connected remote session register a new tunnel hostname for
-/// itself, defeating the allowlist's purpose — see
-/// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §3.1).
-///
-/// `shell_override` guards persistence instead: an authenticated remote
-/// session already has terminal RCE via `pty_spawn` (also reachable through
-/// this same dispatch table), so stripping it here doesn't close an
-/// *immediate* capability gap — but left unfiltered, that same session could
-/// use `settings_update` to plant an arbitrary executable as the shell the
-/// desktop user's *next* locally-opened terminal spawns (`terminal/commands.rs`
-/// reads `shell_override` fresh at spawn time), a backdoor that outlives the
-/// remote session itself (survives a password change, session revocation, or
-/// the remote server being stopped entirely). The gist-sync path treats this
-/// same field as "[RCE급]" for the identical reason (`sync/service.rs`'s
-/// `strip_non_syncable`); this is the live-session analogue of that filter.
-///
-/// `ai_omlx_base_url` guards the same persistence shape, aimed at a stored
-/// credential instead of a shell: `providers/omlx.rs`'s `apply_auth` sends the
-/// keyring-stored OMLX API key as an `Authorization: Bearer` header to
-/// whatever host this field names, read fresh on every request. Left
-/// unfiltered, a remote session could repoint it at an attacker-controlled
-/// host through `settings_update`, after which every desktop-issued OMLX
-/// call — Bearer key included — flows there until the desktop user notices
-/// and edits it back by hand, again outliving the session that planted it.
-/// `ai_set_token`/`ai_clear_token` are already denied outright under
-/// [`RemoteDenialPolicy::CredentialStoreTampering`]; this closes the one
-/// remaining lever that redirects the *stored* key without ever writing to
-/// the keyring itself. See
-/// `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`.
-///
-/// `dispatch()` is exclusively the remote request path (desktop calls invoke
-/// `settings_update` directly as a Tauri command, bypassing this table
-/// entirely — see `ws.rs`), so every patch reaching this arm is remote by
-/// construction; no additional "is this remote" check is needed here.
-/// `remote_access_enabled` is intentionally left untouched: a remote session
-/// disabling remote access only revokes its own future access, matching the
-/// existing self-service philosophy for that field (see
-/// `docs/acknowledge/2026-08-14-hotexit-remote-password-contract.md` §4).
-fn strip_remote_gated_settings_patch(mut patch: domain::settings::types::SettingsPatch) -> domain::settings::types::SettingsPatch {
-    patch.remote_password_only_login = None;
-    patch.remote_allowed_hosts = None;
-    patch.shell_override = None;
-    patch.ai_omlx_base_url = None;
-    patch
-}
-
-/// Same guarantee as [`strip_remote_gated_settings_patch`], for the `Settings`-target
-/// `app_file_write` arm — that command applies a *whole* `settings.json` body (parsed from
-/// arbitrary remote-supplied JSON), not a `settings_update` patch, so it can't reuse the
-/// patch-shaped strip above. Rather than clearing the four gated fields, this forces them back to
-/// `current`'s live values: `Settings` has no `Option` wrapper for `remote_password_only_login`/
-/// `remote_allowed_hosts` (`shell_override`/`ai_omlx_base_url` do), so "clear" isn't representable
-/// for the first two — "leave unchanged" is applied uniformly to all four instead. Without this, a
-/// remote session could plant a persistent `shell_override` or `ai_omlx_base_url` (backdoors that
-/// outlive the session — see the doc comment above) or self-expand its own access gate purely by
-/// calling `app_file_write` instead of `settings_update`, silently defeating the strip those two
-/// entry points are supposed to share equally
-/// (contract §3.3: "app_file_* 는 settings_update 와 동급으로 허용").
-fn strip_remote_gated_settings(
-    mut next: domain::settings::types::Settings,
-    current: &domain::settings::types::Settings,
-) -> domain::settings::types::Settings {
-    next.remote_password_only_login = current.remote_password_only_login;
-    next.remote_allowed_hosts = current.remote_allowed_hosts.clone();
-    next.shell_override = current.shell_override.clone();
-    next.ai_omlx_base_url = current.ai_omlx_base_url.clone();
-    next
 }
 
 /// Reports whether a remote `agent_hooks_install` call for `agent_name` must be denied under
