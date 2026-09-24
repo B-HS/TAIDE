@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use taide_infra::{clock, crypto, home, language, redact, self_write, shell_quote};
+use taide_infra::{clock, crypto, home, language, redact, root_guard, self_write, shell_quote};
 use taide_lib::infra;
+use taide_model::error::AppResult;
 use taide_model::file::{FsChange, FsChangeKind};
 
 #[test]
@@ -48,4 +49,14 @@ fn self_write_추적기는_기존_경로와_같고_한_배치에서만_마킹을
 
     let second = self_write::resolve_from_app(&tracker, vec![change]);
     assert!(!second[0].from_app);
+}
+
+#[test]
+fn root_guard_공개_경로는_같은_안전_컴포넌트_정책을_쓴다() {
+    let _: fn(&str) -> AppResult<()> = infra::root_guard::ensure_safe_component;
+    assert!(root_guard::ensure_safe_component("safe-name").is_ok());
+
+    let old = infra::root_guard::ensure_safe_component("../escape").unwrap_err();
+    let new = root_guard::ensure_safe_component("../escape").unwrap_err();
+    assert_eq!(old.kind(), new.kind());
 }

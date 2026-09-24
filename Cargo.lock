@@ -4420,6 +4420,7 @@ dependencies = [
  "parking_lot",
  "regex",
  "taide-model",
+ "uuid",
 ]
 
 [[package]]
