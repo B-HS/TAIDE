@@ -448,9 +448,8 @@ export const commands = {
 	/**
 	 *  `request.owner` identifies the calling window (`getCurrentWindow().label` on the frontend —
 	 *  `main`, `editor-<n>`, or the remote client's fixed `"remote"` label) so [`find_reusable_entry`]
-	 *  only reuses a session within the same window. See the `channels` field doc on [`SessionEntry`]
-	 *  for why. `request` bundles `project_id`/`server_id`/`root`/`owner` into one struct (mirroring
-	 *  `pty_spawn`'s `opts`) purely to stay under `clippy::too_many_arguments`.
+	 *  only reuses a session within the same window. `request` bundles the session inputs into one
+	 *  struct, mirroring `pty_spawn`'s `opts`.
 	 */
 	lspSpawn: (request: LspSpawnRequest, onMessage: Channel<string>) => typedError<string, AppError>(__TAURI_INVOKE("lsp_spawn", { request, onMessage })),
 	/**
@@ -467,14 +466,10 @@ export const commands = {
 	 */
 	lspSend: (sessionId: string, message: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_send", { sessionId, message })),
 	/**
-	 *  `owner` (`getCurrentWindow().label`, same value the caller originally passed to `lsp_spawn`)
-	 *  removes exactly that caller's subscriber entry from `entry.channels` — see the `channels` field
-	 *  doc on [`SessionEntry`] for why this can't be left to `broadcast_message`'s send-failure pruning
-	 *  alone. Root refcounting (`root`) then decides, independently, whether the whole session (process
-	 *  included) gets torn down — a still-live owner keeps receiving messages from the shared session
-	 *  even after some other owner's root is removed from it. **This owner-scoping is preserved
-	 *  unchanged** by the guard restructuring below: the "still has remaining roots" branch still
-	 *  returns early, under the guard, without ever reaching teardown.
+	 *  `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) removes that
+	 *  caller's subscriber explicitly; send-failure pruning alone cannot detect a live window that
+	 *  released this session. Root refcounting then determines whether this owner's shared session
+	 *  still has roots or requires process teardown.
 	 * 
 	 *  The guard (`AppState::begin_mutation`) is held only for the synchronous bookkeeping above and,
 	 *  on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.0.lock().remove`
