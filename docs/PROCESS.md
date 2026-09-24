@@ -303,6 +303,10 @@
   - [x] M5-Z. channel/response binary·JSON 프레임 함수 3개와 태그/채널 접두사 상수 3개를 taide-remote protocol/types로 이전하고 Tauri WebSocket adapter에서 호출하게 했습니다. 새 byte/JSON fixture 경계 1건·기존 ws unit 4건·crate unit 47건이 통과했습니다. writer/channel 수명주기는 Tauri에 유지했습니다.
   - [x] M5-AA. byte/JSON wire fixture 1건·기존 ws unit 4건·crate unit 47건·workspace 전체·fmt·clippy·strict remote rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. writer/channel 종료·실제 WebSocket 세션 실기는 미실행입니다.
   - [x] M5-AB. 구현은 commit `e002730`으로 선별 반영했습니다. 검증 결과와 남은 WebSocket writer/channel 종료·실제 세션 수명주기 위험을 계약 문서에 기록하고 문서 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M5-AC. `ChannelEndGuard`와 JSON 채널 송신의 `chanEnd`/`chan` 필드·순번 형식을 확인했습니다. 직전 ws unit 4건 green을 재사용하고 새 JSON wire 경계 테스트는 두 함수 부재 E0425(exit 101)로 의도대로 실패했습니다.
+  - [x] M5-AD. `chan`·`chanEnd` JSON 생성 함수를 taide-remote protocol로 이전하고 Tauri의 실제 송신·guard Drop 조립은 유지했습니다. wire fixture 2건·기존 ws unit 4건이 통과했고 살아있는 채널 unit은 송신/종료 프레임·순번을 직접 검증합니다.
+  - [x] M5-AE. 새 JSON wire fixture 2건·taide-remote unit 47건·Tauri remote 88건·workspace clippy·fmt·strict remote rustdoc가 통과했고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 직전 slice의 전체 workspace 성공은 재사용하되 두 함수 이전 뒤 전체 테스트는 재실행하지 않았습니다. 실제 WebSocket 연결·채널 송신/종료 실기는 미실행입니다.
+  - [x] M5-AF. 구현은 commit `1367d84`로 선별 반영했습니다. 검증 결과와 남은 실제 WebSocket 채널 송신/종료 수명주기를 계약 문서에 기록하고 문서 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.

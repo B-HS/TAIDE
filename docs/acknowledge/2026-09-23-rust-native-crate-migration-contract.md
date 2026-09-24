@@ -581,3 +581,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 프레임 함수 3개와 태그/채널 접두사 상수 3개를 taide-remote protocol/types로 이전하고 Tauri WebSocket adapter에서 호출하게 했습니다. binary 헤더 용량은 u32 크기에서 계산하며 출력 바이트는 기존 wire와 동일합니다. 새 경계 1건·기존 ws unit 4건·crate unit 47건이 통과했습니다. writer·channel 종료와 세션 수명주기는 Tauri에 남겼습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. byte fixture는 태그·big-endian ID/순번·raw payload를, JSON fixture는 응답 필드를 확인합니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 WebSocket 연결·writer/channel 종료 실기는 미실행이며 M5 전체는 미완료입니다.
 - [x] D. 구현은 commit `e002730`으로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 여덟 번째 slice — remote 채널 JSON 프레임 이전 (완료, 송신 조립은 유지)
+
+- [x] A. `ws.rs`의 `chan`·`chanEnd` JSON 객체 생성은 serde_json과 채널 ID·순번만 사용합니다. 직전 slice의 ws unit 4건 green을 재사용하고 새 JSON wire 경계 테스트는 두 함수 부재 E0425(exit 101)로 의도대로 실패했습니다.
+- [x] B. 채널 JSON·종료 프레임 함수 2개만 taide-remote protocol로 이전하고 실제 송신·`ChannelEndGuard` Drop·writer 수명주기는 Tauri에 유지했습니다. 기존 살아있는 채널 unit이 송신 프레임과 sink 해제 뒤 종료 프레임의 순번까지 확인하도록 강화했습니다.
+- [x] C. 새 JSON wire 경계 2건·taide-remote unit 47건·Tauri remote 88건·`cargo clippy --workspace --all-targets -- -D warnings`·`cargo fmt --all --check`·strict remote rustdoc가 통과했습니다. 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 직전 slice의 전체 workspace 테스트 성공은 확인했지만 두 함수 이전 뒤 전체 workspace 테스트는 재실행하지 않았습니다. 실제 WebSocket 연결·채널 전송/종료 실기는 미실행이며 M5 전체는 미완료입니다.
+- [x] D. 구현은 commit `1367d84`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
