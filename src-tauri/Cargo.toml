@@ -58,6 +58,7 @@ taide-notification = { path = "../crates/taide-notification" }
 taide-snippet = { path = "../crates/taide-snippet" }
 taide-system = { path = "../crates/taide-system" }
 taide-task = { path = "../crates/taide-task" }
+taide-theme = { path = "../crates/taide-theme" }
 taide-tree = { path = "../crates/taide-tree" }
 
 [dev-dependencies]

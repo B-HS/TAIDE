@@ -55,7 +55,7 @@ const parseArgs = (argv: string[]): CliArgs => {
         sourceUrl: flags.get('source-url') ?? '',
         author: flags.get('author') ?? '',
         license: flags.get('license') ?? '',
-        out: flags.get('out') ?? 'src-tauri/resources/themes/',
+        out: flags.get('out') ?? 'crates/taide-theme/resources/themes/',
         includeDir: flags.get('include-dir'),
     }
 }

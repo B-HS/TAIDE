@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
-const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../src-tauri/resources/themes')
+const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../crates/taide-theme/resources/themes')
 const THIRD_PARTY_LICENSES_PATH = join(import.meta.dir, '../../../../THIRD_PARTY_LICENSES.md')
 
 /**
@@ -19,7 +19,7 @@ const readBundledThemeIds = () =>
         .map((name) => name.replace(/\.json$/, ''))
 
 describe('번들 테마 라이선스 등재 게이트', () => {
-    test('src-tauri/resources/themes/*.json 전량의 id 가 루트 THIRD_PARTY_LICENSES.md 에 백틱 id 로 등장한다', () => {
+    test('crates/taide-theme/resources/themes/*.json 전량의 id 가 루트 THIRD_PARTY_LICENSES.md 에 백틱 id 로 등장한다', () => {
         const ids = readBundledThemeIds()
         expect(ids.length).toBeGreaterThan(0)
 

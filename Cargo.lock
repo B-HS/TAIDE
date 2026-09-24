@@ -4391,6 +4391,7 @@ dependencies = [
  "taide-snippet",
  "taide-system",
  "taide-task",
+ "taide-theme",
  "taide-tree",
  "tar",
  "tauri",
@@ -4505,6 +4506,17 @@ version = "0.1.0"
 dependencies = [
  "regex",
  "serde",
+ "serde_json",
+ "taide-infra",
+ "taide-model",
+ "uuid",
+]
+
+[[package]]
+name = "taide-theme"
+version = "0.1.0"
+dependencies = [
+ "regex",
  "serde_json",
  "taide-infra",
  "taide-model",

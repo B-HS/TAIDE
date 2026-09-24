@@ -6,7 +6,7 @@ import { repairStateDistinctness, validateStateDistinctness } from '@shared/lib/
 import { STATE_DISTINCTNESS_PAIRS } from '@shared/lib/theme-convert/state-distinctness-pairs'
 import { COLOR_NAMESPACES } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
-const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../src-tauri/resources/themes')
+const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../crates/taide-theme/resources/themes')
 
 const readBundledThemes = () =>
     readdirSync(BUNDLED_THEMES_DIR)
@@ -23,7 +23,7 @@ const readBundledThemes = () =>
  * run `bun run themes:repair-state-distinctness` rather than to register the theme here.
  */
 describe('번들 테마 상태색 구별성 게이트', () => {
-    test('src-tauri/resources/themes/*.json 전량이 validateStateDistinctness 를 통과한다', () => {
+    test('crates/taide-theme/resources/themes/*.json 전량이 validateStateDistinctness 를 통과한다', () => {
         const themes = readBundledThemes()
         expect(themes.length).toBeGreaterThan(0)
 

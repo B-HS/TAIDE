@@ -14,7 +14,7 @@ import {
 } from '@shared/lib/theme-convert/contrast'
 import { COLOR_NAMESPACES } from '@shared/lib/theme-convert/ui-token-vocabulary'
 
-const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../src-tauri/resources/themes')
+const BUNDLED_THEMES_DIR = join(import.meta.dir, '../../../../crates/taide-theme/resources/themes')
 
 /**
  * Bundled themes whose `panel.matchHighlight` cannot clear `MIN_CONTRAST_RATIO`
@@ -42,7 +42,7 @@ const readBundledThemeColors = (fileName: string) => {
 }
 
 describe('번들 테마 대비 게이트', () => {
-    test('src-tauri/resources/themes/*.json 전량이 validateOutputColors 를 통과한다(예외 명시분 제외)', () => {
+    test('crates/taide-theme/resources/themes/*.json 전량이 validateOutputColors 를 통과한다(예외 명시분 제외)', () => {
         const files = readdirSync(BUNDLED_THEMES_DIR).filter((name) => name.endsWith('.json'))
         expect(files.length).toBeGreaterThan(0)
 
@@ -78,7 +78,7 @@ describe('번들 테마 대비 게이트', () => {
  * `list.activeBackground` to nord3 (`#4c566a`, the theme's own `list.inactiveSelectionBackground`)
  * clears both selection-row axes at once (`list.foreground` 5.46:1, `panel.matchHighlight` 3.69:1)
  * without an exemption, and stays perceptually distinct from `list.hoverBackground`/`list.background`
- * (ΔE 8.8/15.5) — see `src-tauri/resources/themes/nord.json`.
+ * (ΔE 8.8/15.5) — see `crates/taide-theme/resources/themes/nord.json`.
  */
 const SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS: Record<string, string> = {
     'everforest-light':
@@ -103,7 +103,7 @@ const SELECTION_MATCH_HIGHLIGHT_CONTRAST_EXEMPTIONS: Record<string, string> = {
 const SELECTION_FOREGROUND_CONTRAST_EXEMPTIONS: Record<string, string> = {}
 
 describe('번들 테마 대비 게이트 — 선택 행 축(list.activeBackground)', () => {
-    test('src-tauri/resources/themes/*.json 전량이 validateSelectionRowContrast 를 통과한다(예외 명시분 제외)', () => {
+    test('crates/taide-theme/resources/themes/*.json 전량이 validateSelectionRowContrast 를 통과한다(예외 명시분 제외)', () => {
         const files = readdirSync(BUNDLED_THEMES_DIR).filter((name) => name.endsWith('.json'))
 
         const violations = files
@@ -159,11 +159,11 @@ describe('번들 테마 대비 게이트 — 선택 행 축(list.activeBackgroun
  * menu items, ghost-button hover/focus text) just as much as it does over `list.activeBackground`.
  * Mirrors the three existing identical-color lints in this codebase (`app.foreground`==`app.background`,
  * `panel.matchHighlight`==`app.foreground`, `list.activeBackground`==`panel.background`/
- * `list.hoverBackground`, all in `src-tauri/src/domain/theme/service.rs`) — this axis had none until
+ * `list.hoverBackground`, all in `crates/taide-theme/src/service.rs`) — this axis had none until
  * nord shipped `list.foreground` hex-identical to `list.background` (contrast 1.00) undetected.
  */
 describe('번들 테마 대비 게이트 — list.foreground 동일색', () => {
-    test('src-tauri/resources/themes/*.json 전량이 list.foreground 를 list.background/list.hoverBackground 와 다른 색으로 갖는다', () => {
+    test('crates/taide-theme/resources/themes/*.json 전량이 list.foreground 를 list.background/list.hoverBackground 와 다른 색으로 갖는다', () => {
         const files = readdirSync(BUNDLED_THEMES_DIR).filter((name) => name.endsWith('.json'))
         expect(files.length).toBeGreaterThan(0)
 
@@ -209,7 +209,7 @@ const readBundledThemes = () =>
  * registry that this gate, `scripts/repair-theme-contrast.ts` and the Rust catalog lint all read.
  */
 describe('번들 테마 대비 게이트 — 컴포넌트 전경/배경 전수', () => {
-    test('src-tauri/resources/themes/*.json 전량이 validateComponentContrast 를 통과한다(예외 명시분 제외)', () => {
+    test('crates/taide-theme/resources/themes/*.json 전량이 validateComponentContrast 를 통과한다(예외 명시분 제외)', () => {
         const themes = readBundledThemes()
         expect(themes.length).toBeGreaterThan(0)
 

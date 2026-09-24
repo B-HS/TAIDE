@@ -90,7 +90,7 @@ export type StateDistinctnessPair = {
  * are deliberately absent; `docs/theme-system.md` §8.5 records those exclusions and their reasons.
  *
  * This table is the single source of truth for the Rust catalog lint in
- * `src-tauri/src/domain/theme/service.rs`, which replicates it verbatim (plain literals, one object
+ * `crates/taide-theme/src/service.rs`, which replicates it verbatim (plain literals, one object
  * per entry, no computed keys) and is kept from drifting by a label/count comparison test against
  * this file — the same arrangement `service.rs`'s existing token-list comparison against
  * `src/entities/theme/theme-tokens.ts` uses.

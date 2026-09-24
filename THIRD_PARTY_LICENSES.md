@@ -17,7 +17,7 @@ rather than relying on `package.json`/`bun.lock` alone.
 ## Bundled Themes
 
 TAIDE ships 47 color themes derived from popular VS Code extensions as built-in
-(`builtin: true`) themes under `src-tauri/resources/themes/*.json`. Each source
+(`builtin: true`) themes under `crates/taide-theme/resources/themes/*.json`. Each source
 extension is MIT licensed; this file records the copyright notices required by
 the MIT license ("include the copyright notice and this permission notice in
 all copies or substantial portions of the Software").

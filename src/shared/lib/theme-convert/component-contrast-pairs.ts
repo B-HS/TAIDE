@@ -44,7 +44,7 @@ export type ComponentContrastPair = {
  *   on the primary button in others.
  *
  * This table is the single source of truth for the Rust catalog lint in
- * `src-tauri/src/domain/theme/service.rs`, which replicates it verbatim (plain literals, one object
+ * `crates/taide-theme/src/service.rs`, which replicates it verbatim (plain literals, one object
  * per entry, no computed keys); a label/count comparison test keeps the two from drifting, the same
  * arrangement `state-distinctness-pairs.ts` and `service.rs`'s token-list comparison already use.
  */

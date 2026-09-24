@@ -5,7 +5,7 @@ import { TERMINAL_MIRRORED_TOKENS } from '@shared/lib/theme-convert/ansi-palette
 import { isExemptComponentContrastViolation, repairComponentContrast, validateComponentContrast } from '@shared/lib/theme-convert/contrast'
 import { validateStateDistinctness } from '@shared/lib/theme-convert/state-distinctness'
 
-const BUNDLED_THEMES_DIR = 'src-tauri/resources/themes'
+const BUNDLED_THEMES_DIR = 'crates/taide-theme/resources/themes'
 const JSON_EXTENSION = '.json'
 
 /**

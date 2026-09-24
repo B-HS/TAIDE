@@ -147,7 +147,7 @@ export type SyntaxTokenId = (typeof SYNTAX_TOKENS)[number]
 /**
  * Kept as a literal array (not derived from `@shared/lib/theme-convert/types`'
  * `TERMINAL_ANSI_TOKENS`, despite listing the same 16 ANSI names first) because
- * `domain/theme/service.rs`'s parity test (`테마_토큰_목록은_rust와_theme_tokens_ts에서_일치한다`)
+ * `crates/taide-theme/src/service.rs`'s parity test (`테마_토큰_목록은_rust와_theme_tokens_ts에서_일치한다`)
  * statically regex-extracts `'...'` string literals straight out of this file's source text
  * between this marker and `] as const` — a spread expression has no quoted literals for it to
  * find, so replacing the ANSI portion with `...TERMINAL_ANSI_TOKENS` makes the parity test fail

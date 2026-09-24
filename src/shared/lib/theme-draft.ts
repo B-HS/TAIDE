@@ -40,7 +40,7 @@ const serializeTokenColors = (rules: ThemeDraftMetadata['tokenColors']) => JSON.
 /**
  * Decides which metadata a draft must carry *itself* rather than let the saved theme inherit from
  * `extends`. `tokenColors` resolve through the base theme when the theme has none of its own
- * (`domain/theme/service.rs`'s `resolve_token_colors`), so a `ResolvedTheme` cannot say on its own
+ * (`crates/taide-theme/src/service.rs`'s `resolve_token_colors`), so a `ResolvedTheme` cannot say on its own
  * whether the rules it reports are the theme's or the base's — comparing against the base's resolved
  * rules is what separates them. Dropping rules identical to the base keeps a duplicated bundled
  * theme inheriting (it stays in sync if the bundled theme's rules ever change), while a theme whose
