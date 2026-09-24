@@ -574,3 +574,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 렌더러·unit 8건과 로그인 경로 상수를 taide-remote로 이전하고 기존 Tauri 공개 경로를 재수출했습니다. remote→locale 도메인 경계 화이트리스트 1건과 더 이상 맞지 않는 설명을 제거했습니다. 새 crate unit 총 47건·경계 1건·도메인 경계 3건·Tauri remote 88건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. 경계 테스트는 기존 HTML과 새 HTML의 동일성, CSP의 script/connect 차단과 로그인 form action을 확인했고 추가된 두 CSP 단언도 전용 테스트·clippy·fmt가 통과했습니다. normal feature graph는 remote→locale→infra/model 단방향이며 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 브라우저 로그인·세션·WebSocket/dispatch 실기는 미실행이며 M5 전체는 미완료입니다.
 - [x] D. 구현은 commit `3204c14`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 일곱 번째 slice — remote WebSocket 프레임 프로토콜 이전 (완료, 수명주기 조립은 유지)
+
+- [x] A. `ws.rs`의 channel/response binary·JSON 프레임 함수 3개는 serde_json과 태그 상수만 사용합니다. 기존 ws unit 4건 green 뒤 새 byte/JSON wire fixture 경계 테스트는 protocol 모듈·상수 부재 E0433/E0425(exit 101)로 의도대로 실패했습니다.
+- [x] B. 프레임 함수 3개와 태그/채널 접두사 상수 3개를 taide-remote protocol/types로 이전하고 Tauri WebSocket adapter에서 호출하게 했습니다. binary 헤더 용량은 u32 크기에서 계산하며 출력 바이트는 기존 wire와 동일합니다. 새 경계 1건·기존 ws unit 4건·crate unit 47건이 통과했습니다. writer·channel 종료와 세션 수명주기는 Tauri에 남겼습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. byte fixture는 태그·big-endian ID/순번·raw payload를, JSON fixture는 응답 필드를 확인합니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 WebSocket 연결·writer/channel 종료 실기는 미실행이며 M5 전체는 미완료입니다.
+- [x] D. 구현은 commit `e002730`으로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
