@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료, M4 font·notification·snippet·system·task·tree·locale slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1·M2·M3 완료, M4 font·notification·snippet·system·task·tree·locale·theme slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -428,3 +428,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 새 crate와 기존 facade의 내장 카탈로그·필수 키 경계 테스트에서 crate 부재 E0433(exit 101) red를 확인했습니다. 구현·unit 18건·리소스 3개를 새 crate로 옮기고 기존 서비스 경로는 재수출 facade로 유지했습니다. 리소스 각각의 SHA-256은 원본과 동일합니다.
 - [x] C. 새 crate unit 18건·경계 1건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`가 통과했습니다. strict rustdoc은 공개 함수가 private 파서를 링크한 표기 한 곳에서 실패했고 이를 코드 텍스트로 바꾼 뒤 `RUSTDOCFLAGS='-D warnings' cargo doc -p taide-locale --no-deps`가 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. locale UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `50a19fc`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 여덟 번째 slice — theme 서비스·번들 카탈로그 이전 (완료, M4 전체는 진행 중)
+
+- [x] A. theme 서비스는 model DTO/error/paths와 infra persist/root_guard, serde_json만 참조합니다. 번들 JSON 47개·기존 unit 49건·프론트 테마 품질 게이트 3파일 20건, 경로를 참조하는 정비 스크립트 3개·라이선스 문서를 확인했습니다. 기존 프론트 게이트 20건 green 후 새 crate 경계 테스트는 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+- [x] B. 구현·unit 49건·번들 JSON 47개를 taide-theme로 옮기고 기존 서비스 경로를 재수출 facade로 유지했습니다. Rust 원천의 include_str 51곳, 프론트 게이트·스크립트·라이선스와 관련 코드의 경로 표기를 새 소유 위치로 갱신했습니다. 새 crate unit 49건·경계 1건·프론트 게이트 20건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-theme --no-deps`·`bun run typecheck`·변경 파일 Prettier가 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. 파일을 수정하는 테마 정비 스크립트와 테마 UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `4f6e774`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
