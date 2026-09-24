@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료, M4 서비스 slice 21개와 project 순수 정책·서비스 경계 검증 완료; Git commands/watch/plugin overlay·layout flush/이벤트/IDE·terminal 조립은 Tauri 경계, platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1~M4 코드 분리 완료, M5~M8과 GUI·실제 재시작 실기 미완료; Git commands/watch/plugin overlay·layout flush/이벤트/IDE·terminal 조립은 Tauri 경계, platform adapter는 M6 소유
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -526,3 +526,9 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 정책·저장/복원 구현과 unit 104건을 taide-layout로 이전하고 기존 서비스 경로를 재수출 facade로 유지했습니다. flush/이벤트/IDE·terminal 조립과 unit 4건은 Tauri 경계에 남겼습니다. 새 crate unit 104건·경계 1건·adapter unit 4건·session restore 8건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-layout --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. strict rustdoc의 private 링크 표기 7곳은 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 레이아웃 GUI·재시작 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `fb966e1`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 종료 판정 — 기능별 서비스 코드 분리 완료
+
+- [x] 계약의 project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification 서비스가 각각 Tauri 없는 기능 crate에 있으며 추가 app 서비스도 분리됐습니다. 기존 Tauri 공개 service 경로는 재수출 facade 또는 명시적 조립 adapter로 보존했습니다.
+- [x] 기존 기능 unit·번들 fixture/resource는 소유 crate와 함께 이전했습니다. AppState/AppHandle이 필요한 guarded save, layout flush/이벤트/IDE·terminal 후처리, project·agent·Git commands/capability/hooks/watch/plugin overlay 취득은 Tauri 조립 경계에 남겼습니다. root_guard·persist는 taide-infra 소유이며 서비스는 검증된 경로·overlay를 입력으로 소비합니다.
+- [x] 마지막 layout slice에서 `cargo test --workspace --quiet` 전체, fmt, clippy, strict layout rustdoc, Phase 0 IPC 계약 7건, TypeScript typecheck, normal feature graph 및 생성 bindings 해시 불변을 확인했습니다. 이는 M4의 코드 분리 완료 근거이며 실제 GUI·재시작·원격/OS 통합 parity를 통과했다는 뜻이 아닙니다. M5~M7에서 결합 절단·adapter·실기 검증을 계속합니다.

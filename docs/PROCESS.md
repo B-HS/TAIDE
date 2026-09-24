@@ -187,7 +187,7 @@
   - [x] M3-BX. `domain/git/service.rs` 3,641줄에 libgit2 호출·Git DTO/정책·시간제한 subprocess가 함께 있고 독립 `infra/repo.rs`가 없음을 확인했습니다. 별도 1회성 래퍼를 만들지 않고 기존 계약 지도대로 M4 Git 서비스 crate가 구현을 소유합니다.
   - [x] M3-BY. `src-tauri/src/infra`에는 21개 재수출 facade와 `asset_protocol`·`navigation_guard` platform adapter만 남았습니다. `taide-infra` 소스·정상 의존 그래프에 Tauri/domain 역의존이 없고 마지막 코드 변경에서 workspace 전체·fmt·clippy·strict rustdoc·IPC/bindings가 통과했습니다.
   - [x] M3-BZ. Git 서비스는 M4, 두 Tauri adapter는 M6으로 소유권을 기록하고 M3를 완료 처리해 관련 문서를 선별 commit·일반 push합니다.
-- [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
+- [x] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources를 소유 crate로 이동하고 facade를 보존했습니다. Tauri 조립 테스트와 GUI·실제 재시작 실기는 후속 단계 소유입니다.
   - [x] M4-A. font 서비스는 fontdb·model FontFamily만 의존하고 fontdb의 유일한 소비자입니다. 기존 unit 3건·Tauri command 소비를 확인했고 새 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
   - [x] M4-B. font 구현·기존 unit 3건을 taide-font로 이전하고 기존 Tauri service 경로를 재수출 facade로 유지했습니다. 새 crate unit 3건과 red였던 경계 테스트 1건이 통과했습니다.
   - [x] M4-C. 새 crate unit 3건·경계 1건·권한 허용 후 workspace 전체·fmt·clippy·strict font rustdoc·bindings SHA-256 불변을 확인했습니다. 제한된 sandbox의 프로세스·소켓·휴지통 관련 기존 9건 실패는 동일 명령의 권한 허용 재실행에서 모두 통과했습니다.
@@ -272,12 +272,14 @@
   - [x] M4-CD. layout 정책·저장/복원 구현과 unit 104건을 taide-layout로 이전하고 기존 service 공개 경로를 재수출 facade로 유지했습니다. Tauri flush·이벤트·IDE/terminal 조립과 unit 4건은 기존 경계에 남겼고 새 crate unit 104건·경계 1건이 통과했습니다.
   - [x] M4-CE. layout crate unit 104건·경계 1건·Tauri adapter unit 4건·session restore 8건·workspace 전체·fmt·clippy·strict layout rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. rustdoc private 링크 표기 7곳은 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256은 불변입니다. 실제 GUI·재시작 실기는 미실행입니다.
   - [x] M4-CF. layout 서비스 slice 구현을 commit `fb966e1`로 선별 반영하고 검증·Tauri flush/이벤트/IDE·terminal 조립 유지·미완료 GUI/실제 재시작 실기를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M4-CG. 계약의 기능별 서비스 19개와 추가 app 서비스가 독립 crate에 있고 Tauri의 공개 service 경로는 재수출 또는 조립 adapter로 보존됨을 대조했습니다. root_guard·persist는 infra로, watcher·plugin overlay 취득은 Tauri adapter에 두고 서비스 입력 경계로 넘깁니다. 마지막 workspace 전체·fmt·clippy·strict layout rustdoc·Phase 0 IPC·bindings 해시가 통과했고 GUI/실제 재시작은 M7 검증입니다.
+  - [x] M4-CH. M4의 코드 분리 완료와 Tauri 조립·GUI 검증의 후속 소유권을 계약 문서에 고정하고 PROCESS 상태를 완료로 갱신해 문서만 선별 commit·일반 push합니다.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M3까지 완료하고 M4의 font·notification·snippet·system·task·tree·locale·theme·settings·sync·search·plugin·VSIX·file·AI·app·agent·Git·layout 서비스 및 project의 그룹·슬롯·서비스를 분리·검증했습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립은 Tauri 경계에 남기고 `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
+> M1~M4의 코드 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립은 Tauri 경계에 남기고 M5의 도메인 결합 절단, M6의 platform adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
