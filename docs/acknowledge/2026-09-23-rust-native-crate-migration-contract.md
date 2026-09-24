@@ -553,3 +553,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 계획 구현·unit 12건과 label 상수 2개를 taide-window로 이전하고 기존 service/types 공개 경로를 재수출 facade로 유지했습니다. 새 crate unit 12건·경계 1건·Tauri window 테스트 13건·layout 테스트 12건이 통과했습니다. taide-layout은 테스트 전용 의존으로 두고 normal feature graph는 taide-model만 참조합니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-window --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph는 model만 참조하고 Tauri·test-support가 없으며 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 OS 다중창 생성·닫기·복원 GUI 실기는 실행하지 않았고 M5 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `321754e`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 네 번째 slice — LSP 서비스·매니페스트 이전 (완료, 프로세스 조립은 유지)
+
+- [x] A. LSP service·manifest는 model LSP DTO, infra lsp_install, log·serde_json과 번들 서버 JSON에 의존합니다. 기존 Tauri LSP unit 69건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다. 프로세스 생성·세션/재시작·설치 command는 Tauri 조립 경계입니다.
+- [x] B. 서비스·매니페스트 구현과 unit 45건, 번들 JSON을 taide-lsp로 이전하고 기존 Tauri service/manifest/types 경로를 재수출했습니다. crate unit 45건·경계 1건·Tauri LSP 명령 24건이 통과했습니다. `toolchain_binary`만 기존 Tauri 명령 소비를 위해 공개했습니다. JSON SHA-256은 `e5b35e2727633bcd8e7fdc21f044c299c1ed25902e37eee24f3dd701b33565f3`로 이전 전후 동일합니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-lsp --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. strict rustdoc의 private 링크 2곳은 코드 텍스트로 바꾸고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 LSP 프로세스·세션·GUI 실기는 실행하지 않았고 M5 전체는 미완료입니다.
+- [x] D. 구현은 commit `f85c1ed`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
