@@ -609,3 +609,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 모든 JSON 객체의 `owner` 키를 깊이에 관계없이 고정 `remote` 라벨로 바꾸는 함수를 taide-remote policy로, 공유 라벨을 taide-remote types로 옮겼습니다. Tauri의 기존 types 공개 경로는 재수출하고 두 dispatch 진입점의 호출 위치를 유지했습니다. 클라이언트가 `main`·`editor-*`를 보내도 데스크톱 창 소유자로 위장하지 못하도록 하는 신뢰 경계는 동일합니다. 새 경계 2건·기존 dispatch unit 37건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-remote --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 WebSocket 연결·원격/데스크톱 owner 분리 실기는 미실행이며 M5 전체는 미완료입니다.
 - [x] D. 구현은 commit `39a4523`으로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 열두 번째 slice — LSP 설치 수명주기 이전 (완료, installer 조립은 유지)
+
+- [x] A. 대상 파일은 `src-tauri/src/domain/lsp/commands.rs`의 `LspInstallStore`·`LspInstallGuard`, `crates/taide-lsp/src/install.rs`, `src-tauri/tests/taide_lsp_install_store_extraction.rs`입니다. 동일 server ID의 중복 설치는 거부하고 취소 토큰은 현재 작업에만 전달하며, 정상 종료·패닉·대기 중 future 폐기에는 Drop이 슬롯을 해제해야 합니다. 기존 Tauri unit 2건을 확인한 뒤 새 독립 crate 경계 1건은 `taide_lsp::install` 부재 E0432(exit 101)로 의도대로 실패했습니다.
+- [x] B. 설치 슬롯·Drop 가드와 기존 unit 2건을 taide-lsp로 옮기고 Tauri 명령은 installer 실행·취소만 조립합니다. 슬롯 동기화에 기존 workspace에서도 쓰는 `parking_lot`을 taide-lsp 의존성으로 추가해 패닉 시 독성 잠금이 없는 기존 동작을 유지했습니다. `begin`이 가드를 반환해 호출자가 슬롯 해제를 빠뜨릴 수 없으며, Tauri의 공개 store 경로와 `lsp_install`·`lsp_install_cancel` IPC는 그대로입니다. 대기 중 future를 poll한 다음 버릴 때도 슬롯이 풀리는 unit 1건을 추가했습니다.
+- [x] C. 새 경계 1건·taide-lsp unit 48건·Tauri LSP 명령 22건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-lsp --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 installer 프로세스·UI 취소 실기는 미실행이며 M5 전체는 미완료입니다.
+- [x] D. 구현·테스트·기록은 하나의 논리 단위로 선별 commit하고 원격 `to_rust_native`에 일반 push합니다.

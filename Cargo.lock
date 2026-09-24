@@ -4565,6 +4565,7 @@ name = "taide-lsp"
 version = "0.1.0"
 dependencies = [
  "log",
+ "parking_lot",
  "serde_json",
  "taide-infra",
  "taide-model",

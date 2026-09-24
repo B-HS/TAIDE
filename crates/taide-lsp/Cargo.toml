@@ -9,6 +9,7 @@ rust-version = "1.89"
 taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
 log = "0.4"
+parking_lot = "0.12"
 serde_json = "1"
 
 [dev-dependencies]

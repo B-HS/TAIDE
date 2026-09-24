@@ -319,6 +319,10 @@
   - [x] M5-AP. owner 강제 규칙·공유 라벨을 taide-remote policy/types로 이전하고 Tauri dispatch/기존 공개 경로를 유지했습니다. 새 경계 2건·기존 dispatch unit 37건이 통과했고 테스트 전용 상수 import 경고를 제거했습니다.
   - [x] M5-AQ. 새 중첩/배열 경계 2건·기존 dispatch unit 37건·workspace 전체·fmt·clippy·strict remote rustdoc·Phase 0 계약 7건·typecheck가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다.
   - [x] M5-AR. 구현은 commit `39a4523`으로 선별 반영했습니다. 실제 WebSocket 세션·owner 분리 실기는 미실행이며 M5 전체는 미완료로 유지합니다. 신뢰 경계와 검증을 계약 문서에 기록하고 문서 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M5-AS. LSP 설치 슬롯의 중복 차단·취소·패닉/정상 종료 해제 계약과 기존 Tauri unit 2건을 확인했습니다. 독립 crate 경계 테스트는 `taide_lsp::install` 부재 E0432(exit 101)로 의도대로 실패했습니다.
+  - [x] M5-AT. 설치 슬롯과 Drop 가드 및 기존 unit 2건을 taide-lsp install 모듈로 옮겨 Tauri 명령은 설치 실행과 취소 호출만 조립하게 했습니다. 대기 중 future 취소 시 슬롯 해제 unit 1건을 추가했고 새 경계 1건·crate unit 48건·Tauri LSP 명령 22건이 통과했습니다. 기존 공개 store 경로와 IPC는 유지했습니다.
+  - [x] M5-AU. 새 경계 1건·taide-lsp unit 48건·Tauri LSP 명령 22건·workspace 전체·fmt·clippy·strict LSP rustdoc·Phase 0 계약 7건·typecheck가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다.
+  - [x] M5-AV. 중복 설치 차단·취소·패닉/정상 종료 및 대기 중 future 폐기 시 슬롯 해제 증거를 계약 문서에 기록했습니다. 실제 installer 프로세스와 UI 취소 실기는 미실행이고 M5 전체는 미완료입니다. 관련 코드·테스트·문서만 하나의 논리 단위로 선별 commit·일반 push합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.

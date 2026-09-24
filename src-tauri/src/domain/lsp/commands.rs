@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+pub use taide_lsp::install::LspInstallStore;
 use taide_lsp::protocol::workspace_folders_notification;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
@@ -130,58 +131,6 @@ impl LspStore {
                 Some((entry.project_id.clone(), entry.spec.name.clone(), pid))
             })
             .collect()
-    }
-}
-
-#[derive(Default)]
-pub struct LspInstallStore(Mutex<HashMap<LspServerId, Arc<AtomicBool>>>);
-
-impl LspInstallStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Registers a new install for `server_id`, returning `None` when one is already in
-    /// progress. Reentrant `begin` calls must be rejected — otherwise a second install would
-    /// silently overwrite the first's cancel token (making it uncancellable) and its `finish`
-    /// could race-remove the second install's still-active entry.
-    fn begin(&self, server_id: &LspServerId) -> Option<Arc<AtomicBool>> {
-        let mut store = self.0.lock();
-        if store.contains_key(server_id) {
-            return None;
-        }
-        let cancel = Arc::new(AtomicBool::new(false));
-        store.insert(server_id.clone(), cancel.clone());
-        Some(cancel)
-    }
-
-    fn finish(&self, server_id: &LspServerId, cancel: &Arc<AtomicBool>) {
-        let mut store = self.0.lock();
-        if store.get(server_id).is_some_and(|existing| Arc::ptr_eq(existing, cancel)) {
-            store.remove(server_id);
-        }
-    }
-}
-
-/// Guarantees [`LspInstallStore::finish`] runs even when [`lsp_install`]'s awaited
-/// `run_download_install`/`run_toolchain_install` future never returns normally — a panic
-/// unwinding through it, or the command's own task being dropped mid-poll (app exit, or whatever
-/// cancels an in-flight Tauri IPC call) — rather than only on the two ordinary `Ok`/`Err` exits a
-/// plain post-`.await` call to `finish` would cover. Without this, `server_id` stays permanently
-/// wedged as "install in progress" in [`LspInstallStore`]: [`LspInstallStore::begin`] rejects every
-/// later `lsp_install` for it, and the cancel token that would have let [`lsp_install_cancel`] stop
-/// it is unreachable once the future that held it is gone. Mirrors `architecture.md` §6.3's
-/// "Drop 구현 + 명시적 shutdown 경로 이중화" — the explicit call this guard replaces was the single
-/// non-Drop layer; this restores the second one.
-struct LspInstallGuard<'a> {
-    store: &'a LspInstallStore,
-    server_id: &'a LspServerId,
-    cancel: Arc<AtomicBool>,
-}
-
-impl Drop for LspInstallGuard<'_> {
-    fn drop(&mut self) {
-        self.store.finish(self.server_id, &self.cancel);
     }
 }
 
@@ -1247,7 +1196,7 @@ pub async fn lsp_install(
     let spec = manifest::find_spec(server_id.as_str())
         .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
 
-    let Some(cancel) = install_store.begin(&server_id) else {
+    let Some(install_guard) = install_store.begin(&server_id) else {
         return Err(AppError::localized(
             AppErrorKind::InvalidArgument,
             "error.lsp.installAlreadyRunning",
@@ -1255,11 +1204,7 @@ pub async fn lsp_install(
         )
         .with_arg("serverId", &server_id));
     };
-    let _guard = LspInstallGuard {
-        store: install_store.inner(),
-        server_id: &server_id,
-        cancel: cancel.clone(),
-    };
+    let cancel = install_guard.cancellation_token();
 
     match spec.install.strategy {
         LspInstallStrategy::Download => run_download_install(&app, &state.paths, &spec, cancel).await,
@@ -1276,9 +1221,7 @@ pub async fn lsp_install(
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, server_id: LspServerId) -> AppResult<()> {
-    if let Some(cancel) = install_store.0.lock().get(&server_id) {
-        cancel.store(true, Ordering::SeqCst);
-    }
+    install_store.cancel(&server_id);
     Ok(())
 }
 
@@ -1334,48 +1277,6 @@ mod tests {
         assert!(!should_signal_process_group(1), "1 은 시그널 가능한 모든 프로세스를 뜻한다");
         assert!(should_signal_process_group(MIN_SIGNALABLE_PGID));
         assert!(should_signal_process_group(48_231));
-    }
-
-    #[test]
-    fn lspinstallguard는_설치_클로저가_패닉해도_슬롯을_해제한다() {
-        let store = LspInstallStore::new();
-        let server_id = LspServerId::from("test-server");
-
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let cancel = store.begin(&server_id).expect("첫 install은 슬롯을 얻어야 한다");
-            let _guard = LspInstallGuard {
-                store: &store,
-                server_id: &server_id,
-                cancel,
-            };
-            panic!("설치 도중 패닉");
-        }));
-
-        assert!(panicked.is_err(), "패닉이 실제로 발생해야 이 테스트가 의미가 있다");
-        assert!(
-            store.begin(&server_id).is_some(),
-            "가드가 패닉 언와인딩 중에도 finish를 호출해 슬롯을 해제해야 한다 — 그러지 않으면 이 server_id는 영원히 \"설치 중\"으로 잠긴다"
-        );
-    }
-
-    #[test]
-    fn lspinstallguard는_정상_종료_시에도_슬롯을_해제한다() {
-        let store = LspInstallStore::new();
-        let server_id = LspServerId::from("test-server");
-
-        {
-            let cancel = store.begin(&server_id).expect("첫 install은 슬롯을 얻어야 한다");
-            let _guard = LspInstallGuard {
-                store: &store,
-                server_id: &server_id,
-                cancel,
-            };
-        }
-
-        assert!(
-            store.begin(&server_id).is_some(),
-            "정상적으로 스코프를 빠져나가도 슬롯은 해제되어야 한다"
-        );
     }
 
     /// §4-A-7 regression at the notification level: the roots this sends must carry the same URI
