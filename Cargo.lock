@@ -4398,6 +4398,7 @@ dependencies = [
  "taide-notification",
  "taide-plugin",
  "taide-project",
+ "taide-remote",
  "taide-search",
  "taide-settings",
  "taide-snippet",
@@ -4605,6 +4606,16 @@ version = "0.1.0"
 dependencies = [
  "log",
  "serde_json",
+ "taide-infra",
+ "taide-model",
+ "uuid",
+]
+
+[[package]]
+name = "taide-remote"
+version = "0.1.0"
+dependencies = [
+ "sha2",
  "taide-infra",
  "taide-model",
  "uuid",
