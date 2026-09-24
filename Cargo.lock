@@ -4384,6 +4384,7 @@ dependencies = [
  "specta-typescript",
  "sysinfo",
  "taide-ai",
+ "taide-app",
  "taide-file",
  "taide-font",
  "taide-infra",
@@ -4430,6 +4431,17 @@ dependencies = [
  "taide-infra",
  "taide-model",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "taide-app"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "taide-ai",
+ "taide-infra",
+ "taide-model",
  "uuid",
 ]
 
