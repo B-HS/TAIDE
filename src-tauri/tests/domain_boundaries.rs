@@ -58,8 +58,6 @@ use regex::Regex;
 ///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
 /// - `remote/login_page.rs → locale::service` — the served login HTML renders the current UI
 ///   language's strings; locale is a data provider here.
-/// - `settings/service.rs → theme::service` — `set_theme` validates that the target theme exists
-///   before persisting it.
 /// - `sync/* → settings::*`·`theme::service`·`locale::service` — sync is the aggregation domain
 ///   (upload/download bundles settings+themes+locales; audit R5#14 judged the aggregation edges
 ///   unavoidable).
@@ -100,7 +98,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/project/commands.rs", "layout::service"),
     ("domain/project/commands.rs", "settings::service"),
     ("domain/remote/login_page.rs", "locale::service"),
-    ("domain/settings/service.rs", "theme::service"),
     ("domain/sync/commands.rs", "settings::commands"),
     ("domain/sync/commands.rs", "settings::service"),
     ("domain/sync/service.rs", "locale::service"),

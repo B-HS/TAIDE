@@ -1,10 +1,4 @@
-/// Single-owner wildcard-prefix syntax for a `remote_allowed_hosts` entry (RFC 6125 single-label
-/// wildcard, matched by `service::host_matches_allowed_entry`) — `settings::service::
-/// is_valid_allowed_host` (sanitizing user input) and `service`'s matcher/link-formatting callers
-/// all read the same constant instead of each hardcoding `"*."`. Lives in `types` (not `service`)
-/// so the settings domain's reference stays a data-shape reference rather than a cross-domain
-/// `service::` path (T1-I §1.0).
-pub const ALLOWED_HOST_WILDCARD_PREFIX: &str = "*.";
+pub use taide_model::remote::ALLOWED_HOST_WILDCARD_PREFIX;
 
 pub const REMOTE_SESSION_COOKIE_NAME: &str = "taide_remote_session";
 pub const REMOTE_LOGIN_NONCE_COOKIE_NAME: &str = "taide_remote_login_nonce";

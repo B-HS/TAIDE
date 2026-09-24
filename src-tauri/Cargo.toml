@@ -55,6 +55,7 @@ taide-infra = { path = "../crates/taide-infra" }
 taide-locale = { path = "../crates/taide-locale" }
 taide-model = { path = "../crates/taide-model" }
 taide-notification = { path = "../crates/taide-notification" }
+taide-settings = { path = "../crates/taide-settings" }
 taide-snippet = { path = "../crates/taide-snippet" }
 taide-system = { path = "../crates/taide-system" }
 taide-task = { path = "../crates/taide-task" }
