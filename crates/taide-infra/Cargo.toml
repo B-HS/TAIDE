@@ -6,4 +6,6 @@ edition = "2021"
 rust-version = "1.89"
 
 [dependencies]
+parking_lot = "0.12"
 regex = "1"
+taide-model = { path = "../taide-model" }

@@ -4417,7 +4417,9 @@ dependencies = [
 name = "taide-infra"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "regex",
+ "taide-model",
 ]
 
 [[package]]
