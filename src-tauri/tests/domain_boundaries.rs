@@ -58,9 +58,8 @@ use regex::Regex;
 ///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
 /// - `remote/login_page.rs → locale::service` — the served login HTML renders the current UI
 ///   language's strings; locale is a data provider here.
-/// - `sync/* → settings::*`·`theme::service`·`locale::service` — sync is the aggregation domain
-///   (upload/download bundles settings+themes+locales; audit R5#14 judged the aggregation edges
-///   unavoidable).
+/// - `sync/commands.rs → settings::*` — sync upload/download shares the settings command path;
+///   its former service aggregation edges are now owned by `taide-sync`.
 /// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
 ///   reloads it; the deliberate single direction left after R7#4's cycle cut (plugin no longer
 ///   references vsix).
@@ -100,9 +99,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/remote/login_page.rs", "locale::service"),
     ("domain/sync/commands.rs", "settings::commands"),
     ("domain/sync/commands.rs", "settings::service"),
-    ("domain/sync/service.rs", "locale::service"),
-    ("domain/sync/service.rs", "settings::service"),
-    ("domain/sync/service.rs", "theme::service"),
     ("domain/vsix/commands.rs", "plugin::service"),
     ("domain/window/menu.rs", "locale::service"),
     ("domain/window/menu.rs", "project::service"),

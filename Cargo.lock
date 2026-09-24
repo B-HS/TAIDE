@@ -4390,6 +4390,7 @@ dependencies = [
  "taide-notification",
  "taide-settings",
  "taide-snippet",
+ "taide-sync",
  "taide-system",
  "taide-task",
  "taide-theme",
@@ -4503,6 +4504,19 @@ dependencies = [
  "serde_json",
  "taide-infra",
  "taide-model",
+ "uuid",
+]
+
+[[package]]
+name = "taide-sync"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde_json",
+ "taide-locale",
+ "taide-model",
+ "taide-settings",
+ "taide-theme",
  "uuid",
 ]
 

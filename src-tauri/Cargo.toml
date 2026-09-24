@@ -57,6 +57,7 @@ taide-model = { path = "../crates/taide-model" }
 taide-notification = { path = "../crates/taide-notification" }
 taide-settings = { path = "../crates/taide-settings" }
 taide-snippet = { path = "../crates/taide-snippet" }
+taide-sync = { path = "../crates/taide-sync" }
 taide-system = { path = "../crates/taide-system" }
 taide-task = { path = "../crates/taide-task" }
 taide-theme = { path = "../crates/taide-theme" }
