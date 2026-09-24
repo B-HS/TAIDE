@@ -1404,7 +1404,7 @@ export type EditorCursorStyle = "line" | "block" | "underline";
  *  real enum makes specta emit the same `"none" | "boundary" | "selection" | "all"` union the
  *  frontend already hand-declared, so those casts collapse to a plain type. A legacy/out-of-range
  *  value is normalized back to the default *before* typed parse — see
- *  [`crate::domain::settings::service::sanitize_legacy_settings_values`].
+ *  `domain::settings::service::sanitize_legacy_settings_values`.
  */
 export type EditorRenderWhitespace = "none" | "boundary" | "selection" | "all";
 
@@ -1869,7 +1869,7 @@ export type OpenedFile = {
 	modifiedMs: number | null,
 	/**
 	 *  The `.editorconfig` properties in force for this file, resolved at open time by
-	 *  [`crate::domain::file::editorconfig::resolve_for_file`]. Rides on the open response rather
+	 *  `domain::file::editorconfig::resolve_for_file`. Rides on the open response rather
 	 *  than a command of its own so the editor has them in the same render that first shows the
 	 *  content — a second round trip would mount the model with the wrong indentation and correct
 	 *  it a tick later. Empty (every field `None`) when the `editor_config_enabled` setting is off,

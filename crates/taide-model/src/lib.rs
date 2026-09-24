@@ -11,6 +11,7 @@ pub mod paths;
 pub mod plugin;
 pub mod project;
 pub mod search;
+pub mod settings;
 pub mod snippet;
 pub mod system;
 pub mod task;
