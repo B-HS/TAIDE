@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use taide_infra::{clock, crypto, home, language, persist, redact, root_guard, self_write, shell_quote, watch_policy, watcher};
+use taide_infra::{
+    clock, crypto, external_url, home, language, persist, range_file, redact, root_guard, self_write, shell_quote, watch_policy, watcher,
+};
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
 use taide_model::file::{FsChange, FsChangeKind};
@@ -85,4 +87,23 @@ fn watcher와_무시_디렉터리_정책은_기존_공개_경로를_유지한다
         .err()
         .expect("빈 루트는 감시를 시작할 수 없어야 한다");
     assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+}
+
+#[test]
+fn 파일_범위_파서는_기존_경로와_같은_상한과_csp를_쓴다() {
+    assert_eq!(range_file::RANGE_RESPONSE_CSP, infra::range_file::RANGE_RESPONSE_CSP);
+    assert_eq!(
+        range_file::parse_range("bytes=-5", 10),
+        infra::range_file::parse_range("bytes=-5", 10)
+    );
+    assert_eq!(range_file::parse_range("bytes=9-2", 10), None);
+}
+
+#[test]
+fn 외부_url_검증은_기존_경로와_같은_위장_거부_정책을_쓴다() {
+    let _: fn(&str) -> AppResult<String> = infra::external_url::validate_external_url;
+    let suspicious = "https://trusted.example@evil.example/";
+    let old = infra::external_url::validate_external_url(suspicious).unwrap_err();
+    let new = external_url::validate_external_url(suspicious).unwrap_err();
+    assert_eq!(old.kind(), new.kind());
 }
