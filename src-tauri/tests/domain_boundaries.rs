@@ -31,9 +31,9 @@ use regex::Regex;
 ///   the next wiring batch.
 /// - `ide/commands.rs → file::service` — `save_file_within_open_projects` is the root-guarded
 ///   single save path `file_save` itself uses (R6#2's fix: share it, don't clone it).
-/// - `ide/server.rs`·`ide/service.rs → layout::service` — MCP tools (openFile/close_tab/
-///   getOpenEditors) drive the tab lifecycle through the same layout orchestrators and pure
-///   `PaneNode` helpers the layout commands use (R6#3's fix: service, not a second command entry).
+/// - `ide/server.rs → layout::service` — MCP tools (openFile/close_tab) drive the tab lifecycle
+///   through the same layout orchestrators the layout commands use (R6#3's fix: service, not a
+///   second command entry). The getOpenEditors snapshot uses the taide-layout crate directly.
 ///   Together with `layout/service.rs → ide::store` below these edges form a known layout ↔ ide
 ///   cycle (the tab lifecycle is co-owned) — deferred to a future batch, like window ↔ layout.
 /// - `layout/commands.rs → window::commands` + `window/service.rs → layout::service` — moving a
@@ -85,7 +85,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/ide/commands.rs", "file::service"),
     ("domain/ide/server.rs", "layout::service"),
     ("domain/ide/server.rs", "plugin::service"),
-    ("domain/ide/service.rs", "layout::service"),
     ("domain/layout/commands.rs", "window::commands"),
     ("domain/layout/service.rs", "ide::store"),
     ("domain/layout/service.rs", "terminal::commands"),
