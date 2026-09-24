@@ -113,21 +113,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/window/service.rs", "layout::service"),
 ];
 
-/// `infra → domain` references are forbidden even for types (layer direction — audit R4#6); these
-/// four `types`-only references are the approved remainder, each a future inversion candidate in
-/// the shape `infra::language::LanguageOverlay` already demonstrated:
-/// - `asset_protocol.rs`·`root_guard.rs → project::types` — both take the open-projects map as a
-///   parameter (never `AppState`) and only read `Project.root`; inverting would ripple a
-///   lightweight root-set type through every guard call site.
-/// - `self_write.rs`·`watcher.rs → file::types` — the watcher pipeline produces `FsChange`
-///   directly; inverting needs an infra-owned raw-change type plus a domain-side classifier move.
-const ALLOWED_INFRA_DOMAIN_REFS: &[(&str, &str)] = &[
-    ("infra/asset_protocol.rs", "project::types"),
-    ("infra/root_guard.rs", "project::types"),
-    ("infra/self_write.rs", "file::types"),
-    ("infra/watcher.rs", "file::types"),
-];
-
 /// The one file allowed to hold a bare `use crate::domain;` import and reference every domain's
 /// `commands`: the remote gateway is a dispatch table over the whole command surface by design
 /// (architecture.md §4 — default-deny table), and its own parity tests already pin that table.
@@ -236,7 +221,7 @@ fn 도메인_간_참조는_types와_capability_확장점과_화이트리스트�
 }
 
 #[test]
-fn infra는_화이트리스트_밖의_domain_참조를_가질_수_없다() {
+fn infra는_domain_참조를_가질_수_없다() {
     let pattern = Regex::new(r"crate::domain::([a-z_0-9]+)::([A-Za-z_][A-Za-z0-9_]*)").expect("유효한 정규식");
     let mut found = BTreeSet::new();
 
@@ -248,21 +233,9 @@ fn infra는_화이트리스트_밖의_domain_참조를_가질_수_없다() {
         }
     }
 
-    let allowed: BTreeSet<(String, String)> = ALLOWED_INFRA_DOMAIN_REFS
-        .iter()
-        .map(|(file, target)| (file.to_string(), target.to_string()))
-        .collect();
-
-    let violations: Vec<_> = found.difference(&allowed).collect();
     assert!(
-        violations.is_empty(),
-        "infra 는 domain 을 참조할 수 없습니다 (계층 역방향 — architecture.md §2; infra 측 경량 타입을 정의하고 domain 이 변환해 전달하십시오, `infra::language::LanguageOverlay` 선례):\n{violations:#?}"
-    );
-
-    let stale: Vec<_> = allowed.difference(&found).collect();
-    assert!(
-        stale.is_empty(),
-        "ALLOWED_INFRA_DOMAIN_REFS 에 더 이상 실재하지 않는 항목이 있습니다 — 역참조를 정리했다면 화이트리스트에서도 제거하십시오:\n{stale:#?}"
+        found.is_empty(),
+        "infra 는 domain 을 참조할 수 없습니다 (architecture.md §2):\n{found:#?}"
     );
 }
 

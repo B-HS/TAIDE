@@ -10,9 +10,9 @@ use notify_debouncer_full::file_id::{get_file_id, FileId};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, DebouncedEvent, Debouncer, FileIdCache};
 
 use crate::constants::{is_ignored_dir, WATCH_DEBOUNCE_MS};
-use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::persist;
+use taide_model::file::{FsChange, FsChangeKind};
 
 /// One live watch. Dropping it stops the debouncer thread, which is how `project_close` and
 /// `FileWatcherCapability::detach` end a watch (`AppState::watchers`/`git_watchers` hold these).

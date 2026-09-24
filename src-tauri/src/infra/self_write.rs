@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::domain::file::types::FsChange;
+use taide_model::file::FsChange;
 
 /// How long a path marked via [`SelfWriteTracker::mark`] stays eligible to be recognized as the
 /// app's own write by [`resolve_from_app`] — long enough to comfortably outlive the filesystem
@@ -86,7 +86,7 @@ pub fn resolve_from_app(tracker: &SelfWriteTracker, changes: Vec<FsChange>) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::file::types::FsChangeKind;
+    use taide_model::file::FsChangeKind;
 
     fn change(paths: &[&str]) -> FsChange {
         FsChange {

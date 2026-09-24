@@ -57,10 +57,10 @@ use std::path::{Path, PathBuf};
 
 use tauri::http::{header, HeaderValue, Request, Response, StatusCode};
 
-use crate::domain::project::types::Project;
 use crate::ids::ProjectId;
 use crate::infra::range_file::{extension_mime, parse_range, read_slice, RANGE_RESPONSE_CSP};
 use crate::infra::root_guard;
+use taide_model::project::Project;
 
 fn no_store() -> HeaderValue {
     HeaderValue::from_static("no-store")

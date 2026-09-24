@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::domain::project::types::Project;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
+use taide_model::project::Project;
 
 pub fn project_root(projects: &HashMap<ProjectId, Project>, project_id: &ProjectId) -> AppResult<PathBuf> {
     projects
