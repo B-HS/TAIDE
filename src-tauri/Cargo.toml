@@ -53,6 +53,7 @@ ignore = "0.4.30"
 taide-font = { path = "../crates/taide-font" }
 taide-infra = { path = "../crates/taide-infra" }
 taide-model = { path = "../crates/taide-model" }
+taide-notification = { path = "../crates/taide-notification" }
 
 [dev-dependencies]
 taide-infra = { path = "../crates/taide-infra", features = ["test-support"] }
