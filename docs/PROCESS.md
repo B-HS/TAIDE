@@ -67,7 +67,7 @@
   - [x] M2-BB. model↔facade 타입 동일성, 구버전 payload 기본값과 status/download wire fixture를 먼저 추가했고 model sync 모듈 부재 E0432(exit 101) red를 확인했습니다.
   - [x] M2-BC. sync 상수·DTO·기존 unit 2건을 model crate로 이전하고 기존 공개 경로를 재수출했습니다.
   - [x] M2-BD. 전용 경계 2건·model unit 23건·Rust workspace 1,823건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings와 SHA-256 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`는 불변입니다.
-  - [ ] M2-BE. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+  - [x] M2-BE. 관련 6파일을 선별 commit `599e98d`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.

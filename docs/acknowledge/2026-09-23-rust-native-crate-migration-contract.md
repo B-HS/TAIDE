@@ -182,10 +182,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 전용 경계 3건·settings 서비스 70건·`cargo test --workspace --quiet` 총 1,821건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings는 이동된 rustdoc 경로 9곳만 바뀌어 manifest SHA-256을 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`로 동기화했습니다. sandbox 안 workspace 실행은 프로세스 조회·로컬 소켓·macOS 휴지통 권한으로 9건 실패했고, 제한 밖 동일 명령에서는 전부 통과했습니다.
 - [x] E. 관련 7파일을 선별 commit `34deeae`로 현재 브랜치에 반영하고 기록 commit과 함께 일반 push합니다.
 
-## M2 열여섯 번째 slice — sync 영속·wire DTO (진행 중)
+## M2 열여섯 번째 slice — sync 영속·wire DTO (완료)
 
 - [x] A. `sync/types.rs`는 model로 이전된 `SettingsPatch`와 serde·specta만 참조합니다. GitHub API·secret·Tauri command/event 로직은 다른 파일에 있어 sync payload·status·download result와 두 상수를 독립적으로 옮길 수 있습니다.
 - [x] B. model↔facade 타입 동일성, 구버전 payload 기본값과 status/download wire fixture를 먼저 작성했고 model sync 모듈 부재 E0432(exit 101) red를 기록했습니다.
 - [x] C. sync 상수·DTO·기존 unit 2건을 model crate로 이전하고 기존 `domain::sync::types::*` 공개 경로를 재수출했습니다.
 - [x] D. 전용 경계 2건·model unit 23건·`cargo test --workspace --quiet` 총 1,823건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings와 SHA-256 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`는 불변입니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 6파일을 선별 commit `599e98d`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
