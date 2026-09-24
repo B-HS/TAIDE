@@ -4388,6 +4388,7 @@ dependencies = [
  "taide-model",
  "taide-notification",
  "taide-snippet",
+ "taide-system",
  "tar",
  "tauri",
  "tauri-build",
@@ -4475,6 +4476,13 @@ dependencies = [
  "taide-infra",
  "taide-model",
  "uuid",
+]
+
+[[package]]
+name = "taide-system"
+version = "0.1.0"
+dependencies = [
+ "taide-model",
 ]
 
 [[package]]
