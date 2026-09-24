@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1 완료; M2 경로·플러시·theme/locale/snippet·project/session·search·app 파일 대상·layout·file/tree/font·task/system 타입 이전, 전체 M2 진행 중
+> 상태: M1 완료; M2 공통 DTO·settings 영속 DTO·notification wire 이전, 전체 M2 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -166,10 +166,18 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 전용 경계 2건, Phase 0 IPC 계약 7건, Rust workspace 1,818건·fmt·clippy·model rustdoc를 확인했습니다. `file.rs`의 선행 rustdoc 수정과 enum 문서 경로 변경은 생성된 `bindings.ts`의 설명 2줄만 변경하여 Phase 0 manifest 해시를 `0554f681b1f02cc1959439e451464799b071a2781524d6fa916e536ec2639c33`으로 갱신했습니다. JSON 파싱 오류로 구현 sub-pen 호출 2회가 실패했지만 소유 파일 구현이 남아 메인이 직접 diff·검증을 확인했습니다. 별도 인수 `taide-m2-settings-adopt-20260924`(session `ses_f2e87a7bcffe959QLmtgKQx7u2`)는 읽기 전용으로 변경 없이 DONE을 반환했습니다.
 - [x] E. 관련 구현·경계 테스트·생성 bindings·Phase 0 manifest 7파일만 선별 commit `1159884`로 반영하고 현재 브랜치에 일반 push했습니다. 계약·체크리스트 문서는 별도 커밋에서 현행화합니다.
 
-## M2 열네 번째 slice — notification 순수 wire 타입 (진행 중)
+## M2 열네 번째 slice — notification 순수 wire 타입 (완료)
 
 - [x] A. `src-tauri/src/domain/notification/types.rs`의 3개 enum은 serde·specta만 쓰며 서비스의 완료 정책과 별도입니다. 기존 서비스·명령·공개 경로와 도메인 doc 링크를 확인했습니다.
 - [x] B. category·suppression·delivery의 model↔facade 타입 동일성, tag/content·camelCase wire와 구버전 데이터를 2개 테스트로 고정하고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. enum과 설명을 model crate로 이전하고 도메인 파일은 재수출했습니다. stale 도메인 rustdoc 링크 2건만 일반 코드 경로로 고쳤습니다.
 - [x] D. 새 경계 2건·`cargo test --workspace --quiet` 총 1,820건(IPC 계약 7건 포함)·fmt·clippy·strict model rustdoc가 통과했습니다. 생성 bindings의 설명 2줄만 바뀌어 manifest 해시를 `56f31885f4920d663972a80b1db640634d2fae126347e4914f1ecd262c6eeccc`으로 갱신했습니다. 구현 sub-pen 2회는 JSON 파싱·완료 근거 오류로 FAILED였지만 소유 파일 diff를 메인이 대조했고 읽기 전용 인수 `taide-m2-notification-adopt-20260924`(session `ses_f2e5ef48affekRM7q1hekuBzcR`)가 변경 없이 DONE을 반환했습니다.
-- [ ] E. 검증된 구현 6파일을 commit `36ef8e3`으로 현재 브랜치에 반영했습니다. `git push origin to_rust_native` 2회가 `Could not resolve host: github.com`(exit 128)으로 실패했습니다. 네트워크 복구 후 원격에 일반 push하고 그때 완료로 갱신합니다.
+- [x] E. 검증된 구현 6파일을 commit `36ef8e3`으로 현재 브랜치에 반영했습니다. 샌드박스 DNS 제한 해제 후 기록 commit `e05807d`와 함께 원격 `to_rust_native`에 일반 push했습니다.
+
+## M2 열다섯 번째 slice — settings 영속 DTO (진행 중)
+
+- [x] A. `Settings`·`SettingsPatch`는 선행 이전한 settings enum 4개와 `AiProviderId`만 참조하고, 상수·serde 기본값 함수도 표준 라이브러리 외 의존이 없습니다. 서비스의 sanitize·migration·apply 로직은 도메인에 남깁니다. `bindings.ts` field parity unit은 frontend 계약을 읽으므로 기존 settings facade에 유지합니다.
+- [x] B. model↔facade 타입 동일성, 구버전 기본값과 patch wire fixture를 먼저 작성했고 model DTO 부재 E0432(exit 101) red를 기록했습니다.
+- [x] C. 순수 DTO·상수·기본값을 model crate로 이전하고 기존 `domain::settings::types::*` 공개 경로를 재수출했습니다. frontend `bindings.ts` field parity unit은 facade에 남겼습니다.
+- [x] D. 전용 경계 3건·settings 서비스 70건·`cargo test --workspace --quiet` 총 1,821건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 생성 bindings는 이동된 rustdoc 경로 9곳만 바뀌어 manifest SHA-256을 `14c2b3af63b4222a5fabbdb41aae2827eacf8c0ea7cfb0f695509aaee51f3af2`로 동기화했습니다. sandbox 안 workspace 실행은 프로세스 조회·로컬 소켓·macOS 휴지통 권한으로 9건 실패했고, 제한 밖 동일 명령에서는 전부 통과했습니다.
+- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.

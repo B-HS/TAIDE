@@ -3,7 +3,8 @@ use taide_lib::domain::settings::types::{
 };
 use taide_model::settings::{
     EditorCursorBlinking as ModelEditorCursorBlinking, EditorCursorStyle as ModelEditorCursorStyle,
-    EditorRenderWhitespace as ModelEditorRenderWhitespace, TerminalCursorStyle as ModelTerminalCursorStyle,
+    EditorRenderWhitespace as ModelEditorRenderWhitespace, Settings as ModelSettings, SettingsPatch as ModelSettingsPatch,
+    TerminalCursorStyle as ModelTerminalCursorStyle,
 };
 
 #[test]
@@ -76,4 +77,32 @@ fn 설정과_패치의_선택지_필드가_기존_wire를_유지한다() {
     let saved_patch = serde_json::to_value(patch).expect("설정 패치 직렬화");
     assert_eq!(saved_patch["editorCursorBlinking"], "solid");
     assert_eq!(saved_patch["terminalCursorStyle"], "block");
+}
+
+#[test]
+fn 설정_dto의_타입과_구버전_wire를_유지한다() {
+    let settings: ModelSettings = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "themeId": "legacy-theme",
+        "aiProvider": "codex",
+        "zenHideStatusBar": false
+    }))
+    .expect("구버전 설정");
+    let facade: Settings = settings;
+    assert_eq!(facade.theme_id, "legacy-theme");
+    assert!(facade.notifications_enabled);
+    assert_eq!(serde_json::to_value(facade.ai_provider).expect("AI provider 직렬화"), "codex");
+    assert!(!facade.zen_hide_status_bar);
+
+    let patch: ModelSettingsPatch = serde_json::from_value(serde_json::json!({
+        "editorFontSize": 15,
+        "aiProvider": "ollamaCloud",
+        "editorRulers": [80, 120]
+    }))
+    .expect("구버전 설정 패치");
+    let facade: SettingsPatch = patch;
+    assert_eq!(facade.editor_font_size, Some(15));
+    assert_eq!(facade.editor_rulers, Some(vec![80, 120]));
+    let saved = serde_json::to_value(facade).expect("설정 패치 직렬화");
+    assert_eq!(saved["aiProvider"], "ollamaCloud");
 }

@@ -2507,14 +2507,14 @@ export type Settings = {
 	/**
 	 *  Only notify while no TAIDE window has focus. "No window" is app-wide, not per-window: the
 	 *  gate reads `webview_windows().values().any(is_focused)` in Rust
-	 *  ([`crate::domain::notification::commands::notification_notify`]) precisely because each
+	 *  (`domain::notification::commands::notification_notify`) precisely because each
 	 *  window is its own JS realm and would otherwise report itself unfocused while an auxiliary
 	 *  window is the one the user is looking at. Defaults to `true` — the point of a native
 	 *  notification is to reach the user when the toast cannot.
 	 */
 	notificationsOnlyWhenUnfocused?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentCompleted`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::AgentCompleted`]
 	 *  — an agent transitioning out of `Working` after a long enough run. All seven category
 	 *  switches default to `true`: the categories are already narrowed to completion events by
 	 *  construction, so an on-by-default switch is the useful shape and turning one off is the
@@ -2522,34 +2522,34 @@ export type Settings = {
 	 */
 	notifyAgentCompleted?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::AgentAwaitingInput`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::AgentAwaitingInput`]
 	 *  — an agent stopping on a permission request or a question. Its own switch since d-60: a user
 	 *  who wants to be called back only when the agent is *blocked on them* (or, the other way
 	 *  round, never for that) could say neither while one switch covered both halves.
 	 */
 	notifyAgentAwaitingInput?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::TaskCompleted`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::TaskCompleted`]
 	 *  — a long-running terminal command finishing (OSC 133 `D`, exit code included).
 	 */
 	notifyTaskCompleted?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::GitRemote`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::GitRemote`]
 	 *  — push/pull finishing or failing.
 	 */
 	notifyGitRemote?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::SearchReplace`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::SearchReplace`]
 	 *  — a Replace in Files run finishing.
 	 */
 	notifySearchReplace?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::LspInstall`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::LspInstall`]
 	 *  — a language server install finishing or failing.
 	 */
 	notifyLspInstall?: boolean,
 	/**
-	 *  Per-category switch for [`crate::domain::notification::types::NotificationCategory::Error`]
+	 *  Per-category switch for [`crate::notification::NotificationCategory::Error`]
 	 *  — the failure half of the five categories above. Scoped to those failures only; the app's
 	 *  general IPC-error toasts are not mirrored to the notification center.
 	 */
@@ -2571,7 +2571,7 @@ export type Settings = {
 	 *  provider (auto-tab, Inline Edit, AI commit messages), not just auto-tab, so the name was
 	 *  generalized. A pre-rename `settings.json`/synced gist payload (`aiAutoTabProvider`) is
 	 *  migrated to this field name by
-	 *  [`crate::domain::settings::service::migrate_legacy_ai_provider_keys`] before
+	 *  `domain::settings::service::migrate_legacy_ai_provider_keys` before
 	 *  deserialization — deliberately *not* a `#[serde(alias = ...)]` on this field, since with
 	 *  the `specta` version this project pins, an alias makes `Settings`' Serialize and
 	 *  Deserialize shapes diverge, splitting every TS consumer of `Settings` (including ones
