@@ -4388,6 +4388,7 @@ dependencies = [
  "taide-app",
  "taide-file",
  "taide-font",
+ "taide-git",
  "taide-infra",
  "taide-locale",
  "taide-model",
@@ -4481,6 +4482,17 @@ version = "0.1.0"
 dependencies = [
  "fontdb",
  "taide-model",
+]
+
+[[package]]
+name = "taide-git"
+version = "0.1.0"
+dependencies = [
+ "git2",
+ "taide-infra",
+ "taide-model",
+ "trash",
+ "uuid",
 ]
 
 [[package]]

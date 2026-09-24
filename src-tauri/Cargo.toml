@@ -55,6 +55,7 @@ taide-ai = { path = "../crates/taide-ai" }
 taide-app = { path = "../crates/taide-app" }
 taide-file = { path = "../crates/taide-file" }
 taide-font = { path = "../crates/taide-font" }
+taide-git = { path = "../crates/taide-git" }
 taide-infra = { path = "../crates/taide-infra" }
 taide-locale = { path = "../crates/taide-locale" }
 taide-model = { path = "../crates/taide-model" }

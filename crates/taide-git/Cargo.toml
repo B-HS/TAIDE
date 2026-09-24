@@ -1,0 +1,15 @@
+[package]
+name = "taide-git"
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+git2 = { version = "0.21", default-features = false, features = ["ssh", "https", "vendored-libgit2", "vendored-openssl"] }
+taide-infra = { path = "../taide-infra" }
+taide-model = { path = "../taide-model" }
+trash = "5"
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
