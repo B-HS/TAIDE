@@ -4,6 +4,7 @@ use std::sync::Arc;
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
+use taide_remote::protocol::{channel_binary_frame, response_binary_frame, response_frame};
 use tauri::ipc::InvokeResponseBody;
 use tauri::{AppHandle, Manager};
 use tokio::sync::broadcast::error::RecvError;
@@ -12,8 +13,7 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use super::commands::{RemoteDispatchLimiter, RemoteStore};
 use super::dispatch::{self, ChannelFactory, ChannelSink};
 use super::types::{
-    RemoteRequest, REMOTE_BINARY_TAG_CHANNEL, REMOTE_BINARY_TAG_RESPONSE, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED,
-    REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED, REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS,
+    RemoteRequest, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED, REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS,
 };
 
 enum WsOut {
@@ -47,27 +47,6 @@ impl Drop for ChannelEndGuard {
         let frame = serde_json::json!({ "t": "chanEnd", "channelId": self.channel_id, "index": index }).to_string();
         let _ = self.ws_out.send(WsOut::Text(frame));
     }
-}
-
-fn channel_binary_frame(channel_id: u32, index: u32, bytes: &[u8]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(9 + bytes.len());
-    frame.push(REMOTE_BINARY_TAG_CHANNEL);
-    frame.extend_from_slice(&channel_id.to_be_bytes());
-    frame.extend_from_slice(&index.to_be_bytes());
-    frame.extend_from_slice(bytes);
-    frame
-}
-
-fn response_binary_frame(seq: u32, bytes: &[u8]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(5 + bytes.len());
-    frame.push(REMOTE_BINARY_TAG_RESPONSE);
-    frame.extend_from_slice(&seq.to_be_bytes());
-    frame.extend_from_slice(bytes);
-    frame
-}
-
-fn response_frame(seq: u32, ok: bool, payload: Value) -> String {
-    serde_json::json!({ "t": "resp", "seq": seq, "ok": ok, "payload": payload }).to_string()
 }
 
 fn make_channel_factory(ws_out: UnboundedSender<WsOut>) -> ChannelFactory {

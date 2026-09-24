@@ -2,6 +2,9 @@ pub use taide_model::remote::ALLOWED_HOST_WILDCARD_PREFIX;
 
 pub const REMOTE_LINK_TOKEN_QUERY_KEY: &str = "t";
 pub const REMOTE_LOGIN_PATH: &str = "/__taide/login";
+pub const REMOTE_CHANNEL_PREFIX: &str = "__CHANNEL__:";
+pub const REMOTE_BINARY_TAG_RESPONSE: u8 = 0x02;
+pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;
 
 /// Minimum accepted length (in `chars`, after trimming) for a newly set
 /// remote-access password. Only enforced on write (Tauri's `remote_set_password`) —

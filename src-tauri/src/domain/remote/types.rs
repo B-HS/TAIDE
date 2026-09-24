@@ -1,5 +1,8 @@
 pub use taide_model::remote::ALLOWED_HOST_WILDCARD_PREFIX;
-pub use taide_remote::types::{REMOTE_LINK_TOKEN_QUERY_KEY, REMOTE_LOGIN_PATH, REMOTE_LOOPBACK_HOSTNAMES, REMOTE_PASSWORD_MIN_LEN};
+pub use taide_remote::types::{
+    REMOTE_BINARY_TAG_CHANNEL, REMOTE_BINARY_TAG_RESPONSE, REMOTE_CHANNEL_PREFIX, REMOTE_LINK_TOKEN_QUERY_KEY, REMOTE_LOGIN_PATH,
+    REMOTE_LOOPBACK_HOSTNAMES, REMOTE_PASSWORD_MIN_LEN,
+};
 
 pub const REMOTE_SESSION_COOKIE_NAME: &str = "taide_remote_session";
 pub const REMOTE_LOGIN_NONCE_COOKIE_NAME: &str = "taide_remote_login_nonce";
@@ -93,10 +96,6 @@ pub const REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED: &str = "session_expired";
 /// constant toward 512 (or removing it) would need re-evaluating that margin alongside
 /// `begin_mutation_blocking`'s guard-holder count — see that method's doc.
 pub const REMOTE_DISPATCH_MAX_CONCURRENT: usize = 128;
-
-pub const REMOTE_CHANNEL_PREFIX: &str = "__CHANNEL__:";
-pub const REMOTE_BINARY_TAG_RESPONSE: u8 = 0x02;
-pub const REMOTE_BINARY_TAG_CHANNEL: u8 = 0x01;
 
 /// Fixed window-label the remote (browser) client always reports as its caller-supplied `owner` on
 /// window-scoped IPC calls — `getCurrentWindow().label` returns this constant in the remote-mirror
