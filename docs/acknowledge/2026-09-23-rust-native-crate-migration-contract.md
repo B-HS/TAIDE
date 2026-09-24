@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측 검증 완료, 자원 이전 진행 중
+> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너 검증 완료, 자원 이전 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -341,3 +341,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 구현·unit 18건을 infra crate로 옮기고 공개 경로·단일 전역 레지스트리를 유지했습니다. 새 경계 12건과 infra unit 161건이 통과했으며 이전 crate를 가리키던 rustdoc 링크 표기만 수정했습니다.
 - [x] D. 경계 12건·infra unit 161건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 4파일을 commit `33a9d2d`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+
+## M3 열두 번째 slice — 셸 통합·터미널 스캐너 이전 (완료)
+
+- [x] A. shell_integration은 model·기존 persist/quote/log/uuid, terminal_scan은 marker 타입만 의존합니다. 기존 unit 18·42건과 OSC payload 4096B·title 512B·agent 1024B 상한을 확인했습니다. secret은 keyring·cfg(test) test_support가 도메인 unit에 교차 crate로 쓰여 별도 설계가 필요하므로 이 slice 밖에 둡니다.
+- [x] B. crate 직접 경로와 기존 facade의 marker·scanner 타입·OSC 경계 테스트에서 두 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 결합된 구현·unit 60건을 infra crate로 옮기고 공개 경로를 유지했습니다. 새 경계 13건과 infra unit 221건이 통과했으며 이전 crate·private 항목을 가리키던 rustdoc 표기만 수정했습니다.
+- [x] D. 경계 13건·infra unit 221건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
+- [x] E. 관련 6파일을 commit `0fff8cd`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.

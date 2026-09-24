@@ -164,13 +164,18 @@
   - [x] M3-BA. perf 구현·기존 unit 18건을 infra crate로 옮기고 기존 공개 경로·단일 전역 인스턴스를 재수출했습니다. 새 경계 12건과 infra unit 161건이 통과했습니다.
   - [x] M3-BB. 전용 경계 12건·infra unit 161건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
   - [x] M3-BC. 검증된 perf slice를 선별 commit `33a9d2d`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+  - [x] M3-BD. secret은 keyring·cfg(test) test_support를 도메인 unit이 교차 crate에서 사용해 별도 설계가 필요합니다. shell_integration은 model·기존 persist/quote/log/uuid, terminal_scan은 marker 타입만 의존하고 기존 unit 18·42건 및 OSC payload·title·agent 상한을 확인했습니다.
+  - [x] M3-BE. 두 모듈의 crate 직접 경로와 기존 facade의 marker·scanner 타입·OSC 경계 테스트를 추가했고 두 모듈 부재 E0432(exit 101) red를 확인했습니다.
+  - [x] M3-BF. shell_integration·terminal_scan 구현·기존 unit 60건을 함께 infra crate로 옮기고 공개 경로를 재수출했습니다. 새 경계 13건과 infra unit 221건이 통과했습니다.
+  - [x] M3-BG. 전용 경계 13건·infra unit 221건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
+  - [x] M3-BH. 검증된 shell/scan slice를 선별 commit `0fff8cd`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측 경계를 검증했습니다. Git/LSP 프로세스/PTY 및 나머지 infra 자원 이전과 M4~M8은 아직 미완료입니다.
+> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너 경계를 검증했습니다. Git/LSP 프로세스/PTY 및 나머지 infra 자원 이전과 M4~M8은 아직 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
