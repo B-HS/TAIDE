@@ -588,3 +588,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 채널 JSON·종료 프레임 함수 2개만 taide-remote protocol로 이전하고 실제 송신·`ChannelEndGuard` Drop·writer 수명주기는 Tauri에 유지했습니다. 기존 살아있는 채널 unit이 송신 프레임과 sink 해제 뒤 종료 프레임의 순번까지 확인하도록 강화했습니다.
 - [x] C. 새 JSON wire 경계 2건·taide-remote unit 47건·Tauri remote 88건·`cargo clippy --workspace --all-targets -- -D warnings`·`cargo fmt --all --check`·strict remote rustdoc가 통과했습니다. 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 직전 slice의 전체 workspace 테스트 성공은 확인했지만 두 함수 이전 뒤 전체 workspace 테스트는 재실행하지 않았습니다. 실제 WebSocket 연결·채널 전송/종료 실기는 미실행이며 M5 전체는 미완료입니다.
 - [x] D. 구현은 commit `1367d84`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M5 아홉 번째 slice — LSP workspace-folder 알림 프로토콜 이전 (완료, 세션 조립은 유지)
+
+- [x] A. Tauri LSP 명령의 workspace-folder 알림은 LSP 서비스의 URI 인코딩을 사용해 JSON-RPC 알림을 만들고 기존 관련 unit 1건이 있습니다. 새 JSON wire 경계 테스트는 `taide_lsp::protocol` 부재 E0433(exit 101)으로 의도대로 실패했습니다. 직전 LSP 명령 테스트 24건 green은 동일 코드 상태의 결과를 재사용했습니다.
+- [x] B. 폴더 JSON과 알림 직렬화를 taide-lsp protocol로 옮기고 실제 Tauri 세션 전송은 기존 명령 경로에 유지했습니다. 기존 private 함수 설명은 공개 API의 영어 rustdoc으로 정리했습니다. 새 경계 1건·Tauri LSP 명령 24건·crate unit 45건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-lsp --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. fixture는 공백·한글 경로 URI와 JSON-RPC method/added/removed/name을 확인합니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 LSP 프로세스·세션·재시작·GUI 실기는 미실행이며 M5 전체는 미완료입니다.
+- [x] D. 구현은 commit `4ae91a2`로 선별 반영했고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
