@@ -1,0 +1,16 @@
+[package]
+name = "taide-task"
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+taide-infra = { path = "../taide-infra" }
+taide-model = { path = "../taide-model" }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
