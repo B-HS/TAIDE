@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive 검증 완료, 자원 이전 진행 중
+> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치 검증 완료, 자원 이전 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -317,3 +317,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 구현·unit 10건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 전용 경계 9건과 infra unit 125건이 통과했으며 원본 구현은 model error import만 바뀌었습니다.
 - [x] D. zip-slip·용량·권한 회귀를 포함한 infra unit 125건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 8파일을 commit `a5e16e2`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+
+## M3 아홉 번째 slice — LSP 설치 자원 이전 (완료)
+
+- [x] A. `lsp_install.rs`는 model error·기존 HTTP/async/압축 의존만 사용합니다. LSP 설치·서비스와 plugin 서비스가 소비하며 unit 16건을 보유합니다. 원격 LSP archive는 `commands.rs`의 SHA-256 검증 성공 뒤 해제하고, 사용자 입력 plugin zip은 별도 hardened archive 경계를 유지합니다.
+- [x] B. crate 직접 경로와 기존 facade의 타입·해시·설치 경계를 테스트했고 `taide_infra::lsp_install` 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 구현·unit 16건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 새 경계 10건과 infra unit 141건이 통과했으며 model error import만 바뀌었습니다.
+- [x] D. 경계 10건·infra unit 141건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
+- [x] E. 관련 6파일을 commit `4b19f58`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
