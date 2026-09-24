@@ -8,7 +8,7 @@ rust-version = "1.89"
 [dependencies]
 parking_lot = "0.12"
 regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
 taide-model = { path = "../taide-model" }
-
-[dev-dependencies]
 uuid = { version = "1", features = ["v4"] }

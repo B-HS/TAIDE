@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use taide_infra::{clock, crypto, home, language, redact, root_guard, self_write, shell_quote};
+use taide_infra::{clock, crypto, home, language, persist, redact, root_guard, self_write, shell_quote};
 use taide_lib::infra;
 use taide_model::error::AppResult;
 use taide_model::file::{FsChange, FsChangeKind};
@@ -59,4 +59,15 @@ fn root_guard_공개_경로는_같은_안전_컴포넌트_정책을_쓴다() {
     let old = infra::root_guard::ensure_safe_component("../escape").unwrap_err();
     let new = root_guard::ensure_safe_component("../escape").unwrap_err();
     assert_eq!(old.kind(), new.kind());
+}
+
+#[test]
+fn persist_공개_경로는_같은_임시_파일_형식을_판별한다() {
+    let _: fn(&Path, &[u8]) -> AppResult<()> = infra::persist::write_atomic;
+    let sibling = Path::new("/repo/.main.rs.00000000-0000-0000-0000-000000000000.tmp");
+    let unrelated = Path::new("/repo/.notes.tmp");
+
+    assert!(persist::is_temp_sibling(sibling));
+    assert_eq!(infra::persist::is_temp_sibling(sibling), persist::is_temp_sibling(sibling));
+    assert!(!persist::is_temp_sibling(unrelated));
 }
