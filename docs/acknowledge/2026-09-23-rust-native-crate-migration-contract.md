@@ -237,3 +237,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 순수 타입을 model crate로 옮기고 기존 `domain::lsp::types::*` 경로를 재수출했습니다. 전용 경계 테스트 2건이 통과했습니다.
 - [x] D. 전용 경계 2건·`cargo test --workspace --quiet`·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. DTO 본문은 원본 바이트 동일하며 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다.
 - [x] E. 관련 4파일을 commit `12f3e0a`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
+
+## M2 스물세 번째 slice — 서비스 공개 IPC 결과 DTO (진행 중)
+
+- [x] A. 네 공개 결과 DTO는 기존 model의 `Project`·`TabId`와 serde·specta만 의존하고 command는 `service::*` 경로를 소비함을 확인했습니다.
+- [x] B. model↔service 타입 동일성 및 기존 camelCase 응답 직렬화 테스트를 먼저 추가해 model 타입 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 네 결과 DTO를 model crate로 옮기고 서비스 공개 경로를 재수출했습니다. 전용 경계 2건이 통과했습니다.
+- [x] D. 전용 경계 2건·Rust workspace 1,837건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 네 DTO 본문은 원본 바이트 동일하고 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`도 불변입니다.
+- [x] E. 구현·테스트 7파일을 commit `5f97a1f`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
