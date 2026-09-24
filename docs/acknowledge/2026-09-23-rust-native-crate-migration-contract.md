@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료, M4 font부터 AI까지 15개 서비스 slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1·M2·M3 완료, M4 font부터 app까지 16개 서비스 slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -484,3 +484,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 구현·unit 86건·번들 JSON 3개를 taide-ai로 이전하고 Tauri의 service/prompt/providers 공개 경로를 재수출 facade로 유지했습니다. 테스트에서만 쓰던 Tauri async runtime은 Tokio 테스트 전용 런타임으로 교체하고 in-memory secret 저장소 기능은 dev-dependency에만 뒀습니다. 새 crate unit 86건·경계 1건이 통과했습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-ai --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 프롬프트 JSON 3개의 SHA-256도 원본과 동일합니다. 실제 provider 네트워크·키체인·AI UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 선별 commit하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 열여섯 번째 slice — app 파일·성능 서비스 이전 (완료, M4 전체는 진행 중)
+
+- [x] A. app 서비스의 파일 경로·프롬프트 fallback·저장·성능 스냅샷은 model DTO/paths/settings, 이전된 AI prompt, infra persist/perf에 의존합니다. `app_info`만 컴파일 시점 `CARGO_PKG_VERSION`을 사용하므로 Tauri 패키지 버전을 보존하도록 기존 어댑터에 남깁니다. 기존 unit 9건 green 후 새 crate 경계 테스트의 crate 부재 E0433(exit 101)를 확인했습니다.
+- [x] B. 나머지 구현·unit 9건을 taide-app으로 옮기고 기존 app service 경로에서 재수출했습니다. `app_info`와 `APP_NAME`은 Tauri 패키지에 남겨 버전·이름·플랫폼 응답을 보존했습니다. 이동으로 사라진 app→AI 도메인 경계 화이트리스트를 제거하고 새 crate unit 9건·경계 1건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-app --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. app 파일 편집·성능 표시 UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `a0395d7`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
