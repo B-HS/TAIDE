@@ -1775,7 +1775,7 @@ export type MirrorEntry = {
 /**
  *  The closed set of "a piece of work finished" events allowed to reach the OS notification
  *  center. Deliberately an enum rather than a free-form string tag: the settings gate
- *  ([`super::service::decide_delivery`]) matches on it exhaustively, so adding a category without
+ *  (`domain::notification::service::decide_delivery`) matches on it exhaustively, so adding a category without
  *  also adding its per-category toggle stops compiling instead of silently notifying with no way
  *  to turn it off. The user decision that fixes this list to completion events only — no mirroring
  *  of the app's ~150 in-app toasts — is
@@ -1793,7 +1793,7 @@ export type NotificationCategory = "agentCompleted" |
 
 /**
  *  The outcome of one `notification_notify` call — the pure gate's decision
- *  ([`super::service::decide_delivery`]) and the command's return value are the same type on
+ *  (`domain::notification::service::decide_delivery`) and the command's return value are the same type on
  *  purpose, since nothing observable happens between them: `Delivered` means the notification was
  *  handed to the plugin, **not** that macOS displayed it. The desktop backend spawns the actual
  *  delivery and discards its result (`tauri-plugin-notification` 2.4.0 `src/desktop.rs`'s

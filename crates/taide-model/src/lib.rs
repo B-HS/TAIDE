@@ -7,6 +7,7 @@ pub mod font;
 pub mod ids;
 pub mod layout;
 pub mod locale;
+pub mod notification;
 pub mod paths;
 pub mod plugin;
 pub mod project;
