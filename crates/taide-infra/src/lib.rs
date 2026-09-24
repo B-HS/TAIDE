@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod external_url;
 pub mod home;
 pub mod language;
+pub mod lsp_install;
 pub mod persist;
 pub mod range_file;
 pub mod redact;

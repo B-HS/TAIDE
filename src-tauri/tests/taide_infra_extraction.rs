@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use taide_infra::{
-    archive, clock, crypto, external_url, home, language, persist, range_file, redact, root_guard, self_write, shell_quote, watch_policy,
-    watcher,
+    archive, clock, crypto, external_url, home, language, lsp_install, persist, range_file, redact, root_guard, self_write, shell_quote,
+    watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
@@ -114,4 +114,19 @@ fn archive_보안_추출은_기존_경로와_같은_예산을_쓴다() {
     let _: fn(&Path, &Path) -> AppResult<()> = infra::archive::extract_hardened_zip;
     assert_eq!(archive::ARCHIVE_MAX_ENTRIES, infra::archive::ARCHIVE_MAX_ENTRIES);
     assert_eq!(archive::ARCHIVE_MAX_TOTAL_BYTES, infra::archive::ARCHIVE_MAX_TOTAL_BYTES);
+}
+
+#[test]
+fn lsp_설치_자원은_기존_경로와_같은_타입과_해시를_쓴다() {
+    let _: Option<infra::lsp_install::DownloadProgress> = None::<lsp_install::DownloadProgress>;
+    let _: Option<infra::lsp_install::DownloadedFile> = None::<lsp_install::DownloadedFile>;
+    let _: fn(&Path, &Path) -> AppResult<()> = lsp_install::atomic_install;
+
+    assert_eq!(infra::lsp_install::platform_key(), lsp_install::platform_key());
+    assert_eq!(infra::lsp_install::sha256_hex(b"lsp"), lsp_install::sha256_hex(b"lsp"));
+    assert!(lsp_install::verify_sha256(b"lsp", &infra::lsp_install::sha256_hex(b"lsp")));
+    assert_eq!(
+        infra::lsp_install::substitute_template_args(&["{root}".to_string()], &[("root", "repo".to_string())]),
+        lsp_install::substitute_template_args(&["{root}".to_string()], &[("root", "repo".to_string())])
+    );
 }
