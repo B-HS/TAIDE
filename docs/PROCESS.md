@@ -179,13 +179,18 @@
   - [x] M3-BP. LSP 프로세스 구현·기존 unit 18건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 새 경계 15건과 실프로세스 회귀를 포함한 infra unit 255건이 통과했습니다.
   - [x] M3-BQ. 실프로세스 종료·PID 재사용·stderr 상한을 포함한 infra unit 255건·전용 경계 15건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
   - [x] M3-BR. 검증된 LSP 프로세스 slice를 선별 commit `1d1912b`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+  - [x] M3-BS. secret은 model error·기존 keyring/parking_lot만 의존하고 AI/sync/remote가 소비합니다. 기존 unit 4건과 AI/sync 도메인 unit이 cfg(test) InMemorySecretStore를 교차 crate로 쓰는 계약을 확인했습니다.
+  - [x] M3-BT. crate 직접 경로와 기존 facade의 account·store 타입 및 개발 전용 in-memory helper 경계 테스트를 추가했고 모듈 부재 E0432(exit 101) red를 확인했습니다.
+  - [x] M3-BU. secret 구현·unit 4건을 infra crate로 옮기고 test-support 기능을 taide dev-dependency에서만 활성화해 기존 공개 경로를 재수출했습니다. 새 경계 16건·infra unit 259건이 통과했고 normal dependency graph에는 test-support가 없습니다.
+  - [x] M3-BV. 실제 키체인 값을 건드리지 않는 경계 16건·infra unit 259건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 normal feature graph에 test-support가 없으며 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
+  - [x] M3-BW. 검증된 secret slice를 선별 commit `7dd075c`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너·PTY·LSP 프로세스 경계를 검증했습니다. Git 및 나머지 infra 자원 이전과 M4~M8은 아직 미완료입니다.
+> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측·셸 통합·터미널 스캐너·PTY·LSP 프로세스·키체인 경계를 검증했습니다. Git 자원 소유권 판정과 M4~M8은 아직 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
