@@ -144,13 +144,18 @@
   - [x] M3-AG. 두 모듈과 기존 unit 19건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 새 경계 8건과 infra unit 115건이 통과했습니다.
   - [x] M3-AH. 범위 상한·CSP·URL 위장 회귀를 포함한 infra unit 115건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
   - [x] M3-AI. 검증된 두 모듈 slice를 선별 commit `6a15a79`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+  - [x] M3-AJ. archive의 model AppError·기존 zip 의존과 plugin/vsix 소비·기존 압축 해제 보안 unit 10건을 확인했습니다.
+  - [x] M3-AK. crate↔facade 압축 해제 타입·상한 경계 테스트를 추가했고 새 모듈 부재 E0432(exit 101) red를 확인했습니다.
+  - [x] M3-AL. archive 구현·unit 10건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 새 경계 9건과 infra unit 125건이 통과했습니다.
+  - [x] M3-AM. zip-slip·용량·권한 회귀를 포함한 infra unit 125건·workspace 전체·fmt·clippy·strict infra rustdoc·IPC 계약이 통과했고 bindings SHA-256은 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`으로 불변입니다.
+  - [ ] M3-AN. 검증된 archive slice를 선별 commit·push합니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL 경계를 검증했습니다. Git/LSP/PTY 및 나머지 infra 자원 이전과 M4~M8은 아직 미완료입니다.
+> 현재 세부 실행 항목은 M3입니다. M2는 완료됐고, M3의 공통 infra·self-write·root guard·persist·watcher·range·URL·archive 경계를 검증했습니다. Git/LSP/PTY 및 나머지 infra 자원 이전과 M4~M8은 아직 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 

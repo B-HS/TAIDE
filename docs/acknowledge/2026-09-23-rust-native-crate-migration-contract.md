@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL 검증 완료, 자원 이전 진행 중
+> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive 검증 완료, 자원 이전 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -309,3 +309,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 두 구현·unit 19건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 전용 경계 8건과 infra unit 115건이 통과했습니다. 원본 구현은 model error import와 rustdoc 경로 표기만 바뀌었습니다.
 - [x] D. 범위 상한·CSP·URL 위장 회귀를 포함한 infra unit 115건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 8파일을 commit `6a15a79`으로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+
+## M3 여덟 번째 slice — archive 보안 추출 이전 (진행 중)
+
+- [x] A. `archive.rs`는 model `AppError`와 기존 `zip` 외에 Tauri·domain 의존이 없습니다. plugin 설치와 VSIX 서비스가 보안 예산을 소비하며, 기존 unit 10건은 경로 탈출·크기·모드 제한을 검증합니다.
+- [x] B. crate 직접 경로와 기존 facade의 압축 해제 타입·상한 경계를 추가했고 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 구현·unit 10건을 infra crate로 옮기고 기존 공개 경로를 재수출했습니다. 전용 경계 9건과 infra unit 125건이 통과했으며 원본 구현은 model error import만 바뀌었습니다.
+- [x] D. zip-slip·용량·권한 회귀를 포함한 infra unit 125건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
+- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.

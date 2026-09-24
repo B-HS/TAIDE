@@ -4426,6 +4426,7 @@ dependencies = [
  "serde_json",
  "taide-model",
  "uuid",
+ "zip",
 ]
 
 [[package]]

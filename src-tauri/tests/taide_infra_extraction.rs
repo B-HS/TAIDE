@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use taide_infra::{
-    clock, crypto, external_url, home, language, persist, range_file, redact, root_guard, self_write, shell_quote, watch_policy, watcher,
+    archive, clock, crypto, external_url, home, language, persist, range_file, redact, root_guard, self_write, shell_quote, watch_policy,
+    watcher,
 };
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
@@ -106,4 +107,11 @@ fn 외부_url_검증은_기존_경로와_같은_위장_거부_정책을_쓴다()
     let old = infra::external_url::validate_external_url(suspicious).unwrap_err();
     let new = external_url::validate_external_url(suspicious).unwrap_err();
     assert_eq!(old.kind(), new.kind());
+}
+
+#[test]
+fn archive_보안_추출은_기존_경로와_같은_예산을_쓴다() {
+    let _: fn(&Path, &Path) -> AppResult<()> = infra::archive::extract_hardened_zip;
+    assert_eq!(archive::ARCHIVE_MAX_ENTRIES, infra::archive::ARCHIVE_MAX_ENTRIES);
+    assert_eq!(archive::ARCHIVE_MAX_TOTAL_BYTES, infra::archive::ARCHIVE_MAX_TOTAL_BYTES);
 }

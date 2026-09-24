@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod clock;
 pub mod crypto;
 pub mod external_url;
