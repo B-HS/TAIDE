@@ -8,6 +8,7 @@ pub mod language;
 pub mod lsp_install;
 pub mod perf;
 pub mod persist;
+pub mod pty;
 pub mod range_file;
 pub mod redact;
 pub mod root_guard;

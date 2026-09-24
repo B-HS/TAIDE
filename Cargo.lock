@@ -4423,6 +4423,7 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "parking_lot",
+ "portable-pty",
  "regex",
  "reqwest 0.12.28",
  "serde",

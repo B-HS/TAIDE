@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use taide_infra::{
-    archive, clock, crypto, external_url, home, http, language, lsp_install, perf, persist, range_file, redact, root_guard, self_write,
-    shell_integration, shell_quote, terminal_scan, watch_policy, watcher,
+    archive, clock, crypto, external_url, home, http, language, lsp_install, perf, persist, pty, range_file, redact, root_guard,
+    self_write, shell_integration, shell_quote, terminal_scan, watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
@@ -168,4 +168,17 @@ fn 셸_마커와_터미널_스캐너는_기존_경로의_osc_계약을_유지한
         terminal_scan::scan_once(payload).latest_cwd(),
         infra::terminal_scan::scan_once(payload).latest_cwd()
     );
+}
+
+#[test]
+fn pty_설정과_세션은_기존_공개_타입을_유지한다() {
+    let config = pty::PtySpawnConfig {
+        shell: None,
+        cwd: "/repo".to_string(),
+        cols: 1,
+        rows: 1,
+        extra_env: Vec::new(),
+    };
+    let _: infra::pty::PtySpawnConfig = config;
+    let _: Option<infra::pty::PtySession> = None::<pty::PtySession>;
 }
