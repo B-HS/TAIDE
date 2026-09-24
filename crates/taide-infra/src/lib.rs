@@ -3,6 +3,7 @@ pub mod clock;
 pub mod crypto;
 pub mod external_url;
 pub mod home;
+pub mod http;
 pub mod language;
 pub mod lsp_install;
 pub mod persist;

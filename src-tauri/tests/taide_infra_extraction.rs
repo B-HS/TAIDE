@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use taide_infra::{
-    archive, clock, crypto, external_url, home, language, lsp_install, persist, range_file, redact, root_guard, self_write, shell_quote,
-    watch_policy, watcher,
+    archive, clock, crypto, external_url, home, http, language, lsp_install, persist, range_file, redact, root_guard, self_write,
+    shell_quote, watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
 use taide_model::error::{AppErrorKind, AppResult};
@@ -129,4 +129,11 @@ fn lsp_설치_자원은_기존_경로와_같은_타입과_해시를_쓴다() {
         infra::lsp_install::substitute_template_args(&["{root}".to_string()], &[("root", "repo".to_string())]),
         lsp_install::substitute_template_args(&["{root}".to_string()], &[("root", "repo".to_string())])
     );
+}
+
+#[test]
+fn http_클라이언트는_기존_프로필_타입과_반환_경로를_유지한다() {
+    let profile: infra::http::HttpClientProfile = http::HttpClientProfile::Download;
+    let _: reqwest::Client = infra::http::outbound_http_client(profile);
+    let _: reqwest::Client = http::outbound_http_client(http::HttpClientProfile::Api);
 }
