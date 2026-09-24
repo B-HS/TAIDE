@@ -198,10 +198,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] D. 전용 경계 2건·`cargo test --workspace --quiet` 총 1,825건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 타입 본문은 rustdoc 링크 1곳 외 원본 바이트 동일하며 생성 bindings의 해당 설명 1줄만 달라 manifest SHA-256을 `17a94672163a91185d30df392d94313025188817fccf728c1f2e90e12317c9d8`로 동기화했습니다.
 - [x] E. 관련 8파일을 commit `e199ad4`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
 
-## M2 열여덟 번째 slice — IDE 통신 DTO (진행 중)
+## M2 열여덟 번째 slice — IDE 통신 DTO (완료)
 
 - [x] A. `ide/types.rs`의 정책·timeout 상수는 기존 domain 파일에 두고 serde·specta·`ProjectId`만 의존하는 DTO 5종을 model로 옮기는 경계를 확인했습니다.
 - [x] B. IDE status·diagnostic·selection legacy wire와 model↔facade 타입 동일성 테스트를 먼저 추가했고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
 - [x] C. DTO 5종을 model crate로 옮기고 기존 `domain::ide::types::*` 경로를 재수출했습니다. IDE 실행 상수는 기존 파일에 유지했습니다.
 - [x] D. 전용 경계 2건·`cargo test --workspace --quiet` 총 1,827건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. DTO 본문은 rustdoc 링크 2곳 외 원본 바이트 동일하며 생성 bindings도 해당 설명 2줄만 달라 manifest SHA-256을 `0085288be0f5948e5570273ccf795f5cbee8318ba130568ad79e21b20bdbed17`로 동기화했습니다.
-- [ ] E. 관련 파일만 선별 commit·현재 브랜치에 일반 push합니다.
+- [x] E. 관련 8파일을 commit `51c3f8c`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.

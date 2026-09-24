@@ -77,7 +77,7 @@
   - [x] M2-BL. IDE status·diagnostic·selection legacy wire와 model↔facade 타입 경계 테스트를 추가했고 model 모듈 부재 E0432(exit 101) red를 확인했습니다.
   - [x] M2-BM. IDE DTO 5종을 model로 옮기고 기존 공개 경로를 재수출했습니다. IDE 실행 상수는 기존 파일에 유지했습니다.
   - [x] M2-BN. 경계 2건·Rust workspace 1,827건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. DTO 본문은 rustdoc 링크 2곳 외 원본 바이트 동일하며 생성 bindings도 해당 설명 2줄만 달라 manifest SHA-256을 `0085288be0f5948e5570273ccf795f5cbee8318ba130568ad79e21b20bdbed17`로 동기화했습니다.
-  - [ ] M2-BO. 검증된 IDE DTO slice를 선별 commit·push합니다.
+  - [x] M2-BO. 검증된 IDE DTO 8파일을 commit `51c3f8c`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
