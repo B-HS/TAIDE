@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트 검증 완료, 자원 이전 진행 중
+> 상태: M1·M2 완료; M3 공통 infra·self-write·root guard·persist·watcher·range·URL·archive·LSP 설치·HTTP 클라이언트·성능 계측 검증 완료, 자원 이전 진행 중
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -333,3 +333,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 구현·unit 2건을 infra crate로 옮기고 단일 프로세스 클라이언트의 소유권을 유지했습니다. 기존 공개 경로를 재수출했고 경계 11건·infra unit 143건이 통과했습니다. strict rustdoc에서 private 함수 링크 표기만 수정했습니다.
 - [x] D. 경계 11건·infra unit 143건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
 - [x] E. 관련 4파일을 commit `09ccdfd`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
+
+## M3 열한 번째 slice — 성능 계측 레지스트리 이전 (완료)
+
+- [x] A. `perf.rs`는 표준 라이브러리만 사용하고 앱 초기화·명령 집계와 Git/search/terminal 계측이 소비합니다. process-global 레지스트리, 슬롯·카운터 wire 이름과 기존 unit 18건을 확인했습니다.
+- [x] B. crate 직접 경로와 기존 facade의 타입·전역 인스턴스 동일성 테스트에서 모듈 부재 E0432(exit 101) red를 확인했습니다.
+- [x] C. 구현·unit 18건을 infra crate로 옮기고 공개 경로·단일 전역 레지스트리를 유지했습니다. 새 경계 12건과 infra unit 161건이 통과했으며 이전 crate를 가리키던 rustdoc 링크 표기만 수정했습니다.
+- [x] D. 경계 12건·infra unit 161건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·strict infra rustdoc·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. GUI 실기는 실행하지 않았습니다.
+- [x] E. 관련 4파일을 commit `33a9d2d`로 반영하고 원격 `to_rust_native`에 일반 push했습니다.
