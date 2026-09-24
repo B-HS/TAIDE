@@ -49,8 +49,8 @@ xz2 = { version = "0.1", features = ["static"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
-fontdb = { version = "0.24.0", default-features = false, features = ["fontconfig"] }
 ignore = "0.4.30"
+taide-font = { path = "../crates/taide-font" }
 taide-infra = { path = "../crates/taide-infra" }
 taide-model = { path = "../crates/taide-model" }
 
