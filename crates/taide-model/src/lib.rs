@@ -10,6 +10,7 @@ pub mod ide;
 pub mod ids;
 pub mod layout;
 pub mod locale;
+pub mod lsp;
 pub mod notification;
 pub mod paths;
 pub mod plugin;
