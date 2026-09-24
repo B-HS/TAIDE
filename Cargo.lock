@@ -4383,6 +4383,7 @@ dependencies = [
  "specta",
  "specta-typescript",
  "sysinfo",
+ "taide-file",
  "taide-font",
  "taide-infra",
  "taide-locale",
@@ -4421,6 +4422,17 @@ dependencies = [
 name = "taide-cli"
 version = "0.1.0"
 dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "taide-file"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "taide-infra",
+ "taide-model",
+ "trash",
  "uuid",
 ]
 
