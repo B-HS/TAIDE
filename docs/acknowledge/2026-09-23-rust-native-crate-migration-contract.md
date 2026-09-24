@@ -253,3 +253,11 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] C. 두 DTO를 model crate로 옮기고 기존 공개 경로를 재수출했습니다. 전용 경계 테스트 2건이 통과했습니다.
 - [x] D. 전용 경계 2건·Rust workspace 1,839건·fmt·clippy·strict model rustdoc·IPC 계약이 통과했습니다. 두 DTO 본문은 원본 바이트 동일하고 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`도 불변입니다.
 - [x] E. 구현·테스트 5파일을 commit `7974e31`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다. 남은 private 직렬화 구조체는 해당 adapter·서비스와 함께 M3~M6에서 이전하며 M2 공통 model에 잘못 합치지 않습니다.
+
+## M3 첫 slice — infra→domain 역참조 제거 (진행 중)
+
+- [x] A. `asset_protocol`·`root_guard`는 `Project`, `self_write`·`watcher`는 `FsChange`/`FsChangeKind`를 이미 분리된 model의 도메인 facade로 import합니다. 경계 테스트의 4항목 허용 목록을 비우면 역참조가 명시적으로 검출됩니다. Tauri HTTP가 필요한 `asset_protocol`은 이후 platform adapter에 남깁니다.
+- [x] B. infra→domain 허용 목록을 없애고 경계 검사를 강화해 기존 네 참조가 모두 검출되는 red(exit 101)를 확인했습니다.
+- [x] C. infra 4파일의 `Project`·`FsChange` 타입 import와 `self_write` unit import를 model 직접 경로로 돌렸고 경계 테스트 3건이 통과했습니다. 타입 정의·함수 시그니처·동작은 변경하지 않았습니다.
+- [x] D. 경계 3건·`cargo test --workspace --quiet` 1,839건·fmt·clippy·IPC 계약이 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다.
+- [x] E. 코드·경계 테스트 5파일을 commit `819f037`로 반영하고 기록 commit과 함께 현재 브랜치에 일반 push합니다.

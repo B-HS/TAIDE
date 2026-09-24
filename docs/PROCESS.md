@@ -109,6 +109,11 @@
   - [x] M2-CR. 전용 경계 2건·workspace 1,839건·fmt·clippy·strict rustdoc·IPC/bindings 계약을 검증했습니다.
   - [x] M2-CS. 검증된 DTO slice를 선별 commit `7974e31`과 기록 commit으로 반영·push하고 M2 잔여 타입 소유권을 분류했습니다.
 - [ ] M3. infra 역참조 4건 제거 후 파일시스템·watcher·persist·Git/LSP/PTY 자원 구현을 Tauri 없는 infra crate로 이전. 각 adapter 테스트·root/symlink/atomic write·자원 종료 검사 유지.
+  - [x] M3-A. infra→domain 잔여 4참조와 model 타입·기존 경계 테스트의 소유 관계를 확인했습니다.
+  - [x] M3-B. infra→domain 무허용 검사로 강화해 기존 4참조의 red를 확인했습니다.
+  - [x] M3-C. infra 4파일의 타입 import를 model로 돌리고 경계 3건을 통과시켰습니다.
+  - [x] M3-D. 경계 3건·workspace 1,839건·fmt·clippy·IPC/bindings 계약을 검증했습니다.
+  - [x] M3-E. 검증된 역참조 제거 slice를 선별 commit `819f037`과 기록 commit으로 반영·push합니다.
 - [ ] M4. 기능별 순수 서비스 crate로 이전 — project/layout/file/tree/search/git, settings/theme/locale/snippet, plugin/vsix/sync, ai/agent/task/system/font/notification. 매 기능의 tests·fixtures·resources도 소유 crate로 이동하고 facade 보존.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
