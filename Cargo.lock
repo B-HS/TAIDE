@@ -4397,6 +4397,7 @@ dependencies = [
  "taide-task",
  "taide-theme",
  "taide-tree",
+ "taide-vsix",
  "tar",
  "tauri",
  "tauri-build",
@@ -4580,6 +4581,20 @@ version = "0.1.0"
 dependencies = [
  "taide-model",
  "uuid",
+]
+
+[[package]]
+name = "taide-vsix"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "taide-infra",
+ "taide-model",
+ "uuid",
+ "zip",
 ]
 
 [[package]]
