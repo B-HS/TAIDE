@@ -74,6 +74,7 @@ taide-terminal = { path = "../crates/taide-terminal" }
 taide-theme = { path = "../crates/taide-theme" }
 taide-tree = { path = "../crates/taide-tree" }
 taide-vsix = { path = "../crates/taide-vsix" }
+taide-window = { path = "../crates/taide-window" }
 
 [dev-dependencies]
 taide-infra = { path = "../crates/taide-infra", features = ["test-support"] }

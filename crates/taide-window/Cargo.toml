@@ -1,0 +1,12 @@
+[package]
+name = "taide-window"
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+taide-model = { path = "../taide-model" }
+
+[dev-dependencies]
+taide-layout = { path = "../taide-layout" }

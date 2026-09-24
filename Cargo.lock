@@ -4407,6 +4407,7 @@ dependencies = [
  "taide-theme",
  "taide-tree",
  "taide-vsix",
+ "taide-window",
  "tar",
  "tauri",
  "tauri-build",
@@ -4703,6 +4704,14 @@ dependencies = [
  "taide-model",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "taide-window"
+version = "0.1.0"
+dependencies = [
+ "taide-layout",
+ "taide-model",
 ]
 
 [[package]]
