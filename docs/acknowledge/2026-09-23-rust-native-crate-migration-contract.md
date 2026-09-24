@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료, M4 font·notification·snippet·system·task·tree slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1·M2·M3 완료, M4 font·notification·snippet·system·task·tree·locale slice 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -421,3 +421,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 새 crate와 기존 facade의 `TreeState` 타입·상태 생성·페이지 함수 경계 테스트에서 crate 부재 E0433(exit 101) red를 확인했습니다. 구현·unit 26건을 새 crate로 옮기고 기존 서비스 경로는 재수출 facade로 유지했습니다.
 - [x] C. 새 crate unit 26건·경계 1건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-tree --no-deps`가 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. 트리 UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `a91beb8`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 일곱 번째 slice — locale 서비스·번들 카탈로그 이전 (완료, M4 전체는 진행 중)
+
+- [x] A. locale 서비스는 model DTO/error/paths, infra persist, serde_json만 참조하며 번들 en/ko/ja JSON 3개를 include_str로 사용합니다. 기존 unit 18건은 카탈로그 키·번역 변수·커스텀 언어 저장/상속·fallback을 검증합니다. 다른 Rust 원천의 카탈로그 파일 직접 참조는 없습니다.
+- [x] B. 새 crate와 기존 facade의 내장 카탈로그·필수 키 경계 테스트에서 crate 부재 E0433(exit 101) red를 확인했습니다. 구현·unit 18건·리소스 3개를 새 crate로 옮기고 기존 서비스 경로는 재수출 facade로 유지했습니다. 리소스 각각의 SHA-256은 원본과 동일합니다.
+- [x] C. 새 crate unit 18건·경계 1건·`cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`가 통과했습니다. strict rustdoc은 공개 함수가 private 파서를 링크한 표기 한 곳에서 실패했고 이를 코드 텍스트로 바꾼 뒤 `RUSTDOCFLAGS='-D warnings' cargo doc -p taide-locale --no-deps`가 통과했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. locale UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `50a19fc`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
