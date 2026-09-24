@@ -6,6 +6,9 @@ edition = "2021"
 rust-version = "1.89"
 
 [dependencies]
+log = "0.4"
+notify = "8.2"
+notify-debouncer-full = "0.7"
 parking_lot = "0.12"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

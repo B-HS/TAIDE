@@ -7,3 +7,5 @@ pub mod redact;
 pub mod root_guard;
 pub mod self_write;
 pub mod shell_quote;
+pub mod watch_policy;
+pub mod watcher;

@@ -4417,6 +4417,9 @@ dependencies = [
 name = "taide-infra"
 version = "0.1.0"
 dependencies = [
+ "log",
+ "notify",
+ "notify-debouncer-full",
  "parking_lot",
  "regex",
  "serde",

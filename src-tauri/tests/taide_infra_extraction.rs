@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use taide_infra::{clock, crypto, home, language, persist, redact, root_guard, self_write, shell_quote};
-use taide_lib::infra;
-use taide_model::error::AppResult;
+use taide_infra::{clock, crypto, home, language, persist, redact, root_guard, self_write, shell_quote, watch_policy, watcher};
+use taide_lib::{constants, infra};
+use taide_model::error::{AppErrorKind, AppResult};
 use taide_model::file::{FsChange, FsChangeKind};
 
 #[test]
@@ -70,4 +70,19 @@ fn persist_공개_경로는_같은_임시_파일_형식을_판별한다() {
     assert!(persist::is_temp_sibling(sibling));
     assert_eq!(infra::persist::is_temp_sibling(sibling), persist::is_temp_sibling(sibling));
     assert!(!persist::is_temp_sibling(unrelated));
+}
+
+#[test]
+fn watcher와_무시_디렉터리_정책은_기존_공개_경로를_유지한다() {
+    let _: Option<infra::watcher::WatchScope> = Some(watcher::WatchScope::Project);
+    assert_eq!(watch_policy::WATCH_DEBOUNCE_MS, constants::WATCH_DEBOUNCE_MS);
+    assert_eq!(
+        watch_policy::is_ignored_dir("node_modules"),
+        constants::is_ignored_dir("node_modules")
+    );
+
+    let error = watcher::start_watch(PathBuf::new(), watcher::WatchScope::Project, |_| {})
+        .err()
+        .expect("빈 루트는 감시를 시작할 수 없어야 한다");
+    assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
 }
