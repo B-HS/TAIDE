@@ -1136,7 +1136,7 @@ export type AgentHooksStatus = {
 	installed: boolean,
 	/**
 	 *  Whether this agent's install needs TAIDE's `taide` CLI symlink to exist first
-	 *  ([`super::service::requires_taide_cli`]). Read by the settings UI so the CLI warning and the
+	 *  (`service::requires_taide_cli`). Read by the settings UI so the CLI warning and the
 	 *  disabled toggle follow the agent spec table instead of a second copy of it in the frontend.
 	 */
 	requiresTaideCli: boolean,
@@ -1272,7 +1272,7 @@ export type BlameLine = {
 /**
  *  What an `AwaitingInput` session is waiting on, so the badge tooltip and the OS notification can
  *  name one of the two instead of listing both. Derived from the latch that produced the state
- *  ([`super::service::blocked_reason`]): an in-band event the agent sent names itself, while a
+ *  (`service::blocked_reason`): an in-band event the agent sent names itself, while a
  *  phrase read off the screen only proves some dialog is up.
  */
 export type BlockedReason = "permission" | "question" | "dialog";
