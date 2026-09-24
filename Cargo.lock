@@ -4393,6 +4393,7 @@ dependencies = [
  "taide-infra",
  "taide-layout",
  "taide-locale",
+ "taide-lsp",
  "taide-model",
  "taide-notification",
  "taide-plugin",
@@ -4552,6 +4553,17 @@ name = "taide-locale"
 version = "0.1.0"
 dependencies = [
  "regex",
+ "serde_json",
+ "taide-infra",
+ "taide-model",
+ "uuid",
+]
+
+[[package]]
+name = "taide-lsp"
+version = "0.1.0"
+dependencies = [
+ "log",
  "serde_json",
  "taide-infra",
  "taide-model",

@@ -60,6 +60,7 @@ taide-ide = { path = "../crates/taide-ide" }
 taide-infra = { path = "../crates/taide-infra" }
 taide-layout = { path = "../crates/taide-layout" }
 taide-locale = { path = "../crates/taide-locale" }
+taide-lsp = { path = "../crates/taide-lsp" }
 taide-model = { path = "../crates/taide-model" }
 taide-notification = { path = "../crates/taide-notification" }
 taide-plugin = { path = "../crates/taide-plugin" }

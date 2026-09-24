@@ -1,0 +1,15 @@
+[package]
+name = "taide-lsp"
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+taide-infra = { path = "../taide-infra" }
+taide-model = { path = "../taide-model" }
+log = "0.4"
+serde_json = "1"
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

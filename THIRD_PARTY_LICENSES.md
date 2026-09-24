@@ -384,7 +384,7 @@ as a whole also ships several GPL-3.0 grammars (`ada`, `gnuplot`, `nginx`,
 ## Downloaded Language Servers
 
 The entries below use the `download` install strategy in
-`src-tauri/resources/lsp-servers.json` — TAIDE's LSP installer fetches the
+`crates/taide-lsp/resources/lsp-servers.json` — TAIDE's LSP installer fetches the
 listed release artifact from the upstream project directly, verifies it by
 SHA-256, and unpacks it into `{appData}/lsp/<server>/<version>/`. No source
 or binary code from these projects is committed to the TAIDE repository or
