@@ -454,5 +454,12 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 
 - [x] A. search 서비스는 model Search DTO/error, infra persist/root_guard/watch_policy, ignore/regex와 공유 파일 크기 상수에 의존합니다. 기존 unit 57건은 검색·교체·취소·ignore·큰 파일 정책을 검증합니다. 새 경계 테스트에서 search crate 부재 E0433과 model 파일 크기 상수 부재 E0425(exit 101)를 확인했습니다.
 - [x] B. 공유 파일 크기 상수 4개를 model file 소유로 옮기고 기존 Tauri constants 경로는 재수출했습니다. search 구현·unit 57건을 taide-search로 이전하고 기존 서비스 경로를 재수출 facade로 유지했습니다. 새 crate unit 57건·경계 1건이 통과했습니다.
-- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·search/model strict rustdoc가 통과했습니다. strict search rustdoc의 private 링크 3곳은 코드 텍스트로 바로잡고 재검증했습니다. 생성 bindings SHA-256 `99ab778ed7f7b8a92aebec3afc94492c5b8f26e8ed4c97d63122f23194284763`은 불변입니다. 검색 UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·search/model strict rustdoc가 통과했습니다. strict search rustdoc의 private 링크 3곳은 코드 텍스트로 바로잡고 재검증했습니다. model search 설명 문구 1줄이 다음 slice의 bindings 재생성에서 반영되어 commit `d6511a8`로 생성 bindings와 manifest 해시를 동기화했습니다. 검색 UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `bf3d7fd`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 열두 번째 slice — plugin 서비스 이전 (완료, M4 전체는 진행 중)
+
+- [x] A. plugin 서비스는 model plugin DTO/error, infra archive/language/lsp_install/root_guard, parking_lot·serde_json·uuid와 VSIX에서도 사용하는 manifest 상수에 의존합니다. 기존 unit 26건은 경로·manifest·grammar·install/staging/rollback을 검증합니다. 새 경계 테스트에서 plugin crate 부재 E0433과 model 상수 부재 E0425(exit 101)를 확인했습니다.
+- [x] B. manifest 상수 3개를 model plugin 소유로 옮기고 기존 types 경로는 재수출했습니다. plugin 구현·unit 26건을 taide-plugin으로 이전하고 기존 서비스 경로를 재수출 facade로 유지했습니다. 새 crate unit 26건·경계 1건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·plugin/model strict rustdoc가 통과했습니다. 직전 search 문서 1줄을 bindings로 재생성한 뒤 manifest 해시를 commit `d6511a8`로 맞췄고 Phase 0 계약 7건·권한 허용 `cargo test -p taide --lib --quiet` 1,122건·`bun run typecheck`가 통과했습니다. 제한된 sandbox에서 같은 lib 명령의 프로세스·루프백·휴지통 권한 관련 기존 9건 실패는 권한 허용 재실행에서 모두 통과했습니다. 생성 bindings SHA-256은 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`이며 타입·명령 계약 변화는 없습니다. plugin 설치 UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `d4474f9`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
