@@ -57,6 +57,7 @@ taide-file = { path = "../crates/taide-file" }
 taide-font = { path = "../crates/taide-font" }
 taide-git = { path = "../crates/taide-git" }
 taide-infra = { path = "../crates/taide-infra" }
+taide-layout = { path = "../crates/taide-layout" }
 taide-locale = { path = "../crates/taide-locale" }
 taide-model = { path = "../crates/taide-model" }
 taide-notification = { path = "../crates/taide-notification" }

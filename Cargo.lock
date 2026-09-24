@@ -4390,6 +4390,7 @@ dependencies = [
  "taide-font",
  "taide-git",
  "taide-infra",
+ "taide-layout",
  "taide-locale",
  "taide-model",
  "taide-notification",
@@ -4519,6 +4520,17 @@ dependencies = [
  "uuid",
  "xz2",
  "zip",
+]
+
+[[package]]
+name = "taide-layout"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde_json",
+ "taide-infra",
+ "taide-model",
+ "uuid",
 ]
 
 [[package]]
