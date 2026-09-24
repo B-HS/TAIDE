@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use taide_infra::{
-    archive, clock, crypto, external_url, home, http, language, lsp_install, perf, persist, pty, range_file, redact, root_guard,
+    archive, clock, crypto, external_url, home, http, language, lsp_install, lsp_proc, perf, persist, pty, range_file, redact, root_guard,
     self_write, shell_integration, shell_quote, terminal_scan, watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
@@ -181,4 +181,22 @@ fn pty_설정과_세션은_기존_공개_타입을_유지한다() {
     };
     let _: infra::pty::PtySpawnConfig = config;
     let _: Option<infra::pty::PtySession> = None::<pty::PtySession>;
+}
+
+#[test]
+fn lsp_프로세스는_기존_핸들과_프레이밍_경계를_유지한다() {
+    let _: Option<infra::lsp_proc::LspProcHandle> = None::<lsp_proc::LspProcHandle>;
+    let config = lsp_proc::LspProcConfig {
+        command: "server".to_string(),
+        args: Vec::new(),
+        cwd: PathBuf::from("/repo"),
+    };
+    let _: infra::lsp_proc::LspProcConfig = config;
+
+    let payload = "{\"jsonrpc\":\"2.0\"}";
+    let framed = lsp_proc::encode_message(payload);
+    assert_eq!(framed, infra::lsp_proc::encode_message(payload));
+    let mut buffer: infra::lsp_proc::MessageBuffer = lsp_proc::MessageBuffer::new();
+    buffer.extend(&framed);
+    assert_eq!(buffer.take_message().as_deref(), Some(payload));
 }

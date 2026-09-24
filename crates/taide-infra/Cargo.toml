@@ -18,9 +18,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
+sysinfo = "0.39"
 taide-model = { path = "../taide-model" }
 tar = "0.4"
-tokio = { version = "1", features = ["fs", "io-util"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 xz2 = { version = "0.1", features = ["static"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }

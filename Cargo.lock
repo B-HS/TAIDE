@@ -4429,6 +4429,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sysinfo",
  "taide-model",
  "tar",
  "tokio",
