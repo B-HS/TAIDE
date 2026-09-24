@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료, M4 서비스 slice 16개와 project 순수 정책·서비스 경계 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1·M2·M3 완료, M4 서비스 slice 17개와 project 순수 정책·서비스 경계 검증 완료; Git 서비스는 M4, Tauri platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -505,3 +505,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 구현·unit 74건을 기존 taide-project crate로 옮기고 Tauri 공개 서비스 경로를 재수출 facade로 유지했습니다. 새 crate unit 총 98건·경계 1건·session restore 8건이 통과했습니다. Tauri commands·capability는 기존 조립 경계에 남습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-project --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. strict rustdoc의 private 링크 5곳은 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. project UI·실제 재시작 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `0c93b13`으로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 열아홉 번째 slice — agent 정책 서비스·공유 상수 이전 (완료, hooks 조립은 유지)
+
+- [x] A. agent 서비스는 model agent DTO/error/ids, infra terminal_scan/crypto, serde/serde_json과 기존 Tauri types의 공유 정책 상수에 의존합니다. 기존 unit 142건 green 후 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+- [x] B. 정책 구현·unit 142건과 공유 상수를 taide-agent로 이전하고 기존 service/types 경로를 재수출 facade로 유지했습니다. 새 crate unit 142건·경계 1건이 통과했습니다. hooks 서버·Tauri commands는 기존 조립 경계에 남습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-agent --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. strict rustdoc의 private 링크 2곳은 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 agent 프로세스·hook 설치·UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `0d8f9da`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
