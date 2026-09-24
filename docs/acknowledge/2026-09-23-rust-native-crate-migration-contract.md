@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1·M2·M3 완료, M4 서비스 slice 20개와 project 순수 정책·서비스 경계 검증 완료; Git commands/watch/plugin overlay 조립은 Tauri 경계, platform adapter는 M6 소유, M4~M8 미완료
+> 상태: M1·M2·M3 완료, M4 서비스 slice 21개와 project 순수 정책·서비스 경계 검증 완료; Git commands/watch/plugin overlay·layout flush/이벤트/IDE·terminal 조립은 Tauri 경계, platform adapter는 M6 소유, M4~M8 미완료
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 
@@ -519,3 +519,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 서비스 구현·unit 88건을 taide-git로 이전하고 기존 Tauri 서비스 경로는 재수출 facade로 유지했습니다. 새 crate unit 88건·경계 1건이 통과했고 Tauri commands·watch·plugin overlay 조립은 기존 경계에 남습니다.
 - [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-git --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. strict rustdoc의 private 링크 표기 5곳은 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 저장소·원격·Git UI 실기는 실행하지 않았고 M4 전체는 미완료입니다.
 - [x] D. 관련 코드를 commit `48a0290`으로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
+
+## M4 스물한 번째 slice — layout 정책·저장 서비스 이전 (완료, Tauri 조립은 유지)
+
+- [x] A. layout 서비스의 탭·패널 정책과 저장/복원은 model DTO/error/ids/paths, infra persist, log에 의존합니다. flush·이벤트 발신·IDE pending diff 해소·terminal 세션 회수는 AppState/AppHandle에 묶여 Tauri 조립 경계입니다. 기존 unit 108건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+- [x] B. 정책·저장/복원 구현과 unit 104건을 taide-layout로 이전하고 기존 서비스 경로를 재수출 facade로 유지했습니다. flush/이벤트/IDE·terminal 조립과 unit 4건은 Tauri 경계에 남겼습니다. 새 crate unit 104건·경계 1건·adapter unit 4건·session restore 8건이 통과했습니다.
+- [x] C. `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-layout --no-deps`·Phase 0 계약 7건·`bun run typecheck`가 통과했습니다. strict rustdoc의 private 링크 표기 7곳은 코드 텍스트로 바로잡고 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `cd90578bdfeab4fc79aad8968bb489f822c34849f55322c0b2108b57566e016d`은 불변입니다. 실제 레이아웃 GUI·재시작 실기는 실행하지 않았고 M4 전체는 미완료입니다.
+- [x] D. 관련 코드를 commit `fb966e1`로 선별 반영하고 이 기록을 별도 commit으로 반영해 원격 `to_rust_native`에 일반 push합니다.
