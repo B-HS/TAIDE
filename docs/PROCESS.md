@@ -240,12 +240,16 @@
   - [x] M4-AX. VSIX 경로·크기 상수 6개를 model vsix 소유로 옮기고 기존 types 경로를 재수출했습니다. 구현·unit 32건을 taide-vsix로 이전하고 기존 service 공개 경로를 재수출 facade로 유지했습니다. 새 crate unit 32건·경계 1건이 통과했습니다.
   - [x] M4-AY. 새 crate unit 32건·경계 1건·workspace 전체·fmt·clippy·strict vsix/model rustdoc가 통과했고 생성 bindings SHA-256은 불변입니다. VSIX import UI와 실제 외부 확장 파일 실기는 실행하지 않았습니다.
   - [x] M4-AZ. VSIX slice 구현을 commit `c0ce737`로 선별 반영하고 검증·미완료 VSIX import 실기 범위를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
+  - [x] M4-BA. file 서비스는 model DTO/error/ids/paths/크기 상수·infra clock/language/persist·외부 trash에, editorconfig는 model DTO에 의존합니다. guarded save 한 함수만 AppState·root_guard·self-write/mirror 조립을 사용하므로 Tauri adapter로 유지합니다. 기존 file unit 44건(guarded save 1건 포함)·editorconfig unit 17건을 확인했고 새 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
+  - [x] M4-BB. file 순수 구현·unit 43건과 editorconfig 구현·unit 17건을 taide-file로 이전하고 두 기존 공개 경로를 재수출 facade로 유지했습니다. guarded save는 Tauri adapter에 남겨 원본 루트 가드·원자 저장·self-write·미러 정리 순서를 유지하며 기존 회귀를 경계 테스트로 옮겼습니다. 새 crate unit 60건·경계/adapter 2건이 통과했습니다.
+  - [x] M4-BC. 새 crate unit 60건·Tauri 경계/guarded save 2건·workspace 전체·fmt·clippy·strict file rustdoc가 통과했고 생성 bindings SHA-256은 불변입니다. strict rustdoc의 private 링크 표기 3곳은 코드 텍스트로 바로잡고 재검증했습니다. 파일 저장·editorconfig UI 실기는 실행하지 않았습니다.
+  - [x] M4-BD. file slice 구현을 commit `89cbb29`로 선별 반영하고 Tauri guarded save adapter 유지·검증·미완료 파일 저장/editorconfig UI 실기 범위를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
 - [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M3까지 완료하고 M4의 font·notification·snippet·system·task·tree·locale·theme·settings·sync·search·plugin·VSIX 서비스 slice를 분리·검증했습니다. 다음 세부 실행 항목은 M4의 나머지 기능별 서비스 crate 이전입니다. Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
+> M3까지 완료하고 M4의 font·notification·snippet·system·task·tree·locale·theme·settings·sync·search·plugin·VSIX·file 서비스 slice를 분리·검증했습니다. 다음 세부 실행 항목은 M4의 나머지 기능별 서비스 crate 이전입니다. Git 서비스 구현과 plugin overlay 소비는 M4, `asset_protocol`·`navigation_guard` platform adapter는 M6 소유이며 M4~M8과 GUI 실기는 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
