@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use taide_infra::{
-    archive, clock, crypto, external_url, home, http, language, lsp_install, persist, range_file, redact, root_guard, self_write,
+    archive, clock, crypto, external_url, home, http, language, lsp_install, perf, persist, range_file, redact, root_guard, self_write,
     shell_quote, watch_policy, watcher,
 };
 use taide_lib::{constants, infra};
@@ -136,4 +136,15 @@ fn http_클라이언트는_기존_프로필_타입과_반환_경로를_유지한
     let profile: infra::http::HttpClientProfile = http::HttpClientProfile::Download;
     let _: reqwest::Client = infra::http::outbound_http_client(profile);
     let _: reqwest::Client = http::outbound_http_client(http::HttpClientProfile::Api);
+}
+
+#[test]
+fn 성능_계측은_같은_전역_레지스트리와_wire_슬롯을_쓴다() {
+    let _: infra::perf::SpanSlot = perf::SpanSlot::GitStatus;
+    let _: infra::perf::CounterSlot = perf::CounterSlot::PtyOutputBytes;
+
+    assert!(std::ptr::eq(infra::perf::global(), perf::global()));
+    assert_eq!(infra::perf::SPAN_SLOT_COUNT, perf::SPAN_SLOT_COUNT);
+    assert_eq!(perf::SpanSlot::GitStatus.name(), "git_status");
+    assert_eq!(perf::CounterSlot::PtyOutputBytes.name(), "pty.output_bytes");
 }

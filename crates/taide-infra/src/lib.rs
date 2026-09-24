@@ -6,6 +6,7 @@ pub mod home;
 pub mod http;
 pub mod language;
 pub mod lsp_install;
+pub mod perf;
 pub mod persist;
 pub mod range_file;
 pub mod redact;
