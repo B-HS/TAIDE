@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::{broadcast, watch};
 
@@ -94,13 +94,19 @@ impl RemoteStore {
         self.inner.lock().running
     }
 
-    pub fn mark_started(&self, port: u32, shutdown_tx: watch::Sender<()>, server_handle: tauri::async_runtime::JoinHandle<()>) {
+    pub fn mark_started(&self, port: u32, shutdown_tx: watch::Sender<()>, server_handle: tauri::async_runtime::JoinHandle<()>) -> bool {
         let mut inner = self.inner.lock();
+        if inner.running {
+            let _ = shutdown_tx.send(());
+            server_handle.abort();
+            return false;
+        }
         inner.running = true;
         inner.port = port;
         inner.client_count = 0;
         inner.shutdown_tx = Some(shutdown_tx);
         inner.server_handle = Some(server_handle);
+        true
     }
 
     pub fn take_shutdown_state(&self) -> Option<RemoteShutdownState> {
@@ -378,17 +384,29 @@ impl RemoteStore {
 }
 
 async fn bind_and_start(app: &AppHandle) -> AppResult<RemoteStatus> {
+    if app.state::<AppState>().is_shutting_down() {
+        return Err(AppError::Internal("remote server unavailable during shutdown".to_string()));
+    }
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0u16)).await.map_err(AppError::from)?;
     let port = listener.local_addr().map_err(AppError::from)?.port() as u32;
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let router = server::build_router(app.clone());
-    let server_handle = tauri::async_runtime::spawn(async move {
+    let server_handle = app.state::<TaskSupervisor>().spawn_transient_handle("remote-server", async move {
         server::serve(listener, router, shutdown_rx).await;
     });
+    let Some(server_handle) = server_handle else {
+        return Err(AppError::Internal("remote server task supervisor stopped".to_string()));
+    };
+    if app.state::<AppState>().is_shutting_down() {
+        server_handle.abort();
+        return Err(AppError::Internal("remote server unavailable during shutdown".to_string()));
+    }
 
     let remote = app.state::<RemoteStore>();
-    remote.mark_started(port, shutdown_tx, server_handle);
+    if !remote.mark_started(port, shutdown_tx, tauri::async_runtime::JoinHandle::Tokio(server_handle)) {
+        return Ok(remote.status());
+    }
     let status = remote.status();
     log::info!("원격 접속 서버 기동: port={port}");
     TauriEventSink(app).publish(AppEvent::RemoteStateChanged { status });

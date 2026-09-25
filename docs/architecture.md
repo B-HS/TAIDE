@@ -183,6 +183,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     반환형 반복 작업 API는 도메인 저장소가 JoinHandle을 보유해 기존 종료 대기를 유지하면서 감독자가 동일 작업의 AbortHandle을 추적할 수 있게 한다.
     agent hook 서버의 accept/connection 작업은 감독 범위에 있고, 기존 AgentHooksStore는 accept JoinHandle을 유지한다.
     동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
+    remote 서버는 기존 RemoteStore가 shutdown 송신자와 JoinHandle을 유지하면서 TaskSupervisor도 서버 작업을 추적한다.
+    중복 bind는 첫 서버를 유지하고 뒤늦은 서버에 종료 신호·취소를 보내며, 일반 중지는 기존 grace wait 뒤 abort 순서를 유지한다.
     메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정·LSP 종료/재시작 지연은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
