@@ -784,3 +784,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. lockfile 구현·식별 상수와 기존 14개 테스트를 `taide-ide::lockfile`로 옮기고 Tauri lockfile/types 공개 경로는 facade로 유지했습니다. 토큰의 private atomic write(Unix 디렉터리 0700·파일 0600), 살아 있는 PID·타 IDE·깨진 JSON 보존, 죽은 TAIDE PID 정리 정책과 command의 기동·갱신·종료 순서는 바꾸지 않았습니다. 현행 아키텍처·에이전트 연동 문서의 소유 경로를 갱신했습니다.
 - [x] C. `taide-ide` 단위 34건·신규 경계 2건·Tauri IDE 영역 18건·기존 model 외부 wire 2건·Phase 0 계약 7건·bindings 생성 1건, crate/Tauri clippy·fmt·독립 crate rustdoc·`git diff --check`가 통과했습니다. 첫 fmt는 이동 파일 import·줄바꿈만 지적해 포맷 후 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. 전체 workspace·TypeScript typecheck·실제 Claude MCP 연결/GUI는 실행하지 않았습니다. M5 전체·M6 adapter·native UI는 미완료입니다.
 - [x] D. 코드·테스트·현행 문서를 `9c6ee72`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태를 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
+
+## M5 서른일곱 번째 slice — LSP 프로세스 기동의 독립 crate 이전
+
+- [x] A. `domain/lsp/commands.rs::spawn_process`가 실행 파일·인자 템플릿 해석과 실제 자식 프로세스 spawn을 소유하고 있었습니다. 기존 Tauri LSP 명령 20건이 권한 허용 환경에서 통과했고, 새 crate 프로세스 경계 3건은 `taide_lsp::process` 부재 E0432(exit 101)로 의도대로 실패했습니다. Rust `var_os`·Tokio 프로세스 공식 문서를 확인했습니다.
+- [x] B. 관리 설치 경로·실행 파일·인자 템플릿 해석과 실제 프로세스 기동을 `taide-lsp::process`로 이전했습니다. Tauri에는 AppHandle 세션 epoch 확인, 메시지 구독 전송 및 종료 시 mutation guard·이벤트 콜백만 남겼습니다. 기존 실행 파일 부재·미해결 템플릿 오류와 spawn 로그·콜백 순서를 유지하고 새 경계 3건이 통과했습니다. 현행 아키텍처·LSP 기능 문서의 소유 표기를 갱신했습니다.
+- [x] C. 권한 허용 `cargo test --workspace --quiet` 전체(exit 0)에 새 crate 프로세스 경계 3건·Tauri LSP·Phase 0 IPC 계약이 포함되어 통과했습니다. `cargo clippy --workspace --all-targets -- -D warnings`·`cargo fmt --all --check`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-lsp --no-deps`·`git diff --check`가 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. TypeScript 파일은 변경하지 않아 typecheck를 재실행하지 않았고 실제 LSP 서버·GUI 세션 실기는 미검증입니다. M5 전체·M6 adapter·native UI는 미완료입니다.
+- [x] D. 코드·테스트·현행 문서를 `394d2fb`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
