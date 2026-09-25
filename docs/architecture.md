@@ -26,8 +26,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
-├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(현재 10종)
-├── crates/taide-runtime/    Tauri 미의존 EventSink port (이벤트 10종부터 이전 중)
+├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(현재 11종)
+├── crates/taide-runtime/    Tauri 미의존 EventSink port (이벤트 11종부터 이전 중)
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -151,7 +151,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     상태로 등록하고 기존 `domain::window::commands::WindowStore` 경로는 타입 재수출로 유지한다.
     layout mutation 완료와 보조 창 탭 복귀의 `LayoutChanged`, Git 명령·워처의 status/refs 이벤트,
     terminal 세션의 spawned/exited/cwd/command-finished 이벤트, 설정·테마 변경 이벤트와
-    sync connect/disconnect/upload/download 완료 상태 이벤트는
+    sync connect/disconnect/upload/download 완료 상태 이벤트와 원격 서버 시작·중지 상태 이벤트는
     `taide-runtime::EventSink::publish(taide-model::app_event::AppEvent)`를 거쳐
     `platform::event_sink::TauriEventSink`가 기존 Tauri 이벤트로 변환한다. 어댑터는 관리 상태에
     AppHandle을 보관하지 않고 발행 호출 동안 빌리며, `finish_mutation`은 port를 인자로 받는다. Git은 기존
@@ -159,7 +159,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     종료 metadata 갱신 뒤 exited, 실제 cwd 변경과 측정된 command marker에만 각각 발행한다.
     설정은 영속화·상태 갱신·integration observer 완료 뒤 SettingsChanged를 발행하고,
     테마 변경은 그 다음 ThemeChanged를 발행한다. sync는 성공한 네 경로의 상태 반영 뒤
-    SyncStateChanged를 발행한다. 나머지 20개 이벤트는
+    SyncStateChanged를 발행한다. 원격 서버는 시작 상태 등록 뒤, 중지 신호 뒤 각각
+    RemoteStateChanged를 발행한다. 나머지 19개 이벤트는
     아직 직접 발행하며 기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

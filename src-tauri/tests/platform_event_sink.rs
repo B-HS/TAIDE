@@ -5,6 +5,7 @@ use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::ids::ProjectId;
+use taide_model::remote::RemoteStatus;
 use taide_model::settings::Settings;
 use taide_model::sync::SyncStatus;
 use taide_runtime::EventSink;
@@ -229,4 +230,44 @@ fn 동기화_성공_경로_네_곳은_상태_반영_뒤_port로_발행된다() {
     assert!(upload.find("*state.settings.write()").unwrap() < upload.find("AppEvent::SyncStateChanged").unwrap());
     assert!(download.find("service::apply_locale_entries(").unwrap() < download.find("AppEvent::SyncStateChanged").unwrap());
     assert!(adapter.contains("SyncStateChanged { status }.emit(self.0)"));
+}
+
+#[test]
+fn 원격_서버_상태는_같은_port에서_시작과_중지_순서로_발행된다() {
+    let sink = RecordingEventSink::default();
+    let running = RemoteStatus {
+        running: true,
+        port: 1,
+        client_count: 0,
+        password_configured: true,
+    };
+
+    sink.publish(AppEvent::RemoteStateChanged { status: running });
+    sink.publish(AppEvent::RemoteStateChanged {
+        status: RemoteStatus::default(),
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::RemoteStateChanged { status: running },
+            AppEvent::RemoteStateChanged {
+                status: RemoteStatus::default(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn 원격_서버_시작과_중지는_수명주기_갱신_뒤_port로_발행된다() {
+    let commands = include_str!("../src/domain/remote/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let start = commands.split_once("async fn bind_and_start(").unwrap().1;
+    let stop = commands.split_once("pub fn stop_server(").unwrap().1;
+
+    assert_eq!(commands.matches(".publish(AppEvent::RemoteStateChanged").count(), 2);
+    assert!(start.find("remote.mark_started(").unwrap() < start.find("AppEvent::RemoteStateChanged").unwrap());
+    assert!(stop.find("remote.take_shutdown_state()").unwrap() < stop.find("AppEvent::RemoteStateChanged").unwrap());
+    assert!(stop.find("shutdown_tx.send(())").unwrap() < stop.find("AppEvent::RemoteStateChanged").unwrap());
+    assert!(adapter.contains("RemoteStateChanged { status }.emit(self.0)"));
 }

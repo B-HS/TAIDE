@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, State};
-use tauri_specta::Event;
 use tokio::sync::{broadcast, watch};
 
 use super::server;
@@ -14,9 +15,9 @@ use super::types::{
     REMOTE_SHUTDOWN_GRACE_MS,
 };
 use crate::error::{AppError, AppErrorKind, AppResult};
-use crate::events::RemoteStateChanged;
 use crate::infra::crypto::constant_time_eq;
 use crate::infra::secret::{SecretAccount, SecretStoreState};
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 #[derive(Default)]
@@ -428,7 +429,7 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<RemoteStatus> {
     remote.mark_started(port, shutdown_tx, server_handle);
     let status = remote.status();
     log::info!("원격 접속 서버 기동: port={port}");
-    let _ = RemoteStateChanged { status }.emit(app);
+    TauriEventSink(app).publish(AppEvent::RemoteStateChanged { status });
     Ok(status)
 }
 
@@ -469,10 +470,9 @@ pub fn stop_server(app: &AppHandle, remote: &RemoteStore) {
         });
     }
 
-    let _ = RemoteStateChanged {
+    TauriEventSink(app).publish(AppEvent::RemoteStateChanged {
         status: RemoteStatus::default(),
-    }
-    .emit(app);
+    });
 }
 
 #[tauri::command]

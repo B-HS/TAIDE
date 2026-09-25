@@ -4,8 +4,8 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    GitRefsChanged, GitStatusChanged, LayoutChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged,
-    TerminalExited, TerminalSpawned, ThemeChanged,
+    GitRefsChanged, GitStatusChanged, LayoutChanged, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished,
+    TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -64,6 +64,9 @@ impl EventSink for TauriEventSink<'_> {
             }
             AppEvent::SyncStateChanged { status } => {
                 let _ = SyncStateChanged { status }.emit(self.0);
+            }
+            AppEvent::RemoteStateChanged { status } => {
+                let _ = RemoteStateChanged { status }.emit(self.0);
             }
         }
     }

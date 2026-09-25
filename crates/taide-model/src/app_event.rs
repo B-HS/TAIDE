@@ -1,4 +1,5 @@
 use crate::ids::ProjectId;
+use crate::remote::RemoteStatus;
 use crate::settings::Settings;
 use crate::sync::SyncStatus;
 
@@ -42,5 +43,8 @@ pub enum AppEvent {
     },
     SyncStateChanged {
         status: SyncStatus,
+    },
+    RemoteStateChanged {
+        status: RemoteStatus,
     },
 }
