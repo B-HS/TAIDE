@@ -1,6 +1,6 @@
 # Rust-native 전환 로드맵
 
-> 상태: Phase 0 진행 중 — IPC contract manifest 완료, Phase 1 model crate 첫 slice 진행 중
+> 상태: M1~M5 완료, M6 runtime·platform 분리 진행 중. Phase 0의 실기 기준선과 M7/M8 gate는 미완료
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 검증: `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`
 > 현행 구조: `docs/architecture.md`
