@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 pub use taide_lsp::install::LspInstallStore;
 use taide_lsp::protocol::workspace_folders_notification;
-use taide_lsp::session::{LspMessageSubscribers, LspSessionRoots};
+use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers, LspSessionLifecycle, LspSessionRoots};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -54,20 +54,7 @@ struct SessionEntry {
     spec: LanguageServerSpec,
     proc: Mutex<Option<Arc<lsp_proc::LspProcHandle>>>,
     subscribers: LspMessageSubscribers,
-    status: Mutex<LspSessionStatus>,
-    last_error: Mutex<Option<String>>,
-    restart_count: AtomicU32,
-    /// Bumped once per successful *automatic* crash-restart respawn (never by `lsp_spawn`'s or
-    /// `lsp_restart`'s own respawn — see [`handle_process_exit`]'s doc comment for why only the
-    /// silent, unattended path needs this signal). The renderer watches
-    /// `LspSessionStatusChanged.generation`: an increase paired with `status: Crashed` means the
-    /// process behind this `session_id` was silently replaced — the renderer must discard its old LSP
-    /// client state and re-run `initialize` over `lsp_send`, then call
-    /// [`lsp_confirm_reinitialize`] with the same generation to let `status` honestly flip back to
-    /// `Running` (R7#1 — the root fix superseding T0 #24's "stay `Crashed`, tell the user to restart
-    /// manually" mitigation).
-    generation: AtomicU32,
-    stopping: Arc<AtomicBool>,
+    lifecycle: LspSessionLifecycle,
     roots: LspSessionRoots,
 }
 
@@ -81,7 +68,7 @@ impl LspStore {
 
     pub fn kill_all(&self) {
         for entry in self.0.lock().values() {
-            entry.stopping.store(true, Ordering::SeqCst);
+            entry.lifecycle.mark_stopping();
             if let Some(proc) = entry.proc.lock().as_ref() {
                 proc.kill();
             }
@@ -139,7 +126,7 @@ fn find_reusable_entry(
             &entry.project_id == project_id
                 && &entry.server_id == server_id
                 && entry.spec.shares_sessions
-                && !entry.stopping.load(Ordering::SeqCst)
+                && !entry.lifecycle.is_stopping()
                 && entry.subscribers.contains(owner)
         })
         .map(|(id, entry)| (id.clone(), entry.clone()))
@@ -152,16 +139,18 @@ fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()
     Err(AppError::NotFound(format!("project not open: {project_id}")))
 }
 
-fn set_status(app: &AppHandle, session_id: &str, entry: &SessionEntry, status: LspSessionStatus, last_error: Option<String>) {
-    *entry.status.lock() = status;
-    *entry.last_error.lock() = last_error.clone();
+fn emit_status(app: &AppHandle, session_id: &str, snapshot: LspLifecycleSnapshot) {
     let _ = LspSessionStatusChanged {
         session_id: session_id.to_string(),
-        status,
-        last_error,
-        generation: entry.generation.load(Ordering::SeqCst),
+        status: snapshot.status,
+        last_error: snapshot.last_error,
+        generation: snapshot.generation,
     }
     .emit(app);
+}
+
+fn set_status(app: &AppHandle, session_id: &str, entry: &SessionEntry, status: LspSessionStatus, last_error: Option<String>) {
+    emit_status(app, session_id, entry.lifecycle.set_status(status, last_error));
 }
 
 fn managed_dir_for(paths: &AppPaths, server_id: &LspServerId) -> Option<PathBuf> {
@@ -283,7 +272,7 @@ fn masked_stderr_tail(tail: &str) -> String {
 ///
 /// T0 #24's mitigation stopped here (report `Crashed` forever, tell the user to restart manually).
 /// R7#1's root fix (T1-D) closes the loop instead of just naming it: on a successful respawn,
-/// `entry.generation` is bumped *before* `set_status` emits `LspSessionStatusChanged`, so that event
+/// `entry.lifecycle.auto_respawned` changes the generation and status together before `LspSessionStatusChanged` is emitted, so that event
 /// carries both the new `generation` and `status: Crashed` together. The renderer treats a `generation`
 /// increase as "this session's process was silently replaced" — it discards its old client state,
 /// re-runs `initialize` over `lsp_send` against the same `session_id`, and on success calls
@@ -300,13 +289,12 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>, s
         return;
     };
 
-    if entry.stopping.load(Ordering::SeqCst) {
+    let Some(restarts) = entry.lifecycle.begin_exit_recovery() else {
         log::info!("lsp {}: stopped (code={code:?})", entry.server_id);
         set_status(app, &session_id, &entry, LspSessionStatus::Stopped, None);
         return;
-    }
+    };
 
-    let restarts = entry.restart_count.fetch_add(1, Ordering::SeqCst) + 1;
     log::warn!(
         "lsp {}: exited code={code:?} restarts={restarts} stderr_tail={}",
         entry.server_id,
@@ -348,27 +336,26 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>, s
         let Ok(entry) = find_entry(&store, &restart_session_id) else {
             return;
         };
-        if entry.stopping.load(Ordering::SeqCst) {
+        if entry.lifecycle.is_stopping() {
             return;
         }
 
         match spawn_process(&restart_app, restart_session_id.clone(), spec, root) {
             Ok(proc) => {
                 *entry.proc.lock() = Some(proc.clone());
-                entry.generation.fetch_add(1, Ordering::SeqCst);
-                set_status(
+                emit_status(
                     &restart_app,
                     &restart_session_id,
-                    &entry,
-                    LspSessionStatus::Crashed,
-                    Some("서버 프로세스가 자동으로 재시작됐습니다. 초기화 핸드셰이크가 다시 완료될 때까지 기다려주세요.".to_string()),
+                    entry.lifecycle.auto_respawned(
+                        "서버 프로세스가 자동으로 재시작됐습니다. 초기화 핸드셰이크가 다시 완료될 때까지 기다려주세요.".to_string(),
+                    ),
                 );
 
                 let healthy_reset_entry = entry.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(tokio::time::Duration::from_millis(LSP_RESTART_HEALTHY_RESET_MS)).await;
                     if confirms_healthy_restart(&healthy_reset_entry.proc, &proc) {
-                        healthy_reset_entry.restart_count.store(0, Ordering::SeqCst);
+                        healthy_reset_entry.lifecycle.reset_restart_count();
                     }
                 });
             }
@@ -422,7 +409,7 @@ async fn wait_for_process_exit(proc: &lsp_proc::LspProcHandle, timeout_ms: u64) 
 /// shutdown sequence as before, just with [`wait_for_process_exit`]'s early-return polling in
 /// place of a blind sleep.
 async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str) {
-    entry.stopping.store(true, Ordering::SeqCst);
+    entry.lifecycle.mark_stopping();
 
     let proc = entry.proc.lock().clone();
     if let Some(proc) = proc {
@@ -497,11 +484,7 @@ pub async fn lsp_spawn(
         spec: spec.clone(),
         proc: Mutex::new(None),
         subscribers,
-        status: Mutex::new(LspSessionStatus::Starting),
-        last_error: Mutex::new(None),
-        restart_count: AtomicU32::new(0),
-        generation: AtomicU32::new(0),
-        stopping: Arc::new(AtomicBool::new(false)),
+        lifecycle: LspSessionLifecycle::new(),
         roots: LspSessionRoots::new(root.clone()),
     });
 
@@ -647,9 +630,7 @@ pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: Stat
         return Err(AppError::NotFound(format!("lsp session not found: {session_id}")));
     }
 
-    entry.stopping.store(false, Ordering::SeqCst);
-    entry.restart_count.store(0, Ordering::SeqCst);
-    set_status(&app, &session_id, &entry, LspSessionStatus::Starting, None);
+    emit_status(&app, &session_id, entry.lifecycle.begin_manual_restart());
 
     let proc = spawn_process(&app, session_id.clone(), entry.spec.clone(), entry.root.clone())?;
     *entry.proc.lock() = Some(proc);
@@ -658,79 +639,21 @@ pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: Stat
     Ok(())
 }
 
-/// True only when `generation` matches `entry`'s *current* generation — the guard
-/// [`lsp_confirm_reinitialize`] applies before honoring a renderer's "I finished re-handshaking"
-/// report. Without it, a confirmation for a generation that a second crash+auto-restart has since
-/// superseded would incorrectly report the newer, still-unhandshaked process as `Running` — the
-/// exact race [`handle_process_exit`]'s doc comment on the `generation` field warns about.
-fn confirm_reinitialize(entry: &SessionEntry, generation: u32) -> bool {
-    entry.generation.load(Ordering::SeqCst) == generation
-}
-
-/// Called by the renderer once it has finished re-running `initialize` against a session whose
-/// [`LspSessionStatusChanged`] event reported a bumped `generation` (see the `generation` field doc
-/// on [`SessionEntry`]) — the counterpart to [`handle_process_exit`]'s auto-restart path that closes
-/// the loop T0 #24 left open (`Crashed` reported forever after a silent respawn, requiring a manual
-/// restart). A confirmation for a generation the session has since moved past (see
-/// [`confirm_reinitialize`]) is silently ignored rather than flipping a still-unhandshaked process to
-/// `Running`.
+/// Confirms reinitialization only for the current generation of a crashed session.
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_confirm_reinitialize(app: AppHandle, store: State<'_, LspStore>, session_id: String, generation: u32) -> AppResult<()> {
     let entry = find_entry(&store, &session_id)?;
-    if confirm_reinitialize(&entry, generation) {
-        set_status(&app, &session_id, &entry, LspSessionStatus::Running, None);
+    if let Some(snapshot) = entry.lifecycle.confirm_reinitialized(generation) {
+        emit_status(&app, &session_id, snapshot);
     }
     Ok(())
 }
 
-/// The `last_error` text [`lsp_report_reinitialize_failure`] applies — an honest terminal outcome
-/// ("the auto-restart happened, but re-handshaking it never worked") in place of `handle_process_exit`'s
-/// optimistic in-progress wording ("초기화 핸드셰이크가 다시 완료될 때까지 기다려주세요"), which would
-/// otherwise sit unchanged forever once the renderer gives up retrying.
 const REINITIALIZE_FAILURE_MESSAGE: &str =
     "초기화 핸드셰이크 재시도를 모두 소진해 서버를 재연결하지 못했습니다. 수동으로 다시 시작해주세요.";
 
-/// The additional precondition [`lsp_report_reinitialize_failure`] applies on top of
-/// [`confirm_reinitialize`]'s generation match: the session's *current* status must already be
-/// [`LspSessionStatus::Crashed`]. See that command's doc comment for why a generation match alone
-/// isn't enough here — [`lsp_confirm_reinitialize`] shares the same generation guard but needs no
-/// analogous status precondition of its own.
-fn should_apply_reinitialize_failure(entry: &SessionEntry, generation: u32) -> bool {
-    confirm_reinitialize(entry, generation) && *entry.status.lock() == LspSessionStatus::Crashed
-}
-
-/// [`lsp_confirm_reinitialize`]'s failure counterpart (§1.3(4),
-/// `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md`) — called by the renderer once it has
-/// exhausted its own retry budget re-running `initialize` against a session whose
-/// [`LspSessionStatusChanged`] event reported a bumped `generation`, instead of ever succeeding. Without
-/// this, a session whose re-handshake never lands sits forever on `handle_process_exit`'s own
-/// optimistic "재시작됐습니다, 기다려주세요" `last_error` text — a status-bar poll of `lsp_sessions`/
-/// `LspSessionInfo` would keep reporting "waiting" indefinitely instead of the honest "failed, restart
-/// manually" this command lets it settle on.
-///
-/// Applies the same generation guard as [`lsp_confirm_reinitialize`], plus one this command alone
-/// needs ([`should_apply_reinitialize_failure`]): it only applies when the session's *current* status
-/// is already [`LspSessionStatus::Crashed`]. `confirm_reinitialize`'s generation check by itself is a
-/// **race guard against a stale report**, not a forgery defense — `lsp_sessions` echoes the live
-/// `generation` back to any caller allowed to see it, so an authenticated remote peer can always
-/// supply one that matches (that peer already has `lsp_stop`/`lsp_restart`/`file_delete`/
-/// `git_discard` on this session anyway; matching a public counter isn't a privilege escalation,
-/// T1-K's "authenticated remote is the trust boundary, not caller identity" precedent). Without the
-/// added status check, a real (non-adversarial) race still mislabels a healthy session:
-/// `handle_process_exit` bumps `generation` and starts the renderer's retry loop; the user manually
-/// clicks "restart" (`lsp_restart`) before that loop gives up — `lsp_restart` moves the session to
-/// `Running` but, unlike `handle_process_exit`, does not bump `generation`; the *old* retry loop,
-/// unaware of the manual restart, eventually exhausts its budget and calls this command with the
-/// generation it originally observed, which still matches. Requiring `status == Crashed` at the
-/// moment this command actually applies closes exactly that path — a `Running` session (manually
-/// recovered or otherwise) is left alone.
-///
-/// Allowed remotely (T1-K): a remote mirror must be able to settle its own session's failed
-/// reinitialize just as the desktop can, and mirrors the same trust boundary
-/// [`lsp_confirm_reinitialize`] already accepts (its `Running` target is inherently safe to apply to
-/// an already-healthy session, so it needs no analogous status precondition — the asymmetry is in
-/// what each command's target state can safely clobber, not in who may call either).
+/// Records reinitialization failure only for the current generation of a crashed session.
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_report_reinitialize_failure(
@@ -740,14 +663,11 @@ pub async fn lsp_report_reinitialize_failure(
     generation: u32,
 ) -> AppResult<()> {
     let entry = find_entry(&store, &session_id)?;
-    if should_apply_reinitialize_failure(&entry, generation) {
-        set_status(
-            &app,
-            &session_id,
-            &entry,
-            LspSessionStatus::Crashed,
-            Some(REINITIALIZE_FAILURE_MESSAGE.to_string()),
-        );
+    if let Some(snapshot) = entry
+        .lifecycle
+        .report_reinitialize_failure(generation, REINITIALIZE_FAILURE_MESSAGE.to_string())
+    {
+        emit_status(&app, &session_id, snapshot);
     }
     Ok(())
 }
@@ -759,14 +679,17 @@ pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> 
     Ok(sessions
         .iter()
         .filter(|(_, entry)| entry.project_id == project_id)
-        .map(|(id, entry)| LspSessionInfo {
-            session_id: id.clone(),
-            project_id: entry.project_id.clone(),
-            server_id: entry.server_id.clone(),
-            root: entry.root.clone(),
-            status: *entry.status.lock(),
-            last_error: entry.last_error.lock().clone(),
-            generation: entry.generation.load(Ordering::SeqCst),
+        .map(|(id, entry)| {
+            let snapshot = entry.lifecycle.snapshot();
+            LspSessionInfo {
+                session_id: id.clone(),
+                project_id: entry.project_id.clone(),
+                server_id: entry.server_id.clone(),
+                root: entry.root.clone(),
+                status: snapshot.status,
+                last_error: snapshot.last_error,
+                generation: snapshot.generation,
+            }
         })
         .collect())
 }
@@ -1256,7 +1179,7 @@ mod tests {
     fn test_session_entry(project_id: ProjectId, server_id: LspServerId, owner: &str, stopping: bool) -> Arc<SessionEntry> {
         let subscribers = LspMessageSubscribers::new();
         subscribers.insert(owner.to_string(), channel_sink(failing_channel()));
-        Arc::new(SessionEntry {
+        let entry = Arc::new(SessionEntry {
             project_id,
             server_id: server_id.clone(),
             root: "/tmp/project".to_string(),
@@ -1282,98 +1205,20 @@ mod tests {
             },
             proc: Mutex::new(None),
             subscribers,
-            status: Mutex::new(LspSessionStatus::Running),
-            last_error: Mutex::new(None),
-            restart_count: AtomicU32::new(0),
-            generation: AtomicU32::new(0),
-            stopping: Arc::new(AtomicBool::new(stopping)),
+            lifecycle: LspSessionLifecycle::new(),
             roots: LspSessionRoots::new("/tmp/project".to_string()),
-        })
-    }
-
-    /// R7#1 회귀: 확인(confirm)이 실제로 반영해야 하는 세대와 일치할 때만 통과해야 한다 —
-    /// 그러지 않으면 느리게 도착한 재핸드셰이크 확인이, 그 사이 두 번째 크래시+자동재시작이
-    /// 이미 새 세대로 올린 (아직 재핸드셰이크되지 않은) 프로세스를 잘못 `Running`으로
-    /// 보고하게 된다.
-    #[test]
-    fn confirm_reinitialize는_현재_세대와_일치할_때만_true를_반환한다() {
-        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        entry.generation.store(2, Ordering::SeqCst);
-
-        assert!(confirm_reinitialize(&entry, 2), "현재 세대와 일치하는 확인은 통과해야 한다");
-        assert!(
-            !confirm_reinitialize(&entry, 1),
-            "구세대 확인은 그 사이 새 크래시+재시작이 세대를 올렸을 수 있으므로 무시되어야 한다"
-        );
-        assert!(
-            !confirm_reinitialize(&entry, 3),
-            "아직 오지 않은 미래 세대의 확인도 무시되어야 한다"
-        );
-    }
-
-    /// §1.3(4) 회귀: 실패 확인(`lsp_report_reinitialize_failure`)도 성공 확인(`lsp_confirm_reinitialize`)과
-    /// 정확히 같은 세대 가드를 공유한다 — 가드 자체의 통과/거부 조건은 위 테스트가 이미 검증하므로,
-    /// 여기서는 두 커맨드가 그 가드에 동일하게 의존한다는 계약을 고정한다. 미래에 이 가드가
-    /// 커맨드별로 분리되면 이 테스트가 실패해 그 분리가 실패 확인 경로에도 반영됐는지 드러낸다.
-    #[test]
-    fn confirm_reinitialize_가드는_성공과_실패_확인_모두에_재사용된다() {
-        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        entry.generation.store(1, Ordering::SeqCst);
-
-        assert!(
-            confirm_reinitialize(&entry, 1),
-            "lsp_confirm_reinitialize 경로가 의존하는 통과 조건"
-        );
-        assert!(
-            !confirm_reinitialize(&entry, 0),
-            "lsp_report_reinitialize_failure 경로도 구세대 실패 신고를 무시해야 한다"
-        );
-    }
-
-    /// 회귀: 수동 재시작(`lsp_restart`)이 `generation` 을 올리지 않고 `Running` 으로만 전환하는
-    /// 동안, 크래시 시점에 시작된 옛 재시도 루프가 뒤늦게 실패를 신고하면 세대는 여전히 일치한다
-    /// — 세대 가드만으로는 방금 복구된 정상 세션이 다시 `Crashed` 로 잘못 표시되는 것을 막지
-    /// 못한다. `status == Crashed` 전제가 정확히 이 경로를 막아야 한다.
-    #[test]
-    fn should_apply_reinitialize_failure는_세대가_일치해도_이미_running으로_회복된_세션에는_적용되지_않는다() {
-        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        entry.generation.store(1, Ordering::SeqCst);
-        *entry.status.lock() = LspSessionStatus::Running;
-
-        assert!(
-            !should_apply_reinitialize_failure(&entry, 1),
-            "수동 재시작으로 이미 Running 인 세션을 뒤늦은 실패 신고가 다시 Crashed 로 덮으면 안 된다"
-        );
-    }
-
-    #[test]
-    fn should_apply_reinitialize_failure는_세대가_일치하고_아직_crashed인_세션에는_적용된다() {
-        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        entry.generation.store(1, Ordering::SeqCst);
-        *entry.status.lock() = LspSessionStatus::Crashed;
-
-        assert!(
-            should_apply_reinitialize_failure(&entry, 1),
-            "재시도를 소진한 채 여전히 Crashed 인 세션에는 정상적으로 적용되어야 한다"
-        );
-    }
-
-    #[test]
-    fn should_apply_reinitialize_failure는_구세대_신고는_상태와_무관하게_무시한다() {
-        let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        entry.generation.store(2, Ordering::SeqCst);
-        *entry.status.lock() = LspSessionStatus::Crashed;
-
-        assert!(
-            !should_apply_reinitialize_failure(&entry, 1),
-            "세대가 이미 지나간 신고는 status 와 무관하게 무시되어야 한다"
-        );
+        });
+        entry.lifecycle.set_status(LspSessionStatus::Running, None);
+        if stopping {
+            entry.lifecycle.mark_stopping();
+        }
+        entry
     }
 
     #[test]
     fn 새로_생성된_세션엔트리의_세대는_0에서_시작한다() {
         let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        assert_eq!(entry.generation.load(Ordering::SeqCst), 0);
+        assert_eq!(entry.lifecycle.snapshot().generation, 0);
     }
 
     #[test]
