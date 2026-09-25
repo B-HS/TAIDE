@@ -36,6 +36,7 @@ use crate::domain::lsp::commands::LspStore;
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
+use crate::domain::remote::types::REMOTE_DISPATCH_MAX_CONCURRENT;
 use crate::domain::settings::types::Settings;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::window::commands::open_auxiliary_window;
@@ -960,6 +961,7 @@ pub fn run() {
             let services = Arc::new(AppServices::new(
                 state,
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
+                RemoteDispatchLimiter::new(REMOTE_DISPATCH_MAX_CONCURRENT),
             ));
 
             app.manage(services.state.clone());
@@ -994,7 +996,7 @@ pub fn run() {
             app.manage(SecretStoreState::new(app.config().identifier.clone()));
             app.manage(remote_dispatch_port());
             app.manage(RemoteStore::default());
-            app.manage(RemoteDispatchLimiter::default());
+            app.manage(services.remote_dispatch_limiter.clone());
             app.manage(WindowRegistry::default());
             app.manage(services.tasks.clone());
             app.manage(services);
@@ -1495,7 +1497,7 @@ mod tests {
         let setup = extract_between(
             source,
             "app.manage(SecretStoreState::new",
-            "app.manage(RemoteDispatchLimiter::default());",
+            "app.manage(services.remote_dispatch_limiter.clone());",
         );
         assert!(setup.contains("app.manage(remote_dispatch_port());"));
 

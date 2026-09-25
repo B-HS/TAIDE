@@ -7,12 +7,13 @@ use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::{broadcast, watch};
 
+pub use taide_runtime::RemoteDispatchLimiter;
+
 use super::server;
 use super::service;
 use super::types::{
-    RemoteLinkInfo, RemoteStatus, REMOTE_BROADCAST_CHANNEL_CAPACITY, REMOTE_DISPATCH_MAX_CONCURRENT, REMOTE_LOGIN_LOCKOUT_BASE_MS,
-    REMOTE_LOGIN_LOCKOUT_MAX_MS, REMOTE_LOGIN_MAX_ATTEMPTS, REMOTE_LOGIN_NONCE_TTL_MS, REMOTE_PASSWORD_MIN_LEN, REMOTE_SESSION_TTL_MS,
-    REMOTE_SHUTDOWN_GRACE_MS,
+    RemoteLinkInfo, RemoteStatus, REMOTE_BROADCAST_CHANNEL_CAPACITY, REMOTE_LOGIN_LOCKOUT_BASE_MS, REMOTE_LOGIN_LOCKOUT_MAX_MS,
+    REMOTE_LOGIN_MAX_ATTEMPTS, REMOTE_LOGIN_NONCE_TTL_MS, REMOTE_PASSWORD_MIN_LEN, REMOTE_SESSION_TTL_MS, REMOTE_SHUTDOWN_GRACE_MS,
 };
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::infra::crypto::constant_time_eq;
@@ -373,45 +374,6 @@ impl RemoteStore {
 
     pub fn broadcast_event(&self, frame: String) {
         let _ = self.event_tx.send(frame);
-    }
-}
-
-/// Bounds concurrently in-flight remote-dispatch requests to
-/// [`REMOTE_DISPATCH_MAX_CONCURRENT`] (contract 2026-08-25 §1-c) — see that constant's doc for the
-/// blocking-pool-sharing rationale behind the specific number. A single process-wide instance,
-/// managed as Tauri state exactly like [`RemoteStore`]; every remote WebSocket connection's request
-/// loop (`ws.rs::handle_socket`) draws from the same semaphore, since the resource being protected
-/// (the tokio blocking-thread pool) is itself process-wide, not per-connection.
-pub struct RemoteDispatchLimiter {
-    semaphore: tokio::sync::Semaphore,
-}
-
-impl Default for RemoteDispatchLimiter {
-    fn default() -> Self {
-        Self {
-            semaphore: tokio::sync::Semaphore::new(REMOTE_DISPATCH_MAX_CONCURRENT),
-        }
-    }
-}
-
-impl RemoteDispatchLimiter {
-    /// Waits for a free slot and returns a permit that releases it back to the pool on drop —
-    /// `ws.rs::handle_socket` holds the returned guard for the duration of one dispatched request
-    /// (contract §1-c: excess requests wait, they are never rejected). Returns `None` only if the
-    /// semaphore were ever explicitly closed, which nothing in this codebase does (no `close()` call
-    /// anywhere) — the semaphore lives for the whole process, so this path is not currently
-    /// reachable.
-    ///
-    /// If it ever were reached, the caller (`ws.rs::handle_socket`'s spawned per-request task) drops
-    /// the request with **no response frame sent at all** — it just `return`s — rather than sending
-    /// an error response for that `seq`. That is not "failing the request" in the sense a client can
-    /// observe: the client-side promise for that `seq` stays pending until the socket itself closes,
-    /// at which point `remote-ws-client.ts`'s `rejectAll` clears it. The gap (a caller can't tell
-    /// "still queued" from "silently dropped" while the connection stays open) is accepted only
-    /// because the path is unreachable today; wiring an actual error response through this `None`
-    /// branch is deferred follow-up work, not implemented here.
-    pub async fn acquire(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
-        self.semaphore.acquire().await.ok()
     }
 }
 
@@ -921,9 +883,7 @@ mod tests {
     /// 상태에서 하나를 반환하면 대기 중이던 호출이 그제서야 진행되는지를 확인한다.
     #[tokio::test]
     async fn 상한을_넘는_요청은_거부되지_않고_permit_반환을_대기한다() {
-        let limiter = Arc::new(RemoteDispatchLimiter {
-            semaphore: tokio::sync::Semaphore::new(1),
-        });
+        let limiter = Arc::new(RemoteDispatchLimiter::new(1));
 
         let first_permit = limiter.acquire().await.expect("permit 이 존재해야 한다");
 
@@ -944,7 +904,7 @@ mod tests {
 
     #[tokio::test]
     async fn 서로_다른_permit은_동시에_진행된다() {
-        let limiter = RemoteDispatchLimiter::default();
+        let limiter = RemoteDispatchLimiter::new(crate::domain::remote::types::REMOTE_DISPATCH_MAX_CONCURRENT);
 
         let first = limiter.acquire().await;
         let second = tokio::time::timeout(std::time::Duration::from_millis(50), limiter.acquire()).await;
@@ -952,7 +912,8 @@ mod tests {
         assert!(first.is_some());
         assert!(
             matches!(second, Ok(Some(_))),
-            "기본 상한({REMOTE_DISPATCH_MAX_CONCURRENT}) 미만으로 동시 요청 시 대기 없이 즉시 permit 을 받아야 한다"
+            "기본 상한({}) 미만으로 동시 요청 시 대기 없이 즉시 permit 을 받아야 한다",
+            crate::domain::remote::types::REMOTE_DISPATCH_MAX_CONCURRENT
         );
     }
 }
