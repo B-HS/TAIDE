@@ -1,14 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use super::service;
-use super::types::{
-    DropEdge, OpenTabInSplitRequest, ProjectLayout, ShellViewPatch, Tab, TabKind, TabPathChange, TabPathChangeResult, TabWindowTarget,
-};
+use super::types::{DropEdge, OpenTabInSplitRequest, ProjectLayout, ShellViewPatch, Tab, TabKind, TabPathChange, TabPathChangeResult};
 use crate::domain::project::types::Project;
-use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::{PaneId, ProjectId, TabId};
 use crate::infra::root_guard;
@@ -104,16 +101,6 @@ enum LayoutLocate {
     Direct(ProjectId),
 }
 
-/// Runs the read-clone-locate-mutate-writeback skeleton shared by 13 layout commands, preserving the
-/// exact lock semantics each had before unification: the single `begin_mutation` guard acquisition
-/// below is this function's only `.await`, and it spans `layouts.read().clone()` all the way through
-/// the `finish_mutation` + `layouts.write()` writeback, so no other mutator can interleave a write
-/// into that window. `mutate` is required to stay synchronous by contract — to avoid growing this
-/// function's await-point count and to keep the shared `FnOnce(&mut ProjectLayout) -> AppResult<()>`
-/// signature every caller passes — not because an `.await` inside it would itself be unsound: the
-/// guard is a `tokio::sync::MutexGuard` that is routinely held across `.await` points elsewhere in
-/// this file (e.g. `layout_move_tab_to_window` below, which awaits `open_auxiliary_window` while
-/// still holding it).
 async fn run_layout_mutation<F>(app: &AppHandle, state: &State<'_, AppState>, locate: LayoutLocate, mutate: F) -> AppResult<ProjectLayout>
 where
     F: FnOnce(&mut ProjectLayout) -> AppResult<()>,
@@ -348,76 +335,6 @@ pub async fn layout_convert_untitled(app: AppHandle, state: State<'_, AppState>,
     let layout = service::get_layout_mut(&mut layouts, &project_id)?;
 
     service::convert_untitled_to_file(layout, &tab_id, resolved.to_string_lossy().into_owned(), title)?;
-
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
-}
-
-/// Closes and forgets the OS window for any auxiliary window entry left with an empty pane tree
-/// after a tab move — "빈 보조 창은 정리" (contract §3.4/item 2). Removing the layout entry here
-/// (rather than waiting for the window's own `CloseRequested`) means `window::service::
-/// plan_return_of_auxiliary_window_tabs` finds nothing left to do when that close fires a moment
-/// later — harmless, since it's already a no-op-safe idempotent lookup by slot.
-fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowStore, project_id: &ProjectId, layout: &mut ProjectLayout) {
-    let emptied_slots: Vec<u32> = layout
-        .auxiliary_windows
-        .iter()
-        .filter(|window| service::is_layout_tree_empty(&window.root))
-        .map(|window| window.slot)
-        .collect();
-
-    for slot in emptied_slots {
-        layout.auxiliary_windows.retain(|window| window.slot != slot);
-        if let Some(label) = windows.label_for(project_id, slot) {
-            if let Some(webview_window) = app.get_webview_window(&label) {
-                let _ = webview_window.close();
-            }
-        }
-    }
-}
-
-/// Moves a tab to the main window, an already-open auxiliary window, or a brand-new one —
-/// "Move into New Window"/"Move back to Main Window" (contract §3.2). `NewAuxiliary` reserves a
-/// slot and opens the real OS window *before* touching the layout, so a window-creation failure
-/// never leaves the layout half-mutated; if the subsequent move somehow fails anyway (unreachable
-/// in practice, since the tab was already located above), `layout::service::move_tab_to_new_window`
-/// itself rolls back the just-inserted empty window entry, and this command additionally closes the
-/// now-pointless OS window it just opened.
-#[tauri::command]
-#[specta::specta]
-pub async fn layout_move_tab_to_window(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    windows: State<'_, WindowStore>,
-    tab_id: TabId,
-    target: TabWindowTarget,
-) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
-
-    match target {
-        TabWindowTarget::Main => {
-            service::move_tab_to_main(layout, &tab_id)?;
-        }
-        TabWindowTarget::Existing { slot } => {
-            service::move_tab_to_existing_window(layout, &tab_id, slot)?;
-        }
-        TabWindowTarget::NewAuxiliary => {
-            let slot = service::next_window_slot(layout);
-            let info = open_auxiliary_window(&app, &state, &windows, project_id.clone(), slot).await?;
-            if let Err(error) = service::move_tab_to_new_window(layout, &tab_id, slot) {
-                if let Some(webview_window) = app.get_webview_window(&info.label) {
-                    let _ = webview_window.close();
-                }
-                return Err(error);
-            }
-        }
-    }
-
-    cleanup_emptied_auxiliary_windows(&app, &windows, &project_id, layout);
 
     let updated = service::finish_mutation(&app, &state, &project_id, layout);
     *state.layouts.write() = layouts;

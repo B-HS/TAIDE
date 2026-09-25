@@ -124,6 +124,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `fanout_remote_events!`, 네이티브 메뉴 갱신 `listen_for_app_menu_refresh`(d-58 —
     `features/window-chrome.md` §7.3). 반응이 단방향이고 실패해도 커맨드 결과에 영향이 없는
     경우에 한한다.)
+    OS 보조 창 생성과 layout 탭 이동처럼 결과·rollback을 같은 mutation guard에서 다루는
+    응답 의존 연동은 `lib.rs`의 `layout_move_tab_to_window` command가 직접 조립한다.
     부팅 1회성 복원처럼 확장점 4종 어디에도 맞지 않는 연동은, **조립부가 호출 순서를 계속
     소유하는 조건**에서 스텝 본문을 도메인이 보유하고 그 교차 참조를 화이트리스트로 기록한다
     (d-32 — `project::commands` 부팅 복원 3함수의 4엣지가 이 경로의 선례).

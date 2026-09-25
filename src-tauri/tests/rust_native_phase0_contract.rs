@@ -111,7 +111,12 @@ fn command_path_names(block: &str) -> Vec<String> {
 
 fn specta_command_names(source: &str) -> Vec<String> {
     let stripped = strip_line_comments(source);
-    command_path_names(between(&stripped, "collect_commands![", "]"))
+    between(&stripped, "collect_commands![", "]")
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| entry.rsplit("::").next().expect("명령 경로").to_string())
+        .collect()
 }
 
 fn raw_channel_command_names(source: &str) -> Vec<String> {

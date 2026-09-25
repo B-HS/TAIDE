@@ -34,9 +34,6 @@ use regex::Regex;
 /// - `ide/server.rs → layout::service` — MCP tools (openFile/close_tab) drive the tab lifecycle
 ///   through the same layout orchestrators the layout commands use (R6#3's fix: service, not a
 ///   second command entry). The getOpenEditors snapshot uses the taide-layout crate directly.
-/// - `layout/commands.rs → window::commands` + `window/service.rs → layout::service` — moving a
-///   tab to another OS window spans both owners (layout owns tabs, window owns OS windows); the
-///   two edges form a known cycle, reported for a future batch rather than half-fixed here.
 /// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
 ///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
 ///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
@@ -75,7 +72,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/ide/commands.rs", "file::service"),
     ("domain/ide/server.rs", "layout::service"),
     ("domain/ide/server.rs", "plugin::service"),
-    ("domain/layout/commands.rs", "window::commands"),
     ("domain/project/commands.rs", "file::capability"),
     ("domain/project/commands.rs", "git::watch"),
     ("domain/project/commands.rs", "layout::service"),

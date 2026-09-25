@@ -45,7 +45,7 @@ impl WindowStore {
     }
 
     /// Reverse lookup — the OS window label currently rendering `(project_id, window_slot)`, if any
-    /// is open. Used by `layout::commands::layout_move_tab_to_window` to close an auxiliary
+    /// is open. Used by the assembly's `layout_move_tab_to_window` to close an auxiliary
     /// window's OS window once moving its last tab elsewhere leaves it empty.
     pub fn label_for(&self, project_id: &ProjectId, window_slot: u32) -> Option<String> {
         self.0
@@ -70,7 +70,7 @@ impl WindowStore {
 ///
 /// Deliberately does **not** take `AppState::begin_mutation` itself — every caller (boot-time
 /// restoration in [`restore_auxiliary_windows`] below and
-/// `layout::commands::layout_move_tab_to_window`'s `newAuxiliary` path —
+/// the assembly's `layout_move_tab_to_window` `newAuxiliary` path —
 /// the standalone `window_open_auxiliary` command that used to be a third caller was removed as a
 /// duplicate IPC surface, X1#13, `docs/acknowledge/2026-08-19-xa-wiring-cleanup-contract.md` §1.2)
 /// already holds it (or must acquire it) for the duration of the whole operation it's part of; a

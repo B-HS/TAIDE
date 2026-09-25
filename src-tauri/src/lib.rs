@@ -7,7 +7,7 @@ pub mod infra;
 pub mod paths;
 pub mod state;
 
-use tauri::{Listener, Manager};
+use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -15,6 +15,8 @@ use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::store::IdeStore;
+use crate::domain::layout::service as layout_service;
+use crate::domain::layout::types::{ProjectLayout, TabWindowTarget};
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
@@ -22,7 +24,8 @@ use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
-use crate::domain::window::commands::WindowStore;
+use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
+use crate::error::AppResult;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
     IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
@@ -30,6 +33,7 @@ use crate::events::{
     SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
     TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
+use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::state::AppState;
@@ -200,6 +204,64 @@ fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObse
     ])
 }
 
+fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowStore, project_id: &ProjectId, layout: &mut ProjectLayout) {
+    let emptied_slots: Vec<u32> = layout
+        .auxiliary_windows
+        .iter()
+        .filter(|window| layout_service::is_layout_tree_empty(&window.root))
+        .map(|window| window.slot)
+        .collect();
+
+    for slot in emptied_slots {
+        layout.auxiliary_windows.retain(|window| window.slot != slot);
+        if let Some(label) = windows.label_for(project_id, slot) {
+            if let Some(webview_window) = app.get_webview_window(&label) {
+                let _ = webview_window.close();
+            }
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn layout_move_tab_to_window(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    windows: State<'_, WindowStore>,
+    tab_id: TabId,
+    target: TabWindowTarget,
+) -> AppResult<ProjectLayout> {
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let project_id = layout_service::locate_project_with_tab(&layouts, &tab_id)?;
+    let layout = layout_service::get_layout_mut(&mut layouts, &project_id)?;
+
+    match target {
+        TabWindowTarget::Main => {
+            layout_service::move_tab_to_main(layout, &tab_id)?;
+        }
+        TabWindowTarget::Existing { slot } => {
+            layout_service::move_tab_to_existing_window(layout, &tab_id, slot)?;
+        }
+        TabWindowTarget::NewAuxiliary => {
+            let slot = layout_service::next_window_slot(layout);
+            let info = open_auxiliary_window(&app, &state, &windows, project_id.clone(), slot).await?;
+            if let Err(error) = layout_service::move_tab_to_new_window(layout, &tab_id, slot) {
+                if let Some(webview_window) = app.get_webview_window(&info.label) {
+                    let _ = webview_window.close();
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    cleanup_emptied_auxiliary_windows(&app, &windows, &project_id, layout);
+
+    let updated = layout_service::finish_mutation(&app, &state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
 /// Routes one app-menu click to the domain that owns the action it stands for — the assembly's
 /// half of the native menu. It lives here, not in `domain::window`, so the window domain never
 /// calls `project::commands` itself (architecture.md §2; `tests/domain_boundaries.rs` enforces it),
@@ -344,7 +406,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             domain::layout::commands::layout_set_terminal_session,
             domain::layout::commands::layout_open_untitled,
             domain::layout::commands::layout_convert_untitled,
-            domain::layout::commands::layout_move_tab_to_window,
+            layout_move_tab_to_window,
             domain::layout::commands::layout_apply_path_change,
             domain::layout::commands::layout_set_shell_view,
             domain::file::commands::file_open,
@@ -1105,6 +1167,32 @@ mod tests {
             .find("app.state::<LayoutTabClosedObservers>().notify(app, &closed.tab);")
             .expect("닫기 후처리");
         assert!(write_position < notify_position);
+    }
+
+    #[test]
+    fn 탭_창_이동은_조립부에서_창_생성과_rollback을_순서대로_수행한다() {
+        let source = include_str!("lib.rs");
+        let command = extract_between(source, "async fn layout_move_tab_to_window(", "/// Routes one app-menu");
+        let guard = command.find("state.begin_mutation().await").expect("mutation guard");
+        let open = command.find("open_auxiliary_window(").expect("보조 창 생성");
+        let move_tab = command.find("layout_service::move_tab_to_new_window(").expect("탭 이동");
+        let rollback = command.find("webview_window.close()").expect("생성 실패 rollback");
+        let cleanup = command.find("cleanup_emptied_auxiliary_windows(").expect("빈 창 정리");
+        let finish = command.find("layout_service::finish_mutation(").expect("layout 완료");
+        let write = command.find("*state.layouts.write() = layouts;").expect("layout 기록");
+        assert!(guard < open);
+        assert!(open < move_tab);
+        assert!(move_tab < rollback);
+        assert!(rollback < cleanup);
+        assert!(cleanup < finish);
+        assert!(finish < write);
+
+        let commands = extract_between(
+            source,
+            "domain::layout::commands::layout_convert_untitled,",
+            "domain::layout::commands::layout_apply_path_change,",
+        );
+        assert!(commands.contains("layout_move_tab_to_window,"));
     }
 
     /// `Project.capabilities` 동작 고정 — the registry's `detected_kinds` is the field's single
