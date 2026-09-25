@@ -202,8 +202,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     두 내부 Arc<Mutex>는 clone 간 공유하고, Tauri 명령은 blocking 실행과 도메인별 PID 라벨 조립만 맡는다.
     `RemoteDispatchLimiter`는 taide-runtime의 공유 Arc<Semaphore>로 원격 요청의 동시 실행을 제한한다.
     상한은 기존 remote 정책 상수에서 조립 시 주입하고 초과 요청은 permit을 기다린다.
-    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·TaskSupervisor의 동일 내부 인스턴스를
+    `PlatformServices`의 첫 포트는 OS 경로 열기·항목 표시·URL 열기이며, runtime은 Tauri를 모른다.
+    system 명령은 프로젝트 루트·외부 URL을 검증한 뒤 platform adapter만 호출하고, 실제 Tauri opener는 adapter가 소유한다.
+    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

@@ -1,9 +1,27 @@
 use std::future::pending;
+use std::path::Path;
 use std::sync::Arc;
 
+use taide_model::error::AppResult;
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
-use taide_runtime::{AppServices, AppState, RemoteDispatchLimiter, TaskSupervisor};
+use taide_runtime::{AppServices, AppState, PlatformServices, PlatformServicesState, RemoteDispatchLimiter, TaskSupervisor};
+
+struct TestPlatform;
+
+impl PlatformServices for TestPlatform {
+    fn open_path(&self, _path: &Path) -> AppResult<()> {
+        Ok(())
+    }
+
+    fn reveal_item_in_dir(&self, _path: &Path) -> AppResult<()> {
+        Ok(())
+    }
+
+    fn open_url(&self, _url: &str) -> AppResult<()> {
+        Ok(())
+    }
+}
 
 #[tokio::test]
 async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공유한다() {
@@ -11,6 +29,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
         AppState::new(AppPaths::new(std::env::temp_dir())),
         TaskSupervisor::new(tokio::runtime::Handle::current()),
         RemoteDispatchLimiter::new(1),
+        PlatformServicesState::new(Arc::new(TestPlatform)),
     ));
     let legacy_state = services.state.clone();
     let legacy_search = services.search.clone();
@@ -61,6 +80,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.lsp_install.clone());"));
     assert!(setup.contains("app.manage(services.system_usage.clone());"));
     assert!(setup.contains("app.manage(services.remote_dispatch_limiter.clone());"));
+    assert!(setup.contains("app.manage(services.platform.clone());"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));
     assert!(setup.contains("app.manage(services);"));
 }

@@ -20,7 +20,7 @@ use serde_json::Value;
 use taide_infra::language::LanguageOverlay;
 use taide_model::app_event::AppEvent;
 use taide_model::plugin::LoadedPlugin;
-use taide_runtime::{AppServices, EventSink, TaskSupervisor};
+use taide_runtime::{AppServices, EventSink, PlatformServicesState, TaskSupervisor};
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -53,6 +53,7 @@ use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::platform::event_sink::TauriEventSink;
+use crate::platform::services::TauriPlatformServices;
 use crate::platform::window_registry::WindowRegistry;
 use crate::plugin_port::PluginRuntimePort;
 use crate::project_restore_port::ProjectRestoreWatchers;
@@ -962,6 +963,7 @@ pub fn run() {
                 state,
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
                 RemoteDispatchLimiter::new(REMOTE_DISPATCH_MAX_CONCURRENT),
+                PlatformServicesState::new(Arc::new(TauriPlatformServices)),
             ));
 
             app.manage(services.state.clone());
@@ -997,6 +999,7 @@ pub fn run() {
             app.manage(remote_dispatch_port());
             app.manage(RemoteStore::default());
             app.manage(services.remote_dispatch_limiter.clone());
+            app.manage(services.platform.clone());
             app.manage(WindowRegistry::default());
             app.manage(services.tasks.clone());
             app.manage(services);
