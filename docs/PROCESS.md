@@ -528,10 +528,14 @@
   - [x] M6-CD. SearchStore와 기존 정책 테스트 7건을 taide-runtime으로 옮기고 begin/finish/cancel API를 제공했습니다. search 명령은 같은 타입을 재수출하며 Tauri State·IPC 시그니처와 mutation guard 범위를 유지합니다.
   - [x] M6-CE. runtime 정책 7건·새 경계 1건·Tauri 검색 1건·Phase 0 IPC 계약 7건, Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. runtime normal dependency graph에 Tauri가 없고 bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 로드맵 상단의 오래된 model 첫 slice 표기를 실제 M6 진행 상태로 고쳤습니다. 전체 workspace·TypeScript typecheck와 실제 다중 창 검색·취소 GUI 실기는 미검증입니다.
   - [x] M6-CF. 구현·테스트·현행 아키텍처와 로드맵 상태를 `914ce32`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
+  - [x] M6-CG. AppState·SearchStore·TaskSupervisor는 각각 Tauri State로 단일 등록되므로 별도 AppServices 인스턴스가 독립 상태를 만들면 안 됨을 확인했습니다. 공유 인스턴스·setup 등록 경계 테스트는 AppServices 타입 부재 E0432(exit 101)로 먼저 실패했습니다. Tauri State/Manager와 Rust Arc 공유 소유권 공식 계약을 확인했습니다.
+  - [x] M6-CH. 세 runtime 상태의 clone이 동일 내부 Arc를 가리키게 하고 AppServices가 이를 소유하게 했습니다. setup은 상태 복원 뒤 Arc<AppServices>를 만들고 같은 세 상태의 clone을 기존 Tauri State 타입에 등록합니다. command 시그니처·복원 순서·IPC는 유지합니다.
+  - [x] M6-CI. AppServices 경계 2건·runtime 30건·AppState 경계 2건·SearchStore 경계 1건·TaskSupervisor 경계 2건·권한 허용 Tauri lib 302건·Phase 0 IPC 계약 7건과 Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. 조립 위치를 바꾸며 기존 소스 스캔 테스트 1건의 anchor를 바로잡아 재검증했습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 전체 workspace·TypeScript typecheck와 실제 앱 재시작·GUI 종료 실기는 미검증입니다. AppServices의 나머지 Tauri 상태·action facade는 미완료입니다.
+  - [x] M6-CJ. 구현·테스트·현행 아키텍처 문서를 `1dd2399`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`·`WindowRegistry`는 platform으로 이전했고 `EventSink`는 기존 이벤트 30종의 발행을 모두 경유합니다. AppServices·TaskSupervisor는 아직 미완료입니다.
+> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`·`WindowRegistry`는 platform으로 이전했고 `EventSink`는 기존 이벤트 30종의 발행을 모두 경유합니다. AppServices는 첫 세 상태만 조립하고 TaskSupervisor는 여섯 setup 작업만 감독하므로 전체 경계는 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 

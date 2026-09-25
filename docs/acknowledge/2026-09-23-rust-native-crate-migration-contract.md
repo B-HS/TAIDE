@@ -959,3 +959,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. SearchStore와 정책 테스트 7건을 taide-runtime으로 이전하고 begin/finish/cancel API를 공개했습니다. 기존 search 명령 경로는 동일 타입 재수출로 유지하며 검색·취소의 AppState mutation guard, Channel·IPC 시그니처는 변경하지 않았습니다. 기존 코드 주석의 owner/session 정책은 이 문서와 현행 아키텍처에 기록했습니다.
 - [x] C. runtime 정책 7건·새 경계 1건·Tauri 검색 1건·Phase 0 IPC 계약 7건, Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. runtime normal dependency graph에 Tauri가 없고 bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 로드맵 상태를 M1~M5 완료/M6 진행·Phase 0 실기·M7/M8 미완료로 정정했습니다. 전체 workspace·TypeScript typecheck와 실제 다중 창 검색·취소 GUI 실기는 미검증입니다.
 - [x] D. 구현·테스트·현행 아키텍처와 로드맵 상태를 `914ce32`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 스물두 번째 slice — AppServices 첫 공유 조립
+
+- [x] A. AppState·SearchStore·TaskSupervisor는 서로 다른 Tauri State 타입으로 등록되어 있습니다. 별도 AppServices가 새 상태를 생성하면 기존 command 경로와 상태가 갈라지므로 clone이 같은 내부 인스턴스를 공유해야 합니다. AppServices 공유·setup 경계 테스트는 타입 부재 E0432(exit 101)로 먼저 실패했습니다. [Tauri State](https://docs.rs/tauri/latest/tauri/struct.State.html)와 [Rust Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html)의 공유 소유권 계약을 확인했습니다.
+- [x] B. AppState는 Arc<AppStateInner>, SearchStore는 Arc<Mutex<SearchSessions>>, TaskSupervisor는 Arc<TaskSupervisorInner>를 보유하는 cloneable handle이 됐습니다. `Arc<AppServices>`는 상태 복원 뒤 세 handle을 소유하고 Tauri에는 같은 내부 상태의 clone을 기존 TypeId로 등록합니다. 이 시점의 AppServices는 세 상태만 조립하며 나머지 domain store·application action facade는 이전하지 않았습니다.
+- [x] C. AppServices 경계 2건·runtime 30건·AppState 경계 2건·SearchStore 경계 1건·TaskSupervisor 경계 2건·권한 허용 Tauri lib 302건·Phase 0 IPC 계약 7건, Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. 조립 위치를 바꾸며 기존 TaskSupervisor 소스 스캔 테스트 1건의 검색 범위가 빗나가 수정 후 재검증했습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 전체 workspace·TypeScript typecheck와 실제 앱 재시작·GUI 종료 실기는 미검증입니다.
+- [x] D. 구현·테스트·현행 아키텍처 문서를 `1dd2399`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
