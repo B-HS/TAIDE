@@ -1314,6 +1314,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             ide::ide_resolve_diff(
                 app.state(),
                 app.state(),
+                app.state(),
                 arg!(args, "requestId"),
                 arg!(args, "outcome"),
                 arg!(args, "content"),

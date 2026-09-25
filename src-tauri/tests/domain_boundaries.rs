@@ -24,8 +24,6 @@ use regex::Regex;
 ///   three edges at once; kept this batch as a deliberate deferral — the provider would relocate
 ///   the shared cache rather than shrink it, and every edge is a read-only lookup — revisit in
 ///   the next wiring batch.
-/// - `ide/commands.rs → file::service` — `save_file_within_open_projects` is the root-guarded
-///   single save path `file_save` itself uses (R6#2's fix: share it, don't clone it).
 /// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
 ///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
 ///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
@@ -55,7 +53,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/app/commands.rs", "settings::service"),
     ("domain/file/commands.rs", "plugin::service"),
     ("domain/git/commands.rs", "plugin::service"),
-    ("domain/ide/commands.rs", "file::service"),
     ("domain/ide/server.rs", "plugin::service"),
     ("domain/project/commands.rs", "file::capability"),
     ("domain/project/commands.rs", "git::watch"),

@@ -8,6 +8,8 @@ pub mod paths;
 mod remote_gateway;
 pub mod state;
 
+use std::path::Path;
+
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use tauri::{AppHandle, Listener, Manager, State};
@@ -17,6 +19,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 use crate::domain::agent::commands::{AgentForegroundPids, AgentHooksStore, AgentStore};
 use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
+use crate::domain::ide::commands::IdeSaveFile;
 use crate::domain::ide::server::IdeLayoutActions;
 use crate::domain::ide::store::IdeStore;
 use crate::domain::layout::service as layout_service;
@@ -228,6 +231,10 @@ fn ide_layout_actions() -> IdeLayoutActions {
         open_file_tab: open_ide_file_tab,
         close_tab: close_ide_tab,
     }
+}
+
+fn save_ide_diff_file(state: &AppState, path: &Path, content: &str) -> AppResult<()> {
+    domain::file::service::save_file_within_open_projects(state, path, content)
 }
 
 fn dispatch_remote_json(app: AppHandle, name: String, args: Value, channels: ChannelFactory) -> BoxFuture<'static, Result<String, Value>> {
@@ -920,6 +927,7 @@ pub fn run() {
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
             app.manage(IdeStore::default());
+            app.manage(IdeSaveFile(save_ide_diff_file));
             app.manage(ide_layout_actions());
             app.manage(layout_tab_closed_observers());
             app.manage(AiRequestStore::default());
@@ -1321,6 +1329,22 @@ mod tests {
         let ide_server = include_str!("domain/ide/server.rs");
         assert!(ide_server.contains("(app.state::<IdeLayoutActions>().open_file_tab)("));
         assert_eq!(ide_server.matches("(app.state::<IdeLayoutActions>().close_tab)(").count(), 2);
+    }
+
+    #[test]
+    fn ide_diff_저장은_조립부의_파일_저장_경로를_사용한다() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains("domain::file::service::save_file_within_open_projects(state, path, content)"));
+        let setup = extract_between(source, "app.manage(IdeStore::default());", "app.manage(ide_layout_actions());");
+        assert!(setup.contains("app.manage(IdeSaveFile(save_ide_diff_file));"));
+
+        let ide = include_str!("domain/ide/commands.rs");
+        assert!(ide.contains("save_file: State<'_, IdeSaveFile>"));
+        assert!(ide.contains("match (save_file.0)(&state, &pending.new_path, &content)"));
+
+        let gateway = include_str!("remote_gateway.rs");
+        let remote_call = extract_between(gateway, "ide::ide_resolve_diff(", "\n            .await,");
+        assert_eq!(remote_call.matches("app.state(),").count(), 3);
     }
 
     #[test]

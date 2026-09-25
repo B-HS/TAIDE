@@ -848,8 +848,7 @@ export const commands = {
 	ideClearSelection: (owner: string) => typedError<null, AppError>(__TAURI_INVOKE("ide_clear_selection", { owner })),
 	idePublishDiagnostics: (projectId: ProjectId, items: IdeDiagnostic[]) => typedError<null, AppError>(__TAURI_INVOKE("ide_publish_diagnostics", { projectId, items })),
 	/**
-	 *  A `Saved` outcome persists through [`file::service::save_file_within_open_projects`](
-	 *  crate::domain::file::service::save_file_within_open_projects) — the exact guarded sequence the
+	 *  A `Saved` outcome persists through the assembly's `IdeSaveFile` port, backed by the exact guarded sequence the
 	 *  `file_save` command runs (root-guard resolution, atomic write, self-write mark, mirror clear),
 	 *  under the same mutation guard, so this path can no longer bypass any of `file_save`'s
 	 *  validation or bookkeeping (R6#2). A `Forbidden` error from it is the root-guard rejection and

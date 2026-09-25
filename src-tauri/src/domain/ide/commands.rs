@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -12,6 +13,8 @@ use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::IdeStatusChanged;
 use crate::ids::ProjectId;
 use crate::state::AppState;
+
+pub struct IdeSaveFile(pub fn(&AppState, &Path, &str) -> AppResult<()>);
 
 /// Reconciles a flipped `ide_integration_enabled` settings value against the live server — starts
 /// it when the toggle turns on, stops it when it turns off, no-op when the value didn't change.
@@ -199,8 +202,7 @@ pub async fn ide_publish_diagnostics(ide: State<'_, IdeStore>, project_id: Proje
     Ok(())
 }
 
-/// A `Saved` outcome persists through [`file::service::save_file_within_open_projects`](
-/// crate::domain::file::service::save_file_within_open_projects) — the exact guarded sequence the
+/// A `Saved` outcome persists through the assembly's `IdeSaveFile` port, backed by the exact guarded sequence the
 /// `file_save` command runs (root-guard resolution, atomic write, self-write mark, mirror clear),
 /// under the same mutation guard, so this path can no longer bypass any of `file_save`'s
 /// validation or bookkeeping (R6#2). A `Forbidden` error from it is the root-guard rejection and
@@ -212,6 +214,7 @@ pub async fn ide_publish_diagnostics(ide: State<'_, IdeStore>, project_id: Proje
 #[specta::specta]
 pub async fn ide_resolve_diff(
     state: State<'_, AppState>,
+    save_file: State<'_, IdeSaveFile>,
     ide: State<'_, IdeStore>,
     request_id: String,
     outcome: IdeDiffOutcome,
@@ -225,7 +228,7 @@ pub async fn ide_resolve_diff(
         IdeDiffOutcome::Saved => {
             let content = content.ok_or_else(|| AppError::InvalidArgument("saved outcome requires content".to_string()))?;
             let _guard = state.begin_mutation().await;
-            match crate::domain::file::service::save_file_within_open_projects(&state, &pending.new_path, &content) {
+            match (save_file.0)(&state, &pending.new_path, &content) {
                 Ok(()) => {}
                 Err(AppError::Forbidden(message)) => {
                     log::warn!("IDE diff 저장 대상이 더 이상 프로젝트 루트 안에 있지 않습니다: {message}");
