@@ -5,6 +5,7 @@ pub mod events;
 pub mod ids;
 pub mod infra;
 pub mod paths;
+pub mod platform;
 mod plugin_port;
 mod project_restore_port;
 mod remote_gateway;
@@ -789,7 +790,7 @@ pub(crate) const RAW_CHANNEL_COMMANDS: &[&str] = &["pty_spawn", "pty_attach", "f
 /// the *identical* configured window — label, size/min-size, `backgroundColor`, `visible: false`,
 /// Overlay title bar — so the FOUC policy (`docs/features/window-chrome.md` §2) and the `main`
 /// capability's label match are untouched; the only thing hand-building buys is the chance to
-/// attach `infra::navigation_guard`'s two handlers, which the config has no way to express.
+/// attach `platform::navigation_guard`'s two handlers, which the config has no way to express.
 ///
 /// Called as the very first statement of `.setup`, i.e. at the same point in the boot sequence the
 /// auto-created window occupied (Tauri creates config windows immediately before invoking the
@@ -807,7 +808,7 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
         .cloned()
         .ok_or_else(|| format!("main window config not found: label={}", constants::MAIN_WINDOW_LABEL))?;
 
-    infra::navigation_guard::apply_navigation_guard(
+    platform::navigation_guard::apply_navigation_guard(
         tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?,
         app.config(),
     )

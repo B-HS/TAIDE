@@ -72,8 +72,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │       ├── watcher.rs   notify + debouncer (무시 목록 필터 — 이벤트·파일ID 캐시 양쪽, §2.3)
     │       ├── persist.rs   원자적 쓰기 (temp → fsync → rename)
     │       ├── archive.rs   tar/zip/xz 해제 (LSP 설치·VSIX)
-    │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (tauri 결합 infra 2종 중 하나)
-    │       ├── navigation_guard.rs  웹뷰 네비게이션·새 창 정책 (§4.1 — tauri 결합)
+    │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (tauri 결합 adapter)
+    │       ├── navigation_guard.rs  platform 웹뷰 가드 공개 경로 facade
     │       ├── perf.rs      성능 계측 레지스트리 (게이트 뒤 고정 슬롯 + 원자 카운터 — §2.2)
     │       ├── crypto.rs    constant_time_eq 등 (ide·agent 가 재사용)
     │       ├── secret.rs    OS keyring (SecretStore trait)
@@ -314,7 +314,8 @@ trait ProjectCapability: Send + Sync {
 ### 4.1 WebView 네비게이션 가드 (앱 창은 브라우저가 아니다)
 
 > 계약: `docs/acknowledge/2026-09-04-usability-batch3-contract.md` §B.2-6. 정책·단위 테스트는
-> `src-tauri/src/infra/navigation_guard.rs` 한 곳이고, 부착 지점은 `lib.rs` 의
+> `src-tauri/src/platform/navigation_guard.rs` 한 곳이고, 기존 `infra/navigation_guard.rs`는
+> 공개 경로 facade다. 부착 지점은 `lib.rs` 의
 > `create_main_window` 와 `domain/window/commands.rs` 의 `open_auxiliary_window` 두 곳뿐이다
 > (앱이 만드는 창이 그 둘뿐이므로 정책이 갈라질 여지가 없다).
 
@@ -339,7 +340,7 @@ trait ProjectCapability: Send + Sync {
   다만 그 URL 이 `infra::external_url::validate_external_url` 을 통과하면
   `tauri_plugin_opener::open_url` 로 OS 브라우저에 넘긴다 — `system_open_external_url` 커맨드와
   **문자 그대로 같은 화이트리스트**(http(s) 전용·제어/스푸핑 문자 금지·userinfo 금지)다.
-  그 검증기가 `domain/system/commands.rs` 가 아니라 `infra/` 에 있는 이유는, 소비자가 infra
+  그 검증기가 `domain/system/commands.rs` 가 아니라 `taide-infra` 에 있는 이유는, 소비자가 platform
   (navigation_guard)와 domain(system) 둘인데 §2 가 `infra → domain` 참조를 전면 금지하기
   때문이다(도메인이 infra 를 쓰는 정상 방향으로 뒤집었다).
 - **main 창을 `create: false` + `from_config` 로 직접 만드는 이유**: `on_navigation`/

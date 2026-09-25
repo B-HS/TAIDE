@@ -15,7 +15,7 @@ use crate::constants;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::HotExitFlushRequested;
 use crate::ids::ProjectId;
-use crate::infra::navigation_guard;
+use crate::platform::navigation_guard;
 use crate::state::{AppState, FlushScope};
 
 struct AuxiliaryWindowRecord {
