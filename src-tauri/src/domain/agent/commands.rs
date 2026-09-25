@@ -208,10 +208,15 @@ impl AgentHooksStore {
         self.0.lock().server.clone()
     }
 
-    pub fn set_server(&self, info: HooksServerInfo, accept_handle: tauri::async_runtime::JoinHandle<()>) {
+    pub fn set_server(&self, info: HooksServerInfo, accept_handle: tauri::async_runtime::JoinHandle<()>) -> HooksServerInfo {
         let mut guard = self.0.lock();
-        guard.server = Some(info);
+        if let Some(existing) = guard.server.clone() {
+            accept_handle.abort();
+            return existing;
+        }
+        guard.server = Some(info.clone());
         guard.accept_handle = Some(accept_handle);
+        info
     }
 
     /// 서버 정보·accept 핸들을 회수하고 남은 hook override 도 버린다(배지 오염 방지).

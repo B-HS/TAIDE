@@ -181,9 +181,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush·프로젝트 watcher 복원
     장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, 완료된 이름은 회수해 재등록을 허용한다.
     반환형 반복 작업 API는 도메인 저장소가 JoinHandle을 보유해 기존 종료 대기를 유지하면서 감독자가 동일 작업의 AbortHandle을 추적할 수 있게 한다.
+    agent hook 서버의 accept/connection 작업은 감독 범위에 있고, 기존 AgentHooksStore는 accept JoinHandle을 유지한다.
+    동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
     메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정·LSP 종료/재시작 지연은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
-    창별 timeout·나머지 lifecycle 작업은 후속 경계다.
+    나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
     기존 `crate::state` 경로는 같은 타입의 재수출이다. `AppState`는 내부 상태를 Arc로 공유하는 cloneable handle이고
     Tauri 관리 상태 타입과 command 시그니처는 유지한다.

@@ -1166,6 +1166,7 @@ pub fn run() {
                 app_handle.state::<TerminalStore>().kill_all();
                 app_handle.state::<LspStore>().kill_all();
                 domain::agent::commands::cleanup_all_wait_markers(&app_handle.state::<AgentStore>());
+                domain::agent::hooks::stop_hooks_server(app_handle);
                 domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
                 domain::remote::commands::stop_server(app_handle, &app_handle.state::<RemoteStore>());
             }

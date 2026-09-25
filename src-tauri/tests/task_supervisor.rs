@@ -1,6 +1,7 @@
 use std::future::pending;
 use std::time::Duration;
 
+use taide_lib::domain::agent::commands::{AgentHooksStore, HooksServerInfo};
 use taide_runtime::TaskSupervisor;
 use tokio::sync::oneshot;
 
@@ -200,4 +201,54 @@ fn lsp_종료와_재시작_지연_작업은_감독_범위에_등록된다() {
     assert!(restart.contains("spawn_transient(\"lsp-auto-restart\""));
     assert!(restart.contains("spawn_transient(\"lsp-healthy-reset\""));
     assert!(!restart.contains("tokio::spawn(async move {"));
+}
+
+#[tokio::test]
+async fn hook_서버_중복_시작은_먼저_등록한_핸들을_유지한다() {
+    let store = AgentHooksStore::default();
+    let (first_sender, first_receiver) = oneshot::channel::<()>();
+    let (second_sender, second_receiver) = oneshot::channel::<()>();
+    let first_handle = tauri::async_runtime::spawn(async move {
+        let _sender = first_sender;
+        pending::<()>().await;
+    });
+    let second_handle = tauri::async_runtime::spawn(async move {
+        let _sender = second_sender;
+        pending::<()>().await;
+    });
+
+    let first = store.set_server(
+        HooksServerInfo {
+            port: 1,
+            token: "first".to_string(),
+        },
+        first_handle,
+    );
+    let second = store.set_server(
+        HooksServerInfo {
+            port: 1,
+            token: "second".to_string(),
+        },
+        second_handle,
+    );
+
+    assert_eq!(first.token, "first");
+    assert_eq!(second.token, "first");
+    assert_eq!(store.server_info().expect("기존 서버 정보").token, "first");
+    assert!(tokio::time::timeout(Duration::from_secs(1), second_receiver)
+        .await
+        .unwrap()
+        .is_err());
+    store.take_server().expect("기존 서버 핸들").abort();
+    assert!(tokio::time::timeout(Duration::from_secs(1), first_receiver).await.unwrap().is_err());
+}
+
+#[test]
+fn hook_서버와_연결_작업은_감독하고_앱_종료에서_중지한다() {
+    let hooks = include_str!("../src/domain/agent/hooks.rs");
+    let app = include_str!("../src/lib.rs");
+
+    assert!(hooks.contains("spawn_transient_handle(\"agent-hooks-accept\""));
+    assert!(hooks.contains("spawn_transient(\"agent-hooks-connection\""));
+    assert!(app.contains("domain::agent::hooks::stop_hooks_server(app_handle);"));
 }

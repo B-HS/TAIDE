@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -33,18 +33,29 @@ pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServ
     let info = HooksServerInfo { port, token };
 
     let app_handle = app.clone();
-    let accept_handle = tauri::async_runtime::spawn(async move {
-        loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                break;
-            };
-            let connection_app = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = handle_connection(stream, connection_app).await;
-            });
-        }
-    });
-    store.set_server(info.clone(), accept_handle);
+    let accept_handle = app
+        .state::<TaskSupervisor>()
+        .spawn_transient_handle("agent-hooks-accept", async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let connection_app = app_handle.clone();
+                app_handle
+                    .state::<TaskSupervisor>()
+                    .spawn_transient("agent-hooks-connection", async move {
+                        let _ = handle_connection(stream, connection_app).await;
+                    });
+            }
+        });
+    let Some(accept_handle) = accept_handle else {
+        return Err(AppError::Internal("hook server task supervisor stopped".to_string()));
+    };
+    if app.state::<AppState>().is_shutting_down() {
+        accept_handle.abort();
+        return Err(AppError::Internal("hook server unavailable during shutdown".to_string()));
+    }
+    let info = store.set_server(info, tauri::async_runtime::JoinHandle::Tokio(accept_handle));
 
     Ok(info)
 }
