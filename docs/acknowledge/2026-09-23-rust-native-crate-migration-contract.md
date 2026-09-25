@@ -938,3 +938,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. `taide-runtime::TaskSupervisor`는 setup에서 주입한 기존 Tokio handle과 이름별 abort handle을 보유하고 장기 작업 중복 시작·종료 후 재시작을 막습니다. 앱은 세 작업을 등록하고 `RunEvent::Exit`에서 일괄 취소합니다. 기존 주기·Tauri 런타임·IPC는 유지하며 일회성/창별 작업과 AppServices는 후속 경계입니다.
 - [x] C. TaskSupervisor 경계 2건·권한 허용 Tauri lib 332건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/runtime all-target clippy·fmt·`git diff --check`가 통과했습니다. 전체 lib 검사가 재생성한 bindings의 Rust 문서 링크 두 줄이 이전 snapshot과 달라 Phase 0 해시가 처음 실패했고, 이전 프로젝트 slice에서 바뀐 원천 링크 표기를 생성물·manifest에 동기화해 재검증했습니다. command/event DTO는 불변이며 새 bindings SHA-256은 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`입니다. 전체 workspace·TypeScript typecheck와 실제 장시간 앱·GUI 종료 실기는 미검증이며 TaskSupervisor 나머지 작업·AppServices·M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서와 bindings 설명·계약 해시를 `8734b07`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다. TaskSupervisor의 나머지 spawn과 AppServices는 미완료입니다.
+
+## M6 열아홉 번째 slice — AppState의 runtime 경계 이전
+
+- [x] A. AppState와 FlushTicket 구현은 Tauri API를 직접 사용하지 않고 model·infra 타입과 Tokio/parking_lot에 의존합니다. 기존 `crate::state` 경로를 46곳이 소비하며 Tauri가 같은 타입을 관리 상태로 등록합니다. runtime 공개 경계 테스트는 구현 전 AppState 타입 부재 E0432(exit 101)로 실패했습니다.
+- [x] B. AppState·FlushTicket과 기존 단위 테스트를 taide-runtime으로 옮기고 `src-tauri/src/state.rs`는 동일 타입의 재수출 facade로 남겼습니다. Tauri 등록·command 시그니처·flush 정책은 변경하지 않았습니다. 이동 후 미사용 root-guard 재수출 한 줄을 제거하고 crate-local rustfmt 설정을 다른 Rust crate와 맞췄습니다.
+- [x] C. runtime 상태 23건·새 공개 경계 2건·권한 허용 Tauri lib 309건·EventSink 29건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/runtime all-target clippy·fmt·runtime strict rustdoc·`git diff --check`가 통과했습니다. 기존 332건의 state 23건이 runtime으로 이동해 같은 테스트 총량을 유지합니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 앱 재시작·GUI 실기는 미검증이며 AppServices 조립·TaskSupervisor 나머지 작업·M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `37a919e`로 선별 로컬 commit했습니다. 원본·이동 구현 diff는 import 경로와 이전 crate를 가리키던 문서 링크 한 곳뿐입니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
