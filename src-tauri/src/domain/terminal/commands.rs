@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use taide_terminal::command_clock::TerminalCommandClock;
 use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::session::TerminalSessionOutput;
+use taide_terminal::store::TerminalSessionEntry;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -26,67 +27,7 @@ use crate::infra::shell_integration;
 use crate::infra::terminal_scan::{OutputScanner, ScanEvent, ScanOutcome};
 use crate::state::AppState;
 
-struct SessionEntry {
-    pty: pty::PtySession,
-    metadata: Arc<TerminalSessionMetadata>,
-    output: Arc<TerminalSessionOutput>,
-}
-
-#[derive(Default)]
-pub struct TerminalStore(Mutex<HashMap<String, SessionEntry>>);
-
-impl TerminalStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn kill_all(&self) {
-        for entry in self.0.lock().values() {
-            let _ = entry.pty.kill();
-        }
-    }
-
-    pub fn foreground_pids(&self, project_id: &ProjectId) -> Vec<(String, u32)> {
-        self.0
-            .lock()
-            .iter()
-            .filter(|(_, entry)| entry.metadata.project_id() == project_id)
-            .filter_map(|(session_id, entry)| entry.pty.foreground_pid().map(|pid| (session_id.clone(), pid)))
-            .collect()
-    }
-
-    /// Kills and removes every pty session belonging to `project_id` — `kill_all`'s counterpart
-    /// scoped to a single project, called by `project_close` so closing a project reliably reaps its
-    /// terminals instead of leaving them running with no owning project open. Before this, nothing
-    /// called `pty_kill` for a closed project's sessions at all; they lingered until the whole app
-    /// quit (`TerminalStore::kill_all`).
-    pub fn kill_project(&self, project_id: &ProjectId) {
-        let mut sessions = self.0.lock();
-        let session_ids: Vec<String> = sessions
-            .iter()
-            .filter(|(_, entry)| entry.metadata.project_id() == project_id)
-            .map(|(session_id, _)| session_id.clone())
-            .collect();
-
-        for session_id in session_ids {
-            if let Some(entry) = sessions.remove(&session_id) {
-                let _ = entry.pty.kill();
-            }
-        }
-    }
-
-    /// Kills and removes a single pty session by id — `kill_project`'s counterpart for one session,
-    /// called when a terminal tab closes (`layout::service::close_tab_and_finish`) so tab-close
-    /// reliably reaps the pty it owned instead of leaving it running until the owning project or the
-    /// whole app closes. A missing `session_id` is silently ignored, the same as `kill_project`
-    /// tolerates a project with no sessions: the tab may already be pointing at a session that was
-    /// reaped some other way (`pty_kill`, `project_close`) first.
-    pub fn kill_session(&self, session_id: &str) {
-        if let Some(entry) = self.0.lock().remove(session_id) {
-            let _ = entry.pty.kill();
-        }
-    }
-}
+pub use taide_terminal::store::TerminalStore;
 
 fn new_session_id() -> String {
     format!("term-{}", uuid::Uuid::new_v4())
@@ -102,18 +43,13 @@ fn output_channel_sink(channel: Channel<InvokeResponseBody>) -> impl Fn(&[u8]) -
 /// prompt render, not just after `cd`, so without this check the renderer would get one event per
 /// command instead of one per genuine directory change. A `session_id` not yet present in
 /// `TerminalStore` (the pty reader thread can start delivering output before `pty_spawn`'s own
-/// `store.0.lock().insert` below runs) is a silent no-op — the entry starts with its correct
+/// `store.insert` below runs) is a silent no-op — the entry starts with its correct
 /// spawn-time cwd anyway, so nothing is lost, only a redundant early report skipped.
 fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
     let store = app.state::<TerminalStore>();
-    let sessions = store.0.lock();
-    let Some(entry) = sessions.get(session_id) else {
-        return;
-    };
-    if !entry.metadata.update_cwd(cwd.clone()) {
+    if !store.update_cwd(session_id, cwd.clone()) {
         return;
     }
-    drop(sessions);
 
     let _ = TerminalCwdChanged {
         session_id: session_id.to_string(),
@@ -142,12 +78,7 @@ fn report_command_marker(
         return;
     };
 
-    let cwd = app
-        .state::<TerminalStore>()
-        .0
-        .lock()
-        .get(session_id)
-        .map(|entry| entry.metadata.cwd());
+    let cwd = app.state::<TerminalStore>().cwd(session_id);
 
     let _ = TerminalCommandFinished {
         session_id: session_id.to_string(),
@@ -228,12 +159,6 @@ fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()
     Err(AppError::NotFound(format!("project not open: {project_id}")))
 }
 
-fn find_entry<'a>(store: &'a HashMap<String, SessionEntry>, session_id: &str) -> AppResult<&'a SessionEntry> {
-    store
-        .get(session_id)
-        .ok_or_else(|| AppError::NotFound(format!("terminal session not found: {session_id}")))
-}
-
 pub type PtySpawnEnvFuture<'a> = Pin<Box<dyn Future<Output = Vec<(String, String)>> + Send + 'a>>;
 
 /// The extra `(name, value)` environment entries [`pty_spawn`] injects into every new shell,
@@ -272,7 +197,7 @@ impl PtySpawnEnvProvider {
 /// orphaned pty" (R8#1) — closed by T1-J, and independently by `PtySession`'s `Drop` impl, which
 /// the doc on that impl states "guarantees a `PtySession` never leaks its ... child process ... no
 /// matter how it stops being reachable"; the one path this migration adds — the outer future
-/// getting dropped while awaiting the join handle below, before `store.0.lock().insert` runs — is
+/// getting dropped while awaiting the join handle below, before `store.insert` runs — is
 /// exactly the "unreachable any other way" case that guarantee already covers, so a spawn that
 /// never reaches `TerminalStore` still self-kills on drop; (3) T1-J landed (PROCESS.md d-8), so no
 /// in-flight conflict remains. The closures were already required to be `Send + 'static` by
@@ -349,19 +274,13 @@ pub async fn pty_spawn(
     .await
     .map_err(|error| AppError::Internal(error.to_string()))??;
 
-    let entry = SessionEntry {
-        pty: handle,
-        metadata,
-        output,
-    };
-
     let spawned = TerminalSpawned {
         session_id: session_id.clone(),
-        project_id: entry.metadata.project_id().clone(),
-        cwd: entry.metadata.cwd(),
-        shell: entry.metadata.shell().to_string(),
+        project_id: metadata.project_id().clone(),
+        cwd: metadata.cwd(),
+        shell: metadata.shell().to_string(),
     };
-    store.0.lock().insert(session_id.clone(), entry);
+    store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output));
     let _ = spawned.emit(&app);
 
     Ok(session_id)
@@ -388,10 +307,7 @@ pub async fn pty_spawn(
 pub async fn pty_write(app: AppHandle, store: State<'_, TerminalStore>, session_id: String, data: String) -> AppResult<()> {
     notify_session_observers(&app, &session_id, &PtySessionSignal::Input);
 
-    let writer = {
-        let sessions = store.0.lock();
-        find_entry(&sessions, &session_id)?.pty.writer_handle()
-    };
+    let writer = store.writer_handle(&session_id)?;
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut writer = writer.lock();
@@ -406,29 +322,20 @@ pub async fn pty_write(app: AppHandle, store: State<'_, TerminalStore>, session_
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_resize(store: State<'_, TerminalStore>, session_id: String, cols: u16, rows: u16) -> AppResult<()> {
-    let sessions = store.0.lock();
-    let entry = find_entry(&sessions, &session_id)?;
-    entry.pty.resize(cols, rows)
+    store.resize(&session_id, cols, rows)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_kill(state: State<'_, AppState>, store: State<'_, TerminalStore>, session_id: String) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
-    let removed = store.0.lock().remove(&session_id);
-    match removed {
-        Some(entry) => entry.pty.kill(),
-        None => Err(AppError::NotFound(format!("terminal session not found: {session_id}"))),
-    }
+    store.kill(&session_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_set_paused(store: State<'_, TerminalStore>, session_id: String, paused: bool) -> AppResult<()> {
-    let sessions = store.0.lock();
-    let entry = find_entry(&sessions, &session_id)?;
-    entry.pty.set_paused(paused);
-    Ok(())
+    store.set_paused(&session_id, paused)
 }
 
 /// Attaches a new subscriber to an already-running pty session — every previously-attached
@@ -454,11 +361,7 @@ pub async fn pty_attach(
     on_data: Channel<InvokeResponseBody>,
 ) -> AppResult<PtyAttachResult> {
     let _guard = state.begin_mutation().await;
-    let sessions = store.0.lock();
-    let entry = find_entry(&sessions, &session_id)?;
-
-    let attached = entry.output.attach(output_channel_sink(on_data));
-    Ok(attached)
+    store.attach(&session_id, output_channel_sink(on_data))
 }
 
 /// Removes exactly the subscriber `pty_attach` registered under `subscription_id` — the counterpart
@@ -475,23 +378,13 @@ pub async fn pty_detach(
     subscription_id: u32,
 ) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
-    let sessions = store.0.lock();
-    let Ok(entry) = find_entry(&sessions, &session_id) else {
-        return Ok(());
-    };
-    entry.output.detach(subscription_id);
-    Ok(())
+    store.detach(&session_id, subscription_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn terminal_sessions(store: State<'_, TerminalStore>, project_id: ProjectId) -> AppResult<Vec<TerminalSession>> {
-    let sessions = store.0.lock();
-    Ok(sessions
-        .iter()
-        .filter(|(_, entry)| entry.metadata.project_id() == &project_id)
-        .map(|(id, entry)| entry.metadata.snapshot(id))
-        .collect())
+    Ok(store.sessions_for_project(&project_id))
 }
 
 #[tauri::command]

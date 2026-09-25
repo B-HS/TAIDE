@@ -728,7 +728,7 @@
   `\e]7;$PWD\e\\`(OSC 7 번호를 재사용하되 `file://host/path` 형식·퍼센트 인코딩 없이 순수 경로만 —
   유일한 소비자가 이 모듈 자신의 파서라 실제 터미널 에뮬레이터 호환을 맞출 필요가 없다)를 매 프롬프트
   렌더링마다 내보내고, pty 원시 출력 청크에서 이를 읽는다. `terminal::commands::pty_spawn` 의
-  `on_data` 콜백이 이 값을 `SessionEntry.cwd`(스폰 시점
+  `on_data` 콜백이 이 값을 `TerminalSessionMetadata`의 cwd(스폰 시점
   cwd 로 초기화됨)와 비교해 실제로 바뀐 경우에만 `TerminalCwdChanged` 를 발행한다(precmd 는 `cd` 여부
   와 무관하게 매 명령마다 실행되므로, 비교 없이 그대로 발행하면 명령마다 이벤트가 튄다).
   **청크 경계 정정(d-54, 2026-09-06)**: 스캔 주체는 이제 `infra::terminal_scan::OutputScanner`(세션당
