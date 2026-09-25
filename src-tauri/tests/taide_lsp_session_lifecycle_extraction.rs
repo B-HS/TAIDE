@@ -41,17 +41,38 @@ fn 수동_재시작은_늦은_재초기화_결과를_무시하고_종료_중에�
         .is_none());
     assert!(lifecycle.confirm_reinitialized(crashed.generation).is_none());
     assert_eq!(lifecycle.snapshot().status, LspSessionStatus::Starting);
+    assert_eq!(lifecycle.snapshot().generation, crashed.generation);
 
+    let process_epoch = lifecycle.advance_process_epoch();
     lifecycle.mark_stopping();
-    assert!(lifecycle.begin_exit_recovery().is_none());
+    assert!(!lifecycle.is_active_process_epoch(process_epoch));
+    assert!(lifecycle.begin_exit_recovery(process_epoch).is_none());
     assert!(lifecycle.is_stopping());
 }
 
 #[test]
 fn 비정상_종료_횟수는_건강한_복구_후_초기화된다() {
     let lifecycle = LspSessionLifecycle::new();
-    assert_eq!(lifecycle.begin_exit_recovery(), Some(1));
-    assert_eq!(lifecycle.begin_exit_recovery(), Some(2));
+    let process_epoch = lifecycle.advance_process_epoch();
+    assert_eq!(lifecycle.begin_exit_recovery(process_epoch), Some(1));
+    assert_eq!(lifecycle.begin_exit_recovery(process_epoch), Some(2));
     lifecycle.reset_restart_count();
-    assert_eq!(lifecycle.begin_exit_recovery(), Some(1));
+    assert_eq!(lifecycle.begin_exit_recovery(process_epoch), Some(1));
+}
+
+#[test]
+fn 이전_프로세스의_늦은_종료와_재시도는_새_프로세스에_적용되지_않는다() {
+    let lifecycle = LspSessionLifecycle::new();
+    let old_epoch = lifecycle.advance_process_epoch();
+    assert_eq!(lifecycle.begin_exit_recovery(old_epoch), Some(1));
+
+    lifecycle.mark_stopping();
+    let current_epoch = lifecycle.advance_process_epoch();
+    assert!(!lifecycle.is_active_process_epoch(current_epoch));
+    lifecycle.begin_manual_restart();
+    assert!(current_epoch > old_epoch);
+    assert!(!lifecycle.is_active_process_epoch(old_epoch));
+    assert!(lifecycle.begin_exit_recovery(old_epoch).is_none());
+    assert!(lifecycle.is_active_process_epoch(current_epoch));
+    assert_eq!(lifecycle.begin_exit_recovery(current_epoch), Some(1));
 }

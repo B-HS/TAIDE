@@ -96,6 +96,7 @@ struct LspLifecycleState {
     snapshot: LspLifecycleSnapshot,
     restart_count: u32,
     is_stopping: bool,
+    process_epoch: u64,
 }
 
 /// Owns session lifecycle transitions independently of the Tauri process adapter.
@@ -111,6 +112,7 @@ impl LspSessionLifecycle {
             },
             restart_count: 0,
             is_stopping: false,
+            process_epoch: 0,
         }))
     }
 
@@ -126,9 +128,20 @@ impl LspSessionLifecycle {
         self.0.lock().is_stopping = true;
     }
 
-    pub fn begin_exit_recovery(&self) -> Option<u32> {
+    pub fn advance_process_epoch(&self) -> u64 {
         let mut state = self.0.lock();
-        if state.is_stopping {
+        state.process_epoch = state.process_epoch.wrapping_add(1);
+        state.process_epoch
+    }
+
+    pub fn is_active_process_epoch(&self, process_epoch: u64) -> bool {
+        let state = self.0.lock();
+        !state.is_stopping && state.process_epoch == process_epoch
+    }
+
+    pub fn begin_exit_recovery(&self, process_epoch: u64) -> Option<u32> {
+        let mut state = self.0.lock();
+        if state.is_stopping || state.process_epoch != process_epoch {
             return None;
         }
         state.restart_count = state.restart_count.wrapping_add(1);

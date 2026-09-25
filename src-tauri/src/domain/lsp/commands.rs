@@ -166,7 +166,13 @@ fn resolved_args(spec: &LanguageServerSpec, root: &str, managed_dir: Option<&std
     lsp_install::substitute_template_args(spec.command.args(), &vars)
 }
 
-fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, root: String) -> AppResult<Arc<lsp_proc::LspProcHandle>> {
+fn spawn_process(
+    app: &AppHandle,
+    session_id: String,
+    process_epoch: u64,
+    spec: LanguageServerSpec,
+    root: String,
+) -> AppResult<Arc<lsp_proc::LspProcHandle>> {
     let paths = &app.state::<AppState>().paths;
     let managed_dir = managed_dir_for(paths, &spec.id);
     let managed_relative_path = spec
@@ -224,9 +230,20 @@ fn spawn_process(app: &AppHandle, session_id: String, spec: LanguageServerSpec, 
             let Ok(entry) = find_entry(&store, &message_session_id) else {
                 return;
             };
+            if !entry.lifecycle.is_active_process_epoch(process_epoch) {
+                return;
+            }
             entry.subscribers.broadcast(&message);
         },
-        move |code, stderr_tail| handle_process_exit(&exit_app, exit_session_id, code, stderr_tail),
+        move |code, stderr_tail| {
+            tokio::spawn(async move {
+                let Some(state) = exit_app.try_state::<AppState>() else {
+                    return;
+                };
+                let _guard = state.begin_mutation().await;
+                handle_process_exit(&exit_app, exit_session_id, process_epoch, code, stderr_tail);
+            });
+        },
     )?;
 
     log::info!("lsp {}: spawn {command} {args:?} cwd={root} pid={:?}", spec.id, handle.pid());
@@ -251,37 +268,7 @@ fn masked_stderr_tail(tail: &str) -> String {
         .join(STDERR_TAIL_LOG_SEPARATOR)
 }
 
-/// Reacts to an unexpected language server process exit (`Some`/`None` exit code from a crash, not
-/// a `lsp_stop`-initiated shutdown, which sets `stopping` first and short-circuits above). Retries
-/// with backoff up to [`RESTART_BACKOFF_LIMIT`] times, then gives up and reports [`LspSessionStatus::Crashed`].
-///
-/// `stderr_tail` is what the process last wrote to stderr, carried in from `infra::lsp_proc::spawn`
-/// (d-64 R1). It is logged — masked, see [`masked_stderr_tail`] — beside the exit code, because the
-/// exit code alone never distinguished "never started" from "crashed while indexing", and until
-/// this the whole LSP path wrote nothing to the app log at all (d-64 §0.1).
-///
-/// A successful respawn (`spawn_process` returning `Ok`) deliberately still reports
-/// [`LspSessionStatus::Crashed`], not `Running` — unlike [`lsp_spawn`]/[`lsp_restart`], which *do*
-/// report `Running` right after their own `spawn_process` call. The difference is who drives the LSP
-/// `initialize` handshake: `lsp_spawn`/`lsp_restart` are directly awaited by the frontend's own
-/// action, which sends `initialize` as the next step of that same client-side flow once the command
-/// resolves. This restart runs entirely in the background with no frontend caller waiting on it —
-/// the renderer's existing LSP client believes its old, already-initialized connection is still
-/// good and has no trigger to redo `initialize` against the fresh process, so declaring `Running`
-/// here would be a false report: requests sent to an unhandshaked server go nowhere.
-///
-/// T0 #24's mitigation stopped here (report `Crashed` forever, tell the user to restart manually).
-/// R7#1's root fix (T1-D) closes the loop instead of just naming it: on a successful respawn,
-/// `entry.lifecycle.auto_respawned` changes the generation and status together before `LspSessionStatusChanged` is emitted, so that event
-/// carries both the new `generation` and `status: Crashed` together. The renderer treats a `generation`
-/// increase as "this session's process was silently replaced" — it discards its old client state,
-/// re-runs `initialize` over `lsp_send` against the same `session_id`, and on success calls
-/// [`lsp_confirm_reinitialize`] with that same generation. Only that confirmation (matched against
-/// the *current* generation, so a stale confirmation racing a second crash is ignored — see its own
-/// doc comment) flips `status` to `Running`; nothing in this function ever reports `Running` directly,
-/// preserving the T0 #24 invariant that a silent respawn is never reported healthy before the
-/// renderer has actually re-handshaked.
-fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>, stderr_tail: String) {
+fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, code: Option<i32>, stderr_tail: String) {
     let Some(store) = app.try_state::<LspStore>() else {
         return;
     };
@@ -289,9 +276,11 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>, s
         return;
     };
 
-    let Some(restarts) = entry.lifecycle.begin_exit_recovery() else {
-        log::info!("lsp {}: stopped (code={code:?})", entry.server_id);
-        set_status(app, &session_id, &entry, LspSessionStatus::Stopped, None);
+    let Some(restarts) = entry.lifecycle.begin_exit_recovery(process_epoch) else {
+        log::info!(
+            "lsp {}: ignored stopped or superseded process exit (code={code:?})",
+            entry.server_id
+        );
         return;
     };
 
@@ -324,23 +313,29 @@ fn handle_process_exit(app: &AppHandle, session_id: String, code: Option<i32>, s
     let backoff = tokio::time::Duration::from_millis(LSP_RESTART_BACKOFF_BASE_MS * restarts as u64);
     let restart_app = app.clone();
     let restart_session_id = session_id.clone();
+    let exited_process_epoch = process_epoch;
     let spec = entry.spec.clone();
     let root = entry.root.clone();
 
     tokio::spawn(async move {
         tokio::time::sleep(backoff).await;
 
+        let Some(state) = restart_app.try_state::<AppState>() else {
+            return;
+        };
+        let _guard = state.begin_mutation().await;
         let Some(store) = restart_app.try_state::<LspStore>() else {
             return;
         };
         let Ok(entry) = find_entry(&store, &restart_session_id) else {
             return;
         };
-        if entry.lifecycle.is_stopping() {
+        if !entry.lifecycle.is_active_process_epoch(exited_process_epoch) {
             return;
         }
 
-        match spawn_process(&restart_app, restart_session_id.clone(), spec, root) {
+        let respawn_process_epoch = entry.lifecycle.advance_process_epoch();
+        match spawn_process(&restart_app, restart_session_id.clone(), respawn_process_epoch, spec, root) {
             Ok(proc) => {
                 *entry.proc.lock() = Some(proc.clone());
                 emit_status(
@@ -490,7 +485,8 @@ pub async fn lsp_spawn(
 
     store.0.lock().insert(session_id.clone(), entry.clone());
 
-    let proc = match spawn_process(&app, session_id.clone(), spec, root) {
+    let process_epoch = entry.lifecycle.advance_process_epoch();
+    let proc = match spawn_process(&app, session_id.clone(), process_epoch, spec, root) {
         Ok(proc) => proc,
         Err(error) => {
             store.0.lock().remove(&session_id);
@@ -630,9 +626,10 @@ pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: Stat
         return Err(AppError::NotFound(format!("lsp session not found: {session_id}")));
     }
 
+    let process_epoch = entry.lifecycle.advance_process_epoch();
     emit_status(&app, &session_id, entry.lifecycle.begin_manual_restart());
 
-    let proc = spawn_process(&app, session_id.clone(), entry.spec.clone(), entry.root.clone())?;
+    let proc = spawn_process(&app, session_id.clone(), process_epoch, entry.spec.clone(), entry.root.clone())?;
     *entry.proc.lock() = Some(proc);
     set_status(&app, &session_id, &entry, LspSessionStatus::Running, None);
 
