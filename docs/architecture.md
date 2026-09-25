@@ -26,8 +26,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
-├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(현재 19종)
-├── crates/taide-runtime/    Tauri 미의존 EventSink port (이벤트 19종부터 이전 중)
+├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(현재 21종)
+├── crates/taide-runtime/    Tauri 미의존 EventSink port (이벤트 21종부터 이전 중)
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -153,7 +153,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     terminal 세션의 spawned/exited/cwd/command-finished 이벤트, 설정·테마 변경 이벤트와
     sync connect/disconnect/upload/download 완료 상태 이벤트, 원격 서버 시작·중지 상태 이벤트,
     창 chrome 변경 이벤트와 프로젝트 목록·그룹·셸 슬롯 snapshot 이벤트,
-    프로젝트 열기·닫기·활성화·최근 목록 정리 이벤트는
+    프로젝트 열기·닫기·활성화·최근 목록 정리 이벤트와 파일 변경·재스캔 이벤트는
     `taide-runtime::EventSink::publish(taide-model::app_event::AppEvent)`를 거쳐
     `platform::event_sink::TauriEventSink`가 기존 Tauri 이벤트로 변환한다. 어댑터는 관리 상태에
     AppHandle을 보관하지 않고 발행 호출 동안 빌리며, `finish_mutation`은 port를 인자로 받는다. Git은 기존
@@ -166,7 +166,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     WindowChromeChanged를 발행한다. 프로젝트 snapshot helper는 session read lock을
     발행 전에 해제한다. 프로젝트 열기는 capability attach 성공 뒤 opened를,
     닫기는 detach 뒤 closed→activated를, 최근 목록 정리는 목록/그룹 갱신 뒤 결과를 발행한다.
-    나머지 11개 이벤트는
+    파일 watcher는 self-write 해소 뒤 변경을 발행하며 overflow는 재스캔 이벤트로 분리한다.
+    프로젝트 watcher attach·복원의 GitStatusChanged도 같은 port를 사용한다. 나머지 9개 이벤트는
     아직 직접 발행하며 기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

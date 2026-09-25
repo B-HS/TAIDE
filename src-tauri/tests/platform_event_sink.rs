@@ -4,6 +4,7 @@ use taide_lib::domain::layout::service::{default_layout, finish_mutation};
 use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
+use taide_model::file::{FsChange, FsChangeKind};
 use taide_model::ids::ProjectId;
 use taide_model::project::{Project, ProjectDisplay, WindowChrome};
 use taide_model::remote::RemoteStatus;
@@ -396,4 +397,52 @@ fn 프로젝트_수명주기_발행은_기존_성공_경로와_순서를_유지�
     let recent_adapter = adapter.split_once("let _ = ProjectRecentCleared {").unwrap().1;
     let recent_payload = recent_adapter.split_once(".emit(self.0)").unwrap().0;
     assert!(recent_payload.contains("removed,") && recent_payload.contains("skipped_with_drafts,"));
+}
+
+#[test]
+fn 파일_변경과_재스캔_이벤트는_같은_port에서_발행된다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-file-event-sink".to_string());
+    let change = FsChange {
+        kind: FsChangeKind::Modified,
+        paths: vec!["/repo/src".to_string()],
+        from_app: false,
+    };
+
+    sink.publish(AppEvent::FsChanged {
+        project_id: project_id.clone(),
+        change: change.clone(),
+    });
+    sink.publish(AppEvent::FsRescanRequired {
+        project_id: project_id.clone(),
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::FsChanged {
+                project_id: project_id.clone(),
+                change,
+            },
+            AppEvent::FsRescanRequired { project_id },
+        ]
+    );
+}
+
+#[test]
+fn 파일_watcher와_복원은_기존_순서로_port에_발행된다() {
+    let watcher = include_str!("../src/domain/file/capability.rs");
+    let project = include_str!("../src/domain/project/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let callback = watcher.split_once("move |notification| match notification {").unwrap().1;
+    let attach = project.split_once("async fn attach_project_capabilities(").unwrap().1;
+    let restore = project.split_once("pub(crate) fn restore_project_watchers(").unwrap().1;
+
+    assert!(callback.find("WatchNotification::RescanRequired").unwrap() < callback.find("AppEvent::FsRescanRequired").unwrap());
+    assert!(callback.find("resolve_from_app(").unwrap() < callback.find("AppEvent::FsChanged").unwrap());
+    assert!(restore.find("drop(_guard)").unwrap() < restore.find("AppEvent::FsChanged").unwrap());
+    assert!(restore.find("AppEvent::FsChanged").unwrap() < restore.find("AppEvent::GitStatusChanged").unwrap());
+    assert!(attach.find("commit_attachments(").unwrap() < attach.find("AppEvent::GitStatusChanged").unwrap());
+    assert!(adapter.contains("FsChanged { project_id, change }.emit(self.0)"));
+    assert!(adapter.contains("FsRescanRequired { project_id }.emit(self.0)"));
 }

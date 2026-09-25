@@ -16,7 +16,7 @@ use super::types::{
 use crate::constants;
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
-use crate::events::{FsChanged, GitStatusChanged, HotExitFlushRequested};
+use crate::events::HotExitFlushRequested;
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::platform::event_sink::TauriEventSink;
@@ -464,10 +464,9 @@ async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppR
     };
 
     if git_attached {
-        let _ = GitStatusChanged {
+        TauriEventSink(app).publish(AppEvent::GitStatusChanged {
             project_id: project.id.clone(),
-        }
-        .emit(app);
+        });
     }
 
     Ok(())
@@ -1199,23 +1198,21 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
                     .map(taide_layout::service::open_file_paths)
                     .unwrap_or_default();
                 if !open_paths.is_empty() {
-                    let _ = FsChanged {
+                    TauriEventSink(&app_handle).publish(AppEvent::FsChanged {
                         project_id: project_id.clone(),
                         change: FsChange {
                             kind: FsChangeKind::Modified,
                             paths: open_paths,
                             from_app: false,
                         },
-                    }
-                    .emit(&app_handle);
+                    });
                 }
             }
 
             if git_attached {
-                let _ = GitStatusChanged {
+                TauriEventSink(&app_handle).publish(AppEvent::GitStatusChanged {
                     project_id: project_id.clone(),
-                }
-                .emit(&app_handle);
+                });
             }
         }
 

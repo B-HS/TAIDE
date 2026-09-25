@@ -4,9 +4,9 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    GitRefsChanged, GitStatusChanged, LayoutChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged,
-    ProjectOpened, ProjectRecentCleared, RemoteStateChanged, SessionShellSlotsChanged, SettingsChanged, SyncStateChanged,
-    TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
+    FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, LayoutChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged,
+    ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged, SessionShellSlotsChanged, SettingsChanged,
+    SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -99,6 +99,12 @@ impl EventSink for TauriEventSink<'_> {
                     skipped_with_drafts,
                 }
                 .emit(self.0);
+            }
+            AppEvent::FsChanged { project_id, change } => {
+                let _ = FsChanged { project_id, change }.emit(self.0);
+            }
+            AppEvent::FsRescanRequired { project_id } => {
+                let _ = FsRescanRequired { project_id }.emit(self.0);
             }
         }
     }

@@ -1,12 +1,13 @@
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
 use crate::domain::project::capability::{ProjectAttachment, ProjectCapability};
 use crate::domain::project::types::Project;
-use crate::events::{FsChanged, FsRescanRequired};
 use crate::ids::ProjectId;
 use crate::infra::self_write::resolve_from_app;
 use crate::infra::watcher;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 /// The expensive half of the project-root file watcher attach — the file-ID index walk
@@ -31,19 +32,17 @@ pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str)
         watcher::WatchScope::Project,
         move |notification| match notification {
             watcher::WatchNotification::RescanRequired => {
-                let _ = FsRescanRequired {
+                TauriEventSink(&emit_handle).publish(AppEvent::FsRescanRequired {
                     project_id: emit_project.clone(),
-                }
-                .emit(&emit_handle);
+                });
             }
             watcher::WatchNotification::Changes(changes) => {
                 let changes = resolve_from_app(&emit_handle.state::<AppState>().self_writes, changes);
                 for change in changes {
-                    let _ = FsChanged {
+                    TauriEventSink(&emit_handle).publish(AppEvent::FsChanged {
                         project_id: emit_project.clone(),
                         change,
-                    }
-                    .emit(&emit_handle);
+                    });
                 }
             }
         },

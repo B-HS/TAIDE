@@ -1,3 +1,4 @@
+use crate::file::FsChange;
 use crate::ids::{ProjectId, ShellSlotId};
 use crate::project::{Project, ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::remote::RemoteStatus;
@@ -73,5 +74,12 @@ pub enum AppEvent {
     ProjectRecentCleared {
         removed: u32,
         skipped_with_drafts: u32,
+    },
+    FsChanged {
+        project_id: ProjectId,
+        change: FsChange,
+    },
+    FsRescanRequired {
+        project_id: ProjectId,
     },
 }
