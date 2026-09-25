@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
@@ -17,6 +19,7 @@ use crate::error::{AppError, AppResult};
 use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, SpanSlot};
+use crate::platform::event_sink::TauriEventSink;
 use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
 
@@ -320,10 +323,9 @@ fn resolve_repo_root(state: &State<'_, AppState>, store: &State<'_, GitStore>, p
 /// why this is not redundant with the subscription that also covers this event.
 fn emit_status_changed(app: &AppHandle, project_id: &ProjectId) {
     app.state::<GitStore>().invalidate_status(project_id);
-    let _ = GitStatusChanged {
+    TauriEventSink(app).publish(AppEvent::GitStatusChanged {
         project_id: project_id.clone(),
-    }
-    .emit(app);
+    });
 }
 
 /// Invalidates the status cache too, because a refs movement changes [`GitStatus`] itself — its
@@ -332,10 +334,9 @@ fn emit_status_changed(app: &AppHandle, project_id: &ProjectId) {
 /// `git:status-changed` triggers.
 fn emit_refs_changed(app: &AppHandle, project_id: &ProjectId) {
     app.state::<GitStore>().invalidate_status(project_id);
-    let _ = GitRefsChanged {
+    TauriEventSink(app).publish(AppEvent::GitRefsChanged {
         project_id: project_id.clone(),
-    }
-    .emit(app);
+    });
 }
 
 #[tauri::command]

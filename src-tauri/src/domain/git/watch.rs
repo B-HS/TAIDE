@@ -1,12 +1,13 @@
 use std::path::Path;
 
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
 use crate::domain::file::types::FsChange;
-use crate::events::{GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
 use crate::infra::watcher;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 use super::commands::GitStore;
@@ -70,7 +71,7 @@ pub fn register_git_watcher_handle(state: &AppState, project_id: &ProjectId, han
 /// The shared attach entry point for both paths: probes the live filesystem for a `.git` directory
 /// and builds (but does not register — see [`register_git_watcher_handle`]) the watcher that
 /// classifies raw fs changes into status/refs invalidations, drops `GitStore`'s cached status for
-/// the project, and fans the change out as [`GitStatusChanged`]/[`GitRefsChanged`]. Returns `None`
+/// the project, and fans the change out as [`crate::events::GitStatusChanged`]/[`crate::events::GitRefsChanged`]. Returns `None`
 /// for a non-repo root or a failed watcher start, logging the warning in the latter case.
 ///
 /// The cache drop happens **before** either emit, and covers a refs-only change as well as a status
@@ -109,16 +110,14 @@ fn build_watcher_handle_inner(app: &AppHandle, project_id: &ProjectId, root: &st
         }
 
         if needs_status {
-            let _ = GitStatusChanged {
+            TauriEventSink(&emit_handle).publish(AppEvent::GitStatusChanged {
                 project_id: emit_project.clone(),
-            }
-            .emit(&emit_handle);
+            });
         }
         if needs_refs {
-            let _ = GitRefsChanged {
+            TauriEventSink(&emit_handle).publish(AppEvent::GitRefsChanged {
                 project_id: emit_project.clone(),
-            }
-            .emit(&emit_handle);
+            });
         }
     }) {
         Ok(handle) => Some(handle),

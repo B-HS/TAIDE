@@ -64,3 +64,45 @@ fn 앱과_두_layout_발행_경로는_platform_adapter를_사용한다() {
     assert!(layout_source.contains("sink.publish(AppEvent::LayoutChanged"));
     assert!(adapter_source.contains("LayoutChanged { project_id, revision }.emit(self.0)"));
 }
+
+#[test]
+fn git_status와_refs_이벤트는_같은_port에서_순서대로_발행된다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-git-event-sink".to_string());
+
+    sink.publish(AppEvent::GitStatusChanged {
+        project_id: project_id.clone(),
+    });
+    sink.publish(AppEvent::GitRefsChanged {
+        project_id: project_id.clone(),
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::GitStatusChanged {
+                project_id: project_id.clone(),
+            },
+            AppEvent::GitRefsChanged { project_id },
+        ]
+    );
+}
+
+#[test]
+fn git_명령과_워처는_캐시_무효화_후_port에_발행한다() {
+    let commands = include_str!("../src/domain/git/commands.rs");
+    let watcher = include_str!("../src/domain/git/watch.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let status_command = commands.split_once("fn emit_status_changed(").unwrap().1;
+    let refs_command = commands.split_once("fn emit_refs_changed(").unwrap().1;
+    let watcher_callback = watcher.split_once("move |notification| {").unwrap().1;
+
+    assert!(status_command.find("invalidate_status(project_id)").unwrap() < status_command.find("AppEvent::GitStatusChanged").unwrap());
+    assert!(refs_command.find("invalidate_status(project_id)").unwrap() < refs_command.find("AppEvent::GitRefsChanged").unwrap());
+    assert!(
+        watcher_callback.find("invalidate_status(&emit_project)").unwrap() < watcher_callback.find("AppEvent::GitStatusChanged").unwrap()
+    );
+    assert!(watcher_callback.find("AppEvent::GitStatusChanged").unwrap() < watcher_callback.find("AppEvent::GitRefsChanged").unwrap());
+    assert!(adapter.contains("GitStatusChanged { project_id }.emit(self.0)"));
+    assert!(adapter.contains("GitRefsChanged { project_id }.emit(self.0)"));
+}
