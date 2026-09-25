@@ -202,7 +202,7 @@
 > 그대로).
 
 - **소유**: 세션당 `OutputScanner { carry, text_tail }` 하나를 `pty_spawn` 의 `on_data` 클로저가
-  `command_started_at` 과 같은 수명으로 캡처한다(`parking_lot::Mutex`).
+  `TerminalCommandClock` 과 같은 수명으로 캡처한다. 스캐너와 명령 시계는 각각 `parking_lot::Mutex`로 보호한다.
   `scan(&mut self, chunk) -> ScanOutcome { events, text, overlap }` 이 청크당 1회 불린다.
   세션이 없는 호출자(테스트 등)를 위한 무상태 편의 함수 `scan_once(bytes)` 도 있다.
 - **단일 패스**: `0x1b`(ESC)를 한 번만 찾아 도입 문자로 분기한다.
