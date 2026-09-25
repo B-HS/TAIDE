@@ -5,6 +5,7 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use taide_remote::protocol::{channel_binary_frame, channel_end_frame, channel_json_frame, response_binary_frame, response_frame};
+use taide_runtime::TaskSupervisor;
 use tauri::ipc::InvokeResponseBody;
 use tauri::{AppHandle, Manager};
 use tokio::sync::broadcast::error::RecvError;
@@ -184,31 +185,44 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
 
-    let mut writer = tauri::async_runtime::spawn(async move {
-        while let Some(out) = rx.recv().await {
-            if sink.send(out.into_message()).await.is_err() {
-                break;
+    let writer = app
+        .state::<TaskSupervisor>()
+        .spawn_transient_handle("remote-ws-writer", async move {
+            while let Some(out) = rx.recv().await {
+                if sink.send(out.into_message()).await.is_err() {
+                    break;
+                }
             }
-        }
-    });
+        });
+    let Some(mut writer) = writer else {
+        remote.client_disconnected();
+        return;
+    };
 
     let event_out = tx.clone();
-    let event_task = tauri::async_runtime::spawn(async move {
-        loop {
-            match events.recv().await {
-                Ok(frame) => {
-                    if event_out.send(WsOut::Text(frame)).is_err() {
-                        break;
+    let event_task = app
+        .state::<TaskSupervisor>()
+        .spawn_transient_handle("remote-ws-events", async move {
+            loop {
+                match events.recv().await {
+                    Ok(frame) => {
+                        if event_out.send(WsOut::Text(frame)).is_err() {
+                            break;
+                        }
                     }
+                    Err(RecvError::Lagged(count)) => {
+                        log::warn!("원격 이벤트 {count}건이 유실되어 재동기화가 필요합니다");
+                        continue;
+                    }
+                    Err(RecvError::Closed) => break,
                 }
-                Err(RecvError::Lagged(count)) => {
-                    log::warn!("원격 이벤트 {count}건이 유실되어 재동기화가 필요합니다");
-                    continue;
-                }
-                Err(RecvError::Closed) => break,
             }
-        }
-    });
+        });
+    let Some(event_task) = event_task else {
+        writer.abort();
+        remote.client_disconnected();
+        return;
+    };
 
     let factory = make_channel_factory(tx.clone());
 
@@ -224,14 +238,16 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
                         let request_app = app.clone();
                         let request_factory = factory.clone();
                         let request_out = tx.clone();
-                        tauri::async_runtime::spawn(async move {
+                        if !app.state::<TaskSupervisor>().spawn_transient("remote-ws-request", async move {
                             let limiter = request_app.state::<RemoteDispatchLimiter>();
                             let Some(_permit) = limiter.acquire().await else {
                                 log::warn!("원격 dispatch 세마포어를 획득하지 못해 요청을 처리하지 못했습니다");
                                 return;
                             };
                             handle_request(&request_app, request, request_factory, &request_out).await;
-                        });
+                        }) {
+                            break;
+                        }
                     }
                     Message::Close(_) => break,
                     _ => {}

@@ -404,3 +404,16 @@ fn ide_연결과_자식_작업은_함께_종료되는_범위에_등록된다() {
     assert!(accept.contains("spawn_transient_handle(\"ide-connection\""));
     assert!(!accept.contains("tauri::async_runtime::spawn(async move {"));
 }
+
+#[test]
+fn 원격_websocket_작업은_연결_종료_계약을_유지하며_감독된다() {
+    let source = include_str!("../src/domain/remote/ws.rs");
+    let socket = source.split_once("pub async fn handle_socket(").unwrap().1;
+    let socket = socket.split_once("#[cfg(test)]").unwrap().0;
+
+    assert!(socket.contains("spawn_transient_handle(\"remote-ws-writer\""));
+    assert!(socket.contains("spawn_transient_handle(\"remote-ws-events\""));
+    assert!(socket.contains("spawn_transient(\"remote-ws-request\""));
+    assert!(socket.contains("REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS"));
+    assert!(!socket.contains("tauri::async_runtime::spawn(async move {"));
+}
