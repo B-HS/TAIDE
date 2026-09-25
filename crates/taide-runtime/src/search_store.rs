@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-#[derive(Default)]
-pub struct SearchStore(Mutex<HashMap<(String, String), Arc<AtomicBool>>>);
+type SearchSessions = HashMap<(String, String), Arc<AtomicBool>>;
+
+#[derive(Clone, Default)]
+pub struct SearchStore(Arc<Mutex<SearchSessions>>);
 
 impl SearchStore {
     pub fn new() -> Self {

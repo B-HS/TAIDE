@@ -13,13 +13,14 @@ mod settings_port;
 pub mod state;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use taide_infra::language::LanguageOverlay;
 use taide_model::app_event::AppEvent;
 use taide_model::plugin::LoadedPlugin;
-use taide_runtime::{EventSink, TaskSupervisor};
+use taide_runtime::{AppServices, EventSink, TaskSupervisor};
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -957,7 +958,13 @@ pub fn run() {
 
             let restored = domain::project::commands::projects_pending_watcher_restore(&state.projects.read(), &state.session.read());
 
-            app.manage(state);
+            let services = Arc::new(AppServices::new(
+                state,
+                SearchStore::default(),
+                TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
+            ));
+
+            app.manage(services.state.clone());
             app.manage(menu_sources());
             app.manage(project_capabilities());
             app.manage(project_restore_watchers());
@@ -972,7 +979,7 @@ pub fn run() {
             app.manage(GitStore::default());
             app.manage(LspStore::default());
             app.manage(LspInstallStore::default());
-            app.manage(SearchStore::default());
+            app.manage(services.search.clone());
             app.manage(PluginStore::default());
             app.manage(PluginRuntimePort {
                 language_overlays: plugin_language_overlays,
@@ -991,7 +998,8 @@ pub fn run() {
             app.manage(RemoteStore::default());
             app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowRegistry::default());
-            app.manage(TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()));
+            app.manage(services.tasks.clone());
+            app.manage(services);
             drop(state_restore_span);
 
             app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
@@ -1500,7 +1508,7 @@ mod tests {
         assert!(sources.contains("recent_projects: recent_menu_projects"));
         assert!(sources.contains("label: menu_label"));
 
-        let setup = extract_between(source, "app.manage(state);", "app.set_menu(");
+        let setup = extract_between(source, "app.manage(services.state.clone());", "app.set_menu(");
         assert!(setup.contains("app.manage(menu_sources());"));
 
         let menu = include_str!("domain/window/menu.rs");

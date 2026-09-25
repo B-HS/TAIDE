@@ -1044,7 +1044,7 @@ pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Pro
 
 /// Re-attaches the file watcher and (where the project is a git repo) the git watcher for every
 /// project [`projects_pending_watcher_restore`] selected, as a background task that starts only
-/// after `app.manage(state)` in `lib.rs`'s `setup()` — so the multi-second `notify-debouncer-full`
+/// after `app.manage(services.state.clone())` in `lib.rs`'s `setup()` — so the multi-second `notify-debouncer-full`
 /// `FileIdMap` walk each attach performs (the dominant boot-latency cause identified in
 /// `docs/acknowledge/2026-08-20-boot-watcher-defer-contract.md`) never delays window creation the
 /// way the old fully-synchronous loop in `lib.rs`'s `setup()` did. `restore_state` and every

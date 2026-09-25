@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tokio::runtime::Handle;
 use tokio::task::AbortHandle;
@@ -11,37 +11,40 @@ struct TaskState {
     handles: HashMap<&'static str, AbortHandle>,
 }
 
-pub struct TaskSupervisor {
+#[derive(Clone)]
+pub struct TaskSupervisor(Arc<TaskSupervisorInner>);
+
+struct TaskSupervisorInner {
     runtime: Handle,
     state: Mutex<TaskState>,
 }
 
 impl TaskSupervisor {
     pub fn new(runtime: Handle) -> Self {
-        Self {
+        Self(Arc::new(TaskSupervisorInner {
             runtime,
             state: Mutex::new(TaskState::default()),
-        }
+        }))
     }
 
     pub fn spawn(&self, name: &'static str, task: impl Future<Output = ()> + Send + 'static) -> bool {
-        let mut state = self.state.lock().expect("task supervisor lock poisoned");
+        let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
         if state.is_stopped || state.handles.contains_key(name) {
             return false;
         }
 
-        let handle = self.runtime.spawn(task);
+        let handle = self.0.runtime.spawn(task);
         state.handles.insert(name, handle.abort_handle());
         true
     }
 
     pub fn tracked_count(&self) -> usize {
-        self.state.lock().expect("task supervisor lock poisoned").handles.len()
+        self.0.state.lock().expect("task supervisor lock poisoned").handles.len()
     }
 
     pub fn stop_all(&self) {
         let handles = {
-            let mut state = self.state.lock().expect("task supervisor lock poisoned");
+            let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
             state.is_stopped = true;
             std::mem::take(&mut state.handles)
         };

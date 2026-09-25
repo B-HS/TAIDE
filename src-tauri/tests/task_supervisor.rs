@@ -35,7 +35,8 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
     let boot = boot.split_once("let ide_reconcile_handle =").unwrap().0;
     let exit = app.split_once(".run(|app_handle, event| {").unwrap().1;
 
-    assert!(setup.contains("app.manage(TaskSupervisor::new("));
+    assert!(app.contains("TaskSupervisor::new(tauri::async_runtime::handle().inner().clone())"));
+    assert!(setup.contains("app.manage(services.tasks.clone());"));
     assert!(boot.contains(".spawn(\"agent-hooks-boot\""));
     assert!(boot.contains(".spawn(\"ide-boot\""));
     assert!(boot.contains(".spawn(\"remote-boot\""));

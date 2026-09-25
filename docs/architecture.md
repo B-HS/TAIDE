@@ -27,7 +27,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(30종)
-├── crates/taide-runtime/    Tauri 미의존 AppState·검색 세션 레지스트리·flush handshake·EventSink port (기존 이벤트 30종 경유)·TaskSupervisor
+├── crates/taide-runtime/    Tauri 미의존 AppServices 첫 조립·AppState·검색 세션 레지스트리·flush handshake·EventSink port·TaskSupervisor
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -179,11 +179,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush
     장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, `RunEvent::Exit`에서 모두 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
-    창별 timeout·나머지 작업과 AppServices 이전은 후속 경계다.
+    창별 timeout·나머지 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
-    기존 `crate::state` 경로는 같은 타입의 재수출이다. Tauri 관리 상태 등록과 command 시그니처는 유지한다.
+    기존 `crate::state` 경로는 같은 타입의 재수출이다. `AppState`는 내부 상태를 Arc로 공유하는 cloneable handle이고
+    Tauri 관리 상태 타입과 command 시그니처는 유지한다.
     검색 세션 `SearchStore`도 runtime crate가 owner/session별 취소·대체·종료 정리를 소유하고,
     기존 search 명령 경로는 같은 타입을 재수출한다. Tauri 명령의 mutation guard·Channel 경계는 유지한다.
+    setup은 상태 복원 뒤 `Arc<AppServices>`를 만들고 AppState·SearchStore·TaskSupervisor의 동일 내부 인스턴스를
+    기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
     layout/settings 로드는 독립 crate, file/git watcher build/register는 조립부 포트를 사용한다.

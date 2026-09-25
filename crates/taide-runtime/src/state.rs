@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::RwLock;
@@ -72,7 +74,10 @@ fn mark_ready(handshake: &mut FlushHandshake) {
     }
 }
 
-pub struct AppState {
+#[derive(Clone)]
+pub struct AppState(Arc<AppStateInner>);
+
+pub struct AppStateInner {
     pub paths: AppPaths,
     pub session: RwLock<SessionState>,
     pub projects: RwLock<HashMap<ProjectId, Project>>,
@@ -89,9 +94,17 @@ pub struct AppState {
     shutting_down: std::sync::atomic::AtomicBool,
 }
 
+impl Deref for AppState {
+    type Target = AppStateInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl AppState {
     pub fn new(paths: AppPaths) -> Self {
-        Self {
+        Self(Arc::new(AppStateInner {
             paths,
             session: RwLock::new(SessionState::default()),
             projects: RwLock::new(HashMap::new()),
@@ -106,7 +119,7 @@ impl AppState {
             flush_handshakes: parking_lot::Mutex::new(HashMap::new()),
             next_flush_token: AtomicU64::new(0),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
-        }
+        }))
     }
 
     pub async fn begin_mutation(&self) -> tokio::sync::MutexGuard<'_, ()> {
