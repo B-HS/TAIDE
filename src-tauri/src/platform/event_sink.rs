@@ -4,10 +4,10 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
-    ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged,
-    SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
-    TerminalSpawned, ThemeChanged, WindowChromeChanged,
+    FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested,
+    IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged,
+    ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged, SessionShellSlotsChanged, SettingsChanged,
+    SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -136,6 +136,42 @@ impl EventSink for TauriEventSink<'_> {
                     message,
                 }
                 .emit(self.0);
+            }
+            AppEvent::IdeStatusChanged { status } => {
+                let _ = IdeStatusChanged { status }.emit(self.0);
+            }
+            AppEvent::IdeDiffRequested {
+                request_id,
+                project_id,
+                old_path,
+                new_path,
+                new_contents,
+                tab_name,
+            } => {
+                let _ = IdeDiffRequested {
+                    request_id,
+                    project_id,
+                    old_path,
+                    new_path,
+                    new_contents,
+                    tab_name,
+                }
+                .emit(self.0);
+            }
+            AppEvent::IdeSaveRequested {
+                request_id,
+                project_id,
+                path,
+            } => {
+                let _ = IdeSaveRequested {
+                    request_id,
+                    project_id,
+                    path,
+                }
+                .emit(self.0);
+            }
+            AppEvent::IdeCloseTabRequested { tab_name, request_id } => {
+                let _ = IdeCloseTabRequested { tab_name, request_id }.emit(self.0);
             }
         }
     }

@@ -5,6 +5,7 @@ use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::file::{FsChange, FsChangeKind};
+use taide_model::ide::IdeStatus;
 use taide_model::ids::ProjectId;
 use taide_model::lsp::{LspInstallPhase, LspServerId, LspSessionStatus};
 use taide_model::project::{Project, ProjectDisplay, WindowChrome};
@@ -502,4 +503,83 @@ fn lsp_helper는_snapshot과_byte_변환_뒤_adapter로_발행한다() {
     assert!(install.contains("total_bytes: total_bytes.map(|value| value as f64)"));
     assert!(adapter.contains("LspSessionStatusChanged {") && adapter.contains("generation,"));
     assert!(adapter.contains("LspInstallProgress {") && adapter.contains("received_bytes,"));
+}
+
+#[test]
+fn ide_상태와_요청_네_종은_같은_port에서_payload를_보존한다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-ide-event-sink".to_string());
+    let status = IdeStatus {
+        running: true,
+        port: 1,
+        connected: true,
+        client_count: 1,
+    };
+
+    sink.publish(AppEvent::IdeStatusChanged { status });
+    sink.publish(AppEvent::IdeDiffRequested {
+        request_id: "diff-1".to_string(),
+        project_id: project_id.clone(),
+        old_path: "/repo/old".to_string(),
+        new_path: "/repo/new".to_string(),
+        new_contents: "new contents".to_string(),
+        tab_name: "Diff".to_string(),
+    });
+    sink.publish(AppEvent::IdeSaveRequested {
+        request_id: "save-1".to_string(),
+        project_id: project_id.clone(),
+        path: "/repo/new".to_string(),
+    });
+    sink.publish(AppEvent::IdeCloseTabRequested {
+        tab_name: "Diff".to_string(),
+        request_id: Some("diff-1".to_string()),
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::IdeStatusChanged { status },
+            AppEvent::IdeDiffRequested {
+                request_id: "diff-1".to_string(),
+                project_id: project_id.clone(),
+                old_path: "/repo/old".to_string(),
+                new_path: "/repo/new".to_string(),
+                new_contents: "new contents".to_string(),
+                tab_name: "Diff".to_string(),
+            },
+            AppEvent::IdeSaveRequested {
+                request_id: "save-1".to_string(),
+                project_id,
+                path: "/repo/new".to_string(),
+            },
+            AppEvent::IdeCloseTabRequested {
+                tab_name: "Diff".to_string(),
+                request_id: Some("diff-1".to_string()),
+            },
+        ]
+    );
+}
+
+#[test]
+fn ide_명령과_mcp_server는_기존_조건_뒤에_port로_발행한다() {
+    let commands = include_str!("../src/domain/ide/commands.rs");
+    let server = include_str!("../src/domain/ide/server.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let stop = commands.split_once("pub fn stop_server(").unwrap().1;
+    let start = commands.split_once("async fn bind_and_start(").unwrap().1;
+    let diff = server.split_once("async fn tool_open_diff(").unwrap().1;
+    let save = server.split_once("async fn tool_save_document(").unwrap().1;
+    let close = server.split_once("async fn tool_close_tab(").unwrap().1;
+    let close_all = server.split_once("async fn tool_close_all_diff_tabs(").unwrap().1;
+
+    assert!(stop.find("ide.take_shutdown_state()").unwrap() < stop.find("AppEvent::IdeStatusChanged").unwrap());
+    assert!(start.find("ide.mark_started(").unwrap() < start.find("AppEvent::IdeStatusChanged").unwrap());
+    assert!(diff.find("insert_pending_diff(").unwrap() < diff.find("AppEvent::IdeDiffRequested").unwrap());
+    assert!(save.find("insert_pending_save(").unwrap() < save.find("AppEvent::IdeSaveRequested").unwrap());
+    assert!(close.find(".close_tab)(").unwrap() < close.find("AppEvent::IdeCloseTabRequested").unwrap());
+    assert!(close_all.find(".close_tab)(").unwrap() < close_all.find("AppEvent::IdeCloseTabRequested").unwrap());
+    assert!(adapter.contains("IdeStatusChanged { status }.emit(self.0)"));
+    assert!(adapter.contains("IdeDiffRequested {") && adapter.contains("new_contents,"));
+    assert!(adapter.contains("IdeSaveRequested {") && adapter.contains("request_id,"));
+    assert!(adapter.contains("IdeCloseTabRequested { tab_name, request_id }.emit(self.0)"));
 }

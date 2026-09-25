@@ -1,4 +1,5 @@
 use crate::file::FsChange;
+use crate::ide::IdeStatus;
 use crate::ids::{ProjectId, ShellSlotId};
 use crate::lsp::{LspInstallPhase, LspServerId, LspSessionStatus};
 use crate::project::{Project, ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
@@ -95,5 +96,25 @@ pub enum AppEvent {
         received_bytes: f64,
         total_bytes: Option<f64>,
         message: Option<String>,
+    },
+    IdeStatusChanged {
+        status: IdeStatus,
+    },
+    IdeDiffRequested {
+        request_id: String,
+        project_id: ProjectId,
+        old_path: String,
+        new_path: String,
+        new_contents: String,
+        tab_name: String,
+    },
+    IdeSaveRequested {
+        request_id: String,
+        project_id: ProjectId,
+        path: String,
+    },
+    IdeCloseTabRequested {
+        tab_name: String,
+        request_id: Option<String>,
     },
 }

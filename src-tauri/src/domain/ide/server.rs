@@ -10,8 +10,9 @@ use taide_ide::protocol::{
     RPC_DIAGNOSTICS_NOT_READY, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_UNSUPPORTED,
 };
 use taide_layout::service as layout_service;
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -28,9 +29,9 @@ use super::types::{
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
 use crate::domain::project::types::Project;
 use crate::error::AppResult;
-use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged};
 use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
+use crate::platform::event_sink::TauriEventSink;
 use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
 
@@ -132,15 +133,14 @@ async fn tool_open_diff(app: &AppHandle, arguments: &Value) -> Result<Value, Too
         },
     );
 
-    let _ = IdeDiffRequested {
+    TauriEventSink(app).publish(AppEvent::IdeDiffRequested {
         request_id: request_id.clone(),
         project_id,
         old_path,
         new_path: resolved_new_path.to_string_lossy().to_string(),
         new_contents,
         tab_name,
-    }
-    .emit(app);
+    });
 
     let resolved = tokio::time::timeout(std::time::Duration::from_millis(IDE_DIFF_TIMEOUT_MS), receiver).await;
     let outcome = match resolved {
@@ -270,12 +270,11 @@ async fn tool_save_document(app: &AppHandle, arguments: &Value) -> Result<Value,
     app.state::<IdeStore>()
         .insert_pending_save(request_id.clone(), PendingSave { responder });
 
-    let _ = IdeSaveRequested {
+    TauriEventSink(app).publish(AppEvent::IdeSaveRequested {
         request_id: request_id.clone(),
         project_id,
         path: resolved_path_string.clone(),
-    }
-    .emit(app);
+    });
 
     let saved = tokio::time::timeout(std::time::Duration::from_millis(IDE_SAVE_TIMEOUT_MS), receiver)
         .await
@@ -310,11 +309,10 @@ async fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, Too
 
     if let Some(tab_id) = found {
         if let Ok(closed_tab) = (app.state::<IdeLayoutActions>().close_tab)(app.clone(), tab_id).await {
-            let _ = IdeCloseTabRequested {
+            TauriEventSink(app).publish(AppEvent::IdeCloseTabRequested {
                 tab_name: tab_name.to_string(),
                 request_id: layout_service::claude_diff_request_id(&closed_tab),
-            }
-            .emit(app);
+            });
         }
     }
 
@@ -330,11 +328,10 @@ async fn tool_close_all_diff_tabs(app: &AppHandle) -> Value {
         for tab_id in layout_service::all_roots(layout).flat_map(layout_service::collect_claude_diff_tab_ids) {
             if let Ok(closed_tab) = (app.state::<IdeLayoutActions>().close_tab)(app.clone(), tab_id).await {
                 closed += 1;
-                let _ = IdeCloseTabRequested {
+                TauriEventSink(app).publish(AppEvent::IdeCloseTabRequested {
                     tab_name: closed_tab.title.clone(),
                     request_id: layout_service::claude_diff_request_id(&closed_tab),
-                }
-                .emit(app);
+                });
             }
         }
     }
@@ -423,7 +420,7 @@ fn emit_status_changed(app: &AppHandle, client_count: u32) {
     let mut status = ide.status();
     status.client_count = client_count;
     status.connected = client_count > 0;
-    let _ = IdeStatusChanged { status }.emit(app);
+    TauriEventSink(app).publish(AppEvent::IdeStatusChanged { status });
 }
 
 async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: String) {

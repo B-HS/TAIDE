@@ -2,8 +2,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use taide_ide::protocol::{at_mentioned_notification, selection_changed_notification};
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, State};
-use tauri_specta::Event;
 
 use super::lockfile;
 use super::server;
@@ -11,8 +12,8 @@ use super::service;
 use super::store::{IdeSelectionSnapshot, IdeStore};
 use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeSelectionInput, IdeStatus, IDE_PORT_BIND_MAX_ATTEMPTS};
 use crate::error::{AppError, AppErrorKind, AppResult};
-use crate::events::IdeStatusChanged;
 use crate::ids::ProjectId;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 pub struct IdeSaveFile(pub fn(&AppState, &Path, &str) -> AppResult<()>);
@@ -58,10 +59,9 @@ pub fn stop_server(app: &AppHandle, ide: &IdeStore) {
         let _ = pending.responder.send(false);
     }
 
-    let _ = IdeStatusChanged {
+    TauriEventSink(app).publish(AppEvent::IdeStatusChanged {
         status: IdeStatus::default(),
-    }
-    .emit(app);
+    });
 }
 
 /// lockfile 의 `workspaceFolders` 는 Claude Code 가 후보 IDE 를 판정하는 근거다.
@@ -118,7 +118,7 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
                 let ide = app.state::<IdeStore>();
                 let status = ide.mark_started(candidate_port, token, dir.clone(), server_handle);
                 log::info!("IDE 서버 기동: port={candidate_port}, lockfile={}", dir.display());
-                let _ = IdeStatusChanged { status }.emit(app);
+                TauriEventSink(app).publish(AppEvent::IdeStatusChanged { status });
                 return Ok(status);
             }
             Err(error) => last_error = Some(error),
