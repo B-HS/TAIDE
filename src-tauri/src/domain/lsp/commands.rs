@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 pub use taide_lsp::install::LspInstallStore;
-use taide_lsp::process::spawn_language_server;
+use taide_lsp::process::{shutdown_process, spawn_language_server};
 use taide_lsp::protocol::workspace_folders_notification;
 use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
 use taide_lsp::store::LspSessionEntry as SessionEntry;
@@ -29,10 +29,6 @@ use crate::infra::redact::mask_known_secrets;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
-const LSP_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
-/// Poll interval [`wait_for_process_exit`] sleeps between `LspProcHandle::is_exited` checks while
-/// waiting (bounded by `LSP_SHUTDOWN_TIMEOUT_MS`) for a language server to exit during shutdown.
-const LSP_SHUTDOWN_POLL_INTERVAL_MS: u64 = 50;
 const LSP_RESTART_BACKOFF_BASE_MS: u64 = 500;
 /// How long a crash-triggered respawn must keep running, with no further crash, before
 /// [`handle_process_exit`] resets `restart_count` back to zero. Without this, `restart_count` only
@@ -268,44 +264,12 @@ fn confirms_healthy_restart(entry_proc: &Mutex<Option<Arc<lsp_proc::LspProcHandl
     !respawned.is_exited() && entry_proc.lock().as_ref().is_some_and(|current| Arc::ptr_eq(current, respawned))
 }
 
-/// Polls `proc.is_exited()` at [`LSP_SHUTDOWN_POLL_INTERVAL_MS`] intervals until the process has
-/// exited or `timeout_ms` has elapsed, whichever comes first. Replaces a blind
-/// `tokio::time::sleep(timeout_ms)` in [`shutdown_entry`] with an early return the moment the
-/// language server actually exits — which is normally well under `timeout_ms` — while still
-/// bounding the wait for a server that never responds to `shutdown`/`exit`.
-async fn wait_for_process_exit(proc: &lsp_proc::LspProcHandle, timeout_ms: u64) {
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
-    while !proc.is_exited() && tokio::time::Instant::now() < deadline {
-        tokio::time::sleep(tokio::time::Duration::from_millis(LSP_SHUTDOWN_POLL_INTERVAL_MS)).await;
-    }
-}
-
-/// Deliberately **not** guarded by `AppState::begin_mutation` — both callers ([`lsp_stop`],
-/// [`lsp_restart`]) drop their guard before awaiting this, the same rationale `lsp_send` already
-/// documents (holding the single global mutation lock across a multi-second, network/process-bound
-/// wait would queue every unrelated layout/file/`lsp_spawn` command behind it, which is the exact
-/// "file open blocks on LSP teardown" bug this restructuring fixes). By the time this runs, the
-/// caller has already unlinked the entry from `LspStore` (for `lsp_stop`'s full-teardown path) or
-/// otherwise made sure a concurrent `find_reusable_entry`/`find_entry` can't hand this
-/// mid-shutdown session out to a new caller, so nothing outside this `Arc<SessionEntry>` needs the
-/// guard for the duration of the wait. Sends the LSP `shutdown` request, waits (bounded) for the
-/// process to exit, sends `exit`, waits (bounded) again, then unconditionally kills — the same
-/// shutdown sequence as before, just with [`wait_for_process_exit`]'s early-return polling in
-/// place of a blind sleep.
 async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str) {
     entry.lifecycle.mark_stopping();
 
     let proc = entry.proc.lock().clone();
     if let Some(proc) = proc {
-        let shutdown_request = serde_json::json!({ "jsonrpc": "2.0", "id": "taide-shutdown", "method": "shutdown" }).to_string();
-        let _ = proc.write_message(&shutdown_request).await;
-        wait_for_process_exit(&proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
-
-        let exit_notification = serde_json::json!({ "jsonrpc": "2.0", "method": "exit" }).to_string();
-        let _ = proc.write_message(&exit_notification).await;
-        wait_for_process_exit(&proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
-
-        proc.kill();
+        shutdown_process(&proc).await;
     }
 
     set_status(app, session_id, entry, LspSessionStatus::Stopped, None);
@@ -438,11 +402,8 @@ fn release_owner_root(entry: &SessionEntry, owner: &str, root: Option<&str>) -> 
 /// entry live long enough to both reach `shutdown_entry` and both harmlessly re-send
 /// shutdown/exit/kill to the same (possibly already-dead) process. A concurrent `lsp_spawn` for the
 /// same project/server/owner racing this teardown *can* still lose to it (spawning a fresh session
-/// while the old one's process is still being killed in the background) — but that window is now
-/// bounded by however long the language server actually takes to exit (typically well under
-/// `LSP_SHUTDOWN_TIMEOUT_MS`, per [`wait_for_process_exit`]'s polling) rather than a blind 4-second
-/// hold, and the old process is guaranteed to be killed regardless once its `shutdown_entry` call
-/// completes.
+/// while the old one's process is still being killed in the background), and the old process is
+/// guaranteed to be killed once `shutdown_entry` completes.
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_stop(
@@ -1207,48 +1168,6 @@ mod tests {
 
         subscribers.broadcast("data");
         assert_eq!(*received.lock(), vec!["data".to_string()]);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn wait_for_process_exit는_프로세스가_먼저_종료하면_타임아웃보다_일찍_반환한다() {
-        let config = lsp_proc::LspProcConfig {
-            command: "sh".to_string(),
-            args: vec!["-c".to_string(), "exit 0".to_string()],
-            cwd: std::env::temp_dir(),
-        };
-        let proc = lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
-
-        let started = tokio::time::Instant::now();
-        wait_for_process_exit(&proc, 2_000).await;
-
-        assert!(proc.is_exited(), "폴링이 반환했다면 프로세스는 이미 종료된 상태여야 한다");
-        assert!(
-            started.elapsed() < tokio::time::Duration::from_millis(1_000),
-            "빨리 종료하는 프로세스는 2초 타임아웃을 다 기다리지 않고 일찍 반환해야 한다"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn wait_for_process_exit는_계속_살아있는_프로세스에서_타임아웃까지_대기한다() {
-        let config = lsp_proc::LspProcConfig {
-            command: "sh".to_string(),
-            args: vec!["-c".to_string(), "sleep 5".to_string()],
-            cwd: std::env::temp_dir(),
-        };
-        let proc = lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
-
-        let started = tokio::time::Instant::now();
-        wait_for_process_exit(&proc, 200).await;
-
-        assert!(
-            !proc.is_exited(),
-            "타임아웃 안에 스스로 종료하지 않는 프로세스는 여전히 살아있어야 한다"
-        );
-        assert!(started.elapsed() >= tokio::time::Duration::from_millis(200));
-
-        proc.kill();
     }
 
     fn sleeping_proc() -> Arc<lsp_proc::LspProcHandle> {

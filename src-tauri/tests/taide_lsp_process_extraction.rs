@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use taide_lsp::process::{resolve_process_config, spawn_language_server};
+use taide_lsp::process::{resolve_process_config, shutdown_process, spawn_language_server};
 use taide_model::error::{AppError, AppErrorKind};
 use taide_model::lsp::{LanguageServerSpec, LspCommandSpec, LspInstallSpec, LspInstallStrategy, LspRootStrategy, LspServerId};
 use taide_model::paths::AppPaths;
@@ -82,5 +82,20 @@ async fn lsp_프로세스는_독립_crate에서_실행되고_종료_콜백을_�
     let code = tokio::time::timeout(PROCESS_EXIT_TIMEOUT, receiver).await.unwrap().unwrap();
 
     assert_eq!(code, Some(0));
+    assert!(process.is_exited());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn lsp_종료_정책은_서버가_먼저_끝나면_타임아웃_전_반환한다() {
+    let paths = AppPaths::new(PathBuf::from("/data"));
+    let root = std::env::temp_dir();
+    let spec = test_spec("/bin/sh".to_string(), vec!["-c".to_string(), "read _; exit 0".to_string()]);
+    let process = spawn_language_server(&paths, &spec, root.to_str().unwrap(), |_| {}, |_, _| {}).unwrap();
+
+    tokio::time::timeout(PROCESS_EXIT_TIMEOUT, shutdown_process(&process))
+        .await
+        .unwrap();
+
     assert!(process.is_exited());
 }

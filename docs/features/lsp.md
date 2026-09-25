@@ -35,8 +35,9 @@
   PATH/rustup(`rust-analyzer` 는 인자 없이 stdio — `--stdio` 플래그 없음) → TAIDE 관리 디렉토리 →
   다운로드 제안. 감지 결과·버전은 설정 UI 에 표시.
 - **프로세스 실행 소유권**: `taide-lsp::process`가 관리 설치 경로·실행 파일·인자 템플릿을 해석하고
-  `taide-infra::lsp_proc`를 통해 자식 프로세스를 기동한다. `domain::lsp::commands::spawn_process`는
-  Tauri 저장소의 세션 epoch 확인, 메시지 구독 전송과 종료 시 mutation guard·이벤트를 연결한다.
+  `taide-infra::lsp_proc`를 통해 자식 프로세스를 기동한다. 같은 crate가 `shutdown` 요청·`exit` 알림의
+  유한 대기와 최종 kill도 수행한다. `domain::lsp::commands`는 Tauri 저장소의 세션 epoch 확인,
+  메시지 구독 전송과 종료 시 mutation guard·상태 이벤트를 연결한다.
 - **관측성 로그**(d-64 R1): 그전까지 Rust LSP 경로의 로그 문은 툴체인 취소 warn 하나뿐이라 앱 로그
   (`~/Library/Logs/net.gumyo.taide/TAIDE.log`)에 `lsp` 줄이 0개였고, "감지 실패 / spawn 실패 /
   크래시" 중 무엇이었는지 사후 확정이 불가능했다(d-64 계약 §0.1). 지금 남기는 것:
@@ -236,8 +237,8 @@
   `didChangeWorkspaceFolders(removed)`, 마지막 폴더면 `shutdown`→`exit`→프로세스 종료 확인(타임아웃
   후 kill). reader task 는 CancellationToken 으로 중단.
 - `lsp_stop`/`lsp_restart` 는 전역 뮤테이션 락(`AppState::begin_mutation`)을 동기 북키핑에만 쥐고,
-  종료 시퀀스(`shutdown`→(폴링 대기)→`exit`→(폴링 대기)→kill, 상한 `LSP_SHUTDOWN_TIMEOUT_MS`)는
-  가드를 놓은 뒤 실행한다 — 그렇지 않으면 종료 대기 동안 `layout_*`·`file_save`·`lsp_spawn` 등
+  `taide-lsp::process::shutdown_process`의 종료 시퀀스(`shutdown`→(폴링 대기)→`exit`→(폴링 대기)→kill,
+  각 단계 상한 `LSP_SHUTDOWN_TIMEOUT_MS`)는 가드를 놓은 뒤 실행한다 — 그렇지 않으면 종료 대기 동안 `layout_*`·`file_save`·`lsp_spawn` 등
   거의 모든 뮤테이션 커맨드가 같은 락 뒤에 줄을 선다(`docs/bug/2026-08-18-lsp-stop-global-lock.md`).
   `lsp_stop` 은 가드 안에서 `LspStore` 에서 엔트리를 먼저 제거해 비가드 구간의 재사용을 차단하고,
   `lsp_restart` 는 `session_id` 를 재사용해야 해서 엔트리를 남기는 대신 `find_reusable_entry` 가

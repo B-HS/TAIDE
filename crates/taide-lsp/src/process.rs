@@ -7,6 +7,9 @@ use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::lsp::{LanguageServerSpec, LspServerId};
 use taide_model::paths::AppPaths;
 
+const LSP_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
+const LSP_SHUTDOWN_POLL_INTERVAL_MS: u64 = 50;
+
 fn managed_dir_for(paths: &AppPaths, server_id: &LspServerId) -> Option<PathBuf> {
     lsp_install::latest_installed_version(&paths.lsp_dir(), server_id.as_str())
         .map(|version| paths.lsp_server_version_dir(server_id.as_str(), &version))
@@ -94,4 +97,85 @@ where
     );
 
     Ok(Arc::new(handle))
+}
+
+async fn wait_for_process_exit(proc: &lsp_proc::LspProcHandle, timeout_ms: u64) {
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+    while !proc.is_exited() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(tokio::time::Duration::from_millis(
+            LSP_SHUTDOWN_POLL_INTERVAL_MS,
+        ))
+        .await;
+    }
+}
+
+pub async fn shutdown_process(proc: &lsp_proc::LspProcHandle) {
+    let shutdown_request =
+        serde_json::json!({ "jsonrpc": "2.0", "id": "taide-shutdown", "method": "shutdown" })
+            .to_string();
+    let _ = proc.write_message(&shutdown_request).await;
+    wait_for_process_exit(proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
+
+    let exit_notification = serde_json::json!({ "jsonrpc": "2.0", "method": "exit" }).to_string();
+    let _ = proc.write_message(&exit_notification).await;
+    wait_for_process_exit(proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
+
+    proc.kill();
+}
+
+#[cfg(test)]
+mod tests {
+    use taide_infra::lsp_proc;
+
+    use super::{wait_for_process_exit, LSP_SHUTDOWN_TIMEOUT_MS};
+
+    const FAST_EXIT_BOUND_MS: u64 = 1_000;
+    const HANGING_PROCESS_WAIT_MS: u64 = 200;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_for_process_exit는_프로세스가_먼저_종료하면_타임아웃보다_일찍_반환한다() {
+        let config = lsp_proc::LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "exit 0".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        let proc =
+            lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
+
+        let started = tokio::time::Instant::now();
+        wait_for_process_exit(&proc, LSP_SHUTDOWN_TIMEOUT_MS).await;
+
+        assert!(
+            proc.is_exited(),
+            "폴링이 반환했다면 프로세스는 이미 종료된 상태여야 한다"
+        );
+        assert!(
+            started.elapsed() < tokio::time::Duration::from_millis(FAST_EXIT_BOUND_MS),
+            "빨리 종료하는 프로세스는 2초 타임아웃을 다 기다리지 않고 일찍 반환해야 한다"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_for_process_exit는_계속_살아있는_프로세스에서_타임아웃까지_대기한다() {
+        let config = lsp_proc::LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 5".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        let proc =
+            lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공");
+
+        let started = tokio::time::Instant::now();
+        wait_for_process_exit(&proc, HANGING_PROCESS_WAIT_MS).await;
+
+        assert!(
+            !proc.is_exited(),
+            "타임아웃 안에 스스로 종료하지 않는 프로세스는 여전히 살아있어야 한다"
+        );
+        assert!(started.elapsed() >= tokio::time::Duration::from_millis(HANGING_PROCESS_WAIT_MS));
+
+        proc.kill();
+    }
 }
