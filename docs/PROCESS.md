@@ -524,6 +524,10 @@
   - [x] M6-BZ. 자동 시작 세 작업을 TaskSupervisor의 이름별 작업으로 등록했습니다. 기존 설정 조건·오류 경고·서버 Store 소유권과 Tauri runtime은 유지합니다.
   - [x] M6-CA. TaskSupervisor 경계 2건·권한 허용 Tauri lib 309건·Phase 0 IPC 계약 7건, Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 ps·로컬 소켓 관련 6건 실패는 권한 허용 동일 lib 명령 309건 통과로 해소했습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버 자동 시작·앱 종료 실기는 미검증입니다.
   - [x] M6-CB. 구현·테스트·현행 아키텍처 문서를 `7f30975`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
+  - [x] M6-CC. SearchStore는 Tauri와 무관한 owner/session별 AtomicBool 레지스트리이며 기존 7건이 서로 다른 창 격리·동일 세션 대체·stale 완료 무시·명시 취소를 덮습니다. runtime 공개 경계 테스트는 타입 부재 E0432(exit 101)로 먼저 실패했습니다. Rust 표준 Arc::ptr_eq·AtomicBool 계약을 공식 문서에서 확인했습니다.
+  - [x] M6-CD. SearchStore와 기존 정책 테스트 7건을 taide-runtime으로 옮기고 begin/finish/cancel API를 제공했습니다. search 명령은 같은 타입을 재수출하며 Tauri State·IPC 시그니처와 mutation guard 범위를 유지합니다.
+  - [x] M6-CE. runtime 정책 7건·새 경계 1건·Tauri 검색 1건·Phase 0 IPC 계약 7건, Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. runtime normal dependency graph에 Tauri가 없고 bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 로드맵 상단의 오래된 model 첫 slice 표기를 실제 M6 진행 상태로 고쳤습니다. 전체 workspace·TypeScript typecheck와 실제 다중 창 검색·취소 GUI 실기는 미검증입니다.
+  - [x] M6-CF. 구현·테스트·현행 아키텍처와 로드맵 상태를 `914ce32`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

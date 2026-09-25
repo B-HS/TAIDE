@@ -952,3 +952,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 세 boot 작업만 이름별 TaskSupervisor 등록으로 바꿨습니다. 설정 조건, 기존 오류 경고, 서버의 Store 소유권, Tauri runtime과 `RunEvent::Exit` 취소 시점은 유지했습니다. 창별 timeout과 나머지 작업은 후속 경계입니다.
 - [x] C. TaskSupervisor 경계 2건·권한 허용 Tauri lib 309건·Phase 0 IPC 계약 7건, Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox에서 기존 ps·로컬 소켓 접근 6건이 실패했지만 동일 lib 명령을 권한 허용 환경에서 309건 통과시켰습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버 자동 시작·앱 종료 실기는 미검증이며 AppServices·M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 아키텍처 문서를 `7f30975`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 스물한 번째 slice — 검색 세션 runtime 레지스트리
+
+- [x] A. 기존 SearchStore는 Tauri API 없이 owner/session_id 키와 Arc<AtomicBool>로 중복 실행 취소·명시 취소·완료 정리를 수행합니다. owner는 다중 React 창의 동일 session_id 충돌을 막고, Arc identity는 이전 실행의 늦은 완료가 새 실행을 지우지 못하게 합니다. 기존 정책 테스트 7건을 확인했고 runtime 공개 경계 테스트가 타입 부재 E0432(exit 101)로 먼저 실패했습니다. [Rust Arc::ptr_eq](https://doc.rust-lang.org/std/sync/struct.Arc.html)와 [AtomicBool](https://doc.rust-lang.org/std/sync/atomic/type.AtomicBool.html) 공식 계약을 확인했습니다.
+- [x] B. SearchStore와 정책 테스트 7건을 taide-runtime으로 이전하고 begin/finish/cancel API를 공개했습니다. 기존 search 명령 경로는 동일 타입 재수출로 유지하며 검색·취소의 AppState mutation guard, Channel·IPC 시그니처는 변경하지 않았습니다. 기존 코드 주석의 owner/session 정책은 이 문서와 현행 아키텍처에 기록했습니다.
+- [x] C. runtime 정책 7건·새 경계 1건·Tauri 검색 1건·Phase 0 IPC 계약 7건, Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. runtime normal dependency graph에 Tauri가 없고 bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 로드맵 상태를 M1~M5 완료/M6 진행·Phase 0 실기·M7/M8 미완료로 정정했습니다. 전체 workspace·TypeScript typecheck와 실제 다중 창 검색·취소 GUI 실기는 미검증입니다.
+- [x] D. 구현·테스트·현행 아키텍처와 로드맵 상태를 `914ce32`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
