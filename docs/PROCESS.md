@@ -351,6 +351,10 @@
   - [x] M5-BV. 출력 저장·재생·구독 정책을 `taide-terminal`로 옮기고 Tauri는 `Channel<InvokeResponseBody>` 바이너리 전송만 연결했습니다. 새 경계 6건과 Tauri 터미널 명령 15건이 통과했으며, 실패 채널 정리·재부착 경쟁·스트리밍 재구성 회귀를 포함합니다.
   - [x] M5-BW. 새 경계 6건·Tauri 터미널 명령 15건·권한 허용 workspace 전체·fmt·workspace all-target clippy·strict terminal rustdoc·Phase 0 계약 7건·TypeScript typecheck·생성 bindings Prettier가 통과했습니다. 생성 bindings는 명령 설명 주석만 바뀌었고 SHA-256 `3ce82f3fda029e700a8f26ad5a08869b7452d337c32e11df82f670b9d33f0993`으로 manifest를 동기화했습니다. normal feature graph에 Tauri·test-support가 없고 실제 PTY·다중창 GUI 실기는 미검증입니다.
   - [x] M5-BX. 코드·테스트·생성 bindings·해시는 commit `11acbf2`로 선별 반영했습니다. 검증 기록과 PROCESS 상태를 별도 문서 commit으로 남기고 원격 `to_rust_native`에 일반 push합니다. M5 전체는 미완료로 유지합니다.
+  - [x] M5-BY. OSC 133 명령 시계의 시작 없는 종료 무시·최근 시작 채택·연속 종료 한 번 소비·긴 경과 포화 계약을 확인했습니다. 새 독립 crate 경계 테스트는 `taide_terminal::command_clock` 부재 E0432(exit 101)로 의도대로 실패했습니다.
+  - [x] M5-BZ. `TerminalCommandClock`과 `TimedCommand`를 `taide-terminal`로 옮기고 Tauri는 실제 시각 입력·이벤트 발행만 연결했습니다. 새 경계 5건과 Tauri 터미널 명령 8건이 통과했고 현재 기능 문서의 제거된 `command_started_at` 표기를 갱신했습니다.
+  - [x] M5-CA. 새 명령 시계 경계 5건·Tauri 터미널 명령 8건·fmt·workspace all-target clippy·strict terminal rustdoc·Phase 0 계약 7건이 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `3ce82f3fda029e700a8f26ad5a08869b7452d337c32e11df82f670b9d33f0993`은 불변입니다. 전체 workspace 테스트·TypeScript typecheck는 이 slice에서 재실행하지 않았으며 실제 PTY·GUI 명령 알림은 미검증입니다.
+  - [x] M5-CB. 코드·테스트·현재 기능 문서는 commit `5ada297`로 선별 반영했습니다. 검증 기록과 PROCESS 상태를 별도 문서 commit으로 남기고 원격 `to_rust_native`에 일반 push합니다. M5 전체는 미완료로 유지합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
