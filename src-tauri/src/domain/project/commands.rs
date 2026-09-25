@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 
 use super::capability::ProjectCapabilities;
@@ -1140,7 +1140,7 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
     let started = std::time::Instant::now();
     let project_count = restored.len();
 
-    tauri::async_runtime::spawn(async move {
+    app.state::<TaskSupervisor>().spawn("project-watchers-restore", async move {
         let mut attached = 0usize;
 
         for (project_id, root) in restored {

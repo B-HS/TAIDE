@@ -178,7 +178,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     외부 열기는 대기열 등록 뒤 single-instance 경로에서만 발행하고 원격 fanout에서 제외한다.
     hot-exit 요청은 All/Window/Project handshake 시작 뒤 앱 전체에 발행하며 원격 fanout에서 제외한다.
     기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
-    `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush
+    `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush·프로젝트 watcher 복원
     장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, 완료된 이름은 회수해 재등록을 허용한다.
     메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며

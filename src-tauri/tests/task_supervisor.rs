@@ -143,3 +143,13 @@ fn 창_flush와_복원_작업은_감독_범위에_등록된다() {
     assert!(commands.contains("spawn_transient(\"auxiliary-window-restore\""));
     assert!(!commands.contains("tauri::async_runtime::spawn(async move {"));
 }
+
+#[test]
+fn 시작시_프로젝트_watcher_복원은_감독_범위에_등록된다() {
+    let commands = include_str!("../src/domain/project/commands.rs");
+    let restore = commands.split_once("pub(crate) fn restore_project_watchers(").unwrap().1;
+    let restore = restore.split_once("#[cfg(test)]").unwrap().0;
+
+    assert!(restore.contains("spawn(\"project-watchers-restore\""));
+    assert!(!restore.contains("tauri::async_runtime::spawn(async move {"));
+}
