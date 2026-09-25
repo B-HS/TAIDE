@@ -5,7 +5,7 @@ use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::ids::ProjectId;
-use taide_model::project::WindowChrome;
+use taide_model::project::{Project, ProjectDisplay, WindowChrome};
 use taide_model::remote::RemoteStatus;
 use taide_model::settings::Settings;
 use taide_model::sync::SyncStatus;
@@ -326,4 +326,74 @@ fn 프로젝트_목록_그룹_슬롯은_snapshot을_만든_뒤_port로_발행된
     assert!(adapter.contains("ProjectListChanged { projects }.emit(self.0)"));
     assert!(adapter.contains("ProjectGroupsChanged { groups }.emit(self.0)"));
     assert!(adapter.contains("SessionShellSlotsChanged { tree, focused }.emit(self.0)"));
+}
+
+#[test]
+fn 프로젝트_수명주기와_최근_정리_이벤트는_같은_port에서_발행된다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-project-event-sink".to_string());
+    let project = Project {
+        id: project_id.clone(),
+        root: "/repo".to_string(),
+        name: "repo".to_string(),
+        capabilities: Vec::new(),
+        root_missing: false,
+        last_opened_at: 0.0,
+        display: ProjectDisplay::default(),
+    };
+
+    sink.publish(AppEvent::ProjectOpened {
+        project: Box::new(project.clone()),
+    });
+    sink.publish(AppEvent::ProjectActivated {
+        project_id: Some(project_id.clone()),
+    });
+    sink.publish(AppEvent::ProjectClosed {
+        project_id: project_id.clone(),
+    });
+    sink.publish(AppEvent::ProjectRecentCleared {
+        removed: 1,
+        skipped_with_drafts: 0,
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::ProjectOpened {
+                project: Box::new(project),
+            },
+            AppEvent::ProjectActivated {
+                project_id: Some(project_id.clone()),
+            },
+            AppEvent::ProjectClosed { project_id },
+            AppEvent::ProjectRecentCleared {
+                removed: 1,
+                skipped_with_drafts: 0,
+            },
+        ]
+    );
+}
+
+#[test]
+fn 프로젝트_수명주기_발행은_기존_성공_경로와_순서를_유지한다() {
+    let commands = include_str!("../src/domain/project/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let recent = commands.split_once("pub async fn project_forget_recent(").unwrap().1;
+    let open = commands.split_once("pub async fn project_open(").unwrap().1;
+    let close = commands.split_once("pub async fn project_close(").unwrap().1;
+
+    assert_eq!(commands.matches(".publish(AppEvent::ProjectOpened").count(), 3);
+    assert_eq!(commands.matches(".publish(AppEvent::ProjectActivated").count(), 7);
+    assert_eq!(commands.matches(".publish(AppEvent::ProjectClosed").count(), 1);
+    assert_eq!(commands.matches(".publish(AppEvent::ProjectRecentCleared").count(), 1);
+    assert!(open.find("attach_project_capabilities(").unwrap() < open.find("AppEvent::ProjectOpened").unwrap());
+    assert!(close.find("detach_all(").unwrap() < close.find("AppEvent::ProjectClosed").unwrap());
+    assert!(close.find("AppEvent::ProjectClosed").unwrap() < close.find("AppEvent::ProjectActivated").unwrap());
+    assert!(recent.find("emit_list_changed(").unwrap() < recent.find("AppEvent::ProjectRecentCleared").unwrap());
+    assert!(adapter.contains("ProjectOpened { project: *project }.emit(self.0)"));
+    assert!(adapter.contains("ProjectClosed { project_id }.emit(self.0)"));
+    assert!(adapter.contains("ProjectActivated { project_id }.emit(self.0)"));
+    let recent_adapter = adapter.split_once("let _ = ProjectRecentCleared {").unwrap().1;
+    let recent_payload = recent_adapter.split_once(".emit(self.0)").unwrap().0;
+    assert!(recent_payload.contains("removed,") && recent_payload.contains("skipped_with_drafts,"));
 }

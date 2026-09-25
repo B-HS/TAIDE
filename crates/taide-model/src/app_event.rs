@@ -1,5 +1,5 @@
 use crate::ids::{ProjectId, ShellSlotId};
-use crate::project::{ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
+use crate::project::{Project, ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::remote::RemoteStatus;
 use crate::settings::Settings;
 use crate::sync::SyncStatus;
@@ -60,5 +60,18 @@ pub enum AppEvent {
     SessionShellSlotsChanged {
         tree: Option<ShellSlotTree>,
         focused: Option<ShellSlotId>,
+    },
+    ProjectOpened {
+        project: Box<Project>,
+    },
+    ProjectClosed {
+        project_id: ProjectId,
+    },
+    ProjectActivated {
+        project_id: Option<ProjectId>,
+    },
+    ProjectRecentCleared {
+        removed: u32,
+        skipped_with_drafts: u32,
     },
 }

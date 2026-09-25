@@ -16,9 +16,7 @@ use super::types::{
 use crate::constants;
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
-use crate::events::{
-    FsChanged, GitStatusChanged, HotExitFlushRequested, ProjectActivated, ProjectClosed, ProjectOpened, ProjectRecentCleared,
-};
+use crate::events::{FsChanged, GitStatusChanged, HotExitFlushRequested};
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::platform::event_sink::TauriEventSink;
@@ -111,11 +109,10 @@ pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -
     if outcome.groups_changed {
         emit_groups_changed(&app, &state);
     }
-    let _ = ProjectRecentCleared {
+    TauriEventSink(&app).publish(AppEvent::ProjectRecentCleared {
         removed: outcome.removed,
         skipped_with_drafts: outcome.skipped_with_drafts,
-    }
-    .emit(&app);
+    });
 
     Ok(outcome)
 }
@@ -174,17 +171,15 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
             return Err(error);
         }
 
-        let _ = ProjectOpened {
-            project: result.project.clone(),
-        }
-        .emit(&app);
+        TauriEventSink(&app).publish(AppEvent::ProjectOpened {
+            project: Box::new(result.project.clone()),
+        });
         emit_list_changed(&app, &state);
     }
 
-    let _ = ProjectActivated {
+    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
         project_id: Some(result.project.id.clone()),
-    }
-    .emit(&app);
+    });
     emit_shell_slots_changed(&app, &state);
 
     Ok(result)
@@ -269,17 +264,15 @@ pub async fn project_open_in_slot(
             return Err(error);
         }
 
-        let _ = ProjectOpened {
-            project: opened.project.clone(),
-        }
-        .emit(&app);
+        TauriEventSink(&app).publish(AppEvent::ProjectOpened {
+            project: Box::new(opened.project.clone()),
+        });
         emit_list_changed(&app, &state);
     }
 
-    let _ = ProjectActivated {
+    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
         project_id: Some(opened.project.id.clone()),
-    }
-    .emit(&app);
+    });
     emit_shell_slots_changed(&app, &state);
 
     Ok(service::shell_state(&state.session.read()))
@@ -311,10 +304,9 @@ pub async fn session_focus_shell_slot(app: AppHandle, state: State<'_, AppState>
     *state.projects.write() = projects;
     drop(_guard);
 
-    let _ = ProjectActivated {
+    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
         project_id: active_project,
-    }
-    .emit(&app);
+    });
     emit_shell_slots_changed(&app, &state);
 
     Ok(())
@@ -354,10 +346,9 @@ pub async fn shell_slot_close(app: AppHandle, state: State<'_, AppState>, slot_i
     *state.session.write() = session;
     drop(_guard);
 
-    let _ = ProjectActivated {
+    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
         project_id: active_project,
-    }
-    .emit(&app);
+    });
     emit_shell_slots_changed(&app, &state);
 
     Ok(())
@@ -580,14 +571,12 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
 
     app.state::<ProjectCapabilities>().detach_all(&app, &state, &project_id);
 
-    let _ = ProjectClosed {
+    TauriEventSink(&app).publish(AppEvent::ProjectClosed {
         project_id: project_id.clone(),
-    }
-    .emit(&app);
-    let _ = ProjectActivated {
+    });
+    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
         project_id: active_project,
-    }
-    .emit(&app);
+    });
     emit_shell_slots_changed(&app, &state);
     emit_list_changed(&app, &state);
 
@@ -607,10 +596,9 @@ pub async fn project_activate(app: AppHandle, state: State<'_, AppState>, projec
     *state.session.write() = session;
     *state.projects.write() = projects;
 
-    let _ = ProjectActivated {
+    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
         project_id: Some(project_id),
-    }
-    .emit(&app);
+    });
     emit_shell_slots_changed(&app, &state);
 
     Ok(())
@@ -958,18 +946,16 @@ async fn open_group_member(app: &AppHandle, state: &State<'_, AppState>, root: &
             return Err(error);
         }
 
-        let _ = ProjectOpened {
-            project: opened.project.clone(),
-        }
-        .emit(app);
+        TauriEventSink(app).publish(AppEvent::ProjectOpened {
+            project: Box::new(opened.project.clone()),
+        });
         emit_list_changed(app, state);
     }
 
     if activate {
-        let _ = ProjectActivated {
+        TauriEventSink(app).publish(AppEvent::ProjectActivated {
             project_id: Some(opened.project.id.clone()),
-        }
-        .emit(app);
+        });
         emit_shell_slots_changed(app, state);
     }
 
