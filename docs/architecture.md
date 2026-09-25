@@ -27,7 +27,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(30종)
-├── crates/taide-runtime/    Tauri 미의존 EventSink port (기존 이벤트 30종 경유)
+├── crates/taide-runtime/    Tauri 미의존 EventSink port (기존 이벤트 30종 경유)·장기 작업 TaskSupervisor
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -176,6 +176,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     외부 열기는 대기열 등록 뒤 single-instance 경로에서만 발행하고 원격 fanout에서 제외한다.
     hot-exit 요청은 All/Window/Project handshake 시작 뒤 앱 전체에 발행하며 원격 fanout에서 제외한다.
     기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
+    `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush
+    장기 작업 세 개를 이름별로 중복 없이 실행하고, `RunEvent::Exit`에서 모두 취소한다. 기존 주기와
+    Tauri runtime은 유지하며 창별 timeout·일회성 작업과 AppServices 이전은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
     layout/settings 로드는 독립 crate, file/git watcher build/register는 조립부 포트를 사용한다.

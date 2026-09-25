@@ -102,7 +102,7 @@ export const commands = {
 	 *  Sets one project's sidebar presentation (icon / short label / color token), each axis
 	 *  independently settable, clearable, or left alone — see `types::ProjectDisplayPatch` for the
 	 *  three-state convention and `service::set_project_display` for the sanitizing this command
-	 *  deliberately leaves to the service. Reuses [`ProjectListChanged`] rather than adding a
+	 *  deliberately leaves to the service. Reuses [`crate::events::ProjectListChanged`] rather than adding a
 	 *  `ProjectDisplayChanged` event: the sidebar renders from `project_list`'s `ProjectRef[]`, which
 	 *  now carries `display`, so the existing fanout already delivers this change to every window and
 	 *  to remote sessions (`lib.rs`'s `fanout_remote_events!`). Remote-allowed at the same grade as
@@ -112,7 +112,7 @@ export const commands = {
 	 */
 	projectSetDisplay: (projectId: ProjectId, patch: ProjectDisplayPatch) => typedError<null, AppError>(__TAURI_INVOKE("project_set_display", { projectId, patch })),
 	/**
-	 *  Every sidebar project group, for a window that just mounted — [`ProjectGroupsChanged`] only fires
+	 *  Every sidebar project group, for a window that just mounted — [`crate::events::ProjectGroupsChanged`] only fires
 	 *  at a transition, the same gap `project_get_active`/`session_get_shell_state` exist to close.
 	 */
 	projectGroupList: () => typedError<ProjectGroup[], AppError>(__TAURI_INVOKE("project_group_list")),

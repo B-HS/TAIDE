@@ -7,3 +7,4 @@ rust-version = "1.89"
 
 [dependencies]
 taide-model = { path = "../taide-model" }
+tokio = { version = "1", features = ["rt", "sync"] }

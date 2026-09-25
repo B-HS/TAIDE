@@ -4634,6 +4634,7 @@ name = "taide-runtime"
 version = "0.1.0"
 dependencies = [
  "taide-model",
+ "tokio",
 ]
 
 [[package]]

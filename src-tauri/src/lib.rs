@@ -19,7 +19,7 @@ use serde_json::Value;
 use taide_infra::language::LanguageOverlay;
 use taide_model::app_event::AppEvent;
 use taide_model::plugin::LoadedPlugin;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -991,6 +991,7 @@ pub fn run() {
             app.manage(RemoteStore::default());
             app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowRegistry::default());
+            app.manage(TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()));
             drop(state_restore_span);
 
             app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
@@ -1089,7 +1090,7 @@ pub fn run() {
             }
 
             let ide_reconcile_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
+            app.state::<TaskSupervisor>().spawn("ide-reconcile", async move {
                 let mut ticker = tokio::time::interval(std::time::Duration::from_millis(domain::ide::types::IDE_RECONCILE_INTERVAL_MS));
                 loop {
                     ticker.tick().await;
@@ -1098,7 +1099,7 @@ pub fn run() {
             });
 
             let agent_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
+            app.state::<TaskSupervisor>().spawn("agent-poll", async move {
                 let interval = if cfg!(windows) {
                     domain::agent::types::AGENT_POLL_WINDOWS_MS
                 } else {
@@ -1112,7 +1113,7 @@ pub fn run() {
             });
 
             let flush_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
+            app.state::<TaskSupervisor>().spawn("layout-flush", async move {
                 let mut ticker = tokio::time::interval(std::time::Duration::from_millis(domain::layout::service::LAYOUT_FLUSH_INTERVAL_MS));
                 loop {
                     ticker.tick().await;
@@ -1148,7 +1149,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+            if matches!(&event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app_handle.state::<AppState>().begin_shutdown();
                 domain::layout::service::flush_dirty_layouts(&app_handle.state::<AppState>());
                 app_handle.state::<TerminalStore>().kill_all();
@@ -1156,6 +1157,9 @@ pub fn run() {
                 domain::agent::commands::cleanup_all_wait_markers(&app_handle.state::<AgentStore>());
                 domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
                 domain::remote::commands::stop_server(app_handle, &app_handle.state::<RemoteStore>());
+            }
+            if matches!(&event, tauri::RunEvent::Exit) {
+                app_handle.state::<TaskSupervisor>().stop_all();
             }
         });
 }
