@@ -4638,6 +4638,7 @@ dependencies = [
  "taide-lsp",
  "taide-model",
  "taide-plugin",
+ "taide-terminal",
  "taide-tree",
  "tokio",
  "uuid",

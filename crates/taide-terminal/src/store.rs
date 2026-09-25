@@ -25,8 +25,8 @@ impl TerminalSessionEntry {
 }
 
 /// Serializes terminal session lookup, resource operations, and project-scoped cleanup.
-#[derive(Default)]
-pub struct TerminalStore(Mutex<HashMap<String, TerminalSessionEntry>>);
+#[derive(Clone, Default)]
+pub struct TerminalStore(Arc<Mutex<HashMap<String, TerminalSessionEntry>>>);
 
 impl TerminalStore {
     pub fn new() -> Self {

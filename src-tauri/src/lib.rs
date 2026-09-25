@@ -26,7 +26,6 @@ use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::domain::agent::commands::{AgentForegroundPids, AgentHooksStore, AgentStore};
-use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeSaveFile;
 use crate::domain::ide::server::IdeLayoutActions;
@@ -37,11 +36,9 @@ use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
-use crate::domain::search::commands::SearchStore;
 use crate::domain::settings::types::Settings;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
-use crate::domain::tree::commands::TreeStore;
 use crate::domain::window::commands::open_auxiliary_window;
 use crate::domain::window::menu::MenuSources;
 use crate::error::{AppError, AppErrorKind, AppResult};
@@ -960,11 +957,6 @@ pub fn run() {
 
             let services = Arc::new(AppServices::new(
                 state,
-                SearchStore::default(),
-                AiRequestStore::default(),
-                TreeStore::default(),
-                PluginStore::default(),
-                LspStore::default(),
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
             ));
 
@@ -978,7 +970,7 @@ pub fn run() {
             app.manage(pty_spawn_env_provider());
             app.manage(pty_session_observers());
             app.manage(services.tree.clone());
-            app.manage(TerminalStore::default());
+            app.manage(services.terminal.clone());
             app.manage(AgentForegroundPids(foreground_pids_for_agent));
             app.manage(GitStore::default());
             app.manage(services.lsp.clone());
@@ -1372,7 +1364,11 @@ mod tests {
             .expect("PTY 회수 등록");
         assert!(ide_position < terminal_position);
 
-        let setup = extract_between(source, "app.manage(IdeStore::default());", "app.manage(AiRequestStore::default());");
+        let setup = extract_between(
+            source,
+            "app.manage(IdeStore::default());",
+            "app.manage(services.ai_requests.clone());",
+        );
         assert!(setup.contains("app.manage(layout_tab_closed_observers());"));
 
         let layout_source = include_str!("domain/layout/service.rs");
@@ -1394,7 +1390,11 @@ mod tests {
         assert!(actions.contains("open_file_tab: open_ide_file_tab"));
         assert!(actions.contains("close_tab: close_ide_tab"));
 
-        let setup = extract_between(source, "app.manage(IdeStore::default());", "app.manage(AiRequestStore::default());");
+        let setup = extract_between(
+            source,
+            "app.manage(IdeStore::default());",
+            "app.manage(services.ai_requests.clone());",
+        );
         assert!(setup.contains("app.manage(ide_layout_actions());"));
 
         let ide_server = include_str!("domain/ide/server.rs");
@@ -1528,7 +1528,7 @@ mod tests {
     fn 에이전트_감지는_조립부의_터미널_foreground_pid_공급원을_사용한다() {
         let source = include_str!("lib.rs");
         assert!(source.contains("app.state::<TerminalStore>().foreground_pids(project_id)"));
-        let setup = extract_between(source, "app.manage(TerminalStore::default());", "app.manage(GitStore::default());");
+        let setup = extract_between(source, "app.manage(services.terminal.clone());", "app.manage(GitStore::default());");
         assert!(setup.contains("app.manage(AgentForegroundPids(foreground_pids_for_agent));"));
 
         let agent = include_str!("domain/agent/commands.rs");

@@ -1,21 +1,14 @@
 use std::future::pending;
 use std::sync::Arc;
 
-use taide_lsp::store::LspStore;
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
-use taide_plugin::service::PluginStore;
-use taide_runtime::{AiRequestStore, AppServices, AppState, SearchStore, TaskSupervisor, TreeStore};
+use taide_runtime::{AppServices, AppState, TaskSupervisor};
 
 #[tokio::test]
 async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공유한다() {
     let services = Arc::new(AppServices::new(
         AppState::new(AppPaths::new(std::env::temp_dir())),
-        SearchStore::new(),
-        AiRequestStore::new(),
-        TreeStore::new(),
-        PluginStore::new(),
-        LspStore::new(),
         TaskSupervisor::new(tokio::runtime::Handle::current()),
     ));
     let legacy_state = services.state.clone();
@@ -61,6 +54,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.search.clone());"));
     assert!(setup.contains("app.manage(services.ai_requests.clone());"));
     assert!(setup.contains("app.manage(services.tree.clone());"));
+    assert!(setup.contains("app.manage(services.terminal.clone());"));
     assert!(setup.contains("app.manage(services.plugin.clone());"));
     assert!(setup.contains("app.manage(services.lsp.clone());"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));

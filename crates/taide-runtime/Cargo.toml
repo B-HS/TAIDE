@@ -11,6 +11,7 @@ taide-infra = { path = "../taide-infra" }
 taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }
 taide-plugin = { path = "../taide-plugin" }
+taide-terminal = { path = "../taide-terminal" }
 taide-tree = { path = "../taide-tree" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 

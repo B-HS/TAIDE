@@ -75,9 +75,10 @@ fn 프로젝트_회수와_출력_연결은_다른_세션을_유지한다() {
     assert_eq!(received.lock().concat(), [TERMINAL_REPLAY_PREAMBLE, b"before"].concat());
     assert!(store.detach("term-a", attached.subscription_id).is_ok());
 
-    store.kill_project(&project_a);
+    let legacy_store = store.clone();
+    legacy_store.kill_project(&project_a);
     assert!(store.sessions_for_project(&project_a).is_empty());
     assert_eq!(store.sessions_for_project(&project_b).len(), 1);
     store.kill_session("term-b");
-    assert!(store.sessions_for_project(&project_b).is_empty());
+    assert!(legacy_store.sessions_for_project(&project_b).is_empty());
 }
