@@ -4638,6 +4638,7 @@ dependencies = [
  "taide-lsp",
  "taide-model",
  "taide-plugin",
+ "taide-system",
  "taide-terminal",
  "taide-tree",
  "tokio",
@@ -4695,6 +4696,8 @@ dependencies = [
 name = "taide-system"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
+ "sysinfo",
  "taide-model",
 ]
 

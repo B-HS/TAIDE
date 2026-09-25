@@ -37,7 +37,6 @@ use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
 use crate::domain::settings::types::Settings;
-use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::window::commands::open_auxiliary_window;
 use crate::domain::window::menu::MenuSources;
@@ -983,7 +982,7 @@ pub fn run() {
             });
             app.manage(AgentStore::default());
             app.manage(AgentHooksStore::default());
-            app.manage(SystemUsageStore::default());
+            app.manage(services.system_usage.clone());
             app.manage(IdeStore::default());
             app.manage(IdeSaveFile(save_ide_diff_file));
             app.manage(ide_layout_actions());

@@ -1,6 +1,7 @@
 use taide_lsp::install::LspInstallStore;
 use taide_lsp::store::LspStore;
 use taide_plugin::service::PluginStore;
+use taide_system::store::SystemUsageStore;
 use taide_terminal::store::TerminalStore;
 
 use super::{AiRequestStore, AppState, SearchStore, TaskSupervisor, TreeStore};
@@ -14,6 +15,7 @@ pub struct AppServices {
     pub plugin: PluginStore,
     pub lsp: LspStore,
     pub lsp_install: LspInstallStore,
+    pub system_usage: SystemUsageStore,
     pub tasks: TaskSupervisor,
 }
 
@@ -28,6 +30,7 @@ impl AppServices {
             plugin: PluginStore::default(),
             lsp: LspStore::default(),
             lsp_install: LspInstallStore::default(),
+            system_usage: SystemUsageStore::default(),
             tasks,
         }
     }

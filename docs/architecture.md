@@ -28,6 +28,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(30종)
 ├── crates/taide-runtime/    Tauri 미의존 AppServices 조립·AppState·검색/AI 요청·tree cache·flush handshake·EventSink port·TaskSupervisor
+├── crates/taide-system/     Tauri 미의존 프로세스 정책·독립 CPU 샘플 저장소
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -196,8 +197,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     설치 중복·취소·guard 해제 상태를 LSP 설치 명령과 공유한다.
     `TerminalStore`는 taide-terminal의 PTY 세션 맵을 공유 Arc<Mutex>에 보관하고,
     터미널 명령·프로젝트 종료·앱 종료 경로가 같은 세션을 소비한다.
+    `SystemUsageStore`는 taide-system에서 앱 PID와 전체 프로세스의 CPU 이전 샘플을 독립 sysinfo 인스턴스에 보관한다.
+    두 내부 Arc<Mutex>는 clone 간 공유하고, Tauri 명령은 blocking 실행과 도메인별 PID 라벨 조립만 맡는다.
     setup은 상태 복원 뒤 AppState와 TaskSupervisor로 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·TaskSupervisor의 동일 내부 인스턴스를
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·SystemUsageStore·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
