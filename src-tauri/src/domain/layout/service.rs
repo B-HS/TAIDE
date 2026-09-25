@@ -1,10 +1,11 @@
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
 use super::types::{ClosedTab, ProjectLayout, Tab, TabKind};
 use crate::error::AppResult;
-use crate::events::LayoutChanged;
 use crate::ids::{PaneId, ProjectId, TabId};
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 pub use taide_layout::service::*;
@@ -81,16 +82,15 @@ pub(crate) fn flush_dirty_layouts(state: &AppState) {
 /// that forgets to from handing the frontend an id it will send straight back as an explicit
 /// `target` (contract §1 R1 2). No `revision` bump: the repair rides along with the mutation that
 /// caused it, so the snapshot `LayoutChanged` announces is already the repaired one.
-pub fn finish_mutation(app: &AppHandle, state: &AppState, project_id: &ProjectId, layout: &mut ProjectLayout) -> ProjectLayout {
+pub fn finish_mutation(sink: &dyn EventSink, state: &AppState, project_id: &ProjectId, layout: &mut ProjectLayout) -> ProjectLayout {
     ensure_focused_pane_valid(layout);
     let snapshot = layout.clone();
     state.dirty_layouts.write().insert(project_id.clone());
 
-    let _ = LayoutChanged {
+    sink.publish(AppEvent::LayoutChanged {
         project_id: project_id.clone(),
         revision: snapshot.revision,
-    }
-    .emit(app);
+    });
 
     snapshot
 }
@@ -129,7 +129,7 @@ pub async fn open_tab_and_finish(
     };
     open_tab(layout, &pane_id, tab, preview)?;
 
-    let updated = finish_mutation(app, state, &project_id, layout);
+    let updated = finish_mutation(&TauriEventSink(app), state, &project_id, layout);
     *state.layouts.write() = layouts;
     Ok(updated)
 }
@@ -143,7 +143,7 @@ pub async fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &Ta
 
     let closed = close_tab(layout, tab_id)?;
 
-    let updated = finish_mutation(app, state, &project_id, layout);
+    let updated = finish_mutation(&TauriEventSink(app), state, &project_id, layout);
     *state.layouts.write() = layouts;
 
     app.state::<LayoutTabClosedObservers>().notify(app, &closed.tab);

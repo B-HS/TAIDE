@@ -26,7 +26,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
-├── crates/taide-model/      Tauri 미의존 공통 ID·AppError (기존 public 경로는 src-tauri facade)
+├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(LayoutChanged부터)
+├── crates/taide-runtime/    Tauri 미의존 EventSink port (현재 LayoutChanged variant부터 이전 중)
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -67,6 +68,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   └── window/      보조 윈도우 생성·닫힘·복원, 기존 WindowStore 공개 facade
     │   ├── platform/        Tauri platform adapter와 런타임 레지스트리
     │   │   ├── asset_protocol.rs   열린 프로젝트 asset URI 응답
+    │   │   ├── event_sink.rs       AppEvent를 기존 Tauri 이벤트로 발행
     │   │   ├── navigation_guard.rs 웹뷰 탐색·새 창 URL 가드
     │   │   └── window_registry.rs 보조 창 label→project/slot 등록·역조회
     │   └── infra/           외부 자원 어댑터 (22파일)
@@ -147,6 +149,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `platform::window_registry::WindowRegistry`는 보조 창 label→project/slot 매핑과 역조회만
     소유하며 두 종료 경로 중 먼저 해제한 쪽만 결과를 받는다. `lib.rs`가 이 타입을 Tauri 관리
     상태로 등록하고 기존 `domain::window::commands::WindowStore` 경로는 타입 재수출로 유지한다.
+    layout mutation 완료와 보조 창 탭 복귀의 `LayoutChanged`는
+    `taide-runtime::EventSink::publish(taide-model::app_event::AppEvent)`를 거쳐
+    `platform::event_sink::TauriEventSink`가 기존 Tauri 이벤트로 변환한다. 어댑터는 관리 상태에
+    AppHandle을 보관하지 않고 발행 호출 동안 빌리며, `finish_mutation`은 port를 인자로 받는다. 나머지 29개 이벤트는
+    아직 직접 발행하며 기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
     layout/settings 로드는 독립 crate, file/git watcher build/register는 조립부 포트를 사용한다.

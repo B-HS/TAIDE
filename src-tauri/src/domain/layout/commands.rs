@@ -9,6 +9,7 @@ use crate::domain::project::types::Project;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::{PaneId, ProjectId, TabId};
 use crate::infra::root_guard;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 #[tauri::command]
@@ -116,7 +117,7 @@ where
 
     mutate(layout)?;
 
-    let updated = service::finish_mutation(app, state, &project_id, layout);
+    let updated = service::finish_mutation(&TauriEventSink(app), state, &project_id, layout);
     *state.layouts.write() = layouts;
     Ok(updated)
 }
@@ -336,7 +337,7 @@ pub async fn layout_convert_untitled(app: AppHandle, state: State<'_, AppState>,
 
     service::convert_untitled_to_file(layout, &tab_id, resolved.to_string_lossy().into_owned(), title)?;
 
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
+    let updated = service::finish_mutation(&TauriEventSink(&app), &state, &project_id, layout);
     *state.layouts.write() = layouts;
     Ok(updated)
 }
@@ -428,7 +429,7 @@ pub async fn layout_apply_path_change(
         });
     }
 
-    let updated = service::finish_mutation(&app, &state, &project_id, layout);
+    let updated = service::finish_mutation(&TauriEventSink(&app), &state, &project_id, layout);
     *state.layouts.write() = layouts;
     Ok(TabPathChangeResult {
         layout: updated,

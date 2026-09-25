@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod ai;
 pub mod app;
+pub mod app_event;
 pub mod error;
 pub mod file;
 pub mod flush;

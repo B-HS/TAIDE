@@ -4399,6 +4399,7 @@ dependencies = [
  "taide-plugin",
  "taide-project",
  "taide-remote",
+ "taide-runtime",
  "taide-search",
  "taide-settings",
  "taide-snippet",
@@ -4626,6 +4627,13 @@ dependencies = [
  "taide-locale",
  "taide-model",
  "uuid",
+]
+
+[[package]]
+name = "taide-runtime"
+version = "0.1.0"
+dependencies = [
+ "taide-model",
 ]
 
 [[package]]

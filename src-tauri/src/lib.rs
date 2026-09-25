@@ -17,7 +17,9 @@ use std::path::Path;
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use taide_infra::language::LanguageOverlay;
+use taide_model::app_event::AppEvent;
 use taide_model::plugin::LoadedPlugin;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -52,6 +54,7 @@ use crate::events::{
 use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
+use crate::platform::event_sink::TauriEventSink;
 use crate::platform::window_registry::WindowRegistry;
 use crate::plugin_port::PluginRuntimePort;
 use crate::project_restore_port::ProjectRestoreWatchers;
@@ -395,7 +398,7 @@ async fn layout_move_tab_to_window(
 
     cleanup_emptied_auxiliary_windows(&app, &windows, &project_id, layout);
 
-    let updated = layout_service::finish_mutation(&app, &state, &project_id, layout);
+    let updated = layout_service::finish_mutation(&TauriEventSink(&app), &state, &project_id, layout);
     *state.layouts.write() = layouts;
     Ok(updated)
 }
@@ -430,7 +433,7 @@ fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &ProjectId,
         *state.layouts.write() = layouts;
 
         state.dirty_layouts.write().insert(project_id.clone());
-        let _ = LayoutChanged { project_id, revision }.emit(&app);
+        TauriEventSink(&app).publish(AppEvent::LayoutChanged { project_id, revision });
     });
 }
 
@@ -1555,8 +1558,9 @@ mod tests {
             .expect("유령 dirty 정리");
         let return_tabs = return_body.find("layout_service::return_auxiliary_window_tabs(").expect("탭 복귀");
         let write = return_body.find("*state.layouts.write() = layouts;").expect("layout 기록");
+        assert!(return_body.contains("TauriEventSink(&app)"));
         let emit = return_body
-            .find("LayoutChanged { project_id, revision }.emit(&app)")
+            .find(".publish(AppEvent::LayoutChanged { project_id, revision })")
             .expect("변경 이벤트");
         assert!(guard < mirrors);
         assert!(mirrors < clear_dirty);
