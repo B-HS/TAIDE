@@ -924,3 +924,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 agent 두 variant를 추가하고 Tauri platform adapter에서 기존 AgentStateChanged/AgentExternalOpen으로 변환했습니다. hook·poll·single-instance 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload, CLI 경로 허용·대기열 등록 순서와 원격 fanout 제외 정책을 유지합니다. 현행 아키텍처 문서의 이전 상태를 29/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 27건·권한 허용 Tauri agent 22건·원격 fanout 제외 1건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 agent 프로세스 조회 1건은 `ps` 접근 오류였고 동일 22건을 권한 허용 환경에서 확인했습니다. 첫 컴파일에서 `lib.rs` 이벤트 이름 상수의 trait import를 복구한 뒤 통과했습니다. Agent 직접 발행은 adapter 외 0곳이며 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 CLI/훅·GUI 실기는 미검증이며 hot-exit 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `40eba06`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열일곱 번째 slice — hot-exit EventSink 최종 경계
+
+- [x] A. HotExitFlushRequested는 보조 창 Window, 메인 창 All, 프로젝트 Project의 handshake가 시작된 뒤 앱 전체로 발행됩니다. timeout은 동일한 backend 상수를 f64로 실어 보내며 원격 fanout에서는 의도적으로 제외됩니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. 마지막 model AppEvent variant와 Tauri platform adapter mapping을 추가했습니다. window/project 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 scope·timeout·IPC payload, 앱 전체 방송과 원격 fanout 제외 정책을 유지합니다. 현행 아키텍처 문서의 이전 상태를 30/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 29건·Tauri flush 4건·AppState handshake 23건·원격 fanout 제외 1건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 직접 `.emit` 호출은 platform adapter 외 0곳이고 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·GUI 실기는 미검증이며 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `f3479e5`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다. EventSink 발행점 30종은 모두 이전했지만 M6 전체는 미완료입니다.
