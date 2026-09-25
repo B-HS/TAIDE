@@ -980,3 +980,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. TreeStore를 taide-runtime으로 옮기고 Arc<RwLock> clone이 같은 프로젝트 캐시를 공유하게 했습니다. AppServices의 동일 인스턴스를 기존 Tauri State 타입에 등록합니다. 기존 tree command 공개 경로·IPC 시그니처·read miss 재검사와 project close 캐시 제거 정책은 유지합니다. taide-tree 경로 의존을 runtime Cargo에 추가했습니다.
 - [x] C. runtime 37건·TreeStore 경계 1건·AppServices 경계 2건·Tauri tree 4건·권한 허용 Tauri lib 297건·Phase 0 IPC 계약 7건, Tauri/runtime all-target clippy·fmt·strict runtime rustdoc·`git diff --check`가 통과했습니다. runtime normal dependency graph에 Tauri가 없고 bindings SHA-256 `174a2d617372f4782b8397351660f503194dc567ece4feb82c2a79199c09977a`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 프로젝트 닫기·트리 갱신 GUI 실기는 미검증이며 AppServices 나머지 상태·command facade, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·taide-tree 의존성·현행 아키텍처 문서를 `3756c97`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 스물다섯 번째 slice — PluginStore 공유 캐시 조립
+
+- [x] A. PluginStore는 이미 taide-plugin crate에 있으며 read-through 목록 캐시를 Tauri plugin 명령·언어 overlay 포트가 소비합니다. 별도 AppServices 인스턴스를 만들면 목록이 갈라지므로 clone 공유 테스트를 먼저 추가했고 PluginStore::clone 부재 E0599(exit 101)를 확인했습니다.
+- [x] B. PluginStore의 내부 RwLock을 Arc로 공유하고 AppServices의 동일 인스턴스를 기존 Tauri State 타입으로 등록했습니다. plugin 서비스·overlay 배선·IPC 정책은 변경하지 않았고 runtime에 taide-plugin 경로 의존을 추가했습니다.
+- [x] C. plugin lib 26건·새 공유 캐시 1건·runtime 37건·AppServices 경계 2건·권한 허용 Tauri lib 297건·Phase 0 IPC 계약 7건, plugin/runtime/Tauri all-target clippy·fmt·두 crate strict rustdoc·`git diff --check`가 통과했습니다. 첫 Tauri lib 실행의 소스 스캔 1건은 이전 PluginStore 등록 문자열을 찾는 테스트 오류였고 새 등록 위치를 가리키도록 고쳐 단독·전체 lib를 재통과시켰습니다. runtime normal dependency graph에 Tauri가 없고 bindings SHA-256 `174a2d617372f4782b8397351660f503194dc567ece4feb82c2a79199c09977a`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 plugin 설치·overlay GUI 실기는 미검증이며 AppServices 나머지 상태·command facade, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·taide-plugin 의존성·현행 아키텍처 문서를 `641b7a2`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
