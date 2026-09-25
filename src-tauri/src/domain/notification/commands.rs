@@ -1,9 +1,9 @@
+use taide_runtime::PlatformServicesState;
 use tauri::{AppHandle, Manager, State};
-use tauri_plugin_notification::NotificationExt;
 
 use super::service;
 use super::types::{NotificationCategory, NotificationDelivery};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::infra::redact::mask_known_secrets;
 use crate::state::AppState;
 
@@ -40,6 +40,7 @@ fn masked_notification_text(title: &str, body: &str) -> (String, String) {
 pub async fn notification_notify(
     app: AppHandle,
     state: State<'_, AppState>,
+    platform: State<'_, PlatformServicesState>,
     category: NotificationCategory,
     title: String,
     body: String,
@@ -50,12 +51,7 @@ pub async fn notification_notify(
 
     let decision = service::decide_delivery(&settings, category, any_window_focused);
     if decision == NotificationDelivery::Delivered {
-        app.notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show()
-            .map_err(|error| AppError::Internal(error.to_string()))?;
+        platform.0.send_notification(&title, &body)?;
     }
     Ok(decision)
 }
@@ -71,15 +67,15 @@ pub async fn notification_notify(
 /// URL argument at all.
 #[tauri::command]
 #[specta::specta]
-pub async fn notification_open_system_settings() -> AppResult<()> {
+pub async fn notification_open_system_settings(platform: State<'_, PlatformServicesState>) -> AppResult<()> {
     #[cfg(target_os = "macos")]
     {
-        tauri_plugin_opener::open_url(crate::constants::MACOS_NOTIFICATION_SETTINGS_URL, None::<&str>)
-            .map_err(|error| AppError::Internal(error.to_string()))
+        platform.0.open_url(crate::constants::MACOS_NOTIFICATION_SETTINGS_URL)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(AppError::localized(
+        let _ = &platform;
+        Err(crate::error::AppError::localized(
             crate::error::AppErrorKind::InvalidArgument,
             "error.notification.settingsUnsupported",
             "opening the notification settings is only supported on macOS",

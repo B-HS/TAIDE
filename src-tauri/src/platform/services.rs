@@ -1,10 +1,12 @@
 use std::path::Path;
 
 use taide_runtime::PlatformServices;
+use tauri::AppHandle;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::error::{AppError, AppResult};
 
-pub struct TauriPlatformServices;
+pub struct TauriPlatformServices(pub AppHandle);
 
 impl PlatformServices for TauriPlatformServices {
     fn open_path(&self, path: &Path) -> AppResult<()> {
@@ -17,5 +19,15 @@ impl PlatformServices for TauriPlatformServices {
 
     fn open_url(&self, url: &str) -> AppResult<()> {
         tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| AppError::Internal(error.to_string()))
+    }
+
+    fn send_notification(&self, title: &str, body: &str) -> AppResult<()> {
+        self.0
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+            .map_err(|error| AppError::Internal(error.to_string()))
     }
 }

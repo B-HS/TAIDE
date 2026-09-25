@@ -22,6 +22,11 @@ impl PlatformServices for RecordingPlatform {
         self.0.lock().expect("호출 기록 잠금").push("open_url");
         Ok(())
     }
+
+    fn send_notification(&self, _title: &str, _body: &str) -> AppResult<()> {
+        self.0.lock().expect("호출 기록 잠금").push("send_notification");
+        Ok(())
+    }
 }
 
 #[test]
@@ -33,11 +38,32 @@ fn 플랫폼_포트_복제본은_동일한_구현을_공유한다() {
     legacy_platform.0.open_path(Path::new("/tmp/example")).expect("경로 열기");
     platform.0.reveal_item_in_dir(Path::new("/tmp/example")).expect("항목 표시");
     legacy_platform.0.open_url("https://example.com").expect("URL 열기");
+    platform.0.send_notification("안전한 제목", "안전한 본문").expect("알림 전달");
 
     assert_eq!(
         implementation.0.lock().expect("호출 기록 잠금").as_slice(),
-        ["open_path", "reveal_item_in_dir", "open_url"]
+        ["open_path", "reveal_item_in_dir", "open_url", "send_notification"]
     );
+}
+
+#[test]
+fn 알림_명령은_마스킹과_focus_gate_뒤에_플랫폼에_전달한다() {
+    let commands = include_str!("../src/domain/notification/commands.rs");
+    let notify = commands.split_once("pub async fn notification_notify(").unwrap().1;
+    let notify = notify.split_once("pub async fn notification_open_system_settings(").unwrap().0;
+
+    assert!(
+        notify.find("masked_notification_text(&title, &body)").unwrap()
+            < notify.find("platform.0.send_notification(&title, &body)").unwrap()
+    );
+    assert!(
+        notify
+            .find("service::decide_delivery(&settings, category, any_window_focused)")
+            .unwrap()
+            < notify.find("platform.0.send_notification(&title, &body)").unwrap()
+    );
+    assert!(!commands.contains("app.notification()"));
+    assert!(commands.contains("platform.0.open_url(crate::constants::MACOS_NOTIFICATION_SETTINGS_URL)"));
 }
 
 #[test]

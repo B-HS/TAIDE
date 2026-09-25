@@ -7,6 +7,7 @@ pub trait PlatformServices: Send + Sync {
     fn open_path(&self, path: &Path) -> AppResult<()>;
     fn reveal_item_in_dir(&self, path: &Path) -> AppResult<()>;
     fn open_url(&self, url: &str) -> AppResult<()>;
+    fn send_notification(&self, title: &str, body: &str) -> AppResult<()>;
 }
 
 #[derive(Clone)]

@@ -21,6 +21,10 @@ impl PlatformServices for TestPlatform {
     fn open_url(&self, _url: &str) -> AppResult<()> {
         Ok(())
     }
+
+    fn send_notification(&self, _title: &str, _body: &str) -> AppResult<()> {
+        Ok(())
+    }
 }
 
 #[tokio::test]

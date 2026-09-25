@@ -963,7 +963,7 @@ pub fn run() {
                 state,
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
                 RemoteDispatchLimiter::new(REMOTE_DISPATCH_MAX_CONCURRENT),
-                PlatformServicesState::new(Arc::new(TauriPlatformServices)),
+                PlatformServicesState::new(Arc::new(TauriPlatformServices(app.handle().clone()))),
             ));
 
             app.manage(services.state.clone());
