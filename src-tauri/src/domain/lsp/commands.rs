@@ -6,7 +6,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 pub use taide_lsp::install::LspInstallStore;
 use taide_lsp::protocol::workspace_folders_notification;
-use taide_lsp::session::LspMessageSubscribers;
+use taide_lsp::session::{LspMessageSubscribers, LspSessionRoots};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -68,7 +68,7 @@ struct SessionEntry {
     /// manually" mitigation).
     generation: AtomicU32,
     stopping: Arc<AtomicBool>,
-    roots: Mutex<Vec<(String, u32)>>,
+    roots: LspSessionRoots,
 }
 
 #[derive(Default)]
@@ -467,22 +467,10 @@ pub async fn lsp_spawn(
         .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
 
     if let Some((existing_id, existing_entry)) = find_reusable_entry(&store, &project_id, &server_id, &owner) {
-        let existing_roots: Vec<String> = existing_entry.roots.lock().iter().map(|(root, _)| root.clone()).collect();
+        let existing_roots = existing_entry.roots.paths();
 
         if service::should_reuse_session(&spec, &existing_roots, &root) {
-            let is_new_root = {
-                let mut roots = existing_entry.roots.lock();
-                match roots.iter_mut().find(|(existing_root, _)| existing_root == &root) {
-                    Some((_, count)) => {
-                        *count += 1;
-                        false
-                    }
-                    None => {
-                        roots.push((root.clone(), 1));
-                        true
-                    }
-                }
-            };
+            let is_new_root = existing_entry.roots.acquire(root.clone());
 
             existing_entry.subscribers.insert(owner, channel_sink(on_message));
 
@@ -514,7 +502,7 @@ pub async fn lsp_spawn(
         restart_count: AtomicU32::new(0),
         generation: AtomicU32::new(0),
         stopping: Arc::new(AtomicBool::new(false)),
-        roots: Mutex::new(vec![(root.clone(), 1)]),
+        roots: LspSessionRoots::new(root.clone()),
     });
 
     store.0.lock().insert(session_id.clone(), entry.clone());
@@ -562,20 +550,12 @@ fn release_owner_root(entry: &SessionEntry, owner: &str, root: Option<&str>) -> 
         return (None, false);
     };
 
-    let mut roots = entry.roots.lock();
-    let mut removed_root = None;
-    if let Some(position) = roots.iter().position(|(existing_root, _)| existing_root == root) {
-        roots[position].1 = roots[position].1.saturating_sub(1);
-        if roots[position].1 == 0 {
-            removed_root = Some(roots.remove(position).0);
-        }
-    }
-    let has_remaining_roots = !roots.is_empty();
-    drop(roots);
+    let release = entry.roots.release(root);
+    let has_remaining_roots = release.has_remaining_roots;
     if !has_remaining_roots {
         entry.subscribers.remove(owner);
     }
-    (removed_root, has_remaining_roots)
+    (release.removed_root, has_remaining_roots)
 }
 
 /// `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) keeps its
@@ -1307,7 +1287,7 @@ mod tests {
             restart_count: AtomicU32::new(0),
             generation: AtomicU32::new(0),
             stopping: Arc::new(AtomicBool::new(stopping)),
-            roots: Mutex::new(vec![("/tmp/project".to_string(), 1)]),
+            roots: LspSessionRoots::new("/tmp/project".to_string()),
         })
     }
 
@@ -1434,7 +1414,7 @@ mod tests {
         entry
             .subscribers
             .insert("owner-a".to_string(), channel_sink(recording_channel(received.clone())));
-        entry.roots.lock().push(("/tmp/second-root".to_string(), 1));
+        entry.roots.acquire("/tmp/second-root".to_string());
 
         let (removed_root, has_remaining_roots) = release_owner_root(&entry, "owner-a", Some("/tmp/project"));
         entry.subscribers.broadcast("remaining-root-message");
@@ -1448,7 +1428,7 @@ mod tests {
     #[test]
     fn 같은_root의_마지막_참조를_해제할_때만_owner_구독을_제거한다() {
         let entry = test_session_entry(ProjectId::new(), LspServerId::from("test-server"), "owner-a", false);
-        entry.roots.lock()[0].1 = 2;
+        entry.roots.acquire("/tmp/project".to_string());
 
         let (removed_root, has_remaining_roots) = release_owner_root(&entry, "owner-a", Some("/tmp/project"));
         assert!(removed_root.is_none());
