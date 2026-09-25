@@ -644,3 +644,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. `LspSessionLifecycle`이 프로세스별 비공개 epoch를 소유하고, Tauri는 spawn마다 발급한 epoch를 메시지·종료 callback에 연결합니다. 종료 callback과 backoff 재시작은 전역 mutation guard 아래에서 현재 epoch·종료 상태를 확인하며, 이전 프로세스의 늦은 메시지는 구독자에게 보내지 않습니다. 수동 재시작은 종료 중에 epoch를 먼저 교체한 뒤 새 시작 상태로 전환합니다. 프론트엔드에 공개되는 재초기화 `generation`과 IPC wire는 그대로입니다.
 - [x] C. 새 경계 4건·Tauri LSP 명령 20건·`cargo fmt --all --check`·workspace all-target clippy·strict LSP rustdoc·Phase 0 계약 7건이 통과했습니다. 생성 bindings SHA-256 `a040030bf4528b7b78031f9631484a0099bbe959dcc2a2440e248d895bea2d44`는 불변입니다. 전체 workspace 테스트와 TypeScript typecheck는 이 slice에서 재실행하지 않았습니다. 실제 언어서버 프로세스의 crash/restart와 다중창·원격 세션은 아직 실기 검증하지 않았고, 프로세스 spawn/kill과 이벤트 방출 자체는 Tauri에 남습니다.
 - [x] D. 코드·테스트는 commit `d8516f1`로 선별 반영했습니다. 이 검증 기록과 PROCESS 상태를 별도 문서 commit으로 남기고 원격 `to_rust_native`에 일반 push합니다. M5 전체는 미완료로 유지합니다.
+
+## M5 열일곱 번째 slice — LSP 세션 저장소 소유권 이전 (프로세스 실행은 유지)
+
+- [x] A. Tauri 명령의 `LspStore`·`SessionEntry`가 프로젝트/서버/owner별 검색, 종료 중 재사용 차단, root·구독·수명주기·프로세스 슬롯 보관, 프로젝트별 세션 snapshot과 PID 조회를 맡고 있었습니다. 새 독립 crate 경계 테스트는 `taide_lsp::store` 부재 E0432(exit 101)로 의도대로 실패했습니다.
+- [x] B. `LspSessionEntry`·`LspStore`가 세션 상태와 프로세스 슬롯, 검색/재사용·프로젝트 snapshot·전체 종료·PID 조회를 소유하고, 기존 Tauri `domain::lsp::commands::LspStore` 공개 경로는 재수출로 유지합니다. Tauri는 Channel 연결, 프로세스 spawn/개별 shutdown, IPC 에러 변환·이벤트 방출을 유지합니다. `lsp_sessions`의 저장소 잠금 중 snapshot 생성 순서도 보존했습니다. 삭제된 `SessionEntry`·`channels` 문서 참조는 현재 Rust/TypeScript 소스와 생성 bindings에서 실제 소유 경로로 갱신했습니다.
+- [x] C. 새 경계 1건·Tauri LSP 명령 20건·권한 허용 `cargo test --workspace --quiet` 전체·`cargo fmt --all --check`·workspace all-target clippy·strict model/infra/LSP rustdoc·Phase 0 계약 7건·`bun run typecheck`·수정 TS 4파일 Prettier 검사가 통과했습니다. 생성 bindings는 공개 설명 주석만 변경됐고 SHA-256은 `db8e919fe65816b0a1666038a91ef1375c4e4168be495def84075b7cddf46d50`입니다. 실제 언어서버/다중창·원격 실기는 아직 미검증이며 `LspCoordinator`의 전체 process/JSON-RPC/replay 소유권 이전과 native UI는 미완료입니다.
+- [x] D. 코드·테스트·현재 소스 표기·생성 bindings·해시는 commit `de2fe0e`로 선별 반영했습니다. 이 검증 기록과 PROCESS 상태를 별도 문서 commit으로 남기고 원격 `to_rust_native`에 일반 push합니다. M5 전체는 미완료로 유지합니다.

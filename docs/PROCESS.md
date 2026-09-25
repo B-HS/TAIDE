@@ -343,6 +343,10 @@
   - [x] M5-BN. `taide-lsp`가 비공개 process epoch를 소유하고 Tauri 메시지·종료 콜백·backoff는 현재 epoch만 적용하도록 조립했습니다. 수동 재시작은 종료 중 epoch를 먼저 바꾸며 LSP IPC·공개 generation wire는 유지합니다.
   - [x] M5-BO. 새 경계 4건·Tauri LSP 명령 20건·workspace all-target clippy·fmt·strict LSP rustdoc·Phase 0 계약 7건이 통과했습니다. 생성 bindings SHA-256 `a040030bf4528b7b78031f9631484a0099bbe959dcc2a2440e248d895bea2d44`는 불변입니다. 전체 workspace 테스트·TypeScript typecheck와 실제 언어서버/다중창 실기는 이 slice에서 재실행하지 않았습니다.
   - [x] M5-BP. 코드·테스트는 commit `d8516f1`로 선별 반영했습니다. 검증 기록과 PROCESS 상태를 문서 commit으로 남기고 원격 `to_rust_native`에 일반 push합니다. M5 전체는 미완료로 유지합니다.
+  - [x] M5-BQ. `LspStore`·`SessionEntry`의 상태 소유·검색·재사용 계약을 확인했습니다. 새 독립 crate 경계 테스트는 `taide_lsp::store` 부재 E0432(exit 101)로 의도대로 실패했습니다.
+  - [x] M5-BR. 세션·프로세스 슬롯·검색/재사용·프로젝트 snapshot·PID 조회를 `taide-lsp`로 이전하고 Tauri는 IPC·프로세스 실행·이벤트 조립을 유지했습니다. 현재 소스의 삭제된 `SessionEntry`·`channels` 경로 설명도 실제 소유 경계에 맞췄습니다.
+  - [x] M5-BS. 새 경계 1건·Tauri LSP 명령 20건·권한 허용 workspace 전체·fmt·workspace all-target clippy·strict model/infra/LSP rustdoc·Phase 0 계약 7건·typecheck·수정 TS 4파일 Prettier가 통과했습니다. 생성 bindings는 설명 주석만 변경됐고 SHA-256 `db8e919fe65816b0a1666038a91ef1375c4e4168be495def84075b7cddf46d50`로 동기화했습니다. 실제 언어서버/다중창·원격 실기는 미검증입니다.
+  - [x] M5-BT. 코드·테스트·현재 소스 표기·생성 bindings·해시는 commit `de2fe0e`로 선별 반영했습니다. 검증 기록과 PROCESS 상태를 문서 commit으로 남기고 원격 `to_rust_native`에 일반 push합니다. M5 전체는 미완료로 유지합니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
