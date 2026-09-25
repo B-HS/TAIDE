@@ -582,7 +582,7 @@ incorrect lines or overwriting typed text"*.
 이스케이프 시퀀스 중간이 잘린다. 추가로 `pty_attach` 가 `ring_buffer` 와 `subscriber` 를
 **별개 잠금**으로 잡아 스냅샷~교체 사이 청크가 유실되는 레이스가 있다.
 → **레이스는 d-50 S4(2026-08-29)에서 해소**됐다(감사 §4-A-5). 스크롤백과 구독자 목록이 하나의
-`SessionOutput` 락으로 합쳐져 리플레이~등록이 원자적이다.
+현재는 `taide_terminal::session::TerminalSessionOutput`의 단일 잠금으로 유지되어 리플레이~등록이 원자적이다.
 → **바이트 단위 절단도 d-56(2026-09-07)에서 해소**됐다 — 축출이 개행 경계로 정렬되고 리플레이 앞에
 SGR 리셋 프리앰블이 붙는다(§3). 폭 차이는 그대로 남는 한계다(위 3번 항목의 replay 경로 자체를
 없애는 안).

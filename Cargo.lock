@@ -4694,6 +4694,7 @@ dependencies = [
 name = "taide-terminal"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "taide-infra",
  "taide-model",
  "uuid",

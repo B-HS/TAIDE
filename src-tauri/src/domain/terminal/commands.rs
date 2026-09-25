@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use parking_lot::Mutex;
+use taide_terminal::session::TerminalSessionOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -24,113 +25,12 @@ use crate::infra::shell_integration;
 use crate::infra::terminal_scan::{OutputScanner, ScanEvent, ScanOutcome};
 use crate::state::AppState;
 
-/// Subscriber list entries — a subscription id (carried by `pty_attach`'s result, consumed by
-/// `pty_detach`) paired with the channel it identifies.
-type PtySubscribers = Vec<(u32, Channel<InvokeResponseBody>)>;
-
-/// Sent once ahead of every scrollback replay: the ring evicts at a line boundary
-/// ([`service::ScrollbackRing::append`]), which keeps escape sequences from being cut in half but
-/// still drops the `\x1b[m` that would have closed an SGR opened before the cut. Without this reset
-/// the first replayed line inherits that color for the rest of the screen. It is part of the replay,
-/// so its length counts toward [`PtyAttachResult::replay_bytes`].
-const SCROLLBACK_REPLAY_PREAMBLE: &[u8] = b"\x1b[0m";
-
-/// A session's scrollback and its subscriber list behind **one** lock, so no output chunk can slip
-/// between [`pty_attach`]'s replay and its subscriber registration.
-///
-/// They used to be two independent `Mutex`es, and the reader thread took them one after the other
-/// (append, then broadcast) while `pty_attach` took them in the same order (snapshot, then push).
-/// A chunk that landed after the snapshot but before the push was **never delivered** to the
-/// attaching subscriber — the replay predated it and the broadcast missed it — and, in the other
-/// interleaving, a chunk appended before the snapshot but broadcast after the push arrived
-/// **twice** (audit §4-A-5). Re-attaching happens on every terminal tab switch, so this showed up
-/// as missing or repeated output right at the moment a pane remounted. With a single lock the two
-/// halves are one critical section on both sides: the replay covers exactly what was appended
-/// before the attach and the broadcast covers exactly what comes after.
-///
-/// Holding the lock across the replay/broadcast sends costs nothing extra — `Channel::send` queues
-/// onto the webview's IPC rather than waiting for JS to drain it, so a slow frontend can't stall
-/// the reader thread here any more than it could when the subscriber list had its own lock.
-struct SessionOutput {
-    scrollback: service::ScrollbackRing,
-    /// Every window/client currently attached to this pty's output, keyed by a subscription id
-    /// `pty_attach` hands back and `pty_detach` consumes to remove exactly that entry. `pty_attach`
-    /// used to overwrite this with a single slot, so a second `attach` (a second window, or remote
-    /// and desktop viewing the same session) silently stole the first subscriber's stream — see
-    /// `docs/acknowledge/2026-08-16-wave-i-shell-workspace-contract.md` §2.3. A channel whose
-    /// underlying window has closed simply fails to `send` and `broadcast_output` prunes it on the
-    /// next chunk of output, but that alone only covers the window-closed case — a re-attach from a
-    /// *still-open* window (e.g. a terminal pane unmounting/remounting as the user switches tabs)
-    /// would otherwise accumulate one live subscriber per re-attach forever, since its `send` never
-    /// fails. `pty_detach` closes that gap: callers that stop displaying a session (effect cleanup)
-    /// remove their own subscription explicitly instead of relying on the window closing.
-    /// `pty_set_paused` pauses the *single* underlying `PauseGate` shared by this whole `PtySession`
-    /// — it stops the one reader thread from reading the child process at all, so pausing is still
-    /// session-wide and affects every subscriber identically; it was never a per-subscriber
-    /// backpressure mechanism and multiplexing here doesn't change that.
-    subscribers: PtySubscribers,
-    next_subscription_id: u32,
-}
-
-impl SessionOutput {
-    fn new(scrollback_capacity: usize) -> Self {
-        Self {
-            scrollback: service::ScrollbackRing::new(scrollback_capacity),
-            subscribers: Vec::new(),
-            next_subscription_id: 0,
-        }
-    }
-
-    /// Reader-thread path: record the chunk for future replays and hand it to every current
-    /// subscriber, as one indivisible step.
-    fn append_and_broadcast(&mut self, bytes: &[u8]) {
-        self.scrollback.append(bytes);
-        broadcast_output(&mut self.subscribers, bytes);
-    }
-
-    /// Attach path: replay the scrollback into `channel` and register it as a subscriber, as one
-    /// indivisible step. The replay goes out as [`SCROLLBACK_REPLAY_PREAMBLE`] followed by the
-    /// ring's two halves (the second is empty until the buffer has wrapped) rather than being made
-    /// contiguous first, which would `memmove` the whole 2MB scrollback on every attach — see
-    /// [`service::ScrollbackRing::as_slices`].
-    ///
-    /// The returned byte count covers exactly what this call sent, which is exactly what the
-    /// subscriber will receive before any live chunk: holding this lock across both the replay and
-    /// the registration is what orders them.
-    fn attach(&mut self, channel: Channel<InvokeResponseBody>) -> PtyAttachResult {
-        let (front, back) = self.scrollback.as_slices();
-        let mut replay_bytes = SCROLLBACK_REPLAY_PREAMBLE.len();
-        let _ = channel.send(InvokeResponseBody::Raw(SCROLLBACK_REPLAY_PREAMBLE.to_vec()));
-
-        for half in [front, back] {
-            if half.is_empty() {
-                continue;
-            }
-            replay_bytes += half.len();
-            let _ = channel.send(InvokeResponseBody::Raw(half.to_vec()));
-        }
-
-        let subscription_id = self.next_subscription_id;
-        self.next_subscription_id = subscription_id.wrapping_add(1);
-        self.subscribers.push((subscription_id, channel));
-
-        PtyAttachResult {
-            subscription_id,
-            replay_bytes: u32::try_from(replay_bytes).unwrap_or(u32::MAX),
-        }
-    }
-
-    fn detach(&mut self, subscription_id: u32) {
-        self.subscribers.retain(|(id, _)| *id != subscription_id);
-    }
-}
-
 struct SessionEntry {
     pty: pty::PtySession,
     project_id: ProjectId,
     cwd: String,
     shell: String,
-    output: Arc<Mutex<SessionOutput>>,
+    output: Arc<TerminalSessionOutput>,
     running: Arc<AtomicBool>,
 }
 
@@ -194,14 +94,8 @@ fn new_session_id() -> String {
     format!("term-{}", uuid::Uuid::new_v4())
 }
 
-/// Sends `bytes` to every subscriber, keeping only the ones that accept it — a subscriber whose
-/// `send` fails (e.g. its window has closed) is dropped rather than aborting the whole broadcast
-/// or being retried. Takes the already-locked subscriber list rather than the lock itself, because
-/// its caller ([`SessionOutput::append_and_broadcast`]) holds that lock across the scrollback append
-/// too; keeping it a free function also lets the broadcast/prune behavior be unit tested without
-/// spawning a real pty.
-fn broadcast_output(subscribers: &mut PtySubscribers, bytes: &[u8]) {
-    subscribers.retain(|(_, channel)| channel.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok());
+fn output_channel_sink(channel: Channel<InvokeResponseBody>) -> impl Fn(&[u8]) -> bool + Send + Sync {
+    move |bytes| channel.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok()
 }
 
 /// Applies one pty output chunk's detected cwd-report (`infra::terminal_scan::ScanEvent::Cwd`)
@@ -427,9 +321,7 @@ pub async fn pty_spawn(
     drop(on_data);
 
     let session_id = new_session_id();
-    let output = Arc::new(Mutex::new(SessionOutput::new(types::resolve_scrollback_bytes(
-        opts.scrollback_bytes,
-    ))));
+    let output = Arc::new(TerminalSessionOutput::new(types::resolve_scrollback_bytes(opts.scrollback_bytes)));
     let running = Arc::new(AtomicBool::new(true));
 
     let output_for_data = output.clone();
@@ -461,7 +353,7 @@ pub async fn pty_spawn(
                 // is `pty.output_bytes` over the wall time between two `perf_snapshot` calls.
                 perf::add(CounterSlot::PtyOutputBytes, bytes.len() as u64);
                 perf::add(CounterSlot::PtyOutputChunks, 1);
-                output_for_data.lock().append_and_broadcast(bytes);
+                output_for_data.append_and_broadcast(bytes);
 
                 let outcome = scanner.lock().scan(bytes);
                 perf::add(CounterSlot::PtyScanEvents, outcome.events.len() as u64);
@@ -570,12 +462,12 @@ pub async fn pty_set_paused(store: State<'_, TerminalStore>, session_id: String,
 /// receiving output too, instead of this call stealing the stream from them (Wave I §2.3). Each
 /// attach gets its own scrollback replay so a subscriber that joins late still sees the session's
 /// recent output, without re-sending it to subscribers that were already caught up — and the replay
-/// and the registration happen inside one [`SessionOutput`] critical section, so the reader thread
+/// and the registration happen inside one [`TerminalSessionOutput`] critical section, so the reader thread
 /// cannot slip a chunk between them (see that type's doc for the duplication/loss this closes).
 /// Returns the
 /// subscription id the caller must pass to [`pty_detach`] once it stops displaying the session
 /// (effect cleanup on tab switch/unmount) — otherwise-live channels (window still open) are never
-/// pruned by `broadcast_output`'s send-failure check alone, so without an explicit detach every
+/// pruned by the output sink's send-failure check alone, so without an explicit detach every
 /// re-attach to the same still-open window accumulates one more permanent subscriber — alongside
 /// the replayed byte count the caller needs to keep that replay out of its flow-control accounting
 /// (see [`PtyAttachResult`]).
@@ -591,13 +483,13 @@ pub async fn pty_attach(
     let sessions = store.0.lock();
     let entry = find_entry(&sessions, &session_id)?;
 
-    let attached = entry.output.lock().attach(on_data);
+    let attached = entry.output.attach(output_channel_sink(on_data));
     Ok(attached)
 }
 
 /// Removes exactly the subscriber `pty_attach` registered under `subscription_id` — the counterpart
 /// that lets a still-open window stop receiving a session's output without waiting for
-/// `broadcast_output`'s send-failure pruning (which only fires once the window itself closes). A
+/// the output sink's send-failure pruning (which only fires once the window itself closes). A
 /// session or subscription that no longer exists is treated as already-detached rather than an
 /// error, since cleanup can legitimately race a `pty_kill` for the same session.
 #[tauri::command]
@@ -613,7 +505,7 @@ pub async fn pty_detach(
     let Ok(entry) = find_entry(&sessions, &session_id) else {
         return Ok(());
     };
-    entry.output.lock().detach(subscription_id);
+    entry.output.detach(subscription_id);
     Ok(())
 }
 
@@ -903,182 +795,42 @@ mod tests {
         })
     }
 
-    fn failing_channel() -> Channel<InvokeResponseBody> {
-        Channel::new(|_| Err(tauri::Error::AssetNotFound("closed".to_string())))
-    }
-
-    #[test]
-    fn broadcast_은_모든_구독자에게_전달된다() {
-        let received_a = Arc::new(Mutex::new(Vec::new()));
-        let received_b = Arc::new(Mutex::new(Vec::new()));
-        let mut subscribers = vec![
-            (0, recording_channel(received_a.clone())),
-            (1, recording_channel(received_b.clone())),
-        ];
-
-        broadcast_output(&mut subscribers, b"hello");
-
-        assert_eq!(*received_a.lock(), vec![b"hello".to_vec()]);
-        assert_eq!(*received_b.lock(), vec![b"hello".to_vec()]);
-    }
-
-    #[test]
-    fn 단일_구독자_시나리오는_기존과_동일하게_전달된다() {
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let mut subscribers = vec![(0, recording_channel(received.clone()))];
-
-        broadcast_output(&mut subscribers, b"first");
-        broadcast_output(&mut subscribers, b"second");
-
-        assert_eq!(*received.lock(), vec![b"first".to_vec(), b"second".to_vec()]);
-    }
-
-    #[test]
-    fn 전송에_실패한_구독자는_다음_브로드캐스트에서_제거되고_남은_구독자는_계속_받는다() {
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let mut subscribers = vec![(0, failing_channel()), (1, recording_channel(received.clone()))];
-
-        broadcast_output(&mut subscribers, b"first");
-        assert_eq!(subscribers.len(), 1, "실패한 구독자는 제거되어야 한다");
-
-        broadcast_output(&mut subscribers, b"second");
-        assert_eq!(*received.lock(), vec![b"first".to_vec(), b"second".to_vec()]);
-    }
-
-    #[test]
-    fn detach_은_해당_구독_id_만_제거하고_나머지는_유지한다() {
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let mut output = SessionOutput::new(TEST_SCROLLBACK_BYTES);
-        output.attach(failing_channel());
-        output.attach(recording_channel(received.clone()));
-        let doomed = output.attach(failing_channel());
-
-        output.detach(doomed.subscription_id);
-        assert_eq!(output.subscribers.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![0, 1]);
-
-        output.append_and_broadcast(b"data");
-        assert_eq!(received.lock().concat(), replayed(b"data"));
-    }
-
     const TEST_SCROLLBACK_BYTES: usize = 64 * 1024;
 
-    fn replayed(prefix: &[u8]) -> Vec<u8> {
-        [SCROLLBACK_REPLAY_PREAMBLE, prefix].concat()
-    }
-
     #[test]
-    fn attach_는_직전까지의_스크롤백만_재생하고_이후_출력은_브로드캐스트로_잇는다() {
+    fn 출력_채널_어댑터는_바이너리_재생과_실시간_출력을_전달한다() {
         let received = Arc::new(Mutex::new(Vec::new()));
-        let mut output = SessionOutput::new(TEST_SCROLLBACK_BYTES);
+        let output = TerminalSessionOutput::new(TEST_SCROLLBACK_BYTES);
 
         output.append_and_broadcast(b"before");
-        output.attach(recording_channel(received.clone()));
+        let attached = output.attach(output_channel_sink(recording_channel(received.clone())));
         output.append_and_broadcast(b"after");
 
         assert_eq!(
-            received.lock().concat(),
-            replayed(b"beforeafter"),
-            "리플레이와 이후 브로드캐스트가 각 바이트를 정확히 한 번씩 전달해야 한다"
+            attached.replay_bytes as usize,
+            taide_terminal::session::TERMINAL_REPLAY_PREAMBLE.len() + b"before".len()
         );
-    }
-
-    #[test]
-    fn 스크롤백이_비어_있으면_attach_는_프리앰블만_재생한다() {
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let mut output = SessionOutput::new(TEST_SCROLLBACK_BYTES);
-
-        let attached = output.attach(recording_channel(received.clone()));
-
-        assert_eq!(received.lock().concat(), SCROLLBACK_REPLAY_PREAMBLE.to_vec());
-        assert_eq!(attached.replay_bytes as usize, SCROLLBACK_REPLAY_PREAMBLE.len());
-    }
-
-    /// The renderer subtracts `replay_bytes` from the stream it receives to find where live output
-    /// starts, so a count that disagrees with what was actually sent would either leak replayed
-    /// bytes into flow-control accounting or swallow live ones (contract §1.A).
-    #[test]
-    fn replay_bytes_는_실제로_재생한_바이트_수와_일치한다() {
-        const RING_CAPACITY: usize = 1024;
-        const CHUNK: &[u8] = b"0123456789";
-
-        for chunks in [1, RING_CAPACITY / CHUNK.len(), RING_CAPACITY] {
-            let received = Arc::new(Mutex::new(Vec::new()));
-            let mut output = SessionOutput::new(RING_CAPACITY);
-            for _ in 0..chunks {
-                output.append_and_broadcast(CHUNK);
-            }
-
-            let attached = output.attach(recording_channel(received.clone()));
-
-            assert_eq!(attached.replay_bytes as usize, received.lock().concat().len());
-        }
-    }
-
-    /// §4-A-5 회귀 가드. 스크롤백 append 와 브로드캐스트, 그리고 attach 의 리플레이와 구독 등록이
-    /// **하나의 락** 아래 있다는 것이 곧 "재부착 순간 청크가 중복되거나 유실되지 않는다"의 근거이므로,
-    /// 그 직렬화 자체를 검증한다: attach 가 진행 중인 동안 reader 경로의 append 는 진입할 수 없고,
-    /// attach 가 끝난 뒤에야 그 청크가 새 구독자에게 정확히 한 번 도착한다. 락이 둘로 나뉘어 있던
-    /// 이전 구현에서는 그 청크가 스냅샷 이후·등록 이전에 끼어들어 아무에게도 전달되지 않았다.
-    #[test]
-    fn attach_중에는_reader_의_출력이_끼어들_수_없다() {
-        const APPEND_PROBE_MS: u64 = 50;
-
-        let output = Arc::new(Mutex::new(SessionOutput::new(TEST_SCROLLBACK_BYTES)));
-        output.lock().append_and_broadcast(b"before");
-
-        let mut attaching = output.lock();
-
-        let appended = Arc::new(AtomicBool::new(false));
-        let writer_output = output.clone();
-        let writer_appended = appended.clone();
-        let writer = std::thread::spawn(move || {
-            writer_output.lock().append_and_broadcast(b"during");
-            writer_appended.store(true, Ordering::SeqCst);
-        });
-
-        std::thread::sleep(std::time::Duration::from_millis(APPEND_PROBE_MS));
-        assert!(
-            !appended.load(Ordering::SeqCst),
-            "attach 가 락을 쥔 동안에는 reader 경로의 append 가 진행되면 안 된다"
-        );
-
-        let received = Arc::new(Mutex::new(Vec::new()));
-        attaching.attach(recording_channel(received.clone()));
-        drop(attaching);
-
-        writer.join().expect("append 스레드 종료");
-
         assert_eq!(
             received.lock().concat(),
-            replayed(b"beforeduring"),
-            "리플레이 이후 도착한 청크는 중복도 유실도 없이 이어져야 한다"
+            [taide_terminal::session::TERMINAL_REPLAY_PREAMBLE, b"beforeafter"].concat()
         );
     }
 
-    /// 같은 §4-A-5 를 스레드 경합으로 한 번 더 조인다: 쓰기 스레드가 스트림을 흘리는 도중 아무
-    /// 시점에 attach 가 끼어들어도, 그 구독자가 받은 바이트를 이어 붙이면 언제나 전체 스트림과
-    /// **정확히** 같아야 한다(리플레이가 attach 이전 전부, 브로드캐스트가 이후 전부).
     #[test]
-    fn 스트리밍_중_attach_해도_전체_스트림이_정확히_한_번씩_재구성된다() {
-        const STREAM_CHUNKS: usize = 4096;
-        const ATTEMPTS: usize = 16;
+    fn 출력_채널_전송_실패는_구독_정리_신호가_된다() {
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let channel_attempts = attempts.clone();
+        let failed_channel = Channel::new(move |_| {
+            channel_attempts.fetch_add(1, Ordering::SeqCst);
+            Err(tauri::Error::AssetNotFound("closed".to_string()))
+        });
+        let output = TerminalSessionOutput::new(TEST_SCROLLBACK_BYTES);
+        output.attach(output_channel_sink(failed_channel));
 
-        for _ in 0..ATTEMPTS {
-            let output = Arc::new(Mutex::new(SessionOutput::new(STREAM_CHUNKS)));
-            let writer_output = output.clone();
-            let writer = std::thread::spawn(move || {
-                for index in 0..STREAM_CHUNKS {
-                    writer_output.lock().append_and_broadcast(&[(index % 251) as u8]);
-                }
-            });
+        output.append_and_broadcast(b"first");
+        output.append_and_broadcast(b"second");
 
-            let received = Arc::new(Mutex::new(Vec::new()));
-            output.lock().attach(recording_channel(received.clone()));
-            writer.join().expect("쓰기 스레드 종료");
-
-            let full: Vec<u8> = (0..STREAM_CHUNKS).map(|index| (index % 251) as u8).collect();
-            assert_eq!(received.lock().concat(), replayed(&full));
-        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
     fn output_start() -> shell_integration::CommandMarker {

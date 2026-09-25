@@ -775,7 +775,7 @@ export const commands = {
 	/**
 	 *  Removes exactly the subscriber `pty_attach` registered under `subscription_id` — the counterpart
 	 *  that lets a still-open window stop receiving a session's output without waiting for
-	 *  `broadcast_output`'s send-failure pruning (which only fires once the window itself closes). A
+	 *  the output sink's send-failure pruning (which only fires once the window itself closes). A
 	 *  session or subscription that no longer exists is treated as already-detached rather than an
 	 *  error, since cleanup can legitimately race a `pty_kill` for the same session.
 	 */

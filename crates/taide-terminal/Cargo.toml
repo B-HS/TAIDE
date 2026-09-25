@@ -8,6 +8,7 @@ rust-version = "1.89"
 [dependencies]
 taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
+parking_lot = "0.12"
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4"] }
