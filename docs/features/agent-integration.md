@@ -319,6 +319,9 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
 
 - Rust `domain::ide` 모듈: 127.0.0.1 바인드(포트 10000~65535), CSPRNG hex 토큰, lock 파일 수명주기
   (시작 시 stale lock pid 청소, 종료 시 삭제), JSON-RPC 2.0.
+- JSON-RPC envelope·초기화/도구 목록·선택/진단 wire는 독립 `taide-ide::protocol`이 생성하고,
+  `domain::ide::server`는 WebSocket 인증·전송과 도구 실행을 담당한다. `initialize`의
+  `serverInfo.version`은 조립 측 Tauri 앱 버전을 전달해 기존 응답을 유지한다.
 - 도구 구현(비공식 프로토콜 — 실측 검증 필수): `openFile`, `openDiff`(TAIDE diff 탭, 블로킹),
   `getCurrentSelection`, `getOpenEditors`, `getWorkspaceFolders`, `getDiagnostics`(LSP 마커),
   `checkDocumentDirty`, `saveDocument`, `close_tab`. 알림: `selection_changed`, `at_mentioned`.

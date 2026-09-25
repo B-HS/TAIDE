@@ -5,6 +5,8 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{broadcast, oneshot};
 
+pub use taide_ide::protocol::IdeSelectionSnapshot;
+
 use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeStatus};
 use crate::domain::layout::types::{Tab, TabKind};
 use crate::domain::remote::types::REMOTE_OWNER_LABEL;
@@ -20,18 +22,6 @@ pub struct PendingDiff {
 
 pub struct PendingSave {
     pub responder: oneshot::Sender<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct IdeSelectionSnapshot {
-    pub project_id: ProjectId,
-    pub path: String,
-    pub text: String,
-    pub start_line: u32,
-    pub start_character: u32,
-    pub end_line: u32,
-    pub end_character: u32,
-    pub is_empty: bool,
 }
 
 #[derive(Default)]

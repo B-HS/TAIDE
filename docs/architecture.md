@@ -19,12 +19,15 @@ React view (표시 전용)  →  IPC 경계 (typed commands / events)  →  Rust
 
 ## 2. Rust 코어 구조
 
+아래는 주요 경로 발췌이며 전체 workspace 멤버는 `Cargo.toml`이 정본이다.
+
 ```
-TAIDE/                       (Cargo workspace — members: src-tauri, crates/taide-cli, crates/taide-model)
+TAIDE/                       (Cargo workspace — members: src-tauri, crates/taide-*)
 ├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError (기존 public 경로는 src-tauri facade)
+├── crates/taide-ide/        Tauri 미의존 IDE 서비스와 MCP JSON-RPC wire (protocol.rs)
 └── src-tauri/
     ├── src/
     │   ├── main.rs          진입점 (lib.rs 의 run() 호출만)
@@ -42,7 +45,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── file/        파일 열기/저장/생성/이동/삭제, 크기 정책, dirty 미러
     │   │   ├── font/        시스템 폰트 열거 (fontdb) (7.5-D)
     │   │   ├── git/         status/diff/blame/log/stage/commit/push + watch.rs(무효화 분류)
-    │   │   ├── ide/         IDE MCP 서버 (Claude Code 연동 — agent-integration.md §3·§7.4)
+    │   │   ├── ide/         IDE MCP WebSocket·인가·도구 실행 (wire는 taide-ide — agent-integration.md §3·§7.4)
     │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리), 멀티 윈도우 탭 이동
     │   │   ├── locale/      번역 메시지 로드/병합 + 사용자 언어팩 (7.5-H)
     │   │   ├── lsp/         LSP 세션 관리, 서버 감지·설치, 루트 탐지

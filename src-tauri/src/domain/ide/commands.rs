@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use taide_ide::protocol::{at_mentioned_notification, selection_changed_notification};
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
@@ -178,7 +179,7 @@ pub async fn ide_set_selection(ide: State<'_, IdeStore>, input: IdeSelectionInpu
         end_character: input.end_character,
         is_empty: input.is_empty,
     };
-    let notification = server::selection_changed_notification(&selection);
+    let notification = selection_changed_notification(&selection);
     ide.set_selection(selection);
     ide.broadcast(notification);
     Ok(())
@@ -257,6 +258,6 @@ pub async fn ide_resolve_save(ide: State<'_, IdeStore>, request_id: String, save
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_notify_at_mention(ide: State<'_, IdeStore>, path: String, line_start: u32, line_end: u32) -> AppResult<()> {
-    ide.broadcast(server::at_mentioned_notification(&path, line_start, line_end));
+    ide.broadcast(at_mentioned_notification(&path, line_start, line_end));
     Ok(())
 }
