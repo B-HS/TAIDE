@@ -440,14 +440,17 @@ pub fn stop_server(app: &AppHandle, remote: &RemoteStore) {
         let _ = shutdown_tx.send(());
     }
     if let Some(mut handle) = shutdown.server_handle.take() {
-        tauri::async_runtime::spawn(async move {
+        let abort_handle = handle.inner().abort_handle();
+        if !app.state::<TaskSupervisor>().spawn_transient("remote-server-stop", async move {
             tokio::select! {
                 _ = &mut handle => {}
                 _ = tokio::time::sleep(std::time::Duration::from_millis(REMOTE_SHUTDOWN_GRACE_MS)) => {
                     handle.abort();
                 }
             }
-        });
+        }) {
+            abort_handle.abort();
+        }
     }
 
     TauriEventSink(app).publish(AppEvent::RemoteStateChanged {

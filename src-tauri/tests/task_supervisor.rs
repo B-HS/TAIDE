@@ -417,3 +417,15 @@ fn 원격_websocket_작업은_연결_종료_계약을_유지하며_감독된다(
     assert!(socket.contains("REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS"));
     assert!(!socket.contains("tauri::async_runtime::spawn(async move {"));
 }
+
+#[test]
+fn 원격_서버_종료_대기는_감독하고_등록_실패시_직접_취소한다() {
+    let source = include_str!("../src/domain/remote/commands.rs");
+    let stop = source.split_once("pub fn stop_server(").unwrap().1;
+    let stop = stop.split_once("#[tauri::command]").unwrap().0;
+
+    assert!(stop.contains("spawn_transient(\"remote-server-stop\""));
+    assert!(stop.contains("abort_handle.abort()"));
+    assert!(stop.contains("REMOTE_SHUTDOWN_GRACE_MS"));
+    assert!(!stop.contains("tauri::async_runtime::spawn(async move {"));
+}

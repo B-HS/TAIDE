@@ -191,6 +191,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     연결 종료·부모 취소 때 함께 중단되며, 서버 종료 뒤 도착한 연결은 저장소가 등록하지 않고 취소한다.
     원격 WebSocket의 writer·이벤트 작업도 감독 범위에 두되 writer의 제한 시간 종료를 유지한다. 원격 요청 작업은 연결별 자식으로 취소하지 않고
     독립 반복 작업으로 추적하므로 이미 받은 요청이 세션 무효화 뒤에도 permit을 기다려 실행될 수 있는 기존 계약은 그대로다.
+    원격 서버의 정상 중지 대기도 감독하며 shutdown 신호→grace wait→시간 초과 abort 순서를 유지한다. 앱 종료로 감독자 등록이 닫혔으면 서버를 직접 취소한다.
     메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정·LSP 종료/재시작 지연은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
