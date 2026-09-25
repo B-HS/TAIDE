@@ -1,8 +1,11 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use taide_infra::home;
+use taide_infra::root_guard;
 use taide_model::error::{AppError, AppResult};
+use taide_model::ids::ProjectId;
+use taide_model::project::Project;
 use taide_model::terminal::ShellProfile;
 
 /// How far past the raw overflow point [`ScrollbackRing::append`] looks for the `\n` it aligns an
@@ -163,6 +166,32 @@ pub fn resolve_terminal_path(raw: &str, cwd: &str) -> AppResult<String> {
     let canonical = resolved.canonicalize().map_err(|_| AppError::NotFound(format!("path not found: {raw}")))?;
 
     Ok(canonical.to_string_lossy().to_string())
+}
+
+/// Resolves a terminal link only when its canonical path belongs to an open project.
+pub fn guard_terminal_path(projects: &HashMap<ProjectId, Project>, path: &str, cwd: &str) -> AppResult<String> {
+    let resolved = resolve_terminal_path(path, cwd)?;
+
+    root_guard::resolve_owning_project(projects, Path::new(&resolved)).map_err(|_| AppError::NotFound(format!("path not found: {path}")))?;
+
+    Ok(resolved)
+}
+
+/// Limits filesystem resolution work for one terminal row.
+pub const MAX_LINK_CANDIDATES_PER_ROW: usize = 16;
+
+/// Resolves link candidates in input order without exposing why a candidate was rejected.
+pub fn resolve_link_candidates(projects: &HashMap<ProjectId, Project>, cwd: &str, candidates: &[String]) -> Vec<Option<String>> {
+    candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            if index >= MAX_LINK_CANDIDATES_PER_ROW {
+                return None;
+            }
+            guard_terminal_path(projects, candidate, cwd).ok()
+        })
+        .collect()
 }
 
 #[cfg(test)]

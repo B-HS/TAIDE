@@ -253,8 +253,9 @@
 - **정규식 매치는 존재 검증을 통과한 것만 링크가 된다(d-56 T5-01, 2026-09-07)**. 예전에는 매치 전부에
   밑줄·포인터를 그리고 검증은 클릭 뒤에 했으므로 `v18.20.4`·`127.0.0.1:8080`·`0.123s`·`e.g` 가
   링크처럼 보였고 클릭하면 실패 토스트만 남았다. 이제 provider 가 한 행의 후보를 모아
-  `terminal_resolve_link_candidates(cwd, candidates)` 로 **한 번에** 물어(입력 순서 보존, 행당 최대
-  16개, 루트 밖·부재는 똑같이 `null` — 존재 여부 오라클 비노출) 절대 경로가 돌아온 후보만 `ILink` 로
+  `terminal_resolve_link_candidates(cwd, candidates)` 로 **한 번에** 묻는다. `taide-terminal::service`가 경로 인가·
+  후보 상한을 소유하며 입력 순서를 보존한다(행당 최대 16개, 루트 밖·부재는 똑같이 `null` — 존재 여부 오라클 비노출).
+  절대 경로가 돌아온 후보만 `ILink` 로
   만든다. 답은 (cwd, 행 텍스트) 키 FIFO 캐시(`LINK_RESOLVE_CACHE_MAX_ROWS`=256)에 담겨 같은 행을 다시
   hover 해도 IPC 가 나가지 않고, 실패는 캐시하지 않아 다음 hover 에서 다시 시도한다. xterm 은
   `provideLinks` 의 지연 콜백을 허용하므로 비동기 해석이 안전하다.

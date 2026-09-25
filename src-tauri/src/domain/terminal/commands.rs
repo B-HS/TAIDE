@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::future::Future;
 use std::io::Write as _;
 use std::pin::Pin;
@@ -16,13 +15,12 @@ use tauri_specta::Event;
 
 use super::service;
 use super::types::{self, PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
-use crate::domain::project::types::Project;
 use crate::error::{AppError, AppResult};
 use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
-use crate::infra::root_guard::{self, ensure_within_root};
+use crate::infra::root_guard::ensure_within_root;
 use crate::infra::shell_integration;
 use crate::infra::terminal_scan::{ScanEvent, ScanOutcome};
 use crate::state::AppState;
@@ -403,47 +401,11 @@ pub async fn shell_profiles() -> AppResult<Vec<ShellProfile>> {
 /// matters (an absolute `path` ignores `cwd` entirely — `service::resolve_terminal_path` — so
 /// gating on `cwd` up front would wrongly reject valid absolute-path links whenever the session's
 /// live cwd has simply wandered outside the project, an everyday, non-malicious terminal action).
-fn guard_terminal_path(projects: &HashMap<ProjectId, Project>, path: &str, cwd: &str) -> AppResult<String> {
-    let resolved = service::resolve_terminal_path(path, cwd)?;
-
-    root_guard::resolve_owning_project(projects, std::path::Path::new(&resolved))
-        .map_err(|_| AppError::NotFound(format!("path not found: {path}")))?;
-
-    Ok(resolved)
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn resolve_terminal_path(state: State<'_, AppState>, path: String, cwd: String) -> AppResult<String> {
     let projects = state.projects.read().clone();
-    guard_terminal_path(&projects, &path, &cwd)
-}
-
-/// How many candidates one [`terminal_resolve_link_candidates`] call actually resolves. The unit of
-/// work is one terminal row, and a row of dense punctuation (a stack trace, a `PATH` dump) can
-/// regex-match far more candidates than a person could ever click; everything past this bound is
-/// answered `None` instead of turning a single row's render into that many `canonicalize` syscalls.
-const MAX_LINK_CANDIDATES_PER_ROW: usize = 16;
-
-/// Resolves a row's worth of link candidates against `cwd` in one pass, answering positionally so
-/// the caller can zip the results back onto the matches it sent.
-///
-/// Every candidate goes through the same [`guard_terminal_path`] a click would, and its failures —
-/// outside every open project root, or simply not there — are folded into `None`. That keeps the
-/// non-existence oracle closed exactly as `resolve_terminal_path` does (see its doc): a caller
-/// learns "this is not a link", never which of the two reasons applies, and one bad candidate never
-/// fails the whole row.
-fn resolve_link_candidates(projects: &HashMap<ProjectId, Project>, cwd: &str, candidates: &[String]) -> Vec<Option<String>> {
-    candidates
-        .iter()
-        .enumerate()
-        .map(|(index, candidate)| {
-            if index >= MAX_LINK_CANDIDATES_PER_ROW {
-                return None;
-            }
-            guard_terminal_path(projects, candidate, cwd).ok()
-        })
-        .collect()
+    service::guard_terminal_path(&projects, &path, &cwd)
 }
 
 /// Answers "which of these regex matches are real files?" for one terminal row, so the renderer can
@@ -457,7 +419,7 @@ pub async fn terminal_resolve_link_candidates(
     candidates: Vec<String>,
 ) -> AppResult<Vec<Option<String>>> {
     let projects = state.projects.read().clone();
-    Ok(resolve_link_candidates(&projects, &cwd, &candidates))
+    Ok(service::resolve_link_candidates(&projects, &cwd, &candidates))
 }
 
 const DEFAULT_TERMINAL_COLS: u16 = 80;
@@ -492,19 +454,16 @@ pub async fn pty_default_options(state: State<'_, AppState>, project_id: Project
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::Ordering;
 
     use parking_lot::Mutex;
+    use taide_terminal::service::{guard_terminal_path, resolve_link_candidates, MAX_LINK_CANDIDATES_PER_ROW};
 
     use super::*;
-    use std::path::{Path, PathBuf};
+    use crate::domain::project::types::Project;
 
-    /// `resolve_terminal_path`'s `#[tauri::command]` wrapper needs a real `State<'_, AppState>`,
-    /// which (unlike the plain `HashMap` [`guard_terminal_path`] takes) has no public constructor
-    /// outside a running Tauri app — this codebase has no `tauri::test` mock-app harness anywhere
-    /// (same constraint `root_guard.rs`'s own tests work around). These tests call
-    /// `guard_terminal_path` directly instead — it's the actual guard logic the command runs, just
-    /// factored out from the `State` extraction so it's plainly testable.
     fn single_project(id: &str, root: &Path) -> HashMap<ProjectId, Project> {
         let mut projects = HashMap::new();
         projects.insert(
