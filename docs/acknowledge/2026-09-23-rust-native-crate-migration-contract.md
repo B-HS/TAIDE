@@ -896,3 +896,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 네 수명주기 variant를 추가하고 Tauri platform adapter에서 기존 이벤트 타입으로 변환했습니다. ProjectOpened payload는 내부 AppEvent에서만 Box로 보유하고 IPC payload는 기존 Project 값으로 유지합니다. 프로젝트 명령의 모든 발행점은 빌린 AppHandle의 EventSink를 호출하며 성공 경로·순서·fanout은 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 19/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 19건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 경계 테스트의 포맷 의존 문자열 검사 1건을 실제 adapter 필드/발행 검사로 고친 뒤 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 미검증이며 나머지 11개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `1e892a9`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열세 번째 slice — 파일 watcher·복원 EventSink 경계
+
+- [x] A. 파일 watcher의 Changes는 self-write 해소 뒤 FsChanged를, RescanRequired는 별도 FsRescanRequired를 발행합니다. 프로젝트 복원은 guard 해제 뒤 파일 변경→Git 상태 순서로 발행합니다. 이전 Git slice에서 빠진 GitStatusChanged 직접 발행이 프로젝트 복원과 capability attach에 각각 하나 있음을 확인했습니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 파일 두 variant를 추가하고 Tauri platform adapter에서 기존 FsChanged/FsRescanRequired로 변환했습니다. 파일 watcher·복원 발행점과 누락된 Git 두 발행점을 EventSink로 이전했습니다. 기존 IPC payload·원격 fanout, watcher 분기, attach/복원 순서는 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 21/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 21건·taide-file 60건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. Tauri file lib 필터는 0건이어서 파일 crate·경계 테스트로 보완했습니다. 직접 FsChanged/FsRescanRequired/GitStatusChanged 발행은 Tauri adapter 외 0곳입니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 watcher·원격 GUI 실기는 미검증이며 나머지 9개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `07b6bd4`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
