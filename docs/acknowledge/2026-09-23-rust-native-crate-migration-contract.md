@@ -910,3 +910,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 LSP 두 variant를 추가하고 Tauri platform adapter에서 기존 LspSessionStatusChanged/LspInstallProgress로 변환했습니다. 두 helper는 빌린 AppHandle의 EventSink를 호출하며 lifecycle snapshot, bytes 변환, 기존 IPC payload·fanout을 유지합니다. 현행 아키텍처 문서의 이전 상태를 23/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 23건·Tauri LSP 15건·taide-lsp 53건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 경계 테스트의 소스 문자열 순서 오판 1건을 실제 단일 호출 확인으로 고친 뒤 통과했습니다. LSP 직접 발행은 adapter 외 0곳이고 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버 프로세스·다운로드·GUI 실기는 미검증이며 나머지 7개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `068e82d`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열다섯 번째 slice — IDE EventSink 경계
+
+- [x] A. IDE status는 서버 시작·중지·연결 변화 뒤, diff/save 요청은 pending 등록 뒤, close-tab 요청은 실제 닫기 성공 뒤 발행됩니다. 기존 네 Tauri 이벤트는 `collect_events!`와 원격 fanout에 등록되어 있습니다. model variant·adapter 배선 테스트는 구현 전 네 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 IDE 네 variant를 추가하고 Tauri platform adapter에서 기존 IdeStatusChanged/IdeDiffRequested/IdeSaveRequested/IdeCloseTabRequested로 변환했습니다. 명령·MCP 서버 발행점은 빌린 AppHandle의 EventSink를 호출하며 request ID·경로·본문·tab 이름, 기존 IPC payload·fanout과 성공 경로 순서를 유지합니다. 현행 아키텍처 문서의 이전 상태를 27/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 25건·권한 허용 Tauri IDE 18건·taide-ide 34건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 IDE 핸드셰이크 3건은 로컬 소켓 권한 오류였고 동일 18건을 권한 허용 환경에서 확인했습니다. IDE 직접 발행은 adapter 외 0곳이며 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 MCP 클라이언트·GUI 실기는 미검증이며 나머지 3개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `ed65df5`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
