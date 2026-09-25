@@ -9,6 +9,7 @@ rust-version = "1.89"
 parking_lot = "0.12"
 taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
+taide-plugin = { path = "../taide-plugin" }
 taide-tree = { path = "../taide-tree" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 

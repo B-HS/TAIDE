@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
+use taide_plugin::service::PluginStore;
 use taide_runtime::{AiRequestStore, AppServices, AppState, SearchStore, TaskSupervisor, TreeStore};
 
 #[tokio::test]
@@ -12,12 +13,14 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
         SearchStore::new(),
         AiRequestStore::new(),
         TreeStore::new(),
+        PluginStore::new(),
         TaskSupervisor::new(tokio::runtime::Handle::current()),
     ));
     let legacy_state = services.state.clone();
     let legacy_search = services.search.clone();
     let legacy_ai_requests = services.ai_requests.clone();
     let legacy_tree = services.tree.clone();
+    let legacy_plugin = services.plugin.clone();
     let legacy_tasks = services.tasks.clone();
 
     legacy_state.begin_shutdown();
@@ -39,6 +42,9 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     services.tree.remove(&project_id);
     assert!(!legacy_tree.0.read().contains_key(&project_id));
 
+    *legacy_plugin.0.write() = Some(Vec::new());
+    assert!(services.plugin.0.read().is_some());
+
     assert!(legacy_tasks.spawn("shared-test", pending()));
     assert_eq!(services.tasks.tracked_count(), 1);
     services.tasks.stop_all();
@@ -53,6 +59,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.search.clone());"));
     assert!(setup.contains("app.manage(services.ai_requests.clone());"));
     assert!(setup.contains("app.manage(services.tree.clone());"));
+    assert!(setup.contains("app.manage(services.plugin.clone());"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));
     assert!(setup.contains("app.manage(services);"));
 }

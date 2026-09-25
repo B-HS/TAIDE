@@ -189,7 +189,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     새 요청 제거를 막는다. 기존 AI 명령 경로는 같은 타입을 재수출하며 provider·secret·IPC 경계는 유지한다.
     `TreeStore`는 taide-tree의 프로젝트별 캐시를 runtime의 공유 Arc<RwLock>에 보관하고,
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
-    setup은 상태 복원 뒤 `Arc<AppServices>`를 만들고 AppState·SearchStore·AiRequestStore·TreeStore·TaskSupervisor의 동일 내부 인스턴스를
+    `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
+    plugin 명령·언어 overlay 포트가 같은 목록을 소비한다.
+    setup은 상태 복원 뒤 `Arc<AppServices>`를 만들고 AppState·SearchStore·AiRequestStore·TreeStore·PluginStore·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

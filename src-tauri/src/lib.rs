@@ -963,6 +963,7 @@ pub fn run() {
                 SearchStore::default(),
                 AiRequestStore::default(),
                 TreeStore::default(),
+                PluginStore::default(),
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
             ));
 
@@ -982,7 +983,7 @@ pub fn run() {
             app.manage(LspStore::default());
             app.manage(LspInstallStore::default());
             app.manage(services.search.clone());
-            app.manage(PluginStore::default());
+            app.manage(services.plugin.clone());
             app.manage(PluginRuntimePort {
                 language_overlays: plugin_language_overlays,
                 commit_staged_import: commit_staged_vsix_plugin,
@@ -1439,7 +1440,7 @@ mod tests {
     #[test]
     fn 파일_git_ide_vsix는_조립부의_플러그인_포트를_사용한다() {
         let source = include_str!("lib.rs");
-        let setup = extract_between(source, "app.manage(PluginStore::default());", "app.manage(AgentStore::default());");
+        let setup = extract_between(source, "app.manage(services.plugin.clone());", "app.manage(AgentStore::default());");
         assert!(setup.contains("app.manage(PluginRuntimePort {"));
         assert!(setup.contains("language_overlays: plugin_language_overlays,"));
         assert!(setup.contains("commit_staged_import: commit_staged_vsix_plugin,"));

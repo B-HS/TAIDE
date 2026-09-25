@@ -4636,6 +4636,7 @@ dependencies = [
  "parking_lot",
  "taide-infra",
  "taide-model",
+ "taide-plugin",
  "taide-tree",
  "tokio",
  "uuid",

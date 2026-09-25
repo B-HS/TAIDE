@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use taide_infra::language::LanguageOverlay;
 use taide_infra::lsp_install;
@@ -11,11 +12,12 @@ use taide_model::plugin::{
     PLUGIN_MANIFEST_VERSION,
 };
 
-pub struct PluginStore(pub parking_lot::RwLock<Option<Vec<LoadedPlugin>>>);
+#[derive(Clone)]
+pub struct PluginStore(pub Arc<parking_lot::RwLock<Option<Vec<LoadedPlugin>>>>);
 
 impl PluginStore {
     pub fn new() -> Self {
-        Self(parking_lot::RwLock::new(None))
+        Self(Arc::new(parking_lot::RwLock::new(None)))
     }
 }
 

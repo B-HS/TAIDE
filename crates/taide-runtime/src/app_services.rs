@@ -1,3 +1,5 @@
+use taide_plugin::service::PluginStore;
+
 use super::{AiRequestStore, AppState, SearchStore, TaskSupervisor, TreeStore};
 
 pub struct AppServices {
@@ -5,16 +7,25 @@ pub struct AppServices {
     pub search: SearchStore,
     pub ai_requests: AiRequestStore,
     pub tree: TreeStore,
+    pub plugin: PluginStore,
     pub tasks: TaskSupervisor,
 }
 
 impl AppServices {
-    pub fn new(state: AppState, search: SearchStore, ai_requests: AiRequestStore, tree: TreeStore, tasks: TaskSupervisor) -> Self {
+    pub fn new(
+        state: AppState,
+        search: SearchStore,
+        ai_requests: AiRequestStore,
+        tree: TreeStore,
+        plugin: PluginStore,
+        tasks: TaskSupervisor,
+    ) -> Self {
         Self {
             state,
             search,
             ai_requests,
             tree,
+            plugin,
             tasks,
         }
     }
