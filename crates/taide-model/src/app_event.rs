@@ -1,4 +1,5 @@
 use crate::ids::ProjectId;
+use crate::settings::Settings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppEvent {
@@ -31,5 +32,11 @@ pub enum AppEvent {
         cwd: Option<String>,
         exit_code: Option<i32>,
         duration_ms: u32,
+    },
+    SettingsChanged {
+        settings: Box<Settings>,
+    },
+    ThemeChanged {
+        theme_id: String,
     },
 }

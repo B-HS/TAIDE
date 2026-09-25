@@ -1,13 +1,14 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::Manager;
-use tauri_specta::Event;
 
 use super::service;
 use super::types::{Settings, SettingsPatch};
 use crate::error::AppResult;
-use crate::events::{SettingsChanged, ThemeChanged};
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 pub type SettingsToggleFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
@@ -57,7 +58,9 @@ pub async fn apply_and_broadcast(app: &tauri::AppHandle, state: &AppState, next:
     *state.settings.write() = updated.clone();
     app.state::<SettingsToggleObservers>().apply(app, &current, &updated).await;
 
-    let _ = SettingsChanged { settings: updated.clone() }.emit(app);
+    TauriEventSink(app).publish(AppEvent::SettingsChanged {
+        settings: Box::new(updated.clone()),
+    });
 
     Ok(updated)
 }
@@ -83,10 +86,9 @@ pub async fn settings_set_theme(app: tauri::AppHandle, state: tauri::State<'_, A
     let updated = service::set_theme(&state.paths, &current, &theme_id)?;
     let broadcasted = apply_and_broadcast(&app, &state, updated).await?;
 
-    let _ = ThemeChanged {
+    TauriEventSink(&app).publish(AppEvent::ThemeChanged {
         theme_id: broadcasted.theme_id.clone(),
-    }
-    .emit(&app);
+    });
 
     Ok(broadcasted)
 }

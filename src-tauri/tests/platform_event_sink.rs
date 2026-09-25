@@ -5,6 +5,7 @@ use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::ids::ProjectId;
+use taide_model::settings::Settings;
 use taide_runtime::EventSink;
 
 #[derive(Default)]
@@ -156,4 +157,43 @@ fn terminal_발행은_상태_갱신과_명령_측정_뒤에_수행된다() {
     assert!(spawned.find("store.insert(").unwrap() < spawned.find(".publish(spawned)").unwrap());
     assert!(adapter.contains("TerminalSpawned {") && adapter.contains("TerminalExited {") && adapter.contains("TerminalCwdChanged {"));
     assert!(adapter.contains("TerminalCommandFinished {"));
+}
+
+#[test]
+fn 설정과_테마_이벤트는_같은_port에서_순서대로_발행된다() {
+    let sink = RecordingEventSink::default();
+    let settings = Settings::default();
+    let theme_id = settings.theme_id.clone();
+
+    sink.publish(AppEvent::SettingsChanged {
+        settings: Box::new(settings.clone()),
+    });
+    sink.publish(AppEvent::ThemeChanged {
+        theme_id: theme_id.clone(),
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::SettingsChanged {
+                settings: Box::new(settings),
+            },
+            AppEvent::ThemeChanged { theme_id },
+        ]
+    );
+}
+
+#[test]
+fn 설정_적용과_테마_변경은_상태_갱신_뒤_port로_발행된다() {
+    let commands = include_str!("../src/domain/settings/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let apply = commands.split_once("pub async fn apply_and_broadcast(").unwrap().1;
+    let theme = commands.split_once("pub async fn settings_set_theme(").unwrap().1;
+
+    assert!(apply.find("service::save_settings(").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap());
+    assert!(apply.find("*state.settings.write()").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap());
+    assert!(apply.find("SettingsToggleObservers>().apply(").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap());
+    assert!(theme.find("apply_and_broadcast(").unwrap() < theme.find("AppEvent::ThemeChanged").unwrap());
+    assert!(adapter.contains("SettingsChanged { settings: *settings }.emit(self.0)"));
+    assert!(adapter.contains("ThemeChanged { theme_id }.emit(self.0)"));
 }

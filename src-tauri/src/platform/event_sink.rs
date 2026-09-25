@@ -4,7 +4,8 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    GitRefsChanged, GitStatusChanged, LayoutChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned,
+    GitRefsChanged, GitStatusChanged, LayoutChanged, SettingsChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
+    TerminalSpawned, ThemeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -54,6 +55,12 @@ impl EventSink for TauriEventSink<'_> {
                     duration_ms,
                 }
                 .emit(self.0);
+            }
+            AppEvent::SettingsChanged { settings } => {
+                let _ = SettingsChanged { settings: *settings }.emit(self.0);
+            }
+            AppEvent::ThemeChanged { theme_id } => {
+                let _ = ThemeChanged { theme_id }.emit(self.0);
             }
         }
     }
