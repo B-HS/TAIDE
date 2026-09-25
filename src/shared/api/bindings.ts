@@ -483,11 +483,8 @@ export const commands = {
 	 *  entry live long enough to both reach `shutdown_entry` and both harmlessly re-send
 	 *  shutdown/exit/kill to the same (possibly already-dead) process. A concurrent `lsp_spawn` for the
 	 *  same project/server/owner racing this teardown *can* still lose to it (spawning a fresh session
-	 *  while the old one's process is still being killed in the background) — but that window is now
-	 *  bounded by however long the language server actually takes to exit (typically well under
-	 *  `LSP_SHUTDOWN_TIMEOUT_MS`, per [`wait_for_process_exit`]'s polling) rather than a blind 4-second
-	 *  hold, and the old process is guaranteed to be killed regardless once its `shutdown_entry` call
-	 *  completes.
+	 *  while the old one's process is still being killed in the background), and the old process is
+	 *  guaranteed to be killed once `shutdown_entry` completes.
 	 */
 	lspStop: (sessionId: string, root: string | null, owner: string) => typedError<null, AppError>(__TAURI_INVOKE("lsp_stop", { sessionId, root, owner })),
 	/**
