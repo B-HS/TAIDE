@@ -961,6 +961,7 @@ pub fn run() {
             let services = Arc::new(AppServices::new(
                 state,
                 SearchStore::default(),
+                AiRequestStore::default(),
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
             ));
 
@@ -992,7 +993,7 @@ pub fn run() {
             app.manage(IdeSaveFile(save_ide_diff_file));
             app.manage(ide_layout_actions());
             app.manage(layout_tab_closed_observers());
-            app.manage(AiRequestStore::default());
+            app.manage(services.ai_requests.clone());
             app.manage(SecretStoreState::new(app.config().identifier.clone()));
             app.manage(remote_dispatch_port());
             app.manage(RemoteStore::default());

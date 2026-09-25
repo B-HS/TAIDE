@@ -1,13 +1,19 @@
-use super::{AppState, SearchStore, TaskSupervisor};
+use super::{AiRequestStore, AppState, SearchStore, TaskSupervisor};
 
 pub struct AppServices {
     pub state: AppState,
     pub search: SearchStore,
+    pub ai_requests: AiRequestStore,
     pub tasks: TaskSupervisor,
 }
 
 impl AppServices {
-    pub fn new(state: AppState, search: SearchStore, tasks: TaskSupervisor) -> Self {
-        Self { state, search, tasks }
+    pub fn new(state: AppState, search: SearchStore, ai_requests: AiRequestStore, tasks: TaskSupervisor) -> Self {
+        Self {
+            state,
+            search,
+            ai_requests,
+            tasks,
+        }
     }
 }

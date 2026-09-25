@@ -864,9 +864,8 @@ export const commands = {
 	aiInlineComplete: (request: AiInlineCompleteRequest) => typedError<AiTextResponse, AppError>(__TAURI_INVOKE("ai_inline_complete", { request })),
 	/**
 	 *  `provider`/`model` are resolved before `request_store.begin()` — resolving after would leave a
-	 *  `begin()`ed entry stranded with no matching `finish()` on a resolution failure (see
-	 *  [`AiRequestStore::begin`]'s doc comment on why a stray entry blocks `requestId` reuse and leaks
-	 *  its cancel sender).
+	 *  `begin()`ed entry stranded with no matching `finish()` on a resolution failure. A later
+	 *  request with the same owner and request ID would then be rejected as already in flight.
 	 */
 	aiInlineEdit: (request: AiInlineEditRequest) => typedError<AiTextResponse, AppError>(__TAURI_INVOKE("ai_inline_edit", { request })),
 	/**

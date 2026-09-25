@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
-use parking_lot::Mutex;
 use tauri::State;
-use tokio::sync::oneshot;
+
+pub use taide_runtime::AiRequestStore;
 
 use crate::domain::ai::prompt;
 use crate::domain::ai::service;
@@ -38,50 +36,6 @@ fn ensure_within_byte_limit(field_name: &str, value: &str, max_bytes: usize) -> 
         )));
     }
     Ok(())
-}
-
-/// Tracks in-flight AI requests by `(owner, requestId)` so a later `ai_request_cancel` can wake the
-/// matching in-progress command — shared across every cancellable AI command (auto-tab inline
-/// completion, Inline Edit, AI commit messages), not just the one that originally introduced it
-/// (`AiInlineStore`, before this generalization). Keyed by the pair rather than `requestId` alone
-/// (R6#20): a caller-supplied `requestId` is shared global state across every window (and any remote
-/// session), so two windows generating the same id would otherwise let one `begin()` reject the
-/// other's unrelated request as "already in flight", or let one window's `ai_request_cancel` wake a
-/// same-id request actually in flight in a different window. See
-/// [`AiInlineCompleteRequest::owner`](crate::domain::ai::types::AiInlineCompleteRequest)'s doc
-/// comment for where `owner` comes from.
-#[derive(Default)]
-pub struct AiRequestStore(Mutex<HashMap<(String, String), oneshot::Sender<()>>>);
-
-impl AiRequestStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Rejects a re-entrant `begin` for an `(owner, requestId)` pair already in flight — mirrors
-    /// `LspInstallStore::begin` (`domain/lsp/commands.rs`): a silent overwrite would leak the
-    /// first request's cancel sender and let `finish` race-remove the second request's still-live
-    /// entry.
-    fn begin(&self, owner: &str, request_id: &str) -> Option<oneshot::Receiver<()>> {
-        let mut store = self.0.lock();
-        let key = (owner.to_string(), request_id.to_string());
-        if store.contains_key(&key) {
-            return None;
-        }
-        let (tx, rx) = oneshot::channel();
-        store.insert(key, tx);
-        Some(rx)
-    }
-
-    fn finish(&self, owner: &str, request_id: &str) {
-        self.0.lock().remove(&(owner.to_string(), request_id.to_string()));
-    }
-
-    fn cancel(&self, owner: &str, request_id: &str) {
-        if let Some(tx) = self.0.lock().remove(&(owner.to_string(), request_id.to_string())) {
-            let _ = tx.send(());
-        }
-    }
 }
 
 #[tauri::command]
@@ -127,7 +81,7 @@ pub async fn ai_inline_complete(
     ensure_within_byte_limit("prefix", &request.prefix, AI_INLINE_COMPLETE_PREFIX_MAX_BYTES)?;
     ensure_within_byte_limit("suffix", &request.suffix, AI_INLINE_COMPLETE_SUFFIX_MAX_BYTES)?;
 
-    let Some(cancel_rx) = request_store.begin(&request.owner, &request.request_id) else {
+    let Some((request_token, cancel_rx)) = request_store.begin(&request.owner, &request.request_id) else {
         return Err(AppError::InvalidArgument(format!(
             "an inline completion request with id '{}' is already in flight",
             request.request_id
@@ -143,7 +97,7 @@ pub async fn ai_inline_complete(
         _ = cancel_rx => Ok(None),
     };
 
-    request_store.finish(&request.owner, &request.request_id);
+    request_store.finish(&request.owner, &request.request_id, &request_token);
 
     Ok(AiTextResponse {
         request_id: request.request_id,
@@ -152,9 +106,8 @@ pub async fn ai_inline_complete(
 }
 
 /// `provider`/`model` are resolved before `request_store.begin()` — resolving after would leave a
-/// `begin()`ed entry stranded with no matching `finish()` on a resolution failure (see
-/// [`AiRequestStore::begin`]'s doc comment on why a stray entry blocks `requestId` reuse and leaks
-/// its cancel sender).
+/// `begin()`ed entry stranded with no matching `finish()` on a resolution failure. A later
+/// request with the same owner and request ID would then be rejected as already in flight.
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_inline_edit(
@@ -177,7 +130,7 @@ pub async fn ai_inline_edit(
         (provider, model, settings.ai_omlx_base_url.clone())
     };
 
-    let Some(cancel_rx) = request_store.begin(&request.owner, &request.request_id) else {
+    let Some((request_token, cancel_rx)) = request_store.begin(&request.owner, &request.request_id) else {
         return Err(AppError::InvalidArgument(format!(
             "an AI request with id '{}' is already in flight",
             request.request_id
@@ -192,7 +145,7 @@ pub async fn ai_inline_edit(
         _ = cancel_rx => Ok(None),
     };
 
-    request_store.finish(&request.owner, &request.request_id);
+    request_store.finish(&request.owner, &request.request_id, &request_token);
 
     Ok(AiTextResponse {
         request_id: request.request_id,
@@ -224,7 +177,7 @@ pub async fn ai_commit_message(
         (provider, model, settings.ai_omlx_base_url.clone())
     };
 
-    let Some(cancel_rx) = request_store.begin(&request.owner, &request.request_id) else {
+    let Some((request_token, cancel_rx)) = request_store.begin(&request.owner, &request.request_id) else {
         return Err(AppError::InvalidArgument(format!(
             "an AI request with id '{}' is already in flight",
             request.request_id
@@ -239,7 +192,7 @@ pub async fn ai_commit_message(
         _ = cancel_rx => Ok(None),
     };
 
-    request_store.finish(&request.owner, &request.request_id);
+    request_store.finish(&request.owner, &request.request_id, &request_token);
 
     Ok(AiTextResponse {
         request_id: request.request_id,
@@ -295,59 +248,5 @@ mod tests {
     fn ai_inline_complete의_prefix_suffix는_상한_이내면_통과한다() {
         assert!(ensure_within_byte_limit("prefix", "fn main() {}", AI_INLINE_COMPLETE_PREFIX_MAX_BYTES).is_ok());
         assert!(ensure_within_byte_limit("suffix", "", AI_INLINE_COMPLETE_SUFFIX_MAX_BYTES).is_ok());
-    }
-
-    #[test]
-    fn 같은_owner의_같은_request_id로_두번_시작하면_두번째는_거부된다() {
-        let store = AiRequestStore::new();
-        let _first = store.begin("main", "req-1").expect("first begin");
-        assert!(store.begin("main", "req-1").is_none());
-    }
-
-    #[test]
-    fn finish_후에는_같은_owner의_같은_request_id를_다시_시작할_수_있다() {
-        let store = AiRequestStore::new();
-        let _first = store.begin("main", "req-1").expect("first begin");
-        store.finish("main", "req-1");
-        assert!(store.begin("main", "req-1").is_some());
-    }
-
-    #[test]
-    fn cancel_은_대기중인_receiver를_깨운다() {
-        let store = AiRequestStore::new();
-        let rx = store.begin("main", "req-1").expect("begin");
-        store.cancel("main", "req-1");
-        assert!(tauri::async_runtime::block_on(rx).is_ok());
-    }
-
-    #[test]
-    fn 모르는_request_id를_취소해도_안전하다() {
-        let store = AiRequestStore::new();
-        store.cancel("main", "unknown");
-    }
-
-    /// R6#20 회귀: `requestId` 만으로 전역 공유되면 서로 다른 창(owner)이 우연히 같은
-    /// `requestId`를 생성했을 때 한쪽의 `begin`이 다른 쪽을 "이미 진행 중"으로 거부하거나,
-    /// 한쪽의 `cancel`이 다른 쪽의 요청을 깨울 수 있다. `(owner, requestId)` 복합 키는 이를
-    /// 막아야 한다.
-    #[test]
-    fn 서로_다른_owner의_같은_request_id는_서로_충돌하지_않는다() {
-        let store = AiRequestStore::new();
-        let _main_rx = store.begin("main", "req-1").expect("main 창의 첫 begin은 성공해야 한다");
-
-        let editor_rx = store
-            .begin("editor-2", "req-1")
-            .expect("editor-2 창이 우연히 같은 requestId를 써도 독립적으로 begin되어야 한다");
-
-        store.cancel("editor-2", "req-1");
-        assert!(
-            tauri::async_runtime::block_on(editor_rx).is_ok(),
-            "editor-2 창의 cancel은 editor-2 창의 receiver만 깨워야 한다"
-        );
-
-        assert!(
-            store.begin("main", "req-1").is_none(),
-            "main 창의 요청은 editor-2 창의 cancel과 무관하게 여전히 진행 중이어야 한다"
-        );
     }
 }
