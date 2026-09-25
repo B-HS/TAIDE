@@ -126,6 +126,9 @@
 - 기존 테마 전용 임포트 플로우(`vsix-theme-import.md`)와 **하나의 다이얼로그**로 통합됐다 — Themes
   섹션(기존 후보 선택 로직 그대로)과 Grammars 섹션(위 tri-state)이 같은 다이얼로그 안에 나란히
   있다.
+- Rust 조립부의 `PluginRuntimePort`는 파일 열기·Git diff·IDE MCP에 같은 read-through 플러그인
+  캐시의 언어 overlay를 공급한다. VSIX 임포트는 아카이브 스테이징을 먼저 마친 뒤 mutation guard
+  안에서 이 포트를 통해 설치 확정과 목록 재로드를 수행한다. 원격의 VSIX 임포트 거부 정책은 그대로다.
 
 ### 6.3 zip 하드닝 — `infra::archive::extract_hardened_zip`
 

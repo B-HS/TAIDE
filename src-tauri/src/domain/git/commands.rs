@@ -13,11 +13,11 @@ use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk,
     LogEntry, RevertOutcome, StagedDiffText, TagCreateOptions, TagInfo,
 };
-use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::error::{AppError, AppResult};
 use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, SpanSlot};
+use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
 
 /// Upper bound on how long [`StatusCache`] may serve a stored result when **nothing** has
@@ -406,17 +406,17 @@ pub async fn git_status(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_diff_file(
-    state: State<'_, AppState>,
+    app: AppHandle,
     store: State<'_, GitStore>,
-    plugins: State<'_, PluginStore>,
+    plugins: State<'_, PluginRuntimePort>,
     project_id: ProjectId,
     path: String,
     mode: DiffMode,
     before_path: Option<String>,
 ) -> AppResult<DiffSides> {
+    let state = app.state::<AppState>();
     let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
-    let language_overlays = plugin_service::language_overlays(&loaded_plugins);
+    let language_overlays = (plugins.language_overlays)(&app);
     tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, before_path.as_deref(), &language_overlays))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?

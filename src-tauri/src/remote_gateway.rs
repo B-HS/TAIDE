@@ -880,7 +880,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             respond(layout::layout_set_shell_view(app.clone(), app.state(), arg!(args, "projectId"), arg!(args, "patch")).await)
         }
 
-        "file_open" => respond(file::file_open(app.state(), app.state(), arg!(args, "path")).await),
+        "file_open" => respond(file::file_open(app.clone(), app.state(), app.state(), arg!(args, "path")).await),
         "file_save" => respond(file::file_save(app.clone(), app.state(), arg!(args, "path"), arg!(args, "content")).await),
         "file_create" => respond(file::file_create(app.state(), arg!(args, "path"), arg!(args, "isDir")).await),
         "file_rename" => respond(file::file_rename(app.state(), arg!(args, "from"), arg!(args, "to")).await),
@@ -1019,7 +1019,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "git_status" => respond(git::git_status(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_diff_file" => respond(
             git::git_diff_file(
-                app.state(),
+                app.clone(),
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),

@@ -938,7 +938,7 @@ export const commands = {
 	 *  `AppState::begin_mutation` is taken (audit R7#10, C11 axis A: the old body held the guard for
 	 *  the whole import). What the guard actually protected is preserved in the second half, still
 	 *  under it: the authoritative already-installed check plus the atomic rename
-	 *  (`plugin_service::commit_staged_install`) and the plugin-list reload stay serialized with every
+	 *  (`PluginRuntimePort::commit_staged_import`) and the plugin-list reload stay serialized with every
 	 *  other guarded plugin mutation, the same shape `plugin_install` uses, so the frontend gets the
 	 *  freshly-installed plugin's enabled/error state immediately.
 	 */

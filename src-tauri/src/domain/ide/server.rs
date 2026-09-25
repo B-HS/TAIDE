@@ -22,12 +22,12 @@ use super::types::{
     IDE_HANDSHAKE_TIMEOUT_MS, IDE_NAME, IDE_SAVE_TIMEOUT_MS, MCP_SUBPROTOCOL,
 };
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
-use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::domain::project::types::Project;
 use crate::error::AppResult;
 use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged};
 use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
+use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
 
 const JSONRPC_VERSION: &str = "2.0";
@@ -292,11 +292,11 @@ async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     if make_frontmost {
         Ok(text_content(format!("Opened file: {path_string}")))
     } else {
-        let plugins = plugin_service::ensure_loaded(&app.state::<PluginStore>(), &app.state::<AppState>().paths.plugins_dir());
+        let language_overlays = (app.state::<PluginRuntimePort>().language_overlays)(app);
         Ok(json_text_content(json!({
             "success": true,
             "filePath": path_string,
-            "languageId": service::guess_language_id(&path_string, &plugin_service::language_overlays(&plugins)),
+            "languageId": service::guess_language_id(&path_string, &language_overlays),
         })))
     }
 }
@@ -376,8 +376,8 @@ fn tool_get_latest_selection(app: &AppHandle) -> Value {
 fn tool_get_open_editors(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
     let layouts = state.layouts.read().clone();
-    let plugins = plugin_service::ensure_loaded(&app.state::<PluginStore>(), &state.paths.plugins_dir());
-    let tabs: Vec<Value> = service::open_editors_snapshot(&layouts, &plugin_service::language_overlays(&plugins))
+    let language_overlays = (app.state::<PluginRuntimePort>().language_overlays)(app);
+    let tabs: Vec<Value> = service::open_editors_snapshot(&layouts, &language_overlays)
         .into_iter()
         .map(|entry| {
             json!({

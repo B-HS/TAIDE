@@ -5,6 +5,7 @@ pub mod events;
 pub mod ids;
 pub mod infra;
 pub mod paths;
+mod plugin_port;
 mod remote_gateway;
 mod settings_port;
 pub mod state;
@@ -13,6 +14,8 @@ use std::path::Path;
 
 use futures_util::future::BoxFuture;
 use serde_json::Value;
+use taide_infra::language::LanguageOverlay;
+use taide_model::plugin::LoadedPlugin;
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -36,7 +39,7 @@ use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
 use crate::domain::window::menu::MenuSources;
-use crate::error::AppResult;
+use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
     IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
@@ -47,6 +50,7 @@ use crate::events::{
 use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
+use crate::plugin_port::PluginRuntimePort;
 use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
@@ -115,6 +119,28 @@ fn settings_toggle_observers() -> domain::settings::commands::SettingsToggleObse
 
 fn apply_settings_from_port<'a>(app: &'a AppHandle, state: &'a AppState, next: Settings) -> BoxFuture<'a, AppResult<Settings>> {
     Box::pin(domain::settings::commands::apply_and_broadcast(app, state, next))
+}
+
+fn plugin_language_overlays(app: &AppHandle) -> Vec<LanguageOverlay> {
+    let state = app.state::<AppState>();
+    let store = app.state::<PluginStore>();
+    let loaded = taide_plugin::service::ensure_loaded(&store, &state.paths.plugins_dir());
+    taide_plugin::service::language_overlays(&loaded)
+}
+
+fn commit_staged_vsix_plugin(app: &AppHandle, temp_dir: &Path, staged_plugin_id: &str) -> AppResult<LoadedPlugin> {
+    let state = app.state::<AppState>();
+    let store = app.state::<PluginStore>();
+    let plugin_id = taide_plugin::service::commit_staged_install(&state.paths.plugins_dir(), temp_dir, staged_plugin_id)?;
+    let loaded = taide_plugin::service::load_plugins(&state.paths.plugins_dir());
+    *store.0.write() = Some(loaded.clone());
+    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
+        AppError::localized(
+            AppErrorKind::Internal,
+            "error.vsix.reloadAfterImportFailed",
+            "failed to reload the imported plugin",
+        )
+    })
 }
 
 /// Assembles the pid → (kind, label) providers `system_usage_breakdown` consults, one closure per
@@ -931,6 +957,10 @@ pub fn run() {
             app.manage(LspInstallStore::default());
             app.manage(SearchStore::default());
             app.manage(PluginStore::default());
+            app.manage(PluginRuntimePort {
+                language_overlays: plugin_language_overlays,
+                commit_staged_import: commit_staged_vsix_plugin,
+            });
             app.manage(AgentStore::default());
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
@@ -1373,6 +1403,24 @@ mod tests {
         let sync = include_str!("domain/sync/commands.rs");
         assert_eq!(sync.matches("taide_settings::service::save_settings(").count(), 3);
         assert!(sync.contains("(apply_settings.0)(&app, &state, final_settings).await?"));
+    }
+
+    #[test]
+    fn 파일_git_ide_vsix는_조립부의_플러그인_포트를_사용한다() {
+        let source = include_str!("lib.rs");
+        let setup = extract_between(source, "app.manage(PluginStore::default());", "app.manage(AgentStore::default());");
+        assert!(setup.contains("app.manage(PluginRuntimePort {"));
+        assert!(setup.contains("language_overlays: plugin_language_overlays,"));
+        assert!(setup.contains("commit_staged_import: commit_staged_vsix_plugin,"));
+
+        let file = include_str!("domain/file/commands.rs");
+        assert!(file.contains("(plugins.language_overlays)(&app)"));
+        let git = include_str!("domain/git/commands.rs");
+        assert!(git.contains("(plugins.language_overlays)(&app)"));
+        let ide = include_str!("domain/ide/server.rs");
+        assert_eq!(ide.matches("(app.state::<PluginRuntimePort>().language_overlays)(app)").count(), 2);
+        let vsix = include_str!("domain/vsix/commands.rs");
+        assert!(vsix.contains("(plugins.commit_staged_import)(&app, &temp_dir, &staged_plugin_id)"));
     }
 
     #[test]

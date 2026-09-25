@@ -14,13 +14,6 @@ use regex::Regex;
 /// remote dispatch tables, T1-K).
 ///
 /// Approval reasons, per entry (audit 2026-08-18 / contract T1-I §1.4):
-/// - `file/commands.rs`·`git/commands.rs`·`ide/server.rs → plugin::service` — `ensure_loaded` is
-///   the read-through plugin snapshot cache + `language_overlays` conversion every language-aware
-///   domain needs; re-implementing the cache per domain would be worse than the edge. An
-///   assembly-owned overlay provider (the `SystemUsageLabelProviders` shape) could remove all
-///   three edges at once; kept this batch as a deliberate deferral — the provider would relocate
-///   the shared cache rather than shrink it, and every edge is a read-only lookup — revisit in
-///   the next wiring batch.
 /// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
 ///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
 ///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
@@ -31,18 +24,11 @@ use regex::Regex;
 ///   the `file::capability`/`git::watch` halves; the `layout::service`/`settings::service` halves
 ///   are boot state loads and are not capability-shaped. Deferred — d-35 §4-f upheld the deferral
 ///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
-/// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
-///   reloads it; the deliberate single direction left after R7#4's cycle cut (plugin no longer
-///   references vsix).
 const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
-    ("domain/file/commands.rs", "plugin::service"),
-    ("domain/git/commands.rs", "plugin::service"),
-    ("domain/ide/server.rs", "plugin::service"),
     ("domain/project/commands.rs", "file::capability"),
     ("domain/project/commands.rs", "git::watch"),
     ("domain/project/commands.rs", "layout::service"),
     ("domain/project/commands.rs", "settings::service"),
-    ("domain/vsix/commands.rs", "plugin::service"),
 ];
 
 /// Recursively collects every `.rs` file under `dir`, sorted for deterministic failure output.

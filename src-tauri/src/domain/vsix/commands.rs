@@ -1,13 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use super::service;
 use super::types::VsixThemeExtractionResult;
-use crate::domain::plugin::service as plugin_service;
-use crate::domain::plugin::service::PluginStore;
 use crate::domain::plugin::types::LoadedPlugin;
-use crate::error::{AppError, AppErrorKind, AppResult};
+use crate::error::{AppError, AppResult};
+use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
 
 #[tauri::command]
@@ -22,12 +21,17 @@ pub async fn vsix_extract_themes(vsix_path: String) -> AppResult<VsixThemeExtrac
 /// `AppState::begin_mutation` is taken (audit R7#10, C11 axis A: the old body held the guard for
 /// the whole import). What the guard actually protected is preserved in the second half, still
 /// under it: the authoritative already-installed check plus the atomic rename
-/// (`plugin_service::commit_staged_install`) and the plugin-list reload stay serialized with every
+/// (`PluginRuntimePort::commit_staged_import`) and the plugin-list reload stay serialized with every
 /// other guarded plugin mutation, the same shape `plugin_install` uses, so the frontend gets the
 /// freshly-installed plugin's enabled/error state immediately.
 #[tauri::command]
 #[specta::specta]
-pub async fn vsix_import_plugin(state: State<'_, AppState>, store: State<'_, PluginStore>, vsix_path: String) -> AppResult<LoadedPlugin> {
+pub async fn vsix_import_plugin(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    plugins: State<'_, PluginRuntimePort>,
+    vsix_path: String,
+) -> AppResult<LoadedPlugin> {
     let plugins_dir = state.paths.plugins_dir();
     let vsix_path = PathBuf::from(&vsix_path);
     let (temp_dir, staged_plugin_id) = tauri::async_runtime::spawn_blocking(move || service::stage_vsix_import(&plugins_dir, &vsix_path))
@@ -35,15 +39,5 @@ pub async fn vsix_import_plugin(state: State<'_, AppState>, store: State<'_, Plu
         .map_err(|error| AppError::Internal(error.to_string()))??;
 
     let _guard = state.begin_mutation().await;
-    let plugin_id = plugin_service::commit_staged_install(&state.paths.plugins_dir(), &temp_dir, &staged_plugin_id)?;
-
-    let loaded = plugin_service::load_plugins(&state.paths.plugins_dir());
-    *store.0.write() = Some(loaded.clone());
-    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::Internal,
-            "error.vsix.reloadAfterImportFailed",
-            "failed to reload the imported plugin",
-        )
-    })
+    (plugins.commit_staged_import)(&app, &temp_dir, &staged_plugin_id)
 }

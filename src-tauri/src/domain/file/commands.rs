@@ -5,11 +5,11 @@ use tauri::{AppHandle, Manager, State};
 use super::service;
 use super::service::{MirrorEntry, UntitledMirrorEntry};
 use super::types::OpenedFile;
-use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::error::{AppError, AppResult};
 use crate::ids::{ProjectId, TabId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::infra::root_guard;
+use crate::plugin_port::PluginRuntimePort;
 use crate::state::{AppState, FlushScope};
 
 /// The read itself (up to `REFUSED_FILE_BYTES` of bytes, plus the UTF-8 decode and line count over
@@ -21,14 +21,18 @@ use crate::state::{AppState, FlushScope};
 /// blocking call as the read (`service::open_file`).
 #[tauri::command]
 #[specta::specta]
-pub async fn file_open(state: State<'_, AppState>, plugins: State<'_, PluginStore>, path: String) -> AppResult<OpenedFile> {
+pub async fn file_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    plugins: State<'_, PluginRuntimePort>,
+    path: String,
+) -> AppResult<OpenedFile> {
     let _span = perf::span(SpanSlot::FileOpen);
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), Path::new(&path))?;
     let editor_config_enabled = state.settings.read().editor_config_enabled;
 
-    let loaded_plugins = plugin_service::ensure_loaded(&plugins, &state.paths.plugins_dir());
-    let language_overlays = plugin_service::language_overlays(&loaded_plugins);
+    let language_overlays = (plugins.language_overlays)(&app);
     tauri::async_runtime::spawn_blocking(move || service::open_file(&resolved, &language_overlays, editor_config_enabled))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
