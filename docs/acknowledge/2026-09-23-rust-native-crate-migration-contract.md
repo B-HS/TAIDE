@@ -861,3 +861,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 설정·테마 두 variant를 추가하고 Tauri platform adapter에서 기존 이벤트 타입으로 변환했습니다. Settings 페이로드는 AppEvent 안에서만 Box로 보유해 enum 크기 차이를 줄이고 IPC payload·bindings는 그대로 유지합니다. [Rust Clippy의 enum variant 크기 계약](https://doc.rust-lang.org/clippy/lint_configuration.html#enum-variant-size-threshold)을 확인했습니다. 발행 순서·원격 fanout·구독 경로는 변경하지 않았고 아키텍처 문서의 이전 상태를 9/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 9건·taide-settings 정책 69건·Tauri settings 1건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 clippy는 큰 Settings variant 때문에 실패했고 Box 적용 후 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 원격·GUI 실기는 미검증이며 나머지 21개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `9a782e2`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 여덟 번째 slice — 동기화 상태 EventSink 경계
+
+- [x] A. SyncStateChanged는 connect/disconnect/upload/download의 성공 경로 네 곳에서 설정·테마·로케일 등 각 경로의 상태 반영을 마친 뒤 발행됩니다. 기존 Tauri 이벤트는 `collect_events!`와 원격 fanout에 등록됩니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 SyncStatus variant를 추가하고 Tauri platform adapter에서 기존 SyncStateChanged로 변환했습니다. 네 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·성공 경로 정책은 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 10/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 11건·권한 허용 Tauri sync 16건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 sync lib 2건은 로컬 소켓 권한 오류였고 권한 허용 동일 16건은 모두 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 GitHub·원격·GUI 실기는 미검증이며 나머지 20개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `e2db6d6`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
