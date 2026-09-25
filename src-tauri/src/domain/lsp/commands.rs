@@ -1,9 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use parking_lot::Mutex;
 pub use taide_lsp::install::LspInstallStore;
-use taide_lsp::process::{shutdown_process, spawn_language_server};
+use taide_lsp::process::{
+    confirms_healthy_restart, restart_backoff_delay, shutdown_process, spawn_language_server, HEALTHY_RESTART_WINDOW,
+};
 use taide_lsp::protocol::workspace_folders_notification;
 use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
 use taide_lsp::store::LspSessionEntry as SessionEntry;
@@ -16,7 +17,7 @@ use super::manifest;
 use super::service;
 use super::types::{
     LanguageServerSpec, LspInstallPhase, LspInstallStrategy, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus,
-    LspSpawnRequest, RESTART_BACKOFF_LIMIT,
+    LspSpawnRequest,
 };
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::{LspInstallProgress, LspSessionStatusChanged};
@@ -29,16 +30,6 @@ use crate::infra::redact::mask_known_secrets;
 use crate::paths::AppPaths;
 use crate::state::AppState;
 
-const LSP_RESTART_BACKOFF_BASE_MS: u64 = 500;
-/// How long a crash-triggered respawn must keep running, with no further crash, before
-/// [`handle_process_exit`] resets `restart_count` back to zero. Without this, `restart_count` only
-/// ever went up (the sole reset was `lsp_restart`'s explicit manual restart) — a language server
-/// that crashed 3 times over the course of a multi-day session, running healthily for hours between
-/// each crash, would hit `RESTART_BACKOFF_LIMIT` on its next unrelated crash and stop auto-restarting
-/// permanently, even though none of those crashes were part of an actual crash loop. 30 seconds of
-/// uninterrupted uptime is long enough to distinguish "recovered" from "still crash-looping" (the
-/// backoff between attempts is already well under this at every `restarts` value up to the limit).
-const LSP_RESTART_HEALTHY_RESET_MS: u64 = 30_000;
 /// Joins the lines of a language server's stderr tail into the single log line
 /// [`handle_process_exit`] writes. A multi-line value would interleave with every other line in the
 /// rotating app log and break `grep`-ing one exit report out of it.
@@ -174,7 +165,7 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
         entry.server_id,
         masked_stderr_tail(&stderr_tail)
     );
-    if restarts > RESTART_BACKOFF_LIMIT {
+    let Some(backoff) = restart_backoff_delay(restarts) else {
         set_status(
             app,
             &session_id,
@@ -185,7 +176,7 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
             )),
         );
         return;
-    }
+    };
 
     set_status(
         app,
@@ -195,7 +186,6 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
         Some(format!("서버가 종료되어 재시작합니다 (마지막 종료 코드: {code:?})")),
     );
 
-    let backoff = tokio::time::Duration::from_millis(LSP_RESTART_BACKOFF_BASE_MS * restarts as u64);
     let restart_app = app.clone();
     let restart_session_id = session_id.clone();
     let exited_process_epoch = process_epoch;
@@ -233,7 +223,7 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
 
                 let healthy_reset_entry = entry.clone();
                 tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(LSP_RESTART_HEALTHY_RESET_MS)).await;
+                    tokio::time::sleep(HEALTHY_RESTART_WINDOW).await;
                     if confirms_healthy_restart(&healthy_reset_entry.proc, &proc) {
                         healthy_reset_entry.lifecycle.reset_restart_count();
                     }
@@ -250,18 +240,6 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
             }
         }
     });
-}
-
-/// True only when `respawned` is both still alive and still the process installed on `entry_proc` —
-/// the condition [`handle_process_exit`]'s delayed health-check task requires before crediting a
-/// crash-triggered respawn with [`LSP_RESTART_HEALTHY_RESET_MS`] of uninterrupted uptime and zeroing
-/// `restart_count`. Either half failing means this exact respawn's health window doesn't count: a
-/// later crash may have already swapped in a *different* process (`entry_proc` no longer points at
-/// `respawned`), or `respawned` itself may have crashed again before the window elapsed (its own
-/// `is_exited` flip) — crediting either case would silently extend the crash-loop budget instead of
-/// only resetting it for a respawn that actually proved itself healthy.
-fn confirms_healthy_restart(entry_proc: &Mutex<Option<Arc<lsp_proc::LspProcHandle>>>, respawned: &Arc<lsp_proc::LspProcHandle>) -> bool {
-    !respawned.is_exited() && entry_proc.lock().as_ref().is_some_and(|current| Arc::ptr_eq(current, respawned))
 }
 
 async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str) {
@@ -917,6 +895,8 @@ pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, serve
 
 #[cfg(test)]
 mod tests {
+    use parking_lot::Mutex;
+
     use super::*;
     use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspRootStrategy};
 
@@ -1168,59 +1148,5 @@ mod tests {
 
         subscribers.broadcast("data");
         assert_eq!(*received.lock(), vec!["data".to_string()]);
-    }
-
-    fn sleeping_proc() -> Arc<lsp_proc::LspProcHandle> {
-        let config = lsp_proc::LspProcConfig {
-            command: "sh".to_string(),
-            args: vec!["-c".to_string(), "sleep 5".to_string()],
-            cwd: std::env::temp_dir(),
-        };
-        Arc::new(lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공"))
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn confirms_healthy_restart는_같은_프로세스가_아직_살아있고_현재_슬롯에_설치되어_있으면_true를_반환한다() {
-        let proc = sleeping_proc();
-        let slot = Mutex::new(Some(proc.clone()));
-
-        assert!(confirms_healthy_restart(&slot, &proc));
-
-        proc.kill();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn confirms_healthy_restart는_슬롯이_다른_프로세스로_교체됐으면_false를_반환한다() {
-        let respawned = sleeping_proc();
-        let replaced_by_a_later_crash = sleeping_proc();
-        let slot = Mutex::new(Some(replaced_by_a_later_crash.clone()));
-
-        assert!(
-            !confirms_healthy_restart(&slot, &respawned),
-            "슬롯이 이미 다른(더 최근) respawn으로 교체됐다면 이 respawn의 건강 판정을 내리면 안 된다"
-        );
-
-        respawned.kill();
-        replaced_by_a_later_crash.kill();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn confirms_healthy_restart는_프로세스가_이미_종료됐으면_false를_반환한다() {
-        let proc = sleeping_proc();
-        let slot = Mutex::new(Some(proc.clone()));
-        proc.kill();
-
-        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
-        while !proc.is_exited() && tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        }
-
-        assert!(
-            !confirms_healthy_restart(&slot, &proc),
-            "건강 판정 창이 끝나기 전에 다시 죽었다면 restart_count를 리셋하면 안 된다"
-        );
     }
 }

@@ -1,12 +1,15 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use taide_lsp::process::{resolve_process_config, shutdown_process, spawn_language_server};
+use taide_lsp::process::{resolve_process_config, restart_backoff_delay, shutdown_process, spawn_language_server, HEALTHY_RESTART_WINDOW};
 use taide_model::error::{AppError, AppErrorKind};
 use taide_model::lsp::{LanguageServerSpec, LspCommandSpec, LspInstallSpec, LspInstallStrategy, LspRootStrategy, LspServerId};
 use taide_model::paths::AppPaths;
 
 const PROCESS_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const FIRST_RESTART_BACKOFF: std::time::Duration = std::time::Duration::from_millis(500);
+const LAST_RESTART_BACKOFF: std::time::Duration = std::time::Duration::from_millis(1_500);
+const EXPECTED_HEALTHY_RESTART_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn test_spec(bin: String, args: Vec<String>) -> LanguageServerSpec {
     LanguageServerSpec {
@@ -98,4 +101,12 @@ async fn lsp_종료_정책은_서버가_먼저_끝나면_타임아웃_전_반환
         .unwrap();
 
     assert!(process.is_exited());
+}
+
+#[test]
+fn lsp_재시작_정책은_한도와_건강_판정_시간을_독립_crate에서_정한다() {
+    assert_eq!(restart_backoff_delay(1), Some(FIRST_RESTART_BACKOFF));
+    assert_eq!(restart_backoff_delay(3), Some(LAST_RESTART_BACKOFF));
+    assert_eq!(restart_backoff_delay(4), None);
+    assert_eq!(HEALTHY_RESTART_WINDOW, EXPECTED_HEALTHY_RESTART_WINDOW);
 }

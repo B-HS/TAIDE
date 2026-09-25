@@ -1,7 +1,9 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
+use parking_lot::Mutex;
 use taide_infra::{lsp_install, lsp_proc};
 use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::lsp::{LanguageServerSpec, LspServerId};
@@ -9,6 +11,9 @@ use taide_model::paths::AppPaths;
 
 const LSP_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 const LSP_SHUTDOWN_POLL_INTERVAL_MS: u64 = 50;
+const RESTART_BACKOFF_BASE_MS: u64 = 500;
+pub const RESTART_BACKOFF_LIMIT: u32 = 3;
+pub const HEALTHY_RESTART_WINDOW: Duration = Duration::from_secs(30);
 
 fn managed_dir_for(paths: &AppPaths, server_id: &LspServerId) -> Option<PathBuf> {
     lsp_install::latest_installed_version(&paths.lsp_dir(), server_id.as_str())
@@ -123,11 +128,34 @@ pub async fn shutdown_process(proc: &lsp_proc::LspProcHandle) {
     proc.kill();
 }
 
+pub fn restart_backoff_delay(restarts: u32) -> Option<Duration> {
+    if restarts > RESTART_BACKOFF_LIMIT {
+        return None;
+    }
+    Some(Duration::from_millis(
+        RESTART_BACKOFF_BASE_MS * u64::from(restarts),
+    ))
+}
+
+pub fn confirms_healthy_restart(
+    entry_proc: &Mutex<Option<Arc<lsp_proc::LspProcHandle>>>,
+    respawned: &Arc<lsp_proc::LspProcHandle>,
+) -> bool {
+    !respawned.is_exited()
+        && entry_proc
+            .lock()
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, respawned))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
     use taide_infra::lsp_proc;
 
-    use super::{wait_for_process_exit, LSP_SHUTDOWN_TIMEOUT_MS};
+    use super::{confirms_healthy_restart, wait_for_process_exit, LSP_SHUTDOWN_TIMEOUT_MS};
 
     const FAST_EXIT_BOUND_MS: u64 = 1_000;
     const HANGING_PROCESS_WAIT_MS: u64 = 200;
@@ -177,5 +205,63 @@ mod tests {
         assert!(started.elapsed() >= tokio::time::Duration::from_millis(HANGING_PROCESS_WAIT_MS));
 
         proc.kill();
+    }
+
+    #[cfg(unix)]
+    fn sleeping_proc() -> Arc<lsp_proc::LspProcHandle> {
+        let config = lsp_proc::LspProcConfig {
+            command: "sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 5".to_string()],
+            cwd: std::env::temp_dir(),
+        };
+        Arc::new(
+            lsp_proc::spawn(config, |_message| {}, |_code, _tail| {}).expect("프로세스 spawn 성공"),
+        )
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirms_healthy_restart는_같은_프로세스가_아직_살아있고_현재_슬롯에_설치되어_있으면_true를_반환한다(
+    ) {
+        let proc = sleeping_proc();
+        let slot = Mutex::new(Some(proc.clone()));
+
+        assert!(confirms_healthy_restart(&slot, &proc));
+
+        proc.kill();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirms_healthy_restart는_슬롯이_다른_프로세스로_교체됐으면_false를_반환한다() {
+        let respawned = sleeping_proc();
+        let replaced_by_a_later_crash = sleeping_proc();
+        let slot = Mutex::new(Some(replaced_by_a_later_crash.clone()));
+
+        assert!(
+            !confirms_healthy_restart(&slot, &respawned),
+            "슬롯이 이미 다른(더 최근) respawn으로 교체됐다면 이 respawn의 건강 판정을 내리면 안 된다"
+        );
+
+        respawned.kill();
+        replaced_by_a_later_crash.kill();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirms_healthy_restart는_프로세스가_이미_종료됐으면_false를_반환한다() {
+        let proc = sleeping_proc();
+        let slot = Mutex::new(Some(proc.clone()));
+        proc.kill();
+
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        while !proc.is_exited() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+
+        assert!(
+            !confirms_healthy_restart(&slot, &proc),
+            "건강 판정 창이 끝나기 전에 다시 죽었다면 restart_count를 리셋하면 안 된다"
+        );
     }
 }

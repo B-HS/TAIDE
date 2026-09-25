@@ -255,7 +255,8 @@
   (재연결 시 열린 문서 didOpen 재전송).
 - **예기치 못한 프로세스 종료(크래시) 시 자동 재시작**: `domain::lsp::commands::handle_process_exit`
   가 `lsp_stop` 이 걸어둔 `stopping` 플래그가 없는 종료(=크래시)를 감지하면 `RESTART_BACKOFF_LIMIT`
-  회까지 백오프하며 재기동을 시도한다. **재기동에 성공해도 `lsp:session-status-changed` 는
+  회까지 백오프하며 재기동을 시도한다. 한도·지연·30초 건강 판정과 현재 프로세스 동일성 확인은
+  `taide-lsp::process`가 소유하고 Tauri는 재기동·상태 이벤트를 조립한다. **재기동에 성공해도 `lsp:session-status-changed` 는
   `"crashed"` 를 유지하고 `"running"` 으로 보고하지 않는다**(T0 감사 #24,
   `docs/acknowledge/2026-08-18-audit-t0-fix-contract.md` §2.3) — 이 재시작은 프론트의 어떤 액션도
   기다리지 않는 백그라운드 경로라, `lsp_spawn`/`lsp_restart`(프론트가 그 다음으로 `initialize` 를
