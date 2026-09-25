@@ -57,6 +57,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.terminal.clone());"));
     assert!(setup.contains("app.manage(services.plugin.clone());"));
     assert!(setup.contains("app.manage(services.lsp.clone());"));
+    assert!(setup.contains("app.manage(services.lsp_install.clone());"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));
     assert!(setup.contains("app.manage(services);"));
 }

@@ -32,7 +32,7 @@ use crate::domain::ide::server::IdeLayoutActions;
 use crate::domain::ide::store::IdeStore;
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{ProjectLayout, Tab, TabKind, TabWindowTarget};
-use crate::domain::lsp::commands::{LspInstallStore, LspStore};
+use crate::domain::lsp::commands::LspStore;
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
@@ -974,7 +974,7 @@ pub fn run() {
             app.manage(AgentForegroundPids(foreground_pids_for_agent));
             app.manage(GitStore::default());
             app.manage(services.lsp.clone());
-            app.manage(LspInstallStore::default());
+            app.manage(services.lsp_install.clone());
             app.manage(services.search.clone());
             app.manage(services.plugin.clone());
             app.manage(PluginRuntimePort {

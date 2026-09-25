@@ -6,8 +6,8 @@ use parking_lot::Mutex;
 use taide_model::lsp::LspServerId;
 
 /// Tracks one active installer per language server and its cancellation token.
-#[derive(Default)]
-pub struct LspInstallStore(Mutex<HashMap<LspServerId, Arc<AtomicBool>>>);
+#[derive(Clone, Default)]
+pub struct LspInstallStore(Arc<Mutex<HashMap<LspServerId, Arc<AtomicBool>>>>);
 
 impl LspInstallStore {
     pub fn new() -> Self {
@@ -112,5 +112,21 @@ mod tests {
 
         drop(installer);
         assert!(store.begin(&server_id).is_some());
+    }
+
+    #[test]
+    fn 복제한_저장소는_설치_취소와_슬롯_해제를_공유한다() {
+        let store = LspInstallStore::new();
+        let legacy_store = store.clone();
+        let server_id = LspServerId::from("test-server");
+        let guard = store.begin(&server_id).expect("첫 설치 슬롯");
+        let cancellation_token = guard.cancellation_token();
+
+        assert!(legacy_store.begin(&server_id).is_none());
+        legacy_store.cancel(&server_id);
+        assert!(cancellation_token.load(Ordering::SeqCst));
+
+        drop(guard);
+        assert!(legacy_store.begin(&server_id).is_some());
     }
 }

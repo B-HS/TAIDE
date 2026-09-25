@@ -192,10 +192,12 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
     plugin 명령·언어 overlay 포트가 같은 목록을 소비한다.
     `LspStore`는 taide-lsp의 세션 맵을 공유 Arc<Mutex>에 보관하고, LSP 명령·종료 경로가 같은 세션을 소비한다.
+    `LspInstallStore`는 taide-lsp의 서버별 설치 슬롯을 공유 Arc<Mutex>에 보관하고,
+    설치 중복·취소·guard 해제 상태를 LSP 설치 명령과 공유한다.
     `TerminalStore`는 taide-terminal의 PTY 세션 맵을 공유 Arc<Mutex>에 보관하고,
     터미널 명령·프로젝트 종료·앱 종료 경로가 같은 세션을 소비한다.
     setup은 상태 복원 뒤 AppState와 TaskSupervisor로 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·TaskSupervisor의 동일 내부 인스턴스를
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
