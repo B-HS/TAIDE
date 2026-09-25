@@ -14,11 +14,6 @@ use regex::Regex;
 /// remote dispatch tables, T1-K).
 ///
 /// Approval reasons, per entry (audit 2026-08-18 / contract T1-I §1.4):
-/// - `agent/commands.rs → terminal::commands` — agent detection is *defined over* the terminal
-///   foreground pid set (`TerminalStore::foreground_pids`); a read-only store query. An
-///   assembly-owned provider (the shape that removed `system → terminal/lsp/agent`) could remove
-///   this edge; kept this batch as a deliberate deferral because the pid set is agent detection's
-///   defining input rather than incidental wiring — revisit in the next wiring batch.
 /// - `app/commands.rs → settings::commands`·`settings::service` — the `AppFileTarget::Settings`
 ///   editor must funnel through `apply_and_broadcast`, the single settings reapply path every
 ///   settings writer shares (its doc comment names these callers).
@@ -56,7 +51,6 @@ use regex::Regex;
 ///   menu is rebuilt on every project change, so `lib.rs` would have to carry the query itself at
 ///   every one of those points and the assembly would grow rather than shrink.
 const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
-    ("domain/agent/commands.rs", "terminal::commands"),
     ("domain/app/commands.rs", "settings::commands"),
     ("domain/app/commands.rs", "settings::service"),
     ("domain/file/commands.rs", "plugin::service"),

@@ -16,7 +16,7 @@ export const commands = {
 	 *  the same shape as `project_get`'s read-only-ness — `project_get` never touches the filesystem
 	 *  at all (it reads `state.projects`, an in-memory map), while this command does a full disk scan
 	 *  through a dedicated read-only path. Deliberately **not** remote-reachable — see
-	 *  `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
+	 *  `RemoteDenialPolicy::LocalProjectHistoryExposure` in `remote_gateway.rs`.
 	 */
 	projectListRecent: () => typedError<Project[], AppError>(__TAURI_INVOKE("project_list_recent")),
 	/**
@@ -54,7 +54,7 @@ export const commands = {
 	 *  [`project_activate`] does, or a caller other than the FE's own `useOpenProject`/
 	 *  `useOpenFolderDialog` mutation (whose `onSuccess` invalidates `QUERY_KEY.PROJECT.ALL` itself,
 	 *  masking the gap for that one call site) sees `QUERY_KEY.PROJECT.ACTIVE` go stale: the remote
-	 *  dispatch path (`domain::remote::dispatch`) calls this exact function, and any future direct
+	 *  dispatch path (`remote_gateway`) calls this exact function, and any future direct
 	 *  caller would hit the same gap. Emitted unconditionally (not only inside the `!already_open`
 	 *  branch below, which gates the *first-open-only* `ProjectOpened`/`ProjectListChanged`/capability
 	 *  attach) because activation itself is unconditional. See
@@ -245,13 +245,9 @@ export const commands = {
 	layoutOpenUntitled: (projectId: ProjectId, target: string | null) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_untitled", { projectId, target })),
 	layoutConvertUntitled: (tabId: TabId, path: string) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_convert_untitled", { tabId, path })),
 	/**
-	 *  Moves a tab to the main window, an already-open auxiliary window, or a brand-new one —
-	 *  "Move into New Window"/"Move back to Main Window" (contract §3.2). `NewAuxiliary` reserves a
-	 *  slot and opens the real OS window *before* touching the layout, so a window-creation failure
-	 *  never leaves the layout half-mutated; if the subsequent move somehow fails anyway (unreachable
-	 *  in practice, since the tab was already located above), `layout::service::move_tab_to_new_window`
-	 *  itself rolls back the just-inserted empty window entry, and this command additionally closes the
-	 *  now-pointless OS window it just opened.
+	 *  Moves a tab to the main window, an existing auxiliary window, or a new OS window.
+	 *  For a new window, the OS window is opened before changing the layout and closed if the move fails.
+	 *  Empty auxiliary windows are cleaned up after a successful move.
 	 */
 	layoutMoveTabToWindow: (tabId: TabId, target: TabWindowTarget) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_move_tab_to_window", { tabId, target })),
 	/**
@@ -782,6 +778,22 @@ export const commands = {
 	ptyDetach: (sessionId: string, subscriptionId: number) => typedError<null, AppError>(__TAURI_INVOKE("pty_detach", { sessionId, subscriptionId })),
 	terminalSessions: (projectId: ProjectId) => typedError<TerminalSession[], AppError>(__TAURI_INVOKE("terminal_sessions", { projectId })),
 	shellProfiles: () => typedError<ShellProfile[], AppError>(__TAURI_INVOKE("shell_profiles")),
+	/**
+	 *  Resolves a terminal-link `path`/`cwd` pair (both untrusted — `path` comes from regex-matched pty
+	 *  output text, `cwd` from an OSC 7 report the pty's child process controls) to an absolute path,
+	 *  but only ever returns one that falls inside an open project root. Every other command that
+	 *  resolves a caller-supplied path this way (`file_open`, `pty_default_options`) gates it behind
+	 *  `root_guard`; this one previously didn't, and `AppState` wasn't even in its signature to make
+	 *  that possible.
+	 *  A path outside every open root and a path that plain doesn't exist both map to the same
+	 *  `AppError::NotFound` — deliberately not `AppError::Forbidden` for the escape case — so a caller
+	 *  (including an authenticated remote mirror, which this command stays allowed for) can't use the
+	 *  error variant to probe whether an arbitrary filesystem path exists outside the project. `cwd`
+	 *  itself is never separately validated: only the *joined-then-canonicalized result* actually
+	 *  matters (an absolute `path` ignores `cwd` entirely — `service::resolve_terminal_path` — so
+	 *  gating on `cwd` up front would wrongly reject valid absolute-path links whenever the session's
+	 *  live cwd has simply wandered outside the project, an everyday, non-malicious terminal action).
+	 */
 	resolveTerminalPath: (path: string, cwd: string) => typedError<string, AppError>(__TAURI_INVOKE("resolve_terminal_path", { path, cwd })),
 	/**
 	 *  Answers "which of these regex matches are real files?" for one terminal row, so the renderer can

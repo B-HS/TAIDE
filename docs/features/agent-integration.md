@@ -16,6 +16,9 @@
   pid 의 프로세스명 해석. `comm` 이 `node` 인 경우(런타임 위 실행) `cmdline` 전체 검사
   (Linux comm 15자 잘림 주의). 감지 대상: `claude`, `codex`, `gemini`, `opencode`, `pi`
   (`KNOWN_AGENT_NAMES`).
+- `agent_list` 와 `poll_agents` 는 `lib.rs` 가 등록한 `AgentForegroundPids` 로 터미널의 전경
+  PID 목록을 읽는다. `TerminalStore::foreground_pids` 조회는 조립부가 담당하며 agent 도메인은
+  터미널 Store를 직접 참조하지 않는다. PID 조회 이후의 이름 탐침·캐시·이벤트 흐름은 동일하다.
 
 | 에이전트 | 전경 pgid 리더 | 판정 경로 | 근거 |
 |---|---|---|---|

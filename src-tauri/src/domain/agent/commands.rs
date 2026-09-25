@@ -13,7 +13,6 @@ use super::types::{
     AgentActivity, AgentHooksStatus, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ProjectAgents,
     AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION_ENV_NAME, APP_VERSION_ENV_NAME, CLAUDE_VERSION_TIMEOUT_SECONDS,
 };
-use crate::domain::terminal::commands::TerminalStore;
 use crate::error::{AppError, AppResult};
 use crate::events::AgentStateChanged;
 use crate::ids::ProjectId;
@@ -44,6 +43,8 @@ struct AgentStoreInner {
 
 #[derive(Default)]
 pub struct AgentStore(Mutex<AgentStoreInner>);
+
+pub struct AgentForegroundPids(pub fn(&tauri::AppHandle, &ProjectId) -> Vec<(String, u32)>);
 
 fn last_known_activity(inner: &AgentStoreInner, session_id: &str) -> AgentActivity {
     inner
@@ -654,15 +655,16 @@ fn resolve_user_level_hooks_installed(agent_name: &str) -> AppResult<bool> {
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_list(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
-    terminals: State<'_, TerminalStore>,
+    foreground_pids: State<'_, AgentForegroundPids>,
     agents: State<'_, AgentStore>,
     agent_hooks: State<'_, AgentHooksStore>,
     project_id: ProjectId,
 ) -> AppResult<ProjectAgents> {
     ensure_project_open(&state, &project_id)?;
 
-    let pids = terminals.foreground_pids(&project_id);
+    let pids = (foreground_pids.0)(&app, &project_id);
     let probes = detect_agents_for_pids_blocking(&agents, pids).await?;
 
     let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
@@ -886,7 +888,7 @@ pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: Proje
 
 pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
-    let terminals = app.state::<TerminalStore>();
+    let foreground_pids = app.state::<AgentForegroundPids>();
     let agents = app.state::<AgentStore>();
     let agent_hooks = app.state::<AgentHooksStore>();
 
@@ -895,7 +897,7 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
     let mut live_pids = HashSet::new();
 
     for project_id in project_ids {
-        let pids = terminals.foreground_pids(&project_id);
+        let pids = (foreground_pids.0)(app, &project_id);
         live_pids.extend(pids.iter().map(|(_, pid)| *pid));
 
         let Ok(probes) = detect_agents_for_pids_blocking(&agents, pids).await else {

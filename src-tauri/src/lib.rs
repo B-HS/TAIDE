@@ -14,7 +14,7 @@ use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
+use crate::domain::agent::commands::{AgentForegroundPids, AgentHooksStore, AgentStore};
 use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::server::IdeLayoutActions;
@@ -271,6 +271,10 @@ fn menu_sources() -> MenuSources {
     }
 }
 
+fn foreground_pids_for_agent(app: &AppHandle, project_id: &ProjectId) -> Vec<(String, u32)> {
+    app.state::<TerminalStore>().foreground_pids(project_id)
+}
+
 fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObservers {
     domain::layout::service::LayoutTabClosedObservers::new(vec![
         Box::new(|app, tab| app.state::<IdeStore>().reconcile_closed_tab(tab)),
@@ -300,6 +304,9 @@ fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowStore, pro
     }
 }
 
+/// Moves a tab to the main window, an existing auxiliary window, or a new OS window.
+/// For a new window, the OS window is opened before changing the layout and closed if the move fails.
+/// Empty auxiliary windows are cleaned up after a successful move.
 #[tauri::command]
 #[specta::specta]
 async fn layout_move_tab_to_window(
@@ -903,6 +910,7 @@ pub fn run() {
             app.manage(pty_session_observers());
             app.manage(TreeStore::default());
             app.manage(TerminalStore::default());
+            app.manage(AgentForegroundPids(foreground_pids_for_agent));
             app.manage(GitStore::default());
             app.manage(LspStore::default());
             app.manage(LspInstallStore::default());
@@ -1356,6 +1364,19 @@ mod tests {
         let click = extract_between(source, "MenuAction::OpenRecent(project_id) => {", "MenuAction::Ignored => {}");
         assert!(click.contains("recent_project_root(&app, &project_id)"));
         assert!(source.contains("fn recent_project_root(app: &AppHandle, project_id: &ProjectId) -> Option<String>"));
+    }
+
+    #[test]
+    fn 에이전트_감지는_조립부의_터미널_foreground_pid_공급원을_사용한다() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains("app.state::<TerminalStore>().foreground_pids(project_id)"));
+        let setup = extract_between(source, "app.manage(TerminalStore::default());", "app.manage(GitStore::default());");
+        assert!(setup.contains("app.manage(AgentForegroundPids(foreground_pids_for_agent));"));
+
+        let agent = include_str!("domain/agent/commands.rs");
+        assert!(agent.contains("foreground_pids: State<'_, AgentForegroundPids>"));
+        assert!(agent.contains("app.state::<AgentForegroundPids>()"));
+        assert_eq!(agent.matches("(foreground_pids.0)(").count(), 2);
     }
 
     #[test]

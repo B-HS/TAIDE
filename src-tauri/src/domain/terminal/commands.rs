@@ -392,7 +392,6 @@ pub async fn shell_profiles() -> AppResult<Vec<ShellProfile>> {
 /// resolves a caller-supplied path this way (`file_open`, `pty_default_options`) gates it behind
 /// `root_guard`; this one previously didn't, and `AppState` wasn't even in its signature to make
 /// that possible.
-///
 /// A path outside every open root and a path that plain doesn't exist both map to the same
 /// `AppError::NotFound` — deliberately not `AppError::Forbidden` for the escape case — so a caller
 /// (including an authenticated remote mirror, which this command stays allowed for) can't use the

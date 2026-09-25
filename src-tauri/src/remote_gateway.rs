@@ -955,7 +955,17 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "plugin_read_grammar" => {
             respond(plugin::plugin_read_grammar(app.state(), app.state(), arg!(args, "pluginId"), arg!(args, "languageId")).await)
         }
-        "agent_list" => respond(agent::agent_list(app.state(), app.state(), app.state(), app.state(), arg!(args, "projectId")).await),
+        "agent_list" => respond(
+            agent::agent_list(
+                app.clone(),
+                app.state(),
+                app.state(),
+                app.state(),
+                app.state(),
+                arg!(args, "projectId"),
+            )
+            .await,
+        ),
         "agent_release_marker" => respond(agent::agent_release_marker(app.state(), app.state(), arg!(args, "marker")).await),
         "agent_cli_status" => respond(agent::agent_cli_status().await),
         "agent_hooks_status" => respond(agent::agent_hooks_status(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await),

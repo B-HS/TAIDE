@@ -118,6 +118,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     탭 닫힘 뒤 IDE pending diff 해소·PTY 회수는 `layout::service::LayoutTabClosedObservers`,
     IDE MCP의 탭 open/close 수명주기는 `ide::server::IdeLayoutActions`,
     원격 WebSocket의 JSON/raw command 호출은 `remote::dispatch::RemoteDispatchPort`,
+    에이전트 감지의 터미널 전경 PID 조회는 `agent::commands::AgentForegroundPids`,
     네이티브 메뉴의 최근 프로젝트·번역 조회는 `window::menu::MenuSources`,
     시스템 사용량 프로세스 라벨은 `system::commands::SystemUsageLabelProviders`, 터미널 spawn
     추가 env 는 `terminal::commands::PtySpawnEnvProvider` — 전부 lib.rs 가 구현/클로저를 정적
