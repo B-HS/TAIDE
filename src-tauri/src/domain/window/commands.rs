@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
-use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tauri_specta::Event;
 
@@ -16,45 +15,10 @@ use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::HotExitFlushRequested;
 use crate::ids::ProjectId;
 use crate::platform::navigation_guard;
+use crate::platform::window_registry::WindowRegistry;
 use crate::state::{AppState, FlushScope};
 
-struct AuxiliaryWindowRecord {
-    project_id: ProjectId,
-    window_slot: u32,
-}
-
-/// Runtime registry from an auxiliary editor window's Tauri label back to which project/slot it
-/// renders — the label alone (`editor-<n>`) carries no semantic meaning, so `lib.rs`'s
-/// `CloseRequested`/`Destroyed` handlers need this to know what to hand
-/// the assembly's `plan_return_of_auxiliary_window_tabs`. The main window is never registered here.
-#[derive(Default)]
-pub struct WindowStore(Mutex<HashMap<String, AuxiliaryWindowRecord>>);
-
-impl WindowStore {
-    fn register(&self, label: String, project_id: ProjectId, window_slot: u32) {
-        self.0.lock().insert(label, AuxiliaryWindowRecord { project_id, window_slot });
-    }
-
-    /// Removes and returns `label`'s recorded (project, slot), if any. Called from both
-    /// `CloseRequested` (so the tab-return hook fires before the OS destroys the window) and
-    /// `Destroyed` (so a window that goes away through any other path — a crash, a programmatic
-    /// `.close()` — doesn't leave a stale entry behind). Idempotent: whichever event fires second
-    /// finds nothing left to remove.
-    pub fn forget(&self, label: &str) -> Option<(ProjectId, u32)> {
-        self.0.lock().remove(label).map(|record| (record.project_id, record.window_slot))
-    }
-
-    /// Reverse lookup — the OS window label currently rendering `(project_id, window_slot)`, if any
-    /// is open. Used by the assembly's `layout_move_tab_to_window` to close an auxiliary
-    /// window's OS window once moving its last tab elsewhere leaves it empty.
-    pub fn label_for(&self, project_id: &ProjectId, window_slot: u32) -> Option<String> {
-        self.0
-            .lock()
-            .iter()
-            .find(|(_, record)| &record.project_id == project_id && record.window_slot == window_slot)
-            .map(|(label, _)| label.clone())
-    }
-}
+pub use crate::platform::window_registry::WindowRegistry as WindowStore;
 
 /// Opens a new auxiliary editor window (`editor-<n>`) rendering `project_id` pinned to
 /// `window_slot`. Rust owns label issuance (`service::next_auxiliary_label`) so two concurrent
@@ -81,7 +45,7 @@ impl WindowStore {
 pub async fn open_auxiliary_window(
     app: &AppHandle,
     state: &AppState,
-    windows: &WindowStore,
+    windows: &WindowRegistry,
     project_id: ProjectId,
     window_slot: u32,
 ) -> AppResult<AuxiliaryWindowInfo> {
@@ -280,7 +244,7 @@ fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &ta
         window.app_handle().exit(0);
     }
 
-    window.state::<WindowStore>().forget(window.label())
+    window.state::<WindowRegistry>().forget(window.label())
 }
 
 /// Re-issues the close [`handle_auxiliary_close_requested`] deferred, now that `label`'s flush has
@@ -388,79 +352,10 @@ pub(crate) fn restore_auxiliary_windows(app: &tauri::AppHandle) {
         tauri::async_runtime::spawn(async move {
             let state = app_handle.state::<AppState>();
             let _guard = state.begin_mutation().await;
-            let windows = app_handle.state::<WindowStore>();
+            let windows = app_handle.state::<WindowRegistry>();
             if let Err(error) = open_auxiliary_window(&app_handle, &state, &windows, project_id.clone(), window_slot).await {
                 log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
             }
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn project_id(name: &str) -> ProjectId {
-        ProjectId::from(format!("prj-{name}"))
-    }
-
-    #[test]
-    fn 등록한_라벨로_프로젝트와_슬롯을_되찾는다() {
-        let store = WindowStore::default();
-        store.register("editor-1".to_string(), project_id("a"), 3);
-
-        assert_eq!(store.label_for(&project_id("a"), 3), Some("editor-1".to_string()));
-        assert_eq!(store.forget("editor-1"), Some((project_id("a"), 3)));
-    }
-
-    /// `CloseRequested` and `Destroyed` both run the same cleanup, so whichever fires second must
-    /// find nothing left to remove instead of re-running the tab-return hook for a window that is
-    /// already gone.
-    #[test]
-    fn forget_은_멱등이라_두_번째_호출은_아무것도_돌려주지_않는다() {
-        let store = WindowStore::default();
-        store.register("editor-1".to_string(), project_id("a"), 1);
-
-        assert!(store.forget("editor-1").is_some());
-        assert_eq!(store.forget("editor-1"), None);
-    }
-
-    #[test]
-    fn 등록되지_않은_라벨은_조회도_해제도_비어_있다() {
-        let store = WindowStore::default();
-
-        assert_eq!(store.forget("editor-9"), None);
-        assert_eq!(store.label_for(&project_id("a"), 1), None);
-    }
-
-    #[test]
-    fn 같은_프로젝트의_다른_슬롯은_서로_다른_창으로_구분된다() {
-        let store = WindowStore::default();
-        store.register("editor-1".to_string(), project_id("a"), 1);
-        store.register("editor-2".to_string(), project_id("a"), 2);
-
-        assert_eq!(store.label_for(&project_id("a"), 1), Some("editor-1".to_string()));
-        assert_eq!(store.label_for(&project_id("a"), 2), Some("editor-2".to_string()));
-        assert_eq!(store.label_for(&project_id("a"), 3), None);
-    }
-
-    #[test]
-    fn 슬롯_번호가_같아도_프로젝트가_다르면_다른_창이다() {
-        let store = WindowStore::default();
-        store.register("editor-1".to_string(), project_id("a"), 1);
-        store.register("editor-2".to_string(), project_id("b"), 1);
-
-        assert_eq!(store.label_for(&project_id("b"), 1), Some("editor-2".to_string()));
-    }
-
-    /// The reverse lookup must stop finding a window the moment it is forgotten — otherwise
-    /// `layout_move_tab_to_window` would try to close an OS window that no longer exists.
-    #[test]
-    fn 해제된_창은_역방향_조회에서도_사라진다() {
-        let store = WindowStore::default();
-        store.register("editor-1".to_string(), project_id("a"), 1);
-        store.forget("editor-1");
-
-        assert_eq!(store.label_for(&project_id("a"), 1), None);
     }
 }

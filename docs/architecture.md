@@ -64,7 +64,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── theme/       테마 로드/해석/번들 38종 + 사용자 테마 저장·삭제 (theme-system.md)
     │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
     │   │   ├── vsix/        VSIX 추출 (테마·grammar 임포트)
-    │   │   └── window/      보조 윈도우 수명주기
+    │   │   └── window/      보조 윈도우 생성·닫힘·복원, 기존 WindowStore 공개 facade
+    │   ├── platform/        Tauri platform adapter와 런타임 레지스트리
+    │   │   ├── asset_protocol.rs   열린 프로젝트 asset URI 응답
+    │   │   ├── navigation_guard.rs 웹뷰 탐색·새 창 URL 가드
+    │   │   └── window_registry.rs 보조 창 label→project/slot 등록·역조회
     │   └── infra/           외부 자원 어댑터 (22파일)
     │       ├── pty.rs       portable-pty 래퍼 (배칭·flow control·링버퍼)
     │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
@@ -140,6 +144,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     응답 의존 연동은 `lib.rs`의 `layout_move_tab_to_window` command가 직접 조립한다.
     보조 창 닫힘의 flush·등록 해제는 window command가 담당하고, `CloseRequested`·`Destroyed`
     양쪽에서 회수한 결과의 mirror 조회·layout 탭 복귀는 `lib.rs`가 조립한다.
+    `platform::window_registry::WindowRegistry`는 보조 창 label→project/slot 매핑과 역조회만
+    소유하며 두 종료 경로 중 먼저 해제한 쪽만 결과를 받는다. `lib.rs`가 이 타입을 Tauri 관리
+    상태로 등록하고 기존 `domain::window::commands::WindowStore` 경로는 타입 재수출로 유지한다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
     layout/settings 로드는 독립 crate, file/git watcher build/register는 조립부 포트를 사용한다.

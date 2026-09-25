@@ -39,7 +39,7 @@ use crate::domain::settings::types::Settings;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
-use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
+use crate::domain::window::commands::open_auxiliary_window;
 use crate::domain::window::menu::MenuSources;
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::events::{
@@ -52,6 +52,7 @@ use crate::events::{
 use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
+use crate::platform::window_registry::WindowRegistry;
 use crate::plugin_port::PluginRuntimePort;
 use crate::project_restore_port::ProjectRestoreWatchers;
 use crate::settings_port::SettingsApplyPort;
@@ -338,7 +339,7 @@ fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObse
     ])
 }
 
-fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowStore, project_id: &ProjectId, layout: &mut ProjectLayout) {
+fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowRegistry, project_id: &ProjectId, layout: &mut ProjectLayout) {
     let emptied_slots: Vec<u32> = layout
         .auxiliary_windows
         .iter()
@@ -364,7 +365,7 @@ fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowStore, pro
 async fn layout_move_tab_to_window(
     app: AppHandle,
     state: State<'_, AppState>,
-    windows: State<'_, WindowStore>,
+    windows: State<'_, WindowRegistry>,
     tab_id: TabId,
     target: TabWindowTarget,
 ) -> AppResult<ProjectLayout> {
@@ -986,7 +987,7 @@ pub fn run() {
             app.manage(remote_dispatch_port());
             app.manage(RemoteStore::default());
             app.manage(RemoteDispatchLimiter::default());
-            app.manage(WindowStore::default());
+            app.manage(WindowRegistry::default());
             drop(state_restore_span);
 
             app.set_menu(domain::window::commands::build_app_menu(app.handle())?)?;
@@ -1130,7 +1131,7 @@ pub fn run() {
                 if window.state::<AppState>().forget_hot_exit_flush_window(window.label()) {
                     window.app_handle().exit(0);
                 }
-                if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
+                if let Some((project_id, window_slot)) = window.state::<WindowRegistry>().forget(window.label()) {
                     plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
                 }
             }
@@ -1573,7 +1574,7 @@ mod tests {
 
         let window_commands = include_str!("domain/window/commands.rs");
         let close_body = extract_between(window_commands, "fn handle_auxiliary_close_requested(", "/// Re-issues the close");
-        assert!(close_body.contains("window.state::<WindowStore>().forget(window.label())"));
+        assert!(close_body.contains("window.state::<WindowRegistry>().forget(window.label())"));
     }
 
     /// `Project.capabilities` 동작 고정 — the registry's `detected_kinds` is the field's single
