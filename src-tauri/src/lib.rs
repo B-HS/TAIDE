@@ -189,6 +189,17 @@ fn pty_session_observers() -> domain::terminal::commands::PtySessionObservers {
     })])
 }
 
+fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObservers {
+    domain::layout::service::LayoutTabClosedObservers::new(vec![
+        Box::new(|app, tab| app.state::<IdeStore>().reconcile_closed_tab(tab)),
+        Box::new(|app, tab| {
+            if let domain::layout::types::TabKind::Terminal { session_id, .. } = &tab.kind {
+                app.state::<TerminalStore>().kill_session(session_id);
+            }
+        }),
+    ])
+}
+
 /// Routes one app-menu click to the domain that owns the action it stands for — the assembly's
 /// half of the native menu. It lives here, not in `domain::window`, so the window domain never
 /// calls `project::commands` itself (architecture.md §2; `tests/domain_boundaries.rs` enforces it),
@@ -717,6 +728,7 @@ pub fn run() {
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
             app.manage(IdeStore::default());
+            app.manage(layout_tab_closed_observers());
             app.manage(AiRequestStore::default());
             app.manage(SecretStoreState::new(app.config().identifier.clone()));
             app.manage(RemoteStore::default());
@@ -1069,6 +1081,30 @@ mod tests {
             registered, expected,
             "project_capabilities 의 등록 순서가 계약과 다릅니다 — 이 순서는 project_close 의 자원 회수 순서 그 자체입니다"
         );
+    }
+
+    #[test]
+    fn 탭_닫기_후처리는_layout_기록_뒤_ide와_pty_순서로_조립된다() {
+        let source = include_str!("lib.rs");
+        let observers = extract_between(source, "fn layout_tab_closed_observers()", "/// Routes one app-menu");
+        let ide_position = observers
+            .find("app.state::<IdeStore>().reconcile_closed_tab(tab)")
+            .expect("IDE 후처리 등록");
+        let terminal_position = observers
+            .find("app.state::<TerminalStore>().kill_session(session_id)")
+            .expect("PTY 회수 등록");
+        assert!(ide_position < terminal_position);
+
+        let setup = extract_between(source, "app.manage(IdeStore::default());", "app.manage(AiRequestStore::default());");
+        assert!(setup.contains("app.manage(layout_tab_closed_observers());"));
+
+        let layout_source = include_str!("domain/layout/service.rs");
+        let close_body = extract_between(layout_source, "pub async fn close_tab_and_finish(", "\n#[cfg(test)]");
+        let write_position = close_body.find("*state.layouts.write() = layouts;").expect("layout 기록");
+        let notify_position = close_body
+            .find("app.state::<LayoutTabClosedObservers>().notify(app, &closed.tab);")
+            .expect("닫기 후처리");
+        assert!(write_position < notify_position);
     }
 
     /// `Project.capabilities` 동작 고정 — the registry's `detected_kinds` is the field's single

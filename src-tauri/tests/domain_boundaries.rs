@@ -34,16 +34,9 @@ use regex::Regex;
 /// - `ide/server.rs → layout::service` — MCP tools (openFile/close_tab) drive the tab lifecycle
 ///   through the same layout orchestrators the layout commands use (R6#3's fix: service, not a
 ///   second command entry). The getOpenEditors snapshot uses the taide-layout crate directly.
-///   Together with `layout/service.rs → ide::store` below these edges form a known layout ↔ ide
-///   cycle (the tab lifecycle is co-owned) — deferred to a future batch, like window ↔ layout.
 /// - `layout/commands.rs → window::commands` + `window/service.rs → layout::service` — moving a
 ///   tab to another OS window spans both owners (layout owns tabs, window owns OS windows); the
 ///   two edges form a known cycle, reported for a future batch rather than half-fixed here.
-/// - `layout/service.rs → ide::store`·`terminal::commands` — closing a tab must resolve its
-///   pending Claude-diff responder and reap its pty session; both are part of close-tab's
-///   correctness contract (moved verbatim from the old commands body in R2). The `ide::store`
-///   half is the other side of the known layout ↔ ide cycle noted at the ide entries above —
-///   deferred with it.
 /// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
 ///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
 ///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
@@ -83,8 +76,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/ide/server.rs", "layout::service"),
     ("domain/ide/server.rs", "plugin::service"),
     ("domain/layout/commands.rs", "window::commands"),
-    ("domain/layout/service.rs", "ide::store"),
-    ("domain/layout/service.rs", "terminal::commands"),
     ("domain/project/commands.rs", "file::capability"),
     ("domain/project/commands.rs", "git::watch"),
     ("domain/project/commands.rs", "layout::service"),

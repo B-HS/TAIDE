@@ -174,6 +174,15 @@ impl IdeStore {
         self.inner.lock().pending_diffs.remove(request_id)
     }
 
+    pub fn reconcile_closed_tab(&self, tab: &Tab) {
+        let TabKind::ClaudeDiff { request_id, .. } = &tab.kind else {
+            return;
+        };
+        if let Some(pending) = self.take_pending_diff(request_id) {
+            let _ = pending.responder.send((IdeDiffOutcome::TabClosed, None));
+        }
+    }
+
     pub fn insert_pending_save(&self, request_id: String, pending: PendingSave) {
         self.inner.lock().pending_saves.insert(request_id, pending);
     }
@@ -244,16 +253,6 @@ impl IdeStore {
             Some(path) => Some(all.filter(|diagnostic| diagnostic.path == path).collect()),
             None => Some(all.collect()),
         }
-    }
-}
-
-pub fn reconcile_closed_tab(app: &AppHandle, tab: &Tab) {
-    let TabKind::ClaudeDiff { request_id, .. } = &tab.kind else {
-        return;
-    };
-    let ide = app.state::<IdeStore>();
-    if let Some(pending) = ide.take_pending_diff(request_id) {
-        let _ = pending.responder.send((IdeDiffOutcome::TabClosed, None));
     }
 }
 
@@ -354,6 +353,60 @@ mod tests {
         assert_eq!(outcome, IdeDiffOutcome::Rejected);
         assert!(content.is_none());
         assert!(!tauri::async_runtime::block_on(save_rx).unwrap());
+    }
+
+    #[test]
+    fn 닫힌_claude_diff만_pending_응답을_tabclosed로_해소한다() {
+        let store = IdeStore::default();
+        let project_id = ProjectId::from("project".to_string());
+        let (diff_sender, diff_receiver) = oneshot::channel();
+        let (file_sender, _file_receiver) = oneshot::channel();
+        store.insert_pending_diff(
+            "diff-request".to_string(),
+            PendingDiff {
+                project_id: project_id.clone(),
+                new_path: PathBuf::from("/tmp/diff.rs"),
+                responder: diff_sender,
+            },
+        );
+        store.insert_pending_diff(
+            "file-request".to_string(),
+            PendingDiff {
+                project_id,
+                new_path: PathBuf::from("/tmp/file.rs"),
+                responder: file_sender,
+            },
+        );
+
+        let file_tab = Tab {
+            id: crate::ids::TabId::new(),
+            kind: TabKind::File {
+                path: "/tmp/file.rs".to_string(),
+            },
+            title: "file".to_string(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        };
+        store.reconcile_closed_tab(&file_tab);
+        assert!(store.take_pending_diff("file-request").is_some());
+
+        let diff_tab = Tab {
+            kind: TabKind::ClaudeDiff {
+                request_id: "diff-request".to_string(),
+                path: "/tmp/diff.rs".to_string(),
+            },
+            ..file_tab
+        };
+        store.reconcile_closed_tab(&diff_tab);
+        store.reconcile_closed_tab(&diff_tab);
+
+        assert_eq!(
+            tauri::async_runtime::block_on(diff_receiver).expect("응답 수신"),
+            (IdeDiffOutcome::TabClosed, None)
+        );
+        assert!(store.take_pending_diff("diff-request").is_none());
     }
 
     #[test]

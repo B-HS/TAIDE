@@ -11,6 +11,23 @@ pub use taide_layout::service::*;
 
 pub(crate) const LAYOUT_FLUSH_INTERVAL_MS: u64 = 2_000;
 
+pub type LayoutTabClosedObserver = Box<dyn Fn(&AppHandle, &Tab) + Send + Sync>;
+
+/// Runs assembly-registered cleanup reactions after a closed tab's layout snapshot is committed.
+pub struct LayoutTabClosedObservers(Vec<LayoutTabClosedObserver>);
+
+impl LayoutTabClosedObservers {
+    pub fn new(observers: Vec<LayoutTabClosedObserver>) -> Self {
+        Self(observers)
+    }
+
+    fn notify(&self, app: &AppHandle, tab: &Tab) {
+        for observer in &self.0 {
+            observer(app, tab);
+        }
+    }
+}
+
 /// Persists every layout marked dirty since the last flush, then clears the dirty set.
 ///
 /// **Blocking.** Each project costs one [`save_layout`] → `persist::write_json` → `write_atomic`,
@@ -117,17 +134,7 @@ pub async fn open_tab_and_finish(
     Ok(updated)
 }
 
-/// 탭을 닫고 후처리(레이아웃 갱신 이벤트 발신 + IDE 도메인의 pending diff 해소 + 터미널 탭이면
-/// pty 세션 회수)까지 마친다. Tauri 커맨드(`layout_close_tab`)와 IDE 도메인의
-/// `close_tab`/`closeAllDiffTabs` 도구 핸들러가 동일한 경로를 타도록 공유한다 — ClaudeDiff 탭이
-/// 어떤 경로로 닫히든 pending 요청이 반드시 해소되고, 터미널 탭이 어떤 경로로 닫히든 그 pty 가
-/// 반드시 죽는다. 레이아웃 read-clone-write 경합을 막기 위해 뮤테이션 가드는 이 함수가 직접 잡는다.
-///
-/// The pty reap is the "탭 닫기 시 pty_kill" half of the T0 #21 fix (`docs/acknowledge/
-/// 2026-08-18-audit-t0-fix-contract.md` §2.3) — `project_close`'s `TerminalStore::kill_project`
-/// only reaps sessions when the *project* closes, and before this fix nothing called `pty_kill` when
-/// an individual terminal tab closed; the session lingered, attached to nothing, until the owning
-/// project or the whole app closed.
+/// Closes a tab under the mutation guard and runs registered cleanup after committing the layout.
 pub async fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &TabId) -> AppResult<(ProjectId, ClosedTab, ProjectLayout)> {
     let _guard = state.begin_mutation().await;
     let mut layouts = state.layouts.read().clone();
@@ -139,11 +146,7 @@ pub async fn close_tab_and_finish(app: &AppHandle, state: &AppState, tab_id: &Ta
     let updated = finish_mutation(app, state, &project_id, layout);
     *state.layouts.write() = layouts;
 
-    crate::domain::ide::store::reconcile_closed_tab(app, &closed.tab);
-    if let TabKind::Terminal { session_id, .. } = &closed.tab.kind {
-        app.state::<crate::domain::terminal::commands::TerminalStore>()
-            .kill_session(session_id);
-    }
+    app.state::<LayoutTabClosedObservers>().notify(app, &closed.tab);
 
     Ok((project_id, closed, updated))
 }
