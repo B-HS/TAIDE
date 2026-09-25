@@ -875,3 +875,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 RemoteStatus variant를 추가하고 Tauri platform adapter에서 기존 RemoteStateChanged로 변환했습니다. 시작·중지 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·수명주기 순서는 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 11/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 13건·Tauri remote 51건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버·원격 클라이언트·GUI 실기는 미검증이며 나머지 19개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `56479e5`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열 번째 slice — 창 chrome EventSink 경계
+
+- [x] A. WindowChromeChanged는 `session_set_window_chrome`에서 세션 저장과 mutation guard 해제 뒤 한 번 발행합니다. 기존 이벤트는 `collect_events!`와 원격 fanout에 등록됩니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 WindowChrome variant를 추가하고 Tauri platform adapter에서 기존 WindowChromeChanged로 변환했습니다. 단일 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·세션 갱신 순서는 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 12/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 15건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 clippy의 테스트 Copy 값 clone 지적 1곳을 제거한 뒤 경계 테스트와 clippy가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 미검증이며 나머지 18개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `42f1001`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
