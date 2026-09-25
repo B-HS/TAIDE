@@ -1,7 +1,6 @@
 use tauri::State;
 use tauri_specta::Event;
 
-use crate::domain::settings::service as settings_service;
 use crate::domain::settings::types::Settings;
 use crate::domain::sync::github::GistClient;
 use crate::domain::sync::service;
@@ -10,6 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::events::SyncStateChanged;
 use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::secret::{SecretAccount, SecretStore, SecretStoreState};
+use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
 fn current_status_snapshot(settings: &Settings, connected: bool) -> SyncStatus {
@@ -153,7 +153,7 @@ pub async fn sync_connect(
         sync_last_synced_at: last_synced_at,
         ..current
     };
-    settings_service::save_settings(&state.paths, &updated)?;
+    taide_settings::service::save_settings(&state.paths, &updated)?;
     *state.settings.write() = updated.clone();
     let mut status = current_status_snapshot(&updated, true);
     status.remote_newer = discovered.map(|(_, updated_at)| service::is_remote_newer(&updated_at, updated.sync_last_synced_at.as_deref()));
@@ -177,7 +177,7 @@ pub async fn sync_disconnect(
         sync_last_synced_at: None,
         ..current
     };
-    settings_service::save_settings(&state.paths, &updated)?;
+    taide_settings::service::save_settings(&state.paths, &updated)?;
     *state.settings.write() = updated.clone();
 
     let status = current_status_snapshot(&updated, false);
@@ -243,7 +243,7 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
     let Some(updated_settings) = overlay_sync_bookkeeping(&live_settings, snapshot_gist_id.as_deref(), &gist_id, &remote_updated_at) else {
         return Ok(current_status_snapshot(&live_settings, connected));
     };
-    settings_service::save_settings(&state.paths, &updated_settings)?;
+    taide_settings::service::save_settings(&state.paths, &updated_settings)?;
     *state.settings.write() = updated_settings.clone();
 
     let status = current_status_snapshot(&updated_settings, connected);
@@ -272,6 +272,7 @@ pub async fn sync_download(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     secret: State<'_, SecretStoreState>,
+    apply_settings: State<'_, SettingsApplyPort>,
     force: bool,
 ) -> AppResult<SyncDownloadResult> {
     let token = load_token(secret.0.as_ref())?;
@@ -325,7 +326,7 @@ pub async fn sync_download(
         sync_last_synced_at: Some(remote_updated_at),
         ..applied
     };
-    let final_settings = crate::domain::settings::commands::apply_and_broadcast(&app, &state, final_settings).await?;
+    let final_settings = (apply_settings.0)(&app, &state, final_settings).await?;
 
     service::apply_theme_entries(&state.paths, &payload.themes);
     service::apply_locale_entries(&state.paths, &payload.locales);

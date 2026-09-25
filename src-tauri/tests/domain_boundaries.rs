@@ -14,9 +14,6 @@ use regex::Regex;
 /// remote dispatch tables, T1-K).
 ///
 /// Approval reasons, per entry (audit 2026-08-18 / contract T1-I §1.4):
-/// - `app/commands.rs → settings::commands`·`settings::service` — the `AppFileTarget::Settings`
-///   editor must funnel through `apply_and_broadcast`, the single settings reapply path every
-///   settings writer shares (its doc comment names these callers).
 /// - `file/commands.rs`·`git/commands.rs`·`ide/server.rs → plugin::service` — `ensure_loaded` is
 ///   the read-through plugin snapshot cache + `language_overlays` conversion every language-aware
 ///   domain needs; re-implementing the cache per domain would be worse than the edge. An
@@ -34,23 +31,10 @@ use regex::Regex;
 ///   the `file::capability`/`git::watch` halves; the `layout::service`/`settings::service` halves
 ///   are boot state loads and are not capability-shaped. Deferred — d-35 §4-f upheld the deferral
 ///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
-/// - `sync/commands.rs → settings::*` — sync upload/download shares the settings command path;
-///   its former service aggregation edges are now owned by `taide-sync`.
 /// - `vsix/commands.rs → plugin::service` — vsix import installs *into* the plugin store and
 ///   reloads it; the deliberate single direction left after R7#4's cycle cut (plugin no longer
 ///   references vsix).
-/// - `window/menu.rs → project::service`·`locale::service` — the app menu's `File > Open Recent`
-///   *draws* the recent-project list and its own labels; both targets are read-only data providers
-///   for it (`list_recent_projects`, `lookup_builtin_message`). Every
-///   *execution* edge the menu created was removed instead (d-58 §1.E-보강): the refresh is driven
-///   by `lib.rs`'s `project:list-changed`/`project:activated`/`settings:changed` listeners, and a
-///   click resolves to a `menu::MenuAction` that `lib.rs`'s `dispatch_menu_action` hands to the
-///   owning domain. Injecting the data from the assembly instead was considered and rejected: the
-///   menu is rebuilt on every project change, so `lib.rs` would have to carry the query itself at
-///   every one of those points and the assembly would grow rather than shrink.
 const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
-    ("domain/app/commands.rs", "settings::commands"),
-    ("domain/app/commands.rs", "settings::service"),
     ("domain/file/commands.rs", "plugin::service"),
     ("domain/git/commands.rs", "plugin::service"),
     ("domain/ide/server.rs", "plugin::service"),
@@ -58,8 +42,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/project/commands.rs", "git::watch"),
     ("domain/project/commands.rs", "layout::service"),
     ("domain/project/commands.rs", "settings::service"),
-    ("domain/sync/commands.rs", "settings::commands"),
-    ("domain/sync/commands.rs", "settings::service"),
     ("domain/vsix/commands.rs", "plugin::service"),
 ];
 

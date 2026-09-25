@@ -995,9 +995,10 @@ export const commands = {
 	appFileRead: (target: AppFileTarget) => typedError<string, AppError>(__TAURI_INVOKE("app_file_read", { target })),
 	/**
 	 *  Writes an `AppFileTarget`'s content. `Settings` runs the exact same
-	 *  parse→sanitize→apply→broadcast pipeline as `settings_update`/`sync_download`
-	 *  (`settings::commands::apply_and_broadcast`) so a hand-edited `settings.json` reaches every
-	 *  window/remote session the same way a patch-based update does; invalid JSON is rejected and the
+	 *  parse→sanitize→apply→broadcast pipeline as `settings_update`/`sync_download` through
+	 *  `SettingsApplyPort`, which calls `settings::commands::apply_and_broadcast`. A hand-edited
+	 *  `settings.json` reaches every window/remote session the same way a patch-based update does;
+	 *  invalid JSON is rejected and the
 	 *  on-disk file is left untouched. `Prompt` is a plain validate-then-write with no cross-window
 	 *  broadcast, since prompt templates are only read lazily at the moment an AI request builds its
 	 *  prompt (`ai::prompt::load_*`), not cached in `AppState`.

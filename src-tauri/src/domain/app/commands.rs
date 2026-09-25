@@ -2,11 +2,10 @@ use tauri::State;
 
 use super::types::{AppFileTarget, PerfSnapshot};
 use super::{service, types::AppInfo};
-use crate::domain::settings::commands as settings_commands;
-use crate::domain::settings::service as settings_service;
 use crate::domain::settings::types::Settings;
 use crate::error::AppResult;
 use crate::infra::perf;
+use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
 #[tauri::command]
@@ -45,20 +44,27 @@ pub async fn app_file_read(state: State<'_, AppState>, target: AppFileTarget) ->
 }
 
 /// Writes an `AppFileTarget`'s content. `Settings` runs the exact same
-/// parse→sanitize→apply→broadcast pipeline as `settings_update`/`sync_download`
-/// (`settings::commands::apply_and_broadcast`) so a hand-edited `settings.json` reaches every
-/// window/remote session the same way a patch-based update does; invalid JSON is rejected and the
+/// parse→sanitize→apply→broadcast pipeline as `settings_update`/`sync_download` through
+/// `SettingsApplyPort`, which calls `settings::commands::apply_and_broadcast`. A hand-edited
+/// `settings.json` reaches every window/remote session the same way a patch-based update does;
+/// invalid JSON is rejected and the
 /// on-disk file is left untouched. `Prompt` is a plain validate-then-write with no cross-window
 /// broadcast, since prompt templates are only read lazily at the moment an AI request builds its
 /// prompt (`ai::prompt::load_*`), not cached in `AppState`.
 #[tauri::command]
 #[specta::specta]
-pub async fn app_file_write(app: tauri::AppHandle, state: State<'_, AppState>, target: AppFileTarget, content: String) -> AppResult<()> {
+pub async fn app_file_write(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    apply_settings: State<'_, SettingsApplyPort>,
+    target: AppFileTarget,
+    content: String,
+) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     match target {
         AppFileTarget::Settings => {
-            let parsed = settings_service::parse_settings_json(&content)?;
-            settings_commands::apply_and_broadcast(&app, &state, parsed).await?;
+            let parsed = taide_settings::service::parse_settings_json(&content)?;
+            (apply_settings.0)(&app, &state, parsed).await?;
         }
         AppFileTarget::Prompt { id } => {
             service::write_prompt_file(&state.paths, id, &content)?;
@@ -69,13 +75,18 @@ pub async fn app_file_write(app: tauri::AppHandle, state: State<'_, AppState>, t
 
 /// Applies an already-parsed `Settings` value through the same
 /// apply→persist→broadcast pipeline `settings_update`/the `Settings` branch above use
-/// (`settings::commands::apply_and_broadcast`), taking the mutation guard itself. Exists as its own
+/// (through `SettingsApplyPort`), taking the mutation guard itself. Exists as its own
 /// entry point — distinct from `app_file_write` — so the remote dispatch table can route a
 /// `Settings`-target `app_file_write` through a value it has already stripped of the remote-gated
 /// fields before it ever reaches `apply_and_broadcast`. The gated field set is not repeated here —
 /// see `taide_remote::policy::strip_remote_gated_settings` for the canonical list.
-pub async fn apply_settings_file(app: tauri::AppHandle, state: State<'_, AppState>, settings: Settings) -> AppResult<()> {
+pub async fn apply_settings_file(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    apply_settings: State<'_, SettingsApplyPort>,
+    settings: Settings,
+) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
-    settings_commands::apply_and_broadcast(&app, &state, settings).await?;
+    (apply_settings.0)(&app, &state, settings).await?;
     Ok(())
 }

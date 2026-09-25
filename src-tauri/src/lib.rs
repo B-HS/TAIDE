@@ -6,6 +6,7 @@ pub mod ids;
 pub mod infra;
 pub mod paths;
 mod remote_gateway;
+mod settings_port;
 pub mod state;
 
 use std::path::Path;
@@ -29,6 +30,7 @@ use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
 use crate::domain::search::commands::SearchStore;
+use crate::domain::settings::types::Settings;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
@@ -45,6 +47,7 @@ use crate::events::{
 use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
+use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
 #[cfg(any(debug_assertions, test))]
@@ -108,6 +111,10 @@ fn settings_toggle_observers() -> domain::settings::commands::SettingsToggleObse
             ))
         }),
     ])
+}
+
+fn apply_settings_from_port<'a>(app: &'a AppHandle, state: &'a AppState, next: Settings) -> BoxFuture<'a, AppResult<Settings>> {
+    Box::pin(domain::settings::commands::apply_and_broadcast(app, state, next))
 }
 
 /// Assembles the pid → (kind, label) providers `system_usage_breakdown` consults, one closure per
@@ -912,6 +919,7 @@ pub fn run() {
             app.manage(menu_sources());
             app.manage(project_capabilities());
             app.manage(settings_toggle_observers());
+            app.manage(SettingsApplyPort(apply_settings_from_port));
             app.manage(system_usage_label_providers());
             app.manage(pty_spawn_env_provider());
             app.manage(pty_session_observers());
@@ -1345,6 +1353,26 @@ mod tests {
         let gateway = include_str!("remote_gateway.rs");
         let remote_call = extract_between(gateway, "ide::ide_resolve_diff(", "\n            .await,");
         assert_eq!(remote_call.matches("app.state(),").count(), 3);
+    }
+
+    #[test]
+    fn app과_sync의_설정_적용은_조립부의_공통_경로를_사용한다() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains("Box::pin(domain::settings::commands::apply_and_broadcast(app, state, next))"));
+        let setup = extract_between(
+            source,
+            "app.manage(settings_toggle_observers());",
+            "app.manage(system_usage_label_providers());",
+        );
+        assert!(setup.contains("app.manage(SettingsApplyPort(apply_settings_from_port));"));
+
+        let app = include_str!("domain/app/commands.rs");
+        assert!(app.contains("taide_settings::service::parse_settings_json(&content)"));
+        assert_eq!(app.matches("(apply_settings.0)(&app, &state,").count(), 2);
+
+        let sync = include_str!("domain/sync/commands.rs");
+        assert_eq!(sync.matches("taide_settings::service::save_settings(").count(), 3);
+        assert!(sync.contains("(apply_settings.0)(&app, &state, final_settings).await?"));
     }
 
     #[test]

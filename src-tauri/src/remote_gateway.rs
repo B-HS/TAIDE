@@ -764,11 +764,11 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                     Ok(parsed) => {
                         let current = app.state::<AppState>().settings.read().clone();
                         let sanitized = strip_remote_gated_settings(parsed, &current);
-                        respond(domain::app::commands::apply_settings_file(app.clone(), app.state(), sanitized).await)
+                        respond(domain::app::commands::apply_settings_file(app.clone(), app.state(), app.state(), sanitized).await)
                     }
                     Err(error) => Err(err(error)),
                 },
-                other => respond(domain::app::commands::app_file_write(app.clone(), app.state(), other, content).await),
+                other => respond(domain::app::commands::app_file_write(app.clone(), app.state(), app.state(), other, content).await),
             }
         }
 
@@ -1335,7 +1335,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
 
         "sync_status" => respond(sync::sync_status(app.state(), app.state()).await),
         "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state()).await),
-        "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), arg!(args, "force")).await),
+        "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), app.state(), arg!(args, "force")).await),
 
         "remote_status" => respond(remote::remote_status(app.state()).await),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),

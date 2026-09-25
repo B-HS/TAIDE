@@ -118,6 +118,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     탭 닫힘 뒤 IDE pending diff 해소·PTY 회수는 `layout::service::LayoutTabClosedObservers`,
     IDE MCP의 탭 open/close 수명주기는 `ide::server::IdeLayoutActions`,
     IDE diff 결과의 보호된 파일 저장은 `ide::commands::IdeSaveFile`,
+    app 파일·sync 다운로드의 설정 적용은 루트 `settings_port::SettingsApplyPort`,
     원격 WebSocket의 JSON/raw command 호출은 `remote::dispatch::RemoteDispatchPort`,
     에이전트 감지의 터미널 전경 PID 조회는 `agent::commands::AgentForegroundPids`,
     네이티브 메뉴의 최근 프로젝트·번역 조회는 `window::menu::MenuSources`,
