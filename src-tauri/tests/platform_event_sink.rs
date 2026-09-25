@@ -6,6 +6,7 @@ use taide_lib::state::AppState;
 use taide_model::agent::ExternalOpenRequest;
 use taide_model::app_event::AppEvent;
 use taide_model::file::{FsChange, FsChangeKind};
+use taide_model::flush::FlushScope;
 use taide_model::ide::IdeStatus;
 use taide_model::ids::ProjectId;
 use taide_model::lsp::{LspInstallPhase, LspServerId, LspSessionStatus};
@@ -636,4 +637,45 @@ fn agent_diff와_외부_열기_queue는_기존_조건_뒤에_port로_발행한�
     assert!(commands.contains("queue_external_open(app_handle, request)"));
     assert!(adapter.contains("AgentStateChanged { project_id, agents }.emit(self.0)"));
     assert!(adapter.contains("AgentExternalOpen { request }.emit(self.0)"));
+}
+
+#[test]
+fn hot_exit_요청은_세_scope를_같은_port에서_발행한다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-hot-exit-event-sink".to_string());
+    let scopes = [
+        FlushScope::All,
+        FlushScope::Window("editor-1".to_string()),
+        FlushScope::Project(project_id),
+    ];
+
+    for scope in &scopes {
+        sink.publish(AppEvent::HotExitFlushRequested {
+            timeout_ms: 1.0,
+            scope: scope.clone(),
+        });
+    }
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &scopes.map(|scope| AppEvent::HotExitFlushRequested { timeout_ms: 1.0, scope })
+    );
+}
+
+#[test]
+fn hot_exit_요청은_handshake_시작_뒤_발행하고_원격에_전파하지_않는다() {
+    let window = include_str!("../src/domain/window/commands.rs");
+    let project = include_str!("../src/domain/project/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let auxiliary = window.split_once("fn handle_auxiliary_close_requested(").unwrap().1;
+    let main = window.split_once("state.begin_hot_exit_flush(expected_windows)").unwrap().1;
+    let project_flush = project.split_once("async fn await_project_flush(").unwrap().1;
+
+    assert!(auxiliary.find("state.begin_flush(").unwrap() < auxiliary.find("AppEvent::HotExitFlushRequested").unwrap());
+    assert!(main.contains("AppEvent::HotExitFlushRequested"));
+    assert!(project_flush.find("state.begin_flush(").unwrap() < project_flush.find("AppEvent::HotExitFlushRequested").unwrap());
+    assert!(window.contains("scope: FlushScope::All"));
+    assert!(window.contains("scope: scope.clone()"));
+    assert!(project.contains("scope: scope.clone()"));
+    assert!(adapter.contains("HotExitFlushRequested { timeout_ms, scope }.emit(self.0)"));
 }

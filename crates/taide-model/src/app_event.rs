@@ -1,5 +1,6 @@
 use crate::agent::{DetectedAgent, ExternalOpenRequest};
 use crate::file::FsChange;
+use crate::flush::FlushScope;
 use crate::ide::IdeStatus;
 use crate::ids::{ProjectId, ShellSlotId};
 use crate::lsp::{LspInstallPhase, LspServerId, LspSessionStatus};
@@ -124,5 +125,9 @@ pub enum AppEvent {
     },
     AgentExternalOpen {
         request: ExternalOpenRequest,
+    },
+    HotExitFlushRequested {
+        timeout_ms: f64,
+        scope: FlushScope,
     },
 }

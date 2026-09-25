@@ -4,7 +4,6 @@ use std::path::Path;
 use taide_model::app_event::AppEvent;
 use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, State};
-use tauri_specta::Event;
 
 use super::capability::ProjectCapabilities;
 use super::groups;
@@ -16,7 +15,6 @@ use super::types::{
 use crate::constants;
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
-use crate::events::HotExitFlushRequested;
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
 use crate::platform::event_sink::TauriEventSink;
@@ -499,11 +497,10 @@ async fn await_project_flush(app: &AppHandle, state: &AppState, project_id: &Pro
         return;
     };
 
-    let _ = HotExitFlushRequested {
+    TauriEventSink(app).publish(AppEvent::HotExitFlushRequested {
         timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
         scope: scope.clone(),
-    }
-    .emit(app);
+    });
 
     let confirmed = ticket
         .wait(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS))

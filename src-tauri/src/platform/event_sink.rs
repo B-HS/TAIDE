@@ -4,9 +4,9 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested,
-    IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated,
-    ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged,
+    AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
+    IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
+    ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged,
     SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
     TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
@@ -179,6 +179,9 @@ impl EventSink for TauriEventSink<'_> {
             }
             AppEvent::AgentExternalOpen { request } => {
                 let _ = AgentExternalOpen { request }.emit(self.0);
+            }
+            AppEvent::HotExitFlushRequested { timeout_ms, scope } => {
+                let _ = HotExitFlushRequested { timeout_ms, scope }.emit(self.0);
             }
         }
     }

@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
-use tauri_specta::Event;
 
 use super::menu;
 use super::service;
@@ -12,8 +13,8 @@ use super::types::{
 };
 use crate::constants;
 use crate::error::{AppError, AppErrorKind, AppResult};
-use crate::events::HotExitFlushRequested;
 use crate::ids::ProjectId;
+use crate::platform::event_sink::TauriEventSink;
 use crate::platform::navigation_guard;
 use crate::platform::window_registry::WindowRegistry;
 use crate::state::{AppState, FlushScope};
@@ -215,11 +216,10 @@ fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &ta
 
         let ticket = state.begin_flush(scope.clone(), HashSet::from([window.label().to_string()]))?;
 
-        let _ = HotExitFlushRequested {
+        TauriEventSink(window.app_handle()).publish(AppEvent::HotExitFlushRequested {
             timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
             scope: scope.clone(),
-        }
-        .emit(window);
+        });
 
         let app_handle = window.app_handle().clone();
         let label = window.label().to_string();
@@ -295,14 +295,10 @@ pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &t
         return None;
     }
 
-    // `Event::emit` broadcasts to every window/webview app-wide regardless of which handle it's
-    // called through, so every currently-open auxiliary window already receives this alongside
-    // the main window — no separate per-window fanout loop is needed here.
-    let _ = HotExitFlushRequested {
+    TauriEventSink(window.app_handle()).publish(AppEvent::HotExitFlushRequested {
         timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
         scope: FlushScope::All,
-    }
-    .emit(window);
+    });
 
     let app_handle = window.app_handle().clone();
     tauri::async_runtime::spawn(async move {
