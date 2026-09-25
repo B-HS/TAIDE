@@ -3,35 +3,14 @@ use std::path::{Path, PathBuf};
 
 use tauri::State;
 
+pub use taide_runtime::TreeStore;
+
 use super::service::{self, DirectoryListings, TreeState};
 use super::types::TreeRowPage;
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, SpanSlot};
 use crate::state::AppState;
-
-pub struct TreeStore(pub parking_lot::RwLock<HashMap<ProjectId, TreeState>>);
-
-impl TreeStore {
-    pub fn new() -> Self {
-        Self(parking_lot::RwLock::new(HashMap::new()))
-    }
-
-    /// Forgets `project_id`'s cached tree — every expanded/collapsed row and directory listing
-    /// scanned so far. Called by `TreeCacheCapability::detach` during `project_close` so reopening the same folder
-    /// starts from a fresh scan instead of resurrecting a stale directory listing that may no
-    /// longer match disk (files changed while the project was closed and unwatched), and so the
-    /// entry doesn't sit in this map for the rest of the app's lifetime.
-    pub fn remove(&self, project_id: &ProjectId) {
-        self.0.write().remove(project_id);
-    }
-}
-
-impl Default for TreeStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<PathBuf> {
     state

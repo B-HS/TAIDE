@@ -962,6 +962,7 @@ pub fn run() {
                 state,
                 SearchStore::default(),
                 AiRequestStore::default(),
+                TreeStore::default(),
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
             ));
 
@@ -974,7 +975,7 @@ pub fn run() {
             app.manage(system_usage_label_providers());
             app.manage(pty_spawn_env_provider());
             app.manage(pty_session_observers());
-            app.manage(TreeStore::default());
+            app.manage(services.tree.clone());
             app.manage(TerminalStore::default());
             app.manage(AgentForegroundPids(foreground_pids_for_agent));
             app.manage(GitStore::default());
