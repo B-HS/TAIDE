@@ -882,3 +882,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 WindowChrome variant를 추가하고 Tauri platform adapter에서 기존 WindowChromeChanged로 변환했습니다. 단일 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·세션 갱신 순서는 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 12/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 15건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 clippy의 테스트 Copy 값 clone 지적 1곳을 제거한 뒤 경계 테스트와 clippy가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 미검증이며 나머지 18개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `42f1001`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열한 번째 slice — 프로젝트 snapshot EventSink 경계
+
+- [x] A. 프로젝트 목록·그룹·셸 슬롯의 세 helper는 현재 session snapshot을 만든 뒤 발행합니다. 셸 슬롯 helper는 발행 전에 session read lock을 해제해 inline listener와의 잠금 경합을 피합니다. 기존 이벤트는 `collect_events!`와 원격 fanout에 등록됩니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 세 snapshot variant를 추가하고 Tauri platform adapter에서 기존 ProjectListChanged/ProjectGroupsChanged/SessionShellSlotsChanged로 변환했습니다. helper 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·snapshot 순서는 변경하지 않았습니다. ShellSlotTree의 f32 크기 값으로 인해 AppEvent의 Eq 파생만 제거하고 PartialEq는 유지했습니다. 현행 아키텍처 문서의 이전 상태를 15/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 17건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 컴파일의 Eq derive 오류는 ShellSlotTree의 f32 크기 값에 맞춰 Eq만 제거해 해결했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 미검증이며 나머지 15개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `b26f903`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.

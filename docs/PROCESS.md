@@ -484,10 +484,14 @@
   - [x] M6-AL. WindowChrome AppEvent variant와 Tauri adapter mapping을 추가하고 발행점을 EventSink로 이전했습니다. 세션 저장과 mutation guard 해제 뒤 발행, 기존 IPC payload를 유지했습니다.
   - [x] M6-AM. EventSink 경계 15건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 clippy는 테스트의 Copy 값 clone 1곳을 지적했고 제거 후 경계 테스트와 clippy가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 이번 slice에서 실행하지 않았습니다.
   - [x] M6-AN. 구현·테스트·현행 문서를 `42f1001`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. EventSink 전체와 M6는 나머지 이벤트·AppServices·TaskSupervisor 완료 전까지 미완료이며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+  - [x] M6-AO. 프로젝트 목록·그룹·셸 슬롯 세 helper의 snapshot·잠금 해제·fanout 계약을 확인했습니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+  - [x] M6-AP. 세 AppEvent variant와 Tauri adapter mapping을 추가하고 helper 발행점을 EventSink로 이전했습니다. 전체 목록/그룹/슬롯 snapshot과 session read lock 해제 후 발행을 유지했습니다. ShellSlotTree의 f32 크기 때문에 AppEvent는 PartialEq를 유지하고 Eq 파생만 제거했습니다.
+  - [x] M6-AQ. EventSink 경계 17건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 컴파일의 Eq derive 오류는 ShellSlotTree의 f32 크기 값에 맞춰 Eq만 제거해 해결했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 이번 slice에서 실행하지 않았습니다.
+  - [x] M6-AR. 구현·테스트·현행 문서를 `b26f903`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. EventSink 전체와 M6는 나머지 이벤트·AppServices·TaskSupervisor 완료 전까지 미완료이며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`·`WindowRegistry`는 platform으로 이전했고 `EventSink`는 LayoutChanged·Git status/refs·terminal 네 이벤트·설정/테마·sync·remote 상태·창 chrome 12종부터 이전 중입니다.
+> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`·`WindowRegistry`는 platform으로 이전했고 `EventSink`는 LayoutChanged·Git status/refs·terminal 네 이벤트·설정/테마·sync·remote 상태·창 chrome·프로젝트 snapshot 세 이벤트 15종부터 이전 중입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
