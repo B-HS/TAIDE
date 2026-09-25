@@ -274,7 +274,7 @@
   - [x] M4-CF. layout 서비스 slice 구현을 commit `fb966e1`로 선별 반영하고 검증·Tauri flush/이벤트/IDE·terminal 조립 유지·미완료 GUI/실제 재시작 실기를 계약 문서에 기록했습니다. 기록 commit과 함께 원격 `to_rust_native`에 일반 push합니다.
   - [x] M4-CG. 계약의 기능별 서비스 19개와 추가 app 서비스가 독립 crate에 있고 Tauri의 공개 service 경로는 재수출 또는 조립 adapter로 보존됨을 대조했습니다. root_guard·persist는 infra로, watcher·plugin overlay 취득은 Tauri adapter에 두고 서비스 입력 경계로 넘깁니다. 마지막 workspace 전체·fmt·clippy·strict layout rustdoc·Phase 0 IPC·bindings 해시가 통과했고 GUI/실제 재시작은 M7 검증입니다.
   - [x] M4-CH. M4의 코드 분리 완료와 Tauri 조립·GUI 검증의 후속 소유권을 계약 문서에 고정하고 PROCESS 상태를 완료로 갱신해 문서만 선별 commit·일반 push합니다.
-- [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환과 remote 전 도메인 dispatch를 port/조립 계층에서 해결하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
+- [ ] M5. LSP·terminal·IDE·remote·window 결합 절단 — layout↔ide·layout↔window 순환은 조립 계층에서 해소했으며, 남은 단방향 결합과 remote 전 도메인 dispatch를 정리하고 service·protocol을 별도 crate로 이전. 보안/세션/자원 lifecycle 테스트 선행.
   - [x] M5-A. terminal 서비스의 scrollback·shell profile·경로 정책은 model ShellProfile/error와 infra home만 의존하고 PTY command/capability는 Tauri 조립 경계임을 확인했습니다. 기존 unit 21건 green 뒤 새 crate 경계 테스트는 crate 부재 E0433(exit 101)으로 의도대로 실패했습니다.
   - [x] M5-B. terminal 정책 구현·unit 21건을 taide-terminal crate로 옮기고 기존 service 공개 경로를 재수출했습니다. 새 crate unit 21건·경계 1건·PTY command 테스트 22건이 통과했고 PTY 세션/자원 조립은 Tauri에 유지했습니다.
   - [x] M5-C. 새 crate unit 21건·경계 1건·PTY command 테스트 22건·workspace 전체·fmt·clippy·strict terminal rustdoc·Phase 0 IPC 계약 7건·TypeScript typecheck가 통과했습니다. 경계 테스트의 타입 복잡도 지적은 표기를 단순화한 뒤 해당 테스트·fmt·clippy를 재검증했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256은 불변입니다. 실제 PTY/GUI 실기는 미실행입니다.
@@ -382,6 +382,10 @@
   - [x] M5-DA. M5-CN의 문서 커밋 여부를 `git show --stat --oneline 2847b62`로 확인했습니다. PROCESS와 계약 기록 두 곳의 `[ ]`은 완료된 로컬 기록을 반영하지 못한 표기입니다.
   - [x] M5-DB. M5-CN과 스물두 번째 slice D의 체크 상태·로컬 문서 commit 근거를 맞추고, 원격 push 보류 및 M5 전체 미완료 상태는 유지했습니다.
   - [x] M5-DC. 교정한 두 문서를 선별 로컬 commit하고 작업 트리 상태를 확인합니다. 원격 push는 사용자 승인 전까지 실행하지 않습니다.
+  - [x] M5-DD. 보조 창의 최초 `CloseRequested`는 scoped flush를 기다리고 재요청 또는 `Destroyed`가 등록을 한 번만 해제해 탭 복귀를 계획합니다. mirror 조회 실패는 빈 목록으로 처리하며 layout mutation guard 뒤 유령 dirty 정리→탭 복귀→writeback·이벤트 순서입니다. 기존 domain boundary 3건 green 뒤 window→file/layout 허용 두 항목을 제거하자 두 참조가 정확히 검출되어 집중 테스트가 의도대로 실패했습니다(exit 101).
+  - [x] M5-DE. window command는 기존 scoped flush·중복 등록 해제 뒤 `(project_id, slot)`만 반환하고, `lib.rs`의 `CloseRequested`·`Destroyed`는 같은 탭 복귀 함수를 호출합니다. mirror 조회 실패의 빈 목록 정책, mutation guard→유령 dirty 정리→탭 복귀→layout 기록·이벤트 순서를 보존했습니다. window→file/layout 직접 참조를 제거했고 domain boundary 3건·상위 조립 순서 1건·window 명령 6건·layout 서비스 4건·Phase 0 계약 7건이 통과했습니다.
+  - [x] M5-DF. domain boundary 3건·조립 순서 1건·window 명령 6건·layout 서비스 4건·Phase 0 계약 7건, `cargo fmt --all --check`·`cargo clippy -p taide --all-targets -- -D warnings`·`git diff --check`가 통과했습니다. clippy 첫 실행은 새 `Option` 반환의 조기 반환 표현을 지적해 exit 101이었고 `?`로 바꾼 뒤 같은 명령이 통과했습니다. 생성 bindings SHA-256 `3ce82f3fda029e700a8f26ad5a08869b7452d337c32e11df82f670b9d33f0993`은 불변입니다. 실제 다중 창 GUI 닫기·flush timeout 실기와 전체 workspace·TypeScript 검사는 이번 slice에서 실행하지 않았습니다. IDE→layout 및 remote gateway 등 남은 결합과 M5 전체는 미완료입니다.
+  - [x] M5-DG. 코드·테스트·현재 아키텍처 문서는 commit `e041b83`로 선별 로컬 반영했습니다. 검증 기록과 PROCESS 상태를 별도 로컬 문서 commit으로 남기고 원격 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
