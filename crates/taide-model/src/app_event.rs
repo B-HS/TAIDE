@@ -1,10 +1,10 @@
-use crate::ids::ProjectId;
-use crate::project::WindowChrome;
+use crate::ids::{ProjectId, ShellSlotId};
+use crate::project::{ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::remote::RemoteStatus;
 use crate::settings::Settings;
 use crate::sync::SyncStatus;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppEvent {
     LayoutChanged {
         project_id: ProjectId,
@@ -50,5 +50,15 @@ pub enum AppEvent {
     },
     WindowChromeChanged {
         chrome: WindowChrome,
+    },
+    ProjectListChanged {
+        projects: Vec<ProjectRef>,
+    },
+    ProjectGroupsChanged {
+        groups: Vec<ProjectGroup>,
+    },
+    SessionShellSlotsChanged {
+        tree: Option<ShellSlotTree>,
+        focused: Option<ShellSlotId>,
     },
 }

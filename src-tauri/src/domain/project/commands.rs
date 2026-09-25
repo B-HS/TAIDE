@@ -17,8 +17,7 @@ use crate::constants;
 use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
 use crate::events::{
-    FsChanged, GitStatusChanged, HotExitFlushRequested, ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged,
-    ProjectOpened, ProjectRecentCleared, SessionShellSlotsChanged,
+    FsChanged, GitStatusChanged, HotExitFlushRequested, ProjectActivated, ProjectClosed, ProjectOpened, ProjectRecentCleared,
 };
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
@@ -28,7 +27,7 @@ use crate::state::{AppState, FlushScope};
 
 fn emit_list_changed(app: &AppHandle, state: &AppState) {
     let projects = service::list_projects(&state.session.read());
-    let _ = ProjectListChanged { projects }.emit(app);
+    TauriEventSink(app).publish(AppEvent::ProjectListChanged { projects });
 }
 
 /// Publishes the current slot arrangement to every window and remote session. The session lock is
@@ -37,19 +36,19 @@ fn emit_list_changed(app: &AppHandle, state: &AppState) {
 fn emit_shell_slots_changed(app: &AppHandle, state: &AppState) {
     let payload = {
         let session = state.session.read();
-        SessionShellSlotsChanged {
+        AppEvent::SessionShellSlotsChanged {
             tree: session.shell_slots.clone(),
             focused: session.focused_shell_slot.clone(),
         }
     };
-    let _ = payload.emit(app);
+    TauriEventSink(app).publish(payload);
 }
 
 /// Publishes the sidebar's project groups to every window and remote session. Releases the session
 /// lock before the emit for the same reason [`emit_shell_slots_changed`] does.
 fn emit_groups_changed(app: &AppHandle, state: &AppState) {
     let groups = service::list_groups(&state.session.read());
-    let _ = ProjectGroupsChanged { groups }.emit(app);
+    TauriEventSink(app).publish(AppEvent::ProjectGroupsChanged { groups });
 }
 
 #[tauri::command]
@@ -634,7 +633,7 @@ pub async fn project_reorder(app: AppHandle, state: State<'_, AppState>, ids: Ve
 /// Sets one project's sidebar presentation (icon / short label / color token), each axis
 /// independently settable, clearable, or left alone — see `types::ProjectDisplayPatch` for the
 /// three-state convention and `service::set_project_display` for the sanitizing this command
-/// deliberately leaves to the service. Reuses [`ProjectListChanged`] rather than adding a
+/// deliberately leaves to the service. Reuses [`crate::events::ProjectListChanged`] rather than adding a
 /// `ProjectDisplayChanged` event: the sidebar renders from `project_list`'s `ProjectRef[]`, which
 /// now carries `display`, so the existing fanout already delivers this change to every window and
 /// to remote sessions (`lib.rs`'s `fanout_remote_events!`). Remote-allowed at the same grade as
@@ -662,7 +661,7 @@ pub async fn project_set_display(
     Ok(())
 }
 
-/// Every sidebar project group, for a window that just mounted — [`ProjectGroupsChanged`] only fires
+/// Every sidebar project group, for a window that just mounted — [`crate::events::ProjectGroupsChanged`] only fires
 /// at a transition, the same gap `project_get_active`/`session_get_shell_state` exist to close.
 #[tauri::command]
 #[specta::specta]

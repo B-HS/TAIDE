@@ -293,3 +293,37 @@ fn 창_chrome_이벤트는_세션_저장과_guard_해제_뒤에_발행된다() {
     assert!(set_chrome.find("drop(_guard)").unwrap() < set_chrome.find("AppEvent::WindowChromeChanged").unwrap());
     assert!(adapter.contains("WindowChromeChanged { chrome }.emit(self.0)"));
 }
+
+#[test]
+fn 프로젝트_목록_그룹_슬롯_snapshot은_같은_port에서_발행된다() {
+    let sink = RecordingEventSink::default();
+
+    sink.publish(AppEvent::ProjectListChanged { projects: Vec::new() });
+    sink.publish(AppEvent::ProjectGroupsChanged { groups: Vec::new() });
+    sink.publish(AppEvent::SessionShellSlotsChanged { tree: None, focused: None });
+
+    let recorded = sink.0.lock().unwrap();
+    assert!(matches!(&recorded[0], AppEvent::ProjectListChanged { projects } if projects.is_empty()));
+    assert!(matches!(&recorded[1], AppEvent::ProjectGroupsChanged { groups } if groups.is_empty()));
+    assert!(matches!(
+        &recorded[2],
+        AppEvent::SessionShellSlotsChanged { tree: None, focused: None }
+    ));
+}
+
+#[test]
+fn 프로젝트_목록_그룹_슬롯은_snapshot을_만든_뒤_port로_발행된다() {
+    let commands = include_str!("../src/domain/project/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let list = commands.split_once("fn emit_list_changed(").unwrap().1;
+    let slots = commands.split_once("fn emit_shell_slots_changed(").unwrap().1;
+    let groups = commands.split_once("fn emit_groups_changed(").unwrap().1;
+
+    assert!(list.find("service::list_projects(").unwrap() < list.find("AppEvent::ProjectListChanged").unwrap());
+    assert!(slots.find("let session = state.session.read()").unwrap() < slots.find("AppEvent::SessionShellSlotsChanged").unwrap());
+    assert!(slots.find("};").unwrap() < slots.find(".publish(payload)").unwrap());
+    assert!(groups.find("service::list_groups(").unwrap() < groups.find("AppEvent::ProjectGroupsChanged").unwrap());
+    assert!(adapter.contains("ProjectListChanged { projects }.emit(self.0)"));
+    assert!(adapter.contains("ProjectGroupsChanged { groups }.emit(self.0)"));
+    assert!(adapter.contains("SessionShellSlotsChanged { tree, focused }.emit(self.0)"));
+}

@@ -4,8 +4,9 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    GitRefsChanged, GitStatusChanged, LayoutChanged, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished,
-    TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
+    GitRefsChanged, GitStatusChanged, LayoutChanged, ProjectGroupsChanged, ProjectListChanged, RemoteStateChanged,
+    SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
+    TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -70,6 +71,15 @@ impl EventSink for TauriEventSink<'_> {
             }
             AppEvent::WindowChromeChanged { chrome } => {
                 let _ = WindowChromeChanged { chrome }.emit(self.0);
+            }
+            AppEvent::ProjectListChanged { projects } => {
+                let _ = ProjectListChanged { projects }.emit(self.0);
+            }
+            AppEvent::ProjectGroupsChanged { groups } => {
+                let _ = ProjectGroupsChanged { groups }.emit(self.0);
+            }
+            AppEvent::SessionShellSlotsChanged { tree, focused } => {
+                let _ = SessionShellSlotsChanged { tree, focused }.emit(self.0);
             }
         }
     }
