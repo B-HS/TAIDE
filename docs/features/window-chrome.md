@@ -216,13 +216,12 @@ TAIDE   File   Edit   Window
 
 - 메뉴는 `domain::window::commands::build_app_menu` 이 조립하고, `File` 서브메뉴만
   `domain::window::menu` 이 만든다(`build_file_submenu`). `lib.rs` 의 `setup` 은 **`AppState` 를
-  `manage` 한 뒤에** `set_menu` 를 호출한다 — `Open Recent` 는 `AppPaths` 가 가리키는 디스크의
-  프로젝트 기록에서 만들어지므로 상태보다 먼저 만들 수 없다(그 제약은 `build_app_menu` 의 문서
-  주석이 정본이다).
-- **window 도메인은 project·settings 도메인을 호출하지 않는다.** 클릭 디스패치도 메뉴 갱신도
-  전부 조립(`lib.rs`)이 소유한다 — architecture.md §2, `tests/domain_boundaries.rs` 가 강제한다.
-  `window::menu` 가 갖는 교차 참조는 최근 목록·라벨을 **읽는** 두 건(`project::service`,
-  `locale::service`)뿐이고 화이트리스트에 사유와 함께 등재돼 있다.
+  `manage` 하고 `MenuSources` 를 등록한 뒤에** `set_menu` 를 호출한다 — `Open Recent` 는
+  `AppPaths` 가 가리키는 디스크의 프로젝트 기록에서 만들어지므로 상태보다 먼저 만들 수 없다
+  (그 제약은 `build_app_menu` 의 문서 주석이 정본이다).
+- **window 도메인은 project·settings·locale 도메인을 호출하지 않는다.** 클릭 디스패치와 최근 목록·
+  번역 공급은 조립(`lib.rs`)이 소유하고 `MenuSources` 로 메뉴에 전달한다 — architecture.md §2,
+  `tests/domain_boundaries.rs` 가 강제한다.
 - **Open Recent 항목**: `project::service::list_recent_projects`(=`last_opened_at` 내림차순) 상위
   `RECENT_PROJECT_MENU_LIMIT`(10, `src-tauri/src/constants.rs`)개. 라벨은 프로젝트의 표시 라벨
   (`display.label`)이 있으면 그것, 없으면 폴더명 — 알림 제목이 프로젝트를 부르는 방식과 같다.
@@ -258,7 +257,7 @@ TAIDE   File   Edit   Window
   동작해야** 하기 때문이다(macOS 는 마지막 창을 닫아도 앱이 살아 있고, 그 상태가 "최근 프로젝트
   다시 열기"가 가장 쓸모 있는 상태다).
 - 메뉴 항목의 id 는 `taide-recent:<projectId>` 이고, root 는 클릭 시점에 레코드를 **다시 읽어**
-  얻는다(`menu::recent_project_root` — 그 사이 Clear Recent 로 지워졌을 수 있다).
+  얻는다(`lib.rs` 의 `recent_project_root` — 그 사이 Clear Recent 로 지워졌을 수 있다).
 
 ### 7.3 동적 갱신 (이벤트 구독)
 
@@ -286,7 +285,7 @@ TAIDE   File   Edit   Window
 
 ### 7.4 알려진 제약
 
-- **`language: "system"` 이면 메뉴는 영어다.** 메뉴 라벨은 Rust 가
+- **`language: "system"` 이면 메뉴는 영어다.** 조립부의 메뉴 라벨 공급은 Rust 가
   `locale::service::lookup_builtin_message` 로 내장 카탈로그에서 직접 읽는데, OS 로케일은 프론트의
   `navigator.language`(=`locale_get_current(systemLanguage)` 인자)로만 이 앱에 들어오고 Rust
   프로세스는 그 값을 관측하지 않는다. 언어를 명시적으로 `ko`/`ja` 로 고르면 메뉴도 그 언어가 된다.

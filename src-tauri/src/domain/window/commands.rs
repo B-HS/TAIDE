@@ -153,10 +153,9 @@ pub async fn window_set_fullscreen(window: tauri::Window<tauri::Wry>, fullscreen
 
 /// Assembles the whole app menu bar (`TAIDE` · `File` · `Edit` · `Window`).
 ///
-/// **Must not be called before `AppState` is managed**: the `File` submenu's `Open Recent` rows are
-/// read from the persisted project history `AppState::paths` points at
-/// ([`menu::build_file_submenu`]), so `lib.rs`'s `setup()` calls `set_menu` right after
-/// `app.manage(state)` rather than at builder time.
+/// **Must not be called before `AppState` and `MenuSources` are managed**: the `File` submenu's
+/// `Open Recent` rows are read from the persisted project history through
+/// [`menu::build_file_submenu`], so `lib.rs`'s `setup()` calls `set_menu` after both are managed.
 pub(crate) fn build_app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 

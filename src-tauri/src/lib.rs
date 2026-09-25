@@ -30,6 +30,7 @@ use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::tree::commands::TreeStore;
 use crate::domain::window::commands::{open_auxiliary_window, WindowStore};
+use crate::domain::window::menu::MenuSources;
 use crate::error::AppResult;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
@@ -244,6 +245,32 @@ fn remote_dispatch_port() -> RemoteDispatchPort {
     }
 }
 
+fn recent_menu_projects(app: &AppHandle) -> Vec<domain::project::types::Project> {
+    let state = app.state::<AppState>();
+    match domain::project::service::list_recent_projects(&state.paths) {
+        Ok(projects) => projects,
+        Err(error) => {
+            log::warn!("최근 프로젝트 목록을 읽지 못해 메뉴를 비웁니다: {error}");
+            Vec::new()
+        }
+    }
+}
+
+fn menu_label(app: &AppHandle, key: &str, fallback: &str) -> String {
+    let language = app.state::<AppState>().settings.read().language.clone();
+    let locale_id = domain::locale::service::builtin_locale_for_language(&language);
+    domain::locale::service::lookup_builtin_message(locale_id, key)
+        .or_else(|| domain::locale::service::lookup_builtin_message(domain::locale::service::BUILTIN_EN_ID, key))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn menu_sources() -> MenuSources {
+    MenuSources {
+        recent_projects: recent_menu_projects,
+        label: menu_label,
+    }
+}
+
 fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObservers {
     domain::layout::service::LayoutTabClosedObservers::new(vec![
         Box::new(|app, tab| app.state::<IdeStore>().reconcile_closed_tab(tab)),
@@ -355,7 +382,7 @@ fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &ProjectId,
 /// Everything but Quit runs on a spawned task. This handler is called on the main thread, where
 /// blocking on `project_open`'s mutation guard would stall the very event loop that open needs, and
 /// where neither the recent list's disk read nor a project open belongs. The clicked row's root is
-/// re-read at dispatch time (`menu::recent_project_root`) rather than carried in the menu item: a
+/// re-read at dispatch time (`recent_project_root`) rather than carried in the menu item: a
 /// menu built minutes ago can name a project `Clear Recent` has since forgotten, and re-reading
 /// turns that into a logged no-op instead of an open against a stale path.
 ///
@@ -379,7 +406,7 @@ fn dispatch_menu_action(app: &tauri::AppHandle, action: domain::window::menu::Me
         MenuAction::OpenRecent(project_id) => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                let Some(root) = domain::window::menu::recent_project_root(&app, &project_id) else {
+                let Some(root) = recent_project_root(&app, &project_id) else {
                     log::warn!("최근 항목 메뉴가 가리키는 프로젝트 레코드를 찾지 못했습니다 (projectId={project_id})");
                     return;
                 };
@@ -391,6 +418,15 @@ fn dispatch_menu_action(app: &tauri::AppHandle, action: domain::window::menu::Me
         }
         MenuAction::Ignored => {}
     }
+}
+
+fn recent_project_root(app: &AppHandle, project_id: &ProjectId) -> Option<String> {
+    let state = app.state::<AppState>();
+    domain::project::service::list_recent_projects(&state.paths)
+        .ok()?
+        .into_iter()
+        .find(|project| &project.id == project_id)
+        .map(|project| project.root)
 }
 
 /// Keeps the native app menu in step with the state it draws, by **subscribing** to the events the
@@ -859,6 +895,7 @@ pub fn run() {
             let restored = domain::project::commands::projects_pending_watcher_restore(&state.projects.read(), &state.session.read());
 
             app.manage(state);
+            app.manage(menu_sources());
             app.manage(project_capabilities());
             app.manage(settings_toggle_observers());
             app.manage(system_usage_label_providers());
@@ -1297,6 +1334,28 @@ mod tests {
         let ws = include_str!("domain/remote/ws.rs");
         assert!(ws.contains("(app.state::<RemoteDispatchPort>().json)("));
         assert!(ws.contains("(app.state::<RemoteDispatchPort>().raw)("));
+    }
+
+    #[test]
+    fn 앱_메뉴는_조립부의_최근_프로젝트와_번역_공급원을_사용한다() {
+        let source = include_str!("lib.rs");
+        let sources = extract_between(source, "fn recent_menu_projects(", "fn layout_tab_closed_observers()");
+        assert!(sources.contains("domain::project::service::list_recent_projects(&state.paths)"));
+        assert!(sources.contains("domain::locale::service::builtin_locale_for_language(&language)"));
+        assert!(sources.contains("domain::locale::service::BUILTIN_EN_ID"));
+        assert!(sources.contains("recent_projects: recent_menu_projects"));
+        assert!(sources.contains("label: menu_label"));
+
+        let setup = extract_between(source, "app.manage(state);", "app.set_menu(");
+        assert!(setup.contains("app.manage(menu_sources());"));
+
+        let menu = include_str!("domain/window/menu.rs");
+        assert!(menu.contains("(app.state::<MenuSources>().recent_projects)(app)"));
+        assert!(menu.contains("(app.state::<MenuSources>().label)(app, key, fallback)"));
+
+        let click = extract_between(source, "MenuAction::OpenRecent(project_id) => {", "MenuAction::Ignored => {}");
+        assert!(click.contains("recent_project_root(&app, &project_id)"));
+        assert!(source.contains("fn recent_project_root(app: &AppHandle, project_id: &ProjectId) -> Option<String>"));
     }
 
     #[test]

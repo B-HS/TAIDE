@@ -2,11 +2,8 @@ use tauri::menu::{IsMenuItem, MenuItemBuilder, PredefinedMenuItem, Submenu, Subm
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::constants::RECENT_PROJECT_MENU_LIMIT;
-use crate::domain::locale::service as locale_service;
-use crate::domain::project::service as project_service;
 use crate::domain::project::types::Project;
 use crate::ids::ProjectId;
-use crate::state::AppState;
 
 pub(crate) const MENU_ID_FILE: &str = "taide-file";
 pub(crate) const MENU_ID_OPEN_RECENT: &str = "taide-open-recent";
@@ -48,7 +45,7 @@ pub(crate) enum MenuAction {
 /// The action `menu_id` stands for. Pure — no `AppHandle`, no IO — so the whole id-to-action table
 /// is testable without an event loop, and so the assembly decides *where* each action runs: the
 /// menu-event handler is called on the main thread, and both resolving a recent row's root
-/// ([`recent_project_root`], a disk read) and taking `project_open`'s mutation guard have to
+/// (`lib.rs`'s `recent_project_root`, a disk read) and taking `project_open`'s mutation guard have to
 /// happen off it.
 pub(crate) fn menu_action(menu_id: &str) -> MenuAction {
     if menu_id == MENU_ID_QUIT {
@@ -72,6 +69,11 @@ pub(crate) struct RecentMenuEntry {
     pub id: ProjectId,
     pub label: String,
     pub enabled: bool,
+}
+
+pub(crate) struct MenuSources {
+    pub recent_projects: fn(&AppHandle) -> Vec<Project>,
+    pub label: fn(&AppHandle, &str, &str) -> String,
 }
 
 /// The first `limit` of `projects` — which `project::service::list_recent_projects` already orders
@@ -119,27 +121,12 @@ pub(crate) fn parse_recent_menu_id(menu_id: &str) -> Option<ProjectId> {
         .map(|rest| ProjectId(rest.to_string()))
 }
 
-/// A menu label out of the bundled catalog for the language the user picked, falling back to the
-/// key's English text and finally to `fallback` — a menu with a missing label would otherwise draw
-/// an empty row the user cannot identify. See
-/// [`locale_service::builtin_locale_for_language`] for why `"system"` reads as English here.
 fn menu_label(app: &AppHandle, key: &str, fallback: &str) -> String {
-    let language = app.state::<AppState>().settings.read().language.clone();
-    let locale_id = locale_service::builtin_locale_for_language(&language);
-    locale_service::lookup_builtin_message(locale_id, key)
-        .or_else(|| locale_service::lookup_builtin_message(locale_service::BUILTIN_EN_ID, key))
-        .unwrap_or_else(|| fallback.to_string())
+    (app.state::<MenuSources>().label)(app, key, fallback)
 }
 
 fn recent_entries_now(app: &AppHandle) -> Vec<RecentMenuEntry> {
-    let state = app.state::<AppState>();
-    match project_service::list_recent_projects(&state.paths) {
-        Ok(projects) => recent_menu_entries(projects, RECENT_PROJECT_MENU_LIMIT),
-        Err(error) => {
-            log::warn!("최근 프로젝트 목록을 읽지 못해 메뉴를 비웁니다: {error}");
-            Vec::new()
-        }
-    }
+    recent_menu_entries((app.state::<MenuSources>().recent_projects)(app), RECENT_PROJECT_MENU_LIMIT)
 }
 
 /// Builds the rows that live inside `Open Recent`: the recent projects, a separator, then
@@ -245,19 +232,6 @@ fn rebuild_open_recent_items(app: &AppHandle, open_recent: &Submenu<Wry>, entrie
         open_recent.append(item.as_ref())?;
     }
     Ok(())
-}
-
-/// The root path of the persisted project record `project_id` names, read back at click time
-/// rather than baked into the menu item: a menu built minutes ago can name a project whose record
-/// has since been cleared, and re-reading is what turns that into a logged no-op instead of an
-/// open call against a stale path.
-pub(crate) fn recent_project_root(app: &AppHandle, project_id: &ProjectId) -> Option<String> {
-    let state = app.state::<AppState>();
-    project_service::list_recent_projects(&state.paths)
-        .ok()?
-        .into_iter()
-        .find(|project| &project.id == project_id)
-        .map(|project| project.root)
 }
 
 #[cfg(test)]

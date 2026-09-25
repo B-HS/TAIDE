@@ -70,8 +70,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/sync/commands.rs", "settings::commands"),
     ("domain/sync/commands.rs", "settings::service"),
     ("domain/vsix/commands.rs", "plugin::service"),
-    ("domain/window/menu.rs", "locale::service"),
-    ("domain/window/menu.rs", "project::service"),
 ];
 
 /// Recursively collects every `.rs` file under `dir`, sorted for deterministic failure output.
