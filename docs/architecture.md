@@ -180,7 +180,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
     `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush·프로젝트 watcher 복원
     장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, 완료된 이름은 회수해 재등록을 허용한다.
-    메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
+    메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정·LSP 종료/재시작 지연은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     창별 timeout·나머지 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,

@@ -153,3 +153,18 @@ fn 시작시_프로젝트_watcher_복원은_감독_범위에_등록된다() {
     assert!(restore.contains("spawn(\"project-watchers-restore\""));
     assert!(!restore.contains("tauri::async_runtime::spawn(async move {"));
 }
+
+#[test]
+fn lsp_종료와_재시작_지연_작업은_감독_범위에_등록된다() {
+    let commands = include_str!("../src/domain/lsp/commands.rs");
+    let process = commands.split_once("fn spawn_process(").unwrap().1;
+    let process = process.split_once("fn channel_sink(").unwrap().0;
+    let restart = commands.split_once("fn handle_process_exit(").unwrap().1;
+    let restart = restart.split_once("async fn shutdown_entry(").unwrap().0;
+
+    assert!(process.contains("spawn_transient(\"lsp-process-exit\""));
+    assert!(!process.contains("tokio::spawn(async move {"));
+    assert!(restart.contains("spawn_transient(\"lsp-auto-restart\""));
+    assert!(restart.contains("spawn_transient(\"lsp-healthy-reset\""));
+    assert!(!restart.contains("tokio::spawn(async move {"));
+}

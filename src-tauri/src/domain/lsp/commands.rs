@@ -10,7 +10,7 @@ use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
 use taide_lsp::store::LspSessionEntry as SessionEntry;
 pub use taide_lsp::store::LspStore;
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
@@ -116,12 +116,16 @@ fn spawn_process(
             entry.subscribers.broadcast(&message);
         },
         move |code, stderr_tail| {
-            tokio::spawn(async move {
-                let Some(state) = exit_app.try_state::<AppState>() else {
+            let Some(tasks) = exit_app.try_state::<TaskSupervisor>() else {
+                return;
+            };
+            let task_app = exit_app.clone();
+            tasks.spawn_transient("lsp-process-exit", async move {
+                let Some(state) = task_app.try_state::<AppState>() else {
                     return;
                 };
                 let _guard = state.begin_mutation().await;
-                handle_process_exit(&exit_app, exit_session_id, process_epoch, code, stderr_tail);
+                handle_process_exit(&task_app, exit_session_id, process_epoch, code, stderr_tail);
             });
         },
     )
@@ -192,7 +196,7 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
     let spec = entry.spec.clone();
     let root = entry.root.clone();
 
-    tokio::spawn(async move {
+    app.state::<TaskSupervisor>().spawn_transient("lsp-auto-restart", async move {
         tokio::time::sleep(backoff).await;
 
         let Some(state) = restart_app.try_state::<AppState>() else {
@@ -222,12 +226,14 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
                 );
 
                 let healthy_reset_entry = entry.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(HEALTHY_RESTART_WINDOW).await;
-                    if confirms_healthy_restart(&healthy_reset_entry.proc, &proc) {
-                        healthy_reset_entry.lifecycle.reset_restart_count();
-                    }
-                });
+                restart_app
+                    .state::<TaskSupervisor>()
+                    .spawn_transient("lsp-healthy-reset", async move {
+                        tokio::time::sleep(HEALTHY_RESTART_WINDOW).await;
+                        if confirms_healthy_restart(&healthy_reset_entry.proc, &proc) {
+                            healthy_reset_entry.lifecycle.reset_restart_count();
+                        }
+                    });
             }
             Err(error) => {
                 set_status(
