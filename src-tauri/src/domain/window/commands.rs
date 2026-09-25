@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 
 use super::menu;
@@ -224,19 +224,21 @@ fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &ta
         let app_handle = window.app_handle().clone();
         let label = window.label().to_string();
         let token = ticket.token;
-        tauri::async_runtime::spawn(async move {
-            let confirmed = ticket
-                .wait(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS))
-                .await;
-            let state = app_handle.state::<AppState>();
-            if !confirmed {
-                if !state.force_complete_flush(&scope, token) {
-                    return;
+        window
+            .state::<TaskSupervisor>()
+            .spawn_transient("auxiliary-window-flush", async move {
+                let confirmed = ticket
+                    .wait(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS))
+                    .await;
+                let state = app_handle.state::<AppState>();
+                if !confirmed {
+                    if !state.force_complete_flush(&scope, token) {
+                        return;
+                    }
+                    log::warn!("보조 창 flush 가 시간 내에 확인되지 않아 그대로 닫습니다 (label={label})");
                 }
-                log::warn!("보조 창 flush 가 시간 내에 확인되지 않아 그대로 닫습니다 (label={label})");
-            }
-            finish_auxiliary_window_close(&app_handle, &label);
-        });
+                finish_auxiliary_window_close(&app_handle, &label);
+            });
         return None;
     }
 
@@ -301,7 +303,7 @@ pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &t
     });
 
     let app_handle = window.app_handle().clone();
-    tauri::async_runtime::spawn(async move {
+    window.state::<TaskSupervisor>().spawn_transient("hot-exit-timeout", async move {
         tokio::time::sleep(std::time::Duration::from_millis(constants::HOT_EXIT_FLUSH_TIMEOUT_MS)).await;
         if app_handle.state::<AppState>().force_complete_hot_exit_flush() {
             log::warn!("hot exit flush timed out; exiting without every window's confirmation");
@@ -345,13 +347,14 @@ pub(crate) fn restore_auxiliary_windows(app: &tauri::AppHandle) {
 
     for (project_id, window_slot) in restorations {
         let app_handle = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let state = app_handle.state::<AppState>();
-            let _guard = state.begin_mutation().await;
-            let windows = app_handle.state::<WindowRegistry>();
-            if let Err(error) = open_auxiliary_window(&app_handle, &state, &windows, project_id.clone(), window_slot).await {
-                log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
-            }
-        });
+        app.state::<TaskSupervisor>()
+            .spawn_transient("auxiliary-window-restore", async move {
+                let state = app_handle.state::<AppState>();
+                let _guard = state.begin_mutation().await;
+                let windows = app_handle.state::<WindowRegistry>();
+                if let Err(error) = open_auxiliary_window(&app_handle, &state, &windows, project_id.clone(), window_slot).await {
+                    log::warn!("보조 창 복원 실패 (projectId={project_id}, windowSlot={window_slot}): {error}");
+                }
+            });
     }
 }

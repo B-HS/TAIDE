@@ -133,3 +133,13 @@ fn 프로젝트_attach의_hook_재조정은_감독_범위에_등록된다() {
     assert!(capability.contains("app.state::<TaskSupervisor>().spawn_transient(\"agent-hooks-attach\""));
     assert!(!capability.contains("tauri::async_runtime::spawn(async move {"));
 }
+
+#[test]
+fn 창_flush와_복원_작업은_감독_범위에_등록된다() {
+    let commands = include_str!("../src/domain/window/commands.rs");
+
+    assert!(commands.contains("spawn_transient(\"auxiliary-window-flush\""));
+    assert!(commands.contains("spawn_transient(\"hot-exit-timeout\""));
+    assert!(commands.contains("spawn_transient(\"auxiliary-window-restore\""));
+    assert!(!commands.contains("tauri::async_runtime::spawn(async move {"));
+}
