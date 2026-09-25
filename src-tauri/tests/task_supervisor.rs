@@ -91,7 +91,7 @@ async fn 완료된_반복_작업은_추적_목록에서_회수된다() {
 #[test]
 fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소한다() {
     let app = include_str!("../src/lib.rs");
-    let setup = app.split_once("app.manage(WindowRegistry::default());").unwrap().1;
+    let setup = app.split_once("app.manage(services.windows.clone());").unwrap().1;
     let boot = setup
         .split_once("if app.state::<AppState>().settings.read().agent_hooks_enabled {")
         .unwrap()

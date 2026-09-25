@@ -40,6 +40,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_ai_requests = services.ai_requests.clone();
     let legacy_tree = services.tree.clone();
     let legacy_plugin = services.plugin.clone();
+    let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
 
     legacy_state.begin_shutdown();
@@ -64,6 +65,11 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     *legacy_plugin.0.write() = Some(Vec::new());
     assert!(services.plugin.0.read().is_some());
 
+    let window_project_id = ProjectId::new();
+    legacy_windows.register("editor-1".to_string(), window_project_id.clone(), 1);
+    assert_eq!(services.windows.label_for(&window_project_id, 1).as_deref(), Some("editor-1"));
+    assert_eq!(services.windows.forget("editor-1"), Some((window_project_id, 1)));
+
     assert!(legacy_tasks.spawn("shared-test", pending()));
     assert_eq!(services.tasks.tracked_count(), 1);
     services.tasks.stop_all();
@@ -85,6 +91,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.system_usage.clone());"));
     assert!(setup.contains("app.manage(services.remote_dispatch_limiter.clone());"));
     assert!(setup.contains("app.manage(services.platform.clone());"));
+    assert!(setup.contains("app.manage(services.windows.clone());"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));
     assert!(setup.contains("app.manage(services);"));
 }

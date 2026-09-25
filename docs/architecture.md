@@ -67,11 +67,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── tree/        파일 트리 (Rust 소유 + flat rows 페이지네이션)
     │   │   ├── vsix/        VSIX 추출 (테마·grammar 임포트)
     │   │   └── window/      보조 윈도우 생성·닫힘·복원, 기존 WindowStore 공개 facade
-    │   ├── platform/        Tauri platform adapter와 런타임 레지스트리
+    │   ├── platform/        Tauri platform adapter와 레지스트리 공개 facade
     │   │   ├── asset_protocol.rs   열린 프로젝트 asset URI 응답
     │   │   ├── event_sink.rs       AppEvent를 기존 Tauri 이벤트로 발행
     │   │   ├── navigation_guard.rs 웹뷰 탐색·새 창 URL 가드
-    │   │   └── window_registry.rs 보조 창 label→project/slot 등록·역조회
+    │   │   └── window_registry.rs runtime 레지스트리 공개 경로 facade
     │   └── infra/           외부 자원 어댑터 (22파일)
     │       ├── pty.rs       portable-pty 래퍼 (배칭·flow control·링버퍼)
     │       ├── lsp_proc.rs  LSP 자식 프로세스 + JSON-RPC 프레이밍
@@ -147,9 +147,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     응답 의존 연동은 `lib.rs`의 `layout_move_tab_to_window` command가 직접 조립한다.
     보조 창 닫힘의 flush·등록 해제는 window command가 담당하고, `CloseRequested`·`Destroyed`
     양쪽에서 회수한 결과의 mirror 조회·layout 탭 복귀는 `lib.rs`가 조립한다.
-    `platform::window_registry::WindowRegistry`는 보조 창 label→project/slot 매핑과 역조회만
-    소유하며 두 종료 경로 중 먼저 해제한 쪽만 결과를 받는다. `lib.rs`가 이 타입을 Tauri 관리
-    상태로 등록하고 기존 `domain::window::commands::WindowStore` 경로는 타입 재수출로 유지한다.
+    `taide-runtime::WindowRegistry`는 보조 창 label→project/slot 매핑과 역조회만 소유하며
+    두 종료 경로 중 먼저 해제한 쪽만 결과를 받는다. AppServices가 생성한 공유 복제본을
+    `lib.rs`가 Tauri 관리 상태로 등록하고 `platform::window_registry::WindowRegistry`와
+    기존 `domain::window::commands::WindowStore` 경로는 타입 재수출로 유지한다.
     layout mutation 완료와 보조 창 탭 복귀의 `LayoutChanged`, Git 명령·워처의 status/refs 이벤트,
     terminal 세션의 spawned/exited/cwd/command-finished 이벤트, 설정·테마 변경 이벤트와
     sync connect/disconnect/upload/download 완료 상태 이벤트, 원격 서버 시작·중지 상태 이벤트,
@@ -206,7 +207,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     system 명령은 프로젝트 루트·외부 URL을 검증한 뒤 platform adapter만 호출하고, notification 명령은
     시크릿 마스킹·전 창 focus gate 뒤에만 adapter에 제목·본문을 전달한다. 실제 Tauri opener·알림 플러그인은 adapter가 소유한다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·TaskSupervisor의 동일 내부 인스턴스를
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

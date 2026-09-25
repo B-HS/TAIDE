@@ -1000,7 +1000,7 @@ pub fn run() {
             app.manage(RemoteStore::default());
             app.manage(services.remote_dispatch_limiter.clone());
             app.manage(services.platform.clone());
-            app.manage(WindowRegistry::default());
+            app.manage(services.windows.clone());
             app.manage(services.tasks.clone());
             app.manage(services);
             drop(state_restore_span);

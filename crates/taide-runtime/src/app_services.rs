@@ -4,7 +4,9 @@ use taide_plugin::service::PluginStore;
 use taide_system::store::SystemUsageStore;
 use taide_terminal::store::TerminalStore;
 
-use super::{AiRequestStore, AppState, PlatformServicesState, RemoteDispatchLimiter, SearchStore, TaskSupervisor, TreeStore};
+use super::{
+    AiRequestStore, AppState, PlatformServicesState, RemoteDispatchLimiter, SearchStore, TaskSupervisor, TreeStore, WindowRegistry,
+};
 
 pub struct AppServices {
     pub state: AppState,
@@ -18,6 +20,7 @@ pub struct AppServices {
     pub system_usage: SystemUsageStore,
     pub remote_dispatch_limiter: RemoteDispatchLimiter,
     pub platform: PlatformServicesState,
+    pub windows: WindowRegistry,
     pub tasks: TaskSupervisor,
 }
 
@@ -40,6 +43,7 @@ impl AppServices {
             system_usage: SystemUsageStore::default(),
             remote_dispatch_limiter,
             platform,
+            windows: WindowRegistry::default(),
             tasks,
         }
     }

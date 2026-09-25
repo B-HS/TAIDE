@@ -8,6 +8,7 @@ mod search_store;
 mod state;
 mod task_supervisor;
 mod tree_store;
+mod window_registry;
 
 pub use ai_request_store::{AiRequestStore, AiRequestToken};
 pub use app_services::AppServices;
@@ -17,6 +18,7 @@ pub use search_store::SearchStore;
 pub use state::{AppState, AppStateInner, FlushScope, FlushTicket};
 pub use task_supervisor::TaskSupervisor;
 pub use tree_store::TreeStore;
+pub use window_registry::WindowRegistry;
 
 pub trait EventSink: Send + Sync {
     fn publish(&self, event: AppEvent);

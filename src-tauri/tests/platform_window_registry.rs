@@ -20,6 +20,6 @@ fn 앱_조립과_창_명령은_platform_registry를_직접_사용한다() {
     let window_source = include_str!("../src/domain/window/commands.rs");
 
     assert!(app_source.contains("use crate::platform::window_registry::WindowRegistry;"));
-    assert!(app_source.contains("app.manage(WindowRegistry::default())"));
+    assert!(app_source.contains("app.manage(services.windows.clone());"));
     assert!(window_source.contains("use crate::platform::window_registry::WindowRegistry;"));
 }
