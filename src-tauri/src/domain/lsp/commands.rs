@@ -9,9 +9,10 @@ use taide_lsp::protocol::workspace_folders_notification;
 use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
 use taide_lsp::store::LspSessionEntry as SessionEntry;
 pub use taide_lsp::store::LspStore;
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
-use tauri_specta::Event;
 
 use super::manifest;
 use super::service;
@@ -20,7 +21,6 @@ use super::types::{
     LspSpawnRequest,
 };
 use crate::error::{AppError, AppErrorKind, AppResult};
-use crate::events::{LspInstallProgress, LspSessionStatusChanged};
 use crate::ids::ProjectId;
 use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::lsp_install;
@@ -28,6 +28,7 @@ use crate::infra::lsp_proc;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::redact::mask_known_secrets;
 use crate::paths::AppPaths;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 /// Joins the lines of a language server's stderr tail into the single log line
@@ -72,13 +73,12 @@ fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()
 }
 
 fn emit_status(app: &AppHandle, session_id: &str, snapshot: LspLifecycleSnapshot) {
-    let _ = LspSessionStatusChanged {
+    TauriEventSink(app).publish(AppEvent::LspSessionStatusChanged {
         session_id: session_id.to_string(),
         status: snapshot.status,
         last_error: snapshot.last_error,
         generation: snapshot.generation,
-    }
-    .emit(app);
+    });
 }
 
 fn set_status(app: &AppHandle, session_id: &str, entry: &SessionEntry, status: LspSessionStatus, last_error: Option<String>) {
@@ -529,14 +529,13 @@ fn emit_install_progress(
     total_bytes: Option<u64>,
     message: Option<String>,
 ) {
-    let _ = LspInstallProgress {
+    TauriEventSink(app).publish(AppEvent::LspInstallProgress {
         server_id: server_id.clone(),
         phase,
         received_bytes: received_bytes as f64,
         total_bytes: total_bytes.map(|value| value as f64),
         message,
-    }
-    .emit(app);
+    });
 }
 
 async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &LanguageServerSpec, cancel: Arc<AtomicBool>) -> AppResult<()> {

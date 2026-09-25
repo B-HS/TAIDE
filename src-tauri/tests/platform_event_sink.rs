@@ -6,6 +6,7 @@ use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::file::{FsChange, FsChangeKind};
 use taide_model::ids::ProjectId;
+use taide_model::lsp::{LspInstallPhase, LspServerId, LspSessionStatus};
 use taide_model::project::{Project, ProjectDisplay, WindowChrome};
 use taide_model::remote::RemoteStatus;
 use taide_model::settings::Settings;
@@ -445,4 +446,60 @@ fn 파일_watcher와_복원은_기존_순서로_port에_발행된다() {
     assert!(attach.find("commit_attachments(").unwrap() < attach.find("AppEvent::GitStatusChanged").unwrap());
     assert!(adapter.contains("FsChanged { project_id, change }.emit(self.0)"));
     assert!(adapter.contains("FsRescanRequired { project_id }.emit(self.0)"));
+}
+
+#[test]
+fn lsp_상태와_설치_진행은_같은_port에서_payload를_보존한다() {
+    let sink = RecordingEventSink::default();
+    let server_id = LspServerId("rust-analyzer".to_string());
+
+    sink.publish(AppEvent::LspSessionStatusChanged {
+        session_id: "lsp-1".to_string(),
+        status: LspSessionStatus::Crashed,
+        last_error: Some("exit".to_string()),
+        generation: 1,
+    });
+    sink.publish(AppEvent::LspInstallProgress {
+        server_id: server_id.clone(),
+        phase: LspInstallPhase::Downloading,
+        received_bytes: 1.0,
+        total_bytes: Some(2.0),
+        message: Some("download".to_string()),
+    });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::LspSessionStatusChanged {
+                session_id: "lsp-1".to_string(),
+                status: LspSessionStatus::Crashed,
+                last_error: Some("exit".to_string()),
+                generation: 1,
+            },
+            AppEvent::LspInstallProgress {
+                server_id,
+                phase: LspInstallPhase::Downloading,
+                received_bytes: 1.0,
+                total_bytes: Some(2.0),
+                message: Some("download".to_string()),
+            },
+        ]
+    );
+}
+
+#[test]
+fn lsp_helper는_snapshot과_byte_변환_뒤_adapter로_발행한다() {
+    let commands = include_str!("../src/domain/lsp/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let status = commands.split_once("fn emit_status(").unwrap().1;
+    let set_status = commands.split_once("fn set_status(").unwrap().1;
+    let install = commands.split_once("fn emit_install_progress(").unwrap().1;
+
+    assert!(status.contains("AppEvent::LspSessionStatusChanged"));
+    assert!(set_status.contains("emit_status(app, session_id, entry.lifecycle.set_status(status, last_error))"));
+    assert!(install.contains("AppEvent::LspInstallProgress"));
+    assert!(install.contains("received_bytes: received_bytes as f64"));
+    assert!(install.contains("total_bytes: total_bytes.map(|value| value as f64)"));
+    assert!(adapter.contains("LspSessionStatusChanged {") && adapter.contains("generation,"));
+    assert!(adapter.contains("LspInstallProgress {") && adapter.contains("received_bytes,"));
 }

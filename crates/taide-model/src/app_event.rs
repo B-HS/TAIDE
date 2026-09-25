@@ -1,5 +1,6 @@
 use crate::file::FsChange;
 use crate::ids::{ProjectId, ShellSlotId};
+use crate::lsp::{LspInstallPhase, LspServerId, LspSessionStatus};
 use crate::project::{Project, ProjectGroup, ProjectRef, ShellSlotTree, WindowChrome};
 use crate::remote::RemoteStatus;
 use crate::settings::Settings;
@@ -81,5 +82,18 @@ pub enum AppEvent {
     },
     FsRescanRequired {
         project_id: ProjectId,
+    },
+    LspSessionStatusChanged {
+        session_id: String,
+        status: LspSessionStatus,
+        last_error: Option<String>,
+        generation: u32,
+    },
+    LspInstallProgress {
+        server_id: LspServerId,
+        phase: LspInstallPhase,
+        received_bytes: f64,
+        total_bytes: Option<f64>,
+        message: Option<String>,
     },
 }

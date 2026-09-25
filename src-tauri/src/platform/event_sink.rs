@@ -4,9 +4,10 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, LayoutChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged,
-    ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged, SessionShellSlotsChanged, SettingsChanged,
-    SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
+    FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
+    ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged,
+    SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
+    TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -105,6 +106,36 @@ impl EventSink for TauriEventSink<'_> {
             }
             AppEvent::FsRescanRequired { project_id } => {
                 let _ = FsRescanRequired { project_id }.emit(self.0);
+            }
+            AppEvent::LspSessionStatusChanged {
+                session_id,
+                status,
+                last_error,
+                generation,
+            } => {
+                let _ = LspSessionStatusChanged {
+                    session_id,
+                    status,
+                    last_error,
+                    generation,
+                }
+                .emit(self.0);
+            }
+            AppEvent::LspInstallProgress {
+                server_id,
+                phase,
+                received_bytes,
+                total_bytes,
+                message,
+            } => {
+                let _ = LspInstallProgress {
+                    server_id,
+                    phase,
+                    received_bytes,
+                    total_bytes,
+                    message,
+                }
+                .emit(self.0);
             }
         }
     }
