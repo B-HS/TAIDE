@@ -777,3 +777,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 순수 MCP wire와 선택 스냅샷을 `taide-ide::protocol`로 이전했습니다. IDE 서버는 Tauri WebSocket·인가·도구 실행을 유지하며, 초기화 `serverInfo.version`은 기존 앱 패키지 버전을 인자로 전달합니다. IDE 명령은 crate의 알림 생성 함수를 사용합니다. 현행 아키텍처·에이전트 연동 문서에 소유 경계를 반영했습니다.
 - [x] C. `taide-ide` 단위 20건·신규 wire 경계 2건·Tauri IDE 영역 32건·Phase 0 계약 7건·bindings 생성 1건, crate/Tauri clippy·fmt·독립 crate rustdoc·`git diff --check`가 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. 전체 workspace 테스트·TypeScript typecheck와 실제 Claude MCP 연결/GUI는 실행하지 않았습니다. M5 전체·M6 adapter·native UI는 미완료입니다.
 - [x] D. 코드·테스트·현행 문서를 `871d7ea`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태를 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
+
+## M5 서른여섯 번째 slice — IDE lockfile 자원 정책의 독립 crate 이전
+
+- [x] A. lockfile 경로·권한·원자 쓰기·stale PID 판정은 Tauri `AppHandle`에 의존하지 않고 `taide-model` DTO, `taide-infra::persist`, sysinfo·log만 사용합니다. 기존 lockfile 14건이 통과했고 신규 crate 경계 2건은 `taide_ide::lockfile` 부재 E0432(exit 101)로 의도대로 실패했습니다. Rust `DirBuilder`·serde_json 공식 문서를 확인했습니다.
+- [x] B. lockfile 구현·식별 상수와 기존 14개 테스트를 `taide-ide::lockfile`로 옮기고 Tauri lockfile/types 공개 경로는 facade로 유지했습니다. 토큰의 private atomic write(Unix 디렉터리 0700·파일 0600), 살아 있는 PID·타 IDE·깨진 JSON 보존, 죽은 TAIDE PID 정리 정책과 command의 기동·갱신·종료 순서는 바꾸지 않았습니다. 현행 아키텍처·에이전트 연동 문서의 소유 경로를 갱신했습니다.
+- [x] C. `taide-ide` 단위 34건·신규 경계 2건·Tauri IDE 영역 18건·기존 model 외부 wire 2건·Phase 0 계약 7건·bindings 생성 1건, crate/Tauri clippy·fmt·독립 crate rustdoc·`git diff --check`가 통과했습니다. 첫 fmt는 이동 파일 import·줄바꿈만 지적해 포맷 후 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. 전체 workspace·TypeScript typecheck·실제 Claude MCP 연결/GUI는 실행하지 않았습니다. M5 전체·M6 adapter·native UI는 미완료입니다.
+- [x] D. 코드·테스트·현행 문서를 `9c6ee72`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태를 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
