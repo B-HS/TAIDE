@@ -685,7 +685,7 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] A. 기존 `pty_spawn`의 출력 콜백은 청크별 계측→스크롤백 기록·구독 전달→세션별 OSC 스캔→스캔 계측·Tauri 이벤트 순서였고, 종료 콜백은 세션 실행 상태와 종료 이벤트를 갱신했습니다. `pty::spawn`의 출력 `Fn`·종료 `FnOnce` 경계를 확인했으며 새 독립 crate 프로세스 테스트는 `taide_terminal::runtime` 부재 E0432(exit 101)로 의도대로 실패했습니다.
 - [x] B. `spawn_terminal_session`이 실제 PTY 생성과 세션별 `OutputScanner`를 소유하며 기존 출력 순서를 유지합니다. Tauri는 `spawn_blocking` 스케줄링, 계측·`AppHandle` 이벤트, IPC 및 mutation guard를 계속 조립합니다. 실제 `/bin/sh` PTY에 OSC 7을 써서 계측·리플레이 완료 뒤 스캔 콜백에 cwd가 전달되는 경계 1건과 기존 Tauri 터미널 명령 8건이 통과했습니다. 현재 터미널 기능 문서의 스캐너 소유 표기도 갱신했습니다.
 - [x] C. 권한 허용 `cargo test --workspace --quiet` 전체(exit 0)·`cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings`·`RUSTDOCFLAGS='-D warnings' cargo doc -p taide-terminal --no-deps`·Phase 0 계약 7건이 통과했습니다. normal feature graph에 Tauri·test-support가 없고 생성 bindings SHA-256 `3ce82f3fda029e700a8f26ad5a08869b7452d337c32e11df82f670b9d33f0993`은 불변입니다. TypeScript는 수정하지 않아 typecheck를 재실행하지 않았습니다. 실제 GUI·다중창 PTY 실기는 미검증이며 M5 전체·M6 adapter·native UI는 미완료입니다.
-- [ ] D. 코드·테스트·현재 기능 문서는 commit `4fb6dfb`로 선별 반영했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. 원격 `to_rust_native` 일반 push는 안전 검토에서 목적지·payload 승인 부족으로 거절되어 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료로 유지합니다.
+- [x] D. 코드·테스트·현재 기능 문서는 commit `4fb6dfb`로, 이 검증 기록과 PROCESS 상태는 commit `2847b62`로 각각 선별 로컬 반영했습니다. 원격 `to_rust_native` 일반 push는 안전 검토에서 목적지·payload 승인 부족으로 거절되어 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료로 유지합니다.
 
 ## M5 스물세 번째 slice — 터미널 링크 경로 인가 정책 이전 (IPC·프로젝트 snapshot은 Tauri 유지)
 
