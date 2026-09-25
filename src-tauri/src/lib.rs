@@ -401,9 +401,10 @@ async fn layout_move_tab_to_window(
 }
 
 fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &ProjectId, window_slot: u32) {
+    let tasks = (*app.state::<TaskSupervisor>()).clone();
     let app = app.clone();
     let project_id = project_id.clone();
-    tauri::async_runtime::spawn(async move {
+    tasks.spawn_transient("auxiliary-tab-return", async move {
         let state = app.state::<AppState>();
         let _guard = state.begin_mutation().await;
 
@@ -455,8 +456,9 @@ fn dispatch_menu_action(app: &tauri::AppHandle, action: domain::window::menu::Me
     match action {
         MenuAction::Quit => domain::window::commands::request_quit(app),
         MenuAction::ClearRecent => {
+            let tasks = (*app.state::<TaskSupervisor>()).clone();
             let app = app.clone();
-            tauri::async_runtime::spawn(async move {
+            tasks.spawn_transient("menu-clear-recent", async move {
                 let state = app.state::<AppState>();
                 if let Err(error) = domain::project::commands::project_forget_recent(app.clone(), state).await {
                     log::warn!("최근 항목 지우기에 실패했습니다: {error}");
@@ -464,8 +466,9 @@ fn dispatch_menu_action(app: &tauri::AppHandle, action: domain::window::menu::Me
             });
         }
         MenuAction::OpenRecent(project_id) => {
+            let tasks = (*app.state::<TaskSupervisor>()).clone();
             let app = app.clone();
-            tauri::async_runtime::spawn(async move {
+            tasks.spawn_transient("menu-open-recent", async move {
                 let Some(root) = recent_project_root(&app, &project_id) else {
                     log::warn!("최근 항목 메뉴가 가리키는 프로젝트 레코드를 찾지 못했습니다 (projectId={project_id})");
                     return;
