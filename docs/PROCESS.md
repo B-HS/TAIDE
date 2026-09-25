@@ -444,6 +444,10 @@
   - [x] M5-FK. 생성 bindings·manifest 동기화를 `12c4341`로 선별 로컬 commit했습니다. M5 종료 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 기존 원격 push 승인 거절은 재시도하지 않습니다.
   - [x] M5-FL. M5 완료 판정과 상충하던 PROCESS 하단·이주 계약 문서 상단의 현재 상태 요약을 M1~M5 완료/M6~M8 미완료로 정정하고 이 변경을 선별 로컬 commit으로 남깁니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
+  - [x] M6-A. 기존 `infra/navigation_guard.rs`는 Tauri `WebviewWindowBuilder`·`NewWindowResponse`와 공유 `taide-infra::external_url` 정책을 사용하고 `lib.rs` 메인 창·`domain/window/commands.rs` 보조 창이 같은 가드를 부착합니다. 새 platform 공개 경계 테스트는 `taide_lib::platform` 부재 E0432(exit 101)로 의도대로 실패했습니다. Tauri 공식 builder의 navigation/new-window 콜백 계약을 확인했습니다.
+  - [x] M6-B. navigation guard 구현·기존 단위 테스트를 `platform/navigation_guard.rs`로 옮기고 `infra/navigation_guard.rs`는 이전 공개 경로 facade로 유지했습니다. 메인·보조 창은 platform 모듈을 직접 호출하며 URL 허용·외부 브라우저 열기 정책은 변경하지 않았습니다. 아키텍처 문서의 실제 소유 경로와 공유 URL 검증 경계를 갱신했습니다.
+  - [x] M6-C. 새 platform 경계·두 창 조립 계약 2건, navigation 정책 5건·window 명령 6건·도메인 경계 3건·Phase 0 계약 7건이 통과했습니다. `cargo clippy -p taide --all-targets -- -D warnings`, `cargo fmt --all --check`, `git diff --check`가 통과했고 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 웹뷰 navigation/OS 브라우저 GUI 실기는 이번 slice에서 실행하지 않았습니다. M6 전체·M7/M8은 미완료입니다.
+  - [x] M6-D. 구현·테스트·현행 아키텍처 문서를 `77553f9`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. M6 전체는 AppServices·EventSink·WindowRegistry·TaskSupervisor와 나머지 platform adapter 완료 전까지 미완료입니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

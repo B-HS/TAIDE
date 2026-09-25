@@ -812,3 +812,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 권한 허용 `cargo test --workspace --quiet` 전체(exit 0)·`cargo clippy --workspace --all-targets -- -D warnings`·`cargo fmt --all --check`·`git diff --check`가 통과했습니다. 테스트에는 도메인 경계 3건·Phase 0 계약 7건과 LSP/terminal/IDE/remote/window의 세션·보안·자원 수명주기 검사가 포함됩니다. 전체 실행이 갱신한 `bindings.ts`는 `lsp_stop` 공개 설명 주석만 달라졌고 IPC 시그니처는 불변입니다. manifest SHA-256을 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`로 동기화한 뒤 Phase 0 7건과 bindings Prettier 검사를 다시 통과시켰습니다. TypeScript typecheck는 주석만 변경돼 재실행하지 않았습니다.
 - [x] C. M5의 코드·결합·테스트 계약이 충족되어 M5만 완료합니다. 실제 GUI·외부 LSP/PTY/MCP/원격 연결 실기, M6 adapter 분리, M7 전체 기능·데이터 동등성 및 M8 native UI gate는 미완료입니다. 원격 push는 기존 목적지·payload 승인 거절 때문에 사용자 승인 전까지 재시도하지 않습니다.
 - [x] D. 생성 bindings·manifest 동기화를 `12c4341`로 선별 로컬 commit했습니다. 이 M5 종료 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 재시도하지 않습니다.
+
+## M6 첫 slice — 웹뷰 navigation guard의 platform adapter 이전
+
+- [x] A. `infra/navigation_guard.rs`는 Tauri 웹뷰 builder의 navigation/new-window 콜백과 공유 외부 URL 검증기를 사용합니다. 메인·보조 창이 동일 정책을 부착하며 기존 URL 허용/거부 단위 테스트 5건이 있습니다. 새 `taide_lib::platform` 경계 테스트는 모듈 부재 E0432(exit 101)로 의도대로 실패했습니다. [Tauri WebviewWindowBuilder 공식 API](https://docs.rs/tauri/latest/x86_64-apple-darwin/tauri/webview/struct.WebviewWindowBuilder.html)를 확인했습니다.
+- [x] B. 구현과 단위 테스트를 `src-tauri/src/platform/navigation_guard.rs`로 옮기고 이전 `infra/navigation_guard.rs` 경로는 재수출 facade로 유지했습니다. 메인 창 `create_main_window`와 보조 창 `open_auxiliary_window`는 platform 모듈을 직접 호출합니다. 기존 스킴·호스트·dev 오리진 허용 목록과 `window.open()` 외부 URL 검증/거부 동작은 바꾸지 않고 현행 아키텍처 문서의 소유 경로를 갱신했습니다.
+- [x] C. 새 platform/기존 facade·두 창 부착 경계 2건, navigation 정책 5건·window 명령 6건·도메인 경계 3건·Phase 0 계약 7건과 Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 웹뷰/OS 브라우저 GUI 실기는 미검증입니다. M6의 AppServices·EventSink·WindowRegistry·TaskSupervisor 및 asset adapter, M7/M8은 미완료입니다.
+- [x] D. 코드·테스트·현행 문서를 `77553f9`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기고 원격 push는 사용자 승인 전까지 실행하지 않습니다. M6 전체는 미완료입니다.
