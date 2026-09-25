@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::io::Write as _;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use parking_lot::Mutex;
 use taide_terminal::command_clock::TerminalCommandClock;
+use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::session::TerminalSessionOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
@@ -28,11 +28,8 @@ use crate::state::AppState;
 
 struct SessionEntry {
     pty: pty::PtySession,
-    project_id: ProjectId,
-    cwd: String,
-    shell: String,
+    metadata: Arc<TerminalSessionMetadata>,
     output: Arc<TerminalSessionOutput>,
-    running: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -53,7 +50,7 @@ impl TerminalStore {
         self.0
             .lock()
             .iter()
-            .filter(|(_, entry)| &entry.project_id == project_id)
+            .filter(|(_, entry)| entry.metadata.project_id() == project_id)
             .filter_map(|(session_id, entry)| entry.pty.foreground_pid().map(|pid| (session_id.clone(), pid)))
             .collect()
     }
@@ -67,7 +64,7 @@ impl TerminalStore {
         let mut sessions = self.0.lock();
         let session_ids: Vec<String> = sessions
             .iter()
-            .filter(|(_, entry)| &entry.project_id == project_id)
+            .filter(|(_, entry)| entry.metadata.project_id() == project_id)
             .map(|(session_id, _)| session_id.clone())
             .collect();
 
@@ -100,7 +97,7 @@ fn output_channel_sink(channel: Channel<InvokeResponseBody>) -> impl Fn(&[u8]) -
 }
 
 /// Applies one pty output chunk's detected cwd-report (`infra::terminal_scan::ScanEvent::Cwd`)
-/// to `session_id`'s [`SessionEntry::cwd`], emitting [`TerminalCwdChanged`] only
+/// to `session_id`'s metadata, emitting [`TerminalCwdChanged`] only
 /// when it actually differs from the last known value — `precmd`/`PROMPT_COMMAND` fire on every
 /// prompt render, not just after `cd`, so without this check the renderer would get one event per
 /// command instead of one per genuine directory change. A `session_id` not yet present in
@@ -109,14 +106,13 @@ fn output_channel_sink(channel: Channel<InvokeResponseBody>) -> impl Fn(&[u8]) -
 /// spawn-time cwd anyway, so nothing is lost, only a redundant early report skipped.
 fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
     let store = app.state::<TerminalStore>();
-    let mut sessions = store.0.lock();
-    let Some(entry) = sessions.get_mut(session_id) else {
+    let sessions = store.0.lock();
+    let Some(entry) = sessions.get(session_id) else {
         return;
     };
-    if entry.cwd == cwd {
+    if !entry.metadata.update_cwd(cwd.clone()) {
         return;
     }
-    entry.cwd = cwd.clone();
     drop(sessions);
 
     let _ = TerminalCwdChanged {
@@ -146,7 +142,12 @@ fn report_command_marker(
         return;
     };
 
-    let cwd = app.state::<TerminalStore>().0.lock().get(session_id).map(|entry| entry.cwd.clone());
+    let cwd = app
+        .state::<TerminalStore>()
+        .0
+        .lock()
+        .get(session_id)
+        .map(|entry| entry.metadata.cwd());
 
     let _ = TerminalCommandFinished {
         session_id: session_id.to_string(),
@@ -294,13 +295,17 @@ pub async fn pty_spawn(
 
     let session_id = new_session_id();
     let output = Arc::new(TerminalSessionOutput::new(types::resolve_scrollback_bytes(opts.scrollback_bytes)));
-    let running = Arc::new(AtomicBool::new(true));
+    let metadata = Arc::new(TerminalSessionMetadata::new(
+        opts.project_id.clone(),
+        opts.cwd.clone(),
+        opts.shell.clone().unwrap_or_else(|| "default".to_string()),
+    ));
 
     let output_for_data = output.clone();
 
     let exit_app = app.clone();
     let exit_session_id = session_id.clone();
-    let exit_running = running.clone();
+    let exit_metadata = metadata.clone();
 
     let scan_app = app.clone();
     let scan_session_id = session_id.clone();
@@ -332,7 +337,7 @@ pub async fn pty_spawn(
                 dispatch_scan_outcome(&scan_app, &scan_session_id, &command_clock, &outcome);
             },
             move |code| {
-                exit_running.store(false, Ordering::SeqCst);
+                exit_metadata.mark_exited();
                 let _ = TerminalExited {
                     session_id: exit_session_id,
                     code,
@@ -346,18 +351,15 @@ pub async fn pty_spawn(
 
     let entry = SessionEntry {
         pty: handle,
-        project_id: opts.project_id,
-        cwd: opts.cwd,
-        shell: opts.shell.unwrap_or_else(|| "default".to_string()),
+        metadata,
         output,
-        running,
     };
 
     let spawned = TerminalSpawned {
         session_id: session_id.clone(),
-        project_id: entry.project_id.clone(),
-        cwd: entry.cwd.clone(),
-        shell: entry.shell.clone(),
+        project_id: entry.metadata.project_id().clone(),
+        cwd: entry.metadata.cwd(),
+        shell: entry.metadata.shell().to_string(),
     };
     store.0.lock().insert(session_id.clone(), entry);
     let _ = spawned.emit(&app);
@@ -487,14 +489,8 @@ pub async fn terminal_sessions(store: State<'_, TerminalStore>, project_id: Proj
     let sessions = store.0.lock();
     Ok(sessions
         .iter()
-        .filter(|(_, entry)| entry.project_id == project_id)
-        .map(|(id, entry)| TerminalSession {
-            id: id.clone(),
-            project_id: entry.project_id.clone(),
-            cwd: entry.cwd.clone(),
-            shell: entry.shell.clone(),
-            running: entry.running.load(Ordering::SeqCst),
-        })
+        .filter(|(_, entry)| entry.metadata.project_id() == &project_id)
+        .map(|(id, entry)| entry.metadata.snapshot(id))
         .collect())
 }
 
@@ -608,6 +604,8 @@ pub async fn pty_default_options(state: State<'_, AppState>, project_id: Project
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use super::*;
     use std::path::{Path, PathBuf};
 
