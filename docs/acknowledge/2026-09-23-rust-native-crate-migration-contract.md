@@ -819,3 +819,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 구현과 단위 테스트를 `src-tauri/src/platform/navigation_guard.rs`로 옮기고 이전 `infra/navigation_guard.rs` 경로는 재수출 facade로 유지했습니다. 메인 창 `create_main_window`와 보조 창 `open_auxiliary_window`는 platform 모듈을 직접 호출합니다. 기존 스킴·호스트·dev 오리진 허용 목록과 `window.open()` 외부 URL 검증/거부 동작은 바꾸지 않고 현행 아키텍처 문서의 소유 경로를 갱신했습니다.
 - [x] C. 새 platform/기존 facade·두 창 부착 경계 2건, navigation 정책 5건·window 명령 6건·도메인 경계 3건·Phase 0 계약 7건과 Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 웹뷰/OS 브라우저 GUI 실기는 미검증입니다. M6의 AppServices·EventSink·WindowRegistry·TaskSupervisor 및 asset adapter, M7/M8은 미완료입니다.
 - [x] D. 코드·테스트·현행 문서를 `77553f9`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기고 원격 push는 사용자 승인 전까지 실행하지 않습니다. M6 전체는 미완료입니다.
+
+## M6 두 번째 slice — asset URI 프로토콜의 platform adapter 이전
+
+- [x] A. 기존 `infra/asset_protocol.rs`는 열린 프로젝트 집합으로 경로를 인가하고 공유 range 처리기로 바이트·CSP·캐시 헤더를 구성하며 `lib.rs`가 Tauri asset URI scheme을 등록합니다. 새 platform 공개 경계 테스트 2건을 추가한 뒤 구현 전 E0432(exit 101)를 확인했고 [Tauri Builder 공식 API](https://docs.rs/tauri/latest/x86_64-apple-darwin/tauri/struct.Builder.html)의 URI scheme 등록 계약을 확인했습니다.
+- [x] B. 구현과 기존 단위 테스트를 `src-tauri/src/platform/asset_protocol.rs`로 옮기고 이전 `infra/asset_protocol.rs` 경로는 재수출 facade로 유지했습니다. `lib.rs` 등록 클로저는 platform 응답 함수를 직접 호출하며 인가·range·CSP·MIME·캐시 정책은 바꾸지 않았습니다. 현행 아키텍처 문서의 소유 경로를 갱신했습니다.
+- [x] C. 새 platform/기존 facade·등록 경계 2건, 기존 asset 정책 10건·도메인 경계 3건·Phase 0 계약 7건과 Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. Phase 0 테스트 대상 이름을 처음 잘못 지정했으나 실제 대상 `rust_native_phase0_contract`로 7건을 확인했습니다. 전체 workspace·TypeScript typecheck와 실제 미디어 webview GUI 실기는 미검증이며 M6 runtime/DI·M7/M8도 미완료입니다.
+- [x] D. 코드·테스트·현행 문서를 `545e890`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
