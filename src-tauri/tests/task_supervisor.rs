@@ -125,3 +125,11 @@ fn 메뉴와_보조_창의_반복_작업은_감독_범위에_등록된다() {
     assert!(!return_tabs.contains("tauri::async_runtime::spawn("));
     assert!(!menu.contains("tauri::async_runtime::spawn("));
 }
+
+#[test]
+fn 프로젝트_attach의_hook_재조정은_감독_범위에_등록된다() {
+    let capability = include_str!("../src/domain/agent/capability.rs");
+
+    assert!(capability.contains("app.state::<TaskSupervisor>().spawn_transient(\"agent-hooks-attach\""));
+    assert!(!capability.contains("tauri::async_runtime::spawn(async move {"));
+}

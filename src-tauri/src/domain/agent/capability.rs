@@ -1,4 +1,5 @@
-use tauri::AppHandle;
+use taide_runtime::TaskSupervisor;
+use tauri::{AppHandle, Manager};
 
 use crate::domain::project::capability::{ProjectAttachment, ProjectCapability};
 use crate::domain::project::types::Project;
@@ -17,7 +18,7 @@ pub struct AgentHooksCapability;
 impl ProjectCapability for AgentHooksCapability {
     fn build_attachment(&self, app: &AppHandle, _state: &AppState, _project: &Project) -> ProjectAttachment {
         let hooks_handle = app.clone();
-        tauri::async_runtime::spawn(async move {
+        app.state::<TaskSupervisor>().spawn_transient("agent-hooks-attach", async move {
             hooks::reconcile_installed_hooks(&hooks_handle).await;
         });
 
