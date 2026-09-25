@@ -889,3 +889,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 세 snapshot variant를 추가하고 Tauri platform adapter에서 기존 ProjectListChanged/ProjectGroupsChanged/SessionShellSlotsChanged로 변환했습니다. helper 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·snapshot 순서는 변경하지 않았습니다. ShellSlotTree의 f32 크기 값으로 인해 AppEvent의 Eq 파생만 제거하고 PartialEq는 유지했습니다. 현행 아키텍처 문서의 이전 상태를 15/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 17건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 컴파일의 Eq derive 오류는 ShellSlotTree의 f32 크기 값에 맞춰 Eq만 제거해 해결했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 미검증이며 나머지 15개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `b26f903`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열두 번째 slice — 프로젝트 수명주기 EventSink 경계
+
+- [x] A. ProjectOpened는 capability attach 성공 뒤 세 경로에서만, ProjectActivated는 일곱 경로에서, ProjectClosed는 detach 뒤, ProjectRecentCleared는 목록/그룹 snapshot 발행 뒤에 나옵니다. 기존 이벤트는 `collect_events!`와 원격 fanout에 등록됩니다. 네 model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 네 수명주기 variant를 추가하고 Tauri platform adapter에서 기존 이벤트 타입으로 변환했습니다. ProjectOpened payload는 내부 AppEvent에서만 Box로 보유하고 IPC payload는 기존 Project 값으로 유지합니다. 프로젝트 명령의 모든 발행점은 빌린 AppHandle의 EventSink를 호출하며 성공 경로·순서·fanout은 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 19/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 19건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 경계 테스트의 포맷 의존 문자열 검사 1건을 실제 adapter 필드/발행 검사로 고친 뒤 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 다중 창·원격 GUI 실기는 미검증이며 나머지 11개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `1e892a9`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
