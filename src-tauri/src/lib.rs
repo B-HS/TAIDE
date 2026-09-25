@@ -863,7 +863,7 @@ pub fn run() {
 
             if let Some(request) = domain::agent::service::parse_cli_payload(&argv) {
                 domain::agent::commands::queue_external_open(app_handle, request.clone());
-                let _ = AgentExternalOpen { request }.emit(app_handle);
+                TauriEventSink(app_handle).publish(AppEvent::AgentExternalOpen { request });
             }
         }));
     }

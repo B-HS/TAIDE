@@ -4,10 +4,11 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::events::{
-    FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested,
-    IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated, ProjectClosed, ProjectGroupsChanged,
-    ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged, SessionShellSlotsChanged, SettingsChanged,
-    SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
+    AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, IdeCloseTabRequested,
+    IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged, ProjectActivated,
+    ProjectClosed, ProjectGroupsChanged, ProjectListChanged, ProjectOpened, ProjectRecentCleared, RemoteStateChanged,
+    SessionShellSlotsChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished, TerminalCwdChanged, TerminalExited,
+    TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -172,6 +173,12 @@ impl EventSink for TauriEventSink<'_> {
             }
             AppEvent::IdeCloseTabRequested { tab_name, request_id } => {
                 let _ = IdeCloseTabRequested { tab_name, request_id }.emit(self.0);
+            }
+            AppEvent::AgentStateChanged { project_id, agents } => {
+                let _ = AgentStateChanged { project_id, agents }.emit(self.0);
+            }
+            AppEvent::AgentExternalOpen { request } => {
+                let _ = AgentExternalOpen { request }.emit(self.0);
             }
         }
     }

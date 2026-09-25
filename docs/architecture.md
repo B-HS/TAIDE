@@ -26,8 +26,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── Cargo.toml               워크스페이스 루트. release 프로파일도 여기 (멤버에 두면 무시된다)
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
-├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(현재 27종)
-├── crates/taide-runtime/    Tauri 미의존 EventSink port (이벤트 27종부터 이전 중)
+├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(현재 29종)
+├── crates/taide-runtime/    Tauri 미의존 EventSink port (이벤트 29종부터 이전 중)
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -154,7 +154,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     sync connect/disconnect/upload/download 완료 상태 이벤트, 원격 서버 시작·중지 상태 이벤트,
     창 chrome 변경 이벤트와 프로젝트 목록·그룹·셸 슬롯 snapshot 이벤트,
     프로젝트 열기·닫기·활성화·최근 목록 정리 이벤트, 파일 변경·재스캔 이벤트,
-    LSP 세션 상태·설치 진행 이벤트와 IDE status/diff/save/close-tab 이벤트는
+    LSP 세션 상태·설치 진행 이벤트, IDE status/diff/save/close-tab 이벤트와
+    agent 상태·외부 열기 이벤트는
     `taide-runtime::EventSink::publish(taide-model::app_event::AppEvent)`를 거쳐
     `platform::event_sink::TauriEventSink`가 기존 Tauri 이벤트로 변환한다. 어댑터는 관리 상태에
     AppHandle을 보관하지 않고 발행 호출 동안 빌리며, `finish_mutation`은 port를 인자로 받는다. Git은 기존
@@ -171,7 +172,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     프로젝트 watcher attach·복원의 GitStatusChanged도 같은 port를 사용한다. LSP helper는
     lifecycle snapshot의 generation·last_error와 설치 bytes의 f64 변환·phase·message를
     보존한다. IDE diff/save는 pending 요청 등록 뒤, close-tab은 닫기 성공 뒤 발행하고,
-    status는 시작·중지·연결 상태를 반영한다. 나머지 3개 이벤트는
+    status는 시작·중지·연결 상태를 반영한다. agent 상태는 변경 diff가 있을 때만 발행하며,
+    외부 열기는 대기열 등록 뒤 single-instance 경로에서만 발행하고 원격 fanout에서 제외한다.
+    나머지 1개 이벤트는
     아직 직접 발행하며 기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

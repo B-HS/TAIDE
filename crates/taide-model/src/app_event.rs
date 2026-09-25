@@ -1,3 +1,4 @@
+use crate::agent::{DetectedAgent, ExternalOpenRequest};
 use crate::file::FsChange;
 use crate::ide::IdeStatus;
 use crate::ids::{ProjectId, ShellSlotId};
@@ -116,5 +117,12 @@ pub enum AppEvent {
     IdeCloseTabRequested {
         tab_name: String,
         request_id: Option<String>,
+    },
+    AgentStateChanged {
+        project_id: ProjectId,
+        agents: Vec<DetectedAgent>,
+    },
+    AgentExternalOpen {
+        request: ExternalOpenRequest,
     },
 }

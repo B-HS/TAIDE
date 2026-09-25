@@ -4,8 +4,9 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{Manager, State};
-use tauri_specta::Event;
 
 use super::hooks;
 use super::service;
@@ -14,10 +15,10 @@ use super::types::{
     AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION_ENV_NAME, APP_VERSION_ENV_NAME, CLAUDE_VERSION_TIMEOUT_SECONDS,
 };
 use crate::error::{AppError, AppResult};
-use crate::events::AgentStateChanged;
 use crate::ids::ProjectId;
 use crate::infra::home;
 use crate::infra::terminal_scan::ScanOutcome;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 #[cfg(unix)]
@@ -907,11 +908,10 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
         valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
 
         if let Some(changed) = agents.diff(&project_id, &detected) {
-            let _ = AgentStateChanged {
+            TauriEventSink(app).publish(AppEvent::AgentStateChanged {
                 project_id: project_id.clone(),
                 agents: changed,
-            }
-            .emit(app);
+            });
         }
     }
 

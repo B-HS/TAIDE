@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use taide_lib::domain::layout::service::{default_layout, finish_mutation};
 use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
+use taide_model::agent::ExternalOpenRequest;
 use taide_model::app_event::AppEvent;
 use taide_model::file::{FsChange, FsChangeKind};
 use taide_model::ide::IdeStatus;
@@ -582,4 +583,57 @@ fn ide_명령과_mcp_server는_기존_조건_뒤에_port로_발행한다() {
     assert!(adapter.contains("IdeDiffRequested {") && adapter.contains("new_contents,"));
     assert!(adapter.contains("IdeSaveRequested {") && adapter.contains("request_id,"));
     assert!(adapter.contains("IdeCloseTabRequested { tab_name, request_id }.emit(self.0)"));
+}
+
+#[test]
+fn agent_상태와_외부_열기는_같은_port에서_payload를_보존한다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-agent-event-sink".to_string());
+    let request = ExternalOpenRequest {
+        path: "/repo/file".to_string(),
+        wait_marker: Some("marker-1".to_string()),
+    };
+
+    sink.publish(AppEvent::AgentStateChanged {
+        project_id: project_id.clone(),
+        agents: Vec::new(),
+    });
+    sink.publish(AppEvent::AgentExternalOpen { request: request.clone() });
+
+    assert_eq!(
+        sink.0.lock().unwrap().as_slice(),
+        &[
+            AppEvent::AgentStateChanged {
+                project_id,
+                agents: Vec::new(),
+            },
+            AppEvent::AgentExternalOpen { request },
+        ]
+    );
+}
+
+#[test]
+fn agent_diff와_외부_열기_queue는_기존_조건_뒤에_port로_발행한다() {
+    let hooks = include_str!("../src/domain/agent/hooks.rs");
+    let commands = include_str!("../src/domain/agent/commands.rs");
+    let app = include_str!("../src/lib.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let hook = hooks
+        .split_once("if let Some(changed) = agents.diff(&project_id, &updated) {")
+        .unwrap()
+        .1;
+    let poll = commands
+        .split_once("if let Some(changed) = agents.diff(&project_id, &detected) {")
+        .unwrap()
+        .1;
+    let single_instance = app.split_once("tauri_plugin_single_instance::init(").unwrap().1;
+
+    assert!(hook.contains("AppEvent::AgentStateChanged"));
+    assert!(poll.contains("AppEvent::AgentStateChanged"));
+    assert!(
+        single_instance.find("queue_external_open(app_handle,").unwrap() < single_instance.find("AppEvent::AgentExternalOpen").unwrap()
+    );
+    assert!(commands.contains("queue_external_open(app_handle, request)"));
+    assert!(adapter.contains("AgentStateChanged { project_id, agents }.emit(self.0)"));
+    assert!(adapter.contains("AgentExternalOpen { request }.emit(self.0)"));
 }

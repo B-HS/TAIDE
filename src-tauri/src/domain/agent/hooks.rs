@@ -1,7 +1,8 @@
 use std::path::Path;
 
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -16,8 +17,8 @@ use super::types::{
     AGENT_NAME_CODEX, AGENT_NAME_GEMINI, AGENT_NAME_OPENCODE, AGENT_NAME_PI, CODEX_MANAGED_HOOK_EVENTS, GEMINI_MANAGED_HOOK_EVENTS,
 };
 use crate::error::{AppError, AppResult};
-use crate::events::AgentStateChanged;
 use crate::infra::home;
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServerInfo> {
@@ -407,11 +408,10 @@ fn apply_hook_payload(app: &AppHandle, agent_name: &str, payload: &service::Hook
     service::apply_hook_activity(&mut updated, agent_name, activity);
 
     if let Some(changed) = agents.diff(&project_id, &updated) {
-        let _ = AgentStateChanged {
+        TauriEventSink(app).publish(AppEvent::AgentStateChanged {
             project_id,
             agents: changed,
-        }
-        .emit(app);
+        });
     }
 }
 
