@@ -6,6 +6,7 @@ pub mod ids;
 pub mod infra;
 pub mod paths;
 mod plugin_port;
+mod project_restore_port;
 mod remote_gateway;
 mod settings_port;
 pub mod state;
@@ -51,6 +52,7 @@ use crate::ids::{ProjectId, TabId};
 use crate::infra::secret::SecretStoreState;
 use crate::paths::AppPaths;
 use crate::plugin_port::PluginRuntimePort;
+use crate::project_restore_port::ProjectRestoreWatchers;
 use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
@@ -141,6 +143,15 @@ fn commit_staged_vsix_plugin(app: &AppHandle, temp_dir: &Path, staged_plugin_id:
             "failed to reload the imported plugin",
         )
     })
+}
+
+fn project_restore_watchers() -> ProjectRestoreWatchers {
+    ProjectRestoreWatchers {
+        build_file: domain::file::capability::build_watcher_handle,
+        build_git: domain::git::watch::build_git_watcher_handle,
+        register_file: domain::file::capability::register_watcher_handle,
+        register_git: domain::git::watch::register_git_watcher_handle,
+    }
 }
 
 /// Assembles the pid → (kind, label) providers `system_usage_breakdown` consults, one closure per
@@ -944,6 +955,7 @@ pub fn run() {
             app.manage(state);
             app.manage(menu_sources());
             app.manage(project_capabilities());
+            app.manage(project_restore_watchers());
             app.manage(settings_toggle_observers());
             app.manage(SettingsApplyPort(apply_settings_from_port));
             app.manage(system_usage_label_providers());
@@ -1421,6 +1433,31 @@ mod tests {
         assert_eq!(ide.matches("(app.state::<PluginRuntimePort>().language_overlays)(app)").count(), 2);
         let vsix = include_str!("domain/vsix/commands.rs");
         assert!(vsix.contains("(plugins.commit_staged_import)(&app, &temp_dir, &staged_plugin_id)"));
+    }
+
+    #[test]
+    fn 프로젝트_복원_워처는_조립부_포트로_build와_register를_분리한다() {
+        let source = include_str!("lib.rs");
+        let provider = extract_between(source, "fn project_restore_watchers()", "fn system_usage_label_providers()");
+        assert!(provider.contains("build_file: domain::file::capability::build_watcher_handle"));
+        assert!(provider.contains("build_git: domain::git::watch::build_git_watcher_handle"));
+        assert!(provider.contains("register_file: domain::file::capability::register_watcher_handle"));
+        assert!(provider.contains("register_git: domain::git::watch::register_git_watcher_handle"));
+        let setup = extract_between(
+            source,
+            "app.manage(project_capabilities());",
+            "app.manage(settings_toggle_observers());",
+        );
+        assert!(setup.contains("app.manage(project_restore_watchers());"));
+
+        let project = include_str!("domain/project/commands.rs");
+        assert!(project.contains("taide_layout::service::load_layout(&state.paths, &project.id)"));
+        assert!(project.contains("taide_settings::service::load_settings(&state.paths)"));
+        let restore = extract_between(project, "pub(crate) fn restore_project_watchers(", "#[cfg(test)]");
+        assert!(restore.contains(".map(taide_layout::service::open_file_paths)"));
+        assert!(restore.find("let build_result =").unwrap() < restore.find("let _guard = state.begin_mutation().await;").unwrap());
+        assert!(restore.find("let _guard = state.begin_mutation().await;").unwrap() < restore.find("register_file(&state").unwrap());
+        assert!(restore.find("register_file(&state").unwrap() < restore.find("register_git(&state").unwrap());
     }
 
     #[test]

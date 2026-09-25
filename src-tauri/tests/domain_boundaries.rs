@@ -13,23 +13,7 @@ use regex::Regex;
 /// only shrink by cleaning the edge up, never rot (the same "unlisted = rejected" shape as the
 /// remote dispatch tables, T1-K).
 ///
-/// Approval reasons, per entry (audit 2026-08-18 / contract T1-I §1.4):
-/// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
-///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
-///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
-///   helpers, called from `setup()`, d-32 R1) re-attaches every domain's per-project watcher and
-///   reloads every domain's persisted state before the first window shows; the assembly (`lib.rs`
-///   `setup()`) still owns the boot call order, only the step bodies live here. An assembly-owned
-///   deferred-attach provider (a build/register split on the capability registry) could remove
-///   the `file::capability`/`git::watch` halves; the `layout::service`/`settings::service` halves
-///   are boot state loads and are not capability-shaped. Deferred — d-35 §4-f upheld the deferral
-///   (precondition unchanged: a `ProjectCapability` build/register split, still not undertaken).
-const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
-    ("domain/project/commands.rs", "file::capability"),
-    ("domain/project/commands.rs", "git::watch"),
-    ("domain/project/commands.rs", "layout::service"),
-    ("domain/project/commands.rs", "settings::service"),
-];
+const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[];
 
 /// Recursively collects every `.rs` file under `dir`, sorted for deterministic failure output.
 fn rust_files(dir: &Path) -> Vec<PathBuf> {

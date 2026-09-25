@@ -20,6 +20,7 @@ use crate::events::{
 };
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
+use crate::project_restore_port::ProjectRestoreWatchers;
 use crate::state::{AppState, FlushScope};
 
 fn emit_list_changed(app: &AppHandle, state: &AppState) {
@@ -980,10 +981,7 @@ pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
         Ok((mut session, projects, session_warnings)) => {
             let mut layouts = state.layouts.write();
             for project in &projects {
-                layouts.insert(
-                    project.id.clone(),
-                    crate::domain::layout::service::load_layout(&state.paths, &project.id),
-                );
+                layouts.insert(project.id.clone(), taide_layout::service::load_layout(&state.paths, &project.id));
             }
 
             let mut shell_views = layouts
@@ -1012,7 +1010,7 @@ pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
         Err(error) => warnings.push(format!("세션 복원 실패: {error}")),
     }
 
-    *state.settings.write() = crate::domain::settings::service::load_settings(&state.paths);
+    *state.settings.write() = taide_settings::service::load_settings(&state.paths);
 
     warnings
 }
@@ -1074,8 +1072,8 @@ pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Pro
 ///
 /// **Build outside the guard, register inside it.** Each iteration's `spawn_blocking` call — where
 /// the `FileIdMap` walk actually happens — runs with no `AppState::begin_mutation` held at all:
-/// `domain::file::capability::build_watcher_handle`/`domain::git::watch::build_git_watcher_handle`
-/// only build a `WatcherHandle`, touching no `AppState` field, the same "build outside every lock,
+/// `ProjectRestoreWatchers` supplies the file/git builders; they only build a `WatcherHandle`,
+/// touching no `AppState` field, the same "build outside every lock,
 /// re-validate and insert inside the store's own lock" split
 /// `domain::tree::commands::rows_page_from_store` already established for a miss's own disk walk
 /// (Phase E C11-TREE-2). The guard is acquired only *after* the build returns, held across a
@@ -1135,7 +1133,7 @@ pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Pro
 /// `GitStatusChanged` alone (not paired with `GitRefsChanged`; the frontend maps both to the exact
 /// same `QUERY_KEY.GIT.PROJECT(projectId)` invalidation, so emitting both is pure duplication) once
 /// this project's git watcher attaches, and `FsChanged { kind: Modified, from_app: false, paths:
-/// <this project's currently open File tab paths> }` (`domain::layout::service::open_file_paths`)
+/// <this project's currently open File tab paths> }` (`taide_layout::service::open_file_paths`)
 /// once its file watcher attaches and it actually has any open file tabs. Gating the git emit on a
 /// `.git/index`/`.git/HEAD` mtime comparison (attach-taken snapshot vs. post-attach) to skip it
 /// entirely when nothing changed was considered and rejected: it would add IO on every boot,
@@ -1149,6 +1147,11 @@ pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Pro
 /// instead of continuing to attach every remaining project (each briefly taking `begin_mutation`)
 /// while the app is already tearing down.
 pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(ProjectId, String)>) {
+    let actions = app.state::<ProjectRestoreWatchers>();
+    let build_file = actions.build_file;
+    let build_git = actions.build_git;
+    let register_file = actions.register_file;
+    let register_git = actions.register_git;
     let app_handle = app.clone();
     let started = std::time::Instant::now();
     let project_count = restored.len();
@@ -1169,8 +1172,8 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
             let build_project_id = project_id.clone();
             let build_root = root.clone();
             let build_result = tauri::async_runtime::spawn_blocking(move || {
-                let file_handle = crate::domain::file::capability::build_watcher_handle(&build_handle, &build_project_id, &build_root);
-                let git_handle = crate::domain::git::watch::build_git_watcher_handle(&build_handle, &build_project_id, &build_root);
+                let file_handle = build_file(&build_handle, &build_project_id, &build_root);
+                let git_handle = build_git(&build_handle, &build_project_id, &build_root);
                 (file_handle, git_handle)
             })
             .await;
@@ -1192,10 +1195,10 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
             let file_attached = file_handle.is_some();
             let git_attached = git_handle.is_some();
             if let Some(handle) = file_handle {
-                crate::domain::file::capability::register_watcher_handle(&state, &project_id, handle);
+                register_file(&state, &project_id, handle);
             }
             if let Some(handle) = git_handle {
-                crate::domain::git::watch::register_git_watcher_handle(&state, &project_id, handle);
+                register_git(&state, &project_id, handle);
             }
             drop(_guard);
             attached += 1;
@@ -1205,7 +1208,7 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
                     .layouts
                     .read()
                     .get(&project_id)
-                    .map(crate::domain::layout::service::open_file_paths)
+                    .map(taide_layout::service::open_file_paths)
                     .unwrap_or_default();
                 if !open_paths.is_empty() {
                     let _ = FsChanged {

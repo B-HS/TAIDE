@@ -120,6 +120,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     IDE diff 결과의 보호된 파일 저장은 `ide::commands::IdeSaveFile`,
     app 파일·sync 다운로드의 설정 적용은 루트 `settings_port::SettingsApplyPort`,
     파일·Git·IDE의 플러그인 언어 조회와 VSIX 설치 확정은 루트 `plugin_port::PluginRuntimePort`,
+    복원 프로젝트의 파일·Git 워처 build/register는 루트 `project_restore_port::ProjectRestoreWatchers`,
     원격 WebSocket의 JSON/raw command 호출은 `remote::dispatch::RemoteDispatchPort`,
     에이전트 감지의 터미널 전경 PID 조회는 `agent::commands::AgentForegroundPids`,
     네이티브 메뉴의 최근 프로젝트·번역 조회는 `window::menu::MenuSources`,
@@ -135,13 +136,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     응답 의존 연동은 `lib.rs`의 `layout_move_tab_to_window` command가 직접 조립한다.
     보조 창 닫힘의 flush·등록 해제는 window command가 담당하고, `CloseRequested`·`Destroyed`
     양쪽에서 회수한 결과의 mirror 조회·layout 탭 복귀는 `lib.rs`가 조립한다.
-    부팅 1회성 복원처럼 확장점 4종 어디에도 맞지 않는 연동은, **조립부가 호출 순서를 계속
-    소유하는 조건**에서 스텝 본문을 도메인이 보유하고 그 교차 참조를 화이트리스트로 기록한다
-    (d-32 — `project::commands` 부팅 복원 3함수의 4엣지가 이 경로의 선례).
-  - 불가피한 잔여 엣지는 **화이트리스트로 명시 승인**한다. `src-tauri/tests/domain_boundaries.rs`
+    부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
+    `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
+    layout/settings 로드는 독립 crate, file/git watcher build/register는 조립부 포트를 사용한다.
+  - 불가피한 잔여 엣지는 **화이트리스트로 명시 승인**한다. 현재 허용 목록은 비어 있다.
+    `src-tauri/tests/domain_boundaries.rs`
     의 소스 스캔 테스트가 화이트리스트 밖의 도메인 간 참조와 infra→domain 참조를 기계 강제로
     거부한다(미등재 = 실패, 실재하지 않는 등재 = 실패 — T1-K "기본 거부"와 동형). 각 항목의
-    승인 사유는 그 파일의 화이트리스트 doc 에 있다. 원격의 전 도메인 command 게이트웨이는
+    승인 사유는 추가 시 그 파일의 화이트리스트 doc 에 기록한다. 원격의 전 도메인 command 게이트웨이는
     `src-tauri/src/remote_gateway.rs` 조립 계층으로 옮겨 파일 단위 예외가 없다.
 
 ### 2.1 스레딩 모델
