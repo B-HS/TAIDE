@@ -27,7 +27,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError(기존 facade)·AppEvent(30종)
-├── crates/taide-runtime/    Tauri 미의존 AppServices 첫 조립·AppState·검색/AI 요청·tree cache·flush handshake·EventSink port·TaskSupervisor
+├── crates/taide-runtime/    Tauri 미의존 AppServices 조립·AppState·검색/AI 요청·tree cache·flush handshake·EventSink port·TaskSupervisor
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 ├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
@@ -106,10 +106,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 >   전 창 브로드캐스트 이벤트(`agent:state-changed`·`lsp:install-progress`)라 판정을 프론트에
 >   두면 열린 창 수만큼 중복 발화한다. 텍스트(제목·본문)는 반대로 **프론트가 소유**한다 —
 >   `t()` 카탈로그와 이벤트 데이터를 가진 쪽이 프론트이고, Rust 는 문자열을 해석하지 않는다.
-> - 도메인별 저장소(`TreeStore`·`TerminalStore`·`GitStore`·`LspStore`·`SearchStore`·`AgentStore`)는
->   `state.rs` 가 아니라 각 도메인 `commands.rs` 에 정의하고 `app.manage()` 로 등록한다.
->   (병렬 구현 시 `state.rs` 충돌을 피하려는 선택 — 결과적으로 도메인 응집도가 높아졌다.
->   예외: `PluginStore` 는 `domain/plugin/service.rs` 에 있다)
+> - 도메인별 저장소는 소유 crate를 기준으로 분리한다. `TreeStore`·`SearchStore`는 taide-runtime,
+>   `LspStore`는 taide-lsp, `TerminalStore`는 taide-terminal, `PluginStore`는 taide-plugin에 있다.
+>   `GitStore`·`AgentStore`는 아직 Tauri 도메인 명령에 남아 있다. setup은 필요한 저장소를
+>   `app.manage()`로 등록하며, AppServices에 조립된 저장소는 같은 내부 상태를 공유하는 clone을 등록한다.
 
 - 각 domain 모듈은 `commands.rs`(IPC 노출) / `service.rs`(로직) / `types.rs`(직렬화 타입)로 나눈다.
   command 는 얇게: 파라미터 검증 → service 호출 → 이벤트 발행. 로직은 service 에만 둔다.
@@ -191,7 +191,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
     plugin 명령·언어 overlay 포트가 같은 목록을 소비한다.
-    setup은 상태 복원 뒤 `Arc<AppServices>`를 만들고 AppState·SearchStore·AiRequestStore·TreeStore·PluginStore·TaskSupervisor의 동일 내부 인스턴스를
+    `LspStore`는 taide-lsp의 세션 맵을 공유 Arc<Mutex>에 보관하고, LSP 명령·종료 경로가 같은 세션을 소비한다.
+    setup은 상태 복원 뒤 `Arc<AppServices>`를 만들고 AppState·SearchStore·AiRequestStore·TreeStore·PluginStore·LspStore·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

@@ -4635,6 +4635,7 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "taide-infra",
+ "taide-lsp",
  "taide-model",
  "taide-plugin",
  "taide-tree",

@@ -53,6 +53,8 @@ fn 같은_프로젝트_서버_owner만_세션을_재사용하고_종료_중이�
 
     entry.lifecycle.mark_stopping();
     assert!(store.find_reusable(&project_id, &server_id, "owner-a").is_none());
-    assert!(store.remove("session-a").is_some());
+    let legacy_store = store.clone();
+    assert!(legacy_store.contains("session-a"));
+    assert!(legacy_store.remove("session-a").is_some());
     assert!(!store.contains("session-a"));
 }

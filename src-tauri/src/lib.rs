@@ -964,6 +964,7 @@ pub fn run() {
                 AiRequestStore::default(),
                 TreeStore::default(),
                 PluginStore::default(),
+                LspStore::default(),
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
             ));
 
@@ -980,7 +981,7 @@ pub fn run() {
             app.manage(TerminalStore::default());
             app.manage(AgentForegroundPids(foreground_pids_for_agent));
             app.manage(GitStore::default());
-            app.manage(LspStore::default());
+            app.manage(services.lsp.clone());
             app.manage(LspInstallStore::default());
             app.manage(services.search.clone());
             app.manage(services.plugin.clone());

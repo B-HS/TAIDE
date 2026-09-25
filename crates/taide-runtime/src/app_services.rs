@@ -1,3 +1,4 @@
+use taide_lsp::store::LspStore;
 use taide_plugin::service::PluginStore;
 
 use super::{AiRequestStore, AppState, SearchStore, TaskSupervisor, TreeStore};
@@ -8,6 +9,7 @@ pub struct AppServices {
     pub ai_requests: AiRequestStore,
     pub tree: TreeStore,
     pub plugin: PluginStore,
+    pub lsp: LspStore,
     pub tasks: TaskSupervisor,
 }
 
@@ -18,6 +20,7 @@ impl AppServices {
         ai_requests: AiRequestStore,
         tree: TreeStore,
         plugin: PluginStore,
+        lsp: LspStore,
         tasks: TaskSupervisor,
     ) -> Self {
         Self {
@@ -26,6 +29,7 @@ impl AppServices {
             ai_requests,
             tree,
             plugin,
+            lsp,
             tasks,
         }
     }

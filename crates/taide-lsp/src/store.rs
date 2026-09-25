@@ -41,8 +41,8 @@ impl LspSessionEntry {
 }
 
 /// Tracks language-server sessions without depending on a UI or IPC runtime.
-#[derive(Default)]
-pub struct LspStore(Mutex<HashMap<String, Arc<LspSessionEntry>>>);
+#[derive(Clone, Default)]
+pub struct LspStore(Arc<Mutex<HashMap<String, Arc<LspSessionEntry>>>>);
 
 impl LspStore {
     pub fn new() -> Self {
