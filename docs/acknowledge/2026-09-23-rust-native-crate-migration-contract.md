@@ -805,3 +805,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 재시작 한도·지연·건강 판정 시간과 프로세스 생존/현재 슬롯 동일성 확인을 `taide-lsp::process`로 이전했습니다. Tauri `types` 상수 경로는 facade로 유지하고 기존 실패·상태 이벤트와 재기동 순서를 변경하지 않았습니다. 기존 건강 판정 테스트 3건을 crate 소유로 옮기고 현행 LSP 기능 문서의 소유 표기를 갱신했습니다. 첫 fmt 파싱 오류는 `let ... else` 세미콜론 누락으로, 수정 후 통과했습니다.
 - [x] C. 권한 허용 `taide-lsp` 단위 53건·새 경계 5건·Tauri LSP 명령 15건·Phase 0 계약 7건과 crate/Tauri clippy·fmt·독립 crate rustdoc·`git diff --check`가 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. 전체 workspace·TypeScript typecheck는 이번 slice 뒤 재실행하지 않았고 실제 GUI/서버 세션 실기는 미검증입니다. M5 전체·M6 adapter·native UI는 미완료입니다.
 - [x] D. 코드·테스트·현행 문서를 `725d211`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
+
+## M5 종료 게이트 — 도메인 결합 절단과 독립 crate 경계
+
+- [x] A. `domain_boundaries.rs`의 도메인 간 실행 참조 허용 목록은 비어 있고 infra→domain 참조·우회 import를 거부합니다. remote 명령 dispatch는 `lib.rs::remote_dispatch_port`가 조립하며 `remote/ws.rs`는 포트만 사용합니다. LSP·terminal·IDE·remote·window의 Tauri `service.rs`는 독립 crate facade이고 manifest·login page·lockfile도 같은 경계로 이전됐습니다. 다섯 crate의 전체 normal `cargo tree`에 Tauri 패키지가 없으며 소스의 Tauri import도 0건입니다.
+- [x] B. 권한 허용 `cargo test --workspace --quiet` 전체(exit 0)·`cargo clippy --workspace --all-targets -- -D warnings`·`cargo fmt --all --check`·`git diff --check`가 통과했습니다. 테스트에는 도메인 경계 3건·Phase 0 계약 7건과 LSP/terminal/IDE/remote/window의 세션·보안·자원 수명주기 검사가 포함됩니다. 전체 실행이 갱신한 `bindings.ts`는 `lsp_stop` 공개 설명 주석만 달라졌고 IPC 시그니처는 불변입니다. manifest SHA-256을 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`로 동기화한 뒤 Phase 0 7건과 bindings Prettier 검사를 다시 통과시켰습니다. TypeScript typecheck는 주석만 변경돼 재실행하지 않았습니다.
+- [x] C. M5의 코드·결합·테스트 계약이 충족되어 M5만 완료합니다. 실제 GUI·외부 LSP/PTY/MCP/원격 연결 실기, M6 adapter 분리, M7 전체 기능·데이터 동등성 및 M8 native UI gate는 미완료입니다. 원격 push는 기존 목적지·payload 승인 거절 때문에 사용자 승인 전까지 재시도하지 않습니다.
+- [x] D. 생성 bindings·manifest 동기화를 `12c4341`로 선별 로컬 commit했습니다. 이 M5 종료 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 재시도하지 않습니다.
