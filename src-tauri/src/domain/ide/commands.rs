@@ -3,7 +3,7 @@ use std::path::Path;
 
 use taide_ide::protocol::{at_mentioned_notification, selection_changed_notification};
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 
 use super::lockfile;
@@ -88,8 +88,17 @@ pub fn reconcile_stale_pending(app: &AppHandle) {
     ide.resolve_pending_for_missing_projects(&open_projects);
 }
 
+fn remove_candidate_lockfile(dir: &Path, port: u32) {
+    if let Err(error) = lockfile::remove_lockfile(dir, port) {
+        log::warn!("IDE 후보 lockfile 삭제 실패: {error}");
+    }
+}
+
 async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
     let state = app.state::<AppState>();
+    if state.is_shutting_down() {
+        return Err(AppError::Internal("IDE server unavailable during shutdown".to_string()));
+    }
     let workspace_folders = service::workspace_folders(&state.projects.read());
     let token = service::generate_auth_token();
     let dir = lockfile::lockfile_dir()?;
@@ -107,16 +116,40 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
         match tokio::net::TcpListener::bind(("127.0.0.1", candidate_port as u16)).await {
             Ok(listener) => {
                 let content = lockfile::build_lockfile_content(current_pid, workspace_folders, token.clone());
-                lockfile::write_lockfile_atomic(&dir, candidate_port, &content)?;
+                if let Err(error) = lockfile::write_lockfile_atomic(&dir, candidate_port, &content) {
+                    remove_candidate_lockfile(&dir, candidate_port);
+                    return Err(error);
+                }
 
                 let app_for_loop = app.clone();
                 let token_for_loop = token.clone();
-                let server_handle = tauri::async_runtime::spawn(async move {
+                let server_handle = app.state::<TaskSupervisor>().spawn_transient_handle("ide-server", async move {
                     server::accept_loop(app_for_loop, listener, token_for_loop).await;
                 });
+                let Some(server_handle) = server_handle else {
+                    remove_candidate_lockfile(&dir, candidate_port);
+                    return Err(AppError::Internal("IDE server task supervisor stopped".to_string()));
+                };
+                if state.is_shutting_down() {
+                    server_handle.abort();
+                    remove_candidate_lockfile(&dir, candidate_port);
+                    return Err(AppError::Internal("IDE server unavailable during shutdown".to_string()));
+                }
 
                 let ide = app.state::<IdeStore>();
-                let status = ide.mark_started(candidate_port, token, dir.clone(), server_handle);
+                let Some(status) = ide.mark_started(
+                    candidate_port,
+                    token,
+                    dir.clone(),
+                    tauri::async_runtime::JoinHandle::Tokio(server_handle),
+                ) else {
+                    remove_candidate_lockfile(&dir, candidate_port);
+                    return Ok(ide.status());
+                };
+                if state.is_shutting_down() {
+                    stop_server(app, &ide);
+                    return Err(AppError::Internal("IDE server unavailable during shutdown".to_string()));
+                }
                 log::info!("IDE 서버 기동: port={candidate_port}, lockfile={}", dir.display());
                 TauriEventSink(app).publish(AppEvent::IdeStatusChanged { status });
                 return Ok(status);

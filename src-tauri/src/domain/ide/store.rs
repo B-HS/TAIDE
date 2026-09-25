@@ -80,20 +80,30 @@ impl IdeStore {
         self.inner.lock().running
     }
 
-    pub fn mark_started(&self, port: u32, token: String, dir: PathBuf, server_handle: tauri::async_runtime::JoinHandle<()>) -> IdeStatus {
+    pub fn mark_started(
+        &self,
+        port: u32,
+        token: String,
+        dir: PathBuf,
+        server_handle: tauri::async_runtime::JoinHandle<()>,
+    ) -> Option<IdeStatus> {
         let mut inner = self.inner.lock();
+        if inner.running {
+            server_handle.abort();
+            return None;
+        }
         inner.running = true;
         inner.port = port;
         inner.token = token;
         inner.lockfile_dir = Some(dir);
         inner.server_handle = Some(server_handle);
         inner.client_count = 0;
-        IdeStatus {
+        Some(IdeStatus {
             running: true,
             port,
             connected: false,
             client_count: 0,
-        }
+        })
     }
 
     pub fn take_shutdown_state(&self) -> Option<ShutdownState> {
@@ -298,7 +308,9 @@ mod tests {
     #[test]
     fn mark_started는_실행_상태로_전환한다() {
         let store = IdeStore::default();
-        let status = store.mark_started(51234, "token".to_string(), PathBuf::from("/tmp/ide"), dummy_handle());
+        let status = store
+            .mark_started(51234, "token".to_string(), PathBuf::from("/tmp/ide"), dummy_handle())
+            .unwrap();
         assert!(status.running);
         assert_eq!(status.port, 51234);
         assert!(store.is_running());
@@ -313,7 +325,9 @@ mod tests {
     #[test]
     fn take_shutdown_state는_pending_diff와_save를_모두_드레인하고_해소된다() {
         let store = IdeStore::default();
-        store.mark_started(51235, "token".to_string(), PathBuf::from("/tmp/ide"), dummy_handle());
+        assert!(store
+            .mark_started(51235, "token".to_string(), PathBuf::from("/tmp/ide"), dummy_handle())
+            .is_some());
 
         let (diff_tx, diff_rx) = oneshot::channel();
         store.insert_pending_diff(
@@ -402,7 +416,9 @@ mod tests {
     #[test]
     fn 프로젝트가_닫히면_해당_pending_diff만_tabclosed로_해소된다() {
         let store = IdeStore::default();
-        store.mark_started(51236, "token".to_string(), PathBuf::from("/tmp/ide"), dummy_handle());
+        assert!(store
+            .mark_started(51236, "token".to_string(), PathBuf::from("/tmp/ide"), dummy_handle())
+            .is_some());
 
         let open_project = ProjectId::from("open".to_string());
         let closed_project = ProjectId::from("closed".to_string());

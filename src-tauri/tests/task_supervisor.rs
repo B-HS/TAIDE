@@ -2,6 +2,7 @@ use std::future::pending;
 use std::time::Duration;
 
 use taide_lib::domain::agent::commands::{AgentHooksStore, HooksServerInfo};
+use taide_lib::domain::ide::store::IdeStore;
 use taide_lib::domain::remote::commands::RemoteStore;
 use taide_runtime::TaskSupervisor;
 use tokio::sync::oneshot;
@@ -297,5 +298,55 @@ fn 원격_서버_작업은_감독_범위에_등록된다() {
     let bind = bind.split_once("/// Refreshes").unwrap().0;
 
     assert!(bind.contains("spawn_transient_handle(\"remote-server\""));
+    assert!(!bind.contains("tauri::async_runtime::spawn(async move {"));
+}
+
+#[tokio::test]
+async fn ide_서버_중복_시작은_기존_핸들과_lockfile_상태를_유지한다() {
+    const FIRST_PORT: u32 = 1;
+    const SECOND_PORT: u32 = 2;
+
+    let store = IdeStore::default();
+    let (first_sender, first_receiver) = oneshot::channel::<()>();
+    let (second_sender, second_receiver) = oneshot::channel::<()>();
+    let first_handle = tauri::async_runtime::spawn(async move {
+        let _sender = first_sender;
+        pending::<()>().await;
+    });
+    let second_handle = tauri::async_runtime::spawn(async move {
+        let _sender = second_sender;
+        pending::<()>().await;
+    });
+    let dir = std::path::PathBuf::from("/tmp/ide");
+
+    assert!(store
+        .mark_started(FIRST_PORT, "first".to_string(), dir.clone(), first_handle)
+        .is_some());
+    assert!(store
+        .mark_started(SECOND_PORT, "second".to_string(), dir.clone(), second_handle)
+        .is_none());
+    assert_eq!(store.status().port, FIRST_PORT);
+    assert_eq!(store.lockfile_context(), Some((FIRST_PORT, "first".to_string(), dir)));
+    assert!(tokio::time::timeout(Duration::from_secs(1), second_receiver)
+        .await
+        .unwrap()
+        .is_err());
+
+    store
+        .take_shutdown_state()
+        .expect("기존 서버 상태")
+        .server_handle
+        .expect("기존 서버 핸들")
+        .abort();
+    assert!(tokio::time::timeout(Duration::from_secs(1), first_receiver).await.unwrap().is_err());
+}
+
+#[test]
+fn ide_서버_작업은_감독_범위에_등록된다() {
+    let commands = include_str!("../src/domain/ide/commands.rs");
+    let bind = commands.split_once("async fn bind_and_start(").unwrap().1;
+    let bind = bind.split_once("#[tauri::command]").unwrap().0;
+
+    assert!(bind.contains("spawn_transient_handle(\"ide-server\""));
     assert!(!bind.contains("tauri::async_runtime::spawn(async move {"));
 }
