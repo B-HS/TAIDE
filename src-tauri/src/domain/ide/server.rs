@@ -11,10 +11,11 @@ use taide_ide::protocol::{
 };
 use taide_layout::service as layout_service;
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
@@ -446,8 +447,9 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
 
     let (write_half, mut read_half) = ws_stream.split();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
+    let mut connection_tasks = JoinSet::new();
 
-    let writer_handle = tauri::async_runtime::spawn(async move {
+    connection_tasks.spawn(async move {
         let mut sink = write_half;
         while let Some(message) = out_rx.recv().await {
             if sink.send(message).await.is_err() {
@@ -458,7 +460,7 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
 
     let mut notify_rx = app.state::<IdeStore>().subscribe();
     let broadcast_out_tx = out_tx.clone();
-    let forwarder_handle = tauri::async_runtime::spawn(async move {
+    connection_tasks.spawn(async move {
         loop {
             match notify_rx.recv().await {
                 Ok(message) => {
@@ -476,8 +478,6 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
     log::info!("IDE 클라이언트 연결: count={client_count}");
     emit_status_changed(&app, client_count);
 
-    let mut request_handles: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
-
     while let Some(message) = read_half.next().await {
         let Ok(message) = message else { break };
         match message {
@@ -485,12 +485,12 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
                 let Ok(incoming) = parse_incoming(text.as_str()) else { continue };
                 let request_app = app.clone();
                 let request_out_tx = out_tx.clone();
-                request_handles.retain(|handle| !handle.inner().is_finished());
-                request_handles.push(tauri::async_runtime::spawn(async move {
+                while connection_tasks.try_join_next().is_some() {}
+                connection_tasks.spawn(async move {
                     if let Some(response) = handle_incoming(&request_app, incoming).await {
                         let _ = request_out_tx.send(Message::text(encode(&response)));
                     }
-                }));
+                });
             }
             Message::Ping(payload) => {
                 let _ = out_tx.send(Message::Pong(payload));
@@ -500,11 +500,7 @@ async fn handle_connection(app: AppHandle, stream: TcpStream, expected_token: St
         }
     }
 
-    for handle in &request_handles {
-        handle.abort();
-    }
-    writer_handle.abort();
-    forwarder_handle.abort();
+    connection_tasks.shutdown().await;
     let client_count = app.state::<IdeStore>().client_disconnected();
     log::info!("IDE 클라이언트 연결 해제: count={client_count}");
     emit_status_changed(&app, client_count);
@@ -517,10 +513,16 @@ pub async fn accept_loop(app: AppHandle, listener: TcpListener, token: String) {
                 log::info!("IDE 연결 수락: {addr}");
                 let app_for_conn = app.clone();
                 let token_for_conn = token.clone();
-                let handle = tauri::async_runtime::spawn(async move {
+                let handle = app.state::<TaskSupervisor>().spawn_transient_handle("ide-connection", async move {
                     handle_connection(app_for_conn, stream, token_for_conn).await;
                 });
-                app.state::<IdeStore>().register_connection(handle);
+                let Some(handle) = handle else { break };
+                if !app
+                    .state::<IdeStore>()
+                    .register_connection(tauri::async_runtime::JoinHandle::Tokio(handle))
+                {
+                    break;
+                }
             }
             Err(error) => {
                 log::warn!("IDE accept 실패(계속): {error}");

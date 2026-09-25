@@ -187,6 +187,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     중복 bind는 첫 서버를 유지하고 뒤늦은 서버에 종료 신호·취소를 보내며, 일반 중지는 기존 grace wait 뒤 abort 순서를 유지한다.
     IDE 서버 accept 작업도 감독자가 추적하고 기존 IdeStore가 JoinHandle을 보유한다. 동시 bind는 첫 서버의 토큰·포트·핸들을 유지하며
     뒤늦은 작업을 취소하고 후보 lockfile을 제거한다. 등록 실패·종료 중 시작의 후보 lockfile도 정리하고, 정상 중지는 기존 연결 취소·pending diff/save 해소를 유지한다.
+    accept는 저장소 등록 뒤 시작되고 각 IDE 연결도 감독 범위에서 IdeStore가 핸들을 보유한다. 연결별 writer/알림 전달/요청 작업은 JoinSet이 소유해
+    연결 종료·부모 취소 때 함께 중단되며, 서버 종료 뒤 도착한 연결은 저장소가 등록하지 않고 취소한다.
     메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정·LSP 종료/재시작 지연은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.

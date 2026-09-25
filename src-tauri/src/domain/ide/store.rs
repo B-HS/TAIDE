@@ -140,10 +140,15 @@ impl IdeStore {
         Some((inner.port, inner.token.clone(), dir))
     }
 
-    pub fn register_connection(&self, handle: tauri::async_runtime::JoinHandle<()>) {
+    pub fn register_connection(&self, handle: tauri::async_runtime::JoinHandle<()>) -> bool {
         let mut inner = self.inner.lock();
+        if !inner.running {
+            handle.abort();
+            return false;
+        }
         inner.connection_handles.retain(|existing| !existing.inner().is_finished());
         inner.connection_handles.push(handle);
+        true
     }
 
     pub fn client_connected(&self) -> u32 {

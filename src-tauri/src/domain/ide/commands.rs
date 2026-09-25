@@ -5,6 +5,7 @@ use taide_ide::protocol::{at_mentioned_notification, selection_changed_notificat
 use taide_model::app_event::AppEvent;
 use taide_runtime::{EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
+use tokio::sync::oneshot;
 
 use super::lockfile;
 use super::server;
@@ -123,8 +124,11 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
 
                 let app_for_loop = app.clone();
                 let token_for_loop = token.clone();
+                let (ready_tx, ready_rx) = oneshot::channel::<()>();
                 let server_handle = app.state::<TaskSupervisor>().spawn_transient_handle("ide-server", async move {
-                    server::accept_loop(app_for_loop, listener, token_for_loop).await;
+                    if ready_rx.await.is_ok() {
+                        server::accept_loop(app_for_loop, listener, token_for_loop).await;
+                    }
                 });
                 let Some(server_handle) = server_handle else {
                     remove_candidate_lockfile(&dir, candidate_port);
@@ -152,6 +156,12 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
                 }
                 log::info!("IDE 서버 기동: port={candidate_port}, lockfile={}", dir.display());
                 TauriEventSink(app).publish(AppEvent::IdeStatusChanged { status });
+                if ready_tx.send(()).is_err() {
+                    stop_server(app, &ide);
+                    return Err(AppError::Internal(
+                        "IDE server task stopped before accepting connections".to_string(),
+                    ));
+                }
                 return Ok(status);
             }
             Err(error) => last_error = Some(error),

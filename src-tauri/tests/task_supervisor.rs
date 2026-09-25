@@ -350,3 +350,57 @@ fn ide_서버_작업은_감독_범위에_등록된다() {
     assert!(bind.contains("spawn_transient_handle(\"ide-server\""));
     assert!(!bind.contains("tauri::async_runtime::spawn(async move {"));
 }
+
+#[tokio::test]
+async fn ide_저장소는_종료_후_연결_등록을_취소한다() {
+    const IDE_PORT: u32 = 1;
+
+    let store = IdeStore::default();
+    assert!(store
+        .mark_started(
+            IDE_PORT,
+            "token".to_string(),
+            std::path::PathBuf::from("/tmp/ide"),
+            tauri::async_runtime::spawn(async {}),
+        )
+        .is_some());
+    let (active_sender, active_receiver) = oneshot::channel::<()>();
+    let active_handle = tauri::async_runtime::spawn(async move {
+        let _sender = active_sender;
+        pending::<()>().await;
+    });
+    assert!(store.register_connection(active_handle));
+
+    let shutdown = store.take_shutdown_state().expect("IDE 서버 상태");
+    for handle in shutdown.connection_handles {
+        handle.abort();
+    }
+    assert!(tokio::time::timeout(Duration::from_secs(1), active_receiver)
+        .await
+        .unwrap()
+        .is_err());
+
+    let (sender, receiver) = oneshot::channel::<()>();
+    let handle = tauri::async_runtime::spawn(async move {
+        let _sender = sender;
+        pending::<()>().await;
+    });
+
+    assert!(!store.register_connection(handle));
+    assert!(tokio::time::timeout(Duration::from_secs(1), receiver).await.unwrap().is_err());
+}
+
+#[test]
+fn ide_연결과_자식_작업은_함께_종료되는_범위에_등록된다() {
+    let server = include_str!("../src/domain/ide/server.rs");
+    let connection = server.split_once("async fn handle_connection(").unwrap().1;
+    let connection = connection.split_once("pub async fn accept_loop(").unwrap().0;
+    let accept = server.split_once("pub async fn accept_loop(").unwrap().1;
+    let accept = accept.split_once("#[cfg(test)]").unwrap().0;
+
+    assert!(connection.contains("JoinSet::new()"));
+    assert!(connection.contains("connection_tasks.shutdown().await"));
+    assert!(!connection.contains("tauri::async_runtime::spawn(async move {"));
+    assert!(accept.contains("spawn_transient_handle(\"ide-connection\""));
+    assert!(!accept.contains("tauri::async_runtime::spawn(async move {"));
+}
