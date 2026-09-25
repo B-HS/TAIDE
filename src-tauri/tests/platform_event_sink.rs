@@ -106,3 +106,54 @@ fn git_명령과_워처는_캐시_무효화_후_port에_발행한다() {
     assert!(adapter.contains("GitStatusChanged { project_id }.emit(self.0)"));
     assert!(adapter.contains("GitRefsChanged { project_id }.emit(self.0)"));
 }
+
+#[test]
+fn terminal_세션_이벤트_네_종은_같은_port에서_발행된다() {
+    let sink = RecordingEventSink::default();
+    let project_id = ProjectId::from("prj-terminal-event-sink".to_string());
+
+    sink.publish(AppEvent::TerminalSpawned {
+        session_id: "term-1".to_string(),
+        project_id: project_id.clone(),
+        cwd: "/repo".to_string(),
+        shell: "/bin/sh".to_string(),
+    });
+    sink.publish(AppEvent::TerminalCwdChanged {
+        session_id: "term-1".to_string(),
+        cwd: "/repo/src".to_string(),
+    });
+    sink.publish(AppEvent::TerminalCommandFinished {
+        session_id: "term-1".to_string(),
+        cwd: Some("/repo/src".to_string()),
+        exit_code: Some(0),
+        duration_ms: 1,
+    });
+    sink.publish(AppEvent::TerminalExited {
+        session_id: "term-1".to_string(),
+        code: Some(0),
+    });
+
+    let recorded = sink.0.lock().unwrap();
+    assert_eq!(recorded.len(), 4);
+    assert!(matches!(&recorded[0], AppEvent::TerminalSpawned { project_id: recorded_project, .. } if recorded_project == &project_id));
+    assert!(matches!(&recorded[1], AppEvent::TerminalCwdChanged { .. }));
+    assert!(matches!(&recorded[2], AppEvent::TerminalCommandFinished { .. }));
+    assert!(matches!(&recorded[3], AppEvent::TerminalExited { .. }));
+}
+
+#[test]
+fn terminal_발행은_상태_갱신과_명령_측정_뒤에_수행된다() {
+    let commands = include_str!("../src/domain/terminal/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let cwd = commands.split_once("fn report_cwd_change(").unwrap().1;
+    let marker = commands.split_once("fn report_command_marker(").unwrap().1;
+    let exit = commands.split_once("move |code| {").unwrap().1;
+    let spawned = commands.split_once("let spawned = AppEvent::TerminalSpawned").unwrap().1;
+
+    assert!(cwd.find("store.update_cwd(").unwrap() < cwd.find("AppEvent::TerminalCwdChanged").unwrap());
+    assert!(marker.find("command_clock.record(").unwrap() < marker.find("AppEvent::TerminalCommandFinished").unwrap());
+    assert!(exit.find("exit_metadata.mark_exited()").unwrap() < exit.find("AppEvent::TerminalExited").unwrap());
+    assert!(spawned.find("store.insert(").unwrap() < spawned.find(".publish(spawned)").unwrap());
+    assert!(adapter.contains("TerminalSpawned {") && adapter.contains("TerminalExited {") && adapter.contains("TerminalCwdChanged {"));
+    assert!(adapter.contains("TerminalCommandFinished {"));
+}

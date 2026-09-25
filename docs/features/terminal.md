@@ -493,6 +493,9 @@
   **뒤에** 발행. `terminal:exited` 와 대칭인 전역 로스터 신호이고, 소비자는 `ipc-sync-provider` 하나다 — §3.1),
   `agent:state-changed`(`agent-integration.md`)
 
+  위 terminal 이벤트 네 종은 `taide-model::app_event::AppEvent`와 `taide-runtime::EventSink`를 거쳐
+  `src-tauri/src/platform/event_sink.rs`에서 기존 Tauri 이벤트로 변환한다. 원격 fanout과 IPC payload는 그대로다.
+
 ## 10. 수명주기 · 누수 방지
 
 - 탭 닫기: `layout_close_tab`/IDE 도구의 탭 닫기가 공유하는 `close_tab_and_finish` 가 닫힌 탭이

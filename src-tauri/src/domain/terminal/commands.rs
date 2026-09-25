@@ -4,6 +4,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use taide_terminal::command_clock::TerminalCommandClock;
 use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::runtime::spawn_terminal_session;
@@ -11,18 +13,17 @@ use taide_terminal::session::TerminalSessionOutput;
 use taide_terminal::store::TerminalSessionEntry;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
-use tauri_specta::Event;
 
 use super::service;
 use super::types::{self, PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
 use crate::error::{AppError, AppResult};
-use crate::events::{TerminalCommandFinished, TerminalCwdChanged, TerminalExited, TerminalSpawned};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
 use crate::infra::root_guard::ensure_within_root;
 use crate::infra::shell_integration;
 use crate::infra::terminal_scan::{ScanEvent, ScanOutcome};
+use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 pub use taide_terminal::store::TerminalStore;
@@ -36,7 +37,7 @@ fn output_channel_sink(channel: Channel<InvokeResponseBody>) -> impl Fn(&[u8]) -
 }
 
 /// Applies one pty output chunk's detected cwd-report (`infra::terminal_scan::ScanEvent::Cwd`)
-/// to `session_id`'s metadata, emitting [`TerminalCwdChanged`] only
+/// to `session_id`'s metadata, emitting [`crate::events::TerminalCwdChanged`] only
 /// when it actually differs from the last known value — `precmd`/`PROMPT_COMMAND` fire on every
 /// prompt render, not just after `cd`, so without this check the renderer would get one event per
 /// command instead of one per genuine directory change. A `session_id` not yet present in
@@ -49,14 +50,13 @@ fn report_cwd_change(app: &AppHandle, session_id: &str, cwd: String) {
         return;
     }
 
-    let _ = TerminalCwdChanged {
+    TauriEventSink(app).publish(AppEvent::TerminalCwdChanged {
         session_id: session_id.to_string(),
         cwd,
-    }
-    .emit(app);
+    });
 }
 
-/// Emits [`TerminalCommandFinished`] for every command the session clock actually timed.
+/// Emits [`crate::events::TerminalCommandFinished`] for every command the session clock actually timed.
 ///
 /// The clock lives on the pty reader thread because that is the only place a session's output is
 /// seen whether or not a window is displaying it — and "nobody is watching" is exactly the case the
@@ -78,13 +78,12 @@ fn report_command_marker(
 
     let cwd = app.state::<TerminalStore>().cwd(session_id);
 
-    let _ = TerminalCommandFinished {
+    TauriEventSink(app).publish(AppEvent::TerminalCommandFinished {
         session_id: session_id.to_string(),
         cwd,
         exit_code: timed.exit_code,
         duration_ms: timed.duration_ms,
-    }
-    .emit(app);
+    });
 }
 
 /// What a pty session just did, for the domains that read a terminal's traffic without owning one.
@@ -256,25 +255,24 @@ pub async fn pty_spawn(
             },
             move |code| {
                 exit_metadata.mark_exited();
-                let _ = TerminalExited {
+                TauriEventSink(&exit_app).publish(AppEvent::TerminalExited {
                     session_id: exit_session_id,
                     code,
-                }
-                .emit(&exit_app);
+                });
             },
         )
     })
     .await
     .map_err(|error| AppError::Internal(error.to_string()))??;
 
-    let spawned = TerminalSpawned {
+    let spawned = AppEvent::TerminalSpawned {
         session_id: session_id.clone(),
         project_id: metadata.project_id().clone(),
         cwd: metadata.cwd(),
         shell: metadata.shell().to_string(),
     };
     store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output));
-    let _ = spawned.emit(&app);
+    TauriEventSink(&app).publish(spawned);
 
     Ok(session_id)
 }
