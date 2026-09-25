@@ -117,6 +117,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `ProjectCapabilities`(§3), 설정 토글 반응은 `settings::commands::SettingsToggleObservers`,
     탭 닫힘 뒤 IDE pending diff 해소·PTY 회수는 `layout::service::LayoutTabClosedObservers`,
     IDE MCP의 탭 open/close 수명주기는 `ide::server::IdeLayoutActions`,
+    원격 WebSocket의 JSON/raw command 호출은 `remote::dispatch::RemoteDispatchPort`,
     시스템 사용량 프로세스 라벨은 `system::commands::SystemUsageLabelProviders`, 터미널 spawn
     추가 env 는 `terminal::commands::PtySpawnEnvProvider` — 전부 lib.rs 가 구현/클로저를 정적
     등록하고 도메인은 등록된 것을 소비만 한다. (초안이 언급한 "이벤트 버스(내부 broadcast
@@ -135,8 +136,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
   - 불가피한 잔여 엣지는 **화이트리스트로 명시 승인**한다. `src-tauri/tests/domain_boundaries.rs`
     의 소스 스캔 테스트가 화이트리스트 밖의 도메인 간 참조와 infra→domain 참조를 기계 강제로
     거부한다(미등재 = 실패, 실재하지 않는 등재 = 실패 — T1-K "기본 거부"와 동형). 각 항목의
-    승인 사유는 그 파일의 화이트리스트 doc 에 있다. 유일한 파일 단위 예외는 원격 게이트웨이
-    `domain/remote/dispatch.rs`(전 도메인 커맨드의 dispatch 테이블이라는 존재 이유 — §4).
+    승인 사유는 그 파일의 화이트리스트 doc 에 있다. 원격의 전 도메인 command 게이트웨이는
+    `src-tauri/src/remote_gateway.rs` 조립 계층으로 옮겨 파일 단위 예외가 없다.
 
 ### 2.1 스레딩 모델
 
@@ -293,8 +294,8 @@ trait ProjectCapability: Send + Sync {
   `docs/research/tauri-v2.md`).
 - Rust 타입 → TS 타입 자동 생성(ADR-0011)으로 계약을 단일 출처화한다.
 - 명령 이름은 `snake_case` `{domain}_{action}`, 이벤트 이름은 `{domain}:{event-kebab}` 으로 통일한다.
-- **원격(웹) 접속에서는 이 IPC 경계가 그대로 노출되지 않는다** — `src-tauri/src/domain/remote/
-  dispatch.rs` 가 명시 허용 목록(`REMOTE_ALLOWED_COMMANDS`)·명시 거부 목록
+- **원격(웹) 접속에서는 이 IPC 경계가 그대로 노출되지 않는다** — `src-tauri/src/remote_gateway.rs`
+  가 명시 허용 목록(`REMOTE_ALLOWED_COMMANDS`)·명시 거부 목록
   (`REMOTE_DENIED_COMMANDS`) 둘 중 하나에 등재된 커맨드만 실핸들러로 위임하는 **기본 거부** 게이트다
   (T1-K, 2026-08-19). 새 커맨드는 `match` arm 추가만으로 원격 도달 가능해지지 않고, 두 목록 중
   하나에 이름을 등재해야 한다 — 상세 분류·전수 목록은 `docs/ipc-contract.md` §"원격 dispatch 정책".

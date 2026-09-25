@@ -11,7 +11,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
 use super::commands::{RemoteDispatchLimiter, RemoteStore};
-use super::dispatch::{self, ChannelFactory, ChannelSink};
+use super::dispatch::{ChannelFactory, ChannelSink, RemoteDispatchPort};
 use super::types::{
     RemoteRequest, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED, REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS,
 };
@@ -84,7 +84,7 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
     let RemoteRequest { seq, command, args } = request;
 
     if command == "file_read_raw" {
-        match dispatch::dispatch_raw(app, &command, args).await {
+        match (app.state::<RemoteDispatchPort>().raw)(app.clone(), command, args).await {
             Ok(bytes) => {
                 let _ = ws_out.send(WsOut::Binary(response_binary_frame(seq, &bytes)));
             }
@@ -95,7 +95,7 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
         return;
     }
 
-    match dispatch::dispatch(app, &command, args, factory).await {
+    match (app.state::<RemoteDispatchPort>().json)(app.clone(), command, args, factory).await {
         Ok(json) => {
             let payload = serde_json::from_str::<Value>(&json).unwrap_or(Value::Null);
             let _ = ws_out.send(WsOut::Text(response_frame(seq, true, payload)));

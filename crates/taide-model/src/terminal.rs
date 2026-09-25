@@ -114,7 +114,7 @@ mod tests {
     }
 
     /// The field has to stay optional on the wire: `bindings.ts` is regenerated from this struct,
-    /// but a remote session's JSON (`domain::remote::dispatch`) is hand-written by its client and
+    /// but a remote session's JSON (`remote_gateway`) is hand-written by its client and
     /// must keep spawning with the pre-field payload shape.
     #[test]
     fn 스폰_옵션은_스크롤백_필드가_없어도_역직렬화된다() {

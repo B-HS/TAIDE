@@ -235,7 +235,7 @@
 ## 8. 원격 세션 노출
 
 - 신규 커맨드 3종(`ai_inline_edit`·`ai_commit_message`·`git_diff_staged_text`)과 리네임된
-  `ai_request_cancel` 은 전부 원격 dispatch 허용 목록(`domain/remote/dispatch.rs`)에 등록돼
+  `ai_request_cancel` 은 전부 원격 dispatch 허용 목록(`src-tauri/src/remote_gateway.rs`)에 등록돼
   있다 — 다만 `ai_set_token`/`ai_clear_token` 은 **d-38(2026-08-25)** 에서
   `RemoteDenialPolicy::CredentialStoreTampering` 거부로 전환됐다(근거는 `ipc-contract.md`
   §"원격 dispatch 정책" 참조). 원격 세션에서도 Inline Edit·커밋 메시지·자동완성은 그대로 쓸 수 있고,

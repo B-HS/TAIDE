@@ -29,7 +29,7 @@
 >
 > **실측(2026-08-25, d-42 §3 item d — `search_list_files` 신규 반영)**: command **178종** —
 > `src/shared/api/bindings.ts` 의 `__TAURI_INVOKE("...")` 전수(raw 3종 제외) =
-> `src-tauri/src/domain/remote/dispatch.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히
+> `src-tauri/src/remote_gateway.rs` 의 `IMPLEMENTED_JSON_COMMANDS` 배열 원소 수와 정확히
 > 일치(파리티 테스트 `bindings와_dispatch_테이블은_커맨드_이름_집합이_일치한다` 가 강제). raw 채널
 > 커맨드 3종(specta 밖, 아래 "raw 커맨드" 절)까지 합치면 총 **181종**. event 는 **23종**
 > (`src-tauri/src/events.rs` 의 `#[tauri_specta(event_name = ...)]` 전수). 원격 dispatch 는 이
@@ -1392,7 +1392,7 @@ TextMate 룰 전량 — 없으면 필드 자체가 생략) 필드가 추가됐�
 > 구조가 "기본 허용(목록에 없으면 통과)"에서 **"기본 거부(명시 등재 전까지 원격 불가)"** 로
 > 뒤집혔다. **정책(어떤 커맨드가 허용/거부인지)은 이 배치에서 전혀 바뀌지 않았다** — 바뀐 것은
 > 강제 메커니즘뿐이다: 이전에는 새 `match` arm 을 추가하기만 하면 그 커맨드가 자동으로 원격
-> 허용됐다(무증상 위험). 이제는 `src-tauri/src/domain/remote/dispatch.rs` 의
+> 허용됐다(무증상 위험). 이제는 `src-tauri/src/remote_gateway.rs` 의
 > `REMOTE_ALLOWED_COMMANDS`(명시 허용, 157종 — d-42 이전 156종) 또는 `REMOTE_DENIED_COMMANDS`(명시
 > 거부, 24종) **둘 중 하나에 이름을 등재해야만** `dispatch()`/`dispatch_raw()` 가 그 커맨드를
 > 실핸들러로 위임한다 — 등재를

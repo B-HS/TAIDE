@@ -62,7 +62,7 @@ pub async fn project_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectRe
 /// the same shape as `project_get`'s read-only-ness — `project_get` never touches the filesystem
 /// at all (it reads `state.projects`, an in-memory map), while this command does a full disk scan
 /// through a dedicated read-only path. Deliberately **not** remote-reachable — see
-/// `RemoteDenialPolicy::LocalProjectHistoryExposure` in `domain/remote/dispatch.rs`.
+/// `RemoteDenialPolicy::LocalProjectHistoryExposure` in `remote_gateway.rs`.
 #[tauri::command]
 #[specta::specta]
 pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
@@ -135,7 +135,7 @@ pub async fn project_get_active(state: State<'_, AppState>) -> AppResult<Option<
 /// [`project_activate`] does, or a caller other than the FE's own `useOpenProject`/
 /// `useOpenFolderDialog` mutation (whose `onSuccess` invalidates `QUERY_KEY.PROJECT.ALL` itself,
 /// masking the gap for that one call site) sees `QUERY_KEY.PROJECT.ACTIVE` go stale: the remote
-/// dispatch path (`domain::remote::dispatch`) calls this exact function, and any future direct
+/// dispatch path (`remote_gateway`) calls this exact function, and any future direct
 /// caller would hit the same gap. Emitted unconditionally (not only inside the `!already_open`
 /// branch below, which gates the *first-open-only* `ProjectOpened`/`ProjectListChanged`/capability
 /// attach) because activation itself is unconditional. See

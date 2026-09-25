@@ -65,8 +65,8 @@ pub fn is_remote_newer(remote_updated_at: &str, last_synced_at: Option<&str>) ->
 /// whatever host the gist named on the next request — the same
 /// "outlives the session that planted it" shape as `shellOverride`). The
 /// latter closes the `sync_download` route neither
-/// `remote::dispatch::strip_remote_gated_settings_patch` nor
-/// `remote::dispatch::strip_remote_gated_settings` ever covers, since
+/// `taide_remote::policy::strip_remote_gated_settings_patch` nor
+/// `taide_remote::policy::strip_remote_gated_settings` ever covers, since
 /// `sync_download` calls straight into this module instead of going through
 /// either of those — see `docs/acknowledge/2026-08-25-d41-omlx-baseurl-strip-contract.md`
 /// (the wave-b contract below originally held `aiOmlxBaseUrl` back out of this
@@ -74,7 +74,7 @@ pub fn is_remote_newer(remote_updated_at: &str, last_synced_at: Option<&str>) ->
 /// [`apply_payload_settings`] (download) both funnel through this single
 /// function so the two directions can never drift apart — see
 /// `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §3.1/§4. This is
-/// distinct from `remote::dispatch::strip_remote_gated_settings_patch`, which
+/// distinct from `taide_remote::policy::strip_remote_gated_settings_patch`, which
 /// guards the live remote-session `settings_update` path, not the gist
 /// round-trip.
 fn strip_non_syncable(patch: &SettingsPatch) -> SettingsPatch {

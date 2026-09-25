@@ -5,9 +5,11 @@ pub mod events;
 pub mod ids;
 pub mod infra;
 pub mod paths;
+mod remote_gateway;
 pub mod state;
 
 use futures_util::future::BoxFuture;
+use serde_json::Value;
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -22,6 +24,7 @@ use crate::domain::layout::types::{ProjectLayout, Tab, TabKind, TabWindowTarget}
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
+use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
 use crate::domain::search::commands::SearchStore;
 use crate::domain::system::commands::SystemUsageStore;
 use crate::domain::terminal::commands::TerminalStore;
@@ -223,6 +226,21 @@ fn ide_layout_actions() -> IdeLayoutActions {
     IdeLayoutActions {
         open_file_tab: open_ide_file_tab,
         close_tab: close_ide_tab,
+    }
+}
+
+fn dispatch_remote_json(app: AppHandle, name: String, args: Value, channels: ChannelFactory) -> BoxFuture<'static, Result<String, Value>> {
+    Box::pin(async move { remote_gateway::dispatch(&app, &name, args, channels).await })
+}
+
+fn dispatch_remote_raw(app: AppHandle, name: String, args: Value) -> BoxFuture<'static, Result<Vec<u8>, Value>> {
+    Box::pin(async move { remote_gateway::dispatch_raw(&app, &name, args).await })
+}
+
+fn remote_dispatch_port() -> RemoteDispatchPort {
+    RemoteDispatchPort {
+        json: dispatch_remote_json,
+        raw: dispatch_remote_raw,
     }
 }
 
@@ -711,7 +729,7 @@ pub fn run() {
     // 커맨드_이름_집합이_일치한다` pins to `collect_commands!` — so a new command starts being
     // counted the moment it is registered, with no second list to keep in sync.
     infra::perf::init(
-        domain::remote::dispatch::IMPLEMENTED_JSON_COMMANDS
+        remote_gateway::IMPLEMENTED_JSON_COMMANDS
             .iter()
             .chain(RAW_CHANNEL_COMMANDS.iter())
             .copied(),
@@ -861,6 +879,7 @@ pub fn run() {
             app.manage(layout_tab_closed_observers());
             app.manage(AiRequestStore::default());
             app.manage(SecretStoreState::new(app.config().identifier.clone()));
+            app.manage(remote_dispatch_port());
             app.manage(RemoteStore::default());
             app.manage(RemoteDispatchLimiter::default());
             app.manage(WindowStore::default());
@@ -1110,7 +1129,7 @@ mod tests {
         let mut generated_names: BTreeSet<String> = pattern.captures_iter(&generated).map(|capture| capture[1].to_string()).collect();
         generated_names.extend(RAW_CHANNEL_COMMANDS.iter().map(|name| name.to_string()));
 
-        let implemented_names: BTreeSet<String> = domain::remote::dispatch::IMPLEMENTED_JSON_COMMANDS
+        let implemented_names: BTreeSet<String> = remote_gateway::IMPLEMENTED_JSON_COMMANDS
             .iter()
             .chain(RAW_CHANNEL_COMMANDS.iter())
             .map(|name| name.to_string())
@@ -1141,7 +1160,7 @@ mod tests {
     /// `X1#8` — `fanout_remote_events!` (`lib.rs`) deliberately omits two events from the
     /// remote-session broadcast: `HotExitFlushRequested`(데스크톱 창 종료 신호라 원격 세션에는
     /// 무의미) and `AgentExternalOpen`(T0 #14 — 원격 세션이 대기 중인 외부 열기 요청을 실시간으로
-    /// 가로채면 안 된다. `domain/remote/dispatch.rs` 의 `deny_remote_agent_pending_external_opens`
+    /// 가로채면 안 된다. `remote_gateway.rs` 의 `deny_remote_agent_pending_external_opens`
     /// doc comment 참조). This test names that exception list explicitly so any *other* divergence
     /// from `collect_events!`'s set — the failure mode the exception list used to hide behind a
     /// plain code comment — fails loudly instead.
@@ -1257,6 +1276,27 @@ mod tests {
         let ide_server = include_str!("domain/ide/server.rs");
         assert!(ide_server.contains("(app.state::<IdeLayoutActions>().open_file_tab)("));
         assert_eq!(ide_server.matches("(app.state::<IdeLayoutActions>().close_tab)(").count(), 2);
+    }
+
+    #[test]
+    fn 원격_websocket은_조립부의_json_raw_게이트웨이를_사용한다() {
+        let source = include_str!("lib.rs");
+        let port = extract_between(source, "fn dispatch_remote_json(", "fn layout_tab_closed_observers()");
+        assert!(port.contains("remote_gateway::dispatch(&app, &name, args, channels).await"));
+        assert!(port.contains("remote_gateway::dispatch_raw(&app, &name, args).await"));
+        assert!(port.contains("json: dispatch_remote_json"));
+        assert!(port.contains("raw: dispatch_remote_raw"));
+
+        let setup = extract_between(
+            source,
+            "app.manage(SecretStoreState::new",
+            "app.manage(RemoteDispatchLimiter::default());",
+        );
+        assert!(setup.contains("app.manage(remote_dispatch_port());"));
+
+        let ws = include_str!("domain/remote/ws.rs");
+        assert!(ws.contains("(app.state::<RemoteDispatchPort>().json)("));
+        assert!(ws.contains("(app.state::<RemoteDispatchPort>().raw)("));
     }
 
     #[test]

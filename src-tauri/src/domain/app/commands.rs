@@ -73,7 +73,7 @@ pub async fn app_file_write(app: tauri::AppHandle, state: State<'_, AppState>, t
 /// entry point — distinct from `app_file_write` — so the remote dispatch table can route a
 /// `Settings`-target `app_file_write` through a value it has already stripped of the remote-gated
 /// fields before it ever reaches `apply_and_broadcast`. The gated field set is not repeated here —
-/// see `domain::remote::dispatch::strip_remote_gated_settings` for the canonical list.
+/// see `taide_remote::policy::strip_remote_gated_settings` for the canonical list.
 pub async fn apply_settings_file(app: tauri::AppHandle, state: State<'_, AppState>, settings: Settings) -> AppResult<()> {
     let _guard = state.begin_mutation().await;
     settings_commands::apply_and_broadcast(&app, &state, settings).await?;

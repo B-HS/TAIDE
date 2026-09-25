@@ -16,7 +16,7 @@ use crate::state::AppState;
 
 /// Sanity upper bounds (byte length, not a token budget) on `ai_inline_complete`/`ai_inline_edit`/
 /// `ai_commit_message` request fields. All three commands are remotely dispatchable
-/// (`domain/remote/dispatch.rs`), and the normal UI flow naturally bounds these (editor
+/// (`remote_gateway.rs`), and the normal UI flow naturally bounds these (editor
 /// selection/context-window size, `git_diff_staged_text`'s own `STAGED_DIFF_TEXT_MAX_BYTES` cap) —
 /// but a caller that skips that flow entirely (a raw IPC/remote call) has nothing else stopping it
 /// from handing an arbitrarily large payload to the provider HTTP request. Rejected outright (not

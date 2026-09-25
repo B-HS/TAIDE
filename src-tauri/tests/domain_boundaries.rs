@@ -74,11 +74,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/window/menu.rs", "project::service"),
 ];
 
-/// The one file allowed to hold a bare `use crate::domain;` import and reference every domain's
-/// `commands`: the remote gateway is a dispatch table over the whole command surface by design
-/// (architecture.md §4 — default-deny table), and its own parity tests already pin that table.
-const REMOTE_DISPATCH_GATEWAY: &str = "domain/remote/dispatch.rs";
-
 /// Recursively collects every `.rs` file under `dir`, sorted for deterministic failure output.
 fn rust_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -132,9 +127,6 @@ fn cross_domain_references() -> BTreeSet<(String, String)> {
 
     for file in rust_files(&src_dir().join("domain")) {
         let relative = relative_source_path(&file);
-        if relative == REMOTE_DISPATCH_GATEWAY {
-            continue;
-        }
         let Some(own_domain) = relative.strip_prefix("domain/").and_then(|rest| rest.split('/').next()) else {
             continue;
         };
@@ -207,11 +199,9 @@ fn infra는_domain_참조를_가질_수_없다() {
 /// brace-group form (`use crate::{…}`, `use crate::domain::{…}`,
 /// `use crate::domain::layout::{…}`). A group nested deeper
 /// (`use crate::domain::layout::service::{…}`) already carries the `<domain>::<module>` text the
-/// scan matches, so it needs no ban. The remote dispatch gateway is the only file that
-/// legitimately needs the banned forms (it references every domain's commands); everywhere else a
-/// legitimate need is written as single-path `use crate::domain::x::y;` imports the scan can see.
+/// scan matches, so it needs no ban.
 #[test]
-fn 경계_스캔이_못_보는_import_형태는_remote_dispatch_게이트웨이에서만_허용된다() {
+fn 경계_스캔이_못_보는_import_형태는_domain과_infra에서_금지된다() {
     let pattern = Regex::new(
         r"(?m)^\s*use crate::(\{|domain\s*(as\s+[A-Za-z_][A-Za-z0-9_]*)?\s*;|domain::\{|domain::[a-z_0-9]+\s*(as\s+[A-Za-z_][A-Za-z0-9_]*)?\s*;|domain::[a-z_0-9]+::\{)",
     )
@@ -221,9 +211,6 @@ fn 경계_스캔이_못_보는_import_형태는_remote_dispatch_게이트웨이�
     for root in ["domain", "infra"] {
         for file in rust_files(&src_dir().join(root)) {
             let relative = relative_source_path(&file);
-            if relative == REMOTE_DISPATCH_GATEWAY {
-                continue;
-            }
             let source = fs::read_to_string(&file).expect("소스 파일 읽기");
             if pattern.is_match(&strip_comment_lines(&source)) {
                 violations.push(relative);
@@ -233,6 +220,6 @@ fn 경계_스캔이_못_보는_import_형태는_remote_dispatch_게이트웨이�
 
     assert!(
         violations.is_empty(),
-        "경계 스캔이 볼 수 없는 import 형태(bare `use crate::domain;`·`use crate::domain::x;`·중괄호 그룹)는 remote dispatch 게이트웨이 전용입니다 — `use crate::domain::x::y;` 단일 경로로 풀어 쓰십시오 (도메인 경계 스캔 우회 방지):\n{violations:#?}"
+        "경계 스캔이 볼 수 없는 import 형태(bare `use crate::domain;`·`use crate::domain::x;`·중괄호 그룹)는 domain·infra에서 금지됩니다 — `use crate::domain::x::y;` 단일 경로로 풀어 쓰십시오 (도메인 경계 스캔 우회 방지):\n{violations:#?}"
     );
 }
