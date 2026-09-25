@@ -24,11 +24,7 @@ impl TaskSupervisor {
         }
     }
 
-    pub fn spawn(
-        &self,
-        name: &'static str,
-        task: impl Future<Output = ()> + Send + 'static,
-    ) -> bool {
+    pub fn spawn(&self, name: &'static str, task: impl Future<Output = ()> + Send + 'static) -> bool {
         let mut state = self.state.lock().expect("task supervisor lock poisoned");
         if state.is_stopped || state.handles.contains_key(name) {
             return false;
@@ -40,11 +36,7 @@ impl TaskSupervisor {
     }
 
     pub fn tracked_count(&self) -> usize {
-        self.state
-            .lock()
-            .expect("task supervisor lock poisoned")
-            .handles
-            .len()
+        self.state.lock().expect("task supervisor lock poisoned").handles.len()
     }
 
     pub fn stop_all(&self) {

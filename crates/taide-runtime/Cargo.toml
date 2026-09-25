@@ -6,5 +6,10 @@ edition = "2021"
 rust-version = "1.89"
 
 [dependencies]
+parking_lot = "0.12"
+taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
