@@ -622,10 +622,14 @@
   - [x] M6-FT. 원격 WebSocket의 writer·이벤트 작업은 반환형 TaskSupervisor API로 감독하고 기존 writer 유한 대기·강제 취소를 유지합니다. 각 요청은 독립 반복 감독 작업으로 실행해 연결 종료 뒤 이미 큐에 들어간 요청의 permit 대기·실행 계약을 바꾸지 않습니다. 감독자 종료 중의 신규 연결·요청 등록은 중단합니다.
   - [x] M6-FU. remote 도메인 51건(기존 WebSocket writer/channel 4건 포함), 감독 21건, Phase 0 IPC 계약 7건과 Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `174a2d617372f4782b8397351660f503194dc567ece4feb82c2a79199c09977a`는 불변이고 아키텍처에 요청의 독립 소유권을 기록했습니다. 전체 workspace·TypeScript typecheck와 실제 원격 WebSocket 연결·세션 무효화 실기는 이 변경 후 미검증입니다.
   - [x] M6-FV. 구현·테스트·현행 아키텍처 문서를 `da5acd5`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
+  - [x] M6-FW. 원격 stop은 종료 신호를 먼저 보내고 직접 spawn한 작업에서 서버 핸들 완료 또는 제한 시간 후 abort를 기다립니다. 앱 Exit의 감독자 stop_all은 별도로 서버를 취소합니다. 종료 대기 감독·등록 거절 시 직접 취소 테스트는 감독 호출 부재로 assertion 실패(exit 101)를 확인했습니다.
+  - [x] M6-FX. 원격 서버 중지의 shutdown 신호 뒤 grace wait·시간 초과 abort를 반복 감독 작업으로 등록했습니다. 감독자 등록이 이미 닫혔으면 보관한 AbortHandle로 서버를 직접 취소하며 기존 상태 이벤트 순서는 유지합니다.
+  - [x] M6-FY. remote 도메인 51건, 감독 22건, Phase 0 IPC 계약 7건과 Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `174a2d617372f4782b8397351660f503194dc567ece4feb82c2a79199c09977a`는 불변이며 아키텍처에 stop 대기 작업 소유권을 기록했습니다. 전체 workspace·TypeScript typecheck와 실제 원격 서버 정상·앱 종료 실기는 이 변경 후 미검증입니다.
+  - [x] M6-FZ. 구현·테스트·현행 아키텍처 문서를 `2c0df14`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`는 platform으로 이전했고 `WindowRegistry`는 runtime 공유 상태로 이전했습니다. `EventSink`는 기존 이벤트 30종의 발행을 모두 경유합니다. AppServices는 첫 열세 상태·포트를 조립하고 TaskSupervisor는 일곱 setup 작업과 메뉴·보조 창 flush/복원·hot-exit timeout·agent hook attach/서버·LSP 종료/재시작 지연·remote 서버/WebSocket·IDE 서버/연결 작업을 감독하므로 전체 경계는 미완료입니다.
+> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`는 platform으로 이전했고 `WindowRegistry`는 runtime 공유 상태로 이전했습니다. `EventSink`는 기존 이벤트 30종의 발행을 모두 경유합니다. AppServices는 첫 열세 상태·포트를 조립하고 TaskSupervisor는 일곱 setup 작업과 메뉴·보조 창 flush/복원·hot-exit timeout·agent hook attach/서버·LSP 종료/재시작 지연·remote 서버/WebSocket/종료 대기·IDE 서버/연결 작업을 감독하므로 전체 경계는 미완료입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
