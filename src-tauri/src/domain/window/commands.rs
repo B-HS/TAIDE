@@ -26,7 +26,7 @@ struct AuxiliaryWindowRecord {
 /// Runtime registry from an auxiliary editor window's Tauri label back to which project/slot it
 /// renders — the label alone (`editor-<n>`) carries no semantic meaning, so `lib.rs`'s
 /// `CloseRequested`/`Destroyed` handlers need this to know what to hand
-/// `service::plan_return_of_auxiliary_window_tabs`. The main window is never registered here.
+/// the assembly's `plan_return_of_auxiliary_window_tabs`. The main window is never registered here.
 #[derive(Default)]
 pub struct WindowStore(Mutex<HashMap<String, AuxiliaryWindowRecord>>);
 
@@ -243,16 +243,14 @@ pub(crate) fn refresh_app_menu(app: &tauri::AppHandle) {
 /// runs this same cleanup again as a backstop for closes that don't go through `CloseRequested` at
 /// all (e.g. a crash) — and which also drops this window's pending handshake, since a destroyed
 /// webview can no longer confirm anything.
-fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
+fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) -> Option<(ProjectId, u32)> {
     let state = window.state::<AppState>();
     let scope = FlushScope::Window(window.label().to_string());
 
     if !state.take_completed_flush(&scope) && !state.is_shutting_down() {
         api.prevent_close();
 
-        let Some(ticket) = state.begin_flush(scope.clone(), HashSet::from([window.label().to_string()])) else {
-            return;
-        };
+        let ticket = state.begin_flush(scope.clone(), HashSet::from([window.label().to_string()]))?;
 
         let _ = HotExitFlushRequested {
             timeout_ms: constants::HOT_EXIT_FLUSH_TIMEOUT_MS as f64,
@@ -276,16 +274,14 @@ fn handle_auxiliary_close_requested(window: &tauri::Window<tauri::Wry>, api: &ta
             }
             finish_auxiliary_window_close(&app_handle, &label);
         });
-        return;
+        return None;
     }
 
     if state.forget_hot_exit_flush_window(window.label()) {
         window.app_handle().exit(0);
     }
 
-    if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
-        service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
-    }
+    window.state::<WindowStore>().forget(window.label())
 }
 
 /// Re-issues the close [`handle_auxiliary_close_requested`] deferred, now that `label`'s flush has
@@ -320,10 +316,9 @@ fn finish_auxiliary_window_close(app: &AppHandle, label: &str) {
 /// `AppHandle::exit`, so the window is never destroyed by the OS's default
 /// close path. `AppState::begin_hot_exit_flush` guards re-entrant close
 /// attempts (e.g. mashing Cmd+Q) from emitting the flush event twice.
-pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) {
+pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &tauri::CloseRequestApi) -> Option<(ProjectId, u32)> {
     if service::is_auxiliary_label(window.label()) {
-        handle_auxiliary_close_requested(window, api);
-        return;
+        return handle_auxiliary_close_requested(window, api);
     }
 
     api.prevent_close();
@@ -334,7 +329,7 @@ pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &t
     // `webview_windows()` is the stable equivalent and every window here is a webview window.
     let expected_windows: HashSet<String> = window.webview_windows().into_keys().collect();
     if !state.begin_hot_exit_flush(expected_windows) {
-        return;
+        return None;
     }
 
     // `Event::emit` broadcasts to every window/webview app-wide regardless of which handle it's
@@ -354,6 +349,7 @@ pub(crate) fn handle_close_requested(window: &tauri::Window<tauri::Wry>, api: &t
             app_handle.exit(0);
         }
     });
+    None
 }
 
 /// Routes the app menu's Quit item ([`menu::MenuAction::Quit`]) through the same

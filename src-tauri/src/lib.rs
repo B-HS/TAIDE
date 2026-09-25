@@ -262,6 +262,40 @@ async fn layout_move_tab_to_window(
     Ok(updated)
 }
 
+fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &ProjectId, window_slot: u32) {
+    let app = app.clone();
+    let project_id = project_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let _guard = state.begin_mutation().await;
+
+        let mirrored_paths: std::collections::HashSet<String> = domain::file::service::list_mirrors(&state.paths, &project_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mirror| mirror.path)
+            .collect();
+
+        let mut layouts = state.layouts.read().clone();
+        let Some(layout) = layouts.get_mut(&project_id) else {
+            log::debug!("보조 창 탭 복귀 생략: 프로젝트가 이미 닫혔습니다 (projectId={project_id})");
+            return;
+        };
+
+        layout_service::clear_auxiliary_window_phantom_dirty(layout, window_slot, &|path| mirrored_paths.contains(path));
+
+        if !layout_service::return_auxiliary_window_tabs(layout, window_slot) {
+            log::debug!("보조 창 탭 복귀 생략: 슬롯을 찾을 수 없습니다 (projectId={project_id}, windowSlot={window_slot})");
+            return;
+        }
+
+        let revision = layout.revision;
+        *state.layouts.write() = layouts;
+
+        state.dirty_layouts.write().insert(project_id.clone());
+        let _ = LayoutChanged { project_id, revision }.emit(&app);
+    });
+}
+
 /// Routes one app-menu click to the domain that owns the action it stands for — the assembly's
 /// half of the native menu. It lives here, not in `domain::window`, so the window domain never
 /// calls `project::commands` itself (architecture.md §2; `tests/domain_boundaries.rs` enforces it),
@@ -940,10 +974,14 @@ pub fn run() {
                     window.app_handle().exit(0);
                 }
                 if let Some((project_id, window_slot)) = window.state::<WindowStore>().forget(window.label()) {
-                    domain::window::service::plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
+                    plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
                 }
             }
-            tauri::WindowEvent::CloseRequested { api, .. } => domain::window::commands::handle_close_requested(window, api),
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if let Some((project_id, window_slot)) = domain::window::commands::handle_close_requested(window, api) {
+                    plan_return_of_auxiliary_window_tabs(&window.app_handle().clone(), &project_id, window_slot);
+                }
+            }
             _ => {}
         })
         .build(tauri::generate_context!())
@@ -1193,6 +1231,39 @@ mod tests {
             "domain::layout::commands::layout_apply_path_change,",
         );
         assert!(commands.contains("layout_move_tab_to_window,"));
+    }
+
+    #[test]
+    fn 보조_창_닫힘은_조립부에서_미러_정리와_탭_복귀를_순서대로_수행한다() {
+        let source = include_str!("lib.rs");
+        let return_body = extract_between(source, "fn plan_return_of_auxiliary_window_tabs(", "/// Routes one app-menu");
+        let guard = return_body.find("state.begin_mutation().await").expect("mutation guard");
+        let mirrors = return_body.find("domain::file::service::list_mirrors(").expect("mirror 조회");
+        let clear_dirty = return_body
+            .find("layout_service::clear_auxiliary_window_phantom_dirty(")
+            .expect("유령 dirty 정리");
+        let return_tabs = return_body.find("layout_service::return_auxiliary_window_tabs(").expect("탭 복귀");
+        let write = return_body.find("*state.layouts.write() = layouts;").expect("layout 기록");
+        let emit = return_body
+            .find("LayoutChanged { project_id, revision }.emit(&app)")
+            .expect("변경 이벤트");
+        assert!(guard < mirrors);
+        assert!(mirrors < clear_dirty);
+        assert!(clear_dirty < return_tabs);
+        assert!(return_tabs < write);
+        assert!(write < emit);
+
+        let events = extract_between(
+            source,
+            ".on_window_event(|window, event| match event {",
+            ".build(tauri::generate_context!())",
+        );
+        assert_eq!(events.matches("plan_return_of_auxiliary_window_tabs(").count(), 2);
+        assert!(events.contains("domain::window::commands::handle_close_requested(window, api)"));
+
+        let window_commands = include_str!("domain/window/commands.rs");
+        let close_body = extract_between(window_commands, "fn handle_auxiliary_close_requested(", "/// Re-issues the close");
+        assert!(close_body.contains("window.state::<WindowStore>().forget(window.label())"));
     }
 
     /// `Project.capabilities` 동작 고정 — the registry's `detected_kinds` is the field's single
