@@ -3,7 +3,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, Weak};
 
 use tokio::runtime::Handle;
-use tokio::task::AbortHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 enum TaskKey {
@@ -55,22 +55,26 @@ impl TaskSupervisor {
 
     pub fn spawn(&self, name: &'static str, task: impl Future<Output = ()> + Send + 'static) -> bool {
         let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
-        self.spawn_locked(&mut state, TaskKey::Named(name), task)
+        self.spawn_locked(&mut state, TaskKey::Named(name), task).is_some()
     }
 
     pub fn spawn_transient(&self, name: &'static str, task: impl Future<Output = ()> + Send + 'static) -> bool {
+        self.spawn_transient_handle(name, task).is_some()
+    }
+
+    pub fn spawn_transient_handle(&self, name: &'static str, task: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
         let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
         if state.is_stopped {
-            return false;
+            return None;
         }
         let task_id = state.next_transient_id.checked_add(1).expect("task supervisor ID exhausted");
         state.next_transient_id = task_id;
         self.spawn_locked(&mut state, TaskKey::Transient(task_id, name), task)
     }
 
-    fn spawn_locked(&self, state: &mut TaskState, key: TaskKey, task: impl Future<Output = ()> + Send + 'static) -> bool {
+    fn spawn_locked(&self, state: &mut TaskState, key: TaskKey, task: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
         if state.is_stopped || state.handles.contains_key(&key) {
-            return false;
+            return None;
         }
 
         let cleanup = TaskCleanup {
@@ -82,7 +86,7 @@ impl TaskSupervisor {
             task.await;
         });
         state.handles.insert(key, handle.abort_handle());
-        true
+        Some(handle)
     }
 
     pub fn tracked_count(&self) -> usize {

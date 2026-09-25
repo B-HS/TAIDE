@@ -88,6 +88,39 @@ async fn 완료된_반복_작업은_추적_목록에서_회수된다() {
     .expect("반복 작업 회수");
 }
 
+#[tokio::test]
+async fn 반환된_작업_핸들은_감독자_종료에_함께_취소된다() {
+    let supervisor = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let (sender, receiver) = oneshot::channel::<()>();
+    let handle = supervisor
+        .spawn_transient_handle("server", async move {
+            let _sender = sender;
+            pending::<()>().await;
+        })
+        .expect("작업 핸들");
+
+    assert_eq!(supervisor.tracked_count(), 1);
+    supervisor.stop_all();
+
+    assert!(handle.await.unwrap_err().is_cancelled());
+    assert!(receiver.await.is_err());
+    assert!(supervisor.spawn_transient_handle("server", async {}).is_none());
+}
+
+#[tokio::test]
+async fn 반환된_작업_핸들의_완료와_직접_취소는_추적에서_회수된다() {
+    let supervisor = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let completed = supervisor.spawn_transient_handle("server", async {}).expect("완료 작업 핸들");
+
+    completed.await.expect("작업 완료");
+    assert_eq!(supervisor.tracked_count(), 0);
+
+    let pending = supervisor.spawn_transient_handle("server", pending()).expect("대기 작업 핸들");
+    pending.abort();
+    assert!(pending.await.unwrap_err().is_cancelled());
+    assert_eq!(supervisor.tracked_count(), 0);
+}
+
 #[test]
 fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소한다() {
     let app = include_str!("../src/lib.rs");
