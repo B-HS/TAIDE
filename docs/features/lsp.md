@@ -34,12 +34,15 @@
 - **서버 실행 감지**(ADR-0007 배포 전략): 프로젝트 로컬(`node_modules/.bin`, `.venv/bin`) →
   PATH/rustup(`rust-analyzer` 는 인자 없이 stdio — `--stdio` 플래그 없음) → TAIDE 관리 디렉토리 →
   다운로드 제안. 감지 결과·버전은 설정 UI 에 표시.
+- **프로세스 실행 소유권**: `taide-lsp::process`가 관리 설치 경로·실행 파일·인자 템플릿을 해석하고
+  `taide-infra::lsp_proc`를 통해 자식 프로세스를 기동한다. `domain::lsp::commands::spawn_process`는
+  Tauri 저장소의 세션 epoch 확인, 메시지 구독 전송과 종료 시 mutation guard·이벤트를 연결한다.
 - **관측성 로그**(d-64 R1): 그전까지 Rust LSP 경로의 로그 문은 툴체인 취소 warn 하나뿐이라 앱 로그
   (`~/Library/Logs/net.gumyo.taide/TAIDE.log`)에 `lsp` 줄이 0개였고, "감지 실패 / spawn 실패 /
   크래시" 중 무엇이었는지 사후 확정이 불가능했다(d-64 계약 §0.1). 지금 남기는 것:
   - `lsp_detect_servers`: 서버마다 `lsp detect: {id} available={bool} path={Option<경로>}`(info),
     탐색에 쓴 PATH 는 호출당 1회(debug).
-  - `spawn_process`: 실행파일 해석 실패 `lsp {id}: executable not found (bin=…, root=…)`(warn —
+  - `taide-lsp::process`: 실행파일 해석 실패 `lsp {id}: executable not found (bin=…, root=…)`(warn —
     에러 반환은 종전 그대로), 성공 `lsp {id}: spawn {resolved} {args:?} cwd={root} pid={pid}`(info).
   - `handle_process_exit`: `lsp_stop` 이 세운 `stopping` 경로는 `lsp {id}: stopped (code=…)`(info),
     그 외(크래시)는 `lsp {id}: exited code=… restarts=… stderr_tail=…`(warn).

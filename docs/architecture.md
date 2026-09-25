@@ -28,6 +28,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError (기존 public 경로는 src-tauri facade)
 ├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
+├── crates/taide-lsp/        Tauri 미의존 LSP 정책·세션 저장소·실행 파일 해석/프로세스 기동
 └── src-tauri/
     ├── src/
     │   ├── main.rs          진입점 (lib.rs 의 run() 호출만)
@@ -48,7 +49,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │   │   ├── ide/         IDE MCP WebSocket·인가·도구 실행 (wire는 taide-ide — agent-integration.md §3·§7.4)
     │   │   ├── layout/      탭·스플릿·포커스 (PaneNode 트리), 멀티 윈도우 탭 이동
     │   │   ├── locale/      번역 메시지 로드/병합 + 사용자 언어팩 (7.5-H)
-    │   │   ├── lsp/         LSP 세션 관리, 서버 감지·설치, 루트 탐지
+    │   │   ├── lsp/         LSP 세션 IPC·AppHandle 콜백·상태 이벤트, 서버 설치 조립
     │   │   ├── notification/ OS 네이티브 알림 게이트 (설정·카테고리·앱 전체 포커스 판정)
     │   │   ├── plugin/      플러그인 매니페스트 로드·검증
     │   │   ├── project/     프로젝트 열기/닫기/목록, capability 확장점(trait·레지스트리 — §3)

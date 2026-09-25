@@ -1,9 +1,9 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 pub use taide_lsp::install::LspInstallStore;
+use taide_lsp::process::spawn_language_server;
 use taide_lsp::protocol::workspace_folders_notification;
 use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
 use taide_lsp::store::LspSessionEntry as SessionEntry;
@@ -98,19 +98,6 @@ fn set_status(app: &AppHandle, session_id: &str, entry: &SessionEntry, status: L
     emit_status(app, session_id, entry.lifecycle.set_status(status, last_error));
 }
 
-fn managed_dir_for(paths: &AppPaths, server_id: &LspServerId) -> Option<PathBuf> {
-    lsp_install::latest_installed_version(&paths.lsp_dir(), server_id.as_str())
-        .map(|version| paths.lsp_server_version_dir(server_id.as_str(), &version))
-}
-
-fn resolved_args(spec: &LanguageServerSpec, root: &str, managed_dir: Option<&std::path::Path>) -> Vec<String> {
-    let mut vars = vec![("workspaceDir", root.to_string())];
-    if let Some(managed_dir) = managed_dir {
-        vars.push(("serverDir", managed_dir.to_string_lossy().to_string()));
-    }
-    lsp_install::substitute_template_args(spec.command.args(), &vars)
-}
-
 fn spawn_process(
     app: &AppHandle,
     session_id: String,
@@ -119,55 +106,16 @@ fn spawn_process(
     root: String,
 ) -> AppResult<Arc<lsp_proc::LspProcHandle>> {
     let paths = &app.state::<AppState>().paths;
-    let managed_dir = managed_dir_for(paths, &spec.id);
-    let managed_relative_path = spec
-        .install
-        .download
-        .as_ref()
-        .and_then(|download| download.bin_path_in_archive.as_deref());
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let Some(resolved) = service::resolve_spec_command(
-        &spec,
-        Some(std::path::Path::new(&root)),
-        managed_dir.as_deref(),
-        managed_relative_path,
-        &path_var,
-    ) else {
-        log::warn!("lsp {}: executable not found (bin={}, root={root})", spec.id, spec.command.bin());
-        return Err(AppError::NotFound(format!(
-            "language server executable not found: {}",
-            spec.command.bin()
-        )));
-    };
-
-    let args = resolved_args(&spec, &root, managed_dir.as_deref());
-    if args.iter().any(|arg| arg.contains('{') && arg.contains('}')) {
-        return Err(AppError::localized(
-            AppErrorKind::Internal,
-            "error.lsp.unresolvedArgTemplate",
-            format!(
-                "{}: unresolved template left in launch args (managed directory may not be installed)",
-                spec.id
-            ),
-        )
-        .with_arg("serverId", &spec.id));
-    }
-
-    let command = resolved.to_string_lossy().to_string();
-    let config = lsp_proc::LspProcConfig {
-        command: command.clone(),
-        args: args.clone(),
-        cwd: PathBuf::from(&root),
-    };
-
     let message_app = app.clone();
     let message_session_id = session_id.clone();
 
     let exit_app = app.clone();
     let exit_session_id = session_id.clone();
 
-    let handle = lsp_proc::spawn(
-        config,
+    spawn_language_server(
+        paths,
+        &spec,
+        &root,
         move |message| {
             let Some(store) = message_app.try_state::<LspStore>() else {
                 return;
@@ -189,11 +137,7 @@ fn spawn_process(
                 handle_process_exit(&exit_app, exit_session_id, process_epoch, code, stderr_tail);
             });
         },
-    )?;
-
-    log::info!("lsp {}: spawn {command} {args:?} cwd={root} pid={:?}", spec.id, handle.pid());
-
-    Ok(Arc::new(handle))
+    )
 }
 
 fn channel_sink(channel: Channel<String>) -> impl Fn(&str) -> bool + Send + Sync {
