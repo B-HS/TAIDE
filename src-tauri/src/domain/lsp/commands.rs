@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -6,7 +5,9 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 pub use taide_lsp::install::LspInstallStore;
 use taide_lsp::protocol::workspace_folders_notification;
-use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers, LspSessionLifecycle, LspSessionRoots};
+use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
+use taide_lsp::store::LspSessionEntry as SessionEntry;
+pub use taide_lsp::store::LspStore;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -47,58 +48,13 @@ const LSP_RESTART_HEALTHY_RESET_MS: u64 = 30_000;
 /// rotating app log and break `grep`-ing one exit report out of it.
 const STDERR_TAIL_LOG_SEPARATOR: &str = " / ";
 
-struct SessionEntry {
-    project_id: ProjectId,
-    server_id: LspServerId,
-    root: String,
-    spec: LanguageServerSpec,
-    proc: Mutex<Option<Arc<lsp_proc::LspProcHandle>>>,
-    subscribers: LspMessageSubscribers,
-    lifecycle: LspSessionLifecycle,
-    roots: LspSessionRoots,
-}
-
-#[derive(Default)]
-pub struct LspStore(Mutex<HashMap<String, Arc<SessionEntry>>>);
-
-impl LspStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn kill_all(&self) {
-        for entry in self.0.lock().values() {
-            entry.lifecycle.mark_stopping();
-            if let Some(proc) = entry.proc.lock().as_ref() {
-                proc.kill();
-            }
-        }
-    }
-
-    /// Live language-server PIDs for system-usage attribution, keyed by owning
-    /// project and labeled with the server's display name (`LanguageServerSpec.name`).
-    pub fn server_pids(&self) -> Vec<(ProjectId, String, u32)> {
-        self.0
-            .lock()
-            .values()
-            .filter_map(|entry| {
-                let pid = entry.proc.lock().as_ref().and_then(|proc| proc.pid())?;
-                Some((entry.project_id.clone(), entry.spec.name.clone(), pid))
-            })
-            .collect()
-    }
-}
-
 fn new_session_id() -> String {
     format!("lsp-{}", uuid::Uuid::new_v4())
 }
 
 fn find_entry(store: &LspStore, session_id: &str) -> AppResult<Arc<SessionEntry>> {
     store
-        .0
-        .lock()
         .get(session_id)
-        .cloned()
         .ok_or_else(|| AppError::NotFound(format!("lsp session not found: {session_id}")))
 }
 
@@ -118,18 +74,7 @@ fn find_reusable_entry(
     server_id: &LspServerId,
     owner: &str,
 ) -> Option<(String, Arc<SessionEntry>)> {
-    store
-        .0
-        .lock()
-        .iter()
-        .find(|(_, entry)| {
-            &entry.project_id == project_id
-                && &entry.server_id == server_id
-                && entry.spec.shares_sessions
-                && !entry.lifecycle.is_stopping()
-                && entry.subscribers.contains(owner)
-        })
-        .map(|(id, entry)| (id.clone(), entry.clone()))
+    store.find_reusable(project_id, server_id, owner)
 }
 
 fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
@@ -472,24 +417,15 @@ pub async fn lsp_spawn(
     let subscribers = LspMessageSubscribers::new();
     subscribers.insert(owner, channel_sink(on_message));
 
-    let entry = Arc::new(SessionEntry {
-        project_id,
-        server_id: server_id.clone(),
-        root: root.clone(),
-        spec: spec.clone(),
-        proc: Mutex::new(None),
-        subscribers,
-        lifecycle: LspSessionLifecycle::new(),
-        roots: LspSessionRoots::new(root.clone()),
-    });
+    let entry = Arc::new(SessionEntry::new(project_id, spec.clone(), root.clone(), subscribers));
 
-    store.0.lock().insert(session_id.clone(), entry.clone());
+    store.insert(session_id.clone(), entry.clone());
 
     let process_epoch = entry.lifecycle.advance_process_epoch();
     let proc = match spawn_process(&app, session_id.clone(), process_epoch, spec, root) {
         Ok(proc) => proc,
         Err(error) => {
-            store.0.lock().remove(&session_id);
+            store.remove(&session_id);
             return Err(error);
         }
     };
@@ -542,7 +478,7 @@ fn release_owner_root(entry: &SessionEntry, owner: &str, root: Option<&str>) -> 
 /// explicitly; send-failure pruning cannot detect a live window that released the session.
 ///
 /// The guard (`AppState::begin_mutation`) is held only for the synchronous bookkeeping above and,
-/// on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.0.lock().remove`
+/// on the full-teardown path, for unlinking the entry from [`LspStore`] — `store.remove`
 /// runs *before* the guard is dropped, specifically so a concurrent `lsp_spawn`'s
 /// `find_reusable_entry` or another `lsp_stop`/`lsp_send`'s `find_entry` can never observe this
 /// session while [`shutdown_entry`] is mid-flight. [`shutdown_entry`] itself then runs unguarded
@@ -589,7 +525,7 @@ pub async fn lsp_stop(
             return Ok(());
         }
 
-        store.0.lock().remove(&session_id);
+        store.remove(&session_id);
         entry
     };
 
@@ -622,7 +558,7 @@ pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: Stat
     shutdown_entry(&app, &entry, &session_id).await;
 
     let _guard = state.begin_mutation().await;
-    if !store.0.lock().contains_key(&session_id) {
+    if !store.contains(&session_id) {
         return Err(AppError::NotFound(format!("lsp session not found: {session_id}")));
     }
 
@@ -672,23 +608,7 @@ pub async fn lsp_report_reinitialize_failure(
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> AppResult<Vec<LspSessionInfo>> {
-    let sessions = store.0.lock();
-    Ok(sessions
-        .iter()
-        .filter(|(_, entry)| entry.project_id == project_id)
-        .map(|(id, entry)| {
-            let snapshot = entry.lifecycle.snapshot();
-            LspSessionInfo {
-                session_id: id.clone(),
-                project_id: entry.project_id.clone(),
-                server_id: entry.server_id.clone(),
-                root: entry.root.clone(),
-                status: snapshot.status,
-                last_error: snapshot.last_error,
-                generation: snapshot.generation,
-            }
-        })
-        .collect())
+    Ok(store.sessions_for_project(&project_id))
 }
 
 #[tauri::command]
@@ -1176,11 +1096,9 @@ mod tests {
     fn test_session_entry(project_id: ProjectId, server_id: LspServerId, owner: &str, stopping: bool) -> Arc<SessionEntry> {
         let subscribers = LspMessageSubscribers::new();
         subscribers.insert(owner.to_string(), channel_sink(failing_channel()));
-        let entry = Arc::new(SessionEntry {
+        let entry = Arc::new(SessionEntry::new(
             project_id,
-            server_id: server_id.clone(),
-            root: "/tmp/project".to_string(),
-            spec: LanguageServerSpec {
+            LanguageServerSpec {
                 id: server_id,
                 name: "Test Server".to_string(),
                 language_ids: vec!["rust".to_string()],
@@ -1200,11 +1118,9 @@ mod tests {
                     sdk_detect: None,
                 },
             },
-            proc: Mutex::new(None),
+            "/tmp/project".to_string(),
             subscribers,
-            lifecycle: LspSessionLifecycle::new(),
-            roots: LspSessionRoots::new("/tmp/project".to_string()),
-        });
+        ));
         entry.lifecycle.set_status(LspSessionStatus::Running, None);
         if stopping {
             entry.lifecycle.mark_stopping();
@@ -1223,7 +1139,7 @@ mod tests {
         let project_id = ProjectId::new();
         let server_id = LspServerId::from("test-server");
         let store = LspStore::new();
-        store.0.lock().insert(
+        store.insert(
             "stopping-session".to_string(),
             test_session_entry(project_id.clone(), server_id.clone(), "owner-a", true),
         );
@@ -1239,7 +1155,7 @@ mod tests {
         let project_id = ProjectId::new();
         let server_id = LspServerId::from("test-server");
         let store = LspStore::new();
-        store.0.lock().insert(
+        store.insert(
             "active-session".to_string(),
             test_session_entry(project_id.clone(), server_id.clone(), "owner-a", false),
         );

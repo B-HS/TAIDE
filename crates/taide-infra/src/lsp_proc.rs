@@ -285,7 +285,7 @@ impl MessageBuffer {
 ///
 /// `on_exit` receives the exit code and that tail. The tail is passed *by value* rather than read
 /// back off the handle at exit time because the handle is installed on the session
-/// (`domain::lsp::commands::SessionEntry::proc`) only after this function returns: a server that
+/// by its caller only after this function returns: a server that
 /// dies immediately — the very case the tail is for — would otherwise have its exit observed while
 /// the session still holds the previous process's handle, or none at all.
 pub fn spawn<D, X>(config: LspProcConfig, on_message: D, on_exit: X) -> AppResult<LspProcHandle>

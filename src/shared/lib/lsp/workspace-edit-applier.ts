@@ -90,7 +90,7 @@ export type WorkspaceEditApplyOptions = {
      * When set, every operation's target path(s) must resolve under at least one of these roots or
      * the whole edit is rejected. A set (not a single root) because one LSP session can now service
      * several workspace roots at once (R7#7's `shares_sessions` multi-root join, mirroring the
-     * `roots` refcount `domain::lsp::commands::SessionEntry` tracks on the Rust side) — restricting
+     * `roots` refcount `LspSessionEntry` tracks on the Rust side) — restricting
      * to only the session's *original* root would reject a legitimate edit under a root joined
      * later. `createWorkspaceApplyEditHandler` passes the session's live root set by reference, so a
      * root joined after this handler was registered is picked up without re-registering it.

@@ -9,8 +9,7 @@ import { unwrapResult } from '@shared/api/unwrap-result'
  * window's OS label — scopes session reuse to the calling window: two *different* windows editing
  * the same project must never share one JSON-RPC connection, since each window's LSP client is an
  * independent JS realm that unconditionally performs its own `initialize` handshake and mints its
- * own request ids on acquiring a session. See the `owner` field doc on Rust's
- * `lsp::commands::SessionEntry`.
+ * own request ids on acquiring a session. Rust's `LspStore::find_reusable` enforces this owner boundary.
  */
 export const spawnLspSession = (input: { projectId: ProjectId; serverId: LspServerId; root: string; onMessage: (message: string) => void }) => {
     const channel = new Channel<string>()
@@ -27,10 +26,9 @@ export const restartLspSession = (sessionId: string) => unwrapResult(commands.ls
 
 /**
  * Confirms a renderer-side re-handshake completed for `generation` (R7#1) — flips `status` back to
- * `Running` only if `generation` still matches the session's *current* generation on the Rust side
- * (`domain::lsp::commands::confirm_reinitialize`); a stale confirmation racing a second crash is a
- * silent no-op there. See the `generation` field doc on `domain::lsp::commands::SessionEntry` and
- * `lsp-session-registry.ts`'s reinitialize flow for the full renderer-side sequence this closes.
+ * `Running` only if `generation` still matches the current crashed session on the Rust side
+ * (`taide_lsp::session::LspSessionLifecycle::confirm_reinitialized`); a stale confirmation racing a
+ * second crash is a silent no-op there. See `lsp-session-registry.ts`'s reinitialize flow.
  */
 export const confirmLspReinitialize = (sessionId: string, generation: number) => unwrapResult(commands.lspConfirmReinitialize(sessionId, generation))
 
@@ -38,7 +36,7 @@ export const confirmLspReinitialize = (sessionId: string, generation: number) =>
  * {@link confirmLspReinitialize}'s failure counterpart (§1.3(4), `docs/acknowledge/
  * 2026-08-19-xa-wiring-cleanup-contract.md`) — call once the renderer has exhausted its own retry
  * budget re-running `initialize` against a session whose generation bumped, instead of ever
- * succeeding. Applies the exact same generation guard as `confirmLspReinitialize` on the Rust side
+ * succeeding. Applies the same generation and crashed-status guard as `confirmLspReinitialize` on the Rust side
  * (`domain::lsp::commands::lsp_report_reinitialize_failure`): a failure report for a generation the
  * session has since moved past (a second crash+auto-restart already superseded it) is silently
  * ignored. See `lsp-session-registry.ts`'s `reinitializeSession` for the renderer-side call site.

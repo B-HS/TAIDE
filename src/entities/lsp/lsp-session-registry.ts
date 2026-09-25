@@ -85,11 +85,10 @@ type ResolvedSession = {
 /**
  * The state genuinely shared by every root a `sharesSessions` server's single connection currently
  * serves (R7#7) — one real LSP process, one `LspClient`, one set of monaco provider registrations.
- * `roots` mirrors Rust's `SessionEntry.roots` refcount-by-root Vec (minus the count: this side never
+ * `roots` mirrors Rust's `LspSessionEntry.roots` refcount-by-root Vec (minus the count: this side never
  * calls `lsp_spawn` twice for the same root, since a repeat `acquireLspSession` for an
  * already-tracked root is a `sessionsByKey` cache hit that never reaches `createSession` again).
- * `lastObservedGeneration` mirrors `LspSessionStatusChanged.generation` (see that field's doc on
- * `domain::lsp::commands::SessionEntry`) so the module-level status listener only reacts to an
+ * `lastObservedGeneration` mirrors `LspSessionStatusChanged.generation` so the module-level status listener only reacts to an
  * actual increase, never a duplicate/out-of-order delivery of an already-handled one. `isReinitializing`
  * is `true` for the duration of {@link reinitializeSession}'s retry loop — `acquireDocument`/
  * `releaseDocument` read it to avoid racing that loop's own `didOpen` replay with a document
@@ -227,9 +226,8 @@ const LSP_SIBLING_READY_TIMEOUT_MS = 20_000
  * group); `sibling` — the first other handle already tracked for this `(projectId, serverId)` pair,
  * if any — is awaited to full settlement *before* this function ever calls `spawnLspSession`, so a
  * join attempt can never race `sibling`'s own in-flight `initialize()` handshake (racing it would
- * risk sending a second `initialize` to an already-initializing connection — see the `channels`
- * field doc on Rust's `domain::lsp::commands::SessionEntry` for why that corrupts the connection for
- * every window sharing it).
+ * risk sending a second `initialize` to an already-initializing connection and corrupting the
+ * window-scoped client state).
  *
  * Always builds a full (never-initialized) throwaway `LspClient` first and only *after*
  * `spawnLspSession` resolves checks whether the returned `sessionId` already has a live connection
@@ -811,8 +809,7 @@ const LSP_REINITIALIZE_RETRY_DELAY_MS = 2_000
  *  4. Re-send `didOpen` for every document this connection has open — the respawned process has no
  *     memory of any previously-open document, and without this it silently has none.
  *  5. `lsp_confirm_reinitialize` — the only thing that flips `status` back to `Running` (guarded on
- *     the Rust side against a stale confirmation racing a second crash — see the `generation` field
- *     doc on `domain::lsp::commands::SessionEntry`).
+ *     the Rust side against a stale confirmation racing a second crash by `LspSessionLifecycle`).
  * Before each attempt (after the first), re-checks `group.lastObservedGeneration` against the
  * `generation` this flow was started for — a newer crash while this loop was still retrying means a
  * fresher `reinitializeSession` call already owns (or has already won) the handshake for the process

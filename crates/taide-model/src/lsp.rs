@@ -252,7 +252,7 @@ pub struct LspServerDetection {
 
 /// `lsp_spawn`'s business-identity args, grouped into one struct (mirroring
 /// `terminal::types::PtySpawnOptions`) purely to stay under `clippy::too_many_arguments` once
-/// `owner` (window-scoped session reuse — see the `channels` field doc on `lsp::commands::SessionEntry`)
+/// `owner` (window-scoped session reuse through `taide_lsp::store::LspStore::find_reusable`)
 /// joined `project_id`/`server_id`/`root` as a fourth plain argument. `on_message` (the `Channel`)
 /// stays a separate top-level command parameter, matching `pty_spawn`'s `opts`/`on_data` split.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
