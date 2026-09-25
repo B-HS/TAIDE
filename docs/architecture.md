@@ -177,8 +177,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     hot-exit 요청은 All/Window/Project handshake 시작 뒤 앱 전체에 발행하며 원격 fanout에서 제외한다.
     기존 `collect_events!` 등록·원격 `listen_any` fanout은 변경하지 않는다.
     `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush
-    장기 작업 세 개를 이름별로 중복 없이 실행하고, `RunEvent::Exit`에서 모두 취소한다. 기존 주기와
-    Tauri runtime은 유지하며 창별 timeout·일회성 작업과 AppServices 이전은 후속 경계다.
+    장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, `RunEvent::Exit`에서 모두 취소한다.
+    자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
+    창별 timeout·나머지 작업과 AppServices 이전은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
     기존 `crate::state` 경로는 같은 타입의 재수출이다. Tauri 관리 상태 등록과 command 시그니처는 유지한다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.

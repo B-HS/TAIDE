@@ -25,12 +25,21 @@ async fn 장기_작업은_이름별로_한_번만_등록되고_종료시_취소�
 }
 
 #[test]
-fn 앱_조립은_세_장기_작업을_등록하고_종료시_취소한다() {
+fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소한다() {
     let app = include_str!("../src/lib.rs");
     let setup = app.split_once("app.manage(WindowRegistry::default());").unwrap().1;
+    let boot = setup
+        .split_once("if app.state::<AppState>().settings.read().agent_hooks_enabled {")
+        .unwrap()
+        .1;
+    let boot = boot.split_once("let ide_reconcile_handle =").unwrap().0;
     let exit = app.split_once(".run(|app_handle, event| {").unwrap().1;
 
     assert!(setup.contains("app.manage(TaskSupervisor::new("));
+    assert!(boot.contains(".spawn(\"agent-hooks-boot\""));
+    assert!(boot.contains(".spawn(\"ide-boot\""));
+    assert!(boot.contains(".spawn(\"remote-boot\""));
+    assert!(!boot.contains("tauri::async_runtime::spawn("));
     assert!(setup.contains(".spawn(\"ide-reconcile\""));
     assert!(setup.contains(".spawn(\"agent-poll\""));
     assert!(setup.contains(".spawn(\"layout-flush\""));

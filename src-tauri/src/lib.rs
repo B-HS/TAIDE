@@ -1058,14 +1058,14 @@ pub fn run() {
 
             if app.state::<AppState>().settings.read().agent_hooks_enabled {
                 let hooks_boot_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
+                app.state::<TaskSupervisor>().spawn("agent-hooks-boot", async move {
                     domain::agent::hooks::reconcile_installed_hooks(&hooks_boot_handle).await;
                 });
             }
 
             if app.state::<AppState>().settings.read().ide_integration_enabled {
                 let ide_boot_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
+                app.state::<TaskSupervisor>().spawn("ide-boot", async move {
                     if let Err(error) = domain::ide::commands::ide_start(
                         ide_boot_handle.clone(),
                         ide_boot_handle.state::<AppState>(),
@@ -1080,7 +1080,7 @@ pub fn run() {
 
             if app.state::<AppState>().settings.read().remote_access_enabled {
                 let remote_boot_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
+                app.state::<TaskSupervisor>().spawn("remote-boot", async move {
                     if let Err(error) =
                         domain::remote::commands::remote_start(remote_boot_handle.clone(), remote_boot_handle.state::<RemoteStore>()).await
                     {
