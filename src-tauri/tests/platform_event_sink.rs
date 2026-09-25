@@ -6,6 +6,7 @@ use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::ids::ProjectId;
 use taide_model::settings::Settings;
+use taide_model::sync::SyncStatus;
 use taide_runtime::EventSink;
 
 #[derive(Default)]
@@ -196,4 +197,36 @@ fn 설정_적용과_테마_변경은_상태_갱신_뒤_port로_발행된다() {
     assert!(theme.find("apply_and_broadcast(").unwrap() < theme.find("AppEvent::ThemeChanged").unwrap());
     assert!(adapter.contains("SettingsChanged { settings: *settings }.emit(self.0)"));
     assert!(adapter.contains("ThemeChanged { theme_id }.emit(self.0)"));
+}
+
+#[test]
+fn 동기화_상태_이벤트는_tauri_없는_port로_발행된다() {
+    let sink = RecordingEventSink::default();
+    let status = SyncStatus {
+        connected: true,
+        has_gist: true,
+        last_synced_at: None,
+        remote_newer: Some(false),
+    };
+
+    sink.publish(AppEvent::SyncStateChanged { status: status.clone() });
+
+    assert_eq!(sink.0.lock().unwrap().as_slice(), &[AppEvent::SyncStateChanged { status }]);
+}
+
+#[test]
+fn 동기화_성공_경로_네_곳은_상태_반영_뒤_port로_발행된다() {
+    let commands = include_str!("../src/domain/sync/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let connect = commands.split_once("pub async fn sync_connect(").unwrap().1;
+    let disconnect = commands.split_once("pub async fn sync_disconnect(").unwrap().1;
+    let upload = commands.split_once("pub async fn sync_upload(").unwrap().1;
+    let download = commands.split_once("pub async fn sync_download(").unwrap().1;
+
+    assert_eq!(commands.matches(".publish(AppEvent::SyncStateChanged").count(), 4);
+    assert!(connect.find("*state.settings.write()").unwrap() < connect.find("AppEvent::SyncStateChanged").unwrap());
+    assert!(disconnect.find("*state.settings.write()").unwrap() < disconnect.find("AppEvent::SyncStateChanged").unwrap());
+    assert!(upload.find("*state.settings.write()").unwrap() < upload.find("AppEvent::SyncStateChanged").unwrap());
+    assert!(download.find("service::apply_locale_entries(").unwrap() < download.find("AppEvent::SyncStateChanged").unwrap());
+    assert!(adapter.contains("SyncStateChanged { status }.emit(self.0)"));
 }

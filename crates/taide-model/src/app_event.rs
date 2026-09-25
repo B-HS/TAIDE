@@ -1,5 +1,6 @@
 use crate::ids::ProjectId;
 use crate::settings::Settings;
+use crate::sync::SyncStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppEvent {
@@ -38,5 +39,8 @@ pub enum AppEvent {
     },
     ThemeChanged {
         theme_id: String,
+    },
+    SyncStateChanged {
+        status: SyncStatus,
     },
 }

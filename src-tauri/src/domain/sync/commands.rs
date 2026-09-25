@@ -1,14 +1,15 @@
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::State;
-use tauri_specta::Event;
 
 use crate::domain::settings::types::Settings;
 use crate::domain::sync::github::GistClient;
 use crate::domain::sync::service;
 use crate::domain::sync::types::{SyncDownloadResult, SyncStatus};
 use crate::error::{AppError, AppResult};
-use crate::events::SyncStateChanged;
 use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::secret::{SecretAccount, SecretStore, SecretStoreState};
+use crate::platform::event_sink::TauriEventSink;
 use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
@@ -157,7 +158,7 @@ pub async fn sync_connect(
     *state.settings.write() = updated.clone();
     let mut status = current_status_snapshot(&updated, true);
     status.remote_newer = discovered.map(|(_, updated_at)| service::is_remote_newer(&updated_at, updated.sync_last_synced_at.as_deref()));
-    let _ = SyncStateChanged { status: status.clone() }.emit(&app);
+    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
     Ok(status)
 }
 
@@ -181,7 +182,7 @@ pub async fn sync_disconnect(
     *state.settings.write() = updated.clone();
 
     let status = current_status_snapshot(&updated, false);
-    let _ = SyncStateChanged { status: status.clone() }.emit(&app);
+    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
     Ok(status)
 }
 
@@ -247,7 +248,7 @@ pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secr
     *state.settings.write() = updated_settings.clone();
 
     let status = current_status_snapshot(&updated_settings, connected);
-    let _ = SyncStateChanged { status: status.clone() }.emit(&app);
+    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
     Ok(status)
 }
 
@@ -332,7 +333,7 @@ pub async fn sync_download(
     service::apply_locale_entries(&state.paths, &payload.locales);
 
     let status = current_status_snapshot(&final_settings, true);
-    let _ = SyncStateChanged { status: status.clone() }.emit(&app);
+    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
     Ok(SyncDownloadResult::Applied { status })
 }
 
