@@ -917,3 +917,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 IDE 네 variant를 추가하고 Tauri platform adapter에서 기존 IdeStatusChanged/IdeDiffRequested/IdeSaveRequested/IdeCloseTabRequested로 변환했습니다. 명령·MCP 서버 발행점은 빌린 AppHandle의 EventSink를 호출하며 request ID·경로·본문·tab 이름, 기존 IPC payload·fanout과 성공 경로 순서를 유지합니다. 현행 아키텍처 문서의 이전 상태를 27/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 25건·권한 허용 Tauri IDE 18건·taide-ide 34건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 IDE 핸드셰이크 3건은 로컬 소켓 권한 오류였고 동일 18건을 권한 허용 환경에서 확인했습니다. IDE 직접 발행은 adapter 외 0곳이며 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 MCP 클라이언트·GUI 실기는 미검증이며 나머지 3개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `ed65df5`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열여섯 번째 slice — Agent EventSink 경계
+
+- [x] A. AgentStateChanged는 hook·poll의 agent diff가 있을 때만 발행됩니다. AgentExternalOpen은 single-instance 경로에서 대기열 등록 뒤 발행하고 cold-start는 구독 전이므로 대기열 drain만 사용합니다. 외부 열기는 로컬 이벤트지만 원격 fanout에서 의도적으로 제외됩니다. model variant·adapter 배선 테스트는 구현 전 두 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 agent 두 variant를 추가하고 Tauri platform adapter에서 기존 AgentStateChanged/AgentExternalOpen으로 변환했습니다. hook·poll·single-instance 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload, CLI 경로 허용·대기열 등록 순서와 원격 fanout 제외 정책을 유지합니다. 현행 아키텍처 문서의 이전 상태를 29/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 27건·권한 허용 Tauri agent 22건·원격 fanout 제외 1건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 agent 프로세스 조회 1건은 `ps` 접근 오류였고 동일 22건을 권한 허용 환경에서 확인했습니다. 첫 컴파일에서 `lib.rs` 이벤트 이름 상수의 trait import를 복구한 뒤 통과했습니다. Agent 직접 발행은 adapter 외 0곳이며 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 CLI/훅·GUI 실기는 미검증이며 hot-exit 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `40eba06`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
