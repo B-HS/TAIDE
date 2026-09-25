@@ -31,9 +31,6 @@ use regex::Regex;
 ///   the next wiring batch.
 /// - `ide/commands.rs → file::service` — `save_file_within_open_projects` is the root-guarded
 ///   single save path `file_save` itself uses (R6#2's fix: share it, don't clone it).
-/// - `ide/server.rs → layout::service` — MCP tools (openFile/close_tab) drive the tab lifecycle
-///   through the same layout orchestrators the layout commands use (R6#3's fix: service, not a
-///   second command entry). The getOpenEditors snapshot uses the taide-layout crate directly.
 /// - `project/commands.rs → file::capability`·`git::watch`·`layout::service`·`settings::service`
 ///   — boot-time restore (`restore_state`/`projects_pending_watcher_restore`/
 ///   `restore_project_watchers`, moved verbatim from `lib.rs`'s former top-level boot-restore
@@ -65,7 +62,6 @@ const ALLOWED_CROSS_DOMAIN_EDGES: &[(&str, &str)] = &[
     ("domain/file/commands.rs", "plugin::service"),
     ("domain/git/commands.rs", "plugin::service"),
     ("domain/ide/commands.rs", "file::service"),
-    ("domain/ide/server.rs", "layout::service"),
     ("domain/ide/server.rs", "plugin::service"),
     ("domain/project/commands.rs", "file::capability"),
     ("domain/project/commands.rs", "git::watch"),

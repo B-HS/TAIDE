@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use futures_util::future::BoxFuture;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use taide_layout::service as layout_service;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::net::{TcpListener, TcpStream};
@@ -19,12 +21,12 @@ use super::types::{
     IdeDiagnostic, IdeDiagnosticSeverity, IdeDiffOutcome, IDE_ACCEPT_RETRY_DELAY_MS, IDE_AUTH_HEADER_NAME, IDE_DIFF_TIMEOUT_MS,
     IDE_HANDSHAKE_TIMEOUT_MS, IDE_NAME, IDE_SAVE_TIMEOUT_MS, MCP_SUBPROTOCOL,
 };
-use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{PaneNode, ProjectLayout, Tab, TabKind};
 use crate::domain::plugin::service::{self as plugin_service, PluginStore};
 use crate::domain::project::types::Project;
+use crate::error::AppResult;
 use crate::events::{IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged};
-use crate::ids::ProjectId;
+use crate::ids::{ProjectId, TabId};
 use crate::infra::root_guard;
 use crate::state::AppState;
 
@@ -34,6 +36,12 @@ const RPC_METHOD_NOT_FOUND: i32 = -32601;
 const RPC_INVALID_PARAMS: i32 = -32602;
 const RPC_UNSUPPORTED: i32 = -32001;
 const RPC_DIAGNOSTICS_NOT_READY: i32 = -32002;
+
+/// Layout lifecycle operations supplied by the application assembly for IDE MCP tools.
+pub struct IdeLayoutActions {
+    pub open_file_tab: fn(AppHandle, ProjectId, String, String, bool) -> BoxFuture<'static, AppResult<()>>,
+    pub close_tab: fn(AppHandle, TabId) -> BoxFuture<'static, AppResult<Tab>>,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct JsonRpcIncoming {
@@ -251,15 +259,6 @@ fn find_file_tab(layouts: &HashMap<ProjectId, ProjectLayout>, path: &str) -> Opt
         })
 }
 
-/// Turns `openFile`'s `filePath` argument into the (owning project, canonical path, tab title)
-/// triple a file tab needs, rejecting it while no tab exists yet: outside every open project's root
-/// (the boundary check this tool has always run) or no longer a file on disk. The existence half is
-/// `root_guard::ensure_existing_file`, the same gate `layout::commands::layout_open_tab` runs —
-/// this handler drives `layout_service::open_tab_and_finish` directly (another domain's command
-/// function is not callable from here), so it has to run the gate itself or Claude Code could open
-/// an empty tab for a path it only remembered. Split out of [`tool_open_file`] so the precondition
-/// is testable: the rest of that handler needs a live `AppHandle`, and this codebase has no
-/// `tauri::test` mock-app harness.
 fn resolve_open_file_target(projects: &HashMap<ProjectId, Project>, file_path: &str) -> Result<(ProjectId, String, String), ToolError> {
     let (project_id, resolved) = service::ensure_path_within_any_project(projects, Path::new(file_path))
         .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
@@ -286,17 +285,9 @@ async fn tool_open_file(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     let projects = state.projects.read().clone();
     let (project_id, path_string, title) = resolve_open_file_target(&projects, file_path)?;
 
-    layout_service::open_tab_and_finish(
-        app,
-        &state,
-        project_id,
-        TabKind::File { path: path_string.clone() },
-        title,
-        None,
-        preview,
-    )
-    .await
-    .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
+    (app.state::<IdeLayoutActions>().open_file_tab)(app.clone(), project_id, path_string.clone(), title, preview)
+        .await
+        .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
 
     if make_frontmost {
         Ok(text_content(format!("Opened file: {path_string}")))
@@ -524,10 +515,10 @@ async fn tool_close_tab(app: &AppHandle, arguments: &Value) -> Result<Value, Too
     };
 
     if let Some(tab_id) = found {
-        if let Ok((_, closed_tab, _)) = layout_service::close_tab_and_finish(app, &state, &tab_id).await {
+        if let Ok(closed_tab) = (app.state::<IdeLayoutActions>().close_tab)(app.clone(), tab_id).await {
             let _ = IdeCloseTabRequested {
                 tab_name: tab_name.to_string(),
-                request_id: layout_service::claude_diff_request_id(&closed_tab.tab),
+                request_id: layout_service::claude_diff_request_id(&closed_tab),
             }
             .emit(app);
         }
@@ -543,11 +534,11 @@ async fn tool_close_all_diff_tabs(app: &AppHandle) -> Value {
 
     for layout in layouts.values() {
         for tab_id in layout_service::all_roots(layout).flat_map(layout_service::collect_claude_diff_tab_ids) {
-            if let Ok((_, closed_tab, _)) = layout_service::close_tab_and_finish(app, &state, &tab_id).await {
+            if let Ok(closed_tab) = (app.state::<IdeLayoutActions>().close_tab)(app.clone(), tab_id).await {
                 closed += 1;
                 let _ = IdeCloseTabRequested {
-                    tab_name: closed_tab.tab.title.clone(),
-                    request_id: layout_service::claude_diff_request_id(&closed_tab.tab),
+                    tab_name: closed_tab.title.clone(),
+                    request_id: layout_service::claude_diff_request_id(&closed_tab),
                 }
                 .emit(app);
             }

@@ -7,6 +7,7 @@ pub mod infra;
 pub mod paths;
 pub mod state;
 
+use futures_util::future::BoxFuture;
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -14,9 +15,10 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 use crate::domain::agent::commands::{AgentHooksStore, AgentStore};
 use crate::domain::ai::commands::AiRequestStore;
 use crate::domain::git::commands::GitStore;
+use crate::domain::ide::server::IdeLayoutActions;
 use crate::domain::ide::store::IdeStore;
 use crate::domain::layout::service as layout_service;
-use crate::domain::layout::types::{ProjectLayout, TabWindowTarget};
+use crate::domain::layout::types::{ProjectLayout, Tab, TabKind, TabWindowTarget};
 use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
@@ -191,6 +193,37 @@ fn pty_session_observers() -> domain::terminal::commands::PtySessionObservers {
         PtySessionSignal::Output(outcome) => domain::agent::commands::record_session_scan(app, session_id, outcome),
         PtySessionSignal::Input => domain::agent::commands::record_session_input(app, session_id),
     })])
+}
+
+fn open_ide_file_tab(
+    app: AppHandle,
+    project_id: ProjectId,
+    path: String,
+    title: String,
+    preview: bool,
+) -> BoxFuture<'static, AppResult<()>> {
+    Box::pin(async move {
+        let state = app.state::<AppState>();
+        layout_service::open_tab_and_finish(&app, &state, project_id, TabKind::File { path }, title, None, preview)
+            .await
+            .map(|_| ())
+    })
+}
+
+fn close_ide_tab(app: AppHandle, tab_id: TabId) -> BoxFuture<'static, AppResult<Tab>> {
+    Box::pin(async move {
+        let state = app.state::<AppState>();
+        layout_service::close_tab_and_finish(&app, &state, &tab_id)
+            .await
+            .map(|(_, closed_tab, _)| closed_tab.tab)
+    })
+}
+
+fn ide_layout_actions() -> IdeLayoutActions {
+    IdeLayoutActions {
+        open_file_tab: open_ide_file_tab,
+        close_tab: close_ide_tab,
+    }
 }
 
 fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObservers {
@@ -824,6 +857,7 @@ pub fn run() {
             app.manage(AgentHooksStore::default());
             app.manage(SystemUsageStore::default());
             app.manage(IdeStore::default());
+            app.manage(ide_layout_actions());
             app.manage(layout_tab_closed_observers());
             app.manage(AiRequestStore::default());
             app.manage(SecretStoreState::new(app.config().identifier.clone()));
@@ -1205,6 +1239,24 @@ mod tests {
             .find("app.state::<LayoutTabClosedObservers>().notify(app, &closed.tab);")
             .expect("닫기 후처리");
         assert!(write_position < notify_position);
+    }
+
+    #[test]
+    fn ide_mcp의_탭_수명주기는_조립부의_layout_경로를_공유한다() {
+        let source = include_str!("lib.rs");
+        let actions = extract_between(source, "fn open_ide_file_tab(", "fn layout_tab_closed_observers()");
+        assert!(actions.contains("layout_service::open_tab_and_finish("));
+        assert!(actions.contains("layout_service::close_tab_and_finish("));
+        assert!(actions.contains(".map(|(_, closed_tab, _)| closed_tab.tab)"));
+        assert!(actions.contains("open_file_tab: open_ide_file_tab"));
+        assert!(actions.contains("close_tab: close_ide_tab"));
+
+        let setup = extract_between(source, "app.manage(IdeStore::default());", "app.manage(AiRequestStore::default());");
+        assert!(setup.contains("app.manage(ide_layout_actions());"));
+
+        let ide_server = include_str!("domain/ide/server.rs");
+        assert!(ide_server.contains("(app.state::<IdeLayoutActions>().open_file_tab)("));
+        assert_eq!(ide_server.matches("(app.state::<IdeLayoutActions>().close_tab)(").count(), 2);
     }
 
     #[test]
