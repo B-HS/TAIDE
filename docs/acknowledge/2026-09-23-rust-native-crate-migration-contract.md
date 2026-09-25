@@ -798,3 +798,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. 종료 순서와 폴링 상수를 `taide-lsp::process::shutdown_process`로 이전하고, 기존 조기 종료·타임아웃 테스트 2건을 crate 소유로 옮겼습니다. Tauri는 세션 stopping·프로세스 snapshot·최종 상태 이벤트와 `lsp_stop`/`lsp_restart`의 mutation guard 분리를 그대로 유지합니다. 실제 자식 프로세스가 `shutdown` 수신 후 빨리 종료하는 새 경계 테스트를 추가하고 현행 LSP 기능 문서의 소유 표기를 갱신했습니다.
 - [x] C. 권한 허용 `taide-lsp` 단위 50건·새 경계 4건·Tauri LSP 명령 18건·Phase 0 계약 7건과 crate/Tauri clippy·fmt·독립 crate rustdoc·`git diff --check`가 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. 전체 workspace·TypeScript typecheck는 이번 slice 뒤 재실행하지 않았고 실제 GUI/서버 세션 실기는 미검증입니다. M5 전체·M6 adapter·native UI는 미완료입니다.
 - [x] D. 코드·테스트·현행 문서를 `91d4b22`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
+
+## M5 서른아홉 번째 slice — LSP 재시작 정책의 독립 crate 이전
+
+- [x] A. Tauri `handle_process_exit`의 재시작 한도 3회·500ms 선형 backoff·30초 건강 판정은 Tauri 비의존 프로세스 정책이고 AppHandle mutation guard·재기동·상태 이벤트는 조립 책임입니다. 새 crate 정책 경계 테스트는 API 부재 E0432(exit 101)로 의도대로 실패했습니다. Rust [`Arc::ptr_eq`](https://doc.rust-lang.org/std/sync/struct.Arc.html#method.ptr_eq)와 [`Duration`](https://doc.rust-lang.org/std/time/struct.Duration.html#method.from_millis) 공식 문서를 확인했습니다.
+- [x] B. 재시작 한도·지연·건강 판정 시간과 프로세스 생존/현재 슬롯 동일성 확인을 `taide-lsp::process`로 이전했습니다. Tauri `types` 상수 경로는 facade로 유지하고 기존 실패·상태 이벤트와 재기동 순서를 변경하지 않았습니다. 기존 건강 판정 테스트 3건을 crate 소유로 옮기고 현행 LSP 기능 문서의 소유 표기를 갱신했습니다. 첫 fmt 파싱 오류는 `let ... else` 세미콜론 누락으로, 수정 후 통과했습니다.
+- [x] C. 권한 허용 `taide-lsp` 단위 53건·새 경계 5건·Tauri LSP 명령 15건·Phase 0 계약 7건과 crate/Tauri clippy·fmt·독립 crate rustdoc·`git diff --check`가 통과했습니다. 생성 bindings SHA-256 `2c7b4343878cacea8351733fb04435c6ab0519db15c84dc1dd4d6a4d69d06bda`는 불변입니다. 전체 workspace·TypeScript typecheck는 이번 slice 뒤 재실행하지 않았고 실제 GUI/서버 세션 실기는 미검증입니다. M5 전체·M6 adapter·native UI는 미완료입니다.
+- [x] D. 코드·테스트·현행 문서를 `725d211`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 일반 push는 사용자 승인 전까지 실행하지 않습니다. M5 전체는 미완료입니다.
