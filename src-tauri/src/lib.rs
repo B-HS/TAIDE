@@ -904,7 +904,7 @@ pub fn run() {
         .register_uri_scheme_protocol("asset", |context, request| {
             let state = context.app_handle().state::<AppState>();
             let projects = state.projects.read();
-            infra::asset_protocol::respond(&projects, request)
+            platform::asset_protocol::respond(&projects, request)
         })
         .on_menu_event(|app, event| dispatch_menu_action(app, domain::window::menu::menu_action(event.id().as_ref())))
         .invoke_handler(move |invoke| {

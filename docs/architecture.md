@@ -72,7 +72,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     │       ├── watcher.rs   notify + debouncer (무시 목록 필터 — 이벤트·파일ID 캐시 양쪽, §2.3)
     │       ├── persist.rs   원자적 쓰기 (temp → fsync → rename)
     │       ├── archive.rs   tar/zip/xz 해제 (LSP 설치·VSIX)
-    │       ├── asset_protocol.rs  프리뷰 asset 프로토콜 (tauri 결합 adapter)
+    │       ├── asset_protocol.rs  platform asset 프로토콜 공개 경로 facade
     │       ├── navigation_guard.rs  platform 웹뷰 가드 공개 경로 facade
     │       ├── perf.rs      성능 계측 레지스트리 (게이트 뒤 고정 슬롯 + 원자 카운터 — §2.2)
     │       ├── crypto.rs    constant_time_eq 등 (ide·agent 가 재사용)
@@ -473,7 +473,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    `asset_protocol_scope()`(`scope::fs::Scope`)의 allow/forbid 가 **둘 다 추가 전용**이라(되돌릴
    API 없음, `forbid`가 `allow`보다 항상 우선) `project_close`에서 단순히 `forbid_directory(root)`를
    호출하면 "같은 폴더를 다시 열어도 영원히 asset 을 못 읽는" 새 회귀를 만든다는 이유로 보류했다.
-   2차 배치는 근본 수정을 실행했다 — `infra::asset_protocol::respond`가
+   2차 배치는 근본 수정을 실행했다 — 현재 `platform::asset_protocol::respond`가
    `register_uri_scheme_protocol("asset", ...)`(`lib.rs`, `Builder` 체인의 `.setup()` 이전)으로
    asset 스킴 자체를 앱이 직접 재구현해 서빙한다. Tauri는 같은 이름("asset")의 스킴이 이미
    등록돼 있으면 내장 핸들러를 건너뛴다(`tauri-2.11.5/src/manager/webview.rs`
@@ -485,10 +485,11 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    이미 쓰는 같은 함수라 경로 봉쇄 보장이 두 서빙 경로에서 동일하다. 프로젝트가 닫히면
    `AppState::projects`에서 즉시 제거되므로(§6.3 위 표의 기존 `project_close` 흐름), 별도의
    "회수" 단계 없이 **다음 요청부터 자동으로 거부**된다 — 이것이 표에 "회수 불필요"로 적은 이유다.
-   `infra::asset_protocol::respond` 자신은 `AppState`를 직접 조회하지 않고 열린 프로젝트 맵을
+   `platform::asset_protocol::respond` 자신은 `AppState`를 직접 조회하지 않고 열린 프로젝트 맵을
    파라미터로 받는다(`infra::root_guard`의 다른 함수들과 같은 모양) — `AppHandle`/`State` 조회는
    `lib.rs`의 `register_uri_scheme_protocol("asset", ...)` 등록 클로저 한 곳에만 있고, 그 결과를
-   `respond`에 넘긴다. 덕분에 `infra::` 안에서 `crate::state`에 직접 의존하는 곳이 없고,
+   `respond`에 넘긴다. 현재 구현은 `platform/asset_protocol.rs`가 소유하고 기존
+   `infra/asset_protocol.rs`는 재수출 facade다. `platform::` 구현은 `crate::state`에 직접 의존하지 않아
    `respond`도 실제 `AppHandle` 없이 단위 테스트할 수 있다(감사 지적 반영, 2026-08-19).
 
    `Range` 요청(비디오/오디오 탐색)은 Tauri 벤더 소스의 `tauri::protocol::asset::get_response`가
@@ -517,12 +518,12 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    엘리먼트 `src`로만 로드되어 CORS 프리플라이트도, `fetch`/XHR로 응답 헤더를 읽는 경로도 타지
    않는다. `UriSchemeContext`는 내장 핸들러의 `window_origin`에 해당하는 값을 노출하지 않아,
    향후 `fetch()`로 `asset://`를 직접 호출하는 소비처가 생기면 그때 헤더 복원이 필요하다
-   (`infra::asset_protocol` 모듈 doc에 동일 내용 기록).
+   (`platform::asset_protocol` 모듈 doc에 동일 내용 기록).
 
    **KNOWN ISSUE(실기 미검증)**: 에이전트는 앱을 실행할 수 없어 이 핸들러를 실제 webview 로
    검증하지 못했다 — `<video>`/`<audio>` 탐색(Range 응답)이 실제로 매끄러운지, WKWebView/WebView2가
    커스텀 `register_uri_scheme_protocol` 핸들러를 내장 핸들러와 동일하게 라우팅하는지, CORS 헤더
-   생략이 실제로 무해한지는 코드 리딩과 단위 테스트(`infra::asset_protocol::tests`,
+   생략이 실제로 무해한지는 코드 리딩과 단위 테스트(`platform::asset_protocol::tests`,
    `infra::range_file::tests`)로만 확인했다. 실기 확인 항목은
    `docs/quality-assurance/2026-08-11-qa6-checklist.md` "감사 T1 정비 2차 재검" 절 참고.
 
