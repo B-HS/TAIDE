@@ -903,3 +903,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 파일 두 variant를 추가하고 Tauri platform adapter에서 기존 FsChanged/FsRescanRequired로 변환했습니다. 파일 watcher·복원 발행점과 누락된 Git 두 발행점을 EventSink로 이전했습니다. 기존 IPC payload·원격 fanout, watcher 분기, attach/복원 순서는 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 21/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 21건·taide-file 60건·Tauri project 17건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. Tauri file lib 필터는 0건이어서 파일 crate·경계 테스트로 보완했습니다. 직접 FsChanged/FsRescanRequired/GitStatusChanged 발행은 Tauri adapter 외 0곳입니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 watcher·원격 GUI 실기는 미검증이며 나머지 9개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `07b6bd4`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 열네 번째 slice — LSP EventSink 경계
+
+- [x] A. LSP 세션 상태 helper는 lifecycle snapshot의 status·last_error·generation을 발행하고, 설치 진행 helper는 u64 bytes를 기존 IPC의 f64로 바꿔 phase·message와 함께 발행합니다. 두 이벤트는 기존 `collect_events!`와 원격 fanout에 등록되어 있습니다. model variant·adapter 배선 테스트는 구현 전 두 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 LSP 두 variant를 추가하고 Tauri platform adapter에서 기존 LspSessionStatusChanged/LspInstallProgress로 변환했습니다. 두 helper는 빌린 AppHandle의 EventSink를 호출하며 lifecycle snapshot, bytes 변환, 기존 IPC payload·fanout을 유지합니다. 현행 아키텍처 문서의 이전 상태를 23/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 23건·Tauri LSP 15건·taide-lsp 53건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 첫 경계 테스트의 소스 문자열 순서 오판 1건을 실제 단일 호출 확인으로 고친 뒤 통과했습니다. LSP 직접 발행은 adapter 외 0곳이고 bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버 프로세스·다운로드·GUI 실기는 미검증이며 나머지 7개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `068e82d`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
