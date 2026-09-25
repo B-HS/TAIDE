@@ -1,4 +1,5 @@
 use crate::ids::ProjectId;
+use crate::project::WindowChrome;
 use crate::remote::RemoteStatus;
 use crate::settings::Settings;
 use crate::sync::SyncStatus;
@@ -46,5 +47,8 @@ pub enum AppEvent {
     },
     RemoteStateChanged {
         status: RemoteStatus,
+    },
+    WindowChromeChanged {
+        chrome: WindowChrome,
     },
 }

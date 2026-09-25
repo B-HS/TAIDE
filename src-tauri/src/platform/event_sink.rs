@@ -5,7 +5,7 @@ use tauri_specta::Event;
 
 use crate::events::{
     GitRefsChanged, GitStatusChanged, LayoutChanged, RemoteStateChanged, SettingsChanged, SyncStateChanged, TerminalCommandFinished,
-    TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged,
+    TerminalCwdChanged, TerminalExited, TerminalSpawned, ThemeChanged, WindowChromeChanged,
 };
 
 pub struct TauriEventSink<'a>(pub &'a AppHandle);
@@ -67,6 +67,9 @@ impl EventSink for TauriEventSink<'_> {
             }
             AppEvent::RemoteStateChanged { status } => {
                 let _ = RemoteStateChanged { status }.emit(self.0);
+            }
+            AppEvent::WindowChromeChanged { chrome } => {
+                let _ = WindowChromeChanged { chrome }.emit(self.0);
             }
         }
     }

@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use taide_model::app_event::AppEvent;
+use taide_runtime::EventSink;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
@@ -16,10 +18,11 @@ use crate::domain::file::types::{FsChange, FsChangeKind};
 use crate::error::{AppError, AppResult};
 use crate::events::{
     FsChanged, GitStatusChanged, HotExitFlushRequested, ProjectActivated, ProjectClosed, ProjectGroupsChanged, ProjectListChanged,
-    ProjectOpened, ProjectRecentCleared, SessionShellSlotsChanged, WindowChromeChanged,
+    ProjectOpened, ProjectRecentCleared, SessionShellSlotsChanged,
 };
 use crate::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use crate::infra::perf::{self, SpanSlot};
+use crate::platform::event_sink::TauriEventSink;
 use crate::project_restore_port::ProjectRestoreWatchers;
 use crate::state::{AppState, FlushScope};
 
@@ -375,7 +378,7 @@ pub async fn session_set_window_chrome(app: AppHandle, state: State<'_, AppState
     *state.session.write() = session;
     drop(_guard);
 
-    let _ = WindowChromeChanged { chrome }.emit(&app);
+    TauriEventSink(&app).publish(AppEvent::WindowChromeChanged { chrome });
 
     Ok(chrome)
 }

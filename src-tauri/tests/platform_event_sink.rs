@@ -5,6 +5,7 @@ use taide_lib::paths::AppPaths;
 use taide_lib::state::AppState;
 use taide_model::app_event::AppEvent;
 use taide_model::ids::ProjectId;
+use taide_model::project::WindowChrome;
 use taide_model::remote::RemoteStatus;
 use taide_model::settings::Settings;
 use taide_model::sync::SyncStatus;
@@ -270,4 +271,25 @@ fn 원격_서버_시작과_중지는_수명주기_갱신_뒤_port로_발행된�
     assert!(stop.find("remote.take_shutdown_state()").unwrap() < stop.find("AppEvent::RemoteStateChanged").unwrap());
     assert!(stop.find("shutdown_tx.send(())").unwrap() < stop.find("AppEvent::RemoteStateChanged").unwrap());
     assert!(adapter.contains("RemoteStateChanged { status }.emit(self.0)"));
+}
+
+#[test]
+fn 창_chrome_이벤트는_tauri_없는_port로_발행된다() {
+    let sink = RecordingEventSink::default();
+    let chrome = WindowChrome::default();
+
+    sink.publish(AppEvent::WindowChromeChanged { chrome });
+
+    assert_eq!(sink.0.lock().unwrap().as_slice(), &[AppEvent::WindowChromeChanged { chrome }]);
+}
+
+#[test]
+fn 창_chrome_이벤트는_세션_저장과_guard_해제_뒤에_발행된다() {
+    let commands = include_str!("../src/domain/project/commands.rs");
+    let adapter = include_str!("../src/platform/event_sink.rs");
+    let set_chrome = commands.split_once("pub async fn session_set_window_chrome(").unwrap().1;
+
+    assert!(set_chrome.find("*state.session.write() = session").unwrap() < set_chrome.find("AppEvent::WindowChromeChanged").unwrap());
+    assert!(set_chrome.find("drop(_guard)").unwrap() < set_chrome.find("AppEvent::WindowChromeChanged").unwrap());
+    assert!(adapter.contains("WindowChromeChanged { chrome }.emit(self.0)"));
 }
