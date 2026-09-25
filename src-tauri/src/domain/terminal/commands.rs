@@ -5,9 +5,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use parking_lot::Mutex;
 use taide_terminal::command_clock::TerminalCommandClock;
 use taide_terminal::metadata::TerminalSessionMetadata;
+use taide_terminal::runtime::spawn_terminal_session;
 use taide_terminal::session::TerminalSessionOutput;
 use taide_terminal::store::TerminalSessionEntry;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -24,7 +24,7 @@ use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
 use crate::infra::root_guard::{self, ensure_within_root};
 use crate::infra::shell_integration;
-use crate::infra::terminal_scan::{OutputScanner, ScanEvent, ScanOutcome};
+use crate::infra::terminal_scan::{ScanEvent, ScanOutcome};
 use crate::state::AppState;
 
 pub use taide_terminal::store::TerminalStore;
@@ -189,7 +189,7 @@ impl PtySpawnEnvProvider {
 /// this inert sink, once to the real attach — for the session's entire lifetime.
 ///
 /// The pty spawn itself runs guard-held on a blocking thread (contract 2026-08-25 §1-d, same shape
-/// as the git2 in-process migrations in `domain::git::commands`): `pty::spawn` writes the
+/// as the git2 in-process migrations in `domain::git::commands`): the terminal runtime calls `pty::spawn` to write the
 /// shell-integration script(s) to a temp dir, opens the pty, and forks/execs the child, all
 /// synchronous blocking work that previously ran directly on this async worker thread while
 /// `_guard` was held. T1-H (2026-08-19 §4) deferred this exact move on three grounds, all since
@@ -235,7 +235,6 @@ pub async fn pty_spawn(
     let scan_app = app.clone();
     let scan_session_id = session_id.clone();
     let command_clock = TerminalCommandClock::new();
-    let scanner = Mutex::new(OutputScanner::new());
 
     let config = pty::PtySpawnConfig {
         shell: opts.shell.clone(),
@@ -246,20 +245,16 @@ pub async fn pty_spawn(
     };
 
     let handle = tauri::async_runtime::spawn_blocking(move || {
-        pty::spawn(
+        spawn_terminal_session(
             config,
+            output_for_data,
             move |bytes| {
-                // Counters, never a `perf::span`: this closure runs once per pty output chunk on
-                // the reader thread, where two `Instant::now()` calls per chunk would measure the
-                // instrumentation as much as the terminal (`infra::perf::CounterSlot`). Throughput
-                // is `pty.output_bytes` over the wall time between two `perf_snapshot` calls.
                 perf::add(CounterSlot::PtyOutputBytes, bytes.len() as u64);
                 perf::add(CounterSlot::PtyOutputChunks, 1);
-                output_for_data.append_and_broadcast(bytes);
-
-                let outcome = scanner.lock().scan(bytes);
+            },
+            move |outcome| {
                 perf::add(CounterSlot::PtyScanEvents, outcome.events.len() as u64);
-                dispatch_scan_outcome(&scan_app, &scan_session_id, &command_clock, &outcome);
+                dispatch_scan_outcome(&scan_app, &scan_session_id, &command_clock, outcome);
             },
             move |code| {
                 exit_metadata.mark_exited();
@@ -498,6 +493,8 @@ pub async fn pty_default_options(state: State<'_, AppState>, project_id: Project
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::Ordering;
+
+    use parking_lot::Mutex;
 
     use super::*;
     use std::path::{Path, PathBuf};
