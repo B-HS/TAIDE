@@ -945,3 +945,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. AppState·FlushTicket과 기존 단위 테스트를 taide-runtime으로 옮기고 `src-tauri/src/state.rs`는 동일 타입의 재수출 facade로 남겼습니다. Tauri 등록·command 시그니처·flush 정책은 변경하지 않았습니다. 이동 후 미사용 root-guard 재수출 한 줄을 제거하고 crate-local rustfmt 설정을 다른 Rust crate와 맞췄습니다.
 - [x] C. runtime 상태 23건·새 공개 경계 2건·권한 허용 Tauri lib 309건·EventSink 29건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/runtime all-target clippy·fmt·runtime strict rustdoc·`git diff --check`가 통과했습니다. 기존 332건의 state 23건이 runtime으로 이동해 같은 테스트 총량을 유지합니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 앱 재시작·GUI 실기는 미검증이며 AppServices 조립·TaskSupervisor 나머지 작업·M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `37a919e`로 선별 로컬 commit했습니다. 원본·이동 구현 diff는 import 경로와 이전 crate를 가리키던 문서 링크 한 곳뿐입니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 스무 번째 slice — 자동 시작 작업 TaskSupervisor 경계
+
+- [x] A. agent hook·IDE·remote 자동 시작은 설정별 조건부 one-shot 작업입니다. IDE/remote 서버의 실제 accept handle은 각 Store가 별도로 관리합니다. 세 TaskSupervisor 배선 테스트는 구현 전 `agent-hooks-boot` 부재로 실패(exit 101)했습니다.
+- [x] B. 세 boot 작업만 이름별 TaskSupervisor 등록으로 바꿨습니다. 설정 조건, 기존 오류 경고, 서버의 Store 소유권, Tauri runtime과 `RunEvent::Exit` 취소 시점은 유지했습니다. 창별 timeout과 나머지 작업은 후속 경계입니다.
+- [x] C. TaskSupervisor 경계 2건·권한 허용 Tauri lib 309건·Phase 0 IPC 계약 7건, Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox에서 기존 ps·로컬 소켓 접근 6건이 실패했지만 동일 lib 명령을 권한 허용 환경에서 309건 통과시켰습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버 자동 시작·앱 종료 실기는 미검증이며 AppServices·M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 아키텍처 문서를 `7f30975`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.

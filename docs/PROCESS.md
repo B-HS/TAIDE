@@ -520,6 +520,10 @@
   - [x] M6-BV. AppState·FlushTicket과 기존 테스트를 taide-runtime으로 이전하고 src-tauri/state.rs는 타입 재수출 facade로 뒀습니다. Tauri 등록·명령 시그니처·flush 동작은 유지하고, 이동 후 미사용 root-guard facade 재수출을 제거했습니다.
   - [x] M6-BW. runtime 상태 23건·새 공개 경계 2건·권한 허용 Tauri lib 309건·EventSink 29건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/runtime all-target clippy·fmt·runtime strict rustdoc·`git diff --check`가 통과했습니다. 기존 332건의 state 23건이 runtime으로 이동했으며 같은 테스트 총량을 유지합니다. 이동 뒤 root-guard 미사용 재수출을 제거했고 새 crate에 프로젝트 공통 rustfmt 설정을 추가했습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 앱 재시작·GUI 실기는 미검증입니다.
   - [x] M6-BX. 구현·테스트·현행 문서를 `37a919e`로 선별 로컬 commit했습니다. 원본·이동 구현 diff는 import 경로와 이전 crate를 가리키던 문서 링크 한 곳뿐입니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남깁니다. AppServices 조립·나머지 TaskSupervisor 작업은 미완료이며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+  - [x] M6-BY. setup의 agent hook·IDE·remote 자동 시작 세 작업은 설정별 조건부 spawn이며 IDE/remote 서버 자체는 각 Store가 별도 handle로 관리함을 확인했습니다. TaskSupervisor 배선 테스트는 먼저 agent-hooks-boot 부재로 실패(exit 101)했습니다.
+  - [x] M6-BZ. 자동 시작 세 작업을 TaskSupervisor의 이름별 작업으로 등록했습니다. 기존 설정 조건·오류 경고·서버 Store 소유권과 Tauri runtime은 유지합니다.
+  - [x] M6-CA. TaskSupervisor 경계 2건·권한 허용 Tauri lib 309건·Phase 0 IPC 계약 7건, Tauri all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 ps·로컬 소켓 관련 6건 실패는 권한 허용 동일 lib 명령 309건 통과로 해소했습니다. bindings SHA-256 `267a2d5cd605a0d5ef8a3287e733bcd385369d4a1f2dfb3a525f31455eeb2090`은 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버 자동 시작·앱 종료 실기는 미검증입니다.
+  - [x] M6-CB. 구현·테스트·현행 아키텍처 문서를 `7f30975`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 문서 commit으로 남깁니다. 기존 원격 push 승인 거절은 재시도하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
