@@ -1,7 +1,7 @@
 # Rust-native 전체 기능 crate 분리 실행 계약
 
 > 브랜치: `to_rust_native`
-> 상태: M1~M4 코드 분리 완료, M5~M8과 GUI·실제 재시작 실기 미완료; Git commands/watch/plugin overlay·layout flush/이벤트/IDE·terminal 조립은 Tauri 경계, platform adapter는 M6 소유
+> 상태: M1~M5 코드·결합 분리 완료, M6~M8과 GUI·실제 재시작 실기 미완료; Git commands/watch/plugin overlay·layout flush/이벤트/IDE·terminal 조립은 Tauri 경계, platform adapter는 M6 소유
 > 상태 정본: `docs/PROCESS.md`의 「Rust-native 이전을 위한 전체 기능 crate 분리」
 > 선행 근거: `docs/roadmap-rust-native.md`, `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`, `docs/architecture.md`
 

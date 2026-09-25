@@ -442,11 +442,12 @@
   - [x] M5-FI. 권한 허용 `cargo test --workspace --quiet` 전체(exit 0)와 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `git diff --check`가 통과했습니다. 전체 테스트에 도메인 경계 3건과 Phase 0 계약 7건이 포함됐고, 생성 bindings의 공개 설명 문구만 갱신되며 해시가 바뀌어 manifest를 동기화한 뒤 Phase 0 7건을 현재 파일 상태에서 다시 통과시켰습니다. bindings SHA-256은 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`이고 Prettier 검사도 통과했습니다. IPC 시그니처는 불변이고 TypeScript typecheck는 주석만 변경되어 재실행하지 않았습니다. 실제 GUI·외부 LSP/PTY/MCP/원격 연결 실기는 M7/M8에서 검증합니다.
   - [x] M5-FJ. 빈 도메인 실행 참조 허용 목록, 다섯 crate의 Tauri 미의존 그래프, Tauri service facade 및 루트 remote dispatch 조립, 전체 Rust 검증을 근거로 M5만 완료 처리했습니다. M6 adapter 분리·M7 전체 동등성·M8 native UI gate는 미완료입니다.
   - [x] M5-FK. 생성 bindings·manifest 동기화를 `12c4341`로 선별 로컬 commit했습니다. M5 종료 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 기존 원격 push 승인 거절은 재시도하지 않습니다.
+  - [x] M5-FL. M5 완료 판정과 상충하던 PROCESS 하단·이주 계약 문서 상단의 현재 상태 요약을 M1~M5 완료/M6~M8 미완료로 정정하고 이 변경을 선별 로컬 commit으로 남깁니다.
 - [ ] M6. runtime·platform·Tauri adapter 분리 — AppServices, EventSink, WindowRegistry, TaskSupervisor 등을 명시적 DI로 이전하고 203 command·30 event·raw channel wire 동등성을 재검증.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
-> M1~M4의 코드 분리가 완료됐고 M5의 terminal·IDE·window 정책 slice를 검증했습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M5의 나머지 도메인 결합 절단, M6의 platform adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
+> M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard` platform adapter는 M6 소유입니다.
 
 ## 완료: Rust-native Phase 0 계약 기준선 구현 (2026-09-23)
 
