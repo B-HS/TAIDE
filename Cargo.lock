@@ -4505,8 +4505,10 @@ dependencies = [
 name = "taide-ide"
 version = "0.1.0"
 dependencies = [
+ "log",
  "serde",
  "serde_json",
+ "sysinfo",
  "taide-infra",
  "taide-layout",
  "taide-model",

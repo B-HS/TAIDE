@@ -1,5 +1,4 @@
-pub const IDE_NAME: &str = "TAIDE";
-pub const IDE_TRANSPORT: &str = "ws";
+pub use taide_ide::lockfile::{IDE_NAME, IDE_TRANSPORT};
 pub const IDE_AUTH_HEADER_NAME: &str = "X-Claude-Code-Ide-Authorization";
 pub use taide_ide::service::{IDE_PORT_RANGE_END, IDE_PORT_RANGE_START};
 pub const IDE_PORT_BIND_MAX_ATTEMPTS: u32 = 20;

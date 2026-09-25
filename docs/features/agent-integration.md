@@ -322,6 +322,8 @@ PTY 스폰 시 `EDITOR` 와 `VISUAL` 을 같은 값으로 주입한다. 주입 �
 - JSON-RPC envelope·초기화/도구 목록·선택/진단 wire는 독립 `taide-ide::protocol`이 생성하고,
   `domain::ide::server`는 WebSocket 인증·전송과 도구 실행을 담당한다. `initialize`의
   `serverInfo.version`은 조립 측 Tauri 앱 버전을 전달해 기존 응답을 유지한다.
+- lockfile 경로·0600/0700 권한·원자 쓰기·stale PID 정리는 독립 `taide-ide::lockfile`이 소유하고,
+  `domain::ide::commands`는 프로젝트 폴더와 토큰을 조립해 기동·갱신·종료 시 호출한다.
 - 도구 구현(비공식 프로토콜 — 실측 검증 필수): `openFile`, `openDiff`(TAIDE diff 탭, 블로킹),
   `getCurrentSelection`, `getOpenEditors`, `getWorkspaceFolders`, `getDiagnostics`(LSP 마커),
   `checkDocumentDirty`, `saveDocument`, `close_tab`. 알림: `selection_changed`, `at_mentioned`.
@@ -636,10 +638,10 @@ statusline 바이너리: fire-and-forget POST 후 즉시 종료(300ms 디바운�
   `handle_connection` 과 핸드셰이크 단위 테스트가 동일 로직을 쓰도록 별도 함수로 분리했다
   (테스트-운영 드리프트 방지). `#[allow(clippy::result_large_err)]` 의 불가피성 사유는
   `docs/acknowledge/2026-08-07-qa-batch-decisions.md` 참고.
-- **lockfile 디렉터리 결정** (`lockfile.rs::resolve_lockfile_dir`): `CLAUDE_CONFIG_DIR` 가
+- **lockfile 디렉터리 결정** (`taide-ide::lockfile::resolve_lockfile_dir`): `CLAUDE_CONFIG_DIR` 가
   설정돼 있으면 그 하위 `ide/`, 없으면 홈 디렉터리의 `.claude/ide/` 를 쓴다. env 값을 인자로
   받는 순수 함수로 유지해, 테스트에서 실제 프로세스 env 를 건드리지 않고 양쪽 분기를 검증한다.
-- **lockfile 원자적 쓰기** (`lockfile.rs::write_lockfile_atomic`): lockfile 을 tmp 파일에 쓴 뒤
+- **lockfile 원자적 쓰기** (`taide-ide::lockfile::write_lockfile_atomic`): lockfile 을 tmp 파일에 쓴 뒤
   rename 으로 원자적으로 교체한다. CLI 가 쓰다 만 lockfile 을 읽고 파싱 실패로 삭제해버리는
   경쟁 상태를 피하기 위함이다.
 

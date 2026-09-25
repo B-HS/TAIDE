@@ -27,7 +27,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 ├── crates/taide-cli/        `taide` CLI (--wait 마커 방식 — agent-integration.md §2)
 │                            **bin 이름은 `taide-cli`** — `taide` 로 두면 앱 바이너리와 출력이 충돌한다
 ├── crates/taide-model/      Tauri 미의존 공통 ID·AppError (기존 public 경로는 src-tauri facade)
-├── crates/taide-ide/        Tauri 미의존 IDE 서비스와 MCP JSON-RPC wire (protocol.rs)
+├── crates/taide-ide/        Tauri 미의존 IDE 서비스·MCP JSON-RPC wire·lockfile 자원 정책
 └── src-tauri/
     ├── src/
     │   ├── main.rs          진입점 (lib.rs 의 run() 호출만)
