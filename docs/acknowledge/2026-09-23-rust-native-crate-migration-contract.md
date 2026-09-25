@@ -868,3 +868,10 @@ M2 이후는 각 기능의 실제 파일·테스트·자원 경계가 확정될 
 - [x] B. model AppEvent에 SyncStatus variant를 추가하고 Tauri platform adapter에서 기존 SyncStateChanged로 변환했습니다. 네 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·성공 경로 정책은 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 10/30 이벤트로 갱신했습니다.
 - [x] C. EventSink 경계 11건·권한 허용 Tauri sync 16건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. 제한된 sandbox의 sync lib 2건은 로컬 소켓 권한 오류였고 권한 허용 동일 16건은 모두 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 GitHub·원격·GUI 실기는 미검증이며 나머지 20개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
 - [x] D. 구현·테스트·현행 문서를 `e2db6d6`으로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
+
+## M6 아홉 번째 slice — 원격 서버 상태 EventSink 경계
+
+- [x] A. RemoteStateChanged는 서버 시작에서 RemoteStore 등록 뒤, 중지에서 shutdown 신호 뒤 기본 상태로 발행됩니다. 기존 이벤트는 `collect_events!`와 원격 fanout에 등록됩니다. model variant·adapter 배선 테스트는 구현 전 variant 부재 E0599(exit 101)로 실패했습니다.
+- [x] B. model AppEvent에 RemoteStatus variant를 추가하고 Tauri platform adapter에서 기존 RemoteStateChanged로 변환했습니다. 시작·중지 발행점은 빌린 AppHandle의 EventSink를 호출하며 기존 IPC payload·원격 fanout·수명주기 순서는 변경하지 않았습니다. 현행 아키텍처 문서의 이전 상태를 11/30 이벤트로 갱신했습니다.
+- [x] C. EventSink 경계 13건·Tauri remote 51건·Phase 0 IPC 계약 7건·도메인 경계 3건과 Tauri/model all-target clippy·fmt·`git diff --check`가 통과했습니다. bindings SHA-256 `1b30c770469188b6a568bdde7e6479cd1f0c43934cb8bb577562d5cc4060eebf`는 불변입니다. 전체 workspace·TypeScript typecheck와 실제 서버·원격 클라이언트·GUI 실기는 미검증이며 나머지 19개 이벤트와 M6 AppServices·TaskSupervisor, M7/M8도 미완료입니다.
+- [x] D. 구현·테스트·현행 문서를 `56479e5`로 선별 로컬 commit했습니다. 이 검증 기록과 PROCESS 상태는 별도 로컬 문서 commit으로 남기며 원격 push는 기존 승인 거절로 재시도하지 않습니다.
