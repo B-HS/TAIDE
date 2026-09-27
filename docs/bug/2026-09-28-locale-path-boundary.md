@@ -21,3 +21,5 @@
 ## 처리 상태
 
 사용자는 A(경로 검증 추가·별도 보안 회귀)를 선택했습니다. 기존 정책 보존 이전 단위와 보안 수정 단위를 분리해 `docs/acknowledge/2026-09-28-locale-path-validation-choice.md`에 결정을 고정했습니다. 자기 fixture의 경로 이탈 ID와 외부 파일 symlink가 수정 전 각각 실패 회귀를 만들었고, 이후 `service.rs`에서 저장·조회·존재·목록에 ID 검증을 적용하고 일반 파일이 아닌 링크를 제외했습니다. 정상 사용자 pack과 내장 우선순위는 유지합니다. 실행 결과와 잔여 경쟁 조건은 `docs/history/2026-09-28-locale-path-boundary-fix.md` 및 `docs/quality-assurance/2026-09-28-locale-path-boundary.md`에 기록합니다. M6/M7의 전체 보안 완료로 해석하지 않습니다.
+
+후속 Unix 보강에서는 조회·목록의 실제 파일 열기에 `O_NOFOLLOW | O_NONBLOCK`을 적용했습니다. 정적 링크뿐 아니라 최종 파일명 교체 후 링크 추적도 막으며, 부모 디렉터리 교체·Windows reparse point 실기는 미검증으로 남깁니다.

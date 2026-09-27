@@ -4564,6 +4564,7 @@ dependencies = [
 name = "taide-locale"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "regex",
  "serde_json",
  "taide-infra",

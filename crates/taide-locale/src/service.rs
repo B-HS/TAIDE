@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -1373,6 +1374,41 @@ fn is_regular_locale_file(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
+fn read_locale_file(path: &Path) -> AppResult<Option<LocalePack>> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.file_type().is_file() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    let opened = {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+    };
+    #[cfg(not(unix))]
+    let opened = std::fs::File::open(path);
+    let mut file = match opened {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        #[cfg(unix)]
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !file.metadata()?.is_file() {
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(Some(serde_json::from_slice(&bytes)?))
+}
+
 pub fn list_locales(paths: &AppPaths) -> Vec<LocaleSummary> {
     let mut list = vec![
         summarize(&builtin_en(), true),
@@ -1389,10 +1425,7 @@ pub fn list_locales(paths: &AppPaths) -> Vec<LocaleSummary> {
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
-        if !is_regular_locale_file(&path) {
-            continue;
-        }
-        if let Ok(Some(pack)) = persist::read_json::<LocalePack>(&path) {
+        if let Ok(Some(pack)) = read_locale_file(&path) {
             if !is_valid_locale_id(&pack.id) {
                 continue;
             }
@@ -1415,10 +1448,7 @@ pub fn load_locale(paths: &AppPaths, locale_id: &str) -> AppResult<ResolvedLocal
     }
 
     let path = paths.locales_dir().join(format!("{locale_id}.json"));
-    if !is_regular_locale_file(&path) {
-        return Err(AppError::NotFound(format!("locale not found: {locale_id}")));
-    }
-    let pack: LocalePack = persist::read_json(&path)?.ok_or_else(|| AppError::NotFound(format!("locale not found: {locale_id}")))?;
+    let pack = read_locale_file(&path)?.ok_or_else(|| AppError::NotFound(format!("locale not found: {locale_id}")))?;
 
     let mut warnings = Vec::new();
     let base = match pack.extends.as_deref() {
@@ -1648,7 +1678,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn 외부_파일을_가리키는_로케일_링크는_읽거나_목록에_넣지_않는다() {
-        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::{symlink, OpenOptionsExt};
 
         let paths = AppPaths::new(temp_data_dir("linked-pack"));
         std::fs::create_dir_all(paths.locales_dir()).expect("create locales dir");
@@ -1656,7 +1686,14 @@ mod tests {
         outside.id = "linked".to_string();
         let outside_path = paths.data_dir.join("outside.json");
         persist::write_json(&outside_path, &outside).expect("write outside pack");
-        symlink(&outside_path, paths.locales_dir().join("linked.json")).expect("link outside pack");
+        let link_path = paths.locales_dir().join("linked.json");
+        symlink(&outside_path, &link_path).expect("link outside pack");
+        let open_error = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&link_path)
+            .unwrap_err();
+        assert_eq!(open_error.raw_os_error(), Some(libc::ELOOP));
 
         assert!(load_locale(&paths, "linked").is_err());
         assert!(!locale_exists(&paths, "linked"));

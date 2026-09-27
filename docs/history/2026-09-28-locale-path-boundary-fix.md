@@ -15,4 +15,6 @@
 
 ## 남은 경계
 
-`symlink_metadata`와 실제 읽기 사이에서 로컬 동시 교체가 가능한 경쟁 조건은 남습니다. 이번 회귀는 고정된 링크와 원격 ID 기반 이탈을 확인했으며 동시 파일시스템 공격·Windows reparse point·실제 원격 호출은 검증하지 않았습니다. 따라서 M6/M7 전체 보안 완료나 모든 OS에서 원자적 파일 경계라고 주장하지 않습니다.
+첫 단위에서는 `symlink_metadata`와 실제 읽기 사이의 로컬 동시 교체 경쟁이 남았습니다. 후속 보강에서 `load_locale`와 `list_locales`가 같은 `read_locale_file`을 사용하고 Unix의 최종 파일 열기에 `O_NOFOLLOW | O_NONBLOCK`을 적용했습니다. 열기 뒤에도 실제 파일 핸들의 metadata가 일반 파일인지 확인한 다음 읽습니다. 자체 symlink fixture에서 `O_NOFOLLOW` 열기의 `ELOOP`와 조회·목록 거부를 확인했습니다. [Apple open(2)](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/open.2.html)의 최종 symlink 거부 계약에 맞는 방식입니다. 기존 `libc 0.2.189`를 locale crate에 직접 연결했으며 Cargo.lock은 의존 edge 한 줄만 추가됐습니다.
+
+이 보강 뒤 locale 20건과 Tauri 경유 1건, locale all-target/Tauri 관련 clippy·Rust fmt가 통과했습니다. 새 helper는 파일 읽기와 JSON 파싱의 기존 `Io`/`Internal` 매핑을 유지합니다. 최종 diff/문서 검사는 QA에 기록합니다. `O_NOFOLLOW`는 마지막 경로 성분만 보호합니다. 신뢰된 `AppPaths`의 부모 디렉터리 교체, Windows reparse point의 동시 교체·ADS 실기, 실제 원격 호출은 별도 미검증이며 M6/M7 전체 보안 완료로 해석하지 않습니다.
