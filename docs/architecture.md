@@ -227,6 +227,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
     plugin 명령·언어 overlay 포트가 같은 목록을 소비한다.
+    runtime `plugin_actions`는 공개 action 5개의 read-through/reload·directory/archive stage→mutation guard→commit/cache·
+    uninstall/grammar 조회와 VSIX commit/cache 정책을 소유한다. `vsix_actions`는 공개 action 2개의 기존 추출·stage 뒤
+    guard와 commit port 호출을 소유한다. 실제 AppHandle commit port adapter만 Tauri 조립에 남는다.
+    기존 stage/검증/오류/캐시 정책을 유지하며 요청 Drop·stage 임시 디렉터리·시작한 blocking worker 회수는 별도 미완료 gate다.
     `AgentHooksStore`는 taide-agent에서 서버 정보·accept 핸들·프로젝트별 활동 override를 공유 Arc<Mutex>에 보관한다.
     AppServices와 기존 agent 명령 재수출은 같은 상태를 소비하며, 중복 서버 시작·900초 override 만료·종료 시 override 정리 정책을 유지한다.
     `AgentStore`도 taide-agent의 공유 Arc<Mutex>로 활동 diff·PTY 세션 신호·PID 이름 캐시·wait marker·외부 열기 대기열을 보관한다.

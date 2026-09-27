@@ -40,7 +40,7 @@ use crate::domain::settings::types::Settings;
 use crate::domain::terminal::commands::TerminalStore;
 use crate::domain::window::commands::open_auxiliary_window;
 use crate::domain::window::menu::MenuSources;
-use crate::error::{AppError, AppErrorKind, AppResult};
+use crate::error::AppResult;
 use crate::events::{
     AgentExternalOpen, AgentStateChanged, FsChanged, FsRescanRequired, GitRefsChanged, GitStatusChanged, HotExitFlushRequested,
     IdeCloseTabRequested, IdeDiffRequested, IdeSaveRequested, IdeStatusChanged, LayoutChanged, LspInstallProgress, LspSessionStatusChanged,
@@ -134,18 +134,12 @@ fn plugin_language_overlays(app: &AppHandle) -> Vec<LanguageOverlay> {
 }
 
 fn commit_staged_vsix_plugin(app: &AppHandle, temp_dir: &Path, staged_plugin_id: &str) -> AppResult<LoadedPlugin> {
-    let state = app.state::<AppState>();
-    let store = app.state::<PluginStore>();
-    let plugin_id = taide_plugin::service::commit_staged_install(&state.paths.plugins_dir(), temp_dir, staged_plugin_id)?;
-    let loaded = taide_plugin::service::load_plugins(&state.paths.plugins_dir());
-    *store.0.write() = Some(loaded.clone());
-    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::Internal,
-            "error.vsix.reloadAfterImportFailed",
-            "failed to reload the imported plugin",
-        )
-    })
+    taide_runtime::plugin_actions::commit_staged_vsix_plugin(
+        &app.state::<AppState>(),
+        &app.state::<PluginStore>(),
+        temp_dir,
+        staged_plugin_id,
+    )
 }
 
 fn project_restore_watchers() -> ProjectRestoreWatchers {
@@ -1456,7 +1450,10 @@ mod tests {
         let ide = include_str!("domain/ide/server.rs");
         assert_eq!(ide.matches("(app.state::<PluginRuntimePort>().language_overlays)(app)").count(), 2);
         let vsix = include_str!("domain/vsix/commands.rs");
-        assert!(vsix.contains("(plugins.commit_staged_import)(&app, &temp_dir, &staged_plugin_id)"));
+        assert!(vsix.contains("vsix_actions::vsix_import_plugin("));
+        assert!(vsix.contains("(plugins.commit_staged_import)(&app, temp_dir, staged_plugin_id)"));
+        let actions = include_str!("../../crates/taide-runtime/src/vsix_actions.rs");
+        assert!(actions.find("state.begin_mutation()").unwrap() < actions.find("commit_staged_import(&temp_dir").unwrap());
     }
 
     #[test]

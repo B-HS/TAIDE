@@ -1,18 +1,16 @@
-use std::path::{Path, PathBuf};
-
+use taide_runtime::vsix_actions;
 use tauri::{AppHandle, State};
 
-use super::service;
 use super::types::VsixThemeExtractionResult;
 use crate::domain::plugin::types::LoadedPlugin;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
 pub async fn vsix_extract_themes(vsix_path: String) -> AppResult<VsixThemeExtractionResult> {
-    service::extract_themes(Path::new(&vsix_path))
+    vsix_actions::vsix_extract_themes(vsix_path).await
 }
 
 /// Imports a real VS Code `.vsix`'s language/grammar contributions as a new TAIDE plugin. The
@@ -32,12 +30,10 @@ pub async fn vsix_import_plugin(
     plugins: State<'_, PluginRuntimePort>,
     vsix_path: String,
 ) -> AppResult<LoadedPlugin> {
-    let plugins_dir = state.paths.plugins_dir();
-    let vsix_path = PathBuf::from(&vsix_path);
-    let (temp_dir, staged_plugin_id) = tauri::async_runtime::spawn_blocking(move || service::stage_vsix_import(&plugins_dir, &vsix_path))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-
-    let _guard = state.begin_mutation().await;
-    (plugins.commit_staged_import)(&app, &temp_dir, &staged_plugin_id)
+    vsix_actions::vsix_import_plugin(
+        &state,
+        |temp_dir, staged_plugin_id| (plugins.commit_staged_import)(&app, temp_dir, staged_plugin_id),
+        vsix_path,
+    )
+    .await
 }

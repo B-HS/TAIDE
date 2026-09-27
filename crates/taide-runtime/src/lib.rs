@@ -14,6 +14,7 @@ pub mod lsp_install_actions;
 pub mod lsp_install_toolchain;
 pub mod notification_actions;
 mod platform_services;
+pub mod plugin_actions;
 pub mod project_actions;
 pub mod remote_actions;
 mod remote_dispatch_limiter;
@@ -27,6 +28,7 @@ pub mod terminal_actions;
 pub mod theme_actions;
 pub mod tree_actions;
 mod tree_store;
+pub mod vsix_actions;
 mod window_registry;
 
 pub use ai_request_store::{AiRequestStore, AiRequestToken};

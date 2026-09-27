@@ -1,26 +1,22 @@
-use std::path::PathBuf;
-
+use taide_runtime::plugin_actions;
 use tauri::State;
 
-use crate::error::{AppError, AppErrorKind, AppResult};
+use crate::error::AppResult;
 use crate::state::AppState;
 
-use super::service::{self, PluginStore};
+use super::service::PluginStore;
 use super::types::LoadedPlugin;
 
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_list(state: State<'_, AppState>, store: State<'_, PluginStore>) -> AppResult<Vec<LoadedPlugin>> {
-    Ok(service::ensure_loaded(&store, &state.paths.plugins_dir()))
+    plugin_actions::plugin_list(&state, &store).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_reload(state: State<'_, AppState>, store: State<'_, PluginStore>) -> AppResult<Vec<LoadedPlugin>> {
-    let _guard = state.begin_mutation().await;
-    let loaded = service::load_plugins(&state.paths.plugins_dir());
-    *store.0.write() = Some(loaded.clone());
-    Ok(loaded)
+    plugin_actions::plugin_reload(&state, &store).await
 }
 
 /// The heavy half — up-to-128MB archive extraction or a recursive directory copy into a unique
@@ -36,30 +32,7 @@ pub async fn plugin_reload(state: State<'_, AppState>, store: State<'_, PluginSt
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_install(state: State<'_, AppState>, store: State<'_, PluginStore>, source_path: String) -> AppResult<LoadedPlugin> {
-    let plugins_dir = state.paths.plugins_dir();
-    let source = PathBuf::from(&source_path);
-    let (temp_dir, staged_plugin_id) = tauri::async_runtime::spawn_blocking(move || {
-        if source.is_dir() {
-            service::stage_from_directory(&plugins_dir, &source)
-        } else {
-            service::stage_from_archive(&plugins_dir, &source)
-        }
-    })
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))??;
-
-    let _guard = state.begin_mutation().await;
-    let plugin_id = service::commit_staged_install(&state.paths.plugins_dir(), &temp_dir, &staged_plugin_id)?;
-
-    let loaded = service::load_plugins(&state.paths.plugins_dir());
-    *store.0.write() = Some(loaded.clone());
-    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::Internal,
-            "error.plugin.reloadAfterInstallFailed",
-            "failed to reload the installed plugin",
-        )
-    })
+    plugin_actions::plugin_install(&state, &store, source_path).await
 }
 
 /// No built-in-plugin protection — every entry in `plugins_dir` is a user-installed directory
@@ -71,12 +44,7 @@ pub async fn plugin_uninstall(
     store: State<'_, PluginStore>,
     plugin_id: String,
 ) -> AppResult<Vec<LoadedPlugin>> {
-    let _guard = state.begin_mutation().await;
-    service::uninstall(&state.paths.plugins_dir(), &plugin_id)?;
-
-    let loaded = service::load_plugins(&state.paths.plugins_dir());
-    *store.0.write() = Some(loaded.clone());
-    Ok(loaded)
+    plugin_actions::plugin_uninstall(&state, &store, plugin_id).await
 }
 
 #[tauri::command]
@@ -87,6 +55,5 @@ pub async fn plugin_read_grammar(
     plugin_id: String,
     language_id: String,
 ) -> AppResult<String> {
-    let loaded = service::ensure_loaded(&store, &state.paths.plugins_dir());
-    service::read_grammar(&loaded, &plugin_id, &language_id)
+    plugin_actions::plugin_read_grammar(&state, &store, plugin_id, language_id).await
 }

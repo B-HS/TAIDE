@@ -29,6 +29,7 @@ taide-system = { path = "../taide-system" }
 taide-terminal = { path = "../taide-terminal" }
 taide-theme = { path = "../taide-theme" }
 taide-tree = { path = "../taide-tree" }
+taide-vsix = { path = "../taide-vsix" }
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 
 [dev-dependencies]
