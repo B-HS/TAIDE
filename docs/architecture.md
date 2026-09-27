@@ -229,8 +229,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `RemoteDispatchLimiter`는 taide-runtime의 공유 Arc<Semaphore>로 원격 요청의 동시 실행을 제한한다.
     상한은 기존 remote 정책 상수에서 조립 시 주입하고 초과 요청은 permit을 기다린다.
     `PlatformServices`는 OS 경로 열기·항목 표시·URL 열기·알림 전달을 제공하며, runtime은 Tauri를 모른다.
-    system 명령은 프로젝트 루트·외부 URL을 검증한 뒤 platform adapter만 호출하고, notification 명령은
-    시크릿 마스킹·전 창 focus gate 뒤에만 adapter에 제목·본문을 전달한다. 실제 Tauri opener·알림 플러그인은 adapter가 소유한다.
+    `taide-runtime::system_actions`는 열린 프로젝트의 strict owning-root와 외부 URL을 검증한 뒤 platform을 호출하며,
+    app-data enum의 디렉터리를 생성한 뒤 reveal한다. CLI 예외나 새로운 경로 실재 gate·mutation guard를 추가하지 않는다.
+    `notification_actions`는 시크릿 마스킹→설정 snapshot→주입한 전 창 focus 조회→기존 delivery 판정→조건부 전송을 소유한다.
+    focus callback은 설정 read lock을 놓은 뒤 억제 설정에서도 호출한다. 실제 전 창 조회·usage PID/label 공급·OS 설정의 고정 macOS URL/cfg는 Tauri adapter에 남는다.
+    실제 Tauri opener·알림 플러그인은 platform adapter가 소유하며 Delivered는 OS 표시 성공이 아니라 플러그인 전달 결과다.
     `SecretStoreState`는 taide-infra의 Arc<dyn SecretStore> 포트로 clone 간 같은 구현을 공유한다.
     OS 키링 구현과 service identifier 선택은 Tauri 조립부에 남고 runtime은 주입된 포트만 보유한다.
     파일의 보호된 저장 action은 taide-runtime의 `save_file_within_open_projects`가 소유하고 기존 file service 경로는 재수출한다.

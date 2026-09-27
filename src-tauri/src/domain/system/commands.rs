@@ -1,16 +1,13 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
-use taide_runtime::PlatformServicesState;
+use taide_runtime::{system_actions, PlatformServicesState};
 use tauri::State;
 
 pub use taide_system::store::SystemUsageStore;
 
-use super::service::{self, file_url};
+use super::service;
 use super::types::{AppDataPathKind, SystemUsage, SystemUsageProcess, SystemUsageProcessKind};
 use crate::error::{AppError, AppResult};
-use crate::infra::external_url::validate_external_url;
-use crate::infra::root_guard;
 use crate::state::AppState;
 
 const FALLBACK_CPU_COUNT: usize = 1;
@@ -84,40 +81,28 @@ pub async fn system_usage_breakdown(
     ))
 }
 
-/// 열린 프로젝트 루트 안의 경로만 OS 셸로 넘긴다 — opener 플러그인 권한을 열지 않고
-/// 이 커맨드를 유일한 통로로 두기 위한 게이트다(ipc-contract §4).
-fn resolve_within_open_project(state: &AppState, path: &str) -> AppResult<PathBuf> {
-    let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(path))?;
-    Ok(resolved)
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn system_open_path(state: State<'_, AppState>, platform: State<'_, PlatformServicesState>, path: String) -> AppResult<()> {
-    let resolved = resolve_within_open_project(&state, &path)?;
-    platform.0.open_path(&resolved)
+    system_actions::system_open_path(&state, platform.0.as_ref(), &path)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn system_reveal_path(state: State<'_, AppState>, platform: State<'_, PlatformServicesState>, path: String) -> AppResult<()> {
-    let resolved = resolve_within_open_project(&state, &path)?;
-    platform.0.reveal_item_in_dir(&resolved)
+    system_actions::system_reveal_path(&state, platform.0.as_ref(), &path)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn system_open_in_browser(state: State<'_, AppState>, platform: State<'_, PlatformServicesState>, path: String) -> AppResult<()> {
-    let resolved = resolve_within_open_project(&state, &path)?;
-    platform.0.open_url(&file_url(&resolved))
+    system_actions::system_open_in_browser(&state, platform.0.as_ref(), &path)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn system_open_external_url(platform: State<'_, PlatformServicesState>, url: String) -> AppResult<()> {
-    let validated = validate_external_url(&url)?;
-    platform.0.open_url(&validated)
+    system_actions::system_open_external_url(platform.0.as_ref(), &url)
 }
 
 #[tauri::command]
@@ -127,12 +112,5 @@ pub async fn system_open_app_data_path(
     platform: State<'_, PlatformServicesState>,
     kind: AppDataPathKind,
 ) -> AppResult<()> {
-    let dir = match kind {
-        AppDataPathKind::Plugins => state.paths.plugins_dir(),
-        AppDataPathKind::Themes => state.paths.themes_dir(),
-        AppDataPathKind::Locales => state.paths.locales_dir(),
-        AppDataPathKind::Snippets => state.paths.snippets_dir(),
-    };
-    std::fs::create_dir_all(&dir)?;
-    platform.0.reveal_item_in_dir(&dir)
+    system_actions::system_open_app_data_path(&state, platform.0.as_ref(), kind)
 }

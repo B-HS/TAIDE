@@ -958,7 +958,7 @@ export const commands = {
 	appFileWrite: (target: AppFileTarget, content: string) => typedError<null, AppError>(__TAURI_INVOKE("app_file_write", { target, content })),
 	/**
 	 *  Sends one completion event to the OS notification center, gated by
-	 *  [`service::decide_delivery`].
+	 *  [`super::service::decide_delivery`].
 	 * 
 	 *  The gate lives here rather than in the frontend because "no TAIDE window has focus" is an
 	 *  app-wide fact: every window is a separate JS realm, so a window asking only about itself would
@@ -968,7 +968,7 @@ export const commands = {
 	 * 
 	 *  `title`/`body` arrive already translated — Rust owns *whether* a notification is sent, the
 	 *  frontend owns *what it says* (it has the `t()` catalog and the event's data). Neither string is
-	 *  interpreted here beyond [`masked_notification_text`], which strips credential-shaped substrings.
+	 *  interpreted here beyond `masked_notification_text`, which strips credential-shaped substrings.
 	 * 
 	 *  A [`NotificationDelivery::Delivered`] return means the notification was handed to
 	 *  `tauri-plugin-notification`, **not** that macOS displayed it: the plugin's desktop backend

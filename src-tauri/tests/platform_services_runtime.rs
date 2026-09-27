@@ -58,19 +58,26 @@ fn 플랫폼_포트_복제본은_동일한_구현을_공유한다() {
 #[test]
 fn 알림_명령은_마스킹과_focus_gate_뒤에_플랫폼에_전달한다() {
     let commands = include_str!("../src/domain/notification/commands.rs");
-    let notify = commands.split_once("pub async fn notification_notify(").unwrap().1;
-    let notify = notify.split_once("pub async fn notification_open_system_settings(").unwrap().0;
+    let actions = include_str!("../../crates/taide-runtime/src/notification_actions.rs");
+    let notify = actions.split_once("pub fn notification_notify<F>(").unwrap().1;
 
+    assert!(notify.find("masked_notification_text(title, body)").unwrap() < notify.find("state.settings.read().clone()").unwrap());
+    assert!(notify.find("state.settings.read().clone()").unwrap() < notify.find("has_focused_window()").unwrap());
     assert!(
-        notify.find("masked_notification_text(&title, &body)").unwrap()
-            < notify.find("platform.0.send_notification(&title, &body)").unwrap()
+        notify.find("has_focused_window()").unwrap()
+            < notify
+                .find("service::decide_delivery(&settings, category, any_window_focused)")
+                .unwrap()
     );
     assert!(
         notify
             .find("service::decide_delivery(&settings, category, any_window_focused)")
             .unwrap()
-            < notify.find("platform.0.send_notification(&title, &body)").unwrap()
+            < notify.find("platform.send_notification(&title, &body)").unwrap()
     );
+    assert!(commands.contains("notification_actions::notification_notify(&state, platform.0.as_ref(), category, &title, &body, ||"));
+    assert!(commands.contains("app.webview_windows().values().any(|window| window.is_focused().unwrap_or(false))"));
+    assert!(!commands.contains("state.settings.read()"));
     assert!(!commands.contains("app.notification()"));
     assert!(commands.contains("platform.0.open_url(crate::constants::MACOS_NOTIFICATION_SETTINGS_URL)"));
 }
@@ -78,19 +85,30 @@ fn 알림_명령은_마스킹과_focus_gate_뒤에_플랫폼에_전달한다() {
 #[test]
 fn 시스템_명령은_입력_검증_뒤_플랫폼_포트를_사용한다() {
     let commands = include_str!("../src/domain/system/commands.rs");
+    let actions = include_str!("../../crates/taide-runtime/src/system_actions.rs");
     let adapter = include_str!("../src/platform/services.rs");
-    let open_path = commands.split_once("pub async fn system_open_path(").unwrap().1;
-    let open_path = open_path.split_once("pub async fn system_reveal_path(").unwrap().0;
-    let external_url = commands.split_once("pub async fn system_open_external_url(").unwrap().1;
-    let external_url = external_url.split_once("pub async fn system_open_app_data_path(").unwrap().0;
+    let open_path = actions.split_once("pub fn system_open_path(").unwrap().1;
+    let open_path = open_path.split_once("pub fn system_reveal_path(").unwrap().0;
+    let external_url = actions.split_once("pub fn system_open_external_url(").unwrap().1;
+    let external_url = external_url.split_once("pub fn system_open_app_data_path(").unwrap().0;
 
-    assert!(commands.contains("root_guard::resolve_owning_project(&projects, Path::new(path))?"));
+    assert!(actions.contains("root_guard::resolve_owning_project(&projects, Path::new(path))?"));
     assert!(
-        open_path.find("resolve_within_open_project(&state, &path)?").unwrap() < open_path.find("platform.0.open_path(&resolved)").unwrap()
+        open_path.find("resolve_within_open_project(state, path)?").unwrap() < open_path.find("platform.open_path(&resolved)").unwrap()
     );
-    assert!(external_url.find("validate_external_url(&url)?").unwrap() < external_url.find("platform.0.open_url(&validated)").unwrap());
-    assert!(commands.contains("platform.0.reveal_item_in_dir(&resolved)"));
-    assert!(commands.contains("platform.0.open_url(&file_url(&resolved))"));
+    assert!(external_url.find("validate_external_url(url)?").unwrap() < external_url.find("platform.open_url(&validated)").unwrap());
+    assert!(actions.contains("platform.reveal_item_in_dir(&resolved)"));
+    assert!(actions.contains("platform.open_url(&file_url(&resolved))"));
+    for action in [
+        "system_open_path",
+        "system_reveal_path",
+        "system_open_in_browser",
+        "system_open_external_url",
+        "system_open_app_data_path",
+    ] {
+        assert!(commands.contains(&format!("system_actions::{action}(")));
+    }
+    assert!(!commands.contains("resolve_within_open_project"));
     assert!(!commands.contains("tauri_plugin_opener::"));
     assert!(adapter.contains("tauri_plugin_opener::open_path("));
     assert!(adapter.contains("tauri_plugin_opener::reveal_item_in_dir("));

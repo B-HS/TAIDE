@@ -18,6 +18,7 @@ taide-layout = { path = "../taide-layout" }
 taide-locale = { path = "../taide-locale" }
 taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }
+taide-notification = { path = "../taide-notification" }
 taide-plugin = { path = "../taide-plugin" }
 taide-remote = { path = "../taide-remote" }
 taide-search = { path = "../taide-search" }

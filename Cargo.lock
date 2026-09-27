@@ -4653,6 +4653,7 @@ dependencies = [
  "taide-locale",
  "taide-lsp",
  "taide-model",
+ "taide-notification",
  "taide-plugin",
  "taide-remote",
  "taide-search",
