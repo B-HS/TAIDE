@@ -9,7 +9,7 @@ use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
 use taide_lsp::store::LspSessionEntry as SessionEntry;
 pub use taide_lsp::store::LspStore;
 use taide_model::app_event::AppEvent;
-use taide_runtime::{EventSink, TaskSupervisor};
+use taide_runtime::{lsp_actions, EventSink, TaskSupervisor};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
@@ -494,7 +494,7 @@ pub async fn lsp_report_reinitialize_failure(
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_sessions(store: State<'_, LspStore>, project_id: ProjectId) -> AppResult<Vec<LspSessionInfo>> {
-    Ok(store.sessions_for_project(&project_id))
+    lsp_actions::lsp_sessions(&store, project_id)
 }
 
 #[tauri::command]
@@ -519,9 +519,7 @@ pub async fn lsp_detect_servers(state: State<'_, AppState>) -> AppResult<Vec<Lsp
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_resolve_root(server_id: LspServerId, file_path: String) -> AppResult<Option<String>> {
-    let spec = manifest::find_spec(server_id.as_str())
-        .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
-    Ok(service::find_root(&spec, std::path::Path::new(&file_path)).map(|root| root.to_string_lossy().to_string()))
+    lsp_actions::lsp_resolve_root(server_id, file_path)
 }
 
 #[tauri::command]
@@ -577,8 +575,7 @@ pub async fn lsp_install(
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, server_id: LspServerId) -> AppResult<()> {
-    install_store.cancel(&server_id);
-    Ok(())
+    lsp_actions::lsp_install_cancel(&install_store, server_id)
 }
 
 #[cfg(test)]

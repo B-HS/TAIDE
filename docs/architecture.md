@@ -334,6 +334,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     실제 창 닫힘 이벤트의 WindowRegistry 제거와 TaskSupervisor의 auxiliary-tab-return 등록은 Tauri 조립부에 남으며 runtime은 registry를 임의로 forget하지 않는다.
     synthetic 검사와 본문 대조는 실제 OS 창 생성/close 및 실패 뒤 OS 창 rollback 성공을 증명하지 않는다. 해당 실기는 M7과 창 정책 QA gate에서 확인한다.
     `taide-runtime::lsp_install_actions`는 download 설정·플랫폼/checksum 확인→다운로드→검증→감독된 extraction→atomic 적용→진행 이벤트의 정책을 소유한다.
+    `taide-runtime::lsp_actions`는 세션 snapshot 조회·bundled server 확인 뒤 기존 root 탐지·설치 취소를 소유한다. worker lease가 끝나기 전 설치 슬롯을 해제하지 않는 기존 store 정책을 유지한다.
+    Tauri의 공개 LSP async signature/문서와 OS PATH server 탐지 본문은 유지하며 세션 프로세스·설치 application 조립은 별도 잔여 경계다.
     실제 이벤트 전송은 주입된 EventSink/Tauri adapter에 남는다. InstallStore의 요청 guard Drop은 취소를 요청하고 worker lease가 살아 있는 동안 서버 슬롯을 해제하지 않는다.
     extraction과 download 파일 create/write/flush worker는 lease와 UUID 임시 경로 소유자를 보유하며 이미 시작한 작업은 abort로 끝났다고 간주하지 않는다. 실제 작업/임시 경로 정리가 끝나야 재등록할 수 있다.
     infra의 DownloadFileIo는 기존 Tokio 파일 경로와 runtime의 감독된 파일 경로를 제공한다. 실제 설치 action은 후자를 사용하며 stream/hash/throttle 정책은 공유한다.

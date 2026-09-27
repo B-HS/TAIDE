@@ -11,6 +11,7 @@ pub mod git_actions;
 pub mod ide_actions;
 pub mod layout_actions;
 pub mod locale_actions;
+pub mod lsp_actions;
 pub mod lsp_install_actions;
 pub mod lsp_install_toolchain;
 pub mod notification_actions;
