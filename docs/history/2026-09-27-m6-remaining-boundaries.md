@@ -33,3 +33,13 @@ remote/commands·remote/ws·sync/github와 IDE server에 검색된 일부 직접
 LSP 설치의 실제 setup 종료를 추가로 대조했습니다. lib.rs의 ExitRequested/Exit는 LspStore.kill_all을 호출하지만 LspInstallStore에는 종료 호출이 없습니다. install.rs의 guard는 슬롯과 Arc identity를 회수할 뿐 Child나 reader를 소유하지 않으며 Store에는 전체 취소·종료 후 신규 시작 거절 API가 없습니다. TaskSupervisor.stop_all도 기존 등록 작업만 중단하므로 설치 command의 Child를 정리한다는 근거가 아닙니다.
 
 run_toolchain_install은 명시 cancel에서만 process group 신호·start_kill·wait를 실행합니다. success는 reader receiver를 기다리지 않고, failure는 stderr/stdout receiver를 순차 await합니다. capture_output_tail은 JoinHandle 없이 reader task를 직접 spawn하므로 receiver Drop이 reader 취소·join을 보장하지 않습니다. 이 정적 조사만으로 실제 자식 잔존을 재현했다고 기록하지 않습니다. 후속 변경은 synthetic fixture로 요청 취소·앱 shutdown·reader EOF 지연을 구분해 먼저 재현해야 합니다.
+
+## 트리 이후 application body 대조
+
+트리 5개 action과 helper·기존 unit 4개는 58acd6f로 runtime에 이전·검증됐습니다. 앱 파일 읽기·쓰기와 비IPC apply_settings_file의 guard→파싱/검증→적용 포트 await도 runtime 이전 대상으로 확인했습니다. app_get_info는 제품 패키지 버전 원천, perf_snapshot·perf_reset은 process-wide registry adapter이므로 파일 action 이전에 섞지 않습니다. SettingsApplyPort의 실제 AppHandle만 Tauri closure에 유지하며 remote_gateway의 gated 필드 strip과 sync 적용은 불변이어야 합니다.
+
+layout/commands.rs의 제품 body 19개를 읽었습니다. 공통 run_layout_mutation 소비처는 현재 14개이며 기존 private 문서의 13개는 과거 설명입니다. 나머지는 조회·open·close·untitled 변환·경로 변경입니다. 공통 경로는 guard→layouts clone→locate→변경→finish_mutation 이벤트→state write 순서이고 이벤트가 state write보다 앞이라는 기존 계약을 이번 조사에서 수정하지 않습니다. 경로 변경은 프로젝트 root 검사 후 guard를 취득하며 closed-stack만 바뀐 경우 dirty/state만 갱신하고 LayoutChanged를 발행하지 않습니다. 실제 창 이동은 composition root의 별도 command로 현재 19개와 구분합니다.
+
+layout/service.rs의 flush_dirty_layouts·finish_mutation·open_tab_and_finish·close_tab_and_finish는 UI 비의존 상태/영속/이벤트 조립과 AppHandle observer 조회가 섞여 있습니다. flush는 dirty drain→snapshot→save이고 shutdown은 동기 호출, 주기는 awaited blocking 호출입니다. close observer는 state write 이후지만 원본 mutation guard가 해제되기 전에 실행합니다. IDE와 command의 기존 open/close service 경로를 보존한 채 runtime으로 상태 조립을 옮기고 observer를 주입하면 실제 앱 없이 이 경계를 검증할 수 있습니다. source contract의 순서 검사와 기존 unit도 함께 이동해야 합니다.
+
+작은 adapter 13개도 body를 읽었습니다. theme 5개 중 current는 follow_system_theme·설정 theme_id 선택, locale 3개 중 current는 설정 language snapshot·system language resolver를 조립합니다. 이 두 selector는 native 소비 시 같은 정책을 재사용하도록 분리 대상입니다. 나머지 theme 4개·locale 2개·snippet 3개는 이미 분리한 service에 경로/입력을 위임합니다. task 1개는 공통 project_root 검증 뒤 blocking 실행, font 1개는 process font cache의 blocking 실행 adapter입니다. 단순 위임을 새 도메인 정책으로 오인하거나 시스템 폰트 스캔 실기를 실행하지 않았습니다. 이 부분 대조만으로 전체 203개 body 판정을 완료하지 않습니다.
