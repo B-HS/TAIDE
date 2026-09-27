@@ -508,13 +508,16 @@ fn lsp_helper는_snapshot과_byte_변환_뒤_adapter로_발행한다() {
     let adapter = include_str!("../src/platform/event_sink.rs");
     let status = commands.split_once("fn emit_status(").unwrap().1;
     let set_status = commands.split_once("fn set_status(").unwrap().1;
-    let install = commands.split_once("fn emit_install_progress(").unwrap().1;
+    let actions = include_str!("../../crates/taide-runtime/src/lsp_install_actions.rs");
+    let install = actions.split_once("fn emit_install_progress(").unwrap().1;
 
     assert!(status.contains("AppEvent::LspSessionStatusChanged"));
     assert!(set_status.contains("emit_status(app, session_id, entry.lifecycle.set_status(status, last_error))"));
     assert!(install.contains("AppEvent::LspInstallProgress"));
     assert!(install.contains("received_bytes: received_bytes as f64"));
     assert!(install.contains("total_bytes: total_bytes.map(|value| value as f64)"));
+    assert!(install.contains("events.publish(AppEvent::LspInstallProgress"));
+    assert!(commands.contains("taide_runtime::lsp_install_toolchain::run_toolchain_install("));
     assert!(adapter.contains("LspSessionStatusChanged {") && adapter.contains("generation,"));
     assert!(adapter.contains("LspInstallProgress {") && adapter.contains("received_bytes,"));
 }

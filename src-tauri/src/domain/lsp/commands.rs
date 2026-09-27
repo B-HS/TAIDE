@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub use taide_lsp::install::LspInstallStore;
@@ -17,8 +16,7 @@ use tauri::{AppHandle, Manager, State};
 use super::manifest;
 use super::service;
 use super::types::{
-    LanguageServerSpec, LspInstallPhase, LspInstallStrategy, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus,
-    LspSpawnRequest,
+    LanguageServerSpec, LspInstallStrategy, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus, LspSpawnRequest,
 };
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
@@ -524,191 +522,6 @@ pub async fn lsp_resolve_root(server_id: LspServerId, file_path: String) -> AppR
     Ok(service::find_root(&spec, std::path::Path::new(&file_path)).map(|root| root.to_string_lossy().to_string()))
 }
 
-fn emit_install_progress(
-    app: &AppHandle,
-    server_id: &LspServerId,
-    phase: LspInstallPhase,
-    received_bytes: u64,
-    total_bytes: Option<u64>,
-    message: Option<String>,
-) {
-    TauriEventSink(app).publish(AppEvent::LspInstallProgress {
-        server_id: server_id.clone(),
-        phase,
-        received_bytes: received_bytes as f64,
-        total_bytes: total_bytes.map(|value| value as f64),
-        message,
-    });
-}
-
-const TOOLCHAIN_POLL_INTERVAL_MS: u64 = 100;
-const TOOLCHAIN_OUTPUT_TAIL_LINES: usize = 20;
-
-/// Lowest pid that may be used as a `kill(-pid)` process-group target. `0` means "my own process
-/// group" (every TAIDE thread and every terminal/language-server child it owns) and `1` means
-/// "every process this user may signal" — see [`should_signal_process_group`].
-#[cfg(unix)]
-const MIN_SIGNALABLE_PGID: u32 = 2;
-
-/// Whether `pid` is safe to pass to [`kill_toolchain_process_group`] as a group target. Refusing
-/// `0`/`1` is what keeps a cancelled install from turning into an app-wide (or session-wide) kill
-/// if `Child::id()` ever comes back with a pid the app does not own. Contract §1.E.
-#[cfg(unix)]
-fn should_signal_process_group(pid: u32) -> bool {
-    pid >= MIN_SIGNALABLE_PGID
-}
-
-/// Signals the whole process group (negative pid) of a cancelled toolchain install: `start_kill()`
-/// reaches only the direct child, but installers (go/gem/coursier/ghcup) usually spawn a compiler
-/// or sub-installer that would otherwise be orphaned and keep running.
-///
-/// The caller must confirm the child is still alive (`Child::try_wait` returning anything but
-/// `Ok(Some(_))`) immediately before calling: once a child has exited, its pid — and with it the
-/// group id derived from it — can be recycled by the OS onto an unrelated process.
-#[cfg(unix)]
-fn kill_toolchain_process_group(pid: u32) {
-    if !should_signal_process_group(pid) {
-        log::warn!("툴체인 설치 취소: 프로세스 그룹으로 시그널할 수 없는 pid 라 건너뜁니다 ({pid})");
-        return;
-    }
-    let _ = std::process::Command::new("kill").arg("-TERM").arg(format!("-{pid}")).status();
-}
-
-/// The failure text for a toolchain installer that exited non-zero, with the captured output tail
-/// masked ([`mask_known_secrets`]) before it reaches either sink: this one string is both the
-/// `emit_install_progress` message — which `native-notification-provider.tsx` shows as an OS
-/// notification body — and the returned `AppError`, and package-manager installers routinely echo
-/// registry credentials (`_authToken=…`) in exactly this tail. Contract §1.D.
-fn toolchain_install_failure_message(binary: &str, exit_code: Option<i32>, tail: &str) -> String {
-    let masked_tail = mask_known_secrets(tail);
-    if masked_tail.is_empty() {
-        return format!("{binary} 설치 명령이 실패했습니다 (종료 코드: {exit_code:?})");
-    }
-    format!("{binary} 설치 명령이 실패했습니다 (종료 코드: {exit_code:?}): {masked_tail}")
-}
-
-fn capture_output_tail(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static) -> tokio::sync::oneshot::Receiver<Vec<String>> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(reader).lines();
-        let mut tail = Vec::new();
-        while let Ok(Some(line)) = lines.next_line().await {
-            tail.push(line);
-            if tail.len() > TOOLCHAIN_OUTPUT_TAIL_LINES {
-                tail.remove(0);
-            }
-        }
-        let _ = sender.send(tail);
-    });
-    receiver
-}
-
-async fn run_toolchain_install(app: &AppHandle, spec: &LanguageServerSpec, cancel: Arc<AtomicBool>) -> AppResult<()> {
-    let toolchain = spec.install.toolchain.as_ref().ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.lsp.toolchainInfoMissing",
-            format!("{}: toolchain install info is not configured yet", spec.id),
-        )
-        .with_arg("serverId", &spec.id)
-    })?;
-
-    let binary = service::toolchain_binary(toolchain.tool);
-    if service::find_in_path(binary).is_none() {
-        return Err(AppError::localized(
-            AppErrorKind::NotFound,
-            "error.lsp.toolchainNotFound",
-            format!("could not find the {binary} toolchain"),
-        )
-        .with_arg("binary", binary));
-    }
-
-    emit_install_progress(
-        app,
-        &spec.id,
-        LspInstallPhase::Downloading,
-        0,
-        None,
-        Some(format!("{binary} 로 설치 중")),
-    );
-
-    let mut command = tokio::process::Command::new(binary);
-    command.args(&toolchain.install_args);
-    command.stdout(std::process::Stdio::piped());
-    command.stderr(std::process::Stdio::piped());
-    #[cfg(unix)]
-    command.process_group(0);
-
-    let mut child = command.spawn().map_err(|error| {
-        AppError::localized(
-            AppErrorKind::Internal,
-            "error.lsp.toolchainRunFailed",
-            format!("{binary} failed to run: {error}"),
-        )
-        .with_arg("binary", binary)
-        .with_arg("detail", &error)
-    })?;
-    let child_pid = child.id();
-
-    let stdout_tail = child.stdout.take().map(capture_output_tail);
-    let stderr_tail = child.stderr.take().map(capture_output_tail);
-
-    loop {
-        if cancel.load(Ordering::SeqCst) {
-            #[cfg(unix)]
-            if let Some(pid) = child_pid {
-                if !matches!(child.try_wait(), Ok(Some(_))) {
-                    kill_toolchain_process_group(pid);
-                }
-            }
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            emit_install_progress(
-                app,
-                &spec.id,
-                LspInstallPhase::Failed,
-                0,
-                None,
-                Some("설치가 취소되었습니다".to_string()),
-            );
-            return Err(AppError::localized(
-                AppErrorKind::Internal,
-                "error.lsp.installCancelled",
-                "Installation was cancelled",
-            ));
-        }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if status.success() {
-                    emit_install_progress(app, &spec.id, LspInstallPhase::Done, 0, None, None);
-                    return Ok(());
-                }
-
-                let mut tail_lines = Vec::new();
-                if let Some(receiver) = stderr_tail {
-                    tail_lines.extend(receiver.await.unwrap_or_default());
-                }
-                if let Some(receiver) = stdout_tail {
-                    tail_lines.extend(receiver.await.unwrap_or_default());
-                }
-                let message = toolchain_install_failure_message(binary, status.code(), &tail_lines.join("\n"));
-                emit_install_progress(app, &spec.id, LspInstallPhase::Failed, 0, None, Some(message.clone()));
-                return Err(AppError::Internal(message));
-            }
-            Ok(None) => {
-                tokio::time::sleep(tokio::time::Duration::from_millis(TOOLCHAIN_POLL_INTERVAL_MS)).await;
-            }
-            Err(error) => {
-                emit_install_progress(app, &spec.id, LspInstallPhase::Failed, 0, None, Some(error.to_string()));
-                return Err(AppError::from(error));
-            }
-        }
-    }
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_install(
@@ -736,8 +549,6 @@ pub async fn lsp_install(
         )
         .with_arg("serverId", &server_id));
     };
-    let cancel = install_guard.cancellation_token();
-
     match spec.install.strategy {
         LspInstallStrategy::Download => {
             taide_runtime::lsp_install_actions::run_download_install(
@@ -749,7 +560,9 @@ pub async fn lsp_install(
             )
             .await
         }
-        LspInstallStrategy::Toolchain => run_toolchain_install(&app, &spec, cancel).await,
+        LspInstallStrategy::Toolchain => {
+            taide_runtime::lsp_install_toolchain::run_toolchain_install(&TauriEventSink(&app), &spec, &install_guard.lease(), &tasks).await
+        }
         LspInstallStrategy::SdkDetect => Err(AppError::localized(
             AppErrorKind::InvalidArgument,
             "error.lsp.sdkDetectOnly",
@@ -773,23 +586,6 @@ mod tests {
     use super::*;
     use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspRootStrategy};
 
-    #[test]
-    fn 툴체인_설치_실패_메시지의_레지스트리_자격증명은_마스킹된다() {
-        let tail = "npm ERR! code E401\nnpm ERR! //registry.npmjs.org/:_authToken=abcd-1234-efgh-5678\nnpm ERR! 401 Unauthorized";
-        let message = toolchain_install_failure_message("npm", Some(1), tail);
-
-        assert!(
-            !message.contains("abcd-1234-efgh-5678"),
-            "설치 실패 알림 본문에 토큰이 남아 있습니다: {message}"
-        );
-        assert!(message.contains("_authToken=[redacted:key_value]"));
-        assert!(
-            message.contains("npm ERR! 401 Unauthorized"),
-            "실패 원인은 그대로 남아야 한다: {message}"
-        );
-        assert!(message.starts_with("npm 설치 명령이 실패했습니다 (종료 코드: Some(1))"));
-    }
-
     /// The exit log's stderr tail follows the same masking policy as the install tail (d-57 §1.D) —
     /// it lands in the same rotating disk log — and is flattened so one exit report is one line.
     #[test]
@@ -803,23 +599,6 @@ mod tests {
         assert!(masked.contains("_authToken=[redacted:key_value]"));
         assert!(masked.contains("vtsls: exiting"), "종료 원인 문구는 그대로 남아야 한다: {masked}");
         assert!(!masked.contains('\n'), "로그 한 줄로 합쳐져야 한다: {masked}");
-    }
-
-    #[test]
-    fn 툴체인_설치_실패_메시지는_출력이_없으면_종료_코드만_남긴다() {
-        assert_eq!(
-            toolchain_install_failure_message("go", None, ""),
-            "go 설치 명령이 실패했습니다 (종료 코드: None)"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn 프로세스_그룹_시그널은_자기_그룹과_전체_시그널_pid를_거부한다() {
-        assert!(!should_signal_process_group(0), "0 은 TAIDE 자신의 프로세스 그룹이다");
-        assert!(!should_signal_process_group(1), "1 은 시그널 가능한 모든 프로세스를 뜻한다");
-        assert!(should_signal_process_group(MIN_SIGNALABLE_PGID));
-        assert!(should_signal_process_group(48_231));
     }
 
     /// §4-A-7 regression at the notification level: the roots this sends must carry the same URI

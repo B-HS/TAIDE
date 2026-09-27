@@ -28,9 +28,12 @@ fn 설치_adapter는_runtime_다운로드와_감독자를_주입하고_shutdown�
     assert!(command.contains("install_store.shutdown()"));
     assert!(command.contains("install_store.is_stopped()"));
     assert!(command.contains("taide_runtime::lsp_install_actions::run_download_install("));
+    assert!(command.contains("taide_runtime::lsp_install_toolchain::run_toolchain_install("));
     assert!(command.contains("&TauriEventSink(&app)"));
     assert!(command.contains("&install_guard.lease()"));
     assert!(!commands.contains("tokio::task::spawn_blocking("));
+    assert!(!commands.contains("tokio::process::Command::new("));
+    assert!(!commands.contains("fn capture_output_tail("));
 
     let root = include_str!("../src/lib.rs");
     let exit = root.split_once(".run(|app_handle, event|").unwrap().1;

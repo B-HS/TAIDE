@@ -75,7 +75,7 @@ impl lsp_install::DownloadFileIo for OwnedDownloadFileIo {
     }
 }
 
-fn emit_install_progress(
+pub(crate) fn emit_install_progress(
     events: &dyn EventSink,
     server_id: &LspServerId,
     phase: LspInstallPhase,
@@ -92,7 +92,7 @@ fn emit_install_progress(
     });
 }
 
-async fn run_install_blocking_step<T: Send + 'static>(
+pub(crate) async fn run_install_blocking_step<T: Send + 'static>(
     tasks: &TaskSupervisor,
     lease: &LspInstallLease,
     work: impl FnOnce() -> AppResult<T> + Send + 'static,

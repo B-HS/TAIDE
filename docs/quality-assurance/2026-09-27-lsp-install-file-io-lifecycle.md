@@ -18,6 +18,6 @@ store 구현·Tauri command/종료 adapter·IPC DTO/등록·EventSink byte 변�
 
 ## 남은 전체 gate
 
-- [ ] toolchain child/reader의 실제 kill/reap/drain·command Drop·EOF 지연을 synthetic child/pipe로 구현/검증합니다. 실제 설치기나 사용자 프로세스는 사용하지 않습니다.
+- [x] 후속 toolchain slice에서 자기 생성 child의 명시 취소·요청 Drop·store shutdown 뒤 kill/reap와 EOF 지연 reader의 abort/join을 구현/검증했습니다. [별도 QA](2026-09-27-lsp-install-toolchain-lifecycle.md)의 root shutdown·process tree 잔여 gate와 구분하며 실제 설치기나 사용자 프로세스는 사용하지 않습니다.
 - [ ] root shutdown의 실제 자원 drain과 std::process::exit 전 종료, LSP wait worker 자체/PTY thread·전체 M6 command body·M7/M8 gate는 별도로 완료해야 합니다.
 - [ ] Windows/OS 강제 종료·실제 앱 실행/재시작·GUI/performance/data 실기는 이 fixture로 확인하지 않았습니다. 앱 실행·재시작은 사용자 몫입니다. 기존 cleanup 제거 오류 무시와 atomic 설치 정책 이상의 보장을 주장하지 않습니다.

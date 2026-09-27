@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use parking_lot::Mutex;
 use taide_model::error::{AppError, AppErrorKind, AppResult};
@@ -14,22 +14,36 @@ struct InstallState {
 }
 
 #[derive(Default)]
+struct InstallGate {
+    is_committed: bool,
+    resources: Vec<Weak<dyn InstallCancellationResource>>,
+}
+
+/// Receives synchronous cancellation after admission and resource creation have been serialized.
+pub trait InstallCancellationResource: Send + Sync {
+    fn cancel(&self);
+}
+
+#[derive(Default)]
 struct InstallControl {
     cancel: Arc<AtomicBool>,
     changed: Notify,
-    is_committed: Mutex<bool>,
+    gate: Mutex<InstallGate>,
 }
 
 impl InstallControl {
     fn cancel(&self) {
-        {
-            let is_committed = self.is_committed.lock();
-            if *is_committed {
+        let resources: Vec<_> = {
+            let gate = self.gate.lock();
+            if gate.is_committed || self.cancel.swap(true, Ordering::SeqCst) {
                 return;
             }
-            self.cancel.store(true, Ordering::SeqCst);
-        }
+            gate.resources.iter().filter_map(Weak::upgrade).collect()
+        };
         self.changed.notify_waiters();
+        for resource in resources {
+            resource.cancel();
+        }
     }
 }
 
@@ -130,17 +144,37 @@ impl LspInstallLease {
         notified.await;
     }
 
+    /// Creates and weakly registers a resource under the cancellation gate. The factory must not reenter this store.
+    pub fn register_resource<R: InstallCancellationResource + 'static>(
+        &self,
+        create: impl FnOnce() -> AppResult<Arc<R>>,
+    ) -> AppResult<Arc<R>> {
+        let mut gate = self.0.control.gate.lock();
+        self.ensure_active()?;
+        if gate.is_committed {
+            return Err(AppError::Internal(
+                "installation has already been committed".to_string(),
+            ));
+        }
+        let resource = create()?;
+        let cancellation: Arc<dyn InstallCancellationResource> = resource.clone();
+        gate.resources
+            .retain(|resource| resource.strong_count() > 0);
+        gate.resources.push(Arc::downgrade(&cancellation));
+        Ok(resource)
+    }
+
     /// Serializes final application with cancellation. The callback must not reenter this store.
     pub fn commit<T>(&self, apply: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
-        let mut is_committed = self.0.control.is_committed.lock();
+        let mut gate = self.0.control.gate.lock();
         self.ensure_active()?;
-        if *is_committed {
+        if gate.is_committed {
             return Err(AppError::Internal(
                 "installation has already been committed".to_string(),
             ));
         }
         let result = apply()?;
-        *is_committed = true;
+        gate.is_committed = true;
         Ok(result)
     }
 }
@@ -180,6 +214,81 @@ mod tests {
     use std::task::{Context, Poll, Waker};
 
     use super::*;
+
+    struct TestResource {
+        cancel_count: std::sync::atomic::AtomicUsize,
+        lease: LspInstallLease,
+    }
+
+    impl InstallCancellationResource for TestResource {
+        fn cancel(&self) {
+            self.cancel_count.fetch_add(1, Ordering::SeqCst);
+            assert!(self.lease.ensure_active().is_err());
+        }
+    }
+
+    #[test]
+    fn 취소_등록은_resource_생성과_직렬화하고_shutdown에서_동기_호출된다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+        let guard = store.begin(&server_id).unwrap();
+        let lease = guard.lease();
+        let resource = lease
+            .register_resource(|| {
+                Ok(Arc::new(TestResource {
+                    cancel_count: std::sync::atomic::AtomicUsize::new(0),
+                    lease: lease.clone(),
+                }))
+            })
+            .unwrap();
+        store.shutdown();
+        assert_eq!(resource.cancel_count.load(Ordering::SeqCst), 1);
+        drop(guard);
+        drop(lease);
+        assert_eq!(store.0.lock().active.len(), 1);
+        drop(resource);
+        assert!(store.0.lock().active.is_empty());
+    }
+
+    #[test]
+    fn 취소된_작업은_resource_factory를_실행하지_않는다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+        let guard = store.begin(&server_id).unwrap();
+        let lease = guard.lease();
+        store.cancel(&server_id);
+        let did_create = AtomicBool::new(false);
+        let result = lease.register_resource(|| {
+            did_create.store(true, Ordering::SeqCst);
+            Ok(Arc::new(TestResource {
+                cancel_count: std::sync::atomic::AtomicUsize::new(0),
+                lease: lease.clone(),
+            }))
+        });
+        assert!(result.is_err());
+        assert!(!did_create.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn 요청_drop도_등록된_resource를_동기_취소하고_weak_등록은_수명을_늘리지_않는다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+        let guard = store.begin(&server_id).unwrap();
+        let lease = guard.lease();
+        let resource = lease
+            .register_resource(|| {
+                Ok(Arc::new(TestResource {
+                    cancel_count: std::sync::atomic::AtomicUsize::new(0),
+                    lease: lease.clone(),
+                }))
+            })
+            .unwrap();
+        drop(guard);
+        assert_eq!(resource.cancel_count.load(Ordering::SeqCst), 1);
+        drop(resource);
+        drop(lease);
+        assert!(store.begin(&server_id).is_some());
+    }
 
     #[test]
     fn 요청이_사라져도_worker가_종료될_때까지_설치_슬롯을_보유한다() {
