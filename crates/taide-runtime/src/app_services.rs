@@ -1,6 +1,7 @@
 use taide_agent::store::{AgentHooksStore, AgentStore};
 use taide_git::store::GitStore;
 use taide_ide::store::IdeStore;
+use taide_infra::secret::SecretStoreState;
 use taide_lsp::install::LspInstallStore;
 use taide_lsp::store::LspStore;
 use taide_plugin::service::PluginStore;
@@ -23,6 +24,7 @@ pub struct AppServices {
     pub git: GitStore,
     pub remote: RemoteStore,
     pub ide: IdeStore,
+    pub secrets: SecretStoreState,
     pub agent_hooks: AgentHooksStore,
     pub lsp: LspStore,
     pub lsp_install: LspInstallStore,
@@ -39,6 +41,7 @@ impl AppServices {
         tasks: TaskSupervisor,
         remote_dispatch_limiter: RemoteDispatchLimiter,
         platform: PlatformServicesState,
+        secrets: SecretStoreState,
     ) -> Self {
         Self {
             state,
@@ -51,6 +54,7 @@ impl AppServices {
             git: GitStore::default(),
             remote: RemoteStore::default(),
             ide: IdeStore::default(),
+            secrets,
             agent_hooks: AgentHooksStore::default(),
             lsp: LspStore::default(),
             lsp_install: LspInstallStore::default(),

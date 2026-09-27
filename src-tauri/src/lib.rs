@@ -963,6 +963,7 @@ pub fn run() {
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
                 RemoteDispatchLimiter::new(REMOTE_DISPATCH_MAX_CONCURRENT),
                 PlatformServicesState::new(Arc::new(TauriPlatformServices(app.handle().clone()))),
+                SecretStoreState::new(app.config().identifier.clone()),
             ));
 
             app.manage(services.state.clone());
@@ -994,7 +995,7 @@ pub fn run() {
             app.manage(ide_layout_actions());
             app.manage(layout_tab_closed_observers());
             app.manage(services.ai_requests.clone());
-            app.manage(SecretStoreState::new(app.config().identifier.clone()));
+            app.manage(services.secrets.clone());
             app.manage(remote_dispatch_port());
             app.manage(services.remote.clone());
             app.manage(services.remote_dispatch_limiter.clone());
@@ -1503,7 +1504,7 @@ mod tests {
 
         let setup = extract_between(
             source,
-            "app.manage(SecretStoreState::new",
+            "app.manage(services.secrets.clone());",
             "app.manage(services.remote_dispatch_limiter.clone());",
         );
         assert!(setup.contains("app.manage(remote_dispatch_port());"));

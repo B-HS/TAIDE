@@ -3,6 +3,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use taide_agent::store::HooksServerInfo;
+use taide_infra::secret::test_support::InMemorySecretStore;
+use taide_infra::secret::{SecretAccount, SecretStoreState};
 use taide_model::agent::AgentActivity;
 use taide_model::error::AppResult;
 use taide_model::ids::ProjectId;
@@ -31,11 +33,14 @@ impl PlatformServices for TestPlatform {
 
 #[tokio::test]
 async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공유한다() {
+    let secret_port = SecretStoreState(Arc::new(InMemorySecretStore::default()));
+    let injected_secret_port = secret_port.0.clone();
     let services = Arc::new(AppServices::new(
         AppState::new(AppPaths::new(std::env::temp_dir())),
         TaskSupervisor::new(tokio::runtime::Handle::current()),
         RemoteDispatchLimiter::new(1),
         PlatformServicesState::new(Arc::new(TestPlatform)),
+        secret_port,
     ));
     let legacy_state = services.state.clone();
     let legacy_search = services.search.clone();
@@ -46,6 +51,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_git = services.git.clone();
     let legacy_remote = services.remote.clone();
     let legacy_ide = services.ide.clone();
+    let legacy_secrets = services.secrets.clone();
     let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
@@ -95,6 +101,15 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     legacy_ide.broadcast("notification".to_string());
     assert_eq!(ide_notifications.recv().await.expect("공유 IDE 알림"), "notification");
 
+    assert!(Arc::ptr_eq(&legacy_secrets.0, &injected_secret_port));
+    legacy_secrets.0.set(SecretAccount::AiCodex, "fixture-value").expect("메모리 저장");
+    assert_eq!(
+        services.secrets.0.get(SecretAccount::AiCodex).expect("메모리 조회").as_deref(),
+        Some("fixture-value")
+    );
+    services.secrets.0.delete(SecretAccount::AiCodex).expect("메모리 제거");
+    assert!(legacy_secrets.0.get(SecretAccount::AiCodex).expect("메모리 공유 제거").is_none());
+
     let hook_info = HooksServerInfo {
         port: 1,
         token: "token".to_string(),
@@ -134,6 +149,8 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.git.clone());"));
     assert!(setup.contains("app.manage(services.remote.clone());"));
     assert!(setup.contains("app.manage(services.ide.clone());"));
+    assert!(setup.contains("app.manage(services.secrets.clone());"));
+    assert!(setup.contains("SecretStoreState::new(app.config().identifier.clone())"));
     assert!(setup.contains("app.manage(services.agent_hooks.clone());"));
     assert!(setup.contains("app.manage(services.lsp.clone());"));
     assert!(setup.contains("app.manage(services.lsp_install.clone());"));

@@ -231,8 +231,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `PlatformServices`는 OS 경로 열기·항목 표시·URL 열기·알림 전달을 제공하며, runtime은 Tauri를 모른다.
     system 명령은 프로젝트 루트·외부 URL을 검증한 뒤 platform adapter만 호출하고, notification 명령은
     시크릿 마스킹·전 창 focus gate 뒤에만 adapter에 제목·본문을 전달한다. 실제 Tauri opener·알림 플러그인은 adapter가 소유한다.
-    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 18개 동일 내부 인스턴스를
+    `SecretStoreState`는 taide-infra의 Arc<dyn SecretStore> 포트로 clone 간 같은 구현을 공유한다.
+    OS 키링 구현과 service identifier 선택은 Tauri 조립부에 남고 runtime은 주입된 포트만 보유한다.
+    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 19개 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

@@ -89,6 +89,7 @@ impl SecretStore for KeyringSecretStore {
     }
 }
 
+#[derive(Clone)]
 pub struct SecretStoreState(pub Arc<dyn SecretStore>);
 
 impl SecretStoreState {
