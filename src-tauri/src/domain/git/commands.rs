@@ -1,5 +1,6 @@
 use serde::de::DeserializeOwned;
-use taide_runtime::git_actions;
+use taide_runtime::git_actions::{self, GitActionContext};
+use taide_runtime::TaskSupervisor;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
@@ -16,6 +17,10 @@ use crate::ids::ProjectId;
 use crate::platform::event_sink::TauriEventSink;
 use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
+
+fn git_context<'a>(app: &'a AppHandle, state: &'a AppState, store: &'a GitStore) -> GitActionContext<'a> {
+    GitActionContext::new(state, store, app.state::<TaskSupervisor>().inner())
+}
 
 fn listen_status_invalidation<E: Event + DeserializeOwned>(app: &AppHandle, project_id_of: fn(&E) -> &ProjectId) {
     let store_handle = app.clone();
@@ -35,7 +40,7 @@ fn ensure_status_invalidation_listeners(app: &AppHandle, store: &GitStore) {
 #[tauri::command]
 #[specta::specta]
 pub async fn git_init(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    git_actions::git_init(&TauriEventSink(&app), &state, &store, project_id).await
+    git_actions::git_init(&TauriEventSink(&app), git_context(&app, &state, &store), project_id).await
 }
 
 /// Runs the status read on a blocking thread like every other git query command here: dropping
@@ -62,7 +67,12 @@ pub async fn git_status(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<GitStatus> {
-    git_actions::git_status(|| ensure_status_invalidation_listeners(&app, &store), &state, &store, project_id).await
+    git_actions::git_status(
+        || ensure_status_invalidation_listeners(&app, &store),
+        git_context(&app, &state, &store),
+        project_id,
+    )
+    .await
 }
 
 /// `before_path` is the row's pre-change path and feeds the **original (left) side only** — the
@@ -82,8 +92,7 @@ pub async fn git_diff_file(
     before_path: Option<String>,
 ) -> AppResult<DiffSides> {
     git_actions::git_diff_file(
-        &app.state::<AppState>(),
-        &store,
+        git_context(&app, &app.state::<AppState>(), &store),
         || (plugins.language_overlays)(&app),
         project_id,
         path,
@@ -96,11 +105,12 @@ pub async fn git_diff_file(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_diff_staged_text(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<StagedDiffText> {
-    git_actions::git_diff_staged_text(&state, &store, project_id).await
+    git_actions::git_diff_staged_text(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — reading a tree entry and its blob out of
@@ -108,25 +118,27 @@ pub async fn git_diff_staged_text(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_show_file(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
     rev: String,
     path: String,
 ) -> AppResult<String> {
-    git_actions::git_show_file(&state, &store, project_id, rev, path).await
+    git_actions::git_show_file(git_context(&app, &state, &store), project_id, rev, path).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_log(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
     skip: u32,
     take: u32,
 ) -> AppResult<Vec<LogEntry>> {
-    git_actions::git_log(&state, &store, project_id, skip, take).await
+    git_actions::git_log(git_context(&app, &state, &store), project_id, skip, take).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — the two `graph_ahead_behind` revwalks are
@@ -134,19 +146,25 @@ pub async fn git_log(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_ahead_behind(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<service::AheadBehind> {
-    git_actions::git_ahead_behind(&state, &store, project_id).await
+    git_actions::git_ahead_behind(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — opening the repository reads `.git/config`
 /// off disk (§2 M-1).
 #[tauri::command]
 #[specta::specta]
-pub async fn git_remotes(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitRemote>> {
-    git_actions::git_remotes(&state, &store, project_id).await
+pub async fn git_remotes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<Vec<GitRemote>> {
+    git_actions::git_remotes(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`], and the one that mattered most: this is the
@@ -155,17 +173,19 @@ pub async fn git_remotes(state: State<'_, AppState>, store: State<'_, GitStore>,
 #[tauri::command]
 #[specta::specta]
 pub async fn git_gutter(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
     path: String,
 ) -> AppResult<Vec<GutterHunk>> {
-    git_actions::git_gutter(&state, &store, project_id, path).await
+    git_actions::git_gutter(git_context(&app, &state, &store), project_id, path).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_blame_range(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
@@ -173,7 +193,7 @@ pub async fn git_blame_range(
     from: u32,
     to: u32,
 ) -> AppResult<Vec<BlameLine>> {
-    git_actions::git_blame_range(&state, &store, project_id, path, from, to).await
+    git_actions::git_blame_range(git_context(&app, &state, &store), project_id, path, from, to).await
 }
 
 /// Holds `AppState::begin_mutation` across the index write — staging must stay serialized with
@@ -191,7 +211,7 @@ pub async fn git_stage(
     project_id: ProjectId,
     paths: Vec<String>,
 ) -> AppResult<()> {
-    git_actions::git_stage(&TauriEventSink(&app), &state, &store, project_id, paths).await
+    git_actions::git_stage(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, paths).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.reset_default` is synchronous
@@ -205,7 +225,7 @@ pub async fn git_unstage(
     project_id: ProjectId,
     paths: Vec<String>,
 ) -> AppResult<()> {
-    git_actions::git_unstage(&TauriEventSink(&app), &state, &store, project_id, paths).await
+    git_actions::git_unstage(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, paths).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `service::discard` mixes synchronous
@@ -220,7 +240,7 @@ pub async fn git_discard(
     project_id: ProjectId,
     paths: Vec<String>,
 ) -> AppResult<()> {
-    git_actions::git_discard(&TauriEventSink(&app), &state, &store, project_id, paths).await
+    git_actions::git_discard(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, paths).await
 }
 
 /// Holds `AppState::begin_mutation` across the whole commit — the staged-state read, the commit,
@@ -240,7 +260,7 @@ pub async fn git_commit(
     message: String,
     opts: CommitOptions,
 ) -> AppResult<String> {
-    git_actions::git_commit(&TauriEventSink(&app), &state, &store, project_id, message, opts).await
+    git_actions::git_commit(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, message, opts).await
 }
 
 /// Runs `git push` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3, C11
@@ -266,7 +286,7 @@ pub async fn git_commit(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    git_actions::git_push(&TauriEventSink(&app), &state, &store, project_id).await
+    git_actions::git_push(&TauriEventSink(&app), git_context(&app, &state, &store), project_id).await
 }
 
 /// Still runs the whole `git pull` under `AppState::begin_mutation` — acquired with the async
@@ -288,7 +308,7 @@ pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'
 #[tauri::command]
 #[specta::specta]
 pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    git_actions::git_pull(&TauriEventSink(&app), &state, &store, project_id).await
+    git_actions::git_pull(&TauriEventSink(&app), git_context(&app, &state, &store), project_id).await
 }
 
 /// Runs `git fetch` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3),
@@ -316,23 +336,33 @@ pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'
 #[tauri::command]
 #[specta::specta]
 pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    git_actions::git_fetch(&TauriEventSink(&app), &state, &store, project_id).await
+    git_actions::git_fetch(&TauriEventSink(&app), git_context(&app, &state, &store), project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — `repo.signature()` resolves the identity
 /// through the repository/global/system config files on disk (§2 M-1).
 #[tauri::command]
 #[specta::specta]
-pub async fn git_current_user(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Option<String>> {
-    git_actions::git_current_user(&state, &store, project_id).await
+pub async fn git_current_user(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<Option<String>> {
+    git_actions::git_current_user(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — enumerating branches walks the loose refs
 /// and packed-refs file, and each entry's upstream lookup reads config (§2 M-1).
 #[tauri::command]
 #[specta::specta]
-pub async fn git_branches(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitBranch>> {
-    git_actions::git_branches(&state, &store, project_id).await
+pub async fn git_branches(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<Vec<GitBranch>> {
+    git_actions::git_branches(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — branch creation (+ optional
@@ -348,7 +378,7 @@ pub async fn git_branch_create(
     name: String,
     checkout: bool,
 ) -> AppResult<()> {
-    git_actions::git_branch_create(&TauriEventSink(&app), &state, &store, project_id, name, checkout).await
+    git_actions::git_branch_create(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, name, checkout).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.checkout_tree` is synchronous
@@ -362,7 +392,7 @@ pub async fn git_branch_checkout(
     project_id: ProjectId,
     name: String,
 ) -> AppResult<()> {
-    git_actions::git_branch_checkout(&TauriEventSink(&app), &state, &store, project_id, name).await
+    git_actions::git_branch_checkout(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, name).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — the merge-ancestry check
@@ -378,7 +408,7 @@ pub async fn git_branch_delete(
     name: String,
     force: bool,
 ) -> AppResult<()> {
-    git_actions::git_branch_delete(&TauriEventSink(&app), &state, &store, project_id, name, force).await
+    git_actions::git_branch_delete(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, name, force).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — `repo.stash_foreach` walks the stash reflog
@@ -386,11 +416,12 @@ pub async fn git_branch_delete(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_stash_list(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<Vec<GitStashEntry>> {
-    git_actions::git_stash_list(&state, &store, project_id).await
+    git_actions::git_stash_list(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_save` is synchronous
@@ -405,7 +436,7 @@ pub async fn git_stash_push(
     project_id: ProjectId,
     message: Option<String>,
 ) -> AppResult<()> {
-    git_actions::git_stash_push(&TauriEventSink(&app), &state, &store, project_id, message).await
+    git_actions::git_stash_push(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, message).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_apply` (+ its safe
@@ -419,15 +450,21 @@ pub async fn git_stash_apply(
     project_id: ProjectId,
     index: u32,
 ) -> AppResult<()> {
-    git_actions::git_stash_apply(&TauriEventSink(&app), &state, &store, project_id, index).await
+    git_actions::git_stash_apply(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, index).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_drop` is synchronous
 /// libgit2 work (contract 2026-08-25 §1-a).
 #[tauri::command]
 #[specta::specta]
-pub async fn git_stash_drop(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId, index: u32) -> AppResult<()> {
-    git_actions::git_stash_drop(&state, &store, project_id, index).await
+pub async fn git_stash_drop(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+    index: u32,
+) -> AppResult<()> {
+    git_actions::git_stash_drop(git_context(&app, &state, &store), project_id, index).await
 }
 
 #[tauri::command]
@@ -441,7 +478,15 @@ pub async fn git_discard_hunk(
     hunk_start: u32,
     hunk_end: u32,
 ) -> AppResult<()> {
-    git_actions::git_discard_hunk(&TauriEventSink(&app), &state, &store, project_id, path, hunk_start, hunk_end).await
+    git_actions::git_discard_hunk(
+        &TauriEventSink(&app),
+        git_context(&app, &state, &store),
+        project_id,
+        path,
+        hunk_start,
+        hunk_end,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -452,18 +497,19 @@ pub async fn git_undo_last_commit(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<()> {
-    git_actions::git_undo_last_commit(&TauriEventSink(&app), &state, &store, project_id).await
+    git_actions::git_undo_last_commit(&TauriEventSink(&app), git_context(&app, &state, &store), project_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_conflict_sides(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
     path: String,
 ) -> AppResult<ConflictSides> {
-    git_actions::git_conflict_sides(&state, &store, project_id, path).await
+    git_actions::git_conflict_sides(git_context(&app, &state, &store), project_id, path).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — the working-tree write plus
@@ -478,7 +524,7 @@ pub async fn git_resolve_conflict(
     path: String,
     content: String,
 ) -> AppResult<()> {
-    git_actions::git_resolve_conflict(&TauriEventSink(&app), &state, &store, project_id, path, content).await
+    git_actions::git_resolve_conflict(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, path, content).await
 }
 
 #[tauri::command]
@@ -492,7 +538,15 @@ pub async fn git_stage_hunk(
     hunk_start: u32,
     hunk_end: u32,
 ) -> AppResult<()> {
-    git_actions::git_stage_hunk(&TauriEventSink(&app), &state, &store, project_id, path, hunk_start, hunk_end).await
+    git_actions::git_stage_hunk(
+        &TauriEventSink(&app),
+        git_context(&app, &state, &store),
+        project_id,
+        path,
+        hunk_start,
+        hunk_end,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -506,7 +560,15 @@ pub async fn git_unstage_hunk(
     hunk_start: u32,
     hunk_end: u32,
 ) -> AppResult<()> {
-    git_actions::git_unstage_hunk(&TauriEventSink(&app), &state, &store, project_id, path, hunk_start, hunk_end).await
+    git_actions::git_unstage_hunk(
+        &TauriEventSink(&app),
+        git_context(&app, &state, &store),
+        project_id,
+        path,
+        hunk_start,
+        hunk_end,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -520,7 +582,15 @@ pub async fn git_stage_lines(
     line_start: u32,
     line_end: u32,
 ) -> AppResult<()> {
-    git_actions::git_stage_lines(&TauriEventSink(&app), &state, &store, project_id, path, line_start, line_end).await
+    git_actions::git_stage_lines(
+        &TauriEventSink(&app),
+        git_context(&app, &state, &store),
+        project_id,
+        path,
+        line_start,
+        line_end,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -534,23 +604,33 @@ pub async fn git_unstage_lines(
     line_start: u32,
     line_end: u32,
 ) -> AppResult<()> {
-    git_actions::git_unstage_lines(&TauriEventSink(&app), &state, &store, project_id, path, line_start, line_end).await
+    git_actions::git_unstage_lines(
+        &TauriEventSink(&app),
+        git_context(&app, &state, &store),
+        project_id,
+        path,
+        line_start,
+        line_end,
+    )
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_commit_files(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
     rev: String,
 ) -> AppResult<Vec<CommitFile>> {
-    git_actions::git_commit_files(&state, &store, project_id, rev).await
+    git_actions::git_commit_files(git_context(&app, &state, &store), project_id, rev).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_file_log(
+    app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, GitStore>,
     project_id: ProjectId,
@@ -558,7 +638,7 @@ pub async fn git_file_log(
     skip: u32,
     take: u32,
 ) -> AppResult<Vec<LogEntry>> {
-    git_actions::git_file_log(&state, &store, project_id, path, skip, take).await
+    git_actions::git_file_log(git_context(&app, &state, &store), project_id, path, skip, take).await
 }
 
 #[tauri::command]
@@ -570,13 +650,18 @@ pub async fn git_revert_commit(
     project_id: ProjectId,
     rev: String,
 ) -> AppResult<RevertOutcome> {
-    git_actions::git_revert_commit(&TauriEventSink(&app), &state, &store, project_id, rev).await
+    git_actions::git_revert_commit(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, rev).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn git_tags(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<TagInfo>> {
-    git_actions::git_tags(&state, &store, project_id).await
+pub async fn git_tags(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    store: State<'_, GitStore>,
+    project_id: ProjectId,
+) -> AppResult<Vec<TagInfo>> {
+    git_actions::git_tags(git_context(&app, &state, &store), project_id).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.tag`/`repo.tag_lightweight`
@@ -592,7 +677,15 @@ pub async fn git_tag_create(
     target: String,
     opts: TagCreateOptions,
 ) -> AppResult<()> {
-    git_actions::git_tag_create(&TauriEventSink(&app), &state, &store, project_id, name, target, opts).await
+    git_actions::git_tag_create(
+        &TauriEventSink(&app),
+        git_context(&app, &state, &store),
+        project_id,
+        name,
+        target,
+        opts,
+    )
+    .await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.tag_delete` is synchronous
@@ -606,7 +699,7 @@ pub async fn git_tag_delete(
     project_id: ProjectId,
     name: String,
 ) -> AppResult<()> {
-    git_actions::git_tag_delete(&TauriEventSink(&app), &state, &store, project_id, name).await
+    git_actions::git_tag_delete(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, name).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — creating the local tracking branch
@@ -621,7 +714,7 @@ pub async fn git_checkout_remote_branch(
     project_id: ProjectId,
     remote_ref: String,
 ) -> AppResult<()> {
-    git_actions::git_checkout_remote_branch(&TauriEventSink(&app), &state, &store, project_id, remote_ref).await
+    git_actions::git_checkout_remote_branch(&TauriEventSink(&app), git_context(&app, &state, &store), project_id, remote_ref).await
 }
 
 #[cfg(test)]

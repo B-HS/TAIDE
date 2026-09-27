@@ -1029,9 +1029,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "git_diff_staged_text" => respond(git::git_diff_staged_text(app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_diff_staged_text" => respond(git::git_diff_staged_text(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_show_file" => respond(
             git::git_show_file(
+                app.clone(),
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
@@ -1042,6 +1043,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         ),
         "git_log" => respond(
             git::git_log(
+                app.clone(),
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
@@ -1050,11 +1052,12 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "git_ahead_behind" => respond(git::git_ahead_behind(app.state(), app.state(), arg!(args, "projectId")).await),
-        "git_remotes" => respond(git::git_remotes(app.state(), app.state(), arg!(args, "projectId")).await),
-        "git_gutter" => respond(git::git_gutter(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
+        "git_ahead_behind" => respond(git::git_ahead_behind(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_remotes" => respond(git::git_remotes(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_gutter" => respond(git::git_gutter(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
         "git_blame_range" => respond(
             git::git_blame_range(
+                app.clone(),
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
@@ -1085,8 +1088,8 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "git_push" => respond(git::git_push(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_pull" => respond(git::git_pull(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_fetch" => respond(git::git_fetch(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
-        "git_current_user" => respond(git::git_current_user(app.state(), app.state(), arg!(args, "projectId")).await),
-        "git_branches" => respond(git::git_branches(app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_current_user" => respond(git::git_current_user(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_branches" => respond(git::git_branches(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_branch_create" => respond(
             git::git_branch_create(
                 app.clone(),
@@ -1112,7 +1115,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "git_stash_list" => respond(git::git_stash_list(app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_stash_list" => respond(git::git_stash_list(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_stash_push" => respond(
             git::git_stash_push(
                 app.clone(),
@@ -1126,7 +1129,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "git_stash_apply" => {
             respond(git::git_stash_apply(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "index")).await)
         }
-        "git_stash_drop" => respond(git::git_stash_drop(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "index")).await),
+        "git_stash_drop" => {
+            respond(git::git_stash_drop(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "index")).await)
+        }
         "git_discard_hunk" => respond(
             git::git_discard_hunk(
                 app.clone(),
@@ -1141,7 +1146,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         ),
         "git_undo_last_commit" => respond(git::git_undo_last_commit(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_conflict_sides" => {
-            respond(git::git_conflict_sides(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await)
+            respond(git::git_conflict_sides(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await)
         }
         "git_resolve_conflict" => respond(
             git::git_resolve_conflict(
@@ -1202,9 +1207,12 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             )
             .await,
         ),
-        "git_commit_files" => respond(git::git_commit_files(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "rev")).await),
+        "git_commit_files" => {
+            respond(git::git_commit_files(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "rev")).await)
+        }
         "git_file_log" => respond(
             git::git_file_log(
+                app.clone(),
                 app.state(),
                 app.state(),
                 arg!(args, "projectId"),
@@ -1217,7 +1225,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "git_revert_commit" => {
             respond(git::git_revert_commit(app.clone(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "rev")).await)
         }
-        "git_tags" => respond(git::git_tags(app.state(), app.state(), arg!(args, "projectId")).await),
+        "git_tags" => respond(git::git_tags(app.clone(), app.state(), app.state(), arg!(args, "projectId")).await),
         "git_tag_create" => respond(
             git::git_tag_create(
                 app.clone(),

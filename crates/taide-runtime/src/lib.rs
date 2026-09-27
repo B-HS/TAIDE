@@ -44,7 +44,7 @@ pub use platform_services::{PlatformServices, PlatformServicesState};
 pub use remote_dispatch_limiter::RemoteDispatchLimiter;
 pub use search_store::SearchStore;
 pub use state::{AppState, AppStateInner, FlushScope, FlushTicket};
-pub use task_supervisor::TaskSupervisor;
+pub use task_supervisor::{TaskOperationLease, TaskSupervisor};
 pub use tree_store::TreeStore;
 pub use window_registry::WindowRegistry;
 

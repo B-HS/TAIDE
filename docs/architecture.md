@@ -181,6 +181,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush·프로젝트 watcher 복원
     장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, 완료된 이름은 회수해 재등록을 허용한다.
     반환형 반복 작업 API는 도메인 저장소가 JoinHandle을 보유해 기존 종료 대기를 유지하면서 감독자가 동일 작업의 AbortHandle을 추적할 수 있게 한다.
+    공유 `TaskOperationLease`는 등록 worker 이후의 action owner도 마지막 Drop까지 추적한다. 감독자는 ID만 보관하고 lease가 감독자를 강하게 소유하므로 순환 소유가 없다.
+    stop_all은 입장을 닫고 task 취소를 요청하지만 operation을 완료로 지우지 않으며 shutdown은 실제 task 완료와 마지막 operation 반납을 함께 기다린다.
     agent hook 서버의 accept/connection 작업은 감독 범위에 있고, taide-agent의 AgentHooksStore는 Tokio accept JoinHandle을 유지한다.
     동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
     remote 서버는 기존 RemoteStore가 shutdown 송신자와 JoinHandle을 유지하면서 TaskSupervisor도 서버 작업을 추적한다.
@@ -253,7 +255,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     최초 무효화 구독의 1회 실행은 공유 OnceLock으로 제어하고 실제 세 이벤트 등록은 Tauri adapter의 콜백이 맡는다.
     runtime `git_actions`는 공개 action 41개·repo root 해석·cache·mutation/repo lock·함수별 이벤트 순서를 소유한다.
     status의 perf→구독 callback→루트→cache 순서와 diff의 루트→plugin overlay callback 순서를 유지하며,
-    실제 AppHandle 구독/plugin 취득·EventSink adapter는 Tauri에 남는다. 시작한 blocking worker의 요청 Drop/전체 종료 소유권은 별도 미완료 경계다.
+    실제 AppHandle 구독/plugin 취득·EventSink adapter는 Tauri에 남는다. GitActionContext가 같은 AppState·GitStore·등록 TaskSupervisor를 전달한다.
+    41개 blocking action은 공유 operation과 같은 감독 worker를 사용한다. global mutation 23개·push/fetch의 repo lock 2개는 async owned guard로 취득한 뒤
+    caller/worker가 단일 owner를 공유하며, 마지막 guard Drop 뒤 operation을 반납한다. guard 없는 조회 16개도 같은 operation으로 추적한다.
+    요청 Drop 뒤 시작한 worker가 남아도 guard가 먼저 풀리지 않고 정상 root는 worker와 post-await cache/event action의 마지막 owner 완료를 기다린다.
+    취소된 caller의 post-await cache/event 생략과 동기 cold repo discover는 기존 정책이다. 실제 Git/hook/OS stall·직접 Exit·강제 bounded 종료와 전체 M6 gate는 미완료다.
     status 계산은 슬롯 identity·generation을 함께 검증하므로 슬롯 회수 뒤 같은 프로젝트 ID를 다시 조회해도 이전 계산이 새 캐시를 덮지 않는다.
     프로젝트 조회·활성화/정렬/display·그룹 CRUD·shell slot/chrome의 공개 action 21개와 snapshot helper 3개는
     runtime `project_actions`가 소유한다. 기존 저장→state 반영→함수별 guard 수명→이벤트 순서를 유지한다.
@@ -348,7 +354,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     열린 파일 소유자는 파일 닫힘→임시 경로 소유자→lease 순으로 Drop한다. queued work도 work capture의 cleanup 뒤에 마지막 worker lease를 해제하도록 하나의 소유 구조체로 캡처한다.
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
     ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
-    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·같은 AppServices의 AI token owner·PTY spawn과 PTY worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
+    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task/공유 operation owner의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·같은 AppServices의 AI token owner·PTY spawn과 PTY worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
     이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
