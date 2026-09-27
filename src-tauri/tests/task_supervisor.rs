@@ -205,7 +205,7 @@ fn lsp_종료와_재시작_지연_작업은_감독_범위에_등록된다() {
     let process = commands.split_once("fn spawn_process(").unwrap().1;
     let process = process.split_once("fn channel_sink(").unwrap().0;
     let restart = commands.split_once("fn handle_process_exit(").unwrap().1;
-    let restart = restart.split_once("async fn shutdown_entry(").unwrap().0;
+    let restart = restart.split_once("pub async fn lsp_spawn(").unwrap().0;
 
     assert!(process.contains("spawn_transient(\"lsp-process-exit\""));
     assert!(!process.contains("tokio::spawn(async move {"));

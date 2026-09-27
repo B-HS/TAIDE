@@ -1,19 +1,16 @@
 use std::sync::Arc;
 
 pub use taide_lsp::install::LspInstallStore;
-use taide_lsp::process::{
-    confirms_healthy_restart, restart_backoff_delay, shutdown_process, spawn_language_server, HEALTHY_RESTART_WINDOW,
-};
-use taide_lsp::protocol::workspace_folders_notification;
-use taide_lsp::session::{LspLifecycleSnapshot, LspMessageSubscribers};
+use taide_lsp::process::{confirms_healthy_restart, restart_backoff_delay, spawn_language_server, HEALTHY_RESTART_WINDOW};
+use taide_lsp::session::LspLifecycleSnapshot;
 use taide_lsp::store::LspSessionEntry as SessionEntry;
 pub use taide_lsp::store::LspStore;
 use taide_model::app_event::AppEvent;
+pub use taide_runtime::lsp_actions::{find_reusable_entry, release_owner_root, shutdown_entry};
 use taide_runtime::{lsp_actions, EventSink, TaskSupervisor};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
-use super::manifest;
 use super::service;
 use super::types::{LanguageServerSpec, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus, LspSpawnRequest};
 use crate::error::{AppError, AppResult};
@@ -39,30 +36,8 @@ fn find_entry(store: &LspStore, session_id: &str) -> AppResult<Arc<SessionEntry>
         .ok_or_else(|| AppError::NotFound(format!("lsp session not found: {session_id}")))
 }
 
-/// Excludes any entry currently mid-shutdown (`stopping == true`) from reuse. `lsp_stop`'s
-/// full-teardown path unlinks the entry from [`LspStore`] before its unguarded
-/// [`shutdown_entry`] call, so it never reaches this scan in the first place — but
-/// `lsp_restart` deliberately leaves the entry linked (it reuses `session_id` for the
-/// respawned process, see its own doc comment) while its own unguarded `shutdown_entry` call
-/// is in flight. Without this check, a concurrent `lsp_spawn` for the same
-/// project/server/owner could hand that mid-restart entry out as "reusable", wire a fresh
-/// channel into it, and send `initialize` against whatever process happens to be installed on
-/// `entry.proc` at that instant — the dying pre-restart process, or nothing — instead of the
-/// freshly spawned one `lsp_restart` installs once it re-acquires the guard.
-fn find_reusable_entry(
-    store: &LspStore,
-    project_id: &ProjectId,
-    server_id: &LspServerId,
-    owner: &str,
-) -> Option<(String, Arc<SessionEntry>)> {
-    store.find_reusable(project_id, server_id, owner)
-}
-
-fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
-    if state.projects.read().contains_key(project_id) {
-        return Ok(());
-    }
-    Err(AppError::NotFound(format!("project not open: {project_id}")))
+fn lifecycle_context<'a>(app: &'a AppHandle, state: &'a AppState, store: &'a LspStore) -> lsp_actions::LspActionContext<'a> {
+    lsp_actions::LspActionContext::new(state, store, app.state::<TaskSupervisor>().inner())
 }
 
 fn emit_status(app: &AppHandle, session_id: &str, snapshot: LspLifecycleSnapshot) {
@@ -85,6 +60,17 @@ fn spawn_process(
     spec: LanguageServerSpec,
     root: String,
 ) -> AppResult<Arc<lsp_proc::LspProcHandle>> {
+    app.state::<LspStore>()
+        .spawn_process(|| create_process(app, session_id, process_epoch, spec, root))
+}
+
+fn create_process(
+    app: &AppHandle,
+    session_id: String,
+    process_epoch: u64,
+    spec: LanguageServerSpec,
+    root: String,
+) -> AppResult<Arc<lsp_proc::LspProcHandle>> {
     let paths = &app.state::<AppState>().paths;
     let message_app = app.clone();
     let message_session_id = session_id.clone();
@@ -92,38 +78,36 @@ fn spawn_process(
     let exit_app = app.clone();
     let exit_session_id = session_id.clone();
 
-    app.state::<LspStore>().spawn_process(|| {
-        spawn_language_server(
-            paths,
-            &spec,
-            &root,
-            move |message| {
-                let Some(store) = message_app.try_state::<LspStore>() else {
+    spawn_language_server(
+        paths,
+        &spec,
+        &root,
+        move |message| {
+            let Some(store) = message_app.try_state::<LspStore>() else {
+                return;
+            };
+            let Ok(entry) = find_entry(&store, &message_session_id) else {
+                return;
+            };
+            if !entry.lifecycle.is_active_process_epoch(process_epoch) {
+                return;
+            }
+            entry.subscribers.broadcast(&message);
+        },
+        move |code, stderr_tail| {
+            let Some(tasks) = exit_app.try_state::<TaskSupervisor>() else {
+                return;
+            };
+            let task_app = exit_app.clone();
+            tasks.spawn_transient("lsp-process-exit", async move {
+                let Some(state) = task_app.try_state::<AppState>() else {
                     return;
                 };
-                let Ok(entry) = find_entry(&store, &message_session_id) else {
-                    return;
-                };
-                if !entry.lifecycle.is_active_process_epoch(process_epoch) {
-                    return;
-                }
-                entry.subscribers.broadcast(&message);
-            },
-            move |code, stderr_tail| {
-                let Some(tasks) = exit_app.try_state::<TaskSupervisor>() else {
-                    return;
-                };
-                let task_app = exit_app.clone();
-                tasks.spawn_transient("lsp-process-exit", async move {
-                    let Some(state) = task_app.try_state::<AppState>() else {
-                        return;
-                    };
-                    let _guard = state.begin_mutation().await;
-                    handle_process_exit(&task_app, exit_session_id, process_epoch, code, stderr_tail);
-                });
-            },
-        )
-    })
+                let _guard = state.begin_mutation().await;
+                handle_process_exit(&task_app, exit_session_id, process_epoch, code, stderr_tail);
+            });
+        },
+    )
 }
 
 fn channel_sink(channel: Channel<String>) -> impl Fn(&str) -> bool + Send + Sync {
@@ -243,17 +227,6 @@ fn handle_process_exit(app: &AppHandle, session_id: String, process_epoch: u64, 
     });
 }
 
-async fn shutdown_entry(app: &AppHandle, entry: &SessionEntry, session_id: &str) {
-    entry.lifecycle.mark_stopping();
-
-    let proc = entry.proc.lock().clone();
-    if let Some(proc) = proc {
-        shutdown_process(&proc).await;
-    }
-
-    set_status(app, session_id, entry, LspSessionStatus::Stopped, None);
-}
-
 /// `request.owner` identifies the calling window (`getCurrentWindow().label` on the frontend —
 /// `main`, `editor-<n>`, or the remote client's fixed `"remote"` label) so [`find_reusable_entry`]
 /// only reuses a session within the same window. `request` bundles the session inputs into one
@@ -267,60 +240,17 @@ pub async fn lsp_spawn(
     request: LspSpawnRequest,
     on_message: Channel<String>,
 ) -> AppResult<String> {
-    let LspSpawnRequest {
-        project_id,
-        server_id,
-        root,
-        owner,
-    } = request;
-
-    let _guard = state.begin_mutation().await;
-    ensure_project_open(&state, &project_id)?;
-
-    let spec = manifest::find_spec(server_id.as_str())
-        .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
-
-    if let Some((existing_id, existing_entry)) = find_reusable_entry(&store, &project_id, &server_id, &owner) {
-        let existing_roots = existing_entry.roots.paths();
-
-        if service::should_reuse_session(&spec, &existing_roots, &root) {
-            let is_new_root = existing_entry.roots.acquire(root.clone());
-
-            existing_entry.subscribers.insert(owner, channel_sink(on_message));
-
-            if is_new_root {
-                let proc = existing_entry.proc.lock().clone();
-                if let Some(proc) = proc {
-                    let notification = workspace_folders_notification(std::slice::from_ref(&root), &[]);
-                    let _ = proc.write_message(&notification).await;
-                }
-            }
-            return Ok(existing_id);
-        }
-    }
-
-    let session_id = new_session_id();
-
-    let subscribers = LspMessageSubscribers::new();
-    subscribers.insert(owner, channel_sink(on_message));
-
-    let entry = Arc::new(SessionEntry::new(project_id, spec.clone(), root.clone(), subscribers));
-
-    store.insert(session_id.clone(), entry.clone());
-
-    let process_epoch = entry.lifecycle.advance_process_epoch();
-    let proc = match spawn_process(&app, session_id.clone(), process_epoch, spec, root) {
-        Ok(proc) => proc,
-        Err(error) => {
-            store.remove(&session_id);
-            return Err(error);
-        }
-    };
-
-    *entry.proc.lock() = Some(proc);
-    set_status(&app, &session_id, &entry, LspSessionStatus::Running, None);
-
-    Ok(session_id)
+    lsp_actions::lsp_spawn(
+        &TauriEventSink(&app),
+        lifecycle_context(&app, &state, &store),
+        request,
+        lsp_actions::LspSpawnPorts::new(
+            || channel_sink(on_message),
+            new_session_id,
+            |id, epoch, spec, root| create_process(&app, id, epoch, spec, root),
+        ),
+    )
+    .await
 }
 
 /// Not guarded by `AppState::begin_mutation` — this command never touches `AppState`, and
@@ -338,20 +268,6 @@ pub async fn lsp_spawn(
 pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: String) -> AppResult<()> {
     perf::add(CounterSlot::LspSend, 1);
     lsp_actions::lsp_send(&store, session_id, message).await
-}
-
-fn release_owner_root(entry: &SessionEntry, owner: &str, root: Option<&str>) -> (Option<String>, bool) {
-    let Some(root) = root else {
-        entry.subscribers.remove(owner);
-        return (None, false);
-    };
-
-    let release = entry.roots.release(root);
-    let has_remaining_roots = release.has_remaining_roots;
-    if !has_remaining_roots {
-        entry.subscribers.remove(owner);
-    }
-    (release.removed_root, has_remaining_roots)
 }
 
 /// `owner` (`getCurrentWindow().label`, same value the caller passed to `lsp_spawn`) keeps its
@@ -387,28 +303,14 @@ pub async fn lsp_stop(
     root: Option<String>,
     owner: String,
 ) -> AppResult<()> {
-    let entry = {
-        let _guard = state.begin_mutation().await;
-        let entry = find_entry(&store, &session_id)?;
-        let (removed_root, has_remaining_roots) = release_owner_root(&entry, &owner, root.as_deref());
-
-        if has_remaining_roots {
-            if let Some(removed_root) = removed_root {
-                let proc = entry.proc.lock().clone();
-                if let Some(proc) = proc {
-                    let notification = workspace_folders_notification(&[], std::slice::from_ref(&removed_root));
-                    let _ = proc.write_message(&notification).await;
-                }
-            }
-            return Ok(());
-        }
-
-        store.remove(&session_id);
-        entry
-    };
-
-    shutdown_entry(&app, &entry, &session_id).await;
-    Ok(())
+    lsp_actions::lsp_stop(
+        &TauriEventSink(&app),
+        lifecycle_context(&app, &state, &store),
+        session_id,
+        root,
+        owner,
+    )
+    .await
 }
 
 /// Guard-restructuring mirrors [`lsp_stop`]'s: the guard covers only the synchronous `find_entry`
@@ -428,26 +330,13 @@ pub async fn lsp_stop(
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: State<'_, LspStore>, session_id: String) -> AppResult<()> {
-    let entry = {
-        let _guard = state.begin_mutation().await;
-        find_entry(&store, &session_id)?
-    };
-
-    shutdown_entry(&app, &entry, &session_id).await;
-
-    let _guard = state.begin_mutation().await;
-    if !store.contains(&session_id) {
-        return Err(AppError::NotFound(format!("lsp session not found: {session_id}")));
-    }
-
-    let process_epoch = entry.lifecycle.advance_process_epoch();
-    emit_status(&app, &session_id, entry.lifecycle.begin_manual_restart());
-
-    let proc = spawn_process(&app, session_id.clone(), process_epoch, entry.spec.clone(), entry.root.clone())?;
-    *entry.proc.lock() = Some(proc);
-    set_status(&app, &session_id, &entry, LspSessionStatus::Running, None);
-
-    Ok(())
+    lsp_actions::lsp_restart(
+        &TauriEventSink(&app),
+        lifecycle_context(&app, &state, &store),
+        session_id,
+        |id, epoch, spec, root| create_process(&app, id, epoch, spec, root),
+    )
+    .await
 }
 
 /// Confirms reinitialization only for the current generation of a crashed session.
@@ -521,6 +410,8 @@ pub async fn lsp_install_cancel(install_store: State<'_, LspInstallStore>, serve
 #[cfg(test)]
 mod tests {
     use parking_lot::Mutex;
+    use taide_lsp::protocol::workspace_folders_notification;
+    use taide_lsp::session::LspMessageSubscribers;
 
     use super::*;
     use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspInstallStrategy, LspRootStrategy};
