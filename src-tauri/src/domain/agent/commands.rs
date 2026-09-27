@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::{agent_actions, EventSink};
+use taide_runtime::{agent_actions, agent_hook_actions, EventSink};
 use tauri::{Manager, State};
 
 pub use taide_agent::store::{AgentHooksStore, AgentStore, HooksServerInfo};
@@ -13,7 +13,7 @@ pub use taide_runtime::agent_actions::{build_detected_agents, cleanup_all_wait_m
 use super::hooks;
 use super::service;
 use super::types::{
-    AgentHooksStatus, CliInstallStatus, ExternalOpenRequest, HookInstallScope, ProjectAgents, AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION,
+    AgentHooksStatus, CliInstallStatus, ExternalOpenRequest, ProjectAgents, AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION,
     AGENT_PROTOCOL_VERSION_ENV_NAME, APP_VERSION_ENV_NAME, CLAUDE_VERSION_TIMEOUT_SECONDS,
 };
 use crate::error::{AppError, AppResult};
@@ -29,15 +29,6 @@ pub(super) const TAIDE_CLI_TARGET_PATH: &str = "/usr/local/bin/taide";
 pub(super) const TAIDE_CLI_TARGET_PATH: &str = "C:/Program Files/TAIDE/bin/taide.exe";
 
 pub struct AgentForegroundPids(pub fn(&tauri::AppHandle, &ProjectId) -> Vec<(String, u32)>);
-
-fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<String> {
-    state
-        .projects
-        .read()
-        .get(project_id)
-        .map(|project| project.root.clone())
-        .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))
-}
 
 #[cfg(unix)]
 const PS_OUTPUT_FORMAT: &str = "pid=,comm=,args=";
@@ -282,101 +273,10 @@ fn run_cli_osascript(script: &str) -> AppResult<()> {
     Err(AppError::Internal(format!("osascript failed: {stderr}")))
 }
 
-fn settings_local_path(root: &str) -> PathBuf {
-    Path::new(root).join(".claude").join("settings.local.json")
-}
-
-const NEW_HOOKS_FILE_MODE: u32 = 0o600;
-
-fn read_json_file_rejecting_invalid(path: &Path) -> AppResult<serde_json::Value> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(serde_json::from_str(&text)?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
-        Err(error) => Err(AppError::from(error)),
-    }
-}
-
-#[cfg(unix)]
-fn existing_file_mode(path: &Path) -> Option<u32> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).ok().map(|metadata| metadata.permissions().mode() & 0o777)
-}
-
-fn write_hooks_file_preserving_mode(path: &Path, value: &serde_json::Value) -> AppResult<()> {
-    let text = serde_json::to_string_pretty(value)?;
-
-    #[cfg(unix)]
-    let mode = existing_file_mode(path).unwrap_or(NEW_HOOKS_FILE_MODE);
-    #[cfg(not(unix))]
-    let mode = NEW_HOOKS_FILE_MODE;
-
-    crate::infra::persist::write_atomic_with_mode(path, text.as_bytes(), mode)
-}
-
-pub(super) fn read_settings_local(root: &str) -> AppResult<serde_json::Value> {
-    read_json_file_rejecting_invalid(&settings_local_path(root))
-}
-
-pub(super) fn write_settings_local(root: &str, value: &serde_json::Value) -> AppResult<()> {
-    write_hooks_file_preserving_mode(&settings_local_path(root), value)
-}
-
-pub(super) fn read_user_level_hooks(path: &Path) -> AppResult<serde_json::Value> {
-    read_json_file_rejecting_invalid(path)
-}
-
-pub(super) fn write_user_level_hooks(path: &Path, value: &serde_json::Value) -> AppResult<()> {
-    write_hooks_file_preserving_mode(path, value)
-}
-
-/// Reads a file TAIDE owns whole, `None` when it is not there. Unlike the JSON installs there is
-/// nothing to parse — ownership is decided by the first line (`service::is_owned_hook_file`), and a
-/// file failing that check belongs to somebody else whatever is in it.
-pub(super) fn read_owned_hook_file(path: &Path) -> AppResult<Option<String>> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(AppError::from(error)),
-    }
-}
-
-/// Writes a plugin/extension file, creating the directory when the agent has not made one yet.
-/// Deliberately *not* `write_private_atomic`: this file carries no server token (that is the point
-/// of the in-band install) and sits among the user's own plugins, so narrowing it to `0600` would
-/// make TAIDE's the odd one out in a directory the agent reads.
-pub(super) fn write_owned_hook_file(path: &Path, source: &str) -> AppResult<()> {
-    crate::infra::persist::write_atomic_preserving_mode(path, source.as_bytes())
-}
-
-/// Deletes a file TAIDE owns. A missing file and a file owned by somebody else are both a quiet
-/// no-op — uninstall must never remove a plugin TAIDE did not write.
-pub(super) fn remove_owned_hook_file(path: &Path) -> AppResult<()> {
-    let Some(existing) = read_owned_hook_file(path)? else {
-        return Ok(());
-    };
-    if !service::is_owned_hook_file(&existing) {
-        return Ok(());
-    }
-    std::fs::remove_file(path).map_err(AppError::from)
-}
-
-fn resolve_user_level_hooks_installed(agent_name: &str) -> AppResult<bool> {
-    let home = home::home_dir_env();
-    let path = service::user_level_hooks_path(agent_name, home.as_deref())?;
-
-    if service::hook_install_shape(agent_name)? == service::HookInstallShape::OwnedFile {
-        return Ok(read_owned_hook_file(&path)?.is_some_and(|source| service::is_owned_hook_file(&source)));
-    }
-
-    match std::fs::read_to_string(&path) {
-        Ok(text) => {
-            let value: serde_json::Value = serde_json::from_str(&text)?;
-            Ok(service::has_taide_marker_anywhere(&value))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(AppError::from(error)),
-    }
-}
+pub(super) use taide_agent::hook_files::{
+    read_owned_hook_file, read_settings_local, read_user_level_hooks, remove_owned_hook_file, write_owned_hook_file, write_settings_local,
+    write_user_level_hooks,
+};
 
 #[tauri::command]
 #[specta::specta]
@@ -485,21 +385,7 @@ pub async fn agent_pending_external_opens(agents: State<'_, AgentStore>) -> AppR
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_hooks_status(state: State<'_, AppState>, project_id: ProjectId, agent_name: String) -> AppResult<AgentHooksStatus> {
-    let scope = service::hook_scope_for_agent(&agent_name)?;
-    let installed = match scope {
-        HookInstallScope::Project => {
-            let root = project_root(&state, &project_id)?;
-            let value = read_settings_local(&root)?;
-            service::has_taide_agent_hook_entries(AGENT_NAME_CLAUDE, &value)
-        }
-        HookInstallScope::User => resolve_user_level_hooks_installed(&agent_name)?,
-    };
-    Ok(AgentHooksStatus {
-        requires_taide_cli: service::requires_taide_cli(&agent_name),
-        agent_name,
-        scope,
-        installed,
-    })
+    agent_hook_actions::agent_hooks_status(&state, project_id, agent_name, home::home_dir_env).await
 }
 
 #[tauri::command]
@@ -510,96 +396,25 @@ pub async fn agent_hooks_install(
     project_id: ProjectId,
     agent_name: String,
 ) -> AppResult<AgentHooksStatus> {
-    let scope = service::hook_scope_for_agent(&agent_name)?;
-    if !state.settings.read().agent_hooks_enabled {
-        return Err(AppError::InvalidArgument("agent hooks are disabled in settings".to_string()));
-    }
-    match scope {
-        HookInstallScope::Project => {
-            let root = project_root(&state, &project_id)?;
-            let emitter = resolve_claude_hook_emitter().await;
-            let value = read_settings_local(&root)?;
-            let value = service::inject_taide_agent_hook_entries(&agent_name, value, emitter);
-            write_settings_local(&root, &value)?;
-        }
-        HookInstallScope::User => install_user_level_hooks(&app, &agent_name).await?,
-    }
-
-    Ok(AgentHooksStatus {
-        requires_taide_cli: service::requires_taide_cli(&agent_name),
+    agent_hook_actions::agent_hooks_install(
+        &state,
+        project_id,
         agent_name,
-        scope,
-        installed: true,
-    })
-}
-
-/// The three user-level installs, picked by the agent's own spec rather than by its name: an owned
-/// plugin file, in-band JSON rows, or the HTTP shim rows.
-///
-/// Only the HTTP shape needs the `taide` CLI and the hooks server — its rows run
-/// `"<cli>" hook --url "<url>"`, so without the symlink every hook event would die silently. The
-/// in-band shapes run a `printf` with a constant payload and need neither.
-async fn install_user_level_hooks(app: &tauri::AppHandle, agent_name: &str) -> AppResult<()> {
-    let path = service::user_level_hooks_path(agent_name, home::home_dir_env().as_deref())?;
-
-    if service::hook_install_shape(agent_name)? == service::HookInstallShape::OwnedFile {
-        let source = service::build_owned_hook_file_source(agent_name)
-            .ok_or_else(|| AppError::Internal(format!("agent has no plugin source: {agent_name}")))?;
-        if read_owned_hook_file(&path)?.is_some_and(|existing| !service::is_owned_hook_file(&existing)) {
-            return Err(AppError::InvalidArgument(format!("{} is not a TAIDE-managed file", path.display())));
-        }
-        return write_owned_hook_file(&path, &source);
-    }
-
-    let value = read_user_level_hooks(&path)?;
-    let value = if service::uses_project_hook_override(agent_name) {
-        if !resolve_cli_install_status().installed {
-            return Err(AppError::InvalidArgument("taide CLI is not installed yet".to_string()));
-        }
-        let server = hooks::ensure_hooks_server_started(app).await?;
-        let hook_url = hooks::build_hook_url(&server, agent_name);
-        let command = service::build_command_hook_shell_command(TAIDE_CLI_TARGET_PATH, &hook_url);
-        let events = service::managed_hook_events_for(agent_name);
-        let timeout = service::user_level_hook_command_timeout(agent_name);
-        service::inject_taide_command_hook_entries(value, events, &command, timeout)
-    } else {
-        service::inject_taide_agent_hook_entries(agent_name, value, service::USER_LEVEL_IN_BAND_EMITTER)
-    };
-    write_user_level_hooks(&path, &value)
+        agent_hook_actions::AgentHookInstallPorts::new(
+            home::home_dir_env,
+            resolve_claude_hook_emitter,
+            || resolve_cli_install_status().installed,
+            || hooks::ensure_hooks_server_started(&app),
+            TAIDE_CLI_TARGET_PATH,
+        ),
+    )
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: ProjectId, agent_name: String) -> AppResult<AgentHooksStatus> {
-    let scope = service::hook_scope_for_agent(&agent_name)?;
-    match scope {
-        HookInstallScope::Project => {
-            let root = project_root(&state, &project_id)?;
-            let value = read_settings_local(&root)?;
-            if service::has_taide_agent_hook_entries(&agent_name, &value) {
-                let value = service::remove_taide_agent_hook_entries(&agent_name, value);
-                write_settings_local(&root, &value)?;
-            }
-        }
-        HookInstallScope::User => {
-            let path = service::user_level_hooks_path(&agent_name, home::home_dir_env().as_deref())?;
-            if service::hook_install_shape(&agent_name)? == service::HookInstallShape::OwnedFile {
-                remove_owned_hook_file(&path)?;
-            } else {
-                let value = read_user_level_hooks(&path)?;
-                if service::has_taide_marker_anywhere(&value) {
-                    let value = service::remove_taide_agent_hook_entries(&agent_name, value);
-                    write_user_level_hooks(&path, &value)?;
-                }
-            }
-        }
-    }
-    Ok(AgentHooksStatus {
-        requires_taide_cli: service::requires_taide_cli(&agent_name),
-        agent_name,
-        scope,
-        installed: false,
-    })
+    agent_hook_actions::agent_hooks_uninstall(&state, project_id, agent_name, home::home_dir_env).await
 }
 
 pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
@@ -664,6 +479,7 @@ pub(crate) fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use taide_agent::hook_files::{settings_local_path, NEW_HOOKS_FILE_MODE};
     use uuid::Uuid;
 
     use super::*;

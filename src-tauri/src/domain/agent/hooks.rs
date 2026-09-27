@@ -9,8 +9,7 @@ use tokio::net::{TcpListener, TcpStream};
 use super::commands::{self, AgentHooksStore, AgentStore, HooksServerInfo};
 use super::service::{self, HookDelivery, HookInstallShape};
 use super::types::{
-    AGENT_NAME_CLAUDE, HOOKS_AGENT_QUERY_KEY, HOOKS_HTTP_PATH, HOOKS_READ_TIMEOUT_MS, HOOKS_TOKEN_QUERY_KEY, HOOKS_URL_MARKER,
-    MAX_HOOKS_REQUEST_BYTES,
+    AGENT_NAME_CLAUDE, HOOKS_AGENT_QUERY_KEY, HOOKS_HTTP_PATH, HOOKS_READ_TIMEOUT_MS, HOOKS_TOKEN_QUERY_KEY, MAX_HOOKS_REQUEST_BYTES,
 };
 #[cfg(test)]
 use super::types::{
@@ -281,12 +280,7 @@ pub fn remove_taide_hooks_from_roots(roots: &[String]) {
     }
 }
 
-pub fn build_hook_url(info: &HooksServerInfo, agent_name: &str) -> String {
-    format!(
-        "http://127.0.0.1:{}{HOOKS_HTTP_PATH}?{HOOKS_TOKEN_QUERY_KEY}={}&{HOOKS_AGENT_QUERY_KEY}={agent_name}&{HOOKS_URL_MARKER}",
-        info.port, info.token
-    )
-}
+pub use taide_agent::service::build_hook_url;
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|window| window == b"\r\n\r\n")
