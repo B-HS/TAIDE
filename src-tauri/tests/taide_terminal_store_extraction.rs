@@ -16,18 +16,27 @@ fn spawn_adapter는_감독_worker와_동일한_guard를_등록까지_유지한�
     let spawn = source.split_once("pub async fn pty_spawn(").unwrap().1;
     let spawn = spawn.split_once("pub async fn pty_write(").unwrap().0;
     assert!(spawn.contains("tasks: State<'_, TaskSupervisor>"));
+    assert!(spawn.contains("terminal_actions::pty_spawn("));
+    assert!(spawn.contains("extra_env: env_provider.extra_env(&app)"));
+    assert!(spawn.contains("discard_initial_sink: move || drop(on_data)"));
+    assert!(spawn.contains("create_session_id: new_session_id"));
+    assert!(source.contains("spawn_session_for_application(spawn_app, config, session_id, metadata, output)"));
+    let runtime = include_str!("../../crates/taide-runtime/src/terminal_actions.rs");
+    let spawn = runtime.split_once("pub async fn pty_spawn<").unwrap().1;
+    let spawn = spawn.split_once("struct TerminalSpawnWork<").unwrap().0;
     assert!(spawn.contains("state.is_shutting_down()"));
-    let environment = spawn.find("env_provider.extra_env(&app).await").unwrap();
+    let environment = spawn.find("let extra_env = ports.extra_env.await").unwrap();
     let guard = spawn.find("state.begin_owned_mutation().await").unwrap();
-    let project = spawn.find("ensure_project_open(&state, &opts.project_id)?").unwrap();
+    let project = spawn.find("state.projects.read().contains_key(&opts.project_id)").unwrap();
+    let operation = spawn.find("tasks.begin_operation(\"terminal-spawn-action\")").unwrap();
     let worker = spawn
-        .find("let (handle, _guard) = taide_runtime::terminal_actions::run_terminal_spawn(&tasks, &store, guard,")
+        .find("let (handle, _guard) = run_terminal_spawn(tasks, store, guard,")
         .unwrap();
     let insert = spawn
         .find("store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output))?")
         .unwrap();
-    let event = spawn.find("TauriEventSink(&app).publish(spawned)").unwrap();
-    assert!(environment < guard && guard < project && project < worker && worker < insert && insert < event);
+    let event = spawn.find("events.publish(spawned)").unwrap();
+    assert!(environment < guard && guard < project && project < operation && operation < worker && worker < insert && insert < event);
     assert!(!spawn.contains("tauri::async_runtime::spawn_blocking("));
     let root = include_str!("../src/lib.rs");
     let drain = root.split_once("exit_drain.begin(").unwrap().1;

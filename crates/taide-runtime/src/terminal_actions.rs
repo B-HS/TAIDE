@@ -1,20 +1,89 @@
+use std::future::Future;
 use std::io::Write;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use taide_infra::pty::PtySession;
+use taide_infra::pty::{PtySession, PtySpawnConfig};
 use taide_infra::root_guard::ensure_within_root;
+use taide_model::app_event::AppEvent;
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::ProjectId;
-use taide_model::terminal::{PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
+use taide_model::terminal::{resolve_scrollback_bytes, PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
+use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::service;
-use taide_terminal::store::{TerminalSpawnLease, TerminalStore};
+use taide_terminal::session::TerminalSessionOutput;
+use taide_terminal::store::{TerminalSessionEntry, TerminalSpawnLease, TerminalStore};
 use tokio::sync::OwnedMutexGuard;
 
-use crate::{AppState, TaskSupervisor};
+use crate::{AppState, EventSink, TaskSupervisor};
 
 const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_TERMINAL_ROWS: u16 = 24;
+
+/// Supplies toolkit-owned environment, channel, identity, and native session factories.
+pub struct TerminalSpawnPorts<E, D, I, F> {
+    pub extra_env: E,
+    pub discard_initial_sink: D,
+    pub create_session_id: I,
+    pub create_session: F,
+}
+
+/// Orders spawn preparation, admission, metadata registration, and the spawned event.
+pub async fn pty_spawn<E, D, I, F>(
+    events: &dyn EventSink,
+    state: &AppState,
+    store: &TerminalStore,
+    tasks: &TaskSupervisor,
+    opts: PtySpawnOptions,
+    ports: TerminalSpawnPorts<E, D, I, F>,
+) -> AppResult<String>
+where
+    E: Future<Output = Vec<(String, String)>>,
+    D: FnOnce(),
+    I: FnOnce() -> String,
+    F: FnOnce(PtySpawnConfig, String, Arc<TerminalSessionMetadata>, Arc<TerminalSessionOutput>) -> AppResult<PtySession> + Send + 'static,
+{
+    let extra_env = ports.extra_env.await;
+    let guard = state.begin_owned_mutation().await;
+    if state.is_shutting_down() {
+        return Err(terminal_shutdown_error());
+    }
+    if !state.projects.read().contains_key(&opts.project_id) {
+        return Err(AppError::NotFound(format!("project not open: {}", opts.project_id)));
+    }
+    (ports.discard_initial_sink)();
+    let session_id = (ports.create_session_id)();
+    let output = Arc::new(TerminalSessionOutput::new(resolve_scrollback_bytes(opts.scrollback_bytes)));
+    let metadata = Arc::new(TerminalSessionMetadata::new(
+        opts.project_id.clone(),
+        opts.cwd.clone(),
+        opts.shell.clone().unwrap_or_else(|| "default".to_string()),
+    ));
+    let config = PtySpawnConfig {
+        shell: opts.shell,
+        cwd: opts.cwd,
+        cols: opts.cols,
+        rows: opts.rows,
+        extra_env,
+    };
+    let _operation = tasks.begin_operation("terminal-spawn-action").ok_or_else(terminal_shutdown_error)?;
+    let worker_id = session_id.clone();
+    let worker_output = output.clone();
+    let worker_metadata = metadata.clone();
+    let (handle, _guard) = run_terminal_spawn(tasks, store, guard, move || {
+        (ports.create_session)(config, worker_id, worker_metadata, worker_output)
+    })
+    .await?;
+    let spawned = AppEvent::TerminalSpawned {
+        session_id: session_id.clone(),
+        project_id: metadata.project_id().clone(),
+        cwd: metadata.cwd(),
+        shell: metadata.shell().to_string(),
+    };
+    store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output))?;
+    events.publish(spawned);
+    Ok(session_id)
+}
 
 struct TerminalSpawnWork<F> {
     lease: TerminalSpawnLease,

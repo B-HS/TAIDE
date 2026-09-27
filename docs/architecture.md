@@ -211,11 +211,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     reader unwind는 flusher stop을 알리고 정상 stop/최종 flush 순서는 유지한다. 이는 blocking Read/callback을 강제 중단하는 계약이 아니다.
     TerminalStore는 spawn lease와 별도 완료 목록을 보유해 제거/교체·미반환 세션도 추적한다. shutdown은 입장을 닫고 종료를 요청하며 wait_for_idle은 마지막 lease·모든 worker·소유한 cleanup task의 실제 완료를 기다린다.
     runtime terminal_actions의 감독 blocking worker는 같은 mutation lock의 owned guard를 보유한다. 요청 취소에도 guard와 lease가 실제 worker에 남고 성공한 결과는 등록까지 guard를 반환한다. 미반환 결과의 Drop도 store에 종료/완료 소유권을 전달한다.
+    같은 runtime의 spawn application은 env await→owned guard→shutdown/project gate→inert initial channel 폐기→ID/output/metadata→감독 spawn→삽입→TerminalSpawned를 소유한다.
+    명시적 TerminalSpawnPorts로 env future·channel 폐기·UUID·native session factory를 주입하며 Tauri는 기존 scan/exit callback과 실제 native 조립만 남긴다.
+    post-await 삽입·이벤트 caller는 같은 감독자의 operation으로 추적하므로 정상 root는 publication의 실제 반환과 guard 반납도 기다린다. guard 이전 env/입장 대기 전체를 감독한 계약은 아니다.
     같은 runtime은 spawn/write를 제외한 공개 action 10개의 resize/pause·kill/attach/detach guard·세션/shell 조회·root 경로 검증·기본 옵션 정책도 소유한다.
     attach sink는 mutation guard 뒤 lazy factory로 생성하고 실제 raw Channel 포장만 Tauri adapter에 남는다. 공개 command signature/Rustdoc와 기존 오류·기본값을 유지한다.
     write action은 input observer→writer 취득→write_all/flush 순서를 runtime에서 유지하며 Tauri는 같은 등록 TaskSupervisor와 native observer callback만 주입한다.
     blocking writer 자체가 감독되므로 요청 waiter Drop/abort 뒤에도 실제 완료까지 정상 root drain에 남는다. shutdown 뒤 신규/아직 시작하지 않은 작업은 거절하며 시작한 write의 강제 중단이나 bounded 종료는 보장하지 않는다.
-    spawn의 전체 조립·output observer/callback와 나머지 application/root 자원은 별도 미완료 경계다.
+    native output observer/callback의 실제 조립·나머지 application/root 자원·OS 오류와 강제 bounded 종료는 별도 미완료 경계다.
     생성 중인 PtySpawnOwner는 master/writer·child slot·시작한 thread·integration 경로를 보유하고 실패/언와인드 시 child wait·worker join 뒤 경로를 정리한다. Builder의 thread 시작 오류는 Result로 반환하며 성공한 초기화에서만 세션/완료 handle에 전달한다.
     정상 root drain은 PTY 오류를 성공으로 처리하지 않으며 native 루프 밖에서 기다린다. partial cleanup도 같은 blocking spawn worker에서 실제 완료까지 기다린다. OS 오류·SIGHUP 무시/자손·직접 native Exit·마지막 완료 handle Drop의 전체 회수는 별도 미완료 gate다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며

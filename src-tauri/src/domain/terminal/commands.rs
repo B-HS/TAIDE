@@ -9,12 +9,11 @@ use taide_terminal::command_clock::TerminalCommandClock;
 use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::runtime::spawn_terminal_session;
 use taide_terminal::session::TerminalSessionOutput;
-use taide_terminal::store::TerminalSessionEntry;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
 
-use super::types::{self, PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
-use crate::error::{AppError, AppResult};
+use super::types::{PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
+use crate::error::AppResult;
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
@@ -24,6 +23,38 @@ use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
 pub use taide_terminal::store::TerminalStore;
+
+fn spawn_session_for_application(
+    app: AppHandle,
+    config: pty::PtySpawnConfig,
+    session_id: String,
+    metadata: Arc<TerminalSessionMetadata>,
+    output: Arc<TerminalSessionOutput>,
+) -> AppResult<pty::PtySession> {
+    let exit_app = app.clone();
+    let exit_session_id = session_id.clone();
+    let scan_app = app;
+    let command_clock = TerminalCommandClock::new();
+    spawn_terminal_session(
+        config,
+        output,
+        move |bytes| {
+            perf::add(CounterSlot::PtyOutputBytes, bytes.len() as u64);
+            perf::add(CounterSlot::PtyOutputChunks, 1);
+        },
+        move |outcome| {
+            perf::add(CounterSlot::PtyScanEvents, outcome.events.len() as u64);
+            dispatch_scan_outcome(&scan_app, &session_id, &command_clock, outcome);
+        },
+        move |code| {
+            metadata.mark_exited();
+            TauriEventSink(&exit_app).publish(AppEvent::TerminalExited {
+                session_id: exit_session_id,
+                code,
+            });
+        },
+    )
+}
 
 fn new_session_id() -> String {
     format!("term-{}", uuid::Uuid::new_v4())
@@ -146,13 +177,6 @@ pub(crate) fn dispatch_scan_outcome(app: &AppHandle, session_id: &str, command_c
     notify_session_observers(app, session_id, &PtySessionSignal::Output(outcome));
 }
 
-fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
-    if state.projects.read().contains_key(project_id) {
-        return Ok(());
-    }
-    Err(AppError::NotFound(format!("project not open: {project_id}")))
-}
-
 pub type PtySpawnEnvFuture<'a> = Pin<Box<dyn Future<Output = Vec<(String, String)>> + Send + 'a>>;
 
 /// The extra `(name, value)` environment entries [`pty_spawn`] injects into every new shell,
@@ -201,74 +225,23 @@ pub async fn pty_spawn(
     opts: PtySpawnOptions,
     on_data: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
-    let extra_env = env_provider.extra_env(&app).await;
-
-    let guard = state.begin_owned_mutation().await;
-    if state.is_shutting_down() {
-        return Err(AppError::Forbidden("terminal runtime is shutting down".to_string()));
-    }
-    ensure_project_open(&state, &opts.project_id)?;
-    drop(on_data);
-
-    let session_id = new_session_id();
-    let output = Arc::new(TerminalSessionOutput::new(types::resolve_scrollback_bytes(opts.scrollback_bytes)));
-    let metadata = Arc::new(TerminalSessionMetadata::new(
-        opts.project_id.clone(),
-        opts.cwd.clone(),
-        opts.shell.clone().unwrap_or_else(|| "default".to_string()),
-    ));
-
-    let output_for_data = output.clone();
-
-    let exit_app = app.clone();
-    let exit_session_id = session_id.clone();
-    let exit_metadata = metadata.clone();
-
-    let scan_app = app.clone();
-    let scan_session_id = session_id.clone();
-    let command_clock = TerminalCommandClock::new();
-
-    let config = pty::PtySpawnConfig {
-        shell: opts.shell.clone(),
-        cwd: opts.cwd.clone(),
-        cols: opts.cols,
-        rows: opts.rows,
-        extra_env,
-    };
-
-    let (handle, _guard) = taide_runtime::terminal_actions::run_terminal_spawn(&tasks, &store, guard, move || {
-        spawn_terminal_session(
-            config,
-            output_for_data,
-            move |bytes| {
-                perf::add(CounterSlot::PtyOutputBytes, bytes.len() as u64);
-                perf::add(CounterSlot::PtyOutputChunks, 1);
+    let spawn_app = app.clone();
+    terminal_actions::pty_spawn(
+        &TauriEventSink(&app),
+        &state,
+        &store,
+        &tasks,
+        opts,
+        terminal_actions::TerminalSpawnPorts {
+            extra_env: env_provider.extra_env(&app),
+            discard_initial_sink: move || drop(on_data),
+            create_session_id: new_session_id,
+            create_session: move |config, session_id, metadata, output| {
+                spawn_session_for_application(spawn_app, config, session_id, metadata, output)
             },
-            move |outcome| {
-                perf::add(CounterSlot::PtyScanEvents, outcome.events.len() as u64);
-                dispatch_scan_outcome(&scan_app, &scan_session_id, &command_clock, outcome);
-            },
-            move |code| {
-                exit_metadata.mark_exited();
-                TauriEventSink(&exit_app).publish(AppEvent::TerminalExited {
-                    session_id: exit_session_id,
-                    code,
-                });
-            },
-        )
-    })
-    .await?;
-
-    let spawned = AppEvent::TerminalSpawned {
-        session_id: session_id.clone(),
-        project_id: metadata.project_id().clone(),
-        cwd: metadata.cwd(),
-        shell: metadata.shell().to_string(),
-    };
-    store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output))?;
-    TauriEventSink(&app).publish(spawned);
-
-    Ok(session_id)
+        },
+    )
+    .await
 }
 
 /// Holds `TerminalStore`'s lock only long enough to clone out the session's writer handle
@@ -417,6 +390,7 @@ mod tests {
 
     use super::*;
     use crate::domain::project::types::Project;
+    use crate::error::AppError;
 
     fn single_project(id: &str, root: &Path) -> HashMap<ProjectId, Project> {
         let mut projects = HashMap::new();
