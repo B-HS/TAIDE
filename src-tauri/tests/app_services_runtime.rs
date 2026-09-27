@@ -45,6 +45,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_agents = services.agents.clone();
     let legacy_git = services.git.clone();
     let legacy_remote = services.remote.clone();
+    let legacy_ide = services.ide.clone();
     let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
@@ -88,6 +89,12 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     services.remote.revoke_all_sessions();
     assert!(!legacy_remote.has_active_session(&session));
 
+    legacy_ide.publish_diagnostics(project_id.clone(), Vec::new());
+    assert_eq!(services.ide.diagnostics(None), Some(Vec::new()));
+    let mut ide_notifications = services.ide.subscribe();
+    legacy_ide.broadcast("notification".to_string());
+    assert_eq!(ide_notifications.recv().await.expect("공유 IDE 알림"), "notification");
+
     let hook_info = HooksServerInfo {
         port: 1,
         token: "token".to_string(),
@@ -126,6 +133,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.agents.clone());"));
     assert!(setup.contains("app.manage(services.git.clone());"));
     assert!(setup.contains("app.manage(services.remote.clone());"));
+    assert!(setup.contains("app.manage(services.ide.clone());"));
     assert!(setup.contains("app.manage(services.agent_hooks.clone());"));
     assert!(setup.contains("app.manage(services.lsp.clone());"));
     assert!(setup.contains("app.manage(services.lsp_install.clone());"));

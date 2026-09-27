@@ -109,7 +109,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 >   `t()` 카탈로그와 이벤트 데이터를 가진 쪽이 프론트이고, Rust 는 문자열을 해석하지 않는다.
 > - 도메인별 저장소는 소유 crate를 기준으로 분리한다. `TreeStore`·`SearchStore`는 taide-runtime,
 >   `LspStore`는 taide-lsp, `TerminalStore`는 taide-terminal, `PluginStore`는 taide-plugin에 있다.
->   `AgentStore`·`AgentHooksStore`는 taide-agent, `GitStore`는 taide-git, `RemoteStore`는 taide-remote에 있다. setup은 필요한 저장소를
+>   `AgentStore`·`AgentHooksStore`는 taide-agent, `GitStore`는 taide-git, `RemoteStore`는 taide-remote, `IdeStore`는 taide-ide에 있다. setup은 필요한 저장소를
 >   `app.manage()`로 등록하며, AppServices에 조립된 저장소는 같은 내부 상태를 공유하는 clone을 등록한다.
 
 - 각 domain 모듈은 `commands.rs`(IPC 노출) / `service.rs`(로직) / `types.rs`(직렬화 타입)로 나눈다.
@@ -185,7 +185,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
     remote 서버는 기존 RemoteStore가 shutdown 송신자와 JoinHandle을 유지하면서 TaskSupervisor도 서버 작업을 추적한다.
     중복 bind는 첫 서버를 유지하고 뒤늦은 서버에 종료 신호·취소를 보내며, 일반 중지는 기존 grace wait 뒤 abort 순서를 유지한다.
-    IDE 서버 accept 작업도 감독자가 추적하고 기존 IdeStore가 JoinHandle을 보유한다. 동시 bind는 첫 서버의 토큰·포트·핸들을 유지하며
+    IDE 서버 accept 작업도 감독자가 추적하고 taide-ide의 공유 IdeStore가 Tokio JoinHandle을 보유한다. 동시 bind는 첫 서버의 토큰·포트·핸들을 유지하며
     뒤늦은 작업을 취소하고 후보 lockfile을 제거한다. 등록 실패·종료 중 시작의 후보 lockfile도 정리하고, 정상 중지는 기존 연결 취소·pending diff/save 해소를 유지한다.
     accept는 저장소 등록 뒤 시작되고 각 IDE 연결도 감독 범위에서 IdeStore가 핸들을 보유한다. 연결별 writer/알림 전달/요청 작업은 JoinSet이 소유해
     연결 종료·부모 취소 때 함께 중단되며, 서버 종료 뒤 도착한 연결은 저장소가 등록하지 않고 취소한다.
@@ -216,6 +216,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `RemoteStore`는 taide-remote에서 서버 Tokio 핸들·종료 신호·세션 digest·nonce·로그인 잠금과 클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     이벤트 broadcast·세션 epoch watch도 같은 채널을 공유하며, 링크/nonce 1회 소모·만료·독립 잠금 축·전체 세션 해제/서버 중지의 epoch 증분을 유지한다.
     HTTP/WS 서버·키링 접근·상태 이벤트 발행·감독 작업 조립은 Tauri adapter에 남는다.
+    `IdeStore`는 taide-ide에서 서버/연결 Tokio 핸들·pending diff/save 응답·선택·진단·클라이언트 수를 공유 Arc<Mutex>에 보관한다.
+    알림 broadcast도 같은 채널을 공유하며 탭/프로젝트 종료의 응답 해소·현재/최신 선택·진단 준비 상태·원격 owner 차단 정책을 유지한다.
+    원격 owner 라벨은 model의 단일 상수이며 remote crate와 기존 Tauri 경로는 재수출한다. 실제 MCP 서버·lockfile·PTY readiness 대기/환경 주입은 Tauri adapter에 남는다.
     `LspStore`는 taide-lsp의 세션 맵을 공유 Arc<Mutex>에 보관하고, LSP 명령·종료 경로가 같은 세션을 소비한다.
     `LspInstallStore`는 taide-lsp의 서버별 설치 슬롯을 공유 Arc<Mutex>에 보관하고,
     설치 중복·취소·guard 해제 상태를 LSP 설치 명령과 공유한다.
@@ -229,7 +232,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     system 명령은 프로젝트 루트·외부 URL을 검증한 뒤 platform adapter만 호출하고, notification 명령은
     시크릿 마스킹·전 창 focus gate 뒤에만 adapter에 제목·본문을 전달한다. 실제 Tauri opener·알림 플러그인은 adapter가 소유한다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 17개 동일 내부 인스턴스를
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 18개 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

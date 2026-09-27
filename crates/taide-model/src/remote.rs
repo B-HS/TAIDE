@@ -4,6 +4,9 @@ use specta::Type;
 
 pub const ALLOWED_HOST_WILDCARD_PREFIX: &str = "*.";
 
+/// Fixed owner label applied to every owner field in remote request arguments.
+pub const REMOTE_OWNER_LABEL: &str = "remote";
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatus {

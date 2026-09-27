@@ -7,10 +7,15 @@ rust-version = "1.89"
 
 [dependencies]
 log = "0.4"
+parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sysinfo = "0.39"
 taide-infra = { path = "../taide-infra" }
 taide-layout = { path = "../taide-layout" }
 taide-model = { path = "../taide-model" }
+tokio = { version = "1", features = ["sync"] }
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

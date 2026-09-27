@@ -309,11 +309,11 @@ async fn ide_서버_중복_시작은_기존_핸들과_lockfile_상태를_유지�
     let store = IdeStore::default();
     let (first_sender, first_receiver) = oneshot::channel::<()>();
     let (second_sender, second_receiver) = oneshot::channel::<()>();
-    let first_handle = tauri::async_runtime::spawn(async move {
+    let first_handle = tokio::spawn(async move {
         let _sender = first_sender;
         pending::<()>().await;
     });
-    let second_handle = tauri::async_runtime::spawn(async move {
+    let second_handle = tokio::spawn(async move {
         let _sender = second_sender;
         pending::<()>().await;
     });
@@ -361,11 +361,11 @@ async fn ide_저장소는_종료_후_연결_등록을_취소한다() {
             IDE_PORT,
             "token".to_string(),
             std::path::PathBuf::from("/tmp/ide"),
-            tauri::async_runtime::spawn(async {}),
+            tokio::spawn(async {}),
         )
         .is_some());
     let (active_sender, active_receiver) = oneshot::channel::<()>();
-    let active_handle = tauri::async_runtime::spawn(async move {
+    let active_handle = tokio::spawn(async move {
         let _sender = active_sender;
         pending::<()>().await;
     });
@@ -381,7 +381,7 @@ async fn ide_저장소는_종료_후_연결_등록을_취소한다() {
         .is_err());
 
     let (sender, receiver) = oneshot::channel::<()>();
-    let handle = tauri::async_runtime::spawn(async move {
+    let handle = tokio::spawn(async move {
         let _sender = sender;
         pending::<()>().await;
     });

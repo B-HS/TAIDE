@@ -141,12 +141,7 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
                 }
 
                 let ide = app.state::<IdeStore>();
-                let Some(status) = ide.mark_started(
-                    candidate_port,
-                    token,
-                    dir.clone(),
-                    tauri::async_runtime::JoinHandle::Tokio(server_handle),
-                ) else {
+                let Some(status) = ide.mark_started(candidate_port, token, dir.clone(), server_handle) else {
                     remove_candidate_lockfile(&dir, candidate_port);
                     return Ok(ide.status());
                 };

@@ -517,10 +517,7 @@ pub async fn accept_loop(app: AppHandle, listener: TcpListener, token: String) {
                     handle_connection(app_for_conn, stream, token_for_conn).await;
                 });
                 let Some(handle) = handle else { break };
-                if !app
-                    .state::<IdeStore>()
-                    .register_connection(tauri::async_runtime::JoinHandle::Tokio(handle))
-                {
+                if !app.state::<IdeStore>().register_connection(handle) {
                     break;
                 }
             }

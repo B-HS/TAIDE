@@ -989,7 +989,7 @@ pub fn run() {
             app.manage(services.agents.clone());
             app.manage(services.agent_hooks.clone());
             app.manage(services.system_usage.clone());
-            app.manage(IdeStore::default());
+            app.manage(services.ide.clone());
             app.manage(IdeSaveFile(save_ide_diff_file));
             app.manage(ide_layout_actions());
             app.manage(layout_tab_closed_observers());
@@ -1373,7 +1373,7 @@ mod tests {
 
         let setup = extract_between(
             source,
-            "app.manage(IdeStore::default());",
+            "app.manage(services.ide.clone());",
             "app.manage(services.ai_requests.clone());",
         );
         assert!(setup.contains("app.manage(layout_tab_closed_observers());"));
@@ -1399,7 +1399,7 @@ mod tests {
 
         let setup = extract_between(
             source,
-            "app.manage(IdeStore::default());",
+            "app.manage(services.ide.clone());",
             "app.manage(services.ai_requests.clone());",
         );
         assert!(setup.contains("app.manage(ide_layout_actions());"));
@@ -1413,7 +1413,7 @@ mod tests {
     fn ide_diff_저장은_조립부의_파일_저장_경로를_사용한다() {
         let source = include_str!("lib.rs");
         assert!(source.contains("domain::file::service::save_file_within_open_projects(state, path, content)"));
-        let setup = extract_between(source, "app.manage(IdeStore::default());", "app.manage(ide_layout_actions());");
+        let setup = extract_between(source, "app.manage(services.ide.clone());", "app.manage(ide_layout_actions());");
         assert!(setup.contains("app.manage(IdeSaveFile(save_ide_diff_file));"));
 
         let ide = include_str!("domain/ide/commands.rs");

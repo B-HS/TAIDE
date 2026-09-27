@@ -4511,12 +4511,14 @@ name = "taide-ide"
 version = "0.1.0"
 dependencies = [
  "log",
+ "parking_lot",
  "serde",
  "serde_json",
  "sysinfo",
  "taide-infra",
  "taide-layout",
  "taide-model",
+ "tokio",
  "uuid",
 ]
 
@@ -4642,6 +4644,7 @@ dependencies = [
  "parking_lot",
  "taide-agent",
  "taide-git",
+ "taide-ide",
  "taide-infra",
  "taide-lsp",
  "taide-model",
