@@ -79,6 +79,94 @@ impl Drop for PtyChildWaitOwner {
     }
 }
 
+type PtyWorker = std::thread::JoinHandle<std::io::Result<()>>;
+
+#[derive(Default)]
+struct PtyWorkerWaitState {
+    workers: Vec<PtyWorker>,
+    joining: Option<tokio::task::JoinHandle<Result<(), String>>>,
+    result: Option<Result<(), String>>,
+}
+
+struct PtyCompletionInner {
+    state: tokio::sync::Mutex<PtyWorkerWaitState>,
+    killer: SharedChildKiller,
+    pause: Arc<PauseGate>,
+}
+
+/// Owns PTY worker completion independently of the session's master and writer resources.
+#[derive(Clone)]
+pub struct PtyCompletionHandle(Arc<PtyCompletionInner>);
+
+impl PtyCompletionHandle {
+    fn new(workers: Vec<PtyWorker>, killer: SharedChildKiller, pause: Arc<PauseGate>) -> Self {
+        Self(Arc::new(PtyCompletionInner {
+            state: tokio::sync::Mutex::new(PtyWorkerWaitState {
+                workers,
+                ..PtyWorkerWaitState::default()
+            }),
+            killer,
+            pause,
+        }))
+    }
+
+    /// Requests termination using the same revocable permission and permanent pause gate as the session.
+    /// This does not cancel a blocking read or callback and does not join workers.
+    pub fn kill(&self) -> AppResult<()> {
+        self.0.pause.stop();
+        let mut killer = self.0.killer.lock();
+        match killer.as_mut() {
+            Some(killer) => killer.kill().map_err(AppError::from),
+            None => Ok(()),
+        }
+    }
+
+    /// Reports successful joining of every worker, not merely child exit or callback entry.
+    /// Wait, worker panic, or join-task errors remain unfinished rather than proving child reaping.
+    pub fn is_finished(&self) -> bool {
+        self.0.state.try_lock().is_ok_and(|state| matches!(state.result, Some(Ok(()))))
+    }
+
+    /// Joins every worker on a blocking pool thread without blocking the async or native event loop.
+    /// Dropping this future retains the join task for a later wait; callbacks and OS reads are not aborted.
+    /// Call inside a live Tokio runtime. Errors are cached and do not prove successful child reaping.
+    pub async fn wait_for_completion(&self) -> AppResult<()> {
+        let mut state = self.0.state.lock().await;
+        if let Some(result) = &state.result {
+            return result.as_ref().map(|_| ()).map_err(|error| AppError::Internal(error.clone()));
+        }
+        if state.joining.is_none() {
+            let workers = std::mem::take(&mut state.workers);
+            state.joining = Some(tokio::task::spawn_blocking(move || {
+                let mut failure = None;
+                for worker in workers {
+                    match worker.join() {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => {
+                            failure.get_or_insert_with(|| format!("PTY worker failed: {error}"));
+                        }
+                        Err(_) => {
+                            failure.get_or_insert_with(|| "PTY worker panicked".to_string());
+                        }
+                    }
+                }
+                failure.map_or(Ok(()), Err)
+            }));
+        }
+        let result = match state.joining.as_mut() {
+            Some(task) => match task.await {
+                Ok(result) => result,
+                Err(error) => Err(format!("PTY join task failed: {error}")),
+            },
+            None => Err("PTY join task missing".to_string()),
+        };
+        state.joining.take();
+        let output = result.as_ref().map(|_| ()).map_err(|error| AppError::Internal(error.clone()));
+        state.result = Some(result);
+        output
+    }
+}
+
 impl PauseGate {
     fn new() -> Self {
         Self {
@@ -116,8 +204,8 @@ impl PauseGate {
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    killer: SharedChildKiller,
     pause: Arc<PauseGate>,
+    completion: PtyCompletionHandle,
     #[cfg_attr(not(windows), allow(dead_code))]
     shell_pid: Option<u32>,
     /// The temp directory `build_command`'s `shell_integration::prepare` call created for this
@@ -159,12 +247,12 @@ impl PtySession {
     /// Unix child wait revokes signal permission before reaping; later requests do not signal a cached PID.
     /// This requests shutdown but does not join the child wait, reader, or flusher threads.
     pub fn kill(&self) -> AppResult<()> {
-        self.pause.stop();
-        let mut killer = self.killer.lock();
-        match killer.as_mut() {
-            Some(killer) => killer.kill().map_err(AppError::from),
-            None => Ok(()),
-        }
+        self.completion.kill()
+    }
+
+    /// Clones worker ownership without retaining the master or writer; session Drop remains a shutdown request.
+    pub fn completion_handle(&self) -> PtyCompletionHandle {
+        self.completion.clone()
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -217,6 +305,14 @@ struct FlushState {
 struct FlushSignal {
     state: Mutex<FlushState>,
     condvar: Condvar,
+}
+
+struct ReaderFlushStop(Arc<FlushSignal>);
+
+impl Drop for ReaderFlushStop {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
 }
 
 impl FlushSignal {
@@ -406,9 +502,13 @@ where
     let flush_signal = Arc::new(FlushSignal::new());
     let flusher_signal = flush_signal.clone();
 
-    std::thread::spawn(move || run_flusher(&flusher_signal, &flusher_batch));
+    let flusher = std::thread::spawn(move || {
+        run_flusher(&flusher_signal, &flusher_batch);
+        Ok(())
+    });
 
-    std::thread::spawn(move || {
+    let reader = std::thread::spawn(move || {
+        let _stop_flusher = ReaderFlushStop(flush_signal.clone());
         let mut buf = [0u8; READ_BUFFER_BYTES];
 
         loop {
@@ -426,19 +526,24 @@ where
 
         flush_signal.stop();
         batch.lock().flush();
+        Ok(())
     });
 
-    std::thread::spawn(move || {
-        let code = child.finish().ok().map(|status| status.exit_code() as i32);
+    let waiter = std::thread::spawn(move || {
+        let status = child.finish();
+        let code = status.as_ref().ok().map(|status| status.exit_code() as i32);
         child_exit_pause.stop();
         on_exit(code);
+        status.map(|_| ())
     });
+
+    let completion = PtyCompletionHandle::new(vec![flusher, reader, waiter], killer, pause.clone());
 
     Ok(PtySession {
         master,
         writer: Arc::new(Mutex::new(writer)),
-        killer,
         pause,
+        completion,
         shell_pid,
         shell_integration_temp_dir,
     })
@@ -520,14 +625,15 @@ mod tests {
         let pair = native_pty_system().openpty(PtySize::default()).unwrap();
         let killed = Arc::new(AtomicBool::new(false));
         let pause = Arc::new(PauseGate::new());
+        let killer: SharedChildKiller = Arc::new(Mutex::new(Some(Box::new(RecordingKiller {
+            called: killed.clone(),
+            should_fail,
+        }))));
         let session = PtySession {
             master: pair.master,
             writer: Arc::new(Mutex::new(Box::new(std::io::sink()))),
-            killer: Arc::new(Mutex::new(Some(Box::new(RecordingKiller {
-                called: killed.clone(),
-                should_fail,
-            })))),
             pause: pause.clone(),
+            completion: PtyCompletionHandle::new(Vec::new(), killer, pause),
             shell_pid: None,
             shell_integration_temp_dir: None,
         };
@@ -596,10 +702,119 @@ mod tests {
             .unwrap()
             .0;
         assert!(spawn.contains("let child_exit_pause = pause.clone();"));
-        let wait = spawn.find("let code = child.finish()").unwrap();
+        let wait = spawn.find("let status = child.finish();").unwrap();
         let stop = spawn.find("child_exit_pause.stop();").unwrap();
         let exit = spawn.find("on_exit(code);").unwrap();
         assert!(wait < stop && stop < exit);
+    }
+
+    #[test]
+    fn spawn은_reader_flusher_wait의_완료_핸들을_버리지_않는다() {
+        let source = include_str!("pty.rs");
+        let spawn = source
+            .split_once("pub fn spawn<D, X>(")
+            .unwrap()
+            .1
+            .split_once("#[cfg(test)]")
+            .unwrap()
+            .0;
+        assert!(!spawn.contains("\n    std::thread::spawn(move"), "worker handles must remain owned");
+        assert!(spawn.contains("PtyCompletionHandle::new(vec![flusher, reader, waiter]"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn child_종료_뒤에도_callback_반환을_기다리고_대기_drop_후_재대기한다() {
+        const EXIT_CODE: i32 = 7;
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let session = spawn(
+            controlled_shell_config(),
+            |_| {},
+            move |code| {
+                started.send(code).ok();
+                held.recv().ok();
+            },
+        )
+        .unwrap();
+        let completion = session.completion_handle();
+        let written = session.write(format!("exit {EXIT_CODE}\n").as_bytes());
+        let started = tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), started_rx).await;
+        let mut waiting = Box::pin(completion.wait_for_completion());
+        let was_pending = tokio::time::timeout(Duration::from_millis(SIGNAL_PROBE_MS), &mut waiting)
+            .await
+            .is_err();
+        drop(waiting);
+        let was_finished = completion.is_finished();
+        drop(session);
+        let mut waiting = Box::pin(completion.wait_for_completion());
+        let remained_pending = tokio::time::timeout(Duration::from_millis(SIGNAL_PROBE_MS), &mut waiting)
+            .await
+            .is_err();
+        drop(release);
+        let joined = tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), &mut waiting).await;
+        drop(waiting);
+        assert!(written.is_ok());
+        assert_eq!(started.unwrap().unwrap(), Some(EXIT_CODE));
+        assert!(was_pending);
+        assert!(!was_finished);
+        assert!(remained_pending);
+        assert!(joined.unwrap().is_ok());
+        assert!(completion.is_finished());
+        assert!(completion.wait_for_completion().await.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn worker_panic과_오류도_다른_worker를_join한_뒤_실패로_기록한다() {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let ended = Arc::new(AtomicBool::new(false));
+        let ended_worker = ended.clone();
+        let workers = vec![
+            std::thread::spawn(|| panic!("synthetic worker panic")),
+            std::thread::spawn(|| Err(std::io::Error::other("synthetic worker error"))),
+            std::thread::spawn(move || {
+                held.recv().ok();
+                ended_worker.store(true, AtomicOrdering::SeqCst);
+                Ok(())
+            }),
+        ];
+        let completion = PtyCompletionHandle::new(workers, Arc::new(Mutex::new(None)), Arc::new(PauseGate::new()));
+        let mut waiting = Box::pin(completion.wait_for_completion());
+        let was_pending = tokio::time::timeout(Duration::from_millis(SIGNAL_PROBE_MS), &mut waiting)
+            .await
+            .is_err();
+        drop(release);
+        let result = tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), &mut waiting).await;
+        drop(waiting);
+        assert!(was_pending);
+        assert!(result.unwrap().is_err());
+        assert!(ended.load(AtomicOrdering::SeqCst));
+        assert!(!completion.is_finished());
+        assert!(completion.wait_for_completion().await.is_err());
+    }
+
+    #[test]
+    fn reader_panic에도_flusher는_stop을_받아_실제로_종료된다() {
+        let (batch, _) = collecting_batch();
+        let signal = Arc::new(FlushSignal::new());
+        let reader_signal = signal.clone();
+        let flusher_signal = signal.clone();
+        let (done, done_rx) = std::sync::mpsc::channel();
+        let flusher = std::thread::spawn(move || {
+            run_flusher(&flusher_signal, &Mutex::new(batch));
+            done.send(()).ok();
+        });
+        let reader = std::thread::spawn(move || {
+            let _stop_flusher = ReaderFlushStop(reader_signal);
+            panic!("synthetic reader panic");
+        });
+        let panicked = reader.join().is_err();
+        let finished = done_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS)).is_ok();
+        signal.stop();
+        flusher.join().unwrap();
+        assert!(panicked);
+        assert!(finished);
     }
 
     #[test]
@@ -626,7 +841,7 @@ mod tests {
         )
         .unwrap();
         let signaled = Arc::new(AtomicBool::new(false));
-        *session.killer.lock() = Some(Box::new(RecordingKiller {
+        *session.completion.0.killer.lock() = Some(Box::new(RecordingKiller {
             called: signaled.clone(),
             should_fail: false,
         }));
@@ -661,7 +876,7 @@ mod tests {
         let was_waiting = matches!(exited.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
         let killed = session.kill();
         let code = exited.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS));
-        let is_revoked = session.killer.lock().is_none();
+        let is_revoked = session.completion.0.killer.lock().is_none();
         drop(session);
         assert!(written.is_ok());
         assert!(alive.is_ok());

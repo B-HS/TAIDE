@@ -204,7 +204,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     PTY의 명시 kill/Drop과 child wait 종료는 같은 PauseGate를 영구 해제하며 늦은 pause 요청은 다시 reader를 가두지 않는다. killer 오류에도 pause를 해제하되 기존 오류를 반환한다.
     Unix native child는 wait owner가 단독 소유하며 blocking WNOWAIT 관찰 뒤 같은 killer mutex에서 시그널 권한을 반납하고 실제 wait로 회수한다. 회수 뒤 kill/Drop은 숫자 PID를 재신호하지 않는다.
     종료 관찰 오류와 owner Drop fallback은 실제 child 회수 증거가 아니며 기존 SIGHUP 정책도 유지한다. Windows 복제 OS handle은 wait 뒤 반납하며 실기 검증은 별도다.
-    pause condvar 깨우기와 시그널 권한 반납은 OS Read 취소나 thread/callback join이 아니다. 세 thread 소유와 spawn/제거 세션·root drain은 아직 미완료다.
+    성공한 PTY spawn은 reader/flusher/wait의 세 std thread handle을 별도 PtyCompletionHandle에 보존한다. 세션의 master/writer를 보유하지 않고 Drop 뒤에도 실제 join할 수 있다.
+    join은 대기 시점의 Tokio blocking pool에서 수행하며 mutable await를 mutex 안에 보존해 대기 취소 뒤 재대기한다. panic/오류에도 나머지 worker를 join한 뒤 실패를 반환하며 성공한 실제 join만 완료 플래그를 올린다.
+    reader unwind는 flusher stop을 알리고 정상 stop/최종 flush 순서는 유지한다. 이는 blocking Read/callback을 강제 중단하는 계약이 아니다.
+    TerminalStore의 spawn/등록 입장·실제 blocking worker와 제거/교체 세션의 root 소유 목록·정상 drain은 아직 미완료이며 마지막 완료 handle Drop은 전체 작업 회수를 보장하지 않는다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
