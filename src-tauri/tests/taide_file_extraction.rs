@@ -12,6 +12,11 @@ use uuid::Uuid;
 
 #[test]
 fn 파일_서비스는_독립_crate와_기존_경로에서_같다() {
+    let runtime_save: fn(&AppState, &Path, &str) -> AppResult<()> = taide_runtime::save_file_within_open_projects;
+    let legacy_save: fn(&AppState, &Path, &str) -> AppResult<()> = legacy_service::save_file_within_open_projects;
+    assert!(std::ptr::fn_addr_eq(runtime_save, legacy_save));
+    let _: Option<taide_lib::domain::ide::commands::IdeSaveFile> = None::<taide_runtime::IdeSaveFile>;
+
     let extracted_open: fn(&Path, &[LanguageOverlay], bool) -> AppResult<OpenedFile> = taide_file::service::open_file;
     let legacy_open: fn(&Path, &[LanguageOverlay], bool) -> AppResult<OpenedFile> = legacy_service::open_file;
     assert!(std::ptr::fn_addr_eq(extracted_open, legacy_open));

@@ -10,7 +10,8 @@ use taide_system::store::SystemUsageStore;
 use taide_terminal::store::TerminalStore;
 
 use super::{
-    AiRequestStore, AppState, PlatformServicesState, RemoteDispatchLimiter, SearchStore, TaskSupervisor, TreeStore, WindowRegistry,
+    AiRequestStore, AppState, IdeSaveFile, PlatformServicesState, RemoteDispatchLimiter, SearchStore, TaskSupervisor, TreeStore,
+    WindowRegistry,
 };
 
 pub struct AppServices {
@@ -25,6 +26,7 @@ pub struct AppServices {
     pub remote: RemoteStore,
     pub ide: IdeStore,
     pub secrets: SecretStoreState,
+    pub ide_save_file: IdeSaveFile,
     pub agent_hooks: AgentHooksStore,
     pub lsp: LspStore,
     pub lsp_install: LspInstallStore,
@@ -42,6 +44,7 @@ impl AppServices {
         remote_dispatch_limiter: RemoteDispatchLimiter,
         platform: PlatformServicesState,
         secrets: SecretStoreState,
+        ide_save_file: IdeSaveFile,
     ) -> Self {
         Self {
             state,
@@ -55,6 +58,7 @@ impl AppServices {
             remote: RemoteStore::default(),
             ide: IdeStore::default(),
             secrets,
+            ide_save_file,
             agent_hooks: AgentHooksStore::default(),
             lsp: LspStore::default(),
             lsp_install: LspInstallStore::default(),

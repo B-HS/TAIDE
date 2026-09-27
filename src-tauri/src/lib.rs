@@ -964,6 +964,7 @@ pub fn run() {
                 RemoteDispatchLimiter::new(REMOTE_DISPATCH_MAX_CONCURRENT),
                 PlatformServicesState::new(Arc::new(TauriPlatformServices(app.handle().clone()))),
                 SecretStoreState::new(app.config().identifier.clone()),
+                IdeSaveFile(save_ide_diff_file),
             ));
 
             app.manage(services.state.clone());
@@ -991,7 +992,7 @@ pub fn run() {
             app.manage(services.agent_hooks.clone());
             app.manage(services.system_usage.clone());
             app.manage(services.ide.clone());
-            app.manage(IdeSaveFile(save_ide_diff_file));
+            app.manage(services.ide_save_file.clone());
             app.manage(ide_layout_actions());
             app.manage(layout_tab_closed_observers());
             app.manage(services.ai_requests.clone());
@@ -1415,7 +1416,8 @@ mod tests {
         let source = include_str!("lib.rs");
         assert!(source.contains("domain::file::service::save_file_within_open_projects(state, path, content)"));
         let setup = extract_between(source, "app.manage(services.ide.clone());", "app.manage(ide_layout_actions());");
-        assert!(setup.contains("app.manage(IdeSaveFile(save_ide_diff_file));"));
+        assert!(source.contains("IdeSaveFile(save_ide_diff_file)"));
+        assert!(setup.contains("app.manage(services.ide_save_file.clone());"));
 
         let ide = include_str!("domain/ide/commands.rs");
         assert!(ide.contains("save_file: State<'_, IdeSaveFile>"));

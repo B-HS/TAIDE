@@ -17,7 +17,7 @@ use crate::ids::ProjectId;
 use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
-pub struct IdeSaveFile(pub fn(&AppState, &Path, &str) -> AppResult<()>);
+pub use taide_runtime::IdeSaveFile;
 
 /// Reconciles a flipped `ide_integration_enabled` settings value against the live server — starts
 /// it when the toggle turns on, stops it when it turns off, no-op when the value didn't change.

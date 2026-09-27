@@ -9,7 +9,7 @@ use taide_model::agent::AgentActivity;
 use taide_model::error::AppResult;
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
-use taide_runtime::{AppServices, AppState, PlatformServices, PlatformServicesState, RemoteDispatchLimiter, TaskSupervisor};
+use taide_runtime::{AppServices, AppState, IdeSaveFile, PlatformServices, PlatformServicesState, RemoteDispatchLimiter, TaskSupervisor};
 
 struct TestPlatform;
 
@@ -31,6 +31,13 @@ impl PlatformServices for TestPlatform {
     }
 }
 
+fn test_ide_save(state: &AppState, path: &Path, content: &str) -> AppResult<()> {
+    assert!(state.is_shutting_down());
+    assert_eq!(path, Path::new("fixture-path"));
+    assert_eq!(content, "fixture-content");
+    Ok(())
+}
+
 #[tokio::test]
 async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공유한다() {
     let secret_port = SecretStoreState(Arc::new(InMemorySecretStore::default()));
@@ -41,6 +48,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
         RemoteDispatchLimiter::new(1),
         PlatformServicesState::new(Arc::new(TestPlatform)),
         secret_port,
+        IdeSaveFile(test_ide_save),
     ));
     let legacy_state = services.state.clone();
     let legacy_search = services.search.clone();
@@ -52,12 +60,15 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_remote = services.remote.clone();
     let legacy_ide = services.ide.clone();
     let legacy_secrets = services.secrets.clone();
+    let legacy_ide_save_file = services.ide_save_file.clone();
     let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
 
     legacy_state.begin_shutdown();
     assert!(services.state.is_shutting_down());
+    (legacy_ide_save_file.0)(&services.state, Path::new("fixture-path"), "fixture-content").expect("주입 저장 포트");
+    (services.ide_save_file.0)(&legacy_state, Path::new("fixture-path"), "fixture-content").expect("복제 저장 포트");
 
     let cancelled = legacy_search.begin("main", "panel");
     services.search.cancel("main", "panel");
@@ -149,6 +160,8 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.git.clone());"));
     assert!(setup.contains("app.manage(services.remote.clone());"));
     assert!(setup.contains("app.manage(services.ide.clone());"));
+    assert!(setup.contains("app.manage(services.ide_save_file.clone());"));
+    assert!(setup.contains("IdeSaveFile(save_ide_diff_file)"));
     assert!(setup.contains("app.manage(services.secrets.clone());"));
     assert!(setup.contains("SecretStoreState::new(app.config().identifier.clone())"));
     assert!(setup.contains("app.manage(services.agent_hooks.clone());"));

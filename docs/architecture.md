@@ -233,8 +233,12 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     시크릿 마스킹·전 창 focus gate 뒤에만 adapter에 제목·본문을 전달한다. 실제 Tauri opener·알림 플러그인은 adapter가 소유한다.
     `SecretStoreState`는 taide-infra의 Arc<dyn SecretStore> 포트로 clone 간 같은 구현을 공유한다.
     OS 키링 구현과 service identifier 선택은 Tauri 조립부에 남고 runtime은 주입된 포트만 보유한다.
-    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 19개 동일 내부 인스턴스를
+    파일의 보호된 저장 action은 taide-runtime의 `save_file_within_open_projects`가 소유하고 기존 file service 경로는 재수출한다.
+    루트/CLI 권한→모드 보존 원자 저장→self-write 표시→프로젝트 미러 정리 순서를 유지한다.
+    `IdeSaveFile`도 runtime 포트이며 IDE diff는 조립부가 주입한 같은 저장 action을 호출한다.
+    mutation guard·blocking 실행과 IDE Forbidden 예외 정책은 기존 호출자에 남는다.
+    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
