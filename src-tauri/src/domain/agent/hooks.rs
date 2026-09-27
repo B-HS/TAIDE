@@ -1,5 +1,4 @@
-use taide_model::app_event::AppEvent;
-use taide_runtime::{agent_hook_reconcile, EventSink, TaskSupervisor};
+use taide_runtime::{agent_actions, agent_hook_reconcile, TaskSupervisor};
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -212,37 +211,9 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> std::io::Re
 }
 
 fn apply_hook_payload(app: &AppHandle, agent_name: &str, payload: &service::HookPayload) {
-    if !service::is_hook_managed_agent(agent_name) {
-        return;
-    }
-    let Some(activity) = service::map_hook_event_to_activity(agent_name, &payload.hook_event_name) else {
-        return;
-    };
-
-    let projects: Vec<_> = {
-        let state = app.state::<AppState>();
-        let guard = state.projects.read();
-        guard.iter().map(|(id, project)| (id.clone(), project.root.clone())).collect()
-    };
-
-    let Some(project_id) = service::match_project_by_cwd(&payload.cwd, &projects).cloned() else {
-        return;
-    };
-
+    let state = app.state::<AppState>();
     let agents = app.state::<AgentStore>();
     let agent_hooks = app.state::<AgentHooksStore>();
-    agent_hooks.set_project_override(project_id.clone(), agent_name.to_string(), activity);
-
-    let mut updated = agents.agents_for(&project_id);
-    if updated.is_empty() {
-        return;
-    }
-    service::apply_hook_activity(&mut updated, agent_name, activity);
-
-    if let Some(changed) = agents.diff(&project_id, &updated) {
-        TauriEventSink(app).publish(AppEvent::AgentStateChanged {
-            project_id,
-            agents: changed,
-        });
-    }
+    let tasks = app.state::<TaskSupervisor>();
+    agent_actions::apply_hook_payload(&state, &agents, &agent_hooks, &TauriEventSink(app), &tasks, agent_name, payload);
 }

@@ -162,3 +162,48 @@ pub async fn poll_agents<F, Fut>(
     agents.prune_signals(&valid_session_ids);
     agents.retain_process_names(&live_pids);
 }
+
+/// Owns a decoded hook payload through project override, cached activity and event publication.
+pub fn apply_hook_payload(
+    state: &AppState,
+    agents: &AgentStore,
+    agent_hooks: &AgentHooksStore,
+    events: &impl EventSink,
+    tasks: &TaskSupervisor,
+    agent_name: &str,
+    payload: &service::HookPayload,
+) {
+    let Some(_operation) = tasks.begin_operation("agent-hook-payload") else {
+        return;
+    };
+    if !service::is_hook_managed_agent(agent_name) {
+        return;
+    }
+    let Some(activity) = service::map_hook_event_to_activity(agent_name, &payload.hook_event_name) else {
+        return;
+    };
+
+    let projects: Vec<_> = {
+        let guard = state.projects.read();
+        guard.iter().map(|(id, project)| (id.clone(), project.root.clone())).collect()
+    };
+
+    let Some(project_id) = service::match_project_by_cwd(&payload.cwd, &projects).cloned() else {
+        return;
+    };
+
+    agent_hooks.set_project_override(project_id.clone(), agent_name.to_string(), activity);
+
+    let mut updated = agents.agents_for(&project_id);
+    if updated.is_empty() {
+        return;
+    }
+    service::apply_hook_activity(&mut updated, agent_name, activity);
+
+    if let Some(changed) = agents.diff(&project_id, &updated) {
+        events.publish(AppEvent::AgentStateChanged {
+            project_id,
+            agents: changed,
+        });
+    }
+}
