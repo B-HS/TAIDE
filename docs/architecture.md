@@ -260,12 +260,18 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     runtime `agent_hook_actions`는 공개 status/install/uninstall 3개의
     scope·settings/project gate·shape·read/merge/write 정책을 소유하며 lazy home/emitter/CLI availability/server 포트를 받는다.
     공통 hook 파일의 invalid JSON 거절·기존 권한/사용자 row·비소유 파일 보존과 loopback URL 조립은 taide-agent에 둔다.
-    Tauri의 비IPC reconcile은 같은 파일/URL helper를 재수출로 소비한다. runtime `agent_probe`는 Unix PID 이름 캐시·
+    runtime `agent_hook_reconcile`는 비IPC toggle/reconcile/uninstall과 프로젝트·사용자 파일 reconcile을 소유한다.
+    Native는 같은 state·등록 TaskSupervisor와 lazy home/emitter/server/stop port를 주입하며 공개 signature·root cleanup 재수출을 유지한다.
+    각 application은 단일 operation을 마지막 파일 적용 또는 disable 후 server stop까지 보유한다. disabled/동일 toggle/닫힌 입장은 host port를 실행하지 않는다.
+    home→프로젝트 JSON snapshot/read→lazy emitter→프로젝트 rewrite→인밴드 rewrite→server await→HTTP rewrite 순서와 실패 skip/부분 적용을 유지한다.
+    emitter await 전 JSON snapshot으로 쓰는 기존 정책도 유지하므로 await 중 외부 변경을 덮을 위험은 남는다.
+    listener/인증/connection transport와 hook payload application은 Tauri에 남는다. runtime `agent_probe`는 Unix PID 이름 캐시·
     Windows lazy process-tree port·CLI emitter 판정/OnceLock 캐시를 소유하고 같은 등록 TaskSupervisor에 실제 blocking worker를 추적한다.
     empty/캐시 hit는 OS port를 실행하지 않으며 caller 취소·기존 CLI 3초 timeout 뒤에도 시작한 worker/버려진 결과 회수를 정상 root가 기다린다.
     실제 PID 조회·CLI 실행은 Tauri adapter에 유지하고 timeout을 CLI kill로 처리하지 않는다. static OnceLock의 동시 최초 probe race도 기존처럼 유지한다.
-    poll은 caller 취소·post-await 이벤트 callback·실제 probe worker 결합을 메모리로 검증했다. 실제 foreground/앱 실기와 hook write/reconcile/server callback·
-    직접 Exit/OS stall의 bounded 회수는 미완료이며 모든 agent action의 취소 완료를 보장하지 않는다.
+    poll은 caller 취소·post-await 이벤트 callback·실제 probe worker 결합을 메모리로 검증했다. hook reconcile은 자기 UUID 파일과 가짜 home/port로
+    emitter/server await의 caller 취소·정상 root 대기·부분 파일 적용 및 소유 파일 보존을 검증했다. 실제 foreground/앱 실기·server admission/transport/payload·
+    모든 action의 전체 입장 선형화와 직접 Exit/OS stall/CLI kill의 bounded 회수는 미완료이며 모든 agent action의 취소 완료를 보장하지 않는다.
     `GitStore`는 taide-git에서 repo root·status 캐시와 같은 repo의 push/fetch 락을 공유한다.
     최초 무효화 구독의 1회 실행은 공유 OnceLock으로 제어하고 실제 세 이벤트 등록은 Tauri adapter의 콜백이 맡는다.
     runtime `git_actions`는 공개 action 41개·repo root 해석·cache·mutation/repo lock·함수별 이벤트 순서를 소유한다.

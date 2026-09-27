@@ -245,11 +245,6 @@ fn run_cli_osascript(script: &str) -> AppResult<()> {
     Err(AppError::Internal(format!("osascript failed: {stderr}")))
 }
 
-pub(super) use taide_agent::hook_files::{
-    read_owned_hook_file, read_settings_local, read_user_level_hooks, remove_owned_hook_file, write_owned_hook_file, write_settings_local,
-    write_user_level_hooks,
-};
-
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_list(
@@ -442,7 +437,7 @@ pub(crate) fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
 mod tests {
     use std::collections::HashSet;
 
-    use taide_agent::hook_files::{settings_local_path, NEW_HOOKS_FILE_MODE};
+    use taide_agent::hook_files::{read_settings_local, settings_local_path, write_settings_local, NEW_HOOKS_FILE_MODE};
     use uuid::Uuid;
 
     use super::*;

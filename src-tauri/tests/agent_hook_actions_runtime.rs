@@ -504,7 +504,18 @@ fn 세_command의_native_port는_기존_provider를_주입하고_file_url_helper
     assert!(install.contains("|| resolve_cli_install_status().installed"));
     assert!(install.contains("|| hooks::ensure_hooks_server_started(&app)"));
     assert!(install.contains("TAIDE_CLI_TARGET_PATH"));
-    assert!(source.contains("pub(super) use taide_agent::hook_files::{"));
+    let reconcile = include_str!("../../crates/taide-runtime/src/agent_hook_reconcile.rs");
+    for helper in [
+        "read_owned_hook_file",
+        "read_settings_local",
+        "read_user_level_hooks",
+        "remove_owned_hook_file",
+        "write_owned_hook_file",
+        "write_settings_local",
+        "write_user_level_hooks",
+    ] {
+        assert!(reconcile.contains(&format!("hook_files::{helper}(")));
+    }
     let hooks = include_str!("../src/domain/agent/hooks.rs");
     assert!(hooks.contains("pub use taide_agent::service::build_hook_url;"));
     assert!(hooks.contains("spawn_transient_handle(\"agent-hooks-accept\""));

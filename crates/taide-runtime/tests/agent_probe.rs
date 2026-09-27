@@ -298,7 +298,10 @@ fn native는_같은_등록_감독자와_lazy_os_port를_모든_probe_호출에_�
     assert_eq!(native.matches("detect_agents_for_pids_blocking(&tasks, &agents, pids)").count(), 2);
     assert_eq!(native.matches("let tasks = app.state::<TaskSupervisor>();").count(), 3);
     assert!(native.contains("|| resolve_claude_hook_emitter(&tasks)"));
-    assert!(hooks.contains("commands::resolve_claude_hook_emitter(&app.state::<TaskSupervisor>()).await"));
+    assert_eq!(hooks.matches("|| commands::resolve_claude_hook_emitter(&tasks)").count(), 2);
+    assert_eq!(hooks.matches("let tasks = app.state::<TaskSupervisor>();").count(), 3);
+    let reconcile = include_str!("../src/agent_hook_reconcile.rs");
+    assert!(reconcile.contains("let emitter = resolve_project_emitter().await;"));
     assert!(native.contains("Duration::from_secs(CLAUDE_VERSION_TIMEOUT_SECONDS)"));
     let emitter = native
         .split("pub(super) async fn resolve_claude_hook_emitter")

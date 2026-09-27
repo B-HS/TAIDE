@@ -2,6 +2,7 @@ use taide_model::app_event::AppEvent;
 
 pub mod agent_actions;
 pub mod agent_hook_actions;
+pub mod agent_hook_reconcile;
 pub mod agent_probe;
 pub mod ai_actions;
 mod ai_request_store;
