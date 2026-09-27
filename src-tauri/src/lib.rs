@@ -1476,8 +1476,10 @@ mod tests {
         assert!(setup.contains("app.manage(project_restore_watchers());"));
 
         let project = include_str!("domain/project/commands.rs");
-        assert!(project.contains("taide_layout::service::load_layout(&state.paths, &project.id)"));
-        assert!(project.contains("taide_settings::service::load_settings(&state.paths)"));
+        let actions = include_str!("../../crates/taide-runtime/src/project_actions.rs");
+        assert!(project.contains("project_actions::restore_state(state)"));
+        assert!(actions.contains("taide_layout::service::load_layout(&state.paths, &project.id)"));
+        assert!(actions.contains("taide_settings::service::load_settings(&state.paths)"));
         let restore = extract_between(project, "pub(crate) fn restore_project_watchers(", "#[cfg(test)]");
         assert!(restore.contains(".map(taide_layout::service::open_file_paths)"));
         assert!(restore.find("let build_result =").unwrap() < restore.find("let _guard = state.begin_mutation().await;").unwrap());

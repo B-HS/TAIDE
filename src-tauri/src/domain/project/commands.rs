@@ -538,44 +538,7 @@ pub async fn project_group_open(app: AppHandle, state: State<'_, AppState>, grou
 }
 
 pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
-    let mut warnings = Vec::new();
-
-    match service::restore_session(&state.paths) {
-        Ok((mut session, projects, session_warnings)) => {
-            let mut layouts = state.layouts.write();
-            for project in &projects {
-                layouts.insert(project.id.clone(), taide_layout::service::load_layout(&state.paths, &project.id));
-            }
-
-            let mut shell_views = layouts
-                .iter()
-                .map(|(project_id, layout)| (project_id.clone(), layout.shell_view))
-                .collect();
-            let promoted = service::promote_legacy_window_chrome(&mut session, &mut shell_views);
-            for project_id in &promoted {
-                if let (Some(layout), Some(view)) = (layouts.get_mut(project_id), shell_views.get(project_id)) {
-                    layout.shell_view = *view;
-                }
-            }
-            drop(layouts);
-
-            if !promoted.is_empty() {
-                state.dirty_layouts.write().extend(promoted.iter().cloned());
-                if let Err(error) = service::save_session(&state.paths, &session) {
-                    warnings.push(format!("창 크롬 상태 승격 후 세션 저장 실패: {error}"));
-                }
-            }
-
-            *state.session.write() = session;
-            *state.projects.write() = projects.into_iter().map(|project| (project.id.clone(), project)).collect();
-            warnings.extend(session_warnings);
-        }
-        Err(error) => warnings.push(format!("세션 복원 실패: {error}")),
-    }
-
-    *state.settings.write() = taide_settings::service::load_settings(&state.paths);
-
-    warnings
+    project_actions::restore_state(state)
 }
 
 /// The exact snapshot [`restore_project_watchers`] attaches from — every restored project whose
@@ -596,29 +559,7 @@ pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
 /// doc for why the attach itself can't be (this codebase has no `tauri::test` mock-app harness —
 /// the same constraint `domain::terminal::commands`'s own tests document and work around).
 pub(crate) fn projects_pending_watcher_restore(projects: &HashMap<ProjectId, Project>, session: &SessionState) -> Vec<(ProjectId, String)> {
-    let mut ordered_ids: Vec<ProjectId> = session.active_project.iter().cloned().collect();
-    ordered_ids.extend(
-        session
-            .projects
-            .iter()
-            .map(|project_ref| project_ref.id.clone())
-            .filter(|id| Some(id) != session.active_project.as_ref()),
-    );
-
-    let mut seen: HashSet<ProjectId> = ordered_ids.iter().cloned().collect();
-    for project_id in projects.keys() {
-        if seen.insert(project_id.clone()) {
-            ordered_ids.push(project_id.clone());
-        }
-    }
-
-    ordered_ids
-        .into_iter()
-        .filter_map(|project_id| {
-            let project = projects.get(&project_id)?;
-            (!project.root_missing).then(|| (project.id.clone(), project.root.clone()))
-        })
-        .collect()
+    project_actions::projects_pending_watcher_restore(projects, session)
 }
 
 /// Re-attaches the file watcher and (where the project is a git repo) the git watcher for every
