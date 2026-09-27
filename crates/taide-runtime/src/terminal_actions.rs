@@ -1,9 +1,16 @@
 use taide_infra::pty::PtySession;
+use taide_infra::root_guard::ensure_within_root;
 use taide_model::error::{AppError, AppResult};
+use taide_model::ids::ProjectId;
+use taide_model::terminal::{PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
+use taide_terminal::service;
 use taide_terminal::store::{TerminalSpawnLease, TerminalStore};
 use tokio::sync::OwnedMutexGuard;
 
-use crate::TaskSupervisor;
+use crate::{AppState, TaskSupervisor};
+
+const DEFAULT_TERMINAL_COLS: u16 = 80;
+const DEFAULT_TERMINAL_ROWS: u16 = 24;
 
 struct TerminalSpawnWork<F> {
     lease: TerminalSpawnLease,
@@ -71,6 +78,86 @@ pub async fn run_terminal_spawn(
 
 fn terminal_shutdown_error() -> AppError {
     AppError::Forbidden("terminal runtime is shutting down".to_string())
+}
+
+/// Applies the shared terminal pty resize policy.
+pub async fn pty_resize(store: &TerminalStore, session_id: String, cols: u16, rows: u16) -> AppResult<()> {
+    store.resize(&session_id, cols, rows)
+}
+
+/// Applies the shared terminal pty kill policy.
+pub async fn pty_kill(state: &AppState, store: &TerminalStore, session_id: String) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    store.kill(&session_id)
+}
+
+/// Applies the shared terminal pty set paused policy.
+pub async fn pty_set_paused(store: &TerminalStore, session_id: String, paused: bool) -> AppResult<()> {
+    store.set_paused(&session_id, paused)
+}
+
+/// Applies the shared terminal pty attach policy.
+pub async fn pty_attach<F, S>(state: &AppState, store: &TerminalStore, session_id: String, create_sink: F) -> AppResult<PtyAttachResult>
+where
+    F: FnOnce() -> S,
+    S: Fn(&[u8]) -> bool + Send + Sync + 'static,
+{
+    let _guard = state.begin_mutation().await;
+    store.attach(&session_id, create_sink())
+}
+
+/// Applies the shared terminal pty detach policy.
+pub async fn pty_detach(state: &AppState, store: &TerminalStore, session_id: String, subscription_id: u32) -> AppResult<()> {
+    let _guard = state.begin_mutation().await;
+    store.detach(&session_id, subscription_id)
+}
+
+/// Applies the shared terminal terminal sessions policy.
+pub async fn terminal_sessions(store: &TerminalStore, project_id: ProjectId) -> AppResult<Vec<TerminalSession>> {
+    Ok(store.sessions_for_project(&project_id))
+}
+
+/// Applies the shared terminal shell profiles policy.
+pub async fn shell_profiles() -> AppResult<Vec<ShellProfile>> {
+    Ok(service::list_shell_profiles())
+}
+
+/// Applies the shared terminal resolve terminal path policy.
+pub async fn resolve_terminal_path(state: &AppState, path: String, cwd: String) -> AppResult<String> {
+    let projects = state.projects.read().clone();
+    service::guard_terminal_path(&projects, &path, &cwd)
+}
+
+/// Applies the shared terminal terminal resolve link candidates policy.
+pub async fn terminal_resolve_link_candidates(state: &AppState, cwd: String, candidates: Vec<String>) -> AppResult<Vec<Option<String>>> {
+    let projects = state.projects.read().clone();
+    Ok(service::resolve_link_candidates(&projects, &cwd, &candidates))
+}
+
+/// Applies the shared terminal pty default options policy.
+pub async fn pty_default_options(state: &AppState, project_id: ProjectId, cwd: Option<String>) -> AppResult<PtySpawnOptions> {
+    let root = state
+        .projects
+        .read()
+        .get(&project_id)
+        .map(|project| project.root.clone())
+        .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
+
+    let resolved_cwd = match cwd {
+        Some(requested) => ensure_within_root(std::path::Path::new(&root), std::path::Path::new(&requested))?
+            .to_string_lossy()
+            .to_string(),
+        None => root,
+    };
+
+    Ok(PtySpawnOptions {
+        project_id,
+        cwd: resolved_cwd,
+        shell: state.settings.read().shell_override.clone(),
+        cols: DEFAULT_TERMINAL_COLS,
+        rows: DEFAULT_TERMINAL_ROWS,
+        scrollback_bytes: None,
+    })
 }
 
 #[cfg(test)]

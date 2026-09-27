@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::{EventSink, TaskSupervisor};
+use taide_runtime::{terminal_actions, EventSink, TaskSupervisor};
 use taide_terminal::command_clock::TerminalCommandClock;
 use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::runtime::spawn_terminal_session;
@@ -14,13 +14,11 @@ use taide_terminal::store::TerminalSessionEntry;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
 
-use super::service;
 use super::types::{self, PtyAttachResult, PtySpawnOptions, ShellProfile, TerminalSession};
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::pty;
-use crate::infra::root_guard::ensure_within_root;
 use crate::infra::shell_integration;
 use crate::infra::terminal_scan::{ScanEvent, ScanOutcome};
 use crate::platform::event_sink::TauriEventSink;
@@ -310,20 +308,19 @@ pub async fn pty_write(app: AppHandle, store: State<'_, TerminalStore>, session_
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_resize(store: State<'_, TerminalStore>, session_id: String, cols: u16, rows: u16) -> AppResult<()> {
-    store.resize(&session_id, cols, rows)
+    terminal_actions::pty_resize(&store, session_id, cols, rows).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_kill(state: State<'_, AppState>, store: State<'_, TerminalStore>, session_id: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    store.kill(&session_id)
+    terminal_actions::pty_kill(&state, &store, session_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_set_paused(store: State<'_, TerminalStore>, session_id: String, paused: bool) -> AppResult<()> {
-    store.set_paused(&session_id, paused)
+    terminal_actions::pty_set_paused(&store, session_id, paused).await
 }
 
 /// Attaches a new subscriber to an already-running pty session — every previously-attached
@@ -348,8 +345,7 @@ pub async fn pty_attach(
     session_id: String,
     on_data: Channel<InvokeResponseBody>,
 ) -> AppResult<PtyAttachResult> {
-    let _guard = state.begin_mutation().await;
-    store.attach(&session_id, output_channel_sink(on_data))
+    terminal_actions::pty_attach(&state, &store, session_id, || output_channel_sink(on_data)).await
 }
 
 /// Removes exactly the subscriber `pty_attach` registered under `subscription_id` — the counterpart
@@ -365,20 +361,19 @@ pub async fn pty_detach(
     session_id: String,
     subscription_id: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    store.detach(&session_id, subscription_id)
+    terminal_actions::pty_detach(&state, &store, session_id, subscription_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn terminal_sessions(store: State<'_, TerminalStore>, project_id: ProjectId) -> AppResult<Vec<TerminalSession>> {
-    Ok(store.sessions_for_project(&project_id))
+    terminal_actions::terminal_sessions(&store, project_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn shell_profiles() -> AppResult<Vec<ShellProfile>> {
-    Ok(service::list_shell_profiles())
+    terminal_actions::shell_profiles().await
 }
 
 /// Resolves a terminal-link `path`/`cwd` pair (both untrusted — `path` comes from regex-matched pty
@@ -398,8 +393,7 @@ pub async fn shell_profiles() -> AppResult<Vec<ShellProfile>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn resolve_terminal_path(state: State<'_, AppState>, path: String, cwd: String) -> AppResult<String> {
-    let projects = state.projects.read().clone();
-    service::guard_terminal_path(&projects, &path, &cwd)
+    terminal_actions::resolve_terminal_path(&state, path, cwd).await
 }
 
 /// Answers "which of these regex matches are real files?" for one terminal row, so the renderer can
@@ -412,38 +406,13 @@ pub async fn terminal_resolve_link_candidates(
     cwd: String,
     candidates: Vec<String>,
 ) -> AppResult<Vec<Option<String>>> {
-    let projects = state.projects.read().clone();
-    Ok(service::resolve_link_candidates(&projects, &cwd, &candidates))
+    terminal_actions::terminal_resolve_link_candidates(&state, cwd, candidates).await
 }
-
-const DEFAULT_TERMINAL_COLS: u16 = 80;
-const DEFAULT_TERMINAL_ROWS: u16 = 24;
 
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_default_options(state: State<'_, AppState>, project_id: ProjectId, cwd: Option<String>) -> AppResult<PtySpawnOptions> {
-    let root = state
-        .projects
-        .read()
-        .get(&project_id)
-        .map(|project| project.root.clone())
-        .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
-
-    let resolved_cwd = match cwd {
-        Some(requested) => ensure_within_root(std::path::Path::new(&root), std::path::Path::new(&requested))?
-            .to_string_lossy()
-            .to_string(),
-        None => root,
-    };
-
-    Ok(PtySpawnOptions {
-        project_id,
-        cwd: resolved_cwd,
-        shell: state.settings.read().shell_override.clone(),
-        cols: DEFAULT_TERMINAL_COLS,
-        rows: DEFAULT_TERMINAL_ROWS,
-        scrollback_bytes: None,
-    })
+    terminal_actions::pty_default_options(&state, project_id, cwd).await
 }
 
 #[cfg(test)]
