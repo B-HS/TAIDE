@@ -13,6 +13,7 @@ pub mod lsp_install_actions;
 pub mod lsp_install_toolchain;
 pub mod notification_actions;
 mod platform_services;
+pub mod project_actions;
 mod remote_dispatch_limiter;
 pub mod search_actions;
 mod search_store;

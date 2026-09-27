@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::{EventSink, TaskSupervisor};
+use taide_runtime::{project_actions, EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 
 use super::capability::ProjectCapabilities;
@@ -22,35 +22,17 @@ use crate::project_restore_port::ProjectRestoreWatchers;
 use crate::state::{AppState, FlushScope};
 
 fn emit_list_changed(app: &AppHandle, state: &AppState) {
-    let projects = service::list_projects(&state.session.read());
-    TauriEventSink(app).publish(AppEvent::ProjectListChanged { projects });
+    project_actions::emit_list_changed(&TauriEventSink(app), state);
 }
 
-/// Publishes the current slot arrangement to every window and remote session. The session lock is
-/// released before the emit (the payload is built in its own scope) because a `listen_any` handler
-/// runs inline on the emitting thread — `lib.rs`'s menu refresh is only safe for the same reason.
 fn emit_shell_slots_changed(app: &AppHandle, state: &AppState) {
-    let payload = {
-        let session = state.session.read();
-        AppEvent::SessionShellSlotsChanged {
-            tree: session.shell_slots.clone(),
-            focused: session.focused_shell_slot.clone(),
-        }
-    };
-    TauriEventSink(app).publish(payload);
-}
-
-/// Publishes the sidebar's project groups to every window and remote session. Releases the session
-/// lock before the emit for the same reason [`emit_shell_slots_changed`] does.
-fn emit_groups_changed(app: &AppHandle, state: &AppState) {
-    let groups = service::list_groups(&state.session.read());
-    TauriEventSink(app).publish(AppEvent::ProjectGroupsChanged { groups });
+    project_actions::emit_shell_slots_changed(&TauriEventSink(app), state);
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn project_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectRef>> {
-    Ok(service::list_projects(&state.session.read()))
+    project_actions::project_list(&state).await
 }
 
 /// Every persisted project record on this desktop, most-recently-opened first — unlike
@@ -65,7 +47,7 @@ pub async fn project_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectRe
 #[tauri::command]
 #[specta::specta]
 pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
-    service::list_recent_projects(&state.paths)
+    project_actions::project_list_recent(&state).await
 }
 
 /// Forgets every project the user is not currently working in: the persisted `projects/<id>/`
@@ -94,37 +76,19 @@ pub async fn project_list_recent(state: State<'_, AppState>) -> AppResult<Vec<Pr
 #[tauri::command]
 #[specta::specta]
 pub async fn project_forget_recent(app: AppHandle, state: State<'_, AppState>) -> AppResult<ForgetRecentOutcome> {
-    let outcome = {
-        let _guard = state.begin_mutation().await;
-        let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
-        let mut session = state.session.read().clone();
-        let outcome = service::forget_recent_projects(&state.paths, &mut session, &open_ids)?;
-        *state.session.write() = session;
-        outcome
-    };
-
-    emit_list_changed(&app, &state);
-    if outcome.groups_changed {
-        emit_groups_changed(&app, &state);
-    }
-    TauriEventSink(&app).publish(AppEvent::ProjectRecentCleared {
-        removed: outcome.removed,
-        skipped_with_drafts: outcome.skipped_with_drafts,
-    });
-
-    Ok(outcome)
+    project_actions::project_forget_recent(&TauriEventSink(&app), &state).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn project_get(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Project> {
-    service::get_project(&state.projects.read(), &project_id)
+    project_actions::project_get(&state, project_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn project_get_active(state: State<'_, AppState>) -> AppResult<Option<ProjectId>> {
-    Ok(state.session.read().active_project.clone())
+    project_actions::project_get_active(&state).await
 }
 
 /// `service::open_project` sets `session.active_project = Some(project.id)` on **every** path
@@ -282,7 +246,7 @@ pub async fn project_open_in_slot(
 #[tauri::command]
 #[specta::specta]
 pub async fn session_get_shell_state(state: State<'_, AppState>) -> AppResult<SessionShellState> {
-    Ok(service::shell_state(&state.session.read()))
+    project_actions::session_get_shell_state(&state).await
 }
 
 /// Moves the window's focus to one slot, which also makes that slot's project the active one — see
@@ -291,23 +255,7 @@ pub async fn session_get_shell_state(state: State<'_, AppState>) -> AppResult<Se
 #[tauri::command]
 #[specta::specta]
 pub async fn session_focus_shell_slot(app: AppHandle, state: State<'_, AppState>, slot_id: ShellSlotId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-    let mut projects = state.projects.read().clone();
-
-    service::focus_shell_slot(&state.paths, &mut session, &mut projects, &slot_id)?;
-
-    let active_project = session.active_project.clone();
-    *state.session.write() = session;
-    *state.projects.write() = projects;
-    drop(_guard);
-
-    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
-        project_id: active_project,
-    });
-    emit_shell_slots_changed(&app, &state);
-
-    Ok(())
+    project_actions::session_focus_shell_slot(&TauriEventSink(&app), &state, slot_id).await
 }
 
 /// Persists one split node's child percentages after a drag. `path` addresses the node by child
@@ -317,17 +265,7 @@ pub async fn session_focus_shell_slot(app: AppHandle, state: State<'_, AppState>
 #[tauri::command]
 #[specta::specta]
 pub async fn session_set_shell_slot_sizes(app: AppHandle, state: State<'_, AppState>, path: Vec<u32>, sizes: Vec<f32>) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::set_shell_slot_sizes(&state.paths, &mut session, &path, sizes)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_shell_slots_changed(&app, &state);
-
-    Ok(())
+    project_actions::session_set_shell_slot_sizes(&TauriEventSink(&app), &state, path, sizes).await
 }
 
 /// Closes one shell slot while leaving its project open — the slot header's own close button. The
@@ -335,21 +273,7 @@ pub async fn session_set_shell_slot_sizes(app: AppHandle, state: State<'_, AppSt
 #[tauri::command]
 #[specta::specta]
 pub async fn shell_slot_close(app: AppHandle, state: State<'_, AppState>, slot_id: ShellSlotId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::close_shell_slot(&state.paths, &mut session, &slot_id)?;
-
-    let active_project = session.active_project.clone();
-    *state.session.write() = session;
-    drop(_guard);
-
-    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
-        project_id: active_project,
-    });
-    emit_shell_slots_changed(&app, &state);
-
-    Ok(())
+    project_actions::shell_slot_close(&TauriEventSink(&app), &state, slot_id).await
 }
 
 /// Sets the window-level chrome axes (Zen, sidebar icon rail) that contract §0.1 S-6 moved off the
@@ -358,17 +282,7 @@ pub async fn shell_slot_close(app: AppHandle, state: State<'_, AppState>, slot_i
 #[tauri::command]
 #[specta::specta]
 pub async fn session_set_window_chrome(app: AppHandle, state: State<'_, AppState>, patch: WindowChromePatch) -> AppResult<WindowChrome> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    let chrome = service::set_window_chrome(&state.paths, &mut session, &patch)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    TauriEventSink(&app).publish(AppEvent::WindowChromeChanged { chrome });
-
-    Ok(chrome)
+    project_actions::session_set_window_chrome(&TauriEventSink(&app), &state, patch).await
 }
 
 /// Runs the capability attach walk for a freshly opened project **without holding
@@ -582,36 +496,13 @@ pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_i
 #[tauri::command]
 #[specta::specta]
 pub async fn project_activate(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
-    let _span = perf::span(SpanSlot::ProjectActivate);
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-    let mut projects = state.projects.read().clone();
-
-    service::activate_project(&state.paths, &mut session, &mut projects, &project_id)?;
-
-    *state.session.write() = session;
-    *state.projects.write() = projects;
-
-    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
-        project_id: Some(project_id),
-    });
-    emit_shell_slots_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_activate(&TauriEventSink(&app), &state, project_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn project_reorder(app: AppHandle, state: State<'_, AppState>, ids: Vec<ProjectId>) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::reorder_projects(&state.paths, &mut session, &ids)?;
-
-    *state.session.write() = session;
-    emit_list_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_reorder(&TauriEventSink(&app), &state, ids).await
 }
 
 /// Sets one project's sidebar presentation (icon / short label / color token), each axis
@@ -632,17 +523,7 @@ pub async fn project_set_display(
     project_id: ProjectId,
     patch: ProjectDisplayPatch,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-    let mut projects = state.projects.read().clone();
-
-    service::set_project_display(&state.paths, &mut session, &mut projects, &project_id, &patch)?;
-
-    *state.session.write() = session;
-    *state.projects.write() = projects;
-    emit_list_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_set_display(&TauriEventSink(&app), &state, project_id, patch).await
 }
 
 /// Every sidebar project group, for a window that just mounted — [`crate::events::ProjectGroupsChanged`] only fires
@@ -650,7 +531,7 @@ pub async fn project_set_display(
 #[tauri::command]
 #[specta::specta]
 pub async fn project_group_list(state: State<'_, AppState>) -> AppResult<Vec<ProjectGroup>> {
-    Ok(service::list_groups(&state.session.read()))
+    project_actions::project_group_list(&state).await
 }
 
 /// Creates a sidebar group. `members` may name projects that are merely *known* (a persisted
@@ -666,33 +547,13 @@ pub async fn project_group_create(
     color: Option<String>,
     members: Option<Vec<ProjectId>>,
 ) -> AppResult<ProjectGroup> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    let group = service::create_group(&state.paths, &mut session, &name, color.as_deref(), members)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(group)
+    project_actions::project_group_create(&TauriEventSink(&app), &state, name, color, members).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn project_group_rename(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId, name: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::rename_group(&state.paths, &mut session, &group_id, &name)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_group_rename(&TauriEventSink(&app), &state, group_id, name).await
 }
 
 /// Sets (or, with `color: null`, clears) the group header's tint. The token vocabulary is
@@ -705,17 +566,7 @@ pub async fn project_group_set_color(
     group_id: ProjectGroupId,
     color: Option<String>,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::set_group_color(&state.paths, &mut session, &group_id, color.as_deref())?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_group_set_color(&TauriEventSink(&app), &state, group_id, color).await
 }
 
 /// Persists whether the group's members are folded away in the sidebar. Its own command rather than
@@ -729,17 +580,7 @@ pub async fn project_group_set_collapsed(
     group_id: ProjectGroupId,
     collapsed: bool,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::set_group_collapsed(&state.paths, &mut session, &group_id, collapsed)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_group_set_collapsed(&TauriEventSink(&app), &state, group_id, collapsed).await
 }
 
 /// Replaces a group's membership wholesale — the backing call for both "그룹에 추가" and "그룹에서
@@ -753,17 +594,7 @@ pub async fn project_group_set_members(
     group_id: ProjectGroupId,
     members: Vec<ProjectId>,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::set_group_members(&state.paths, &mut session, &group_id, members)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_group_set_members(&TauriEventSink(&app), &state, group_id, members).await
 }
 
 /// Deletes the group only — its members stay open and keep their records, exactly as
@@ -771,33 +602,13 @@ pub async fn project_group_set_members(
 #[tauri::command]
 #[specta::specta]
 pub async fn project_group_delete(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::delete_group(&state.paths, &mut session, &group_id)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_group_delete(&TauriEventSink(&app), &state, group_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn project_group_reorder(app: AppHandle, state: State<'_, AppState>, ids: Vec<ProjectGroupId>) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let mut session = state.session.read().clone();
-
-    service::reorder_groups(&state.paths, &mut session, &ids)?;
-
-    *state.session.write() = session;
-    drop(_guard);
-
-    emit_groups_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_group_reorder(&TauriEventSink(&app), &state, ids).await
 }
 
 /// Opens one group's members in the user's own member order. The first member this call actually
@@ -1276,14 +1087,18 @@ mod tests {
         );
     }
 
-    /// `File > Clear Recent` runs this command **from Rust** (`lib.rs`'s `dispatch_menu_action`, so
-    /// the menu keeps working with zero windows open) and drops the returned outcome on the floor —
-    /// there is no IPC caller to hand it to. Unless the command publishes the counts itself, the
-    /// "kept N projects that still hold unsaved drafts" notice is unreachable from the only path that
-    /// actually clears the list, and a recent list that refuses to empty reads as a failed command.
     #[test]
     fn project_forget_recent_은_초안_때문에_건너뛴_수를_이벤트로_알린다() {
-        let body = source_between("pub async fn project_forget_recent(", "\n}\n");
+        let adapter = source_between("pub async fn project_forget_recent(", "\n}\n");
+        assert!(adapter.contains("project_actions::project_forget_recent("));
+        let actions = include_str!("../../../../crates/taide-runtime/src/project_actions.rs");
+        let body = actions
+            .split_once("pub async fn project_forget_recent(")
+            .unwrap()
+            .1
+            .split_once("\n}\n")
+            .unwrap()
+            .0;
 
         assert!(
             body.contains("ProjectRecentCleared {"),
@@ -1435,13 +1250,18 @@ mod tests {
         assert_eq!(result.skipped, vec![failing], "열지 못한 멤버는 skipped 로 보고돼야 합니다");
     }
 
-    /// 계약 §3 B-1 — 멤버십이 바뀌지 않은 clear-recent 는 `ProjectGroupsChanged` 를 내면 안 된다
-    /// (`docs/ipc-contract.md` 도 "그룹이 실제로 바뀐 경우" 라고 적는다). 커맨드 자체는 `AppHandle`
-    /// 없이 돌릴 수 없고 이 파일의 제어 흐름 말고는 강제하는 것이 없으므로, 소스에서 emit 이
-    /// 조건 안에 있는지를 고정한다 — 위 attach 순서 테스트와 같은 수단이다.
     #[test]
     fn forget_recent_는_그룹이_바뀐_경우에만_groups_changed_를_발행한다() {
-        let body = source_between("pub async fn project_forget_recent(", "\n}\n");
+        let adapter = source_between("pub async fn project_forget_recent(", "\n}\n");
+        assert!(adapter.contains("project_actions::project_forget_recent("));
+        let actions = include_str!("../../../../crates/taide-runtime/src/project_actions.rs");
+        let body = actions
+            .split_once("pub async fn project_forget_recent(")
+            .unwrap()
+            .1
+            .split_once("\n}\n")
+            .unwrap()
+            .0;
 
         assert_eq!(
             body.matches("emit_groups_changed(").count(),
@@ -1453,7 +1273,7 @@ mod tests {
             "그룹 이벤트는 groups_changed 조건 안에서만 발행돼야 합니다 — 무조건 발행하면 모든 창이 바뀌지도 않은 그룹 목록을 다시 읽습니다"
         );
         assert!(
-            body.contains("emit_list_changed(&app, &state);"),
+            body.contains("emit_list_changed(events, state);"),
             "최근 목록 변경은 그룹과 무관하게 항상 발행돼야 합니다"
         );
     }

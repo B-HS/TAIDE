@@ -319,7 +319,7 @@ fn 창_chrome_이벤트는_tauri_없는_port로_발행된다() {
 
 #[test]
 fn 창_chrome_이벤트는_세션_저장과_guard_해제_뒤에_발행된다() {
-    let commands = include_str!("../src/domain/project/commands.rs");
+    let commands = include_str!("../../crates/taide-runtime/src/project_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
     let set_chrome = commands.split_once("pub async fn session_set_window_chrome(").unwrap().1;
 
@@ -347,7 +347,7 @@ fn 프로젝트_목록_그룹_슬롯_snapshot은_같은_port에서_발행된다(
 
 #[test]
 fn 프로젝트_목록_그룹_슬롯은_snapshot을_만든_뒤_port로_발행된다() {
-    let commands = include_str!("../src/domain/project/commands.rs");
+    let commands = include_str!("../../crates/taide-runtime/src/project_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
     let list = commands.split_once("fn emit_list_changed(").unwrap().1;
     let slots = commands.split_once("fn emit_shell_slots_changed(").unwrap().1;
@@ -411,15 +411,25 @@ fn 프로젝트_수명주기와_최근_정리_이벤트는_같은_port에서_발
 #[test]
 fn 프로젝트_수명주기_발행은_기존_성공_경로와_순서를_유지한다() {
     let commands = include_str!("../src/domain/project/commands.rs");
+    let actions = include_str!("../../crates/taide-runtime/src/project_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
-    let recent = commands.split_once("pub async fn project_forget_recent(").unwrap().1;
+    let recent = actions.split_once("pub async fn project_forget_recent(").unwrap().1;
     let open = commands.split_once("pub async fn project_open(").unwrap().1;
     let close = commands.split_once("pub async fn project_close(").unwrap().1;
 
     assert_eq!(commands.matches(".publish(AppEvent::ProjectOpened").count(), 3);
-    assert_eq!(commands.matches(".publish(AppEvent::ProjectActivated").count(), 7);
+    assert_eq!(
+        commands.matches(".publish(AppEvent::ProjectActivated").count() + actions.matches(".publish(AppEvent::ProjectActivated").count(),
+        7,
+    );
     assert_eq!(commands.matches(".publish(AppEvent::ProjectClosed").count(), 1);
-    assert_eq!(commands.matches(".publish(AppEvent::ProjectRecentCleared").count(), 1);
+    assert_eq!(
+        commands.matches(".publish(AppEvent::ProjectRecentCleared").count()
+            + actions.matches(".publish(AppEvent::ProjectRecentCleared").count(),
+        1,
+    );
+    assert!(!actions.contains(".publish(AppEvent::ProjectOpened"));
+    assert!(!actions.contains(".publish(AppEvent::ProjectClosed"));
     assert!(open.find("attach_project_capabilities(").unwrap() < open.find("AppEvent::ProjectOpened").unwrap());
     assert!(close.find("detach_all(").unwrap() < close.find("AppEvent::ProjectClosed").unwrap());
     assert!(close.find("AppEvent::ProjectClosed").unwrap() < close.find("AppEvent::ProjectActivated").unwrap());

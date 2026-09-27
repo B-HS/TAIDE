@@ -21,6 +21,7 @@ taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }
 taide-notification = { path = "../taide-notification" }
 taide-plugin = { path = "../taide-plugin" }
+taide-project = { path = "../taide-project" }
 taide-remote = { path = "../taide-remote" }
 taide-search = { path = "../taide-search" }
 taide-settings = { path = "../taide-settings" }
